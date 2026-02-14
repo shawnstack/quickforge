@@ -1,0 +1,250 @@
+use crate::tools::registry::{Tool, ToolContext, ToolDefinition, ToolExecutionError, ToolRegistry};
+use serde_json::Value;
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
+
+pub struct ShellTool;
+pub struct FileTool;
+pub struct GitTool;
+
+impl Tool for ShellTool {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "shell".to_string(),
+            description: "Execute a shell command".to_string(),
+        }
+    }
+
+    fn execute(&self, args: &Value, ctx: &ToolContext) -> Result<String, ToolExecutionError> {
+        let command = args
+            .get("command")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                ToolExecutionError::invalid_arguments("shell tool requires non-empty 'command'")
+            })?;
+
+        let output = run_shell_command(command, ctx.working_dir()).map_err(|err| {
+            ToolExecutionError::execution_failed(format!("failed to run shell command: {}", err))
+        })?;
+
+        to_result_string("shell", output)
+    }
+}
+
+impl Tool for FileTool {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "file".to_string(),
+            description: "Read file content".to_string(),
+        }
+    }
+
+    fn execute(&self, args: &Value, ctx: &ToolContext) -> Result<String, ToolExecutionError> {
+        let path = args
+            .get("path")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                ToolExecutionError::invalid_arguments("file tool requires non-empty 'path'")
+            })?;
+
+        let resolved = resolve_path(ctx.working_dir().into(), path);
+        fs::read_to_string(&resolved).map_err(|err| {
+            ToolExecutionError::execution_failed(format!(
+                "failed to read file '{}': {}",
+                resolved.display(),
+                err
+            ))
+        })
+    }
+}
+
+impl Tool for GitTool {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "git".to_string(),
+            description: "Execute a git command".to_string(),
+        }
+    }
+
+    fn execute(&self, args: &Value, ctx: &ToolContext) -> Result<String, ToolExecutionError> {
+        let command_args = parse_git_args(args)?;
+        let output = Command::new("git")
+            .args(command_args)
+            .current_dir(ctx.working_dir())
+            .output()
+            .map_err(|err| {
+                ToolExecutionError::execution_failed(format!("failed to run git command: {}", err))
+            })?;
+        to_result_string("git", output)
+    }
+}
+
+pub fn register_builtin_tools(registry: &mut ToolRegistry) -> anyhow::Result<()> {
+    registry.register(ShellTool)?;
+    registry.register(FileTool)?;
+    registry.register(GitTool)?;
+    Ok(())
+}
+
+fn parse_git_args(args: &Value) -> Result<Vec<String>, ToolExecutionError> {
+    let raw = args.get("args").and_then(Value::as_array).ok_or_else(|| {
+        ToolExecutionError::invalid_arguments("git tool requires array field 'args'")
+    })?;
+
+    if raw.is_empty() {
+        return Err(ToolExecutionError::invalid_arguments(
+            "git tool requires at least one argument",
+        ));
+    }
+
+    let mut parsed = Vec::with_capacity(raw.len());
+    for value in raw {
+        let item = value
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                ToolExecutionError::invalid_arguments(
+                    "git tool arguments must be non-empty strings",
+                )
+            })?;
+        parsed.push(item.to_string());
+    }
+    Ok(parsed)
+}
+
+fn resolve_path(base: PathBuf, raw: &str) -> PathBuf {
+    let candidate = PathBuf::from(raw);
+    if candidate.is_absolute() {
+        candidate
+    } else {
+        base.join(candidate)
+    }
+}
+
+fn run_shell_command(
+    command: &str,
+    working_dir: &std::path::Path,
+) -> std::io::Result<std::process::Output> {
+    if cfg!(windows) {
+        Command::new("powershell")
+            .arg("-NoProfile")
+            .arg("-Command")
+            .arg(command)
+            .current_dir(working_dir)
+            .output()
+    } else {
+        Command::new("sh")
+            .arg("-c")
+            .arg(command)
+            .current_dir(working_dir)
+            .output()
+    }
+}
+
+fn to_result_string(
+    tool_name: &str,
+    output: std::process::Output,
+) -> Result<String, ToolExecutionError> {
+    if output.status.success() {
+        return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let message = if !stderr.is_empty() {
+        stderr
+    } else if !stdout.is_empty() {
+        stdout
+    } else {
+        format!("{} command failed with status {}", tool_name, output.status)
+    };
+    Err(ToolExecutionError::execution_failed(message))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::register_builtin_tools;
+    use crate::tools::registry::{ToolContext, ToolRegistry, ToolStatus};
+    use serde_json::json;
+    use std::env;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn registry_executes_builtin_tools_with_normalized_envelopes() {
+        let temp_dir = unique_temp_dir("tool-registry");
+        cleanup_dir(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let sample = temp_dir.join("sample.txt");
+        std::fs::write(&sample, "hello from file tool").unwrap();
+
+        let mut registry = ToolRegistry::new();
+        register_builtin_tools(&mut registry).unwrap();
+
+        let definitions = registry.definitions();
+        assert_eq!(definitions.len(), 3);
+        assert_eq!(definitions[0].name, "file");
+        assert_eq!(definitions[1].name, "git");
+        assert_eq!(definitions[2].name, "shell");
+
+        let ctx = ToolContext::new(&temp_dir);
+        let shell_ok = registry.execute("shell", &json!({ "command": "echo shell-ok" }), &ctx);
+        assert_eq!(shell_ok.status, ToolStatus::Success);
+        assert!(shell_ok.output.unwrap_or_default().contains("shell-ok"));
+
+        let shell_err = registry.execute("shell", &json!({}), &ctx);
+        assert_eq!(shell_err.status, ToolStatus::Error);
+        assert_eq!(shell_err.error_code.as_deref(), Some("invalid_arguments"));
+
+        let file_ok = registry.execute("file", &json!({ "path": "sample.txt" }), &ctx);
+        assert_eq!(file_ok.status, ToolStatus::Success);
+        assert_eq!(file_ok.output.as_deref(), Some("hello from file tool"));
+
+        let file_err = registry.execute("file", &json!({ "path": "missing.txt" }), &ctx);
+        assert_eq!(file_err.status, ToolStatus::Error);
+        assert_eq!(
+            file_err.error_code.as_deref(),
+            Some("tool_execution_failed")
+        );
+
+        let repo_ctx = ToolContext::new(std::env::current_dir().unwrap());
+        let git_ok = registry.execute("git", &json!({ "args": ["status", "--short"] }), &repo_ctx);
+        assert_eq!(git_ok.status, ToolStatus::Success);
+        assert!(git_ok.error_code.is_none());
+
+        let git_err = registry.execute(
+            "git",
+            &json!({ "args": ["definitely-not-a-git-subcommand"] }),
+            &repo_ctx,
+        );
+        assert_eq!(git_err.status, ToolStatus::Error);
+        assert_eq!(git_err.error_code.as_deref(), Some("tool_execution_failed"));
+
+        let not_found = registry.execute("missing", &json!({}), &repo_ctx);
+        assert_eq!(not_found.status, ToolStatus::Error);
+        assert_eq!(not_found.error_code.as_deref(), Some("tool_not_found"));
+
+        cleanup_dir(&temp_dir);
+    }
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        env::temp_dir().join(format!("fastcode-{}-{}", prefix, stamp))
+    }
+
+    fn cleanup_dir(path: &Path) {
+        if path.exists() {
+            let _ = std::fs::remove_dir_all(path);
+        }
+    }
+}

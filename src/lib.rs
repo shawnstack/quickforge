@@ -2,6 +2,7 @@ pub mod approvals;
 pub mod modes;
 pub mod policy;
 pub mod session;
+pub mod tools;
 
 pub fn app_name() -> &'static str {
     "fastcode"

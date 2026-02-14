@@ -108,8 +108,12 @@
       "Invoke each tool with valid and invalid arguments.",
       "Verify normalized success/error result envelopes."
     ],
-    "evidence": [],
-    "passes": false
+    "evidence": [
+      "2026-02-14: Added tools module (`src/tools/registry.rs`, `src/tools/builtin.rs`, `src/tools/mod.rs`) with Tool trait, ToolRegistry, built-in shell/file/git tools, and normalized ToolResultEnvelope (`status`, `output`, `error_code`, `error_message`).",
+      "2026-02-14: Added unit test `tools::builtin::tests::registry_executes_builtin_tools_with_normalized_envelopes` covering registry definition registration, success + invalid arguments for shell/file/git tools, and unregistered tool handling.",
+      "2026-02-14: cargo test passed full suite including tool registry workflow (18 passed, 0 failed)."
+    ],
+    "passes": true
   },
   {
     "id": "F-008",

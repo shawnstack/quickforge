@@ -54,6 +54,11 @@ Check MCP lifecycle (start, health, shutdown) from config:
 cargo run -- --mode edit --check-mcp-lifecycle --mcp-config ./docs/mcp-servers.example.json
 ```
 
+Check MCP lifecycle and append audit JSONL records:
+```bash
+cargo run -- --mode edit --check-mcp-lifecycle --mcp-config ./docs/mcp-servers.example.json --audit-log ./docs/mcp-lifecycle-audit.jsonl
+```
+
 TUI controls:
 - Type to edit input.
 - `Enter` submits message.
@@ -111,6 +116,7 @@ cargo run -v -- --mode edit
 - Test mismatch across sessions: ensure latest `feature_list.json` and `claude-progress.txt` are committed.
 - MCP listing fails with config error: validate JSON shape against `docs/mcp-servers.example.json`.
 - MCP lifecycle check fails due missing config: run with `--check-mcp-lifecycle --mcp-config <path>`.
+- MCP lifecycle audit missing: provide `--audit-log <path-to-jsonl>` when running lifecycle check.
 
 ## State Tracking Files
 - Checklist: `feature_list.json`

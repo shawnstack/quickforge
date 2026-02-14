@@ -284,5 +284,22 @@
       "2026-02-14: Failure-path real run: cargo run -- --mode edit --check-mcp-lifecycle exited 1 with --check-mcp-lifecycle requires --mcp-config <path-to-json-config>; lifecycle report test mcp::lifecycle::tests::lifecycle_check_reports_start_health_and_shutdown_counts plus full cargo test passed (38 passed, 0 failed)."
     ],
     "passes": true
+  },
+  {
+    "id": "F-014",
+    "category": "functional",
+    "priority": "P1",
+    "description": "MCP lifecycle workflow can write auditable start/health/shutdown JSONL events through the shared audit logger.",
+    "steps": [
+      "Run lifecycle check with a valid MCP config and --audit-log output path.",
+      "Inspect generated JSONL records and verify start/health/shutdown events are present per managed server.",
+      "Verify mode/result/error fields are parseable and consistent with shared AuditRecord schema."
+    ],
+    "evidence": [
+      "2026-02-14: Added `run_lifecycle_check_with_audit` in `src/mcp/lifecycle.rs` and kept existing `run_lifecycle_check` backward compatible via shared internal execution path.",
+      "2026-02-14: Added lifecycle audit test `mcp::lifecycle::tests::lifecycle_check_writes_audit_events_for_start_health_and_shutdown`; `cargo test` passed full suite (39 passed, 0 failed).",
+      "2026-02-14: Real CLI verification with audit output: `cargo run -- --mode edit --check-mcp-lifecycle --mcp-config target/mcp-lifecycle-test.json --audit-log target/mcp-lifecycle-audit.jsonl` produced lifecycle success output and JSONL events `mcp_lifecycle:start:sleepy`, `mcp_lifecycle:health:sleepy`, `mcp_lifecycle:shutdown:sleepy` with mode `edit`."
+    ],
+    "passes": true
   }
 ]

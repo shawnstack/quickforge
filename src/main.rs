@@ -1,7 +1,10 @@
 use anyhow::Context;
 use clap::Parser;
+use fastcode::audit::logger::AuditLogger;
 use fastcode::mcp::config::McpConfig;
-use fastcode::mcp::lifecycle::{McpServerHealth, run_lifecycle_check};
+use fastcode::mcp::lifecycle::{
+    McpServerHealth, run_lifecycle_check, run_lifecycle_check_with_audit,
+};
 use fastcode::modes::runtime_mode::RuntimeMode;
 use fastcode::tui;
 use std::path::PathBuf;
@@ -21,6 +24,8 @@ struct Cli {
     list_mcp_servers: bool,
     #[arg(long, default_value_t = false)]
     check_mcp_lifecycle: bool,
+    #[arg(long)]
+    audit_log: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -47,7 +52,12 @@ async fn main() -> anyhow::Result<()> {
             .as_ref()
             .with_context(|| "--check-mcp-lifecycle requires --mcp-config <path-to-json-config>")?;
         let config = McpConfig::load_from_path(config_path)?;
-        let report = run_lifecycle_check(&config)?;
+        let report = if let Some(path) = &cli.audit_log {
+            let logger = AuditLogger::new(path.clone());
+            run_lifecycle_check_with_audit(&config, mode, &logger)?
+        } else {
+            run_lifecycle_check(&config)?
+        };
 
         println!("started {} MCP server(s):", report.started.len());
         for handle in &report.started {

@@ -1,4 +1,6 @@
+use crate::audit::logger::AuditLogger;
 use crate::mcp::config::{McpConfig, McpServerConfig};
+use crate::modes::runtime_mode::RuntimeMode;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::process::{Child, Command, Stdio};
@@ -122,14 +124,61 @@ impl McpProcessManager {
 }
 
 pub fn run_lifecycle_check(config: &McpConfig) -> Result<McpLifecycleReport> {
+    run_lifecycle_check_inner(config, None)
+}
+
+pub fn run_lifecycle_check_with_audit(
+    config: &McpConfig,
+    mode: RuntimeMode,
+    logger: &AuditLogger,
+) -> Result<McpLifecycleReport> {
+    let audit = LifecycleAudit { mode, logger };
+    run_lifecycle_check_inner(config, Some(audit))
+}
+
+#[derive(Clone, Copy)]
+struct LifecycleAudit<'a> {
+    mode: RuntimeMode,
+    logger: &'a AuditLogger,
+}
+
+fn run_lifecycle_check_inner(
+    config: &McpConfig,
+    audit: Option<LifecycleAudit<'_>>,
+) -> Result<McpLifecycleReport> {
     let mut manager = McpProcessManager::new();
     let started = manager.start_all(config)?;
+    for handle in &started {
+        log_lifecycle_event(audit, "start", &handle.name, "success", None, None);
+    }
 
     let mut health = Vec::new();
     let mut health_error = None;
     for name in manager.managed_names() {
         match manager.health(&name) {
-            Ok(state) => health.push((name, state)),
+            Ok(state) => {
+                let result = match state {
+                    McpServerHealth::Running => "success",
+                    McpServerHealth::Exited(_) => "error",
+                };
+                let message = if let McpServerHealth::Exited(code) = &state {
+                    Some(format!(
+                        "server exited during health check with code {:?}",
+                        code
+                    ))
+                } else {
+                    None
+                };
+                log_lifecycle_event(
+                    audit,
+                    "health",
+                    &name,
+                    result,
+                    message.as_deref().map(|_| "mcp_server_exited"),
+                    message.as_deref(),
+                );
+                health.push((name, state));
+            }
             Err(err) => {
                 health_error = Some(err);
                 break;
@@ -137,10 +186,32 @@ pub fn run_lifecycle_check(config: &McpConfig) -> Result<McpLifecycleReport> {
         }
     }
 
+    let managed_before_shutdown = manager.managed_names();
     let stopped = manager.shutdown_all();
+    if stopped.is_ok() {
+        for name in managed_before_shutdown {
+            log_lifecycle_event(audit, "shutdown", &name, "success", None, None);
+        }
+    }
 
     if let Some(err) = health_error {
+        log_lifecycle_event(
+            audit,
+            "health",
+            "manager",
+            "error",
+            Some("mcp_health_check_failed"),
+            Some(&err.to_string()),
+        );
         if let Err(shutdown_err) = stopped {
+            log_lifecycle_event(
+                audit,
+                "shutdown",
+                "manager",
+                "error",
+                Some("mcp_shutdown_failed"),
+                Some(&shutdown_err.to_string()),
+            );
             return Err(err.context(format!(
                 "MCP lifecycle health check failed and shutdown also failed: {shutdown_err}"
             )));
@@ -155,13 +226,37 @@ pub fn run_lifecycle_check(config: &McpConfig) -> Result<McpLifecycleReport> {
     })
 }
 
+fn log_lifecycle_event(
+    audit: Option<LifecycleAudit<'_>>,
+    stage: &str,
+    server: &str,
+    result: &str,
+    error_code: Option<&str>,
+    error_message: Option<&str>,
+) {
+    if let Some(audit) = audit {
+        let tool = format!("mcp_lifecycle:{}:{}", stage, server);
+        let _ =
+            audit
+                .logger
+                .log_tool_invocation(audit.mode, &tool, result, error_code, error_message);
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{McpProcessManager, McpServerHealth, run_lifecycle_check};
+    use super::{
+        McpProcessManager, McpServerHealth, run_lifecycle_check, run_lifecycle_check_with_audit,
+    };
+    use crate::audit::logger::{AuditLogger, AuditRecord};
     use crate::mcp::config::{McpConfig, McpServerConfig};
+    use crate::modes::runtime_mode::RuntimeMode;
     use std::collections::HashMap;
+    use std::env;
+    use std::path::{Path, PathBuf};
     use std::thread;
     use std::time::Duration;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn server(name: &str, command: &str, args: &[&str]) -> McpServerConfig {
         McpServerConfig {
@@ -282,5 +377,54 @@ mod tests {
         assert_eq!(report.stopped, 1);
         assert_eq!(report.health[0].0, "filesystem");
         assert_eq!(report.health[0].1, McpServerHealth::Running);
+    }
+
+    #[test]
+    fn lifecycle_check_writes_audit_events_for_start_health_and_shutdown() {
+        let temp_dir = unique_temp_dir("mcp-lifecycle-audit");
+        cleanup_dir(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let log_path = temp_dir.join("audit.jsonl");
+        let logger = AuditLogger::new(&log_path);
+        let config = McpConfig {
+            servers: vec![long_running_server("filesystem")],
+        };
+
+        let report = run_lifecycle_check_with_audit(&config, RuntimeMode::Edit, &logger)
+            .expect("run lifecycle check with audit");
+        assert_eq!(report.started.len(), 1);
+        assert_eq!(report.health.len(), 1);
+        assert_eq!(report.stopped, 1);
+
+        let raw = std::fs::read_to_string(&log_path).unwrap();
+        let records = raw
+            .lines()
+            .map(|line| serde_json::from_str::<AuditRecord>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(records.len(), 3);
+        assert_eq!(records[0].mode, RuntimeMode::Edit);
+        assert_eq!(records[0].tool, "mcp_lifecycle:start:filesystem");
+        assert_eq!(records[0].result, "success");
+        assert_eq!(records[1].tool, "mcp_lifecycle:health:filesystem");
+        assert_eq!(records[1].result, "success");
+        assert_eq!(records[2].tool, "mcp_lifecycle:shutdown:filesystem");
+        assert_eq!(records[2].result, "success");
+
+        cleanup_dir(&temp_dir);
+    }
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        env::temp_dir().join(format!("fastcode-{}-{}", prefix, stamp))
+    }
+
+    fn cleanup_dir(path: &Path) {
+        if path.exists() {
+            let _ = std::fs::remove_dir_all(path);
+        }
     }
 }

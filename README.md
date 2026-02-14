@@ -51,17 +51,17 @@ cargo run -- --mode edit --tui --mcp-config ./docs/mcp-servers.example.json
 
 List MCP servers from config:
 ```bash
-cargo run -- --mode edit --list-mcp-servers --mcp-config ./docs/mcp-servers.example.json
+cargo run -- --mode edit mcp list --mcp-config ./docs/mcp-servers.example.json
 ```
 
 Check MCP lifecycle (start, health, shutdown) from config:
 ```bash
-cargo run -- --mode edit --check-mcp-lifecycle --mcp-config ./docs/mcp-servers.example.json
+cargo run -- --mode edit mcp check-lifecycle --mcp-config ./docs/mcp-servers.example.json
 ```
 
 Check MCP lifecycle and append audit JSONL records:
 ```bash
-cargo run -- --mode edit --check-mcp-lifecycle --mcp-config ./docs/mcp-servers.example.json --audit-log ./docs/mcp-lifecycle-audit.jsonl
+cargo run -- --mode edit mcp check-lifecycle --mcp-config ./docs/mcp-servers.example.json --audit-log ./docs/mcp-lifecycle-audit.jsonl
 ```
 
 TUI controls:
@@ -121,7 +121,7 @@ cargo run -v -- --mode edit
 - Test mismatch across sessions: ensure latest `feature_list.json` and `claude-progress.txt` are committed.
 - MCP listing fails with config error: validate JSON shape against `docs/mcp-servers.example.json`.
 - TUI MCP diagnostics shows `invalid-config`: ensure the JSON file is valid UTF-8 JSON and follows `docs/mcp-servers.example.json` schema.
-- MCP lifecycle check fails due missing config: run with `--check-mcp-lifecycle --mcp-config <path>`.
+- MCP lifecycle check fails due missing config: run with `mcp check-lifecycle --mcp-config <path>`.
 - MCP lifecycle audit missing: provide `--audit-log <path-to-jsonl>` when running lifecycle check.
 
 ## State Tracking Files

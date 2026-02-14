@@ -703,3 +703,47 @@ Next Priority
 
 Completion Snapshot
 - 19/19 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 18)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository status in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Ran environment/bootstrap and regression pre-checks before new feature work:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep80,sleep80,Up,Down,q'; cargo run -- --mode edit --tui`
+- Added and closed new high-priority unfinished item:
+  - Added `F-016`: MCP CLI subcommand structure with ambiguity guardrails.
+  - Refactored `src/main.rs` to support `mcp list` / `mcp check-lifecycle` while keeping legacy MCP flags compatible.
+  - Added explicit conflict handling for mixed/ambiguous MCP action inputs.
+- Updated docs:
+  - Updated MCP command examples in `README.md` to use subcommands.
+
+Verified checklist items
+- `F-016` passed with:
+  - Unit verification: `cargo test` passed including new CLI routing tests in `src/main.rs` (3/3 for binary tests; full suite passed).
+  - New subcommand real-path checks:
+    - `cargo run -- --mode edit mcp list --mcp-config ./docs/mcp-servers.example.json`
+    - `cargo run -- --mode edit mcp check-lifecycle --mcp-config target/mcp-cli-subcommand-test.json --audit-log target/mcp-cli-subcommand-audit.jsonl`
+  - Ambiguity/error-path checks:
+    - `cargo run -- --mode edit --list-mcp-servers --check-mcp-lifecycle --mcp-config ./docs/mcp-servers.example.json` -> explicit single-action error.
+    - `cargo run -- --mode edit --list-mcp-servers --mcp-config ./docs/mcp-servers.example.json mcp list --mcp-config ./docs/mcp-servers.example.json` -> explicit mixed legacy/subcommand error.
+
+Issues found and fixed
+- `src/main.rs` incremental patching failed due context drift; resolved by rewriting file once with consolidated changes and re-running format/tests.
+- No functional/UI regression found in sampled CLI/TUI core flows after CLI refactor.
+
+Next Priority
+1. Expand MCP lifecycle failure telemetry (startup/shutdown errors) into richer user-facing diagnostics and audit events.
+2. Add live MCP status refresh in TUI loop instead of launch-time-only diagnostics.
+3. Consider deprecation timeline messaging for legacy MCP flags once downstream scripts migrate.
+
+Completion Snapshot
+- 20/20 checklist items passing.

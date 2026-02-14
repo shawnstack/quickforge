@@ -1,5 +1,5 @@
 use anyhow::Context;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use fastcode::audit::logger::AuditLogger;
 use fastcode::mcp::config::McpConfig;
 use fastcode::mcp::lifecycle::{
@@ -18,6 +18,9 @@ struct Cli {
     mode: String,
     #[arg(long, default_value_t = false)]
     tui: bool,
+    #[command(subcommand)]
+    command: Option<Command>,
+    // Backward-compatible legacy flags.
     #[arg(long)]
     mcp_config: Option<PathBuf>,
     #[arg(long, default_value_t = false)]
@@ -28,17 +31,54 @@ struct Cli {
     audit_log: Option<PathBuf>,
 }
 
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// MCP-related operations.
+    Mcp(McpCommand),
+}
+
+#[derive(Debug, Parser)]
+struct McpCommand {
+    #[command(subcommand)]
+    action: McpAction,
+}
+
+#[derive(Debug, Subcommand)]
+enum McpAction {
+    /// List server names from MCP config.
+    List {
+        #[arg(long)]
+        mcp_config: PathBuf,
+    },
+    /// Start/health-check/shutdown all configured MCP servers.
+    CheckLifecycle {
+        #[arg(long)]
+        mcp_config: PathBuf,
+        #[arg(long)]
+        audit_log: Option<PathBuf>,
+    },
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum CliAction {
+    None,
+    McpList {
+        config_path: PathBuf,
+    },
+    McpCheckLifecycle {
+        config_path: PathBuf,
+        audit_log: Option<PathBuf>,
+    },
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let mode = RuntimeMode::from_str(&cli.mode)?;
+    let action = resolve_action(&cli)?;
 
-    if cli.list_mcp_servers {
-        let config_path = cli
-            .mcp_config
-            .as_ref()
-            .with_context(|| "--list-mcp-servers requires --mcp-config <path-to-json-config>")?;
-        let config = McpConfig::load_from_path(config_path)?;
+    if let CliAction::McpList { config_path } = action {
+        let config = McpConfig::load_from_path(&config_path)?;
         println!("loaded {} MCP server(s):", config.servers.len());
         for name in config.server_names() {
             println!("- {}", name);
@@ -46,13 +86,13 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    if cli.check_mcp_lifecycle {
-        let config_path = cli
-            .mcp_config
-            .as_ref()
-            .with_context(|| "--check-mcp-lifecycle requires --mcp-config <path-to-json-config>")?;
-        let config = McpConfig::load_from_path(config_path)?;
-        let report = if let Some(path) = &cli.audit_log {
+    if let CliAction::McpCheckLifecycle {
+        config_path,
+        audit_log,
+    } = action
+    {
+        let config = McpConfig::load_from_path(&config_path)?;
+        let report = if let Some(path) = &audit_log {
             let logger = AuditLogger::new(path.clone());
             run_lifecycle_check_with_audit(&config, mode, &logger)?
         } else {
@@ -109,6 +149,67 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn resolve_action(cli: &Cli) -> anyhow::Result<CliAction> {
+    match &cli.command {
+        Some(Command::Mcp(mcp)) => {
+            if cli.list_mcp_servers || cli.check_mcp_lifecycle || cli.mcp_config.is_some() {
+                anyhow::bail!(
+                    "legacy MCP flags cannot be combined with subcommands; use either `mcp ...` or legacy flags"
+                );
+            }
+
+            let action = match &mcp.action {
+                McpAction::List { mcp_config } => CliAction::McpList {
+                    config_path: mcp_config.clone(),
+                },
+                McpAction::CheckLifecycle {
+                    mcp_config,
+                    audit_log,
+                } => CliAction::McpCheckLifecycle {
+                    config_path: mcp_config.clone(),
+                    audit_log: audit_log.clone(),
+                },
+            };
+            Ok(action)
+        }
+        None => {
+            let mut legacy_actions = 0usize;
+            if cli.list_mcp_servers {
+                legacy_actions += 1;
+            }
+            if cli.check_mcp_lifecycle {
+                legacy_actions += 1;
+            }
+            if legacy_actions > 1 {
+                anyhow::bail!(
+                    "multiple MCP actions requested; choose one of --list-mcp-servers or --check-mcp-lifecycle"
+                );
+            }
+
+            if cli.list_mcp_servers {
+                let config_path = cli.mcp_config.as_ref().with_context(
+                    || "--list-mcp-servers requires --mcp-config <path-to-json-config>",
+                )?;
+                return Ok(CliAction::McpList {
+                    config_path: config_path.clone(),
+                });
+            }
+
+            if cli.check_mcp_lifecycle {
+                let config_path = cli.mcp_config.as_ref().with_context(
+                    || "--check-mcp-lifecycle requires --mcp-config <path-to-json-config>",
+                )?;
+                return Ok(CliAction::McpCheckLifecycle {
+                    config_path: config_path.clone(),
+                    audit_log: cli.audit_log.clone(),
+                });
+            }
+
+            Ok(CliAction::None)
+        }
+    }
+}
+
 fn build_mcp_diagnostics(config_path: &PathBuf) -> McpDiagnostics {
     match McpConfig::load_from_path(config_path) {
         Ok(config) => match run_lifecycle_check(&config) {
@@ -162,5 +263,63 @@ fn diagnostics_from_report(report: &McpLifecycleReport) -> McpDiagnostics {
     McpDiagnostics {
         status_label: format!("degraded {running}/{total}"),
         messages,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cli, CliAction, resolve_action};
+    use clap::Parser;
+    use std::path::PathBuf;
+
+    #[test]
+    fn parses_mcp_list_subcommand_without_legacy_flags() {
+        let cli = Cli::try_parse_from(["fastcode", "mcp", "list", "--mcp-config", "a.json"])
+            .expect("parse should succeed");
+        let action = resolve_action(&cli).expect("action should resolve");
+        assert_eq!(
+            action,
+            CliAction::McpList {
+                config_path: PathBuf::from("a.json"),
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_combined_legacy_mcp_actions() {
+        let cli = Cli::try_parse_from([
+            "fastcode",
+            "--list-mcp-servers",
+            "--check-mcp-lifecycle",
+            "--mcp-config",
+            "a.json",
+        ])
+        .expect("parse should succeed");
+        let err = resolve_action(&cli).expect_err("action should fail");
+        assert!(
+            err.to_string().contains("multiple MCP actions requested"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_mixed_subcommand_and_legacy_flags() {
+        let cli = Cli::try_parse_from([
+            "fastcode",
+            "--list-mcp-servers",
+            "--mcp-config",
+            "a.json",
+            "mcp",
+            "list",
+            "--mcp-config",
+            "b.json",
+        ])
+        .expect("parse should succeed");
+        let err = resolve_action(&cli).expect_err("action should fail");
+        assert!(
+            err.to_string()
+                .contains("legacy MCP flags cannot be combined"),
+            "unexpected error: {err}"
+        );
     }
 }

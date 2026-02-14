@@ -252,8 +252,13 @@ if ($EmitSummary.IsPresent -or $SummaryPath) {
   if ($Mode -eq 'events' -and $null -ne $eventStats) {
     $labelEventCountSum = $eventStats.system_event_count + $eventStats.user_event_count + $eventStats.assistant_event_count
     $statusToMessageRatioBps = $null
+    $statusShareOfTotalEventsBps = $null
     if ($eventStats.message_event_count -gt 0) {
       $statusToMessageRatioBps = [int][Math]::Round((10000.0 * $eventStats.status_event_count) / $eventStats.message_event_count)
+    }
+    $totalEventCount = $eventStats.status_event_count + $eventStats.message_event_count
+    if ($totalEventCount -gt 0) {
+      $statusShareOfTotalEventsBps = [int][Math]::Round((10000.0 * $eventStats.status_event_count) / $totalEventCount)
     }
     $summary.max_event_length = $MaxEventLength
     $summary.dedupe_enabled = (-not $NoDedupe.IsPresent)
@@ -268,6 +273,7 @@ if ($EmitSummary.IsPresent -or $SummaryPath) {
     $summary.label_event_count_sum = $labelEventCountSum
     $summary.label_sum_matches_message_count = ($labelEventCountSum -eq $eventStats.message_event_count)
     $summary.status_to_message_ratio_bps = $statusToMessageRatioBps
+    $summary.status_share_of_total_events_bps = $statusShareOfTotalEventsBps
     $summary.dedupe_suppressed_count = $eventStats.dedupe_suppressed_count
     $summary.truncated_count = $eventStats.truncated_count
   }

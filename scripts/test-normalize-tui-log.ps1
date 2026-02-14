@@ -76,6 +76,7 @@ Assert-True -Condition ($summary.assistant_event_count -eq 0) -Message 'summary 
 Assert-True -Condition ($summary.label_event_count_sum -eq 2) -Message 'summary should report per-label event count sum'
 Assert-True -Condition ($summary.label_sum_matches_message_count -eq $true) -Message 'summary should report matching label sum invariant'
 Assert-True -Condition ($summary.status_to_message_ratio_bps -eq 5000) -Message 'summary should report status/message ratio in basis points'
+Assert-True -Condition ($summary.status_share_of_total_events_bps -eq 3333) -Message 'summary should report status share of total events in basis points'
 Assert-True -Condition ($summary.dedupe_suppressed_count -eq 1) -Message 'summary should report one suppressed duplicate line'
 Assert-True -Condition ($summary.truncated_count -eq 1) -Message 'summary should report one truncated line'
 Assert-True -Condition ($summaryCompact -match '(?:^| )mode=events(?: |$)') -Message 'compact summary should include mode=events'
@@ -88,6 +89,7 @@ Assert-True -Condition ($summaryCompact -match 'assistant_event_count=0') -Messa
 Assert-True -Condition ($summaryCompact -match 'label_event_count_sum=2') -Message 'compact summary should include per-label event sum'
 Assert-True -Condition ($summaryCompact -match 'label_sum_matches_message_count=True') -Message 'compact summary should include label-sum invariant flag'
 Assert-True -Condition ($summaryCompact -match 'status_to_message_ratio_bps=5000') -Message 'compact summary should include status/message ratio basis points'
+Assert-True -Condition ($summaryCompact -match 'status_share_of_total_events_bps=3333') -Message 'compact summary should include status share of total events basis points'
 Assert-True -Condition ($summaryCompact -match 'dedupe_suppressed_count=1') -Message 'compact summary should include dedupe suppression count'
 Assert-True -Condition ($summaryCompact -match 'truncated_count=1') -Message 'compact summary should include truncation count'
 Assert-True -Condition ($emitCompactText -match '(?m)^summary:$') -Message 'EmitSummary should print summary label to stdout'
@@ -102,6 +104,7 @@ Assert-True -Condition ($emitCompactText -match 'assistant_event_count=0') -Mess
 Assert-True -Condition ($emitCompactText -match 'label_event_count_sum=2') -Message 'EmitSummary compact stdout should include per-label event sum'
 Assert-True -Condition ($emitCompactText -match 'label_sum_matches_message_count=True') -Message 'EmitSummary compact stdout should include label-sum invariant flag'
 Assert-True -Condition ($emitCompactText -match 'status_to_message_ratio_bps=5000') -Message 'EmitSummary compact stdout should include status/message ratio basis points'
+Assert-True -Condition ($emitCompactText -match 'status_share_of_total_events_bps=3333') -Message 'EmitSummary compact stdout should include status share of total events basis points'
 Assert-True -Condition ($emitCompactText -match 'dedupe_suppressed_count=1') -Message 'EmitSummary compact stdout should include dedupe suppression count'
 Assert-True -Condition ($emitCompactText -match 'truncated_count=1') -Message 'EmitSummary compact stdout should include truncation count'
 

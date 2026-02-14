@@ -807,5 +807,25 @@
       "2026-02-14: Real UI verification: `cmd /c \"set FASTCODE_TUI_SCRIPT=resize120x40,resize80x24,resize120x40,h,i,Enter,sleep260,sleep260,v,resize80x24,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\\\docs\\\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\\\f046-status-ratio-mcp.log 2>&1\"`, then strict normalization `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/f046-status-ratio-mcp.log -OutputPath ./target/f046-status-ratio-mcp.strict.log -Mode events -StrictEvents -SummaryPath ./target/f046-status-ratio-mcp.summary.json -SummaryFormat json` and compact summary output at `./target/f046-status-ratio-mcp.summary.compact.txt`; summary shows `status_event_count=5`, `message_event_count=6`, `status_to_message_ratio_bps=8333`, invariant check `ratio_matches=True`, and panic/error marker scan returned `0`."
     ],
     "passes": true
+  },
+  {
+    "id": "F-047",
+    "category": "functional",
+    "priority": "P0",
+    "description": "Events-mode summary exposes status share of total emitted events so downstream audits can threshold control-plane dominance without recomputing from raw counters.",
+    "steps": [
+      "Extend events-mode summary output with `status_share_of_total_events_bps`, computed from emitted `status_event_count` and total emitted event count (`status + message`).",
+      "Add script-level and fixture-level assertions for JSON summary, compact summary output, and compact emit-summary stdout to verify deterministic ratio values.",
+      "Verify the new counter on a real scripted MCP TUI workflow in strict-events mode and confirm consistency with summary event counters."
+    ],
+    "evidence": [
+      "2026-02-14: Updated `scripts/normalize-tui-log.ps1` events summary to emit `status_share_of_total_events_bps` (rounded basis points of `status_event_count / (status_event_count + message_event_count)`, null when total emitted events is zero).",
+      "2026-02-14: Updated `scripts/test-normalize-tui-log.ps1` assertions for JSON summary, compact summary-file output, and `-EmitSummary -SummaryFormat compact` stdout (`status_share_of_total_events_bps=3333` on canonical sample input).",
+      "2026-02-14: Updated `scripts/test-normalize-tui-log-fixtures.ps1` strict resize-burst assertions to validate status-share behavior for deduped and no-dedupe runs (`4000` and `5000` bps).",
+      "2026-02-14: Updated README normalization options to document `status_share_of_total_events_bps` in emitted events summary counters.",
+      "2026-02-14: Verification passed via `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log.ps1`, `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log-fixtures.ps1`, and `cargo test` (53 lib tests + 10 bin tests, 0 failed).",
+      "2026-02-14: Real UI verification: `cmd /c \"set FASTCODE_TUI_SCRIPT=resize120x40,resize80x24,resize120x40,h,i,Enter,sleep260,sleep260,v,resize80x24,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\\\docs\\\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\\\f047-status-share-mcp.log 2>&1\"`, then strict normalization `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/f047-status-share-mcp.log -OutputPath ./target/f047-status-share-mcp.strict.log -Mode events -StrictEvents -SummaryPath ./target/f047-status-share-mcp.summary.json -SummaryFormat json` and compact summary output at `./target/f047-status-share-mcp.summary.compact.txt`; summary shows `status_event_count=5`, `message_event_count=6`, `status_share_of_total_events_bps=4545`, and panic/error marker scan returned `0`."
+    ],
+    "passes": true
   }
 ]

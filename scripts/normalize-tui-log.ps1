@@ -80,22 +80,28 @@ function Extract-TuiEvents {
   )
 
   $events = [System.Collections.Generic.List[string]]::new()
-  $normalized = $Text
-  $normalized = [Regex]::Replace($normalized, '\b\d+(?:;\d+)*[A-Za-z]\b', ' ')
-  $normalized = [Regex]::Replace($normalized, '[^\x09\x0A\x0D\x20-\x7E]', ' ')
-  $normalized = [Regex]::Replace($normalized, '(?=(fastcode \| mode:|system:|user:|assistant:))', "`n")
+  $normalized = [Regex]::Replace($Text, '[^\x09\x0A\x0D\x20-\x7E]', ' ')
+  $statusPattern = 'fastcode \| mode: [A-Za-z]+ \| status: [A-Za-z]+ \| mcp: [A-Za-z0-9\- ]+ \| size: \d+x\d+'
+  $tokenPattern = '(?<status>fastcode \| mode: [A-Za-z]+ \| status: [A-Za-z]+ \| mcp: [A-Za-z0-9\- ]+ \| size: \d+x\d+)|(?<message>(?:system|user|assistant):\s*.*?)(?=(?:fastcode \| mode:|system:|user:|assistant:|$))'
+  $matches = [Regex]::Matches($normalized, $tokenPattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
 
-  $statusPattern = '^fastcode \| mode: [A-Za-z]+ \| status: [A-Za-z]+ \| mcp: [A-Za-z0-9\- ]+ \| size: \d+x\d+'
-  $messagePattern = '^(system|user|assistant): ?[A-Za-z0-9 .,;:_\-+()''/]+$'
-
-  foreach ($rawLine in ($normalized -split "`n")) {
-    $line = [Regex]::Replace($rawLine, '\s+', ' ').Trim()
+  foreach ($match in $matches) {
+    $line = $null
+    if ($match.Groups['status'].Success) {
+      $line = $match.Groups['status'].Value
+    } elseif ($match.Groups['message'].Success) {
+      $line = $match.Groups['message'].Value
+    }
 
     if ([string]::IsNullOrWhiteSpace($line)) {
       continue
     }
 
-    if (-not ([Regex]::IsMatch($line, $statusPattern) -or [Regex]::IsMatch($line, $messagePattern))) {
+    $line = [Regex]::Replace($line, '\s+', ' ').Trim()
+    $line = [Regex]::Replace($line, '[^\x20-\x7E]', '')
+    $line = [Regex]::Replace($line, '\s+', ' ').Trim()
+
+    if ([string]::IsNullOrWhiteSpace($line)) {
       continue
     }
 

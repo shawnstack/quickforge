@@ -1417,3 +1417,48 @@ Next Priority
 
 Completion Snapshot
 - 35/35 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 34)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository state/history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Confirmed tracker baseline before implementation:
+  - `total=35`, `passed=35`, `unpassed=0`, `blocked=0`
+- Executed startup/bootstrap and regression pre-checks before new implementation:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=h,e,l,l,o,Enter,sleep120,Up,Down,q && cargo run -- --mode edit --tui > target\regression-preflight-core-iter34.log 2>&1"`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=resize80x24,h,i,Enter,sleep260,sleep260,v,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\docs\mcp-servers.example.json --mcp-refresh-ms 200 > target\regression-preflight-mcp-iter34.log 2>&1"`
+- Added and completed one new high-priority unfinished item:
+  - Added `F-032`: fixture-based regression checks for ANSI-heavy noisy TUI log normalization.
+  - Updated `scripts/normalize-tui-log.ps1` to use token-ordered event extraction with explicit status/message matching and stable single-line normalization.
+  - Added fixture template `scripts/fixtures/normalize-tui-log/noisy-mcp-fixture.template.txt`.
+  - Added regression script `scripts/test-normalize-tui-log-fixtures.ps1`.
+  - Updated `README.md` with fixture-test verification command.
+  - Updated `feature_list.json` with `F-032` evidence.
+
+Verified checklist items
+- `F-032` passed with:
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log-fixtures.ps1` (`normalize-tui-log fixture tests: PASS`)
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log.ps1` (`normalize-tui-log script tests: PASS`)
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-preflight-mcp-iter34.log -OutputPath ./target/regression-preflight-mcp-iter34.clean.log -Mode events`
+  - `cargo test` (53 lib tests + 10 bin tests, 0 failed)
+
+Issues found and fixed
+- Regression preflight showed no panic-level failures, but normalized event logs still showed noisy concatenation on ANSI-heavy captures.
+- Fixed by replacing line-split extraction with ordered token matching and adding canned fixture assertions that lock expected status/system/user/assistant extraction behavior.
+
+Next Priority
+1. Reduce residual message noise in real captures by tightening message-token stop conditions for malformed fragments while preserving true user/system content.
+2. Add optional script output summary counters (for example extracted events and dedup-suppressed count) to improve evidence auditability.
+3. Add fixture variants that cover mixed-width terminals and repeated resize events.
+
+Completion Snapshot
+- 36/36 checklist items passing.

@@ -105,6 +105,7 @@ Options:
 Script-level behavior checks:
 ```powershell
 powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log.ps1
+powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log-fixtures.ps1
 ```
 
 ## Test and Lint

@@ -1,0 +1,7 @@
+<ESC>[32mfastcode | mode: edit | status: idle | mcp: error r1 d0 | size: 80x24<ESC>[0m<ESC>[2K
+system: MCP diagnostics failed: spawn error (code=5); path='C:/bad path'
+system: MCP diagnostics failed: spawn error (code=5); path='C:/bad path'
+user: hi
+assistant: received -> hi
+<ESC>[33mfastcode | mode: edit | status: idle | mcp: error r2 d1 | size: 80x24<ESC>[0m
+system: refresh 2: MCP diagnostics failed: spawn error (code=5); path='C:/bad path'

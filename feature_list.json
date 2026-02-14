@@ -593,5 +593,24 @@
       "2026-02-14: Full regression check passed: `cargo test` (53 lib tests + 10 bin tests, 0 failed)."
     ],
     "passes": true
+  },
+  {
+    "id": "F-032",
+    "category": "functional",
+    "priority": "P1",
+    "description": "Normalization workflow includes fixture-based regression checks for noisy ANSI-heavy TUI logs and preserves key user-path events in extracted output.",
+    "steps": [
+      "Run fixture-based normalization checks against a canned noisy MCP log template with ANSI/control sequences.",
+      "Verify `events` extraction keeps expected status/system/user/assistant markers while suppressing adjacent duplicates.",
+      "Run normalization against a real scripted UI session log and verify extracted output remains parseable for audit handoff."
+    ],
+    "evidence": [
+      "2026-02-14: Updated `scripts/normalize-tui-log.ps1` event extraction to token-ordered matching (`status` snapshots + message segments) with single-line parsing, whitespace normalization, and existing dedupe/truncation controls preserved.",
+      "2026-02-14: Added canned fixture template `scripts/fixtures/normalize-tui-log/noisy-mcp-fixture.template.txt` and regression script `scripts/test-normalize-tui-log-fixtures.ps1`; verification command `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log-fixtures.ps1` returned `normalize-tui-log fixture tests: PASS`.",
+      "2026-02-14: Core normalization regression still passes: `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log.ps1` returned `normalize-tui-log script tests: PASS`.",
+      "2026-02-14: Real UI path evidence from scripted interactions (`cmd /c \"set FASTCODE_TUI_SCRIPT=resize80x24,h,i,Enter,sleep260,sleep260,v,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\\\docs\\\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\\\regression-preflight-mcp-iter34.log 2>&1\"`) was normalized via `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-preflight-mcp-iter34.log -OutputPath ./target/regression-preflight-mcp-iter34.clean.log -Mode events` and produced parseable status/message event lines.",
+      "2026-02-14: Full regression check passed: `cargo test` (53 lib tests + 10 bin tests, 0 failed)."
+    ],
+    "passes": true
   }
 ]

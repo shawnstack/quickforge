@@ -794,3 +794,45 @@ Next Priority
 
 Completion Snapshot
 - 21/21 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 20)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository status/history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Ran environment/bootstrap and regression pre-checks before new work:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep80,sleep80,Up,Down,q'; cargo run -- --mode edit --tui`
+- Added and completed new high-priority unfinished item:
+  - Added `F-018`: live MCP diagnostics refresh inside TUI runtime.
+  - Updated `src/tui/mod.rs` to refresh MCP diagnostics every 800ms when `--mcp-config` is present, update status indicator with refresh counter (`mcp: <state> rN`), and append refresh summary messages.
+  - Updated `src/main.rs` to pass `--mcp-config` into TUI runtime refresh path.
+- Updated docs/tracking artifacts:
+  - `README.md` updated to document continuous MCP refresh behavior in TUI.
+  - `feature_list.json` extended with `F-018` and verification evidence.
+
+Verified checklist items
+- `F-018` passed with:
+  - `cargo test` full suite (42 passed, 0 failed).
+  - Real UI path: `$env:FASTCODE_TUI_SCRIPT='h,i,Enter,sleep900,sleep900,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config target/mcp-tui-refresh-test.json`.
+  - Terminal output showed live status updates `mcp: ok 1/1 r0 -> r1 -> r2 -> r3` during interaction, with input/submit/scroll behavior intact.
+
+Issues found and fixed
+- `feature_list.json` parser assumption mismatch during context restore (`features` object vs top-level array) caused an initial incorrect pending-count read.
+- Fixed by switching tracker-stat commands to array-based parsing and proceeding with auditable item expansion.
+- No functional or UI regression found in sampled CLI/TUI core flows after live refresh integration.
+
+Next Priority
+1. Expand MCP lifecycle shutdown-failure simulation tests to assert manager-level telemetry under forced kill/wait failures.
+2. Consider deprecation timeline messaging for legacy MCP flags once downstream scripts are migrated to subcommands.
+3. Add optional MCP refresh interval configuration (CLI/env) for operators who need lower runtime overhead.
+
+Completion Snapshot
+- 22/22 checklist items passing.

@@ -49,6 +49,8 @@ Launch TUI with MCP diagnostics from config:
 cargo run -- --mode edit --tui --mcp-config ./docs/mcp-servers.example.json
 ```
 
+When `--mcp-config` is provided, TUI now refreshes MCP diagnostics continuously and shows a refresh counter in the status bar (`mcp: <state> rN`).
+
 List MCP servers from config:
 ```bash
 cargo run -- --mode edit mcp list --mcp-config ./docs/mcp-servers.example.json

@@ -141,7 +141,7 @@ async fn main() -> anyhow::Result<()> {
             Some(config_path) => Some(build_mcp_diagnostics(config_path)),
             None => None,
         };
-        tui::run_app_with_mcp_diagnostics(mode, mcp_diagnostics)?;
+        tui::run_app_with_mcp_diagnostics(mode, mcp_diagnostics, cli.mcp_config.clone())?;
     } else {
         println!("fastcode bootstrap running in mode: {}", mode);
         println!("hint: run with --tui to launch the terminal UI");

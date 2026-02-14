@@ -352,5 +352,22 @@
       "2026-02-14: Real failure-path verification: `cargo run -- --mode edit mcp check-lifecycle --mcp-config target/mcp-lifecycle-failure-test.json --audit-log target/mcp-lifecycle-failure-audit.jsonl` returned `MCP lifecycle start failed for server 'broken' ... started 1 server(s) before failure and stopped 1`; audit file contained `mcp_lifecycle:start:sleepy` success, `mcp_lifecycle:start:broken` error with `mcp_start_failed`, and `mcp_lifecycle:shutdown:sleepy` success."
     ],
     "passes": true
+  },
+  {
+    "id": "F-018",
+    "category": "functional",
+    "priority": "P1",
+    "description": "TUI continuously refreshes MCP diagnostics during runtime when launched with --mcp-config.",
+    "steps": [
+      "Launch TUI with --mcp-config and keep session open long enough for multiple refresh cycles.",
+      "Verify MCP status indicator updates with refresh count in status bar.",
+      "Verify user input/submit/scroll flow remains functional while refresh is running."
+    ],
+    "evidence": [
+      "2026-02-14: Updated `src/tui/mod.rs` to add periodic MCP diagnostics refresh inside the TUI loop (every 800ms), including status counter display (`mcp: <state> rN`) and refresh summary messages in the message pane.",
+      "2026-02-14: Updated `src/main.rs` to pass `--mcp-config` into TUI runtime so refresh stays active after launch-time snapshot.",
+      "2026-02-14: Verification: `cargo test` passed (42 passed, 0 failed). Real UI flow: `$env:FASTCODE_TUI_SCRIPT='h,i,Enter,sleep900,sleep900,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config target/mcp-tui-refresh-test.json` showed status progression `mcp: ok 1/1 r0 -> r1 -> r2 -> r3` while input/submit/scroll remained functional and process exited 0."
+    ],
+    "passes": true
   }
 ]

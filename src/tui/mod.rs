@@ -1,3 +1,5 @@
+use crate::mcp::config::McpConfig;
+use crate::mcp::lifecycle::{McpServerHealth, run_lifecycle_check};
 use crate::modes::runtime_mode::RuntimeMode;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use crossterm::terminal::{
@@ -11,11 +13,13 @@ use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use std::collections::VecDeque;
 use std::io;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 const INPUT_MAX_LEN: usize = 512;
 const STREAM_CHUNK_INTERVAL_MS: u64 = 60;
 const STREAM_CHARS_PER_CHUNK: usize = 4;
+const MCP_REFRESH_INTERVAL_MS: u64 = 800;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct McpDiagnostics {
@@ -55,6 +59,7 @@ pub struct App {
     scroll: u16,
     viewport_width: u16,
     viewport_height: u16,
+    mcp_refresh_count: u64,
     stream_state: Option<StreamState>,
 }
 
@@ -84,6 +89,7 @@ impl App {
             scroll: 0,
             viewport_width: 0,
             viewport_height: 0,
+            mcp_refresh_count: 0,
             stream_state: None,
         }
     }
@@ -106,6 +112,10 @@ impl App {
 
     pub fn mcp_status_label(&self) -> &str {
         &self.mcp_status_label
+    }
+
+    pub fn mcp_status_display(&self) -> String {
+        format!("{} r{}", self.mcp_status_label, self.mcp_refresh_count)
     }
 
     pub fn should_quit(&self) -> bool {
@@ -147,6 +157,17 @@ impl App {
         if stream.next_chunk >= stream.chunks.len() {
             self.status = UiStatus::Idle;
             self.stream_state = None;
+        }
+    }
+
+    pub fn apply_mcp_refresh(&mut self, diagnostics: McpDiagnostics) {
+        self.mcp_refresh_count = self.mcp_refresh_count.saturating_add(1);
+        self.mcp_status_label = diagnostics.status_label.clone();
+        if let Some(summary) = diagnostics.messages.first() {
+            self.messages.push(format!(
+                "system: MCP refresh {}: {}",
+                self.mcp_refresh_count, summary
+            ));
         }
     }
 
@@ -204,12 +225,13 @@ fn chunk_text(text: &str) -> Vec<String> {
 }
 
 pub fn run_app(mode: RuntimeMode) -> anyhow::Result<()> {
-    run_app_with_mcp_diagnostics(mode, None)
+    run_app_with_mcp_diagnostics(mode, None, None)
 }
 
 pub fn run_app_with_mcp_diagnostics(
     mode: RuntimeMode,
     mcp_diagnostics: Option<McpDiagnostics>,
+    mcp_config_path: Option<PathBuf>,
 ) -> anyhow::Result<()> {
     let mut stdout = io::stdout();
     enable_raw_mode()?;
@@ -223,7 +245,7 @@ pub fn run_app_with_mcp_diagnostics(
     let size = terminal.size()?;
     app.on_resize(size.width, size.height);
     let scripted_actions = scripted_actions_from_env();
-    let result = run_loop(&mut terminal, &mut app, scripted_actions);
+    let result = run_loop(&mut terminal, &mut app, scripted_actions, mcp_config_path);
     disable_raw_mode()?;
     std::io::stdout().execute(LeaveAlternateScreen)?;
     result
@@ -233,7 +255,9 @@ fn run_loop<B: ratatui::backend::Backend>(
     terminal: &mut ratatui::Terminal<B>,
     app: &mut App,
     mut scripted_actions: VecDeque<ScriptAction>,
+    mcp_config_path: Option<PathBuf>,
 ) -> anyhow::Result<()> {
+    let mut last_mcp_refresh_at = Instant::now() - Duration::from_millis(MCP_REFRESH_INTERVAL_MS);
     while !app.should_quit() {
         terminal.draw(|frame| draw(frame, app))?;
 
@@ -253,10 +277,63 @@ fn run_loop<B: ratatui::backend::Backend>(
                 _ => {}
             }
         }
+
+        if let Some(config_path) = &mcp_config_path {
+            if last_mcp_refresh_at.elapsed() >= Duration::from_millis(MCP_REFRESH_INTERVAL_MS) {
+                app.apply_mcp_refresh(refresh_mcp_diagnostics(config_path));
+                last_mcp_refresh_at = Instant::now();
+            }
+        }
         app.on_tick();
     }
 
     Ok(())
+}
+
+fn refresh_mcp_diagnostics(config_path: &PathBuf) -> McpDiagnostics {
+    match McpConfig::load_from_path(config_path) {
+        Ok(config) => match run_lifecycle_check(&config) {
+            Ok(report) => {
+                let running = report
+                    .health
+                    .iter()
+                    .filter(|(_, state)| matches!(state, McpServerHealth::Running))
+                    .count();
+                let total = report.health.len();
+                if report
+                    .health
+                    .iter()
+                    .any(|(_, state)| matches!(state, McpServerHealth::Exited(_)))
+                {
+                    McpDiagnostics {
+                        status_label: format!("degraded {running}/{total}"),
+                        messages: vec![format!(
+                            "MCP diagnostics degraded ({running}/{total} running)"
+                        )],
+                    }
+                } else {
+                    McpDiagnostics {
+                        status_label: format!("ok {running}/{total}"),
+                        messages: vec![format!(
+                            "MCP diagnostics healthy ({running}/{total} running)"
+                        )],
+                    }
+                }
+            }
+            Err(err) => McpDiagnostics {
+                status_label: "error".to_string(),
+                messages: vec![format!("MCP diagnostics failed: {}", err)],
+            },
+        },
+        Err(err) => McpDiagnostics {
+            status_label: "invalid-config".to_string(),
+            messages: vec![format!(
+                "MCP config load failed ({}): {}",
+                config_path.display(),
+                err
+            )],
+        },
+    }
 }
 
 fn scripted_actions_from_env() -> VecDeque<ScriptAction> {
@@ -354,7 +431,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
             UiStatus::Idle => "idle",
             UiStatus::Processing => "processing",
         },
-        app.mcp_status_label(),
+        app.mcp_status_display(),
         app.viewport_width,
         app.viewport_height
     );
@@ -584,5 +661,22 @@ mod tests {
     fn chunking_keeps_stream_order_stable() {
         let chunks = chunk_text("abcdefghi");
         assert_eq!(chunks, vec!["abcd", "efgh", "i"]);
+    }
+
+    #[test]
+    fn mcp_refresh_updates_status_and_appends_summary_message() {
+        let mut app = App::new(RuntimeMode::Edit);
+        app.apply_mcp_refresh(McpDiagnostics {
+            status_label: "ok 1/1".to_string(),
+            messages: vec!["MCP diagnostics healthy (1/1 running)".to_string()],
+        });
+
+        assert_eq!(app.mcp_status_label(), "ok 1/1");
+        assert_eq!(app.mcp_status_display(), "ok 1/1 r1");
+        assert!(
+            app.messages()
+                .iter()
+                .any(|m| { m == "system: MCP refresh 1: MCP diagnostics healthy (1/1 running)" })
+        );
     }
 }

@@ -43,16 +43,23 @@ Assert-True -Condition (@($lines | Where-Object { $_ -match '^\?' }).Count -eq 0
 
 $overlayInputPath = Join-Path $tmpDir 'noisy-overlay-fixture.log'
 $overlayOutputPath = Join-Path $tmpDir 'noisy-overlay-fixture.clean.log'
+$overlayStrictOutputPath = Join-Path $tmpDir 'noisy-overlay-fixture.strict.clean.log'
 $overlayTemplate = Get-Content -Raw -Path $overlayFixtureTemplatePath
 $overlayContent = $overlayTemplate.Replace('<ESC>', [string]$esc)
 Set-Content -Path $overlayInputPath -Value $overlayContent -Encoding utf8
 
 powershell -ExecutionPolicy Bypass -File $scriptPath -InputPath $overlayInputPath -OutputPath $overlayOutputPath -Mode events | Out-Null
+powershell -ExecutionPolicy Bypass -File $scriptPath -InputPath $overlayInputPath -OutputPath $overlayStrictOutputPath -Mode events -StrictEvents | Out-Null
 $overlayLines = Get-Content $overlayOutputPath
+$overlayStrictLines = Get-Content $overlayStrictOutputPath
 
 Assert-True -Condition (@($overlayLines | Where-Object { $_ -eq 'fastcode | mode: edit | status: idle | mcp: error r1 d0 | size: 80x24' }).Count -eq 1) -Message 'overlay fixture should keep status snapshot'
 Assert-True -Condition (@($overlayLines | Where-Object { $_ -eq 'user: hi' }).Count -eq 1) -Message 'overlay fixture should preserve user event'
 Assert-True -Condition (@($overlayLines | Where-Object { $_ -eq 'assistant: received -> hi' }).Count -eq 1) -Message 'overlay fixture should normalize assistant label typo'
 Assert-True -Condition (@($overlayLines | Where-Object { $_ -like 'system: MCP details:*' }).Count -eq 1) -Message 'overlay fixture should normalize system label typo'
+Assert-True -Condition (@($overlayStrictLines | Where-Object { $_ -eq 'assistant: received -> hi' }).Count -eq 0) -Message 'strict events mode should drop assistant lines that start from corrupted labels'
+Assert-True -Condition (@($overlayStrictLines | Where-Object { $_ -like 'system: MCP details:*' }).Count -eq 0) -Message 'strict events mode should drop system lines that start from corrupted labels'
+Assert-True -Condition (@($overlayStrictLines | Where-Object { $_ -eq 'user: hi' }).Count -eq 1) -Message 'strict events mode should keep canonical user line'
+Assert-True -Condition (@($overlayStrictLines | Where-Object { $_ -like 'fastcode | mode: edit | status: idle | mcp: error r1 d0 | size: 80x24' }).Count -eq 1) -Message 'strict events mode should keep status snapshot'
 
 Write-Host 'normalize-tui-log fixture tests: PASS'

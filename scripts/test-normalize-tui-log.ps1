@@ -25,6 +25,7 @@ $inputPath = Join-Path $tmpDir 'sample.log'
 $eventsDefaultPath = Join-Path $tmpDir 'events-default.clean.log'
 $eventsNoDedupePath = Join-Path $tmpDir 'events-nodedupe.clean.log'
 $eventsShortPath = Join-Path $tmpDir 'events-short.clean.log'
+$eventsStrictPath = Join-Path $tmpDir 'events-strict.clean.log'
 $eventsSummaryPath = Join-Path $tmpDir 'events-summary.json'
 $eventsSummaryCompactPath = Join-Path $tmpDir 'events-summary.compact.txt'
 
@@ -42,6 +43,7 @@ Set-Content -Path $inputPath -Value $sample -Encoding utf8
 powershell -ExecutionPolicy Bypass -File $scriptPath -InputPath $inputPath -OutputPath $eventsDefaultPath -Mode events | Out-Null
 powershell -ExecutionPolicy Bypass -File $scriptPath -InputPath $inputPath -OutputPath $eventsNoDedupePath -Mode events -NoDedupe | Out-Null
 powershell -ExecutionPolicy Bypass -File $scriptPath -InputPath $inputPath -OutputPath $eventsShortPath -Mode events -MaxEventLength 80 | Out-Null
+powershell -ExecutionPolicy Bypass -File $scriptPath -InputPath $inputPath -OutputPath $eventsStrictPath -Mode events -StrictEvents | Out-Null
 powershell -ExecutionPolicy Bypass -File $scriptPath -InputPath $inputPath -OutputPath $eventsDefaultPath -Mode events -SummaryPath $eventsSummaryPath | Out-Null
 powershell -ExecutionPolicy Bypass -File $scriptPath -InputPath $inputPath -OutputPath $eventsDefaultPath -Mode events -SummaryPath $eventsSummaryCompactPath -SummaryFormat compact | Out-Null
 $emitCompactOutput = & powershell -ExecutionPolicy Bypass -File $scriptPath -InputPath $inputPath -OutputPath $eventsDefaultPath -Mode events -EmitSummary -SummaryFormat compact 2>&1
@@ -50,6 +52,7 @@ $emitCompactText = ($emitCompactOutput | ForEach-Object { $_.ToString() }) -join
 $defaultLines = Get-Content $eventsDefaultPath
 $noDedupeLines = Get-Content $eventsNoDedupePath
 $shortLines = Get-Content $eventsShortPath
+$strictLines = Get-Content $eventsStrictPath
 $summary = Get-Content -Raw $eventsSummaryPath | ConvertFrom-Json
 $summaryCompact = (Get-Content -Raw $eventsSummaryCompactPath).Trim()
 
@@ -60,6 +63,7 @@ Assert-True -Condition ($defaultRepeatedCount -eq 1) -Message 'default events mo
 Assert-True -Condition ($noDedupeRepeatedCount -eq 2) -Message 'NoDedupe should keep adjacent repeated messages'
 Assert-True -Condition (($shortLines | Measure-Object -Maximum Length).Maximum -le 84) -Message 'MaxEventLength 80 should cap output line length including truncation marker'
 Assert-True -Condition (@($shortLines | Where-Object { $_ -like '* ...' }).Count -ge 1) -Message 'short output should contain a truncated line marker'
+Assert-True -Condition ($strictLines.Count -eq $defaultLines.Count) -Message 'strict mode should preserve canonical sample events'
 Assert-True -Condition ($summary.mode -eq 'events') -Message 'summary mode should be events'
 Assert-True -Condition ($summary.dedupe_enabled -eq $true) -Message 'summary should report dedupe enabled for default events run'
 Assert-True -Condition ($summary.event_candidate_count -eq 4) -Message 'summary should report all extracted event candidates before dedupe'

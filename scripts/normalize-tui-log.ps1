@@ -17,7 +17,9 @@ param(
   [string]$SummaryPath,
 
   [ValidateSet('json', 'compact')]
-  [string]$SummaryFormat = 'json'
+  [string]$SummaryFormat = 'json',
+
+  [switch]$StrictEvents
 )
 
 Set-StrictMode -Version Latest
@@ -83,7 +85,8 @@ function Extract-TuiEvents {
   param(
     [string]$Text,
     [int]$LineMaxLength,
-    [bool]$DisableDedupe
+    [bool]$DisableDedupe,
+    [bool]$StrictMode
   )
 
   $events = [System.Collections.Generic.List[string]]::new()
@@ -92,7 +95,9 @@ function Extract-TuiEvents {
   $truncatedCount = 0
   $normalized = [Regex]::Replace($Text, '[^\x09\x0A\x0D\x20-\x7E]', ' ')
   $statusPattern = 'fastcode\s*\|\s*mode:\s*[A-Za-z]+\s*\|\s*status:\s*[A-Za-z]+\s*\|\s*mcp:\s*[A-Za-z0-9\- ]+\s*\|\s*size:\s*\d+x\d+'
-  $tokenPattern = "(?<status>$statusPattern)|(?<message>(?:system|sytem|user|uer|assistant|asistant):\s*.*?)(?=(?:fastcode\s*\|\s*mode:|system:|sytem:|user:|uer:|assistant:|asistant:|$))"
+  $messageStartLabels = if ($StrictMode) { '(?:system|user|assistant)' } else { '(?:system|sytem|user|uer|assistant|asistant)' }
+  $messageStopLabels = '(?:system|sytem|user|uer|assistant|asistant)'
+  $tokenPattern = "(?<status>$statusPattern)|(?<message>${messageStartLabels}:\s*.*?)(?=(?:fastcode\s*\|\s*mode:|${messageStopLabels}:|$))"
   $matches = [Regex]::Matches($normalized, $tokenPattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
 
   foreach ($match in $matches) {
@@ -111,13 +116,20 @@ function Extract-TuiEvents {
     $line = [Regex]::Replace($line, '[^\x20-\x7E]', '')
     $line = [Regex]::Replace($line, '\s+', ' ').Trim()
     $line = $line -replace '^(system|user|assistant):(?=\S)', '$1: '
-    $line = $line -replace '\bsytem:', 'system:'
-    $line = $line -replace '\basistant:', 'assistant:'
-    $line = $line -replace '\buer:', 'user:'
+    if (-not $StrictMode) {
+      $line = $line -replace '\bsytem:', 'system:'
+      $line = $line -replace '\basistant:', 'assistant:'
+      $line = $line -replace '\buer:', 'user:'
+    }
 
-    if ($line -match '^(system|sytem|user|uer|assistant|asistant):') {
-      $line = [Regex]::Match($line, '^(?:system|sytem|user|uer|assistant|asistant):\s*.*?(?=\b(?:system|sytem|user|uer|assistant|asistant):|$)').Value
+    $lineLabelPattern = if ($StrictMode) { '(?:system|user|assistant)' } else { '(?:system|sytem|user|uer|assistant|asistant)' }
+    if ($line -match "^${lineLabelPattern}:") {
+      $line = [Regex]::Match($line, "^(?:$lineLabelPattern):\s*.*?(?=\b(?:$messageStopLabels):|$)").Value
       $line = [Regex]::Replace($line, '\s+', ' ').Trim()
+    }
+
+    if ($StrictMode -and $line -notmatch '^fastcode\s*\|' -and $line -notmatch '^(?:system|user|assistant):') {
+      continue
     }
 
     if ([string]::IsNullOrWhiteSpace($line)) {
@@ -185,7 +197,7 @@ $raw = $raw -replace "`r", "`n"
 $clean = Remove-AnsiSequences -Text $raw
 $eventStats = $null
 if ($Mode -eq 'events') {
-  $eventStats = Extract-TuiEvents -Text $clean -LineMaxLength $MaxEventLength -DisableDedupe $NoDedupe.IsPresent
+  $eventStats = Extract-TuiEvents -Text $clean -LineMaxLength $MaxEventLength -DisableDedupe $NoDedupe.IsPresent -StrictMode $StrictEvents.IsPresent
   $clean = $eventStats.text
 }
 
@@ -201,6 +213,7 @@ Write-Host "mode: $Mode"
 if ($Mode -eq 'events') {
   Write-Host "max_event_length: $MaxEventLength"
   Write-Host "dedupe: $(-not $NoDedupe.IsPresent)"
+  Write-Host "strict_events: $($StrictEvents.IsPresent)"
 }
 
 if ($EmitSummary.IsPresent -or $SummaryPath) {
@@ -216,6 +229,7 @@ if ($EmitSummary.IsPresent -or $SummaryPath) {
   if ($Mode -eq 'events' -and $null -ne $eventStats) {
     $summary.max_event_length = $MaxEventLength
     $summary.dedupe_enabled = (-not $NoDedupe.IsPresent)
+    $summary.strict_events = $StrictEvents.IsPresent
     $summary.event_candidate_count = $eventStats.candidate_count
     $summary.event_output_line_count = $eventStats.output_line_count
     $summary.dedupe_suppressed_count = $eventStats.dedupe_suppressed_count

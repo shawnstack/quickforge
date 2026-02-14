@@ -1657,3 +1657,55 @@ Next Priority
 
 Completion Snapshot
 - 40/40 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 39)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository state/history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Confirmed tracker baseline before implementation:
+  - `total=40`, `passed=40`, `unpassed=0`, `blocked=0`
+- Executed startup/bootstrap and regression pre-checks before new implementation:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=h,e,l,l,o,Enter,sleep120,Up,Down,q && cargo run -- --mode edit --tui > target\regression-preflight-core-iter39.log 2>&1"`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=resize80x24,h,i,Enter,sleep260,sleep260,v,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\docs\mcp-servers.example.json --mcp-refresh-ms 200 > target\regression-preflight-mcp-iter39.log 2>&1"`
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-preflight-core-iter39.log -OutputPath ./target/regression-preflight-core-iter39.clean.log -Mode events -SummaryPath ./target/regression-preflight-core-iter39.summary.json`
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-preflight-mcp-iter39.log -OutputPath ./target/regression-preflight-mcp-iter39.clean.log -Mode events -SummaryPath ./target/regression-preflight-mcp-iter39.summary.json`
+- Added and completed one new high-priority unfinished item:
+  - Added `F-041` (P0): strict normalization events mode for high-confidence machine parsing.
+  - Updated `scripts/normalize-tui-log.ps1` with `-StrictEvents` and strict extraction behavior (canonical message-label starts only, overlay-corrupted labels only as stop boundaries, status lines preserved, summary includes `strict_events`).
+  - Updated `scripts/test-normalize-tui-log.ps1` and `scripts/test-normalize-tui-log-fixtures.ps1` with strict-mode assertions.
+  - Updated `README.md` normalization options to document `-StrictEvents`.
+  - Updated `feature_list.json` with `F-041` evidence.
+
+Verified checklist items
+- `F-041` passed with:
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log.ps1` (`normalize-tui-log script tests: PASS`)
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log-fixtures.ps1` (`normalize-tui-log fixture tests: PASS`)
+  - `cargo test` (53 lib tests + 10 bin tests, 0 failed)
+  - Real UI verification + strict normalization:
+    - `cmd /c "set FASTCODE_TUI_SCRIPT=resize80x24,h,i,Enter,sleep260,sleep260,v,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\docs\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\regression-strict-mcp-iter39.log 2>&1"`
+    - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-strict-mcp-iter39.log -OutputPath ./target/regression-strict-mcp-iter39.strict.log -Mode events -StrictEvents -SummaryPath ./target/regression-strict-mcp-iter39.strict.summary.json`
+    - Baseline comparison output retained at `target/regression-strict-mcp-iter39.events.summary.json` and strict summary retained at `target/regression-strict-mcp-iter39.strict.summary.json` (`strict_events=true`, `event_output_line_count=8` vs baseline `12`).
+
+Issues found and fixed
+- Initial `-StrictEvents` implementation caused PowerShell parser errors from colon-adjacent variable interpolation (`$var:` pattern).
+- Fix: switched to `${var}` interpolation in regex strings.
+- Initial strict filter inadvertently dropped status lines.
+- Fix: adjusted strict acceptance rule to keep `fastcode | ...` status snapshots while filtering non-canonical message labels.
+- Preflight MCP log `error` keyword matches were expected diagnostics text from failing sample MCP lifecycle, not panic/runtime crash; panic scan returned no matches.
+
+Next Priority
+1. Add optional strict-mode compact summary counters split by category (status vs message) for easier downstream audit thresholds.
+2. Add one strict-mode fixture with repeated resize bursts and long detail payloads to verify truncation counters under strict extraction.
+3. Consider exposing strict mode through a dedicated README example command for handoff operators.
+
+Completion Snapshot
+- 41/41 checklist items passing.

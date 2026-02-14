@@ -66,13 +66,18 @@ Assert-True -Condition (@($overlayStrictLines | Where-Object { $_ -like 'fastcod
 $resizeBurstInputPath = Join-Path $tmpDir 'resize-burst-long-details.log'
 $resizeBurstOutputPath = Join-Path $tmpDir 'resize-burst-long-details.clean.log'
 $resizeBurstSummaryPath = Join-Path $tmpDir 'resize-burst-long-details.summary.json'
+$resizeBurstNoDedupeOutputPath = Join-Path $tmpDir 'resize-burst-long-details.nodedupe.clean.log'
+$resizeBurstNoDedupeSummaryPath = Join-Path $tmpDir 'resize-burst-long-details.nodedupe.summary.json'
 $resizeBurstTemplate = Get-Content -Raw -Path $resizeBurstFixtureTemplatePath
 $resizeBurstContent = $resizeBurstTemplate.Replace('<ESC>', [string]$esc)
 Set-Content -Path $resizeBurstInputPath -Value $resizeBurstContent -Encoding utf8
 
 powershell -ExecutionPolicy Bypass -File $scriptPath -InputPath $resizeBurstInputPath -OutputPath $resizeBurstOutputPath -Mode events -StrictEvents -MaxEventLength 100 -SummaryPath $resizeBurstSummaryPath | Out-Null
+powershell -ExecutionPolicy Bypass -File $scriptPath -InputPath $resizeBurstInputPath -OutputPath $resizeBurstNoDedupeOutputPath -Mode events -StrictEvents -NoDedupe -MaxEventLength 100 -SummaryPath $resizeBurstNoDedupeSummaryPath | Out-Null
 $resizeBurstLines = Get-Content $resizeBurstOutputPath
 $resizeBurstSummary = Get-Content -Raw $resizeBurstSummaryPath | ConvertFrom-Json
+$resizeBurstNoDedupeLines = Get-Content $resizeBurstNoDedupeOutputPath
+$resizeBurstNoDedupeSummary = Get-Content -Raw $resizeBurstNoDedupeSummaryPath | ConvertFrom-Json
 
 Assert-True -Condition (@($resizeBurstLines | Where-Object { $_ -eq 'fastcode | mode: edit | status: idle | mcp: ok r1 d0 | size: 120x40' }).Count -eq 1) -Message 'resize burst fixture should keep first status snapshot'
 Assert-True -Condition (@($resizeBurstLines | Where-Object { $_ -eq 'fastcode | mode: edit | status: idle | mcp: ok r2 d0 | size: 80x24' }).Count -eq 1) -Message 'resize burst fixture should dedupe adjacent duplicate status snapshot'
@@ -85,8 +90,20 @@ Assert-True -Condition ($resizeBurstSummary.message_event_count -eq 3) -Message 
 Assert-True -Condition ($resizeBurstSummary.system_event_count -eq 1) -Message 'resize burst summary should report one system event'
 Assert-True -Condition ($resizeBurstSummary.user_event_count -eq 1) -Message 'resize burst summary should report one user event'
 Assert-True -Condition ($resizeBurstSummary.assistant_event_count -eq 1) -Message 'resize burst summary should report one assistant event'
+Assert-True -Condition ($resizeBurstSummary.label_event_count_sum -eq 3) -Message 'resize burst summary should report label event sum'
+Assert-True -Condition ($resizeBurstSummary.label_sum_matches_message_count -eq $true) -Message 'resize burst summary should report matching label sum invariant'
 Assert-True -Condition ($resizeBurstSummary.dedupe_suppressed_count -eq 1) -Message 'resize burst summary should report one deduped duplicate'
 Assert-True -Condition ($resizeBurstSummary.truncated_count -eq 1) -Message 'resize burst summary should report one truncated long detail line'
 Assert-True -Condition (($resizeBurstSummary.system_event_count + $resizeBurstSummary.user_event_count + $resizeBurstSummary.assistant_event_count) -eq $resizeBurstSummary.message_event_count) -Message 'resize burst summary per-label totals should match message event count'
+Assert-True -Condition (@($resizeBurstNoDedupeLines | Where-Object { $_ -eq 'fastcode | mode: edit | status: idle | mcp: ok r2 d0 | size: 80x24' }).Count -eq 2) -Message 'NoDedupe run should keep both duplicate status snapshots'
+Assert-True -Condition ($resizeBurstNoDedupeSummary.strict_events -eq $true) -Message 'NoDedupe summary should report strict events mode'
+Assert-True -Condition ($resizeBurstNoDedupeSummary.dedupe_enabled -eq $false) -Message 'NoDedupe summary should report dedupe disabled'
+Assert-True -Condition ($resizeBurstNoDedupeSummary.status_event_count -eq 3) -Message 'NoDedupe summary should report three status events when duplicates are retained'
+Assert-True -Condition ($resizeBurstNoDedupeSummary.message_event_count -eq 3) -Message 'NoDedupe summary should preserve message event count'
+Assert-True -Condition ($resizeBurstNoDedupeSummary.label_event_count_sum -eq 3) -Message 'NoDedupe summary should report label event sum'
+Assert-True -Condition ($resizeBurstNoDedupeSummary.label_sum_matches_message_count -eq $true) -Message 'NoDedupe summary should report matching label sum invariant'
+Assert-True -Condition ($resizeBurstNoDedupeSummary.dedupe_suppressed_count -eq 0) -Message 'NoDedupe summary should report zero deduped lines'
+Assert-True -Condition ($resizeBurstNoDedupeSummary.truncated_count -eq 1) -Message 'NoDedupe summary should retain truncation count for long details'
+Assert-True -Condition (($resizeBurstNoDedupeSummary.system_event_count + $resizeBurstNoDedupeSummary.user_event_count + $resizeBurstNoDedupeSummary.assistant_event_count) -eq $resizeBurstNoDedupeSummary.message_event_count) -Message 'NoDedupe summary per-label totals should match message event count'
 
 Write-Host 'normalize-tui-log fixture tests: PASS'

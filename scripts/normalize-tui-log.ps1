@@ -250,6 +250,7 @@ if ($EmitSummary.IsPresent -or $SummaryPath) {
   }
 
   if ($Mode -eq 'events' -and $null -ne $eventStats) {
+    $labelEventCountSum = $eventStats.system_event_count + $eventStats.user_event_count + $eventStats.assistant_event_count
     $summary.max_event_length = $MaxEventLength
     $summary.dedupe_enabled = (-not $NoDedupe.IsPresent)
     $summary.strict_events = $StrictEvents.IsPresent
@@ -260,6 +261,8 @@ if ($EmitSummary.IsPresent -or $SummaryPath) {
     $summary.system_event_count = $eventStats.system_event_count
     $summary.user_event_count = $eventStats.user_event_count
     $summary.assistant_event_count = $eventStats.assistant_event_count
+    $summary.label_event_count_sum = $labelEventCountSum
+    $summary.label_sum_matches_message_count = ($labelEventCountSum -eq $eventStats.message_event_count)
     $summary.dedupe_suppressed_count = $eventStats.dedupe_suppressed_count
     $summary.truncated_count = $eventStats.truncated_count
   }

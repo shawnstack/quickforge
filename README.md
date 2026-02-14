@@ -102,7 +102,7 @@ Options:
 - `-MaxEventLength <N>`: line-length cap used in `events` mode (default `240`, range `40..4000`).
 - `-NoDedupe`: disables adjacent-duplicate suppression in `events` mode.
 - `-StrictEvents`: keeps only high-confidence canonical `system/user/assistant` message labels in `events` mode (drops overlay-corrupted labels such as `sytem/asistant/uer`).
-- `-EmitSummary`: prints JSON normalization summary to stdout (bytes, output lines, and `events` mode counters including `status_event_count`, `message_event_count`, `system_event_count`, `user_event_count`, and `assistant_event_count`).
+- `-EmitSummary`: prints JSON normalization summary to stdout (bytes, output lines, and `events` mode counters including `status_event_count`, `message_event_count`, `system_event_count`, `user_event_count`, `assistant_event_count`, `label_event_count_sum`, and `label_sum_matches_message_count`).
 - `-SummaryPath <path>`: writes the same JSON summary to a file for audit evidence.
 - `-SummaryFormat <json|compact>`: selects summary encoding for `-EmitSummary` and `-SummaryPath` (`json` default; `compact` emits single-line `key=value` pairs for CI/grep).
 

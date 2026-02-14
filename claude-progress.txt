@@ -1861,3 +1861,51 @@ Next Priority
 
 Completion Snapshot
 - 44/44 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 45)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository state/history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Confirmed tracker baseline before implementation:
+  - `total=44`, `passed=44`, `unpassed=0`, `blocked=0`
+- Executed startup/bootstrap and regression pre-checks before new implementation:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=h,e,l,l,o,Enter,sleep120,Up,Down,q && cargo run -- --mode edit --tui > target\regression-preflight-core-iter45.log 2>&1"`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=resize80x24,h,i,Enter,sleep260,sleep260,v,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\docs\mcp-servers.example.json --mcp-refresh-ms 200 > target\regression-preflight-mcp-iter45.log 2>&1"`
+  - Normalized preflight logs and checked panic/error markers; no regression markers found.
+- Added and completed one new high-priority unfinished item:
+  - Added `F-045` (P0): events-summary invariant fields + strict-events `-NoDedupe` determinism.
+  - Updated `scripts/normalize-tui-log.ps1` to emit `label_event_count_sum` and `label_sum_matches_message_count`.
+  - Updated `scripts/test-normalize-tui-log.ps1` and `scripts/test-normalize-tui-log-fixtures.ps1` with invariant assertions and strict-events `-NoDedupe` fixture coverage.
+  - Updated `README.md` summary-option docs and `feature_list.json` evidence.
+
+Verified checklist items
+- `F-045` passed with:
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log.ps1` (`normalize-tui-log script tests: PASS`)
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log-fixtures.ps1` (`normalize-tui-log fixture tests: PASS`)
+  - `cargo test` (53 lib tests + 10 bin tests, 0 failed)
+  - Real UI strict-events + no-dedupe verification:
+    - `cmd /c "set FASTCODE_TUI_SCRIPT=resize120x40,resize80x24,resize120x40,h,i,Enter,sleep260,sleep260,v,resize80x24,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\docs\mcp-servers.example.json --mcp-refresh-ms 200 > target\f045-strict-nodedupe-mcp.log 2>&1"`
+    - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/f045-strict-nodedupe-mcp.log -OutputPath ./target/f045-strict-nodedupe-mcp.strict.log -Mode events -StrictEvents -NoDedupe -MaxEventLength 100 -SummaryPath ./target/f045-strict-nodedupe-mcp.summary.compact.txt -SummaryFormat compact`
+    - JSON summary persisted at `target/f045-strict-nodedupe-mcp.summary.json`; counters show `label_event_count_sum=6`, `message_event_count=6`, `label_sum_matches_message_count=true`, `dedupe_enabled=false`.
+
+Issues found and fixed
+- First evidence read was stale because summary files were read in parallel with normalization completion, showing old `input_bytes=0` content.
+- Fix: reran read step after normalization completed and confirmed updated summaries (`input_bytes=26892`) with valid counters.
+- No panic/runtime crash regressions observed in preflight and evidence logs.
+
+Next Priority
+1. Add optional summary field for status/message ratio to simplify thresholding in downstream monitors.
+2. Add one real-log fixture template captured from latest MCP run to complement synthetic fixture coverage.
+3. Consider documenting a strict no-dedupe evidence command block in README for handoff operators.
+
+Completion Snapshot
+- 45/45 checklist items passing.

@@ -15,6 +15,7 @@ function Assert-True {
 $root = Split-Path -Parent $PSScriptRoot
 $scriptPath = Join-Path $PSScriptRoot 'normalize-tui-log.ps1'
 $fixtureTemplatePath = Join-Path $PSScriptRoot 'fixtures\normalize-tui-log\noisy-mcp-fixture.template.txt'
+$overlayFixtureTemplatePath = Join-Path $PSScriptRoot 'fixtures\normalize-tui-log\noisy-overlay-fixture.template.txt'
 $tmpDir = Join-Path $root 'target\normalize-fixture-tests'
 
 if (Test-Path $tmpDir) {
@@ -39,5 +40,19 @@ Assert-True -Condition (@($lines | Where-Object { $_ -eq "system: MCP diagnostic
 Assert-True -Condition (@($lines | Where-Object { $_ -eq 'user: hi' }).Count -eq 1) -Message 'should preserve user event'
 Assert-True -Condition (@($lines | Where-Object { $_ -eq 'assistant: received -> hi' }).Count -eq 1) -Message 'should preserve assistant event'
 Assert-True -Condition (@($lines | Where-Object { $_ -match '^\?' }).Count -eq 0) -Message 'output should not retain mojibake placeholders at line start'
+
+$overlayInputPath = Join-Path $tmpDir 'noisy-overlay-fixture.log'
+$overlayOutputPath = Join-Path $tmpDir 'noisy-overlay-fixture.clean.log'
+$overlayTemplate = Get-Content -Raw -Path $overlayFixtureTemplatePath
+$overlayContent = $overlayTemplate.Replace('<ESC>', [string]$esc)
+Set-Content -Path $overlayInputPath -Value $overlayContent -Encoding utf8
+
+powershell -ExecutionPolicy Bypass -File $scriptPath -InputPath $overlayInputPath -OutputPath $overlayOutputPath -Mode events | Out-Null
+$overlayLines = Get-Content $overlayOutputPath
+
+Assert-True -Condition (@($overlayLines | Where-Object { $_ -eq 'fastcode | mode: edit | status: idle | mcp: error r1 d0 | size: 80x24' }).Count -eq 1) -Message 'overlay fixture should keep status snapshot'
+Assert-True -Condition (@($overlayLines | Where-Object { $_ -eq 'user: hi' }).Count -eq 1) -Message 'overlay fixture should preserve user event'
+Assert-True -Condition (@($overlayLines | Where-Object { $_ -eq 'assistant: received -> hi' }).Count -eq 1) -Message 'overlay fixture should normalize assistant label typo'
+Assert-True -Condition (@($overlayLines | Where-Object { $_ -like 'system: MCP details:*' }).Count -eq 1) -Message 'overlay fixture should normalize system label typo'
 
 Write-Host 'normalize-tui-log fixture tests: PASS'

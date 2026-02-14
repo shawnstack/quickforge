@@ -91,8 +91,8 @@ function Extract-TuiEvents {
   $dedupeSuppressed = 0
   $truncatedCount = 0
   $normalized = [Regex]::Replace($Text, '[^\x09\x0A\x0D\x20-\x7E]', ' ')
-  $statusPattern = 'fastcode \| mode: [A-Za-z]+ \| status: [A-Za-z]+ \| mcp: [A-Za-z0-9\- ]+ \| size: \d+x\d+'
-  $tokenPattern = '(?<status>fastcode \| mode: [A-Za-z]+ \| status: [A-Za-z]+ \| mcp: [A-Za-z0-9\- ]+ \| size: \d+x\d+)|(?<message>(?:system|user|assistant):\s*.*?)(?=(?:fastcode \| mode:|system:|user:|assistant:|$))'
+  $statusPattern = 'fastcode\s*\|\s*mode:\s*[A-Za-z]+\s*\|\s*status:\s*[A-Za-z]+\s*\|\s*mcp:\s*[A-Za-z0-9\- ]+\s*\|\s*size:\s*\d+x\d+'
+  $tokenPattern = "(?<status>$statusPattern)|(?<message>(?:system|sytem|user|uer|assistant|asistant):\s*.*?)(?=(?:fastcode\s*\|\s*mode:|system:|sytem:|user:|uer:|assistant:|asistant:|$))"
   $matches = [Regex]::Matches($normalized, $tokenPattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
 
   foreach ($match in $matches) {
@@ -110,6 +110,15 @@ function Extract-TuiEvents {
     $line = [Regex]::Replace($line, '\s+', ' ').Trim()
     $line = [Regex]::Replace($line, '[^\x20-\x7E]', '')
     $line = [Regex]::Replace($line, '\s+', ' ').Trim()
+    $line = $line -replace '^(system|user|assistant):(?=\S)', '$1: '
+    $line = $line -replace '\bsytem:', 'system:'
+    $line = $line -replace '\basistant:', 'assistant:'
+    $line = $line -replace '\buer:', 'user:'
+
+    if ($line -match '^(system|sytem|user|uer|assistant|asistant):') {
+      $line = [Regex]::Match($line, '^(?:system|sytem|user|uer|assistant|asistant):\s*.*?(?=\b(?:system|sytem|user|uer|assistant|asistant):|$)').Value
+      $line = [Regex]::Replace($line, '\s+', ' ').Trim()
+    }
 
     if ([string]::IsNullOrWhiteSpace($line)) {
       continue

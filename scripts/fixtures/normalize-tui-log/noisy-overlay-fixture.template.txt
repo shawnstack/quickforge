@@ -1,0 +1,6 @@
+<ESC>[?1049h<ESC>[1;1H fastcode | mode: edit | status: idle | mcp: error r1 d0 | size: 80x24 | q quit | v mcp details
+<ESC>[3;1Hsystem: MCP diagnostics failed: spawn error (code=5); path='C:/bad path'
+<ESC>[6;2Huser: hi
+<ESC>[7;2Hasistant: received -> hi
+<ESC>[8;2Hsytem: MCP details: MCP diagnostics failed: spawn error (code=5); path='C:/bad path'
+<ESC>[?1049l

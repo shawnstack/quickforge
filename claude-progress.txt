@@ -1600,3 +1600,60 @@ Next Priority
 
 Completion Snapshot
 - 39/39 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 38)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository state/history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Confirmed tracker baseline before implementation:
+  - `total=39`, `passed=39`, `unpassed=0`, `blocked=0`
+- Executed startup/bootstrap and regression pre-checks before new implementation:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=h,e,l,l,o,Enter,sleep120,Up,Down,q && cargo run -- --mode edit --tui > target\regression-preflight-core-iter38.log 2>&1"`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=resize80x24,h,i,Enter,sleep260,sleep260,v,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\docs\mcp-servers.example.json --mcp-refresh-ms 200 > target\regression-preflight-mcp-iter38.log 2>&1"`
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-preflight-core-iter38.log -OutputPath ./target/regression-preflight-core-iter38.clean.log -Mode events`
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-preflight-mcp-iter38.log -OutputPath ./target/regression-preflight-mcp-iter38.clean.log -Mode events`
+- Detected and fixed a regression before new feature expansion:
+  - Regression observed: MCP preflight `events` output was empty on real ANSI-heavy capture (`target/regression-preflight-mcp-iter38.clean.log`), breaking auditability expectations for existing normalization workflow.
+  - Implemented extraction hardening in `scripts/normalize-tui-log.ps1`:
+    - Relaxed status token whitespace matching.
+    - Added support for common overlay-corrupted message labels (`sytem`, `asistant`, `uer`) in token boundaries.
+    - Canonicalized corrupted labels back to `system/user/assistant`.
+    - Stopped merged message fragments at the next label boundary to reduce noisy concatenation.
+  - Added fixture coverage:
+    - New fixture `scripts/fixtures/normalize-tui-log/noisy-overlay-fixture.template.txt`.
+    - Expanded `scripts/test-normalize-tui-log-fixtures.ps1` with overlay assertions for status/user/assistant/system extraction under corrupted labels.
+- Added and completed one new high-priority unfinished item:
+  - Added `F-040` (P0): robustness for ANSI-heavy MCP captures with cursor-overlay label corruption.
+  - Updated `feature_list.json` with `F-040` steps/evidence and marked passing after verification.
+
+Verified checklist items
+- `F-040` passed with:
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log.ps1` (`normalize-tui-log script tests: PASS`)
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log-fixtures.ps1` (`normalize-tui-log fixture tests: PASS`)
+  - `cargo test` (53 lib tests + 10 bin tests, 0 failed)
+  - Real UI rerun + normalization evidence:
+    - `cmd /c "set FASTCODE_TUI_SCRIPT=resize80x24,h,i,Enter,sleep260,sleep260,v,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\docs\mcp-servers.example.json --mcp-refresh-ms 200 > target\regression-postfix-mcp-iter38.log 2>&1"`
+    - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-postfix-mcp-iter38.log -OutputPath ./target/regression-postfix-mcp-iter38.clean.log -Mode events -SummaryPath ./target/regression-postfix-mcp-iter38.summary.json`
+    - `target/regression-postfix-mcp-iter38.clean.log` now contains parseable status/user/system/assistant events, summary shows `event_output_line_count=12`.
+
+Issues found and fixed
+- Found regression in real MCP capture normalization where `events` output could become empty under ANSI-heavy cursor-overlay noise.
+- Fixed with tolerant tokenization + label canonicalization + overlay fixture regression coverage.
+- Post-fix runtime scan found no `panic`/`error:` markers in post-fix core/MCP logs.
+
+Next Priority
+1. Further reduce residual merged-token noise in extracted message bodies (content readability) while preserving no-loss event capture.
+2. Add fixture variant covering repeated resize bursts plus multiple long MCP detail expansions and assert stable summary counters.
+3. Consider optional strict-mode output that only emits high-confidence canonical lines for downstream machine parsers.
+
+Completion Snapshot
+- 40/40 checklist items passing.

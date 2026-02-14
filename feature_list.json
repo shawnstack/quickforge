@@ -420,5 +420,22 @@
       "2026-02-14: Real UI verification: `$env:FASTCODE_TUI_SCRIPT='h,i,Enter,sleep260,sleep260,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config ./docs/mcp-servers.example.json --mcp-refresh-ms 200` preserved input/submit/scroll with MCP refresh progression (`mcp: error r1 -> r2 -> r3`). Error paths: `cargo run -- --mode edit --tui --mcp-refresh-ms 60001` failed with clap range error (`60001 is not in 50..=60000`), and `$env:FASTCODE_MCP_REFRESH_MS='60001'; cargo run -- --mode edit --tui` failed with `FASTCODE_MCP_REFRESH_MS must be in range 50..=60000 milliseconds`."
     ],
     "passes": true
+  },
+  {
+    "id": "F-022",
+    "category": "functional",
+    "priority": "P0",
+    "description": "TUI compacts long MCP diagnostics lines to keep message area readable under narrow terminal widths.",
+    "steps": [
+      "Launch TUI with --mcp-config and trigger a long MCP diagnostics message in the message pane.",
+      "Resize to a narrow terminal width (for example 80x24) and verify long diagnostics lines are compacted with explicit truncation markers.",
+      "Verify input/submit/scroll flow remains functional while compacted diagnostics continue refreshing."
+    ],
+    "evidence": [
+      "2026-02-14: Updated `src/tui/mod.rs` with width-aware `compact_message_for_width` policy and integrated it into initial MCP diagnostics injection and runtime refresh messages (`App::new_with_mcp_diagnostics`, `App::apply_mcp_refresh`).",
+      "2026-02-14: Added tests `tui::tests::compacts_long_mcp_refresh_message_for_narrow_viewport` and `tui::tests::compact_message_keeps_short_text_intact`; `cargo test` passed full suite (44 lib tests + 10 bin tests, 0 failed).",
+      "2026-02-14: Real UI verification: `$env:FASTCODE_TUI_SCRIPT='resize80x24,sleep260,h,i,Enter,sleep260,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config ./docs/mcp-servers.example.json --mcp-refresh-ms 200` rendered compact MCP messages such as `... (+129 chars)` at 80x24 while submit/scroll and streaming reply flow stayed functional."
+    ],
+    "passes": true
   }
 ]

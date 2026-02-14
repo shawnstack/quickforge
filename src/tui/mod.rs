@@ -20,6 +20,8 @@ const INPUT_MAX_LEN: usize = 512;
 const STREAM_CHUNK_INTERVAL_MS: u64 = 60;
 const STREAM_CHARS_PER_CHUNK: usize = 4;
 pub const DEFAULT_MCP_REFRESH_INTERVAL_MS: u64 = 800;
+const DEFAULT_MESSAGE_COMPACT_WIDTH: u16 = 80;
+const MIN_MESSAGE_CONTENT_BUDGET: usize = 24;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct McpDiagnostics {
@@ -76,7 +78,11 @@ impl App {
         let mut mcp_status_label = "off".to_string();
         if let Some(diagnostics) = mcp_diagnostics {
             mcp_status_label = diagnostics.status_label;
-            messages.extend(diagnostics.messages);
+            messages.extend(
+                diagnostics.messages.into_iter().map(|message| {
+                    compact_message_for_width(&message, DEFAULT_MESSAGE_COMPACT_WIDTH)
+                }),
+            );
         }
 
         Self {
@@ -164,10 +170,17 @@ impl App {
         self.mcp_refresh_count = self.mcp_refresh_count.saturating_add(1);
         self.mcp_status_label = diagnostics.status_label.clone();
         if let Some(summary) = diagnostics.messages.first() {
-            self.messages.push(format!(
+            let message = format!(
                 "system: MCP refresh {}: {}",
                 self.mcp_refresh_count, summary
-            ));
+            );
+            let compact_width = if self.viewport_width == 0 {
+                DEFAULT_MESSAGE_COMPACT_WIDTH
+            } else {
+                self.viewport_width
+            };
+            self.messages
+                .push(compact_message_for_width(&message, compact_width));
         }
     }
 
@@ -222,6 +235,26 @@ fn chunk_text(text: &str) -> Vec<String> {
         .chunks(STREAM_CHARS_PER_CHUNK)
         .map(|segment| segment.iter().collect::<String>())
         .collect()
+}
+
+fn compact_message_for_width(message: &str, viewport_width: u16) -> String {
+    let width = usize::from(viewport_width);
+    let budget = width.saturating_sub(8).max(MIN_MESSAGE_CONTENT_BUDGET);
+    let chars: Vec<char> = message.chars().collect();
+    if chars.len() <= budget {
+        return message.to_string();
+    }
+
+    if budget <= 12 {
+        let keep = budget.saturating_sub(3);
+        let prefix = chars.iter().take(keep).collect::<String>();
+        return format!("{prefix}...");
+    }
+
+    let keep = budget.saturating_sub(13);
+    let omitted = chars.len().saturating_sub(keep);
+    let prefix = chars.iter().take(keep).collect::<String>();
+    format!("{prefix}... (+{omitted} chars)")
 }
 
 pub fn run_app(mode: RuntimeMode) -> anyhow::Result<()> {
@@ -472,7 +505,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
 #[cfg(test)]
 mod tests {
-    use super::{App, McpDiagnostics, UiStatus, chunk_text, draw};
+    use super::{App, McpDiagnostics, UiStatus, chunk_text, compact_message_for_width, draw};
     use crate::modes::runtime_mode::RuntimeMode;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
     use ratatui::{Terminal, backend::TestBackend};
@@ -687,6 +720,29 @@ mod tests {
             app.messages()
                 .iter()
                 .any(|m| { m == "system: MCP refresh 1: MCP diagnostics healthy (1/1 running)" })
+        );
+    }
+
+    #[test]
+    fn compacts_long_mcp_refresh_message_for_narrow_viewport() {
+        let mut app = App::new(RuntimeMode::Edit);
+        app.on_resize(80, 24);
+        app.apply_mcp_refresh(McpDiagnostics {
+            status_label: "error".to_string(),
+            messages: vec![format!("MCP diagnostics failed: {}", "x".repeat(160))],
+        });
+
+        let last = app.messages().last().expect("message exists");
+        assert!(last.contains("... (+"));
+        assert!(last.len() <= 90);
+    }
+
+    #[test]
+    fn compact_message_keeps_short_text_intact() {
+        let message = "system: MCP diagnostics healthy";
+        assert_eq!(
+            compact_message_for_width(message, 80),
+            "system: MCP diagnostics healthy"
         );
     }
 }

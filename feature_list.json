@@ -335,5 +335,22 @@
       "2026-02-14: Real command verification: `cargo run -- --mode edit mcp list --mcp-config ./docs/mcp-servers.example.json` (loaded 2 servers), `cargo run -- --mode edit mcp check-lifecycle --mcp-config target/mcp-cli-subcommand-test.json --audit-log target/mcp-cli-subcommand-audit.jsonl` (started/health/shutdown all succeeded), and explicit error paths for ambiguous inputs returned non-zero with clear messages."
     ],
     "passes": true
+  },
+  {
+    "id": "F-017",
+    "category": "functional",
+    "priority": "P1",
+    "description": "MCP lifecycle start-failure path reports explicit partial-start cleanup status and writes auditable error events.",
+    "steps": [
+      "Run lifecycle check with one valid server and one invalid command to force startup failure.",
+      "Verify CLI error includes failed server name plus partial start/shutdown counts.",
+      "Verify audit JSONL contains start success, start error, and shutdown cleanup events."
+    ],
+    "evidence": [
+      "2026-02-14: Hardened `run_lifecycle_check_inner` in `src/mcp/lifecycle.rs` to start servers incrementally, log `mcp_start_failed` audit events, and force shutdown cleanup for already-started servers before returning an error.",
+      "2026-02-14: Added test `mcp::lifecycle::tests::lifecycle_check_start_failure_is_auditable_and_cleans_up_started_servers`; `cargo test mcp::lifecycle` passed (6 passed, 0 failed), full `cargo test` passed (41 passed, 0 failed).",
+      "2026-02-14: Real failure-path verification: `cargo run -- --mode edit mcp check-lifecycle --mcp-config target/mcp-lifecycle-failure-test.json --audit-log target/mcp-lifecycle-failure-audit.jsonl` returned `MCP lifecycle start failed for server 'broken' ... started 1 server(s) before failure and stopped 1`; audit file contained `mcp_lifecycle:start:sleepy` success, `mcp_lifecycle:start:broken` error with `mcp_start_failed`, and `mcp_lifecycle:shutdown:sleepy` success."
+    ],
+    "passes": true
   }
 ]

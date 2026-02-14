@@ -147,9 +147,59 @@ fn run_lifecycle_check_inner(
     audit: Option<LifecycleAudit<'_>>,
 ) -> Result<McpLifecycleReport> {
     let mut manager = McpProcessManager::new();
-    let started = manager.start_all(config)?;
-    for handle in &started {
-        log_lifecycle_event(audit, "start", &handle.name, "success", None, None);
+    let mut started = Vec::with_capacity(config.servers.len());
+    for server in &config.servers {
+        let server_name = server.name.trim();
+        match manager.start_server(server) {
+            Ok(handle) => {
+                log_lifecycle_event(audit, "start", &handle.name, "success", None, None);
+                started.push(handle);
+            }
+            Err(err) => {
+                let err_text = err.to_string();
+                log_lifecycle_event(
+                    audit,
+                    "start",
+                    server_name,
+                    "error",
+                    Some("mcp_start_failed"),
+                    Some(&err_text),
+                );
+
+                let managed_before_shutdown = manager.managed_names();
+                let stopped = manager.shutdown_all();
+                match stopped {
+                    Ok(stopped_count) => {
+                        for name in managed_before_shutdown {
+                            log_lifecycle_event(audit, "shutdown", &name, "success", None, None);
+                        }
+                        return Err(anyhow::anyhow!(
+                            "MCP lifecycle start failed for server '{}': {}; started {} server(s) before failure and stopped {}",
+                            server_name,
+                            err_text,
+                            started.len(),
+                            stopped_count
+                        ));
+                    }
+                    Err(shutdown_err) => {
+                        log_lifecycle_event(
+                            audit,
+                            "shutdown",
+                            "manager",
+                            "error",
+                            Some("mcp_shutdown_failed"),
+                            Some(&shutdown_err.to_string()),
+                        );
+                        return Err(anyhow::anyhow!(
+                            "MCP lifecycle start failed for server '{}': {}; shutdown after partial start also failed: {}",
+                            server_name,
+                            err_text,
+                            shutdown_err
+                        ));
+                    }
+                }
+            }
+        }
     }
 
     let mut health = Vec::new();
@@ -188,9 +238,21 @@ fn run_lifecycle_check_inner(
 
     let managed_before_shutdown = manager.managed_names();
     let stopped = manager.shutdown_all();
-    if stopped.is_ok() {
-        for name in managed_before_shutdown {
-            log_lifecycle_event(audit, "shutdown", &name, "success", None, None);
+    match &stopped {
+        Ok(_) => {
+            for name in managed_before_shutdown {
+                log_lifecycle_event(audit, "shutdown", &name, "success", None, None);
+            }
+        }
+        Err(err) => {
+            log_lifecycle_event(
+                audit,
+                "shutdown",
+                "manager",
+                "error",
+                Some("mcp_shutdown_failed"),
+                Some(&err.to_string()),
+            );
         }
     }
 
@@ -297,6 +359,10 @@ mod tests {
         {
             server(name, "sh", &["-c", "exit 0"])
         }
+    }
+
+    fn invalid_server(name: &str) -> McpServerConfig {
+        server(name, "__fastcode_missing_mcp_command__", &[])
     }
 
     #[test]
@@ -408,6 +474,53 @@ mod tests {
         assert_eq!(records[0].result, "success");
         assert_eq!(records[1].tool, "mcp_lifecycle:health:filesystem");
         assert_eq!(records[1].result, "success");
+        assert_eq!(records[2].tool, "mcp_lifecycle:shutdown:filesystem");
+        assert_eq!(records[2].result, "success");
+
+        cleanup_dir(&temp_dir);
+    }
+
+    #[test]
+    fn lifecycle_check_start_failure_is_auditable_and_cleans_up_started_servers() {
+        let temp_dir = unique_temp_dir("mcp-lifecycle-start-failure");
+        cleanup_dir(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let log_path = temp_dir.join("audit.jsonl");
+        let logger = AuditLogger::new(&log_path);
+        let config = McpConfig {
+            servers: vec![
+                long_running_server("filesystem"),
+                invalid_server("broken-server"),
+            ],
+        };
+
+        let err = run_lifecycle_check_with_audit(&config, RuntimeMode::Edit, &logger)
+            .expect_err("lifecycle check should fail on invalid command");
+        let message = err.to_string();
+        assert!(
+            message.contains("MCP lifecycle start failed for server 'broken-server'"),
+            "{message}"
+        );
+        assert!(
+            message.contains("started 1 server(s) before failure and stopped 1"),
+            "{message}"
+        );
+
+        let raw = std::fs::read_to_string(&log_path).unwrap();
+        let records = raw
+            .lines()
+            .map(|line| serde_json::from_str::<AuditRecord>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(records.len(), 3);
+
+        assert_eq!(records[0].tool, "mcp_lifecycle:start:filesystem");
+        assert_eq!(records[0].result, "success");
+
+        assert_eq!(records[1].tool, "mcp_lifecycle:start:broken-server");
+        assert_eq!(records[1].result, "error");
+        assert_eq!(records[1].error_code.as_deref(), Some("mcp_start_failed"));
+
         assert_eq!(records[2].tool, "mcp_lifecycle:shutdown:filesystem");
         assert_eq!(records[2].result, "success");
 

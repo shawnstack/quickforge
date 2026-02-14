@@ -747,3 +747,50 @@ Next Priority
 
 Completion Snapshot
 - 20/20 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 19)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository state in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Ran environment/bootstrap and regression pre-checks before new work:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep80,sleep80,Up,Down,q'; cargo run -- --mode edit --tui`
+- Added and completed new high-priority unfinished item:
+  - Added `F-017`: MCP lifecycle start-failure telemetry and cleanup auditability.
+  - Updated `src/mcp/lifecycle.rs` to use incremental server startup, emit start-error audit records (`mcp_start_failed`), and force shutdown cleanup for already-started servers before returning failure.
+  - Added shutdown-error audit emission for failed teardown paths.
+- Updated docs/tracking artifacts:
+  - `README.md` troubleshooting note for partial startup cleanup + audit event inspection.
+  - `feature_list.json` extended with `F-017` and evidence.
+
+Verified checklist items
+- `F-017` passed with:
+  - `cargo test mcp::lifecycle` (6 passed, 0 failed).
+  - `cargo test` full suite (41 passed, 0 failed).
+  - Real failure-path run:
+    - `cargo run -- --mode edit mcp check-lifecycle --mcp-config target/mcp-lifecycle-failure-test.json --audit-log target/mcp-lifecycle-failure-audit.jsonl`
+    - CLI returned explicit error including failed server and cleanup counts (`started 1 ... stopped 1`).
+    - Audit JSONL recorded `mcp_lifecycle:start:sleepy` success, `mcp_lifecycle:start:broken` error (`mcp_start_failed`), and `mcp_lifecycle:shutdown:sleepy` success.
+- Post-change regression recheck passed:
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='h,i,Enter,sleep80,sleep80,Up,Down,q'; cargo run -- --mode edit --tui`
+
+Issues found and fixed
+- Gap: lifecycle startup failure previously aborted immediately on `start_all` error, with limited telemetry and no explicit partial-start cleanup reporting.
+- Fix: staged startup + cleanup with explicit error payload and audit events for failed server startup and cleanup stage.
+
+Next Priority
+1. Add live MCP status refresh inside the TUI loop (currently diagnostics are launch-time snapshot).
+2. Expand MCP lifecycle shutdown-failure simulation tests to assert manager-level error telemetry under forced kill/wait failures.
+3. Consider deprecation messaging timeline for legacy MCP flags once downstream scripts migrate to subcommands.
+
+Completion Snapshot
+- 21/21 checklist items passing.

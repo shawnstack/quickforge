@@ -123,6 +123,7 @@ cargo run -v -- --mode edit
 - TUI MCP diagnostics shows `invalid-config`: ensure the JSON file is valid UTF-8 JSON and follows `docs/mcp-servers.example.json` schema.
 - MCP lifecycle check fails due missing config: run with `mcp check-lifecycle --mcp-config <path>`.
 - MCP lifecycle audit missing: provide `--audit-log <path-to-jsonl>` when running lifecycle check.
+- MCP lifecycle startup fails for one server: output now includes partial cleanup counts (`started N ... stopped M`); inspect `mcp_lifecycle:start:*` and `mcp_lifecycle:shutdown:*` records in the audit JSONL for exact failure stage.
 
 ## State Tracking Files
 - Checklist: `feature_list.json`

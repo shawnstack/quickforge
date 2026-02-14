@@ -3,10 +3,10 @@ use clap::Parser;
 use fastcode::audit::logger::AuditLogger;
 use fastcode::mcp::config::McpConfig;
 use fastcode::mcp::lifecycle::{
-    McpServerHealth, run_lifecycle_check, run_lifecycle_check_with_audit,
+    McpLifecycleReport, McpServerHealth, run_lifecycle_check, run_lifecycle_check_with_audit,
 };
 use fastcode::modes::runtime_mode::RuntimeMode;
-use fastcode::tui;
+use fastcode::tui::{self, McpDiagnostics};
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -97,10 +97,70 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if cli.tui {
-        tui::run_app(mode)?;
+        let mcp_diagnostics = match cli.mcp_config.as_ref() {
+            Some(config_path) => Some(build_mcp_diagnostics(config_path)),
+            None => None,
+        };
+        tui::run_app_with_mcp_diagnostics(mode, mcp_diagnostics)?;
     } else {
         println!("fastcode bootstrap running in mode: {}", mode);
         println!("hint: run with --tui to launch the terminal UI");
     }
     Ok(())
+}
+
+fn build_mcp_diagnostics(config_path: &PathBuf) -> McpDiagnostics {
+    match McpConfig::load_from_path(config_path) {
+        Ok(config) => match run_lifecycle_check(&config) {
+            Ok(report) => diagnostics_from_report(&report),
+            Err(err) => McpDiagnostics {
+                status_label: "error".to_string(),
+                messages: vec![format!("system: MCP diagnostics failed: {}", err)],
+            },
+        },
+        Err(err) => McpDiagnostics {
+            status_label: "invalid-config".to_string(),
+            messages: vec![format!(
+                "system: MCP config load failed ({}): {}",
+                config_path.display(),
+                err
+            )],
+        },
+    }
+}
+
+fn diagnostics_from_report(report: &McpLifecycleReport) -> McpDiagnostics {
+    let mut running = 0usize;
+    let mut exited = Vec::new();
+    for (name, state) in &report.health {
+        match state {
+            McpServerHealth::Running => running += 1,
+            McpServerHealth::Exited(code) => exited.push((name.clone(), *code)),
+        }
+    }
+
+    let total = report.health.len();
+    if exited.is_empty() {
+        return McpDiagnostics {
+            status_label: format!("ok {running}/{total}"),
+            messages: vec![format!(
+                "system: MCP diagnostics healthy ({running}/{total} running)"
+            )],
+        };
+    }
+
+    let mut messages = vec![format!(
+        "system: MCP diagnostics degraded ({running}/{total} running)"
+    )];
+    for (name, code) in exited {
+        messages.push(format!(
+            "system: MCP server '{}' exited during health check with code {:?}",
+            name, code
+        ));
+    }
+
+    McpDiagnostics {
+        status_label: format!("degraded {running}/{total}"),
+        messages,
+    }
 }

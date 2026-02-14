@@ -44,6 +44,11 @@ Launch TUI:
 cargo run -- --mode edit --tui
 ```
 
+Launch TUI with MCP diagnostics from config:
+```bash
+cargo run -- --mode edit --tui --mcp-config ./docs/mcp-servers.example.json
+```
+
 List MCP servers from config:
 ```bash
 cargo run -- --mode edit --list-mcp-servers --mcp-config ./docs/mcp-servers.example.json
@@ -115,6 +120,7 @@ cargo run -v -- --mode edit
 - Build fails after dependency changes: run `cargo clean` then `cargo build`.
 - Test mismatch across sessions: ensure latest `feature_list.json` and `claude-progress.txt` are committed.
 - MCP listing fails with config error: validate JSON shape against `docs/mcp-servers.example.json`.
+- TUI MCP diagnostics shows `invalid-config`: ensure the JSON file is valid UTF-8 JSON and follows `docs/mcp-servers.example.json` schema.
 - MCP lifecycle check fails due missing config: run with `--check-mcp-lifecycle --mcp-config <path>`.
 - MCP lifecycle audit missing: provide `--audit-log <path-to-jsonl>` when running lifecycle check.
 

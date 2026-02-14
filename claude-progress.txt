@@ -658,3 +658,48 @@ Next Priority
 
 Completion Snapshot
 - 18/18 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 17)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Verified startup + regression guardrails before new feature work:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep80,sleep80,Up,Down,q'; cargo run -- --mode edit --tui`
+- Expanded tracker with a new high-priority unfinished item and closed it end-to-end:
+  - Added `F-015`: TUI MCP runtime diagnostics visibility.
+  - Updated `src/tui/mod.rs` with `McpDiagnostics`, `App::new_with_mcp_diagnostics`, and `run_app_with_mcp_diagnostics`.
+  - Extended status bar to render `mcp: <state>` and message area to include diagnostics lines.
+  - Updated `src/main.rs` to derive MCP diagnostics from `--mcp-config` via lifecycle health probe before entering TUI.
+- Updated docs:
+  - Added TUI MCP diagnostics run command and troubleshooting note in `README.md`.
+
+Verified checklist items
+- `F-015` passed with:
+  - `cargo test` (40 passed, 0 failed), including new TUI diagnostics test.
+  - Real UI path with MCP config:
+    - `$env:FASTCODE_TUI_SCRIPT='h,i,Enter,sleep80,sleep80,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config target/mcp-tui-test.json`
+    - Status bar showed `mcp: ok 1/1`; input/submit/scroll flow remained functional.
+  - Invalid-config visibility path:
+    - launching TUI with malformed config showed `mcp: invalid-config` and explicit parse error in message area.
+
+Issues found and fixed
+- Initial temp MCP config write used an encoding path that produced parse failure during TUI diagnostics verification.
+- Fixed by rewriting the temp config as plain ASCII JSON and re-running the real UI flow successfully.
+- No core regression found in sampled CLI/TUI workflows after integration.
+
+Next Priority
+1. Add CLI subcommand structure to reduce flag-combination ambiguity as MCP workflows expand.
+2. Expand MCP lifecycle failure telemetry (startup/shutdown errors) into user-facing diagnostics and audit records.
+3. Expose live MCP status refresh inside TUI loop (not only launch-time diagnostics).
+
+Completion Snapshot
+- 19/19 checklist items passing.

@@ -301,5 +301,22 @@
       "2026-02-14: Real CLI verification with audit output: `cargo run -- --mode edit --check-mcp-lifecycle --mcp-config target/mcp-lifecycle-test.json --audit-log target/mcp-lifecycle-audit.jsonl` produced lifecycle success output and JSONL events `mcp_lifecycle:start:sleepy`, `mcp_lifecycle:health:sleepy`, `mcp_lifecycle:shutdown:sleepy` with mode `edit`."
     ],
     "passes": true
+  },
+  {
+    "id": "F-015",
+    "category": "functional",
+    "priority": "P1",
+    "description": "TUI surfaces MCP runtime diagnostics in status bar and message area when launched with --mcp-config.",
+    "steps": [
+      "Launch TUI with --mcp-config and a valid MCP server definition.",
+      "Verify status bar renders an MCP health state and message area includes diagnostics summary.",
+      "Verify invalid MCP config is shown as explicit diagnostics in UI without crashing input/submit flow."
+    ],
+    "evidence": [
+      "2026-02-14: Added `McpDiagnostics` injection path in `src/tui/mod.rs` (`App::new_with_mcp_diagnostics`, `run_app_with_mcp_diagnostics`) and rendered MCP state in status bar (`mcp: ...`) plus diagnostics messages in message area.",
+      "2026-02-14: Updated `src/main.rs` to run MCP lifecycle diagnostics before TUI launch when `--mcp-config` is provided; diagnostics now report `ok`, `degraded`, `error`, or `invalid-config` with explicit user-visible messages.",
+      "2026-02-14: Verification: `cargo test` passed (40 passed, 0 failed) including new TUI test `injects_mcp_diagnostics_into_status_and_messages`; real UI path `$env:FASTCODE_TUI_SCRIPT='h,i,Enter,sleep80,sleep80,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config target/mcp-tui-test.json` rendered `mcp: ok 1/1` in status bar while preserving input/submit/scroll flow; malformed/invalid config path rendered `mcp: invalid-config` and explicit parse error message in message area."
+    ],
+    "passes": true
   }
 ]

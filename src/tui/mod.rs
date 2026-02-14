@@ -18,6 +18,12 @@ const STREAM_CHUNK_INTERVAL_MS: u64 = 60;
 const STREAM_CHARS_PER_CHUNK: usize = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpDiagnostics {
+    pub status_label: String,
+    pub messages: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UiStatus {
     Idle,
     Processing,
@@ -43,6 +49,7 @@ pub struct App {
     mode: RuntimeMode,
     input: String,
     messages: Vec<String>,
+    mcp_status_label: String,
     status: UiStatus,
     should_quit: bool,
     scroll: u16,
@@ -53,10 +60,25 @@ pub struct App {
 
 impl App {
     pub fn new(mode: RuntimeMode) -> Self {
+        Self::new_with_mcp_diagnostics(mode, None)
+    }
+
+    pub fn new_with_mcp_diagnostics(
+        mode: RuntimeMode,
+        mcp_diagnostics: Option<McpDiagnostics>,
+    ) -> Self {
+        let mut messages = vec!["system: welcome to fastcode".to_string()];
+        let mut mcp_status_label = "off".to_string();
+        if let Some(diagnostics) = mcp_diagnostics {
+            mcp_status_label = diagnostics.status_label;
+            messages.extend(diagnostics.messages);
+        }
+
         Self {
             mode,
             input: String::new(),
-            messages: vec!["system: welcome to fastcode".to_string()],
+            messages,
+            mcp_status_label,
             status: UiStatus::Idle,
             should_quit: false,
             scroll: 0,
@@ -80,6 +102,10 @@ impl App {
 
     pub fn messages(&self) -> &[String] {
         &self.messages
+    }
+
+    pub fn mcp_status_label(&self) -> &str {
+        &self.mcp_status_label
     }
 
     pub fn should_quit(&self) -> bool {
@@ -178,6 +204,13 @@ fn chunk_text(text: &str) -> Vec<String> {
 }
 
 pub fn run_app(mode: RuntimeMode) -> anyhow::Result<()> {
+    run_app_with_mcp_diagnostics(mode, None)
+}
+
+pub fn run_app_with_mcp_diagnostics(
+    mode: RuntimeMode,
+    mcp_diagnostics: Option<McpDiagnostics>,
+) -> anyhow::Result<()> {
     let mut stdout = io::stdout();
     enable_raw_mode()?;
     execute!(stdout, EnterAlternateScreen)?;
@@ -186,7 +219,7 @@ pub fn run_app(mode: RuntimeMode) -> anyhow::Result<()> {
     if let Some((width, height)) = terminal_size_from_env() {
         terminal.resize(ratatui::layout::Rect::new(0, 0, width, height))?;
     }
-    let mut app = App::new(mode);
+    let mut app = App::new_with_mcp_diagnostics(mode, mcp_diagnostics);
     let size = terminal.size()?;
     app.on_resize(size.width, size.height);
     let scripted_actions = scripted_actions_from_env();
@@ -315,12 +348,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
         .split(frame.area());
 
     let status_text = format!(
-        " fastcode | mode: {} | status: {} | size: {}x{} | q quit ",
+        " fastcode | mode: {} | status: {} | mcp: {} | size: {}x{} | q quit ",
         app.mode(),
         match app.status() {
             UiStatus::Idle => "idle",
             UiStatus::Processing => "processing",
         },
+        app.mcp_status_label(),
         app.viewport_width,
         app.viewport_height
     );
@@ -351,7 +385,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
 #[cfg(test)]
 mod tests {
-    use super::{App, UiStatus, chunk_text, draw};
+    use super::{App, McpDiagnostics, UiStatus, chunk_text, draw};
     use crate::modes::runtime_mode::RuntimeMode;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
     use ratatui::{Terminal, backend::TestBackend};
@@ -437,10 +471,28 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let content = format!("{buffer:?}");
         assert!(content.contains("mode: auto"));
+        assert!(content.contains("mcp: off"));
         assert!(content.contains("size: 80x24"));
         assert!(content.contains("Messages"));
         assert!(content.contains("Input (Enter submit)"));
         assert!(content.contains("welcome to fastcode"));
+    }
+
+    #[test]
+    fn injects_mcp_diagnostics_into_status_and_messages() {
+        let app = App::new_with_mcp_diagnostics(
+            RuntimeMode::Edit,
+            Some(McpDiagnostics {
+                status_label: "ok 1/1".to_string(),
+                messages: vec!["system: MCP diagnostics: all healthy".to_string()],
+            }),
+        );
+        assert_eq!(app.mcp_status_label(), "ok 1/1");
+        assert!(
+            app.messages()
+                .iter()
+                .any(|message| message == "system: MCP diagnostics: all healthy")
+        );
     }
 
     #[test]

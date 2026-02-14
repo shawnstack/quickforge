@@ -746,5 +746,25 @@
       "2026-02-14: Full project regression passed: `cargo test` (53 lib tests + 10 bin tests, 0 failed)."
     ],
     "passes": true
+  },
+  {
+    "id": "F-044",
+    "category": "functional",
+    "priority": "P0",
+    "description": "Strict-events normalization remains stable under repeated resize bursts plus long MCP details, with deterministic per-label counters and truncation metadata.",
+    "steps": [
+      "Add a fixture that simulates repeated resize status snapshots and a long MCP details message, then normalize with `-Mode events -StrictEvents`.",
+      "Assert strict output keeps canonical status/user/system/assistant events, dedupes adjacent duplicate status snapshots, and truncates long details with marker.",
+      "Validate summary counters (`status_event_count`, `message_event_count`, per-label counts, `dedupe_suppressed_count`, `truncated_count`) and verify `system + user + assistant == message_event_count`.",
+      "Verify end-to-end behavior on a real scripted TUI MCP workflow with resize bursts and strict normalization, and ensure project regression suite remains green."
+    ],
+    "evidence": [
+      "2026-02-14: Added fixture `scripts/fixtures/normalize-tui-log/resize-burst-long-details.template.txt` to model repeated resize snapshots plus an oversized MCP details payload.",
+      "2026-02-14: Extended `scripts/test-normalize-tui-log-fixtures.ps1` with strict-events fixture assertions for canonical lines, dedupe behavior, truncation marker, summary counters, and per-label invariant check.",
+      "2026-02-14: Verification passed: `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log-fixtures.ps1` (`normalize-tui-log fixture tests: PASS`) and `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log.ps1` (`normalize-tui-log script tests: PASS`).",
+      "2026-02-14: Real UI verification: `cmd /c \"set FASTCODE_TUI_SCRIPT=resize120x40,resize80x24,resize120x40,h,i,Enter,sleep260,sleep260,v,resize80x24,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\\\docs\\\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\\\f044-resize-burst-mcp.log 2>&1\"`, then strict normalization `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/f044-resize-burst-mcp.log -OutputPath ./target/f044-resize-burst-mcp.strict.log -Mode events -StrictEvents -MaxEventLength 100 -SummaryPath ./target/f044-resize-burst-mcp.strict.summary.json`; summary reported `status_event_count=5`, `message_event_count=6`, `system_event_count=3`, `user_event_count=2`, `assistant_event_count=1`, `truncated_count=2`, and invariant `3+2+1=6` holds.",
+      "2026-02-14: Full regression passed: `cargo test` (53 lib tests + 10 bin tests, 0 failed)."
+    ],
+    "passes": true
   }
 ]

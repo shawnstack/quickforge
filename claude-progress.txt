@@ -1812,3 +1812,52 @@ Next Priority
 
 Completion Snapshot
 - 43/43 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 44)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository state/history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Confirmed tracker baseline before implementation:
+  - `total=43`, `passed=43`, `unpassed=0`, `blocked=0`
+- Executed startup/bootstrap and regression pre-checks before new implementation:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=h,e,l,l,o,Enter,sleep120,Up,Down,q && cargo run -- --mode edit --tui > target\regression-preflight-core-current.log 2>&1"`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=resize80x24,h,i,Enter,sleep260,sleep260,v,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\docs\mcp-servers.example.json --mcp-refresh-ms 200 > target\regression-preflight-mcp-current.log 2>&1"`
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-preflight-core-current.log -OutputPath ./target/regression-preflight-core-current.clean.log -Mode events -SummaryPath ./target/regression-preflight-core-current.summary.json`
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-preflight-mcp-current.log -OutputPath ./target/regression-preflight-mcp-current.clean.log -Mode events -SummaryPath ./target/regression-preflight-mcp-current.summary.json`
+- Added and completed one new high-priority unfinished item:
+  - Added `F-044` (P0): strict-events stability under repeated resize bursts plus long MCP details.
+  - Added fixture `scripts/fixtures/normalize-tui-log/resize-burst-long-details.template.txt`.
+  - Expanded `scripts/test-normalize-tui-log-fixtures.ps1` with strict-events assertions for status dedupe, truncation marker, per-label counters, and split-count invariant.
+  - Updated `feature_list.json` with `F-044` evidence.
+
+Verified checklist items
+- `F-044` passed with:
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log-fixtures.ps1` (`normalize-tui-log fixture tests: PASS`)
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log.ps1` (`normalize-tui-log script tests: PASS`)
+  - Real UI strict-events verification:
+    - `cmd /c "set FASTCODE_TUI_SCRIPT=resize120x40,resize80x24,resize120x40,h,i,Enter,sleep260,sleep260,v,resize80x24,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\docs\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\f044-resize-burst-mcp.log 2>&1"`
+    - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/f044-resize-burst-mcp.log -OutputPath ./target/f044-resize-burst-mcp.strict.log -Mode events -StrictEvents -MaxEventLength 100 -SummaryPath ./target/f044-resize-burst-mcp.strict.summary.json`
+    - Summary counters: `status_event_count=5`, `message_event_count=6`, `system_event_count=3`, `user_event_count=2`, `assistant_event_count=1`, `truncated_count=2`; invariant `3+2+1=6` holds.
+  - `cargo test` (53 lib tests + 10 bin tests, 0 failed)
+
+Issues found and fixed
+- Found verification race while collecting real UI evidence: normalization was initially run in parallel with log capture, producing an empty/partial summary.
+- Fix: reran normalization strictly after capture completion and validated counters from the finalized log.
+- No runtime panic/crash regressions detected in sampled core/MCP flows.
+
+Next Priority
+1. Add fixture coverage for strict-events + `-NoDedupe` interplay under resize bursts to lock down counter semantics when dedupe is disabled.
+2. Consider adding optional summary invariant fields (for example, explicit `label_sum`) to simplify downstream audits.
+3. Add a README strict-events evidence block that includes resize-burst workflow and expected counter interpretation.
+
+Completion Snapshot
+- 44/44 checklist items passing.

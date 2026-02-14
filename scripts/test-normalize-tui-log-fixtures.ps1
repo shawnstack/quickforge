@@ -16,6 +16,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $scriptPath = Join-Path $PSScriptRoot 'normalize-tui-log.ps1'
 $fixtureTemplatePath = Join-Path $PSScriptRoot 'fixtures\normalize-tui-log\noisy-mcp-fixture.template.txt'
 $overlayFixtureTemplatePath = Join-Path $PSScriptRoot 'fixtures\normalize-tui-log\noisy-overlay-fixture.template.txt'
+$resizeBurstFixtureTemplatePath = Join-Path $PSScriptRoot 'fixtures\normalize-tui-log\resize-burst-long-details.template.txt'
 $tmpDir = Join-Path $root 'target\normalize-fixture-tests'
 
 if (Test-Path $tmpDir) {
@@ -61,5 +62,31 @@ Assert-True -Condition (@($overlayStrictLines | Where-Object { $_ -eq 'assistant
 Assert-True -Condition (@($overlayStrictLines | Where-Object { $_ -like 'system: MCP details:*' }).Count -eq 0) -Message 'strict events mode should drop system lines that start from corrupted labels'
 Assert-True -Condition (@($overlayStrictLines | Where-Object { $_ -eq 'user: hi' }).Count -eq 1) -Message 'strict events mode should keep canonical user line'
 Assert-True -Condition (@($overlayStrictLines | Where-Object { $_ -like 'fastcode | mode: edit | status: idle | mcp: error r1 d0 | size: 80x24' }).Count -eq 1) -Message 'strict events mode should keep status snapshot'
+
+$resizeBurstInputPath = Join-Path $tmpDir 'resize-burst-long-details.log'
+$resizeBurstOutputPath = Join-Path $tmpDir 'resize-burst-long-details.clean.log'
+$resizeBurstSummaryPath = Join-Path $tmpDir 'resize-burst-long-details.summary.json'
+$resizeBurstTemplate = Get-Content -Raw -Path $resizeBurstFixtureTemplatePath
+$resizeBurstContent = $resizeBurstTemplate.Replace('<ESC>', [string]$esc)
+Set-Content -Path $resizeBurstInputPath -Value $resizeBurstContent -Encoding utf8
+
+powershell -ExecutionPolicy Bypass -File $scriptPath -InputPath $resizeBurstInputPath -OutputPath $resizeBurstOutputPath -Mode events -StrictEvents -MaxEventLength 100 -SummaryPath $resizeBurstSummaryPath | Out-Null
+$resizeBurstLines = Get-Content $resizeBurstOutputPath
+$resizeBurstSummary = Get-Content -Raw $resizeBurstSummaryPath | ConvertFrom-Json
+
+Assert-True -Condition (@($resizeBurstLines | Where-Object { $_ -eq 'fastcode | mode: edit | status: idle | mcp: ok r1 d0 | size: 120x40' }).Count -eq 1) -Message 'resize burst fixture should keep first status snapshot'
+Assert-True -Condition (@($resizeBurstLines | Where-Object { $_ -eq 'fastcode | mode: edit | status: idle | mcp: ok r2 d0 | size: 80x24' }).Count -eq 1) -Message 'resize burst fixture should dedupe adjacent duplicate status snapshot'
+Assert-True -Condition (@($resizeBurstLines | Where-Object { $_ -eq 'user: open diagnostics' }).Count -eq 1) -Message 'resize burst fixture should keep user event'
+Assert-True -Condition (@($resizeBurstLines | Where-Object { $_ -eq 'assistant: details rendered' }).Count -eq 1) -Message 'resize burst fixture should keep assistant event'
+Assert-True -Condition (@($resizeBurstLines | Where-Object { $_ -like 'system: MCP details:* ...' }).Count -eq 1) -Message 'resize burst fixture should truncate long system details with marker'
+Assert-True -Condition ($resizeBurstSummary.strict_events -eq $true) -Message 'resize burst summary should report strict events mode'
+Assert-True -Condition ($resizeBurstSummary.status_event_count -eq 2) -Message 'resize burst summary should report two status events'
+Assert-True -Condition ($resizeBurstSummary.message_event_count -eq 3) -Message 'resize burst summary should report three message events'
+Assert-True -Condition ($resizeBurstSummary.system_event_count -eq 1) -Message 'resize burst summary should report one system event'
+Assert-True -Condition ($resizeBurstSummary.user_event_count -eq 1) -Message 'resize burst summary should report one user event'
+Assert-True -Condition ($resizeBurstSummary.assistant_event_count -eq 1) -Message 'resize burst summary should report one assistant event'
+Assert-True -Condition ($resizeBurstSummary.dedupe_suppressed_count -eq 1) -Message 'resize burst summary should report one deduped duplicate'
+Assert-True -Condition ($resizeBurstSummary.truncated_count -eq 1) -Message 'resize burst summary should report one truncated long detail line'
+Assert-True -Condition (($resizeBurstSummary.system_event_count + $resizeBurstSummary.user_event_count + $resizeBurstSummary.assistant_event_count) -eq $resizeBurstSummary.message_event_count) -Message 'resize burst summary per-label totals should match message event count'
 
 Write-Host 'normalize-tui-log fixture tests: PASS'

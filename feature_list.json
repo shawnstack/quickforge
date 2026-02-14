@@ -612,5 +612,24 @@
       "2026-02-14: Full regression check passed: `cargo test` (53 lib tests + 10 bin tests, 0 failed)."
     ],
     "passes": true
+  },
+  {
+    "id": "F-033",
+    "category": "functional",
+    "priority": "P1",
+    "description": "Normalization script emits auditable summary counters for extracted output so session evidence can include deterministic event/dedupe/truncation statistics.",
+    "steps": [
+      "Run normalization in events mode with summary output enabled and verify summary includes mode, byte sizes, output line count, and events-specific counters.",
+      "Verify summary counters are consistent with normalized output semantics (event output line count, dedupe suppression count, truncation count).",
+      "Run against a real scripted TUI session log and retain summary JSON + normalized events output as handoff evidence."
+    ],
+    "evidence": [
+      "2026-02-14: Updated `scripts/normalize-tui-log.ps1` to add `-EmitSummary` and `-SummaryPath`, emitting JSON with `input_bytes`, `output_bytes`, `output_line_count`, plus events-mode counters (`event_candidate_count`, `event_output_line_count`, `dedupe_suppressed_count`, `truncated_count`, `dedupe_enabled`, `max_event_length`).",
+      "2026-02-14: Updated `scripts/test-normalize-tui-log.ps1` to validate summary semantics; verification command `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log.ps1` returned `normalize-tui-log script tests: PASS`.",
+      "2026-02-14: Fixture regression remained green via `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log-fixtures.ps1` (`normalize-tui-log fixture tests: PASS`).",
+      "2026-02-14: Real UI workflow evidence captured with scripted interactions (`cmd /c \"set FASTCODE_TUI_SCRIPT=resize80x24,h,i,Enter,sleep260,sleep260,v,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\\\docs\\\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\\\regression-preflight-mcp-iter35.log 2>&1\"`) and normalized via `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-preflight-mcp-iter35.log -OutputPath ./target/f033-mcp-events.log -Mode events -SummaryPath ./target/f033-mcp-events-summary.json`; summary showed parseable counters (`out_lines=8`, `dedupe_suppressed=0`, `truncated=2`) and output had no ESC bytes.",
+      "2026-02-14: Full regression check passed: `cargo test` (53 lib tests + 10 bin tests, 0 failed)."
+    ],
+    "passes": true
   }
 ]

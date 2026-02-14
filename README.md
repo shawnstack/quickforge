@@ -101,6 +101,8 @@ Modes:
 Options:
 - `-MaxEventLength <N>`: line-length cap used in `events` mode (default `240`, range `40..4000`).
 - `-NoDedupe`: disables adjacent-duplicate suppression in `events` mode.
+- `-EmitSummary`: prints JSON normalization summary to stdout (bytes, output lines, and `events` mode counters).
+- `-SummaryPath <path>`: writes the same JSON summary to a file for audit evidence.
 
 Script-level behavior checks:
 ```powershell

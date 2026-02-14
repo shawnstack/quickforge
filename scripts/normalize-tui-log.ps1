@@ -10,7 +10,11 @@ param(
   [ValidateRange(40, 4000)]
   [int]$MaxEventLength = 240,
 
-  [switch]$NoDedupe
+  [switch]$NoDedupe,
+
+  [switch]$EmitSummary,
+
+  [string]$SummaryPath
 )
 
 Set-StrictMode -Version Latest
@@ -80,6 +84,9 @@ function Extract-TuiEvents {
   )
 
   $events = [System.Collections.Generic.List[string]]::new()
+  $candidateCount = 0
+  $dedupeSuppressed = 0
+  $truncatedCount = 0
   $normalized = [Regex]::Replace($Text, '[^\x09\x0A\x0D\x20-\x7E]', ' ')
   $statusPattern = 'fastcode \| mode: [A-Za-z]+ \| status: [A-Za-z]+ \| mcp: [A-Za-z0-9\- ]+ \| size: \d+x\d+'
   $tokenPattern = '(?<status>fastcode \| mode: [A-Za-z]+ \| status: [A-Za-z]+ \| mcp: [A-Za-z0-9\- ]+ \| size: \d+x\d+)|(?<message>(?:system|user|assistant):\s*.*?)(?=(?:fastcode \| mode:|system:|user:|assistant:|$))'
@@ -105,13 +112,17 @@ function Extract-TuiEvents {
       continue
     }
 
+    $candidateCount++
+
     if ($line.Length -gt $LineMaxLength) {
+      $truncatedCount++
       $line = $line.Substring(0, $LineMaxLength) + ' ...'
     }
 
     if (-not $DisableDedupe) {
       $lastIndex = $events.Count - 1
       if ($lastIndex -ge 0 -and $events[$lastIndex] -eq $line) {
+        $dedupeSuppressed++
         continue
       }
     }
@@ -119,19 +130,28 @@ function Extract-TuiEvents {
     $events.Add($line)
   }
 
-  return ($events -join [Environment]::NewLine)
+  return [PSCustomObject]@{
+    text = ($events -join [Environment]::NewLine)
+    candidate_count = $candidateCount
+    output_line_count = $events.Count
+    dedupe_suppressed_count = $dedupeSuppressed
+    truncated_count = $truncatedCount
+  }
 }
 
 $resolvedInputPath = Resolve-Path $InputPath -ErrorAction Stop
 $outputPath = Resolve-OutputPath -SourcePath $resolvedInputPath -RequestedOutputPath $OutputPath
+$inputBytes = (Get-Item $resolvedInputPath).Length
 
 $raw = Get-Content -Raw -Path $resolvedInputPath
 $raw = $raw -replace "`r`n", "`n"
 $raw = $raw -replace "`r", "`n"
 
 $clean = Remove-AnsiSequences -Text $raw
+$eventStats = $null
 if ($Mode -eq 'events') {
-  $clean = Extract-TuiEvents -Text $clean -LineMaxLength $MaxEventLength -DisableDedupe $NoDedupe.IsPresent
+  $eventStats = Extract-TuiEvents -Text $clean -LineMaxLength $MaxEventLength -DisableDedupe $NoDedupe.IsPresent
+  $clean = $eventStats.text
 }
 
 $directory = Split-Path -Parent $outputPath
@@ -140,9 +160,46 @@ if ($directory -and -not (Test-Path $directory)) {
 }
 
 Set-Content -Path $outputPath -Value $clean -Encoding utf8
+$outputBytes = (Get-Item $outputPath).Length
 Write-Host "normalized log written: $outputPath"
 Write-Host "mode: $Mode"
 if ($Mode -eq 'events') {
   Write-Host "max_event_length: $MaxEventLength"
   Write-Host "dedupe: $(-not $NoDedupe.IsPresent)"
+}
+
+if ($EmitSummary.IsPresent -or $SummaryPath) {
+  $summary = [ordered]@{
+    mode = $Mode
+    input_path = [string]$resolvedInputPath
+    output_path = $outputPath
+    input_bytes = $inputBytes
+    output_bytes = $outputBytes
+    output_line_count = @(($clean -split "`n") | Where-Object { $_.Length -gt 0 }).Count
+  }
+
+  if ($Mode -eq 'events' -and $null -ne $eventStats) {
+    $summary.max_event_length = $MaxEventLength
+    $summary.dedupe_enabled = (-not $NoDedupe.IsPresent)
+    $summary.event_candidate_count = $eventStats.candidate_count
+    $summary.event_output_line_count = $eventStats.output_line_count
+    $summary.dedupe_suppressed_count = $eventStats.dedupe_suppressed_count
+    $summary.truncated_count = $eventStats.truncated_count
+  }
+
+  $summaryJson = $summary | ConvertTo-Json
+  if ($EmitSummary.IsPresent) {
+    Write-Host 'summary:'
+    Write-Host $summaryJson
+  }
+
+  if ($SummaryPath) {
+    $summaryDirectory = Split-Path -Parent $SummaryPath
+    if ($summaryDirectory -and -not (Test-Path $summaryDirectory)) {
+      New-Item -ItemType Directory -Path $summaryDirectory | Out-Null
+    }
+
+    Set-Content -Path $SummaryPath -Value $summaryJson -Encoding utf8
+    Write-Host "summary written: $SummaryPath"
+  }
 }

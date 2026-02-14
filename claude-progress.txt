@@ -1462,3 +1462,48 @@ Next Priority
 
 Completion Snapshot
 - 36/36 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 35)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository state/history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Confirmed tracker baseline before implementation:
+  - `total=36`, `passed=36`, `unpassed=0`, `blocked=0`
+- Executed startup/bootstrap and regression pre-checks before new implementation:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=h,e,l,l,o,Enter,sleep120,Up,Down,q && cargo run -- --mode edit --tui > target\regression-preflight-core-iter35.log 2>&1"`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=resize80x24,h,i,Enter,sleep260,sleep260,v,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\docs\mcp-servers.example.json --mcp-refresh-ms 200 > target\regression-preflight-mcp-iter35.log 2>&1"`
+- Added and completed one new high-priority unfinished item:
+  - Added `F-033`: auditable normalization summary counters for TUI log evidence.
+  - Updated `scripts/normalize-tui-log.ps1` with `-EmitSummary` and `-SummaryPath` and JSON summary fields for bytes/lines plus events counters (`event_candidate_count`, `event_output_line_count`, `dedupe_suppressed_count`, `truncated_count`).
+  - Updated `scripts/test-normalize-tui-log.ps1` with summary assertions.
+  - Updated `README.md` normalization options to document summary output switches.
+
+Verified checklist items
+- `F-033` passed with:
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log.ps1` (`normalize-tui-log script tests: PASS`)
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log-fixtures.ps1` (`normalize-tui-log fixture tests: PASS`)
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-preflight-mcp-iter35.log -OutputPath ./target/f033-mcp-events.log -Mode events -SummaryPath ./target/f033-mcp-events-summary.json`
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-preflight-core-iter35.log -OutputPath ./target/f033-core-events.log -Mode events -SummaryPath ./target/f033-core-events-summary.json`
+  - Summary checks: `mcp_summary: mode=events out_lines=8 dedupe_suppressed=0 truncated=2`; `core_summary: mode=events out_lines=6 dedupe_suppressed=0 truncated=0`; both normalized outputs had `contains_esc=False`.
+  - `cargo test` (53 lib tests + 10 bin tests, 0 failed)
+
+Issues found and fixed
+- No critical regressions found during preflight.
+- Addressed evidence-audit gap: normalization pipeline previously lacked machine-readable counters for dedupe/truncation behavior; fixed via summary JSON output and test coverage.
+
+Next Priority
+1. Tighten token boundaries in `events` extraction so malformed ANSI-corrupted fragments are less likely to merge adjacent message labels in very noisy captures.
+2. Add one fixture variant that intentionally interleaves resize bursts + MCP detail expansion to lock expected summary counter behavior over noisy transitions.
+3. Optionally expose a compact `-SummaryFormat compact` mode for easier grep/CI ingestion.
+
+Completion Snapshot
+- 37/37 checklist items passing.

@@ -32,3 +32,35 @@ Next Priority
 Completion Snapshot
 - 2/14 checklist items passing.
 - Baseline/bootstrapping complete and ready for coding agent handoff.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent)
+
+Completed this session
+- Reconstructed context from authoritative artifacts: app_spec.txt, feature_list.json, README.md, claude-progress.txt, git history.
+- Ran environment bootstrap and regression checks:
+  - powershell -ExecutionPolicy Bypass -File ./init.ps1
+  - cargo run -- --mode edit
+  - cargo run -- --mode plan
+- Implemented runtime mode module for plan/edit/auto in `src/modes/runtime_mode.rs` with:
+  - capability matrix (`can_write`, `can_execute`, `requires_approval`)
+  - normalized string conversion and display
+  - strict mode parsing with explicit validation error
+- Integrated runtime mode into CLI startup path in `src/main.rs`.
+- Added/ran tests for permission matrix and parsing/round-trip behavior.
+
+Verified checklist items
+- F-003 passed with command and test evidence recorded in feature_list.json.
+
+Issues found and fixed
+- No regression found in selected core flows (bootstrap and mode startup).
+- Added explicit invalid mode handling (`invalid runtime mode ... expected one of: plan, edit, auto`) to prevent silent misconfiguration.
+
+Next Priority
+1. Implement policy validator with allow/deny/protected path checks (F-004).
+2. Implement approval persistence manager (F-005).
+3. Implement session manager create/list/load/switch flow (F-006).
+
+Completion Snapshot
+- 3/14 checklist items passing.

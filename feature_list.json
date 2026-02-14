@@ -40,8 +40,12 @@
       "Run cargo test and verify all permission assertions pass.",
       "Record test output snippet in evidence."
     ],
-    "evidence": [],
-    "passes": false
+    "evidence": [
+      "2026-02-14: Added src/modes/runtime_mode.rs with plan/edit/auto capability matrix (can_write/can_execute/requires_approval) and parsing.",
+      "2026-02-14: cargo test passed with test_runtime_mode_permissions and runtime mode parse/round-trip tests (5 passed, 0 failed).",
+      "2026-02-14: cargo run -- --mode edit|plan|auto exited 0; cargo run -- --mode invalid failed with explicit mode validation error."
+    ],
+    "passes": true
   },
   {
     "id": "F-004",

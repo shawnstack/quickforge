@@ -253,3 +253,43 @@ Next Priority
 
 Completion Snapshot
 - 8/14 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 7)
+
+Completed this session
+- Reconstructed full session context from authoritative artifacts and git history before coding.
+- Ran bootstrap and pre-development regression checks:
+  - `./init.ps1`
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,Up,Down,q'; cargo run -- --mode edit --tui`
+- Implemented P0 streaming UI behavior for `F-009` in `src/tui/mod.rs`:
+  - Replaced single-shot delayed reply with incremental chunked streaming using `StreamState`, `chunk_text`, and tick-driven appends.
+  - Added scripted action support for `sleepNN`/`waitNN` in `FASTCODE_TUI_SCRIPT` to validate multi-step stream rendering in real UI flow.
+  - Kept input loop non-blocking during processing (typing remains available; only submit is gated while processing).
+- Added/updated tests for streaming and non-blocking interaction:
+  - `processing_transitions_back_to_idle_and_appends_assistant_reply`
+  - `streaming_does_not_block_user_typing_during_processing`
+  - `parses_scripted_key_sequence_tokens`
+  - `chunking_keeps_stream_order_stable`
+- Executed verification:
+  - `cargo fmt`
+  - `cargo test` (24 passed, 0 failed)
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep80,sleep80,sleep80,sleep80,sleep80,Down,q'; cargo run -- --mode edit --tui`
+  - Observed terminal output evidence of incremental assistant stream chunks (`rece` -> `ived` -> `hell` -> `o`) and final status transition `processing -> idle`.
+
+Verified checklist items
+- F-009 passed with implementation + tests + real scripted UI evidence recorded in `feature_list.json`.
+
+Issues found and fixed
+- Validation gap: previous scripted TUI flow could not model timed waits for stream observation.
+- Fix: added scripted sleep actions to support deterministic end-to-end streaming verification without bypassing UI loop.
+
+Next Priority
+1. Validate and close `NF-001` by recording explicit cross-session reconstruction evidence in checklist.
+2. Implement audit logger with JSONL invocation records (`F-010`).
+3. Implement safety-default verification path for denied commands via tool interface (`NF-003`).
+
+Completion Snapshot
+- 9/14 checklist items passing.

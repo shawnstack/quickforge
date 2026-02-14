@@ -142,8 +142,12 @@
       "Observe incremental rendering in UI.",
       "Verify completion event closes stream cleanly."
     ],
-    "evidence": [],
-    "passes": false
+    "evidence": [
+      "2026-02-14: Upgraded `src/tui/mod.rs` to stream assistant output incrementally via chunked tick-based rendering (`STREAM_CHUNK_INTERVAL_MS`, `chunk_text`, `StreamState`) instead of single-shot delayed append.",
+      "2026-02-14: Added TUI tests for streaming lifecycle and non-blocking input during processing (`processing_transitions_back_to_idle_and_appends_assistant_reply`, `streaming_does_not_block_user_typing_during_processing`) and ran `cargo test` (24 passed, 0 failed).",
+      "2026-02-14: Verified real scripted UI flow with incremental render and clean completion: `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep80,sleep80,sleep80,sleep80,sleep80,Down,q'; cargo run -- --mode edit --tui` (terminal output showed chunk-by-chunk assistant text growth and status returning `processing -> idle`)."
+    ],
+    "passes": true
   },
   {
     "id": "F-010",

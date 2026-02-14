@@ -184,6 +184,23 @@
     "passes": true
   },
   {
+    "id": "F-012",
+    "category": "functional",
+    "priority": "P1",
+    "description": "MCP process manager can spawn configured servers, report health, and shut them down cleanly.",
+    "steps": [
+      "Start at least one MCP server process from validated config.",
+      "Check server health state while running and after process exit.",
+      "Shut down managed process(es) and verify no running handles remain."
+    ],
+    "evidence": [
+      "2026-02-14: Added MCP lifecycle manager in `src/mcp/lifecycle.rs` with process spawn (`start_server`/`start_all`), runtime health checks (`health` => running/exited), and graceful teardown (`shutdown_server`/`shutdown_all`).",
+      "2026-02-14: Added lifecycle tests for full workflow and exit-state handling: `starts_checks_health_and_shuts_down_server`, `reports_exited_server_health_state`, `starts_and_stops_all_servers_from_config`; verified with `cargo test mcp::lifecycle` (3 passed, 0 failed).",
+      "2026-02-14: Regression checks passed after MCP lifecycle integration: `cargo test` (37 passed, 0 failed), `cargo run -- --mode edit`, and scripted real TUI flow `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep80,sleep80,Up,Down,q'; cargo run -- --mode edit --tui`."
+    ],
+    "passes": true
+  },
+  {
     "id": "NF-001",
     "category": "non-functional",
     "priority": "P0",

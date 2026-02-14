@@ -526,3 +526,48 @@ Next Priority
 
 Completion Snapshot
 - 15/15 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 14)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repo history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Verified repository state and checklist statistics before coding:
+  - `total=15`
+  - `pending=0`
+- Ran environment startup and regression pre-checks before new feature work:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep80,sleep80,Up,Down,q'; cargo run -- --mode edit --tui`
+- Added new high-priority unfinished item from app_spec follow-up scope and completed it end-to-end:
+  - Added `F-012` (MCP process lifecycle management).
+  - Implemented `src/mcp/lifecycle.rs` with `McpProcessManager` and lifecycle APIs:
+    - process spawn: `start_server`, `start_all`
+    - health checks: `health` (running/exited)
+    - clean shutdown: `shutdown_server`, `shutdown_all`
+    - operator visibility: `managed_names`
+  - Exported module via `src/mcp/mod.rs`.
+
+Verified checklist items
+- `F-012` passed with:
+  - Targeted lifecycle tests: `cargo test mcp::lifecycle` (3 passed, 0 failed).
+  - Full regression: `cargo test` (37 passed, 0 failed).
+  - Real user-path UI regression: `cargo run -- --mode edit` and scripted TUI interaction flow (input/submit/scroll/quit) exited 0.
+
+Issues found and fixed
+- No functional or UI regression detected in sampled core flows.
+- Observed transient cargo file-lock wait logs during parallel command execution; commands completed successfully.
+
+Next Priority
+1. Integrate MCP lifecycle manager into CLI workflow (start/health/shutdown command path with explicit errors).
+2. Add audit hooks for MCP lifecycle events to align with auditable multi-session operations.
+3. Expose MCP server runtime status in TUI status area for operator-visible diagnostics.
+
+Completion Snapshot
+- 16/16 checklist items passing.

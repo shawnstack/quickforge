@@ -319,12 +319,13 @@ pub fn run_app_with_mcp_diagnostics(
     let scripted_actions = scripted_actions_from_env();
     let mcp_refresh_interval =
         Duration::from_millis(mcp_refresh_interval_ms.unwrap_or(DEFAULT_MCP_REFRESH_INTERVAL_MS));
+    let mcp_config_for_refresh = mcp_config_path.clone();
     let result = run_loop(
         &mut terminal,
         &mut app,
         scripted_actions,
-        mcp_config_path,
         mcp_refresh_interval,
+        move || mcp_config_for_refresh.as_ref().map(refresh_mcp_diagnostics),
     );
     disable_raw_mode()?;
     std::io::stdout().execute(LeaveAlternateScreen)?;
@@ -335,8 +336,8 @@ fn run_loop<B: ratatui::backend::Backend>(
     terminal: &mut ratatui::Terminal<B>,
     app: &mut App,
     mut scripted_actions: VecDeque<ScriptAction>,
-    mcp_config_path: Option<PathBuf>,
     mcp_refresh_interval: Duration,
+    mut refresh_diagnostics: impl FnMut() -> Option<McpDiagnostics>,
 ) -> anyhow::Result<()> {
     let mut last_mcp_refresh_at = Instant::now() - mcp_refresh_interval;
     while !app.should_quit() {
@@ -359,11 +360,11 @@ fn run_loop<B: ratatui::backend::Backend>(
             }
         }
 
-        if let Some(config_path) = &mcp_config_path {
-            if last_mcp_refresh_at.elapsed() >= mcp_refresh_interval {
-                app.apply_mcp_refresh(refresh_mcp_diagnostics(config_path));
-                last_mcp_refresh_at = Instant::now();
+        if last_mcp_refresh_at.elapsed() >= mcp_refresh_interval {
+            if let Some(diagnostics) = refresh_diagnostics() {
+                app.apply_mcp_refresh(diagnostics);
             }
+            last_mcp_refresh_at = Instant::now();
         }
         app.on_tick();
     }
@@ -547,6 +548,7 @@ mod tests {
     use crate::modes::runtime_mode::RuntimeMode;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
     use ratatui::{Terminal, backend::TestBackend};
+    use std::collections::VecDeque;
     use std::time::{Duration, Instant};
 
     fn key(code: KeyCode) -> KeyEvent {
@@ -881,6 +883,69 @@ mod tests {
             messages: vec!["MCP diagnostics healthy (1/1 running)".to_string()],
         });
         assert_eq!(app.mcp_status_display(), "ok 1/1 r4 d1");
+    }
+
+    #[test]
+    fn scripted_loop_error_to_ok_transition_resets_dedup_and_keeps_user_flow() {
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).expect("terminal");
+        let mut app = App::new(RuntimeMode::Edit);
+        app.on_resize(100, 30);
+        let actions =
+            super::parse_scripted_actions("h,i,Enter,sleep5,sleep5,sleep5,sleep5,Up,Down,q");
+        let mut diagnostics = VecDeque::from(vec![
+            McpDiagnostics {
+                status_label: "error".to_string(),
+                messages: vec!["MCP diagnostics failed: sticky failure".to_string()],
+            },
+            McpDiagnostics {
+                status_label: "error".to_string(),
+                messages: vec!["MCP diagnostics failed: sticky failure".to_string()],
+            },
+            McpDiagnostics {
+                status_label: "ok 1/1".to_string(),
+                messages: vec!["MCP diagnostics healthy (1/1 running)".to_string()],
+            },
+            McpDiagnostics {
+                status_label: "ok 1/1".to_string(),
+                messages: vec!["MCP diagnostics healthy (1/1 running)".to_string()],
+            },
+        ]);
+
+        super::run_loop(
+            &mut terminal,
+            &mut app,
+            actions,
+            Duration::from_millis(1),
+            move || diagnostics.pop_front(),
+        )
+        .expect("run loop");
+
+        while app.status() == &UiStatus::Processing {
+            app.stream_state
+                .as_mut()
+                .expect("stream state exists")
+                .last_emit_at = Instant::now() - Duration::from_millis(100);
+            app.on_tick();
+        }
+
+        assert_eq!(app.mcp_status_display(), "ok 1/1 r4 d1");
+        assert!(
+            app.messages()
+                .iter()
+                .any(|m| m == "system: MCP refresh 1: MCP diagnostics failed: sticky failure")
+        );
+        assert!(
+            app.messages()
+                .iter()
+                .any(|m| m == "system: MCP refresh 3: MCP diagnostics healthy (1/1 running)")
+        );
+        assert!(app.messages().iter().any(|m| m == "user: hi"));
+        assert!(
+            app.messages()
+                .iter()
+                .any(|m| m.starts_with("assistant: received -> hi"))
+        );
     }
 
     #[test]

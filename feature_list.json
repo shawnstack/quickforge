@@ -523,5 +523,22 @@
       "2026-02-14: Real UI verification: `cmd /c \"set FASTCODE_TUI_SCRIPT=resize100x30,sleep260,sleep260,sleep260,sleep260,sleep260,h,i,Enter,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\\\target\\\\mcp-flaky-config.json --mcp-refresh-ms 200 > target\\\\f027-dedup-reset-transition.log 2>&1\"` exited 0; parsed evidence in `target/f027-dedup-reset-transition.clean.log` includes pre-transition `mcp: error r1 d0`, transition snapshot `invalid-config r4 d0` (counter reset on status change), and later `mcp: invalid-configr6 d2` with user flow retained (`user: hi`, `assistant: rece...`)."
     ],
     "passes": true
+  },
+  {
+    "id": "F-028",
+    "category": "functional",
+    "priority": "P1",
+    "description": "TUI MCP deduplication semantics stay correct across error-to-ok status transition in a deterministic scripted refresh harness.",
+    "steps": [
+      "Execute a deterministic scripted TUI loop with an injected MCP refresh sequence: error duplicate -> ok duplicate.",
+      "Verify status display reaches ok state and dedupe suppression counter resets for the new status phase before incrementing again on duplicate ok refresh.",
+      "Verify user input/submit/scroll flow remains functional throughout the scripted transition run."
+    ],
+    "evidence": [
+      "2026-02-14: Refactored `src/tui/mod.rs` run-loop MCP refresh integration to accept an injected diagnostics provider callback while preserving production behavior (`--mcp-config` path still maps to `refresh_mcp_diagnostics`).",
+      "2026-02-14: Added deterministic test `tui::tests::scripted_loop_error_to_ok_transition_resets_dedup_and_keeps_user_flow` covering refresh sequence `error/error/ok/ok`; verification: `cargo test scripted_loop_error_to_ok_transition_resets_dedup_and_keeps_user_flow` passed (1 passed, 0 failed).",
+      "2026-02-14: Full regression + real UI path checks passed: `cargo test` (52 lib tests + 10 bin tests, 0 failed); scripted real TUI workflow `cmd /c \"set FASTCODE_TUI_SCRIPT=h,e,l,l,o,Enter,sleep260,sleep260,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\docs\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\regression-preflight-iter30.log 2>&1\"` exited 0 with evidence log showing status/MCP and user interaction markers (`target/regression-preflight-iter30.clean.log`)."
+    ],
+    "passes": true
   }
 ]

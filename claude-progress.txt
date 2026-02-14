@@ -1237,3 +1237,44 @@ Next Priority
 
 Completion Snapshot
 - 31/31 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 30)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository state/history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Executed startup/bootstrap and regression pre-checks before new implementation:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=h,e,l,l,o,Enter,sleep260,sleep260,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\docs\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\regression-preflight-iter30.log 2>&1"`
+- Added and completed one new high-priority unfinished item:
+  - Added `F-028`: deterministic scripted MCP refresh harness coverage for `error -> ok` transition semantics.
+  - Refactored TUI run loop in `src/tui/mod.rs` so MCP refresh source is injected as a callback in `run_loop`, while production behavior remains unchanged through `--mcp-config` mapping to `refresh_mcp_diagnostics`.
+  - Added test `tui::tests::scripted_loop_error_to_ok_transition_resets_dedup_and_keeps_user_flow` validating sequence `error/error/ok/ok`, dedupe reset behavior (`dN`) on status transition, and preserved user interaction flow.
+- Updated docs/tracking artifacts:
+  - `feature_list.json` extended with `F-028` and verification evidence.
+
+Verified checklist items
+- `F-028` passed with:
+  - `cargo fmt`
+  - `cargo test scripted_loop_error_to_ok_transition_resets_dedup_and_keeps_user_flow` (1 passed, 0 failed)
+  - `cargo test` (52 lib tests + 10 bin tests, 0 failed)
+  - Real UI workflow evidence in `target/regression-preflight-iter30.log` (`target/regression-preflight-iter30.clean.log` includes MCP status + user interaction markers).
+
+Issues found and fixed
+- Testability gap: MCP refresh transition semantics in the event loop were only indirectly covered and coupled to runtime config lifecycle checks.
+- Fix: injected diagnostics provider into TUI run loop for deterministic scripted verification without runtime config mutation.
+
+Next Priority
+1. Add a focused deterministic loop test for `ok -> error -> ok` oscillation and verify dedupe/message append semantics remain stable over multiple phase flips.
+2. Improve ANSI log normalization utility to produce cleaner machine-parsable evidence from scripted TUI sessions.
+3. Consider exposing the latest MCP status-transition timestamp in TUI status/help text for operations troubleshooting.
+
+Completion Snapshot
+- 32/32 checklist items passing.

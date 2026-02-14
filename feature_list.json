@@ -193,8 +193,12 @@
       "Run timed cargo build.",
       "Store timing evidence and compare against previous baseline."
     ],
-    "evidence": [],
-    "passes": false
+    "evidence": [
+      "2026-02-14: Added reusable cold-start timing script `scripts/measure-cold-start.ps1` that clears `target/`, times `cargo build`, and appends JSONL records to `docs/cold-start-baseline.jsonl` with rust version and elapsed seconds.",
+      "2026-02-14: Captured two clean-build baseline samples via `powershell -ExecutionPolicy Bypass -File ./scripts/measure-cold-start.ps1`: first `elapsed_seconds=12.326`, second `elapsed_seconds=12.58`.",
+      "2026-02-14: Comparison output recorded by script against previous baseline: `delta_seconds=0.254 (2.06%, slower)`; tracking docs added at `docs/cold-start-baseline.md`."
+    ],
+    "passes": true
   },
   {
     "id": "NF-003",

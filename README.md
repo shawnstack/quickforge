@@ -74,6 +74,11 @@ Clippy:
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
+Cold-start timing baseline (PowerShell):
+```powershell
+./scripts/measure-cold-start.ps1
+```
+
 ## Debug
 - Enable backtrace:
   - PowerShell: `$env:RUST_BACKTRACE = "1"`

@@ -450,3 +450,37 @@ Next Priority
 
 Completion Snapshot
 - 13/14 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 12)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and verified repository/git status in a fresh window.
+- Ran environment/bootstrap and regression pre-checks before new work:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep80,sleep80,Up,Down,q'; cargo run -- --mode edit --tui`
+- Implemented cold-start baseline tracking workflow for `NF-002`:
+  - Added `scripts/measure-cold-start.ps1` to enforce clean-target timing, JSONL persistence, and previous-run delta reporting.
+  - Added `docs/cold-start-baseline.md` and baseline data file `docs/cold-start-baseline.jsonl` for auditable trend tracking.
+  - Updated `README.md` with the baseline capture command.
+- Captured and compared clean-build timings using real runs:
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/measure-cold-start.ps1` -> `elapsed_seconds: 12.326` (first baseline)
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/measure-cold-start.ps1` -> `elapsed_seconds: 12.58`, `delta_seconds: 0.254 (2.06%, slower)`
+- Ran post-change sanity regression:
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='t,e,s,t,Enter,sleep80,sleep80,Up,Down,q'; cargo run -- --mode edit --tui`
+
+Verified checklist items
+- `NF-002` passed with clean build timing evidence and previous-baseline comparison recorded in `feature_list.json`.
+
+Issues found and fixed
+- Script bootstrap issue: initial `measure-cold-start.ps1` placed `param(...)` below another statement, which PowerShell rejects.
+- Fix: moved `param(...)` to file header and re-ran measurements successfully.
+
+Next Priority
+1. All current checklist items are passing; next step is to expand feature list for next milestone (MCP integration, memory/rollback, or plan-mode expansion per app_spec scope).
+
+Completion Snapshot
+- 14/14 checklist items passing.

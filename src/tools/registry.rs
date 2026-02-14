@@ -1,3 +1,5 @@
+use crate::audit::logger::AuditLogger;
+use crate::modes::runtime_mode::RuntimeMode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -142,6 +144,29 @@ impl ToolRegistry {
             Ok(output) => ToolResultEnvelope::success(normalized, output),
             Err(err) => ToolResultEnvelope::error(normalized, err.code, err.message),
         }
+    }
+
+    pub fn execute_with_audit(
+        &self,
+        tool_name: &str,
+        args: &Value,
+        ctx: &ToolContext,
+        mode: RuntimeMode,
+        logger: &AuditLogger,
+    ) -> ToolResultEnvelope {
+        let result = self.execute(tool_name, args, ctx);
+        let outcome = match result.status {
+            ToolStatus::Success => "success",
+            ToolStatus::Error => "error",
+        };
+        let _ = logger.log_tool_invocation(
+            mode,
+            &result.tool,
+            outcome,
+            result.error_code.as_deref(),
+            result.error_message.as_deref(),
+        );
+        result
     }
 }
 

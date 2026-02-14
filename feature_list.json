@@ -159,8 +159,12 @@
       "Open audit log file and inspect JSONL entries.",
       "Verify required fields are present and parseable."
     ],
-    "evidence": [],
-    "passes": false
+    "evidence": [
+      "2026-02-14: Added audit logger module (`src/audit/logger.rs`) with JSONL append behavior and required fields (`timestamp_unix_ms`, `mode`, `tool`, `result`, `error_code`, `error_message`).",
+      "2026-02-14: Extended `ToolRegistry` with `execute_with_audit` in `src/tools/registry.rs` so tool invocations are logged with runtime mode and normalized success/error result.",
+      "2026-02-14: Added end-to-end tests `audit::logger::tests::appends_parseable_jsonl_records_with_required_fields` and `tools::builtin::tests::writes_audit_records_for_tool_invocations_across_modes`; `cargo test` passed (26 passed, 0 failed)."
+    ],
+    "passes": true
   },
   {
     "id": "NF-001",

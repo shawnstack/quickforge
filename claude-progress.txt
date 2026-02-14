@@ -331,3 +331,40 @@ Next Priority
 
 Completion Snapshot
 - 10/14 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 9)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and verified current git/worktree state before implementation.
+- Ran environment startup and pre-change regression checks:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep80,sleep80,Up,Down,q'; cargo run -- --mode edit --tui`
+- Implemented P1 audit logging workflow (`F-010`):
+  - Added `src/audit/mod.rs` and `src/audit/logger.rs` with JSONL append logger and `AuditRecord` fields: `timestamp_unix_ms`, `mode`, `tool`, `result`, `error_code`, `error_message`.
+  - Exported audit module via `src/lib.rs`.
+  - Added `ToolRegistry::execute_with_audit` in `src/tools/registry.rs` to keep existing execution behavior while logging mode + result for each invocation.
+- Added verification tests for required checklist behavior:
+  - `audit::logger::tests::appends_parseable_jsonl_records_with_required_fields`
+  - `tools::builtin::tests::writes_audit_records_for_tool_invocations_across_modes`
+- Ran post-change validation:
+  - `cargo fmt`
+  - `cargo test` (26 passed, 0 failed)
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep80,sleep80,Down,q'; cargo run -- --mode edit --tui`
+
+Verified checklist items
+- `F-010` passed with implementation + parseable JSONL audit evidence + cross-mode tool invocation verification.
+
+Issues found and fixed
+- No regressions detected in sampled core CLI/TUI workflows after audit integration.
+
+Next Priority
+1. Verify safety-default denied-command behavior through tool interface (`NF-003`).
+2. Capture and record cold-start build timing baseline (`NF-002`).
+3. Validate terminal UX behavior under 80x24 and 120x40 sizes (`NF-004`).
+
+Completion Snapshot
+- 11/14 checklist items passing.

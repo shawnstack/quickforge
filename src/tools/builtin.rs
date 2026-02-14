@@ -170,6 +170,8 @@ fn to_result_string(
 #[cfg(test)]
 mod tests {
     use super::register_builtin_tools;
+    use crate::audit::logger::AuditRecord;
+    use crate::modes::runtime_mode::RuntimeMode;
     use crate::tools::registry::{ToolContext, ToolRegistry, ToolStatus};
     use serde_json::json;
     use std::env;
@@ -230,6 +232,59 @@ mod tests {
         let not_found = registry.execute("missing", &json!({}), &repo_ctx);
         assert_eq!(not_found.status, ToolStatus::Error);
         assert_eq!(not_found.error_code.as_deref(), Some("tool_not_found"));
+
+        cleanup_dir(&temp_dir);
+    }
+
+    #[test]
+    fn writes_audit_records_for_tool_invocations_across_modes() {
+        let temp_dir = unique_temp_dir("tool-audit");
+        cleanup_dir(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let log_path = temp_dir.join("audit.jsonl");
+        let logger = crate::audit::logger::AuditLogger::new(&log_path);
+
+        let sample = temp_dir.join("sample.txt");
+        std::fs::write(&sample, "audit sample").unwrap();
+
+        let mut registry = ToolRegistry::new();
+        register_builtin_tools(&mut registry).unwrap();
+
+        let ctx = ToolContext::new(&temp_dir);
+        let shell = registry.execute_with_audit(
+            "shell",
+            &json!({ "command": "echo audit-ok" }),
+            &ctx,
+            RuntimeMode::Edit,
+            &logger,
+        );
+        assert_eq!(shell.status, ToolStatus::Success);
+
+        let file = registry.execute_with_audit(
+            "file",
+            &json!({ "path": "sample.txt" }),
+            &ctx,
+            RuntimeMode::Plan,
+            &logger,
+        );
+        assert_eq!(file.status, ToolStatus::Success);
+
+        let raw = std::fs::read_to_string(&log_path).unwrap();
+        let lines = raw.lines().collect::<Vec<_>>();
+        assert_eq!(lines.len(), 2);
+
+        let first: AuditRecord = serde_json::from_str(lines[0]).unwrap();
+        assert!(first.timestamp_unix_ms > 0);
+        assert_eq!(first.mode, RuntimeMode::Edit);
+        assert_eq!(first.tool, "shell");
+        assert_eq!(first.result, "success");
+
+        let second: AuditRecord = serde_json::from_str(lines[1]).unwrap();
+        assert!(second.timestamp_unix_ms >= first.timestamp_unix_ms);
+        assert_eq!(second.mode, RuntimeMode::Plan);
+        assert_eq!(second.tool, "file");
+        assert_eq!(second.result, "success");
 
         cleanup_dir(&temp_dir);
     }

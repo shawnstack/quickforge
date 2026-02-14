@@ -1,4 +1,5 @@
 pub mod modes;
+pub mod policy;
 
 pub fn app_name() -> &'static str {
     "fastcode"

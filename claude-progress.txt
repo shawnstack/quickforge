@@ -64,3 +64,34 @@ Next Priority
 
 Completion Snapshot
 - 3/14 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 2)
+
+Completed this session
+- Reconstructed session context from authoritative artifacts and confirmed repository state before coding.
+- Re-ran environment/bootstrap + regression flows:
+  - powershell -ExecutionPolicy Bypass -File ./init.ps1
+  - cargo run -- --mode edit
+  - cargo run -- --mode plan
+- Implemented policy validation module in `src/policy/validator.rs`:
+  - JSON-loadable policy config (`allow_command_prefixes`, `deny_command_patterns`, `protected_paths`)
+  - command validation with explicit deny/allow-list failures
+  - protected path blocking with explicit path-level error
+- Exported policy module from `src/lib.rs` via `pub mod policy`.
+- Added policy unit tests for required F-004 verification scenarios.
+
+Verified checklist items
+- F-004 passed with test + command evidence recorded in `feature_list.json`.
+
+Issues found and fixed
+- No functional regression found in sampled core flows (bootstrap and runtime mode startup).
+
+Next Priority
+1. Implement approval persistence manager (F-005).
+2. Implement session manager create/list/load/switch flow (F-006).
+3. Implement tool registry and normalized envelopes (F-007).
+
+Completion Snapshot
+- 4/14 checklist items passing.

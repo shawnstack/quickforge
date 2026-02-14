@@ -175,24 +175,28 @@ impl App {
     pub fn apply_mcp_refresh(&mut self, diagnostics: McpDiagnostics) {
         self.mcp_refresh_count = self.mcp_refresh_count.saturating_add(1);
         self.mcp_status_label = diagnostics.status_label.clone();
-        if let Some(summary) = diagnostics.messages.first() {
-            let signature = format!("{}|{}", diagnostics.status_label, summary);
-            if self.last_mcp_refresh_signature.as_deref() == Some(signature.as_str()) {
-                return;
-            }
-            let message = format!(
-                "system: MCP refresh {}: {}",
-                self.mcp_refresh_count, summary
-            );
-            let compact_width = if self.viewport_width == 0 {
-                DEFAULT_MESSAGE_COMPACT_WIDTH
-            } else {
-                self.viewport_width
-            };
-            self.messages
-                .push(compact_message_for_width(&message, compact_width));
-            self.last_mcp_refresh_signature = Some(signature);
+        let summary = diagnostics.messages.first().cloned().unwrap_or_else(|| {
+            format!(
+                "MCP diagnostics update ({}): no summary details provided",
+                diagnostics.status_label
+            )
+        });
+        let signature = format!("{}|{}", diagnostics.status_label, summary);
+        if self.last_mcp_refresh_signature.as_deref() == Some(signature.as_str()) {
+            return;
         }
+        let message = format!(
+            "system: MCP refresh {}: {}",
+            self.mcp_refresh_count, summary
+        );
+        let compact_width = if self.viewport_width == 0 {
+            DEFAULT_MESSAGE_COMPACT_WIDTH
+        } else {
+            self.viewport_width
+        };
+        self.messages
+            .push(compact_message_for_width(&message, compact_width));
+        self.last_mcp_refresh_signature = Some(signature);
     }
 
     pub fn on_key(&mut self, key: KeyEvent) {
@@ -765,6 +769,49 @@ mod tests {
 
         assert_eq!(app.mcp_status_display(), "error r2");
         assert_eq!(app.messages().len(), message_count_after_first);
+    }
+
+    #[test]
+    fn appends_new_refresh_message_when_summary_changes() {
+        let mut app = App::new(RuntimeMode::Edit);
+        app.apply_mcp_refresh(McpDiagnostics {
+            status_label: "error".to_string(),
+            messages: vec!["MCP diagnostics failed: same summary".to_string()],
+        });
+        let message_count_after_first = app.messages().len();
+
+        app.apply_mcp_refresh(McpDiagnostics {
+            status_label: "error".to_string(),
+            messages: vec!["MCP diagnostics failed: same summary".to_string()],
+        });
+        assert_eq!(app.messages().len(), message_count_after_first);
+
+        app.apply_mcp_refresh(McpDiagnostics {
+            status_label: "error".to_string(),
+            messages: vec!["MCP diagnostics failed: changed summary".to_string()],
+        });
+
+        assert_eq!(app.mcp_status_display(), "error r3");
+        assert_eq!(app.messages().len(), message_count_after_first + 1);
+        assert!(
+            app.messages()
+                .iter()
+                .any(|m| { m == "system: MCP refresh 3: MCP diagnostics failed: changed summary" })
+        );
+    }
+
+    #[test]
+    fn appends_fallback_refresh_message_when_summary_is_missing() {
+        let mut app = App::new(RuntimeMode::Edit);
+        app.apply_mcp_refresh(McpDiagnostics {
+            status_label: "degraded 0/1".to_string(),
+            messages: vec![],
+        });
+
+        assert_eq!(app.mcp_status_display(), "degraded 0/1 r1");
+        let last = app.messages().last().expect("fallback message exists");
+        assert!(last.contains("MCP refresh 1: MCP diagnostics update"));
+        assert!(last.contains("degraded 0/1"));
     }
 
     #[test]

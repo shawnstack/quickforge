@@ -52,6 +52,7 @@ cargo run -- --mode edit --tui --mcp-config ./docs/mcp-servers.example.json
 When `--mcp-config` is provided, TUI now refreshes MCP diagnostics continuously and shows a refresh counter in the status bar (`mcp: <state> rN`).
 Long MCP diagnostics messages are compacted in the message area with a truncation marker (for example `... (+129 chars)`) to keep narrow terminals readable.
 Consecutive identical MCP refresh summaries are deduplicated in the message area to avoid repeated spam while the status-bar refresh counter still advances.
+If an MCP refresh cycle returns no summary text, TUI emits a fallback diagnostics message instead of dropping the refresh event.
 Use `--mcp-refresh-ms <N>` to override the default refresh interval (800ms).
 Allowed range is `50..=60000` milliseconds.
 You can also set `FASTCODE_MCP_REFRESH_MS=<N>` for session-wide defaults (`--mcp-refresh-ms` takes precedence), using the same range.

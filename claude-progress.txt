@@ -1062,3 +1062,45 @@ Next Priority
 
 Completion Snapshot
 - 27/27 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 26)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository state/history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Ran environment/bootstrap and regression pre-checks before implementation:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep260,sleep260,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config ./docs/mcp-servers.example.json --mcp-refresh-ms 200`
+- Added and completed one new high-priority unfinished item:
+  - Added `F-024`: robust MCP refresh dedupe behavior when summaries change and when summary text is missing.
+  - Updated `src/tui/mod.rs` `App::apply_mcp_refresh` to generate a fallback diagnostics summary when `diagnostics.messages` is empty, while preserving duplicate suppression for identical signatures.
+  - Added tests `tui::tests::appends_new_refresh_message_when_summary_changes` and `tui::tests::appends_fallback_refresh_message_when_summary_is_missing`.
+- Updated docs/tracking artifacts:
+  - `README.md` documented fallback diagnostics message behavior for empty MCP summary refreshes.
+  - `feature_list.json` extended with `F-024` and verification evidence.
+
+Verified checklist items
+- `F-024` passed with:
+  - `cargo test` (47 library tests + 10 binary tests, 0 failed)
+  - Real UI regression flow:
+    - `$env:FASTCODE_TUI_SCRIPT='h,i,Enter,sleep260,sleep260,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config ./docs/mcp-servers.example.json --mcp-refresh-ms 200`
+    - Confirmed status refresh counter progression and intact input/submit/scroll interactions, exit 0.
+
+Issues found and fixed
+- Edge-case gap: when MCP refresh diagnostics had an empty `messages` payload, UI previously advanced refresh counter but emitted no refresh message, reducing operator observability.
+- Fix: added deterministic fallback summary text so each refresh cycle can surface a user-visible diagnostics line when needed, while keeping duplicate suppression and compaction intact.
+
+Next Priority
+1. Add optional UI affordance to inspect full untruncated MCP diagnostics payload for troubleshooting while keeping compact default rendering.
+2. Add focused lifecycle test coverage for MCP shutdown failure telemetry in forced kill/wait error paths.
+3. Evaluate exposing refresh-deduplication counters in status/help text for operator observability.
+
+Completion Snapshot
+- 28/28 checklist items passing.

@@ -454,5 +454,22 @@
       "2026-02-14: Real UI verification with repeated failing diagnostics: `cmd /c \"set FASTCODE_TUI_SCRIPT=h,i,Enter,sleep260,sleep260,sleep260,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\\\docs\\\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\\\f023-tui-dedupe.log 2>&1\"`; parsed log evidence in `target/f023-tui-dedupe.clean.log` showed `refresh1` without `refresh2/refresh3`, while status progressed to `errorr4`."
     ],
     "passes": true
+  },
+  {
+    "id": "F-024",
+    "category": "functional",
+    "priority": "P1",
+    "description": "TUI MCP refresh deduplication remains correct when summaries change and when diagnostics omit summary text.",
+    "steps": [
+      "Trigger repeated MCP refreshes with identical summary and verify duplicates are suppressed.",
+      "Trigger a subsequent MCP refresh with changed summary and verify a new refresh message is appended.",
+      "Trigger MCP refresh with empty diagnostics summary and verify a fallback user-visible message is emitted."
+    ],
+    "evidence": [
+      "2026-02-14: Hardened `App::apply_mcp_refresh` in `src/tui/mod.rs` to always derive a summary (with fallback text when `diagnostics.messages` is empty), keeping status updates auditable instead of silently skipping message output.",
+      "2026-02-14: Added tests `tui::tests::appends_new_refresh_message_when_summary_changes` and `tui::tests::appends_fallback_refresh_message_when_summary_is_missing`; `cargo test` passed full suite (47 lib tests + 10 bin tests, 0 failed).",
+      "2026-02-14: Real UI regression path verified with scripted interaction: `$env:FASTCODE_TUI_SCRIPT='h,i,Enter,sleep260,sleep260,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config ./docs/mcp-servers.example.json --mcp-refresh-ms 200` (status refresh + input/submit/scroll remained functional, exit 0)."
+    ],
+    "passes": true
   }
 ]

@@ -1,6 +1,7 @@
 use anyhow::Context;
 use clap::Parser;
 use fastcode::mcp::config::McpConfig;
+use fastcode::mcp::lifecycle::{McpServerHealth, run_lifecycle_check};
 use fastcode::modes::runtime_mode::RuntimeMode;
 use fastcode::tui;
 use std::path::PathBuf;
@@ -18,6 +19,8 @@ struct Cli {
     mcp_config: Option<PathBuf>,
     #[arg(long, default_value_t = false)]
     list_mcp_servers: bool,
+    #[arg(long, default_value_t = false)]
+    check_mcp_lifecycle: bool,
 }
 
 #[tokio::main]
@@ -35,6 +38,51 @@ async fn main() -> anyhow::Result<()> {
         for name in config.server_names() {
             println!("- {}", name);
         }
+        return Ok(());
+    }
+
+    if cli.check_mcp_lifecycle {
+        let config_path = cli
+            .mcp_config
+            .as_ref()
+            .with_context(|| "--check-mcp-lifecycle requires --mcp-config <path-to-json-config>")?;
+        let config = McpConfig::load_from_path(config_path)?;
+        let report = run_lifecycle_check(&config)?;
+
+        println!("started {} MCP server(s):", report.started.len());
+        for handle in &report.started {
+            println!("- {} (pid {})", handle.name, handle.pid);
+        }
+
+        println!("health check:");
+        let mut exited = Vec::new();
+        for (name, state) in &report.health {
+            match state {
+                McpServerHealth::Running => println!("- {}: running", name),
+                McpServerHealth::Exited(code) => {
+                    println!("- {}: exited ({:?})", name, code);
+                    exited.push(name.clone());
+                }
+            }
+        }
+
+        println!("shutdown complete: stopped {} server(s)", report.stopped);
+
+        if !exited.is_empty() {
+            anyhow::bail!(
+                "MCP lifecycle check failed: server(s) exited early: {}",
+                exited.join(", ")
+            );
+        }
+
+        if report.stopped != report.started.len() {
+            anyhow::bail!(
+                "MCP lifecycle check failed: started {} server(s) but stopped {}",
+                report.started.len(),
+                report.stopped
+            );
+        }
+
         return Ok(());
     }
 

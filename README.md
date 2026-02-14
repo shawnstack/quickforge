@@ -49,6 +49,11 @@ List MCP servers from config:
 cargo run -- --mode edit --list-mcp-servers --mcp-config ./docs/mcp-servers.example.json
 ```
 
+Check MCP lifecycle (start, health, shutdown) from config:
+```bash
+cargo run -- --mode edit --check-mcp-lifecycle --mcp-config ./docs/mcp-servers.example.json
+```
+
 TUI controls:
 - Type to edit input.
 - `Enter` submits message.
@@ -105,6 +110,7 @@ cargo run -v -- --mode edit
 - Build fails after dependency changes: run `cargo clean` then `cargo build`.
 - Test mismatch across sessions: ensure latest `feature_list.json` and `claude-progress.txt` are committed.
 - MCP listing fails with config error: validate JSON shape against `docs/mcp-servers.example.json`.
+- MCP lifecycle check fails due missing config: run with `--check-mcp-lifecycle --mcp-config <path>`.
 
 ## State Tracking Files
 - Checklist: `feature_list.json`

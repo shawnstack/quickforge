@@ -571,3 +571,46 @@ Next Priority
 
 Completion Snapshot
 - 16/16 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 15)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository state in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Ran bootstrap and pre-development regression checks:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep80,sleep80,Up,Down,q'; cargo run -- --mode edit --tui`
+- Added and completed new high-priority unfinished checklist item `F-013` (MCP lifecycle CLI workflow):
+  - Added lifecycle report helper `run_lifecycle_check` and `McpLifecycleReport` in `src/mcp/lifecycle.rs`.
+  - Added CLI flag `--check-mcp-lifecycle` in `src/main.rs`.
+  - Implemented explicit workflow output (`started`/`health`/`shutdown`) and actionable missing-config error.
+  - Added lifecycle report test `mcp::lifecycle::tests::lifecycle_check_reports_start_health_and_shutdown_counts`.
+- Updated docs and tracker artifacts:
+  - `README.md` updated with lifecycle command usage and troubleshooting note.
+  - `feature_list.json` extended with `F-013` and evidence.
+
+Verified checklist items
+- `F-013` passed with:
+  - Success path: `cargo run -- --mode edit --check-mcp-lifecycle --mcp-config <temp-config>` showed start/health/shutdown and exited 0.
+  - Failure path: `cargo run -- --mode edit --check-mcp-lifecycle` failed with explicit `--check-mcp-lifecycle requires --mcp-config <path-to-json-config>`.
+  - Tests: `cargo test` passed full suite (38 passed, 0 failed).
+
+Issues found and fixed
+- PowerShell quoting error while updating `feature_list.json` caused an initial write failure.
+- Fixed by switching to a script-block update path and reapplying the change successfully.
+- No functional/UI regressions detected in sampled CLI and TUI core flows after MCP lifecycle CLI integration.
+
+Next Priority
+1. Add audit hooks for MCP lifecycle events to align process operations with existing JSONL audit trail.
+2. Expose MCP runtime status in TUI status/message area for operator-visible diagnostics.
+3. Add CLI subcommand structure to avoid flag-combination ambiguity as MCP workflows expand.
+
+Completion Snapshot
+- 17/17 checklist items passing.

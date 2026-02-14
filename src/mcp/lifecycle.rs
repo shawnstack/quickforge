@@ -15,6 +15,13 @@ pub struct McpProcessHandle {
     pub pid: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpLifecycleReport {
+    pub started: Vec<McpProcessHandle>,
+    pub health: Vec<(String, McpServerHealth)>,
+    pub stopped: usize,
+}
+
 #[derive(Debug, Default)]
 pub struct McpProcessManager {
     processes: HashMap<String, Child>,
@@ -114,9 +121,43 @@ impl McpProcessManager {
     }
 }
 
+pub fn run_lifecycle_check(config: &McpConfig) -> Result<McpLifecycleReport> {
+    let mut manager = McpProcessManager::new();
+    let started = manager.start_all(config)?;
+
+    let mut health = Vec::new();
+    let mut health_error = None;
+    for name in manager.managed_names() {
+        match manager.health(&name) {
+            Ok(state) => health.push((name, state)),
+            Err(err) => {
+                health_error = Some(err);
+                break;
+            }
+        }
+    }
+
+    let stopped = manager.shutdown_all();
+
+    if let Some(err) = health_error {
+        if let Err(shutdown_err) = stopped {
+            return Err(err.context(format!(
+                "MCP lifecycle health check failed and shutdown also failed: {shutdown_err}"
+            )));
+        }
+        return Err(err);
+    }
+
+    Ok(McpLifecycleReport {
+        started,
+        health,
+        stopped: stopped?,
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{McpProcessManager, McpServerHealth};
+    use super::{McpProcessManager, McpServerHealth, run_lifecycle_check};
     use crate::mcp::config::{McpConfig, McpServerConfig};
     use std::collections::HashMap;
     use std::thread;
@@ -227,5 +268,19 @@ mod tests {
         let stopped = manager.shutdown_all().expect("shutdown all");
         assert_eq!(stopped, 2);
         assert!(manager.managed_names().is_empty());
+    }
+
+    #[test]
+    fn lifecycle_check_reports_start_health_and_shutdown_counts() {
+        let config = McpConfig {
+            servers: vec![long_running_server("filesystem")],
+        };
+
+        let report = run_lifecycle_check(&config).expect("run lifecycle check");
+        assert_eq!(report.started.len(), 1);
+        assert_eq!(report.health.len(), 1);
+        assert_eq!(report.stopped, 1);
+        assert_eq!(report.health[0].0, "filesystem");
+        assert_eq!(report.health[0].1, McpServerHealth::Running);
     }
 }

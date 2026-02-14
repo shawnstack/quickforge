@@ -267,5 +267,22 @@
       "2026-02-14: Verified real UI interaction path with keyboard + resize + submit/scroll in terminal loop: `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep80,sleep80,Up,Down,resize120x40,w,o,r,l,d,Enter,sleep80,sleep80,q'; cargo run -- --mode edit --tui` and `$env:FASTCODE_TUI_SCRIPT='t,e,s,t,Enter,sleep80,sleep80,resize80x24,Up,Down,b,a,c,k,Enter,sleep80,sleep80,q'; cargo run -- --mode edit --tui` (status updated to `size: 120x40` and `size: 80x24`, input/navigation remained functional, exited 0)."
     ],
     "passes": true
+  },
+  {
+    "id": "F-013",
+    "category": "functional",
+    "priority": "P1",
+    "description": "CLI can execute MCP lifecycle workflow (start/health/shutdown) with explicit success and failure errors.",
+    "steps": [
+      "Run lifecycle check command with a valid MCP config and observe start/health/shutdown output.",
+      "Run lifecycle check command without --mcp-config and verify explicit actionable error.",
+      "Confirm lifecycle workflow leaves no managed MCP handles after shutdown."
+    ],
+    "evidence": [
+      "2026-02-14: Added CLI flag --check-mcp-lifecycle in src/main.rs and integrated MCP lifecycle check flow via run_lifecycle_check in src/mcp/lifecycle.rs.",
+      "2026-02-14: Success-path real run with temp config: cargo run -- --mode edit --check-mcp-lifecycle --mcp-config <temp> printed started 1 MCP server(s), health check running, and shutdown complete: stopped 1 server(s).",
+      "2026-02-14: Failure-path real run: cargo run -- --mode edit --check-mcp-lifecycle exited 1 with --check-mcp-lifecycle requires --mcp-config <path-to-json-config>; lifecycle report test mcp::lifecycle::tests::lifecycle_check_reports_start_health_and_shutdown_counts plus full cargo test passed (38 passed, 0 failed)."
+    ],
+    "passes": true
   }
 ]

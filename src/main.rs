@@ -139,6 +139,9 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if cli.tui {
+        let env_refresh_value = std::env::var("FASTCODE_MCP_REFRESH_MS").ok();
+        let resolved_mcp_refresh_ms =
+            resolve_mcp_refresh_ms(cli.mcp_refresh_ms, env_refresh_value.as_deref())?;
         let mcp_diagnostics = match cli.mcp_config.as_ref() {
             Some(config_path) => Some(build_mcp_diagnostics(config_path)),
             None => None,
@@ -147,13 +150,40 @@ async fn main() -> anyhow::Result<()> {
             mode,
             mcp_diagnostics,
             cli.mcp_config.clone(),
-            cli.mcp_refresh_ms,
+            resolved_mcp_refresh_ms,
         )?;
     } else {
         println!("fastcode bootstrap running in mode: {}", mode);
         println!("hint: run with --tui to launch the terminal UI");
     }
     Ok(())
+}
+
+fn resolve_mcp_refresh_ms(
+    cli_value: Option<u64>,
+    env_value: Option<&str>,
+) -> anyhow::Result<Option<u64>> {
+    if cli_value.is_some() {
+        return Ok(cli_value);
+    }
+
+    let Some(raw) = env_value else {
+        return Ok(None);
+    };
+
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    let parsed = trimmed
+        .parse::<u64>()
+        .with_context(|| "FASTCODE_MCP_REFRESH_MS must be a positive integer (milliseconds)")?;
+    if parsed == 0 {
+        anyhow::bail!("FASTCODE_MCP_REFRESH_MS must be greater than 0");
+    }
+
+    Ok(Some(parsed))
 }
 
 fn resolve_action(cli: &Cli) -> anyhow::Result<CliAction> {
@@ -275,7 +305,7 @@ fn diagnostics_from_report(report: &McpLifecycleReport) -> McpDiagnostics {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, CliAction, resolve_action};
+    use super::{Cli, CliAction, resolve_action, resolve_mcp_refresh_ms};
     use clap::Parser;
     use std::path::PathBuf;
 
@@ -344,6 +374,39 @@ mod tests {
         assert!(
             err.to_string()
                 .contains("invalid value '0' for '--mcp-refresh-ms <MCP_REFRESH_MS>'"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn resolves_mcp_refresh_interval_from_env_when_cli_missing() {
+        let resolved = resolve_mcp_refresh_ms(None, Some("450")).expect("resolve should succeed");
+        assert_eq!(resolved, Some(450));
+    }
+
+    #[test]
+    fn prefers_cli_mcp_refresh_interval_over_env() {
+        let resolved =
+            resolve_mcp_refresh_ms(Some(1200), Some("450")).expect("resolve should succeed");
+        assert_eq!(resolved, Some(1200));
+    }
+
+    #[test]
+    fn rejects_invalid_env_mcp_refresh_interval() {
+        let err = resolve_mcp_refresh_ms(None, Some("not-a-number")).expect_err("must fail");
+        assert!(
+            err.to_string()
+                .contains("FASTCODE_MCP_REFRESH_MS must be a positive integer"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_zero_env_mcp_refresh_interval() {
+        let err = resolve_mcp_refresh_ms(None, Some("0")).expect_err("must fail");
+        assert!(
+            err.to_string()
+                .contains("FASTCODE_MCP_REFRESH_MS must be greater than 0"),
             "unexpected error: {err}"
         );
     }

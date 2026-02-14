@@ -881,3 +881,46 @@ Next Priority
 
 Completion Snapshot
 - 23/23 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 22)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Ran startup/bootstrap and regression pre-checks before new work:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep260,sleep260,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config target/mcp-tui-refresh-test.json --mcp-refresh-ms 200`
+- Added and completed new high-priority unfinished item:
+  - Added `F-020`: environment-variable MCP refresh interval for TUI (`FASTCODE_MCP_REFRESH_MS`) with precedence `--mcp-refresh-ms` > env > default.
+  - Updated `src/main.rs` with explicit env parsing/validation path and added tests for env resolution, CLI-over-env precedence, invalid value rejection, and zero rejection.
+- Updated docs/tracking artifacts:
+  - `README.md` updated with `FASTCODE_MCP_REFRESH_MS` usage.
+  - `feature_list.json` extended with `F-020` and verification evidence.
+
+Verified checklist items
+- `F-020` passed with:
+  - `cargo fmt`
+  - `cargo test` (42 library tests + 9 binary tests, 0 failed)
+  - Real UI flow using env-only interval override:
+    - `$env:FASTCODE_MCP_REFRESH_MS='200'; $env:FASTCODE_TUI_SCRIPT='h,i,Enter,sleep260,sleep260,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config target/mcp-tui-refresh-test.json`
+    - Status counter advanced `mcp: ok 1/1 r1 -> r2 -> r3` while input/submit/scroll remained functional.
+  - Error-path verification:
+    - `$env:FASTCODE_MCP_REFRESH_MS='bad'; cargo run -- --mode edit --tui` returned non-zero with explicit parsing error.
+
+Issues found and fixed
+- No functional/UI regression found in sampled CLI and TUI core workflows after introducing environment-based refresh configuration.
+
+Next Priority
+1. Expand MCP lifecycle shutdown-failure simulation tests to assert manager-level telemetry under forced kill/wait failures.
+2. Consider deprecation timeline messaging for legacy MCP flags as downstream scripts migrate.
+3. Add policy-level bounds for refresh interval (for operator safety/performance governance).
+
+Completion Snapshot
+- 24/24 checklist items passing.

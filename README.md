@@ -50,6 +50,14 @@ TUI controls:
 - `Up`/`Down` scroll message area.
 - `q` quits TUI.
 
+Scripted TUI verification (for deterministic CI/session evidence):
+- `FASTCODE_TUI_SCRIPT` supports key tokens (`h`, `Enter`, `Up`, `Down`, `Backspace`, `q`), waits (`sleep80`/`wait80`), and resizes (`resize120x40`).
+- Example:
+```powershell
+$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep80,resize120x40,Up,Down,q'
+cargo run -- --mode edit --tui
+```
+
 ## Test and Lint
 Test:
 ```bash

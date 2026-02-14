@@ -407,3 +407,46 @@ Next Priority
 
 Completion Snapshot
 - 12/14 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 11)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and git history:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Ran environment/bootstrap and regression pre-checks before new implementation:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep80,sleep80,sleep80,Up,Down,q'; cargo run -- --mode edit --tui`
+- Implemented terminal-size robustness for `NF-004` in `src/tui/mod.rs`:
+  - Added explicit resize event handling (`Event::Resize`) and `App::on_resize`.
+  - Added scripted resize actions (`resizeWxH` / `sizeWxH`) for deterministic UI verification.
+  - Added optional startup size parser (`FASTCODE_TUI_SIZE`) and viewport size telemetry in status bar (`size: WxH`).
+  - Kept input/scroll/submit behavior intact during and after resize transitions.
+- Added and executed tests for standard terminal-size behavior and post-resize usability:
+  - `tui::tests::draw_supports_standard_terminal_sizes`
+  - `tui::tests::resize_keeps_input_and_navigation_functional`
+  - `tui::tests::parses_terminal_size_token`
+- Ran post-change validation:
+  - `cargo fmt`
+  - `cargo test` (31 passed, 0 failed)
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep80,sleep80,Up,Down,resize120x40,w,o,r,l,d,Enter,sleep80,sleep80,q'; cargo run -- --mode edit --tui`
+  - `$env:FASTCODE_TUI_SCRIPT='t,e,s,t,Enter,sleep80,sleep80,resize80x24,Up,Down,b,a,c,k,Enter,sleep80,sleep80,q'; cargo run -- --mode edit --tui`
+
+Verified checklist items
+- `NF-004` passed with implementation + tests + scripted real UI path evidence recorded in `feature_list.json`.
+
+Issues found and fixed
+- Gap: terminal resize events were previously ignored in runtime loop, making resize behavior unverifiable and non-explicit.
+- Fix: handled resize events directly and introduced deterministic scripted resize actions to preserve an auditable, repeatable verification path.
+
+Next Priority
+1. Capture and record cold-start build timing baseline (`NF-002`).
+
+Completion Snapshot
+- 13/14 checklist items passing.

@@ -27,6 +27,7 @@ pub enum UiStatus {
 enum ScriptAction {
     Key(KeyEvent),
     Sleep(Duration),
+    Resize { width: u16, height: u16 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +46,8 @@ pub struct App {
     status: UiStatus,
     should_quit: bool,
     scroll: u16,
+    viewport_width: u16,
+    viewport_height: u16,
     stream_state: Option<StreamState>,
 }
 
@@ -57,6 +60,8 @@ impl App {
             status: UiStatus::Idle,
             should_quit: false,
             scroll: 0,
+            viewport_width: 0,
+            viewport_height: 0,
             stream_state: None,
         }
     }
@@ -83,6 +88,15 @@ impl App {
 
     pub fn scroll(&self) -> u16 {
         self.scroll
+    }
+
+    pub fn viewport_size(&self) -> (u16, u16) {
+        (self.viewport_width, self.viewport_height)
+    }
+
+    pub fn on_resize(&mut self, width: u16, height: u16) {
+        self.viewport_width = width;
+        self.viewport_height = height;
     }
 
     pub fn on_tick(&mut self) {
@@ -169,7 +183,12 @@ pub fn run_app(mode: RuntimeMode) -> anyhow::Result<()> {
     execute!(stdout, EnterAlternateScreen)?;
     let backend = ratatui::backend::CrosstermBackend::new(stdout);
     let mut terminal = ratatui::Terminal::new(backend)?;
+    if let Some((width, height)) = terminal_size_from_env() {
+        terminal.resize(ratatui::layout::Rect::new(0, 0, width, height))?;
+    }
     let mut app = App::new(mode);
+    let size = terminal.size()?;
+    app.on_resize(size.width, size.height);
     let scripted_actions = scripted_actions_from_env();
     let result = run_loop(&mut terminal, &mut app, scripted_actions);
     disable_raw_mode()?;
@@ -189,10 +208,16 @@ fn run_loop<B: ratatui::backend::Backend>(
             match action {
                 ScriptAction::Key(key) => app.on_key(key),
                 ScriptAction::Sleep(duration) => std::thread::sleep(duration),
+                ScriptAction::Resize { width, height } => {
+                    terminal.resize(ratatui::layout::Rect::new(0, 0, width, height))?;
+                    app.on_resize(width, height);
+                }
             }
         } else if event::poll(Duration::from_millis(16))? {
-            if let Event::Key(key) = event::read()? {
-                app.on_key(key);
+            match event::read()? {
+                Event::Key(key) => app.on_key(key),
+                Event::Resize(width, height) => app.on_resize(width, height),
+                _ => {}
             }
         }
         app.on_tick();
@@ -208,6 +233,12 @@ fn scripted_actions_from_env() -> VecDeque<ScriptAction> {
         .unwrap_or_default()
 }
 
+fn terminal_size_from_env() -> Option<(u16, u16)> {
+    std::env::var("FASTCODE_TUI_SIZE")
+        .ok()
+        .and_then(|value| parse_size_token(value.trim()))
+}
+
 fn parse_scripted_actions(script: &str) -> VecDeque<ScriptAction> {
     script
         .split(',')
@@ -217,6 +248,14 @@ fn parse_scripted_actions(script: &str) -> VecDeque<ScriptAction> {
 
 fn token_to_script_action(token: &str) -> Option<ScriptAction> {
     let lowercase = token.to_ascii_lowercase();
+    if let Some(size_token) = lowercase
+        .strip_prefix("resize")
+        .or_else(|| lowercase.strip_prefix("size"))
+    {
+        let (width, height) = parse_size_token(size_token)?;
+        return Some(ScriptAction::Resize { width, height });
+    }
+
     if let Some(ms) = lowercase
         .strip_prefix("sleep")
         .or_else(|| lowercase.strip_prefix("wait"))
@@ -251,6 +290,20 @@ fn token_to_script_action(token: &str) -> Option<ScriptAction> {
     )))
 }
 
+fn parse_size_token(token: &str) -> Option<(u16, u16)> {
+    let mut parts = token
+        .trim()
+        .trim_start_matches('=')
+        .split(['x', 'X'])
+        .map(str::trim);
+    let width = parts.next()?.parse::<u16>().ok()?;
+    let height = parts.next()?.parse::<u16>().ok()?;
+    if parts.next().is_some() || width == 0 || height == 0 {
+        return None;
+    }
+    Some((width, height))
+}
+
 pub fn draw(frame: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -262,12 +315,14 @@ pub fn draw(frame: &mut Frame, app: &App) {
         .split(frame.area());
 
     let status_text = format!(
-        " fastcode | mode: {} | status: {} | q quit ",
+        " fastcode | mode: {} | status: {} | size: {}x{} | q quit ",
         app.mode(),
         match app.status() {
             UiStatus::Idle => "idle",
             UiStatus::Processing => "processing",
-        }
+        },
+        app.viewport_width,
+        app.viewport_height
     );
     let status_line = Paragraph::new(status_text)
         .style(
@@ -314,6 +369,7 @@ mod tests {
     #[test]
     fn handles_input_submit_and_scroll_keys() {
         let mut app = App::new(RuntimeMode::Edit);
+        app.on_resize(80, 24);
         app.on_key(key(KeyCode::Char('h')));
         app.on_key(key(KeyCode::Char('i')));
         assert_eq!(app.input(), "hi");
@@ -332,6 +388,7 @@ mod tests {
     #[test]
     fn processing_transitions_back_to_idle_and_appends_assistant_reply() {
         let mut app = App::new(RuntimeMode::Plan);
+        app.on_resize(80, 24);
         app.on_key(key(KeyCode::Char('x')));
         app.on_key(key(KeyCode::Enter));
         assert_eq!(app.status(), &UiStatus::Processing);
@@ -356,6 +413,7 @@ mod tests {
     #[test]
     fn streaming_does_not_block_user_typing_during_processing() {
         let mut app = App::new(RuntimeMode::Edit);
+        app.on_resize(80, 24);
         app.on_key(key(KeyCode::Char('h')));
         app.on_key(key(KeyCode::Char('i')));
         app.on_key(key(KeyCode::Enter));
@@ -372,21 +430,61 @@ mod tests {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("terminal");
         let mut app = App::new(RuntimeMode::Auto);
+        app.on_resize(80, 24);
         app.on_key(key(KeyCode::Char('z')));
         terminal.draw(|frame| draw(frame, &app)).expect("draw");
 
         let buffer = terminal.backend().buffer();
         let content = format!("{buffer:?}");
         assert!(content.contains("mode: auto"));
+        assert!(content.contains("size: 80x24"));
         assert!(content.contains("Messages"));
         assert!(content.contains("Input (Enter submit)"));
         assert!(content.contains("welcome to fastcode"));
     }
 
     #[test]
+    fn draw_supports_standard_terminal_sizes() {
+        for (width, height) in [(80, 24), (120, 40)] {
+            let backend = TestBackend::new(width, height);
+            let mut terminal = Terminal::new(backend).expect("terminal");
+            let mut app = App::new(RuntimeMode::Edit);
+            app.on_resize(width, height);
+            app.on_key(key(KeyCode::Char('o')));
+            app.on_key(key(KeyCode::Char('k')));
+            terminal.draw(|frame| draw(frame, &app)).expect("draw");
+
+            let buffer = terminal.backend().buffer();
+            let content = format!("{buffer:?}");
+            assert!(content.contains("size:"));
+            assert!(content.contains("Messages"));
+            assert!(content.contains("Input (Enter submit)"));
+            assert!(content.contains("ok"));
+        }
+    }
+
+    #[test]
+    fn resize_keeps_input_and_navigation_functional() {
+        let mut app = App::new(RuntimeMode::Edit);
+        app.on_resize(120, 40);
+        app.on_key(key(KeyCode::Char('h')));
+        app.on_key(key(KeyCode::Char('i')));
+        app.on_resize(80, 24);
+        app.on_key(key(KeyCode::Up));
+        app.on_key(key(KeyCode::Down));
+        app.on_key(key(KeyCode::Enter));
+
+        assert_eq!(app.input(), "");
+        assert!(app.messages().iter().any(|m| m == "user: hi"));
+        assert_eq!(app.scroll(), 0);
+        assert_eq!(app.viewport_size(), (80, 24));
+    }
+
+    #[test]
     fn parses_scripted_key_sequence_tokens() {
-        let actions = super::parse_scripted_actions("h,i,Enter,sleep120,Up,Down,Backspace,q");
-        assert_eq!(actions.len(), 8);
+        let actions =
+            super::parse_scripted_actions("h,i,Enter,sleep120,resize120x40,Up,Down,Backspace,q");
+        assert_eq!(actions.len(), 9);
         assert!(matches!(
             actions[0],
             super::ScriptAction::Key(KeyEvent {
@@ -407,11 +505,27 @@ mod tests {
         ));
         assert!(matches!(
             actions[4],
+            super::ScriptAction::Resize {
+                width: 120,
+                height: 40
+            }
+        ));
+        assert!(matches!(
+            actions[5],
             super::ScriptAction::Key(KeyEvent {
                 code: KeyCode::Up,
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn parses_terminal_size_token() {
+        assert_eq!(super::parse_size_token("80x24"), Some((80, 24)));
+        assert_eq!(super::parse_size_token("=120x40"), Some((120, 40)));
+        assert_eq!(super::parse_size_token("120X40"), Some((120, 40)));
+        assert_eq!(super::parse_size_token("0x40"), None);
+        assert_eq!(super::parse_size_token("abc"), None);
     }
 
     #[test]

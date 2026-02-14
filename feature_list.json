@@ -223,7 +223,11 @@
       "Verify no critical content clipping in status/input areas.",
       "Verify navigation and input remain functional after resize."
     ],
-    "evidence": [],
-    "passes": false
+    "evidence": [
+      "2026-02-14: Updated `src/tui/mod.rs` to handle terminal resize events (`Event::Resize`), support scripted resize actions (`resizeWxH` / `sizeWxH`), and expose current viewport size in status bar (`size: WxH`) for operator-visible confirmation.",
+      "2026-02-14: Added TUI tests `draw_supports_standard_terminal_sizes` and `resize_keeps_input_and_navigation_functional` plus size parser coverage (`parses_terminal_size_token`); `cargo test` passed full suite (31 passed, 0 failed).",
+      "2026-02-14: Verified real UI interaction path with keyboard + resize + submit/scroll in terminal loop: `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep80,sleep80,Up,Down,resize120x40,w,o,r,l,d,Enter,sleep80,sleep80,q'; cargo run -- --mode edit --tui` and `$env:FASTCODE_TUI_SCRIPT='t,e,s,t,Enter,sleep80,sleep80,resize80x24,Up,Down,b,a,c,k,Enter,sleep80,sleep80,q'; cargo run -- --mode edit --tui` (status updated to `size: 120x40` and `size: 80x24`, input/navigation remained functional, exited 0)."
+    ],
+    "passes": true
   }
 ]

@@ -63,6 +63,7 @@ pub struct App {
     viewport_height: u16,
     mcp_refresh_count: u64,
     last_mcp_refresh_signature: Option<String>,
+    last_mcp_summary_raw: Option<String>,
     stream_state: Option<StreamState>,
 }
 
@@ -78,9 +79,11 @@ impl App {
         let mut messages = vec!["system: welcome to fastcode".to_string()];
         let mut mcp_status_label = "off".to_string();
         let mut last_mcp_refresh_signature = None;
+        let mut last_mcp_summary_raw = None;
         if let Some(diagnostics) = mcp_diagnostics {
             mcp_status_label = diagnostics.status_label;
             if let Some(summary) = diagnostics.messages.first() {
+                last_mcp_summary_raw = Some(summary.clone());
                 last_mcp_refresh_signature = Some(format!("{}|{}", mcp_status_label, summary));
             }
             messages.extend(
@@ -102,6 +105,7 @@ impl App {
             viewport_height: 0,
             mcp_refresh_count: 0,
             last_mcp_refresh_signature,
+            last_mcp_summary_raw,
             stream_state: None,
         }
     }
@@ -182,6 +186,7 @@ impl App {
             )
         });
         let signature = format!("{}|{}", diagnostics.status_label, summary);
+        self.last_mcp_summary_raw = Some(summary.clone());
         if self.last_mcp_refresh_signature.as_deref() == Some(signature.as_str()) {
             return;
         }
@@ -206,6 +211,14 @@ impl App {
 
         match key.code {
             KeyCode::Char('q') => self.should_quit = true,
+            KeyCode::Char('v') => {
+                let details = self
+                    .last_mcp_summary_raw
+                    .as_deref()
+                    .unwrap_or("MCP details unavailable");
+                self.messages
+                    .push(format!("system: MCP details: {}", details));
+            }
             KeyCode::Char(c) => {
                 if self.input.len() < INPUT_MAX_LEN {
                     self.input.push(c);
@@ -483,7 +496,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
         .split(frame.area());
 
     let status_text = format!(
-        " fastcode | mode: {} | status: {} | mcp: {} | size: {}x{} | q quit ",
+        " fastcode | mode: {} | status: {} | mcp: {} | size: {}x{} | q quit | v mcp details ",
         app.mode(),
         match app.status() {
             UiStatus::Idle => "idle",
@@ -812,6 +825,31 @@ mod tests {
         let last = app.messages().last().expect("fallback message exists");
         assert!(last.contains("MCP refresh 1: MCP diagnostics update"));
         assert!(last.contains("degraded 0/1"));
+    }
+
+    #[test]
+    fn key_v_appends_full_untruncated_mcp_details() {
+        let mut app = App::new(RuntimeMode::Edit);
+        app.on_resize(80, 24);
+        let long_summary = format!("MCP diagnostics failed: {}", "x".repeat(160));
+        app.apply_mcp_refresh(McpDiagnostics {
+            status_label: "error".to_string(),
+            messages: vec![long_summary.clone()],
+        });
+        let compacted = app.messages().last().expect("compacted refresh message");
+        assert!(compacted.contains("... (+"));
+
+        app.on_key(key(KeyCode::Char('v')));
+        let details = app.messages().last().expect("details message");
+        assert_eq!(details, &format!("system: MCP details: {}", long_summary));
+    }
+
+    #[test]
+    fn key_v_reports_missing_details_before_any_mcp_diagnostics() {
+        let mut app = App::new(RuntimeMode::Edit);
+        app.on_key(key(KeyCode::Char('v')));
+        let details = app.messages().last().expect("details message");
+        assert_eq!(details, "system: MCP details: MCP details unavailable");
     }
 
     #[test]

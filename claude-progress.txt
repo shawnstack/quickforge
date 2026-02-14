@@ -1104,3 +1104,48 @@ Next Priority
 
 Completion Snapshot
 - 28/28 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 27)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository state/history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Confirmed tracker baseline had no pending items (`pending_total=0`), then added and closed one new high-priority unfinished item end-to-end this session.
+- Ran startup/bootstrap and regression pre-checks before new implementation:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep260,sleep260,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config ./docs/mcp-servers.example.json --mcp-refresh-ms 200`
+- Added and completed one new high-priority unfinished item:
+  - Added `F-025`: TUI explicit action to inspect full untruncated MCP diagnostics details while keeping compact default message rendering.
+  - Updated `src/tui/mod.rs` to track latest raw MCP summary (`last_mcp_summary_raw`) and bind key `v` to append `system: MCP details: ...` in the message area.
+  - Updated status-bar affordance text to include `v mcp details`.
+  - Added tests for `v` behavior in both normal and no-diagnostics paths.
+- Updated docs/tracking artifacts:
+  - `README.md` now documents `v` shortcut.
+  - `feature_list.json` extended with `F-025` and verification evidence.
+
+Verified checklist items
+- `F-025` passed with:
+  - `cargo fmt`
+  - `cargo test` (49 library tests + 10 binary tests, 0 failed)
+  - Real UI workflow evidence:
+    - `cmd /c "set FASTCODE_TUI_SCRIPT=resize80x24,sleep260,v,h,i,Enter,sleep260,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\docs\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\f025-mcp-details.log 2>&1"`
+    - Parsed evidence in `target/f025-mcp-details.clean.log` shows compact MCP refresh marker (`... (+129 chars)`) and a full details line via `v` (`system: MCP details: MCP diagnostics failed: MCP lifecycle start failed ...`) while user interaction (`user: hi`, `assistant: received`) remains intact.
+
+Issues found and fixed
+- Observability gap: compacted MCP diagnostics improved readability but made full failure details harder to inspect directly in TUI.
+- Fix: added explicit user action (`v`) to append latest full untruncated diagnostics details on demand without changing compact default behavior.
+
+Next Priority
+1. Add optional pagination/search for long MCP details messages to improve troubleshooting in very narrow terminal sessions.
+2. Add explicit tests for `v` details behavior after consecutive deduplicated refresh cycles with changing summaries.
+3. Evaluate a configurable key map/help overlay for TUI shortcuts.
+
+Completion Snapshot
+- 29/29 checklist items passing.

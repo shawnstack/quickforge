@@ -80,6 +80,7 @@ TUI controls:
 - Type to edit input.
 - `Enter` submits message.
 - `Up`/`Down` scroll message area.
+- `v` appends full latest MCP diagnostics details into the message area.
 - `q` quits TUI.
 
 Scripted TUI verification (for deterministic CI/session evidence):

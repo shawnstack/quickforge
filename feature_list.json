@@ -471,5 +471,22 @@
       "2026-02-14: Real UI regression path verified with scripted interaction: `$env:FASTCODE_TUI_SCRIPT='h,i,Enter,sleep260,sleep260,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config ./docs/mcp-servers.example.json --mcp-refresh-ms 200` (status refresh + input/submit/scroll remained functional, exit 0)."
     ],
     "passes": true
+  },
+  {
+    "id": "F-025",
+    "category": "functional",
+    "priority": "P1",
+    "description": "TUI provides an explicit user action to inspect full untruncated MCP diagnostics details while preserving compact default message rendering.",
+    "steps": [
+      "Launch TUI with --mcp-config at a narrow viewport where MCP diagnostics lines are compacted.",
+      "Press `v` in the real UI flow and verify the message area appends the latest full MCP diagnostics details without truncation.",
+      "Verify input/submit/scroll behavior remains functional after invoking MCP details view."
+    ],
+    "evidence": [
+      "2026-02-14: Updated `src/tui/mod.rs` to store the latest raw MCP diagnostics summary (`last_mcp_summary_raw`) and handle key `v` by appending `system: MCP details: ...` with full untruncated text; status bar help now shows `q quit | v mcp details`.",
+      "2026-02-14: Added tests `tui::tests::key_v_appends_full_untruncated_mcp_details` and `tui::tests::key_v_reports_missing_details_before_any_mcp_diagnostics`; `cargo test` passed full suite (49 lib tests + 10 bin tests, 0 failed).",
+      "2026-02-14: Real UI verification: `cmd /c \"set FASTCODE_TUI_SCRIPT=resize80x24,sleep260,v,h,i,Enter,sleep260,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\\\docs\\\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\\\f025-mcp-details.log 2>&1\"` exited 0; evidence log `target/f025-mcp-details.clean.log` contains compact refresh lines (`... (+129 chars)`) and explicit full-details line (`system: MCP details: MCP diagnostics failed: MCP lifecycle start failed ...`) while user input/stream flow remains present (`user: hi`, `assistant: received`)."
+    ],
+    "passes": true
   }
 ]

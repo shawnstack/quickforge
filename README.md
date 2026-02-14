@@ -91,6 +91,14 @@ $env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep80,resize120x40,Up,Down,q'
 cargo run -- --mode edit --tui
 ```
 
+Normalize ANSI-heavy TUI logs into machine-parsable evidence:
+```powershell
+powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-ui-mcp-iter32.log -OutputPath ./target/regression-ui-mcp-iter32.clean.log -Mode events
+```
+Modes:
+- `events` (default): extracts status/user/system/assistant snapshots and deduplicates adjacent duplicates.
+- `strip`: removes ANSI/control sequences but keeps full text.
+
 ## Test and Lint
 Test:
 ```bash

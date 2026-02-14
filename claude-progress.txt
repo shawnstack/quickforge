@@ -1326,3 +1326,45 @@ Next Priority
 
 Completion Snapshot
 - 33/33 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 32)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository state/history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Confirmed baseline tracker state before implementation:
+  - `total=33`, `passed=33`, `unpassed=0`, `blocked=0`
+- Executed startup/bootstrap and regression pre-checks before new implementation:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=h,e,l,l,o,Enter,sleep120,Up,Down,q && cargo run -- --mode edit --tui > target\regression-ui-core-iter32.log 2>&1"`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=resize80x24,h,i,Enter,sleep260,sleep260,v,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\docs\mcp-servers.example.json --mcp-refresh-ms 200 > target\regression-ui-mcp-iter32.log 2>&1"`
+- Added and completed one new high-priority unfinished item:
+  - Added `F-030`: normalize ANSI-heavy scripted TUI logs into machine-parsable evidence.
+  - Implemented `scripts/normalize-tui-log.ps1` with `events`/`strip` modes and deterministic output path handling.
+  - Updated `README.md` with normalization usage and mode definitions.
+
+Verified checklist items
+- `F-030` passed with:
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-ui-core-iter32.log -OutputPath ./target/regression-ui-core-iter32.clean.log -Mode events`
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-ui-mcp-iter32.log -OutputPath ./target/regression-ui-mcp-iter32.clean.log -Mode events`
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-ui-mcp-iter32.log -OutputPath ./target/regression-ui-mcp-iter32.strip.log -Mode strip`
+  - Validation assertions passed: no ESC bytes remained in clean outputs; required markers present (`fastcode | mode: edit | status: idle`, `mcp: error r1 d0`, MCP diagnostics lines).
+
+Issues found and fixed
+- First implementation left residual cursor-control fragments in normalized logs.
+- Fixed by hardening ANSI/control removal and narrowing extraction to stable status/message patterns.
+
+Next Priority
+1. Add deterministic tests for the normalization script against canned ANSI fixture logs (pass/fail assertions for key marker extraction).
+2. Optionally add `-MaxEventLength` and `-NoDedupe` switches for evidence tuning in noisy sessions.
+3. Evaluate small Rust helper for ANSI stripping to share logic between runtime and tooling.
+
+Completion Snapshot
+- 34/34 checklist items passing.

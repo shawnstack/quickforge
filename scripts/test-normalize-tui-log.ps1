@@ -44,6 +44,8 @@ powershell -ExecutionPolicy Bypass -File $scriptPath -InputPath $inputPath -Outp
 powershell -ExecutionPolicy Bypass -File $scriptPath -InputPath $inputPath -OutputPath $eventsShortPath -Mode events -MaxEventLength 80 | Out-Null
 powershell -ExecutionPolicy Bypass -File $scriptPath -InputPath $inputPath -OutputPath $eventsDefaultPath -Mode events -SummaryPath $eventsSummaryPath | Out-Null
 powershell -ExecutionPolicy Bypass -File $scriptPath -InputPath $inputPath -OutputPath $eventsDefaultPath -Mode events -SummaryPath $eventsSummaryCompactPath -SummaryFormat compact | Out-Null
+$emitCompactOutput = & powershell -ExecutionPolicy Bypass -File $scriptPath -InputPath $inputPath -OutputPath $eventsDefaultPath -Mode events -EmitSummary -SummaryFormat compact 2>&1
+$emitCompactText = ($emitCompactOutput | ForEach-Object { $_.ToString() }) -join "`n"
 
 $defaultLines = Get-Content $eventsDefaultPath
 $noDedupeLines = Get-Content $eventsNoDedupePath
@@ -68,5 +70,11 @@ Assert-True -Condition ($summaryCompact -match '(?:^| )mode=events(?: |$)') -Mes
 Assert-True -Condition ($summaryCompact -match 'output_line_count=\d+') -Message 'compact summary should include output_line_count'
 Assert-True -Condition ($summaryCompact -match 'dedupe_suppressed_count=1') -Message 'compact summary should include dedupe suppression count'
 Assert-True -Condition ($summaryCompact -match 'truncated_count=1') -Message 'compact summary should include truncation count'
+Assert-True -Condition ($emitCompactText -match '(?m)^summary:$') -Message 'EmitSummary should print summary label to stdout'
+Assert-True -Condition ($emitCompactText -match '(?:^| )mode=events(?: |$)') -Message 'EmitSummary compact stdout should include mode=events'
+Assert-True -Condition ($emitCompactText -match 'event_candidate_count=4') -Message 'EmitSummary compact stdout should include event candidate count'
+Assert-True -Condition ($emitCompactText -match 'event_output_line_count=3') -Message 'EmitSummary compact stdout should include output line count after dedupe'
+Assert-True -Condition ($emitCompactText -match 'dedupe_suppressed_count=1') -Message 'EmitSummary compact stdout should include dedupe suppression count'
+Assert-True -Condition ($emitCompactText -match 'truncated_count=1') -Message 'EmitSummary compact stdout should include truncation count'
 
 Write-Host 'normalize-tui-log script tests: PASS'

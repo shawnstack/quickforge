@@ -1760,3 +1760,55 @@ Next Priority
 
 Completion Snapshot
 - 42/42 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 43)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository state/history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Confirmed tracker baseline before implementation:
+  - `total=42`, `passed=42`, `unpassed=0`, `blocked=0`
+- Executed startup/bootstrap and regression pre-checks before new implementation:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=h,e,l,l,o,Enter,sleep120,Up,Down,q && cargo run -- --mode edit --tui > target\regression-preflight-core-iter43.log 2>&1"`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=resize80x24,h,i,Enter,sleep260,sleep260,v,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\docs\mcp-servers.example.json --mcp-refresh-ms 200 > target\regression-preflight-mcp-iter43.log 2>&1"`
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-preflight-core-iter43.log -OutputPath ./target/regression-preflight-core-iter43.clean.log -Mode events -SummaryPath ./target/regression-preflight-core-iter43.summary.json`
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-preflight-mcp-iter43.log -OutputPath ./target/regression-preflight-mcp-iter43.clean.log -Mode events -SummaryPath ./target/regression-preflight-mcp-iter43.summary.json`
+  - Panic/runtime scan on both raw preflight logs found no panic and no `^error:` lines.
+- Added and completed one new high-priority unfinished item:
+  - Added `F-043` (P0): events summary per-label counters (`system_event_count`, `user_event_count`, `assistant_event_count`) for finer-grained audit thresholds.
+  - Updated `scripts/normalize-tui-log.ps1` extraction stats and summary output fields.
+  - Updated `scripts/test-normalize-tui-log.ps1` assertions across JSON summary, compact summary-file output, and emit-summary compact stdout.
+  - Updated `README.md` normalization options to document per-label counters.
+  - Updated `feature_list.json` with `F-043` evidence.
+
+Verified checklist items
+- `F-043` passed with:
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log.ps1` (`normalize-tui-log script tests: PASS`)
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log-fixtures.ps1` (`normalize-tui-log fixture tests: PASS`)
+  - `cargo test` (53 lib tests + 10 bin tests, 0 failed)
+  - Real UI strict-events verification:
+    - `cmd /c "set FASTCODE_TUI_SCRIPT=resize80x24,h,i,Enter,sleep260,sleep260,v,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\docs\mcp-servers.example.json --mcp-refresh-ms 200 > target\f043-per-label-mcp.log 2>&1"`
+    - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/f043-per-label-mcp.log -OutputPath ./target/f043-per-label-mcp.strict.log -Mode events -StrictEvents -SummaryPath ./target/f043-per-label-mcp.strict.summary.compact.txt -SummaryFormat compact`
+    - Summary evidence shows: `status_event_count=2`, `message_event_count=6`, `system_event_count=3`, `user_event_count=2`, `assistant_event_count=1`.
+    - Verified invariant: `system + user + assistant == message_event_count` (`3+2+1=6`).
+
+Issues found and fixed
+- Found a verification race while attempting parallel capture+normalization: summary showed `input_bytes=0` because normalization ran before log capture finished.
+- Fix: switched verification to strict sequential ordering (capture first, normalize second, then assert counters).
+- No critical runtime regressions introduced.
+
+Next Priority
+1. Add fixture coverage for repeated resize bursts plus long MCP detail expansion and assert per-label counters remain stable under truncation.
+2. Consider exposing an optional strict-mode invariant check (`message_event_count` must equal per-label sum) directly in summary for downstream consumers.
+3. Add one README strict-events evidence block that includes per-label counter interpretation for handoff operators.
+
+Completion Snapshot
+- 43/43 checklist items passing.

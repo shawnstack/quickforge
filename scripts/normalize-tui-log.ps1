@@ -95,6 +95,9 @@ function Extract-TuiEvents {
   $truncatedCount = 0
   $statusEventCount = 0
   $messageEventCount = 0
+  $systemEventCount = 0
+  $userEventCount = 0
+  $assistantEventCount = 0
   $normalized = [Regex]::Replace($Text, '[^\x09\x0A\x0D\x20-\x7E]', ' ')
   $statusPattern = 'fastcode\s*\|\s*mode:\s*[A-Za-z]+\s*\|\s*status:\s*[A-Za-z]+\s*\|\s*mcp:\s*[A-Za-z0-9\- ]+\s*\|\s*size:\s*\d+x\d+'
   $messageStartLabels = if ($StrictMode) { '(?:system|user|assistant)' } else { '(?:system|sytem|user|uer|assistant|asistant)' }
@@ -155,8 +158,15 @@ function Extract-TuiEvents {
 
     if ($line -match '^fastcode\s*\|') {
       $statusEventCount++
-    } elseif ($line -match '^(?:system|sytem|user|uer|assistant|asistant):') {
+    } elseif ($line -match '^system:') {
       $messageEventCount++
+      $systemEventCount++
+    } elseif ($line -match '^user:') {
+      $messageEventCount++
+      $userEventCount++
+    } elseif ($line -match '^assistant:') {
+      $messageEventCount++
+      $assistantEventCount++
     }
 
     $events.Add($line)
@@ -170,6 +180,9 @@ function Extract-TuiEvents {
     truncated_count = $truncatedCount
     status_event_count = $statusEventCount
     message_event_count = $messageEventCount
+    system_event_count = $systemEventCount
+    user_event_count = $userEventCount
+    assistant_event_count = $assistantEventCount
   }
 }
 
@@ -244,6 +257,9 @@ if ($EmitSummary.IsPresent -or $SummaryPath) {
     $summary.event_output_line_count = $eventStats.output_line_count
     $summary.status_event_count = $eventStats.status_event_count
     $summary.message_event_count = $eventStats.message_event_count
+    $summary.system_event_count = $eventStats.system_event_count
+    $summary.user_event_count = $eventStats.user_event_count
+    $summary.assistant_event_count = $eventStats.assistant_event_count
     $summary.dedupe_suppressed_count = $eventStats.dedupe_suppressed_count
     $summary.truncated_count = $eventStats.truncated_count
   }

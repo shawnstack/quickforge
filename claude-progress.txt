@@ -1909,3 +1909,52 @@ Next Priority
 
 Completion Snapshot
 - 45/45 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 46)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository state/history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Confirmed tracker baseline before implementation:
+  - `total=45`, `passed=45`, `unpassed=0`, `blocked=0`
+- Executed startup/bootstrap and regression pre-checks before new implementation:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=h,e,l,l,o,Enter,sleep120,Up,Down,q && cargo run -- --mode edit --tui > target\regression-preflight-core-iter46.log 2>&1"`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=resize120x40,resize80x24,h,i,Enter,sleep260,sleep260,v,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\docs\mcp-servers.example.json --mcp-refresh-ms 200 > target\regression-preflight-mcp-iter46.log 2>&1"`
+  - Normalized preflight logs and verified no panic/runtime error markers.
+- Added and completed one new high-priority unfinished item:
+  - Added `F-046` (P0): events summary status/message ratio counter (`status_to_message_ratio_bps`).
+  - Updated `scripts/normalize-tui-log.ps1` summary output to include rounded basis-point ratio computed from emitted status/message counters.
+  - Updated `scripts/test-normalize-tui-log.ps1` and `scripts/test-normalize-tui-log-fixtures.ps1` with deterministic ratio assertions.
+  - Updated `README.md` summary options and `feature_list.json` evidence.
+
+Verified checklist items
+- `F-046` passed with:
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log.ps1` (`normalize-tui-log script tests: PASS`)
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log-fixtures.ps1` (`normalize-tui-log fixture tests: PASS`)
+  - `cargo test` (53 lib tests + 10 bin tests, 0 failed)
+  - Real UI strict-events verification:
+    - `cmd /c "set FASTCODE_TUI_SCRIPT=resize120x40,resize80x24,resize120x40,h,i,Enter,sleep260,sleep260,v,resize80x24,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\docs\mcp-servers.example.json --mcp-refresh-ms 200 > target\f046-status-ratio-mcp.log 2>&1"`
+    - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/f046-status-ratio-mcp.log -OutputPath ./target/f046-status-ratio-mcp.strict.log -Mode events -StrictEvents -SummaryPath ./target/f046-status-ratio-mcp.summary.json -SummaryFormat json`
+    - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/f046-status-ratio-mcp.log -OutputPath ./target/f046-status-ratio-mcp.strict.compact.log -Mode events -StrictEvents -SummaryPath ./target/f046-status-ratio-mcp.summary.compact.txt -SummaryFormat compact`
+    - Summary evidence: `input_bytes=26892`, `status_event_count=5`, `message_event_count=6`, `status_to_message_ratio_bps=8333`, `label_sum_matches_message_count=True`, and recomputed ratio matched (`8333`).
+
+Issues found and fixed
+- Encountered a verification sequencing race when capture and normalization were run in parallel, causing transient `input_bytes=0` summaries.
+- Fix: switched evidence capture to strict sequential ordering (capture first, normalize second, assert counters last).
+- No product runtime regression; panic/error marker scan on verification logs remained `0`.
+
+Next Priority
+1. Add optional summary counter for status-share of total emitted events to simplify monitor thresholds without recomputation.
+2. Add one fixture that includes zero-message outputs and verify `status_to_message_ratio_bps` null behavior remains explicit.
+3. Add a README strict-events evidence snippet that explains interpreting ratio basis points.
+
+Completion Snapshot
+- 46/46 checklist items passing.

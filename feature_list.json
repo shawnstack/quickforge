@@ -787,5 +787,25 @@
       "2026-02-14: Real UI verification: `cmd /c \"set FASTCODE_TUI_SCRIPT=resize120x40,resize80x24,resize120x40,h,i,Enter,sleep260,sleep260,v,resize80x24,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\\\docs\\\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\\\f045-strict-nodedupe-mcp.log 2>&1\"`; normalized via `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/f045-strict-nodedupe-mcp.log -OutputPath ./target/f045-strict-nodedupe-mcp.strict.log -Mode events -StrictEvents -NoDedupe -MaxEventLength 100 -SummaryPath ./target/f045-strict-nodedupe-mcp.summary.compact.txt -SummaryFormat compact` and JSON summary path `./target/f045-strict-nodedupe-mcp.summary.json` (`label_event_count_sum=6`, `message_event_count=6`, `label_sum_matches_message_count=True`, `dedupe_enabled=False`, `status_event_count=5`)."
     ],
     "passes": true
+  },
+  {
+    "id": "F-046",
+    "category": "functional",
+    "priority": "P0",
+    "description": "Events-mode summary exposes a status/message ratio counter so downstream audits can threshold control-plane churn without recomputing from raw counters.",
+    "steps": [
+      "Extend events-mode summary output with a deterministic status-to-message ratio field derived from emitted counters.",
+      "Add script-level and fixture-level assertions for JSON summary, compact summary output, and emit-summary compact stdout.",
+      "Verify the ratio field through a real scripted MCP TUI workflow in strict-events mode and confirm ratio consistency with status/message counters."
+    ],
+    "evidence": [
+      "2026-02-14: Updated `scripts/normalize-tui-log.ps1` events summary to emit `status_to_message_ratio_bps` (rounded basis points of `status_event_count / message_event_count`, null when message count is zero).",
+      "2026-02-14: Updated `scripts/test-normalize-tui-log.ps1` to assert `status_to_message_ratio_bps=5000` across JSON summary, compact summary-file output, and `-EmitSummary -SummaryFormat compact` stdout.",
+      "2026-02-14: Updated `scripts/test-normalize-tui-log-fixtures.ps1` strict resize-burst assertions to validate ratio behavior for deduped and no-dedupe runs (`6667` and `10000` bps).",
+      "2026-02-14: Updated README normalization options to document `status_to_message_ratio_bps` in emitted events summary counters.",
+      "2026-02-14: Verification passed via `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log.ps1`, `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log-fixtures.ps1`, and `cargo test` (53 lib tests + 10 bin tests, 0 failed).",
+      "2026-02-14: Real UI verification: `cmd /c \"set FASTCODE_TUI_SCRIPT=resize120x40,resize80x24,resize120x40,h,i,Enter,sleep260,sleep260,v,resize80x24,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\\\docs\\\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\\\f046-status-ratio-mcp.log 2>&1\"`, then strict normalization `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/f046-status-ratio-mcp.log -OutputPath ./target/f046-status-ratio-mcp.strict.log -Mode events -StrictEvents -SummaryPath ./target/f046-status-ratio-mcp.summary.json -SummaryFormat json` and compact summary output at `./target/f046-status-ratio-mcp.summary.compact.txt`; summary shows `status_event_count=5`, `message_event_count=6`, `status_to_message_ratio_bps=8333`, invariant check `ratio_matches=True`, and panic/error marker scan returned `0`."
+    ],
+    "passes": true
   }
 ]

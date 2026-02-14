@@ -1278,3 +1278,51 @@ Next Priority
 
 Completion Snapshot
 - 32/32 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 31)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository state/history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Confirmed baseline tracker state and counts from `feature_list.json`:
+  - `total=32`, `passed=32`, `unpassed=0`, `blocked=0`
+- Executed startup/bootstrap and regression pre-checks before new implementation:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=h,e,l,l,o,Enter,sleep260,sleep260,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\docs\mcp-servers.example.json --mcp-refresh-ms 200 > target\regression-preflight-iter31.log 2>&1"`
+- Added and completed one new high-priority unfinished item:
+  - Added `F-029`: deterministic coverage for MCP refresh dedupe stability during `ok -> error -> ok` oscillation.
+  - Updated `src/tui/mod.rs` with test `tui::tests::scripted_loop_ok_error_ok_oscillation_resets_dedup_per_phase` to validate:
+    - sequence `ok/ok/error/error/ok/ok`
+    - dedupe reset semantics per status phase
+    - monotonic refresh count with phase-first summary append behavior
+    - preserved user input/submit flow (`user: hi`, `assistant: received -> hi`)
+- Updated docs/tracking artifacts:
+  - `feature_list.json` extended with `F-029` and verification evidence.
+
+Verified checklist items
+- `F-029` passed with:
+  - `cargo test scripted_loop_ok_error_ok_oscillation_resets_dedup_per_phase` (1 passed, 0 failed)
+  - `cargo test` (53 lib tests + 10 bin tests, 0 failed)
+  - Real UI workflow evidence:
+    - `$env:FASTCODE_TUI_SCRIPT='resize100x30,h,i,Enter,sleep260,sleep260,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config ./docs/mcp-servers.example.json --mcp-refresh-ms 200 *> target/f029-oscillation-regression.log`
+    - Evidence file retained: `target/f029-oscillation-regression.clean.log`.
+
+Issues found and fixed
+- No functional regression found in pre-checks.
+- Evidence-capture issue: PowerShell redirection with TUI introduced heavy ANSI/control sequences and noisy `NativeCommandError` formatting.
+- Mitigation: retained raw session log and generated cleaned log artifact for audit traceability.
+
+Next Priority
+1. Add a reliable ANSI normalization helper script in `scripts/` to produce machine-parsable `.clean.log` artifacts deterministically.
+2. Add deterministic oscillation coverage for summary-content changes across unchanged status labels (for example `ok` with varying summaries) to confirm append/dedup boundaries remain correct.
+3. Consider exposing last MCP status-transition timestamp in status/help text for operations troubleshooting.
+
+Completion Snapshot
+- 33/33 checklist items passing.

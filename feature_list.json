@@ -540,5 +540,23 @@
       "2026-02-14: Full regression + real UI path checks passed: `cargo test` (52 lib tests + 10 bin tests, 0 failed); scripted real TUI workflow `cmd /c \"set FASTCODE_TUI_SCRIPT=h,e,l,l,o,Enter,sleep260,sleep260,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\docs\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\regression-preflight-iter30.log 2>&1\"` exited 0 with evidence log showing status/MCP and user interaction markers (`target/regression-preflight-iter30.clean.log`)."
     ],
     "passes": true
+  },
+  {
+    "id": "F-029",
+    "category": "functional",
+    "priority": "P1",
+    "description": "TUI MCP deduplication behavior remains stable across repeated ok -> error -> ok status oscillations.",
+    "steps": [
+      "Execute a deterministic scripted TUI loop with an injected MCP refresh sequence: ok duplicate -> error duplicate -> ok duplicate.",
+      "Verify dedup suppression counter resets at each status phase transition while refresh counter continues monotonically.",
+      "Verify refresh messages append only on phase-first summaries and that user input/submit flow remains functional."
+    ],
+    "evidence": [
+      "2026-02-14: Added deterministic test `tui::tests::scripted_loop_ok_error_ok_oscillation_resets_dedup_per_phase` in `src/tui/mod.rs` covering refresh sequence `ok/ok/error/error/ok/ok` and asserting final status `ok 1/1 r6 d1` with phase-first message appends (`refresh 1`, `refresh 3`, `refresh 5`).",
+      "2026-02-14: Verification: `cargo test scripted_loop_ok_error_ok_oscillation_resets_dedup_per_phase` passed (1 passed, 0 failed).",
+      "2026-02-14: Full regression passed: `cargo test` (53 lib tests + 10 bin tests, 0 failed).",
+      "2026-02-14: Real UI regression flow passed: `$env:FASTCODE_TUI_SCRIPT='resize100x30,h,i,Enter,sleep260,sleep260,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config ./docs/mcp-servers.example.json --mcp-refresh-ms 200 *> target/f029-oscillation-regression.log` with evidence retained in `target/f029-oscillation-regression.clean.log` (status + user interaction + refresh markers)."
+    ],
+    "passes": true
   }
 ]

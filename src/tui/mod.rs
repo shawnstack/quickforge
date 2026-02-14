@@ -949,6 +949,82 @@ mod tests {
     }
 
     #[test]
+    fn scripted_loop_ok_error_ok_oscillation_resets_dedup_per_phase() {
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).expect("terminal");
+        let mut app = App::new(RuntimeMode::Edit);
+        app.on_resize(100, 30);
+        let actions =
+            super::parse_scripted_actions("h,i,Enter,sleep5,sleep5,sleep5,sleep5,sleep5,sleep5,q");
+        let mut diagnostics = VecDeque::from(vec![
+            McpDiagnostics {
+                status_label: "ok 1/1".to_string(),
+                messages: vec!["MCP diagnostics healthy (1/1 running)".to_string()],
+            },
+            McpDiagnostics {
+                status_label: "ok 1/1".to_string(),
+                messages: vec!["MCP diagnostics healthy (1/1 running)".to_string()],
+            },
+            McpDiagnostics {
+                status_label: "error".to_string(),
+                messages: vec!["MCP diagnostics failed: intermittent failure".to_string()],
+            },
+            McpDiagnostics {
+                status_label: "error".to_string(),
+                messages: vec!["MCP diagnostics failed: intermittent failure".to_string()],
+            },
+            McpDiagnostics {
+                status_label: "ok 1/1".to_string(),
+                messages: vec!["MCP diagnostics healthy (1/1 running)".to_string()],
+            },
+            McpDiagnostics {
+                status_label: "ok 1/1".to_string(),
+                messages: vec!["MCP diagnostics healthy (1/1 running)".to_string()],
+            },
+        ]);
+
+        super::run_loop(
+            &mut terminal,
+            &mut app,
+            actions,
+            Duration::from_millis(1),
+            move || diagnostics.pop_front(),
+        )
+        .expect("run loop");
+
+        while app.status() == &UiStatus::Processing {
+            app.stream_state
+                .as_mut()
+                .expect("stream state exists")
+                .last_emit_at = Instant::now() - Duration::from_millis(100);
+            app.on_tick();
+        }
+
+        assert_eq!(app.mcp_status_display(), "ok 1/1 r6 d1");
+        assert!(
+            app.messages()
+                .iter()
+                .any(|m| m == "system: MCP refresh 1: MCP diagnostics healthy (1/1 running)")
+        );
+        assert!(
+            app.messages()
+                .iter()
+                .any(|m| m == "system: MCP refresh 3: MCP diagnostics failed: intermittent failure")
+        );
+        assert!(
+            app.messages()
+                .iter()
+                .any(|m| m == "system: MCP refresh 5: MCP diagnostics healthy (1/1 running)")
+        );
+        assert!(app.messages().iter().any(|m| m == "user: hi"));
+        assert!(
+            app.messages()
+                .iter()
+                .any(|m| m.starts_with("assistant: received -> hi"))
+        );
+    }
+
+    #[test]
     fn key_v_appends_full_untruncated_mcp_details() {
         let mut app = App::new(RuntimeMode::Edit);
         app.on_resize(80, 24);

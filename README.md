@@ -44,6 +44,11 @@ Launch TUI:
 cargo run -- --mode edit --tui
 ```
 
+List MCP servers from config:
+```bash
+cargo run -- --mode edit --list-mcp-servers --mcp-config ./docs/mcp-servers.example.json
+```
+
 TUI controls:
 - Type to edit input.
 - `Enter` submits message.
@@ -99,6 +104,7 @@ cargo run -v -- --mode edit
 - `cargo: command not found`: install Rust via `rustup` and restart terminal.
 - Build fails after dependency changes: run `cargo clean` then `cargo build`.
 - Test mismatch across sessions: ensure latest `feature_list.json` and `claude-progress.txt` are committed.
+- MCP listing fails with config error: validate JSON shape against `docs/mcp-servers.example.json`.
 
 ## State Tracking Files
 - Checklist: `feature_list.json`

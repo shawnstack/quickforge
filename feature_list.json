@@ -167,6 +167,23 @@
     "passes": true
   },
   {
+    "id": "F-011",
+    "category": "functional",
+    "priority": "P1",
+    "description": "MCP server configuration can be loaded and listed via CLI with validation errors.",
+    "steps": [
+      "Provide MCP JSON config with at least two servers.",
+      "Run CLI command to list MCP servers from config.",
+      "Verify missing-config and invalid-config paths return actionable errors."
+    ],
+    "evidence": [
+      "2026-02-14: Added MCP config module (`src/mcp/config.rs`) with JSON loading, schema validation (non-empty server list/name/command, duplicate-name rejection), and deterministic server-name listing.",
+      "2026-02-14: Extended CLI in `src/main.rs` with `--mcp-config` and `--list-mcp-servers`; successful real run: `cargo run -- --mode edit --list-mcp-servers --mcp-config ./docs/mcp-servers.example.json` printed `loaded 2 MCP server(s): filesystem, github`.",
+      "2026-02-14: Verified actionable error path: `cargo run -- --mode edit --list-mcp-servers` exited 1 with `--list-mcp-servers requires --mcp-config <path-to-json-config>`; unit tests added for valid load/sort and invalid duplicate/empty command cases (`cargo test`: 34 passed, 0 failed)."
+    ],
+    "passes": true
+  },
+  {
     "id": "NF-001",
     "category": "non-functional",
     "priority": "P0",

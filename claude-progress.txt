@@ -215,3 +215,41 @@ Next Priority
 
 Completion Snapshot
 - 7/14 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 6)
+
+Completed this session
+- Reconstructed context from authoritative artifacts (`app_spec.txt`, `feature_list.json`, `README.md`, `claude-progress.txt`) and verified repo status/history.
+- Ran bootstrap and regression pre-checks before new work:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `cargo run -- --mode plan`
+- Implemented P0 TUI shell (`F-008`):
+  - Added `src/tui/mod.rs` with `App` state model and `draw` renderer for status bar, message area, input box.
+  - Added keyboard handling for type, backspace, submit (`Enter`), message scrolling (`Up`/`Down`), and quit (`q`).
+  - Added async-like processing state transition (`processing -> idle`) with assistant reply append.
+  - Added optional scripted key injection via `FASTCODE_TUI_SCRIPT` for deterministic end-to-end UI verification in CI/non-interactive sessions.
+- Wired CLI to launch UI with `--tui` while keeping default bootstrap path backward compatible.
+- Updated README with TUI launch command and controls.
+- Ran formatting and full regression:
+  - `cargo fmt`
+  - `cargo test` (22 passed, 0 failed)
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,Up,Down,q'; cargo run -- --mode edit --tui`
+
+Verified checklist items
+- F-008 passed with implementation + keyboard workflow + render verification evidence recorded in `feature_list.json`.
+
+Issues found and fixed
+- No regressions found in sampled core flows after TUI integration.
+- Preserved previous non-TUI startup behavior to avoid breaking existing F-002 verification path.
+
+Next Priority
+1. Implement streaming agent output delivery without blocking input loop (F-009).
+2. Implement audit logger with JSONL records for tool invocation (F-010).
+3. Validate non-functional handoff-audit scenario as a concrete reproducibility check (NF-001).
+
+Completion Snapshot
+- 8/14 checklist items passing.

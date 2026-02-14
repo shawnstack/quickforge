@@ -125,8 +125,12 @@
       "Type input, submit, and scroll messages with keyboard.",
       "Verify mode indicator and loading/status UI update correctly."
     ],
-    "evidence": [],
-    "passes": false
+    "evidence": [
+      "2026-02-14: Added TUI module `src/tui/mod.rs` with status bar + message area + input box rendering, and key handling for type/backspace/enter/up/down/q.",
+      "2026-02-14: Added TUI interaction tests (input submit, scroll, status transition, render-region assertions, scripted key parsing); cargo test passed (22 passed, 0 failed).",
+      "2026-02-14: Verified interactive workflow via real TUI loop using scripted key events: `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,Up,Down,q'; cargo run -- --mode edit --tui` (render showed mode indicator, processing status, message updates, and clean quit)."
+    ],
+    "passes": true
   },
   {
     "id": "F-009",

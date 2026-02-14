@@ -39,6 +39,17 @@ sh ./init.sh
 cargo run -- --mode edit
 ```
 
+Launch TUI:
+```bash
+cargo run -- --mode edit --tui
+```
+
+TUI controls:
+- Type to edit input.
+- `Enter` submits message.
+- `Up`/`Down` scroll message area.
+- `q` quits TUI.
+
 ## Test and Lint
 Test:
 ```bash

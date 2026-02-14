@@ -3,6 +3,7 @@ pub mod modes;
 pub mod policy;
 pub mod session;
 pub mod tools;
+pub mod tui;
 
 pub fn app_name() -> &'static str {
     "fastcode"

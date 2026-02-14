@@ -172,8 +172,12 @@
       "Reconstruct state using app_spec, feature_list, README, and progress log.",
       "Confirm next priority task can be selected without ambiguity."
     ],
-    "evidence": [],
-    "passes": false
+    "evidence": [
+      "2026-02-14: Fresh coding session reconstructed full project context by reading authoritative artifacts in order: app_spec.txt, feature_list.json, README.md, claude-progress.txt, plus git history (`git log --oneline -20`).",
+      "2026-02-14: Verified unambiguous next-task selection from checklist state via scripted count/sort (`pending_count=5`; highest pending is `NF-001` with priority `P0`, followed by `F-010` `P1`).",
+      "2026-02-14: Regression guardrails validated before status update: `powershell -ExecutionPolicy Bypass -File ./init.ps1`, `cargo run -- --mode edit`, and scripted real TUI interaction `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep80,sleep80,sleep80,Up,Down,q'; cargo run -- --mode edit --tui` all exited 0."
+    ],
+    "passes": true
   },
   {
     "id": "NF-002",

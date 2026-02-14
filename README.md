@@ -49,7 +49,7 @@ Launch TUI with MCP diagnostics from config:
 cargo run -- --mode edit --tui --mcp-config ./docs/mcp-servers.example.json
 ```
 
-When `--mcp-config` is provided, TUI now refreshes MCP diagnostics continuously and shows status counters in the status bar (`mcp: <state> rN dN`, where `rN` is refresh cycles and `dN` is suppressed duplicate refresh summaries).
+When `--mcp-config` is provided, TUI now refreshes MCP diagnostics continuously and shows status counters in the status bar (`mcp: <state> rN dN`, where `rN` is refresh cycles and `dN` is suppressed duplicate refresh summaries for the current MCP status label).
 Long MCP diagnostics messages are compacted in the message area with a truncation marker (for example `... (+129 chars)`) to keep narrow terminals readable.
 Consecutive identical MCP refresh summaries are deduplicated in the message area to avoid repeated spam while the status-bar refresh counter still advances.
 If an MCP refresh cycle returns no summary text, TUI emits a fallback diagnostics message instead of dropping the refresh event.

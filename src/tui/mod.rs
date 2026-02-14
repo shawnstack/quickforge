@@ -183,7 +183,11 @@ impl App {
 
     pub fn apply_mcp_refresh(&mut self, diagnostics: McpDiagnostics) {
         self.mcp_refresh_count = self.mcp_refresh_count.saturating_add(1);
+        let status_changed = self.mcp_status_label != diagnostics.status_label;
         self.mcp_status_label = diagnostics.status_label.clone();
+        if status_changed {
+            self.mcp_refresh_dedup_count = 0;
+        }
         let summary = diagnostics.messages.first().cloned().unwrap_or_else(|| {
             format!(
                 "MCP diagnostics update ({}): no summary details provided",
@@ -851,6 +855,32 @@ mod tests {
                 .count()
                 == 1
         );
+    }
+
+    #[test]
+    fn status_transition_resets_refresh_dedup_counter() {
+        let mut app = App::new(RuntimeMode::Edit);
+        app.apply_mcp_refresh(McpDiagnostics {
+            status_label: "degraded 0/1".to_string(),
+            messages: vec!["MCP diagnostics degraded (0/1 running)".to_string()],
+        });
+        app.apply_mcp_refresh(McpDiagnostics {
+            status_label: "degraded 0/1".to_string(),
+            messages: vec!["MCP diagnostics degraded (0/1 running)".to_string()],
+        });
+        assert_eq!(app.mcp_status_display(), "degraded 0/1 r2 d1");
+
+        app.apply_mcp_refresh(McpDiagnostics {
+            status_label: "ok 1/1".to_string(),
+            messages: vec!["MCP diagnostics healthy (1/1 running)".to_string()],
+        });
+        assert_eq!(app.mcp_status_display(), "ok 1/1 r3 d0");
+
+        app.apply_mcp_refresh(McpDiagnostics {
+            status_label: "ok 1/1".to_string(),
+            messages: vec!["MCP diagnostics healthy (1/1 running)".to_string()],
+        });
+        assert_eq!(app.mcp_status_display(), "ok 1/1 r4 d1");
     }
 
     #[test]

@@ -505,5 +505,23 @@
       "2026-02-14: Real UI verification with repeated failures: `cmd /c \"set FASTCODE_TUI_SCRIPT=h,i,Enter,sleep260,sleep260,sleep260,sleep260,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\\\docs\\\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\\\f026-mcp-dedupe-counter.log 2>&1\"`; evidence in `target/f026-mcp-dedupe-counter.clean.log` shows status progression including `mcp: error r0 d0` and later `mcp: error r4 d3`, while user flow remains present (`user: hi`, `assistant: received -> hi`)."
     ],
     "passes": true
+  },
+  {
+    "id": "F-027",
+    "category": "functional",
+    "priority": "P1",
+    "description": "TUI MCP deduplication suppression counter resets when MCP status label changes so dN reflects the active status phase.",
+    "steps": [
+      "Trigger repeated MCP refreshes with identical status+summary and verify dN increments for suppressed duplicates.",
+      "Trigger a subsequent MCP refresh where status label changes and verify dN resets to 0 while refresh counter continues increasing.",
+      "Verify normal input/submit/scroll flow remains functional through the status transition."
+    ],
+    "evidence": [
+      "2026-02-14: Updated `App::apply_mcp_refresh` in `src/tui/mod.rs` to detect MCP status-label changes and reset `mcp_refresh_dedup_count` before applying dedupe logic for the new status phase.",
+      "2026-02-14: Added test `tui::tests::status_transition_resets_refresh_dedup_counter`; verification: `cargo test status_transition_resets_refresh_dedup_counter` passed (1 passed, 0 failed).",
+      "2026-02-14: Full regression passed: `cargo test` (51 lib tests + 10 bin tests, 0 failed).",
+      "2026-02-14: Real UI verification: `cmd /c \"set FASTCODE_TUI_SCRIPT=resize100x30,sleep260,sleep260,sleep260,sleep260,sleep260,h,i,Enter,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\\\target\\\\mcp-flaky-config.json --mcp-refresh-ms 200 > target\\\\f027-dedup-reset-transition.log 2>&1\"` exited 0; parsed evidence in `target/f027-dedup-reset-transition.clean.log` includes pre-transition `mcp: error r1 d0`, transition snapshot `invalid-config r4 d0` (counter reset on status change), and later `mcp: invalid-configr6 d2` with user flow retained (`user: hi`, `assistant: rece...`)."
+    ],
+    "passes": true
   }
 ]

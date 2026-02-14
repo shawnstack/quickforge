@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 const INPUT_MAX_LEN: usize = 512;
 const STREAM_CHUNK_INTERVAL_MS: u64 = 60;
 const STREAM_CHARS_PER_CHUNK: usize = 4;
-const MCP_REFRESH_INTERVAL_MS: u64 = 800;
+pub const DEFAULT_MCP_REFRESH_INTERVAL_MS: u64 = 800;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct McpDiagnostics {
@@ -225,13 +225,14 @@ fn chunk_text(text: &str) -> Vec<String> {
 }
 
 pub fn run_app(mode: RuntimeMode) -> anyhow::Result<()> {
-    run_app_with_mcp_diagnostics(mode, None, None)
+    run_app_with_mcp_diagnostics(mode, None, None, None)
 }
 
 pub fn run_app_with_mcp_diagnostics(
     mode: RuntimeMode,
     mcp_diagnostics: Option<McpDiagnostics>,
     mcp_config_path: Option<PathBuf>,
+    mcp_refresh_interval_ms: Option<u64>,
 ) -> anyhow::Result<()> {
     let mut stdout = io::stdout();
     enable_raw_mode()?;
@@ -245,7 +246,15 @@ pub fn run_app_with_mcp_diagnostics(
     let size = terminal.size()?;
     app.on_resize(size.width, size.height);
     let scripted_actions = scripted_actions_from_env();
-    let result = run_loop(&mut terminal, &mut app, scripted_actions, mcp_config_path);
+    let mcp_refresh_interval =
+        Duration::from_millis(mcp_refresh_interval_ms.unwrap_or(DEFAULT_MCP_REFRESH_INTERVAL_MS));
+    let result = run_loop(
+        &mut terminal,
+        &mut app,
+        scripted_actions,
+        mcp_config_path,
+        mcp_refresh_interval,
+    );
     disable_raw_mode()?;
     std::io::stdout().execute(LeaveAlternateScreen)?;
     result
@@ -256,8 +265,9 @@ fn run_loop<B: ratatui::backend::Backend>(
     app: &mut App,
     mut scripted_actions: VecDeque<ScriptAction>,
     mcp_config_path: Option<PathBuf>,
+    mcp_refresh_interval: Duration,
 ) -> anyhow::Result<()> {
-    let mut last_mcp_refresh_at = Instant::now() - Duration::from_millis(MCP_REFRESH_INTERVAL_MS);
+    let mut last_mcp_refresh_at = Instant::now() - mcp_refresh_interval;
     while !app.should_quit() {
         terminal.draw(|frame| draw(frame, app))?;
 
@@ -279,7 +289,7 @@ fn run_loop<B: ratatui::backend::Backend>(
         }
 
         if let Some(config_path) = &mcp_config_path {
-            if last_mcp_refresh_at.elapsed() >= Duration::from_millis(MCP_REFRESH_INTERVAL_MS) {
+            if last_mcp_refresh_at.elapsed() >= mcp_refresh_interval {
                 app.apply_mcp_refresh(refresh_mcp_diagnostics(config_path));
                 last_mcp_refresh_at = Instant::now();
             }

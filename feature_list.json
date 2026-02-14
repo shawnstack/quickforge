@@ -369,5 +369,22 @@
       "2026-02-14: Verification: `cargo test` passed (42 passed, 0 failed). Real UI flow: `$env:FASTCODE_TUI_SCRIPT='h,i,Enter,sleep900,sleep900,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config target/mcp-tui-refresh-test.json` showed status progression `mcp: ok 1/1 r0 -> r1 -> r2 -> r3` while input/submit/scroll remained functional and process exited 0."
     ],
     "passes": true
+  },
+  {
+    "id": "F-019",
+    "category": "functional",
+    "priority": "P1",
+    "description": "TUI MCP diagnostics refresh interval is configurable from CLI for operator-controlled runtime overhead.",
+    "steps": [
+      "Launch TUI with --mcp-config and custom --mcp-refresh-ms value.",
+      "Verify MCP refresh counter advances according to configured interval while input/submit/scroll remain functional.",
+      "Verify invalid refresh interval values fail with explicit actionable CLI error."
+    ],
+    "evidence": [
+      "2026-02-14: Updated `src/main.rs` to add `--mcp-refresh-ms` (u64 range 1..) and pass it to TUI runtime; added CLI tests `parses_positive_mcp_refresh_interval` and `rejects_zero_mcp_refresh_interval`.",
+      "2026-02-14: Updated `src/tui/mod.rs` to replace hardcoded MCP refresh interval with runtime-configurable value while keeping default `DEFAULT_MCP_REFRESH_INTERVAL_MS=800` when flag is omitted.",
+      "2026-02-14: Verification: `cargo test` passed (42 lib + 5 bin tests, 0 failed). Real UI flow `$env:FASTCODE_TUI_SCRIPT='h,i,Enter,sleep260,sleep260,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config target/mcp-tui-refresh-test.json --mcp-refresh-ms 200` showed rapid status progression (`mcp: ok 1/1 r1 -> r2 -> r3`) while input/submit/scroll stayed functional. Error-path verification `cargo run -- --mode edit --tui --mcp-refresh-ms 0` exited non-zero with explicit range error."
+    ],
+    "passes": true
   }
 ]

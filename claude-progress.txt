@@ -836,3 +836,48 @@ Next Priority
 
 Completion Snapshot
 - 22/22 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 21)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Confirmed baseline tracker state before work: all existing items were already passing (22/22), then added and closed one new high-priority unfinished item in this session.
+- Ran environment/bootstrap and regression pre-checks before implementation:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep120,sleep120,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config target/mcp-tui-refresh-test.json`
+- Added and completed new high-priority unfinished item:
+  - Added `F-019`: configurable MCP diagnostics refresh interval in TUI.
+  - Updated `src/main.rs` with CLI flag `--mcp-refresh-ms` (validated as positive integer) and wired value into TUI runtime.
+  - Updated `src/tui/mod.rs` to remove hardcoded MCP refresh interval from loop logic and use runtime-configured interval with default fallback `DEFAULT_MCP_REFRESH_INTERVAL_MS=800`.
+  - Added CLI parsing tests in `src/main.rs` for valid and invalid interval values.
+- Updated docs/tracking artifacts:
+  - `README.md` updated with `--mcp-refresh-ms` usage example.
+  - `feature_list.json` extended with `F-019` and verification evidence.
+
+Verified checklist items
+- `F-019` passed with:
+  - `cargo fmt`
+  - `cargo test` (42 library tests + 5 binary tests, 0 failed)
+  - Real UI path: `$env:FASTCODE_TUI_SCRIPT='h,i,Enter,sleep260,sleep260,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config target/mcp-tui-refresh-test.json --mcp-refresh-ms 200`
+  - TUI evidence showed accelerated refresh progression in status line (`mcp: ok 1/1 r1 -> r2 -> r3`) while input/submit/scroll behavior remained intact.
+  - Error-path CLI verification: `cargo run -- --mode edit --tui --mcp-refresh-ms 0` returned explicit clap range error.
+
+Issues found and fixed
+- No regressions found in sampled CLI/TUI core flows after introducing configurable MCP refresh interval.
+- One exploratory full-tree listing command produced excessive output; no functional impact.
+
+Next Priority
+1. Expand MCP lifecycle shutdown-failure simulation tests to assert manager-level telemetry under forced kill/wait failures.
+2. Consider deprecation timeline messaging for legacy MCP flags as downstream scripts migrate.
+3. Add optional environment-based MCP refresh override if operators need policy-driven defaults across sessions.
+
+Completion Snapshot
+- 23/23 checklist items passing.

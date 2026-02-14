@@ -18,6 +18,8 @@ struct Cli {
     mode: String,
     #[arg(long, default_value_t = false)]
     tui: bool,
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
+    mcp_refresh_ms: Option<u64>,
     #[command(subcommand)]
     command: Option<Command>,
     // Backward-compatible legacy flags.
@@ -141,7 +143,12 @@ async fn main() -> anyhow::Result<()> {
             Some(config_path) => Some(build_mcp_diagnostics(config_path)),
             None => None,
         };
-        tui::run_app_with_mcp_diagnostics(mode, mcp_diagnostics, cli.mcp_config.clone())?;
+        tui::run_app_with_mcp_diagnostics(
+            mode,
+            mcp_diagnostics,
+            cli.mcp_config.clone(),
+            cli.mcp_refresh_ms,
+        )?;
     } else {
         println!("fastcode bootstrap running in mode: {}", mode);
         println!("hint: run with --tui to launch the terminal UI");
@@ -319,6 +326,24 @@ mod tests {
         assert!(
             err.to_string()
                 .contains("legacy MCP flags cannot be combined"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn parses_positive_mcp_refresh_interval() {
+        let cli = Cli::try_parse_from(["fastcode", "--tui", "--mcp-refresh-ms", "1200"])
+            .expect("parse should succeed");
+        assert_eq!(cli.mcp_refresh_ms, Some(1200));
+    }
+
+    #[test]
+    fn rejects_zero_mcp_refresh_interval() {
+        let err = Cli::try_parse_from(["fastcode", "--tui", "--mcp-refresh-ms", "0"])
+            .expect_err("parse should fail");
+        assert!(
+            err.to_string()
+                .contains("invalid value '0' for '--mcp-refresh-ms <MCP_REFRESH_MS>'"),
             "unexpected error: {err}"
         );
     }

@@ -95,3 +95,42 @@ Next Priority
 
 Completion Snapshot
 - 4/14 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 3)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and verified current repository state before coding.
+- Ran environment/bootstrap + regression pre-checks:
+  - powershell -ExecutionPolicy Bypass -File ./init.ps1
+  - cargo run -- --mode edit
+  - cargo run -- --mode plan
+  - cargo test allows_configured_safe_command
+  - cargo test rejects_denied_command_with_explicit_error
+- Implemented approval persistence module for P0 F-005:
+  - Added `src/approvals/manager.rs` and `src/approvals/mod.rs`.
+  - Added `ApprovalType` for `allow_once` / `allow_session` / `allow_global`.
+  - Added JSON persistence with `load_or_create` and `save`.
+  - Added scope-aware lookup and `allow_once` consumption via `authorize_command`.
+- Exported approvals module from `src/lib.rs`.
+- Ran formatting and full regression:
+  - cargo fmt
+  - cargo test
+  - cargo run -- --mode edit
+
+Verified checklist items
+- F-005 passed with implementation + unit test evidence recorded in `feature_list.json`.
+
+Issues found and fixed
+- Initial targeted cargo test syntax was invalid for multi-name filter; corrected to explicit per-test invocations.
+- `cargo fmt --check` reported repository formatting drift in `src/policy/validator.rs`; normalized with `cargo fmt`.
+- Removed an unused import warning in approvals module to keep build output clean.
+
+Next Priority
+1. Implement session manager create/list/load/switch flow (F-006).
+2. Implement tool registry and normalized envelopes (F-007).
+3. Start minimal TUI shell structure for status/message/input areas (F-008).
+
+Completion Snapshot
+- 5/14 checklist items passing.

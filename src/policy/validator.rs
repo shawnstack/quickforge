@@ -85,9 +85,17 @@ impl PolicyValidator {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PolicyError {
     EmptyCommand,
-    DeniedCommand { command: String, pattern: String },
-    CommandNotAllowed { command: String },
-    ProtectedPath { path: PathBuf, protected_root: PathBuf },
+    DeniedCommand {
+        command: String,
+        pattern: String,
+    },
+    CommandNotAllowed {
+        command: String,
+    },
+    ProtectedPath {
+        path: PathBuf,
+        protected_root: PathBuf,
+    },
 }
 
 impl Display for PolicyError {
@@ -190,7 +198,9 @@ mod tests {
         };
         let validator = PolicyValidator::new(config);
 
-        let err = validator.validate_command("cargo test && rm -rf /").unwrap_err();
+        let err = validator
+            .validate_command("cargo test && rm -rf /")
+            .unwrap_err();
         match err {
             PolicyError::DeniedCommand { command, pattern } => {
                 assert_eq!(command, "cargo test && rm -rf /");
@@ -250,8 +260,10 @@ mod tests {
         };
 
         let validator = PolicyValidator::new(config);
-        assert!(validator
-            .validate_paths([Path::new("/workspace/project/src/main.rs")])
-            .is_ok());
+        assert!(
+            validator
+                .validate_paths([Path::new("/workspace/project/src/main.rs")])
+                .is_ok()
+        );
     }
 }

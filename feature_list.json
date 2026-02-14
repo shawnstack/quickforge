@@ -74,8 +74,12 @@
       "Reload persisted approvals from disk.",
       "Verify lookup behavior matches approval scope semantics."
     ],
-    "evidence": [],
-    "passes": false
+    "evidence": [
+      "2026-02-14: Added approvals module at src/approvals/manager.rs with ApprovalManager persistence to JSON and scope-aware approvals (allow_once/allow_session/allow_global).",
+      "2026-02-14: Added unit tests covering add -> save -> reload and scope lookup semantics, including allow_once consumption after first authorization.",
+      "2026-02-14: cargo test passed with approvals::manager tests and full suite (14 passed, 0 failed)."
+    ],
+    "passes": true
   },
   {
     "id": "F-006",

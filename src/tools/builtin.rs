@@ -170,8 +170,10 @@ fn to_result_string(
 #[cfg(test)]
 mod tests {
     use super::register_builtin_tools;
+    use crate::approvals::manager::{ApprovalManager, ApprovalType};
     use crate::audit::logger::AuditRecord;
     use crate::modes::runtime_mode::RuntimeMode;
+    use crate::policy::validator::{PolicyConfig, PolicyValidator};
     use crate::tools::registry::{ToolContext, ToolRegistry, ToolStatus};
     use serde_json::json;
     use std::env;
@@ -289,6 +291,105 @@ mod tests {
         cleanup_dir(&temp_dir);
     }
 
+    #[test]
+    fn blocks_denied_shell_command_before_execution_with_resolution_error() {
+        let temp_dir = unique_temp_dir("tool-safety-policy");
+        cleanup_dir(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let target = temp_dir.join("do-not-delete.txt");
+        std::fs::write(&target, "must stay").unwrap();
+
+        let (deny_pattern, denied_command) = denied_delete_command_for_platform(&target);
+        let policy = PolicyValidator::new(PolicyConfig {
+            allow_command_prefixes: Vec::new(),
+            deny_command_patterns: vec![deny_pattern],
+            protected_paths: Vec::new(),
+        });
+
+        let mut registry = ToolRegistry::new();
+        register_builtin_tools(&mut registry).unwrap();
+
+        let ctx = ToolContext::new(&temp_dir);
+        let result = registry.execute_with_safety(
+            "shell",
+            &json!({ "command": denied_command }),
+            &ctx,
+            RuntimeMode::Auto,
+            Some(&policy),
+            None,
+            Some("session-a"),
+        );
+
+        assert_eq!(result.status, ToolStatus::Error);
+        assert_eq!(result.error_code.as_deref(), Some("policy_denied"));
+        let message = result.error_message.unwrap_or_default();
+        assert!(message.contains("policy rejected command"));
+        assert!(message.contains("To proceed"));
+        assert!(target.exists(), "denied command should not be executed");
+
+        cleanup_dir(&temp_dir);
+    }
+
+    #[test]
+    fn blocks_shell_command_without_required_approval_in_edit_mode() {
+        let temp_dir = unique_temp_dir("tool-safety-approval");
+        cleanup_dir(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let approvals_path = temp_dir.join("approvals.json");
+        let mut approvals = ApprovalManager::load_or_create(&approvals_path).unwrap();
+
+        let mut registry = ToolRegistry::new();
+        register_builtin_tools(&mut registry).unwrap();
+
+        let ctx = ToolContext::new(&temp_dir);
+        let blocked = registry.execute_with_safety(
+            "shell",
+            &json!({ "command": "echo needs-approval" }),
+            &ctx,
+            RuntimeMode::Edit,
+            None,
+            Some(&mut approvals),
+            Some("session-a"),
+        );
+        assert_eq!(blocked.status, ToolStatus::Error);
+        assert_eq!(blocked.error_code.as_deref(), Some("approval_required"));
+        assert!(
+            blocked
+                .error_message
+                .unwrap_or_default()
+                .contains("grant allow_once/allow_session/allow_global")
+        );
+
+        approvals
+            .add_approval(
+                "echo needs-approval",
+                ApprovalType::AllowOnce,
+                Some("session-a"),
+            )
+            .unwrap();
+
+        let allowed = registry.execute_with_safety(
+            "shell",
+            &json!({ "command": "echo needs-approval" }),
+            &ctx,
+            RuntimeMode::Edit,
+            None,
+            Some(&mut approvals),
+            Some("session-a"),
+        );
+        assert_eq!(allowed.status, ToolStatus::Success);
+        assert!(
+            allowed
+                .output
+                .unwrap_or_default()
+                .contains("needs-approval")
+        );
+
+        cleanup_dir(&temp_dir);
+    }
+
     fn unique_temp_dir(prefix: &str) -> PathBuf {
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -300,6 +401,23 @@ mod tests {
     fn cleanup_dir(path: &Path) {
         if path.exists() {
             let _ = std::fs::remove_dir_all(path);
+        }
+    }
+
+    fn denied_delete_command_for_platform(target: &Path) -> (String, String) {
+        if cfg!(windows) {
+            (
+                "remove-item -recurse".to_string(),
+                format!(
+                    "Remove-Item -Recurse -Force '{}'",
+                    target.display().to_string().replace('\'', "''")
+                ),
+            )
+        } else {
+            (
+                "rm -rf".to_string(),
+                format!("rm -rf '{}'", target.display()),
+            )
         }
     }
 }

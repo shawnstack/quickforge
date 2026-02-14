@@ -368,3 +368,42 @@ Next Priority
 
 Completion Snapshot
 - 11/14 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 10)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and verified repository/git status in fresh window.
+- Ran startup/bootstrap and regression pre-checks before new work:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep80,sleep80,Up,Down,q'; cargo run -- --mode edit --tui`
+- Implemented safety-default tool guardrails for `NF-003`:
+  - Added `ToolRegistry::execute_with_safety` in `src/tools/registry.rs`.
+  - Enforced shell pre-execution checks for runtime mode (`can_execute`), policy deny validation, and edit-mode approval requirements.
+  - Added actionable user-facing resolution text for denied/approval-required responses.
+- Added end-to-end safety verification tests in `src/tools/builtin.rs`:
+  - `blocks_denied_shell_command_before_execution_with_resolution_error`
+  - `blocks_shell_command_without_required_approval_in_edit_mode`
+- Ran post-change validation:
+  - `cargo fmt`
+  - `cargo test` (28 passed, 0 failed)
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep80,sleep80,Down,q'; cargo run -- --mode edit --tui`
+  - `cargo test blocks_denied_shell_command_before_execution_with_resolution_error`
+  - `cargo test blocks_shell_command_without_required_approval_in_edit_mode`
+
+Verified checklist items
+- `NF-003` passed with blocked high-risk command evidence, blocked-before-execution file-preservation assertion, and approval-required user-facing resolution verification.
+
+Issues found and fixed
+- Initial targeted cargo test command incorrectly provided two test filters in one invocation; corrected to separate test commands.
+- No functional regression detected in sampled CLI/TUI core flows after safety guard integration.
+
+Next Priority
+1. Capture and record cold-start build timing baseline (`NF-002`).
+2. Validate terminal UX at 80x24 and 120x40 sizes (`NF-004`).
+
+Completion Snapshot
+- 12/14 checklist items passing.

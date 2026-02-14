@@ -1,5 +1,7 @@
+use crate::approvals::manager::ApprovalManager;
 use crate::audit::logger::AuditLogger;
 use crate::modes::runtime_mode::RuntimeMode;
+use crate::policy::validator::PolicyValidator;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -167,6 +169,96 @@ impl ToolRegistry {
             result.error_message.as_deref(),
         );
         result
+    }
+
+    pub fn execute_with_safety(
+        &self,
+        tool_name: &str,
+        args: &Value,
+        ctx: &ToolContext,
+        mode: RuntimeMode,
+        policy: Option<&PolicyValidator>,
+        mut approvals: Option<&mut ApprovalManager>,
+        session_id: Option<&str>,
+    ) -> ToolResultEnvelope {
+        let normalized_tool = tool_name.trim();
+        if normalized_tool.eq_ignore_ascii_case("shell") {
+            if !mode.can_execute() {
+                return ToolResultEnvelope::error(
+                    "shell",
+                    "execution_not_allowed",
+                    format!(
+                        "runtime mode '{}' does not allow command execution; switch to edit or auto mode",
+                        mode
+                    ),
+                );
+            }
+
+            let command = args
+                .get("command")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+
+            let Some(command) = command else {
+                return ToolResultEnvelope::error(
+                    "shell",
+                    "invalid_arguments",
+                    "shell tool requires non-empty 'command'",
+                );
+            };
+
+            if let Some(policy) = policy {
+                if let Err(err) = policy.validate_command(command) {
+                    return ToolResultEnvelope::error(
+                        "shell",
+                        "policy_denied",
+                        format!(
+                            "{}. To proceed, run an allowed command or update policy/approval settings.",
+                            err
+                        ),
+                    );
+                }
+            }
+
+            if mode.requires_approval() {
+                let Some(session_id) = session_id.map(str::trim).filter(|id| !id.is_empty()) else {
+                    return ToolResultEnvelope::error(
+                        "shell",
+                        "approval_required",
+                        "command requires approval in edit mode; provide a valid session_id and grant approval for this prefix",
+                    );
+                };
+
+                let Some(manager) = approvals.as_mut() else {
+                    return ToolResultEnvelope::error(
+                        "shell",
+                        "approval_required",
+                        "command requires approval in edit mode; load approvals and grant allow_once/allow_session/allow_global for this command prefix",
+                    );
+                };
+
+                match manager.authorize_command(command, session_id) {
+                    Ok(Some(_)) => {}
+                    Ok(None) => {
+                        return ToolResultEnvelope::error(
+                            "shell",
+                            "approval_required",
+                            "command requires approval in edit mode; grant allow_once/allow_session/allow_global for this command prefix",
+                        );
+                    }
+                    Err(err) => {
+                        return ToolResultEnvelope::error(
+                            "shell",
+                            "approval_check_failed",
+                            format!("failed to evaluate approvals: {}", err),
+                        );
+                    }
+                }
+            }
+        }
+
+        self.execute(tool_name, args, ctx)
     }
 }
 

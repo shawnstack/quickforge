@@ -206,8 +206,12 @@
       "Verify command is blocked before execution.",
       "Verify user-facing error explains why and how to resolve."
     ],
-    "evidence": [],
-    "passes": false
+    "evidence": [
+      "2026-02-14: Added `ToolRegistry::execute_with_safety` in `src/tools/registry.rs` to enforce runtime-mode execution rules, policy deny checks, and edit-mode approval requirements before shell execution.",
+      "2026-02-14: Added test `tools::builtin::tests::blocks_denied_shell_command_before_execution_with_resolution_error` that sends a real high-risk delete command through the tool interface, confirms `policy_denied` with remediation text (`To proceed...`), and verifies target file still exists (blocked before execution).",
+      "2026-02-14: Added test `tools::builtin::tests::blocks_shell_command_without_required_approval_in_edit_mode` that verifies `approval_required` without prior approval and successful execution after granting `allow_once`; validated via `cargo test` and targeted test runs."
+    ],
+    "passes": true
   },
   {
     "id": "NF-004",

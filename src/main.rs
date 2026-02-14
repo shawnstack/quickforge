@@ -10,6 +10,9 @@ use fastcode::tui::{self, McpDiagnostics};
 use std::path::PathBuf;
 use std::str::FromStr;
 
+const MCP_REFRESH_INTERVAL_MIN_MS: u64 = 50;
+const MCP_REFRESH_INTERVAL_MAX_MS: u64 = 60_000;
+
 #[derive(Debug, Parser)]
 #[command(name = "fastcode")]
 #[command(about = "FastCode Rust TUI bootstrap")]
@@ -18,7 +21,11 @@ struct Cli {
     mode: String,
     #[arg(long, default_value_t = false)]
     tui: bool,
-    #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
+    #[arg(
+        long,
+        value_parser = clap::value_parser!(u64)
+            .range(MCP_REFRESH_INTERVAL_MIN_MS..=MCP_REFRESH_INTERVAL_MAX_MS)
+    )]
     mcp_refresh_ms: Option<u64>,
     #[command(subcommand)]
     command: Option<Command>,
@@ -176,11 +183,18 @@ fn resolve_mcp_refresh_ms(
         return Ok(None);
     }
 
-    let parsed = trimmed
-        .parse::<u64>()
-        .with_context(|| "FASTCODE_MCP_REFRESH_MS must be a positive integer (milliseconds)")?;
-    if parsed == 0 {
-        anyhow::bail!("FASTCODE_MCP_REFRESH_MS must be greater than 0");
+    let parsed = trimmed.parse::<u64>().with_context(|| {
+        format!(
+            "FASTCODE_MCP_REFRESH_MS must be an integer in range {}..={} (milliseconds)",
+            MCP_REFRESH_INTERVAL_MIN_MS, MCP_REFRESH_INTERVAL_MAX_MS
+        )
+    })?;
+    if !(MCP_REFRESH_INTERVAL_MIN_MS..=MCP_REFRESH_INTERVAL_MAX_MS).contains(&parsed) {
+        anyhow::bail!(
+            "FASTCODE_MCP_REFRESH_MS must be in range {}..={} milliseconds",
+            MCP_REFRESH_INTERVAL_MIN_MS,
+            MCP_REFRESH_INTERVAL_MAX_MS
+        );
     }
 
     Ok(Some(parsed))
@@ -379,6 +393,17 @@ mod tests {
     }
 
     #[test]
+    fn rejects_too_large_mcp_refresh_interval() {
+        let err = Cli::try_parse_from(["fastcode", "--tui", "--mcp-refresh-ms", "60001"])
+            .expect_err("parse should fail");
+        assert!(
+            err.to_string()
+                .contains("invalid value '60001' for '--mcp-refresh-ms <MCP_REFRESH_MS>'"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
     fn resolves_mcp_refresh_interval_from_env_when_cli_missing() {
         let resolved = resolve_mcp_refresh_ms(None, Some("450")).expect("resolve should succeed");
         assert_eq!(resolved, Some(450));
@@ -396,17 +421,24 @@ mod tests {
         let err = resolve_mcp_refresh_ms(None, Some("not-a-number")).expect_err("must fail");
         assert!(
             err.to_string()
-                .contains("FASTCODE_MCP_REFRESH_MS must be a positive integer"),
+                .contains("FASTCODE_MCP_REFRESH_MS must be an integer in range 50..=60000"),
             "unexpected error: {err}"
         );
     }
 
     #[test]
-    fn rejects_zero_env_mcp_refresh_interval() {
+    fn rejects_out_of_range_env_mcp_refresh_interval() {
         let err = resolve_mcp_refresh_ms(None, Some("0")).expect_err("must fail");
         assert!(
             err.to_string()
-                .contains("FASTCODE_MCP_REFRESH_MS must be greater than 0"),
+                .contains("FASTCODE_MCP_REFRESH_MS must be in range 50..=60000"),
+            "unexpected error: {err}"
+        );
+
+        let err = resolve_mcp_refresh_ms(None, Some("60001")).expect_err("must fail");
+        assert!(
+            err.to_string()
+                .contains("FASTCODE_MCP_REFRESH_MS must be in range 50..=60000"),
             "unexpected error: {err}"
         );
     }

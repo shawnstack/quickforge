@@ -924,3 +924,53 @@ Next Priority
 
 Completion Snapshot
 - 24/24 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 23)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository history/state in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Confirmed tracker baseline before new work: all existing items were passing (24/24); added and completed one new high-priority unfinished item in this session.
+- Ran startup/bootstrap and regression pre-checks before implementation:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep260,sleep260,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config ./docs/mcp-servers.example.json --mcp-refresh-ms 200`
+- Added and completed new high-priority unfinished item:
+  - Added `F-021`: policy-safe MCP refresh interval bounds for both CLI and environment paths.
+  - Updated `src/main.rs` to enforce shared bounds `50..=60000` milliseconds for `--mcp-refresh-ms` and `FASTCODE_MCP_REFRESH_MS`.
+  - Added/updated binary tests for out-of-range validation:
+    - `rejects_too_large_mcp_refresh_interval`
+    - `rejects_out_of_range_env_mcp_refresh_interval`
+    - adjusted invalid-env error assertion text to range-aware messaging.
+- Updated docs/tracking artifacts:
+  - `README.md` now documents MCP refresh interval range requirements.
+  - `feature_list.json` extended with `F-021` and verification evidence.
+
+Verified checklist items
+- `F-021` passed with:
+  - `cargo fmt`
+  - `cargo test` (42 library tests + 10 binary tests, 0 failed)
+  - Real UI path:
+    - `$env:FASTCODE_TUI_SCRIPT='h,i,Enter,sleep260,sleep260,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config ./docs/mcp-servers.example.json --mcp-refresh-ms 200`
+    - UI flow preserved input/submit/scroll and showed refresh progression (`mcp: error r1 -> r2 -> r3`).
+  - Error-path checks:
+    - `cargo run -- --mode edit --tui --mcp-refresh-ms 60001` -> non-zero with clap range error (`60001 is not in 50..=60000`).
+    - `$env:FASTCODE_MCP_REFRESH_MS='60001'; cargo run -- --mode edit --tui` -> non-zero with `FASTCODE_MCP_REFRESH_MS must be in range 50..=60000 milliseconds`.
+
+Issues found and fixed
+- Risk: refresh interval previously only enforced `> 0`, which allowed overly aggressive or overly sparse polling values with potential operator/performance instability.
+- Fix: centralized bound enforcement for both configuration channels with explicit and test-covered errors.
+
+Next Priority
+1. Expand MCP lifecycle shutdown-failure simulation to assert manager-level telemetry under forced kill/wait failure paths.
+2. Consider deprecation timeline messaging for legacy MCP flags as downstream scripts migrate to subcommands.
+3. Add truncation/compaction policy for long MCP diagnostic lines in TUI message area to improve readability under narrow terminals.
+
+Completion Snapshot
+- 25/25 checklist items passing.

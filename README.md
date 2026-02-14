@@ -51,7 +51,8 @@ cargo run -- --mode edit --tui --mcp-config ./docs/mcp-servers.example.json
 
 When `--mcp-config` is provided, TUI now refreshes MCP diagnostics continuously and shows a refresh counter in the status bar (`mcp: <state> rN`).
 Use `--mcp-refresh-ms <N>` to override the default refresh interval (800ms).
-You can also set `FASTCODE_MCP_REFRESH_MS=<N>` for session-wide defaults (`--mcp-refresh-ms` takes precedence).
+Allowed range is `50..=60000` milliseconds.
+You can also set `FASTCODE_MCP_REFRESH_MS=<N>` for session-wide defaults (`--mcp-refresh-ms` takes precedence), using the same range.
 
 ```bash
 cargo run -- --mode edit --tui --mcp-config ./docs/mcp-servers.example.json --mcp-refresh-ms 200

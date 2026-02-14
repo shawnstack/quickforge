@@ -403,5 +403,22 @@
       "2026-02-14: Real UI verification without CLI override: `$env:FASTCODE_MCP_REFRESH_MS='200'; $env:FASTCODE_TUI_SCRIPT='h,i,Enter,sleep260,sleep260,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config target/mcp-tui-refresh-test.json` showed status progression `mcp: ok 1/1 r1 -> r2 -> r3` with input/submit/scroll working; invalid-path check `$env:FASTCODE_MCP_REFRESH_MS='bad'; cargo run -- --mode edit --tui` exited non-zero with `FASTCODE_MCP_REFRESH_MS must be a positive integer (milliseconds)`."
     ],
     "passes": true
+  },
+  {
+    "id": "F-021",
+    "category": "functional",
+    "priority": "P1",
+    "description": "TUI MCP diagnostics refresh interval enforces policy-safe bounds across CLI and environment configuration paths.",
+    "steps": [
+      "Run TUI with an in-range --mcp-refresh-ms value and verify runtime behavior remains stable.",
+      "Run TUI with out-of-range --mcp-refresh-ms value and verify explicit range error is returned.",
+      "Run TUI with out-of-range FASTCODE_MCP_REFRESH_MS value and verify explicit range error is returned."
+    ],
+    "evidence": [
+      "2026-02-14: Updated `src/main.rs` to enforce shared MCP refresh bounds (`50..=60000` ms) for both CLI (`--mcp-refresh-ms`) and environment variable (`FASTCODE_MCP_REFRESH_MS`) resolution, including explicit validation errors.",
+      "2026-02-14: Added binary tests `rejects_too_large_mcp_refresh_interval` and `rejects_out_of_range_env_mcp_refresh_interval`; updated invalid-env assertion text; `cargo test` passed (42 lib + 10 bin tests, 0 failed).",
+      "2026-02-14: Real UI verification: `$env:FASTCODE_TUI_SCRIPT='h,i,Enter,sleep260,sleep260,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config ./docs/mcp-servers.example.json --mcp-refresh-ms 200` preserved input/submit/scroll with MCP refresh progression (`mcp: error r1 -> r2 -> r3`). Error paths: `cargo run -- --mode edit --tui --mcp-refresh-ms 60001` failed with clap range error (`60001 is not in 50..=60000`), and `$env:FASTCODE_MCP_REFRESH_MS='60001'; cargo run -- --mode edit --tui` failed with `FASTCODE_MCP_REFRESH_MS must be in range 50..=60000 milliseconds`."
+    ],
+    "passes": true
   }
 ]

@@ -575,5 +575,23 @@
       "2026-02-14: Normalization verification passed: ran script in `events` mode to produce `target/regression-ui-core-iter32.clean.log` + `target/regression-ui-mcp-iter32.clean.log`, and in `strip` mode to produce `target/regression-ui-mcp-iter32.strip.log`; checks confirmed no ESC bytes and presence of parseable markers (`fastcode | mode: edit | status: idle`, `mcp: error r1 d0`, and MCP diagnostics lines)."
     ],
     "passes": true
+  },
+  {
+    "id": "F-031",
+    "category": "functional",
+    "priority": "P1",
+    "description": "TUI log normalization script supports operator-tunable event truncation and dedupe behavior with repeatable script-level checks.",
+    "steps": [
+      "Run normalization in events mode with default settings and verify adjacent duplicates are suppressed.",
+      "Run normalization in events mode with `-NoDedupe` and verify adjacent duplicates are retained.",
+      "Run normalization in events mode with custom `-MaxEventLength` and verify truncation obeys configured cap."
+    ],
+    "evidence": [
+      "2026-02-14: Updated `scripts/normalize-tui-log.ps1` to add `-MaxEventLength` (default `240`, range `40..4000`) and `-NoDedupe`, and refactored event extraction to line-based matching so dedupe/truncation controls behave deterministically.",
+      "2026-02-14: Added script-level regression checks in `scripts/test-normalize-tui-log.ps1` covering default dedupe, `-NoDedupe`, and `-MaxEventLength 80`; verification command `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log.ps1` returned `normalize-tui-log script tests: PASS`.",
+      "2026-02-14: Real log verification with runtime artifact: `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-preflight-mcp-iter33.log -OutputPath ./target/f031-events-short.log -Mode events -MaxEventLength 90 -NoDedupe` generated parseable output while preserving repeated MCP detail entries under no-dedupe mode.",
+      "2026-02-14: Full regression check passed: `cargo test` (53 lib tests + 10 bin tests, 0 failed)."
+    ],
+    "passes": true
   }
 ]

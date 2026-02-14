@@ -98,6 +98,14 @@ powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputP
 Modes:
 - `events` (default): extracts status/user/system/assistant snapshots and deduplicates adjacent duplicates.
 - `strip`: removes ANSI/control sequences but keeps full text.
+Options:
+- `-MaxEventLength <N>`: line-length cap used in `events` mode (default `240`, range `40..4000`).
+- `-NoDedupe`: disables adjacent-duplicate suppression in `events` mode.
+
+Script-level behavior checks:
+```powershell
+powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log.ps1
+```
 
 ## Test and Lint
 Test:

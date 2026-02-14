@@ -1368,3 +1368,52 @@ Next Priority
 
 Completion Snapshot
 - 34/34 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 33)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository state/history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Confirmed tracker baseline before implementation:
+  - `total=34`, `passed=34`, `unpassed=0`, `blocked=0`
+- Executed startup/bootstrap and regression pre-checks before new implementation:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=h,e,l,l,o,Enter,sleep120,Up,Down,q && cargo run -- --mode edit --tui > target\regression-preflight-core-iter33.log 2>&1"`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=resize80x24,h,i,Enter,sleep260,sleep260,v,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\docs\mcp-servers.example.json --mcp-refresh-ms 200 > target\regression-preflight-mcp-iter33.log 2>&1"`
+- Added and completed one new high-priority unfinished item:
+  - Added `F-031`: operator-tunable TUI log normalization controls (`-MaxEventLength`, `-NoDedupe`) with deterministic script-level checks.
+  - Updated `scripts/normalize-tui-log.ps1`:
+    - Added `-MaxEventLength` (`40..4000`, default `240`).
+    - Added `-NoDedupe` switch.
+    - Refactored events extraction to line-based matching to keep dedupe/truncation behavior deterministic.
+  - Added `scripts/test-normalize-tui-log.ps1` to validate default dedupe, no-dedupe, and length-capping behavior.
+- Updated docs/tracking artifacts:
+  - `README.md` normalization section now documents `-MaxEventLength`, `-NoDedupe`, and script-level verification command.
+  - `feature_list.json` extended with `F-031` and verification evidence.
+
+Verified checklist items
+- `F-031` passed with:
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log.ps1` (`normalize-tui-log script tests: PASS`)
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-preflight-mcp-iter33.log -OutputPath ./target/f031-events-short.log -Mode events -MaxEventLength 90 -NoDedupe`
+  - `cargo test` (53 lib tests + 10 bin tests, 0 failed)
+
+Issues found and fixed
+- Script test strict-mode bug: `.Count` access on non-array pipeline outputs could fail when output collapsed to a scalar.
+- Fix: wrapped repeated-message query pipelines with array coercion (`@(...)`) in `scripts/test-normalize-tui-log.ps1`.
+- Extraction robustness gap: prior `Extract-TuiEvents` whitespace normalization could collapse event boundaries, weakening dedupe semantics.
+- Fix: switched to line-oriented extraction with explicit status/message pattern checks.
+
+Next Priority
+1. Add fixture-based regression tests that assert `events` extraction stability against real captured noisy MCP logs.
+2. Improve `events` extraction token coverage for richer punctuation while keeping false-positive noise low.
+3. Optionally expose normalization summary stats (event count, dedupe drops) in script output for easier auditing.
+
+Completion Snapshot
+- 35/35 checklist items passing.

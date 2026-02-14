@@ -5,7 +5,12 @@ param(
   [string]$OutputPath,
 
   [ValidateSet('strip', 'events')]
-  [string]$Mode = 'events'
+  [string]$Mode = 'events',
+
+  [ValidateRange(40, 4000)]
+  [int]$MaxEventLength = 240,
+
+  [switch]$NoDedupe
 )
 
 Set-StrictMode -Version Latest
@@ -68,31 +73,41 @@ function Remove-AnsiSequences {
 }
 
 function Extract-TuiEvents {
-  param([string]$Text)
+  param(
+    [string]$Text,
+    [int]$LineMaxLength,
+    [bool]$DisableDedupe
+  )
 
   $events = [System.Collections.Generic.List[string]]::new()
   $normalized = $Text
   $normalized = [Regex]::Replace($normalized, '\b\d+(?:;\d+)*[A-Za-z]\b', ' ')
   $normalized = [Regex]::Replace($normalized, '[^\x09\x0A\x0D\x20-\x7E]', ' ')
   $normalized = [Regex]::Replace($normalized, '(?=(fastcode \| mode:|system:|user:|assistant:))', "`n")
-  $normalized = [Regex]::Replace($normalized, '\s+', ' ')
 
-  $token = '(fastcode \| mode: [A-Za-z]+ \| status: [A-Za-z]+ \| mcp: [A-Za-z0-9\- ]+ \| size: \d+x\d+|(?:system|user|assistant): ?[A-Za-z0-9 .,;:_\-+()''/]+)'
+  $statusPattern = '^fastcode \| mode: [A-Za-z]+ \| status: [A-Za-z]+ \| mcp: [A-Za-z0-9\- ]+ \| size: \d+x\d+'
+  $messagePattern = '^(system|user|assistant): ?[A-Za-z0-9 .,;:_\-+()''/]+$'
 
-  foreach ($match in [Regex]::Matches($normalized, $token)) {
-    $line = $match.Value.Trim()
+  foreach ($rawLine in ($normalized -split "`n")) {
+    $line = [Regex]::Replace($rawLine, '\s+', ' ').Trim()
 
     if ([string]::IsNullOrWhiteSpace($line)) {
       continue
     }
 
-    if ($line.Length -gt 240) {
-      $line = $line.Substring(0, 240) + ' ...'
+    if (-not ([Regex]::IsMatch($line, $statusPattern) -or [Regex]::IsMatch($line, $messagePattern))) {
+      continue
     }
 
-    $lastIndex = $events.Count - 1
-    if ($lastIndex -ge 0 -and $events[$lastIndex] -eq $line) {
-      continue
+    if ($line.Length -gt $LineMaxLength) {
+      $line = $line.Substring(0, $LineMaxLength) + ' ...'
+    }
+
+    if (-not $DisableDedupe) {
+      $lastIndex = $events.Count - 1
+      if ($lastIndex -ge 0 -and $events[$lastIndex] -eq $line) {
+        continue
+      }
     }
 
     $events.Add($line)
@@ -110,7 +125,7 @@ $raw = $raw -replace "`r", "`n"
 
 $clean = Remove-AnsiSequences -Text $raw
 if ($Mode -eq 'events') {
-  $clean = Extract-TuiEvents -Text $clean
+  $clean = Extract-TuiEvents -Text $clean -LineMaxLength $MaxEventLength -DisableDedupe $NoDedupe.IsPresent
 }
 
 $directory = Split-Path -Parent $outputPath
@@ -121,3 +136,7 @@ if ($directory -and -not (Test-Path $directory)) {
 Set-Content -Path $outputPath -Value $clean -Encoding utf8
 Write-Host "normalized log written: $outputPath"
 Write-Host "mode: $Mode"
+if ($Mode -eq 'events') {
+  Write-Host "max_event_length: $MaxEventLength"
+  Write-Host "dedupe: $(-not $NoDedupe.IsPresent)"
+}

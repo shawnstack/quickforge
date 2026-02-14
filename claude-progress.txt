@@ -1709,3 +1709,54 @@ Next Priority
 
 Completion Snapshot
 - 41/41 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 40)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository state/history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Confirmed tracker baseline before implementation:
+  - `total=41`, `passed=41`, `unpassed=0`, `blocked=0`
+- Executed startup/bootstrap and regression pre-checks before new implementation:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=h,e,l,l,o,Enter,sleep120,Up,Down,q && cargo run -- --mode edit --tui > target\regression-preflight-core-iter40.log 2>&1"`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=resize80x24,h,i,Enter,sleep260,sleep260,v,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\docs\mcp-servers.example.json --mcp-refresh-ms 200 > target\regression-preflight-mcp-iter40.log 2>&1"`
+  - Normalized preflight logs:
+    - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-preflight-core-iter40.log -OutputPath ./target/regression-preflight-core-iter40.clean.log -Mode events -SummaryPath ./target/regression-preflight-core-iter40.summary.json`
+    - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-preflight-mcp-iter40.log -OutputPath ./target/regression-preflight-mcp-iter40.clean.log -Mode events -SummaryPath ./target/regression-preflight-mcp-iter40.summary.json`
+- Added and completed one new high-priority unfinished item:
+  - Added `F-042` (P0): strict-events summary split counters (`status_event_count` and `message_event_count`) for deterministic audit thresholds.
+  - Updated `scripts/normalize-tui-log.ps1` to track/emit split counters in events-mode summary output.
+  - Updated `scripts/test-normalize-tui-log.ps1` to assert split counters across JSON summary, compact summary file, and compact emit-summary stdout.
+  - Updated `README.md` summary option documentation.
+  - Updated `feature_list.json` with `F-042` evidence.
+
+Verified checklist items
+- `F-042` passed with:
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log.ps1` (`normalize-tui-log script tests: PASS`)
+  - `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log-fixtures.ps1` (`normalize-tui-log fixture tests: PASS`)
+  - Real UI strict-events verification:
+    - `cmd /c "set FASTCODE_TUI_SCRIPT=resize80x24,h,i,Enter,sleep260,sleep260,v,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\docs\mcp-servers.example.json --mcp-refresh-ms 200 > target\f042-strict-summary-mcp.log 2>&1"`
+    - `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/f042-strict-summary-mcp.log -OutputPath ./target/f042-strict-summary-mcp.strict.log -Mode events -StrictEvents -SummaryPath ./target/f042-strict-summary-mcp.strict.summary.json -SummaryFormat compact`
+    - Summary counters matched normalized output counts: `status_event_count=2`, `message_event_count=6`, `event_output_line_count=8`.
+  - `cargo test` (53 lib tests + 10 bin tests, 0 failed)
+
+Issues found and fixed
+- Verification race in first real-UI evidence attempt: normalization was run in parallel with log capture and read an empty log (`input_bytes=0`).
+- Fix: reran normalization after capture completion and validated counters against generated strict-events output.
+- No runtime panic/crash regressions introduced.
+
+Next Priority
+1. Add fixture coverage for strict-events category counters under repeated resize bursts + long MCP detail expansions to harden truncation/split-counter stability.
+2. Add optional per-label counters (`system/user/assistant`) in events summary if downstream audit thresholds need finer-grained alerting.
+3. Consider documenting a dedicated strict-events evidence command block in README for handoff operators.
+
+Completion Snapshot
+- 42/42 checklist items passing.

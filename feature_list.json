@@ -706,5 +706,25 @@
       "2026-02-14: Regression checks passed: `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log.ps1`, `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log-fixtures.ps1`, and `cargo test` (53 lib tests + 10 bin tests, 0 failed)."
     ],
     "passes": true
+  },
+  {
+    "id": "F-042",
+    "category": "functional",
+    "priority": "P0",
+    "description": "Normalization summary reports strict-events output split counters (`status_event_count` / `message_event_count`) for deterministic audit thresholds.",
+    "steps": [
+      "Run normalization in `events` mode with summary output enabled and verify summary includes split output counters for status lines vs message lines.",
+      "Add script-level assertions covering JSON summary, compact summary-file output, and `-EmitSummary` compact stdout for the new split counters.",
+      "Verify the new counters against a real scripted MCP UI workflow in strict-events mode and confirm full regression suite remains green."
+    ],
+    "evidence": [
+      "2026-02-14: Updated `scripts/normalize-tui-log.ps1` `Extract-TuiEvents` to track emitted `status_event_count` and `message_event_count`, and added both fields to events-mode summary output for JSON and compact formats.",
+      "2026-02-14: Updated `scripts/test-normalize-tui-log.ps1` with deterministic assertions for split counters across JSON summary (`status_event_count=1`, `message_event_count=2`), compact summary file, and `-EmitSummary -SummaryFormat compact` stdout.",
+      "2026-02-14: Updated `README.md` normalization options to document split summary counters in `-EmitSummary` output.",
+      "2026-02-14: Script regressions passed: `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log.ps1` and `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log-fixtures.ps1` both returned `PASS`.",
+      "2026-02-14: Real UI strict-events verification: `cmd /c \"set FASTCODE_TUI_SCRIPT=resize80x24,h,i,Enter,sleep260,sleep260,v,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\\\docs\\\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\\\f042-strict-summary-mcp.log 2>&1\"` followed by `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/f042-strict-summary-mcp.log -OutputPath ./target/f042-strict-summary-mcp.strict.log -Mode events -StrictEvents -SummaryPath ./target/f042-strict-summary-mcp.strict.summary.json -SummaryFormat compact`; summary reports `status_event_count=2` and `message_event_count=6`, matching computed counts from normalized output.",
+      "2026-02-14: Full project regression passed: `cargo test` (53 lib tests + 10 bin tests, 0 failed)."
+    ],
+    "passes": true
   }
 ]

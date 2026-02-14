@@ -631,5 +631,24 @@
       "2026-02-14: Full regression check passed: `cargo test` (53 lib tests + 10 bin tests, 0 failed)."
     ],
     "passes": true
+  },
+  {
+    "id": "F-034",
+    "category": "functional",
+    "priority": "P1",
+    "description": "Normalization summary output supports a compact key=value format for CI/grep workflows while preserving existing JSON summary mode.",
+    "steps": [
+      "Run normalization summary output with default JSON format and verify existing summary fields remain parseable.",
+      "Run normalization with `-SummaryFormat compact` and verify summary output/file emits single-line `key=value` pairs including mode and events counters.",
+      "Verify compact summary workflow on a real scripted TUI session log and confirm core user-path regression checks remain green."
+    ],
+    "evidence": [
+      "2026-02-14: Updated `scripts/normalize-tui-log.ps1` to add `-SummaryFormat <json|compact>` (default `json`) and applied it to both `-EmitSummary` and `-SummaryPath` output paths.",
+      "2026-02-14: Updated `scripts/test-normalize-tui-log.ps1` to verify compact summary output semantics (`mode=events`, `output_line_count`, `dedupe_suppressed_count`, `truncated_count`) while keeping existing JSON summary assertions.",
+      "2026-02-14: Updated README normalization options to document `-SummaryFormat <json|compact>` and intended CI/grep usage.",
+      "2026-02-14: Real UI evidence: normalized scripted MCP log via `powershell -ExecutionPolicy Bypass -File ./scripts/normalize-tui-log.ps1 -InputPath ./target/regression-preflight-mcp-iter36.log -OutputPath ./target/f034-mcp-events.log -Mode events -SummaryPath ./target/f034-mcp-events-summary.compact.txt -SummaryFormat compact`; summary file contains single-line key=value counters including `mode=events`, `event_output_line_count=8`, and `truncated_count=2`.",
+      "2026-02-14: Verification passed: `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log.ps1`, `powershell -ExecutionPolicy Bypass -File ./scripts/test-normalize-tui-log-fixtures.ps1`, and `cargo test` (53 lib tests + 10 bin tests, 0 failed)."
+    ],
+    "passes": true
   }
 ]

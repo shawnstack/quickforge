@@ -14,7 +14,10 @@ param(
 
   [switch]$EmitSummary,
 
-  [string]$SummaryPath
+  [string]$SummaryPath,
+
+  [ValidateSet('json', 'compact')]
+  [string]$SummaryFormat = 'json'
 )
 
 Set-StrictMode -Version Latest
@@ -139,6 +142,29 @@ function Extract-TuiEvents {
   }
 }
 
+function Format-Summary {
+  param(
+    [hashtable]$Summary,
+    [string]$Format
+  )
+
+  if ($Format -eq 'compact') {
+    $parts = [System.Collections.Generic.List[string]]::new()
+    foreach ($key in $Summary.Keys) {
+      $value = $Summary[$key]
+      if ($null -eq $value) {
+        continue
+      }
+
+      $parts.Add("$key=$value")
+    }
+
+    return ($parts -join ' ')
+  }
+
+  return ($Summary | ConvertTo-Json)
+}
+
 $resolvedInputPath = Resolve-Path $InputPath -ErrorAction Stop
 $outputPath = Resolve-OutputPath -SourcePath $resolvedInputPath -RequestedOutputPath $OutputPath
 $inputBytes = (Get-Item $resolvedInputPath).Length
@@ -187,10 +213,10 @@ if ($EmitSummary.IsPresent -or $SummaryPath) {
     $summary.truncated_count = $eventStats.truncated_count
   }
 
-  $summaryJson = $summary | ConvertTo-Json
+  $summaryContent = Format-Summary -Summary $summary -Format $SummaryFormat
   if ($EmitSummary.IsPresent) {
     Write-Host 'summary:'
-    Write-Host $summaryJson
+    Write-Host $summaryContent
   }
 
   if ($SummaryPath) {
@@ -199,7 +225,7 @@ if ($EmitSummary.IsPresent -or $SummaryPath) {
       New-Item -ItemType Directory -Path $summaryDirectory | Out-Null
     }
 
-    Set-Content -Path $SummaryPath -Value $summaryJson -Encoding utf8
+    Set-Content -Path $SummaryPath -Value $summaryContent -Encoding utf8
     Write-Host "summary written: $SummaryPath"
   }
 }

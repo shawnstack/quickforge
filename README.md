@@ -103,6 +103,7 @@ Options:
 - `-NoDedupe`: disables adjacent-duplicate suppression in `events` mode.
 - `-EmitSummary`: prints JSON normalization summary to stdout (bytes, output lines, and `events` mode counters).
 - `-SummaryPath <path>`: writes the same JSON summary to a file for audit evidence.
+- `-SummaryFormat <json|compact>`: selects summary encoding for `-EmitSummary` and `-SummaryPath` (`json` default; `compact` emits single-line `key=value` pairs for CI/grep).
 
 Script-level behavior checks:
 ```powershell

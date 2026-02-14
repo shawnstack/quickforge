@@ -1,0 +1,57 @@
+FastCode Project Specification (Bootstrap v1)
+Date: 2026-02-14
+
+1) Requirement Sources Read
+- MIGRATION_PLAN.md (primary source)
+- run-codex-init.sh (initialization workflow contract prompt)
+- run-codex-loop.sh (coding-session workflow contract prompt)
+
+2) Product Goal
+Build FastCode, a Rust-native TUI coding assistant, migrated from the TypeScript/React/Ink HappyCode architecture.
+Primary target: high-performance, memory-safe terminal app with auditable multi-session coding workflows.
+
+3) Scope for Current Baseline
+- Establish reproducible Rust project baseline.
+- Define authoritative execution/verification checklist.
+- Define environment bootstrap scripts for Windows + POSIX.
+- Provide auditable progress handoff file.
+
+4) Functional Scope (from migration plan, strict interpretation)
+P0 Core:
+- Runtime mode control: plan/edit/auto.
+- Policy validation for shell/path safety.
+- Approval persistence and lifecycle.
+- Session persistence and switching.
+- Core tools framework and command execution loop.
+- TUI shell with message/input/status areas.
+- CLI entrypoints.
+
+P1/P2 Later:
+- Audit log system.
+- MCP integration.
+- Memory/rollback.
+- Multi-agent orchestration and plan mode expansion.
+
+5) Non-Functional Requirements
+- Reproducible setup from clean machine via init scripts.
+- Traceability via immutable checklist intent and progress logs.
+- Cross-platform startup support (PowerShell + POSIX shell).
+- Safe-by-default execution constraints and explicit approvals.
+
+6) Architecture Baseline (this repo)
+- Rust monorepo layout using src/, tests/, docs/, scripts/.
+- Binary entrypoint in src/main.rs.
+- Shared library surface in src/lib.rs.
+- Task verification tracked in feature_list.json only.
+
+7) Acceptance for Initialization Phase
+- Required handoff artifacts exist and are readable:
+  app_spec.txt, feature_list.json, init.sh/init.ps1, README.md, claude-progress.txt.
+- Startup scripts validate prerequisites and run dependency/bootstrap steps.
+- README documents run/test/debug/verification paths.
+- Repository is initialized in git with first commit.
+
+8) Assumptions and Conflict Handling
+- Existing MIGRATION_PLAN.md has encoding corruption in some Chinese text; architecture and code snippets remain usable.
+- No conflicting PRD/README/progress files existed in workspace at start.
+- Strict interpretation applied: Rust TUI architecture from migration plan is authoritative over any implied web frontend/backend split.

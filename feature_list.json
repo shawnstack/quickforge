@@ -1,0 +1,189 @@
+[
+  {
+    "id": "F-001",
+    "category": "functional",
+    "priority": "P0",
+    "description": "Bootstrap scripts prepare a clean machine to build FastCode.",
+    "steps": [
+      "Run init script on target OS (init.ps1 or init.sh).",
+      "Confirm prerequisite checks pass or fail with clear actionable error.",
+      "Confirm dependency fetch/build steps execute and produce success output."
+    ],
+    "evidence": [
+      "2026-02-14: powershell -ExecutionPolicy Bypass -File ./init.ps1 exited 0.",
+      "2026-02-14: sh ./init.sh exited 0."
+    ],
+    "passes": true
+  },
+  {
+    "id": "F-002",
+    "category": "functional",
+    "priority": "P0",
+    "description": "CLI entrypoint starts and accepts runtime mode argument.",
+    "steps": [
+      "Run cargo run -- --mode edit.",
+      "Observe process startup output includes selected mode.",
+      "Exit process without crash and return code 0."
+    ],
+    "evidence": [
+      "2026-02-14: cargo run -- --mode edit printed selected mode and exited 0."
+    ],
+    "passes": true
+  },
+  {
+    "id": "F-003",
+    "category": "functional",
+    "priority": "P0",
+    "description": "Runtime mode permissions are enforceable for plan/edit/auto.",
+    "steps": [
+      "Create unit tests for mode capability matrix.",
+      "Run cargo test and verify all permission assertions pass.",
+      "Record test output snippet in evidence."
+    ],
+    "evidence": [],
+    "passes": false
+  },
+  {
+    "id": "F-004",
+    "category": "functional",
+    "priority": "P0",
+    "description": "Policy validator blocks denied shell patterns and protects paths.",
+    "steps": [
+      "Load sample allow/deny/protected configuration.",
+      "Execute validation for allowed and denied commands.",
+      "Verify denied cases produce explicit policy errors."
+    ],
+    "evidence": [],
+    "passes": false
+  },
+  {
+    "id": "F-005",
+    "category": "functional",
+    "priority": "P0",
+    "description": "Approval manager persists allow_once/allow_session/allow_global decisions.",
+    "steps": [
+      "Grant each approval type for sample command prefix.",
+      "Reload persisted approvals from disk.",
+      "Verify lookup behavior matches approval scope semantics."
+    ],
+    "evidence": [],
+    "passes": false
+  },
+  {
+    "id": "F-006",
+    "category": "functional",
+    "priority": "P0",
+    "description": "Session manager can create, list, load, and switch sessions.",
+    "steps": [
+      "Create two sessions and persist them.",
+      "List sessions and verify metadata is present.",
+      "Load a selected session and verify active context switches correctly."
+    ],
+    "evidence": [],
+    "passes": false
+  },
+  {
+    "id": "F-007",
+    "category": "functional",
+    "priority": "P0",
+    "description": "Tool registry executes built-in shell/file/git tools through a common interface.",
+    "steps": [
+      "Register tool definitions in registry.",
+      "Invoke each tool with valid and invalid arguments.",
+      "Verify normalized success/error result envelopes."
+    ],
+    "evidence": [],
+    "passes": false
+  },
+  {
+    "id": "F-008",
+    "category": "functional",
+    "priority": "P0",
+    "description": "TUI renders status bar, message area, and input box and handles key events.",
+    "steps": [
+      "Launch TUI app in terminal.",
+      "Type input, submit, and scroll messages with keyboard.",
+      "Verify mode indicator and loading/status UI update correctly."
+    ],
+    "evidence": [],
+    "passes": false
+  },
+  {
+    "id": "F-009",
+    "category": "functional",
+    "priority": "P0",
+    "description": "Streaming agent output is delivered incrementally to UI without blocking input loop.",
+    "steps": [
+      "Start a chat request that streams multi-part output.",
+      "Observe incremental rendering in UI.",
+      "Verify completion event closes stream cleanly."
+    ],
+    "evidence": [],
+    "passes": false
+  },
+  {
+    "id": "F-010",
+    "category": "functional",
+    "priority": "P1",
+    "description": "Audit logger writes tool invocation records with timestamp, mode, and result.",
+    "steps": [
+      "Trigger at least two tool calls in different modes.",
+      "Open audit log file and inspect JSONL entries.",
+      "Verify required fields are present and parseable."
+    ],
+    "evidence": [],
+    "passes": false
+  },
+  {
+    "id": "NF-001",
+    "category": "non-functional",
+    "priority": "P0",
+    "description": "Repository handoff artifacts remain auditable across sessions.",
+    "steps": [
+      "Start a fresh coding session with no implicit context.",
+      "Reconstruct state using app_spec, feature_list, README, and progress log.",
+      "Confirm next priority task can be selected without ambiguity."
+    ],
+    "evidence": [],
+    "passes": false
+  },
+  {
+    "id": "NF-002",
+    "category": "non-functional",
+    "priority": "P1",
+    "description": "Cold start build time is captured and tracked for optimization.",
+    "steps": [
+      "Clear target directory.",
+      "Run timed cargo build.",
+      "Store timing evidence and compare against previous baseline."
+    ],
+    "evidence": [],
+    "passes": false
+  },
+  {
+    "id": "NF-003",
+    "category": "non-functional",
+    "priority": "P1",
+    "description": "Safety defaults prevent high-risk command execution without policy/approval.",
+    "steps": [
+      "Attempt denied command through tool interface.",
+      "Verify command is blocked before execution.",
+      "Verify user-facing error explains why and how to resolve."
+    ],
+    "evidence": [],
+    "passes": false
+  },
+  {
+    "id": "NF-004",
+    "category": "non-functional",
+    "priority": "P1",
+    "description": "Terminal UX remains usable across standard desktop terminal sizes.",
+    "steps": [
+      "Run TUI at 80x24 and 120x40 terminal sizes.",
+      "Verify no critical content clipping in status/input areas.",
+      "Verify navigation and input remain functional after resize."
+    ],
+    "evidence": [],
+    "passes": false
+  }
+]

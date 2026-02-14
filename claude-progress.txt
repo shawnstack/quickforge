@@ -1,0 +1,34 @@
+Progress Log - FastCode
+Updated: 2026-02-14
+
+Completed this session
+- Read requirement sources: MIGRATION_PLAN.md, run-codex-init.sh, run-codex-loop.sh.
+- Established Rust baseline project files: Cargo.toml, src/main.rs, src/lib.rs, .gitignore.
+- Created required handoff artifacts:
+  - app_spec.txt
+  - feature_list.json
+  - init.sh and init.ps1
+  - README.md
+  - claude-progress.txt
+- Created baseline folders: src/, tests/, docs/, scripts/.
+- Verified bootstrap commands locally via:
+  - powershell -ExecutionPolicy Bypass -File ./init.ps1
+  - sh ./init.sh
+  - cargo run -- --mode edit
+
+Risks / Issues
+- MIGRATION_PLAN.md contains encoding corruption in parts of Chinese prose; interpreted strictly via intact structure/snippets.
+- Core modules from migration plan are not implemented yet (currently bootstrap-level executable only).
+
+Verified checklist items
+- F-001 passed with script execution evidence.
+- F-002 passed with CLI runtime evidence.
+
+Next Priority
+1. Implement runtime mode module with permission matrix and tests (F-003).
+2. Implement policy validator with allow/deny/protected path checks (F-004).
+3. Implement approval persistence manager (F-005).
+
+Completion Snapshot
+- 2/14 checklist items passing.
+- Baseline/bootstrapping complete and ready for coding agent handoff.

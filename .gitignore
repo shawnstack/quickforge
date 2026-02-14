@@ -1,0 +1,6 @@
+# Keep local artifacts out of version control
+/target/
+/.env
+/.env.*
+*.log
+*.tmp

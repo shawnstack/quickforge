@@ -488,5 +488,22 @@
       "2026-02-14: Real UI verification: `cmd /c \"set FASTCODE_TUI_SCRIPT=resize80x24,sleep260,v,h,i,Enter,sleep260,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\\\docs\\\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\\\f025-mcp-details.log 2>&1\"` exited 0; evidence log `target/f025-mcp-details.clean.log` contains compact refresh lines (`... (+129 chars)`) and explicit full-details line (`system: MCP details: MCP diagnostics failed: MCP lifecycle start failed ...`) while user input/stream flow remains present (`user: hi`, `assistant: received`)."
     ],
     "passes": true
+  },
+  {
+    "id": "F-026",
+    "category": "functional",
+    "priority": "P1",
+    "description": "TUI MCP status bar exposes deduplication-suppression counters so operators can observe hidden repeated refresh noise.",
+    "steps": [
+      "Launch TUI with --mcp-config that produces repeated identical MCP refresh diagnostics.",
+      "Verify status bar still shows refresh counter progression and now also shows deduplication suppression count.",
+      "Verify message area remains deduplicated while normal input/submit/scroll UI behavior continues to work."
+    ],
+    "evidence": [
+      "2026-02-14: Updated `src/tui/mod.rs` to track `mcp_refresh_dedup_count` and include it in status rendering (`mcp: <state> rN dN`), incrementing `dN` whenever a repeated refresh summary is suppressed.",
+      "2026-02-14: Added test `tui::tests::status_display_tracks_suppressed_refresh_dedup_count`; updated MCP status expectations in refresh/dedupe tests; `cargo test` passed (50 lib tests + 10 bin tests, 0 failed).",
+      "2026-02-14: Real UI verification with repeated failures: `cmd /c \"set FASTCODE_TUI_SCRIPT=h,i,Enter,sleep260,sleep260,sleep260,sleep260,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\\\docs\\\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\\\f026-mcp-dedupe-counter.log 2>&1\"`; evidence in `target/f026-mcp-dedupe-counter.clean.log` shows status progression including `mcp: error r0 d0` and later `mcp: error r4 d3`, while user flow remains present (`user: hi`, `assistant: received -> hi`)."
+    ],
+    "passes": true
   }
 ]

@@ -1149,3 +1149,47 @@ Next Priority
 
 Completion Snapshot
 - 29/29 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 28)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository state/history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Ran environment/bootstrap and regression pre-checks before new implementation:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `cmd /c "set FASTCODE_TUI_SCRIPT=h,e,l,l,o,Enter,sleep260,sleep260,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\docs\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\regression-preflight-tui.log 2>&1"`
+- Added and completed one new high-priority unfinished item:
+  - Added `F-026`: TUI status bar exposes MCP refresh deduplication suppression count for operator observability.
+  - Updated `src/tui/mod.rs` to track `mcp_refresh_dedup_count` and render status as `mcp: <state> rN dN`.
+  - Deduplicated refresh paths now increment `dN` whenever repeated `(status + summary)` refresh messages are suppressed.
+  - Added test `tui::tests::status_display_tracks_suppressed_refresh_dedup_count` and updated existing MCP status assertions.
+- Updated docs/tracking artifacts:
+  - `README.md` now explains `mcp: <state> rN dN` (`rN` refresh count, `dN` suppressed duplicate refresh count).
+  - `feature_list.json` extended with `F-026` and end-to-end evidence.
+
+Verified checklist items
+- `F-026` passed with:
+  - `cargo fmt`
+  - `cargo test` (50 lib tests + 10 bin tests, 0 failed)
+  - Real UI workflow evidence:
+    - `cmd /c "set FASTCODE_TUI_SCRIPT=h,i,Enter,sleep260,sleep260,sleep260,sleep260,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\docs\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\f026-mcp-dedupe-counter.log 2>&1"`
+    - Parsed evidence in `target/f026-mcp-dedupe-counter.clean.log` shows `mcp: error r0 d0` and later `mcp: error r4 d3`, with message area still deduplicated and interaction preserved (`user: hi`, `assistant: received -> hi`).
+
+Issues found and fixed
+- Observability gap: duplicate-refresh suppression reduced message spam but operators could not see how much output was being suppressed.
+- Fix: added explicit dedup suppression counter in status bar without changing existing dedupe behavior.
+
+Next Priority
+1. Add a focused UI test that validates dedup counter reset semantics if MCP status transitions from repeated failure to healthy summaries.
+2. Evaluate exposing dedupe counter in a help line/history message for easier extraction from ANSI logs.
+3. Consider optional diagnostics pane pagination/search for long full-detail MCP messages.
+
+Completion Snapshot
+- 30/30 checklist items passing.

@@ -62,6 +62,7 @@ pub struct App {
     viewport_width: u16,
     viewport_height: u16,
     mcp_refresh_count: u64,
+    mcp_refresh_dedup_count: u64,
     last_mcp_refresh_signature: Option<String>,
     last_mcp_summary_raw: Option<String>,
     stream_state: Option<StreamState>,
@@ -104,6 +105,7 @@ impl App {
             viewport_width: 0,
             viewport_height: 0,
             mcp_refresh_count: 0,
+            mcp_refresh_dedup_count: 0,
             last_mcp_refresh_signature,
             last_mcp_summary_raw,
             stream_state: None,
@@ -131,7 +133,10 @@ impl App {
     }
 
     pub fn mcp_status_display(&self) -> String {
-        format!("{} r{}", self.mcp_status_label, self.mcp_refresh_count)
+        format!(
+            "{} r{} d{}",
+            self.mcp_status_label, self.mcp_refresh_count, self.mcp_refresh_dedup_count
+        )
     }
 
     pub fn should_quit(&self) -> bool {
@@ -188,6 +193,7 @@ impl App {
         let signature = format!("{}|{}", diagnostics.status_label, summary);
         self.last_mcp_summary_raw = Some(summary.clone());
         if self.last_mcp_refresh_signature.as_deref() == Some(signature.as_str()) {
+            self.mcp_refresh_dedup_count = self.mcp_refresh_dedup_count.saturating_add(1);
             return;
         }
         let message = format!(
@@ -743,7 +749,7 @@ mod tests {
         });
 
         assert_eq!(app.mcp_status_label(), "ok 1/1");
-        assert_eq!(app.mcp_status_display(), "ok 1/1 r1");
+        assert_eq!(app.mcp_status_display(), "ok 1/1 r1 d0");
         assert!(
             app.messages()
                 .iter()
@@ -773,14 +779,14 @@ mod tests {
             messages: vec!["MCP diagnostics failed: test failure".to_string()],
         });
         let message_count_after_first = app.messages().len();
-        assert_eq!(app.mcp_status_display(), "error r1");
+        assert_eq!(app.mcp_status_display(), "error r1 d0");
 
         app.apply_mcp_refresh(McpDiagnostics {
             status_label: "error".to_string(),
             messages: vec!["MCP diagnostics failed: test failure".to_string()],
         });
 
-        assert_eq!(app.mcp_status_display(), "error r2");
+        assert_eq!(app.mcp_status_display(), "error r2 d1");
         assert_eq!(app.messages().len(), message_count_after_first);
     }
 
@@ -804,7 +810,7 @@ mod tests {
             messages: vec!["MCP diagnostics failed: changed summary".to_string()],
         });
 
-        assert_eq!(app.mcp_status_display(), "error r3");
+        assert_eq!(app.mcp_status_display(), "error r3 d1");
         assert_eq!(app.messages().len(), message_count_after_first + 1);
         assert!(
             app.messages()
@@ -821,10 +827,30 @@ mod tests {
             messages: vec![],
         });
 
-        assert_eq!(app.mcp_status_display(), "degraded 0/1 r1");
+        assert_eq!(app.mcp_status_display(), "degraded 0/1 r1 d0");
         let last = app.messages().last().expect("fallback message exists");
         assert!(last.contains("MCP refresh 1: MCP diagnostics update"));
         assert!(last.contains("degraded 0/1"));
+    }
+
+    #[test]
+    fn status_display_tracks_suppressed_refresh_dedup_count() {
+        let mut app = App::new(RuntimeMode::Edit);
+        for _ in 0..3 {
+            app.apply_mcp_refresh(McpDiagnostics {
+                status_label: "error".to_string(),
+                messages: vec!["MCP diagnostics failed: sticky failure".to_string()],
+            });
+        }
+
+        assert_eq!(app.mcp_status_display(), "error r3 d2");
+        assert!(
+            app.messages()
+                .iter()
+                .filter(|m| m.contains("MCP refresh"))
+                .count()
+                == 1
+        );
     }
 
     #[test]

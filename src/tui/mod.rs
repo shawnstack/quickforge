@@ -1,19 +1,26 @@
 use crate::mcp::config::McpConfig;
 use crate::mcp::lifecycle::{McpServerHealth, run_lifecycle_check};
 use crate::modes::runtime_mode::RuntimeMode;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
+use crate::tools::builtin::register_builtin_tools;
+use crate::tools::registry::{ToolContext, ToolRegistry, ToolResultEnvelope, ToolStatus};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use crossterm::{ExecutableCommand, execute};
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::Line;
-use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Paragraph, Wrap};
+use serde::Deserialize;
+use serde_json::{Value, json};
 use std::collections::VecDeque;
 use std::io;
 use std::path::PathBuf;
+use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::OnceLock;
+use std::thread;
 use std::time::{Duration, Instant};
 
 const INPUT_MAX_LEN: usize = 512;
@@ -22,6 +29,36 @@ const STREAM_CHARS_PER_CHUNK: usize = 4;
 pub const DEFAULT_MCP_REFRESH_INTERVAL_MS: u64 = 800;
 const DEFAULT_MESSAGE_COMPACT_WIDTH: u16 = 80;
 const MIN_MESSAGE_CONTENT_BUDGET: usize = 24;
+const MAX_TOOL_CALL_ROUNDS: usize = 3;
+const THINK_SPINNER_INTERVAL_MS: u64 = 120;
+const THINK_FRAMES: [&str; 4] = ["thinking", "thinking.", "thinking..", "thinking..."];
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+const CONTENT_LEFT_PAD: &str = "  ";
+const MODEL_CONNECT_TIMEOUT_SECS: u64 = 8;
+const MODEL_REQUEST_TIMEOUT_SECS: u64 = 90;
+const STATUS_LABEL_WIDTH: usize = 11;
+const STATUS_SECS_WIDTH: usize = 4;
+
+const COLOR_TEXT_PRIMARY: Color = Color::White;
+const COLOR_TEXT_USER: Color = Color::Cyan;
+const COLOR_TEXT_MUTED: Color = Color::DarkGray;
+const COLOR_ACCENT: Color = Color::Cyan;
+const COLOR_SUCCESS: Color = Color::Green;
+const COLOR_ERROR: Color = Color::Red;
+const COLOR_TOOL_BODY: Color = Color::Gray;
+const COLOR_CODE: Color = Color::LightCyan;
+const COLOR_BANNER_BORDER: Color = Color::DarkGray;
+const COLOR_INPUT_ACTIVE: Color = Color::White;
+const COLOR_INPUT_DISABLED: Color = Color::Gray;
+
+#[derive(Debug, Deserialize)]
+struct LlmConfig {
+    #[serde(rename = "baseUrl")]
+    base_url: String,
+    #[serde(rename = "apiKey")]
+    api_key: String,
+    model: String,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct McpDiagnostics {
@@ -51,10 +88,26 @@ struct StreamState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+enum WorkerEvent {
+    ToolResult { line: String },
+    Done(String),
+}
+
+#[derive(Debug)]
+struct PendingReplyState {
+    receiver: Receiver<WorkerEvent>,
+    started_at: Instant,
+    last_spinner_at: Instant,
+    spinner_frame: usize,
+}
+
+#[derive(Debug)]
 pub struct App {
     mode: RuntimeMode,
     input: String,
     messages: Vec<String>,
+    display_model: String,
+    working_dir_display: String,
     mcp_status_label: String,
     status: UiStatus,
     should_quit: bool,
@@ -65,6 +118,7 @@ pub struct App {
     mcp_refresh_dedup_count: u64,
     last_mcp_refresh_signature: Option<String>,
     last_mcp_summary_raw: Option<String>,
+    pending_reply: Option<PendingReplyState>,
     stream_state: Option<StreamState>,
 }
 
@@ -78,6 +132,13 @@ impl App {
         mcp_diagnostics: Option<McpDiagnostics>,
     ) -> Self {
         let mut messages = vec!["system: welcome to fastcode".to_string()];
+        let display_model = load_llm_config()
+            .map(|cfg| cfg.model)
+            .unwrap_or_else(|_| "unknown".to_string());
+        let working_dir_display = std::env::current_dir()
+            .ok()
+            .map(|dir| dir.display().to_string())
+            .unwrap_or_else(|| "~".to_string());
         let mut mcp_status_label = "off".to_string();
         let mut last_mcp_refresh_signature = None;
         let mut last_mcp_summary_raw = None;
@@ -98,6 +159,8 @@ impl App {
             mode,
             input: String::new(),
             messages,
+            display_model,
+            working_dir_display,
             mcp_status_label,
             status: UiStatus::Idle,
             should_quit: false,
@@ -108,6 +171,7 @@ impl App {
             mcp_refresh_dedup_count: 0,
             last_mcp_refresh_signature,
             last_mcp_summary_raw,
+            pending_reply: None,
             stream_state: None,
         }
     }
@@ -161,23 +225,73 @@ impl App {
             return;
         }
 
-        let Some(stream) = self.stream_state.as_mut() else {
-            return;
-        };
+        let mut queued_events = Vec::new();
+        let mut worker_disconnected = false;
+        if let Some(pending) = self.pending_reply.as_mut() {
+            if pending.last_spinner_at.elapsed() >= Duration::from_millis(THINK_SPINNER_INTERVAL_MS)
+            {
+                pending.last_spinner_at = Instant::now();
+                pending.spinner_frame = (pending.spinner_frame + 1) % THINK_FRAMES.len();
+            }
 
-        if stream.last_emit_at.elapsed() < Duration::from_millis(STREAM_CHUNK_INTERVAL_MS) {
-            return;
+            loop {
+            match pending.receiver.try_recv() {
+                Ok(event) => queued_events.push(event),
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
+                        worker_disconnected = true;
+                        break;
+                    }
+                }
+            }
         }
-        stream.last_emit_at = Instant::now();
-
-        if let Some(chunk) = stream.chunks.get(stream.next_chunk) {
-            self.messages[stream.target_message_index].push_str(chunk);
-            stream.next_chunk += 1;
+        for event in queued_events {
+            match event {
+                WorkerEvent::ToolResult { line } => {
+                    self.messages.push(format!("tool: {}", line));
+                    self.scroll = 0;
+                }
+                WorkerEvent::Done(reply) => {
+                    self.messages.push("assistant: ".to_string());
+                    self.scroll = 0;
+                    let target = self.messages.len() - 1;
+                    let formatted_reply = format_assistant_markdown(&reply);
+                    let chunks = chunk_text(&formatted_reply);
+                    self.stream_state = Some(StreamState {
+                        target_message_index: target,
+                        chunks,
+                        next_chunk: 0,
+                        last_emit_at: Instant::now()
+                            - Duration::from_millis(STREAM_CHUNK_INTERVAL_MS),
+                    });
+                    self.pending_reply = None;
+                }
+            }
         }
-
-        if stream.next_chunk >= stream.chunks.len() {
+        if worker_disconnected && self.pending_reply.is_some() {
+            self.messages
+                .push("assistant: model worker disconnected unexpectedly".to_string());
+            self.scroll = 0;
+            self.pending_reply = None;
             self.status = UiStatus::Idle;
-            self.stream_state = None;
+        }
+
+        if let Some(stream) = self.stream_state.as_mut() {
+            if stream.last_emit_at.elapsed() < Duration::from_millis(STREAM_CHUNK_INTERVAL_MS) {
+                return;
+            }
+            stream.last_emit_at = Instant::now();
+
+            if let Some(chunk) = stream.chunks.get(stream.next_chunk) {
+                self.messages[stream.target_message_index].push_str(chunk);
+                self.scroll = 0;
+                stream.next_chunk += 1;
+            }
+
+            if stream.next_chunk >= stream.chunks.len() {
+                self.status = UiStatus::Idle;
+                self.stream_state = None;
+            }
         }
     }
 
@@ -211,6 +325,7 @@ impl App {
         };
         self.messages
             .push(compact_message_for_width(&message, compact_width));
+        self.scroll = 0;
         self.last_mcp_refresh_signature = Some(signature);
     }
 
@@ -219,7 +334,16 @@ impl App {
             return;
         }
 
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            self.should_quit = true;
+            return;
+        }
+
         match key.code {
+            KeyCode::BackTab => {
+                self.mode = next_mode(self.mode);
+            }
+            KeyCode::Esc => self.should_quit = true,
             KeyCode::Char('q') => self.should_quit = true,
             KeyCode::Char('v') => {
                 let details = self
@@ -244,16 +368,20 @@ impl App {
 
                 let prompt = self.input.trim().to_string();
                 self.messages.push(format!("user: {}", prompt));
+                self.scroll = 0;
                 self.input.clear();
                 self.status = UiStatus::Processing;
-                let assistant_reply = format!("received -> {}", prompt);
-                let chunks = chunk_text(&assistant_reply);
-                self.messages.push("assistant: ".to_string());
-                self.stream_state = Some(StreamState {
-                    target_message_index: self.messages.len() - 1,
-                    chunks,
-                    next_chunk: 0,
-                    last_emit_at: Instant::now() - Duration::from_millis(STREAM_CHUNK_INTERVAL_MS),
+                let (tx, rx) = mpsc::channel::<WorkerEvent>();
+                thread::spawn(move || {
+                    let reply = generate_assistant_reply(&prompt, Some(&tx))
+                        .unwrap_or_else(|err| fallback_assistant_reply(&prompt, Some(err.as_str())));
+                    let _ = tx.send(WorkerEvent::Done(reply));
+                });
+                self.pending_reply = Some(PendingReplyState {
+                    receiver: rx,
+                    started_at: Instant::now(),
+                    last_spinner_at: Instant::now(),
+                    spinner_frame: 0,
                 });
             }
             KeyCode::Up => {
@@ -267,12 +395,582 @@ impl App {
     }
 }
 
+fn next_mode(mode: RuntimeMode) -> RuntimeMode {
+    match mode {
+        RuntimeMode::Plan => RuntimeMode::Edit,
+        RuntimeMode::Edit => RuntimeMode::Auto,
+        RuntimeMode::Auto => RuntimeMode::Plan,
+    }
+}
+
 fn chunk_text(text: &str) -> Vec<String> {
     let chars: Vec<char> = text.chars().collect();
     chars
         .chunks(STREAM_CHARS_PER_CHUNK)
         .map(|segment| segment.iter().collect::<String>())
         .collect()
+}
+
+fn generate_assistant_reply(
+    prompt: &str,
+    event_tx: Option<&Sender<WorkerEvent>>,
+) -> Result<String, String> {
+    let config = load_llm_config().map_err(|err| format!("config load failed: {}", err))?;
+    let endpoint = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
+    let tool_specs = build_tool_specs();
+    let mut messages = vec![
+        json!({
+            "role": "system",
+            "content": "You are FastCode coding assistant. Use tools when needed. Return only final answer without showing reasoning."
+        }),
+        json!({
+            "role": "user",
+            "content": prompt
+        }),
+    ];
+    let mut tool_transcript = Vec::new();
+
+    for _ in 0..MAX_TOOL_CALL_ROUNDS {
+        let response = request_chat_completion(&config, &endpoint, &messages, &tool_specs)?;
+        let (content, tool_calls) = extract_assistant_content_and_tools(&response)?;
+
+        if !tool_calls.is_empty() {
+            messages.push(json!({
+                "role": "assistant",
+                "content": if content.is_empty() { Value::Null } else { Value::String(content.clone()) },
+                "tool_calls": tool_calls
+            }));
+            let tool_results = execute_tool_calls(
+                messages.as_slice(),
+                &tool_calls,
+                &mut tool_transcript,
+                event_tx,
+            )?;
+            messages.extend(tool_results);
+            continue;
+        }
+
+        if !content.is_empty() {
+            return Ok(content);
+        }
+
+        if !tool_transcript.is_empty() {
+            return Ok("Tool calls completed, but model returned no visible text.".to_string());
+        }
+
+        return Err("model response is empty".to_string());
+    }
+
+    Err("tool call rounds exceeded limit".to_string())
+}
+
+fn request_chat_completion(
+    config: &LlmConfig,
+    endpoint: &str,
+    messages: &[Value],
+    tool_specs: &[Value],
+) -> Result<Value, String> {
+    let payload = json!({
+        "model": config.model,
+        "messages": messages,
+        "stream": false,
+        "tools": tool_specs,
+        "tool_choice": "auto"
+    });
+    let client = model_http_client()?;
+    let response = client
+        .post(endpoint)
+        .bearer_auth(config.api_key.as_str())
+        .json(&payload)
+        .send()
+        .map_err(|err| format!("model request failed: {}", err))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .map_err(|err| format!("model response read failed: {}", err))?;
+    if !status.is_success() {
+        if let Ok(value) = serde_json::from_str::<Value>(&body) {
+            if let Some(error) = value.get("error") {
+                return Err(format!(
+                    "model request failed with status {}: {}",
+                    status,
+                    compact_json_for_error(error)
+                ));
+            }
+        }
+        let detail = body.trim();
+        let short_detail: String = detail.chars().take(320).collect();
+        return Err(format!(
+            "model request failed with status {}: {}",
+            status, short_detail
+        ));
+    }
+
+    serde_json::from_str::<Value>(&body).map_err(|err| format!("model response decode failed: {}", err))
+}
+
+fn model_http_client() -> Result<&'static reqwest::blocking::Client, String> {
+    static CLIENT: OnceLock<Result<reqwest::blocking::Client, String>> = OnceLock::new();
+    let result = CLIENT.get_or_init(|| {
+        reqwest::blocking::Client::builder()
+            .connect_timeout(Duration::from_secs(MODEL_CONNECT_TIMEOUT_SECS))
+            .timeout(Duration::from_secs(MODEL_REQUEST_TIMEOUT_SECS))
+            .build()
+            .map_err(|err| format!("http client init failed: {}", err))
+    });
+    match result {
+        Ok(client) => Ok(client),
+        Err(err) => Err(err.clone()),
+    }
+}
+
+fn extract_assistant_content_and_tools(response: &Value) -> Result<(String, Vec<Value>), String> {
+    if let Some(error_obj) = response.get("error") {
+        if let Some(message) = error_obj.get("message").and_then(Value::as_str) {
+            let code = error_obj.get("code").and_then(Value::as_str).unwrap_or("");
+            let suffix = if code.is_empty() {
+                String::new()
+            } else {
+                format!(" (code: {})", code)
+            };
+            return Err(format!("model API error: {}{}", message.trim(), suffix));
+        }
+        return Err(format!(
+            "model API returned error object: {}",
+            compact_json_for_error(error_obj)
+        ));
+    }
+
+    if let Some(choices) = response.get("choices").and_then(Value::as_array) {
+        if let Some(choice) = choices.first() {
+            if let Some(message) = choice.get("message") {
+                let content = extract_text_content(message.get("content"));
+                let tool_calls = message
+                    .get("tool_calls")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                return Ok((content, tool_calls));
+            }
+
+            if let Some(text) = choice.get("text").and_then(Value::as_str) {
+                return Ok((text.trim().to_string(), Vec::new()));
+            }
+        }
+    }
+
+    if let Some(output_text) = response.get("output_text").and_then(Value::as_str) {
+        return Ok((output_text.trim().to_string(), Vec::new()));
+    }
+
+    Err(format!(
+        "model response shape unsupported: {}",
+        compact_json_for_error(response)
+    ))
+}
+
+fn extract_text_content(content: Option<&Value>) -> String {
+    let Some(content) = content else {
+        return String::new();
+    };
+
+    if let Some(text) = content.as_str() {
+        return text.trim().to_string();
+    }
+
+    if let Some(parts) = content.as_array() {
+        let mut merged = String::new();
+        for part in parts {
+            if let Some(text) = part.get("text").and_then(Value::as_str) {
+                if !merged.is_empty() && !merged.ends_with('\n') {
+                    merged.push('\n');
+                }
+                merged.push_str(text.trim());
+            }
+        }
+        return merged.trim().to_string();
+    }
+
+    String::new()
+}
+
+fn compact_json_for_error(value: &Value) -> String {
+    let raw = value.to_string();
+    let limit = 320usize;
+    let mut compact = raw.chars().take(limit).collect::<String>();
+    if raw.chars().count() > limit {
+        compact.push_str("...");
+    }
+    compact
+}
+
+fn compact_inline_text(text: &str, max_chars: usize) -> String {
+    let normalized = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" / ");
+    if normalized.chars().count() <= max_chars {
+        return normalized;
+    }
+    let mut short = normalized.chars().take(max_chars).collect::<String>();
+    short.push_str("...");
+    short
+}
+
+fn summarize_tool_event(name: &str, args: &Value, result: &ToolResultEnvelope) -> String {
+    let args_preview = compact_inline_text(&args.to_string(), 120);
+    let status = match result.status {
+        ToolStatus::Success => "Success",
+        ToolStatus::Error => "Failed",
+    };
+    let detail = match result.status {
+        ToolStatus::Success => result.output.as_deref().unwrap_or(""),
+        ToolStatus::Error => result.error_message.as_deref().unwrap_or(""),
+    };
+    let detail_lines = detail
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    let first_detail = detail_lines
+        .first()
+        .map(|line| compact_inline_text(line, 140))
+        .unwrap_or_else(|| "no output".to_string());
+    let more_suffix = if detail_lines.len() > 1 {
+        format!("  (+{} lines)", detail_lines.len() - 1)
+    } else {
+        String::new()
+    };
+
+    format!(
+        "[Tool] {}  [{}]\n  command: {}  ->  {}{}",
+        name, status, args_preview, first_detail, more_suffix
+    )
+}
+
+fn build_tool_specs() -> Vec<Value> {
+    vec![
+        json!({
+            "type": "function",
+            "function": {
+                "name": "shell",
+                "description": "Run a shell command in project directory.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": { "type": "string" }
+                    },
+                    "required": ["command"]
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "file",
+                "description": "Read a text file.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string" }
+                    },
+                    "required": ["path"]
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "git",
+                "description": "Run git with argument array.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "args": {
+                            "type": "array",
+                            "items": { "type": "string" }
+                        }
+                    },
+                    "required": ["args"]
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "list_files",
+                "description": "List files recursively from a path.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string" },
+                        "max_entries": { "type": "integer" },
+                        "include_hidden": { "type": "boolean" }
+                    }
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "search_text",
+                "description": "Search text in files recursively.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string" },
+                        "path": { "type": "string" },
+                        "max_results": { "type": "integer" },
+                        "include_hidden": { "type": "boolean" }
+                    },
+                    "required": ["query"]
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "run_tests",
+                "description": "Run project tests; optional command override.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": { "type": "string" }
+                    }
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "lint",
+                "description": "Run lint/typecheck; optional command override.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": { "type": "string" }
+                    }
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "apply_patch",
+                "description": "Apply unified patch text to repository.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "patch": { "type": "string" }
+                    },
+                    "required": ["patch"]
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "symbol_lookup",
+                "description": "Find symbols by textual match.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": { "type": "string" },
+                        "path": { "type": "string" },
+                        "max_results": { "type": "integer" }
+                    },
+                    "required": ["symbol"]
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "git_status_diff",
+                "description": "Get git status and diff summary.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "git_commit",
+                "description": "Stage and commit changes.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "message": { "type": "string" },
+                        "add_all": { "type": "boolean" }
+                    },
+                    "required": ["message"]
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "fetch_url",
+                "description": "Fetch web content from URL.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": { "type": "string" },
+                        "max_chars": { "type": "integer" }
+                    },
+                    "required": ["url"]
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "web_search",
+                "description": "Search web with query text.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string" }
+                    },
+                    "required": ["query"]
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "ask_approval",
+                "description": "Persist approval prefix for future shell commands.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "prefix": { "type": "string" },
+                        "approval_type": { "type": "string" },
+                        "session_id": { "type": "string" }
+                    },
+                    "required": ["prefix"]
+                }
+            }
+        }),
+    ]
+}
+
+fn execute_tool_calls(
+    _messages: &[Value],
+    tool_calls: &[Value],
+    tool_transcript: &mut Vec<String>,
+    event_tx: Option<&Sender<WorkerEvent>>,
+) -> Result<Vec<Value>, String> {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry).map_err(|err| format!("register tools failed: {}", err))?;
+    let cwd = std::env::current_dir().map_err(|err| format!("resolve cwd failed: {}", err))?;
+    let ctx = ToolContext::new(cwd);
+    let mut outputs = Vec::new();
+
+    for tool_call in tool_calls {
+        let tool_call_id = tool_call
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "tool call missing id".to_string())?;
+        let function = tool_call
+            .get("function")
+            .ok_or_else(|| "tool call missing function".to_string())?;
+        let name = function
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "tool call missing function.name".to_string())?;
+        let args_raw = function
+            .get("arguments")
+            .and_then(Value::as_str)
+            .unwrap_or("{}");
+        let args = serde_json::from_str::<Value>(args_raw).unwrap_or_else(|_| json!({}));
+        let result = registry.execute(name, &args, &ctx);
+        if let Some(tx) = event_tx {
+            let line = summarize_tool_event(name, &args, &result);
+            let _ = tx.send(WorkerEvent::ToolResult {
+                line,
+            });
+        }
+        let rendered = serde_json::to_string(&result)
+            .map_err(|err| format!("serialize tool result failed: {}", err))?;
+        tool_transcript.push(format!("{}({}) -> {}", name, args, rendered));
+        outputs.push(json!({
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": rendered
+        }));
+    }
+
+    Ok(outputs)
+}
+
+fn load_llm_config() -> anyhow::Result<LlmConfig> {
+    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("home directory is unavailable"))?;
+    let config_path = home.join(".happycode").join("config.json");
+    let text = std::fs::read_to_string(&config_path)?;
+    let config: LlmConfig = serde_json::from_str(&text)?;
+    if config.base_url.trim().is_empty()
+        || config.api_key.trim().is_empty()
+        || config.model.trim().is_empty()
+    {
+        anyhow::bail!(
+            "config must include baseUrl/apiKey/model: {}",
+            config_path.display()
+        );
+    }
+    Ok(config)
+}
+
+fn fallback_assistant_reply(prompt: &str, error: Option<&str>) -> String {
+    let normalized = prompt.to_ascii_lowercase();
+    let has_error_keyword = prompt.contains("\u{62a5}\u{9519}")
+        || prompt.contains("\u{9519}\u{8bef}")
+        || normalized.contains("error")
+        || normalized.contains("exception");
+    if has_error_keyword {
+        return "\u{628a}\u{5b8c}\u{6574}\u{62a5}\u{9519}\u{5806}\u{6808}\u{548c}\u{89e6}\u{53d1}\u{547d}\u{4ee4}\u{8d34}\u{51fa}\u{6765}\u{ff0c}\u{6211}\u{4f1a}\u{7ed9}\u{4f60}\u{7cbe}\u{786e}\u{5b9a}\u{4f4d}\u{548c}\u{4fee}\u{590d}\u{6b65}\u{9aa4}\u{3002}".to_string();
+    }
+
+    match error {
+        Some(err) => format!(
+            "model request failed ({}). describe your goal and I can still guide step-by-step.",
+            err
+        ),
+        None => "\u{6536}\u{5230}\u{ff0c}\u{6b63}\u{5728}\u{5904}\u{7406}\u{3002}".to_string(),
+    }
+}
+
+fn format_assistant_markdown(content: &str) -> String {
+    let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
+    let mut output = Vec::new();
+    let mut in_code_block = false;
+    let mut consecutive_blank = 0usize;
+
+    for raw_line in normalized.lines() {
+        let mut line = raw_line.trim_end().to_string();
+        if line.starts_with("```") {
+            in_code_block = !in_code_block;
+        }
+        if !in_code_block && line.starts_with("* ") {
+            line = format!("- {}", &line[2..]);
+        }
+
+        if line.is_empty() {
+            consecutive_blank += 1;
+            if consecutive_blank > 1 {
+                continue;
+            }
+        } else {
+            consecutive_blank = 0;
+        }
+        output.push(line);
+    }
+
+    output.join("\n")
 }
 
 fn compact_message_for_width(message: &str, viewport_width: u16) -> String {
@@ -458,6 +1156,7 @@ fn token_to_script_action(token: &str) -> Option<ScriptAction> {
 
     let code = match token.to_ascii_lowercase().as_str() {
         "enter" => KeyCode::Enter,
+        "backtab" => KeyCode::BackTab,
         "up" => KeyCode::Up,
         "down" => KeyCode::Down,
         "backspace" => KeyCode::Backspace,
@@ -499,55 +1198,197 @@ fn parse_size_token(token: &str) -> Option<(u16, u16)> {
 pub fn draw(frame: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Min(3),
-            Constraint::Length(3),
-        ])
+        .constraints([Constraint::Min(1), Constraint::Length(2)])
         .split(frame.area());
 
-    let status_text = format!(
-        " fastcode | mode: {} | status: {} | mcp: {} | size: {}x{} | q quit | v mcp details ",
-        app.mode(),
-        match app.status() {
-            UiStatus::Idle => "idle",
-            UiStatus::Processing => "processing",
-        },
-        app.mcp_status_display(),
-        app.viewport_width,
-        app.viewport_height
-    );
-    let status_line = Paragraph::new(status_text)
-        .style(
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )
-        .block(Block::default());
-    frame.render_widget(status_line, chunks[0]);
+    let messages_area = inset_left(chunks[0], CONTENT_LEFT_PAD.chars().count() as u16);
+    let input_area = chunks[1];
 
-    let body = app.messages().join("\n");
-    let messages = Paragraph::new(body)
-        .block(Block::default().borders(Borders::ALL).title("Messages"))
+    let mut body_lines: Vec<Line> = Vec::new();
+    let banner_lines = [
+        "fastcode".to_string(),
+        format!("model: {}", app.display_model),
+        format!("mode:  {}", app.mode().as_str()),
+        format!(
+            "dir:   {}",
+            compact_message_for_width(&app.working_dir_display, app.viewport_width)
+        ),
+        format!("version: {}", APP_VERSION),
+    ];
+    let inner_width = banner_lines
+        .iter()
+        .map(|line| line.chars().count())
+        .max()
+        .unwrap_or(0)
+        + 2;
+    body_lines.push(Line::from(vec![Span::styled(
+        format!("{}+{}+", CONTENT_LEFT_PAD, "-".repeat(inner_width)),
+        Style::default().fg(COLOR_BANNER_BORDER),
+    )]));
+    for (index, raw_line) in banner_lines.iter().enumerate() {
+        let color = if index == 0 { COLOR_ACCENT } else { COLOR_TEXT_MUTED };
+        let pad = inner_width.saturating_sub(raw_line.chars().count());
+        body_lines.push(Line::from(vec![Span::styled(
+            format!("{}| {}{}|", CONTENT_LEFT_PAD, raw_line, " ".repeat(pad.saturating_sub(1))),
+            Style::default().fg(color),
+        )]));
+    }
+    body_lines.push(Line::from(vec![Span::styled(
+        format!("{}+{}+", CONTENT_LEFT_PAD, "-".repeat(inner_width)),
+        Style::default().fg(COLOR_BANNER_BORDER),
+    )]));
+    body_lines.push(Line::from(""));
+
+    let mut in_code_block = false;
+    for message in app.messages() {
+        let (content, is_tool_line, is_system_line, is_user_line) =
+            if let Some(content) = message.strip_prefix("user: ") {
+                (content, false, false, true)
+            } else if let Some(content) = message.strip_prefix("assistant: ") {
+                (content, false, false, false)
+            } else if let Some(content) = message.strip_prefix("tool: ") {
+                (content, true, false, false)
+            } else if let Some(content) = message.strip_prefix("system: ") {
+                (content, false, true, false)
+            } else {
+                (message.as_str(), false, false, false)
+            };
+
+        if !body_lines.is_empty() {
+            body_lines.push(Line::from(""));
+        }
+        for line in content.split('\n') {
+            let display_line = if is_tool_line {
+                line.to_string()
+            } else {
+                line.to_string()
+            };
+
+            let color = if display_line.starts_with("```") {
+                in_code_block = !in_code_block;
+                COLOR_TEXT_MUTED
+            } else if in_code_block {
+                COLOR_CODE
+            } else if is_tool_line && display_line.starts_with("[Tool]") {
+                if display_line.contains("[Failed]") {
+                    COLOR_ERROR
+                } else if display_line.contains("[Success]") {
+                    COLOR_SUCCESS
+                } else {
+                    COLOR_TOOL_BODY
+                }
+            } else if is_system_line {
+                COLOR_TEXT_MUTED
+            } else if is_tool_line {
+                COLOR_TOOL_BODY
+            } else if is_user_line {
+                COLOR_TEXT_USER
+            } else {
+                COLOR_TEXT_PRIMARY
+            };
+
+            body_lines.push(Line::from(vec![Span::styled(
+                format!("{}{}", CONTENT_LEFT_PAD, display_line),
+                Style::default().fg(color),
+            )]));
+        }
+    }
+
+    let body_line_count = body_lines.len();
+    let messages = Paragraph::new(body_lines)
         .wrap(Wrap { trim: false })
-        .scroll((app.scroll(), 0));
-    frame.render_widget(messages, chunks[1]);
+        .scroll((compute_scroll_from_bottom(app.scroll(), body_line_count, messages_area.height), 0));
+    frame.render_widget(messages, messages_area);
 
-    let input = Paragraph::new(Line::from(app.input().to_string())).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title("Input (Enter submit)"),
-    );
-    frame.render_widget(input, chunks[2]);
+    let input_color = if app.status() == &UiStatus::Processing {
+        COLOR_INPUT_DISABLED
+    } else {
+        COLOR_INPUT_ACTIVE
+    };
+    let status_text = if app.status() == &UiStatus::Processing {
+        if let Some(pending) = app.pending_reply.as_ref() {
+            format_processing_status(
+                THINK_FRAMES[pending.spinner_frame],
+                Some(pending.started_at.elapsed().as_secs()),
+            )
+        } else if app.stream_state.is_some() {
+            format_processing_status("streaming...", None)
+        } else {
+            format_processing_status("thinking...", None)
+        }
+    } else {
+        String::new()
+    };
+    let input = Paragraph::new(vec![
+        Line::from(vec![Span::styled(
+            status_text,
+            Style::default().fg(COLOR_TEXT_MUTED),
+        )]),
+        Line::from(vec![
+            Span::styled("> ", Style::default().fg(COLOR_ACCENT)),
+            Span::styled(app.input().to_string(), Style::default().fg(input_color)),
+            Span::styled("|", Style::default().fg(COLOR_ACCENT)),
+        ]),
+    ]);
+    frame.render_widget(input, input_area);
+}
+
+fn inset_left(area: Rect, left_pad: u16) -> Rect {
+    if area.width <= left_pad {
+        return area;
+    }
+    Rect::new(area.x + left_pad, area.y, area.width - left_pad, area.height)
+}
+
+fn compute_scroll_from_bottom(scroll_from_bottom: u16, total_lines: usize, viewport_height: u16) -> u16 {
+    let viewport = usize::from(viewport_height);
+    let max_top_offset = total_lines.saturating_sub(viewport);
+    let clamped_from_bottom = usize::from(scroll_from_bottom).min(max_top_offset);
+    let top_offset = max_top_offset.saturating_sub(clamped_from_bottom);
+    u16::try_from(top_offset).unwrap_or(u16::MAX)
+}
+
+fn format_processing_status(label: &str, elapsed_secs: Option<u64>) -> String {
+    let fixed_label = fit_status_label(label, STATUS_LABEL_WIDTH);
+    let clamped = elapsed_secs.unwrap_or(0).min(9_999);
+    if elapsed_secs.is_some() {
+        return format!(
+            "{:<label_width$} ({:>secs_width$}s)",
+            fixed_label,
+            clamped,
+            label_width = STATUS_LABEL_WIDTH,
+            secs_width = STATUS_SECS_WIDTH
+        );
+    }
+    format!(
+        "{:<label_width$} ({:>secs_width$}s)",
+        fixed_label,
+        "",
+        label_width = STATUS_LABEL_WIDTH,
+        secs_width = STATUS_SECS_WIDTH
+    )
+}
+
+fn fit_status_label(label: &str, width: usize) -> String {
+    let mut out = label.chars().take(width).collect::<String>();
+    let len = out.chars().count();
+    if len < width {
+        out.push_str(&" ".repeat(width - len));
+    }
+    out
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{App, McpDiagnostics, UiStatus, chunk_text, compact_message_for_width, draw};
+    use super::{
+        App, McpDiagnostics, UiStatus, chunk_text, compact_message_for_width, draw,
+        format_processing_status,
+    };
     use crate::modes::runtime_mode::RuntimeMode;
+    use crate::tools::registry::{ToolResultEnvelope, ToolStatus};
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
     use ratatui::{Terminal, backend::TestBackend};
+    use serde_json::json;
     use std::collections::VecDeque;
     use std::time::{Duration, Instant};
 
@@ -558,6 +1399,29 @@ mod tests {
             kind: KeyEventKind::Press,
             state: KeyEventState::NONE,
         }
+    }
+
+    fn key_with_modifiers(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        KeyEvent {
+            code,
+            modifiers,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        }
+    }
+
+    fn drain_processing(app: &mut App) {
+        for _ in 0..600 {
+            if app.status() != &UiStatus::Processing {
+                break;
+            }
+            if let Some(stream) = app.stream_state.as_mut() {
+                stream.last_emit_at = Instant::now() - Duration::from_millis(100);
+            }
+            app.on_tick();
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(app.status(), &UiStatus::Idle);
     }
 
     #[test]
@@ -580,27 +1444,38 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_c_sets_should_quit() {
+        let mut app = App::new(RuntimeMode::Edit);
+        app.on_key(key_with_modifiers(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert!(app.should_quit());
+    }
+
+    #[test]
+    fn shift_tab_cycles_mode_plan_edit_auto() {
+        let mut app = App::new(RuntimeMode::Plan);
+        assert_eq!(app.mode(), RuntimeMode::Plan);
+        app.on_key(key(KeyCode::BackTab));
+        assert_eq!(app.mode(), RuntimeMode::Edit);
+        app.on_key(key(KeyCode::BackTab));
+        assert_eq!(app.mode(), RuntimeMode::Auto);
+        app.on_key(key(KeyCode::BackTab));
+        assert_eq!(app.mode(), RuntimeMode::Plan);
+    }
+
+    #[test]
     fn processing_transitions_back_to_idle_and_appends_assistant_reply() {
         let mut app = App::new(RuntimeMode::Plan);
         app.on_resize(80, 24);
         app.on_key(key(KeyCode::Char('x')));
         app.on_key(key(KeyCode::Enter));
         assert_eq!(app.status(), &UiStatus::Processing);
-        assert!(app.messages().iter().any(|m| m == "assistant: "));
+        assert!(!app.messages().iter().any(|m| m.starts_with("assistant: ")));
 
-        while app.status() == &UiStatus::Processing {
-            app.stream_state
-                .as_mut()
-                .expect("stream state exists")
-                .last_emit_at = Instant::now() - Duration::from_millis(100);
-            app.on_tick();
-        }
-
-        assert_eq!(app.status(), &UiStatus::Idle);
+        drain_processing(&mut app);
         assert!(
             app.messages()
                 .iter()
-                .any(|m| m.starts_with("assistant: received -> x"))
+                .any(|m| m.starts_with("assistant: "))
         );
     }
 
@@ -630,12 +1505,10 @@ mod tests {
 
         let buffer = terminal.backend().buffer();
         let content = format!("{buffer:?}");
-        assert!(content.contains("mode: auto"));
-        assert!(content.contains("mcp: off"));
-        assert!(content.contains("size: 80x24"));
-        assert!(content.contains("Messages"));
-        assert!(content.contains("Input (Enter submit)"));
-        assert!(content.contains("welcome to fastcode"));
+        assert!(content.contains("fastcode"));
+        assert!(content.contains("mode:"));
+        assert!(content.contains("> z"));
+        assert!(!content.contains("for shortcuts"));
     }
 
     #[test]
@@ -668,9 +1541,8 @@ mod tests {
 
             let buffer = terminal.backend().buffer();
             let content = format!("{buffer:?}");
-            assert!(content.contains("size:"));
-            assert!(content.contains("Messages"));
-            assert!(content.contains("Input (Enter submit)"));
+            assert!(content.contains("fastcode"));
+            assert!(content.contains("> ok"));
             assert!(content.contains("ok"));
         }
     }
@@ -921,13 +1793,7 @@ mod tests {
         )
         .expect("run loop");
 
-        while app.status() == &UiStatus::Processing {
-            app.stream_state
-                .as_mut()
-                .expect("stream state exists")
-                .last_emit_at = Instant::now() - Duration::from_millis(100);
-            app.on_tick();
-        }
+        drain_processing(&mut app);
 
         assert_eq!(app.mcp_status_display(), "ok 1/1 r4 d1");
         assert!(
@@ -944,7 +1810,7 @@ mod tests {
         assert!(
             app.messages()
                 .iter()
-                .any(|m| m.starts_with("assistant: received -> hi"))
+                .any(|m| m.starts_with("assistant: "))
         );
     }
 
@@ -992,13 +1858,7 @@ mod tests {
         )
         .expect("run loop");
 
-        while app.status() == &UiStatus::Processing {
-            app.stream_state
-                .as_mut()
-                .expect("stream state exists")
-                .last_emit_at = Instant::now() - Duration::from_millis(100);
-            app.on_tick();
-        }
+        drain_processing(&mut app);
 
         assert_eq!(app.mcp_status_display(), "ok 1/1 r6 d1");
         assert!(
@@ -1020,7 +1880,7 @@ mod tests {
         assert!(
             app.messages()
                 .iter()
-                .any(|m| m.starts_with("assistant: received -> hi"))
+                .any(|m| m.starts_with("assistant: "))
         );
     }
 
@@ -1056,5 +1916,92 @@ mod tests {
             compact_message_for_width(message, 80),
             "system: MCP diagnostics healthy"
         );
+    }
+
+    #[test]
+    fn markdown_formatter_normalizes_spacing_and_list_style() {
+        let raw = "Title\r\n\r\n\r\n* one\r\n* two\r\n\r\n```rs\r\nlet x = 1;\r\n```\r\n";
+        let formatted = super::format_assistant_markdown(raw);
+        assert!(formatted.contains("- one"));
+        assert!(formatted.contains("- two"));
+        assert!(!formatted.contains("* one"));
+        assert!(!formatted.contains("\n\n\n"));
+    }
+
+    #[test]
+    fn draw_formats_tool_lines_with_compact_prefixes() {
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).expect("terminal");
+        let mut app = App::new(RuntimeMode::Edit);
+        app.messages.push("tool: [Tool] shell  [Success]\n  command: {\"command\":\"echo ok\"}  ->  ok".to_string());
+        app.messages.push("tool: [Tool] git  [Failed]\n  command: {\"args\":[\"status\"]}  ->  fatal: not a git repository".to_string());
+        terminal.draw(|frame| draw(frame, &app)).expect("draw");
+        let content = format!("{:?}", terminal.backend().buffer());
+        assert!(content.contains("fastcode"));
+        assert!(app.messages().iter().any(|m| m.contains("[Tool] shell")));
+        assert!(app.messages().iter().any(|m| m.contains("[Failed]")));
+    }
+
+    #[test]
+    fn scroll_from_bottom_defaults_to_latest_content() {
+        let offset = super::compute_scroll_from_bottom(0, 100, 10);
+        assert_eq!(offset, 90);
+    }
+
+    #[test]
+    fn scroll_from_bottom_clamps_to_history_limit() {
+        let offset = super::compute_scroll_from_bottom(999, 30, 10);
+        assert_eq!(offset, 0);
+    }
+
+    #[test]
+    fn processing_status_slot_has_stable_width() {
+        let a = format_processing_status("thinking", Some(1));
+        let b = format_processing_status("thinking...", Some(123));
+        let c = format_processing_status("streaming...", None);
+        assert_eq!(a.chars().count(), b.chars().count());
+        assert_eq!(b.chars().count(), c.chars().count());
+    }
+
+    #[test]
+    fn extracts_text_from_choice_text_shape() {
+        let response = json!({
+            "choices": [
+                { "text": "hello from text" }
+            ]
+        });
+        let (content, tool_calls) = super::extract_assistant_content_and_tools(&response).unwrap();
+        assert_eq!(content, "hello from text");
+        assert!(tool_calls.is_empty());
+    }
+
+    #[test]
+    fn surfaces_model_error_message_from_error_object() {
+        let response = json!({
+            "error": {
+                "message": "invalid api key",
+                "code": "auth_failed"
+            }
+        });
+        let err = super::extract_assistant_content_and_tools(&response).unwrap_err();
+        assert!(err.contains("invalid api key"));
+        assert!(err.contains("auth_failed"));
+    }
+
+    #[test]
+    fn tool_summary_uses_compact_two_line_style() {
+        let result = ToolResultEnvelope {
+            tool: "shell".to_string(),
+            status: ToolStatus::Success,
+            output: Some("line1\nline2\nline3".to_string()),
+            error_code: None,
+            error_message: None,
+        };
+        let summary = super::summarize_tool_event("shell", &json!({"command":"echo hi"}), &result);
+        assert!(summary.starts_with("[Tool] shell"));
+        assert!(summary.contains("[Success]"));
+        assert!(summary.contains("command: {\"command\":\"echo hi\"}"));
+        assert!(summary.contains("line1"));
+        assert!(summary.contains("(+2 lines)"));
     }
 }

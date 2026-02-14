@@ -16,6 +16,10 @@ if ! command -v git >/dev/null 2>&1; then
   exit 1
 fi
 
+export CARGO_HTTP_CHECK_REVOKE=false
+export CARGO_NET_GIT_FETCH_WITH_CLI=true
+echo "Configured Cargo TLS/workaround env: CARGO_HTTP_CHECK_REVOKE=false, CARGO_NET_GIT_FETCH_WITH_CLI=true"
+
 echo "[1/3] Fetching Rust dependencies..."
 cargo fetch
 

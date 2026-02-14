@@ -34,6 +34,11 @@ POSIX shell:
 sh ./init.sh
 ```
 
+Both init scripts now set:
+- `CARGO_HTTP_CHECK_REVOKE=false`
+- `CARGO_NET_GIT_FETCH_WITH_CLI=true`
+to avoid Windows schannel revocation/TLS issues during `cargo` network operations.
+
 ## Run
 ```bash
 cargo run -- --mode edit

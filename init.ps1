@@ -11,6 +11,10 @@ Require-Command "rustc" "Install Rust via https://rustup.rs"
 Require-Command "cargo" "Install Rust via https://rustup.rs"
 Require-Command "git" "Install Git via https://git-scm.com/download/win"
 
+$env:CARGO_HTTP_CHECK_REVOKE = "false"
+$env:CARGO_NET_GIT_FETCH_WITH_CLI = "true"
+Write-Host "Configured Cargo TLS/workaround env: CARGO_HTTP_CHECK_REVOKE=false, CARGO_NET_GIT_FETCH_WITH_CLI=true"
+
 Write-Host "[1/3] Fetching Rust dependencies..."
 cargo fetch
 

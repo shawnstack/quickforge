@@ -1019,3 +1019,46 @@ Next Priority
 
 Completion Snapshot
 - 26/26 checklist items passing.
+
+---
+
+Session Update - 2026-02-14 (Coding Agent, Iteration 25)
+
+Completed this session
+- Reconstructed context from authoritative artifacts and repository state/history in a fresh window:
+  - `app_spec.txt`
+  - `feature_list.json`
+  - `README.md`
+  - `claude-progress.txt`
+  - `git log --oneline -20`
+- Verified startup/bootstrap and regression checks before new implementation:
+  - `powershell -ExecutionPolicy Bypass -File ./init.ps1`
+  - `cargo run -- --mode edit`
+  - `$env:FASTCODE_TUI_SCRIPT='h,e,l,l,o,Enter,sleep260,sleep260,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config ./docs/mcp-servers.example.json --mcp-refresh-ms 200`
+- Added and completed one new high-priority unfinished item:
+  - Added `F-023`: TUI deduplicates consecutive identical MCP refresh diagnostics summaries while preserving status-bar refresh counter progression.
+  - Updated `src/tui/mod.rs` with `last_mcp_refresh_signature` state and duplicate suppression in `App::apply_mcp_refresh`.
+  - Added test `tui::tests::deduplicates_identical_consecutive_mcp_refresh_messages`.
+- Updated docs/tracking artifacts:
+  - `README.md` documents duplicate-refresh suppression behavior.
+  - `feature_list.json` extended with `F-023` and verification evidence.
+
+Verified checklist items
+- `F-023` passed with:
+  - `cargo fmt`
+  - `cargo test` (45 library tests + 10 binary tests, 0 failed)
+  - Real UI workflow evidence:
+    - `cmd /c "set FASTCODE_TUI_SCRIPT=h,i,Enter,sleep260,sleep260,sleep260,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\docs\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\f023-tui-dedupe.log 2>&1"`
+    - Parsed log `target/f023-tui-dedupe.clean.log` shows `refresh1` with no `refresh2`/`refresh3` entries while status still advanced to `errorr4`.
+
+Issues found and fixed
+- Usability issue: under persistent MCP failures, message area repeatedly appended nearly identical refresh diagnostics and drowned user/system messages.
+- Fix: consecutive identical `(status_label + summary)` refresh diagnostics are now suppressed; status refresh counter remains accurate.
+
+Next Priority
+1. Add optional UI affordance to view full untruncated MCP diagnostics payload for deep troubleshooting while keeping compact default rendering.
+2. Add explicit test coverage for dedupe reset when diagnostics summary changes after repeated failures.
+3. Evaluate exposing dedupe statistics in status/help text for operator observability.
+
+Completion Snapshot
+- 27/27 checklist items passing.

@@ -62,6 +62,7 @@ pub struct App {
     viewport_width: u16,
     viewport_height: u16,
     mcp_refresh_count: u64,
+    last_mcp_refresh_signature: Option<String>,
     stream_state: Option<StreamState>,
 }
 
@@ -76,8 +77,12 @@ impl App {
     ) -> Self {
         let mut messages = vec!["system: welcome to fastcode".to_string()];
         let mut mcp_status_label = "off".to_string();
+        let mut last_mcp_refresh_signature = None;
         if let Some(diagnostics) = mcp_diagnostics {
             mcp_status_label = diagnostics.status_label;
+            if let Some(summary) = diagnostics.messages.first() {
+                last_mcp_refresh_signature = Some(format!("{}|{}", mcp_status_label, summary));
+            }
             messages.extend(
                 diagnostics.messages.into_iter().map(|message| {
                     compact_message_for_width(&message, DEFAULT_MESSAGE_COMPACT_WIDTH)
@@ -96,6 +101,7 @@ impl App {
             viewport_width: 0,
             viewport_height: 0,
             mcp_refresh_count: 0,
+            last_mcp_refresh_signature,
             stream_state: None,
         }
     }
@@ -170,6 +176,10 @@ impl App {
         self.mcp_refresh_count = self.mcp_refresh_count.saturating_add(1);
         self.mcp_status_label = diagnostics.status_label.clone();
         if let Some(summary) = diagnostics.messages.first() {
+            let signature = format!("{}|{}", diagnostics.status_label, summary);
+            if self.last_mcp_refresh_signature.as_deref() == Some(signature.as_str()) {
+                return;
+            }
             let message = format!(
                 "system: MCP refresh {}: {}",
                 self.mcp_refresh_count, summary
@@ -181,6 +191,7 @@ impl App {
             };
             self.messages
                 .push(compact_message_for_width(&message, compact_width));
+            self.last_mcp_refresh_signature = Some(signature);
         }
     }
 
@@ -735,6 +746,25 @@ mod tests {
         let last = app.messages().last().expect("message exists");
         assert!(last.contains("... (+"));
         assert!(last.len() <= 90);
+    }
+
+    #[test]
+    fn deduplicates_identical_consecutive_mcp_refresh_messages() {
+        let mut app = App::new(RuntimeMode::Edit);
+        app.apply_mcp_refresh(McpDiagnostics {
+            status_label: "error".to_string(),
+            messages: vec!["MCP diagnostics failed: test failure".to_string()],
+        });
+        let message_count_after_first = app.messages().len();
+        assert_eq!(app.mcp_status_display(), "error r1");
+
+        app.apply_mcp_refresh(McpDiagnostics {
+            status_label: "error".to_string(),
+            messages: vec!["MCP diagnostics failed: test failure".to_string()],
+        });
+
+        assert_eq!(app.mcp_status_display(), "error r2");
+        assert_eq!(app.messages().len(), message_count_after_first);
     }
 
     #[test]

@@ -437,5 +437,22 @@
       "2026-02-14: Real UI verification: `$env:FASTCODE_TUI_SCRIPT='resize80x24,sleep260,h,i,Enter,sleep260,Up,Down,q'; cargo run -- --mode edit --tui --mcp-config ./docs/mcp-servers.example.json --mcp-refresh-ms 200` rendered compact MCP messages such as `... (+129 chars)` at 80x24 while submit/scroll and streaming reply flow stayed functional."
     ],
     "passes": true
+  },
+  {
+    "id": "F-023",
+    "category": "functional",
+    "priority": "P1",
+    "description": "TUI suppresses consecutive duplicate MCP refresh diagnostics summaries to keep the message area readable during persistent failures.",
+    "steps": [
+      "Launch TUI with --mcp-config that produces repeated identical refresh diagnostics.",
+      "Verify MCP status refresh counter continues to advance in the status bar.",
+      "Verify message area does not append refresh 2/3+ duplicate summaries while input/submit/scroll remain functional."
+    ],
+    "evidence": [
+      "2026-02-14: Updated `src/tui/mod.rs` to track `last_mcp_refresh_signature` and skip appending refresh messages when `status_label + summary` matches the immediately previous refresh result; status counter (`rN`) still increments.",
+      "2026-02-14: Added test `tui::tests::deduplicates_identical_consecutive_mcp_refresh_messages`; `cargo test` passed full suite (45 lib tests + 10 bin tests, 0 failed).",
+      "2026-02-14: Real UI verification with repeated failing diagnostics: `cmd /c \"set FASTCODE_TUI_SCRIPT=h,i,Enter,sleep260,sleep260,sleep260,Up,Down,q && cargo run -- --mode edit --tui --mcp-config .\\\\docs\\\\mcp-servers.example.json --mcp-refresh-ms 200 > target\\\\f023-tui-dedupe.log 2>&1\"`; parsed log evidence in `target/f023-tui-dedupe.clean.log` showed `refresh1` without `refresh2/refresh3`, while status progressed to `errorr4`."
+    ],
+    "passes": true
   }
 ]

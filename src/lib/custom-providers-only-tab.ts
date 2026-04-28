@@ -60,8 +60,9 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     this.requestUpdate()
   }
 
-  private openEditForm(provider: CustomProvider) {
+  private async openEditForm(provider: CustomProvider) {
     const model = provider.models?.[0]
+    const apiKey = (await getAppStorage().providerKeys.get(provider.name)) ?? provider.apiKey ?? ''
 
     this.editingProviderId = provider.id
     this.form = {
@@ -69,7 +70,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       id: provider.id,
       name: provider.name,
       baseUrl: provider.baseUrl,
-      apiKey: provider.apiKey ?? '',
+      apiKey,
       modelId: model?.id ?? '',
       protocol: provider.type === 'anthropic-messages' ? 'anthropic-messages' : 'openai-completions',
       contextWindow: model?.contextWindow ?? DEFAULT_CONNECTION.contextWindow,
@@ -128,21 +129,30 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     }
 
     const model = this.buildModel(name, baseUrl, modelId)
+    const apiKey = this.form.apiKey.trim()
+    const oldProvider = this.editingProviderId
+      ? this.providers.find((provider) => provider.id === this.editingProviderId)
+      : undefined
 
     const provider: CustomProvider = {
       id: this.editingProviderId ?? crypto.randomUUID(),
       name,
       type: this.form.protocol,
       baseUrl: model.baseUrl,
-      apiKey: this.form.apiKey.trim() || undefined,
+      apiKey: apiKey || undefined,
       models: [model],
     }
 
     try {
       const storage = getAppStorage()
       await storage.customProviders.set(provider)
-      if (provider.apiKey) {
-        await storage.providerKeys.set(provider.name, provider.apiKey)
+      if (oldProvider && oldProvider.name !== provider.name) {
+        await storage.providerKeys.delete(oldProvider.name)
+      }
+      if (apiKey) {
+        await storage.providerKeys.set(provider.name, apiKey)
+      } else {
+        await storage.providerKeys.delete(provider.name)
       }
       this.closeForm()
       await this.loadProviders()
@@ -156,7 +166,9 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     if (!confirm(`确定删除 ${provider.name} 吗？`)) return
 
     try {
-      await getAppStorage().customProviders.delete(provider.id)
+      const storage = getAppStorage()
+      await storage.customProviders.delete(provider.id)
+      await storage.providerKeys.delete(provider.name)
       await this.loadProviders()
     } catch (error) {
       console.error('Failed to delete custom provider:', error)

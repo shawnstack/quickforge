@@ -4,10 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0 --port 5176 --strictPort",
+    "dev": "node server/index.mjs --dev",
+    "dev:web": "vite --host 127.0.0.1 --port 5176 --strictPort",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "start": "node server/index.mjs",
+    "preview": "node server/index.mjs"
   },
   "dependencies": {
     "@mariozechner/mini-lit": "^0.2.1",

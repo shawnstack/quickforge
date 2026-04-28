@@ -8,7 +8,7 @@ import {
   SettingsDialog,
   type SessionMetadata,
 } from '@mariozechner/pi-web-ui'
-import type { Model } from '@mariozechner/pi-ai'
+import type { Api, Model } from '@mariozechner/pi-ai'
 import {
   MessageSquarePlus,
   PanelLeftClose,
@@ -23,12 +23,17 @@ import {
   buildConnectionModel,
   DEFAULT_CONNECTION,
   initializePiStorage,
+  loadActiveModel,
+  loadYoloMode,
+  saveActiveModel,
+  saveYoloMode,
 } from '@/lib/pi-chat'
 import { createCustomProvidersOnlyTab } from '@/lib/custom-providers-only-tab'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
+import { getLocalWorkspaceTools } from '@/lib/local-tools'
 
 const SYSTEM_PROMPT =
-  'You are a helpful AI assistant. Answer clearly and pragmatically. If the user asks for code, prefer concise working examples.'
+  'You are a helpful AI assistant. Answer clearly and pragmatically. If the user asks for code, prefer concise working examples. When YOLO mode is enabled, you may use the local workspace tools to inspect files, edit files, and run commands in the current project.'
 
 const EMPTY_USAGE = {
   input: 0,
@@ -135,10 +140,14 @@ function ChatPanelHost({
   agent,
   onModelSelect,
   revision,
+  yoloMode,
+  onToggleYoloMode,
 }: {
   agent: Agent | null
   onModelSelect?: () => void
   revision: number
+  yoloMode: boolean
+  onToggleYoloMode: () => void
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
 
@@ -149,30 +158,47 @@ function ChatPanelHost({
     panel.setAgent(agent, {
       onApiKeyRequired: (provider) => ApiKeyPromptDialog.prompt(provider),
       onModelSelect,
+      toolsFactory: () => getLocalWorkspaceTools(yoloMode),
     })
 
     hostRef.current.replaceChildren(panel)
     return () => {
       panel.remove()
     }
-  }, [agent, onModelSelect, revision])
+  }, [agent, onModelSelect, revision, yoloMode])
 
-  return <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden" />
+  return (
+    <div className="relative min-h-0 flex-1 overflow-hidden">
+      <div ref={hostRef} className="h-full min-h-0" />
+      <div className="pointer-events-none absolute bottom-2 right-3 z-40 flex justify-end">
+        <Button
+          variant={yoloMode ? 'default' : 'outline'}
+          size="sm"
+          onClick={onToggleYoloMode}
+          className="pointer-events-auto h-7 rounded-full shadow-md"
+          title={yoloMode ? 'YOLO 本地工具已开启' : '普通聊天，无本地文件/终端权限'}
+        >
+          {yoloMode ? 'YOLO：开' : 'YOLO：关'}
+        </Button>
+      </div>
+    </div>
+  )
 }
 
 function App() {
   const storageRef = useRef<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
   const agentRef = useRef<Agent | null>(null)
-  const activeModelRef = useRef<Model<'openai-completions'>>(buildConnectionModel(DEFAULT_CONNECTION))
+  const activeModelRef = useRef<Model<Api>>(buildConnectionModel(DEFAULT_CONNECTION))
   const unsubscribeRef = useRef<(() => void) | null>(null)
   const persistQueueRef = useRef(Promise.resolve())
+  const yoloModeRef = useRef(false)
   const currentSessionIdRef = useRef<string | undefined>(undefined)
   const currentTitleRef = useRef('New chat')
   const currentCreatedAtRef = useRef<string | undefined>(undefined)
 
   const [agent, setAgent] = useState<Agent | null>(null)
   const [sessions, setSessions] = useState<SessionMetadata[]>([])
-  const [activeModel, setActiveModel] = useState<Model<'openai-completions'>>(
+  const [activeModel, setActiveModel] = useState<Model<Api>>(
     buildConnectionModel(DEFAULT_CONNECTION),
   )
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>()
@@ -180,6 +206,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [ready, setReady] = useState(false)
   const [chatPanelRevision, setChatPanelRevision] = useState(0)
+  const [yoloMode, setYoloMode] = useState(false)
 
   const refreshSessions = useCallback(async () => {
     const storage = storageRef.current
@@ -246,12 +273,21 @@ function App() {
           model: activeModelRef.current,
           thinkingLevel: 'off',
           messages: [],
-          tools: [],
           ...initialState,
+          tools: getLocalWorkspaceTools(yoloModeRef.current),
         },
         convertToLlm: defaultConvertToLlm,
         sessionId,
         maxRetryDelayMs: 60000,
+        beforeToolCall: async (context) => {
+          if (!yoloModeRef.current) {
+            return {
+              block: true,
+              reason: `Local tool ${context.toolCall.name} was blocked because YOLO mode is disabled. Enable YOLO mode at the bottom of the app to grant local workspace access.`,
+            }
+          }
+          return undefined
+        },
       })
 
       unsubscribeRef.current = nextAgent.subscribe((event) => {
@@ -318,8 +354,8 @@ function App() {
       currentTitleRef.current = session.title
       setCurrentSessionId(session.id)
       setCurrentTitle(session.title)
-      activeModelRef.current = session.model as Model<'openai-completions'>
-      setActiveModel(session.model as Model<'openai-completions'>)
+      activeModelRef.current = session.model as Model<Api>
+      setActiveModel(session.model as Model<Api>)
 
       const url = new URL(window.location.href)
       url.searchParams.set('session', session.id)
@@ -362,7 +398,11 @@ function App() {
       storageRef.current = storage
       await refreshSessions()
 
-      const initialModel = buildConnectionModel(DEFAULT_CONNECTION)
+      const savedYoloMode = await loadYoloMode(storage)
+      yoloModeRef.current = savedYoloMode
+      setYoloMode(savedYoloMode)
+
+      const initialModel = (await loadActiveModel(storage)) ?? buildConnectionModel(DEFAULT_CONNECTION)
 
       activeModelRef.current = initialModel
       setActiveModel(initialModel)
@@ -376,8 +416,8 @@ function App() {
           currentTitleRef.current = existing.title
           setCurrentSessionId(existing.id)
           setCurrentTitle(existing.title)
-          activeModelRef.current = existing.model as Model<'openai-completions'>
-          setActiveModel(existing.model as Model<'openai-completions'>)
+          activeModelRef.current = existing.model as Model<Api>
+          setActiveModel(existing.model as Model<Api>)
           await createAgent(
             {
               systemPrompt: SYSTEM_PROMPT,
@@ -409,6 +449,24 @@ function App() {
     return `${activeModel.provider} / ${activeModel.id}`
   }, [activeModel])
 
+  const toggleYoloMode = useCallback(() => {
+    const storage = storageRef.current
+    const nextMode = !yoloModeRef.current
+
+    yoloModeRef.current = nextMode
+    setYoloMode(nextMode)
+
+    if (agentRef.current) {
+      setChatPanelRevision((value) => value + 1)
+    }
+
+    if (storage) {
+      void saveYoloMode(storage, nextMode).catch((error) => {
+        console.error('Failed to save YOLO mode:', error)
+      })
+    }
+  }, [])
+
   const openCustomModelSelector = useCallback(async () => {
     const storage = storageRef.current
     const currentAgent = agentRef.current
@@ -430,11 +488,14 @@ function App() {
     }
 
     openCustomOnlyModelSelector(currentAgent.state.model ?? activeModelRef.current, customModels, (model) => {
-      const nextModel = model as Model<'openai-completions'>
+      const nextModel = model as Model<Api>
       currentAgent.state.model = nextModel
       activeModelRef.current = nextModel
       setActiveModel(nextModel)
       setChatPanelRevision((value) => value + 1)
+      void saveActiveModel(storage, nextModel).catch((error) => {
+        console.error('Failed to save active model:', error)
+      })
     })
   }, [])
 
@@ -532,7 +593,13 @@ function App() {
 
         <div className="flex min-h-0 flex-1">
           <section className="flex min-w-0 flex-1 flex-col">
-            <ChatPanelHost agent={agent} onModelSelect={openCustomModelSelector} revision={chatPanelRevision} />
+            <ChatPanelHost
+              agent={agent}
+              onModelSelect={openCustomModelSelector}
+              revision={chatPanelRevision}
+              yoloMode={yoloMode}
+              onToggleYoloMode={toggleYoloMode}
+            />
           </section>
         </div>
       </main>

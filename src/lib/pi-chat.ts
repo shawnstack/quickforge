@@ -1,4 +1,4 @@
-import type { Model } from '@mariozechner/pi-ai'
+import type { Api, Model } from '@mariozechner/pi-ai'
 import {
   AppStorage,
   CustomProvidersStore,
@@ -8,7 +8,13 @@ import {
   SettingsStore,
   setAppStorage,
   type CustomProvider,
+  type StorageBackend,
 } from '@mariozechner/pi-web-ui'
+import { HttpStorageBackend } from '@/lib/http-storage-backend'
+
+const ACTIVE_MODEL_SETTING_KEY = 'active-model'
+const YOLO_MODE_SETTING_KEY = 'yolo-mode'
+const INDEXEDDB_MIGRATION_SETTING_KEY = 'indexeddb-migrated-to-local-files-v1'
 
 export type ConnectionForm = {
   id?: string
@@ -25,6 +31,13 @@ export type ConnectionProfile = {
   providerName: string
   model: Model<'openai-completions'>
   apiKey?: string
+}
+
+type StoreBundle = {
+  settings: SettingsStore
+  providerKeys: ProviderKeysStore
+  sessions: SessionsStore
+  customProviders: CustomProvidersStore
 }
 
 export const DEFAULT_CONNECTION: ConnectionForm = {
@@ -60,38 +73,110 @@ export function buildConnectionModel(form: ConnectionForm): Model<'openai-comple
   }
 }
 
-export async function initializePiStorage() {
-  const settings = new SettingsStore()
-  const providerKeys = new ProviderKeysStore()
-  const sessions = new SessionsStore()
-  const customProviders = new CustomProvidersStore()
+function createStores(): StoreBundle {
+  return {
+    settings: new SettingsStore(),
+    providerKeys: new ProviderKeysStore(),
+    sessions: new SessionsStore(),
+    customProviders: new CustomProvidersStore(),
+  }
+}
 
-  const backend = new IndexedDBStorageBackend({
+function getStoreConfigs(stores: StoreBundle) {
+  return [
+    stores.settings.getConfig(),
+    stores.providerKeys.getConfig(),
+    stores.sessions.getConfig(),
+    SessionsStore.getMetadataConfig(),
+    stores.customProviders.getConfig(),
+  ]
+}
+
+function attachBackend(stores: StoreBundle, backend: StorageBackend) {
+  stores.settings.setBackend(backend)
+  stores.providerKeys.setBackend(backend)
+  stores.sessions.setBackend(backend)
+  stores.customProviders.setBackend(backend)
+}
+
+function createIndexedDbBackend(stores: StoreBundle) {
+  return new IndexedDBStorageBackend({
     dbName: 'fastcode-ai-chat',
     version: 1,
-    stores: [
-      settings.getConfig(),
-      providerKeys.getConfig(),
-      sessions.getConfig(),
-      SessionsStore.getMetadataConfig(),
-      customProviders.getConfig(),
-    ],
+    stores: getStoreConfigs(stores),
   })
+}
 
-  settings.setBackend(backend)
-  providerKeys.setBackend(backend)
-  sessions.setBackend(backend)
-  customProviders.setBackend(backend)
+async function copyStoreIfMissing(source: StorageBackend, target: StorageBackend, storeName: string) {
+  const keys = await source.keys(storeName)
+  for (const key of keys) {
+    if (await target.has(storeName, key)) continue
+    const value = await source.get(storeName, key)
+    if (value !== null) await target.set(storeName, key, value)
+  }
+}
 
-  const storage = new AppStorage(settings, providerKeys, sessions, customProviders, backend)
+async function migrateIndexedDbToLocalFiles(target: StorageBackend, stores: StoreBundle) {
+  const alreadyMigrated = await target.get<boolean>('settings', INDEXEDDB_MIGRATION_SETTING_KEY)
+  if (alreadyMigrated) return
+
+  const indexedDbStores = createStores()
+  const indexedDbBackend = createIndexedDbBackend(indexedDbStores)
+
+  try {
+    for (const store of getStoreConfigs(stores)) {
+      await copyStoreIfMissing(indexedDbBackend, target, store.name)
+    }
+    await target.set('settings', INDEXEDDB_MIGRATION_SETTING_KEY, true)
+  } catch (error) {
+    console.warn('Failed to migrate IndexedDB data to local files:', error)
+  }
+}
+
+async function createStorageBackend(stores: StoreBundle): Promise<StorageBackend> {
+  if (await HttpStorageBackend.isAvailable()) {
+    const backend = new HttpStorageBackend()
+    await migrateIndexedDbToLocalFiles(backend, stores)
+    return backend
+  }
+
+  return createIndexedDbBackend(stores)
+}
+
+export async function initializePiStorage() {
+  const stores = createStores()
+  const backend = await createStorageBackend(stores)
+
+  attachBackend(stores, backend)
+
+  const storage = new AppStorage(stores.settings, stores.providerKeys, stores.sessions, stores.customProviders, backend)
   setAppStorage(storage)
 
-  const existing = await customProviders.get(DEFAULT_CONNECTION.id!)
+  const existing = await stores.customProviders.get(DEFAULT_CONNECTION.id!)
   if (!existing) {
     await saveConnectionProfile(storage, DEFAULT_CONNECTION, buildConnectionModel(DEFAULT_CONNECTION))
   }
 
   return storage
+}
+
+export async function saveActiveModel(storage: AppStorage, model: Model<Api>) {
+  await storage.settings.set(ACTIVE_MODEL_SETTING_KEY, model)
+}
+
+export async function loadActiveModel(storage: AppStorage): Promise<Model<Api> | null> {
+  const model = await storage.settings.get<Model<Api>>(ACTIVE_MODEL_SETTING_KEY)
+  if (!model || typeof model !== 'object') return null
+  if (!model.id || !model.provider || !model.api || !model.baseUrl) return null
+  return model
+}
+
+export async function saveYoloMode(storage: AppStorage, enabled: boolean) {
+  await storage.settings.set(YOLO_MODE_SETTING_KEY, enabled)
+}
+
+export async function loadYoloMode(storage: AppStorage): Promise<boolean> {
+  return (await storage.settings.get<boolean>(YOLO_MODE_SETTING_KEY)) === true
 }
 
 export async function saveConnectionProfile(

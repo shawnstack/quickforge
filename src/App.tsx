@@ -165,6 +165,7 @@ function App() {
   const agentRef = useRef<Agent | null>(null)
   const activeModelRef = useRef<Model<'openai-completions'>>(buildConnectionModel(DEFAULT_CONNECTION))
   const unsubscribeRef = useRef<(() => void) | null>(null)
+  const persistQueueRef = useRef(Promise.resolve())
   const currentSessionIdRef = useRef<string | undefined>(undefined)
   const currentTitleRef = useRef('New chat')
   const currentCreatedAtRef = useRef<string | undefined>(undefined)
@@ -253,7 +254,7 @@ function App() {
         maxRetryDelayMs: 60000,
       })
 
-      unsubscribeRef.current = nextAgent.subscribe(async (event) => {
+      unsubscribeRef.current = nextAgent.subscribe((event) => {
         if (event.type === 'message_end') {
           // pi-agent mutates messages with Array.push(). Clone the array so Lit-based
           // message-list receives a new reference and renders the completed message
@@ -261,12 +262,25 @@ function App() {
           nextAgent.state.messages = [...nextAgent.state.messages]
         }
 
+        if (event.type === 'agent_end') {
+          // Agent emits agent_end before it flips isStreaming to false, and does not
+          // emit another UI event afterwards. Refresh the ChatPanel on the next task
+          // so the send/stop button sees the final non-streaming state.
+          window.setTimeout(() => setChatPanelRevision((value) => value + 1), 0)
+        }
+
         if (
           event.type === 'message_end' ||
           event.type === 'agent_end' ||
           event.type === 'turn_end'
         ) {
-          await persistSession(nextAgent)
+          // Do not await persistence here. Agent waits for subscribers; blocking this
+          // callback keeps state.isStreaming true and leaves the input button stuck
+          // in the running/stop state until storage work completes.
+          persistQueueRef.current = persistQueueRef.current
+            .catch(() => undefined)
+            .then(() => persistSession(nextAgent))
+            .catch((error) => console.error('Failed to persist session:', error))
         }
       })
 

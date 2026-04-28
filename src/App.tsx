@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Agent, type AgentMessage, type AgentState } from '@mariozechner/pi-agent-core'
 import {
   ApiKeyPromptDialog,
@@ -32,6 +32,7 @@ import { createCustomProvidersOnlyTab } from '@/lib/custom-providers-only-tab'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
 
+// Main chat behavior prompt.
 const SYSTEM_PROMPT =
   'You are a helpful AI assistant. Answer clearly and pragmatically. If the user asks for code, prefer concise working examples. When YOLO mode is enabled, you may use the local workspace tools to inspect files, edit files, and run commands in the current project.'
 
@@ -50,7 +51,7 @@ const EMPTY_USAGE = {
   },
 }
 
-function textFromContentBlocks(content: unknown) {
+function textFromContentBlocks(content: unknown, separator = ' ') {
   if (!Array.isArray(content)) return ''
   return content
     .filter((block): block is { type: 'text'; text: string } => {
@@ -64,7 +65,58 @@ function textFromContentBlocks(content: unknown) {
       )
     })
     .map((block) => block.text)
-    .join(' ')
+    .join(separator)
+}
+
+function assistantText(message: AgentMessage) {
+  if (message.role !== 'assistant') return ''
+  return textFromContentBlocks(message.content, '\n\n').trim()
+}
+
+function rollbackStartIndexFromMessage(messages: AgentMessage[], messageIndex: number) {
+  let rollbackIndex = messageIndex
+
+  if (messages[messageIndex]?.role === 'assistant') {
+    for (let index = messageIndex - 1; index >= 0; index--) {
+      if (messages[index].role === 'user' || messages[index].role === 'user-with-attachments') {
+        rollbackIndex = index
+        break
+      }
+    }
+  }
+
+  const message = messages[rollbackIndex]
+  if (!message || (message.role !== 'user' && message.role !== 'user-with-attachments')) return -1
+  return rollbackIndex
+}
+
+function rollbackConversationFromMessage(messages: AgentMessage[], messageIndex: number) {
+  const rollbackIndex = rollbackStartIndexFromMessage(messages, messageIndex)
+  if (rollbackIndex < 0) return messages
+  return messages.slice(0, rollbackIndex)
+}
+
+function draftTextFromUserMessage(message: AgentMessage) {
+  if (message.role !== 'user' && message.role !== 'user-with-attachments') return ''
+  return typeof message.content === 'string'
+    ? message.content
+    : textFromContentBlocks(message.content, '\n\n')
+}
+
+async function copyTextToClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  document.body.append(textarea)
+  textarea.select()
+  document.execCommand('copy')
+  textarea.remove()
 }
 
 function generateTitle(messages: AgentMessage[]) {
@@ -136,53 +188,172 @@ function formatSessionTime(value: string) {
   }).format(new Date(value))
 }
 
+type RestoredDraft = {
+  id: number
+  text: string
+  attachments?: unknown[]
+}
+
 function ChatPanelHost({
   agent,
   onModelSelect,
   revision,
   yoloMode,
   onToggleYoloMode,
+  onRollbackFromMessage,
+  onCopyAnswer,
+  restoredDraft,
 }: {
   agent: Agent | null
   onModelSelect?: () => void
   revision: number
   yoloMode: boolean
   onToggleYoloMode: () => void
+  onRollbackFromMessage: (messageIndex: number) => void
+  onCopyAnswer: (text: string) => void
+  restoredDraft?: RestoredDraft
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
+  const restoredDraftIdRef = useRef<number | undefined>(undefined)
 
   useEffect(() => {
     if (!hostRef.current || !agent) return
 
     const panel = new ChatPanel()
-    panel.setAgent(agent, {
+    let disposed = false
+    let observer: MutationObserver | undefined
+
+    const copyIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>'
+    const rollbackIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>'
+
+    const createIconActionButton = (action: string, title: string, icon: string, onClick: () => void) => {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.dataset.fastcodeAction = action
+      button.title = title
+      button.setAttribute('aria-label', title)
+      button.innerHTML = icon
+      button.className = 'pointer-events-auto inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-transparent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40'
+      button.onclick = (event) => {
+        event.stopPropagation()
+        onClick()
+      }
+      return button
+    }
+
+    const decorateMessages = () => {
+      const displayEntries = agent.state.messages
+        .map((message, index) => ({ message, index }))
+        .filter(({ message }) => {
+          return message.role === 'user' || message.role === 'user-with-attachments' || message.role === 'assistant'
+        })
+
+      const messageElements = Array.from(
+        panel.querySelectorAll<HTMLElement>('message-list user-message, message-list assistant-message'),
+      )
+
+      messageElements.forEach((element, displayIndex) => {
+        const entry = displayEntries[displayIndex]
+        if (!entry) return
+
+        element.classList.add('group', 'relative')
+
+        const actionsClass = `fastcode-message-actions pointer-events-none mt-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 ${entry.message.role === 'assistant' ? 'px-4 justify-start' : 'mx-4 justify-start'}`
+        const existingActions = element.querySelector<HTMLElement>('.fastcode-message-actions')
+        if (existingActions?.dataset.fastcodeLayout === 'message-bottom') {
+          existingActions.className = actionsClass
+          existingActions.querySelectorAll<HTMLButtonElement>('button[data-fastcode-action="rollback"]').forEach((button) => {
+            button.disabled = agent.state.isStreaming
+          })
+          return
+        }
+        existingActions?.remove()
+
+        const actions = document.createElement('div')
+        actions.dataset.fastcodeLayout = 'message-bottom'
+        actions.className = actionsClass
+
+        if (entry.message.role === 'assistant') {
+          const text = assistantText(entry.message)
+          if (!text) return
+
+          const copyButton = createIconActionButton('copy', 'Copy', copyIcon, () => {
+            const currentMessage = agent.state.messages[entry.index]
+            const currentText = currentMessage ? assistantText(currentMessage) : text
+            if (currentText) onCopyAnswer(currentText)
+          })
+          actions.append(copyButton)
+        } else {
+          const rollbackButton = createIconActionButton('rollback', 'Rollback', rollbackIcon, () => {
+            onRollbackFromMessage(entry.index)
+          })
+          rollbackButton.disabled = agent.state.isStreaming
+          actions.append(rollbackButton)
+        }
+
+        element.append(actions)
+      })
+    }
+
+    const decorateEditor = () => {
+      const editor = panel.querySelector('message-editor')
+      const editorRows = editor?.querySelectorAll<HTMLElement>('.flex.gap-2.items-center')
+      const rightControls = editorRows?.[editorRows.length - 1]
+      if (!rightControls) return
+
+      const existingButton = rightControls.querySelector<HTMLButtonElement>('.fastcode-yolo-inline')
+      if (existingButton) {
+        existingButton.textContent = yoloMode ? 'YOLO on' : 'YOLO off'
+        existingButton.title = yoloMode ? 'Local workspace tools enabled' : 'Local workspace tools disabled'
+        existingButton.className = `fastcode-yolo-inline h-8 rounded-md px-2 text-xs ${yoloMode ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'hover:bg-accent hover:text-accent-foreground'}`
+        return
+      }
+
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.textContent = yoloMode ? 'YOLO on' : 'YOLO off'
+      button.title = yoloMode ? 'Local workspace tools enabled' : 'Local workspace tools disabled'
+      button.className = `fastcode-yolo-inline h-8 rounded-md px-2 text-xs ${yoloMode ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'hover:bg-accent hover:text-accent-foreground'}`
+      button.onclick = (event) => {
+        event.stopPropagation()
+        onToggleYoloMode()
+      }
+      rightControls.prepend(button)
+    }
+
+    const decorate = () => {
+      if (disposed) return
+      decorateMessages()
+      decorateEditor()
+    }
+
+    void panel.setAgent(agent, {
       onApiKeyRequired: (provider) => ApiKeyPromptDialog.prompt(provider),
       onModelSelect,
       toolsFactory: () => getLocalWorkspaceTools(yoloMode),
+    }).then(() => {
+      if (restoredDraft && restoredDraftIdRef.current !== restoredDraft.id) {
+        restoredDraftIdRef.current = restoredDraft.id
+        const agentInterface = panel.querySelector<HTMLElement>('agent-interface') as HTMLElement & {
+          setInput?: (text: string, attachments?: unknown[]) => void
+        }
+        agentInterface?.setInput?.(restoredDraft.text, restoredDraft.attachments)
+      }
+
+      decorate()
+      observer = new MutationObserver(() => window.requestAnimationFrame(decorate))
+      observer.observe(panel, { childList: true, subtree: true })
     })
 
     hostRef.current.replaceChildren(panel)
     return () => {
+      disposed = true
+      observer?.disconnect()
       panel.remove()
     }
-  }, [agent, onModelSelect, revision, yoloMode])
+  }, [agent, onCopyAnswer, onModelSelect, onRollbackFromMessage, onToggleYoloMode, restoredDraft, revision, yoloMode])
 
-  return (
-    <div className="relative min-h-0 flex-1 overflow-hidden">
-      <div ref={hostRef} className="h-full min-h-0" />
-      <div className="pointer-events-none absolute bottom-2 right-3 z-40 flex justify-end">
-        <Button
-          variant={yoloMode ? 'default' : 'outline'}
-          size="sm"
-          onClick={onToggleYoloMode}
-          className="pointer-events-auto h-7 rounded-full shadow-md"
-          title={yoloMode ? 'YOLO 本地工具已开启' : '普通聊天，无本地文件/终端权限'}
-        >
-          {yoloMode ? 'YOLO：开' : 'YOLO：关'}
-        </Button>
-      </div>
-    </div>
-  )
+  return <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden" />
 }
 
 function App() {
@@ -198,15 +369,13 @@ function App() {
 
   const [agent, setAgent] = useState<Agent | null>(null)
   const [sessions, setSessions] = useState<SessionMetadata[]>([])
-  const [activeModel, setActiveModel] = useState<Model<Api>>(
-    buildConnectionModel(DEFAULT_CONNECTION),
-  )
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>()
   const [currentTitle, setCurrentTitle] = useState('New chat')
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [ready, setReady] = useState(false)
   const [chatPanelRevision, setChatPanelRevision] = useState(0)
   const [yoloMode, setYoloMode] = useState(false)
+  const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
 
   const refreshSessions = useCallback(async () => {
     const storage = storageRef.current
@@ -283,7 +452,7 @@ function App() {
           if (!yoloModeRef.current) {
             return {
               block: true,
-              reason: `Local tool ${context.toolCall.name} was blocked because YOLO mode is disabled. Enable YOLO mode at the bottom of the app to grant local workspace access.`,
+              reason: `Local tool ${context.toolCall.name} was blocked because YOLO mode is disabled. Enable YOLO mode inside the input box to grant local workspace access.`,
             }
           }
           return undefined
@@ -355,7 +524,6 @@ function App() {
       setCurrentSessionId(session.id)
       setCurrentTitle(session.title)
       activeModelRef.current = session.model as Model<Api>
-      setActiveModel(session.model as Model<Api>)
 
       const url = new URL(window.location.href)
       url.searchParams.set('session', session.id)
@@ -405,7 +573,6 @@ function App() {
       const initialModel = (await loadActiveModel(storage)) ?? buildConnectionModel(DEFAULT_CONNECTION)
 
       activeModelRef.current = initialModel
-      setActiveModel(initialModel)
 
       const sessionId = new URLSearchParams(window.location.search).get('session')
       if (sessionId) {
@@ -417,7 +584,6 @@ function App() {
           setCurrentSessionId(existing.id)
           setCurrentTitle(existing.title)
           activeModelRef.current = existing.model as Model<Api>
-          setActiveModel(existing.model as Model<Api>)
           await createAgent(
             {
               systemPrompt: SYSTEM_PROMPT,
@@ -445,10 +611,6 @@ function App() {
     }
   }, [createAgent, refreshSessions])
 
-  const activeProfileLabel = useMemo(() => {
-    return `${activeModel.provider} / ${activeModel.id}`
-  }, [activeModel])
-
   const toggleYoloMode = useCallback(() => {
     const storage = storageRef.current
     const nextMode = !yoloModeRef.current
@@ -464,6 +626,75 @@ function App() {
       void saveYoloMode(storage, nextMode).catch((error) => {
         console.error('Failed to save YOLO mode:', error)
       })
+    }
+  }, [])
+
+  const rollbackFromMessage = useCallback(async (messageIndex: number) => {
+    const currentAgent = agentRef.current
+    if (!currentAgent) return
+
+    if (currentAgent.state.isStreaming) {
+      alert('Generation is still running. Stop it or wait until it finishes before rolling back.')
+      return
+    }
+
+    const rollbackIndex = rollbackStartIndexFromMessage(currentAgent.state.messages, messageIndex)
+    const rollbackMessage = rollbackIndex >= 0 ? currentAgent.state.messages[rollbackIndex] : undefined
+    const nextMessages = rollbackConversationFromMessage(currentAgent.state.messages, messageIndex)
+    if (nextMessages.length === currentAgent.state.messages.length) {
+      alert('There is no conversation turn to roll back.')
+      return
+    }
+
+    currentAgent.state.messages = nextMessages
+
+    if (rollbackMessage) {
+      setRestoredDraft({
+        id: Date.now(),
+        text: draftTextFromUserMessage(rollbackMessage),
+        attachments: rollbackMessage.role === 'user-with-attachments' ? rollbackMessage.attachments : undefined,
+      })
+    }
+
+    setChatPanelRevision((value) => value + 1)
+
+    if (shouldSaveSession(nextMessages)) {
+      persistQueueRef.current = persistQueueRef.current
+        .catch(() => undefined)
+        .then(() => persistSession(currentAgent))
+        .catch((error) => console.error('Failed to persist rolled back session:', error))
+      return
+    }
+
+    const storage = storageRef.current
+    const previousSessionId = currentSessionIdRef.current
+
+    currentSessionIdRef.current = undefined
+    currentCreatedAtRef.current = undefined
+    currentTitleRef.current = 'New chat'
+    setCurrentSessionId(undefined)
+    setCurrentTitle('New chat')
+
+    const url = new URL(window.location.href)
+    url.searchParams.delete('session')
+    window.history.replaceState({}, '', url)
+
+    if (storage && previousSessionId) {
+      try {
+        await storage.sessions.delete(previousSessionId)
+        await refreshSessions()
+      } catch (error) {
+        console.error('Failed to delete rolled back empty session:', error)
+      }
+    }
+  }, [persistSession, refreshSessions])
+
+  const copyAnswer = useCallback(async (text: string) => {
+    try {
+      await copyTextToClipboard(text)
+    } catch (error) {
+      console.error('Failed to copy answer:', error)
+      alert('Copy failed. Please check clipboard permissions.')
     }
   }, [])
 
@@ -491,7 +722,6 @@ function App() {
       const nextModel = model as Model<Api>
       currentAgent.state.model = nextModel
       activeModelRef.current = nextModel
-      setActiveModel(nextModel)
       setChatPanelRevision((value) => value + 1)
       void saveActiveModel(storage, nextModel).catch((error) => {
         console.error('Failed to save active model:', error)
@@ -578,7 +808,6 @@ function App() {
 
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-semibold">{currentTitle}</div>
-            <div className="truncate text-xs text-muted-foreground">{activeProfileLabel}</div>
           </div>
 
           <Button
@@ -599,6 +828,9 @@ function App() {
               revision={chatPanelRevision}
               yoloMode={yoloMode}
               onToggleYoloMode={toggleYoloMode}
+              onRollbackFromMessage={rollbackFromMessage}
+              onCopyAnswer={copyAnswer}
+              restoredDraft={restoredDraft}
             />
           </section>
         </div>

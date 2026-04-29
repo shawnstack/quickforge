@@ -1141,7 +1141,7 @@ function App() {
                           aria-label={expanded ? t('collapseProject') : t('expandProject')}
                         >
                           {expanded ? (
-                            <FolderOpen className="size-4 text-amber-500" />
+                            <FolderOpen className="size-4 text-muted-foreground" />
                           ) : (
                             <Folder className="size-4 text-muted-foreground" />
                           )}
@@ -1150,7 +1150,7 @@ function App() {
                           className="flex min-w-0 flex-1 items-center text-left"
                           type="button"
                           title={item.path}
-                          onClick={() => startNewProjectChat(item)}
+                          onClick={() => toggleProjectExpanded(item.id)}
                         >
                           <span className="truncate text-sm font-medium">{item.name}</span>
                         </button>
@@ -1166,9 +1166,9 @@ function App() {
                       </div>
 
                       {expanded ? (
-                        <div className="ml-8 mt-1 space-y-1">
+                        <div className="ml-4 mt-1 border-l-2 border-border pl-4 space-y-0.5">
                           {projectSessions.length === 0 ? (
-                            <div className="px-2 py-1.5 text-sm text-muted-foreground/70">{t('noConversations')}</div>
+                            <div className="py-1.5 text-sm text-muted-foreground/70">{t('noConversations')}</div>
                           ) : (
                             projectSessions.map((session) => (
                               <div

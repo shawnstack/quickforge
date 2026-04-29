@@ -238,6 +238,15 @@ function getActiveProject(config) {
   return config.projects.find((project) => project.id === config.activeProjectId) || config.projects[0]
 }
 
+async function pathExists(dir) {
+  try {
+    await fs.access(dir)
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function assertDirectory(dir) {
   const stat = await fs.stat(dir).catch(() => null)
   if (!stat || !stat.isDirectory()) {
@@ -245,6 +254,63 @@ async function assertDirectory(dir) {
     error.statusCode = 400
     throw error
   }
+}
+
+async function getFilesystemRoots() {
+  const roots = []
+  const addRoot = async (name, rootPath) => {
+    if (!rootPath) return
+    const resolved = path.resolve(rootPath)
+    if (!(await pathExists(resolved))) return
+    if (roots.some((entry) => path.resolve(entry.path) === resolved)) return
+    roots.push({ name, path: resolved })
+  }
+
+  const home = os.homedir()
+  await addRoot('Home', home)
+  await addRoot('Desktop', path.join(home, 'Desktop'))
+  await addRoot('Documents', path.join(home, 'Documents'))
+  await addRoot('QuickForge', projectRoot)
+  await addRoot('Current project', activeWorkspaceRoot)
+
+  if (process.platform === 'win32') {
+    for (let code = 65; code <= 90; code += 1) {
+      const drive = `${String.fromCharCode(code)}:\\`
+      await addRoot(drive, drive)
+    }
+  } else {
+    await addRoot('Filesystem', '/')
+    if (process.platform === 'darwin' && (await pathExists('/Volumes'))) {
+      const volumes = await fs.readdir('/Volumes', { withFileTypes: true }).catch(() => [])
+      for (const volume of volumes) {
+        if (volume.isDirectory() || volume.isSymbolicLink()) {
+          await addRoot(volume.name, path.join('/Volumes', volume.name))
+        }
+      }
+    }
+  }
+
+  return roots
+}
+
+async function listFilesystemDirectories(inputPath) {
+  const requestedPath = String(inputPath || os.homedir())
+  const resolved = path.resolve(requestedPath)
+  await assertDirectory(resolved)
+
+  const entries = await fs.readdir(resolved, { withFileTypes: true }).catch((error) => {
+    error.statusCode = error?.code === 'EACCES' || error?.code === 'EPERM' ? 403 : 400
+    throw error
+  })
+
+  const directories = entries
+    .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+    .map((entry) => ({ name: entry.name, path: path.join(resolved, entry.name) }))
+    .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: 'base' }))
+
+  const parsed = path.parse(resolved)
+  const parent = resolved === parsed.root ? null : path.dirname(resolved)
+  return { path: resolved, parent, directories }
 }
 
 async function setActiveProjectPath(inputPath) {
@@ -688,38 +754,98 @@ const toolHandlers = {
   run_command: toolRunCommand,
 }
 
-function spawnCollect(command, args) {
+function spawnCollect(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
+      windowsHide: options.windowsHide ?? true,
       shell: false,
     })
     let stdout = ''
     let stderr = ''
+    let timedOut = false
+    const timer = options.timeoutMs
+      ? setTimeout(() => {
+          timedOut = true
+          child.kill('SIGTERM')
+        }, options.timeoutMs)
+      : undefined
     child.stdout.on('data', (chunk) => {
       stdout += chunk.toString()
     })
     child.stderr.on('data', (chunk) => {
       stderr += chunk.toString()
     })
-    child.on('error', reject)
-    child.on('close', (code) => resolve({ code, stdout, stderr }))
+    child.on('error', (error) => {
+      if (timer) clearTimeout(timer)
+      reject(error)
+    })
+    child.on('close', (code) => {
+      if (timer) clearTimeout(timer)
+      resolve({ code, stdout, stderr, timedOut })
+    })
   })
 }
 
 async function selectDirectoryDialog() {
   if (process.platform === 'win32') {
+    // Run the picker in an STA PowerShell process and show it with a top-most
+    // owner window. Launching this hidden can leave the native dialog behind the
+    // browser (or fully invisible), which makes the HTTP request look stuck.
     const script = `
+$ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+$form = New-Object System.Windows.Forms.Form
+$form.Text = 'QuickForge'
+$form.StartPosition = 'CenterScreen'
+$form.Size = New-Object System.Drawing.Size(1, 1)
+$form.ShowInTaskbar = $false
+$form.TopMost = $true
+$form.Opacity = 0.01
+
 $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
 $dialog.Description = 'Select QuickForge project folder'
 $dialog.ShowNewFolderButton = $true
-if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-  [Console]::Out.Write($dialog.SelectedPath)
+
+try {
+  [void]$form.Show()
+  [void]$form.Activate()
+  $result = $dialog.ShowDialog($form)
+  if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
+    [Console]::Out.Write($dialog.SelectedPath)
+  }
+  exit 0
+} finally {
+  if ($dialog) { $dialog.Dispose() }
+  if ($form) { $form.Dispose() }
 }
 `
-    const result = await spawnCollect('powershell.exe', ['-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-Command', script])
+    // Try powershell.exe first; fall back to pwsh.exe (PowerShell Core). Do not
+    // use windowsHide here: on Windows it can also suppress GUI child windows.
+    let result = await spawnCollect(
+      'powershell.exe',
+      ['-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-Command', script],
+      { windowsHide: false, timeoutMs: 10 * 60 * 1000 },
+    ).catch(() => null)
+    if (!result) {
+      result = await spawnCollect(
+        'pwsh.exe',
+        ['-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-Command', script],
+        { windowsHide: false, timeoutMs: 10 * 60 * 1000 },
+      ).catch(() => null)
+    }
+    if (!result) {
+      const error = new Error('PowerShell was not found. Please install PowerShell or enable Windows PowerShell.')
+      error.statusCode = 500
+      throw error
+    }
+    if (result.timedOut) {
+      const error = new Error('Folder picker timed out. It may have been blocked by Windows or opened on another desktop.')
+      error.statusCode = 504
+      throw error
+    }
     if (result.code === 0) return result.stdout.trim()
     const error = new Error(result.stderr.trim() || 'Failed to open folder picker')
     error.statusCode = 500
@@ -752,6 +878,22 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
   throw error
 }
 
+async function handleFilesystemApi(req, res, url) {
+  if (req.method === 'GET' && url.pathname === '/api/filesystem/roots') {
+    sendJson(res, 200, { roots: await getFilesystemRoots() })
+    return
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/filesystem/directories') {
+    sendJson(res, 200, await listFilesystemDirectories(url.searchParams.get('path')))
+    return
+  }
+
+  const error = new Error('Not found')
+  error.statusCode = 404
+  throw error
+}
+
 async function handleProjectApi(req, res, url) {
   const config = await readProjectConfig()
 
@@ -761,13 +903,22 @@ async function handleProjectApi(req, res, url) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/project/select-directory') {
+    console.log('[project] Opening directory picker dialog...')
     const selectedPath = await selectDirectoryDialog()
+    console.log('[project] Directory picker result:', selectedPath ? `"${selectedPath}"` : '(cancelled/empty)')
     if (!selectedPath) {
       sendJson(res, 200, { cancelled: true, project: getActiveProject(config), projects: config.projects })
       return
     }
     const result = await setActiveProjectPath(selectedPath)
     sendJson(res, 200, { cancelled: false, ...result, workspaceRoot: getWorkspaceRoot() })
+    return
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/project/path') {
+    const body = await readJsonBody(req)
+    const result = await setActiveProjectPath(body?.path)
+    sendJson(res, 200, { ...result, workspaceRoot: getWorkspaceRoot() })
     return
   }
 
@@ -865,6 +1016,11 @@ async function handleApi(req, res, url) {
 
   if (url.pathname === '/api/project' || url.pathname.startsWith('/api/project/')) {
     await handleProjectApi(req, res, url)
+    return
+  }
+
+  if (url.pathname === '/api/filesystem' || url.pathname.startsWith('/api/filesystem/')) {
+    await handleFilesystemApi(req, res, url)
     return
   }
 

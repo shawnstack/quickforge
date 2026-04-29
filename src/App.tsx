@@ -21,6 +21,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ProjectDirectoryPicker } from '@/components/project-directory-picker'
 import { cn } from '@/lib/utils'
 import {
   buildConnectionModel,
@@ -491,6 +492,7 @@ function App() {
   const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => new Set())
   const [selectingProject, setSelectingProject] = useState(false)
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false)
 
   const loadProject = useCallback(async () => {
     try {
@@ -531,14 +533,22 @@ function App() {
     return payload.project as ProjectInfo
   }, [])
 
-  const selectProjectDirectory = useCallback(async () => {
+  const selectProjectDirectory = useCallback(() => {
+    setProjectPickerOpen(true)
+  }, [])
+
+  const handleSelectProjectPath = useCallback(async (projectPath: string) => {
     if (selectingProject) return
     setSelectingProject(true)
     try {
-      const response = await fetch('/api/project/select-directory', { method: 'POST' })
+      const response = await fetch('/api/project/path', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path: projectPath }),
+      })
       const payload = await response.json().catch(() => null)
       if (!response.ok) throw new Error(payload?.error || `Project selection failed with HTTP ${response.status}`)
-      if (!payload?.cancelled && payload?.project) {
+      if (payload?.project) {
         activeProjectRef.current = payload.project
         setActiveProject(payload.project)
         setProjects(Array.isArray(payload.projects) ? payload.projects : [])
@@ -551,7 +561,7 @@ function App() {
       }
     } catch (error) {
       console.error('Failed to select project:', error)
-      alert(error instanceof Error ? error.message : t('failedToSelectProjectDirectory'))
+      throw error
     } finally {
       setSelectingProject(false)
     }
@@ -1147,6 +1157,13 @@ function App() {
     const currentAgent = agentRef.current
     if (!storage || !currentAgent) return
 
+    // Capture current input text before opening the model selector,
+    // so it can be restored after the ChatPanel is rebuilt on model switch.
+    const textarea = document.querySelector<HTMLTextAreaElement>(
+      'agent-interface message-editor textarea',
+    )
+    const currentInput = textarea?.value ?? ''
+
     const customProviders = await storage.customProviders.getAll()
 
     for (const provider of customProviders) {
@@ -1166,6 +1183,15 @@ function App() {
       const nextModel = model as Model<Api>
       currentAgent.state.model = nextModel
       activeModelRef.current = nextModel
+
+      // Restore the captured input after the ChatPanel rebuild
+      if (currentInput) {
+        setRestoredDraft({
+          id: Date.now(),
+          text: currentInput,
+        })
+      }
+
       setChatPanelRevision((value) => value + 1)
       void saveActiveModel(storage, nextModel).catch((error) => {
         console.error('Failed to save active model:', error)
@@ -1198,6 +1224,7 @@ function App() {
   }
 
   return (
+    <>
     <div className="flex h-screen min-h-0 bg-background text-foreground">
       <aside
         className={cn(
@@ -1414,6 +1441,14 @@ function App() {
         </div>
       </main>
     </div>
+    <ProjectDirectoryPicker
+      open={projectPickerOpen}
+      initialPath={activeProject?.path}
+      disabled={selectingProject}
+      onOpenChange={setProjectPickerOpen}
+      onSelect={handleSelectProjectPath}
+    />
+    </>
   )
 }
 

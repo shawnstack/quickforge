@@ -262,6 +262,7 @@ function ChatPanelHost({
   onToggleYoloMode,
   onRollbackFromMessage,
   onCopyAnswer,
+  onForkFromMessage,
   restoredDraft,
 }: {
   agent: Agent | null
@@ -273,6 +274,7 @@ function ChatPanelHost({
   onToggleYoloMode: () => void
   onRollbackFromMessage: (messageIndex: number) => void
   onCopyAnswer: (text: string) => void
+  onForkFromMessage: (messageIndex: number) => void
   restoredDraft?: RestoredDraft
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -287,6 +289,7 @@ function ChatPanelHost({
 
     const copyIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>'
     const rollbackIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>'
+    const forkIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/><path d="M12 12v3"/></svg>'
 
     const createIconActionButton = (action: string, title: string, icon: string, onClick: () => void) => {
       const button = document.createElement('button')
@@ -324,7 +327,7 @@ function ChatPanelHost({
         const existingActions = element.querySelector<HTMLElement>('.quickforge-message-actions')
         if (existingActions?.dataset.quickforgeLayout === 'message-bottom') {
           existingActions.className = actionsClass
-          existingActions.querySelectorAll<HTMLButtonElement>('button[data-quickforge-action="rollback"]').forEach((button) => {
+          existingActions.querySelectorAll<HTMLButtonElement>('button[data-quickforge-action="rollback"], button[data-quickforge-action="fork"]').forEach((button) => {
             button.disabled = agent.state.isStreaming
           })
           return
@@ -345,6 +348,12 @@ function ChatPanelHost({
             if (currentText) onCopyAnswer(currentText)
           })
           actions.append(copyButton)
+
+          const forkButton = createIconActionButton('fork', t('forkConversation'), forkIcon, () => {
+            onForkFromMessage(entry.index)
+          })
+          forkButton.disabled = agent.state.isStreaming
+          actions.append(forkButton)
         } else {
           const rollbackButton = createIconActionButton('rollback', t('rollback'), rollbackIcon, () => {
             onRollbackFromMessage(entry.index)
@@ -446,7 +455,7 @@ function ChatPanelHost({
       observer?.disconnect()
       panel.remove()
     }
-  }, [agent, onCopyAnswer, onModelSelect, onRollbackFromMessage, onToggleYoloMode, projectId, restoredDraft, revision, workspaceToolsEnabled, yoloMode])
+  }, [agent, onCopyAnswer, onForkFromMessage, onModelSelect, onRollbackFromMessage, onToggleYoloMode, projectId, restoredDraft, revision, workspaceToolsEnabled, yoloMode])
 
   return <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden" />
 }
@@ -1038,6 +1047,53 @@ function App() {
     }
   }, [])
 
+  const forkFromMessage = useCallback(async (messageIndex: number) => {
+    const currentAgent = agentRef.current
+    if (!currentAgent) return
+
+    if (currentAgent.state.isStreaming) {
+      alert(t('generationStillRunning'))
+      return
+    }
+
+    const messages = currentAgent.state.messages.slice(0, messageIndex + 1)
+    if (!hasUserMessage(messages)) return
+
+    const scope = currentChatScopeRef.current
+    const project = activeProjectRef.current
+    const newSessionId = crypto.randomUUID()
+    const title = generateTitle(messages)
+
+    const storage = storageRef.current
+
+    await createAgent(
+      {
+        systemPrompt: SYSTEM_PROMPT,
+        model: currentAgent.state.model ?? activeModelRef.current,
+        thinkingLevel: currentAgent.state.thinkingLevel,
+        messages,
+        tools: getLocalWorkspaceTools(yoloModeRef.current, project?.id),
+      },
+      newSessionId,
+      {
+        scope,
+        project,
+        attachToView: true,
+        title,
+      },
+    )
+
+    if (storage) {
+      persistQueueRef.current = persistQueueRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          const task = taskMapRef.current.get(newSessionId)
+          if (task) await persistTaskSession(task)
+        })
+        .catch((error) => console.error('Failed to persist forked session:', error))
+    }
+  }, [createAgent, persistTaskSession])
+
   const openCustomModelSelector = useCallback(async () => {
     const storage = storageRef.current
     const currentAgent = agentRef.current
@@ -1294,6 +1350,7 @@ function App() {
               onToggleYoloMode={toggleYoloMode}
               onRollbackFromMessage={rollbackFromMessage}
               onCopyAnswer={copyAnswer}
+              onForkFromMessage={forkFromMessage}
               restoredDraft={restoredDraft}
             />
           </section>

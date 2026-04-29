@@ -37,6 +37,7 @@ import { getDateLocale, t } from '@/lib/i18n'
 import { createLanguageSettingsTab } from '@/lib/language-settings-tab'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
+import { restoreReasoningContentInPayload } from '@/lib/reasoning-content-cache'
 
 // Main chat behavior prompt.
 const SYSTEM_PROMPT =
@@ -657,6 +658,7 @@ function App() {
       const project = options?.project ?? activeProjectRef.current
       const startedAt = new Date().toISOString()
 
+      const agentForPayload: { current?: Agent } = {}
       const nextAgent = new Agent({
         initialState: {
           systemPrompt: SYSTEM_PROMPT,
@@ -669,6 +671,7 @@ function App() {
         convertToLlm: defaultConvertToLlm,
         sessionId,
         maxRetryDelayMs: 60000,
+        onPayload: (payload) => restoreReasoningContentInPayload(payload, agentForPayload.current?.state.messages ?? []),
         beforeToolCall: async (context) => {
           if (!project?.id) {
             return {
@@ -685,6 +688,7 @@ function App() {
           return undefined
         },
       })
+      agentForPayload.current = nextAgent
 
       const task: BackgroundTask = {
         sessionId,

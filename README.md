@@ -1,6 +1,6 @@
-# Fastcode AI Chat
+# 速构 QuickForge AI Chat
 
-React + Vite + Tailwind CSS chat app using shadcn-style UI primitives and pi-mono's web chat components.
+速构 QuickForge is a React + Vite + Tailwind CSS chat app using shadcn-style UI primitives and pi-mono's web chat components.
 
 ## Features
 
@@ -26,7 +26,7 @@ npm run dev
 On Windows, you can also double-click:
 
 ```text
-dev-fastcode.bat
+dev-quickforge.bat
 ```
 
 ## Local app mode
@@ -34,7 +34,7 @@ dev-fastcode.bat
 On Windows, double-click:
 
 ```text
-start-fastcode.bat
+start-quickforge.bat
 ```
 
 Or run manually:
@@ -50,17 +50,18 @@ npm start
 http://localhost:5176
 ```
 
-Local data is stored outside the repository:
+Local data is stored outside the repository in the user's home directory:
 
-- Windows: `%APPDATA%\\FastCode\\storage`
-- macOS: `~/Library/Application Support/FastCode/storage`
-- Linux: `~/.config/FastCode/storage`
+- Windows: `%USERPROFILE%\\.quickforge\\storage`
+- macOS/Linux: `~/.quickforge/storage`
 
 You can override the data directory with:
 
 ```bash
-FASTCODE_DATA_DIR=/path/to/data npm start
+QUICKFORGE_DATA_DIR=/path/to/data npm start
 ```
+
+Legacy `FASTCODE_DATA_DIR` is still accepted for existing setups. On startup, QuickForge automatically migrates existing data from the old platform-specific `QuickForge` or `FastCode` data folders into `~/.quickforge` without overwriting newer files.
 
 Storage files:
 
@@ -86,8 +87,10 @@ The bottom bar has a YOLO mode switch. When YOLO is off, the agent has no local 
 Tools are restricted to the workspace root, which defaults to the project directory. Override it with:
 
 ```bash
-FASTCODE_WORKSPACE_DIR=/path/to/workspace npm start
+QUICKFORGE_WORKSPACE_DIR=/path/to/workspace npm start
 ```
+
+Legacy `FASTCODE_WORKSPACE_DIR` is still accepted.
 
 YOLO mode runs without per-tool confirmations, so only enable it for trusted models and trusted workspaces.
 

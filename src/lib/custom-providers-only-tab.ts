@@ -344,7 +344,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
   }
 }
 
-const tagName = 'fastcode-custom-providers-only-tab'
+const tagName = 'quickforge-custom-providers-only-tab'
 
 if (!customElements.get(tagName)) {
   customElements.define(tagName, CustomProvidersOnlyTab)

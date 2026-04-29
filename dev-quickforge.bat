@@ -1,9 +1,9 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title FastCode
+title QuickForge Dev
 
-echo Starting FastCode local app...
+echo Starting QuickForge development mode...
 echo Project: %CD%
 echo.
 
@@ -28,27 +28,20 @@ if not exist "node_modules" (
   if errorlevel 1 goto error
 )
 
-if not exist "dist\index.html" (
-  echo Building web app...
-  call npm run build
-  if errorlevel 1 goto error
-)
-
 echo.
-echo FastCode will open at http://localhost:5176
-echo Local data is stored in %%APPDATA%%\FastCode\storage by default.
-echo Keep this window open while using FastCode.
+echo QuickForge dev server will open at http://localhost:5176
+echo Keep this window open while developing.
 echo.
-call npm start
+call npm run dev
 if errorlevel 1 goto error
 
 echo.
-echo FastCode stopped.
+echo QuickForge dev server stopped.
 pause
 exit /b 0
 
 :error
 echo.
-echo [ERROR] FastCode failed to start.
+echo [ERROR] QuickForge development mode failed to start.
 pause
 exit /b 1

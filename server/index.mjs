@@ -10,13 +10,13 @@ import { randomUUID } from 'node:crypto'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const projectRoot = path.resolve(__dirname, '..')
-const defaultWorkspaceRoot = path.resolve(process.env.FASTCODE_WORKSPACE_DIR || projectRoot)
+const defaultWorkspaceRoot = path.resolve(process.env.QUICKFORGE_WORKSPACE_DIR || process.env.FASTCODE_WORKSPACE_DIR || projectRoot)
 let activeWorkspaceRoot = defaultWorkspaceRoot
 const isDev = process.argv.includes('--dev')
-const host = process.env.FASTCODE_HOST || '127.0.0.1'
-const port = Number(process.env.FASTCODE_PORT || (isDev ? 32176 : 5176))
-const vitePort = Number(process.env.FASTCODE_VITE_PORT || 5176)
-const maxBodyBytes = Number(process.env.FASTCODE_MAX_BODY_BYTES || 50 * 1024 * 1024)
+const host = process.env.QUICKFORGE_HOST || process.env.FASTCODE_HOST || '127.0.0.1'
+const port = Number(process.env.QUICKFORGE_PORT || process.env.FASTCODE_PORT || (isDev ? 32176 : 5176))
+const vitePort = Number(process.env.QUICKFORGE_VITE_PORT || process.env.FASTCODE_VITE_PORT || 5176)
+const maxBodyBytes = Number(process.env.QUICKFORGE_MAX_BODY_BYTES || process.env.FASTCODE_MAX_BODY_BYTES || 50 * 1024 * 1024)
 
 const stores = new Set([
   'settings',
@@ -26,18 +26,25 @@ const stores = new Set([
   'sessions-metadata',
 ])
 
-function getDataDir() {
-  if (process.env.FASTCODE_DATA_DIR) return path.resolve(process.env.FASTCODE_DATA_DIR)
+const defaultDataDir = path.join(os.homedir(), '.quickforge')
 
+function platformDataDir(appName) {
   if (process.platform === 'win32') {
-    return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'FastCode')
+    return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), appName)
   }
 
   if (process.platform === 'darwin') {
-    return path.join(os.homedir(), 'Library', 'Application Support', 'FastCode')
+    return path.join(os.homedir(), 'Library', 'Application Support', appName)
   }
 
-  return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'FastCode')
+  return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), appName)
+}
+
+function getDataDir() {
+  if (process.env.QUICKFORGE_DATA_DIR) return path.resolve(process.env.QUICKFORGE_DATA_DIR)
+  if (process.env.FASTCODE_DATA_DIR) return path.resolve(process.env.FASTCODE_DATA_DIR)
+
+  return defaultDataDir
 }
 
 const dataDir = getDataDir()
@@ -52,6 +59,128 @@ function projectConfigFile() {
 }
 
 const writeQueues = new Map()
+
+async function exists(file) {
+  try {
+    await fs.access(file)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function uniquePaths(paths) {
+  const seen = new Set()
+  return paths.filter((item) => {
+    const resolved = path.resolve(item)
+    const key = process.platform === 'win32' ? resolved.toLowerCase() : resolved
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+async function readJsonObject(file) {
+  try {
+    const text = await fs.readFile(file, 'utf8')
+    const parsed = text.trim() ? JSON.parse(text) : {}
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+async function mergeJsonObjectFile(sourceFile, targetFile) {
+  const source = await readJsonObject(sourceFile)
+  if (!source) return false
+
+  const target = (await readJsonObject(targetFile)) ?? {}
+  let changed = false
+  for (const [key, value] of Object.entries(source)) {
+    if (Object.hasOwn(target, key)) continue
+    target[key] = value
+    changed = true
+  }
+
+  if (!changed) return false
+
+  await fs.mkdir(path.dirname(targetFile), { recursive: true })
+  const tmp = `${targetFile}.${process.pid}.${Date.now()}.tmp`
+  await fs.writeFile(tmp, `${JSON.stringify(target, null, 2)}\n`, 'utf8')
+  await fs.rename(tmp, targetFile)
+  return true
+}
+
+async function copyMissingRecursive(source, target) {
+  const stat = await fs.stat(source).catch(() => null)
+  if (!stat) return false
+
+  if (stat.isDirectory()) {
+    await fs.mkdir(target, { recursive: true })
+    let copied = false
+    const entries = await fs.readdir(source, { withFileTypes: true })
+    for (const entry of entries) {
+      copied = (await copyMissingRecursive(path.join(source, entry.name), path.join(target, entry.name))) || copied
+    }
+    return copied
+  }
+
+  if (!stat.isFile() || (await exists(target))) return false
+
+  await fs.mkdir(path.dirname(target), { recursive: true })
+  await fs.copyFile(source, target)
+  return true
+}
+
+async function migrateLegacyDataDir(sourceDir) {
+  const resolvedSource = path.resolve(sourceDir)
+  const resolvedTarget = path.resolve(dataDir)
+  const sourceKey = process.platform === 'win32' ? resolvedSource.toLowerCase() : resolvedSource
+  const targetKey = process.platform === 'win32' ? resolvedTarget.toLowerCase() : resolvedTarget
+  if (sourceKey === targetKey) return false
+
+  const sourceStorageDir = path.join(resolvedSource, 'storage')
+  if (!(await exists(sourceStorageDir))) return false
+
+  await fs.mkdir(storageDir, { recursive: true })
+
+  let migrated = false
+  for (const store of stores) {
+    const sourceFile = path.join(sourceStorageDir, `${store}.json`)
+    const targetFile = storeFile(store)
+    if (!(await exists(sourceFile))) continue
+    if (await exists(targetFile)) {
+      migrated = (await mergeJsonObjectFile(sourceFile, targetFile)) || migrated
+    } else {
+      await fs.copyFile(sourceFile, targetFile)
+      migrated = true
+    }
+  }
+
+  const sourceProjectFile = path.join(sourceStorageDir, 'project.json')
+  if ((await exists(sourceProjectFile)) && !(await exists(projectConfigFile()))) {
+    await fs.copyFile(sourceProjectFile, projectConfigFile())
+    migrated = true
+  }
+
+  migrated = (await copyMissingRecursive(sourceStorageDir, storageDir)) || migrated
+  if (migrated) console.log(`Migrated legacy QuickForge data from ${resolvedSource} to ${resolvedTarget}`)
+  return migrated
+}
+
+async function migrateLegacyDataDirs() {
+  if (process.env.QUICKFORGE_DATA_DIR || process.env.FASTCODE_DATA_DIR) return
+
+  const legacyDirs = uniquePaths([
+    platformDataDir('QuickForge'),
+    platformDataDir('FastCode'),
+    path.join(os.homedir(), '.fastcode'),
+  ])
+
+  for (const dir of legacyDirs) {
+    await migrateLegacyDataDir(dir)
+  }
+}
 
 async function ensureStorage() {
   await fs.mkdir(storageDir, { recursive: true })
@@ -584,7 +713,7 @@ async function selectDirectoryDialog() {
     const script = `
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-$dialog.Description = 'Select FastCode project folder'
+$dialog.Description = 'Select QuickForge project folder'
 $dialog.ShowNewFolderButton = $true
 if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
   [Console]::Out.Write($dialog.SelectedPath)
@@ -598,7 +727,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
   }
 
   if (process.platform === 'darwin') {
-    const result = await spawnCollect('osascript', ['-e', 'POSIX path of (choose folder with prompt "Select FastCode project folder")'])
+    const result = await spawnCollect('osascript', ['-e', 'POSIX path of (choose folder with prompt "Select QuickForge project folder")'])
     if (result.code === 0) return result.stdout.trim()
     if (/User canceled/i.test(result.stderr)) return ''
     const error = new Error(result.stderr.trim() || 'Failed to open folder picker')
@@ -606,13 +735,13 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     throw error
   }
 
-  const zenity = await spawnCollect('zenity', ['--file-selection', '--directory', '--title=Select FastCode project folder']).catch(() => null)
+  const zenity = await spawnCollect('zenity', ['--file-selection', '--directory', '--title=Select QuickForge project folder']).catch(() => null)
   if (zenity) {
     if (zenity.code === 0) return zenity.stdout.trim()
     if (zenity.code === 1) return ''
   }
 
-  const kdialog = await spawnCollect('kdialog', ['--getexistingdirectory', os.homedir(), 'Select FastCode project folder']).catch(() => null)
+  const kdialog = await spawnCollect('kdialog', ['--getexistingdirectory', os.homedir(), 'Select QuickForge project folder']).catch(() => null)
   if (kdialog) {
     if (kdialog.code === 0) return kdialog.stdout.trim()
     if (kdialog.code === 1) return ''
@@ -887,7 +1016,7 @@ async function serveStatic(req, res, url) {
 }
 
 function openBrowser(url) {
-  if (process.env.FASTCODE_NO_OPEN === '1') return
+  if (process.env.QUICKFORGE_NO_OPEN === '1' || process.env.FASTCODE_NO_OPEN === '1') return
 
   const command = process.platform === 'win32' ? 'cmd' : process.platform === 'darwin' ? 'open' : 'xdg-open'
   const args = process.platform === 'win32' ? ['/c', 'start', '""', url] : [url]
@@ -902,7 +1031,7 @@ function startVite() {
     cwd: projectRoot,
     stdio: 'inherit',
     shell: isWindows,
-    env: { ...process.env, FASTCODE_SERVER_PORT: String(port) },
+    env: { ...process.env, QUICKFORGE_SERVER_PORT: String(port) },
   })
   child.on('exit', (code) => {
     if (code && code !== 0) process.exitCode = code
@@ -928,7 +1057,7 @@ const server = createServer(async (req, res) => {
 
     if (isDev) {
       res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
-      res.end('FastCode local API server is running. Open the Vite app at http://127.0.0.1:5176')
+      res.end('QuickForge local API server is running. Open the Vite app at http://127.0.0.1:5176')
       return
     }
 
@@ -939,13 +1068,14 @@ const server = createServer(async (req, res) => {
   }
 })
 
+await migrateLegacyDataDirs()
 await ensureStorage()
 await initializeActiveProject()
 
 server.listen(port, host, () => {
-  console.log(`FastCode local API: http://${host}:${port}`)
-  console.log(`FastCode data dir: ${dataDir}`)
-  console.log(`FastCode project: ${getWorkspaceRoot()}`)
+  console.log(`QuickForge local API: http://${host}:${port}`)
+  console.log(`QuickForge data dir: ${dataDir}`)
+  console.log(`QuickForge project: ${getWorkspaceRoot()}`)
 
   if (isDev) {
     startVite()

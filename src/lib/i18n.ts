@@ -270,7 +270,7 @@ const appTranslations = {
   en: {
     language: 'Language',
     displayLanguage: 'Display language',
-    languageDescription: 'Choose the display language for FastCode. The page will reload to apply the change.',
+    languageDescription: 'Choose the display language for 速构 QuickForge. The page will reload to apply the change.',
     simplifiedChinese: 'Simplified Chinese',
     english: 'English',
     apply: 'Apply',
@@ -361,7 +361,7 @@ const appTranslations = {
   zh: {
     language: '语言',
     displayLanguage: '界面语言',
-    languageDescription: '选择 FastCode 的界面显示语言。切换后页面会刷新以应用到所有组件。',
+    languageDescription: '选择速构 QuickForge 的界面显示语言。切换后页面会刷新以应用到所有组件。',
     simplifiedChinese: '简体中文',
     english: 'English',
     apply: '应用',

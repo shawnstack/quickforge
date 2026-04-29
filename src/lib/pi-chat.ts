@@ -15,6 +15,8 @@ import { HttpStorageBackend } from '@/lib/http-storage-backend'
 const ACTIVE_MODEL_SETTING_KEY = 'active-model'
 const YOLO_MODE_SETTING_KEY = 'yolo-mode'
 const INDEXEDDB_MIGRATION_SETTING_KEY = 'indexeddb-migrated-to-local-files-v1'
+const INDEXEDDB_DB_NAME = 'quickforge-ai-chat'
+const LEGACY_INDEXEDDB_DB_NAME = 'fastcode-ai-chat'
 
 export type ConnectionForm = {
   id?: string
@@ -99,9 +101,9 @@ function attachBackend(stores: StoreBundle, backend: StorageBackend) {
   stores.customProviders.setBackend(backend)
 }
 
-function createIndexedDbBackend(stores: StoreBundle) {
+function createIndexedDbBackend(stores: StoreBundle, dbName = INDEXEDDB_DB_NAME) {
   return new IndexedDBStorageBackend({
-    dbName: 'fastcode-ai-chat',
+    dbName,
     version: 1,
     stores: getStoreConfigs(stores),
   })
@@ -116,17 +118,30 @@ async function copyStoreIfMissing(source: StorageBackend, target: StorageBackend
   }
 }
 
+async function migrateIndexedDbStores(target: StorageBackend, stores: StoreBundle, dbName: string) {
+  const indexedDbStores = createStores()
+  const indexedDbBackend = createIndexedDbBackend(indexedDbStores, dbName)
+
+  for (const store of getStoreConfigs(stores)) {
+    await copyStoreIfMissing(indexedDbBackend, target, store.name)
+  }
+}
+
+async function migrateLegacyIndexedDb(target: StorageBackend, stores: StoreBundle) {
+  try {
+    await migrateIndexedDbStores(target, stores, LEGACY_INDEXEDDB_DB_NAME)
+  } catch (error) {
+    console.warn('Failed to migrate legacy IndexedDB data:', error)
+  }
+}
+
 async function migrateIndexedDbToLocalFiles(target: StorageBackend, stores: StoreBundle) {
   const alreadyMigrated = await target.get<boolean>('settings', INDEXEDDB_MIGRATION_SETTING_KEY)
   if (alreadyMigrated) return
 
-  const indexedDbStores = createStores()
-  const indexedDbBackend = createIndexedDbBackend(indexedDbStores)
-
   try {
-    for (const store of getStoreConfigs(stores)) {
-      await copyStoreIfMissing(indexedDbBackend, target, store.name)
-    }
+    await migrateIndexedDbStores(target, stores, INDEXEDDB_DB_NAME)
+    await migrateLegacyIndexedDb(target, stores)
     await target.set('settings', INDEXEDDB_MIGRATION_SETTING_KEY, true)
   } catch (error) {
     console.warn('Failed to migrate IndexedDB data to local files:', error)
@@ -140,7 +155,9 @@ async function createStorageBackend(stores: StoreBundle): Promise<StorageBackend
     return backend
   }
 
-  return createIndexedDbBackend(stores)
+  const backend = createIndexedDbBackend(stores)
+  await migrateLegacyIndexedDb(backend, stores)
+  return backend
 }
 
 export async function initializePiStorage() {

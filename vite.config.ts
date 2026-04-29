@@ -9,7 +9,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: `http://127.0.0.1:${process.env.FASTCODE_SERVER_PORT || 32176}`,
+        target: `http://127.0.0.1:${process.env.QUICKFORGE_SERVER_PORT || process.env.FASTCODE_SERVER_PORT || 32176}`,
         changeOrigin: true,
       },
     },

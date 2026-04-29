@@ -212,7 +212,7 @@ type ChatScope = 'global' | 'project'
 
 type BackgroundTaskStatus = 'running' | 'idle' | 'error' | 'aborted'
 
-type FastCodeSessionMetadata = SessionMetadata & {
+type QuickForgeSessionMetadata = SessionMetadata & {
   scope?: ChatScope
   projectId?: string
   projectName?: string
@@ -222,7 +222,7 @@ type FastCodeSessionMetadata = SessionMetadata & {
   taskFinishedAt?: string
 }
 
-type FastCodeSessionData = SessionData & {
+type QuickForgeSessionData = SessionData & {
   scope?: ChatScope
   projectId?: string
   projectName?: string
@@ -245,7 +245,7 @@ type BackgroundTask = {
   unsubscribe: () => void
 }
 
-function sessionScope(session: FastCodeSessionMetadata | FastCodeSessionData | null | undefined): ChatScope {
+function sessionScope(session: QuickForgeSessionMetadata | QuickForgeSessionData | null | undefined): ChatScope {
   return session?.scope === 'project' ? 'project' : 'global'
 }
 
@@ -292,7 +292,7 @@ function ChatPanelHost({
     const createIconActionButton = (action: string, title: string, icon: string, onClick: () => void) => {
       const button = document.createElement('button')
       button.type = 'button'
-      button.dataset.fastcodeAction = action
+      button.dataset.quickforgeAction = action
       button.title = title
       button.setAttribute('aria-label', title)
       button.innerHTML = icon
@@ -321,11 +321,11 @@ function ChatPanelHost({
 
         element.classList.add('group', 'relative')
 
-        const actionsClass = `fastcode-message-actions pointer-events-none mt-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 ${entry.message.role === 'assistant' ? 'px-4 justify-start' : 'mx-4 justify-start'}`
-        const existingActions = element.querySelector<HTMLElement>('.fastcode-message-actions')
-        if (existingActions?.dataset.fastcodeLayout === 'message-bottom') {
+        const actionsClass = `quickforge-message-actions pointer-events-none mt-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 ${entry.message.role === 'assistant' ? 'px-4 justify-start' : 'mx-4 justify-start'}`
+        const existingActions = element.querySelector<HTMLElement>('.quickforge-message-actions')
+        if (existingActions?.dataset.quickforgeLayout === 'message-bottom') {
           existingActions.className = actionsClass
-          existingActions.querySelectorAll<HTMLButtonElement>('button[data-fastcode-action="rollback"]').forEach((button) => {
+          existingActions.querySelectorAll<HTMLButtonElement>('button[data-quickforge-action="rollback"]').forEach((button) => {
             button.disabled = agent.state.isStreaming
           })
           return
@@ -333,7 +333,7 @@ function ChatPanelHost({
         existingActions?.remove()
 
         const actions = document.createElement('div')
-        actions.dataset.fastcodeLayout = 'message-bottom'
+        actions.dataset.quickforgeLayout = 'message-bottom'
         actions.className = actionsClass
 
         if (entry.message.role === 'assistant') {
@@ -365,13 +365,13 @@ function ChatPanelHost({
       if (!rightControls) return
 
       if (!workspaceToolsEnabled) {
-        rightControls.querySelector<HTMLButtonElement>('.fastcode-yolo-inline')?.remove()
+        rightControls.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')?.remove()
         return
       }
 
       const yoloIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 8 4 4-4 4"/><path d="M13 16h4"/><rect width="18" height="14" x="3" y="5" rx="2"/></svg>'
       const yoloLabel = `${yoloIcon}<span>YOLO</span><span class="ml-0.5 size-1.5 rounded-full ${yoloMode ? 'bg-emerald-500' : 'bg-muted-foreground/45'}"></span>`
-      const yoloClass = `fastcode-yolo-inline inline-flex h-8 items-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium ${yoloMode ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'}`
+      const yoloClass = `quickforge-yolo-inline inline-flex h-8 items-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium ${yoloMode ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'}`
       const yoloTitle = yoloMode ? t('yoloEnabledTitle') : t('yoloDisabledTitle')
 
       const handleYoloToggle = (event: Event) => {
@@ -385,7 +385,7 @@ function ChatPanelHost({
         handleYoloToggle(event)
       }
 
-      const existingButton = rightControls.querySelector<HTMLButtonElement>('.fastcode-yolo-inline')
+      const existingButton = rightControls.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')
       if (existingButton) {
         existingButton.innerHTML = yoloLabel
         existingButton.title = yoloTitle
@@ -466,7 +466,7 @@ function App() {
   const currentCreatedAtRef = useRef<string | undefined>(undefined)
 
   const [agent, setAgent] = useState<Agent | null>(null)
-  const [sessions, setSessions] = useState<FastCodeSessionMetadata[]>([])
+  const [sessions, setSessions] = useState<QuickForgeSessionMetadata[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>()
   const [currentTitle, setCurrentTitle] = useState('New chat')
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -550,7 +550,7 @@ function App() {
   const refreshSessions = useCallback(async () => {
     const storage = storageRef.current
     if (!storage) return
-    setSessions((await storage.sessions.getAllMetadata()) as FastCodeSessionMetadata[])
+    setSessions((await storage.sessions.getAllMetadata()) as QuickForgeSessionMetadata[])
   }, [])
 
   const persistTaskSession = useCallback(
@@ -574,7 +574,7 @@ function App() {
         setCurrentTitle(title)
       }
 
-      const sessionData: FastCodeSessionData = {
+      const sessionData: QuickForgeSessionData = {
         id: task.sessionId,
         title,
         model: task.agent.state.model!,
@@ -591,7 +591,7 @@ function App() {
         taskFinishedAt: finishedAt,
       }
 
-      const metadata: FastCodeSessionMetadata = {
+      const metadata: QuickForgeSessionMetadata = {
         id: task.sessionId,
         title,
         createdAt,
@@ -784,10 +784,10 @@ function App() {
       const storage = storageRef.current
       if (!storage) return
 
-      const session = (await storage.sessions.get(sessionId)) as FastCodeSessionData | null
+      const session = (await storage.sessions.get(sessionId)) as QuickForgeSessionData | null
       if (!session) return
 
-      const metadata = sessions.find((item) => item.id === sessionId) ?? ((await storage.sessions.getMetadata(sessionId)) as FastCodeSessionMetadata | null)
+      const metadata = sessions.find((item) => item.id === sessionId) ?? ((await storage.sessions.getMetadata(sessionId)) as QuickForgeSessionMetadata | null)
       const scope = sessionScope(metadata ?? session)
       let project = activeProjectRef.current
       if (metadata?.projectId || session.projectId) {
@@ -871,11 +871,11 @@ function App() {
       if (sessionId) {
         const existing = await storage.sessions.get(sessionId)
         if (existing) {
-          const metadata = (await storage.sessions.getMetadata(existing.id)) as FastCodeSessionMetadata | null
-          const scope = sessionScope(metadata ?? (existing as FastCodeSessionData))
+          const metadata = (await storage.sessions.getMetadata(existing.id)) as QuickForgeSessionMetadata | null
+          const scope = sessionScope(metadata ?? (existing as QuickForgeSessionData))
           let project = activeProjectRef.current
-          if (metadata?.projectId || (existing as FastCodeSessionData).projectId) {
-            const projectId = (metadata?.projectId ?? (existing as FastCodeSessionData).projectId)!
+          if (metadata?.projectId || (existing as QuickForgeSessionData).projectId) {
+            const projectId = (metadata?.projectId ?? (existing as QuickForgeSessionData).projectId)!
             if (activeProjectRef.current?.id !== projectId) {
               try {
                 project = await switchActiveProject(projectId)
@@ -1074,7 +1074,7 @@ function App() {
   const sessionsForProject = (projectId: string) => {
     return sessions.filter((session) => sessionScope(session) === 'project' && session.projectId === projectId)
   }
-  const sessionTaskStatus = (session: FastCodeSessionMetadata) => {
+  const sessionTaskStatus = (session: QuickForgeSessionMetadata) => {
     return taskStatuses[session.id] ?? session.taskStatus ?? 'idle'
   }
   const toggleProjectExpanded = (projectId: string) => {

@@ -54,7 +54,7 @@ class LanguageSettingsTab extends SettingsTab {
   }
 }
 
-const tagName = 'fastcode-language-settings-tab'
+const tagName = 'quickforge-language-settings-tab'
 
 if (!customElements.get(tagName)) {
   customElements.define(tagName, LanguageSettingsTab)

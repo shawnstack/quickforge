@@ -223,7 +223,6 @@ function ChatPanelHost({
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const restoredDraftIdRef = useRef<number | undefined>(undefined)
-  const expandedToolCallsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     if (!hostRef.current || !agent) return
@@ -304,56 +303,6 @@ function ChatPanelHost({
       })
     }
 
-    const decorateToolMessages = () => {
-      panel.querySelectorAll<HTMLElement>('tool-message').forEach((element, fallbackIndex) => {
-        const toolCall = (element as HTMLElement & { toolCall?: { id?: string; name?: string } }).toolCall
-        const result = (element as HTMLElement & { result?: { isError?: boolean } }).result
-        const pending = Boolean((element as HTMLElement & { pending?: boolean }).pending)
-        const aborted = Boolean((element as HTMLElement & { aborted?: boolean }).aborted)
-        const toolId = toolCall?.id ?? `tool-${fallbackIndex}`
-        const toolName = toolCall?.name ?? 'tool'
-        const expanded = expandedToolCallsRef.current.has(toolId)
-
-        let header = element.querySelector<HTMLButtonElement>(':scope > .fastcode-tool-header')
-        if (!header) {
-          header = document.createElement('button')
-          header.type = 'button'
-          header.className = 'fastcode-tool-header mb-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground'
-          header.onclick = (event) => {
-            event.preventDefault()
-            event.stopPropagation()
-            if (expandedToolCallsRef.current.has(toolId)) {
-              expandedToolCallsRef.current.delete(toolId)
-            } else {
-              expandedToolCallsRef.current.add(toolId)
-            }
-            decorateToolMessages()
-          }
-          element.prepend(header)
-        }
-
-        const status = aborted || result?.isError ? 'Error' : pending ? 'Running' : result ? 'Done' : 'Called'
-        const statusClass = aborted || result?.isError
-          ? 'text-destructive'
-          : pending
-            ? 'text-primary'
-            : 'text-muted-foreground'
-        header.setAttribute('aria-expanded', String(expanded))
-        header.title = expanded ? 'Collapse tool call' : 'Expand tool call'
-        header.innerHTML = `
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}"><path d="m9 18 6-6-6-6"/></svg>
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="shrink-0"><path d="m7 8 4 4-4 4"/><path d="M13 16h4"/><rect width="18" height="14" x="3" y="5" rx="2"/></svg>
-          <span class="min-w-0 flex-1 truncate">${toolName}</span>
-          <span class="shrink-0 ${statusClass}">${status}</span>
-        `
-
-        Array.from(element.children).forEach((child) => {
-          if (!(child instanceof HTMLElement) || child === header) return
-          child.hidden = !expanded
-        })
-      })
-    }
-
     const decorateEditor = () => {
       const editor = panel.querySelector('message-editor')
       const editorRows = editor?.querySelectorAll<HTMLElement>('.flex.gap-2.items-center')
@@ -411,7 +360,6 @@ function ChatPanelHost({
     const decorate = () => {
       if (disposed) return
       decorateMessages()
-      decorateToolMessages()
       decorateEditor()
     }
 

@@ -11,8 +11,7 @@ import {
 } from '@mariozechner/pi-web-ui'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import {
-  ChevronDown,
-  ChevronRight,
+  Folder,
   FolderOpen,
   MessageSquarePlus,
   PanelLeftClose,
@@ -1106,21 +1105,16 @@ function App() {
           <div className="mb-5">
             <div className="mb-2 flex items-center justify-between gap-2 px-1">
               <div className="text-sm font-medium text-muted-foreground">{t('projects')}</div>
-              <div className="flex items-center gap-1">
-                <Button variant="ghost" size="icon" className="size-7" aria-label={t('filter')}>
-                  <PanelLeftClose className="size-3.5 rotate-90" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7"
-                  onClick={selectProjectDirectory}
-                  disabled={selectingProject}
-                  aria-label={t('addProject')}
-                >
-                  <Plus className="size-4" />
-                </Button>
-              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                onClick={selectProjectDirectory}
+                disabled={selectingProject}
+                aria-label={t('addProject')}
+              >
+                <Plus className="size-4" />
+              </Button>
             </div>
 
             <div className="space-y-1">
@@ -1140,22 +1134,24 @@ function App() {
                           active ? 'bg-secondary' : 'hover:bg-secondary/70',
                         )}
                       >
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-6 shrink-0"
+                        <button
+                          type="button"
+                          className="inline-flex size-6 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground"
                           onClick={() => toggleProjectExpanded(item.id)}
                           aria-label={expanded ? t('collapseProject') : t('expandProject')}
                         >
-                          {expanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-                        </Button>
+                          {expanded ? (
+                            <FolderOpen className="size-4 text-amber-500" />
+                          ) : (
+                            <Folder className="size-4 text-muted-foreground" />
+                          )}
+                        </button>
                         <button
-                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                          className="flex min-w-0 flex-1 items-center text-left"
                           type="button"
                           title={item.path}
                           onClick={() => startNewProjectChat(item)}
                         >
-                          <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
                           <span className="truncate text-sm font-medium">{item.name}</span>
                         </button>
                         <Button
@@ -1213,14 +1209,9 @@ function App() {
           <div>
             <div className="mb-2 flex items-center justify-between gap-2 px-1">
               <div className="text-sm font-medium text-muted-foreground">{t('conversations')}</div>
-              <div className="flex items-center gap-1">
-                <Button variant="ghost" size="icon" className="size-7" aria-label={t('filter')}>
-                  <PanelLeftClose className="size-3.5 rotate-90" />
-                </Button>
-                <Button variant="ghost" size="icon" className="size-7" onClick={startNewGlobalChat} aria-label={t('newChat')}>
-                  <MessageSquarePlus className="size-4" />
-                </Button>
-              </div>
+              <Button variant="ghost" size="icon" className="size-7" onClick={startNewGlobalChat} aria-label={t('newChat')}>
+                <MessageSquarePlus className="size-4" />
+              </Button>
             </div>
 
             {globalSessions.length === 0 ? (

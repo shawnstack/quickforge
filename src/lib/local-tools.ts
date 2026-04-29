@@ -28,9 +28,19 @@ function createLocalTool<T extends AgentTool>(tool: T): T {
 
 export const localWorkspaceTools: AgentTool[] = [
   createLocalTool({
+    name: 'get_project_info',
+    label: 'Project Info',
+    description: 'Get the currently selected local project directory used by workspace tools.',
+    parameters: Type.Object({}),
+    execute: async (_toolCallId, params, signal) => {
+      const result = await callLocalTool('get_project_info', params, signal)
+      return { content: [{ type: 'text', text: result.content }], details: result.details }
+    },
+  }),
+  createLocalTool({
     name: 'list_dir',
     label: 'List Directory',
-    description: 'List files and folders inside the current workspace. Paths are relative to the workspace root.',
+    description: 'List files and folders inside the currently selected project. Paths are relative to the project root.',
     parameters: Type.Object({
       path: Type.Optional(Type.String({ description: 'Directory path relative to the workspace root. Defaults to .', default: '.' })),
     }),
@@ -42,7 +52,7 @@ export const localWorkspaceTools: AgentTool[] = [
   createLocalTool({
     name: 'read_file',
     label: 'Read File',
-    description: 'Read a UTF-8 text file inside the current workspace. Use offset and limit for large files.',
+    description: 'Read a UTF-8 text file inside the currently selected project. Use offset and limit for large files.',
     parameters: Type.Object({
       path: Type.String({ description: 'File path relative to the workspace root.' }),
       offset: Type.Optional(Type.Number({ description: '1-based line offset.', default: 1 })),
@@ -56,7 +66,7 @@ export const localWorkspaceTools: AgentTool[] = [
   createLocalTool({
     name: 'grep_files',
     label: 'Search Files',
-    description: 'Search text in workspace files. Returns matching file paths and line numbers.',
+    description: 'Search text in the currently selected project files. Returns matching file paths and line numbers.',
     parameters: Type.Object({
       query: Type.String({ description: 'Plain text or regular expression to search for.' }),
       path: Type.Optional(Type.String({ description: 'Directory path relative to the workspace root. Defaults to .', default: '.' })),
@@ -72,7 +82,7 @@ export const localWorkspaceTools: AgentTool[] = [
   createLocalTool({
     name: 'write_file',
     label: 'Write File',
-    description: 'Create or overwrite a UTF-8 text file inside the current workspace.',
+    description: 'Create or overwrite a UTF-8 text file inside the currently selected project.',
     parameters: Type.Object({
       path: Type.String({ description: 'File path relative to the workspace root.' }),
       content: Type.String({ description: 'Complete file content to write.' }),
@@ -101,7 +111,7 @@ export const localWorkspaceTools: AgentTool[] = [
   createLocalTool({
     name: 'run_command',
     label: 'Run Command',
-    description: 'Run a shell command in the current workspace. Use this for lint, build, tests, git status, and diagnostics.',
+    description: 'Run a shell command in the currently selected project. Use this for lint, build, tests, git status, and diagnostics.',
     parameters: Type.Object({
       command: Type.String({ description: 'Command to execute in the workspace.' }),
       timeoutSeconds: Type.Optional(Type.Number({ description: 'Timeout in seconds. Defaults to 60.', default: 60 })),

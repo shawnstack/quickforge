@@ -10,6 +10,7 @@ import {
 } from '@mariozechner/pi-web-ui'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import {
+  FolderOpen,
   MessageSquarePlus,
   PanelLeftClose,
   PanelLeftOpen,
@@ -194,6 +195,13 @@ type RestoredDraft = {
   attachments?: unknown[]
 }
 
+type ProjectInfo = {
+  id: string
+  name: string
+  path: string
+  lastOpenedAt: string
+}
+
 function ChatPanelHost({
   agent,
   onModelSelect,
@@ -215,6 +223,7 @@ function ChatPanelHost({
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const restoredDraftIdRef = useRef<number | undefined>(undefined)
+  const expandedToolCallsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     if (!hostRef.current || !agent) return
@@ -295,35 +304,114 @@ function ChatPanelHost({
       })
     }
 
+    const decorateToolMessages = () => {
+      panel.querySelectorAll<HTMLElement>('tool-message').forEach((element, fallbackIndex) => {
+        const toolCall = (element as HTMLElement & { toolCall?: { id?: string; name?: string } }).toolCall
+        const result = (element as HTMLElement & { result?: { isError?: boolean } }).result
+        const pending = Boolean((element as HTMLElement & { pending?: boolean }).pending)
+        const aborted = Boolean((element as HTMLElement & { aborted?: boolean }).aborted)
+        const toolId = toolCall?.id ?? `tool-${fallbackIndex}`
+        const toolName = toolCall?.name ?? 'tool'
+        const expanded = expandedToolCallsRef.current.has(toolId)
+
+        let header = element.querySelector<HTMLButtonElement>(':scope > .fastcode-tool-header')
+        if (!header) {
+          header = document.createElement('button')
+          header.type = 'button'
+          header.className = 'fastcode-tool-header mb-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground'
+          header.onclick = (event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            if (expandedToolCallsRef.current.has(toolId)) {
+              expandedToolCallsRef.current.delete(toolId)
+            } else {
+              expandedToolCallsRef.current.add(toolId)
+            }
+            decorateToolMessages()
+          }
+          element.prepend(header)
+        }
+
+        const status = aborted || result?.isError ? 'Error' : pending ? 'Running' : result ? 'Done' : 'Called'
+        const statusClass = aborted || result?.isError
+          ? 'text-destructive'
+          : pending
+            ? 'text-primary'
+            : 'text-muted-foreground'
+        header.setAttribute('aria-expanded', String(expanded))
+        header.title = expanded ? 'Collapse tool call' : 'Expand tool call'
+        header.innerHTML = `
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}"><path d="m9 18 6-6-6-6"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="shrink-0"><path d="m7 8 4 4-4 4"/><path d="M13 16h4"/><rect width="18" height="14" x="3" y="5" rx="2"/></svg>
+          <span class="min-w-0 flex-1 truncate">${toolName}</span>
+          <span class="shrink-0 ${statusClass}">${status}</span>
+        `
+
+        Array.from(element.children).forEach((child) => {
+          if (!(child instanceof HTMLElement) || child === header) return
+          child.hidden = !expanded
+        })
+      })
+    }
+
     const decorateEditor = () => {
       const editor = panel.querySelector('message-editor')
       const editorRows = editor?.querySelectorAll<HTMLElement>('.flex.gap-2.items-center')
       const rightControls = editorRows?.[editorRows.length - 1]
       if (!rightControls) return
 
+      const yoloIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 8 4 4-4 4"/><path d="M13 16h4"/><rect width="18" height="14" x="3" y="5" rx="2"/></svg>'
+      const yoloLabel = `${yoloIcon}<span>YOLO</span><span class="ml-0.5 size-1.5 rounded-full ${yoloMode ? 'bg-emerald-500' : 'bg-muted-foreground/45'}"></span>`
+      const yoloClass = `fastcode-yolo-inline inline-flex h-8 items-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium ${yoloMode ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'}`
+      const yoloTitle = yoloMode ? 'YOLO enabled: local workspace tools are available' : 'YOLO disabled: local workspace tools are blocked'
+
+      const handleYoloToggle = (event: Event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onToggleYoloMode()
+      }
+
+      const handleYoloKeyDown = (event: KeyboardEvent) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return
+        handleYoloToggle(event)
+      }
+
       const existingButton = rightControls.querySelector<HTMLButtonElement>('.fastcode-yolo-inline')
       if (existingButton) {
-        existingButton.textContent = yoloMode ? 'YOLO on' : 'YOLO off'
-        existingButton.title = yoloMode ? 'Local workspace tools enabled' : 'Local workspace tools disabled'
-        existingButton.className = `fastcode-yolo-inline h-8 rounded-md px-2 text-xs ${yoloMode ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'hover:bg-accent hover:text-accent-foreground'}`
+        existingButton.innerHTML = yoloLabel
+        existingButton.title = yoloTitle
+        existingButton.setAttribute('aria-label', yoloTitle)
+        existingButton.setAttribute('aria-pressed', String(yoloMode))
+        existingButton.className = yoloClass
+        existingButton.onpointerdown = handleYoloToggle
+        existingButton.onclick = (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+        }
+        existingButton.onkeydown = handleYoloKeyDown
         return
       }
 
       const button = document.createElement('button')
       button.type = 'button'
-      button.textContent = yoloMode ? 'YOLO on' : 'YOLO off'
-      button.title = yoloMode ? 'Local workspace tools enabled' : 'Local workspace tools disabled'
-      button.className = `fastcode-yolo-inline h-8 rounded-md px-2 text-xs ${yoloMode ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'hover:bg-accent hover:text-accent-foreground'}`
+      button.innerHTML = yoloLabel
+      button.title = yoloTitle
+      button.setAttribute('aria-label', yoloTitle)
+      button.setAttribute('aria-pressed', String(yoloMode))
+      button.className = yoloClass
+      button.onpointerdown = handleYoloToggle
       button.onclick = (event) => {
+        event.preventDefault()
         event.stopPropagation()
-        onToggleYoloMode()
       }
+      button.onkeydown = handleYoloKeyDown
       rightControls.prepend(button)
     }
 
     const decorate = () => {
       if (disposed) return
       decorateMessages()
+      decorateToolMessages()
       decorateEditor()
     }
 
@@ -376,6 +464,38 @@ function App() {
   const [chatPanelRevision, setChatPanelRevision] = useState(0)
   const [yoloMode, setYoloMode] = useState(false)
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
+  const [project, setProject] = useState<ProjectInfo>()
+  const [selectingProject, setSelectingProject] = useState(false)
+
+  const loadProject = useCallback(async () => {
+    try {
+      const response = await fetch('/api/project')
+      if (!response.ok) return
+      const payload = await response.json()
+      setProject(payload.project)
+    } catch (error) {
+      console.error('Failed to load project:', error)
+    }
+  }, [])
+
+  const selectProjectDirectory = useCallback(async () => {
+    if (selectingProject) return
+    setSelectingProject(true)
+    try {
+      const response = await fetch('/api/project/select-directory', { method: 'POST' })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(payload?.error || `Project selection failed with HTTP ${response.status}`)
+      if (!payload?.cancelled && payload?.project) {
+        setProject(payload.project)
+        setChatPanelRevision((value) => value + 1)
+      }
+    } catch (error) {
+      console.error('Failed to select project:', error)
+      alert(error instanceof Error ? error.message : 'Failed to select project directory.')
+    } finally {
+      setSelectingProject(false)
+    }
+  }, [selectingProject])
 
   const refreshSessions = useCallback(async () => {
     const storage = storageRef.current
@@ -452,7 +572,7 @@ function App() {
           if (!yoloModeRef.current) {
             return {
               block: true,
-              reason: `Local tool ${context.toolCall.name} was blocked because YOLO mode is disabled. Enable YOLO mode inside the input box to grant local workspace access.`,
+              reason: `Local tool ${context.toolCall.name} was blocked because YOLO mode is disabled. Enable YOLO mode inside the input box to grant local project access.`,
             }
           }
           return undefined
@@ -564,7 +684,7 @@ function App() {
       if (cancelled) return
 
       storageRef.current = storage
-      await refreshSessions()
+      await Promise.all([refreshSessions(), loadProject()])
 
       const savedYoloMode = await loadYoloMode(storage)
       yoloModeRef.current = savedYoloMode
@@ -609,7 +729,7 @@ function App() {
       cancelled = true
       unsubscribeRef.current?.()
     }
-  }, [createAgent, refreshSessions])
+  }, [createAgent, loadProject, refreshSessions])
 
   const toggleYoloMode = useCallback(() => {
     const storage = storageRef.current
@@ -750,6 +870,30 @@ function App() {
             <MessageSquarePlus className="size-4" />
             New chat
           </Button>
+        </div>
+
+        <div className="border-b border-border p-2">
+          <div className="rounded-lg border border-border bg-background/70 p-2">
+            <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <FolderOpen className="size-3.5" />
+              Project
+            </div>
+            <div className="truncate text-sm font-medium" title={project?.path}>
+              {project?.name ?? 'Loading project...'}
+            </div>
+            <div className="mt-0.5 truncate text-xs text-muted-foreground" title={project?.path}>
+              {project?.path ?? ''}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-2 h-7 w-full justify-start px-2 text-xs"
+              onClick={selectProjectDirectory}
+              disabled={selectingProject}
+            >
+              {selectingProject ? 'Selecting...' : 'Choose folder'}
+            </Button>
+          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-2">

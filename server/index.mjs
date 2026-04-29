@@ -5,11 +5,13 @@ import { existsSync, promises as fs } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import os from 'node:os'
+import { randomUUID } from 'node:crypto'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const projectRoot = path.resolve(__dirname, '..')
-const workspaceRoot = path.resolve(process.env.FASTCODE_WORKSPACE_DIR || projectRoot)
+const defaultWorkspaceRoot = path.resolve(process.env.FASTCODE_WORKSPACE_DIR || projectRoot)
+let activeWorkspaceRoot = defaultWorkspaceRoot
 const isDev = process.argv.includes('--dev')
 const host = process.env.FASTCODE_HOST || '127.0.0.1'
 const port = Number(process.env.FASTCODE_PORT || (isDev ? 32176 : 5176))
@@ -45,6 +47,10 @@ function storeFile(storeName) {
   return path.join(storageDir, `${storeName}.json`)
 }
 
+function projectConfigFile() {
+  return path.join(storageDir, 'project.json')
+}
+
 const writeQueues = new Map()
 
 async function ensureStorage() {
@@ -55,6 +61,106 @@ async function ensureStorage() {
       if (!existsSync(file)) await fs.writeFile(file, '{}\n', 'utf8')
     }),
   )
+}
+
+function projectNameFromPath(dir) {
+  return path.basename(dir) || dir
+}
+
+function defaultProjectConfig() {
+  const now = new Date().toISOString()
+  const id = 'default'
+  return {
+    activeProjectId: id,
+    projects: [
+      {
+        id,
+        name: projectNameFromPath(defaultWorkspaceRoot),
+        path: defaultWorkspaceRoot,
+        lastOpenedAt: now,
+      },
+    ],
+  }
+}
+
+async function readProjectConfig() {
+  await ensureStorage()
+  const file = projectConfigFile()
+  try {
+    const text = await fs.readFile(file, 'utf8')
+    const parsed = text.trim() ? JSON.parse(text) : defaultProjectConfig()
+    if (!Array.isArray(parsed.projects) || parsed.projects.length === 0) return defaultProjectConfig()
+    return parsed
+  } catch (error) {
+    if (error?.code === 'ENOENT') return defaultProjectConfig()
+    throw error
+  }
+}
+
+async function writeProjectConfig(config) {
+  await ensureStorage()
+  const file = projectConfigFile()
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
+  await fs.writeFile(tmp, `${JSON.stringify(config, null, 2)}\n`, 'utf8')
+  await fs.rename(tmp, file)
+}
+
+function getActiveProject(config) {
+  return config.projects.find((project) => project.id === config.activeProjectId) || config.projects[0]
+}
+
+async function assertDirectory(dir) {
+  const stat = await fs.stat(dir).catch(() => null)
+  if (!stat || !stat.isDirectory()) {
+    const error = new Error(`Project directory does not exist: ${dir}`)
+    error.statusCode = 400
+    throw error
+  }
+}
+
+async function setActiveProjectPath(inputPath) {
+  const resolved = path.resolve(String(inputPath || ''))
+  await assertDirectory(resolved)
+
+  const config = await readProjectConfig()
+  const now = new Date().toISOString()
+  let project = config.projects.find((item) => path.resolve(item.path) === resolved)
+  if (!project) {
+    project = {
+      id: randomUUID(),
+      name: projectNameFromPath(resolved),
+      path: resolved,
+      lastOpenedAt: now,
+    }
+    config.projects.unshift(project)
+  } else {
+    project.name = projectNameFromPath(resolved)
+    project.path = resolved
+    project.lastOpenedAt = now
+  }
+
+  config.activeProjectId = project.id
+  config.projects = [project, ...config.projects.filter((item) => item.id !== project.id)].slice(0, 20)
+  await writeProjectConfig(config)
+  activeWorkspaceRoot = resolved
+  return { project, projects: config.projects }
+}
+
+async function initializeActiveProject() {
+  const config = await readProjectConfig()
+  const activeProject = getActiveProject(config)
+  if (activeProject?.path) {
+    try {
+      await assertDirectory(activeProject.path)
+      activeWorkspaceRoot = path.resolve(activeProject.path)
+      return
+    } catch {
+      // Fall back to the app project if the stored project was removed.
+    }
+  }
+
+  const fallback = await setActiveProjectPath(defaultWorkspaceRoot)
+  activeWorkspaceRoot = path.resolve(fallback.project.path)
 }
 
 async function readStore(storeName) {
@@ -156,13 +262,18 @@ function isInside(parent, child) {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
 }
 
+function getWorkspaceRoot() {
+  return activeWorkspaceRoot
+}
+
 function resolveWorkspacePath(input = '.') {
+  const workspaceRoot = getWorkspaceRoot()
   const candidate = path.isAbsolute(input)
     ? path.resolve(input)
     : path.resolve(workspaceRoot, input)
 
   if (!isInside(workspaceRoot, candidate)) {
-    const error = new Error(`Path is outside the workspace: ${input}`)
+    const error = new Error(`Path is outside the active project: ${input}`)
     error.statusCode = 403
     throw error
   }
@@ -171,7 +282,7 @@ function resolveWorkspacePath(input = '.') {
 }
 
 function toWorkspaceRelative(fullPath) {
-  return path.relative(workspaceRoot, fullPath).replace(/\\/g, '/') || '.'
+  return path.relative(getWorkspaceRoot(), fullPath).replace(/\\/g, '/') || '.'
 }
 
 function isSensitiveWorkspacePath(fullPath) {
@@ -184,6 +295,13 @@ function isSensitiveWorkspacePath(fullPath) {
     name.startsWith('.env.') ||
     name.endsWith('.pem') ||
     name.endsWith('.key') ||
+    name.endsWith('.p12') ||
+    name.endsWith('.pfx') ||
+    name.endsWith('.crt') ||
+    name.endsWith('.cer') ||
+    name.endsWith('.token') ||
+    name === 'credentials.json' ||
+    name === 'secrets.json' ||
     name === 'id_rsa' ||
     name === 'id_ed25519'
   )
@@ -374,7 +492,7 @@ async function toolRunCommand(params) {
 
   return new Promise((resolve) => {
     const child = spawn(command, {
-      cwd: workspaceRoot,
+      cwd: getWorkspaceRoot(),
       shell: true,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
@@ -411,13 +529,141 @@ async function toolRunCommand(params) {
   })
 }
 
+async function toolGetProjectInfo() {
+  const config = await readProjectConfig()
+  const project = getActiveProject(config)
+  return {
+    content: `Active project: ${project.name}\nRoot: ${project.path}`,
+    details: { project, workspaceRoot: getWorkspaceRoot() },
+  }
+}
+
 const toolHandlers = {
+  get_project_info: toolGetProjectInfo,
   list_dir: toolListDir,
   read_file: toolReadFile,
   grep_files: toolGrepFiles,
   write_file: toolWriteFile,
   edit_file: toolEditFile,
   run_command: toolRunCommand,
+}
+
+function spawnCollect(command, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      shell: false,
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString()
+    })
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString()
+    })
+    child.on('error', reject)
+    child.on('close', (code) => resolve({ code, stdout, stderr }))
+  })
+}
+
+async function selectDirectoryDialog() {
+  if (process.platform === 'win32') {
+    const script = `
+Add-Type -AssemblyName System.Windows.Forms
+$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+$dialog.Description = 'Select FastCode project folder'
+$dialog.ShowNewFolderButton = $true
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+  [Console]::Out.Write($dialog.SelectedPath)
+}
+`
+    const result = await spawnCollect('powershell.exe', ['-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-Command', script])
+    if (result.code === 0) return result.stdout.trim()
+    const error = new Error(result.stderr.trim() || 'Failed to open folder picker')
+    error.statusCode = 500
+    throw error
+  }
+
+  if (process.platform === 'darwin') {
+    const result = await spawnCollect('osascript', ['-e', 'POSIX path of (choose folder with prompt "Select FastCode project folder")'])
+    if (result.code === 0) return result.stdout.trim()
+    if (/User canceled/i.test(result.stderr)) return ''
+    const error = new Error(result.stderr.trim() || 'Failed to open folder picker')
+    error.statusCode = 500
+    throw error
+  }
+
+  const zenity = await spawnCollect('zenity', ['--file-selection', '--directory', '--title=Select FastCode project folder']).catch(() => null)
+  if (zenity) {
+    if (zenity.code === 0) return zenity.stdout.trim()
+    if (zenity.code === 1) return ''
+  }
+
+  const kdialog = await spawnCollect('kdialog', ['--getexistingdirectory', os.homedir(), 'Select FastCode project folder']).catch(() => null)
+  if (kdialog) {
+    if (kdialog.code === 0) return kdialog.stdout.trim()
+    if (kdialog.code === 1) return ''
+  }
+
+  const error = new Error('No supported folder picker found. Install zenity or kdialog on Linux.')
+  error.statusCode = 501
+  throw error
+}
+
+async function handleProjectApi(req, res, url) {
+  const config = await readProjectConfig()
+
+  if (req.method === 'GET' && url.pathname === '/api/project') {
+    sendJson(res, 200, { project: getActiveProject(config), projects: config.projects, workspaceRoot: getWorkspaceRoot() })
+    return
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/project/select-directory') {
+    const selectedPath = await selectDirectoryDialog()
+    if (!selectedPath) {
+      sendJson(res, 200, { cancelled: true, project: getActiveProject(config), projects: config.projects })
+      return
+    }
+    const result = await setActiveProjectPath(selectedPath)
+    sendJson(res, 200, { cancelled: false, ...result, workspaceRoot: getWorkspaceRoot() })
+    return
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/project/active') {
+    const body = await readJsonBody(req)
+    const selected = config.projects.find((project) => project.id === body?.id)
+    if (!selected) {
+      const error = new Error('Unknown project')
+      error.statusCode = 404
+      throw error
+    }
+    const result = await setActiveProjectPath(selected.path)
+    sendJson(res, 200, { ...result, workspaceRoot: getWorkspaceRoot() })
+    return
+  }
+
+  if (req.method === 'DELETE' && url.pathname.startsWith('/api/project/')) {
+    const id = decodeSegment(url.pathname.split('/').filter(Boolean)[2])
+    const nextProjects = config.projects.filter((project) => project.id !== id)
+    if (nextProjects.length === config.projects.length) {
+      const error = new Error('Unknown project')
+      error.statusCode = 404
+      throw error
+    }
+    config.projects = nextProjects.length ? nextProjects : defaultProjectConfig().projects
+    if (config.activeProjectId === id) config.activeProjectId = config.projects[0].id
+    await writeProjectConfig(config)
+    const active = getActiveProject(config)
+    activeWorkspaceRoot = path.resolve(active.path)
+    sendJson(res, 200, { project: active, projects: config.projects, workspaceRoot: getWorkspaceRoot() })
+    return
+  }
+
+  const error = new Error('Not found')
+  error.statusCode = 404
+  throw error
 }
 
 async function handleToolApi(req, res, url) {
@@ -444,7 +690,20 @@ async function handleApi(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean)
 
   if (req.method === 'GET' && url.pathname === '/api/health') {
-    sendJson(res, 200, { ok: true, mode: isDev ? 'development' : 'production', dataDir, storageDir, workspaceRoot })
+    const config = await readProjectConfig()
+    sendJson(res, 200, {
+      ok: true,
+      mode: isDev ? 'development' : 'production',
+      dataDir,
+      storageDir,
+      workspaceRoot: getWorkspaceRoot(),
+      project: getActiveProject(config),
+    })
+    return
+  }
+
+  if (url.pathname === '/api/project' || url.pathname.startsWith('/api/project/')) {
+    await handleProjectApi(req, res, url)
     return
   }
 
@@ -649,10 +908,12 @@ const server = createServer(async (req, res) => {
 })
 
 await ensureStorage()
+await initializeActiveProject()
 
 server.listen(port, host, () => {
   console.log(`FastCode local API: http://${host}:${port}`)
   console.log(`FastCode data dir: ${dataDir}`)
+  console.log(`FastCode project: ${getWorkspaceRoot()}`)
 
   if (isDev) {
     startVite()

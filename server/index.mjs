@@ -266,14 +266,18 @@ function getWorkspaceRoot() {
   return activeWorkspaceRoot
 }
 
-function resolveWorkspacePath(input = '.') {
-  const workspaceRoot = getWorkspaceRoot()
+function getToolWorkspaceRoot(context) {
+  return context?.workspaceRoot || getWorkspaceRoot()
+}
+
+function resolveWorkspacePath(input = '.', context) {
+  const workspaceRoot = getToolWorkspaceRoot(context)
   const candidate = path.isAbsolute(input)
     ? path.resolve(input)
     : path.resolve(workspaceRoot, input)
 
   if (!isInside(workspaceRoot, candidate)) {
-    const error = new Error(`Path is outside the active project: ${input}`)
+    const error = new Error(`Path is outside the selected project: ${input}`)
     error.statusCode = 403
     throw error
   }
@@ -281,12 +285,12 @@ function resolveWorkspacePath(input = '.') {
   return candidate
 }
 
-function toWorkspaceRelative(fullPath) {
-  return path.relative(getWorkspaceRoot(), fullPath).replace(/\\/g, '/') || '.'
+function toWorkspaceRelative(fullPath, context) {
+  return path.relative(getToolWorkspaceRoot(context), fullPath).replace(/\\/g, '/') || '.'
 }
 
-function isSensitiveWorkspacePath(fullPath) {
-  const relative = toWorkspaceRelative(fullPath)
+function isSensitiveWorkspacePath(fullPath, context) {
+  const relative = toWorkspaceRelative(fullPath, context)
   const parts = relative.split('/')
   const name = parts.at(-1) || ''
   return (
@@ -307,9 +311,9 @@ function isSensitiveWorkspacePath(fullPath) {
   )
 }
 
-function assertSafeWorkspacePath(fullPath) {
-  if (isSensitiveWorkspacePath(fullPath)) {
-    const error = new Error(`Access to sensitive path is blocked: ${toWorkspaceRelative(fullPath)}`)
+function assertSafeWorkspacePath(fullPath, context) {
+  if (isSensitiveWorkspacePath(fullPath, context)) {
+    const error = new Error(`Access to sensitive path is blocked: ${toWorkspaceRelative(fullPath, context)}`)
     error.statusCode = 403
     throw error
   }
@@ -324,9 +328,9 @@ function splitLines(text) {
   return text.split(/\r?\n/)
 }
 
-async function toolListDir(params) {
-  const dir = resolveWorkspacePath(params?.path || '.')
-  assertSafeWorkspacePath(dir)
+async function toolListDir(params, context) {
+  const dir = resolveWorkspacePath(params?.path || '.', context)
+  assertSafeWorkspacePath(dir, context)
 
   const entries = await fs.readdir(dir, { withFileTypes: true })
   const rows = await Promise.all(entries.map(async (entry) => {
@@ -349,12 +353,12 @@ async function toolListDir(params) {
     ? rows.map((row) => `${row.type.padEnd(9)} ${String(row.size).padStart(10)} ${row.modified} ${row.name}`).join('\n')
     : '(empty directory)'
 
-  return { content, details: { path: toWorkspaceRelative(dir), count: rows.length } }
+  return { content, details: { path: toWorkspaceRelative(dir, context), project: context?.project, count: rows.length } }
 }
 
-async function toolReadFile(params) {
-  const file = resolveWorkspacePath(params?.path)
-  assertSafeWorkspacePath(file)
+async function toolReadFile(params, context) {
+  const file = resolveWorkspacePath(params?.path, context)
+  assertSafeWorkspacePath(file, context)
 
   const text = await fs.readFile(file, 'utf8')
   const lines = splitLines(text)
@@ -366,7 +370,7 @@ async function toolReadFile(params) {
 
   return {
     content: truncateText(`${content}${suffix}`),
-    details: { path: toWorkspaceRelative(file), totalLines: lines.length, offset, limit },
+    details: { path: toWorkspaceRelative(file, context), project: context?.project, totalLines: lines.length, offset, limit },
   }
 }
 
@@ -380,22 +384,22 @@ function shouldSearchFile(name) {
   return !blocked.some((extension) => lower.endsWith(extension))
 }
 
-async function walkFiles(root, files = []) {
+async function walkFiles(root, files = [], context) {
   const entries = await fs.readdir(root, { withFileTypes: true })
   for (const entry of entries) {
     const fullPath = path.join(root, entry.name)
     if (entry.isDirectory()) {
-      if (!shouldSkipSearchDir(entry.name)) await walkFiles(fullPath, files)
-    } else if (entry.isFile() && shouldSearchFile(entry.name) && !isSensitiveWorkspacePath(fullPath)) {
+      if (!shouldSkipSearchDir(entry.name)) await walkFiles(fullPath, files, context)
+    } else if (entry.isFile() && shouldSearchFile(entry.name) && !isSensitiveWorkspacePath(fullPath, context)) {
       files.push(fullPath)
     }
   }
   return files
 }
 
-async function toolGrepFiles(params) {
-  const root = resolveWorkspacePath(params?.path || '.')
-  assertSafeWorkspacePath(root)
+async function toolGrepFiles(params, context) {
+  const root = resolveWorkspacePath(params?.path || '.', context)
+  assertSafeWorkspacePath(root, context)
 
   const query = String(params?.query || '')
   if (!query) {
@@ -409,7 +413,7 @@ async function toolGrepFiles(params) {
   const matcher = params?.regex
     ? new RegExp(query, flags)
     : new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags)
-  const files = await walkFiles(root)
+  const files = await walkFiles(root, [], context)
   const matches = []
 
   for (const file of files) {
@@ -422,27 +426,27 @@ async function toolGrepFiles(params) {
     for (let index = 0; index < lines.length && matches.length < limit; index++) {
       matcher.lastIndex = 0
       if (matcher.test(lines[index])) {
-        matches.push(`${toWorkspaceRelative(file)}:${index + 1}: ${lines[index]}`)
+        matches.push(`${toWorkspaceRelative(file, context)}:${index + 1}: ${lines[index]}`)
       }
     }
   }
 
   return {
     content: matches.length ? truncateText(matches.join('\n')) : 'No matches found.',
-    details: { path: toWorkspaceRelative(root), query, count: matches.length, limit },
+    details: { path: toWorkspaceRelative(root, context), project: context?.project, query, count: matches.length, limit },
   }
 }
 
-async function toolWriteFile(params) {
-  const file = resolveWorkspacePath(params?.path)
-  assertSafeWorkspacePath(file)
+async function toolWriteFile(params, context) {
+  const file = resolveWorkspacePath(params?.path, context)
+  assertSafeWorkspacePath(file, context)
 
   await fs.mkdir(path.dirname(file), { recursive: true })
   await fs.writeFile(file, String(params?.content ?? ''), 'utf8')
 
   return {
-    content: `Wrote ${toWorkspaceRelative(file)}`,
-    details: { path: toWorkspaceRelative(file), bytes: Buffer.byteLength(String(params?.content ?? ''), 'utf8') },
+    content: `Wrote ${toWorkspaceRelative(file, context)}`,
+    details: { path: toWorkspaceRelative(file, context), project: context?.project, bytes: Buffer.byteLength(String(params?.content ?? ''), 'utf8') },
   }
 }
 
@@ -457,9 +461,9 @@ function countOccurrences(text, needle) {
   return count
 }
 
-async function toolEditFile(params) {
-  const file = resolveWorkspacePath(params?.path)
-  assertSafeWorkspacePath(file)
+async function toolEditFile(params, context) {
+  const file = resolveWorkspacePath(params?.path, context)
+  assertSafeWorkspacePath(file, context)
 
   const oldText = String(params?.oldText ?? '')
   const newText = String(params?.newText ?? '')
@@ -475,12 +479,12 @@ async function toolEditFile(params) {
   await fs.writeFile(file, text.replace(oldText, newText), 'utf8')
 
   return {
-    content: `Edited ${toWorkspaceRelative(file)}`,
-    details: { path: toWorkspaceRelative(file), replaced: count },
+    content: `Edited ${toWorkspaceRelative(file, context)}`,
+    details: { path: toWorkspaceRelative(file, context), project: context?.project, replaced: count },
   }
 }
 
-async function toolRunCommand(params) {
+async function toolRunCommand(params, context) {
   const command = String(params?.command || '')
   if (!command.trim()) {
     const error = new Error('command is required')
@@ -492,7 +496,7 @@ async function toolRunCommand(params) {
 
   return new Promise((resolve) => {
     const child = spawn(command, {
-      cwd: getWorkspaceRoot(),
+      cwd: getToolWorkspaceRoot(context),
       shell: true,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
@@ -524,12 +528,19 @@ async function toolRunCommand(params) {
         'STDERR:',
         stderr || '(empty)',
       ].join('\n')
-      resolve({ content: truncateText(content), details: { command, code, signal, timedOut } })
+      resolve({ content: truncateText(content), details: { command, project: context?.project, cwd: getToolWorkspaceRoot(context), code, signal, timedOut } })
     })
   })
 }
 
-async function toolGetProjectInfo() {
+async function toolGetProjectInfo(_params, context) {
+  if (context?.project) {
+    return {
+      content: `Project: ${context.project.name}\nRoot: ${context.project.path}`,
+      details: { project: context.project, workspaceRoot: context.workspaceRoot },
+    }
+  }
+
   const config = await readProjectConfig()
   const project = getActiveProject(config)
   return {
@@ -666,6 +677,19 @@ async function handleProjectApi(req, res, url) {
   throw error
 }
 
+async function projectContextFromId(projectId) {
+  const config = await readProjectConfig()
+  const project = config.projects.find((item) => item.id === projectId)
+  if (!project) {
+    const error = new Error('Unknown project')
+    error.statusCode = 404
+    throw error
+  }
+
+  await assertDirectory(project.path)
+  return { project, workspaceRoot: path.resolve(project.path) }
+}
+
 async function handleToolApi(req, res, url) {
   if (req.method !== 'POST') {
     const error = new Error('Tool endpoints require POST')
@@ -673,7 +697,15 @@ async function handleToolApi(req, res, url) {
     throw error
   }
 
-  const name = decodeSegment(url.pathname.split('/').filter(Boolean)[2])
+  const parts = url.pathname.split('/').filter(Boolean)
+  let name = decodeSegment(parts[2])
+  let context
+
+  if (parts[1] === 'projects' && parts[3] === 'tools') {
+    context = await projectContextFromId(decodeSegment(parts[2]))
+    name = decodeSegment(parts[4])
+  }
+
   const handler = toolHandlers[name]
   if (!handler) {
     const error = new Error(`Unknown tool: ${name}`)
@@ -682,7 +714,7 @@ async function handleToolApi(req, res, url) {
   }
 
   const params = await readJsonBody(req)
-  const result = await handler(params || {})
+  const result = await handler(params || {}, context)
   sendJson(res, 200, result)
 }
 
@@ -707,7 +739,7 @@ async function handleApi(req, res, url) {
     return
   }
 
-  if (url.pathname.startsWith('/api/tools/')) {
+  if (url.pathname.startsWith('/api/tools/') || (parts[0] === 'api' && parts[1] === 'projects' && parts[3] === 'tools')) {
     await handleToolApi(req, res, url)
     return
   }

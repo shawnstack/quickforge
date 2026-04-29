@@ -6,10 +6,13 @@ import {
   defaultConvertToLlm,
   ProxyTab,
   SettingsDialog,
+  type SessionData,
   type SessionMetadata,
 } from '@mariozechner/pi-web-ui'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import {
+  ChevronDown,
+  ChevronRight,
   FolderOpen,
   MessageSquarePlus,
   PanelLeftClose,
@@ -30,6 +33,8 @@ import {
   saveYoloMode,
 } from '@/lib/pi-chat'
 import { createCustomProvidersOnlyTab } from '@/lib/custom-providers-only-tab'
+import { getDateLocale, t } from '@/lib/i18n'
+import { createLanguageSettingsTab } from '@/lib/language-settings-tab'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
 
@@ -181,7 +186,7 @@ function calculateUsage(messages: AgentMessage[]): SessionMetadata['usage'] {
 }
 
 function formatSessionTime(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(getDateLocale(), {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -202,11 +207,37 @@ type ProjectInfo = {
   lastOpenedAt: string
 }
 
+type ChatScope = 'global' | 'project'
+
+type FastCodeSessionMetadata = SessionMetadata & {
+  scope?: ChatScope
+  projectId?: string
+  projectName?: string
+  projectPath?: string
+}
+
+type FastCodeSessionData = SessionData & {
+  scope?: ChatScope
+  projectId?: string
+  projectName?: string
+  projectPath?: string
+}
+
+function sessionScope(session: FastCodeSessionMetadata | FastCodeSessionData | null | undefined): ChatScope {
+  return session?.scope === 'project' ? 'project' : 'global'
+}
+
+function sessionTitle(title: string) {
+  return title === 'New chat' ? t('newChat') : title
+}
+
 function ChatPanelHost({
   agent,
   onModelSelect,
   revision,
   yoloMode,
+  workspaceToolsEnabled,
+  projectId,
   onToggleYoloMode,
   onRollbackFromMessage,
   onCopyAnswer,
@@ -216,6 +247,8 @@ function ChatPanelHost({
   onModelSelect?: () => void
   revision: number
   yoloMode: boolean
+  workspaceToolsEnabled: boolean
+  projectId?: string
   onToggleYoloMode: () => void
   onRollbackFromMessage: (messageIndex: number) => void
   onCopyAnswer: (text: string) => void
@@ -285,14 +318,14 @@ function ChatPanelHost({
           const text = assistantText(entry.message)
           if (!text) return
 
-          const copyButton = createIconActionButton('copy', 'Copy', copyIcon, () => {
+          const copyButton = createIconActionButton('copy', t('copy'), copyIcon, () => {
             const currentMessage = agent.state.messages[entry.index]
             const currentText = currentMessage ? assistantText(currentMessage) : text
             if (currentText) onCopyAnswer(currentText)
           })
           actions.append(copyButton)
         } else {
-          const rollbackButton = createIconActionButton('rollback', 'Rollback', rollbackIcon, () => {
+          const rollbackButton = createIconActionButton('rollback', t('rollback'), rollbackIcon, () => {
             onRollbackFromMessage(entry.index)
           })
           rollbackButton.disabled = agent.state.isStreaming
@@ -309,10 +342,15 @@ function ChatPanelHost({
       const rightControls = editorRows?.[editorRows.length - 1]
       if (!rightControls) return
 
+      if (!workspaceToolsEnabled) {
+        rightControls.querySelector<HTMLButtonElement>('.fastcode-yolo-inline')?.remove()
+        return
+      }
+
       const yoloIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 8 4 4-4 4"/><path d="M13 16h4"/><rect width="18" height="14" x="3" y="5" rx="2"/></svg>'
       const yoloLabel = `${yoloIcon}<span>YOLO</span><span class="ml-0.5 size-1.5 rounded-full ${yoloMode ? 'bg-emerald-500' : 'bg-muted-foreground/45'}"></span>`
       const yoloClass = `fastcode-yolo-inline inline-flex h-8 items-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium ${yoloMode ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'}`
-      const yoloTitle = yoloMode ? 'YOLO enabled: local workspace tools are available' : 'YOLO disabled: local workspace tools are blocked'
+      const yoloTitle = yoloMode ? t('yoloEnabledTitle') : t('yoloDisabledTitle')
 
       const handleYoloToggle = (event: Event) => {
         event.preventDefault()
@@ -366,7 +404,7 @@ function ChatPanelHost({
     void panel.setAgent(agent, {
       onApiKeyRequired: (provider) => ApiKeyPromptDialog.prompt(provider),
       onModelSelect,
-      toolsFactory: () => getLocalWorkspaceTools(yoloMode),
+      toolsFactory: () => getLocalWorkspaceTools(workspaceToolsEnabled && yoloMode, projectId),
     }).then(() => {
       if (restoredDraft && restoredDraftIdRef.current !== restoredDraft.id) {
         restoredDraftIdRef.current = restoredDraft.id
@@ -387,7 +425,7 @@ function ChatPanelHost({
       observer?.disconnect()
       panel.remove()
     }
-  }, [agent, onCopyAnswer, onModelSelect, onRollbackFromMessage, onToggleYoloMode, restoredDraft, revision, yoloMode])
+  }, [agent, onCopyAnswer, onModelSelect, onRollbackFromMessage, onToggleYoloMode, projectId, restoredDraft, revision, workspaceToolsEnabled, yoloMode])
 
   return <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden" />
 }
@@ -399,12 +437,14 @@ function App() {
   const unsubscribeRef = useRef<(() => void) | null>(null)
   const persistQueueRef = useRef(Promise.resolve())
   const yoloModeRef = useRef(false)
+  const currentChatScopeRef = useRef<ChatScope>('global')
+  const activeProjectRef = useRef<ProjectInfo | undefined>(undefined)
   const currentSessionIdRef = useRef<string | undefined>(undefined)
   const currentTitleRef = useRef('New chat')
   const currentCreatedAtRef = useRef<string | undefined>(undefined)
 
   const [agent, setAgent] = useState<Agent | null>(null)
-  const [sessions, setSessions] = useState<SessionMetadata[]>([])
+  const [sessions, setSessions] = useState<FastCodeSessionMetadata[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>()
   const [currentTitle, setCurrentTitle] = useState('New chat')
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -412,7 +452,10 @@ function App() {
   const [chatPanelRevision, setChatPanelRevision] = useState(0)
   const [yoloMode, setYoloMode] = useState(false)
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
-  const [project, setProject] = useState<ProjectInfo>()
+  const [chatScope, setChatScope] = useState<ChatScope>('global')
+  const [activeProject, setActiveProject] = useState<ProjectInfo>()
+  const [projects, setProjects] = useState<ProjectInfo[]>([])
+  const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => new Set())
   const [selectingProject, setSelectingProject] = useState(false)
 
   const loadProject = useCallback(async () => {
@@ -420,10 +463,38 @@ function App() {
       const response = await fetch('/api/project')
       if (!response.ok) return
       const payload = await response.json()
-      setProject(payload.project)
+      activeProjectRef.current = payload.project
+      setActiveProject(payload.project)
+      setProjects(Array.isArray(payload.projects) ? payload.projects : [])
+      setExpandedProjectIds((current) => {
+        const next = new Set(current)
+        for (const project of Array.isArray(payload.projects) ? payload.projects : []) next.add(project.id)
+        return next
+      })
     } catch (error) {
       console.error('Failed to load project:', error)
     }
+  }, [])
+
+  const switchActiveProject = useCallback(async (projectId: string) => {
+    const response = await fetch('/api/project/active', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: projectId }),
+    })
+    const payload = await response.json().catch(() => null)
+    if (!response.ok) throw new Error(payload?.error || `Project switch failed with HTTP ${response.status}`)
+
+    activeProjectRef.current = payload.project
+    setActiveProject(payload.project)
+    setProjects(Array.isArray(payload.projects) ? payload.projects : [])
+    setExpandedProjectIds((current) => {
+      const next = new Set(current)
+      for (const project of Array.isArray(payload.projects) ? payload.projects : []) next.add(project.id)
+      return next
+    })
+    setChatPanelRevision((value) => value + 1)
+    return payload.project as ProjectInfo
   }, [])
 
   const selectProjectDirectory = useCallback(async () => {
@@ -434,12 +505,19 @@ function App() {
       const payload = await response.json().catch(() => null)
       if (!response.ok) throw new Error(payload?.error || `Project selection failed with HTTP ${response.status}`)
       if (!payload?.cancelled && payload?.project) {
-        setProject(payload.project)
+        activeProjectRef.current = payload.project
+        setActiveProject(payload.project)
+        setProjects(Array.isArray(payload.projects) ? payload.projects : [])
+        setExpandedProjectIds((current) => {
+          const next = new Set(current)
+          for (const project of Array.isArray(payload.projects) ? payload.projects : []) next.add(project.id)
+          return next
+        })
         setChatPanelRevision((value) => value + 1)
       }
     } catch (error) {
       console.error('Failed to select project:', error)
-      alert(error instanceof Error ? error.message : 'Failed to select project directory.')
+      alert(error instanceof Error ? error.message : t('failedToSelectProjectDirectory'))
     } finally {
       setSelectingProject(false)
     }
@@ -448,7 +526,7 @@ function App() {
   const refreshSessions = useCallback(async () => {
     const storage = storageRef.current
     if (!storage) return
-    setSessions(await storage.sessions.getAllMetadata())
+    setSessions((await storage.sessions.getAllMetadata()) as FastCodeSessionMetadata[])
   }, [])
 
   const persistSession = useCallback(
@@ -463,6 +541,8 @@ function App() {
         currentTitleRef.current === 'New chat'
           ? generateTitle(nextAgent.state.messages)
           : currentTitleRef.current
+      const scope = currentChatScopeRef.current
+      const project = scope === 'project' ? activeProjectRef.current : undefined
 
       currentSessionIdRef.current = id
       currentCreatedAtRef.current = createdAt
@@ -470,7 +550,7 @@ function App() {
       setCurrentSessionId(id)
       setCurrentTitle(title)
 
-      const sessionData = {
+      const sessionData: FastCodeSessionData = {
         id,
         title,
         model: nextAgent.state.model!,
@@ -478,9 +558,13 @@ function App() {
         messages: nextAgent.state.messages,
         createdAt,
         lastModified: now,
+        scope,
+        projectId: project?.id,
+        projectName: project?.name,
+        projectPath: project?.path,
       }
 
-      const metadata: SessionMetadata = {
+      const metadata: FastCodeSessionMetadata = {
         id,
         title,
         createdAt,
@@ -489,6 +573,10 @@ function App() {
         usage: calculateUsage(nextAgent.state.messages),
         thinkingLevel: nextAgent.state.thinkingLevel,
         preview: summarizePreview(nextAgent.state.messages),
+        scope,
+        projectId: project?.id,
+        projectName: project?.name,
+        projectPath: project?.path,
       }
 
       await storage.sessions.save(sessionData, metadata)
@@ -511,16 +599,22 @@ function App() {
           thinkingLevel: 'off',
           messages: [],
           ...initialState,
-          tools: getLocalWorkspaceTools(yoloModeRef.current),
+          tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id),
         },
         convertToLlm: defaultConvertToLlm,
         sessionId,
         maxRetryDelayMs: 60000,
         beforeToolCall: async (context) => {
+          if (!activeProjectRef.current?.id) {
+            return {
+              block: true,
+              reason: t('noActiveProjectToolBlockedReason', { name: context.toolCall.name }),
+            }
+          }
           if (!yoloModeRef.current) {
             return {
               block: true,
-              reason: `Local tool ${context.toolCall.name} was blocked because YOLO mode is disabled. Enable YOLO mode inside the input box to grant local project access.`,
+              reason: t('yoloBlockedReason', { name: context.toolCall.name }),
             }
           }
           return undefined
@@ -564,10 +658,12 @@ function App() {
     [persistSession],
   )
 
-  const startNewChat = useCallback(async () => {
+  const startNewGlobalChat = useCallback(async () => {
+    currentChatScopeRef.current = 'global'
     currentSessionIdRef.current = undefined
     currentCreatedAtRef.current = undefined
     currentTitleRef.current = 'New chat'
+    setChatScope('global')
     setCurrentSessionId(undefined)
     setCurrentTitle('New chat')
 
@@ -575,17 +671,54 @@ function App() {
     url.searchParams.delete('session')
     window.history.replaceState({}, '', url)
 
-    await createAgent()
+    await createAgent({ tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id) })
   }, [createAgent])
+
+  const startNewProjectChat = useCallback(async (targetProject?: ProjectInfo) => {
+    const nextProject = targetProject ?? activeProjectRef.current
+    if (!nextProject) return
+
+    if (activeProjectRef.current?.id !== nextProject.id) {
+      await switchActiveProject(nextProject.id)
+    }
+
+    currentChatScopeRef.current = 'project'
+    currentSessionIdRef.current = undefined
+    currentCreatedAtRef.current = undefined
+    currentTitleRef.current = 'New chat'
+    setChatScope('project')
+    setCurrentSessionId(undefined)
+    setCurrentTitle('New chat')
+
+    const url = new URL(window.location.href)
+    url.searchParams.delete('session')
+    window.history.replaceState({}, '', url)
+
+    await createAgent({ tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id) })
+  }, [createAgent, switchActiveProject])
 
   const loadSession = useCallback(
     async (sessionId: string) => {
       const storage = storageRef.current
       if (!storage) return
 
-      const session = await storage.sessions.get(sessionId)
+      const session = (await storage.sessions.get(sessionId)) as FastCodeSessionData | null
       if (!session) return
 
+      const metadata = sessions.find((item) => item.id === sessionId) ?? ((await storage.sessions.getMetadata(sessionId)) as FastCodeSessionMetadata | null)
+      const scope = sessionScope(metadata ?? session)
+      if (scope === 'project' && (metadata?.projectId || session.projectId)) {
+        try {
+          await switchActiveProject((metadata?.projectId ?? session.projectId)!)
+        } catch (error) {
+          console.error('Failed to switch project for session:', error)
+          alert(t('projectSwitchFailed'))
+          return
+        }
+      }
+
+      currentChatScopeRef.current = scope
+      setChatScope(scope)
       currentSessionIdRef.current = session.id
       currentCreatedAtRef.current = session.createdAt
       currentTitleRef.current = session.title
@@ -603,12 +736,12 @@ function App() {
           model: session.model,
           thinkingLevel: session.thinkingLevel,
           messages: session.messages,
-          tools: [],
+          tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id),
         },
         session.id,
       )
     },
-    [createAgent],
+    [createAgent, sessions, switchActiveProject],
   )
 
   const deleteSession = useCallback(
@@ -618,10 +751,10 @@ function App() {
       await storage.sessions.delete(sessionId)
       await refreshSessions()
       if (currentSessionIdRef.current === sessionId) {
-        await startNewChat()
+        await startNewGlobalChat()
       }
     },
-    [refreshSessions, startNewChat],
+    [refreshSessions, startNewGlobalChat],
   )
 
   useEffect(() => {
@@ -646,6 +779,23 @@ function App() {
       if (sessionId) {
         const existing = await storage.sessions.get(sessionId)
         if (existing) {
+          const metadata = (await storage.sessions.getMetadata(existing.id)) as FastCodeSessionMetadata | null
+          const scope = sessionScope(metadata ?? (existing as FastCodeSessionData))
+          if (scope === 'project' && (metadata?.projectId || (existing as FastCodeSessionData).projectId)) {
+            try {
+              await switchActiveProject((metadata?.projectId ?? (existing as FastCodeSessionData).projectId)!)
+            } catch (error) {
+              console.error('Failed to switch project for initial session:', error)
+              alert(t('projectSwitchFailed'))
+              currentChatScopeRef.current = 'global'
+              setChatScope('global')
+              await createAgent({ model: initialModel, tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id) })
+              setReady(true)
+              return
+            }
+          }
+          currentChatScopeRef.current = scope
+          setChatScope(scope)
           currentSessionIdRef.current = existing.id
           currentCreatedAtRef.current = existing.createdAt
           currentTitleRef.current = existing.title
@@ -658,15 +808,19 @@ function App() {
               model: existing.model,
               thinkingLevel: existing.thinkingLevel,
               messages: existing.messages,
-              tools: [],
+              tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id),
             },
             existing.id,
           )
         } else {
-          await createAgent({ model: initialModel })
+          currentChatScopeRef.current = 'global'
+          setChatScope('global')
+          await createAgent({ model: initialModel, tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id) })
         }
       } else {
-        await createAgent({ model: initialModel })
+        currentChatScopeRef.current = 'global'
+        setChatScope('global')
+        await createAgent({ model: initialModel, tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id) })
       }
 
       setReady(true)
@@ -677,7 +831,7 @@ function App() {
       cancelled = true
       unsubscribeRef.current?.()
     }
-  }, [createAgent, loadProject, refreshSessions])
+  }, [createAgent, loadProject, refreshSessions, switchActiveProject])
 
   const toggleYoloMode = useCallback(() => {
     const storage = storageRef.current
@@ -702,7 +856,7 @@ function App() {
     if (!currentAgent) return
 
     if (currentAgent.state.isStreaming) {
-      alert('Generation is still running. Stop it or wait until it finishes before rolling back.')
+      alert(t('generationStillRunning'))
       return
     }
 
@@ -710,7 +864,7 @@ function App() {
     const rollbackMessage = rollbackIndex >= 0 ? currentAgent.state.messages[rollbackIndex] : undefined
     const nextMessages = rollbackConversationFromMessage(currentAgent.state.messages, messageIndex)
     if (nextMessages.length === currentAgent.state.messages.length) {
-      alert('There is no conversation turn to roll back.')
+      alert(t('noConversationTurnToRollback'))
       return
     }
 
@@ -762,7 +916,7 @@ function App() {
       await copyTextToClipboard(text)
     } catch (error) {
       console.error('Failed to copy answer:', error)
-      alert('Copy failed. Please check clipboard permissions.')
+      alert(t('copyFailed'))
     }
   }, [])
 
@@ -782,7 +936,7 @@ function App() {
     const customModels = customProviders.flatMap((provider) => provider.models ?? [])
 
     if (customModels.length === 0) {
-      alert('请先在设置里添加自定义模型，并确保填写了模型 ID 后保存。')
+      alert(t('addCustomModelFirst'))
       return
     }
 
@@ -797,10 +951,23 @@ function App() {
     })
   }, [])
 
+  const globalSessions = sessions.filter((session) => sessionScope(session) === 'global')
+  const sessionsForProject = (projectId: string) => {
+    return sessions.filter((session) => sessionScope(session) === 'project' && session.projectId === projectId)
+  }
+  const toggleProjectExpanded = (projectId: string) => {
+    setExpandedProjectIds((current) => {
+      const next = new Set(current)
+      if (next.has(projectId)) next.delete(projectId)
+      else next.add(projectId)
+      return next
+    })
+  }
+
   if (!ready || !agent) {
     return (
       <div className="flex h-screen items-center justify-center bg-background text-foreground">
-        <div className="text-sm text-muted-foreground">Loading chat workspace...</div>
+        <div className="text-sm text-muted-foreground">{t('loadingChatWorkspace')}</div>
       </div>
     )
   }
@@ -810,76 +977,157 @@ function App() {
       <aside
         className={cn(
           'hidden min-h-0 shrink-0 border-r border-border bg-muted/30 md:flex md:flex-col',
-          sidebarOpen ? 'w-72' : 'w-0 overflow-hidden border-r-0',
+          sidebarOpen ? 'w-80' : 'w-0 overflow-hidden border-r-0',
         )}
       >
-        <div className="flex h-14 items-center gap-2 border-b border-border px-3">
-          <Button className="flex-1 justify-start" onClick={startNewChat}>
-            <MessageSquarePlus className="size-4" />
-            New chat
-          </Button>
-        </div>
-
-        <div className="border-b border-border p-2">
-          <div className="rounded-lg border border-border bg-background/70 p-2">
-            <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-              <FolderOpen className="size-3.5" />
-              Project
-            </div>
-            <div className="truncate text-sm font-medium" title={project?.path}>
-              {project?.name ?? 'Loading project...'}
-            </div>
-            <div className="mt-0.5 truncate text-xs text-muted-foreground" title={project?.path}>
-              {project?.path ?? ''}
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="mt-2 h-7 w-full justify-start px-2 text-xs"
-              onClick={selectProjectDirectory}
-              disabled={selectingProject}
-            >
-              {selectingProject ? 'Selecting...' : 'Choose folder'}
-            </Button>
-          </div>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto p-2">
-          {sessions.length === 0 ? (
-            <div className="px-3 py-8 text-sm text-muted-foreground">No saved conversations yet.</div>
-          ) : (
-            <div className="space-y-1">
-              {sessions.map((session) => (
-                <div
-                  key={session.id}
-                  className={cn(
-                    'group flex items-start gap-2 rounded-md px-2 py-2 text-left',
-                    currentSessionId === session.id ? 'bg-secondary' : 'hover:bg-secondary/70',
-                  )}
+        <div className="min-h-0 flex-1 overflow-y-auto p-3">
+          <div className="mb-5">
+            <div className="mb-2 flex items-center justify-between gap-2 px-1">
+              <div className="text-sm font-medium text-muted-foreground">{t('projects')}</div>
+              <div className="flex items-center gap-1">
+                <Button variant="ghost" size="icon" className="size-7" aria-label={t('filter')}>
+                  <PanelLeftClose className="size-3.5 rotate-90" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  onClick={selectProjectDirectory}
+                  disabled={selectingProject}
+                  aria-label={t('addProject')}
                 >
-                  <button
-                    className="min-w-0 flex-1 text-left"
-                    type="button"
-                    onClick={() => loadSession(session.id)}
-                  >
-                    <div className="truncate text-sm font-medium">{session.title}</div>
-                    <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                      {formatSessionTime(session.lastModified)}
-                    </div>
-                  </button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 opacity-0 group-hover:opacity-100"
-                    onClick={() => deleteSession(session.id)}
-                    aria-label="Delete session"
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
-                </div>
-              ))}
+                  <Plus className="size-4" />
+                </Button>
+              </div>
             </div>
-          )}
+
+            <div className="space-y-1">
+              {projects.length === 0 ? (
+                <div className="px-3 py-4 text-sm text-muted-foreground">{t('noProjects')}</div>
+              ) : (
+                projects.map((item) => {
+                  const projectSessions = sessionsForProject(item.id)
+                  const expanded = expandedProjectIds.has(item.id)
+                  const active = activeProject?.id === item.id
+
+                  return (
+                    <div key={item.id}>
+                      <div
+                        className={cn(
+                          'group flex items-center gap-1 rounded-md px-1 py-1.5',
+                          active ? 'bg-secondary' : 'hover:bg-secondary/70',
+                        )}
+                      >
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-6 shrink-0"
+                          onClick={() => toggleProjectExpanded(item.id)}
+                          aria-label={expanded ? t('collapseProject') : t('expandProject')}
+                        >
+                          {expanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+                        </Button>
+                        <button
+                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                          type="button"
+                          title={item.path}
+                          onClick={() => startNewProjectChat(item)}
+                        >
+                          <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
+                          <span className="truncate text-sm font-medium">{item.name}</span>
+                        </button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 shrink-0 opacity-0 group-hover:opacity-100"
+                          onClick={() => startNewProjectChat(item)}
+                          aria-label={t('newProjectChat')}
+                        >
+                          <MessageSquarePlus className="size-4" />
+                        </Button>
+                      </div>
+
+                      {expanded ? (
+                        <div className="ml-8 mt-1 space-y-1">
+                          {projectSessions.length === 0 ? (
+                            <div className="px-2 py-1.5 text-sm text-muted-foreground/70">{t('noConversations')}</div>
+                          ) : (
+                            projectSessions.map((session) => (
+                              <div
+                                key={session.id}
+                                className={cn(
+                                  'group flex items-start gap-1 rounded-md px-2 py-1.5',
+                                  currentSessionId === session.id ? 'bg-secondary' : 'hover:bg-secondary/70',
+                                )}
+                              >
+                                <button className="min-w-0 flex-1 text-left" type="button" onClick={() => loadSession(session.id)}>
+                                  <div className="truncate text-sm">{sessionTitle(session.title)}</div>
+                                  <div className="mt-0.5 truncate text-xs text-muted-foreground">{formatSessionTime(session.lastModified)}</div>
+                                </button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-6 shrink-0 opacity-0 group-hover:opacity-100"
+                                  onClick={() => deleteSession(session.id)}
+                                  aria-label={t('deleteSession')}
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </Button>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-2 px-1">
+              <div className="text-sm font-medium text-muted-foreground">{t('conversations')}</div>
+              <div className="flex items-center gap-1">
+                <Button variant="ghost" size="icon" className="size-7" aria-label={t('filter')}>
+                  <PanelLeftClose className="size-3.5 rotate-90" />
+                </Button>
+                <Button variant="ghost" size="icon" className="size-7" onClick={startNewGlobalChat} aria-label={t('newChat')}>
+                  <MessageSquarePlus className="size-4" />
+                </Button>
+              </div>
+            </div>
+
+            {globalSessions.length === 0 ? (
+              <div className="px-3 py-4 text-sm text-muted-foreground">{t('noSavedConversations')}</div>
+            ) : (
+              <div className="space-y-1">
+                {globalSessions.map((session) => (
+                  <div
+                    key={session.id}
+                    className={cn(
+                      'group flex items-start gap-2 rounded-md px-2 py-2 text-left',
+                      currentSessionId === session.id ? 'bg-secondary' : 'hover:bg-secondary/70',
+                    )}
+                  >
+                    <button className="min-w-0 flex-1 text-left" type="button" onClick={() => loadSession(session.id)}>
+                      <div className="truncate text-sm font-medium">{sessionTitle(session.title)}</div>
+                      <div className="mt-0.5 truncate text-xs text-muted-foreground">{formatSessionTime(session.lastModified)}</div>
+                    </button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 opacity-0 group-hover:opacity-100"
+                      onClick={() => deleteSession(session.id)}
+                      aria-label={t('deleteSession')}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </aside>
 
@@ -890,23 +1138,26 @@ function App() {
             size="icon"
             className="hidden md:inline-flex"
             onClick={() => setSidebarOpen((value) => !value)}
-            aria-label="Toggle sidebar"
+            aria-label={t('toggleSidebar')}
           >
             {sidebarOpen ? <PanelLeftClose className="size-4" /> : <PanelLeftOpen className="size-4" />}
           </Button>
-          <Button variant="ghost" size="icon" className="md:hidden" onClick={startNewChat} aria-label="New chat">
+          <Button variant="ghost" size="icon" className="md:hidden" onClick={startNewGlobalChat} aria-label={t('newChat')}>
             <Plus className="size-4" />
           </Button>
 
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold">{currentTitle}</div>
+            <div className="truncate text-xs text-muted-foreground">
+              {chatScope === 'project' ? (activeProject?.name ?? t('projectChat')) : t('normalChat')}
+            </div>
+            <div className="truncate text-sm font-semibold">{sessionTitle(currentTitle)}</div>
           </div>
 
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => SettingsDialog.open([createCustomProvidersOnlyTab(), new ProxyTab()])}
-            aria-label="Settings"
+            onClick={() => SettingsDialog.open([createLanguageSettingsTab(), createCustomProvidersOnlyTab(), new ProxyTab()])}
+            aria-label={t('settings')}
           >
             <Settings className="size-4" />
           </Button>
@@ -919,6 +1170,8 @@ function App() {
               onModelSelect={openCustomModelSelector}
               revision={chatPanelRevision}
               yoloMode={yoloMode}
+              workspaceToolsEnabled={Boolean(activeProject?.id)}
+              projectId={chatScope === 'project' ? activeProject?.id : undefined}
               onToggleYoloMode={toggleYoloMode}
               onRollbackFromMessage={rollbackFromMessage}
               onCopyAnswer={copyAnswer}

@@ -5,6 +5,17 @@
   --radius: 0.5rem;
 }
 
+/*
+ * pi-web-ui ships prebuilt Tailwind utilities, but our local Tailwind build is
+ * emitted after that import. For SettingsDialog's desktop sidebar, the earlier
+ * `md:block` can otherwise be overridden by our later `.hidden` utility.
+ */
+@media (width >= 48rem) {
+  .md\:block {
+    display: block;
+  }
+}
+
 @layer base {
   :root {
     color-scheme: light;

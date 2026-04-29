@@ -1,4 +1,5 @@
 import { type Api, type Model, modelsAreEqual } from '@mariozechner/pi-ai'
+import { t } from '@/lib/i18n'
 
 type AnyModel = Model<Api>
 
@@ -45,16 +46,16 @@ export function openCustomOnlyModelSelector(
 
   const title = document.createElement('div')
   title.className = 'text-sm font-semibold'
-  title.textContent = '选择自定义模型'
+  title.textContent = t('selectCustomModel')
 
-  const closeButton = createButton('rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-secondary', '关闭')
+  const closeButton = createButton('rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-secondary', t('close'))
   closeButton.onclick = () => overlay.remove()
 
   titleRow.append(title, closeButton)
 
   const search = document.createElement('input')
   search.className = 'w-full rounded-md border border-input bg-background px-3 py-2 text-sm'
-  search.placeholder = '搜索模型...'
+  search.placeholder = t('searchModels')
 
   header.append(titleRow, search)
 
@@ -81,7 +82,7 @@ export function openCustomOnlyModelSelector(
     if (filtered.length === 0) {
       const empty = document.createElement('div')
       empty.className = 'p-8 text-center text-sm text-muted-foreground'
-      empty.textContent = '没有匹配的自定义模型'
+      empty.textContent = t('noMatchingCustomModels')
       list.append(empty)
       return
     }

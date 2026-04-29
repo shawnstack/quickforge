@@ -6,6 +6,7 @@ import {
 } from '@mariozechner/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
 import type { Api, Model } from '@mariozechner/pi-ai'
+import { t } from '@/lib/i18n'
 import { DEFAULT_CONNECTION, type ConnectionForm } from '@/lib/pi-chat'
 
 type ProviderProtocol = Extract<CustomProviderType, 'openai-completions' | 'anthropic-messages'>
@@ -35,7 +36,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
   }
 
   override getTabName(): string {
-    return 'Custom Models'
+    return t('customModels')
   }
 
   private async loadProviders() {
@@ -124,7 +125,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     const modelId = this.form.modelId.trim()
 
     if (!name || !baseUrl || !modelId) {
-      alert('请填写提供商名称、Base URL 和模型 ID。')
+      alert(t('fillProviderBaseUrlModel'))
       return
     }
 
@@ -158,12 +159,12 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       await this.loadProviders()
     } catch (error) {
       console.error('Failed to save custom model:', error)
-      alert('保存自定义模型失败。')
+      alert(t('saveCustomModelFailed'))
     }
   }
 
   private async deleteProvider(provider: CustomProvider) {
-    if (!confirm(`确定删除 ${provider.name} 吗？`)) return
+    if (!confirm(t('confirmDeleteProvider', { name: provider.name }))) return
 
     try {
       const storage = getAppStorage()
@@ -172,7 +173,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       await this.loadProviders()
     } catch (error) {
       console.error('Failed to delete custom provider:', error)
-      alert('删除失败。')
+      alert(t('deleteFailed'))
     }
   }
 
@@ -187,10 +188,10 @@ export class CustomProvidersOnlyTab extends SettingsTab {
             <div class="text-sm font-medium text-foreground">${provider.name}</div>
             <div class="mt-1 break-all text-xs text-muted-foreground">${provider.baseUrl}</div>
             <div class="mt-2 text-xs text-muted-foreground">
-              协议：${provider.type === 'anthropic-messages' ? 'Anthropic Messages' : 'OpenAI Compatible'}
+              ${t('providerProtocol')}: ${provider.type === 'anthropic-messages' ? 'Anthropic Messages' : 'OpenAI Compatible'}
             </div>
             <div class="mt-1 text-xs text-muted-foreground">
-              模型：${model?.id ?? '未添加模型'}${modelCount > 1 ? ` 等 ${modelCount} 个` : ''}
+              ${t('model')}: ${model?.id ?? t('noModelAdded')}${modelCount > 1 ? ` ${t('andMoreModels', { count: modelCount })}` : ''}
             </div>
           </div>
           <div class="flex shrink-0 gap-2">
@@ -199,14 +200,14 @@ export class CustomProvidersOnlyTab extends SettingsTab {
               type="button"
               @click=${() => this.openEditForm(provider)}
             >
-              编辑模型
+              ${t('editModel')}
             </button>
             <button
               class="rounded-md px-3 py-1.5 text-sm text-destructive hover:bg-secondary"
               type="button"
               @click=${() => this.deleteProvider(provider)}
             >
-              删除
+              ${t('delete')}
             </button>
           </div>
         </div>
@@ -218,22 +219,22 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     return html`
       <div class="rounded-lg border border-border p-4">
         <div class="mb-4 text-sm font-semibold text-foreground">
-          ${this.editingProviderId ? '编辑自定义模型' : '添加自定义模型'}
+          ${this.editingProviderId ? t('editCustomModel') : t('addCustomModel')}
         </div>
 
         <div class="grid gap-4">
           <label class="grid gap-1.5 text-sm">
-            <span class="text-foreground">提供商名称</span>
+            <span class="text-foreground">${t('providerName')}</span>
             <input
               class="rounded-md border border-input bg-background px-3 py-2 text-sm"
               .value=${this.form.name}
               @input=${(event: Event) => this.updateForm('name', (event.target as HTMLInputElement).value)}
-              placeholder="例如：LiteLLM"
+              placeholder=${t('providerNamePlaceholder')}
             />
           </label>
 
           <label class="grid gap-1.5 text-sm">
-            <span class="text-foreground">协议类型</span>
+            <span class="text-foreground">${t('protocolType')}</span>
             <select
               class="rounded-md border border-input bg-background px-3 py-2 text-sm"
               .value=${this.form.protocol}
@@ -243,7 +244,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
               <option value="anthropic-messages">Anthropic Messages</option>
             </select>
             <span class="text-xs text-muted-foreground">
-              LiteLLM、OpenRouter、大多数 /v1/chat/completions 服务请选择 OpenAI Compatible；直连 Anthropic API 才选 Anthropic Messages。
+              ${t('protocolHelp')}
             </span>
           </label>
 
@@ -253,34 +254,34 @@ export class CustomProvidersOnlyTab extends SettingsTab {
               class="rounded-md border border-input bg-background px-3 py-2 text-sm"
               .value=${this.form.baseUrl}
               @input=${(event: Event) => this.updateForm('baseUrl', (event.target as HTMLInputElement).value)}
-              placeholder=${this.form.protocol === 'anthropic-messages' ? '例如：https://api.anthropic.com' : '例如：http://localhost:4000/v1'}
+              placeholder=${this.form.protocol === 'anthropic-messages' ? 'e.g., https://api.anthropic.com' : 'e.g., http://localhost:4000/v1'}
             />
           </label>
 
           <label class="grid gap-1.5 text-sm">
-            <span class="text-foreground">API Key</span>
+            <span class="text-foreground">${t('apiKey')}</span>
             <input
               class="rounded-md border border-input bg-background px-3 py-2 text-sm"
               .value=${this.form.apiKey}
               type="password"
               @input=${(event: Event) => this.updateForm('apiKey', (event.target as HTMLInputElement).value)}
-              placeholder="没有可以留空"
+              placeholder=${t('apiKeyPlaceholder')}
             />
           </label>
 
           <label class="grid gap-1.5 text-sm">
-            <span class="text-foreground">模型 ID</span>
+            <span class="text-foreground">${t('modelId')}</span>
             <input
               class="rounded-md border border-input bg-background px-3 py-2 text-sm"
               .value=${this.form.modelId}
               @input=${(event: Event) => this.updateForm('modelId', (event.target as HTMLInputElement).value)}
-              placeholder="例如：anthropic/claude-sonnet-4"
+              placeholder=${t('modelIdPlaceholder')}
             />
           </label>
 
           <div class="grid gap-4 sm:grid-cols-2">
             <label class="grid gap-1.5 text-sm">
-              <span class="text-foreground">Context Window</span>
+              <span class="text-foreground">${t('contextWindow')}</span>
               <input
                 class="rounded-md border border-input bg-background px-3 py-2 text-sm"
                 .value=${String(this.form.contextWindow)}
@@ -291,7 +292,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
             </label>
 
             <label class="grid gap-1.5 text-sm">
-              <span class="text-foreground">Max Tokens</span>
+              <span class="text-foreground">${t('maxTokens')}</span>
               <input
                 class="rounded-md border border-input bg-background px-3 py-2 text-sm"
                 .value=${String(this.form.maxTokens)}
@@ -304,10 +305,10 @@ export class CustomProvidersOnlyTab extends SettingsTab {
 
         <div class="mt-4 flex justify-end gap-2">
           <button class="rounded-md px-3 py-2 text-sm hover:bg-secondary" type="button" @click=${() => this.closeForm()}>
-            取消
+            ${t('cancel')}
           </button>
           <button class="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground" type="button" @click=${() => this.saveModel()}>
-            保存
+            ${t('save')}
           </button>
         </div>
       </div>
@@ -319,24 +320,24 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       <div class="flex flex-col gap-6">
         <div class="flex items-center justify-between gap-4">
           <div>
-            <h3 class="mb-2 text-sm font-semibold text-foreground">自定义模型</h3>
-            <p class="text-sm text-muted-foreground">只使用你配置的自定义 OpenAI-Compatible 模型。</p>
+            <h3 class="mb-2 text-sm font-semibold text-foreground">${t('customModelsTitle')}</h3>
+            <p class="text-sm text-muted-foreground">${t('customModelsDescription')}</p>
           </div>
           <button
             class="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground"
             type="button"
             @click=${() => this.openAddForm()}
           >
-            添加模型
+            ${t('addModel')}
           </button>
         </div>
 
         ${this.formOpen ? this.renderForm() : ''}
 
         ${this.loading
-          ? html`<div class="py-8 text-center text-sm text-muted-foreground">加载中...</div>`
+          ? html`<div class="py-8 text-center text-sm text-muted-foreground">${t('loading')}</div>`
           : this.providers.length === 0
-            ? html`<div class="py-8 text-center text-sm text-muted-foreground">还没有自定义模型，请点击“添加模型”。</div>`
+            ? html`<div class="py-8 text-center text-sm text-muted-foreground">${t('noCustomModels')}</div>`
             : html`<div class="flex flex-col gap-3">${this.providers.map((provider) => this.renderProvider(provider))}</div>`}
       </div>
     `

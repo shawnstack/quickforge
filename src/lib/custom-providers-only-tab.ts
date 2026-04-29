@@ -7,20 +7,39 @@ import {
 import { html, type TemplateResult } from 'lit'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import { t } from '@/lib/i18n'
-import { DEFAULT_CONNECTION, type ConnectionForm } from '@/lib/pi-chat'
+import { DEFAULT_CONNECTION } from '@/lib/pi-chat'
 
 type ProviderProtocol = Extract<CustomProviderType, 'openai-completions' | 'anthropic-messages'>
 type AnyModel = Model<Api>
-type ProviderForm = ConnectionForm & { providerId?: string; protocol: ProviderProtocol }
+
+type ModelForm = {
+  modelId: string
+  contextWindow: number
+  maxTokens: number
+}
+
+type ProviderForm = {
+  providerId?: string
+  id?: string
+  name: string
+  baseUrl: string
+  apiKey: string
+  protocol: ProviderProtocol
+  models: ModelForm[]
+}
+
+const emptyModelForm = (): ModelForm => ({
+  modelId: '',
+  contextWindow: DEFAULT_CONNECTION.contextWindow,
+  maxTokens: DEFAULT_CONNECTION.maxTokens,
+})
 
 const emptyForm = (): ProviderForm => ({
   name: DEFAULT_CONNECTION.name,
   baseUrl: DEFAULT_CONNECTION.baseUrl,
   apiKey: '',
-  modelId: DEFAULT_CONNECTION.modelId,
-  contextWindow: DEFAULT_CONNECTION.contextWindow,
-  maxTokens: DEFAULT_CONNECTION.maxTokens,
   protocol: 'openai-completions',
+  models: [emptyModelForm()],
 })
 
 export class CustomProvidersOnlyTab extends SettingsTab {
@@ -62,8 +81,17 @@ export class CustomProvidersOnlyTab extends SettingsTab {
   }
 
   private async openEditForm(provider: CustomProvider) {
-    const model = provider.models?.[0]
     const apiKey = (await getAppStorage().providerKeys.get(provider.name)) ?? provider.apiKey ?? ''
+
+    const existingModels = provider.models ?? []
+    const models: ModelForm[] =
+      existingModels.length > 0
+        ? existingModels.map((model) => ({
+            modelId: model.id,
+            contextWindow: model.contextWindow ?? DEFAULT_CONNECTION.contextWindow,
+            maxTokens: model.maxTokens ?? DEFAULT_CONNECTION.maxTokens,
+          }))
+        : [emptyModelForm()]
 
     this.editingProviderId = provider.id
     this.form = {
@@ -72,10 +100,8 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       name: provider.name,
       baseUrl: provider.baseUrl,
       apiKey,
-      modelId: model?.id ?? '',
       protocol: provider.type === 'anthropic-messages' ? 'anthropic-messages' : 'openai-completions',
-      contextWindow: model?.contextWindow ?? DEFAULT_CONNECTION.contextWindow,
-      maxTokens: model?.maxTokens ?? DEFAULT_CONNECTION.maxTokens,
+      models,
     }
     this.formOpen = true
     this.requestUpdate()
@@ -93,18 +119,40 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     this.requestUpdate()
   }
 
-  private buildModel(name: string, baseUrl: string, modelId: string): AnyModel {
+  private updateModelField(index: number, key: keyof ModelForm, value: string | number) {
+    const models = this.form.models.map((model, i) =>
+      i === index ? { ...model, [key]: value } : model,
+    )
+    this.form = { ...this.form, models }
+    this.requestUpdate()
+  }
+
+  private addModelRow() {
+    this.form = { ...this.form, models: [...this.form.models, emptyModelForm()] }
+    this.requestUpdate()
+  }
+
+  private removeModelRow(index: number) {
+    const models = this.form.models.filter((_, i) => i !== index)
+    this.form = { ...this.form, models }
+    this.requestUpdate()
+  }
+
+  private buildModel(modelForm: ModelForm): AnyModel {
+    const name = this.form.name.trim()
+    const baseUrl = this.form.baseUrl.trim()
+
     return {
-      id: modelId,
-      name: `${modelId} (${name})`,
+      id: modelForm.modelId,
+      name: `${modelForm.modelId} (${name})`,
       api: this.form.protocol,
       provider: name,
       baseUrl: baseUrl.replace(/\/$/, ''),
       reasoning: false,
       input: ['text', 'image'],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: Number(this.form.contextWindow) || DEFAULT_CONNECTION.contextWindow,
-      maxTokens: Number(this.form.maxTokens) || DEFAULT_CONNECTION.maxTokens,
+      contextWindow: Number(modelForm.contextWindow) || DEFAULT_CONNECTION.contextWindow,
+      maxTokens: Number(modelForm.maxTokens) || DEFAULT_CONNECTION.maxTokens,
       compat:
         this.form.protocol === 'openai-completions'
           ? {
@@ -122,14 +170,29 @@ export class CustomProvidersOnlyTab extends SettingsTab {
   private async saveModel() {
     const name = this.form.name.trim()
     const baseUrl = this.form.baseUrl.trim()
-    const modelId = this.form.modelId.trim()
 
-    if (!name || !baseUrl || !modelId) {
+    if (!name || !baseUrl) {
       alert(t('fillProviderBaseUrlModel'))
       return
     }
 
-    const model = this.buildModel(name, baseUrl, modelId)
+    // Filter out models with empty IDs
+    const filledModels = this.form.models.filter((model) => model.modelId.trim())
+
+    if (filledModels.length === 0) {
+      alert(t('atLeastOneModel'))
+      return
+    }
+
+    // Check for duplicate model IDs
+    const ids = filledModels.map((model) => model.modelId.trim())
+    const uniqueIds = new Set(ids)
+    if (uniqueIds.size !== ids.length) {
+      alert(t('duplicateModelId'))
+      return
+    }
+
+    const models = filledModels.map((modelForm) => this.buildModel(modelForm))
     const apiKey = this.form.apiKey.trim()
     const oldProvider = this.editingProviderId
       ? this.providers.find((provider) => provider.id === this.editingProviderId)
@@ -139,9 +202,9 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       id: this.editingProviderId ?? crypto.randomUUID(),
       name,
       type: this.form.protocol,
-      baseUrl: model.baseUrl,
+      baseUrl: models[0].baseUrl,
       apiKey: apiKey || undefined,
-      models: [model],
+      models,
     }
 
     try {
@@ -178,8 +241,8 @@ export class CustomProvidersOnlyTab extends SettingsTab {
   }
 
   private renderProvider(provider: CustomProvider): TemplateResult {
-    const model = provider.models?.[0]
-    const modelCount = provider.models?.length ?? 0
+    const models = provider.models ?? []
+    const modelCount = models.length
 
     return html`
       <div class="rounded-lg border border-border p-4">
@@ -190,9 +253,21 @@ export class CustomProvidersOnlyTab extends SettingsTab {
             <div class="mt-2 text-xs text-muted-foreground">
               ${t('providerProtocol')}: ${provider.type === 'anthropic-messages' ? 'Anthropic Messages' : 'OpenAI Compatible'}
             </div>
-            <div class="mt-1 text-xs text-muted-foreground">
-              ${t('model')}: ${model?.id ?? t('noModelAdded')}${modelCount > 1 ? ` ${t('andMoreModels', { count: modelCount })}` : ''}
-            </div>
+            ${modelCount === 0
+              ? html`<div class="mt-1 text-xs text-muted-foreground">${t('noModelAdded')}</div>`
+              : html`
+                  <div class="mt-2 text-xs text-muted-foreground">${t('modelsCount', { count: modelCount })}</div>
+                  <div class="mt-1 flex flex-wrap gap-1">
+                    ${models.map(
+                      (model) => html`
+                        <span class="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-0.5 text-xs text-foreground">
+                          <span class="font-medium">${model.id}</span>
+                          <span class="text-muted-foreground">${model.contextWindow}/${model.maxTokens}</span>
+                        </span>
+                      `,
+                    )}
+                  </div>
+                `}
           </div>
           <div class="flex shrink-0 gap-2">
             <button
@@ -209,6 +284,61 @@ export class CustomProvidersOnlyTab extends SettingsTab {
             >
               ${t('delete')}
             </button>
+          </div>
+        </div>
+      </div>
+    `
+  }
+
+  private renderModelRow(model: ModelForm, index: number): TemplateResult {
+    return html`
+      <div class="rounded-md border border-border p-3">
+        <div class="mb-2 flex items-center justify-between">
+          <span class="text-xs font-medium text-muted-foreground">${t('modelIndex', { index: index + 1 })}</span>
+          ${this.form.models.length > 1
+            ? html`
+                <button
+                  class="rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-destructive hover:bg-secondary"
+                  type="button"
+                  @click=${() => this.removeModelRow(index)}
+                >
+                  ✕
+                </button>
+              `
+            : ''}
+        </div>
+        <div class="grid gap-3">
+          <label class="grid gap-1 text-xs">
+            <span class="text-muted-foreground">${t('modelId')}</span>
+            <input
+              class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+              .value=${model.modelId}
+              @input=${(event: Event) =>
+                this.updateModelField(index, 'modelId', (event.target as HTMLInputElement).value)}
+              placeholder=${t('modelIdPlaceholder')}
+            />
+          </label>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="grid gap-1 text-xs">
+              <span class="text-muted-foreground">${t('contextWindow')}</span>
+              <input
+                class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                .value=${String(model.contextWindow)}
+                type="number"
+                @input=${(event: Event) =>
+                  this.updateModelField(index, 'contextWindow', Number((event.target as HTMLInputElement).value))}
+              />
+            </label>
+            <label class="grid gap-1 text-xs">
+              <span class="text-muted-foreground">${t('maxTokens')}</span>
+              <input
+                class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                .value=${String(model.maxTokens)}
+                type="number"
+                @input=${(event: Event) =>
+                  this.updateModelField(index, 'maxTokens', Number((event.target as HTMLInputElement).value))}
+              />
+            </label>
           </div>
         </div>
       </div>
@@ -238,7 +368,8 @@ export class CustomProvidersOnlyTab extends SettingsTab {
             <select
               class="rounded-md border border-input bg-background px-3 py-2 text-sm"
               .value=${this.form.protocol}
-              @change=${(event: Event) => this.updateForm('protocol', (event.target as HTMLSelectElement).value as ProviderProtocol)}
+              @change=${(event: Event) =>
+                this.updateForm('protocol', (event.target as HTMLSelectElement).value as ProviderProtocol)}
             >
               <option value="openai-completions">OpenAI Compatible / Chat Completions</option>
               <option value="anthropic-messages">Anthropic Messages</option>
@@ -254,7 +385,9 @@ export class CustomProvidersOnlyTab extends SettingsTab {
               class="rounded-md border border-input bg-background px-3 py-2 text-sm"
               .value=${this.form.baseUrl}
               @input=${(event: Event) => this.updateForm('baseUrl', (event.target as HTMLInputElement).value)}
-              placeholder=${this.form.protocol === 'anthropic-messages' ? 'e.g., https://api.anthropic.com' : 'e.g., http://localhost:4000/v1'}
+              placeholder=${this.form.protocol === 'anthropic-messages'
+                ? 'e.g., https://api.anthropic.com'
+                : 'e.g., http://localhost:4000/v1'}
             />
           </label>
 
@@ -269,37 +402,18 @@ export class CustomProvidersOnlyTab extends SettingsTab {
             />
           </label>
 
-          <label class="grid gap-1.5 text-sm">
-            <span class="text-foreground">${t('modelId')}</span>
-            <input
-              class="rounded-md border border-input bg-background px-3 py-2 text-sm"
-              .value=${this.form.modelId}
-              @input=${(event: Event) => this.updateForm('modelId', (event.target as HTMLInputElement).value)}
-              placeholder=${t('modelIdPlaceholder')}
-            />
-          </label>
-
-          <div class="grid gap-4 sm:grid-cols-2">
-            <label class="grid gap-1.5 text-sm">
-              <span class="text-foreground">${t('contextWindow')}</span>
-              <input
-                class="rounded-md border border-input bg-background px-3 py-2 text-sm"
-                .value=${String(this.form.contextWindow)}
-                type="number"
-                @input=${(event: Event) =>
-                  this.updateForm('contextWindow', Number((event.target as HTMLInputElement).value))}
-              />
-            </label>
-
-            <label class="grid gap-1.5 text-sm">
-              <span class="text-foreground">${t('maxTokens')}</span>
-              <input
-                class="rounded-md border border-input bg-background px-3 py-2 text-sm"
-                .value=${String(this.form.maxTokens)}
-                type="number"
-                @input=${(event: Event) => this.updateForm('maxTokens', Number((event.target as HTMLInputElement).value))}
-              />
-            </label>
+          <div class="grid gap-3">
+            <div class="flex items-center justify-between">
+              <span class="text-sm font-medium text-foreground">${t('modelsList')}</span>
+              <button
+                class="rounded-md px-2 py-1 text-xs hover:bg-secondary"
+                type="button"
+                @click=${() => this.addModelRow()}
+              >
+                + ${t('addModel')}
+              </button>
+            </div>
+            ${this.form.models.map((model, index) => this.renderModelRow(model, index))}
           </div>
         </div>
 
@@ -307,7 +421,11 @@ export class CustomProvidersOnlyTab extends SettingsTab {
           <button class="rounded-md px-3 py-2 text-sm hover:bg-secondary" type="button" @click=${() => this.closeForm()}>
             ${t('cancel')}
           </button>
-          <button class="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground" type="button" @click=${() => this.saveModel()}>
+          <button
+            class="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground"
+            type="button"
+            @click=${() => this.saveModel()}
+          >
             ${t('save')}
           </button>
         </div>

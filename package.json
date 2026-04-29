@@ -1,8 +1,11 @@
 {
   "name": "quickforge",
-  "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "bin": {
+    "quickforge": "bin/quickforge.mjs",
+    "qf": "bin/quickforge.mjs"
+  },
   "scripts": {
     "dev": "node server/index.mjs --dev",
     "dev:web": "vite --host 127.0.0.1 --port 5176 --strictPort",

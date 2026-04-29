@@ -31,6 +31,7 @@ import {
   saveActiveModel,
   saveYoloMode,
 } from '@/lib/pi-chat'
+import { showConfirm } from '@/components/ui/confirm-dialog'
 import { createCustomProvidersOnlyTab } from '@/lib/custom-providers-only-tab'
 import { getDateLocale, t } from '@/lib/i18n'
 import { createLanguageSettingsTab } from '@/lib/language-settings-tab'
@@ -840,6 +841,15 @@ function App() {
     async (sessionId: string) => {
       const storage = storageRef.current
       if (!storage) return
+
+      const confirmed = await showConfirm({
+        title: t('deleteSession'),
+        description: t('deleteSessionConfirm'),
+        confirmLabel: t('confirmDelete'),
+        cancelLabel: t('cancel'),
+      })
+      if (!confirmed) return
+
       const task = taskMapRef.current.get(sessionId)
       task?.unsubscribe()
       taskMapRef.current.delete(sessionId)
@@ -855,6 +865,40 @@ function App() {
       }
     },
     [refreshSessions, startNewGlobalChat],
+  )
+
+  const deleteProject = useCallback(
+    async (projectId: string) => {
+      const project = projects.find((p) => p.id === projectId)
+      const projectName = project?.name ?? projectId
+
+      const confirmed = await showConfirm({
+        title: t('deleteProject'),
+        description: t('deleteProjectConfirm').replace('{name}', projectName),
+        confirmLabel: t('confirmDelete'),
+        cancelLabel: t('cancel'),
+      })
+      if (!confirmed) return
+
+      const response = await fetch(`/api/project/${encodeURIComponent(projectId)}`, {
+        method: 'DELETE',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(payload?.error || `Failed to delete project`)
+      setActiveProject(payload.project)
+      setProjects(payload.projects)
+      setExpandedProjectIds((current) => {
+        const next = new Set(current)
+        next.delete(projectId)
+        return next
+      })
+      await refreshSessions()
+      if (activeProjectRef.current?.id === projectId) {
+        activeProjectRef.current = payload.project
+        setChatPanelRevision((value) => value + 1)
+      }
+    },
+    [projects, refreshSessions],
   )
 
   useEffect(() => {
@@ -1218,6 +1262,15 @@ function App() {
                           aria-label={t('newProjectChat')}
                         >
                           <MessageSquarePlus className="size-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 shrink-0 opacity-0 group-hover:opacity-100"
+                          onClick={() => deleteProject(item.id)}
+                          aria-label={t('deleteProject')}
+                        >
+                          <Trash2 className="size-4" />
                         </Button>
                       </div>
 

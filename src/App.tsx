@@ -142,11 +142,12 @@ function generateTitle(messages: AgentMessage[]) {
   return normalized.length > 46 ? `${normalized.slice(0, 43)}...` : normalized
 }
 
+function hasUserMessage(messages: AgentMessage[]) {
+  return messages.some((message) => message.role === 'user' || message.role === 'user-with-attachments')
+}
+
 function shouldSaveSession(messages: AgentMessage[]) {
-  return (
-    messages.some((message) => message.role === 'user' || message.role === 'user-with-attachments') &&
-    messages.some((message) => message.role === 'assistant')
-  )
+  return hasUserMessage(messages) && messages.some((message) => message.role === 'assistant')
 }
 
 function summarizePreview(messages: AgentMessage[]) {
@@ -209,11 +210,16 @@ type ProjectInfo = {
 
 type ChatScope = 'global' | 'project'
 
+type BackgroundTaskStatus = 'running' | 'idle' | 'error' | 'aborted'
+
 type FastCodeSessionMetadata = SessionMetadata & {
   scope?: ChatScope
   projectId?: string
   projectName?: string
   projectPath?: string
+  taskStatus?: BackgroundTaskStatus
+  taskStartedAt?: string
+  taskFinishedAt?: string
 }
 
 type FastCodeSessionData = SessionData & {
@@ -221,6 +227,22 @@ type FastCodeSessionData = SessionData & {
   projectId?: string
   projectName?: string
   projectPath?: string
+  taskStatus?: BackgroundTaskStatus
+  taskStartedAt?: string
+  taskFinishedAt?: string
+}
+
+type BackgroundTask = {
+  sessionId: string
+  agent: Agent
+  scope: ChatScope
+  project?: ProjectInfo
+  title: string
+  createdAt?: string
+  status: BackgroundTaskStatus
+  startedAt?: string
+  finishedAt?: string
+  unsubscribe: () => void
 }
 
 function sessionScope(session: FastCodeSessionMetadata | FastCodeSessionData | null | undefined): ChatScope {
@@ -434,7 +456,7 @@ function App() {
   const storageRef = useRef<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
   const agentRef = useRef<Agent | null>(null)
   const activeModelRef = useRef<Model<Api>>(buildConnectionModel(DEFAULT_CONNECTION))
-  const unsubscribeRef = useRef<(() => void) | null>(null)
+  const taskMapRef = useRef<Map<string, BackgroundTask>>(new Map())
   const persistQueueRef = useRef(Promise.resolve())
   const yoloModeRef = useRef(false)
   const currentChatScopeRef = useRef<ChatScope>('global')
@@ -452,7 +474,9 @@ function App() {
   const [chatPanelRevision, setChatPanelRevision] = useState(0)
   const [yoloMode, setYoloMode] = useState(false)
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
+  const [taskStatuses, setTaskStatuses] = useState<Record<string, BackgroundTaskStatus>>({})
   const [chatScope, setChatScope] = useState<ChatScope>('global')
+  const [currentToolProject, setCurrentToolProject] = useState<ProjectInfo>()
   const [activeProject, setActiveProject] = useState<ProjectInfo>()
   const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => new Set())
@@ -529,68 +553,100 @@ function App() {
     setSessions((await storage.sessions.getAllMetadata()) as FastCodeSessionMetadata[])
   }, [])
 
-  const persistSession = useCallback(
-    async (nextAgent: Agent) => {
+  const persistTaskSession = useCallback(
+    async (task: BackgroundTask) => {
       const storage = storageRef.current
-      if (!storage || !shouldSaveSession(nextAgent.state.messages)) return
+      const messages = task.agent.state.messages
+      if (!storage || !hasUserMessage(messages)) return
 
       const now = new Date().toISOString()
-      const id = currentSessionIdRef.current ?? crypto.randomUUID()
-      const createdAt = currentCreatedAtRef.current ?? now
-      const title =
-        currentTitleRef.current === 'New chat'
-          ? generateTitle(nextAgent.state.messages)
-          : currentTitleRef.current
-      const scope = currentChatScopeRef.current
-      const project = scope === 'project' ? activeProjectRef.current : undefined
+      const createdAt = task.createdAt ?? now
+      const title = task.title === 'New chat' ? generateTitle(messages) : task.title
+      const finishedAt = task.status === 'running' ? undefined : (task.finishedAt ?? now)
 
-      currentSessionIdRef.current = id
-      currentCreatedAtRef.current = createdAt
-      currentTitleRef.current = title
-      setCurrentSessionId(id)
-      setCurrentTitle(title)
+      task.createdAt = createdAt
+      task.title = title
+      task.finishedAt = finishedAt
+
+      if (currentSessionIdRef.current === task.sessionId) {
+        currentCreatedAtRef.current = createdAt
+        currentTitleRef.current = title
+        setCurrentTitle(title)
+      }
 
       const sessionData: FastCodeSessionData = {
-        id,
+        id: task.sessionId,
         title,
-        model: nextAgent.state.model!,
-        thinkingLevel: nextAgent.state.thinkingLevel,
-        messages: nextAgent.state.messages,
+        model: task.agent.state.model!,
+        thinkingLevel: task.agent.state.thinkingLevel,
+        messages,
         createdAt,
         lastModified: now,
-        scope,
-        projectId: project?.id,
-        projectName: project?.name,
-        projectPath: project?.path,
+        scope: task.scope,
+        projectId: task.project?.id,
+        projectName: task.project?.name,
+        projectPath: task.project?.path,
+        taskStatus: task.status,
+        taskStartedAt: task.startedAt,
+        taskFinishedAt: finishedAt,
       }
 
       const metadata: FastCodeSessionMetadata = {
-        id,
+        id: task.sessionId,
         title,
         createdAt,
         lastModified: now,
-        messageCount: nextAgent.state.messages.length,
-        usage: calculateUsage(nextAgent.state.messages),
-        thinkingLevel: nextAgent.state.thinkingLevel,
-        preview: summarizePreview(nextAgent.state.messages),
-        scope,
-        projectId: project?.id,
-        projectName: project?.name,
-        projectPath: project?.path,
+        messageCount: messages.length,
+        usage: calculateUsage(messages),
+        thinkingLevel: task.agent.state.thinkingLevel,
+        preview: summarizePreview(messages),
+        scope: task.scope,
+        projectId: task.project?.id,
+        projectName: task.project?.name,
+        projectPath: task.project?.path,
+        taskStatus: task.status,
+        taskStartedAt: task.startedAt,
+        taskFinishedAt: finishedAt,
       }
 
       await storage.sessions.save(sessionData, metadata)
-      const url = new URL(window.location.href)
-      url.searchParams.set('session', id)
-      window.history.replaceState({}, '', url)
       await refreshSessions()
     },
     [refreshSessions],
   )
 
+  const attachTaskToView = useCallback((task: BackgroundTask) => {
+    currentChatScopeRef.current = task.scope
+    currentSessionIdRef.current = task.sessionId
+    currentCreatedAtRef.current = task.createdAt
+    currentTitleRef.current = task.title
+    setChatScope(task.scope)
+    setCurrentSessionId(task.sessionId)
+    setCurrentTitle(task.title)
+    setCurrentToolProject(task.project)
+    agentRef.current = task.agent
+    setAgent(task.agent)
+
+    const url = new URL(window.location.href)
+    url.searchParams.set('session', task.sessionId)
+    window.history.replaceState({}, '', url)
+  }, [])
+
   const createAgent = useCallback(
-    async (initialState?: Partial<AgentState>, sessionId?: string) => {
-      unsubscribeRef.current?.()
+    async (
+      initialState?: Partial<AgentState>,
+      sessionId: string = crypto.randomUUID(),
+      options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string },
+    ) => {
+      const existingTask = taskMapRef.current.get(sessionId)
+      if (existingTask) {
+        if (options?.attachToView !== false) attachTaskToView(existingTask)
+        return existingTask.agent
+      }
+
+      const scope = options?.scope ?? currentChatScopeRef.current
+      const project = options?.project ?? activeProjectRef.current
+      const startedAt = new Date().toISOString()
 
       const nextAgent = new Agent({
         initialState: {
@@ -599,13 +655,13 @@ function App() {
           thinkingLevel: 'off',
           messages: [],
           ...initialState,
-          tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id),
+          tools: getLocalWorkspaceTools(yoloModeRef.current, project?.id),
         },
         convertToLlm: defaultConvertToLlm,
         sessionId,
         maxRetryDelayMs: 60000,
         beforeToolCall: async (context) => {
-          if (!activeProjectRef.current?.id) {
+          if (!project?.id) {
             return {
               block: true,
               reason: t('noActiveProjectToolBlockedReason', { name: context.toolCall.name }),
@@ -621,57 +677,72 @@ function App() {
         },
       })
 
-      unsubscribeRef.current = nextAgent.subscribe((event) => {
+      const task: BackgroundTask = {
+        sessionId,
+        agent: nextAgent,
+        scope,
+        project,
+        title: options?.title ?? 'New chat',
+        createdAt: options?.createdAt,
+        status: 'idle',
+        startedAt,
+        unsubscribe: () => undefined,
+      }
+
+      task.unsubscribe = nextAgent.subscribe((event) => {
+        if (event.type === 'agent_start') {
+          task.status = 'running'
+          task.startedAt = task.startedAt ?? new Date().toISOString()
+          task.finishedAt = undefined
+          setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
+        }
+
         if (event.type === 'message_end') {
-          // pi-agent mutates messages with Array.push(). Clone the array so Lit-based
-          // message-list receives a new reference and renders the completed message
-          // after the streaming placeholder is cleared.
           nextAgent.state.messages = [...nextAgent.state.messages]
         }
 
         if (event.type === 'agent_end') {
-          // Agent emits agent_end before it flips isStreaming to false, and does not
-          // emit another UI event afterwards. Refresh the ChatPanel on the next task
-          // so the send/stop button sees the final non-streaming state.
+          task.status = nextAgent.state.errorMessage ? 'error' : 'idle'
+          task.finishedAt = new Date().toISOString()
+          setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
           window.setTimeout(() => setChatPanelRevision((value) => value + 1), 0)
         }
 
         if (
           event.type === 'message_end' ||
+          event.type === 'agent_start' ||
           event.type === 'agent_end' ||
           event.type === 'turn_end'
         ) {
-          // Do not await persistence here. Agent waits for subscribers; blocking this
-          // callback keeps state.isStreaming true and leaves the input button stuck
-          // in the running/stop state until storage work completes.
           persistQueueRef.current = persistQueueRef.current
             .catch(() => undefined)
-            .then(() => persistSession(nextAgent))
+            .then(() => persistTaskSession(task))
             .catch((error) => console.error('Failed to persist session:', error))
         }
       })
 
-      agentRef.current = nextAgent
-      setAgent(nextAgent)
+      taskMapRef.current.set(sessionId, task)
+      setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
+
+      if (options?.attachToView !== false) attachTaskToView(task)
       return nextAgent
     },
-    [persistSession],
+    [attachTaskToView, persistTaskSession],
   )
 
   const startNewGlobalChat = useCallback(async () => {
-    currentChatScopeRef.current = 'global'
-    currentSessionIdRef.current = undefined
-    currentCreatedAtRef.current = undefined
-    currentTitleRef.current = 'New chat'
-    setChatScope('global')
-    setCurrentSessionId(undefined)
-    setCurrentTitle('New chat')
+    const project = activeProjectRef.current
+    const sessionId = crypto.randomUUID()
 
     const url = new URL(window.location.href)
     url.searchParams.delete('session')
     window.history.replaceState({}, '', url)
 
-    await createAgent({ tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id) })
+    await createAgent(
+      { tools: getLocalWorkspaceTools(yoloModeRef.current, project?.id) },
+      sessionId,
+      { scope: 'global', project, attachToView: true },
+    )
   }, [createAgent])
 
   const startNewProjectChat = useCallback(async (targetProject?: ProjectInfo) => {
@@ -682,23 +753,34 @@ function App() {
       await switchActiveProject(nextProject.id)
     }
 
-    currentChatScopeRef.current = 'project'
-    currentSessionIdRef.current = undefined
-    currentCreatedAtRef.current = undefined
-    currentTitleRef.current = 'New chat'
-    setChatScope('project')
-    setCurrentSessionId(undefined)
-    setCurrentTitle('New chat')
+    const sessionId = crypto.randomUUID()
 
     const url = new URL(window.location.href)
     url.searchParams.delete('session')
     window.history.replaceState({}, '', url)
 
-    await createAgent({ tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id) })
+    await createAgent(
+      { tools: getLocalWorkspaceTools(yoloModeRef.current, nextProject.id) },
+      sessionId,
+      { scope: 'project', project: nextProject, attachToView: true },
+    )
   }, [createAgent, switchActiveProject])
 
   const loadSession = useCallback(
     async (sessionId: string) => {
+      const runningTask = taskMapRef.current.get(sessionId)
+      if (runningTask) {
+        if (runningTask.scope === 'project' && runningTask.project?.id && activeProjectRef.current?.id !== runningTask.project.id) {
+          try {
+            await switchActiveProject(runningTask.project.id)
+          } catch (error) {
+            console.error('Failed to switch project for running session:', error)
+          }
+        }
+        attachTaskToView(runningTask)
+        return
+      }
+
       const storage = storageRef.current
       if (!storage) return
 
@@ -707,28 +789,23 @@ function App() {
 
       const metadata = sessions.find((item) => item.id === sessionId) ?? ((await storage.sessions.getMetadata(sessionId)) as FastCodeSessionMetadata | null)
       const scope = sessionScope(metadata ?? session)
-      if (scope === 'project' && (metadata?.projectId || session.projectId)) {
-        try {
-          await switchActiveProject((metadata?.projectId ?? session.projectId)!)
-        } catch (error) {
-          console.error('Failed to switch project for session:', error)
-          alert(t('projectSwitchFailed'))
-          return
+      let project = activeProjectRef.current
+      if (metadata?.projectId || session.projectId) {
+        const projectId = (metadata?.projectId ?? session.projectId)!
+        if (activeProjectRef.current?.id !== projectId) {
+          try {
+            project = await switchActiveProject(projectId)
+          } catch (error) {
+            console.error('Failed to switch project for session:', error)
+            if (scope === 'project') {
+              alert(t('projectSwitchFailed'))
+              return
+            }
+          }
         }
       }
 
-      currentChatScopeRef.current = scope
-      setChatScope(scope)
-      currentSessionIdRef.current = session.id
-      currentCreatedAtRef.current = session.createdAt
-      currentTitleRef.current = session.title
-      setCurrentSessionId(session.id)
-      setCurrentTitle(session.title)
       activeModelRef.current = session.model as Model<Api>
-
-      const url = new URL(window.location.href)
-      url.searchParams.set('session', session.id)
-      window.history.replaceState({}, '', url)
 
       await createAgent(
         {
@@ -736,18 +813,33 @@ function App() {
           model: session.model,
           thinkingLevel: session.thinkingLevel,
           messages: session.messages,
-          tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id),
+          tools: getLocalWorkspaceTools(yoloModeRef.current, project?.id),
         },
         session.id,
+        {
+          scope,
+          project,
+          attachToView: true,
+          createdAt: session.createdAt,
+          title: session.title,
+        },
       )
     },
-    [createAgent, sessions, switchActiveProject],
+    [attachTaskToView, createAgent, sessions, switchActiveProject],
   )
 
   const deleteSession = useCallback(
     async (sessionId: string) => {
       const storage = storageRef.current
       if (!storage) return
+      const task = taskMapRef.current.get(sessionId)
+      task?.unsubscribe()
+      taskMapRef.current.delete(sessionId)
+      setTaskStatuses((current) => {
+        const next = { ...current }
+        delete next[sessionId]
+        return next
+      })
       await storage.sessions.delete(sessionId)
       await refreshSessions()
       if (currentSessionIdRef.current === sessionId) {
@@ -781,26 +873,27 @@ function App() {
         if (existing) {
           const metadata = (await storage.sessions.getMetadata(existing.id)) as FastCodeSessionMetadata | null
           const scope = sessionScope(metadata ?? (existing as FastCodeSessionData))
-          if (scope === 'project' && (metadata?.projectId || (existing as FastCodeSessionData).projectId)) {
-            try {
-              await switchActiveProject((metadata?.projectId ?? (existing as FastCodeSessionData).projectId)!)
-            } catch (error) {
-              console.error('Failed to switch project for initial session:', error)
-              alert(t('projectSwitchFailed'))
-              currentChatScopeRef.current = 'global'
-              setChatScope('global')
-              await createAgent({ model: initialModel, tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id) })
-              setReady(true)
-              return
+          let project = activeProjectRef.current
+          if (metadata?.projectId || (existing as FastCodeSessionData).projectId) {
+            const projectId = (metadata?.projectId ?? (existing as FastCodeSessionData).projectId)!
+            if (activeProjectRef.current?.id !== projectId) {
+              try {
+                project = await switchActiveProject(projectId)
+              } catch (error) {
+                console.error('Failed to switch project for initial session:', error)
+                if (scope === 'project') {
+                  alert(t('projectSwitchFailed'))
+                  await createAgent(
+                    { model: initialModel, tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id) },
+                    crypto.randomUUID(),
+                    { scope: 'global', project: activeProjectRef.current, attachToView: true },
+                  )
+                  setReady(true)
+                  return
+                }
+              }
             }
           }
-          currentChatScopeRef.current = scope
-          setChatScope(scope)
-          currentSessionIdRef.current = existing.id
-          currentCreatedAtRef.current = existing.createdAt
-          currentTitleRef.current = existing.title
-          setCurrentSessionId(existing.id)
-          setCurrentTitle(existing.title)
           activeModelRef.current = existing.model as Model<Api>
           await createAgent(
             {
@@ -808,28 +901,41 @@ function App() {
               model: existing.model,
               thinkingLevel: existing.thinkingLevel,
               messages: existing.messages,
-              tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id),
+              tools: getLocalWorkspaceTools(yoloModeRef.current, project?.id),
             },
             existing.id,
+            {
+              scope,
+              project,
+              attachToView: true,
+              createdAt: existing.createdAt,
+              title: existing.title,
+            },
           )
         } else {
-          currentChatScopeRef.current = 'global'
-          setChatScope('global')
-          await createAgent({ model: initialModel, tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id) })
+          await createAgent(
+            { model: initialModel, tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id) },
+            crypto.randomUUID(),
+            { scope: 'global', project: activeProjectRef.current, attachToView: true },
+          )
         }
       } else {
-        currentChatScopeRef.current = 'global'
-        setChatScope('global')
-        await createAgent({ model: initialModel, tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id) })
+        await createAgent(
+          { model: initialModel, tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id) },
+          crypto.randomUUID(),
+          { scope: 'global', project: activeProjectRef.current, attachToView: true },
+        )
       }
 
       setReady(true)
     }
 
     boot()
+    const taskMap = taskMapRef.current
     return () => {
       cancelled = true
-      unsubscribeRef.current?.()
+      for (const task of taskMap.values()) task.unsubscribe()
+      taskMap.clear()
     }
   }, [createAgent, loadProject, refreshSessions, switchActiveProject])
 
@@ -880,10 +986,12 @@ function App() {
 
     setChatPanelRevision((value) => value + 1)
 
-    if (shouldSaveSession(nextMessages)) {
+    const currentTask = currentSessionIdRef.current ? taskMapRef.current.get(currentSessionIdRef.current) : undefined
+
+    if (shouldSaveSession(nextMessages) && currentTask) {
       persistQueueRef.current = persistQueueRef.current
         .catch(() => undefined)
-        .then(() => persistSession(currentAgent))
+        .then(() => persistTaskSession(currentTask))
         .catch((error) => console.error('Failed to persist rolled back session:', error))
       return
     }
@@ -901,6 +1009,17 @@ function App() {
     url.searchParams.delete('session')
     window.history.replaceState({}, '', url)
 
+    if (previousSessionId) {
+      const task = taskMapRef.current.get(previousSessionId)
+      task?.unsubscribe()
+      taskMapRef.current.delete(previousSessionId)
+      setTaskStatuses((current) => {
+        const next = { ...current }
+        delete next[previousSessionId]
+        return next
+      })
+    }
+
     if (storage && previousSessionId) {
       try {
         await storage.sessions.delete(previousSessionId)
@@ -909,7 +1028,7 @@ function App() {
         console.error('Failed to delete rolled back empty session:', error)
       }
     }
-  }, [persistSession, refreshSessions])
+  }, [persistTaskSession, refreshSessions])
 
   const copyAnswer = useCallback(async (text: string) => {
     try {
@@ -954,6 +1073,9 @@ function App() {
   const globalSessions = sessions.filter((session) => sessionScope(session) === 'global')
   const sessionsForProject = (projectId: string) => {
     return sessions.filter((session) => sessionScope(session) === 'project' && session.projectId === projectId)
+  }
+  const sessionTaskStatus = (session: FastCodeSessionMetadata) => {
+    return taskStatuses[session.id] ?? session.taskStatus ?? 'idle'
   }
   const toggleProjectExpanded = (projectId: string) => {
     setExpandedProjectIds((current) => {
@@ -1061,7 +1183,10 @@ function App() {
                                 )}
                               >
                                 <button className="min-w-0 flex-1 text-left" type="button" onClick={() => loadSession(session.id)}>
-                                  <div className="truncate text-sm">{sessionTitle(session.title)}</div>
+                                  <div className="flex items-center gap-1 truncate text-sm">
+                                    {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
+                                    <span className="truncate">{sessionTitle(session.title)}</span>
+                                  </div>
                                   <div className="mt-0.5 truncate text-xs text-muted-foreground">{formatSessionTime(session.lastModified)}</div>
                                 </button>
                                 <Button
@@ -1111,7 +1236,10 @@ function App() {
                     )}
                   >
                     <button className="min-w-0 flex-1 text-left" type="button" onClick={() => loadSession(session.id)}>
-                      <div className="truncate text-sm font-medium">{sessionTitle(session.title)}</div>
+                      <div className="flex items-center gap-1 truncate text-sm font-medium">
+                        {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
+                        <span className="truncate">{sessionTitle(session.title)}</span>
+                      </div>
                       <div className="mt-0.5 truncate text-xs text-muted-foreground">{formatSessionTime(session.lastModified)}</div>
                     </button>
                     <Button
@@ -1148,7 +1276,7 @@ function App() {
 
           <div className="min-w-0 flex-1">
             <div className="truncate text-xs text-muted-foreground">
-              {chatScope === 'project' ? (activeProject?.name ?? t('projectChat')) : t('normalChat')}
+              {chatScope === 'project' ? (currentToolProject?.name ?? t('projectChat')) : `${t('normalChat')}${currentToolProject ? ` · ${currentToolProject.name}` : ''}`}
             </div>
             <div className="truncate text-sm font-semibold">{sessionTitle(currentTitle)}</div>
           </div>
@@ -1170,8 +1298,8 @@ function App() {
               onModelSelect={openCustomModelSelector}
               revision={chatPanelRevision}
               yoloMode={yoloMode}
-              workspaceToolsEnabled={Boolean(activeProject?.id)}
-              projectId={chatScope === 'project' ? activeProject?.id : undefined}
+              workspaceToolsEnabled={Boolean(currentToolProject?.id)}
+              projectId={currentToolProject?.id}
               onToggleYoloMode={toggleYoloMode}
               onRollbackFromMessage={rollbackFromMessage}
               onCopyAnswer={copyAnswer}

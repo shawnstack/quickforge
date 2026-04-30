@@ -297,6 +297,7 @@ function App() {
         tools: _requestedTools,
         ...restInitialState
       } = initialState ?? {}
+      void _requestedTools
       const storage = storageRef.current
       const resolvedModel = storage
         ? await resolveConfiguredModel(storage, (requestedModel ?? activeModelRef.current) as Model<Api>)
@@ -317,7 +318,12 @@ function App() {
         convertToLlm: defaultConvertToLlm,
         sessionId,
         maxRetryDelayMs: 60000,
-        onPayload: (payload) => restoreReasoningContentInPayload(payload, agentForPayload.current?.state.messages ?? []),
+        onPayload: (payload) =>
+          restoreReasoningContentInPayload(
+            payload,
+            agentForPayload.current?.state.messages ?? [],
+            agentForPayload.current?.state.model,
+          ),
         beforeToolCall: async (context) => {
           if (!project?.id) {
             return {

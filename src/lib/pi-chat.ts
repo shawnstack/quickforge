@@ -1,4 +1,4 @@
-import type { Api, Model } from '@mariozechner/pi-ai'
+import type { Api, Model, OpenAICompletionsCompat } from '@mariozechner/pi-ai'
 import {
   AppStorage,
   CustomProvidersStore,
@@ -59,24 +59,72 @@ function isDeepSeekThinkingModelInfo(modelId: string, baseUrl: string, provider 
   )
 }
 
-function deepSeekThinkingCompat() {
+function deepSeekThinkingCompat(): OpenAICompletionsCompat {
   return {
     requiresReasoningContentOnAssistantMessages: true,
-    thinkingFormat: 'deepseek' as const,
+    thinkingFormat: 'deepseek',
     reasoningEffortMap: {
       low: 'high',
       medium: 'high',
       high: 'high',
       xhigh: 'max',
-    } as Record<string, string>,
+    },
+  }
+}
+
+function inferCustomThinkingFormat(provider: string, baseUrl: string): NonNullable<OpenAICompletionsCompat['thinkingFormat']> {
+  const normalizedProvider = provider.toLowerCase()
+  const normalizedBaseUrl = baseUrl.toLowerCase()
+
+  if (
+    normalizedProvider.includes('deepseek') ||
+    normalizedBaseUrl.includes('api.deepseek.com') ||
+    normalizedBaseUrl.includes('deepseek.com')
+  ) {
+    return 'deepseek'
+  }
+
+  if (normalizedBaseUrl.includes('openrouter.ai')) return 'openrouter'
+
+  if (
+    normalizedProvider === 'zai' ||
+    normalizedBaseUrl.includes('bigmodel.cn') ||
+    normalizedBaseUrl.includes('z.ai')
+  ) {
+    return 'zai'
+  }
+
+  // Provider names in QuickForge are user-facing labels.  A custom proxy can be
+  // named "OpenRouter" while still expecting the OpenAI-compatible
+  // `reasoning_effort` parameter.  Pin the default to OpenAI format so pi-ai's
+  // provider-name auto-detection does not accidentally switch such proxies to
+  // OpenRouter's nested `reasoning: { effort }` request shape.
+  return 'openai'
+}
+
+function normalizeOpenAICompat(model: Model<'openai-completions'>): Model<'openai-completions'> {
+  const compat: OpenAICompletionsCompat = {
+    ...model.compat,
+    ...(model.reasoning === true && model.compat?.supportsReasoningEffort === undefined
+      ? { supportsReasoningEffort: true }
+      : {}),
+    thinkingFormat: model.compat?.thinkingFormat ?? inferCustomThinkingFormat(model.provider, model.baseUrl),
+  }
+
+  return {
+    ...model,
+    compat,
   }
 }
 
 export function normalizeModelForProvider<TApi extends Api>(model: Model<TApi>): Model<TApi> {
   if (model.api !== 'openai-completions') return model
-  if (!isDeepSeekThinkingModelInfo(model.id, model.baseUrl, model.provider)) return model
 
-  const openAiModel = model as unknown as Model<'openai-completions'>
+  const openAiModel = normalizeOpenAICompat(model as unknown as Model<'openai-completions'>)
+  if (!isDeepSeekThinkingModelInfo(openAiModel.id, openAiModel.baseUrl, openAiModel.provider)) {
+    return openAiModel as unknown as Model<TApi>
+  }
+
   return {
     ...openAiModel,
     reasoning: true,
@@ -95,7 +143,7 @@ export function buildConnectionModel(form: ConnectionForm): Model<'openai-comple
   const isDeepSeekThinking = isDeepSeekThinkingModelInfo(modelId, baseUrl, provider)
   const isReasoningModel = form.reasoning === true || isDeepSeekThinking
 
-  return {
+  return normalizeModelForProvider({
     id: modelId,
     name: `${modelId} (${provider})`,
     api: 'openai-completions',
@@ -116,7 +164,7 @@ export function buildConnectionModel(form: ConnectionForm): Model<'openai-comple
       // DeepSeek V4 requires reasoning_content on assistant messages in tool-call rounds
       ...(isDeepSeekThinking ? deepSeekThinkingCompat() : {}),
     },
-  }
+  })
 }
 
 function createStores(): StoreBundle {

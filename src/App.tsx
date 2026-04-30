@@ -789,7 +789,9 @@ function App() {
     const customModels = customProviders.flatMap((provider) => provider.models ?? [])
 
     if (customModels.length === 0) {
-      alert(t('addCustomModelFirst'))
+      if (confirm(t('addCustomModelFirst'))) {
+        SettingsDialog.open([createLanguageSettingsTab(), createCustomProvidersOnlyTab(), new ProxyTab()])
+      }
       return
     }
 

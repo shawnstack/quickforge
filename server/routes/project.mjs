@@ -53,24 +53,18 @@ export async function handleProjectApi(req, res, url) {
       error.statusCode = 404
       throw error
     }
-    config.projects = nextProjects.length ? nextProjects : defaultProjectConfigFallback().projects
-    if (config.activeProjectId === id) config.activeProjectId = config.projects[0].id
+    config.projects = nextProjects
+    if (config.activeProjectId === id) config.activeProjectId = config.projects[0]?.id ?? null
     await writeProjectConfig(config)
     const active = getActiveProject(config)
-    setWorkspaceRoot(path.resolve(active.path))
-    sendJson(res, 200, { project: active, projects: config.projects, workspaceRoot: getWorkspaceRoot() })
+    if (active?.path) {
+      setWorkspaceRoot(path.resolve(active.path))
+    }
+    sendJson(res, 200, { project: active ?? null, projects: config.projects, workspaceRoot: getWorkspaceRoot() })
     return
   }
 
   const error = new Error('Not found')
   error.statusCode = 404
   throw error
-}
-
-function defaultProjectConfigFallback() {
-  const fallbackPath = getWorkspaceRoot()
-  return {
-    activeProjectId: 'default',
-    projects: [{ id: 'default', name: path.basename(fallbackPath) || 'QuickForge', path: fallbackPath, lastOpenedAt: new Date().toISOString() }],
-  }
 }

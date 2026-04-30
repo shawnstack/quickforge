@@ -261,11 +261,6 @@ export async function initializePiStorage() {
   const storage = new AppStorage(stores.settings, stores.providerKeys, stores.sessions, stores.customProviders, backend)
   setAppStorage(storage)
 
-  const existing = await stores.customProviders.get(DEFAULT_CONNECTION.id!)
-  if (!existing) {
-    await saveConnectionProfile(storage, DEFAULT_CONNECTION, buildConnectionModel(DEFAULT_CONNECTION))
-  }
-
   return storage
 }
 

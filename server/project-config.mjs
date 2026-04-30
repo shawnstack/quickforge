@@ -15,18 +15,9 @@ function projectNameFromPath(dir) {
 }
 
 function defaultProjectConfig() {
-  const now = new Date().toISOString()
-  const id = 'default'
   return {
-    activeProjectId: id,
-    projects: [
-      {
-        id,
-        name: projectNameFromPath(defaultWorkspaceRoot),
-        path: defaultWorkspaceRoot,
-        lastOpenedAt: now,
-      },
-    ],
+    activeProjectId: null,
+    projects: [],
   }
 }
 
@@ -97,8 +88,7 @@ export async function initializeActiveProject() {
     }
   }
 
-  const fallback = await setActiveProjectPath(defaultWorkspaceRoot)
-  setWorkspaceRoot(path.resolve(fallback.project.path))
+  // No project configured — leave workspace unset, user will be prompted to add one.
 }
 
 export async function projectContextFromId(projectId) {

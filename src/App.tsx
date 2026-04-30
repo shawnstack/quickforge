@@ -41,8 +41,36 @@ import { getLocalWorkspaceTools } from '@/lib/local-tools'
 import { restoreReasoningContentInPayload } from '@/lib/reasoning-content-cache'
 
 // Main chat behavior prompt.
-const SYSTEM_PROMPT =
+const BASE_SYSTEM_PROMPT =
   'You are a helpful AI assistant. Answer clearly and pragmatically. If the user asks for code, prefer concise working examples. When YOLO mode is enabled, you may use the local workspace tools to inspect files, edit files, and run commands in the current project.'
+
+async function fetchInstructions(projectId?: string): Promise<{ global: string | null; project: string | null }> {
+  const url = projectId
+    ? `/api/instructions?projectId=${encodeURIComponent(projectId)}`
+    : '/api/instructions'
+  try {
+    const response = await fetch(url)
+    if (!response.ok) return { global: null, project: null }
+    return await response.json()
+  } catch {
+    return { global: null, project: null }
+  }
+}
+
+async function buildSystemPrompt(projectId?: string): Promise<string> {
+  const instructions = await fetchInstructions(projectId)
+  const parts = [BASE_SYSTEM_PROMPT]
+
+  if (instructions.global) {
+    parts.push(`\n<user_instructions>\n${instructions.global}\n</user_instructions>`)
+  }
+
+  if (instructions.project) {
+    parts.push(`\n<project_instructions>\n${instructions.project}\n</project_instructions>`)
+  }
+
+  return parts.join('\n')
+}
 
 const EMPTY_USAGE = {
   input: 0,
@@ -668,10 +696,12 @@ function App() {
       const project = options?.project ?? activeProjectRef.current
       const startedAt = new Date().toISOString()
 
+      const systemPrompt = await buildSystemPrompt(project?.id)
+
       const agentForPayload: { current?: Agent } = {}
       const nextAgent = new Agent({
         initialState: {
-          systemPrompt: SYSTEM_PROMPT,
+          systemPrompt,
           model: activeModelRef.current,
           thinkingLevel: 'off',
           messages: [],
@@ -832,7 +862,7 @@ function App() {
 
       await createAgent(
         {
-          systemPrompt: SYSTEM_PROMPT,
+          systemPrompt: BASE_SYSTEM_PROMPT,
           model: session.model,
           thinkingLevel: session.thinkingLevel,
           messages: session.messages,
@@ -963,7 +993,7 @@ function App() {
           activeModelRef.current = existing.model as Model<Api>
           await createAgent(
             {
-              systemPrompt: SYSTEM_PROMPT,
+              systemPrompt: BASE_SYSTEM_PROMPT,
               model: existing.model,
               thinkingLevel: existing.thinkingLevel,
               messages: existing.messages,
@@ -1126,7 +1156,7 @@ function App() {
 
     await createAgent(
       {
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt: BASE_SYSTEM_PROMPT,
         model: currentAgent.state.model ?? activeModelRef.current,
         thinkingLevel: currentAgent.state.thinkingLevel,
         messages,

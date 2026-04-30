@@ -998,8 +998,50 @@ async function handleToolApi(req, res, url) {
   sendJson(res, 200, result)
 }
 
+async function readInstructionsFile(filePath) {
+  try {
+    const content = await fs.readFile(filePath, 'utf8')
+    const trimmed = content.trim()
+    return trimmed || null
+  } catch {
+    return null
+  }
+}
+
+async function handleInstructionsApi(req, res, url) {
+  if (req.method !== 'GET') {
+    const error = new Error('Method not allowed')
+    error.statusCode = 405
+    throw error
+  }
+
+  const projectId = url.searchParams.get('projectId')
+  let projectInstructions = null
+
+  if (projectId) {
+    try {
+      const { workspaceRoot } = await projectContextFromId(projectId)
+      projectInstructions = await readInstructionsFile(path.join(workspaceRoot, 'AGENTS.md'))
+    } catch {
+      // project not found or inaccessible — leave projectInstructions null
+    }
+  }
+
+  const globalInstructions = await readInstructionsFile(path.join(dataDir, 'AGENTS.md'))
+
+  sendJson(res, 200, {
+    global: globalInstructions,
+    project: projectInstructions,
+  })
+}
+
 async function handleApi(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean)
+
+  if (req.method === 'GET' && url.pathname === '/api/instructions') {
+    await handleInstructionsApi(req, res, url)
+    return
+  }
 
   if (req.method === 'GET' && url.pathname === '/api/health') {
     const config = await readProjectConfig()

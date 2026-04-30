@@ -1,5 +1,5 @@
 {
-  "name": "quickforge",
+  "name": "@shawnstack/quickforge",
   "version": "1.0.0",
   "description": "AI chat application with YOLO-mode local workspace tools. React + Vite + Tailwind CSS frontend, local Node.js storage server.",
   "keywords": [
@@ -21,17 +21,25 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/YOUR_USERNAME/quickforge.git"
+    "url": "git+https://github.com/shawnstack/quickforge.git"
   },
   "bugs": {
-    "url": "https://github.com/YOUR_USERNAME/quickforge/issues"
+    "url": "https://github.com/shawnstack/quickforge/issues"
   },
-  "homepage": "https://github.com/YOUR_USERNAME/quickforge#readme",
+  "homepage": "https://github.com/shawnstack/quickforge#readme",
   "type": "module",
   "bin": {
     "quickforge": "bin/quickforge.mjs",
     "qf": "bin/quickforge.mjs"
   },
+  "files": [
+    "bin",
+    "server",
+    "dist",
+    "README.md",
+    "LICENSE",
+    "package.json"
+  ],
   "scripts": {
     "dev": "node server/index.mjs --dev",
     "dev:web": "vite --host 127.0.0.1 --port 5176 --strictPort",

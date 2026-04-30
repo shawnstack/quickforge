@@ -11,6 +11,8 @@ import {
 } from '@mariozechner/pi-web-ui'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import {
+  ChevronDown,
+  ChevronRight,
   Folder,
   FolderOpen,
   MessageSquarePlus,
@@ -509,6 +511,8 @@ function App() {
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>()
   const [currentTitle, setCurrentTitle] = useState('New chat')
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [projectsCollapsed, setProjectsCollapsed] = useState(false)
+  const [conversationsCollapsed, setConversationsCollapsed] = useState(false)
   const [ready, setReady] = useState(false)
   const [chatPanelRevision, setChatPanelRevision] = useState(0)
   const [yoloMode, setYoloMode] = useState(false)
@@ -1263,21 +1267,26 @@ function App() {
       >
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
           <div className="mb-5">
-            <div className="mb-2 flex items-center justify-between gap-2 px-1">
-              <div className="text-sm font-medium text-muted-foreground">{t('projects')}</div>
+            <button
+              type="button"
+              className="mb-2 flex w-full items-center gap-1 px-1 text-sm font-medium text-muted-foreground hover:text-foreground"
+              onClick={() => setProjectsCollapsed((v) => !v)}
+            >
+              {projectsCollapsed ? <ChevronRight className="size-4 shrink-0" /> : <ChevronDown className="size-4 shrink-0" />}
+              <span className="flex-1 text-left">{t('projects')}</span>
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-7"
-                onClick={selectProjectDirectory}
+                className="size-7 shrink-0"
+                onClick={(e) => { e.stopPropagation(); selectProjectDirectory() }}
                 disabled={selectingProject}
                 aria-label={t('addProject')}
               >
                 <Plus className="size-4" />
               </Button>
-            </div>
+            </button>
 
-            <div className="space-y-1">
+            {!projectsCollapsed && (<div className="space-y-1">
               {projects.length === 0 ? (
                 <div className="px-3 py-4 text-sm text-muted-foreground">{t('noProjects')}</div>
               ) : (
@@ -1373,17 +1382,24 @@ function App() {
                 })
               )}
             </div>
+            )}
           </div>
 
           <div>
-            <div className="mb-2 flex items-center justify-between gap-2 px-1">
-              <div className="text-sm font-medium text-muted-foreground">{t('conversations')}</div>
-              <Button variant="ghost" size="icon" className="size-7" onClick={startNewGlobalChat} aria-label={t('newChat')}>
+            <button
+              type="button"
+              className="mb-2 flex w-full items-center gap-1 px-1 text-sm font-medium text-muted-foreground hover:text-foreground"
+              onClick={() => setConversationsCollapsed((v) => !v)}
+            >
+              {conversationsCollapsed ? <ChevronRight className="size-4 shrink-0" /> : <ChevronDown className="size-4 shrink-0" />}
+              <span className="flex-1 text-left">{t('conversations')}</span>
+              <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={(e) => { e.stopPropagation(); startNewGlobalChat() }} aria-label={t('newChat')}>
                 <MessageSquarePlus className="size-4" />
               </Button>
-            </div>
+            </button>
 
-            {globalSessions.length === 0 ? (
+            {!conversationsCollapsed && (
+              globalSessions.length === 0 ? (
               <div className="px-3 py-4 text-sm text-muted-foreground">{t('noSavedConversations')}</div>
             ) : (
               <div className="space-y-1">
@@ -1414,6 +1430,7 @@ function App() {
                   </div>
                 ))}
               </div>
+            )
             )}
           </div>
         </div>

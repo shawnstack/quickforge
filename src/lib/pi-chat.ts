@@ -240,6 +240,49 @@ export async function loadActiveModel(storage: AppStorage): Promise<Model<Api> |
   return normalizeModelForProvider(model)
 }
 
+function sameBaseUrl(a?: string, b?: string) {
+  return (a ?? '').trim().replace(/\/$/, '') === (b ?? '').trim().replace(/\/$/, '')
+}
+
+function findConfiguredModel(storage: AppStorage, model: Model<Api>) {
+  return storage.customProviders.getAll().then((providers) => {
+    for (const provider of providers) {
+      const matched = (provider.models ?? []).find((candidate) => {
+        return (
+          candidate.id === model.id &&
+          candidate.api === model.api &&
+          candidate.provider === model.provider &&
+          sameBaseUrl(candidate.baseUrl, model.baseUrl)
+        )
+      })
+      if (matched) return matched as Model<Api>
+    }
+    return undefined
+  })
+}
+
+/**
+ * Resolve a persisted model snapshot against the current custom-model settings.
+ *
+ * Sessions store a full model object. Older sessions may therefore keep stale
+ * capabilities (notably `reasoning: false`) even after the user marks the same
+ * model as a reasoning model in settings. Prefer the current configured model
+ * when it matches, falling back to built-in normalization for legacy DeepSeek
+ * V4 profiles that predate the reasoning flag.
+ */
+export async function resolveConfiguredModel(storage: AppStorage, model: Model<Api>): Promise<Model<Api>> {
+  try {
+    const configured = await findConfiguredModel(storage, model)
+    if (configured) {
+      return configured.reasoning === true ? normalizeModelForProvider(configured) : configured
+    }
+  } catch (error) {
+    console.warn('Failed to resolve configured model:', error)
+  }
+
+  return normalizeModelForProvider(model)
+}
+
 export async function saveYoloMode(storage: AppStorage, enabled: boolean) {
   await storage.settings.set(YOLO_MODE_SETTING_KEY, enabled)
 }

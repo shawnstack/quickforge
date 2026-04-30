@@ -19,6 +19,8 @@ import {
   DEFAULT_CONNECTION,
   initializePiStorage,
   loadActiveModel,
+  normalizeModelForProvider,
+  resolveConfiguredModel,
 } from '@/lib/pi-chat'
 import { createCustomProvidersOnlyTab } from '@/lib/custom-providers-only-tab'
 import { t } from '@/lib/i18n'
@@ -289,15 +291,27 @@ function App() {
       const startedAt = new Date().toISOString()
 
       const systemPrompt = await buildSystemPrompt(project?.id)
+      const {
+        model: requestedModel,
+        thinkingLevel: requestedThinkingLevel,
+        tools: _requestedTools,
+        ...restInitialState
+      } = initialState ?? {}
+      const storage = storageRef.current
+      const resolvedModel = storage
+        ? await resolveConfiguredModel(storage, (requestedModel ?? activeModelRef.current) as Model<Api>)
+        : normalizeModelForProvider((requestedModel ?? activeModelRef.current) as Model<Api>)
+      const resolvedThinkingLevel = requestedThinkingLevel ?? (resolvedModel.reasoning ? 'minimal' : 'off')
+      activeModelRef.current = resolvedModel
 
       const agentForPayload: { current?: Agent } = {}
       const nextAgent = new Agent({
         initialState: {
           systemPrompt,
-          model: activeModelRef.current,
-          thinkingLevel: activeModelRef.current.reasoning ? 'minimal' : 'off',
+          model: resolvedModel,
+          thinkingLevel: resolvedThinkingLevel,
           messages: [],
-          ...initialState,
+          ...restInitialState,
           tools: getLocalWorkspaceTools(yoloModeRef.current, project?.id),
         },
         convertToLlm: defaultConvertToLlm,

@@ -127,6 +127,12 @@ export function ChatPanelHost({
 
     const decorateEditor = () => {
       const editor = panel.querySelector('message-editor')
+      editor?.classList.add('quickforge-composer')
+      editor?.parentElement?.classList.add('quickforge-composer-shell')
+      editor?.parentElement?.parentElement?.classList.add('quickforge-composer-dock')
+      const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
+      if (textarea) textarea.placeholder = t('composerPlaceholder')
+
       const editorRows = editor?.querySelectorAll<HTMLElement>('.flex.gap-2.items-center')
       const rightControls = editorRows?.[editorRows.length - 1]
       if (!rightControls) return

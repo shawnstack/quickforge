@@ -641,21 +641,21 @@ function App() {
       return
     }
 
+    const restoredRollbackDraft = rollbackMessage
+      ? {
+          id: Date.now(),
+          text: draftTextFromUserMessage(rollbackMessage),
+          attachments: rollbackMessage.role === 'user-with-attachments' ? rollbackMessage.attachments : undefined,
+        }
+      : undefined
+
     currentAgent.state.messages = nextMessages
-
-    if (rollbackMessage) {
-      setRestoredDraft({
-        id: Date.now(),
-        text: draftTextFromUserMessage(rollbackMessage),
-        attachments: rollbackMessage.role === 'user-with-attachments' ? rollbackMessage.attachments : undefined,
-      })
-    }
-
-    setChatPanelRevision((value) => value + 1)
 
     const currentTask = currentSessionIdRef.current ? taskMapRef.current.get(currentSessionIdRef.current) : undefined
 
     if (shouldSaveSession(nextMessages) && currentTask) {
+      if (restoredRollbackDraft) setRestoredDraft(restoredRollbackDraft)
+      setChatPanelRevision((value) => value + 1)
       persistQueueRef.current = persistQueueRef.current
         .catch(() => undefined)
         .then(() => persistTaskSession(currentTask))
@@ -665,16 +665,10 @@ function App() {
 
     const storage = storageRef.current
     const previousSessionId = currentSessionIdRef.current
-
-    currentSessionIdRef.current = undefined
-    currentCreatedAtRef.current = undefined
-    currentTitleRef.current = 'New chat'
-    setCurrentSessionId(undefined)
-    setCurrentTitle('New chat')
-
-    const url = new URL(window.location.href)
-    url.searchParams.delete('session')
-    window.history.replaceState({}, '', url)
+    const scope = currentChatScopeRef.current
+    const project = scope === 'project' ? activeProjectRef.current : undefined
+    const model = currentAgent.state.model ?? activeModelRef.current
+    const thinkingLevel = currentAgent.state.thinkingLevel
 
     if (previousSessionId) {
       const task = taskMapRef.current.get(previousSessionId)
@@ -695,7 +689,27 @@ function App() {
         console.error('Failed to delete rolled back empty session:', error)
       }
     }
-  }, [persistTaskSession, refreshSessions])
+
+    const newSessionId = crypto.randomUUID()
+    await createAgent(
+      {
+        model,
+        thinkingLevel,
+        messages: [],
+        tools: getLocalWorkspaceTools(yoloModeRef.current, project?.id),
+      },
+      newSessionId,
+      {
+        scope,
+        project,
+        attachToView: true,
+        title: 'New chat',
+      },
+    )
+
+    if (restoredRollbackDraft) setRestoredDraft(restoredRollbackDraft)
+    setChatPanelRevision((value) => value + 1)
+  }, [createAgent, persistTaskSession, refreshSessions])
 
   const copyAnswer = useCallback(async (text: string) => {
     try {

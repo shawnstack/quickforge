@@ -1,98 +1,119 @@
-# 速构 QuickForge AI Chat
+# 速构 QuickForge
 
-速构 QuickForge is a React + Vite + Tailwind CSS chat app using shadcn-style UI primitives and pi-mono's web chat components.
+<p align="center">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.0.0-blue" />
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-green" />
+  <img alt="Node" src="https://img.shields.io/badge/node-%3E%3D20-brightgreen" />
+  <img alt="React" src="https://img.shields.io/badge/react-19-61DAFB?logo=react" />
+  <img alt="Vite" src="https://img.shields.io/badge/vite-8-646CFF?logo=vite" />
+</p>
+
+AI chat application with YOLO-mode local workspace tools — the agent can read, write, and edit files in your project, plus run shell commands.
+
+Built with React 19, Vite 8, Tailwind CSS 4, and shadcn-style UI primitives. Uses `@mariozechner/pi-web-ui` for chat components and `@mariozechner/pi-ai` for model orchestration. All data stays local in `~/.quickforge/storage/`.
+
+---
 
 ## Features
 
-- ChatGPT-like layout with saved conversation list, streamable chat panel, and custom-model-only settings.
-- `@mariozechner/pi-web-ui`, `@mariozechner/pi-agent-core`, and `@mariozechner/pi-ai` for chat, persistence, model calls, and API-key prompts.
-- Local Node server that stores API configuration, API keys, selected model, and chat history in local JSON files.
-- Bottom-bar YOLO mode that grants the agent local workspace tools for listing/reading/searching/editing files and running commands.
-- Custom providers for OpenAI-compatible `/v1/chat/completions` APIs and Anthropic Messages APIs.
-- Default Anthropic-over-LiteLLM profile:
-  - Base URL: `http://localhost:4000/v1`
-  - Model ID: `anthropic/claude-sonnet-4`
-  - API: OpenAI-compatible `/v1/chat/completions`
+- **ChatGPT-like UI** — collapsible conversation list, streaming responses, model settings.
+- **Local-first** — all API keys, settings, and chat history stored in local JSON files. No cloud, no telemetry.
+- **YOLO mode** — grant the agent access to your workspace: list files, read/write/edit, grep, and run commands.
+- **Multi-provider** — OpenAI-compatible `/v1/chat/completions` and Anthropic Messages API. Bring your own endpoint.
+- **Data migration** — auto-migrates from legacy FastCode folders on first run.
+- **IndexedDB import** — existing browser data for the same origin is copied to local files on startup.
 
-## Development
+## Quick Start
 
 ```bash
+# Install
 npm install
+
+# Development (server + Vite, port 5176)
 npm run dev
-```
 
-`npm run dev` starts the local file-storage API server and Vite on the fixed web port `5176`, then opens the browser.
-
-On Windows, you can also double-click:
-
-```text
-dev-quickforge.bat
-```
-
-## Local app mode
-
-On Windows, double-click:
-
-```text
-start-quickforge.bat
-```
-
-Or run manually:
-
-```bash
+# Production
 npm run build
 npm start
 ```
 
-`npm start` serves the built web app from the local Node server and opens:
+Open [http://localhost:5176](http://localhost:5176).
 
-```text
-http://localhost:5176
+### Windows
+
+Double-click `dev-quickforge.bat` for development, or `start-quickforge.bat` for production mode.
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 19, Vite 8, Tailwind CSS 4 |
+| UI | shadcn-style primitives, Lucide icons |
+| Chat engine | `@mariozechner/pi-web-ui`, `@mariozechner/pi-agent-core`, `@mariozechner/pi-ai` |
+| Server | Node.js (ESM), plain `http` module |
+| Storage | Local JSON files at `~/.quickforge/storage/` |
+
+## Project Structure
+
+```
+├── bin/quickforge.mjs     # CLI entry point
+├── server/index.mjs       # Local API + storage server
+├── src/                   # React frontend
+├── public/                # Static assets
+├── index.html             # HTML entry
+├── vite.config.ts         # Vite + Tailwind config
+└── package.json
 ```
 
-Local data is stored outside the repository in the user's home directory:
+## Configuration
 
-- Windows: `%USERPROFILE%\\.quickforge\\storage`
-- macOS/Linux: `~/.quickforge/storage`
+### Environment Variables
 
-You can override the data directory with:
+| Variable | Default | Description |
+|---|---|---|
+| `QUICKFORGE_DATA_DIR` | `~/.quickforge` | Data storage directory |
+| `QUICKFORGE_WORKSPACE_DIR` | project root | Workspace for YOLO tools |
+| `QUICKFORGE_HOST` | `127.0.0.1` | Server bind address |
+| `QUICKFORGE_PORT` | `32176` (dev) / `5176` (prod) | Server port |
+| `QUICKFORGE_VITE_PORT` | `5176` | Vite dev server port |
+| `QUICKFORGE_MAX_BODY_BYTES` | `52428800` (50MB) | Max request body size |
 
-```bash
-QUICKFORGE_DATA_DIR=/path/to/data npm start
-```
+Legacy `FASTCODE_*` variants are still accepted for existing setups.
 
-Legacy `FASTCODE_DATA_DIR` is still accepted for existing setups. On startup, QuickForge automatically migrates existing data from the old platform-specific `QuickForge` or `FastCode` data folders into `~/.quickforge` without overwriting newer files.
+### Storage Files
 
-Storage files:
+Located at `~/.quickforge/storage/` (or `%USERPROFILE%\.quickforge\storage` on Windows):
 
-- `custom-providers.json`: custom model/provider configuration
-- `provider-keys.json`: API keys
-- `settings.json`: selected active model, YOLO mode, and app settings
-- `sessions.json`: full chat history
-- `sessions-metadata.json`: conversation list metadata
+- `custom-providers.json` — custom model/provider configs
+- `provider-keys.json` — API keys
+- `settings.json` — active model, YOLO mode, app preferences
+- `sessions.json` — full chat history
+- `sessions-metadata.json` — conversation list metadata
 
-On first run with the local server available, existing browser IndexedDB data for the same origin is copied into the local files without overwriting existing file data.
+### Default Model
 
-## YOLO local tools
+Comes pre-configured for a LiteLLM proxy:
 
-The bottom bar has a YOLO mode switch. When YOLO is off, the agent has no local workspace tools. When YOLO is on, the agent can call local tools through the Node server:
+- **Base URL**: `http://localhost:4000/v1`
+- **Model**: `anthropic/claude-sonnet-4`
+- **API**: OpenAI-compatible `/v1/chat/completions`
 
-- `list_dir`
-- `read_file`
-- `grep_files`
-- `write_file`
-- `edit_file`
-- `run_command`
+Change providers and models in the Settings panel.
 
-Tools are restricted to the workspace root, which defaults to the project directory. Override it with:
+## YOLO Mode
 
-```bash
-QUICKFORGE_WORKSPACE_DIR=/path/to/workspace npm start
-```
+Toggle YOLO from the bottom bar. When enabled, the agent gains these local tools:
 
-Legacy `FASTCODE_WORKSPACE_DIR` is still accepted.
+| Tool | Description |
+|---|---|
+| `list_dir` | List directory contents |
+| `read_file` | Read file contents |
+| `grep_files` | Search files by text/regex |
+| `write_file` | Create or overwrite a file |
+| `edit_file` | Replace text in a file |
+| `run_command` | Execute shell commands |
 
-YOLO mode runs without per-tool confirmations, so only enable it for trusted models and trusted workspaces.
+All tools are restricted to the workspace root. YOLO runs **without per-tool confirmations** — only enable it for trusted models and workspaces.
 
 ## Verification
 
@@ -101,6 +122,10 @@ npm run lint
 npm run build
 ```
 
-## Notes
+## Contributing
 
-The local server only listens on `127.0.0.1` by default. API keys are stored locally on disk, not in git and not on a remote server. Treat the local data directory as sensitive because API keys are stored in JSON files.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and PR guidelines.
+
+## License
+
+[MIT](LICENSE)

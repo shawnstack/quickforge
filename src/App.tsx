@@ -631,9 +631,9 @@ function App() {
         createdAt,
         lastModified: now,
         scope: task.scope,
-        projectId: task.project?.id,
-        projectName: task.project?.name,
-        projectPath: task.project?.path,
+        projectId: task.scope === 'project' ? task.project?.id : undefined,
+        projectName: task.scope === 'project' ? task.project?.name : undefined,
+        projectPath: task.scope === 'project' ? task.project?.path : undefined,
         taskStatus: task.status,
         taskStartedAt: task.startedAt,
         taskFinishedAt: finishedAt,
@@ -649,9 +649,9 @@ function App() {
         thinkingLevel: task.agent.state.thinkingLevel,
         preview: summarizePreview(messages),
         scope: task.scope,
-        projectId: task.project?.id,
-        projectName: task.project?.name,
-        projectPath: task.project?.path,
+        projectId: task.scope === 'project' ? task.project?.id : undefined,
+        projectName: task.scope === 'project' ? task.project?.name : undefined,
+        projectPath: task.scope === 'project' ? task.project?.path : undefined,
         taskStatus: task.status,
         taskStartedAt: task.startedAt,
         taskFinishedAt: finishedAt,
@@ -693,7 +693,7 @@ function App() {
       }
 
       const scope = options?.scope ?? currentChatScopeRef.current
-      const project = options?.project ?? activeProjectRef.current
+      const project = scope === 'project' ? (options?.project ?? activeProjectRef.current) : undefined
       const startedAt = new Date().toISOString()
 
       const systemPrompt = await buildSystemPrompt(project?.id)
@@ -784,7 +784,6 @@ function App() {
   )
 
   const startNewGlobalChat = useCallback(async () => {
-    const project = activeProjectRef.current
     const sessionId = crypto.randomUUID()
 
     const url = new URL(window.location.href)
@@ -792,9 +791,9 @@ function App() {
     window.history.replaceState({}, '', url)
 
     await createAgent(
-      { tools: getLocalWorkspaceTools(yoloModeRef.current, project?.id) },
+      { tools: [] },
       sessionId,
-      { scope: 'global', project, attachToView: true },
+      { scope: 'global', attachToView: true },
     )
   }, [createAgent])
 
@@ -842,19 +841,19 @@ function App() {
 
       const metadata = sessions.find((item) => item.id === sessionId) ?? ((await storage.sessions.getMetadata(sessionId)) as QuickForgeSessionMetadata | null)
       const scope = sessionScope(metadata ?? session)
-      let project = activeProjectRef.current
-      if (metadata?.projectId || session.projectId) {
+      let project: ProjectInfo | undefined
+      if (scope === 'project' && (metadata?.projectId || session.projectId)) {
         const projectId = (metadata?.projectId ?? session.projectId)!
         if (activeProjectRef.current?.id !== projectId) {
           try {
             project = await switchActiveProject(projectId)
           } catch (error) {
             console.error('Failed to switch project for session:', error)
-            if (scope === 'project') {
-              alert(t('projectSwitchFailed'))
-              return
-            }
+            alert(t('projectSwitchFailed'))
+            return
           }
+        } else {
+          project = activeProjectRef.current
         }
       }
 
@@ -969,25 +968,25 @@ function App() {
         if (existing) {
           const metadata = (await storage.sessions.getMetadata(existing.id)) as QuickForgeSessionMetadata | null
           const scope = sessionScope(metadata ?? (existing as QuickForgeSessionData))
-          let project = activeProjectRef.current
-          if (metadata?.projectId || (existing as QuickForgeSessionData).projectId) {
+          let project: ProjectInfo | undefined
+          if (scope === 'project' && (metadata?.projectId || (existing as QuickForgeSessionData).projectId)) {
             const projectId = (metadata?.projectId ?? (existing as QuickForgeSessionData).projectId)!
             if (activeProjectRef.current?.id !== projectId) {
               try {
                 project = await switchActiveProject(projectId)
               } catch (error) {
                 console.error('Failed to switch project for initial session:', error)
-                if (scope === 'project') {
-                  alert(t('projectSwitchFailed'))
-                  await createAgent(
-                    { model: initialModel, tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id) },
-                    crypto.randomUUID(),
-                    { scope: 'global', project: activeProjectRef.current, attachToView: true },
-                  )
-                  setReady(true)
-                  return
-                }
+                alert(t('projectSwitchFailed'))
+                await createAgent(
+                  { model: initialModel, tools: [] },
+                  crypto.randomUUID(),
+                  { scope: 'global', attachToView: true },
+                )
+                setReady(true)
+                return
               }
+            } else {
+              project = activeProjectRef.current
             }
           }
           activeModelRef.current = existing.model as Model<Api>
@@ -1010,16 +1009,16 @@ function App() {
           )
         } else {
           await createAgent(
-            { model: initialModel, tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id) },
+            { model: initialModel, tools: [] },
             crypto.randomUUID(),
-            { scope: 'global', project: activeProjectRef.current, attachToView: true },
+            { scope: 'global', attachToView: true },
           )
         }
       } else {
         await createAgent(
-          { model: initialModel, tools: getLocalWorkspaceTools(yoloModeRef.current, activeProjectRef.current?.id) },
+          { model: initialModel, tools: [] },
           crypto.randomUUID(),
-          { scope: 'global', project: activeProjectRef.current, attachToView: true },
+          { scope: 'global', attachToView: true },
         )
       }
 
@@ -1148,7 +1147,7 @@ function App() {
     if (!hasUserMessage(messages)) return
 
     const scope = currentChatScopeRef.current
-    const project = activeProjectRef.current
+    const project = scope === 'project' ? activeProjectRef.current : undefined
     const newSessionId = crypto.randomUUID()
     const title = generateTitle(messages)
 
@@ -1437,7 +1436,7 @@ function App() {
 
           <div className="min-w-0 flex-1">
             <div className="truncate text-xs text-muted-foreground">
-              {chatScope === 'project' ? (currentToolProject?.name ?? t('projectChat')) : `${t('normalChat')}${currentToolProject ? ` · ${currentToolProject.name}` : ''}`}
+              {chatScope === 'project' ? (currentToolProject?.name ?? t('projectChat')) : t('normalChat')}
             </div>
             <div className="truncate text-sm font-semibold">{sessionTitle(currentTitle)}</div>
           </div>

@@ -1,6 +1,32 @@
 {
   "name": "quickforge",
   "version": "1.0.0",
+  "description": "AI chat application with YOLO-mode local workspace tools. React + Vite + Tailwind CSS frontend, local Node.js storage server.",
+  "keywords": [
+    "ai",
+    "chat",
+    "llm",
+    "claude",
+    "openai",
+    "anthropic",
+    "litellm",
+    "react",
+    "vite",
+    "tailwindcss",
+    "yolo",
+    "workspace",
+    "tools"
+  ],
+  "author": "shawn <1524587436@qq.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOUR_USERNAME/quickforge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/YOUR_USERNAME/quickforge/issues"
+  },
+  "homepage": "https://github.com/YOUR_USERNAME/quickforge#readme",
   "type": "module",
   "bin": {
     "quickforge": "bin/quickforge.mjs",

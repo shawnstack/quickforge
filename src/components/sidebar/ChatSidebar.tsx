@@ -1,5 +1,4 @@
 import {
-  ChevronDown,
   ChevronRight,
   Folder,
   FolderOpen,
@@ -70,19 +69,28 @@ export function ChatSidebar({
   onDeleteSession,
   onStartNewGlobalChat,
 }: ChatSidebarProps) {
-  const sectionHeaderClass = 'mb-1.5 flex w-full items-center gap-1 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60'
+  const sectionHeaderClass = 'mb-1 flex w-full items-center gap-1 rounded-lg px-2 py-1 text-sm font-medium leading-5 text-muted-foreground/72 transition-colors hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)]'
   const sectionToggleClass = 'flex min-w-0 flex-1 items-center gap-1 text-left transition-colors hover:text-foreground/80'
+  const chevronClass = 'size-4 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none'
+  const collapsePanelClass = 'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none'
+  const collapsePanelOpenClass = 'grid-rows-[1fr] opacity-100'
+  const collapsePanelClosedClass = 'pointer-events-none grid-rows-[0fr] opacity-0'
+  const collapseInnerClass = 'min-h-0 overflow-hidden'
   const rowHoverShadowClass = 'hover:shadow-[0_10px_26px_-18px_rgb(15_23_42_/_0.48)]'
   const iconHoverShadowClass = 'hover:shadow-[0_8px_18px_-14px_rgb(15_23_42_/_0.5)]'
-  const rowClass = `group flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-all duration-160 ease-out hover:-translate-y-px active:translate-y-0 ${rowHoverShadowClass}`
-  const activeRowClass = 'bg-muted/30 text-foreground/90 shadow-[0_10px_26px_-20px_rgb(15_23_42_/_0.42)]'
-  const inactiveRowClass = 'text-muted-foreground/72 hover:bg-muted/32 hover:text-foreground/85'
+  const rowClass = `group relative flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-all duration-160 ease-out hover:-translate-y-px active:translate-y-0 ${rowHoverShadowClass}`
+  const activeRowClass = 'bg-[color-mix(in_oklab,var(--muted)_70%,transparent)] text-foreground/92 shadow-[0_10px_26px_-20px_rgb(15_23_42_/_0.36)]'
+  const projectActiveRowClass = 'text-foreground/84 hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)]'
+  const inactiveRowClass = 'text-muted-foreground/72 hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)] hover:text-foreground/86'
+  const sessionInactiveRowClass = 'text-muted-foreground/76 hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)] hover:text-foreground/90'
   const iconSlotClass = 'inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-colors group-hover:text-foreground/70'
-  const iconButtonClass = `size-7 shrink-0 rounded-full text-muted-foreground/55 transition-all duration-160 ease-out hover:-translate-y-px hover:bg-muted/32 hover:text-foreground/85 active:translate-y-0 ${iconHoverShadowClass}`
-  const hiddenIconButtonClass = `${iconButtonClass} opacity-0 group-hover:opacity-100`
-  const dangerIconButtonClass = `size-7 shrink-0 rounded-full text-muted-foreground/55 opacity-0 transition-all duration-160 ease-out hover:-translate-y-px hover:bg-destructive/14 hover:text-destructive/90 active:translate-y-0 group-hover:opacity-100 ${iconHoverShadowClass}`
+  const iconButtonClass = `size-7 shrink-0 rounded-full text-muted-foreground/55 transition-all duration-160 ease-out hover:-translate-y-px hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)] hover:text-foreground/85 active:translate-y-0 ${iconHoverShadowClass}`
+  const actionOverlayClass = 'pointer-events-none absolute inset-y-0 right-1 flex items-center gap-0.5 rounded-r-lg bg-gradient-to-l from-background via-background/95 to-transparent pl-8 opacity-0 transition-opacity duration-160 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100'
+  const overlayIconButtonClass = iconButtonClass
+  const overlayDangerIconButtonClass = `size-7 shrink-0 rounded-full text-muted-foreground/55 transition-all duration-160 ease-out hover:-translate-y-px hover:bg-destructive/14 hover:text-destructive/90 active:translate-y-0 ${iconHoverShadowClass}`
   const sessionTitleClass = 'truncate text-sm leading-5'
-  const activeSessionTitleClass = 'font-medium text-foreground/90'
+  const activeSessionTitleClass = 'font-medium text-foreground/92'
+  const activeProjectTitleClass = 'font-medium text-foreground/84'
   const timeClass = 'mt-0.5 truncate text-[11px] leading-4 text-muted-foreground/55'
 
   return (
@@ -98,10 +106,10 @@ export function ChatSidebar({
           <div className="mt-1 text-xs text-muted-foreground/55">AI Workspace</div>
         </div>
 
-        <div className="mb-5">
+        <div className="mb-0.5">
           <div className={sectionHeaderClass}>
-            <button type="button" className={sectionToggleClass} onClick={onToggleProjectsCollapsed}>
-              {projectsCollapsed ? <ChevronRight className="size-4 shrink-0" /> : <ChevronDown className="size-4 shrink-0" />}
+            <button type="button" className={sectionToggleClass} onClick={onToggleProjectsCollapsed} aria-expanded={!projectsCollapsed}>
+              <ChevronRight className={cn(chevronClass, !projectsCollapsed && 'rotate-90')} />
               <span className="flex-1 truncate">{t('projects')}</span>
             </button>
             <Button
@@ -116,8 +124,9 @@ export function ChatSidebar({
             </Button>
           </div>
 
-          {!projectsCollapsed && (
-            <div className="space-y-0.5">
+          <div className={cn(collapsePanelClass, projectsCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
+            <div className={collapseInnerClass}>
+              <div className="space-y-0.5">
               {projects.length === 0 ? (
                 <div className="px-3 py-3 text-xs text-muted-foreground/55">{t('noProjects')}</div>
               ) : (
@@ -128,7 +137,7 @@ export function ChatSidebar({
 
                   return (
                     <div key={item.id}>
-                      <div className={cn(rowClass, active ? activeRowClass : inactiveRowClass)}>
+                      <div className={cn(rowClass, active ? projectActiveRowClass : inactiveRowClass)}>
                         <button
                           type="button"
                           className={iconSlotClass}
@@ -143,37 +152,40 @@ export function ChatSidebar({
                           title={item.path}
                           onClick={() => onToggleProjectExpanded(item.id)}
                         >
-                          <span className={cn(sessionTitleClass, active && activeSessionTitleClass)}>{item.name}</span>
+                          <span className={cn(sessionTitleClass, active && activeProjectTitleClass)}>{item.name}</span>
                         </button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className={hiddenIconButtonClass}
-                          onClick={() => onStartNewProjectChat(item)}
-                          aria-label={t('newProjectChat')}
-                        >
-                          <MessageSquarePlus className="size-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className={dangerIconButtonClass}
-                          onClick={() => onDeleteProject(item.id)}
-                          aria-label={t('deleteProject')}
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
+                        <div className={actionOverlayClass}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className={overlayIconButtonClass}
+                            onClick={() => onStartNewProjectChat(item)}
+                            aria-label={t('newProjectChat')}
+                          >
+                            <MessageSquarePlus className="size-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className={overlayDangerIconButtonClass}
+                            onClick={() => onDeleteProject(item.id)}
+                            aria-label={t('deleteProject')}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
                       </div>
 
-                      {expanded ? (
-                        <div className="mt-0.5 space-y-0.5 pl-8">
+                      <div className={cn(collapsePanelClass, expanded ? collapsePanelOpenClass : collapsePanelClosedClass)}>
+                        <div className={collapseInnerClass}>
+                          <div className="mt-0.5 space-y-0.5 pl-8">
                           {projectSessions.length === 0 ? (
                             <div className="px-2 py-1.5 text-xs text-muted-foreground/55">{t('noConversations')}</div>
                           ) : (
                             projectSessions.map((session) => {
                               const selected = currentSessionId === session.id
                               return (
-                                <div key={session.id} className={cn(rowClass, 'gap-1', selected ? activeRowClass : inactiveRowClass)}>
+                                <div key={session.id} className={cn(rowClass, 'gap-1', selected ? activeRowClass : sessionInactiveRowClass)}>
                                   <button className="min-w-0 flex-1 text-left" type="button" onClick={() => onLoadSession(session.id)}>
                                     <div className="flex items-center gap-1 truncate">
                                       {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
@@ -181,42 +193,46 @@ export function ChatSidebar({
                                     </div>
                                     <div className={timeClass}>{formatSessionTime(session.lastModified)}</div>
                                   </button>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className={hiddenIconButtonClass}
-                                    onClick={() => onRenameSession(session.id, session.title)}
-                                    aria-label={t('renameSession')}
-                                  >
-                                    <Pencil className="size-3.5" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className={dangerIconButtonClass}
-                                    onClick={() => onDeleteSession(session.id)}
-                                    aria-label={t('deleteSession')}
-                                  >
-                                    <Trash2 className="size-4" />
-                                  </Button>
+                                  <div className={actionOverlayClass}>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className={overlayIconButtonClass}
+                                      onClick={() => onRenameSession(session.id, session.title)}
+                                      aria-label={t('renameSession')}
+                                    >
+                                      <Pencil className="size-3.5" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className={overlayDangerIconButtonClass}
+                                      onClick={() => onDeleteSession(session.id)}
+                                      aria-label={t('deleteSession')}
+                                    >
+                                      <Trash2 className="size-4" />
+                                    </Button>
+                                  </div>
                                 </div>
                               )
                             })
                           )}
+                          </div>
                         </div>
-                      ) : null}
+                      </div>
                     </div>
                   )
                 })
               )}
+              </div>
             </div>
-          )}
+          </div>
         </div>
 
         <div>
           <div className={sectionHeaderClass}>
-            <button type="button" className={sectionToggleClass} onClick={onToggleConversationsCollapsed}>
-              {conversationsCollapsed ? <ChevronRight className="size-4 shrink-0" /> : <ChevronDown className="size-4 shrink-0" />}
+            <button type="button" className={sectionToggleClass} onClick={onToggleConversationsCollapsed} aria-expanded={!conversationsCollapsed}>
+              <ChevronRight className={cn(chevronClass, !conversationsCollapsed && 'rotate-90')} />
               <span className="flex-1 truncate">{t('conversations')}</span>
             </button>
             <Button
@@ -230,15 +246,16 @@ export function ChatSidebar({
             </Button>
           </div>
 
-          {!conversationsCollapsed && (
-            globalSessions.length === 0 ? (
+          <div className={cn(collapsePanelClass, conversationsCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
+            <div className={collapseInnerClass}>
+              {globalSessions.length === 0 ? (
               <div className="px-3 py-3 text-xs text-muted-foreground/55">{t('noSavedConversations')}</div>
             ) : (
               <div className="space-y-0.5">
                 {globalSessions.map((session) => {
                   const selected = currentSessionId === session.id
                   return (
-                    <div key={session.id} className={cn(rowClass, selected ? activeRowClass : inactiveRowClass)}>
+                    <div key={session.id} className={cn(rowClass, selected ? activeRowClass : sessionInactiveRowClass)}>
                       <button className="min-w-0 flex-1 text-left" type="button" onClick={() => onLoadSession(session.id)}>
                         <div className="flex items-center gap-1 truncate">
                           {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
@@ -246,30 +263,33 @@ export function ChatSidebar({
                         </div>
                         <div className={timeClass}>{formatSessionTime(session.lastModified)}</div>
                       </button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className={hiddenIconButtonClass}
-                        onClick={() => onRenameSession(session.id, session.title)}
-                        aria-label={t('renameSession')}
-                      >
-                        <Pencil className="size-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className={dangerIconButtonClass}
-                        onClick={() => onDeleteSession(session.id)}
-                        aria-label={t('deleteSession')}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
+                      <div className={actionOverlayClass}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={overlayIconButtonClass}
+                          onClick={() => onRenameSession(session.id, session.title)}
+                          aria-label={t('renameSession')}
+                        >
+                          <Pencil className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={overlayDangerIconButtonClass}
+                          onClick={() => onDeleteSession(session.id)}
+                          aria-label={t('deleteSession')}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </div>
                     </div>
                   )
                 })}
               </div>
-            )
-          )}
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </aside>

@@ -137,6 +137,22 @@ export function ChatPanelHost({
       const rightControls = editorRows?.[editorRows.length - 1]
       if (!rightControls) return
 
+      const actionButton = rightControls.querySelector<HTMLButtonElement>('button:last-child')
+      if (actionButton) {
+        if (agent.state.isStreaming) {
+          actionButton.classList.remove('quickforge-send-button')
+          actionButton.classList.add('quickforge-stop-button')
+          delete actionButton.dataset.quickforgeSendIcon
+        } else {
+          actionButton.classList.remove('quickforge-stop-button')
+          actionButton.classList.add('quickforge-send-button')
+          if (actionButton.dataset.quickforgeSendIcon !== 'arrow-up') {
+            actionButton.dataset.quickforgeSendIcon = 'arrow-up'
+            actionButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>'
+          }
+        }
+      }
+
       if (!workspaceToolsEnabled) {
         rightControls.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')?.remove()
         return

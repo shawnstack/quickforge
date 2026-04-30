@@ -138,20 +138,40 @@
   background: color-mix(in oklab, var(--muted) 34%, transparent) !important;
 }
 
-.quickforge-composer > div:first-child > .px-2.pb-2 > div:last-child > button:last-child {
+.quickforge-composer .quickforge-send-button,
+.quickforge-composer .quickforge-stop-button {
+  display: inline-flex !important;
+  width: 2rem !important;
+  height: 2rem !important;
+  min-width: 2rem !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
   border: 1px solid transparent !important;
 }
 
-.quickforge-composer > div:first-child > .px-2.pb-2 > div:last-child > button:last-child:not(:disabled) {
+.quickforge-composer .quickforge-send-button svg,
+.quickforge-composer .quickforge-stop-button svg {
+  display: block;
+  width: 1.0625rem;
+  height: 1.0625rem;
+}
+
+.quickforge-composer .quickforge-send-button:not(:disabled) {
   background: var(--primary) !important;
   color: var(--primary-foreground) !important;
   box-shadow: 0 10px 24px -12px color-mix(in oklab, var(--primary) 72%, black) !important;
 }
 
-.quickforge-composer > div:first-child > .px-2.pb-2 > div:last-child > button:last-child:disabled {
+.quickforge-composer .quickforge-send-button:disabled {
   background: color-mix(in oklab, var(--muted) 72%, transparent) !important;
   color: color-mix(in oklab, var(--muted-foreground) 78%, transparent) !important;
   opacity: 1 !important;
+}
+
+.quickforge-composer .quickforge-stop-button {
+  background: color-mix(in oklab, var(--muted) 48%, transparent) !important;
+  color: var(--foreground) !important;
 }
 
 .quickforge-composer attachment-tile + attachment-tile {

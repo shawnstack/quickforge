@@ -793,23 +793,30 @@ function App() {
       return
     }
 
-    openCustomOnlyModelSelector(currentAgent.state.model ?? activeModelRef.current, customModels, (model) => {
-      const nextModel = model as Model<Api>
-      currentAgent.state.model = nextModel
-      activeModelRef.current = nextModel
+    openCustomOnlyModelSelector(
+      currentAgent.state.model ?? activeModelRef.current,
+      customModels,
+      (model) => {
+        const nextModel = model as Model<Api>
+        currentAgent.state.model = nextModel
+        activeModelRef.current = nextModel
 
-      if (currentInput) {
-        setRestoredDraft({
-          id: Date.now(),
-          text: currentInput,
+        if (currentInput) {
+          setRestoredDraft({
+            id: Date.now(),
+            text: currentInput,
+          })
+        }
+
+        setChatPanelRevision((value) => value + 1)
+        void saveActiveModel(storage, nextModel).catch((error) => {
+          console.error('Failed to save active model:', error)
         })
-      }
-
-      setChatPanelRevision((value) => value + 1)
-      void saveActiveModel(storage, nextModel).catch((error) => {
-        console.error('Failed to save active model:', error)
-      })
-    })
+      },
+      (model) => {
+        SettingsDialog.open([createLanguageSettingsTab(), createCustomProvidersOnlyTab(model.provider), new ProxyTab()])
+      },
+    )
   }, [])
 
   // --- Derived data ---

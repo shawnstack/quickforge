@@ -51,9 +51,18 @@ export class CustomProvidersOnlyTab extends SettingsTab {
   private formOpen = false
   private loading = true
 
+  public autoEditProviderName: string | null = null
+
   override async connectedCallback() {
     super.connectedCallback()
     await this.loadProviders()
+    if (this.autoEditProviderName) {
+      const provider = this.providers.find((p) => p.name === this.autoEditProviderName)
+      if (provider) {
+        await this.openEditForm(provider)
+      }
+      this.autoEditProviderName = null
+    }
   }
 
   override getTabName(): string {
@@ -496,6 +505,10 @@ if (!customElements.get(tagName)) {
   customElements.define(tagName, CustomProvidersOnlyTab)
 }
 
-export function createCustomProvidersOnlyTab() {
-  return document.createElement(tagName) as CustomProvidersOnlyTab
+export function createCustomProvidersOnlyTab(autoEditProviderName?: string) {
+  const el = document.createElement(tagName) as CustomProvidersOnlyTab
+  if (autoEditProviderName) {
+    el.autoEditProviderName = autoEditProviderName
+  }
+  return el
 }

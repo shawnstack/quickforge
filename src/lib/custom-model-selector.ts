@@ -21,10 +21,13 @@ function createButton(className: string, text: string) {
   return button
 }
 
+const PENCIL_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`
+
 export function openCustomOnlyModelSelector(
   currentModel: AnyModel | null,
   models: AnyModel[],
   onSelect: (model: AnyModel) => void,
+  onEditModel?: (model: AnyModel) => void,
 ) {
   const entries: CustomModelEntry[] = models.map((model) => ({
     provider: model.provider,
@@ -100,11 +103,30 @@ export function openCustomOnlyModelSelector(
       id.className = 'min-w-0 truncate text-sm font-medium'
       id.textContent = model.id
 
+      const rightGroup = document.createElement('div')
+      rightGroup.className = 'flex shrink-0 items-center gap-1.5'
+
       const provider = document.createElement('div')
-      provider.className = 'shrink-0 rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground'
+      provider.className = 'rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground'
       provider.textContent = model.provider
 
-      top.append(id, provider)
+      rightGroup.append(provider)
+
+      if (onEditModel) {
+        const editButton = document.createElement('button')
+        editButton.type = 'button'
+        editButton.className = 'shrink-0 rounded p-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground'
+        editButton.innerHTML = PENCIL_ICON_SVG
+        editButton.setAttribute('aria-label', t('editModel'))
+        editButton.onclick = (event) => {
+          event.stopPropagation()
+          overlay.remove()
+          onEditModel(model)
+        }
+        rightGroup.append(editButton)
+      }
+
+      top.append(id, rightGroup)
 
       const meta = document.createElement('div')
       meta.className = 'mt-1 text-xs text-muted-foreground'

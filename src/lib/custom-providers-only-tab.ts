@@ -173,7 +173,6 @@ export class CustomProvidersOnlyTab extends SettingsTab {
                     requiresReasoningContentOnAssistantMessages: true,
                     thinkingFormat: 'deepseek' as const,
                     reasoningEffortMap: {
-                      minimal: 'high',
                       low: 'high',
                       medium: 'high',
                       high: 'high',

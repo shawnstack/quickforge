@@ -147,7 +147,7 @@ function withDeepSeekThinkingParams(payload: ChatPayload) {
     payload.thinking = { type: 'enabled' }
   }
 
-  // Official mapping: low/medium/minimal -> high, xhigh -> max.  pi-ai already
+  // Official mapping: low/medium/high -> high, xhigh -> max.  pi-ai already
   // does this for correctly marked models; this covers old saved profiles where
   // `reasoning` was false and no reasoning_effort was generated.
   if (typeof payload.reasoning_effort !== 'string' || payload.reasoning_effort.length === 0) {

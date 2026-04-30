@@ -64,7 +64,6 @@ function deepSeekThinkingCompat() {
     requiresReasoningContentOnAssistantMessages: true,
     thinkingFormat: 'deepseek' as const,
     reasoningEffortMap: {
-      minimal: 'high',
       low: 'high',
       medium: 'high',
       high: 'high',

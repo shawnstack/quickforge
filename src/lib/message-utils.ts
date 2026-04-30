@@ -162,7 +162,7 @@ export async function generateAiTitle(
         apiKey,
         maxTokens: 160,
         temperature: 0.2,
-        reasoning: 'minimal',
+        reasoning: 'low',
         maxRetryDelayMs: 60000,
       },
     )

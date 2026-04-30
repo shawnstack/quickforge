@@ -301,7 +301,7 @@ function App() {
       const resolvedModel = storage
         ? await resolveConfiguredModel(storage, (requestedModel ?? activeModelRef.current) as Model<Api>)
         : normalizeModelForProvider((requestedModel ?? activeModelRef.current) as Model<Api>)
-      const resolvedThinkingLevel = requestedThinkingLevel ?? (resolvedModel.reasoning ? 'minimal' : 'off')
+      const resolvedThinkingLevel = requestedThinkingLevel ?? (resolvedModel.reasoning ? 'medium' : 'off')
       activeModelRef.current = resolvedModel
 
       const agentForPayload: { current?: Agent } = {}

@@ -18,6 +18,7 @@ import {
   MessageSquarePlus,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
   Plus,
   Settings,
   Trash2,
@@ -35,6 +36,7 @@ import {
   saveYoloMode,
 } from '@/lib/pi-chat'
 import { showConfirm } from '@/components/ui/confirm-dialog'
+import { showPrompt } from '@/components/ui/prompt-dialog'
 import { createCustomProvidersOnlyTab } from '@/lib/custom-providers-only-tab'
 import { getDateLocale, t } from '@/lib/i18n'
 import { createLanguageSettingsTab } from '@/lib/language-settings-tab'
@@ -172,6 +174,56 @@ function generateTitle(messages: AgentMessage[]) {
   const normalized = text.trim().replace(/\s+/g, ' ')
   if (!normalized) return 'New chat'
   return normalized.length > 46 ? `${normalized.slice(0, 43)}...` : normalized
+}
+
+async function generateAiTitle(
+  messages: AgentMessage[],
+  model: { baseUrl: string; id: string },
+  apiKey?: string,
+): Promise<string> {
+  const firstUser = messages.find((m) => m.role === 'user' || m.role === 'user-with-attachments')
+  if (!firstUser) return 'New chat'
+
+  const text = typeof firstUser.content === 'string'
+    ? firstUser.content
+    : textFromContentBlocks(firstUser.content)
+
+  if (!text.trim()) return 'New chat'
+
+  try {
+    const response = await fetch(`${model.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey || ''}`,
+      },
+      body: JSON.stringify({
+        model: model.id,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Generate a very short title (3-5 words max) that summarizes the user\'s request. Reply with ONLY the title — no quotes, no punctuation at the end, no explanations.',
+          },
+          { role: 'user', content: text },
+        ],
+        max_tokens: 20,
+        temperature: 0.3,
+      }),
+    })
+
+    if (!response.ok) return generateTitle(messages)
+
+    const data = await response.json()
+    const title = data.choices?.[0]?.message?.content?.trim() || ''
+    return title || generateTitle(messages)
+  } catch {
+    return generateTitle(messages)
+  }
+}
+
+function titleNeedsGeneration(title: string) {
+  return title === 'New chat' || title === t('newChat')
 }
 
 function hasUserMessage(messages: AgentMessage[]) {
@@ -505,6 +557,7 @@ function App() {
   const currentSessionIdRef = useRef<string | undefined>(undefined)
   const currentTitleRef = useRef('New chat')
   const currentCreatedAtRef = useRef<string | undefined>(undefined)
+  const titleGeneratedRef = useRef<Set<string>>(new Set())
 
   const [agent, setAgent] = useState<Agent | null>(null)
   const [sessions, setSessions] = useState<QuickForgeSessionMetadata[]>([])
@@ -613,12 +666,72 @@ function App() {
 
       const now = new Date().toISOString()
       const createdAt = task.createdAt ?? now
-      const title = task.title === 'New chat' ? generateTitle(messages) : task.title
+
+      let title = task.title
+      const needsTitle = titleNeedsGeneration(title)
+      if (needsTitle) {
+        title = generateTitle(messages)
+      }
+
       const finishedAt = task.status === 'running' ? undefined : (task.finishedAt ?? now)
 
       task.createdAt = createdAt
       task.title = title
       task.finishedAt = finishedAt
+
+      // Fire-and-forget AI title generation
+      if (needsTitle && !titleGeneratedRef.current.has(task.sessionId) && messages.some((m) => m.role === 'assistant')) {
+        titleGeneratedRef.current.add(task.sessionId)
+        const model = task.agent.state.model ?? activeModelRef.current
+        const apiKey = await storage.providerKeys.get(model.provider).catch(() => undefined)
+        generateAiTitle(messages, model, apiKey).then(async (aiTitle) => {
+          if (aiTitle && aiTitle !== 'New chat') {
+            task.title = aiTitle
+            const latestMessages = task.agent.state.messages
+            const latestSessionData: QuickForgeSessionData = {
+              id: task.sessionId,
+              title: aiTitle,
+              model: task.agent.state.model!,
+              thinkingLevel: task.agent.state.thinkingLevel,
+              messages: latestMessages,
+              createdAt,
+              lastModified: new Date().toISOString(),
+              scope: task.scope,
+              projectId: task.scope === 'project' ? task.project?.id : undefined,
+              projectName: task.scope === 'project' ? task.project?.name : undefined,
+              projectPath: task.scope === 'project' ? task.project?.path : undefined,
+              taskStatus: task.status,
+              taskStartedAt: task.startedAt,
+              taskFinishedAt: task.finishedAt,
+            }
+            const latestMetadata: QuickForgeSessionMetadata = {
+              id: task.sessionId,
+              title: aiTitle,
+              createdAt,
+              lastModified: new Date().toISOString(),
+              messageCount: latestMessages.length,
+              usage: calculateUsage(latestMessages),
+              thinkingLevel: task.agent.state.thinkingLevel,
+              preview: summarizePreview(latestMessages),
+              scope: task.scope,
+              projectId: task.scope === 'project' ? task.project?.id : undefined,
+              projectName: task.scope === 'project' ? task.project?.name : undefined,
+              projectPath: task.scope === 'project' ? task.project?.path : undefined,
+              taskStatus: task.status,
+              taskStartedAt: task.startedAt,
+              taskFinishedAt: task.finishedAt,
+            }
+            await storage.sessions.save(latestSessionData, latestMetadata)
+            await refreshSessions()
+            if (currentSessionIdRef.current === task.sessionId) {
+              currentTitleRef.current = aiTitle
+              setCurrentTitle(aiTitle)
+            }
+          }
+        }).catch(() => {
+          // Silently ignore AI title generation failures
+        })
+      }
 
       if (currentSessionIdRef.current === task.sessionId) {
         currentCreatedAtRef.current = createdAt
@@ -946,6 +1059,63 @@ function App() {
       }
     },
     [projects, refreshSessions],
+  )
+
+  const renameSession = useCallback(
+    async (sessionId: string, currentTitle: string) => {
+      const storage = storageRef.current
+      if (!storage) return
+
+      const newTitle = await showPrompt({
+        title: t('renameSession'),
+        description: t('sessionName'),
+        defaultValue: currentTitle,
+        confirmLabel: t('save'),
+        cancelLabel: t('cancel'),
+      })
+      if (!newTitle || newTitle === currentTitle) return
+
+      const session = await storage.sessions.get(sessionId)
+      if (!session) return
+
+      const metadata = await storage.sessions.getMetadata(sessionId)
+      if (!metadata) return
+
+      const updatedMetadata = { ...metadata, title: newTitle }
+      await storage.sessions.save(session, updatedMetadata)
+      await refreshSessions()
+
+      if (currentSessionIdRef.current === sessionId) {
+        currentTitleRef.current = newTitle
+        setCurrentTitle(newTitle)
+      }
+    },
+    [refreshSessions],
+  )
+
+  const renameProject = useCallback(
+    async (projectId: string, currentName: string) => {
+      const newName = await showPrompt({
+        title: t('renameProject'),
+        description: t('projectNameLabel'),
+        defaultValue: currentName,
+        confirmLabel: t('save'),
+        cancelLabel: t('cancel'),
+      })
+      if (!newName || newName === currentName) return
+
+      const response = await fetch('/api/project/rename', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: projectId, name: newName }),
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(payload?.error || 'Failed to rename project')
+
+      setProjects(payload.projects)
+      setActiveProject(payload.project)
+    },
+    [],
   )
 
   useEffect(() => {
@@ -1336,6 +1506,15 @@ function App() {
                           variant="ghost"
                           size="icon"
                           className="size-7 shrink-0 opacity-0 group-hover:opacity-100"
+                          onClick={() => renameProject(item.id, item.name)}
+                          aria-label={t('renameProject')}
+                        >
+                          <Pencil className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 shrink-0 opacity-0 group-hover:opacity-100"
                           onClick={() => deleteProject(item.id)}
                           aria-label={t('deleteProject')}
                         >
@@ -1363,6 +1542,15 @@ function App() {
                                   </div>
                                   <div className="mt-0.5 truncate text-xs text-muted-foreground">{formatSessionTime(session.lastModified)}</div>
                                 </button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-6 shrink-0 opacity-0 group-hover:opacity-100"
+                                  onClick={() => renameSession(session.id, session.title)}
+                                  aria-label={t('renameSession')}
+                                >
+                                  <Pencil className="size-3" />
+                                </Button>
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -1418,6 +1606,15 @@ function App() {
                       </div>
                       <div className="mt-0.5 truncate text-xs text-muted-foreground">{formatSessionTime(session.lastModified)}</div>
                     </button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 opacity-0 group-hover:opacity-100"
+                      onClick={() => renameSession(session.id, session.title)}
+                      aria-label={t('renameSession')}
+                    >
+                      <Pencil className="size-3.5" />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"

@@ -1,0 +1,220 @@
+import { useEffect, useRef } from 'react'
+import {
+  ApiKeyPromptDialog,
+  ChatPanel,
+} from '@mariozechner/pi-web-ui'
+import type { Agent } from '@mariozechner/pi-agent-core'
+import { getLocalWorkspaceTools } from '@/lib/local-tools'
+import { assistantText } from '@/lib/message-utils'
+import { t } from '@/lib/i18n'
+import type { RestoredDraft } from '@/lib/types'
+
+type ChatPanelHostProps = {
+  agent: Agent | null
+  onModelSelect?: () => void
+  revision: number
+  yoloMode: boolean
+  workspaceToolsEnabled: boolean
+  projectId?: string
+  onToggleYoloMode: () => void
+  onRollbackFromMessage: (messageIndex: number) => void
+  onCopyAnswer: (text: string) => void
+  onForkFromMessage: (messageIndex: number) => void
+  restoredDraft?: RestoredDraft
+}
+
+export function ChatPanelHost({
+  agent,
+  onModelSelect,
+  revision,
+  yoloMode,
+  workspaceToolsEnabled,
+  projectId,
+  onToggleYoloMode,
+  onRollbackFromMessage,
+  onCopyAnswer,
+  onForkFromMessage,
+  restoredDraft,
+}: ChatPanelHostProps) {
+  const hostRef = useRef<HTMLDivElement | null>(null)
+  const restoredDraftIdRef = useRef<number | undefined>(undefined)
+
+  useEffect(() => {
+    if (!hostRef.current || !agent) return
+
+    const panel = new ChatPanel()
+    let disposed = false
+    let observer: MutationObserver | undefined
+
+    const copyIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>'
+    const rollbackIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>'
+    const forkIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/><path d="M12 12v3"/></svg>'
+
+    const createIconActionButton = (action: string, title: string, icon: string, onClick: () => void) => {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.dataset.quickforgeAction = action
+      button.title = title
+      button.setAttribute('aria-label', title)
+      button.innerHTML = icon
+      button.className = 'pointer-events-auto inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-transparent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40'
+      button.onclick = (event) => {
+        event.stopPropagation()
+        onClick()
+      }
+      return button
+    }
+
+    const decorateMessages = () => {
+      const displayEntries = agent.state.messages
+        .map((message, index) => ({ message, index }))
+        .filter(({ message }) => {
+          return message.role === 'user' || message.role === 'user-with-attachments' || message.role === 'assistant'
+        })
+
+      const messageElements = Array.from(
+        panel.querySelectorAll<HTMLElement>('message-list user-message, message-list assistant-message'),
+      )
+
+      messageElements.forEach((element, displayIndex) => {
+        const entry = displayEntries[displayIndex]
+        if (!entry) return
+
+        element.classList.add('group', 'relative')
+
+        const actionsClass = `quickforge-message-actions pointer-events-none mt-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 ${entry.message.role === 'assistant' ? 'px-4 justify-start' : 'mx-4 justify-start'}`
+        const existingActions = element.querySelector<HTMLElement>('.quickforge-message-actions')
+        if (existingActions?.dataset.quickforgeLayout === 'message-bottom') {
+          existingActions.className = actionsClass
+          existingActions.querySelectorAll<HTMLButtonElement>('button[data-quickforge-action="rollback"], button[data-quickforge-action="fork"]').forEach((button) => {
+            button.disabled = agent.state.isStreaming
+          })
+          return
+        }
+        existingActions?.remove()
+
+        const actions = document.createElement('div')
+        actions.dataset.quickforgeLayout = 'message-bottom'
+        actions.className = actionsClass
+
+        if (entry.message.role === 'assistant') {
+          const text = assistantText(entry.message)
+          if (!text) return
+
+          const copyButton = createIconActionButton('copy', t('copy'), copyIcon, () => {
+            const currentMessage = agent.state.messages[entry.index]
+            const currentText = currentMessage ? assistantText(currentMessage) : text
+            if (currentText) onCopyAnswer(currentText)
+          })
+          actions.append(copyButton)
+
+          const forkButton = createIconActionButton('fork', t('forkConversation'), forkIcon, () => {
+            onForkFromMessage(entry.index)
+          })
+          forkButton.disabled = agent.state.isStreaming
+          actions.append(forkButton)
+        } else {
+          const rollbackButton = createIconActionButton('rollback', t('rollback'), rollbackIcon, () => {
+            onRollbackFromMessage(entry.index)
+          })
+          rollbackButton.disabled = agent.state.isStreaming
+          actions.append(rollbackButton)
+        }
+
+        element.append(actions)
+      })
+    }
+
+    const decorateEditor = () => {
+      const editor = panel.querySelector('message-editor')
+      const editorRows = editor?.querySelectorAll<HTMLElement>('.flex.gap-2.items-center')
+      const rightControls = editorRows?.[editorRows.length - 1]
+      if (!rightControls) return
+
+      if (!workspaceToolsEnabled) {
+        rightControls.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')?.remove()
+        return
+      }
+
+      const yoloIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 8 4 4-4 4"/><path d="M13 16h4"/><rect width="18" height="14" x="3" y="5" rx="2"/></svg>'
+      const yoloLabel = `${yoloIcon}<span>YOLO</span><span class="ml-0.5 size-1.5 rounded-full ${yoloMode ? 'bg-emerald-500' : 'bg-muted-foreground/45'}"></span>`
+      const yoloClass = `quickforge-yolo-inline inline-flex h-8 items-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium ${yoloMode ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'}`
+      const yoloTitle = yoloMode ? t('yoloEnabledTitle') : t('yoloDisabledTitle')
+
+      const handleYoloToggle = (event: Event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onToggleYoloMode()
+      }
+
+      const handleYoloKeyDown = (event: KeyboardEvent) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return
+        handleYoloToggle(event)
+      }
+
+      const existingButton = rightControls.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')
+      if (existingButton) {
+        existingButton.innerHTML = yoloLabel
+        existingButton.title = yoloTitle
+        existingButton.setAttribute('aria-label', yoloTitle)
+        existingButton.setAttribute('aria-pressed', String(yoloMode))
+        existingButton.className = yoloClass
+        existingButton.onpointerdown = handleYoloToggle
+        existingButton.onclick = (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+        }
+        existingButton.onkeydown = handleYoloKeyDown
+        return
+      }
+
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.innerHTML = yoloLabel
+      button.title = yoloTitle
+      button.setAttribute('aria-label', yoloTitle)
+      button.setAttribute('aria-pressed', String(yoloMode))
+      button.className = yoloClass
+      button.onpointerdown = handleYoloToggle
+      button.onclick = (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+      button.onkeydown = handleYoloKeyDown
+      rightControls.prepend(button)
+    }
+
+    const decorate = () => {
+      if (disposed) return
+      decorateMessages()
+      decorateEditor()
+    }
+
+    void panel.setAgent(agent, {
+      onApiKeyRequired: (provider) => ApiKeyPromptDialog.prompt(provider),
+      onModelSelect,
+      toolsFactory: () => getLocalWorkspaceTools(workspaceToolsEnabled && yoloMode, projectId),
+    }).then(() => {
+      if (restoredDraft && restoredDraftIdRef.current !== restoredDraft.id) {
+        restoredDraftIdRef.current = restoredDraft.id
+        const agentInterface = panel.querySelector<HTMLElement>('agent-interface') as HTMLElement & {
+          setInput?: (text: string, attachments?: unknown[]) => void
+        }
+        agentInterface?.setInput?.(restoredDraft.text, restoredDraft.attachments)
+      }
+
+      decorate()
+      observer = new MutationObserver(() => window.requestAnimationFrame(decorate))
+      observer.observe(panel, { childList: true, subtree: true })
+    })
+
+    hostRef.current.replaceChildren(panel)
+    return () => {
+      disposed = true
+      observer?.disconnect()
+      panel.remove()
+    }
+  }, [agent, onCopyAnswer, onForkFromMessage, onModelSelect, onRollbackFromMessage, onToggleYoloMode, projectId, restoredDraft, revision, workspaceToolsEnabled, yoloMode])
+
+  return <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden" />
+}

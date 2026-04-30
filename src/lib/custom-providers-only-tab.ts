@@ -7,7 +7,7 @@ import {
 import { html, type TemplateResult } from 'lit'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import { t } from '@/lib/i18n'
-import { DEFAULT_CONNECTION } from '@/lib/pi-chat'
+import { DEFAULT_CONNECTION, normalizeModelForProvider } from '@/lib/pi-chat'
 
 type ProviderProtocol = Extract<CustomProviderType, 'openai-completions' | 'anthropic-messages'>
 type AnyModel = Model<Api>
@@ -147,7 +147,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     const isReasoningModel = modelForm.reasoning === true
     const isDeepSeek = baseUrl.includes('api.deepseek.com')
 
-    return {
+    return normalizeModelForProvider({
       id: modelForm.modelId,
       name: `${modelForm.modelId} (${name})`,
       api: this.form.protocol,
@@ -183,7 +183,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
                 : {}),
             }
           : undefined,
-    } satisfies AnyModel
+    } satisfies AnyModel)
   }
 
   private async saveModel() {

@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
@@ -23,18 +24,27 @@ function PromptDialogInner({
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [value, setValue] = useState(options.defaultValue ?? '')
+  const valueRef = useRef(value)
 
+  useEffect(() => {
+    valueRef.current = value
+  }, [value])
+
+  // Initial focus + select once on mount
   useEffect(() => {
     inputRef.current?.focus()
     inputRef.current?.select()
+  }, [])
 
+  // Keyboard shortcuts with latest value via ref
+  useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onResolve(null)
-      if (event.key === 'Enter' && value.trim()) onResolve(value.trim())
+      if (event.key === 'Enter' && valueRef.current.trim()) onResolve(valueRef.current.trim())
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
-  }, [onResolve, value])
+  }, [onResolve])
 
   return createPortal(
     <div

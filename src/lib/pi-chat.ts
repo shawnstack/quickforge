@@ -37,7 +37,7 @@ export type ConnectionProfile = {
   apiKey?: string
 }
 
-type StoreBundle = {
+export type StoreBundle = {
   settings: SettingsStore
   providerKeys: ProviderKeysStore
   sessions: SessionsStore
@@ -54,16 +54,61 @@ export const DEFAULT_CONNECTION: ConnectionForm = {
   maxTokens: 8192,
 }
 
+function isDeepSeekThinkingModelInfo(modelId: string, baseUrl: string, provider = '') {
+  const normalizedModelId = modelId.toLowerCase()
+  const normalizedBaseUrl = baseUrl.toLowerCase()
+  const normalizedProvider = provider.toLowerCase()
+  return (
+    normalizedModelId.includes('deepseek-v4') &&
+    (normalizedProvider.includes('deepseek') ||
+      normalizedBaseUrl.includes('api.deepseek.com') ||
+      normalizedBaseUrl.includes('deepseek.com'))
+  )
+}
+
+function deepSeekThinkingCompat() {
+  return {
+    requiresReasoningContentOnAssistantMessages: true,
+    thinkingFormat: 'deepseek' as const,
+    reasoningEffortMap: {
+      minimal: 'high',
+      low: 'high',
+      medium: 'high',
+      high: 'high',
+      xhigh: 'max',
+    } as Record<string, string>,
+  }
+}
+
+export function normalizeModelForProvider<TApi extends Api>(model: Model<TApi>): Model<TApi> {
+  if (model.api !== 'openai-completions') return model
+  if (!isDeepSeekThinkingModelInfo(model.id, model.baseUrl, model.provider)) return model
+
+  const openAiModel = model as unknown as Model<'openai-completions'>
+  return {
+    ...openAiModel,
+    reasoning: true,
+    compat: {
+      ...openAiModel.compat,
+      supportsReasoningEffort: true,
+      ...deepSeekThinkingCompat(),
+    },
+  } as unknown as Model<TApi>
+}
+
 export function buildConnectionModel(form: ConnectionForm): Model<'openai-completions'> {
-  const isReasoningModel = form.reasoning === true
-  const isDeepSeek = form.baseUrl.trim().replace(/\/$/, '').includes('api.deepseek.com')
+  const baseUrl = form.baseUrl.trim().replace(/\/$/, '')
+  const modelId = form.modelId.trim()
+  const provider = form.name.trim()
+  const isDeepSeekThinking = isDeepSeekThinkingModelInfo(modelId, baseUrl, provider)
+  const isReasoningModel = form.reasoning === true || isDeepSeekThinking
 
   return {
-    id: form.modelId.trim(),
-    name: `${form.modelId.trim()} (${form.name.trim()})`,
+    id: modelId,
+    name: `${modelId} (${provider})`,
     api: 'openai-completions',
-    provider: form.name.trim(),
-    baseUrl: form.baseUrl.trim().replace(/\/$/, ''),
+    provider,
+    baseUrl,
     reasoning: isReasoningModel,
     input: ['text', 'image'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -77,19 +122,7 @@ export function buildConnectionModel(form: ConnectionForm): Model<'openai-comple
       supportsStrictMode: false,
       maxTokensField: 'max_tokens',
       // DeepSeek V4 requires reasoning_content on assistant messages in tool-call rounds
-      ...(isDeepSeek && isReasoningModel
-        ? {
-            requiresReasoningContentOnAssistantMessages: true,
-            thinkingFormat: 'deepseek' as const,
-            reasoningEffortMap: {
-              minimal: 'high',
-              low: 'high',
-              medium: 'high',
-              high: 'high',
-              xhigh: 'max',
-            } as Record<string, string>,
-          }
-        : {}),
+      ...(isDeepSeekThinking ? deepSeekThinkingCompat() : {}),
     },
   }
 }
@@ -197,14 +230,14 @@ export async function initializePiStorage() {
 }
 
 export async function saveActiveModel(storage: AppStorage, model: Model<Api>) {
-  await storage.settings.set(ACTIVE_MODEL_SETTING_KEY, model)
+  await storage.settings.set(ACTIVE_MODEL_SETTING_KEY, normalizeModelForProvider(model))
 }
 
 export async function loadActiveModel(storage: AppStorage): Promise<Model<Api> | null> {
   const model = await storage.settings.get<Model<Api>>(ACTIVE_MODEL_SETTING_KEY)
   if (!model || typeof model !== 'object') return null
   if (!model.id || !model.provider || !model.api || !model.baseUrl) return null
-  return model
+  return normalizeModelForProvider(model)
 }
 
 export async function saveYoloMode(storage: AppStorage, enabled: boolean) {
@@ -252,5 +285,6 @@ export async function modelToConnectionForm(
     modelId: model.id,
     contextWindow: model.contextWindow,
     maxTokens: model.maxTokens,
+    reasoning: model.reasoning === true,
   }
 }

@@ -1,570 +1,62 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Agent, type AgentMessage, type AgentState } from '@mariozechner/pi-agent-core'
+import { Agent, type AgentState } from '@mariozechner/pi-agent-core'
 import {
-  ApiKeyPromptDialog,
-  ChatPanel,
-  createStreamFn,
   defaultConvertToLlm,
   ProxyTab,
   SettingsDialog,
-  type SessionData,
-  type SessionMetadata,
 } from '@mariozechner/pi-web-ui'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import {
-  ChevronDown,
-  ChevronRight,
-  Folder,
-  FolderOpen,
-  MessageSquarePlus,
   PanelLeftClose,
   PanelLeftOpen,
-  Pencil,
   Plus,
   Settings,
-  Trash2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ProjectDirectoryPicker } from '@/components/project-directory-picker'
-import { cn } from '@/lib/utils'
 import {
   buildConnectionModel,
   DEFAULT_CONNECTION,
   initializePiStorage,
   loadActiveModel,
-  loadYoloMode,
-  saveActiveModel,
-  saveYoloMode,
 } from '@/lib/pi-chat'
-import { showConfirm } from '@/components/ui/confirm-dialog'
-import { showPrompt } from '@/components/ui/prompt-dialog'
 import { createCustomProvidersOnlyTab } from '@/lib/custom-providers-only-tab'
-import { getDateLocale, t } from '@/lib/i18n'
+import { t } from '@/lib/i18n'
 import { createLanguageSettingsTab } from '@/lib/language-settings-tab'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
 import { restoreReasoningContentInPayload } from '@/lib/reasoning-content-cache'
-
-// Main chat behavior prompt.
-const BASE_SYSTEM_PROMPT =
-  'You are a helpful AI assistant. Answer clearly and pragmatically. If the user asks for code, prefer concise working examples. When YOLO mode is enabled, you may use the local workspace tools to inspect files, edit files, and run commands in the current project.'
-
-async function fetchInstructions(projectId?: string): Promise<{ global: string | null; project: string | null }> {
-  const url = projectId
-    ? `/api/instructions?projectId=${encodeURIComponent(projectId)}`
-    : '/api/instructions'
-  try {
-    const response = await fetch(url)
-    if (!response.ok) return { global: null, project: null }
-    return await response.json()
-  } catch {
-    return { global: null, project: null }
-  }
-}
-
-async function buildSystemPrompt(projectId?: string): Promise<string> {
-  const instructions = await fetchInstructions(projectId)
-  const parts = [BASE_SYSTEM_PROMPT]
-
-  if (instructions.global) {
-    parts.push(`\n<user_instructions>\n${instructions.global}\n</user_instructions>`)
-  }
-
-  if (instructions.project) {
-    parts.push(`\n<project_instructions>\n${instructions.project}\n</project_instructions>`)
-  }
-
-  return parts.join('\n')
-}
-
-const EMPTY_USAGE = {
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  totalTokens: 0,
-  cost: {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    total: 0,
-  },
-}
-
-function textFromContentBlocks(content: unknown, separator = ' ') {
-  if (!Array.isArray(content)) return ''
-  return content
-    .filter((block): block is { type: 'text'; text: string } => {
-      return (
-        typeof block === 'object' &&
-        block !== null &&
-        'type' in block &&
-        block.type === 'text' &&
-        'text' in block &&
-        typeof block.text === 'string'
-      )
-    })
-    .map((block) => block.text)
-    .join(separator)
-}
-
-function assistantText(message: AgentMessage) {
-  if (message.role !== 'assistant') return ''
-  return textFromContentBlocks(message.content, '\n\n').trim()
-}
-
-function rollbackStartIndexFromMessage(messages: AgentMessage[], messageIndex: number) {
-  let rollbackIndex = messageIndex
-
-  if (messages[messageIndex]?.role === 'assistant') {
-    for (let index = messageIndex - 1; index >= 0; index--) {
-      if (messages[index].role === 'user' || messages[index].role === 'user-with-attachments') {
-        rollbackIndex = index
-        break
-      }
-    }
-  }
-
-  const message = messages[rollbackIndex]
-  if (!message || (message.role !== 'user' && message.role !== 'user-with-attachments')) return -1
-  return rollbackIndex
-}
-
-function rollbackConversationFromMessage(messages: AgentMessage[], messageIndex: number) {
-  const rollbackIndex = rollbackStartIndexFromMessage(messages, messageIndex)
-  if (rollbackIndex < 0) return messages
-  return messages.slice(0, rollbackIndex)
-}
-
-function draftTextFromUserMessage(message: AgentMessage) {
-  if (message.role !== 'user' && message.role !== 'user-with-attachments') return ''
-  return typeof message.content === 'string'
-    ? message.content
-    : textFromContentBlocks(message.content, '\n\n')
-}
-
-async function copyTextToClipboard(text: string) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
-    return
-  }
-
-  const textarea = document.createElement('textarea')
-  textarea.value = text
-  textarea.style.position = 'fixed'
-  textarea.style.left = '-9999px'
-  document.body.append(textarea)
-  textarea.select()
-  document.execCommand('copy')
-  textarea.remove()
-}
-
-function generateTitle(messages: AgentMessage[]) {
-  const firstUser = messages.find(
-    (message) => message.role === 'user' || message.role === 'user-with-attachments',
-  )
-
-  if (!firstUser || (firstUser.role !== 'user' && firstUser.role !== 'user-with-attachments')) {
-    return 'New chat'
-  }
-
-  const content = firstUser.content
-  const text = typeof content === 'string' ? content : textFromContentBlocks(content)
-
-  const normalized = text.trim().replace(/\s+/g, ' ')
-  if (!normalized) return 'New chat'
-  return normalized.length > 46 ? `${normalized.slice(0, 43)}...` : normalized
-}
-
-function normalizeAiTitle(value: string) {
-  return value
-    .trim()
-    .replace(/^[[\s"'“”‘’`]+|[\]`\s"'“”‘’.。!！?？,，:：;；]+$/g, '')
-    .replace(/\s+/g, ' ')
-    .slice(0, 80)
-}
-
-async function generateAiTitle(
-  messages: AgentMessage[],
-  model: Model<Api>,
-  apiKey?: string,
-  getProxyUrl: () => Promise<string | undefined> = async () => undefined,
-): Promise<string> {
-  const firstUser = messages.find((m) => m.role === 'user' || m.role === 'user-with-attachments')
-  if (!firstUser) return 'New chat'
-
-  const userText = typeof firstUser.content === 'string'
-    ? firstUser.content
-    : textFromContentBlocks(firstUser.content)
-
-  if (!userText.trim()) return 'New chat'
-
-  const firstAssistant = messages.find((m) => m.role === 'assistant')
-  const assistantReply = firstAssistant ? assistantText(firstAssistant).slice(0, 2000) : ''
-  const conversationText = assistantReply
-    ? `User: ${userText.trim()}\n\nAssistant: ${assistantReply}`
-    : `User: ${userText.trim()}`
-
-  try {
-    // Use the same pi-ai provider/proxy path as the main chat instead of a raw
-    // /chat/completions fetch. This keeps custom model compatibility, max token
-    // field handling, and CORS proxy behavior consistent with normal replies.
-    const stream = await createStreamFn(getProxyUrl)(
-      model,
-      {
-        systemPrompt:
-          '你是对话标题生成器。请用和用户相同的语言，根据对话主题生成 3 到 5 个词的短标题。只输出标题，不要解释，不要标点。',
-        messages: [{ role: 'user', content: conversationText, timestamp: Date.now() }],
-        tools: [],
-      },
-      {
-        apiKey,
-        // Reasoning models may spend part of this budget on hidden thinking.
-        // 20 tokens is often too small and can produce only reasoning with no final text.
-        maxTokens: 160,
-        temperature: 0.2,
-        reasoning: 'minimal',
-        maxRetryDelayMs: 60000,
-      },
-    )
-    const titleMessage = await stream.result()
-    const titleText = textFromContentBlocks(titleMessage.content)
-    if (!titleText.trim()) {
-      console.warn('AI title generation returned no text:', titleMessage)
-    }
-    const title = normalizeAiTitle(titleText)
-    return title || generateTitle(messages)
-  } catch (error) {
-    console.warn('Failed to generate AI title:', error)
-    return generateTitle(messages)
-  }
-}
-
-function titleNeedsGeneration(title: string) {
-  return title === 'New chat' || title === t('newChat')
-}
-
-function hasUserMessage(messages: AgentMessage[]) {
-  return messages.some((message) => message.role === 'user' || message.role === 'user-with-attachments')
-}
-
-function shouldSaveSession(messages: AgentMessage[]) {
-  return hasUserMessage(messages) && messages.some((message) => message.role === 'assistant')
-}
-
-function summarizePreview(messages: AgentMessage[]) {
-  return messages
-    .filter((message) => message.role === 'user' || message.role === 'assistant')
-    .map((message) => {
-      if (message.role === 'user') return typeof message.content === 'string' ? message.content : ''
-      return message.content
-        .filter((block) => block.type === 'text')
-        .map((block) => block.text)
-        .join(' ')
-    })
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 2048)
-}
-
-function calculateUsage(messages: AgentMessage[]): SessionMetadata['usage'] {
-  return messages.reduce(
-    (usage, message) => {
-      if (message.role !== 'assistant') return usage
-      usage.input += message.usage.input
-      usage.output += message.usage.output
-      usage.cacheRead += message.usage.cacheRead
-      usage.cacheWrite += message.usage.cacheWrite
-      usage.totalTokens += message.usage.totalTokens
-      usage.cost.input += message.usage.cost.input
-      usage.cost.output += message.usage.cost.output
-      usage.cost.cacheRead += message.usage.cost.cacheRead
-      usage.cost.cacheWrite += message.usage.cost.cacheWrite
-      usage.cost.total += message.usage.cost.total
-      return usage
-    },
-    structuredClone(EMPTY_USAGE),
-  )
-}
-
-function formatSessionTime(value: string) {
-  return new Intl.DateTimeFormat(getDateLocale(), {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value))
-}
-
-type RestoredDraft = {
-  id: number
-  text: string
-  attachments?: unknown[]
-}
-
-type ProjectInfo = {
-  id: string
-  name: string
-  path: string
-  lastOpenedAt: string
-}
-
-type ChatScope = 'global' | 'project'
-
-type BackgroundTaskStatus = 'running' | 'idle' | 'error' | 'aborted'
-
-type QuickForgeSessionMetadata = SessionMetadata & {
-  scope?: ChatScope
-  projectId?: string
-  projectName?: string
-  projectPath?: string
-  taskStatus?: BackgroundTaskStatus
-  taskStartedAt?: string
-  taskFinishedAt?: string
-}
-
-type QuickForgeSessionData = SessionData & {
-  scope?: ChatScope
-  projectId?: string
-  projectName?: string
-  projectPath?: string
-  taskStatus?: BackgroundTaskStatus
-  taskStartedAt?: string
-  taskFinishedAt?: string
-}
-
-type BackgroundTask = {
-  sessionId: string
-  agent: Agent
-  scope: ChatScope
-  project?: ProjectInfo
-  title: string
-  createdAt?: string
-  status: BackgroundTaskStatus
-  startedAt?: string
-  finishedAt?: string
-  unsubscribe: () => void
-}
-
-function sessionScope(session: QuickForgeSessionMetadata | QuickForgeSessionData | null | undefined): ChatScope {
-  return session?.scope === 'project' ? 'project' : 'global'
-}
-
-function sessionTitle(title: string) {
-  return title === 'New chat' ? t('newChat') : title
-}
-
-function ChatPanelHost({
-  agent,
-  onModelSelect,
-  revision,
-  yoloMode,
-  workspaceToolsEnabled,
-  projectId,
-  onToggleYoloMode,
-  onRollbackFromMessage,
-  onCopyAnswer,
-  onForkFromMessage,
-  restoredDraft,
-}: {
-  agent: Agent | null
-  onModelSelect?: () => void
-  revision: number
-  yoloMode: boolean
-  workspaceToolsEnabled: boolean
-  projectId?: string
-  onToggleYoloMode: () => void
-  onRollbackFromMessage: (messageIndex: number) => void
-  onCopyAnswer: (text: string) => void
-  onForkFromMessage: (messageIndex: number) => void
-  restoredDraft?: RestoredDraft
-}) {
-  const hostRef = useRef<HTMLDivElement | null>(null)
-  const restoredDraftIdRef = useRef<number | undefined>(undefined)
-
-  useEffect(() => {
-    if (!hostRef.current || !agent) return
-
-    const panel = new ChatPanel()
-    let disposed = false
-    let observer: MutationObserver | undefined
-
-    const copyIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>'
-    const rollbackIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>'
-    const forkIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/><path d="M12 12v3"/></svg>'
-
-    const createIconActionButton = (action: string, title: string, icon: string, onClick: () => void) => {
-      const button = document.createElement('button')
-      button.type = 'button'
-      button.dataset.quickforgeAction = action
-      button.title = title
-      button.setAttribute('aria-label', title)
-      button.innerHTML = icon
-      button.className = 'pointer-events-auto inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-transparent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40'
-      button.onclick = (event) => {
-        event.stopPropagation()
-        onClick()
-      }
-      return button
-    }
-
-    const decorateMessages = () => {
-      const displayEntries = agent.state.messages
-        .map((message, index) => ({ message, index }))
-        .filter(({ message }) => {
-          return message.role === 'user' || message.role === 'user-with-attachments' || message.role === 'assistant'
-        })
-
-      const messageElements = Array.from(
-        panel.querySelectorAll<HTMLElement>('message-list user-message, message-list assistant-message'),
-      )
-
-      messageElements.forEach((element, displayIndex) => {
-        const entry = displayEntries[displayIndex]
-        if (!entry) return
-
-        element.classList.add('group', 'relative')
-
-        const actionsClass = `quickforge-message-actions pointer-events-none mt-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 ${entry.message.role === 'assistant' ? 'px-4 justify-start' : 'mx-4 justify-start'}`
-        const existingActions = element.querySelector<HTMLElement>('.quickforge-message-actions')
-        if (existingActions?.dataset.quickforgeLayout === 'message-bottom') {
-          existingActions.className = actionsClass
-          existingActions.querySelectorAll<HTMLButtonElement>('button[data-quickforge-action="rollback"], button[data-quickforge-action="fork"]').forEach((button) => {
-            button.disabled = agent.state.isStreaming
-          })
-          return
-        }
-        existingActions?.remove()
-
-        const actions = document.createElement('div')
-        actions.dataset.quickforgeLayout = 'message-bottom'
-        actions.className = actionsClass
-
-        if (entry.message.role === 'assistant') {
-          const text = assistantText(entry.message)
-          if (!text) return
-
-          const copyButton = createIconActionButton('copy', t('copy'), copyIcon, () => {
-            const currentMessage = agent.state.messages[entry.index]
-            const currentText = currentMessage ? assistantText(currentMessage) : text
-            if (currentText) onCopyAnswer(currentText)
-          })
-          actions.append(copyButton)
-
-          const forkButton = createIconActionButton('fork', t('forkConversation'), forkIcon, () => {
-            onForkFromMessage(entry.index)
-          })
-          forkButton.disabled = agent.state.isStreaming
-          actions.append(forkButton)
-        } else {
-          const rollbackButton = createIconActionButton('rollback', t('rollback'), rollbackIcon, () => {
-            onRollbackFromMessage(entry.index)
-          })
-          rollbackButton.disabled = agent.state.isStreaming
-          actions.append(rollbackButton)
-        }
-
-        element.append(actions)
-      })
-    }
-
-    const decorateEditor = () => {
-      const editor = panel.querySelector('message-editor')
-      const editorRows = editor?.querySelectorAll<HTMLElement>('.flex.gap-2.items-center')
-      const rightControls = editorRows?.[editorRows.length - 1]
-      if (!rightControls) return
-
-      if (!workspaceToolsEnabled) {
-        rightControls.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')?.remove()
-        return
-      }
-
-      const yoloIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 8 4 4-4 4"/><path d="M13 16h4"/><rect width="18" height="14" x="3" y="5" rx="2"/></svg>'
-      const yoloLabel = `${yoloIcon}<span>YOLO</span><span class="ml-0.5 size-1.5 rounded-full ${yoloMode ? 'bg-emerald-500' : 'bg-muted-foreground/45'}"></span>`
-      const yoloClass = `quickforge-yolo-inline inline-flex h-8 items-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium ${yoloMode ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'}`
-      const yoloTitle = yoloMode ? t('yoloEnabledTitle') : t('yoloDisabledTitle')
-
-      const handleYoloToggle = (event: Event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        onToggleYoloMode()
-      }
-
-      const handleYoloKeyDown = (event: KeyboardEvent) => {
-        if (event.key !== 'Enter' && event.key !== ' ') return
-        handleYoloToggle(event)
-      }
-
-      const existingButton = rightControls.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')
-      if (existingButton) {
-        existingButton.innerHTML = yoloLabel
-        existingButton.title = yoloTitle
-        existingButton.setAttribute('aria-label', yoloTitle)
-        existingButton.setAttribute('aria-pressed', String(yoloMode))
-        existingButton.className = yoloClass
-        existingButton.onpointerdown = handleYoloToggle
-        existingButton.onclick = (event) => {
-          event.preventDefault()
-          event.stopPropagation()
-        }
-        existingButton.onkeydown = handleYoloKeyDown
-        return
-      }
-
-      const button = document.createElement('button')
-      button.type = 'button'
-      button.innerHTML = yoloLabel
-      button.title = yoloTitle
-      button.setAttribute('aria-label', yoloTitle)
-      button.setAttribute('aria-pressed', String(yoloMode))
-      button.className = yoloClass
-      button.onpointerdown = handleYoloToggle
-      button.onclick = (event) => {
-        event.preventDefault()
-        event.stopPropagation()
-      }
-      button.onkeydown = handleYoloKeyDown
-      rightControls.prepend(button)
-    }
-
-    const decorate = () => {
-      if (disposed) return
-      decorateMessages()
-      decorateEditor()
-    }
-
-    void panel.setAgent(agent, {
-      onApiKeyRequired: (provider) => ApiKeyPromptDialog.prompt(provider),
-      onModelSelect,
-      toolsFactory: () => getLocalWorkspaceTools(workspaceToolsEnabled && yoloMode, projectId),
-    }).then(() => {
-      if (restoredDraft && restoredDraftIdRef.current !== restoredDraft.id) {
-        restoredDraftIdRef.current = restoredDraft.id
-        const agentInterface = panel.querySelector<HTMLElement>('agent-interface') as HTMLElement & {
-          setInput?: (text: string, attachments?: unknown[]) => void
-        }
-        agentInterface?.setInput?.(restoredDraft.text, restoredDraft.attachments)
-      }
-
-      decorate()
-      observer = new MutationObserver(() => window.requestAnimationFrame(decorate))
-      observer.observe(panel, { childList: true, subtree: true })
-    })
-
-    hostRef.current.replaceChildren(panel)
-    return () => {
-      disposed = true
-      observer?.disconnect()
-      panel.remove()
-    }
-  }, [agent, onCopyAnswer, onForkFromMessage, onModelSelect, onRollbackFromMessage, onToggleYoloMode, projectId, restoredDraft, revision, workspaceToolsEnabled, yoloMode])
-
-  return <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden" />
-}
+import {
+  buildSystemPrompt,
+  copyTextToClipboard,
+  draftTextFromUserMessage,
+  generateAiTitle,
+  generateTitle,
+  hasUserMessage,
+  rollbackConversationFromMessage,
+  rollbackStartIndexFromMessage,
+  shouldSaveSession,
+  summarizePreview,
+  titleNeedsGeneration,
+} from '@/lib/message-utils'
+import type {
+  BackgroundTask,
+  BackgroundTaskStatus,
+  ChatScope,
+  ProjectInfo,
+  QuickForgeSessionData,
+  QuickForgeSessionMetadata,
+  RestoredDraft,
+} from '@/lib/types'
+import { calculateUsage, sessionScope, sessionTitle } from '@/lib/types'
+import { ChatPanelHost } from '@/components/chat/ChatPanelHost'
+import { ChatSidebar } from '@/components/sidebar/ChatSidebar'
+import { useProject } from '@/hooks/useProject'
+import { useYoloMode } from '@/hooks/useYoloMode'
+import { saveActiveModel, saveYoloMode } from '@/lib/pi-chat'
 
 function App() {
+  // --- Refs (non-reactive shared state) ---
   const storageRef = useRef<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
   const agentRef = useRef<Agent | null>(null)
   const activeModelRef = useRef<Model<Api>>(buildConnectionModel(DEFAULT_CONNECTION))
@@ -579,6 +71,28 @@ function App() {
   const titleGeneratedRef = useRef<Set<string>>(new Set())
   const pendingAiTitleRef = useRef<Set<string>>(new Set())
 
+  // --- Project hook ---
+  const {
+    activeProject,
+    projects,
+    expandedProjectIds,
+    selectingProject,
+    projectPickerOpen,
+    loadProject,
+    switchActiveProject,
+    handleSelectProjectPath,
+    selectProjectDirectory,
+    setProjectPickerOpen,
+    toggleProjectExpanded,
+    setActiveProject,
+    setProjects,
+    setExpandedProjectIds,
+  } = useProject()
+
+  // --- YOLO hook ---
+  const { yoloMode, setYoloMode, initialize: initYoloMode } = useYoloMode()
+
+  // --- UI state ---
   const [agent, setAgent] = useState<Agent | null>(null)
   const [sessions, setSessions] = useState<QuickForgeSessionMetadata[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>()
@@ -588,90 +102,21 @@ function App() {
   const [conversationsCollapsed, setConversationsCollapsed] = useState(false)
   const [ready, setReady] = useState(false)
   const [chatPanelRevision, setChatPanelRevision] = useState(0)
-  const [yoloMode, setYoloMode] = useState(false)
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
   const [taskStatuses, setTaskStatuses] = useState<Record<string, BackgroundTaskStatus>>({})
   const [chatScope, setChatScope] = useState<ChatScope>('global')
   const [currentToolProject, setCurrentToolProject] = useState<ProjectInfo>()
-  const [activeProject, setActiveProject] = useState<ProjectInfo>()
-  const [projects, setProjects] = useState<ProjectInfo[]>([])
-  const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => new Set())
-  const [selectingProject, setSelectingProject] = useState(false)
-  const [projectPickerOpen, setProjectPickerOpen] = useState(false)
 
-  const loadProject = useCallback(async () => {
-    try {
-      const response = await fetch('/api/project')
-      if (!response.ok) return
-      const payload = await response.json()
-      activeProjectRef.current = payload.project
-      setActiveProject(payload.project)
-      setProjects(Array.isArray(payload.projects) ? payload.projects : [])
-      setExpandedProjectIds((current) => {
-        const next = new Set(current)
-        for (const project of Array.isArray(payload.projects) ? payload.projects : []) next.add(project.id)
-        return next
-      })
-    } catch (error) {
-      console.error('Failed to load project:', error)
-    }
-  }, [])
+  // --- Sync refs ---
+  useEffect(() => {
+    yoloModeRef.current = yoloMode
+  }, [yoloMode])
 
-  const switchActiveProject = useCallback(async (projectId: string) => {
-    const response = await fetch('/api/project/active', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id: projectId }),
-    })
-    const payload = await response.json().catch(() => null)
-    if (!response.ok) throw new Error(payload?.error || `Project switch failed with HTTP ${response.status}`)
+  useEffect(() => {
+    activeProjectRef.current = activeProject
+  }, [activeProject])
 
-    activeProjectRef.current = payload.project
-    setActiveProject(payload.project)
-    setProjects(Array.isArray(payload.projects) ? payload.projects : [])
-    setExpandedProjectIds((current) => {
-      const next = new Set(current)
-      for (const project of Array.isArray(payload.projects) ? payload.projects : []) next.add(project.id)
-      return next
-    })
-    setChatPanelRevision((value) => value + 1)
-    return payload.project as ProjectInfo
-  }, [])
-
-  const selectProjectDirectory = useCallback(() => {
-    setProjectPickerOpen(true)
-  }, [])
-
-  const handleSelectProjectPath = useCallback(async (projectPath: string) => {
-    if (selectingProject) return
-    setSelectingProject(true)
-    try {
-      const response = await fetch('/api/project/path', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ path: projectPath }),
-      })
-      const payload = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(payload?.error || `Project selection failed with HTTP ${response.status}`)
-      if (payload?.project) {
-        activeProjectRef.current = payload.project
-        setActiveProject(payload.project)
-        setProjects(Array.isArray(payload.projects) ? payload.projects : [])
-        setExpandedProjectIds((current) => {
-          const next = new Set(current)
-          for (const project of Array.isArray(payload.projects) ? payload.projects : []) next.add(project.id)
-          return next
-        })
-        setChatPanelRevision((value) => value + 1)
-      }
-    } catch (error) {
-      console.error('Failed to select project:', error)
-      throw error
-    } finally {
-      setSelectingProject(false)
-    }
-  }, [selectingProject])
-
+  // --- Session helpers ---
   const refreshSessions = useCallback(async () => {
     const storage = storageRef.current
     if (!storage) return
@@ -687,7 +132,6 @@ function App() {
       const now = new Date().toISOString()
       const createdAt = task.createdAt ?? now
 
-      // Determine if AI title generation is needed (before mutating task.title)
       if (!titleGeneratedRef.current.has(task.sessionId)) {
         titleGeneratedRef.current.add(task.sessionId)
         if (titleNeedsGeneration(task.title)) {
@@ -906,7 +350,9 @@ function App() {
           task.status = nextAgent.state.errorMessage ? 'error' : 'idle'
           task.finishedAt = new Date().toISOString()
           setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
-          window.setTimeout(() => setChatPanelRevision((value) => value + 1), 0)
+          if (task.sessionId === currentSessionIdRef.current) {
+            window.setTimeout(() => setChatPanelRevision((value) => value + 1), 0)
+          }
         }
 
         if (
@@ -931,9 +377,9 @@ function App() {
     [attachTaskToView, persistTaskSession],
   )
 
+  // --- Chat actions ---
   const startNewGlobalChat = useCallback(async () => {
     const sessionId = crypto.randomUUID()
-
     const url = new URL(window.location.href)
     url.searchParams.delete('session')
     window.history.replaceState({}, '', url)
@@ -954,7 +400,6 @@ function App() {
     }
 
     const sessionId = crypto.randomUUID()
-
     const url = new URL(window.location.href)
     url.searchParams.delete('session')
     window.history.replaceState({}, '', url)
@@ -1009,7 +454,7 @@ function App() {
 
       await createAgent(
         {
-          systemPrompt: BASE_SYSTEM_PROMPT,
+          systemPrompt: await buildSystemPrompt(),
           model: session.model,
           thinkingLevel: session.thinkingLevel,
           messages: session.messages,
@@ -1028,49 +473,8 @@ function App() {
     [attachTaskToView, createAgent, sessions, switchActiveProject],
   )
 
-  const deleteSession = useCallback(
-    async (sessionId: string) => {
-      const storage = storageRef.current
-      if (!storage) return
-
-      const confirmed = await showConfirm({
-        title: t('deleteSession'),
-        description: t('deleteSessionConfirm'),
-        confirmLabel: t('confirmDelete'),
-        cancelLabel: t('cancel'),
-      })
-      if (!confirmed) return
-
-      const task = taskMapRef.current.get(sessionId)
-      task?.unsubscribe()
-      taskMapRef.current.delete(sessionId)
-      setTaskStatuses((current) => {
-        const next = { ...current }
-        delete next[sessionId]
-        return next
-      })
-      await storage.sessions.delete(sessionId)
-      await refreshSessions()
-      if (currentSessionIdRef.current === sessionId) {
-        await startNewGlobalChat()
-      }
-    },
-    [refreshSessions, startNewGlobalChat],
-  )
-
-  const deleteProject = useCallback(
+  const deleteProjectInline = useCallback(
     async (projectId: string) => {
-      const project = projects.find((p) => p.id === projectId)
-      const projectName = project?.name ?? projectId
-
-      const confirmed = await showConfirm({
-        title: t('deleteProject'),
-        description: t('deleteProjectConfirm').replace('{name}', projectName),
-        confirmLabel: t('confirmDelete'),
-        cancelLabel: t('cancel'),
-      })
-      if (!confirmed) return
-
       const response = await fetch(`/api/project/${encodeURIComponent(projectId)}`, {
         method: 'DELETE',
       })
@@ -1089,41 +493,10 @@ function App() {
         setChatPanelRevision((value) => value + 1)
       }
     },
-    [projects, refreshSessions],
+    [refreshSessions, setActiveProject, setProjects, setExpandedProjectIds],
   )
 
-  const renameSession = useCallback(
-    async (sessionId: string, currentTitle: string) => {
-      const storage = storageRef.current
-      if (!storage) return
-
-      const newTitle = await showPrompt({
-        title: t('renameSession'),
-        description: t('sessionName'),
-        defaultValue: currentTitle,
-        confirmLabel: t('save'),
-        cancelLabel: t('cancel'),
-      })
-      if (!newTitle || newTitle === currentTitle) return
-
-      const session = await storage.sessions.get(sessionId)
-      if (!session) return
-
-      const metadata = await storage.sessions.getMetadata(sessionId)
-      if (!metadata) return
-
-      const updatedMetadata = { ...metadata, title: newTitle }
-      await storage.sessions.save(session, updatedMetadata)
-      await refreshSessions()
-
-      if (currentSessionIdRef.current === sessionId) {
-        currentTitleRef.current = newTitle
-        setCurrentTitle(newTitle)
-      }
-    },
-    [refreshSessions],
-  )
-
+  // --- Bootstrap ---
   useEffect(() => {
     let cancelled = false
 
@@ -1134,12 +507,10 @@ function App() {
       storageRef.current = storage
       await Promise.all([refreshSessions(), loadProject()])
 
-      const savedYoloMode = await loadYoloMode(storage)
+      const savedYoloMode = await initYoloMode(storage)
       yoloModeRef.current = savedYoloMode
-      setYoloMode(savedYoloMode)
 
       const initialModel = (await loadActiveModel(storage)) ?? buildConnectionModel(DEFAULT_CONNECTION)
-
       activeModelRef.current = initialModel
 
       const sessionId = new URLSearchParams(window.location.search).get('session')
@@ -1172,7 +543,7 @@ function App() {
           activeModelRef.current = existing.model as Model<Api>
           await createAgent(
             {
-              systemPrompt: BASE_SYSTEM_PROMPT,
+              systemPrompt: await buildSystemPrompt(),
               model: existing.model,
               thinkingLevel: existing.thinkingLevel,
               messages: existing.messages,
@@ -1212,26 +583,27 @@ function App() {
       for (const task of taskMap.values()) task.unsubscribe()
       taskMap.clear()
     }
-  }, [createAgent, loadProject, refreshSessions, switchActiveProject])
+  }, [createAgent, loadProject, refreshSessions, switchActiveProject, initYoloMode])
 
+  // --- YOLO ---
   const toggleYoloMode = useCallback(() => {
     const storage = storageRef.current
-    const nextMode = !yoloModeRef.current
-
-    yoloModeRef.current = nextMode
-    setYoloMode(nextMode)
-
+    setYoloMode((prev) => {
+      const next = !prev
+      yoloModeRef.current = next
+      if (storage) {
+        void saveYoloMode(storage, next).catch((error) => {
+          console.error('Failed to save YOLO mode:', error)
+        })
+      }
+      return next
+    })
     if (agentRef.current) {
       setChatPanelRevision((value) => value + 1)
     }
+  }, [setYoloMode])
 
-    if (storage) {
-      void saveYoloMode(storage, nextMode).catch((error) => {
-        console.error('Failed to save YOLO mode:', error)
-      })
-    }
-  }, [])
-
+  // --- Message actions ---
   const rollbackFromMessage = useCallback(async (messageIndex: number) => {
     const currentAgent = agentRef.current
     if (!currentAgent) return
@@ -1335,7 +707,7 @@ function App() {
 
     await createAgent(
       {
-        systemPrompt: BASE_SYSTEM_PROMPT,
+        systemPrompt: await buildSystemPrompt(),
         model: currentAgent.state.model ?? activeModelRef.current,
         thinkingLevel: currentAgent.state.thinkingLevel,
         messages,
@@ -1361,13 +733,12 @@ function App() {
     }
   }, [createAgent, persistTaskSession])
 
+  // --- Model selection ---
   const openCustomModelSelector = useCallback(async () => {
     const storage = storageRef.current
     const currentAgent = agentRef.current
     if (!storage || !currentAgent) return
 
-    // Capture current input text before opening the model selector,
-    // so it can be restored after the ChatPanel is rebuilt on model switch.
     const textarea = document.querySelector<HTMLTextAreaElement>(
       'agent-interface message-editor textarea',
     )
@@ -1393,7 +764,6 @@ function App() {
       currentAgent.state.model = nextModel
       activeModelRef.current = nextModel
 
-      // Restore the captured input after the ChatPanel rebuild
       if (currentInput) {
         setRestoredDraft({
           id: Date.now(),
@@ -1408,6 +778,7 @@ function App() {
     })
   }, [])
 
+  // --- Derived data ---
   const globalSessions = sessions.filter((session) => sessionScope(session) === 'global')
   const sessionsForProject = (projectId: string) => {
     return sessions.filter((session) => sessionScope(session) === 'project' && session.projectId === projectId)
@@ -1415,15 +786,8 @@ function App() {
   const sessionTaskStatus = (session: QuickForgeSessionMetadata) => {
     return taskStatuses[session.id] ?? session.taskStatus ?? 'idle'
   }
-  const toggleProjectExpanded = (projectId: string) => {
-    setExpandedProjectIds((current) => {
-      const next = new Set(current)
-      if (next.has(projectId)) next.delete(projectId)
-      else next.add(projectId)
-      return next
-    })
-  }
 
+  // --- Loading state ---
   if (!ready || !agent) {
     return (
       <div className="flex h-screen items-center justify-center bg-background text-foreground">
@@ -1435,200 +799,72 @@ function App() {
   return (
     <>
     <div className="flex h-screen min-h-0 bg-background text-foreground">
-      <aside
-        className={cn(
-          'hidden min-h-0 shrink-0 border-r border-border bg-muted/30 md:flex md:flex-col',
-          sidebarOpen ? 'w-80' : 'w-0 overflow-hidden border-r-0',
-        )}
-      >
-        <div className="min-h-0 flex-1 overflow-y-auto p-3">
-          <div className="mb-5">
-            <button
-              type="button"
-              className="mb-2 flex w-full items-center gap-1 px-1 text-sm font-medium text-muted-foreground hover:text-foreground"
-              onClick={() => setProjectsCollapsed((v) => !v)}
-            >
-              {projectsCollapsed ? <ChevronRight className="size-4 shrink-0" /> : <ChevronDown className="size-4 shrink-0" />}
-              <span className="flex-1 text-left">{t('projects')}</span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7 shrink-0"
-                onClick={(e) => { e.stopPropagation(); selectProjectDirectory() }}
-                disabled={selectingProject}
-                aria-label={t('addProject')}
-              >
-                <Plus className="size-4" />
-              </Button>
-            </button>
-
-            {!projectsCollapsed && (<div className="space-y-1">
-              {projects.length === 0 ? (
-                <div className="px-3 py-4 text-sm text-muted-foreground">{t('noProjects')}</div>
-              ) : (
-                projects.map((item) => {
-                  const projectSessions = sessionsForProject(item.id)
-                  const expanded = expandedProjectIds.has(item.id)
-                  const active = activeProject?.id === item.id
-
-                  return (
-                    <div key={item.id}>
-                      <div
-                        className={cn(
-                          'group flex items-center gap-1 rounded-md px-1 py-1.5',
-                          active ? 'bg-secondary' : 'hover:bg-secondary/70',
-                        )}
-                      >
-                        <button
-                          type="button"
-                          className="inline-flex size-6 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground"
-                          onClick={() => toggleProjectExpanded(item.id)}
-                          aria-label={expanded ? t('collapseProject') : t('expandProject')}
-                        >
-                          {expanded ? (
-                            <FolderOpen className="size-4 text-muted-foreground" />
-                          ) : (
-                            <Folder className="size-4 text-muted-foreground" />
-                          )}
-                        </button>
-                        <button
-                          className="flex min-w-0 flex-1 items-center text-left"
-                          type="button"
-                          title={item.path}
-                          onClick={() => toggleProjectExpanded(item.id)}
-                        >
-                          <span className="truncate text-sm font-medium">{item.name}</span>
-                        </button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-7 shrink-0 opacity-0 group-hover:opacity-100"
-                          onClick={() => startNewProjectChat(item)}
-                          aria-label={t('newProjectChat')}
-                        >
-                          <MessageSquarePlus className="size-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-7 shrink-0 opacity-0 group-hover:opacity-100"
-                          onClick={() => deleteProject(item.id)}
-                          aria-label={t('deleteProject')}
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      </div>
-
-                      {expanded ? (
-                        <div className="ml-4 mt-1 border-l-2 border-border pl-4 space-y-0.5">
-                          {projectSessions.length === 0 ? (
-                            <div className="py-1.5 text-sm text-muted-foreground/70">{t('noConversations')}</div>
-                          ) : (
-                            projectSessions.map((session) => (
-                              <div
-                                key={session.id}
-                                className={cn(
-                                  'group flex items-start gap-1 rounded-md px-2 py-1.5',
-                                  currentSessionId === session.id ? 'bg-secondary' : 'hover:bg-secondary/70',
-                                )}
-                              >
-                                <button className="min-w-0 flex-1 text-left" type="button" onClick={() => loadSession(session.id)}>
-                                  <div className="flex items-center gap-1 truncate text-sm">
-                                    {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
-                                    <span className="truncate">{sessionTitle(session.title)}</span>
-                                  </div>
-                                  <div className="mt-0.5 truncate text-xs text-muted-foreground">{formatSessionTime(session.lastModified)}</div>
-                                </button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="size-6 shrink-0 opacity-0 group-hover:opacity-100"
-                                  onClick={() => renameSession(session.id, session.title)}
-                                  aria-label={t('renameSession')}
-                                >
-                                  <Pencil className="size-3" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="size-6 shrink-0 opacity-0 group-hover:opacity-100"
-                                  onClick={() => deleteSession(session.id)}
-                                  aria-label={t('deleteSession')}
-                                >
-                                  <Trash2 className="size-3.5" />
-                                </Button>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      ) : null}
-                    </div>
-                  )
-                })
-              )}
-            </div>
-            )}
-          </div>
-
-          <div>
-            <button
-              type="button"
-              className="mb-2 flex w-full items-center gap-1 px-1 text-sm font-medium text-muted-foreground hover:text-foreground"
-              onClick={() => setConversationsCollapsed((v) => !v)}
-            >
-              {conversationsCollapsed ? <ChevronRight className="size-4 shrink-0" /> : <ChevronDown className="size-4 shrink-0" />}
-              <span className="flex-1 text-left">{t('conversations')}</span>
-              <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={(e) => { e.stopPropagation(); startNewGlobalChat() }} aria-label={t('newChat')}>
-                <MessageSquarePlus className="size-4" />
-              </Button>
-            </button>
-
-            {!conversationsCollapsed && (
-              globalSessions.length === 0 ? (
-              <div className="px-3 py-4 text-sm text-muted-foreground">{t('noSavedConversations')}</div>
-            ) : (
-              <div className="space-y-1">
-                {globalSessions.map((session) => (
-                  <div
-                    key={session.id}
-                    className={cn(
-                      'group flex items-start gap-2 rounded-md px-2 py-2 text-left',
-                      currentSessionId === session.id ? 'bg-secondary' : 'hover:bg-secondary/70',
-                    )}
-                  >
-                    <button className="min-w-0 flex-1 text-left" type="button" onClick={() => loadSession(session.id)}>
-                      <div className="flex items-center gap-1 truncate text-sm font-medium">
-                        {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
-                        <span className="truncate">{sessionTitle(session.title)}</span>
-                      </div>
-                      <div className="mt-0.5 truncate text-xs text-muted-foreground">{formatSessionTime(session.lastModified)}</div>
-                    </button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 opacity-0 group-hover:opacity-100"
-                      onClick={() => renameSession(session.id, session.title)}
-                      aria-label={t('renameSession')}
-                    >
-                      <Pencil className="size-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 opacity-0 group-hover:opacity-100"
-                      onClick={() => deleteSession(session.id)}
-                      aria-label={t('deleteSession')}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )
-            )}
-          </div>
-        </div>
-      </aside>
+      <ChatSidebar
+        sidebarOpen={sidebarOpen}
+        projectsCollapsed={projectsCollapsed}
+        conversationsCollapsed={conversationsCollapsed}
+        projects={projects}
+        expandedProjectIds={expandedProjectIds}
+        activeProject={activeProject}
+        currentSessionId={currentSessionId}
+        globalSessions={globalSessions}
+        sessionsForProject={sessionsForProject}
+        sessionTaskStatus={sessionTaskStatus}
+        selectingProject={selectingProject}
+        onToggleProjectsCollapsed={() => setProjectsCollapsed((v) => !v)}
+        onToggleConversationsCollapsed={() => setConversationsCollapsed((v) => !v)}
+        onToggleProjectExpanded={toggleProjectExpanded}
+        onSelectProjectDirectory={selectProjectDirectory}
+        onStartNewProjectChat={startNewProjectChat}
+        onDeleteProject={deleteProjectInline}
+        onLoadSession={loadSession}
+        onRenameSession={async (sessionId, currentTitle) => {
+          // Inline rename logic
+          const storage = storageRef.current
+          if (!storage) return
+          const { showPrompt } = await import('@/components/ui/prompt-dialog')
+          const newTitle = await showPrompt({
+            title: t('renameSession'),
+            description: t('sessionName'),
+            defaultValue: currentTitle,
+            confirmLabel: t('save'),
+            cancelLabel: t('cancel'),
+          })
+          if (!newTitle || newTitle === currentTitle) return
+          const session = await storage.sessions.get(sessionId)
+          if (!session) return
+          const metadata = await storage.sessions.getMetadata(sessionId)
+          if (!metadata) return
+          await storage.sessions.save(session, { ...metadata, title: newTitle })
+          await refreshSessions()
+          if (currentSessionIdRef.current === sessionId) {
+            currentTitleRef.current = newTitle
+            setCurrentTitle(newTitle)
+          }
+        }}
+        onDeleteSession={async (sessionId) => {
+          const storage = storageRef.current
+          if (!storage) return
+          const { showConfirm } = await import('@/components/ui/confirm-dialog')
+          const confirmed = await showConfirm({
+            title: t('deleteSession'),
+            description: t('deleteSessionConfirm'),
+            confirmLabel: t('confirmDelete'),
+            cancelLabel: t('cancel'),
+          })
+          if (!confirmed) return
+          const task = taskMapRef.current.get(sessionId)
+          task?.unsubscribe()
+          taskMapRef.current.delete(sessionId)
+          setTaskStatuses((current) => { const next = { ...current }; delete next[sessionId]; return next })
+          await storage.sessions.delete(sessionId)
+          await refreshSessions()
+          if (currentSessionIdRef.current === sessionId) {
+            await startNewGlobalChat()
+          }
+        }}
+        onStartNewGlobalChat={startNewGlobalChat}
+      />
 
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-3">

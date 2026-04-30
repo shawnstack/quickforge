@@ -30,13 +30,6 @@ export type ConnectionForm = {
   reasoning?: boolean
 }
 
-export type ConnectionProfile = {
-  id: string
-  providerName: string
-  model: Model<'openai-completions'>
-  apiKey?: string
-}
-
 export type StoreBundle = {
   settings: SettingsStore
   providerKeys: ProviderKeysStore
@@ -315,19 +308,3 @@ export async function saveConnectionProfile(
   return id
 }
 
-export async function modelToConnectionForm(
-  model: Model<'openai-completions'>,
-  keyResolver: (provider: string) => Promise<string>,
-  id?: string,
-): Promise<ConnectionForm> {
-  return {
-    id,
-    name: model.provider,
-    baseUrl: model.baseUrl,
-    apiKey: await keyResolver(model.provider),
-    modelId: model.id,
-    contextWindow: model.contextWindow,
-    maxTokens: model.maxTokens,
-    reasoning: model.reasoning === true,
-  }
-}

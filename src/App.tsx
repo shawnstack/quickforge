@@ -3,6 +3,7 @@ import { Agent, type AgentMessage, type AgentState } from '@mariozechner/pi-agen
 import {
   ApiKeyPromptDialog,
   ChatPanel,
+  createStreamFn,
   defaultConvertToLlm,
   ProxyTab,
   SettingsDialog,
@@ -176,48 +177,66 @@ function generateTitle(messages: AgentMessage[]) {
   return normalized.length > 46 ? `${normalized.slice(0, 43)}...` : normalized
 }
 
+function normalizeAiTitle(value: string) {
+  return value
+    .trim()
+    .replace(/^[[\s"'“”‘’`]+|[\]`\s"'“”‘’.。!！?？,，:：;；]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .slice(0, 80)
+}
+
 async function generateAiTitle(
   messages: AgentMessage[],
-  model: { baseUrl: string; id: string },
+  model: Model<Api>,
   apiKey?: string,
+  getProxyUrl: () => Promise<string | undefined> = async () => undefined,
 ): Promise<string> {
   const firstUser = messages.find((m) => m.role === 'user' || m.role === 'user-with-attachments')
   if (!firstUser) return 'New chat'
 
-  const text = typeof firstUser.content === 'string'
+  const userText = typeof firstUser.content === 'string'
     ? firstUser.content
     : textFromContentBlocks(firstUser.content)
 
-  if (!text.trim()) return 'New chat'
+  if (!userText.trim()) return 'New chat'
+
+  const firstAssistant = messages.find((m) => m.role === 'assistant')
+  const assistantReply = firstAssistant ? assistantText(firstAssistant).slice(0, 2000) : ''
+  const conversationText = assistantReply
+    ? `User: ${userText.trim()}\n\nAssistant: ${assistantReply}`
+    : `User: ${userText.trim()}`
 
   try {
-    const response = await fetch(`${model.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey || ''}`,
+    // Use the same pi-ai provider/proxy path as the main chat instead of a raw
+    // /chat/completions fetch. This keeps custom model compatibility, max token
+    // field handling, and CORS proxy behavior consistent with normal replies.
+    const stream = await createStreamFn(getProxyUrl)(
+      model,
+      {
+        systemPrompt:
+          '你是对话标题生成器。请用和用户相同的语言，根据对话主题生成 3 到 5 个词的短标题。只输出标题，不要解释，不要标点。',
+        messages: [{ role: 'user', content: conversationText, timestamp: Date.now() }],
+        tools: [],
       },
-      body: JSON.stringify({
-        model: model.id,
-        messages: [
-          {
-            role: 'system',
-            content:
-              'Generate a very short title (3-5 words max) that summarizes the user\'s request. Reply with ONLY the title — no quotes, no punctuation at the end, no explanations.',
-          },
-          { role: 'user', content: text },
-        ],
-        max_tokens: 20,
-        temperature: 0.3,
-      }),
-    })
-
-    if (!response.ok) return generateTitle(messages)
-
-    const data = await response.json()
-    const title = data.choices?.[0]?.message?.content?.trim() || ''
+      {
+        apiKey,
+        // Reasoning models may spend part of this budget on hidden thinking.
+        // 20 tokens is often too small and can produce only reasoning with no final text.
+        maxTokens: 160,
+        temperature: 0.2,
+        reasoning: 'minimal',
+        maxRetryDelayMs: 60000,
+      },
+    )
+    const titleMessage = await stream.result()
+    const titleText = textFromContentBlocks(titleMessage.content)
+    if (!titleText.trim()) {
+      console.warn('AI title generation returned no text:', titleMessage)
+    }
+    const title = normalizeAiTitle(titleText)
     return title || generateTitle(messages)
-  } catch {
+  } catch (error) {
+    console.warn('Failed to generate AI title:', error)
     return generateTitle(messages)
   }
 }
@@ -558,6 +577,7 @@ function App() {
   const currentTitleRef = useRef('New chat')
   const currentCreatedAtRef = useRef<string | undefined>(undefined)
   const titleGeneratedRef = useRef<Set<string>>(new Set())
+  const pendingAiTitleRef = useRef<Set<string>>(new Set())
 
   const [agent, setAgent] = useState<Agent | null>(null)
   const [sessions, setSessions] = useState<QuickForgeSessionMetadata[]>([])
@@ -667,9 +687,16 @@ function App() {
       const now = new Date().toISOString()
       const createdAt = task.createdAt ?? now
 
+      // Determine if AI title generation is needed (before mutating task.title)
+      if (!titleGeneratedRef.current.has(task.sessionId)) {
+        titleGeneratedRef.current.add(task.sessionId)
+        if (titleNeedsGeneration(task.title)) {
+          pendingAiTitleRef.current.add(task.sessionId)
+        }
+      }
+
       let title = task.title
-      const needsTitle = titleNeedsGeneration(title)
-      if (needsTitle) {
+      if (titleNeedsGeneration(title)) {
         title = generateTitle(messages)
       }
 
@@ -680,11 +707,15 @@ function App() {
       task.finishedAt = finishedAt
 
       // Fire-and-forget AI title generation
-      if (needsTitle && !titleGeneratedRef.current.has(task.sessionId) && messages.some((m) => m.role === 'assistant')) {
-        titleGeneratedRef.current.add(task.sessionId)
+      if (pendingAiTitleRef.current.has(task.sessionId) && messages.some((m) => m.role === 'assistant')) {
+        pendingAiTitleRef.current.delete(task.sessionId)
         const model = task.agent.state.model ?? activeModelRef.current
-        const apiKey = await storage.providerKeys.get(model.provider).catch(() => undefined)
-        generateAiTitle(messages, model, apiKey).then(async (aiTitle) => {
+        const apiKey: string | undefined = (await storage.providerKeys.get(model.provider).catch(() => undefined)) || undefined
+        const getProxyUrl = async () => {
+          const enabled = await storage.settings.get<boolean>('proxy.enabled')
+          return enabled ? ((await storage.settings.get<string>('proxy.url')) || undefined) : undefined
+        }
+        generateAiTitle(messages, model, apiKey, getProxyUrl).then(async (aiTitle) => {
           if (aiTitle && aiTitle !== 'New chat') {
             task.title = aiTitle
             const latestMessages = task.agent.state.messages
@@ -820,7 +851,7 @@ function App() {
         initialState: {
           systemPrompt,
           model: activeModelRef.current,
-          thinkingLevel: 'off',
+          thinkingLevel: activeModelRef.current.reasoning ? 'minimal' : 'off',
           messages: [],
           ...initialState,
           tools: getLocalWorkspaceTools(yoloModeRef.current, project?.id),
@@ -1091,31 +1122,6 @@ function App() {
       }
     },
     [refreshSessions],
-  )
-
-  const renameProject = useCallback(
-    async (projectId: string, currentName: string) => {
-      const newName = await showPrompt({
-        title: t('renameProject'),
-        description: t('projectNameLabel'),
-        defaultValue: currentName,
-        confirmLabel: t('save'),
-        cancelLabel: t('cancel'),
-      })
-      if (!newName || newName === currentName) return
-
-      const response = await fetch('/api/project/rename', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: projectId, name: newName }),
-      })
-      const payload = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(payload?.error || 'Failed to rename project')
-
-      setProjects(payload.projects)
-      setActiveProject(payload.project)
-    },
-    [],
   )
 
   useEffect(() => {
@@ -1501,15 +1507,6 @@ function App() {
                           aria-label={t('newProjectChat')}
                         >
                           <MessageSquarePlus className="size-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-7 shrink-0 opacity-0 group-hover:opacity-100"
-                          onClick={() => renameProject(item.id, item.name)}
-                          aria-label={t('renameProject')}
-                        >
-                          <Pencil className="size-3.5" />
                         </Button>
                         <Button
                           variant="ghost"

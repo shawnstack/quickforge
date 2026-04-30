@@ -16,6 +16,7 @@ type ModelForm = {
   modelId: string
   contextWindow: number
   maxTokens: number
+  reasoning: boolean
 }
 
 type ProviderForm = {
@@ -32,6 +33,7 @@ const emptyModelForm = (): ModelForm => ({
   modelId: '',
   contextWindow: DEFAULT_CONNECTION.contextWindow,
   maxTokens: DEFAULT_CONNECTION.maxTokens,
+  reasoning: false,
 })
 
 const emptyForm = (): ProviderForm => ({
@@ -90,6 +92,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
             modelId: model.id,
             contextWindow: model.contextWindow ?? DEFAULT_CONNECTION.contextWindow,
             maxTokens: model.maxTokens ?? DEFAULT_CONNECTION.maxTokens,
+            reasoning: model.reasoning === true,
           }))
         : [emptyModelForm()]
 
@@ -119,7 +122,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     this.requestUpdate()
   }
 
-  private updateModelField(index: number, key: keyof ModelForm, value: string | number) {
+  private updateModelField(index: number, key: keyof ModelForm, value: string | number | boolean) {
     const models = this.form.models.map((model, i) =>
       i === index ? { ...model, [key]: value } : model,
     )
@@ -141,6 +144,8 @@ export class CustomProvidersOnlyTab extends SettingsTab {
   private buildModel(modelForm: ModelForm): AnyModel {
     const name = this.form.name.trim()
     const baseUrl = this.form.baseUrl.trim()
+    const isReasoningModel = modelForm.reasoning === true
+    const isDeepSeek = baseUrl.includes('api.deepseek.com')
 
     return {
       id: modelForm.modelId,
@@ -148,7 +153,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       api: this.form.protocol,
       provider: name,
       baseUrl: baseUrl.replace(/\/$/, ''),
-      reasoning: false,
+      reasoning: isReasoningModel,
       input: ['text', 'image'],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: Number(modelForm.contextWindow) || DEFAULT_CONNECTION.contextWindow,
@@ -158,10 +163,24 @@ export class CustomProvidersOnlyTab extends SettingsTab {
           ? {
               supportsStore: false,
               supportsDeveloperRole: false,
-              supportsReasoningEffort: false,
+              supportsReasoningEffort: isReasoningModel,
               supportsUsageInStreaming: false,
               supportsStrictMode: false,
               maxTokensField: 'max_tokens',
+              // DeepSeek V4 requires reasoning_content on assistant messages in tool-call rounds
+              ...(isDeepSeek && isReasoningModel
+                ? {
+                    requiresReasoningContentOnAssistantMessages: true,
+                    thinkingFormat: 'deepseek' as const,
+                    reasoningEffortMap: {
+                      minimal: 'high',
+                      low: 'high',
+                      medium: 'high',
+                      high: 'high',
+                      xhigh: 'max',
+                    } as Record<string, string>,
+                  }
+                : {}),
             }
           : undefined,
     } satisfies AnyModel
@@ -340,6 +359,16 @@ export class CustomProvidersOnlyTab extends SettingsTab {
               />
             </label>
           </div>
+          <label class="mt-3 flex items-center gap-2 text-xs">
+            <input
+              class="rounded border-border"
+              type="checkbox"
+              .checked=${model.reasoning}
+              @change=${(event: Event) =>
+                this.updateModelField(index, 'reasoning', (event.target as HTMLInputElement).checked)}
+            />
+            <span class="text-muted-foreground">${t('reasoningModel')}</span>
+          </label>
         </div>
       </div>
     `

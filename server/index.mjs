@@ -935,26 +935,6 @@ async function handleProjectApi(req, res, url) {
     return
   }
 
-  if (req.method === 'PUT' && url.pathname === '/api/project/rename') {
-    const body = await readJsonBody(req)
-    const { id, name } = body || {}
-    if (!id || !name || !name.trim()) {
-      const error = new Error('Project id and name are required')
-      error.statusCode = 400
-      throw error
-    }
-    const project = config.projects.find((project) => project.id === id)
-    if (!project) {
-      const error = new Error('Unknown project')
-      error.statusCode = 404
-      throw error
-    }
-    project.name = name.trim()
-    await writeProjectConfig(config)
-    sendJson(res, 200, { project: getActiveProject(config), projects: config.projects, workspaceRoot: getWorkspaceRoot() })
-    return
-  }
-
   if (req.method === 'DELETE' && url.pathname.startsWith('/api/project/')) {
     const id = decodeSegment(url.pathname.split('/').filter(Boolean)[2])
     const nextProjects = config.projects.filter((project) => project.id !== id)

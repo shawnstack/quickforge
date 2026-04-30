@@ -8,14 +8,24 @@ type ChatPayload = {
 type ChatMessage = {
   role?: unknown
   reasoning_content?: unknown
+  reasoning?: unknown
+  reasoning_text?: unknown
   [key: string]: unknown
 }
+
+/** Reasoning field names that providers may use in streaming deltas. */
+const REASONING_FIELDS = ['reasoning_content', 'reasoning', 'reasoning_text'] as const
+type ReasoningField = (typeof REASONING_FIELDS)[number]
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-function getCachedReasoningContent(message: AgentMessage): string | undefined {
+/**
+ * Extract reasoning content from an assistant AgentMessage's thinking blocks.
+ * Supports all known reasoning field signatures.
+ */
+function getCachedReasoningContent(message: AgentMessage): { field: ReasoningField; content: string } | undefined {
   if (!isRecord(message)) return undefined
   const record = message as Record<string, unknown>
   if (record.role !== 'assistant') return undefined
@@ -23,19 +33,26 @@ function getCachedReasoningContent(message: AgentMessage): string | undefined {
   const content = record.content
   if (!Array.isArray(content)) return undefined
 
-  const parts = content
-    .filter((block): block is { type: 'thinking'; thinking: string; thinkingSignature?: string } => {
-      return (
-        isRecord(block) &&
-        block.type === 'thinking' &&
-        block.thinkingSignature === 'reasoning_content' &&
-        typeof block.thinking === 'string' &&
-        block.thinking.length > 0
-      )
-    })
-    .map((block) => block.thinking)
+  // Try each known reasoning field, preferring reasoning_content (most common)
+  for (const field of REASONING_FIELDS) {
+    const parts = content
+      .filter((block): block is { type: 'thinking'; thinking: string; thinkingSignature?: string } => {
+        return (
+          isRecord(block) &&
+          block.type === 'thinking' &&
+          block.thinkingSignature === field &&
+          typeof block.thinking === 'string' &&
+          block.thinking.length > 0
+        )
+      })
+      .map((block) => block.thinking)
 
-  return parts.length > 0 ? parts.join('\n') : undefined
+    if (parts.length > 0) {
+      return { field, content: parts.join('\n') }
+    }
+  }
+
+  return undefined
 }
 
 function shouldSkipAssistantForReplay(message: AgentMessage) {
@@ -45,7 +62,12 @@ function shouldSkipAssistantForReplay(message: AgentMessage) {
   return record.stopReason === 'error' || record.stopReason === 'aborted'
 }
 
-function collectAssistantReasoningContents(messages: AgentMessage[]) {
+type CachedReasoning = {
+  field: ReasoningField
+  content: string
+}
+
+function collectAssistantReasoningContents(messages: AgentMessage[]): CachedReasoning[] {
   return messages
     .filter((message) => {
       if (!isRecord(message)) return false
@@ -53,43 +75,57 @@ function collectAssistantReasoningContents(messages: AgentMessage[]) {
       return record.role === 'assistant' && !shouldSkipAssistantForReplay(message)
     })
     .map((message) => getCachedReasoningContent(message))
+    .filter((entry): entry is CachedReasoning => !!entry)
 }
 
 /**
- * Some OpenAI-compatible thinking models (notably Qwen-style endpoints) require
- * every assistant turn's returned `reasoning_content` to be replayed in the next
- * tool-call request. pi-ai stores that streamed field as a thinking block, but
- * older/custom conversion paths may drop the provider-specific top-level field.
+ * Reasoning models (DeepSeek V4, Qwen-style endpoints, etc.) require every
+ * assistant turn's returned `reasoning_content` (or `reasoning` / `reasoning_text`)
+ * to be replayed verbatim in all subsequent requests — especially in tool-call
+ * rounds between two user messages.
  *
- * This payload hook is deliberately conservative: it only restores
- * `reasoning_content` when the previous response actually contained that exact
- * field, and it leaves providers that use other reasoning fields untouched.
+ * pi-ai's `convertMessages` already maps thinking blocks back to the correct
+ * provider field for same-model replays, but custom/older conversion paths
+ * or cross-model scenarios may drop the field. This payload hook acts as a
+ * safety net: it restores the reasoning field from the agent's source messages
+ * when the payload message is missing it.
+ *
+ * It uses a consumer-queue pattern (dequeue) so that inserted/filtered messages
+ * don't cause index misalignment between source AgentMessage[] and the payload.
  */
 export function restoreReasoningContentInPayload(payload: unknown, sourceMessages: AgentMessage[]) {
   if (!isRecord(payload) || !Array.isArray((payload as ChatPayload).messages)) return payload
 
-  const cachedReasoningContents = collectAssistantReasoningContents(sourceMessages)
-  if (cachedReasoningContents.every((entry) => !entry)) return payload
+  const cachedReasoningQueue = collectAssistantReasoningContents(sourceMessages)
+  if (cachedReasoningQueue.length === 0) return payload
 
-  let assistantIndex = 0
   let changed = false
   const nextMessages = ((payload as ChatPayload).messages as unknown[]).map((message) => {
     if (!isRecord(message) || (message as ChatMessage).role !== 'assistant') return message
 
-    const cachedReasoningContent = cachedReasoningContents[assistantIndex]
-    assistantIndex += 1
+    const msg = message as ChatMessage
 
-    if (!cachedReasoningContent) return message
-
-    const currentReasoningContent = (message as ChatMessage).reasoning_content
-    if (typeof currentReasoningContent === 'string' && currentReasoningContent.length > 0) {
+    // Check if any reasoning field is already present (set by convertMessages)
+    const existingField = REASONING_FIELDS.find(
+      (field) => typeof msg[field] === 'string' && (msg[field] as string).length > 0,
+    )
+    if (existingField) {
+      // Payload already has reasoning — consume the matching cached entry if the
+      // field type matches, to keep queue alignment intact.
+      if (cachedReasoningQueue.length > 0 && cachedReasoningQueue[0].field === existingField) {
+        cachedReasoningQueue.shift()
+      }
       return message
     }
 
+    // No reasoning field set on this payload message — try to restore from cache
+    if (cachedReasoningQueue.length === 0) return message
+
+    const cached = cachedReasoningQueue.shift()!
     changed = true
     return {
       ...message,
-      reasoning_content: cachedReasoningContent,
+      [cached.field]: cached.content,
     }
   })
 

@@ -26,6 +26,8 @@ export type ConnectionForm = {
   modelId: string
   contextWindow: number
   maxTokens: number
+  /** Whether the model supports thinking/reasoning (DeepSeek V4, Qwen, etc.). */
+  reasoning?: boolean
 }
 
 export type ConnectionProfile = {
@@ -53,13 +55,16 @@ export const DEFAULT_CONNECTION: ConnectionForm = {
 }
 
 export function buildConnectionModel(form: ConnectionForm): Model<'openai-completions'> {
+  const isReasoningModel = form.reasoning === true
+  const isDeepSeek = form.baseUrl.trim().replace(/\/$/, '').includes('api.deepseek.com')
+
   return {
     id: form.modelId.trim(),
     name: `${form.modelId.trim()} (${form.name.trim()})`,
     api: 'openai-completions',
     provider: form.name.trim(),
     baseUrl: form.baseUrl.trim().replace(/\/$/, ''),
-    reasoning: false,
+    reasoning: isReasoningModel,
     input: ['text', 'image'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: Number(form.contextWindow) || DEFAULT_CONNECTION.contextWindow,
@@ -67,10 +72,24 @@ export function buildConnectionModel(form: ConnectionForm): Model<'openai-comple
     compat: {
       supportsStore: false,
       supportsDeveloperRole: false,
-      supportsReasoningEffort: false,
+      supportsReasoningEffort: isReasoningModel,
       supportsUsageInStreaming: false,
       supportsStrictMode: false,
       maxTokensField: 'max_tokens',
+      // DeepSeek V4 requires reasoning_content on assistant messages in tool-call rounds
+      ...(isDeepSeek && isReasoningModel
+        ? {
+            requiresReasoningContentOnAssistantMessages: true,
+            thinkingFormat: 'deepseek' as const,
+            reasoningEffortMap: {
+              minimal: 'high',
+              low: 'high',
+              medium: 'high',
+              high: 'high',
+              xhigh: 'max',
+            } as Record<string, string>,
+          }
+        : {}),
     },
   }
 }

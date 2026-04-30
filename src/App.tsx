@@ -814,7 +814,7 @@ function App() {
         })
       },
       (model) => {
-        SettingsDialog.open([createLanguageSettingsTab(), createCustomProvidersOnlyTab(model.provider), new ProxyTab()])
+        SettingsDialog.open([createCustomProvidersOnlyTab(model.provider), createLanguageSettingsTab(), new ProxyTab()])
       },
     )
   }, [])

@@ -813,8 +813,14 @@ function App() {
           console.error('Failed to save active model:', error)
         })
       },
-      (model) => {
-        SettingsDialog.open([createCustomProvidersOnlyTab(model.provider), createLanguageSettingsTab(), new ProxyTab()])
+      async (model) => {
+        await SettingsDialog.open([createLanguageSettingsTab(), createCustomProvidersOnlyTab(model.provider), new ProxyTab()])
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const dialog = document.querySelector('settings-dialog') as any
+        if (dialog) {
+          dialog.activeTabIndex = 1
+          dialog.requestUpdate?.()
+        }
       },
     )
   }, [])

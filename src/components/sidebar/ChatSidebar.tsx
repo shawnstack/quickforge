@@ -74,13 +74,13 @@ export function ChatSidebar({
   const sectionToggleClass = 'flex min-w-0 flex-1 items-center gap-1 text-left transition-colors hover:text-foreground/80'
   const rowHoverShadowClass = 'hover:shadow-[0_10px_26px_-18px_rgb(15_23_42_/_0.48)]'
   const iconHoverShadowClass = 'hover:shadow-[0_8px_18px_-14px_rgb(15_23_42_/_0.5)]'
-  const rowClass = `group flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-all ${rowHoverShadowClass}`
-  const activeRowClass = 'bg-muted/28 text-foreground/90 shadow-[0_10px_26px_-20px_rgb(15_23_42_/_0.42)]'
-  const inactiveRowClass = 'text-muted-foreground/72 hover:bg-muted/28 hover:text-foreground/85'
+  const rowClass = `group flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-all duration-160 ease-out hover:-translate-y-px active:translate-y-0 ${rowHoverShadowClass}`
+  const activeRowClass = 'bg-muted/30 text-foreground/90 shadow-[0_10px_26px_-20px_rgb(15_23_42_/_0.42)]'
+  const inactiveRowClass = 'text-muted-foreground/72 hover:bg-muted/32 hover:text-foreground/85'
   const iconSlotClass = 'inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-colors group-hover:text-foreground/70'
-  const iconButtonClass = `size-7 shrink-0 rounded-full text-muted-foreground/55 transition-all hover:bg-muted/30 hover:text-foreground/85 ${iconHoverShadowClass}`
+  const iconButtonClass = `size-7 shrink-0 rounded-full text-muted-foreground/55 transition-all duration-160 ease-out hover:-translate-y-px hover:bg-muted/32 hover:text-foreground/85 active:translate-y-0 ${iconHoverShadowClass}`
   const hiddenIconButtonClass = `${iconButtonClass} opacity-0 group-hover:opacity-100`
-  const dangerIconButtonClass = `size-7 shrink-0 rounded-full text-muted-foreground/55 opacity-0 transition-all hover:bg-destructive/12 hover:text-destructive/90 group-hover:opacity-100 ${iconHoverShadowClass}`
+  const dangerIconButtonClass = `size-7 shrink-0 rounded-full text-muted-foreground/55 opacity-0 transition-all duration-160 ease-out hover:-translate-y-px hover:bg-destructive/14 hover:text-destructive/90 active:translate-y-0 group-hover:opacity-100 ${iconHoverShadowClass}`
   const sessionTitleClass = 'truncate text-sm leading-5'
   const activeSessionTitleClass = 'font-medium text-foreground/90'
   const timeClass = 'mt-0.5 truncate text-[11px] leading-4 text-muted-foreground/55'
@@ -88,7 +88,7 @@ export function ChatSidebar({
   return (
     <aside
       className={cn(
-        'hidden min-h-0 shrink-0 border-r border-border bg-background md:flex md:flex-col',
+        'relative z-10 hidden min-h-0 shrink-0 border-r border-border bg-background md:flex md:flex-col',
         sidebarOpen ? 'w-80' : 'w-0 overflow-hidden border-r-0',
       )}
     >

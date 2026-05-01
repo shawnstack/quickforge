@@ -846,7 +846,7 @@ function App() {
     }, 0)
   }, [activateConfiguredModel, needsModelSetup])
 
-  const useLiteLlmExampleModel = useCallback(async () => {
+  const activateLiteLlmExampleModel = useCallback(async () => {
     const storage = storageRef.current
     if (!storage) return
 
@@ -1072,7 +1072,7 @@ function App() {
               <ModelSetupEmptyState
                 onAddModel={openModelSettings}
                 onUseExample={() => {
-                  void useLiteLlmExampleModel().catch((error) => console.error('Failed to use LiteLLM example:', error))
+                  void activateLiteLlmExampleModel().catch((error) => console.error('Failed to use LiteLLM example:', error))
                 }}
               />
             ) : (

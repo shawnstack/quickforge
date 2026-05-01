@@ -20,8 +20,7 @@ Built with React 19, Vite 8, Tailwind CSS 4, and shadcn-style UI primitives. Use
 - **Local-first** — all API keys, settings, and chat history stored in local JSON files. No cloud, no telemetry.
 - **YOLO mode** — grant the agent access to your workspace: list files, read/write/edit, grep, and run commands.
 - **Multi-provider** — OpenAI-compatible `/v1/chat/completions` and Anthropic Messages API. Bring your own endpoint.
-- **Data migration** — auto-migrates from legacy FastCode folders on first run.
-- **IndexedDB import** — existing browser data for the same origin is copied to local files on startup.
+- **Local service storage only** — the local Node.js service is the single storage backend; browser caches are not used for app data.
 
 ## Quick Start
 
@@ -77,8 +76,6 @@ Double-click `dev-quickforge.bat` for development, or `start-quickforge.bat` for
 | `QUICKFORGE_PORT` | `32176` (dev) / `5176` (prod) | Server port |
 | `QUICKFORGE_VITE_PORT` | `5176` | Vite dev server port |
 | `QUICKFORGE_MAX_BODY_BYTES` | `52428800` (50MB) | Max request body size |
-
-Legacy `FASTCODE_*` variants are still accepted for existing setups.
 
 ### Storage Files
 

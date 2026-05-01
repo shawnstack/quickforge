@@ -1,4 +1,4 @@
-const DEFAULT_MAX_BODY_BYTES = Number(process.env.QUICKFORGE_MAX_BODY_BYTES || process.env.FASTCODE_MAX_BODY_BYTES || 50 * 1024 * 1024)
+const DEFAULT_MAX_BODY_BYTES = Number(process.env.QUICKFORGE_MAX_BODY_BYTES || 50 * 1024 * 1024)
 
 export function sendJson(res, status, value) {
   const body = JSON.stringify(value)

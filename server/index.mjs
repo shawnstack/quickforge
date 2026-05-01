@@ -5,7 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { sendJson, sendError } from './utils/response.mjs'
 import { openBrowser } from './utils/platform.mjs'
-import { migrateLegacyDataDirs, ensureStorage, dataDir, storageDir } from './storage.mjs'
+import { ensureStorage, dataDir, storageDir } from './storage.mjs'
 import { setDefaultWorkspaceRoot, initializeActiveProject, readProjectConfig, getActiveProject } from './project-config.mjs'
 import { getWorkspaceRoot } from './utils/workspace.mjs'
 import { handleStorageApi } from './routes/storage.mjs'
@@ -21,11 +21,11 @@ const __dirname = path.dirname(__filename)
 const projectRoot = path.resolve(__dirname, '..')
 
 const isDev = process.argv.includes('--dev')
-const host = process.env.QUICKFORGE_HOST || process.env.FASTCODE_HOST || '127.0.0.1'
-const port = Number(process.env.QUICKFORGE_PORT || process.env.FASTCODE_PORT || (isDev ? 32176 : 5176))
-const vitePort = Number(process.env.QUICKFORGE_VITE_PORT || process.env.FASTCODE_VITE_PORT || 5176)
+const host = process.env.QUICKFORGE_HOST || '127.0.0.1'
+const port = Number(process.env.QUICKFORGE_PORT || (isDev ? 32176 : 5176))
+const vitePort = Number(process.env.QUICKFORGE_VITE_PORT || 5176)
 
-setDefaultWorkspaceRoot(process.env.QUICKFORGE_WORKSPACE_DIR || process.env.FASTCODE_WORKSPACE_DIR || projectRoot)
+setDefaultWorkspaceRoot(process.env.QUICKFORGE_WORKSPACE_DIR || projectRoot)
 
 // --- Route dispatching ---
 async function handleApi(req, res, url) {
@@ -126,7 +126,6 @@ const server = createServer(async (req, res) => {
   }
 })
 
-await migrateLegacyDataDirs()
 await ensureStorage()
 await initializeActiveProject()
 setActiveWorkspaceRootForFilesystem(getWorkspaceRoot())

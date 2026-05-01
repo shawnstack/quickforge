@@ -122,7 +122,7 @@ try {
 }
 
 export function openBrowser(url) {
-  if (process.env.QUICKFORGE_NO_OPEN === '1' || process.env.FASTCODE_NO_OPEN === '1') return
+  if (process.env.QUICKFORGE_NO_OPEN === '1') return
 
   const command = process.platform === 'win32' ? 'cmd' : process.platform === 'darwin' ? 'open' : 'xdg-open'
   const args = process.platform === 'win32' ? ['/c', 'start', '""', url] : [url]

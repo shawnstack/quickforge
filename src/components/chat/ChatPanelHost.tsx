@@ -286,6 +286,12 @@ export function ChatPanelHost({
           if (actionButton.dataset.quickforgeSendIcon !== 'arrow-up') {
             actionButton.dataset.quickforgeSendIcon = 'arrow-up'
             replaceSvg(actionButton, '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>')
+            // Remove the Lit element's rotate(-45deg) wrapper so our upward arrow stays pointing up
+            const svg = actionButton.querySelector('svg')
+            const wrapper = svg?.parentElement
+            if (wrapper && wrapper !== actionButton && wrapper.style.transform) {
+              wrapper.style.transform = ''
+            }
           }
         }
       }

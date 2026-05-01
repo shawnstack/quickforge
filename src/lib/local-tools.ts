@@ -1,8 +1,7 @@
-import type { AgentTool } from '@mariozechner/pi-agent-core'
 import { registerToolRenderer } from '@mariozechner/pi-web-ui'
 import { html } from 'lit'
-import { Type } from 'typebox'
 import { t, type AppTextKey } from '@/lib/i18n'
+import type { AgentTool } from '@mariozechner/pi-agent-core'
 
 type ToolResultLike = {
   isError?: boolean
@@ -36,7 +35,13 @@ function summarizeParams(toolName: string, params: Record<string, unknown> | und
 }
 
 // ---------------------------------------------------------------------------
-// Tool renderers (UI display)
+// Tool renderers (UI display only)
+// These map tool names to custom renderers so the ChatPanel shows input/output
+// in a rich format (code blocks, console output, etc.) instead of raw JSON.
+//
+// Tool definitions (name, description, parameters) live ONLY on the server:
+//   server/tools/definitions.mjs  — canonical source
+//   GET /api/tools                — served as JSON
 // ---------------------------------------------------------------------------
 
 class LocalWorkspaceToolRenderer {
@@ -90,96 +95,10 @@ for (const [name, label] of [
   registerToolRenderer(name, new LocalWorkspaceToolRenderer(name, label))
 }
 
-// ---------------------------------------------------------------------------
-// Tool definitions for ChatPanel (UI display only — execution is server-side).
-//
-// CANONICAL SOURCE: server/tools/definitions.mjs
-// The server endpoint GET /api/tools returns tool metadata as JSON.
-// The TypeBox parameter schemas here MUST match the JSON Schema definitions
-// in server/tools/definitions.mjs. When adding or changing a tool, update
-// both locations.
-// ---------------------------------------------------------------------------
-
-const noopExecute = async () => ({ content: [{ type: 'text' as const, text: '' }], details: {} })
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function createLocalWorkspaceTools(_projectId: string): AgentTool[] {
-  return [
-    {
-      name: 'get_project_info',
-      label: t('projectInfo'),
-      description: 'Get the project directory bound to this chat.',
-      parameters: Type.Object({}),
-      execute: noopExecute,
-    },
-    {
-      name: 'list_dir',
-      label: t('listDirectory'),
-      description: 'List files and folders inside the project bound to this chat.',
-      parameters: Type.Object({ path: Type.Optional(Type.String({ description: 'Directory path.', default: '.' })) }),
-      execute: noopExecute,
-    },
-    {
-      name: 'read_file',
-      label: t('readFile'),
-      description: 'Read a UTF-8 text file inside the project.',
-      parameters: Type.Object({
-        path: Type.String({ description: 'File path relative to the workspace root.' }),
-        offset: Type.Optional(Type.Number({ description: '1-based line offset.', default: 1 })),
-        limit: Type.Optional(Type.Number({ description: 'Maximum number of lines to return.', default: 200 })),
-      }),
-      execute: noopExecute,
-    },
-    {
-      name: 'grep_files',
-      label: t('searchFiles'),
-      description: 'Search text in the project files.',
-      parameters: Type.Object({
-        query: Type.String({ description: 'Plain text or regular expression to search for.' }),
-        path: Type.Optional(Type.String({ description: 'Directory path.', default: '.' })),
-        regex: Type.Optional(Type.Boolean({ description: 'Treat query as a regular expression.', default: false })),
-        caseSensitive: Type.Optional(Type.Boolean({ description: 'Use case-sensitive matching.', default: false })),
-        limit: Type.Optional(Type.Number({ description: 'Maximum matches to return.', default: 200 })),
-      }),
-      execute: noopExecute,
-    },
-    {
-      name: 'write_file',
-      label: t('writeFile'),
-      description: 'Create or overwrite a UTF-8 text file.',
-      parameters: Type.Object({
-        path: Type.String({ description: 'File path.' }),
-        content: Type.String({ description: 'Complete file content to write.' }),
-      }),
-      executionMode: 'sequential' as const,
-      execute: noopExecute,
-    },
-    {
-      name: 'edit_file',
-      label: t('editFile'),
-      description: 'Edit a text file by replacing exact text.',
-      parameters: Type.Object({
-        path: Type.String({ description: 'File path.' }),
-        oldText: Type.String({ description: 'Exact existing text to replace.' }),
-        newText: Type.String({ description: 'Replacement text.' }),
-      }),
-      executionMode: 'sequential' as const,
-      execute: noopExecute,
-    },
-    {
-      name: 'run_command',
-      label: t('runCommand'),
-      description: 'Run a shell command in the project.',
-      parameters: Type.Object({
-        command: Type.String({ description: 'Command to execute.' }),
-        timeoutSeconds: Type.Optional(Type.Number({ description: 'Timeout in seconds. Defaults to 60.', default: 60 })),
-      }),
-      executionMode: 'sequential' as const,
-      execute: noopExecute,
-    },
-  ]
-}
-
-export function getLocalWorkspaceTools(yoloMode: boolean, projectId?: string): AgentTool[] {
-  return yoloMode && projectId ? createLocalWorkspaceTools(projectId) : []
+// Tool execution is entirely server-side. The ChatPanel never calls .execute()
+// on client-side tools — it only reads state.tools for display purposes.
+// Returning an empty array is safe because ServerAgent ignores state.tools
+// and the server agent has its own canonical tool list.
+export function getLocalWorkspaceTools(_yoloMode: boolean, _projectId?: string): AgentTool[] {
+  return []
 }

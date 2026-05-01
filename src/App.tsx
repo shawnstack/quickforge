@@ -5,8 +5,6 @@ import {
 } from '@mariozechner/pi-web-ui'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import {
-  PanelLeftClose,
-  PanelLeftOpen,
   Plus,
   Settings,
 } from 'lucide-react'
@@ -893,19 +891,11 @@ function App() {
           void startNewGlobalChat()
         }}
         onOpenScheduledTasks={() => setScheduledTasksOpen(true)}
+        onToggleSidebar={() => setSidebarOpen((value) => !value)}
       />
 
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="hidden md:inline-flex"
-            onClick={() => setSidebarOpen((value) => !value)}
-            aria-label={t('toggleSidebar')}
-          >
-            {sidebarOpen ? <PanelLeftClose className="size-4" /> : <PanelLeftOpen className="size-4" />}
-          </Button>
           <Button variant="ghost" size="icon" className="md:hidden" onClick={startNewGlobalChat} aria-label={t('newChat')}>
             <Plus className="size-4" />
           </Button>

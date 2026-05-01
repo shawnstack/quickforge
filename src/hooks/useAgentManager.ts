@@ -209,9 +209,10 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
           task.status = nextAgent.state.errorMessage ? 'error' : 'idle'
           task.finishedAt = new Date().toISOString()
           setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
-          if (task.sessionId === currentSessionIdRef.current) {
-            window.setTimeout(() => setChatPanelRevision((value) => value + 1), 0)
-          }
+          // NOTE: Do NOT bump chatPanelRevision here — the ChatPanel is already
+          // showing the latest messages via the agent state.  Destroying /
+          // recreating the panel on every agent_end causes a visual flash where
+          // messages disappear then reappear.
           syncSessionUI(task).catch((err) => console.error('Failed to sync session UI:', err))
           if (wasRunning) {
             onTaskCompleteRef.current?.(task.sessionId, task.title, task.status)

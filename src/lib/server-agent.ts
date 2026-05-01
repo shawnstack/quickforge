@@ -313,9 +313,12 @@ export class ServerAgent {
 
     switch (type) {
       case 'state': {
-        // Initial state snapshot from server (e.g. after page refresh / SSE reconnect)
+        // Initial state snapshot from server (e.g. after page refresh / SSE reconnect).
+        // Guard against SSE reconnect overwriting client messages with a stale
+        // server snapshot: only accept server messages if the client has none
+        // (initial load) or if the server has at least as many messages.
         const s = event as { messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; isStreaming?: boolean; status?: string }
-        if (s.messages) {
+        if (s.messages && s.messages.length >= this.state.messages.length) {
           this.state.messages = s.messages
         }
         if (s.model) {
@@ -402,7 +405,9 @@ export class ServerAgent {
       const res = await fetch(url)
       if (!res.ok) return
       const state = await res.json()
-      if (state.messages) {
+      // Guard against a late-arriving fetch overwriting messages that were
+      // already set by a more recent agent_end event.
+      if (state.messages && state.messages.length >= this.state.messages.length) {
         this.state.messages = state.messages
       }
       if (state.model) {

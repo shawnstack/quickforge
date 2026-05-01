@@ -66,6 +66,43 @@ export function ChatPanelHost({
     const rollbackIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>'
     const forkIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/><path d="M12 12v3"/></svg>'
 
+    /**
+     * Replace an element's inner SVG without touching sibling nodes (e.g. Lit
+     * comment markers).  If the element already contains an <svg>, only that
+     * child is replaced; otherwise the new SVG is appended.
+     */
+    const replaceSvg = (parent: HTMLElement, svgString: string) => {
+      const template = document.createElement('template')
+      template.innerHTML = svgString
+      const newSvg = template.content.firstElementChild
+      if (!newSvg) return
+      const oldSvg = parent.querySelector('svg')
+      if (oldSvg) {
+        oldSvg.replaceWith(newSvg)
+      } else {
+        parent.appendChild(newSvg)
+      }
+    }
+
+    /**
+     * Set an element's content from an HTML string, preserving any non-Element
+     * children (comment markers, text nodes) that may be Lit internals.
+     * Only <svg> and <span> elements from the string are grafted in; other
+     * existing element children are cleared first.
+     */
+    const patchContent = (parent: HTMLElement, html: string) => {
+      const template = document.createElement('template')
+      template.innerHTML = html
+      const incoming = Array.from(template.content.children)
+      // Remove existing element children but keep comment / text nodes (Lit markers).
+      for (const child of Array.from(parent.children)) {
+        child.remove()
+      }
+      for (const el of incoming) {
+        parent.appendChild(el)
+      }
+    }
+
     const readComposerDraft = (): ComposerDraft => {
       const editor = panel.querySelector<MessageEditorElement>('message-editor')
       const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
@@ -97,13 +134,13 @@ export function ChatPanelHost({
       const previousTimer = Number(button.dataset.quickforgeCopyFeedbackTimer)
       if (previousTimer) window.clearTimeout(previousTimer)
 
-      button.innerHTML = copiedIcon
+      replaceSvg(button, copiedIcon)
       button.title = copiedTitle
       button.setAttribute('aria-label', copiedTitle)
       button.style.color = 'rgb(5 150 105)'
 
       const timer = window.setTimeout(() => {
-        button.innerHTML = defaultIcon
+        replaceSvg(button, defaultIcon)
         button.title = defaultTitle
         button.setAttribute('aria-label', defaultTitle)
         button.style.color = ''
@@ -118,7 +155,7 @@ export function ChatPanelHost({
       button.dataset.quickforgeAction = action
       button.title = title
       button.setAttribute('aria-label', title)
-      button.innerHTML = icon
+      replaceSvg(button, icon)
       button.className = 'pointer-events-auto inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-transparent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40'
       button.onclick = (event) => {
         event.stopPropagation()
@@ -248,7 +285,7 @@ export function ChatPanelHost({
           actionButton.classList.add('quickforge-send-button')
           if (actionButton.dataset.quickforgeSendIcon !== 'arrow-up') {
             actionButton.dataset.quickforgeSendIcon = 'arrow-up'
-            actionButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>'
+            replaceSvg(actionButton, '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>')
           }
         }
       }
@@ -276,12 +313,12 @@ export function ChatPanelHost({
 
       const existingButton = rightControls.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')
       if (existingButton) {
-        // Only touch the DOM when values actually changed — setting innerHTML
-        // unconditionally triggers MutationObserver → rAF → decorate() forever.
+        // Only touch the DOM when values actually changed — keep Lit markers
+        // intact by patching only element children (svg + spans).
         const prevMode = existingButton.getAttribute('aria-pressed')
         const nextMode = String(yoloMode)
         if (prevMode !== nextMode) {
-          existingButton.innerHTML = yoloLabel
+          patchContent(existingButton, yoloLabel)
           existingButton.setAttribute('aria-pressed', nextMode)
           existingButton.className = yoloClass
         }
@@ -300,7 +337,7 @@ export function ChatPanelHost({
 
       const button = document.createElement('button')
       button.type = 'button'
-      button.innerHTML = yoloLabel
+      patchContent(button, yoloLabel)
       button.title = yoloTitle
       button.setAttribute('aria-label', yoloTitle)
       button.setAttribute('aria-pressed', String(yoloMode))
@@ -316,6 +353,9 @@ export function ChatPanelHost({
 
     const decorate = () => {
       if (disposed) return
+      // Guard: if the panel is not connected to the DOM, Lit may be
+      // mid-render and manipulating children is unsafe.
+      if (!panel.isConnected) return
       decorateMessages()
       decorateEditor()
     }

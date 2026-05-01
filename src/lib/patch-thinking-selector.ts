@@ -79,9 +79,15 @@ function patchEditorInstance(editor: HTMLElement) {
   const existingSelect = selectContainer.querySelector<HTMLElement>('button[role="combobox"]')
   if (!existingSelect) return
 
+  // Hide the Lit-managed select instead of removing it from DOM — removing it
+  // would orphan Lit's internal marker nodes and cause "ChildPart has no
+  // parentNode" errors when the message-editor re-renders.
+  existingSelect.style.display = 'none'
+  existingSelect.setAttribute('aria-hidden', 'true')
+
   const wrapper = document.createElement('span')
   wrapper.dataset.quickforgeThinkingSelector = 'true'
-  existingSelect.replaceWith(wrapper)
+  existingSelect.insertAdjacentElement('afterend', wrapper)
   renderThinkingSelector(wrapper, editorWithState)
 }
 

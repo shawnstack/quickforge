@@ -49,6 +49,44 @@
   }
 }
 
+/* Chat messages: only customize user's outgoing bubble; assistant/tool rendering stays pi-web-ui default. */
+.quickforge-user-message > div.flex.justify-start {
+  justify-content: flex-end !important;
+}
+
+.quickforge-user-message .user-message-container {
+  max-width: min(72%, 46rem) !important;
+  border: 1px solid color-mix(in oklab, var(--primary) 18%, var(--border)) !important;
+  border-radius: 1.125rem 1.125rem 0.375rem 1.125rem !important;
+  background: color-mix(in oklab, var(--primary) 10%, var(--card)) !important;
+  color: var(--foreground) !important;
+  box-shadow:
+    0 10px 28px -24px color-mix(in oklab, var(--primary) 55%, black),
+    inset 0 1px 0 rgb(255 255 255 / 0.08) !important;
+}
+
+.quickforge-user-message .quickforge-message-actions {
+  margin-left: auto;
+}
+
+.quickforge-user-message markdown-block {
+  overflow-wrap: anywhere;
+}
+
+.quickforge-user-message .user-message-container :where(p, ul, ol, pre, blockquote):first-child {
+  margin-top: 0;
+}
+
+.quickforge-user-message .user-message-container :where(p, ul, ol, pre, blockquote):last-child {
+  margin-bottom: 0;
+}
+
+@media (width < 48rem) {
+  .quickforge-user-message .user-message-container {
+    max-width: min(86%, 46rem) !important;
+  }
+}
+
 .quickforge-composer-dock {
   padding: 0 0.5rem 0.25rem;
   background:

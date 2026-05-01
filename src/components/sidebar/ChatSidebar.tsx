@@ -183,18 +183,7 @@ export const ChatSidebar = memo(function ChatSidebar({
         </button>
         <button
           type="button"
-          className={cn(rowClass, 'mt-4 w-full', scheduledTasksActive ? activeRowClass : inactiveRowClass)}
-          onClick={onOpenScheduledTasks}
-          aria-label="定时任务"
-        >
-          <span className={iconSlotClass}>
-            <CalendarClock className="size-4" />
-          </span>
-          {sidebarOpen ? <span className={cn(sessionTitleClass, scheduledTasksActive && activeSessionTitleClass)}>定时任务</span> : null}
-        </button>
-        <button
-          type="button"
-          className={cn(rowClass, 'w-full', inactiveRowClass)}
+          className={cn(rowClass, 'mt-4 w-full', inactiveRowClass)}
           onClick={openSearch}
           aria-label="搜索"
         >
@@ -202,6 +191,17 @@ export const ChatSidebar = memo(function ChatSidebar({
             <Search className="size-4" />
           </span>
           {sidebarOpen ? <span className={sessionTitleClass}>搜索</span> : null}
+        </button>
+        <button
+          type="button"
+          className={cn(rowClass, 'w-full', scheduledTasksActive ? activeRowClass : inactiveRowClass)}
+          onClick={onOpenScheduledTasks}
+          aria-label="定时任务"
+        >
+          <span className={iconSlotClass}>
+            <CalendarClock className="size-4" />
+          </span>
+          {sidebarOpen ? <span className={cn(sessionTitleClass, scheduledTasksActive && activeSessionTitleClass)}>定时任务</span> : null}
         </button>
       </div>
 

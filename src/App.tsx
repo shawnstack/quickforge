@@ -54,6 +54,7 @@ import { ModelSetupEmptyState } from '@/components/chat/ModelSetupEmptyState'
 import { ChatSidebar } from '@/components/sidebar/ChatSidebar'
 import { useProject } from '@/hooks/useProject'
 import { useYoloMode } from '@/hooks/useYoloMode'
+import { useCrossTabSync } from '@/hooks/useCrossTabSync'
 import { saveActiveModel, saveYoloMode } from '@/lib/pi-chat'
 
 function App() {
@@ -117,10 +118,13 @@ function App() {
   }, [activeProject])
 
   // --- Session helpers ---
-  const refreshSessions = useCallback(async () => {
+  const crossTabRef = useRef<ReturnType<typeof useCrossTabSync> | null>(null)
+
+  const refreshSessions = useCallback(async (opts?: { broadcast?: boolean }) => {
     const storage = storageRef.current
     if (!storage) return
     setSessions((await storage.sessions.getAllMetadata()) as QuickForgeSessionMetadata[])
+    if (opts?.broadcast) crossTabRef.current?.notifySessionsChanged()
   }, [])
 
   const syncSessionUI = useCallback(
@@ -136,10 +140,18 @@ function App() {
         currentTitleRef.current = title
         setCurrentTitle(title)
       }
-      await refreshSessions()
+      await refreshSessions({ broadcast: true })
     },
     [refreshSessions],
   )
+
+  // --- Cross-tab sync (placed after refreshSessions / loadProject are defined) ---
+  const crossTab = useCrossTabSync({
+    onSessionsChanged: () => { refreshSessions() },
+    onProjectsChanged: () => { loadProject() },
+    onSettingsChanged: () => { refreshSessions() },
+  })
+  crossTabRef.current = crossTab
 
   const attachTaskToView = useCallback((task: BackgroundTask) => {
     currentChatScopeRef.current = task.scope
@@ -240,7 +252,7 @@ function App() {
             currentTitleRef.current = titleEvent.title
             setCurrentTitle(titleEvent.title)
           }
-          refreshSessions().catch((err) => console.error('Failed to refresh sessions:', err))
+          refreshSessions({ broadcast: true }).catch((err) => console.error('Failed to refresh sessions:', err))
         }
       })
 
@@ -248,7 +260,7 @@ function App() {
       setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
 
       if (options?.attachToView !== false) attachTaskToView(task)
-      await refreshSessions()
+      await refreshSessions({ broadcast: true })
       return nextAgent
     },
     [attachTaskToView, refreshSessions, syncSessionUI],
@@ -374,13 +386,14 @@ function App() {
         next.delete(projectId)
         return next
       })
-      await refreshSessions()
+      await refreshSessions({ broadcast: true })
+      crossTab.notifyProjectsChanged()
       if (activeProjectRef.current?.id === projectId) {
         activeProjectRef.current = payload.project
         setChatPanelRevision((value) => value + 1)
       }
     },
-    [refreshSessions, setActiveProject, setProjects, setExpandedProjectIds],
+    [refreshSessions, crossTab, setActiveProject, setProjects, setExpandedProjectIds],
   )
 
   // --- Bootstrap ---
@@ -502,7 +515,8 @@ function App() {
     if (agentRef.current) {
       setChatPanelRevision((value) => value + 1)
     }
-  }, [setYoloMode])
+    crossTab.notifySettingsChanged()
+  }, [setYoloMode, crossTab])
 
   // --- Message actions ---
   const rollbackFromMessage = useCallback(async (messageIndex: number) => {
@@ -562,7 +576,7 @@ function App() {
     if (storage && previousSessionId) {
       try {
         await storage.sessions.delete(previousSessionId)
-        await refreshSessions()
+        await refreshSessions({ broadcast: true })
       } catch (error) {
         console.error('Failed to delete rolled back empty session:', error)
       }
@@ -636,7 +650,7 @@ function App() {
     )
 
     if (storage) {
-      refreshSessions().catch((error) => console.error('Failed to refresh sessions:', error))
+      refreshSessions({ broadcast: true }).catch((error) => console.error('Failed to refresh sessions:', error))
     }
   }, [createAgent, refreshSessions])
 
@@ -670,8 +684,9 @@ function App() {
       )
     }
 
+    crossTab.notifySettingsChanged()
     return true
-  }, [createAgent])
+  }, [createAgent, crossTab])
 
   const openModelSettings = useCallback(() => {
     SettingsDialog.open(
@@ -715,7 +730,8 @@ function App() {
         { scope: 'global', attachToView: true },
       )
     }
-  }, [createAgent])
+    crossTab.notifySettingsChanged()
+  }, [createAgent, crossTab])
 
   const openCustomModelSelector = useCallback(async () => {
     const storage = storageRef.current
@@ -858,7 +874,7 @@ function App() {
           const metadata = await storage.sessions.getMetadata(sessionId)
           if (!metadata) return
           await storage.sessions.save(session, { ...metadata, title: newTitle })
-          await refreshSessions()
+          await refreshSessions({ broadcast: true })
           if (currentSessionIdRef.current === sessionId) {
             currentTitleRef.current = newTitle
             setCurrentTitle(newTitle)
@@ -880,7 +896,7 @@ function App() {
           taskMapRef.current.delete(sessionId)
           setTaskStatuses((current) => { const next = { ...current }; delete next[sessionId]; return next })
           await storage.sessions.delete(sessionId)
-          await refreshSessions()
+          await refreshSessions({ broadcast: true })
           if (currentSessionIdRef.current === sessionId) {
             await startNewGlobalChat()
           }

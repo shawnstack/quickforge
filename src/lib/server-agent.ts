@@ -301,8 +301,13 @@ export class ServerAgent {
       case 'agent_end': {
         this.state.isStreaming = false
         this.state.streamingMessage = undefined
-        const errMsg = (event as { errorMessage?: string }).errorMessage
-        if (errMsg) this.state.errorMessage = errMsg
+        const endEvent = event as { messages?: AgentMessage[]; errorMessage?: string }
+        // Use the authoritative message array from agent_end to eliminate the race
+        // with refreshStateFromServer() triggered by message_end/turn_end.
+        if (endEvent.messages) {
+          this.state.messages = endEvent.messages
+        }
+        if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
         break
       }
 

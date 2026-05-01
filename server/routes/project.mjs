@@ -1,5 +1,6 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
-import { getActiveProject, setActiveProjectPath, readProjectConfig, writeProjectConfig } from '../project-config.mjs'
+import { getActiveProject, setActiveProjectPath, readProjectConfig } from '../project-config.mjs'
+import { atomicProjectConfigUpdate } from '../storage.mjs'
 import { getWorkspaceRoot, setWorkspaceRoot } from '../utils/workspace.mjs'
 import { selectDirectoryDialog } from '../utils/platform.mjs'
 import path from 'node:path'
@@ -47,20 +48,22 @@ export async function handleProjectApi(req, res, url) {
 
   if (req.method === 'DELETE' && url.pathname.startsWith('/api/project/')) {
     const id = decodeSegment(url.pathname.split('/').filter(Boolean)[2])
-    const nextProjects = config.projects.filter((project) => project.id !== id)
-    if (nextProjects.length === config.projects.length) {
-      const error = new Error('Unknown project')
-      error.statusCode = 404
-      throw error
-    }
-    config.projects = nextProjects
-    if (config.activeProjectId === id) config.activeProjectId = config.projects[0]?.id ?? null
-    await writeProjectConfig(config)
-    const active = getActiveProject(config)
+    const updated = await atomicProjectConfigUpdate((cfg) => {
+      const nextProjects = cfg.projects.filter((project) => project.id !== id)
+      if (nextProjects.length === cfg.projects.length) {
+        const error = new Error('Unknown project')
+        error.statusCode = 404
+        throw error
+      }
+      cfg.projects = nextProjects
+      if (cfg.activeProjectId === id) cfg.activeProjectId = cfg.projects[0]?.id ?? null
+      return cfg
+    })
+    const active = getActiveProject(updated)
     if (active?.path) {
       setWorkspaceRoot(path.resolve(active.path))
     }
-    sendJson(res, 200, { project: active ?? null, projects: config.projects, workspaceRoot: getWorkspaceRoot() })
+    sendJson(res, 200, { project: active ?? null, projects: updated.projects, workspaceRoot: getWorkspaceRoot() })
     return
   }
 

@@ -339,6 +339,50 @@ function enqueueWrite(queueName, operation) {
   return next
 }
 
+/**
+ * Atomically read-modify-write a store within its serialized write queue.
+ * Eliminates the race condition where concurrent read-modify-write operations
+ * from multiple browser tabs would overwrite each other.
+ *
+ * @param {string} storeName
+ * @param {(data: object) => object} updateFn — receives current data, returns updated data
+ * @returns {Promise<object>} the updated data
+ */
+export async function atomicUpdate(storeName, updateFn) {
+  assertStore(storeName)
+  const queueName = configStores.has(storeName) ? 'config' : storeName
+  return enqueueWrite(queueName, async () => {
+    await ensureStorage()
+    if (configStores.has(storeName)) {
+      const config = await readConfigFile()
+      const data = configSection(config, storeName)
+      const updated = updateFn(data)
+      setConfigSection(config, storeName, updated)
+      await writeConfigFile(config)
+      return updated
+    }
+    const data = await readSessionStore(storeName)
+    const updated = updateFn(data)
+    await writeSessionStore(storeName, updated)
+    return updated
+  })
+}
+
+/**
+ * Atomically read-modify-write the project config within the config queue.
+ */
+export async function atomicProjectConfigUpdate(updateFn) {
+  return enqueueWrite('config', async () => {
+    await ensureStorage()
+    const config = await readConfigFile()
+    const projectConfig = normalizeProjectConfig(config.projects)
+    const updated = updateFn(projectConfig)
+    config.projects = normalizeProjectConfig(updated)
+    await writeConfigFile(config)
+    return updated
+  })
+}
+
 export async function ensureStorage() {
   await fs.mkdir(configDir, { recursive: true })
   await fs.mkdir(storageDir, { recursive: true })

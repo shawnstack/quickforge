@@ -4,7 +4,7 @@ import { streamSimple } from '@mariozechner/pi-ai'
 import { Type } from 'typebox'
 import { toolHandlers } from './tools/index.mjs'
 import { projectContextFromId, readInstructionsFile } from './project-config.mjs'
-import { readStore, writeStore, dataDir } from './storage.mjs'
+import { readStore, atomicUpdate, dataDir } from './storage.mjs'
 import path from 'node:path'
 import { logger } from './utils/logger.mjs'
 
@@ -537,15 +537,16 @@ async function persistSession(session) {
     taskFinishedAt: finishedAt,
   }
 
-  // Write to storage
+  // Write to storage atomically (read-modify-write within queue)
   try {
-    const sessionsStore = await readStore('sessions')
-    sessionsStore[sessionId] = sessionData
-    await writeStore('sessions', sessionsStore)
-
-    const metadataStore = await readStore('sessions-metadata')
-    metadataStore[sessionId] = metadata
-    await writeStore('sessions-metadata', metadataStore)
+    await atomicUpdate('sessions', (data) => {
+      data[sessionId] = sessionData
+      return data
+    })
+    await atomicUpdate('sessions-metadata', (data) => {
+      data[sessionId] = metadata
+      return data
+    })
   } catch (err) {
     console.error(`Failed to persist session ${sessionId}:`, err)
   }

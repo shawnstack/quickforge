@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { ensureProjectCache, readProjectConfigData, writeProjectConfigData } from './storage.mjs'
+import { ensureProjectCache, readProjectConfigData, atomicProjectConfigUpdate } from './storage.mjs'
 import { promises as fs } from 'node:fs'
 import { setWorkspaceRoot, getWorkspaceRoot, assertDirectory } from './utils/workspace.mjs'
 
@@ -27,10 +27,6 @@ export async function readProjectConfig() {
   return parsed
 }
 
-export async function writeProjectConfig(config) {
-  await writeProjectConfigData(config)
-}
-
 export function getActiveProject(config) {
   return config.projects.find((project) => project.id === config.activeProjectId) || config.projects[0]
 }
@@ -39,29 +35,33 @@ export async function setActiveProjectPath(inputPath) {
   const resolved = path.resolve(String(inputPath || ''))
   await assertDirectory(resolved)
 
-  const config = await readProjectConfig()
   const now = new Date().toISOString()
-  let project = config.projects.find((item) => path.resolve(item.path) === resolved)
-  if (!project) {
-    project = {
-      id: randomUUID(),
-      name: projectNameFromPath(resolved),
-      path: resolved,
-      lastOpenedAt: now,
-    }
-    config.projects.unshift(project)
-  } else {
-    project.name = projectNameFromPath(resolved)
-    project.path = resolved
-    project.lastOpenedAt = now
-  }
+  let project
 
-  config.activeProjectId = project.id
-  config.projects = [project, ...config.projects.filter((item) => item.id !== project.id)].slice(0, 20)
-  await writeProjectConfig(config)
+  const updated = await atomicProjectConfigUpdate((config) => {
+    project = config.projects.find((item) => path.resolve(item.path) === resolved)
+    if (!project) {
+      project = {
+        id: randomUUID(),
+        name: projectNameFromPath(resolved),
+        path: resolved,
+        lastOpenedAt: now,
+      }
+      config.projects.unshift(project)
+    } else {
+      project.name = projectNameFromPath(resolved)
+      project.path = resolved
+      project.lastOpenedAt = now
+    }
+
+    config.activeProjectId = project.id
+    config.projects = [project, ...config.projects.filter((item) => item.id !== project.id)].slice(0, 20)
+    return config
+  })
+
   await ensureProjectCache(project.id)
   setWorkspaceRoot(resolved)
-  return { project, projects: config.projects }
+  return { project, projects: updated.projects }
 }
 
 export async function initializeActiveProject() {

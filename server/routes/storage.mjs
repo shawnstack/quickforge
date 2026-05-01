@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
-import { readStore, writeStore, getComparable, dataDir, configDir, storageDir, cacheDir, logsDir } from '../storage.mjs'
+import { readStore, writeStore, atomicUpdate, getComparable, dataDir, configDir, storageDir, cacheDir, logsDir } from '../storage.mjs'
 import { directorySize } from '../utils/workspace.mjs'
 
 export async function handleStorageApi(req, res, url) {
@@ -81,17 +81,19 @@ export async function handleStorageApi(req, res, url) {
 
     if (req.method === 'PUT') {
       const body = await readJsonBody(req)
-      const data = await readStore(store)
-      data[key] = body?.value
-      await writeStore(store, data)
+      await atomicUpdate(store, (data) => {
+        data[key] = body?.value
+        return data
+      })
       sendJson(res, 200, { ok: true })
       return
     }
 
     if (req.method === 'DELETE') {
-      const data = await readStore(store)
-      delete data[key]
-      await writeStore(store, data)
+      await atomicUpdate(store, (data) => {
+        delete data[key]
+        return data
+      })
       sendJson(res, 200, { ok: true })
       return
     }

@@ -7,7 +7,7 @@ import path from 'node:path'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   define: {
-    __QUICKFORGE_SERVER_PORT__: JSON.stringify(process.env.QUICKFORGE_SERVER_PORT || process.env.FASTCODE_SERVER_PORT || '32176'),
+    __QUICKFORGE_SERVER_PORT__: JSON.stringify(process.env.QUICKFORGE_SERVER_PORT || process.env.FASTCODE_SERVER_PORT || ''),
   },
   server: {
     proxy: {

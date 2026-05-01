@@ -368,16 +368,29 @@ export class ServerAgent {
 
       case 'agent_end': {
         this.stopPollingState()
-        this.state.isStreaming = false
-        this.state.streamingMessage = undefined
         const endEvent = event as { messages?: AgentMessage[]; errorMessage?: string }
-        // Use the authoritative message array from agent_end to eliminate the race
-        // with refreshStateFromServer() triggered by message_end/turn_end.
+
+        // Prefer the authoritative final messages carried by agent_end.  If the
+        // event does not include them, fetch the final state before clearing the
+        // streaming message.  Clearing first creates a short UI gap where the
+        // ChatPanel no longer has either the transient streaming message or the
+        // finalized message in `messages`, which looks like the answer/thinking
+        // disappeared and then reappeared.
         if (endEvent.messages) {
           this.state.messages = endEvent.messages
+          this.state.isStreaming = false
+          this.state.streamingMessage = undefined
+          if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
+          break
         }
-        if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
-        break
+
+        void this.refreshStateFromServer({ forceMessages: true }).finally(() => {
+          this.state.isStreaming = false
+          this.state.streamingMessage = undefined
+          if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
+          this.emitToListeners(event as unknown as AgentEvent)
+        })
+        return
       }
 
       case 'message_end':
@@ -435,7 +448,7 @@ export class ServerAgent {
     this.pollTimer = null
   }
 
-  private async refreshStateFromServer(options?: { notify?: boolean }) {
+  private async refreshStateFromServer(options?: { notify?: boolean; forceMessages?: boolean }) {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/state`
     try {
       const res = await fetch(url)
@@ -443,7 +456,7 @@ export class ServerAgent {
       const state = await res.json()
       // Guard against a late-arriving fetch overwriting messages that were
       // already set by a more recent agent_end event.
-      if (state.messages && state.messages.length >= this.state.messages.length) {
+      if (state.messages && (options?.forceMessages || state.messages.length >= this.state.messages.length)) {
         this.state.messages = state.messages
       }
       if (state.model) {
@@ -455,11 +468,21 @@ export class ServerAgent {
         this._syncingThinkingLevel = false
       }
       if (state.isStreaming !== undefined) {
+        const wasStreaming = this.state.isStreaming
         this.state.isStreaming = state.isStreaming
         if (!state.isStreaming) this.stopPollingState()
+        if (options?.notify && wasStreaming && !state.isStreaming) {
+          this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
+          return
+        }
       }
       if (options?.notify) {
-        this.emitToListeners({ type: state.isStreaming ? 'message_update' : 'message_end' } as unknown as AgentEvent)
+        const message = this.state.messages[this.state.messages.length - 1]
+        if (state.isStreaming && message) {
+          this.emitToListeners({ type: 'message_update', message } as unknown as AgentEvent)
+        } else {
+          this.emitToListeners({ type: 'message_end' } as unknown as AgentEvent)
+        }
       }
     } catch {
       // ignore

@@ -422,13 +422,26 @@ export async function runPrompt(sessionId, message) {
 /**
  * Abort the current agent run.
  */
-export function abortRun(sessionId) {
+export async function abortRun(sessionId) {
   const session = agentSessions.get(sessionId)
   if (!session) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
   }
 
   session.agent.abort()
+
+  if (session.status === 'running') {
+    session.status = 'aborted'
+    session.finishedAt = new Date().toISOString()
+    persistSession(session).catch((err) =>
+      console.error(`Failed to persist aborted session ${sessionId}:`, err),
+    )
+    session.eventBus.emit('agent_event', {
+      type: 'agent_end',
+      messages: session.agent.state.messages,
+    })
+  }
+
   return { sessionId, aborted: true }
 }
 

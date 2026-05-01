@@ -1,7 +1,10 @@
+import type { ThinkingLevel } from '@mariozechner/pi-agent-core'
+import type { Api, Model } from '@mariozechner/pi-ai'
 import { useEffect, useMemo, useState } from 'react'
 import { CalendarClock, CheckCircle2, Clock3, Pause, Play, Trash2, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { getConfiguredModels, initializePiStorage, loadInitialConfiguredModel } from '@/lib/pi-chat'
 
 type ScheduleType = 'once' | 'daily' | 'weekly' | 'monthly' | 'interval'
 type TaskStatus = 'enabled' | 'paused' | 'running' | 'failed' | 'expired'
@@ -34,6 +37,28 @@ type ScheduledTask = {
 
 type ParsedTask = Pick<ScheduledTask, 'title' | 'instruction' | 'scheduleType' | 'scheduleRule' | 'nextRunAt'>
 
+type AnyModel = Model<Api>
+
+const THINKING_OPTIONS: { value: ThinkingLevel; label: string }[] = [
+  { value: 'off', label: '关闭' },
+  { value: 'low', label: '低' },
+  { value: 'medium', label: '中' },
+  { value: 'high', label: '高' },
+  { value: 'xhigh', label: '极高' },
+]
+
+function modelLabel(model: AnyModel) {
+  return `${model.provider} / ${model.id}`
+}
+
+function modelsEqual(left?: AnyModel, right?: AnyModel) {
+  return Boolean(left && right && left.api === right.api && left.provider === right.provider && left.id === right.id)
+}
+
+function defaultThinkingLevel(model?: AnyModel): ThinkingLevel {
+  return model?.reasoning ? 'medium' : 'off'
+}
+
 function pad(value: number) {
   return String(value).padStart(2, '0')
 }
@@ -65,11 +90,35 @@ export function ScheduledTasksPage() {
   const [question, setQuestion] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [models, setModels] = useState<AnyModel[]>([])
+  const [selectedModel, setSelectedModel] = useState<AnyModel>()
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('off')
 
   async function loadTasks() {
     const payload = await requestJson<{ tasks: ScheduledTask[] }>('/api/scheduled-tasks')
     setTasks(payload.tasks)
   }
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadModelSettings() {
+      try {
+        const storage = await initializePiStorage()
+        const configuredModels = await getConfiguredModels(storage)
+        const activeModel = await loadInitialConfiguredModel(storage) ?? configuredModels[0]
+        if (cancelled) return
+        setModels(configuredModels)
+        setSelectedModel(activeModel)
+        setThinkingLevel(defaultThinkingLevel(activeModel))
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : '加载模型失败')
+      }
+    }
+    void loadModelSettings()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -120,7 +169,7 @@ export function ScheduledTasksPage() {
     try {
       await requestJson('/api/scheduled-tasks', {
         method: 'POST',
-        body: JSON.stringify({ task: parsedTask }),
+        body: JSON.stringify({ task: parsedTask, model: selectedModel, thinkingLevel }),
       })
       setInstruction('')
       setParsedTask(null)
@@ -164,6 +213,39 @@ export function ScheduledTasksPage() {
         <div className="mx-auto max-w-5xl space-y-5">
           <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
             <label className="text-sm font-medium text-foreground">创建任务</label>
+            <div className="mt-2 grid gap-3 sm:grid-cols-2">
+              <label className="text-xs font-medium text-muted-foreground">
+                模型
+                <select
+                  className="mt-1 h-9 w-full rounded-lg border border-input bg-background px-2 text-sm text-foreground outline-none focus:border-ring"
+                  value={selectedModel ? `${selectedModel.provider}\u0000${selectedModel.id}` : ''}
+                  onChange={(event) => {
+                    const nextModel = models.find((model) => `${model.provider}\u0000${model.id}` === event.target.value)
+                    setSelectedModel(nextModel)
+                    setThinkingLevel(defaultThinkingLevel(nextModel))
+                  }}
+                >
+                  {models.length === 0 ? <option value="">暂无可用模型</option> : null}
+                  {models.map((model) => (
+                    <option key={`${model.provider}:${model.id}`} value={`${model.provider}\u0000${model.id}`}>
+                      {modelLabel(model)}{modelsEqual(model, selectedModel) ? ' ✓' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs font-medium text-muted-foreground">
+                思考
+                <select
+                  className="mt-1 h-9 w-full rounded-lg border border-input bg-background px-2 text-sm text-foreground outline-none focus:border-ring"
+                  value={thinkingLevel}
+                  onChange={(event) => setThinkingLevel(event.target.value as ThinkingLevel)}
+                >
+                  {THINKING_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <textarea
               className="mt-2 min-h-24 w-full resize-none rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/65 focus:border-ring"
               value={instruction}
@@ -172,7 +254,7 @@ export function ScheduledTasksPage() {
             />
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <Button onClick={handleParse} disabled={loading}>AI 解析任务</Button>
-              {parsedTask ? <Button variant="secondary" onClick={handleCreate} disabled={loading}>确认创建</Button> : null}
+              {parsedTask ? <Button variant="secondary" onClick={handleCreate} disabled={loading || !selectedModel}>确认创建</Button> : null}
               {question ? <span className="text-sm text-amber-600">{question}</span> : null}
               {error ? <span className="text-sm text-destructive">{error}</span> : null}
             </div>
@@ -187,6 +269,8 @@ export function ScheduledTasksPage() {
                   <div>任务名称：<span className="text-foreground">{parsedTask.title}</span></div>
                   <div>执行规则：<span className="text-foreground">{parsedTask.scheduleRule}</span></div>
                   <div className="sm:col-span-2">下一次执行：<span className="text-foreground">{formatDateTime(parsedTask.nextRunAt)}</span></div>
+                  <div>模型：<span className="text-foreground">{selectedModel ? modelLabel(selectedModel) : '未选择'}</span></div>
+                  <div>思考：<span className="text-foreground">{THINKING_OPTIONS.find((option) => option.value === thinkingLevel)?.label ?? thinkingLevel}</span></div>
                   <div className="sm:col-span-2">AI 指令：<span className="text-foreground">{parsedTask.instruction}</span></div>
                 </div>
               </div>
@@ -219,6 +303,8 @@ export function ScheduledTasksPage() {
                       <span className="inline-flex items-center gap-1"><Clock3 className="size-3" />{task.scheduleRule}</span>
                       <span>下一次：{formatDateTime(task.nextRunAt)}</span>
                       <span>上次：{formatDateTime(task.lastRunAt)}</span>
+                      {(task as ScheduledTask & { model?: AnyModel }).model ? <span>模型：{modelLabel((task as ScheduledTask & { model: AnyModel }).model)}</span> : null}
+                      {(task as ScheduledTask & { thinkingLevel?: ThinkingLevel }).thinkingLevel ? <span>思考：{THINKING_OPTIONS.find((option) => option.value === (task as ScheduledTask & { thinkingLevel?: ThinkingLevel }).thinkingLevel)?.label ?? (task as ScheduledTask & { thinkingLevel?: ThinkingLevel }).thinkingLevel}</span> : null}
                     </div>
                     <p className="mt-2 text-sm text-muted-foreground">{task.instruction}</p>
                   </div>

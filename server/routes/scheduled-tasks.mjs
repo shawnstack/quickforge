@@ -230,6 +230,8 @@ async function executeTask(task, trigger = 'schedule') {
       scope: activeProject ? 'project' : 'global',
       projectId: activeProject?.id || null,
       yoloMode,
+      model: task.model,
+      thinkingLevel: task.thinkingLevel,
       title: `[定时任务] ${task.title}`,
     })
 
@@ -345,6 +347,8 @@ export async function handleScheduledTasksApi(req, res, url) {
       scheduleType: parsed.scheduleType,
       scheduleRule: parsed.scheduleRule,
       nextRunAt: parsed.nextRunAt,
+      model: body?.model,
+      thinkingLevel: body?.thinkingLevel || (body?.model?.reasoning ? 'medium' : 'off'),
       status: 'enabled',
       createdAt: now,
       updatedAt: now,

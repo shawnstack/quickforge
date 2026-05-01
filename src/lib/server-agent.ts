@@ -335,7 +335,7 @@ export class ServerAgent {
         // server snapshot: only accept server messages if the client has none
         // (initial load) or if the server has at least as many messages.
         const s = event as { messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; isStreaming?: boolean; status?: string }
-        if (s.messages && s.messages.length >= this.state.messages.length) {
+        if (s.messages && (s.messages.length > this.state.messages.length || (!this.state.isStreaming && s.messages.length === this.state.messages.length))) {
           this.state.messages = s.messages
         }
         if (s.model) {
@@ -456,7 +456,18 @@ export class ServerAgent {
       const state = await res.json()
       // Guard against a late-arriving fetch overwriting messages that were
       // already set by a more recent agent_end event.
-      if (state.messages && (options?.forceMessages || state.messages.length >= this.state.messages.length)) {
+      const shouldReplaceMessages = Boolean(
+        state.messages
+        && (
+          options?.forceMessages
+          || state.messages.length > this.state.messages.length
+          // During streaming, equal-length snapshots can be older than the
+          // ChatPanel's transient streaming message.  Replacing on equality can
+          // temporarily drop thinking/content until the next SSE/final state.
+          || (!this.state.isStreaming && state.messages.length === this.state.messages.length)
+        ),
+      )
+      if (shouldReplaceMessages) {
         this.state.messages = state.messages
       }
       if (state.model) {
@@ -477,10 +488,12 @@ export class ServerAgent {
         }
       }
       if (options?.notify) {
-        const message = this.state.messages[this.state.messages.length - 1]
-        if (state.isStreaming && message) {
-          this.emitToListeners({ type: 'message_update', message } as unknown as AgentEvent)
-        } else {
+        if (state.isStreaming && shouldReplaceMessages) {
+          const message = this.state.messages[this.state.messages.length - 1]
+          if (message) {
+            this.emitToListeners({ type: 'message_update', message } as unknown as AgentEvent)
+          }
+        } else if (!state.isStreaming) {
           this.emitToListeners({ type: 'message_end' } as unknown as AgentEvent)
         }
       }

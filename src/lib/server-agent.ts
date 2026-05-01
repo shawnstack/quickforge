@@ -14,7 +14,6 @@ declare const __QUICKFORGE_SERVER_PORT__: string | undefined
 
 function getDirectBackendUrl(): string {
   // Vite replaces __QUICKFORGE_SERVER_PORT__ at build time via define in vite.config.ts
-  // eslint-disable-next-line no-constant-binary-expression
   const serverPort = typeof __QUICKFORGE_SERVER_PORT__ !== 'undefined' ? __QUICKFORGE_SERVER_PORT__ : ''
   if (serverPort && serverPort !== location.port) {
     return `${location.protocol}//127.0.0.1:${serverPort}`
@@ -193,13 +192,12 @@ export class ServerAgent {
     }
 
     // Proxy that auto-syncs thinkingLevel changes to the server
-    const self = this
     this.state = new Proxy(rawState, {
-      set(target, prop, value) {
+      set: (target, prop, value) => {
         const oldValue = target[prop as keyof typeof target]
         ;(target as Record<string | symbol, unknown>)[prop] = value
-        if (prop === 'thinkingLevel' && !self._syncingThinkingLevel && value !== oldValue) {
-          self.updateThinkingLevel(value as ThinkingLevel)
+        if (prop === 'thinkingLevel' && !this._syncingThinkingLevel && value !== oldValue) {
+          this.updateThinkingLevel(value as ThinkingLevel)
         }
         return true
       },

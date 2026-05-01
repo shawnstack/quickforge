@@ -8,7 +8,9 @@ import { useEffect, useRef, useCallback } from 'react'
 export function useSentinel(onIntersect: () => void, enabled: boolean) {
   const sentinelRef = useRef<HTMLDivElement | null>(null)
   const callbackRef = useRef(onIntersect)
-  callbackRef.current = onIntersect
+  useEffect(() => {
+    callbackRef.current = onIntersect
+  }, [onIntersect])
 
   const setRef = useCallback((node: HTMLDivElement | null) => {
     sentinelRef.current = node

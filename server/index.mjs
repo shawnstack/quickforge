@@ -121,21 +121,58 @@ function stopVite() {
   }
 }
 
+function isAllowedCorsOrigin(origin) {
+  try {
+    const parsed = new URL(origin)
+    if (!['http:', 'https:'].includes(parsed.protocol)) return false
+    if (!['localhost', '127.0.0.1'].includes(parsed.hostname)) return false
+    const originPort = parsed.port || (parsed.protocol === 'https:' ? '443' : '80')
+    return originPort === String(port) || originPort === String(vitePort)
+  } catch {
+    return false
+  }
+}
+
+function parseHostHeader(value) {
+  if (!value) return null
+  try {
+    const parsed = new URL(`http://${value}`)
+    return { hostname: parsed.hostname, port: parsed.port }
+  } catch {
+    return null
+  }
+}
+
+function isAllowedHostHeader(value) {
+  const parsed = parseHostHeader(value)
+  if (!parsed) return false
+  const allowedHosts = new Set(['localhost', '127.0.0.1', host])
+  const expectedPort = String(port)
+  const hostPort = parsed.port || '80'
+  return allowedHosts.has(parsed.hostname) && hostPort === expectedPort
+}
+
 // --- Bootstrap ---
 const server = createServer(async (req, res) => {
+  if (!isAllowedHostHeader(req.headers.host)) {
+    res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
+    res.end(JSON.stringify({ error: 'Forbidden host' }))
+    return
+  }
+
   // Allow direct browser connections to the API server (e.g. SSE from dev mode
   // where the Vite proxy on :5176 would otherwise consume HTTP/1.1 connections).
   const origin = req.headers.origin
-  if (origin) {
+  if (origin && isAllowedCorsOrigin(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin)
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'content-type')
     res.setHeader('Access-Control-Max-Age', '86400')
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204)
-      res.end()
-      return
-    }
+  }
+  if (req.method === 'OPTIONS') {
+    res.writeHead(origin && !isAllowedCorsOrigin(origin) ? 403 : 204)
+    res.end()
+    return
   }
   try {
     const url = new URL(req.url || '/', `http://${req.headers.host || `${host}:${port}`}`)
@@ -146,7 +183,7 @@ const server = createServer(async (req, res) => {
 
     if (isDev) {
       res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
-      res.end('QuickForge local API server is running. Open the Vite app at http://127.0.0.1:5176')
+      res.end(`QuickForge local API server is running. Open the Vite app at http://127.0.0.1:${vitePort}`)
       return
     }
 

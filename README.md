@@ -1,7 +1,7 @@
 # 速构 QuickForge
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.0.0-blue" />
+  <img alt="Version" src="https://img.shields.io/badge/version-1.1.0-blue" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green" />
   <img alt="Node" src="https://img.shields.io/badge/node-%3E%3D20-brightgreen" />
   <img alt="React" src="https://img.shields.io/badge/react-19-61DAFB?logo=react" />

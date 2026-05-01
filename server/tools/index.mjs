@@ -67,9 +67,16 @@ export async function toolGrepFiles(params, context) {
 
   const limit = Math.min(1000, Math.max(1, Number(params?.limit || 200)))
   const flags = params?.caseSensitive ? 'g' : 'gi'
-  const matcher = params?.regex
-    ? new RegExp(query, flags)
-    : new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags)
+  let matcher
+  try {
+    matcher = params?.regex
+      ? new RegExp(query, flags)
+      : new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags)
+  } catch {
+    const error = new Error('Invalid regular expression')
+    error.statusCode = 400
+    throw error
+  }
 
   const files = await walkFiles(root, [], context)
   const matches = []

@@ -54,7 +54,7 @@ import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { ToastContainer, type ToastItem } from '@/components/ui/toast'
 import type { BackgroundTaskStatus } from '@/lib/types'
 
-const PAGE_SIZE = 5
+const PAGE_SIZE = 20
 
 type SessionPage = {
   items: QuickForgeSessionMetadata[]
@@ -717,20 +717,37 @@ function App() {
 
   // --- Derived data ---
   const globalSessions = globalPage.items
-  const sessionsForProject = (projectId: string) => {
+  const sessionsForProject = useCallback((projectId: string) => {
     return projectPages[projectId]?.items ?? []
-  }
+  }, [projectPages])
   const globalHasMore = globalPage.items.length < globalPage.total
-  const projectHasMore = (projectId: string) => {
+  const projectHasMore = useCallback((projectId: string) => {
     const page = projectPages[projectId]
     if (!page) return true // not yet loaded
     return page.items.length < page.total
-  }
+  }, [projectPages])
   const globalLoading = globalPage.loading
-  const projectLoading = (projectId: string) => projectPages[projectId]?.loading ?? false
-  const sessionTaskStatus = (session: QuickForgeSessionMetadata) => {
+  const projectLoading = useCallback((projectId: string) => projectPages[projectId]?.loading ?? false, [projectPages])
+  const sessionTaskStatus = useCallback((session: QuickForgeSessionMetadata) => {
     return agentManager.taskStatuses[session.id] ?? session.taskStatus ?? 'idle'
-  }
+  }, [agentManager.taskStatuses])
+
+  const loadMoreGlobal = useCallback(() => {
+    void loadGlobalSessions(globalPage.items.length)
+  }, [globalPage.items.length, loadGlobalSessions])
+
+  const loadMoreProject = useCallback((projectId: string) => {
+    const page = projectPages[projectId]
+    void loadProjectSessions(projectId, page?.items.length ?? 0)
+  }, [loadProjectSessions, projectPages])
+
+  const toggleProjectsCollapsed = useCallback(() => {
+    setProjectsCollapsed((value) => !value)
+  }, [])
+
+  const toggleConversationsCollapsed = useCallback(() => {
+    setConversationsCollapsed((value) => !value)
+  }, [])
 
   // --- Loading state ---
   if (startupError) {
@@ -775,17 +792,14 @@ function App() {
         sessionsForProject={sessionsForProject}
         globalHasMore={globalHasMore}
         globalLoading={globalLoading}
-        onLoadMoreGlobal={() => loadGlobalSessions(globalPage.items.length)}
+        onLoadMoreGlobal={loadMoreGlobal}
         projectHasMore={projectHasMore}
         projectLoading={projectLoading}
-        onLoadMoreProject={(projectId: string) => {
-          const page = projectPages[projectId]
-          loadProjectSessions(projectId, page?.items.length ?? 0)
-        }}
+        onLoadMoreProject={loadMoreProject}
         sessionTaskStatus={sessionTaskStatus}
         selectingProject={selectingProject}
-        onToggleProjectsCollapsed={() => setProjectsCollapsed((v) => !v)}
-        onToggleConversationsCollapsed={() => setConversationsCollapsed((v) => !v)}
+        onToggleProjectsCollapsed={toggleProjectsCollapsed}
+        onToggleConversationsCollapsed={toggleConversationsCollapsed}
         onToggleProjectExpanded={toggleProjectExpanded}
         onSelectProjectDirectory={selectProjectDirectory}
         onStartNewProjectChat={startNewProjectChat}

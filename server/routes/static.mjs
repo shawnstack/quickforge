@@ -27,10 +27,11 @@ function getContentType(filePath) {
 export async function serveStatic(req, res, url) {
   const distDir = path.join(projectRoot, 'dist')
   const requested = decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname)
-  const normalized = path.normalize(requested).replace(/^([.][.][\/])+/, '')
-  let filePath = path.join(distDir, normalized)
+  const normalized = path.normalize(requested).replace(/^([.][.][\/])+/, '').replace(/^[/\\]+/, '')
+  let filePath = path.resolve(distDir, normalized)
 
-  if (!filePath.startsWith(distDir)) {
+  const relative = path.relative(distDir, filePath)
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
     res.writeHead(403)
     res.end('Forbidden')
     return

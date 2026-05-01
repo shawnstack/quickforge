@@ -27,7 +27,14 @@ export async function readJsonBody(req, maxBodyBytes = DEFAULT_MAX_BODY_BYTES) {
     chunks.push(chunk)
   }
   const text = Buffer.concat(chunks).toString('utf8')
-  return text ? JSON.parse(text) : null
+  if (!text) return null
+  try {
+    return JSON.parse(text)
+  } catch {
+    const error = new Error('Invalid JSON request body')
+    error.statusCode = 400
+    throw error
+  }
 }
 
 export function decodeSegment(value) {

@@ -366,6 +366,16 @@ export function ChatPanelHost({
       decorateEditor()
     }
 
+    let decorateScheduled = false
+    const scheduleDecorate = () => {
+      if (decorateScheduled) return
+      decorateScheduled = true
+      window.requestAnimationFrame(() => {
+        decorateScheduled = false
+        decorate()
+      })
+    }
+
     void panel.setAgent(agent as unknown as Parameters<typeof panel.setAgent>[0], {
       onApiKeyRequired: (provider) => ApiKeyPromptDialog.prompt(provider),
       onBeforeSend: clearComposerDraft,
@@ -381,7 +391,7 @@ export function ChatPanelHost({
       }
 
       decorate()
-      observer = new MutationObserver(() => window.requestAnimationFrame(decorate))
+      observer = new MutationObserver(scheduleDecorate)
       observer.observe(panel, { childList: true, subtree: true })
     })
 

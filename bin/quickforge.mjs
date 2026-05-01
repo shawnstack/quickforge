@@ -8,7 +8,6 @@ import { fileURLToPath } from 'node:url'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-const pidFile = path.join(os.homedir(), '.quickforge', 'quickforge.pid')
 const serverScript = path.resolve(__dirname, '..', 'server', 'index.mjs')
 
 function getDataDir() {
@@ -16,9 +15,13 @@ function getDataDir() {
   return path.join(os.homedir(), '.quickforge')
 }
 
+function getPidFile() {
+  return path.join(getDataDir(), 'quickforge.pid')
+}
+
 async function readPid() {
   try {
-    const text = await fs.readFile(pidFile, 'utf8')
+    const text = await fs.readFile(getPidFile(), 'utf8')
     return Number(text.trim()) || null
   } catch {
     return null
@@ -26,13 +29,14 @@ async function readPid() {
 }
 
 async function writePid(pid) {
+  const pidFile = getPidFile()
   await fs.mkdir(path.dirname(pidFile), { recursive: true })
   await fs.writeFile(pidFile, String(pid), 'utf8')
 }
 
 async function removePid() {
   try {
-    await fs.unlink(pidFile)
+    await fs.unlink(getPidFile())
   } catch {
     // ignore
   }
@@ -76,6 +80,12 @@ async function cmdStop() {
   console.log('QuickForge stopped.')
 }
 
+function getServiceUrl() {
+  const host = process.env.QUICKFORGE_HOST || '127.0.0.1'
+  const port = process.env.QUICKFORGE_PORT || '5176'
+  return `http://${host}:${port}`
+}
+
 async function cmdStart() {
   const existingPid = await readPid()
   if (existingPid && isProcessRunning(existingPid)) {
@@ -91,15 +101,16 @@ async function cmdStart() {
     detached: true,
     stdio: 'ignore',
     windowsHide: true,
-    env: { ...process.env, QUICKFORGE_NO_OPEN: '0' },
+    env: { ...process.env },
   })
 
   await writePid(child.pid)
   child.unref()
 
+  const serviceUrl = getServiceUrl()
   const dataDir = getDataDir()
   console.log(`QuickForge started (PID ${child.pid}).`)
-  console.log(`Open: http://localhost:5176`)
+  console.log(`Open: ${serviceUrl}`)
   console.log(`Data: ${dataDir}`)
   console.log(`Config: ${path.join(dataDir, 'config', 'config.json')}`)
   console.log(`Storage: ${path.join(dataDir, 'storage')}`)
@@ -128,7 +139,7 @@ async function cmdStatus() {
 
   if (isProcessRunning(pid)) {
     console.log(`QuickForge is running (PID ${pid}).`)
-    console.log(`URL: http://localhost:5176`)
+    console.log(`URL: ${getServiceUrl()}`)
   } else {
     console.log(`QuickForge PID ${pid} is stale (not running).`)
     await removePid()

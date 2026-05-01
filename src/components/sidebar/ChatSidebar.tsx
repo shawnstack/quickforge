@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import {
   ChevronRight,
   Folder,
@@ -45,13 +46,15 @@ type ChatSidebarProps = {
   onStartNewGlobalChat: () => void
 }
 
+const sessionTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
 function formatSessionTime(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value))
+  return sessionTimeFormatter.format(new Date(value))
 }
 
 function LoadMoreSentinel({ onLoadMore, enabled }: { onLoadMore: () => void; enabled: boolean }) {
@@ -64,7 +67,7 @@ function LoadMoreSentinel({ onLoadMore, enabled }: { onLoadMore: () => void; ena
   )
 }
 
-export function ChatSidebar({
+export const ChatSidebar = memo(function ChatSidebar({
   sidebarOpen,
   projectsCollapsed,
   conversationsCollapsed,
@@ -334,4 +337,4 @@ export function ChatSidebar({
       </div>
     </aside>
   )
-}
+})

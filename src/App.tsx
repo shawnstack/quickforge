@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Agent, type AgentState } from '@mariozechner/pi-agent-core'
+import type { AgentState } from '@mariozechner/pi-agent-core'
+import { ServerAgent } from '@/lib/server-agent'
 import {
-  defaultConvertToLlm,
   ProxyTab,
   SettingsDialog,
 } from '@mariozechner/pi-web-ui'
@@ -28,19 +28,15 @@ import { createCustomProvidersOnlyTab } from '@/lib/custom-providers-only-tab'
 import { initializeAppLanguage, t } from '@/lib/i18n'
 import { createLanguageSettingsTab } from '@/lib/language-settings-tab'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
-import { getLocalWorkspaceTools } from '@/lib/local-tools'
-import { restoreReasoningContentInPayload } from '@/lib/reasoning-content-cache'
 import {
   buildSystemPrompt,
   copyTextToClipboard,
   draftTextFromUserMessage,
-  generateAiTitle,
-  generateTitle,
-  hasUserMessage,
   rollbackConversationFromMessage,
   rollbackStartIndexFromMessage,
   shouldSaveSession,
-  summarizePreview,
+  generateTitle,
+  hasUserMessage,
   titleNeedsGeneration,
 } from '@/lib/message-utils'
 import type {
@@ -52,7 +48,7 @@ import type {
   QuickForgeSessionMetadata,
   RestoredDraft,
 } from '@/lib/types'
-import { calculateUsage, sessionScope, sessionTitle } from '@/lib/types'
+import { sessionScope, sessionTitle } from '@/lib/types'
 import { ChatPanelHost } from '@/components/chat/ChatPanelHost'
 import { ModelSetupEmptyState } from '@/components/chat/ModelSetupEmptyState'
 import { ChatSidebar } from '@/components/sidebar/ChatSidebar'
@@ -63,18 +59,15 @@ import { saveActiveModel, saveYoloMode } from '@/lib/pi-chat'
 function App() {
   // --- Refs (non-reactive shared state) ---
   const storageRef = useRef<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
-  const agentRef = useRef<Agent | null>(null)
+  const agentRef = useRef<ServerAgent | null>(null)
   const activeModelRef = useRef<Model<Api>>(buildConnectionModel(DEFAULT_CONNECTION))
   const taskMapRef = useRef<Map<string, BackgroundTask>>(new Map())
-  const persistQueueRef = useRef(Promise.resolve())
   const yoloModeRef = useRef(false)
   const currentChatScopeRef = useRef<ChatScope>('global')
   const activeProjectRef = useRef<ProjectInfo | undefined>(undefined)
   const currentSessionIdRef = useRef<string | undefined>(undefined)
   const currentTitleRef = useRef('New chat')
   const currentCreatedAtRef = useRef<string | undefined>(undefined)
-  const titleGeneratedRef = useRef<Set<string>>(new Set())
-  const pendingAiTitleRef = useRef<Set<string>>(new Set())
 
   // --- Project hook ---
   const {
@@ -98,7 +91,7 @@ function App() {
   const { yoloMode, setYoloMode, initialize: initYoloMode } = useYoloMode()
 
   // --- UI state ---
-  const [agent, setAgent] = useState<Agent | null>(null)
+  const [agent, setAgent] = useState<ServerAgent | null>(null)
   const [sessions, setSessions] = useState<QuickForgeSessionMetadata[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>()
   const [currentTitle, setCurrentTitle] = useState('New chat')
@@ -130,133 +123,19 @@ function App() {
     setSessions((await storage.sessions.getAllMetadata()) as QuickForgeSessionMetadata[])
   }, [])
 
-  const persistTaskSession = useCallback(
+  const syncSessionUI = useCallback(
     async (task: BackgroundTask) => {
-      const storage = storageRef.current
-      const messages = task.agent.state.messages
-      if (!storage || !hasUserMessage(messages)) return
-
-      const now = new Date().toISOString()
-      const createdAt = task.createdAt ?? now
-
-      if (!titleGeneratedRef.current.has(task.sessionId)) {
-        titleGeneratedRef.current.add(task.sessionId)
-        if (titleNeedsGeneration(task.title)) {
-          pendingAiTitleRef.current.add(task.sessionId)
-        }
-      }
-
-      let title = task.title
-      if (titleNeedsGeneration(title)) {
-        title = generateTitle(messages)
-      }
-
-      const finishedAt = task.status === 'running' ? undefined : (task.finishedAt ?? now)
-
-      task.createdAt = createdAt
-      task.title = title
-      task.finishedAt = finishedAt
-
-      // Fire-and-forget AI title generation
-      if (pendingAiTitleRef.current.has(task.sessionId) && messages.some((m) => m.role === 'assistant')) {
-        pendingAiTitleRef.current.delete(task.sessionId)
-        const model = task.agent.state.model ?? activeModelRef.current
-        const apiKey: string | undefined = (await storage.providerKeys.get(model.provider).catch(() => undefined)) || undefined
-        const getProxyUrl = async () => {
-          const enabled = await storage.settings.get<boolean>('proxy.enabled')
-          return enabled ? ((await storage.settings.get<string>('proxy.url')) || undefined) : undefined
-        }
-        generateAiTitle(messages, model, apiKey, getProxyUrl).then(async (aiTitle) => {
-          if (aiTitle && aiTitle !== 'New chat') {
-            task.title = aiTitle
-            const latestMessages = task.agent.state.messages
-            const latestSessionData: QuickForgeSessionData = {
-              id: task.sessionId,
-              title: aiTitle,
-              model: task.agent.state.model!,
-              thinkingLevel: task.agent.state.thinkingLevel,
-              messages: latestMessages,
-              createdAt,
-              lastModified: new Date().toISOString(),
-              scope: task.scope,
-              projectId: task.scope === 'project' ? task.project?.id : undefined,
-              projectName: task.scope === 'project' ? task.project?.name : undefined,
-              projectPath: task.scope === 'project' ? task.project?.path : undefined,
-              taskStatus: task.status,
-              taskStartedAt: task.startedAt,
-              taskFinishedAt: task.finishedAt,
-            }
-            const latestMetadata: QuickForgeSessionMetadata = {
-              id: task.sessionId,
-              title: aiTitle,
-              createdAt,
-              lastModified: new Date().toISOString(),
-              messageCount: latestMessages.length,
-              usage: calculateUsage(latestMessages),
-              thinkingLevel: task.agent.state.thinkingLevel,
-              preview: summarizePreview(latestMessages),
-              scope: task.scope,
-              projectId: task.scope === 'project' ? task.project?.id : undefined,
-              projectName: task.scope === 'project' ? task.project?.name : undefined,
-              projectPath: task.scope === 'project' ? task.project?.path : undefined,
-              taskStatus: task.status,
-              taskStartedAt: task.startedAt,
-              taskFinishedAt: task.finishedAt,
-            }
-            await storage.sessions.save(latestSessionData, latestMetadata)
-            await refreshSessions()
-            if (currentSessionIdRef.current === task.sessionId) {
-              currentTitleRef.current = aiTitle
-              setCurrentTitle(aiTitle)
-            }
-          }
-        }).catch(() => {
-          // Silently ignore AI title generation failures
-        })
-      }
-
+      // Update UI title from session
       if (currentSessionIdRef.current === task.sessionId) {
-        currentCreatedAtRef.current = createdAt
+        const messages = task.agent.state.messages
+        let title = task.title
+        if (titleNeedsGeneration(title)) {
+          title = generateTitle(messages)
+        }
+        currentCreatedAtRef.current = task.createdAt ?? new Date().toISOString()
         currentTitleRef.current = title
         setCurrentTitle(title)
       }
-
-      const sessionData: QuickForgeSessionData = {
-        id: task.sessionId,
-        title,
-        model: task.agent.state.model!,
-        thinkingLevel: task.agent.state.thinkingLevel,
-        messages,
-        createdAt,
-        lastModified: now,
-        scope: task.scope,
-        projectId: task.scope === 'project' ? task.project?.id : undefined,
-        projectName: task.scope === 'project' ? task.project?.name : undefined,
-        projectPath: task.scope === 'project' ? task.project?.path : undefined,
-        taskStatus: task.status,
-        taskStartedAt: task.startedAt,
-        taskFinishedAt: finishedAt,
-      }
-
-      const metadata: QuickForgeSessionMetadata = {
-        id: task.sessionId,
-        title,
-        createdAt,
-        lastModified: now,
-        messageCount: messages.length,
-        usage: calculateUsage(messages),
-        thinkingLevel: task.agent.state.thinkingLevel,
-        preview: summarizePreview(messages),
-        scope: task.scope,
-        projectId: task.scope === 'project' ? task.project?.id : undefined,
-        projectName: task.scope === 'project' ? task.project?.name : undefined,
-        projectPath: task.scope === 'project' ? task.project?.path : undefined,
-        taskStatus: task.status,
-        taskStartedAt: task.startedAt,
-        taskFinishedAt: finishedAt,
-      }
-
-      await storage.sessions.save(sessionData, metadata)
       await refreshSessions()
     },
     [refreshSessions],
@@ -296,7 +175,6 @@ function App() {
       const project = scope === 'project' ? (options?.project ?? activeProjectRef.current) : undefined
       const startedAt = new Date().toISOString()
 
-      const systemPrompt = await buildSystemPrompt(project?.id)
       const {
         model: requestedModel,
         thinkingLevel: requestedThinkingLevel,
@@ -311,42 +189,15 @@ function App() {
       const resolvedThinkingLevel = requestedThinkingLevel ?? (resolvedModel.reasoning ? 'medium' : 'off')
       activeModelRef.current = resolvedModel
 
-      const agentForPayload: { current?: Agent } = {}
-      const nextAgent = new Agent({
-        initialState: {
-          systemPrompt,
-          model: resolvedModel,
-          thinkingLevel: resolvedThinkingLevel,
-          messages: [],
-          ...restInitialState,
-          tools: getLocalWorkspaceTools(yoloModeRef.current, project?.id),
-        },
-        convertToLlm: defaultConvertToLlm,
-        sessionId,
-        maxRetryDelayMs: 60000,
-        onPayload: (payload) =>
-          restoreReasoningContentInPayload(
-            payload,
-            agentForPayload.current?.state.messages ?? [],
-            agentForPayload.current?.state.model,
-          ),
-        beforeToolCall: async (context) => {
-          if (!project?.id) {
-            return {
-              block: true,
-              reason: t('noActiveProjectToolBlockedReason', { name: context.toolCall.name }),
-            }
-          }
-          if (!yoloModeRef.current) {
-            return {
-              block: true,
-              reason: t('yoloBlockedReason', { name: context.toolCall.name }),
-            }
-          }
-          return undefined
-        },
+      const nextAgent = await ServerAgent.create(sessionId, {
+        scope,
+        projectId: project?.id,
+        yoloMode: yoloModeRef.current,
+        model: resolvedModel,
+        thinkingLevel: resolvedThinkingLevel,
+        messages: (restInitialState as { messages?: AgentState['messages'] }).messages ?? [],
+        title: options?.title,
       })
-      agentForPayload.current = nextAgent
 
       const task: BackgroundTask = {
         sessionId,
@@ -379,18 +230,17 @@ function App() {
           if (task.sessionId === currentSessionIdRef.current) {
             window.setTimeout(() => setChatPanelRevision((value) => value + 1), 0)
           }
+          // Refresh session list to pick up server-side title/persistence
+          syncSessionUI(task).catch((err) => console.error('Failed to sync session UI:', err))
         }
 
-        if (
-          event.type === 'message_end' ||
-          event.type === 'agent_start' ||
-          event.type === 'agent_end' ||
-          event.type === 'turn_end'
-        ) {
-          persistQueueRef.current = persistQueueRef.current
-            .catch(() => undefined)
-            .then(() => persistTaskSession(task))
-            .catch((error) => console.error('Failed to persist session:', error))
+        if ((event as { type: string }).type === 'title_updated') {
+          const titleEvent = event as unknown as { type: 'title_updated'; title: string }
+          if (task.sessionId === currentSessionIdRef.current && titleEvent.title) {
+            currentTitleRef.current = titleEvent.title
+            setCurrentTitle(titleEvent.title)
+          }
+          refreshSessions().catch((err) => console.error('Failed to refresh sessions:', err))
         }
       })
 
@@ -400,7 +250,7 @@ function App() {
       if (options?.attachToView !== false) attachTaskToView(task)
       return nextAgent
     },
-    [attachTaskToView, persistTaskSession],
+    [attachTaskToView, syncSessionUI],
   )
 
   // --- Chat actions ---
@@ -441,7 +291,7 @@ function App() {
     window.history.replaceState({}, '', url)
 
     await createAgent(
-      { tools: getLocalWorkspaceTools(yoloModeRef.current, nextProject.id) },
+      { tools: [] },
       sessionId,
       { scope: 'project', project: nextProject, attachToView: true },
     )
@@ -494,7 +344,7 @@ function App() {
           model: session.model,
           thinkingLevel: session.thinkingLevel,
           messages: session.messages,
-          tools: getLocalWorkspaceTools(yoloModeRef.current, project?.id),
+          tools: [],
         },
         session.id,
         {
@@ -589,7 +439,7 @@ function App() {
               model: existing.model,
               thinkingLevel: existing.thinkingLevel,
               messages: existing.messages,
-              tools: getLocalWorkspaceTools(yoloModeRef.current, project?.id),
+              tools: [],
             },
             existing.id,
             {
@@ -686,10 +536,7 @@ function App() {
     if (shouldSaveSession(nextMessages) && currentTask) {
       if (restoredRollbackDraft) setRestoredDraft(restoredRollbackDraft)
       setChatPanelRevision((value) => value + 1)
-      persistQueueRef.current = persistQueueRef.current
-        .catch(() => undefined)
-        .then(() => persistTaskSession(currentTask))
-        .catch((error) => console.error('Failed to persist rolled back session:', error))
+      syncSessionUI(currentTask).catch((err) => console.error('Failed to sync session UI:', err))
       return
     }
 
@@ -726,7 +573,7 @@ function App() {
         model,
         thinkingLevel,
         messages: [],
-        tools: getLocalWorkspaceTools(yoloModeRef.current, project?.id),
+        tools: [],
       },
       newSessionId,
       {
@@ -739,7 +586,7 @@ function App() {
 
     if (restoredRollbackDraft) setRestoredDraft(restoredRollbackDraft)
     setChatPanelRevision((value) => value + 1)
-  }, [createAgent, persistTaskSession, refreshSessions])
+  }, [createAgent, syncSessionUI, refreshSessions])
 
   const copyAnswer = useCallback(async (text: string) => {
     try {
@@ -776,7 +623,7 @@ function App() {
         model: currentAgent.state.model ?? activeModelRef.current,
         thinkingLevel: currentAgent.state.thinkingLevel,
         messages,
-        tools: getLocalWorkspaceTools(yoloModeRef.current, project?.id),
+        tools: [],
       },
       newSessionId,
       {
@@ -788,15 +635,9 @@ function App() {
     )
 
     if (storage) {
-      persistQueueRef.current = persistQueueRef.current
-        .catch(() => undefined)
-        .then(async () => {
-          const task = taskMapRef.current.get(newSessionId)
-          if (task) await persistTaskSession(task)
-        })
-        .catch((error) => console.error('Failed to persist forked session:', error))
+      refreshSessions().catch((error) => console.error('Failed to refresh sessions:', error))
     }
-  }, [createAgent, persistTaskSession])
+  }, [createAgent, refreshSessions])
 
   // --- Model setup / selection ---
   const activateConfiguredModel = useCallback(async () => {

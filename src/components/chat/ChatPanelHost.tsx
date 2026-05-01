@@ -3,14 +3,14 @@ import {
   ApiKeyPromptDialog,
   ChatPanel,
 } from '@mariozechner/pi-web-ui'
-import type { Agent } from '@mariozechner/pi-agent-core'
+import type { ServerAgent } from '@/lib/server-agent'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
 import { assistantText, draftTextFromUserMessage } from '@/lib/message-utils'
 import { t } from '@/lib/i18n'
 import type { RestoredDraft } from '@/lib/types'
 
 type ChatPanelHostProps = {
-  agent: Agent | null
+  agent: ServerAgent | null
   onModelSelect?: () => void
   revision: number
   yoloMode: boolean
@@ -312,7 +312,7 @@ export function ChatPanelHost({
       decorateEditor()
     }
 
-    void panel.setAgent(agent, {
+    void panel.setAgent(agent as unknown as Parameters<typeof panel.setAgent>[0], {
       onApiKeyRequired: (provider) => ApiKeyPromptDialog.prompt(provider),
       onBeforeSend: clearComposerDraft,
       onModelSelect,

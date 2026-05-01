@@ -13,8 +13,10 @@ import { handleProjectApi } from './routes/project.mjs'
 import { handleFilesystemApi } from './routes/filesystem.mjs'
 import { handleToolApi } from './routes/tools.mjs'
 import { handleInstructionsApi } from './routes/instructions.mjs'
+import { handleAgentApi } from './routes/agent.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { setActiveWorkspaceRootForFilesystem } from './routes/filesystem.mjs'
+import { shutdown as shutdownAgentManager } from './agent-manager.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -73,6 +75,12 @@ async function handleApi(req, res, url) {
     return
   }
 
+  // Agent routes
+  if (parts[0] === 'api' && parts[1] === 'agents') {
+    await handleAgentApi(req, res, url)
+    return
+  }
+
   // Storage routes (catch-all)
   if (parts[0] === 'api' && parts[1] === 'storage') {
     await handleStorageApi(req, res, url)
@@ -85,26 +93,26 @@ async function handleApi(req, res, url) {
 }
 
 // --- Vite dev server ---
+let viteChild = null
+
 function startVite() {
   const viteCli = path.join(projectRoot, 'node_modules', 'vite', 'bin', 'vite.js')
-  const child = spawn(process.execPath, [viteCli, '--host', '127.0.0.1', '--port', String(vitePort), '--strictPort'], {
+  viteChild = spawn(process.execPath, [viteCli, '--host', '127.0.0.1', '--port', String(vitePort), '--strictPort'], {
     cwd: projectRoot,
     stdio: 'inherit',
     shell: false,
     env: { ...process.env, QUICKFORGE_SERVER_PORT: String(port) },
   })
-  child.on('exit', (code) => {
+  viteChild.on('exit', (code) => {
     if (code && code !== 0) process.exitCode = code
   })
-  process.on('exit', () => child.kill())
-  process.on('SIGINT', () => {
-    child.kill('SIGINT')
-    process.exit(0)
-  })
-  process.on('SIGTERM', () => {
-    child.kill('SIGTERM')
-    process.exit(0)
-  })
+}
+
+function stopVite() {
+  if (viteChild) {
+    viteChild.kill('SIGTERM')
+    viteChild = null
+  }
 }
 
 // --- Bootstrap ---
@@ -145,3 +153,14 @@ server.listen(port, host, () => {
     openBrowser(`http://localhost:${port}`)
   }
 })
+
+// Graceful shutdown
+async function gracefulShutdown(signal) {
+  console.log(`\nReceived ${signal}, shutting down gracefully...`)
+  stopVite()
+  await shutdownAgentManager()
+  process.exit(0)
+}
+
+process.on('SIGINT', (signal) => gracefulShutdown(signal))
+process.on('SIGTERM', (signal) => gracefulShutdown(signal))

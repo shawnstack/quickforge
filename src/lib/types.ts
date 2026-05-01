@@ -1,5 +1,5 @@
 import type { SessionMetadata, SessionData } from '@mariozechner/pi-web-ui'
-import type { Agent } from '@mariozechner/pi-agent-core'
+import type { ServerAgent } from '@/lib/server-agent'
 import { t } from '@/lib/i18n'
 
 export type BackgroundTaskStatus = 'running' | 'idle' | 'error' | 'aborted'
@@ -41,7 +41,7 @@ export type QuickForgeSessionData = SessionData & {
 
 export type BackgroundTask = {
   sessionId: string
-  agent: Agent
+  agent: ServerAgent
   scope: ChatScope
   project?: ProjectInfo
   title: string

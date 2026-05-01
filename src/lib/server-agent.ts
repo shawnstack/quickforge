@@ -114,6 +114,8 @@ export type ServerAgentConfig = {
     thinkingLevel?: ThinkingLevel
     messages?: AgentMessage[]
     tools?: unknown[]
+    isStreaming?: boolean
+    errorMessage?: string
   }
 }
 
@@ -153,10 +155,10 @@ export class ServerAgent {
       thinkingLevel: (init.thinkingLevel ?? 'off') as ThinkingLevel,
       messages: init.messages?.slice() ?? [],
       tools: init.tools ?? [],
-      isStreaming: false,
+      isStreaming: init.isStreaming ?? false,
       streamingMessage: undefined,
       pendingToolCalls: new Set(),
-      errorMessage: undefined,
+      errorMessage: init.errorMessage,
     }
 
     this.sseClient = new AgentSseClient(this.sessionId, this.baseUrl)
@@ -251,8 +253,8 @@ export class ServerAgent {
 
     switch (type) {
       case 'state': {
-        // Initial state snapshot from server
-        const s = event as { messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel }
+        // Initial state snapshot from server (e.g. after page refresh / SSE reconnect)
+        const s = event as { messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; isStreaming?: boolean; status?: string }
         if (s.messages) {
           this.state.messages = s.messages
         }
@@ -262,8 +264,16 @@ export class ServerAgent {
         if (s.thinkingLevel) {
           this.state.thinkingLevel = s.thinkingLevel as ThinkingLevel
         }
-        // Emit as a synthetic agent_end to refresh UI
-        this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
+        if (s.isStreaming !== undefined) {
+          this.state.isStreaming = s.isStreaming
+        }
+        // Emit the correct lifecycle event so the sidebar green dot stays in sync
+        if (s.isStreaming) {
+          this.state.errorMessage = undefined
+          this.emitToListeners({ type: 'agent_start' } as AgentEvent)
+        } else {
+          this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
+        }
         return
       }
 

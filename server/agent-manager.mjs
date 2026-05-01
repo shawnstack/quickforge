@@ -407,6 +407,10 @@ export async function createAgent(sessionId, config = {}) {
       session.status = 'running'
       session.startedAt = session.startedAt ?? new Date().toISOString()
       session.finishedAt = null
+      // Persist running state immediately so a browser refresh still shows the green dot
+      persistSession(session).catch((err) =>
+        console.error(`Failed to persist session on start ${sessionId}:`, err),
+      )
     }
 
     if (event.type === 'agent_end') {

@@ -1,5 +1,6 @@
 import { translations, type AppStorage } from '@mariozechner/pi-web-ui'
 
+// Re-export the language type
 export type AppLanguage = 'en' | 'zh'
 
 const LANGUAGE_SETTING_KEY = 'language'
@@ -7,7 +8,274 @@ const SUPPORTED_LANGUAGES: AppLanguage[] = ['en', 'zh']
 
 type PiTranslations = typeof translations.en
 
-const piEnglishTranslations: PiTranslations = {
+// ---------------------------------------------------------------------------
+// QuickForge app translations (synchronous)
+// ---------------------------------------------------------------------------
+
+export const appTranslations = {
+  en: {
+    language: 'Language',
+    displayLanguage: 'Display language',
+    languageDescription: 'Choose the display language for 速构 QuickForge. The page will reload to apply the change.',
+    simplifiedChinese: 'Simplified Chinese',
+    english: 'English',
+    apply: 'Apply',
+    noLanguageChange: 'The selected language is already active.',
+    newChat: 'New chat',
+    loadingChatWorkspace: 'Loading chat workspace...',
+    localServiceUnavailableTitle: 'Local QuickForge service unavailable',
+    localServiceUnavailableDescription: 'QuickForge requires the local service for storage. Start QuickForge with npm run dev or the quickforge command, then reload this page.',
+    project: 'Project',
+    projects: 'Projects',
+    loadingProject: 'Loading project...',
+    addProject: 'Add project',
+    noProjects: 'No projects yet.',
+    expandProject: 'Expand project',
+    collapseProject: 'Collapse project',
+    newProjectChat: 'New project chat',
+    projectChat: 'Project chat',
+    normalChat: 'Chat',
+    conversations: 'Conversations',
+    noConversations: 'No conversations',
+    filter: 'Filter',
+    selecting: 'Selecting...',
+    chooseFolder: 'Choose folder',
+    selectProjectDirectory: 'Select project directory',
+    selectProjectDirectoryDescription: 'Browse local folders or paste a path, then choose the folder to add it as a project.',
+    quickAccess: 'Quick access',
+    path: 'Path',
+    go: 'Go',
+    parentDirectory: 'Parent directory',
+    noFolders: 'No folders in this directory.',
+    selectThisFolder: 'Select this folder',
+    folderPickerPathPlaceholder: 'Enter or paste a folder path',
+    filesystemRootsFailed: 'Failed to load filesystem roots.',
+    directoryLoadFailed: 'Failed to load directory.',
+    noSavedConversations: 'No saved conversations yet.',
+    rename: 'Rename',
+    renameSession: 'Rename conversation',
+    sessionName: 'Conversation name',
+    deleteProject: 'Delete project',
+    deleteProjectConfirm: 'Are you sure you want to delete project "{name}"? Its conversations will be kept.',
+    deleteSession: 'Delete session',
+    deleteSessionConfirm: 'Are you sure you want to delete this conversation? This cannot be undone.',
+    confirmDelete: 'Delete',
+    settings: 'Settings',
+    toggleSidebar: 'Toggle sidebar',
+    failedToSelectProjectDirectory: 'Failed to select project directory.',
+    projectSwitchFailed: 'Failed to switch to the project for this conversation. Workspace tools were not started.',
+    copy: 'Copy',
+    copied: 'Copied',
+    rollback: 'Rollback',
+    fork: 'Fork',
+    forkConversation: 'Fork conversation from here',
+    yoloEnabledTitle: 'YOLO enabled: local workspace tools are available',
+    yoloDisabledTitle: 'YOLO disabled: local workspace tools are blocked',
+    composerPlaceholder: 'Describe what you want to build, change, or debug...',
+    yoloBlockedReason: 'Local tool {name} was blocked because YOLO mode is disabled. Enable YOLO mode inside the input box to grant local project access.',
+    globalToolBlockedReason: 'Local tool {name} was blocked because this is a normal chat with no project attached. Start or open a project chat to use workspace tools.',
+    noActiveProjectToolBlockedReason: 'Local tool {name} was blocked because there is no active project. Add or select a project to use workspace tools.',
+    generationStillRunning: 'Generation is still running. Stop it or wait until it finishes before rolling back.',
+    noConversationTurnToRollback: 'There is no conversation turn to roll back.',
+    copyFailed: 'Copy failed. Please check clipboard permissions.',
+    addCustomModelFirst: 'Please add a custom model in Settings and make sure the model ID is filled in before saving.',
+    modelSetupRequired: 'Please add a model before starting a new chat.',
+    modelSetupTitle: 'No model configured yet',
+    modelSetupDescription: 'Add an OpenAI-Compatible or Anthropic-compatible model to start chatting. QuickForge will only use models that you configure.',
+    modelSetupSupports: 'Supports LiteLLM, OpenRouter, DeepSeek, Qwen, Zhipu, Ollama, and most /v1/chat/completions services.',
+    modelSetupLocalStorage: 'Providers, model IDs, and API keys are stored locally by the QuickForge service on this machine.',
+    modelSetupAddModel: 'Add model',
+    modelSetupUseLiteLlmExample: 'Use LiteLLM example',
+    customModels: 'Custom Models',
+    customModelsTitle: 'Custom models',
+    customModelsDescription: 'Only use custom OpenAI-Compatible models that you configure.',
+    addModel: 'Add model',
+    editModel: 'Edit model',
+    delete: 'Delete',
+    editCustomModel: 'Edit custom model',
+    addCustomModel: 'Add custom model',
+    providerName: 'Provider name',
+    providerNamePlaceholder: 'e.g., LiteLLM',
+    protocolType: 'Protocol type',
+    protocolHelp: 'Use OpenAI Compatible for LiteLLM, OpenRouter, and most /v1/chat/completions services. Use Anthropic Messages only for the direct Anthropic API.',
+    apiKey: 'API Key',
+    apiKeyPlaceholder: 'Leave empty if not required',
+    modelId: 'Model ID',
+    modelIdPlaceholder: 'e.g., anthropic/claude-sonnet-4',
+    contextWindow: 'Context Window',
+    maxTokens: 'Max Tokens',
+    reasoningModel: 'Reasoning / Thinking model (DeepSeek V4, Qwen, etc.)',
+    providerProtocol: 'Protocol',
+    model: 'Model',
+    noModelAdded: 'No model added',
+    modelsCount: '{count} model(s)',
+    modelIndex: 'Model #{index}',
+    modelsList: 'Models',
+    atLeastOneModel: 'At least one model is required.',
+    duplicateModelId: 'Duplicate model IDs are not allowed.',
+    cancel: 'Cancel',
+    save: 'Save',
+    loading: 'Loading...',
+    noCustomModels: 'No custom models yet. Click "Add model".',
+    fillProviderBaseUrlModel: 'Please fill in provider name and Base URL.',
+    saveCustomModelFailed: 'Failed to save custom model.',
+    confirmDeleteProvider: 'Delete {name}?',
+    deleteFailed: 'Delete failed.',
+    selectCustomModel: 'Select custom model',
+    close: 'Close',
+    searchModels: 'Search models...',
+    noMatchingCustomModels: 'No matching custom models',
+    projectInfo: 'Project Info',
+    listDirectory: 'List Directory',
+    readFile: 'Read File',
+    searchFiles: 'Search Files',
+    writeFile: 'Write File',
+    editFile: 'Edit File',
+    runCommand: 'Run Command',
+    running: 'Running',
+    done: 'Done',
+    error: 'Error',
+    called: 'Called',
+    input: 'Input',
+    output: 'Output',
+    details: 'Details',
+  },
+  zh: {
+    language: '语言',
+    displayLanguage: '界面语言',
+    languageDescription: '选择速构 QuickForge 的界面显示语言。切换后页面会刷新以应用到所有组件。',
+    simplifiedChinese: '简体中文',
+    english: 'English',
+    apply: '应用',
+    noLanguageChange: '当前已经是所选语言。',
+    newChat: '新建对话',
+    loadingChatWorkspace: '正在加载聊天工作区...',
+    localServiceUnavailableTitle: 'QuickForge 本地服务不可用',
+    localServiceUnavailableDescription: 'QuickForge 需要通过本地服务进行存储。请使用 npm run dev 或 quickforge 命令启动后刷新此页面。',
+    project: '项目',
+    projects: '项目',
+    loadingProject: '正在加载项目...',
+    addProject: '添加项目',
+    noProjects: '暂无项目。',
+    expandProject: '展开项目',
+    collapseProject: '折叠项目',
+    newProjectChat: '新建项目对话',
+    projectChat: '项目对话',
+    normalChat: '普通对话',
+    conversations: '对话',
+    noConversations: '暂无对话',
+    filter: '筛选',
+    selecting: '选择中...',
+    chooseFolder: '选择文件夹',
+    selectProjectDirectory: '选择项目目录',
+    selectProjectDirectoryDescription: '浏览本地文件夹或粘贴路径，然后选择一个文件夹作为项目。',
+    quickAccess: '快捷入口',
+    path: '路径',
+    go: '前往',
+    parentDirectory: '上级目录',
+    noFolders: '该目录下没有文件夹。',
+    selectThisFolder: '选择此文件夹',
+    folderPickerPathPlaceholder: '输入或粘贴文件夹路径',
+    filesystemRootsFailed: '加载文件系统入口失败。',
+    directoryLoadFailed: '加载目录失败。',
+    noSavedConversations: '暂无保存的对话。',
+    deleteProject: '删除项目',
+    deleteProjectConfirm: '确定要删除项目「{name}」吗？该项目的对话记录将保留。',
+    deleteSession: '删除会话',
+    deleteSessionConfirm: '确定要删除该对话吗？删除后不可恢复。',
+    confirmDelete: '确认删除',
+    rename: '重命名',
+    renameSession: '重命名对话',
+    sessionName: '对话名称',
+    settings: '设置',
+    toggleSidebar: '切换侧边栏',
+    failedToSelectProjectDirectory: '选择项目目录失败。',
+    projectSwitchFailed: '切换到该对话绑定的项目失败，工作区工具未启动。',
+    copy: '复制',
+    copied: '已复制',
+    rollback: '回滚',
+    fork: '分支',
+    forkConversation: '从此处分支新对话',
+    yoloEnabledTitle: 'YOLO 已启用：本地工作区工具可用',
+    yoloDisabledTitle: 'YOLO 已关闭：本地工作区工具已阻止',
+    composerPlaceholder: '描述你想构建、修改或排查的问题...',
+    yoloBlockedReason: '本地工具 {name} 已被阻止，因为 YOLO 模式已关闭。请在输入框内启用 YOLO 模式以授予本地项目访问权限。',
+    globalToolBlockedReason: '本地工具 {name} 已被阻止，因为这是未绑定项目的普通对话。请新建或打开项目对话后使用工作区工具。',
+    noActiveProjectToolBlockedReason: '本地工具 {name} 已被阻止，因为当前没有激活项目。请添加或选择项目后再使用工作区工具。',
+    generationStillRunning: '生成仍在进行中。请停止生成或等待完成后再回滚。',
+    noConversationTurnToRollback: '没有可回滚的对话轮次。',
+    copyFailed: '复制失败，请检查剪贴板权限。',
+    addCustomModelFirst: '请先在设置里添加自定义模型，并确保填写了模型 ID 后保存。',
+    modelSetupRequired: '请先添加模型后再新建对话。',
+    modelSetupTitle: '还没有配置模型',
+    modelSetupDescription: '添加一个 OpenAI-Compatible 或 Anthropic 兼容模型后即可开始对话。QuickForge 只会使用你自己配置的模型。',
+    modelSetupSupports: '支持 LiteLLM、OpenRouter、DeepSeek、通义千问、智谱、Ollama，以及大多数 /v1/chat/completions 服务。',
+    modelSetupLocalStorage: '提供商、模型 ID 和 API Key 会由本机 QuickForge 本地服务保存。',
+    modelSetupAddModel: '添加模型',
+    modelSetupUseLiteLlmExample: '使用 LiteLLM 示例配置',
+    customModels: '自定义模型',
+    customModelsTitle: '自定义模型',
+    customModelsDescription: '只使用你配置的自定义 OpenAI-Compatible 模型。',
+    addModel: '添加模型',
+    editModel: '编辑模型',
+    delete: '删除',
+    editCustomModel: '编辑自定义模型',
+    addCustomModel: '添加自定义模型',
+    providerName: '提供商名称',
+    providerNamePlaceholder: '例如：LiteLLM',
+    protocolType: '协议类型',
+    protocolHelp: 'LiteLLM、OpenRouter、大多数 /v1/chat/completions 服务请选择 OpenAI Compatible；直连 Anthropic API 才选 Anthropic Messages。',
+    apiKey: 'API Key',
+    apiKeyPlaceholder: '没有可以留空',
+    modelId: '模型 ID',
+    modelIdPlaceholder: '例如：anthropic/claude-sonnet-4',
+    contextWindow: 'Context Window',
+    maxTokens: 'Max Tokens',
+    reasoningModel: '推理/思考模型（DeepSeek V4、Qwen 等）',
+    providerProtocol: '协议',
+    model: '模型',
+    noModelAdded: '未添加模型',
+    modelsCount: '{count} 个模型',
+    modelIndex: '模型 #{index}',
+    modelsList: '模型列表',
+    atLeastOneModel: '至少需要一个模型。',
+    duplicateModelId: '模型 ID 不能重复。',
+    cancel: '取消',
+    save: '保存',
+    loading: '加载中...',
+    noCustomModels: '还没有自定义模型，请点击"添加模型"。',
+    fillProviderBaseUrlModel: '请填写提供商名称和 Base URL。',
+    saveCustomModelFailed: '保存自定义模型失败。',
+    confirmDeleteProvider: '确定删除 {name} 吗？',
+    deleteFailed: '删除失败。',
+    selectCustomModel: '选择自定义模型',
+    close: '关闭',
+    searchModels: '搜索模型...',
+    noMatchingCustomModels: '没有匹配的自定义模型',
+    projectInfo: '项目信息',
+    listDirectory: '列出目录',
+    readFile: '读取文件',
+    searchFiles: '搜索文件',
+    writeFile: '写入文件',
+    editFile: '编辑文件',
+    runCommand: '运行命令',
+    running: '运行中',
+    done: '完成',
+    error: '错误',
+    called: '已调用',
+    input: '输入',
+    output: '输出',
+    details: '详情',
+  },
+} as const
+
+export type AppTextKey = keyof typeof appTranslations.en
+
+// ---------------------------------------------------------------------------
+// pi-web-ui translation overrides
+// ---------------------------------------------------------------------------
+
+const piEnglishOverrides: PiTranslations = {
   ...translations.en,
   'Configure API keys for LLM providers. Keys are stored locally in your browser.':
     'Configure API keys for LLM providers. Keys are stored by the local QuickForge service on this machine.',
@@ -22,43 +290,8 @@ const piEnglishTranslations: PiTranslations = {
   'Cloud LLM providers with predefined models. API keys are stored locally in your browser.':
     'Cloud LLM providers with predefined models. API keys are stored by the local QuickForge service on this machine.',
 }
-let currentLanguage: AppLanguage = browserDefaultLanguage()
 
-function browserDefaultLanguage(): AppLanguage {
-  if (typeof navigator !== 'undefined' && navigator.language.toLowerCase().startsWith('zh')) {
-    return 'zh'
-  }
-  return 'en'
-}
-
-function isAppLanguage(value: unknown): value is AppLanguage {
-  return typeof value === 'string' && SUPPORTED_LANGUAGES.includes(value as AppLanguage)
-}
-
-function setDocumentLanguage(language: AppLanguage) {
-  if (typeof document === 'undefined') return
-  document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en'
-  document.documentElement.dir = 'ltr'
-}
-
-function syncPiTranslations(language: AppLanguage) {
-  const dictionary = language === 'zh' ? piChineseTranslations : piEnglishTranslations
-  for (const key of Object.keys(translations)) {
-    ;(translations as Record<string, PiTranslations>)[key] = dictionary
-  }
-}
-
-function setCurrentLanguage(language: AppLanguage) {
-  currentLanguage = language
-  syncPiTranslations(language)
-  setDocumentLanguage(language)
-}
-
-export function getAppLanguage(): AppLanguage {
-  return currentLanguage
-}
-
-const piChineseTranslations: PiTranslations = {
+const piChineseOverrides: PiTranslations = {
   ...translations.en,
   Free: '免费',
   'Input Required': '需要输入',
@@ -239,7 +472,7 @@ const piChineseTranslations: PiTranslations = {
   'User-configured servers with auto-discovered or manually defined models.':
     '用户配置的服务器，支持自动发现或手动定义模型。',
   'Add Provider': '添加提供商',
-  "No custom providers configured. Click 'Add Provider' to get started.": '尚未配置自定义提供商。点击“添加提供商”开始。',
+  "No custom providers configured. Click 'Add Provider' to get started.": '尚未配置自定义提供商。点击"添加提供商"开始。',
   Models: '模型',
   'auto-discovered': '自动发现',
   Refresh: '刷新',
@@ -280,268 +513,56 @@ const piChineseTranslations: PiTranslations = {
   Optional: '可选',
 }
 
-;(translations as Record<string, PiTranslations>).zh = piChineseTranslations
+// ---------------------------------------------------------------------------
+// Language state
+// ---------------------------------------------------------------------------
+
+let currentLanguage: AppLanguage = browserDefaultLanguage()
+
+function browserDefaultLanguage(): AppLanguage {
+  if (typeof navigator !== 'undefined' && navigator.language.toLowerCase().startsWith('zh')) {
+    return 'zh'
+  }
+  return 'en'
+}
+
+function isAppLanguage(value: unknown): value is AppLanguage {
+  return typeof value === 'string' && SUPPORTED_LANGUAGES.includes(value as AppLanguage)
+}
+
+function setDocumentLanguage(language: AppLanguage) {
+  if (typeof document === 'undefined') return
+  document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en'
+  document.documentElement.dir = 'ltr'
+}
+
+function syncPiTranslations(language: AppLanguage) {
+  const dictionary = language === 'zh' ? piChineseOverrides : piEnglishOverrides
+  for (const key of Object.keys(translations)) {
+    ;(translations as Record<string, PiTranslations>)[key] = dictionary
+  }
+}
+
+function setCurrentLanguage(language: AppLanguage) {
+  currentLanguage = language
+  syncPiTranslations(language)
+  setDocumentLanguage(language)
+}
+
+// ---------------------------------------------------------------------------
+// Initialize (runs at import time)
+// ---------------------------------------------------------------------------
+
+;(translations as Record<string, PiTranslations>).zh = piChineseOverrides
 setCurrentLanguage(currentLanguage)
 
-const appTranslations = {
-  en: {
-    language: 'Language',
-    displayLanguage: 'Display language',
-    languageDescription: 'Choose the display language for 速构 QuickForge. The page will reload to apply the change.',
-    simplifiedChinese: 'Simplified Chinese',
-    english: 'English',
-    apply: 'Apply',
-    noLanguageChange: 'The selected language is already active.',
-    newChat: 'New chat',
-    loadingChatWorkspace: 'Loading chat workspace...',
-    localServiceUnavailableTitle: 'Local QuickForge service unavailable',
-    localServiceUnavailableDescription: 'QuickForge requires the local service for storage. Start QuickForge with npm run dev or the quickforge command, then reload this page.',
-    project: 'Project',
-    projects: 'Projects',
-    loadingProject: 'Loading project...',
-    addProject: 'Add project',
-    noProjects: 'No projects yet.',
-    expandProject: 'Expand project',
-    collapseProject: 'Collapse project',
-    newProjectChat: 'New project chat',
-    projectChat: 'Project chat',
-    normalChat: 'Chat',
-    conversations: 'Conversations',
-    noConversations: 'No conversations',
-    filter: 'Filter',
-    selecting: 'Selecting...',
-    chooseFolder: 'Choose folder',
-    selectProjectDirectory: 'Select project directory',
-    selectProjectDirectoryDescription: 'Browse local folders or paste a path, then choose the folder to add it as a project.',
-    quickAccess: 'Quick access',
-    path: 'Path',
-    go: 'Go',
-    parentDirectory: 'Parent directory',
-    noFolders: 'No folders in this directory.',
-    selectThisFolder: 'Select this folder',
-    folderPickerPathPlaceholder: 'Enter or paste a folder path',
-    filesystemRootsFailed: 'Failed to load filesystem roots.',
-    directoryLoadFailed: 'Failed to load directory.',
-    noSavedConversations: 'No saved conversations yet.',
-    rename: 'Rename',
-    renameSession: 'Rename conversation',
-    sessionName: 'Conversation name',
-    deleteProject: 'Delete project',
-    deleteProjectConfirm: 'Are you sure you want to delete project "{name}"? Its conversations will be kept.',
-    deleteSession: 'Delete session',
-    deleteSessionConfirm: 'Are you sure you want to delete this conversation? This cannot be undone.',
-    confirmDelete: 'Delete',
-    settings: 'Settings',
-    toggleSidebar: 'Toggle sidebar',
-    failedToSelectProjectDirectory: 'Failed to select project directory.',
-    projectSwitchFailed: 'Failed to switch to the project for this conversation. Workspace tools were not started.',
-    copy: 'Copy',
-    copied: 'Copied',
-    rollback: 'Rollback',
-    fork: 'Fork',
-    forkConversation: 'Fork conversation from here',
-    yoloEnabledTitle: 'YOLO enabled: local workspace tools are available',
-    yoloDisabledTitle: 'YOLO disabled: local workspace tools are blocked',
-    composerPlaceholder: 'Describe what you want to build, change, or debug...',
-    yoloBlockedReason: 'Local tool {name} was blocked because YOLO mode is disabled. Enable YOLO mode inside the input box to grant local project access.',
-    globalToolBlockedReason: 'Local tool {name} was blocked because this is a normal chat with no project attached. Start or open a project chat to use workspace tools.',
-    noActiveProjectToolBlockedReason: 'Local tool {name} was blocked because there is no active project. Add or select a project to use workspace tools.',
-    generationStillRunning: 'Generation is still running. Stop it or wait until it finishes before rolling back.',
-    noConversationTurnToRollback: 'There is no conversation turn to roll back.',
-    copyFailed: 'Copy failed. Please check clipboard permissions.',
-    addCustomModelFirst: 'Please add a custom model in Settings and make sure the model ID is filled in before saving.',
-    modelSetupRequired: 'Please add a model before starting a new chat.',
-    modelSetupTitle: 'No model configured yet',
-    modelSetupDescription: 'Add an OpenAI-Compatible or Anthropic-compatible model to start chatting. QuickForge will only use models that you configure.',
-    modelSetupSupports: 'Supports LiteLLM, OpenRouter, DeepSeek, Qwen, Zhipu, Ollama, and most /v1/chat/completions services.',
-    modelSetupLocalStorage: 'Providers, model IDs, and API keys are stored locally by the QuickForge service on this machine.',
-    modelSetupAddModel: 'Add model',
-    modelSetupUseLiteLlmExample: 'Use LiteLLM example',
-    customModels: 'Custom Models',
-    customModelsTitle: 'Custom models',
-    customModelsDescription: 'Only use custom OpenAI-Compatible models that you configure.',
-    addModel: 'Add model',
-    editModel: 'Edit model',
-    delete: 'Delete',
-    editCustomModel: 'Edit custom model',
-    addCustomModel: 'Add custom model',
-    providerName: 'Provider name',
-    providerNamePlaceholder: 'e.g., LiteLLM',
-    protocolType: 'Protocol type',
-    protocolHelp: 'Use OpenAI Compatible for LiteLLM, OpenRouter, and most /v1/chat/completions services. Use Anthropic Messages only for the direct Anthropic API.',
-    apiKey: 'API Key',
-    apiKeyPlaceholder: 'Leave empty if not required',
-    modelId: 'Model ID',
-    modelIdPlaceholder: 'e.g., anthropic/claude-sonnet-4',
-    contextWindow: 'Context Window',
-    maxTokens: 'Max Tokens',
-    reasoningModel: 'Reasoning / Thinking model (DeepSeek V4, Qwen, etc.)',
-    providerProtocol: 'Protocol',
-    model: 'Model',
-    noModelAdded: 'No model added',
-    modelsCount: '{count} model(s)',
-    modelIndex: 'Model #{index}',
-    modelsList: 'Models',
-    atLeastOneModel: 'At least one model is required.',
-    duplicateModelId: 'Duplicate model IDs are not allowed.',
-    cancel: 'Cancel',
-    save: 'Save',
-    loading: 'Loading...',
-    noCustomModels: 'No custom models yet. Click “Add model”.',
-    fillProviderBaseUrlModel: 'Please fill in provider name and Base URL.',
-    saveCustomModelFailed: 'Failed to save custom model.',
-    confirmDeleteProvider: 'Delete {name}?',
-    deleteFailed: 'Delete failed.',
-    selectCustomModel: 'Select custom model',
-    close: 'Close',
-    searchModels: 'Search models...',
-    noMatchingCustomModels: 'No matching custom models',
-    projectInfo: 'Project Info',
-    listDirectory: 'List Directory',
-    readFile: 'Read File',
-    searchFiles: 'Search Files',
-    writeFile: 'Write File',
-    editFile: 'Edit File',
-    runCommand: 'Run Command',
-    running: 'Running',
-    done: 'Done',
-    error: 'Error',
-    called: 'Called',
-    input: 'Input',
-    output: 'Output',
-    details: 'Details',
-  },
-  zh: {
-    language: '语言',
-    displayLanguage: '界面语言',
-    languageDescription: '选择速构 QuickForge 的界面显示语言。切换后页面会刷新以应用到所有组件。',
-    simplifiedChinese: '简体中文',
-    english: 'English',
-    apply: '应用',
-    noLanguageChange: '当前已经是所选语言。',
-    newChat: '新建对话',
-    loadingChatWorkspace: '正在加载聊天工作区...',
-    localServiceUnavailableTitle: 'QuickForge 本地服务不可用',
-    localServiceUnavailableDescription: 'QuickForge 需要通过本地服务进行存储。请使用 npm run dev 或 quickforge 命令启动后刷新此页面。',
-    project: '项目',
-    projects: '项目',
-    loadingProject: '正在加载项目...',
-    addProject: '添加项目',
-    noProjects: '暂无项目。',
-    expandProject: '展开项目',
-    collapseProject: '折叠项目',
-    newProjectChat: '新建项目对话',
-    projectChat: '项目对话',
-    normalChat: '普通对话',
-    conversations: '对话',
-    noConversations: '暂无对话',
-    filter: '筛选',
-    selecting: '选择中...',
-    chooseFolder: '选择文件夹',
-    selectProjectDirectory: '选择项目目录',
-    selectProjectDirectoryDescription: '浏览本地文件夹或粘贴路径，然后选择一个文件夹作为项目。',
-    quickAccess: '快捷入口',
-    path: '路径',
-    go: '前往',
-    parentDirectory: '上级目录',
-    noFolders: '该目录下没有文件夹。',
-    selectThisFolder: '选择此文件夹',
-    folderPickerPathPlaceholder: '输入或粘贴文件夹路径',
-    filesystemRootsFailed: '加载文件系统入口失败。',
-    directoryLoadFailed: '加载目录失败。',
-    noSavedConversations: '暂无保存的对话。',
-    deleteProject: '删除项目',
-    deleteProjectConfirm: '确定要删除项目「{name}」吗？该项目的对话记录将保留。',
-    deleteSession: '删除会话',
-    deleteSessionConfirm: '确定要删除该对话吗？删除后不可恢复。',
-    confirmDelete: '确认删除',
-    rename: '重命名',
-    renameSession: '重命名对话',
-    sessionName: '对话名称',
-    settings: '设置',
-    toggleSidebar: '切换侧边栏',
-    failedToSelectProjectDirectory: '选择项目目录失败。',
-    projectSwitchFailed: '切换到该对话绑定的项目失败，工作区工具未启动。',
-    copy: '复制',
-    copied: '已复制',
-    rollback: '回滚',
-    fork: '分支',
-    forkConversation: '从此处分支新对话',
-    yoloEnabledTitle: 'YOLO 已启用：本地工作区工具可用',
-    yoloDisabledTitle: 'YOLO 已关闭：本地工作区工具已阻止',
-    composerPlaceholder: '描述你想构建、修改或排查的问题...',
-    yoloBlockedReason: '本地工具 {name} 已被阻止，因为 YOLO 模式已关闭。请在输入框内启用 YOLO 模式以授予本地项目访问权限。',
-    globalToolBlockedReason: '本地工具 {name} 已被阻止，因为这是未绑定项目的普通对话。请新建或打开项目对话后使用工作区工具。',
-    noActiveProjectToolBlockedReason: '本地工具 {name} 已被阻止，因为当前没有激活项目。请添加或选择项目后再使用工作区工具。',
-    generationStillRunning: '生成仍在进行中。请停止生成或等待完成后再回滚。',
-    noConversationTurnToRollback: '没有可回滚的对话轮次。',
-    copyFailed: '复制失败，请检查剪贴板权限。',
-    addCustomModelFirst: '请先在设置里添加自定义模型，并确保填写了模型 ID 后保存。',
-    modelSetupRequired: '请先添加模型后再新建对话。',
-    modelSetupTitle: '还没有配置模型',
-    modelSetupDescription: '添加一个 OpenAI-Compatible 或 Anthropic 兼容模型后即可开始对话。QuickForge 只会使用你自己配置的模型。',
-    modelSetupSupports: '支持 LiteLLM、OpenRouter、DeepSeek、通义千问、智谱、Ollama，以及大多数 /v1/chat/completions 服务。',
-    modelSetupLocalStorage: '提供商、模型 ID 和 API Key 会由本机 QuickForge 本地服务保存。',
-    modelSetupAddModel: '添加模型',
-    modelSetupUseLiteLlmExample: '使用 LiteLLM 示例配置',
-    customModels: '自定义模型',
-    customModelsTitle: '自定义模型',
-    customModelsDescription: '只使用你配置的自定义 OpenAI-Compatible 模型。',
-    addModel: '添加模型',
-    editModel: '编辑模型',
-    delete: '删除',
-    editCustomModel: '编辑自定义模型',
-    addCustomModel: '添加自定义模型',
-    providerName: '提供商名称',
-    providerNamePlaceholder: '例如：LiteLLM',
-    protocolType: '协议类型',
-    protocolHelp: 'LiteLLM、OpenRouter、大多数 /v1/chat/completions 服务请选择 OpenAI Compatible；直连 Anthropic API 才选 Anthropic Messages。',
-    apiKey: 'API Key',
-    apiKeyPlaceholder: '没有可以留空',
-    modelId: '模型 ID',
-    modelIdPlaceholder: '例如：anthropic/claude-sonnet-4',
-    contextWindow: 'Context Window',
-    maxTokens: 'Max Tokens',
-    reasoningModel: '推理/思考模型（DeepSeek V4、Qwen 等）',
-    providerProtocol: '协议',
-    model: '模型',
-    noModelAdded: '未添加模型',
-    modelsCount: '{count} 个模型',
-    modelIndex: '模型 #{index}',
-    modelsList: '模型列表',
-    atLeastOneModel: '至少需要一个模型。',
-    duplicateModelId: '模型 ID 不能重复。',
-    cancel: '取消',
-    save: '保存',
-    loading: '加载中...',
-    noCustomModels: '还没有自定义模型，请点击“添加模型”。',
-    fillProviderBaseUrlModel: '请填写提供商名称和 Base URL。',
-    saveCustomModelFailed: '保存自定义模型失败。',
-    confirmDeleteProvider: '确定删除 {name} 吗？',
-    deleteFailed: '删除失败。',
-    selectCustomModel: '选择自定义模型',
-    close: '关闭',
-    searchModels: '搜索模型...',
-    noMatchingCustomModels: '没有匹配的自定义模型',
-    projectInfo: '项目信息',
-    listDirectory: '列出目录',
-    readFile: '读取文件',
-    searchFiles: '搜索文件',
-    writeFile: '写入文件',
-    editFile: '编辑文件',
-    runCommand: '运行命令',
-    running: '运行中',
-    done: '完成',
-    error: '错误',
-    called: '已调用',
-    input: '输入',
-    output: '输出',
-    details: '详情',
-  },
-} as const
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
-type AppTranslations = typeof appTranslations.en
-export type AppTextKey = keyof AppTranslations
+export function getAppLanguage(): AppLanguage {
+  return currentLanguage
+}
 
 export function t(key: AppTextKey, params?: Record<string, string | number>) {
   let text: string = appTranslations[getAppLanguage()][key] ?? appTranslations.en[key]

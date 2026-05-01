@@ -91,11 +91,18 @@ for (const [name, label] of [
 }
 
 // ---------------------------------------------------------------------------
-// Tool definitions for ChatPanel (UI display only — execution is server-side)
+// Tool definitions for ChatPanel (UI display only — execution is server-side).
+//
+// CANONICAL SOURCE: server/tools/definitions.mjs
+// The server endpoint GET /api/tools returns tool metadata as JSON.
+// The TypeBox parameter schemas here MUST match the JSON Schema definitions
+// in server/tools/definitions.mjs. When adding or changing a tool, update
+// both locations.
 // ---------------------------------------------------------------------------
 
 const noopExecute = async () => ({ content: [{ type: 'text' as const, text: '' }], details: {} })
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function createLocalWorkspaceTools(_projectId: string): AgentTool[] {
   return [
     {

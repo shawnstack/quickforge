@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AgentState } from '@mariozechner/pi-agent-core'
-import { ServerAgent } from '@/lib/server-agent'
 import {
   ProxyTab,
   SettingsDialog,
@@ -20,8 +18,6 @@ import {
   getConfiguredModels,
   initializePiStorage,
   loadInitialConfiguredModel,
-  normalizeModelForProvider,
-  resolveConfiguredModel,
   saveConnectionProfile,
 } from '@/lib/pi-chat'
 import { createCustomProvidersOnlyTab } from '@/lib/custom-providers-only-tab'
@@ -37,12 +33,8 @@ import {
   shouldSaveSession,
   generateTitle,
   hasUserMessage,
-  titleNeedsGeneration,
 } from '@/lib/message-utils'
 import type {
-  BackgroundTask,
-  BackgroundTaskStatus,
-  ChatScope,
   ProjectInfo,
   QuickForgeSessionData,
   QuickForgeSessionMetadata,
@@ -52,23 +44,19 @@ import { sessionScope, sessionTitle } from '@/lib/types'
 import { ChatPanelHost } from '@/components/chat/ChatPanelHost'
 import { ModelSetupEmptyState } from '@/components/chat/ModelSetupEmptyState'
 import { ChatSidebar } from '@/components/sidebar/ChatSidebar'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useProject } from '@/hooks/useProject'
 import { useYoloMode } from '@/hooks/useYoloMode'
 import { useCrossTabSync } from '@/hooks/useCrossTabSync'
+import { useAgentManager } from '@/hooks/useAgentManager'
 import { saveActiveModel, saveYoloMode } from '@/lib/pi-chat'
 
 function App() {
-  // --- Refs (non-reactive shared state) ---
+  // --- Top-level refs (owned by App) ---
   const storageRef = useRef<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
-  const agentRef = useRef<ServerAgent | null>(null)
   const activeModelRef = useRef<Model<Api>>(buildConnectionModel(DEFAULT_CONNECTION))
-  const taskMapRef = useRef<Map<string, BackgroundTask>>(new Map())
   const yoloModeRef = useRef(false)
-  const currentChatScopeRef = useRef<ChatScope>('global')
   const activeProjectRef = useRef<ProjectInfo | undefined>(undefined)
-  const currentSessionIdRef = useRef<string | undefined>(undefined)
-  const currentTitleRef = useRef('New chat')
-  const currentCreatedAtRef = useRef<string | undefined>(undefined)
 
   // --- Project hook ---
   const {
@@ -92,21 +80,14 @@ function App() {
   const { yoloMode, setYoloMode, initialize: initYoloMode } = useYoloMode()
 
   // --- UI state ---
-  const [agent, setAgent] = useState<ServerAgent | null>(null)
   const [sessions, setSessions] = useState<QuickForgeSessionMetadata[]>([])
-  const [currentSessionId, setCurrentSessionId] = useState<string | undefined>()
-  const [currentTitle, setCurrentTitle] = useState('New chat')
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [projectsCollapsed, setProjectsCollapsed] = useState(false)
   const [conversationsCollapsed, setConversationsCollapsed] = useState(false)
   const [ready, setReady] = useState(false)
   const [startupError, setStartupError] = useState<string>()
   const [needsModelSetup, setNeedsModelSetup] = useState(false)
-  const [chatPanelRevision, setChatPanelRevision] = useState(0)
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
-  const [taskStatuses, setTaskStatuses] = useState<Record<string, BackgroundTaskStatus>>({})
-  const [chatScope, setChatScope] = useState<ChatScope>('global')
-  const [currentToolProject, setCurrentToolProject] = useState<ProjectInfo>()
 
   // --- Sync refs ---
   useEffect(() => {
@@ -117,7 +98,7 @@ function App() {
     activeProjectRef.current = activeProject
   }, [activeProject])
 
-  // --- Session helpers ---
+  // --- Session list + cross-tab sync ---
   const crossTabRef = useRef<ReturnType<typeof useCrossTabSync> | null>(null)
 
   const refreshSessions = useCallback(async (opts?: { broadcast?: boolean }) => {
@@ -127,144 +108,40 @@ function App() {
     if (opts?.broadcast) crossTabRef.current?.notifySessionsChanged()
   }, [])
 
-  const syncSessionUI = useCallback(
-    async (task: BackgroundTask) => {
-      // Update UI title from session
-      if (currentSessionIdRef.current === task.sessionId) {
-        const messages = task.agent.state.messages
-        let title = task.title
-        if (titleNeedsGeneration(title)) {
-          title = generateTitle(messages)
-        }
-        currentCreatedAtRef.current = task.createdAt ?? new Date().toISOString()
-        currentTitleRef.current = title
-        setCurrentTitle(title)
-      }
-      await refreshSessions({ broadcast: true })
-    },
-    [refreshSessions],
-  )
-
-  // --- Cross-tab sync (placed after refreshSessions / loadProject are defined) ---
   const crossTab = useCrossTabSync({
     onSessionsChanged: () => { refreshSessions() },
     onProjectsChanged: () => { loadProject() },
     onSettingsChanged: () => { refreshSessions() },
   })
-  crossTabRef.current = crossTab
 
-  const attachTaskToView = useCallback((task: BackgroundTask) => {
-    currentChatScopeRef.current = task.scope
-    currentSessionIdRef.current = task.sessionId
-    currentCreatedAtRef.current = task.createdAt
-    currentTitleRef.current = task.title
-    setChatScope(task.scope)
-    setCurrentSessionId(task.sessionId)
-    setCurrentTitle(task.title)
-    setCurrentToolProject(task.project)
-    setNeedsModelSetup(false)
-    agentRef.current = task.agent
-    setAgent(task.agent)
+  useEffect(() => { crossTabRef.current = crossTab }, [crossTab])
 
-    const url = new URL(window.location.href)
-    url.searchParams.set('session', task.sessionId)
-    window.history.replaceState({}, '', url)
-  }, [])
+  // --- Agent manager ---
+  const agentManager = useAgentManager({
+    storageRef,
+    activeModelRef,
+    yoloModeRef,
+    activeProjectRef,
+    switchActiveProject,
+    sessions,
+    refreshSessions,
+  })
 
-  const createAgent = useCallback(
-    async (
-      initialState?: Partial<AgentState>,
-      sessionId: string = crypto.randomUUID(),
-      options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string },
-    ) => {
-      const existingTask = taskMapRef.current.get(sessionId)
-      if (existingTask) {
-        if (options?.attachToView !== false) attachTaskToView(existingTask)
-        return existingTask.agent
-      }
-
-      const scope = options?.scope ?? currentChatScopeRef.current
-      const project = scope === 'project' ? (options?.project ?? activeProjectRef.current) : undefined
-      const startedAt = new Date().toISOString()
-
-      const {
-        model: requestedModel,
-        thinkingLevel: requestedThinkingLevel,
-        tools: _requestedTools,
-        ...restInitialState
-      } = initialState ?? {}
-      void _requestedTools
-      const storage = storageRef.current
-      const resolvedModel = storage
-        ? await resolveConfiguredModel(storage, (requestedModel ?? activeModelRef.current) as Model<Api>)
-        : normalizeModelForProvider((requestedModel ?? activeModelRef.current) as Model<Api>)
-      const resolvedThinkingLevel = requestedThinkingLevel ?? (resolvedModel.reasoning ? 'medium' : 'off')
-      activeModelRef.current = resolvedModel
-
-      const nextAgent = await ServerAgent.create(sessionId, {
-        scope,
-        projectId: project?.id,
-        yoloMode: yoloModeRef.current,
-        model: resolvedModel,
-        thinkingLevel: resolvedThinkingLevel,
-        messages: (restInitialState as { messages?: AgentState['messages'] }).messages ?? [],
-        title: options?.title,
-      })
-
-      const task: BackgroundTask = {
-        sessionId,
-        agent: nextAgent,
-        scope,
-        project,
-        title: options?.title ?? 'New chat',
-        createdAt: options?.createdAt,
-        status: 'idle',
-        startedAt,
-        unsubscribe: () => undefined,
-      }
-
-      task.unsubscribe = nextAgent.subscribe((event) => {
-        if (event.type === 'agent_start') {
-          task.status = 'running'
-          task.startedAt = task.startedAt ?? new Date().toISOString()
-          task.finishedAt = undefined
-          setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
-        }
-
-        if (event.type === 'message_end') {
-          nextAgent.state.messages = [...nextAgent.state.messages]
-        }
-
-        if (event.type === 'agent_end') {
-          task.status = nextAgent.state.errorMessage ? 'error' : 'idle'
-          task.finishedAt = new Date().toISOString()
-          setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
-          if (task.sessionId === currentSessionIdRef.current) {
-            window.setTimeout(() => setChatPanelRevision((value) => value + 1), 0)
-          }
-          // Refresh session list to pick up server-side title/persistence
-          syncSessionUI(task).catch((err) => console.error('Failed to sync session UI:', err))
-        }
-
-        if ((event as { type: string }).type === 'title_updated') {
-          const titleEvent = event as unknown as { type: 'title_updated'; title: string }
-          if (task.sessionId === currentSessionIdRef.current && titleEvent.title) {
-            currentTitleRef.current = titleEvent.title
-            setCurrentTitle(titleEvent.title)
-          }
-          refreshSessions({ broadcast: true }).catch((err) => console.error('Failed to refresh sessions:', err))
-        }
-      })
-
-      taskMapRef.current.set(sessionId, task)
-      setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
-
-      if (options?.attachToView !== false) attachTaskToView(task)
-      await refreshSessions({ broadcast: true })
-      return nextAgent
-    },
-    [attachTaskToView, refreshSessions, syncSessionUI],
-  )
+  // Destructure stable values for use in dependency arrays
+  const {
+    createAgent,
+    loadSession: loadAgentSession,
+    syncSessionUI,
+    setCurrentAgentMessages,
+    updateCurrentAgentModel,
+    setChatPanelRevision,
+    setCurrentTitleRef,
+    // Refs (stable, lint-friendly when accessed directly)
+    agentRef,
+    taskMapRef,
+    currentSessionIdRef,
+    currentChatScopeRef,
+  } = agentManager
 
   // --- Chat actions ---
   const startNewGlobalChat = useCallback(async () => {
@@ -310,68 +187,6 @@ function App() {
     )
   }, [createAgent, needsModelSetup, switchActiveProject])
 
-  const loadSession = useCallback(
-    async (sessionId: string) => {
-      const runningTask = taskMapRef.current.get(sessionId)
-      if (runningTask) {
-        if (runningTask.scope === 'project' && runningTask.project?.id && activeProjectRef.current?.id !== runningTask.project.id) {
-          try {
-            await switchActiveProject(runningTask.project.id)
-          } catch (error) {
-            console.error('Failed to switch project for running session:', error)
-          }
-        }
-        attachTaskToView(runningTask)
-        return
-      }
-
-      const storage = storageRef.current
-      if (!storage) return
-
-      const session = (await storage.sessions.get(sessionId)) as QuickForgeSessionData | null
-      if (!session) return
-
-      const metadata = sessions.find((item) => item.id === sessionId) ?? ((await storage.sessions.getMetadata(sessionId)) as QuickForgeSessionMetadata | null)
-      const scope = sessionScope(metadata ?? session)
-      let project: ProjectInfo | undefined
-      if (scope === 'project' && (metadata?.projectId || session.projectId)) {
-        const projectId = (metadata?.projectId ?? session.projectId)!
-        if (activeProjectRef.current?.id !== projectId) {
-          try {
-            project = await switchActiveProject(projectId)
-          } catch (error) {
-            console.error('Failed to switch project for session:', error)
-            alert(t('projectSwitchFailed'))
-            return
-          }
-        } else {
-          project = activeProjectRef.current
-        }
-      }
-
-      activeModelRef.current = session.model as Model<Api>
-
-      await createAgent(
-        {
-          systemPrompt: await buildSystemPrompt(),
-          model: session.model,
-          thinkingLevel: session.thinkingLevel,
-          messages: session.messages,
-          tools: [],
-        },
-        session.id,
-        {
-          scope,
-          project,
-          attachToView: true,
-          createdAt: session.createdAt,
-          title: session.title,
-        },
-      )
-    },
-    [attachTaskToView, createAgent, sessions, switchActiveProject],
-  )
-
   const deleteProjectInline = useCallback(
     async (projectId: string) => {
       const response = await fetch(`/api/project/${encodeURIComponent(projectId)}`, {
@@ -393,7 +208,7 @@ function App() {
         setChatPanelRevision((value) => value + 1)
       }
     },
-    [refreshSessions, crossTab, setActiveProject, setProjects, setExpandedProjectIds],
+    [refreshSessions, crossTab, setActiveProject, setProjects, setExpandedProjectIds, setChatPanelRevision],
   )
 
   // --- Bootstrap ---
@@ -409,61 +224,70 @@ function App() {
         await initializeAppLanguage(storage)
         await Promise.all([refreshSessions(), loadProject()])
 
-      const savedYoloMode = await initYoloMode(storage)
-      yoloModeRef.current = savedYoloMode
+        const savedYoloMode = await initYoloMode(storage)
+        yoloModeRef.current = savedYoloMode
 
-      const initialModel = await loadInitialConfiguredModel(storage)
-      if (initialModel) activeModelRef.current = initialModel
+        const initialModel = await loadInitialConfiguredModel(storage)
+        if (initialModel) activeModelRef.current = initialModel
 
-      const sessionId = new URLSearchParams(window.location.search).get('session')
-      if (sessionId) {
-        const existing = await storage.sessions.get(sessionId)
-        if (existing) {
-          const metadata = (await storage.sessions.getMetadata(existing.id)) as QuickForgeSessionMetadata | null
-          const scope = sessionScope(metadata ?? (existing as QuickForgeSessionData))
-          let project: ProjectInfo | undefined
-          if (scope === 'project' && (metadata?.projectId || (existing as QuickForgeSessionData).projectId)) {
-            const projectId = (metadata?.projectId ?? (existing as QuickForgeSessionData).projectId)!
-            if (activeProjectRef.current?.id !== projectId) {
-              try {
-                project = await switchActiveProject(projectId)
-              } catch (error) {
-                console.error('Failed to switch project for initial session:', error)
-                alert(t('projectSwitchFailed'))
-                if (initialModel) {
-                  await createAgent(
-                    { model: initialModel, tools: [] },
-                    crypto.randomUUID(),
-                    { scope: 'global', attachToView: true },
-                  )
-                } else {
-                  setNeedsModelSetup(true)
+        const sessionId = new URLSearchParams(window.location.search).get('session')
+        if (sessionId) {
+          const existing = await storage.sessions.get(sessionId)
+          if (existing) {
+            const metadata = (await storage.sessions.getMetadata(existing.id)) as QuickForgeSessionMetadata | null
+            const scope = sessionScope(metadata ?? (existing as QuickForgeSessionData))
+            let project: ProjectInfo | undefined
+            if (scope === 'project' && (metadata?.projectId || (existing as QuickForgeSessionData).projectId)) {
+              const projectId = (metadata?.projectId ?? (existing as QuickForgeSessionData).projectId)!
+              if (activeProjectRef.current?.id !== projectId) {
+                try {
+                  project = await switchActiveProject(projectId)
+                } catch (error) {
+                  console.error('Failed to switch project for initial session:', error)
+                  alert(t('projectSwitchFailed'))
+                  if (initialModel) {
+                    await createAgent(
+                      { model: initialModel, tools: [] },
+                      crypto.randomUUID(),
+                      { scope: 'global', attachToView: true },
+                    )
+                  } else {
+                    setNeedsModelSetup(true)
+                  }
+                  setReady(true)
+                  return
                 }
-                setReady(true)
-                return
+              } else {
+                project = activeProjectRef.current
               }
-            } else {
-              project = activeProjectRef.current
             }
+            activeModelRef.current = existing.model as Model<Api>
+            await createAgent(
+              {
+                systemPrompt: await buildSystemPrompt(),
+                model: existing.model,
+                thinkingLevel: existing.thinkingLevel,
+                messages: existing.messages,
+                tools: [],
+              },
+              existing.id,
+              {
+                scope,
+                project,
+                attachToView: true,
+                createdAt: existing.createdAt,
+                title: existing.title,
+              },
+            )
+          } else if (initialModel) {
+            await createAgent(
+              { model: initialModel, tools: [] },
+              crypto.randomUUID(),
+              { scope: 'global', attachToView: true },
+            )
+          } else {
+            setNeedsModelSetup(true)
           }
-          activeModelRef.current = existing.model as Model<Api>
-          await createAgent(
-            {
-              systemPrompt: await buildSystemPrompt(),
-              model: existing.model,
-              thinkingLevel: existing.thinkingLevel,
-              messages: existing.messages,
-              tools: [],
-            },
-            existing.id,
-            {
-              scope,
-              project,
-              attachToView: true,
-              createdAt: existing.createdAt,
-              title: existing.title,
-            },
-          )
         } else if (initialModel) {
           await createAgent(
             { model: initialModel, tools: [] },
@@ -473,15 +297,6 @@ function App() {
         } else {
           setNeedsModelSetup(true)
         }
-      } else if (initialModel) {
-        await createAgent(
-          { model: initialModel, tools: [] },
-          crypto.randomUUID(),
-          { scope: 'global', attachToView: true },
-        )
-      } else {
-        setNeedsModelSetup(true)
-      }
 
         setReady(true)
       } catch (error) {
@@ -497,7 +312,8 @@ function App() {
       for (const task of taskMap.values()) task.unsubscribe()
       taskMap.clear()
     }
-  }, [createAgent, loadProject, refreshSessions, switchActiveProject, initYoloMode])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadProject, refreshSessions, switchActiveProject, initYoloMode])
 
   // --- YOLO ---
   const toggleYoloMode = useCallback(() => {
@@ -516,7 +332,7 @@ function App() {
       setChatPanelRevision((value) => value + 1)
     }
     crossTab.notifySettingsChanged()
-  }, [setYoloMode, crossTab])
+  }, [setYoloMode, crossTab, setChatPanelRevision, agentRef])
 
   // --- Message actions ---
   const rollbackFromMessage = useCallback(async (messageIndex: number) => {
@@ -544,9 +360,11 @@ function App() {
         }
       : undefined
 
-    currentAgent.state.messages = nextMessages
+    setCurrentAgentMessages(nextMessages)
 
-    const currentTask = currentSessionIdRef.current ? taskMapRef.current.get(currentSessionIdRef.current) : undefined
+    const currentTask = currentSessionIdRef.current
+      ? taskMapRef.current.get(currentSessionIdRef.current)
+      : undefined
 
     if (shouldSaveSession(nextMessages) && currentTask) {
       if (restoredRollbackDraft) setRestoredDraft(restoredRollbackDraft)
@@ -566,11 +384,6 @@ function App() {
       const task = taskMapRef.current.get(previousSessionId)
       task?.unsubscribe()
       taskMapRef.current.delete(previousSessionId)
-      setTaskStatuses((current) => {
-        const next = { ...current }
-        delete next[previousSessionId]
-        return next
-      })
     }
 
     if (storage && previousSessionId) {
@@ -601,7 +414,7 @@ function App() {
 
     if (restoredRollbackDraft) setRestoredDraft(restoredRollbackDraft)
     setChatPanelRevision((value) => value + 1)
-  }, [createAgent, syncSessionUI, refreshSessions])
+  }, [createAgent, syncSessionUI, setCurrentAgentMessages, setChatPanelRevision, refreshSessions, agentRef, currentChatScopeRef, currentSessionIdRef, taskMapRef])
 
   const copyAnswer = useCallback(async (text: string) => {
     try {
@@ -652,7 +465,7 @@ function App() {
     if (storage) {
       refreshSessions({ broadcast: true }).catch((error) => console.error('Failed to refresh sessions:', error))
     }
-  }, [createAgent, refreshSessions])
+  }, [createAgent, refreshSessions, agentRef, currentChatScopeRef])
 
   // --- Model setup / selection ---
   const activateConfiguredModel = useCallback(async () => {
@@ -671,10 +484,7 @@ function App() {
 
     const currentAgent = agentRef.current
     if (currentAgent) {
-      currentAgent.state.model = model
-      void currentAgent.updateModel(model).catch((error) => {
-        console.error('Failed to sync model to server:', error)
-      })
+      updateCurrentAgentModel(model)
       setChatPanelRevision((value) => value + 1)
     } else {
       await createAgent(
@@ -686,7 +496,7 @@ function App() {
 
     crossTab.notifySettingsChanged()
     return true
-  }, [createAgent, crossTab])
+  }, [createAgent, updateCurrentAgentModel, setChatPanelRevision, crossTab, agentRef])
 
   const openModelSettings = useCallback(() => {
     SettingsDialog.open(
@@ -705,7 +515,7 @@ function App() {
         dialog.requestUpdate?.()
       }
     }, 0)
-  }, [activateConfiguredModel, needsModelSetup])
+  }, [activateConfiguredModel, needsModelSetup, agentRef])
 
   const activateLiteLlmExampleModel = useCallback(async () => {
     const storage = storageRef.current
@@ -718,10 +528,7 @@ function App() {
     setNeedsModelSetup(false)
 
     if (agentRef.current) {
-      agentRef.current.state.model = model
-      void agentRef.current.updateModel(model).catch((error) => {
-        console.error('Failed to sync model to server:', error)
-      })
+      updateCurrentAgentModel(model)
       setChatPanelRevision((value) => value + 1)
     } else {
       await createAgent(
@@ -731,7 +538,7 @@ function App() {
       )
     }
     crossTab.notifySettingsChanged()
-  }, [createAgent, crossTab])
+  }, [createAgent, updateCurrentAgentModel, setChatPanelRevision, crossTab, agentRef])
 
   const openCustomModelSelector = useCallback(async () => {
     const storage = storageRef.current
@@ -768,7 +575,6 @@ function App() {
         currentAgent.state.model = nextModel
         activeModelRef.current = nextModel
 
-        // Sync model change to the server so the session persists the correct model
         void currentAgent.updateModel(nextModel).catch((error) => {
           console.error('Failed to sync model to server:', error)
         })
@@ -795,7 +601,7 @@ function App() {
         }
       },
     )
-  }, [openModelSettings])
+  }, [openModelSettings, setChatPanelRevision, agentRef])
 
   // --- Derived data ---
   const globalSessions = sessions.filter((session) => sessionScope(session) === 'global')
@@ -803,7 +609,7 @@ function App() {
     return sessions.filter((session) => sessionScope(session) === 'project' && session.projectId === projectId)
   }
   const sessionTaskStatus = (session: QuickForgeSessionMetadata) => {
-    return taskStatuses[session.id] ?? session.taskStatus ?? 'idle'
+    return agentManager.taskStatuses[session.id] ?? session.taskStatus ?? 'idle'
   }
 
   // --- Loading state ---
@@ -826,7 +632,7 @@ function App() {
     )
   }
 
-  if (!agent && !needsModelSetup) {
+  if (!agentManager.agent && !needsModelSetup) {
     return (
       <div className="flex h-screen items-center justify-center bg-background text-foreground">
         <div className="text-sm text-muted-foreground">{t('loadingChatWorkspace')}</div>
@@ -844,7 +650,7 @@ function App() {
         projects={projects}
         expandedProjectIds={expandedProjectIds}
         activeProject={activeProject}
-        currentSessionId={currentSessionId}
+        currentSessionId={agentManager.currentSessionId}
         globalSessions={globalSessions}
         sessionsForProject={sessionsForProject}
         sessionTaskStatus={sessionTaskStatus}
@@ -855,9 +661,8 @@ function App() {
         onSelectProjectDirectory={selectProjectDirectory}
         onStartNewProjectChat={startNewProjectChat}
         onDeleteProject={deleteProjectInline}
-        onLoadSession={loadSession}
+        onLoadSession={loadAgentSession}
         onRenameSession={async (sessionId, currentTitle) => {
-          // Inline rename logic
           const storage = storageRef.current
           if (!storage) return
           const { showPrompt } = await import('@/components/ui/prompt-dialog')
@@ -876,8 +681,7 @@ function App() {
           await storage.sessions.save(session, { ...metadata, title: newTitle })
           await refreshSessions({ broadcast: true })
           if (currentSessionIdRef.current === sessionId) {
-            currentTitleRef.current = newTitle
-            setCurrentTitle(newTitle)
+            setCurrentTitleRef(newTitle)
           }
         }}
         onDeleteSession={async (sessionId) => {
@@ -894,7 +698,6 @@ function App() {
           const task = taskMapRef.current.get(sessionId)
           task?.unsubscribe()
           taskMapRef.current.delete(sessionId)
-          setTaskStatuses((current) => { const next = { ...current }; delete next[sessionId]; return next })
           await storage.sessions.delete(sessionId)
           await refreshSessions({ broadcast: true })
           if (currentSessionIdRef.current === sessionId) {
@@ -921,9 +724,9 @@ function App() {
 
           <div className="min-w-0 flex-1">
             <div className="truncate text-xs text-muted-foreground">
-              {chatScope === 'project' ? (currentToolProject?.name ?? t('projectChat')) : t('normalChat')}
+              {agentManager.chatScope === 'project' ? (agentManager.currentToolProject?.name ?? t('projectChat')) : t('normalChat')}
             </div>
-            <div className="truncate text-sm font-semibold">{sessionTitle(currentTitle)}</div>
+            <div className="truncate text-sm font-semibold">{sessionTitle(agentManager.currentTitle)}</div>
           </div>
 
           <Button
@@ -946,19 +749,21 @@ function App() {
                 }}
               />
             ) : (
-              <ChatPanelHost
-                agent={agent}
-                onModelSelect={openCustomModelSelector}
-                revision={chatPanelRevision}
-                yoloMode={yoloMode}
-                workspaceToolsEnabled={Boolean(currentToolProject?.id)}
-                projectId={currentToolProject?.id}
-                onToggleYoloMode={toggleYoloMode}
-                onRollbackFromMessage={rollbackFromMessage}
-                onCopyAnswer={copyAnswer}
-                onForkFromMessage={forkFromMessage}
-                restoredDraft={restoredDraft}
-              />
+              <ErrorBoundary>
+                <ChatPanelHost
+                  agent={agentManager.agent}
+                  onModelSelect={openCustomModelSelector}
+                  revision={agentManager.chatPanelRevision}
+                  yoloMode={yoloMode}
+                  workspaceToolsEnabled={Boolean(agentManager.currentToolProject?.id)}
+                  projectId={agentManager.currentToolProject?.id}
+                  onToggleYoloMode={toggleYoloMode}
+                  onRollbackFromMessage={rollbackFromMessage}
+                  onCopyAnswer={copyAnswer}
+                  onForkFromMessage={forkFromMessage}
+                  restoredDraft={restoredDraft}
+                />
+              </ErrorBoundary>
             )}
           </section>
         </div>

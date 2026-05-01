@@ -1,6 +1,14 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { toolHandlers } from '../tools/index.mjs'
+import { workspaceTools } from '../tools/definitions.mjs'
 import { projectContextFromId } from '../project-config.mjs'
+
+/**
+ * GET /api/tools — returns canonical tool definitions (no project context needed).
+ */
+export function handleGetTools(_req, res) {
+  sendJson(res, 200, { tools: workspaceTools })
+}
 
 export async function handleToolApi(req, res, url) {
   if (req.method !== 'POST') {

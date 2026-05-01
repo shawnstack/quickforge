@@ -3,127 +3,11 @@ import { Agent } from '@mariozechner/pi-agent-core'
 import { streamSimple } from '@mariozechner/pi-ai'
 import { Type } from 'typebox'
 import { toolHandlers } from './tools/index.mjs'
-import { projectContextFromId, readInstructionsFile } from './project-config.mjs'
-import { readStore, atomicUpdate, dataDir } from './storage.mjs'
-import path from 'node:path'
+import { projectContextFromId } from './project-config.mjs'
+import { readStore, atomicUpdate } from './storage.mjs'
 import { logger } from './utils/logger.mjs'
-
-// ---------------------------------------------------------------------------
-// System prompt
-// ---------------------------------------------------------------------------
-
-const BASE_SYSTEM_PROMPT =
-  'You are a helpful AI assistant. Answer clearly and pragmatically. If the user asks for code, prefer concise working examples. When YOLO mode is enabled, you may use the local workspace tools to inspect files, edit files, and run commands in the current project.'
-
-async function buildSystemPrompt(projectId) {
-  const parts = [BASE_SYSTEM_PROMPT]
-
-  const globalInstructions = await readInstructionsFile(path.join(dataDir, 'AGENTS.md'))
-  if (globalInstructions) {
-    parts.push(`\n<user_instructions>\n${globalInstructions}\n</user_instructions>`)
-  }
-
-  if (projectId) {
-    try {
-      const { workspaceRoot } = await projectContextFromId(projectId)
-      const projectInstructions = await readInstructionsFile(path.join(workspaceRoot, 'AGENTS.md'))
-      if (projectInstructions) {
-        parts.push(`\n<project_instructions>\n${projectInstructions}\n</project_instructions>`)
-      }
-    } catch {
-      // project not found — skip
-    }
-  }
-
-  return parts.join('\n')
-}
-
-// ---------------------------------------------------------------------------
-// AI title generation
-// ---------------------------------------------------------------------------
-
-function generateTitle(messages) {
-  const firstUser = messages.find(
-    (m) => m.role === 'user' || m.role === 'user-with-attachments',
-  )
-  if (!firstUser) return 'New chat'
-  const content = firstUser.content
-  const text = typeof content === 'string' ? content : Array.isArray(content)
-    ? content.filter((b) => b.type === 'text').map((b) => b.text ?? '').join(' ')
-    : ''
-  const normalized = text.trim().replace(/\s+/g, ' ')
-  if (!normalized) return 'New chat'
-  return normalized.length > 46 ? `${normalized.slice(0, 43)}...` : normalized
-}
-
-function normalizeAiTitle(value) {
-  return value
-    .trim()
-    .replace(/^[[\s"'""''`]+|[\]`\s"'""''.。,！!？?，,:：;；]+$/g, '')
-    .replace(/\s+/g, ' ')
-    .slice(0, 80)
-}
-
-async function generateAiTitle(messages, model, thinkingLevel, getApiKey) {
-  const firstUser = messages.find((m) => m.role === 'user' || m.role === 'user-with-attachments')
-  if (!firstUser) return null
-
-  const userText = typeof firstUser.content === 'string'
-    ? firstUser.content
-    : Array.isArray(firstUser.content)
-      ? firstUser.content.filter((b) => b.type === 'text').map((b) => b.text ?? '').join(' ')
-      : ''
-
-  if (!userText.trim()) return null
-
-  const firstAssistant = messages.find((m) => m.role === 'assistant')
-  let assistantReply = ''
-  if (firstAssistant) {
-    const content = firstAssistant.content
-    if (typeof content === 'string') {
-      assistantReply = content.slice(0, 2000)
-    } else if (Array.isArray(content)) {
-      assistantReply = content
-        .filter((b) => b.type === 'text')
-        .map((b) => b.text ?? '')
-        .join(' ')
-        .slice(0, 2000)
-    }
-  }
-
-  const conversationText = assistantReply
-    ? `User: ${userText.trim()}\n\nAssistant: ${assistantReply}`
-    : `User: ${userText.trim()}`
-
-  try {
-    const apiKey = getApiKey ? await getApiKey(model.provider) : undefined
-    const stream = streamSimple(
-      model,
-      {
-        systemPrompt: '你是对话标题生成器。请用和用户相同的语言，根据对话主题生成 3 到 5 个词的短标题。只输出标题，不要解释，不要标点。',
-        messages: [{ role: 'user', content: conversationText, timestamp: Date.now() }],
-        tools: [],
-      },
-      {
-        apiKey,
-        maxTokens: 160,
-        temperature: 0.2,
-        reasoning: thinkingLevel === 'off' ? 'minimal' : 'low',
-        maxRetryDelayMs: 60000,
-      },
-    )
-    const titleMessage = await stream.result()
-    const titleText = Array.isArray(titleMessage.content)
-      ? titleMessage.content.filter((b) => b.type === 'text').map((b) => b.text ?? '').join(' ').trim()
-      : ''
-    if (!titleText) return null
-    const title = normalizeAiTitle(titleText)
-    return title || null
-  } catch (error) {
-    console.warn('Failed to generate AI title:', error.message || error)
-    return null
-  }
-}
+import { buildSystemPrompt, generateAiTitle } from './session-utils.mjs'
+import { restoreReasoningContentInPayload } from './reasoning-cache.mjs'
 
 // ---------------------------------------------------------------------------
 // Tool definitions (server-side, no REST roundtrip)
@@ -216,52 +100,6 @@ function createServerTools(projectId, projectContext) {
       'sequential',
     ),
   ]
-}
-
-// ---------------------------------------------------------------------------
-// Reasoning content cache (server-side port)
-// ---------------------------------------------------------------------------
-
-const REASONING_FIELDS = ['reasoning_content', 'reasoning', 'reasoning_text']
-
-function isDeepSeekThinkingModel(model) {
-  if (!model) return false
-  const provider = String(model.provider ?? '').toLowerCase()
-  const baseUrl = String(model.baseUrl ?? '').toLowerCase()
-  const modelId = String(model.id ?? '').toLowerCase()
-  return (
-    modelId.includes('deepseek-v4') &&
-    (provider.includes('deepseek') ||
-      baseUrl.includes('api.deepseek.com') ||
-      baseUrl.includes('deepseek.com'))
-  )
-}
-
-function restoreReasoningContentInPayload(payload, messages, model) {
-  if (!isDeepSeekThinkingModel(model)) return
-  if (!payload?.messages || !Array.isArray(payload.messages)) return
-
-  const assistantMessages = messages.filter((m) => m.role === 'assistant')
-  const payloadMessages = payload.messages
-
-  for (let i = payloadMessages.length - 1; i >= 0; i--) {
-    const msg = payloadMessages[i]
-    if (!msg || typeof msg !== 'object' || msg.role !== 'assistant') continue
-    if (msg.reasoning_content || msg.reasoning || msg.reasoning_text) continue
-
-    // Find corresponding message from agent state
-    for (let j = assistantMessages.length - 1; j >= 0; j--) {
-      const cached = assistantMessages[j]
-      if (!cached) continue
-      for (const field of REASONING_FIELDS) {
-        if (cached[field]) {
-          msg[field] = cached[field]
-          break
-        }
-      }
-      if (msg.reasoning_content || msg.reasoning || msg.reasoning_text) break
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -776,7 +614,7 @@ export async function resetStaleTaskStatuses() {
       }
     }
     if (changed) {
-      await writeStore('sessions-metadata', metadataStore)
+      await atomicUpdate('sessions-metadata', () => metadataStore)
       logger.info('Reset stale task statuses in persisted metadata')
     }
   } catch (err) {

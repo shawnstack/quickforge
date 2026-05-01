@@ -22,7 +22,11 @@ export function useCrossTabSync(callbacks: {
   onSettingsChanged: () => void
 }) {
   const callbacksRef = useRef(callbacks)
-  callbacksRef.current = callbacks
+
+  // Sync callbacks ref on every render so the channel listener always has the latest
+  useEffect(() => {
+    callbacksRef.current = callbacks
+  })
 
   const tabId = useRef(crypto.randomUUID())
 

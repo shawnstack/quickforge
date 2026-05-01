@@ -11,7 +11,7 @@ import { getWorkspaceRoot } from './utils/workspace.mjs'
 import { handleStorageApi } from './routes/storage.mjs'
 import { handleProjectApi } from './routes/project.mjs'
 import { handleFilesystemApi } from './routes/filesystem.mjs'
-import { handleToolApi } from './routes/tools.mjs'
+import { handleToolApi, handleGetTools } from './routes/tools.mjs'
 import { handleInstructionsApi } from './routes/instructions.mjs'
 import { handleAgentApi } from './routes/agent.mjs'
 import { serveStatic } from './routes/static.mjs'
@@ -66,6 +66,12 @@ async function handleApi(req, res, url) {
   // Filesystem routes
   if (pathname === '/api/filesystem' || pathname.startsWith('/api/filesystem/')) {
     await handleFilesystemApi(req, res, url)
+    return
+  }
+
+  // Tool definitions (canonical)
+  if (req.method === 'GET' && pathname === '/api/tools') {
+    handleGetTools(req, res)
     return
   }
 

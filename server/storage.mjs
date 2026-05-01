@@ -169,6 +169,19 @@ function sessionStoreFile(storeName, bucket) {
   return path.join(storageDir, 'conversations', 'global', `${storeName}.json`)
 }
 
+function sessionDataDir(bucket) {
+  if (bucket.scope === 'project') {
+    assertSafePathSegment(bucket.projectId)
+    return path.join(storageDir, 'conversations', 'projects', bucket.projectId, 'sessions')
+  }
+  return path.join(storageDir, 'conversations', 'global', 'sessions')
+}
+
+function sessionDataFile(sessionId, bucket) {
+  assertSafePathSegment(sessionId)
+  return path.join(sessionDataDir(bucket), `${sessionId}.json`)
+}
+
 export async function ensureProjectCache(projectId) {
   const safeProjectId = String(projectId || '')
   assertSafePathSegment(safeProjectId)
@@ -233,6 +246,113 @@ async function listProjectSessionFiles(storeName) {
     .map((entry) => path.join(projectsDir, entry.name, `${storeName}.json`))
 }
 
+async function listProjectIds() {
+  const projectsDir = path.join(storageDir, 'conversations', 'projects')
+  let entries = []
+  try {
+    entries = await fs.readdir(projectsDir, { withFileTypes: true })
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+
+  return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
+}
+
+async function listSessionDataFiles(bucket) {
+  const dir = sessionDataDir(bucket)
+  let entries = []
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true })
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+    .map((entry) => path.join(dir, entry.name))
+}
+
+async function readSessionValuesScoped(scope, projectId) {
+  const bucket = scope === 'project' ? { scope: 'project', projectId } : { scope: 'global' }
+  const files = await listSessionDataFiles(bucket)
+  const result = {}
+  for (const file of files) {
+    const value = await readJsonFile(file, null)
+    if (value?.id) result[value.id] = value
+  }
+  return result
+}
+
+async function readAllSessionValues() {
+  const result = await readSessionValuesScoped('global')
+  for (const projectId of await listProjectIds()) {
+    Object.assign(result, await readSessionValuesScoped('project', projectId))
+  }
+  return result
+}
+
+async function writeSessionValueFile(sessionId, value) {
+  await writeJsonAtomic(sessionDataFile(sessionId, sessionBucket(value)), value)
+}
+
+async function writeSessionValues(data) {
+  const nextIds = new Set(Object.keys(data || {}))
+  const existingFiles = [
+    ...(await listSessionDataFiles({ scope: 'global' })),
+    ...(await Promise.all(
+      (await listProjectIds()).map((projectId) => listSessionDataFiles({ scope: 'project', projectId })),
+    )).flat(),
+  ]
+
+  await Promise.all(
+    existingFiles.map(async (file) => {
+      const sessionId = path.basename(file, '.json')
+      if (!nextIds.has(sessionId)) await fs.rm(file, { force: true })
+    }),
+  )
+
+  await Promise.all(
+    Object.entries(data || {}).map(([sessionId, value]) => writeSessionValueFile(sessionId, value)),
+  )
+}
+
+export async function findSessionBucket(sessionId) {
+  await ensureStorage()
+
+  const globalMetadata = await readJsonFile(sessionStoreFile('sessions-metadata', { scope: 'global' }), {})
+  const globalMeta = globalMetadata?.[sessionId]
+  if (globalMeta) return sessionBucket(globalMeta)
+
+  for (const projectId of await listProjectIds()) {
+    const metadata = await readJsonFile(sessionStoreFile('sessions-metadata', { scope: 'project', projectId }), {})
+    const meta = metadata?.[sessionId]
+    if (meta) return sessionBucket(meta)
+  }
+
+  return null
+}
+
+export async function readSessionValue(sessionId) {
+  const bucket = await findSessionBucket(sessionId)
+  if (!bucket) return null
+  return readJsonFile(sessionDataFile(sessionId, bucket), null)
+}
+
+export async function writeSessionValue(sessionId, value) {
+  return enqueueWrite('sessions', async () => {
+    await ensureStorage()
+    await writeSessionValueFile(sessionId, value)
+  })
+}
+
+export async function deleteSessionValue(sessionId) {
+  return enqueueWrite('sessions', async () => {
+    const bucket = await findSessionBucket(sessionId)
+    if (!bucket) return
+    await fs.rm(sessionDataFile(sessionId, bucket), { force: true })
+  })
+}
+
 async function listSessionStoreFiles(storeName) {
   return [
     sessionStoreFile(storeName, { scope: 'global' }),
@@ -241,6 +361,8 @@ async function listSessionStoreFiles(storeName) {
 }
 
 async function readSessionStore(storeName) {
+  if (storeName === 'sessions') return readAllSessionValues()
+
   const files = await listSessionStoreFiles(storeName)
   const result = {}
   for (const file of files) {
@@ -251,11 +373,18 @@ async function readSessionStore(storeName) {
 
 export async function readSessionStoreScoped(storeName, scope, projectId) {
   await ensureStorage()
+  if (storeName === 'sessions') return readSessionValuesScoped(scope, projectId)
+
   const file = sessionStoreFile(storeName, { scope, projectId })
   return readJsonFile(file, {})
 }
 
 async function writeSessionStore(storeName, data) {
+  if (storeName === 'sessions') {
+    await writeSessionValues(data)
+    return
+  }
+
   const buckets = new Map()
 
   for (const [key, value] of Object.entries(data || {})) {
@@ -324,7 +453,6 @@ async function migrateUnifiedConfig() {
   await writeConfigFile(current)
 
   if (!existsSync(legacyStorageMigrationMarkerFile)) {
-    await migrateLegacySessionStore('sessions')
     await migrateLegacySessionStore('sessions-metadata')
     await fs.mkdir(path.dirname(legacyStorageMigrationMarkerFile), { recursive: true })
     await fs.writeFile(legacyStorageMigrationMarkerFile, `${new Date().toISOString()}\n`, 'utf8')
@@ -398,6 +526,7 @@ export async function ensureStorage() {
     fs.mkdir(path.join(cacheDir, 'global', 'llm'), { recursive: true }),
     fs.mkdir(path.join(cacheDir, 'global', 'tmp'), { recursive: true }),
     fs.mkdir(path.join(cacheDir, 'projects'), { recursive: true }),
+    fs.mkdir(path.join(storageDir, 'conversations', 'global', 'sessions'), { recursive: true }),
     fs.mkdir(path.join(storageDir, 'conversations', 'projects'), { recursive: true }),
   ])
 
@@ -405,7 +534,7 @@ export async function ensureStorage() {
 
   await Promise.all([
     ensureJsonFile(quickForgeConfigFile, defaultConfig()),
-    ...[...sessionStores].map((store) => ensureJsonFile(sessionStoreFile(store, { scope: 'global' }))),
+    ensureJsonFile(sessionStoreFile('sessions-metadata', { scope: 'global' })),
   ])
 }
 

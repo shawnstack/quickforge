@@ -4,7 +4,7 @@ import { streamSimple } from '@mariozechner/pi-ai'
 import { Type } from 'typebox'
 import { toolHandlers } from './tools/index.mjs'
 import { projectContextFromId } from './project-config.mjs'
-import { readStore, atomicUpdate } from './storage.mjs'
+import { readStore, atomicUpdate, readSessionValue, writeSessionValue } from './storage.mjs'
 import { logger } from './utils/logger.mjs'
 import { buildSystemPrompt, generateAiTitle } from './session-utils.mjs'
 import { restoreReasoningContentInPayload } from './reasoning-cache.mjs'
@@ -366,10 +366,7 @@ async function persistSession(session) {
 
   // Write to storage atomically (read-modify-write within queue)
   try {
-    await atomicUpdate('sessions', (data) => {
-      data[sessionId] = sessionData
-      return data
-    })
+    await writeSessionValue(sessionId, sessionData)
     await atomicUpdate('sessions-metadata', (data) => {
       data[sessionId] = metadata
       return data
@@ -567,8 +564,7 @@ export async function restoreAgent(sessionId) {
   if (existing) return existing
 
   try {
-    const sessionsStore = await readStore('sessions')
-    const sessionData = sessionsStore?.[sessionId]
+    const sessionData = await readSessionValue(sessionId)
     if (!sessionData) {
       logger.warn(`Cannot restore session ${sessionId}: no stored data found`)
       return null

@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
-import { readStore, writeStore, atomicUpdate, getComparable, readSessionStoreScoped, ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir } from '../storage.mjs'
+import { readStore, writeStore, atomicUpdate, getComparable, readSessionStoreScoped, readSessionValue, writeSessionValue, deleteSessionValue, ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir } from '../storage.mjs'
 import { directorySize } from '../utils/workspace.mjs'
 
 export async function handleStorageApi(req, res, url) {
@@ -96,6 +96,11 @@ export async function handleStorageApi(req, res, url) {
     }
 
     if (req.method === 'GET') {
+      if (store === 'sessions') {
+        sendJson(res, 200, { value: await readSessionValue(key) })
+        return
+      }
+
       const data = await readStore(store)
       sendJson(res, 200, { value: Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null })
       return
@@ -103,6 +108,12 @@ export async function handleStorageApi(req, res, url) {
 
     if (req.method === 'PUT') {
       const body = await readJsonBody(req)
+      if (store === 'sessions') {
+        await writeSessionValue(key, body?.value)
+        sendJson(res, 200, { ok: true })
+        return
+      }
+
       await atomicUpdate(store, (data) => {
         data[key] = body?.value
         return data
@@ -112,6 +123,16 @@ export async function handleStorageApi(req, res, url) {
     }
 
     if (req.method === 'DELETE') {
+      if (store === 'sessions') {
+        await deleteSessionValue(key)
+        await atomicUpdate('sessions-metadata', (data) => {
+          delete data[key]
+          return data
+        })
+        sendJson(res, 200, { ok: true })
+        return
+      }
+
       await atomicUpdate(store, (data) => {
         delete data[key]
         return data

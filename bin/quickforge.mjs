@@ -11,6 +11,11 @@ const __dirname = path.dirname(__filename)
 const pidFile = path.join(os.homedir(), '.quickforge', 'quickforge.pid')
 const serverScript = path.resolve(__dirname, '..', 'server', 'index.mjs')
 
+function getDataDir() {
+  if (process.env.QUICKFORGE_DATA_DIR) return path.resolve(process.env.QUICKFORGE_DATA_DIR)
+  return path.join(os.homedir(), '.quickforge')
+}
+
 async function readPid() {
   try {
     const text = await fs.readFile(pidFile, 'utf8')
@@ -92,9 +97,14 @@ async function cmdStart() {
   await writePid(child.pid)
   child.unref()
 
+  const dataDir = getDataDir()
   console.log(`QuickForge started (PID ${child.pid}).`)
   console.log(`Open: http://localhost:5176`)
-  console.log(`Data: ${path.join(os.homedir(), '.quickforge', 'storage')}`)
+  console.log(`Data: ${dataDir}`)
+  console.log(`Config: ${path.join(dataDir, 'config', 'config.json')}`)
+  console.log(`Storage: ${path.join(dataDir, 'storage')}`)
+  console.log(`Cache: ${path.join(dataDir, 'cache')}`)
+  console.log(`Logs: ${path.join(dataDir, 'logs')}`)
   console.log('')
   console.log('Commands:')
   console.log('  quickforge stop     Stop the background service')

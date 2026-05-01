@@ -5,7 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { sendJson, sendError } from './utils/response.mjs'
 import { openBrowser } from './utils/platform.mjs'
-import { ensureStorage, dataDir, storageDir } from './storage.mjs'
+import { ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir } from './storage.mjs'
 import { setDefaultWorkspaceRoot, initializeActiveProject, readProjectConfig, getActiveProject } from './project-config.mjs'
 import { getWorkspaceRoot } from './utils/workspace.mjs'
 import { handleStorageApi } from './routes/storage.mjs'
@@ -39,7 +39,10 @@ async function handleApi(req, res, url) {
       ok: true,
       mode: isDev ? 'development' : 'production',
       dataDir,
+      configDir,
       storageDir,
+      cacheDir,
+      logsDir,
       workspaceRoot: getWorkspaceRoot(),
       project: getActiveProject(config),
     })

@@ -10,61 +10,398 @@ export const stores = new Set([
   'sessions-metadata',
 ])
 
+const configStores = new Set(['settings', 'provider-keys', 'custom-providers'])
+const sessionStores = new Set(['sessions', 'sessions-metadata'])
+
+const configStoreSections = {
+  settings: ['app', 'settings'],
+  'provider-keys': ['credentials', 'providerKeys'],
+  'custom-providers': ['providers', 'customProviders'],
+}
+
 export function getDataDir() {
   if (process.env.QUICKFORGE_DATA_DIR) return path.resolve(process.env.QUICKFORGE_DATA_DIR)
   return path.join(os.homedir(), '.quickforge')
 }
 
 export const dataDir = getDataDir()
+export const configDir = path.join(dataDir, 'config')
 export const storageDir = path.join(dataDir, 'storage')
+export const cacheDir = path.join(dataDir, 'cache')
+export const logsDir = path.join(dataDir, 'logs')
+
+const quickForgeConfigFile = path.join(configDir, 'config.json')
+const configMigrationMarkerFile = path.join(configDir, '.layout-migrated')
+const legacyStorageMigrationMarkerFile = path.join(storageDir, '.layout-migrated')
 
 export function storeFile(storeName) {
+  assertStore(storeName)
+  if (configStores.has(storeName)) return quickForgeConfigFile
+  return sessionStoreFile(storeName, { scope: 'global' })
+}
+
+export function configFile() {
+  return quickForgeConfigFile
+}
+
+// Compatibility export for older modules/imports. Project config now lives inside config/config.json -> projects.
+export function projectConfigFile() {
+  return quickForgeConfigFile
+}
+
+function legacyFlatStoreFile(storeName) {
   return path.join(storageDir, `${storeName}.json`)
 }
 
-export function projectConfigFile() {
+function legacyNestedStoreFile(storeName) {
+  const paths = {
+    settings: ['config', 'settings.json'],
+    'provider-keys': ['credentials', 'provider-keys.json'],
+    'custom-providers': ['providers', 'custom-providers.json'],
+  }
+  return path.join(storageDir, ...paths[storeName])
+}
+
+function legacyFlatProjectConfigFile() {
   return path.join(storageDir, 'project.json')
+}
+
+function legacyNestedProjectConfigFile() {
+  return path.join(storageDir, 'projects', 'project.json')
+}
+
+function defaultProjectConfig() {
+  return {
+    activeProjectId: null,
+    projects: [],
+  }
+}
+
+function defaultConfig() {
+  return {
+    layoutVersion: 1,
+    updatedAt: new Date().toISOString(),
+    app: {
+      settings: {},
+    },
+    providers: {
+      customProviders: {},
+    },
+    credentials: {
+      providerKeys: {},
+    },
+    projects: defaultProjectConfig(),
+  }
+}
+
+function normalizeProjectConfig(value) {
+  if (!value || typeof value !== 'object' || !Array.isArray(value.projects)) return defaultProjectConfig()
+  return {
+    activeProjectId: typeof value.activeProjectId === 'string' ? value.activeProjectId : null,
+    projects: value.projects,
+  }
+}
+
+function normalizeConfig(value) {
+  const base = defaultConfig()
+  const input = value && typeof value === 'object' ? value : {}
+
+  return {
+    ...input,
+    layoutVersion: Number(input.layoutVersion || base.layoutVersion),
+    updatedAt: typeof input.updatedAt === 'string' ? input.updatedAt : base.updatedAt,
+    app: {
+      ...(input.app && typeof input.app === 'object' ? input.app : {}),
+      settings:
+        input.app?.settings && typeof input.app.settings === 'object'
+          ? input.app.settings
+          : base.app.settings,
+    },
+    providers: {
+      ...(input.providers && typeof input.providers === 'object' ? input.providers : {}),
+      customProviders:
+        input.providers?.customProviders && typeof input.providers.customProviders === 'object'
+          ? input.providers.customProviders
+          : base.providers.customProviders,
+    },
+    credentials: {
+      ...(input.credentials && typeof input.credentials === 'object' ? input.credentials : {}),
+      providerKeys:
+        input.credentials?.providerKeys && typeof input.credentials.providerKeys === 'object'
+          ? input.credentials.providerKeys
+          : base.credentials.providerKeys,
+    },
+    projects: normalizeProjectConfig(input.projects),
+  }
+}
+
+function configSection(config, storeName) {
+  const [section, key] = configStoreSections[storeName]
+  return config?.[section]?.[key] && typeof config[section][key] === 'object' ? config[section][key] : {}
+}
+
+function setConfigSection(config, storeName, data) {
+  const [section, key] = configStoreSections[storeName]
+  config[section] = config[section] && typeof config[section] === 'object' ? config[section] : {}
+  config[section][key] = data && typeof data === 'object' ? data : {}
+}
+
+function sessionBucket(value) {
+  if (value?.scope === 'project' && value?.projectId) {
+    return { scope: 'project', projectId: String(value.projectId) }
+  }
+  return { scope: 'global' }
+}
+
+function assertSafePathSegment(segment) {
+  if (!segment || segment === '.' || segment === '..' || /[\\/]/.test(segment)) {
+    const error = new Error(`Invalid path segment: ${segment}`)
+    error.statusCode = 400
+    throw error
+  }
+}
+
+function sessionStoreFile(storeName, bucket) {
+  if (bucket.scope === 'project') {
+    assertSafePathSegment(bucket.projectId)
+    return path.join(storageDir, 'conversations', 'projects', bucket.projectId, `${storeName}.json`)
+  }
+  return path.join(storageDir, 'conversations', 'global', `${storeName}.json`)
+}
+
+export async function ensureProjectCache(projectId) {
+  const safeProjectId = String(projectId || '')
+  assertSafePathSegment(safeProjectId)
+  const projectCacheDir = path.join(cacheDir, 'projects', safeProjectId)
+
+  await Promise.all([
+    fs.mkdir(path.join(projectCacheDir, 'workspace', 'file-index'), { recursive: true }),
+    fs.mkdir(path.join(projectCacheDir, 'workspace', 'grep'), { recursive: true }),
+    fs.mkdir(path.join(projectCacheDir, 'llm', 'responses'), { recursive: true }),
+    fs.mkdir(path.join(projectCacheDir, 'llm', 'reasoning'), { recursive: true }),
+    fs.mkdir(path.join(projectCacheDir, 'assets'), { recursive: true }),
+    fs.mkdir(path.join(projectCacheDir, 'tmp'), { recursive: true }),
+  ])
+
+  return projectCacheDir
+}
+
+async function ensureJsonFile(file, defaultValue = {}) {
+  await fs.mkdir(path.dirname(file), { recursive: true })
+  if (!existsSync(file)) await fs.writeFile(file, `${JSON.stringify(defaultValue, null, 2)}\n`, 'utf8')
+}
+
+async function readJsonFile(file, defaultValue = {}) {
+  try {
+    const text = await fs.readFile(file, 'utf8')
+    return text.trim() ? JSON.parse(text) : defaultValue
+  } catch (error) {
+    if (error?.code === 'ENOENT') return defaultValue
+    throw error
+  }
+}
+
+async function writeJsonAtomic(file, data) {
+  await fs.mkdir(path.dirname(file), { recursive: true })
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
+  await fs.writeFile(tmp, `${JSON.stringify(data, null, 2)}\n`, 'utf8')
+  await fs.rename(tmp, file)
+}
+
+async function readConfigFile() {
+  return normalizeConfig(await readJsonFile(quickForgeConfigFile, defaultConfig()))
+}
+
+async function writeConfigFile(config) {
+  const next = normalizeConfig(config)
+  next.layoutVersion = 1
+  next.updatedAt = new Date().toISOString()
+  await writeJsonAtomic(quickForgeConfigFile, next)
+}
+
+async function listProjectSessionFiles(storeName) {
+  const projectsDir = path.join(storageDir, 'conversations', 'projects')
+  let entries = []
+  try {
+    entries = await fs.readdir(projectsDir, { withFileTypes: true })
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+
+  return entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(projectsDir, entry.name, `${storeName}.json`))
+}
+
+async function listSessionStoreFiles(storeName) {
+  return [
+    sessionStoreFile(storeName, { scope: 'global' }),
+    ...(await listProjectSessionFiles(storeName)),
+  ]
+}
+
+async function readSessionStore(storeName) {
+  const files = await listSessionStoreFiles(storeName)
+  const result = {}
+  for (const file of files) {
+    Object.assign(result, await readJsonFile(file, {}))
+  }
+  return result
+}
+
+async function writeSessionStore(storeName, data) {
+  const buckets = new Map()
+
+  for (const [key, value] of Object.entries(data || {})) {
+    const bucket = sessionBucket(value)
+    const bucketKey = bucket.scope === 'project' ? `project:${bucket.projectId}` : 'global'
+    if (!buckets.has(bucketKey)) buckets.set(bucketKey, { bucket, data: {} })
+    buckets.get(bucketKey).data[key] = value
+  }
+
+  const filesToWrite = new Set(await listSessionStoreFiles(storeName))
+  for (const { bucket } of buckets.values()) {
+    filesToWrite.add(sessionStoreFile(storeName, bucket))
+  }
+
+  await Promise.all(
+    [...filesToWrite].map(async (file) => {
+      const bucketEntry = [...buckets.values()].find((entry) => sessionStoreFile(storeName, entry.bucket) === file)
+      await writeJsonAtomic(file, bucketEntry?.data ?? {})
+    }),
+  )
+}
+
+async function migrateLegacySessionStore(storeName) {
+  const file = legacyFlatStoreFile(storeName)
+  if (!existsSync(file)) return
+
+  const legacy = await readJsonFile(file, {})
+  const current = await readSessionStore(storeName)
+  const merged = { ...legacy, ...current }
+  await writeSessionStore(storeName, merged)
+}
+
+async function migrateUnifiedConfig() {
+  if (existsSync(configMigrationMarkerFile)) return
+
+  const current = await readConfigFile()
+  const flatSettings = await readJsonFile(legacyFlatStoreFile('settings'), {})
+  const nestedSettings = await readJsonFile(legacyNestedStoreFile('settings'), {})
+  const flatProviderKeys = await readJsonFile(legacyFlatStoreFile('provider-keys'), {})
+  const nestedProviderKeys = await readJsonFile(legacyNestedStoreFile('provider-keys'), {})
+  const flatCustomProviders = await readJsonFile(legacyFlatStoreFile('custom-providers'), {})
+  const nestedCustomProviders = await readJsonFile(legacyNestedStoreFile('custom-providers'), {})
+  const flatProjects = normalizeProjectConfig(await readJsonFile(legacyFlatProjectConfigFile(), defaultProjectConfig()))
+  const nestedProjects = normalizeProjectConfig(await readJsonFile(legacyNestedProjectConfigFile(), defaultProjectConfig()))
+
+  current.app.settings = {
+    ...flatSettings,
+    ...nestedSettings,
+    ...current.app.settings,
+  }
+  current.credentials.providerKeys = {
+    ...flatProviderKeys,
+    ...nestedProviderKeys,
+    ...current.credentials.providerKeys,
+  }
+  current.providers.customProviders = {
+    ...flatCustomProviders,
+    ...nestedCustomProviders,
+    ...current.providers.customProviders,
+  }
+
+  if (current.projects.projects.length === 0) {
+    current.projects = nestedProjects.projects.length > 0 ? nestedProjects : flatProjects
+  }
+
+  await writeConfigFile(current)
+
+  if (!existsSync(legacyStorageMigrationMarkerFile)) {
+    await migrateLegacySessionStore('sessions')
+    await migrateLegacySessionStore('sessions-metadata')
+    await fs.mkdir(path.dirname(legacyStorageMigrationMarkerFile), { recursive: true })
+    await fs.writeFile(legacyStorageMigrationMarkerFile, `${new Date().toISOString()}\n`, 'utf8')
+  }
+
+  await fs.mkdir(path.dirname(configMigrationMarkerFile), { recursive: true })
+  await fs.writeFile(configMigrationMarkerFile, `${new Date().toISOString()}\n`, 'utf8')
 }
 
 const writeQueues = new Map()
 
+function enqueueWrite(queueName, operation) {
+  const previous = writeQueues.get(queueName) || Promise.resolve()
+  const next = previous
+    .catch(() => undefined)
+    .then(operation)
+  writeQueues.set(queueName, next)
+  return next
+}
+
 export async function ensureStorage() {
+  await fs.mkdir(configDir, { recursive: true })
   await fs.mkdir(storageDir, { recursive: true })
-  await Promise.all(
-    [...stores].map(async (store) => {
-      const file = storeFile(store)
-      if (!existsSync(file)) await fs.writeFile(file, '{}\n', 'utf8')
-    }),
-  )
+  await fs.mkdir(cacheDir, { recursive: true })
+  await fs.mkdir(logsDir, { recursive: true })
+  await Promise.all([
+    fs.mkdir(path.join(cacheDir, 'global', 'llm'), { recursive: true }),
+    fs.mkdir(path.join(cacheDir, 'global', 'tmp'), { recursive: true }),
+    fs.mkdir(path.join(cacheDir, 'projects'), { recursive: true }),
+    fs.mkdir(path.join(storageDir, 'conversations', 'projects'), { recursive: true }),
+  ])
+
+  await migrateUnifiedConfig()
+
+  await Promise.all([
+    ensureJsonFile(quickForgeConfigFile, defaultConfig()),
+    ...[...sessionStores].map((store) => ensureJsonFile(sessionStoreFile(store, { scope: 'global' }))),
+  ])
 }
 
 export async function readStore(storeName) {
   assertStore(storeName)
   await ensureStorage()
-  const file = storeFile(storeName)
-  try {
-    const text = await fs.readFile(file, 'utf8')
-    return text.trim() ? JSON.parse(text) : {}
-  } catch (error) {
-    if (error?.code === 'ENOENT') return {}
-    throw error
+
+  if (configStores.has(storeName)) {
+    const config = await readConfigFile()
+    return configSection(config, storeName)
   }
+
+  return readSessionStore(storeName)
 }
 
 export async function writeStore(storeName, data) {
   assertStore(storeName)
-  const previous = writeQueues.get(storeName) || Promise.resolve()
-  const next = previous
-    .catch(() => undefined)
-    .then(async () => {
-      await ensureStorage()
-      const file = storeFile(storeName)
-      const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
-      await fs.writeFile(tmp, `${JSON.stringify(data, null, 2)}\n`, 'utf8')
-      await fs.rename(tmp, file)
-    })
-  writeQueues.set(storeName, next)
-  return next
+  const queueName = configStores.has(storeName) ? 'config' : storeName
+
+  return enqueueWrite(queueName, async () => {
+    await ensureStorage()
+
+    if (configStores.has(storeName)) {
+      const config = await readConfigFile()
+      setConfigSection(config, storeName, data)
+      await writeConfigFile(config)
+      return
+    }
+
+    await writeSessionStore(storeName, data)
+  })
+}
+
+export async function readProjectConfigData() {
+  await ensureStorage()
+  const config = await readConfigFile()
+  return normalizeProjectConfig(config.projects)
+}
+
+export async function writeProjectConfigData(projectConfig) {
+  return enqueueWrite('config', async () => {
+    await ensureStorage()
+    const config = await readConfigFile()
+    config.projects = normalizeProjectConfig(projectConfig)
+    await writeConfigFile(config)
+  })
 }
 
 function assertStore(storeName) {
@@ -82,4 +419,3 @@ export function getComparable(value, key) {
     return current[part]
   }, value)
 }
-

@@ -17,10 +17,12 @@ import { ProjectDirectoryPicker } from '@/components/project-directory-picker'
 import {
   buildConnectionModel,
   DEFAULT_CONNECTION,
+  getConfiguredModels,
   initializePiStorage,
-  loadActiveModel,
+  loadInitialConfiguredModel,
   normalizeModelForProvider,
   resolveConfiguredModel,
+  saveConnectionProfile,
 } from '@/lib/pi-chat'
 import { createCustomProvidersOnlyTab } from '@/lib/custom-providers-only-tab'
 import { initializeAppLanguage, t } from '@/lib/i18n'
@@ -52,6 +54,7 @@ import type {
 } from '@/lib/types'
 import { calculateUsage, sessionScope, sessionTitle } from '@/lib/types'
 import { ChatPanelHost } from '@/components/chat/ChatPanelHost'
+import { ModelSetupEmptyState } from '@/components/chat/ModelSetupEmptyState'
 import { ChatSidebar } from '@/components/sidebar/ChatSidebar'
 import { useProject } from '@/hooks/useProject'
 import { useYoloMode } from '@/hooks/useYoloMode'
@@ -104,6 +107,7 @@ function App() {
   const [conversationsCollapsed, setConversationsCollapsed] = useState(false)
   const [ready, setReady] = useState(false)
   const [startupError, setStartupError] = useState<string>()
+  const [needsModelSetup, setNeedsModelSetup] = useState(false)
   const [chatPanelRevision, setChatPanelRevision] = useState(0)
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
   const [taskStatuses, setTaskStatuses] = useState<Record<string, BackgroundTaskStatus>>({})
@@ -267,6 +271,7 @@ function App() {
     setCurrentSessionId(task.sessionId)
     setCurrentTitle(task.title)
     setCurrentToolProject(task.project)
+    setNeedsModelSetup(false)
     agentRef.current = task.agent
     setAgent(task.agent)
 
@@ -400,6 +405,11 @@ function App() {
 
   // --- Chat actions ---
   const startNewGlobalChat = useCallback(async () => {
+    if (needsModelSetup) {
+      alert(t('modelSetupRequired'))
+      return
+    }
+
     const sessionId = crypto.randomUUID()
     const url = new URL(window.location.href)
     url.searchParams.delete('session')
@@ -410,9 +420,14 @@ function App() {
       sessionId,
       { scope: 'global', attachToView: true },
     )
-  }, [createAgent])
+  }, [createAgent, needsModelSetup])
 
   const startNewProjectChat = useCallback(async (targetProject?: ProjectInfo) => {
+    if (needsModelSetup) {
+      alert(t('modelSetupRequired'))
+      return
+    }
+
     const nextProject = targetProject ?? activeProjectRef.current
     if (!nextProject) return
 
@@ -430,7 +445,7 @@ function App() {
       sessionId,
       { scope: 'project', project: nextProject, attachToView: true },
     )
-  }, [createAgent, switchActiveProject])
+  }, [createAgent, needsModelSetup, switchActiveProject])
 
   const loadSession = useCallback(
     async (sessionId: string) => {
@@ -533,8 +548,8 @@ function App() {
       const savedYoloMode = await initYoloMode(storage)
       yoloModeRef.current = savedYoloMode
 
-      const initialModel = (await loadActiveModel(storage)) ?? buildConnectionModel(DEFAULT_CONNECTION)
-      activeModelRef.current = initialModel
+      const initialModel = await loadInitialConfiguredModel(storage)
+      if (initialModel) activeModelRef.current = initialModel
 
       const sessionId = new URLSearchParams(window.location.search).get('session')
       if (sessionId) {
@@ -551,11 +566,15 @@ function App() {
               } catch (error) {
                 console.error('Failed to switch project for initial session:', error)
                 alert(t('projectSwitchFailed'))
-                await createAgent(
-                  { model: initialModel, tools: [] },
-                  crypto.randomUUID(),
-                  { scope: 'global', attachToView: true },
-                )
+                if (initialModel) {
+                  await createAgent(
+                    { model: initialModel, tools: [] },
+                    crypto.randomUUID(),
+                    { scope: 'global', attachToView: true },
+                  )
+                } else {
+                  setNeedsModelSetup(true)
+                }
                 setReady(true)
                 return
               }
@@ -581,19 +600,23 @@ function App() {
               title: existing.title,
             },
           )
-        } else {
+        } else if (initialModel) {
           await createAgent(
             { model: initialModel, tools: [] },
             crypto.randomUUID(),
             { scope: 'global', attachToView: true },
           )
+        } else {
+          setNeedsModelSetup(true)
         }
-      } else {
+      } else if (initialModel) {
         await createAgent(
           { model: initialModel, tools: [] },
           crypto.randomUUID(),
           { scope: 'global', attachToView: true },
         )
+      } else {
+        setNeedsModelSetup(true)
       }
 
         setReady(true)
@@ -774,7 +797,77 @@ function App() {
     }
   }, [createAgent, persistTaskSession])
 
-  // --- Model selection ---
+  // --- Model setup / selection ---
+  const activateConfiguredModel = useCallback(async () => {
+    const storage = storageRef.current
+    if (!storage) return false
+
+    const model = await loadInitialConfiguredModel(storage)
+    if (!model) {
+      setNeedsModelSetup(true)
+      return false
+    }
+
+    activeModelRef.current = model
+    setNeedsModelSetup(false)
+    await saveActiveModel(storage, model)
+
+    const currentAgent = agentRef.current
+    if (currentAgent) {
+      currentAgent.state.model = model
+      setChatPanelRevision((value) => value + 1)
+    } else {
+      await createAgent(
+        { model, tools: [] },
+        crypto.randomUUID(),
+        { scope: 'global', attachToView: true },
+      )
+    }
+
+    return true
+  }, [createAgent])
+
+  const openModelSettings = useCallback(() => {
+    SettingsDialog.open(
+      [createLanguageSettingsTab(), createCustomProvidersOnlyTab(), new ProxyTab()],
+      () => {
+        if (needsModelSetup || !agentRef.current) {
+          void activateConfiguredModel().catch((error) => console.error('Failed to activate configured model:', error))
+        }
+      },
+    )
+    window.setTimeout(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const dialog = document.querySelector('settings-dialog') as any
+      if (dialog) {
+        dialog.activeTabIndex = 1
+        dialog.requestUpdate?.()
+      }
+    }, 0)
+  }, [activateConfiguredModel, needsModelSetup])
+
+  const useLiteLlmExampleModel = useCallback(async () => {
+    const storage = storageRef.current
+    if (!storage) return
+
+    const model = buildConnectionModel(DEFAULT_CONNECTION)
+    await saveConnectionProfile(storage, DEFAULT_CONNECTION, model)
+    await saveActiveModel(storage, model)
+    activeModelRef.current = model
+    setNeedsModelSetup(false)
+
+    if (agentRef.current) {
+      agentRef.current.state.model = model
+      setChatPanelRevision((value) => value + 1)
+    } else {
+      await createAgent(
+        { model, tools: [] },
+        crypto.randomUUID(),
+        { scope: 'global', attachToView: true },
+      )
+    }
+  }, [createAgent])
+
   const openCustomModelSelector = useCallback(async () => {
     const storage = storageRef.current
     const currentAgent = agentRef.current
@@ -793,11 +886,11 @@ function App() {
       }
     }
 
-    const customModels = customProviders.flatMap((provider) => provider.models ?? [])
+    const customModels = await getConfiguredModels(storage)
 
     if (customModels.length === 0) {
       if (confirm(t('addCustomModelFirst'))) {
-        SettingsDialog.open([createLanguageSettingsTab(), createCustomProvidersOnlyTab(), new ProxyTab()])
+        openModelSettings()
       }
       return
     }
@@ -832,7 +925,7 @@ function App() {
         }
       },
     )
-  }, [])
+  }, [openModelSettings])
 
   // --- Derived data ---
   const globalSessions = sessions.filter((session) => sessionScope(session) === 'global')
@@ -855,7 +948,15 @@ function App() {
     )
   }
 
-  if (!ready || !agent) {
+  if (!ready) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background text-foreground">
+        <div className="text-sm text-muted-foreground">{t('loadingChatWorkspace')}</div>
+      </div>
+    )
+  }
+
+  if (!agent && !needsModelSetup) {
     return (
       <div className="flex h-screen items-center justify-center bg-background text-foreground">
         <div className="text-sm text-muted-foreground">{t('loadingChatWorkspace')}</div>
@@ -958,7 +1059,7 @@ function App() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => SettingsDialog.open([createLanguageSettingsTab(), createCustomProvidersOnlyTab(), new ProxyTab()])}
+            onClick={openModelSettings}
             aria-label={t('settings')}
           >
             <Settings className="size-4" />
@@ -967,19 +1068,28 @@ function App() {
 
         <div className="flex min-h-0 flex-1">
           <section className="flex min-w-0 flex-1 flex-col">
-            <ChatPanelHost
-              agent={agent}
-              onModelSelect={openCustomModelSelector}
-              revision={chatPanelRevision}
-              yoloMode={yoloMode}
-              workspaceToolsEnabled={Boolean(currentToolProject?.id)}
-              projectId={currentToolProject?.id}
-              onToggleYoloMode={toggleYoloMode}
-              onRollbackFromMessage={rollbackFromMessage}
-              onCopyAnswer={copyAnswer}
-              onForkFromMessage={forkFromMessage}
-              restoredDraft={restoredDraft}
-            />
+            {needsModelSetup ? (
+              <ModelSetupEmptyState
+                onAddModel={openModelSettings}
+                onUseExample={() => {
+                  void useLiteLlmExampleModel().catch((error) => console.error('Failed to use LiteLLM example:', error))
+                }}
+              />
+            ) : (
+              <ChatPanelHost
+                agent={agent}
+                onModelSelect={openCustomModelSelector}
+                revision={chatPanelRevision}
+                yoloMode={yoloMode}
+                workspaceToolsEnabled={Boolean(currentToolProject?.id)}
+                projectId={currentToolProject?.id}
+                onToggleYoloMode={toggleYoloMode}
+                onRollbackFromMessage={rollbackFromMessage}
+                onCopyAnswer={copyAnswer}
+                onForkFromMessage={forkFromMessage}
+                restoredDraft={restoredDraft}
+              />
+            )}
           </section>
         </div>
       </main>

@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { ensureStorage, projectConfigFile, dataDir } from './storage.mjs'
+import { ensureProjectCache, readProjectConfigData, writeProjectConfigData } from './storage.mjs'
 import { promises as fs } from 'node:fs'
 import { setWorkspaceRoot, getWorkspaceRoot, assertDirectory } from './utils/workspace.mjs'
 
@@ -22,25 +22,13 @@ function defaultProjectConfig() {
 }
 
 export async function readProjectConfig() {
-  await ensureStorage()
-  const file = projectConfigFile()
-  try {
-    const text = await fs.readFile(file, 'utf8')
-    const parsed = text.trim() ? JSON.parse(text) : defaultProjectConfig()
-    if (!Array.isArray(parsed.projects) || parsed.projects.length === 0) return defaultProjectConfig()
-    return parsed
-  } catch (error) {
-    if (error?.code === 'ENOENT') return defaultProjectConfig()
-    throw error
-  }
+  const parsed = await readProjectConfigData()
+  if (!Array.isArray(parsed.projects) || parsed.projects.length === 0) return defaultProjectConfig()
+  return parsed
 }
 
 export async function writeProjectConfig(config) {
-  await ensureStorage()
-  const file = projectConfigFile()
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
-  await fs.writeFile(tmp, `${JSON.stringify(config, null, 2)}\n`, 'utf8')
-  await fs.rename(tmp, file)
+  await writeProjectConfigData(config)
 }
 
 export function getActiveProject(config) {
@@ -71,6 +59,7 @@ export async function setActiveProjectPath(inputPath) {
   config.activeProjectId = project.id
   config.projects = [project, ...config.projects.filter((item) => item.id !== project.id)].slice(0, 20)
   await writeProjectConfig(config)
+  await ensureProjectCache(project.id)
   setWorkspaceRoot(resolved)
   return { project, projects: config.projects }
 }
@@ -81,6 +70,7 @@ export async function initializeActiveProject() {
   if (activeProject?.path) {
     try {
       await assertDirectory(activeProject.path)
+      await ensureProjectCache(activeProject.id)
       setWorkspaceRoot(path.resolve(activeProject.path))
       return
     } catch {
@@ -101,6 +91,7 @@ export async function projectContextFromId(projectId) {
   }
 
   await assertDirectory(project.path)
+  await ensureProjectCache(project.id)
   return { project, workspaceRoot: path.resolve(project.path) }
 }
 

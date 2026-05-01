@@ -1,14 +1,20 @@
 import path from 'node:path'
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
-import { readStore, writeStore, getComparable, storageDir } from '../storage.mjs'
+import { readStore, writeStore, getComparable, dataDir, configDir, storageDir, cacheDir, logsDir } from '../storage.mjs'
 import { directorySize } from '../utils/workspace.mjs'
 
 export async function handleStorageApi(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean)
 
   if (req.method === 'GET' && url.pathname === '/api/storage/quota') {
-    const usage = await directorySize(storageDir)
-    sendJson(res, 200, { usage, quota: 0, percent: 0 })
+    const [usage, configUsage, storageUsage, cacheUsage, logsUsage] = await Promise.all([
+      directorySize(dataDir),
+      directorySize(configDir),
+      directorySize(storageDir),
+      directorySize(cacheDir),
+      directorySize(logsDir),
+    ])
+    sendJson(res, 200, { usage, configUsage, storageUsage, cacheUsage, logsUsage, quota: 0, percent: 0 })
     return
   }
 

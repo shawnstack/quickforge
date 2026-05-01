@@ -214,6 +214,36 @@ function sameBaseUrl(a?: string, b?: string) {
   return (a ?? '').trim().replace(/\/$/, '') === (b ?? '').trim().replace(/\/$/, '')
 }
 
+function sameConfiguredModel(a: Model<Api>, b: Model<Api>) {
+  return a.id === b.id && a.provider === b.provider && a.api === b.api && sameBaseUrl(a.baseUrl, b.baseUrl)
+}
+
+function isUsableModel(model: unknown): model is Model<Api> {
+  const candidate = model as Partial<Model<Api>> | undefined
+  return Boolean(candidate?.id && candidate.provider && candidate.api && candidate.baseUrl)
+}
+
+export async function getConfiguredModels(storage: AppStorage): Promise<Model<Api>[]> {
+  const providers = await storage.customProviders.getAll()
+  return providers
+    .flatMap((provider) => provider.models ?? [])
+    .filter(isUsableModel)
+    .map((model) => normalizeModelForProvider(model))
+}
+
+export async function loadInitialConfiguredModel(storage: AppStorage): Promise<Model<Api> | null> {
+  const configuredModels = await getConfiguredModels(storage)
+  if (configuredModels.length === 0) return null
+
+  const savedModel = await loadActiveModel(storage)
+  if (savedModel) {
+    const matched = configuredModels.find((model) => sameConfiguredModel(model, savedModel))
+    if (matched) return matched
+  }
+
+  return configuredModels[0]
+}
+
 function findConfiguredModel(storage: AppStorage, model: Model<Api>) {
   return storage.customProviders.getAll().then((providers) => {
     for (const provider of providers) {

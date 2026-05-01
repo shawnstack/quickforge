@@ -10,7 +10,7 @@
 
 AI chat application with YOLO-mode local workspace tools — the agent can read, write, and edit files in your project, plus run shell commands.
 
-Built with React 19, Vite 8, Tailwind CSS 4, and shadcn-style UI primitives. Uses `@mariozechner/pi-web-ui` for chat components and `@mariozechner/pi-ai` for model orchestration. All data stays local in `~/.quickforge/storage/`.
+Built with React 19, Vite 8, Tailwind CSS 4, and shadcn-style UI primitives. Uses `@mariozechner/pi-web-ui` for chat components and `@mariozechner/pi-ai` for model orchestration. All data stays local under `~/.quickforge/`, with persistent data in `storage/`, removable caches in `cache/`, and logs in `logs/`.
 
 ---
 
@@ -38,6 +38,11 @@ npm start
 
 Open [http://localhost:5176](http://localhost:5176).
 
+## Documentation
+
+- [中文使用教程](./docs/user-guide.zh-CN.md)
+- [English User Guide](./docs/user-guide.en-US.md)
+
 ### Windows
 
 Double-click `dev-quickforge.bat` for development, or `start-quickforge.bat` for production mode.
@@ -50,7 +55,7 @@ Double-click `dev-quickforge.bat` for development, or `start-quickforge.bat` for
 | UI | shadcn-style primitives, Lucide icons |
 | Chat engine | `@mariozechner/pi-web-ui`, `@mariozechner/pi-agent-core`, `@mariozechner/pi-ai` |
 | Server | Node.js (ESM), plain `http` module |
-| Storage | Local JSON files at `~/.quickforge/storage/` |
+| Storage | Unified config at `~/.quickforge/config/config.json`, conversations under `~/.quickforge/storage/`, cache files under `~/.quickforge/cache/`, logs under `~/.quickforge/logs/` |
 
 ## Project Structure
 
@@ -79,23 +84,27 @@ Double-click `dev-quickforge.bat` for development, or `start-quickforge.bat` for
 
 ### Storage Files
 
-Located at `~/.quickforge/storage/` (or `%USERPROFILE%\.quickforge\storage` on Windows):
+Located under `~/.quickforge/` (or `%USERPROFILE%\.quickforge` on Windows):
 
-- `custom-providers.json` — custom model/provider configs
-- `provider-keys.json` — API keys
-- `settings.json` — active model, YOLO mode, app preferences
-- `sessions.json` — full chat history
-- `sessions-metadata.json` — conversation list metadata
+- `config/config.json` — unified local config, including app settings, custom providers, provider API keys, and project list. This file may contain secrets; do not share it.
+- `storage/conversations/global/sessions.json` — full global chat history
+- `storage/conversations/global/sessions-metadata.json` — global conversation list metadata
+- `storage/conversations/projects/<projectId>/sessions.json` — full project chat history
+- `storage/conversations/projects/<projectId>/sessions-metadata.json` — project conversation list metadata
+- `cache/` — removable cache files
+- `logs/` — local logs
 
-### Default Model
+### First Model Setup
 
-Comes pre-configured for a LiteLLM proxy:
+QuickForge does not assume a usable default model on first launch. If no custom model is configured, the chat area shows a setup guide.
+
+You can add any OpenAI-compatible or Anthropic Messages provider in Settings. A LiteLLM example is available:
 
 - **Base URL**: `http://localhost:4000/v1`
 - **Model**: `anthropic/claude-sonnet-4`
 - **API**: OpenAI-compatible `/v1/chat/completions`
 
-Change providers and models in the Settings panel.
+See the [user guide](./docs/README.md) for detailed setup examples.
 
 ## YOLO Mode
 

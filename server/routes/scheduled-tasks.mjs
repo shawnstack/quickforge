@@ -1,3 +1,4 @@
+import { streamSimple } from '@mariozechner/pi-ai'
 import { readJsonBody, sendJson, decodeSegment } from '../utils/response.mjs'
 import { readStore, atomicUpdate } from '../storage.mjs'
 import { createAgent, runPrompt, getSessionEventBus } from '../agent-manager.mjs'
@@ -6,6 +7,7 @@ import { logger } from '../utils/logger.mjs'
 
 const STORE = 'scheduled-tasks'
 const RUN_CHECK_INTERVAL_MS = 30 * 1000
+const cronRegex = /^(\*|\d{1,2}|\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}|\*\/\d{1,2})(\s+(\*|\d{1,2}|\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}|\*\/\d{1,2})){4}$/
 const minuteMs = 60 * 1000
 const hourMs = 60 * minuteMs
 const dayMs = 24 * hourMs
@@ -68,6 +70,136 @@ function extractTitle(instruction) {
     .replace(/(每天|每日|明天|今天|每周[一二三四五六日天]?|每月\d{1,2}[号日]?|每隔\d+\s*(分钟|小时)).*?(提醒我|帮我|执行|运行|生成|检查)?/, '')
     .trim()
     .slice(0, 32) || 'AI 定时任务'
+}
+
+function parseCronField(field, min, max) {
+  if (field === '*') return { any: true, values: [] }
+  const values = new Set()
+  for (const part of field.split(',')) {
+    if (/^\*\/\d+$/.test(part)) {
+      const step = Number(part.slice(2))
+      for (let value = min; value <= max; value += step) values.add(value)
+    } else if (/^\d+-\d+$/.test(part)) {
+      const [start, end] = part.split('-').map(Number)
+      for (let value = Math.max(start, min); value <= Math.min(end, max); value += 1) values.add(value)
+    } else if (/^\d+$/.test(part)) {
+      const value = Number(part)
+      if (value >= min && value <= max) values.add(value)
+    }
+  }
+  return { any: false, values: [...values] }
+}
+
+function cronMatches(date, cronExpression) {
+  const fields = String(cronExpression || '').trim().split(/\s+/)
+  if (fields.length !== 5) return false
+  const checks = [
+    [date.getMinutes(), parseCronField(fields[0], 0, 59)],
+    [date.getHours(), parseCronField(fields[1], 0, 23)],
+    [date.getDate(), parseCronField(fields[2], 1, 31)],
+    [date.getMonth() + 1, parseCronField(fields[3], 1, 12)],
+    [date.getDay(), parseCronField(fields[4], 0, 6)],
+  ]
+  return checks.every(([value, rule]) => rule.any || rule.values.includes(value))
+}
+
+function nextCronRun(cronExpression, base = new Date()) {
+  const cursor = new Date(base.getTime() + minuteMs)
+  cursor.setSeconds(0, 0)
+  const maxChecks = 366 * 24 * 60
+  for (let index = 0; index < maxChecks; index += 1) {
+    if (cronMatches(cursor, cronExpression)) return cursor
+    cursor.setMinutes(cursor.getMinutes() + 1)
+  }
+  return null
+}
+
+function normalizeAiJson(text) {
+  const raw = String(text || '').trim()
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  const candidate = fenced?.[1] ?? raw
+  const start = candidate.indexOf('{')
+  const end = candidate.lastIndexOf('}')
+  if (start < 0 || end < start) return null
+  try {
+    return JSON.parse(candidate.slice(start, end + 1))
+  } catch {
+    return null
+  }
+}
+
+async function getApiKey(provider) {
+  try {
+    const keys = await readStore('provider-keys')
+    return keys?.[provider] || undefined
+  } catch {
+    return undefined
+  }
+}
+
+async function parseScheduledTaskInstructionWithAi(instruction, model, thinkingLevel = 'off') {
+  const text = String(instruction || '').trim()
+  if (!text) return { needMoreInfo: true, question: '请输入要创建的定时任务。' }
+  if (!model) return { needMoreInfo: true, question: '请先选择用于解析任务的大模型。' }
+
+  const now = new Date()
+  const systemPrompt = `你是定时任务解析器。把用户的中文自然语言定时任务解析为 JSON。
+只输出 JSON，不要 Markdown，不要解释。
+字段：
+- title: 简短任务名称
+- instruction: 到时间后真正交给 AI 执行的指令，去掉时间规则，保留要做什么
+- cronExpression: 5 位 cron，格式为 "分钟 小时 日 月 周"，周日用 0。不支持秒。
+- scheduleRule: 给用户看的中文执行规则
+- question: 如果时间或任务不明确，写一句追问
+规则：
+- 如果信息明确，question 为空字符串。
+- 如果信息不明确，不要编造 cronExpression。
+- 当前时间：${now.toISOString()}，本地时区：${Intl.DateTimeFormat().resolvedOptions().timeZone || 'local'}。
+示例输出：{"title":"生成日报","instruction":"生成销售日报","cronExpression":"0 9 * * *","scheduleRule":"每天 09:00","question":""}`
+
+  try {
+    const stream = streamSimple(
+      model,
+      {
+        systemPrompt,
+        messages: [{ role: 'user', content: text, timestamp: Date.now() }],
+        tools: [],
+      },
+      {
+        apiKey: await getApiKey(model.provider),
+        maxTokens: 600,
+        temperature: 0,
+        reasoning: thinkingLevel === 'off' ? undefined : thinkingLevel,
+        maxRetryDelayMs: 60000,
+      },
+    )
+    const message = await stream.result()
+    const content = Array.isArray(message.content)
+      ? message.content.filter((block) => block.type === 'text').map((block) => block.text ?? '').join('\n')
+      : ''
+    const parsed = normalizeAiJson(content)
+    if (!parsed) return { needMoreInfo: true, question: 'AI 没有返回有效 JSON，请重试或换一个模型。' }
+    if (parsed.question) return { needMoreInfo: true, question: String(parsed.question) }
+    if (!cronRegex.test(String(parsed.cronExpression || '').trim())) {
+      return { needMoreInfo: true, question: 'AI 未能生成有效的 cron 表达式，请补充更明确的执行时间。' }
+    }
+    const nextRun = nextCronRun(String(parsed.cronExpression).trim())
+    if (!nextRun) return { needMoreInfo: true, question: '无法计算下一次执行时间，请换一个时间规则。' }
+    return {
+      needMoreInfo: false,
+      task: {
+        title: String(parsed.title || extractTitle(text)).slice(0, 80),
+        instruction: String(parsed.instruction || text).trim(),
+        scheduleType: 'cron',
+        scheduleRule: String(parsed.scheduleRule || parsed.cronExpression).trim(),
+        cronExpression: String(parsed.cronExpression).trim(),
+        nextRunAt: nextRun.toISOString(),
+      },
+    }
+  } catch (error) {
+    logger.warn('AI scheduled task parsing failed:', error?.message || error)
+    return { needMoreInfo: true, question: `AI 解析失败：${error?.message || '请检查模型配置和 API Key 后重试。'}` }
+  }
 }
 
 export function parseScheduledTaskInstruction(instruction) {
@@ -171,6 +303,9 @@ export function parseScheduledTaskInstruction(instruction) {
 }
 
 function calculateNextRun(task) {
+  if (task.cronExpression) {
+    return nextCronRun(task.cronExpression)?.toISOString()
+  }
   const current = new Date(task.nextRunAt)
   if (task.scheduleType === 'once') return undefined
   if (task.scheduleType === 'interval') {
@@ -204,6 +339,25 @@ async function updateTask(taskId, updater) {
   return updated
 }
 
+async function repairRecurringTaskStatuses() {
+  const now = Date.now()
+  await atomicUpdate(STORE, (data) => {
+    for (const [taskId, task] of Object.entries(data)) {
+      if (!task?.cronExpression || task.status !== 'expired') continue
+      const nextRunAt = task.nextRunAt && new Date(task.nextRunAt).getTime() > now
+        ? task.nextRunAt
+        : nextCronRun(task.cronExpression)?.toISOString()
+      data[taskId] = {
+        ...task,
+        status: 'enabled',
+        nextRunAt: nextRunAt ?? new Date(Date.now() + minuteMs).toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+    }
+    return data
+  })
+}
+
 async function executeTask(task, trigger = 'schedule') {
   if (runningTaskIds.has(task.id)) return
   runningTaskIds.add(task.id)
@@ -222,7 +376,8 @@ async function executeTask(task, trigger = 'schedule') {
 
   try {
     const config = await readProjectConfig()
-    const activeProject = getActiveProject(config)
+    const selectedProject = task.projectId ? config.projects.find((project) => project.id === task.projectId) : null
+    const activeProject = selectedProject ?? getActiveProject(config)
     const settings = await readStore('settings')
     const yoloMode = settings?.['yolo-mode'] === true || settings?.['yolo-mode'] === 'true'
 
@@ -249,14 +404,16 @@ async function executeTask(task, trigger = 'schedule') {
     const result = await finished
     settled = true
     const finishedAt = new Date().toISOString()
-    const nextRunAt = calculateNextRun(task)
+    const latestTask = (await readStore(STORE))[task.id] ?? task
+    const nextRunAt = calculateNextRun(latestTask)
+    const recurring = Boolean(latestTask.cronExpression) || !['once'].includes(latestTask.scheduleType)
 
     await updateTask(task.id, (current) => ({
       ...current,
-      status: result.ok ? (nextRunAt ? 'enabled' : 'expired') : 'failed',
+      status: result.ok ? (nextRunAt || recurring ? 'enabled' : 'expired') : 'failed',
       currentRunId: null,
       lastRunAt: finishedAt,
-      nextRunAt: nextRunAt ?? current.nextRunAt,
+      nextRunAt: nextRunAt ?? (recurring ? new Date(Date.now() + minuteMs).toISOString() : current.nextRunAt),
       lastSessionId: sessionId,
       runs: (current.runs || []).map((run) => run.id === runId ? {
         ...run,
@@ -291,6 +448,7 @@ async function schedulerTick() {
   if (running) return
   running = true
   try {
+    await repairRecurringTaskStatuses()
     const now = Date.now()
     const tasks = await getTasks()
     for (const task of tasks) {
@@ -322,7 +480,7 @@ export async function handleScheduledTasksApi(req, res, url) {
 
   if (req.method === 'POST' && url.pathname === '/api/scheduled-tasks/parse') {
     const body = await readJsonBody(req)
-    sendJson(res, 200, parseScheduledTaskInstruction(body?.instruction))
+    sendJson(res, 200, await parseScheduledTaskInstructionWithAi(body?.instruction, body?.model, body?.thinkingLevel))
     return
   }
 
@@ -333,7 +491,7 @@ export async function handleScheduledTasksApi(req, res, url) {
 
   if (req.method === 'POST' && url.pathname === '/api/scheduled-tasks') {
     const body = await readJsonBody(req)
-    const parsed = body?.task ?? parseScheduledTaskInstruction(body?.instruction).task
+    const parsed = body?.task
     if (!parsed) {
       const error = new Error('Missing task')
       error.statusCode = 400
@@ -346,9 +504,12 @@ export async function handleScheduledTasksApi(req, res, url) {
       instruction: parsed.instruction,
       scheduleType: parsed.scheduleType,
       scheduleRule: parsed.scheduleRule,
+      cronExpression: parsed.cronExpression,
       nextRunAt: parsed.nextRunAt,
       model: body?.model,
       thinkingLevel: body?.thinkingLevel || (body?.model?.reasoning ? 'medium' : 'off'),
+      projectId: body?.projectId || null,
+      projectName: body?.projectName || null,
       status: 'enabled',
       createdAt: now,
       updatedAt: now,

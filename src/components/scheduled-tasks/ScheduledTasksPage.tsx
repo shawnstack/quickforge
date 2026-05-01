@@ -1,12 +1,12 @@
 import type { ThinkingLevel } from '@mariozechner/pi-agent-core'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import { useEffect, useMemo, useState } from 'react'
-import { CalendarClock, CheckCircle2, Clock3, Pause, Play, Trash2, Zap } from 'lucide-react'
+import { Brain, CalendarClock, CheckCircle2, Clock3, Folder, Pause, Play, Sparkles, Trash2, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { getConfiguredModels, initializePiStorage, loadInitialConfiguredModel } from '@/lib/pi-chat'
 
-type ScheduleType = 'once' | 'daily' | 'weekly' | 'monthly' | 'interval'
+type ScheduleType = 'once' | 'daily' | 'weekly' | 'monthly' | 'interval' | 'cron'
 type TaskStatus = 'enabled' | 'paused' | 'running' | 'failed' | 'expired'
 type RunStatus = 'running' | 'success' | 'failed'
 
@@ -27,6 +27,7 @@ type ScheduledTask = {
   instruction: string
   scheduleType: ScheduleType
   scheduleRule: string
+  cronExpression?: string
   status: TaskStatus
   nextRunAt: string
   lastRunAt?: string
@@ -35,9 +36,10 @@ type ScheduledTask = {
   runs: ScheduledTaskRun[]
 }
 
-type ParsedTask = Pick<ScheduledTask, 'title' | 'instruction' | 'scheduleType' | 'scheduleRule' | 'nextRunAt'>
+type ParsedTask = Pick<ScheduledTask, 'title' | 'instruction' | 'scheduleType' | 'scheduleRule' | 'cronExpression' | 'nextRunAt'>
 
 type AnyModel = Model<Api>
+type ProjectOption = { id: string; name: string; path: string }
 
 const THINKING_OPTIONS: { value: ThinkingLevel; label: string }[] = [
   { value: 'off', label: '关闭' },
@@ -93,11 +95,31 @@ export function ScheduledTasksPage() {
   const [models, setModels] = useState<AnyModel[]>([])
   const [selectedModel, setSelectedModel] = useState<AnyModel>()
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('off')
+  const [projects, setProjects] = useState<ProjectOption[]>([])
+  const [selectedProjectId, setSelectedProjectId] = useState('')
 
   async function loadTasks() {
     const payload = await requestJson<{ tasks: ScheduledTask[] }>('/api/scheduled-tasks')
     setTasks(payload.tasks)
   }
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadProjects() {
+      try {
+        const payload = await requestJson<{ project?: ProjectOption; projects: ProjectOption[] }>('/api/project')
+        if (cancelled) return
+        setProjects(payload.projects ?? [])
+        setSelectedProjectId(payload.project?.id ?? payload.projects?.[0]?.id ?? '')
+      } catch {
+        // Project selection is optional.
+      }
+    }
+    void loadProjects()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -146,7 +168,7 @@ export function ScheduledTasksPage() {
     try {
       const result = await requestJson<{ needMoreInfo: boolean; question?: string; task?: ParsedTask }>('/api/scheduled-tasks/parse', {
         method: 'POST',
-        body: JSON.stringify({ instruction }),
+        body: JSON.stringify({ instruction, model: selectedModel, thinkingLevel }),
       })
       if (result.needMoreInfo || !result.task) {
         setQuestion(result.question || '请补充任务信息。')
@@ -167,9 +189,16 @@ export function ScheduledTasksPage() {
     setLoading(true)
     setError('')
     try {
+      const selectedProject = projects.find((project) => project.id === selectedProjectId)
       await requestJson('/api/scheduled-tasks', {
         method: 'POST',
-        body: JSON.stringify({ task: parsedTask, model: selectedModel, thinkingLevel }),
+        body: JSON.stringify({
+          task: parsedTask,
+          model: selectedModel,
+          thinkingLevel,
+          projectId: selectedProject?.id,
+          projectName: selectedProject?.name,
+        }),
       })
       setInstruction('')
       setParsedTask(null)
@@ -183,6 +212,7 @@ export function ScheduledTasksPage() {
 
   async function taskAction(taskId: string, action: 'run' | 'pause' | 'resume' | 'delete') {
     setError('')
+    if (action === 'delete' && !window.confirm('确定要删除这个定时任务吗？删除后不可恢复。')) return
     try {
       if (action === 'delete') {
         await requestJson(`/api/scheduled-tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE' })
@@ -213,45 +243,61 @@ export function ScheduledTasksPage() {
         <div className="mx-auto max-w-5xl space-y-5">
           <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
             <label className="text-sm font-medium text-foreground">创建任务</label>
-            <div className="mt-2 grid gap-3 sm:grid-cols-2">
-              <label className="text-xs font-medium text-muted-foreground">
-                模型
-                <select
-                  className="mt-1 h-9 w-full rounded-lg border border-input bg-background px-2 text-sm text-foreground outline-none focus:border-ring"
-                  value={selectedModel ? `${selectedModel.provider}\u0000${selectedModel.id}` : ''}
-                  onChange={(event) => {
-                    const nextModel = models.find((model) => `${model.provider}\u0000${model.id}` === event.target.value)
-                    setSelectedModel(nextModel)
-                    setThinkingLevel(defaultThinkingLevel(nextModel))
-                  }}
-                >
-                  {models.length === 0 ? <option value="">暂无可用模型</option> : null}
-                  {models.map((model) => (
-                    <option key={`${model.provider}:${model.id}`} value={`${model.provider}\u0000${model.id}`}>
-                      {modelLabel(model)}{modelsEqual(model, selectedModel) ? ' ✓' : ''}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-xs font-medium text-muted-foreground">
-                思考
-                <select
-                  className="mt-1 h-9 w-full rounded-lg border border-input bg-background px-2 text-sm text-foreground outline-none focus:border-ring"
-                  value={thinkingLevel}
-                  onChange={(event) => setThinkingLevel(event.target.value as ThinkingLevel)}
-                >
-                  {THINKING_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
             <textarea
               className="mt-2 min-h-24 w-full resize-none rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/65 focus:border-ring"
               value={instruction}
               onChange={(event) => setInstruction(event.target.value)}
               placeholder="例如：每天早上 9 点帮我生成销售日报"
             />
+            <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/20 px-2 py-2">
+              <span className="relative inline-flex items-center">
+                <Sparkles className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground/70" />
+                <select
+                className="h-8 max-w-[240px] rounded-md border border-transparent bg-transparent pl-7 pr-2 text-xs text-muted-foreground outline-none hover:bg-background focus:border-ring"
+                value={selectedModel ? `${selectedModel.provider}\u0000${selectedModel.id}` : ''}
+                onChange={(event) => {
+                  const nextModel = models.find((model) => `${model.provider}\u0000${model.id}` === event.target.value)
+                  setSelectedModel(nextModel)
+                  setThinkingLevel(defaultThinkingLevel(nextModel))
+                }}
+                title="模型"
+              >
+                {models.length === 0 ? <option value="">暂无可用模型</option> : null}
+                {models.map((model) => (
+                  <option key={`${model.provider}:${model.id}`} value={`${model.provider}\u0000${model.id}`}>
+                    {modelLabel(model)}{modelsEqual(model, selectedModel) ? ' ✓' : ''}
+                  </option>
+                ))}
+              </select>
+              </span>
+              <span className="relative inline-flex items-center">
+                <Brain className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground/70" />
+                <select
+                className="h-8 rounded-md border border-transparent bg-transparent pl-7 pr-2 text-xs text-muted-foreground outline-none hover:bg-background focus:border-ring"
+                value={thinkingLevel}
+                onChange={(event) => setThinkingLevel(event.target.value as ThinkingLevel)}
+                title="思考"
+              >
+                {THINKING_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+              </span>
+              <span className="relative inline-flex items-center">
+                <Folder className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground/70" />
+                <select
+                className="h-8 max-w-[220px] rounded-md border border-transparent bg-transparent pl-7 pr-2 text-xs text-muted-foreground outline-none hover:bg-background focus:border-ring"
+                value={selectedProjectId}
+                onChange={(event) => setSelectedProjectId(event.target.value)}
+                title="项目"
+              >
+                <option value="">不绑定项目</option>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>{project.name}</option>
+                ))}
+              </select>
+              </span>
+            </div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <Button onClick={handleParse} disabled={loading}>AI 解析任务</Button>
               {parsedTask ? <Button variant="secondary" onClick={handleCreate} disabled={loading || !selectedModel}>确认创建</Button> : null}
@@ -269,6 +315,8 @@ export function ScheduledTasksPage() {
                   <div>任务名称：<span className="text-foreground">{parsedTask.title}</span></div>
                   <div>执行规则：<span className="text-foreground">{parsedTask.scheduleRule}</span></div>
                   <div className="sm:col-span-2">下一次执行：<span className="text-foreground">{formatDateTime(parsedTask.nextRunAt)}</span></div>
+                  <div>cron：<span className="text-foreground">{parsedTask.cronExpression ?? '-'}</span></div>
+                  <div>项目：<span className="text-foreground">{projects.find((project) => project.id === selectedProjectId)?.name ?? '不绑定项目'}</span></div>
                   <div>模型：<span className="text-foreground">{selectedModel ? modelLabel(selectedModel) : '未选择'}</span></div>
                   <div>思考：<span className="text-foreground">{THINKING_OPTIONS.find((option) => option.value === thinkingLevel)?.label ?? thinkingLevel}</span></div>
                   <div className="sm:col-span-2">AI 指令：<span className="text-foreground">{parsedTask.instruction}</span></div>
@@ -303,6 +351,8 @@ export function ScheduledTasksPage() {
                       <span className="inline-flex items-center gap-1"><Clock3 className="size-3" />{task.scheduleRule}</span>
                       <span>下一次：{formatDateTime(task.nextRunAt)}</span>
                       <span>上次：{formatDateTime(task.lastRunAt)}</span>
+                      {(task as ScheduledTask & { cronExpression?: string }).cronExpression ? <span>cron：{(task as ScheduledTask & { cronExpression: string }).cronExpression}</span> : null}
+                      {(task as ScheduledTask & { projectName?: string }).projectName ? <span>项目：{(task as ScheduledTask & { projectName: string }).projectName}</span> : null}
                       {(task as ScheduledTask & { model?: AnyModel }).model ? <span>模型：{modelLabel((task as ScheduledTask & { model: AnyModel }).model)}</span> : null}
                       {(task as ScheduledTask & { thinkingLevel?: ThinkingLevel }).thinkingLevel ? <span>思考：{THINKING_OPTIONS.find((option) => option.value === (task as ScheduledTask & { thinkingLevel?: ThinkingLevel }).thinkingLevel)?.label ?? (task as ScheduledTask & { thinkingLevel?: ThinkingLevel }).thinkingLevel}</span> : null}
                     </div>

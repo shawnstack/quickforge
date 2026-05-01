@@ -8,6 +8,8 @@ import {
   getSessionState,
   getSessionEventBus,
   destroyAgent,
+  restoreAgent,
+  touchSession,
   listSessions,
   updateSessionModel,
 } from '../agent-manager.mjs'
@@ -148,12 +150,22 @@ export async function handleAgentApi(req, res, url) {
 // SSE stream handler
 // ---------------------------------------------------------------------------
 
-function handleStream(req, res, sessionId) {
-  const eventBus = getSessionEventBus(sessionId)
+async function handleStream(req, res, sessionId) {
+  let eventBus = getSessionEventBus(sessionId)
+
+  // If session not in memory, try to restore from persisted storage
   if (!eventBus) {
-    sendJson(res, 404, { error: 'Session not found' })
-    return
+    const restored = await restoreAgent(sessionId)
+    if (restored) {
+      eventBus = restored.eventBus
+    } else {
+      sendJson(res, 404, { error: 'Session not found' })
+      return
+    }
   }
+
+  // Reset idle timer — active SSE connection keeps session alive
+  touchSession(sessionId)
 
   // Set SSE headers
   res.writeHead(200, {
@@ -169,9 +181,14 @@ function handleStream(req, res, sessionId) {
     writeSseEvent(res, 'state', state)
   }
 
-  // Keep-alive ping every 15 seconds
+  // Keep-alive ping every 15 seconds — also resets idle timer
   const keepAlive = setInterval(() => {
-    res.write(': ping\n\n')
+    try {
+      res.write(': ping\n\n')
+      touchSession(sessionId)
+    } catch {
+      cleanup()
+    }
   }, 15000)
 
   // Handle agent events

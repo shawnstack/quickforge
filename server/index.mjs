@@ -16,7 +16,7 @@ import { handleInstructionsApi } from './routes/instructions.mjs'
 import { handleAgentApi } from './routes/agent.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { setActiveWorkspaceRootForFilesystem } from './routes/filesystem.mjs'
-import { shutdown as shutdownAgentManager } from './agent-manager.mjs'
+import { shutdown as shutdownAgentManager, resetStaleTaskStatuses } from './agent-manager.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -138,6 +138,7 @@ const server = createServer(async (req, res) => {
 })
 
 await ensureStorage()
+await resetStaleTaskStatuses()
 await initializeActiveProject()
 setActiveWorkspaceRootForFilesystem(getWorkspaceRoot())
 

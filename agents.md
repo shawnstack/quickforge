@@ -1,42 +1,62 @@
-# 速构 QuickForge
+### 1. Think Before Coding
 
-React + Vite + Tailwind CSS 聊天应用，支持 YOLO 模式本地工作区工具。
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
 
-## 技术栈
-- **前端**：React 19、Vite 8、Tailwind CSS 4、shadcn 风格组件
-- **聊天**：`@mariozechner/pi-web-ui`、`@mariozechner/pi-agent-core`、`@mariozechner/pi-ai`
-- **服务端**：本地 Node.js 服务（`server/index.mjs`）
-- **存储**：本地 JSON 文件，统一配置位于 `~/.quickforge/config/config.json`，会话位于 `~/.quickforge/storage/`，缓存位于 `~/.quickforge/cache/`，日志位于 `~/.quickforge/logs/`
+LLMs often pick an interpretation silently and run with it. This principle forces explicit reasoning:
 
-## 常用命令
+- **State assumptions explicitly** — If uncertain, ask rather than guess
+- **Present multiple interpretations** — Don't pick silently when ambiguity exists
+- **Push back when warranted** — If a simpler approach exists, say so
+- **Stop when confused** — Name what's unclear and ask for clarification
 
-```bash
-npm run dev      # 开发模式（服务端 + Vite，端口 :5176）
-npm run build    # 生产构建
-npm start        # 生产启动
-npm run lint     # 代码检查
+### 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+Combat the tendency toward overengineering:
+
+- No features beyond what was asked
+- No abstractions for single-use code
+- No "flexibility" or "configurability" that wasn't requested
+- No error handling for impossible scenarios
+- If 200 lines could be 50, rewrite it
+
+**The test:** Would a senior engineer say this is overcomplicated? If yes, simplify.
+
+### 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+
+- Don't "improve" adjacent code, comments, or formatting
+- Don't refactor things that aren't broken
+- Match existing style, even if you'd do it differently
+- If you notice unrelated dead code, mention it — don't delete it
+
+When your changes create orphans:
+
+- Remove imports/variables/functions that YOUR changes made unused
+- Don't remove pre-existing dead code unless asked
+
+**The test:** Every changed line should trace directly to the user's request.
+
+### 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform imperative tasks into verifiable goals:
+
+| Instead of... | Transform to... |
+|--------------|-----------------|
+| "Add validation" | "Write tests for invalid inputs, then make them pass" |
+| "Fix the bug" | "Write a test that reproduces it, then make it pass" |
+| "Refactor X" | "Ensure tests pass before and after" |
+
+For multi-step tasks, state a brief plan:
+
 ```
-
-## 关键文件
-
-| 路径 | 用途 |
-|---|---|
-| `src/` | React 前端 |
-| `server/index.mjs` | 本地 API / 存储服务 |
-| `vite.config.ts` | Vite 配置（Tailwind 插件） |
-| `index.html` | 入口 HTML |
-| `bin/quickforge.mjs` | CLI 入口 |
-
-## YOLO 工具
-
-开启 YOLO 模式后，智能体可调用：`list_dir`、`read_file`、`grep_files`、`write_file`、`edit_file`、`run_command`，操作范围限制在工作区根目录内。
-
-## 存储
-
-统一配置文件位于 `~/.quickforge/config/config.json`，包含应用设置、API Key、自定义提供商和项目列表；该文件可能包含密钥，请勿分享。会话位于 `~/.quickforge/storage/conversations/`：全局会话 `global/`，项目会话 `projects/<projectId>/`。缓存位于 `~/.quickforge/cache/`，日志位于 `~/.quickforge/logs/`。
-
-## API 提供者
-
-- OpenAI 兼容 `/v1/chat/completions`
-- Anthropic Messages API
-- 默认：LiteLLM 代理 `http://localhost:4000/v1`，模型 `anthropic/claude-sonnet-4`
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```

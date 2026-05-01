@@ -11,6 +11,14 @@ export default defineConfig({
       '/api': {
         target: `http://127.0.0.1:${process.env.QUICKFORGE_SERVER_PORT || process.env.FASTCODE_SERVER_PORT || 32176}`,
         changeOrigin: true,
+        configure: (proxy) => {
+          // Disable timeout on SSE responses to prevent Vite proxy from killing long connections
+          proxy.on('proxyRes', (proxyRes, _req, res) => {
+            if (proxyRes.headers['content-type'] === 'text/event-stream') {
+              res.setTimeout(0)
+            }
+          })
+        },
       },
     },
   },

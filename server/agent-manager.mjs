@@ -6,6 +6,7 @@ import { toolHandlers } from './tools/index.mjs'
 import { projectContextFromId, readInstructionsFile } from './project-config.mjs'
 import { readStore, writeStore, dataDir } from './storage.mjs'
 import path from 'node:path'
+import { logger } from './utils/logger.mjs'
 
 // ---------------------------------------------------------------------------
 // System prompt
@@ -279,10 +280,24 @@ agentEvents.setMaxListeners(100)
 function resetIdleTimer(session) {
   if (session.idleTimer) clearTimeout(session.idleTimer)
   session.idleTimer = setTimeout(() => {
+    logger.info(`Session ${session.sessionId} idle timeout (${IDLE_TIMEOUT_MS / 1000}s), destroying...`)
     destroyAgent(session.sessionId).catch((err) =>
       console.error(`Failed to destroy idle agent ${session.sessionId}:`, err),
     )
   }, IDLE_TIMEOUT_MS)
+}
+
+/**
+ * Reset the idle timer for a session (e.g. on SSE activity).
+ * Returns true if the session was found.
+ */
+export function touchSession(sessionId) {
+  const session = agentSessions.get(sessionId)
+  if (session) {
+    resetIdleTimer(session)
+    return true
+  }
+  return false
 }
 
 /**
@@ -448,6 +463,7 @@ export async function createAgent(sessionId, config = {}) {
 
   agentSessions.set(sessionId, session)
   resetIdleTimer(session)
+  logger.info(`Created session ${sessionId} (scope: ${scope}, project: ${projectId || 'none'}, yolo: ${yoloMode})`)
   return session
 }
 
@@ -455,7 +471,7 @@ export async function createAgent(sessionId, config = {}) {
  * Persist session data to storage.
  */
 async function persistSession(session) {
-  const { sessionId, agent, scope, projectId, title, createdAt, status, startedAt, finishedAt, model, thinkingLevel } = session
+  const { sessionId, agent, scope, projectId, title, createdAt, status, startedAt, finishedAt, model, thinkingLevel, yoloMode } = session
   const messages = agent.state.messages
 
   const now = new Date().toISOString()
@@ -464,6 +480,7 @@ async function persistSession(session) {
     title,
     model,
     thinkingLevel,
+    yoloMode,
     messages,
     createdAt: createdAt || now,
     lastModified: now,
@@ -553,7 +570,7 @@ export async function runPrompt(sessionId, message) {
 
   // Fire and forget — events come through eventBus
   session.agent.prompt(userMessage).catch((err) => {
-    console.error(`Agent prompt error for session ${sessionId}:`, err)
+    logger.error(`Agent prompt error for session ${sessionId}:`, err)
     session.eventBus.emit('agent_event', {
       type: 'error',
       error: err.message || 'Unknown error',
@@ -650,6 +667,8 @@ export async function destroyAgent(sessionId) {
   const session = agentSessions.get(sessionId)
   if (!session) return
 
+  logger.info(`Destroying session ${sessionId} (status: ${session.status})`)
+
   if (session.idleTimer) clearTimeout(session.idleTimer)
 
   try {
@@ -667,6 +686,40 @@ export async function destroyAgent(sessionId) {
 
   session.eventBus.removeAllListeners()
   agentSessions.delete(sessionId)
+}
+
+/**
+ * Try to restore an agent session from persisted storage.
+ * Returns the restored session, or null if not found.
+ */
+export async function restoreAgent(sessionId) {
+  const existing = agentSessions.get(sessionId)
+  if (existing) return existing
+
+  try {
+    const sessionsStore = await readStore('sessions')
+    const sessionData = sessionsStore?.[sessionId]
+    if (!sessionData) {
+      logger.warn(`Cannot restore session ${sessionId}: no stored data found`)
+      return null
+    }
+
+    logger.info(`Restoring session ${sessionId} from storage (scope: ${sessionData.scope}, messages: ${sessionData.messages?.length ?? 0})`)
+
+    return await createAgent(sessionId, {
+      scope: sessionData.scope || 'global',
+      projectId: sessionData.projectId || null,
+      yoloMode: sessionData.yoloMode || false,
+      model: sessionData.model,
+      thinkingLevel: sessionData.thinkingLevel || 'off',
+      messages: sessionData.messages || [],
+      title: sessionData.title || 'New chat',
+      createdAt: sessionData.createdAt,
+    })
+  } catch (err) {
+    logger.error(`Failed to restore agent ${sessionId}:`, err)
+    return null
+  }
 }
 
 /**
@@ -704,6 +757,30 @@ export function updateSessionModel(sessionId, model) {
   session.agent.state.model = model
 
   return { sessionId, model }
+}
+
+/**
+ * Reset stale `taskStatus: 'running'` entries in persisted session metadata.
+ * Called on server startup — any sessions marked as running are clearly stale
+ * since the server just started fresh.
+ */
+export async function resetStaleTaskStatuses() {
+  try {
+    const metadataStore = await readStore('sessions-metadata')
+    let changed = false
+    for (const [id, meta] of Object.entries(metadataStore)) {
+      if (meta && meta.taskStatus === 'running') {
+        metadataStore[id] = { ...meta, taskStatus: 'idle', taskFinishedAt: meta.taskFinishedAt ?? new Date().toISOString() }
+        changed = true
+      }
+    }
+    if (changed) {
+      await writeStore('sessions-metadata', metadataStore)
+      logger.info('Reset stale task statuses in persisted metadata')
+    }
+  } catch (err) {
+    logger.error('Failed to reset stale task statuses:', err)
+  }
 }
 
 /**

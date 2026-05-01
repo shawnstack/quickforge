@@ -189,6 +189,16 @@ function App() {
 
   const deleteProjectInline = useCallback(
     async (projectId: string) => {
+      const project = projects.find((p) => p.id === projectId)
+      const { showConfirm } = await import('@/components/ui/confirm-dialog')
+      const confirmed = await showConfirm({
+        title: t('deleteProject'),
+        description: t('deleteProjectConfirm', { name: project?.name ?? projectId }),
+        confirmLabel: t('confirmDelete'),
+        cancelLabel: t('cancel'),
+      })
+      if (!confirmed) return
+
       const response = await fetch(`/api/project/${encodeURIComponent(projectId)}`, {
         method: 'DELETE',
       })
@@ -208,7 +218,7 @@ function App() {
         setChatPanelRevision((value) => value + 1)
       }
     },
-    [refreshSessions, crossTab, setActiveProject, setProjects, setExpandedProjectIds, setChatPanelRevision],
+    [projects, refreshSessions, crossTab, setActiveProject, setProjects, setExpandedProjectIds, setChatPanelRevision],
   )
 
   // --- Bootstrap ---

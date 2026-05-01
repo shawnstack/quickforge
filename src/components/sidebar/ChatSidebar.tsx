@@ -177,11 +177,9 @@ export const ChatSidebar = memo(function ChatSidebar({
             <Sparkles className={cn('size-4 transition-opacity duration-160', !sidebarOpen && 'group-hover:opacity-0')} />
             {!sidebarOpen ? <PanelLeftOpen className="absolute size-4 opacity-0 transition-opacity duration-160 group-hover:opacity-100" /> : null}
           </span>
-          {sidebarOpen ? (
-            <span className="ml-auto inline-flex size-6 items-center justify-center text-muted-foreground/55 transition-colors group-hover:text-foreground/70">
-              <PanelLeftClose className="size-4" />
-            </span>
-          ) : null}
+          <span className={cn('ml-auto inline-flex size-6 items-center justify-center text-muted-foreground/55 transition-opacity duration-100 group-hover:text-foreground/70', !sidebarOpen && 'opacity-0')}>
+            <PanelLeftClose className="size-4" />
+          </span>
         </button>
         <button
           type="button"

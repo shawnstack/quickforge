@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
-import { readStore, writeStore, atomicUpdate, getComparable, dataDir, configDir, storageDir, cacheDir, logsDir } from '../storage.mjs'
+import { readStore, writeStore, atomicUpdate, getComparable, readSessionStoreScoped, ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir } from '../storage.mjs'
 import { directorySize } from '../utils/workspace.mjs'
 
 export async function handleStorageApi(req, res, url) {
@@ -37,7 +37,20 @@ export async function handleStorageApi(req, res, url) {
   if (req.method === 'GET' && parts[3] === 'index') {
     const indexName = decodeSegment(parts[4])
     const direction = url.searchParams.get('direction') === 'desc' ? 'desc' : 'asc'
-    const data = await readStore(store)
+    const scope = url.searchParams.get('scope')
+    const projectId = url.searchParams.get('projectId')
+    const limitParam = url.searchParams.get('limit')
+    const offsetParam = url.searchParams.get('offset')
+
+    await ensureStorage()
+
+    let data
+    if (scope && (store === 'sessions' || store === 'sessions-metadata')) {
+      data = await readSessionStoreScoped(store, scope, scope === 'project' ? projectId : undefined)
+    } else {
+      data = await readStore(store)
+    }
+
     const values = Object.values(data)
     values.sort((a, b) => {
       const left = getComparable(a, indexName)
@@ -48,7 +61,16 @@ export async function handleStorageApi(req, res, url) {
       const result = String(left).localeCompare(String(right))
       return direction === 'desc' ? -result : result
     })
-    sendJson(res, 200, { values })
+
+    const total = values.length
+    const limit = limitParam ? parseInt(limitParam, 10) : undefined
+    const offset = offsetParam ? parseInt(offsetParam, 10) : 0
+
+    if (limit && limit > 0) {
+      sendJson(res, 200, { values: values.slice(offset, offset + limit), total })
+    } else {
+      sendJson(res, 200, { values, total })
+    }
     return
   }
 

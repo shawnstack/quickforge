@@ -85,6 +85,29 @@ export class HttpStorageBackend implements StorageBackend {
     return payload.values
   }
 
+  async fetchPaginatedFromIndex<T = unknown>(
+    storeName: string,
+    indexName: string,
+    options: {
+      direction?: 'asc' | 'desc'
+      limit: number
+      offset: number
+      scope?: string
+      projectId?: string
+    },
+  ): Promise<{ values: T[]; total: number }> {
+    const params = new URLSearchParams()
+    params.set('direction', options.direction || 'desc')
+    params.set('limit', String(options.limit))
+    params.set('offset', String(options.offset))
+    if (options.scope) params.set('scope', options.scope)
+    if (options.projectId) params.set('projectId', options.projectId)
+
+    return this.request<{ values: T[]; total: number }>(
+      `${this.path(storeName, 'index', indexName)}?${params.toString()}`,
+    )
+  }
+
   async clear(storeName: string): Promise<void> {
     await this.request<{ ok: boolean }>(this.path(storeName), { method: 'DELETE' })
   }

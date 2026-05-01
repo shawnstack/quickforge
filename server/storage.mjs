@@ -249,6 +249,12 @@ async function readSessionStore(storeName) {
   return result
 }
 
+export async function readSessionStoreScoped(storeName, scope, projectId) {
+  await ensureStorage()
+  const file = sessionStoreFile(storeName, { scope, projectId })
+  return readJsonFile(file, {})
+}
+
 async function writeSessionStore(storeName, data) {
   const buckets = new Map()
 

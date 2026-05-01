@@ -17,7 +17,7 @@ function getDirectBackendUrl(): string {
   // eslint-disable-next-line no-constant-binary-expression
   const serverPort = typeof __QUICKFORGE_SERVER_PORT__ !== 'undefined' ? __QUICKFORGE_SERVER_PORT__ : ''
   if (serverPort && serverPort !== location.port) {
-    return `${location.protocol}//${location.hostname}:${serverPort}`
+    return `${location.protocol}//127.0.0.1:${serverPort}`
   }
   return ''
 }
@@ -30,11 +30,17 @@ class AgentSseClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectDelay = 1000
   private disposed = false
+  private directBaseUrl: string
+  private fallbackBaseUrl: string
 
   constructor(sessionId: string, baseUrl = '') {
     this.sessionId = sessionId
-    // SSE goes directly to the backend when possible to avoid connection limit
-    this.baseUrl = getDirectBackendUrl() || baseUrl
+    // SSE goes directly to the backend when possible to avoid connection limit.
+    // If that fails (e.g. localhost resolves to ::1 while the server listens on
+    // 127.0.0.1), fall back to the normal proxied URL.
+    this.directBaseUrl = getDirectBackendUrl()
+    this.fallbackBaseUrl = baseUrl
+    this.baseUrl = this.directBaseUrl || this.fallbackBaseUrl
     this.connect()
   }
 
@@ -80,9 +86,15 @@ class AgentSseClient {
     this.eventSource.onerror = () => {
       this.eventSource?.close()
       this.eventSource = null
-      if (!this.disposed) {
-        this.scheduleReconnect()
+      if (this.disposed) return
+
+      if (this.baseUrl === this.directBaseUrl && this.fallbackBaseUrl !== this.directBaseUrl) {
+        this.baseUrl = this.fallbackBaseUrl
+        this.connect()
+        return
       }
+
+      this.scheduleReconnect()
     }
   }
 
@@ -160,6 +172,7 @@ export class ServerAgent {
   private baseUrl: string
   private disposed = false
   private _syncingThinkingLevel = false
+  private pollTimer: ReturnType<typeof setInterval> | null = null
 
   constructor(config: ServerAgentConfig) {
     this.sessionId = config.sessionId
@@ -222,6 +235,7 @@ export class ServerAgent {
     // Add to local state immediately for optimistic UI
     const agentMessage = message as unknown as AgentMessage
     this.state.messages = [...this.state.messages, agentMessage]
+    this.emitToListeners({ type: 'message_start', message: agentMessage } as unknown as AgentEvent)
 
     // Send to server
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/prompt`
@@ -232,6 +246,7 @@ export class ServerAgent {
     }).catch((err) => {
       console.error('Failed to send prompt:', err)
     })
+    this.startPollingState()
   }
 
   abort(): void {
@@ -302,6 +317,10 @@ export class ServerAgent {
 
   dispose(): void {
     this.disposed = true
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer)
+      this.pollTimer = null
+    }
     this.sseClient.dispose()
     this.listeners.clear()
   }
@@ -345,10 +364,12 @@ export class ServerAgent {
       case 'agent_start': {
         this.state.isStreaming = true
         this.state.errorMessage = undefined
+        this.startPollingState()
         break
       }
 
       case 'agent_end': {
+        this.stopPollingState()
         this.state.isStreaming = false
         this.state.streamingMessage = undefined
         const endEvent = event as { messages?: AgentMessage[]; errorMessage?: string }
@@ -363,12 +384,16 @@ export class ServerAgent {
 
       case 'message_end':
       case 'turn_end': {
-        // Refresh messages from server
-        this.refreshStateFromServer()
-        break
+        // Refresh messages from server before notifying the UI, otherwise the
+        // panel can render against the old state and stay stale until refresh.
+        void this.refreshStateFromServer().finally(() => {
+          this.emitToListeners(event as unknown as AgentEvent)
+        })
+        return
       }
 
       case 'error': {
+        this.stopPollingState()
         const errMsg = (event as { error?: string }).error
         this.state.errorMessage = errMsg || 'Unknown error'
         this.state.isStreaming = false
@@ -399,7 +424,20 @@ export class ServerAgent {
     }
   }
 
-  private async refreshStateFromServer() {
+  private startPollingState() {
+    if (this.pollTimer || this.disposed) return
+    this.pollTimer = setInterval(() => {
+      void this.refreshStateFromServer({ notify: true })
+    }, 1000)
+  }
+
+  private stopPollingState() {
+    if (!this.pollTimer) return
+    clearInterval(this.pollTimer)
+    this.pollTimer = null
+  }
+
+  private async refreshStateFromServer(options?: { notify?: boolean }) {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/state`
     try {
       const res = await fetch(url)
@@ -417,6 +455,13 @@ export class ServerAgent {
         this._syncingThinkingLevel = true
         this.state.thinkingLevel = state.thinkingLevel as ThinkingLevel
         this._syncingThinkingLevel = false
+      }
+      if (state.isStreaming !== undefined) {
+        this.state.isStreaming = state.isStreaming
+        if (!state.isStreaming) this.stopPollingState()
+      }
+      if (options?.notify) {
+        this.emitToListeners({ type: state.isStreaming ? 'message_update' : 'message_end' } as unknown as AgentEvent)
       }
     } catch {
       // ignore

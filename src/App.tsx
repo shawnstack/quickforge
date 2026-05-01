@@ -50,8 +50,17 @@ import { useYoloMode } from '@/hooks/useYoloMode'
 import { useCrossTabSync } from '@/hooks/useCrossTabSync'
 import { useAgentManager } from '@/hooks/useAgentManager'
 import { saveActiveModel, saveYoloMode } from '@/lib/pi-chat'
+import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { ToastContainer, type ToastItem } from '@/components/ui/toast'
 import type { BackgroundTaskStatus } from '@/lib/types'
+
+const PAGE_SIZE = 5
+
+type SessionPage = {
+  items: QuickForgeSessionMetadata[]
+  total: number
+  loading: boolean
+}
 
 function App() {
   // --- Top-level refs (owned by App) ---
@@ -82,7 +91,6 @@ function App() {
   const { yoloMode, setYoloMode, initialize: initYoloMode } = useYoloMode()
 
   // --- UI state ---
-  const [sessions, setSessions] = useState<QuickForgeSessionMetadata[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [projectsCollapsed, setProjectsCollapsed] = useState(false)
   const [conversationsCollapsed, setConversationsCollapsed] = useState(false)
@@ -91,6 +99,16 @@ function App() {
   const [needsModelSetup, setNeedsModelSetup] = useState(false)
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
   const [toasts, setToasts] = useState<ToastItem[]>([])
+
+  // --- Paginated session state ---
+  const [globalPage, setGlobalPage] = useState<SessionPage>({ items: [], total: 0, loading: false })
+  const [projectPages, setProjectPages] = useState<Record<string, SessionPage>>({})
+
+  // --- Combined flat list (for useAgentManager session lookup) ---
+  const allLoadedSessions: QuickForgeSessionMetadata[] = [
+    ...globalPage.items,
+    ...Object.values(projectPages).flatMap((p) => p.items),
+  ]
 
   // --- Sync refs ---
   useEffect(() => {
@@ -104,12 +122,65 @@ function App() {
   // --- Session list + cross-tab sync ---
   const crossTabRef = useRef<ReturnType<typeof useCrossTabSync> | null>(null)
 
-  const refreshSessions = useCallback(async (opts?: { broadcast?: boolean }) => {
-    const storage = storageRef.current
-    if (!storage) return
-    setSessions((await storage.sessions.getAllMetadata()) as QuickForgeSessionMetadata[])
-    if (opts?.broadcast) crossTabRef.current?.notifySessionsChanged()
+  const backendRef = useRef<HttpStorageBackend | null>(null)
+
+  const loadGlobalSessions = useCallback(async (offset: number) => {
+    const backend = backendRef.current
+    if (!backend) return
+    setGlobalPage((prev) => ({ ...prev, loading: true }))
+    try {
+      const result = await backend.fetchPaginatedFromIndex<QuickForgeSessionMetadata>(
+        'sessions-metadata', 'lastModified',
+        { direction: 'desc', limit: PAGE_SIZE, offset, scope: 'global' },
+      )
+      setGlobalPage((prev) => ({
+        items: offset === 0 ? result.values : [...prev.items, ...result.values],
+        total: result.total,
+        loading: false,
+      }))
+    } catch {
+      setGlobalPage((prev) => ({ ...prev, loading: false }))
+    }
   }, [])
+
+  const loadProjectSessions = useCallback(async (projectId: string, offset: number) => {
+    const backend = backendRef.current
+    if (!backend) return
+    setProjectPages((prev) => {
+      const page = prev[projectId]
+      return { ...prev, [projectId]: { ...(page ?? { items: [], total: 0 }), loading: true } }
+    })
+    try {
+      const result = await backend.fetchPaginatedFromIndex<QuickForgeSessionMetadata>(
+        'sessions-metadata', 'lastModified',
+        { direction: 'desc', limit: PAGE_SIZE, offset, scope: 'project', projectId },
+      )
+      setProjectPages((prev) => {
+        const page = prev[projectId]
+        const prevItems = page?.items ?? []
+        return {
+          ...prev,
+          [projectId]: {
+            items: offset === 0 ? result.values : [...prevItems, ...result.values],
+            total: result.total,
+            loading: false,
+          },
+        }
+      })
+    } catch {
+      setProjectPages((prev) => {
+        const page = prev[projectId]
+        return { ...prev, [projectId]: { ...(page ?? { items: [], total: 0 }), loading: false } }
+      })
+    }
+  }, [])
+
+  const refreshSessions = useCallback(async (opts?: { broadcast?: boolean }) => {
+    // Reset and reload initial pages
+    await loadGlobalSessions(0)
+    setProjectPages({})
+    if (opts?.broadcast) crossTabRef.current?.notifySessionsChanged()
+  }, [loadGlobalSessions])
 
   const crossTab = useCrossTabSync({
     onSessionsChanged: () => { refreshSessions() },
@@ -145,7 +216,7 @@ function App() {
     yoloModeRef,
     activeProjectRef,
     switchActiveProject,
-    sessions,
+    sessions: allLoadedSessions,
     refreshSessions,
     onTaskComplete: handleTaskComplete,
   })
@@ -261,8 +332,9 @@ function App() {
         if (cancelled) return
 
         storageRef.current = storage
+        backendRef.current = storage.backend as HttpStorageBackend
         await initializeAppLanguage(storage)
-        await Promise.all([refreshSessions(), loadProject()])
+        await Promise.all([loadGlobalSessions(0), loadProject()])
 
         const savedYoloMode = await initYoloMode(storage)
         yoloModeRef.current = savedYoloMode
@@ -644,10 +716,18 @@ function App() {
   }, [openModelSettings, setChatPanelRevision, agentRef])
 
   // --- Derived data ---
-  const globalSessions = sessions.filter((session) => sessionScope(session) === 'global')
+  const globalSessions = globalPage.items
   const sessionsForProject = (projectId: string) => {
-    return sessions.filter((session) => sessionScope(session) === 'project' && session.projectId === projectId)
+    return projectPages[projectId]?.items ?? []
   }
+  const globalHasMore = globalPage.items.length < globalPage.total
+  const projectHasMore = (projectId: string) => {
+    const page = projectPages[projectId]
+    if (!page) return true // not yet loaded
+    return page.items.length < page.total
+  }
+  const globalLoading = globalPage.loading
+  const projectLoading = (projectId: string) => projectPages[projectId]?.loading ?? false
   const sessionTaskStatus = (session: QuickForgeSessionMetadata) => {
     return agentManager.taskStatuses[session.id] ?? session.taskStatus ?? 'idle'
   }
@@ -693,6 +773,15 @@ function App() {
         currentSessionId={agentManager.currentSessionId}
         globalSessions={globalSessions}
         sessionsForProject={sessionsForProject}
+        globalHasMore={globalHasMore}
+        globalLoading={globalLoading}
+        onLoadMoreGlobal={() => loadGlobalSessions(globalPage.items.length)}
+        projectHasMore={projectHasMore}
+        projectLoading={projectLoading}
+        onLoadMoreProject={(projectId: string) => {
+          const page = projectPages[projectId]
+          loadProjectSessions(projectId, page?.items.length ?? 0)
+        }}
         sessionTaskStatus={sessionTaskStatus}
         selectingProject={selectingProject}
         onToggleProjectsCollapsed={() => setProjectsCollapsed((v) => !v)}

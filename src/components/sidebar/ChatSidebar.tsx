@@ -2,6 +2,7 @@ import {
   ChevronRight,
   Folder,
   FolderOpen,
+  Loader2,
   MessageSquarePlus,
   Pencil,
   Plus,
@@ -11,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { sessionTitle } from '@/lib/types'
+import { useSentinel } from '@/hooks/useSentinel'
 import type { ProjectInfo, QuickForgeSessionMetadata, BackgroundTaskStatus } from '@/lib/types'
 
 type ChatSidebarProps = {
@@ -23,6 +25,12 @@ type ChatSidebarProps = {
   currentSessionId?: string
   globalSessions: QuickForgeSessionMetadata[]
   sessionsForProject: (projectId: string) => QuickForgeSessionMetadata[]
+  globalHasMore: boolean
+  globalLoading: boolean
+  onLoadMoreGlobal: () => void
+  projectHasMore: (projectId: string) => boolean
+  projectLoading: (projectId: string) => boolean
+  onLoadMoreProject: (projectId: string) => void
   sessionTaskStatus: (session: QuickForgeSessionMetadata) => BackgroundTaskStatus
   selectingProject: boolean
   onToggleProjectsCollapsed: () => void
@@ -46,6 +54,16 @@ function formatSessionTime(value: string) {
   }).format(new Date(value))
 }
 
+function LoadMoreSentinel({ onLoadMore, enabled }: { onLoadMore: () => void; enabled: boolean }) {
+  const ref = useSentinel(onLoadMore, enabled)
+  if (!enabled) return null
+  return (
+    <div ref={ref} className="flex items-center justify-center py-1">
+      <Loader2 className="size-3 animate-spin text-muted-foreground/45" />
+    </div>
+  )
+}
+
 export function ChatSidebar({
   sidebarOpen,
   projectsCollapsed,
@@ -56,6 +74,12 @@ export function ChatSidebar({
   currentSessionId,
   globalSessions,
   sessionsForProject,
+  globalHasMore,
+  globalLoading,
+  onLoadMoreGlobal,
+  projectHasMore,
+  projectLoading,
+  onLoadMoreProject,
   sessionTaskStatus,
   selectingProject,
   onToggleProjectsCollapsed,
@@ -100,13 +124,15 @@ export function ChatSidebar({
         sidebarOpen ? 'w-80' : 'w-0 overflow-hidden border-r-0',
       )}
     >
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        <div className="mb-4 px-2 py-2">
+      <div className="shrink-0 px-3 pt-3 pb-1">
+        <div className="px-2 py-2">
           <div className="text-sm font-medium leading-none text-foreground/85">速构 QuickForge</div>
           <div className="mt-1 text-xs text-muted-foreground/55">AI Workspace</div>
         </div>
+      </div>
 
-        <div className="mb-0.5">
+      <div className="shrink-0 px-3 max-h-[55%] flex flex-col min-h-0 overflow-hidden">
+        <div className="shrink-0 mb-0.5">
           <div className={sectionHeaderClass}>
             <button type="button" className={sectionToggleClass} onClick={onToggleProjectsCollapsed} aria-expanded={!projectsCollapsed}>
               <ChevronRight className={cn(chevronClass, !projectsCollapsed && 'rotate-90')} />
@@ -124,8 +150,9 @@ export function ChatSidebar({
             </Button>
           </div>
 
-          <div className={cn(collapsePanelClass, projectsCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
+          <div className={cn(collapsePanelClass, 'flex-1 min-h-0', projectsCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
             <div className={collapseInnerClass}>
+              <div className="h-full overflow-y-auto">
               <div className="space-y-0.5">
               {projects.length === 0 ? (
                 <div className="px-3 py-3 text-xs text-muted-foreground/55">{t('noProjects')}</div>
@@ -178,44 +205,50 @@ export function ChatSidebar({
 
                       <div className={cn(collapsePanelClass, expanded ? collapsePanelOpenClass : collapsePanelClosedClass)}>
                         <div className={collapseInnerClass}>
-                          <div className="mt-0.5 space-y-0.5 pl-8">
-                          {projectSessions.length === 0 ? (
+                          <div className="mt-0.5 space-y-0.5 pl-8 max-h-[35vh] overflow-y-auto">
+                          {projectSessions.length === 0 && !projectHasMore(item.id) ? (
                             <div className="px-2 py-1.5 text-xs text-muted-foreground/55">{t('noConversations')}</div>
                           ) : (
-                            projectSessions.map((session) => {
-                              const selected = currentSessionId === session.id
-                              return (
-                                <div key={session.id} className={cn(rowClass, 'gap-1', selected ? activeRowClass : sessionInactiveRowClass)}>
-                                  <button className="min-w-0 flex-1 text-left" type="button" onClick={() => onLoadSession(session.id)}>
-                                    <div className="flex items-center gap-1 truncate">
-                                      {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
-                                      <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title)}</span>
+                            <>
+                              {projectSessions.map((session) => {
+                                const selected = currentSessionId === session.id
+                                return (
+                                  <div key={session.id} className={cn(rowClass, 'gap-1', selected ? activeRowClass : sessionInactiveRowClass)}>
+                                    <button className="min-w-0 flex-1 text-left" type="button" onClick={() => onLoadSession(session.id)}>
+                                      <div className="flex items-center gap-1 truncate">
+                                        {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
+                                        <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title)}</span>
+                                      </div>
+                                      <div className={timeClass}>{formatSessionTime(session.lastModified)}</div>
+                                    </button>
+                                    <div className={actionOverlayClass}>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className={overlayIconButtonClass}
+                                        onClick={() => onRenameSession(session.id, session.title)}
+                                        aria-label={t('renameSession')}
+                                      >
+                                        <Pencil className="size-3.5" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className={overlayDangerIconButtonClass}
+                                        onClick={() => onDeleteSession(session.id)}
+                                        aria-label={t('deleteSession')}
+                                      >
+                                        <Trash2 className="size-4" />
+                                      </Button>
                                     </div>
-                                    <div className={timeClass}>{formatSessionTime(session.lastModified)}</div>
-                                  </button>
-                                  <div className={actionOverlayClass}>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className={overlayIconButtonClass}
-                                      onClick={() => onRenameSession(session.id, session.title)}
-                                      aria-label={t('renameSession')}
-                                    >
-                                      <Pencil className="size-3.5" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className={overlayDangerIconButtonClass}
-                                      onClick={() => onDeleteSession(session.id)}
-                                      aria-label={t('deleteSession')}
-                                    >
-                                      <Trash2 className="size-4" />
-                                    </Button>
                                   </div>
-                                </div>
-                              )
-                            })
+                                )
+                              })}
+                              <LoadMoreSentinel
+                                onLoadMore={() => onLoadMoreProject(item.id)}
+                                enabled={projectHasMore(item.id) && !projectLoading(item.id)}
+                              />
+                            </>
                           )}
                           </div>
                         </div>
@@ -225,11 +258,13 @@ export function ChatSidebar({
                 })
               )}
               </div>
+              </div>
             </div>
           </div>
         </div>
+      </div>
 
-        <div>
+      <div className="flex-1 min-h-0 flex flex-col px-3 pb-3">
           <div className={sectionHeaderClass}>
             <button type="button" className={sectionToggleClass} onClick={onToggleConversationsCollapsed} aria-expanded={!conversationsCollapsed}>
               <ChevronRight className={cn(chevronClass, !conversationsCollapsed && 'rotate-90')} />
@@ -246,9 +281,10 @@ export function ChatSidebar({
             </Button>
           </div>
 
-          <div className={cn(collapsePanelClass, conversationsCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
+          <div className={cn(collapsePanelClass, 'flex-1 min-h-0', conversationsCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
             <div className={collapseInnerClass}>
-              {globalSessions.length === 0 ? (
+              <div className="h-full overflow-y-auto">
+              {globalSessions.length === 0 && !globalHasMore ? (
               <div className="px-3 py-3 text-xs text-muted-foreground/55">{t('noSavedConversations')}</div>
             ) : (
               <div className="space-y-0.5">
@@ -286,11 +322,15 @@ export function ChatSidebar({
                     </div>
                   )
                 })}
+                <LoadMoreSentinel
+                  onLoadMore={onLoadMoreGlobal}
+                  enabled={globalHasMore && !globalLoading}
+                />
               </div>
               )}
+              </div>
             </div>
           </div>
-        </div>
       </div>
     </aside>
   )

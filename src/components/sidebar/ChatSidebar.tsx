@@ -185,23 +185,23 @@ export const ChatSidebar = memo(function ChatSidebar({
           type="button"
           className={cn(rowClass, 'mt-4 w-full', inactiveRowClass)}
           onClick={openSearch}
-          aria-label="搜索"
+          aria-label={t('search')}
         >
           <span className={iconSlotClass}>
             <Search className="size-4" />
           </span>
-          {sidebarOpen ? <span className={sessionTitleClass}>搜索</span> : null}
+          {sidebarOpen ? <span className={sessionTitleClass}>{t('search')}</span> : null}
         </button>
         <button
           type="button"
           className={cn(rowClass, 'w-full', scheduledTasksActive ? activeRowClass : inactiveRowClass)}
           onClick={onOpenScheduledTasks}
-          aria-label="定时任务"
+          aria-label={t('scheduledTasksLabel')}
         >
           <span className={iconSlotClass}>
             <CalendarClock className="size-4" />
           </span>
-          {sidebarOpen ? <span className={cn(sessionTitleClass, scheduledTasksActive && activeSessionTitleClass)}>定时任务</span> : null}
+          {sidebarOpen ? <span className={cn(sessionTitleClass, scheduledTasksActive && activeSessionTitleClass)}>{t('scheduledTasksLabel')}</span> : null}
         </button>
       </div>
 
@@ -429,7 +429,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                 onKeyDown={(event) => {
                   if (event.key === 'Escape') setSearchOpen(false)
                 }}
-                placeholder="搜索对话记录..."
+                placeholder={t('searchDialog')}
                 className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/45"
               />
             </div>
@@ -448,10 +448,10 @@ export const ChatSidebar = memo(function ChatSidebar({
                     </button>
                   ))
                 ) : (
-                  <div className="px-3 py-3 text-xs text-muted-foreground/55">没有找到相关对话</div>
+                  <div className="px-3 py-3 text-xs text-muted-foreground/55">{t('noSearchResults')}</div>
                 )
               ) : (
-                <div className="px-3 py-3 text-xs text-muted-foreground/55">输入关键词搜索已加载的对话记录</div>
+                <div className="px-3 py-3 text-xs text-muted-foreground/55">{t('searchHint')}</div>
               )}
             </div>
           </div>

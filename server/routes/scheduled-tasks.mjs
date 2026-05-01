@@ -20,58 +20,6 @@ function createId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
-function pad(value) {
-  return String(value).padStart(2, '0')
-}
-
-function parseTime(text) {
-  const explicit = text.match(/(\d{1,2})[:：点时](?:\s*(\d{1,2})分?)?/)
-  if (explicit) {
-    return {
-      hour: Math.min(Number(explicit[1]), 23),
-      minute: Math.min(Number(explicit[2] ?? '0'), 59),
-    }
-  }
-  if (/早上|上午/.test(text)) return { hour: 9, minute: 0 }
-  if (/中午/.test(text)) return { hour: 12, minute: 0 }
-  if (/下午/.test(text)) return { hour: 15, minute: 0 }
-  if (/晚上|夜里/.test(text)) return { hour: 20, minute: 0 }
-  return { hour: 9, minute: 0 }
-}
-
-function nextAt(hour, minute, base = new Date()) {
-  const next = new Date(base)
-  next.setSeconds(0, 0)
-  next.setHours(hour, minute, 0, 0)
-  if (next.getTime() <= base.getTime()) next.setDate(next.getDate() + 1)
-  return next
-}
-
-function nextWeekdayAt(weekday, hour, minute) {
-  const next = nextAt(hour, minute)
-  const diff = (weekday - next.getDay() + 7) % 7
-  next.setDate(next.getDate() + diff)
-  return next
-}
-
-function nextMonthDayAt(day, hour, minute) {
-  const now = new Date()
-  const next = new Date(now)
-  next.setSeconds(0, 0)
-  next.setHours(hour, minute, 0, 0)
-  next.setDate(Math.min(day, 28))
-  if (next.getTime() <= now.getTime()) next.setMonth(next.getMonth() + 1)
-  return next
-}
-
-function extractTitle(instruction) {
-  return instruction
-    .replace(/^(请|帮我|给我|麻烦)?/, '')
-    .replace(/(每天|每日|明天|今天|每周[一二三四五六日天]?|每月\d{1,2}[号日]?|每隔\d+\s*(分钟|小时)).*?(提醒我|帮我|执行|运行|生成|检查)?/, '')
-    .trim()
-    .slice(0, 32) || 'AI 定时任务'
-}
-
 function parseCronField(field, min, max) {
   if (field === '*') return { any: true, values: [] }
   const values = new Set()
@@ -126,6 +74,14 @@ function normalizeAiJson(text) {
   } catch {
     return null
   }
+}
+
+function extractTitle(instruction) {
+  return instruction
+    .replace(/^(请|帮我|给我|麻烦)?/, '')
+    .replace(/(每天|每日|明天|今天|每周[一二三四五六日天]?|每月\d{1,2}[号日]?|每隔\d+\s*(分钟|小时)).*?(提醒我|帮我|执行|运行|生成|检查)?/, '')
+    .trim()
+    .slice(0, 32) || 'AI 定时任务'
 }
 
 async function getApiKey(provider) {
@@ -200,106 +156,6 @@ async function parseScheduledTaskInstructionWithAi(instruction, model, thinkingL
     logger.warn('AI scheduled task parsing failed:', error?.message || error)
     return { needMoreInfo: true, question: `AI 解析失败：${error?.message || '请检查模型配置和 API Key 后重试。'}` }
   }
-}
-
-export function parseScheduledTaskInstruction(instruction) {
-  const text = String(instruction || '').trim()
-  if (!text) return { needMoreInfo: true, question: '请输入要创建的定时任务，例如：每天早上 9 点帮我生成日报。' }
-
-  const { hour, minute } = parseTime(text)
-  const title = extractTitle(text)
-
-  const interval = text.match(/每隔\s*(\d+)\s*(分钟|小时)/)
-  if (interval) {
-    const amount = Number(interval[1])
-    const unit = interval[2]
-    return {
-      needMoreInfo: false,
-      task: {
-        title,
-        instruction: text,
-        scheduleType: 'interval',
-        scheduleRule: `每隔 ${amount} ${unit}`,
-        nextRunAt: new Date(Date.now() + amount * (unit === '小时' ? hourMs : minuteMs)).toISOString(),
-      },
-    }
-  }
-
-  if (/每周/.test(text)) {
-    const weekdays = ['日', '一', '二', '三', '四', '五', '六']
-    const matched = text.match(/每周([一二三四五六日天])?/)
-    if (!matched?.[1]) return { needMoreInfo: true, question: '你希望每周几执行？例如：每周一上午 10 点生成周报。' }
-    const weekday = matched[1] === '天' ? 0 : weekdays.indexOf(matched[1])
-    return {
-      needMoreInfo: false,
-      task: {
-        title,
-        instruction: text,
-        scheduleType: 'weekly',
-        scheduleRule: `每周${matched[1]} ${pad(hour)}:${pad(minute)}`,
-        nextRunAt: nextWeekdayAt(weekday, hour, minute).toISOString(),
-      },
-    }
-  }
-
-  const month = text.match(/每月\s*(\d{1,2})\s*[号日]/)
-  if (month) {
-    const day = Math.min(Math.max(Number(month[1]), 1), 28)
-    return {
-      needMoreInfo: false,
-      task: {
-        title,
-        instruction: text,
-        scheduleType: 'monthly',
-        scheduleRule: `每月 ${day} 号 ${pad(hour)}:${pad(minute)}`,
-        nextRunAt: nextMonthDayAt(day, hour, minute).toISOString(),
-      },
-    }
-  }
-
-  if (/每天|每日/.test(text)) {
-    return {
-      needMoreInfo: false,
-      task: {
-        title,
-        instruction: text,
-        scheduleType: 'daily',
-        scheduleRule: `每天 ${pad(hour)}:${pad(minute)}`,
-        nextRunAt: nextAt(hour, minute).toISOString(),
-      },
-    }
-  }
-
-  if (/明天/.test(text)) {
-    const next = new Date()
-    next.setDate(next.getDate() + 1)
-    next.setHours(hour, minute, 0, 0)
-    return {
-      needMoreInfo: false,
-      task: {
-        title,
-        instruction: text,
-        scheduleType: 'once',
-        scheduleRule: `一次性：明天 ${pad(hour)}:${pad(minute)}`,
-        nextRunAt: next.toISOString(),
-      },
-    }
-  }
-
-  if (/今天/.test(text)) {
-    return {
-      needMoreInfo: false,
-      task: {
-        title,
-        instruction: text,
-        scheduleType: 'once',
-        scheduleRule: `一次性：今天 ${pad(hour)}:${pad(minute)}`,
-        nextRunAt: nextAt(hour, minute).toISOString(),
-      },
-    }
-  }
-
-  return { needMoreInfo: true, question: '我还不确定执行时间。请补充频率或时间，例如：每天 9 点、每周一 10 点、每隔 30 分钟。' }
 }
 
 function calculateNextRun(task) {

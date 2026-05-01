@@ -904,7 +904,7 @@ function App() {
             {scheduledTasksOpen ? (
               <>
                 <div className="truncate text-xs text-muted-foreground">AI Workspace</div>
-                <div className="truncate text-sm font-semibold">定时任务</div>
+                <div className="truncate text-sm font-semibold">{t('scheduledTasks')}</div>
               </>
             ) : (
               <>

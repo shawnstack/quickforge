@@ -14,6 +14,7 @@ import { handleFilesystemApi } from './routes/filesystem.mjs'
 import { handleToolApi, handleGetTools } from './routes/tools.mjs'
 import { handleInstructionsApi } from './routes/instructions.mjs'
 import { handleAgentApi } from './routes/agent.mjs'
+import { handleScheduledTasksApi, startScheduledTaskRunner, stopScheduledTaskRunner } from './routes/scheduled-tasks.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { setActiveWorkspaceRootForFilesystem } from './routes/filesystem.mjs'
 import { shutdown as shutdownAgentManager, resetStaleTaskStatuses } from './agent-manager.mjs'
@@ -84,6 +85,12 @@ async function handleApi(req, res, url) {
   // Agent routes
   if (parts[0] === 'api' && parts[1] === 'agents') {
     await handleAgentApi(req, res, url)
+    return
+  }
+
+  // Scheduled task routes
+  if (pathname === '/api/scheduled-tasks' || pathname.startsWith('/api/scheduled-tasks/')) {
+    await handleScheduledTasksApi(req, res, url)
     return
   }
 
@@ -198,6 +205,7 @@ await ensureStorage()
 await resetStaleTaskStatuses()
 await initializeActiveProject()
 setActiveWorkspaceRootForFilesystem(getWorkspaceRoot())
+startScheduledTaskRunner()
 
 server.listen(port, host, () => {
   console.log(`QuickForge local API: http://${host}:${port}`)
@@ -215,6 +223,7 @@ server.listen(port, host, () => {
 // Graceful shutdown
 async function gracefulShutdown(signal) {
   console.log(`\nReceived ${signal}, shutting down gracefully...`)
+  stopScheduledTaskRunner()
   stopVite()
   await shutdownAgentManager()
   process.exit(0)

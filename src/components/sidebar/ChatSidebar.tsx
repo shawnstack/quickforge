@@ -1,5 +1,6 @@
 import { memo } from 'react'
 import {
+  CalendarClock,
   ChevronRight,
   Folder,
   FolderOpen,
@@ -18,6 +19,7 @@ import type { ProjectInfo, QuickForgeSessionMetadata, BackgroundTaskStatus } fro
 
 type ChatSidebarProps = {
   sidebarOpen: boolean
+  scheduledTasksActive: boolean
   projectsCollapsed: boolean
   conversationsCollapsed: boolean
   projects: ProjectInfo[]
@@ -31,6 +33,7 @@ type ChatSidebarProps = {
   onLoadMoreGlobal: () => void
   projectHasMore: (projectId: string) => boolean
   projectLoading: (projectId: string) => boolean
+  projectLoaded: (projectId: string) => boolean
   onLoadMoreProject: (projectId: string) => void
   sessionTaskStatus: (session: QuickForgeSessionMetadata) => BackgroundTaskStatus
   selectingProject: boolean
@@ -44,6 +47,7 @@ type ChatSidebarProps = {
   onRenameSession: (sessionId: string, currentTitle: string) => void
   onDeleteSession: (sessionId: string) => void
   onStartNewGlobalChat: () => void
+  onOpenScheduledTasks: () => void
 }
 
 const sessionTimeFormatter = new Intl.DateTimeFormat(undefined, {
@@ -69,6 +73,7 @@ function LoadMoreSentinel({ onLoadMore, enabled }: { onLoadMore: () => void; ena
 
 export const ChatSidebar = memo(function ChatSidebar({
   sidebarOpen,
+  scheduledTasksActive,
   projectsCollapsed,
   conversationsCollapsed,
   projects,
@@ -82,6 +87,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   onLoadMoreGlobal,
   projectHasMore,
   projectLoading,
+  projectLoaded,
   onLoadMoreProject,
   sessionTaskStatus,
   selectingProject,
@@ -95,6 +101,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   onRenameSession,
   onDeleteSession,
   onStartNewGlobalChat,
+  onOpenScheduledTasks,
 }: ChatSidebarProps) {
   const sectionHeaderClass = 'mb-1 flex w-full items-center gap-1 rounded-lg px-2 py-1 text-sm font-medium leading-5 text-muted-foreground/72 transition-colors hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)]'
   const sectionToggleClass = 'flex min-w-0 flex-1 items-center gap-1 text-left transition-colors hover:text-foreground/80'
@@ -132,6 +139,16 @@ export const ChatSidebar = memo(function ChatSidebar({
           <div className="text-sm font-medium leading-none text-foreground/85">速构 QuickForge</div>
           <div className="mt-1 text-xs text-muted-foreground/55">AI Workspace</div>
         </div>
+        <button
+          type="button"
+          className={cn(rowClass, 'mt-1 w-full', scheduledTasksActive ? activeRowClass : inactiveRowClass)}
+          onClick={onOpenScheduledTasks}
+        >
+          <span className={iconSlotClass}>
+            <CalendarClock className="size-4" />
+          </span>
+          <span className={cn(sessionTitleClass, scheduledTasksActive && activeSessionTitleClass)}>定时任务</span>
+        </button>
       </div>
 
       <div className="shrink-0 px-3 max-h-[55%] flex flex-col min-h-0 overflow-hidden">
@@ -164,6 +181,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                   const projectSessions = sessionsForProject(item.id)
                   const expanded = expandedProjectIds.has(item.id)
                   const active = activeProject?.id === item.id
+                  const loaded = projectLoaded(item.id)
 
                   return (
                     <div key={item.id}>
@@ -209,7 +227,12 @@ export const ChatSidebar = memo(function ChatSidebar({
                       <div className={cn(collapsePanelClass, expanded ? collapsePanelOpenClass : collapsePanelClosedClass)}>
                         <div className={collapseInnerClass}>
                           <div className="mt-0.5 space-y-0.5 pl-8 max-h-[35vh] overflow-y-auto">
-                          {projectSessions.length === 0 && !projectHasMore(item.id) ? (
+                          {projectSessions.length === 0 && !loaded ? (
+                            <div className="flex items-center px-2 py-1.5 text-xs text-muted-foreground/55">
+                              <Loader2 className="mr-1.5 size-3 animate-spin" />
+                              {t('loadingChatWorkspace')}
+                            </div>
+                          ) : projectSessions.length === 0 && !projectHasMore(item.id) ? (
                             <div className="px-2 py-1.5 text-xs text-muted-foreground/55">{t('noConversations')}</div>
                           ) : (
                             <>

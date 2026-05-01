@@ -8,6 +8,7 @@ export const stores = new Set([
   'custom-providers',
   'sessions',
   'sessions-metadata',
+  'scheduled-tasks',
 ])
 
 const configStores = new Set(['settings', 'provider-keys', 'custom-providers'])

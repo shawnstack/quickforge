@@ -11,6 +11,7 @@ import {
   Settings,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ScheduledTasksPage } from '@/components/scheduled-tasks/ScheduledTasksPage'
 import { ProjectDirectoryPicker } from '@/components/project-directory-picker'
 import {
   buildConnectionModel,
@@ -99,10 +100,21 @@ function App() {
   const [needsModelSetup, setNeedsModelSetup] = useState(false)
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
   const [toasts, setToasts] = useState<ToastItem[]>([])
+  const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false)
 
   // --- Paginated session state ---
   const [globalPage, setGlobalPage] = useState<SessionPage>({ items: [], total: 0, loading: false })
   const [projectPages, setProjectPages] = useState<Record<string, SessionPage>>({})
+  const projectPagesRef = useRef(projectPages)
+  const expandedProjectIdsRef = useRef(expandedProjectIds)
+
+  useEffect(() => {
+    projectPagesRef.current = projectPages
+  }, [projectPages])
+
+  useEffect(() => {
+    expandedProjectIdsRef.current = expandedProjectIds
+  }, [expandedProjectIds])
 
   // --- Combined flat list (for useAgentManager session lookup) ---
   const allLoadedSessions: QuickForgeSessionMetadata[] = [
@@ -176,11 +188,28 @@ function App() {
   }, [])
 
   const refreshSessions = useCallback(async (opts?: { broadcast?: boolean }) => {
-    // Reset and reload initial pages
+    // Reset and reload the visible initial pages.
     await loadGlobalSessions(0)
-    setProjectPages({})
+
+    const loadedProjectIds = new Set([
+      ...Object.keys(projectPagesRef.current),
+      ...expandedProjectIdsRef.current,
+    ])
+    if (loadedProjectIds.size === 0) {
+      setProjectPages({})
+    } else {
+      setProjectPages((prev) => {
+        const next: Record<string, SessionPage> = {}
+        for (const projectId of loadedProjectIds) {
+          next[projectId] = { ...(prev[projectId] ?? { items: [], total: 0 }), loading: true }
+        }
+        return next
+      })
+      await Promise.all([...loadedProjectIds].map((projectId) => loadProjectSessions(projectId, 0)))
+    }
+
     if (opts?.broadcast) crossTabRef.current?.notifySessionsChanged()
-  }, [loadGlobalSessions])
+  }, [loadGlobalSessions, loadProjectSessions])
 
   const crossTab = useCrossTabSync({
     onSessionsChanged: () => { refreshSessions() },
@@ -239,6 +268,7 @@ function App() {
 
   const handleToastClick = useCallback(
     (sessionId: string) => {
+      setScheduledTasksOpen(false)
       loadAgentSession(sessionId)
     },
     [loadAgentSession],
@@ -250,6 +280,8 @@ function App() {
       alert(t('modelSetupRequired'))
       return
     }
+
+    setScheduledTasksOpen(false)
 
     const sessionId = crypto.randomUUID()
     const url = new URL(window.location.href)
@@ -268,6 +300,8 @@ function App() {
       alert(t('modelSetupRequired'))
       return
     }
+
+    setScheduledTasksOpen(false)
 
     const nextProject = targetProject ?? activeProjectRef.current
     if (!nextProject) return
@@ -728,6 +762,7 @@ function App() {
   }, [projectPages])
   const globalLoading = globalPage.loading
   const projectLoading = useCallback((projectId: string) => projectPages[projectId]?.loading ?? false, [projectPages])
+  const projectLoaded = useCallback((projectId: string) => projectId in projectPages, [projectPages])
   const sessionTaskStatus = useCallback((session: QuickForgeSessionMetadata) => {
     return agentManager.taskStatuses[session.id] ?? session.taskStatus ?? 'idle'
   }, [agentManager.taskStatuses])
@@ -782,6 +817,7 @@ function App() {
     <div className="flex h-screen min-h-0 bg-background text-foreground">
       <ChatSidebar
         sidebarOpen={sidebarOpen}
+        scheduledTasksActive={scheduledTasksOpen}
         projectsCollapsed={projectsCollapsed}
         conversationsCollapsed={conversationsCollapsed}
         projects={projects}
@@ -795,6 +831,7 @@ function App() {
         onLoadMoreGlobal={loadMoreGlobal}
         projectHasMore={projectHasMore}
         projectLoading={projectLoading}
+        projectLoaded={projectLoaded}
         onLoadMoreProject={loadMoreProject}
         sessionTaskStatus={sessionTaskStatus}
         selectingProject={selectingProject}
@@ -804,7 +841,10 @@ function App() {
         onSelectProjectDirectory={selectProjectDirectory}
         onStartNewProjectChat={startNewProjectChat}
         onDeleteProject={deleteProjectInline}
-        onLoadSession={loadAgentSession}
+        onLoadSession={(sessionId) => {
+          setScheduledTasksOpen(false)
+          void loadAgentSession(sessionId)
+        }}
         onRenameSession={async (sessionId, currentTitle) => {
           const storage = storageRef.current
           if (!storage) return
@@ -844,10 +884,15 @@ function App() {
           await storage.sessions.delete(sessionId)
           await refreshSessions({ broadcast: true })
           if (currentSessionIdRef.current === sessionId) {
+            setScheduledTasksOpen(false)
             await startNewGlobalChat()
           }
         }}
-        onStartNewGlobalChat={startNewGlobalChat}
+        onStartNewGlobalChat={() => {
+          setScheduledTasksOpen(false)
+          void startNewGlobalChat()
+        }}
+        onOpenScheduledTasks={() => setScheduledTasksOpen(true)}
       />
 
       <main className="flex min-w-0 flex-1 flex-col">
@@ -866,10 +911,19 @@ function App() {
           </Button>
 
           <div className="min-w-0 flex-1">
-            <div className="truncate text-xs text-muted-foreground">
-              {agentManager.chatScope === 'project' ? (agentManager.currentToolProject?.name ?? t('projectChat')) : t('normalChat')}
-            </div>
-            <div className="truncate text-sm font-semibold">{sessionTitle(agentManager.currentTitle)}</div>
+            {scheduledTasksOpen ? (
+              <>
+                <div className="truncate text-xs text-muted-foreground">AI Workspace</div>
+                <div className="truncate text-sm font-semibold">定时任务</div>
+              </>
+            ) : (
+              <>
+                <div className="truncate text-xs text-muted-foreground">
+                  {agentManager.chatScope === 'project' ? (agentManager.currentToolProject?.name ?? t('projectChat')) : t('normalChat')}
+                </div>
+                <div className="truncate text-sm font-semibold">{sessionTitle(agentManager.currentTitle)}</div>
+              </>
+            )}
           </div>
 
           <Button
@@ -884,7 +938,9 @@ function App() {
 
         <div className="flex min-h-0 flex-1">
           <section className="flex min-w-0 flex-1 flex-col">
-            {needsModelSetup ? (
+            {scheduledTasksOpen ? (
+              <ScheduledTasksPage />
+            ) : needsModelSetup ? (
               <ModelSetupEmptyState
                 onAddModel={openModelSettings}
                 onUseExample={() => {

@@ -1,11 +1,28 @@
-import { setLanguage, translations } from '@mariozechner/pi-web-ui'
+import { translations, type AppStorage } from '@mariozechner/pi-web-ui'
 
 export type AppLanguage = 'en' | 'zh'
 
-const LANGUAGE_STORAGE_KEY = 'language'
+const LANGUAGE_SETTING_KEY = 'language'
 const SUPPORTED_LANGUAGES: AppLanguage[] = ['en', 'zh']
 
 type PiTranslations = typeof translations.en
+
+const piEnglishTranslations: PiTranslations = {
+  ...translations.en,
+  'Configure API keys for LLM providers. Keys are stored locally in your browser.':
+    'Configure API keys for LLM providers. Keys are stored by the local QuickForge service on this machine.',
+  'Settings are stored locally in your browser': 'Settings are stored by the local QuickForge service on this machine',
+  'Storage Permission Required': 'Local Service Required',
+  'This app needs persistent storage to save your conversations':
+    'This app needs the local QuickForge service to save your conversations',
+  'Without persistent storage, your browser may delete saved conversations when it needs disk space. Granting this permission ensures your chat history is preserved.':
+    'QuickForge saves data to local files through the local service on this machine so your chat history is preserved.',
+  'Your conversations will be saved locally in your browser':
+    'Your conversations will be saved to local files by the local QuickForge service',
+  'Cloud LLM providers with predefined models. API keys are stored locally in your browser.':
+    'Cloud LLM providers with predefined models. API keys are stored by the local QuickForge service on this machine.',
+}
+let currentLanguage: AppLanguage = browserDefaultLanguage()
 
 function browserDefaultLanguage(): AppLanguage {
   if (typeof navigator !== 'undefined' && navigator.language.toLowerCase().startsWith('zh')) {
@@ -14,35 +31,34 @@ function browserDefaultLanguage(): AppLanguage {
   return 'en'
 }
 
-function readStoredLanguage(): string | null {
-  try {
-    return typeof localStorage === 'undefined' ? null : localStorage.getItem(LANGUAGE_STORAGE_KEY)
-  } catch {
-    return null
+function isAppLanguage(value: unknown): value is AppLanguage {
+  return typeof value === 'string' && SUPPORTED_LANGUAGES.includes(value as AppLanguage)
+}
+
+function setDocumentLanguage(language: AppLanguage) {
+  if (typeof document === 'undefined') return
+  document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en'
+  document.documentElement.dir = 'ltr'
+}
+
+function syncPiTranslations(language: AppLanguage) {
+  const dictionary = language === 'zh' ? piChineseTranslations : piEnglishTranslations
+  for (const key of Object.keys(translations)) {
+    ;(translations as Record<string, PiTranslations>)[key] = dictionary
   }
 }
 
-function writeStoredLanguage(language: AppLanguage) {
-  try {
-    localStorage.setItem(LANGUAGE_STORAGE_KEY, language)
-  } catch {
-    // Ignore storage failures; the current page can still render with fallback language.
-  }
+function setCurrentLanguage(language: AppLanguage) {
+  currentLanguage = language
+  syncPiTranslations(language)
+  setDocumentLanguage(language)
 }
 
 export function getAppLanguage(): AppLanguage {
-  const stored = readStoredLanguage()
-  if (stored === 'en' || stored === 'zh') return stored
-  return browserDefaultLanguage()
+  return currentLanguage
 }
 
-function normalizeStoredLanguage() {
-  const stored = readStoredLanguage()
-  if (stored && SUPPORTED_LANGUAGES.includes(stored as AppLanguage)) return
-  writeStoredLanguage(browserDefaultLanguage())
-}
-
-;(translations as Record<string, PiTranslations>).zh = {
+const piChineseTranslations: PiTranslations = {
   ...translations.en,
   Free: '免费',
   'Input Required': '需要输入',
@@ -59,7 +75,7 @@ function normalizeStoredLanguage() {
   'Type your message...': '输入你的消息...',
   'API Keys Configuration': 'API Key 配置',
   'Configure API keys for LLM providers. Keys are stored locally in your browser.':
-    '配置 LLM 提供商的 API Key。密钥会保存在你的浏览器本地。',
+    '配置 LLM 提供商的 API Key。密钥会由本机 QuickForge 本地服务保存。',
   Configured: '已配置',
   'Not configured': '未配置',
   '✓ Valid': '✓ 有效',
@@ -181,7 +197,7 @@ function normalizeStoredLanguage() {
   'Proxy URL': '代理 URL',
   'Format: The proxy must accept requests as <proxy-url>/?url=<target-url>':
     '格式：代理必须接受 <proxy-url>/?url=<target-url> 形式的请求',
-  'Settings are stored locally in your browser': '设置会保存在你的浏览器本地',
+  'Settings are stored locally in your browser': '设置会由本机 QuickForge 本地服务保存',
   Clear: '清除',
   'API Key Required': '需要 API Key',
   'Enter your API key for {provider}': '输入 {provider} 的 API Key',
@@ -192,13 +208,13 @@ function normalizeStoredLanguage() {
   Low: '低',
   Medium: '中',
   High: '高',
-  'Storage Permission Required': '需要存储权限',
-  'This app needs persistent storage to save your conversations': '此应用需要持久化存储来保存你的对话',
+  'Storage Permission Required': '需要本地服务',
+  'This app needs persistent storage to save your conversations': '此应用需要 QuickForge 本地服务来保存你的对话',
   'Why is this needed?': '为什么需要？',
   'Without persistent storage, your browser may delete saved conversations when it needs disk space. Granting this permission ensures your chat history is preserved.':
-    '如果没有持久化存储，浏览器可能会在需要磁盘空间时删除已保存的对话。授予此权限可确保聊天历史被保留。',
+    'QuickForge 会通过本机本地服务把数据保存到本地文件中，确保聊天历史可持久保留。',
   'What this means:': '这意味着：',
-  'Your conversations will be saved locally in your browser': '你的对话会保存在浏览器本地',
+  'Your conversations will be saved locally in your browser': '你的对话会由本机 QuickForge 本地服务保存到本地文件',
   'Data will not be deleted automatically to free up space': '数据不会被自动删除来释放空间',
   'You can still manually clear data at any time': '你仍然可以随时手动清除数据',
   'No data is sent to external servers': '不会向外部服务器发送数据',
@@ -218,7 +234,7 @@ function normalizeStoredLanguage() {
   'Providers & Models': '提供商与模型',
   'Cloud Providers': '云提供商',
   'Cloud LLM providers with predefined models. API keys are stored locally in your browser.':
-    '带有预定义模型的云 LLM 提供商。API Key 会保存在浏览器本地。',
+    '带有预定义模型的云 LLM 提供商。API Key 会由本机 QuickForge 本地服务保存。',
   'Custom Providers': '自定义提供商',
   'User-configured servers with auto-discovered or manually defined models.':
     '用户配置的服务器，支持自动发现或手动定义模型。',
@@ -264,7 +280,8 @@ function normalizeStoredLanguage() {
   Optional: '可选',
 }
 
-normalizeStoredLanguage()
+;(translations as Record<string, PiTranslations>).zh = piChineseTranslations
+setCurrentLanguage(currentLanguage)
 
 const appTranslations = {
   en: {
@@ -277,6 +294,8 @@ const appTranslations = {
     noLanguageChange: 'The selected language is already active.',
     newChat: 'New chat',
     loadingChatWorkspace: 'Loading chat workspace...',
+    localServiceUnavailableTitle: 'Local QuickForge service unavailable',
+    localServiceUnavailableDescription: 'QuickForge requires the local service for storage. Start QuickForge with npm run dev or the quickforge command, then reload this page.',
     project: 'Project',
     projects: 'Projects',
     loadingProject: 'Loading project...',
@@ -394,6 +413,8 @@ const appTranslations = {
     noLanguageChange: '当前已经是所选语言。',
     newChat: '新建对话',
     loadingChatWorkspace: '正在加载聊天工作区...',
+    localServiceUnavailableTitle: 'QuickForge 本地服务不可用',
+    localServiceUnavailableDescription: 'QuickForge 需要通过本地服务进行存储。请使用 npm run dev 或 quickforge 命令启动后刷新此页面。',
     project: '项目',
     projects: '项目',
     loadingProject: '正在加载项目...',
@@ -519,8 +540,22 @@ export function getDateLocale() {
   return getAppLanguage() === 'zh' ? 'zh-CN' : 'en-US'
 }
 
-export function applyAppLanguage(language: AppLanguage) {
+export async function initializeAppLanguage(storage: AppStorage) {
+  const stored = await storage.settings.get<unknown>(LANGUAGE_SETTING_KEY)
+  const language = isAppLanguage(stored) ? stored : browserDefaultLanguage()
+
+  if (!isAppLanguage(stored)) {
+    await storage.settings.set(LANGUAGE_SETTING_KEY, language)
+  }
+
+  setCurrentLanguage(language)
+  return language
+}
+
+export async function applyAppLanguage(storage: AppStorage, language: AppLanguage) {
   if (language === getAppLanguage()) return false
-  setLanguage(language)
+  await storage.settings.set(LANGUAGE_SETTING_KEY, language)
+  setCurrentLanguage(language)
+  window.location.reload()
   return true
 }

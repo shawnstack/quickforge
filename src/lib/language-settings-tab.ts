@@ -1,4 +1,4 @@
-import { SettingsTab } from '@mariozechner/pi-web-ui'
+import { getAppStorage, SettingsTab } from '@mariozechner/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
 import { applyAppLanguage, getAppLanguage, t, type AppLanguage } from '@/lib/i18n'
 
@@ -14,8 +14,9 @@ class LanguageSettingsTab extends SettingsTab {
     this.requestUpdate()
   }
 
-  private applyLanguage() {
-    if (!applyAppLanguage(this.selectedLanguage)) {
+  private async applyLanguage() {
+    const storage = getAppStorage()
+    if (!(await applyAppLanguage(storage, this.selectedLanguage))) {
       alert(t('noLanguageChange'))
     }
   }

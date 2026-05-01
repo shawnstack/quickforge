@@ -23,7 +23,7 @@ import {
   resolveConfiguredModel,
 } from '@/lib/pi-chat'
 import { createCustomProvidersOnlyTab } from '@/lib/custom-providers-only-tab'
-import { t } from '@/lib/i18n'
+import { initializeAppLanguage, t } from '@/lib/i18n'
 import { createLanguageSettingsTab } from '@/lib/language-settings-tab'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
@@ -103,6 +103,7 @@ function App() {
   const [projectsCollapsed, setProjectsCollapsed] = useState(false)
   const [conversationsCollapsed, setConversationsCollapsed] = useState(false)
   const [ready, setReady] = useState(false)
+  const [startupError, setStartupError] = useState<string>()
   const [chatPanelRevision, setChatPanelRevision] = useState(0)
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
   const [taskStatuses, setTaskStatuses] = useState<Record<string, BackgroundTaskStatus>>({})
@@ -521,11 +522,13 @@ function App() {
     let cancelled = false
 
     async function boot() {
-      const storage = await initializePiStorage()
-      if (cancelled) return
+      try {
+        const storage = await initializePiStorage()
+        if (cancelled) return
 
-      storageRef.current = storage
-      await Promise.all([refreshSessions(), loadProject()])
+        storageRef.current = storage
+        await initializeAppLanguage(storage)
+        await Promise.all([refreshSessions(), loadProject()])
 
       const savedYoloMode = await initYoloMode(storage)
       yoloModeRef.current = savedYoloMode
@@ -593,7 +596,11 @@ function App() {
         )
       }
 
-      setReady(true)
+        setReady(true)
+      } catch (error) {
+        console.error('Failed to bootstrap QuickForge:', error)
+        if (!cancelled) setStartupError(t('localServiceUnavailableDescription'))
+      }
     }
 
     boot()
@@ -837,6 +844,17 @@ function App() {
   }
 
   // --- Loading state ---
+  if (startupError) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background p-6 text-foreground">
+        <div className="max-w-md rounded-lg border border-border bg-card p-5 shadow-sm">
+          <h1 className="text-base font-semibold">{t('localServiceUnavailableTitle')}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{startupError}</p>
+        </div>
+      </div>
+    )
+  }
+
   if (!ready || !agent) {
     return (
       <div className="flex h-screen items-center justify-center bg-background text-foreground">

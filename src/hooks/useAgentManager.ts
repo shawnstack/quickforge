@@ -18,7 +18,6 @@ import type {
   ProjectInfo,
   QuickForgeSessionData,
   QuickForgeSessionMetadata,
-  RestoredDraft,
 } from '@/lib/types'
 import { sessionScope } from '@/lib/types'
 
@@ -38,7 +37,6 @@ export interface AgentManager {
   agentRef: React.MutableRefObject<ServerAgent | null>
   taskMapRef: React.MutableRefObject<Map<string, BackgroundTask>>
   currentSessionIdRef: React.MutableRefObject<string | undefined>
-  currentTitleRef: React.MutableRefObject<string>
   currentChatScopeRef: React.MutableRefObject<ChatScope>
 
   // State (may change each render)
@@ -49,7 +47,6 @@ export interface AgentManager {
   currentToolProject: ProjectInfo | undefined
   taskStatuses: Record<string, BackgroundTaskStatus>
   chatPanelRevision: number
-  restoredDraft: RestoredDraft | undefined
 
   // Stable callbacks
   createAgent: (
@@ -58,7 +55,6 @@ export interface AgentManager {
     options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string },
   ) => Promise<ServerAgent>
   loadSession: (sessionId: string) => Promise<void>
-  attachTaskToView: (task: BackgroundTask) => void
   syncSessionUI: (task: BackgroundTask) => Promise<void>
   setCurrentAgentMessages: (messages: AgentState['messages']) => void
   updateCurrentAgentModel: (model: Model<Api>) => void
@@ -66,7 +62,6 @@ export interface AgentManager {
 
   // Stable state setters
   setChatPanelRevision: React.Dispatch<React.SetStateAction<number>>
-  setRestoredDraft: React.Dispatch<React.SetStateAction<RestoredDraft | undefined>>
 }
 
 export function useAgentManager(deps: AgentManagerDeps): AgentManager {
@@ -101,7 +96,6 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   const [currentToolProject, setCurrentToolProject] = useState<ProjectInfo>()
   const [taskStatuses, setTaskStatuses] = useState<Record<string, BackgroundTaskStatus>>({})
   const [chatPanelRevision, setChatPanelRevision] = useState(0)
-  const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
 
   // --- Sync session UI after agent events ---
   const syncSessionUI = useCallback(
@@ -326,7 +320,6 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     agentRef,
     taskMapRef,
     currentSessionIdRef,
-    currentTitleRef,
     currentChatScopeRef,
 
     agent,
@@ -336,14 +329,11 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     currentToolProject,
     taskStatuses,
     chatPanelRevision,
-    restoredDraft,
 
     createAgent,
     loadSession,
-    attachTaskToView,
     syncSessionUI,
     setChatPanelRevision,
-    setRestoredDraft,
 
     setCurrentAgentMessages,
     updateCurrentAgentModel,

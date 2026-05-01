@@ -6,6 +6,22 @@ import { streamSimple } from '@mariozechner/pi-ai'
 // SSE client for receiving events from the server
 // ---------------------------------------------------------------------------
 
+// Resolve the direct backend URL for SSE connections.
+// In dev mode the API server runs on a different port than Vite. By connecting
+// SSE directly to the backend we avoid exhausting the browser's HTTP/1.1
+// per-origin connection limit (6 in Chrome) through the Vite proxy.
+declare const __QUICKFORGE_SERVER_PORT__: string | undefined
+
+function getDirectBackendUrl(): string {
+  // Vite replaces __QUICKFORGE_SERVER_PORT__ at build time via define in vite.config.ts
+  // eslint-disable-next-line no-constant-binary-expression
+  const serverPort = typeof __QUICKFORGE_SERVER_PORT__ !== 'undefined' ? __QUICKFORGE_SERVER_PORT__ : ''
+  if (serverPort && serverPort !== location.port) {
+    return `${location.protocol}//${location.hostname}:${serverPort}`
+  }
+  return ''
+}
+
 class AgentSseClient {
   private eventSource: EventSource | null = null
   private handlers = new Set<(event: Record<string, unknown>) => void>()
@@ -17,7 +33,8 @@ class AgentSseClient {
 
   constructor(sessionId: string, baseUrl = '') {
     this.sessionId = sessionId
-    this.baseUrl = baseUrl
+    // SSE goes directly to the backend when possible to avoid connection limit
+    this.baseUrl = getDirectBackendUrl() || baseUrl
     this.connect()
   }
 
@@ -436,21 +453,6 @@ export class ServerAgent {
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Failed to create agent' }))
       throw new Error(err.error || 'Failed to create agent')
-    }
-
-    // Check if another tab already owns the SSE stream for this session.
-    // If so, fall back to a fresh session so we don't waste a connection slot
-    // fighting over the same server-side EventEmitter.
-    const headRes = await fetch(`${baseUrl}/api/agents/${encodeURIComponent(sessionId)}/stream`, {
-      method: 'HEAD',
-    })
-    if (headRes.status === 409) {
-      // Session already active elsewhere — create a fresh empty session instead
-      return ServerAgent.create(crypto.randomUUID(), {
-        ...config,
-        messages: [],
-        title: 'New chat',
-      })
     }
 
     // Fetch initial state

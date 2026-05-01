@@ -6,6 +6,9 @@ import path from 'node:path'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  define: {
+    __QUICKFORGE_SERVER_PORT__: JSON.stringify(process.env.QUICKFORGE_SERVER_PORT || process.env.FASTCODE_SERVER_PORT || '32176'),
+  },
   server: {
     proxy: {
       '/api': {

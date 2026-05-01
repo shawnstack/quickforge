@@ -5,7 +5,7 @@ import {
 } from '@mariozechner/pi-web-ui'
 import type { Agent } from '@mariozechner/pi-agent-core'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
-import { assistantText } from '@/lib/message-utils'
+import { assistantText, draftTextFromUserMessage } from '@/lib/message-utils'
 import { t } from '@/lib/i18n'
 import type { RestoredDraft } from '@/lib/types'
 
@@ -18,7 +18,7 @@ type ChatPanelHostProps = {
   projectId?: string
   onToggleYoloMode: () => void
   onRollbackFromMessage: (messageIndex: number) => void
-  onCopyAnswer: (text: string) => void
+  onCopyAnswer: (text: string) => Promise<void> | void
   onForkFromMessage: (messageIndex: number) => void
   restoredDraft?: RestoredDraft
 }
@@ -62,6 +62,7 @@ export function ChatPanelHost({
     let observer: MutationObserver | undefined
 
     const copyIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>'
+    const copiedIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>'
     const rollbackIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>'
     const forkIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/><path d="M12 12v3"/></svg>'
 
@@ -91,7 +92,27 @@ export function ChatPanelHost({
       composerDraftRef.current = emptyDraft()
     }
 
-    const createIconActionButton = (action: string, title: string, icon: string, onClick: () => void) => {
+    const showCopiedFeedback = (button: HTMLButtonElement, defaultTitle: string, defaultIcon: string) => {
+      const copiedTitle = t('copied')
+      const previousTimer = Number(button.dataset.quickforgeCopyFeedbackTimer)
+      if (previousTimer) window.clearTimeout(previousTimer)
+
+      button.innerHTML = copiedIcon
+      button.title = copiedTitle
+      button.setAttribute('aria-label', copiedTitle)
+      button.style.color = 'rgb(5 150 105)'
+
+      const timer = window.setTimeout(() => {
+        button.innerHTML = defaultIcon
+        button.title = defaultTitle
+        button.setAttribute('aria-label', defaultTitle)
+        button.style.color = ''
+        delete button.dataset.quickforgeCopyFeedbackTimer
+      }, 1200)
+      button.dataset.quickforgeCopyFeedbackTimer = String(timer)
+    }
+
+    const createIconActionButton = (action: string, title: string, icon: string, onClick: (button: HTMLButtonElement) => Promise<void> | void) => {
       const button = document.createElement('button')
       button.type = 'button'
       button.dataset.quickforgeAction = action
@@ -101,9 +122,23 @@ export function ChatPanelHost({
       button.className = 'pointer-events-auto inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-transparent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40'
       button.onclick = (event) => {
         event.stopPropagation()
-        onClick()
+        void onClick(button)
       }
       return button
+    }
+
+    const createCopyButton = (getText: () => string) => {
+      const title = t('copy')
+      return createIconActionButton('copy', title, copyIcon, async (button) => {
+        const text = getText()
+        if (!text) return
+        try {
+          await onCopyAnswer(text)
+          showCopiedFeedback(button, title, copyIcon)
+        } catch {
+          // onCopyAnswer already shows the failure message.
+        }
+      })
     }
 
     const decorateMessages = () => {
@@ -144,10 +179,9 @@ export function ChatPanelHost({
           const text = assistantText(entry.message)
           if (!text) return
 
-          const copyButton = createIconActionButton('copy', t('copy'), copyIcon, () => {
+          const copyButton = createCopyButton(() => {
             const currentMessage = agent.state.messages[entry.index]
-            const currentText = currentMessage ? assistantText(currentMessage) : text
-            if (currentText) onCopyAnswer(currentText)
+            return currentMessage ? assistantText(currentMessage) : text
           })
           actions.append(copyButton)
 
@@ -157,6 +191,15 @@ export function ChatPanelHost({
           forkButton.disabled = agent.state.isStreaming
           actions.append(forkButton)
         } else {
+          const text = draftTextFromUserMessage(entry.message)
+          if (text) {
+            const copyButton = createCopyButton(() => {
+              const currentMessage = agent.state.messages[entry.index]
+              return currentMessage ? draftTextFromUserMessage(currentMessage) : text
+            })
+            actions.append(copyButton)
+          }
+
           const rollbackButton = createIconActionButton('rollback', t('rollback'), rollbackIcon, () => {
             onRollbackFromMessage(entry.index)
           })

@@ -747,6 +747,7 @@ function App() {
     } catch (error) {
       console.error('Failed to copy answer:', error)
       alert(t('copyFailed'))
+      throw error
     }
   }, [])
 

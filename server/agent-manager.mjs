@@ -686,6 +686,27 @@ export function listSessions() {
 }
 
 /**
+ * Update the model for an existing session.
+ * Syncs the model to both the session record (for persistence) and the agent state (for API calls).
+ * Does NOT force persistence — normal lifecycle events (message_end, agent_end) will persist
+ * the updated model.
+ */
+export function updateSessionModel(sessionId, model) {
+  const session = agentSessions.get(sessionId)
+  if (!session) {
+    throw Object.assign(new Error('Session not found'), { statusCode: 404 })
+  }
+  if (!model) {
+    throw Object.assign(new Error('Missing model'), { statusCode: 400 })
+  }
+
+  session.model = model
+  session.agent.state.model = model
+
+  return { sessionId, model }
+}
+
+/**
  * Clean up all agents on shutdown.
  */
 export async function shutdown() {

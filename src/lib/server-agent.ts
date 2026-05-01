@@ -240,6 +240,21 @@ export class ServerAgent {
     this.state.pendingToolCalls = new Set()
   }
 
+  /**
+   * Sync a model change to the server so the session persists the correct model.
+   */
+  async updateModel(model: Model<Api>): Promise<void> {
+    this.state.model = model
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/model`
+    fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model }),
+    }).catch((err) => {
+      console.error('Failed to sync model update to server:', err)
+    })
+  }
+
   dispose(): void {
     this.disposed = true
     this.sseClient.dispose()

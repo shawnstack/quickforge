@@ -248,9 +248,10 @@ function App() {
       setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
 
       if (options?.attachToView !== false) attachTaskToView(task)
+      await refreshSessions()
       return nextAgent
     },
-    [attachTaskToView, syncSessionUI],
+    [attachTaskToView, refreshSessions, syncSessionUI],
   )
 
   // --- Chat actions ---
@@ -657,6 +658,9 @@ function App() {
     const currentAgent = agentRef.current
     if (currentAgent) {
       currentAgent.state.model = model
+      void currentAgent.updateModel(model).catch((error) => {
+        console.error('Failed to sync model to server:', error)
+      })
       setChatPanelRevision((value) => value + 1)
     } else {
       await createAgent(
@@ -700,6 +704,9 @@ function App() {
 
     if (agentRef.current) {
       agentRef.current.state.model = model
+      void agentRef.current.updateModel(model).catch((error) => {
+        console.error('Failed to sync model to server:', error)
+      })
       setChatPanelRevision((value) => value + 1)
     } else {
       await createAgent(
@@ -744,6 +751,11 @@ function App() {
         const nextModel = model as Model<Api>
         currentAgent.state.model = nextModel
         activeModelRef.current = nextModel
+
+        // Sync model change to the server so the session persists the correct model
+        void currentAgent.updateModel(nextModel).catch((error) => {
+          console.error('Failed to sync model to server:', error)
+        })
 
         if (currentInput) {
           setRestoredDraft({

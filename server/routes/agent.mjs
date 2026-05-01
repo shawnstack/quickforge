@@ -9,6 +9,7 @@ import {
   getSessionEventBus,
   destroyAgent,
   listSessions,
+  updateSessionModel,
 } from '../agent-manager.mjs'
 
 export async function handleAgentApi(req, res, url) {
@@ -93,6 +94,20 @@ export async function handleAgentApi(req, res, url) {
   if (req.method === 'DELETE' && parts.length === 3) {
     await destroyAgent(sessionId)
     sendJson(res, 200, { ok: true })
+    return
+  }
+
+  // POST /api/agents/:sessionId/model — update session model
+  if (req.method === 'POST' && subPath === 'model') {
+    const body = await readJsonBody(req)
+    const model = body?.model
+    if (!model) {
+      const error = new Error('Missing model in request body')
+      error.statusCode = 400
+      throw error
+    }
+    const result = updateSessionModel(sessionId, model)
+    sendJson(res, 200, result)
     return
   }
 

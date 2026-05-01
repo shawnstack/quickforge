@@ -142,6 +142,7 @@ export class ServerAgent {
   private sseClient: AgentSseClient
   private baseUrl: string
   private disposed = false
+  private _syncingThinkingLevel = false
 
   constructor(config: ServerAgentConfig) {
     this.sessionId = config.sessionId
@@ -149,17 +150,30 @@ export class ServerAgent {
 
     const init = config.initialState ?? {}
 
-    this.state = {
+    const rawState = {
       systemPrompt: init.systemPrompt ?? '',
       model: init.model ?? null as unknown as Model<Api>,
       thinkingLevel: (init.thinkingLevel ?? 'off') as ThinkingLevel,
       messages: init.messages?.slice() ?? [],
       tools: init.tools ?? [],
       isStreaming: init.isStreaming ?? false,
-      streamingMessage: undefined,
-      pendingToolCalls: new Set(),
-      errorMessage: init.errorMessage,
+      streamingMessage: undefined as AgentMessage | undefined,
+      pendingToolCalls: new Set<string>(),
+      errorMessage: init.errorMessage as string | undefined,
     }
+
+    // Proxy that auto-syncs thinkingLevel changes to the server
+    const self = this
+    this.state = new Proxy(rawState, {
+      set(target, prop, value) {
+        const oldValue = target[prop as keyof typeof target]
+        ;(target as Record<string | symbol, unknown>)[prop] = value
+        if (prop === 'thinkingLevel' && !self._syncingThinkingLevel && value !== oldValue) {
+          self.updateThinkingLevel(value as ThinkingLevel)
+        }
+        return true
+      },
+    })
 
     this.sseClient = new AgentSseClient(this.sessionId, this.baseUrl)
     this.sseClient.subscribe((event) => this.handleSseEvent(event))
@@ -255,6 +269,20 @@ export class ServerAgent {
     })
   }
 
+  /**
+   * Sync a thinking level change to the server so the session persists the correct level.
+   */
+  async updateThinkingLevel(level: ThinkingLevel): Promise<void> {
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/thinking-level`
+    fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ thinkingLevel: level }),
+    }).catch((err) => {
+      console.error('Failed to sync thinking level update to server:', err)
+    })
+  }
+
   dispose(): void {
     this.disposed = true
     this.sseClient.dispose()
@@ -277,7 +305,9 @@ export class ServerAgent {
           this.state.model = s.model
         }
         if (s.thinkingLevel) {
+          this._syncingThinkingLevel = true
           this.state.thinkingLevel = s.thinkingLevel as ThinkingLevel
+          this._syncingThinkingLevel = false
         }
         if (s.isStreaming !== undefined) {
           this.state.isStreaming = s.isStreaming
@@ -362,7 +392,9 @@ export class ServerAgent {
         this.state.model = state.model
       }
       if (state.thinkingLevel) {
+        this._syncingThinkingLevel = true
         this.state.thinkingLevel = state.thinkingLevel as ThinkingLevel
+        this._syncingThinkingLevel = false
       }
     } catch {
       // ignore
@@ -404,6 +436,21 @@ export class ServerAgent {
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Failed to create agent' }))
       throw new Error(err.error || 'Failed to create agent')
+    }
+
+    // Check if another tab already owns the SSE stream for this session.
+    // If so, fall back to a fresh session so we don't waste a connection slot
+    // fighting over the same server-side EventEmitter.
+    const headRes = await fetch(`${baseUrl}/api/agents/${encodeURIComponent(sessionId)}/stream`, {
+      method: 'HEAD',
+    })
+    if (headRes.status === 409) {
+      // Session already active elsewhere — create a fresh empty session instead
+      return ServerAgent.create(crypto.randomUUID(), {
+        ...config,
+        messages: [],
+        title: 'New chat',
+      })
     }
 
     // Fetch initial state

@@ -107,7 +107,7 @@ export async function generateAiTitle(messages, model, thinkingLevel, getApiKey)
         apiKey,
         maxTokens: 160,
         temperature: 0.2,
-        reasoning: thinkingLevel === 'off' ? 'minimal' : 'low',
+        reasoning: thinkingLevel === 'off' ? undefined : 'medium',
         maxRetryDelayMs: 60000,
       },
     )

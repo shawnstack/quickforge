@@ -181,7 +181,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       })
 
       const task: BackgroundTask = {
-        sessionId,
+        sessionId: nextAgent.sessionId,
         agent: nextAgent,
         scope,
         project,

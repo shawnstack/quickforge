@@ -276,11 +276,19 @@ export function ChatPanelHost({
 
       const existingButton = rightControls.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')
       if (existingButton) {
-        existingButton.innerHTML = yoloLabel
-        existingButton.title = yoloTitle
-        existingButton.setAttribute('aria-label', yoloTitle)
-        existingButton.setAttribute('aria-pressed', String(yoloMode))
-        existingButton.className = yoloClass
+        // Only touch the DOM when values actually changed — setting innerHTML
+        // unconditionally triggers MutationObserver → rAF → decorate() forever.
+        const prevMode = existingButton.getAttribute('aria-pressed')
+        const nextMode = String(yoloMode)
+        if (prevMode !== nextMode) {
+          existingButton.innerHTML = yoloLabel
+          existingButton.setAttribute('aria-pressed', nextMode)
+          existingButton.className = yoloClass
+        }
+        if (existingButton.title !== yoloTitle) {
+          existingButton.title = yoloTitle
+          existingButton.setAttribute('aria-label', yoloTitle)
+        }
         existingButton.onpointerdown = handleYoloToggle
         existingButton.onclick = (event) => {
           event.preventDefault()

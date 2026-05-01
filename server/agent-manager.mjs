@@ -248,6 +248,10 @@ export async function createAgent(sessionId, config = {}) {
     eventBus,
     idleTimer: null,
     titleGenerated: false,
+    getApiKey,
+    /** Track active SSE connections. Only one SSE stream allowed per session to prevent
+     *  connection-pool exhaustion when two browser tabs load the same session. */
+    sseConnected: false,
   }
 
   // Subscribe to agent lifecycle events and forward to eventBus
@@ -269,21 +273,6 @@ export async function createAgent(sessionId, config = {}) {
     if (event.type === 'agent_end') {
       session.status = session.agent.state.errorMessage ? 'error' : 'idle'
       session.finishedAt = new Date().toISOString()
-
-      // AI title generation (fire-and-forget)
-      if (!session.titleGenerated && session.title === 'New chat') {
-        const messages = agent.state.messages
-        if (messages.some((m) => m.role === 'user') && messages.some((m) => m.role === 'assistant')) {
-          session.titleGenerated = true
-          generateAiTitle(messages, resolvedModel, thinkingLevel, getApiKey).then(async (aiTitle) => {
-            if (aiTitle && aiTitle !== 'New chat') {
-              session.title = aiTitle
-              await persistSession(session)
-              eventBus.emit('agent_event', { type: 'title_updated', title: aiTitle })
-            }
-          }).catch(() => {})
-        }
-      }
 
       // Persist after run ends
       persistSession(session).catch((err) =>
@@ -407,6 +396,20 @@ export async function runPrompt(sessionId, message) {
     ? { role: 'user', content: message, timestamp: new Date().toISOString() }
     : message
 
+  // AI title generation on first user message (fire-and-forget, before agent runs)
+  if (!session.titleGenerated && session.title === 'New chat') {
+    session.titleGenerated = true
+    generateAiTitle([userMessage], session.model, session.thinkingLevel, session.getApiKey).then(async (aiTitle) => {
+      if (aiTitle && aiTitle !== 'New chat') {
+        session.title = aiTitle
+        await persistSession(session)
+        session.eventBus.emit('agent_event', { type: 'title_updated', title: aiTitle })
+      }
+    }).catch((err) => {
+      logger.warn(`Title generation failed for session ${sessionId}:`, err.message || err)
+    })
+  }
+
   // Fire and forget — events come through eventBus
   session.agent.prompt(userMessage).catch((err) => {
     logger.error(`Agent prompt error for session ${sessionId}:`, err)
@@ -489,6 +492,34 @@ export function getSessionState(sessionId) {
     isStreaming: session.agent.state.isStreaming,
     errorMessage: session.agent.state.errorMessage,
   }
+}
+
+/**
+ * Try to claim the SSE slot for a session. Returns true if acquired, false if
+ * another tab already holds the SSE connection for this session.
+ */
+export function tryAcquireSse(sessionId) {
+  const session = agentSessions.get(sessionId)
+  if (!session || session.sseConnected) return false
+  session.sseConnected = true
+  return true
+}
+
+/**
+ * Check whether a session already has an active SSE connection, without
+ * acquiring it. For use by lightweight HEAD probes.
+ */
+export function isSseConnected(sessionId) {
+  const session = agentSessions.get(sessionId)
+  return session ? session.sseConnected : false
+}
+
+/**
+ * Release the SSE slot for a session.
+ */
+export function releaseSse(sessionId) {
+  const session = agentSessions.get(sessionId)
+  if (session) session.sseConnected = false
 }
 
 /**
@@ -596,6 +627,24 @@ export function updateSessionModel(sessionId, model) {
   session.agent.state.model = model
 
   return { sessionId, model }
+}
+
+/**
+ * Update the thinking level for an existing session.
+ */
+export function updateSessionThinkingLevel(sessionId, thinkingLevel) {
+  const session = agentSessions.get(sessionId)
+  if (!session) {
+    throw Object.assign(new Error('Session not found'), { statusCode: 404 })
+  }
+  if (!thinkingLevel) {
+    throw Object.assign(new Error('Missing thinkingLevel'), { statusCode: 400 })
+  }
+
+  session.thinkingLevel = thinkingLevel
+  session.agent.state.thinkingLevel = thinkingLevel
+
+  return { sessionId, thinkingLevel }
 }
 
 /**

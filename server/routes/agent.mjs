@@ -7,11 +7,15 @@ import {
   followUpAgent,
   getSessionState,
   getSessionEventBus,
+  tryAcquireSse,
+  releaseSse,
+  isSseConnected,
   destroyAgent,
   restoreAgent,
   touchSession,
   listSessions,
   updateSessionModel,
+  updateSessionThinkingLevel,
 } from '../agent-manager.mjs'
 
 export async function handleAgentApi(req, res, url) {
@@ -41,9 +45,16 @@ export async function handleAgentApi(req, res, url) {
   const subPath = parts.slice(3).join('/')
 
   // GET /api/agents/:sessionId/stream — SSE event stream
-  if (req.method === 'GET' && subPath === 'stream') {
-    await handleStream(req, res, sessionId)
-    return
+  // HEAD /api/agents/:sessionId/stream — check if SSE is available (200) or taken (409)
+  if (subPath === 'stream') {
+    if (req.method === 'GET') {
+      await handleStream(req, res, sessionId)
+      return
+    }
+    if (req.method === 'HEAD') {
+      await handleStreamHead(req, res, sessionId)
+      return
+    }
   }
 
   // POST /api/agents/:sessionId/prompt — send user message
@@ -113,6 +124,20 @@ export async function handleAgentApi(req, res, url) {
     return
   }
 
+  // POST /api/agents/:sessionId/thinking-level — update session thinking level
+  if (req.method === 'POST' && subPath === 'thinking-level') {
+    const body = await readJsonBody(req)
+    const thinkingLevel = body?.thinkingLevel
+    if (!thinkingLevel) {
+      const error = new Error('Missing thinkingLevel in request body')
+      error.statusCode = 400
+      throw error
+    }
+    const result = updateSessionThinkingLevel(sessionId, thinkingLevel)
+    sendJson(res, 200, result)
+    return
+  }
+
   // POST /api/agents/:sessionId/steer — queue steering message
   if (req.method === 'POST' && subPath === 'steer') {
     const body = await readJsonBody(req)
@@ -146,14 +171,32 @@ export async function handleAgentApi(req, res, url) {
   throw error
 }
 
-// ---------------------------------------------------------------------------
-// SSE stream handler
-// ---------------------------------------------------------------------------
+/**
+ * HEAD request to check whether the SSE stream for a session is available.
+ * Returns 200 if available, 409 if already connected, 404 if session not found.
+ */
+async function handleStreamHead(req, res, sessionId) {
+  // Ensure session exists (restore from storage if needed)
+  if (!getSessionEventBus(sessionId)) {
+    const restored = await restoreAgent(sessionId)
+    if (!restored) {
+      sendJson(res, 404, { error: 'Session not found' })
+      return
+    }
+  }
+
+  if (isSseConnected(sessionId)) {
+    sendJson(res, 409, { error: 'Session is already active in another tab' })
+    return
+  }
+
+  res.writeHead(200, { 'content-length': '0' })
+  res.end()
+}
 
 async function handleStream(req, res, sessionId) {
+  // Restore from storage if not already in memory
   let eventBus = getSessionEventBus(sessionId)
-
-  // If session not in memory, try to restore from persisted storage
   if (!eventBus) {
     const restored = await restoreAgent(sessionId)
     if (restored) {
@@ -162,6 +205,12 @@ async function handleStream(req, res, sessionId) {
       sendJson(res, 404, { error: 'Session not found' })
       return
     }
+  }
+
+  // Only one SSE connection per session — reject with 409 so the client can fall back
+  if (!tryAcquireSse(sessionId)) {
+    sendJson(res, 409, { error: 'Session is already active in another tab' })
+    return
   }
 
   // Reset idle timer — active SSE connection keeps session alive
@@ -196,7 +245,6 @@ async function handleStream(req, res, sessionId) {
     try {
       writeSseEvent(res, event.type, event)
     } catch {
-      // Connection closed — clean up
       cleanup()
     }
   }
@@ -204,6 +252,7 @@ async function handleStream(req, res, sessionId) {
   const cleanup = () => {
     clearInterval(keepAlive)
     eventBus.removeListener('agent_event', onAgentEvent)
+    releaseSse(sessionId)
     if (!res.writableEnded) {
       res.end()
     }
@@ -211,7 +260,6 @@ async function handleStream(req, res, sessionId) {
 
   eventBus.on('agent_event', onAgentEvent)
 
-  // Clean up on connection close
   req.on('close', cleanup)
   req.on('error', cleanup)
   res.on('error', cleanup)

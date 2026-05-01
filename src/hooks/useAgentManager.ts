@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentState } from '@mariozechner/pi-agent-core'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import { ServerAgent } from '@/lib/server-agent'
@@ -30,6 +30,7 @@ export interface AgentManagerDeps {
   switchActiveProject: (projectId: string) => Promise<ProjectInfo>
   sessions: QuickForgeSessionMetadata[]
   refreshSessions: (opts?: { broadcast?: boolean }) => Promise<void>
+  onTaskComplete?: (sessionId: string, title: string, status: BackgroundTaskStatus) => void
 }
 
 export interface AgentManager {
@@ -86,6 +87,11 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   const currentSessionIdRef = useRef<string | undefined>(undefined)
   const currentTitleRef = useRef('New chat')
   const currentCreatedAtRef = useRef<string | undefined>(undefined)
+  const onTaskCompleteRef = useRef(deps.onTaskComplete)
+
+  useEffect(() => {
+    onTaskCompleteRef.current = deps.onTaskComplete
+  })
 
   // --- State ---
   const [agent, setAgent] = useState<ServerAgent | null>(null)
@@ -199,6 +205,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
         }
 
         if (event.type === 'agent_end') {
+          const wasRunning = task.status === 'running'
           task.status = nextAgent.state.errorMessage ? 'error' : 'idle'
           task.finishedAt = new Date().toISOString()
           setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
@@ -206,6 +213,9 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
             window.setTimeout(() => setChatPanelRevision((value) => value + 1), 0)
           }
           syncSessionUI(task).catch((err) => console.error('Failed to sync session UI:', err))
+          if (wasRunning) {
+            onTaskCompleteRef.current?.(task.sessionId, task.title, task.status)
+          }
         }
 
         if ((event as { type: string }).type === 'title_updated') {

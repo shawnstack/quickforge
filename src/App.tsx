@@ -50,6 +50,8 @@ import { useYoloMode } from '@/hooks/useYoloMode'
 import { useCrossTabSync } from '@/hooks/useCrossTabSync'
 import { useAgentManager } from '@/hooks/useAgentManager'
 import { saveActiveModel, saveYoloMode } from '@/lib/pi-chat'
+import { ToastContainer, type ToastItem } from '@/components/ui/toast'
+import type { BackgroundTaskStatus } from '@/lib/types'
 
 function App() {
   // --- Top-level refs (owned by App) ---
@@ -88,6 +90,7 @@ function App() {
   const [startupError, setStartupError] = useState<string>()
   const [needsModelSetup, setNeedsModelSetup] = useState(false)
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
+  const [toasts, setToasts] = useState<ToastItem[]>([])
 
   // --- Sync refs ---
   useEffect(() => {
@@ -116,6 +119,25 @@ function App() {
 
   useEffect(() => { crossTabRef.current = crossTab }, [crossTab])
 
+  // --- Toast management ---
+  const handleTaskComplete = useCallback(
+    (sessionId: string, title: string, status: BackgroundTaskStatus) => {
+      const toast: ToastItem = {
+        id: crypto.randomUUID(),
+        sessionId,
+        title,
+        status,
+        createdAt: Date.now(),
+      }
+      setToasts((prev) => [...prev, toast])
+    },
+    [],
+  )
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id))
+  }, [])
+
   // --- Agent manager ---
   const agentManager = useAgentManager({
     storageRef,
@@ -125,6 +147,7 @@ function App() {
     switchActiveProject,
     sessions,
     refreshSessions,
+    onTaskComplete: handleTaskComplete,
   })
 
   // Destructure stable values for use in dependency arrays
@@ -142,6 +165,13 @@ function App() {
     currentSessionIdRef,
     currentChatScopeRef,
   } = agentManager
+
+  const handleToastClick = useCallback(
+    (sessionId: string) => {
+      loadAgentSession(sessionId)
+    },
+    [loadAgentSession],
+  )
 
   // --- Chat actions ---
   const startNewGlobalChat = useCallback(async () => {
@@ -785,6 +815,11 @@ function App() {
       disabled={selectingProject}
       onOpenChange={setProjectPickerOpen}
       onSelect={handleSelectProjectPath}
+    />
+    <ToastContainer
+      toasts={toasts}
+      onDismiss={dismissToast}
+      onClick={handleToastClick}
     />
     </>
   )

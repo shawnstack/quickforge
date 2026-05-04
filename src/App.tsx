@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ProxyTab,
   SettingsDialog,
@@ -115,10 +115,13 @@ function App() {
   }, [expandedProjectIds])
 
   // --- Combined flat list (for useAgentManager session lookup) ---
-  const allLoadedSessions: QuickForgeSessionMetadata[] = [
-    ...globalPage.items,
-    ...Object.values(projectPages).flatMap((p) => p.items),
-  ]
+  const allLoadedSessions: QuickForgeSessionMetadata[] = useMemo(
+    () => [
+      ...globalPage.items,
+      ...Object.values(projectPages).flatMap((p) => p.items),
+    ],
+    [globalPage.items, projectPages],
+  )
 
   // --- Sync refs ---
   useEffect(() => {

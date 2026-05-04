@@ -16,6 +16,7 @@ import { handleInstructionsApi } from './routes/instructions.mjs'
 import { handleAgentApi } from './routes/agent.mjs'
 import { handleScheduledTasksApi, startScheduledTaskRunner, stopScheduledTaskRunner } from './routes/scheduled-tasks.mjs'
 import { serveStatic } from './routes/static.mjs'
+import { logger } from './utils/logger.mjs'
 import { setActiveWorkspaceRootForFilesystem } from './routes/filesystem.mjs'
 import { shutdown as shutdownAgentManager, resetStaleTaskStatuses } from './agent-manager.mjs'
 
@@ -164,6 +165,12 @@ function isAllowedHostHeader(value) {
 
 // --- Bootstrap ---
 const server = createServer(async (req, res) => {
+  const startedAt = Date.now()
+  res.on('finish', () => {
+    const durationMs = Date.now() - startedAt
+    logger.info(`${req.method} ${req.url} ${res.statusCode} ${durationMs}ms`)
+  })
+
   if (!isAllowedHostHeader(req.headers.host)) {
     res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
     res.end(JSON.stringify({ error: 'Forbidden host' }))
@@ -199,7 +206,7 @@ const server = createServer(async (req, res) => {
 
     await serveStatic(req, res, url)
   } catch (error) {
-    console.error(error)
+    logger.error(error)
     sendError(res, error)
   }
 })
@@ -211,9 +218,9 @@ setActiveWorkspaceRootForFilesystem(getWorkspaceRoot())
 startScheduledTaskRunner()
 
 server.listen(port, host, () => {
-  console.log(`QuickForge local API: http://${host}:${port}`)
-  console.log(`QuickForge data dir: ${dataDir}`)
-  console.log(`QuickForge project: ${getWorkspaceRoot()}`)
+  logger.info(`QuickForge local API: http://${host}:${port}`)
+  logger.info(`QuickForge data dir: ${dataDir}`)
+  logger.info(`QuickForge project: ${getWorkspaceRoot()}`)
 
   if (isDev) {
     startVite()
@@ -225,7 +232,7 @@ server.listen(port, host, () => {
 
 // Graceful shutdown
 async function gracefulShutdown(signal) {
-  console.log(`\nReceived ${signal}, shutting down gracefully...`)
+  logger.info(`Received ${signal}, shutting down gracefully...`)
   stopScheduledTaskRunner()
   stopVite()
   await shutdownAgentManager()

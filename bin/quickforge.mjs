@@ -51,6 +51,11 @@ function isProcessRunning(pid) {
   }
 }
 
+function getLogFile() {
+  const date = new Date().toISOString().slice(0, 10)
+  return path.join(getDataDir(), 'logs', `server-${date}.log`)
+}
+
 async function cmdStop() {
   const pid = await readPid()
   if (!pid) {
@@ -109,6 +114,7 @@ async function cmdStart() {
 
   const serviceUrl = getServiceUrl()
   const dataDir = getDataDir()
+  const logFile = getLogFile()
   console.log(`QuickForge started (PID ${child.pid}).`)
   console.log(`Open: ${serviceUrl}`)
   console.log(`Data: ${dataDir}`)
@@ -116,11 +122,13 @@ async function cmdStart() {
   console.log(`Storage: ${path.join(dataDir, 'storage')}`)
   console.log(`Cache: ${path.join(dataDir, 'cache')}`)
   console.log(`Logs: ${path.join(dataDir, 'logs')}`)
+  console.log(`Current log: ${logFile}`)
   console.log('')
   console.log('Commands:')
   console.log('  quickforge stop     Stop the background service')
   console.log('  quickforge restart  Restart the background service')
   console.log('  quickforge status   Check if the service is running')
+  console.log('  quickforge logs     Watch today\'s server log')
 }
 
 async function cmdRestart() {
@@ -140,10 +148,30 @@ async function cmdStatus() {
   if (isProcessRunning(pid)) {
     console.log(`QuickForge is running (PID ${pid}).`)
     console.log(`URL: ${getServiceUrl()}`)
+    console.log(`Log: ${getLogFile()}`)
+    console.log('Watch: quickforge logs')
   } else {
     console.log(`QuickForge PID ${pid} is stale (not running).`)
     await removePid()
   }
+}
+
+async function cmdLogs() {
+  const logFile = getLogFile()
+  await fs.mkdir(path.dirname(logFile), { recursive: true })
+  await fs.appendFile(logFile, '', 'utf8')
+
+  console.log(`Watching QuickForge log: ${logFile}`)
+  const tail = spawn(process.platform === 'win32' ? 'powershell.exe' : 'tail', process.platform === 'win32'
+    ? ['-NoProfile', '-Command', `Get-Content -Path '${logFile.replace(/'/g, "''")}' -Wait -Tail 80`]
+    : ['-n', '80', '-f', logFile], {
+    stdio: 'inherit',
+    shell: false,
+  })
+
+  tail.on('exit', (code) => {
+    process.exit(code || 0)
+  })
 }
 
 async function main() {
@@ -162,6 +190,9 @@ async function main() {
     case 'status':
       await cmdStatus()
       break
+    case 'logs':
+      await cmdLogs()
+      break
     case '--help':
     case '-h':
     case 'help':
@@ -173,6 +204,7 @@ async function main() {
       console.log('  quickforge stop         Stop the background service')
       console.log('  quickforge restart      Restart the background service')
       console.log('  quickforge status       Check if the service is running')
+      console.log('  quickforge logs         Watch today\'s server log')
       console.log('')
       console.log('Config:')
       console.log('  QUICKFORGE_PORT=5176         Server port')

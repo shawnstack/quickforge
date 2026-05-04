@@ -406,7 +406,7 @@ export function ChatPanelHost({
       onApiKeyRequired: (provider) => ApiKeyPromptDialog.prompt(provider),
       onBeforeSend: clearComposerDraft,
       onModelSelect,
-      toolsFactory: () => getLocalWorkspaceTools(workspaceToolsEnabled && yoloMode, projectId),
+      toolsFactory: () => getLocalWorkspaceTools(),
     }).then(() => {
       if (disposed) return
       if (restoredDraft && restoredDraftIdRef.current !== restoredDraft.id) {

@@ -1,9 +1,28 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
-import { resolveWorkspacePath, toWorkspaceRelative, assertSafeWorkspacePath, truncateText, splitLines, shouldSkipSearchDir, shouldSearchFile, isSensitiveWorkspacePath } from '../utils/workspace.mjs'
+import { resolveWorkspacePath, toWorkspaceRelative, assertSafeWorkspacePath, truncateText, splitLines, walkFiles } from '../utils/workspace.mjs'
 import { readProjectConfig, getActiveProject } from '../project-config.mjs'
 import { getWorkspaceRoot, getToolWorkspaceRoot } from '../utils/workspace.mjs'
+
+// --- get_project_info ---
+export async function toolGetProjectInfo(_params, context) {
+  const config = context?.project ? null : await readProjectConfig()
+  const project = context?.project || getActiveProject(config)
+  const workspaceRoot = context?.workspaceRoot || project?.path || getWorkspaceRoot()
+
+  if (!project) {
+    return {
+      content: 'No active project is configured.',
+      details: { project: null, workspaceRoot },
+    }
+  }
+
+  return {
+    content: [`Project: ${project.name}`, `Path: ${workspaceRoot}`, `ID: ${project.id}`].join('\n'),
+    details: { project, workspaceRoot },
+  }
+}
 
 // --- list_dir ---
 export async function toolListDir(params, context) {
@@ -263,4 +282,14 @@ export async function toolRunCommand(params, context) {
       })
     })
   })
+}
+
+export const toolHandlers = {
+  get_project_info: toolGetProjectInfo,
+  list_dir: toolListDir,
+  read_file: toolReadFile,
+  grep_files: toolGrepFiles,
+  write_file: toolWriteFile,
+  edit_file: toolEditFile,
+  run_command: toolRunCommand,
 }

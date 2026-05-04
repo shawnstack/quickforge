@@ -99,6 +99,6 @@ for (const [name, label] of [
 // on client-side tools — it only reads state.tools for display purposes.
 // Returning an empty array is safe because ServerAgent ignores state.tools
 // and the server agent has its own canonical tool list.
-export function getLocalWorkspaceTools(_yoloMode: boolean, _projectId?: string): AgentTool[] {
+export function getLocalWorkspaceTools(): AgentTool[] {
   return []
 }

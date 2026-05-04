@@ -456,7 +456,10 @@ function App() {
     const taskMap = taskMapRef.current
     return () => {
       cancelled = true
-      for (const task of taskMap.values()) task.unsubscribe()
+      for (const task of taskMap.values()) {
+        task.unsubscribe()
+        task.agent.dispose()
+      }
       taskMap.clear()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -530,6 +533,7 @@ function App() {
     if (previousSessionId) {
       const task = taskMapRef.current.get(previousSessionId)
       task?.unsubscribe()
+      task?.agent.dispose()
       taskMapRef.current.delete(previousSessionId)
     }
 
@@ -881,6 +885,7 @@ function App() {
           if (!confirmed) return
           const task = taskMapRef.current.get(sessionId)
           task?.unsubscribe()
+          task?.agent.dispose()
           taskMapRef.current.delete(sessionId)
           await storage.sessions.delete(sessionId)
           await refreshSessions({ broadcast: true })

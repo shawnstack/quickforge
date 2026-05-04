@@ -21,71 +21,80 @@ function getDirectBackendUrl(): string {
   return ''
 }
 
-class AgentSseClient {
+type SseHandler = (event: Record<string, unknown>) => void
+
+class GlobalAgentSseClient {
   private eventSource: EventSource | null = null
-  private handlers = new Set<(event: Record<string, unknown>) => void>()
-  private sessionId: string
-  private baseUrl: string
+  private handlersBySession = new Map<string, Set<SseHandler>>()
+  private baseUrl = ''
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectDelay = 1000
-  private disposed = false
-  private directBaseUrl: string
-  private fallbackBaseUrl: string
+  private directBaseUrl = getDirectBackendUrl()
+  private fallbackBaseUrl = ''
 
-  constructor(sessionId: string, baseUrl = '') {
-    this.sessionId = sessionId
-    // SSE goes directly to the backend when possible to avoid connection limit.
-    // If that fails (e.g. localhost resolves to ::1 while the server listens on
-    // 127.0.0.1), fall back to the normal proxied URL.
-    this.directBaseUrl = getDirectBackendUrl()
+  subscribe(sessionId: string, baseUrl: string, handler: SseHandler): () => void {
     this.fallbackBaseUrl = baseUrl
-    this.baseUrl = this.directBaseUrl || this.fallbackBaseUrl
-    this.connect()
+    const nextBaseUrl = this.directBaseUrl || this.fallbackBaseUrl
+    if (!this.eventSource || this.baseUrl !== nextBaseUrl) {
+      this.disconnect()
+      this.baseUrl = nextBaseUrl
+      this.connect()
+    }
+
+    let handlers = this.handlersBySession.get(sessionId)
+    if (!handlers) {
+      handlers = new Set()
+      this.handlersBySession.set(sessionId, handlers)
+    }
+    handlers.add(handler)
+
+    return () => {
+      const currentHandlers = this.handlersBySession.get(sessionId)
+      currentHandlers?.delete(handler)
+      if (currentHandlers?.size === 0) {
+        this.handlersBySession.delete(sessionId)
+      }
+      if (this.handlersBySession.size === 0) {
+        this.disconnect()
+      }
+    }
   }
 
   private connect() {
-    if (this.disposed) return
-
-    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/stream`
+    const url = `${this.baseUrl}/api/agents/events`
     this.eventSource = new EventSource(url)
 
     this.eventSource.onopen = () => {
       this.reconnectDelay = 1000
     }
 
-    this.eventSource.onmessage = (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data)
-        if (data?.type) {
-          this.emit(data)
-        }
-      } catch {
-        // Ignore parse errors
-      }
-    }
-
-    // Also listen for named events
     const eventTypes = [
       'state', 'agent_start', 'agent_end', 'message_start', 'message_end',
       'turn_start', 'turn_end', 'message_update',
       'tool_execution_start', 'tool_execution_end',
       'error', 'title_updated',
     ]
+
+    const handleMessage = (eventType?: string) => (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data) as Record<string, unknown>
+        const sessionId = data.sessionId as string | undefined
+        if (!sessionId) return
+        const event = eventType ? { type: eventType, ...data } : data
+        this.emit(sessionId, event)
+      } catch {
+        // ignore
+      }
+    }
+
+    this.eventSource.onmessage = handleMessage()
     for (const eventType of eventTypes) {
-      this.eventSource.addEventListener(eventType, (e: MessageEvent) => {
-        try {
-          const data = JSON.parse(e.data)
-          this.emit({ type: eventType, ...data })
-        } catch {
-          // ignore
-        }
-      })
+      this.eventSource.addEventListener(eventType, handleMessage(eventType))
     }
 
     this.eventSource.onerror = () => {
       this.eventSource?.close()
       this.eventSource = null
-      if (this.disposed) return
 
       if (this.baseUrl === this.directBaseUrl && this.fallbackBaseUrl !== this.directBaseUrl) {
         this.baseUrl = this.fallbackBaseUrl
@@ -98,7 +107,7 @@ class AgentSseClient {
   }
 
   private scheduleReconnect() {
-    if (this.disposed || this.reconnectTimer) return
+    if (this.reconnectTimer || this.handlersBySession.size === 0) return
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
       this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000)
@@ -106,28 +115,25 @@ class AgentSseClient {
     }, this.reconnectDelay)
   }
 
-  private emit(event: Record<string, unknown>) {
-    for (const handler of this.handlers) {
+  private emit(sessionId: string, event: Record<string, unknown>) {
+    const handlers = this.handlersBySession.get(sessionId)
+    if (!handlers) return
+    for (const handler of handlers) {
       try { handler(event) } catch { /* ignore */ }
     }
   }
 
-  subscribe(handler: (event: Record<string, unknown>) => void): () => void {
-    this.handlers.add(handler)
-    return () => { this.handlers.delete(handler) }
-  }
-
-  dispose() {
-    this.disposed = true
+  private disconnect() {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
     }
     this.eventSource?.close()
     this.eventSource = null
-    this.handlers.clear()
   }
 }
+
+const globalAgentSseClient = new GlobalAgentSseClient()
 
 // ---------------------------------------------------------------------------
 // ServerAgent - Agent-compatible proxy that delegates to the server
@@ -167,7 +173,7 @@ export class ServerAgent {
   sessionId: string
 
   private listeners = new Set<(event: AgentEvent) => void>()
-  private sseClient: AgentSseClient
+  private unsubscribeSse: (() => void) | undefined
   private baseUrl: string
   private disposed = false
   private _syncingThinkingLevel = false
@@ -203,8 +209,7 @@ export class ServerAgent {
       },
     })
 
-    this.sseClient = new AgentSseClient(this.sessionId, this.baseUrl)
-    this.sseClient.subscribe((event) => this.handleSseEvent(event))
+    this.unsubscribeSse = globalAgentSseClient.subscribe(this.sessionId, this.baseUrl, (event) => this.handleSseEvent(event))
   }
 
   // --- Agent-compatible interface ---
@@ -319,7 +324,8 @@ export class ServerAgent {
       clearInterval(this.pollTimer)
       this.pollTimer = null
     }
-    this.sseClient.dispose()
+    this.unsubscribeSse?.()
+    this.unsubscribeSse = undefined
     this.listeners.clear()
   }
 

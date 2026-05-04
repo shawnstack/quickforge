@@ -1,4 +1,5 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
+import { readStore } from '../storage.mjs'
 import { toolHandlers } from '../tools/index.mjs'
 import { workspaceTools } from '../tools/definitions.mjs'
 import { projectContextFromId } from '../project-config.mjs'
@@ -8,6 +9,20 @@ import { projectContextFromId } from '../project-config.mjs'
  */
 export function handleGetTools(_req, res) {
   sendJson(res, 200, { tools: workspaceTools })
+}
+
+const dangerousTools = new Set(['write_file', 'edit_file', 'run_command'])
+
+async function assertYoloEnabledForTool(name) {
+  if (!dangerousTools.has(name)) return
+
+  const settings = await readStore('settings')
+  const yoloMode = settings?.['yolo-mode'] === true || settings?.['yolo-mode'] === 'true'
+  if (!yoloMode) {
+    const error = new Error('YOLO mode is disabled. Enable it to use this tool.')
+    error.statusCode = 403
+    throw error
+  }
 }
 
 export async function handleToolApi(req, res, url) {
@@ -32,6 +47,8 @@ export async function handleToolApi(req, res, url) {
     error.statusCode = 404
     throw error
   }
+
+  await assertYoloEnabledForTool(name)
 
   const params = await readJsonBody(req)
   const result = await handler(params || {}, context)

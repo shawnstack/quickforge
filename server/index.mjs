@@ -25,6 +25,9 @@ const projectRoot = path.resolve(__dirname, '..')
 
 const isDev = process.argv.includes('--dev')
 const host = process.env.QUICKFORGE_HOST || '127.0.0.1'
+if (!['127.0.0.1', 'localhost'].includes(host) && process.env.QUICKFORGE_ALLOW_REMOTE !== '1') {
+  throw new Error('Remote binding is disabled by default. Set QUICKFORGE_ALLOW_REMOTE=1 to allow it.')
+}
 const port = Number(process.env.QUICKFORGE_PORT || (isDev ? 32176 : 5176))
 const vitePort = Number(process.env.QUICKFORGE_VITE_PORT || 5176)
 

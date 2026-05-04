@@ -1,6 +1,4 @@
 import type { AgentMessage } from '@mariozechner/pi-agent-core'
-import type { Api, Model } from '@mariozechner/pi-ai'
-import { createStreamFn } from '@mariozechner/pi-web-ui'
 import { t } from '@/lib/i18n'
 
 // Main chat behavior prompt.
@@ -120,65 +118,6 @@ export function generateTitle(messages: AgentMessage[]) {
   return normalized.length > 46 ? `${normalized.slice(0, 43)}...` : normalized
 }
 
-function normalizeAiTitle(value: string) {
-  return value
-    .trim()
-    .replace(/^[[\s"'""''`]+|[\]`\s"'""''.。,！!？?，,:：;；]+$/g, '')
-    .replace(/\s+/g, ' ')
-    .slice(0, 80)
-}
-
-export async function generateAiTitle(
-  messages: AgentMessage[],
-  model: Model<Api>,
-  apiKey?: string,
-  getProxyUrl: () => Promise<string | undefined> = async () => undefined,
-): Promise<string> {
-  const firstUser = messages.find((m) => m.role === 'user' || m.role === 'user-with-attachments')
-  if (!firstUser) return 'New chat'
-
-  const userText = typeof firstUser.content === 'string'
-    ? firstUser.content
-    : textFromContentBlocks(firstUser.content)
-
-  if (!userText.trim()) return 'New chat'
-
-  const firstAssistant = messages.find((m) => m.role === 'assistant')
-  const assistantReply = firstAssistant ? assistantText(firstAssistant).slice(0, 2000) : ''
-  const conversationText = assistantReply
-    ? `User: ${userText.trim()}\n\nAssistant: ${assistantReply}`
-    : `User: ${userText.trim()}`
-
-  try {
-    const stream = await createStreamFn(getProxyUrl)(
-      model,
-      {
-        systemPrompt:
-          '你是对话标题生成器。请用和用户相同的语言，根据对话主题生成 3 到 5 个词的短标题。只输出标题，不要解释，不要标点。',
-        messages: [{ role: 'user', content: conversationText, timestamp: Date.now() }],
-        tools: [],
-      },
-      {
-        apiKey,
-        maxTokens: 160,
-        temperature: 0.2,
-        reasoning: 'low',
-        maxRetryDelayMs: 60000,
-      },
-    )
-    const titleMessage = await stream.result()
-    const titleText = textFromContentBlocks(titleMessage.content)
-    if (!titleText.trim()) {
-      console.warn('AI title generation returned no text:', titleMessage)
-    }
-    const title = normalizeAiTitle(titleText)
-    return title || generateTitle(messages)
-  } catch (error) {
-    console.warn('Failed to generate AI title:', error)
-    return generateTitle(messages)
-  }
-}
-
 export function titleNeedsGeneration(title: string) {
   return title === 'New chat' || title === t('newChat')
 }
@@ -191,18 +130,4 @@ export function shouldSaveSession(messages: AgentMessage[]) {
   return hasUserMessage(messages) && messages.some((message) => message.role === 'assistant')
 }
 
-export function summarizePreview(messages: AgentMessage[]) {
-  return messages
-    .filter((message) => message.role === 'user' || message.role === 'assistant')
-    .map((message) => {
-      if (message.role === 'user') return typeof message.content === 'string' ? message.content : ''
-      return message.content
-        .filter((block: { type: string; text?: string }) => block.type === 'text')
-        .map((block: { type: string; text?: string }) => block.text)
-        .join(' ')
-    })
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 2048)
-}
+

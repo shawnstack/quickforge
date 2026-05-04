@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ProxyTab,
   SettingsDialog,
@@ -115,10 +115,13 @@ function App() {
   }, [expandedProjectIds])
 
   // --- Combined flat list (for useAgentManager session lookup) ---
-  const allLoadedSessions: QuickForgeSessionMetadata[] = [
-    ...globalPage.items,
-    ...Object.values(projectPages).flatMap((p) => p.items),
-  ]
+  const allLoadedSessions: QuickForgeSessionMetadata[] = useMemo(
+    () => [
+      ...globalPage.items,
+      ...Object.values(projectPages).flatMap((p) => p.items),
+    ],
+    [globalPage.items, projectPages],
+  )
 
   // --- Sync refs ---
   useEffect(() => {
@@ -453,7 +456,10 @@ function App() {
     const taskMap = taskMapRef.current
     return () => {
       cancelled = true
-      for (const task of taskMap.values()) task.unsubscribe()
+      for (const task of taskMap.values()) {
+        task.unsubscribe()
+        task.agent.dispose()
+      }
       taskMap.clear()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -527,6 +533,7 @@ function App() {
     if (previousSessionId) {
       const task = taskMapRef.current.get(previousSessionId)
       task?.unsubscribe()
+      task?.agent.dispose()
       taskMapRef.current.delete(previousSessionId)
     }
 
@@ -878,6 +885,7 @@ function App() {
           if (!confirmed) return
           const task = taskMapRef.current.get(sessionId)
           task?.unsubscribe()
+          task?.agent.dispose()
           taskMapRef.current.delete(sessionId)
           await storage.sessions.delete(sessionId)
           await refreshSessions({ broadcast: true })
@@ -904,7 +912,7 @@ function App() {
             {scheduledTasksOpen ? (
               <>
                 <div className="truncate text-xs text-muted-foreground">AI Workspace</div>
-                <div className="truncate text-sm font-semibold">定时任务</div>
+                <div className="truncate text-sm font-semibold">{t('scheduledTasks')}</div>
               </>
             ) : (
               <>

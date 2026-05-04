@@ -23,25 +23,29 @@ export function restoreReasoningContentInPayload(payload, messages, model) {
   if (!isDeepSeekThinkingModel(model)) return
   if (!payload?.messages || !Array.isArray(payload.messages)) return
 
-  const assistantMessages = messages.filter((m) => m.role === 'assistant')
+  // Only the *last* assistant message in the payload can lose its reasoning
+  // content (DeepSeek strips reasoning_content from trailing assistant messages
+  // when a tool-call round follows).  Scan backward to find the first payload
+  // assistant without reasoning, then look up its counterpart in agent state.
   const payloadMessages = payload.messages
 
   for (let i = payloadMessages.length - 1; i >= 0; i--) {
     const msg = payloadMessages[i]
     if (!msg || typeof msg !== 'object' || msg.role !== 'assistant') continue
-    if (msg.reasoning_content || msg.reasoning || msg.reasoning_text) continue
+    if (msg.reasoning_content || msg.reasoning || msg.reasoning_text) break // already has reasoning — stop
 
-    // Find corresponding message from agent state
-    for (let j = assistantMessages.length - 1; j >= 0; j--) {
-      const cached = assistantMessages[j]
-      if (!cached) continue
-      for (const field of REASONING_FIELDS) {
-        if (cached[field]) {
-          msg[field] = cached[field]
-          break
-        }
+    // Find the *last* assistant message from agent state that matches positionally
+    const assistantIndex = payloadMessages.slice(0, i + 1).filter((m) => m && typeof m === 'object' && m.role === 'assistant').length - 1
+    const agentAssistants = messages.filter((m) => m.role === 'assistant')
+    const cached = agentAssistants[assistantIndex]
+    if (!cached) break
+
+    for (const field of REASONING_FIELDS) {
+      if (cached[field]) {
+        msg[field] = cached[field]
+        break
       }
-      if (msg.reasoning_content || msg.reasoning || msg.reasoning_text) break
     }
+    break // Only patch the first (last-in-payload) assistant missing reasoning
   }
 }

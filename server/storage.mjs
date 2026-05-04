@@ -11,6 +11,14 @@ export const stores = new Set([
   'scheduled-tasks',
 ])
 
+// --- In-memory session bucket index ---
+// Avoids O(n) directory scanning in findSessionBucket() by caching
+// sessionId → { scope, projectId } lookups.  Populated lazily on first
+// lookup and kept up-to-date by write/delete paths.
+/** @type {Map<string, { scope: string, projectId?: string }>} */
+const sessionBucketIndex = new Map()
+let bucketIndexBuilt = false
+
 const configStores = new Set(['settings', 'provider-keys', 'custom-providers'])
 const sessionStores = new Set(['sessions', 'sessions-metadata'])
 
@@ -294,6 +302,8 @@ async function readAllSessionValues() {
 
 async function writeSessionValueFile(sessionId, value) {
   await writeJsonAtomic(sessionDataFile(sessionId, sessionBucket(value)), value)
+  // Keep in-memory index current
+  if (value) sessionBucketIndex.set(sessionId, sessionBucket(value))
 }
 
 async function writeSessionValues(data) {
@@ -308,7 +318,10 @@ async function writeSessionValues(data) {
   await Promise.all(
     existingFiles.map(async (file) => {
       const sessionId = path.basename(file, '.json')
-      if (!nextIds.has(sessionId)) await fs.rm(file, { force: true })
+      if (!nextIds.has(sessionId)) {
+        await fs.rm(file, { force: true })
+        sessionBucketIndex.delete(sessionId)
+      }
     }),
   )
 
@@ -317,20 +330,33 @@ async function writeSessionValues(data) {
   )
 }
 
-export async function findSessionBucket(sessionId) {
-  await ensureStorage()
-
-  const globalMetadata = await readJsonFile(sessionStoreFile('sessions-metadata', { scope: 'global' }), {})
-  const globalMeta = globalMetadata?.[sessionId]
-  if (globalMeta) return sessionBucket(globalMeta)
-
+async function rebuildBucketIndex() {
+  sessionBucketIndex.clear()
+  // Global bucket
+  try {
+    const globalMeta = await readJsonFile(sessionStoreFile('sessions-metadata', { scope: 'global' }), {})
+    for (const [id, meta] of Object.entries(globalMeta)) {
+      if (meta && typeof meta === 'object') sessionBucketIndex.set(id, sessionBucket(meta))
+    }
+  } catch { /* ignore */ }
+  // Project buckets
   for (const projectId of await listProjectIds()) {
-    const metadata = await readJsonFile(sessionStoreFile('sessions-metadata', { scope: 'project', projectId }), {})
-    const meta = metadata?.[sessionId]
-    if (meta) return sessionBucket(meta)
+    try {
+      const meta = await readJsonFile(sessionStoreFile('sessions-metadata', { scope: 'project', projectId }), {})
+      for (const [id, entry] of Object.entries(meta)) {
+        if (entry && typeof entry === 'object') sessionBucketIndex.set(id, sessionBucket(entry))
+      }
+    } catch { /* ignore */ }
   }
+  bucketIndexBuilt = true
+}
 
-  return null
+export async function findSessionBucket(sessionId) {
+  if (!bucketIndexBuilt) {
+    await ensureStorage()
+    await rebuildBucketIndex()
+  }
+  return sessionBucketIndex.get(sessionId) ?? null
 }
 
 export async function readSessionValue(sessionId) {
@@ -351,6 +377,7 @@ export async function deleteSessionValue(sessionId) {
     const bucket = await findSessionBucket(sessionId)
     if (!bucket) return
     await fs.rm(sessionDataFile(sessionId, bucket), { force: true })
+    sessionBucketIndex.delete(sessionId)
   })
 }
 
@@ -406,6 +433,13 @@ async function writeSessionStore(storeName, data) {
       await writeJsonAtomic(file, bucketEntry?.data ?? {})
     }),
   )
+
+  // Keep in-memory bucket index current for metadata writes
+  if (storeName === 'sessions-metadata') {
+    for (const [sessionId, meta] of Object.entries(data || {})) {
+      if (meta && typeof meta === 'object') sessionBucketIndex.set(sessionId, sessionBucket(meta))
+    }
+  }
 }
 
 async function migrateLegacySessionStore(storeName) {

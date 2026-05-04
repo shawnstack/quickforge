@@ -54,6 +54,31 @@ export async function toolReadFile(params, context) {
 }
 
 // --- grep_files ---
+
+/**
+ * Process items with bounded concurrency.  Returns results in input order.
+ * @template T, R
+ * @param {T[]} items
+ * @param {(item: T, index: number) => Promise<R>} fn
+ * @param {number} concurrency
+ * @returns {Promise<R[]>}
+ */
+async function poolMap(items, fn, concurrency = 20) {
+  const results = new Array(items.length)
+  let cursor = 0
+
+  async function worker() {
+    while (cursor < items.length) {
+      const index = cursor++
+      results[index] = await fn(items[index], index)
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker())
+  await Promise.all(workers)
+  return results
+}
+
 export async function toolGrepFiles(params, context) {
   const root = resolveWorkspacePath(params?.path || '.', context)
   assertSafeWorkspacePath(root, context)
@@ -81,17 +106,48 @@ export async function toolGrepFiles(params, context) {
   const files = await walkFiles(root, [], context)
   const matches = []
 
-  for (const file of files) {
-    if (matches.length >= limit) break
-    const stat = await fs.stat(file)
-    if (stat.size > 1024 * 1024) continue
+  // Stat and filter files in parallel, then grep in parallel batches
+  const candidateResults = await poolMap(files, async (file) => {
+    try {
+      const stat = await fs.stat(file)
+      if (stat.size > 1024 * 1024) return { file, skip: true }
+      return { file, skip: false }
+    } catch {
+      return { file, skip: true }
+    }
+  })
 
-    const text = await fs.readFile(file, 'utf8').catch(() => '')
-    const lines = splitLines(text)
-    for (let index = 0; index < lines.length && matches.length < limit; index++) {
-      matcher.lastIndex = 0
-      if (matcher.test(lines[index])) {
-        matches.push(`${toWorkspaceRelative(file, context)}:${index + 1}: ${lines[index]}`)
+  const candidates = candidateResults.filter((r) => !r.skip).map((r) => r.file)
+
+  // Grep with bounded concurrency — short-circuit when limit reached
+  let matchCount = 0
+  for (let batchStart = 0; batchStart < candidates.length && matchCount < limit; batchStart += 20) {
+    const batch = candidates.slice(batchStart, batchStart + 20)
+    const batchMatches = await Promise.all(
+      batch.map(async (file) => {
+        if (matchCount >= limit) return []
+        try {
+          const text = await fs.readFile(file, 'utf8')
+          const lines = splitLines(text)
+          const fileMatches = []
+          for (let index = 0; index < lines.length && (matchCount + fileMatches.length) < limit; index++) {
+            matcher.lastIndex = 0
+            if (matcher.test(lines[index])) {
+              fileMatches.push(`${toWorkspaceRelative(file, context)}:${index + 1}: ${lines[index]}`)
+            }
+          }
+          return fileMatches
+        } catch {
+          return []
+        }
+      }),
+    )
+    for (const fm of batchMatches) {
+      if (matchCount >= limit) break
+      for (const m of fm) {
+        if (matchCount >= limit) break
+        matches.push(m)
+        matchCount++
       }
     }
   }
@@ -198,46 +254,13 @@ export async function toolRunCommand(params, context) {
       ].join('\n')
       resolve({ content: truncateText(content), details: { command, project: context?.project, cwd: getToolWorkspaceRoot(context), code, signal, timedOut } })
     })
+    child.on('error', (err) => {
+      clearTimeout(timer)
+      resolve({
+        isError: true,
+        content: truncateText(`Error running command: ${err.message}`),
+        details: { command, project: context?.project, error: err.message },
+      })
+    })
   })
-}
-
-// --- get_project_info ---
-export async function toolGetProjectInfo(_params, context) {
-  if (context?.project) {
-    return {
-      content: `Project: ${context.project.name}\nRoot: ${context.project.path}`,
-      details: { project: context.project, workspaceRoot: context.workspaceRoot },
-    }
-  }
-
-  const config = await readProjectConfig()
-  const project = getActiveProject(config)
-  return {
-    content: `Active project: ${project.name}\nRoot: ${project.path}`,
-    details: { project, workspaceRoot: getWorkspaceRoot() },
-  }
-}
-
-// Helper for grep
-async function walkFiles(root, files = [], context) {
-  const entries = await fs.readdir(root, { withFileTypes: true })
-  for (const entry of entries) {
-    const fullPath = path.join(root, entry.name)
-    if (entry.isDirectory()) {
-      if (!shouldSkipSearchDir(entry.name)) await walkFiles(fullPath, files, context)
-    } else if (entry.isFile() && shouldSearchFile(entry.name) && !isSensitiveWorkspacePath(fullPath, context)) {
-      files.push(fullPath)
-    }
-  }
-  return files
-}
-
-export const toolHandlers = {
-  get_project_info: toolGetProjectInfo,
-  list_dir: toolListDir,
-  read_file: toolReadFile,
-  grep_files: toolGrepFiles,
-  write_file: toolWriteFile,
-  edit_file: toolEditFile,
-  run_command: toolRunCommand,
 }

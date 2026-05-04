@@ -52,45 +52,6 @@ export type BackgroundTask = {
   unsubscribe: () => void
 }
 
-const EMPTY_USAGE = {
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  totalTokens: 0,
-  cost: {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    total: 0,
-  },
-}
-
-type UsageLike = Partial<typeof EMPTY_USAGE> & {
-  cost?: Partial<typeof EMPTY_USAGE.cost>
-}
-
-export function calculateUsage(messages: Array<{ role: string; usage?: UsageLike }>) {
-  return messages.reduce(
-    (usage, message) => {
-      if (message.role !== 'assistant' || !message.usage) return usage
-      usage.input += message.usage.input ?? 0
-      usage.output += message.usage.output ?? 0
-      usage.cacheRead += message.usage.cacheRead ?? 0
-      usage.cacheWrite += message.usage.cacheWrite ?? 0
-      usage.totalTokens += message.usage.totalTokens ?? 0
-      usage.cost.input += message.usage.cost?.input ?? 0
-      usage.cost.output += message.usage.cost?.output ?? 0
-      usage.cost.cacheRead += message.usage.cost?.cacheRead ?? 0
-      usage.cost.cacheWrite += message.usage.cost?.cacheWrite ?? 0
-      usage.cost.total += message.usage.cost?.total ?? 0
-      return usage
-    },
-    structuredClone(EMPTY_USAGE),
-  )
-}
-
 export function sessionScope(
   session: QuickForgeSessionMetadata | QuickForgeSessionData | null | undefined,
 ): ChatScope {

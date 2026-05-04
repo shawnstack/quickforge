@@ -256,8 +256,9 @@ export async function createAgent(sessionId, config = {}) {
 
   // Subscribe to agent lifecycle events and forward to eventBus
   agent.subscribe((event) => {
-    // Forward all events to the session event bus
+    // Forward all events to the session event bus and the global bus.
     eventBus.emit('agent_event', event)
+    agentEvents.emit('agent_event', { sessionId, ...event })
 
     // Track status
     if (event.type === 'agent_start') {
@@ -401,6 +402,7 @@ export async function runPrompt(sessionId, message) {
         session.title = aiTitle
         await persistSession(session)
         session.eventBus.emit('agent_event', { type: 'title_updated', title: aiTitle })
+        agentEvents.emit('agent_event', { sessionId, type: 'title_updated', title: aiTitle })
       }
     }).catch((err) => {
       logger.warn(`Title generation failed for session ${sessionId}:`, err.message || err)
@@ -410,10 +412,12 @@ export async function runPrompt(sessionId, message) {
   // Fire and forget — events come through eventBus
   session.agent.prompt(userMessage).catch((err) => {
     logger.error(`Agent prompt error for session ${sessionId}:`, err)
-    session.eventBus.emit('agent_event', {
+    const event = {
       type: 'error',
       error: err.message || 'Unknown error',
-    })
+    }
+    session.eventBus.emit('agent_event', event)
+    agentEvents.emit('agent_event', { sessionId, ...event })
   })
 
   return { sessionId, status: session.status }
@@ -436,10 +440,12 @@ export async function abortRun(sessionId) {
     persistSession(session).catch((err) =>
       console.error(`Failed to persist aborted session ${sessionId}:`, err),
     )
-    session.eventBus.emit('agent_event', {
+    const event = {
       type: 'agent_end',
       messages: session.agent.state.messages,
-    })
+    }
+    session.eventBus.emit('agent_event', event)
+    agentEvents.emit('agent_event', { sessionId, ...event })
   }
 
   return { sessionId, aborted: true }

@@ -16,6 +16,7 @@ import {
   listSessions,
   updateSessionModel,
   updateSessionThinkingLevel,
+  agentEvents,
 } from '../agent-manager.mjs'
 
 export async function handleAgentApi(req, res, url) {
@@ -25,6 +26,12 @@ export async function handleAgentApi(req, res, url) {
   // GET /api/agents — list active sessions
   if (req.method === 'GET' && pathname === '/api/agents') {
     sendJson(res, 200, { sessions: listSessions() })
+    return
+  }
+
+  // GET /api/agents/events — global SSE event stream for all sessions
+  if (req.method === 'GET' && pathname === '/api/agents/events') {
+    handleGlobalStream(req, res)
     return
   }
 
@@ -192,6 +199,45 @@ async function handleStreamHead(req, res, sessionId) {
 
   res.writeHead(200, { 'content-length': '0' })
   res.end()
+}
+
+function handleGlobalStream(req, res) {
+  res.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-cache, no-transform',
+    'connection': 'keep-alive',
+    'x-accel-buffering': 'no',
+  })
+
+  const keepAlive = setInterval(() => {
+    try {
+      res.write(': ping\n\n')
+    } catch {
+      cleanup()
+    }
+  }, 15000)
+
+  const onAgentEvent = (event) => {
+    try {
+      writeSseEvent(res, event.type || 'agent_event', event)
+    } catch {
+      cleanup()
+    }
+  }
+
+  const cleanup = () => {
+    clearInterval(keepAlive)
+    agentEvents.removeListener('agent_event', onAgentEvent)
+    if (!res.writableEnded) {
+      res.end()
+    }
+  }
+
+  agentEvents.on('agent_event', onAgentEvent)
+
+  req.on('close', cleanup)
+  req.on('error', cleanup)
+  res.on('error', cleanup)
 }
 
 async function handleStream(req, res, sessionId) {

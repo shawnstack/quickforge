@@ -30,4 +30,37 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          // React core — stable, large, rarely updated
+          if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/') ||
+              id.includes('node_modules/scheduler/')) {
+            return 'react-vendor'
+          }
+          // Lit — web component runtime
+          if (id.includes('node_modules/lit/') || id.includes('node_modules/lit-html/') ||
+              id.includes('node_modules/@lit/') || id.includes('node_modules/lit-element/')) {
+            return 'lit-vendor'
+          }
+          // Icons — large, rarely changes
+          if (id.includes('node_modules/lucide-react/')) {
+            return 'icons'
+          }
+          // pi-ai/pi-web-ui/pi-agent-core — the AI SDK bundle
+          if (id.includes('node_modules/@mariozechner/')) {
+            // Keep provider-specific splits the SDK already does via dynamic import
+            return
+          }
+          // CSS utilities
+          if (id.includes('node_modules/clsx/') || id.includes('node_modules/class-variance-authority/') ||
+              id.includes('node_modules/tailwind-merge/')) {
+            return 'css-utils'
+          }
+          // Let everything else use default chunking
+        },
+      },
+    },
+  },
 })

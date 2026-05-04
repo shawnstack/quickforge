@@ -5,7 +5,7 @@ import {
 } from '@mariozechner/pi-web-ui'
 import type { ServerAgent } from '@/lib/server-agent'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
-import { assistantText, draftTextFromUserMessage } from '@/lib/message-utils'
+import { assistantText, BASE_SYSTEM_PROMPT, draftTextFromUserMessage } from '@/lib/message-utils'
 import { t } from '@/lib/i18n'
 import type { RestoredDraft } from '@/lib/types'
 
@@ -36,6 +36,23 @@ type AgentInterfaceElement = HTMLElement & {
 
 type QuickForgeActionButton = HTMLButtonElement & {
   __quickforgeStopHandler?: (event: Event) => void
+}
+
+type MessageUsage = {
+  input?: number
+  output?: number
+  totalTokens?: number
+}
+
+type MessageWithUsage = {
+  role?: string
+  content?: unknown
+  attachments?: unknown
+  toolName?: string
+  toolCallId?: string
+  toolCall?: unknown
+  result?: unknown
+  usage?: MessageUsage
 }
 
 const emptyDraft = (): ComposerDraft => ({ text: '', attachments: [] })
@@ -131,6 +148,125 @@ export function ChatPanelHost({
 
     const clearComposerDraft = () => {
       composerDraftRef.current = emptyDraft()
+    }
+
+    const estimateTextTokens = (text: string) => {
+      let ascii = 0
+      let nonAscii = 0
+      for (const char of text) {
+        if (/\s/.test(char)) continue
+        if (char.charCodeAt(0) <= 0x7f) ascii += 1
+        else nonAscii += 1
+      }
+      return Math.ceil(ascii / 4 + nonAscii / 1.8)
+    }
+
+    const textFromUnknown = (value: unknown): string => {
+      if (!value) return ''
+      if (typeof value === 'string') return value
+      if (Array.isArray(value)) return value.map(textFromUnknown).filter(Boolean).join('\n')
+      if (typeof value === 'object') {
+        const record = value as Record<string, unknown>
+        if (typeof record.text === 'string') return record.text
+        if (typeof record.content === 'string') return record.content
+        try {
+          return JSON.stringify(value)
+        } catch {
+          return ''
+        }
+      }
+      return String(value)
+    }
+
+    const estimateMessageTokens = (message: MessageWithUsage) => {
+      const parts = [message.role ?? '', textFromUnknown(message.content)]
+      if (message.attachments) parts.push(textFromUnknown(message.attachments))
+      if (message.toolName) parts.push(message.toolName)
+      if (message.toolCallId) parts.push(message.toolCallId)
+      if (message.toolCall) parts.push(textFromUnknown(message.toolCall))
+      if (message.result) parts.push(textFromUnknown(message.result))
+      return 4 + estimateTextTokens(parts.filter(Boolean).join('\n'))
+    }
+
+    const estimateHistoryTokens = () => {
+      const systemPrompt = agent.state.systemPrompt || BASE_SYSTEM_PROMPT
+      const messages = agent.state.messages as MessageWithUsage[]
+      return estimateTextTokens(systemPrompt) + messages.reduce((total, message) => total + estimateMessageTokens(message), 0)
+    }
+
+    const getContextUsage = () => {
+      const contextWindow = agent.state.model?.contextWindow ?? 0
+      const usage = agent.state.messages.reduce((latestUsage, message) => {
+        const currentUsage = (message as MessageWithUsage).usage
+        if ((message as MessageWithUsage).role !== 'assistant' || !currentUsage) return latestUsage
+        return currentUsage
+      }, undefined as MessageUsage | undefined)
+      const inputTokens = usage?.input ?? usage?.totalTokens ?? 0
+      const estimatedTokens = estimateHistoryTokens()
+      const usedTokens = Math.max(inputTokens, estimatedTokens)
+      const percent = contextWindow > 0 ? Math.min(100, Math.max(0, Math.round((usedTokens / contextWindow) * 100))) : 0
+      const hue = Math.round(142 - (142 * percent / 100))
+      return { contextWindow, usedTokens, inputTokens, estimatedTokens, percent, color: `hsl(${hue} 72% 45%)` }
+    }
+
+    const formatTokens = (value: number) => {
+      if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`
+      if (value >= 1000) return `${Math.round(value / 1000)}K`
+      return String(value)
+    }
+
+    const updateContextUsageIcon = () => {
+      const usage = getContextUsage()
+      const existing = panel.querySelector<HTMLElement>('.quickforge-context-usage')
+      const statsRight = panel.querySelector('message-editor')?.parentElement?.querySelector<HTMLElement>('.ml-auto.items-center')
+      if (!usage.contextWindow || !statsRight) {
+        existing?.remove()
+        return
+      }
+
+      const title = `Context used: ${usage.percent}% (${formatTokens(usage.usedTokens)} / ${formatTokens(usage.contextWindow)} tokens, input ${formatTokens(usage.inputTokens)}, estimated history ${formatTokens(usage.estimatedTokens)})`
+      const ring = `conic-gradient(${usage.color} ${usage.percent * 3.6}deg, rgb(229 231 235) 0deg)`
+      const icon = existing ?? document.createElement('span')
+      icon.className = 'quickforge-context-usage'
+      icon.title = title
+      icon.setAttribute('aria-label', title)
+      icon.style.cssText = [
+        'position: relative',
+        'display: inline-flex',
+        'width: 14px',
+        'height: 14px',
+        'flex: 0 0 auto',
+        'border-radius: 9999px',
+        `background: ${ring}`,
+        'vertical-align: middle',
+        'box-shadow: 0 0 0 1px rgb(0 0 0 / 0.06)',
+      ].join(';')
+      let hole = icon.firstElementChild as HTMLElement | null
+      if (!hole) {
+        hole = document.createElement('span')
+        icon.append(hole)
+      }
+      hole.style.cssText = [
+        'position: absolute',
+        'inset: 3px',
+        'border-radius: 9999px',
+        'background: hsl(var(--background))',
+      ].join(';')
+      let label = icon.nextElementSibling as HTMLElement | null
+      if (!label?.classList.contains('quickforge-context-usage-label')) {
+        label = document.createElement('span')
+        label.className = 'quickforge-context-usage-label'
+        label.style.cssText = 'color: hsl(var(--muted-foreground)); font-size: 12px; line-height: 1;'
+      }
+      label.textContent = `${usage.percent}%`
+      label.title = title
+      label.setAttribute('aria-label', title)
+      if (!existing) {
+        statsRight.prepend(label)
+        statsRight.prepend(icon)
+      } else if (icon.nextElementSibling !== label) {
+        icon.after(label)
+      }
     }
 
     const showCopiedFeedback = (button: HTMLButtonElement, defaultTitle: string, defaultIcon: string) => {
@@ -390,6 +526,7 @@ export function ChatPanelHost({
       if (!panel.isConnected) return
       decorateMessages()
       decorateEditor()
+      updateContextUsageIcon()
     }
 
     let decorateScheduled = false

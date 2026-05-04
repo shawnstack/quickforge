@@ -2,6 +2,8 @@ import { useCallback } from 'react'
 import type { AgentManager } from '@/hooks/useAgentManager'
 import { initializePiStorage } from '@/lib/pi-chat'
 import { t } from '@/lib/i18n'
+import { showConfirm } from '@/components/ui/confirm-dialog'
+import { showPrompt } from '@/components/ui/prompt-dialog'
 
 type UseSessionActionsOptions = {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof initializePiStorage>> | null>
@@ -32,7 +34,6 @@ export function useSessionActions({
   const renameSession = useCallback(async (sessionId: string, currentTitle: string) => {
     const storage = storageRef.current
     if (!storage) return
-    const { showPrompt } = await import('@/components/ui/prompt-dialog')
     const newTitle = await showPrompt({
       title: t('renameSession'),
       description: t('sessionName'),
@@ -55,7 +56,6 @@ export function useSessionActions({
   const deleteSession = useCallback(async (sessionId: string) => {
     const storage = storageRef.current
     if (!storage) return
-    const { showConfirm } = await import('@/components/ui/confirm-dialog')
     const confirmed = await showConfirm({
       title: t('deleteSession'),
       description: t('deleteSessionConfirm'),

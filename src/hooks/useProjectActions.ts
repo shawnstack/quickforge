@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import type { AgentManager } from '@/hooks/useAgentManager'
 import { t } from '@/lib/i18n'
 import type { ProjectInfo } from '@/lib/types'
+import { showConfirm } from '@/components/ui/confirm-dialog'
 
 type UseProjectActionsOptions = {
   projects: ProjectInfo[]
@@ -27,7 +28,6 @@ export function useProjectActions({
   const deleteProjectInline = useCallback(
     async (projectId: string) => {
       const project = projects.find((p) => p.id === projectId)
-      const { showConfirm } = await import('@/components/ui/confirm-dialog')
       const confirmed = await showConfirm({
         title: t('deleteProject'),
         description: t('deleteProjectConfirm', { name: project?.name ?? projectId }),

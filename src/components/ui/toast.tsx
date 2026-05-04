@@ -98,7 +98,7 @@ export function ToastContainer({ toasts, onDismiss, onClick }: ToastContainerPro
   if (toasts.length === 0) return null
 
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex flex-col-reverse gap-2">
+    <div className="pointer-events-none fixed right-4 top-4 z-50 flex flex-col gap-2">
       {toasts.map((toast) => (
         <Toast
           key={toast.id}

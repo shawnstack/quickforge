@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Brain, CalendarClock, CheckCircle2, Clock3, Folder, Pause, Play, Sparkles, Trash2, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { getConfiguredModels, initializePiStorage, loadInitialConfiguredModel } from '@/lib/pi-chat'
+import { defaultThinkingLevelForModel, getConfiguredModels, initializePiStorage, loadDefaultOptions, loadInitialConfiguredModel } from '@/lib/pi-chat'
 import { t } from '@/lib/i18n'
 
 type ScheduleType = 'once' | 'daily' | 'weekly' | 'monthly' | 'interval' | 'cron'
@@ -59,10 +59,6 @@ function modelLabel(model: AnyModel) {
 
 function modelsEqual(left?: AnyModel, right?: AnyModel) {
   return Boolean(left && right && left.api === right.api && left.provider === right.provider && left.id === right.id)
-}
-
-function defaultThinkingLevel(model?: AnyModel): ThinkingLevel {
-  return model?.reasoning ? 'medium' : 'off'
 }
 
 function pad(value: number) {
@@ -131,11 +127,12 @@ export function ScheduledTasksPage() {
       try {
         const storage = await initializePiStorage()
         const configuredModels = await getConfiguredModels(storage)
-        const activeModel = await loadInitialConfiguredModel(storage) ?? configuredModels[0]
+        const defaultOptions = await loadDefaultOptions(storage)
+        const activeModel = defaultOptions.model ?? await loadInitialConfiguredModel(storage) ?? configuredModels[0]
         if (cancelled) return
         setModels(configuredModels)
         setSelectedModel(activeModel)
-        setThinkingLevel(defaultThinkingLevel(activeModel))
+        setThinkingLevel(defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(activeModel))
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : t('requestFailed'))
       }
@@ -262,7 +259,7 @@ export function ScheduledTasksPage() {
                 onChange={(event) => {
                   const nextModel = models.find((model) => `${model.provider}\u0000${model.id}` === event.target.value)
                   setSelectedModel(nextModel)
-                  setThinkingLevel(defaultThinkingLevel(nextModel))
+                  setThinkingLevel(defaultThinkingLevelForModel(nextModel))
                 }}
                 title={t('taskModel')}
               >

@@ -1,3 +1,4 @@
+import type { ThinkingLevel } from '@mariozechner/pi-agent-core'
 import type { Api, Model, OpenAICompletionsCompat } from '@mariozechner/pi-ai'
 import {
   AppStorage,
@@ -13,6 +14,7 @@ import { HttpStorageBackend } from '@/lib/http-storage-backend'
 
 const ACTIVE_MODEL_SETTING_KEY = 'active-model'
 const YOLO_MODE_SETTING_KEY = 'yolo-mode'
+const DEFAULT_OPTIONS_SETTING_KEY = 'default-options'
 
 export type ConnectionForm = {
   id?: string
@@ -31,6 +33,11 @@ export type StoreBundle = {
   providerKeys: ProviderKeysStore
   sessions: SessionsStore
   customProviders: CustomProvidersStore
+}
+
+export type DefaultOptions = {
+  model?: Model<Api>
+  thinkingLevel?: ThinkingLevel
 }
 
 export const DEFAULT_CONNECTION: ConnectionForm = {
@@ -201,6 +208,31 @@ export async function initializePiStorage() {
 
 export async function saveActiveModel(storage: AppStorage, model: Model<Api>) {
   await storage.settings.set(ACTIVE_MODEL_SETTING_KEY, normalizeModelForProvider(model))
+}
+
+export function defaultThinkingLevelForModel(model?: Model<Api>): ThinkingLevel {
+  return model?.reasoning ? 'medium' : 'off'
+}
+
+function isThinkingLevel(value: unknown): value is ThinkingLevel {
+  return value === 'off' || value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh'
+}
+
+export async function saveDefaultOptions(storage: AppStorage, options: DefaultOptions) {
+  await storage.settings.set(DEFAULT_OPTIONS_SETTING_KEY, {
+    model: options.model ? normalizeModelForProvider(options.model) : undefined,
+    thinkingLevel: isThinkingLevel(options.thinkingLevel) ? options.thinkingLevel : undefined,
+  })
+}
+
+export async function loadDefaultOptions(storage: AppStorage): Promise<DefaultOptions> {
+  const options = await storage.settings.get<DefaultOptions>(DEFAULT_OPTIONS_SETTING_KEY)
+  if (!options || typeof options !== 'object') return {}
+
+  return {
+    model: options.model ? normalizeModelForProvider(options.model) : undefined,
+    thinkingLevel: isThinkingLevel(options.thinkingLevel) ? options.thinkingLevel : undefined,
+  }
 }
 
 export async function loadActiveModel(storage: AppStorage): Promise<Model<Api> | null> {

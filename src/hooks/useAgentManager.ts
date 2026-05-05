@@ -3,6 +3,8 @@ import type { AgentState } from '@mariozechner/pi-agent-core'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import { ServerAgent } from '@/lib/server-agent'
 import {
+  defaultThinkingLevelForModel,
+  loadDefaultOptions,
   normalizeModelForProvider,
   resolveConfiguredModel,
 } from '@/lib/pi-chat'
@@ -157,10 +159,12 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       } = initialState ?? {}
       void _requestedTools
       const storage = storageRef.current
+      const defaultOptions = storage ? await loadDefaultOptions(storage) : {}
+      const requestedOrDefaultModel = requestedModel ?? defaultOptions.model ?? activeModelRef.current
       const resolvedModel = storage
-        ? await resolveConfiguredModel(storage, (requestedModel ?? activeModelRef.current) as Model<Api>)
-        : normalizeModelForProvider((requestedModel ?? activeModelRef.current) as Model<Api>)
-      const resolvedThinkingLevel = requestedThinkingLevel ?? (resolvedModel.reasoning ? 'medium' : 'off')
+        ? await resolveConfiguredModel(storage, requestedOrDefaultModel as Model<Api>)
+        : normalizeModelForProvider(requestedOrDefaultModel as Model<Api>)
+      const resolvedThinkingLevel = requestedThinkingLevel ?? defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(resolvedModel)
       activeModelRef.current = resolvedModel
 
       const nextAgent = await ServerAgent.create(sessionId, {

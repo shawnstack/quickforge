@@ -25,6 +25,7 @@ type ProviderForm = {
   name: string
   baseUrl: string
   apiKey: string
+  headersJson: string
   protocol: ProviderProtocol
   models: ModelForm[]
 }
@@ -40,6 +41,7 @@ const emptyForm = (): ProviderForm => ({
   name: DEFAULT_CONNECTION.name,
   baseUrl: DEFAULT_CONNECTION.baseUrl,
   apiKey: '',
+  headersJson: '{}',
   protocol: 'openai-completions',
   models: [emptyModelForm()],
 })
@@ -112,6 +114,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       name: provider.name,
       baseUrl: provider.baseUrl,
       apiKey,
+      headersJson: JSON.stringify(existingModels[0]?.headers ?? {}, null, 2),
       protocol: provider.type === 'anthropic-messages' ? 'anthropic-messages' : 'openai-completions',
       models,
     }
@@ -150,7 +153,36 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     this.requestUpdate()
   }
 
-  private buildModel(modelForm: ModelForm): AnyModel {
+  private parseHeadersJson(): Record<string, string> | null {
+    const value = this.form.headersJson.trim()
+    if (!value) return {}
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(value)
+    } catch {
+      alert(t('invalidHeadersJson'))
+      return null
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      alert(t('invalidHeadersJson'))
+      return null
+    }
+
+    const headers: Record<string, string> = {}
+    for (const [key, headerValue] of Object.entries(parsed)) {
+      if (!key.trim() || typeof headerValue !== 'string') {
+        alert(t('invalidHeadersJson'))
+        return null
+      }
+      headers[key] = headerValue
+    }
+
+    return headers
+  }
+
+  private buildModel(modelForm: ModelForm, headers: Record<string, string>): AnyModel {
     const name = this.form.name.trim()
     const baseUrl = this.form.baseUrl.trim()
     const isReasoningModel = modelForm.reasoning === true
@@ -167,6 +199,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: Number(modelForm.contextWindow) || DEFAULT_CONNECTION.contextWindow,
       maxTokens: Number(modelForm.maxTokens) || DEFAULT_CONNECTION.maxTokens,
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
       compat:
         this.form.protocol === 'openai-completions'
           ? {
@@ -219,7 +252,10 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       return
     }
 
-    const models = filledModels.map((modelForm) => this.buildModel(modelForm))
+    const headers = this.parseHeadersJson()
+    if (!headers) return
+
+    const models = filledModels.map((modelForm) => this.buildModel(modelForm, headers))
     const apiKey = this.form.apiKey.trim()
     const oldProvider = this.editingProviderId
       ? this.providers.find((provider) => provider.id === this.editingProviderId)
@@ -437,6 +473,19 @@ export class CustomProvidersOnlyTab extends SettingsTab {
               @input=${(event: Event) => this.updateForm('apiKey', (event.target as HTMLInputElement).value)}
               placeholder=${t('apiKeyPlaceholder')}
             />
+          </label>
+
+          <label class="grid gap-1.5 text-sm">
+            <span class="text-foreground">${t('customHeaders')}</span>
+            <textarea
+              class="min-h-24 rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+              .value=${this.form.headersJson}
+              @input=${(event: Event) => this.updateForm('headersJson', (event.target as HTMLTextAreaElement).value)}
+              placeholder=${t('customHeadersPlaceholder')}
+            ></textarea>
+            <span class="text-xs text-muted-foreground">
+              ${t('customHeadersHelp')}
+            </span>
           </label>
 
           <div class="grid gap-3">

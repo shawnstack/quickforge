@@ -1,0 +1,9 @@
+{
+  "name": "ai-context-package",
+  "displayName": "AI Context Package",
+  "description": "Create a structured task context package for AI coding work, including goals, docs, scope, constraints, validation, and expected output.",
+  "version": "1.0.0",
+  "tags": ["context", "planning", "task", "requirements", "ai"],
+  "triggers": ["上下文包", "AI 上下文", "context package", "任务上下文", "验收标准", "变更范围"],
+  "entry": "SKILL.md"
+}

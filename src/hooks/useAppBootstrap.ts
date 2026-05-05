@@ -3,6 +3,7 @@ import type { Api, Model } from '@mariozechner/pi-ai'
 import type { AgentManager } from '@/hooks/useAgentManager'
 import {
   initializePiStorage,
+  loadDefaultOptions,
   loadInitialConfiguredModel,
 } from '@/lib/pi-chat'
 import { initializeAppLanguage, t } from '@/lib/i18n'
@@ -63,7 +64,8 @@ export function useAppBootstrap({
         yoloModeRef.current = savedYoloMode
 
         const initialModel = await loadInitialConfiguredModel(storage)
-        if (initialModel) activeModelRef.current = initialModel
+        const defaultOptions = await loadDefaultOptions(storage)
+        if (initialModel) activeModelRef.current = defaultOptions.model ?? initialModel
 
         const sessionId = new URLSearchParams(window.location.search).get('session')
         if (sessionId) {
@@ -82,7 +84,7 @@ export function useAppBootstrap({
                   alert(t('projectSwitchFailed'))
                   if (initialModel) {
                     await createAgent(
-                      { model: initialModel, tools: [] },
+                      { model: defaultOptions.model ?? initialModel, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },
                       crypto.randomUUID(),
                       { scope: 'global', attachToView: true },
                     )
@@ -115,7 +117,7 @@ export function useAppBootstrap({
             )
           } else if (initialModel) {
             await createAgent(
-              { model: initialModel, tools: [] },
+              { model: defaultOptions.model ?? initialModel, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },
               crypto.randomUUID(),
               { scope: 'global', attachToView: true },
             )
@@ -124,7 +126,7 @@ export function useAppBootstrap({
           }
         } else if (initialModel) {
           await createAgent(
-            { model: initialModel, tools: [] },
+            { model: defaultOptions.model ?? initialModel, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },
             crypto.randomUUID(),
             { scope: 'global', attachToView: true },
           )

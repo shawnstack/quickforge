@@ -231,6 +231,7 @@ function App() {
 
   const {
     openModelSettings,
+    openDefaultOptionsSettings,
     activateLiteLlmExampleModel,
     openCustomModelSelector,
   } = useModelActions({
@@ -349,7 +350,7 @@ function App() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={openModelSettings}
+            onClick={openDefaultOptionsSettings}
             aria-label={t('settings')}
           >
             <Settings className="size-4" />

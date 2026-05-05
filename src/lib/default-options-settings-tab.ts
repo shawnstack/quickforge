@@ -20,8 +20,17 @@ const THINKING_OPTIONS: { value: ThinkingLevel; label: () => string }[] = [
   { value: 'xhigh', label: () => t('thinkingXHigh') },
 ]
 
+function normalizeBaseUrl(value?: string) {
+  return (value ?? '').trim().replace(/\/$/, '')
+}
+
 function modelKey(model: AnyModel) {
-  return `${model.provider}\u0000${model.id}\u0000${model.api}\u0000${model.baseUrl ?? ''}`
+  return JSON.stringify([
+    model.provider,
+    model.id,
+    model.api,
+    normalizeBaseUrl(model.baseUrl),
+  ])
 }
 
 function modelLabel(model: AnyModel) {
@@ -43,6 +52,22 @@ class DefaultOptionsSettingsTab extends SettingsTab {
   override async connectedCallback() {
     super.connectedCallback()
     await this.loadSettings()
+  }
+
+  override updated() {
+    this.syncSelectValues()
+  }
+
+  private syncSelectValues() {
+    const modelSelect = this.querySelector<HTMLSelectElement>('[data-default-model-select]')
+    if (modelSelect && this.selectedModel) {
+      modelSelect.value = modelKey(this.selectedModel)
+    }
+
+    const thinkingSelect = this.querySelector<HTMLSelectElement>('[data-default-thinking-select]')
+    if (thinkingSelect) {
+      thinkingSelect.value = this.thinkingLevel
+    }
   }
 
   private async loadSettings() {
@@ -83,6 +108,14 @@ class DefaultOptionsSettingsTab extends SettingsTab {
     this.requestUpdate()
   }
 
+  private modelOptions() {
+    if (!this.selectedModel) return this.models
+
+    const selectedKey = modelKey(this.selectedModel)
+    const exists = this.models.some((model) => modelKey(model) === selectedKey)
+    return exists ? this.models : [this.selectedModel, ...this.models]
+  }
+
   private async save() {
     try {
       const thinkingLevel = this.selectedModel?.reasoning ? this.thinkingLevel : 'off'
@@ -90,7 +123,7 @@ class DefaultOptionsSettingsTab extends SettingsTab {
         model: this.selectedModel,
         thinkingLevel,
       })
-      this.thinkingLevel = thinkingLevel
+      await this.loadSettings()
       this.saved = true
       this.error = ''
       this.requestUpdate()
@@ -115,14 +148,15 @@ class DefaultOptionsSettingsTab extends SettingsTab {
         <label class="grid max-w-md gap-1.5 text-sm">
           <span class="text-foreground">${t('defaultModel')}</span>
           <select
+            data-default-model-select
             class="rounded-md border border-input bg-background px-3 py-2 text-sm"
             .value=${this.selectedModel ? modelKey(this.selectedModel) : ''}
             @change=${(event: Event) => this.updateModel((event.target as HTMLSelectElement).value)}
           >
-            ${this.models.length === 0
+            ${this.modelOptions().length === 0
               ? html`<option value="">${t('noModelAvailable')}</option>`
-              : this.models.map((model) => html`
-                  <option value=${modelKey(model)}>${modelLabel(model)}</option>
+              : this.modelOptions().map((model) => html`
+                  <option .value=${modelKey(model)}>${modelLabel(model)}</option>
                 `)}
           </select>
         </label>
@@ -130,13 +164,14 @@ class DefaultOptionsSettingsTab extends SettingsTab {
         <label class="grid max-w-sm gap-1.5 text-sm">
           <span class="text-foreground">${t('defaultThinkingLevel')}</span>
           <select
+            data-default-thinking-select
             class="rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-60"
-            .value=${this.selectedModel?.reasoning ? this.thinkingLevel : 'off'}
+            .value=${this.thinkingLevel}
             ?disabled=${!this.selectedModel?.reasoning}
             @change=${(event: Event) => this.updateThinkingLevel((event.target as HTMLSelectElement).value)}
           >
             ${THINKING_OPTIONS.map((option) => html`
-              <option value=${option.value}>${option.label()}</option>
+              <option .value=${option.value}>${option.label()}</option>
             `)}
           </select>
           ${!this.selectedModel?.reasoning

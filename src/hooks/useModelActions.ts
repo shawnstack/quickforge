@@ -1,8 +1,5 @@
 import { useCallback } from 'react'
-import {
-  ProxyTab,
-  SettingsDialog,
-} from '@mariozechner/pi-web-ui'
+import { SettingsDialog } from '@mariozechner/pi-web-ui'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import type { AgentManager } from '@/hooks/useAgentManager'
 import {
@@ -87,7 +84,7 @@ export function useModelActions({
 
   const openModelSettings = useCallback(() => {
     SettingsDialog.open(
-      [createLanguageSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab(), new ProxyTab()],
+      [createLanguageSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab()],
       () => {
         if (needsModelSetup || !agentRef.current) {
           void activateConfiguredModel().catch((error) => console.error('Failed to activate configured model:', error))
@@ -188,7 +185,7 @@ export function useModelActions({
         })
       },
       async (model) => {
-        await SettingsDialog.open([createLanguageSettingsTab(), createCustomProvidersOnlyTab(model.provider), new ProxyTab()])
+        await SettingsDialog.open([createLanguageSettingsTab(), createCustomProvidersOnlyTab(model.provider)])
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const dialog = document.querySelector('settings-dialog') as any
         if (dialog) {

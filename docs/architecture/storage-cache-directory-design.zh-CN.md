@@ -114,7 +114,6 @@ type QuickForgeConfigFile = {
 - 当前激活模型；
 - YOLO 模式开关；
 - 应用语言；
-- proxy 配置；
 - UI 偏好；
 - 其他非敏感应用设置。
 
@@ -125,9 +124,7 @@ type QuickForgeConfigFile = {
   "app": {
     "settings": {
       "quickforge.yoloMode": true,
-      "quickforge.language": "zh-CN",
-      "proxy.enabled": false,
-      "proxy.url": ""
+      "quickforge.language": "zh-CN"
     }
   }
 }

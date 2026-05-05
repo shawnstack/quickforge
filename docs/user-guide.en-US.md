@@ -6,7 +6,7 @@ This guide is organized by feature priority:
 
 - **P0: Required setup** — required before you can start chatting.
 - **P1: Core features** — common daily workflows.
-- **P2: Advanced features** — project tools, YOLO mode, and proxy settings.
+- **P2: Advanced features** — project tools and YOLO mode.
 - **P3: Troubleshooting and maintenance** — FAQ, local data, and safety tips.
 
 ## Table of Contents
@@ -22,11 +22,10 @@ This guide is organized by feature priority:
 - [P2: Advanced Features](#p2-advanced-features)
   - [7. YOLO Mode and Local Tools](#7-yolo-mode-and-local-tools)
   - [8. Workspace Tool Examples](#8-workspace-tool-examples)
-  - [9. Proxy Settings](#9-proxy-settings)
 - [P3: Troubleshooting and Maintenance](#p3-troubleshooting-and-maintenance)
-  - [10. FAQ](#10-faq)
-  - [11. Local Storage Location](#11-local-storage-location)
-  - [12. Security Recommendations](#12-security-recommendations)
+  - [9. FAQ](#9-faq)
+  - [10. Local Storage Location](#10-local-storage-location)
+  - [11. Security Recommendations](#11-security-recommendations)
 
 ---
 
@@ -80,7 +79,7 @@ Common fields:
 | Provider name | A display name, such as LiteLLM, OpenRouter, or DeepSeek |
 | Protocol type | Use OpenAI Compatible for most providers |
 | Base URL | API endpoint, usually ending with `/v1` |
-| API Key | Provider API key; can be empty for local proxies or Ollama |
+| API Key | Provider API key; can be empty for local services or Ollama |
 | Model ID | Model identifier, such as `anthropic/claude-sonnet-4` |
 | Context Window | Context length |
 | Max Tokens | Maximum output tokens per response |
@@ -283,33 +282,11 @@ Ask the model to plan before editing:
 Do not modify files yet. Read the relevant code first, explain your plan, and wait for my confirmation before applying changes.
 ```
 
-### 9. Proxy Settings
-
-The settings dialog includes proxy configuration.
-
-In many setups, the local QuickForge service is enough for app storage and you may not need a proxy. You may need CORS Proxy when:
-
-- The browser hits CORS restrictions while calling an LLM provider directly.
-- A provider must be accessed through a forwarding proxy.
-- A specific provider requires a compatibility proxy.
-
-Proxy URL example:
-
-```text
-http://localhost:3001
-```
-
-The proxy must support this forwarding format:
-
-```text
-<proxy-url>/?url=<target-url>
-```
-
 ---
 
 ## P3: Troubleshooting and Maintenance
 
-### 10. FAQ
+### 9. FAQ
 
 #### The page says “Local QuickForge service unavailable”
 
@@ -377,7 +354,7 @@ Try:
 - Make sure the current user has access.
 - Remove the old project and add it again.
 
-### 11. Local Storage Location
+### 10. Local Storage Location
 
 QuickForge stores data in local JSON files.
 
@@ -409,7 +386,7 @@ You can change the data directory with:
 QUICKFORGE_DATA_DIR=/path/to/data
 ```
 
-### 12. Security Recommendations
+### 11. Security Recommendations
 
 - API keys are stored on this machine. Protect your local account and data directory.
 - Do not upload `~/.quickforge/storage/` to a public repository.

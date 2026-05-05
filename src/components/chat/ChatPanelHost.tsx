@@ -87,12 +87,19 @@ export function ChatPanelHost({
     let autoScrollFrame: number | undefined
     let lastScrollTop = 0
     let lastTouchY: number | undefined
+    let lastUserScrollUpAt = Number.NEGATIVE_INFINITY
+    let lastPossibleUserScrollAt = Number.NEGATIVE_INFINITY
 
+    const userScrollIntentMs = 500
     const findScrollContainer = () => panel.querySelector<HTMLElement>('agent-interface .overflow-y-auto')
     const isNearBottom = (element: HTMLElement) => element.scrollHeight - element.scrollTop - element.clientHeight <= 80
     const setPanelAutoScroll = (enabled: boolean) => {
       const agentInterface = panel.querySelector<AgentInterfaceElement>('agent-interface')
       agentInterface?.setAutoScroll?.(enabled)
+    }
+    const recentlyUserScrolled = () => {
+      const lastUserScrollAt = Math.max(lastUserScrollUpAt, lastPossibleUserScrollAt)
+      return window.performance.now() - lastUserScrollAt <= userScrollIntentMs
     }
     const disableAutoScroll = () => {
       if (autoScrollFrame !== undefined) {
@@ -101,6 +108,13 @@ export function ChatPanelHost({
       }
       autoScrollEnabled = false
       setPanelAutoScroll(false)
+    }
+    const markUserScrollUp = () => {
+      lastUserScrollUpAt = window.performance.now()
+      disableAutoScroll()
+    }
+    const markPossibleUserScroll = () => {
+      lastPossibleUserScrollAt = window.performance.now()
     }
     const scrollToBottom = () => {
       const scrollContainer = findScrollContainer()
@@ -126,7 +140,13 @@ export function ChatPanelHost({
       if (!scrollContainer) return
       const currentScrollTop = scrollContainer.scrollTop
       const scrollingUp = currentScrollTop < lastScrollTop - 1
-      if (scrollingUp) {
+      const userInitiatedScrollUp = scrollingUp && recentlyUserScrolled()
+      if (scrollingUp && autoScrollEnabled && !userInitiatedScrollUp && !isNearBottom(scrollContainer)) {
+        lastScrollTop = currentScrollTop
+        scheduleScrollToBottom()
+        return
+      }
+      if (userInitiatedScrollUp) {
         disableAutoScroll()
       } else if (isNearBottom(scrollContainer)) {
         autoScrollEnabled = true
@@ -135,7 +155,13 @@ export function ChatPanelHost({
       lastScrollTop = currentScrollTop
     }
     const handleWheel = (event: WheelEvent) => {
-      if (event.deltaY < 0) disableAutoScroll()
+      if (event.deltaY < 0) markUserScrollUp()
+    }
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target === event.currentTarget) markPossibleUserScroll()
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowUp' || event.key === 'PageUp' || event.key === 'Home') markUserScrollUp()
     }
     const handleTouchStart = (event: TouchEvent) => {
       lastTouchY = event.touches[0]?.clientY
@@ -143,7 +169,7 @@ export function ChatPanelHost({
     const handleTouchMove = (event: TouchEvent) => {
       const currentTouchY = event.touches[0]?.clientY
       if (currentTouchY === undefined || lastTouchY === undefined) return
-      if (currentTouchY > lastTouchY + 1) disableAutoScroll()
+      if (currentTouchY > lastTouchY + 1) markUserScrollUp()
       lastTouchY = currentTouchY
     }
     const setupScrollSync = () => {
@@ -152,6 +178,8 @@ export function ChatPanelHost({
       lastScrollTop = scrollContainer.scrollTop
       scrollContainer.addEventListener('scroll', handleScroll, { passive: true })
       scrollContainer.addEventListener('wheel', handleWheel, { passive: true })
+      scrollContainer.addEventListener('pointerdown', handlePointerDown, { passive: true })
+      scrollContainer.addEventListener('keydown', handleKeyDown)
       scrollContainer.addEventListener('touchstart', handleTouchStart, { passive: true })
       scrollContainer.addEventListener('touchmove', handleTouchMove, { passive: true })
       scrollResizeObserver = new ResizeObserver(() => {
@@ -663,6 +691,8 @@ export function ChatPanelHost({
       const scrollContainer = findScrollContainer()
       scrollContainer?.removeEventListener('scroll', handleScroll)
       scrollContainer?.removeEventListener('wheel', handleWheel)
+      scrollContainer?.removeEventListener('pointerdown', handlePointerDown)
+      scrollContainer?.removeEventListener('keydown', handleKeyDown)
       scrollContainer?.removeEventListener('touchstart', handleTouchStart)
       scrollContainer?.removeEventListener('touchmove', handleTouchMove)
       scrollResizeObserver?.disconnect()

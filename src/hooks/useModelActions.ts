@@ -82,7 +82,7 @@ export function useModelActions({
     notifySettingsChanged,
   ])
 
-  const openModelSettings = useCallback(() => {
+  const openSettingsDialog = useCallback((initialTab: 'defaults' | 'customModels') => {
     SettingsDialog.open(
       [createLanguageSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab()],
       () => {
@@ -95,11 +95,19 @@ export function useModelActions({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const dialog = document.querySelector('settings-dialog') as any
       if (dialog) {
-        dialog.activeTabIndex = 2
+        dialog.activeTabIndex = initialTab === 'defaults' ? 1 : 2
         dialog.requestUpdate?.()
       }
     }, 0)
   }, [activateConfiguredModel, needsModelSetup, agentRef])
+
+  const openModelSettings = useCallback(() => {
+    openSettingsDialog('customModels')
+  }, [openSettingsDialog])
+
+  const openDefaultOptionsSettings = useCallback(() => {
+    openSettingsDialog('defaults')
+  }, [openSettingsDialog])
 
   const activateLiteLlmExampleModel = useCallback(async () => {
     const storage = storageRef.current
@@ -207,6 +215,7 @@ export function useModelActions({
   return {
     activateConfiguredModel,
     openModelSettings,
+    openDefaultOptionsSettings,
     activateLiteLlmExampleModel,
     openCustomModelSelector,
   }

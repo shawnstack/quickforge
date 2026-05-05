@@ -230,7 +230,9 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
 
       if (options?.attachToView !== false) attachTaskToView(task)
-      await refreshSessions({ broadcast: true })
+      if (nextAgent.state.messages.length > 0) {
+        await refreshSessions({ broadcast: true })
+      }
       return nextAgent
     },
     [attachTaskToView, refreshSessions, syncSessionUI, storageRef, activeModelRef, yoloModeRef, activeProjectRef],

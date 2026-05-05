@@ -51,7 +51,10 @@ export async function handleStorageApi(req, res, url) {
       data = await readStore(store)
     }
 
-    const values = Object.values(data)
+    let values = Object.values(data)
+    if (store === 'sessions-metadata') {
+      values = values.filter((value) => value?.messageCount !== 0)
+    }
     values.sort((a, b) => {
       const left = getComparable(a, indexName)
       const right = getComparable(b, indexName)

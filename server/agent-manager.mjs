@@ -4,7 +4,7 @@ import { streamSimple } from '@mariozechner/pi-ai'
 import { Type } from 'typebox'
 import { toolHandlers } from './tools/index.mjs'
 import { projectContextFromId } from './project-config.mjs'
-import { readStore, atomicUpdate, readSessionValue, writeSessionValue } from './storage.mjs'
+import { readStore, atomicUpdate, readSessionValue, writeSessionValue, deleteSessionValue } from './storage.mjs'
 import { logger } from './utils/logger.mjs'
 import { buildSystemPrompt, generateAiTitle } from './session-utils.mjs'
 import { restoreReasoningContentInPayload } from './reasoning-cache.mjs'
@@ -302,6 +302,19 @@ async function persistSession(session) {
   const { sessionId, agent, scope, projectId, title, createdAt, status, startedAt, finishedAt, model, thinkingLevel, yoloMode } = session
   const messages = agent.state.messages
 
+  if (messages.length === 0) {
+    try {
+      await deleteSessionValue(sessionId)
+      await atomicUpdate('sessions-metadata', (data) => {
+        delete data[sessionId]
+        return data
+      })
+    } catch (err) {
+      console.error(`Failed to remove empty session ${sessionId}:`, err)
+    }
+    return
+  }
+
   const now = new Date().toISOString()
   const sessionData = {
     id: sessionId,
@@ -564,7 +577,7 @@ export async function destroyAgent(sessionId) {
     // ignore
   }
 
-  // Final persist
+  // Final persist (empty sessions are cleaned up by persistSession)
   try {
     await persistSession(session)
   } catch {

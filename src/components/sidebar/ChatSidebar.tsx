@@ -289,15 +289,6 @@ export const ChatSidebar = memo(function ChatSidebar({
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    className={overlayIconButtonClass}
-                                    onClick={() => onOpenProjectSkills(item)}
-                                    aria-label={t('manageSkills')}
-                                  >
-                                    <Puzzle className="size-4" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
                                     className={overlayDangerIconButtonClass}
                                     onClick={() => onDeleteProject(item.id)}
                                     aria-label={t('deleteProject')}

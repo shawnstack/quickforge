@@ -1,7 +1,7 @@
 import type { AgentMessage } from '@mariozechner/pi-agent-core'
 import { t } from '@/lib/i18n'
 
-type InstructionsPayload = { systemPrompt?: string; global: string | null; project: string | null }
+type InstructionsPayload = { systemPrompt?: string; global: string | null; project: string | null; skills?: unknown[] }
 
 async function fetchInstructions(projectId?: string): Promise<InstructionsPayload> {
   const url = projectId

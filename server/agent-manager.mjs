@@ -1,8 +1,8 @@
 import { EventEmitter } from 'node:events'
 import { Agent } from '@mariozechner/pi-agent-core'
 import { streamSimple } from '@mariozechner/pi-ai'
-import { Type } from 'typebox'
 import { toolHandlers } from './tools/index.mjs'
+import { workspaceTools } from './tools/definitions.mjs'
 import { projectContextFromId } from './project-config.mjs'
 import { readStore, atomicUpdate, readSessionValue, writeSessionValue, deleteSessionValue } from './storage.mjs'
 import { logger } from './utils/logger.mjs'
@@ -13,14 +13,12 @@ import { restoreReasoningContentInPayload } from './reasoning-cache.mjs'
 // Tool definitions (server-side, no REST roundtrip)
 // ---------------------------------------------------------------------------
 
-function createServerTools(projectId, projectContext) {
-  function tool(name, label, description, parameters, handler, executionMode) {
+function createServerTools(_projectId, projectContext) {
+  return workspaceTools.map((definition) => {
+    const handler = toolHandlers[definition.name]
+    if (!handler) throw new Error(`Missing handler for tool: ${definition.name}`)
     return {
-      name,
-      label,
-      description,
-      parameters,
-      executionMode,
+      ...definition,
       execute: async (_toolCallId, params) => {
         const result = await handler(params || {}, projectContext)
         return {
@@ -29,77 +27,7 @@ function createServerTools(projectId, projectContext) {
         }
       },
     }
-  }
-
-  return [
-    tool(
-      'get_project_info', 'Project info',
-      'Get the project directory bound to this chat.',
-      Type.Object({}),
-      toolHandlers.get_project_info,
-    ),
-    tool(
-      'list_dir', 'List directory',
-      'List files and folders inside the project bound to this chat. Paths are relative to that project root.',
-      Type.Object({
-        path: Type.Optional(Type.String({ description: 'Directory path relative to the workspace root. Defaults to .', default: '.' })),
-      }),
-      toolHandlers.list_dir,
-    ),
-    tool(
-      'read_file', 'Read file',
-      'Read a UTF-8 text file inside the project bound to this chat. Use offset and limit for large files.',
-      Type.Object({
-        path: Type.String({ description: 'File path relative to the workspace root.' }),
-        offset: Type.Optional(Type.Number({ description: '1-based line offset.', default: 1 })),
-        limit: Type.Optional(Type.Number({ description: 'Maximum number of lines to return.', default: 200 })),
-      }),
-      toolHandlers.read_file,
-    ),
-    tool(
-      'grep_files', 'Search files',
-      'Search text in the project files bound to this chat. Returns matching file paths and line numbers.',
-      Type.Object({
-        query: Type.String({ description: 'Plain text or regular expression to search for.' }),
-        path: Type.Optional(Type.String({ description: 'Directory path relative to the workspace root. Defaults to .', default: '.' })),
-        regex: Type.Optional(Type.Boolean({ description: 'Treat query as a regular expression.', default: false })),
-        caseSensitive: Type.Optional(Type.Boolean({ description: 'Use case-sensitive matching.', default: false })),
-        limit: Type.Optional(Type.Number({ description: 'Maximum matches to return.', default: 200 })),
-      }),
-      toolHandlers.grep_files,
-    ),
-    tool(
-      'write_file', 'Write file',
-      'Create or overwrite a UTF-8 text file inside the project bound to this chat.',
-      Type.Object({
-        path: Type.String({ description: 'File path relative to the workspace root.' }),
-        content: Type.String({ description: 'Complete file content to write.' }),
-      }),
-      toolHandlers.write_file,
-      'sequential',
-    ),
-    tool(
-      'edit_file', 'Edit file',
-      'Edit a text file in the project bound to this chat by replacing exact text. oldText must match exactly once.',
-      Type.Object({
-        path: Type.String({ description: 'File path relative to the workspace root.' }),
-        oldText: Type.String({ description: 'Exact existing text to replace. Must be unique in the file.' }),
-        newText: Type.String({ description: 'Replacement text.' }),
-      }),
-      toolHandlers.edit_file,
-      'sequential',
-    ),
-    tool(
-      'run_command', 'Run command',
-      'Run a shell command in the project bound to this chat. Use this for lint, build, tests, git status, and diagnostics.',
-      Type.Object({
-        command: Type.String({ description: 'Command to execute in the workspace.' }),
-        timeoutSeconds: Type.Optional(Type.Number({ description: 'Timeout in seconds. Defaults to 60.', default: 60 })),
-      }),
-      toolHandlers.run_command,
-      'sequential',
-    ),
-  ]
+  })
 }
 
 // ---------------------------------------------------------------------------

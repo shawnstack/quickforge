@@ -195,6 +195,7 @@ export async function ensureProjectCache(projectId) {
   const safeProjectId = String(projectId || '')
   assertSafePathSegment(safeProjectId)
   const projectCacheDir = path.join(cacheDir, 'projects', safeProjectId)
+  const projectStorageDir = path.join(storageDir, 'conversations', 'projects', safeProjectId)
 
   await Promise.all([
     fs.mkdir(path.join(projectCacheDir, 'workspace', 'file-index'), { recursive: true }),
@@ -203,6 +204,8 @@ export async function ensureProjectCache(projectId) {
     fs.mkdir(path.join(projectCacheDir, 'llm', 'reasoning'), { recursive: true }),
     fs.mkdir(path.join(projectCacheDir, 'assets'), { recursive: true }),
     fs.mkdir(path.join(projectCacheDir, 'tmp'), { recursive: true }),
+    fs.mkdir(path.join(projectStorageDir, 'sessions'), { recursive: true }),
+    ensureJsonFile(path.join(projectStorageDir, 'sessions-metadata.json')),
   ])
 
   return projectCacheDir

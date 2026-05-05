@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import {
   Plus,
@@ -7,6 +7,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { ScheduledTasksPage } from '@/components/scheduled-tasks/ScheduledTasksPage'
 import { ProjectDirectoryPicker } from '@/components/project-directory-picker'
+import { SkillsDialog } from '@/components/skills-dialog'
 import {
   buildConnectionModel,
   DEFAULT_CONNECTION,
@@ -35,6 +36,7 @@ import { useChatActions } from '@/hooks/useChatActions'
 import { useProjectActions } from '@/hooks/useProjectActions'
 import { useSessionActions } from '@/hooks/useSessionActions'
 import { useYoloActions } from '@/hooks/useYoloActions'
+import { useVisibleRuntimeStatuses } from '@/hooks/useVisibleRuntimeStatuses'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { ToastContainer } from '@/components/ui/toast'
 
@@ -73,6 +75,7 @@ function App() {
   const [needsModelSetup, setNeedsModelSetup] = useState(false)
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
   const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false)
+  const [skillsProject, setSkillsProject] = useState<ProjectInfo>()
   const { toasts, handleTaskComplete, dismissToast } = useTaskToasts()
 
   // --- Session list + cross-tab sync ---
@@ -248,9 +251,18 @@ function App() {
   })
 
   // --- Derived data ---
+  const visibleSessions = useMemo(() => [
+    ...globalSessions,
+    ...projects.flatMap((project) => sessionsForProject(project.id)),
+  ], [globalSessions, projects, sessionsForProject])
+  const visibleRuntimeStatuses = useVisibleRuntimeStatuses(visibleSessions)
+
   const sessionTaskStatus = useCallback((session: QuickForgeSessionMetadata) => {
-    return agentManager.taskStatuses[session.id] ?? session.taskStatus ?? 'idle'
-  }, [agentManager.taskStatuses])
+    return agentManager.taskStatuses[session.id]
+      ?? visibleRuntimeStatuses[session.id]
+      ?? session.taskStatus
+      ?? 'idle'
+  }, [agentManager.taskStatuses, visibleRuntimeStatuses])
 
   const toggleProjectsCollapsed = useCallback(() => {
     setProjectsCollapsed((value) => !value)
@@ -259,6 +271,16 @@ function App() {
   const toggleConversationsCollapsed = useCallback(() => {
     setConversationsCollapsed((value) => !value)
   }, [])
+
+  const handleSkillsSaved = useCallback((project: ProjectInfo, nextProjects: ProjectInfo[]) => {
+    setProjects(nextProjects)
+    setSkillsProject(project)
+    if (activeProjectRef.current?.id === project.id) {
+      setActiveProject(project)
+      activeProjectRef.current = project
+    }
+    crossTab.notifyProjectsChanged()
+  }, [crossTab, setActiveProject, setProjects])
 
   // --- Loading state ---
   if (startupError) {
@@ -316,6 +338,7 @@ function App() {
         onToggleProjectExpanded={toggleProjectExpanded}
         onSelectProjectDirectory={selectProjectDirectory}
         onStartNewProjectChat={startNewProjectChat}
+        onOpenProjectSkills={setSkillsProject}
         onDeleteProject={deleteProjectInline}
         onLoadSession={loadSession}
         onRenameSession={renameSession}
@@ -395,6 +418,14 @@ function App() {
       disabled={selectingProject}
       onOpenChange={setProjectPickerOpen}
       onSelect={handleSelectProjectPath}
+    />
+    <SkillsDialog
+      open={Boolean(skillsProject)}
+      project={skillsProject}
+      onOpenChange={(open) => {
+        if (!open) setSkillsProject(undefined)
+      }}
+      onSaved={handleSkillsSaved}
     />
     <ToastContainer
       toasts={toasts}

@@ -10,6 +10,7 @@ import {
   PanelLeftOpen,
   Pencil,
   Plus,
+  Puzzle,
   Search,
   Sparkles,
   Trash2,
@@ -46,6 +47,7 @@ type ChatSidebarProps = {
   onToggleProjectExpanded: (projectId: string) => void
   onSelectProjectDirectory: () => void
   onStartNewProjectChat: (project: ProjectInfo) => void
+  onOpenProjectSkills: (project: ProjectInfo) => void
   onDeleteProject: (projectId: string) => void
   onLoadSession: (sessionId: string) => void
   onRenameSession: (sessionId: string, currentTitle: string) => void
@@ -101,6 +103,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   onToggleProjectExpanded,
   onSelectProjectDirectory,
   onStartNewProjectChat,
+  onOpenProjectSkills,
   onDeleteProject,
   onLoadSession,
   onRenameSession,
@@ -194,6 +197,21 @@ export const ChatSidebar = memo(function ChatSidebar({
         </button>
         <button
           type="button"
+          className={cn(rowClass, 'w-full', inactiveRowClass)}
+          onClick={() => {
+            if (activeProject) onOpenProjectSkills(activeProject)
+            else window.alert(t('selectProjectForSkills'))
+          }}
+          aria-label={t('manageSkills')}
+          title={t('manageSkills')}
+        >
+          <span className={iconSlotClass}>
+            <Puzzle className="size-4" />
+          </span>
+          {sidebarOpen ? <span className={sessionTitleClass}>{t('skills')}</span> : null}
+        </button>
+        <button
+          type="button"
           className={cn(rowClass, 'w-full', scheduledTasksActive ? activeRowClass : inactiveRowClass)}
           onClick={onOpenScheduledTasks}
           aria-label={t('scheduledTasksLabel')}
@@ -267,6 +285,15 @@ export const ChatSidebar = memo(function ChatSidebar({
                                     aria-label={t('newProjectChat')}
                                   >
                                     <MessageSquarePlus className="size-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className={overlayIconButtonClass}
+                                    onClick={() => onOpenProjectSkills(item)}
+                                    aria-label={t('manageSkills')}
+                                  >
+                                    <Puzzle className="size-4" />
                                   </Button>
                                   <Button
                                     variant="ghost"

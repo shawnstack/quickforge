@@ -54,7 +54,28 @@ class GlobalAgentSseClient {
       if (currentHandlers?.size === 0) {
         this.handlersBySession.delete(sessionId)
       }
-      if (this.handlersBySession.size === 0) {
+      if (this.handlersBySession.size === 0 && this.globalHandlers.size === 0) {
+        this.disconnect()
+      }
+    }
+  }
+
+  private globalHandlers = new Set<SseHandler>()
+
+  subscribeAll(baseUrl: string, handler: SseHandler): () => void {
+    this.fallbackBaseUrl = baseUrl
+    const nextBaseUrl = this.directBaseUrl || this.fallbackBaseUrl
+    if (!this.eventSource || this.baseUrl !== nextBaseUrl) {
+      this.disconnect()
+      this.baseUrl = nextBaseUrl
+      this.connect()
+    }
+
+    this.globalHandlers.add(handler)
+
+    return () => {
+      this.globalHandlers.delete(handler)
+      if (this.handlersBySession.size === 0 && this.globalHandlers.size === 0) {
         this.disconnect()
       }
     }
@@ -107,7 +128,7 @@ class GlobalAgentSseClient {
   }
 
   private scheduleReconnect() {
-    if (this.reconnectTimer || this.handlersBySession.size === 0) return
+    if (this.reconnectTimer || (this.handlersBySession.size === 0 && this.globalHandlers.size === 0)) return
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
       this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000)
@@ -117,6 +138,9 @@ class GlobalAgentSseClient {
 
   private emit(sessionId: string, event: Record<string, unknown>) {
     const handlers = this.handlersBySession.get(sessionId)
+    for (const handler of this.globalHandlers) {
+      try { handler(event) } catch { /* ignore */ }
+    }
     if (!handlers) return
     for (const handler of handlers) {
       try { handler(event) } catch { /* ignore */ }
@@ -134,6 +158,28 @@ class GlobalAgentSseClient {
 }
 
 const globalAgentSseClient = new GlobalAgentSseClient()
+
+// ---------------------------------------------------------------------------
+// Runtime status helpers for sidebar indicators
+// ---------------------------------------------------------------------------
+
+export type ActiveAgentStatus = {
+  sessionId: string
+  status: string
+  title?: string
+  scope?: string
+}
+
+export async function fetchActiveAgentStatuses(baseUrl = ''): Promise<ActiveAgentStatus[]> {
+  const res = await fetch(`${baseUrl}/api/agents`, { cache: 'no-store' })
+  if (!res.ok) return []
+  const payload = await res.json().catch(() => null) as { sessions?: ActiveAgentStatus[] } | null
+  return Array.isArray(payload?.sessions) ? payload.sessions : []
+}
+
+export function subscribeToAgentEvents(handler: SseHandler, baseUrl = ''): () => void {
+  return globalAgentSseClient.subscribeAll(baseUrl, handler)
+}
 
 // ---------------------------------------------------------------------------
 // ServerAgent - Agent-compatible proxy that delegates to the server
@@ -240,14 +286,29 @@ export class ServerAgent {
     this.state.messages = [...this.state.messages, agentMessage]
     this.emitToListeners({ type: 'message_start', message: agentMessage } as unknown as AgentEvent)
 
+    if (!this.state.isStreaming) {
+      this.state.isStreaming = true
+      this.state.errorMessage = undefined
+      this.emitToListeners({ type: 'agent_start' } as AgentEvent)
+    }
+
     // Send to server
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/prompt`
     fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ message: agentMessage }),
+    }).then((response) => {
+      if (!response.ok) throw new Error(`Failed to send prompt: HTTP ${response.status}`)
     }).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err)
       console.error('Failed to send prompt:', err)
+      this.state.errorMessage = message
+      this.state.isStreaming = false
+      this.state.streamingMessage = undefined
+      this.stopPollingState()
+      this.emitToListeners({ type: 'error', error: message } as unknown as AgentEvent)
+      this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
     })
     this.startPollingState()
   }
@@ -355,14 +416,17 @@ export class ServerAgent {
           this.state.thinkingLevel = s.thinkingLevel as ThinkingLevel
           this._syncingThinkingLevel = false
         }
+        let wasStreaming = this.state.isStreaming
         if (s.isStreaming !== undefined) {
+          wasStreaming = this.state.isStreaming
           this.state.isStreaming = s.isStreaming
+          if (s.isStreaming && !wasStreaming) this.startPollingState()
         }
         // Emit the correct lifecycle event so the sidebar green dot stays in sync
         if (s.isStreaming) {
           this.state.errorMessage = undefined
           this.emitToListeners({ type: 'agent_start' } as AgentEvent)
-        } else {
+        } else if (wasStreaming) {
           this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
         }
         return
@@ -492,8 +556,16 @@ export class ServerAgent {
       }
       if (state.isStreaming !== undefined) {
         const wasStreaming = this.state.isStreaming
-        this.state.isStreaming = state.isStreaming
-        if (!state.isStreaming) this.stopPollingState()
+        this.state.isStreaming = Boolean(state.isStreaming)
+        if (state.isStreaming) {
+          this.state.errorMessage = undefined
+          if (!wasStreaming) {
+            this.startPollingState()
+            this.emitToListeners({ type: 'agent_start' } as AgentEvent)
+          }
+        } else {
+          this.stopPollingState()
+        }
         if (options?.notify && wasStreaming && !state.isStreaming) {
           this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
           return
@@ -567,6 +639,8 @@ export class ServerAgent {
         thinkingLevel: (serverState.thinkingLevel ?? config.thinkingLevel ?? 'off') as ThinkingLevel,
         messages: (serverState.messages ?? config.messages ?? []) as AgentMessage[],
         tools: [],
+        isStreaming: Boolean(serverState.isStreaming),
+        errorMessage: serverState.errorMessage as string | undefined,
       },
     })
   }

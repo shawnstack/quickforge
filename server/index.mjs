@@ -13,8 +13,10 @@ import { handleProjectApi } from './routes/project.mjs'
 import { handleFilesystemApi } from './routes/filesystem.mjs'
 import { handleToolApi, handleGetTools } from './routes/tools.mjs'
 import { handleInstructionsApi } from './routes/instructions.mjs'
+import { handleSkillsApi } from './routes/skills.mjs'
 import { handleAgentApi } from './routes/agent.mjs'
 import { handleScheduledTasksApi, startScheduledTaskRunner, stopScheduledTaskRunner } from './routes/scheduled-tasks.mjs'
+import { handleBackupApi } from './routes/backup.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { logger } from './utils/logger.mjs'
 import { setActiveWorkspaceRootForFilesystem } from './routes/filesystem.mjs'
@@ -62,6 +64,12 @@ async function handleApi(req, res, url) {
     return
   }
 
+  // Skills
+  if (pathname === '/api/skills' || pathname.startsWith('/api/skills/')) {
+    await handleSkillsApi(req, res, url)
+    return
+  }
+
   // Project routes
   if (pathname === '/api/project' || pathname.startsWith('/api/project/')) {
     await handleProjectApi(req, res, url)
@@ -95,6 +103,12 @@ async function handleApi(req, res, url) {
   // Scheduled task routes
   if (pathname === '/api/scheduled-tasks' || pathname.startsWith('/api/scheduled-tasks/')) {
     await handleScheduledTasksApi(req, res, url)
+    return
+  }
+
+  // Backup / import-export routes
+  if (pathname === '/api/backup/export' || pathname === '/api/backup/import') {
+    await handleBackupApi(req, res, url)
     return
   }
 

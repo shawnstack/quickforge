@@ -21,5 +21,14 @@ export function composeSystemPrompt(instructions = {}) {
     parts.push(`\n<project_instructions>\n${instructions.project}\n</project_instructions>`)
   }
 
+  if (Array.isArray(instructions.skills) && instructions.skills.length > 0) {
+    const skillParts = instructions.skills.map((skill) => {
+      const label = skill.displayName ? `${skill.displayName} (${skill.name})` : skill.name
+      const description = skill.description ? `\nDescription: ${skill.description}` : ''
+      return `## Skill: ${label}${description}\n\n${skill.instructions}`
+    })
+    parts.push(`\n<project_skills>\nThe following project skills are enabled. Use them when relevant to the user's task.\n\n${skillParts.join('\n\n---\n\n')}\n</project_skills>`)
+  }
+
   return parts.join('\n')
 }

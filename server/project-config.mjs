@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { ensureProjectCache, readProjectConfigData, atomicProjectConfigUpdate, dataDir } from './storage.mjs'
 import { promises as fs } from 'node:fs'
 import { setWorkspaceRoot, getWorkspaceRoot, assertDirectory } from './utils/workspace.mjs'
+import { loadSelectedSkills } from './skills.mjs'
 
 let defaultWorkspaceRoot = ''
 
@@ -46,6 +47,7 @@ export async function setActiveProjectPath(inputPath) {
         name: projectNameFromPath(resolved),
         path: resolved,
         lastOpenedAt: now,
+        skills: [],
       }
       config.projects.unshift(project)
     } else {
@@ -114,20 +116,31 @@ export async function readInstructionsFile(filePath) {
 
 export async function buildInstructionsPayload(projectId) {
   let projectInstructions = null
+  let project = null
 
   if (projectId) {
     try {
-      const { workspaceRoot } = await projectContextFromId(projectId)
-      projectInstructions = await readInstructionsFile(path.join(workspaceRoot, 'AGENTS.md'))
+      const config = await readProjectConfig()
+      project = config.projects.find((item) => item.id === projectId) ?? null
+    } catch {
+      project = null
+    }
+
+    try {
+      const context = await projectContextFromId(projectId)
+      project = context.project
+      projectInstructions = await readInstructionsFile(path.join(context.workspaceRoot, 'AGENTS.md'))
     } catch {
       // project not found or inaccessible — leave projectInstructions null
     }
   }
 
   const globalInstructions = await readInstructionsFile(path.join(dataDir, 'AGENTS.md'))
+  const skills = project?.skills ? await loadSelectedSkills(project.skills) : []
 
   return {
     global: globalInstructions,
     project: projectInstructions,
+    skills: skills.map(({ rootDir: _rootDir, ...skill }) => skill),
   }
 }

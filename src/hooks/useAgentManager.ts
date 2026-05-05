@@ -177,6 +177,12 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
         title: options?.title,
       })
 
+      const initialStatus: BackgroundTaskStatus = nextAgent.state.isStreaming
+        ? 'running'
+        : nextAgent.state.errorMessage
+          ? 'error'
+          : 'idle'
+
       const task: BackgroundTask = {
         sessionId: nextAgent.sessionId,
         agent: nextAgent,
@@ -184,7 +190,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
         project,
         title: options?.title ?? 'New chat',
         createdAt: options?.createdAt,
-        status: 'idle',
+        status: initialStatus,
         startedAt,
         unsubscribe: () => undefined,
       }
@@ -227,7 +233,9 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       })
 
       taskMapRef.current.set(sessionId, task)
-      setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
+      if (task.status !== 'idle') {
+        setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
+      }
 
       if (options?.attachToView !== false) attachTaskToView(task)
       if (nextAgent.state.messages.length > 0) {

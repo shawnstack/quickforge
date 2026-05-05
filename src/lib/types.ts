@@ -11,6 +11,18 @@ export type ProjectInfo = {
   name: string
   path: string
   lastOpenedAt: string
+  skills?: string[]
+}
+
+export type SkillSummary = {
+  name: string
+  displayName?: string
+  description?: string
+  version?: string
+  tags?: string[]
+  triggers?: string[]
+  entry?: string
+  source?: string
 }
 
 export type RestoredDraft = {

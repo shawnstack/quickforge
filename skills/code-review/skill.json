@@ -1,0 +1,9 @@
+{
+  "name": "code-review",
+  "displayName": "Code Review",
+  "description": "Review code changes for correctness, bugs, security, performance, and maintainability.",
+  "version": "1.0.0",
+  "tags": ["code", "review", "quality"],
+  "triggers": ["code review", "review code", "pr review", "代码审查", "检查代码"],
+  "entry": "SKILL.md"
+}

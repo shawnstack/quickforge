@@ -1,36 +1,13 @@
 import { streamSimple } from '@mariozechner/pi-ai'
-import { projectContextFromId, readInstructionsFile } from './project-config.mjs'
-import { dataDir } from './storage.mjs'
-import path from 'node:path'
+import { buildInstructionsPayload } from './project-config.mjs'
+import { composeSystemPrompt } from './system-prompt.mjs'
 
 // ---------------------------------------------------------------------------
 // System prompt
 // ---------------------------------------------------------------------------
 
-export const BASE_SYSTEM_PROMPT =
-  'You are a helpful AI assistant. Answer clearly and pragmatically. If the user asks for code, prefer concise working examples. When YOLO mode is enabled, you may use the local workspace tools to inspect files, edit files, and run commands in the current project.'
-
 export async function buildSystemPrompt(projectId) {
-  const parts = [BASE_SYSTEM_PROMPT]
-
-  const globalInstructions = await readInstructionsFile(path.join(dataDir, 'AGENTS.md'))
-  if (globalInstructions) {
-    parts.push(`\n<user_instructions>\n${globalInstructions}\n</user_instructions>`)
-  }
-
-  if (projectId) {
-    try {
-      const { workspaceRoot } = await projectContextFromId(projectId)
-      const projectInstructions = await readInstructionsFile(path.join(workspaceRoot, 'AGENTS.md'))
-      if (projectInstructions) {
-        parts.push(`\n<project_instructions>\n${projectInstructions}\n</project_instructions>`)
-      }
-    } catch {
-      // project not found — skip
-    }
-  }
-
-  return parts.join('\n')
+  return composeSystemPrompt(await buildInstructionsPayload(projectId))
 }
 
 // ---------------------------------------------------------------------------

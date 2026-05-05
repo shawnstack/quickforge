@@ -6,7 +6,6 @@ import {
   loadInitialConfiguredModel,
 } from '@/lib/pi-chat'
 import { initializeAppLanguage, t } from '@/lib/i18n'
-import { buildSystemPrompt } from '@/lib/message-utils'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import type {
   ProjectInfo,
@@ -100,7 +99,6 @@ export function useAppBootstrap({
             activeModelRef.current = existing.model as Model<Api>
             await createAgent(
               {
-                systemPrompt: await buildSystemPrompt(),
                 model: existing.model,
                 thinkingLevel: existing.thinkingLevel,
                 messages: existing.messages,

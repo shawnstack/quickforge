@@ -1,7 +1,6 @@
-import path from 'node:path'
 import { sendJson } from '../utils/response.mjs'
-import { readInstructionsFile, projectContextFromId } from '../project-config.mjs'
-import { dataDir } from '../storage.mjs'
+import { buildInstructionsPayload } from '../project-config.mjs'
+import { BASE_SYSTEM_PROMPT, composeSystemPrompt } from '../system-prompt.mjs'
 
 export async function handleInstructionsApi(req, res, url) {
   if (req.method !== 'GET') {
@@ -11,21 +10,11 @@ export async function handleInstructionsApi(req, res, url) {
   }
 
   const projectId = url.searchParams.get('projectId')
-  let projectInstructions = null
-
-  if (projectId) {
-    try {
-      const { workspaceRoot } = await projectContextFromId(projectId)
-      projectInstructions = await readInstructionsFile(path.join(workspaceRoot, 'AGENTS.md'))
-    } catch {
-      // project not found or inaccessible — leave projectInstructions null
-    }
-  }
-
-  const globalInstructions = await readInstructionsFile(path.join(dataDir, 'AGENTS.md'))
+  const instructions = await buildInstructionsPayload(projectId)
 
   sendJson(res, 200, {
-    global: globalInstructions,
-    project: projectInstructions,
+    base: BASE_SYSTEM_PROMPT,
+    systemPrompt: composeSystemPrompt(instructions),
+    ...instructions,
   })
 }

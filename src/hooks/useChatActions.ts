@@ -4,7 +4,6 @@ import type { AgentManager } from '@/hooks/useAgentManager'
 import { initializePiStorage } from '@/lib/pi-chat'
 import { t } from '@/lib/i18n'
 import {
-  buildSystemPrompt,
   copyTextToClipboard,
   draftTextFromUserMessage,
   rollbackConversationFromMessage,
@@ -228,7 +227,6 @@ export function useChatActions({
 
     await createAgent(
       {
-        systemPrompt: await buildSystemPrompt(),
         model: currentAgent.state.model ?? activeModelRef.current,
         thinkingLevel: currentAgent.state.thinkingLevel,
         messages,

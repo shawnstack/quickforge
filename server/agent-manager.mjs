@@ -497,6 +497,7 @@ export function getSessionState(sessionId) {
     scope: session.scope,
     projectId: session.projectId,
     yoloMode: session.yoloMode,
+    systemPrompt: session.agent.state.systemPrompt,
     model: session.model,
     thinkingLevel: session.thinkingLevel,
     title: session.title,

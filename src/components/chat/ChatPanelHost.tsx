@@ -5,7 +5,7 @@ import {
 } from '@mariozechner/pi-web-ui'
 import type { ServerAgent } from '@/lib/server-agent'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
-import { assistantText, BASE_SYSTEM_PROMPT, draftTextFromUserMessage } from '@/lib/message-utils'
+import { assistantText, draftTextFromUserMessage } from '@/lib/message-utils'
 import { t } from '@/lib/i18n'
 import type { RestoredDraft } from '@/lib/types'
 
@@ -272,7 +272,7 @@ export function ChatPanelHost({
     }
 
     const estimateHistoryTokens = () => {
-      const systemPrompt = agent.state.systemPrompt || BASE_SYSTEM_PROMPT
+      const systemPrompt = agent.state.systemPrompt
       const messages = agent.state.messages as MessageWithUsage[]
       return estimateTextTokens(systemPrompt) + messages.reduce((total, message) => total + estimateMessageTokens(message), 0)
     }

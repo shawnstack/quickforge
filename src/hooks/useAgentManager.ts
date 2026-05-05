@@ -7,7 +7,6 @@ import {
   resolveConfiguredModel,
 } from '@/lib/pi-chat'
 import {
-  buildSystemPrompt,
   generateTitle,
   titleNeedsGeneration,
 } from '@/lib/message-utils'
@@ -277,7 +276,6 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
 
       await createAgent(
         {
-          systemPrompt: await buildSystemPrompt(),
           model: session.model,
           thinkingLevel: session.thinkingLevel,
           messages: session.messages,

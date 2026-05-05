@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { ensureProjectCache, readProjectConfigData, atomicProjectConfigUpdate } from './storage.mjs'
+import { ensureProjectCache, readProjectConfigData, atomicProjectConfigUpdate, dataDir } from './storage.mjs'
 import { promises as fs } from 'node:fs'
 import { setWorkspaceRoot, getWorkspaceRoot, assertDirectory } from './utils/workspace.mjs'
 
@@ -96,11 +96,38 @@ export async function projectContextFromId(projectId) {
 }
 
 export async function readInstructionsFile(filePath) {
-  try {
-    const content = await fs.readFile(filePath, 'utf8')
-    const trimmed = content.trim()
-    return trimmed || null
-  } catch {
-    return null
+  const candidates = filePath.endsWith('AGENTS.md')
+    ? [filePath, path.join(path.dirname(filePath), 'agents.md')]
+    : [filePath]
+
+  for (const candidate of candidates) {
+    try {
+      const content = await fs.readFile(candidate, 'utf8')
+      const trimmed = content.trim()
+      if (trimmed) return trimmed
+    } catch {
+      // try next candidate
+    }
+  }
+  return null
+}
+
+export async function buildInstructionsPayload(projectId) {
+  let projectInstructions = null
+
+  if (projectId) {
+    try {
+      const { workspaceRoot } = await projectContextFromId(projectId)
+      projectInstructions = await readInstructionsFile(path.join(workspaceRoot, 'AGENTS.md'))
+    } catch {
+      // project not found or inaccessible — leave projectInstructions null
+    }
+  }
+
+  const globalInstructions = await readInstructionsFile(path.join(dataDir, 'AGENTS.md'))
+
+  return {
+    global: globalInstructions,
+    project: projectInstructions,
   }
 }

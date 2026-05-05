@@ -340,7 +340,10 @@ export class ServerAgent {
         // Guard against SSE reconnect overwriting client messages with a stale
         // server snapshot: only accept server messages if the client has none
         // (initial load) or if the server has at least as many messages.
-        const s = event as { messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; isStreaming?: boolean; status?: string }
+        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; isStreaming?: boolean; status?: string }
+        if (s.systemPrompt !== undefined) {
+          this.state.systemPrompt = s.systemPrompt
+        }
         if (s.messages && (s.messages.length > this.state.messages.length || (!this.state.isStreaming && s.messages.length === this.state.messages.length))) {
           this.state.messages = s.messages
         }
@@ -476,6 +479,9 @@ export class ServerAgent {
       if (shouldReplaceMessages) {
         this.state.messages = state.messages
       }
+      if (state.systemPrompt !== undefined) {
+        this.state.systemPrompt = state.systemPrompt
+      }
       if (state.model) {
         this.state.model = state.model
       }
@@ -556,7 +562,7 @@ export class ServerAgent {
       sessionId,
       baseUrl,
       initialState: {
-        systemPrompt: '',
+        systemPrompt: (serverState.systemPrompt ?? '') as string,
         model: (serverState.model ?? config.model ?? null) as Model<Api>,
         thinkingLevel: (serverState.thinkingLevel ?? config.thinkingLevel ?? 'off') as ThinkingLevel,
         messages: (serverState.messages ?? config.messages ?? []) as AgentMessage[],

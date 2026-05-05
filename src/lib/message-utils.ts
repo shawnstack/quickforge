@@ -1,11 +1,9 @@
 import type { AgentMessage } from '@mariozechner/pi-agent-core'
 import { t } from '@/lib/i18n'
 
-// Main chat behavior prompt.
-export const BASE_SYSTEM_PROMPT =
-  'You are a helpful AI assistant. Answer clearly and pragmatically. If the user asks for code, prefer concise working examples. When YOLO mode is enabled, you may use the local workspace tools to inspect files, edit files, and run commands in the current project.'
+type InstructionsPayload = { systemPrompt?: string; global: string | null; project: string | null }
 
-async function fetchInstructions(projectId?: string): Promise<{ global: string | null; project: string | null }> {
+async function fetchInstructions(projectId?: string): Promise<InstructionsPayload> {
   const url = projectId
     ? `/api/instructions?projectId=${encodeURIComponent(projectId)}`
     : '/api/instructions'
@@ -20,17 +18,7 @@ async function fetchInstructions(projectId?: string): Promise<{ global: string |
 
 export async function buildSystemPrompt(projectId?: string): Promise<string> {
   const instructions = await fetchInstructions(projectId)
-  const parts = [BASE_SYSTEM_PROMPT]
-
-  if (instructions.global) {
-    parts.push(`\n<user_instructions>\n${instructions.global}\n</user_instructions>`)
-  }
-
-  if (instructions.project) {
-    parts.push(`\n<project_instructions>\n${instructions.project}\n</project_instructions>`)
-  }
-
-  return parts.join('\n')
+  return instructions.systemPrompt ?? ''
 }
 
 function textFromContentBlocks(content: unknown, separator = ' ') {

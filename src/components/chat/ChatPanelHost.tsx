@@ -74,12 +74,13 @@ export function ChatPanelHost({
 }: ChatPanelHostProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const restoredDraftIdRef = useRef<number | undefined>(undefined)
-  const composerDraftRef = useRef<ComposerDraft>(emptyDraft())
+  const composerDraftsRef = useRef<Map<string, ComposerDraft>>(new Map())
 
   useEffect(() => {
     if (!hostRef.current || !agent) return
 
     const panel = new ChatPanel()
+    const sessionId = agent.sessionId
     let disposed = false
     let observer: MutationObserver | undefined
     let scrollResizeObserver: ResizeObserver | undefined
@@ -244,21 +245,26 @@ export function ChatPanelHost({
     }
 
     const captureComposerDraft = () => {
-      composerDraftRef.current = readComposerDraft()
+      const draft = readComposerDraft()
+      if (hasDraft(draft)) {
+        composerDraftsRef.current.set(sessionId, draft)
+      } else {
+        composerDraftsRef.current.delete(sessionId)
+      }
     }
 
     const restoreComposerDraft = (draft: ComposerDraft) => {
       if (!hasDraft(draft)) return
       const agentInterface = panel.querySelector<AgentInterfaceElement>('agent-interface')
       agentInterface?.setInput?.(draft.text, draft.attachments)
-      composerDraftRef.current = {
+      composerDraftsRef.current.set(sessionId, {
         text: draft.text,
         attachments: draft.attachments ? [...draft.attachments] : [],
-      }
+      })
     }
 
     const clearComposerDraft = () => {
-      composerDraftRef.current = emptyDraft()
+      composerDraftsRef.current.delete(sessionId)
     }
 
     const estimateTextTokens = (text: string) => {
@@ -508,16 +514,16 @@ export function ChatPanelHost({
       if (textarea) textarea.placeholder = t('composerPlaceholder')
       if (editor) {
         editor.onInput = (value) => {
-          composerDraftRef.current = {
+          composerDraftsRef.current.set(sessionId, {
             text: value,
             attachments: editor.attachments ? [...editor.attachments] : [],
-          }
+          })
         }
         editor.onFilesChange = (attachments) => {
-          composerDraftRef.current = {
+          composerDraftsRef.current.set(sessionId, {
             text: editor.value ?? textarea?.value ?? '',
             attachments: attachments ? [...attachments] : [],
-          }
+          })
         }
       }
 
@@ -666,7 +672,7 @@ export function ChatPanelHost({
         restoredDraftIdRef.current = restoredDraft.id
         restoreComposerDraft(restoredDraft)
       } else {
-        restoreComposerDraft(composerDraftRef.current)
+        restoreComposerDraft(composerDraftsRef.current.get(sessionId) ?? emptyDraft())
       }
 
       decorate()

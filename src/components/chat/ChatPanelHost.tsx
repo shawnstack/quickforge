@@ -32,6 +32,7 @@ type MessageEditorElement = HTMLElement & {
 }
 type AgentInterfaceElement = HTMLElement & {
   setInput?: (text: string, attachments?: unknown[]) => void
+  setAutoScroll?: (enabled: boolean) => void
 }
 
 type QuickForgeActionButton = HTMLButtonElement & {
@@ -81,6 +82,88 @@ export function ChatPanelHost({
     const panel = new ChatPanel()
     let disposed = false
     let observer: MutationObserver | undefined
+    let scrollResizeObserver: ResizeObserver | undefined
+    let autoScrollEnabled = true
+    let autoScrollFrame: number | undefined
+    let lastScrollTop = 0
+    let lastTouchY: number | undefined
+
+    const findScrollContainer = () => panel.querySelector<HTMLElement>('agent-interface .overflow-y-auto')
+    const isNearBottom = (element: HTMLElement) => element.scrollHeight - element.scrollTop - element.clientHeight <= 80
+    const setPanelAutoScroll = (enabled: boolean) => {
+      const agentInterface = panel.querySelector<AgentInterfaceElement>('agent-interface')
+      agentInterface?.setAutoScroll?.(enabled)
+    }
+    const disableAutoScroll = () => {
+      if (autoScrollFrame !== undefined) {
+        window.cancelAnimationFrame(autoScrollFrame)
+        autoScrollFrame = undefined
+      }
+      autoScrollEnabled = false
+      setPanelAutoScroll(false)
+    }
+    const scrollToBottom = () => {
+      const scrollContainer = findScrollContainer()
+      if (!scrollContainer || !autoScrollEnabled) return
+      scrollContainer.scrollTop = scrollContainer.scrollHeight
+      lastScrollTop = scrollContainer.scrollTop
+    }
+    const scheduleScrollToBottom = () => {
+      if (autoScrollFrame !== undefined) return
+      autoScrollFrame = window.requestAnimationFrame(() => {
+        autoScrollFrame = undefined
+        scrollToBottom()
+        window.requestAnimationFrame(scrollToBottom)
+      })
+    }
+    const enableAutoScroll = () => {
+      autoScrollEnabled = true
+      setPanelAutoScroll(true)
+      scheduleScrollToBottom()
+    }
+    const handleScroll = () => {
+      const scrollContainer = findScrollContainer()
+      if (!scrollContainer) return
+      const currentScrollTop = scrollContainer.scrollTop
+      const scrollingUp = currentScrollTop < lastScrollTop - 1
+      if (scrollingUp) {
+        disableAutoScroll()
+      } else if (isNearBottom(scrollContainer)) {
+        autoScrollEnabled = true
+        setPanelAutoScroll(true)
+      }
+      lastScrollTop = currentScrollTop
+    }
+    const handleWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0) disableAutoScroll()
+    }
+    const handleTouchStart = (event: TouchEvent) => {
+      lastTouchY = event.touches[0]?.clientY
+    }
+    const handleTouchMove = (event: TouchEvent) => {
+      const currentTouchY = event.touches[0]?.clientY
+      if (currentTouchY === undefined || lastTouchY === undefined) return
+      if (currentTouchY > lastTouchY + 1) disableAutoScroll()
+      lastTouchY = currentTouchY
+    }
+    const setupScrollSync = () => {
+      const scrollContainer = findScrollContainer()
+      if (!scrollContainer || scrollResizeObserver) return
+      lastScrollTop = scrollContainer.scrollTop
+      scrollContainer.addEventListener('scroll', handleScroll, { passive: true })
+      scrollContainer.addEventListener('wheel', handleWheel, { passive: true })
+      scrollContainer.addEventListener('touchstart', handleTouchStart, { passive: true })
+      scrollContainer.addEventListener('touchmove', handleTouchMove, { passive: true })
+      scrollResizeObserver = new ResizeObserver(() => {
+        if (autoScrollEnabled) scheduleScrollToBottom()
+      })
+      scrollResizeObserver.observe(scrollContainer)
+      const contentContainer = scrollContainer.querySelector<HTMLElement>('.max-w-3xl')
+      if (contentContainer) scrollResizeObserver.observe(contentContainer)
+      const composerDock = panel.querySelector<HTMLElement>('.quickforge-composer-dock')
+      if (composerDock) scrollResizeObserver.observe(composerDock)
+      enableAutoScroll()
+    }
 
     const copyIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>'
     const copiedIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>'
@@ -527,6 +610,8 @@ export function ChatPanelHost({
       decorateMessages()
       decorateEditor()
       updateContextUsageIcon()
+      setupScrollSync()
+      if (autoScrollEnabled) scheduleScrollToBottom()
     }
 
     let decorateScheduled = false
@@ -541,7 +626,10 @@ export function ChatPanelHost({
 
     void panel.setAgent(agent as unknown as Parameters<typeof panel.setAgent>[0], {
       onApiKeyRequired: (provider) => ApiKeyPromptDialog.prompt(provider),
-      onBeforeSend: clearComposerDraft,
+      onBeforeSend: () => {
+        clearComposerDraft()
+        enableAutoScroll()
+      },
       onModelSelect,
       toolsFactory: () => getLocalWorkspaceTools(),
     }).then(() => {
@@ -559,9 +647,25 @@ export function ChatPanelHost({
     })
 
     hostRef.current.replaceChildren(panel)
+
+    const unsubscribeScrollEvents = agent.subscribe((event) => {
+      if (event.type === 'agent_start') enableAutoScroll()
+      if (event.type === 'message_start' || event.type === 'message_update' || event.type === 'message_end' || event.type === 'turn_end' || event.type === 'agent_end') {
+        if (autoScrollEnabled) scheduleScrollToBottom()
+      }
+    })
+
     return () => {
       captureComposerDraft()
       disposed = true
+      if (autoScrollFrame !== undefined) window.cancelAnimationFrame(autoScrollFrame)
+      unsubscribeScrollEvents()
+      const scrollContainer = findScrollContainer()
+      scrollContainer?.removeEventListener('scroll', handleScroll)
+      scrollContainer?.removeEventListener('wheel', handleWheel)
+      scrollContainer?.removeEventListener('touchstart', handleTouchStart)
+      scrollContainer?.removeEventListener('touchmove', handleTouchMove)
+      scrollResizeObserver?.disconnect()
       observer?.disconnect()
       panel.remove()
     }

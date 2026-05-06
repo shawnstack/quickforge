@@ -16,6 +16,7 @@ import { t } from '@/lib/i18n'
 import { createLanguageSettingsTab } from '@/lib/language-settings-tab'
 import { createDefaultOptionsSettingsTab } from '@/lib/default-options-settings-tab'
 import { createBackupSettingsTab } from '@/lib/backup-settings-tab'
+import { createServiceSettingsTab } from '@/lib/service-settings-tab'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
 import type { RestoredDraft } from '@/lib/types'
 
@@ -85,7 +86,7 @@ export function useModelActions({
 
   const openSettingsDialog = useCallback((initialTab: 'defaults' | 'customModels') => {
     SettingsDialog.open(
-      [createLanguageSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab(), createBackupSettingsTab()],
+      [createLanguageSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab(), createBackupSettingsTab(), createServiceSettingsTab()],
       () => {
         if (needsModelSetup || !agentRef.current) {
           void activateConfiguredModel().catch((error) => console.error('Failed to activate configured model:', error))
@@ -194,7 +195,7 @@ export function useModelActions({
         })
       },
       async (model) => {
-        await SettingsDialog.open([createLanguageSettingsTab(), createCustomProvidersOnlyTab(model.provider), createBackupSettingsTab()])
+        await SettingsDialog.open([createLanguageSettingsTab(), createCustomProvidersOnlyTab(model.provider), createBackupSettingsTab(), createServiceSettingsTab()])
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const dialog = document.querySelector('settings-dialog') as any
         if (dialog) {

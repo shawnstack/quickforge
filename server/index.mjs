@@ -2,6 +2,7 @@
 import { createServer } from 'node:http'
 import { spawn } from 'node:child_process'
 import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { sendJson, sendError } from './utils/response.mjs'
 import { openBrowser } from './utils/platform.mjs'
@@ -17,6 +18,7 @@ import { handleSkillsApi } from './routes/skills.mjs'
 import { handleAgentApi } from './routes/agent.mjs'
 import { handleScheduledTasksApi, startScheduledTaskRunner, stopScheduledTaskRunner } from './routes/scheduled-tasks.mjs'
 import { handleBackupApi } from './routes/backup.mjs'
+import { handleSystemApi } from './routes/system.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { logger } from './utils/logger.mjs'
 import { setActiveWorkspaceRootForFilesystem } from './routes/filesystem.mjs'
@@ -25,6 +27,10 @@ import { shutdown as shutdownAgentManager, resetStaleTaskStatuses } from './agen
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const projectRoot = path.resolve(__dirname, '..')
+const serverScript = path.join(__dirname, 'index.mjs')
+const restartSupervisorScript = path.join(__dirname, 'restart-supervisor.mjs')
+const bootId = randomUUID()
+const startedAt = new Date().toISOString()
 
 const isDev = process.argv.includes('--dev')
 const host = process.env.QUICKFORGE_HOST || '127.0.0.1'
@@ -33,8 +39,114 @@ if (!['127.0.0.1', 'localhost'].includes(host) && process.env.QUICKFORGE_ALLOW_R
 }
 const port = Number(process.env.QUICKFORGE_PORT || (isDev ? 32176 : 5176))
 const vitePort = Number(process.env.QUICKFORGE_VITE_PORT || 5176)
+let restartInProgress = false
 
 setDefaultWorkspaceRoot(process.env.QUICKFORGE_WORKSPACE_DIR || projectRoot)
+
+function getRestartSupport() {
+  return { supported: true, reason: null }
+}
+
+async function getSystemStatus() {
+  const config = await readProjectConfig()
+  const restartSupport = getRestartSupport()
+  return {
+    ok: true,
+    mode: isDev ? 'development' : 'production',
+    pid: process.pid,
+    bootId,
+    startedAt,
+    restartSupported: restartSupport.supported,
+    restartUnsupportedReason: restartSupport.reason,
+    dataDir,
+    configDir,
+    storageDir,
+    cacheDir,
+    logsDir,
+    workspaceRoot: getWorkspaceRoot(),
+    project: getActiveProject(config),
+  }
+}
+
+function spawnRestartSupervisor() {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [
+      restartSupervisorScript,
+      String(process.pid),
+      serverScript,
+      projectRoot,
+      ...process.argv.slice(2),
+    ], {
+      cwd: projectRoot,
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+      shell: false,
+      env: {
+        ...process.env,
+        QUICKFORGE_NO_OPEN: '1',
+      },
+    })
+
+    child.once('error', reject)
+    child.once('spawn', () => {
+      child.unref()
+      resolve(child.pid)
+    })
+  })
+}
+
+function closeHttpServer() {
+  return new Promise((resolve) => {
+    const forceTimer = setTimeout(() => {
+      server.closeAllConnections?.()
+      resolve()
+    }, 1500)
+
+    server.close(() => {
+      clearTimeout(forceTimer)
+      resolve()
+    })
+    server.closeIdleConnections?.()
+  })
+}
+
+async function performRestart() {
+  logger.info('Restart requested from settings UI.')
+  const supervisorPid = await spawnRestartSupervisor()
+  logger.info(`Restart supervisor started (PID ${supervisorPid}).`)
+
+  stopScheduledTaskRunner()
+  stopVite()
+  await shutdownAgentManager()
+  await closeHttpServer()
+  process.exit(0)
+}
+
+async function requestRestart() {
+  if (restartInProgress) {
+    const error = new Error('Restart already in progress')
+    error.statusCode = 423
+    throw error
+  }
+
+  const restartSupport = getRestartSupport()
+  if (!restartSupport.supported) {
+    const error = new Error(restartSupport.reason || 'Restart is not supported')
+    error.statusCode = 409
+    throw error
+  }
+
+  restartInProgress = true
+  setTimeout(() => {
+    void performRestart().catch((error) => {
+      logger.error('Failed to restart QuickForge:', error)
+      restartInProgress = false
+    })
+  }, 100)
+
+  return { ok: true, restarting: true, bootId }
+}
 
 // --- Route dispatching ---
 async function handleApi(req, res, url) {
@@ -43,18 +155,7 @@ async function handleApi(req, res, url) {
 
   // Health check
   if (req.method === 'GET' && pathname === '/api/health') {
-    const config = await readProjectConfig()
-    sendJson(res, 200, {
-      ok: true,
-      mode: isDev ? 'development' : 'production',
-      dataDir,
-      configDir,
-      storageDir,
-      cacheDir,
-      logsDir,
-      workspaceRoot: getWorkspaceRoot(),
-      project: getActiveProject(config),
-    })
+    sendJson(res, 200, await getSystemStatus())
     return
   }
 
@@ -109,6 +210,12 @@ async function handleApi(req, res, url) {
   // Backup / import-export routes
   if (pathname === '/api/backup/export' || pathname === '/api/backup/import') {
     await handleBackupApi(req, res, url)
+    return
+  }
+
+  // System routes
+  if (pathname === '/api/system/status' || pathname === '/api/system/restart') {
+    await handleSystemApi(req, res, url, { getSystemStatus, requestRestart })
     return
   }
 
@@ -197,7 +304,7 @@ const server = createServer(async (req, res) => {
   if (origin && isAllowedCorsOrigin(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin)
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'content-type')
+    res.setHeader('Access-Control-Allow-Headers', 'content-type, x-quickforge-action')
     res.setHeader('Access-Control-Max-Age', '86400')
   }
   if (req.method === 'OPTIONS') {

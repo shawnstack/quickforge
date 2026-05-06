@@ -141,7 +141,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   const activeProjectTitleClass = 'font-medium text-foreground/84'
   const timeClass = 'mt-0.5 truncate text-[11px] leading-4 text-muted-foreground/55'
   const searchDialogClass = 'fixed inset-0 z-50 flex items-start justify-center bg-background/50 px-4 pt-[12vh] backdrop-blur-sm'
-  const projectMenuClass = 'absolute right-0 top-8 z-30 min-w-40 rounded-lg border border-border bg-card p-1 shadow-xl'
+  const projectMenuClass = 'absolute right-0 top-8 z-30 min-w-48 rounded-lg border border-border bg-card p-1 shadow-xl'
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [projectMenuId, setProjectMenuId] = useState<string | null>(null)
@@ -311,24 +311,26 @@ export const ChatSidebar = memo(function ChatSidebar({
                                       <div className={projectMenuClass} onClick={(event) => event.stopPropagation()}>
                                         <button
                                           type="button"
-                                          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+                                          className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+                                          title={t('openInExplorer')}
+                                          aria-label={t('openInExplorer')}
                                           onClick={() => {
                                             setProjectMenuId(null)
                                             onOpenProjectInExplorer(item)
                                           }}
                                         >
-                                          <FolderOpen className="size-4 text-muted-foreground/70" />
-                                          <span>{t('openInExplorer')}</span>
+                                          <FolderOpen className="size-4 shrink-0 text-muted-foreground/70" />
+                                          <span>{t('openFolder')}</span>
                                         </button>
                                         <button
                                           type="button"
-                                          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+                                          className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
                                           onClick={() => {
                                             setProjectMenuId(null)
                                             onOpenProjectSkills(item)
                                           }}
                                         >
-                                          <Puzzle className="size-4 text-muted-foreground/70" />
+                                          <Puzzle className="size-4 shrink-0 text-muted-foreground/70" />
                                           <span>{t('manageProjectSkills')}</span>
                                         </button>
                                       </div>

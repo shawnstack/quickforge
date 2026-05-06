@@ -1,9 +1,9 @@
 import { EventEmitter } from 'node:events'
 import { Agent } from '@mariozechner/pi-agent-core'
 import { streamSimple } from '@mariozechner/pi-ai'
-import { toolHandlers } from './tools/index.mjs'
-import { workspaceTools } from './tools/definitions.mjs'
-import { projectContextFromId } from './project-config.mjs'
+import { toolHandlers, loadSkillToolContext } from './tools/index.mjs'
+import { createSkillTools, workspaceTools } from './tools/definitions.mjs'
+import { projectContextFromId, readProjectConfig } from './project-config.mjs'
 import { readStore, atomicUpdate, readSessionValue, writeSessionValue, deleteSessionValue } from './storage.mjs'
 import { logger } from './utils/logger.mjs'
 import { buildSystemPrompt, generateAiTitle } from './session-utils.mjs'
@@ -13,21 +13,40 @@ import { restoreReasoningContentInPayload } from './reasoning-cache.mjs'
 // Tool definitions (server-side, no REST roundtrip)
 // ---------------------------------------------------------------------------
 
-function createServerTools(_projectId, projectContext) {
-  return workspaceTools.map((definition) => {
-    const handler = toolHandlers[definition.name]
-    if (!handler) throw new Error(`Missing handler for tool: ${definition.name}`)
-    return {
-      ...definition,
-      execute: async (_toolCallId, params) => {
-        const result = await handler(params || {}, projectContext)
-        return {
-          content: [{ type: 'text', text: result.content }],
-          details: result.details,
-        }
-      },
-    }
+function wrapToolDefinition(definition, context) {
+  const handler = toolHandlers[definition.name]
+  if (!handler) throw new Error(`Missing handler for tool: ${definition.name}`)
+  return {
+    ...definition,
+    execute: async (_toolCallId, params) => {
+      const result = await handler(params || {}, context)
+      return {
+        content: [{ type: 'text', text: result.content }],
+        details: result.details,
+      }
+    },
+  }
+}
+
+async function createServerTools(projectId, projectContext, skillsContext, includeWorkspaceTools) {
+  const skillTools = await createSkillTools({
+    globalSkillNames: skillsContext.globalSkillNames,
+    projectSkillNames: skillsContext.projectSkillNames,
+    workspaceRoot: projectContext?.workspaceRoot,
   })
+  const skillToolContext = await loadSkillToolContext({
+    globalSkillNames: skillsContext.globalSkillNames,
+    projectSkillNames: skillsContext.projectSkillNames,
+    workspaceRoot: projectContext?.workspaceRoot,
+  })
+  const toolContext = { ...projectContext, ...skillToolContext }
+  const tools = skillTools.map((definition) => wrapToolDefinition(definition, toolContext))
+
+  if (includeWorkspaceTools && projectId && projectContext) {
+    tools.push(...workspaceTools.map((definition) => wrapToolDefinition(definition, toolContext)))
+  }
+
+  return tools
 }
 
 // ---------------------------------------------------------------------------
@@ -101,6 +120,14 @@ export async function createAgent(sessionId, config = {}) {
   }
 
   // Build system prompt
+  const projectConfig = await readProjectConfig()
+  const configuredProject = projectId
+    ? projectConfig.projects.find((project) => project.id === projectId)
+    : null
+  const skillsContext = {
+    globalSkillNames: projectConfig.globalSkills,
+    projectSkillNames: configuredProject?.skills,
+  }
   const resolvedSystemPrompt = systemPrompt ?? (await buildSystemPrompt(projectId))
 
   // Resolve model
@@ -116,10 +143,8 @@ export async function createAgent(sessionId, config = {}) {
     }
   }
 
-  // Build tools if YOLO mode + project
-  const tools = yoloMode && projectContext
-    ? createServerTools(projectId, projectContext)
-    : []
+  // Build skills tools for enabled skills, plus workspace tools when YOLO + project are available.
+  const tools = await createServerTools(projectId, projectContext, skillsContext, yoloMode)
 
   // Resolve API key
   const getApiKey = async (provider) => {
@@ -146,6 +171,9 @@ export async function createAgent(sessionId, config = {}) {
       restoreReasoningContentInPayload(payload, agent.state.messages, agent.state.model)
     },
     beforeToolCall: async (context) => {
+      const toolName = context.toolCall?.name
+      const isSkillTool = toolName === 'activate_skill' || toolName === 'read_skill_resource'
+      if (isSkillTool) return undefined
       if (!projectContext) {
         return { block: true, reason: 'No active project. Select a project to use tools.' }
       }

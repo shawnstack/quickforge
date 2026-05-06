@@ -1,6 +1,12 @@
+---
+name: frontend-react
+description: Use this skill for React, TypeScript, frontend UI, layout, component work, accessibility, styling, or browser interaction changes.
+metadata:
+  displayName: React Frontend
+  version: "1.0.0"
+  tags: react, frontend, typescript, ui
+---
 # React Frontend Skill
-
-Use this skill for React, TypeScript, UI, layout, and component work.
 
 ## Guidelines
 

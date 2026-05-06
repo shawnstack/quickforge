@@ -1,6 +1,12 @@
+---
+name: ai-context-package
+description: Use this skill when the user wants to prepare, fill, review, or enforce an AI task context package before coding, including task scope, constraints, validation commands, stop conditions, and expected output format.
+metadata:
+  displayName: AI Context Package
+  version: "1.0.0"
+  tags: context, planning, template
+---
 # AI Context Package Skill
-
-Use this skill when the user wants to prepare, fill, review, or enforce an AI task context package before coding.
 
 ## Purpose
 

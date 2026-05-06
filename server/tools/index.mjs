@@ -3,6 +3,13 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { resolveWorkspacePath, toWorkspaceRelative, assertSafeWorkspacePath, truncateText, splitLines, walkFiles } from '../utils/workspace.mjs'
 import { readProjectConfig, getActiveProject } from '../project-config.mjs'
+import {
+  formatSkillActivation,
+  loadSelectedGlobalSkills,
+  loadSelectedProjectSkills,
+  mergeSkills,
+  readSkillResource,
+} from '../skills.mjs'
 import { getWorkspaceRoot, getToolWorkspaceRoot } from '../utils/workspace.mjs'
 
 // --- get_project_info ---
@@ -227,6 +234,59 @@ export async function toolEditFile(params, context) {
 }
 
 // --- run_command ---
+function activeSkillsForContext(context) {
+  return mergeSkills(context?.globalSkills, context?.projectSkills)
+}
+
+function activeSkillByName(context, name) {
+  const skillName = String(name || '')
+  return activeSkillsForContext(context).find((skill) => skill.name === skillName)
+}
+
+export async function loadSkillToolContext(config = {}) {
+  const globalSkills = await loadSelectedGlobalSkills(config.globalSkillNames)
+  const projectSkills = config.workspaceRoot
+    ? await loadSelectedProjectSkills(config.projectSkillNames, config.workspaceRoot)
+    : []
+  return { globalSkills, projectSkills }
+}
+
+// --- activate_skill ---
+export async function toolActivateSkill(params, context) {
+  const skill = activeSkillByName(context, params?.name)
+  if (!skill) {
+    const error = new Error(`Unknown or disabled skill: ${params?.name || ''}`)
+    error.statusCode = 404
+    throw error
+  }
+
+  return {
+    content: truncateText(await formatSkillActivation(skill)),
+    details: {
+      skill: skill.name,
+      source: skill.source,
+      directory: skill.rootDir,
+    },
+  }
+}
+
+// --- read_skill_resource ---
+export async function toolReadSkillResource(params, context) {
+  const skill = activeSkillByName(context, params?.skill)
+  if (!skill) {
+    const error = new Error(`Unknown or disabled skill: ${params?.skill || ''}`)
+    error.statusCode = 404
+    throw error
+  }
+
+  const result = await readSkillResource(skill, params?.path, params)
+  return {
+    content: truncateText(result.content),
+    details: result.details,
+  }
+}
+
+// --- run_command ---
 export async function toolRunCommand(params, context) {
   const command = String(params?.command || '')
   if (!command.trim()) {
@@ -292,4 +352,6 @@ export const toolHandlers = {
   write_file: toolWriteFile,
   edit_file: toolEditFile,
   run_command: toolRunCommand,
+  activate_skill: toolActivateSkill,
+  read_skill_resource: toolReadSkillResource,
 }

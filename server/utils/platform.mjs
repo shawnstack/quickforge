@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 
@@ -119,6 +120,35 @@ try {
   const error = new Error('No supported folder picker found. Install zenity or kdialog on Linux.')
   error.statusCode = 501
   throw error
+}
+
+export async function openPathInFileManager(targetPath) {
+  const resolved = path.resolve(String(targetPath || ''))
+  const stat = await fs.stat(resolved).catch(() => null)
+  if (!stat || !stat.isDirectory()) {
+    const error = new Error(`Directory does not exist: ${resolved}`)
+    error.statusCode = 400
+    throw error
+  }
+
+  const command = process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open'
+  const args = [resolved]
+  await new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: false,
+      shell: false,
+    })
+    child.once('error', (error) => {
+      error.statusCode = 500
+      reject(error)
+    })
+    child.once('spawn', () => {
+      child.unref()
+      resolve()
+    })
+  })
 }
 
 export function openBrowser(url) {

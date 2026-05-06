@@ -3,23 +3,25 @@ import { Check, Loader2, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
-import type { ProjectInfo, SkillSummary } from '@/lib/types'
+import type { ProjectInfo, SkillSummary, SkillsScope } from '@/lib/types'
 
 type SkillsDialogProps = {
   open: boolean
+  scope: SkillsScope
   project?: ProjectInfo
   onOpenChange: (open: boolean) => void
-  onSaved: (project: ProjectInfo, projects: ProjectInfo[]) => void
+  onSaved: (payload: { scope: SkillsScope; project?: ProjectInfo; projects?: ProjectInfo[]; selectedSkills: string[] }) => void
 }
 
 type SkillsPayload = {
   skills: SkillSummary[]
   selectedSkills: string[]
+  searchPaths?: string[]
 }
 
 type SavePayload = {
   selectedSkills: string[]
-  projects: ProjectInfo[]
+  projects?: ProjectInfo[]
 }
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
@@ -28,27 +30,33 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
   return payload as T
 }
 
-export function SkillsDialog({ open, project, onOpenChange, onSaved }: SkillsDialogProps) {
+export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: SkillsDialogProps) {
   const [skills, setSkills] = useState<SkillSummary[]>([])
   const [selectedSkills, setSelectedSkills] = useState<Set<string>>(() => new Set())
   const [query, setQuery] = useState('')
+  const [searchPaths, setSearchPaths] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const isProjectScope = scope === 'project'
 
   useEffect(() => {
-    if (!open || !project) return
+    if (!open || (isProjectScope && !project)) return
 
     let disposed = false
     const loadSkills = async () => {
       setLoading(true)
       setError('')
       try {
-        const response = await fetch(`/api/skills?projectId=${encodeURIComponent(project.id)}`)
+        const url = isProjectScope
+          ? `/api/skills?projectId=${encodeURIComponent(project!.id)}`
+          : '/api/skills?scope=global'
+        const response = await fetch(url)
         const payload = await readJsonResponse<SkillsPayload>(response)
         if (disposed) return
         setSkills(Array.isArray(payload.skills) ? payload.skills : [])
         setSelectedSkills(new Set(Array.isArray(payload.selectedSkills) ? payload.selectedSkills : []))
+        setSearchPaths(Array.isArray(payload.searchPaths) ? payload.searchPaths : [])
       } catch (loadError) {
         if (!disposed) setError(loadError instanceof Error ? loadError.message : t('failedToLoadSkills'))
       } finally {
@@ -60,7 +68,7 @@ export function SkillsDialog({ open, project, onOpenChange, onSaved }: SkillsDia
     return () => {
       disposed = true
     }
-  }, [open, project])
+  }, [open, project, isProjectScope])
 
   useEffect(() => {
     if (!open) return
@@ -79,6 +87,9 @@ export function SkillsDialog({ open, project, onOpenChange, onSaved }: SkillsDia
         skill.name,
         skill.displayName,
         skill.description,
+        skill.source,
+        skill.compatibility,
+        skill.allowedTools,
         ...(skill.tags ?? []),
         ...(skill.triggers ?? []),
       ].filter(Boolean).join(' ').toLowerCase()
@@ -86,7 +97,7 @@ export function SkillsDialog({ open, project, onOpenChange, onSaved }: SkillsDia
     })
   }, [query, skills])
 
-  if (!open || !project) return null
+  if (!open || (isProjectScope && !project)) return null
 
   const toggleSkill = (skillName: string) => {
     setSelectedSkills((current) => {
@@ -102,14 +113,23 @@ export function SkillsDialog({ open, project, onOpenChange, onSaved }: SkillsDia
     setSaving(true)
     setError('')
     try {
-      const response = await fetch('/api/skills/project', {
+      const response = await fetch(isProjectScope ? '/api/skills/project' : '/api/skills/global', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ projectId: project.id, selectedSkills: [...selectedSkills] }),
+        body: JSON.stringify(isProjectScope
+          ? { projectId: project!.id, selectedSkills: [...selectedSkills] }
+          : { selectedSkills: [...selectedSkills] }),
       })
       const payload = await readJsonResponse<SavePayload>(response)
-      const updatedProject = payload.projects.find((item) => item.id === project.id) ?? { ...project, skills: payload.selectedSkills }
-      onSaved(updatedProject, payload.projects)
+      const updatedProject = isProjectScope
+        ? payload.projects?.find((item) => item.id === project!.id) ?? { ...project!, skills: payload.selectedSkills }
+        : undefined
+      onSaved({
+        scope,
+        project: updatedProject,
+        projects: payload.projects,
+        selectedSkills: payload.selectedSkills,
+      })
       onOpenChange(false)
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : t('failedToSaveSkills'))
@@ -117,6 +137,11 @@ export function SkillsDialog({ open, project, onOpenChange, onSaved }: SkillsDia
       setSaving(false)
     }
   }
+
+  const title = isProjectScope ? t('projectSkills') : t('globalSkills')
+  const description = isProjectScope
+    ? t('projectSkillsDescription', { project: project!.name })
+    : t('globalSkillsDescription')
 
   return (
     <div
@@ -127,10 +152,15 @@ export function SkillsDialog({ open, project, onOpenChange, onSaved }: SkillsDia
     >
       <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-background shadow-xl">
         <div className="border-b border-border p-4">
-          <h2 className="text-base font-semibold text-foreground">{t('skills')}</h2>
+          <h2 className="text-base font-semibold text-foreground">{title}</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {t('skillsDescription', { project: project.name })}
+            {description}
           </p>
+          {searchPaths.length ? (
+            <p className="mt-2 break-all text-xs text-muted-foreground/65">
+              {t('skillSearchPaths')}: {searchPaths.join(' · ')}
+            </p>
+          ) : null}
         </div>
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
@@ -184,9 +214,14 @@ export function SkillsDialog({ open, project, onOpenChange, onSaved }: SkillsDia
                         <span className="block truncate font-medium text-foreground/90">
                           {skill.displayName || skill.name}
                         </span>
-                        {skill.description ? (
+                         {skill.description ? (
                           <span className="mt-0.5 block text-xs leading-5 text-muted-foreground/70">{skill.description}</span>
                         ) : null}
+                        <span className="mt-1 flex flex-wrap gap-1 text-[11px] text-muted-foreground/60">
+                          {skill.source ? <span>{skill.source}</span> : null}
+                          {skill.compatibility ? <span>· {skill.compatibility}</span> : null}
+                          {skill.allowedTools ? <span>· {skill.allowedTools}</span> : null}
+                        </span>
                         {skill.tags?.length ? (
                           <span className="mt-2 flex flex-wrap gap-1">
                             {skill.tags.slice(0, 5).map((tag) => (

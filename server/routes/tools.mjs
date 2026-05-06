@@ -1,14 +1,21 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { readStore } from '../storage.mjs'
-import { toolHandlers } from '../tools/index.mjs'
-import { workspaceTools } from '../tools/definitions.mjs'
-import { projectContextFromId } from '../project-config.mjs'
+import { toolHandlers, loadSkillToolContext } from '../tools/index.mjs'
+import { createSkillTools, workspaceTools } from '../tools/definitions.mjs'
+import { projectContextFromId, readProjectConfig } from '../project-config.mjs'
 
 /**
  * GET /api/tools — returns canonical tool definitions (no project context needed).
  */
-export function handleGetTools(_req, res) {
-  sendJson(res, 200, { tools: workspaceTools })
+export async function handleGetTools(_req, res) {
+  const config = await readProjectConfig()
+  const activeProject = config.projects.find((project) => project.id === config.activeProjectId) || config.projects[0]
+  const skillTools = await createSkillTools({
+    globalSkillNames: config.globalSkills,
+    projectSkillNames: activeProject?.skills,
+    workspaceRoot: activeProject?.path,
+  })
+  sendJson(res, 200, { tools: [...skillTools, ...workspaceTools] })
 }
 
 const dangerousTools = new Set(['write_file', 'edit_file', 'run_command'])
@@ -36,8 +43,27 @@ export async function handleToolApi(req, res, url) {
   let name = decodeSegment(parts[2])
   let context
 
+  if (name === 'activate_skill' || name === 'read_skill_resource') {
+    const config = await readProjectConfig()
+    const activeProject = config.projects.find((project) => project.id === config.activeProjectId) || config.projects[0]
+    context = await loadSkillToolContext({
+      globalSkillNames: config.globalSkills,
+      projectSkillNames: activeProject?.skills,
+      workspaceRoot: activeProject?.path,
+    })
+  }
+
   if (parts[1] === 'projects' && parts[3] === 'tools') {
     context = await projectContextFromId(decodeSegment(parts[2]))
+    const config = await readProjectConfig()
+    context = {
+      ...context,
+      ...(await loadSkillToolContext({
+        globalSkillNames: config.globalSkills,
+        projectSkillNames: context.project?.skills,
+        workspaceRoot: context.workspaceRoot,
+      })),
+    }
     name = decodeSegment(parts[4])
   }
 

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { ensureProjectCache, readProjectConfigData, atomicProjectConfigUpdate, dataDir } from './storage.mjs'
 import { promises as fs } from 'node:fs'
 import { setWorkspaceRoot, getWorkspaceRoot, assertDirectory } from './utils/workspace.mjs'
-import { loadSelectedSkills } from './skills.mjs'
+import { loadSelectedGlobalSkills, loadSelectedProjectSkills, mergeSkills } from './skills.mjs'
 
 let defaultWorkspaceRoot = ''
 
@@ -18,14 +18,22 @@ function projectNameFromPath(dir) {
 function defaultProjectConfig() {
   return {
     activeProjectId: null,
+    globalSkills: [],
     projects: [],
   }
 }
 
+function normalizeProjectConfig(config) {
+  if (!config || typeof config !== 'object') return defaultProjectConfig()
+  return {
+    activeProjectId: typeof config.activeProjectId === 'string' ? config.activeProjectId : null,
+    globalSkills: Array.isArray(config.globalSkills) ? config.globalSkills : [],
+    projects: Array.isArray(config.projects) ? config.projects : [],
+  }
+}
+
 export async function readProjectConfig() {
-  const parsed = await readProjectConfigData()
-  if (!Array.isArray(parsed.projects) || parsed.projects.length === 0) return defaultProjectConfig()
-  return parsed
+  return normalizeProjectConfig(await readProjectConfigData())
 }
 
 export function getActiveProject(config) {
@@ -115,17 +123,11 @@ export async function readInstructionsFile(filePath) {
 }
 
 export async function buildInstructionsPayload(projectId) {
+  const config = await readProjectConfig()
   let projectInstructions = null
-  let project = null
+  let project = projectId ? config.projects.find((item) => item.id === projectId) ?? null : null
 
   if (projectId) {
-    try {
-      const config = await readProjectConfig()
-      project = config.projects.find((item) => item.id === projectId) ?? null
-    } catch {
-      project = null
-    }
-
     try {
       const context = await projectContextFromId(projectId)
       project = context.project
@@ -136,11 +138,18 @@ export async function buildInstructionsPayload(projectId) {
   }
 
   const globalInstructions = await readInstructionsFile(path.join(dataDir, 'AGENTS.md'))
-  const skills = project?.skills ? await loadSelectedSkills(project.skills) : []
+  const globalSkills = await loadSelectedGlobalSkills(config.globalSkills)
+  const projectSkills = project?.skills && project?.path
+    ? await loadSelectedProjectSkills(project.skills, project.path)
+    : []
+  const activeSkills = mergeSkills(globalSkills, projectSkills)
+  const stripRuntimeFields = ({ rootDir: _rootDir, instructions: _instructions, location: _location, ...skill }) => skill
 
   return {
     global: globalInstructions,
     project: projectInstructions,
-    skills: skills.map(({ rootDir: _rootDir, ...skill }) => skill),
+    globalSkills: globalSkills.map(stripRuntimeFields),
+    projectSkills: projectSkills.map(stripRuntimeFields),
+    skills: activeSkills.map(stripRuntimeFields),
   }
 }

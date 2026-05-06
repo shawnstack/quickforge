@@ -2,7 +2,7 @@ import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { getActiveProject, setActiveProjectPath, readProjectConfig } from '../project-config.mjs'
 import { atomicProjectConfigUpdate } from '../storage.mjs'
 import { getWorkspaceRoot, setWorkspaceRoot } from '../utils/workspace.mjs'
-import { selectDirectoryDialog } from '../utils/platform.mjs'
+import { selectDirectoryDialog, openPathInFileManager } from '../utils/platform.mjs'
 import path from 'node:path'
 
 export async function handleProjectApi(req, res, url) {
@@ -43,6 +43,19 @@ export async function handleProjectApi(req, res, url) {
     }
     const result = await setActiveProjectPath(selected.path)
     sendJson(res, 200, { ...result, workspaceRoot: getWorkspaceRoot() })
+    return
+  }
+
+  if (req.method === 'POST' && url.pathname.startsWith('/api/project/') && url.pathname.endsWith('/open-in-explorer')) {
+    const id = decodeSegment(url.pathname.split('/').filter(Boolean)[2])
+    const selected = config.projects.find((project) => project.id === id)
+    if (!selected) {
+      const error = new Error('Unknown project')
+      error.statusCode = 404
+      throw error
+    }
+    await openPathInFileManager(selected.path)
+    sendJson(res, 200, { ok: true })
     return
   }
 

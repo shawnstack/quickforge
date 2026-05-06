@@ -1,7 +1,8 @@
-import { memo, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
   CalendarClock,
   ChevronRight,
+  Ellipsis,
   Folder,
   FolderOpen,
   Loader2,
@@ -47,7 +48,9 @@ type ChatSidebarProps = {
   onToggleProjectExpanded: (projectId: string) => void
   onSelectProjectDirectory: () => void
   onStartNewProjectChat: (project: ProjectInfo) => void
+  onOpenGlobalSkills: () => void
   onOpenProjectSkills: (project: ProjectInfo) => void
+  onOpenProjectInExplorer: (project: ProjectInfo) => void
   onDeleteProject: (projectId: string) => void
   onLoadSession: (sessionId: string) => void
   onRenameSession: (sessionId: string, currentTitle: string) => void
@@ -103,7 +106,9 @@ export const ChatSidebar = memo(function ChatSidebar({
   onToggleProjectExpanded,
   onSelectProjectDirectory,
   onStartNewProjectChat,
+  onOpenGlobalSkills,
   onOpenProjectSkills,
+  onOpenProjectInExplorer,
   onDeleteProject,
   onLoadSession,
   onRenameSession,
@@ -136,8 +141,10 @@ export const ChatSidebar = memo(function ChatSidebar({
   const activeProjectTitleClass = 'font-medium text-foreground/84'
   const timeClass = 'mt-0.5 truncate text-[11px] leading-4 text-muted-foreground/55'
   const searchDialogClass = 'fixed inset-0 z-50 flex items-start justify-center bg-background/50 px-4 pt-[12vh] backdrop-blur-sm'
+  const projectMenuClass = 'absolute right-0 top-8 z-30 min-w-40 rounded-lg border border-border bg-card p-1 shadow-xl'
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [projectMenuId, setProjectMenuId] = useState<string | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const searchableSessions = useMemo(() => {
     const projectSessions = projects.flatMap((project) => sessionsForProject(project.id).map((session) => ({ session, projectName: project.name })))
@@ -161,6 +168,17 @@ export const ChatSidebar = memo(function ChatSidebar({
     setSearchOpen(false)
     setSearchQuery('')
   }
+
+  useEffect(() => {
+    if (!projectMenuId) return
+    const closeMenu = () => setProjectMenuId(null)
+    window.addEventListener('click', closeMenu)
+    window.addEventListener('blur', closeMenu)
+    return () => {
+      window.removeEventListener('click', closeMenu)
+      window.removeEventListener('blur', closeMenu)
+    }
+  }, [projectMenuId])
 
   return (
     <aside
@@ -198,12 +216,9 @@ export const ChatSidebar = memo(function ChatSidebar({
         <button
           type="button"
           className={cn(rowClass, 'w-full', inactiveRowClass)}
-          onClick={() => {
-            if (activeProject) onOpenProjectSkills(activeProject)
-            else window.alert(t('selectProjectForSkills'))
-          }}
-          aria-label={t('manageSkills')}
-          title={t('manageSkills')}
+          onClick={onOpenGlobalSkills}
+          aria-label={t('manageGlobalSkills')}
+          title={t('manageGlobalSkills')}
         >
           <span className={iconSlotClass}>
             <Puzzle className="size-4" />
@@ -256,10 +271,11 @@ export const ChatSidebar = memo(function ChatSidebar({
                           const expanded = expandedProjectIds.has(item.id)
                           const active = activeProject?.id === item.id
                           const loaded = projectLoaded(item.id)
+                          const menuOpen = projectMenuId === item.id
 
                           return (
                             <div key={item.id}>
-                              <div className={cn(rowClass, active ? projectActiveRowClass : inactiveRowClass)}>
+                              <div className={cn(rowClass, active ? projectActiveRowClass : inactiveRowClass, menuOpen && 'z-20 overflow-visible')}>
                                 <button
                                   type="button"
                                   className={iconSlotClass}
@@ -277,6 +293,47 @@ export const ChatSidebar = memo(function ChatSidebar({
                                   <span className={cn(sessionTitleClass, active && activeProjectTitleClass)}>{item.name}</span>
                                 </button>
                                 <div className={actionOverlayClass}>
+                                  <div className="relative">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className={overlayIconButtonClass}
+                                      onClick={(event) => {
+                                        event.stopPropagation()
+                                        setProjectMenuId((current) => current === item.id ? null : item.id)
+                                      }}
+                                      aria-label={t('moreOptions')}
+                                      aria-expanded={menuOpen}
+                                    >
+                                      <Ellipsis className="size-4" />
+                                    </Button>
+                                    {menuOpen ? (
+                                      <div className={projectMenuClass} onClick={(event) => event.stopPropagation()}>
+                                        <button
+                                          type="button"
+                                          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+                                          onClick={() => {
+                                            setProjectMenuId(null)
+                                            onOpenProjectInExplorer(item)
+                                          }}
+                                        >
+                                          <FolderOpen className="size-4 text-muted-foreground/70" />
+                                          <span>{t('openInExplorer')}</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+                                          onClick={() => {
+                                            setProjectMenuId(null)
+                                            onOpenProjectSkills(item)
+                                          }}
+                                        >
+                                          <Puzzle className="size-4 text-muted-foreground/70" />
+                                          <span>{t('manageProjectSkills')}</span>
+                                        </button>
+                                      </div>
+                                    ) : null}
+                                  </div>
                                   <Button
                                     variant="ghost"
                                     size="icon"

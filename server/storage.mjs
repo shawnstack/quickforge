@@ -82,6 +82,7 @@ function legacyNestedProjectConfigFile() {
 function defaultProjectConfig() {
   return {
     activeProjectId: null,
+    globalSkills: [],
     projects: [],
   }
 }
@@ -103,11 +104,33 @@ function defaultConfig() {
   }
 }
 
+function normalizeStringArray(value) {
+  if (!Array.isArray(value)) return []
+  const result = []
+  const seen = new Set()
+  for (const item of value) {
+    if (typeof item !== 'string') continue
+    const text = item.trim()
+    if (!text || seen.has(text)) continue
+    seen.add(text)
+    result.push(text)
+  }
+  return result
+}
+
 function normalizeProjectConfig(value) {
-  if (!value || typeof value !== 'object' || !Array.isArray(value.projects)) return defaultProjectConfig()
+  const base = defaultProjectConfig()
+  if (!value || typeof value !== 'object') return base
+  const projects = Array.isArray(value.projects)
+    ? value.projects.map((project) => ({
+      ...project,
+      skills: normalizeStringArray(project?.skills),
+    }))
+    : base.projects
   return {
-    activeProjectId: typeof value.activeProjectId === 'string' ? value.activeProjectId : null,
-    projects: value.projects,
+    activeProjectId: typeof value.activeProjectId === 'string' ? value.activeProjectId : base.activeProjectId,
+    globalSkills: normalizeStringArray(value.globalSkills),
+    projects,
   }
 }
 

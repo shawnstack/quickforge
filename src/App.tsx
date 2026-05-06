@@ -18,6 +18,7 @@ import type {
   ProjectInfo,
   QuickForgeSessionMetadata,
   RestoredDraft,
+  SkillsScope,
 } from '@/lib/types'
 import { sessionTitle } from '@/lib/types'
 import { ChatPanelHost } from '@/components/chat/ChatPanelHost'
@@ -75,7 +76,7 @@ function App() {
   const [needsModelSetup, setNeedsModelSetup] = useState(false)
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
   const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false)
-  const [skillsProject, setSkillsProject] = useState<ProjectInfo>()
+  const [skillsDialog, setSkillsDialog] = useState<{ scope: SkillsScope; project?: ProjectInfo }>()
   const { toasts, handleTaskComplete, dismissToast } = useTaskToasts()
 
   // --- Session list + cross-tab sync ---
@@ -272,13 +273,35 @@ function App() {
     setConversationsCollapsed((value) => !value)
   }, [])
 
-  const handleSkillsSaved = useCallback((project: ProjectInfo, nextProjects: ProjectInfo[]) => {
-    setProjects(nextProjects)
-    setSkillsProject(project)
-    if (activeProjectRef.current?.id === project.id) {
-      setActiveProject(project)
-      activeProjectRef.current = project
+  const openGlobalSkills = useCallback(() => {
+    setSkillsDialog({ scope: 'global' })
+  }, [])
+
+  const openProjectSkills = useCallback((project: ProjectInfo) => {
+    setSkillsDialog({ scope: 'project', project })
+  }, [])
+
+  const openProjectInExplorer = useCallback(async (project: ProjectInfo) => {
+    const response = await fetch(`/api/project/${encodeURIComponent(project.id)}/open-in-explorer`, {
+      method: 'POST',
+    })
+    if (response.ok) return
+    const payload = await response.json().catch(() => null)
+    throw new Error(payload?.error || t('openInExplorerFailed'))
+  }, [])
+
+  const handleSkillsSaved = useCallback((payload: { scope: SkillsScope; project?: ProjectInfo; projects?: ProjectInfo[] }) => {
+    if (payload.scope === 'project' && payload.project && payload.projects) {
+      setProjects(payload.projects)
+      setSkillsDialog({ scope: 'project', project: payload.project })
+      if (activeProjectRef.current?.id === payload.project.id) {
+        setActiveProject(payload.project)
+        activeProjectRef.current = payload.project
+      }
+      crossTab.notifyProjectsChanged()
+      return
     }
+
     crossTab.notifyProjectsChanged()
   }, [crossTab, setActiveProject, setProjects])
 
@@ -338,7 +361,14 @@ function App() {
         onToggleProjectExpanded={toggleProjectExpanded}
         onSelectProjectDirectory={selectProjectDirectory}
         onStartNewProjectChat={startNewProjectChat}
-        onOpenProjectSkills={setSkillsProject}
+        onOpenGlobalSkills={openGlobalSkills}
+        onOpenProjectSkills={openProjectSkills}
+        onOpenProjectInExplorer={(project) => {
+          void openProjectInExplorer(project).catch((error) => {
+            console.error('Failed to open project in explorer:', error)
+            alert(error instanceof Error ? error.message : t('openInExplorerFailed'))
+          })
+        }}
         onDeleteProject={deleteProjectInline}
         onLoadSession={loadSession}
         onRenameSession={renameSession}
@@ -420,10 +450,11 @@ function App() {
       onSelect={handleSelectProjectPath}
     />
     <SkillsDialog
-      open={Boolean(skillsProject)}
-      project={skillsProject}
+      open={Boolean(skillsDialog)}
+      scope={skillsDialog?.scope ?? 'global'}
+      project={skillsDialog?.project}
       onOpenChange={(open) => {
-        if (!open) setSkillsProject(undefined)
+        if (!open) setSkillsDialog(undefined)
       }}
       onSaved={handleSkillsSaved}
     />

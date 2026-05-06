@@ -1,3 +1,6 @@
+import { Type } from 'typebox'
+import { loadSelectedGlobalSkills, loadSelectedProjectSkills, mergeSkills } from '../skills.mjs'
+
 // ---------------------------------------------------------------------------
 // Canonical workspace tool definitions.
 // These are the single source of truth for tool metadata (name, label,
@@ -8,8 +11,6 @@
 // When adding a new tool, add its definition here. The agent-manager connects
 // it to a handler, and the frontend can fetch definitions from /api/tools.
 // ---------------------------------------------------------------------------
-
-import { Type } from 'typebox'
 
 export const workspaceTools = [
   {
@@ -80,3 +81,40 @@ export const workspaceTools = [
     executionMode: 'sequential',
   },
 ]
+
+function activeSkillSchema(skills) {
+  const names = skills.map((skill) => skill.name).filter(Boolean)
+  return names.length ? Type.String({ enum: names }) : Type.String()
+}
+
+export async function createSkillTools(config = {}) {
+  const globalSkills = await loadSelectedGlobalSkills(config.globalSkillNames)
+  const projectSkills = config.workspaceRoot
+    ? await loadSelectedProjectSkills(config.projectSkillNames, config.workspaceRoot)
+    : []
+  const skills = mergeSkills(globalSkills, projectSkills)
+  if (skills.length === 0) return []
+
+  const skillNameSchema = activeSkillSchema(skills)
+  return [
+    {
+      name: 'activate_skill',
+      label: 'Activate skill',
+      description: 'Load the full instructions for an enabled Agent Skill when the current task matches its description.',
+      parameters: Type.Object({
+        name: skillNameSchema,
+      }),
+    },
+    {
+      name: 'read_skill_resource',
+      label: 'Read skill resource',
+      description: 'Read a text resource bundled with an activated Agent Skill. Paths are relative to that skill directory.',
+      parameters: Type.Object({
+        skill: skillNameSchema,
+        path: Type.String({ description: 'Relative path inside the skill directory, for example references/REFERENCE.md or scripts/helper.py.' }),
+        offset: Type.Optional(Type.Number({ description: '1-based line offset.', default: 1 })),
+        limit: Type.Optional(Type.Number({ description: 'Maximum number of lines to return.', default: 200 })),
+      }),
+    },
+  ]
+}

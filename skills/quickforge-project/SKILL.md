@@ -1,6 +1,12 @@
+---
+name: quickforge-project
+description: Use this skill when modifying the QuickForge application, including its React/Vite frontend, local Node.js backend, storage, project chats, workspace tools, skills, or local-only safety behavior.
+metadata:
+  displayName: QuickForge Project
+  version: "1.0.0"
+  tags: quickforge, project, local-agent
+---
 # QuickForge Project Skill
-
-Use this skill when modifying this QuickForge application.
 
 ## Project Rules
 

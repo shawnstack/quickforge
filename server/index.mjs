@@ -84,7 +84,7 @@ async function handleApi(req, res, url) {
 
   // Tool definitions (canonical)
   if (req.method === 'GET' && pathname === '/api/tools') {
-    handleGetTools(req, res)
+    await handleGetTools(req, res)
     return
   }
 

@@ -14,6 +14,8 @@ export type ProjectInfo = {
   skills?: string[]
 }
 
+export type SkillsScope = 'global' | 'project'
+
 export type SkillSummary = {
   name: string
   displayName?: string
@@ -23,6 +25,10 @@ export type SkillSummary = {
   triggers?: string[]
   entry?: string
   source?: string
+  license?: string
+  compatibility?: string
+  allowedTools?: string
+  metadata?: Record<string, string>
 }
 
 export type RestoredDraft = {

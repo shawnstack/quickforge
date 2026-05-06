@@ -1,6 +1,12 @@
+---
+name: code-review
+description: Use this skill when the user asks for code review, PR review, bug finding, quality checks, security/performance/maintainability review, or wants feedback on code changes.
+metadata:
+  displayName: Code Review
+  version: "1.0.0"
+  tags: code, review, quality
+---
 # Code Review Skill
-
-Use this skill when the user asks for code review, PR review, bug finding, or quality checks.
 
 ## Workflow
 

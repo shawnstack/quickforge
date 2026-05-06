@@ -29,6 +29,8 @@ function resultText(result: ToolResultLike | undefined) {
 function summarizeParams(toolName: string, params: Record<string, unknown> | undefined) {
   if (!params) return ''
   if (toolName === 'run_command' && typeof params.command === 'string') return params.command
+  if (toolName === 'activate_skill' && typeof params.name === 'string') return params.name
+  if (toolName === 'read_skill_resource' && typeof params.path === 'string') return params.path
   if ('path' in params && typeof params.path === 'string') return params.path
   if ('query' in params && typeof params.query === 'string') return params.query
   return ''
@@ -91,6 +93,8 @@ for (const [name, label] of [
   ['write_file', 'writeFile'],
   ['edit_file', 'editFile'],
   ['run_command', 'runCommand'],
+  ['activate_skill', 'activateSkill'],
+  ['read_skill_resource', 'readSkillResource'],
 ] as Array<[string, AppTextKey]>) {
   registerToolRenderer(name, new LocalWorkspaceToolRenderer(name, label))
 }

@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events'
+import { randomUUID } from 'node:crypto'
 import { Agent } from '@mariozechner/pi-agent-core'
 import { streamSimple } from '@mariozechner/pi-ai'
 import { toolHandlers, loadSkillToolContext } from './tools/index.mjs'
@@ -8,17 +9,32 @@ import { readStore, atomicUpdate, readSessionValue, writeSessionValue, deleteSes
 import { logger } from './utils/logger.mjs'
 import { buildSystemPrompt, generateAiTitle } from './session-utils.mjs'
 import { restoreReasoningContentInPayload } from './reasoning-cache.mjs'
+import {
+  compactConversation,
+  parseCompactArgs,
+  saveCompactBackup,
+} from './conversation-compaction.mjs'
+import {
+  handleInternalCommand,
+  parseInternalCommandInvocation,
+  resolveCustomCommandInvocation,
+} from './custom-commands.mjs'
 
 // ---------------------------------------------------------------------------
 // Tool definitions (server-side, no REST roundtrip)
 // ---------------------------------------------------------------------------
 
-function wrapToolDefinition(definition, context) {
+function wrapToolDefinition(definition, context, toolPermissions) {
   const handler = toolHandlers[definition.name]
   if (!handler) throw new Error(`Missing handler for tool: ${definition.name}`)
   return {
     ...definition,
     execute: async (_toolCallId, params) => {
+      if (toolPermissions) {
+        const permissionError = toolPermissions(definition.name)
+        if (permissionError) throw new Error(permissionError)
+      }
+
       const result = await handler(params || {}, context)
       return {
         content: [{ type: 'text', text: result.content }],
@@ -28,7 +44,7 @@ function wrapToolDefinition(definition, context) {
   }
 }
 
-async function createServerTools(projectId, projectContext, skillsContext, includeWorkspaceTools) {
+async function createServerTools(projectId, projectContext, skillsContext, includeWorkspaceTools, toolPermissions) {
   const skillTools = await createSkillTools({
     globalSkillNames: skillsContext.globalSkillNames,
     projectSkillNames: skillsContext.projectSkillNames,
@@ -40,10 +56,10 @@ async function createServerTools(projectId, projectContext, skillsContext, inclu
     workspaceRoot: projectContext?.workspaceRoot,
   })
   const toolContext = { ...projectContext, ...skillToolContext }
-  const tools = skillTools.map((definition) => wrapToolDefinition(definition, toolContext))
+  const tools = skillTools.map((definition) => wrapToolDefinition(definition, toolContext, toolPermissions))
 
   if (includeWorkspaceTools && projectId && projectContext) {
-    tools.push(...workspaceTools.map((definition) => wrapToolDefinition(definition, toolContext)))
+    tools.push(...workspaceTools.map((definition) => wrapToolDefinition(definition, toolContext, toolPermissions)))
   }
 
   return tools
@@ -58,6 +74,281 @@ const agentSessions = new Map()
 /** @typedef {{ agent: Agent, projectContext: object|null, projectId: string|null, yoloMode: boolean, model: object, thinkingLevel: string, scope: string, title: string, createdAt: string, status: string, startedAt: string|null, finishedAt: string|null, listeners: Set<function>, idleTimer: NodeJS.Timeout|null, eventBus: EventEmitter }} AgentSession */
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
+const commandRestrictedTools = new Set(['write_file', 'edit_file', 'run_command'])
+
+function createCommandToolPermissions(session) {
+  return (toolName) => {
+    const permissions = session.activeCommandPermissions
+    if (!permissions || !commandRestrictedTools.has(toolName)) return null
+    if (toolName === 'run_command' && permissions.allowCommands === false) {
+      return `Custom command /${session.activeCommandName} does not allow running shell commands.`
+    }
+    if ((toolName === 'write_file' || toolName === 'edit_file') && permissions.allowEdit === false) {
+      return `Custom command /${session.activeCommandName} does not allow editing files.`
+    }
+    return null
+  }
+}
+
+function assistantTextMessage(text, model) {
+  return {
+    role: 'assistant',
+    content: [{ type: 'text', text }],
+    api: model?.api || 'unknown',
+    provider: model?.provider || 'unknown',
+    model: model?.id || model?.name || 'unknown',
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: 'stop',
+    timestamp: Date.now(),
+  }
+}
+
+function userTextMessage(text) {
+  return {
+    role: 'user',
+    content: [{ type: 'text', text }],
+    timestamp: Date.now(),
+  }
+}
+
+function compactedSessionTitle(title) {
+  const base = typeof title === 'string' && title.trim() ? title.trim() : 'New chat'
+  if (base === 'New chat') return 'Compacted chat'
+  return `Compacted: ${base}`
+}
+
+function estimateTokenReduction(originalChars, finalChars) {
+  if (!originalChars || originalChars <= 0) return 0
+  return Math.max(0, Math.min(99, Math.round(((originalChars - finalChars) / originalChars) * 100)))
+}
+
+function emitSessionEvent(session, event) {
+  session.eventBus.emit('agent_event', event)
+  agentEvents.emit('agent_event', { sessionId: session.sessionId, ...event })
+}
+
+function updateSessionMessages(session, messages) {
+  session.agent.state.messages = messages
+  const compacted = compactedContextMessages(messages)
+  if (compacted.length < messages.length) {
+    session.agent.state.messages = compacted
+  }
+}
+
+function finishManualSessionRun(session, status, errorMessage) {
+  session.status = status
+  session.finishedAt = new Date().toISOString()
+  session.agent.state.isStreaming = false
+  session.agent.state.streamingMessage = undefined
+  session.agent.state.errorMessage = errorMessage
+}
+
+async function compactSession(session, initialUserMessage, compactOptions) {
+  if (session.agent.state.isStreaming) {
+    session.agent.state.messages = [
+      ...session.agent.state.messages,
+      initialUserMessage,
+      assistantTextMessage('Cannot compact while a generation is still running. Stop it or wait until it finishes, then run /compact again.', session.model),
+    ]
+    await persistSession(session)
+    const messages = session.agent.state.messages
+    emitSessionEvent(session, { type: 'message_end', messages })
+    emitSessionEvent(session, { type: 'agent_end', messages })
+    return { sessionId: session.sessionId, status: session.status }
+  }
+
+  const sourceStatus = session.status
+  const sourceStartedAt = session.startedAt
+  const sourceFinishedAt = session.finishedAt
+  const sourceErrorMessage = session.agent.state.errorMessage
+
+  resetIdleTimer(session)
+  session.status = 'running'
+  session.startedAt = session.startedAt ?? new Date().toISOString()
+  session.finishedAt = null
+  session.agent.state.isStreaming = true
+  session.agent.state.errorMessage = undefined
+  emitSessionEvent(session, { type: 'agent_start' })
+
+  try {
+    const originalMessages = session.agent.state.messages.slice()
+    const options = parseCompactArgs(compactOptions?.args || '')
+
+    if (options.unsupported?.length) {
+      session.agent.state.messages = [
+        ...originalMessages,
+        initialUserMessage,
+        assistantTextMessage(`Unsupported /compact option(s): ${options.unsupported.join(', ')}\n\nSupported usage: /compact or /compact keep=0`, session.model),
+      ]
+      finishManualSessionRun(session, 'idle')
+      await persistSession(session)
+      const messages = session.agent.state.messages
+      emitSessionEvent(session, { type: 'message_end', messages })
+      emitSessionEvent(session, { type: 'agent_end', messages })
+      return { sessionId: session.sessionId, status: session.status }
+    }
+
+    const result = await compactConversation({
+      messages: originalMessages,
+      model: session.model,
+      thinkingLevel: session.thinkingLevel,
+      getApiKey: session.getApiKey,
+      keepTurns: options.keepTurns,
+    })
+
+    if (result.skipped) {
+      session.agent.state.messages = [
+        ...originalMessages,
+        initialUserMessage,
+        assistantTextMessage('Not enough earlier history to compact. Continue chatting and run /compact again later.', session.model),
+      ]
+      finishManualSessionRun(session, 'idle')
+      await persistSession(session)
+      const messages = session.agent.state.messages
+      emitSessionEvent(session, { type: 'message_end', messages })
+      emitSessionEvent(session, { type: 'agent_end', messages })
+      return { sessionId: session.sessionId, status: session.status }
+    }
+
+    await saveCompactBackup(session.sessionId, originalMessages)
+
+    const reduction = estimateTokenReduction(result.originalApproxChars, result.finalApproxChars)
+    const summaryMessage = userTextMessage([
+      'The previous conversation has been compacted. Treat the following summary as the authoritative replacement for earlier history. If information is missing, ask for clarification instead of guessing.',
+      '',
+      '<compact_summary>',
+      result.summary,
+      '</compact_summary>',
+    ].join('\n'))
+    const notice = assistantTextMessage([
+      `已基于当前对话创建压缩后的新对话：原 ${result.originalCount} 条消息 → ${result.recentTail.length + 2} 条消息。`,
+      `当前原对话已完整保留，保留最近 ${result.keepTurns} 个用户回合原文，估算新对话上下文减少约 ${reduction}%。`,
+      '压缩前历史已保存到本地备份。',
+    ].join('\n'), session.model)
+
+    const compactedMessages = [summaryMessage, notice, ...result.recentTail]
+    const compactedSessionId = randomUUID()
+    const compactedSession = await createAgent(compactedSessionId, {
+      scope: session.scope,
+      projectId: session.projectId,
+      yoloMode: session.yoloMode,
+      model: session.model,
+      thinkingLevel: session.thinkingLevel,
+      messages: compactedMessages,
+      title: compactedSessionTitle(session.title),
+      createdAt: new Date().toISOString(),
+    })
+    updateSessionMessages(compactedSession, compactedMessages)
+    await persistSession(compactedSession)
+
+    session.status = sourceStatus
+    session.startedAt = sourceStartedAt
+    session.finishedAt = sourceFinishedAt
+    session.agent.state.isStreaming = false
+    session.agent.state.streamingMessage = undefined
+    session.agent.state.errorMessage = sourceErrorMessage
+    await persistSession(session)
+
+    const messages = session.agent.state.messages
+    emitSessionEvent(session, { type: 'agent_end', messages })
+    emitSessionEvent(session, {
+      type: 'session_forked',
+      sourceSessionId: session.sessionId,
+      targetSessionId: compactedSessionId,
+      title: compactedSession.title,
+      createdAt: compactedSession.createdAt,
+      scope: compactedSession.scope,
+      projectId: compactedSession.projectId,
+      messages: compactedSession.agent.state.messages,
+    })
+    emitSessionEvent(compactedSession, { type: 'message_end', messages: compactedSession.agent.state.messages })
+    emitSessionEvent(compactedSession, { type: 'agent_end', messages: compactedSession.agent.state.messages })
+    return { sessionId: session.sessionId, status: session.status, compactedSessionId }
+  } catch (err) {
+    const errorMessage = err?.message || 'Conversation compaction failed'
+    session.agent.state.messages = [
+      ...session.agent.state.messages,
+      initialUserMessage,
+      assistantTextMessage(`Conversation compaction failed: ${errorMessage}`, session.model),
+    ]
+    finishManualSessionRun(session, 'error', errorMessage)
+    await persistSession(session)
+    const messages = session.agent.state.messages
+    emitSessionEvent(session, { type: 'error', error: errorMessage })
+    emitSessionEvent(session, { type: 'agent_end', messages, errorMessage })
+    return { sessionId: session.sessionId, status: session.status }
+  }
+}
+
+async function resolveCommandState(session, userMessage) {
+  const internalResponse = await handleInternalCommand(
+    parseInternalCommandInvocation(userMessage),
+    session.projectContext?.workspaceRoot,
+  )
+  if (typeof internalResponse === 'string') return { textResponse: internalResponse }
+  if (internalResponse?.compact) return { compact: internalResponse }
+
+  if (!session.projectContext?.workspaceRoot) return { userMessage }
+
+  const invocation = await resolveCustomCommandInvocation(userMessage, session.projectContext.workspaceRoot)
+  if (!invocation) return { userMessage }
+
+  return {
+    userMessage,
+    commandPrompt: invocation.systemPrompt,
+    permissions: invocation.permissions,
+    commandName: invocation.command.name,
+  }
+}
+
+function applyActiveCommandPrompt(messages, commandPrompt) {
+  if (!commandPrompt) return messages
+
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]
+    if (message?.role !== 'user' && message?.role !== 'user-with-attachments') continue
+
+    const transformed = messages.slice()
+    transformed[index] = {
+      ...message,
+      role: 'user',
+      content: commandPrompt,
+    }
+    return transformed
+  }
+
+  return messages
+}
+
+function compactSummaryIndex(messages) {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]
+    const content = message?.content
+    const text = typeof content === 'string'
+      ? content
+      : Array.isArray(content)
+        ? content.filter((block) => block?.type === 'text').map((block) => block.text ?? '').join('\n')
+        : ''
+    if (message?.role === 'user' && text.includes('<compact_summary>')) return index
+  }
+  return -1
+}
+
+function compactedContextMessages(messages) {
+  const index = compactSummaryIndex(messages)
+  return index >= 0 ? messages.slice(index) : messages
+}
+
+function transformAgentContext(messages, commandPrompt) {
+  return applyActiveCommandPrompt(compactedContextMessages(messages), commandPrompt)
+}
 
 export const agentEvents = new EventEmitter()
 agentEvents.setMaxListeners(100)
@@ -144,7 +435,11 @@ export async function createAgent(sessionId, config = {}) {
   }
 
   // Build skills tools for enabled skills, plus workspace tools when YOLO + project are available.
-  const tools = await createServerTools(projectId, projectContext, skillsContext, yoloMode)
+  const toolPermissions = (toolName) => {
+    const session = agentSessions.get(sessionId)
+    return session ? createCommandToolPermissions(session)(toolName) : null
+  }
+  const tools = await createServerTools(projectId, projectContext, skillsContext, yoloMode, toolPermissions)
 
   // Resolve API key
   const getApiKey = async (provider) => {
@@ -170,6 +465,7 @@ export async function createAgent(sessionId, config = {}) {
     onPayload: (payload) => {
       restoreReasoningContentInPayload(payload, agent.state.messages, agent.state.model)
     },
+    transformContext: (messages) => transformAgentContext(messages, session?.activeCommandPrompt),
     beforeToolCall: async (context) => {
       const toolName = context.toolCall?.name
       const isSkillTool = toolName === 'activate_skill' || toolName === 'read_skill_resource'
@@ -201,6 +497,9 @@ export async function createAgent(sessionId, config = {}) {
     status: 'idle',
     startedAt: null,
     finishedAt: null,
+    activeCommandName: null,
+    activeCommandPermissions: null,
+    activeCommandPrompt: null,
     eventBus,
     idleTimer: null,
     titleGenerated: false,
@@ -256,7 +555,7 @@ export async function createAgent(sessionId, config = {}) {
  */
 async function persistSession(session) {
   const { sessionId, agent, scope, projectId, title, createdAt, status, startedAt, finishedAt, model, thinkingLevel, yoloMode } = session
-  const messages = agent.state.messages
+  const messages = compactedContextMessages(agent.state.messages)
 
   if (messages.length === 0) {
     try {
@@ -359,9 +658,30 @@ export async function runPrompt(sessionId, message) {
   resetIdleTimer(session)
 
   // Build user message
-  const userMessage = typeof message === 'string'
+  const initialUserMessage = typeof message === 'string'
     ? { role: 'user', content: message, timestamp: new Date().toISOString() }
     : message
+  const commandState = await resolveCommandState(session, initialUserMessage)
+  const userMessage = commandState.userMessage ?? initialUserMessage
+
+  if (commandState.textResponse) {
+    session.agent.state.messages = [
+      ...session.agent.state.messages,
+      initialUserMessage,
+      assistantTextMessage(commandState.textResponse, session.model),
+    ]
+    await persistSession(session)
+    const messages = session.agent.state.messages
+    session.eventBus.emit('agent_event', { type: 'message_end', messages })
+    session.eventBus.emit('agent_event', { type: 'agent_end', messages })
+    agentEvents.emit('agent_event', { sessionId, type: 'message_end', messages })
+    agentEvents.emit('agent_event', { sessionId, type: 'agent_end', messages })
+    return { sessionId, status: session.status }
+  }
+
+  if (commandState.compact) {
+    return compactSession(session, initialUserMessage, commandState.compact)
+  }
 
   // AI title generation on first user message (fire-and-forget, before agent runs)
   if (!session.titleGenerated && session.title === 'New chat') {
@@ -378,6 +698,10 @@ export async function runPrompt(sessionId, message) {
     })
   }
 
+  session.activeCommandName = commandState.commandName ?? null
+  session.activeCommandPermissions = commandState.permissions ?? null
+  session.activeCommandPrompt = commandState.commandPrompt ?? null
+
   // Fire and forget — events come through eventBus
   session.agent.prompt(userMessage).catch((err) => {
     logger.error(`Agent prompt error for session ${sessionId}:`, err)
@@ -387,6 +711,10 @@ export async function runPrompt(sessionId, message) {
     }
     session.eventBus.emit('agent_event', event)
     agentEvents.emit('agent_event', { sessionId, ...event })
+  }).finally(() => {
+    session.activeCommandName = null
+    session.activeCommandPermissions = null
+    session.activeCommandPrompt = null
   })
 
   return { sessionId, status: session.status }

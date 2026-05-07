@@ -7,7 +7,7 @@ import type { ServerAgent } from '@/lib/server-agent'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
 import { assistantText, draftTextFromUserMessage } from '@/lib/message-utils'
 import { t } from '@/lib/i18n'
-import type { RestoredDraft } from '@/lib/types'
+import type { ProjectInfo, RestoredDraft } from '@/lib/types'
 
 type ChatPanelHostProps = {
   agent: ServerAgent | null
@@ -15,6 +15,7 @@ type ChatPanelHostProps = {
   revision: number
   yoloMode: boolean
   workspaceToolsEnabled: boolean
+  project?: ProjectInfo
   projectId?: string
   onToggleYoloMode: () => void
   onRollbackFromMessage: (messageIndex: number) => void
@@ -30,6 +31,12 @@ type MessageEditorElement = HTMLElement & {
   onInput?: (value: string) => void
   onFilesChange?: (files: unknown[]) => void
 }
+type CommandSuggestionElement = HTMLDivElement & {
+  __quickforgeDismissHandler?: (event: Event) => void
+}
+type CommandTextareaElement = HTMLTextAreaElement & {
+  __quickforgeCommandCompleteHandler?: (event: KeyboardEvent) => void
+}
 type AgentInterfaceElement = HTMLElement & {
   setInput?: (text: string, attachments?: unknown[]) => void
   setAutoScroll?: (enabled: boolean) => void
@@ -37,6 +44,15 @@ type AgentInterfaceElement = HTMLElement & {
 
 type QuickForgeActionButton = HTMLButtonElement & {
   __quickforgeStopHandler?: (event: Event) => void
+}
+
+type CustomCommandSummary = {
+  name: string
+  description?: string
+  argumentHint?: string
+  allowEdit?: boolean
+  allowCommands?: boolean
+  relativePath?: string
 }
 
 type MessageUsage = {
@@ -54,6 +70,7 @@ type MessageWithUsage = {
   toolCall?: unknown
   result?: unknown
   usage?: MessageUsage
+  timestamp?: number | string
 }
 
 const emptyDraft = (): ComposerDraft => ({ text: '', attachments: [] })
@@ -65,6 +82,7 @@ export function ChatPanelHost({
   revision,
   yoloMode,
   workspaceToolsEnabled,
+  project,
   projectId,
   onToggleYoloMode,
   onRollbackFromMessage,
@@ -75,6 +93,28 @@ export function ChatPanelHost({
   const hostRef = useRef<HTMLDivElement | null>(null)
   const restoredDraftIdRef = useRef<number | undefined>(undefined)
   const composerDraftsRef = useRef<Map<string, ComposerDraft>>(new Map())
+  const customCommandsRef = useRef<CustomCommandSummary[]>([])
+
+  useEffect(() => {
+    let disposed = false
+
+    if (!project?.id) {
+      customCommandsRef.current = []
+      return () => { disposed = true }
+    }
+
+    fetch(`/api/project/commands?projectId=${encodeURIComponent(project.id)}`, { cache: 'no-store' })
+      .then((response) => response.ok ? response.json() : { commands: [] })
+      .then((payload: { commands?: CustomCommandSummary[] }) => {
+        if (disposed) return
+        customCommandsRef.current = Array.isArray(payload.commands) ? payload.commands : []
+      })
+      .catch(() => {
+        if (!disposed) customCommandsRef.current = []
+      })
+
+    return () => { disposed = true }
+  }, [project?.id, revision])
 
   useEffect(() => {
     if (!hostRef.current || !agent) return
@@ -267,6 +307,107 @@ export function ChatPanelHost({
       composerDraftsRef.current.delete(sessionId)
     }
 
+    const commandUsage = (command: CustomCommandSummary) => `/${command.name}${command.argumentHint ? ` ${command.argumentHint}` : ''}`
+
+    const builtinCommands = (): CustomCommandSummary[] => [
+      { name: 'compact', description: t('compactCommandDescription'), argumentHint: '' },
+    ]
+
+    const selectedCommandFromSuggestions = () => {
+      const suggestions = panel.querySelector<CommandSuggestionElement>('.quickforge-command-suggestions')
+      const firstItem = suggestions?.querySelector<HTMLButtonElement>('.quickforge-command-suggestion-item')
+      const commandName = firstItem?.dataset.quickforgeCommandName
+      if (!commandName) return undefined
+      return [...builtinCommands(), ...customCommandsRef.current].find((command) => command.name === commandName)
+    }
+
+    const removeCommandSuggestions = () => {
+      const suggestions = panel.querySelector<CommandSuggestionElement>('.quickforge-command-suggestions')
+      if (suggestions?.__quickforgeDismissHandler) {
+        document.removeEventListener('pointerdown', suggestions.__quickforgeDismissHandler, true)
+        suggestions.__quickforgeDismissHandler = undefined
+      }
+      suggestions?.remove()
+    }
+
+    const insertCommandIntoComposer = (command: CustomCommandSummary) => {
+      const text = `/${command.name}${command.argumentHint ? ' ' : ''}`
+      restoreComposerDraft({ text, attachments: readComposerDraft().attachments })
+      const textarea = panel.querySelector<HTMLTextAreaElement>('message-editor textarea')
+      textarea?.focus()
+      if (textarea) {
+        textarea.selectionStart = text.length
+        textarea.selectionEnd = text.length
+      }
+      removeCommandSuggestions()
+    }
+
+    const updateCommandSuggestions = (value?: string) => {
+      const editor = panel.querySelector<MessageEditorElement>('message-editor')
+      const text = value ?? editor?.value ?? editor?.querySelector<HTMLTextAreaElement>('textarea')?.value ?? ''
+      const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
+      const existing = panel.querySelector<CommandSuggestionElement>('.quickforge-command-suggestions')
+
+      if (!editor || !textarea || !text.startsWith('/')) {
+        existing?.remove()
+        return
+      }
+
+      const query = text.slice(1).trim().toLowerCase()
+      const projectCommands = customCommandsRef.current
+      const commands = [...builtinCommands(), ...projectCommands]
+        .filter((command) => command.name.includes(query) || command.description?.toLowerCase().includes(query))
+        .slice(0, 8)
+
+      if (commands.length === 0) {
+        existing?.remove()
+        return
+      }
+
+      const suggestions = existing ?? document.createElement('div') as CommandSuggestionElement
+      suggestions.className = 'quickforge-command-suggestions'
+      suggestions.setAttribute('role', 'listbox')
+      suggestions.innerHTML = ''
+
+      const header = document.createElement('div')
+      header.className = 'quickforge-command-suggestions-header'
+      header.textContent = t(projectCommands.length ? 'customCommandsHint' : 'customCommandsEmptyHint')
+      suggestions.append(header)
+
+      for (const command of commands) {
+        const item = document.createElement('button')
+        item.type = 'button'
+        item.className = 'quickforge-command-suggestion-item'
+        item.dataset.quickforgeCommandName = command.name
+        item.setAttribute('role', 'option')
+        item.innerHTML = `
+          <span class="quickforge-command-suggestion-name"></span>
+          <span class="quickforge-command-suggestion-description"></span>
+        `
+        item.querySelector<HTMLElement>('.quickforge-command-suggestion-name')!.textContent = commandUsage(command)
+        item.querySelector<HTMLElement>('.quickforge-command-suggestion-description')!.textContent = command.description ?? ''
+        item.onpointerdown = (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          insertCommandIntoComposer(command)
+        }
+        suggestions.append(item)
+      }
+
+      if (!existing) {
+        editor.parentElement?.insertBefore(suggestions, editor)
+      }
+
+      if (!suggestions.__quickforgeDismissHandler) {
+        suggestions.__quickforgeDismissHandler = (event: Event) => {
+          if (suggestions.contains(event.target as Node)) return
+          if (editor.contains(event.target as Node)) return
+          removeCommandSuggestions()
+        }
+        document.addEventListener('pointerdown', suggestions.__quickforgeDismissHandler, true)
+      }
+    }
+
     const estimateTextTokens = (text: string) => {
       let ascii = 0
       let nonAscii = 0
@@ -311,16 +452,40 @@ export function ChatPanelHost({
       return estimateTextTokens(systemPrompt) + messages.reduce((total, message) => total + estimateMessageTokens(message), 0)
     }
 
+    const messageTimestamp = (message: MessageWithUsage) => {
+      if (typeof message.timestamp === 'number') return message.timestamp
+      if (typeof message.timestamp === 'string') {
+        const parsed = Date.parse(message.timestamp)
+        return Number.isNaN(parsed) ? 0 : parsed
+      }
+      return 0
+    }
+
+    const hasCompactSummary = (message: MessageWithUsage) => {
+      return message.role === 'user' && textFromUnknown(message.content).includes('<compact_summary>')
+    }
+
+    const latestCompactTimestamp = (messages: MessageWithUsage[]) => {
+      let timestamp = 0
+      for (const message of messages) {
+        if (hasCompactSummary(message)) timestamp = Math.max(timestamp, messageTimestamp(message))
+      }
+      return timestamp
+    }
+
     const getContextUsage = () => {
       const contextWindow = agent.state.model?.contextWindow ?? 0
-      const usage = agent.state.messages.reduce((latestUsage, message) => {
-        const currentUsage = (message as MessageWithUsage).usage
-        if ((message as MessageWithUsage).role !== 'assistant' || !currentUsage) return latestUsage
+      const messages = agent.state.messages as MessageWithUsage[]
+      const compactedAt = latestCompactTimestamp(messages)
+      const usage = messages.reduce((latestUsage, message) => {
+        const currentUsage = message.usage
+        if (message.role !== 'assistant' || !currentUsage) return latestUsage
+        if (compactedAt > 0 && messageTimestamp(message) <= compactedAt) return latestUsage
         return currentUsage
       }, undefined as MessageUsage | undefined)
       const inputTokens = usage?.input ?? usage?.totalTokens ?? 0
       const estimatedTokens = estimateHistoryTokens()
-      const usedTokens = Math.max(inputTokens, estimatedTokens)
+      const usedTokens = compactedAt > 0 ? estimatedTokens : Math.max(inputTokens, estimatedTokens)
       const percent = contextWindow > 0 ? Math.min(100, Math.max(0, Math.round((usedTokens / contextWindow) * 100))) : 0
       const hue = Math.round(142 - (142 * percent / 100))
       return { contextWindow, usedTokens, inputTokens, estimatedTokens, percent, color: `hsl(${hue} 72% 45%)` }
@@ -518,6 +683,7 @@ export function ChatPanelHost({
             text: value,
             attachments: editor.attachments ? [...editor.attachments] : [],
           })
+          updateCommandSuggestions(value)
         }
         editor.onFilesChange = (attachments) => {
           composerDraftsRef.current.set(sessionId, {
@@ -525,6 +691,24 @@ export function ChatPanelHost({
             attachments: attachments ? [...attachments] : [],
           })
         }
+        updateCommandSuggestions()
+      }
+      if (textarea) {
+        const commandTextarea = textarea as CommandTextareaElement
+        if (commandTextarea.__quickforgeCommandCompleteHandler) {
+          commandTextarea.removeEventListener('keydown', commandTextarea.__quickforgeCommandCompleteHandler, true)
+        }
+        commandTextarea.__quickforgeCommandCompleteHandler = (event: KeyboardEvent) => {
+          if (event.key !== 'Tab') return
+          const currentText = editor?.value ?? commandTextarea.value ?? ''
+          if (!currentText.startsWith('/')) return
+          const command = selectedCommandFromSuggestions()
+          if (!command) return
+          event.preventDefault()
+          event.stopPropagation()
+          insertCommandIntoComposer(command)
+        }
+        commandTextarea.addEventListener('keydown', commandTextarea.__quickforgeCommandCompleteHandler, true)
       }
 
       const editorRows = editor?.querySelectorAll<HTMLElement>('.flex.gap-2.items-center')
@@ -553,6 +737,7 @@ export function ChatPanelHost({
               event.preventDefault()
               event.stopPropagation()
               event.stopImmediatePropagation()
+              removeCommandSuggestions()
               agent.abort()
             }
             actionButton.addEventListener('pointerdown', actionButton.__quickforgeStopHandler, true)
@@ -661,6 +846,7 @@ export function ChatPanelHost({
     void panel.setAgent(agent as unknown as Parameters<typeof panel.setAgent>[0], {
       onApiKeyRequired: (provider) => ApiKeyPromptDialog.prompt(provider),
       onBeforeSend: () => {
+        removeCommandSuggestions()
         clearComposerDraft()
         enableAutoScroll()
       },
@@ -691,6 +877,7 @@ export function ChatPanelHost({
 
     return () => {
       captureComposerDraft()
+      removeCommandSuggestions()
       disposed = true
       if (autoScrollFrame !== undefined) window.cancelAnimationFrame(autoScrollFrame)
       unsubscribeScrollEvents()
@@ -701,6 +888,10 @@ export function ChatPanelHost({
       scrollContainer?.removeEventListener('keydown', handleKeyDown)
       scrollContainer?.removeEventListener('touchstart', handleTouchStart)
       scrollContainer?.removeEventListener('touchmove', handleTouchMove)
+      const completeTextarea = panel.querySelector<CommandTextareaElement>('message-editor textarea')
+      if (completeTextarea?.__quickforgeCommandCompleteHandler) {
+        completeTextarea.removeEventListener('keydown', completeTextarea.__quickforgeCommandCompleteHandler, true)
+      }
       scrollResizeObserver?.disconnect()
       observer?.disconnect()
       panel.remove()

@@ -159,6 +159,11 @@ async function handleApi(req, res, url) {
     return
   }
 
+  if (req.method === 'GET' && pathname === '/api/project/commands') {
+    await handleProjectApi(req, res, url)
+    return
+  }
+
   // Instructions
   if (req.method === 'GET' && pathname === '/api/instructions') {
     await handleInstructionsApi(req, res, url)

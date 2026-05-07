@@ -429,6 +429,7 @@ function App() {
                   revision={agentManager.chatPanelRevision}
                   yoloMode={yoloMode}
                   workspaceToolsEnabled={Boolean(agentManager.currentToolProject?.id)}
+                  project={agentManager.currentToolProject}
                   projectId={agentManager.currentToolProject?.id}
                   onToggleYoloMode={toggleYoloMode}
                   onRollbackFromMessage={rollbackFromMessage}

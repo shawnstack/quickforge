@@ -133,6 +133,54 @@
   color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
 }
 
+.quickforge-command-suggestions {
+  margin: 0.5rem 0.75rem 0;
+  max-height: 17rem;
+  overflow-y: auto;
+  border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in oklab, var(--popover) 94%, transparent);
+  box-shadow: 0 18px 46px -28px rgb(15 23 42 / 0.38);
+}
+
+.quickforge-command-suggestions-header {
+  padding: 0.55rem 0.75rem 0.35rem;
+  color: color-mix(in oklab, var(--muted-foreground) 86%, transparent);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.quickforge-command-suggestion-item {
+  display: grid !important;
+  width: 100%;
+  grid-template-columns: minmax(8rem, max-content) 1fr;
+  gap: 0.75rem;
+  padding: 0.55rem 0.75rem !important;
+  border-radius: 0 !important;
+  text-align: left;
+}
+
+.quickforge-command-suggestion-item:hover {
+  background: color-mix(in oklab, var(--muted) 62%, transparent) !important;
+  transform: none !important;
+}
+
+.quickforge-command-suggestion-name {
+  color: var(--foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.quickforge-command-suggestion-description {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .quickforge-composer > div:first-child > .px-2.pb-2 {
   padding: 0 0.75rem 0.75rem !important;
 }

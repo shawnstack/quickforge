@@ -93,7 +93,7 @@ class GlobalAgentSseClient {
       'state', 'agent_start', 'agent_end', 'message_start', 'message_end',
       'turn_start', 'turn_end', 'message_update',
       'tool_execution_start', 'tool_execution_end',
-      'error', 'title_updated',
+      'error', 'title_updated', 'session_forked',
     ]
 
     const handleMessage = (eventType?: string) => (e: MessageEvent) => {
@@ -454,6 +454,7 @@ export class ServerAgent {
           this.state.isStreaming = false
           this.state.streamingMessage = undefined
           if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
+          this.emitToListeners(event as unknown as AgentEvent)
           break
         }
 
@@ -486,6 +487,10 @@ export class ServerAgent {
 
       case 'title_updated': {
         // Title was updated by server AI generation — no state change needed
+        break
+      }
+
+      case 'session_forked': {
         break
       }
 

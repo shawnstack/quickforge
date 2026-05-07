@@ -55,7 +55,10 @@ export interface AgentManager {
     sessionId?: string,
     options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string },
   ) => Promise<ServerAgent>
-  loadSession: (sessionId: string) => Promise<void>
+  loadSession: (
+    sessionId: string,
+    hints?: { title?: string; createdAt?: string; scope?: ChatScope; projectId?: string },
+  ) => Promise<void>
   syncSessionUI: (task: BackgroundTask) => Promise<void>
   setCurrentAgentMessages: (messages: AgentState['messages']) => void
   updateCurrentAgentModel: (model: Model<Api>) => void
@@ -83,6 +86,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   const currentSessionIdRef = useRef<string | undefined>(undefined)
   const currentTitleRef = useRef('New chat')
   const currentCreatedAtRef = useRef<string | undefined>(undefined)
+  const loadSessionRef = useRef<AgentManager['loadSession'] | null>(null)
   const onTaskCompleteRef = useRef(deps.onTaskComplete)
 
   useEffect(() => {
@@ -189,7 +193,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
         scope,
         project,
         title: options?.title ?? 'New chat',
-        createdAt: options?.createdAt,
+        createdAt: options?.createdAt ?? startedAt,
         status: initialStatus,
         startedAt,
         unsubscribe: () => undefined,
@@ -230,6 +234,25 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
           }
           refreshSessions({ broadcast: true }).catch((err) => console.error('Failed to refresh sessions:', err))
         }
+
+        if ((event as { type: string }).type === 'session_forked') {
+          const forkEvent = event as unknown as {
+            type: 'session_forked'
+            targetSessionId?: string
+            title?: string
+            createdAt?: string
+            scope?: ChatScope
+            projectId?: string | null
+          }
+          if (!forkEvent.targetSessionId) return
+          refreshSessions({ broadcast: true }).catch((err) => console.error('Failed to refresh sessions:', err))
+          void loadSessionRef.current?.(forkEvent.targetSessionId, {
+            title: forkEvent.title,
+            createdAt: forkEvent.createdAt,
+            scope: forkEvent.scope,
+            projectId: forkEvent.projectId ?? undefined,
+          })
+        }
       })
 
       taskMapRef.current.set(sessionId, task)
@@ -248,7 +271,10 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
 
   // --- Load a persisted session ---
   const loadSession = useCallback(
-    async (sessionId: string) => {
+    async (
+      sessionId: string,
+      hints?: { title?: string; createdAt?: string; scope?: ChatScope; projectId?: string },
+    ) => {
       const runningTask = taskMapRef.current.get(sessionId)
       if (runningTask) {
         if (runningTask.scope === 'project' && runningTask.project?.id && activeProjectRef.current?.id !== runningTask.project.id) {
@@ -263,16 +289,29 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       }
 
       const storage = storageRef.current
-      if (!storage) return
+      if (!storage) {
+        await createAgent(
+          { tools: [] },
+          sessionId,
+          {
+            scope: hints?.scope ?? 'global',
+            attachToView: true,
+            createdAt: hints?.createdAt,
+            title: hints?.title,
+          },
+        )
+        return
+      }
 
       const session = (await storage.sessions.get(sessionId)) as QuickForgeSessionData | null
       if (!session) return
 
       const metadata = sessions.find((item) => item.id === sessionId) ?? ((await storage.sessions.getMetadata(sessionId)) as QuickForgeSessionMetadata | null)
-      const scope = sessionScope(metadata ?? session)
+      const scope = hints?.scope ?? sessionScope(metadata ?? session)
+      const scopedProjectId = hints?.projectId ?? metadata?.projectId ?? session.projectId
       let project: ProjectInfo | undefined
-      if (scope === 'project' && (metadata?.projectId || session.projectId)) {
-        const projectId = (metadata?.projectId ?? session.projectId)!
+      if (scope === 'project' && scopedProjectId) {
+        const projectId = scopedProjectId
         if (activeProjectRef.current?.id !== projectId) {
           try {
             project = await switchActiveProject(projectId)
@@ -300,13 +339,17 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
           scope,
           project,
           attachToView: true,
-          createdAt: session.createdAt,
-          title: session.title,
+          createdAt: session.createdAt ?? hints?.createdAt,
+          title: session.title ?? hints?.title,
         },
       )
     },
     [attachTaskToView, createAgent, sessions, switchActiveProject, storageRef, activeModelRef, activeProjectRef],
   )
+
+  useEffect(() => {
+    loadSessionRef.current = loadSession
+  }, [loadSession])
 
   // --- Mutations (exposed for App.tsx callbacks) ---
   const setCurrentAgentMessages = useCallback((messages: AgentState['messages']) => {

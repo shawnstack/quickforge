@@ -1,5 +1,6 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { getActiveProject, setActiveProjectPath, readProjectConfig } from '../project-config.mjs'
+import { listProjectCommands } from '../custom-commands.mjs'
 import { atomicProjectConfigUpdate } from '../storage.mjs'
 import { getWorkspaceRoot, setWorkspaceRoot } from '../utils/workspace.mjs'
 import { selectDirectoryDialog, openPathInFileManager } from '../utils/platform.mjs'
@@ -10,6 +11,25 @@ export async function handleProjectApi(req, res, url) {
 
   if (req.method === 'GET' && url.pathname === '/api/project') {
     sendJson(res, 200, { project: getActiveProject(config), projects: config.projects, workspaceRoot: getWorkspaceRoot() })
+    return
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/project/commands') {
+    const projectId = url.searchParams.get('projectId')
+    const project = projectId
+      ? config.projects.find((item) => item.id === projectId)
+      : getActiveProject(config)
+    const commands = project?.path ? await listProjectCommands(project.path) : []
+    sendJson(res, 200, {
+      commands: commands.map((command) => ({
+        name: command.name,
+        description: command.description,
+        argumentHint: command.argumentHint,
+        allowEdit: command.allowEdit,
+        allowCommands: command.allowCommands,
+        relativePath: command.relativePath,
+      })),
+    })
     return
   }
 

@@ -1,11 +1,8 @@
 import { existsSync, promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { dataDir } from './storage.mjs'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const bundledSkillsDir = path.resolve(__dirname, '..', 'skills')
 const userSkillsDir = path.join(dataDir, 'skills')
 const sharedUserSkillsDir = path.join(os.homedir(), '.agents', 'skills')
 const defaultEntry = 'SKILL.md'
@@ -374,7 +371,7 @@ export function mergeSkills(...skillLists) {
 }
 
 export const skillSearchPaths = {
-  global: searchDirsForList([bundledSkillsDir, sharedUserSkillsDir, userSkillsDir]),
+  global: searchDirsForList([sharedUserSkillsDir, userSkillsDir]),
   project: ['<project>/.agents/skills', '<project>/.quickforge/skills'],
 }
 
@@ -385,7 +382,6 @@ export function projectSkillSearchPaths(workspaceRoot) {
 
 export async function loadGlobalSkills() {
   return loadSkillsFromSources([
-    { dir: bundledSkillsDir, name: 'bundled' },
     { dir: sharedUserSkillsDir, name: 'user-shared' },
     { dir: userSkillsDir, name: 'user' },
   ])

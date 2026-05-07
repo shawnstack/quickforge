@@ -650,7 +650,10 @@ async function persistSession(session) {
  * Returns immediately; events are streamed via the event bus.
  */
 export async function runPrompt(sessionId, message) {
-  const session = agentSessions.get(sessionId)
+  let session = agentSessions.get(sessionId)
+  if (!session) {
+    session = await restoreAgent(sessionId)
+  }
   if (!session) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
   }

@@ -645,6 +645,22 @@ async function persistSession(session) {
   }
 }
 
+export async function replaceSessionMessages(sessionId, messages) {
+  const session = agentSessions.get(sessionId)
+  if (!session) return null
+  if (session.agent.state.isStreaming) {
+    throw Object.assign(new Error('Generation is still running. Stop it or wait until it finishes before rolling back.'), { statusCode: 409 })
+  }
+  updateSessionMessages(session, Array.isArray(messages) ? messages : [])
+  session.status = 'idle'
+  session.finishedAt = new Date().toISOString()
+  await persistSession(session)
+  const nextMessages = session.agent.state.messages
+  emitSessionEvent(session, { type: 'message_end', messages: nextMessages })
+  emitSessionEvent(session, { type: 'agent_end', messages: nextMessages })
+  return getSessionState(sessionId)
+}
+
 /**
  * Send a user message to the agent and start the agent loop.
  * Returns immediately; events are streamed via the event bus.

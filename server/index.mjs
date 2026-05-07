@@ -11,7 +11,7 @@ import { setDefaultWorkspaceRoot, initializeActiveProject, readProjectConfig, ge
 import { getWorkspaceRoot } from './utils/workspace.mjs'
 import { handleStorageApi } from './routes/storage.mjs'
 import { handleProjectApi } from './routes/project.mjs'
-import { handleFilesystemApi } from './routes/filesystem.mjs'
+import { handleFilesystemApi, setActiveWorkspaceRootForFilesystem } from './routes/filesystem.mjs'
 import { handleToolApi, handleGetTools } from './routes/tools.mjs'
 import { handleInstructionsApi } from './routes/instructions.mjs'
 import { handleSkillsApi } from './routes/skills.mjs'
@@ -19,9 +19,11 @@ import { handleAgentApi } from './routes/agent.mjs'
 import { handleScheduledTasksApi, startScheduledTaskRunner, stopScheduledTaskRunner } from './routes/scheduled-tasks.mjs'
 import { handleBackupApi } from './routes/backup.mjs'
 import { handleSystemApi } from './routes/system.mjs'
+import { handleSharesApi } from './routes/shares.mjs'
+import { handleSharedConversationApi } from './routes/shared-conversation.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { logger } from './utils/logger.mjs'
-import { setActiveWorkspaceRootForFilesystem } from './routes/filesystem.mjs'
+import { isLoopbackAddress } from './utils/network.mjs'
 import { shutdown as shutdownAgentManager, resetStaleTaskStatuses } from './agent-manager.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -153,6 +155,17 @@ async function handleApi(req, res, url) {
   const pathname = url.pathname
   const parts = pathname.split('/').filter(Boolean)
 
+  // Conversation share routes (management + public LAN access)
+  if (pathname === '/api/shares' || pathname.startsWith('/api/shares/')) {
+    await handleSharesApi(req, res, url, { port })
+    return
+  }
+
+  if (pathname.startsWith('/api/shared/')) {
+    await handleSharedConversationApi(req, res, url)
+    return
+  }
+
   // Health check
   if (req.method === 'GET' && pathname === '/api/health') {
     sendJson(res, 200, await getSystemStatus())
@@ -219,8 +232,14 @@ async function handleApi(req, res, url) {
   }
 
   // System routes
-  if (pathname === '/api/system/status' || pathname === '/api/system/restart') {
-    await handleSystemApi(req, res, url, { getSystemStatus, requestRestart })
+  if (pathname === '/api/system/status' || pathname === '/api/system/restart' || pathname === '/api/system/network') {
+    await handleSystemApi(req, res, url, {
+      getSystemStatus,
+      requestRestart,
+      host,
+      port,
+      remoteEnabled: process.env.QUICKFORGE_ALLOW_REMOTE === '1',
+    })
     return
   }
 
@@ -284,6 +303,10 @@ function isAllowedHostHeader(value) {
   const parsed = parseHostHeader(value)
   if (!parsed) return false
   const allowedHosts = new Set(['localhost', '127.0.0.1', host])
+  if (process.env.QUICKFORGE_ALLOW_REMOTE === '1') {
+    allowedHosts.add('0.0.0.0')
+    allowedHosts.add(parsed.hostname)
+  }
   const expectedPort = String(port)
   const hostPort = parsed.port || '80'
   return allowedHosts.has(parsed.hostname) && hostPort === expectedPort
@@ -319,8 +342,31 @@ const server = createServer(async (req, res) => {
   }
   try {
     const url = new URL(req.url || '/', `http://${req.headers.host || `${host}:${port}`}`)
+    const remoteAddress = req.socket.remoteAddress
+    if (
+      url.pathname.startsWith('/api/') &&
+      !isLoopbackAddress(remoteAddress) &&
+      process.env.QUICKFORGE_SHARE_LAN === '1' &&
+      !(url.pathname.startsWith('/api/shared/') || url.pathname === '/api/health')
+    ) {
+      res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
+      res.end(JSON.stringify({ error: 'Remote API access is limited to shared conversation endpoints.' }))
+      return
+    }
+
     if (url.pathname.startsWith('/api/')) {
       await handleApi(req, res, url)
+      return
+    }
+
+    if (url.pathname.startsWith('/share/')) {
+      await serveStatic(req, res, url)
+      return
+    }
+
+    if (!isLoopbackAddress(remoteAddress) && process.env.QUICKFORGE_SHARE_LAN === '1') {
+      res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
+      res.end(JSON.stringify({ error: 'Remote access is limited to shared conversation links.' }))
       return
     }
 

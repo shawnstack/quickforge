@@ -22,6 +22,7 @@ type ChatPanelHostProps = {
   onCopyAnswer: (text: string) => Promise<void> | void
   onForkFromMessage: (messageIndex: number) => void
   restoredDraft?: RestoredDraft
+  disableFork?: boolean
 }
 
 type ComposerDraft = Pick<RestoredDraft, 'text' | 'attachments'>
@@ -89,6 +90,7 @@ export function ChatPanelHost({
   onCopyAnswer,
   onForkFromMessage,
   restoredDraft,
+  disableFork = false,
 }: ChatPanelHostProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const restoredDraftIdRef = useRef<number | undefined>(undefined)
@@ -644,11 +646,13 @@ export function ChatPanelHost({
           })
           actions.append(copyButton)
 
-          const forkButton = createIconActionButton('fork', t('forkConversation'), forkIcon, () => {
-            onForkFromMessage(entry.index)
-          })
-          forkButton.disabled = agent.state.isStreaming
-          actions.append(forkButton)
+          if (!disableFork) {
+            const forkButton = createIconActionButton('fork', t('forkConversation'), forkIcon, () => {
+              onForkFromMessage(entry.index)
+            })
+            forkButton.disabled = agent.state.isStreaming
+            actions.append(forkButton)
+          }
         } else {
           const text = draftTextFromUserMessage(entry.message)
           if (text) {
@@ -896,7 +900,7 @@ export function ChatPanelHost({
       observer?.disconnect()
       panel.remove()
     }
-  }, [agent, onCopyAnswer, onForkFromMessage, onModelSelect, onRollbackFromMessage, onToggleYoloMode, projectId, restoredDraft, revision, workspaceToolsEnabled, yoloMode])
+  }, [agent, disableFork, onCopyAnswer, onForkFromMessage, onModelSelect, onRollbackFromMessage, onToggleYoloMode, projectId, restoredDraft, revision, workspaceToolsEnabled, yoloMode])
 
   return <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden" />
 }

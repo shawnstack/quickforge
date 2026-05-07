@@ -3,6 +3,7 @@ import type { Api, Model } from '@mariozechner/pi-ai'
 import {
   Plus,
   Settings,
+  Share2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScheduledTasksPage } from '@/components/scheduled-tasks/ScheduledTasksPage'
@@ -40,8 +41,10 @@ import { useYoloActions } from '@/hooks/useYoloActions'
 import { useVisibleRuntimeStatuses } from '@/hooks/useVisibleRuntimeStatuses'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { ToastContainer } from '@/components/ui/toast'
+import { ShareConversationDialog } from '@/components/share/ShareConversationDialog'
+import { SharedConversationPage } from '@/components/share/SharedConversationPage'
 
-function App() {
+function MainApp() {
   // --- Top-level refs (owned by App) ---
   const storageRef = useRef<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
   const activeModelRef = useRef<Model<Api>>(buildConnectionModel(DEFAULT_CONNECTION))
@@ -77,6 +80,7 @@ function App() {
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
   const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false)
   const [skillsDialog, setSkillsDialog] = useState<{ scope: SkillsScope; project?: ProjectInfo }>()
+  const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const { toasts, handleTaskComplete, dismissToast } = useTaskToasts()
 
   // --- Session list + cross-tab sync ---
@@ -403,6 +407,17 @@ function App() {
           <Button
             variant="ghost"
             size="icon"
+            onClick={() => setShareDialogOpen(true)}
+            disabled={!agentManager.currentSessionId || scheduledTasksOpen || needsModelSetup}
+            aria-label="分享到局域网"
+            title="分享到局域网"
+          >
+            <Share2 className="size-4" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={openDefaultOptionsSettings}
             aria-label={t('settings')}
           >
@@ -435,6 +450,7 @@ function App() {
                   onRollbackFromMessage={rollbackFromMessage}
                   onCopyAnswer={copyAnswer}
                   onForkFromMessage={forkFromMessage}
+                  disableFork={false}
                   restoredDraft={restoredDraft}
                 />
               </ErrorBoundary>
@@ -459,6 +475,12 @@ function App() {
       }}
       onSaved={handleSkillsSaved}
     />
+    <ShareConversationDialog
+      open={shareDialogOpen}
+      sessionId={agentManager.currentSessionId}
+      title={sessionTitle(agentManager.currentTitle)}
+      onOpenChange={setShareDialogOpen}
+    />
     <ToastContainer
       toasts={toasts}
       onDismiss={dismissToast}
@@ -466,6 +488,12 @@ function App() {
     />
     </>
   )
+}
+
+function App() {
+  const shareRouteId = window.location.pathname.match(/^\/share\/([^/]+)\/?$/)?.[1]
+  if (shareRouteId) return <SharedConversationPage shareId={decodeURIComponent(shareRouteId)} />
+  return <MainApp />
 }
 
 export default App

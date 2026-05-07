@@ -1,4 +1,5 @@
 import { sendJson } from '../utils/response.mjs'
+import { getLanUrls } from '../utils/network.mjs'
 
 export async function handleSystemApi(req, res, url, context) {
   if (req.method === 'POST' && url.pathname === '/api/system/restart') {
@@ -15,6 +16,16 @@ export async function handleSystemApi(req, res, url, context) {
 
   if (req.method === 'GET' && url.pathname === '/api/system/status') {
     sendJson(res, 200, await context.getSystemStatus())
+    return
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/system/network') {
+    sendJson(res, 200, {
+      host: context.host,
+      port: context.port,
+      lanUrls: getLanUrls(context.port),
+      remoteEnabled: context.remoteEnabled === true,
+    })
     return
   }
 

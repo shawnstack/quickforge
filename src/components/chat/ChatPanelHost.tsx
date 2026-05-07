@@ -4,13 +4,16 @@ import {
   ChatPanel,
 } from '@mariozechner/pi-web-ui'
 import type { ServerAgent } from '@/lib/server-agent'
+import type { SharedServerAgent } from '@/lib/shared-server-agent'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
 import { assistantText, draftTextFromUserMessage } from '@/lib/message-utils'
 import { t } from '@/lib/i18n'
 import type { ProjectInfo, RestoredDraft } from '@/lib/types'
 
+type AgentLike = ServerAgent | SharedServerAgent
+
 type ChatPanelHostProps = {
-  agent: ServerAgent | null
+  agent: AgentLike | null
   onModelSelect?: () => void
   revision: number
   yoloMode: boolean
@@ -23,6 +26,9 @@ type ChatPanelHostProps = {
   onForkFromMessage: (messageIndex: number) => void
   restoredDraft?: RestoredDraft
   disableFork?: boolean
+  readOnly?: boolean
+  bypassClientApiKeyCheck?: boolean
+  allowModelControls?: boolean
 }
 
 type ComposerDraft = Pick<RestoredDraft, 'text' | 'attachments'>
@@ -41,6 +47,8 @@ type CommandTextareaElement = HTMLTextAreaElement & {
 type AgentInterfaceElement = HTMLElement & {
   setInput?: (text: string, attachments?: unknown[]) => void
   setAutoScroll?: (enabled: boolean) => void
+  enableModelSelector?: boolean
+  enableThinkingSelector?: boolean
 }
 
 type QuickForgeActionButton = HTMLButtonElement & {
@@ -91,6 +99,9 @@ export function ChatPanelHost({
   onForkFromMessage,
   restoredDraft,
   disableFork = false,
+  readOnly = false,
+  bypassClientApiKeyCheck = false,
+  allowModelControls = true,
 }: ChatPanelHostProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const restoredDraftIdRef = useRef<number | undefined>(undefined)
@@ -715,6 +726,19 @@ export function ChatPanelHost({
         commandTextarea.addEventListener('keydown', commandTextarea.__quickforgeCommandCompleteHandler, true)
       }
 
+      if (readOnly) {
+        panel.querySelector<HTMLElement>('.quickforge-composer-dock')?.remove()
+        return
+      }
+
+      if (!allowModelControls) {
+        const agentInterface = panel.querySelector<AgentInterfaceElement>('agent-interface')
+        if (agentInterface) {
+          agentInterface.enableModelSelector = false
+          agentInterface.enableThinkingSelector = false
+        }
+      }
+
       const editorRows = editor?.querySelectorAll<HTMLElement>('.flex.gap-2.items-center')
       const rightControls = editorRows?.[editorRows.length - 1]
       if (!rightControls) return
@@ -848,14 +872,14 @@ export function ChatPanelHost({
     }
 
     void panel.setAgent(agent as unknown as Parameters<typeof panel.setAgent>[0], {
-      onApiKeyRequired: (provider) => ApiKeyPromptDialog.prompt(provider),
+      onApiKeyRequired: bypassClientApiKeyCheck ? async () => true : (provider) => ApiKeyPromptDialog.prompt(provider),
       onBeforeSend: () => {
         removeCommandSuggestions()
         clearComposerDraft()
         enableAutoScroll()
       },
       onModelSelect,
-      toolsFactory: () => getLocalWorkspaceTools(),
+      toolsFactory: () => getLocalWorkspaceTools(agent.state.tools),
     }).then(() => {
       if (disposed) return
       if (restoredDraft && restoredDraftIdRef.current !== restoredDraft.id) {
@@ -900,7 +924,7 @@ export function ChatPanelHost({
       observer?.disconnect()
       panel.remove()
     }
-  }, [agent, disableFork, onCopyAnswer, onForkFromMessage, onModelSelect, onRollbackFromMessage, onToggleYoloMode, projectId, restoredDraft, revision, workspaceToolsEnabled, yoloMode])
+  }, [agent, allowModelControls, bypassClientApiKeyCheck, disableFork, onCopyAnswer, onForkFromMessage, onModelSelect, onRollbackFromMessage, onToggleYoloMode, projectId, readOnly, restoredDraft, revision, workspaceToolsEnabled, yoloMode])
 
   return <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden" />
 }

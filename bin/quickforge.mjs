@@ -85,10 +85,25 @@ async function cmdStop() {
   console.log('QuickForge stopped.')
 }
 
+function lanModeEnabled() {
+  return process.env.QUICKFORGE_SHARE_LAN !== '0'
+}
+
+function prepareEnvForCommand() {
+  const env = { ...process.env }
+  if (lanModeEnabled()) {
+    env.QUICKFORGE_SHARE_LAN = '1'
+    env.QUICKFORGE_ALLOW_REMOTE = '1'
+    env.QUICKFORGE_HOST = env.QUICKFORGE_HOST || '0.0.0.0'
+  }
+  return env
+}
+
 function getServiceUrl() {
-  const host = process.env.QUICKFORGE_HOST || '127.0.0.1'
+  const host = process.env.QUICKFORGE_HOST || '0.0.0.0'
+  const displayHost = host === '0.0.0.0' ? '<LAN-IP>' : host
   const port = process.env.QUICKFORGE_PORT || '5176'
-  return `http://${host}:${port}`
+  return `http://${displayHost}:${port}`
 }
 
 async function cmdStart() {
@@ -106,7 +121,7 @@ async function cmdStart() {
     detached: true,
     stdio: 'ignore',
     windowsHide: true,
-    env: { ...process.env },
+    env: prepareEnvForCommand(),
   })
 
   await writePid(child.pid)
@@ -181,6 +196,10 @@ async function main() {
     case 'start':
       await cmdStart()
       break
+    case 'lan':
+    case '--lan':
+      await cmdStart()
+      break
     case 'stop':
       await cmdStop()
       break
@@ -201,6 +220,7 @@ async function main() {
       console.log('Usage:')
       console.log('  quickforge              Start as background service (default)')
       console.log('  quickforge start        Start as background service')
+      console.log('  quickforge lan          Start LAN sharing mode (binds 0.0.0.0, restricts remote APIs)')
       console.log('  quickforge stop         Stop the background service')
       console.log('  quickforge restart      Restart the background service')
       console.log('  quickforge status       Check if the service is running')
@@ -208,7 +228,9 @@ async function main() {
       console.log('')
       console.log('Config:')
       console.log('  QUICKFORGE_PORT=5176         Server port')
-      console.log('  QUICKFORGE_HOST=127.0.0.1    Bind address')
+      console.log('  QUICKFORGE_HOST=0.0.0.0      Bind address; set QUICKFORGE_HOST=127.0.0.1 and QUICKFORGE_SHARE_LAN=0 for local-only mode')
+      console.log('  QUICKFORGE_SHARE_LAN=1       Enable LAN sharing mode and restrict remote non-share APIs (default)')
+      console.log('  QUICKFORGE_ALLOW_REMOTE=1    Allow explicit remote binding')
       console.log('  QUICKFORGE_DATA_DIR=/path    Data storage directory')
       console.log('  QUICKFORGE_NO_OPEN=1         Don\'t auto-open browser')
       break

@@ -7,6 +7,8 @@ import { ensureStorage, storageDir } from './storage.mjs'
 const scrypt = promisify(scryptCallback)
 const SHARE_ID_PREFIX = 'qfs_'
 const PASSWORD_VERSION = 1
+const SHARE_TOKEN_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+const MAX_SHARE_TOKENS = 50
 const SHARES_DIR = path.join(storageDir, 'shares')
 const SHARES_FILE = path.join(SHARES_DIR, 'conversation-shares.json')
 const writeQueueName = 'conversation-shares'
@@ -35,7 +37,8 @@ async function readShareStoreFile() {
   await ensureShareStore()
   try {
     const raw = await fs.readFile(SHARES_FILE, 'utf8')
-    const parsed = raw.trim() ? JSON.parse(raw) : {}
+    const text = raw.trimStart()
+    const parsed = text ? JSON.parse(text) : {}
     return parsed && typeof parsed === 'object' ? parsed : {}
   } catch (error) {
     if (error?.code === 'ENOENT') return {}
@@ -57,11 +60,13 @@ function publicShareRecord(record) {
     createdAt: record.createdAt,
     expiresAt: record.expiresAt,
     revokedAt: record.revokedAt,
+    updatedAt: record.updatedAt,
     titleSnapshot: record.titleSnapshot,
     scope: record.scope,
     projectId: record.projectId,
     accessCount: record.accessCount || 0,
     lastAccessedAt: record.lastAccessedAt,
+    hasPassword: Boolean(record.passwordHash),
   }
 }
 
@@ -94,11 +99,8 @@ export function generateSharePassword() {
 }
 
 export async function hashSharePassword(password, salt = randomToken(16)) {
-  if (!password || typeof password !== 'string') {
-    const error = new Error('Missing share password')
-    error.statusCode = 400
-    throw error
-  }
+  if (password === undefined || password === null || typeof password !== 'string') return {}
+  if (!password) return { passwordHash: undefined, passwordSalt: undefined, passwordVersion: undefined }
 
   const derived = await scrypt(password, salt, 32)
   return {
@@ -109,7 +111,8 @@ export async function hashSharePassword(password, salt = randomToken(16)) {
 }
 
 export async function verifySharePassword(record, password) {
-  if (!record?.passwordHash || !record?.passwordSalt || !password) return false
+  if (!record?.passwordHash || !record?.passwordSalt) return !password
+  if (!password) return false
   const { passwordHash } = await hashSharePassword(password, record.passwordSalt)
   const expected = Buffer.from(record.passwordHash, 'base64url')
   const actual = Buffer.from(passwordHash, 'base64url')
@@ -127,14 +130,40 @@ export function createShareToken(shareId) {
   }
 }
 
+function pruneShareTokens(tokens, now = Date.now()) {
+  return (Array.isArray(tokens) ? tokens : [])
+    .filter((tokenRecord) => {
+      if (!tokenRecord?.tokenHash) return false
+      if (!tokenRecord.expiresAt) return true
+      return Date.parse(tokenRecord.expiresAt) > now
+    })
+    .slice(-MAX_SHARE_TOKENS)
+}
+
+function safeHashEqual(expectedHash, actualHash) {
+  if (!expectedHash || !actualHash) return false
+  const expected = Buffer.from(expectedHash)
+  const actual = Buffer.from(actualHash)
+  if (expected.length !== actual.length) return false
+  return timingSafeEqual(expected, actual)
+}
+
 export function verifyShareToken(record, token) {
-  if (!record?.tokenHash || !token || typeof token !== 'string') return false
+  if (!record || !token || typeof token !== 'string') return false
   const [tokenShareId, secret] = token.split('.')
   if (tokenShareId !== record.id || !secret) return false
-  const actual = Buffer.from(createHash('sha256').update(secret).digest('base64url'))
-  const expected = Buffer.from(record.tokenHash)
-  if (actual.length !== expected.length) return false
-  return timingSafeEqual(actual, expected)
+  const actualHash = createHash('sha256').update(secret).digest('base64url')
+  const authVersion = record.authVersion || 1
+  const tokenRecords = pruneShareTokens(record.tokens)
+
+  if (record.tokenHash) {
+    tokenRecords.push({ tokenHash: record.tokenHash, authVersion: record.authVersion || 1 })
+  }
+
+  return tokenRecords.some((tokenRecord) => {
+    if ((tokenRecord.authVersion || 1) !== authVersion) return false
+    return safeHashEqual(tokenRecord.tokenHash, actualHash)
+  })
 }
 
 export function parseCookies(cookieHeader) {
@@ -160,6 +189,11 @@ export function assertShareActive(record) {
     error.statusCode = 404
     throw error
   }
+  if (record.supersededAt) {
+    const error = new Error('Share has been replaced by the current link for this conversation')
+    error.statusCode = 410
+    throw error
+  }
   if (record.revokedAt) {
     const error = new Error('Share has been revoked')
     error.statusCode = 410
@@ -170,6 +204,12 @@ export function assertShareActive(record) {
     error.statusCode = 410
     throw error
   }
+}
+
+function currentRecordForSession(data, sessionId) {
+  return Object.values(data)
+    .filter((record) => record?.sessionId === sessionId && !record.supersededAt)
+    .sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)))[0]
 }
 
 export async function createConversationShare({
@@ -194,18 +234,85 @@ export async function createConversationShare({
     throw error
   }
 
-  const passwordInfo = await hashSharePassword(password)
+  const passwordProvided = typeof password === 'string'
+  const normalizedPassword = passwordProvided ? password.trim() : undefined
+  const passwordInfo = passwordProvided ? await hashSharePassword(normalizedPassword) : {}
   return enqueueWrite(writeQueueName, async () => {
     const data = await readShareStoreFile()
+    const now = new Date().toISOString()
+    const existingRecords = Object.values(data)
+      .filter((record) => record?.sessionId === sessionId)
+      .sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)))
+    const existing = currentRecordForSession(data, sessionId)
+
+    if (permission === 'operate') {
+      const willHavePassword = passwordProvided ? Boolean(normalizedPassword) : Boolean(existing?.passwordHash)
+      if (!willHavePassword) {
+        const error = new Error('Editable shares require a non-empty password')
+        error.statusCode = 400
+        throw error
+      }
+    }
+
+    for (const stale of existingRecords.filter((record) => record?.id !== existing?.id)) {
+      stale.supersededAt = stale.supersededAt || now
+      stale.revokedAt = stale.revokedAt || now
+      stale.updatedAt = now
+      stale.tokens = []
+      stale.tokenHash = undefined
+      stale.tokenIssuedAt = undefined
+      stale.tokenExpiresAt = undefined
+      data[stale.id] = stale
+    }
+
+    if (existing?.id) {
+      const record = {
+        ...existing,
+        permission,
+        ...passwordInfo,
+        updatedAt: now,
+        supersededAt: undefined,
+        expiresAt: expiresAt || undefined,
+        revokedAt: undefined,
+        titleSnapshot: titleSnapshot || existing.titleSnapshot || 'New chat',
+        scope: scope === 'project' ? 'project' : 'global',
+        projectId: scope === 'project' ? projectId : undefined,
+        createdFromHost: existing.createdFromHost || createdFromHost,
+        lastUpdatedFromHost: createdFromHost,
+        authVersion: existing.authVersion || 1,
+        tokens: existing.tokens,
+        tokenHash: existing.tokenHash,
+        tokenIssuedAt: existing.tokenIssuedAt,
+        tokenExpiresAt: existing.tokenExpiresAt,
+      }
+      if (passwordProvided) {
+        record.authVersion = (existing.authVersion || 1) + 1
+        record.tokens = []
+        record.tokenHash = undefined
+        record.tokenIssuedAt = undefined
+        record.tokenExpiresAt = undefined
+      }
+      if (passwordProvided && !passwordInfo.passwordHash) {
+        record.passwordHash = undefined
+        record.passwordSalt = undefined
+        record.passwordVersion = undefined
+      }
+      data[record.id] = record
+      await writeShareStoreFile(data)
+      return publicShareRecord(record)
+    }
+
     let id = generateShareId()
     while (data[id]) id = generateShareId()
-    const now = new Date().toISOString()
     const record = {
       id,
       sessionId,
       permission,
       ...passwordInfo,
+      authVersion: 1,
       createdAt: now,
+      updatedAt: now,
+      supersededAt: undefined,
       expiresAt: expiresAt || undefined,
       revokedAt: undefined,
       titleSnapshot: titleSnapshot || 'New chat',
@@ -214,8 +321,10 @@ export async function createConversationShare({
       accessCount: 0,
       lastAccessedAt: undefined,
       createdFromHost,
+      tokens: [],
       tokenHash: undefined,
       tokenIssuedAt: undefined,
+      tokenExpiresAt: undefined,
     }
     data[id] = record
     await writeShareStoreFile(data)
@@ -233,8 +342,9 @@ export async function listConversationShares(sessionId) {
   const data = await readShareStoreFile()
   return Object.values(data)
     .filter((record) => !sessionId || record.sessionId === sessionId)
+    .filter((record) => !record.supersededAt)
     .map(publicShareRecord)
-    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+    .sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)))
 }
 
 export async function revokeConversationShare(shareId) {
@@ -248,8 +358,11 @@ export async function revokeConversationShare(shareId) {
       throw error
     }
     record.revokedAt = record.revokedAt || new Date().toISOString()
+    record.updatedAt = record.revokedAt
+    record.tokens = []
     record.tokenHash = undefined
     record.tokenIssuedAt = undefined
+    record.tokenExpiresAt = undefined
     data[shareId] = record
     await writeShareStoreFile(data)
     return publicShareRecord(record)
@@ -263,10 +376,16 @@ export async function issueConversationShareToken(shareId) {
     const record = data[shareId]
     assertShareActive(record)
     const { token, tokenHash } = createShareToken(shareId)
-    record.tokenHash = tokenHash
-    record.tokenIssuedAt = new Date().toISOString()
+    const issuedAt = new Date().toISOString()
+    const expiresAt = new Date(Date.now() + SHARE_TOKEN_MAX_AGE_MS).toISOString()
+    record.tokens = pruneShareTokens(record.tokens)
+    record.tokens.push({ tokenHash, issuedAt, expiresAt, authVersion: record.authVersion || 1 })
+    record.tokens = record.tokens.slice(-MAX_SHARE_TOKENS)
+    record.tokenHash = undefined
+    record.tokenIssuedAt = undefined
+    record.tokenExpiresAt = undefined
     record.accessCount = (record.accessCount || 0) + 1
-    record.lastAccessedAt = new Date().toISOString()
+    record.lastAccessedAt = issuedAt
     data[shareId] = record
     await writeShareStoreFile(data)
     return { token, share: publicShareRecord(record) }

@@ -23,7 +23,7 @@ import { handleSharesApi } from './routes/shares.mjs'
 import { handleSharedConversationApi } from './routes/shared-conversation.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { logger } from './utils/logger.mjs'
-import { isLoopbackAddress } from './utils/network.mjs'
+import { isLoopbackAddress, getLanUrls } from './utils/network.mjs'
 import { shutdown as shutdownAgentManager, resetStaleTaskStatuses } from './agent-manager.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -35,9 +35,10 @@ const bootId = randomUUID()
 const startedAt = new Date().toISOString()
 
 const isDev = process.argv.includes('--dev')
-const host = process.env.QUICKFORGE_HOST || '127.0.0.1'
-if (!['127.0.0.1', 'localhost'].includes(host) && process.env.QUICKFORGE_ALLOW_REMOTE !== '1') {
-  throw new Error('Remote binding is disabled by default. Set QUICKFORGE_ALLOW_REMOTE=1 to allow it.')
+const shareLanEnabled = process.env.QUICKFORGE_SHARE_LAN !== '0'
+const host = process.env.QUICKFORGE_HOST || '0.0.0.0'
+if (!['127.0.0.1', 'localhost'].includes(host) && process.env.QUICKFORGE_ALLOW_REMOTE !== '1' && !shareLanEnabled) {
+  throw new Error('Remote binding is disabled by default. Set QUICKFORGE_ALLOW_REMOTE=1 or keep QUICKFORGE_SHARE_LAN enabled to allow it.')
 }
 const port = Number(process.env.QUICKFORGE_PORT || (isDev ? 32176 : 5176))
 const vitePort = Number(process.env.QUICKFORGE_VITE_PORT || 5176)
@@ -66,6 +67,10 @@ async function getSystemStatus() {
     cacheDir,
     logsDir,
     workspaceRoot: getWorkspaceRoot(),
+    host,
+    port,
+    shareLanEnabled,
+    lanUrls: getLanUrls(port),
     project: getActiveProject(config),
   }
 }
@@ -238,7 +243,7 @@ async function handleApi(req, res, url) {
       requestRestart,
       host,
       port,
-      remoteEnabled: process.env.QUICKFORGE_ALLOW_REMOTE === '1',
+      remoteEnabled: host !== '127.0.0.1' && host !== 'localhost',
     })
     return
   }
@@ -303,7 +308,7 @@ function isAllowedHostHeader(value) {
   const parsed = parseHostHeader(value)
   if (!parsed) return false
   const allowedHosts = new Set(['localhost', '127.0.0.1', host])
-  if (process.env.QUICKFORGE_ALLOW_REMOTE === '1') {
+  if (process.env.QUICKFORGE_ALLOW_REMOTE === '1' || shareLanEnabled) {
     allowedHosts.add('0.0.0.0')
     allowedHosts.add(parsed.hostname)
   }
@@ -346,7 +351,7 @@ const server = createServer(async (req, res) => {
     if (
       url.pathname.startsWith('/api/') &&
       !isLoopbackAddress(remoteAddress) &&
-      process.env.QUICKFORGE_SHARE_LAN === '1' &&
+      shareLanEnabled &&
       !(url.pathname.startsWith('/api/shared/') || url.pathname === '/api/health')
     ) {
       res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
@@ -364,7 +369,16 @@ const server = createServer(async (req, res) => {
       return
     }
 
-    if (!isLoopbackAddress(remoteAddress) && process.env.QUICKFORGE_SHARE_LAN === '1') {
+    if (
+      url.pathname.startsWith('/assets/') ||
+      url.pathname === '/favicon.svg' ||
+      url.pathname === '/vite.svg'
+    ) {
+      await serveStatic(req, res, url)
+      return
+    }
+
+    if (!isLoopbackAddress(remoteAddress) && shareLanEnabled) {
       res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
       res.end(JSON.stringify({ error: 'Remote access is limited to shared conversation links.' }))
       return
@@ -391,12 +405,20 @@ startScheduledTaskRunner()
 
 server.listen(port, host, () => {
   logger.info(`QuickForge local API: http://${host}:${port}`)
+  if (shareLanEnabled) {
+    const lanUrls = getLanUrls(port)
+    logger.info(`QuickForge LAN sharing is enabled. Share pages are available at: ${lanUrls.length ? lanUrls.join(', ') : `http://<your-lan-ip>:${port}`}`)
+    logger.info('Remote non-share API routes are restricted while QUICKFORGE_SHARE_LAN=1.')
+  }
   logger.info(`QuickForge data dir: ${dataDir}`)
   logger.info(`QuickForge project: ${getWorkspaceRoot()}`)
 
   if (isDev) {
     startVite()
     setTimeout(() => openBrowser(`http://localhost:${vitePort}`), 1000)
+  } else if (shareLanEnabled) {
+    const lanUrls = getLanUrls(port)
+    openBrowser(lanUrls[0] || `http://localhost:${port}`)
   } else {
     openBrowser(`http://localhost:${port}`)
   }

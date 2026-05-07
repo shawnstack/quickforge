@@ -35,7 +35,8 @@ if not exist "dist\index.html" (
 )
 
 echo.
-echo QuickForge will open at http://localhost:5176
+echo QuickForge will open at the local or LAN address.
+echo LAN sharing mode is enabled: remote clients can open /share links, while non-share APIs are restricted.
 echo Local data is stored in %%USERPROFILE%%\.quickforge\storage by default.
 echo Keep this window open while using QuickForge.
 echo.

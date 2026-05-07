@@ -29,7 +29,7 @@ export async function readJsonBody(req, maxBodyBytes = DEFAULT_MAX_BODY_BYTES) {
   const text = Buffer.concat(chunks).toString('utf8')
   if (!text) return null
   try {
-    return JSON.parse(text)
+    return JSON.parse(text.trimStart())
   } catch {
     const error = new Error('Invalid JSON request body')
     error.statusCode = 400

@@ -242,7 +242,8 @@ async function ensureJsonFile(file, defaultValue = {}) {
 async function readJsonFile(file, defaultValue = {}) {
   try {
     const text = await fs.readFile(file, 'utf8')
-    return text.trim() ? JSON.parse(text) : defaultValue
+    const json = text.trimStart()
+    return json ? JSON.parse(json) : defaultValue
   } catch (error) {
     if (error?.code === 'ENOENT') return defaultValue
     throw error

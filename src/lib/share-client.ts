@@ -12,18 +12,27 @@ export type ConversationShare = {
   projectId?: string
   accessCount?: number
   lastAccessedAt?: string
+  hasPassword?: boolean
 }
 
 export type SharedConversation = {
   id: string
+  shareId?: string
+  sessionId?: string
   title: string
   permission: SharePermission
   expiresAt?: string
   scope?: 'global' | 'project'
   projectId?: string
+  systemPrompt?: string
+  model?: unknown
+  thinkingLevel?: string
+  tools?: unknown[]
+  yoloMode?: boolean
   messages: unknown[]
   isStreaming?: boolean
   taskStatus?: string
+  errorMessage?: string
 }
 
 type JsonResponse<T> = T & { error?: string }
@@ -57,14 +66,14 @@ export function defaultShareExpiresAt(hours = 24) {
 export async function createConversationShare(input: {
   sessionId: string
   permission: SharePermission
-  password: string
+  password?: string
   expiresAt?: string
 }) {
   return request<{
     ok: boolean
     share: ConversationShare
     url: string
-    password: string
+    password?: string
     clipboardText: string
     lanUrls?: string[]
   }>('/api/shares', {
@@ -84,7 +93,7 @@ export async function revokeConversationShare(shareId: string) {
   })
 }
 
-export async function unlockSharedConversation(shareId: string, password: string) {
+export async function unlockSharedConversation(shareId: string, password = '') {
   return request<{
     ok: boolean
     share: ConversationShare
@@ -95,6 +104,18 @@ export async function unlockSharedConversation(shareId: string, password: string
     method: 'POST',
     body: JSON.stringify({ password }),
   })
+}
+
+export type SharedModelProvider = {
+  id?: string
+  name: string
+  type?: string
+  baseUrl?: string
+  models?: unknown[]
+}
+
+export async function loadSharedModelProviders(shareId: string) {
+  return request<{ providers: SharedModelProvider[] }>(`/api/shared/${encodeURIComponent(shareId)}/models`)
 }
 
 export async function loadSharedConversation(shareId: string) {

@@ -25,7 +25,7 @@ export function ShareConversationDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const [permission, setPermission] = useState<SharePermission>('read')
-  const [password, setPassword] = useState(generateSharePassword())
+  const [password, setPassword] = useState('')
   const [expiresIn, setExpiresIn] = useState('24h')
   const [riskAccepted, setRiskAccepted] = useState(false)
   const [generatedText, setGeneratedText] = useState('')
@@ -49,17 +49,21 @@ export function ShareConversationDialog({
 
   if (!open) return null
 
-  const canSubmit = Boolean(sessionId) && (permission !== 'operate' || riskAccepted)
+  const passwordRequired = permission === 'operate'
+  const canSubmit = Boolean(sessionId) && (permission !== 'operate' || (riskAccepted && password.trim()))
 
   const createShare = async () => {
     if (!sessionId || !canSubmit) return
+    if (passwordRequired && !password.trim()) {
+      setError('可操作分享必须设置密码。')
+      return
+    }
     setLoading(true)
     setError(undefined)
     try {
-      const result = await createConversationShare({ sessionId, permission, password, expiresAt })
-      setGeneratedText(result.clipboardText)
-      await copyTextToClipboard(result.clipboardText)
-      setPassword(generateSharePassword())
+      const result = await createConversationShare({ sessionId, permission, password: password.trim(), expiresAt })
+      setGeneratedText(result.url)
+      await copyTextToClipboard(result.url)
       setRiskAccepted(false)
       const list = await listConversationShares(sessionId)
       setShares(list.shares)
@@ -68,6 +72,12 @@ export function ShareConversationDialog({
     } finally {
       setLoading(false)
     }
+  }
+
+  const copyExistingShare = async (shareId: string) => {
+    const url = `${window.location.origin}/share/${encodeURIComponent(shareId)}`
+    setGeneratedText(url)
+    await copyTextToClipboard(url)
   }
 
   const revoke = async (shareId: string) => {
@@ -84,7 +94,7 @@ export function ShareConversationDialog({
       <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
         <div className="shrink-0 border-b border-border px-5 py-4">
           <h2 className="text-base font-semibold">分享到局域网</h2>
-          <p className="mt-1 truncate text-sm text-muted-foreground">当前对话：{title}</p>
+          <p className="mt-1 text-sm text-muted-foreground">当前对话：{title}。同一个对话只会有一个固定分享链接；只读分享密码可选，可操作分享必须设置密码。</p>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -106,7 +116,7 @@ export function ShareConversationDialog({
             {permission === 'operate' ? (
               <div className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-900">
                 <div className="flex gap-2 font-semibold"><AlertTriangle className="mt-0.5 size-4" />高危可操作权限</div>
-                <p className="mt-2 text-xs leading-5">拥有链接和密码的人只能操作这一个原对话，但对方的消息、停止生成、回滚等操作会直接影响你的本机原对话。如果该对话启用了 YOLO 或本地工具，对方可能通过对话间接触发文件读写或命令执行。</p>
+                <p className="mt-2 text-xs leading-5">拥有链接和密码的人只能操作这一个原对话，但对方的消息、停止生成、回滚、模型/思考等级选择、YOLO 状态下可用工具等操作会按正常对话权限直接影响你的本机原对话。可操作分享必须设置密码。</p>
                 <label className="mt-3 flex items-center gap-2 text-xs font-medium">
                   <input type="checkbox" checked={riskAccepted} onChange={(event) => setRiskAccepted(event.target.checked)} />
                   我已了解风险，仍然允许可操作权限。
@@ -116,11 +126,12 @@ export function ShareConversationDialog({
 
             <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
               <label className="text-sm font-medium">
-                密码
-                <input value={password} onChange={(event) => setPassword(event.target.value)} className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" />
+                {passwordRequired ? '密码（可操作必填）' : '密码（可选）'}
+                <input value={password} onChange={(event) => setPassword(event.target.value)} className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" placeholder={passwordRequired ? '可操作分享必须设置密码' : '留空则打开链接无需密码'} />
+                <span className="mt-1 block text-xs text-muted-foreground">{passwordRequired ? '可操作分享必须设置非空密码；修改密码后旧密码和已解锁状态会失效。' : '留空保存会取消密码保护；填写新密码保存后旧密码和已解锁状态会失效。'}</span>
               </label>
               <Button variant="outline" className="self-end" onClick={() => setPassword(generateSharePassword())}>
-                <RefreshCw className="mr-2 size-4" />重新生成
+                <RefreshCw className="mr-2 size-4" />生成密码
               </Button>
             </div>
 
@@ -151,12 +162,17 @@ export function ShareConversationDialog({
                     <div key={share.id} className="flex items-center gap-2 rounded-lg border border-border p-2 text-xs">
                       <div className="min-w-0 flex-1">
                         <div className="truncate font-mono">{share.id}</div>
-                        <div className="text-muted-foreground">{share.permission === 'operate' ? '可操作' : '只读'} · {share.revokedAt ? '已撤销' : share.expiresAt ? `到期 ${new Date(share.expiresAt).toLocaleString()}` : '永久'}</div>
+                        <div className="text-muted-foreground">{share.permission === 'operate' ? '可操作' : '只读'} · {share.hasPassword ? '有密码' : '无密码'} · {share.revokedAt ? '已撤销' : share.expiresAt ? `到期 ${new Date(share.expiresAt).toLocaleString()}` : '永久'}</div>
                       </div>
                       {!share.revokedAt ? (
-                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => void revoke(share.id)} aria-label="撤销分享">
-                          <Trash2 className="size-4" />
-                        </Button>
+                        <>
+                          <Button variant="ghost" size="icon" onClick={() => void copyExistingShare(share.id)} aria-label="复制分享链接" title="复制分享链接">
+                            <Copy className="size-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="text-destructive" onClick={() => void revoke(share.id)} aria-label="撤销分享" title="撤销分享">
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </>
                       ) : null}
                     </div>
                   ))}
@@ -169,8 +185,8 @@ export function ShareConversationDialog({
         <div className="shrink-0 border-t border-border px-5 py-4">
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)}>{t('cancel')}</Button>
-            <Button variant={permission === 'operate' ? 'destructive' : 'default'} disabled={!canSubmit || loading} onClick={() => void createShare()}>
-              <Copy className="mr-2 size-4" />{permission === 'operate' ? '生成高危可操作分享链接' : '生成分享链接并复制'}
+            <Button variant={permission === 'operate' ? 'destructive' : 'default'} disabled={!canSubmit || loading} onClick={() => void createShare()} title={permission === 'operate' && !password.trim() ? '可操作分享必须设置密码' : undefined}>
+              <Copy className="mr-2 size-4" />{permission === 'operate' ? '保存配置并复制高危可操作链接' : '保存配置并复制链接'}
             </Button>
           </div>
         </div>

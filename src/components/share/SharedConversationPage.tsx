@@ -1,115 +1,160 @@
-import { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, Copy, RotateCcw, Send, Square } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { AlertTriangle, Copy } from 'lucide-react'
+import type { Api, Model } from '@mariozechner/pi-ai'
+import { AppStorage, CustomProvidersStore, ProviderKeysStore, SessionsStore, SettingsStore, setAppStorage } from '@mariozechner/pi-web-ui'
 import { Button } from '@/components/ui/button'
+import { ChatPanelHost } from '@/components/chat/ChatPanelHost'
 import { t } from '@/lib/i18n'
-import { copyTextToClipboard, draftTextFromUserMessage } from '@/lib/message-utils'
-import {
-  abortSharedGeneration,
-  loadSharedConversation,
-  rollbackSharedConversation,
-  sendSharedMessage,
-  unlockSharedConversation,
-  type SharedConversation,
-} from '@/lib/share-client'
+import { HttpStorageBackend } from '@/lib/http-storage-backend'
+import { copyTextToClipboard } from '@/lib/message-utils'
+import { unlockSharedConversation, loadSharedModelProviders } from '@/lib/share-client'
+import { defaultThinkingLevelForModel } from '@/lib/pi-chat'
+import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
+import { SharedServerAgent } from '@/lib/shared-server-agent'
+import type { SharedSessionState } from '@/lib/shared-server-agent'
 import { cn } from '@/lib/utils'
 
-type MessageLike = {
-  role?: string
-  content?: unknown
-  toolName?: string
+function providerFromModel(model: Model<Api>) {
+  return {
+    id: `shared-${model.provider}`,
+    name: model.provider,
+    type: model.api,
+    baseUrl: model.baseUrl ?? '',
+    models: [model],
+  }
 }
 
-function textFromContent(content: unknown): string {
-  if (typeof content === 'string') return content
-  if (!Array.isArray(content)) return ''
-  return content
-    .filter((block): block is { type: string; text: string } => {
-      return typeof block === 'object' && block !== null && 'type' in block && block.type === 'text' && 'text' in block && typeof block.text === 'string'
-    })
-    .map((block) => block.text)
-    .join('\n\n')
+async function sharedModelProviders(shareId: string, fallbackModel?: Model<Api>) {
+  try {
+    const payload = await loadSharedModelProviders(shareId)
+    if (payload.providers?.length) return payload.providers
+  } catch {
+    // Keep the share page usable even if model listing is unavailable.
+  }
+  return fallbackModel ? [providerFromModel(fallbackModel)] : []
 }
 
-function messageText(message: MessageLike) {
-  if (message.role === 'user' || message.role === 'user-with-attachments') return draftTextFromUserMessage(message as never)
-  return textFromContent(message.content)
+function createAgentFromState(shareId: string, state: SharedSessionState) {
+  const model = (state.model ?? { provider: 'shared', id: 'shared' }) as Model<Api>
+  return new SharedServerAgent(shareId, {
+    ...state,
+    model,
+    thinkingLevel: state.thinkingLevel ?? defaultThinkingLevelForModel(model),
+  })
 }
 
-function visibleRole(message: MessageLike) {
-  if (message.role === 'assistant') return 'Assistant'
-  if (message.role === 'toolResult') return message.toolName ? `Tool: ${message.toolName}` : 'Tool'
-  return 'You'
+function installSharedPageStorage(shareId: string, model?: Model<Api>) {
+  const stores = {
+    settings: new SettingsStore(),
+    providerKeys: new ProviderKeysStore(),
+    sessions: new SessionsStore(),
+    customProviders: new CustomProvidersStore(),
+  }
+  const backend = new HttpStorageBackend('', {
+    blockedStores: ['sessions', 'provider-keys'],
+    fakeProviderKeys: model ? [model.provider] : undefined,
+    storeOverrides: model
+      ? {
+          'custom-providers': {
+            keys: async () => (await sharedModelProviders(shareId, model)).map((provider) => provider.name),
+            get: async <T = unknown>(key: string) => {
+              const providers = await sharedModelProviders(shareId, model)
+              return (providers.find((provider) => provider.name === key) ?? null) as T | null
+            },
+            has: async (key) => (await sharedModelProviders(shareId, model)).some((provider) => provider.name === key),
+          },
+        }
+      : undefined,
+  })
+  stores.settings.setBackend(backend)
+  stores.providerKeys.setBackend(backend)
+  stores.sessions.setBackend(backend)
+  stores.customProviders.setBackend(backend)
+  setAppStorage(new AppStorage(stores.settings, stores.providerKeys, stores.sessions, stores.customProviders, backend))
 }
 
 export function SharedConversationPage({ shareId }: { shareId: string }) {
   const [password, setPassword] = useState('')
-  const [conversation, setConversation] = useState<SharedConversation>()
+  const [agent, setAgent] = useState<SharedServerAgent | null>(null)
+  const [permission, setPermission] = useState<'read' | 'operate'>('read')
+  const [title, setTitle] = useState('QuickForge 分享对话')
   const [error, setError] = useState<string>()
   const [loading, setLoading] = useState(false)
-  const [message, setMessage] = useState('')
+  const autoUnlockAttemptedRef = useRef(false)
 
-  const operate = conversation?.permission === 'operate'
-  const unlocked = Boolean(conversation)
-
-  const refresh = useCallback(async () => {
-    setConversation(await loadSharedConversation(shareId))
-  }, [shareId])
+  const operate = permission === 'operate'
+  const unlocked = Boolean(agent)
+  const workspaceToolsEnabled = Boolean(agent?.state.tools?.length)
 
   useEffect(() => {
-    if (!unlocked) return
-    const timer = window.setInterval(() => {
-      void refresh().catch(() => undefined)
-    }, 1500)
-    return () => window.clearInterval(timer)
-  }, [shareId, unlocked, refresh])
+    installSharedPageStorage(shareId, agent?.state.model)
+  }, [agent?.state.model, shareId])
 
-  const unlock = async () => {
-    if (!password.trim()) return
+  useEffect(() => {
+    return () => agent?.dispose()
+  }, [agent])
+
+  const unlock = useCallback(async (inputPassword = password.trim()) => {
     setError(undefined)
     setLoading(true)
     try {
-      await unlockSharedConversation(shareId, password.trim())
-      await refresh()
+      const result = await unlockSharedConversation(shareId, inputPassword)
+      setPermission(result.permission)
+      setTitle(result.title || result.share.titleSnapshot || 'QuickForge 分享对话')
+      const state = await SharedServerAgent.loadState(shareId)
+      installSharedPageStorage(shareId, state.model)
+      const sharedAgent = createAgentFromState(shareId, state)
+      setAgent(sharedAgent)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to unlock shared conversation')
     } finally {
       setLoading(false)
     }
-  }
+  }, [password, shareId])
 
-  const submit = async () => {
-    if (!operate || !message.trim()) return
-    const text = message.trim()
-    setMessage('')
-    setError(undefined)
+  useEffect(() => {
+    if (unlocked || loading || autoUnlockAttemptedRef.current) return
+    autoUnlockAttemptedRef.current = true
+    const timer = window.setTimeout(() => {
+      void unlock('')
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [loading, unlock, unlocked])
+
+  const copyAnswer = useCallback(async (text: string) => {
+    await copyTextToClipboard(text)
+  }, [])
+
+  const openSharedModelSelector = useCallback(async () => {
+    if (!agent || agent.permission !== 'operate') return
     try {
-      await sendSharedMessage(shareId, text)
-      await refresh()
+      const providers = await sharedModelProviders(shareId, agent.state.model)
+      const models = providers.flatMap((provider) => provider.models ?? []) as Model<Api>[]
+      if (!models.length) return
+      openCustomOnlyModelSelector(agent.state.model, models, (model) => {
+        installSharedPageStorage(shareId, model)
+        void agent.updateModel(model).catch((err) => {
+          setError(err instanceof Error ? err.message : 'Failed to update model')
+        })
+      })
     } catch (err) {
-      setMessage(text)
-      setError(err instanceof Error ? err.message : 'Failed to send message')
+      setError(err instanceof Error ? err.message : 'Failed to load models')
     }
-  }
+  }, [agent, shareId])
 
-  const rollback = async (messageIndex: number) => {
-    if (!operate) return
+  const rollback = useCallback(async (messageIndex: number) => {
+    if (!agent || agent.permission !== 'operate') return
+    if (agent.state.isStreaming) {
+      alert(t('generationStillRunning'))
+      return
+    }
     if (!window.confirm('确定回滚这个原对话吗？该操作会直接影响分享者本机中的这一个对话。')) return
     try {
-      const result = await rollbackSharedConversation(shareId, messageIndex)
-      setConversation(result.session)
+      await agent.rollback(messageIndex)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to roll back')
     }
-  }
-
-  const abort = async () => {
-    try {
-      await abortSharedGeneration(shareId)
-      await refresh()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to stop generation')
-    }
-  }
+  }, [agent])
 
   if (!unlocked) {
     return (
@@ -119,7 +164,7 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
             <AlertTriangle className="size-5 text-amber-500" />
             QuickForge 局域网对话分享
           </div>
-          <p className="mt-2 text-sm text-muted-foreground">请输入分享者提供的密码。分享链接只能访问这一个对话。</p>
+           <p className="mt-2 text-sm text-muted-foreground">如果分享者设置了密码，请输入密码。未设置密码的链接会自动打开。</p>
           <input
             type="password"
             value={password}
@@ -131,93 +176,51 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
           />
           {error ? <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
           <Button className="mt-5 w-full" onClick={() => void unlock()} disabled={loading || !password.trim()}>
-            {loading ? t('loading') : '解锁分享对话'}
+            {loading ? t('loading') : '用密码打开分享对话'}
           </Button>
         </div>
       </div>
     )
   }
 
-  const currentConversation = conversation
-  if (!currentConversation) return null
-
   return (
     <div className="flex h-screen min-h-0 flex-col bg-background text-foreground">
       <header className={cn('shrink-0 border-b px-4 py-3', operate ? 'border-red-300 bg-red-50 text-red-950' : 'border-border bg-card')}>
-        <div className="mx-auto max-w-4xl">
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            {operate ? <AlertTriangle className="size-4 text-red-600" /> : null}
-            {operate ? '⚠ 你正在操作分享者的原始对话' : 'QuickForge 只读分享对话'}
+        <div className="mx-auto flex max-w-4xl items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              {operate ? <AlertTriangle className="size-4 text-red-600" /> : null}
+              {operate ? '可操作分享：正在操作分享者的原始对话' : '只读分享对话'}
+            </div>
+            <div className={cn('mt-1 truncate text-xs', operate ? 'text-red-800' : 'text-muted-foreground')}>
+              {operate
+                ? '发送消息、停止生成、回滚都会直接影响分享者本机中的这一个对话。Fork、侧栏、设置和完整后台 API 已禁用。'
+                : '界面与正常对话保持一致，但你只能查看这一个对话，不能发送消息或修改内容。'}
+            </div>
+            <div className="mt-1 truncate text-sm font-medium">{title}</div>
           </div>
-          <div className={cn('mt-1 text-xs', operate ? 'text-red-800' : 'text-muted-foreground')}>
-            {operate
-              ? '你的操作会直接影响分享者本机中的这一个对话。禁止 Fork，不能访问其他对话、项目、设置或密钥。'
-              : '你只能查看这一个对话，不能发送消息或访问其他内容。'}
-          </div>
-          <div className="mt-2 truncate text-sm font-medium">{currentConversation.title}</div>
+          <Button variant="ghost" size="icon" onClick={() => void copyTextToClipboard(window.location.href)} aria-label="复制分享链接" title="复制分享链接">
+            <Copy className="size-4" />
+          </Button>
         </div>
       </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
-        <div className="mx-auto max-w-4xl space-y-4">
-          {currentConversation.messages.map((raw, index) => {
-            const item = raw as MessageLike
-            const text = messageText(item)
-            if (!text) return null
-            const isUser = item.role === 'user' || item.role === 'user-with-attachments'
-            const isAssistant = item.role === 'assistant'
-            return (
-              <div key={index} className={cn('group rounded-2xl border p-4 shadow-sm', isUser ? 'ml-auto max-w-[82%] border-primary/20 bg-primary/10' : 'mr-auto max-w-[92%] border-border bg-card')}>
-                <div className="mb-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                  <span>{visibleRole(item)}</span>
-                  <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                    <Button variant="ghost" size="icon" className="size-7" onClick={() => void copyTextToClipboard(text)} aria-label={t('copy')}>
-                      <Copy className="size-3.5" />
-                    </Button>
-                    {operate && (isUser || isAssistant) ? (
-                      <Button variant="ghost" size="icon" className="size-7 text-destructive hover:text-destructive" onClick={() => void rollback(index)} aria-label={t('rollback')}>
-                        <RotateCcw className="size-3.5" />
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="whitespace-pre-wrap break-words text-sm leading-6">{text}</div>
-              </div>
-            )
-          })}
-        </div>
-      </main>
+      {error ? <div className="mx-auto w-full max-w-4xl px-4 py-2 text-sm text-destructive">{error}</div> : null}
 
-      {error ? <div className="mx-auto w-full max-w-4xl px-4 pb-2 text-sm text-destructive">{error}</div> : null}
-
-      <footer className="shrink-0 border-t border-border bg-background px-4 py-3">
-        <div className="mx-auto max-w-4xl">
-          {operate ? (
-            <div className="rounded-xl border border-red-300 bg-red-50 p-3">
-              <div className="mb-2 text-xs font-medium text-red-700">可操作模式：你发送的内容会进入原对话。Fork 已禁用。</div>
-              <div className="flex gap-2">
-                <textarea
-                  value={message}
-                  onChange={(event) => setMessage(event.target.value)}
-                  className="min-h-12 flex-1 resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-primary"
-                  placeholder="发送到这个原对话..."
-                />
-                {currentConversation.isStreaming ? (
-                  <Button variant="destructive" size="icon" onClick={() => void abort()} aria-label="Stop">
-                    <Square className="size-4" />
-                  </Button>
-                ) : (
-                  <Button size="icon" onClick={() => void submit()} disabled={!message.trim()} aria-label="Send">
-                    <Send className="size-4" />
-                  </Button>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-xl border border-border bg-card p-3 text-center text-sm text-muted-foreground">只读分享：不能发送消息或操作对话。</div>
-          )}
-        </div>
-      </footer>
+      <ChatPanelHost
+        agent={agent}
+        revision={0}
+        yoloMode={workspaceToolsEnabled}
+        workspaceToolsEnabled={workspaceToolsEnabled}
+        onModelSelect={openSharedModelSelector}
+        onToggleYoloMode={() => undefined}
+        onRollbackFromMessage={rollback}
+        onCopyAnswer={copyAnswer}
+        onForkFromMessage={() => undefined}
+        disableFork
+        readOnly={!operate}
+        bypassClientApiKeyCheck
+      />
     </div>
   )
 }

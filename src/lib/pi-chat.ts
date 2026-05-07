@@ -186,17 +186,17 @@ function attachBackend(stores: StoreBundle, backend: StorageBackend) {
   stores.customProviders.setBackend(backend)
 }
 
-async function createStorageBackend(): Promise<StorageBackend> {
+async function createStorageBackend(options?: ConstructorParameters<typeof HttpStorageBackend>[1]): Promise<StorageBackend> {
   if (!(await HttpStorageBackend.isAvailable())) {
     throw new Error('QuickForge local service is unavailable.')
   }
 
-  return new HttpStorageBackend()
+  return new HttpStorageBackend('', options)
 }
 
-export async function initializePiStorage() {
+export async function initializePiStorage(options: { blockedStores?: Iterable<string> } = {}) {
   const stores = createStores()
-  const backend = await createStorageBackend()
+  const backend = await createStorageBackend(options.blockedStores)
 
   attachBackend(stores, backend)
 

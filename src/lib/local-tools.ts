@@ -101,8 +101,7 @@ for (const [name, label] of [
 
 // Tool execution is entirely server-side. The ChatPanel never calls .execute()
 // on client-side tools — it only reads state.tools for display purposes.
-// Returning an empty array is safe because ServerAgent ignores state.tools
-// and the server agent has its own canonical tool list.
-export function getLocalWorkspaceTools(): AgentTool[] {
-  return []
+// Returning tool metadata is enough for the renderer to resolve names/labels.
+export function getLocalWorkspaceTools(tools: unknown[] = []): AgentTool[] {
+  return tools as AgentTool[]
 }

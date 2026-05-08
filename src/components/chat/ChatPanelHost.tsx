@@ -324,6 +324,7 @@ export function ChatPanelHost({
 
     const builtinCommands = (): CustomCommandSummary[] => [
       { name: 'compact', description: t('compactCommandDescription'), argumentHint: '' },
+      { name: 'clear', description: t('clearCommandDescription'), argumentHint: '' },
     ]
 
     const selectedCommandFromSuggestions = () => {

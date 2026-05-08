@@ -228,6 +228,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
 
         if ((event as { type: string }).type === 'title_updated') {
           const titleEvent = event as unknown as { type: 'title_updated'; title: string }
+          if (titleEvent.title) task.title = titleEvent.title
           if (task.sessionId === currentSessionIdRef.current && titleEvent.title) {
             currentTitleRef.current = titleEvent.title
             setCurrentTitle(titleEvent.title)

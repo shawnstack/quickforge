@@ -220,6 +220,8 @@ function escapeXml(value) {
 export function parseInternalCommandInvocation(message) {
   const text = textFromUserMessage(message).trim()
   if (/^\/commands(?:\s+.*)?$/i.test(text)) return { type: 'list' }
+  if (/^\/clear\s*$/i.test(text)) return { type: 'clear' }
+  if (/^\/clear(?:\s+[\s\S]+)$/i.test(text)) return { type: 'invalid-clear-args' }
 
   const compactMatch = text.match(/^\/compact(?:\s+([\s\S]*))?$/i)
   if (compactMatch) return { type: 'compact', args: (compactMatch[1] || '').trim() }
@@ -238,6 +240,14 @@ export async function handleInternalCommand(invocation, workspaceRoot) {
 
   if (invocation.type === 'compact') {
     return { compact: true, args: invocation.args || '' }
+  }
+
+  if (invocation.type === 'clear') {
+    return { clear: true }
+  }
+
+  if (invocation.type === 'invalid-clear-args') {
+    return 'Usage: /clear'
   }
 
   if (!workspaceRoot) {

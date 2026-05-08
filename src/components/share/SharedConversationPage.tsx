@@ -186,21 +186,25 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
   return (
     <div className="flex h-screen min-h-0 flex-col bg-background text-foreground">
       <header className={cn('shrink-0 border-b px-4 py-3', operate ? 'border-red-300 bg-red-50 text-red-950' : 'border-border bg-card')}>
-        <div className="mx-auto flex max-w-4xl items-center gap-3">
+        <div className="mx-auto flex max-w-4xl items-start gap-3">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              {operate ? <AlertTriangle className="size-4 text-red-600" /> : null}
-              {operate ? '可操作分享：正在操作分享者的原始对话' : '只读分享对话'}
+            <div className="truncate text-sm font-semibold">{title}</div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+              <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium', operate ? 'bg-red-100 text-red-700' : 'bg-muted text-muted-foreground')}>
+                {operate ? <AlertTriangle className="size-3.5" /> : null}
+                {operate ? '高危可操作' : '只读分享'}
+              </span>
+              <span className={cn(operate ? 'text-red-800' : 'text-muted-foreground')}>
+                {operate ? '正在操作分享者的原始对话' : '只能查看，不能发送或修改'}
+              </span>
             </div>
-            <div className={cn('mt-1 truncate text-xs', operate ? 'text-red-800' : 'text-muted-foreground')}>
-              {operate
-                ? '发送消息、停止生成、回滚都会直接影响分享者本机中的这一个对话。Fork、侧栏、设置和完整后台 API 已禁用。'
-                : '界面与正常对话保持一致，但你只能查看这一个对话，不能发送消息或修改内容。'}
-            </div>
-            <div className="mt-1 truncate text-sm font-medium">{title}</div>
+            {!operate ? (
+              <div className="mt-1 text-xs leading-5 text-muted-foreground">界面与正常对话保持一致</div>
+            ) : null}
           </div>
-          <Button variant="ghost" size="icon" onClick={() => void copyTextToClipboard(window.location.href)} aria-label="复制分享链接" title="复制分享链接">
+          <Button variant="ghost" size="sm" className={cn('shrink-0', operate ? 'text-red-700 hover:bg-red-100 hover:text-red-800' : undefined)} onClick={() => void copyTextToClipboard(window.location.href)} aria-label={operate ? '复制高危分享链接' : '复制分享链接'} title={operate ? '复制高危分享链接' : '复制分享链接'}>
             <Copy className="size-4" />
+            <span className="hidden sm:inline">{operate ? '复制高危链接' : '复制链接'}</span>
           </Button>
         </div>
       </header>

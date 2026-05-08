@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { AlertTriangle, Copy, RefreshCw, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
@@ -24,6 +24,7 @@ export function ShareConversationDialog({
   title: string
   onOpenChange: (open: boolean) => void
 }) {
+  const passwordFieldId = useId()
   const [permission, setPermission] = useState<SharePermission>('read')
   const [password, setPassword] = useState('')
   const [expiresIn, setExpiresIn] = useState('24h')
@@ -124,15 +125,17 @@ export function ShareConversationDialog({
               </div>
             ) : null}
 
-            <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-              <label className="text-sm font-medium">
+            <div className="space-y-2">
+              <label htmlFor={passwordFieldId} className="block text-sm font-medium">
                 {passwordRequired ? '密码（可操作必填）' : '密码（可选）'}
-                <input value={password} onChange={(event) => setPassword(event.target.value)} className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" placeholder={passwordRequired ? '可操作分享必须设置密码' : '留空则打开链接无需密码'} />
-                <span className="mt-1 block text-xs text-muted-foreground">{passwordRequired ? '可操作分享必须设置非空密码；修改密码后旧密码和已解锁状态会失效。' : '留空保存会取消密码保护；填写新密码保存后旧密码和已解锁状态会失效。'}</span>
               </label>
-              <Button variant="outline" className="self-end" onClick={() => setPassword(generateSharePassword())}>
-                <RefreshCw className="mr-2 size-4" />生成密码
-              </Button>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <input id={passwordFieldId} value={password} onChange={(event) => setPassword(event.target.value)} className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm" placeholder={passwordRequired ? '可操作分享必须设置密码' : '留空则打开链接无需密码'} />
+                <Button variant="outline" className="h-10 sm:shrink-0" onClick={() => setPassword(generateSharePassword())}>
+                  <RefreshCw className="mr-2 size-4" />生成密码
+                </Button>
+              </div>
+              <span className="block text-xs text-muted-foreground">{passwordRequired ? '可操作分享必须设置非空密码；修改密码后旧密码和已解锁状态会失效。' : '留空保存会取消密码保护；填写新密码保存后旧密码和已解锁状态会失效。'}</span>
             </div>
 
             <label className="block text-sm font-medium">

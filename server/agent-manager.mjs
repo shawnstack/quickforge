@@ -234,6 +234,11 @@ async function compactSession(session, initialUserMessage, compactOptions) {
     ].join('\n'), session.model)
 
     const compactedMessages = [summaryMessage, notice, ...result.recentTail]
+    const titleSourceMessages = [summaryMessage, ...result.recentTail]
+    const aiTitle = await generateAiTitle(titleSourceMessages, session.model, session.thinkingLevel, session.getApiKey)
+    const compactedTitle = aiTitle && aiTitle !== 'New chat'
+      ? aiTitle
+      : compactedSessionTitle(session.title)
     const compactedSessionId = randomUUID()
     const compactedSession = await createAgent(compactedSessionId, {
       scope: session.scope,
@@ -242,7 +247,7 @@ async function compactSession(session, initialUserMessage, compactOptions) {
       model: session.model,
       thinkingLevel: session.thinkingLevel,
       messages: compactedMessages,
-      title: compactedSessionTitle(session.title),
+      title: compactedTitle,
       createdAt: new Date().toISOString(),
     })
     updateSessionMessages(compactedSession, compactedMessages)
@@ -287,12 +292,44 @@ async function compactSession(session, initialUserMessage, compactOptions) {
   }
 }
 
+async function clearSession(session) {
+  if (session.agent.state.isStreaming) {
+    session.agent.state.messages = [
+      ...session.agent.state.messages,
+      assistantTextMessage('Cannot clear while a generation is still running. Stop it or wait until it finishes, then run /clear again.', session.model),
+    ]
+    await persistSession(session)
+    const messages = session.agent.state.messages
+    emitSessionEvent(session, { type: 'message_end', messages })
+    emitSessionEvent(session, { type: 'agent_end', messages })
+    return { sessionId: session.sessionId, status: session.status }
+  }
+
+  updateSessionMessages(session, [])
+  session.status = 'idle'
+  session.startedAt = null
+  session.finishedAt = new Date().toISOString()
+  session.title = 'New chat'
+  session.titleGenerated = false
+  session.agent.state.isStreaming = false
+  session.agent.state.streamingMessage = undefined
+  session.agent.state.errorMessage = undefined
+
+  await persistSession(session)
+  const messages = session.agent.state.messages
+  emitSessionEvent(session, { type: 'message_end', messages })
+  emitSessionEvent(session, { type: 'agent_end', messages })
+  emitSessionEvent(session, { type: 'title_updated', title: session.title })
+  return { sessionId: session.sessionId, status: session.status, cleared: true }
+}
+
 async function resolveCommandState(session, userMessage) {
   const internalResponse = await handleInternalCommand(
     parseInternalCommandInvocation(userMessage),
     session.projectContext?.workspaceRoot,
   )
   if (typeof internalResponse === 'string') return { textResponse: internalResponse }
+  if (internalResponse?.clear) return { clear: internalResponse }
   if (internalResponse?.compact) return { compact: internalResponse }
 
   if (!session.projectContext?.workspaceRoot) return { userMessage }
@@ -696,6 +733,10 @@ export async function runPrompt(sessionId, message) {
     agentEvents.emit('agent_event', { sessionId, type: 'message_end', messages })
     agentEvents.emit('agent_event', { sessionId, type: 'agent_end', messages })
     return { sessionId, status: session.status }
+  }
+
+  if (commandState.clear) {
+    return clearSession(session)
   }
 
   if (commandState.compact) {

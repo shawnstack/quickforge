@@ -34,15 +34,15 @@ export async function toolGetProjectInfo(_params, context) {
 // --- list_dir ---
 export async function toolListDir(params, context) {
   const dir = resolveWorkspacePath(params?.path || '.', context)
-  assertSafeWorkspacePath(dir, context)
+  await assertSafeWorkspacePath(dir, context)
 
   const entries = await fs.readdir(dir, { withFileTypes: true })
   const rows = await Promise.all(entries.map(async (entry) => {
     const fullPath = path.join(dir, entry.name)
-    const stat = await fs.stat(fullPath).catch(() => null)
+    const stat = await fs.lstat(fullPath).catch(() => null)
     return {
       name: `${entry.name}${entry.isDirectory() ? '/' : ''}`,
-      type: entry.isDirectory() ? 'directory' : entry.isFile() ? 'file' : 'other',
+      type: entry.isDirectory() ? 'directory' : stat?.isSymbolicLink() ? 'other' : entry.isFile() ? 'file' : 'other',
       size: stat?.size ?? 0,
       modified: stat?.mtime?.toISOString?.() ?? '',
     }
@@ -63,7 +63,7 @@ export async function toolListDir(params, context) {
 // --- read_file ---
 export async function toolReadFile(params, context) {
   const file = resolveWorkspacePath(params?.path, context)
-  assertSafeWorkspacePath(file, context)
+  await assertSafeWorkspacePath(file, context)
 
   const text = await fs.readFile(file, 'utf8')
   const lines = splitLines(text)
@@ -107,7 +107,7 @@ async function poolMap(items, fn, concurrency = 20) {
 
 export async function toolGrepFiles(params, context) {
   const root = resolveWorkspacePath(params?.path || '.', context)
-  assertSafeWorkspacePath(root, context)
+  await assertSafeWorkspacePath(root, context)
 
   const query = String(params?.query || '')
   if (!query) {
@@ -187,7 +187,7 @@ export async function toolGrepFiles(params, context) {
 // --- write_file ---
 export async function toolWriteFile(params, context) {
   const file = resolveWorkspacePath(params?.path, context)
-  assertSafeWorkspacePath(file, context)
+  await assertSafeWorkspacePath(file, context, { forWrite: true })
 
   await fs.mkdir(path.dirname(file), { recursive: true })
   await fs.writeFile(file, String(params?.content ?? ''), 'utf8')
@@ -212,7 +212,7 @@ function countOccurrences(text, needle) {
 
 export async function toolEditFile(params, context) {
   const file = resolveWorkspacePath(params?.path, context)
-  assertSafeWorkspacePath(file, context)
+  await assertSafeWorkspacePath(file, context)
 
   const oldText = String(params?.oldText ?? '')
   const newText = String(params?.newText ?? '')

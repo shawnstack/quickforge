@@ -18,10 +18,10 @@ export async function handleGetTools(_req, res) {
   sendJson(res, 200, { tools: [...skillTools, ...workspaceTools] })
 }
 
-const dangerousTools = new Set(['write_file', 'edit_file', 'run_command'])
+const workspaceToolNames = new Set(workspaceTools.map((tool) => tool.name))
 
 async function assertYoloEnabledForTool(name) {
-  if (!dangerousTools.has(name)) return
+  if (!workspaceToolNames.has(name)) return
 
   const settings = await readStore('settings')
   const yoloMode = settings?.['yolo-mode'] === true || settings?.['yolo-mode'] === 'true'

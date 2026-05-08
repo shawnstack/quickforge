@@ -65,6 +65,23 @@ async function createServerTools(projectId, projectContext, skillsContext, inclu
   return tools
 }
 
+function sessionSkillsContext(session) {
+  return {
+    globalSkillNames: session.globalSkillNames,
+    projectSkillNames: session.projectSkillNames,
+  }
+}
+
+async function rebuildSessionTools(session) {
+  session.agent.state.tools = await createServerTools(
+    session.projectId,
+    session.projectContext,
+    sessionSkillsContext(session),
+    session.yoloMode,
+    createCommandToolPermissions(session),
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Agent Manager
 // ---------------------------------------------------------------------------
@@ -472,11 +489,16 @@ export async function createAgent(sessionId, config = {}) {
   }
 
   // Build skills tools for enabled skills, plus workspace tools when YOLO + project are available.
-  const toolPermissions = (toolName) => {
-    const session = agentSessions.get(sessionId)
-    return session ? createCommandToolPermissions(session)(toolName) : null
-  }
-  const tools = await createServerTools(projectId, projectContext, skillsContext, yoloMode, toolPermissions)
+  const tools = await createServerTools(
+    projectId,
+    projectContext,
+    skillsContext,
+    yoloMode,
+    (toolName) => {
+      const session = agentSessions.get(sessionId)
+      return session ? createCommandToolPermissions(session)(toolName) : null
+    },
+  )
 
   // Resolve API key
   const getApiKey = async (provider) => {
@@ -510,7 +532,8 @@ export async function createAgent(sessionId, config = {}) {
       if (!projectContext) {
         return { block: true, reason: 'No active project. Select a project to use tools.' }
       }
-      if (!yoloMode) {
+      const currentSession = agentSessions.get(sessionId)
+      if (!currentSession?.yoloMode) {
         return { block: true, reason: 'YOLO mode is disabled. Enable it to use tools.' }
       }
       return undefined
@@ -531,6 +554,8 @@ export async function createAgent(sessionId, config = {}) {
     scope,
     title,
     createdAt,
+    globalSkillNames: skillsContext.globalSkillNames,
+    projectSkillNames: skillsContext.projectSkillNames,
     status: 'idle',
     startedAt: null,
     finishedAt: null,
@@ -862,6 +887,7 @@ export function getSessionState(sessionId) {
     status: session.status,
     startedAt: session.startedAt,
     finishedAt: session.finishedAt,
+    tools: session.agent.state.tools,
     messages: session.agent.state.messages,
     isStreaming: session.agent.state.isStreaming,
     errorMessage: session.agent.state.errorMessage,
@@ -979,6 +1005,22 @@ export function listSessions() {
     })
   }
   return result
+}
+
+export async function updateSessionYoloMode(sessionId, yoloMode) {
+  const session = agentSessions.get(sessionId)
+  if (!session) {
+    throw Object.assign(new Error('Session not found'), { statusCode: 404 })
+  }
+
+  session.yoloMode = Boolean(yoloMode)
+  await rebuildSessionTools(session)
+  await persistSession(session)
+
+  const state = getSessionState(sessionId)
+  emitSessionEvent(session, { type: 'state', ...state })
+
+  return { sessionId, yoloMode: session.yoloMode }
 }
 
 /**

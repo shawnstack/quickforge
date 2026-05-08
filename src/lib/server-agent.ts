@@ -351,6 +351,22 @@ export class ServerAgent {
   }
 
   /**
+   * Sync a YOLO mode change to the server so current session tools match the UI toggle.
+   */
+  async updateYoloMode(yoloMode: boolean): Promise<void> {
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/yolo-mode`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ yoloMode }),
+    })
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null) as { error?: string } | null
+      throw new Error(payload?.error || `Failed to sync YOLO mode: HTTP ${res.status}`)
+    }
+  }
+
+  /**
    * Sync a model change to the server so the session persists the correct model.
    */
   async updateModel(model: Model<Api>): Promise<void> {
@@ -401,7 +417,7 @@ export class ServerAgent {
         // Guard against SSE reconnect overwriting client messages with a stale
         // server snapshot: only accept server messages if the client has none
         // (initial load) or if the server has at least as many messages.
-        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; isStreaming?: boolean; status?: string }
+        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; isStreaming?: boolean; status?: string }
         if (s.systemPrompt !== undefined) {
           this.state.systemPrompt = s.systemPrompt
         }
@@ -415,6 +431,9 @@ export class ServerAgent {
           this._syncingThinkingLevel = true
           this.state.thinkingLevel = s.thinkingLevel as ThinkingLevel
           this._syncingThinkingLevel = false
+        }
+        if (s.tools) {
+          this.state.tools = s.tools
         }
         let wasStreaming = this.state.isStreaming
         if (s.isStreaming !== undefined) {
@@ -558,6 +577,9 @@ export class ServerAgent {
         this._syncingThinkingLevel = true
         this.state.thinkingLevel = state.thinkingLevel as ThinkingLevel
         this._syncingThinkingLevel = false
+      }
+      if (state.tools) {
+        this.state.tools = state.tools
       }
       if (state.isStreaming !== undefined) {
         const wasStreaming = this.state.isStreaming

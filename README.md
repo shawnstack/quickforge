@@ -117,9 +117,9 @@ Toggle YOLO from the bottom bar. When enabled, the agent gains these local tools
 | `grep_files` | Search files by text/regex |
 | `write_file` | Create or overwrite a file |
 | `edit_file` | Replace text in a file |
-| `run_command` | Execute shell commands |
+| `run_command` | Execute shell commands from the workspace directory |
 
-All tools are restricted to the workspace root. YOLO runs **without per-tool confirmations** — only enable it for trusted models and workspaces.
+File tools are restricted to the workspace root. `run_command` starts in the workspace directory but runs with the current OS user and is not a filesystem sandbox. YOLO runs **without per-tool confirmations** — only enable it for trusted models and workspaces.
 
 ## Verification
 

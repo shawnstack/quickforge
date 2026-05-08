@@ -14,6 +14,7 @@ import {
   restoreAgent,
   touchSession,
   listSessions,
+  updateSessionYoloMode,
   updateSessionModel,
   updateSessionThinkingLevel,
   agentEvents,
@@ -114,6 +115,14 @@ export async function handleAgentApi(req, res, url) {
   if (req.method === 'DELETE' && parts.length === 3) {
     await destroyAgent(sessionId)
     sendJson(res, 200, { ok: true })
+    return
+  }
+
+  // POST /api/agents/:sessionId/yolo-mode — update session YOLO mode
+  if (req.method === 'POST' && subPath === 'yolo-mode') {
+    const body = await readJsonBody(req)
+    const result = await updateSessionYoloMode(sessionId, body?.yoloMode === true)
+    sendJson(res, 200, result)
     return
   }
 

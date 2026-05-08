@@ -242,7 +242,8 @@ When enabled, the model can call these tools:
 Risk notes:
 
 - YOLO mode does not ask for confirmation on every tool call.
-- The model may modify files, overwrite files, or run commands.
+- File tools are restricted to the project root.
+- `run_command` starts commands from the project directory, but it is not a filesystem sandbox; commands run with the current OS user's permissions.
 - Enable it only for trusted models and trusted workspaces.
 - Commit your work to Git or make a backup before large changes.
 

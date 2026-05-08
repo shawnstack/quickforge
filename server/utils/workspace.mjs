@@ -61,9 +61,44 @@ export function isSensitiveWorkspacePath(fullPath, context) {
   )
 }
 
-export function assertSafeWorkspacePath(fullPath, context) {
+async function realpathNearestExistingParent(inputPath) {
+  let current = path.resolve(inputPath)
+  while (true) {
+    try {
+      return await fs.realpath(current)
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+      const parent = path.dirname(current)
+      if (parent === current) throw error
+      current = parent
+    }
+  }
+}
+
+export async function assertSafeWorkspacePath(fullPath, context, options = {}) {
   if (isSensitiveWorkspacePath(fullPath, context)) {
     const error = new Error(`Access to sensitive path is blocked: ${toWorkspaceRelative(fullPath, context)}`)
+    error.statusCode = 403
+    throw error
+  }
+
+  const workspaceRoot = getToolWorkspaceRoot(context)
+  const workspaceReal = await fs.realpath(workspaceRoot)
+  let targetReal
+  try {
+    targetReal = await fs.realpath(fullPath)
+  } catch (error) {
+    if (options.forWrite && error?.code === 'ENOENT') {
+      targetReal = await realpathNearestExistingParent(path.dirname(fullPath))
+    } else if (options.ignoreMissing && error?.code === 'ENOENT') {
+      return
+    } else {
+      throw error
+    }
+  }
+
+  if (!isInside(workspaceReal, targetReal)) {
+    const error = new Error(`Path resolves outside the selected project: ${toWorkspaceRelative(fullPath, context)}`)
     error.statusCode = 403
     throw error
   }
@@ -126,9 +161,21 @@ export async function walkFiles(root, files = [], context) {
   for (const entry of entries) {
     const fullPath = path.join(root, entry.name)
     if (entry.isDirectory()) {
-      if (!shouldSkipSearchDir(entry.name)) await walkFiles(fullPath, files, context)
-    } else if (entry.isFile() && shouldSearchFile(entry.name) && !isSensitiveWorkspacePath(fullPath, context)) {
-      files.push(fullPath)
+      if (!shouldSkipSearchDir(entry.name)) {
+        try {
+          await assertSafeWorkspacePath(fullPath, context)
+          await walkFiles(fullPath, files, context)
+        } catch {
+          // Skip directories that resolve outside the workspace.
+        }
+      }
+    } else if (entry.isFile() && shouldSearchFile(entry.name)) {
+      try {
+        await assertSafeWorkspacePath(fullPath, context, { ignoreMissing: true })
+        files.push(fullPath)
+      } catch {
+        // Skip symlinks or files that resolve outside the workspace.
+      }
     }
   }
   return files

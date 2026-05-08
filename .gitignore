@@ -10,6 +10,9 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+package-dist
+package-offline
+*.tgz
 *.local
 .env
 .env.local

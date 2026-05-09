@@ -13,6 +13,7 @@ export type ConversationShare = {
   accessCount?: number
   lastAccessedAt?: string
   hasPassword?: boolean
+  url?: string
 }
 
 export type SharedConversation = {

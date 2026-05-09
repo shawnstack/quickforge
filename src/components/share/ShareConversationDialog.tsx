@@ -75,8 +75,8 @@ export function ShareConversationDialog({
     }
   }
 
-  const copyExistingShare = async (shareId: string) => {
-    const url = `${window.location.origin}/share/${encodeURIComponent(shareId)}`
+  const copyExistingShare = async (share: ConversationShare) => {
+    const url = share.url || `${window.location.origin}/share/${encodeURIComponent(share.id)}`
     setGeneratedText(url)
     await copyTextToClipboard(url)
   }
@@ -169,7 +169,7 @@ export function ShareConversationDialog({
                       </div>
                       {!share.revokedAt ? (
                         <>
-                          <Button variant="ghost" size="icon" onClick={() => void copyExistingShare(share.id)} aria-label="复制分享链接" title="复制分享链接">
+                          <Button variant="ghost" size="icon" onClick={() => void copyExistingShare(share)} aria-label="复制分享链接" title="复制分享链接">
                             <Copy className="size-4" />
                           </Button>
                           <Button variant="ghost" size="icon" className="text-destructive" onClick={() => void revoke(share.id)} aria-label="撤销分享" title="撤销分享">

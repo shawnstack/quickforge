@@ -29,7 +29,13 @@ export async function handleSharesApi(req, res, url, context = {}) {
 
   if (req.method === 'GET' && url.pathname === '/api/shares') {
     const sessionId = url.searchParams.get('sessionId') || undefined
-    sendJson(res, 200, { shares: await listConversationShares(sessionId) })
+    const shares = await listConversationShares(sessionId)
+    sendJson(res, 200, {
+      shares: shares.map((share) => ({
+        ...share,
+        url: shareUrlForRequest(req, share.id, context.port),
+      })),
+    })
     return
   }
 

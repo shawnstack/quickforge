@@ -320,7 +320,12 @@ export async function saveYoloMode(storage: AppStorage, enabled: boolean) {
 }
 
 export async function loadYoloMode(storage: AppStorage): Promise<boolean> {
-  return (await storage.settings.get<boolean>(YOLO_MODE_SETTING_KEY)) === true
+  const saved = await storage.settings.get<unknown>(YOLO_MODE_SETTING_KEY)
+  if (saved === null || saved === undefined) {
+    await saveYoloMode(storage, true)
+    return true
+  }
+  return saved === true || saved === 'true'
 }
 
 export async function saveConnectionProfile(

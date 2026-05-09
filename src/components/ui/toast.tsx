@@ -9,6 +9,7 @@ export type ToastItem = {
   sessionId: string
   title: string
   status: BackgroundTaskStatus
+  message?: string
   createdAt: number
 }
 
@@ -68,8 +69,8 @@ function Toast({ toast, onDismiss, onClick }: ToastProps) {
         <p className="truncate text-sm font-medium text-foreground/90">
           {toast.title}
         </p>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          {isError ? t('taskError') : t('taskCompleted')}
+        <p className="mt-0.5 line-clamp-3 text-xs text-muted-foreground">
+          {toast.message || (isError ? t('taskError') : t('taskCompleted'))}
         </p>
       </div>
 

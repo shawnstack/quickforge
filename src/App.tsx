@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Api, Model } from '@mariozechner/pi-ai'
+import type { BackgroundTaskStatus } from '@/lib/types'
 import {
   Plus,
   Settings,
@@ -43,6 +44,23 @@ import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { ToastContainer } from '@/components/ui/toast'
 import { ShareConversationDialog } from '@/components/share/ShareConversationDialog'
 import { SharedConversationPage } from '@/components/share/SharedConversationPage'
+import { subscribeToAgentEvents } from '@/lib/server-agent'
+
+type ScheduledTaskNotificationEvent = {
+  type?: unknown
+  sessionId?: unknown
+  title?: unknown
+  status?: unknown
+  message?: unknown
+}
+
+function isBackgroundTaskStatus(value: unknown): value is BackgroundTaskStatus {
+  return value === 'idle' || value === 'running' || value === 'error' || value === 'aborted'
+}
+
+function isScheduledTaskNotification(event: Record<string, unknown>): event is ScheduledTaskNotificationEvent {
+  return event.type === 'scheduled_task_notification'
+}
 
 function MainApp() {
   // --- Top-level refs (owned by App) ---
@@ -81,7 +99,7 @@ function MainApp() {
   const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false)
   const [skillsDialog, setSkillsDialog] = useState<{ scope: SkillsScope; project?: ProjectInfo }>()
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
-  const { toasts, handleTaskComplete, dismissToast } = useTaskToasts()
+  const { toasts, handleTaskComplete, addToast, dismissToast } = useTaskToasts()
 
   // --- Session list + cross-tab sync ---
   const crossTabRef = useRef<ReturnType<typeof useCrossTabSync> | null>(null)
@@ -155,11 +173,24 @@ function MainApp() {
 
   const handleToastClick = useCallback(
     (sessionId: string) => {
+      if (!sessionId) return
       setScheduledTasksOpen(false)
       loadAgentSession(sessionId)
     },
     [loadAgentSession],
   )
+
+  useEffect(() => {
+    const unsubscribe = subscribeToAgentEvents((event) => {
+      if (!isScheduledTaskNotification(event)) return
+      const sessionId = typeof event.sessionId === 'string' ? event.sessionId : undefined
+      const title = typeof event.title === 'string' ? event.title : t('scheduledTasks')
+      const status = isBackgroundTaskStatus(event.status) ? event.status : 'idle'
+      const message = typeof event.message === 'string' ? event.message : undefined
+      addToast({ sessionId: sessionId ?? '', title, status, message })
+    })
+    return unsubscribe
+  }, [addToast])
 
   const { ready, startupError } = useAppBootstrap({
     storageRef,

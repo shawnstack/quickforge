@@ -1,7 +1,7 @@
 import type { ThinkingLevel } from '@mariozechner/pi-agent-core'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import { useEffect, useMemo, useState } from 'react'
-import { Brain, CalendarClock, CheckCircle2, Clock3, Folder, Pause, Play, Sparkles, Trash2, Zap } from 'lucide-react'
+import { Brain, CalendarClock, CheckCircle2, Clock3, Edit3, Folder, Pause, Play, Sparkles, Trash2, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { defaultThinkingLevelForModel, getConfiguredModels, initializePiStorage, loadDefaultOptions, loadInitialConfiguredModel } from '@/lib/pi-chat'
@@ -16,10 +16,14 @@ type ScheduledTaskRun = {
   status: RunStatus
   trigger?: string
   result?: string
+  aiResult?: string
+  inputContent?: string
   errorMessage?: string
   sessionId?: string
+  scheduledAt?: string
   startedAt: string
   finishedAt?: string
+  durationMs?: number
 }
 
 type ScheduledTask = {
@@ -36,11 +40,21 @@ type ScheduledTask = {
   createdAt: string
   runs: ScheduledTaskRun[]
   projectName?: string
+  projectId?: string | null
   model?: AnyModel
   thinkingLevel?: ThinkingLevel
 }
 
 type ParsedTask = Pick<ScheduledTask, 'title' | 'instruction' | 'scheduleType' | 'scheduleRule' | 'cronExpression' | 'nextRunAt'>
+type FormState = {
+  scheduleText: string
+  title: string
+  instruction: string
+  cronExpression: string
+  scheduleRule: string
+  nextRunAt: string
+  enabled: boolean
+}
 
 type AnyModel = Model<Api>
 type ProjectOption = { id: string; name: string; path: string }
@@ -72,6 +86,58 @@ function formatDateTime(value?: string) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
+function defaultForm(): FormState {
+  return {
+    scheduleText: '',
+    title: '',
+    instruction: '',
+    cronExpression: '',
+    scheduleRule: '',
+    nextRunAt: '',
+    enabled: true,
+  }
+}
+
+function formFromTask(task: ScheduledTask): FormState {
+  return {
+    scheduleText: task.scheduleRule || task.cronExpression || '',
+    title: task.title,
+    instruction: task.instruction,
+    cronExpression: task.cronExpression ?? '',
+    scheduleRule: task.scheduleRule,
+    nextRunAt: task.nextRunAt,
+    enabled: task.status !== 'paused',
+  }
+}
+
+function parsedTaskToForm(task: ParsedTask, current: FormState): FormState {
+  return {
+    ...current,
+    title: task.title,
+    instruction: task.instruction,
+    cronExpression: task.cronExpression ?? '',
+    scheduleRule: task.scheduleRule,
+    nextRunAt: task.nextRunAt,
+    enabled: current.enabled,
+  }
+}
+
+function buildTaskPayload(form: FormState) {
+  return {
+    title: form.title.trim(),
+    instruction: form.instruction.trim(),
+    scheduleType: 'cron',
+    scheduleRule: form.scheduleRule.trim() || form.cronExpression.trim(),
+    cronExpression: form.cronExpression.trim(),
+    nextRunAt: form.nextRunAt,
+    enabled: form.enabled,
+  }
+}
+
+function formIsValid(form: FormState) {
+  return Boolean(form.title.trim() && form.instruction.trim() && form.cronExpression.trim())
+}
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,
@@ -87,7 +153,8 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 export function ScheduledTasksPage() {
   const [tasks, setTasks] = useState<ScheduledTask[]>([])
-  const [instruction, setInstruction] = useState('')
+  const [form, setForm] = useState<FormState>(() => defaultForm())
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
   const [parsedTask, setParsedTask] = useState<ParsedTask | null>(null)
   const [question, setQuestion] = useState('')
   const [loading, setLoading] = useState(false)
@@ -161,23 +228,40 @@ export function ScheduledTasksPage() {
     }
   }, [])
 
+  const editingTask = useMemo(() => tasks.find((task) => task.id === editingTaskId), [editingTaskId, tasks])
   const enabledCount = useMemo(() => tasks.filter((task) => task.status === 'enabled').length, [tasks])
 
+  function updateForm<K extends keyof FormState>(key: K, value: FormState[K]) {
+    setForm((current) => ({ ...current, [key]: value }))
+  }
+
+  function resetEditor() {
+    setEditingTaskId(null)
+    setForm(defaultForm())
+    setParsedTask(null)
+    setQuestion('')
+    setError('')
+  }
+
   async function handleParse() {
+    const scheduleText = form.scheduleText.trim()
+    if (!scheduleText) return
     setLoading(true)
     setError('')
     try {
       const result = await requestJson<{ needMoreInfo: boolean; question?: string; task?: ParsedTask }>('/api/scheduled-tasks/parse', {
         method: 'POST',
-        body: JSON.stringify({ instruction, model: selectedModel, thinkingLevel }),
+        body: JSON.stringify({ instruction: scheduleText, model: selectedModel, thinkingLevel }),
       })
       if (result.needMoreInfo || !result.task) {
         setQuestion(result.question || '请补充任务信息。')
         setParsedTask(null)
         return
       }
+      const task = result.task
       setQuestion('')
-      setParsedTask(result.task)
+      setParsedTask(task)
+      setForm((current) => parsedTaskToForm(task, current))
     } catch (err) {
       setError(err instanceof Error ? err.message : t('requestFailed'))
     } finally {
@@ -185,24 +269,31 @@ export function ScheduledTasksPage() {
     }
   }
 
-  async function handleCreate() {
-    if (!parsedTask) return
+  async function handleSave() {
+    if (!formIsValid(form)) return
     setLoading(true)
     setError('')
     try {
       const selectedProject = projects.find((project) => project.id === selectedProjectId)
-      await requestJson('/api/scheduled-tasks', {
-        method: 'POST',
-        body: JSON.stringify({
-          task: parsedTask,
-          model: selectedModel,
-          thinkingLevel,
-          projectId: selectedProject?.id,
-          projectName: selectedProject?.name,
-        }),
-      })
-      setInstruction('')
-      setParsedTask(null)
+      const payload = {
+        task: buildTaskPayload(form),
+        model: selectedModel,
+        thinkingLevel,
+        projectId: selectedProject?.id,
+        projectName: selectedProject?.name,
+      }
+      if (editingTaskId) {
+        await requestJson(`/api/scheduled-tasks/${encodeURIComponent(editingTaskId)}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        })
+      } else {
+        await requestJson('/api/scheduled-tasks', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        })
+      }
+      resetEditor()
       await loadTasks()
     } catch (err) {
       setError(err instanceof Error ? err.message : t('requestFailed'))
@@ -211,12 +302,24 @@ export function ScheduledTasksPage() {
     }
   }
 
+  function startEdit(task: ScheduledTask) {
+    setEditingTaskId(task.id)
+    setForm(formFromTask(task))
+    setParsedTask(null)
+    setQuestion('')
+    setError('')
+    setSelectedProjectId(task.projectId ?? '')
+    if (task.model) setSelectedModel(task.model)
+    if (task.thinkingLevel) setThinkingLevel(task.thinkingLevel)
+  }
+
   async function taskAction(taskId: string, action: 'run' | 'pause' | 'resume' | 'delete') {
     setError('')
     if (action === 'delete' && !window.confirm(t('confirmDeleteTask'))) return
     try {
       if (action === 'delete') {
         await requestJson(`/api/scheduled-tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE' })
+        if (editingTaskId === taskId) resetEditor()
       } else {
         await requestJson(`/api/scheduled-tasks/${encodeURIComponent(taskId)}/${action}`, { method: 'POST' })
       }
@@ -243,66 +346,129 @@ export function ScheduledTasksPage() {
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-5xl space-y-5">
           <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-            <label className="text-sm font-medium text-foreground">{t('createTask')}</label>
-            <textarea
-              className="mt-2 min-h-24 w-full resize-none rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/65 focus:border-ring"
-              value={instruction}
-              onChange={(event) => setInstruction(event.target.value)}
-              placeholder={t('taskInstructionPlaceholder')}
-            />
-            <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/20 px-2 py-2">
+            <div className="flex items-center justify-between gap-3">
+              <label className="text-sm font-medium text-foreground">{editingTask ? t('editTask') : t('createTask')}</label>
+              {editingTask ? <Button variant="ghost" size="sm" onClick={resetEditor}>{t('cancelEditTask')}</Button> : null}
+            </div>
+
+            <label className="mt-3 block text-sm font-medium text-foreground">
+              {t('taskScheduleDescriptionLabel')}
+              <textarea
+                className="mt-1 min-h-24 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/65 focus:border-ring"
+                value={form.scheduleText}
+                onChange={(event) => updateForm('scheduleText', event.target.value)}
+                placeholder={t('taskScheduleDescriptionPlaceholder')}
+              />
+            </label>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Button onClick={handleParse} disabled={loading || !selectedModel || !form.scheduleText.trim()}>
+                <Sparkles className="mr-1 size-3.5" />{t('aiParseTask')}
+              </Button>
+              {question ? <span className="text-sm text-amber-600">{question}</span> : null}
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label className="block text-sm font-medium text-foreground">
+                {t('taskTitleLabel')}
+                <input
+                  className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring"
+                  value={form.title}
+                  onChange={(event) => updateForm('title', event.target.value)}
+                  placeholder={t('taskTitlePlaceholder')}
+                />
+              </label>
+
+              <div className="block text-sm font-medium text-foreground">
+                {t('executionRule')}
+                <div className="mt-1 flex h-10 items-center rounded-md border border-input bg-muted/20 px-3 text-sm text-muted-foreground">
+                  {form.scheduleRule || '-'}
+                </div>
+              </div>
+
+              <div className="block text-sm font-medium text-foreground">
+                cron
+                <div className="mt-1 flex h-10 items-center rounded-md border border-input bg-muted/20 px-3 font-mono text-sm text-muted-foreground">
+                  {form.cronExpression || '-'}
+                </div>
+              </div>
+
+              <div className="block text-sm font-medium text-foreground">
+                {t('nextExecutionTime')}
+                <div className="mt-1 flex h-10 items-center rounded-md border border-input bg-muted/20 px-3 text-sm text-muted-foreground">
+                  {formatDateTime(form.nextRunAt)}
+                </div>
+              </div>
+
+              <label className="block text-sm font-medium text-foreground sm:col-span-2">
+                {t('promptContentLabel')}
+                <textarea
+                  className="mt-1 min-h-28 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/65 focus:border-ring"
+                  value={form.instruction}
+                  onChange={(event) => updateForm('instruction', event.target.value)}
+                  placeholder={t('promptContentPlaceholder')}
+                />
+              </label>
+            </div>
+
+            <label className="mt-3 flex items-center gap-2 text-sm text-foreground">
+              <input type="checkbox" checked={form.enabled} onChange={(event) => updateForm('enabled', event.target.checked)} />
+              {t('taskEnabledSwitch')}
+            </label>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/20 px-2 py-2">
               <span className="relative inline-flex items-center">
                 <Sparkles className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground/70" />
                 <select
-                className="h-8 max-w-[240px] rounded-md border border-transparent bg-transparent pl-7 pr-2 text-xs text-muted-foreground outline-none hover:bg-background focus:border-ring"
-                value={selectedModel ? `${selectedModel.provider}\u0000${selectedModel.id}` : ''}
-                onChange={(event) => {
-                  const nextModel = models.find((model) => `${model.provider}\u0000${model.id}` === event.target.value)
-                  setSelectedModel(nextModel)
-                  setThinkingLevel(defaultThinkingLevelForModel(nextModel))
-                }}
-                title={t('taskModel')}
-              >
-                {models.length === 0 ? <option value="">{t('noModelAvailable')}</option> : null}
-                {models.map((model) => (
-                  <option key={`${model.provider}:${model.id}`} value={`${model.provider}\u0000${model.id}`}>
-                    {modelLabel(model)}{modelsEqual(model, selectedModel) ? ' ✓' : ''}
-                  </option>
-                ))}
-              </select>
+                  className="h-8 max-w-[240px] rounded-md border border-transparent bg-transparent pl-7 pr-2 text-xs text-muted-foreground outline-none hover:bg-background focus:border-ring"
+                  value={selectedModel ? `${selectedModel.provider}\u0000${selectedModel.id}` : ''}
+                  onChange={(event) => {
+                    const nextModel = models.find((model) => `${model.provider}\u0000${model.id}` === event.target.value)
+                    setSelectedModel(nextModel)
+                    setThinkingLevel(defaultThinkingLevelForModel(nextModel))
+                  }}
+                  title={t('taskModel')}
+                >
+                  {models.length === 0 ? <option value="">{t('noModelAvailable')}</option> : null}
+                  {models.map((model) => (
+                    <option key={`${model.provider}:${model.id}`} value={`${model.provider}\u0000${model.id}`}>
+                      {modelLabel(model)}{modelsEqual(model, selectedModel) ? ' ✓' : ''}
+                    </option>
+                  ))}
+                </select>
               </span>
               <span className="relative inline-flex items-center">
                 <Brain className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground/70" />
                 <select
-                className="h-8 rounded-md border border-transparent bg-transparent pl-7 pr-2 text-xs text-muted-foreground outline-none hover:bg-background focus:border-ring"
-                value={thinkingLevel}
-                onChange={(event) => setThinkingLevel(event.target.value as ThinkingLevel)}
-                title={t('taskThinking')}
-              >
-                {THINKING_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label()}</option>
-                ))}
-              </select>
+                  className="h-8 rounded-md border border-transparent bg-transparent pl-7 pr-2 text-xs text-muted-foreground outline-none hover:bg-background focus:border-ring"
+                  value={thinkingLevel}
+                  onChange={(event) => setThinkingLevel(event.target.value as ThinkingLevel)}
+                  title={t('taskThinking')}
+                >
+                  {THINKING_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label()}</option>
+                  ))}
+                </select>
               </span>
               <span className="relative inline-flex items-center">
                 <Folder className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground/70" />
                 <select
-                className="h-8 max-w-[220px] rounded-md border border-transparent bg-transparent pl-7 pr-2 text-xs text-muted-foreground outline-none hover:bg-background focus:border-ring"
-                value={selectedProjectId}
-                onChange={(event) => setSelectedProjectId(event.target.value)}
-                title={t('taskProjectLabel')}
-              >
-                <option value="">{t('noProjectBound')}</option>
-                {projects.map((project) => (
-                  <option key={project.id} value={project.id}>{project.name}</option>
-                ))}
-              </select>
+                  className="h-8 max-w-[220px] rounded-md border border-transparent bg-transparent pl-7 pr-2 text-xs text-muted-foreground outline-none hover:bg-background focus:border-ring"
+                  value={selectedProjectId}
+                  onChange={(event) => setSelectedProjectId(event.target.value)}
+                  title={t('taskProjectLabel')}
+                >
+                  <option value="">{t('noProjectBound')}</option>
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>{project.name}</option>
+                  ))}
+                </select>
               </span>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Button onClick={handleParse} disabled={loading}>{t('aiParseTask')}</Button>
-              {parsedTask ? <Button variant="secondary" onClick={handleCreate} disabled={loading || !selectedModel}>{t('confirmCreate')}</Button> : null}
-              {question ? <span className="text-sm text-amber-600">{question}</span> : null}
+              <Button onClick={handleSave} disabled={loading || !selectedModel || !formIsValid(form)}>
+                {editingTask ? t('saveTask') : t('confirmCreate')}
+              </Button>
               {error ? <span className="text-sm text-destructive">{error}</span> : null}
             </div>
 
@@ -315,11 +481,8 @@ export function ScheduledTasksPage() {
                 <div className="grid gap-2 text-muted-foreground sm:grid-cols-2">
                   <div>{t('taskName')}<span className="text-foreground">{parsedTask.title}</span></div>
                   <div>{t('executionRule')}<span className="text-foreground">{parsedTask.scheduleRule}</span></div>
-                  <div className="sm:col-span-2">{t('nextExecutionTime')}<span className="text-foreground">{formatDateTime(parsedTask.nextRunAt)}</span></div>
-                  <div>cron：<span className="text-foreground">{parsedTask.cronExpression ?? '-'}</span></div>
-                  <div>{t('taskProject')}<span className="text-foreground">{projects.find((project) => project.id === selectedProjectId)?.name ?? t('noProjectBound')}</span></div>
-                  <div>{t('taskModel')}：<span className="text-foreground">{selectedModel ? modelLabel(selectedModel) : t('noModelAvailable')}</span></div>
-                  <div>{t('taskThinkingLevel')}<span className="text-foreground">{THINKING_OPTIONS.find((option) => option.value === thinkingLevel)?.label() ?? thinkingLevel}</span></div>
+                  <div>cron：<span className="font-mono text-foreground">{parsedTask.cronExpression ?? '-'}</span></div>
+                  <div>{t('nextExecutionTime')}<span className="text-foreground">{formatDateTime(parsedTask.nextRunAt)}</span></div>
                   <div className="sm:col-span-2">{t('aiInstruction')}<span className="text-foreground">{parsedTask.instruction}</span></div>
                 </div>
               </div>
@@ -350,18 +513,21 @@ export function ScheduledTasksPage() {
                     </div>
                     <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span className="inline-flex items-center gap-1"><Clock3 className="size-3" />{task.scheduleRule}</span>
+                      {task.cronExpression ? <span className="font-mono">cron：{task.cronExpression}</span> : null}
                       <span>{t('nextExecution')}{formatDateTime(task.nextRunAt)}</span>
                       <span>{t('lastExecution')}{formatDateTime(task.lastRunAt)}</span>
-                      {task.cronExpression ? <span>cron：{task.cronExpression}</span> : null}
                       {task.projectName ? <span>项目：{task.projectName}</span> : null}
                       {task.model ? <span>模型：{modelLabel(task.model)}</span> : null}
                       {task.thinkingLevel ? <span>{t('taskThinkingLevel')}{THINKING_OPTIONS.find((option) => option.value === task.thinkingLevel)?.label() ?? task.thinkingLevel}</span> : null}
                     </div>
-                    <p className="mt-2 text-sm text-muted-foreground">{task.instruction}</p>
+                    <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{task.instruction}</p>
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-1">
                     <Button variant="ghost" size="sm" onClick={() => void taskAction(task.id, 'run')} disabled={task.status === 'running'}>
                       <Zap className="mr-1 size-3.5" />{t('executeNow')}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => startEdit(task)} disabled={task.status === 'running'}>
+                      <Edit3 className="mr-1 size-3.5" />{t('editTask')}
                     </Button>
                     <Button variant="ghost" size="sm" onClick={() => void taskAction(task.id, task.status === 'paused' ? 'resume' : 'pause')} disabled={task.status === 'running'}>
                       {task.status === 'paused' ? <Play className="mr-1 size-3.5" /> : <Pause className="mr-1 size-3.5" />}
@@ -375,12 +541,19 @@ export function ScheduledTasksPage() {
                 {task.runs?.length > 0 ? (
                   <div className="mt-3 border-t border-border pt-3">
                     <div className="mb-2 text-xs font-medium text-muted-foreground">{t('recentExecutions')}</div>
-                    <div className="space-y-1">
-                      {task.runs.slice(0, 3).map((run) => (
-                        <div key={run.id} className="flex flex-wrap justify-between gap-2 text-xs text-muted-foreground">
-                          <span>{formatDateTime(run.startedAt)} · {run.status === 'running' ? t('executionRunning') : run.status === 'success' ? t('executionSuccess') : t('taskFailed')}</span>
-                          <span className="text-foreground">{run.result || run.errorMessage || t('waitingForResult')}</span>
-                        </div>
+                    <div className="space-y-2">
+                      {task.runs.slice(0, 5).map((run) => (
+                        <details key={run.id} className="rounded-lg border border-border bg-muted/20 p-2 text-xs text-muted-foreground">
+                          <summary className="cursor-pointer text-foreground">
+                            {formatDateTime(run.startedAt)} · {run.trigger === 'manual' ? t('manualRun') : t('autoRun')} · {run.status === 'running' ? t('executionRunning') : run.status === 'success' ? t('executionSuccess') : t('taskFailed')}
+                          </summary>
+                          <div className="mt-2 space-y-2">
+                            {run.inputContent ? <div><div className="font-medium text-foreground">{t('runInputContent')}</div><pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap">{run.inputContent}</pre></div> : null}
+                            {run.aiResult || run.result ? <div><div className="font-medium text-foreground">{t('runAiResult')}</div><pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap">{run.aiResult || run.result}</pre></div> : null}
+                            {run.errorMessage ? <div className="text-destructive">{run.errorMessage}</div> : null}
+                            {run.durationMs ? <div>{t('runDuration')}{run.durationMs}ms</div> : null}
+                          </div>
+                        </details>
                       ))}
                     </div>
                   </div>

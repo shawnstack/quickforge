@@ -93,16 +93,17 @@ class GlobalAgentSseClient {
       'state', 'agent_start', 'agent_end', 'message_start', 'message_end',
       'turn_start', 'turn_end', 'message_update',
       'tool_execution_start', 'tool_execution_end',
-      'error', 'title_updated', 'session_forked',
+      'error', 'title_updated', 'session_forked', 'scheduled_task_notification',
     ]
 
     const handleMessage = (eventType?: string) => (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data) as Record<string, unknown>
         const sessionId = data.sessionId as string | undefined
-        if (!sessionId) return
+        if (!sessionId && eventType !== 'scheduled_task_notification') return
         const event = eventType ? { type: eventType, ...data } : data
-        this.emit(sessionId, event)
+        if (sessionId) this.emit(sessionId, event)
+        else this.emitGlobal(event)
       } catch {
         // ignore
       }
@@ -136,11 +137,15 @@ class GlobalAgentSseClient {
     }, this.reconnectDelay)
   }
 
-  private emit(sessionId: string, event: Record<string, unknown>) {
-    const handlers = this.handlersBySession.get(sessionId)
+  private emitGlobal(event: Record<string, unknown>) {
     for (const handler of this.globalHandlers) {
       try { handler(event) } catch { /* ignore */ }
     }
+  }
+
+  private emit(sessionId: string, event: Record<string, unknown>) {
+    this.emitGlobal(event)
+    const handlers = this.handlersBySession.get(sessionId)
     if (!handlers) return
     for (const handler of handlers) {
       try { handler(event) } catch { /* ignore */ }

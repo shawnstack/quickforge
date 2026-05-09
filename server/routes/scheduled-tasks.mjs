@@ -1,7 +1,7 @@
 import { streamSimple } from '@mariozechner/pi-ai'
 import { readJsonBody, sendJson, decodeSegment } from '../utils/response.mjs'
 import { readStore, atomicUpdate } from '../storage.mjs'
-import { createAgent, runPrompt, getSessionEventBus } from '../agent-manager.mjs'
+import { createAgent, runPrompt, getSessionEventBus, agentEvents } from '../agent-manager.mjs'
 import { getActiveProject, readProjectConfig } from '../project-config.mjs'
 import { logger } from '../utils/logger.mjs'
 
@@ -11,6 +11,8 @@ const cronRegex = /^(\*|\d{1,2}|\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}|\*\/\d{1,2})(\s
 const minuteMs = 60 * 1000
 const hourMs = 60 * minuteMs
 const dayMs = 24 * hourMs
+const editableScheduleTypes = new Set(['once', 'daily', 'weekly', 'monthly'])
+const weekDayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 
 let schedulerTimer = null
 let running = false
@@ -18,6 +20,101 @@ const runningTaskIds = new Set()
 
 function createId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function pad(value) {
+  return String(value).padStart(2, '0')
+}
+
+function formatLocalDateTime(date) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function timeFromDate(value) {
+  const date = value ? new Date(value) : null
+  if (!date || Number.isNaN(date.getTime())) return undefined
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function requestError(message, statusCode = 400) {
+  const error = new Error(message)
+  error.statusCode = statusCode
+  return error
+}
+
+function nonEmptyString(value, fieldName) {
+  const text = String(value ?? '').trim()
+  if (!text) throw requestError(`${fieldName} is required`)
+  return text
+}
+
+function parseExecuteTime(value) {
+  const text = String(value ?? '').trim()
+  const match = text.match(/^(\d{1,2}):(\d{2})$/)
+  if (!match) throw requestError('executeTime must use HH:mm format')
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    throw requestError('executeTime is out of range')
+  }
+  return `${pad(hours)}:${pad(minutes)}`
+}
+
+function dateWithTime(base, executeTime) {
+  const [hours, minutes] = parseExecuteTime(executeTime).split(':').map(Number)
+  const date = new Date(base)
+  date.setHours(hours, minutes, 0, 0)
+  return date
+}
+
+function parseDateTime(value, fieldName) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) throw requestError(`${fieldName} is invalid`)
+  return date
+}
+
+function nextDailyRun(executeTime, base = new Date()) {
+  const next = dateWithTime(base, executeTime)
+  if (next.getTime() <= base.getTime()) next.setDate(next.getDate() + 1)
+  return next
+}
+
+function nextWeeklyRun(weekDay, executeTime, base = new Date()) {
+  const targetDay = Number(weekDay)
+  if (!Number.isInteger(targetDay) || targetDay < 0 || targetDay > 6) {
+    throw requestError('weekDay must be between 0 and 6')
+  }
+  const next = dateWithTime(base, executeTime)
+  let daysToAdd = (targetDay - next.getDay() + 7) % 7
+  if (daysToAdd === 0 && next.getTime() <= base.getTime()) daysToAdd = 7
+  next.setDate(next.getDate() + daysToAdd)
+  return next
+}
+
+function monthlyCandidate(year, month, monthDay, executeTime) {
+  const targetDay = Number(monthDay)
+  if (!Number.isInteger(targetDay) || targetDay < 1 || targetDay > 31) {
+    throw requestError('monthDay must be between 1 and 31')
+  }
+  const [hours, minutes] = parseExecuteTime(executeTime).split(':').map(Number)
+  const lastDay = new Date(year, month + 1, 0).getDate()
+  return new Date(year, month, Math.min(targetDay, lastDay), hours, minutes, 0, 0)
+}
+
+function nextMonthlyRun(monthDay, executeTime, base = new Date()) {
+  let next = monthlyCandidate(base.getFullYear(), base.getMonth(), monthDay, executeTime)
+  if (next.getTime() <= base.getTime()) {
+    next = monthlyCandidate(base.getFullYear(), base.getMonth() + 1, monthDay, executeTime)
+  }
+  return next
+}
+
+function scheduleRuleFor(task) {
+  if (task.scheduleType === 'once') return `单次 ${formatLocalDateTime(new Date(task.executeAt ?? task.nextRunAt))}`
+  if (task.scheduleType === 'daily') return `每天 ${task.executeTime}`
+  if (task.scheduleType === 'weekly') return `每周${weekDayNames[Number(task.weekDay ?? 1)].replace('周', '')} ${task.executeTime}`
+  if (task.scheduleType === 'monthly') return `每月 ${task.monthDay} 号 ${task.executeTime}`
+  return task.scheduleRule || task.cronExpression || '定时执行'
 }
 
 function parseCronField(field, min, max) {
@@ -158,18 +255,116 @@ async function parseScheduledTaskInstructionWithAi(instruction, model, thinkingL
   }
 }
 
-function calculateNextRun(task) {
-  if (task.cronExpression) {
-    return nextCronRun(task.cronExpression)?.toISOString()
+function normalizeTaskInput(input, existing = {}) {
+  const title = nonEmptyString(input?.title ?? existing.title, 'title').slice(0, 80)
+  const instruction = nonEmptyString(input?.instruction ?? existing.instruction, 'instruction')
+  const scheduleType = String(input?.scheduleType ?? existing.scheduleType ?? 'daily')
+
+  if (scheduleType === 'cron') {
+    const cronExpression = String(input?.cronExpression ?? existing.cronExpression ?? '').trim()
+    if (!cronRegex.test(cronExpression)) throw requestError('cronExpression is invalid')
+    const nextRunAt = nextCronRun(cronExpression)?.toISOString()
+    if (!nextRunAt) throw requestError('Unable to calculate next cron run')
+    return {
+      title,
+      instruction,
+      scheduleType: 'cron',
+      scheduleRule: String(input?.scheduleRule ?? existing.scheduleRule ?? cronExpression).trim(),
+      cronExpression,
+      executeAt: undefined,
+      executeTime: undefined,
+      weekDay: undefined,
+      monthDay: undefined,
+      nextRunAt,
+    }
   }
-  const current = new Date(task.nextRunAt)
+
+  if (!editableScheduleTypes.has(scheduleType)) throw requestError('scheduleType must be once, daily, weekly, or monthly')
+
+  if (scheduleType === 'once') {
+    const executeAt = parseDateTime(input?.executeAt ?? input?.nextRunAt ?? existing.executeAt ?? existing.nextRunAt, 'executeAt')
+    if (executeAt.getTime() <= Date.now()) throw requestError('executeAt must be in the future')
+    return {
+      title,
+      instruction,
+      scheduleType,
+      scheduleRule: `单次 ${formatLocalDateTime(executeAt)}`,
+      cronExpression: undefined,
+      executeAt: executeAt.toISOString(),
+      executeTime: undefined,
+      weekDay: undefined,
+      monthDay: undefined,
+      nextRunAt: executeAt.toISOString(),
+    }
+  }
+
+  const executeTime = parseExecuteTime(input?.executeTime ?? existing.executeTime ?? timeFromDate(existing.nextRunAt) ?? '09:00')
+
+  if (scheduleType === 'daily') {
+    const nextRunAt = nextDailyRun(executeTime).toISOString()
+    return {
+      title,
+      instruction,
+      scheduleType,
+      scheduleRule: `每天 ${executeTime}`,
+      cronExpression: undefined,
+      executeAt: undefined,
+      executeTime,
+      weekDay: undefined,
+      monthDay: undefined,
+      nextRunAt,
+    }
+  }
+
+  if (scheduleType === 'weekly') {
+    const weekDay = Number(input?.weekDay ?? existing.weekDay ?? 1)
+    const nextRunAt = nextWeeklyRun(weekDay, executeTime).toISOString()
+    return {
+      title,
+      instruction,
+      scheduleType,
+      scheduleRule: `每${weekDayNames[weekDay]} ${executeTime}`,
+      cronExpression: undefined,
+      executeAt: undefined,
+      executeTime,
+      weekDay,
+      monthDay: undefined,
+      nextRunAt,
+    }
+  }
+
+  const monthDay = Number(input?.monthDay ?? existing.monthDay ?? 1)
+  const nextRunAt = nextMonthlyRun(monthDay, executeTime).toISOString()
+  return {
+    title,
+    instruction,
+    scheduleType,
+    scheduleRule: `每月 ${monthDay} 号 ${executeTime}`,
+    cronExpression: undefined,
+    executeAt: undefined,
+    executeTime,
+    weekDay: undefined,
+    monthDay,
+    nextRunAt,
+  }
+}
+
+function calculateNextRun(task, base = new Date()) {
+  if (task.cronExpression) {
+    return nextCronRun(task.cronExpression, base)?.toISOString()
+  }
   if (task.scheduleType === 'once') return undefined
   if (task.scheduleType === 'interval') {
     const interval = task.scheduleRule.match(/每隔\s*(\d+)\s*(分钟|小时)/)
     const amount = Number(interval?.[1] ?? '30')
     const unit = interval?.[2] ?? '分钟'
-    return new Date(Date.now() + amount * (unit === '小时' ? hourMs : minuteMs)).toISOString()
+    return new Date(base.getTime() + amount * (unit === '小时' ? hourMs : minuteMs)).toISOString()
   }
+  if (task.scheduleType === 'daily' && task.executeTime) return nextDailyRun(task.executeTime, base).toISOString()
+  if (task.scheduleType === 'weekly' && task.executeTime) return nextWeeklyRun(task.weekDay ?? 1, task.executeTime, base).toISOString()
+  if (task.scheduleType === 'monthly' && task.executeTime) return nextMonthlyRun(task.monthDay ?? 1, task.executeTime, base).toISOString()
+
+  const current = new Date(task.nextRunAt)
   if (task.scheduleType === 'daily') return new Date(current.getTime() + dayMs).toISOString()
   if (task.scheduleType === 'weekly') return new Date(current.getTime() + 7 * dayMs).toISOString()
   if (task.scheduleType === 'monthly') {
@@ -177,6 +372,52 @@ function calculateNextRun(task) {
     return current.toISOString()
   }
   return undefined
+}
+
+function isRecurringTask(task) {
+  return Boolean(task.cronExpression) || !['once'].includes(task.scheduleType)
+}
+
+function contentToText(content) {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .filter((block) => block?.type === 'text')
+    .map((block) => block.text ?? '')
+    .join('\n')
+}
+
+function latestAssistantText(messages) {
+  if (!Array.isArray(messages)) return ''
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === 'assistant') {
+      return contentToText(messages[index].content).trim()
+    }
+  }
+  return ''
+}
+
+function truncateText(text, limit = 500) {
+  const value = String(text || '').trim()
+  if (value.length <= limit) return value
+  return `${value.slice(0, limit)}…`
+}
+
+function emitScheduledTaskNotification({ task, runId, sessionId, status, result, errorMessage }) {
+  const ok = status === 'success'
+  const message = ok ? truncateText(result || 'AI 已返回结果。', 500) : truncateText(errorMessage || '任务执行失败。', 500)
+  agentEvents.emit('agent_event', {
+    type: 'scheduled_task_notification',
+    sessionId,
+    taskId: task.id,
+    runId,
+    title: ok ? `定时任务「${task.title}」已完成` : `定时任务「${task.title}」执行失败`,
+    status: ok ? 'idle' : 'error',
+    taskStatus: status,
+    message,
+    result: ok ? result : undefined,
+    errorMessage: ok ? undefined : errorMessage,
+  })
 }
 
 async function getTasks() {
@@ -196,17 +437,18 @@ async function updateTask(taskId, updater) {
 }
 
 async function repairRecurringTaskStatuses() {
-  const now = Date.now()
   await atomicUpdate(STORE, (data) => {
     for (const [taskId, task] of Object.entries(data)) {
-      if (!task?.cronExpression || task.status !== 'expired') continue
-      const nextRunAt = task.nextRunAt && new Date(task.nextRunAt).getTime() > now
+      if (task?.status !== 'expired' || !isRecurringTask(task)) continue
+      const nextRunAt = task.nextRunAt && new Date(task.nextRunAt).getTime() > Date.now()
         ? task.nextRunAt
-        : nextCronRun(task.cronExpression)?.toISOString()
+        : calculateNextRun(task)
+      if (!nextRunAt) continue
       data[taskId] = {
         ...task,
         status: 'enabled',
-        nextRunAt: nextRunAt ?? new Date(Date.now() + minuteMs).toISOString(),
+        nextRunAt,
+        scheduleRule: scheduleRuleFor({ ...task, nextRunAt }),
         updatedAt: new Date().toISOString(),
       }
     }
@@ -219,12 +461,20 @@ async function executeTask(task, trigger = 'schedule') {
   runningTaskIds.add(task.id)
   const runId = createId()
   const startedAt = new Date().toISOString()
+  const scheduledAt = task.nextRunAt
 
   await updateTask(task.id, (current) => ({
     ...current,
     status: 'running',
     currentRunId: runId,
-    runs: [{ id: runId, status: 'running', trigger, startedAt }, ...(current.runs || [])].slice(0, 20),
+    runs: [{
+      id: runId,
+      status: 'running',
+      trigger,
+      inputContent: current.instruction,
+      scheduledAt,
+      startedAt,
+    }, ...(current.runs || [])].slice(0, 20),
   }))
 
   const sessionId = `scheduled-${task.id}-${Date.now().toString(36)}`
@@ -248,52 +498,93 @@ async function executeTask(task, trigger = 'schedule') {
 
     const eventBus = getSessionEventBus(sessionId)
     const finished = new Promise((resolve) => {
-      const timeout = setTimeout(() => resolve({ ok: false, error: '执行超时' }), 30 * 60 * 1000)
-      eventBus?.on('agent_event', (event) => {
-        if (event.type !== 'agent_end') return
+      const cleanup = (handler, timeout) => {
         clearTimeout(timeout)
-        resolve({ ok: !session.agent.state.errorMessage, error: session.agent.state.errorMessage })
-      })
+        eventBus?.removeListener('agent_event', handler)
+      }
+      const handler = (event) => {
+        if (event.type !== 'agent_end') return
+        cleanup(handler, timeout)
+        const errorMessage = event.errorMessage || session.agent.state.errorMessage
+        resolve({
+          ok: !errorMessage,
+          error: errorMessage,
+          messages: event.messages ?? session.agent.state.messages,
+        })
+      }
+      const timeout = setTimeout(() => {
+        cleanup(handler, timeout)
+        resolve({ ok: false, error: '执行超时', messages: session.agent.state.messages })
+      }, 30 * 60 * 1000)
+      eventBus?.on('agent_event', handler)
     })
 
     await runPrompt(sessionId, task.instruction)
     const result = await finished
     settled = true
     const finishedAt = new Date().toISOString()
+    const durationMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime()
+    const aiResult = result.ok ? latestAssistantText(result.messages) : ''
     const latestTask = (await readStore(STORE))[task.id] ?? task
-    const nextRunAt = calculateNextRun(latestTask)
-    const recurring = Boolean(latestTask.cronExpression) || !['once'].includes(latestTask.scheduleType)
+    const recurring = isRecurringTask(latestTask)
+    const nextRunAt = calculateNextRun(latestTask, new Date(finishedAt))
+    const nextStatus = result.ok
+      ? (nextRunAt ? 'enabled' : 'expired')
+      : (recurring && nextRunAt ? 'enabled' : 'failed')
 
     await updateTask(task.id, (current) => ({
       ...current,
-      status: result.ok ? (nextRunAt || recurring ? 'enabled' : 'expired') : 'failed',
+      status: nextStatus,
       currentRunId: null,
       lastRunAt: finishedAt,
-      nextRunAt: nextRunAt ?? (recurring ? new Date(Date.now() + minuteMs).toISOString() : current.nextRunAt),
+      nextRunAt: nextRunAt ?? current.nextRunAt,
       lastSessionId: sessionId,
       runs: (current.runs || []).map((run) => run.id === runId ? {
         ...run,
         status: result.ok ? 'success' : 'failed',
-        result: result.ok ? `已完成，结果保存在会话 ${sessionId}` : undefined,
+        inputContent: run.inputContent ?? latestTask.instruction,
+        aiResult: result.ok ? aiResult : undefined,
+        result: result.ok ? (aiResult || `已完成，结果保存在会话 ${sessionId}`) : undefined,
         errorMessage: result.error,
         sessionId,
         finishedAt,
+        durationMs,
       } : run),
     }))
+
+    emitScheduledTaskNotification({
+      task: latestTask,
+      runId,
+      sessionId,
+      status: result.ok ? 'success' : 'failed',
+      result: aiResult,
+      errorMessage: result.error,
+    })
   } catch (error) {
     const finishedAt = new Date().toISOString()
+    const durationMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime()
     await updateTask(task.id, (current) => ({
       ...current,
-      status: 'failed',
+      status: isRecurringTask(current) ? 'enabled' : 'failed',
       currentRunId: null,
       lastRunAt: finishedAt,
+      nextRunAt: isRecurringTask(current) ? (calculateNextRun(current, new Date(finishedAt)) ?? current.nextRunAt) : current.nextRunAt,
       runs: (current.runs || []).map((run) => run.id === runId ? {
         ...run,
         status: 'failed',
         errorMessage: error?.message || String(error),
         finishedAt,
+        durationMs,
       } : run),
     }))
+    emitScheduledTaskNotification({
+      task,
+      runId,
+      sessionId,
+      status: 'failed',
+      result: '',
+      errorMessage: error?.message || String(error),
+    })
   } finally {
     runningTaskIds.delete(task.id)
     if (!settled) logger.warn(`Scheduled task ${task.id} finished without normal agent_end`)
@@ -348,25 +639,19 @@ export async function handleScheduledTasksApi(req, res, url) {
   if (req.method === 'POST' && url.pathname === '/api/scheduled-tasks') {
     const body = await readJsonBody(req)
     const parsed = body?.task
-    if (!parsed) {
-      const error = new Error('Missing task')
-      error.statusCode = 400
-      throw error
-    }
+    if (!parsed) throw requestError('Missing task')
     const now = new Date().toISOString()
+    const normalized = normalizeTaskInput(parsed)
+    const enabled = parsed.enabled !== false && parsed.status !== 'paused'
     const task = {
       id: createId(),
-      title: parsed.title,
-      instruction: parsed.instruction,
-      scheduleType: parsed.scheduleType,
-      scheduleRule: parsed.scheduleRule,
-      cronExpression: parsed.cronExpression,
-      nextRunAt: parsed.nextRunAt,
+      ...normalized,
+      scheduleRule: normalized.scheduleRule || scheduleRuleFor(normalized),
       model: body?.model,
       thinkingLevel: body?.thinkingLevel || (body?.model?.reasoning ? 'medium' : 'off'),
       projectId: body?.projectId || null,
       projectName: body?.projectName || null,
-      status: 'enabled',
+      status: enabled ? 'enabled' : 'paused',
       createdAt: now,
       updatedAt: now,
       runs: [],
@@ -383,6 +668,31 @@ export async function handleScheduledTasksApi(req, res, url) {
     const taskId = decodeSegment(parts[2])
     const action = parts[3]
 
+    if ((req.method === 'PUT' || req.method === 'PATCH') && !action) {
+      const body = await readJsonBody(req)
+      const existing = (await readStore(STORE))[taskId]
+      if (!existing) throw requestError('Task not found', 404)
+      if (existing.status === 'running') throw requestError('Cannot edit a running task', 409)
+      const parsed = body?.task
+      if (!parsed) throw requestError('Missing task')
+      const normalized = normalizeTaskInput(parsed, existing)
+      const now = new Date().toISOString()
+      const hasProject = Object.prototype.hasOwnProperty.call(body, 'projectId')
+      const task = await updateTask(taskId, (current) => ({
+        ...current,
+        ...normalized,
+        scheduleRule: normalized.scheduleRule || scheduleRuleFor(normalized),
+        model: body?.model ?? current.model,
+        thinkingLevel: body?.thinkingLevel ?? current.thinkingLevel,
+        projectId: hasProject ? (body.projectId || null) : current.projectId,
+        projectName: hasProject ? (body.projectName || null) : current.projectName,
+        status: parsed.enabled === false || parsed.status === 'paused' ? 'paused' : 'enabled',
+        updatedAt: now,
+      }))
+      sendJson(res, 200, { task })
+      return
+    }
+
     if (req.method === 'DELETE' && !action) {
       await atomicUpdate(STORE, (data) => {
         delete data[taskId]
@@ -394,12 +704,21 @@ export async function handleScheduledTasksApi(req, res, url) {
 
     if (req.method === 'POST' && action === 'pause') {
       const task = await updateTask(taskId, (current) => ({ ...current, status: 'paused', updatedAt: new Date().toISOString() }))
+      if (!task) throw requestError('Task not found', 404)
       sendJson(res, 200, { task })
       return
     }
 
     if (req.method === 'POST' && action === 'resume') {
-      const task = await updateTask(taskId, (current) => ({ ...current, status: 'enabled', updatedAt: new Date().toISOString() }))
+      const task = await updateTask(taskId, (current) => ({
+        ...current,
+        status: 'enabled',
+        nextRunAt: current.nextRunAt && new Date(current.nextRunAt).getTime() > Date.now()
+          ? current.nextRunAt
+          : (calculateNextRun(current) ?? current.nextRunAt),
+        updatedAt: new Date().toISOString(),
+      }))
+      if (!task) throw requestError('Task not found', 404)
       sendJson(res, 200, { task })
       return
     }
@@ -407,11 +726,7 @@ export async function handleScheduledTasksApi(req, res, url) {
     if (req.method === 'POST' && action === 'run') {
       const data = await readStore(STORE)
       const task = data[taskId]
-      if (!task) {
-        const error = new Error('Task not found')
-        error.statusCode = 404
-        throw error
-      }
+      if (!task) throw requestError('Task not found', 404)
       executeTask(task, 'manual').catch((error) => logger.error(`Manual scheduled task ${task.id} failed:`, error))
       sendJson(res, 200, { ok: true })
       return

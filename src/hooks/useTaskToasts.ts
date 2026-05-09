@@ -5,18 +5,19 @@ import type { BackgroundTaskStatus } from '@/lib/types'
 export function useTaskToasts() {
   const [toasts, setToasts] = useState<ToastItem[]>([])
 
+  const addToast = useCallback((toast: Omit<ToastItem, 'id' | 'createdAt'>) => {
+    setToasts((prev) => [...prev, {
+      ...toast,
+      id: crypto.randomUUID(),
+      createdAt: Date.now(),
+    }])
+  }, [])
+
   const handleTaskComplete = useCallback(
     (sessionId: string, title: string, status: BackgroundTaskStatus) => {
-      const toast: ToastItem = {
-        id: crypto.randomUUID(),
-        sessionId,
-        title,
-        status,
-        createdAt: Date.now(),
-      }
-      setToasts((prev) => [...prev, toast])
+      addToast({ sessionId, title, status })
     },
-    [],
+    [addToast],
   )
 
   const dismissToast = useCallback((id: string) => {
@@ -26,6 +27,7 @@ export function useTaskToasts() {
   return {
     toasts,
     handleTaskComplete,
+    addToast,
     dismissToast,
   }
 }

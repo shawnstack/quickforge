@@ -100,7 +100,7 @@ function defaultForm(): FormState {
 
 function formFromTask(task: ScheduledTask): FormState {
   return {
-    scheduleText: task.scheduleRule || task.cronExpression || '',
+    scheduleText: [task.scheduleRule, task.instruction].filter(Boolean).join('\n'),
     title: task.title,
     instruction: task.instruction,
     cronExpression: task.cronExpression ?? '',
@@ -499,10 +499,10 @@ export function ScheduledTasksPage() {
                   <label className="block text-sm font-medium text-foreground sm:col-span-2">
                     {t('promptContentLabel')}
                     <textarea
-                      className="mt-1 min-h-28 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/65 focus:border-ring"
+                      className="mt-1 min-h-28 w-full resize-y rounded-xl border border-input bg-muted/20 px-3 py-2 text-sm text-muted-foreground outline-none"
                       value={form.instruction}
-                      onChange={(event) => updateForm('instruction', event.target.value)}
-                      placeholder={t('promptContentPlaceholder')}
+                      readOnly
+                      placeholder="-"
                     />
                   </label>
                 </div>

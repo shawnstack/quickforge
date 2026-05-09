@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { resolveWorkspacePath, toWorkspaceRelative, assertSafeWorkspacePath, truncateText, splitLines, walkFiles } from '../utils/workspace.mjs'
+import { createTextDiff } from '../utils/text-diff.mjs'
 import { readProjectConfig, getActiveProject } from '../project-config.mjs'
 import {
   formatSkillActivation,
@@ -189,12 +190,24 @@ export async function toolWriteFile(params, context) {
   const file = resolveWorkspacePath(params?.path, context)
   await assertSafeWorkspacePath(file, context, { forWrite: true })
 
+  const content = String(params?.content ?? '')
+  const relativePath = toWorkspaceRelative(file, context)
+  let oldText = ''
+  let existed = true
+  try {
+    oldText = await fs.readFile(file, 'utf8')
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+    existed = false
+  }
+  const diff = createTextDiff(oldText, content, relativePath, { oldExists: existed })
+
   await fs.mkdir(path.dirname(file), { recursive: true })
-  await fs.writeFile(file, String(params?.content ?? ''), 'utf8')
+  await fs.writeFile(file, content, 'utf8')
 
   return {
-    content: `Wrote ${toWorkspaceRelative(file, context)}`,
-    details: { path: toWorkspaceRelative(file, context), project: context?.project, bytes: Buffer.byteLength(String(params?.content ?? ''), 'utf8') },
+    content: `${existed ? 'Wrote' : 'Created'} ${relativePath} (+${diff.addedLines} -${diff.removedLines})`,
+    details: { path: relativePath, project: context?.project, bytes: Buffer.byteLength(content, 'utf8'), created: !existed, diff },
   }
 }
 
@@ -225,11 +238,15 @@ export async function toolEditFile(params, context) {
     throw error
   }
 
-  await fs.writeFile(file, text.replace(oldText, newText), 'utf8')
+  const nextText = text.replace(oldText, newText)
+  const relativePath = toWorkspaceRelative(file, context)
+  const diff = createTextDiff(text, nextText, relativePath)
+
+  await fs.writeFile(file, nextText, 'utf8')
 
   return {
-    content: `Edited ${toWorkspaceRelative(file, context)}`,
-    details: { path: toWorkspaceRelative(file, context), project: context?.project, replaced: count },
+    content: `Edited ${relativePath} (+${diff.addedLines} -${diff.removedLines})`,
+    details: { path: relativePath, project: context?.project, replaced: count, diff },
   }
 }
 

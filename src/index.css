@@ -87,6 +87,67 @@
   }
 }
 
+.quickforge-diff-block {
+  max-height: 28rem;
+  overflow: auto;
+  border: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
+  border-radius: 0.75rem;
+  background: color-mix(in oklab, var(--muted) 28%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.quickforge-diff-block > div {
+  min-height: 1.35em;
+  padding: 0 0.75rem;
+  white-space: pre;
+}
+
+.quickforge-diff-file {
+  background: color-mix(in oklab, var(--muted) 48%, transparent);
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+}
+
+.quickforge-diff-hunk {
+  background: color-mix(in oklab, rgb(37 99 235) 10%, transparent);
+  color: rgb(37 99 235);
+}
+
+.quickforge-diff-add {
+  background: color-mix(in oklab, rgb(34 197 94) 16%, transparent);
+  color: rgb(22 101 52);
+}
+
+.quickforge-diff-del {
+  background: color-mix(in oklab, rgb(239 68 68) 14%, transparent);
+  color: rgb(153 27 27);
+}
+
+.quickforge-diff-context {
+  color: var(--foreground);
+}
+
+.quickforge-diff-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.quickforge-diff-badge-add {
+  background: color-mix(in oklab, rgb(34 197 94) 16%, transparent);
+  color: rgb(22 101 52);
+}
+
+.quickforge-diff-badge-del {
+  background: color-mix(in oklab, rgb(239 68 68) 14%, transparent);
+  color: rgb(153 27 27);
+}
+
 .quickforge-composer-dock {
   padding: 0 0.5rem 0.25rem;
   background:

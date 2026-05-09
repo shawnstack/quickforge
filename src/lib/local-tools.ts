@@ -11,6 +11,17 @@ type ToolResultLike = {
 
 type ToolStatusKey = 'running' | 'done' | 'error' | 'called'
 
+type ToolDiffDetails = {
+  format?: string
+  path?: string
+  addedLines?: number
+  removedLines?: number
+  oldLineCount?: number
+  newLineCount?: number
+  truncated?: boolean
+  text?: string
+}
+
 function stringifyValue(value: unknown) {
   if (value === undefined || value === null) return ''
   if (typeof value === 'string') {
@@ -34,6 +45,53 @@ function summarizeParams(toolName: string, params: Record<string, unknown> | und
   if ('path' in params && typeof params.path === 'string') return params.path
   if ('query' in params && typeof params.query === 'string') return params.query
   return ''
+}
+
+function getDiffDetails(details: unknown): ToolDiffDetails | undefined {
+  if (!details || typeof details !== 'object') return undefined
+  const diff = (details as { diff?: unknown }).diff
+  if (!diff || typeof diff !== 'object') return undefined
+  const candidate = diff as ToolDiffDetails
+  return typeof candidate.text === 'string' ? candidate : undefined
+}
+
+function detailsWithoutDiffText(details: unknown) {
+  if (!details || typeof details !== 'object') return details
+  const record = details as Record<string, unknown>
+  const diff = record.diff
+  if (!diff || typeof diff !== 'object') return details
+  const { text: _text, ...diffSummary } = diff as Record<string, unknown>
+  void _text
+  return {
+    ...record,
+    diff: diffSummary,
+  }
+}
+
+function diffLineClass(line: string) {
+  if (line.startsWith('+++') || line.startsWith('---')) return 'quickforge-diff-file'
+  if (line.startsWith('@@')) return 'quickforge-diff-hunk'
+  if (line.startsWith('+')) return 'quickforge-diff-add'
+  if (line.startsWith('-')) return 'quickforge-diff-del'
+  return 'quickforge-diff-context'
+}
+
+function renderDiff(diff: ToolDiffDetails) {
+  const lines = diff.text?.split('\n') ?? []
+  const addedLines = Number(diff.addedLines ?? 0)
+  const removedLines = Number(diff.removedLines ?? 0)
+
+  return html`
+    <div>
+      <div class="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <span>Diff</span>
+        <span class="quickforge-diff-badge quickforge-diff-badge-add">+${addedLines}</span>
+        <span class="quickforge-diff-badge quickforge-diff-badge-del">-${removedLines}</span>
+        ${diff.truncated ? html`<span class="text-muted-foreground/80">truncated</span>` : ''}
+      </div>
+      <pre class="quickforge-diff-block">${lines.map((line) => html`<div class=${diffLineClass(line)}>${line || ' '}</div>`)}</pre>
+    </div>
+  `
 }
 
 // ---------------------------------------------------------------------------
@@ -60,7 +118,8 @@ class LocalWorkspaceToolRenderer {
     const summary = summarizeParams(this.toolName, params)
     const input = stringifyValue(params)
     const output = resultText(result)
-    const details = stringifyValue(result?.details)
+    const diff = getDiffDetails(result?.details)
+    const details = stringifyValue(diff ? detailsWithoutDiffText(result?.details) : result?.details)
     const variant = result?.isError ? 'error' : 'default'
 
     return {
@@ -76,6 +135,7 @@ class LocalWorkspaceToolRenderer {
           <div class="mt-3 space-y-3">
             ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : ''}
             ${output ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('output')}</div>${this.toolName === 'run_command' ? html`<console-block .content=${output} .variant=${variant}></console-block>` : html`<code-block .code=${output} language="text"></code-block>`}</div>` : ''}
+            ${diff ? renderDiff(diff) : ''}
             ${details ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('details')}</div><code-block .code=${details} language="json"></code-block></div>` : ''}
           </div>
         </details>

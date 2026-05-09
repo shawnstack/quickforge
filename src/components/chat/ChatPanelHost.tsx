@@ -715,6 +715,11 @@ export function ChatPanelHost({
           commandTextarea.removeEventListener('keydown', commandTextarea.__quickforgeCommandCompleteHandler, true)
         }
         commandTextarea.__quickforgeCommandCompleteHandler = (event: KeyboardEvent) => {
+          if (event.isComposing || event.key === 'Process') return
+          if (event.key === 'Enter' && event.shiftKey) {
+            event.stopImmediatePropagation()
+            return
+          }
           if (event.key !== 'Tab') return
           const currentText = editor?.value ?? commandTextarea.value ?? ''
           if (!currentText.startsWith('/')) return

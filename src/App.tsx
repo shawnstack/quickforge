@@ -54,12 +54,25 @@ type ScheduledTaskNotificationEvent = {
   message?: unknown
 }
 
+type ScheduledTaskStartedEvent = {
+  type?: unknown
+  sessionId?: unknown
+  title?: unknown
+  scope?: unknown
+  projectId?: unknown
+  createdAt?: unknown
+}
+
 function isBackgroundTaskStatus(value: unknown): value is BackgroundTaskStatus {
   return value === 'idle' || value === 'running' || value === 'error' || value === 'aborted'
 }
 
 function isScheduledTaskNotification(event: Record<string, unknown>): event is ScheduledTaskNotificationEvent {
   return event.type === 'scheduled_task_notification'
+}
+
+function isScheduledTaskStarted(event: Record<string, unknown>): event is ScheduledTaskStartedEvent {
+  return event.type === 'scheduled_task_started'
 }
 
 function MainApp() {
@@ -182,6 +195,10 @@ function MainApp() {
 
   useEffect(() => {
     const unsubscribe = subscribeToAgentEvents((event) => {
+      if (isScheduledTaskStarted(event)) {
+        void refreshSessions({ broadcast: true })
+        return
+      }
       if (!isScheduledTaskNotification(event)) return
       const sessionId = typeof event.sessionId === 'string' ? event.sessionId : undefined
       const title = typeof event.title === 'string' ? event.title : t('scheduledTasks')
@@ -190,7 +207,7 @@ function MainApp() {
       addToast({ sessionId: sessionId ?? '', title, status, message })
     })
     return unsubscribe
-  }, [addToast])
+  }, [addToast, refreshSessions])
 
   const { ready, startupError } = useAppBootstrap({
     storageRef,
@@ -459,7 +476,7 @@ function MainApp() {
         <div className="flex min-h-0 flex-1">
           <section className="flex min-w-0 flex-1 flex-col">
             {scheduledTasksOpen ? (
-              <ScheduledTasksPage />
+              <ScheduledTasksPage onOpenSession={handleToastClick} />
             ) : needsModelSetup ? (
               <ModelSetupEmptyState
                 onAddModel={openModelSettings}

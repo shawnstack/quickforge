@@ -134,6 +134,10 @@ function buildTaskPayload(form: FormState) {
   }
 }
 
+type ScheduledTasksPageProps = {
+  onOpenSession?: (sessionId: string) => void
+}
+
 function formIsValid(form: FormState) {
   return Boolean(form.title.trim() && form.instruction.trim() && form.cronExpression.trim())
 }
@@ -151,7 +155,7 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   return payload as T
 }
 
-export function ScheduledTasksPage() {
+export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
   const [tasks, setTasks] = useState<ScheduledTask[]>([])
   const [form, setForm] = useState<FormState>(() => defaultForm())
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
@@ -402,7 +406,7 @@ export function ScheduledTasksPage() {
                     <Button variant="ghost" size="sm" onClick={() => startEdit(task)} disabled={task.status === 'running'}>
                       <Edit3 className="mr-1 size-3.5" />{t('editTask')}
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => void taskAction(task.id, task.status === 'paused' ? 'resume' : 'pause')} disabled={task.status === 'running'}>
+                    <Button variant="ghost" size="sm" onClick={() => void taskAction(task.id, task.status === 'paused' ? 'resume' : 'pause')}>
                       {task.status === 'paused' ? <Play className="mr-1 size-3.5" /> : <Pause className="mr-1 size-3.5" />}
                       {task.status === 'paused' ? t('enable') : t('pauseTask')}
                     </Button>
@@ -421,6 +425,11 @@ export function ScheduledTasksPage() {
                             {formatDateTime(run.startedAt)} · {run.trigger === 'manual' ? t('manualRun') : t('autoRun')} · {run.status === 'running' ? t('executionRunning') : run.status === 'success' ? t('executionSuccess') : t('taskFailed')}
                           </summary>
                           <div className="mt-2 space-y-2">
+                            {run.sessionId ? (
+                              <Button variant="outline" size="sm" onClick={() => onOpenSession?.(run.sessionId!)}>
+                                查看对话
+                              </Button>
+                            ) : null}
                             {run.inputContent ? <div><div className="font-medium text-foreground">{t('runInputContent')}</div><pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap">{run.inputContent}</pre></div> : null}
                             {run.aiResult || run.result ? <div><div className="font-medium text-foreground">{t('runAiResult')}</div><pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap">{run.aiResult || run.result}</pre></div> : null}
                             {run.errorMessage ? <div className="text-destructive">{run.errorMessage}</div> : null}

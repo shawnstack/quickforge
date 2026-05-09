@@ -1,7 +1,7 @@
 import { streamSimple } from '@mariozechner/pi-ai'
 import { readJsonBody, sendJson, decodeSegment } from '../utils/response.mjs'
 import { readStore, atomicUpdate } from '../storage.mjs'
-import { createAgent, runPrompt, getSessionEventBus, agentEvents } from '../agent-manager.mjs'
+import { createAgent, getSessionEventBus, agentEvents, persistSessionState, abortRun } from '../agent-manager.mjs'
 import { getActiveProject, readProjectConfig } from '../project-config.mjs'
 import { logger } from '../utils/logger.mjs'
 
@@ -456,28 +456,30 @@ async function repairRecurringTaskStatuses() {
   })
 }
 
-async function executeTask(task, trigger = 'schedule') {
+async function executeTask(task, trigger = 'schedule', onStarted) {
   if (runningTaskIds.has(task.id)) return
   runningTaskIds.add(task.id)
   const runId = createId()
   const startedAt = new Date().toISOString()
   const scheduledAt = task.nextRunAt
+  let sessionId = `scheduled-${task.id}-${Date.now().toString(36)}`
 
   await updateTask(task.id, (current) => ({
     ...current,
     status: 'running',
     currentRunId: runId,
+    lastSessionId: sessionId,
     runs: [{
       id: runId,
       status: 'running',
       trigger,
       inputContent: current.instruction,
+      sessionId,
       scheduledAt,
       startedAt,
     }, ...(current.runs || [])].slice(0, 20),
   }))
 
-  const sessionId = `scheduled-${task.id}-${Date.now().toString(36)}`
   let settled = false
 
   try {
@@ -496,6 +498,35 @@ async function executeTask(task, trigger = 'schedule') {
       title: `[定时任务] ${task.title}`,
     })
 
+    const userMessage = {
+      role: 'user',
+      content: [{ type: 'text', text: task.instruction }],
+      timestamp: Date.now(),
+    }
+    session.agent.state.messages = [...session.agent.state.messages, userMessage]
+    session.status = 'running'
+    session.startedAt = startedAt
+    session.finishedAt = null
+    await persistSessionState(session)
+    agentEvents.emit('agent_event', {
+      sessionId,
+      type: 'scheduled_task_started',
+      taskId: task.id,
+      runId,
+      title: `[定时任务] ${task.title}`,
+      scope: session.scope,
+      projectId: session.projectId,
+      createdAt: session.createdAt,
+      message: truncateText(task.instruction, 500),
+    })
+
+    await updateTask(task.id, (current) => ({
+      ...current,
+      lastSessionId: sessionId,
+      runs: (current.runs || []).map((run) => run.id === runId ? { ...run, sessionId } : run),
+    }))
+    onStarted?.({ taskId: task.id, runId, sessionId })
+
     const eventBus = getSessionEventBus(sessionId)
     const finished = new Promise((resolve) => {
       const cleanup = (handler, timeout) => {
@@ -506,31 +537,43 @@ async function executeTask(task, trigger = 'schedule') {
         if (event.type !== 'agent_end') return
         cleanup(handler, timeout)
         const errorMessage = event.errorMessage || session.agent.state.errorMessage
+        const aborted = session.status === 'aborted' || session.agent.state.messages.some((message) => message?.role === 'assistant' && message?.stopReason === 'aborted')
         resolve({
-          ok: !errorMessage,
-          error: errorMessage,
+          ok: !errorMessage && !aborted,
+          aborted,
+          error: aborted ? '已暂停执行' : errorMessage,
           messages: event.messages ?? session.agent.state.messages,
         })
       }
       const timeout = setTimeout(() => {
         cleanup(handler, timeout)
-        resolve({ ok: false, error: '执行超时', messages: session.agent.state.messages })
+        resolve({ ok: false, aborted: false, error: '执行超时', messages: session.agent.state.messages })
       }, 30 * 60 * 1000)
       eventBus?.on('agent_event', handler)
     })
 
-    await runPrompt(sessionId, task.instruction)
+    try {
+      await session.agent.continue()
+    } catch (continueError) {
+      if (continueError?.message === 'Request was aborted' || continueError?.message === 'Scheduled task aborted') {
+        settled = true
+      } else {
+        throw continueError
+      }
+    }
     const result = await finished
-    settled = true
+    if (result.aborted) settled = true
     const finishedAt = new Date().toISOString()
     const durationMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime()
     const aiResult = result.ok ? latestAssistantText(result.messages) : ''
     const latestTask = (await readStore(STORE))[task.id] ?? task
     const recurring = isRecurringTask(latestTask)
     const nextRunAt = calculateNextRun(latestTask, new Date(finishedAt))
-    const nextStatus = result.ok
-      ? (nextRunAt ? 'enabled' : 'expired')
-      : (recurring && nextRunAt ? 'enabled' : 'failed')
+    const nextStatus = result.aborted
+      ? (recurring && nextRunAt ? 'paused' : 'failed')
+      : result.ok
+        ? (nextRunAt ? 'enabled' : 'expired')
+        : (recurring && nextRunAt ? 'enabled' : 'failed')
 
     await updateTask(task.id, (current) => ({
       ...current,
@@ -541,11 +584,11 @@ async function executeTask(task, trigger = 'schedule') {
       lastSessionId: sessionId,
       runs: (current.runs || []).map((run) => run.id === runId ? {
         ...run,
-        status: result.ok ? 'success' : 'failed',
+        status: result.aborted ? 'failed' : (result.ok ? 'success' : 'failed'),
         inputContent: run.inputContent ?? latestTask.instruction,
         aiResult: result.ok ? aiResult : undefined,
         result: result.ok ? (aiResult || `已完成，结果保存在会话 ${sessionId}`) : undefined,
-        errorMessage: result.error,
+        errorMessage: result.aborted ? '已暂停执行' : result.error,
         sessionId,
         finishedAt,
         durationMs,
@@ -556,9 +599,9 @@ async function executeTask(task, trigger = 'schedule') {
       task: latestTask,
       runId,
       sessionId,
-      status: result.ok ? 'success' : 'failed',
+      status: result.aborted ? 'failed' : (result.ok ? 'success' : 'failed'),
       result: aiResult,
-      errorMessage: result.error,
+      errorMessage: result.aborted ? '已暂停执行' : result.error,
     })
   } catch (error) {
     const finishedAt = new Date().toISOString()
@@ -568,11 +611,13 @@ async function executeTask(task, trigger = 'schedule') {
       status: isRecurringTask(current) ? 'enabled' : 'failed',
       currentRunId: null,
       lastRunAt: finishedAt,
+      lastSessionId: sessionId,
       nextRunAt: isRecurringTask(current) ? (calculateNextRun(current, new Date(finishedAt)) ?? current.nextRunAt) : current.nextRunAt,
       runs: (current.runs || []).map((run) => run.id === runId ? {
         ...run,
         status: 'failed',
         errorMessage: error?.message || String(error),
+        sessionId,
         finishedAt,
         durationMs,
       } : run),
@@ -703,8 +748,20 @@ export async function handleScheduledTasksApi(req, res, url) {
     }
 
     if (req.method === 'POST' && action === 'pause') {
-      const task = await updateTask(taskId, (current) => ({ ...current, status: 'paused', updatedAt: new Date().toISOString() }))
-      if (!task) throw requestError('Task not found', 404)
+      const current = (await readStore(STORE))[taskId]
+      if (!current) throw requestError('Task not found', 404)
+      if (current.status === 'running') {
+        const run = (current.runs || []).find((item) => item.id === current.currentRunId)
+        const sessionIdToAbort = run?.sessionId || current.lastSessionId
+        if (sessionIdToAbort) {
+          try {
+            await abortRun(sessionIdToAbort)
+          } catch (error) {
+            logger.warn(`Failed to abort scheduled task session ${sessionIdToAbort}:`, error?.message || error)
+          }
+        }
+      }
+      const task = await updateTask(taskId, (latest) => ({ ...latest, status: 'paused', updatedAt: new Date().toISOString() }))
       sendJson(res, 200, { task })
       return
     }
@@ -727,8 +784,14 @@ export async function handleScheduledTasksApi(req, res, url) {
       const data = await readStore(STORE)
       const task = data[taskId]
       if (!task) throw requestError('Task not found', 404)
-      executeTask(task, 'manual').catch((error) => logger.error(`Manual scheduled task ${task.id} failed:`, error))
-      sendJson(res, 200, { ok: true })
+      await new Promise((resolve) => {
+        executeTask(task, 'manual', resolve).catch((error) => {
+          logger.error(`Manual scheduled task ${task.id} failed:`, error)
+          resolve()
+        })
+      })
+      const updatedTask = (await readStore(STORE))[taskId] ?? task
+      sendJson(res, 200, { ok: true, task: updatedTask })
       return
     }
   }

@@ -707,6 +707,10 @@ async function persistSession(session) {
   }
 }
 
+export async function persistSessionState(session) {
+  await persistSession(session)
+}
+
 export async function replaceSessionMessages(sessionId, messages) {
   const session = agentSessions.get(sessionId)
   if (!session) return null
@@ -815,6 +819,7 @@ export async function abortRun(sessionId) {
   }
 
   session.agent.abort()
+  await session.agent.waitForIdle()
 
   if (session.status === 'running') {
     session.status = 'aborted'

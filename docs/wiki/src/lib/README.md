@@ -1,152 +1,132 @@
 # `src/lib/` — 前端工具库
 
-前端业务逻辑、数据模型、存储适配器、UI 组件注册等。
-
-## 文件清单
-
-| 文件 | 说明 | 行数 |
-|------|------|------|
-| [i18n.ts](i18n.ts.md) | 国际化 (中/英) | 871 |
-| [pi-chat.ts](pi-chat.ts.md) | PI SDK 适配/初始化/模型配置 | 355 |
-| [server-agent.ts](server-agent.ts.md) | 服务器 Agent SSE 客户端 | 680 |
-| [shared-server-agent.ts](shared-server-agent.ts.md) | 分享对话 Agent SSE 客户端 | 396 |
-| [local-tools.ts](local-tools.ts.md) | 本地工作区工具 UI 渲染器 | 168 |
-| [http-storage-backend.ts](http-storage-backend.ts.md) | HTTP 存储后端适配器 | 201 |
-| [share-client.ts](share-client.ts.md) | 对话分享客户端 API | 145 |
-| [types.ts](types.ts.md) | 类型定义 | 82 |
-| [message-utils.ts](message-utils.ts.md) | 消息工具函数 | 129 |
-| [reasoning-content-cache.ts](reasoning-content-cache.ts.md) | 推理内容缓存 | 277 |
-| [custom-providers-only-tab.ts](custom-providers-only-tab.ts.md) | 自定义供应商设置 Tab | 564 |
-| [custom-model-selector.ts](custom-model-selector.ts.md) | 自定义模型选择器 | 163 |
-| [default-options-settings-tab.ts](default-options-settings-tab.ts.md) | 默认参数设置 Tab | 208 |
-| [backup-settings-tab.ts](backup-settings-tab.ts.md) | 备份设置 Tab | 188 |
-| [service-settings-tab.ts](service-settings-tab.ts.md) | 服务状态设置 Tab | 190 |
-| [language-settings-tab.ts](language-settings-tab.ts.md) | 语言设置 Tab | 67 |
-| [patch-thinking-selector.ts](patch-thinking-selector.ts.md) | Thinking 选择器补丁 | 118 |
-| [utils.ts](utils.ts.md) | 通用工具 (cn) | 7 |
+包含 18 个工具模块，涵盖存储、聊天逻辑、本地工具、国际化等。
 
 ---
 
-## 核心模块说明
+| 文件 | 行数 | 用途 |
+|------|------|------|
+| `i18n.ts` | 870 | 国际化（中/英）翻译和语言管理 |
+| `pi-chat.ts` | 354 | Pi Chat 初始化和模型管理 |
+| `server-agent.ts` | 679 | Server Agent — 服务端 Agent 客户端 |
+| `shared-server-agent.ts` | 395 | 共享会话 Agent 客户端 |
+| `local-tools.ts` | 167 | 前端本地工具渲染器注册 |
+| `share-client.ts` | 144 | 分享功能客户端 API |
+| `http-storage-backend.ts` | 200 | HTTP Storage Backend 实现 |
+| `types.ts` | 81 | 类型定义 |
+| `utils.ts` | 6 | 通用工具函数（cn） |
+| `message-utils.ts` | 128 | 消息处理工具 |
+| `reasoning-content-cache.ts` | 276 | DeepSeek 推理内容缓存 |
+| `custom-model-selector.ts` | 162 | 自定义模型选择器 |
+| `custom-providers-only-tab.ts` | 563 | 自定义供应商设置选项卡 |
+| `service-settings-tab.ts` | 189 | 后端服务状态选项卡 |
+| `backup-settings-tab.ts` | 187 | 数据备份/恢复选项卡 |
+| `default-options-settings-tab.ts` | 207 | 默认选项设置选项卡 |
+| `language-settings-tab.ts` | 66 | 语言设置选项卡 |
+| `patch-thinking-selector.ts` | 117 | 思考模式选择器修补 |
 
-### `i18n.ts` — 国际化 (871 行)
+---
 
-- 支持中/英双语
-- 封装 pi-web-ui 的国际化接口
-- 提供 `t()` 翻译函数和 `AppLanguage` 类型
-- 翻译键覆盖: 界面文本、模型设置、工具说明、错误消息等
-- `applyAppLanguage()` 持久化语言设置到存储
-- `getDateLocale()` 获取日期格式化 locale
+## 核心模块
 
-### `pi-chat.ts` — PI SDK 适配 (355 行)
+### i18n.ts (870 行)
 
-核心适配层，连接 QuickForge 与 PI SDK:
+**用途**: 国际化支持。包含中英文翻译字典和应用语言管理。
 
-- `initializePiStorage()` — 初始化 PI 存储系统
-- `buildConnectionModel()` — 从 ConnectionForm 构建 Model 对象
-- `resolveConfiguredModel()` — 解析配置中的活跃模型
-- `getConfiguredModels()` — 获取所有可用模型 (内置 + 自定义)
-- `loadDefaultOptions()` / `saveDefaultOptions()` — 默认参数管理
-- `DEFAULT_CONNECTION` — LiteLLM 示例连接配置
+**功能**:
+- 支持 `en` / `zh` 两种语言
+- 提供 `t()` 翻译函数
+- 语言初始化/应用函数
+- 与 `pi-web-ui` 的翻译集成
+- 日期区域设置
 
-### `server-agent.ts` — 服务器 Agent 客户端 (680 行)
+### pi-chat.ts (354 行)
 
-SSE 客户端，与后端 Agent 通信:
+**用途**: Pi Chat 的初始化和模型配置管理。
 
-- SSE 事件流连接/重连
-- 支持直接后端连接 (绕过 Vite 代理，避免连接数限制)
-- 会话状态管理: 创建、运行、中止、恢复
-- YOLO 模式同步
-- 消息/工具调用事件处理
-- `fetchActiveAgentStatuses()` — 获取活跃 Agent 状态
-- `subscribeToAgentEvents()` — 订阅全局 Agent 事件
+**功能**:
+- `initializePiStorage()` — 初始化存储后端
+- `loadDefaultOptions()` / `saveDefaultOptions()` — 默认选项管理
+- `getConfiguredModels()` — 获取已配置的模型列表
+- DeepSeek V4 推理兼容性处理
 
-### `shared-server-agent.ts` — 分享对话 Agent (396 行)
+### server-agent.ts (679 行)
 
-与 `server-agent.ts` 类似，但用于加载分享的对话:
+**用途**: `ServerAgent` 类 — 与服务端 Agent 通信的客户端。
 
-- 只读和操作模式
-- SSE 流式加载分享对话
-- 密码验证流程
-- 消息/工具渲染支持
+**关键功能**:
+- SSE 事件流管理（`GlobalAgentSseClient`）
+- 消息发送/接收
+- Agent 状态管理（创建、恢复、销毁）
+- 系统提示词加载
+- YOLO 模式切换
+- 自定义命令注入
+- 支持直接后端连接（绕过 Vite 代理）
 
-### `local-tools.ts` — 本地工具 UI 渲染器 (168 行)
+### shared-server-agent.ts (395 行)
 
-注册工作区工具的自定义 UI 渲染器到 pi-web-ui:
+**用途**: `SharedServerAgent` 类 — 共享会话的 Agent 客户端。
 
-- `list_dir`: 目录列表渲染
-- `read_file`: 文件内容渲染
-- `grep_files`: 搜索结果渲染
-- `write_file`: 写入确认渲染
-- `edit_file`: 文本差异渲染 (支持折叠/展开)
-- `run_command`: 命令输出渲染
-- `get_project_info`: 项目信息渲染
+**功能**:
+- 从共享状态恢复会话
+- 只读/可操作模式
+- 消息发送
+- 回滚支持
+- SSE 事件订阅
 
-### `http-storage-backend.ts` — HTTP 存储后端 (201 行)
+## 工具模块
 
-实现 PI SDK 的 `StorageBackend` 接口:
+### local-tools.ts (167 行)
 
-- 通过 REST API 与后端通信
-- 支持 `blockedStores` 和 `storeOverrides`
-- `fakeProviderKeys` — 模拟供应商密钥 (实际密钥存储在后端)
-- 原子写入支持 (`transaction`)
+**用途**: 在 `pi-web-ui` 中注册本地工具渲染器。
 
-### `types.ts` — 类型定义 (82 行)
+**支持的工具渲染**: `get_project_info`, `list_dir`, `read_file`, `grep_files`, `write_file`, `edit_file`, `run_command`, `activate_skill`, `read_skill_resource`
 
-TypeScript 类型定义:
+### http-storage-backend.ts (200 行)
 
-- `ChatScope` — 'global' | 'project'
-- `ProjectInfo` — 项目元数据
-- `SkillSummary` — Skill 摘要
-- `BackgroundTaskStatus` — 后台任务状态
-- `QuickForgeSessionMetadata` / `QuickForgeSessionData` — 扩展的会话类型
-- `BackgroundTask` — 后台任务结构
-- `sessionScope()` / `sessionTitle()` — 辅助函数
+**用途**: 通过 HTTP API 实现的 Storage Backend。
 
-### `message-utils.ts` — 消息工具 (129 行)
+**功能**:
+- 实现 `StorageBackend` 接口
+- 可配置的 `blockedStores`（阻止访问某些存储区域）
+- 支持 `storeOverrides`（覆盖本地读取逻辑）
+- 健康检查（`isAvailable()`）
+- `fakeProviderKeys` — 模拟供应商密钥
 
-- `buildSystemPrompt()` — 构建系统提示词
-- `generateTitle()` — AI 生成会话标题
-- `titleNeedsGeneration()` — 判断是否需要生成标题
-- `rollbackConversationFromMessage()` — 消息回滚
-- `rollbackStartIndexFromMessage()` — 回滚起始索引
-- `draftTextFromUserMessage()` — 从用户消息提取草稿
-- `copyTextToClipboard()` — 复制到剪贴板
-- `assistantText()` — 提取助手回答文本
-- `hasUserMessage()` — 检查是否有用户消息
-- `shouldSaveSession()` — 判断会话是否应保存
+### types.ts (81 行)
 
-### `reasoning-content-cache.ts` — 推理缓存 (277 行)
+**类型**: `BackgroundTaskStatus`, `ChatScope`, `ProjectInfo`, `SkillsScope`, `SkillSummary`, `RestoredDraft`, `QuickForgeSessionMetadata`, `QuickForgeSessionData`, `BackgroundTask`
 
-缓存和管理 LLM 推理内容字段 (`reasoning_content`, `reasoning`, `reasoning_text`):
-
-- `restoreReasoningContentInPayload()` — 在请求负载中恢复推理内容
-- `cacheReasoningContent()` — 缓存推理内容
-- 处理流式推理 delta 合并
-- `removeReasoningContent()` — 清理推理内容
-
-### `custom-providers-only-tab.ts` — 自定义供应商 Tab (564 行)
-
-Lit 自定义元素 (SettingsTab)，提供自定义 AI 供应商配置界面:
-
-- 协议选择: OpenAI-compatible / Anthropic Messages
-- Base URL / API Key / Headers 配置
-- 模型列表管理 (增/删/改)
-- 连接测试功能
-
-### 其他设置 Tabs
-
-- `default-options-settings-tab.ts` — 默认模型参数设置 (thinking level, temperature 等)
-- `backup-settings-tab.ts` — 数据备份/恢复管理
-- `service-settings-tab.ts` — 服务状态显示和重启
-- `language-settings-tab.ts` — 语言切换
-
-### `patch-thinking-selector.ts` (118 行)
-
-- 在 pi-web-ui 的 `message-editor` 组件中注入 Thinking 级别选择器
-- 替换默认的 Thinking 下拉框为自定义的增强版
-- 使用 Lit 的 Select 组件 + Lucide icon
-
-### `utils.ts` (7 行)
+### utils.ts (6 行)
 
 - `cn()` — Tailwind class 合并工具 (封装 `clsx` + `tailwind-merge`)
+
+## 设置选项卡
+
+所有设置选项卡继承自 `@mariozechner/pi-web-ui` 的 `SettingsTab` 类，使用 Lit HTML 渲染。
+
+| 文件 | 用途 |
+|------|------|
+| `custom-providers-only-tab.ts` | 自定义模型供应商的完整 CRUD 管理界面 |
+| `service-settings-tab.ts` | 显示后端服务状态，支持重启 |
+| `backup-settings-tab.ts` | 数据备份导出和导入 |
+| `default-options-settings-tab.ts` | 设置默认模型和思考级别 |
+| `language-settings-tab.ts` | 语言切换设置 |
+| `patch-thinking-selector.ts` | 修补 pi-web-ui 的模型选择器 |
+| `custom-model-selector.ts` | 自定义模型选择器对话框 |
+
+### reasoning-content-cache.ts (276 行)
+
+**用途**: DeepSeek V4 推理内容缓存。当 API 在工具调用轮次中剥离推理内容时，从 Agent 状态恢复。
+
+### message-utils.ts (128 行)
+
+**用途**: 消息处理工具函数。
+
+**功能**:
+- `buildSystemPrompt()` — 构建系统提示词
+- `assistantText()` — 提取助手消息文本
+- `rollbackStartIndexFromMessage()` — 计算回滚起点
+- `draftTextFromUserMessage()` — 从用户消息提取草稿
+- `copyTextToClipboard()` — 剪贴板复制
+- `generateTitle()` / `titleNeedsGeneration()` — 标题生成

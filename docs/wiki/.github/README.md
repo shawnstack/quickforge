@@ -5,20 +5,20 @@
 ```
 .github/
 ├── workflows/
-│   └── ci.yml              # CI 工作流
+│   └── ci.yml              # CI 工作流 (28 行)
 ├── ISSUE_TEMPLATE/
-│   ├── bug_report.md        # Bug 报告模板
-│   └── feature_request.md   # 功能请求模板
-└── PULL_REQUEST_TEMPLATE.md # PR 模板
+│   ├── bug_report.md        # Bug 报告模板 (38 行)
+│   └── feature_request.md   # 功能请求模板 (23 行)
+└── PULL_REQUEST_TEMPLATE.md # PR 模板 (23 行)
 ```
 
 ---
 
 ## `workflows/ci.yml` — CI 工作流
 
-- **触发**: push / pull request 到 main/master 分支
+- **触发**: push / pull request 到 main 分支
 - **运行环境**: ubuntu-latest
-- **Node 版本矩阵**: 20.x, 22.x
+- **Node 版本**: 20.x, 22.x
 - **步骤**:
   1. `actions/checkout@v4`
   2. `actions/setup-node@v4` (带 npm 缓存)

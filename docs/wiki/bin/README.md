@@ -4,16 +4,16 @@ CLI 启动脚本，注册为 `quickforge` 和 `qf` 命令。
 
 ## 文件清单
 
-| 文件 | 说明 |
-|------|------|
-| [quickforge.mjs](quickforge.mjs.md) | 主 CLI 入口 (248 行) |
+| 文件 | 说明 | 行数 |
+|------|------|------|
+| [quickforge.mjs](quickforge.mjs) | 主 CLI 入口 | 247 |
 
 ---
 
 ## `quickforge.mjs`
 
 - **路径**: `bin/quickforge.mjs`
-- **行数**: 248
+- **行数**: 247
 - **功能**: CLI 入口点，管理 QuickForge 服务的启动/停止/重启。
 
 ### 核心功能
@@ -27,7 +27,7 @@ CLI 启动脚本，注册为 `quickforge` 和 `qf` 命令。
 
 ### 启动流程
 
-1. 解析命令行参数 (`start` / `stop` / `restart` / `status`)
+1. 解析命令行参数 (`start` / `stop` / `restart` / `status` / `dev` / `help`)
 2. `start` 时派生 `server/index.mjs` 子进程
 3. 写入 PID 到 `~/.quickforge/quickforge.pid`
 4. 轮询等待服务端口 (默认 32176) 就绪

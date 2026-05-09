@@ -4,14 +4,14 @@
 
 ## 文件清单
 
-| 文件 | 说明 |
-|------|------|
-| [definitions.mjs](definitions.mjs.md) | 工具元数据定义 (名称、参数 Schema) |
-| [index.mjs](index.mjs.md) | 工具执行 handler (375 行) |
+| 文件 | 说明 | 行数 |
+|------|------|------|
+| [definitions.mjs](definitions.mjs) | 工具元数据定义 (名称、参数 Schema) | 120 |
+| [index.mjs](index.mjs) | 工具执行 handler | 374 |
 
 ---
 
-## `definitions.mjs` (121 行)
+## definitions.mjs (120 行)
 
 使用 TypeBox 定义工具参数 Schema，是工具元数据的单一数据源。
 
@@ -29,31 +29,29 @@
 | `activate_skill` | 加载 Agent Skill 指令 |
 | `read_skill_resource` | 读取 Skill 资源文件 |
 
-### 工具参数 Schema
+`write_file` 和 `edit_file` 标记为 `executionMode: 'sequential'` 以确保执行顺序。
 
-- 使用 TypeBox 的 `Type.Object` 定义结构化参数
-- 支持可选/必填参数、描述、默认值
-- 所有文件操作限制在工作区根目录内 (安全约束)
-
-## `index.mjs` (375 行)
+## index.mjs (374 行)
 
 实现每个工具的 execute handler。
 
-| Handler | 功能 |
-|---------|------|
-| `toolGetProjectInfo` | 读取项目配置，返回项目名、路径、ID |
-| `toolListDir` | 调用 `fs.readdir` + 递归 `walkFiles` |
-| `toolReadFile` | 调用 `fs.readFile`，支持行数截断 |
-| `toolGrepFiles` | 调用 `grep` 或 JS 实现的正则搜索 |
-| `toolWriteFile` | 调用 `fs.writeFile`，先创建父目录 |
-| `toolEditFile` | 使用 `text-diff` 实现精确文本替换 |
-| `toolRunCommand` | 使用 `child_process.spawn` 执行命令 |
-| `activateSkill` | 加载并激活指定 Skill 的指令内容 |
-| `readSkillResource` | 读取 Skill 绑定的资源文件 |
+### 工具处理器清单
 
-### 安全限制
+| Handler | 对应工具 | 功能描述 |
+|---------|---------|---------|
+| `toolGetProjectInfo` | `get_project_info` | 返回活动项目的名称、路径和 ID |
+| `toolListDir` | `list_dir` | 读取目录并格式化输出（按类型排序） |
+| `toolReadFile` | `read_file` | 读取文件，支持 offset/limit 分页 |
+| `toolGrepFiles` | `grep_files` | 递归搜索文件内容，支持正则 |
+| `toolWriteFile` | `write_file` | 写入文件，自动创建父目录 |
+| `toolEditFile` | `edit_file` | 查找并替换文本，验证唯一性 |
+| `toolRunCommand` | `run_command` | 执行 shell 命令，支持超时 |
+| `toolActivateSkill` | `activate_skill` | 激活 Agent Skill |
+| `toolReadSkillResource` | `read_skill_resource` | 读取技能资源 |
 
-- 所有文件路径经 `assertSafeWorkspacePath` 校验
-- Shell 命令从工作区目录启动
-- 文件读写限制在工作区根目录内
-- 文本差异编辑 (edit_file) 使用自有 diff 算法而非 `diff` 工具
+### 安全特性
+- **路径安全**: `resolveWorkspacePath()` 确保操作不超出工作区范围
+- **敏感路径保护**: `assertSafeWorkspacePath()` 阻止访问 `.git/`、`.env`、密钥文件等
+- **写入防误**: `write_file` 验证文件在项目内；`edit_file` 确保 `oldText` 唯一匹配
+- **命令超时**: `run_command` 支持可配置超时，自动清理子进程
+- **Error 对象传递**: 工具错误通过 `statusCode` 属性传递 HTTP 状态码

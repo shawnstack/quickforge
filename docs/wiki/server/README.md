@@ -1,119 +1,154 @@
-# `server/` — 后端服务
+# `server/` — Node.js 后端服务器
 
-基于 Node.js ESM 的本地 HTTP 服务，负责 Agent 管理、存储、SSE 推送、工具执行和路由分发。
+后端使用原生 Node.js HTTP 服务器（无 Express 等框架依赖）。提供 REST API、SSE 事件流、Agent 管理和存储服务。
 
 ## 目录结构
 
 ```
 server/
-├── index.mjs                  # HTTP 服务入口 (438 行)
-├── agent-manager.mjs          # Agent 全生命周期管理 (1101 行)
-├── storage.mjs                # 本地 JSON 文件存储引擎 (663 行)
-├── skills.mjs                 # Skills 加载/合并/资源管理 (540 行)
-├── share-store.mjs            # 对话分享存储 (469 行)
-├── conversation-compaction.mjs# 历史对话压缩 (303 行)
-├── custom-commands.mjs        # 自定义命令支持 (345 行)
-├── project-config.mjs         # 项目配置管理 (160 行)
-├── reasoning-cache.mjs        # 推理内容缓存 (65 行)
-├── session-utils.mjs          # 会话工具函数 (115 行)
-├── system-prompt.mjs          # 系统提示词构建 (80 行)
-├── restart-supervisor.mjs     # 重启监护进程 (24 行)
-├── routes/                    # API 路由处理
-├── tools/                     # 工作区工具定义和实现
-└── utils/                     # 工具函数
+├── index.mjs                 # 服务器入口 (437 行)
+├── agent-manager.mjs         # Agent 生命周期管理 (1100 行)
+├── storage.mjs               # 文件存储层 (662 行)
+├── skills.mjs                # Agent Skills 管理和加载 (539 行)
+├── share-store.mjs           # 分享数据存储 (468 行)
+├── session-utils.mjs         # 会话工具 (102 行)
+├── system-prompt.mjs         # 系统提示词合成 (67 行)
+├── project-config.mjs        # 项目配置管理 (155 行)
+├── conversation-compaction.mjs # 对话历史压缩 (302 行)
+├── custom-commands.mjs       # 自定义命令系统 (344 行)
+├── reasoning-cache.mjs       # 推理内容缓存 (51 行)
+├── restart-supervisor.mjs    # 服务重启监控脚本 (38 行)
+├── routes/                   # API 路由处理器
+├── tools/                    # 工作区工具定义和实现
+└── utils/                    # 工具函数
 ```
 
-## 核心模块说明
+---
 
-### `index.mjs` — HTTP 服务入口
+## 核心模块
 
-- 使用 `node:http` 创建 HTTP 服务器
-- 统一路由分发 (REST + SSE)
-- 请求体大小限制 (默认 50MB)
-- 支持开发模式 (`--dev`) 和生产模式
-- 启动时初始化存储目录和项目配置
-- 支持 LAN 共享 (`QUICKFORGE_SHARE_LAN`)
-- 进程守护: 自动清理过期会话锁定，挂起请求退出前等待 Agent 完成
+### index.mjs (437 行)
 
-### `agent-manager.mjs` — Agent 管理器
+**用途**: 服务器入口 / 主路由分发。启动 HTTP 服务器，注册所有 API 路由。
 
-- **1101 行**，项目最大文件
-- 基于 `@mariozechner/pi-agent-core` 的 `Agent` 类
-- 功能:
-  - Agent 创建/销毁/恢复
-  - SSE 事件流推送
-  - 工具调用桥接 (server-side, 无 REST 往返)
-  - 会话持久化
-  - 自定义命令/内联命令处理
-  - 对话压缩 (compact) 支持
-  - YOLO 模式切换
-  - 会话锁定机制
+**启动参数**:
+- `--dev`: 开发模式
+- 环境变量: `QUICKFORGE_PORT`, `QUICKFORGE_HOST`, `QUICKFORGE_DATA_DIR`, `QUICKFORGE_WORKSPACE_DIR`, `QUICKFORGE_SHARE_LAN`, `QUICKFORGE_ALLOW_REMOTE`
 
-### `storage.mjs` — 存储引擎
+**主要功能**:
+- HTTP 路由分发（基于 `url.pathname` 匹配）
+- 中间件：CORS、JSON 请求体大小限制
+- `GET /api/health` — 健康检查
+- 静态文件服务（`serveStatic`）
+- SSE（`/api/agents/events`, `/api/agents/:sessionId/stream`）
+- 启动时重置僵死任务状态
+- 支持 LAN 共享（显示局域网 URL）
 
-- 基于本地 JSON 文件的 KV 存储
-- 存储类型: `settings`, `provider-keys`, `custom-providers`, `sessions`, `sessions-metadata`, `scheduled-tasks`
-- 配置存储和会话存储分离
-- 原子写入队列 (`atomicUpdate`)
-- Session 桶索引 (session bucket index) 内存缓存
+### agent-manager.mjs (1100 行)
 
-### `skills.mjs` — Skills 管理
+**用途**: Agent 生命周期管理。后端最复杂的模块。
 
-- 从多个来源加载 Skills: 内置 (项目内 `skills/` 目录)、用户自定义 (`~/.quickforge/skills/`)、共享 (`~/.agents/skills/`)
-- 支持 Skills 合并、选择、资源文件读取
-- Skill 名称校验 (小写字母数字+连字符)
-- 工作区级 Skill 加载 (`.quickforge/skills/`)
-- 资源文件限制 (最多 200 个文件)
+**功能**:
+- Agent 创建（`createAgent`）：初始化 Agent 实例，配置工具和系统提示词
+- 消息运行（`runPrompt`）：执行 AI 对话，管理消息历史
+- SSE 事件流管理：向连接的客户端广播 Agent 事件
+- 后台任务运行（`runTask` / `abortTask`）
+- Agent 恢复（`restoreAgent`）：从持久化状态恢复会话
+- 工具管理：基于 Skills 和 YOLO 模式动态构建工具列表
+- 对话压缩（`compactConversation`）
+- 自定义命令处理
+- 工具权限检查
+- 会话活动跟踪（`touchSession`）
+- Agent 销毁和资源清理
 
-### `share-store.mjs` — 对话分享存储
+### storage.mjs (662 行)
 
-- 对话分享的创建、加密、验证
-- 基于 scrypt 的密码哈希
-- 分享 Token 最大 7 天有效
-- 最大 50 个活跃分享 Token
-- 写操作排队 (write queue)
+**用途**: 文件存储层。管理 JSON 文件的读写、存储布局迁移。
 
-### `conversation-compaction.mjs` — 对话压缩
+**存储位置**: `~/.quickforge/`
 
-- 自动压缩长对话历史以减少 Token 消耗
-- 使用 AI 模型生成对话摘要 (中文 Prompt)
-- 支持 `compact` 命令手动触发
-- 压缩前自动备份
+**目录结构**:
+```
+~/.quickforge/
+├── config/config.json     # 配置数据
+├── storage/               # 会话数据和索引
+│   ├── sessions/          # 按 scope/projectId 分桶的会话文件
+│   ├── sessions-metadata/ # 会话元数据索引
+│   └── shares/            # 分享数据
+├── cache/                 # 缓存数据
+└── logs/                  # 日志文件
+```
 
-### `custom-commands.mjs` — 自定义命令
+**功能**:
+- 存储布局迁移（v1 → v2）
+- `readStore` / `writeStore` / `atomicUpdate` — 通用存储操作
+- 会话分桶存储（按 scope 和 projectId）
+- `readSessionStoreScoped` — 作用域会话查询
+- 写操作的原子锁队列
+- 目录大小计算
 
-- 从 `.ai/commands/` 目录加载自定义命令
-- 支持 Frontmatter 元数据 (`---` 格式)
-- 命令模板中可使用 `{argument}` 占位符
-- 内置命令: `compact`, `think`, `quick-command`
+### skills.mjs (539 行)
 
-### `project-config.mjs` — 项目配置
+**用途**: Agent Skills 的发现、加载和管理。
 
-- 读取/写入项目配置文件 (`~/.quickforge/config/projects.json`)
-- 管理活跃项目切换
-- 项目 ID、名称、路径、Skills 等元数据管理
+**搜索路径**:
+1. `~/.quickforge/skills/` — 用户级全局 skills
+2. `~/.agents/skills/` — 用户级共享 skills
+3. `<workspace>/.ai/skills/` — 项目级 skills
+4. 项目自带 bundled skills
 
-### `reasoning-cache.mjs` — 推理缓存
+**功能**:
+- `listGlobalSkillSummaries()` / `listProjectSkillSummaries()` — 技能列表
+- `loadSelectedGlobalSkills()` / `loadSelectedProjectSkills()` — 按选择加载
+- `mergeSkills()` — 合并全局和项目 skills
+- `readSkillResource()` — 读取技能资源文件
+- Skill 验证（名称格式、目录结构）
 
-- 缓存 LLM 推理过程内容 (reasoning_content)
-- 在后续请求中恢复推理内容到消息负载中
-- 优化流式推理体验
+### share-store.mjs (468 行)
 
-### `session-utils.mjs` — 会话工具
+**用途**: 对话分享的持久化和访问控制。
 
-- 构建系统提示词 (System Prompt)
-- AI 生成对话标题
-- 合并全局/项目级别的指令和 Skills
+**功能**:
+- `createConversationShare()` — 创建分享
+- `listConversationShares()` — 列出分享
+- `revokeConversationShare()` — 撤销分享
+- 密码哈希验证（scrypt）
+- 令牌认证（7天有效期）
+- 口令保护
 
-### `system-prompt.mjs` — 系统提示词
+### conversation-compaction.mjs (302 行)
 
-- 默认系统提示词定义
-- YOLO 模式工具说明
-- 语言偏好
+**用途**: 对话历史压缩。使用 AI 将长对话压缩为精炼摘要。
 
-### `restart-supervisor.mjs` — 重启监护
+### custom-commands.mjs (344 行)
 
-- 分离进程，用于重启时保证旧进程退出前新进程已就绪
+**用途**: 自定义命令系统。从 `<workspace>/.ai/commands/` 读取命令定义。
+
+**功能**:
+- `listProjectCommands()` — 列出命令
+- `readProjectCommand()` — 读取命令详情
+- `resolveCustomCommandInvocation()` — 解析命令调用
+- `handleInternalCommand()` — 处理内置命令
+
+### session-utils.mjs (102 行)
+
+会话工具函数：构建系统提示词、生成会话标题。
+
+### system-prompt.mjs (67 行)
+
+合成系统提示词。将基础提示词、用户指令、项目指令和 Skills 目录组装成完整的系统提示词。
+
+### project-config.mjs (155 行)
+
+项目配置管理（在 `config/config.json` 的 `projects` 数组中）。
+
+### reasoning-cache.mjs (51 行)
+
+缓存 LLM 推理过程内容 (reasoning_content)，在流式推理中恢复。
+
+### restart-supervisor.mjs (38 行)
+
+分离进程，用于重启时保证旧进程退出前新进程已就绪。
 
 ---
 

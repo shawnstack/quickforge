@@ -2,18 +2,18 @@
 
 ## 文件清单
 
-| 文件 | 说明 |
-|------|------|
-| [index.html](../index.html) | HTML 入口 (13 行) |
-| [package.json](../package.json) | npm 包定义 (81 行) |
-| [vite.config.ts](../vite.config.ts) | Vite + Tailwind 配置 (66 行) |
-| [tsconfig.json](../tsconfig.json) | TypeScript 项目引用 (7 行) |
-| [tsconfig.app.json](../tsconfig.app.json) | 前端 TS 配置 (30 行) |
-| [tsconfig.node.json](../tsconfig.node.json) | Node TS 配置 (29 行) |
-| [eslint.config.js](../eslint.config.js) | ESLint 扁平化配置 (22 行) |
-| [.editorconfig](../.editorconfig) | 编辑器格式配置 |
-| [.gitignore](../.gitignore) | Git 忽略规则 |
-| [.nvmrc](../.nvmrc) | Node 版本管理 |
+| 文件 | 说明 | 行数 |
+|------|------|------|
+| [index.html](../index.html) | HTML 入口 | 13 |
+| [package.json](../package.json) | npm 包定义 | 81 |
+| [vite.config.ts](../vite.config.ts) | Vite + Tailwind 配置 | 66 |
+| [tsconfig.json](../tsconfig.json) | TypeScript 项目引用 | 7 |
+| [tsconfig.app.json](../tsconfig.app.json) | 前端 TS 配置 | 30 |
+| [tsconfig.node.json](../tsconfig.node.json) | Node TS 配置 | 29 |
+| [eslint.config.js](../eslint.config.js) | ESLint 扁平化配置 | 22 |
+| [.editorconfig](../.editorconfig) | 编辑器格式配置 | 15 |
+| [.gitignore](../.gitignore) | Git 忽略规则 | 30 |
+| [.nvmrc](../.nvmrc) | Node 版本管理 | 1 |
 
 ---
 
@@ -40,11 +40,7 @@
 - 插件: `@vitejs/plugin-react`, `@tailwindcss/vite`
 - 开发代理: `/api` → `http://127.0.0.1:32176`
 - 路径别名: `@/` → `src/`
-- 构建分包:
-  - `react-vendor`: React 核心
-  - `lit-vendor`: Lit web components
-  - `icons`: Lucide 图标
-  - `css-utils`: CSS 工具库
+- 构建分包: `react-vendor`, `lit-vendor`, `icons`, `css-utils`
 - SSE 支持: 禁用 Vite 代理的 SSE 超时
 
 ### TypeScript 配置
@@ -68,5 +64,4 @@
 
 ### `.nvmrc`
 
-- 日期: 2026-05-04
-- 内容未知 (可能用于 nvm 版本管理)
+- Node 版本管理配置

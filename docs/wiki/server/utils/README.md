@@ -4,54 +4,54 @@
 
 | 文件 | 说明 | 行数 |
 |------|------|------|
-| [logger.mjs](logger.mjs.md) | 日志工具 | 26 行 |
-| [network.mjs](network.mjs.md) | 网络工具 | 39 行 |
-| [platform.mjs](platform.mjs.md) | 平台工具 (跨平台) | 152 行 |
-| [response.mjs](response.mjs.md) | HTTP 响应工具 | 35 行 |
-| [text-diff.mjs](text-diff.mjs.md) | 文本差异对比 | 215 行 |
-| [workspace.mjs](workspace.mjs.md) | 工作区路径工具 | 158 行 |
+| [logger.mjs](logger.mjs) | 日志工具 | 34 |
+| [network.mjs](network.mjs) | 网络工具 | 38 |
+| [platform.mjs](platform.mjs) | 平台工具 (跨平台) | 161 |
+| [response.mjs](response.mjs) | HTTP 响应工具 | 42 |
+| [text-diff.mjs](text-diff.mjs) | 文本差异对比 | 215 |
+| [workspace.mjs](workspace.mjs) | 工作区路径工具 | 182 |
 
 ---
 
 ## 各工具说明
 
-### `logger.mjs` — 日志工具
+### logger.mjs — 日志工具
 
-- 基于 `console.log`/`console.error` 的统一日志接口
-- 支持时间戳前缀
-- 消息类型: `info`, `warn`, `error`, `debug`
+- 输出到 stderr 和文件 (`~/.quickforge/logs/server-YYYY-MM-DD.log`)
+- 级别: `info`, `warn`, `error`
 
-### `network.mjs` — 网络工具
+### network.mjs — 网络工具
 
-- `isLoopbackAddress(host)` — 判断是否为回环地址
-- `getLanUrls(port)` — 获取 LAN 网络地址列表 (用于 LAN 共享)
+- `isPrivateIpv4()` — 判断是否为私有 IPv4 地址
+- `isLoopbackAddress()` — 判断是否为回环地址
+- `getLanIpv4Addresses()` — 获取所有 LAN IPv4 地址
+- `getLanUrls()` — 生成 LAN 访问 URL
 
-### `platform.mjs` — 跨平台工具
+### platform.mjs — 跨平台工具
 
-- `openBrowser(url)` — 自动打开浏览器 (支持 Windows/macOS/Linux)
-- `resolveDataDir()` — 解析数据目录路径 (考虑 XDG/Windows 约定)
-- `isWindows()` / `isMacOS()` / `isLinux()` — 平台检测
+- `selectDirectoryDialog()` — 打开系统原生目录选择器（跨平台实现）
+- `openPathInFileManager()` — 在文件管理器中打开路径
+- `openBrowser()` — 打开浏览器
+- `spawnCollect()` — 子进程执行并收集输出
 
-### `response.mjs` — HTTP 响应工具
+### response.mjs — HTTP 响应工具
 
-- `sendJson(res, statusCode, data)` — 发送 JSON 响应
-- `sendError(res, statusCode, message, details?)` — 发送错误响应
-- `readJsonBody(req)` — 读取并解析 JSON 请求体
-- `decodeSegment(encoded)` — URL 解码路径片段
+- `sendJson()` — 发送 JSON 响应
+- `sendError()` — 发送错误响应
+- `readJsonBody()` — 读取并解析 JSON 请求体（带大小限制）
+- `decodeSegment()` — URL 解码路径段
 
-### `text-diff.mjs` — 文本差异
+### text-diff.mjs — 文本差异
 
-- `createTextDiff(oldText, newText)` — 计算文本差异
-- 实现自有 diff 算法 (非 `diff` 命令)
-- 返回添加/删除行数和详细差异内容
-- 支持大文件差异截断
+- `createTextDiff()` — 计算两段文本的行级差异
+- 基于 LCS（最长公共子序列）的自定义实现
+- 大文件保护：超过 200 万 cells 时回退到全删全插
+- 上下文行支持（默认 3 行）
 
-### `workspace.mjs` — 工作区工具
+### workspace.mjs — 工作区工具
 
-- `resolveWorkspacePath(relativePath)` — 解析工作区相对路径
-- `toWorkspaceRelative(absolutePath)` — 转换为相对路径
-- `assertSafeWorkspacePath(path)` — 安全校验 (防止路径穿越)
-- `truncateText(text, maxLines, maxChars)` — 文本截断
-- `splitLines(text)` — 行拆分
-- `walkFiles(dir, predicate?, maxDepth?)` — 递归遍历文件
-- `directorySize(dir)` — 计算目录大小
+- `resolveWorkspacePath()` — 将相对/绝对路径解析为工作区内绝对路径
+- `assertSafeWorkspacePath()` — 阻止访问敏感路径
+- `toWorkspaceRelative()` — 将绝对路径转为工作区相对路径
+- `walkFiles()` — 递归遍历文件
+- `directorySize()` — 递归计算目录大小

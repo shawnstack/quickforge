@@ -155,6 +155,7 @@ export function ScheduledTasksPage() {
   const [tasks, setTasks] = useState<ScheduledTask[]>([])
   const [form, setForm] = useState<FormState>(() => defaultForm())
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
   const [parsedTask, setParsedTask] = useState<ParsedTask | null>(null)
   const [question, setQuestion] = useState('')
   const [loading, setLoading] = useState(false)
@@ -243,6 +244,17 @@ export function ScheduledTasksPage() {
     setError('')
   }
 
+  function openCreateDialog() {
+    resetEditor()
+    setDialogOpen(true)
+  }
+
+  function closeDialog() {
+    if (loading) return
+    setDialogOpen(false)
+    resetEditor()
+  }
+
   async function handleParse() {
     const scheduleText = form.scheduleText.trim()
     if (!scheduleText) return
@@ -293,7 +305,7 @@ export function ScheduledTasksPage() {
           body: JSON.stringify(payload),
         })
       }
-      resetEditor()
+      closeDialog()
       await loadTasks()
     } catch (err) {
       setError(err instanceof Error ? err.message : t('requestFailed'))
@@ -311,6 +323,7 @@ export function ScheduledTasksPage() {
     setSelectedProjectId(task.projectId ?? '')
     if (task.model) setSelectedModel(task.model)
     if (task.thinkingLevel) setThinkingLevel(task.thinkingLevel)
+    setDialogOpen(true)
   }
 
   async function taskAction(taskId: string, action: 'run' | 'pause' | 'resume' | 'delete') {
@@ -319,7 +332,7 @@ export function ScheduledTasksPage() {
     try {
       if (action === 'delete') {
         await requestJson(`/api/scheduled-tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE' })
-        if (editingTaskId === taskId) resetEditor()
+        if (editingTaskId === taskId) closeDialog()
       } else {
         await requestJson(`/api/scheduled-tasks/${encodeURIComponent(taskId)}/${action}`, { method: 'POST' })
       }
@@ -346,154 +359,14 @@ export function ScheduledTasksPage() {
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-5xl space-y-5">
           <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <label className="text-sm font-medium text-foreground">{editingTask ? t('editTask') : t('createTask')}</label>
-              {editingTask ? <Button variant="ghost" size="sm" onClick={resetEditor}>{t('cancelEditTask')}</Button> : null}
-            </div>
-
-            <label className="mt-3 block text-sm font-medium text-foreground">
-              {t('taskScheduleDescriptionLabel')}
-              <textarea
-                className="mt-1 min-h-24 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/65 focus:border-ring"
-                value={form.scheduleText}
-                onChange={(event) => updateForm('scheduleText', event.target.value)}
-                placeholder={t('taskScheduleDescriptionPlaceholder')}
-              />
-            </label>
-
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Button onClick={handleParse} disabled={loading || !selectedModel || !form.scheduleText.trim()}>
-                <Sparkles className="mr-1 size-3.5" />{t('aiParseTask')}
-              </Button>
-              {question ? <span className="text-sm text-amber-600">{question}</span> : null}
-            </div>
-
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <label className="block text-sm font-medium text-foreground">
-                {t('taskTitleLabel')}
-                <input
-                  className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring"
-                  value={form.title}
-                  onChange={(event) => updateForm('title', event.target.value)}
-                  placeholder={t('taskTitlePlaceholder')}
-                />
-              </label>
-
-              <div className="block text-sm font-medium text-foreground">
-                {t('executionRule')}
-                <div className="mt-1 flex h-10 items-center rounded-md border border-input bg-muted/20 px-3 text-sm text-muted-foreground">
-                  {form.scheduleRule || '-'}
-                </div>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">{t('taskList')}</h2>
+                <p className="text-sm text-muted-foreground">{t('tasksCount', { total: tasks.length, enabled: enabledCount })}</p>
               </div>
-
-              <div className="block text-sm font-medium text-foreground">
-                cron
-                <div className="mt-1 flex h-10 items-center rounded-md border border-input bg-muted/20 px-3 font-mono text-sm text-muted-foreground">
-                  {form.cronExpression || '-'}
-                </div>
-              </div>
-
-              <div className="block text-sm font-medium text-foreground">
-                {t('nextExecutionTime')}
-                <div className="mt-1 flex h-10 items-center rounded-md border border-input bg-muted/20 px-3 text-sm text-muted-foreground">
-                  {formatDateTime(form.nextRunAt)}
-                </div>
-              </div>
-
-              <label className="block text-sm font-medium text-foreground sm:col-span-2">
-                {t('promptContentLabel')}
-                <textarea
-                  className="mt-1 min-h-28 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/65 focus:border-ring"
-                  value={form.instruction}
-                  onChange={(event) => updateForm('instruction', event.target.value)}
-                  placeholder={t('promptContentPlaceholder')}
-                />
-              </label>
+              <Button onClick={openCreateDialog}>{t('createTask')}</Button>
             </div>
-
-            <label className="mt-3 flex items-center gap-2 text-sm text-foreground">
-              <input type="checkbox" checked={form.enabled} onChange={(event) => updateForm('enabled', event.target.checked)} />
-              {t('taskEnabledSwitch')}
-            </label>
-
-            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/20 px-2 py-2">
-              <span className="relative inline-flex items-center">
-                <Sparkles className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground/70" />
-                <select
-                  className="h-8 max-w-[240px] rounded-md border border-transparent bg-transparent pl-7 pr-2 text-xs text-muted-foreground outline-none hover:bg-background focus:border-ring"
-                  value={selectedModel ? `${selectedModel.provider}\u0000${selectedModel.id}` : ''}
-                  onChange={(event) => {
-                    const nextModel = models.find((model) => `${model.provider}\u0000${model.id}` === event.target.value)
-                    setSelectedModel(nextModel)
-                    setThinkingLevel(defaultThinkingLevelForModel(nextModel))
-                  }}
-                  title={t('taskModel')}
-                >
-                  {models.length === 0 ? <option value="">{t('noModelAvailable')}</option> : null}
-                  {models.map((model) => (
-                    <option key={`${model.provider}:${model.id}`} value={`${model.provider}\u0000${model.id}`}>
-                      {modelLabel(model)}{modelsEqual(model, selectedModel) ? ' ✓' : ''}
-                    </option>
-                  ))}
-                </select>
-              </span>
-              <span className="relative inline-flex items-center">
-                <Brain className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground/70" />
-                <select
-                  className="h-8 rounded-md border border-transparent bg-transparent pl-7 pr-2 text-xs text-muted-foreground outline-none hover:bg-background focus:border-ring"
-                  value={thinkingLevel}
-                  onChange={(event) => setThinkingLevel(event.target.value as ThinkingLevel)}
-                  title={t('taskThinking')}
-                >
-                  {THINKING_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label()}</option>
-                  ))}
-                </select>
-              </span>
-              <span className="relative inline-flex items-center">
-                <Folder className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground/70" />
-                <select
-                  className="h-8 max-w-[220px] rounded-md border border-transparent bg-transparent pl-7 pr-2 text-xs text-muted-foreground outline-none hover:bg-background focus:border-ring"
-                  value={selectedProjectId}
-                  onChange={(event) => setSelectedProjectId(event.target.value)}
-                  title={t('taskProjectLabel')}
-                >
-                  <option value="">{t('noProjectBound')}</option>
-                  {projects.map((project) => (
-                    <option key={project.id} value={project.id}>{project.name}</option>
-                  ))}
-                </select>
-              </span>
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Button onClick={handleSave} disabled={loading || !selectedModel || !formIsValid(form)}>
-                {editingTask ? t('saveTask') : t('confirmCreate')}
-              </Button>
-              {error ? <span className="text-sm text-destructive">{error}</span> : null}
-            </div>
-
-            {parsedTask ? (
-              <div className="mt-4 rounded-xl border border-border bg-muted/30 p-3 text-sm">
-                <div className="mb-2 flex items-center gap-2 font-medium text-foreground">
-                  <CheckCircle2 className="size-4 text-emerald-600" />
-                  {t('aiParsed')}
-                </div>
-                <div className="grid gap-2 text-muted-foreground sm:grid-cols-2">
-                  <div>{t('taskName')}<span className="text-foreground">{parsedTask.title}</span></div>
-                  <div>{t('executionRule')}<span className="text-foreground">{parsedTask.scheduleRule}</span></div>
-                  <div>cron：<span className="font-mono text-foreground">{parsedTask.cronExpression ?? '-'}</span></div>
-                  <div>{t('nextExecutionTime')}<span className="text-foreground">{formatDateTime(parsedTask.nextRunAt)}</span></div>
-                  <div className="sm:col-span-2">{t('aiInstruction')}<span className="text-foreground">{parsedTask.instruction}</span></div>
-                </div>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-semibold text-foreground">{t('taskList')}</h2>
-              <p className="text-sm text-muted-foreground">{t('tasksCount', { total: tasks.length, enabled: enabledCount })}</p>
-            </div>
+            {error && !dialogOpen ? <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
           </div>
 
           <div className="space-y-3">
@@ -563,6 +436,163 @@ export function ScheduledTasksPage() {
           </div>
         </div>
       </div>
+
+      {dialogOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDialog() }}>
+          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="shrink-0 border-b border-border px-5 py-4">
+              <h2 className="text-base font-semibold text-foreground">{editingTask ? t('editTask') : t('createTask')}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">{t('quickAiParseTask')}</p>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              <div className="space-y-4">
+                <label className="block text-sm font-medium text-foreground">
+                  {t('taskScheduleDescriptionLabel')}
+                  <textarea
+                    className="mt-1 min-h-24 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/65 focus:border-ring"
+                    value={form.scheduleText}
+                    onChange={(event) => updateForm('scheduleText', event.target.value)}
+                    placeholder={t('taskScheduleDescriptionPlaceholder')}
+                  />
+                </label>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button onClick={handleParse} disabled={loading || !selectedModel || !form.scheduleText.trim()}>
+                    <Sparkles className="mr-1 size-3.5" />{t('aiParseTask')}
+                  </Button>
+                  {question ? <span className="text-sm text-amber-600">{question}</span> : null}
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block text-sm font-medium text-foreground">
+                    {t('taskTitleLabel')}
+                    <input
+                      className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring"
+                      value={form.title}
+                      onChange={(event) => updateForm('title', event.target.value)}
+                      placeholder={t('taskTitlePlaceholder')}
+                    />
+                  </label>
+
+                  <div className="block text-sm font-medium text-foreground">
+                    {t('executionRule')}
+                    <div className="mt-1 flex h-10 items-center rounded-md border border-input bg-muted/20 px-3 text-sm text-muted-foreground">
+                      {form.scheduleRule || '-'}
+                    </div>
+                  </div>
+
+                  <div className="block text-sm font-medium text-foreground">
+                    cron
+                    <div className="mt-1 flex h-10 items-center rounded-md border border-input bg-muted/20 px-3 font-mono text-sm text-muted-foreground">
+                      {form.cronExpression || '-'}
+                    </div>
+                  </div>
+
+                  <div className="block text-sm font-medium text-foreground">
+                    {t('nextExecutionTime')}
+                    <div className="mt-1 flex h-10 items-center rounded-md border border-input bg-muted/20 px-3 text-sm text-muted-foreground">
+                      {formatDateTime(form.nextRunAt)}
+                    </div>
+                  </div>
+
+                  <label className="block text-sm font-medium text-foreground sm:col-span-2">
+                    {t('promptContentLabel')}
+                    <textarea
+                      className="mt-1 min-h-28 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/65 focus:border-ring"
+                      value={form.instruction}
+                      onChange={(event) => updateForm('instruction', event.target.value)}
+                      placeholder={t('promptContentPlaceholder')}
+                    />
+                  </label>
+                </div>
+
+                <label className="flex items-center gap-2 text-sm text-foreground">
+                  <input type="checkbox" checked={form.enabled} onChange={(event) => updateForm('enabled', event.target.checked)} />
+                  {t('taskEnabledSwitch')}
+                </label>
+
+                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/20 px-2 py-2">
+                  <span className="relative inline-flex items-center">
+                    <Sparkles className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground/70" />
+                    <select
+                      className="h-8 max-w-[240px] rounded-md border border-transparent bg-transparent pl-7 pr-2 text-xs text-muted-foreground outline-none hover:bg-background focus:border-ring"
+                      value={selectedModel ? `${selectedModel.provider}\u0000${selectedModel.id}` : ''}
+                      onChange={(event) => {
+                        const nextModel = models.find((model) => `${model.provider}\u0000${model.id}` === event.target.value)
+                        setSelectedModel(nextModel)
+                        setThinkingLevel(defaultThinkingLevelForModel(nextModel))
+                      }}
+                      title={t('taskModel')}
+                    >
+                      {models.length === 0 ? <option value="">{t('noModelAvailable')}</option> : null}
+                      {models.map((model) => (
+                        <option key={`${model.provider}:${model.id}`} value={`${model.provider}\u0000${model.id}`}>
+                          {modelLabel(model)}{modelsEqual(model, selectedModel) ? ' ✓' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </span>
+                  <span className="relative inline-flex items-center">
+                    <Brain className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground/70" />
+                    <select
+                      className="h-8 rounded-md border border-transparent bg-transparent pl-7 pr-2 text-xs text-muted-foreground outline-none hover:bg-background focus:border-ring"
+                      value={thinkingLevel}
+                      onChange={(event) => setThinkingLevel(event.target.value as ThinkingLevel)}
+                      title={t('taskThinking')}
+                    >
+                      {THINKING_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label()}</option>
+                      ))}
+                    </select>
+                  </span>
+                  <span className="relative inline-flex items-center">
+                    <Folder className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground/70" />
+                    <select
+                      className="h-8 max-w-[220px] rounded-md border border-transparent bg-transparent pl-7 pr-2 text-xs text-muted-foreground outline-none hover:bg-background focus:border-ring"
+                      value={selectedProjectId}
+                      onChange={(event) => setSelectedProjectId(event.target.value)}
+                      title={t('taskProjectLabel')}
+                    >
+                      <option value="">{t('noProjectBound')}</option>
+                      {projects.map((project) => (
+                        <option key={project.id} value={project.id}>{project.name}</option>
+                      ))}
+                    </select>
+                  </span>
+                </div>
+
+                {parsedTask ? (
+                  <div className="rounded-xl border border-border bg-muted/30 p-3 text-sm">
+                    <div className="mb-2 flex items-center gap-2 font-medium text-foreground">
+                      <CheckCircle2 className="size-4 text-emerald-600" />
+                      {t('aiParsed')}
+                    </div>
+                    <div className="grid gap-2 text-muted-foreground sm:grid-cols-2">
+                      <div>{t('taskName')}<span className="text-foreground">{parsedTask.title}</span></div>
+                      <div>{t('executionRule')}<span className="text-foreground">{parsedTask.scheduleRule}</span></div>
+                      <div>cron：<span className="font-mono text-foreground">{parsedTask.cronExpression ?? '-'}</span></div>
+                      <div>{t('nextExecutionTime')}<span className="text-foreground">{formatDateTime(parsedTask.nextRunAt)}</span></div>
+                      <div className="sm:col-span-2">{t('aiInstruction')}<span className="text-foreground">{parsedTask.instruction}</span></div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {error ? <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
+              </div>
+            </div>
+
+            <div className="shrink-0 border-t border-border px-5 py-4">
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={closeDialog} disabled={loading}>{t('cancel')}</Button>
+                <Button onClick={handleSave} disabled={loading || !selectedModel || !formIsValid(form)}>
+                  {editingTask ? t('saveTask') : t('confirmCreate')}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

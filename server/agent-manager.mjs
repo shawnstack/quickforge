@@ -7,7 +7,7 @@ import { createSkillTools, workspaceTools } from './tools/definitions.mjs'
 import { projectContextFromId, readProjectConfig } from './project-config.mjs'
 import { readStore, atomicUpdate, readSessionValue, writeSessionValue, deleteSessionValue } from './storage.mjs'
 import { logger } from './utils/logger.mjs'
-import { buildSystemPrompt, generateAiTitle } from './session-utils.mjs'
+import { buildSystemPrompt, generateAiTitle, generateTitle } from './session-utils.mjs'
 import { restoreReasoningContentInPayload } from './reasoning-cache.mjs'
 import {
   compactConversation,
@@ -805,6 +805,12 @@ export async function runPrompt(sessionId, message) {
 
   // AI title generation on first user message (fire-and-forget, before agent runs)
   if (!session.titleGenerated && session.title === 'New chat') {
+    // Set a simple fallback title immediately so the sidebar shows something
+    // meaningful even if AI title generation fails or is slow.
+    const simpleTitle = generateTitle([userMessage])
+    if (simpleTitle !== 'New chat') {
+      session.title = simpleTitle
+    }
     session.titleGenerated = true
     generateAiTitle([userMessage], session.model, session.thinkingLevel, session.getApiKey).then(async (aiTitle) => {
       if (aiTitle && aiTitle !== 'New chat') {

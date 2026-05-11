@@ -1,0 +1,267 @@
+/**
+ * Shared types, DOM utilities, and token estimation for chat panel modules.
+ *
+ * Extracted from ChatPanelHost.tsx to reduce coupling and improve testability.
+ * All functions are pure or operate on explicit inputs — no React or Lit dependencies.
+ */
+
+// ---------------------------------------------------------------------------
+// Element types (narrowed HTMLElement subtypes for Web Component interop)
+// ---------------------------------------------------------------------------
+
+export type MessageEditorElement = HTMLElement & {
+  value?: string
+  attachments?: unknown[]
+  onInput?: (value: string) => void
+  onFilesChange?: (files: unknown[]) => void
+}
+
+export type CommandSuggestionElement = HTMLDivElement & {
+  __quickforgeDismissHandler?: (event: Event) => void
+}
+
+export type CommandTextareaElement = HTMLTextAreaElement & {
+  __quickforgeCommandCompleteHandler?: (event: KeyboardEvent) => void
+}
+
+export type AgentInterfaceElement = HTMLElement & {
+  setInput?: (text: string, attachments?: unknown[]) => void
+  setAutoScroll?: (enabled: boolean) => void
+  enableModelSelector?: boolean
+  enableThinkingSelector?: boolean
+}
+
+export type QuickForgeActionButton = HTMLButtonElement & {
+  __quickforgeStopHandler?: (event: Event) => void
+}
+
+export type CustomCommandSummary = {
+  name: string
+  description?: string
+  argumentHint?: string
+  allowEdit?: boolean
+  allowCommands?: boolean
+  relativePath?: string
+}
+
+export type MessageUsage = {
+  input?: number
+  output?: number
+  totalTokens?: number
+}
+
+export type MessageWithUsage = {
+  role?: string
+  content?: unknown
+  attachments?: unknown
+  toolName?: string
+  toolCallId?: string
+  toolCall?: unknown
+  result?: unknown
+  usage?: MessageUsage
+  timestamp?: number | string
+}
+
+export type ComposerDraft = {
+  text: string
+  attachments?: unknown[]
+}
+
+export type DecorationContext = {
+  panel: HTMLElement
+  agent: {
+    state: {
+      messages: MessageWithUsage[]
+      isStreaming: boolean
+      model?: { contextWindow?: number }
+      systemPrompt: string
+      streamingMessage?: unknown
+      tools: unknown[]
+    }
+    subscribe: (listener: (event: { type: string }) => void) => () => void
+    abort: () => void
+    sessionId: string
+  }
+  onCopyAnswer: (text: string) => Promise<void> | void
+  onRollbackFromMessage: (messageIndex: number) => void
+  onForkFromMessage: (messageIndex: number) => void
+  onToggleYoloMode: () => void
+  disableFork: boolean
+  yoloMode: boolean
+  workspaceToolsEnabled: boolean
+  readOnly: boolean
+  allowModelControls: boolean
+  customCommands: CustomCommandSummary[]
+  composerDrafts: Map<string, ComposerDraft>
+  sessionId: string
+}
+
+// ---------------------------------------------------------------------------
+// DOM utilities
+// ---------------------------------------------------------------------------
+
+/**
+ * Replace an element's inner SVG without touching sibling nodes (e.g. Lit
+ * comment markers).  If the element already contains an <svg>, only that
+ * child is replaced; otherwise the new SVG is appended.
+ */
+export function replaceSvg(parent: HTMLElement, svgString: string) {
+  const template = document.createElement('template')
+  template.innerHTML = svgString
+  const newSvg = template.content.firstElementChild
+  if (!newSvg) return
+  const oldSvg = parent.querySelector('svg')
+  if (oldSvg) {
+    oldSvg.replaceWith(newSvg)
+  } else {
+    parent.appendChild(newSvg)
+  }
+}
+
+/**
+ * Set an element's content from an HTML string, preserving any non-Element
+ * children (comment markers, text nodes) that may be Lit internals.
+ * Only element children from the string are grafted in; existing element
+ * children are cleared first.
+ */
+export function patchContent(parent: HTMLElement, html: string) {
+  const template = document.createElement('template')
+  template.innerHTML = html
+  const incoming = Array.from(template.content.children)
+  // Remove existing element children but keep comment / text nodes (Lit markers).
+  for (const child of Array.from(parent.children)) {
+    child.remove()
+  }
+  for (const el of incoming) {
+    parent.appendChild(el)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Draft helpers
+// ---------------------------------------------------------------------------
+
+export const emptyDraft = (): ComposerDraft => ({ text: '', attachments: [] })
+export const hasDraft = (draft: ComposerDraft) => draft.text.length > 0 || (draft.attachments?.length ?? 0) > 0
+
+// ---------------------------------------------------------------------------
+// Token estimation (approximate)
+// ---------------------------------------------------------------------------
+
+export function estimateTextTokens(text: string) {
+  let ascii = 0
+  let nonAscii = 0
+  for (const char of text) {
+    if (/\s/.test(char)) continue
+    if (char.charCodeAt(0) <= 0x7f) ascii += 1
+    else nonAscii += 1
+  }
+  return Math.ceil(ascii / 4 + nonAscii / 1.8)
+}
+
+export function textFromUnknown(value: unknown): string {
+  if (!value) return ''
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) return value.map(textFromUnknown).filter(Boolean).join('\n')
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    if (typeof record.text === 'string') return record.text
+    if (typeof record.content === 'string') return record.content
+    try {
+      return JSON.stringify(value)
+    } catch {
+      return ''
+    }
+  }
+  return String(value)
+}
+
+export function estimateAttachmentTokens(attachments: unknown): number {
+  if (!Array.isArray(attachments)) return 0
+  let total = 0
+  for (const att of attachments) {
+    const record = att as Record<string, unknown> | null | undefined
+    if (!record) continue
+    if (record.type === 'image') {
+      total += 170
+    } else if (typeof record.extractedText === 'string') {
+      total += estimateTextTokens(record.extractedText)
+    } else {
+      total += 85
+    }
+  }
+  return total
+}
+
+export function estimateMessageTokens(message: MessageWithUsage) {
+  const parts = [message.role ?? '', textFromUnknown(message.content)]
+  if (message.toolName) parts.push(message.toolName)
+  if (message.toolCallId) parts.push(message.toolCallId)
+  if (message.toolCall) parts.push(textFromUnknown(message.toolCall))
+  if (message.result) parts.push(textFromUnknown(message.result))
+  return 4 + estimateTextTokens(parts.filter(Boolean).join('\n')) + estimateAttachmentTokens(message.attachments)
+}
+
+export function estimateHistoryTokens(systemPrompt: string, messages: MessageWithUsage[]) {
+  return estimateTextTokens(systemPrompt) + messages.reduce((total, message) => total + estimateMessageTokens(message), 0)
+}
+
+// ---------------------------------------------------------------------------
+// Context usage calculation
+// ---------------------------------------------------------------------------
+
+export function messageTimestamp(message: MessageWithUsage) {
+  if (typeof message.timestamp === 'number') return message.timestamp
+  if (typeof message.timestamp === 'string') {
+    const parsed = Date.parse(message.timestamp)
+    return Number.isNaN(parsed) ? 0 : parsed
+  }
+  return 0
+}
+
+export function hasCompactSummary(message: MessageWithUsage) {
+  return message.role === 'user' && textFromUnknown(message.content).includes('<compact_summary>')
+}
+
+export function latestCompactTimestamp(messages: MessageWithUsage[]) {
+  let timestamp = 0
+  for (const message of messages) {
+    if (hasCompactSummary(message)) timestamp = Math.max(timestamp, messageTimestamp(message))
+  }
+  return timestamp
+}
+
+export type ContextUsageInfo = {
+  contextWindow: number
+  usedTokens: number
+  inputTokens: number
+  estimatedTokens: number
+  percent: number
+  color: string
+}
+
+export function getContextUsage(
+  systemPrompt: string,
+  messages: MessageWithUsage[],
+  contextWindow: number,
+): ContextUsageInfo {
+  const compactedAt = latestCompactTimestamp(messages)
+  const usage = messages.reduce((latestUsage, message) => {
+    const currentUsage = message.usage
+    if (message.role !== 'assistant' || !currentUsage) return latestUsage
+    if (compactedAt > 0 && messageTimestamp(message) <= compactedAt) return latestUsage
+    return currentUsage
+  }, undefined as MessageUsage | undefined)
+  const inputTokens = usage?.input ?? usage?.totalTokens ?? 0
+  const estimatedTokens = estimateHistoryTokens(systemPrompt, messages)
+  const usedTokens = compactedAt > 0 ? estimatedTokens : Math.max(inputTokens, estimatedTokens)
+  const percent = contextWindow > 0 ? Math.min(100, Math.max(0, Math.round((usedTokens / contextWindow) * 100))) : 0
+  const hue = Math.round(142 - (142 * percent / 100))
+  return { contextWindow, usedTokens, inputTokens, estimatedTokens, percent, color: `hsl(${hue} 72% 45%)` }
+}
+
+export function formatTokens(value: number) {
+  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`
+  if (value >= 1000) return `${Math.round(value / 1000)}K`
+  return String(value)
+}

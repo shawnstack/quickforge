@@ -230,6 +230,13 @@ export class ServerAgent {
   private _syncingThinkingLevel = false
   private pollTimer: ReturnType<typeof setInterval> | null = null
 
+  /**
+   * Monotonically increasing version counter for state writes.
+   * Poll responses that carry an older version are discarded, preventing
+   * stale data from overwriting fresher SSE-driven updates.
+   */
+  private stateVersion = 0
+
   constructor(config: ServerAgentConfig) {
     this.sessionId = config.sessionId
     this.baseUrl = config.baseUrl ?? ''
@@ -428,6 +435,7 @@ export class ServerAgent {
         }
         if (s.messages && (s.messages.length > this.state.messages.length || (!this.state.isStreaming && s.messages.length === this.state.messages.length))) {
           this.state.messages = s.messages
+          this.stateVersion++
         }
         if (s.model) {
           this.state.model = s.model
@@ -444,13 +452,15 @@ export class ServerAgent {
         if (s.isStreaming !== undefined) {
           wasStreaming = this.state.isStreaming
           this.state.isStreaming = s.isStreaming
-          if (s.isStreaming && !wasStreaming) this.startPollingState()
+          // SSE is alive — disable polling fallback if it was running
+          this.stopPollingState()
         }
         // Emit the correct lifecycle event so the sidebar green dot stays in sync
         if (s.isStreaming) {
           this.state.errorMessage = undefined
           this.emitToListeners({ type: 'agent_start' } as AgentEvent)
         } else if (wasStreaming) {
+          this.stateVersion++
           this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
         }
         return
@@ -459,7 +469,6 @@ export class ServerAgent {
       case 'agent_start': {
         this.state.isStreaming = true
         this.state.errorMessage = undefined
-        this.startPollingState()
         break
       }
 
@@ -475,6 +484,7 @@ export class ServerAgent {
         // disappeared and then reappeared.
         if (endEvent.messages) {
           this.state.messages = endEvent.messages
+          this.stateVersion++
           this.state.isStreaming = false
           this.state.streamingMessage = undefined
           if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
@@ -493,8 +503,18 @@ export class ServerAgent {
 
       case 'message_end':
       case 'turn_end': {
-        // Refresh messages from server before notifying the UI, otherwise the
-        // panel can render against the old state and stay stale until refresh.
+        // Trust the SSE event data when it carries messages.  Only fall back
+        // to a server refresh when no messages are present in the event — this
+        // avoids the race where an in-flight poll response overwrites fresher
+        // SSE-driven state.
+        const msgEvent = event as { messages?: AgentMessage[] }
+        if (msgEvent.messages && msgEvent.messages.length >= this.state.messages.length) {
+          this.state.messages = msgEvent.messages
+          this.stateVersion++
+          this.emitToListeners(event as unknown as AgentEvent)
+          return
+        }
+        // No messages in event — refresh from server as last resort
         void this.refreshStateFromServer().finally(() => {
           this.emitToListeners(event as unknown as AgentEvent)
         })
@@ -541,7 +561,7 @@ export class ServerAgent {
     if (this.pollTimer || this.disposed) return
     this.pollTimer = setInterval(() => {
       void this.refreshStateFromServer({ notify: true })
-    }, 1000)
+    }, 2000)
   }
 
   private stopPollingState() {
@@ -553,24 +573,29 @@ export class ServerAgent {
   private async refreshStateFromServer(options?: { notify?: boolean; forceMessages?: boolean }) {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/state`
     try {
+      // Snapshot the version before the async gap
+      const versionBeforeFetch = this.stateVersion
       const res = await fetch(url)
       if (!res.ok) return
       const state = await res.json()
-      // Guard against a late-arriving fetch overwriting messages that were
-      // already set by a more recent agent_end event.
+
+      // Discard stale responses: if state was updated by an SSE event while
+      // this fetch was in flight, the poll response is obsolete.
+      if (!options?.forceMessages && versionBeforeFetch !== this.stateVersion) {
+        return
+      }
+
       const shouldReplaceMessages = Boolean(
         state.messages
         && (
           options?.forceMessages
           || state.messages.length > this.state.messages.length
-          // During streaming, equal-length snapshots can be older than the
-          // ChatPanel's transient streaming message.  Replacing on equality can
-          // temporarily drop thinking/content until the next SSE/final state.
           || (!this.state.isStreaming && state.messages.length === this.state.messages.length)
         ),
       )
       if (shouldReplaceMessages) {
         this.state.messages = state.messages
+        this.stateVersion++
       }
       if (state.systemPrompt !== undefined) {
         this.state.systemPrompt = state.systemPrompt
@@ -592,13 +617,13 @@ export class ServerAgent {
         if (state.isStreaming) {
           this.state.errorMessage = undefined
           if (!wasStreaming) {
-            this.startPollingState()
             this.emitToListeners({ type: 'agent_start' } as AgentEvent)
           }
         } else {
           this.stopPollingState()
         }
         if (options?.notify && wasStreaming && !state.isStreaming) {
+          this.stateVersion++
           this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
           return
         }

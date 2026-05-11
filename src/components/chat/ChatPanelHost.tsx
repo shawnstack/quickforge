@@ -304,12 +304,18 @@ export function ChatPanelHost({
         restoreComposerDraft(panel, composerDraftsRef.current.get(sessionId) ?? emptyDraft(), composerDraftsRef.current, sessionId)
       }
 
-      // Initial decoration
-      decorate()
-
       // Observe DOM changes for re-decoration
       observer = new MutationObserver(scheduleDecorate)
       observer.observe(panel, { childList: true, subtree: true })
+
+      // Defer initial decoration to the next animation frame so the Lit
+      // component has time to finish its first render. Without this the
+      // approval card (and other decorations) may be injected into a DOM
+      // that is not yet fully laid out, causing style discrepancies.
+      window.requestAnimationFrame(() => {
+        if (disposed) return
+        decorate()
+      })
     })
 
     hostRef.current.replaceChildren(panel)

@@ -440,9 +440,14 @@ agentEvents.setMaxListeners(100)
 function resetIdleTimer(session) {
   if (session.idleTimer) clearTimeout(session.idleTimer)
   session.idleTimer = setTimeout(() => {
-    logger.info(`Session ${session.sessionId} idle timeout (${IDLE_TIMEOUT_MS / 1000}s), destroying...`)
+    if (session.status === 'running') {
+      logger.info(`Session ${session.sessionId} idle timer fired but still running, resetting...`, { sessionId: session.sessionId, status: session.status })
+      resetIdleTimer(session)
+      return
+    }
+    logger.info(`Session ${session.sessionId} idle timeout (${IDLE_TIMEOUT_MS / 1000}s), destroying...`, { sessionId: session.sessionId })
     destroyAgent(session.sessionId).catch((err) =>
-      console.error(`Failed to destroy idle agent ${session.sessionId}:`, err),
+      logger.error(`Failed to destroy idle agent ${session.sessionId}:`, err, { sessionId: session.sessionId }),
     )
   }, IDLE_TIMEOUT_MS)
 }
@@ -623,31 +628,32 @@ export async function createAgent(sessionId, config = {}) {
       session.finishedAt = null
       // Persist running state immediately so a browser refresh still shows the green dot
       persistSession(session).catch((err) =>
-        console.error(`Failed to persist session on start ${sessionId}:`, err),
+        logger.error(`Failed to persist session on start ${sessionId}:`, err, { sessionId }),
       )
     }
 
     if (event.type === 'agent_end') {
       session.status = session.agent.state.errorMessage ? 'error' : 'idle'
       session.finishedAt = new Date().toISOString()
+      resetIdleTimer(session)
 
       // Persist after run ends
       persistSession(session).catch((err) =>
-        console.error(`Failed to persist session ${sessionId}:`, err),
+        logger.error(`Failed to persist session ${sessionId}:`, err, { sessionId }),
       )
     }
 
     if (event.type === 'message_end') {
       // Do a lightweight persist on message_end for crash recovery
       persistSession(session).catch((err) =>
-        console.error(`Failed to persist session ${sessionId}:`, err),
+        logger.error(`Failed to persist session ${sessionId}:`, err, { sessionId }),
       )
     }
   })
 
   agentSessions.set(sessionId, session)
   resetIdleTimer(session)
-  logger.info(`Created session ${sessionId} (scope: ${scope}, project: ${projectId || 'none'}, yolo: ${yoloMode})`)
+  logger.info(`Created session ${sessionId} (scope: ${scope}, project: ${projectId || 'none'}, yolo: ${yoloMode})`, { sessionId, scope, projectId: projectId || undefined, yoloMode })
   return session
 }
 
@@ -666,7 +672,7 @@ async function persistSession(session) {
         return data
       })
     } catch (err) {
-      console.error(`Failed to remove empty session ${sessionId}:`, err)
+      logger.error(`Failed to remove empty session ${sessionId}:`, err, { sessionId })
     }
     return
   }
@@ -742,7 +748,7 @@ async function persistSession(session) {
       return data
     })
   } catch (err) {
-    console.error(`Failed to persist session ${sessionId}:`, err)
+    logger.error(`Failed to persist session ${sessionId}:`, err, { sessionId })
   }
 }
 
@@ -828,7 +834,7 @@ export async function runPrompt(sessionId, message) {
         agentEvents.emit('agent_event', { sessionId, type: 'title_updated', title: aiTitle })
       }
     }).catch((err) => {
-      logger.warn(`Title generation failed for session ${sessionId}:`, err.message || err)
+      logger.warn(`Title generation failed for session ${sessionId}:`, err.message || err, { sessionId })
     })
   }
 
@@ -838,7 +844,7 @@ export async function runPrompt(sessionId, message) {
 
   // Fire and forget — events come through eventBus
   session.agent.prompt(userMessage).catch((err) => {
-    logger.error(`Agent prompt error for session ${sessionId}:`, err)
+    logger.error(`Agent prompt error for session ${sessionId}:`, err, { sessionId })
     const event = {
       type: 'error',
       error: err.message || 'Unknown error',
@@ -870,7 +876,7 @@ export async function abortRun(sessionId) {
     session.status = 'aborted'
     session.finishedAt = new Date().toISOString()
     persistSession(session).catch((err) =>
-      console.error(`Failed to persist aborted session ${sessionId}:`, err),
+      logger.error(`Failed to persist aborted session ${sessionId}:`, err, { sessionId }),
     )
     const event = {
       type: 'agent_end',
@@ -987,7 +993,7 @@ export async function destroyAgent(sessionId) {
   const session = agentSessions.get(sessionId)
   if (!session) return
 
-  logger.info(`Destroying session ${sessionId} (status: ${session.status})`)
+  logger.info(`Destroying session ${sessionId} (status: ${session.status})`, { sessionId, status: session.status })
 
   if (session.idleTimer) clearTimeout(session.idleTimer)
 
@@ -1019,11 +1025,11 @@ export async function restoreAgent(sessionId) {
   try {
     const sessionData = await readSessionValue(sessionId)
     if (!sessionData) {
-      logger.warn(`Cannot restore session ${sessionId}: no stored data found`)
+      logger.warn(`Cannot restore session ${sessionId}: no stored data found`, { sessionId })
       return null
     }
 
-    logger.info(`Restoring session ${sessionId} from storage (scope: ${sessionData.scope}, messages: ${sessionData.messages?.length ?? 0})`)
+    logger.info(`Restoring session ${sessionId} from storage (scope: ${sessionData.scope}, messages: ${sessionData.messages?.length ?? 0})`, { sessionId, scope: sessionData.scope, messageCount: sessionData.messages?.length ?? 0 })
 
     return await createAgent(sessionId, {
       scope: sessionData.scope || 'global',
@@ -1036,7 +1042,7 @@ export async function restoreAgent(sessionId) {
       createdAt: sessionData.createdAt,
     })
   } catch (err) {
-    logger.error(`Failed to restore agent ${sessionId}:`, err)
+    logger.error(`Failed to restore agent ${sessionId}:`, err, { sessionId })
     return null
   }
 }

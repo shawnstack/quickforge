@@ -450,14 +450,33 @@ export function ChatPanelHost({
       return String(value)
     }
 
+    const estimateAttachmentTokens = (attachments: unknown): number => {
+      if (!Array.isArray(attachments)) return 0
+      let total = 0
+      for (const att of attachments) {
+        const record = att as Record<string, unknown> | null | undefined
+        if (!record) continue
+        if (record.type === 'image') {
+          // OpenAI: low-detail = 85 tokens, high-detail ≈ 170–1785 tokens (resolution-based).
+          // No resolution available, use a fixed mid-range estimate.
+          total += 170
+        } else if (typeof record.extractedText === 'string') {
+          // Document: LLM only sees extractedText, not the base64 content.
+          total += estimateTextTokens(record.extractedText)
+        } else {
+          total += 85
+        }
+      }
+      return total
+    }
+
     const estimateMessageTokens = (message: MessageWithUsage) => {
       const parts = [message.role ?? '', textFromUnknown(message.content)]
-      if (message.attachments) parts.push(textFromUnknown(message.attachments))
       if (message.toolName) parts.push(message.toolName)
       if (message.toolCallId) parts.push(message.toolCallId)
       if (message.toolCall) parts.push(textFromUnknown(message.toolCall))
       if (message.result) parts.push(textFromUnknown(message.result))
-      return 4 + estimateTextTokens(parts.filter(Boolean).join('\n'))
+      return 4 + estimateTextTokens(parts.filter(Boolean).join('\n')) + estimateAttachmentTokens(message.attachments)
     }
 
     const estimateHistoryTokens = () => {

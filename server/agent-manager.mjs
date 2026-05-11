@@ -362,6 +362,37 @@ async function resolveCommandState(session, userMessage) {
   }
 }
 
+/**
+ * Convert AgentMessage[] to LLM-compatible Message[].
+ * Handles "user-with-attachments" → "user" with multi-modal content blocks.
+ * Without this the default pi-agent-core convertToLlm silently drops
+ * user-with-attachments messages, so the LLM never sees attachments.
+ */
+function serverConvertToLlm(messages) {
+  return messages
+    .filter(m => m.role !== 'artifact')
+    .map(m => {
+      if (m.role === 'user-with-attachments') {
+        const textContent = typeof m.content === 'string'
+          ? [{ type: 'text', text: m.content }]
+          : [...m.content]
+        if (Array.isArray(m.attachments)) {
+          for (const att of m.attachments) {
+            if (att.type === 'image' && att.content) {
+              textContent.push({ type: 'image', data: att.content, mimeType: att.mimeType })
+            } else if (att.type === 'document' && att.extractedText) {
+              textContent.push({ type: 'text', text: `\n\n[Document: ${att.fileName}]\n${att.extractedText}` })
+            }
+          }
+        }
+        return { ...m, role: 'user', content: textContent }
+      }
+      if (m.role === 'user' || m.role === 'assistant' || m.role === 'toolResult') return m
+      return null
+    })
+    .filter(Boolean)
+}
+
 function applyActiveCommandPrompt(messages, commandPrompt) {
   if (!commandPrompt) return messages
 
@@ -372,7 +403,6 @@ function applyActiveCommandPrompt(messages, commandPrompt) {
     const transformed = messages.slice()
     transformed[index] = {
       ...message,
-      role: 'user',
       content: commandPrompt,
     }
     return transformed
@@ -521,6 +551,7 @@ export async function createAgent(sessionId, config = {}) {
     streamFn: streamSimple,
     getApiKey,
     sessionId,
+    convertToLlm: serverConvertToLlm,
     onPayload: (payload) => {
       restoreReasoningContentInPayload(payload, agent.state.messages, agent.state.model)
     },

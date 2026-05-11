@@ -11,7 +11,7 @@ import { emptyDraft } from './chat-utils'
 import { createScrollSync } from './scroll-sync'
 import { createCommandSuggestions } from './command-suggestions'
 import { createContextUsageIndicator } from './context-usage'
-import { decorateMessages, decorateEditor, captureComposerDraft, restoreComposerDraft } from './panel-decoration'
+import { decorateMessages, decorateEditor, captureComposerDraft, restoreComposerDraft, injectApprovalCard, removeApprovalCard } from './panel-decoration'
 import type { ProjectInfo, RestoredDraft } from '@/lib/types'
 
 type AgentLike = ServerAgent | SharedServerAgent
@@ -28,6 +28,8 @@ type ChatPanelHostProps = {
   onRollbackFromMessage: (messageIndex: number) => void
   onCopyAnswer: (text: string) => Promise<void> | void
   onForkFromMessage: (messageIndex: number) => void
+  onApproveToolCall: (toolCallId: string) => void
+  onRejectToolCall: (toolCallId: string) => void
   restoredDraft?: RestoredDraft
   disableFork?: boolean
   readOnly?: boolean
@@ -45,6 +47,8 @@ type PropsRef = {
   onRollbackFromMessage: (messageIndex: number) => void
   onForkFromMessage: (messageIndex: number) => void
   onToggleYoloMode: () => void
+  onApproveToolCall: (toolCallId: string) => void
+  onRejectToolCall: (toolCallId: string) => void
   onModelSelect?: () => void
   yoloMode: boolean
   workspaceToolsEnabled: boolean
@@ -65,6 +69,8 @@ export function ChatPanelHost({
   onRollbackFromMessage,
   onCopyAnswer,
   onForkFromMessage,
+  onApproveToolCall,
+  onRejectToolCall,
   restoredDraft,
   disableFork = false,
   readOnly = false,
@@ -83,6 +89,8 @@ export function ChatPanelHost({
     onRollbackFromMessage,
     onForkFromMessage,
     onToggleYoloMode,
+    onApproveToolCall,
+    onRejectToolCall,
     onModelSelect,
     yoloMode,
     workspaceToolsEnabled,
@@ -100,6 +108,8 @@ export function ChatPanelHost({
       onRollbackFromMessage,
       onForkFromMessage,
       onToggleYoloMode,
+      onApproveToolCall,
+      onRejectToolCall,
       onModelSelect,
       yoloMode,
       workspaceToolsEnabled,
@@ -114,6 +124,8 @@ export function ChatPanelHost({
   // --- Refs that let the decoration trigger effect call into the active panel ---
   const decorateFnRef = useRef<(() => void) | null>(null)
   const scrollSyncRef = useRef<ReturnType<typeof createScrollSync> | null>(null)
+  const scheduleDecorateRef = useRef<(() => void) | null>(null)
+  const pendingApprovalRef = useRef<{ toolCallId: string; toolName: string; args: Record<string, unknown>; sessionId: string } | null>(null)
 
   // --- Load custom commands for the current project ---
   useEffect(() => {
@@ -194,31 +206,59 @@ export function ChatPanelHost({
 
       const props = propsRef.current
 
-      decorateMessages({
-        panel,
-        getMessages: () => agent.state.messages as import('./chat-utils').MessageWithUsage[],
-        isStreaming: () => agent.state.isStreaming,
-        onCopyAnswer: props.onCopyAnswer,
-        onRollbackFromMessage: props.onRollbackFromMessage,
-        onForkFromMessage: props.onForkFromMessage,
-        disableFork: props.disableFork,
-      })
+      // Wrap message/editor decoration so a failure in one does not block
+      // the approval card from rendering — the approval card is critical UI
+      // that must always appear when a tool call is pending.
+      try {
+        decorateMessages({
+          panel,
+          getMessages: () => agent.state.messages as import('./chat-utils').MessageWithUsage[],
+          isStreaming: () => agent.state.isStreaming,
+          onCopyAnswer: props.onCopyAnswer,
+          onRollbackFromMessage: props.onRollbackFromMessage,
+          onForkFromMessage: props.onForkFromMessage,
+          disableFork: props.disableFork,
+        })
+      } catch { /* continue to editor & approval card */ }
 
-      decorateEditor({
-        panel,
-        isStreaming: () => agent.state.isStreaming,
-        abort: () => agent.abort(),
-        yoloMode: props.yoloMode,
-        workspaceToolsEnabled: props.workspaceToolsEnabled,
-        readOnly: props.readOnly,
-        allowModelControls: props.allowModelControls,
-        onToggleYoloMode: props.onToggleYoloMode,
-        onInput: handleEditorInput,
-        onFilesChange: handleEditorFilesChange,
-        removeCommandSuggestions: cmdSuggestions.remove,
-        updateCommandSuggestions: cmdSuggestions.update,
-        setupCommandTextareaHandler: cmdSuggestions.setupTextareaHandler,
-      })
+      try {
+        decorateEditor({
+          panel,
+          isStreaming: () => agent.state.isStreaming,
+          abort: () => agent.abort(),
+          yoloMode: props.yoloMode,
+          workspaceToolsEnabled: props.workspaceToolsEnabled,
+          readOnly: props.readOnly,
+          allowModelControls: props.allowModelControls,
+          onToggleYoloMode: props.onToggleYoloMode,
+          onInput: handleEditorInput,
+          onFilesChange: handleEditorFilesChange,
+          removeCommandSuggestions: cmdSuggestions.remove,
+          updateCommandSuggestions: cmdSuggestions.update,
+          setupCommandTextareaHandler: cmdSuggestions.setupTextareaHandler,
+        })
+      } catch { /* continue to approval card */ }
+
+      // Render or remove approval card based on pending state.
+      // Must match the current session — otherwise a pending approval from a
+      // different session would leak into this panel.
+      const pending = pendingApprovalRef.current
+      if (pending && pending.sessionId === agent.sessionId) {
+        // Capture the toolCallId now — propsRef.current may change by click time
+        const capturedToolCallId = pending.toolCallId
+        injectApprovalCard(
+          {
+            panel,
+            onApprove: () => { pendingApprovalRef.current = null; removeApprovalCard(panel); propsRef.current.onApproveToolCall(capturedToolCallId) },
+            onReject: () => { pendingApprovalRef.current = null; removeApprovalCard(panel); propsRef.current.onRejectToolCall(capturedToolCallId) },
+          },
+          pending.toolName,
+          capturedToolCallId,
+          pending.args,
+        )
+      } else {
+        removeApprovalCard(panel)
+      }
 
       contextUsage.update()
       scrollSync.setup()
@@ -238,6 +278,7 @@ export function ChatPanelHost({
         decorate()
       })
     }
+    scheduleDecorateRef.current = scheduleDecorate
 
     // --- Initialize panel ---
     void panel.setAgent(agent as unknown as Parameters<typeof panel.setAgent>[0], {
@@ -273,11 +314,30 @@ export function ChatPanelHost({
 
     hostRef.current.replaceChildren(panel)
 
-    // --- Subscribe to agent events for auto-scroll ---
+    // --- Subscribe to agent events for auto-scroll and tool approvals ---
     const unsubscribeScrollEvents = agent.subscribe((event) => {
-      if (event.type === 'agent_start') scrollSync.enable()
+      if (event.type === 'agent_start') {
+        scrollSync.enable()
+        // A new run started — clear any pending approval for this session
+        if (pendingApprovalRef.current?.sessionId === agent.sessionId) {
+          pendingApprovalRef.current = null
+        }
+      }
       if (event.type === 'message_start' || event.type === 'message_update' || event.type === 'message_end' || event.type === 'turn_end' || event.type === 'agent_end') {
         if (scrollSync.isEnabled) scrollSync.scheduleScrollToBottom()
+      }
+      if (event.type === 'agent_end') {
+        // Run finished (or aborted) — clear pending approval for this session
+        if (pendingApprovalRef.current?.sessionId === agent.sessionId) {
+          pendingApprovalRef.current = null
+          scheduleDecorateRef.current?.()
+        }
+      }
+      // Store pending approval and trigger re-decoration
+      if ((event as Record<string, unknown>).type === 'tool_approval_required') {
+        const approvalEvent = event as unknown as { toolCallId: string; toolName: string; args: Record<string, unknown>; sessionId: string }
+        pendingApprovalRef.current = { toolCallId: approvalEvent.toolCallId, toolName: approvalEvent.toolName, args: approvalEvent.args, sessionId: approvalEvent.sessionId }
+        scheduleDecorateRef.current?.()
       }
     })
 

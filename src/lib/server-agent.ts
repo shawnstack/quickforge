@@ -95,6 +95,7 @@ class GlobalAgentSseClient {
       'turn_start', 'turn_end', 'message_update',
       'tool_execution_start', 'tool_execution_end',
       'error', 'title_updated', 'session_forked', 'scheduled_task_notification', 'scheduled_task_started',
+      'tool_approval_required',
     ]
 
     const handleMessage = (eventType?: string) => (e: MessageEvent) => {
@@ -408,6 +409,30 @@ export class ServerAgent {
     })
   }
 
+  /**
+   * Approve a pending tool call so it can execute.
+   */
+  async approveToolCall(toolCallId: string): Promise<void> {
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/approve-tool`
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ toolCallId }),
+    })
+  }
+
+  /**
+   * Reject a pending tool call, skipping its execution.
+   */
+  async rejectToolCall(toolCallId: string): Promise<void> {
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/reject-tool`
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ toolCallId }),
+    })
+  }
+
   dispose(): void {
     this.disposed = true
     if (this.pollTimer) {
@@ -536,6 +561,7 @@ export class ServerAgent {
       case 'turn_start':
       case 'tool_execution_start':
       case 'tool_execution_end':
+      case 'tool_approval_required':
         // Forward as-is
         break
     }

@@ -102,7 +102,7 @@ function MainApp() {
   } = useProject()
 
   // --- YOLO hook ---
-  const { yoloMode, setYoloMode, initialize: initYoloMode } = useYoloMode()
+  const { yoloMode, setYoloMode, initialize: initYoloMode, loadForProject } = useYoloMode()
 
   // --- UI state ---
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -154,6 +154,13 @@ function MainApp() {
   useEffect(() => {
     activeProjectRef.current = activeProject
   }, [activeProject])
+
+  // When switching projects, load that project's saved YOLO preference
+  useEffect(() => {
+    const storage = storageRef.current
+    if (!storage) return
+    void loadForProject(storage, activeProject?.id)
+  }, [activeProject, loadForProject, storageRef])
 
   useEffect(() => { crossTabRef.current = crossTab }, [crossTab])
 
@@ -266,9 +273,22 @@ function MainApp() {
     yoloModeRef,
     setYoloMode,
     agentRef,
+    activeProjectRef,
     setChatPanelRevision,
     notifySettingsChanged: crossTab.notifySettingsChanged,
   })
+
+  const handleApproveToolCall = useCallback((toolCallId: string) => {
+    agentRef.current?.approveToolCall(toolCallId).catch((err) => {
+      logger.error('Failed to approve tool call:', err)
+    })
+  }, [agentRef])
+
+  const handleRejectToolCall = useCallback((toolCallId: string) => {
+    agentRef.current?.rejectToolCall(toolCallId).catch((err) => {
+      logger.error('Failed to reject tool call:', err)
+    })
+  }, [agentRef])
 
   const {
     loadSession,
@@ -499,6 +519,8 @@ function MainApp() {
                   onRollbackFromMessage={rollbackFromMessage}
                   onCopyAnswer={copyAnswer}
                   onForkFromMessage={forkFromMessage}
+                  onApproveToolCall={handleApproveToolCall}
+                  onRejectToolCall={handleRejectToolCall}
                   disableFork={false}
                   restoredDraft={restoredDraft}
                 />

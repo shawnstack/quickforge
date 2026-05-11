@@ -15,6 +15,7 @@ import { logger } from '@/lib/logger'
 
 const ACTIVE_MODEL_SETTING_KEY = 'active-model'
 const YOLO_MODE_SETTING_KEY = 'yolo-mode'
+const YOLO_MODE_PROJECT_PREFIX = 'yolo-mode-project:'
 const DEFAULT_OPTIONS_SETTING_KEY = 'default-options'
 
 export type ConnectionForm = {
@@ -316,11 +317,20 @@ export async function resolveConfiguredModel(storage: AppStorage, model: Model<A
   return normalizeModelForProvider(model)
 }
 
-export async function saveYoloMode(storage: AppStorage, enabled: boolean) {
-  await storage.settings.set(YOLO_MODE_SETTING_KEY, enabled)
+export async function saveYoloMode(storage: AppStorage, enabled: boolean, projectId?: string) {
+  const key = projectId ? `${YOLO_MODE_PROJECT_PREFIX}${projectId}` : YOLO_MODE_SETTING_KEY
+  await storage.settings.set(key, enabled)
 }
 
-export async function loadYoloMode(storage: AppStorage): Promise<boolean> {
+export async function loadYoloMode(storage: AppStorage, projectId?: string): Promise<boolean> {
+  if (projectId) {
+    const projectKey = `${YOLO_MODE_PROJECT_PREFIX}${projectId}`
+    const projectSaved = await storage.settings.get<unknown>(projectKey)
+    if (projectSaved !== null && projectSaved !== undefined) {
+      return projectSaved === true || projectSaved === 'true'
+    }
+    // Fall back to global default
+  }
   const saved = await storage.settings.get<unknown>(YOLO_MODE_SETTING_KEY)
   if (saved === null || saved === undefined) {
     await saveYoloMode(storage, true)

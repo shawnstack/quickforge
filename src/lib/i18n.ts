@@ -284,6 +284,11 @@ export const appTranslations = {
     serviceStartedAt: 'Started at',
     serviceDataDir: 'Data directory',
     serviceWorkspace: 'Workspace',
+    toolApprovalWaiting: 'Waiting for approval: {toolName}',
+    toolApprovalAccept: '✓ Accept',
+    toolApprovalReject: '✗ Reject',
+    toolApprovalTimeout: 'Timeout',
+    toolApprovalTruncated: '... (truncated)',
   },
   zh: {
     language: '语言',
@@ -556,6 +561,11 @@ export const appTranslations = {
     serviceStartedAt: '启动时间',
     serviceDataDir: '数据目录',
     serviceWorkspace: '工作区',
+    toolApprovalWaiting: '等待审批：{toolName}',
+    toolApprovalAccept: '✓ 允许',
+    toolApprovalReject: '✗ 拒绝',
+    toolApprovalTimeout: '超时时间',
+    toolApprovalTruncated: '...（内容已截断）',
   },
 } as const
 

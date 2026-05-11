@@ -77,7 +77,7 @@ async function rebuildSessionTools(session) {
     session.projectId,
     session.projectContext,
     sessionSkillsContext(session),
-    session.yoloMode,
+    !!(session.projectId && session.projectContext),
     createCommandToolPermissions(session),
   )
 }
@@ -91,7 +91,10 @@ const agentSessions = new Map()
 /** @typedef {{ agent: Agent, projectContext: object|null, projectId: string|null, yoloMode: boolean, model: object, thinkingLevel: string, scope: string, title: string, createdAt: string, status: string, startedAt: string|null, finishedAt: string|null, listeners: Set<function>, idleTimer: NodeJS.Timeout|null, eventBus: EventEmitter }} AgentSession */
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
+const APPROVAL_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes for tool approval
 const commandRestrictedTools = new Set(['write_file', 'edit_file', 'run_command'])
+const safeReadTools = new Set(['get_project_info', 'list_dir', 'read_file', 'grep_files'])
+const pendingApprovals = new Map() // toolCallId → { resolve, reject, sessionId, toolName, args, timeout }
 
 function createCommandToolPermissions(session) {
   return (toolName) => {
@@ -105,6 +108,73 @@ function createCommandToolPermissions(session) {
     }
     return null
   }
+}
+
+/**
+ * Create a Promise that only resolves when the user accepts or rejects the tool call.
+ * The agent loop's `await config.beforeToolCall(...)` pauses on this promise,
+ * effectively freezing the agent until the user decides.
+ */
+function createApprovalPromise(session, toolCallId, toolName, args) {
+  return new Promise((resolve, reject) => {
+    let settled = false
+
+    const timeout = setTimeout(() => {
+      if (settled) return
+      settled = true
+      pendingApprovals.delete(toolCallId)
+      resolve({ block: true, reason: `Approval timeout for ${toolName}` })
+    }, APPROVAL_TIMEOUT_MS)
+
+    const cleanup = () => {
+      clearTimeout(timeout)
+      if (settled) return
+      settled = true
+      pendingApprovals.delete(toolCallId)
+    }
+
+    // Listen for abort signal so the promise rejects when the user stops the run
+    const signal = session.agent.signal
+    if (signal) {
+      if (signal.aborted) {
+        cleanup()
+        reject(new Error('Run aborted'))
+        return
+      }
+      const onAbort = () => {
+        cleanup()
+        reject(new Error('Run aborted'))
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+    }
+
+    pendingApprovals.set(toolCallId, {
+      resolve: (approved) => {
+        cleanup()
+        resolve(approved ? undefined : { block: true, reason: `User rejected ${toolName}` })
+      },
+      reject: (err) => {
+        cleanup()
+        reject(err)
+      },
+      sessionId: session.sessionId,
+      toolName,
+      args,
+    })
+
+    // Notify the frontend via both the session-level and global event buses.
+    // The global SSE handler (/api/agents/events) only listens to `agentEvents`,
+    // so events emitted only on session.eventBus never reach the client.
+    const approvalEvent = {
+      type: 'tool_approval_required',
+      sessionId: session.sessionId,
+      toolCallId,
+      toolName,
+      args,
+    }
+    session.eventBus.emit('agent_event', approvalEvent)
+    agentEvents.emit('agent_event', approvalEvent)
+  })
 }
 
 function assistantTextMessage(text, model) {
@@ -523,12 +593,12 @@ export async function createAgent(sessionId, config = {}) {
     }
   }
 
-  // Build skills tools for enabled skills, plus workspace tools when YOLO + project are available.
+  // Build skills tools for enabled skills, plus workspace tools when a project is available.
   const tools = await createServerTools(
     projectId,
     projectContext,
     skillsContext,
-    yoloMode,
+    !!(projectId && projectContext),
     (toolName) => {
       const session = agentSessions.get(sessionId)
       return session ? createCommandToolPermissions(session)(toolName) : null
@@ -563,6 +633,7 @@ export async function createAgent(sessionId, config = {}) {
     transformContext: (messages) => transformAgentContext(messages, session?.activeCommandPrompt),
     beforeToolCall: async (context) => {
       const toolName = context.toolCall?.name
+      const toolCallId = context.toolCall?.id
       const isSkillTool = toolName === 'activate_skill' || toolName === 'read_skill_resource'
       if (isSkillTool) return undefined
       if (!projectContext) {
@@ -570,7 +641,9 @@ export async function createAgent(sessionId, config = {}) {
       }
       const currentSession = agentSessions.get(sessionId)
       if (!currentSession?.yoloMode) {
-        return { block: true, reason: 'YOLO mode is disabled. Enable it to use tools.' }
+        // YOLO OFF: safe reads auto-pass, dangerous writes require approval
+        if (safeReadTools.has(toolName)) return undefined
+        return createApprovalPromise(currentSession, toolCallId, toolName, context.args)
       }
       return undefined
     },
@@ -869,6 +942,13 @@ export async function abortRun(sessionId) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
   }
 
+  // Clean up any pending tool approvals for this session
+  for (const [toolCallId, approval] of pendingApprovals) {
+    if (approval.sessionId === sessionId) {
+      approval.reject(new Error('Run aborted'))
+    }
+  }
+
   session.agent.abort()
   await session.agent.waitForIdle()
 
@@ -1045,6 +1125,30 @@ export async function restoreAgent(sessionId) {
     logger.error(`Failed to restore agent ${sessionId}:`, err, { sessionId })
     return null
   }
+}
+
+/**
+ * Approve a pending tool call, allowing it to execute.
+ */
+export function approveToolCall(sessionId, toolCallId) {
+  const approval = pendingApprovals.get(toolCallId)
+  if (!approval || approval.sessionId !== sessionId) {
+    throw Object.assign(new Error('No pending approval for this tool call'), { statusCode: 404 })
+  }
+  approval.resolve(true)
+  return { approved: true, toolCallId }
+}
+
+/**
+ * Reject a pending tool call, skipping its execution.
+ */
+export function rejectToolCall(sessionId, toolCallId) {
+  const approval = pendingApprovals.get(toolCallId)
+  if (!approval || approval.sessionId !== sessionId) {
+    throw Object.assign(new Error('No pending approval for this tool call'), { statusCode: 404 })
+  }
+  approval.resolve(false)
+  return { rejected: true, toolCallId }
 }
 
 /**

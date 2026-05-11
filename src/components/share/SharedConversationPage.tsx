@@ -221,6 +221,8 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
         onRollbackFromMessage={rollback}
         onCopyAnswer={copyAnswer}
         onForkFromMessage={() => undefined}
+        onApproveToolCall={() => undefined}
+        onRejectToolCall={() => undefined}
         disableFork
         readOnly={!operate}
         bypassClientApiKeyCheck

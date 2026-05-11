@@ -377,3 +377,133 @@ export function restoreComposerDraft(
     attachments: draft.attachments ? [...draft.attachments] : [],
   })
 }
+
+// --- Tool approval card ---
+
+export type ApprovalCardDeps = {
+  panel: HTMLElement
+  onApprove: () => void
+  onReject: () => void
+}
+
+const APPROVAL_CARD_SELECTOR = '.quickforge-approval-card'
+
+export function injectApprovalCard(
+  deps: ApprovalCardDeps,
+  toolName: string,
+  toolCallId: string,
+  args: Record<string, unknown>,
+) {
+  const { panel, onApprove, onReject } = deps
+
+  // If a card for the same tool call already exists, skip recreation.
+  // This prevents the MutationObserver → decorate() → injectApprovalCard
+  // loop from destroying and recreating the card every animation frame,
+  // which would make the Accept/Reject buttons unclickable.
+  const existingCard = panel.querySelector(`.quickforge-approval-card[data-tool-call-id="${CSS.escape(toolCallId)}"]`)
+  if (existingCard) return
+
+  // Remove any card for a different tool call (shouldn't normally happen)
+  removeApprovalCard(panel)
+
+  const card = document.createElement('div')
+  card.className = 'quickforge-approval-card pointer-events-auto mb-4 mx-4 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 p-4'
+  card.dataset.toolCallId = toolCallId
+
+  // Header
+  const header = document.createElement('div')
+  header.className = 'flex items-center gap-2 mb-3 text-sm font-medium text-amber-800 dark:text-amber-300'
+  header.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`
+  header.append(` ${t('toolApprovalWaiting', { toolName })}`)
+  card.append(header)
+
+  // Preview
+  const preview = document.createElement('div')
+  preview.className = 'quickforge-approval-preview mb-3'
+
+  if (toolName === 'write_file') {
+    const filePath = String(args.path ?? '')
+    const content = String(args.content ?? '')
+    const truncated = content.length > 800
+    preview.innerHTML = `
+      <div class="text-xs text-muted-foreground mb-1">📁 ${escapeHtml(filePath)}</div>
+      <pre class="text-xs bg-background border rounded p-2 max-h-40 overflow-auto font-mono whitespace-pre-wrap">${escapeHtml(content.slice(0, 800))}${truncated ? `\n${t('toolApprovalTruncated')}` : ''}</pre>
+    `
+  } else if (toolName === 'edit_file') {
+    const filePath = String(args.path ?? '')
+    const oldText = String(args.oldText ?? '')
+    const newText = String(args.newText ?? '')
+    const diffLines = buildInlineDiff(oldText, newText)
+    preview.innerHTML = `
+      <div class="text-xs text-muted-foreground mb-1">📁 ${escapeHtml(filePath)}</div>
+      <pre class="text-xs bg-background border rounded p-2 max-h-40 overflow-auto font-mono whitespace-pre-wrap">${diffLines}</pre>
+    `
+  } else if (toolName === 'run_command') {
+    const command = String(args.command ?? '')
+    const timeout = args.timeoutSeconds ? `${args.timeoutSeconds}s` : '60s'
+    preview.innerHTML = `
+      <div class="text-xs text-muted-foreground mb-1">⏱️ ${t('toolApprovalTimeout')}: ${escapeHtml(timeout)}</div>
+      <pre class="text-xs bg-background border rounded p-2 max-h-40 overflow-auto font-mono whitespace-pre-wrap">$ ${escapeHtml(command)}</pre>
+    `
+  } else {
+    preview.innerHTML = `<pre class="text-xs bg-background border rounded p-2 max-h-40 overflow-auto font-mono whitespace-pre-wrap">${escapeHtml(JSON.stringify(args, null, 2))}</pre>`
+  }
+  card.append(preview)
+
+  // Buttons
+  const actions = document.createElement('div')
+  actions.className = 'flex items-center gap-2'
+
+  const acceptBtn = document.createElement('button')
+  acceptBtn.type = 'button'
+  acceptBtn.className = 'inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 transition-colors cursor-pointer'
+  acceptBtn.textContent = t('toolApprovalAccept')
+  acceptBtn.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); onApprove() })
+
+  const rejectBtn = document.createElement('button')
+  rejectBtn.type = 'button'
+  rejectBtn.className = 'inline-flex items-center gap-1.5 rounded-md border border-red-300 dark:border-red-700 px-3 py-1.5 text-xs font-medium text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer'
+  rejectBtn.textContent = t('toolApprovalReject')
+  rejectBtn.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); onReject() })
+
+  actions.append(acceptBtn, rejectBtn)
+  card.append(actions)
+
+  // Insert at the bottom of the message list
+  const messageList = panel.querySelector('message-list')
+  if (messageList) {
+    messageList.append(card)
+  } else {
+    // Fallback: append to agent-interface
+    const agentInterface = panel.querySelector('agent-interface')
+    agentInterface?.append(card)
+  }
+
+  // Scroll into view
+  card.scrollIntoView({ behavior: 'smooth', block: 'end' })
+}
+
+export function removeApprovalCard(panel: HTMLElement) {
+  panel.querySelectorAll(APPROVAL_CARD_SELECTOR).forEach((el) => el.remove())
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function buildInlineDiff(oldText: string, newText: string): string {
+  const oldLines = oldText.split('\n')
+  const newLines = newText.split('\n')
+  const result: string[] = []
+  for (const line of oldLines) {
+    result.push(`<span class="text-red-600 dark:text-red-400">- ${escapeHtml(line)}</span>`)
+  }
+  for (const line of newLines) {
+    result.push(`<span class="text-emerald-600 dark:text-emerald-400">+ ${escapeHtml(line)}</span>`)
+  }
+  return result.join('\n')
+}

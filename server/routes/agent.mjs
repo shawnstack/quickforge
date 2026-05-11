@@ -17,6 +17,8 @@ import {
   updateSessionYoloMode,
   updateSessionModel,
   updateSessionThinkingLevel,
+  approveToolCall,
+  rejectToolCall,
   agentEvents,
 } from '../agent-manager.mjs'
 
@@ -178,6 +180,22 @@ export async function handleAgentApi(req, res, url) {
       throw error
     }
     const result = followUpAgent(sessionId, message)
+    sendJson(res, 200, result)
+    return
+  }
+
+  // POST /api/agents/:sessionId/approve-tool — approve a pending tool call
+  if (req.method === 'POST' && subPath === 'approve-tool') {
+    const body = await readJsonBody(req)
+    const result = approveToolCall(sessionId, body?.toolCallId)
+    sendJson(res, 200, result)
+    return
+  }
+
+  // POST /api/agents/:sessionId/reject-tool — reject a pending tool call
+  if (req.method === 'POST' && subPath === 'reject-tool') {
+    const body = await readJsonBody(req)
+    const result = rejectToolCall(sessionId, body?.toolCallId)
     sendJson(res, 200, result)
     return
   }

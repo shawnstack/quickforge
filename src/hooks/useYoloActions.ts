@@ -9,6 +9,7 @@ type UseYoloActionsOptions = {
   yoloModeRef: React.MutableRefObject<boolean>
   setYoloMode: React.Dispatch<React.SetStateAction<boolean>>
   agentRef: AgentManager['agentRef']
+  activeProjectRef: React.MutableRefObject<{ id: string } | undefined>
   setChatPanelRevision: AgentManager['setChatPanelRevision']
   notifySettingsChanged: () => void
 }
@@ -18,6 +19,7 @@ export function useYoloActions({
   yoloModeRef,
   setYoloMode,
   agentRef,
+  activeProjectRef,
   setChatPanelRevision,
   notifySettingsChanged,
 }: UseYoloActionsOptions) {
@@ -35,11 +37,12 @@ export function useYoloActions({
   const toggleYoloMode = useCallback(() => {
     const storage = storageRef.current
     const currentAgent = agentRef.current
+    const projectId = activeProjectRef.current?.id
     setYoloMode((prev) => {
       const next = !prev
       yoloModeRef.current = next
       if (storage) {
-        void saveYoloMode(storage, next).catch((error) => {
+        void saveYoloMode(storage, next, projectId).catch((error) => {
           logger.error('Failed to save YOLO mode:', error)
         })
       }
@@ -47,7 +50,7 @@ export function useYoloActions({
       return next
     })
     notifySettingsChanged()
-  }, [agentRef, notifySettingsChanged, setYoloMode, storageRef, syncAgentYoloMode, yoloModeRef])
+  }, [agentRef, activeProjectRef, notifySettingsChanged, setYoloMode, storageRef, syncAgentYoloMode, yoloModeRef])
 
   return { toggleYoloMode }
 }

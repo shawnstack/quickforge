@@ -476,22 +476,14 @@ export class ServerAgent {
         this.stopPollingState()
         const endEvent = event as { messages?: AgentMessage[]; errorMessage?: string }
 
-        // Prefer the authoritative final messages carried by agent_end.  If the
-        // event does not include them, fetch the final state before clearing the
-        // streaming message.  Clearing first creates a short UI gap where the
-        // ChatPanel no longer has either the transient streaming message or the
-        // finalized message in `messages`, which looks like the answer/thinking
-        // disappeared and then reappeared.
-        if (endEvent.messages) {
-          this.state.messages = endEvent.messages
-          this.stateVersion++
-          this.state.isStreaming = false
-          this.state.streamingMessage = undefined
-          if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
-          this.emitToListeners(event as unknown as AgentEvent)
-          break
-        }
-
+        // The pi-agent-core agent loop emits agent_end with `messages` that
+        // only contains messages generated during THIS run (newMessages), not
+        // the complete session history.  Always fetch the authoritative full
+        // state from the server to avoid overwriting and losing earlier messages.
+        //
+        // We clear streaming state only AFTER the fetch completes, so there is
+        // no visual gap between the transient streaming message disappearing
+        // and the finalized message appearing in the stable list.
         void this.refreshStateFromServer({ forceMessages: true }).finally(() => {
           this.state.isStreaming = false
           this.state.streamingMessage = undefined

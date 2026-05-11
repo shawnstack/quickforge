@@ -335,7 +335,10 @@ export class SharedServerAgent {
         this.state.errorMessage = undefined
         break
       case 'agent_end':
-        if (event.messages) this.state.messages = event.messages
+        // Do NOT replace messages from agent_end — the pi-agent-core agent
+        // loop only includes messages generated during THIS run (newMessages),
+        // not the complete session history.  Messages are already built up
+        // incrementally via message_start / message_end handlers.
         this.state.isStreaming = false
         this.state.streamingMessage = undefined
         break

@@ -604,9 +604,17 @@ export async function createAgent(sessionId, config = {}) {
 
   // Subscribe to agent lifecycle events and forward to eventBus
   agent.subscribe((event) => {
+    // The pi-agent-core agent loop emits agent_end with `messages` that only
+    // contains messages generated during THIS run (newMessages), not the
+    // complete session history.  Replace with the authoritative full state
+    // before forwarding to clients.
+    const forwardEvent = event.type === 'agent_end' && event.messages
+      ? { ...event, messages: agent.state.messages }
+      : event
+
     // Forward all events to the session event bus and the global bus.
-    eventBus.emit('agent_event', event)
-    agentEvents.emit('agent_event', { sessionId, ...event })
+    eventBus.emit('agent_event', forwardEvent)
+    agentEvents.emit('agent_event', { sessionId, ...forwardEvent })
 
     // Track status
     if (event.type === 'agent_start') {

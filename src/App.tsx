@@ -41,6 +41,7 @@ import { useSessionActions } from '@/hooks/useSessionActions'
 import { useYoloActions } from '@/hooks/useYoloActions'
 import { useVisibleRuntimeStatuses } from '@/hooks/useVisibleRuntimeStatuses'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
+import { logger } from '@/lib/logger'
 import { ToastContainer } from '@/components/ui/toast'
 import { ShareConversationDialog } from '@/components/share/ShareConversationDialog'
 import { SharedConversationPage } from '@/components/share/SharedConversationPage'
@@ -417,7 +418,7 @@ function MainApp() {
         onOpenProjectSkills={openProjectSkills}
         onOpenProjectInExplorer={(project) => {
           void openProjectInExplorer(project).catch((error) => {
-            console.error('Failed to open project in explorer:', error)
+            logger.error('Failed to open project in explorer:', error)
             alert(error instanceof Error ? error.message : t('openInExplorerFailed'))
           })
         }}
@@ -481,7 +482,7 @@ function MainApp() {
               <ModelSetupEmptyState
                 onAddModel={openModelSettings}
                 onUseExample={() => {
-                  void activateLiteLlmExampleModel().catch((error) => console.error('Failed to use LiteLLM example:', error))
+                  void activateLiteLlmExampleModel().catch((error) => logger.error('Failed to use LiteLLM example:', error))
                 }}
               />
             ) : (

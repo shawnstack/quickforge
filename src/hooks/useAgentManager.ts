@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentState } from '@mariozechner/pi-agent-core'
 import type { Api, Model } from '@mariozechner/pi-ai'
+import { logger } from '@/lib/logger'
 import { ServerAgent } from '@/lib/server-agent'
 import {
   defaultThinkingLevelForModel,
@@ -220,7 +221,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
           // showing the latest messages via the agent state.  Destroying /
           // recreating the panel on every agent_end causes a visual flash where
           // messages disappear then reappear.
-          syncSessionUI(task).catch((err) => console.error('Failed to sync session UI:', err))
+          syncSessionUI(task).catch((err) => logger.error('Failed to sync session UI:', err))
           if (wasRunning) {
             onTaskCompleteRef.current?.(task.sessionId, task.title, task.status)
           }
@@ -233,7 +234,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
             currentTitleRef.current = titleEvent.title
             setCurrentTitle(titleEvent.title)
           }
-          refreshSessions({ broadcast: true }).catch((err) => console.error('Failed to refresh sessions:', err))
+          refreshSessions({ broadcast: true }).catch((err) => logger.error('Failed to refresh sessions:', err))
         }
 
         if ((event as { type: string }).type === 'session_forked') {
@@ -246,7 +247,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
             projectId?: string | null
           }
           if (!forkEvent.targetSessionId) return
-          refreshSessions({ broadcast: true }).catch((err) => console.error('Failed to refresh sessions:', err))
+          refreshSessions({ broadcast: true }).catch((err) => logger.error('Failed to refresh sessions:', err))
           void loadSessionRef.current?.(forkEvent.targetSessionId, {
             title: forkEvent.title,
             createdAt: forkEvent.createdAt,
@@ -282,7 +283,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
           try {
             await switchActiveProject(runningTask.project.id)
           } catch (error) {
-            console.error('Failed to switch project for running session:', error)
+            logger.error('Failed to switch project for running session:', error)
           }
         }
         attachTaskToView(runningTask)
@@ -317,7 +318,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
           try {
             project = await switchActiveProject(projectId)
           } catch (error) {
-            console.error('Failed to switch project for session:', error)
+            logger.error('Failed to switch project for session:', error)
             alert('Failed to switch project')
             return
           }
@@ -363,7 +364,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     if (agentRef.current) {
       agentRef.current.state.model = model
       void agentRef.current.updateModel(model).catch((error) => {
-        console.error('Failed to sync model to server:', error)
+        logger.error('Failed to sync model to server:', error)
       })
     }
   }, [])

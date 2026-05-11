@@ -22,7 +22,7 @@ import { handleSystemApi } from './routes/system.mjs'
 import { handleSharesApi } from './routes/shares.mjs'
 import { handleSharedConversationApi } from './routes/shared-conversation.mjs'
 import { serveStatic } from './routes/static.mjs'
-import { logger } from './utils/logger.mjs'
+import { logger, flushLogger } from './utils/logger.mjs'
 import { isLoopbackAddress, getLanUrls } from './utils/network.mjs'
 import { shutdown as shutdownAgentManager, resetStaleTaskStatuses } from './agent-manager.mjs'
 
@@ -319,10 +319,12 @@ function isAllowedHostHeader(value) {
 
 // --- Bootstrap ---
 const server = createServer(async (req, res) => {
+  const reqId = randomUUID().slice(0, 8)
+  const reqLogger = logger.child({ reqId })
   const startedAt = Date.now()
   res.on('finish', () => {
     const durationMs = Date.now() - startedAt
-    logger.info(`${req.method} ${req.url} ${res.statusCode} ${durationMs}ms`)
+    reqLogger.info(`${req.method} ${req.url} ${res.statusCode}`, { method: req.method, url: req.url, status: res.statusCode, durationMs })
   })
 
   if (!isAllowedHostHeader(req.headers.host)) {
@@ -392,7 +394,7 @@ const server = createServer(async (req, res) => {
 
     await serveStatic(req, res, url)
   } catch (error) {
-    logger.error(error)
+    reqLogger.error(error.message || 'Request error', { stack: error.stack })
     sendError(res, error)
   }
 })
@@ -430,6 +432,7 @@ async function gracefulShutdown(signal) {
   stopScheduledTaskRunner()
   stopVite()
   await shutdownAgentManager()
+  flushLogger()
   process.exit(0)
 }
 

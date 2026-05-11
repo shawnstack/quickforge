@@ -11,6 +11,7 @@ import {
   type StorageBackend,
 } from '@mariozechner/pi-web-ui'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
+import { logger } from '@/lib/logger'
 
 const ACTIVE_MODEL_SETTING_KEY = 'active-model'
 const YOLO_MODE_SETTING_KEY = 'yolo-mode'
@@ -309,7 +310,7 @@ export async function resolveConfiguredModel(storage: AppStorage, model: Model<A
       return configured.reasoning === true ? normalizeModelForProvider(configured) : configured
     }
   } catch (error) {
-    console.warn('Failed to resolve configured model:', error)
+    logger.warn('Failed to resolve configured model:', error)
   }
 
   return normalizeModelForProvider(model)

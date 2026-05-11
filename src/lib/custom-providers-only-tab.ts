@@ -8,6 +8,7 @@ import { html, type TemplateResult } from 'lit'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import { t } from '@/lib/i18n'
 import { DEFAULT_CONNECTION, normalizeModelForProvider } from '@/lib/pi-chat'
+import { logger } from '@/lib/logger'
 
 type ProviderProtocol = Extract<CustomProviderType, 'openai-completions' | 'anthropic-messages'>
 type AnyModel = Model<Api>
@@ -78,7 +79,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     try {
       this.providers = await getAppStorage().customProviders.getAll()
     } catch (error) {
-      console.error('Failed to load custom providers:', error)
+      logger.error('Failed to load custom providers:', error)
       this.providers = []
     } finally {
       this.loading = false
@@ -284,7 +285,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       this.closeForm()
       await this.loadProviders()
     } catch (error) {
-      console.error('Failed to save custom model:', error)
+      logger.error('Failed to save custom model:', error)
       alert(t('saveCustomModelFailed'))
     }
   }
@@ -298,7 +299,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       await storage.providerKeys.delete(provider.name)
       await this.loadProviders()
     } catch (error) {
-      console.error('Failed to delete custom provider:', error)
+      logger.error('Failed to delete custom provider:', error)
       alert(t('deleteFailed'))
     }
   }

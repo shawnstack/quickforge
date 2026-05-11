@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { fetchActiveAgentStatuses, subscribeToAgentEvents } from '@/lib/server-agent'
 import type { BackgroundTaskStatus, QuickForgeSessionMetadata } from '@/lib/types'
+import { logger } from '@/lib/logger'
 
 function toBackgroundTaskStatus(status: unknown): BackgroundTaskStatus | undefined {
   return status === 'running' || status === 'idle' || status === 'error' || status === 'aborted'
@@ -49,7 +50,7 @@ export function useVisibleRuntimeStatuses(sessions: QuickForgeSessionMetadata[])
         return next
       })
     } catch (error) {
-      console.error('Failed to refresh visible agent statuses:', error)
+      logger.error('Failed to refresh visible agent statuses:', error)
     }
   }, [visibleSessionIds])
 

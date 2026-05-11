@@ -2,6 +2,7 @@ import type { AgentEvent, AgentMessage, ThinkingLevel } from '@mariozechner/pi-a
 import type { Api, Model } from '@mariozechner/pi-ai'
 import { streamSimple } from '@mariozechner/pi-ai'
 import type { SharePermission } from '@/lib/share-client'
+import { logger } from '@/lib/logger'
 
 export type SharedSessionState = {
   sessionId?: string
@@ -139,7 +140,7 @@ export class SharedServerAgent {
         ;(target as Record<string | symbol, unknown>)[prop] = value
         if (prop === 'thinkingLevel' && !this.syncingThinkingLevel && value !== oldValue) {
           void this.updateThinkingLevel(value as ThinkingLevel).catch((err) => {
-            console.error('Failed to update shared thinking level:', err)
+            logger.error('Failed to update shared thinking level:', err)
           })
         }
         return true
@@ -216,7 +217,7 @@ export class SharedServerAgent {
   abort(): void {
     if (this.permission !== 'operate') return
     fetch(`/api/shared/${encodeURIComponent(this.shareId)}/abort`, { method: 'POST' }).catch((err) => {
-      console.error('Failed to abort shared conversation:', err)
+      logger.error('Failed to abort shared conversation:', err)
     })
   }
 

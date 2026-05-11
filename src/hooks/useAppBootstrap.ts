@@ -14,6 +14,7 @@ import type {
   QuickForgeSessionMetadata,
 } from '@/lib/types'
 import { sessionScope } from '@/lib/types'
+import { logger } from '@/lib/logger'
 
 type UseAppBootstrapOptions = {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof initializePiStorage>> | null>
@@ -80,7 +81,7 @@ export function useAppBootstrap({
                 try {
                   project = await switchActiveProject(projectId)
                 } catch (error) {
-                  console.error('Failed to switch project for initial session:', error)
+                  logger.error('Failed to switch project for initial session:', error)
                   alert(t('projectSwitchFailed'))
                   if (initialModel) {
                     await createAgent(
@@ -136,7 +137,7 @@ export function useAppBootstrap({
 
         setReady(true)
       } catch (error) {
-        console.error('Failed to bootstrap QuickForge:', error)
+        logger.error('Failed to bootstrap QuickForge:', error)
         if (!cancelled) setStartupError(t('localServiceUnavailableDescription'))
       }
     }

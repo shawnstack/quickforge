@@ -13,6 +13,7 @@ import {
   hasUserMessage,
 } from '@/lib/message-utils'
 import type { ProjectInfo, RestoredDraft } from '@/lib/types'
+import { logger } from '@/lib/logger'
 
 type UseChatActionsOptions = {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof initializePiStorage>> | null>
@@ -134,7 +135,7 @@ export function useChatActions({
     if (shouldSaveSession(nextMessages) && currentTask) {
       if (restoredRollbackDraft) setRestoredDraft(restoredRollbackDraft)
       setChatPanelRevision((value) => value + 1)
-      syncSessionUI(currentTask).catch((err) => console.error('Failed to sync session UI:', err))
+      syncSessionUI(currentTask).catch((err) => logger.error('Failed to sync session UI:', err))
       return
     }
 
@@ -157,7 +158,7 @@ export function useChatActions({
         await storage.sessions.delete(previousSessionId)
         await refreshSessions({ broadcast: true })
       } catch (error) {
-        console.error('Failed to delete rolled back empty session:', error)
+        logger.error('Failed to delete rolled back empty session:', error)
       }
     }
 
@@ -200,7 +201,7 @@ export function useChatActions({
     try {
       await copyTextToClipboard(text)
     } catch (error) {
-      console.error('Failed to copy answer:', error)
+      logger.error('Failed to copy answer:', error)
       alert(t('copyFailed'))
       throw error
     }
@@ -242,7 +243,7 @@ export function useChatActions({
     )
 
     if (storage) {
-      refreshSessions({ broadcast: true }).catch((error) => console.error('Failed to refresh sessions:', error))
+      refreshSessions({ broadcast: true }).catch((error) => logger.error('Failed to refresh sessions:', error))
     }
   }, [activeModelRef, activeProjectRef, agentRef, createAgent, currentChatScopeRef, refreshSessions, storageRef])
 

@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
+import { logger } from '@/lib/logger'
 
 interface ErrorBoundaryProps {
   children: ReactNode
@@ -21,7 +22,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   componentDidCatch(error: Error, info: { componentStack: string }) {
-    console.error('ErrorBoundary caught an error:', error, info)
+    logger.error('ErrorBoundary caught an error:', error, info)
   }
 
   handleRetry = () => {

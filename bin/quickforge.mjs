@@ -172,21 +172,80 @@ async function cmdStatus() {
 }
 
 async function cmdLogs() {
+  const args = process.argv.slice(3)
+  const jsonMode = args.includes('--json')
+  const levelFilter = (() => {
+    const idx = args.indexOf('--level')
+    if (idx >= 0 && args[idx + 1]) return args[idx + 1].toUpperCase()
+    return null
+  })()
+  const grepFilter = (() => {
+    const idx = args.indexOf('--grep')
+    if (idx >= 0 && args[idx + 1]) return args[idx + 1]
+    return null
+  })()
+
   const logFile = getLogFile()
   await fs.mkdir(path.dirname(logFile), { recursive: true })
   await fs.appendFile(logFile, '', 'utf8')
 
   console.log(`Watching QuickForge log: ${logFile}`)
-  const tail = spawn(process.platform === 'win32' ? 'powershell.exe' : 'tail', process.platform === 'win32'
-    ? ['-NoProfile', '-Command', `Get-Content -Path '${logFile.replace(/'/g, "''")}' -Wait -Tail 80`]
-    : ['-n', '80', '-f', logFile], {
-    stdio: 'inherit',
-    shell: false,
-  })
+  if (levelFilter) console.log(`Filter: level >= ${levelFilter}`)
+  if (grepFilter) console.log(`Filter: grep "${grepFilter}"`)
+  if (jsonMode) console.log('Format: JSON Lines')
 
-  tail.on('exit', (code) => {
-    process.exit(code || 0)
-  })
+  const escapedLogFile = logFile.replace(/'/g, process.platform === 'win32' ? "''" : "'\\''")
+  const tailCmd = process.platform === 'win32'
+    ? `powershell.exe -NoProfile -Command "Get-Content -Path '${escapedLogFile}' -Wait -Tail 80"`
+    : `tail -n 80 -f '${escapedLogFile}'`
+
+  const transformScript = jsonMode || levelFilter || grepFilter
+    ? `
+      const LEVELS = { ERROR: 0, WARN: 1, INFO: 2, DEBUG: 3 };
+      const minLevel = ${levelFilter ? `LEVELS['${levelFilter}'] ?? 0` : '0'};
+      const grep = ${grepFilter ? `'${grepFilter}'` : 'null'};
+      process.stdin.setEncoding('utf8');
+      let buf = '';
+      process.stdin.on('data', (chunk) => {
+        buf += chunk;
+        const lines = buf.split('\\n');
+        buf = lines.pop();
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const obj = JSON.parse(line);
+            if (LEVELS[obj.level] > minLevel) continue;
+            if (grep && !line.includes(grep)) continue;
+            ${jsonMode
+              ? 'console.log(line);'
+              : 'const extra = Object.entries(obj).filter(([k]) => ![\"ts\",\"level\",\"msg\"].includes(k)).map(([k,v]) => k+\"=\"+v).join(\" \"); console.log(obj.ts + \" [\" + obj.level + \"] \" + (obj.msg||\"\") + (extra ? \" \" + extra : \"\"));'
+            }
+          } catch {
+            console.log(line);
+          }
+        }
+      });
+    `
+    : ''
+
+  if (transformScript) {
+    const { spawn: spawn2 } = await import('node:child_process')
+    const child = spawn2(process.platform === 'win32' ? 'cmd.exe' : 'sh', [
+      process.platform === 'win32' ? '/c' : '-c',
+      `${tailCmd} | node -e ${JSON.stringify(transformScript)}`
+    ], { stdio: 'inherit', shell: false, windowsVerbatimArguments: true })
+    child.on('exit', (code) => process.exit(code || 0))
+  } else {
+    const { spawn: spawn2 } = await import('node:child_process')
+    const tail = spawn2(
+      process.platform === 'win32' ? 'powershell.exe' : 'tail',
+      process.platform === 'win32'
+        ? ['-NoProfile', '-Command', `Get-Content -Path '${logFile.replace(/'/g, "''")}' -Wait -Tail 80`]
+        : ['-n', '80', '-f', logFile],
+      { stdio: 'inherit', shell: false }
+    )
+    tail.on('exit', (code) => process.exit(code || 0))
+  }
 }
 
 async function main() {

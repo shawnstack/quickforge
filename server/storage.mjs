@@ -2,6 +2,50 @@ import { existsSync, promises as fs } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 
+// --- Log retention ---
+const LOG_RETENTION_DAYS = 7
+const LOG_MAX_TOTAL_SIZE_MB = 100
+
+export async function cleanOldLogs() {
+  try {
+    await fs.mkdir(logsDir, { recursive: true })
+    const files = await fs.readdir(logsDir)
+    const cutoff = Date.now() - LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000
+    let totalSize = 0
+    const fileStats = []
+
+    for (const name of files) {
+      if (!name.startsWith('server-') || !name.endsWith('.log')) continue
+      const filePath = path.join(logsDir, name)
+      try {
+        const stat = await fs.stat(filePath)
+        totalSize += stat.size
+        fileStats.push({ name, path: filePath, mtime: stat.mtimeMs, size: stat.size })
+      } catch { /* file may have been removed */ }
+    }
+
+    // Remove files older than retention
+    for (const f of fileStats) {
+      if (f.mtime < cutoff) {
+        try { await fs.unlink(f.path) } catch { /* ignore */ }
+        totalSize -= f.size
+      }
+    }
+
+    // If still over size limit, remove oldest first
+    if (totalSize > LOG_MAX_TOTAL_SIZE_MB * 1024 * 1024) {
+      const remaining = fileStats.filter((f) => f.mtime >= cutoff).sort((a, b) => a.mtime - b.mtime)
+      for (const f of remaining) {
+        if (totalSize <= LOG_MAX_TOTAL_SIZE_MB * 1024 * 1024) break
+        try { await fs.unlink(f.path) } catch { /* ignore */ }
+        totalSize -= f.size
+      }
+    }
+  } catch {
+    // ignore cleanup errors
+  }
+}
+
 export const stores = new Set([
   'settings',
   'provider-keys',
@@ -590,6 +634,7 @@ export async function ensureStorage() {
     fs.mkdir(path.join(cacheDir, 'projects'), { recursive: true }),
     fs.mkdir(path.join(storageDir, 'conversations', 'global', 'sessions'), { recursive: true }),
     fs.mkdir(path.join(storageDir, 'conversations', 'projects'), { recursive: true }),
+    cleanOldLogs(),
   ])
 
   await migrateUnifiedConfig()

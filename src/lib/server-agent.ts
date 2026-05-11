@@ -1,6 +1,7 @@
 import type { AgentEvent, AgentMessage, ThinkingLevel } from '@mariozechner/pi-agent-core'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import { streamSimple } from '@mariozechner/pi-ai'
+import { logger } from '@/lib/logger'
 
 // ---------------------------------------------------------------------------
 // SSE client for receiving events from the server
@@ -314,7 +315,7 @@ export class ServerAgent {
       if (!response.ok) throw new Error(`Failed to send prompt: HTTP ${response.status}`)
     }).catch((err) => {
       const message = err instanceof Error ? err.message : String(err)
-      console.error('Failed to send prompt:', err)
+      logger.error('Failed to send prompt:', err)
       this.state.errorMessage = message
       this.state.isStreaming = false
       this.state.streamingMessage = undefined
@@ -328,7 +329,7 @@ export class ServerAgent {
   abort(): void {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/abort`
     fetch(url, { method: 'POST' }).catch((err) => {
-      console.error('Failed to abort:', err)
+      logger.error('Failed to abort:', err)
     })
   }
 
@@ -339,7 +340,7 @@ export class ServerAgent {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ message }),
     }).catch((err) => {
-      console.error('Failed to send steer:', err)
+      logger.error('Failed to send steer:', err)
     })
   }
 
@@ -350,7 +351,7 @@ export class ServerAgent {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ message }),
     }).catch((err) => {
-      console.error('Failed to send follow-up:', err)
+      logger.error('Failed to send follow-up:', err)
     })
   }
 
@@ -389,7 +390,7 @@ export class ServerAgent {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ model }),
     }).catch((err) => {
-      console.error('Failed to sync model update to server:', err)
+      logger.error('Failed to sync model update to server:', err)
     })
   }
 
@@ -403,7 +404,7 @@ export class ServerAgent {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ thinkingLevel: level }),
     }).catch((err) => {
-      console.error('Failed to sync thinking level update to server:', err)
+      logger.error('Failed to sync thinking level update to server:', err)
     })
   }
 

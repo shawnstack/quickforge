@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { BookOpen, Check, ChevronLeft, Loader2, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -61,6 +61,17 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
   const [readingLoading, setReadingLoading] = useState(false)
   const [readingError, setReadingError] = useState('')
 
+  const resetReadingState = useCallback(() => {
+    setReadingSkillName(null)
+    setSkillContent(null)
+    setReadingError('')
+  }, [])
+
+  const closeDialog = useCallback(() => {
+    resetReadingState()
+    onOpenChange(false)
+  }, [onOpenChange, resetReadingState])
+
   useEffect(() => {
     if (!open || (isProjectScope && !project)) return
 
@@ -96,26 +107,15 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         if (readingSkillName) {
-          setReadingSkillName(null)
-          setSkillContent(null)
-          setReadingError('')
+          resetReadingState()
         } else if (!saving) {
-          onOpenChange(false)
+          closeDialog()
         }
       }
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
-  }, [onOpenChange, open, saving, readingSkillName])
-
-  // Reset reading state when dialog closes
-  useEffect(() => {
-    if (!open) {
-      setReadingSkillName(null)
-      setSkillContent(null)
-      setReadingError('')
-    }
-  }, [open])
+  }, [closeDialog, open, saving, readingSkillName, resetReadingState])
 
   const filteredSkills = useMemo(() => {
     const text = query.trim().toLowerCase()
@@ -159,9 +159,7 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
   }
 
   const backToList = () => {
-    setReadingSkillName(null)
-    setSkillContent(null)
-    setReadingError('')
+    resetReadingState()
   }
 
   if (!open || (isProjectScope && !project)) return null
@@ -197,7 +195,7 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
         projects: payload.projects,
         selectedSkills: payload.selectedSkills,
       })
-      onOpenChange(false)
+      closeDialog()
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : t('failedToSaveSkills'))
     } finally {
@@ -217,7 +215,7 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={(event) => {
-        if (event.target === event.currentTarget && !saving) onOpenChange(false)
+        if (event.target === event.currentTarget && !saving) closeDialog()
       }}
     >
       <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-background shadow-xl">
@@ -398,7 +396,7 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
         {/* Footer */}
         {!isReading ? (
           <div className="flex justify-end gap-2 border-t border-border p-4">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+            <Button type="button" variant="outline" onClick={closeDialog} disabled={saving}>
               {t('cancel')}
             </Button>
             <Button type="button" onClick={save} disabled={loading || saving}>

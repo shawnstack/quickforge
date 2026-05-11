@@ -19,6 +19,7 @@ import { createBackupSettingsTab } from '@/lib/backup-settings-tab'
 import { createServiceSettingsTab } from '@/lib/service-settings-tab'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
 import type { RestoredDraft } from '@/lib/types'
+import { logger } from '@/lib/logger'
 
 type UseModelActionsOptions = {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof initializePiStorage>> | null>
@@ -89,7 +90,7 @@ export function useModelActions({
       [createLanguageSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab(), createBackupSettingsTab(), createServiceSettingsTab()],
       () => {
         if (needsModelSetup || !agentRef.current) {
-          void activateConfiguredModel().catch((error) => console.error('Failed to activate configured model:', error))
+          void activateConfiguredModel().catch((error) => logger.error('Failed to activate configured model:', error))
         }
       },
     )
@@ -179,7 +180,7 @@ export function useModelActions({
         activeModelRef.current = nextModel
         updateCurrentAgentModel(nextModel)
         void currentAgent.updateModel(nextModel).catch((error) => {
-          console.error('Failed to sync model to server:', error)
+          logger.error('Failed to sync model to server:', error)
         })
 
         if (currentInput) {
@@ -191,7 +192,7 @@ export function useModelActions({
 
         setChatPanelRevision((value) => value + 1)
         void saveActiveModel(storage, nextModel).catch((error) => {
-          console.error('Failed to save active model:', error)
+          logger.error('Failed to save active model:', error)
         })
       },
       async (model) => {

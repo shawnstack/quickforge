@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import type { AgentManager } from '@/hooks/useAgentManager'
 import type { ServerAgent } from '@/lib/server-agent'
 import { saveYoloMode, initializePiStorage } from '@/lib/pi-chat'
+import { logger } from '@/lib/logger'
 
 type UseYoloActionsOptions = {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof initializePiStorage>> | null>
@@ -27,7 +28,7 @@ export function useYoloActions({
         setChatPanelRevision((value) => value + 1)
       })
       .catch((error) => {
-        console.error('Failed to sync YOLO mode to server:', error)
+        logger.error('Failed to sync YOLO mode to server:', error)
       })
   }, [setChatPanelRevision])
 
@@ -39,7 +40,7 @@ export function useYoloActions({
       yoloModeRef.current = next
       if (storage) {
         void saveYoloMode(storage, next).catch((error) => {
-          console.error('Failed to save YOLO mode:', error)
+          logger.error('Failed to save YOLO mode:', error)
         })
       }
       syncAgentYoloMode(currentAgent, next)

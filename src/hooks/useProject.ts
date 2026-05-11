@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
 import type { ProjectInfo } from '@/lib/types'
+import { logger } from '@/lib/logger'
 
 export function useProject() {
   const [activeProject, setActiveProject] = useState<ProjectInfo>()
@@ -21,7 +22,7 @@ export function useProject() {
         return next
       })
     } catch (error) {
-      console.error('Failed to load project:', error)
+      logger.error('Failed to load project:', error)
     }
   }, [])
 
@@ -64,7 +65,7 @@ export function useProject() {
         })
       }
     } catch (error) {
-      console.error('Failed to select project:', error)
+      logger.error('Failed to select project:', error)
       throw error
     } finally {
       setSelectingProject(false)

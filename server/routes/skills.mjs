@@ -4,6 +4,8 @@ import { atomicProjectConfigUpdate } from '../storage.mjs'
 import {
   filterKnownGlobalSkillNames,
   filterKnownProjectSkillNames,
+  findGlobalSkill,
+  findProjectSkill,
   projectSkillSearchPaths,
   listGlobalSkillSummaries,
   listProjectSkillSummaries,
@@ -63,6 +65,50 @@ export async function handleSkillsApi(req, res, url) {
       projectId: project?.id ?? null,
       selectedSkills: filterSelectedSkills(selectedSkillsForProject(project), skills),
       searchPaths: workspaceRoot ? projectSkillSearchPaths(workspaceRoot) : skillSearchPaths.project,
+    })
+    return
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/skills/content') {
+    const skillName = url.searchParams.get('name')
+    if (!skillName) {
+      const error = new Error('Missing skill name')
+      error.statusCode = 400
+      throw error
+    }
+
+    let skill
+    if (scope === 'project') {
+      const project = getProject(config, projectId)
+      const workspaceRoot = await projectWorkspaceRoot(project?.id)
+      skill = workspaceRoot ? await findProjectSkill(skillName, workspaceRoot) : null
+      if (!skill) {
+        skill = await findGlobalSkill(skillName)
+      }
+    } else {
+      skill = await findGlobalSkill(skillName)
+    }
+
+    if (!skill) {
+      const error = new Error(`Skill not found: ${skillName}`)
+      error.statusCode = 404
+      throw error
+    }
+
+    const lines = (skill.instructions || '').split(/\r?\n/)
+    sendJson(res, 200, {
+      name: skill.name,
+      displayName: skill.displayName || null,
+      description: skill.description || null,
+      version: skill.version || null,
+      tags: skill.tags || [],
+      triggers: skill.triggers || [],
+      compatibility: skill.compatibility || null,
+      allowedTools: skill.allowedTools || null,
+      license: skill.license || null,
+      source: skill.source || null,
+      instructions: skill.instructions || '',
+      totalLines: lines.length,
     })
     return
   }

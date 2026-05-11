@@ -411,6 +411,20 @@ export async function listSkillSummaries() {
   return listGlobalSkillSummaries()
 }
 
+export async function findGlobalSkill(name) {
+  const skills = await loadGlobalSkills()
+  return skills.find((skill) => skill.name === name) || null
+}
+
+export async function findProjectSkill(name, workspaceRoot) {
+  const skills = await loadProjectSkills(workspaceRoot)
+  return skills.find((skill) => skill.name === name) || null
+}
+
+export async function findSkill(name) {
+  return findGlobalSkill(name)
+}
+
 export async function filterKnownGlobalSkillNames(skillNames) {
   return filterKnownNames(skillNames, await loadGlobalSkills())
 }

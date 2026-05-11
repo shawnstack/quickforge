@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Check, Loader2, Search } from 'lucide-react'
+import { BookOpen, Check, ChevronLeft, Loader2, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
@@ -24,6 +24,21 @@ type SavePayload = {
   projects?: ProjectInfo[]
 }
 
+type SkillContent = {
+  name: string
+  displayName?: string | null
+  description?: string | null
+  version?: string | null
+  tags?: string[]
+  triggers?: string[]
+  compatibility?: string | null
+  allowedTools?: string | null
+  license?: string | null
+  source?: string | null
+  instructions: string
+  totalLines: number
+}
+
 async function readJsonResponse<T>(response: Response): Promise<T> {
   const payload = await response.json().catch(() => null)
   if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`)
@@ -39,6 +54,12 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const isProjectScope = scope === 'project'
+
+  // --- Reading state ---
+  const [readingSkillName, setReadingSkillName] = useState<string | null>(null)
+  const [skillContent, setSkillContent] = useState<SkillContent | null>(null)
+  const [readingLoading, setReadingLoading] = useState(false)
+  const [readingError, setReadingError] = useState('')
 
   useEffect(() => {
     if (!open || (isProjectScope && !project)) return
@@ -73,11 +94,28 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
   useEffect(() => {
     if (!open) return
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !saving) onOpenChange(false)
+      if (event.key === 'Escape') {
+        if (readingSkillName) {
+          setReadingSkillName(null)
+          setSkillContent(null)
+          setReadingError('')
+        } else if (!saving) {
+          onOpenChange(false)
+        }
+      }
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
-  }, [onOpenChange, open, saving])
+  }, [onOpenChange, open, saving, readingSkillName])
+
+  // Reset reading state when dialog closes
+  useEffect(() => {
+    if (!open) {
+      setReadingSkillName(null)
+      setSkillContent(null)
+      setReadingError('')
+    }
+  }, [open])
 
   const filteredSkills = useMemo(() => {
     const text = query.trim().toLowerCase()
@@ -96,6 +134,35 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
       return haystack.includes(text)
     })
   }, [query, skills])
+
+  const readSkillContent = async (skillName: string) => {
+    setReadingSkillName(skillName)
+    setSkillContent(null)
+    setReadingError('')
+    setReadingLoading(true)
+    try {
+      const params = new URLSearchParams({ name: skillName })
+      if (isProjectScope && project) {
+        params.set('scope', 'project')
+        params.set('projectId', project.id)
+      } else {
+        params.set('scope', 'global')
+      }
+      const response = await fetch(`/api/skills/content?${params}`)
+      const payload = await readJsonResponse<SkillContent>(response)
+      setSkillContent(payload)
+    } catch (err) {
+      setReadingError(err instanceof Error ? err.message : t('failedToReadSkill'))
+    } finally {
+      setReadingLoading(false)
+    }
+  }
+
+  const backToList = () => {
+    setReadingSkillName(null)
+    setSkillContent(null)
+    setReadingError('')
+  }
 
   if (!open || (isProjectScope && !project)) return null
 
@@ -143,6 +210,9 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
     ? t('projectSkillsDescription', { project: project!.name })
     : t('globalSkillsDescription')
 
+  // --- Reading panel ---
+  const isReading = !!readingSkillName
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
@@ -151,103 +221,191 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
       }}
     >
       <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-background shadow-xl">
+        {/* Header */}
         <div className="border-b border-border p-4">
-          <h2 className="text-base font-semibold text-foreground">{title}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {description}
-          </p>
-          {searchPaths.length ? (
-            <p className="mt-2 break-all text-xs text-muted-foreground/65">
-              {t('skillSearchPaths')}: {searchPaths.join(' · ')}
-            </p>
-          ) : null}
+          {isReading ? (
+            <button
+              type="button"
+              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              onClick={backToList}
+            >
+              <ChevronLeft className="size-4" />
+              {t('backToSkillList')}
+            </button>
+          ) : (
+            <>
+              <h2 className="text-base font-semibold text-foreground">{title}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {description}
+              </p>
+              {searchPaths.length ? (
+                <p className="mt-2 break-all text-xs text-muted-foreground/65">
+                  {t('skillSearchPaths')}: {searchPaths.join(' · ')}
+                </p>
+              ) : null}
+            </>
+          )}
         </div>
 
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
-          <div className="flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2">
-            <Search className="size-4 shrink-0 text-muted-foreground/60" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t('searchSkills')}
-              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/45"
-              disabled={loading || saving}
-            />
-          </div>
-
-          {error ? <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
-
-          <div className="rounded-md border border-border">
-            <div className="flex items-center justify-between border-b border-border px-3 py-2 text-xs text-muted-foreground">
-              <span>{t('availableSkills')}</span>
-              <span>{t('selectedSkillsCount', { count: selectedSkills.size })}</span>
-            </div>
-            <div className="max-h-[46vh] overflow-y-auto p-1">
-              {loading ? (
-                <div className="flex items-center justify-center gap-2 px-3 py-8 text-sm text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" />
-                  {t('loading')}
+        {/* Body */}
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          {isReading ? (
+            // --- Reading panel ---
+            readingLoading ? (
+              <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                {t('loading')}
+              </div>
+            ) : readingError ? (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{readingError}</div>
+            ) : skillContent ? (
+              <div className="space-y-3">
+                {/* Metadata section */}
+                <div className="rounded-md border border-border px-3 py-2 text-sm space-y-1">
+                  <div className="font-medium text-foreground/90">
+                    {skillContent.displayName || skillContent.name}
+                    {skillContent.version ? <span className="ml-2 text-xs text-muted-foreground">v{skillContent.version}</span> : null}
+                  </div>
+                  {skillContent.description ? (
+                    <div className="text-muted-foreground/70">{skillContent.description}</div>
+                  ) : null}
+                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground/60">
+                    {skillContent.source ? <span>{skillContent.source}</span> : null}
+                    {skillContent.compatibility ? <span>· {skillContent.compatibility}</span> : null}
+                    {skillContent.allowedTools ? <span>· {skillContent.allowedTools}</span> : null}
+                    {skillContent.license ? <span>· {skillContent.license}</span> : null}
+                  </div>
+                  {skillContent.tags?.length ? (
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {skillContent.tags.map((tag) => (
+                        <span key={tag} className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {skillContent.triggers?.length ? (
+                    <div className="text-xs text-muted-foreground/60">
+                      Triggers: {skillContent.triggers.join(', ')}
+                    </div>
+                  ) : null}
                 </div>
-              ) : filteredSkills.length === 0 ? (
-                <div className="px-3 py-8 text-center text-sm text-muted-foreground">{t('noMatchingSkills')}</div>
-              ) : (
-                filteredSkills.map((skill) => {
-                  const checked = selectedSkills.has(skill.name)
-                  return (
-                    <button
-                      key={skill.name}
-                      type="button"
-                      className={cn(
-                        'flex w-full items-start gap-3 rounded-md px-3 py-3 text-left text-sm transition-colors hover:bg-secondary disabled:opacity-50',
-                        checked && 'bg-secondary/70',
-                      )}
-                      onClick={() => toggleSkill(skill.name)}
-                      disabled={saving}
-                    >
-                      <span className={cn(
-                        'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded border border-input',
-                        checked && 'border-primary bg-primary text-primary-foreground',
-                      )}>
-                        {checked ? <Check className="size-3.5" /> : null}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium text-foreground/90">
-                          {skill.displayName || skill.name}
-                        </span>
-                         {skill.description ? (
-                          <span className="mt-0.5 block text-xs leading-5 text-muted-foreground/70">{skill.description}</span>
-                        ) : null}
-                        <span className="mt-1 flex flex-wrap gap-1 text-[11px] text-muted-foreground/60">
-                          {skill.source ? <span>{skill.source}</span> : null}
-                          {skill.compatibility ? <span>· {skill.compatibility}</span> : null}
-                          {skill.allowedTools ? <span>· {skill.allowedTools}</span> : null}
-                        </span>
-                        {skill.tags?.length ? (
-                          <span className="mt-2 flex flex-wrap gap-1">
-                            {skill.tags.slice(0, 5).map((tag) => (
-                              <span key={tag} className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                                {tag}
+
+                {/* Instructions section */}
+                {skillContent.instructions ? (
+                  <pre className="whitespace-pre-wrap break-words rounded-md border border-border bg-muted/30 px-4 py-3 text-sm leading-6 text-foreground/80 font-mono">
+                    {skillContent.instructions}
+                  </pre>
+                ) : (
+                  <div className="py-4 text-center text-sm text-muted-foreground">{t('noSkillContent')}</div>
+                )}
+              </div>
+            ) : null
+          ) : (
+            // --- Skills list (existing) ---
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2">
+                <Search className="size-4 shrink-0 text-muted-foreground/60" />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder={t('searchSkills')}
+                  className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/45"
+                  disabled={loading || saving}
+                />
+              </div>
+
+              {error ? <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
+
+              <div className="rounded-md border border-border">
+                <div className="flex items-center justify-between border-b border-border px-3 py-2 text-xs text-muted-foreground">
+                  <span>{t('availableSkills')}</span>
+                  <span>{t('selectedSkillsCount', { count: selectedSkills.size })}</span>
+                </div>
+                <div className="max-h-[46vh] overflow-y-auto p-1">
+                  {loading ? (
+                    <div className="flex items-center justify-center gap-2 px-3 py-8 text-sm text-muted-foreground">
+                      <Loader2 className="size-4 animate-spin" />
+                      {t('loading')}
+                    </div>
+                  ) : filteredSkills.length === 0 ? (
+                    <div className="px-3 py-8 text-center text-sm text-muted-foreground">{t('noMatchingSkills')}</div>
+                  ) : (
+                    filteredSkills.map((skill) => {
+                      const checked = selectedSkills.has(skill.name)
+                      return (
+                        <div
+                          key={skill.name}
+                          className={cn(
+                            'flex w-full items-start gap-3 rounded-md px-3 py-3 text-left text-sm transition-colors hover:bg-secondary disabled:opacity-50',
+                            checked && 'bg-secondary/70',
+                          )}
+                        >
+                          <button
+                            type="button"
+                            className={cn(
+                              'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded border border-input',
+                              checked && 'border-primary bg-primary text-primary-foreground',
+                            )}
+                            onClick={() => toggleSkill(skill.name)}
+                            disabled={saving}
+                            aria-label={checked ? `Deselect ${skill.name}` : `Select ${skill.name}`}
+                          >
+                            {checked ? <Check className="size-3.5" /> : null}
+                          </button>
+                          <span className="min-w-0 flex-1 cursor-pointer" onClick={() => toggleSkill(skill.name)}>
+                            <span className="block truncate font-medium text-foreground/90">
+                              {skill.displayName || skill.name}
+                            </span>
+                             {skill.description ? (
+                              <span className="mt-0.5 block text-xs leading-5 text-muted-foreground/70">{skill.description}</span>
+                            ) : null}
+                            <span className="mt-1 flex flex-wrap gap-1 text-[11px] text-muted-foreground/60">
+                              {skill.source ? <span>{skill.source}</span> : null}
+                              {skill.compatibility ? <span>· {skill.compatibility}</span> : null}
+                              {skill.allowedTools ? <span>· {skill.allowedTools}</span> : null}
+                            </span>
+                            {skill.tags?.length ? (
+                              <span className="mt-2 flex flex-wrap gap-1">
+                                {skill.tags.slice(0, 5).map((tag) => (
+                                  <span key={tag} className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                                    {tag}
+                                  </span>
+                                ))}
                               </span>
-                            ))}
+                            ) : null}
                           </span>
-                        ) : null}
-                      </span>
-                    </button>
-                  )
-                })
-              )}
+                          <button
+                            type="button"
+                            className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-foreground"
+                            onClick={() => void readSkillContent(skill.name)}
+                            disabled={saving || readingLoading}
+                            title={t('readSkill')}
+                            aria-label={`${t('readSkill')}: ${skill.displayName || skill.name}`}
+                          >
+                            <BookOpen className="size-4" />
+                          </button>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-border p-4">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-            {t('cancel')}
-          </Button>
-          <Button type="button" onClick={save} disabled={loading || saving}>
-            {saving ? t('saving') : t('save')}
-          </Button>
-        </div>
+        {/* Footer */}
+        {!isReading ? (
+          <div className="flex justify-end gap-2 border-t border-border p-4">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+              {t('cancel')}
+            </Button>
+            <Button type="button" onClick={save} disabled={loading || saving}>
+              {saving ? t('saving') : t('save')}
+            </Button>
+          </div>
+        ) : null}
       </div>
     </div>
   )

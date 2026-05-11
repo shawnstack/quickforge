@@ -19,6 +19,7 @@ import {
   updateSessionThinkingLevel,
   approveToolCall,
   rejectToolCall,
+  replaceSessionMessages,
   agentEvents,
 } from '../agent-manager.mjs'
 
@@ -153,6 +154,20 @@ export async function handleAgentApi(req, res, url) {
     }
     const result = updateSessionThinkingLevel(sessionId, thinkingLevel)
     sendJson(res, 200, result)
+    return
+  }
+
+  // POST /api/agents/:sessionId/messages — replace session messages (rollback)
+  if (req.method === 'POST' && subPath === 'messages') {
+    const body = await readJsonBody(req)
+    const messages = body?.messages
+    if (!Array.isArray(messages)) {
+      const error = new Error('Missing messages array in request body')
+      error.statusCode = 400
+      throw error
+    }
+    const state = await replaceSessionMessages(sessionId, messages)
+    sendJson(res, 200, { ok: true, messages: state?.messages })
     return
   }
 

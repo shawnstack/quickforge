@@ -410,6 +410,18 @@ export class ServerAgent {
   }
 
   /**
+   * Sync messages to the server (used after rollback to persist the truncated message list).
+   */
+  async syncMessages(messages: AgentMessage[]): Promise<void> {
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/messages`
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ messages }),
+    })
+  }
+
+  /**
    * Approve a pending tool call so it can execute.
    */
   async approveToolCall(toolCallId: string): Promise<void> {

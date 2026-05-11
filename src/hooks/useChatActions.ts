@@ -128,6 +128,11 @@ export function useChatActions({
 
     setCurrentAgentMessages(nextMessages)
 
+    // Sync rolled-back messages to the server so the persisted state matches the client
+    currentAgent.syncMessages(nextMessages).catch((err) =>
+      logger.error('Failed to sync rollback to server:', err),
+    )
+
     const currentTask = currentSessionIdRef.current
       ? taskMapRef.current.get(currentSessionIdRef.current)
       : undefined

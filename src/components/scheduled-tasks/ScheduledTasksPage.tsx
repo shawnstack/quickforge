@@ -8,7 +8,7 @@ import { defaultThinkingLevelForModel, getConfiguredModels, initializePiStorage,
 import { t } from '@/lib/i18n'
 
 type ScheduleType = 'once' | 'daily' | 'weekly' | 'monthly' | 'interval' | 'cron'
-type TaskStatus = 'enabled' | 'paused' | 'running' | 'failed' | 'expired'
+type TaskStatus = 'enabled' | 'paused' | 'running' | 'failed' | 'completed'
 type RunStatus = 'running' | 'success' | 'failed'
 type ActiveTab = 'tasks' | 'history'
 
@@ -38,6 +38,7 @@ type ScheduledTask = {
   nextRunAt: string
   lastRunAt?: string
   lastSessionId?: string
+  currentRunId?: string | null
   createdAt: string
   runs: ScheduledTaskRun[]
   projectName?: string
@@ -190,7 +191,7 @@ function statusLabel(status: TaskStatus | RunStatus) {
   if (status === 'enabled') return t('taskEnabled')
   if (status === 'running') return t('taskRunning')
   if (status === 'paused') return t('taskPaused')
-  if (status === 'expired') return t('taskExpired')
+  if (status === 'completed') return t('taskFinished')
   if (status === 'success') return t('executionSuccess')
   return t('taskFailed')
 }
@@ -237,6 +238,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
   const [historyPayload, setHistoryPayload] = useState<HistoryPayload>({ runs: [], total: 0, page: 1, pageSize: 10 })
   const [historyLoading, setHistoryLoading] = useState(false)
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null)
+  const defaultProjectId = projects[0]?.id ?? ''
 
   async function loadTasks() {
     const payload = await requestJson<{ tasks: ScheduledTask[] }>('/api/scheduled-tasks')
@@ -272,7 +274,6 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
         const payload = await requestJson<{ project?: ProjectOption; projects: ProjectOption[] }>('/api/project')
         if (cancelled) return
         setProjects(payload.projects ?? [])
-        setSelectedProjectId(payload.project?.id ?? payload.projects?.[0]?.id ?? '')
       } catch {
         // Project selection is optional.
       }
@@ -338,6 +339,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
 
   function resetEditor() {
     setEditingTaskId(null)
+    setSelectedProjectId(defaultProjectId)
     setForm(defaultForm())
     setParsedTask(null)
     setQuestion('')
@@ -544,8 +546,8 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                     {t('noScheduledTasks')}
                   </div>
                 ) : tasks.map((task) => {
-                  const taskEnabled = task.status === 'enabled' || task.status === 'running'
-                  const switchDisabled = task.status === 'running' || task.status === 'expired'
+                  const taskEnabled = task.status === 'enabled'
+                  const switchDisabled = task.status === 'completed'
                   return (
                     <div key={task.id} className="relative cursor-pointer rounded-2xl border border-border bg-card p-4 shadow-sm transition-colors hover:border-primary/40" onClick={() => setDetailTaskId(task.id)}>
                       <div className="flex items-start justify-between gap-3">
@@ -574,16 +576,16 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                             </Button>
                             {openMenuTaskId === task.id ? (
                               <div className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-xl border border-border bg-popover py-1 text-sm shadow-lg">
-                                <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={task.status === 'running'} onClick={() => void taskAction(task.id, 'run')}>
+                                <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={Boolean(task.currentRunId)} onClick={() => void taskAction(task.id, 'run')}>
                                   <Zap className="size-3.5" />{t('executeNow')}
                                 </button>
-                                <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={task.status === 'running'} onClick={() => startEdit(task)}>
+                                <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={Boolean(task.currentRunId)} onClick={() => startEdit(task)}>
                                   <Edit3 className="size-3.5" />{t('editTask')}
                                 </button>
                                 <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted" onClick={() => { setOpenMenuTaskId(null); setDetailTaskId(task.id) }}>
                                   <Eye className="size-3.5" />{t('viewDetails')}
                                 </button>
-                                <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-destructive hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={task.status === 'running'} onClick={() => void taskAction(task.id, 'delete')}>
+                                <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-destructive hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={Boolean(task.currentRunId)} onClick={() => void taskAction(task.id, 'delete')}>
                                   <Trash2 className="size-3.5" />{t('deleteTask')}
                                 </button>
                               </div>
@@ -743,9 +745,9 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
             <div className="shrink-0 border-t border-border px-5 py-4">
               <div className="flex flex-wrap justify-end gap-2">
                 {detailTask.lastSessionId ? <Button variant="outline" onClick={() => onOpenSession?.(detailTask.lastSessionId!)}>{t('viewConversation')}</Button> : null}
-                <Button variant="outline" disabled={detailTask.status === 'running'} onClick={() => void taskAction(detailTask.id, 'run')}><Zap className="mr-1 size-3.5" />{t('executeNow')}</Button>
-                <Button variant="outline" disabled={detailTask.status === 'running'} onClick={() => startEdit(detailTask)}><Edit3 className="mr-1 size-3.5" />{t('editTask')}</Button>
-                <Button variant="destructive" disabled={detailTask.status === 'running'} onClick={() => void taskAction(detailTask.id, 'delete')}><Trash2 className="mr-1 size-3.5" />{t('deleteTask')}</Button>
+                <Button variant="outline" disabled={Boolean(detailTask.currentRunId)} onClick={() => void taskAction(detailTask.id, 'run')}><Zap className="mr-1 size-3.5" />{t('executeNow')}</Button>
+                <Button variant="outline" disabled={Boolean(detailTask.currentRunId)} onClick={() => startEdit(detailTask)}><Edit3 className="mr-1 size-3.5" />{t('editTask')}</Button>
+                <Button variant="destructive" disabled={Boolean(detailTask.currentRunId)} onClick={() => void taskAction(detailTask.id, 'delete')}><Trash2 className="mr-1 size-3.5" />{t('deleteTask')}</Button>
               </div>
             </div>
           </div>

@@ -163,7 +163,8 @@ export function ChatPanelHost({
           }
         : composerDraftsRef.current.get(sessionId)
       const lastApplied = lastAppliedRestoredDraftRef.current
-      const canApply = !hasDraft(currentDraft ?? emptyDraft()) || (lastApplied?.id === draft.id && currentDraft?.text === lastApplied.text)
+      const isFirstApplyForDraft = lastApplied?.id !== draft.id
+      const canApply = isFirstApplyForDraft || !hasDraft(currentDraft ?? emptyDraft()) || currentDraft?.text === lastApplied.text
       if (!canApply) return
 
       restoreComposerDraft(panel, draft, composerDraftsRef.current, sessionId)
@@ -417,7 +418,7 @@ export function ChatPanelHost({
     if (!draft || !hostRef.current) return
     const sessionId = (agent as ServerAgent | SharedServerAgent | null)?.sessionId ?? ''
     if (draft.sessionId && draft.sessionId !== sessionId) return
-    const panel = hostRef.current.querySelector('chat-panel')
+    const panel = hostRef.current.querySelector('pi-chat-panel')
     if (!panel) return
     restoredDraftIdRef.current = draft.id
     restoreDraftForSession(panel as HTMLElement, draft, sessionId)

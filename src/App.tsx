@@ -131,6 +131,7 @@ function MainApp() {
     projectLoading,
     projectLoaded,
     loadGlobalSessions,
+    loadProjectSessions,
     refreshSessions,
     loadMoreGlobal,
     loadMoreProject,
@@ -204,6 +205,15 @@ function MainApp() {
   useEffect(() => {
     const unsubscribe = subscribeToAgentEvents((event) => {
       if (isScheduledTaskStarted(event)) {
+        const projectId = typeof event.projectId === 'string' ? event.projectId : undefined
+        if (projectId) {
+          setExpandedProjectIds((current) => {
+            const next = new Set(current)
+            next.add(projectId)
+            return next
+          })
+          void loadProjectSessions(projectId, 0)
+        }
         void refreshSessions({ broadcast: true })
         return
       }
@@ -215,7 +225,7 @@ function MainApp() {
       addToast({ sessionId: sessionId ?? '', title, status, message })
     })
     return unsubscribe
-  }, [addToast, refreshSessions])
+  }, [addToast, loadProjectSessions, refreshSessions, setExpandedProjectIds])
 
   const { ready, startupError } = useAppBootstrap({
     storageRef,

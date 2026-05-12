@@ -554,7 +554,6 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <h3 className="truncate text-base font-semibold text-foreground">{task.title}</h3>
-                            <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-xs', statusClass(task.status))}>{statusLabel(task.status)}</span>
                           </div>
                           <p className="mt-2 text-sm text-muted-foreground">{truncateContent(task.instruction, 20)}</p>
                         </div>
@@ -703,7 +702,6 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
               <div>
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-base font-semibold text-foreground">{detailTask.title}</h2>
-                  <span className={cn('rounded-full px-2 py-0.5 text-xs', statusClass(detailTask.status))}>{statusLabel(detailTask.status)}</span>
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">{detailTask.scheduleRule}</p>
               </div>

@@ -83,6 +83,7 @@ export function ChatPanelHost({
   const composerDraftsRef = useRef<Map<string, ComposerDraft>>(new Map())
   const customCommandsRef = useRef<CustomCommandSummary[]>([])
   const lastAppliedRestoredDraftRef = useRef<{ id: number; text: string } | undefined>(undefined)
+  const consumedRestoredDraftIdsRef = useRef<Set<number>>(new Set())
 
   // --- Stable ref for props (avoids re-creating panel on callback changes) ---
   const propsRef = useRef<PropsRef>({
@@ -150,11 +151,13 @@ export function ChatPanelHost({
     return () => { disposed = true }
   }, [project?.id, revision])
 
-  const restoreDraftForSession = (panel: HTMLElement, draft: RestoredDraft, sessionId: string) => {
+  const restoreDraftForSession = (panel: HTMLElement, draft: RestoredDraft, sessionId: string, force = false) => {
     if (draft.sessionId && draft.sessionId !== sessionId) return
     if (!hasDraft(draft)) return
+    if (!force && consumedRestoredDraftIdsRef.current.has(draft.id)) return
 
     const apply = () => {
+      if (!force && consumedRestoredDraftIdsRef.current.has(draft.id)) return
       const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
       const currentDraft = editor
         ? {
@@ -318,6 +321,8 @@ export function ChatPanelHost({
         ? async () => true
         : (provider: string) => ApiKeyPromptDialog.prompt(provider),
       onBeforeSend: () => {
+        const draft = restoredDraftRef.current
+        if (draft) consumedRestoredDraftIdsRef.current.add(draft.id)
         cmdSuggestions.remove()
         composerDraftsRef.current.delete(sessionId)
         scrollSync.enable()
@@ -364,7 +369,7 @@ export function ChatPanelHost({
       if (event.type === 'message_start' || event.type === 'message_update' || event.type === 'message_end' || event.type === 'turn_end' || event.type === 'agent_end') {
         if (scrollSync.isEnabled) scrollSync.scheduleScrollToBottom()
       }
-      if ((event as { type: string }).type === 'messages_replaced' || event.type === 'message_end' || event.type === 'agent_end') {
+      if ((event as { type: string }).type === 'messages_replaced') {
         const draft = restoredDraftRef.current
         if (draft && restoredDraftIdRef.current === draft.id) {
           restoreDraftForSession(panel, draft, sessionId)
@@ -421,7 +426,7 @@ export function ChatPanelHost({
     const panel = hostRef.current.querySelector('pi-chat-panel')
     if (!panel) return
     restoredDraftIdRef.current = draft.id
-    restoreDraftForSession(panel as HTMLElement, draft, sessionId)
+    restoreDraftForSession(panel as HTMLElement, draft, sessionId, true)
   }, [restoredDraft, agent])
 
   return <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden" />

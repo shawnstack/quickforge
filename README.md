@@ -27,26 +27,26 @@ Built with React 19, Vite 8, Tailwind CSS 4, and shadcn-style UI primitives. Use
 ### npm
 
 ```bash
-npm install -g @shawnstack/quickforge@1.2.3
+npm install -g @shawnstack/quickforge@1.2.4
 qf
 ```
 
 ### Offline tarball
 
-The offline release package for `v1.2.3` is:
+The offline release package for `v1.2.4` is:
 
 ```text
-package-offline/shawnstack-quickforge-1.2.3.tgz
+package-offline/shawnstack-quickforge-1.2.4.tgz
 ```
 
 Install it on a machine with Node.js 20+ and npm:
 
 ```bash
-npm install -g ./package-offline/shawnstack-quickforge-1.2.3.tgz
+npm install -g ./package-offline/shawnstack-quickforge-1.2.4.tgz
 qf
 ```
 
-The package was generated from tag `v1.2.3` and includes bundled runtime dependencies for offline installation.
+The package was generated from tag `v1.2.4` and includes bundled runtime dependencies for offline installation.
 
 ## Quick Start
 

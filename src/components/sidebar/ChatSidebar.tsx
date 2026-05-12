@@ -365,6 +365,11 @@ export const ChatSidebar = memo(function ChatSidebar({
                                         <Loader2 className="mr-1.5 size-3 animate-spin" />
                                         {t('loadingChatWorkspace')}
                                       </div>
+                                    ) : projectSessions.length === 0 && projectLoading(item.id) ? (
+                                      <div className="flex items-center px-2 py-1.5 text-xs text-muted-foreground/55">
+                                        <Loader2 className="mr-1.5 size-3 animate-spin" />
+                                        {t('loadingChatWorkspace')}
+                                      </div>
                                     ) : projectSessions.length === 0 && !projectHasMore(item.id) ? (
                                       <div className="px-2 py-1.5 text-xs text-muted-foreground/55">{t('noConversations')}</div>
                                     ) : (

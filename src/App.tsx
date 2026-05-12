@@ -242,6 +242,16 @@ function MainApp() {
     setNeedsModelSetup,
   })
 
+  useEffect(() => {
+    if (!ready) return
+
+    for (const projectId of expandedProjectIds) {
+      if (!projectLoaded(projectId) && !projectLoading(projectId)) {
+        void loadProjectSessions(projectId, 0)
+      }
+    }
+  }, [ready, expandedProjectIds, projectLoaded, projectLoading, loadProjectSessions])
+
   const {
     startNewGlobalChat,
     startNewProjectChat,

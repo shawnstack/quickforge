@@ -124,13 +124,14 @@ Skills 管理路由。
 - `POST /api/shared/:shareId/prompt` — 发送消息
 - `POST /api/shared/:shareId/rollback` — 回滚消息
 
-## backup.mjs (250 行)
+## backup.mjs
 
 数据备份和恢复路由。
 
 **主要端点**:
-- `POST /api/backup/export` — 导出备份
-- `POST /api/backup/import` — 导入备份
+- `GET /api/backup/export?scope=all|config|sessions&includeSecrets=0|1` — 导出备份，默认不包含 API Key
+- `POST /api/backup/inspect` — 检查备份文件并返回导入预览
+- `POST /api/backup/import` — 导入备份；请求体可为备份本身，或 `{ "backup": <备份>, "sections": ["settings", "providerKeys", "customProviders", "projects", "scheduledTasks", "conversations"] }` 选择性恢复
 
 ## instructions.mjs (20 行)
 

@@ -16,10 +16,16 @@ import { getWorkspaceRoot } from '../utils/workspace.mjs'
 const BACKUP_VERSION = 1
 const BACKUP_APP = 'quickforge'
 const backupScopes = new Set(['all', 'config', 'sessions'])
+const restoreSectionIds = new Set(['settings', 'providerKeys', 'customProviders', 'projects', 'scheduledTasks', 'conversations'])
 
 function normalizeScope(value) {
   const scope = String(value || 'all')
   return backupScopes.has(scope) ? scope : 'all'
+}
+
+function parseBoolean(value) {
+  const text = String(value || '').toLowerCase()
+  return text === '1' || text === 'true' || text === 'yes'
 }
 
 function backupTimestamp(date = new Date()) {
@@ -53,6 +59,7 @@ function assertProjectConfig(value) {
   }
   return {
     activeProjectId: typeof projectConfig.activeProjectId === 'string' ? projectConfig.activeProjectId : null,
+    globalSkills: Array.isArray(projectConfig.globalSkills) ? projectConfig.globalSkills : [],
     projects: projectConfig.projects,
   }
 }
@@ -94,27 +101,28 @@ function normalizeSessionMetadata(sessions, metadata) {
   return nextMetadata
 }
 
-async function buildBackup(scope = 'all') {
+async function buildBackup(scope = 'all', options = {}) {
   const normalizedScope = normalizeScope(scope)
   const includeConfig = normalizedScope === 'all' || normalizedScope === 'config'
   const includeSessions = normalizedScope === 'all' || normalizedScope === 'sessions'
+  const includeSecrets = Boolean(options.includeSecrets && includeConfig)
   const data = {}
 
   if (includeConfig) {
     const [settings, providerKeys, customProviders, projects, scheduledTasks] = await Promise.all([
       readStore('settings'),
-      readStore('provider-keys'),
+      includeSecrets ? readStore('provider-keys') : Promise.resolve(undefined),
       readStore('custom-providers'),
       readProjectConfigData(),
       readStore('scheduled-tasks'),
     ])
     Object.assign(data, {
       settings,
-      providerKeys,
       customProviders,
       projects,
       scheduledTasks,
     })
+    if (includeSecrets) data.providerKeys = providerKeys
   }
 
   if (includeSessions) {
@@ -133,6 +141,7 @@ async function buildBackup(scope = 'all') {
     version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
     scope: normalizedScope,
+    includeSecrets,
     data,
   }
 }
@@ -149,7 +158,7 @@ function normalizeBackupPayload(payload) {
     ? backup.data
     : backup
 
-  const normalized = {
+  const sections = {
     settings: section(data, 'settings'),
     providerKeys: section(data, 'providerKeys', 'provider-keys'),
     customProviders: section(data, 'customProviders', 'custom-providers'),
@@ -159,17 +168,149 @@ function normalizeBackupPayload(payload) {
     sessionsMetadata: section(data, 'sessionsMetadata', 'sessions-metadata'),
   }
 
-  if (Object.values(normalized).every((value) => value === undefined)) {
+  if (Object.values(sections).every((value) => value === undefined)) {
     const error = new Error('Backup does not contain any restorable sections')
     error.statusCode = 400
     throw error
   }
 
-  return normalized
+  return {
+    app: typeof backup.app === 'string' ? backup.app : null,
+    version: Number.isInteger(backup.version) ? backup.version : null,
+    exportedAt: typeof backup.exportedAt === 'string' ? backup.exportedAt : null,
+    scope: typeof backup.scope === 'string' ? backup.scope : null,
+    includeSecrets: backup.includeSecrets === true,
+    sections,
+  }
+}
+
+function validateBackupPayload(payload) {
+  const backup = normalizeBackupPayload(payload)
+  const { sections } = backup
+
+  const sessions = assertObjectSection(sections.sessions, 'sessions')
+  const sessionsMetadata = sessions !== undefined
+    ? normalizeSessionMetadata(sessions, sections.sessionsMetadata)
+    : assertObjectSection(sections.sessionsMetadata, 'sessionsMetadata')
+
+  return {
+    ...backup,
+    sections: {
+      settings: assertObjectSection(sections.settings, 'settings'),
+      providerKeys: assertObjectSection(sections.providerKeys, 'providerKeys'),
+      customProviders: assertObjectSection(sections.customProviders, 'customProviders'),
+      projects: assertProjectConfig(sections.projects),
+      scheduledTasks: assertObjectSection(sections.scheduledTasks, 'scheduledTasks'),
+      sessions,
+      sessionsMetadata,
+    },
+  }
+}
+
+function normalizeRestoreSections(value, sections) {
+  if (value === undefined || value === null) return null
+  if (!Array.isArray(value)) {
+    const error = new Error('Invalid restore sections')
+    error.statusCode = 400
+    throw error
+  }
+
+  const selected = new Set()
+  for (const item of value) {
+    const id = String(item)
+    if (!restoreSectionIds.has(id)) {
+      const error = new Error(`Invalid restore section: ${id}`)
+      error.statusCode = 400
+      throw error
+    }
+    selected.add(id)
+  }
+
+  if (selected.size === 0) {
+    const error = new Error('No restore sections selected')
+    error.statusCode = 400
+    throw error
+  }
+
+  const unavailable = [...selected].filter((id) => {
+    if (id === 'conversations') return sections.sessions === undefined && sections.sessionsMetadata === undefined
+    return sections[id] === undefined
+  })
+  if (unavailable.length > 0) {
+    const error = new Error(`Selected restore section is not available in backup: ${unavailable.join(', ')}`)
+    error.statusCode = 400
+    throw error
+  }
+
+  return selected
+}
+
+function filterRestoreSections(sections, selected) {
+  if (!selected) return sections
+  return {
+    settings: selected.has('settings') ? sections.settings : undefined,
+    providerKeys: selected.has('providerKeys') ? sections.providerKeys : undefined,
+    customProviders: selected.has('customProviders') ? sections.customProviders : undefined,
+    projects: selected.has('projects') ? sections.projects : undefined,
+    scheduledTasks: selected.has('scheduledTasks') ? sections.scheduledTasks : undefined,
+    sessions: selected.has('conversations') ? sections.sessions : undefined,
+    sessionsMetadata: selected.has('conversations') ? sections.sessionsMetadata : undefined,
+  }
+}
+
+function backupWithSelectedSections(backup, selected) {
+  return selected ? { ...backup, sections: filterRestoreSections(backup.sections, selected) } : backup
+}
+
+function parseImportPayload(body) {
+  const payload = body?.backup && typeof body.backup === 'object' ? body.backup : body
+  const backup = validateBackupPayload(payload)
+  const requestedSections = body?.backup && typeof body === 'object' ? body.sections : undefined
+  const selected = normalizeRestoreSections(requestedSections, backup.sections)
+  return backupWithSelectedSections(backup, selected)
+}
+
+function countKeys(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value).length : 0
+}
+
+function buildSummary(sections) {
+  const summary = {}
+  if (sections.settings !== undefined) summary.settings = countKeys(sections.settings)
+  if (sections.providerKeys !== undefined) summary.providerKeys = countKeys(sections.providerKeys)
+  if (sections.customProviders !== undefined) summary.customProviders = countKeys(sections.customProviders)
+  if (sections.projects !== undefined) summary.projects = sections.projects.projects.length
+  if (sections.scheduledTasks !== undefined) summary.scheduledTasks = countKeys(sections.scheduledTasks)
+  if (sections.sessions !== undefined) summary.sessions = countKeys(filterSessionsByMetadata(sections.sessions, sections.sessionsMetadata))
+  if (sections.sessionsMetadata !== undefined) summary.sessionsMetadata = countKeys(sections.sessionsMetadata)
+  return summary
+}
+
+function inspectBackup(payload) {
+  const backup = validateBackupPayload(payload)
+  const summary = buildSummary(backup.sections)
+  const warnings = []
+  const containsSecrets = countKeys(backup.sections.providerKeys) > 0
+
+  if (containsSecrets) warnings.push('Backup contains API keys.')
+  if (backup.sections.sessions !== undefined || backup.sections.sessionsMetadata !== undefined) {
+    warnings.push('Importing conversations will replace local conversation data.')
+  }
+
+  return {
+    ok: true,
+    app: backup.app,
+    version: backup.version,
+    exportedAt: backup.exportedAt,
+    scope: backup.scope,
+    includeSecrets: containsSecrets || backup.includeSecrets,
+    sections: summary,
+    warnings,
+  }
 }
 
 async function writeSafetyBackup() {
-  const backup = await buildBackup('all')
+  const backup = await buildBackup('all', { includeSecrets: true })
   const dir = path.join(storageDir, 'backups')
   await fs.mkdir(dir, { recursive: true })
   const file = path.join(dir, `quickforge-before-restore-${backupTimestamp()}.json`)
@@ -177,52 +318,46 @@ async function writeSafetyBackup() {
   return file
 }
 
-async function restoreBackup(payload) {
-  const backup = normalizeBackupPayload(payload)
+async function restoreValidatedBackup(backup) {
+  const { sections } = backup
   const summary = {}
 
-  const settings = assertObjectSection(backup.settings, 'settings')
-  if (settings !== undefined) {
-    await writeStore('settings', settings)
-    summary.settings = Object.keys(settings).length
+  if (sections.settings !== undefined) {
+    await writeStore('settings', sections.settings)
+    summary.settings = countKeys(sections.settings)
   }
 
-  const providerKeys = assertObjectSection(backup.providerKeys, 'providerKeys')
-  if (providerKeys !== undefined) {
-    await writeStore('provider-keys', providerKeys)
-    summary.providerKeys = Object.keys(providerKeys).length
+  if (sections.providerKeys !== undefined) {
+    await writeStore('provider-keys', sections.providerKeys)
+    summary.providerKeys = countKeys(sections.providerKeys)
   }
 
-  const customProviders = assertObjectSection(backup.customProviders, 'customProviders')
-  if (customProviders !== undefined) {
-    await writeStore('custom-providers', customProviders)
-    summary.customProviders = Object.keys(customProviders).length
+  if (sections.customProviders !== undefined) {
+    await writeStore('custom-providers', sections.customProviders)
+    summary.customProviders = countKeys(sections.customProviders)
   }
 
-  const projects = assertProjectConfig(backup.projects)
-  if (projects !== undefined) {
-    await writeProjectConfigData(projects)
+  if (sections.projects !== undefined) {
+    await writeProjectConfigData(sections.projects)
     await initializeActiveProject()
     setActiveWorkspaceRootForFilesystem(getWorkspaceRoot())
-    summary.projects = projects.projects.length
+    summary.projects = sections.projects.projects.length
   }
 
-  const scheduledTasks = assertObjectSection(backup.scheduledTasks, 'scheduledTasks')
-  if (scheduledTasks !== undefined) {
-    await writeStore('scheduled-tasks', scheduledTasks)
-    summary.scheduledTasks = Object.keys(scheduledTasks).length
+  if (sections.scheduledTasks !== undefined) {
+    await writeStore('scheduled-tasks', sections.scheduledTasks)
+    summary.scheduledTasks = countKeys(sections.scheduledTasks)
   }
 
-  const sessions = assertObjectSection(backup.sessions, 'sessions')
-  const sessionsMetadata = normalizeSessionMetadata(sessions, backup.sessionsMetadata)
-  if (sessions !== undefined) {
-    await writeStore('sessions', filterSessionsByMetadata(sessions, sessionsMetadata))
-    summary.sessions = Object.keys(sessions).length
+  if (sections.sessions !== undefined) {
+    const sessions = filterSessionsByMetadata(sections.sessions, sections.sessionsMetadata)
+    await writeStore('sessions', sessions)
+    summary.sessions = countKeys(sessions)
   }
 
-  if (sessionsMetadata !== undefined) {
-    await writeStore('sessions-metadata', sessionsMetadata)
-    summary.sessionsMetadata = Object.keys(sessionsMetadata).length
+  if (sections.sessionsMetadata !== undefined) {
+    await writeStore('sessions-metadata', sections.sessionsMetadata)
+    summary.sessionsMetadata = countKeys(sections.sessionsMetadata)
   }
 
   return summary
@@ -231,15 +366,25 @@ async function restoreBackup(payload) {
 export async function handleBackupApi(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/api/backup/export') {
     await ensureStorage()
-    sendJson(res, 200, await buildBackup(url.searchParams.get('scope')))
+    sendJson(res, 200, await buildBackup(url.searchParams.get('scope'), {
+      includeSecrets: parseBoolean(url.searchParams.get('includeSecrets')),
+    }))
+    return
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/backup/inspect') {
+    await ensureStorage()
+    const body = await readJsonBody(req)
+    sendJson(res, 200, inspectBackup(body))
     return
   }
 
   if (req.method === 'POST' && url.pathname === '/api/backup/import') {
     await ensureStorage()
     const body = await readJsonBody(req)
+    const backup = parseImportPayload(body)
     const safetyBackupPath = await writeSafetyBackup()
-    const summary = await restoreBackup(body)
+    const summary = await restoreValidatedBackup(backup)
     sendJson(res, 200, { ok: true, safetyBackupPath, summary })
     return
   }

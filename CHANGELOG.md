@@ -2,6 +2,25 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.2.3] - 2026-05-12
+
+### Released
+
+- Published `@shawnstack/quickforge@1.2.3` to npm with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.2.3.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.2.3.tgz
+  ```
+
+### Changed
+
+- Improved non-YOLO tool approval and per-project YOLO mode handling.
+- Improved task history, rollback handling, scheduled task drafts, and scheduled task display.
+- Fixed initial chat panel decoration timing after Lit render.
+- Synced rollback state to the server to prevent client/server state drift.
+
 ## [1.0.0] - 2025-04-29
 
 ### Added

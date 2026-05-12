@@ -22,6 +22,32 @@ Built with React 19, Vite 8, Tailwind CSS 4, and shadcn-style UI primitives. Use
 - **Multi-provider** — OpenAI-compatible `/v1/chat/completions` and Anthropic Messages API. Bring your own endpoint.
 - **Local service storage only** — the local Node.js service is the single storage backend; browser caches are not used for app data.
 
+## Installation
+
+### npm
+
+```bash
+npm install -g @shawnstack/quickforge@1.2.3
+qf
+```
+
+### Offline tarball
+
+The offline release package for `v1.2.3` is:
+
+```text
+package-offline/shawnstack-quickforge-1.2.3.tgz
+```
+
+Install it on a machine with Node.js 20+ and npm:
+
+```bash
+npm install -g ./package-offline/shawnstack-quickforge-1.2.3.tgz
+qf
+```
+
+The package was generated from tag `v1.2.3` and includes bundled runtime dependencies for offline installation.
+
 ## Quick Start
 
 ```bash

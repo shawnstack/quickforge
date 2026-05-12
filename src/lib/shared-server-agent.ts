@@ -237,14 +237,15 @@ export class SharedServerAgent {
     this.state.pendingToolCalls = new Set<string>()
   }
 
-  async rollback(messageIndex: number): Promise<void> {
-    if (this.permission !== 'operate') return
-    const result = await readJson<{ ok: boolean; session: SharedSessionState }>(`/api/shared/${encodeURIComponent(this.shareId)}/rollback`, {
+  async rollback(messageIndex: number): Promise<{ ok: boolean; rollbackIndex?: number; session: SharedSessionState } | undefined> {
+    if (this.permission !== 'operate') return undefined
+    const result = await readJson<{ ok: boolean; rollbackIndex?: number; session: SharedSessionState }>(`/api/shared/${encodeURIComponent(this.shareId)}/rollback`, {
       method: 'POST',
       body: JSON.stringify({ messageIndex }),
     })
     this.applyState(result.session)
-    this.emit({ type: 'message_end', message: this.state.messages[this.state.messages.length - 1] } as AgentEvent)
+    this.emit({ type: 'messages_replaced', messages: this.state.messages } as unknown as AgentEvent)
+    return result
   }
 
   dispose(): void {
@@ -293,7 +294,7 @@ export class SharedServerAgent {
       'state', 'agent_start', 'agent_end', 'message_start', 'message_end',
       'turn_start', 'turn_end', 'message_update',
       'tool_execution_start', 'tool_execution_update', 'tool_execution_end',
-      'error', 'title_updated',
+      'error', 'title_updated', 'messages_replaced',
     ]
     const handleMessage = (eventType?: string) => (event: MessageEvent) => {
       try {
@@ -367,6 +368,12 @@ export class SharedServerAgent {
           this.state.messages = next
         }
         this.state.streamingMessage = undefined
+        break
+      case 'messages_replaced':
+        if (event.messages) {
+          this.state.messages = event.messages
+          this.state.streamingMessage = undefined
+        }
         break
       case 'error':
         this.state.errorMessage = typeof event.error === 'string' ? event.error : 'Unknown error'

@@ -394,7 +394,7 @@ export async function issueConversationShareToken(shareId) {
 
 export async function rollbackSharedSessionMessages(record, rollbackMessageIndex) {
   const { readSessionValue, writeSessionValue, atomicUpdate } = await import('./storage.mjs')
-  const { replaceSessionMessages } = await import('./agent-manager.mjs')
+  const { rollbackSessionMessages, rollbackStartIndexFromMessage } = await import('./agent-manager.mjs')
   const session = await readSessionValue(record.sessionId)
   if (!session) {
     const error = new Error('Session not found')
@@ -408,10 +408,14 @@ export async function rollbackSharedSessionMessages(record, rollbackMessageIndex
     error.statusCode = 400
     throw error
   }
-  const nextMessages = messages.slice(0, rollbackIndex)
-  const activeState = await replaceSessionMessages(record.sessionId, nextMessages)
-  if (activeState) return { session: activeState, rollbackIndex }
 
+  try {
+    return await rollbackSessionMessages(record.sessionId, rollbackMessageIndex)
+  } catch (error) {
+    if (error?.statusCode !== 404) throw error
+  }
+
+  const nextMessages = messages.slice(0, rollbackIndex)
   const now = new Date().toISOString()
   await writeSessionValue(record.sessionId, {
     ...session,
@@ -431,24 +435,6 @@ export async function rollbackSharedSessionMessages(record, rollbackMessageIndex
     return metadata
   })
   return { session: { ...session, messages: nextMessages, lastModified: now }, rollbackIndex }
-}
-
-function rollbackStartIndexFromMessage(messages, messageIndex) {
-  let rollbackIndex = Number(messageIndex)
-  if (!Number.isInteger(rollbackIndex) || rollbackIndex < 0 || rollbackIndex >= messages.length) return -1
-
-  if (messages[rollbackIndex]?.role === 'assistant') {
-    for (let index = rollbackIndex - 1; index >= 0; index--) {
-      if (messages[index].role === 'user' || messages[index].role === 'user-with-attachments') {
-        rollbackIndex = index
-        break
-      }
-    }
-  }
-
-  const message = messages[rollbackIndex]
-  if (!message || (message.role !== 'user' && message.role !== 'user-with-attachments')) return -1
-  return rollbackIndex
 }
 
 function textFromContent(content) {

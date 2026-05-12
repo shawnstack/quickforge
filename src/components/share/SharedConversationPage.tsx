@@ -6,12 +6,13 @@ import { Button } from '@/components/ui/button'
 import { ChatPanelHost } from '@/components/chat/ChatPanelHost'
 import { t } from '@/lib/i18n'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
-import { copyTextToClipboard } from '@/lib/message-utils'
+import { copyTextToClipboard, draftTextFromUserMessage, rollbackStartIndexFromMessage } from '@/lib/message-utils'
 import { unlockSharedConversation, loadSharedModelProviders } from '@/lib/share-client'
 import { defaultThinkingLevelForModel } from '@/lib/pi-chat'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
 import { SharedServerAgent } from '@/lib/shared-server-agent'
 import type { SharedSessionState } from '@/lib/shared-server-agent'
+import type { RestoredDraft } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 function providerFromModel(model: Model<Api>) {
@@ -80,6 +81,7 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
   const [title, setTitle] = useState('QuickForge 分享对话')
   const [error, setError] = useState<string>()
   const [loading, setLoading] = useState(false)
+  const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
   const autoUnlockAttemptedRef = useRef(false)
 
   const operate = permission === 'operate'
@@ -144,13 +146,28 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
 
   const rollback = useCallback(async (messageIndex: number) => {
     if (!agent || agent.permission !== 'operate') return
+    setError(undefined)
     if (agent.state.isStreaming) {
       alert(t('generationStillRunning'))
       return
     }
-    if (!window.confirm('确定回滚这个原对话吗？该操作会直接影响分享者本机中的这一个对话。')) return
+
+    const rollbackIndex = rollbackStartIndexFromMessage(agent.state.messages, messageIndex)
+    const rollbackMessage = rollbackIndex >= 0 ? agent.state.messages[rollbackIndex] : undefined
+    if (!rollbackMessage) {
+      alert(t('noConversationTurnToRollback'))
+      return
+    }
+
+    if (!window.confirm('确定回滚这个原对话吗？该操作会直接影响分享者本机中的这一个对话。该消息及其之后的对话记录会被移除，消息内容会恢复到输入框。')) return
     try {
       await agent.rollback(messageIndex)
+      setRestoredDraft({
+        id: Date.now(),
+        sessionId: agent.sessionId,
+        text: draftTextFromUserMessage(rollbackMessage),
+        attachments: rollbackMessage.role === 'user-with-attachments' ? rollbackMessage.attachments : undefined,
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to roll back')
     }
@@ -225,6 +242,7 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
         onRejectToolCall={() => undefined}
         disableFork
         readOnly={!operate}
+        restoredDraft={restoredDraft}
         bypassClientApiKeyCheck
       />
     </div>

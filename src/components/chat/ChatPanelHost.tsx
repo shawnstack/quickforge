@@ -7,7 +7,7 @@ import type { ServerAgent } from '@/lib/server-agent'
 import type { SharedServerAgent } from '@/lib/shared-server-agent'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
 import type { ComposerDraft, CustomCommandSummary } from './chat-utils'
-import { emptyDraft } from './chat-utils'
+import { emptyDraft, hasDraft } from './chat-utils'
 import { createScrollSync } from './scroll-sync'
 import { createCommandSuggestions } from './command-suggestions'
 import { createContextUsageIndicator } from './context-usage'
@@ -82,6 +82,7 @@ export function ChatPanelHost({
   const restoredDraftRef = useRef<RestoredDraft | undefined>(undefined)
   const composerDraftsRef = useRef<Map<string, ComposerDraft>>(new Map())
   const customCommandsRef = useRef<CustomCommandSummary[]>([])
+  const lastAppliedRestoredDraftRef = useRef<{ id: number; text: string } | undefined>(undefined)
 
   // --- Stable ref for props (avoids re-creating panel on callback changes) ---
   const propsRef = useRef<PropsRef>({
@@ -148,6 +149,36 @@ export function ChatPanelHost({
 
     return () => { disposed = true }
   }, [project?.id, revision])
+
+  const restoreDraftForSession = (panel: HTMLElement, draft: RestoredDraft, sessionId: string) => {
+    if (draft.sessionId && draft.sessionId !== sessionId) return
+    if (!hasDraft(draft)) return
+
+    const apply = () => {
+      const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
+      const currentDraft = editor
+        ? {
+            text: editor.value ?? editor.querySelector<HTMLTextAreaElement>('textarea')?.value ?? '',
+            attachments: editor.attachments ? [...editor.attachments] : [],
+          }
+        : composerDraftsRef.current.get(sessionId)
+      const lastApplied = lastAppliedRestoredDraftRef.current
+      const canApply = !hasDraft(currentDraft ?? emptyDraft()) || (lastApplied?.id === draft.id && currentDraft?.text === lastApplied.text)
+      if (!canApply) return
+
+      restoreComposerDraft(panel, draft, composerDraftsRef.current, sessionId)
+      lastAppliedRestoredDraftRef.current = { id: draft.id, text: draft.text }
+    }
+
+    apply()
+    window.requestAnimationFrame(apply)
+    for (const delay of [0, 50, 150, 300, 600]) {
+      window.setTimeout(apply, delay)
+    }
+
+    const agentInterface = panel.querySelector<HTMLElement & { updateComplete?: Promise<unknown> }>('agent-interface')
+    void agentInterface?.updateComplete?.then(apply)
+  }
 
   // =========================================================================
   // Main effect: create the ChatPanel and wire up all subsystems.
@@ -299,7 +330,7 @@ export function ChatPanelHost({
       const draft = restoredDraftRef.current
       if (draft && restoredDraftIdRef.current !== draft.id) {
         restoredDraftIdRef.current = draft.id
-        restoreComposerDraft(panel, draft, composerDraftsRef.current, sessionId)
+        restoreDraftForSession(panel, draft, sessionId)
       } else {
         restoreComposerDraft(panel, composerDraftsRef.current.get(sessionId) ?? emptyDraft(), composerDraftsRef.current, sessionId)
       }
@@ -331,6 +362,12 @@ export function ChatPanelHost({
       }
       if (event.type === 'message_start' || event.type === 'message_update' || event.type === 'message_end' || event.type === 'turn_end' || event.type === 'agent_end') {
         if (scrollSync.isEnabled) scrollSync.scheduleScrollToBottom()
+      }
+      if ((event as { type: string }).type === 'messages_replaced' || event.type === 'message_end' || event.type === 'agent_end') {
+        const draft = restoredDraftRef.current
+        if (draft && restoredDraftIdRef.current === draft.id) {
+          restoreDraftForSession(panel, draft, sessionId)
+        }
       }
       if (event.type === 'agent_end') {
         // Run finished (or aborted) — clear pending approval for this session
@@ -378,15 +415,12 @@ export function ChatPanelHost({
   useEffect(() => {
     const draft = restoredDraftRef.current
     if (!draft || !hostRef.current) return
+    const sessionId = (agent as ServerAgent | SharedServerAgent | null)?.sessionId ?? ''
+    if (draft.sessionId && draft.sessionId !== sessionId) return
     const panel = hostRef.current.querySelector('chat-panel')
     if (!panel) return
     restoredDraftIdRef.current = draft.id
-    restoreComposerDraft(
-      panel as HTMLElement,
-      draft,
-      composerDraftsRef.current,
-      (agent as ServerAgent)?.sessionId ?? '',
-    )
+    restoreDraftForSession(panel as HTMLElement, draft, sessionId)
   }, [restoredDraft, agent])
 
   return <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden" />

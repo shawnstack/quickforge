@@ -829,6 +829,58 @@ export async function persistSessionState(session) {
   await persistSession(session)
 }
 
+export function rollbackStartIndexFromMessage(messages, messageIndex) {
+  let rollbackIndex = Number(messageIndex)
+  if (!Number.isInteger(rollbackIndex) || rollbackIndex < 0 || rollbackIndex >= messages.length) return -1
+
+  if (messages[rollbackIndex]?.role === 'assistant') {
+    for (let index = rollbackIndex - 1; index >= 0; index--) {
+      if (messages[index].role === 'user' || messages[index].role === 'user-with-attachments') {
+        rollbackIndex = index
+        break
+      }
+    }
+  }
+
+  const message = messages[rollbackIndex]
+  if (!message || (message.role !== 'user' && message.role !== 'user-with-attachments')) return -1
+  return rollbackIndex
+}
+
+export async function rollbackSessionMessages(sessionId, rollbackMessageIndex) {
+  const session = agentSessions.get(sessionId)
+  if (!session) {
+    throw Object.assign(new Error('Session not found'), { statusCode: 404 })
+  }
+  if (session.agent.state.isStreaming) {
+    throw Object.assign(new Error('Generation is still running. Stop it or wait until it finishes before rolling back.'), { statusCode: 409 })
+  }
+
+  const messages = Array.isArray(session.agent.state.messages) ? session.agent.state.messages : []
+  const rollbackIndex = rollbackStartIndexFromMessage(messages, rollbackMessageIndex)
+  if (rollbackIndex < 0) {
+    throw Object.assign(new Error('There is no conversation turn to roll back.'), { statusCode: 400 })
+  }
+
+  const nextMessages = messages.slice(0, rollbackIndex)
+  updateSessionMessages(session, nextMessages)
+  session.status = 'idle'
+  session.finishedAt = new Date().toISOString()
+  await persistSession(session)
+
+  const replacedEvent = {
+    type: 'messages_replaced',
+    reason: 'rollback',
+    rollbackIndex,
+    messages: session.agent.state.messages,
+  }
+  emitSessionEvent(session, replacedEvent)
+  emitSessionEvent(session, { type: 'message_end', messages: session.agent.state.messages })
+  emitSessionEvent(session, { type: 'agent_end', messages: session.agent.state.messages })
+
+  return { session: getSessionState(sessionId), rollbackIndex }
+}
+
 export async function replaceSessionMessages(sessionId, messages) {
   const session = agentSessions.get(sessionId)
   if (!session) return null

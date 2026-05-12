@@ -33,6 +33,7 @@ export type SkillSummary = {
 
 export type RestoredDraft = {
   id: number
+  sessionId?: string
   text: string
   attachments?: unknown[]
 }

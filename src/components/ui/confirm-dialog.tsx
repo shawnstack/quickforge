@@ -25,6 +25,7 @@ function ConfirmDialogInner({
     cancelRef.current?.focus()
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onResolve(false)
+      if (event.key === 'Enter') onResolve(true)
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)

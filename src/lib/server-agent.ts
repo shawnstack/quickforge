@@ -95,7 +95,7 @@ class GlobalAgentSseClient {
       'turn_start', 'turn_end', 'message_update',
       'tool_execution_start', 'tool_execution_end',
       'error', 'title_updated', 'session_forked', 'scheduled_task_notification', 'scheduled_task_started',
-      'tool_approval_required',
+      'tool_approval_required', 'messages_replaced',
     ]
 
     const handleMessage = (eventType?: string) => (e: MessageEvent) => {
@@ -200,6 +200,20 @@ export type ServerAgentConfig = {
     model?: Model<Api>
     thinkingLevel?: ThinkingLevel
     messages?: AgentMessage[]
+    tools?: unknown[]
+    isStreaming?: boolean
+    errorMessage?: string
+  }
+}
+
+export type ServerRollbackResult = {
+  ok: boolean
+  rollbackIndex: number
+  session: {
+    messages?: AgentMessage[]
+    systemPrompt?: string
+    model?: Model<Api>
+    thinkingLevel?: ThinkingLevel
     tools?: unknown[]
     isStreaming?: boolean
     errorMessage?: string
@@ -410,15 +424,34 @@ export class ServerAgent {
   }
 
   /**
-   * Sync messages to the server (used after rollback to persist the truncated message list).
+   * Sync messages to the server (legacy path; rollback should use rollback()).
    */
   async syncMessages(messages: AgentMessage[]): Promise<void> {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/messages`
-    await fetch(url, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ messages }),
     })
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null) as { error?: string } | null
+      throw new Error(payload?.error || `Failed to sync messages: HTTP ${res.status}`)
+    }
+  }
+
+  /**
+   * Roll back from a message index on the authoritative server state.
+   */
+  async rollback(messageIndex: number): Promise<ServerRollbackResult> {
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/rollback`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ messageIndex }),
+    })
+    const payload = await res.json().catch(() => null) as (ServerRollbackResult & { error?: string }) | null
+    if (!res.ok) throw new Error(payload?.error || `Failed to roll back: HTTP ${res.status}`)
+    return payload as ServerRollbackResult
   }
 
   /**
@@ -549,6 +582,16 @@ export class ServerAgent {
           this.emitToListeners(event as unknown as AgentEvent)
         })
         return
+      }
+
+      case 'messages_replaced': {
+        const replacedEvent = event as { messages?: AgentMessage[] }
+        if (replacedEvent.messages) {
+          this.state.messages = replacedEvent.messages
+          this.state.streamingMessage = undefined
+          this.stateVersion++
+        }
+        break
       }
 
       case 'error': {

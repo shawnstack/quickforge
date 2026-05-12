@@ -7,6 +7,7 @@ import { logger } from '../utils/logger.mjs'
 
 const STORE = 'scheduled-tasks'
 const RUN_CHECK_INTERVAL_MS = 30 * 1000
+const MAX_RUN_HISTORY_PER_TASK = 200
 const cronRegex = /^(\*|\d{1,2}|\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}|\*\/\d{1,2})(\s+(\*|\d{1,2}|\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}|\*\/\d{1,2})){4}$/
 const minuteMs = 60 * 1000
 const hourMs = 60 * minuteMs
@@ -420,9 +421,55 @@ function emitScheduledTaskNotification({ task, runId, sessionId, status, result,
   })
 }
 
-async function getTasks() {
-  const data = await readStore(STORE)
-  return Object.values(data).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+function getTasks() {
+  return readStore(STORE).then((data) => Object.values(data).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))))
+}
+
+function parsePositiveInteger(value, fallback, max) {
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed <= 0) return fallback
+  return Math.min(parsed, max)
+}
+
+function runMatchesKeyword(run, keyword) {
+  if (!keyword) return true
+  const text = [run.taskTitle, run.inputContent, run.aiResult, run.result, run.errorMessage]
+    .filter(Boolean)
+    .join('\n')
+    .toLowerCase()
+  return text.includes(keyword.toLowerCase())
+}
+
+async function getTaskRuns(url) {
+  const params = url.searchParams
+  const page = parsePositiveInteger(params.get('page'), 1, 100000)
+  const pageSize = parsePositiveInteger(params.get('pageSize'), 10, 100)
+  const taskId = String(params.get('taskId') || '').trim()
+  const status = String(params.get('status') || '').trim()
+  const trigger = String(params.get('trigger') || '').trim()
+  const keyword = String(params.get('keyword') || '').trim()
+  const startedFrom = params.get('startedFrom') ? new Date(String(params.get('startedFrom'))).getTime() : null
+  const startedTo = params.get('startedTo') ? new Date(String(params.get('startedTo'))).getTime() : null
+
+  let runs = (await getTasks()).flatMap((task) => (task.runs || []).map((run) => ({
+    ...run,
+    taskId: task.id,
+    taskTitle: task.title,
+    scheduleRule: task.scheduleRule,
+    projectName: task.projectName,
+  })))
+
+  if (taskId) runs = runs.filter((run) => run.taskId === taskId)
+  if (status) runs = runs.filter((run) => run.status === status)
+  if (trigger) runs = runs.filter((run) => run.trigger === trigger)
+  if (startedFrom && !Number.isNaN(startedFrom)) runs = runs.filter((run) => new Date(run.startedAt).getTime() >= startedFrom)
+  if (startedTo && !Number.isNaN(startedTo)) runs = runs.filter((run) => new Date(run.startedAt).getTime() <= startedTo)
+  if (keyword) runs = runs.filter((run) => runMatchesKeyword(run, keyword))
+
+  runs.sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)))
+  const total = runs.length
+  const start = (page - 1) * pageSize
+  return { runs: runs.slice(start, start + pageSize), total, page, pageSize }
 }
 
 async function updateTask(taskId, updater) {
@@ -477,7 +524,7 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
       sessionId,
       scheduledAt,
       startedAt,
-    }, ...(current.runs || [])].slice(0, 20),
+    }, ...(current.runs || [])].slice(0, MAX_RUN_HISTORY_PER_TASK),
   }))
 
   let settled = false
@@ -678,6 +725,11 @@ export async function handleScheduledTasksApi(req, res, url) {
 
   if (req.method === 'GET' && url.pathname === '/api/scheduled-tasks') {
     sendJson(res, 200, { tasks: await getTasks() })
+    return
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/scheduled-tasks/runs') {
+    sendJson(res, 200, await getTaskRuns(url))
     return
   }
 

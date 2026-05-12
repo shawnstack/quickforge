@@ -6,7 +6,6 @@ import { t } from '@/lib/i18n'
 import {
   copyTextToClipboard,
   draftTextFromUserMessage,
-  rollbackConversationFromMessage,
   rollbackStartIndexFromMessage,
   shouldSaveSession,
   generateTitle,
@@ -112,26 +111,31 @@ export function useChatActions({
 
     const rollbackIndex = rollbackStartIndexFromMessage(currentAgent.state.messages, messageIndex)
     const rollbackMessage = rollbackIndex >= 0 ? currentAgent.state.messages[rollbackIndex] : undefined
-    const nextMessages = rollbackConversationFromMessage(currentAgent.state.messages, messageIndex)
-    if (nextMessages.length === currentAgent.state.messages.length) {
+    if (rollbackIndex < 0 || !rollbackMessage) {
       alert(t('noConversationTurnToRollback'))
       return
     }
 
-    const restoredRollbackDraft = rollbackMessage
-      ? {
-          id: Date.now(),
-          text: draftTextFromUserMessage(rollbackMessage),
-          attachments: rollbackMessage.role === 'user-with-attachments' ? rollbackMessage.attachments : undefined,
-        }
-      : undefined
+    if (!window.confirm(t('rollbackConfirm'))) return
+
+    const restoredRollbackDraft = {
+      id: Date.now(),
+      sessionId: currentAgent.sessionId,
+      text: draftTextFromUserMessage(rollbackMessage),
+      attachments: rollbackMessage.role === 'user-with-attachments' ? rollbackMessage.attachments : undefined,
+    }
+
+    let nextMessages = currentAgent.state.messages.slice(0, rollbackIndex)
+    try {
+      const result = await currentAgent.rollback(messageIndex)
+      nextMessages = result.session.messages ?? nextMessages
+    } catch (error) {
+      logger.error('Failed to rollback conversation:', error)
+      alert(error instanceof Error ? error.message : t('rollbackFailed'))
+      return
+    }
 
     setCurrentAgentMessages(nextMessages)
-
-    // Sync rolled-back messages to the server so the persisted state matches the client
-    currentAgent.syncMessages(nextMessages).catch((err) =>
-      logger.error('Failed to sync rollback to server:', err),
-    )
 
     const currentTask = currentSessionIdRef.current
       ? taskMapRef.current.get(currentSessionIdRef.current)
@@ -184,7 +188,7 @@ export function useChatActions({
       },
     )
 
-    if (restoredRollbackDraft) setRestoredDraft(restoredRollbackDraft)
+    setRestoredDraft({ ...restoredRollbackDraft, sessionId: newSessionId })
     setChatPanelRevision((value) => value + 1)
   }, [
     activeModelRef,

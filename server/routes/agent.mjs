@@ -20,6 +20,7 @@ import {
   approveToolCall,
   rejectToolCall,
   replaceSessionMessages,
+  rollbackSessionMessages,
   agentEvents,
 } from '../agent-manager.mjs'
 
@@ -157,7 +158,7 @@ export async function handleAgentApi(req, res, url) {
     return
   }
 
-  // POST /api/agents/:sessionId/messages — replace session messages (rollback)
+  // POST /api/agents/:sessionId/messages — replace session messages (legacy rollback/sync)
   if (req.method === 'POST' && subPath === 'messages') {
     const body = await readJsonBody(req)
     const messages = body?.messages
@@ -168,6 +169,14 @@ export async function handleAgentApi(req, res, url) {
     }
     const state = await replaceSessionMessages(sessionId, messages)
     sendJson(res, 200, { ok: true, messages: state?.messages })
+    return
+  }
+
+  // POST /api/agents/:sessionId/rollback — roll back from a message index on the authoritative server state
+  if (req.method === 'POST' && subPath === 'rollback') {
+    const body = await readJsonBody(req)
+    const result = await rollbackSessionMessages(sessionId, body?.messageIndex)
+    sendJson(res, 200, { ok: true, rollbackIndex: result.rollbackIndex, session: result.session })
     return
   }
 

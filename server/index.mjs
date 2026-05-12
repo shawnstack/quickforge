@@ -419,8 +419,7 @@ server.listen(port, host, () => {
     startVite()
     setTimeout(() => openBrowser(`http://localhost:${vitePort}`), 1000)
   } else if (shareLanEnabled) {
-    const lanUrls = getLanUrls(port)
-    openBrowser(lanUrls[0] || `http://localhost:${port}`)
+    openBrowser(`http://localhost:${port}`)
   } else {
     openBrowser(`http://localhost:${port}`)
   }

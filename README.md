@@ -1,7 +1,7 @@
 # 速构 QuickForge
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.2.6-blue" />
+  <img alt="Version" src="https://img.shields.io/badge/version-1.2.7-blue" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green" />
   <img alt="Node" src="https://img.shields.io/badge/node-%3E%3D20-brightgreen" />
   <img alt="React" src="https://img.shields.io/badge/react-19-61DAFB?logo=react" />
@@ -27,7 +27,7 @@ Built with React 19, Vite 8, Tailwind CSS 4, and shadcn-style UI primitives. Use
 ### npm
 
 ```bash
-npm install -g @shawnstack/quickforge@1.2.6
+npm install -g @shawnstack/quickforge@1.2.7
 qf
 ```
 

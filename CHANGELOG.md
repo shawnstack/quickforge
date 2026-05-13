@@ -2,6 +2,26 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.2.7] - 2026-05-13
+
+### Fixed
+
+- Added clipboard polyfill for non-secure HTTP contexts.
+
+### Changed
+
+- Improved `run_command` abort support and message state handling.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.2.7` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.2.7.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.2.7.tgz
+  ```
+
 ## [1.2.6] - 2026-05-13
 
 ### Added

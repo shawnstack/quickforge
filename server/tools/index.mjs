@@ -304,12 +304,20 @@ export async function toolReadSkillResource(params, context) {
 }
 
 // --- run_command ---
+function commandStatus(meta = {}) {
+  if (meta.running) return 'Status: running'
+  const flags = [
+    meta.timedOut ? 'timed out' : null,
+    meta.aborted ? 'aborted' : null,
+  ].filter(Boolean)
+  const suffix = flags.length ? ` (${flags.join(', ')})` : ''
+  return `Exit code: ${meta.code ?? 'unknown'}${meta.signal ? `, signal: ${meta.signal}` : ''}${suffix}`
+}
+
 function formatCommandOutput(command, stdout, stderr, meta = {}) {
   return [
     `Command: ${command}`,
-    meta.running
-      ? 'Status: running'
-      : `Exit code: ${meta.code ?? 'unknown'}${meta.signal ? `, signal: ${meta.signal}` : ''}${meta.timedOut ? ' (timed out)' : ''}`,
+    commandStatus(meta),
     '',
     'STDOUT:',
     stdout || '(empty)',
@@ -317,6 +325,27 @@ function formatCommandOutput(command, stdout, stderr, meta = {}) {
     'STDERR:',
     stderr || '(empty)',
   ].join('\n')
+}
+
+function killProcessTree(child, signal = 'SIGTERM') {
+  if (!child?.pid) return
+
+  if (process.platform === 'win32') {
+    const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    })
+    killer.on('error', () => {
+      try { child.kill(signal) } catch { /* ignore */ }
+    })
+    return
+  }
+
+  try {
+    process.kill(-child.pid, signal)
+  } catch {
+    try { child.kill(signal) } catch { /* ignore */ }
+  }
 }
 
 export async function toolRunCommand(params, context, runtime = {}) {
@@ -328,23 +357,83 @@ export async function toolRunCommand(params, context, runtime = {}) {
   }
 
   const timeoutMs = Math.min(10 * 60, Math.max(1, Number(params?.timeoutSeconds || 60))) * 1000
+  const cwd = getToolWorkspaceRoot(context)
+
+  if (runtime.signal?.aborted) {
+    const content = formatCommandOutput(command, '', 'Command aborted before start.', { aborted: true })
+    return { content: truncateText(content), details: { command, project: context?.project, cwd, aborted: true } }
+  }
 
   return new Promise((resolve) => {
-    const cwd = getToolWorkspaceRoot(context)
     const child = spawn(command, {
       cwd,
       shell: true,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
+      detached: process.platform !== 'win32',
     })
 
     let stdout = ''
     let stderr = ''
     let timedOut = false
+    let aborted = false
+    let settled = false
     let updateTimer = null
     let updatePending = false
+    let forceKillTimer = null
+
+    const cleanup = () => {
+      clearTimeout(timer)
+      if (forceKillTimer) clearTimeout(forceKillTimer)
+      if (updateTimer) clearTimeout(updateTimer)
+      runtime.signal?.removeEventListener?.('abort', onAbort)
+    }
+
+    const finish = ({ code = null, signal = null, error = null } = {}) => {
+      if (settled) return
+      flushUpdate()
+      settled = true
+      cleanup()
+      if (error) {
+        resolve({
+          isError: true,
+          content: truncateText(`Error running command: ${error.message}`),
+          details: { command, project: context?.project, cwd, error: error.message, aborted, timedOut },
+        })
+        return
+      }
+      const content = formatCommandOutput(command, stdout, stderr, { code, signal, timedOut, aborted })
+      resolve({ content: truncateText(content), details: { command, project: context?.project, cwd, code, signal, timedOut, aborted } })
+    }
+
+    const stopChild = (reason) => {
+      if (reason === 'timeout') timedOut = true
+      if (reason === 'abort') aborted = true
+      killProcessTree(child, 'SIGTERM')
+      forceKillTimer = setTimeout(() => {
+        killProcessTree(child, 'SIGKILL')
+      }, 1500)
+    }
+
+    function onAbort() {
+      stopChild('abort')
+      finish({ signal: 'SIGTERM' })
+    }
+
     const emitUpdate = () => {
       updateTimer = null
+      if (settled || !updatePending) return
+      updatePending = false
+      runtime.onUpdate?.({
+        content: [{ type: 'text', text: truncateText(formatCommandOutput(command, stdout, stderr, { running: true })) }],
+        details: { command, project: context?.project, cwd, running: true, stdout, stderr },
+      })
+    }
+    const flushUpdate = () => {
+      if (updateTimer) {
+        clearTimeout(updateTimer)
+        updateTimer = null
+      }
       if (!updatePending) return
       updatePending = false
       runtime.onUpdate?.({
@@ -353,36 +442,32 @@ export async function toolRunCommand(params, context, runtime = {}) {
       })
     }
     const scheduleUpdate = () => {
+      if (settled) return
       updatePending = true
       if (!updateTimer) updateTimer = setTimeout(emitUpdate, 150)
     }
     const timer = setTimeout(() => {
-      timedOut = true
-      child.kill('SIGTERM')
+      stopChild('timeout')
+      finish({ signal: 'SIGTERM' })
     }, timeoutMs)
 
+    runtime.signal?.addEventListener?.('abort', onAbort, { once: true })
+
     child.stdout.on('data', (chunk) => {
+      if (settled) return
       stdout = truncateText(stdout + chunk.toString())
       scheduleUpdate()
     })
     child.stderr.on('data', (chunk) => {
+      if (settled) return
       stderr = truncateText(stderr + chunk.toString())
       scheduleUpdate()
     })
     child.on('close', (code, signal) => {
-      clearTimeout(timer)
-      if (updateTimer) clearTimeout(updateTimer)
-      const content = formatCommandOutput(command, stdout, stderr, { code, signal, timedOut })
-      resolve({ content: truncateText(content), details: { command, project: context?.project, cwd, code, signal, timedOut } })
+      finish({ code, signal })
     })
     child.on('error', (err) => {
-      clearTimeout(timer)
-      if (updateTimer) clearTimeout(updateTimer)
-      resolve({
-        isError: true,
-        content: truncateText(`Error running command: ${err.message}`),
-        details: { command, project: context?.project, error: err.message },
-      })
+      finish({ error: err })
     })
   })
 }

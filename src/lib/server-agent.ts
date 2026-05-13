@@ -2,7 +2,7 @@ import type { AgentEvent, AgentMessage, ThinkingLevel } from '@mariozechner/pi-a
 import type { Api, Model } from '@mariozechner/pi-ai'
 import { streamSimple } from '@mariozechner/pi-ai'
 import { logger } from '@/lib/logger'
-import { toolStartEventWithPartialResult, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
+import { toolStartEventWithPartialResult, upsertMessage, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
 
 // ---------------------------------------------------------------------------
 // SSE client for receiving events from the server
@@ -565,13 +565,18 @@ export class ServerAgent {
         return
       }
 
-      case 'message_end':
-      case 'turn_end': {
-        // Trust the SSE event data when it carries messages.  Only fall back
-        // to a server refresh when no messages are present in the event — this
-        // avoids the race where an in-flight poll response overwrites fresher
-        // SSE-driven state.
-        const msgEvent = event as { messages?: AgentMessage[] }
+      case 'message_end': {
+        // Trust the SSE event data when it carries a finalized message. Tool
+        // calls are executed after the assistant message_end event, so keeping
+        // this message in local state lets pending run_command cards render
+        // immediately instead of waiting for a full state refresh.
+        const msgEvent = event as { message?: AgentMessage; messages?: AgentMessage[] }
+        if (msgEvent.message) {
+          this.state.messages = upsertMessage(this.state.messages, msgEvent.message)
+          this.stateVersion++
+          this.emitToListeners(event as unknown as AgentEvent)
+          return
+        }
         if (msgEvent.messages && msgEvent.messages.length >= this.state.messages.length) {
           this.state.messages = msgEvent.messages
           this.stateVersion++
@@ -579,6 +584,24 @@ export class ServerAgent {
           return
         }
         // No messages in event — refresh from server as last resort
+        void this.refreshStateFromServer().finally(() => {
+          this.emitToListeners(event as unknown as AgentEvent)
+        })
+        return
+      }
+
+      case 'turn_end': {
+        // turn_end carries the assistant message for this turn, but by this
+        // point it is already in state and tool results may have followed it.
+        // Do not upsert event.message here, otherwise it can duplicate the
+        // assistant message after tool results.
+        const msgEvent = event as { messages?: AgentMessage[] }
+        if (msgEvent.messages && msgEvent.messages.length >= this.state.messages.length) {
+          this.state.messages = msgEvent.messages
+          this.stateVersion++
+          this.emitToListeners(event as unknown as AgentEvent)
+          return
+        }
         void this.refreshStateFromServer().finally(() => {
           this.emitToListeners(event as unknown as AgentEvent)
         })

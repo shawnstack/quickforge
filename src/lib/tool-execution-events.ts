@@ -22,6 +22,39 @@ export type ToolExecutionEvent = {
   quickforgeTiming?: QuickForgeToolTiming
 }
 
+export function upsertMessage(messages: AgentMessage[], message: AgentMessage): AgentMessage[] {
+  const toolCallId = (message as { toolCallId?: unknown }).toolCallId
+  if (message.role === 'toolResult' && typeof toolCallId === 'string') {
+    const index = messages.findIndex((item) => item.role === 'toolResult' && (item as { toolCallId?: unknown }).toolCallId === toolCallId)
+    if (index >= 0) {
+      const next = messages.slice()
+      next[index] = message
+      return next
+    }
+  }
+
+  if (message.role === 'assistant') {
+    const timestamp = (message as { timestamp?: unknown }).timestamp
+    if (timestamp !== undefined) {
+      const index = messages.findIndex((item) => item.role === 'assistant' && (item as { timestamp?: unknown }).timestamp === timestamp)
+      if (index >= 0) {
+        const next = messages.slice()
+        next[index] = message
+        return next
+      }
+    }
+  }
+
+  const next = messages.slice()
+  const lastIndex = next.length - 1
+  if (lastIndex >= 0 && next[lastIndex]?.role === message.role) {
+    next[lastIndex] = message
+  } else {
+    next.push(message)
+  }
+  return next
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
 }
@@ -62,7 +95,16 @@ export function upsertToolResult(messages: AgentMessage[], event: ToolExecutionE
   const result = partial ? event.partialResult : event.result
   if (!result) return messages
 
-  const timing = extractQuickForgeTiming(result.details) ?? event.quickforgeTiming
+  // Resolve timing: prefer the new result/event, then fall back to the existing
+  // message so that incremental updates (tool_execution_update) never lose the
+  // startedAt timestamp that was set by the initial tool_execution_start event.
+  let timing = extractQuickForgeTiming(result.details) ?? event.quickforgeTiming
+  if (!timing) {
+    const existingIndex = messages.findIndex((message) => message.role === 'toolResult' && message.toolCallId === event.toolCallId)
+    if (existingIndex >= 0) {
+      timing = extractQuickForgeTiming((messages[existingIndex] as { details?: unknown }).details)
+    }
+  }
   const details = timing ? mergeQuickForgeTiming(result.details, timing) : result.details
 
   const toolResult = {
@@ -74,9 +116,5 @@ export function upsertToolResult(messages: AgentMessage[], event: ToolExecutionE
     isError: partial ? false : event.isError,
     timestamp: Date.now(),
   } as AgentMessage
-  const index = messages.findIndex((message) => message.role === 'toolResult' && message.toolCallId === event.toolCallId)
-  if (index < 0) return [...messages, toolResult]
-  const next = messages.slice()
-  next[index] = toolResult
-  return next
+  return upsertMessage(messages, toolResult)
 }

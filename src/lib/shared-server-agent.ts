@@ -3,7 +3,7 @@ import type { Api, Model } from '@mariozechner/pi-ai'
 import { streamSimple } from '@mariozechner/pi-ai'
 import type { SharePermission } from '@/lib/share-client'
 import { logger } from '@/lib/logger'
-import { toolStartEventWithPartialResult, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
+import { toolStartEventWithPartialResult, upsertMessage, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
 
 export type SharedSessionState = {
   sessionId?: string
@@ -362,11 +362,7 @@ export class SharedServerAgent {
         break
       case 'message_end':
         if (event.message) {
-          const next = this.state.messages.slice()
-          const lastIndex = next.length - 1
-          if (lastIndex >= 0 && next[lastIndex]?.role === event.message.role) next[lastIndex] = event.message
-          else next.push(event.message)
-          this.state.messages = next
+          this.state.messages = upsertMessage(this.state.messages, event.message)
         }
         this.state.streamingMessage = undefined
         break

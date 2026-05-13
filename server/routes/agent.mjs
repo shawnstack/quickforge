@@ -85,7 +85,7 @@ export async function handleAgentApi(req, res, url) {
 
   // POST /api/agents/:sessionId/abort — abort current run
   if (req.method === 'POST' && subPath === 'abort') {
-    const result = abortRun(sessionId)
+    const result = await abortRun(sessionId)
     sendJson(res, 200, result)
     return
   }

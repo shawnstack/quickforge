@@ -50,6 +50,16 @@
 }
 
 /* Chat messages: only customize user's outgoing bubble; assistant/tool rendering stays pi-web-ui default. */
+/* Hide pi-web-ui token/cost usage lines, e.g. "↑3.6k ↓246 R...".
+ * Keep message.usage data intact for context usage, metadata, and debugging.
+ */
+.quickforge-assistant-message > div > .px-4.mt-2.text-xs.text-muted-foreground,
+.quickforge-composer + .text-xs.text-muted-foreground.flex.justify-between.items-center.h-5
+  > .ml-auto.items-center
+  > span:not(.quickforge-context-usage):not(.quickforge-context-usage-label) {
+  display: none !important;
+}
+
 .quickforge-user-message > div.flex.justify-start {
   justify-content: flex-end !important;
 }

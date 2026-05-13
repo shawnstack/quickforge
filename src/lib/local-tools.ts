@@ -1,6 +1,7 @@
 import { registerToolRenderer } from '@mariozechner/pi-web-ui'
 import { html } from 'lit'
 import { t, type AppTextKey } from '@/lib/i18n'
+import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import type { AgentTool } from '@mariozechner/pi-agent-core'
 
 type ToolResultLike = {
@@ -116,16 +117,19 @@ class LocalWorkspaceToolRenderer {
   render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
     const status: ToolStatusKey = result?.isError ? 'error' : result ? 'done' : isStreaming ? 'running' : 'called'
     const summary = summarizeParams(this.toolName, params)
-    const input = stringifyValue(params)
+    const toolDisplaySettings = getCachedToolDisplaySettings()
+    const showToolDetails = toolDisplaySettings.showToolDetails
+    const expandToolsByDefault = toolDisplaySettings.expandToolsByDefault
+    const input = showToolDetails ? stringifyValue(params) : ''
     const output = resultText(result)
     const diff = getDiffDetails(result?.details)
-    const details = stringifyValue(diff ? detailsWithoutDiffText(result?.details) : result?.details)
+    const details = showToolDetails ? stringifyValue(diff ? detailsWithoutDiffText(result?.details) : result?.details) : ''
     const variant = result?.isError ? 'error' : 'default'
 
     return {
       isCustom: false,
       content: html`
-        <details class="group/tool">
+        <details class="group/tool" ?open=${expandToolsByDefault}>
           <summary class="flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
             <svg class="shrink-0 transition-transform group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
             <svg class="shrink-0 ${status === 'error' ? 'text-destructive' : status === 'running' ? 'text-primary' : 'text-green-600 dark:text-green-500'}" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 8 4 4-4 4"/><path d="M13 16h4"/><rect width="18" height="14" x="3" y="5" rx="2"/></svg>

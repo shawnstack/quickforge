@@ -8,6 +8,10 @@ import {
   loadDefaultOptions,
   saveDefaultOptions,
 } from '@/lib/pi-chat'
+import {
+  loadToolDisplaySettings,
+  saveToolDisplaySettings,
+} from '@/lib/tool-display-settings'
 import { t } from '@/lib/i18n'
 
 type AnyModel = Model<Api>
@@ -41,6 +45,8 @@ class DefaultOptionsSettingsTab extends SettingsTab {
   private models: AnyModel[] = []
   private selectedModel?: AnyModel
   private thinkingLevel: ThinkingLevel = 'off'
+  private showToolDetails = false
+  private expandToolsByDefault = false
   private loading = true
   private saved = false
   private error = ''
@@ -77,15 +83,18 @@ class DefaultOptionsSettingsTab extends SettingsTab {
 
     try {
       const storage = getAppStorage()
-      const [models, defaults] = await Promise.all([
+      const [models, defaults, toolDisplaySettings] = await Promise.all([
         getConfiguredModels(storage),
         loadDefaultOptions(storage),
+        loadToolDisplaySettings(storage),
       ])
       this.models = models
       this.selectedModel = defaults.model
         ? models.find((model) => modelKey(model) === modelKey(defaults.model!)) ?? defaults.model
         : models[0]
       this.thinkingLevel = defaults.thinkingLevel ?? defaultThinkingLevelForModel(this.selectedModel)
+      this.showToolDetails = toolDisplaySettings.showToolDetails
+      this.expandToolsByDefault = toolDisplaySettings.expandToolsByDefault
     } catch (error) {
       this.error = error instanceof Error ? error.message : t('requestFailed')
     } finally {
@@ -108,6 +117,18 @@ class DefaultOptionsSettingsTab extends SettingsTab {
     this.requestUpdate()
   }
 
+  private updateShowToolDetails(checked: boolean) {
+    this.showToolDetails = checked
+    this.saved = false
+    this.requestUpdate()
+  }
+
+  private updateExpandToolsByDefault(checked: boolean) {
+    this.expandToolsByDefault = checked
+    this.saved = false
+    this.requestUpdate()
+  }
+
   private modelOptions() {
     if (!this.selectedModel) return this.models
 
@@ -122,6 +143,10 @@ class DefaultOptionsSettingsTab extends SettingsTab {
       await saveDefaultOptions(getAppStorage(), {
         model: this.selectedModel,
         thinkingLevel,
+      })
+      await saveToolDisplaySettings(getAppStorage(), {
+        showToolDetails: this.showToolDetails,
+        expandToolsByDefault: this.expandToolsByDefault,
       })
       await this.loadSettings()
       this.saved = true
@@ -178,6 +203,31 @@ class DefaultOptionsSettingsTab extends SettingsTab {
             ? html`<span class="text-xs text-muted-foreground">${t('thinkingRequiresReasoningModel')}</span>`
             : null}
         </label>
+
+        <div class="grid max-w-xl gap-3 rounded-lg border border-border p-4">
+          <div>
+            <h4 class="text-sm font-medium text-foreground">${t('toolDisplay')}</h4>
+            <p class="mt-1 text-xs text-muted-foreground">${t('showToolDetailsDescription')}</p>
+          </div>
+          <label class="flex items-center gap-2 text-sm text-foreground">
+            <input
+              type="checkbox"
+              class="size-4 rounded border-input"
+              .checked=${this.showToolDetails}
+              @change=${(event: Event) => this.updateShowToolDetails((event.target as HTMLInputElement).checked)}
+            />
+            <span>${t('showToolDetails')}</span>
+          </label>
+          <label class="flex items-center gap-2 text-sm text-foreground">
+            <input
+              type="checkbox"
+              class="size-4 rounded border-input"
+              .checked=${this.expandToolsByDefault}
+              @change=${(event: Event) => this.updateExpandToolsByDefault((event.target as HTMLInputElement).checked)}
+            />
+            <span>${t('expandToolsByDefault')}</span>
+          </label>
+        </div>
 
         <div class="flex items-center gap-3">
           <button

@@ -20,6 +20,7 @@ import {
 } from './chat-utils'
 import { assistantText, draftTextFromUserMessage } from '@/lib/message-utils'
 import { t } from '@/lib/i18n'
+import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 
 // --- Icon SVGs ---
 
@@ -410,6 +411,24 @@ export type ApprovalCardDeps = {
 
 const APPROVAL_CARD_SELECTOR = '.quickforge-approval-card'
 
+function summarizeToolArgs(toolName: string, args: Record<string, unknown>) {
+  if (toolName === 'run_command' && typeof args.command === 'string') return args.command
+  if (toolName === 'activate_skill' && typeof args.name === 'string') return args.name
+  if (toolName === 'read_skill_resource' && typeof args.path === 'string') return args.path
+  if (typeof args.path === 'string') return args.path
+  if (typeof args.query === 'string') return args.query
+  if (typeof args.name === 'string') return args.name
+  return ''
+}
+
+function hiddenToolArgsPreview(toolName: string, args: Record<string, unknown>) {
+  const summary = summarizeToolArgs(toolName, args)
+  return `
+    ${summary ? `<div class="text-xs text-muted-foreground mb-1">${escapeHtml(t('toolArgsSummary'))}: ${escapeHtml(summary)}</div>` : ''}
+    <div class="text-xs bg-background border rounded p-2 text-muted-foreground">${escapeHtml(t('toolDetailsHidden'))}</div>
+  `
+}
+
 export function injectApprovalCard(
   deps: ApprovalCardDeps,
   toolName: string,
@@ -443,6 +462,8 @@ export function injectApprovalCard(
   const preview = document.createElement('div')
   preview.className = 'quickforge-approval-preview mb-3'
 
+  const showToolDetails = getCachedToolDisplaySettings().showToolDetails
+
   if (toolName === 'write_file') {
     const filePath = String(args.path ?? '')
     const content = String(args.content ?? '')
@@ -468,7 +489,9 @@ export function injectApprovalCard(
       <pre class="text-xs bg-background border rounded p-2 max-h-40 overflow-auto font-mono whitespace-pre-wrap">$ ${escapeHtml(command)}</pre>
     `
   } else {
-    preview.innerHTML = `<pre class="text-xs bg-background border rounded p-2 max-h-40 overflow-auto font-mono whitespace-pre-wrap">${escapeHtml(JSON.stringify(args, null, 2))}</pre>`
+    preview.innerHTML = showToolDetails
+      ? `<pre class="text-xs bg-background border rounded p-2 max-h-40 overflow-auto font-mono whitespace-pre-wrap">${escapeHtml(JSON.stringify(args, null, 2))}</pre>`
+      : hiddenToolArgsPreview(toolName, args)
   }
   card.append(preview)
 

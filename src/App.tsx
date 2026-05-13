@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import type { BackgroundTaskStatus } from '@/lib/types'
 import {
-  Plus,
+  Menu,
   Settings,
   Share2,
 } from 'lucide-react'
@@ -106,6 +106,7 @@ function MainApp() {
 
   // --- UI state ---
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [projectsCollapsed, setProjectsCollapsed] = useState(false)
   const [conversationsCollapsed, setConversationsCollapsed] = useState(false)
   const [needsModelSetup, setNeedsModelSetup] = useState(false)
@@ -383,6 +384,40 @@ function MainApp() {
     throw new Error(payload?.error || t('openInExplorerFailed'))
   }, [])
 
+  const closeMobileSidebar = useCallback(() => {
+    setMobileSidebarOpen(false)
+  }, [])
+
+  const loadSessionFromSidebar = useCallback((sessionId: string) => {
+    closeMobileSidebar()
+    loadSession(sessionId)
+  }, [closeMobileSidebar, loadSession])
+
+  const startNewGlobalSessionFromSidebar = useCallback(() => {
+    closeMobileSidebar()
+    startNewGlobalSession()
+  }, [closeMobileSidebar, startNewGlobalSession])
+
+  const startNewProjectChatFromSidebar = useCallback((project: ProjectInfo) => {
+    closeMobileSidebar()
+    void startNewProjectChat(project)
+  }, [closeMobileSidebar, startNewProjectChat])
+
+  const openScheduledTasksFromSidebar = useCallback(() => {
+    closeMobileSidebar()
+    setScheduledTasksOpen(true)
+  }, [closeMobileSidebar])
+
+  const openGlobalSkillsFromSidebar = useCallback(() => {
+    closeMobileSidebar()
+    openGlobalSkills()
+  }, [closeMobileSidebar, openGlobalSkills])
+
+  const openProjectSkillsFromSidebar = useCallback((project: ProjectInfo) => {
+    closeMobileSidebar()
+    openProjectSkills(project)
+  }, [closeMobileSidebar, openProjectSkills])
+
   const handleSkillsSaved = useCallback((payload: { scope: SkillsScope; project?: ProjectInfo; projects?: ProjectInfo[] }) => {
     if (payload.scope === 'project' && payload.project && payload.projects) {
       setProjects(payload.projects)
@@ -471,10 +506,69 @@ function MainApp() {
         onToggleSidebar={() => setSidebarOpen((value) => !value)}
       />
 
+      {mobileSidebarOpen ? (
+        <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true">
+          <button
+            type="button"
+            className="absolute inset-0 bg-background/65 backdrop-blur-sm"
+            onClick={closeMobileSidebar}
+            aria-label={t('toggleSidebar')}
+          />
+          <div className="absolute inset-y-0 left-0 max-w-[85vw] shadow-2xl">
+            <ChatSidebar
+              variant="mobile"
+              sidebarOpen
+              scheduledTasksActive={scheduledTasksOpen}
+              projectsCollapsed={projectsCollapsed}
+              conversationsCollapsed={conversationsCollapsed}
+              projects={projects}
+              expandedProjectIds={expandedProjectIds}
+              activeProject={activeProject}
+              currentSessionId={agentManager.currentSessionId}
+              globalSessions={globalSessions}
+              sessionsForProject={sessionsForProject}
+              globalHasMore={globalHasMore}
+              globalLoading={globalLoading}
+              onLoadMoreGlobal={loadMoreGlobal}
+              projectHasMore={projectHasMore}
+              projectLoading={projectLoading}
+              projectLoaded={projectLoaded}
+              onLoadMoreProject={loadMoreProject}
+              sessionTaskStatus={sessionTaskStatus}
+              selectingProject={selectingProject}
+              onToggleProjectsCollapsed={toggleProjectsCollapsed}
+              onToggleConversationsCollapsed={toggleConversationsCollapsed}
+              onToggleProjectExpanded={toggleProjectExpanded}
+              onSelectProjectDirectory={() => {
+                closeMobileSidebar()
+                selectProjectDirectory()
+              }}
+              onStartNewProjectChat={startNewProjectChatFromSidebar}
+              onOpenGlobalSkills={openGlobalSkillsFromSidebar}
+              onOpenProjectSkills={openProjectSkillsFromSidebar}
+              onOpenProjectInExplorer={(project) => {
+                closeMobileSidebar()
+                void openProjectInExplorer(project).catch((error) => {
+                  logger.error('Failed to open project in explorer:', error)
+                  alert(error instanceof Error ? error.message : t('openInExplorerFailed'))
+                })
+              }}
+              onDeleteProject={deleteProjectInline}
+              onLoadSession={loadSessionFromSidebar}
+              onRenameSession={renameSession}
+              onDeleteSession={deleteSession}
+              onStartNewGlobalChat={startNewGlobalSessionFromSidebar}
+              onOpenScheduledTasks={openScheduledTasksFromSidebar}
+              onToggleSidebar={closeMobileSidebar}
+            />
+          </div>
+        </div>
+      ) : null}
+
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-3">
-          <Button variant="ghost" size="icon" className="md:hidden" onClick={startNewGlobalChat} aria-label={t('newChat')}>
-            <Plus className="size-4" />
+          <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileSidebarOpen(true)} aria-label={t('toggleSidebar')}>
+            <Menu className="size-4" />
           </Button>
 
           <div className="min-w-0 flex-1">

@@ -13,6 +13,7 @@ import {
 } from '@/lib/message-utils'
 import type { ProjectInfo, RestoredDraft } from '@/lib/types'
 import { logger } from '@/lib/logger'
+import { randomId } from '@/lib/random-id'
 
 type UseChatActionsOptions = {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof initializePiStorage>> | null>
@@ -66,7 +67,7 @@ export function useChatActions({
     setScheduledTasksOpen(false)
     setRestoredDraft(undefined)
 
-    const sessionId = crypto.randomUUID()
+    const sessionId = randomId()
     clearSessionQueryParam()
 
     await createAgent(
@@ -92,7 +93,7 @@ export function useChatActions({
       await switchActiveProject(nextProject.id)
     }
 
-    const sessionId = crypto.randomUUID()
+    const sessionId = randomId()
     clearSessionQueryParam()
 
     await createAgent(
@@ -173,7 +174,7 @@ export function useChatActions({
       }
     }
 
-    const newSessionId = crypto.randomUUID()
+    const newSessionId = randomId()
     await createAgent(
       {
         model,
@@ -232,7 +233,7 @@ export function useChatActions({
 
     const scope = currentChatScopeRef.current
     const project = scope === 'project' ? activeProjectRef.current : undefined
-    const newSessionId = crypto.randomUUID()
+    const newSessionId = randomId()
     const title = generateTitle(messages)
 
     const storage = storageRef.current

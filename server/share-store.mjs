@@ -1,12 +1,9 @@
-import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { promisify } from 'node:util'
 import { ensureStorage, storageDir } from './storage.mjs'
-
-const scrypt = promisify(scryptCallback)
+import { hashPassword, safeHashEqual, sha256Base64Url, verifyPassword } from './utils/password-auth.mjs'
 const SHARE_ID_PREFIX = 'qfs_'
-const PASSWORD_VERSION = 1
 const SHARE_TOKEN_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 const MAX_SHARE_TOKENS = 50
 const SHARES_DIR = path.join(storageDir, 'shares')
@@ -98,32 +95,21 @@ export function generateSharePassword() {
   return `${randomToken(4).slice(0, 6).toUpperCase()}-${randomToken(4).slice(0, 6).toUpperCase()}`
 }
 
-export async function hashSharePassword(password, salt = randomToken(16)) {
+export async function hashSharePassword(password, salt) {
   if (password === undefined || password === null || typeof password !== 'string') return {}
   if (!password) return { passwordHash: undefined, passwordSalt: undefined, passwordVersion: undefined }
-
-  const derived = await scrypt(password, salt, 32)
-  return {
-    passwordHash: derived.toString('base64url'),
-    passwordSalt: salt,
-    passwordVersion: PASSWORD_VERSION,
-  }
+  return hashPassword(password, salt)
 }
 
 export async function verifySharePassword(record, password) {
   if (!record?.passwordHash || !record?.passwordSalt) return !password
-  if (!password) return false
-  const { passwordHash } = await hashSharePassword(password, record.passwordSalt)
-  const expected = Buffer.from(record.passwordHash, 'base64url')
-  const actual = Buffer.from(passwordHash, 'base64url')
-  if (expected.length !== actual.length) return false
-  return timingSafeEqual(expected, actual)
+  return verifyPassword(record, password)
 }
 
 export function createShareToken(shareId) {
   assertSafeShareId(shareId)
   const secret = randomToken(32)
-  const secretHash = createHash('sha256').update(secret).digest('base64url')
+  const secretHash = sha256Base64Url(secret)
   return {
     token: `${shareId}.${secret}`,
     tokenHash: secretHash,
@@ -140,19 +126,11 @@ function pruneShareTokens(tokens, now = Date.now()) {
     .slice(-MAX_SHARE_TOKENS)
 }
 
-function safeHashEqual(expectedHash, actualHash) {
-  if (!expectedHash || !actualHash) return false
-  const expected = Buffer.from(expectedHash)
-  const actual = Buffer.from(actualHash)
-  if (expected.length !== actual.length) return false
-  return timingSafeEqual(expected, actual)
-}
-
 export function verifyShareToken(record, token) {
   if (!record || !token || typeof token !== 'string') return false
   const [tokenShareId, secret] = token.split('.')
   if (tokenShareId !== record.id || !secret) return false
-  const actualHash = createHash('sha256').update(secret).digest('base64url')
+  const actualHash = sha256Base64Url(secret)
   const authVersion = record.authVersion || 1
   const tokenRecords = pruneShareTokens(record.tokens)
 

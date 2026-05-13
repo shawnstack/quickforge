@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react'
+import { randomId } from '@/lib/random-id'
 
 const CHANNEL_NAME = 'quickforge-sync'
 
@@ -28,7 +29,7 @@ export function useCrossTabSync(callbacks: {
     callbacksRef.current = callbacks
   })
 
-  const tabId = useRef(crypto.randomUUID())
+  const tabId = useRef(randomId())
 
   const channelRef = useRef<BroadcastChannel | null>(null)
 

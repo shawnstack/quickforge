@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import type { ToastItem } from '@/components/ui/toast'
 import type { BackgroundTaskStatus } from '@/lib/types'
+import { randomId } from '@/lib/random-id'
 
 export function useTaskToasts() {
   const [toasts, setToasts] = useState<ToastItem[]>([])
@@ -8,7 +9,7 @@ export function useTaskToasts() {
   const addToast = useCallback((toast: Omit<ToastItem, 'id' | 'createdAt'>) => {
     setToasts((prev) => [...prev, {
       ...toast,
-      id: crypto.randomUUID(),
+      id: randomId(),
       createdAt: Date.now(),
     }])
   }, [])

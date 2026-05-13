@@ -21,9 +21,12 @@ import { handleBackupApi } from './routes/backup.mjs'
 import { handleSystemApi } from './routes/system.mjs'
 import { handleSharesApi } from './routes/shares.mjs'
 import { handleSharedConversationApi } from './routes/shared-conversation.mjs'
+import { handleLanAccessApi, renderLanUnlockPage } from './routes/lan-access.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { logger, flushLogger } from './utils/logger.mjs'
 import { isLoopbackAddress, getLanUrls } from './utils/network.mjs'
+import { parseCookies } from './share-store.mjs'
+import { lanAccessCookieName, verifyLanAccessToken } from './lan-access-store.mjs'
 import { shutdown as shutdownAgentManager, resetStaleTaskStatuses } from './agent-manager.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -168,6 +171,14 @@ async function handleApi(req, res, url) {
 
   if (pathname.startsWith('/api/shared/')) {
     await handleSharedConversationApi(req, res, url)
+    return
+  }
+
+  if (pathname === '/api/lan-access/status' || pathname === '/api/lan-access/settings' || pathname === '/api/lan-access/unlock' || pathname === '/api/lan-access/logout' || pathname === '/api/lan-access/revoke-all') {
+    await handleLanAccessApi(req, res, url, {
+      port,
+      isLocalRequest: isLoopbackAddress(req.socket.remoteAddress),
+    })
     return
   }
 
@@ -317,6 +328,27 @@ function isAllowedHostHeader(value) {
   return allowedHosts.has(parsed.hostname) && hostPort === expectedPort
 }
 
+function isLanAccessBootstrapPath(pathname) {
+  return pathname === '/api/health'
+    || pathname === '/api/lan-access/status'
+    || pathname === '/api/lan-access/unlock'
+}
+
+function isSharePath(pathname) {
+  return pathname.startsWith('/share/')
+    || pathname.startsWith('/api/shared/')
+}
+
+async function isAuthorizedRemoteRequest(req) {
+  const token = parseCookies(req.headers.cookie).get(lanAccessCookieName())
+  return verifyLanAccessToken(token)
+}
+
+function sendLanAuthRequired(res) {
+  res.writeHead(401, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+  res.end(JSON.stringify({ error: 'LAN authentication required' }))
+}
+
 // --- Bootstrap ---
 const server = createServer(async (req, res) => {
   const reqId = randomUUID().slice(0, 8)
@@ -350,11 +382,24 @@ const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url || '/', `http://${req.headers.host || `${host}:${port}`}`)
     const remoteAddress = req.socket.remoteAddress
+    const isRemoteRequest = !isLoopbackAddress(remoteAddress)
+    const remoteAuthorized = isRemoteRequest ? await isAuthorizedRemoteRequest(req) : true
+
+    if (isRemoteRequest && shareLanEnabled && !remoteAuthorized && !isLanAccessBootstrapPath(url.pathname) && !isSharePath(url.pathname)) {
+      if (url.pathname.startsWith('/api/')) {
+        sendLanAuthRequired(res)
+      } else {
+        renderLanUnlockPage(res)
+      }
+      return
+    }
+
     if (
       url.pathname.startsWith('/api/') &&
-      !isLoopbackAddress(remoteAddress) &&
+      isRemoteRequest &&
       shareLanEnabled &&
-      !(url.pathname.startsWith('/api/shared/') || url.pathname === '/api/health')
+      !remoteAuthorized &&
+      !(url.pathname.startsWith('/api/shared/') || url.pathname === '/api/health' || url.pathname.startsWith('/api/lan-access/'))
     ) {
       res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
       res.end(JSON.stringify({ error: 'Remote API access is limited to shared conversation endpoints.' }))
@@ -380,7 +425,7 @@ const server = createServer(async (req, res) => {
       return
     }
 
-    if (!isLoopbackAddress(remoteAddress) && shareLanEnabled) {
+    if (isRemoteRequest && shareLanEnabled && !remoteAuthorized) {
       res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
       res.end(JSON.stringify({ error: 'Remote access is limited to shared conversation links.' }))
       return

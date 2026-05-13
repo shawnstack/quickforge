@@ -12,6 +12,7 @@ import {
 } from '@mariozechner/pi-web-ui'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { logger } from '@/lib/logger'
+import { randomId } from '@/lib/random-id'
 
 const ACTIVE_MODEL_SETTING_KEY = 'active-model'
 const YOLO_MODE_SETTING_KEY = 'yolo-mode'
@@ -344,7 +345,7 @@ export async function saveConnectionProfile(
   form: ConnectionForm,
   model: Model<'openai-completions'>,
 ) {
-  const id = form.id || crypto.randomUUID()
+  const id = form.id || randomId()
   const provider: CustomProvider = {
     id,
     name: form.name.trim(),

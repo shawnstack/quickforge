@@ -16,6 +16,7 @@ import type {
 } from '@/lib/types'
 import { sessionScope } from '@/lib/types'
 import { logger } from '@/lib/logger'
+import { randomId } from '@/lib/random-id'
 
 type UseAppBootstrapOptions = {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof initializePiStorage>> | null>
@@ -88,7 +89,7 @@ export function useAppBootstrap({
                   if (initialModel) {
                     await createAgent(
                       { model: defaultOptions.model ?? initialModel, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },
-                      crypto.randomUUID(),
+                      randomId(),
                       { scope: 'global', attachToView: true },
                     )
                   } else {
@@ -121,7 +122,7 @@ export function useAppBootstrap({
           } else if (initialModel) {
             await createAgent(
               { model: defaultOptions.model ?? initialModel, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },
-              crypto.randomUUID(),
+              randomId(),
               { scope: 'global', attachToView: true },
             )
           } else {
@@ -130,7 +131,7 @@ export function useAppBootstrap({
         } else if (initialModel) {
           await createAgent(
             { model: defaultOptions.model ?? initialModel, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },
-            crypto.randomUUID(),
+            randomId(),
             { scope: 'global', attachToView: true },
           )
         } else {

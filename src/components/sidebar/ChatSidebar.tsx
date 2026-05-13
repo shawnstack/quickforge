@@ -25,6 +25,7 @@ import type { ProjectInfo, QuickForgeSessionMetadata, BackgroundTaskStatus } fro
 
 type ChatSidebarProps = {
   sidebarOpen: boolean
+  variant?: 'desktop' | 'mobile'
   scheduledTasksActive: boolean
   projectsCollapsed: boolean
   conversationsCollapsed: boolean
@@ -83,6 +84,7 @@ function LoadMoreSentinel({ onLoadMore, enabled }: { onLoadMore: () => void; ena
 
 export const ChatSidebar = memo(function ChatSidebar({
   sidebarOpen,
+  variant = 'desktop',
   scheduledTasksActive,
   projectsCollapsed,
   conversationsCollapsed,
@@ -142,6 +144,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   const timeClass = 'mt-0.5 truncate text-[11px] leading-4 text-muted-foreground/55'
   const searchDialogClass = 'fixed inset-0 z-50 flex items-start justify-center bg-background/50 px-4 pt-[12vh] backdrop-blur-sm'
   const projectMenuClass = 'absolute right-0 top-8 z-30 min-w-48 rounded-lg border border-border bg-card p-1 shadow-xl'
+  const isMobile = variant === 'mobile'
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [projectMenuId, setProjectMenuId] = useState<string | null>(null)
@@ -183,7 +186,8 @@ export const ChatSidebar = memo(function ChatSidebar({
   return (
     <aside
       className={cn(
-        'relative z-10 hidden min-h-0 shrink-0 overflow-hidden border-r border-border bg-background transition-[width] duration-200 ease-out motion-reduce:transition-none md:flex md:flex-col',
+        'relative z-10 min-h-0 shrink-0 overflow-hidden border-r border-border bg-background transition-[width] duration-200 ease-out motion-reduce:transition-none',
+        isMobile ? 'flex h-full flex-col w-80 max-w-[85vw]' : 'hidden md:flex md:flex-col',
         sidebarOpen ? 'w-80' : 'w-14',
       )}
     >

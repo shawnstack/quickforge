@@ -22,6 +22,7 @@ import type {
   QuickForgeSessionMetadata,
 } from '@/lib/types'
 import { sessionScope } from '@/lib/types'
+import { randomId } from '@/lib/random-id'
 
 export interface AgentManagerDeps {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof import('@/lib/pi-chat').initializePiStorage>> | null>
@@ -143,7 +144,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   const createAgent = useCallback(
     async (
       initialState?: Partial<AgentState>,
-      sessionId: string = crypto.randomUUID(),
+      sessionId: string = randomId(),
       options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string },
     ) => {
       const existingTask = taskMapRef.current.get(sessionId)

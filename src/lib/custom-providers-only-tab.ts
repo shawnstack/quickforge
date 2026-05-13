@@ -9,6 +9,7 @@ import type { Api, Model } from '@mariozechner/pi-ai'
 import { t } from '@/lib/i18n'
 import { DEFAULT_CONNECTION, normalizeModelForProvider } from '@/lib/pi-chat'
 import { logger } from '@/lib/logger'
+import { randomId } from '@/lib/random-id'
 
 type ProviderProtocol = Extract<CustomProviderType, 'openai-completions' | 'anthropic-messages'>
 type AnyModel = Model<Api>
@@ -263,7 +264,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       : undefined
 
     const provider: CustomProvider = {
-      id: this.editingProviderId ?? crypto.randomUUID(),
+      id: this.editingProviderId ?? randomId(),
       name,
       type: this.form.protocol,
       baseUrl: models[0].baseUrl,

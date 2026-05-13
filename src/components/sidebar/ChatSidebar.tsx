@@ -333,6 +333,18 @@ export const ChatSidebar = memo(function ChatSidebar({
                                           <Puzzle className="size-4 shrink-0 text-muted-foreground/70" />
                                           <span>{t('manageProjectSkills')}</span>
                                         </button>
+                                        <button
+                                          type="button"
+                                          className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
+                                          aria-label={t('deleteProject')}
+                                          onClick={() => {
+                                            setProjectMenuId(null)
+                                            onDeleteProject(item.id)
+                                          }}
+                                        >
+                                          <Trash2 className="size-4 shrink-0" />
+                                          <span>{t('deleteProject')}</span>
+                                        </button>
                                       </div>
                                     ) : null}
                                   </div>
@@ -344,15 +356,6 @@ export const ChatSidebar = memo(function ChatSidebar({
                                     aria-label={t('newProjectChat')}
                                   >
                                     <MessageSquarePlus className="size-4" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className={overlayDangerIconButtonClass}
-                                    onClick={() => onDeleteProject(item.id)}
-                                    aria-label={t('deleteProject')}
-                                  >
-                                    <Trash2 className="size-4" />
                                   </Button>
                                 </div>
                               </div>

@@ -6,6 +6,8 @@ For project tasks:
 - Prefer dedicated workspace tools for reading, editing, and searching files.
 - If dedicated tools are unavailable or insufficient, use the shell/command tool.
 - Use Python through the shell for reliable scripting, data processing, or file transformations.
+- When falling back to shell for file edits, do not create temporary helper scripts such as modify.py, patch.py, edit.js, or update.sh. Use inline shell commands only, such as python -c, python - <<'PY', node -e, sed, awk, cat > target <<'EOF', or git apply <<'PATCH'. Never write a helper script to disk just to execute it for code modification.
+- If a file edit tool fails, re-read the relevant file context and retry the dedicated edit tool when practical before using shell fallback.
 - Stay within the current workspace unless the user explicitly asks otherwise.
 - Verify changes with relevant tests, build, lint, or targeted checks.
 - If no suitable tool is available, say so clearly.`

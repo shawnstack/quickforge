@@ -64,6 +64,7 @@ export function useChatActions({
     }
 
     setScheduledTasksOpen(false)
+    setRestoredDraft(undefined)
 
     const sessionId = crypto.randomUUID()
     clearSessionQueryParam()
@@ -73,7 +74,7 @@ export function useChatActions({
       sessionId,
       { scope: 'global', attachToView: true },
     )
-  }, [createAgent, needsModelSetup, setScheduledTasksOpen])
+  }, [createAgent, needsModelSetup, setRestoredDraft, setScheduledTasksOpen])
 
   const startNewProjectChat = useCallback(async (targetProject?: ProjectInfo) => {
     if (needsModelSetup) {
@@ -82,6 +83,7 @@ export function useChatActions({
     }
 
     setScheduledTasksOpen(false)
+    setRestoredDraft(undefined)
 
     const nextProject = targetProject ?? activeProjectRef.current
     if (!nextProject) return
@@ -98,7 +100,7 @@ export function useChatActions({
       sessionId,
       { scope: 'project', project: nextProject, attachToView: true },
     )
-  }, [activeProjectRef, createAgent, needsModelSetup, setScheduledTasksOpen, switchActiveProject])
+  }, [activeProjectRef, createAgent, needsModelSetup, setRestoredDraft, setScheduledTasksOpen, switchActiveProject])
 
   const rollbackFromMessage = useCallback(async (messageIndex: number) => {
     const currentAgent = agentRef.current

@@ -186,6 +186,7 @@ export function useModelActions({
         if (currentInput) {
           setRestoredDraft({
             id: Date.now(),
+            sessionId: currentAgent.sessionId,
             text: currentInput,
           })
         }

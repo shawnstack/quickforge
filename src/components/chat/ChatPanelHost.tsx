@@ -375,6 +375,12 @@ export function ChatPanelHost({
           restoreDraftForSession(panel, draft, sessionId)
         }
       }
+      const eventType = (event as { type: string }).type
+      if (eventType === 'tool_execution_start' || eventType === 'tool_execution_update' || eventType === 'tool_execution_end') {
+        const agentInterface = panel.querySelector('agent-interface') as { requestUpdate?: () => void } | null
+        agentInterface?.requestUpdate?.()
+        if (scrollSync.isEnabled) scrollSync.scheduleScrollToBottom()
+      }
       if (event.type === 'agent_end') {
         // Run finished (or aborted) — clear pending approval for this session
         if (pendingApprovalRef.current?.sessionId === agent.sessionId) {

@@ -29,13 +29,13 @@ function wrapToolDefinition(definition, context, toolPermissions) {
   if (!handler) throw new Error(`Missing handler for tool: ${definition.name}`)
   return {
     ...definition,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, params, signal, onUpdate) => {
       if (toolPermissions) {
         const permissionError = toolPermissions(definition.name)
         if (permissionError) throw new Error(permissionError)
       }
 
-      const result = await handler(params || {}, context)
+      const result = await handler(params || {}, context, { signal, onUpdate })
       return {
         content: [{ type: 'text', text: result.content }],
         details: result.details,

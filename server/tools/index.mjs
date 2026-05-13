@@ -304,7 +304,22 @@ export async function toolReadSkillResource(params, context) {
 }
 
 // --- run_command ---
-export async function toolRunCommand(params, context) {
+function formatCommandOutput(command, stdout, stderr, meta = {}) {
+  return [
+    `Command: ${command}`,
+    meta.running
+      ? 'Status: running'
+      : `Exit code: ${meta.code ?? 'unknown'}${meta.signal ? `, signal: ${meta.signal}` : ''}${meta.timedOut ? ' (timed out)' : ''}`,
+    '',
+    'STDOUT:',
+    stdout || '(empty)',
+    '',
+    'STDERR:',
+    stderr || '(empty)',
+  ].join('\n')
+}
+
+export async function toolRunCommand(params, context, runtime = {}) {
   const command = String(params?.command || '')
   if (!command.trim()) {
     const error = new Error('command is required')
@@ -315,8 +330,9 @@ export async function toolRunCommand(params, context) {
   const timeoutMs = Math.min(10 * 60, Math.max(1, Number(params?.timeoutSeconds || 60))) * 1000
 
   return new Promise((resolve) => {
+    const cwd = getToolWorkspaceRoot(context)
     const child = spawn(command, {
-      cwd: getToolWorkspaceRoot(context),
+      cwd,
       shell: true,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
@@ -325,6 +341,21 @@ export async function toolRunCommand(params, context) {
     let stdout = ''
     let stderr = ''
     let timedOut = false
+    let updateTimer = null
+    let updatePending = false
+    const emitUpdate = () => {
+      updateTimer = null
+      if (!updatePending) return
+      updatePending = false
+      runtime.onUpdate?.({
+        content: [{ type: 'text', text: truncateText(formatCommandOutput(command, stdout, stderr, { running: true })) }],
+        details: { command, project: context?.project, cwd, running: true, stdout, stderr },
+      })
+    }
+    const scheduleUpdate = () => {
+      updatePending = true
+      if (!updateTimer) updateTimer = setTimeout(emitUpdate, 150)
+    }
     const timer = setTimeout(() => {
       timedOut = true
       child.kill('SIGTERM')
@@ -332,26 +363,21 @@ export async function toolRunCommand(params, context) {
 
     child.stdout.on('data', (chunk) => {
       stdout = truncateText(stdout + chunk.toString())
+      scheduleUpdate()
     })
     child.stderr.on('data', (chunk) => {
       stderr = truncateText(stderr + chunk.toString())
+      scheduleUpdate()
     })
     child.on('close', (code, signal) => {
       clearTimeout(timer)
-      const content = [
-        `Command: ${command}`,
-        `Exit code: ${code ?? 'unknown'}${signal ? `, signal: ${signal}` : ''}${timedOut ? ' (timed out)' : ''}`,
-        '',
-        'STDOUT:',
-        stdout || '(empty)',
-        '',
-        'STDERR:',
-        stderr || '(empty)',
-      ].join('\n')
-      resolve({ content: truncateText(content), details: { command, project: context?.project, cwd: getToolWorkspaceRoot(context), code, signal, timedOut } })
+      if (updateTimer) clearTimeout(updateTimer)
+      const content = formatCommandOutput(command, stdout, stderr, { code, signal, timedOut })
+      resolve({ content: truncateText(content), details: { command, project: context?.project, cwd, code, signal, timedOut } })
     })
     child.on('error', (err) => {
       clearTimeout(timer)
+      if (updateTimer) clearTimeout(updateTimer)
       resolve({
         isError: true,
         content: truncateText(`Error running command: ${err.message}`),

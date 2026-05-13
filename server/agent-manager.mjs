@@ -24,6 +24,15 @@ import {
 // Tool definitions (server-side, no REST roundtrip)
 // ---------------------------------------------------------------------------
 
+function isPlainObject(value) {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function mergeQuickForgeTiming(details, timing) {
+  if (!isPlainObject(details)) return { quickforgeTiming: timing }
+  return { ...details, quickforgeTiming: timing }
+}
+
 function wrapToolDefinition(definition, context, toolPermissions) {
   const handler = toolHandlers[definition.name]
   if (!handler) throw new Error(`Missing handler for tool: ${definition.name}`)
@@ -35,10 +44,14 @@ function wrapToolDefinition(definition, context, toolPermissions) {
         if (permissionError) throw new Error(permissionError)
       }
 
+      const startedAt = Date.now()
+      const startedAtPerf = performance.now()
       const result = await handler(params || {}, context, { signal, onUpdate })
+      const finishedAt = Date.now()
+      const durationMs = Math.max(0, Math.round(performance.now() - startedAtPerf))
       return {
         content: [{ type: 'text', text: result.content }],
-        details: result.details,
+        details: mergeQuickForgeTiming(result.details, { startedAt, finishedAt, durationMs }),
       }
     },
   }
@@ -219,6 +232,34 @@ function estimateTokenReduction(originalChars, finalChars) {
 function emitSessionEvent(session, event) {
   session.eventBus.emit('agent_event', event)
   agentEvents.emit('agent_event', { sessionId: session.sessionId, ...event })
+}
+
+function addToolTimingToEvent(session, event) {
+  if (!event || typeof event !== 'object') return event
+  if (event.type === 'tool_execution_start' && event.toolCallId) {
+    const timing = {
+      startedAt: Date.now(),
+      startedAtPerf: performance.now(),
+    }
+    session.toolTimings?.set(event.toolCallId, timing)
+    return { ...event, quickforgeTiming: { startedAt: timing.startedAt } }
+  }
+  if (event.type === 'tool_execution_end' && event.toolCallId) {
+    const timing = session.toolTimings?.get(event.toolCallId)
+    if (!timing) return event
+    session.toolTimings?.delete(event.toolCallId)
+    const finishedAt = Date.now()
+    const durationMs = Math.max(0, Math.round(performance.now() - timing.startedAtPerf))
+    const quickforgeTiming = { startedAt: timing.startedAt, finishedAt, durationMs }
+    return {
+      ...event,
+      quickforgeTiming,
+      result: event.result
+        ? { ...event.result, details: mergeQuickForgeTiming(event.result.details, quickforgeTiming) }
+        : event.result,
+    }
+  }
+  return event
 }
 
 function updateSessionMessages(session, messages) {
@@ -674,6 +715,7 @@ export async function createAgent(sessionId, config = {}) {
     eventBus,
     idleTimer: null,
     titleGenerated: false,
+    toolTimings: new Map(),
     getApiKey,
     /** Track active SSE connections. Only one SSE stream allowed per session to prevent
      *  connection-pool exhaustion when two browser tabs load the same session. */
@@ -686,9 +728,10 @@ export async function createAgent(sessionId, config = {}) {
     // contains messages generated during THIS run (newMessages), not the
     // complete session history.  Replace with the authoritative full state
     // before forwarding to clients.
-    const forwardEvent = event.type === 'agent_end' && event.messages
-      ? { ...event, messages: agent.state.messages }
-      : event
+    const timedEvent = addToolTimingToEvent(session, event)
+    const forwardEvent = timedEvent.type === 'agent_end' && timedEvent.messages
+      ? { ...timedEvent, messages: agent.state.messages }
+      : timedEvent
 
     // Forward all events to the session event bus and the global bus.
     eventBus.emit('agent_event', forwardEvent)

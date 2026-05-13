@@ -3,6 +3,7 @@ import { html } from 'lit'
 import { t, type AppTextKey } from '@/lib/i18n'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import type { AgentTool } from '@mariozechner/pi-agent-core'
+import { extractQuickForgeTiming, type QuickForgeToolTiming } from '@/lib/tool-execution-events'
 
 type ToolResultLike = {
   isError?: boolean
@@ -95,6 +96,69 @@ function renderDiff(diff: ToolDiffDetails) {
   `
 }
 
+function formatDuration(ms: number) {
+  if (!Number.isFinite(ms) || ms < 0) return ''
+  if (ms < 1000) return `${Math.max(0, Math.round(ms))}ms`
+
+  const seconds = ms / 1000
+  if (seconds < 10) return `${seconds.toFixed(1)}s`
+  if (seconds < 60) return `${Math.round(seconds)}s`
+
+  const minutes = Math.floor(seconds / 60)
+  const restSeconds = Math.floor(seconds % 60).toString().padStart(2, '0')
+  return `${minutes}m ${restSeconds}s`
+}
+
+function elapsedMsFromTiming(timing: QuickForgeToolTiming | undefined) {
+  if (!timing) return undefined
+  if (typeof timing.durationMs === 'number') return timing.durationMs
+  if (typeof timing.startedAt === 'number') return Date.now() - timing.startedAt
+  return undefined
+}
+
+class QuickForgeElapsedTime extends HTMLElement {
+  private timer: ReturnType<typeof setInterval> | undefined
+
+  connectedCallback() {
+    this.render()
+    if (this.getAttribute('running') === 'true') {
+      this.timer = setInterval(() => this.render(), 500)
+    }
+  }
+
+  disconnectedCallback() {
+    if (this.timer) clearInterval(this.timer)
+  }
+
+  private render() {
+    const durationMs = Number(this.getAttribute('duration-ms'))
+    const startedAt = Number(this.getAttribute('started-at'))
+    const ms = Number.isFinite(durationMs) && durationMs >= 0
+      ? durationMs
+      : Number.isFinite(startedAt) && startedAt > 0
+        ? Date.now() - startedAt
+        : 0
+    this.textContent = formatDuration(ms)
+  }
+}
+
+if (!customElements.get('quickforge-elapsed-time')) {
+  customElements.define('quickforge-elapsed-time', QuickForgeElapsedTime)
+}
+
+function renderTiming(timing: QuickForgeToolTiming | undefined, status: ToolStatusKey) {
+  const elapsedMs = elapsedMsFromTiming(timing)
+  if (elapsedMs === undefined) return ''
+  return html`
+    <span class="text-muted-foreground/70"> · </span>
+    <quickforge-elapsed-time
+      started-at=${String(timing?.startedAt ?? '')}
+      duration-ms=${typeof timing?.durationMs === 'number' ? String(timing.durationMs) : ''}
+      running=${String(status === 'running')}
+    ></quickforge-elapsed-time>
+  `
+}
+
 // ---------------------------------------------------------------------------
 // Tool renderers (UI display only)
 // These map tool names to custom renderers so the ChatPanel shows input/output
@@ -115,7 +179,8 @@ class LocalWorkspaceToolRenderer {
   }
 
   render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
-    const status: ToolStatusKey = result?.isError ? 'error' : result ? 'done' : isStreaming ? 'running' : 'called'
+    const status: ToolStatusKey = result?.isError ? 'error' : isStreaming ? 'running' : result ? 'done' : 'called'
+    const timing = extractQuickForgeTiming(result?.details)
     const summary = summarizeParams(this.toolName, params)
     const toolDisplaySettings = getCachedToolDisplaySettings()
     const showToolDetails = toolDisplaySettings.showToolDetails
@@ -134,7 +199,7 @@ class LocalWorkspaceToolRenderer {
             <svg class="shrink-0 transition-transform group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
             <svg class="shrink-0 ${status === 'error' ? 'text-destructive' : status === 'running' ? 'text-primary' : 'text-green-600 dark:text-green-500'}" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 8 4 4-4 4"/><path d="M13 16h4"/><rect width="18" height="14" x="3" y="5" rx="2"/></svg>
             <span class="min-w-0 flex-1 truncate">${t(this.labelKey)}${summary ? html`<span class="text-muted-foreground/70"> · ${summary}</span>` : ''}</span>
-            <span class="shrink-0 text-xs ${status === 'error' ? 'text-destructive' : status === 'running' ? 'text-primary' : 'text-muted-foreground'}">${t(status)}</span>
+            <span class="shrink-0 text-xs ${status === 'error' ? 'text-destructive' : status === 'running' ? 'text-primary' : 'text-muted-foreground'}">${t(status)}${renderTiming(timing, status)}</span>
           </summary>
           <div class="mt-3 space-y-3">
             ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : ''}

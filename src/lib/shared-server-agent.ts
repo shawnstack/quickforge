@@ -3,6 +3,7 @@ import type { Api, Model } from '@mariozechner/pi-ai'
 import { streamSimple } from '@mariozechner/pi-ai'
 import type { SharePermission } from '@/lib/share-client'
 import { logger } from '@/lib/logger'
+import { toolStartEventWithPartialResult, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
 
 export type SharedSessionState = {
   sessionId?: string
@@ -375,6 +376,32 @@ export class SharedServerAgent {
           this.state.streamingMessage = undefined
         }
         break
+      case 'tool_execution_start': {
+        const toolEvent = event as ToolExecutionEvent
+        if (toolEvent.toolCallId) {
+          this.state.messages = upsertToolResult(this.state.messages, toolStartEventWithPartialResult(toolEvent), true)
+          this.state.pendingToolCalls = new Set([...this.state.pendingToolCalls, toolEvent.toolCallId])
+        }
+        break
+      }
+      case 'tool_execution_update': {
+        const toolEvent = event as ToolExecutionEvent
+        this.state.messages = upsertToolResult(this.state.messages, toolEvent, true)
+        if (toolEvent.toolCallId) {
+          this.state.pendingToolCalls = new Set([...this.state.pendingToolCalls, toolEvent.toolCallId])
+        }
+        break
+      }
+      case 'tool_execution_end': {
+        const toolEvent = event as ToolExecutionEvent
+        this.state.messages = upsertToolResult(this.state.messages, toolEvent, false)
+        if (toolEvent.toolCallId) {
+          const pending = new Set(this.state.pendingToolCalls)
+          pending.delete(toolEvent.toolCallId)
+          this.state.pendingToolCalls = pending
+        }
+        break
+      }
       case 'error':
         this.state.errorMessage = typeof event.error === 'string' ? event.error : 'Unknown error'
         this.state.isStreaming = false

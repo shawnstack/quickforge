@@ -1,7 +1,8 @@
 import type { AgentEvent, AgentMessage, ThinkingLevel } from '@mariozechner/pi-agent-core'
-import type { Api, Model, ToolResultMessage } from '@mariozechner/pi-ai'
+import type { Api, Model } from '@mariozechner/pi-ai'
 import { streamSimple } from '@mariozechner/pi-ai'
 import { logger } from '@/lib/logger'
+import { toolStartEventWithPartialResult, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
 
 // ---------------------------------------------------------------------------
 // SSE client for receiving events from the server
@@ -23,35 +24,6 @@ function getDirectBackendUrl(): string {
 }
 
 type SseHandler = (event: Record<string, unknown>) => void
-
-type ToolExecutionEvent = {
-  toolCallId?: string
-  toolName?: string
-  result?: ToolResultMessage
-  partialResult?: ToolResultMessage
-  isError?: boolean
-}
-
-function upsertToolResult(messages: AgentMessage[], event: ToolExecutionEvent, partial: boolean): AgentMessage[] {
-  if (!event.toolCallId || !event.toolName) return messages
-  const result = partial ? event.partialResult : event.result
-  if (!result) return messages
-
-  const toolResult = {
-    role: 'toolResult',
-    toolCallId: event.toolCallId,
-    toolName: event.toolName,
-    content: result.content ?? [],
-    details: result.details,
-    isError: partial ? false : event.isError,
-    timestamp: Date.now(),
-  } as AgentMessage
-  const index = messages.findIndex((message) => message.role === 'toolResult' && message.toolCallId === event.toolCallId)
-  if (index < 0) return [...messages, toolResult]
-  const next = messages.slice()
-  next[index] = toolResult
-  return next
-}
 
 class GlobalAgentSseClient {
   private eventSource: EventSource | null = null
@@ -643,6 +615,7 @@ export class ServerAgent {
       case 'tool_execution_start': {
         const toolEvent = event as ToolExecutionEvent
         if (toolEvent.toolCallId) {
+          this.state.messages = upsertToolResult(this.state.messages, toolStartEventWithPartialResult(toolEvent), true)
           this.state.pendingToolCalls = new Set([...this.state.pendingToolCalls, toolEvent.toolCallId])
           this.stateVersion++
         }

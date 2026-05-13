@@ -2,6 +2,33 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.2.5] - 2026-05-13
+
+### Added
+
+- Added password-protected LAN access for shared local sessions.
+- Added tool display preferences.
+- Added real-time streaming updates for tool execution.
+
+### Changed
+
+- Improved backup restore controls.
+- Moved project delete into the overflow menu.
+
+### Fixed
+
+- Isolated restored composer drafts by session.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.2.5` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.2.5.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.2.5.tgz
+  ```
+
 ## [1.2.4] - 2026-05-12
 
 ### Fixed

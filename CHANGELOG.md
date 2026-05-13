@@ -2,6 +2,28 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.2.6] - 2026-05-13
+
+### Added
+
+- Added tool execution timing display for local tool calls.
+- Added the patch release runbook for repeatable small-version releases.
+
+### Changed
+
+- Improved the file edit fallback prompt.
+- Hid chat token usage from the chat UI.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.2.6` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.2.6.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.2.6.tgz
+  ```
+
 ## [1.2.5] - 2026-05-13
 
 ### Added

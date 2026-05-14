@@ -2,6 +2,23 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.2.9] - 2026-05-14
+
+### Added
+
+- Added CLI version commands: `qf --version`, `qf -v`, and `qf version`.
+- Added CLI update check commands: `qf check-update` and `qf update`, which check npm for newer versions without auto-installing.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.2.9` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.2.9.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.2.9.tgz
+  ```
+
 ## [1.2.8] - 2026-05-14
 
 ### Fixed

@@ -9,6 +9,151 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 const serverScript = path.resolve(__dirname, '..', 'server', 'index.mjs')
+const packageJsonPath = path.resolve(__dirname, '..', 'package.json')
+
+async function getPackageInfo() {
+  try {
+    const text = await fs.readFile(packageJsonPath, 'utf8')
+    const pkg = JSON.parse(text)
+    return {
+      name: pkg.name || 'quickforge',
+      version: pkg.version || '0.0.0',
+    }
+  } catch (err) {
+    throw new Error(`Unable to read package metadata: ${err.message}`)
+  }
+}
+
+function normalizeVersion(version) {
+  return String(version || '').trim().replace(/^v/i, '')
+}
+
+function parseVersion(version) {
+  const [main, prerelease = ''] = normalizeVersion(version).split('-', 2)
+  const numbers = main.split('.').slice(0, 3).map((part) => {
+    const value = Number(part)
+    return Number.isFinite(value) ? value : 0
+  })
+
+  while (numbers.length < 3) numbers.push(0)
+  return { numbers, prerelease }
+}
+
+function comparePrerelease(left, right) {
+  if (left === right) return 0
+  if (!left) return 1
+  if (!right) return -1
+
+  const leftParts = left.split('.')
+  const rightParts = right.split('.')
+  const maxLength = Math.max(leftParts.length, rightParts.length)
+
+  for (let i = 0; i < maxLength; i += 1) {
+    const leftPart = leftParts[i]
+    const rightPart = rightParts[i]
+    if (leftPart === rightPart) continue
+    if (leftPart === undefined) return -1
+    if (rightPart === undefined) return 1
+
+    const leftNumber = /^\d+$/.test(leftPart) ? Number(leftPart) : null
+    const rightNumber = /^\d+$/.test(rightPart) ? Number(rightPart) : null
+
+    if (leftNumber !== null && rightNumber !== null) return leftNumber > rightNumber ? 1 : -1
+    if (leftNumber !== null) return -1
+    if (rightNumber !== null) return 1
+
+    return leftPart > rightPart ? 1 : -1
+  }
+
+  return 0
+}
+
+function compareVersions(left, right) {
+  const parsedLeft = parseVersion(left)
+  const parsedRight = parseVersion(right)
+
+  for (let i = 0; i < 3; i += 1) {
+    if (parsedLeft.numbers[i] > parsedRight.numbers[i]) return 1
+    if (parsedLeft.numbers[i] < parsedRight.numbers[i]) return -1
+  }
+
+  return comparePrerelease(parsedLeft.prerelease, parsedRight.prerelease)
+}
+
+function getRegistryPackageUrl(packageName) {
+  const registry = (process.env.npm_config_registry || 'https://registry.npmjs.org/').replace(/\/+$/, '')
+  return `${registry}/${encodeURIComponent(packageName)}`
+}
+
+async function fetchLatestVersion(packageName) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 5000)
+
+  try {
+    const response = await fetch(getRegistryPackageUrl(packageName), {
+      headers: { accept: 'application/json' },
+      signal: controller.signal,
+    })
+
+    if (!response.ok) throw new Error(`registry returned HTTP ${response.status}`)
+
+    const metadata = await response.json()
+    const latest = metadata?.['dist-tags']?.latest
+    if (!latest || typeof latest !== 'string') throw new Error('latest version not found in registry response')
+    return latest
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error('request timeout')
+    throw err
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+async function cmdVersion() {
+  const pkg = await getPackageInfo()
+  console.log(`QuickForge ${pkg.version}`)
+  console.log(`Package: ${pkg.name}`)
+  console.log(`Node: ${process.version}`)
+}
+
+async function cmdCheckUpdate() {
+  const pkg = await getPackageInfo()
+
+  try {
+    const latest = await fetchLatestVersion(pkg.name)
+
+    const versionComparison = compareVersions(pkg.version, latest)
+
+    if (versionComparison > 0) {
+      console.log('QuickForge local version is newer than npm latest.')
+      console.log(`Current: ${pkg.version}`)
+      console.log(`Latest:  ${latest}`)
+      return
+    }
+
+    if (versionComparison === 0) {
+      console.log('QuickForge is up to date.')
+      console.log(`Current: ${pkg.version}`)
+      console.log(`Latest:  ${latest}`)
+      return
+    }
+
+    console.log('A new QuickForge version is available.')
+    console.log('')
+    console.log(`Current: ${pkg.version}`)
+    console.log(`Latest:  ${latest}`)
+    console.log('')
+    console.log('Upgrade:')
+    console.log(`  npm install -g ${pkg.name}@latest`)
+  } catch (err) {
+    console.log('Unable to check for updates.')
+    console.log(`Current: ${pkg.version}`)
+    console.log(`Reason: ${err.message}`)
+    console.log('')
+    console.log('You can check manually:')
+    console.log(`  npm view ${pkg.name} version`)
+  }
+}
 
 function getDataDir() {
   if (process.env.QUICKFORGE_DATA_DIR) return path.resolve(process.env.QUICKFORGE_DATA_DIR)
@@ -271,6 +416,15 @@ async function main() {
     case 'logs':
       await cmdLogs()
       break
+    case '--version':
+    case '-v':
+    case 'version':
+      await cmdVersion()
+      break
+    case 'check-update':
+    case 'update':
+      await cmdCheckUpdate()
+      break
     case '--help':
     case '-h':
     case 'help':
@@ -284,6 +438,10 @@ async function main() {
       console.log('  quickforge restart      Restart the background service')
       console.log('  quickforge status       Check if the service is running')
       console.log('  quickforge logs         Watch today\'s server log')
+      console.log('  quickforge version      Show installed version')
+      console.log('  quickforge --version    Show installed version')
+      console.log('  quickforge check-update Check npm for newer version')
+      console.log('  quickforge update       Check npm for newer version, does not install')
       console.log('')
       console.log('Config:')
       console.log('  QUICKFORGE_PORT=5176         Server port')

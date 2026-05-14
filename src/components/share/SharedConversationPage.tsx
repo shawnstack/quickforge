@@ -7,7 +7,7 @@ import { ChatPanelHost } from '@/components/chat/ChatPanelHost'
 import { t } from '@/lib/i18n'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { copyTextToClipboard, draftTextFromUserMessage, rollbackStartIndexFromMessage } from '@/lib/message-utils'
-import { unlockSharedConversation, loadSharedModelProviders } from '@/lib/share-client'
+import { unlockSharedConversation, loadSharedConversationMeta, loadSharedModelProviders } from '@/lib/share-client'
 import { defaultThinkingLevelForModel } from '@/lib/pi-chat'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
 import { SharedServerAgent } from '@/lib/shared-server-agent'
@@ -118,10 +118,19 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
     if (unlocked || loading || autoUnlockAttemptedRef.current) return
     autoUnlockAttemptedRef.current = true
     const timer = window.setTimeout(() => {
-      void unlock('')
+      void (async () => {
+        try {
+          const meta = await loadSharedConversationMeta(shareId)
+          if (!meta.share.hasPassword) {
+            await unlock('')
+          }
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Failed to load shared conversation')
+        }
+      })()
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [loading, unlock, unlocked])
+  }, [loading, shareId, unlock, unlocked])
 
   const copyAnswer = useCallback(async (text: string) => {
     await copyTextToClipboard(text)

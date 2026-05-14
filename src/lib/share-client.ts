@@ -94,6 +94,10 @@ export async function revokeConversationShare(shareId: string) {
   })
 }
 
+export async function loadSharedConversationMeta(shareId: string) {
+  return request<{ share: ConversationShare }>(`/api/shared/${encodeURIComponent(shareId)}/meta`)
+}
+
 export async function unlockSharedConversation(shareId: string, password = '') {
   return request<{
     ok: boolean

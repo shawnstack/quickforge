@@ -33,6 +33,7 @@ qf
 # CLI utilities
 qf --version
 qf check-update
+qf update
 ```
 
 ### Offline tarball

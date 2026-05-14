@@ -37,11 +37,12 @@ CLI 启动脚本，注册为 `quickforge` 和 `qf` 命令。
 | `qf status` | 查看服务状态 |
 | `qf logs` | 查看当天服务日志 |
 | `qf --version` / `qf -v` / `qf version` | 显示当前安装版本 |
-| `qf check-update` / `qf update` | 检查 npm 上是否有新版本，不自动安装 |
+| `qf check-update` | 检查 npm 上是否有新版本，不自动安装 |
+| `qf update` | 从 npm 下载安装最新版本 |
 
 ### 启动流程
 
-1. 解析命令行参数 (`start` / `stop` / `restart` / `status` / `logs` / `version` / `check-update` / `help`)
+1. 解析命令行参数 (`start` / `stop` / `restart` / `status` / `logs` / `version` / `check-update` / `update` / `help`)
 2. `start` 时派生 `server/index.mjs` 子进程
 3. 写入 PID 到 `~/.quickforge/quickforge.pid`
 4. 轮询等待服务端口 (默认 32176) 就绪

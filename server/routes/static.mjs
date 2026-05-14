@@ -24,15 +24,29 @@ function getContentType(filePath) {
   }[extension] || 'application/octet-stream'
 }
 
-function shouldFallbackToIndex(url) {
+function assetPathFromSharePath(pathname) {
+  const parts = pathname.split('/').filter(Boolean)
+  if (parts[0] !== 'share') return null
+  const assetIndex = parts.indexOf('assets')
+  if (assetIndex < 1) return null
+  return `/${parts.slice(assetIndex).join('/')}`
+}
+
+function requestPathname(url) {
+  if (url.pathname === '/') return '/index.html'
+  return assetPathFromSharePath(url.pathname) || url.pathname
+}
+
+function shouldFallbackToIndex(url, pathname) {
+  if (pathname.startsWith('/assets/')) return false
   if (url.pathname === '/') return true
   if (url.pathname.startsWith('/share/')) return true
-  return !path.extname(url.pathname)
+  return !path.extname(pathname)
 }
 
 export async function serveStatic(req, res, url) {
   const distDir = path.join(projectRoot, 'dist')
-  const requested = decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname)
+  const requested = decodeURIComponent(requestPathname(url))
   const normalized = path.normalize(requested).replace(/^([.][.][\/])+/, '').replace(/^[/\\]+/, '')
   let filePath = path.resolve(distDir, normalized)
 
@@ -47,7 +61,7 @@ export async function serveStatic(req, res, url) {
     const stat = await fs.stat(filePath)
     if (stat.isDirectory()) filePath = path.join(filePath, 'index.html')
   } catch {
-    if (!shouldFallbackToIndex(url)) {
+    if (!shouldFallbackToIndex(url, requested)) {
       res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
       res.end('Static asset not found')
       return

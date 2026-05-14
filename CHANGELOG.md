@@ -2,28 +2,6 @@
 
 All notable changes to QuickForge will be documented in this file.
 
-## [1.2.10] - 2026-05-14
-
-### Changed
-
-- Changed `qf update` to install `@shawnstack/quickforge@latest` from npm when a newer version is available.
-- Kept `qf check-update` as a check-only command.
-
-### Fixed
-
-- Fixed share-relative asset paths for shared conversation pages.
-- Avoided password prompts for open shared conversations.
-
-### Released
-
-- Prepared `@shawnstack/quickforge@1.2.10` for npm publishing with the `latest` tag.
-- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.2.10.tgz`.
-- The offline tarball bundles runtime dependencies and can be installed with:
-
-  ```bash
-  npm install -g ./package-offline/shawnstack-quickforge-1.2.10.tgz
-  ```
-
 ## [1.2.9] - 2026-05-14
 
 ### Added

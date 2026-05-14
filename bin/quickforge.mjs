@@ -155,71 +155,6 @@ async function cmdCheckUpdate() {
   }
 }
 
-function getNpmCommand() {
-  return process.platform === 'win32' ? 'npm.cmd' : 'npm'
-}
-
-function installLatestVersion(packageName) {
-  const target = `${packageName}@latest`
-  const child = spawn(getNpmCommand(), ['install', '-g', target], {
-    stdio: 'inherit',
-    shell: false,
-    windowsHide: false,
-  })
-
-  return new Promise((resolve, reject) => {
-    child.on('error', reject)
-    child.on('exit', (code) => {
-      if (code === 0) {
-        resolve()
-        return
-      }
-      reject(new Error(`npm install exited with code ${code}`))
-    })
-  })
-}
-
-async function cmdUpdate() {
-  const pkg = await getPackageInfo()
-
-  try {
-    const latest = await fetchLatestVersion(pkg.name)
-    const versionComparison = compareVersions(pkg.version, latest)
-
-    if (versionComparison > 0) {
-      console.log('QuickForge local version is newer than npm latest.')
-      console.log(`Current: ${pkg.version}`)
-      console.log(`Latest:  ${latest}`)
-      return
-    }
-
-    if (versionComparison === 0) {
-      console.log('QuickForge is already up to date.')
-      console.log(`Current: ${pkg.version}`)
-      console.log(`Latest:  ${latest}`)
-      return
-    }
-
-    console.log('A new QuickForge version is available.')
-    console.log(`Current: ${pkg.version}`)
-    console.log(`Latest:  ${latest}`)
-    console.log('')
-    console.log(`Installing ${pkg.name}@latest ...`)
-    await installLatestVersion(pkg.name)
-    console.log('')
-    console.log('QuickForge update completed.')
-    console.log('Run "qf --version" in a new terminal to verify the installed version.')
-  } catch (err) {
-    console.log('Unable to update QuickForge.')
-    console.log(`Current: ${pkg.version}`)
-    console.log(`Reason: ${err.message}`)
-    console.log('')
-    console.log('You can update manually:')
-    console.log(`  npm install -g ${pkg.name}@latest`)
-    process.exitCode = 1
-  }
-}
-
 function getDataDir() {
   if (process.env.QUICKFORGE_DATA_DIR) return path.resolve(process.env.QUICKFORGE_DATA_DIR)
   return path.join(os.homedir(), '.quickforge')
@@ -487,10 +422,8 @@ async function main() {
       await cmdVersion()
       break
     case 'check-update':
-      await cmdCheckUpdate()
-      break
     case 'update':
-      await cmdUpdate()
+      await cmdCheckUpdate()
       break
     case '--help':
     case '-h':
@@ -508,7 +441,7 @@ async function main() {
       console.log('  quickforge version      Show installed version')
       console.log('  quickforge --version    Show installed version')
       console.log('  quickforge check-update Check npm for newer version')
-      console.log('  quickforge update       Install the latest version from npm')
+      console.log('  quickforge update       Check npm for newer version, does not install')
       console.log('')
       console.log('Config:')
       console.log('  QUICKFORGE_PORT=5176         Server port')

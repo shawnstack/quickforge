@@ -7,25 +7,25 @@
 ```
 src/
 ├── components/          # React 组件
-│   ├── chat/            # 聊天面板
+│   ├── chat/            # 聊天面板（含多个子模块）
 │   ├── scheduled-tasks/ # 定时任务页面
 │   ├── share/           # 对话分享
 │   ├── sidebar/         # 侧边栏
 │   └── ui/              # 基础 UI 组件
-├── hooks/               # 自定义 React Hooks
-├── lib/                 # 前端工具库
-├── App.tsx              # 主应用组件 (547 行)
-├── index.css            # 全局样式 (336 行)
+├── hooks/               # 自定义 React Hooks (14 个)
+├── lib/                 # 前端工具库 (28 个模块)
+├── App.tsx              # 主应用组件 (625 行)
+├── index.css            # 全局样式 (293 行)
 └── main.tsx             # 入口文件 (14 行)
 ```
 
 ## 顶层文件
 
-| 文件 | 说明 |
-|------|------|
-| [main.tsx](main.tsx) | React 入口，挂载 App，执行 `patchThinkingSelector` |
-| [App.tsx](App.tsx) | 主组件，管理全局状态、Agent、路由、调度 |
-| [index.css](index.css) | 全局样式 (Tailwind + pi-web-ui + 自定义) |
+| 文件 | 说明 | 行数 |
+|------|------|------|
+| [main.tsx](../src/main.tsx) | React 入口，挂载 App | 14 |
+| [App.tsx](../src/App.tsx) | 主组件，管理全局状态、Agent、路由、调度 | 625 |
+| [index.css](../src/index.css) | 全局样式 (Tailwind + pi-web-ui + 自定义) | 293 |
 
 ### main.tsx (14 行)
 
@@ -34,7 +34,7 @@ src/
 - 调用 `patchThinkingSelector()` 修补 pi-web-ui 的模型选择器
 - 在 `<StrictMode>` 中渲染 `<App />` 组件
 
-### App.tsx (547 行)
+### App.tsx (625 行)
 
 **用途**: 应用主组件，协调所有子组件和 hooks。
 

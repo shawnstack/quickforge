@@ -7,18 +7,19 @@
 | 文件 | 行数 | 用途 |
 |------|------|------|
 | `agent.mjs` | 332 | Agent 会话管理、消息流式处理 |
-| `storage.mjs` | 151 | 存储 CRUD 操作 |
-| `project.mjs` | 106 | 项目管理 |
-| `filesystem.mjs` | 87 | 文件系统浏览 |
-| `tools.mjs` | 82 | 工具定义和执行 |
-| `skills.mjs` | 145 | Skills 管理 |
-| `scheduled-tasks.mjs` | 802 | 定时任务管理 |
-| `shares.mjs` | 90 | 分享管理 |
-| `shared-conversation.mjs` | 404 | 共享会话查看 |
-| `backup.mjs` | 250 | 数据备份和恢复 |
-| `instructions.mjs` | 20 | 系统提示词 |
-| `system.mjs` | 35 | 系统状态和重启 |
-| `static.mjs` | 58 | 静态文件服务 |
+| `storage.mjs` | 130 | 存储 CRUD 操作 |
+| `project.mjs` | 97 | 项目管理 |
+| `filesystem.mjs` | 74 | 文件系统浏览 |
+| `tools.mjs` | 71 | 工具定义和执行 |
+| `skills.mjs` | 170 | Skills 管理 |
+| `scheduled-tasks.mjs` | 764 | 定时任务管理 |
+| `shares.mjs` | 80 | 分享管理 |
+| `shared-conversation.mjs` | 363 | 共享会话查看 |
+| `backup.mjs` | 345 | 数据备份和恢复 |
+| `lan-access.mjs` | 184 | LAN 共享访问管理 |
+| `instructions.mjs` | 17 | 系统提示词 |
+| `system.mjs` | 30 | 系统状态和重启 |
+| `static.mjs` | 74 | 静态文件服务 |
 
 ---
 
@@ -41,7 +42,7 @@ Agent 会话管理核心路由。
 - `PATCH /api/agents/:sessionId/model` — 更新模型
 - `PATCH /api/agents/:sessionId/thinking` — 更新思考级别
 
-## storage.mjs (151 行)
+## storage.mjs (130 行)
 
 通用存储 CRUD 路由。
 
@@ -50,7 +51,7 @@ Agent 会话管理核心路由。
 - `GET|POST|DELETE /api/storage/:store/keys/:key` — 键值操作
 - `GET /api/storage/:store/index/:indexName` — 索引查询（支持排序、分页、作用域过滤）
 
-## project.mjs (106 行)
+## project.mjs (97 行)
 
 项目管理路由。
 
@@ -62,7 +63,7 @@ Agent 会话管理核心路由。
 - `POST /api/project/active` — 切换活动项目
 - `DELETE /api/project/:projectId` — 删除项目
 
-## filesystem.mjs (87 行)
+## filesystem.mjs (74 行)
 
 文件系统浏览路由（供前端目录选择器使用）。
 
@@ -70,7 +71,7 @@ Agent 会话管理核心路由。
 - `GET /api/filesystem/roots` — 获取文件系统根
 - `GET /api/filesystem/list?path=...` — 列出目录内容
 
-## tools.mjs (82 行)
+## tools.mjs (71 行)
 
 工具定义和执行路由。
 
@@ -80,7 +81,7 @@ Agent 会话管理核心路由。
 - `POST /api/projects/:projectId/tools/:name` — 在项目上下文中执行工具
 - 强制执行 YOLO 模式检查
 
-## skills.mjs (145 行)
+## skills.mjs (170 行)
 
 Skills 管理路由。
 
@@ -89,7 +90,7 @@ Skills 管理路由。
 - `PUT /api/skills` — 更新已选技能
 - 支持项目级技能发现
 
-## scheduled-tasks.mjs (802 行)
+## scheduled-tasks.mjs (764 行)
 
 定时任务管理（最复杂的路由模块）。
 
@@ -104,7 +105,7 @@ Skills 管理路由。
 
 **调度引擎**: 内置调度器（`startScheduledTaskRunner`），支持 Cron 表达式和间隔调度。
 
-## shares.mjs (90 行)
+## shares.mjs (80 行)
 
 分享管理路由。
 
@@ -112,7 +113,7 @@ Skills 管理路由。
 - `GET /api/shares` — 列出会话的分享
 - `POST /api/shares` — 创建分享
 
-## shared-conversation.mjs (404 行)
+## shared-conversation.mjs (363 行)
 
 共享会话查看和交互路由。
 
@@ -124,26 +125,37 @@ Skills 管理路由。
 - `POST /api/shared/:shareId/prompt` — 发送消息
 - `POST /api/shared/:shareId/rollback` — 回滚消息
 
-## backup.mjs
+## backup.mjs (345 行)
 
 数据备份和恢复路由。
 
 **主要端点**:
 - `GET /api/backup/export?scope=all|config|sessions&includeSecrets=0|1` — 导出备份，默认不包含 API Key
 - `POST /api/backup/inspect` — 检查备份文件并返回导入预览
-- `POST /api/backup/import` — 导入备份；请求体可为备份本身，或 `{ "backup": <备份>, "sections": ["settings", "providerKeys", "customProviders", "projects", "scheduledTasks", "conversations"] }` 选择性恢复
+- `POST /api/backup/import` — 导入备份；请求体可为备份本身，或 `{ "backup": <备份>, "sections": [...] }` 选择性恢复
 
-## instructions.mjs (20 行)
+## lan-access.mjs (184 行)
+
+LAN 共享访问管理路由。
+
+**主要端点**:
+- `POST /api/lan-access/settings` — 更新 LAN 共享设置（密码、启用状态）
+- `GET /api/lan-access/status` — 获取 LAN 共享状态
+- `POST /api/lan-access/auth` — 密码认证获取令牌
+- `POST /api/lan-access/revoke` — 撤销所有令牌
+- 支持暴力破解保护（5 次失败后锁定 5 分钟）
+
+## instructions.mjs (17 行)
 
 **用途**: 提供系统提示词 API。返回基础提示词、指令和 Skills 目录。
 
-## system.mjs (35 行)
+## system.mjs (30 行)
 
 **主要端点**:
 - `GET /api/system/status` — 系统状态
 - `GET /api/system/network` — 网络信息
 - `POST /api/system/restart` — 服务重启
 
-## static.mjs (58 行)
+## static.mjs (74 行)
 
 **用途**: 静态文件服务。从 `dist/` 目录提供 Vite 构建产物。

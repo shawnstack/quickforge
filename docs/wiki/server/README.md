@@ -6,18 +6,19 @@
 
 ```
 server/
-├── index.mjs                 # 服务器入口 (437 行)
-├── agent-manager.mjs         # Agent 生命周期管理 (1100 行)
-├── storage.mjs               # 文件存储层 (662 行)
-├── skills.mjs                # Agent Skills 管理和加载 (539 行)
-├── share-store.mjs           # 分享数据存储 (468 行)
-├── session-utils.mjs         # 会话工具 (102 行)
-├── system-prompt.mjs         # 系统提示词合成 (67 行)
-├── project-config.mjs        # 项目配置管理 (155 行)
-├── conversation-compaction.mjs # 对话历史压缩 (302 行)
-├── custom-commands.mjs       # 自定义命令系统 (344 行)
-├── reasoning-cache.mjs       # 推理内容缓存 (51 行)
-├── restart-supervisor.mjs    # 服务重启监控脚本 (38 行)
+├── index.mjs                 # 服务器入口 (426 行)
+├── agent-manager.mjs         # Agent 生命周期管理 (1205 行)
+├── storage.mjs               # 文件存储层 (612 行)
+├── skills.mjs                # Agent Skills 管理和加载 (469 行)
+├── share-store.mjs           # 分享数据存储 (396 行)
+├── session-utils.mjs         # 会话工具 (90 行)
+├── system-prompt.mjs         # 系统提示词合成 (54 行)
+├── project-config.mjs        # 项目配置管理 (133 行)
+├── conversation-compaction.mjs # 对话历史压缩 (233 行)
+├── custom-commands.mjs       # 自定义命令系统 (289 行)
+├── reasoning-cache.mjs       # 推理内容缓存 (44 行)
+├── restart-supervisor.mjs    # 服务重启监控脚本 (32 行)
+├── lan-access-store.mjs      # LAN 共享访问令牌存储 (193 行)
 ├── routes/                   # API 路由处理器
 ├── tools/                    # 工作区工具定义和实现
 └── utils/                    # 工具函数
@@ -27,7 +28,7 @@ server/
 
 ## 核心模块
 
-### index.mjs (437 行)
+### index.mjs (426 行)
 
 **用途**: 服务器入口 / 主路由分发。启动 HTTP 服务器，注册所有 API 路由。
 
@@ -44,7 +45,7 @@ server/
 - 启动时重置僵死任务状态
 - 支持 LAN 共享（显示局域网 URL）
 
-### agent-manager.mjs (1100 行)
+### agent-manager.mjs (1205 行)
 
 **用途**: Agent 生命周期管理。后端最复杂的模块。
 
@@ -61,7 +62,7 @@ server/
 - 会话活动跟踪（`touchSession`）
 - Agent 销毁和资源清理
 
-### storage.mjs (662 行)
+### storage.mjs (612 行)
 
 **用途**: 文件存储层。管理 JSON 文件的读写、存储布局迁移。
 
@@ -87,7 +88,7 @@ server/
 - 写操作的原子锁队列
 - 目录大小计算
 
-### skills.mjs (539 行)
+### skills.mjs (469 行)
 
 **用途**: Agent Skills 的发现、加载和管理。
 
@@ -104,7 +105,7 @@ server/
 - `readSkillResource()` — 读取技能资源文件
 - Skill 验证（名称格式、目录结构）
 
-### share-store.mjs (468 行)
+### share-store.mjs (396 行)
 
 **用途**: 对话分享的持久化和访问控制。
 
@@ -116,11 +117,11 @@ server/
 - 令牌认证（7天有效期）
 - 口令保护
 
-### conversation-compaction.mjs (302 行)
+### conversation-compaction.mjs (233 行)
 
 **用途**: 对话历史压缩。使用 AI 将长对话压缩为精炼摘要。
 
-### custom-commands.mjs (344 行)
+### custom-commands.mjs (289 行)
 
 **用途**: 自定义命令系统。从 `<workspace>/.ai/commands/` 读取命令定义。
 
@@ -130,25 +131,37 @@ server/
 - `resolveCustomCommandInvocation()` — 解析命令调用
 - `handleInternalCommand()` — 处理内置命令
 
-### session-utils.mjs (102 行)
+### session-utils.mjs (90 行)
 
 会话工具函数：构建系统提示词、生成会话标题。
 
-### system-prompt.mjs (67 行)
+### system-prompt.mjs (54 行)
 
 合成系统提示词。将基础提示词、用户指令、项目指令和 Skills 目录组装成完整的系统提示词。
 
-### project-config.mjs (155 行)
+### project-config.mjs (133 行)
 
 项目配置管理（在 `config/config.json` 的 `projects` 数组中）。
 
-### reasoning-cache.mjs (51 行)
+### reasoning-cache.mjs (44 行)
 
 缓存 LLM 推理过程内容 (reasoning_content)，在流式推理中恢复。
 
-### restart-supervisor.mjs (38 行)
+### restart-supervisor.mjs (32 行)
 
 分离进程，用于重启时保证旧进程退出前新进程已就绪。
+
+### lan-access-store.mjs (193 行)
+
+**用途**: LAN 共享访问令牌的持久化存储和验证。
+
+**功能**:
+- `updateLanAccessSettings()` — 更新 LAN 共享设置（启用/禁用、密码）
+- `issueLanAccessToken()` — 签发访问令牌（带 TTL）
+- `readLanAccessStatus()` — 读取 LAN 共享状态
+- `revokeLanAccessTokens()` — 撤销所有令牌
+- 密码哈希存储（scrypt）
+- 令牌数量上限保护（100 个）
 
 ---
 

@@ -5,7 +5,7 @@
 ```
 .github/
 ├── workflows/
-│   └── ci.yml              # CI 工作流 (28 行)
+│   └── ci.yml              # CI 工作流 (22 行)
 ├── ISSUE_TEMPLATE/
 │   ├── bug_report.md        # Bug 报告模板 (38 行)
 │   └── feature_request.md   # 功能请求模板 (23 行)
@@ -14,7 +14,7 @@
 
 ---
 
-## `workflows/ci.yml` — CI 工作流
+## `workflows/ci.yml` — CI 工作流 (22 行)
 
 - **触发**: push / pull request 到 main 分支
 - **运行环境**: ubuntu-latest

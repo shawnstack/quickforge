@@ -38,7 +38,6 @@ quickforge/
 ## 项目概览
 
 - **名称**: `@shawnstack/quickforge`
-- **版本**: 1.2.2
 - **许可证**: MIT
 - **技术栈**: React 19, Vite 8, Tailwind CSS 4, TypeScript 6
 - **后端**: Node.js (ESM), 纯 `http` 模块, `@mariozechner/pi-agent-core`, `@mariozechner/pi-ai`

@@ -1,9 +1,0 @@
-{
-  "name": "quickforge-project",
-  "displayName": "QuickForge Project",
-  "description": "Work within QuickForge conventions: local server, project chats, YOLO workspace tools, and minimal surgical changes.",
-  "version": "1.0.0",
-  "tags": ["quickforge", "project", "workspace"],
-  "triggers": ["quickforge", "项目", "本项目"],
-  "entry": "SKILL.md"
-}

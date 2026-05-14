@@ -1,9 +1,0 @@
-{
-  "name": "frontend-react",
-  "displayName": "React Frontend",
-  "description": "Build and modify React UI with TypeScript, accessible interactions, and minimal focused changes.",
-  "version": "1.0.0",
-  "tags": ["react", "frontend", "typescript", "ui"],
-  "triggers": ["react", "frontend", "ui", "组件", "前端", "界面"],
-  "entry": "SKILL.md"
-}

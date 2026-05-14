@@ -6,11 +6,11 @@
 |------|------|------|
 | [index.html](../index.html) | HTML 入口 | 13 |
 | [package.json](../package.json) | npm 包定义 | 81 |
-| [vite.config.ts](../vite.config.ts) | Vite + Tailwind 配置 | 66 |
+| [vite.config.ts](../vite.config.ts) | Vite + Tailwind 配置 | 65 |
 | [tsconfig.json](../tsconfig.json) | TypeScript 项目引用 | 7 |
-| [tsconfig.app.json](../tsconfig.app.json) | 前端 TS 配置 | 30 |
-| [tsconfig.node.json](../tsconfig.node.json) | Node TS 配置 | 29 |
-| [eslint.config.js](../eslint.config.js) | ESLint 扁平化配置 | 22 |
+| [tsconfig.app.json](../tsconfig.app.json) | 前端 TS 配置 | 28 |
+| [tsconfig.node.json](../tsconfig.node.json) | Node TS 配置 | 27 |
+| [eslint.config.js](../eslint.config.js) | ESLint 扁平化配置 | 21 |
 | [.editorconfig](../.editorconfig) | 编辑器格式配置 | 15 |
 | [.gitignore](../.gitignore) | Git 忽略规则 | 30 |
 | [.nvmrc](../.nvmrc) | Node 版本管理 | 1 |
@@ -29,7 +29,6 @@
 ### `package.json`
 
 - 包名: `@shawnstack/quickforge`
-- 版本: `1.2.2`
 - 类型: `module` (ESM)
 - 注册 CLI: `quickforge` / `qf` → `bin/quickforge.mjs`
 - 核心依赖: `@mariozechner/pi-agent-core`, `@mariozechner/pi-ai`

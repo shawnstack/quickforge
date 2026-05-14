@@ -4,7 +4,7 @@
 
 | 文件 | 说明 | 行数 |
 |------|------|------|
-| [favicon.svg](favicon.svg) | 网站图标 (SVG 格式) | 1 |
+| [favicon.svg](../../public/favicon.svg) | 网站图标 (SVG 格式) | 1 |
 
 ---
 

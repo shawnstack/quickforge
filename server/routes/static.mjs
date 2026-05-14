@@ -24,6 +24,12 @@ function getContentType(filePath) {
   }[extension] || 'application/octet-stream'
 }
 
+function shouldFallbackToIndex(url) {
+  if (url.pathname === '/') return true
+  if (url.pathname.startsWith('/share/')) return true
+  return !path.extname(url.pathname)
+}
+
 export async function serveStatic(req, res, url) {
   const distDir = path.join(projectRoot, 'dist')
   const requested = decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname)
@@ -41,6 +47,11 @@ export async function serveStatic(req, res, url) {
     const stat = await fs.stat(filePath)
     if (stat.isDirectory()) filePath = path.join(filePath, 'index.html')
   } catch {
+    if (!shouldFallbackToIndex(url)) {
+      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
+      res.end('Static asset not found')
+      return
+    }
     filePath = path.join(distDir, 'index.html')
   }
 

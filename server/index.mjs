@@ -334,6 +334,12 @@ function isLanAccessBootstrapPath(pathname) {
     || pathname === '/api/lan-access/unlock'
 }
 
+function isStaticAssetPath(pathname) {
+  return pathname.startsWith('/assets/')
+    || pathname === '/favicon.svg'
+    || pathname === '/vite.svg'
+}
+
 function isSharePath(pathname) {
   return pathname.startsWith('/share/')
     || pathname.startsWith('/api/shared/')
@@ -385,7 +391,7 @@ const server = createServer(async (req, res) => {
     const isRemoteRequest = !isLoopbackAddress(remoteAddress)
     const remoteAuthorized = isRemoteRequest ? await isAuthorizedRemoteRequest(req) : true
 
-    if (isRemoteRequest && shareLanEnabled && !remoteAuthorized && !isLanAccessBootstrapPath(url.pathname) && !isSharePath(url.pathname)) {
+    if (isRemoteRequest && shareLanEnabled && !remoteAuthorized && !isLanAccessBootstrapPath(url.pathname) && !isSharePath(url.pathname) && !isStaticAssetPath(url.pathname)) {
       if (url.pathname.startsWith('/api/')) {
         sendLanAuthRequired(res)
       } else {
@@ -416,11 +422,7 @@ const server = createServer(async (req, res) => {
       return
     }
 
-    if (
-      url.pathname.startsWith('/assets/') ||
-      url.pathname === '/favicon.svg' ||
-      url.pathname === '/vite.svg'
-    ) {
+    if (isStaticAssetPath(url.pathname)) {
       await serveStatic(req, res, url)
       return
     }

@@ -1,7 +1,7 @@
 # 速构 QuickForge
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.2.7-blue" />
+  <img alt="Version" src="https://img.shields.io/badge/version-1.2.8-blue" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green" />
   <img alt="Node" src="https://img.shields.io/badge/node-%3E%3D20-brightgreen" />
   <img alt="React" src="https://img.shields.io/badge/react-19-61DAFB?logo=react" />
@@ -27,26 +27,26 @@ Built with React 19, Vite 8, Tailwind CSS 4, and shadcn-style UI primitives. Use
 ### npm
 
 ```bash
-npm install -g @shawnstack/quickforge@1.2.7
+npm install -g @shawnstack/quickforge@1.2.8
 qf
 ```
 
 ### Offline tarball
 
-The offline release package for `v1.2.6` is:
+The offline release package for `v1.2.8` is:
 
 ```text
-package-offline/shawnstack-quickforge-1.2.6.tgz
+package-offline/shawnstack-quickforge-1.2.8.tgz
 ```
 
 Install it on a machine with Node.js 20+ and npm:
 
 ```bash
-npm install -g ./package-offline/shawnstack-quickforge-1.2.6.tgz
+npm install -g ./package-offline/shawnstack-quickforge-1.2.8.tgz
 qf
 ```
 
-The package was generated from tag `v1.2.6` and includes bundled runtime dependencies for offline installation.
+The package was generated from tag `v1.2.8` and includes bundled runtime dependencies for offline installation.
 
 ## Quick Start
 

@@ -2,6 +2,23 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.2.8] - 2026-05-14
+
+### Fixed
+
+- Fixed LAN shared conversation pages failing to load bundled JavaScript assets from remote devices.
+- Prevented missing static asset requests from falling back to `index.html`, making stale build artifacts surface as 404s instead of module MIME errors.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.2.8` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.2.8.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.2.8.tgz
+  ```
+
 ## [1.2.7] - 2026-05-13
 
 ### Fixed

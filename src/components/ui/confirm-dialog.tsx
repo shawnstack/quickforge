@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { Button } from '@/components/ui/button'
@@ -20,45 +20,49 @@ function ConfirmDialogInner({
   onResolve: (confirmed: boolean) => void
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null)
+  const resolvedRef = useRef(false)
+
+  const resolveOnce = useCallback((confirmed: boolean) => {
+    if (resolvedRef.current) return
+    resolvedRef.current = true
+    onResolve(confirmed)
+  }, [onResolve])
 
   useEffect(() => {
     cancelRef.current?.focus()
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onResolve(false)
-      if (event.key === 'Enter') onResolve(true)
+      if (event.key === 'Escape') resolveOnce(false)
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
-  }, [onResolve])
+  }, [resolveOnce])
 
   return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onResolve(false)
-      }}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 py-6">
       <div
         className={cn(
-          'w-full max-w-sm rounded-lg border border-border bg-background p-6 shadow-lg',
-          'mx-4',
+          'w-full max-w-[420px] rounded-2xl border border-border bg-background p-5 shadow-xl',
         )}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-dialog-title"
+        aria-describedby="confirm-dialog-description"
       >
-        <h2 className="text-base font-semibold text-foreground">{options.title}</h2>
-        <p className="mt-2 text-sm text-muted-foreground">{options.description}</p>
-        <div className="mt-5 flex justify-end gap-2">
+        <h2 id="confirm-dialog-title" className="text-base font-semibold text-foreground/90">{options.title}</h2>
+        <p id="confirm-dialog-description" className="mt-2 text-sm leading-6 text-muted-foreground/72">{options.description}</p>
+        <div className="mt-6 flex justify-end gap-2">
           <Button
             ref={cancelRef}
             variant="outline"
             size="sm"
-            onClick={() => onResolve(false)}
+            onClick={() => resolveOnce(false)}
           >
             {options.cancelLabel ?? 'Cancel'}
           </Button>
           <Button
             variant="destructive"
             size="sm"
-            onClick={() => onResolve(true)}
+            onClick={() => resolveOnce(true)}
           >
             {options.confirmLabel ?? 'Delete'}
           </Button>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Copy } from 'lucide-react'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import { AppStorage, CustomProvidersStore, ProviderKeysStore, SessionsStore, SettingsStore, setAppStorage } from '@mariozechner/pi-web-ui'
+import { showConfirm } from '@/components/ui/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import { ChatPanelHost } from '@/components/chat/ChatPanelHost'
 import { t } from '@/lib/i18n'
@@ -168,7 +169,13 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
       return
     }
 
-    if (!window.confirm('确定回滚这个原对话吗？该操作会直接影响分享者本机中的这一个对话。该消息及其之后的对话记录会被移除，消息内容会恢复到输入框。')) return
+    const confirmed = await showConfirm({
+      title: t('sharedRollbackConfirmTitle'),
+      description: t('sharedRollbackConfirm'),
+      confirmLabel: t('confirmRollback'),
+      cancelLabel: t('cancel'),
+    })
+    if (!confirmed) return
     try {
       await agent.rollback(messageIndex)
       setRestoredDraft({

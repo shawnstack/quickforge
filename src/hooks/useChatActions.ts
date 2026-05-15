@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import type { AgentManager } from '@/hooks/useAgentManager'
 import { initializePiStorage } from '@/lib/pi-chat'
+import { showConfirm } from '@/components/ui/confirm-dialog'
 import { t } from '@/lib/i18n'
 import {
   copyTextToClipboard,
@@ -119,7 +120,13 @@ export function useChatActions({
       return
     }
 
-    if (!window.confirm(t('rollbackConfirm'))) return
+    const confirmed = await showConfirm({
+      title: t('rollbackConfirmTitle'),
+      description: t('rollbackConfirm'),
+      confirmLabel: t('confirmRollback'),
+      cancelLabel: t('cancel'),
+    })
+    if (!confirmed) return
 
     const restoredRollbackDraft = {
       id: Date.now(),

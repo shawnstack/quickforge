@@ -2,6 +2,29 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.0] - 2026-05-15
+
+### Changed
+
+- Updated project and base agent instructions to emphasize minimal, style-matching coding changes and Chinese project guidance.
+- Refreshed the code wiki and project handoff documentation.
+
+### Fixed
+
+- Fixed `qf update` to install the latest published package version.
+- Fixed LAN shared conversation asset resolution and open-share password handling.
+- Fixed release packaging scripts to skip optional package entries that are not present in the workspace.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.0` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.0.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.0.tgz
+  ```
+
 ## [1.2.9] - 2026-05-14
 
 ### Added

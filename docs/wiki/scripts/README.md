@@ -12,7 +12,7 @@
 ### `prepare-offline-package.cjs` (15 行)
 
 - 创建 `package-offline/` 目录
-- 复制 `bin/`, `server/`, `skills/`, `dist/`, `README.md`, `LICENSE` 到包目录
+- 复制 `bin/`, `server/`, `dist/`, `README.md`, `LICENSE` 等存在的发布条目到包目录，跳过不存在的可选条目
 - 生成精简版 `package.json` (移除 devDependencies 和 scripts，添加 bundledDependencies)
 
 ### `prepare-runtime-package.cjs` (13 行)

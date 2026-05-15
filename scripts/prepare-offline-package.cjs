@@ -8,7 +8,9 @@ fs.mkdirSync(outDir, { recursive: true })
 
 const copyEntries = ['bin', 'server', 'skills', 'dist', 'README.md', 'LICENSE']
 for (const entry of copyEntries) {
-  fs.cpSync(path.join(root, entry), path.join(outDir, entry), { recursive: true })
+  const source = path.join(root, entry)
+  if (!fs.existsSync(source)) continue
+  fs.cpSync(source, path.join(outDir, entry), { recursive: true })
 }
 
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))

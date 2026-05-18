@@ -166,9 +166,9 @@ function renderDiff(diff: ToolDiffDetails) {
         >-${removedLines}</span>
         ${diff.truncated ? html`<span class="text-muted-foreground/80">truncated</span>` : nothing}
       </div>
-      <pre class="quickforge-diff-block" style=${styleMap(DIFF_BLOCK_STYLE)}>${lines.map((line) => html`
+      <div class="quickforge-diff-block" style=${styleMap(DIFF_BLOCK_STYLE)}>${lines.map((line) => html`
         <div class=${diffLineClass(line)} style=${styleMap(diffLineStyle(line))}>${line || ' '}</div>
-      `)}</pre>
+      `)}</div>
     </div>
   `
 }

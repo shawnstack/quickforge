@@ -146,6 +146,13 @@ export async function buildInstructionsPayload(projectId) {
   const stripRuntimeFields = ({ rootDir: _rootDir, instructions: _instructions, location: _location, ...skill }) => skill
 
   return {
+    workspace: project
+      ? {
+          id: project.id,
+          name: project.name,
+          root: project.path,
+        }
+      : null,
     global: globalInstructions,
     project: projectInstructions,
     globalSkills: globalSkills.map(stripRuntimeFields),

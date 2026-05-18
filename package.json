@@ -51,7 +51,8 @@
   },
   "dependencies": {
     "@mariozechner/pi-agent-core": "^0.70.5",
-    "@mariozechner/pi-ai": "^0.70.5"
+    "@mariozechner/pi-ai": "^0.70.5",
+    "@vscode/ripgrep": "^1.18.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

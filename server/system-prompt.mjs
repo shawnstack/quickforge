@@ -53,6 +53,23 @@ ${skillParts.join('\n')}
 export function composeSystemPrompt(instructions = {}) {
   const parts = [BASE_SYSTEM_PROMPT]
 
+  if (instructions.workspace) {
+    const lines = []
+    if (instructions.workspace.name) lines.push(`- Project name: ${escapeXml(instructions.workspace.name)}`)
+    if (instructions.workspace.root) lines.push(`- Workspace root: ${escapeXml(instructions.workspace.root)}`)
+    if (instructions.workspace.id) lines.push(`- Project ID: ${escapeXml(instructions.workspace.id)}`)
+    if (lines.length) {
+      parts.push(`
+<workspace_context>
+Current workspace:
+${lines.join('\n')}
+- Tool file paths are relative to this workspace root unless explicitly stated.
+- There is no dedicated directory-listing tool. When you need to inspect directory contents, use run_command with a simple read-only shell command from the workspace root.
+- Do not inspect sensitive files such as .env files, private keys, credentials, tokens, or secrets.
+</workspace_context>`)
+    }
+  }
+
   if (instructions.global) {
     parts.push(`\n<user_instructions>\n${instructions.global}\n</user_instructions>`)
   }

@@ -105,8 +105,8 @@ const agentSessions = new Map()
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
 const APPROVAL_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes for tool approval
-const commandRestrictedTools = new Set(['write_file', 'edit_file', 'run_command'])
-const safeReadTools = new Set(['get_project_info', 'list_dir', 'read_file', 'grep_files'])
+const commandRestrictedTools = new Set(['write_file', 'edit_file', 'replace_in_files', 'run_command'])
+const safeReadTools = new Set(['read_file', 'grep_files'])
 const pendingApprovals = new Map() // toolCallId → { resolve, reject, sessionId, toolName, args, timeout }
 
 function createCommandToolPermissions(session) {
@@ -116,7 +116,7 @@ function createCommandToolPermissions(session) {
     if (toolName === 'run_command' && permissions.allowCommands === false) {
       return `Custom command /${session.activeCommandName} does not allow running shell commands.`
     }
-    if ((toolName === 'write_file' || toolName === 'edit_file') && permissions.allowEdit === false) {
+    if ((toolName === 'write_file' || toolName === 'edit_file' || toolName === 'replace_in_files') && permissions.allowEdit === false) {
       return `Custom command /${session.activeCommandName} does not allow editing files.`
     }
     return null

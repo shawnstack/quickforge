@@ -14,20 +14,6 @@ import { loadSelectedGlobalSkills, loadSelectedProjectSkills, mergeSkills } from
 
 export const workspaceTools = [
   {
-    name: 'get_project_info',
-    label: 'Project info',
-    description: 'Get the project directory bound to this chat.',
-    parameters: Type.Object({}),
-  },
-  {
-    name: 'list_dir',
-    label: 'List directory',
-    description: 'List files and folders inside the project bound to this chat. Paths are relative to that project root.',
-    parameters: Type.Object({
-      path: Type.Optional(Type.String({ description: 'Directory path relative to the workspace root. Defaults to .', default: '.' })),
-    }),
-  },
-  {
     name: 'read_file',
     label: 'Read file',
     description: 'Read a UTF-8 text file inside the project bound to this chat. Use offset and limit for large files.',
@@ -40,13 +26,19 @@ export const workspaceTools = [
   {
     name: 'grep_files',
     label: 'Search files',
-    description: 'Search text in the project files bound to this chat. Returns matching file paths and line numbers.',
+    description: 'Search project files using bundled ripgrep when available. Supports plain text, regex, glob filters, context lines, and file-only match output. Returns matching file paths and line numbers.',
     parameters: Type.Object({
       query: Type.String({ description: 'Plain text or regular expression to search for.' }),
       path: Type.Optional(Type.String({ description: 'Directory path relative to the workspace root. Defaults to .', default: '.' })),
       regex: Type.Optional(Type.Boolean({ description: 'Treat query as a regular expression.', default: false })),
       caseSensitive: Type.Optional(Type.Boolean({ description: 'Use case-sensitive matching.', default: false })),
       limit: Type.Optional(Type.Number({ description: 'Maximum matches to return.', default: 200 })),
+      glob: Type.Optional(Type.Array(Type.String({ description: 'Ripgrep glob patterns, for example ["*.ts", "*.tsx", "!docs/**"].' }))),
+      context: Type.Optional(Type.Number({ description: 'Number of context lines before and after each match. Uses ripgrep when available.', default: 0 })),
+      beforeContext: Type.Optional(Type.Number({ description: 'Number of context lines before each match. Uses ripgrep when available.', default: 0 })),
+      afterContext: Type.Optional(Type.Number({ description: 'Number of context lines after each match. Uses ripgrep when available.', default: 0 })),
+      filesWithMatches: Type.Optional(Type.Boolean({ description: 'Only return file paths that contain matches.', default: false })),
+      respectGitIgnore: Type.Optional(Type.Boolean({ description: 'Respect .gitignore and ripgrep ignore rules. Defaults to false to preserve QuickForge legacy search behavior.', default: false })),
     }),
   },
   {
@@ -67,6 +59,23 @@ export const workspaceTools = [
       path: Type.String({ description: 'File path relative to the workspace root.' }),
       oldText: Type.String({ description: 'Exact existing text to replace. Must be unique in the file.' }),
       newText: Type.String({ description: 'Replacement text.' }),
+    }),
+    executionMode: 'sequential',
+  },
+  {
+    name: 'replace_in_files',
+    label: 'Replace in files',
+    description: 'Search files with bundled ripgrep and replace matches across files. Defaults to dryRun=true and returns diff previews; set dryRun=false to write changes.',
+    parameters: Type.Object({
+      query: Type.String({ description: 'Plain text or regular expression to replace.' }),
+      replacement: Type.String({ description: 'Replacement text.' }),
+      path: Type.Optional(Type.String({ description: 'Directory or file path relative to the workspace root. Defaults to .', default: '.' })),
+      regex: Type.Optional(Type.Boolean({ description: 'Treat query as a regular expression. Regex replacement uses JavaScript replacement syntax.', default: false })),
+      caseSensitive: Type.Optional(Type.Boolean({ description: 'Use case-sensitive matching.', default: false })),
+      limit: Type.Optional(Type.Number({ description: 'Maximum matches to replace or preview.', default: 200 })),
+      glob: Type.Optional(Type.Array(Type.String({ description: 'Ripgrep glob patterns, for example ["*.ts", "*.tsx", "!docs/**"].' }))),
+      dryRun: Type.Optional(Type.Boolean({ description: 'Preview changes without writing files. Defaults to true.', default: true })),
+      respectGitIgnore: Type.Optional(Type.Boolean({ description: 'Respect .gitignore and ripgrep ignore rules. Defaults to false to preserve QuickForge legacy search behavior.', default: false })),
     }),
     executionMode: 'sequential',
   },

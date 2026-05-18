@@ -86,7 +86,7 @@
 
 **用途**: 在 `pi-web-ui` 中注册本地工具渲染器。
 
-**支持的工具渲染**: `get_project_info`, `list_dir`, `read_file`, `grep_files`, `write_file`, `edit_file`, `run_command`, `activate_skill`, `read_skill_resource`
+**支持的工具渲染**: `read_file`, `grep_files`, `write_file`, `edit_file`, `replace_in_files`, `run_command`, `activate_skill`, `read_skill_resource`
 
 ### http-storage-backend.ts (171 行)
 

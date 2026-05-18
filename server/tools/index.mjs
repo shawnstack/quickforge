@@ -1,9 +1,9 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { resolveWorkspacePath, toWorkspaceRelative, assertSafeWorkspacePath, truncateText, splitLines, walkFiles } from '../utils/workspace.mjs'
 import { createTextDiff } from '../utils/text-diff.mjs'
-import { readProjectConfig, getActiveProject } from '../project-config.mjs'
 import {
   formatSkillActivation,
   loadSelectedGlobalSkills,
@@ -11,55 +11,9 @@ import {
   mergeSkills,
   readSkillResource,
 } from '../skills.mjs'
-import { getWorkspaceRoot, getToolWorkspaceRoot } from '../utils/workspace.mjs'
+import { getToolWorkspaceRoot } from '../utils/workspace.mjs'
 
-// --- get_project_info ---
-export async function toolGetProjectInfo(_params, context) {
-  const config = context?.project ? null : await readProjectConfig()
-  const project = context?.project || getActiveProject(config)
-  const workspaceRoot = context?.workspaceRoot || project?.path || getWorkspaceRoot()
-
-  if (!project) {
-    return {
-      content: 'No active project is configured.',
-      details: { project: null, workspaceRoot },
-    }
-  }
-
-  return {
-    content: [`Project: ${project.name}`, `Path: ${workspaceRoot}`, `ID: ${project.id}`].join('\n'),
-    details: { project, workspaceRoot },
-  }
-}
-
-// --- list_dir ---
-export async function toolListDir(params, context) {
-  const dir = resolveWorkspacePath(params?.path || '.', context)
-  await assertSafeWorkspacePath(dir, context)
-
-  const entries = await fs.readdir(dir, { withFileTypes: true })
-  const rows = await Promise.all(entries.map(async (entry) => {
-    const fullPath = path.join(dir, entry.name)
-    const stat = await fs.lstat(fullPath).catch(() => null)
-    return {
-      name: `${entry.name}${entry.isDirectory() ? '/' : ''}`,
-      type: entry.isDirectory() ? 'directory' : stat?.isSymbolicLink() ? 'other' : entry.isFile() ? 'file' : 'other',
-      size: stat?.size ?? 0,
-      modified: stat?.mtime?.toISOString?.() ?? '',
-    }
-  }))
-
-  rows.sort((a, b) => {
-    if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
-    return a.name.localeCompare(b.name)
-  })
-
-  const content = rows.length
-    ? rows.map((row) => `${row.type.padEnd(9)} ${String(row.size).padStart(10)} ${row.modified} ${row.name}`).join('\n')
-    : '(empty directory)'
-
-  return { content, details: { path: toWorkspaceRelative(dir, context), project: context?.project, count: rows.length } }
-}
+const require = createRequire(import.meta.url)
 
 // --- read_file ---
 export async function toolReadFile(params, context) {
@@ -81,6 +35,54 @@ export async function toolReadFile(params, context) {
 }
 
 // --- grep_files ---
+
+const RIPGREP_MAX_FILESIZE = '1M'
+const RIPGREP_TIMEOUT_MS = 60 * 1000
+const DEFAULT_EXCLUDE_GLOBS = [
+  '!.git/**',
+  '!node_modules/**',
+  '!dist/**',
+  '!dist-ssr/**',
+  '!.vite/**',
+  '!**/*.png',
+  '!**/*.jpg',
+  '!**/*.jpeg',
+  '!**/*.gif',
+  '!**/*.webp',
+  '!**/*.ico',
+  '!**/*.pdf',
+  '!**/*.zip',
+  '!**/*.gz',
+  '!**/*.7z',
+  '!**/*.exe',
+  '!**/*.dll',
+  '!**/*.woff',
+  '!**/*.woff2',
+  '!**/*.ttf',
+]
+const SENSITIVE_EXCLUDE_GLOBS = [
+  '!.env',
+  '!**/.env',
+  '!.env.*',
+  '!**/.env.*',
+  '!**/*.pem',
+  '!**/*.key',
+  '!**/*.p12',
+  '!**/*.pfx',
+  '!**/*.crt',
+  '!**/*.cer',
+  '!**/*.token',
+  '!credentials.json',
+  '!**/credentials.json',
+  '!secrets.json',
+  '!**/secrets.json',
+  '!id_rsa',
+  '!**/id_rsa',
+  '!id_ed25519',
+  '!**/id_ed25519',
+]
+
+let cachedRipgrepExecutable
 
 /**
  * Process items with bounded concurrency.  Returns results in input order.
@@ -106,10 +108,26 @@ async function poolMap(items, fn, concurrency = 20) {
   return results
 }
 
-export async function toolGrepFiles(params, context) {
-  const root = resolveWorkspacePath(params?.path || '.', context)
-  await assertSafeWorkspacePath(root, context)
+function clampNumber(value, defaultValue, min, max) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return defaultValue
+  return Math.min(max, Math.max(min, Math.trunc(number)))
+}
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function normalizeGlobList(value) {
+  const values = Array.isArray(value) ? value : typeof value === 'string' ? [value] : []
+  return values
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .slice(0, 50)
+}
+
+function normalizeGrepParams(params, context) {
+  const root = resolveWorkspacePath(params?.path || '.', context)
   const query = String(params?.query || '')
   if (!query) {
     const error = new Error('query is required')
@@ -117,23 +135,333 @@ export async function toolGrepFiles(params, context) {
     throw error
   }
 
-  const limit = Math.min(1000, Math.max(1, Number(params?.limit || 200)))
   const flags = params?.caseSensitive ? 'g' : 'gi'
-  let matcher
   try {
-    matcher = params?.regex
+    params?.regex
       ? new RegExp(query, flags)
-      : new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags)
+      : new RegExp(escapeRegExp(query), flags)
   } catch {
     const error = new Error('Invalid regular expression')
     error.statusCode = 400
     throw error
   }
 
-  const files = await walkFiles(root, [], context)
+  return {
+    root,
+    query,
+    regex: Boolean(params?.regex),
+    caseSensitive: Boolean(params?.caseSensitive),
+    limit: clampNumber(params?.limit, 200, 1, 1000),
+    glob: normalizeGlobList(params?.glob),
+    context: clampNumber(params?.context, 0, 0, 20),
+    beforeContext: clampNumber(params?.beforeContext, 0, 0, 20),
+    afterContext: clampNumber(params?.afterContext, 0, 0, 20),
+    filesWithMatches: Boolean(params?.filesWithMatches),
+    respectGitIgnore: Boolean(params?.respectGitIgnore),
+  }
+}
+
+function isRegexLikelyRipgrepCompatible(query) {
+  return !(/\(\?[=!<]/.test(query) || /\\[1-9]/.test(query))
+}
+
+function ripgrepCandidatePath() {
+  try {
+    return require('@vscode/ripgrep').rgPath || null
+  } catch {
+    return null
+  }
+}
+
+async function verifyRipgrepExecutable(command) {
+  return new Promise((resolve) => {
+    const child = spawn(command, ['--version'], { shell: false, windowsHide: true })
+    child.once('error', () => resolve(false))
+    child.once('close', (code) => resolve(code === 0))
+  })
+}
+
+async function resolveRipgrepExecutable() {
+  if (cachedRipgrepExecutable !== undefined) return cachedRipgrepExecutable
+
+  const bundled = ripgrepCandidatePath()
+  if (bundled && await verifyRipgrepExecutable(bundled)) {
+    cachedRipgrepExecutable = { command: bundled, source: 'bundled' }
+    return cachedRipgrepExecutable
+  }
+
+  if (await verifyRipgrepExecutable('rg')) {
+    cachedRipgrepExecutable = { command: 'rg', source: 'system' }
+    return cachedRipgrepExecutable
+  }
+
+  cachedRipgrepExecutable = null
+  return cachedRipgrepExecutable
+}
+
+function buildRipgrepArgs(options, context) {
+  const args = [
+    '--line-number',
+    '--color=never',
+    '--max-filesize',
+    RIPGREP_MAX_FILESIZE,
+  ]
+
+  if (options.filesWithMatches) {
+    args.push('--files-with-matches')
+  } else {
+    args.push('--json')
+  }
+  if (!options.regex) args.push('--fixed-strings')
+  if (!options.caseSensitive) args.push('--ignore-case')
+  if (!options.respectGitIgnore) args.push('--hidden', '--no-ignore')
+  if (options.context > 0) args.push('-C', String(options.context))
+  if (options.beforeContext > 0) args.push('-B', String(options.beforeContext))
+  if (options.afterContext > 0) args.push('-A', String(options.afterContext))
+
+  for (const pattern of options.glob) args.push('--glob', pattern)
+  for (const pattern of DEFAULT_EXCLUDE_GLOBS) args.push('--glob', pattern)
+  for (const pattern of SENSITIVE_EXCLUDE_GLOBS) args.push('--glob', pattern)
+
+  args.push('--', options.query, toWorkspaceRelative(options.root, context) || '.')
+  return args
+}
+
+function cleanRipgrepLine(value) {
+  return String(value || '').replace(/[\r\n]+$/, '')
+}
+
+function ripgrepRelativePath(value) {
+  return String(value || '').replace(/\\/g, '/')
+}
+
+function formatRipgrepJsonEvent(event) {
+  if (event?.type !== 'match' && event?.type !== 'context') return null
+  const data = event.data || {}
+  const file = ripgrepRelativePath(data.path?.text)
+  const lineNumber = data.line_number
+  const line = cleanRipgrepLine(data.lines?.text)
+  if (!file || !lineNumber) return null
+  const separator = event.type === 'match' ? ':' : '-'
+  return `${file}:${lineNumber}${separator} ${line}`
+}
+
+function fallbackDetails(extra = {}) {
+  return Object.fromEntries(Object.entries(extra).filter(([, value]) => value !== undefined && value !== null && value !== ''))
+}
+
+async function collectRipgrepMatchFiles(options, context, runtime = {}) {
+  const executable = await resolveRipgrepExecutable()
+  if (!executable) return null
+  const result = await grepFilesWithRipgrep(executable, { ...options, filesWithMatches: true }, context, runtime)
+  if (result.content === 'No matches found.') return { files: [], backend: 'ripgrep', ripgrepSource: executable.source }
+  return {
+    files: result.content.split('\n').map((line) => line.trim()).filter(Boolean),
+    backend: 'ripgrep',
+    ripgrepSource: executable.source,
+  }
+}
+
+async function collectNodeMatchFiles(options, context) {
+  const result = await grepFilesWithNode({ ...options, filesWithMatches: true }, context)
+  if (result.content === 'No matches found.') return []
+  return result.content.split('\n').map((line) => line.trim()).filter(Boolean)
+}
+
+async function collectReplaceCandidateFiles(options, context, runtime = {}) {
+  if (options.regex && !isRegexLikelyRipgrepCompatible(options.query)) {
+    return { files: await collectNodeMatchFiles(options, context), backend: 'node', fallbackFrom: 'ripgrep', fallbackReason: 'regex uses JavaScript-only features that ripgrep does not support' }
+  }
+
+  try {
+    const ripgrepResult = await collectRipgrepMatchFiles(options, context, runtime)
+    if (ripgrepResult) return ripgrepResult
+  } catch (error) {
+    if (runtime.signal?.aborted) throw error
+    return { files: await collectNodeMatchFiles(options, context), backend: 'node', fallbackFrom: 'ripgrep', fallbackReason: error?.message || 'ripgrep unavailable' }
+  }
+
+  return { files: await collectNodeMatchFiles(options, context), backend: 'node', fallbackReason: 'ripgrep unavailable' }
+}
+
+function replaceAllLiteral(text, query, replacement, caseSensitive, limit = Infinity) {
+  if (!query) return { text, count: 0 }
+  let count = 0
+  const flags = caseSensitive ? 'g' : 'gi'
+  const matcher = new RegExp(escapeRegExp(query), flags)
+  const nextText = text.replace(matcher, (match) => {
+    if (count >= limit) return match
+    count++
+    return replacement
+  })
+  return { text: nextText, count }
+}
+
+function replaceTextMatches(text, options) {
+  if (options.regex) {
+    const matcher = new RegExp(options.query, options.caseSensitive ? 'g' : 'gi')
+    let count = 0
+    const nextText = text.replace(matcher, (...args) => {
+      if (count >= options.limit) return args[0]
+      count++
+      return String(options.replacement).replace(/\$(\d+)/g, (_, index) => String(args[Number(index)] ?? ''))
+    })
+    return { text: nextText, count }
+  }
+  return replaceAllLiteral(text, options.query, options.replacement, options.caseSensitive, options.limit)
+}
+
+function normalizeReplaceParams(params, context) {
+  return {
+    ...normalizeGrepParams(params, context),
+    replacement: String(params?.replacement ?? ''),
+    dryRun: params?.dryRun !== false,
+  }
+}
+
+async function collectFileDiffs(candidateFiles, options, context) {
+  const diffs = []
+  let totalMatches = 0
+  for (const relativePath of candidateFiles) {
+    if (totalMatches >= options.limit) break
+    const file = resolveWorkspacePath(relativePath, context)
+    await assertSafeWorkspacePath(file, context)
+    let text
+    try {
+      const stat = await fs.stat(file)
+      if (stat.size > 1024 * 1024) continue
+      text = await fs.readFile(file, 'utf8')
+    } catch {
+      continue
+    }
+
+    const replaced = replaceTextMatches(text, { ...options, limit: options.limit - totalMatches })
+    if (replaced.count === 0) continue
+    totalMatches += replaced.count
+    diffs.push({
+      file,
+      relativePath,
+      oldText: text,
+      newText: replaced.text,
+      replaced: replaced.count,
+      diff: createTextDiff(text, replaced.text, relativePath, { maxChars: 20000, maxLines: 400 }),
+    })
+  }
+  return { diffs, totalMatches }
+}
+
+async function grepFilesWithRipgrep(executable, options, context, runtime = {}) {
+  if (options.regex && !isRegexLikelyRipgrepCompatible(options.query)) {
+    throw new Error('regex uses JavaScript-only features that ripgrep does not support')
+  }
+
+  const cwd = getToolWorkspaceRoot(context)
+  const args = buildRipgrepArgs(options, context)
+  const matches = []
+  let stderr = ''
+  let buffer = ''
+  let killedForLimit = false
+  let settled = false
+
+  await new Promise((resolve, reject) => {
+    if (runtime.signal?.aborted) {
+      reject(new Error('Search aborted'))
+      return
+    }
+
+    const child = spawn(executable.command, args, {
+      cwd,
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    })
+
+    const cleanup = () => {
+      clearTimeout(timer)
+      runtime.signal?.removeEventListener?.('abort', onAbort)
+    }
+    const finish = (error) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      if (error) reject(error)
+      else resolve()
+    }
+    const stopForLimit = () => {
+      if (killedForLimit) return
+      killedForLimit = true
+      killProcessTree(child, 'SIGTERM')
+    }
+    const processLine = (line) => {
+      if (!line || matches.length >= options.limit) return
+      if (options.filesWithMatches) {
+        matches.push(ripgrepRelativePath(line))
+      } else {
+        try {
+          const formatted = formatRipgrepJsonEvent(JSON.parse(line))
+          if (formatted) matches.push(formatted)
+        } catch {
+          // Ignore malformed partial output and let process exit handling decide fallback.
+        }
+      }
+      if (matches.length >= options.limit) stopForLimit()
+    }
+    const flushLines = (chunk) => {
+      buffer += chunk.toString()
+      const lines = buffer.split(/\r?\n/)
+      buffer = lines.pop() || ''
+      for (const line of lines) processLine(line)
+    }
+    function onAbort() {
+      killProcessTree(child, 'SIGTERM')
+      finish(new Error('Search aborted'))
+    }
+
+    const timer = setTimeout(() => {
+      killProcessTree(child, 'SIGTERM')
+      finish(new Error('ripgrep search timed out'))
+    }, RIPGREP_TIMEOUT_MS)
+
+    runtime.signal?.addEventListener?.('abort', onAbort, { once: true })
+    child.stdout.on('data', flushLines)
+    child.stderr.on('data', (chunk) => {
+      stderr = truncateText(stderr + chunk.toString(), 2000)
+    })
+    child.once('error', finish)
+    child.once('close', (code) => {
+      if (buffer) processLine(buffer)
+      if (killedForLimit || code === 0 || code === 1) {
+        finish()
+      } else {
+        finish(new Error(stderr.trim() || `ripgrep exited with code ${code}`))
+      }
+    })
+  })
+
+  return {
+    content: matches.length ? truncateText(matches.slice(0, options.limit).join('\n')) : 'No matches found.',
+    details: {
+      path: toWorkspaceRelative(options.root, context),
+      project: context?.project,
+      query: options.query,
+      count: matches.length,
+      limit: options.limit,
+      backend: 'ripgrep',
+      ripgrepSource: executable.source,
+    },
+  }
+}
+
+async function grepFilesWithNode(options, context, extraDetails = {}) {
+  const flags = options.caseSensitive ? 'g' : 'gi'
+  const matcher = options.regex
+    ? new RegExp(options.query, flags)
+    : new RegExp(escapeRegExp(options.query), flags)
+
+  const files = await walkFiles(options.root, [], context)
   const matches = []
 
-  // Stat and filter files in parallel, then grep in parallel batches
+  // Stat and filter files in parallel, then grep in parallel batches.
   const candidateResults = await poolMap(files, async (file) => {
     try {
       const stat = await fs.stat(file)
@@ -146,21 +474,30 @@ export async function toolGrepFiles(params, context) {
 
   const candidates = candidateResults.filter((r) => !r.skip).map((r) => r.file)
 
-  // Grep with bounded concurrency — short-circuit when limit reached
+  // Grep with bounded concurrency — short-circuit when limit reached.
   let matchCount = 0
-  for (let batchStart = 0; batchStart < candidates.length && matchCount < limit; batchStart += 20) {
+  const filesWithMatches = new Set()
+  for (let batchStart = 0; batchStart < candidates.length && matchCount < options.limit; batchStart += 20) {
     const batch = candidates.slice(batchStart, batchStart + 20)
     const batchMatches = await Promise.all(
       batch.map(async (file) => {
-        if (matchCount >= limit) return []
+        if (matchCount >= options.limit) return []
         try {
           const text = await fs.readFile(file, 'utf8')
           const lines = splitLines(text)
           const fileMatches = []
-          for (let index = 0; index < lines.length && (matchCount + fileMatches.length) < limit; index++) {
+          for (let index = 0; index < lines.length && (matchCount + fileMatches.length) < options.limit; index++) {
             matcher.lastIndex = 0
             if (matcher.test(lines[index])) {
-              fileMatches.push(`${toWorkspaceRelative(file, context)}:${index + 1}: ${lines[index]}`)
+              const relative = toWorkspaceRelative(file, context)
+              if (options.filesWithMatches) {
+                if (!filesWithMatches.has(relative)) {
+                  filesWithMatches.add(relative)
+                  fileMatches.push(relative)
+                }
+              } else {
+                fileMatches.push(`${relative}:${index + 1}: ${lines[index]}`)
+              }
             }
           }
           return fileMatches
@@ -170,9 +507,9 @@ export async function toolGrepFiles(params, context) {
       }),
     )
     for (const fm of batchMatches) {
-      if (matchCount >= limit) break
+      if (matchCount >= options.limit) break
       for (const m of fm) {
-        if (matchCount >= limit) break
+        if (matchCount >= options.limit) break
         matches.push(m)
         matchCount++
       }
@@ -181,8 +518,36 @@ export async function toolGrepFiles(params, context) {
 
   return {
     content: matches.length ? truncateText(matches.join('\n')) : 'No matches found.',
-    details: { path: toWorkspaceRelative(root, context), project: context?.project, query, count: matches.length, limit },
+    details: {
+      path: toWorkspaceRelative(options.root, context),
+      project: context?.project,
+      query: options.query,
+      count: matches.length,
+      limit: options.limit,
+      backend: 'node',
+      ...fallbackDetails(extraDetails),
+    },
   }
+}
+
+export async function toolGrepFiles(params, context, runtime = {}) {
+  const options = normalizeGrepParams(params, context)
+  await assertSafeWorkspacePath(options.root, context)
+
+  const executable = await resolveRipgrepExecutable()
+  if (executable) {
+    try {
+      return await grepFilesWithRipgrep(executable, options, context, runtime)
+    } catch (error) {
+      if (runtime.signal?.aborted) throw error
+      return grepFilesWithNode(options, context, {
+        fallbackFrom: 'ripgrep',
+        fallbackReason: error?.message || 'ripgrep unavailable',
+      })
+    }
+  }
+
+  return grepFilesWithNode(options, context, { fallbackReason: 'ripgrep unavailable' })
 }
 
 // --- write_file ---
@@ -247,6 +612,56 @@ export async function toolEditFile(params, context) {
   return {
     content: `Edited ${relativePath} (+${diff.addedLines} -${diff.removedLines})`,
     details: { path: relativePath, project: context?.project, replaced: count, diff },
+  }
+}
+
+export async function toolReplaceInFiles(params, context, runtime = {}) {
+  const options = normalizeReplaceParams(params, context)
+  await assertSafeWorkspacePath(options.root, context)
+
+  const searchResult = await collectReplaceCandidateFiles(options, context, runtime)
+  const { diffs, totalMatches } = await collectFileDiffs(searchResult.files, options, context)
+  const previewText = diffs.length
+    ? diffs.map((entry) => entry.diff.text).filter(Boolean).join('\n\n')
+    : 'No matches found.'
+
+  if (!options.dryRun) {
+    for (const entry of diffs) {
+      await fs.writeFile(entry.file, entry.newText, 'utf8')
+    }
+  }
+
+  const changedFiles = diffs.length
+  const addedLines = diffs.reduce((sum, entry) => sum + entry.diff.addedLines, 0)
+  const removedLines = diffs.reduce((sum, entry) => sum + entry.diff.removedLines, 0)
+  const action = options.dryRun ? 'Previewed' : 'Replaced'
+  const content = diffs.length
+    ? `${action} ${totalMatches} match(es) in ${changedFiles} file(s).\n\n${truncateText(previewText)}`
+    : 'No matches found.'
+
+  return {
+    content,
+    details: {
+      path: toWorkspaceRelative(options.root, context),
+      project: context?.project,
+      query: options.query,
+      replacement: options.replacement,
+      dryRun: options.dryRun,
+      count: totalMatches,
+      changedFiles,
+      files: diffs.map((entry) => ({ path: entry.relativePath, replaced: entry.replaced })),
+      backend: searchResult.backend,
+      ripgrepSource: searchResult.ripgrepSource,
+      ...fallbackDetails({ fallbackFrom: searchResult.fallbackFrom, fallbackReason: searchResult.fallbackReason }),
+      diff: {
+        format: 'unified',
+        path: toWorkspaceRelative(options.root, context),
+        addedLines,
+        removedLines,
+        text: previewText,
+        truncated: previewText.length > 50000,
+      },
+    },
   }
 }
 
@@ -473,12 +888,11 @@ export async function toolRunCommand(params, context, runtime = {}) {
 }
 
 export const toolHandlers = {
-  get_project_info: toolGetProjectInfo,
-  list_dir: toolListDir,
   read_file: toolReadFile,
   grep_files: toolGrepFiles,
   write_file: toolWriteFile,
   edit_file: toolEditFile,
+  replace_in_files: toolReplaceInFiles,
   run_command: toolRunCommand,
   activate_skill: toolActivateSkill,
   read_skill_resource: toolReadSkillResource,

@@ -36,7 +36,7 @@ function resultText(result: ToolResultLike | undefined) {
   return result?.content
     ?.filter((block) => block.type === 'text')
     .map((block) => block.text ?? '')
-    .join('\n') ?? ''
+    .join('\\n') ?? ''
 }
 
 function summarizeParams(toolName: string, params: Record<string, unknown> | undefined) {
@@ -79,7 +79,7 @@ function diffLineClass(line: string) {
 }
 
 function renderDiff(diff: ToolDiffDetails) {
-  const lines = diff.text?.split('\n') ?? []
+  const lines = diff.text?.split('\\n') ?? []
   const addedLines = Number(diff.addedLines ?? 0)
   const removedLines = Number(diff.removedLines ?? 0)
 
@@ -215,12 +215,11 @@ class LocalWorkspaceToolRenderer {
 
 // Register renderers at import time
 for (const [name, label] of [
-  ['get_project_info', 'projectInfo'],
-  ['list_dir', 'listDirectory'],
   ['read_file', 'readFile'],
   ['grep_files', 'searchFiles'],
   ['write_file', 'writeFile'],
   ['edit_file', 'editFile'],
+  ['replace_in_files', 'replaceInFiles'],
   ['run_command', 'runCommand'],
   ['activate_skill', 'activateSkill'],
   ['read_skill_resource', 'readSkillResource'],

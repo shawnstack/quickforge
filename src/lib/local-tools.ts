@@ -296,7 +296,6 @@ for (const [name, label] of [
   ['grep_files', 'searchFiles'],
   ['write_file', 'writeFile'],
   ['edit_file', 'editFile'],
-  ['replace_in_files', 'replaceInFiles'],
   ['run_command', 'runCommand'],
   ['activate_skill', 'activateSkill'],
   ['read_skill_resource', 'readSkillResource'],

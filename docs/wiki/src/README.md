@@ -23,18 +23,18 @@ src/
 
 | 文件 | 说明 | 行数 |
 |------|------|------|
-| [main.tsx](../src/main.tsx) | React 入口，挂载 App | 14 |
-| [App.tsx](../src/App.tsx) | 主组件，管理全局状态、Agent、路由、调度 | 625 |
-| [index.css](../src/index.css) | 全局样式 (Tailwind + pi-web-ui + 自定义) | 293 |
+| [main.tsx](../src/main.tsx) | React 入口，挂载 App | 16 |
+| [App.tsx](../src/App.tsx) | 主组件，管理全局状态、Agent、路由、调度 | 684 |
+| [index.css](../src/index.css) | 全局样式 (Tailwind + pi-web-ui + 自定义) | 346 |
 
-### main.tsx (14 行)
+### main.tsx (16 行)
 
 - 从 `react-dom/client` 创建根节点
 - 应用全局 CSS（`index.css`）
 - 调用 `patchThinkingSelector()` 修补 pi-web-ui 的模型选择器
 - 在 `<StrictMode>` 中渲染 `<App />` 组件
 
-### App.tsx (625 行)
+### App.tsx (684 行)
 
 **用途**: 应用主组件，协调所有子组件和 hooks。
 

@@ -6,12 +6,12 @@
 
 | 文件 | 说明 | 行数 |
 |------|------|------|
-| [definitions.mjs](../../server/tools/definitions.mjs) | 工具元数据定义 (名称、参数 Schema) | 122 |
-| [index.mjs](../../server/tools/index.mjs) | 工具执行 handler | 677 |
+| [definitions.mjs](../../server/tools/definitions.mjs) | 工具元数据定义 (名称、参数 Schema) | 129 |
+| [index.mjs](../../server/tools/index.mjs) | 工具执行 handler | 899 |
 
 ---
 
-## definitions.mjs (122 行)
+## definitions.mjs (129 行)
 
 使用 TypeBox 定义工具参数 Schema，是工具元数据的单一数据源。
 
@@ -30,7 +30,7 @@
 
 `write_file`、`edit_file` 和 `replace_in_files` 标记为 `executionMode: 'sequential'` 以确保执行顺序。
 
-## index.mjs (677 行)
+## index.mjs (899 行)
 
 实现每个工具的 execute handler。
 

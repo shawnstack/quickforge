@@ -4,8 +4,8 @@
 
 | 文件 | 说明 | 行数 |
 |------|------|------|
-| [prepare-offline-package.cjs](../../scripts/prepare-offline-package.cjs) | 准备离线安装包 | 15 |
-| [prepare-runtime-package.cjs](../../scripts/prepare-runtime-package.cjs) | 准备运行时发行包 | 13 |
+| [prepare-offline-package.cjs](../../scripts/prepare-offline-package.cjs) | 准备离线安装包 | 20 |
+| [prepare-runtime-package.cjs](../../scripts/prepare-runtime-package.cjs) | 准备运行时发行包 | 19 |
 
 ---
 

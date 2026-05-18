@@ -10,7 +10,6 @@ quickforge/
 ├── bin/               # CLI entry point
 ├── server/            # Local API + storage server (Node.js ESM)
 ├── src/               # React frontend (TypeScript/TSX)
-├── skills/            # Built-in agent skill definitions
 ├── scripts/           # Build/packaging helper scripts
 ├── public/            # Static assets (favicon)
 ├── .github/           # CI workflows, issue/PR templates
@@ -29,7 +28,6 @@ quickforge/
 | [bin/](bin/) | CLI 入口脚本 (`quickforge.mjs`) |
 | [server/](server/) | 后端服务 (HTTP、Agent管理、存储、路由、工具) |
 | [src/](src/) | 前端 React 应用 (组件、Hooks、工具库) |
-| [skills/](skills/) | 内置 Agent 技能定义 |
 | [scripts/](scripts/) | 打包辅助脚本 |
 | [public/](public/) | 静态资源 |
 | [.github/](.github/) | CI、Issue/PR 模板 |

@@ -6,14 +6,14 @@ CLI 启动脚本，注册为 `quickforge` 和 `qf` 命令。
 
 | 文件 | 说明 | 行数 |
 |------|------|------|
-| [quickforge.mjs](../../bin/quickforge.mjs) | 主 CLI 入口 | 464 |
+| [quickforge.mjs](../../bin/quickforge.mjs) | 主 CLI 入口 | 531 |
 
 ---
 
 ## `quickforge.mjs`
 
 - **路径**: `bin/quickforge.mjs`
-- **行数**: 464
+- **行数**: 531
 - **功能**: CLI 入口点，管理 QuickForge 服务的启动/停止/重启。
 
 ### 核心功能

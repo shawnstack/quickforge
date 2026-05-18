@@ -5,15 +5,27 @@
 | 文件 | 说明 | 行数 |
 |------|------|------|
 | [index.html](../index.html) | HTML 入口 | 13 |
-| [package.json](../package.json) | npm 包定义 | 81 |
-| [vite.config.ts](../vite.config.ts) | Vite + Tailwind 配置 | 65 |
+| [package.json](../package.json) | npm 包定义 | 82 |
+| [vite.config.ts](../vite.config.ts) | Vite + Tailwind 配置 | 66 |
 | [tsconfig.json](../tsconfig.json) | TypeScript 项目引用 | 7 |
-| [tsconfig.app.json](../tsconfig.app.json) | 前端 TS 配置 | 28 |
-| [tsconfig.node.json](../tsconfig.node.json) | Node TS 配置 | 27 |
-| [eslint.config.js](../eslint.config.js) | ESLint 扁平化配置 | 21 |
+| [tsconfig.app.json](../tsconfig.app.json) | 前端 TS 配置 | 30 |
+| [tsconfig.node.json](../tsconfig.node.json) | Node TS 配置 | 29 |
+| [eslint.config.js](../eslint.config.js) | ESLint 扁平化配置 | 22 |
 | [.editorconfig](../.editorconfig) | 编辑器格式配置 | 15 |
 | [.gitignore](../.gitignore) | Git 忽略规则 | 30 |
+| [.gitattributes](../.gitattributes) | Git 属性配置 | 27 |
 | [.nvmrc](../.nvmrc) | Node 版本管理 | 1 |
+| [README.md](../README.md) | 项目说明 (GitHub 首页) | — |
+| [CHANGELOG.md](../CHANGELOG.md) | 版本变更日志 | — |
+| [CONTRIBUTING.md](../CONTRIBUTING.md) | 贡献指南 | — |
+| [DESIGN_LANGUAGE.md](../DESIGN_LANGUAGE.md) | 设计语言规范 | — |
+| [SECURITY.md](../SECURITY.md) | 安全策略 | — |
+| [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md) | 行为守则 | — |
+| [LICENSE](../LICENSE) | MIT 许可证 | — |
+| [AGENTS.md](../AGENTS.md) | Agent 使用说明 | — |
+| [deploy.bat](../deploy.bat) | 部署脚本 (Windows) | — |
+| [dev-quickforge.bat](../dev-quickforge.bat) | 开发启动脚本 (Windows) | — |
+| [start-quickforge.bat](../start-quickforge.bat) | 快速启动脚本 (Windows) | — |
 
 ---
 

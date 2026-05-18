@@ -23,12 +23,11 @@
 | `grep_files` | 文本/正则搜索文件 |
 | `write_file` | 创建或覆写文件 |
 | `edit_file` | 替换文件中的文本 |
-| `replace_in_files` | 基于 ripgrep 搜索候选并批量替换文件，默认 dry-run 预览 diff |
 | `run_command` | 在工作区目录执行 shell 命令，也用于查看目录内容 |
 | `activate_skill` | 加载 Agent Skill 指令 |
 | `read_skill_resource` | 读取 Skill 资源文件 |
 
-`write_file`、`edit_file` 和 `replace_in_files` 标记为 `executionMode: 'sequential'` 以确保执行顺序。
+`write_file`、`edit_file` 和 `run_command` 标记为 `executionMode: 'sequential'` 以确保执行顺序。
 
 ## index.mjs (899 行)
 
@@ -42,7 +41,6 @@
 | `toolGrepFiles` | `grep_files` | 使用内置 ripgrep 优先搜索文件内容，支持正则、glob、上下文和只返回匹配文件；异常时回退 Node.js 搜索 |
 | `toolWriteFile` | `write_file` | 写入文件，自动创建父目录 |
 | `toolEditFile` | `edit_file` | 查找并替换文本，验证唯一性 |
-| `toolReplaceInFiles` | `replace_in_files` | 使用 ripgrep 查找候选文件并跨文件替换，默认 dry-run 返回 diff 预览 |
 | `toolRunCommand` | `run_command` | 执行 shell 命令，支持超时 |
 | `toolActivateSkill` | `activate_skill` | 激活 Agent Skill |
 | `toolReadSkillResource` | `read_skill_resource` | 读取技能资源 |
@@ -52,6 +50,6 @@
 - **敏感路径保护**: `assertSafeWorkspacePath()` 阻止访问 `.git/`、`.env`、密钥文件等
 - **ripgrep 内置搜索**: `grep_files` 优先使用 `@vscode/ripgrep` 随包提供的 `rg`，支持 glob、上下文行、只返回匹配文件；不可用或正则不兼容时回退 Node.js 实现
 - **搜索安全边界**: ripgrep 调用使用 `spawn(..., { shell: false })`，强制排除敏感文件 glob，并默认保持旧搜索行为（`--hidden --no-ignore` + 内置排除规则）
-- **写入防误**: `write_file` 验证文件在项目内；`edit_file` 确保 `oldText` 唯一匹配；`replace_in_files` 默认 `dryRun=true` 只预览 diff，显式 `dryRun=false` 才写入
+- **写入防误**: `write_file` 验证文件在项目内；`edit_file` 确保 `oldText` 唯一匹配
 - **命令超时**: `run_command` 支持可配置超时，自动清理子进程
 - **Error 对象传递**: 工具错误通过 `statusCode` 属性传递 HTTP 状态码

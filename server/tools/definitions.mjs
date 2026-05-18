@@ -63,23 +63,6 @@ export const workspaceTools = [
     executionMode: 'sequential',
   },
   {
-    name: 'replace_in_files',
-    label: 'Replace in files',
-    description: 'Search files with bundled ripgrep and replace matches across files. Defaults to dryRun=true and returns diff previews; set dryRun=false to write changes.',
-    parameters: Type.Object({
-      query: Type.String({ description: 'Plain text or regular expression to replace.' }),
-      replacement: Type.String({ description: 'Replacement text.' }),
-      path: Type.Optional(Type.String({ description: 'Directory or file path relative to the workspace root. Defaults to .', default: '.' })),
-      regex: Type.Optional(Type.Boolean({ description: 'Treat query as a regular expression. Regex replacement uses JavaScript replacement syntax.', default: false })),
-      caseSensitive: Type.Optional(Type.Boolean({ description: 'Use case-sensitive matching.', default: false })),
-      limit: Type.Optional(Type.Number({ description: 'Maximum matches to replace or preview.', default: 200 })),
-      glob: Type.Optional(Type.Array(Type.String({ description: 'Ripgrep glob patterns, for example ["*.ts", "*.tsx", "!docs/**"].' }))),
-      dryRun: Type.Optional(Type.Boolean({ description: 'Preview changes without writing files. Defaults to true.', default: true })),
-      respectGitIgnore: Type.Optional(Type.Boolean({ description: 'Respect .gitignore and ripgrep ignore rules. Defaults to false to preserve QuickForge legacy search behavior.', default: false })),
-    }),
-    executionMode: 'sequential',
-  },
-  {
     name: 'run_command',
     label: 'Run command',
     description: 'Run a shell command in the project bound to this chat. Use this for lint, build, tests, git status, and diagnostics.',

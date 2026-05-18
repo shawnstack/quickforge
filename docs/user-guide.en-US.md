@@ -234,7 +234,6 @@ When enabled, the model can call these tools:
 |---|---|
 | `read_file` | Read text files inside the project |
 | `grep_files` | Search project files by text or regex |
-| `replace_in_files` | Replace matches across files, defaulting to diff preview only |
 | `write_file` | Create or overwrite files |
 | `edit_file` | Edit files by exact text replacement |
 | `run_command` | Run shell commands in the project directory, including directory inspection |

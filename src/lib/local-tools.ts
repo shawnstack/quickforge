@@ -1,6 +1,6 @@
 import { registerToolRenderer } from '@mariozechner/pi-web-ui'
 import { html, nothing } from 'lit'
-import { unsafeHTML } from 'lit/directives/unsafe-html.js'
+import { styleMap } from 'lit/directives/style-map.js'
 import { t, type AppTextKey } from '@/lib/i18n'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import type { AgentTool } from '@mariozechner/pi-agent-core'
@@ -25,16 +25,29 @@ type ToolDiffDetails = {
   text?: string
 }
 
-const DIFF_BLOCK_STYLE = 'max-height:28rem;overflow:auto;border:1px solid color-mix(in oklab, var(--border) 75%, transparent);border-radius:0.75rem;background:color-mix(in oklab, var(--muted) 28%, transparent);font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;font-size:0.78rem;line-height:1.45;'
-const DIFF_LINE_BASE_STYLE = 'min-height:1.35em;padding:0 0.75rem;white-space:pre;'
-const DIFF_BADGE_BASE_STYLE = 'display:inline-flex;align-items:center;border-radius:999px;padding:0.05rem 0.45rem;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;font-size:0.72rem;font-weight:650;'
-
-function escapeHtml(text: string) {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+const DIFF_BLOCK_STYLE = {
+  maxHeight: '28rem',
+  overflow: 'auto',
+  border: '1px solid color-mix(in oklab, var(--border) 75%, transparent)',
+  borderRadius: '0.75rem',
+  background: 'color-mix(in oklab, var(--muted) 28%, transparent)',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+  fontSize: '0.78rem',
+  lineHeight: '1.45',
+}
+const DIFF_LINE_BASE_STYLE = {
+  minHeight: '1.35em',
+  padding: '0 0.75rem',
+  whiteSpace: 'pre',
+}
+const DIFF_BADGE_BASE_STYLE = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  borderRadius: '999px',
+  padding: '0.05rem 0.45rem',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+  fontSize: '0.72rem',
+  fontWeight: '650',
 }
 
 function stringifyValue(value: unknown) {
@@ -92,30 +105,70 @@ function diffLineClass(line: string) {
 }
 
 function diffLineStyle(line: string) {
-  if (line.startsWith('+++') || line.startsWith('---')) return `${DIFF_LINE_BASE_STYLE}background:color-mix(in oklab, var(--muted) 48%, transparent);color:color-mix(in oklab, var(--muted-foreground) 88%, transparent);`
-  if (line.startsWith('@@')) return `${DIFF_LINE_BASE_STYLE}background:color-mix(in oklab, rgb(37 99 235) 10%, transparent);color:rgb(37 99 235);`
-  if (line.startsWith('+')) return `${DIFF_LINE_BASE_STYLE}background:color-mix(in oklab, rgb(34 197 94) 16%, transparent);color:rgb(22 101 52);`
-  if (line.startsWith('-')) return `${DIFF_LINE_BASE_STYLE}background:color-mix(in oklab, rgb(239 68 68) 14%, transparent);color:rgb(153 27 27);`
-  return `${DIFF_LINE_BASE_STYLE}color:var(--foreground);`
+  if (line.startsWith('+++') || line.startsWith('---')) {
+    return {
+      ...DIFF_LINE_BASE_STYLE,
+      background: 'color-mix(in oklab, var(--muted) 48%, transparent)',
+      color: 'color-mix(in oklab, var(--muted-foreground) 88%, transparent)',
+    }
+  }
+  if (line.startsWith('@@')) {
+    return {
+      ...DIFF_LINE_BASE_STYLE,
+      background: 'color-mix(in oklab, rgb(37 99 235) 10%, transparent)',
+      color: 'rgb(37 99 235)',
+    }
+  }
+  if (line.startsWith('+')) {
+    return {
+      ...DIFF_LINE_BASE_STYLE,
+      background: 'color-mix(in oklab, rgb(34 197 94) 16%, transparent)',
+      color: 'rgb(22 101 52)',
+    }
+  }
+  if (line.startsWith('-')) {
+    return {
+      ...DIFF_LINE_BASE_STYLE,
+      background: 'color-mix(in oklab, rgb(239 68 68) 14%, transparent)',
+      color: 'rgb(153 27 27)',
+    }
+  }
+  return {
+    ...DIFF_LINE_BASE_STYLE,
+    color: 'var(--foreground)',
+  }
 }
 
 function renderDiff(diff: ToolDiffDetails) {
   const lines = diff.text?.split('\\n') ?? []
   const addedLines = Number(diff.addedLines ?? 0)
   const removedLines = Number(diff.removedLines ?? 0)
-  const lineHtml = lines.map((line) => (
-    `<div class="${diffLineClass(line)}" style="${diffLineStyle(line)}">${line ? escapeHtml(line) : ' '}</div>`
-  )).join('')
 
   return html`
     <div>
       <div class="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground">
         <span>Diff</span>
-        <span class="quickforge-diff-badge quickforge-diff-badge-add" style="${DIFF_BADGE_BASE_STYLE}background:color-mix(in oklab, rgb(34 197 94) 16%, transparent);color:rgb(22 101 52);">+${addedLines}</span>
-        <span class="quickforge-diff-badge quickforge-diff-badge-del" style="${DIFF_BADGE_BASE_STYLE}background:color-mix(in oklab, rgb(239 68 68) 14%, transparent);color:rgb(153 27 27);">-${removedLines}</span>
+        <span
+          class="quickforge-diff-badge quickforge-diff-badge-add"
+          style=${styleMap({
+            ...DIFF_BADGE_BASE_STYLE,
+            background: 'color-mix(in oklab, rgb(34 197 94) 16%, transparent)',
+            color: 'rgb(22 101 52)',
+          })}
+        >+${addedLines}</span>
+        <span
+          class="quickforge-diff-badge quickforge-diff-badge-del"
+          style=${styleMap({
+            ...DIFF_BADGE_BASE_STYLE,
+            background: 'color-mix(in oklab, rgb(239 68 68) 14%, transparent)',
+            color: 'rgb(153 27 27)',
+          })}
+        >-${removedLines}</span>
         ${diff.truncated ? html`<span class="text-muted-foreground/80">truncated</span>` : nothing}
       </div>
-      <pre class="quickforge-diff-block" style="${DIFF_BLOCK_STYLE}">${unsafeHTML(lineHtml)}</pre>
+      <pre class="quickforge-diff-block" style=${styleMap(DIFF_BLOCK_STYLE)}>${lines.map((line) => html`
+        <div class=${diffLineClass(line)} style=${styleMap(diffLineStyle(line))}>${line || ' '}</div>
+      `)}</pre>
     </div>
   `
 }

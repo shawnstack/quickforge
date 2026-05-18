@@ -62,7 +62,7 @@ function resultText(result: ToolResultLike | undefined) {
   return result?.content
     ?.filter((block) => block.type === 'text')
     .map((block) => block.text ?? '')
-    .join('\\n') ?? ''
+    .join('\n') ?? ''
 }
 
 function summarizeParams(toolName: string, params: Record<string, unknown> | undefined) {
@@ -140,7 +140,7 @@ function diffLineStyle(line: string) {
 }
 
 function renderDiff(diff: ToolDiffDetails) {
-  const lines = diff.text?.split('\\n') ?? []
+  const lines = diff.text?.split('\n') ?? []
   const addedLines = Number(diff.addedLines ?? 0)
   const removedLines = Number(diff.removedLines ?? 0)
 

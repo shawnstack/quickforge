@@ -848,6 +848,7 @@ async function persistSession(session) {
     messageCount: messages.length,
     usage,
     thinkingLevel,
+    yoloMode,
     preview,
     scope,
     projectId: scope === 'project' ? projectId : undefined,

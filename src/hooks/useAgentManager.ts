@@ -29,6 +29,7 @@ export interface AgentManagerDeps {
   activeModelRef: React.MutableRefObject<Model<Api>>
   yoloModeRef: React.MutableRefObject<boolean>
   activeProjectRef: React.MutableRefObject<ProjectInfo | undefined>
+  setYoloMode: React.Dispatch<React.SetStateAction<boolean>>
   switchActiveProject: (projectId: string) => Promise<ProjectInfo>
   sessions: QuickForgeSessionMetadata[]
   refreshSessions: (opts?: { broadcast?: boolean }) => Promise<void>
@@ -55,7 +56,7 @@ export interface AgentManager {
   createAgent: (
     initialState?: Partial<AgentState>,
     sessionId?: string,
-    options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string },
+    options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string; yoloMode?: boolean },
   ) => Promise<ServerAgent>
   loadSession: (
     sessionId: string,
@@ -76,6 +77,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     activeModelRef,
     yoloModeRef,
     activeProjectRef,
+    setYoloMode,
     switchActiveProject,
     sessions,
     refreshSessions,
@@ -145,7 +147,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     async (
       initialState?: Partial<AgentState>,
       sessionId: string = randomId(),
-      options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string },
+      options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string; yoloMode?: boolean },
     ) => {
       const existingTask = taskMapRef.current.get(sessionId)
       if (existingTask) {
@@ -172,11 +174,14 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
         : normalizeModelForProvider(requestedOrDefaultModel as Model<Api>)
       const resolvedThinkingLevel = requestedThinkingLevel ?? defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(resolvedModel)
       activeModelRef.current = resolvedModel
+      const resolvedYoloMode = options?.yoloMode ?? yoloModeRef.current
+      yoloModeRef.current = resolvedYoloMode
+      setYoloMode(resolvedYoloMode)
 
       const nextAgent = await ServerAgent.create(sessionId, {
         scope,
         projectId: project?.id,
-        yoloMode: yoloModeRef.current,
+        yoloMode: resolvedYoloMode,
         model: resolvedModel,
         thinkingLevel: resolvedThinkingLevel,
         messages: (restInitialState as { messages?: AgentState['messages'] }).messages ?? [],
@@ -269,7 +274,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       }
       return nextAgent
     },
-    [attachTaskToView, refreshSessions, syncSessionUI, storageRef, activeModelRef, yoloModeRef, activeProjectRef],
+    [attachTaskToView, refreshSessions, syncSessionUI, storageRef, activeModelRef, yoloModeRef, activeProjectRef, setYoloMode],
   )
 
   // --- Load a persisted session ---
@@ -344,6 +349,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
           attachToView: true,
           createdAt: session.createdAt ?? hints?.createdAt,
           title: session.title ?? hints?.title,
+          yoloMode: session.yoloMode === true,
         },
       )
     },

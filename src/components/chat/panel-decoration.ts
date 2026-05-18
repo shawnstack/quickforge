@@ -405,8 +405,8 @@ export function restoreComposerDraft(
 
 export type ApprovalCardDeps = {
   panel: HTMLElement
-  onApprove: () => void
-  onReject: () => void
+  onApprove: () => Promise<void> | void
+  onReject: () => Promise<void> | void
 }
 
 const APPROVAL_CARD_SELECTOR = '.quickforge-approval-card'
@@ -496,20 +496,45 @@ export function injectApprovalCard(
   card.append(preview)
 
   // Buttons
+  const errorMessage = document.createElement('div')
+  errorMessage.className = 'mb-2 hidden text-xs text-red-700 dark:text-red-400'
+  card.append(errorMessage)
+
   const actions = document.createElement('div')
   actions.className = 'flex items-center gap-2'
 
+  const setSubmitting = (submitting: boolean) => {
+    acceptBtn.disabled = submitting
+    rejectBtn.disabled = submitting
+    acceptBtn.classList.toggle('opacity-60', submitting)
+    rejectBtn.classList.toggle('opacity-60', submitting)
+    acceptBtn.textContent = submitting ? t('toolApprovalSubmitting') : t('toolApprovalAccept')
+  }
+
+  const submitDecision = async (action: () => Promise<void> | void) => {
+    errorMessage.classList.add('hidden')
+    errorMessage.textContent = ''
+    setSubmitting(true)
+    try {
+      await action()
+    } catch (error) {
+      errorMessage.textContent = error instanceof Error ? error.message : t('toolApprovalFailed')
+      errorMessage.classList.remove('hidden')
+      setSubmitting(false)
+    }
+  }
+
   const acceptBtn = document.createElement('button')
   acceptBtn.type = 'button'
-  acceptBtn.className = 'inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 transition-colors cursor-pointer'
+  acceptBtn.className = 'inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 transition-colors cursor-pointer disabled:cursor-not-allowed'
   acceptBtn.textContent = t('toolApprovalAccept')
-  acceptBtn.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); onApprove() })
+  acceptBtn.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); void submitDecision(onApprove) })
 
   const rejectBtn = document.createElement('button')
   rejectBtn.type = 'button'
-  rejectBtn.className = 'inline-flex items-center gap-1.5 rounded-md border border-red-300 dark:border-red-700 px-3 py-1.5 text-xs font-medium text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer'
+  rejectBtn.className = 'inline-flex items-center gap-1.5 rounded-md border border-red-300 dark:border-red-700 px-3 py-1.5 text-xs font-medium text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer disabled:cursor-not-allowed'
   rejectBtn.textContent = t('toolApprovalReject')
-  rejectBtn.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); onReject() })
+  rejectBtn.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); void submitDecision(onReject) })
 
   actions.append(acceptBtn, rejectBtn)
   card.append(actions)

@@ -28,8 +28,8 @@ type ChatPanelHostProps = {
   onRollbackFromMessage: (messageIndex: number) => void
   onCopyAnswer: (text: string) => Promise<void> | void
   onForkFromMessage: (messageIndex: number) => void
-  onApproveToolCall: (toolCallId: string) => void
-  onRejectToolCall: (toolCallId: string) => void
+  onApproveToolCall: (toolCallId: string) => Promise<void> | void
+  onRejectToolCall: (toolCallId: string) => Promise<void> | void
   restoredDraft?: RestoredDraft
   disableFork?: boolean
   readOnly?: boolean
@@ -47,8 +47,8 @@ type PropsRef = {
   onRollbackFromMessage: (messageIndex: number) => void
   onForkFromMessage: (messageIndex: number) => void
   onToggleYoloMode: () => void
-  onApproveToolCall: (toolCallId: string) => void
-  onRejectToolCall: (toolCallId: string) => void
+  onApproveToolCall: (toolCallId: string) => Promise<void> | void
+  onRejectToolCall: (toolCallId: string) => Promise<void> | void
   onModelSelect?: () => void
   yoloMode: boolean
   workspaceToolsEnabled: boolean
@@ -284,8 +284,8 @@ export function ChatPanelHost({
         injectApprovalCard(
           {
             panel,
-            onApprove: () => { pendingApprovalRef.current = null; removeApprovalCard(panel); propsRef.current.onApproveToolCall(capturedToolCallId) },
-            onReject: () => { pendingApprovalRef.current = null; removeApprovalCard(panel); propsRef.current.onRejectToolCall(capturedToolCallId) },
+            onApprove: async () => { await propsRef.current.onApproveToolCall(capturedToolCallId); pendingApprovalRef.current = null; removeApprovalCard(panel) },
+            onReject: async () => { await propsRef.current.onRejectToolCall(capturedToolCallId); pendingApprovalRef.current = null; removeApprovalCard(panel) },
           },
           pending.toolName,
           capturedToolCallId,

@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import type { AgentManager } from '@/hooks/useAgentManager'
-import type { ServerAgent } from '@/lib/server-agent'
 import { saveYoloMode, initializePiStorage } from '@/lib/pi-chat'
+import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
 
 type UseYoloActionsOptions = {
@@ -9,7 +9,6 @@ type UseYoloActionsOptions = {
   yoloModeRef: React.MutableRefObject<boolean>
   setYoloMode: React.Dispatch<React.SetStateAction<boolean>>
   agentRef: AgentManager['agentRef']
-  activeProjectRef: React.MutableRefObject<{ id: string } | undefined>
   setChatPanelRevision: AgentManager['setChatPanelRevision']
   notifySettingsChanged: () => void
 }
@@ -19,38 +18,39 @@ export function useYoloActions({
   yoloModeRef,
   setYoloMode,
   agentRef,
-  activeProjectRef,
   setChatPanelRevision,
   notifySettingsChanged,
 }: UseYoloActionsOptions) {
-  const syncAgentYoloMode = useCallback((agent: ServerAgent | null, next: boolean) => {
-    if (!agent) return
-    void agent.updateYoloMode(next)
-      .then(() => {
-        setChatPanelRevision((value) => value + 1)
-      })
-      .catch((error) => {
-        logger.error('Failed to sync YOLO mode to server:', error)
-      })
-  }, [setChatPanelRevision])
-
   const toggleYoloMode = useCallback(() => {
     const storage = storageRef.current
     const currentAgent = agentRef.current
-    const projectId = activeProjectRef.current?.id
-    setYoloMode((prev) => {
-      const next = !prev
-      yoloModeRef.current = next
-      if (storage) {
-        void saveYoloMode(storage, next, projectId).catch((error) => {
-          logger.error('Failed to save YOLO mode:', error)
-        })
+    const previous = yoloModeRef.current
+    const next = !previous
+
+    setYoloMode(next)
+    yoloModeRef.current = next
+
+    const rollback = () => {
+      yoloModeRef.current = previous
+      setYoloMode(previous)
+      setChatPanelRevision((value) => value + 1)
+    }
+
+    const sync = async () => {
+      try {
+        if (currentAgent) await currentAgent.updateYoloMode(next)
+        if (storage) await saveYoloMode(storage, next)
+        setChatPanelRevision((value) => value + 1)
+        notifySettingsChanged()
+      } catch (error) {
+        logger.error('Failed to sync YOLO mode:', error)
+        rollback()
+        alert(error instanceof Error ? error.message : t('yoloModeSyncFailed'))
       }
-      syncAgentYoloMode(currentAgent, next)
-      return next
-    })
-    notifySettingsChanged()
-  }, [agentRef, activeProjectRef, notifySettingsChanged, setYoloMode, storageRef, syncAgentYoloMode, yoloModeRef])
+    }
+
+    void sync()
+  }, [agentRef, notifySettingsChanged, setChatPanelRevision, setYoloMode, storageRef, yoloModeRef])
 
   return { toggleYoloMode }
 }

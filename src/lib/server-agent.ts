@@ -202,6 +202,7 @@ export type ServerAgentConfig = {
     thinkingLevel?: ThinkingLevel
     messages?: AgentMessage[]
     tools?: unknown[]
+    yoloMode?: boolean
     isStreaming?: boolean
     errorMessage?: string
   }
@@ -216,6 +217,7 @@ export type ServerRollbackResult = {
     model?: Model<Api>
     thinkingLevel?: ThinkingLevel
     tools?: unknown[]
+    yoloMode?: boolean
     isStreaming?: boolean
     errorMessage?: string
   }
@@ -229,6 +231,7 @@ export class ServerAgent {
     thinkingLevel: ThinkingLevel
     messages: AgentMessage[]
     tools: unknown[]
+    yoloMode: boolean
     isStreaming: boolean
     streamingMessage?: AgentMessage
     pendingToolCalls: Set<string>
@@ -266,6 +269,7 @@ export class ServerAgent {
       thinkingLevel: (init.thinkingLevel ?? 'off') as ThinkingLevel,
       messages: init.messages?.slice() ?? [],
       tools: init.tools ?? [],
+      yoloMode: init.yoloMode ?? false,
       isStreaming: init.isStreaming ?? false,
       streamingMessage: undefined as AgentMessage | undefined,
       pendingToolCalls: new Set<string>(),
@@ -393,6 +397,7 @@ export class ServerAgent {
       const payload = await res.json().catch(() => null) as { error?: string } | null
       throw new Error(payload?.error || `Failed to sync YOLO mode: HTTP ${res.status}`)
     }
+    this.state.yoloMode = yoloMode
   }
 
   /**
@@ -460,11 +465,15 @@ export class ServerAgent {
    */
   async approveToolCall(toolCallId: string): Promise<void> {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/approve-tool`
-    await fetch(url, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ toolCallId }),
     })
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null) as { error?: string } | null
+      throw new Error(payload?.error || `Failed to approve tool call: HTTP ${res.status}`)
+    }
   }
 
   /**
@@ -472,11 +481,15 @@ export class ServerAgent {
    */
   async rejectToolCall(toolCallId: string): Promise<void> {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/reject-tool`
-    await fetch(url, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ toolCallId }),
     })
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null) as { error?: string } | null
+      throw new Error(payload?.error || `Failed to reject tool call: HTTP ${res.status}`)
+    }
   }
 
   dispose(): void {
@@ -501,7 +514,7 @@ export class ServerAgent {
         // Guard against SSE reconnect overwriting client messages with a stale
         // server snapshot: only accept server messages if the client has none
         // (initial load) or if the server has at least as many messages.
-        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; isStreaming?: boolean; status?: string }
+        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; yoloMode?: boolean; isStreaming?: boolean; status?: string }
         if (s.systemPrompt !== undefined) {
           this.state.systemPrompt = s.systemPrompt
         }
@@ -516,6 +529,9 @@ export class ServerAgent {
           this._syncingThinkingLevel = true
           this.state.thinkingLevel = s.thinkingLevel as ThinkingLevel
           this._syncingThinkingLevel = false
+        }
+        if (s.yoloMode !== undefined) {
+          this.state.yoloMode = Boolean(s.yoloMode)
         }
         if (s.tools) {
           this.state.tools = s.tools
@@ -736,6 +752,9 @@ export class ServerAgent {
         this.state.thinkingLevel = state.thinkingLevel as ThinkingLevel
         this._syncingThinkingLevel = false
       }
+      if (state.yoloMode !== undefined) {
+        this.state.yoloMode = Boolean(state.yoloMode)
+      }
       if (state.tools) {
         this.state.tools = state.tools
       }
@@ -823,7 +842,8 @@ export class ServerAgent {
         model: (serverState.model ?? config.model ?? null) as Model<Api>,
         thinkingLevel: (serverState.thinkingLevel ?? config.thinkingLevel ?? 'off') as ThinkingLevel,
         messages: (serverState.messages ?? config.messages ?? []) as AgentMessage[],
-        tools: [],
+        tools: (serverState.tools ?? []) as unknown[],
+        yoloMode: Boolean(serverState.yoloMode ?? config.yoloMode),
         isStreaming: Boolean(serverState.isStreaming),
         errorMessage: serverState.errorMessage as string | undefined,
       },

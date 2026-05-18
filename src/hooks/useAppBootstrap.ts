@@ -24,6 +24,7 @@ type UseAppBootstrapOptions = {
   activeModelRef: React.MutableRefObject<Model<Api>>
   yoloModeRef: React.MutableRefObject<boolean>
   activeProjectRef: React.MutableRefObject<ProjectInfo | undefined>
+  setYoloMode: React.Dispatch<React.SetStateAction<boolean>>
   taskMapRef: AgentManager['taskMapRef']
   loadGlobalSessions: (offset: number) => Promise<void>
   loadProject: () => Promise<void>
@@ -39,6 +40,7 @@ export function useAppBootstrap({
   activeModelRef,
   yoloModeRef,
   activeProjectRef,
+  setYoloMode,
   taskMapRef,
   loadGlobalSessions,
   loadProject,
@@ -103,6 +105,9 @@ export function useAppBootstrap({
               }
             }
             activeModelRef.current = existing.model as Model<Api>
+            const sessionYoloMode = (existing as QuickForgeSessionData).yoloMode === true
+            yoloModeRef.current = sessionYoloMode
+            setYoloMode(sessionYoloMode)
             await createAgent(
               {
                 model: existing.model,
@@ -117,6 +122,7 @@ export function useAppBootstrap({
                 attachToView: true,
                 createdAt: existing.createdAt,
                 title: existing.title,
+                yoloMode: sessionYoloMode,
               },
             )
           } else if (initialModel) {
@@ -161,6 +167,7 @@ export function useAppBootstrap({
     activeModelRef,
     yoloModeRef,
     activeProjectRef,
+    setYoloMode,
     taskMapRef,
     loadGlobalSessions,
     loadProject,

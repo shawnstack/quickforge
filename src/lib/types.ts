@@ -43,6 +43,7 @@ export type QuickForgeSessionMetadata = SessionMetadata & {
   projectId?: string
   projectName?: string
   projectPath?: string
+  yoloMode?: boolean
   taskStatus?: BackgroundTaskStatus
   taskStartedAt?: string
   taskFinishedAt?: string
@@ -53,6 +54,7 @@ export type QuickForgeSessionData = SessionData & {
   projectId?: string
   projectName?: string
   projectPath?: string
+  yoloMode?: boolean
   taskStatus?: BackgroundTaskStatus
   taskStartedAt?: string
   taskFinishedAt?: string

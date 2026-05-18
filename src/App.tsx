@@ -102,7 +102,7 @@ function MainApp() {
   } = useProject()
 
   // --- YOLO hook ---
-  const { yoloMode, setYoloMode, initialize: initYoloMode, loadForProject } = useYoloMode()
+  const { yoloMode, setYoloMode, initialize: initYoloMode } = useYoloMode()
 
   // --- UI state ---
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -157,13 +157,6 @@ function MainApp() {
     activeProjectRef.current = activeProject
   }, [activeProject])
 
-  // When switching projects, load that project's saved YOLO preference
-  useEffect(() => {
-    const storage = storageRef.current
-    if (!storage) return
-    void loadForProject(storage, activeProject?.id)
-  }, [activeProject, loadForProject, storageRef])
-
   useEffect(() => { crossTabRef.current = crossTab }, [crossTab])
 
   // --- Agent manager ---
@@ -172,6 +165,7 @@ function MainApp() {
     activeModelRef,
     yoloModeRef,
     activeProjectRef,
+    setYoloMode,
     switchActiveProject,
     sessions: allLoadedSessions,
     refreshSessions,
@@ -234,6 +228,7 @@ function MainApp() {
     activeModelRef,
     yoloModeRef,
     activeProjectRef,
+    setYoloMode,
     taskMapRef,
     loadGlobalSessions,
     loadProject,
@@ -294,21 +289,30 @@ function MainApp() {
     yoloModeRef,
     setYoloMode,
     agentRef,
-    activeProjectRef,
     setChatPanelRevision,
     notifySettingsChanged: crossTab.notifySettingsChanged,
   })
 
-  const handleApproveToolCall = useCallback((toolCallId: string) => {
-    agentRef.current?.approveToolCall(toolCallId).catch((err) => {
+  const handleApproveToolCall = useCallback(async (toolCallId: string) => {
+    const currentAgent = agentRef.current
+    if (!currentAgent) throw new Error(t('toolApprovalFailed'))
+    try {
+      await currentAgent.approveToolCall(toolCallId)
+    } catch (err) {
       logger.error('Failed to approve tool call:', err)
-    })
+      throw err instanceof Error ? err : new Error(t('toolApprovalFailed'))
+    }
   }, [agentRef])
 
-  const handleRejectToolCall = useCallback((toolCallId: string) => {
-    agentRef.current?.rejectToolCall(toolCallId).catch((err) => {
+  const handleRejectToolCall = useCallback(async (toolCallId: string) => {
+    const currentAgent = agentRef.current
+    if (!currentAgent) throw new Error(t('toolApprovalFailed'))
+    try {
+      await currentAgent.rejectToolCall(toolCallId)
+    } catch (err) {
       logger.error('Failed to reject tool call:', err)
-    })
+      throw err instanceof Error ? err : new Error(t('toolApprovalFailed'))
+    }
   }, [agentRef])
 
   const {

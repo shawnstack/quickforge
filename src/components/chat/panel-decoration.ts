@@ -470,7 +470,7 @@ export function injectApprovalCard(
     const truncated = content.length > 800
     preview.innerHTML = `
       <div class="text-xs text-muted-foreground mb-1">📁 ${escapeHtml(filePath)}</div>
-      <pre class="text-xs bg-background border rounded p-2 max-h-40 overflow-auto font-mono whitespace-pre-wrap">${escapeHtml(content.slice(0, 800))}${truncated ? `\n${t('toolApprovalTruncated')}` : ''}</pre>
+      <pre class="text-xs bg-background border rounded p-2 max-h-40 overflow-auto font-mono whitespace-pre-wrap">${buildInlinePreview(content.slice(0, 800))}${truncated ? `\n${escapeHtml(t('toolApprovalTruncated'))}` : ''}</pre>
     `
   } else if (toolName === 'edit_file') {
     const filePath = String(args.path ?? '')
@@ -540,15 +540,25 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;')
 }
 
+function buildInlinePreview(text: string): string {
+  return text.split('\n').map((line) => {
+    const safeLine = escapeHtml(line)
+    if (line.startsWith('+')) return `<span style="color:rgb(22 101 52);background:rgba(34,197,94,.14);display:block;">${safeLine}</span>`
+    if (line.startsWith('-')) return `<span style="color:rgb(153 27 27);background:rgba(239,68,68,.12);display:block;">${safeLine}</span>`
+    if (line.startsWith('@@')) return `<span style="color:rgb(37 99 235);background:rgba(37,99,235,.10);display:block;">${safeLine}</span>`
+    return `<span style="display:block;">${safeLine || ' '}</span>`
+  }).join('\n')
+}
+
 function buildInlineDiff(oldText: string, newText: string): string {
   const oldLines = oldText.split('\n')
   const newLines = newText.split('\n')
   const result: string[] = []
   for (const line of oldLines) {
-    result.push(`<span class="text-red-600 dark:text-red-400">- ${escapeHtml(line)}</span>`)
+    result.push(`<span style="color:rgb(153 27 27);background:rgba(239,68,68,.12);display:block;">- ${escapeHtml(line)}</span>`)
   }
   for (const line of newLines) {
-    result.push(`<span class="text-emerald-600 dark:text-emerald-400">+ ${escapeHtml(line)}</span>`)
+    result.push(`<span style="color:rgb(22 101 52);background:rgba(34,197,94,.14);display:block;">+ ${escapeHtml(line)}</span>`)
   }
   return result.join('\n')
 }

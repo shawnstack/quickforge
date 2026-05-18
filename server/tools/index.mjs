@@ -615,56 +615,6 @@ export async function toolEditFile(params, context) {
   }
 }
 
-export async function toolReplaceInFiles(params, context, runtime = {}) {
-  const options = normalizeReplaceParams(params, context)
-  await assertSafeWorkspacePath(options.root, context)
-
-  const searchResult = await collectReplaceCandidateFiles(options, context, runtime)
-  const { diffs, totalMatches } = await collectFileDiffs(searchResult.files, options, context)
-  const previewText = diffs.length
-    ? diffs.map((entry) => entry.diff.text).filter(Boolean).join('\n\n')
-    : 'No matches found.'
-
-  if (!options.dryRun) {
-    for (const entry of diffs) {
-      await fs.writeFile(entry.file, entry.newText, 'utf8')
-    }
-  }
-
-  const changedFiles = diffs.length
-  const addedLines = diffs.reduce((sum, entry) => sum + entry.diff.addedLines, 0)
-  const removedLines = diffs.reduce((sum, entry) => sum + entry.diff.removedLines, 0)
-  const action = options.dryRun ? 'Previewed' : 'Replaced'
-  const content = diffs.length
-    ? `${action} ${totalMatches} match(es) in ${changedFiles} file(s).\n\n${truncateText(previewText)}`
-    : 'No matches found.'
-
-  return {
-    content,
-    details: {
-      path: toWorkspaceRelative(options.root, context),
-      project: context?.project,
-      query: options.query,
-      replacement: options.replacement,
-      dryRun: options.dryRun,
-      count: totalMatches,
-      changedFiles,
-      files: diffs.map((entry) => ({ path: entry.relativePath, replaced: entry.replaced })),
-      backend: searchResult.backend,
-      ripgrepSource: searchResult.ripgrepSource,
-      ...fallbackDetails({ fallbackFrom: searchResult.fallbackFrom, fallbackReason: searchResult.fallbackReason }),
-      diff: {
-        format: 'unified',
-        path: toWorkspaceRelative(options.root, context),
-        addedLines,
-        removedLines,
-        text: previewText,
-        truncated: previewText.length > 50000,
-      },
-    },
-  }
-}
-
 // --- run_command ---
 function activeSkillsForContext(context) {
   return mergeSkills(context?.globalSkills, context?.projectSkills)
@@ -892,7 +842,6 @@ export const toolHandlers = {
   grep_files: toolGrepFiles,
   write_file: toolWriteFile,
   edit_file: toolEditFile,
-  replace_in_files: toolReplaceInFiles,
   run_command: toolRunCommand,
   activate_skill: toolActivateSkill,
   read_skill_resource: toolReadSkillResource,

@@ -2,6 +2,34 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.1] - 2026-05-19
+
+### Added
+
+- Added configurable per-project command directories and a project command settings tab.
+- Enhanced workspace file tools for richer file operations.
+
+### Changed
+
+- Removed replace-in-files tool references and handling from documentation, prompts, and tool registration.
+- Updated wiki documentation for the current project structure.
+
+### Fixed
+
+- Improved session YOLO approval handling.
+- Fixed output and approval diff rendering with preserved line styling and inline colors.
+- Unified rollback confirmation dialog behavior.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.1` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.1.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.1.tgz
+  ```
+
 ## [1.3.0] - 2026-05-15
 
 ### Changed

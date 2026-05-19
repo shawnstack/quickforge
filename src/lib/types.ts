@@ -12,6 +12,7 @@ export type ProjectInfo = {
   path: string
   lastOpenedAt: string
   skills?: string[]
+  commandDir?: string
 }
 
 export type SkillsScope = 'global' | 'project'

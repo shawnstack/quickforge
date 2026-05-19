@@ -19,7 +19,7 @@ export async function handleProjectApi(req, res, url) {
     const project = projectId
       ? config.projects.find((item) => item.id === projectId)
       : getActiveProject(config)
-    const commands = project?.path ? await listProjectCommands(project.path) : []
+    const commands = project?.path ? await listProjectCommands(project.path, project.commandDir) : []
     sendJson(res, 200, {
       commands: commands.map((command) => ({
         name: command.name,
@@ -63,6 +63,31 @@ export async function handleProjectApi(req, res, url) {
     }
     const result = await setActiveProjectPath(selected.path)
     sendJson(res, 200, { ...result, workspaceRoot: getWorkspaceRoot() })
+    return
+  }
+
+  if (req.method === 'PUT' && url.pathname.startsWith('/api/project/') && url.pathname.endsWith('/command-dir')) {
+    const id = decodeSegment(url.pathname.split('/').filter(Boolean)[2])
+    const body = await readJsonBody(req)
+    const commandDir = typeof body?.commandDir === 'string' ? body.commandDir.trim() : ''
+    if (commandDir.includes('\0')) {
+      const error = new Error('Command directory contains invalid characters')
+      error.statusCode = 400
+      throw error
+    }
+
+    const updated = await atomicProjectConfigUpdate((cfg) => {
+      const project = cfg.projects.find((item) => item.id === id)
+      if (!project) {
+        const error = new Error('Unknown project')
+        error.statusCode = 404
+        throw error
+      }
+      project.commandDir = commandDir
+      return cfg
+    })
+    const project = updated.projects.find((item) => item.id === id)
+    sendJson(res, 200, { ok: true, project, projects: updated.projects, workspaceRoot: getWorkspaceRoot() })
     return
   }
 

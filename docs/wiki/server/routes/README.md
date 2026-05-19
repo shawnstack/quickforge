@@ -61,6 +61,7 @@ Agent 会话管理核心路由。
 - `POST /api/project/select-directory` — 打开系统目录选择器
 - `POST /api/project/path` — 按路径设置项目
 - `POST /api/project/active` — 切换活动项目
+- `PUT /api/project/:projectId/command-dir` — 保存项目自定义 command 目录，支持一行一个相对路径或绝对路径；读取命令时与默认 `.ai/commands` 合并
 - `DELETE /api/project/:projectId` — 删除项目
 
 ## filesystem.mjs (87 行)

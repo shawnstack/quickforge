@@ -123,7 +123,7 @@ server/
 
 ### custom-commands.mjs (344 行)
 
-**用途**: 自定义命令系统。从 `<workspace>/.ai/commands/` 读取命令定义。
+**用途**: 自定义命令系统。从 `<workspace>/.ai/commands/` 和项目配置 `commandDir` 指向的一个或多个相对/绝对目录读取命令定义；同名命令由后面的配置目录覆盖前面的目录。
 
 **功能**:
 - `listProjectCommands()` — 列出命令

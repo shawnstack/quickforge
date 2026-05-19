@@ -455,6 +455,7 @@ async function resolveCommandState(session, userMessage) {
   const internalResponse = await handleInternalCommand(
     parseInternalCommandInvocation(userMessage),
     session.projectContext?.workspaceRoot,
+    session.projectContext?.project?.commandDir,
   )
   if (typeof internalResponse === 'string') return { textResponse: internalResponse }
   if (internalResponse?.clear) return { clear: internalResponse }
@@ -462,7 +463,11 @@ async function resolveCommandState(session, userMessage) {
 
   if (!session.projectContext?.workspaceRoot) return { userMessage }
 
-  const invocation = await resolveCustomCommandInvocation(userMessage, session.projectContext.workspaceRoot)
+  const invocation = await resolveCustomCommandInvocation(
+    userMessage,
+    session.projectContext.workspaceRoot,
+    session.projectContext.project?.commandDir,
+  )
   if (!invocation) return { userMessage }
 
   return {

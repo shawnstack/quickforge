@@ -56,6 +56,7 @@ export async function setActiveProjectPath(inputPath) {
         path: resolved,
         lastOpenedAt: now,
         skills: [],
+        commandDir: '',
       }
       config.projects.unshift(project)
     } else {

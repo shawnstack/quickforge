@@ -18,6 +18,7 @@ import { createDefaultOptionsSettingsTab } from '@/lib/default-options-settings-
 import { createBackupSettingsTab } from '@/lib/backup-settings-tab'
 import { createServiceSettingsTab } from '@/lib/service-settings-tab'
 import { createLanAccessSettingsTab } from '@/lib/lan-access-settings-tab'
+import { createProjectCommandsSettingsTab } from '@/lib/project-commands-settings-tab'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
 import type { RestoredDraft } from '@/lib/types'
 import { logger } from '@/lib/logger'
@@ -89,7 +90,7 @@ export function useModelActions({
 
   const openSettingsDialog = useCallback((initialTab: 'defaults' | 'customModels') => {
     SettingsDialog.open(
-      [createLanguageSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab(), createBackupSettingsTab(), createServiceSettingsTab(), createLanAccessSettingsTab()],
+      [createLanguageSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab(), createProjectCommandsSettingsTab(), createBackupSettingsTab(), createServiceSettingsTab(), createLanAccessSettingsTab()],
       () => {
         if (needsModelSetup || !agentRef.current) {
           void activateConfiguredModel().catch((error) => logger.error('Failed to activate configured model:', error))
@@ -199,7 +200,7 @@ export function useModelActions({
         })
       },
       async (model) => {
-        await SettingsDialog.open([createLanguageSettingsTab(), createCustomProvidersOnlyTab(model.provider), createBackupSettingsTab(), createServiceSettingsTab(), createLanAccessSettingsTab()])
+        await SettingsDialog.open([createLanguageSettingsTab(), createCustomProvidersOnlyTab(model.provider), createProjectCommandsSettingsTab(), createBackupSettingsTab(), createServiceSettingsTab(), createLanAccessSettingsTab()])
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const dialog = document.querySelector('settings-dialog') as any
         if (dialog) {

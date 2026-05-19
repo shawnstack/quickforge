@@ -13,6 +13,28 @@ function commandDirectory(workspaceRoot) {
   return workspaceRoot ? path.join(path.resolve(workspaceRoot), commandsRelativeDir) : null
 }
 
+function configuredCommandDirectories(workspaceRoot, commandDir) {
+  if (!workspaceRoot) return []
+  return String(commandDir || '')
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter((item) => item && !item.includes('\0'))
+    .map((item) => path.isAbsolute(item) ? path.resolve(item) : path.resolve(workspaceRoot, item))
+}
+
+function commandDirectories(workspaceRoot, commandDir) {
+  const defaultDir = commandDirectory(workspaceRoot)
+  if (!defaultDir) return []
+
+  const dirs = [defaultDir]
+  for (const configuredDir of configuredCommandDirectories(workspaceRoot, commandDir)) {
+    if (!dirs.some((dir) => path.resolve(dir) === path.resolve(configuredDir))) {
+      dirs.push(configuredDir)
+    }
+  }
+  return dirs
+}
+
 function parseFrontmatter(text) {
   const normalized = String(text || '').replace(/^\uFEFF/, '')
   const match = normalized.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)([\s\S]*)$/)
@@ -137,15 +159,12 @@ export function textFromUserMessage(message) {
     .join('\n')
 }
 
-export async function listProjectCommands(workspaceRoot) {
-  const dir = commandDirectory(workspaceRoot)
-  if (!dir) return []
-
+async function listCommandsFromDirectory(dir) {
   let entries
   try {
     entries = await fs.readdir(dir, { withFileTypes: true })
   } catch (error) {
-    if (error?.code === 'ENOENT') return []
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR' || error?.code === 'EACCES' || error?.code === 'EPERM') return []
     throw error
   }
 
@@ -161,25 +180,34 @@ export async function listProjectCommands(workspaceRoot) {
     }
   }
 
-  const byName = new Map()
-  for (const command of commands.sort((a, b) => a.name.localeCompare(b.name))) {
-    byName.set(command.name, command)
-  }
-  return [...byName.values()]
+  return commands
 }
 
-export async function findProjectCommand(workspaceRoot, commandName) {
+export async function listProjectCommands(workspaceRoot, commandDir) {
+  const byName = new Map()
+
+  for (const dir of commandDirectories(workspaceRoot, commandDir)) {
+    const commands = await listCommandsFromDirectory(dir)
+    for (const command of commands.sort((a, b) => a.name.localeCompare(b.name))) {
+      byName.set(command.name, command)
+    }
+  }
+
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+export async function findProjectCommand(workspaceRoot, commandName, commandDir) {
   const name = normalizeCommandName(commandName)
   if (!name) return null
-  const commands = await listProjectCommands(workspaceRoot)
+  const commands = await listProjectCommands(workspaceRoot, commandDir)
   return commands.find((command) => command.name === name) || null
 }
 
-export async function resolveCustomCommandInvocation(message, workspaceRoot) {
+export async function resolveCustomCommandInvocation(message, workspaceRoot, commandDir) {
   const invocation = parseSlashInvocationText(textFromUserMessage(message))
   if (!invocation) return null
 
-  const command = await findProjectCommand(workspaceRoot, invocation.name)
+  const command = await findProjectCommand(workspaceRoot, invocation.name, commandDir)
   if (!command) return null
 
   const expandedBody = command.body.replace(/\$ARGUMENTS/g, invocation.arguments)
@@ -235,7 +263,7 @@ export function parseInternalCommandInvocation(message) {
   return null
 }
 
-export async function handleInternalCommand(invocation, workspaceRoot) {
+export async function handleInternalCommand(invocation, workspaceRoot, commandDir) {
   if (!invocation) return null
 
   if (invocation.type === 'compact') {
@@ -255,7 +283,7 @@ export async function handleInternalCommand(invocation, workspaceRoot) {
   }
 
   if (invocation.type === 'list') {
-    return formatCommandList(await listProjectCommands(workspaceRoot))
+    return formatCommandList(await listProjectCommands(workspaceRoot, commandDir))
   }
 
   if (invocation.type === 'new') {

@@ -13,8 +13,20 @@ for (const entry of copyEntries) {
   fs.cpSync(source, path.join(outDir, entry), { recursive: true })
 }
 
+const offlineOptionalDependencies = new Set([
+  '@vscode/ripgrep',
+])
+
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 delete pkg.devDependencies
 delete pkg.scripts
+
+pkg.optionalDependencies = { ...(pkg.optionalDependencies || {}) }
+for (const name of offlineOptionalDependencies) {
+  if (!pkg.dependencies?.[name]) continue
+  pkg.optionalDependencies[name] = pkg.dependencies[name]
+  delete pkg.dependencies[name]
+}
+
 pkg.bundledDependencies = Object.keys(pkg.dependencies || {})
 fs.writeFileSync(path.join(outDir, 'package.json'), `${JSON.stringify(pkg, null, 2)}\n`)

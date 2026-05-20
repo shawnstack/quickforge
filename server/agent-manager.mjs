@@ -4,6 +4,7 @@ import { Agent } from '@mariozechner/pi-agent-core'
 import { streamSimple } from '@mariozechner/pi-ai'
 import { toolHandlers, loadSkillToolContext } from './tools/index.mjs'
 import { createSkillTools, workspaceTools } from './tools/definitions.mjs'
+import { callMcpTool, createMcpToolDefinitions, isMcpToolName } from './mcp/registry.mjs'
 import { projectContextFromId, readProjectConfig } from './project-config.mjs'
 import { readStore, atomicUpdate, readSessionValue, writeSessionValue, deleteSessionValue } from './storage.mjs'
 import { logger } from './utils/logger.mjs'
@@ -57,6 +58,31 @@ function wrapToolDefinition(definition, context, toolPermissions) {
   }
 }
 
+function wrapMcpToolDefinition(definition, toolPermissions) {
+  return {
+    ...definition,
+    execute: async (_toolCallId, params) => {
+      if (toolPermissions) {
+        const permissionError = toolPermissions(definition.name)
+        if (permissionError) throw new Error(permissionError)
+      }
+
+      const startedAt = Date.now()
+      const startedAtPerf = performance.now()
+      const result = await callMcpTool(definition.name, params || {})
+      const finishedAt = Date.now()
+      const durationMs = Math.max(0, Math.round(performance.now() - startedAtPerf))
+      if (result.isError) {
+        throw new Error(result.content || `MCP tool failed: ${definition.name}`)
+      }
+      return {
+        content: [{ type: 'text', text: result.content }],
+        details: mergeQuickForgeTiming(result.details, { startedAt, finishedAt, durationMs }),
+      }
+    },
+  }
+}
+
 async function createServerTools(projectId, projectContext, skillsContext, includeWorkspaceTools, toolPermissions) {
   const skillTools = await createSkillTools({
     globalSkillNames: skillsContext.globalSkillNames,
@@ -74,6 +100,9 @@ async function createServerTools(projectId, projectContext, skillsContext, inclu
   if (includeWorkspaceTools && projectId && projectContext) {
     tools.push(...workspaceTools.map((definition) => wrapToolDefinition(definition, toolContext, toolPermissions)))
   }
+
+  const mcpTools = await createMcpToolDefinitions()
+  tools.push(...mcpTools.map((definition) => wrapMcpToolDefinition(definition, toolPermissions)))
 
   return tools
 }
@@ -129,6 +158,7 @@ function createCommandToolPermissions(session) {
  * effectively freezing the agent until the user decides.
  */
 function createApprovalPromise(session, toolCallId, toolName, args) {
+  if (!session) return { block: true, reason: 'No active session for tool approval.' }
   return new Promise((resolve, reject) => {
     let settled = false
 
@@ -682,10 +712,14 @@ export async function createAgent(sessionId, config = {}) {
       const toolCallId = context.toolCall?.id
       const isSkillTool = toolName === 'activate_skill' || toolName === 'read_skill_resource'
       if (isSkillTool) return undefined
+      const currentSession = agentSessions.get(sessionId)
+      if (isMcpToolName(toolName)) {
+        if (!currentSession?.yoloMode) return createApprovalPromise(currentSession, toolCallId, toolName, context.args)
+        return undefined
+      }
       if (!projectContext) {
         return { block: true, reason: 'No active project. Select a project to use tools.' }
       }
-      const currentSession = agentSessions.get(sessionId)
       if (!currentSession?.yoloMode) {
         // YOLO OFF: safe reads auto-pass, dangerous writes require approval
         if (safeReadTools.has(toolName)) return undefined
@@ -1264,6 +1298,22 @@ export function listSessions() {
       status: session.status,
       title: session.title,
     })
+  }
+  return result
+}
+
+export async function refreshAllSessionTools() {
+  const result = []
+  for (const [sessionId, session] of agentSessions) {
+    try {
+      await rebuildSessionTools(session)
+      const state = getSessionState(sessionId)
+      emitSessionEvent(session, { type: 'state', ...state })
+      result.push({ sessionId, ok: true, toolCount: session.agent.state.tools?.length || 0 })
+    } catch (error) {
+      logger.error(`Failed to refresh tools for session ${sessionId}:`, error, { sessionId })
+      result.push({ sessionId, ok: false, error: error?.message || 'Failed to refresh tools' })
+    }
   }
   return result
 }

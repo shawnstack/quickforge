@@ -14,6 +14,7 @@ import {
   restoreAgent,
   touchSession,
   listSessions,
+  refreshAllSessionTools,
   updateSessionYoloMode,
   updateSessionModel,
   updateSessionThinkingLevel,

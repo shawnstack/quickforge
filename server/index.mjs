@@ -22,12 +22,14 @@ import { handleSystemApi } from './routes/system.mjs'
 import { handleSharesApi } from './routes/shares.mjs'
 import { handleSharedConversationApi } from './routes/shared-conversation.mjs'
 import { handleLanAccessApi, renderLanUnlockPage } from './routes/lan-access.mjs'
+import { handleMcpApi } from './routes/mcp.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { logger, flushLogger } from './utils/logger.mjs'
 import { isLoopbackAddress, getLanUrls } from './utils/network.mjs'
 import { parseCookies } from './share-store.mjs'
 import { lanAccessCookieName, verifyLanAccessToken } from './lan-access-store.mjs'
 import { shutdown as shutdownAgentManager, resetStaleTaskStatuses } from './agent-manager.mjs'
+import { shutdownMcpConnections } from './mcp/registry.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -129,6 +131,7 @@ async function performRestart() {
   stopScheduledTaskRunner()
   stopVite()
   await shutdownAgentManager()
+  await shutdownMcpConnections()
   await closeHttpServer()
   process.exit(0)
 }
@@ -202,6 +205,12 @@ async function handleApi(req, res, url) {
   // Skills
   if (pathname === '/api/skills' || pathname.startsWith('/api/skills/')) {
     await handleSkillsApi(req, res, url)
+    return
+  }
+
+  // MCP servers
+  if (pathname === '/api/mcp' || pathname.startsWith('/api/mcp/')) {
+    await handleMcpApi(req, res, url)
     return
   }
 
@@ -478,6 +487,7 @@ async function gracefulShutdown(signal) {
   stopScheduledTaskRunner()
   stopVite()
   await shutdownAgentManager()
+  await shutdownMcpConnections()
   flushLogger()
   process.exit(0)
 }

@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { ScheduledTasksPage } from '@/components/scheduled-tasks/ScheduledTasksPage'
 import { ProjectDirectoryPicker } from '@/components/project-directory-picker'
 import { SkillsDialog } from '@/components/skills-dialog'
+import { McpServersDialog } from '@/components/mcp-servers-dialog'
 import {
   buildConnectionModel,
   DEFAULT_CONNECTION,
@@ -112,6 +113,7 @@ function MainApp() {
   const [needsModelSetup, setNeedsModelSetup] = useState(false)
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
   const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false)
+  const [mcpServersDialogOpen, setMcpServersDialogOpen] = useState(false)
   const [skillsDialog, setSkillsDialog] = useState<{ scope: SkillsScope; project?: ProjectInfo }>()
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const { toasts, handleTaskComplete, addToast, dismissToast } = useTaskToasts()
@@ -417,6 +419,11 @@ function MainApp() {
     openGlobalSkills()
   }, [closeMobileSidebar, openGlobalSkills])
 
+  const openMcpServersFromSidebar = useCallback(() => {
+    closeMobileSidebar()
+    setMcpServersDialogOpen(true)
+  }, [closeMobileSidebar])
+
   const openProjectSkillsFromSidebar = useCallback((project: ProjectInfo) => {
     closeMobileSidebar()
     openProjectSkills(project)
@@ -494,6 +501,7 @@ function MainApp() {
         onSelectProjectDirectory={selectProjectDirectory}
         onStartNewProjectChat={startNewProjectChat}
         onOpenGlobalSkills={openGlobalSkills}
+        onOpenMcpServers={() => setMcpServersDialogOpen(true)}
         onOpenProjectSkills={openProjectSkills}
         onOpenProjectInExplorer={(project) => {
           void openProjectInExplorer(project).catch((error) => {
@@ -549,6 +557,7 @@ function MainApp() {
               }}
               onStartNewProjectChat={startNewProjectChatFromSidebar}
               onOpenGlobalSkills={openGlobalSkillsFromSidebar}
+              onOpenMcpServers={openMcpServersFromSidebar}
               onOpenProjectSkills={openProjectSkillsFromSidebar}
               onOpenProjectInExplorer={(project) => {
                 closeMobileSidebar()
@@ -663,6 +672,10 @@ function MainApp() {
         if (!open) setSkillsDialog(undefined)
       }}
       onSaved={handleSkillsSaved}
+    />
+    <McpServersDialog
+      open={mcpServersDialogOpen}
+      onOpenChange={setMcpServersDialogOpen}
     />
     <ShareConversationDialog
       open={shareDialogOpen}

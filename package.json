@@ -52,6 +52,7 @@
   "dependencies": {
     "@mariozechner/pi-agent-core": "^0.70.5",
     "@mariozechner/pi-ai": "^0.70.5",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@vscode/ripgrep": "^1.18.0"
   },
   "devDependencies": {

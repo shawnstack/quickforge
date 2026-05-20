@@ -10,6 +10,7 @@ server/
 ├── agent-manager.mjs         # Agent 生命周期管理 (1350 行)
 ├── storage.mjs               # 文件存储层 (707 行)
 ├── skills.mjs                # Agent Skills 管理和加载 (553 行)
+├── mcp/                      # MCP Client 配置、连接和工具适配
 ├── share-store.mjs           # 分享数据存储 (432 行)
 ├── session-utils.mjs         # 会话工具 (102 行)
 ├── system-prompt.mjs         # 系统提示词合成 (91 行)
@@ -104,6 +105,20 @@ server/
 - `mergeSkills()` — 合并全局和项目 skills
 - `readSkillResource()` — 读取技能资源文件
 - Skill 验证（名称格式、目录结构）
+
+### mcp/ — MCP Client 集成
+
+**用途**: 管理全局 stdio MCP Server，并把外部 MCP tools 适配为 QuickForge Agent tools。
+
+**核心文件**:
+- `mcp/config.mjs` — MCP Server 配置读写和校验，配置存放在 `settings.mcpServers`；兼容 `mcpServers` JSON 导入、`type`/`transport` 和远程 `headers` 配置。
+- `mcp/registry.mjs` — stdio/SSE/Streamable HTTP 连接生命周期、工具发现、工具调用转发、关闭清理。
+- `routes/mcp.mjs` — `/api/mcp/servers`、`/api/mcp/config`、`/api/mcp/reconnect` 等管理接口。
+
+**行为约束**:
+- 当前支持 `stdio`、`sse` 和 Streamable HTTP (`http`) transport。
+- MCP 工具注入时使用 `mcp__{serverName}__{toolName}` 命名空间，避免和内置工具重名。
+- YOLO 关闭时，MCP 工具调用需要用户审批；YOLO 开启时允许直接调用。
 
 ### share-store.mjs (432 行)
 

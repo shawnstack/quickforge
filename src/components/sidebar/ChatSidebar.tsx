@@ -10,6 +10,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
+  Plug,
   Plus,
   Puzzle,
   Search,
@@ -50,6 +51,7 @@ type ChatSidebarProps = {
   onSelectProjectDirectory: () => void
   onStartNewProjectChat: (project: ProjectInfo) => void
   onOpenGlobalSkills: () => void
+  onOpenMcpServers: () => void
   onOpenProjectSkills: (project: ProjectInfo) => void
   onOpenProjectInExplorer: (project: ProjectInfo) => void
   onDeleteProject: (projectId: string) => void
@@ -109,6 +111,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   onSelectProjectDirectory,
   onStartNewProjectChat,
   onOpenGlobalSkills,
+  onOpenMcpServers,
   onOpenProjectSkills,
   onOpenProjectInExplorer,
   onDeleteProject,
@@ -228,6 +231,18 @@ export const ChatSidebar = memo(function ChatSidebar({
             <Puzzle className="size-4" />
           </span>
           {sidebarOpen ? <span className={sessionTitleClass}>{t('skills')}</span> : null}
+        </button>
+        <button
+          type="button"
+          className={cn(rowClass, 'w-full', inactiveRowClass)}
+          onClick={onOpenMcpServers}
+          aria-label={t('manageMcpServers')}
+          title={t('manageMcpServers')}
+        >
+          <span className={iconSlotClass}>
+            <Plug className="size-4" />
+          </span>
+          {sidebarOpen ? <span className={sessionTitleClass}>{t('mcp')}</span> : null}
         </button>
         <button
           type="button"

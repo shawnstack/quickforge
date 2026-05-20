@@ -2,6 +2,27 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.2] - 2026-05-20
+
+### Added
+
+- Added global MCP server integration with configuration, registry, API routes, and UI management.
+
+### Changed
+
+- Enhanced the bilingual README for clearer feature, install, and safety documentation.
+- Refined MCP server list actions for a cleaner management experience.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.2` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.2.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.2.tgz
+  ```
+
 ## [1.3.1] - 2026-05-19
 
 ### Added

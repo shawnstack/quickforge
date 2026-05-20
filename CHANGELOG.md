@@ -2,6 +2,24 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.3] - 2026-05-20
+
+### Changed
+
+- Optimized offline package publishing to keep `@vscode/ripgrep` optional and platform-neutral.
+- Added offline package pruning to reduce bundled tarball size.
+- Updated release runbook and script wiki documentation for offline packaging behavior.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.3` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.3.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.3.tgz
+  ```
+
 ## [1.3.2] - 2026-05-20
 
 ### Added

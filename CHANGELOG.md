@@ -2,6 +2,23 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.6] - 2026-05-20
+
+### Changed
+
+- Prepared a patch maintenance release after `v1.3.5`.
+- No runtime source changes were introduced since `v1.3.5`.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.6` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.6.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.6.tgz
+  ```
+
 ## [1.3.5] - 2026-05-20
 
 ### Added

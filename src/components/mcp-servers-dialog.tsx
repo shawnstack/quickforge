@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Loader2, Plug, Plus, RefreshCw, Trash2, X } from 'lucide-react'
+import { Loader2, Plug, Plus, RefreshCw, Trash2, X, Edit3 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 
 type McpServer = {
   name: string
@@ -265,17 +266,21 @@ export function McpServersDialog({ open, onOpenChange }: McpServersDialogProps) 
                         {server.error ? <div className="mt-1 text-xs text-destructive">{server.error}</div> : null}
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
-                        <label className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground">
-                          <input
-                            type="checkbox"
-                            checked={server.enabled}
-                            disabled={togglingName === server.name}
-                            onChange={() => { void toggleServerEnabled(server) }}
-                          />
-                          {t('enabled')}
-                        </label>
-                        <Button type="button" variant="ghost" size="sm" onClick={() => { setConfigText(serverToJson(server)); setError('') }}>{t('editTask')}</Button>
-                        <Button type="button" variant="ghost" size="icon" className="size-8 text-destructive" onClick={() => { void deleteServer(server.name) }} aria-label={t('delete')}>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={server.enabled}
+                          disabled={togglingName === server.name}
+                          className={cn('relative h-6 w-11 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60', server.enabled ? 'bg-emerald-500' : 'bg-muted-foreground/30')}
+                          onClick={() => { void toggleServerEnabled(server) }}
+                          title={server.enabled ? t('pauseTask') : t('enable')}
+                        >
+                          <span className={cn('absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform', server.enabled ? 'translate-x-5' : 'translate-x-0')} />
+                        </button>
+                        <Button type="button" variant="ghost" size="icon" className="size-8 text-muted-foreground" onClick={() => { setConfigText(serverToJson(server)); setError('') }} aria-label={t('editTask')} title={t('editTask')}>
+                          <Edit3 className="size-4" />
+                        </Button>
+                        <Button type="button" variant="ghost" size="icon" className="size-8 text-destructive" onClick={() => { void deleteServer(server.name) }} aria-label={t('delete')} title={t('delete')}>
                           <Trash2 className="size-4" />
                         </Button>
                       </div>

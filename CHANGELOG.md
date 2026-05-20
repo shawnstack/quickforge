@@ -2,6 +2,28 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.5] - 2026-05-20
+
+### Added
+
+- Added opt-in full AI HTTP request/response tracing with independent `ai-http-YYYY-MM-DD.jsonl` logs.
+- Captured AI request URL, method, headers, body, response status, headers, body, duration, session, provider, API, model, and request purpose for local diagnostics.
+- Covered both normal chat requests and conversation compaction requests.
+
+### Changed
+
+- Documented the `QUICKFORGE_AI_HTTP_LOG` diagnostic switch and related sensitive-log handling guidance.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.5` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.5.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.5.tgz
+  ```
+
 ## [1.3.4] - 2026-05-20
 
 ### Changed

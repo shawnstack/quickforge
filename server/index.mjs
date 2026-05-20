@@ -25,6 +25,7 @@ import { handleLanAccessApi, renderLanUnlockPage } from './routes/lan-access.mjs
 import { handleMcpApi } from './routes/mcp.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { logger, flushLogger } from './utils/logger.mjs'
+import { installAiHttpLogger } from './ai-http-logger.mjs'
 import { isLoopbackAddress, getLanUrls } from './utils/network.mjs'
 import { parseCookies } from './share-store.mjs'
 import { lanAccessCookieName, verifyLanAccessToken } from './lan-access-store.mjs'
@@ -50,6 +51,7 @@ const vitePort = Number(process.env.QUICKFORGE_VITE_PORT || 5176)
 let restartInProgress = false
 
 setDefaultWorkspaceRoot(process.env.QUICKFORGE_WORKSPACE_DIR || projectRoot)
+installAiHttpLogger()
 
 function getRestartSupport() {
   return { supported: true, reason: null }

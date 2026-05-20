@@ -14,6 +14,10 @@
 │  ~/.quickforge/logs/server-YYYY-MM-DD.log            │
 │  (JSON Lines, daily rotation)                        │
 └──────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  ~/.quickforge/logs/ai-http-YYYY-MM-DD.jsonl         │
+│  (AI HTTP full request/response trace, opt-in)       │
+└──────────────────────────────────────────────────────┘
           ▲                              ▲
           │ appendFile (buffered)        │
           │                              │
@@ -74,6 +78,22 @@ logger.info(`Agent prompt error`, err, { sessionId })
 - **保留 7 天**：`ensureStorage()` 启动时清理超过 7 天的日志
 - **总大小上限 100MB**：超出时从最旧文件开始删除
 
+### 2.6 AI HTTP 完整请求/响应日志
+
+`server/ai-http-logger.mjs` 提供可选的 AI HTTP 诊断日志。通过 `QUICKFORGE_AI_HTTP_LOG=1` 开启后，会拦截 QuickForge 发起的 AI 模型请求，并按天写入独立文件：
+
+```text
+~/.quickforge/logs/ai-http-YYYY-MM-DD.jsonl
+```
+
+日志为 JSON Lines，每个 HTTP 请求通常包含：
+
+- `ai_http_request`：真实 fetch URL、method、headers、body
+- `ai_http_response`：HTTP status、headers、完整响应 body
+- `ai_http_error` / `ai_http_response_capture_error`：请求或响应体捕获失败时的错误
+
+该功能用于本地诊断，默认关闭。开启后日志可能包含 API Key、系统提示词、用户输入、项目源码片段、工具结果和模型返回内容，请勿分享或上传这些日志。
+
 ## 3. 前端日志 (`src/lib/logger.ts`)
 
 ```typescript
@@ -119,6 +139,7 @@ qf logs --grep sessionId=abc123  # 按关键字过滤
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `QUICKFORGE_LOG_LEVEL` | `info` | 最低日志级别 (error/warn/info/debug) |
+| `QUICKFORGE_AI_HTTP_LOG` | `off` | 设置为 `1`/`true`/`full` 时开启 AI HTTP 完整请求/响应诊断日志，写入 `logs/ai-http-YYYY-MM-DD.jsonl` |
 | `QUICKFORGE_DATA_DIR` | `~/.quickforge` | 数据根目录，日志在 `$DATA_DIR/logs/` |
 
 ## 7. 变更摘要
@@ -126,8 +147,10 @@ qf logs --grep sessionId=abc123  # 按关键字过滤
 | 文件 | 变更 |
 |------|------|
 | `server/utils/logger.mjs` | 重写：DEBUG 级别、JSON Lines、异步 buffer、child()、flushLogger() |
-| `server/index.mjs` | 注入 reqId、SIGTERM 时 flush |
-| `server/agent-manager.mjs` | console.error→logger.error、结构化 sessionId |
+| `server/ai-http-logger.mjs` | 新增：可选 AI HTTP 完整请求/响应诊断日志 |
+| `server/index.mjs` | 注入 reqId、SIGTERM 时 flush，启动 AI HTTP 日志拦截器 |
+| `server/agent-manager.mjs` | console.error→logger.error、结构化 sessionId，接入 AI HTTP 日志包装 stream |
+| `server/conversation-compaction.mjs` | 接入 AI HTTP 日志包装 stream，标记 compact 请求 |
 | `server/storage.mjs` | 新增 `cleanOldLogs()`，启动时清理过期日志 |
 | `src/lib/logger.ts` | **新建**：前端统一 logger |
 | `src/**/*.ts(x)` | 14 个文件，console→logger 替换 |

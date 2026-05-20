@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { streamSimple } from '@mariozechner/pi-ai'
+import { streamSimpleWithAiHttpLogging } from './ai-http-logger.mjs'
 import { cacheDir } from './storage.mjs'
 
 export const DEFAULT_COMPACT_KEEP_TURNS = 0
@@ -253,7 +253,7 @@ export async function compactConversation({ messages, model, thinkingLevel, getA
   const modelMaxTokens = Number(model.maxTokens) || 4096
   const maxTokens = Math.max(512, Math.min(modelMaxTokens, 4096))
   const apiKey = getApiKey ? await getApiKey(model.provider) : undefined
-  const stream = streamSimple(
+  const stream = streamSimpleWithAiHttpLogging(
     model,
     {
       systemPrompt: COMPACT_SYSTEM_PROMPT,
@@ -266,6 +266,7 @@ export async function compactConversation({ messages, model, thinkingLevel, getA
       temperature: 0.2,
       reasoning: thinkingLevel === 'off' ? undefined : 'low',
       maxRetryDelayMs: 60000,
+      metadata: { quickforgePurpose: 'compact' },
     },
   )
 

@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import { Agent } from '@mariozechner/pi-agent-core'
-import { streamSimple } from '@mariozechner/pi-ai'
+import { streamSimpleWithAiHttpLogging } from './ai-http-logger.mjs'
 import { toolHandlers, loadSkillToolContext } from './tools/index.mjs'
 import { createSkillTools, workspaceTools } from './tools/definitions.mjs'
 import { callMcpTool, createMcpToolDefinitions, isMcpToolName } from './mcp/registry.mjs'
@@ -699,7 +699,7 @@ export async function createAgent(sessionId, config = {}) {
       messages,
       tools,
     },
-    streamFn: streamSimple,
+    streamFn: streamSimpleWithAiHttpLogging,
     getApiKey,
     sessionId,
     convertToLlm: serverConvertToLlm,

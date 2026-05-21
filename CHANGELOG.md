@@ -2,6 +2,31 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.7] - 2026-05-21
+
+### Added
+
+- Added collapsed AI processing detail panels with decorative visual treatment.
+
+### Changed
+
+- Polished chat tool call icons and processing detail completion behavior.
+- Removed MCP server description copy from the server management dialog.
+
+### Fixed
+
+- Fold processing details after completion and preserve finalized collapsed processing state.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.7` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.7.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.7.tgz
+  ```
+
 ## [1.3.6] - 2026-05-20
 
 ### Changed

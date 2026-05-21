@@ -2,6 +2,28 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.10] - 2026-05-21
+
+### Added
+
+- Added configurable terminal shell selection with project-level shell profiles.
+- Added terminal shell profile support across server APIs, terminal sessions, settings UI, and localized copy.
+
+### Changed
+
+- Updated the sidebar toggle icon styling.
+- Updated code wiki documentation for terminal shell profile behavior.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.10` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.10.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.10.tgz
+  ```
+
 ## [1.3.9] - 2026-05-21
 
 ### Changed

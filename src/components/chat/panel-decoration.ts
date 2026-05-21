@@ -256,14 +256,14 @@ function processLabel(assistants: AssistantMessageElement[], body: HTMLElement, 
 
   if (streaming) {
     finishedAt = Date.now()
-  } else if (finishedAt === undefined) {
+  } else {
     const cachedFinishedAt = timestampFromUnknown(group.dataset.quickforgeFinishedAt)
     if (cachedFinishedAt !== undefined && cachedFinishedAt > 0) {
       finishedAt = cachedFinishedAt
     } else {
-      // Thinking-only messages do not currently carry a finish timestamp. Cache
-      // the first completed decoration time so the label remains stable.
-      finishedAt = Date.now()
+      // Once the run is complete, freeze the label timestamp so repeated
+      // decoration does not keep increasing thinking-only durations.
+      finishedAt = finishedAt ?? Date.now()
       group.dataset.quickforgeFinishedAt = String(finishedAt)
     }
   }
@@ -388,8 +388,26 @@ function updateEmptyProcessSources(assistants: AssistantMessageElement[], target
   }
 }
 
+function restoreProcessTurn(assistants: AssistantMessageElement[]) {
+  for (const assistant of assistants) {
+    assistant.classList.remove('quickforge-process-source-empty')
+    assistant.querySelectorAll<ProcessGroupElement>(PROCESS_GROUP_SELECTOR).forEach((group) => {
+      const body = group.querySelector<HTMLElement>(PROCESS_BODY_SELECTOR)
+      if (body) {
+        Array.from(body.children).forEach((node) => group.parentElement?.insertBefore(node, group))
+      }
+      group.remove()
+    })
+  }
+}
+
 function decorateProcessTurn(assistants: AssistantMessageElement[], isAgentStreaming: boolean) {
   if (assistants.length === 0) return
+  if (isAgentStreaming) {
+    restoreProcessTurn(assistants)
+    return
+  }
+
   const target = assistants[assistants.length - 1]
   const hasProcessContent = assistants.some((assistant, index) => {
     const selector = index === assistants.length - 1 ? PROCESS_NODE_SELECTOR : PROCESS_DETAIL_NODE_SELECTOR
@@ -411,25 +429,25 @@ function decorateProcessTurn(assistants: AssistantMessageElement[], isAgentStrea
 }
 
 function decorateProcessBlocks(panel: HTMLElement, isAgentStreaming: boolean) {
-  if (!isAgentStreaming) {
-    panel.querySelectorAll<HTMLElement>('streaming-message-container .quickforge-process-group').forEach((group) => group.remove())
-  }
+  const orderedMessages = Array.from(
+    panel.querySelectorAll<HTMLElement>('message-list user-message, message-list assistant-message'),
+  )
 
-  const orderedMessages = [
-    ...Array.from(panel.querySelectorAll<HTMLElement>('message-list user-message, message-list assistant-message')),
-    ...(isAgentStreaming ? Array.from(panel.querySelectorAll<HTMLElement>('streaming-message-container assistant-message')) : []),
-  ]
-
+  const turns: AssistantMessageElement[][] = []
   let currentAssistants: AssistantMessageElement[] = []
   for (const message of orderedMessages) {
     if (message.tagName.toLowerCase() === 'user-message') {
-      decorateProcessTurn(currentAssistants, isAgentStreaming)
+      if (currentAssistants.length > 0) turns.push(currentAssistants)
       currentAssistants = []
       continue
     }
     currentAssistants.push(message as AssistantMessageElement)
   }
-  decorateProcessTurn(currentAssistants, isAgentStreaming)
+  if (currentAssistants.length > 0) turns.push(currentAssistants)
+
+  turns.forEach((assistants, index) => {
+    decorateProcessTurn(assistants, isAgentStreaming && index === turns.length - 1)
+  })
 }
 
 // --- Editor decoration ---

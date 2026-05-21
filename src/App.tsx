@@ -632,9 +632,8 @@ function MainApp() {
 
         </header>
 
-        <div className="flex min-h-0 flex-1">
-          <section className="flex min-w-0 flex-1 flex-col">
-            {scheduledTasksOpen ? (
+        <section className="flex min-h-0 flex-1 flex-col">
+          {scheduledTasksOpen ? (
               <ScheduledTasksPage onOpenSession={handleToastClick} />
             ) : needsModelSetup ? (
               <ModelSetupEmptyState
@@ -663,15 +662,14 @@ function MainApp() {
                   restoredDraft={restoredDraft}
                 />
               </ErrorBoundary>
-            )}
-          </section>
-          <WorkspaceInspector
-            project={agentManager.currentToolProject}
-            open={workspaceInspectorOpen && Boolean(agentManager.currentToolProject?.id)}
-            onOpenChange={setWorkspaceInspectorOpen}
-          />
-        </div>
+          )}
+        </section>
       </main>
+      <WorkspaceInspector
+        project={agentManager.currentToolProject}
+        open={workspaceInspectorOpen && Boolean(agentManager.currentToolProject?.id)}
+        onOpenChange={setWorkspaceInspectorOpen}
+      />
     </div>
     <ProjectDirectoryPicker
       open={projectPickerOpen}

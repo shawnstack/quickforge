@@ -169,6 +169,263 @@ export function decorateMessages(deps: MessageDecorationDeps) {
 
     element.append(actions)
   })
+
+  decorateProcessBlocks(panel)
+}
+
+// --- AI process folding (thinking + tool calls) ---
+
+type ProcessGroupElement = HTMLDivElement
+
+type ToolMessageElement = HTMLElement & {
+  result?: unknown
+}
+
+type AssistantMessageElement = HTMLElement & {
+  message?: MessageWithUsage & { stopReason?: string; errorMessage?: string }
+  isStreaming?: boolean
+}
+
+const PROCESS_GROUP_SELECTOR = '.quickforge-process-group'
+const PROCESS_BODY_SELECTOR = '.quickforge-process-body'
+const PROCESS_NODE_SELECTOR = 'thinking-block, tool-message'
+const PROCESS_DETAIL_NODE_SELECTOR = 'thinking-block, tool-message, markdown-block'
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function numberFromUnknown(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function timestampFromUnknown(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value)
+    return Number.isNaN(parsed) ? undefined : parsed
+  }
+  return undefined
+}
+
+function toolTimingFromResult(result: unknown) {
+  if (!isRecord(result)) return undefined
+  const details = result.details
+  if (!isRecord(details)) return undefined
+  const timing = details.quickforgeTiming
+  if (!isRecord(timing)) return undefined
+
+  const startedAt = numberFromUnknown(timing.startedAt)
+  const finishedAt = numberFromUnknown(timing.finishedAt)
+  const durationMs = numberFromUnknown(timing.durationMs)
+  return { startedAt, finishedAt, durationMs }
+}
+
+function toolMessageFinishedAt(toolMessage: ToolMessageElement): number | undefined {
+  const resultTiming = toolTimingFromResult(toolMessage.result)
+  if (resultTiming?.finishedAt !== undefined) return resultTiming.finishedAt
+  if (resultTiming?.startedAt !== undefined && resultTiming.durationMs !== undefined) {
+    return resultTiming.startedAt + resultTiming.durationMs
+  }
+  return undefined
+}
+
+function toolMessageStartedAt(toolMessage: ToolMessageElement): number | undefined {
+  return toolTimingFromResult(toolMessage.result)?.startedAt
+}
+
+function formatProcessDuration(durationMs?: number) {
+  if (durationMs === undefined || durationMs < 1000) return ''
+  const totalSeconds = Math.max(1, Math.round(durationMs / 1000))
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`
+}
+
+function processLabel(assistants: AssistantMessageElement[], body: HTMLElement, group: ProcessGroupElement) {
+  const streaming = assistants.some((assistant) => assistant.isStreaming === true)
+  const stopReason = [...assistants].reverse().find((assistant) => assistant.message?.stopReason)?.message?.stopReason
+  const toolMessages = Array.from(body.querySelectorAll<ToolMessageElement>('tool-message'))
+  const starts = [
+    ...assistants.map((assistant) => timestampFromUnknown(assistant.message?.timestamp)),
+    ...toolMessages.map(toolMessageStartedAt),
+  ].filter((value): value is number => value !== undefined)
+  const finishedTimes = toolMessages.map(toolMessageFinishedAt).filter((value): value is number => value !== undefined)
+  const startedAt = starts.length > 0 ? Math.min(...starts) : undefined
+  let finishedAt = finishedTimes.length > 0 ? Math.max(...finishedTimes) : undefined
+
+  if (streaming) {
+    finishedAt = Date.now()
+  } else if (finishedAt === undefined) {
+    const cachedFinishedAt = timestampFromUnknown(group.dataset.quickforgeFinishedAt)
+    if (cachedFinishedAt !== undefined && cachedFinishedAt > 0) {
+      finishedAt = cachedFinishedAt
+    } else {
+      // Thinking-only messages do not currently carry a finish timestamp. Cache
+      // the first completed decoration time so the label remains stable.
+      finishedAt = Date.now()
+      group.dataset.quickforgeFinishedAt = String(finishedAt)
+    }
+  }
+
+  const duration = startedAt !== undefined && finishedAt !== undefined
+    ? formatProcessDuration(Math.max(0, finishedAt - startedAt))
+    : ''
+
+  const base = stopReason === 'error'
+    ? t('processFailed')
+    : stopReason === 'aborted'
+      ? t('processAborted')
+      : streaming
+        ? t('processing')
+        : t('processed')
+
+  return duration ? `${base} ${duration}` : base
+}
+
+function assistantContentContainer(assistant: AssistantMessageElement) {
+  const contentNode = assistant.querySelector<HTMLElement>(`${PROCESS_DETAIL_NODE_SELECTOR}, ${PROCESS_GROUP_SELECTOR}`)
+  return contentNode?.closest<HTMLElement>('.px-4.flex.flex-col') ?? contentNode?.parentElement ?? null
+}
+
+function createProcessGroup() {
+  const group = document.createElement('div') as ProcessGroupElement
+  group.className = 'quickforge-process-group'
+  group.dataset.expanded = 'false'
+
+  const summary = document.createElement('button')
+  summary.type = 'button'
+  summary.className = 'quickforge-process-summary'
+  summary.innerHTML = `
+    <span class="quickforge-process-label"></span>
+    <span class="quickforge-process-chevron" aria-hidden="true">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+    </span>
+  `
+
+  const body = document.createElement('div')
+  body.className = 'quickforge-process-body'
+
+  group.append(summary, body)
+  return group
+}
+
+function ensureTurnProcessGroup(target: AssistantMessageElement) {
+  const existing = target.querySelector<ProcessGroupElement>(PROCESS_GROUP_SELECTOR)
+  if (existing) return existing
+
+  const container = assistantContentContainer(target)
+  if (!container) return null
+
+  const group = createProcessGroup()
+  container.insertBefore(group, container.firstElementChild)
+  return group
+}
+
+function updateProcessGroup(assistants: AssistantMessageElement[], group: ProcessGroupElement) {
+  const body = group.querySelector<HTMLElement>(PROCESS_BODY_SELECTOR)
+  const summary = group.querySelector<HTMLButtonElement>('.quickforge-process-summary')
+  const label = group.querySelector<HTMLElement>('.quickforge-process-label')
+  if (!body || !summary || !label) return
+
+  const nextLabel = processLabel(assistants, body, group)
+  if (label.textContent !== nextLabel) label.textContent = nextLabel
+
+  const expanded = group.dataset.expanded === 'true'
+  summary.setAttribute('aria-expanded', String(expanded))
+  summary.setAttribute('aria-label', expanded ? t('collapseProcess') : t('expandProcess'))
+  summary.onclick = (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const nextExpanded = group.dataset.expanded !== 'true'
+    group.dataset.expanded = String(nextExpanded)
+    summary.setAttribute('aria-expanded', String(nextExpanded))
+    summary.setAttribute('aria-label', nextExpanded ? t('collapseProcess') : t('expandProcess'))
+  }
+}
+
+function moveProcessNodesIntoTurnGroup(assistants: AssistantMessageElement[], target: AssistantMessageElement, group: ProcessGroupElement) {
+  const body = group.querySelector<HTMLElement>(PROCESS_BODY_SELECTOR)
+  if (!body) return false
+
+  let moved = false
+  for (const assistant of assistants) {
+    const isTarget = assistant === target
+
+    assistant.querySelectorAll<ProcessGroupElement>(PROCESS_GROUP_SELECTOR).forEach((existingGroup) => {
+      const existingBody = existingGroup.querySelector<HTMLElement>(PROCESS_BODY_SELECTOR)
+      if (existingBody && existingBody !== body) {
+        Array.from(existingBody.children).forEach((node) => {
+          body.append(node)
+          moved = true
+        })
+      }
+      if (existingGroup !== group) existingGroup.remove()
+    })
+
+    const selector = isTarget ? PROCESS_NODE_SELECTOR : PROCESS_DETAIL_NODE_SELECTOR
+    assistant.querySelectorAll<HTMLElement>(selector).forEach((node) => {
+      if (node.closest(PROCESS_BODY_SELECTOR)) return
+      body.append(node)
+      moved = true
+    })
+  }
+
+  return moved || body.childElementCount > 0
+}
+
+function updateEmptyProcessSources(assistants: AssistantMessageElement[], target: AssistantMessageElement) {
+  for (const assistant of assistants) {
+    if (assistant === target) {
+      assistant.classList.remove('quickforge-process-source-empty')
+      continue
+    }
+
+    const hasVisibleContent = Boolean(
+      assistant.querySelector('markdown-block, thinking-block, tool-message, .quickforge-process-group, .quickforge-approval-card'),
+    )
+    assistant.classList.toggle('quickforge-process-source-empty', !hasVisibleContent)
+  }
+}
+
+function decorateProcessTurn(assistants: AssistantMessageElement[]) {
+  if (assistants.length === 0) return
+  const target = assistants[assistants.length - 1]
+  const hasProcessContent = assistants.some((assistant, index) => {
+    const selector = index === assistants.length - 1 ? PROCESS_NODE_SELECTOR : PROCESS_DETAIL_NODE_SELECTOR
+    return Boolean(assistant.querySelector(selector))
+  })
+  if (!hasProcessContent) return
+
+  const group = ensureTurnProcessGroup(target)
+  if (!group) return
+
+  const hasGroupedContent = moveProcessNodesIntoTurnGroup(assistants, target, group)
+  if (!hasGroupedContent) {
+    group.remove()
+    return
+  }
+
+  updateProcessGroup(assistants, group)
+  updateEmptyProcessSources(assistants, target)
+}
+
+function decorateProcessBlocks(panel: HTMLElement) {
+  const orderedMessages = [
+    ...Array.from(panel.querySelectorAll<HTMLElement>('message-list user-message, message-list assistant-message')),
+    ...Array.from(panel.querySelectorAll<HTMLElement>('streaming-message-container assistant-message')),
+  ]
+
+  let currentAssistants: AssistantMessageElement[] = []
+  for (const message of orderedMessages) {
+    if (message.tagName.toLowerCase() === 'user-message') {
+      decorateProcessTurn(currentAssistants)
+      currentAssistants = []
+      continue
+    }
+    currentAssistants.push(message as AssistantMessageElement)
+  }
+  decorateProcessTurn(currentAssistants)
 }
 
 // --- Editor decoration ---

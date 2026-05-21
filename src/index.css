@@ -91,6 +91,63 @@
   margin-bottom: 0;
 }
 
+.quickforge-process-group {
+  display: block;
+  color: var(--muted-foreground);
+}
+
+.quickforge-process-summary {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0;
+  border: 0;
+  background: transparent;
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+  cursor: pointer;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  transition: color 160ms ease;
+}
+
+.quickforge-process-summary:hover {
+  color: color-mix(in oklab, var(--foreground) 86%, transparent);
+}
+
+.quickforge-process-chevron {
+  display: inline-flex;
+  width: 1rem;
+  height: 1rem;
+  align-items: center;
+  justify-content: center;
+  transition: transform 160ms ease;
+}
+
+.quickforge-process-chevron svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.quickforge-process-group[data-expanded="true"] .quickforge-process-chevron {
+  transform: rotate(90deg);
+}
+
+.quickforge-process-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.quickforge-process-group[data-expanded="false"] .quickforge-process-body {
+  display: none;
+}
+
+.quickforge-process-source-empty {
+  display: none !important;
+}
+
 @media (width < 48rem) {
   .quickforge-user-message .user-message-container {
     max-width: min(86%, 46rem) !important;

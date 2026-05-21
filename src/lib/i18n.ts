@@ -437,6 +437,12 @@ export const appTranslations = {
     toolApprovalReject: '✗ Reject',
     toolApprovalTimeout: 'Timeout',
     toolApprovalTruncated: '... (truncated)',
+    processed: 'Processed',
+    processing: 'Processing',
+    processFailed: 'Failed',
+    processAborted: 'Aborted',
+    expandProcess: 'Expand processing details',
+    collapseProcess: 'Collapse processing details',
   },
   zh: {
     language: '语言',
@@ -862,6 +868,12 @@ export const appTranslations = {
     toolApprovalReject: '✗ 拒绝',
     toolApprovalTimeout: '超时时间',
     toolApprovalTruncated: '...（内容已截断）',
+    processed: '已处理',
+    processing: '处理中',
+    processFailed: '处理出错',
+    processAborted: '已中止',
+    expandProcess: '展开处理详情',
+    collapseProcess: '收起处理详情',
   },
 } as const
 

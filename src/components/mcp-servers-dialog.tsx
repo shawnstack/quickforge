@@ -221,7 +221,6 @@ export function McpServersDialog({ open, onOpenChange }: McpServersDialogProps) 
           </span>
           <div className="min-w-0 flex-1">
             <h2 id="mcp-servers-title" className="text-base font-semibold text-foreground">{t('mcpServers')}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">{t('mcpServersDescription')}</p>
           </div>
           <Button variant="ghost" size="icon" className="size-8 shrink-0 rounded-full text-muted-foreground" onClick={() => onOpenChange(false)} disabled={saving} aria-label={t('close')}>
             <X className="size-4" />

@@ -4,7 +4,6 @@ import type { BackgroundTaskStatus } from '@/lib/types'
 import {
   Menu,
   PanelRightOpen,
-  Settings,
   Share2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -518,6 +517,7 @@ function MainApp() {
         onDeleteSession={deleteSession}
         onStartNewGlobalChat={startNewGlobalSession}
         onOpenScheduledTasks={() => setScheduledTasksOpen(true)}
+        onOpenSettings={openDefaultOptionsSettings}
         onToggleSidebar={() => setSidebarOpen((value) => !value)}
       />
 
@@ -575,6 +575,10 @@ function MainApp() {
               onDeleteSession={deleteSession}
               onStartNewGlobalChat={startNewGlobalSessionFromSidebar}
               onOpenScheduledTasks={openScheduledTasksFromSidebar}
+              onOpenSettings={() => {
+                closeMobileSidebar()
+                openDefaultOptionsSettings()
+              }}
               onToggleSidebar={closeMobileSidebar}
             />
           </div>
@@ -626,14 +630,6 @@ function MainApp() {
             <Share2 className="size-4" />
           </Button>
 
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={openDefaultOptionsSettings}
-            aria-label={t('settings')}
-          >
-            <Settings className="size-4" />
-          </Button>
         </header>
 
         <div className="flex min-h-0 flex-1">

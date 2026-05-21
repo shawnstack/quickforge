@@ -2,6 +2,25 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.9] - 2026-05-21
+
+### Changed
+
+- Reduced the offline installation tarball by moving frontend-only Monaco and xterm packages to development dependencies.
+- Kept `node-pty` optional and out of the bundled offline tarball to avoid packaging large platform PTY binaries.
+- Gracefully disable the built-in terminal panel when optional PTY support is unavailable after an offline install.
+- Updated release and script documentation for the leaner offline package behavior.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.9` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.9.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.9.tgz
+  ```
+
 ## [1.3.8] - 2026-05-21
 
 ### Added

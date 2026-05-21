@@ -14,7 +14,7 @@
 
 - 创建 `package-offline/` 目录
 - 复制 `bin/`, `server/`, `dist/`, `README.md`, `LICENSE` 等存在的发布条目到包目录，跳过不存在的可选条目
-- 生成精简版 `package.json` (移除 devDependencies 和 scripts，添加 bundledDependencies；离线包将 `@vscode/ripgrep` 转为 optionalDependencies 且不 bundle，避免固定构建机平台二进制，同时允许在线安装时按用户平台安装 ripgrep，离线失败时不阻断安装)
+- 生成精简版 `package.json` (移除 devDependencies 和 scripts，添加 bundledDependencies；离线包只 bundle 后端运行必需依赖，`@vscode/ripgrep` 与 `node-pty` 保持 optional 且不 bundle，避免固定构建机平台二进制；离线安装无法安装 `node-pty` 时会禁用内置终端面板，其余功能可用)
 
 ### `prepare-runtime-package.cjs` (13 行)
 

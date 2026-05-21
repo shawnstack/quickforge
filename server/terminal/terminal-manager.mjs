@@ -1,9 +1,10 @@
 import os from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import * as pty from 'node-pty'
+import { createRequire } from 'node:module'
 import { logger } from '../utils/logger.mjs'
 
+const require = createRequire(import.meta.url)
 const MAX_SESSIONS = Math.max(1, Number(process.env.QUICKFORGE_MAX_TERMINALS || 6))
 const TERMINAL_DISABLED = process.env.QUICKFORGE_TERMINAL === '0'
 const RECONNECT_GRACE_MS = Number(process.env.QUICKFORGE_TERMINAL_RECONNECT_MS || 5 * 60 * 1000)
@@ -11,6 +12,22 @@ const IDLE_TIMEOUT_MS = Number(process.env.QUICKFORGE_TERMINAL_IDLE_MS || 30 * 6
 
 const sessions = new Map()
 let cleanupTimer = null
+let pty = null
+let ptyLoadError = null
+
+function loadPty() {
+  if (pty) return pty
+  if (ptyLoadError) throw ptyLoadError
+
+  try {
+    pty = require('node-pty')
+    return pty
+  } catch (error) {
+    ptyLoadError = createError('Terminal requires node-pty. Install optional terminal dependencies to enable it.', 503)
+    ptyLoadError.cause = error
+    throw ptyLoadError
+  }
+}
 
 function isWindows() {
   return process.platform === 'win32'
@@ -85,12 +102,23 @@ function scheduleCleanup() {
 
 export function terminalCapabilities() {
   const shell = detectShell()
+  const terminalAvailable = !TERMINAL_DISABLED && (() => {
+    try {
+      loadPty()
+      return true
+    } catch {
+      return false
+    }
+  })()
+
   return {
-    enabled: !TERMINAL_DISABLED,
+    enabled: terminalAvailable,
     localOnly: true,
     maxSessions: MAX_SESSIONS,
-    shell: TERMINAL_DISABLED ? null : shell,
-    reason: TERMINAL_DISABLED ? 'Terminal is disabled by QUICKFORGE_TERMINAL=0.' : null,
+    shell: terminalAvailable ? shell : null,
+    reason: TERMINAL_DISABLED
+      ? 'Terminal is disabled by QUICKFORGE_TERMINAL=0.'
+      : (terminalAvailable ? null : 'Terminal requires node-pty. Install optional terminal dependencies to enable it.'),
   }
 }
 
@@ -105,9 +133,10 @@ export function createTerminalSession({ cwd, projectId = null, name, cols = 120,
   if (sessions.size >= MAX_SESSIONS) throw createError(`Maximum terminal sessions reached (${MAX_SESSIONS})`, 429)
 
   const shell = detectShell()
+  const ptyModule = loadPty()
   const id = randomUUID()
   const now = new Date().toISOString()
-  const ptyProcess = pty.spawn(shell, [], {
+  const ptyProcess = ptyModule.spawn(shell, [], {
     name: 'xterm-256color',
     cols: Math.max(20, Number(cols) || 120),
     rows: Math.max(8, Number(rows) || 30),

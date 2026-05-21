@@ -2,6 +2,32 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.8] - 2026-05-21
+
+### Added
+
+- Added workspace inspector APIs and UI for browsing project files, viewing file contents, and reviewing workspace changes.
+- Added a multi-session terminal dock backed by server-side terminal management.
+
+### Changed
+
+- Improved workspace inspector layout and separated the workspace column from the main chat area.
+- Updated the code wiki for the new workspace and terminal modules.
+
+### Fixed
+
+- Fixed workspace column layout separation for a cleaner project workspace view.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.8` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.8.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.8.tgz
+  ```
+
 ## [1.3.7] - 2026-05-21
 
 ### Added

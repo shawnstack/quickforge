@@ -1,6 +1,7 @@
 import { SettingsTab } from '@mariozechner/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
 import { t } from '@/lib/i18n'
+import { showConfirm } from '@/components/ui/confirm-dialog'
 
 function generateLanPassword() {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*'
@@ -99,7 +100,14 @@ class LanAccessSettingsTab extends SettingsTab {
       this.requestUpdate()
       return
     }
-    if (this.enabled && !window.confirm(t('lanAccessEnableConfirm'))) return
+    if (this.enabled) {
+      const confirmed = await showConfirm({
+        description: t('lanAccessEnableConfirm'),
+        confirmLabel: t('enabled'),
+        cancelLabel: t('cancel'),
+      })
+      if (!confirmed) return
+    }
 
     this.saving = true
     this.error = ''
@@ -126,7 +134,13 @@ class LanAccessSettingsTab extends SettingsTab {
   }
 
   private async revokeAll() {
-    if (!window.confirm(t('lanAccessRevokeAllConfirm'))) return
+    const confirmed = await showConfirm({
+      description: t('lanAccessRevokeAllConfirm'),
+      confirmLabel: t('lanAccessRevokeAll'),
+      cancelLabel: t('cancel'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     this.saving = true
     this.error = ''
     this.message = ''

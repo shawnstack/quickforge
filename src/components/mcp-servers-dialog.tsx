@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Loader2, Plug, Plus, RefreshCw, Trash2, X, Edit3 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
+import { showConfirm } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
 
 type McpServer = {
@@ -140,7 +141,14 @@ export function McpServersDialog({ open, onOpenChange }: McpServersDialogProps) 
 
   const saveConfig = async (mode: 'merge' | 'replace') => {
     if (saving) return
-    if (mode === 'replace' && !window.confirm(t('mcpReplaceConfirm'))) return
+    if (mode === 'replace') {
+      const confirmed = await showConfirm({
+        description: t('mcpReplaceConfirm'),
+        confirmLabel: t('mcpReplaceAll'),
+        cancelLabel: t('cancel'),
+      })
+      if (!confirmed) return
+    }
     setSaving(true)
     setError('')
     try {
@@ -160,7 +168,13 @@ export function McpServersDialog({ open, onOpenChange }: McpServersDialogProps) 
   }
 
   const deleteServer = async (name: string) => {
-    if (!window.confirm(t('mcpDeleteConfirm', { name }))) return
+    const confirmed = await showConfirm({
+      description: t('mcpDeleteConfirm', { name }),
+      confirmLabel: t('confirmDelete'),
+      cancelLabel: t('cancel'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     setError('')
     try {
       const response = await fetch(`/api/mcp/servers/${encodeURIComponent(name)}`, { method: 'DELETE' })

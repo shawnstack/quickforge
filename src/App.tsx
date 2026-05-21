@@ -44,6 +44,7 @@ import { useYoloActions } from '@/hooks/useYoloActions'
 import { useVisibleRuntimeStatuses } from '@/hooks/useVisibleRuntimeStatuses'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { logger } from '@/lib/logger'
+import { showAlert } from '@/components/ui/confirm-dialog'
 import { ToastContainer } from '@/components/ui/toast'
 import { ShareConversationDialog } from '@/components/share/ShareConversationDialog'
 import { SharedConversationPage } from '@/components/share/SharedConversationPage'
@@ -511,7 +512,7 @@ function MainApp() {
         onOpenProjectInExplorer={(project) => {
           void openProjectInExplorer(project).catch((error) => {
             logger.error('Failed to open project in explorer:', error)
-            alert(error instanceof Error ? error.message : t('openInExplorerFailed'))
+            void showAlert(error instanceof Error ? error.message : t('openInExplorerFailed'))
           })
         }}
         onDeleteProject={deleteProjectInline}
@@ -569,7 +570,7 @@ function MainApp() {
                 closeMobileSidebar()
                 void openProjectInExplorer(project).catch((error) => {
                   logger.error('Failed to open project in explorer:', error)
-                  alert(error instanceof Error ? error.message : t('openInExplorerFailed'))
+                  void showAlert(error instanceof Error ? error.message : t('openInExplorerFailed'))
                 })
               }}
               onDeleteProject={deleteProjectInline}

@@ -23,6 +23,7 @@ import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
 import type { RestoredDraft } from '@/lib/types'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
+import { showConfirm } from '@/components/ui/confirm-dialog'
 
 type UseModelActionsOptions = {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof initializePiStorage>> | null>
@@ -168,7 +169,12 @@ export function useModelActions({
     const customModels = await getConfiguredModels(storage)
 
     if (customModels.length === 0) {
-      if (confirm(t('addCustomModelFirst'))) {
+      const confirmed = await showConfirm({
+        description: t('addCustomModelFirst'),
+        confirmLabel: t('modelSetupAddModel'),
+        cancelLabel: t('cancel'),
+      })
+      if (confirmed) {
         openModelSettings()
       }
       return

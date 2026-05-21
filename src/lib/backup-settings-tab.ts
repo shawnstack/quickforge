@@ -1,6 +1,7 @@
 import { SettingsTab } from '@mariozechner/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
 import { t } from '@/lib/i18n'
+import { showConfirm } from '@/components/ui/confirm-dialog'
 
 const BACKUP_FILE_PREFIX = 'quickforge-backup'
 
@@ -102,7 +103,14 @@ class BackupSettingsTab extends SettingsTab {
   }
 
   private async exportBackup() {
-    if (this.includeSecrets && !window.confirm(t('backupExportSecretsConfirm'))) return
+    if (this.includeSecrets) {
+      const confirmed = await showConfirm({
+        description: t('backupExportSecretsConfirm'),
+        confirmLabel: t('exportBackup'),
+        cancelLabel: t('cancel'),
+      })
+      if (!confirmed) return
+    }
 
     this.busy = true
     this.clearStatus()

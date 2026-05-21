@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { defaultThinkingLevelForModel, getConfiguredModels, initializePiStorage, loadDefaultOptions, loadInitialConfiguredModel } from '@/lib/pi-chat'
 import { t } from '@/lib/i18n'
+import { showConfirm } from '@/components/ui/confirm-dialog'
 
 type ScheduleType = 'once' | 'daily' | 'weekly' | 'monthly' | 'interval' | 'cron'
 type TaskStatus = 'enabled' | 'paused' | 'running' | 'failed' | 'completed'
@@ -460,7 +461,15 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
   async function taskAction(taskId: string, action: 'run' | 'pause' | 'resume' | 'delete') {
     setError('')
     setOpenMenuTaskId(null)
-    if (action === 'delete' && !window.confirm(t('confirmDeleteTask'))) return
+    if (action === 'delete') {
+      const confirmed = await showConfirm({
+        description: t('confirmDeleteTask'),
+        confirmLabel: t('confirmDelete'),
+        cancelLabel: t('cancel'),
+        variant: 'destructive',
+      })
+      if (!confirmed) return
+    }
     try {
       if (action === 'delete') {
         await requestJson(`/api/scheduled-tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE' })

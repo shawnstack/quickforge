@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import type { AgentManager } from '@/hooks/useAgentManager'
 import { initializePiStorage } from '@/lib/pi-chat'
-import { showConfirm } from '@/components/ui/confirm-dialog'
+import { showAlert, showConfirm } from '@/components/ui/confirm-dialog'
 import { t } from '@/lib/i18n'
 import {
   copyTextToClipboard,
@@ -61,7 +61,7 @@ export function useChatActions({
 }: UseChatActionsOptions) {
   const startNewGlobalChat = useCallback(async () => {
     if (needsModelSetup) {
-      alert(t('modelSetupRequired'))
+      void showAlert(t('modelSetupRequired'))
       return
     }
 
@@ -80,7 +80,7 @@ export function useChatActions({
 
   const startNewProjectChat = useCallback(async (targetProject?: ProjectInfo) => {
     if (needsModelSetup) {
-      alert(t('modelSetupRequired'))
+      void showAlert(t('modelSetupRequired'))
       return
     }
 
@@ -109,14 +109,14 @@ export function useChatActions({
     if (!currentAgent) return
 
     if (currentAgent.state.isStreaming) {
-      alert(t('generationStillRunning'))
+      void showAlert(t('generationStillRunning'))
       return
     }
 
     const rollbackIndex = rollbackStartIndexFromMessage(currentAgent.state.messages, messageIndex)
     const rollbackMessage = rollbackIndex >= 0 ? currentAgent.state.messages[rollbackIndex] : undefined
     if (rollbackIndex < 0 || !rollbackMessage) {
-      alert(t('noConversationTurnToRollback'))
+      void showAlert(t('noConversationTurnToRollback'))
       return
     }
 
@@ -141,7 +141,7 @@ export function useChatActions({
       nextMessages = result.session.messages ?? nextMessages
     } catch (error) {
       logger.error('Failed to rollback conversation:', error)
-      alert(error instanceof Error ? error.message : t('rollbackFailed'))
+      void showAlert(error instanceof Error ? error.message : t('rollbackFailed'))
       return
     }
 
@@ -221,7 +221,7 @@ export function useChatActions({
       await copyTextToClipboard(text)
     } catch (error) {
       logger.error('Failed to copy answer:', error)
-      alert(t('copyFailed'))
+      void showAlert(t('copyFailed'))
       throw error
     }
   }, [])
@@ -231,7 +231,7 @@ export function useChatActions({
     if (!currentAgent) return
 
     if (currentAgent.state.isStreaming) {
-      alert(t('generationStillRunning'))
+      void showAlert(t('generationStillRunning'))
       return
     }
 

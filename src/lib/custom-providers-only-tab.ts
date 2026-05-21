@@ -10,6 +10,7 @@ import { t } from '@/lib/i18n'
 import { DEFAULT_CONNECTION, normalizeModelForProvider } from '@/lib/pi-chat'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
+import { showAlert, showConfirm } from '@/components/ui/confirm-dialog'
 
 type ProviderProtocol = Extract<CustomProviderType, 'openai-completions' | 'anthropic-messages'>
 type AnyModel = Model<Api>
@@ -163,19 +164,19 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     try {
       parsed = JSON.parse(value)
     } catch {
-      alert(t('invalidHeadersJson'))
+      void showAlert(t('invalidHeadersJson'))
       return null
     }
 
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      alert(t('invalidHeadersJson'))
+      void showAlert(t('invalidHeadersJson'))
       return null
     }
 
     const headers: Record<string, string> = {}
     for (const [key, headerValue] of Object.entries(parsed)) {
       if (!key.trim() || typeof headerValue !== 'string') {
-        alert(t('invalidHeadersJson'))
+        void showAlert(t('invalidHeadersJson'))
         return null
       }
       headers[key] = headerValue
@@ -234,7 +235,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     const baseUrl = this.form.baseUrl.trim()
 
     if (!name || !baseUrl) {
-      alert(t('fillProviderBaseUrlModel'))
+      void showAlert(t('fillProviderBaseUrlModel'))
       return
     }
 
@@ -242,7 +243,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     const filledModels = this.form.models.filter((model) => model.modelId.trim())
 
     if (filledModels.length === 0) {
-      alert(t('atLeastOneModel'))
+      void showAlert(t('atLeastOneModel'))
       return
     }
 
@@ -250,7 +251,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     const ids = filledModels.map((model) => model.modelId.trim())
     const uniqueIds = new Set(ids)
     if (uniqueIds.size !== ids.length) {
-      alert(t('duplicateModelId'))
+      void showAlert(t('duplicateModelId'))
       return
     }
 
@@ -287,12 +288,18 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       await this.loadProviders()
     } catch (error) {
       logger.error('Failed to save custom model:', error)
-      alert(t('saveCustomModelFailed'))
+      void showAlert(t('saveCustomModelFailed'))
     }
   }
 
   private async deleteProvider(provider: CustomProvider) {
-    if (!confirm(t('confirmDeleteProvider', { name: provider.name }))) return
+    const confirmed = await showConfirm({
+      description: t('confirmDeleteProvider', { name: provider.name }),
+      confirmLabel: t('confirmDelete'),
+      cancelLabel: t('cancel'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
 
     try {
       const storage = getAppStorage()
@@ -301,7 +308,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       await this.loadProviders()
     } catch (error) {
       logger.error('Failed to delete custom provider:', error)
-      alert(t('deleteFailed'))
+      void showAlert(t('deleteFailed'))
     }
   }
 

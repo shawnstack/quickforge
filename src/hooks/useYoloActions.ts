@@ -3,6 +3,7 @@ import type { AgentManager } from '@/hooks/useAgentManager'
 import { saveYoloMode, initializePiStorage } from '@/lib/pi-chat'
 import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
+import { showAlert } from '@/components/ui/confirm-dialog'
 
 type UseYoloActionsOptions = {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof initializePiStorage>> | null>
@@ -45,7 +46,7 @@ export function useYoloActions({
       } catch (error) {
         logger.error('Failed to sync YOLO mode:', error)
         rollback()
-        alert(error instanceof Error ? error.message : t('yoloModeSyncFailed'))
+        void showAlert(error instanceof Error ? error.message : t('yoloModeSyncFailed'))
       }
     }
 

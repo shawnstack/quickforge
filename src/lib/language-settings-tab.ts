@@ -1,6 +1,7 @@
 import { getAppStorage, SettingsTab } from '@mariozechner/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
 import { applyAppLanguage, getAppLanguage, t, type AppLanguage } from '@/lib/i18n'
+import { showAlert } from '@/components/ui/confirm-dialog'
 
 class LanguageSettingsTab extends SettingsTab {
   private selectedLanguage: AppLanguage = getAppLanguage()
@@ -17,7 +18,7 @@ class LanguageSettingsTab extends SettingsTab {
   private async applyLanguage() {
     const storage = getAppStorage()
     if (!(await applyAppLanguage(storage, this.selectedLanguage))) {
-      alert(t('noLanguageChange'))
+      void showAlert(t('noLanguageChange'))
     }
   }
 

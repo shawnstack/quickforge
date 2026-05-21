@@ -23,6 +23,8 @@ import type {
 } from '@/lib/types'
 import { sessionScope } from '@/lib/types'
 import { randomId } from '@/lib/random-id'
+import { showAlert } from '@/components/ui/confirm-dialog'
+import { t } from '@/lib/i18n'
 
 export interface AgentManagerDeps {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof import('@/lib/pi-chat').initializePiStorage>> | null>
@@ -325,7 +327,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
             project = await switchActiveProject(projectId)
           } catch (error) {
             logger.error('Failed to switch project for session:', error)
-            alert('Failed to switch project')
+            void showAlert(t('projectSwitchFailed'))
             return
           }
         } else {

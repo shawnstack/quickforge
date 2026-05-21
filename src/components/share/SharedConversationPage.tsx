@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Copy } from 'lucide-react'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import { AppStorage, CustomProvidersStore, ProviderKeysStore, SessionsStore, SettingsStore, setAppStorage } from '@mariozechner/pi-web-ui'
-import { showConfirm } from '@/components/ui/confirm-dialog'
+import { showAlert, showConfirm } from '@/components/ui/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import { ChatPanelHost } from '@/components/chat/ChatPanelHost'
 import { t } from '@/lib/i18n'
@@ -158,14 +158,14 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
     if (!agent || agent.permission !== 'operate') return
     setError(undefined)
     if (agent.state.isStreaming) {
-      alert(t('generationStillRunning'))
+      void showAlert(t('generationStillRunning'))
       return
     }
 
     const rollbackIndex = rollbackStartIndexFromMessage(agent.state.messages, messageIndex)
     const rollbackMessage = rollbackIndex >= 0 ? agent.state.messages[rollbackIndex] : undefined
     if (!rollbackMessage) {
-      alert(t('noConversationTurnToRollback'))
+      void showAlert(t('noConversationTurnToRollback'))
       return
     }
 

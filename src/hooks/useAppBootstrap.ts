@@ -17,6 +17,7 @@ import type {
 import { sessionScope } from '@/lib/types'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
+import { showAlert } from '@/components/ui/confirm-dialog'
 
 type UseAppBootstrapOptions = {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof initializePiStorage>> | null>
@@ -87,7 +88,7 @@ export function useAppBootstrap({
                   project = await switchActiveProject(projectId)
                 } catch (error) {
                   logger.error('Failed to switch project for initial session:', error)
-                  alert(t('projectSwitchFailed'))
+                  void showAlert(t('projectSwitchFailed'))
                   if (initialModel) {
                     await createAgent(
                       { model: defaultOptions.model ?? initialModel, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },

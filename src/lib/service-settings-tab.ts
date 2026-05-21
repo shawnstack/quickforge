@@ -1,6 +1,7 @@
 import { SettingsTab } from '@mariozechner/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
 import { getDateLocale, t } from '@/lib/i18n'
+import { showConfirm } from '@/components/ui/confirm-dialog'
 
 type ServiceStatus = {
   ok: boolean
@@ -153,7 +154,13 @@ class ServiceSettingsTab extends SettingsTab {
   private async deleteCustomTerminalShell(profileId: string) {
     const profile = this.terminalShellConfig.profiles.find((item) => item.id === profileId)
     if (!profile || profile.builtin) return
-    if (!window.confirm(t('terminalShellDeleteConfirm', { name: profile.name }))) return
+    const confirmed = await showConfirm({
+      description: t('terminalShellDeleteConfirm', { name: profile.name }),
+      confirmLabel: t('confirmDelete'),
+      cancelLabel: t('cancel'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     const profiles = this.customShellProfiles().filter((item) => item.id !== profileId)
     const defaultProfileId = this.terminalShellConfig.defaultProfileId === profileId ? 'auto' : this.terminalShellConfig.defaultProfileId
     await this.saveTerminalShellConfig(defaultProfileId, profiles, t('terminalShellProfilesSaved'))
@@ -201,7 +208,12 @@ class ServiceSettingsTab extends SettingsTab {
 
   private async restartService() {
     if (!this.status || this.restarting) return
-    if (!window.confirm(t('restartBackendConfirm'))) return
+    const confirmed = await showConfirm({
+      description: t('restartBackendConfirm'),
+      confirmLabel: t('restartBackendService'),
+      cancelLabel: t('cancel'),
+    })
+    if (!confirmed) return
 
     this.restarting = true
     this.message = t('backendRestarting')

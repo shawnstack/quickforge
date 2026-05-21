@@ -15,6 +15,7 @@ import {
   Puzzle,
   Search,
   Settings,
+  Sparkles,
   Trash2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -204,7 +205,7 @@ export const ChatSidebar = memo(function ChatSidebar({
           aria-label={t('toggleSidebar')}
         >
           <span className={cn(iconSlotClass, 'relative')}>
-            <Settings className={cn('size-4 transition-opacity duration-160', !sidebarOpen && 'group-hover:opacity-0')} />
+            <Sparkles className={cn('size-4 transition-opacity duration-160', !sidebarOpen && 'group-hover:opacity-0')} />
             {!sidebarOpen ? <PanelLeftOpen className="absolute size-4 opacity-0 transition-opacity duration-160 group-hover:opacity-100" /> : null}
           </span>
           <span className={cn('ml-auto inline-flex size-6 items-center justify-center text-muted-foreground/55 transition-opacity duration-100 group-hover:text-foreground/70', !sidebarOpen && 'opacity-0')}>

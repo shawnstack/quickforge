@@ -170,7 +170,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     element.append(actions)
   })
 
-  decorateProcessBlocks(panel)
+  decorateProcessBlocks(panel, isStreaming())
 }
 
 // --- AI process folding (thinking + tool calls) ---
@@ -242,8 +242,8 @@ function formatProcessDuration(durationMs?: number) {
   return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`
 }
 
-function processLabel(assistants: AssistantMessageElement[], body: HTMLElement, group: ProcessGroupElement) {
-  const streaming = assistants.some((assistant) => assistant.isStreaming === true)
+function processLabel(assistants: AssistantMessageElement[], body: HTMLElement, group: ProcessGroupElement, isAgentStreaming: boolean) {
+  const streaming = isAgentStreaming
   const stopReason = [...assistants].reverse().find((assistant) => assistant.message?.stopReason)?.message?.stopReason
   const toolMessages = Array.from(body.querySelectorAll<ToolMessageElement>('tool-message'))
   const starts = [
@@ -322,13 +322,13 @@ function ensureTurnProcessGroup(target: AssistantMessageElement) {
   return group
 }
 
-function updateProcessGroup(assistants: AssistantMessageElement[], group: ProcessGroupElement) {
+function updateProcessGroup(assistants: AssistantMessageElement[], group: ProcessGroupElement, isAgentStreaming: boolean) {
   const body = group.querySelector<HTMLElement>(PROCESS_BODY_SELECTOR)
   const summary = group.querySelector<HTMLButtonElement>('.quickforge-process-summary')
   const label = group.querySelector<HTMLElement>('.quickforge-process-label')
   if (!body || !summary || !label) return
 
-  const nextLabel = processLabel(assistants, body, group)
+  const nextLabel = processLabel(assistants, body, group, isAgentStreaming)
   if (label.textContent !== nextLabel) label.textContent = nextLabel
 
   const expanded = group.dataset.expanded === 'true'
@@ -388,7 +388,7 @@ function updateEmptyProcessSources(assistants: AssistantMessageElement[], target
   }
 }
 
-function decorateProcessTurn(assistants: AssistantMessageElement[]) {
+function decorateProcessTurn(assistants: AssistantMessageElement[], isAgentStreaming: boolean) {
   if (assistants.length === 0) return
   const target = assistants[assistants.length - 1]
   const hasProcessContent = assistants.some((assistant, index) => {
@@ -406,26 +406,30 @@ function decorateProcessTurn(assistants: AssistantMessageElement[]) {
     return
   }
 
-  updateProcessGroup(assistants, group)
+  updateProcessGroup(assistants, group, isAgentStreaming)
   updateEmptyProcessSources(assistants, target)
 }
 
-function decorateProcessBlocks(panel: HTMLElement) {
+function decorateProcessBlocks(panel: HTMLElement, isAgentStreaming: boolean) {
+  if (!isAgentStreaming) {
+    panel.querySelectorAll<HTMLElement>('streaming-message-container .quickforge-process-group').forEach((group) => group.remove())
+  }
+
   const orderedMessages = [
     ...Array.from(panel.querySelectorAll<HTMLElement>('message-list user-message, message-list assistant-message')),
-    ...Array.from(panel.querySelectorAll<HTMLElement>('streaming-message-container assistant-message')),
+    ...(isAgentStreaming ? Array.from(panel.querySelectorAll<HTMLElement>('streaming-message-container assistant-message')) : []),
   ]
 
   let currentAssistants: AssistantMessageElement[] = []
   for (const message of orderedMessages) {
     if (message.tagName.toLowerCase() === 'user-message') {
-      decorateProcessTurn(currentAssistants)
+      decorateProcessTurn(currentAssistants, isAgentStreaming)
       currentAssistants = []
       continue
     }
     currentAssistants.push(message as AssistantMessageElement)
   }
-  decorateProcessTurn(currentAssistants)
+  decorateProcessTurn(currentAssistants, isAgentStreaming)
 }
 
 // --- Editor decoration ---

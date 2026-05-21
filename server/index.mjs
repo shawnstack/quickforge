@@ -23,6 +23,7 @@ import { handleSharesApi } from './routes/shares.mjs'
 import { handleSharedConversationApi } from './routes/shared-conversation.mjs'
 import { handleLanAccessApi, renderLanUnlockPage } from './routes/lan-access.mjs'
 import { handleMcpApi } from './routes/mcp.mjs'
+import { handleWorkspaceApi, handleGitApi } from './routes/workspace.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { logger, flushLogger } from './utils/logger.mjs'
 import { installAiHttpLogger } from './ai-http-logger.mjs'
@@ -219,6 +220,17 @@ async function handleApi(req, res, url) {
   // Project routes
   if (pathname === '/api/project' || pathname.startsWith('/api/project/')) {
     await handleProjectApi(req, res, url)
+    return
+  }
+
+  // Project workspace inspector routes
+  if (pathname === '/api/workspace/tree' || pathname === '/api/workspace/file') {
+    await handleWorkspaceApi(req, res, url)
+    return
+  }
+
+  if (pathname === '/api/git/status' || pathname === '/api/git/file-diff') {
+    await handleGitApi(req, res, url)
     return
   }
 

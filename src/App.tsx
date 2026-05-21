@@ -3,6 +3,7 @@ import type { Api, Model } from '@mariozechner/pi-ai'
 import type { BackgroundTaskStatus } from '@/lib/types'
 import {
   Menu,
+  PanelRightOpen,
   Settings,
   Share2,
 } from 'lucide-react'
@@ -46,6 +47,7 @@ import { logger } from '@/lib/logger'
 import { ToastContainer } from '@/components/ui/toast'
 import { ShareConversationDialog } from '@/components/share/ShareConversationDialog'
 import { SharedConversationPage } from '@/components/share/SharedConversationPage'
+import { WorkspaceInspector } from '@/components/workspace/WorkspaceInspector'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
 
 type ScheduledTaskNotificationEvent = {
@@ -116,6 +118,7 @@ function MainApp() {
   const [mcpServersDialogOpen, setMcpServersDialogOpen] = useState(false)
   const [skillsDialog, setSkillsDialog] = useState<{ scope: SkillsScope; project?: ProjectInfo }>()
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
+  const [workspaceInspectorOpen, setWorkspaceInspectorOpen] = useState(false)
   const { toasts, handleTaskComplete, addToast, dismissToast } = useTaskToasts()
 
   // --- Session list + cross-tab sync ---
@@ -603,6 +606,18 @@ function MainApp() {
           <Button
             variant="ghost"
             size="icon"
+            onClick={() => setWorkspaceInspectorOpen((value) => !value)}
+            disabled={!agentManager.currentToolProject?.id || scheduledTasksOpen || needsModelSetup}
+            aria-label="Workspace"
+            title="Workspace"
+            className="hidden lg:inline-flex"
+          >
+            <PanelRightOpen className="size-4" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={() => setShareDialogOpen(true)}
             disabled={!agentManager.currentSessionId || scheduledTasksOpen || needsModelSetup}
             aria-label="分享到局域网"
@@ -654,6 +669,11 @@ function MainApp() {
               </ErrorBoundary>
             )}
           </section>
+          <WorkspaceInspector
+            project={agentManager.currentToolProject}
+            open={workspaceInspectorOpen && Boolean(agentManager.currentToolProject?.id)}
+            onOpenChange={setWorkspaceInspectorOpen}
+          />
         </div>
       </main>
     </div>

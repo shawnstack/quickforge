@@ -19,6 +19,7 @@
 | `lan-access.mjs` | 201 | LAN 共享访问管理 |
 | `instructions.mjs` | 20 | 系统提示词 |
 | `system.mjs` | 35 | 系统状态和重启 |
+| `workspace.mjs` | 296 | 工作区文件浏览与 Git 变更检查 |
 | `static.mjs` | 83 | 静态文件服务 |
 
 ---
@@ -156,6 +157,18 @@ LAN 共享访问管理路由。
 - `GET /api/system/status` — 系统状态
 - `GET /api/system/network` — 网络信息
 - `POST /api/system/restart` — 服务重启
+
+## workspace.mjs (296 行)
+
+Workspace Inspector 后端 API。
+
+**主要端点**:
+- `GET /api/workspace/tree?projectId=...` — 返回项目文件树，排除 `.git`、`node_modules`、构建产物和敏感文件
+- `GET /api/workspace/file?projectId=...&path=...` — 安全读取 1MB 以内文本文件，返回 Monaco 语言标识
+- `GET /api/git/status?projectId=...` — 基于 `git status --porcelain=v1 -z` 返回工作区变更列表
+- `GET /api/git/file-diff?projectId=...&path=...` — 返回单文件 `oldContent/newContent`，供 Monaco DiffEditor 展示
+
+**安全约束**: 所有路径必须位于项目 workspace 内，阻止敏感文件、二进制文件和超大文件预览。
 
 ## static.mjs (83 行)
 

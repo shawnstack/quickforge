@@ -19,6 +19,12 @@ components/
 │   └── SharedConversationPage.tsx  # 查看分享的对话页面 (266 行)
 ├── sidebar/
 │   └── ChatSidebar.tsx             # 聊天侧边栏 (551 行)
+├── workspace/
+│   ├── WorkspaceInspector.tsx      # 右侧工作区检查器，Files/Changes + Monaco
+│   ├── WorkspaceFileTree.tsx       # 项目文件树
+│   ├── WorkspaceChangesList.tsx    # Git 工作区变更列表
+│   ├── MonacoCodeViewer.tsx        # Monaco 只读代码查看器
+│   └── MonacoDiffViewer.tsx        # Monaco 单文件 Diff 查看器
 ├── ui/
 │   ├── button.tsx                  # 按钮组件 (40 行)
 │   ├── confirm-dialog.tsx          # 确认对话框 (95 行)
@@ -90,6 +96,13 @@ components/
 - 自动滚动同步管理
 - 新消息时自动滚到底部；用户主动上滚时暂停自动滚动
 - 用户滚回底部时重新启用自动滚动
+
+### Workspace Inspector (`workspace/`)
+
+- 右侧专业工作区检查器入口为 `WorkspaceInspector.tsx`
+- Files tab 通过后端 `/api/workspace/tree` 和 `/api/workspace/file` 安全读取当前项目文件，使用 Monaco Editor 只读展示
+- Changes tab 通过 `/api/git/status` 和 `/api/git/file-diff` 获取 Git 工作区变更，使用 Monaco DiffEditor 展示单文件差异
+- 第一版仅提供只读浏览和 diff review，不提供编辑、stage、commit、branch 操作
 
 ### ShareConversationDialog.tsx (199 行)
 

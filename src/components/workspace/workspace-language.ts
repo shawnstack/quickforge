@@ -1,0 +1,52 @@
+const extensionLanguageMap: Record<string, string> = {
+  ts: 'typescript',
+  tsx: 'typescript',
+  js: 'javascript',
+  jsx: 'javascript',
+  mjs: 'javascript',
+  cjs: 'javascript',
+  json: 'json',
+  jsonc: 'json',
+  css: 'css',
+  scss: 'scss',
+  less: 'less',
+  html: 'html',
+  htm: 'html',
+  md: 'markdown',
+  markdown: 'markdown',
+  py: 'python',
+  rb: 'ruby',
+  go: 'go',
+  rs: 'rust',
+  java: 'java',
+  c: 'c',
+  h: 'c',
+  cpp: 'cpp',
+  cc: 'cpp',
+  cxx: 'cpp',
+  hpp: 'cpp',
+  cs: 'csharp',
+  php: 'php',
+  swift: 'swift',
+  kt: 'kotlin',
+  kts: 'kotlin',
+  sh: 'shell',
+  bash: 'shell',
+  zsh: 'shell',
+  ps1: 'powershell',
+  yml: 'yaml',
+  yaml: 'yaml',
+  xml: 'xml',
+  sql: 'sql',
+  dockerfile: 'dockerfile',
+  toml: 'toml',
+  ini: 'ini',
+  env: 'ini',
+}
+
+export function languageFromPath(path: string) {
+  const fileName = path.split('/').pop()?.toLowerCase() ?? ''
+  if (fileName === 'dockerfile' || fileName.endsWith('.dockerfile')) return 'dockerfile'
+  const extension = fileName.includes('.') ? fileName.split('.').pop() ?? '' : fileName
+  return extensionLanguageMap[extension] ?? 'plaintext'
+}

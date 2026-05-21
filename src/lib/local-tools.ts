@@ -225,14 +225,56 @@ if (!customElements.get('quickforge-elapsed-time')) {
 
 function renderTiming(timing: QuickForgeToolTiming | undefined, status: ToolStatusKey) {
   const elapsedMs = elapsedMsFromTiming(timing)
-  if (elapsedMs === undefined) return ''
+  if (elapsedMs === undefined) return nothing
   return html`
-    <span class="text-muted-foreground/70"> · </span>
     <quickforge-elapsed-time
+      class="text-xs text-muted-foreground/70"
       started-at=${String(timing?.startedAt ?? '')}
       duration-ms=${typeof timing?.durationMs === 'number' ? String(timing.durationMs) : ''}
       running=${String(status === 'running')}
     ></quickforge-elapsed-time>
+  `
+}
+
+function toolIconClass() {
+  return 'text-emerald-600 dark:text-emerald-500'
+}
+
+function renderToolIcon(toolName: string) {
+  const className = `quickforge-tool-type-icon shrink-0 ${toolIconClass()}`
+
+  if (toolName === 'edit_file') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.4 2.6a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg>`
+  if (toolName === 'write_file') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15h6"/></svg>`
+  if (toolName === 'read_file') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>`
+  if (toolName === 'grep_files') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>`
+  if (toolName === 'read_skill_resource') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3Z"/></svg>`
+  if (toolName === 'run_command') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>`
+  if (toolName === 'activate_skill') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.9 2.1 8.5 8.5 2.1 9.9l6.4 1.4 1.4 6.4 1.4-6.4 6.4-1.4-6.4-1.4Z"/><path d="M19 15v4"/><path d="M21 17h-4"/></svg>`
+  return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9Z"/></svg>`
+}
+
+function statusIconClass(status: ToolStatusKey) {
+  if (status === 'error') return 'text-destructive'
+  if (status === 'running') return 'text-primary animate-spin'
+  if (status === 'done') return 'text-emerald-600 dark:text-emerald-500'
+  return 'text-muted-foreground/70'
+}
+
+function renderStatusIcon(status: ToolStatusKey) {
+  const className = `quickforge-tool-status-icon shrink-0 ${statusIconClass(status)}`
+  const label = t(status)
+
+  if (status === 'running') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label=${label}><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg>`
+  if (status === 'done') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label=${label}><path d="M22 11.1V12a10 10 0 1 1-5.9-9.1"/><path d="m9 11 3 3L22 4"/></svg>`
+  if (status === 'error') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label=${label}><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>`
+  return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label=${label}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/></svg>`
+}
+
+function renderStatus(status: ToolStatusKey, timing: QuickForgeToolTiming | undefined) {
+  return html`
+    <span class="shrink-0 inline-flex items-center gap-1.5" title=${t(status)}>
+      ${renderStatusIcon(status)}${renderTiming(timing, status)}
+    </span>
   `
 }
 
@@ -274,9 +316,9 @@ class LocalWorkspaceToolRenderer {
         <details class="group/tool" ?open=${expandToolsByDefault}>
           <summary class="flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
             <svg class="shrink-0 transition-transform group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
-            <svg class="shrink-0 ${status === 'error' ? 'text-destructive' : status === 'running' ? 'text-primary' : 'text-green-600 dark:text-green-500'}" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 8 4 4-4 4"/><path d="M13 16h4"/><rect width="18" height="14" x="3" y="5" rx="2"/></svg>
+            ${renderToolIcon(this.toolName)}
             <span class="min-w-0 flex-1 truncate">${t(this.labelKey)}${summary ? html`<span class="text-muted-foreground/70"> · ${summary}</span>` : ''}</span>
-            <span class="shrink-0 text-xs ${status === 'error' ? 'text-destructive' : status === 'running' ? 'text-primary' : 'text-muted-foreground'}">${t(status)}${renderTiming(timing, status)}</span>
+            ${renderStatus(status, timing)}
           </summary>
           <div class="mt-3 space-y-3">
             ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : ''}

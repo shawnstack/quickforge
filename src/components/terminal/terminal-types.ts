@@ -1,3 +1,17 @@
+export type TerminalShellProfile = {
+  id: string
+  name: string
+  command: string
+  builtin: boolean
+  detected?: boolean
+}
+
+export type TerminalShellConfig = {
+  terminalShell: string
+  defaultProfileId: string
+  profiles: TerminalShellProfile[]
+}
+
 export type TerminalCapabilities = {
   enabled: boolean
   localOnly: boolean
@@ -5,6 +19,9 @@ export type TerminalCapabilities = {
   shell: string | null
   reason: string | null
   configuredShell?: string
+  terminalShellProfiles?: TerminalShellProfile[]
+  defaultTerminalShellProfileId?: string
+  terminalShellOverride?: boolean
   platform?: string
 }
 

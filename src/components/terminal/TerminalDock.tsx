@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, Loader2, Plus, SquareTerminal, X } from 'lucide-react'
+import { Check, ChevronDown, Loader2, Plus, SquareTerminal, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import type { ProjectInfo } from '@/lib/types'
 import { createTerminalSession, deleteTerminalSession, getTerminalCapabilities, listTerminalSessions } from './terminal-api'
 import { TerminalPane } from './TerminalPane'
-import type { TerminalCapabilities, TerminalSession } from './terminal-types'
+import type { TerminalCapabilities, TerminalSession, TerminalShellProfile } from './terminal-types'
 
 type TerminalDockProps = {
   project?: ProjectInfo
@@ -16,11 +17,19 @@ const MIN_HEIGHT = 180
 const MAX_HEIGHT_RATIO = 0.7
 const DEFAULT_HEIGHT = 320
 
-function nextTerminalName(sessions: TerminalSession[]) {
+function nextTerminalName(sessions: TerminalSession[], profile?: TerminalShellProfile) {
+  const baseName = profile && profile.id !== 'auto' ? profile.name : 'Terminal'
   const used = new Set(sessions.map((session) => session.name))
+  if (baseName !== 'Terminal' && !used.has(baseName)) return baseName
   let index = 1
-  while (used.has(`Terminal ${index}`)) index += 1
-  return `Terminal ${index}`
+  while (used.has(`${baseName} ${index}`)) index += 1
+  return `${baseName} ${index}`
+}
+
+function profileFromCapabilities(capabilities: TerminalCapabilities | null, profileId?: string) {
+  const profiles = capabilities?.terminalShellProfiles || []
+  const selectedId = profileId || capabilities?.defaultTerminalShellProfileId || 'auto'
+  return profiles.find((profile) => profile.id === selectedId) || profiles.find((profile) => profile.id === 'auto')
 }
 
 export function TerminalDock({ project, onCollapse }: TerminalDockProps) {
@@ -31,8 +40,10 @@ export function TerminalDock({ project, onCollapse }: TerminalDockProps) {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string>()
+  const [shellMenuOpen, setShellMenuOpen] = useState(false)
   const creatingRef = useRef(false)
   const dragRef = useRef<{ startY: number; startHeight: number } | null>(null)
+  const shellMenuRef = useRef<HTMLDivElement | null>(null)
   const projectId = project?.id
 
   const activeSession = useMemo(
@@ -50,27 +61,30 @@ export function TerminalDock({ project, onCollapse }: TerminalDockProps) {
     return payload.sessions
   }, [projectId])
 
-  const createSession = useCallback(async (existingSessions: TerminalSession[]) => {
+  const createSession = useCallback(async (existingSessions: TerminalSession[], shellProfileId?: string) => {
     if (creatingRef.current) return
+    const profile = profileFromCapabilities(capabilities, shellProfileId)
     creatingRef.current = true
     setCreating(true)
     setError(undefined)
     try {
       const session = await createTerminalSession({
         projectId,
-        name: nextTerminalName(existingSessions),
+        name: nextTerminalName(existingSessions, profile),
         cols: 120,
         rows: 30,
+        shellProfileId: profile?.id,
+        shellProfileName: profile?.name,
       })
       setSessions((current) => [...current, session])
       setActiveSessionId(session.id)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create terminal')
+      setError(err instanceof Error ? err.message : t('terminalCreateFailed'))
     } finally {
       creatingRef.current = false
       setCreating(false)
     }
-  }, [projectId])
+  }, [capabilities, projectId])
 
   useEffect(() => {
     let disposed = false
@@ -84,10 +98,24 @@ export function TerminalDock({ project, onCollapse }: TerminalDockProps) {
         setSessions(payload.sessions)
         setActiveSessionId(payload.sessions[0]?.id)
         if (nextCapabilities.enabled && payload.sessions.length === 0) {
-          void createSession([])
+          const defaultProfile = profileFromCapabilities(nextCapabilities)
+          void createTerminalSession({
+            projectId,
+            name: nextTerminalName([], defaultProfile),
+            cols: 120,
+            rows: 30,
+            shellProfileId: defaultProfile?.id,
+            shellProfileName: defaultProfile?.name,
+          }).then((session) => {
+            if (disposed) return
+            setSessions([session])
+            setActiveSessionId(session.id)
+          }).catch((err) => {
+            if (!disposed) setError(err instanceof Error ? err.message : t('terminalCreateFailed'))
+          })
         }
       } catch (err) {
-        if (!disposed) setError(err instanceof Error ? err.message : 'Terminal unavailable')
+        if (!disposed) setError(err instanceof Error ? err.message : t('terminalUnavailable'))
       } finally {
         if (!disposed) setLoading(false)
       }
@@ -96,7 +124,23 @@ export function TerminalDock({ project, onCollapse }: TerminalDockProps) {
     void load()
 
     return () => { disposed = true }
-  }, [createSession, projectId])
+  }, [projectId])
+
+  useEffect(() => {
+    if (!shellMenuOpen) return undefined
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!shellMenuRef.current?.contains(event.target as Node)) setShellMenuOpen(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShellMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [shellMenuOpen])
 
   const closeSession = async (sessionId: string) => {
     setError(undefined)
@@ -106,7 +150,7 @@ export function TerminalDock({ project, onCollapse }: TerminalDockProps) {
     try {
       await deleteTerminalSession(sessionId)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to close terminal')
+      setError(err instanceof Error ? err.message : t('terminalCloseFailed'))
       void refreshSessions().catch(() => {})
     }
   }
@@ -134,6 +178,12 @@ export function TerminalDock({ project, onCollapse }: TerminalDockProps) {
     dragRef.current = null
     try { event.currentTarget.releasePointerCapture(event.pointerId) } catch { /* ignore */ }
   }
+
+  const shellProfiles = capabilities?.terminalShellProfiles || []
+  const defaultProfileId = capabilities?.defaultTerminalShellProfileId || 'auto'
+  const defaultProfile = shellProfiles.find((profile) => profile.id === defaultProfileId) || shellProfiles[0]
+  const maxSessionsReached = Boolean(capabilities && sessions.length >= capabilities.maxSessions)
+  const createDisabled = creating || maxSessionsReached
 
   return (
     <div className="shrink-0 border-t border-border bg-background" style={{ height }}>
@@ -175,25 +225,69 @@ export function TerminalDock({ project, onCollapse }: TerminalDockProps) {
                     void closeSession(session.id)
                   }
                 }}
-                aria-label={`关闭 ${session.name}`}
+                aria-label={t('terminalCloseSession', { name: session.name })}
               >
                 <X className="size-3" />
               </span>
             </button>
           ))}
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7"
-          onClick={() => void createSession(sessions)}
-          disabled={creating || Boolean(capabilities && sessions.length >= capabilities.maxSessions)}
-          title="新建终端"
-          aria-label="新建终端"
-        >
-          {creating ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
-        </Button>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onCollapse} title="收起终端" aria-label="收起终端">
+        <div className="relative shrink-0" ref={shellMenuRef}>
+          <div className="flex items-center overflow-hidden rounded-md border border-border bg-background">
+            <button
+              type="button"
+              className="inline-flex h-7 w-7 items-center justify-center text-foreground/85 transition-colors hover:bg-muted/20 disabled:pointer-events-none disabled:opacity-50"
+              onClick={() => void createSession(sessions)}
+              disabled={createDisabled}
+              title={defaultProfile ? t('terminalNewWithProfile', { name: defaultProfile.name }) : t('terminalNew')}
+              aria-label={t('terminalNew')}
+            >
+              {creating ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+            </button>
+            {shellProfiles.length > 0 ? (
+              <button
+                type="button"
+                className="inline-flex h-7 w-7 items-center justify-center border-l border-border text-muted-foreground/72 transition-colors hover:bg-muted/20 hover:text-foreground/85 disabled:pointer-events-none disabled:opacity-50"
+                onClick={() => setShellMenuOpen((open) => !open)}
+                disabled={createDisabled}
+                title={t('terminalSelectShell')}
+                aria-label={t('terminalSelectShell')}
+                aria-expanded={shellMenuOpen}
+              >
+                <ChevronDown className="size-3.5" />
+              </button>
+            ) : null}
+          </div>
+          {shellMenuOpen ? (
+            <div className="absolute bottom-9 right-0 z-30 w-64 overflow-hidden rounded-lg border border-border bg-background p-1.5 shadow-[0_16px_38px_-22px_rgb(15_23_42_/_0.65)]">
+              <div className="px-2 pb-1.5 pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">{t('terminalNewWith')}</div>
+              {shellProfiles.map((profile) => {
+                const isDefault = profile.id === defaultProfileId
+                return (
+                  <button
+                    key={profile.id}
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground/80 hover:bg-muted/20 hover:text-foreground/90"
+                    onClick={() => {
+                      setShellMenuOpen(false)
+                      void createSession(sessions, profile.id)
+                    }}
+                  >
+                    <span className="inline-flex size-5 shrink-0 items-center justify-center rounded bg-muted/20 text-[10px] text-muted-foreground/70">
+                      {profile.name.slice(0, 1).toUpperCase()}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium">{profile.name}</span>
+                      <span className="block truncate font-mono text-[11px] text-muted-foreground/55">{profile.command}</span>
+                    </span>
+                    {isDefault ? <Check className="size-3.5 shrink-0 text-emerald-500/80" /> : null}
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
+        </div>
+        <Button variant="ghost" size="icon" className="size-7" onClick={onCollapse} title={t('terminalCollapse')} aria-label={t('terminalCollapse')}>
           <ChevronDown className="size-3.5" />
         </Button>
       </div>
@@ -201,15 +295,15 @@ export function TerminalDock({ project, onCollapse }: TerminalDockProps) {
       <div className="min-h-0 bg-[#0b0f14]" style={{ height: error ? height - 72 : height - 45 }}>
         {loading ? (
           <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground/60">
-            <Loader2 className="size-4 animate-spin" /> 正在启动终端...
+            <Loader2 className="size-4 animate-spin" /> {t('terminalStarting')}
           </div>
         ) : capabilities && !capabilities.enabled ? (
           <div className="flex h-full items-center justify-center px-4 text-center text-xs text-muted-foreground/60">
-            {capabilities.reason || '终端不可用'}
+            {capabilities.reason || t('terminalUnavailable')}
           </div>
         ) : sessions.length === 0 ? (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground/60">
-            没有终端会话
+            {t('terminalNoSessions')}
           </div>
         ) : (
           sessions.map((session) => (

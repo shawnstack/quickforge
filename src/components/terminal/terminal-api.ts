@@ -1,4 +1,4 @@
-import type { TerminalCapabilities, TerminalSession } from './terminal-types'
+import type { TerminalCapabilities, TerminalSession, TerminalShellConfig } from './terminal-types'
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { cache: 'no-store', ...init })
@@ -18,9 +18,21 @@ export function listTerminalSessions(projectId?: string) {
   return fetchJson<{ sessions: TerminalSession[] }>(`/api/terminal/sessions${query}`)
 }
 
-export function createTerminalSession(input: { projectId?: string; name?: string; cols?: number; rows?: number }) {
+export function createTerminalSession(input: { projectId?: string; name?: string; cols?: number; rows?: number; shellProfileId?: string; shellProfileName?: string }) {
   return fetchJson<TerminalSession>('/api/terminal/sessions', {
     method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
+export function getTerminalShellConfig() {
+  return fetchJson<TerminalShellConfig>('/api/system/terminal-shell')
+}
+
+export function saveTerminalShellConfig(input: Pick<TerminalShellConfig, 'defaultProfileId' | 'profiles'>) {
+  return fetchJson<TerminalShellConfig>('/api/system/terminal-shell', {
+    method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(input),
   })

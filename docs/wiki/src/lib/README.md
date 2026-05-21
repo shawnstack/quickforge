@@ -139,7 +139,7 @@
 |------|------|
 | `custom-providers-only-tab.ts` | 自定义模型供应商的完整 CRUD 管理界面 |
 | `lan-access-settings-tab.ts` | LAN 共享设置（启用/禁用、密码、会话 TTL） |
-| `service-settings-tab.ts` | 显示后端服务状态，支持重启 |
+| `service-settings-tab.ts` | 显示后端服务状态、支持重启，并以轻量列表管理自动识别的终端 Shell profiles 和自定义 Shell 命令 |
 | `backup-settings-tab.ts` | 数据备份导出和导入 |
 | `default-options-settings-tab.ts` | 设置默认模型和思考级别 |
 | `language-settings-tab.ts` | 语言切换设置 |

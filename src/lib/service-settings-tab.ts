@@ -14,15 +14,19 @@ type ServiceStatus = {
   workspaceRoot: string
 }
 
-type TerminalShellOption = 'auto' | 'cmd.exe' | 'powershell.exe' | 'pwsh.exe' | 'custom'
+type TerminalShellProfile = {
+  id: string
+  name: string
+  command: string
+  builtin: boolean
+  detected?: boolean
+}
 
-const terminalShellOptions: Array<{ value: TerminalShellOption; label: string; description: string }> = [
-  { value: 'auto', label: 'Auto', description: 'Use QuickForge default detection.' },
-  { value: 'cmd.exe', label: 'Command Prompt (cmd.exe)', description: 'Recommended when PowerShell is blocked by policy.' },
-  { value: 'powershell.exe', label: 'Windows PowerShell', description: 'Use the built-in Windows PowerShell.' },
-  { value: 'pwsh.exe', label: 'PowerShell 7+ (pwsh.exe)', description: 'Use PowerShell Core if it is installed.' },
-  { value: 'custom', label: 'Custom path', description: 'Use a full executable path, such as Git Bash.' },
-]
+type TerminalShellConfig = {
+  terminalShell: string
+  defaultProfileId: string
+  profiles: TerminalShellProfile[]
+}
 
 const RESTART_TIMEOUT_MS = 30_000
 const POLL_INTERVAL_MS = 800
@@ -38,14 +42,48 @@ function formatDate(value?: string) {
   return date.toLocaleString(getDateLocale())
 }
 
+function customProfileId() {
+  return `custom_${globalThis.crypto?.randomUUID?.().slice(0, 8) || Date.now().toString(36)}`
+}
+
+function profileNameFromCommand(command: string) {
+  const normalized = command.trim()
+  const executable = normalized.split(/[\\/]/).pop()?.replace(/^"|"$/g, '') || normalized
+  if (/^bash(\.exe)?$/i.test(executable)) return 'Bash'
+  if (/^zsh$/i.test(executable)) return 'Zsh'
+  if (/^fish$/i.test(executable)) return 'Fish'
+  if (/^cmd(\.exe)?$/i.test(executable)) return 'Command Prompt'
+  if (/^powershell(\.exe)?$/i.test(executable)) return 'Windows PowerShell'
+  if (/^pwsh(\.exe)?$/i.test(executable)) return 'PowerShell 7+'
+  return executable || 'Custom Shell'
+}
+
+const checkIcon = html`
+  <svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M3.5 8.2 6.6 11.3 12.7 4.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+  </svg>
+`
+
+const circleIcon = html`
+  <svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <circle cx="8" cy="8" r="4.8" stroke="currentColor" stroke-width="1.5" />
+  </svg>
+`
+
+const deleteIcon = html`
+  <svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+  </svg>
+`
+
 class ServiceSettingsTab extends SettingsTab {
   private status?: ServiceStatus
   private loading = true
   private restarting = false
   private message = ''
   private error = ''
-  private terminalShellOption: TerminalShellOption = 'auto'
-  private customTerminalShell = ''
+  private terminalShellConfig: TerminalShellConfig = { terminalShell: 'auto', defaultProfileId: 'auto', profiles: [] }
+  private customShellCommand = ''
 
   override getTabName(): string {
     return t('backendService')
@@ -56,22 +94,8 @@ class ServiceSettingsTab extends SettingsTab {
     await Promise.all([this.loadStatus(), this.loadTerminalShell()])
   }
 
-  private setTerminalShellForm(value: string) {
-    const shell = String(value || 'auto').trim()
-    const preset = terminalShellOptions.find((option) => option.value !== 'custom' && option.value === shell)
-    if (preset) {
-      this.terminalShellOption = preset.value
-      this.customTerminalShell = ''
-      return
-    }
-
-    this.terminalShellOption = shell === 'auto' || !shell ? 'auto' : 'custom'
-    this.customTerminalShell = this.terminalShellOption === 'custom' ? shell : ''
-  }
-
-  private selectedTerminalShell() {
-    if (this.terminalShellOption === 'custom') return this.customTerminalShell.trim()
-    return this.terminalShellOption
+  private customShellProfiles() {
+    return this.terminalShellConfig.profiles.filter((profile) => !profile.builtin)
   }
 
   private async loadTerminalShell() {
@@ -79,7 +103,11 @@ class ServiceSettingsTab extends SettingsTab {
       const response = await fetch('/api/system/terminal-shell', { cache: 'no-store' })
       const payload = await response.json().catch(() => null)
       if (!response.ok) throw new Error(payload?.error || t('requestFailed'))
-      this.setTerminalShellForm(payload?.terminalShell || 'auto')
+      this.terminalShellConfig = {
+        terminalShell: payload?.terminalShell || 'auto',
+        defaultProfileId: payload?.defaultProfileId || 'auto',
+        profiles: Array.isArray(payload?.profiles) ? payload.profiles : [],
+      }
     } catch (error) {
       this.error = error instanceof Error ? error.message : t('requestFailed')
     } finally {
@@ -87,30 +115,48 @@ class ServiceSettingsTab extends SettingsTab {
     }
   }
 
-  private async saveTerminalShell() {
-    const terminalShell = this.selectedTerminalShell()
-    if (this.terminalShellOption === 'custom' && !terminalShell) {
-      this.error = t('terminalShellCustomRequired')
-      this.requestUpdate()
-      return
-    }
-
+  private async saveTerminalShellConfig(defaultProfileId: string, customProfiles = this.customShellProfiles(), message = t('terminalShellSaved')) {
     try {
       const response = await fetch('/api/system/terminal-shell', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ terminalShell }),
+        body: JSON.stringify({ defaultProfileId, profiles: customProfiles }),
       })
       const payload = await response.json().catch(() => null)
       if (!response.ok) throw new Error(payload?.error || t('requestFailed'))
-      this.setTerminalShellForm(payload?.terminalShell || 'auto')
-      this.message = t('terminalShellSaved')
+      this.terminalShellConfig = payload as TerminalShellConfig
+      this.message = message
       this.error = ''
     } catch (error) {
       this.error = error instanceof Error ? error.message : t('requestFailed')
     } finally {
       this.requestUpdate()
     }
+  }
+
+  private async addCustomTerminalShell() {
+    const command = this.customShellCommand.trim()
+    if (!command) {
+      this.error = t('terminalShellProfileRequired')
+      this.requestUpdate()
+      return
+    }
+
+    const profiles = [
+      ...this.customShellProfiles(),
+      { id: customProfileId(), name: profileNameFromCommand(command), command, builtin: false },
+    ]
+    this.customShellCommand = ''
+    await this.saveTerminalShellConfig(this.terminalShellConfig.defaultProfileId, profiles, t('terminalShellProfilesSaved'))
+  }
+
+  private async deleteCustomTerminalShell(profileId: string) {
+    const profile = this.terminalShellConfig.profiles.find((item) => item.id === profileId)
+    if (!profile || profile.builtin) return
+    if (!window.confirm(t('terminalShellDeleteConfirm', { name: profile.name }))) return
+    const profiles = this.customShellProfiles().filter((item) => item.id !== profileId)
+    const defaultProfileId = this.terminalShellConfig.defaultProfileId === profileId ? 'auto' : this.terminalShellConfig.defaultProfileId
+    await this.saveTerminalShellConfig(defaultProfileId, profiles, t('terminalShellProfilesSaved'))
   }
 
   private async loadStatus() {
@@ -202,54 +248,89 @@ class ServiceSettingsTab extends SettingsTab {
     `
   }
 
-  private terminalShellSettings() {
+  private shellProfileRow(profile: TerminalShellProfile) {
+    const isDefault = profile.id === this.terminalShellConfig.defaultProfileId
+
     return html`
-      <section class="rounded-lg border border-border p-4">
-        <h4 class="text-sm font-semibold text-foreground">${t('terminalShell')}</h4>
-        <p class="mt-1 text-sm text-muted-foreground">${t('terminalShellDescription')}</p>
-
-        <div class="mt-4 grid gap-3">
-          <label class="grid gap-1 text-sm">
-            <span class="text-muted-foreground">${t('terminalShellDefault')}</span>
-            <select
-              class="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
-              .value=${this.terminalShellOption}
-              @change=${(event: Event) => {
-                this.terminalShellOption = (event.target as HTMLSelectElement).value as TerminalShellOption
-                this.requestUpdate()
-              }}
-            >
-              ${terminalShellOptions.map((option) => html`<option value=${option.value}>${option.label}</option>`)}
-            </select>
-          </label>
-
-          <p class="text-xs text-muted-foreground/70">
-            ${terminalShellOptions.find((option) => option.value === this.terminalShellOption)?.description}
-          </p>
-
-          ${this.terminalShellOption === 'custom'
+      <div class="flex min-w-0 items-center gap-3 border-b px-1.5 py-2 last:border-b-0 hover:bg-muted/5" style="border-bottom-color: color-mix(in oklab, var(--border) 32%, transparent);">
+        <div class="min-w-0 flex-1">
+          <div class="truncate text-sm font-medium text-foreground/90">${profile.name}</div>
+          <div class="truncate font-mono text-xs text-muted-foreground/55" title=${profile.command}>${profile.command}</div>
+        </div>
+        <div class="flex shrink-0 items-center gap-1">
+          ${isDefault
             ? html`
-              <label class="grid gap-1 text-sm">
-                <span class="text-muted-foreground">${t('terminalShellCustomPath')}</span>
-                <input
-                  class="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
-                  type="text"
-                  .value=${this.customTerminalShell}
-                  placeholder="C:\\Program Files\\Git\\bin\\bash.exe"
-                  @input=${(event: Event) => {
-                    this.customTerminalShell = (event.target as HTMLInputElement).value
-                  }}
-                />
-              </label>
+              <span class="inline-flex size-7 items-center justify-center rounded-md text-emerald-500/85" title=${t('terminalShellDefaultBadge')} aria-label=${t('terminalShellDefaultBadge')}>
+                ${checkIcon}
+              </span>
+            `
+            : html`
+              <button
+                class="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground/55 hover:bg-muted/20 hover:text-foreground/85"
+                type="button"
+                title=${t('terminalShellSetDefault')}
+                aria-label=${t('terminalShellSetDefault')}
+                @click=${() => this.saveTerminalShellConfig(profile.id)}
+              >
+                ${circleIcon}
+              </button>
+            `}
+          ${!profile.builtin
+            ? html`
+              <button
+                class="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground/55 hover:bg-destructive/10 hover:text-destructive"
+                type="button"
+                title=${t('delete')}
+                aria-label=${t('delete')}
+                @click=${() => this.deleteCustomTerminalShell(profile.id)}
+              >
+                ${deleteIcon}
+              </button>
             `
             : null}
+        </div>
+      </div>
+    `
+  }
 
+  private terminalShellSettings() {
+    const profiles = this.terminalShellConfig.profiles
+
+    return html`
+      <section class="rounded-lg border border-border p-4">
+        <div>
+          <h4 class="text-sm font-semibold text-foreground">${t('terminalShell')}</h4>
+          <p class="mt-1 max-w-2xl text-sm text-muted-foreground">${t('terminalShellDescription')}</p>
+          <p class="mt-1 text-xs text-muted-foreground/60">${t('terminalShellAutoDetectedHint')}</p>
+        </div>
+
+        <div class="mt-4 overflow-hidden rounded-lg border bg-transparent" style="border-color: color-mix(in oklab, var(--border) 36%, transparent);">
+          ${profiles.length > 0
+            ? profiles.map((profile) => this.shellProfileRow(profile))
+            : html`<div class="px-2 py-3 text-sm text-muted-foreground">${t('terminalShellNoDetected')}</div>`}
+        </div>
+
+        <div class="mt-3 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+          <label class="grid gap-1 text-sm">
+            <span class="text-xs text-muted-foreground/70">${t('terminalShellCommand')}</span>
+            <input
+              class="h-9 rounded-md border border-border bg-background px-3 font-mono text-sm text-foreground outline-none focus:border-ring"
+              type="text"
+              .value=${this.customShellCommand}
+              placeholder=${t('terminalShellCommandPlaceholder')}
+              @input=${(event: Event) => {
+                this.customShellCommand = (event.target as HTMLInputElement).value
+              }}
+            />
+          </label>
           <button
-            class="w-fit rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-60"
+            class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
             type="button"
-            @click=${() => this.saveTerminalShell()}
+            title=${t('terminalShellAdd')}
+            aria-label=${t('terminalShellAdd')}
+            @click=${() => this.addCustomTerminalShell()}
           >
-            ${t('saveTerminalShell')}
+            ${t('terminalShellAdd')}
           </button>
         </div>
       </section>

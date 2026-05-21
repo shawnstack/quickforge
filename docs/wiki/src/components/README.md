@@ -25,6 +25,11 @@ components/
 │   ├── WorkspaceChangesList.tsx    # Git 工作区变更列表
 │   ├── MonacoCodeViewer.tsx        # Monaco 只读代码查看器
 │   └── MonacoDiffViewer.tsx        # Monaco 单文件 Diff 查看器
+├── terminal/
+│   ├── TerminalDock.tsx             # 多会话终端 Dock，支持新建时选择 Shell profile
+│   ├── TerminalPane.tsx             # xterm.js 终端实例面板
+│   ├── terminal-api.ts              # 终端 REST API 客户端
+│   └── terminal-types.ts            # 终端会话/能力/Profile 类型
 ├── ui/
 │   ├── button.tsx                  # 按钮组件 (40 行)
 │   ├── confirm-dialog.tsx          # 确认对话框 (95 行)
@@ -103,6 +108,12 @@ components/
 - Files tab 通过后端 `/api/workspace/tree` 和 `/api/workspace/file` 安全读取当前项目文件，使用 Monaco Editor 只读展示
 - Changes tab 通过 `/api/git/status` 和 `/api/git/file-diff` 获取 Git 工作区变更，使用 Monaco DiffEditor 展示单文件差异
 - 第一版仅提供只读浏览和 diff review，不提供编辑、stage、commit、branch 操作
+
+### Terminal Dock (`terminal/`)
+
+- `TerminalDock.tsx` 管理底部多会话终端、会话 tab、新建/关闭和高度拖拽。
+- 新建终端默认使用后端返回的默认 Shell profile，也可以从 Dock 右侧 Shell 下拉列表选择指定 profile 创建新会话；下拉列表来自后端按当前平台自动识别的内置 profiles 加用户自定义 profiles。
+- `terminal-api.ts` 封装 `/api/terminal/capabilities`、`/api/terminal/sessions` 和 `/api/system/terminal-shell` 相关请求。
 
 ### ShareConversationDialog.tsx (199 行)
 

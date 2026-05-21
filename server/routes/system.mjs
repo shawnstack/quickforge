@@ -21,13 +21,18 @@ export async function handleSystemApi(req, res, url, context) {
 
   if (url.pathname === '/api/system/terminal-shell') {
     if (req.method === 'GET') {
-      sendJson(res, 200, { terminalShell: await context.getTerminalShellSetting() })
+      sendJson(res, 200, await context.getTerminalShellConfig())
       return
     }
 
     if (req.method === 'PUT') {
-      const body = await readJsonBody(req, 16 * 1024) || {}
-      sendJson(res, 200, { terminalShell: await context.updateTerminalShellSetting(body.terminalShell) })
+      const body = await readJsonBody(req, 64 * 1024) || {}
+      if (Array.isArray(body.profiles) || typeof body.defaultProfileId === 'string') {
+        sendJson(res, 200, await context.updateTerminalShellConfig(body))
+      } else {
+        const terminalShell = await context.updateTerminalShellSetting(body.terminalShell)
+        sendJson(res, 200, await context.getTerminalShellConfig({ terminalShell }))
+      }
       return
     }
   }

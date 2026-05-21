@@ -134,6 +134,8 @@ server/
 - 终端接口强制仅允许 localhost 访问；LAN 分享和共享会话页面不能访问。
 - 终端运行在本机用户权限下，不是沙箱；默认 cwd 为当前项目目录。
 - `QUICKFORGE_TERMINAL=0` 可关闭终端，`QUICKFORGE_MAX_TERMINALS` 可调整最大会话数。
+- 终端 Shell 配置保存在 `settings` store 中：系统会按平台和可执行文件可用性自动识别常见内置 profiles（Windows: cmd/PowerShell/pwsh；macOS/Linux: zsh/bash/fish/sh/pwsh），`terminalShellProfiles` 仅存放自定义 profiles，`defaultTerminalShellProfileId` 存放默认 profile；兼容旧的 `terminalShell` 字段。
+- `QUICKFORGE_TERMINAL_SHELL` 优先级最高，会覆盖 UI 中的默认 profile 和新建终端时选择的 profile。
 
 ### share-store.mjs (432 行)
 

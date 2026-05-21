@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { WebSocketServer } from 'ws'
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
-import { projectContextFromId, readProjectConfig, getActiveProject } from '../project-config.mjs'
+import { projectContextFromId, readProjectConfig, getActiveProject, resolveTerminalShellProfile } from '../project-config.mjs'
 import { getWorkspaceRoot, assertDirectory } from '../utils/workspace.mjs'
 import {
   attachTerminalClient,
@@ -67,12 +67,16 @@ export async function handleTerminalApi(req, res, url, options = {}) {
     const body = await readJsonBody(req, 16 * 1024) || {}
     const projectId = typeof body.projectId === 'string' && body.projectId ? body.projectId : null
     const { cwd, projectId: resolvedProjectId } = await resolveTerminalCwd(projectId)
+    const shellProfileId = typeof body.shellProfileId === 'string' ? body.shellProfileId : undefined
+    const profile = await resolveTerminalShellProfile(shellProfileId)
     const session = await createTerminalSession({
       cwd,
       projectId: resolvedProjectId,
       name: typeof body.name === 'string' ? body.name : undefined,
       cols: Number(body.cols) || 120,
       rows: Number(body.rows) || 30,
+      shellProfileId: profile?.id,
+      shellProfileName: profile?.name,
     })
     sendJson(res, 201, session)
     return

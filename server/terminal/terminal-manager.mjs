@@ -1,8 +1,7 @@
 import os from 'node:os'
 import { randomUUID } from 'node:crypto'
-import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { readTerminalShellSetting } from '../project-config.mjs'
+import { readTerminalShellConfig, resolveTerminalShellProfile } from '../project-config.mjs'
 import { logger } from '../utils/logger.mjs'
 
 const require = createRequire(import.meta.url)
@@ -30,34 +29,19 @@ function loadPty() {
   }
 }
 
-function isWindows() {
-  return process.platform === 'win32'
-}
-
-function commandExists(command) {
-  const probe = isWindows() ? 'where' : 'command'
-  const args = isWindows() ? [command] : ['-v', command]
-  const result = spawnSync(probe, args, { shell: !isWindows(), stdio: 'ignore', windowsHide: true })
-  return result.status === 0
-}
-
 function detectShellSync() {
   if (process.env.QUICKFORGE_TERMINAL_SHELL) return process.env.QUICKFORGE_TERMINAL_SHELL
-  if (isWindows()) {
-    if (commandExists('pwsh.exe')) return 'pwsh.exe'
-    if (commandExists('powershell.exe')) return 'powershell.exe'
-    return 'cmd.exe'
-  }
-  return process.env.SHELL || (commandExists('/bin/bash') ? '/bin/bash' : '/bin/sh')
+  if (process.platform === 'win32') return 'cmd.exe'
+  return process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/sh')
 }
 
-async function detectShell() {
+async function detectShell(shellProfileId) {
   if (process.env.QUICKFORGE_TERMINAL_SHELL) return process.env.QUICKFORGE_TERMINAL_SHELL
   try {
-    const configuredShell = await readTerminalShellSetting()
-    if (configuredShell && configuredShell !== 'auto') return configuredShell
+    const profile = await resolveTerminalShellProfile(shellProfileId)
+    if (profile?.command && profile.command !== 'auto') return profile.command
   } catch (error) {
-    logger.warn('Failed to read terminal shell setting', { error: error?.message })
+    logger.warn('Failed to read terminal shell profile', { error: error?.message })
   }
   return detectShellSync()
 }
@@ -113,9 +97,10 @@ function scheduleCleanup() {
 }
 
 export async function terminalCapabilities() {
+  const config = await readTerminalShellConfig()
   const configuredShell = process.env.QUICKFORGE_TERMINAL_SHELL
     ? process.env.QUICKFORGE_TERMINAL_SHELL
-    : await readTerminalShellSetting()
+    : config.terminalShell
   const shell = await detectShell()
   const terminalAvailable = !TERMINAL_DISABLED && (() => {
     try {
@@ -132,6 +117,9 @@ export async function terminalCapabilities() {
     maxSessions: MAX_SESSIONS,
     shell: terminalAvailable ? shell : null,
     configuredShell: configuredShell || 'auto',
+    terminalShellProfiles: config.profiles,
+    defaultTerminalShellProfileId: config.defaultProfileId,
+    terminalShellOverride: Boolean(process.env.QUICKFORGE_TERMINAL_SHELL),
     reason: TERMINAL_DISABLED
       ? 'Terminal is disabled by QUICKFORGE_TERMINAL=0.'
       : (terminalAvailable ? null : 'Terminal requires node-pty. Install optional terminal dependencies to enable it.'),
@@ -144,14 +132,16 @@ export function listTerminalSessions(projectId) {
     .map(serializeSession)
 }
 
-export async function createTerminalSession({ cwd, projectId = null, name, cols = 120, rows = 30 }) {
+export async function createTerminalSession({ cwd, projectId = null, name, cols = 120, rows = 30, shellProfileId, shellProfileName }) {
   if (TERMINAL_DISABLED) throw createError('Terminal is disabled', 403)
   if (sessions.size >= MAX_SESSIONS) throw createError(`Maximum terminal sessions reached (${MAX_SESSIONS})`, 429)
 
-  const shell = await detectShell()
+  const profile = await resolveTerminalShellProfile(shellProfileId)
+  const shell = await detectShell(profile?.id)
   const ptyModule = loadPty()
   const id = randomUUID()
   const now = new Date().toISOString()
+  const profileName = typeof shellProfileName === 'string' && shellProfileName.trim() ? shellProfileName.trim() : profile?.name || ''
   const ptyProcess = ptyModule.spawn(shell, [], {
     name: 'xterm-256color',
     cols: Math.max(20, Number(cols) || 120),
@@ -167,7 +157,7 @@ export async function createTerminalSession({ cwd, projectId = null, name, cols 
 
   const session = {
     id,
-    name: String(name || `Terminal ${sessions.size + 1}`),
+    name: String(name || profileName || `Terminal ${sessions.size + 1}`),
     projectId,
     cwd,
     shell,

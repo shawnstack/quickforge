@@ -1,6 +1,6 @@
 # `server/` — Node.js 后端服务器
 
-后端使用原生 Node.js HTTP 服务器（无 Express 等框架依赖）。提供 REST API、SSE 事件流、Agent 管理和存储服务。
+后端使用原生 Node.js HTTP 服务器（无 Express 等框架依赖）。提供 REST API、WebSocket、SSE 事件流、Agent 管理和存储服务。
 
 ## 目录结构
 
@@ -20,6 +20,7 @@ server/
 ├── reasoning-cache.mjs       # 推理内容缓存 (51 行)
 ├── restart-supervisor.mjs    # 服务重启监控脚本 (38 行)
 ├── lan-access-store.mjs      # LAN 共享访问令牌存储 (215 行)
+├── terminal/                 # 本地交互式终端 PTY 会话管理
 ├── routes/                   # API 路由处理器
 ├── tools/                    # 工作区工具定义和实现
 └── utils/                    # 工具函数
@@ -43,6 +44,7 @@ server/
 - `GET /api/health` — 健康检查
 - 静态文件服务（`serveStatic`）
 - SSE（`/api/agents/events`, `/api/agents/:sessionId/stream`）
+- WebSocket 交互式终端（`/api/terminal/sessions/:id/ws`，仅 localhost）
 - 启动时重置僵死任务状态
 - 支持 LAN 共享（显示局域网 URL）
 
@@ -119,6 +121,19 @@ server/
 - 当前支持 `stdio`、`sse` 和 Streamable HTTP (`http`) transport。
 - MCP 工具注入时使用 `mcp__{serverName}__{toolName}` 命名空间，避免和内置工具重名。
 - YOLO 关闭时，MCP 工具调用需要用户审批；YOLO 开启时允许直接调用。
+
+### terminal/ — 本地交互式终端
+
+**用途**: 基于 `node-pty` 管理多开终端会话，并通过 WebSocket 连接前端 `xterm.js` 面板。
+
+**核心文件**:
+- `terminal/terminal-manager.mjs` — PTY 创建、输入输出转发、resize、会话上限、空闲清理和关闭清理。
+- `routes/terminal.mjs` — `/api/terminal/capabilities`、`/api/terminal/sessions` 和 `/api/terminal/sessions/:id/ws`。
+
+**安全边界**:
+- 终端接口强制仅允许 localhost 访问；LAN 分享和共享会话页面不能访问。
+- 终端运行在本机用户权限下，不是沙箱；默认 cwd 为当前项目目录。
+- `QUICKFORGE_TERMINAL=0` 可关闭终端，`QUICKFORGE_MAX_TERMINALS` 可调整最大会话数。
 
 ### share-store.mjs (432 行)
 

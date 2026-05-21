@@ -5,6 +5,7 @@ import {
   Menu,
   PanelRightOpen,
   Share2,
+  SquareTerminal,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScheduledTasksPage } from '@/components/scheduled-tasks/ScheduledTasksPage'
@@ -47,6 +48,7 @@ import { ToastContainer } from '@/components/ui/toast'
 import { ShareConversationDialog } from '@/components/share/ShareConversationDialog'
 import { SharedConversationPage } from '@/components/share/SharedConversationPage'
 import { WorkspaceInspector } from '@/components/workspace/WorkspaceInspector'
+import { TerminalDock } from '@/components/terminal/TerminalDock'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
 
 type ScheduledTaskNotificationEvent = {
@@ -118,6 +120,7 @@ function MainApp() {
   const [skillsDialog, setSkillsDialog] = useState<{ scope: SkillsScope; project?: ProjectInfo }>()
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [workspaceInspectorOpen, setWorkspaceInspectorOpen] = useState(false)
+  const [terminalOpen, setTerminalOpen] = useState(false)
   const { toasts, handleTaskComplete, addToast, dismissToast } = useTaskToasts()
 
   // --- Session list + cross-tab sync ---
@@ -622,6 +625,18 @@ function MainApp() {
           <Button
             variant="ghost"
             size="icon"
+            onClick={() => setTerminalOpen((value) => !value)}
+            disabled={scheduledTasksOpen || needsModelSetup}
+            aria-label="终端"
+            title="终端"
+            className={terminalOpen ? 'bg-accent text-accent-foreground' : undefined}
+          >
+            <SquareTerminal className="size-4" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={() => setShareDialogOpen(true)}
             disabled={!agentManager.currentSessionId || scheduledTasksOpen || needsModelSetup}
             aria-label="分享到局域网"
@@ -643,25 +658,35 @@ function MainApp() {
                 }}
               />
             ) : (
-              <ErrorBoundary>
-                <ChatPanelHost
-                  agent={agentManager.agent}
-                  onModelSelect={openCustomModelSelector}
-                  revision={agentManager.chatPanelRevision}
-                  yoloMode={yoloMode}
-                  workspaceToolsEnabled={Boolean(agentManager.currentToolProject?.id)}
-                  project={agentManager.currentToolProject}
-                  projectId={agentManager.currentToolProject?.id}
-                  onToggleYoloMode={toggleYoloMode}
-                  onRollbackFromMessage={rollbackFromMessage}
-                  onCopyAnswer={copyAnswer}
-                  onForkFromMessage={forkFromMessage}
-                  onApproveToolCall={handleApproveToolCall}
-                  onRejectToolCall={handleRejectToolCall}
-                  disableFork={false}
-                  restoredDraft={restoredDraft}
-                />
-              </ErrorBoundary>
+              <>
+                <div className="flex min-h-0 flex-1 flex-col">
+                  <ErrorBoundary>
+                    <ChatPanelHost
+                      agent={agentManager.agent}
+                      onModelSelect={openCustomModelSelector}
+                      revision={agentManager.chatPanelRevision}
+                      yoloMode={yoloMode}
+                      workspaceToolsEnabled={Boolean(agentManager.currentToolProject?.id)}
+                      project={agentManager.currentToolProject}
+                      projectId={agentManager.currentToolProject?.id}
+                      onToggleYoloMode={toggleYoloMode}
+                      onRollbackFromMessage={rollbackFromMessage}
+                      onCopyAnswer={copyAnswer}
+                      onForkFromMessage={forkFromMessage}
+                      onApproveToolCall={handleApproveToolCall}
+                      onRejectToolCall={handleRejectToolCall}
+                      disableFork={false}
+                      restoredDraft={restoredDraft}
+                    />
+                  </ErrorBoundary>
+                </div>
+                {terminalOpen ? (
+                  <TerminalDock
+                    project={agentManager.currentToolProject}
+                    onCollapse={() => setTerminalOpen(false)}
+                  />
+                ) : null}
+              </>
           )}
         </section>
       </main>

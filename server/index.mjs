@@ -24,6 +24,7 @@ import { handleSharedConversationApi } from './routes/shared-conversation.mjs'
 import { handleLanAccessApi, renderLanUnlockPage } from './routes/lan-access.mjs'
 import { handleMcpApi } from './routes/mcp.mjs'
 import { handleWorkspaceApi, handleGitApi } from './routes/workspace.mjs'
+import { handleTerminalApi, handleTerminalUpgrade } from './routes/terminal.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { logger, flushLogger } from './utils/logger.mjs'
 import { installAiHttpLogger } from './ai-http-logger.mjs'
@@ -32,6 +33,7 @@ import { parseCookies } from './share-store.mjs'
 import { lanAccessCookieName, verifyLanAccessToken } from './lan-access-store.mjs'
 import { shutdown as shutdownAgentManager, resetStaleTaskStatuses } from './agent-manager.mjs'
 import { shutdownMcpConnections } from './mcp/registry.mjs'
+import { shutdownTerminalSessions } from './terminal/terminal-manager.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -135,6 +137,7 @@ async function performRestart() {
   stopVite()
   await shutdownAgentManager()
   await shutdownMcpConnections()
+  shutdownTerminalSessions()
   await closeHttpServer()
   process.exit(0)
 }
@@ -278,6 +281,14 @@ async function handleApi(req, res, url) {
       host,
       port,
       remoteEnabled: host !== '127.0.0.1' && host !== 'localhost',
+    })
+    return
+  }
+
+  // Terminal routes (local-only; real shell access)
+  if (pathname === '/api/terminal/capabilities' || pathname === '/api/terminal/sessions' || pathname.startsWith('/api/terminal/sessions/')) {
+    await handleTerminalApi(req, res, url, {
+      isLocalRequest: isLoopbackAddress(req.socket.remoteAddress),
     })
     return
   }
@@ -469,6 +480,29 @@ const server = createServer(async (req, res) => {
   }
 })
 
+server.on('upgrade', (req, socket, head) => {
+  if (!isAllowedHostHeader(req.headers.host)) {
+    socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
+    socket.destroy()
+    return
+  }
+
+  try {
+    const url = new URL(req.url || '/', `http://${req.headers.host || `${host}:${port}`}`)
+    if (url.pathname.startsWith('/api/terminal/sessions/')) {
+      handleTerminalUpgrade(req, socket, head, url, {
+        isLocalRequest: isLoopbackAddress(req.socket.remoteAddress),
+      })
+      return
+    }
+    socket.write('HTTP/1.1 404 Not Found\r\n\r\n')
+    socket.destroy()
+  } catch {
+    socket.write('HTTP/1.1 400 Bad Request\r\n\r\n')
+    socket.destroy()
+  }
+})
+
 await ensureStorage()
 await resetStaleTaskStatuses()
 await initializeActiveProject()
@@ -502,6 +536,7 @@ async function gracefulShutdown(signal) {
   stopVite()
   await shutdownAgentManager()
   await shutdownMcpConnections()
+  shutdownTerminalSessions()
   flushLogger()
   process.exit(0)
 }

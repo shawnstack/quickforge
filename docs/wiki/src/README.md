@@ -11,7 +11,8 @@ src/
 │   ├── scheduled-tasks/ # 定时任务页面
 │   ├── share/           # 对话分享
 │   ├── sidebar/         # 侧边栏
-│   └── ui/              # 基础 UI 组件
+│   ├── terminal/         # xterm.js 多终端 Dock
+│   ├── ui/              # 基础 UI 组件
 ├── hooks/               # 自定义 React Hooks (14 个)
 ├── lib/                 # 前端工具库 (28 个模块)
 ├── App.tsx              # 主应用组件 (625 行)
@@ -53,10 +54,11 @@ src/
 4. **定时任务页面** (`ScheduledTasksPage`)
 5. **分享对话框** (`ShareConversationDialog`)
 6. **共享会话页面** (`SharedConversationPage`)
-7. **项目目录选择器** (`ProjectDirectoryPicker`)
-8. **Skills 对话框** (`SkillsDialog`)
-9. **Toast 容器** — 后台任务通知
-10. **错误边界** (`ErrorBoundary`) — 全局错误捕获
+7. **终端 Dock** (`TerminalDock`) — 本地多开交互式终端，显示在对话区底部
+8. **项目目录选择器** (`ProjectDirectoryPicker`)
+9. **Skills 对话框** (`SkillsDialog`)
+10. **Toast 容器** — 后台任务通知
+11. **错误边界** (`ErrorBoundary`) — 全局错误捕获
 
 **关键函数**:
 - `handleChatPanelEvent()` — 处理聊天面板事件

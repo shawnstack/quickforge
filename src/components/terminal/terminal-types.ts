@@ -4,6 +4,7 @@ export type TerminalCapabilities = {
   maxSessions: number
   shell: string | null
   reason: string | null
+  configuredShell?: string
   platform?: string
 }
 

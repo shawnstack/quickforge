@@ -20,9 +20,9 @@ function error(message, statusCode = 400) {
   return err
 }
 
-function assertLocalTerminalRequest(req, isLocalRequest) {
+async function assertLocalTerminalRequest(req, isLocalRequest) {
   if (!isLocalRequest) throw error('Terminal is only available from localhost', 403)
-  const capabilities = terminalCapabilities()
+  const capabilities = await terminalCapabilities()
   if (!capabilities.enabled) throw error(capabilities.reason || 'Terminal is disabled', 403)
 }
 
@@ -50,10 +50,10 @@ function sessionIdFromPath(pathname) {
 }
 
 export async function handleTerminalApi(req, res, url, options = {}) {
-  assertLocalTerminalRequest(req, options.isLocalRequest)
+  await assertLocalTerminalRequest(req, options.isLocalRequest)
 
   if (req.method === 'GET' && url.pathname === '/api/terminal/capabilities') {
-    sendJson(res, 200, { ...terminalCapabilities(), ...platformInfo() })
+    sendJson(res, 200, { ...await terminalCapabilities(), ...await platformInfo() })
     return
   }
 
@@ -67,7 +67,7 @@ export async function handleTerminalApi(req, res, url, options = {}) {
     const body = await readJsonBody(req, 16 * 1024) || {}
     const projectId = typeof body.projectId === 'string' && body.projectId ? body.projectId : null
     const { cwd, projectId: resolvedProjectId } = await resolveTerminalCwd(projectId)
-    const session = createTerminalSession({
+    const session = await createTerminalSession({
       cwd,
       projectId: resolvedProjectId,
       name: typeof body.name === 'string' ? body.name : undefined,
@@ -89,8 +89,12 @@ export async function handleTerminalApi(req, res, url, options = {}) {
 }
 
 export function handleTerminalUpgrade(req, socket, head, url, options = {}) {
+  void handleTerminalUpgradeAsync(req, socket, head, url, options)
+}
+
+async function handleTerminalUpgradeAsync(req, socket, head, url, options = {}) {
   try {
-    assertLocalTerminalRequest(req, options.isLocalRequest)
+    await assertLocalTerminalRequest(req, options.isLocalRequest)
     const match = url.pathname.match(/^\/api\/terminal\/sessions\/([^/]+)\/ws$/)
     if (!match) throw error('Not found', 404)
     const sessionId = decodeSegment(match[1])

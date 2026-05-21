@@ -2,6 +2,7 @@ import os from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { readTerminalShellSetting } from '../project-config.mjs'
 import { logger } from '../utils/logger.mjs'
 
 const require = createRequire(import.meta.url)
@@ -40,7 +41,7 @@ function commandExists(command) {
   return result.status === 0
 }
 
-function detectShell() {
+function detectShellSync() {
   if (process.env.QUICKFORGE_TERMINAL_SHELL) return process.env.QUICKFORGE_TERMINAL_SHELL
   if (isWindows()) {
     if (commandExists('pwsh.exe')) return 'pwsh.exe'
@@ -48,6 +49,17 @@ function detectShell() {
     return 'cmd.exe'
   }
   return process.env.SHELL || (commandExists('/bin/bash') ? '/bin/bash' : '/bin/sh')
+}
+
+async function detectShell() {
+  if (process.env.QUICKFORGE_TERMINAL_SHELL) return process.env.QUICKFORGE_TERMINAL_SHELL
+  try {
+    const configuredShell = await readTerminalShellSetting()
+    if (configuredShell && configuredShell !== 'auto') return configuredShell
+  } catch (error) {
+    logger.warn('Failed to read terminal shell setting', { error: error?.message })
+  }
+  return detectShellSync()
 }
 
 function createError(message, statusCode = 500) {
@@ -100,8 +112,11 @@ function scheduleCleanup() {
   cleanupTimer.unref?.()
 }
 
-export function terminalCapabilities() {
-  const shell = detectShell()
+export async function terminalCapabilities() {
+  const configuredShell = process.env.QUICKFORGE_TERMINAL_SHELL
+    ? process.env.QUICKFORGE_TERMINAL_SHELL
+    : await readTerminalShellSetting()
+  const shell = await detectShell()
   const terminalAvailable = !TERMINAL_DISABLED && (() => {
     try {
       loadPty()
@@ -116,6 +131,7 @@ export function terminalCapabilities() {
     localOnly: true,
     maxSessions: MAX_SESSIONS,
     shell: terminalAvailable ? shell : null,
+    configuredShell: configuredShell || 'auto',
     reason: TERMINAL_DISABLED
       ? 'Terminal is disabled by QUICKFORGE_TERMINAL=0.'
       : (terminalAvailable ? null : 'Terminal requires node-pty. Install optional terminal dependencies to enable it.'),
@@ -128,11 +144,11 @@ export function listTerminalSessions(projectId) {
     .map(serializeSession)
 }
 
-export function createTerminalSession({ cwd, projectId = null, name, cols = 120, rows = 30 }) {
+export async function createTerminalSession({ cwd, projectId = null, name, cols = 120, rows = 30 }) {
   if (TERMINAL_DISABLED) throw createError('Terminal is disabled', 403)
   if (sessions.size >= MAX_SESSIONS) throw createError(`Maximum terminal sessions reached (${MAX_SESSIONS})`, 429)
 
-  const shell = detectShell()
+  const shell = await detectShell()
   const ptyModule = loadPty()
   const id = randomUUID()
   const now = new Date().toISOString()
@@ -251,6 +267,6 @@ export function shutdownTerminalSessions() {
   for (const sessionId of [...sessions.keys()]) destroyTerminalSession(sessionId)
 }
 
-export function platformInfo() {
-  return { platform: os.platform(), shell: detectShell() }
+export async function platformInfo() {
+  return { platform: os.platform(), shell: await detectShell() }
 }

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { sendJson, sendError } from './utils/response.mjs'
 import { openBrowser } from './utils/platform.mjs'
 import { ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir } from './storage.mjs'
-import { setDefaultWorkspaceRoot, initializeActiveProject, readProjectConfig, getActiveProject } from './project-config.mjs'
+import { setDefaultWorkspaceRoot, initializeActiveProject, readProjectConfig, getActiveProject, readTerminalShellSetting, updateTerminalShellSetting } from './project-config.mjs'
 import { getWorkspaceRoot } from './utils/workspace.mjs'
 import { handleStorageApi } from './routes/storage.mjs'
 import { handleProjectApi } from './routes/project.mjs'
@@ -274,10 +274,12 @@ async function handleApi(req, res, url) {
   }
 
   // System routes
-  if (pathname === '/api/system/status' || pathname === '/api/system/restart' || pathname === '/api/system/network') {
+  if (pathname === '/api/system/status' || pathname === '/api/system/restart' || pathname === '/api/system/network' || pathname === '/api/system/terminal-shell') {
     await handleSystemApi(req, res, url, {
       getSystemStatus,
       requestRestart,
+      getTerminalShellSetting: readTerminalShellSetting,
+      updateTerminalShellSetting,
       host,
       port,
       remoteEnabled: host !== '127.0.0.1' && host !== 'localhost',

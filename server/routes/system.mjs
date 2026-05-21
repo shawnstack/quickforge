@@ -1,4 +1,4 @@
-import { sendJson } from '../utils/response.mjs'
+import { sendJson, readJsonBody } from '../utils/response.mjs'
 import { getLanUrls } from '../utils/network.mjs'
 
 export async function handleSystemApi(req, res, url, context) {
@@ -17,6 +17,19 @@ export async function handleSystemApi(req, res, url, context) {
   if (req.method === 'GET' && url.pathname === '/api/system/status') {
     sendJson(res, 200, await context.getSystemStatus())
     return
+  }
+
+  if (url.pathname === '/api/system/terminal-shell') {
+    if (req.method === 'GET') {
+      sendJson(res, 200, { terminalShell: await context.getTerminalShellSetting() })
+      return
+    }
+
+    if (req.method === 'PUT') {
+      const body = await readJsonBody(req, 16 * 1024) || {}
+      sendJson(res, 200, { terminalShell: await context.updateTerminalShellSetting(body.terminalShell) })
+      return
+    }
   }
 
   if (req.method === 'GET' && url.pathname === '/api/system/network') {

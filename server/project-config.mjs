@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { ensureProjectCache, readProjectConfigData, atomicProjectConfigUpdate, dataDir } from './storage.mjs'
+import { ensureProjectCache, readProjectConfigData, atomicProjectConfigUpdate, dataDir, readStore, atomicUpdate } from './storage.mjs'
 import { promises as fs } from 'node:fs'
 import { setWorkspaceRoot, getWorkspaceRoot, assertDirectory } from './utils/workspace.mjs'
 import { loadSelectedGlobalSkills, loadSelectedProjectSkills, mergeSkills } from './skills.mjs'
@@ -34,6 +34,28 @@ function normalizeProjectConfig(config) {
 
 export async function readProjectConfig() {
   return normalizeProjectConfig(await readProjectConfigData())
+}
+
+function normalizeTerminalShell(value) {
+  const shell = String(value || '').trim()
+  if (!shell || shell === 'auto') return 'auto'
+  if (shell.length > 500 || /[\r\n\0]/.test(shell)) return 'auto'
+  return shell
+}
+
+export async function readTerminalShellSetting() {
+  const settings = await readStore('settings')
+  return normalizeTerminalShell(settings?.terminalShell)
+}
+
+export async function updateTerminalShellSetting(value) {
+  const terminalShell = normalizeTerminalShell(value)
+  await atomicUpdate('settings', (settings) => {
+    if (terminalShell === 'auto') delete settings.terminalShell
+    else settings.terminalShell = terminalShell
+    return settings
+  })
+  return terminalShell
 }
 
 export function getActiveProject(config) {

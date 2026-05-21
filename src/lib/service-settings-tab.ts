@@ -14,6 +14,16 @@ type ServiceStatus = {
   workspaceRoot: string
 }
 
+type TerminalShellOption = 'auto' | 'cmd.exe' | 'powershell.exe' | 'pwsh.exe' | 'custom'
+
+const terminalShellOptions: Array<{ value: TerminalShellOption; label: string; description: string }> = [
+  { value: 'auto', label: 'Auto', description: 'Use QuickForge default detection.' },
+  { value: 'cmd.exe', label: 'Command Prompt (cmd.exe)', description: 'Recommended when PowerShell is blocked by policy.' },
+  { value: 'powershell.exe', label: 'Windows PowerShell', description: 'Use the built-in Windows PowerShell.' },
+  { value: 'pwsh.exe', label: 'PowerShell 7+ (pwsh.exe)', description: 'Use PowerShell Core if it is installed.' },
+  { value: 'custom', label: 'Custom path', description: 'Use a full executable path, such as Git Bash.' },
+]
+
 const RESTART_TIMEOUT_MS = 30_000
 const POLL_INTERVAL_MS = 800
 
@@ -34,6 +44,8 @@ class ServiceSettingsTab extends SettingsTab {
   private restarting = false
   private message = ''
   private error = ''
+  private terminalShellOption: TerminalShellOption = 'auto'
+  private customTerminalShell = ''
 
   override getTabName(): string {
     return t('backendService')
@@ -41,7 +53,64 @@ class ServiceSettingsTab extends SettingsTab {
 
   override async connectedCallback() {
     super.connectedCallback()
-    await this.loadStatus()
+    await Promise.all([this.loadStatus(), this.loadTerminalShell()])
+  }
+
+  private setTerminalShellForm(value: string) {
+    const shell = String(value || 'auto').trim()
+    const preset = terminalShellOptions.find((option) => option.value !== 'custom' && option.value === shell)
+    if (preset) {
+      this.terminalShellOption = preset.value
+      this.customTerminalShell = ''
+      return
+    }
+
+    this.terminalShellOption = shell === 'auto' || !shell ? 'auto' : 'custom'
+    this.customTerminalShell = this.terminalShellOption === 'custom' ? shell : ''
+  }
+
+  private selectedTerminalShell() {
+    if (this.terminalShellOption === 'custom') return this.customTerminalShell.trim()
+    return this.terminalShellOption
+  }
+
+  private async loadTerminalShell() {
+    try {
+      const response = await fetch('/api/system/terminal-shell', { cache: 'no-store' })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(payload?.error || t('requestFailed'))
+      this.setTerminalShellForm(payload?.terminalShell || 'auto')
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : t('requestFailed')
+    } finally {
+      this.requestUpdate()
+    }
+  }
+
+  private async saveTerminalShell() {
+    const terminalShell = this.selectedTerminalShell()
+    if (this.terminalShellOption === 'custom' && !terminalShell) {
+      this.error = t('terminalShellCustomRequired')
+      this.requestUpdate()
+      return
+    }
+
+    try {
+      const response = await fetch('/api/system/terminal-shell', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ terminalShell }),
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(payload?.error || t('requestFailed'))
+      this.setTerminalShellForm(payload?.terminalShell || 'auto')
+      this.message = t('terminalShellSaved')
+      this.error = ''
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : t('requestFailed')
+    } finally {
+      this.requestUpdate()
+    }
   }
 
   private async loadStatus() {
@@ -133,6 +202,60 @@ class ServiceSettingsTab extends SettingsTab {
     `
   }
 
+  private terminalShellSettings() {
+    return html`
+      <section class="rounded-lg border border-border p-4">
+        <h4 class="text-sm font-semibold text-foreground">${t('terminalShell')}</h4>
+        <p class="mt-1 text-sm text-muted-foreground">${t('terminalShellDescription')}</p>
+
+        <div class="mt-4 grid gap-3">
+          <label class="grid gap-1 text-sm">
+            <span class="text-muted-foreground">${t('terminalShellDefault')}</span>
+            <select
+              class="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+              .value=${this.terminalShellOption}
+              @change=${(event: Event) => {
+                this.terminalShellOption = (event.target as HTMLSelectElement).value as TerminalShellOption
+                this.requestUpdate()
+              }}
+            >
+              ${terminalShellOptions.map((option) => html`<option value=${option.value}>${option.label}</option>`)}
+            </select>
+          </label>
+
+          <p class="text-xs text-muted-foreground/70">
+            ${terminalShellOptions.find((option) => option.value === this.terminalShellOption)?.description}
+          </p>
+
+          ${this.terminalShellOption === 'custom'
+            ? html`
+              <label class="grid gap-1 text-sm">
+                <span class="text-muted-foreground">${t('terminalShellCustomPath')}</span>
+                <input
+                  class="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                  type="text"
+                  .value=${this.customTerminalShell}
+                  placeholder="C:\\Program Files\\Git\\bin\\bash.exe"
+                  @input=${(event: Event) => {
+                    this.customTerminalShell = (event.target as HTMLInputElement).value
+                  }}
+                />
+              </label>
+            `
+            : null}
+
+          <button
+            class="w-fit rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-60"
+            type="button"
+            @click=${() => this.saveTerminalShell()}
+          >
+            ${t('saveTerminalShell')}
+          </button>
+        </div>
+      </section>
+    `
+  }
+
   override render(): TemplateResult {
     if (this.loading) {
       return html`<div class="text-sm text-muted-foreground">${t('loading')}</div>`
@@ -152,6 +275,8 @@ class ServiceSettingsTab extends SettingsTab {
           <h4 class="text-sm font-semibold text-foreground">${t('backendServiceStatus')}</h4>
           <div class="mt-4">${this.statusRows()}</div>
         </section>
+
+        ${this.terminalShellSettings()}
 
         <section class="rounded-lg border border-border p-4">
           <h4 class="text-sm font-semibold text-foreground">${t('restartBackendService')}</h4>

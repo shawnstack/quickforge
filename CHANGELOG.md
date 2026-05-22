@@ -2,6 +2,23 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.12] - 2026-05-22
+
+### Added
+
+- Added a fullscreen toggle for the terminal dock.
+- Added API key visibility toggles in provider configuration fields.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.12` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.12.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.12.tgz
+  ```
+
 ## [1.3.11] - 2026-05-21
 
 ### Changed

@@ -202,7 +202,13 @@ function numberFromUnknown(value: unknown): number | undefined {
 function timestampFromUnknown(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string') {
-    const parsed = Date.parse(value)
+    const trimmed = value.trim()
+    if (!trimmed) return undefined
+
+    const numeric = Number(trimmed)
+    if (Number.isFinite(numeric)) return numeric
+
+    const parsed = Date.parse(trimmed)
     return Number.isNaN(parsed) ? undefined : parsed
   }
   return undefined

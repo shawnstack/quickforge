@@ -54,6 +54,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
   private editingProviderId: string | undefined
   private formOpen = false
   private loading = true
+  private apiKeyVisible = false
 
   public autoEditProviderName: string | null = null
 
@@ -91,6 +92,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
   private openAddForm() {
     this.editingProviderId = undefined
     this.form = emptyForm()
+    this.apiKeyVisible = false
     this.formOpen = true
     this.requestUpdate()
   }
@@ -120,6 +122,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       protocol: provider.type === 'anthropic-messages' ? 'anthropic-messages' : 'openai-completions',
       models,
     }
+    this.apiKeyVisible = false
     this.formOpen = true
     this.requestUpdate()
   }
@@ -128,6 +131,12 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     this.formOpen = false
     this.editingProviderId = undefined
     this.form = emptyForm()
+    this.apiKeyVisible = false
+    this.requestUpdate()
+  }
+
+  private toggleApiKeyVisibility() {
+    this.apiKeyVisible = !this.apiKeyVisible
     this.requestUpdate()
   }
 
@@ -468,13 +477,27 @@ export class CustomProvidersOnlyTab extends SettingsTab {
 
           <label class="grid gap-1.5 text-sm">
             <span class="text-foreground">${t('apiKey')}</span>
-            <input
-              class="rounded-md border border-input bg-background px-3 py-2 text-sm"
-              .value=${this.form.apiKey}
-              type="password"
-              @input=${(event: Event) => this.updateForm('apiKey', (event.target as HTMLInputElement).value)}
-              placeholder=${t('apiKeyPlaceholder')}
-            />
+            <div class="relative">
+              <input
+                class="w-full rounded-md border border-input bg-background px-3 py-2 pr-10 text-sm"
+                .value=${this.form.apiKey}
+                type=${this.apiKeyVisible ? 'text' : 'password'}
+                @input=${(event: Event) => this.updateForm('apiKey', (event.target as HTMLInputElement).value)}
+                placeholder=${t('apiKeyPlaceholder')}
+              />
+              <button
+                class="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-md text-muted-foreground hover:text-foreground/85 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                type="button"
+                title=${this.apiKeyVisible ? t('hideApiKey') : t('showApiKey')}
+                aria-label=${this.apiKeyVisible ? t('hideApiKey') : t('showApiKey')}
+                aria-pressed=${this.apiKeyVisible ? 'true' : 'false'}
+                @click=${() => this.toggleApiKeyVisibility()}
+              >
+                ${this.apiKeyVisible
+                  ? html`<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.53 13.53 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/><path d="M8.53 8.53A5 5 0 0 0 12 17a5 5 0 0 0 3.47-8.53"/></svg>`
+                  : html`<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>`}
+              </button>
+            </div>
           </label>
 
           <label class="grid gap-1.5 text-sm">

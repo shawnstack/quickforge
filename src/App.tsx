@@ -204,6 +204,16 @@ function MainApp() {
     [loadAgentSession],
   )
 
+  const restoreWorkspaceDraft = useCallback((text: string) => {
+    if (!text.trim()) return
+    setScheduledTasksOpen(false)
+    setRestoredDraft({
+      id: Date.now(),
+      sessionId: currentSessionIdRef.current,
+      text,
+    })
+  }, [currentSessionIdRef])
+
   useEffect(() => {
     const unsubscribe = subscribeToAgentEvents((event) => {
       if (isScheduledTaskStarted(event)) {
@@ -694,6 +704,7 @@ function MainApp() {
         project={agentManager.currentToolProject}
         open={workspaceInspectorOpen && Boolean(agentManager.currentToolProject?.id)}
         onOpenChange={setWorkspaceInspectorOpen}
+        onDraftRequest={restoreWorkspaceDraft}
       />
     </div>
     <ProjectDirectoryPicker

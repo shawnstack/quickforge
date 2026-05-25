@@ -8,6 +8,7 @@ export const DEFAULT_AUTO_COMPACT_SETTINGS = {
   thresholdPercent: 80,
   keepRecentTurns: 2,
   minSourceChars: 1600,
+  requireConfirmation: true,
 }
 
 const AUTO_COMPACT_MIN_INTERVAL_MS = 30_000
@@ -25,6 +26,7 @@ export function normalizeAutoCompactSettings(value) {
     thresholdPercent: clampNumber(value.thresholdPercent, DEFAULT_AUTO_COMPACT_SETTINGS.thresholdPercent, 50, 95),
     keepRecentTurns: clampNumber(value.keepRecentTurns, DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns, 1, 20),
     minSourceChars: clampNumber(value.minSourceChars, DEFAULT_AUTO_COMPACT_SETTINGS.minSourceChars, 0, 200000),
+    requireConfirmation: value.requireConfirmation !== false,
   }
 }
 
@@ -153,7 +155,7 @@ export function buildAutoCompactLoopMessages(session, messages) {
   return [summaryMessage, ...messages.slice(tailStart)]
 }
 
-export async function maybeAutoCompactSession({ session, messages, signal, emitSessionEvent, persistSession, logger }) {
+export async function maybeAutoCompactSession({ session, messages, signal, emitSessionEvent, persistSession, logger, confirmAutoCompact }) {
   if (!session || session.autoCompacting) return { compacted: false }
   const settings = await readAutoCompactSettings()
   if (!settings.enabled) return { compacted: false }
@@ -167,6 +169,18 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
     model: session.model,
   })
   if (!usage.contextWindow || usage.percent < settings.thresholdPercent) return { compacted: false, usage }
+
+  emitSessionEvent?.(session, {
+    type: 'auto_compact_threshold_reached',
+    usage,
+    thresholdPercent: settings.thresholdPercent,
+    requireConfirmation: settings.requireConfirmation,
+  })
+
+  if (settings.requireConfirmation) {
+    const approved = await confirmAutoCompact?.(session, { usage, settings })
+    if (!approved || signal?.aborted) return { compacted: false, usage, reason: approved === false ? 'user_rejected' : 'confirmation_unavailable' }
+  }
 
   const now = Date.now()
   if (session.lastAutoCompactAt && now - session.lastAutoCompactAt < AUTO_COMPACT_MIN_INTERVAL_MS) {
@@ -213,6 +227,12 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
     }
     session.lastAutoCompactAt = now
     await persistSession(session)
+    emitSessionEvent(session, {
+      type: 'auto_compact_completed',
+      usage,
+      thresholdPercent: settings.thresholdPercent,
+      contextCompaction: session.contextCompaction,
+    })
     emitSessionEvent(session, {
       type: 'messages_replaced',
       reason: 'auto_compact',

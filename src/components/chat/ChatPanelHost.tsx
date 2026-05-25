@@ -12,6 +12,7 @@ import { createScrollSync } from './scroll-sync'
 import { createCommandSuggestions } from './command-suggestions'
 import { createContextUsageIndicator } from './context-usage'
 import { decorateMessages, decorateEditor, captureComposerDraft, restoreComposerDraft, injectApprovalCard, removeApprovalCard } from './panel-decoration'
+import { t } from '@/lib/i18n'
 import type { ProjectInfo, RestoredDraft } from '@/lib/types'
 
 type AgentLike = ServerAgent | SharedServerAgent
@@ -30,6 +31,8 @@ type ChatPanelHostProps = {
   onForkFromMessage: (messageIndex: number) => void
   onApproveToolCall: (toolCallId: string) => Promise<void> | void
   onRejectToolCall: (toolCallId: string) => Promise<void> | void
+  onApproveAutoCompact?: (approvalId: string) => Promise<void> | void
+  onRejectAutoCompact?: (approvalId: string) => Promise<void> | void
   restoredDraft?: RestoredDraft
   disableFork?: boolean
   readOnly?: boolean
@@ -49,6 +52,8 @@ type PropsRef = {
   onToggleYoloMode: () => void
   onApproveToolCall: (toolCallId: string) => Promise<void> | void
   onRejectToolCall: (toolCallId: string) => Promise<void> | void
+  onApproveAutoCompact?: (approvalId: string) => Promise<void> | void
+  onRejectAutoCompact?: (approvalId: string) => Promise<void> | void
   onModelSelect?: () => void
   yoloMode: boolean
   workspaceToolsEnabled: boolean
@@ -71,6 +76,8 @@ export function ChatPanelHost({
   onForkFromMessage,
   onApproveToolCall,
   onRejectToolCall,
+  onApproveAutoCompact,
+  onRejectAutoCompact,
   restoredDraft,
   disableFork = false,
   readOnly = false,
@@ -93,6 +100,8 @@ export function ChatPanelHost({
     onToggleYoloMode,
     onApproveToolCall,
     onRejectToolCall,
+    onApproveAutoCompact,
+    onRejectAutoCompact,
     onModelSelect,
     yoloMode,
     workspaceToolsEnabled,
@@ -112,6 +121,8 @@ export function ChatPanelHost({
       onToggleYoloMode,
       onApproveToolCall,
       onRejectToolCall,
+      onApproveAutoCompact,
+      onRejectAutoCompact,
       onModelSelect,
       yoloMode,
       workspaceToolsEnabled,
@@ -128,6 +139,7 @@ export function ChatPanelHost({
   const scrollSyncRef = useRef<ReturnType<typeof createScrollSync> | null>(null)
   const scheduleDecorateRef = useRef<(() => void) | null>(null)
   const pendingApprovalRef = useRef<{ toolCallId: string; toolName: string; args: Record<string, unknown>; sessionId: string } | null>(null)
+  const pendingAutoCompactApprovalRef = useRef<{ approvalId: string; usage?: { percent?: number }; thresholdPercent?: number; keepRecentTurns?: number; sessionId: string } | null>(null)
 
   // --- Load custom commands for the current project ---
   useEffect(() => {
@@ -292,7 +304,31 @@ export function ChatPanelHost({
           pending.args,
         )
       } else {
-        removeApprovalCard(panel)
+        const pendingAutoCompact = pendingAutoCompactApprovalRef.current
+        if (pendingAutoCompact && pendingAutoCompact.sessionId === agent.sessionId) {
+          const capturedApprovalId = pendingAutoCompact.approvalId
+          injectApprovalCard(
+            {
+              panel,
+              onApprove: async () => { await propsRef.current.onApproveAutoCompact?.(capturedApprovalId); pendingAutoCompactApprovalRef.current = null; removeApprovalCard(panel) },
+              onReject: async () => { await propsRef.current.onRejectAutoCompact?.(capturedApprovalId); pendingAutoCompactApprovalRef.current = null; removeApprovalCard(panel) },
+            },
+            t('contextManagement'),
+            capturedApprovalId,
+            {
+              percent: pendingAutoCompact.usage?.percent ?? 0,
+              threshold: pendingAutoCompact.thresholdPercent ?? 0,
+              keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 2,
+              summary: t('autoCompactApprovalWaiting', {
+                percent: pendingAutoCompact.usage?.percent ?? 0,
+                threshold: pendingAutoCompact.thresholdPercent ?? 0,
+              }),
+              description: t('autoCompactApprovalPreview', { keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 2 }),
+            },
+          )
+        } else {
+          removeApprovalCard(panel)
+        }
       }
 
       contextUsage.update()
@@ -365,6 +401,9 @@ export function ChatPanelHost({
         if (pendingApprovalRef.current?.sessionId === agent.sessionId) {
           pendingApprovalRef.current = null
         }
+        if (pendingAutoCompactApprovalRef.current?.sessionId === agent.sessionId) {
+          pendingAutoCompactApprovalRef.current = null
+        }
       }
       if (event.type === 'message_start' || event.type === 'message_update' || event.type === 'message_end' || event.type === 'turn_end' || event.type === 'agent_end') {
         if (scrollSync.isEnabled) scrollSync.scheduleScrollToBottom()
@@ -387,11 +426,26 @@ export function ChatPanelHost({
           pendingApprovalRef.current = null
           scheduleDecorateRef.current?.()
         }
+        if (pendingAutoCompactApprovalRef.current?.sessionId === agent.sessionId) {
+          pendingAutoCompactApprovalRef.current = null
+          scheduleDecorateRef.current?.()
+        }
       }
       // Store pending approval and trigger re-decoration
       if ((event as Record<string, unknown>).type === 'tool_approval_required') {
         const approvalEvent = event as unknown as { toolCallId: string; toolName: string; args: Record<string, unknown>; sessionId: string }
         pendingApprovalRef.current = { toolCallId: approvalEvent.toolCallId, toolName: approvalEvent.toolName, args: approvalEvent.args, sessionId: approvalEvent.sessionId }
+        scheduleDecorateRef.current?.()
+      }
+      if ((event as Record<string, unknown>).type === 'auto_compact_approval_required') {
+        const approvalEvent = event as unknown as { approvalId: string; usage?: { percent?: number }; thresholdPercent?: number; keepRecentTurns?: number; sessionId: string }
+        pendingAutoCompactApprovalRef.current = {
+          approvalId: approvalEvent.approvalId,
+          usage: approvalEvent.usage,
+          thresholdPercent: approvalEvent.thresholdPercent,
+          keepRecentTurns: approvalEvent.keepRecentTurns,
+          sessionId: approvalEvent.sessionId,
+        }
         scheduleDecorateRef.current?.()
       }
     })

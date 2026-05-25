@@ -332,6 +332,18 @@ function MainApp() {
     }
   }, [agentRef])
 
+  const handleApproveAutoCompact = useCallback(async (approvalId: string) => {
+    const currentAgent = agentRef.current as (typeof agentRef.current & { approveAutoCompact?: (approvalId: string) => Promise<void> })
+    if (!currentAgent?.approveAutoCompact) throw new Error(t('toolApprovalFailed'))
+    await currentAgent.approveAutoCompact(approvalId)
+  }, [agentRef])
+
+  const handleRejectAutoCompact = useCallback(async (approvalId: string) => {
+    const currentAgent = agentRef.current as (typeof agentRef.current & { rejectAutoCompact?: (approvalId: string) => Promise<void> })
+    if (!currentAgent?.rejectAutoCompact) throw new Error(t('toolApprovalFailed'))
+    await currentAgent.rejectAutoCompact(approvalId)
+  }, [agentRef])
+
   const {
     loadSession,
     renameSession,
@@ -685,6 +697,8 @@ function MainApp() {
                       onForkFromMessage={forkFromMessage}
                       onApproveToolCall={handleApproveToolCall}
                       onRejectToolCall={handleRejectToolCall}
+                      onApproveAutoCompact={handleApproveAutoCompact}
+                      onRejectAutoCompact={handleRejectAutoCompact}
                       disableFork={false}
                       restoredDraft={restoredDraft}
                     />

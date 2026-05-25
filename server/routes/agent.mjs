@@ -20,6 +20,9 @@ import {
   updateSessionThinkingLevel,
   approveToolCall,
   rejectToolCall,
+  approveAutoCompact,
+  rejectAutoCompact,
+  abortToolCall,
   replaceSessionMessages,
   rollbackSessionMessages,
   agentEvents,
@@ -221,6 +224,30 @@ export async function handleAgentApi(req, res, url) {
   if (req.method === 'POST' && subPath === 'reject-tool') {
     const body = await readJsonBody(req)
     const result = rejectToolCall(sessionId, body?.toolCallId)
+    sendJson(res, 200, result)
+    return
+  }
+
+  // POST /api/agents/:sessionId/approve-auto-compact — approve a pending automatic context compaction
+  if (req.method === 'POST' && subPath === 'approve-auto-compact') {
+    const body = await readJsonBody(req)
+    const result = approveAutoCompact(sessionId, body?.approvalId)
+    sendJson(res, 200, result)
+    return
+  }
+
+  // POST /api/agents/:sessionId/reject-auto-compact — skip a pending automatic context compaction
+  if (req.method === 'POST' && subPath === 'reject-auto-compact') {
+    const body = await readJsonBody(req)
+    const result = rejectAutoCompact(sessionId, body?.approvalId)
+    sendJson(res, 200, result)
+    return
+  }
+
+  // POST /api/agents/:sessionId/abort-tool — abort a running run_command tool call
+  if (req.method === 'POST' && subPath === 'abort-tool') {
+    const body = await readJsonBody(req)
+    const result = abortToolCall(sessionId, body?.toolCallId)
     sendJson(res, 200, result)
     return
   }

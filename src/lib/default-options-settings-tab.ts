@@ -52,6 +52,7 @@ class DefaultOptionsSettingsTab extends SettingsTab {
   private showToolDetails = false
   private expandToolsByDefault = false
   private autoCompactEnabled = false
+  private autoCompactRequireConfirmation = true
   private autoCompactThresholdPercent = 80
   private autoCompactKeepRecentTurns = 2
   private loading = true
@@ -104,6 +105,7 @@ class DefaultOptionsSettingsTab extends SettingsTab {
       this.showToolDetails = toolDisplaySettings.showToolDetails
       this.expandToolsByDefault = toolDisplaySettings.expandToolsByDefault
       this.autoCompactEnabled = autoCompactSettings.enabled
+      this.autoCompactRequireConfirmation = autoCompactSettings.requireConfirmation
       this.autoCompactThresholdPercent = autoCompactSettings.thresholdPercent
       this.autoCompactKeepRecentTurns = autoCompactSettings.keepRecentTurns
     } catch (error) {
@@ -146,6 +148,12 @@ class DefaultOptionsSettingsTab extends SettingsTab {
     this.requestUpdate()
   }
 
+  private updateAutoCompactRequireConfirmation(checked: boolean) {
+    this.autoCompactRequireConfirmation = checked
+    this.saved = false
+    this.requestUpdate()
+  }
+
   private updateAutoCompactThresholdPercent(value: string) {
     this.autoCompactThresholdPercent = Number(value) || 80
     this.saved = false
@@ -182,6 +190,7 @@ class DefaultOptionsSettingsTab extends SettingsTab {
         thresholdPercent: this.autoCompactThresholdPercent,
         keepRecentTurns: this.autoCompactKeepRecentTurns,
         minSourceChars: 1600,
+        requireConfirmation: this.autoCompactRequireConfirmation,
       })
       await this.loadSettings()
       this.saved = true
@@ -277,6 +286,17 @@ class DefaultOptionsSettingsTab extends SettingsTab {
               @change=${(event: Event) => this.updateAutoCompactEnabled((event.target as HTMLInputElement).checked)}
             />
             <span>${t('autoCompactEnabled')}</span>
+          </label>
+          <p class="text-xs text-muted-foreground">${t('autoCompactTriggerNote')}</p>
+          <label class="flex items-center gap-2 text-sm text-foreground">
+            <input
+              type="checkbox"
+              class="size-4 rounded border-input disabled:opacity-60"
+              .checked=${this.autoCompactRequireConfirmation}
+              ?disabled=${!this.autoCompactEnabled}
+              @change=${(event: Event) => this.updateAutoCompactRequireConfirmation((event.target as HTMLInputElement).checked)}
+            />
+            <span>${t('autoCompactRequireConfirmation')}</span>
           </label>
           <label class="grid max-w-xs gap-1.5 text-sm">
             <span class="text-foreground">${t('autoCompactThresholdPercent')}</span>

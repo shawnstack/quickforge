@@ -96,7 +96,7 @@ class GlobalAgentSseClient {
       'turn_start', 'turn_end', 'message_update',
       'tool_execution_start', 'tool_execution_update', 'tool_execution_end',
       'error', 'title_updated', 'session_forked', 'scheduled_task_notification', 'scheduled_task_started',
-      'tool_approval_required', 'messages_replaced',
+      'tool_approval_required', 'auto_compact_threshold_reached', 'auto_compact_approval_required', 'auto_compact_completed', 'messages_replaced',
     ]
 
     const handleMessage = (eventType?: string) => (e: MessageEvent) => {
@@ -492,6 +492,32 @@ export class ServerAgent {
     }
   }
 
+  async approveAutoCompact(approvalId: string): Promise<void> {
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/approve-auto-compact`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ approvalId }),
+    })
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null) as { error?: string } | null
+      throw new Error(payload?.error || `Failed to approve auto compact: HTTP ${res.status}`)
+    }
+  }
+
+  async rejectAutoCompact(approvalId: string): Promise<void> {
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/reject-auto-compact`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ approvalId }),
+    })
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null) as { error?: string } | null
+      throw new Error(payload?.error || `Failed to reject auto compact: HTTP ${res.status}`)
+    }
+  }
+
   dispose(): void {
     this.disposed = true
     if (this.pollTimer) {
@@ -654,7 +680,7 @@ export class ServerAgent {
       case 'tool_execution_start': {
         const toolEvent = event as ToolExecutionEvent
         if (toolEvent.toolCallId) {
-          this.state.messages = upsertToolResult(this.state.messages, toolStartEventWithPartialResult(toolEvent), true)
+          this.state.messages = upsertToolResult(this.state.messages, toolStartEventWithPartialResult(toolEvent, this.sessionId), true)
           this.state.pendingToolCalls = new Set([...this.state.pendingToolCalls, toolEvent.toolCallId])
           this.stateVersion++
         }
@@ -687,6 +713,9 @@ export class ServerAgent {
       case 'message_update':
       case 'turn_start':
       case 'tool_approval_required':
+      case 'auto_compact_threshold_reached':
+      case 'auto_compact_approval_required':
+      case 'auto_compact_completed':
         // Forward as-is
         break
     }

@@ -7,6 +7,7 @@ export type AutoCompactSettings = {
   thresholdPercent: number
   keepRecentTurns: number
   minSourceChars: number
+  requireConfirmation: boolean
 }
 
 export const DEFAULT_AUTO_COMPACT_SETTINGS: AutoCompactSettings = {
@@ -14,6 +15,7 @@ export const DEFAULT_AUTO_COMPACT_SETTINGS: AutoCompactSettings = {
   thresholdPercent: 80,
   keepRecentTurns: 2,
   minSourceChars: 1600,
+  requireConfirmation: true,
 }
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number) {
@@ -45,6 +47,7 @@ export function normalizeAutoCompactSettings(value: unknown): AutoCompactSetting
       0,
       200000,
     ),
+    requireConfirmation: settings.requireConfirmation !== false,
   }
 }
 

@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import { Agent } from '@mariozechner/pi-agent-core'
 import { streamSimpleWithAiHttpLogging } from './ai-http-logger.mjs'
-import { toolHandlers, loadSkillToolContext } from './tools/index.mjs'
+import { toolHandlers, loadSkillToolContext, abortRunningCommand } from './tools/index.mjs'
 import { createSkillTools, workspaceTools } from './tools/definitions.mjs'
 import { callMcpTool, createMcpToolDefinitions, isMcpToolName } from './mcp/registry.mjs'
 import { projectContextFromId, readProjectConfig } from './project-config.mjs'
@@ -51,12 +51,13 @@ function wrapToolDefinition(definition, context, toolPermissions) {
 
       const startedAt = Date.now()
       const startedAtPerf = performance.now()
-      const result = await handler(params || {}, context, { signal, onUpdate })
+      const result = await handler(params || {}, context, { signal, onUpdate, toolCallId: _toolCallId })
       const finishedAt = Date.now()
       const durationMs = Math.max(0, Math.round(performance.now() - startedAtPerf))
+      const details = mergeQuickForgeTiming(result.details, { startedAt, finishedAt, durationMs })
       return {
         content: [{ type: 'text', text: result.content }],
-        details: mergeQuickForgeTiming(result.details, { startedAt, finishedAt, durationMs }),
+        details: isPlainObject(details) ? { ...details, toolCallId: _toolCallId } : details,
       }
     },
   }
@@ -141,6 +142,7 @@ const APPROVAL_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes for tool approval
 const commandRestrictedTools = new Set(['write_file', 'edit_file', 'run_command'])
 const safeReadTools = new Set(['read_file', 'grep_files'])
 const pendingApprovals = new Map() // toolCallId → { resolve, reject, sessionId, toolName, args, timeout }
+const pendingAutoCompactApprovals = new Map() // approvalId → { resolve, reject, sessionId, timeout }
 
 function createCommandToolPermissions(session) {
   return (toolName) => {
@@ -221,6 +223,61 @@ function createApprovalPromise(session, toolCallId, toolName, args) {
     }
     session.eventBus.emit('agent_event', approvalEvent)
     agentEvents.emit('agent_event', approvalEvent)
+  })
+}
+
+function createAutoCompactApprovalPromise(session, details = {}) {
+  if (!session) return Promise.resolve(false)
+  const approvalId = randomUUID()
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const timeout = setTimeout(() => {
+      if (settled) return
+      settled = true
+      pendingAutoCompactApprovals.delete(approvalId)
+      resolve(false)
+    }, APPROVAL_TIMEOUT_MS)
+
+    const cleanup = () => {
+      clearTimeout(timeout)
+      if (settled) return
+      settled = true
+      pendingAutoCompactApprovals.delete(approvalId)
+    }
+
+    const signal = session.agent.signal
+    if (signal) {
+      if (signal.aborted) {
+        cleanup()
+        reject(new Error('Run aborted'))
+        return
+      }
+      const onAbort = () => {
+        cleanup()
+        reject(new Error('Run aborted'))
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+    }
+
+    pendingAutoCompactApprovals.set(approvalId, {
+      resolve: (approved) => {
+        cleanup()
+        resolve(approved === true)
+      },
+      reject: (err) => {
+        cleanup()
+        reject(err)
+      },
+      sessionId: session.sessionId,
+    })
+
+    emitSessionEvent(session, {
+      type: 'auto_compact_approval_required',
+      approvalId,
+      usage: details.usage,
+      thresholdPercent: details.settings?.thresholdPercent,
+      keepRecentTurns: details.settings?.keepRecentTurns,
+    })
   })
 }
 
@@ -592,6 +649,7 @@ async function transformSessionContext(session, messages, signal) {
     emitSessionEvent,
     persistSession,
     logger,
+    confirmAutoCompact: createAutoCompactApprovalPromise,
   })
   const transformedMessages = buildAutoCompactLoopMessages(session, messages)
   session.lastTransformedContextMessages = transformedMessages
@@ -1116,6 +1174,12 @@ export async function abortRun(sessionId) {
       approval.reject(new Error('Run aborted'))
     }
   }
+  for (const [approvalId, approval] of pendingAutoCompactApprovals) {
+    if (approval.sessionId === sessionId) {
+      approval.reject(new Error('Run aborted'))
+      pendingAutoCompactApprovals.delete(approvalId)
+    }
+  }
 
   session.agent.abort()
   await session.agent.waitForIdle()
@@ -1319,6 +1383,36 @@ export function rejectToolCall(sessionId, toolCallId) {
   }
   approval.resolve(false)
   return { rejected: true, toolCallId }
+}
+
+export function approveAutoCompact(sessionId, approvalId) {
+  const approval = pendingAutoCompactApprovals.get(approvalId)
+  if (!approval || approval.sessionId !== sessionId) {
+    throw Object.assign(new Error('No pending auto compact approval for this session'), { statusCode: 404 })
+  }
+  approval.resolve(true)
+  return { approved: true, approvalId }
+}
+
+export function rejectAutoCompact(sessionId, approvalId) {
+  const approval = pendingAutoCompactApprovals.get(approvalId)
+  if (!approval || approval.sessionId !== sessionId) {
+    throw Object.assign(new Error('No pending auto compact approval for this session'), { statusCode: 404 })
+  }
+  approval.resolve(false)
+  return { rejected: true, approvalId }
+}
+
+export function abortToolCall(sessionId, toolCallId) {
+  const session = agentSessions.get(sessionId)
+  if (!session) {
+    throw Object.assign(new Error('Session not found'), { statusCode: 404 })
+  }
+  const aborted = abortRunningCommand(toolCallId)
+  if (!aborted) {
+    throw Object.assign(new Error('No running command for this tool call'), { statusCode: 404 })
+  }
+  return { aborted: true, toolCallId }
 }
 
 /**

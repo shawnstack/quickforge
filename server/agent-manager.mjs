@@ -642,7 +642,7 @@ function compactedContextMessages(messages) {
 }
 
 async function transformSessionContext(session, messages, signal) {
-  await maybeAutoCompactSession({
+  const autoCompactResult = await maybeAutoCompactSession({
     session,
     messages,
     signal,
@@ -651,6 +651,13 @@ async function transformSessionContext(session, messages, signal) {
     logger,
     confirmAutoCompact: createAutoCompactApprovalPromise,
   })
+  if (!autoCompactResult.compacted && autoCompactResult.usage && autoCompactResult.reason && autoCompactResult.reason !== 'below_threshold') {
+    logger.info(`Auto compact skipped for session ${session.sessionId}: ${autoCompactResult.reason}`, {
+      sessionId: session.sessionId,
+      reason: autoCompactResult.reason,
+      usage: autoCompactResult.usage,
+    })
+  }
   const transformedMessages = buildAutoCompactLoopMessages(session, messages)
   session.lastTransformedContextMessages = transformedMessages
   return applyActiveCommandPrompt(compactedContextMessages(transformedMessages), session?.activeCommandPrompt)

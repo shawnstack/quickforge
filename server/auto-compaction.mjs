@@ -85,16 +85,48 @@ function estimateMessagesChars(messages) {
   }, 0)
 }
 
-export function estimateContextUsage({ systemPrompt, messages, tools, model }) {
+function messageTimestampMs(message) {
+  const timestamp = message?.timestamp
+  if (typeof timestamp === 'number') return timestamp
+  if (typeof timestamp === 'string') {
+    const parsed = Date.parse(timestamp)
+    return Number.isNaN(parsed) ? 0 : parsed
+  }
+  return 0
+}
+
+function latestCompactTimestampMs(session) {
+  return messageTimestampMs(session?.contextCompaction?.summaryMessage)
+}
+
+function latestKnownInputTokens(messages, sinceTimestamp = 0) {
+  let latestTimestamp = -1
+  let latestInput = 0
+  for (const message of Array.isArray(messages) ? messages : []) {
+    if (message?.role !== 'assistant' || !message.usage) continue
+    const timestamp = messageTimestampMs(message)
+    if (sinceTimestamp > 0 && timestamp <= sinceTimestamp) continue
+    if (timestamp < latestTimestamp) continue
+    const input = Math.max(0, Number(message.usage.input ?? message.usage.totalTokens) || 0)
+    if (input <= 0) continue
+    latestTimestamp = timestamp
+    latestInput = input
+  }
+  return latestInput
+}
+
+export function estimateContextUsage({ systemPrompt, messages, tools, model, knownInputTokens = 0 }) {
   const contextWindow = Number(model?.contextWindow) || 0
   const reservedOutputTokens = Math.max(0, Number(model?.maxTokens) || 4096)
-  const inputTokens =
+  const estimatedInputTokens =
     estimateTextTokens(systemPrompt) +
     estimateMessagesTokens(messages) +
     estimateTextTokens(safeJson(tools))
+  const knownInput = Math.max(0, Number(knownInputTokens) || 0)
+  const inputTokens = Math.max(estimatedInputTokens, knownInput)
   const totalTokens = inputTokens + reservedOutputTokens
   const percent = contextWindow > 0 ? Math.round((totalTokens / contextWindow) * 1000) / 10 : 0
-  return { inputTokens, reservedOutputTokens, totalTokens, contextWindow, percent }
+  return { inputTokens, estimatedInputTokens, knownInputTokens: knownInput, reservedOutputTokens, totalTokens, contextWindow, percent }
 }
 
 function isUserMessage(message) {
@@ -158,17 +190,20 @@ export function buildAutoCompactLoopMessages(session, messages) {
 export async function maybeAutoCompactSession({ session, messages, signal, emitSessionEvent, persistSession, logger, confirmAutoCompact }) {
   if (!session || session.autoCompacting) return { compacted: false }
   const settings = await readAutoCompactSettings()
-  if (!settings.enabled) return { compacted: false }
-  if (signal?.aborted) return { compacted: false }
+  if (!settings.enabled) return { compacted: false, reason: 'disabled' }
+  if (signal?.aborted) return { compacted: false, reason: 'aborted' }
 
   const loopMessages = buildAutoCompactLoopMessages(session, messages)
+  const knownInputTokens = latestKnownInputTokens(messages, latestCompactTimestampMs(session))
   const usage = estimateContextUsage({
     systemPrompt: session.agent.state.systemPrompt,
     messages: loopMessages,
     tools: session.agent.state.tools,
     model: session.model,
+    knownInputTokens,
   })
-  if (!usage.contextWindow || usage.percent < settings.thresholdPercent) return { compacted: false, usage }
+  if (!usage.contextWindow) return { compacted: false, usage, reason: 'missing_context_window' }
+  if (usage.percent < settings.thresholdPercent) return { compacted: false, usage, reason: 'below_threshold' }
 
   emitSessionEvent?.(session, {
     type: 'auto_compact_threshold_reached',

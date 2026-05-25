@@ -278,23 +278,51 @@ function elapsedMsFromTiming(timing: QuickForgeToolTiming | undefined) {
 class QuickForgeElapsedTime extends HTMLElement {
   private timer: ReturnType<typeof setInterval> | undefined
 
+  static get observedAttributes() {
+    return ['duration-ms', 'running', 'started-at']
+  }
+
   connectedCallback() {
     this.render()
-    if (this.getAttribute('running') === 'true') {
-      this.timer = setInterval(() => this.render(), 500)
-    }
+    this.syncTimer()
   }
 
   disconnectedCallback() {
-    if (this.timer) clearInterval(this.timer)
+    this.stopTimer()
+  }
+
+  attributeChangedCallback() {
+    this.render()
+    this.syncTimer()
+  }
+
+  private readNumberAttribute(name: string) {
+    const value = this.getAttribute(name)
+    if (value === null || value.trim() === '') return undefined
+    const numberValue = Number(value)
+    return Number.isFinite(numberValue) && numberValue >= 0 ? numberValue : undefined
+  }
+
+  private syncTimer() {
+    if (this.getAttribute('running') === 'true' && this.readNumberAttribute('duration-ms') === undefined) {
+      if (!this.timer) this.timer = setInterval(() => this.render(), 500)
+    } else {
+      this.stopTimer()
+    }
+  }
+
+  private stopTimer() {
+    if (!this.timer) return
+    clearInterval(this.timer)
+    this.timer = undefined
   }
 
   private render() {
-    const durationMs = Number(this.getAttribute('duration-ms'))
-    const startedAt = Number(this.getAttribute('started-at'))
-    const ms = Number.isFinite(durationMs) && durationMs >= 0
+    const durationMs = this.readNumberAttribute('duration-ms')
+    const startedAt = this.readNumberAttribute('started-at')
+    const ms = durationMs !== undefined
       ? durationMs
-      : Number.isFinite(startedAt) && startedAt > 0
+      : startedAt !== undefined && startedAt > 0
         ? Date.now() - startedAt
         : 0
     this.textContent = formatDuration(ms)

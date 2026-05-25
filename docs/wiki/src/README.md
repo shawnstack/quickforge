@@ -17,22 +17,24 @@ src/
 ├── lib/                 # 前端工具库 (28 个模块)
 ├── App.tsx              # 主应用组件 (625 行)
 ├── index.css            # 全局样式 (293 行)
-└── main.tsx             # 入口文件 (14 行)
+└── main.tsx             # 入口文件，初始化补丁并注册生产环境 PWA Service Worker
 ```
 
 ## 顶层文件
 
 | 文件 | 说明 | 行数 |
 |------|------|------|
-| [main.tsx](../src/main.tsx) | React 入口，挂载 App | 16 |
+| [main.tsx](../src/main.tsx) | React 入口，挂载 App，生产环境注册 PWA Service Worker | 24 |
 | [App.tsx](../src/App.tsx) | 主组件，管理全局状态、Agent、路由、调度 | 684 |
 | [index.css](../src/index.css) | 全局样式 (Tailwind + pi-web-ui + 自定义) | 346 |
 
-### main.tsx (16 行)
+### main.tsx (24 行)
 
 - 从 `react-dom/client` 创建根节点
 - 应用全局 CSS（`index.css`）
 - 调用 `patchThinkingSelector()` 修补 pi-web-ui 的模型选择器
+- 调用 `applyClipboardPolyfill()` 应用剪贴板兼容处理
+- 生产环境注册 `/sw.js`，启用轻量 PWA 安装和前端静态资源缓存
 - 在 `<StrictMode>` 中渲染 `<App />` 组件
 
 ### App.tsx (684 行)

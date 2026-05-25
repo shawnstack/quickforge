@@ -2,6 +2,7 @@ import { Check, Copy, MessageSquare, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
+import { MarkdownReader } from './MarkdownReader'
 import { MonacoCodeViewer } from './MonacoCodeViewer'
 import { MonacoDiffViewer } from './MonacoDiffViewer'
 import type { GitFileDiffResponse, WorkspaceFileResponse } from './workspace-types'
@@ -33,7 +34,15 @@ function statusText(diff?: GitFileDiffResponse) {
   return 'Modified'
 }
 
-function filePrompt(path: string) {
+function isMarkdownFile(file?: WorkspaceFileResponse) {
+  if (!file) return false
+  return file.language === 'markdown' || /\.(md|markdown)$/i.test(file.path)
+}
+
+function filePrompt(path: string, markdown = false) {
+  if (markdown) {
+    return `Please read the Markdown document \`${path}\` in the current workspace. Summarize its purpose, key sections, important instructions, outdated or risky parts, and suggest concise improvements.`
+  }
   return `Please inspect \`${path}\` in the current workspace and explain its role, important implementation details, and any risks or improvement opportunities.`
 }
 
@@ -68,8 +77,9 @@ export function WorkspaceReaderDialog({ open, mode, file, diff, loading, error, 
   if (!open) return null
 
   const title = mode === 'file' ? file?.path : diff?.path
+  const isMarkdown = mode === 'file' && isMarkdownFile(file)
   const copyableContent = mode === 'file' ? file?.content : diff ? diffText(diff) : undefined
-  const aiPrompt = mode === 'file' && file ? filePrompt(file.path) : mode === 'diff' && diff ? diffPrompt(diff.path) : undefined
+  const aiPrompt = mode === 'file' && file ? filePrompt(file.path, isMarkdown) : mode === 'diff' && diff ? diffPrompt(diff.path) : undefined
   const subtitle = mode === 'file' && file
     ? `${file.language} · ${formatBytes(file.size)}`
     : mode === 'diff' && diff
@@ -107,7 +117,11 @@ export function WorkspaceReaderDialog({ open, mode, file, diff, loading, error, 
           {loading ? <div className="p-4 text-sm text-muted-foreground/70">Opening...</div> : null}
           {!loading && error ? <div className="p-4 text-sm text-destructive">{error}</div> : null}
           {!loading && !error && mode === 'file' && file ? (
-            <MonacoCodeViewer path={file.path} content={file.content} language={file.language} />
+            isMarkdown ? (
+              <MarkdownReader key={file.path} path={file.path} content={file.content} language={file.language} />
+            ) : (
+              <MonacoCodeViewer path={file.path} content={file.content} language={file.language} />
+            )
           ) : null}
           {!loading && !error && mode === 'diff' && diff ? (
             <MonacoDiffViewer

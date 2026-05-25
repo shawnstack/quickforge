@@ -5,7 +5,7 @@ export type WorkspaceTreeNode = {
   children?: WorkspaceTreeNode[]
 }
 
-export type GitFileStatus = 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked'
+export type GitFileStatus = 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked' | 'conflicted'
 
 export type GitChangedFile = {
   path: string
@@ -13,6 +13,9 @@ export type GitChangedFile = {
   status: GitFileStatus
   staged?: boolean
   unstaged?: boolean
+  conflict?: boolean
+  x?: string
+  y?: string
 }
 
 export type WorkspaceTreeResponse = {
@@ -30,6 +33,14 @@ export type WorkspaceFileResponse = {
 
 export type GitStatusResponse = {
   isGitRepository: boolean
+  branch?: string
+  counts?: {
+    staged: number
+    unstaged: number
+    untracked: number
+    conflicts: number
+    total: number
+  }
   files: GitChangedFile[]
 }
 

@@ -323,7 +323,7 @@ export function TerminalDock({ project, onCollapse }: TerminalDockProps) {
         </Button>
       </div>
       {error ? <div className="border-b border-border px-3 py-1.5 text-xs text-destructive">{error}</div> : null}
-      <div className="min-h-0 bg-[#0b0f14]" style={{ height: terminalBodyHeight }}>
+      <div className="min-h-0 bg-background" style={{ height: terminalBodyHeight }}>
         {loading ? (
           <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground/60">
             <Loader2 className="size-4 animate-spin" /> {t('terminalStarting')}

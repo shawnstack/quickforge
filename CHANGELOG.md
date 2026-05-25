@@ -2,6 +2,24 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.16] - 2026-05-25
+
+### Changed
+
+- Add icon usage design rules.
+- Add patch release preparation script.
+- Included working tree updates in `docs/wiki/server/tools/README.md`, `docs/wiki/src/lib/README.md`, `server/tools/definitions.mjs`, `server/tools/index.mjs`, `src/components/chat/panel-decoration.ts`, `src/lib/local-tools.ts`.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.16` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.16.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.16.tgz
+  ```
+
 ## [1.3.15] - 2026-05-25
 
 ### Added

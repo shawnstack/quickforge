@@ -96,6 +96,32 @@ function detailsWithoutDiffText(details: unknown) {
   }
 }
 
+function runtimeIdsFromDetails(details: unknown) {
+  if (!details || typeof details !== 'object') return {}
+  const record = details as Record<string, unknown>
+  return {
+    sessionId: typeof record.sessionId === 'string' ? record.sessionId : undefined,
+    toolCallId: typeof record.toolCallId === 'string' ? record.toolCallId : undefined,
+  }
+}
+
+async function terminateCommand(sessionId: string, toolCallId: string, button: HTMLButtonElement) {
+  const originalText = button.textContent || t('terminateCommand')
+  button.disabled = true
+  button.textContent = t('commandTerminateRequested')
+  try {
+    const response = await fetch(`/api/agents/${encodeURIComponent(sessionId)}/abort-tool`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ toolCallId }),
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  } catch {
+    button.disabled = false
+    button.textContent = originalText
+  }
+}
+
 function diffLineClass(line: string) {
   if (line.startsWith('+++') || line.startsWith('---')) return 'quickforge-diff-file'
   if (line.startsWith('@@')) return 'quickforge-diff-hunk'
@@ -278,6 +304,24 @@ function renderStatus(status: ToolStatusKey, timing: QuickForgeToolTiming | unde
   `
 }
 
+function renderTerminateCommandButton(toolName: string, status: ToolStatusKey, details: unknown) {
+  if (toolName !== 'run_command' || status !== 'running') return nothing
+  const { sessionId, toolCallId } = runtimeIdsFromDetails(details)
+  if (!sessionId || !toolCallId) return nothing
+  return html`
+    <button
+      type="button"
+      class="shrink-0 rounded-md border border-destructive/25 px-2 py-0.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
+      title=${t('terminateCommandTitle')}
+      @click=${(event: Event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        void terminateCommand(sessionId, toolCallId, event.currentTarget as HTMLButtonElement)
+      }}
+    >${t('terminateCommand')}</button>
+  `
+}
+
 // ---------------------------------------------------------------------------
 // Tool renderers (UI display only)
 // These map tool names to custom renderers so the ChatPanel shows input/output
@@ -318,6 +362,7 @@ class LocalWorkspaceToolRenderer {
             <svg class="shrink-0 transition-transform group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
             ${renderToolIcon(this.toolName)}
             <span class="min-w-0 flex-1 truncate">${t(this.labelKey)}${summary ? html`<span class="text-muted-foreground/70"> · ${summary}</span>` : ''}</span>
+            ${renderTerminateCommandButton(this.toolName, status, result?.details)}
             ${renderStatus(status, timing)}
           </summary>
           <div class="mt-3 space-y-3">

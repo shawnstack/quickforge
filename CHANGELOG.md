@@ -2,6 +2,31 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.15] - 2026-05-25
+
+### Added
+
+- Added an approval step before automatic conversation compaction replaces the current context.
+- Added a running `run_command` terminate control in tool cards, backed by server-side command abort handling.
+
+### Changed
+
+- Increased the default `run_command` timeout to 10 minutes and documented the behavior in the code wiki.
+
+### Fixed
+
+- Fixed `edit_file` matching so exact edits tolerate workspace line-ending differences.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.15` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.15.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.15.tgz
+  ```
+
 ## [1.3.14] - 2026-05-25
 
 ### Added

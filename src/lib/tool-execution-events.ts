@@ -13,6 +13,7 @@ type ToolResultLike = {
 }
 
 export type ToolExecutionEvent = {
+  sessionId?: string
   toolCallId?: string
   toolName?: string
   args?: unknown
@@ -76,7 +77,7 @@ function mergeQuickForgeTiming(details: unknown, timing: QuickForgeToolTiming): 
   return { ...details, quickforgeTiming: timing }
 }
 
-export function toolStartEventWithPartialResult(event: ToolExecutionEvent): ToolExecutionEvent {
+export function toolStartEventWithPartialResult(event: ToolExecutionEvent, sessionId?: string): ToolExecutionEvent {
   const timing = event.quickforgeTiming
     ?? extractQuickForgeTiming(event.partialResult?.details)
     ?? { startedAt: Date.now() }
@@ -85,7 +86,7 @@ export function toolStartEventWithPartialResult(event: ToolExecutionEvent): Tool
     ...event,
     partialResult: event.partialResult ?? {
       content: [],
-      details: { quickforgeTiming: timing },
+      details: { quickforgeTiming: timing, sessionId, toolCallId: event.toolCallId },
     },
   }
 }
@@ -106,13 +107,16 @@ export function upsertToolResult(messages: AgentMessage[], event: ToolExecutionE
     }
   }
   const details = timing ? mergeQuickForgeTiming(result.details, timing) : result.details
+  const detailsWithRuntimeIds = isRecord(details)
+    ? { ...details, sessionId: details.sessionId ?? event.sessionId, toolCallId: details.toolCallId ?? event.toolCallId }
+    : details
 
   const toolResult = {
     role: 'toolResult',
     toolCallId: event.toolCallId,
     toolName: event.toolName,
     content: result.content ?? [],
-    details,
+    details: detailsWithRuntimeIds,
     isError: partial ? false : event.isError,
     timestamp: Date.now(),
   } as AgentMessage

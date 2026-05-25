@@ -631,6 +631,16 @@ function killProcessTree(child, signal = 'SIGTERM') {
   }
 }
 
+const runningCommands = new Map()
+
+export function abortRunningCommand(toolCallId) {
+  if (!toolCallId) return false
+  const stop = runningCommands.get(toolCallId)
+  if (!stop) return false
+  stop('abort')
+  return true
+}
+
 export async function toolRunCommand(params, context, runtime = {}) {
   const command = String(params?.command || '')
   if (!command.trim()) {
@@ -639,7 +649,7 @@ export async function toolRunCommand(params, context, runtime = {}) {
     throw error
   }
 
-  const timeoutMs = Math.min(10 * 60, Math.max(1, Number(params?.timeoutSeconds || 60))) * 1000
+  const timeoutMs = Math.min(10 * 60, Math.max(1, Number(params?.timeoutSeconds || 600))) * 1000
   const cwd = getToolWorkspaceRoot(context)
 
   if (runtime.signal?.aborted) {
@@ -669,6 +679,7 @@ export async function toolRunCommand(params, context, runtime = {}) {
       clearTimeout(timer)
       if (forceKillTimer) clearTimeout(forceKillTimer)
       if (updateTimer) clearTimeout(updateTimer)
+      if (runtime.toolCallId) runningCommands.delete(runtime.toolCallId)
       runtime.signal?.removeEventListener?.('abort', onAbort)
     }
 
@@ -698,10 +709,14 @@ export async function toolRunCommand(params, context, runtime = {}) {
       }, 1500)
     }
 
+    if (runtime.toolCallId) runningCommands.set(runtime.toolCallId, stopChild)
+
     function onAbort() {
       stopChild('abort')
       finish({ signal: 'SIGTERM' })
     }
+
+    const runningDetails = () => ({ command, project: context?.project, cwd, running: true, stdout, stderr, toolCallId: runtime.toolCallId })
 
     const emitUpdate = () => {
       updateTimer = null
@@ -709,7 +724,7 @@ export async function toolRunCommand(params, context, runtime = {}) {
       updatePending = false
       runtime.onUpdate?.({
         content: [{ type: 'text', text: truncateText(formatCommandOutput(command, stdout, stderr, { running: true })) }],
-        details: { command, project: context?.project, cwd, running: true, stdout, stderr },
+        details: runningDetails(),
       })
     }
     const flushUpdate = () => {
@@ -721,7 +736,7 @@ export async function toolRunCommand(params, context, runtime = {}) {
       updatePending = false
       runtime.onUpdate?.({
         content: [{ type: 'text', text: truncateText(formatCommandOutput(command, stdout, stderr, { running: true })) }],
-        details: { command, project: context?.project, cwd, running: true, stdout, stderr },
+        details: runningDetails(),
       })
     }
     const scheduleUpdate = () => {

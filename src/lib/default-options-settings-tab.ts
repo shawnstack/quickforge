@@ -12,6 +12,10 @@ import {
   loadToolDisplaySettings,
   saveToolDisplaySettings,
 } from '@/lib/tool-display-settings'
+import {
+  loadAutoCompactSettings,
+  saveAutoCompactSettings,
+} from '@/lib/auto-compact-settings'
 import { t } from '@/lib/i18n'
 
 type AnyModel = Model<Api>
@@ -47,6 +51,9 @@ class DefaultOptionsSettingsTab extends SettingsTab {
   private thinkingLevel: ThinkingLevel = 'off'
   private showToolDetails = false
   private expandToolsByDefault = false
+  private autoCompactEnabled = false
+  private autoCompactThresholdPercent = 80
+  private autoCompactKeepRecentTurns = 2
   private loading = true
   private saved = false
   private error = ''
@@ -83,10 +90,11 @@ class DefaultOptionsSettingsTab extends SettingsTab {
 
     try {
       const storage = getAppStorage()
-      const [models, defaults, toolDisplaySettings] = await Promise.all([
+      const [models, defaults, toolDisplaySettings, autoCompactSettings] = await Promise.all([
         getConfiguredModels(storage),
         loadDefaultOptions(storage),
         loadToolDisplaySettings(storage),
+        loadAutoCompactSettings(storage),
       ])
       this.models = models
       this.selectedModel = defaults.model
@@ -95,6 +103,9 @@ class DefaultOptionsSettingsTab extends SettingsTab {
       this.thinkingLevel = defaults.thinkingLevel ?? defaultThinkingLevelForModel(this.selectedModel)
       this.showToolDetails = toolDisplaySettings.showToolDetails
       this.expandToolsByDefault = toolDisplaySettings.expandToolsByDefault
+      this.autoCompactEnabled = autoCompactSettings.enabled
+      this.autoCompactThresholdPercent = autoCompactSettings.thresholdPercent
+      this.autoCompactKeepRecentTurns = autoCompactSettings.keepRecentTurns
     } catch (error) {
       this.error = error instanceof Error ? error.message : t('requestFailed')
     } finally {
@@ -129,6 +140,24 @@ class DefaultOptionsSettingsTab extends SettingsTab {
     this.requestUpdate()
   }
 
+  private updateAutoCompactEnabled(checked: boolean) {
+    this.autoCompactEnabled = checked
+    this.saved = false
+    this.requestUpdate()
+  }
+
+  private updateAutoCompactThresholdPercent(value: string) {
+    this.autoCompactThresholdPercent = Number(value) || 80
+    this.saved = false
+    this.requestUpdate()
+  }
+
+  private updateAutoCompactKeepRecentTurns(value: string) {
+    this.autoCompactKeepRecentTurns = Number(value) || 2
+    this.saved = false
+    this.requestUpdate()
+  }
+
   private modelOptions() {
     if (!this.selectedModel) return this.models
 
@@ -147,6 +176,12 @@ class DefaultOptionsSettingsTab extends SettingsTab {
       await saveToolDisplaySettings(getAppStorage(), {
         showToolDetails: this.showToolDetails,
         expandToolsByDefault: this.expandToolsByDefault,
+      })
+      await saveAutoCompactSettings(getAppStorage(), {
+        enabled: this.autoCompactEnabled,
+        thresholdPercent: this.autoCompactThresholdPercent,
+        keepRecentTurns: this.autoCompactKeepRecentTurns,
+        minSourceChars: 1600,
       })
       await this.loadSettings()
       this.saved = true
@@ -226,6 +261,49 @@ class DefaultOptionsSettingsTab extends SettingsTab {
               @change=${(event: Event) => this.updateExpandToolsByDefault((event.target as HTMLInputElement).checked)}
             />
             <span>${t('expandToolsByDefault')}</span>
+          </label>
+        </div>
+
+        <div class="grid max-w-xl gap-3 rounded-lg border border-border p-4">
+          <div>
+            <h4 class="text-sm font-medium text-foreground">${t('contextManagement')}</h4>
+            <p class="mt-1 text-xs text-muted-foreground">${t('autoCompactDescription')}</p>
+          </div>
+          <label class="flex items-center gap-2 text-sm text-foreground">
+            <input
+              type="checkbox"
+              class="size-4 rounded border-input"
+              .checked=${this.autoCompactEnabled}
+              @change=${(event: Event) => this.updateAutoCompactEnabled((event.target as HTMLInputElement).checked)}
+            />
+            <span>${t('autoCompactEnabled')}</span>
+          </label>
+          <label class="grid max-w-xs gap-1.5 text-sm">
+            <span class="text-foreground">${t('autoCompactThresholdPercent')}</span>
+            <input
+              class="rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-60"
+              type="number"
+              min="50"
+              max="95"
+              step="1"
+              .value=${String(this.autoCompactThresholdPercent)}
+              ?disabled=${!this.autoCompactEnabled}
+              @input=${(event: Event) => this.updateAutoCompactThresholdPercent((event.target as HTMLInputElement).value)}
+            />
+          </label>
+          <label class="grid max-w-xs gap-1.5 text-sm">
+            <span class="text-foreground">${t('autoCompactKeepRecentTurns')}</span>
+            <input
+              class="rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-60"
+              type="number"
+              min="1"
+              max="20"
+              step="1"
+              .value=${String(this.autoCompactKeepRecentTurns)}
+              ?disabled=${!this.autoCompactEnabled}
+              @input=${(event: Event) => this.updateAutoCompactKeepRecentTurns((event.target as HTMLInputElement).value)}
+            />
+            <span class="text-xs text-muted-foreground">${t('autoCompactHistoryPreserved')}</span>
           </label>
         </div>
 

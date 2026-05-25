@@ -16,6 +16,10 @@ import {
   saveCompactBackup,
 } from './conversation-compaction.mjs'
 import {
+  buildAutoCompactLoopMessages,
+  maybeAutoCompactSession,
+} from './auto-compaction.mjs'
+import {
   handleInternalCommand,
   parseInternalCommandInvocation,
   resolveCustomCommandInvocation,
@@ -294,10 +298,13 @@ function addToolTimingToEvent(session, event) {
 
 function updateSessionMessages(session, messages) {
   session.agent.state.messages = messages
-  const compacted = compactedContextMessages(messages)
-  if (compacted.length < messages.length) {
-    session.agent.state.messages = compacted
-  }
+}
+
+function resetSessionCompaction(session) {
+  session.contextCompaction = null
+  session.lastAutoCompactAt = null
+  session.lastTransformedContextMessages = null
+  session.autoCompacting = false
 }
 
 function finishManualSessionRun(session, status, errorMessage) {
@@ -464,6 +471,7 @@ async function clearSession(session) {
   }
 
   updateSessionMessages(session, [])
+  resetSessionCompaction(session)
   session.status = 'idle'
   session.startedAt = null
   session.finishedAt = new Date().toISOString()
@@ -576,8 +584,18 @@ function compactedContextMessages(messages) {
   return index >= 0 ? messages.slice(index) : messages
 }
 
-function transformAgentContext(messages, commandPrompt) {
-  return applyActiveCommandPrompt(compactedContextMessages(messages), commandPrompt)
+async function transformSessionContext(session, messages, signal) {
+  await maybeAutoCompactSession({
+    session,
+    messages,
+    signal,
+    emitSessionEvent,
+    persistSession,
+    logger,
+  })
+  const transformedMessages = buildAutoCompactLoopMessages(session, messages)
+  session.lastTransformedContextMessages = transformedMessages
+  return applyActiveCommandPrompt(compactedContextMessages(transformedMessages), session?.activeCommandPrompt)
 }
 
 export const agentEvents = new EventEmitter()
@@ -633,6 +651,7 @@ export async function createAgent(sessionId, config = {}) {
     systemPrompt = null,
     title = 'New chat',
     createdAt = new Date().toISOString(),
+    contextCompaction = null,
   } = config
 
   // Resolve project context for tool calls
@@ -704,9 +723,9 @@ export async function createAgent(sessionId, config = {}) {
     sessionId,
     convertToLlm: serverConvertToLlm,
     onPayload: (payload) => {
-      restoreReasoningContentInPayload(payload, agent.state.messages, agent.state.model)
+      restoreReasoningContentInPayload(payload, session?.lastTransformedContextMessages || agent.state.messages, agent.state.model)
     },
-    transformContext: (messages) => transformAgentContext(messages, session?.activeCommandPrompt),
+    transformContext: (messages, signal) => transformSessionContext(session, messages, signal),
     beforeToolCall: async (context) => {
       const toolName = context.toolCall?.name
       const toolCallId = context.toolCall?.id
@@ -756,6 +775,10 @@ export async function createAgent(sessionId, config = {}) {
     titleGenerated: false,
     toolTimings: new Map(),
     getApiKey,
+    contextCompaction,
+    lastTransformedContextMessages: null,
+    autoCompacting: false,
+    lastAutoCompactAt: null,
     /** Track active SSE connections. Only one SSE stream allowed per session to prevent
      *  connection-pool exhaustion when two browser tabs load the same session. */
     sseConnected: false,
@@ -816,8 +839,8 @@ export async function createAgent(sessionId, config = {}) {
  * Persist session data to storage.
  */
 async function persistSession(session) {
-  const { sessionId, agent, scope, projectId, title, createdAt, status, startedAt, finishedAt, model, thinkingLevel, yoloMode } = session
-  const messages = compactedContextMessages(agent.state.messages)
+  const { sessionId, agent, scope, projectId, title, createdAt, status, startedAt, finishedAt, model, thinkingLevel, yoloMode, contextCompaction } = session
+  const messages = agent.state.messages
 
   if (messages.length === 0) {
     try {
@@ -847,6 +870,7 @@ async function persistSession(session) {
     taskStatus: status,
     taskStartedAt: startedAt,
     taskFinishedAt: finishedAt,
+    contextCompaction: contextCompaction || undefined,
   }
 
   // Calculate usage
@@ -894,6 +918,13 @@ async function persistSession(session) {
     taskStatus: status,
     taskStartedAt: startedAt,
     taskFinishedAt: finishedAt,
+    contextCompaction: contextCompaction ? {
+      compactedAt: contextCompaction.compactedAt,
+      compactedUpToIndex: contextCompaction.compactedUpToIndex,
+      keepRecentTurns: contextCompaction.keepRecentTurns,
+      thresholdPercent: contextCompaction.thresholdPercent,
+      usageBefore: contextCompaction.usageBefore,
+    } : undefined,
   }
 
   // Write to storage atomically (read-modify-write within queue)
@@ -947,6 +978,7 @@ export async function rollbackSessionMessages(sessionId, rollbackMessageIndex) {
 
   const nextMessages = messages.slice(0, rollbackIndex)
   updateSessionMessages(session, nextMessages)
+  resetSessionCompaction(session)
   session.status = 'idle'
   session.finishedAt = new Date().toISOString()
   await persistSession(session)
@@ -971,6 +1003,7 @@ export async function replaceSessionMessages(sessionId, messages) {
     throw Object.assign(new Error('Generation is still running. Stop it or wait until it finishes before rolling back.'), { statusCode: 409 })
   }
   updateSessionMessages(session, Array.isArray(messages) ? messages : [])
+  resetSessionCompaction(session)
   session.status = 'idle'
   session.finishedAt = new Date().toISOString()
   await persistSession(session)
@@ -1160,6 +1193,7 @@ export function getSessionState(sessionId) {
     finishedAt: session.finishedAt,
     tools: session.agent.state.tools,
     messages: session.agent.state.messages,
+    contextCompaction: session.contextCompaction,
     isStreaming: session.agent.state.isStreaming,
     errorMessage: session.agent.state.errorMessage,
   }
@@ -1255,6 +1289,7 @@ export async function restoreAgent(sessionId) {
       messages: sessionData.messages || [],
       title: sessionData.title || 'New chat',
       createdAt: sessionData.createdAt,
+      contextCompaction: sessionData.contextCompaction || null,
     })
   } catch (err) {
     logger.error(`Failed to restore agent ${sessionId}:`, err, { sessionId })

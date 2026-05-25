@@ -2,6 +2,32 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.13] - 2026-05-25
+
+### Added
+
+- Added PWA assets and service worker registration for installable app support.
+- Added a Markdown workspace reader and improved workspace inspector actions.
+
+### Changed
+
+- Aligned terminal styling with the application theme.
+- Improved workspace inspector behavior and documentation.
+
+### Fixed
+
+- Fixed thinking-only process duration so it remains frozen after completion.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.13` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.13.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.13.tgz
+  ```
+
 ## [1.3.12] - 2026-05-22
 
 ### Added

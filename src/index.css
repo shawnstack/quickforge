@@ -384,8 +384,14 @@
 }
 
 .quickforge-composer .quickforge-stop-button {
-  background: color-mix(in oklab, var(--muted) 48%, transparent) !important;
-  color: var(--foreground) !important;
+  border-color: color-mix(in oklab, var(--primary) 28%, transparent) !important;
+  background: color-mix(in oklab, var(--primary) 14%, transparent) !important;
+  color: var(--primary) !important;
+  box-shadow: 0 10px 24px -18px color-mix(in oklab, var(--primary) 68%, black) !important;
+}
+
+.quickforge-composer .quickforge-stop-button:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--primary) 18%, transparent) !important;
 }
 
 .quickforge-composer attachment-tile + attachment-tile {

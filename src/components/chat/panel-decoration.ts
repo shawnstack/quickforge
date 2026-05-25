@@ -542,7 +542,7 @@ export function decorateEditor(deps: EditorDecorationDeps) {
       actionButton.title = 'Stop'
       actionButton.setAttribute('aria-label', 'Stop')
       delete actionButton.dataset.quickforgeSendIcon
-      replaceSvg(actionButton, '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>')
+      replaceSvg(actionButton, '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2.4"/></svg>')
       if (!actionButton.__quickforgeStopHandler) {
         actionButton.__quickforgeStopHandler = (event: Event) => {
           event.preventDefault()

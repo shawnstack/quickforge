@@ -395,7 +395,7 @@ function renderTerminateCommandButton(toolName: string, status: ToolStatusKey, d
   return html`
     <button
       type="button"
-      class="shrink-0 inline-flex size-6 items-center justify-center rounded-md border border-destructive/25 text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
+      class="shrink-0 inline-flex size-5 items-center justify-center text-foreground transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-40"
       title=${t('terminateCommandTitle')}
       aria-label=${t('terminateCommandTitle')}
       @click=${(event: Event) => {
@@ -403,7 +403,7 @@ function renderTerminateCommandButton(toolName: string, status: ToolStatusKey, d
         event.stopPropagation()
         void terminateCommand(sessionId, toolCallId, event.currentTarget as HTMLButtonElement)
       }}
-    ><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg></button>
+    ><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2.4"/></svg></button>
   `
 }
 

@@ -12,6 +12,7 @@ export const DEFAULT_AUTO_COMPACT_SETTINGS = {
 }
 
 const AUTO_COMPACT_MIN_INTERVAL_MS = 30_000
+const AUTO_COMPACT_REJECTION_SUPPRESS_MS = 10 * 60_000
 
 function clampNumber(value, fallback, min, max) {
   const parsed = Number(value)
@@ -144,6 +145,34 @@ function tailStartForRecentTurns(messages, keepRecentTurns) {
   return 0
 }
 
+function shouldSuppressAfterRejection(session, messages, usage) {
+  const rejection = session?.lastAutoCompactRejected
+  if (!rejection) return false
+  const now = Date.now()
+  const rejectedAt = Number(rejection.rejectedAt) || 0
+  if (rejectedAt <= 0 || now - rejectedAt > AUTO_COMPACT_REJECTION_SUPPRESS_MS) return false
+
+  const rejectedMessageCount = Number(rejection.messageCount) || 0
+  const currentMessageCount = Array.isArray(messages) ? messages.length : 0
+  if (currentMessageCount >= rejectedMessageCount + 3) return false
+
+  const rejectedPercent = Number(rejection.percent) || 0
+  const currentPercent = Number(usage?.percent) || 0
+  return currentPercent <= rejectedPercent + 5
+}
+
+function markAutoCompactRejected(session, messages, usage) {
+  session.lastAutoCompactRejected = {
+    rejectedAt: Date.now(),
+    messageCount: Array.isArray(messages) ? messages.length : 0,
+    percent: Number(usage?.percent) || 0,
+  }
+}
+
+function clearAutoCompactRejected(session) {
+  session.lastAutoCompactRejected = null
+}
+
 function compactSummaryText(message) {
   const content = message?.content
   const text = typeof content === 'string'
@@ -204,18 +233,7 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
   })
   if (!usage.contextWindow) return { compacted: false, usage, reason: 'missing_context_window' }
   if (usage.percent < settings.thresholdPercent) return { compacted: false, usage, reason: 'below_threshold' }
-
-  emitSessionEvent?.(session, {
-    type: 'auto_compact_threshold_reached',
-    usage,
-    thresholdPercent: settings.thresholdPercent,
-    requireConfirmation: settings.requireConfirmation,
-  })
-
-  if (settings.requireConfirmation) {
-    const approved = await confirmAutoCompact?.(session, { usage, settings })
-    if (!approved || signal?.aborted) return { compacted: false, usage, reason: approved === false ? 'user_rejected' : 'confirmation_unavailable' }
-  }
+  if (shouldSuppressAfterRejection(session, messages, usage)) return { compacted: false, usage, reason: 'user_rejected_recently' }
 
   const now = Date.now()
   if (session.lastAutoCompactAt && now - session.lastAutoCompactAt < AUTO_COMPACT_MIN_INTERVAL_MS) {
@@ -229,6 +247,21 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
   const sourceMessages = buildCompactionSourceMessages(session, messages, tailStart)
   if (sourceMessages.length < 2 || estimateMessagesChars(sourceMessages) < settings.minSourceChars) {
     return { compacted: false, usage, reason: 'not_enough_history' }
+  }
+
+  emitSessionEvent?.(session, {
+    type: 'auto_compact_threshold_reached',
+    usage,
+    thresholdPercent: settings.thresholdPercent,
+    requireConfirmation: settings.requireConfirmation,
+  })
+
+  if (settings.requireConfirmation) {
+    const approved = await confirmAutoCompact?.(session, { usage, settings })
+    if (!approved || signal?.aborted) {
+      if (approved === false) markAutoCompactRejected(session, messages, usage)
+      return { compacted: false, usage, reason: approved === false ? 'user_rejected' : 'confirmation_unavailable' }
+    }
   }
 
   session.autoCompacting = true
@@ -260,6 +293,7 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
       usageBefore: usage,
       thresholdPercent: settings.thresholdPercent,
     }
+    clearAutoCompactRejected(session)
     session.lastAutoCompactAt = now
     await persistSession(session)
     emitSessionEvent(session, {
@@ -277,6 +311,12 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
     return { compacted: true, usage }
   } catch (error) {
     logger?.warn?.(`Auto compact failed for session ${session.sessionId}:`, error?.message || error, { sessionId: session.sessionId })
+    emitSessionEvent?.(session, {
+      type: 'auto_compact_failed',
+      usage,
+      thresholdPercent: settings.thresholdPercent,
+      error: error?.message || String(error),
+    })
     return { compacted: false, usage, reason: 'error', error }
   } finally {
     session.autoCompacting = false

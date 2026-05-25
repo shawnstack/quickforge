@@ -83,6 +83,87 @@ export type MessageDecorationDeps = {
   disableFork: boolean
 }
 
+type ContextCompactionNoticeDeps = {
+  panel: HTMLElement
+  getMessages: () => MessageWithUsage[]
+  getContextCompaction: () => { summaryMessage?: unknown; keepRecentTurns?: number } | null | undefined
+}
+
+function isUserMessage(message: MessageWithUsage) {
+  return message?.role === 'user' || message?.role === 'user-with-attachments'
+}
+
+function tailStartForRecentTurns(messages: MessageWithUsage[], keepRecentTurns: number) {
+  let seenUserTurns = 0
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (!isUserMessage(messages[index])) continue
+    seenUserTurns += 1
+    if (seenUserTurns >= keepRecentTurns) return index
+  }
+  return 0
+}
+
+function isDisplayMessage(message: MessageWithUsage) {
+  return message.role === 'user' || message.role === 'user-with-attachments' || message.role === 'assistant'
+}
+
+function insertBeforeMessageElement(panel: HTMLElement, messages: MessageWithUsage[], messageIndex: number, notice: HTMLElement) {
+  const messageElements = Array.from(
+    panel.querySelectorAll<HTMLElement>('message-list user-message, message-list assistant-message'),
+  )
+  let displayIndex = 0
+  for (let index = 0; index < messages.length; index++) {
+    if (!isDisplayMessage(messages[index])) continue
+    if (index === messageIndex) {
+      const target = messageElements[displayIndex]
+      if (target) {
+        target.before(notice)
+        return
+      }
+      break
+    }
+    displayIndex += 1
+  }
+
+  const messageList = panel.querySelector('message-list')
+  if (messageList) messageList.prepend(notice)
+}
+
+export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
+  const { panel, getMessages, getContextCompaction } = deps
+  const compaction = getContextCompaction()
+  const messages = getMessages()
+  const existing = panel.querySelector<HTMLElement>('.quickforge-context-compaction-notice')
+
+  if (!compaction?.summaryMessage || messages.length === 0) {
+    existing?.remove()
+    return
+  }
+
+  const keepRecentTurns = Number(compaction.keepRecentTurns) || 2
+  const tailStart = tailStartForRecentTurns(messages, keepRecentTurns)
+  if (tailStart <= 0) {
+    existing?.remove()
+    return
+  }
+
+  const notice = existing ?? document.createElement('div')
+  notice.className = 'quickforge-context-compaction-notice'
+  notice.dataset.tailStart = String(tailStart)
+  notice.title = t('contextCompactedTooltip')
+  notice.setAttribute('aria-label', t('contextCompactedTooltip'))
+  notice.innerHTML = `
+    <div class="quickforge-context-compaction-line"></div>
+    <div class="quickforge-context-compaction-pill">
+      <span class="quickforge-context-compaction-dot" aria-hidden="true"></span>
+      <span>${escapeHtml(t('contextCompactedTimelineLabel'))}</span>
+    </div>
+    <div class="quickforge-context-compaction-line"></div>
+  `
+
+  insertBeforeMessageElement(panel, messages, tailStart, notice)
+}
+
 export function decorateMessages(deps: MessageDecorationDeps) {
   const { panel, getMessages, isStreaming, onCopyAnswer, onRollbackFromMessage, onForkFromMessage, disableFork } = deps
 
@@ -542,7 +623,7 @@ export function decorateEditor(deps: EditorDecorationDeps) {
       actionButton.title = 'Stop'
       actionButton.setAttribute('aria-label', 'Stop')
       delete actionButton.dataset.quickforgeSendIcon
-      replaceSvg(actionButton, '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2.4"/></svg>')
+      replaceSvg(actionButton, '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>')
       if (!actionButton.__quickforgeStopHandler) {
         actionButton.__quickforgeStopHandler = (event: Event) => {
           event.preventDefault()

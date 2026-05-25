@@ -3,19 +3,48 @@ import {
   ApiKeyPromptDialog,
   ChatPanel,
 } from '@mariozechner/pi-web-ui'
-import type { ServerAgent } from '@/lib/server-agent'
+import type { ServerAgent, ServerAgentContextCompaction } from '@/lib/server-agent'
 import type { SharedServerAgent } from '@/lib/shared-server-agent'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
-import type { ComposerDraft, CustomCommandSummary } from './chat-utils'
+import type { ComposerDraft, CustomCommandSummary, MessageWithUsage } from './chat-utils'
 import { emptyDraft, hasDraft } from './chat-utils'
 import { createScrollSync } from './scroll-sync'
 import { createCommandSuggestions } from './command-suggestions'
 import { createContextUsageIndicator } from './context-usage'
-import { decorateMessages, decorateEditor, captureComposerDraft, restoreComposerDraft, injectApprovalCard, removeApprovalCard } from './panel-decoration'
+import { decorateMessages, decorateEditor, captureComposerDraft, restoreComposerDraft, injectApprovalCard, removeApprovalCard, syncContextCompactionNotice } from './panel-decoration'
 import { t } from '@/lib/i18n'
+import { logger } from '@/lib/logger'
 import type { ProjectInfo, RestoredDraft } from '@/lib/types'
 
 type AgentLike = ServerAgent | SharedServerAgent
+
+type AgentWithContextCompaction = AgentLike & {
+  state: AgentLike['state'] & { contextCompaction?: ServerAgentContextCompaction | null }
+}
+
+function isUserMessage(message: MessageWithUsage) {
+  return message?.role === 'user' || message?.role === 'user-with-attachments'
+}
+
+function tailStartForRecentTurns(messages: MessageWithUsage[], keepRecentTurns: number) {
+  let seenUserTurns = 0
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (!isUserMessage(messages[index])) continue
+    seenUserTurns += 1
+    if (seenUserTurns >= keepRecentTurns) return index
+  }
+  return 0
+}
+
+function effectiveContextMessages(agent: AgentLike): MessageWithUsage[] {
+  const state = (agent as AgentWithContextCompaction).state
+  const compaction = state.contextCompaction
+  if (!compaction?.summaryMessage) return agent.state.messages as MessageWithUsage[]
+  const keepRecentTurns = Number(compaction.keepRecentTurns) || 2
+  const messages = agent.state.messages as MessageWithUsage[]
+  const tailStart = tailStartForRecentTurns(messages, keepRecentTurns)
+  return [compaction.summaryMessage as MessageWithUsage, ...messages.slice(tailStart)]
+}
 
 type ChatPanelHostProps = {
   agent: AgentLike | null
@@ -229,7 +258,8 @@ export function ChatPanelHost({
     const contextUsage = createContextUsageIndicator({
       panel,
       getSystemPrompt: () => agent.state.systemPrompt,
-      getMessages: () => agent.state.messages as import('./chat-utils').MessageWithUsage[],
+      getMessages: () => agent.state.messages as MessageWithUsage[],
+      getEffectiveMessages: () => effectiveContextMessages(agent),
       getContextWindow: () => agent.state.model?.contextWindow ?? 0,
     })
 
@@ -265,6 +295,11 @@ export function ChatPanelHost({
           onRollbackFromMessage: props.onRollbackFromMessage,
           onForkFromMessage: props.onForkFromMessage,
           disableFork: props.disableFork,
+        })
+        syncContextCompactionNotice({
+          panel,
+          getMessages: () => agent.state.messages as MessageWithUsage[],
+          getContextCompaction: () => (agent as AgentWithContextCompaction).state.contextCompaction ?? null,
         })
       } catch { /* continue to editor & approval card */ }
 
@@ -430,6 +465,13 @@ export function ChatPanelHost({
           pendingAutoCompactApprovalRef.current = null
           scheduleDecorateRef.current?.()
         }
+      }
+      if (eventType === 'auto_compact_completed' || eventType === 'messages_replaced') {
+        scheduleDecorateRef.current?.()
+      }
+      if (eventType === 'auto_compact_failed') {
+        // Keep the failure visible in diagnostics without interrupting the current answer.
+        logger.warn(t('autoCompactFailed'))
       }
       // Store pending approval and trigger re-decoration
       if ((event as Record<string, unknown>).type === 'tool_approval_required') {

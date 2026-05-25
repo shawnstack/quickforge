@@ -16,20 +16,25 @@ type ContextUsageOptions = {
   getSystemPrompt: () => string
   getMessages: () => MessageWithUsage[]
   getContextWindow: () => number
+  getEffectiveMessages?: () => MessageWithUsage[]
 }
 
-export function createContextUsageIndicator({ panel, getSystemPrompt, getMessages, getContextWindow }: ContextUsageOptions) {
+export function createContextUsageIndicator({ panel, getSystemPrompt, getMessages, getContextWindow, getEffectiveMessages }: ContextUsageOptions) {
   const update = () => {
     const contextWindow = getContextWindow()
-    const usage = getContextUsage(getSystemPrompt(), getMessages(), contextWindow)
+    const visibleMessages = getMessages()
+    const effectiveMessages = getEffectiveMessages?.() ?? visibleMessages
+    const usage = getContextUsage(getSystemPrompt(), effectiveMessages, contextWindow)
     const existing = panel.querySelector<HTMLElement>('.quickforge-context-usage')
     const statsRight = panel.querySelector('message-editor')?.parentElement?.querySelector<HTMLElement>('.ml-auto.items-center')
     if (!contextWindow || !statsRight) {
       existing?.remove()
+      panel.querySelector<HTMLElement>('.quickforge-context-usage-label')?.remove()
       return
     }
 
-    const title = `Context used: ${usage.percent}% (${formatTokens(usage.usedTokens)} / ${formatTokens(contextWindow)} tokens, input ${formatTokens(usage.inputTokens)}, estimated history ${formatTokens(usage.estimatedTokens)})`
+    const isCompacted = effectiveMessages !== visibleMessages
+    const title = `Context used: ${usage.percent}% (${formatTokens(usage.usedTokens)} / ${formatTokens(contextWindow)} tokens, input ${formatTokens(usage.inputTokens)}, estimated history ${formatTokens(usage.estimatedTokens)}${isCompacted ? ', compacted model context' : ''})`
     const ring = `conic-gradient(${usage.color} ${usage.percent * 3.6}deg, rgb(229 231 235) 0deg)`
     const icon = existing ?? document.createElement('span')
     icon.className = 'quickforge-context-usage'

@@ -360,6 +360,7 @@ function updateSessionMessages(session, messages) {
 function resetSessionCompaction(session) {
   session.contextCompaction = null
   session.lastAutoCompactAt = null
+  session.lastAutoCompactRejected = null
   session.lastTransformedContextMessages = null
   session.autoCompacting = false
 }
@@ -844,6 +845,7 @@ export async function createAgent(sessionId, config = {}) {
     lastTransformedContextMessages: null,
     autoCompacting: false,
     lastAutoCompactAt: null,
+    lastAutoCompactRejected: null,
     /** Track active SSE connections. Only one SSE stream allowed per session to prevent
      *  connection-pool exhaustion when two browser tabs load the same session. */
     sseConnected: false,

@@ -488,17 +488,35 @@ function countOccurrences(text, needle) {
   return count
 }
 
+function detectLineEnding(text) {
+  return text.includes('\r\n') ? '\r\n' : '\n'
+}
+
+function normalizeLineEndings(text) {
+  return text.replaceAll('\r\n', '\n').replaceAll('\r', '\n')
+}
+
+function convertToLineEnding(text, ending) {
+  const normalized = normalizeLineEndings(text)
+  return ending === '\r\n' ? normalized.replaceAll('\n', '\r\n') : normalized
+}
+
 export async function toolEditFile(params, context) {
   const file = resolveWorkspacePath(params?.path, context)
   await assertSafeWorkspacePath(file, context)
 
-  const oldText = String(params?.oldText ?? '')
-  const newText = String(params?.newText ?? '')
+  const rawOldText = String(params?.oldText ?? '')
+  const rawNewText = String(params?.newText ?? '')
   const text = await fs.readFile(file, 'utf8')
+  const lineEnding = detectLineEnding(text)
+  const oldText = convertToLineEnding(rawOldText, lineEnding)
+  const newText = convertToLineEnding(rawNewText, lineEnding)
   const count = countOccurrences(text, oldText)
 
   if (count !== 1) {
-    const error = new Error(`oldText must match exactly once; found ${count} matches`)
+    const rawCount = oldText === rawOldText ? count : countOccurrences(text, rawOldText)
+    const suffix = rawCount !== count ? ` after normalizing line endings; raw match count was ${rawCount}` : ''
+    const error = new Error(`oldText must match exactly once; found ${count} matches${suffix}`)
     error.statusCode = 400
     throw error
   }

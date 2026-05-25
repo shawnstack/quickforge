@@ -65,6 +65,60 @@ function resultText(result: ToolResultLike | undefined) {
     .join('\n') ?? ''
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function commandStatusFromDetails(details: Record<string, unknown>, isStreaming?: boolean) {
+  if (details.running === true || isStreaming) return 'Status: running'
+  const flags = [
+    details.timedOut ? 'timed out' : null,
+    details.aborted ? 'aborted' : null,
+  ].filter(Boolean)
+  const suffix = flags.length ? ` (${flags.join(', ')})` : ''
+  const code = details.code ?? 'unknown'
+  const signal = typeof details.signal === 'string' && details.signal ? `, signal: ${details.signal}` : ''
+  return `Exit code: ${code}${signal}${suffix}`
+}
+
+function runCommandOutputFromDetails(params: Record<string, unknown> | undefined, details: unknown, isStreaming?: boolean) {
+  const detailRecord = isRecord(details) ? details : undefined
+  const command = typeof detailRecord?.command === 'string'
+    ? detailRecord.command
+    : typeof params?.command === 'string'
+      ? params.command
+      : ''
+  if (!command || !detailRecord) return ''
+
+  const stdout = typeof detailRecord.stdout === 'string' ? detailRecord.stdout : ''
+  const stderr = typeof detailRecord.stderr === 'string' ? detailRecord.stderr : ''
+  const hasOutput = Boolean(stdout || stderr)
+  const hasStatus = detailRecord.running === true
+    || detailRecord.code !== undefined
+    || detailRecord.signal !== undefined
+    || detailRecord.timedOut === true
+    || detailRecord.aborted === true
+  if (!hasOutput && !hasStatus && !isStreaming) return ''
+
+  return [
+    `Command: ${command}`,
+    commandStatusFromDetails(detailRecord, isStreaming),
+    '',
+    'STDOUT:',
+    stdout || '(empty)',
+    '',
+    'STDERR:',
+    stderr || '(empty)',
+  ].join('\n')
+}
+
+function toolOutputText(toolName: string, params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
+  const output = resultText(result)
+  if (output) return output
+  if (toolName === 'run_command') return runCommandOutputFromDetails(params, result?.details, isStreaming)
+  return ''
+}
+
 function summarizeParams(toolName: string, params: Record<string, unknown> | undefined) {
   if (!params) return ''
   if (toolName === 'run_command' && typeof params.command === 'string') return params.command
@@ -106,9 +160,10 @@ function runtimeIdsFromDetails(details: unknown) {
 }
 
 async function terminateCommand(sessionId: string, toolCallId: string, button: HTMLButtonElement) {
-  const originalText = button.textContent || t('terminateCommand')
+  const originalLabel = button.getAttribute('aria-label') || t('terminateCommand')
   button.disabled = true
-  button.textContent = t('commandTerminateRequested')
+  button.setAttribute('aria-label', t('commandTerminateRequested'))
+  button.setAttribute('title', t('commandTerminateRequested'))
   try {
     const response = await fetch(`/api/agents/${encodeURIComponent(sessionId)}/abort-tool`, {
       method: 'POST',
@@ -118,7 +173,8 @@ async function terminateCommand(sessionId: string, toolCallId: string, button: H
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
   } catch {
     button.disabled = false
-    button.textContent = originalText
+    button.setAttribute('aria-label', originalLabel)
+    button.setAttribute('title', t('terminateCommandTitle'))
   }
 }
 
@@ -311,14 +367,15 @@ function renderTerminateCommandButton(toolName: string, status: ToolStatusKey, d
   return html`
     <button
       type="button"
-      class="shrink-0 rounded-md border border-destructive/25 px-2 py-0.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
+      class="shrink-0 inline-flex size-6 items-center justify-center rounded-md border border-destructive/25 text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
       title=${t('terminateCommandTitle')}
+      aria-label=${t('terminateCommandTitle')}
       @click=${(event: Event) => {
         event.preventDefault()
         event.stopPropagation()
         void terminateCommand(sessionId, toolCallId, event.currentTarget as HTMLButtonElement)
       }}
-    >${t('terminateCommand')}</button>
+    ><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg></button>
   `
 }
 
@@ -349,7 +406,7 @@ class LocalWorkspaceToolRenderer {
     const showToolDetails = toolDisplaySettings.showToolDetails
     const expandToolsByDefault = toolDisplaySettings.expandToolsByDefault
     const input = showToolDetails ? stringifyValue(params) : ''
-    const output = resultText(result)
+    const output = toolOutputText(this.toolName, params, result, isStreaming)
     const diff = getDiffDetails(result?.details)
     const details = showToolDetails ? stringifyValue(diff ? detailsWithoutDiffText(result?.details) : result?.details) : ''
     const variant = result?.isError ? 'error' : 'default'

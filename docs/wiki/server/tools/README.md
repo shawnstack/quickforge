@@ -41,7 +41,7 @@
 | `toolGrepFiles` | `grep_files` | 使用内置 ripgrep 优先搜索文件内容，支持正则、glob、上下文和只返回匹配文件；异常时回退 Node.js 搜索 |
 | `toolWriteFile` | `write_file` | 写入文件，自动创建父目录 |
 | `toolEditFile` | `edit_file` | 查找并替换文本，验证唯一性 |
-| `toolRunCommand` | `run_command` | 执行 shell 命令，支持超时 |
+| `toolRunCommand` | `run_command` | 执行 shell 命令，使用统一超时 |
 | `toolActivateSkill` | `activate_skill` | 激活 Agent Skill |
 | `toolReadSkillResource` | `read_skill_resource` | 读取技能资源 |
 
@@ -51,5 +51,5 @@
 - **ripgrep 内置搜索**: `grep_files` 优先使用 `@vscode/ripgrep` 随包提供的 `rg`，支持 glob、上下文行、只返回匹配文件；不可用或正则不兼容时回退 Node.js 实现
 - **搜索安全边界**: ripgrep 调用使用 `spawn(..., { shell: false })`，强制排除敏感文件 glob，并默认保持旧搜索行为（`--hidden --no-ignore` + 内置排除规则）
 - **写入防误**: `write_file` 验证文件在项目内；`edit_file` 确保 `oldText` 唯一匹配
-- **命令超时**: `run_command` 支持可配置超时，默认 600 秒（10 分钟），上限 600 秒，并自动清理子进程；Agent 运行中的 `run_command` 会按 `toolCallId` 登记，前端工具卡片可手动终止。
+- **命令超时**: `run_command` 使用后端统一超时 30 分钟，不向模型暴露超时参数，并自动清理子进程；Agent 运行中的 `run_command` 会按 `toolCallId` 登记，前端工具卡片可手动终止。
 - **Error 对象传递**: 工具错误通过 `statusCode` 属性传递 HTTP 状态码

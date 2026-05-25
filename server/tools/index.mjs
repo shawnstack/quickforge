@@ -641,6 +641,8 @@ export function abortRunningCommand(toolCallId) {
   return true
 }
 
+const RUN_COMMAND_TIMEOUT_MS = 30 * 60 * 1000
+
 export async function toolRunCommand(params, context, runtime = {}) {
   const command = String(params?.command || '')
   if (!command.trim()) {
@@ -649,7 +651,7 @@ export async function toolRunCommand(params, context, runtime = {}) {
     throw error
   }
 
-  const timeoutMs = Math.min(10 * 60, Math.max(1, Number(params?.timeoutSeconds || 600))) * 1000
+  const timeoutMs = RUN_COMMAND_TIMEOUT_MS
   const cwd = getToolWorkspaceRoot(context)
 
   if (runtime.signal?.aborted) {

@@ -769,7 +769,7 @@ export function injectApprovalCard(
     `
   } else if (toolName === 'run_command') {
     const command = String(args.command ?? '')
-    const timeout = args.timeoutSeconds ? `${args.timeoutSeconds}s` : '60s'
+    const timeout = '30m'
     preview.innerHTML = `
       <div class="text-xs text-muted-foreground mb-1">⏱️ ${t('toolApprovalTimeout')}: ${escapeHtml(timeout)}</div>
       <pre class="text-xs bg-background border rounded p-2 max-h-40 overflow-auto font-mono whitespace-pre-wrap">$ ${escapeHtml(command)}</pre>

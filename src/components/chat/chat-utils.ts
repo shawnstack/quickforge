@@ -254,7 +254,7 @@ export function getContextUsage(
   }, undefined as MessageUsage | undefined)
   const inputTokens = usage?.input ?? usage?.totalTokens ?? 0
   const estimatedTokens = estimateHistoryTokens(systemPrompt, messages)
-  const usedTokens = compactedAt > 0 ? estimatedTokens : Math.max(inputTokens, estimatedTokens)
+  const usedTokens = Math.max(inputTokens, estimatedTokens)
   const percent = contextWindow > 0 ? Math.min(100, Math.max(0, Math.round((usedTokens / contextWindow) * 100))) : 0
   const hue = Math.round(142 - (142 * percent / 100))
   return { contextWindow, usedTokens, inputTokens, estimatedTokens, percent, color: `hsl(${hue} 72% 45%)` }

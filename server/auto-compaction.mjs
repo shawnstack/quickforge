@@ -211,9 +211,9 @@ function buildCompactionSourceMessages(session, messages, tailStart) {
 export function buildAutoCompactLoopMessages(session, messages) {
   const summaryMessage = session?.contextCompaction?.summaryMessage
   if (!summaryMessage) return messages
-  const keepRecentTurns = session.contextCompaction.keepRecentTurns || DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns
-  const tailStart = tailStartForRecentTurns(messages, keepRecentTurns)
-  return [summaryMessage, ...messages.slice(tailStart)]
+  const source = Array.isArray(messages) ? messages : []
+  const compactedUpToIndex = Math.min(source.length, Math.max(0, Number(session.contextCompaction?.compactedUpToIndex) || 0))
+  return [summaryMessage, ...source.slice(compactedUpToIndex)]
 }
 
 export async function maybeAutoCompactSession({ session, messages, signal, emitSessionEvent, persistSession, logger, confirmAutoCompact }) {

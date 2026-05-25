@@ -22,28 +22,13 @@ type AgentWithContextCompaction = AgentLike & {
   state: AgentLike['state'] & { contextCompaction?: ServerAgentContextCompaction | null }
 }
 
-function isUserMessage(message: MessageWithUsage) {
-  return message?.role === 'user' || message?.role === 'user-with-attachments'
-}
-
-function tailStartForRecentTurns(messages: MessageWithUsage[], keepRecentTurns: number) {
-  let seenUserTurns = 0
-  for (let index = messages.length - 1; index >= 0; index--) {
-    if (!isUserMessage(messages[index])) continue
-    seenUserTurns += 1
-    if (seenUserTurns >= keepRecentTurns) return index
-  }
-  return 0
-}
-
 function effectiveContextMessages(agent: AgentLike): MessageWithUsage[] {
   const state = (agent as AgentWithContextCompaction).state
   const compaction = state.contextCompaction
   if (!compaction?.summaryMessage) return agent.state.messages as MessageWithUsage[]
-  const keepRecentTurns = Number(compaction.keepRecentTurns) || 2
   const messages = agent.state.messages as MessageWithUsage[]
-  const tailStart = tailStartForRecentTurns(messages, keepRecentTurns)
-  return [compaction.summaryMessage as MessageWithUsage, ...messages.slice(tailStart)]
+  const compactedUpToIndex = Math.min(messages.length, Math.max(0, Number(compaction.compactedUpToIndex) || 0))
+  return [compaction.summaryMessage as MessageWithUsage, ...messages.slice(compactedUpToIndex)]
 }
 
 type ChatPanelHostProps = {

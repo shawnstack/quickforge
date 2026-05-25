@@ -191,6 +191,7 @@ export function subscribeToAgentEvents(handler: SseHandler, baseUrl = ''): () =>
 
 export type ServerAgentContextCompaction = {
   summaryMessage?: AgentMessage
+  compactedUpToIndex?: number
   keepRecentTurns?: number
   compactedAt?: string
   usageBefore?: unknown

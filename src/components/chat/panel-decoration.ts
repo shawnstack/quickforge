@@ -86,21 +86,7 @@ export type MessageDecorationDeps = {
 type ContextCompactionNoticeDeps = {
   panel: HTMLElement
   getMessages: () => MessageWithUsage[]
-  getContextCompaction: () => { summaryMessage?: unknown; keepRecentTurns?: number } | null | undefined
-}
-
-function isUserMessage(message: MessageWithUsage) {
-  return message?.role === 'user' || message?.role === 'user-with-attachments'
-}
-
-function tailStartForRecentTurns(messages: MessageWithUsage[], keepRecentTurns: number) {
-  let seenUserTurns = 0
-  for (let index = messages.length - 1; index >= 0; index--) {
-    if (!isUserMessage(messages[index])) continue
-    seenUserTurns += 1
-    if (seenUserTurns >= keepRecentTurns) return index
-  }
-  return 0
+  getContextCompaction: () => { summaryMessage?: unknown; compactedUpToIndex?: number } | null | undefined
 }
 
 function isDisplayMessage(message: MessageWithUsage) {
@@ -140,8 +126,7 @@ export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
     return
   }
 
-  const keepRecentTurns = Number(compaction.keepRecentTurns) || 2
-  const tailStart = tailStartForRecentTurns(messages, keepRecentTurns)
+  const tailStart = Math.min(messages.length, Math.max(0, Number(compaction.compactedUpToIndex) || 0))
   if (tailStart <= 0) {
     existing?.remove()
     return
@@ -156,7 +141,7 @@ export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
     <div class="quickforge-context-compaction-line"></div>
     <div class="quickforge-context-compaction-pill">
       <span class="quickforge-context-compaction-dot" aria-hidden="true"></span>
-      <span>${escapeHtml(t('contextCompactedTimelineLabel'))}</span>
+      <span><strong>${escapeHtml(t('contextCompactedLabel'))}</strong> · ${escapeHtml(t('contextCompactedTimelineLabel'))}</span>
     </div>
     <div class="quickforge-context-compaction-line"></div>
   `

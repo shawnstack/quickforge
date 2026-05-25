@@ -2,6 +2,27 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.14] - 2026-05-25
+
+### Added
+
+- Added automatic conversation context compaction when model context usage crosses the configured threshold.
+- Added auto-compaction settings for enabling the feature, choosing the trigger threshold, and controlling recent-turn retention.
+
+### Changed
+
+- Updated the server wiki documentation for automatic context compaction behavior.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.14` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.14.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.14.tgz
+  ```
+
 ## [1.3.13] - 2026-05-25
 
 ### Added

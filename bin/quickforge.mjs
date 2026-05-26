@@ -266,33 +266,178 @@ function getLogFile() {
   return path.join(getDataDir(), 'logs', `server-${date}.log`)
 }
 
-async function cmdStop() {
-  const pid = await readPid()
-  if (!pid) {
-    console.log('QuickForge is not running (no PID file found).')
-    return
-  }
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
-  if (!isProcessRunning(pid)) {
-    console.log(`QuickForge PID ${pid} is not running. Cleaning up PID file.`)
-    await removePid()
-    return
-  }
+function getPort() {
+  return String(process.env.QUICKFORGE_PORT || '5176')
+}
 
-  console.log(`Stopping QuickForge (PID ${pid})...`)
+function getDisplayHost() {
+  const host = process.env.QUICKFORGE_HOST || '0.0.0.0'
+  return host === '0.0.0.0' ? '<LAN-IP>' : host
+}
+
+function getProbeHost() {
+  const host = process.env.QUICKFORGE_HOST || '127.0.0.1'
+  if (host === '0.0.0.0' || host === '::') return '127.0.0.1'
+  return host
+}
+
+function getHealthUrl() {
+  return `http://${getProbeHost()}:${getPort()}/api/health`
+}
+
+function getServiceUrl() {
+  return `http://${getDisplayHost()}:${getPort()}`
+}
+
+function formatHealth(health) {
+  if (!health) return 'unavailable'
+  const parts = []
+  if (health.pid) parts.push(`PID ${health.pid}`)
+  if (health.bootId) parts.push(`bootId ${health.bootId}`)
+  if (health.startedAt) parts.push(`started ${health.startedAt}`)
+  if (health.mode) parts.push(`mode ${health.mode}`)
+  return parts.join(', ') || 'available'
+}
+
+async function fetchHealth(timeoutMs = 800) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  timeout.unref?.()
+
   try {
-    process.kill(pid, 'SIGTERM')
+    const response = await fetch(getHealthUrl(), {
+      headers: { accept: 'application/json' },
+      signal: controller.signal,
+    })
+    if (!response.ok) return null
+    const payload = await response.json()
+    if (!payload || payload.ok !== true || !payload.pid) return null
+    return payload
   } catch {
-    // force kill on Windows
-    try {
-      process.kill(pid, 'SIGKILL')
-    } catch {
-      // ignore
+    return null
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+async function waitForHealth({ expectedPid = null, previousBootId = null, requireChanged = false, timeoutMs = 15000 } = {}) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const health = await fetchHealth()
+    if (health) {
+      const pidMatches = !expectedPid || Number(health.pid) === Number(expectedPid)
+      const bootChanged = !requireChanged || !previousBootId || health.bootId !== previousBootId
+      if (pidMatches && bootChanged) return health
+    }
+    await sleep(300)
+  }
+  return null
+}
+
+async function waitForProcessExit(pid, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (!isProcessRunning(pid)) return true
+    await sleep(250)
+  }
+  return !isProcessRunning(pid)
+}
+
+async function resolveRunningService() {
+  const pidFilePid = await readPid()
+  const pidFileAlive = pidFilePid ? isProcessRunning(pidFilePid) : false
+  if (pidFilePid && !pidFileAlive) {
+    console.log(`Found stale PID file (${pidFilePid}); cleaning it up.`)
+    await removePid()
+  }
+
+  const health = await fetchHealth()
+  if (health?.pid && isProcessRunning(Number(health.pid))) {
+    return {
+      pid: Number(health.pid),
+      source: 'health',
+      health,
+      pidFilePid,
+      pidFileAlive,
     }
   }
 
+  if (pidFileAlive) {
+    return {
+      pid: pidFilePid,
+      source: 'pid-file',
+      health: null,
+      pidFilePid,
+      pidFileAlive,
+    }
+  }
+
+  return {
+    pid: null,
+    source: 'none',
+    health: null,
+    pidFilePid,
+    pidFileAlive,
+  }
+}
+
+async function terminateProcess(pid) {
+  if (!pid || !isProcessRunning(pid)) return true
+
+  try {
+    process.kill(pid, 'SIGTERM')
+  } catch {
+    // The process may have already exited.
+  }
+
+  if (await waitForProcessExit(pid, 10000)) return true
+
+  console.log(`PID ${pid} did not exit after SIGTERM; forcing stop...`)
+  try {
+    process.kill(pid, 'SIGKILL')
+  } catch {
+    // The process may have already exited.
+  }
+
+  return waitForProcessExit(pid, 5000)
+}
+
+async function stopResolvedService(service) {
+  if (!service?.pid) {
+    console.log('QuickForge is not running.')
+    return false
+  }
+
+  console.log(`Stopping QuickForge (PID ${service.pid}, source: ${service.source})...`)
+  if (service.health) console.log(`Current service: ${formatHealth(service.health)}`)
+  if (service.pidFilePid && service.pidFilePid !== service.pid) {
+    console.log(`PID file points to ${service.pidFilePid}, but active service is PID ${service.pid}; using active service.`)
+  }
+
+  const stopped = await terminateProcess(service.pid)
   await removePid()
-  console.log('QuickForge stopped.')
+
+  if (!stopped) {
+    throw new Error(`Timed out stopping QuickForge PID ${service.pid}.`)
+  }
+
+  const remaining = await fetchHealth()
+  if (remaining?.pid) {
+    console.log(`Warning: /api/health still responds after stop: ${formatHealth(remaining)}`)
+  } else {
+    console.log('QuickForge stopped.')
+  }
+
+  return true
+}
+
+async function cmdStop() {
+  const service = await resolveRunningService()
+  await stopResolvedService(service)
 }
 
 function lanModeEnabled() {
@@ -309,23 +454,26 @@ function prepareEnvForCommand() {
   return env
 }
 
-function getServiceUrl() {
-  const host = process.env.QUICKFORGE_HOST || '0.0.0.0'
-  const displayHost = host === '0.0.0.0' ? '<LAN-IP>' : host
-  const port = process.env.QUICKFORGE_PORT || '5176'
-  return `http://${displayHost}:${port}`
-}
-
-async function cmdStart() {
-  const existingPid = await readPid()
-  if (existingPid && isProcessRunning(existingPid)) {
-    console.log(`QuickForge is already running (PID ${existingPid}).`)
+async function startService({ previousBootId = null } = {}) {
+  const existing = await resolveRunningService()
+  if (existing.pid) {
+    console.log(`QuickForge is already running (PID ${existing.pid}).`)
+    if (existing.health) console.log(`Current service: ${formatHealth(existing.health)}`)
+    if (existing.health?.pid && existing.pidFilePid !== existing.health.pid) {
+      await writePid(existing.health.pid)
+      console.log(`PID file updated: ${getPidFile()}`)
+    }
     console.log('Use "quickforge stop" to stop it first, or "quickforge restart".')
-    return
+    return existing.health
   }
 
-  // Clean up stale PID file
-  if (existingPid) await removePid()
+  const serviceUrl = getServiceUrl()
+  const healthUrl = getHealthUrl()
+  const dataDir = getDataDir()
+  const logFile = getLogFile()
+
+  console.log(`Starting QuickForge on ${serviceUrl}...`)
+  console.log(`Health check: ${healthUrl}`)
 
   const child = spawn(process.execPath, [serverScript], {
     detached: true,
@@ -334,13 +482,37 @@ async function cmdStart() {
     env: prepareEnvForCommand(),
   })
 
-  await writePid(child.pid)
+  let exitInfo = null
+  child.once('exit', (code, signal) => {
+    exitInfo = { code, signal }
+  })
+
+  await new Promise((resolve, reject) => {
+    child.once('spawn', resolve)
+    child.once('error', reject)
+  })
+
+  console.log(`Spawned server process (PID ${child.pid}). Waiting for service readiness...`)
+  const health = await waitForHealth({ expectedPid: child.pid, previousBootId, requireChanged: Boolean(previousBootId) })
+
+  if (!health) {
+    const exitReason = exitInfo
+      ? `process exited early (code ${exitInfo.code ?? 'null'}, signal ${exitInfo.signal ?? 'null'})`
+      : 'health check timed out'
+
+    if (!exitInfo && isProcessRunning(child.pid)) {
+      console.log(`Startup ${exitReason}; stopping spawned PID ${child.pid}...`)
+      await terminateProcess(child.pid)
+    }
+
+    await removePid()
+    throw new Error(`QuickForge failed to start: ${exitReason}. Check log: ${logFile}`)
+  }
+
+  await writePid(health.pid)
   child.unref()
 
-  const serviceUrl = getServiceUrl()
-  const dataDir = getDataDir()
-  const logFile = getLogFile()
-  console.log(`QuickForge started (PID ${child.pid}).`)
+  console.log(`QuickForge started and verified (${formatHealth(health)}).`)
   console.log(`Open: ${serviceUrl}`)
   console.log(`Data: ${dataDir}`)
   console.log(`Config: ${path.join(dataDir, 'config', 'config.json')}`)
@@ -354,31 +526,68 @@ async function cmdStart() {
   console.log('  quickforge restart  Restart the background service')
   console.log('  quickforge status   Check if the service is running')
   console.log('  quickforge logs     Watch today\'s server log')
+
+  return health
+}
+
+async function cmdStart() {
+  await startService()
 }
 
 async function cmdRestart() {
-  await cmdStop()
-  // Small delay to let the port free up
-  await new Promise((resolve) => setTimeout(resolve, 500))
-  await cmdStart()
+  console.log('Restarting QuickForge...')
+  const before = await fetchHealth()
+  if (before) {
+    console.log(`Before restart: ${formatHealth(before)}`)
+  } else {
+    console.log('Before restart: no healthy service responded.')
+  }
+
+  const service = await resolveRunningService()
+  if (service.pid) {
+    await stopResolvedService(service)
+    await sleep(500)
+  } else {
+    console.log('No running QuickForge service found; starting a new one.')
+  }
+
+  const after = await startService({ previousBootId: before?.bootId || null })
+  if (!after) return
+
+  const pidChanged = !before?.pid || Number(after.pid) !== Number(before.pid)
+  const bootChanged = !before?.bootId || after.bootId !== before.bootId
+
+  if (pidChanged || bootChanged) {
+    console.log(`Restart verified: ${formatHealth(after)}`)
+  } else {
+    console.log('Warning: service responded after restart, but PID/bootId did not change.')
+    process.exitCode = 1
+  }
 }
 
 async function cmdStatus() {
-  const pid = await readPid()
-  if (!pid) {
-    console.log('QuickForge is not running.')
+  const service = await resolveRunningService()
+  if (service.health) {
+    console.log(`QuickForge is running (${formatHealth(service.health)}).`)
+    console.log(`URL: ${getServiceUrl()}`)
+    console.log(`Health: ${getHealthUrl()}`)
+    console.log(`Log: ${getLogFile()}`)
+    if (service.pidFilePid !== service.health.pid) {
+      await writePid(service.health.pid)
+      console.log(`PID file repaired: ${getPidFile()}`)
+    }
+    console.log('Watch: quickforge logs')
     return
   }
 
-  if (isProcessRunning(pid)) {
-    console.log(`QuickForge is running (PID ${pid}).`)
-    console.log(`URL: ${getServiceUrl()}`)
+  if (service.pid) {
+    console.log(`QuickForge process is running (PID ${service.pid}), but /api/health is not reachable.`)
+    console.log(`Health: ${getHealthUrl()}`)
     console.log(`Log: ${getLogFile()}`)
-    console.log('Watch: quickforge logs')
-  } else {
-    console.log(`QuickForge PID ${pid} is stale (not running).`)
-    await removePid()
+    return
   }
+
+  console.log('QuickForge is not running.')
 }
 
 async function cmdLogs() {

@@ -1,7 +1,8 @@
-import { X } from 'lucide-react'
-import { useEffect } from 'react'
+import { Check, Copy, MessageSquare, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
+import { MarkdownReader } from './MarkdownReader'
 import { MonacoCodeViewer } from './MonacoCodeViewer'
 import { MonacoDiffViewer } from './MonacoDiffViewer'
 import type { GitFileDiffResponse, WorkspaceFileResponse } from './workspace-types'
@@ -14,6 +15,7 @@ type WorkspaceReaderDialogProps = {
   loading?: boolean
   error?: string
   onOpenChange: (open: boolean) => void
+  onDraftRequest?: (text: string) => void
 }
 
 function formatBytes(value: number) {
@@ -32,7 +34,37 @@ function statusText(diff?: GitFileDiffResponse) {
   return 'Modified'
 }
 
-export function WorkspaceReaderDialog({ open, mode, file, diff, loading, error, onOpenChange }: WorkspaceReaderDialogProps) {
+function isMarkdownFile(file?: WorkspaceFileResponse) {
+  if (!file) return false
+  return file.language === 'markdown' || /\.(md|markdown)$/i.test(file.path)
+}
+
+function filePrompt(path: string, markdown = false) {
+  if (markdown) {
+    return `Please read the Markdown document \`${path}\` in the current workspace. Summarize its purpose, key sections, important instructions, outdated or risky parts, and suggest concise improvements.`
+  }
+  return `Please inspect \`${path}\` in the current workspace and explain its role, important implementation details, and any risks or improvement opportunities.`
+}
+
+function diffPrompt(path: string) {
+  return `Please review the working-tree changes in \`${path}\`. Summarize what changed, point out possible bugs or regressions, and suggest focused verification steps.`
+}
+
+function diffText(diff: GitFileDiffResponse) {
+  const header = diff.oldPath ? `${diff.oldPath} -> ${diff.path}` : diff.path
+  return `Diff for ${header}\n\n--- OLD\n${diff.oldContent}\n\n--- NEW\n${diff.newContent}`
+}
+
+export function WorkspaceReaderDialog({ open, mode, file, diff, loading, error, onOpenChange, onDraftRequest }: WorkspaceReaderDialogProps) {
+  const [copied, setCopied] = useState<'path' | 'content'>()
+
+  async function copyToClipboard(kind: 'path' | 'content', value?: string) {
+    if (!value) return
+    await navigator.clipboard.writeText(value)
+    setCopied(kind)
+    window.setTimeout(() => setCopied(undefined), 1200)
+  }
+
   useEffect(() => {
     if (!open) return
     const handleKey = (event: KeyboardEvent) => {
@@ -45,6 +77,9 @@ export function WorkspaceReaderDialog({ open, mode, file, diff, loading, error, 
   if (!open) return null
 
   const title = mode === 'file' ? file?.path : diff?.path
+  const isMarkdown = mode === 'file' && isMarkdownFile(file)
+  const copyableContent = mode === 'file' ? file?.content : diff ? diffText(diff) : undefined
+  const aiPrompt = mode === 'file' && file ? filePrompt(file.path, isMarkdown) : mode === 'diff' && diff ? diffPrompt(diff.path) : undefined
   const subtitle = mode === 'file' && file
     ? `${file.language} · ${formatBytes(file.size)}`
     : mode === 'diff' && diff
@@ -65,6 +100,15 @@ export function WorkspaceReaderDialog({ open, mode, file, diff, loading, error, 
             <div className="truncate text-sm font-semibold text-foreground/90">{title ?? (mode === 'file' ? 'Code reader' : 'Diff reader')}</div>
             {subtitle ? <div className="truncate text-xs text-muted-foreground/65">{subtitle}</div> : null}
           </div>
+          <Button variant="ghost" size="icon" onClick={() => void copyToClipboard('path', title)} disabled={!title} aria-label="Copy path" title="Copy path">
+            {copied === 'path' ? <Check className="size-4" /> : <Copy className="size-4" />}
+          </Button>
+          <Button variant="ghost" size="icon" onClick={() => void copyToClipboard('content', copyableContent)} disabled={!copyableContent} aria-label="Copy content" title={mode === 'file' ? 'Copy content' : 'Copy diff content'}>
+            {copied === 'content' ? <Check className="size-4" /> : <Copy className="size-4" />}
+          </Button>
+          <Button variant="ghost" size="icon" onClick={() => aiPrompt && onDraftRequest?.(aiPrompt)} disabled={!aiPrompt || !onDraftRequest} aria-label="Ask AI" title="Ask AI about this">
+            <MessageSquare className="size-4" />
+          </Button>
           <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)} aria-label="Close workspace reader" title="Close">
             <X className="size-4" />
           </Button>
@@ -73,7 +117,11 @@ export function WorkspaceReaderDialog({ open, mode, file, diff, loading, error, 
           {loading ? <div className="p-4 text-sm text-muted-foreground/70">Opening...</div> : null}
           {!loading && error ? <div className="p-4 text-sm text-destructive">{error}</div> : null}
           {!loading && !error && mode === 'file' && file ? (
-            <MonacoCodeViewer path={file.path} content={file.content} language={file.language} />
+            isMarkdown ? (
+              <MarkdownReader key={file.path} path={file.path} content={file.content} language={file.language} />
+            ) : (
+              <MonacoCodeViewer path={file.path} content={file.content} language={file.language} />
+            )
           ) : null}
           {!loading && !error && mode === 'diff' && diff ? (
             <MonacoDiffViewer

@@ -96,7 +96,7 @@ class GlobalAgentSseClient {
       'turn_start', 'turn_end', 'message_update',
       'tool_execution_start', 'tool_execution_update', 'tool_execution_end',
       'error', 'title_updated', 'session_forked', 'scheduled_task_notification', 'scheduled_task_started',
-      'tool_approval_required', 'messages_replaced',
+      'tool_approval_required', 'auto_compact_threshold_reached', 'auto_compact_approval_required', 'auto_compact_completed', 'auto_compact_failed', 'messages_replaced',
     ]
 
     const handleMessage = (eventType?: string) => (e: MessageEvent) => {
@@ -189,6 +189,15 @@ export function subscribeToAgentEvents(handler: SseHandler, baseUrl = ''): () =>
   return globalAgentSseClient.subscribeAll(baseUrl, handler)
 }
 
+export type ServerAgentContextCompaction = {
+  summaryMessage?: AgentMessage
+  compactedUpToIndex?: number
+  keepRecentTurns?: number
+  compactedAt?: string
+  usageBefore?: unknown
+  thresholdPercent?: number
+}
+
 // ---------------------------------------------------------------------------
 // ServerAgent - Agent-compatible proxy that delegates to the server
 // ---------------------------------------------------------------------------
@@ -205,6 +214,7 @@ export type ServerAgentConfig = {
     yoloMode?: boolean
     isStreaming?: boolean
     errorMessage?: string
+    contextCompaction?: ServerAgentContextCompaction | null
   }
 }
 
@@ -220,6 +230,7 @@ export type ServerRollbackResult = {
     yoloMode?: boolean
     isStreaming?: boolean
     errorMessage?: string
+    contextCompaction?: ServerAgentContextCompaction | null
   }
 }
 
@@ -236,6 +247,7 @@ export class ServerAgent {
     streamingMessage?: AgentMessage
     pendingToolCalls: Set<string>
     errorMessage?: string
+    contextCompaction?: ServerAgentContextCompaction | null
   }
 
   // --- AgentInterface expects these properties ---
@@ -274,6 +286,7 @@ export class ServerAgent {
       streamingMessage: undefined as AgentMessage | undefined,
       pendingToolCalls: new Set<string>(),
       errorMessage: init.errorMessage as string | undefined,
+      contextCompaction: init.contextCompaction ?? null,
     }
 
     // Proxy that auto-syncs thinkingLevel changes to the server
@@ -492,6 +505,32 @@ export class ServerAgent {
     }
   }
 
+  async approveAutoCompact(approvalId: string): Promise<void> {
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/approve-auto-compact`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ approvalId }),
+    })
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null) as { error?: string } | null
+      throw new Error(payload?.error || `Failed to approve auto compact: HTTP ${res.status}`)
+    }
+  }
+
+  async rejectAutoCompact(approvalId: string): Promise<void> {
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/reject-auto-compact`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ approvalId }),
+    })
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null) as { error?: string } | null
+      throw new Error(payload?.error || `Failed to reject auto compact: HTTP ${res.status}`)
+    }
+  }
+
   dispose(): void {
     this.disposed = true
     if (this.pollTimer) {
@@ -514,7 +553,7 @@ export class ServerAgent {
         // Guard against SSE reconnect overwriting client messages with a stale
         // server snapshot: only accept server messages if the client has none
         // (initial load) or if the server has at least as many messages.
-        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; yoloMode?: boolean; isStreaming?: boolean; status?: string }
+        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; yoloMode?: boolean; isStreaming?: boolean; status?: string; contextCompaction?: ServerAgentContextCompaction | null }
         if (s.systemPrompt !== undefined) {
           this.state.systemPrompt = s.systemPrompt
         }
@@ -535,6 +574,9 @@ export class ServerAgent {
         }
         if (s.tools) {
           this.state.tools = s.tools
+        }
+        if (s.contextCompaction !== undefined) {
+          this.state.contextCompaction = s.contextCompaction
         }
         let wasStreaming = this.state.isStreaming
         if (s.isStreaming !== undefined) {
@@ -625,11 +667,14 @@ export class ServerAgent {
       }
 
       case 'messages_replaced': {
-        const replacedEvent = event as { messages?: AgentMessage[] }
+        const replacedEvent = event as { messages?: AgentMessage[]; contextCompaction?: ServerAgentContextCompaction | null }
         if (replacedEvent.messages) {
           this.state.messages = replacedEvent.messages
           this.state.streamingMessage = undefined
           this.stateVersion++
+        }
+        if (replacedEvent.contextCompaction !== undefined) {
+          this.state.contextCompaction = replacedEvent.contextCompaction
         }
         break
       }
@@ -654,7 +699,7 @@ export class ServerAgent {
       case 'tool_execution_start': {
         const toolEvent = event as ToolExecutionEvent
         if (toolEvent.toolCallId) {
-          this.state.messages = upsertToolResult(this.state.messages, toolStartEventWithPartialResult(toolEvent), true)
+          this.state.messages = upsertToolResult(this.state.messages, toolStartEventWithPartialResult(toolEvent, this.sessionId), true)
           this.state.pendingToolCalls = new Set([...this.state.pendingToolCalls, toolEvent.toolCallId])
           this.stateVersion++
         }
@@ -683,10 +728,21 @@ export class ServerAgent {
         break
       }
 
+      case 'auto_compact_completed': {
+        const compactEvent = event as { contextCompaction?: ServerAgentContextCompaction | null }
+        if (compactEvent.contextCompaction !== undefined) {
+          this.state.contextCompaction = compactEvent.contextCompaction
+        }
+        break
+      }
+
+      case 'auto_compact_failed':
       case 'message_start':
       case 'message_update':
       case 'turn_start':
       case 'tool_approval_required':
+      case 'auto_compact_threshold_reached':
+      case 'auto_compact_approval_required':
         // Forward as-is
         break
     }
@@ -757,6 +813,9 @@ export class ServerAgent {
       }
       if (state.tools) {
         this.state.tools = state.tools
+      }
+      if (state.contextCompaction !== undefined) {
+        this.state.contextCompaction = state.contextCompaction
       }
       if (state.isStreaming !== undefined) {
         const wasStreaming = this.state.isStreaming
@@ -846,6 +905,7 @@ export class ServerAgent {
         yoloMode: Boolean(serverState.yoloMode ?? config.yoloMode),
         isStreaming: Boolean(serverState.isStreaming),
         errorMessage: serverState.errorMessage as string | undefined,
+        contextCompaction: serverState.contextCompaction as ServerAgentContextCompaction | null | undefined,
       },
     })
   }

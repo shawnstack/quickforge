@@ -11,7 +11,7 @@
 
 ---
 
-## definitions.mjs (129 行)
+## definitions.mjs
 
 使用 TypeBox 定义工具参数 Schema，是工具元数据的单一数据源。
 
@@ -29,7 +29,7 @@
 
 `write_file`、`edit_file` 和 `run_command` 标记为 `executionMode: 'sequential'` 以确保执行顺序。
 
-## index.mjs (899 行)
+## index.mjs
 
 实现每个工具的 execute handler。
 
@@ -41,7 +41,7 @@
 | `toolGrepFiles` | `grep_files` | 使用内置 ripgrep 优先搜索文件内容，支持正则、glob、上下文和只返回匹配文件；异常时回退 Node.js 搜索 |
 | `toolWriteFile` | `write_file` | 写入文件，自动创建父目录 |
 | `toolEditFile` | `edit_file` | 查找并替换文本，验证唯一性 |
-| `toolRunCommand` | `run_command` | 执行 shell 命令，支持超时 |
+| `toolRunCommand` | `run_command` | 执行 shell 命令，支持可控超时、流式 tail 输出和完整日志落盘 |
 | `toolActivateSkill` | `activate_skill` | 激活 Agent Skill |
 | `toolReadSkillResource` | `read_skill_resource` | 读取技能资源 |
 
@@ -51,5 +51,5 @@
 - **ripgrep 内置搜索**: `grep_files` 优先使用 `@vscode/ripgrep` 随包提供的 `rg`，支持 glob、上下文行、只返回匹配文件；不可用或正则不兼容时回退 Node.js 实现
 - **搜索安全边界**: ripgrep 调用使用 `spawn(..., { shell: false })`，强制排除敏感文件 glob，并默认保持旧搜索行为（`--hidden --no-ignore` + 内置排除规则）
 - **写入防误**: `write_file` 验证文件在项目内；`edit_file` 确保 `oldText` 唯一匹配
-- **命令超时**: `run_command` 支持可配置超时，自动清理子进程
+- **命令超时与长输出**: `run_command` 默认超时 30 分钟，支持通过 `timeoutMs` 在安全上下限内调整；运行中和最终结果默认只展示 stdout/stderr 最后 100 行、`durationMs`、退出码、超时/中止状态，并将完整 stdout/stderr 写入 `~/.quickforge/logs/commands/`。Agent 运行中的 `run_command` 会按 `toolCallId` 登记，前端工具卡片可手动终止。
 - **Error 对象传递**: 工具错误通过 `statusCode` 属性传递 HTTP 状态码

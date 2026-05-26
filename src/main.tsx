@@ -9,6 +9,14 @@ import App from './App.tsx'
 patchThinkingSelector()
 applyClipboardPolyfill()
 
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      // Service Worker registration should not block the app.
+    })
+  })
+}
+
 // Keep this entry module explicit so Vite invalidates stale HMR import timestamps.
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

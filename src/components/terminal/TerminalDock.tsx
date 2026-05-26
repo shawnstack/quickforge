@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Check, ChevronDown, Loader2, Plus, SquareTerminal, X } from 'lucide-react'
+import { Check, ChevronDown, Loader2, Maximize2, Minimize2, Plus, SquareTerminal, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -41,6 +41,7 @@ export function TerminalDock({ project, onCollapse }: TerminalDockProps) {
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string>()
   const [shellMenuOpen, setShellMenuOpen] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
   const creatingRef = useRef(false)
   const dragRef = useRef<{ startY: number; startHeight: number } | null>(null)
   const shellMenuRef = useRef<HTMLDivElement | null>(null)
@@ -142,6 +143,15 @@ export function TerminalDock({ project, onCollapse }: TerminalDockProps) {
     }
   }, [shellMenuOpen])
 
+  useEffect(() => {
+    if (!fullscreen) return undefined
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setFullscreen(false)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [fullscreen])
+
   const closeSession = async (sessionId: string) => {
     setError(undefined)
     const remaining = sessions.filter((session) => session.id !== sessionId)
@@ -184,16 +194,27 @@ export function TerminalDock({ project, onCollapse }: TerminalDockProps) {
   const defaultProfile = shellProfiles.find((profile) => profile.id === defaultProfileId) || shellProfiles[0]
   const maxSessionsReached = Boolean(capabilities && sessions.length >= capabilities.maxSessions)
   const createDisabled = creating || maxSessionsReached
+  const terminalBodyHeight = fullscreen
+    ? error ? 'calc(100% - 4.25rem)' : 'calc(100% - 2.25rem)'
+    : error ? height - 72 : height - 45
 
   return (
-    <div className="shrink-0 border-t border-border bg-background" style={{ height }}>
-      <div
-        className="h-1 cursor-row-resize bg-transparent hover:bg-border"
-        onPointerDown={startDragging}
-        onPointerMove={drag}
-        onPointerUp={stopDragging}
-        onPointerCancel={stopDragging}
-      />
+    <div
+      className={cn(
+        'shrink-0 border-t border-border bg-background',
+        fullscreen && 'absolute inset-0 z-30 flex flex-col border-t-0',
+      )}
+      style={fullscreen ? undefined : { height }}
+    >
+      {!fullscreen ? (
+        <div
+          className="h-1 cursor-row-resize bg-transparent hover:bg-border"
+          onPointerDown={startDragging}
+          onPointerMove={drag}
+          onPointerUp={stopDragging}
+          onPointerCancel={stopDragging}
+        />
+      ) : null}
       <div className="flex h-9 items-center gap-1 border-b border-border px-2">
         <SquareTerminal className="size-4 shrink-0 text-muted-foreground/60" />
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
@@ -287,12 +308,22 @@ export function TerminalDock({ project, onCollapse }: TerminalDockProps) {
             </div>
           ) : null}
         </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          onClick={() => setFullscreen((value) => !value)}
+          title={fullscreen ? t('terminalExitFullscreen') : t('terminalFullscreen')}
+          aria-label={fullscreen ? t('terminalExitFullscreen') : t('terminalFullscreen')}
+        >
+          {fullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+        </Button>
         <Button variant="ghost" size="icon" className="size-7" onClick={onCollapse} title={t('terminalCollapse')} aria-label={t('terminalCollapse')}>
           <ChevronDown className="size-3.5" />
         </Button>
       </div>
       {error ? <div className="border-b border-border px-3 py-1.5 text-xs text-destructive">{error}</div> : null}
-      <div className="min-h-0 bg-[#0b0f14]" style={{ height: error ? height - 72 : height - 45 }}>
+      <div className="min-h-0 bg-background" style={{ height: terminalBodyHeight }}>
         {loading ? (
           <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground/60">
             <Loader2 className="size-4 animate-spin" /> {t('terminalStarting')}
@@ -311,7 +342,7 @@ export function TerminalDock({ project, onCollapse }: TerminalDockProps) {
               key={session.id}
               session={session}
               active={session.id === activeSession?.id}
-              height={height}
+              height={fullscreen ? window.innerHeight - 36 : height}
               onExited={markExited}
             />
           ))

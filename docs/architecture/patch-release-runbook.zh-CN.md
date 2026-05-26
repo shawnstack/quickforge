@@ -38,9 +38,47 @@ git log --oneline -10 --decorate --all
 - 若变更正是本次待发布内容，可继续。
 - 若变更来源不明，先询问用户。
 
-### 3.2 版本递增
+### 3.2 快速准备脚本（推荐）
 
-默认执行 patch 版本递增：
+优先使用脚本完成可自动化步骤：
+
+```bash
+npm run release:patch:prepare
+```
+
+该脚本会：
+
+- 执行 `npm version patch --no-git-tag-version`。
+- 更新 `README.md` 中的版本徽章、npm 安装版本、离线包路径和 tag 文案。
+- 在 `CHANGELOG.md` 顶部新增版本章节；默认基于最近 tag 之后的 commit 摘要和当前工作区文件生成草稿，也可用 `--notes` 或 `--notes-file` 提供更精确的发布说明。
+- 执行 `npm run build` 和 `npm run lint`。
+- 生成 `package-dist/`、`package-offline/`，安装离线运行时依赖、裁剪非运行时文件，并执行 `npm pack`。
+- 最后输出需要人工复核和执行的 Git / npm 命令。
+
+脚本不会自动 Git commit、打 tag、push 或 npm publish；这些仍需复核后手动执行，或由 Agent 在用户明确授权后执行。
+
+常用参数：
+
+```bash
+# 仅预览目标版本、当前变更和将执行的步骤，不改文件
+npm run release:patch:prepare -- --dry-run
+
+# 使用手写发布说明（会追加 Released 小节）
+npm run release:patch:prepare -- --notes-file release-notes.md
+
+# 从失败的发布准备中继续：当前 package.json 版本已 bump 时使用
+npm run release:patch:prepare -- --skip-version
+
+# 只更新版本和文档，不跑构建 / lint / 打包（仅用于调试，正式发布不要跳过）
+npm run release:patch:prepare -- --no-build --no-lint --no-pack
+```
+
+如果脚本失败：
+
+- 若已经完成版本递增，修复问题后可用 `--skip-version` 继续，避免再次递增 patch。
+- 若需要放弃本次准备，按 `git diff` / `git status` 检查后手动还原版本和文档改动。
+
+### 3.3 手动版本递增（脚本不可用时）
 
 ```bash
 npm version patch --no-git-tag-version
@@ -51,7 +89,7 @@ npm version patch --no-git-tag-version
 - `package.json`
 - `package-lock.json`
 
-### 3.3 更新发布文档
+### 3.4 更新发布文档
 
 更新 `CHANGELOG.md`：
 
@@ -75,7 +113,7 @@ git diff --stat <last-tag>..HEAD
 - 离线包路径更新为新版本。
 - tag 文案更新为新版本。
 
-### 3.4 验证与构建
+### 3.5 验证与构建
 
 必须执行：
 
@@ -90,7 +128,7 @@ npm run lint
 - 汇总失败命令、关键错误、建议修复点。
 - 不提交 release commit，不打 tag，不推送。
 
-### 3.5 生成运行时包和离线包
+### 3.6 生成运行时包和离线包
 
 执行：
 
@@ -116,7 +154,7 @@ package-offline/shawnstack-quickforge-<version>.tgz
 
 离线包生成时会将 `@vscode/ripgrep` 保持为 `optionalDependencies` 且不加入 bundled dependencies，避免把构建机平台绑定的 ripgrep 二进制（如 Windows `rg.exe`）发布给其他平台。`node-pty` 也作为 optional dependency 不打入离线 tarball，用于避免捆绑大型平台 PTY 预构建二进制；离线安装后若无法联网安装 `node-pty`，内置终端面板会禁用，其余聊天、项目、工具和文件搜索功能仍可用。在线安装该包时，npm 会按用户平台安装对应的可选依赖；如果目标环境无法联网安装 ripgrep，安装不会因此失败，运行时会继续回退到系统 `rg` 或 Node 搜索实现。
 
-### 3.6 Git 提交、打 tag、推送
+### 3.7 Git 提交、打 tag、推送
 
 先确认差异：
 
@@ -221,12 +259,10 @@ npm deprecate @shawnstack/quickforge@<version> "Deprecated release, please upgra
 默认执行：
 
 1. 检查工作区和分支。
-2. patch 递增版本。
-3. 更新 `CHANGELOG.md` / `README.md`。
-4. 执行 `npm run build`、`npm run lint`。
-5. 生成 `package-dist` 和 `package-offline`，并 `npm pack` 离线包。
-6. Git commit、tag、push。
-7. 不自动 npm publish；最终给用户完整 npm 发布指令。
+2. 优先运行 `npm run release:patch:prepare` 完成 patch 递增、发布文档更新、build/lint、运行时包和离线包生成。
+3. 复核脚本输出、`git diff` 和 `git status`。
+4. Git commit、tag、push。
+5. 不自动 npm publish；最终给用户完整 npm 发布指令。
 
 最终回复必须包含：
 

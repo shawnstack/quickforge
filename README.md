@@ -1,7 +1,7 @@
 # 速构 QuickForge
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.3.11-blue" />
+  <img alt="Version" src="https://img.shields.io/badge/version-1.3.18-blue" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green" />
   <img alt="Node" src="https://img.shields.io/badge/node-%3E%3D20-brightgreen" />
   <img alt="React" src="https://img.shields.io/badge/react-19-61DAFB?logo=react" />
@@ -65,7 +65,7 @@ QuickForge 的工具能力很直接，因此也需要谨慎使用：
 #### 从 npm 安装
 
 ```bash
-npm install -g @shawnstack/quickforge@1.3.11
+npm install -g @shawnstack/quickforge@1.3.18
 qf
 
 # CLI 工具
@@ -79,17 +79,17 @@ qf update
 当前版本的离线包：
 
 ```text
-package-offline/shawnstack-quickforge-1.3.11.tgz
+package-offline/shawnstack-quickforge-1.3.18.tgz
 ```
 
 在安装了 Node.js 20+ 和 npm 的机器上执行：
 
 ```bash
-npm install -g ./package-offline/shawnstack-quickforge-1.3.11.tgz
+npm install -g ./package-offline/shawnstack-quickforge-1.3.18.tgz
 qf
 ```
 
-该包由 `v1.3.11` 标签生成，包含离线安装所需的运行时依赖。
+该包由 `v1.3.18` 标签生成，包含离线安装所需的运行时依赖。
 
 ### 本地开发
 
@@ -228,7 +228,7 @@ QuickForge intentionally exposes powerful local capabilities, so the boundaries 
 #### npm
 
 ```bash
-npm install -g @shawnstack/quickforge@1.3.11
+npm install -g @shawnstack/quickforge@1.3.18
 qf
 
 # CLI utilities
@@ -239,20 +239,20 @@ qf update
 
 #### Offline tarball
 
-The offline release package for `v1.3.11` is:
+The offline release package for `v1.3.18` is:
 
 ```text
-package-offline/shawnstack-quickforge-1.3.11.tgz
+package-offline/shawnstack-quickforge-1.3.18.tgz
 ```
 
 Install it on a machine with Node.js 20+ and npm:
 
 ```bash
-npm install -g ./package-offline/shawnstack-quickforge-1.3.11.tgz
+npm install -g ./package-offline/shawnstack-quickforge-1.3.18.tgz
 qf
 ```
 
-The package was generated from tag `v1.3.11` and includes bundled runtime dependencies for offline installation.
+The package was generated from tag `v1.3.18` and includes bundled runtime dependencies for offline installation.
 
 ### Local development
 

@@ -18,7 +18,7 @@ import {
   patchContent,
   hasDraft,
 } from './chat-utils'
-import { assistantText, draftTextFromUserMessage } from '@/lib/message-utils'
+import { assistantText, copyTextToClipboard, draftTextFromUserMessage } from '@/lib/message-utils'
 import { t } from '@/lib/i18n'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 
@@ -81,6 +81,132 @@ export type MessageDecorationDeps = {
   onRollbackFromMessage: (messageIndex: number) => void
   onForkFromMessage: (messageIndex: number) => void
   disableFork: boolean
+}
+
+type ContextCompactionNoticeDeps = {
+  panel: HTMLElement
+  getMessages: () => MessageWithUsage[]
+  getContextCompaction: () => { summaryMessage?: unknown; compactedUpToIndex?: number } | null | undefined
+}
+
+function isDisplayMessage(message: MessageWithUsage) {
+  return message.role === 'user' || message.role === 'user-with-attachments' || message.role === 'assistant'
+}
+
+function insertBeforeMessageElement(panel: HTMLElement, messages: MessageWithUsage[], messageIndex: number, notice: HTMLElement) {
+  const messageElements = Array.from(
+    panel.querySelectorAll<HTMLElement>('message-list user-message, message-list assistant-message'),
+  )
+  let displayIndex = 0
+  for (let index = 0; index < messages.length; index++) {
+    if (!isDisplayMessage(messages[index])) continue
+    if (index === messageIndex) {
+      const target = messageElements[displayIndex]
+      if (target) {
+        target.before(notice)
+        return
+      }
+      break
+    }
+    displayIndex += 1
+  }
+
+  const messageList = panel.querySelector('message-list')
+  if (messageList) messageList.prepend(notice)
+}
+
+function compactSummaryText(summaryMessage: unknown) {
+  const message = summaryMessage as MessageWithUsage | undefined
+  const rawText = message?.role === 'assistant'
+    ? assistantText(message as Parameters<typeof assistantText>[0])
+    : draftTextFromUserMessage(message as Parameters<typeof draftTextFromUserMessage>[0])
+  const match = rawText.match(/<compact_summary>\s*([\s\S]*?)\s*<\/compact_summary>/i)
+  return (match?.[1] ?? rawText).trim()
+}
+
+function syncCompactionSummaryHandlers(notice: HTMLElement, summaryText: string, initialOpen = false) {
+  const details = notice.querySelector<HTMLDetailsElement>('.quickforge-context-compaction-details')
+  const summary = notice.querySelector<HTMLElement>('.quickforge-context-compaction-summary')
+  const toggleLabel = notice.querySelector<HTMLElement>('.quickforge-context-compaction-toggle-label')
+  const copyButton = notice.querySelector<HTMLButtonElement>('[data-quickforge-action="copy-compact-summary"]')
+  if (details) details.open = initialOpen
+  const syncToggleLabel = () => {
+    if (toggleLabel && details) toggleLabel.textContent = details.open ? t('contextCompactedHideSummary') : t('contextCompactedViewSummary')
+  }
+  summary?.addEventListener('click', (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!details) return
+    details.open = !details.open
+    syncToggleLabel()
+  })
+  details?.addEventListener('toggle', syncToggleLabel)
+  syncToggleLabel()
+  if (copyButton) {
+    copyButton.onclick = async (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      await copyTextToClipboard(summaryText)
+      showCopiedFeedback(copyButton, t('contextCompactedCopySummary'), copyIcon)
+    }
+  }
+}
+
+export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
+  const { panel, getMessages, getContextCompaction } = deps
+  const compaction = getContextCompaction()
+  const messages = getMessages()
+  const existing = panel.querySelector<HTMLElement>('.quickforge-context-compaction-notice')
+
+  if (!compaction || messages.length === 0) {
+    existing?.remove()
+    return
+  }
+
+  const tailStart = Math.min(messages.length, Math.max(0, Number(compaction.compactedUpToIndex) || 0))
+  if (tailStart <= 0) {
+    existing?.remove()
+    return
+  }
+
+  const summaryText = compaction.summaryMessage ? compactSummaryText(compaction.summaryMessage) : ''
+  const initialOpen = existing?.querySelector<HTMLDetailsElement>('.quickforge-context-compaction-details')?.open ?? false
+  const notice = existing ?? document.createElement('div')
+  notice.className = 'quickforge-context-compaction-notice'
+  notice.dataset.tailStart = String(tailStart)
+  notice.title = t('contextCompactedTooltip')
+  notice.setAttribute('aria-label', t('contextCompactedTooltip'))
+  notice.innerHTML = summaryText ? `
+    <details class="quickforge-context-compaction-details">
+      <summary class="quickforge-context-compaction-summary">
+        <div class="quickforge-context-compaction-line"></div>
+        <div class="quickforge-context-compaction-pill">
+          <span class="quickforge-context-compaction-dot" aria-hidden="true"></span>
+          <span><strong>${escapeHtml(t('contextCompactedLabel'))}</strong> · ${escapeHtml(t('contextCompactedTimelineLabel'))} · <span class="quickforge-context-compaction-toggle-label"></span></span>
+        </div>
+        <div class="quickforge-context-compaction-line"></div>
+      </summary>
+      <div class="quickforge-context-compaction-card">
+        <div class="quickforge-context-compaction-card-header">
+          <span>${escapeHtml(t('contextCompactedSummaryTitle'))}</span>
+          <button type="button" class="quickforge-context-compaction-copy" data-quickforge-action="copy-compact-summary">${copyIcon}<span>${escapeHtml(t('contextCompactedCopySummary'))}</span></button>
+        </div>
+        <pre class="quickforge-context-compaction-text">${escapeHtml(summaryText)}</pre>
+      </div>
+    </details>
+  ` : `
+    <div class="quickforge-context-compaction-summary" role="separator">
+      <div class="quickforge-context-compaction-line"></div>
+      <div class="quickforge-context-compaction-pill">
+        <span class="quickforge-context-compaction-dot" aria-hidden="true"></span>
+        <span><strong>${escapeHtml(t('contextCompactedLabel'))}</strong> · ${escapeHtml(t('contextCompactedTimelineLabel'))}</span>
+      </div>
+      <div class="quickforge-context-compaction-line"></div>
+    </div>
+  `
+  if (summaryText) syncCompactionSummaryHandlers(notice, summaryText, initialOpen)
+
+  insertBeforeMessageElement(panel, messages, tailStart, notice)
 }
 
 export function decorateMessages(deps: MessageDecorationDeps) {
@@ -202,7 +328,13 @@ function numberFromUnknown(value: unknown): number | undefined {
 function timestampFromUnknown(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string') {
-    const parsed = Date.parse(value)
+    const trimmed = value.trim()
+    if (!trimmed) return undefined
+
+    const numeric = Number(trimmed)
+    if (Number.isFinite(numeric)) return numeric
+
+    const parsed = Date.parse(trimmed)
     return Number.isNaN(parsed) ? undefined : parsed
   }
   return undefined
@@ -691,6 +823,7 @@ export type ApprovalCardDeps = {
 const APPROVAL_CARD_SELECTOR = '.quickforge-approval-card'
 
 function summarizeToolArgs(toolName: string, args: Record<string, unknown>) {
+  if (typeof args.summary === 'string') return args.summary
   if (toolName === 'run_command' && typeof args.command === 'string') return args.command
   if (toolName === 'activate_skill' && typeof args.name === 'string') return args.name
   if (toolName === 'read_skill_resource' && typeof args.path === 'string') return args.path
@@ -762,11 +895,13 @@ export function injectApprovalCard(
     `
   } else if (toolName === 'run_command') {
     const command = String(args.command ?? '')
-    const timeout = args.timeoutSeconds ? `${args.timeoutSeconds}s` : '60s'
+    const timeout = '30m'
     preview.innerHTML = `
       <div class="text-xs text-muted-foreground mb-1">⏱️ ${t('toolApprovalTimeout')}: ${escapeHtml(timeout)}</div>
       <pre class="text-xs bg-background border rounded p-2 max-h-40 overflow-auto font-mono whitespace-pre-wrap">$ ${escapeHtml(command)}</pre>
     `
+  } else if (typeof args.description === 'string') {
+    preview.innerHTML = `<div class="text-xs bg-background border rounded p-2 text-muted-foreground">${escapeHtml(args.description)}</div>`
   } else {
     preview.innerHTML = showToolDetails
       ? `<pre class="text-xs bg-background border rounded p-2 max-h-40 overflow-auto font-mono whitespace-pre-wrap">${escapeHtml(JSON.stringify(args, null, 2))}</pre>`

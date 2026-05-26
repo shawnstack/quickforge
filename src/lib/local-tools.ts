@@ -65,6 +65,60 @@ function resultText(result: ToolResultLike | undefined) {
     .join('\n') ?? ''
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function commandStatusFromDetails(details: Record<string, unknown>, isStreaming?: boolean) {
+  if (details.running === true || isStreaming) return 'Status: running'
+  const flags = [
+    details.timedOut ? 'timed out' : null,
+    details.aborted ? 'aborted' : null,
+  ].filter(Boolean)
+  const suffix = flags.length ? ` (${flags.join(', ')})` : ''
+  const code = details.code ?? 'unknown'
+  const signal = typeof details.signal === 'string' && details.signal ? `, signal: ${details.signal}` : ''
+  return `Exit code: ${code}${signal}${suffix}`
+}
+
+function runCommandOutputFromDetails(params: Record<string, unknown> | undefined, details: unknown, isStreaming?: boolean) {
+  const detailRecord = isRecord(details) ? details : undefined
+  const command = typeof detailRecord?.command === 'string'
+    ? detailRecord.command
+    : typeof params?.command === 'string'
+      ? params.command
+      : ''
+  if (!command || !detailRecord) return ''
+
+  const stdout = typeof detailRecord.stdout === 'string' ? detailRecord.stdout : ''
+  const stderr = typeof detailRecord.stderr === 'string' ? detailRecord.stderr : ''
+  const hasOutput = Boolean(stdout || stderr)
+  const hasStatus = detailRecord.running === true
+    || detailRecord.code !== undefined
+    || detailRecord.signal !== undefined
+    || detailRecord.timedOut === true
+    || detailRecord.aborted === true
+  if (!hasOutput && !hasStatus && !isStreaming) return ''
+
+  return [
+    `Command: ${command}`,
+    commandStatusFromDetails(detailRecord, isStreaming),
+    '',
+    'STDOUT:',
+    stdout || '(empty)',
+    '',
+    'STDERR:',
+    stderr || '(empty)',
+  ].join('\n')
+}
+
+function toolOutputText(toolName: string, params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
+  const output = resultText(result)
+  if (output) return output
+  if (toolName === 'run_command') return runCommandOutputFromDetails(params, result?.details, isStreaming)
+  return ''
+}
+
 function summarizeParams(toolName: string, params: Record<string, unknown> | undefined) {
   if (!params) return ''
   if (toolName === 'run_command' && typeof params.command === 'string') return params.command
@@ -93,6 +147,34 @@ function detailsWithoutDiffText(details: unknown) {
   return {
     ...record,
     diff: diffSummary,
+  }
+}
+
+function runtimeIdsFromDetails(details: unknown) {
+  if (!details || typeof details !== 'object') return {}
+  const record = details as Record<string, unknown>
+  return {
+    sessionId: typeof record.sessionId === 'string' ? record.sessionId : undefined,
+    toolCallId: typeof record.toolCallId === 'string' ? record.toolCallId : undefined,
+  }
+}
+
+async function terminateCommand(sessionId: string, toolCallId: string, button: HTMLButtonElement) {
+  const originalLabel = button.getAttribute('aria-label') || t('terminateCommand')
+  button.disabled = true
+  button.setAttribute('aria-label', t('commandTerminateRequested'))
+  button.setAttribute('title', t('commandTerminateRequested'))
+  try {
+    const response = await fetch(`/api/agents/${encodeURIComponent(sessionId)}/abort-tool`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ toolCallId }),
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  } catch {
+    button.disabled = false
+    button.setAttribute('aria-label', originalLabel)
+    button.setAttribute('title', t('terminateCommandTitle'))
   }
 }
 
@@ -196,23 +278,51 @@ function elapsedMsFromTiming(timing: QuickForgeToolTiming | undefined) {
 class QuickForgeElapsedTime extends HTMLElement {
   private timer: ReturnType<typeof setInterval> | undefined
 
+  static get observedAttributes() {
+    return ['duration-ms', 'running', 'started-at']
+  }
+
   connectedCallback() {
     this.render()
-    if (this.getAttribute('running') === 'true') {
-      this.timer = setInterval(() => this.render(), 500)
-    }
+    this.syncTimer()
   }
 
   disconnectedCallback() {
-    if (this.timer) clearInterval(this.timer)
+    this.stopTimer()
+  }
+
+  attributeChangedCallback() {
+    this.render()
+    this.syncTimer()
+  }
+
+  private readNumberAttribute(name: string) {
+    const value = this.getAttribute(name)
+    if (value === null || value.trim() === '') return undefined
+    const numberValue = Number(value)
+    return Number.isFinite(numberValue) && numberValue >= 0 ? numberValue : undefined
+  }
+
+  private syncTimer() {
+    if (this.getAttribute('running') === 'true' && this.readNumberAttribute('duration-ms') === undefined) {
+      if (!this.timer) this.timer = setInterval(() => this.render(), 500)
+    } else {
+      this.stopTimer()
+    }
+  }
+
+  private stopTimer() {
+    if (!this.timer) return
+    clearInterval(this.timer)
+    this.timer = undefined
   }
 
   private render() {
-    const durationMs = Number(this.getAttribute('duration-ms'))
-    const startedAt = Number(this.getAttribute('started-at'))
-    const ms = Number.isFinite(durationMs) && durationMs >= 0
+    const durationMs = this.readNumberAttribute('duration-ms')
+    const startedAt = this.readNumberAttribute('started-at')
+    const ms = durationMs !== undefined
       ? durationMs
-      : Number.isFinite(startedAt) && startedAt > 0
+      : startedAt !== undefined && startedAt > 0
         ? Date.now() - startedAt
         : 0
     this.textContent = formatDuration(ms)
@@ -278,6 +388,25 @@ function renderStatus(status: ToolStatusKey, timing: QuickForgeToolTiming | unde
   `
 }
 
+function renderTerminateCommandButton(toolName: string, status: ToolStatusKey, details: unknown) {
+  if (toolName !== 'run_command' || status !== 'running') return nothing
+  const { sessionId, toolCallId } = runtimeIdsFromDetails(details)
+  if (!sessionId || !toolCallId) return nothing
+  return html`
+    <button
+      type="button"
+      class="shrink-0 inline-flex size-5 items-center justify-center text-foreground transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-40"
+      title=${t('terminateCommandTitle')}
+      aria-label=${t('terminateCommandTitle')}
+      @click=${(event: Event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        void terminateCommand(sessionId, toolCallId, event.currentTarget as HTMLButtonElement)
+      }}
+    ><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2.4"/></svg></button>
+  `
+}
+
 // ---------------------------------------------------------------------------
 // Tool renderers (UI display only)
 // These map tool names to custom renderers so the ChatPanel shows input/output
@@ -305,7 +434,7 @@ class LocalWorkspaceToolRenderer {
     const showToolDetails = toolDisplaySettings.showToolDetails
     const expandToolsByDefault = toolDisplaySettings.expandToolsByDefault
     const input = showToolDetails ? stringifyValue(params) : ''
-    const output = resultText(result)
+    const output = toolOutputText(this.toolName, params, result, isStreaming)
     const diff = getDiffDetails(result?.details)
     const details = showToolDetails ? stringifyValue(diff ? detailsWithoutDiffText(result?.details) : result?.details) : ''
     const variant = result?.isError ? 'error' : 'default'
@@ -318,6 +447,7 @@ class LocalWorkspaceToolRenderer {
             <svg class="shrink-0 transition-transform group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
             ${renderToolIcon(this.toolName)}
             <span class="min-w-0 flex-1 truncate">${t(this.labelKey)}${summary ? html`<span class="text-muted-foreground/70"> · ${summary}</span>` : ''}</span>
+            ${renderTerminateCommandButton(this.toolName, status, result?.details)}
             ${renderStatus(status, timing)}
           </summary>
           <div class="mt-3 space-y-3">

@@ -68,7 +68,8 @@ export const workspaceTools = [
     description: 'Run a shell command in the project bound to this chat. Use this for lint, build, tests, git status, and diagnostics.',
     parameters: Type.Object({
       command: Type.String({ description: 'Command to execute in the workspace.' }),
-      timeoutSeconds: Type.Optional(Type.Number({ description: 'Timeout in seconds. Defaults to 60.', default: 60 })),
+      timeoutMs: Type.Optional(Type.Number({ description: 'Command timeout in milliseconds. Defaults to 30 minutes and is clamped to the supported range.', default: 1800000 })),
+      description: Type.Optional(Type.String({ description: 'Short explanation of why this command is being run.' })),
     }),
     executionMode: 'sequential',
   },

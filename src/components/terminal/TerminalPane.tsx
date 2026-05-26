@@ -32,10 +32,10 @@ export function TerminalPane({ session, active, height, onExited }: TerminalPane
       lineHeight: 1.2,
       scrollback: 5000,
       theme: {
-        background: '#0b0f14',
-        foreground: '#d6deeb',
-        cursor: '#d6deeb',
-        selectionBackground: '#334155',
+        background: '#ffffff',
+        foreground: '#1f2937',
+        cursor: '#1f2937',
+        selectionBackground: '#dbeafe',
       },
     })
     const fitAddon = new FitAddon()

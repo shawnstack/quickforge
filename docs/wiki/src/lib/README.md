@@ -84,7 +84,7 @@
 
 ### local-tools.ts (247 行)
 
-**用途**: 在 `pi-web-ui` 中注册本地工具渲染器。
+**用途**: 在 `pi-web-ui` 中注册本地工具渲染器；`run_command` 运行中会显示图标按钮，通过 `/api/agents/:sessionId/abort-tool` 手动结束当前命令。
 
 **支持的工具渲染**: `read_file`, `grep_files`, `write_file`, `edit_file`, `run_command`, `activate_skill`, `read_skill_resource`
 
@@ -130,6 +130,7 @@
 **功能**:
 - `QuickForgeToolTiming` / `ToolExecutionEvent` 类型
 - `upsertMessage()` — 根据 `toolCallId` 合并或替换工具结果消息
+- `toolStartEventWithPartialResult()` / `upsertToolResult()` — 在运行中工具结果里保留计时、`sessionId` 和 `toolCallId`，用于前端展示耗时和结束运行中的 `run_command`。
 
 ## 设置选项卡
 

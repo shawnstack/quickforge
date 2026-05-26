@@ -205,6 +205,16 @@ function MainApp() {
     [loadAgentSession],
   )
 
+  const restoreWorkspaceDraft = useCallback((text: string) => {
+    if (!text.trim()) return
+    setScheduledTasksOpen(false)
+    setRestoredDraft({
+      id: Date.now(),
+      sessionId: currentSessionIdRef.current,
+      text,
+    })
+  }, [currentSessionIdRef])
+
   useEffect(() => {
     const unsubscribe = subscribeToAgentEvents((event) => {
       if (isScheduledTaskStarted(event)) {
@@ -321,6 +331,18 @@ function MainApp() {
       logger.error('Failed to reject tool call:', err)
       throw err instanceof Error ? err : new Error(t('toolApprovalFailed'))
     }
+  }, [agentRef])
+
+  const handleApproveAutoCompact = useCallback(async (approvalId: string) => {
+    const currentAgent = agentRef.current as (typeof agentRef.current & { approveAutoCompact?: (approvalId: string) => Promise<void> })
+    if (!currentAgent?.approveAutoCompact) throw new Error(t('toolApprovalFailed'))
+    await currentAgent.approveAutoCompact(approvalId)
+  }, [agentRef])
+
+  const handleRejectAutoCompact = useCallback(async (approvalId: string) => {
+    const currentAgent = agentRef.current as (typeof agentRef.current & { rejectAutoCompact?: (approvalId: string) => Promise<void> })
+    if (!currentAgent?.rejectAutoCompact) throw new Error(t('toolApprovalFailed'))
+    await currentAgent.rejectAutoCompact(approvalId)
   }, [agentRef])
 
   const {
@@ -648,7 +670,7 @@ function MainApp() {
 
         </header>
 
-        <section className="flex min-h-0 flex-1 flex-col">
+        <section className="relative flex min-h-0 flex-1 flex-col">
           {scheduledTasksOpen ? (
               <ScheduledTasksPage onOpenSession={handleToastClick} />
             ) : needsModelSetup ? (
@@ -676,6 +698,8 @@ function MainApp() {
                       onForkFromMessage={forkFromMessage}
                       onApproveToolCall={handleApproveToolCall}
                       onRejectToolCall={handleRejectToolCall}
+                      onApproveAutoCompact={handleApproveAutoCompact}
+                      onRejectAutoCompact={handleRejectAutoCompact}
                       disableFork={false}
                       restoredDraft={restoredDraft}
                     />
@@ -695,6 +719,7 @@ function MainApp() {
         project={agentManager.currentToolProject}
         open={workspaceInspectorOpen && Boolean(agentManager.currentToolProject?.id)}
         onOpenChange={setWorkspaceInspectorOpen}
+        onDraftRequest={restoreWorkspaceDraft}
       />
     </div>
     <ProjectDirectoryPicker

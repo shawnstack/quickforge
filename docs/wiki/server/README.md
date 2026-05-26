@@ -59,7 +59,7 @@ server/
 - 后台任务运行（`runTask` / `abortTask`）
 - Agent 恢复（`restoreAgent`）：从持久化状态恢复会话
 - 工具管理：基于 Skills 和 YOLO 模式动态构建工具列表
-- 对话压缩（`compactConversation`）
+- 对话压缩（`compactConversation`）：手动 `/compact` 会创建压缩后的新会话；自动上下文压缩会在模型请求前按配置阈值生成滚动摘要，只影响 Agent loop 输入，完整历史仍保留用于 UI 展示和持久化。
 - 自定义命令处理
 - 工具权限检查
 - 会话活动跟踪（`touchSession`）
@@ -152,6 +152,10 @@ server/
 ### conversation-compaction.mjs (302 行)
 
 **用途**: 对话历史压缩。使用 AI 将长对话压缩为精炼摘要。
+
+### auto-compaction.mjs
+
+**用途**: 自动上下文压缩。读取 `settings['auto-compact-settings']`，在 Agent 每次请求模型前估算 `systemPrompt + messages + tools + maxTokens` 占当前模型 `contextWindow` 的比例；超过阈值时生成滚动摘要。自动压缩采用“双轨”模式：完整 `messages` 继续持久化并展示在 UI 中，后续 Agent loop 只使用最新 compact summary 与最近若干用户回合。
 
 ### custom-commands.mjs (344 行)
 

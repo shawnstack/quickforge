@@ -1,8 +1,9 @@
-import { promises as fs } from 'node:fs'
+import { createWriteStream, promises as fs } from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { resolveWorkspacePath, toWorkspaceRelative, assertSafeWorkspacePath, truncateText, splitLines, walkFiles } from '../utils/workspace.mjs'
+import { logsDir } from '../storage.mjs'
 import { createTextDiff } from '../utils/text-diff.mjs'
 import {
   formatSkillActivation,
@@ -488,17 +489,35 @@ function countOccurrences(text, needle) {
   return count
 }
 
+function detectLineEnding(text) {
+  return text.includes('\r\n') ? '\r\n' : '\n'
+}
+
+function normalizeLineEndings(text) {
+  return text.replaceAll('\r\n', '\n').replaceAll('\r', '\n')
+}
+
+function convertToLineEnding(text, ending) {
+  const normalized = normalizeLineEndings(text)
+  return ending === '\r\n' ? normalized.replaceAll('\n', '\r\n') : normalized
+}
+
 export async function toolEditFile(params, context) {
   const file = resolveWorkspacePath(params?.path, context)
   await assertSafeWorkspacePath(file, context)
 
-  const oldText = String(params?.oldText ?? '')
-  const newText = String(params?.newText ?? '')
+  const rawOldText = String(params?.oldText ?? '')
+  const rawNewText = String(params?.newText ?? '')
   const text = await fs.readFile(file, 'utf8')
+  const lineEnding = detectLineEnding(text)
+  const oldText = convertToLineEnding(rawOldText, lineEnding)
+  const newText = convertToLineEnding(rawNewText, lineEnding)
   const count = countOccurrences(text, oldText)
 
   if (count !== 1) {
-    const error = new Error(`oldText must match exactly once; found ${count} matches`)
+    const rawCount = oldText === rawOldText ? count : countOccurrences(text, rawOldText)
+    const suffix = rawCount !== count ? ` after normalizing line endings; raw match count was ${rawCount}` : ''
+    const error = new Error(`oldText must match exactly once; found ${count} matches${suffix}`)
     error.statusCode = 400
     throw error
   }
@@ -569,6 +588,29 @@ export async function toolReadSkillResource(params, context) {
 }
 
 // --- run_command ---
+const DEFAULT_RUN_COMMAND_TIMEOUT_MS = 30 * 60 * 1000
+const MIN_RUN_COMMAND_TIMEOUT_MS = 1000
+const MAX_RUN_COMMAND_TIMEOUT_MS = 30 * 60 * 1000
+const COMMAND_TAIL_LINES = 100
+
+function formatDurationMs(durationMs = 0) {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000))
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  if (minutes > 0) return `${minutes}m ${seconds}s (${durationMs}ms)`
+  return `${seconds}s (${durationMs}ms)`
+}
+
+function tailText(current, chunk, maxLines = COMMAND_TAIL_LINES) {
+  const lines = (current + chunk).split(/\r?\n/)
+  if (lines.length <= maxLines) return lines.join('\n')
+  return lines.slice(lines.length - maxLines).join('\n')
+}
+
+function tailLabel(name, truncated) {
+  return truncated ? `${name} (last ${COMMAND_TAIL_LINES} lines):` : `${name}:`
+}
+
 function commandStatus(meta = {}) {
   if (meta.running) return 'Status: running'
   const flags = [
@@ -580,16 +622,46 @@ function commandStatus(meta = {}) {
 }
 
 function formatCommandOutput(command, stdout, stderr, meta = {}) {
-  return [
+  const lines = [
     `Command: ${command}`,
-    commandStatus(meta),
+  ]
+  if (meta.description) lines.push(`Description: ${meta.description}`)
+  lines.push(commandStatus(meta))
+  if (typeof meta.durationMs === 'number') lines.push(`Duration: ${formatDurationMs(meta.durationMs)}`)
+  if (typeof meta.timeoutMs === 'number') lines.push(`Timeout: ${formatDurationMs(meta.timeoutMs)}`)
+  if (meta.cwd) lines.push(`CWD: ${meta.cwd}`)
+  if (meta.outputFile) lines.push(`Full output: ${meta.outputFile}`)
+  if (meta.outputTruncated) lines.push(`Output mode: showing the last ${COMMAND_TAIL_LINES} lines; full output is saved to the log file.`)
+  if (meta.logError) lines.push(`Log warning: ${meta.logError}`)
+  lines.push('', tailLabel('STDOUT', meta.stdoutTruncated), stdout || '(empty)', '', tailLabel('STDERR', meta.stderrTruncated), stderr || '(empty)')
+  return lines.join('\n')
+}
+
+function safeLogFilePart(value, fallback) {
+  const text = String(value || '').replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 80)
+  return text || fallback
+}
+
+async function createCommandLogStream(command, { cwd, description, toolCallId } = {}) {
+  const dir = path.join(logsDir, 'commands')
+  await fs.mkdir(dir, { recursive: true })
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const fileName = `${timestamp}_${safeLogFilePart(toolCallId, 'command')}.log`
+  const outputFile = path.join(dir, fileName)
+  const stream = createWriteStream(outputFile, { flags: 'wx' })
+  stream.write([
+    `Command: ${command}`,
+    description ? `Description: ${description}` : null,
+    `CWD: ${cwd}`,
+    `Started at: ${new Date().toISOString()}`,
     '',
-    'STDOUT:',
-    stdout || '(empty)',
-    '',
-    'STDERR:',
-    stderr || '(empty)',
-  ].join('\n')
+  ].filter(Boolean).join('\n'))
+  return { stream, outputFile }
+}
+
+function writeCommandLog(stream, source, chunk) {
+  stream.write(`\n[${source} ${new Date().toISOString()}]\n`)
+  stream.write(chunk)
 }
 
 function killProcessTree(child, signal = 'SIGTERM') {
@@ -613,6 +685,16 @@ function killProcessTree(child, signal = 'SIGTERM') {
   }
 }
 
+const runningCommands = new Map()
+
+export function abortRunningCommand(toolCallId) {
+  if (!toolCallId) return false
+  const stop = runningCommands.get(toolCallId)
+  if (!stop) return false
+  stop('abort')
+  return true
+}
+
 export async function toolRunCommand(params, context, runtime = {}) {
   const command = String(params?.command || '')
   if (!command.trim()) {
@@ -621,12 +703,34 @@ export async function toolRunCommand(params, context, runtime = {}) {
     throw error
   }
 
-  const timeoutMs = Math.min(10 * 60, Math.max(1, Number(params?.timeoutSeconds || 60))) * 1000
+  const description = String(params?.description || '').trim().slice(0, 500)
+  const timeoutMs = clampNumber(params?.timeoutMs, DEFAULT_RUN_COMMAND_TIMEOUT_MS, MIN_RUN_COMMAND_TIMEOUT_MS, MAX_RUN_COMMAND_TIMEOUT_MS)
   const cwd = getToolWorkspaceRoot(context)
+  const startedAt = Date.now()
 
   if (runtime.signal?.aborted) {
-    const content = formatCommandOutput(command, '', 'Command aborted before start.', { aborted: true })
-    return { content: truncateText(content), details: { command, project: context?.project, cwd, aborted: true } }
+    const content = formatCommandOutput(command, '', 'Command aborted before start.', {
+      aborted: true,
+      cwd,
+      description,
+      timeoutMs,
+      durationMs: 0,
+    })
+    return { content: truncateText(content), details: { command, description, project: context?.project, cwd, timeoutMs, durationMs: 0, aborted: true } }
+  }
+
+  let logStream = null
+  let outputFile = null
+  let logError = null
+  try {
+    const log = await createCommandLogStream(command, { cwd, description, toolCallId: runtime.toolCallId })
+    logStream = log.stream
+    outputFile = log.outputFile
+    logStream.on('error', (error) => {
+      logError = error?.message || 'Failed to write command log.'
+    })
+  } catch (error) {
+    logError = error?.message || 'Failed to create command log.'
   }
 
   return new Promise((resolve) => {
@@ -640,6 +744,8 @@ export async function toolRunCommand(params, context, runtime = {}) {
 
     let stdout = ''
     let stderr = ''
+    let stdoutTruncated = false
+    let stderrTruncated = false
     let timedOut = false
     let aborted = false
     let settled = false
@@ -651,7 +757,49 @@ export async function toolRunCommand(params, context, runtime = {}) {
       clearTimeout(timer)
       if (forceKillTimer) clearTimeout(forceKillTimer)
       if (updateTimer) clearTimeout(updateTimer)
+      if (runtime.toolCallId) runningCommands.delete(runtime.toolCallId)
       runtime.signal?.removeEventListener?.('abort', onAbort)
+    }
+
+    const commonDetails = (extra = {}) => {
+      const now = Date.now()
+      return {
+        command,
+        description,
+        project: context?.project,
+        cwd,
+        timeoutMs,
+        outputFile,
+        stdout,
+        stderr,
+        stdoutTruncated,
+        stderrTruncated,
+        outputTruncated: stdoutTruncated || stderrTruncated,
+        durationMs: now - startedAt,
+        toolCallId: runtime.toolCallId,
+        logError,
+        ...extra,
+      }
+    }
+
+    const resolveAfterLogClose = (result) => {
+      if (!logStream) {
+        resolve(result)
+        return
+      }
+      const details = result.details || {}
+      logStream.write([
+        '',
+        '',
+        `[quickforge ${new Date().toISOString()}]`,
+        `Exit code: ${details.code ?? 'unknown'}${details.signal ? `, signal: ${details.signal}` : ''}`,
+        `Duration: ${formatDurationMs(details.durationMs)}`,
+        `Timed out: ${Boolean(details.timedOut)}`,
+        `Aborted: ${Boolean(details.aborted)}`,
+        'Command finished.',
+        '',
+      ].join('\n'))
+      logStream.end(() => resolve(result))
     }
 
     const finish = ({ code = null, signal = null, error = null } = {}) => {
@@ -659,16 +807,19 @@ export async function toolRunCommand(params, context, runtime = {}) {
       flushUpdate()
       settled = true
       cleanup()
+      const durationMs = Date.now() - startedAt
       if (error) {
-        resolve({
+        const details = commonDetails({ error: error.message, aborted, timedOut, durationMs })
+        resolveAfterLogClose({
           isError: true,
-          content: truncateText(`Error running command: ${error.message}`),
-          details: { command, project: context?.project, cwd, error: error.message, aborted, timedOut },
+          content: truncateText(formatCommandOutput(command, stdout, `Error running command: ${error.message}\n${stderr}`.trim(), details)),
+          details,
         })
         return
       }
-      const content = formatCommandOutput(command, stdout, stderr, { code, signal, timedOut, aborted })
-      resolve({ content: truncateText(content), details: { command, project: context?.project, cwd, code, signal, timedOut, aborted } })
+      const details = commonDetails({ code, signal, timedOut, aborted, durationMs })
+      const content = formatCommandOutput(command, stdout, stderr, details)
+      resolveAfterLogClose({ content: truncateText(content), details })
     }
 
     const stopChild = (reason) => {
@@ -680,18 +831,23 @@ export async function toolRunCommand(params, context, runtime = {}) {
       }, 1500)
     }
 
+    if (runtime.toolCallId) runningCommands.set(runtime.toolCallId, stopChild)
+
     function onAbort() {
       stopChild('abort')
       finish({ signal: 'SIGTERM' })
     }
 
+    const runningDetails = () => commonDetails({ running: true })
+
     const emitUpdate = () => {
       updateTimer = null
       if (settled || !updatePending) return
       updatePending = false
+      const details = runningDetails()
       runtime.onUpdate?.({
-        content: [{ type: 'text', text: truncateText(formatCommandOutput(command, stdout, stderr, { running: true })) }],
-        details: { command, project: context?.project, cwd, running: true, stdout, stderr },
+        content: [{ type: 'text', text: truncateText(formatCommandOutput(command, stdout, stderr, details)) }],
+        details,
       })
     }
     const flushUpdate = () => {
@@ -701,9 +857,10 @@ export async function toolRunCommand(params, context, runtime = {}) {
       }
       if (!updatePending) return
       updatePending = false
+      const details = runningDetails()
       runtime.onUpdate?.({
-        content: [{ type: 'text', text: truncateText(formatCommandOutput(command, stdout, stderr, { running: true })) }],
-        details: { command, project: context?.project, cwd, running: true, stdout, stderr },
+        content: [{ type: 'text', text: truncateText(formatCommandOutput(command, stdout, stderr, details)) }],
+        details,
       })
     }
     const scheduleUpdate = () => {
@@ -720,12 +877,18 @@ export async function toolRunCommand(params, context, runtime = {}) {
 
     child.stdout.on('data', (chunk) => {
       if (settled) return
-      stdout = truncateText(stdout + chunk.toString())
+      const text = chunk.toString()
+      stdoutTruncated = stdoutTruncated || (stdout + text).split(/\r?\n/).length > COMMAND_TAIL_LINES
+      stdout = tailText(stdout, text)
+      if (logStream && !logError) writeCommandLog(logStream, 'stdout', text)
       scheduleUpdate()
     })
     child.stderr.on('data', (chunk) => {
       if (settled) return
-      stderr = truncateText(stderr + chunk.toString())
+      const text = chunk.toString()
+      stderrTruncated = stderrTruncated || (stderr + text).split(/\r?\n/).length > COMMAND_TAIL_LINES
+      stderr = tailText(stderr, text)
+      if (logStream && !logError) writeCommandLog(logStream, 'stderr', text)
       scheduleUpdate()
     })
     child.on('close', (code, signal) => {

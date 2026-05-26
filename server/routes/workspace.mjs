@@ -85,6 +85,7 @@ async function isGitRepository(workspaceRoot) {
 }
 
 function classifyStatus(x, y) {
+  if (x === 'U' || y === 'U' || (x === 'A' && y === 'A') || (x === 'D' && y === 'D')) return 'conflicted'
   if (x === '?' && y === '?') return 'untracked'
   if (x === 'R' || y === 'R') return 'renamed'
   if (x === 'A' || y === 'A') return 'added'
@@ -105,6 +106,9 @@ function parseGitStatus(buffer) {
       status,
       staged: x !== ' ' && x !== '?',
       unstaged: y !== ' ' && y !== '?',
+      conflict: status === 'conflicted',
+      x,
+      y,
     }
     if (status === 'renamed') {
       const oldPath = entries[index + 1]
@@ -118,10 +122,38 @@ function parseGitStatus(buffer) {
   return files.sort((left, right) => left.path.localeCompare(right.path, undefined, { sensitivity: 'base' }))
 }
 
+async function currentGitBranch(workspaceRoot) {
+  const result = await git(['branch', '--show-current'], workspaceRoot, { allowFailure: true })
+  const branch = result.stdout.toString('utf8').trim()
+  if (branch) return branch
+  const head = await git(['rev-parse', '--short', 'HEAD'], workspaceRoot, { allowFailure: true })
+  const commit = head.stdout.toString('utf8').trim()
+  return commit ? `HEAD ${commit}` : undefined
+}
+
+function countGitStatus(files) {
+  return files.reduce((counts, file) => {
+    if (file.conflict) counts.conflicts += 1
+    else if (file.status === 'untracked') counts.untracked += 1
+    else {
+      if (file.staged) counts.staged += 1
+      if (file.unstaged) counts.unstaged += 1
+    }
+    counts.total += 1
+    return counts
+  }, { staged: 0, unstaged: 0, untracked: 0, conflicts: 0, total: 0 })
+}
+
 async function listGitStatus(context) {
   if (!(await isGitRepository(context.workspaceRoot))) return { isGitRepository: false, files: [] }
   const result = await git(['status', '--porcelain=v1', '-z'], context.workspaceRoot)
-  return { isGitRepository: true, files: parseGitStatus(result.stdout) }
+  const files = parseGitStatus(result.stdout)
+  return {
+    isGitRepository: true,
+    branch: await currentGitBranch(context.workspaceRoot),
+    counts: countGitStatus(files),
+    files,
+  }
 }
 
 async function readGitFile(workspaceRoot, ref, relativePath) {

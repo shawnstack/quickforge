@@ -4,6 +4,7 @@ type WorkspaceChangesListProps = {
   files: GitChangedFile[]
   selectedPath?: string
   onSelectFile: (path: string) => void
+  emptyMessage?: string
 }
 
 function statusMeta(status: GitFileStatus) {
@@ -11,12 +12,13 @@ function statusMeta(status: GitFileStatus) {
   if (status === 'deleted') return { label: 'D', text: 'Deleted', className: 'text-red-600 dark:text-red-500' }
   if (status === 'renamed') return { label: 'R', text: 'Renamed', className: 'text-blue-600 dark:text-blue-500' }
   if (status === 'untracked') return { label: 'U', text: 'Untracked', className: 'text-amber-600 dark:text-amber-500' }
+  if (status === 'conflicted') return { label: '!', text: 'Conflict', className: 'text-red-600 dark:text-red-500' }
   return { label: 'M', text: 'Modified', className: 'text-emerald-600 dark:text-emerald-500' }
 }
 
-export function WorkspaceChangesList({ files, selectedPath, onSelectFile }: WorkspaceChangesListProps) {
+export function WorkspaceChangesList({ files, selectedPath, onSelectFile, emptyMessage = 'No working tree changes.' }: WorkspaceChangesListProps) {
   if (files.length === 0) {
-    return <div className="px-2 py-3 text-xs text-muted-foreground/70">No working tree changes.</div>
+    return <div className="px-2 py-3 text-xs text-muted-foreground/70">{emptyMessage}</div>
   }
 
   return (

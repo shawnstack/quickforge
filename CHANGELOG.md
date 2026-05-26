@@ -2,6 +2,158 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.18] - 2026-05-26
+
+### Changed
+
+- Enhanced `run_command` for long-running tests with configurable timeouts, last-100-line output streaming, duration metadata, and full command log files.
+- Updated the server tools wiki for the long-running command output behavior.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.18` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.18.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.18.tgz
+  ```
+
+## [1.3.17] - 2026-05-26
+
+### Added
+
+- Show compact summary in chat.
+- Improve context compaction feedback.
+
+### Changed
+
+- Refine tool terminate button style.
+- Fix live tool elapsed time updates.
+- Polish composer stop button style.
+
+### Fixed
+
+- Preserve compacted context tail.
+- Use real usage for auto compact trigger.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.17` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.17.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.17.tgz
+  ```
+
+## [1.3.16] - 2026-05-25
+
+### Changed
+
+- Add icon usage design rules.
+- Add patch release preparation script.
+- Included working tree updates in `docs/wiki/server/tools/README.md`, `docs/wiki/src/lib/README.md`, `server/tools/definitions.mjs`, `server/tools/index.mjs`, `src/components/chat/panel-decoration.ts`, `src/lib/local-tools.ts`.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.16` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.16.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.16.tgz
+  ```
+
+## [1.3.15] - 2026-05-25
+
+### Added
+
+- Added an approval step before automatic conversation compaction replaces the current context.
+- Added a running `run_command` terminate control in tool cards, backed by server-side command abort handling.
+
+### Changed
+
+- Increased the default `run_command` timeout to 10 minutes and documented the behavior in the code wiki.
+
+### Fixed
+
+- Fixed `edit_file` matching so exact edits tolerate workspace line-ending differences.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.15` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.15.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.15.tgz
+  ```
+
+## [1.3.14] - 2026-05-25
+
+### Added
+
+- Added automatic conversation context compaction when model context usage crosses the configured threshold.
+- Added auto-compaction settings for enabling the feature, choosing the trigger threshold, and controlling recent-turn retention.
+
+### Changed
+
+- Updated the server wiki documentation for automatic context compaction behavior.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.14` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.14.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.14.tgz
+  ```
+
+## [1.3.13] - 2026-05-25
+
+### Added
+
+- Added PWA assets and service worker registration for installable app support.
+- Added a Markdown workspace reader and improved workspace inspector actions.
+
+### Changed
+
+- Aligned terminal styling with the application theme.
+- Improved workspace inspector behavior and documentation.
+
+### Fixed
+
+- Fixed thinking-only process duration so it remains frozen after completion.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.13` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.13.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.13.tgz
+  ```
+
+## [1.3.12] - 2026-05-22
+
+### Added
+
+- Added a fullscreen toggle for the terminal dock.
+- Added API key visibility toggles in provider configuration fields.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.12` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.12.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.12.tgz
+  ```
+
 ## [1.3.11] - 2026-05-21
 
 ### Changed

@@ -103,7 +103,7 @@ function insertBeforeMessageElement(panel: HTMLElement, messages: MessageWithUsa
     if (index === messageIndex) {
       const target = messageElements[displayIndex]
       if (target) {
-        target.before(notice)
+        if (notice.nextElementSibling !== target) target.before(notice)
         return
       }
       break
@@ -112,7 +112,7 @@ function insertBeforeMessageElement(panel: HTMLElement, messages: MessageWithUsa
   }
 
   const messageList = panel.querySelector('message-list')
-  if (messageList) messageList.prepend(notice)
+  if (messageList && messageList.firstElementChild !== notice) messageList.prepend(notice)
 }
 
 function compactSummaryText(summaryMessage: unknown) {
@@ -133,14 +133,20 @@ function syncCompactionSummaryHandlers(notice: HTMLElement, summaryText: string,
   const syncToggleLabel = () => {
     if (toggleLabel && details) toggleLabel.textContent = details.open ? t('contextCompactedHideSummary') : t('contextCompactedViewSummary')
   }
-  summary?.addEventListener('click', (event) => {
-    event.preventDefault()
-    event.stopPropagation()
-    if (!details) return
-    details.open = !details.open
-    syncToggleLabel()
-  })
-  details?.addEventListener('toggle', syncToggleLabel)
+  if (summary && !summary.dataset.quickforgeCompactionBound) {
+    summary.dataset.quickforgeCompactionBound = 'true'
+    summary.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      if (!details) return
+      details.open = !details.open
+      syncToggleLabel()
+    })
+  }
+  if (details && !details.dataset.quickforgeCompactionBound) {
+    details.dataset.quickforgeCompactionBound = 'true'
+    details.addEventListener('toggle', syncToggleLabel)
+  }
   syncToggleLabel()
   if (copyButton) {
     copyButton.onclick = async (event) => {
@@ -172,38 +178,45 @@ export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
   const summaryText = compaction.summaryMessage ? compactSummaryText(compaction.summaryMessage) : ''
   const initialOpen = existing?.querySelector<HTMLDetailsElement>('.quickforge-context-compaction-details')?.open ?? false
   const notice = existing ?? document.createElement('div')
+  const previousSummaryText = notice.dataset.summaryText ?? ''
+  const previousHasSummary = notice.dataset.hasSummary === 'true'
+  const shouldRender = !existing || previousSummaryText !== summaryText || previousHasSummary !== Boolean(summaryText)
   notice.className = 'quickforge-context-compaction-notice'
   notice.dataset.tailStart = String(tailStart)
+  notice.dataset.summaryText = summaryText
+  notice.dataset.hasSummary = String(Boolean(summaryText))
   notice.title = t('contextCompactedTooltip')
   notice.setAttribute('aria-label', t('contextCompactedTooltip'))
-  notice.innerHTML = summaryText ? `
-    <details class="quickforge-context-compaction-details">
-      <summary class="quickforge-context-compaction-summary">
+  if (shouldRender) {
+    notice.innerHTML = summaryText ? `
+      <details class="quickforge-context-compaction-details">
+        <summary class="quickforge-context-compaction-summary">
+          <div class="quickforge-context-compaction-line"></div>
+          <div class="quickforge-context-compaction-pill">
+            <span class="quickforge-context-compaction-dot" aria-hidden="true"></span>
+            <span><strong>${escapeHtml(t('contextCompactedLabel'))}</strong> · ${escapeHtml(t('contextCompactedTimelineLabel'))} · <span class="quickforge-context-compaction-toggle-label"></span></span>
+          </div>
+          <div class="quickforge-context-compaction-line"></div>
+        </summary>
+        <div class="quickforge-context-compaction-card">
+          <div class="quickforge-context-compaction-card-header">
+            <span>${escapeHtml(t('contextCompactedSummaryTitle'))}</span>
+            <button type="button" class="quickforge-context-compaction-copy" data-quickforge-action="copy-compact-summary">${copyIcon}<span>${escapeHtml(t('contextCompactedCopySummary'))}</span></button>
+          </div>
+          <pre class="quickforge-context-compaction-text">${escapeHtml(summaryText)}</pre>
+        </div>
+      </details>
+    ` : `
+      <div class="quickforge-context-compaction-summary" role="separator">
         <div class="quickforge-context-compaction-line"></div>
         <div class="quickforge-context-compaction-pill">
           <span class="quickforge-context-compaction-dot" aria-hidden="true"></span>
-          <span><strong>${escapeHtml(t('contextCompactedLabel'))}</strong> · ${escapeHtml(t('contextCompactedTimelineLabel'))} · <span class="quickforge-context-compaction-toggle-label"></span></span>
+          <span><strong>${escapeHtml(t('contextCompactedLabel'))}</strong> · ${escapeHtml(t('contextCompactedTimelineLabel'))}</span>
         </div>
         <div class="quickforge-context-compaction-line"></div>
-      </summary>
-      <div class="quickforge-context-compaction-card">
-        <div class="quickforge-context-compaction-card-header">
-          <span>${escapeHtml(t('contextCompactedSummaryTitle'))}</span>
-          <button type="button" class="quickforge-context-compaction-copy" data-quickforge-action="copy-compact-summary">${copyIcon}<span>${escapeHtml(t('contextCompactedCopySummary'))}</span></button>
-        </div>
-        <pre class="quickforge-context-compaction-text">${escapeHtml(summaryText)}</pre>
       </div>
-    </details>
-  ` : `
-    <div class="quickforge-context-compaction-summary" role="separator">
-      <div class="quickforge-context-compaction-line"></div>
-      <div class="quickforge-context-compaction-pill">
-        <span class="quickforge-context-compaction-dot" aria-hidden="true"></span>
-        <span><strong>${escapeHtml(t('contextCompactedLabel'))}</strong> · ${escapeHtml(t('contextCompactedTimelineLabel'))}</span>
-      </div>
-      <div class="quickforge-context-compaction-line"></div>
-    </div>
-  `
+    `
+  }
   if (summaryText) syncCompactionSummaryHandlers(notice, summaryText, initialOpen)
 
   insertBeforeMessageElement(panel, messages, tailStart, notice)

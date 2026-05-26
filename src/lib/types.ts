@@ -1,5 +1,5 @@
 import type { SessionMetadata, SessionData } from '@mariozechner/pi-web-ui'
-import type { ServerAgent } from '@/lib/server-agent'
+import type { ServerAgent, ServerAgentContextCompaction } from '@/lib/server-agent'
 import { t } from '@/lib/i18n'
 
 export type BackgroundTaskStatus = 'running' | 'idle' | 'error' | 'aborted'
@@ -48,6 +48,7 @@ export type QuickForgeSessionMetadata = SessionMetadata & {
   taskStatus?: BackgroundTaskStatus
   taskStartedAt?: string
   taskFinishedAt?: string
+  contextCompaction?: ServerAgentContextCompaction | null
 }
 
 export type QuickForgeSessionData = SessionData & {
@@ -59,6 +60,7 @@ export type QuickForgeSessionData = SessionData & {
   taskStatus?: BackgroundTaskStatus
   taskStartedAt?: string
   taskFinishedAt?: string
+  contextCompaction?: ServerAgentContextCompaction | null
 }
 
 export type BackgroundTask = {

@@ -861,6 +861,7 @@ export class ServerAgent {
       thinkingLevel?: ThinkingLevel
       messages?: AgentMessage[]
       title?: string
+      contextCompaction?: ServerAgentContextCompaction | null
       baseUrl?: string
     } = {},
   ): Promise<ServerAgent> {
@@ -878,6 +879,7 @@ export class ServerAgent {
         thinkingLevel: config.thinkingLevel ?? 'off',
         messages: config.messages ?? [],
         title: config.title ?? 'New chat',
+        contextCompaction: config.contextCompaction,
       }),
     })
 

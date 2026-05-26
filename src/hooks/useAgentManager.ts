@@ -216,6 +216,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
         thinkingLevel: resolvedThinkingLevel,
         messages: (restInitialState as { messages?: AgentState['messages'] }).messages ?? [],
         title: options?.title,
+        contextCompaction: restInitialState.contextCompaction,
       })
 
       if (restInitialState.contextCompaction && !nextAgent.state.contextCompaction) {
@@ -416,7 +417,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
           model: session.model,
           thinkingLevel: session.thinkingLevel,
           messages: session.messages,
-          contextCompaction: manualCompactionFromMessages(session.messages),
+          contextCompaction: session.contextCompaction ?? manualCompactionFromMessages(session.messages),
         },
         session.id,
         {

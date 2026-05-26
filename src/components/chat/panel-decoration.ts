@@ -149,7 +149,7 @@ export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
   const messages = getMessages()
   const existing = panel.querySelector<HTMLElement>('.quickforge-context-compaction-notice')
 
-  if (!compaction?.summaryMessage || messages.length === 0) {
+  if (!compaction || messages.length === 0) {
     existing?.remove()
     return
   }
@@ -160,13 +160,13 @@ export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
     return
   }
 
-  const summaryText = compactSummaryText(compaction.summaryMessage)
+  const summaryText = compaction.summaryMessage ? compactSummaryText(compaction.summaryMessage) : ''
   const notice = existing ?? document.createElement('div')
   notice.className = 'quickforge-context-compaction-notice'
   notice.dataset.tailStart = String(tailStart)
   notice.title = t('contextCompactedTooltip')
   notice.setAttribute('aria-label', t('contextCompactedTooltip'))
-  notice.innerHTML = `
+  notice.innerHTML = summaryText ? `
     <details class="quickforge-context-compaction-details">
       <summary class="quickforge-context-compaction-summary">
         <div class="quickforge-context-compaction-line"></div>
@@ -184,8 +184,17 @@ export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
         <pre class="quickforge-context-compaction-text">${escapeHtml(summaryText)}</pre>
       </div>
     </details>
+  ` : `
+    <div class="quickforge-context-compaction-summary" role="separator">
+      <div class="quickforge-context-compaction-line"></div>
+      <div class="quickforge-context-compaction-pill">
+        <span class="quickforge-context-compaction-dot" aria-hidden="true"></span>
+        <span><strong>${escapeHtml(t('contextCompactedLabel'))}</strong> · ${escapeHtml(t('contextCompactedTimelineLabel'))}</span>
+      </div>
+      <div class="quickforge-context-compaction-line"></div>
+    </div>
   `
-  syncCompactionSummaryHandlers(notice, summaryText)
+  if (summaryText) syncCompactionSummaryHandlers(notice, summaryText)
 
   insertBeforeMessageElement(panel, messages, tailStart, notice)
 }

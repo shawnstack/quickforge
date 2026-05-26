@@ -84,9 +84,9 @@
 
 ### local-tools.ts (247 行)
 
-**用途**: 在 `pi-web-ui` 中注册本地工具渲染器；`run_command` 运行中会显示图标按钮，通过 `/api/agents/:sessionId/abort-tool` 手动结束当前命令。
+**用途**: 在 `pi-web-ui` 中注册本地工具渲染器；`run_command` 运行中会显示图标按钮，通过 `/api/agents/:sessionId/abort-tool` 手动结束当前命令；`run_subagent` 以专属可折叠卡片展示 subagent 名称、任务、工具调用数、允许工具和结果摘要。
 
-**支持的工具渲染**: `read_file`, `grep_files`, `write_file`, `edit_file`, `run_command`, `activate_skill`, `read_skill_resource`
+**支持的工具渲染**: `run_subagent`, `read_file`, `grep_files`, `write_file`, `edit_file`, `run_command`, `activate_skill`, `read_skill_resource`
 
 ### http-storage-backend.ts (200 行)
 

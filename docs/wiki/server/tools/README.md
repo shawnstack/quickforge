@@ -19,6 +19,7 @@
 
 | 工具名 | 说明 |
 |--------|------|
+| `run_subagent` | 委托有边界的任务给内置临时 Subagent：`general` 适合复杂研究/多步骤任务，`explore` 适合快速只读代码库探索 |
 | `read_file` | 读取文件内容 |
 | `grep_files` | 文本/正则搜索文件 |
 | `write_file` | 创建或覆写文件 |
@@ -27,7 +28,7 @@
 | `activate_skill` | 加载 Agent Skill 指令 |
 | `read_skill_resource` | 读取 Skill 资源文件 |
 
-`write_file`、`edit_file` 和 `run_command` 标记为 `executionMode: 'sequential'` 以确保执行顺序。
+`activate_skill`、`read_skill_resource` 和 `run_subagent` 对所有运行中的 Agent 可用；文件/命令工作区工具需要绑定项目。`write_file`、`edit_file` 和 `run_command` 标记为 `executionMode: 'sequential'` 以确保执行顺序。
 
 ## index.mjs
 
@@ -44,6 +45,7 @@
 | `toolRunCommand` | `run_command` | 执行 shell 命令，支持可控超时、流式 tail 输出和完整日志落盘 |
 | `toolActivateSkill` | `activate_skill` | 激活 Agent Skill |
 | `toolReadSkillResource` | `read_skill_resource` | 读取技能资源 |
+| Agent-manager handler | `run_subagent` | 在父会话内创建短生命周期临时 Agent，使用受限工具执行专门子任务并返回建议性结果 |
 
 ### 安全特性
 - **路径安全**: `resolveWorkspacePath()` 确保操作不超出工作区范围
@@ -53,3 +55,4 @@
 - **写入防误**: `write_file` 验证文件在项目内；`edit_file` 确保 `oldText` 唯一匹配
 - **命令超时与长输出**: `run_command` 默认超时 30 分钟，支持通过 `timeoutMs` 在安全上下限内调整；运行中和最终结果默认只展示 stdout/stderr 最后 100 行、`durationMs`、退出码、超时/中止状态，并将完整 stdout/stderr 写入 `~/.quickforge/logs/commands/`。Agent 运行中的 `run_command` 会按 `toolCallId` 登记，前端工具卡片可手动终止。
 - **Error 对象传递**: 工具错误通过 `statusCode` 属性传递 HTTP 状态码
+- **Subagent 约束**: `run_subagent` 只在 Agent 内部可用，不开放直接 REST 执行；子 Agent 为短生命周期、不持久化、不允许递归调用 `run_subagent`，且不注入 MCP 或 Agent Skill 工具。内置 `explore` 只允许 `read_file`/`grep_files`；内置 `general` 可使用完整内置工作区工具（读、搜、写、编辑、命令），危险工具在 YOLO 关闭时仍走父会话审批。

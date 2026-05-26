@@ -375,6 +375,7 @@ function renderToolIcon(toolName: string) {
   if (toolName === 'grep_files') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>`
   if (toolName === 'read_skill_resource') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3Z"/></svg>`
   if (toolName === 'run_command') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>`
+  if (toolName === 'run_subagent') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 7l8 4 8-4-8-4Z"/><path d="m4 12 8 4 8-4"/><path d="m4 17 8 4 8-4"/></svg>`
   if (toolName === 'activate_skill') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.9 2.1 8.5 8.5 2.1 9.9l6.4 1.4 1.4 6.4 1.4-6.4 6.4-1.4-6.4-1.4Z"/><path d="M19 15v4"/><path d="M21 17h-4"/></svg>`
   return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9Z"/></svg>`
 }
@@ -421,6 +422,77 @@ function renderTerminateCommandButton(toolName: string, status: ToolStatusKey, d
       }}
     ><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2.4"/></svg></button>
   `
+}
+
+function subagentLabel(name: string, details?: unknown) {
+  if (isRecord(details) && typeof details.label === 'string' && details.label) return details.label
+  if (name === 'general') return t('subagentGeneral')
+  if (name === 'explore') return t('subagentExplore')
+  return name || t('runSubagent')
+}
+
+function stringArrayFromUnknown(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+class SubagentToolRenderer {
+  render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
+    const status: ToolStatusKey = result?.isError ? 'error' : isStreaming ? 'running' : result ? 'done' : 'called'
+    const timing = extractQuickForgeTiming(result?.details)
+    const details = isRecord(result?.details) ? result.details : undefined
+    const name = typeof params?.subagent === 'string'
+      ? params.subagent
+      : typeof details?.subagent === 'string'
+        ? details.subagent
+        : ''
+    const label = subagentLabel(name, details)
+    const task = typeof params?.task === 'string' ? params.task : ''
+    const context = typeof params?.context === 'string' ? params.context : ''
+    const expectedOutput = typeof params?.expectedOutput === 'string' ? params.expectedOutput : ''
+    const toolCalls = typeof details?.toolCalls === 'number' ? details.toolCalls : undefined
+    const allowedTools = stringArrayFromUnknown(details?.allowedTools)
+    const toolDisplaySettings = getCachedToolDisplaySettings()
+    const input = toolDisplaySettings.showToolDetails ? stringifyValue(params) : ''
+    const detailJson = toolDisplaySettings.showToolDetails ? stringifyValue(result?.details) : ''
+    const output = resultText(result)
+    const statusLabel = status === 'running'
+      ? t('subagentRunning', { name: label })
+      : status === 'done'
+        ? t('subagentCompleted', { name: label })
+        : status === 'error'
+          ? t('subagentFailed', { name: label })
+          : t('runSubagent')
+
+    return {
+      isCustom: false,
+      content: html`
+        <details class="group/tool quickforge-subagent-tool" ?open=${toolDisplaySettings.expandToolsByDefault}>
+          <summary class="flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
+            <svg class="shrink-0 transition-transform group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+            ${renderToolIcon('run_subagent')}
+            <span class="min-w-0 flex-1 truncate">${statusLabel}${task ? html`<span class="text-muted-foreground/70"> · ${task}</span>` : ''}</span>
+            ${renderStatus(status, timing)}
+          </summary>
+          <div class="mt-3 space-y-3">
+            <div class="quickforge-subagent-summary rounded-lg border border-border/75 bg-muted/20 px-3 py-2.5 text-sm">
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
+                <span class="font-medium text-foreground/85">${label}</span>
+                ${toolCalls !== undefined ? html`<span>${t('subagentToolCalls')}: ${toolCalls}</span>` : nothing}
+                ${timing ? html`<span>${renderTiming(timing, status)}</span>` : nothing}
+              </div>
+              ${task ? html`<div class="mt-2 text-muted-foreground/85"><span class="font-medium text-foreground/75">${t('subagentTask')}:</span> ${task}</div>` : nothing}
+              ${context ? html`<div class="mt-1 text-xs text-muted-foreground/70"><span class="font-medium">${t('subagentContext')}:</span> ${context}</div>` : nothing}
+              ${expectedOutput ? html`<div class="mt-1 text-xs text-muted-foreground/70"><span class="font-medium">${t('subagentExpectedOutput')}:</span> ${expectedOutput}</div>` : nothing}
+              ${allowedTools.length > 0 ? html`<div class="mt-2 flex flex-wrap gap-1.5">${allowedTools.map((tool) => html`<span class="rounded-full bg-background/80 px-2 py-0.5 text-[11px] text-muted-foreground/80">${tool}</span>`)}</div>` : nothing}
+            </div>
+            ${output ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('subagentResult')}</div><code-block .code=${output} language="text"></code-block></div>` : nothing}
+            ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : nothing}
+            ${detailJson ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('details')}</div><code-block .code=${detailJson} language="json"></code-block></div>` : nothing}
+          </div>
+        </details>
+      `,
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -490,6 +562,8 @@ for (const [name, label] of [
 ] as Array<[string, AppTextKey]>) {
   registerToolRenderer(name, new LocalWorkspaceToolRenderer(name, label))
 }
+
+registerToolRenderer('run_subagent', new SubagentToolRenderer())
 
 // Tool execution is entirely server-side. The ChatPanel never calls .execute()
 // on client-side tools — it only reads state.tools for display purposes.

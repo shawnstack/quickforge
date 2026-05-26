@@ -868,6 +868,13 @@ export type ApprovalCardDeps = {
   onReject: () => Promise<void> | void
 }
 
+export type ToolApprovalSource = {
+  type?: string
+  subagent?: string
+  label?: string
+  sessionId?: string
+}
+
 const APPROVAL_CARD_SELECTOR = '.quickforge-approval-card'
 
 function summarizeToolArgs(toolName: string, args: Record<string, unknown>) {
@@ -894,6 +901,7 @@ export function injectApprovalCard(
   toolName: string,
   toolCallId: string,
   args: Record<string, unknown>,
+  source?: ToolApprovalSource,
 ) {
   const { panel, onApprove, onReject } = deps
 
@@ -911,12 +919,23 @@ export function injectApprovalCard(
   card.className = 'quickforge-approval-card pointer-events-auto mb-4 mx-4 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 p-4'
   card.dataset.toolCallId = toolCallId
 
+  const sourceLabel = source?.type === 'subagent'
+    ? (source.label || source.subagent || 'Subagent')
+    : ''
+
   // Header
   const header = document.createElement('div')
   header.className = 'flex items-center gap-2 mb-3 text-sm font-medium text-amber-800 dark:text-amber-300'
   header.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`
-  header.append(` ${t('toolApprovalWaiting', { toolName })}`)
+  header.append(` ${sourceLabel ? t('subagentToolApprovalWaiting', { source: sourceLabel, toolName }) : t('toolApprovalWaiting', { toolName })}`)
   card.append(header)
+
+  if (sourceLabel) {
+    const sourceNote = document.createElement('div')
+    sourceNote.className = 'mb-3 rounded-md border border-amber-200/80 bg-background/65 px-2.5 py-1.5 text-xs text-amber-800/85 dark:border-amber-800/70 dark:text-amber-200/85'
+    sourceNote.textContent = t('toolApprovalSourceSubagent', { source: sourceLabel })
+    card.append(sourceNote)
+  }
 
   // Preview
   const preview = document.createElement('div')

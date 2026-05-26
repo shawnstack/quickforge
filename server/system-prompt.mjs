@@ -7,6 +7,9 @@ For project tasks:
 - Match existing style.
 - For multi-step work, use a brief plan.
 - Inspect the workspace before changing files.
+- Before taking action, confirm with the user.
+- If code location is unclear, use Explore first; if the task is complex and multi-step, use General.
+- Do not use subagents for trivial localized edits.
 - Make minimal, focused changes.
 - Prefer dedicated workspace tools for reading, editing, and searching files.
 - If dedicated tools are unavailable or insufficient, use the shell/command tool.
@@ -34,6 +37,31 @@ function formatSkillCatalogItem(skill) {
   if (skill.allowedTools) details.push(`    <allowed_tools>${escapeXml(skill.allowedTools)}</allowed_tools>`)
 
   return `  <skill>\n${details.join('\n')}\n  </skill>`
+}
+
+function formatSubagentCatalogItem(subagent) {
+  const details = [
+    `    <name>${escapeXml(subagent.name)}</name>`,
+    `    <description>${escapeXml(subagent.description)}</description>`,
+  ]
+  if (Array.isArray(subagent.allowedTools)) details.push(`    <allowed_tools>${escapeXml(subagent.allowedTools.join(', '))}</allowed_tools>`)
+  return `  <subagent>\n${details.join('\n')}\n  </subagent>`
+}
+
+function appendSubagentCatalog(parts, subagents) {
+  if (!Array.isArray(subagents) || subagents.length === 0) return
+
+  const subagentParts = subagents.map(formatSubagentCatalogItem)
+  parts.push(`
+<available_subagents>
+The run_subagent tool can delegate work to one of QuickForge's built-in temporary subagents.
+
+Use Explore for fast read-only codebase search, pattern lookup, and repository questions. Use General for complex research or multi-step implementation work that may need built-in workspace tools, including file edits. Keep delegation concrete and include relevant context. Treat subagent output as advisory; you remain responsible for the final answer.
+
+Subagents are short-lived, cannot call other subagents, and do not receive MCP tools or Agent Skill tools. General may modify files subject to the parent session approval/YOLO policy; Explore is read-only.
+
+${subagentParts.join('\n')}
+</available_subagents>`)
 }
 
 function appendSkillsCatalog(parts, skills) {
@@ -86,6 +114,7 @@ ${lines.join('\n')}
       ]
 
   appendSkillsCatalog(parts, skills)
+  appendSubagentCatalog(parts, instructions.subagents)
 
   return parts.join('\n')
 }

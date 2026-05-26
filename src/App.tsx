@@ -231,6 +231,9 @@ function MainApp() {
         void refreshSessions({ broadcast: true })
         return
       }
+      if (event.type === 'agent_end' || event.type === 'title_updated' || event.type === 'session_forked') {
+        void refreshSessions({ broadcast: true })
+      }
       if (!isScheduledTaskNotification(event)) return
       const sessionId = typeof event.sessionId === 'string' ? event.sessionId : undefined
       const title = typeof event.title === 'string' ? event.title : t('scheduledTasks')

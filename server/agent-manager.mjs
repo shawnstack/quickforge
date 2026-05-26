@@ -5,6 +5,11 @@ import { streamSimpleWithAiHttpLogging } from './ai-http-logger.mjs'
 import { toolHandlers, loadSkillToolContext, abortRunningCommand } from './tools/index.mjs'
 import { createSkillTools, workspaceTools } from './tools/definitions.mjs'
 import { callMcpTool, createMcpToolDefinitions, isMcpToolName } from './mcp/registry.mjs'
+import {
+  composeSubagentSystemPrompt,
+  formatSubagentTask,
+  getSubagentDefinition,
+} from './subagents.mjs'
 import { projectContextFromId, readProjectConfig } from './project-config.mjs'
 import { readStore, atomicUpdate, readSessionValue, writeSessionValue, deleteSessionValue } from './storage.mjs'
 import { logger } from './utils/logger.mjs'
@@ -88,7 +93,36 @@ function wrapMcpToolDefinition(definition, toolPermissions) {
   }
 }
 
-async function createServerTools(projectId, projectContext, skillsContext, includeWorkspaceTools, toolPermissions) {
+function wrapSubagentToolDefinition(definition, parentSessionId) {
+  return {
+    ...definition,
+    execute: async (_toolCallId, params, signal) => {
+      const parentSession = agentSessions.get(parentSessionId)
+      if (!parentSession) throw new Error('Parent session is no longer active.')
+      const result = await runSubagent(parentSession, params || {}, signal)
+      return {
+        content: [{ type: 'text', text: result.content }],
+        details: result.details,
+      }
+    },
+  }
+}
+
+function wrapWorkspaceToolDefinition(definition, context, toolPermissions, options = {}) {
+  if (definition.name === 'run_subagent') return wrapSubagentToolDefinition(definition, options.parentSessionId)
+  return wrapToolDefinition(definition, context, toolPermissions)
+}
+
+async function createServerTools(projectId, projectContext, skillsContext, includeWorkspaceTools, toolPermissions, options = {}) {
+  const {
+    allowedToolNames = null,
+    includeSubagentTool = true,
+    includeMcpTools = true,
+    parentSessionId = null,
+  } = options
+  const allowedTools = allowedToolNames ? new Set(allowedToolNames) : null
+  const isAllowed = (definition) => !allowedTools || allowedTools.has(definition.name)
+
   const skillTools = await createSkillTools({
     globalSkillNames: skillsContext.globalSkillNames,
     projectSkillNames: skillsContext.projectSkillNames,
@@ -100,14 +134,21 @@ async function createServerTools(projectId, projectContext, skillsContext, inclu
     workspaceRoot: projectContext?.workspaceRoot,
   })
   const toolContext = { ...projectContext, ...skillToolContext }
-  const tools = skillTools.map((definition) => wrapToolDefinition(definition, toolContext, toolPermissions))
+  const tools = skillTools
+    .filter(isAllowed)
+    .map((definition) => wrapToolDefinition(definition, toolContext, toolPermissions))
 
   if (includeWorkspaceTools && projectId && projectContext) {
-    tools.push(...workspaceTools.map((definition) => wrapToolDefinition(definition, toolContext, toolPermissions)))
+    const definitions = workspaceTools.filter((definition) => includeSubagentTool || definition.name !== 'run_subagent')
+    tools.push(...definitions
+      .filter(isAllowed)
+      .map((definition) => wrapWorkspaceToolDefinition(definition, toolContext, toolPermissions, { parentSessionId })))
   }
 
-  const mcpTools = await createMcpToolDefinitions()
-  tools.push(...mcpTools.map((definition) => wrapMcpToolDefinition(definition, toolPermissions)))
+  if (includeMcpTools) {
+    const mcpTools = await createMcpToolDefinitions()
+    tools.push(...mcpTools.filter(isAllowed).map((definition) => wrapMcpToolDefinition(definition, toolPermissions)))
+  }
 
   return tools
 }
@@ -126,6 +167,7 @@ async function rebuildSessionTools(session) {
     sessionSkillsContext(session),
     !!(session.projectId && session.projectContext),
     createCommandToolPermissions(session),
+    { parentSessionId: session.sessionId },
   )
 }
 
@@ -139,9 +181,10 @@ const agentSessions = new Map()
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
 const APPROVAL_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes for tool approval
+const SUBAGENT_DEFAULT_TIMEOUT_MS = 120 * 1000
 const commandRestrictedTools = new Set(['write_file', 'edit_file', 'run_command'])
 const safeReadTools = new Set(['read_file', 'grep_files'])
-const pendingApprovals = new Map() // toolCallId → { resolve, reject, sessionId, toolName, args, timeout }
+const pendingApprovals = new Map() // toolCallId → { resolve, reject, sessionId, toolName, args, source, timeout }
 const pendingAutoCompactApprovals = new Map() // approvalId → { resolve, reject, sessionId, timeout }
 
 function createCommandToolPermissions(session) {
@@ -163,7 +206,7 @@ function createCommandToolPermissions(session) {
  * The agent loop's `await config.beforeToolCall(...)` pauses on this promise,
  * effectively freezing the agent until the user decides.
  */
-function createApprovalPromise(session, toolCallId, toolName, args) {
+function createApprovalPromise(session, toolCallId, toolName, args, source) {
   if (!session) return { block: true, reason: 'No active session for tool approval.' }
   return new Promise((resolve, reject) => {
     let settled = false
@@ -209,6 +252,7 @@ function createApprovalPromise(session, toolCallId, toolName, args) {
       sessionId: session.sessionId,
       toolName,
       args,
+      source,
     })
 
     // Notify the frontend via both the session-level and global event buses.
@@ -220,6 +264,7 @@ function createApprovalPromise(session, toolCallId, toolName, args) {
       toolCallId,
       toolName,
       args,
+      source,
     }
     session.eventBus.emit('agent_event', approvalEvent)
     agentEvents.emit('agent_event', approvalEvent)
@@ -605,6 +650,151 @@ function serverConvertToLlm(messages) {
     .filter(Boolean)
 }
 
+function messageText(message) {
+  const content = message?.content
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) {
+    return content
+      .filter((block) => block?.type === 'text')
+      .map((block) => block.text ?? '')
+      .join('\n')
+      .trim()
+  }
+  return ''
+}
+
+function lastAssistantText(messages) {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]
+    if (message?.role !== 'assistant') continue
+    const text = messageText(message)
+    if (text) return text
+  }
+  return ''
+}
+
+async function runSubagent(parentSession, params, parentSignal) {
+  const definition = getSubagentDefinition(params?.subagent)
+  if (!definition) {
+    const error = new Error(`Unknown subagent: ${params?.subagent || ''}`)
+    error.statusCode = 400
+    throw error
+  }
+
+  const task = String(params?.task || '').trim()
+  if (!task) {
+    const error = new Error('task is required')
+    error.statusCode = 400
+    throw error
+  }
+  if (!parentSession.projectId || !parentSession.projectContext) {
+    throw new Error('Subagents require an active project workspace.')
+  }
+  if (!parentSession.model) {
+    throw new Error('No active model is configured for the parent session.')
+  }
+
+  const timeoutMs = Math.max(1000, Math.min(Number(definition.maxRuntimeMs || SUBAGENT_DEFAULT_TIMEOUT_MS), 5 * 60 * 1000))
+  const subagentSessionId = `${parentSession.sessionId}:subagent:${definition.name}:${randomUUID()}`
+  let toolCalls = 0
+
+  const tools = await createServerTools(
+    parentSession.projectId,
+    parentSession.projectContext,
+    sessionSkillsContext(parentSession),
+    true,
+    (toolName) => {
+      if (!definition.allowedTools.includes(toolName)) return `Subagent ${definition.name} is not allowed to use ${toolName}.`
+      return null
+    },
+    {
+      allowedToolNames: definition.allowedTools,
+      includeSubagentTool: false,
+      includeMcpTools: false,
+    },
+  )
+
+  const systemPrompt = composeSubagentSystemPrompt({
+    definition,
+    parentSystemPrompt: parentSession.agent.state.systemPrompt,
+    projectContext: parentSession.projectContext,
+  })
+  const userMessage = {
+    role: 'user',
+    content: [{ type: 'text', text: formatSubagentTask(params) }],
+    timestamp: Date.now(),
+  }
+  const subagent = new Agent({
+    initialState: {
+      systemPrompt,
+      model: parentSession.model,
+      thinkingLevel: parentSession.thinkingLevel,
+      messages: [],
+      tools,
+    },
+    streamFn: streamSimpleWithAiHttpLogging,
+    getApiKey: parentSession.getApiKey,
+    sessionId: subagentSessionId,
+    convertToLlm: serverConvertToLlm,
+    onPayload: (payload) => {
+      restoreReasoningContentInPayload(payload, subagent.state.messages, subagent.state.model)
+    },
+    beforeToolCall: async (context) => {
+      const toolName = context.toolCall?.name
+      toolCalls += 1
+      if (toolCalls > Number(definition.maxToolCalls || 12)) {
+        return { block: true, reason: `Subagent ${definition.name} exceeded its tool-call budget.` }
+      }
+      if (!definition.allowedTools.includes(toolName)) {
+        return { block: true, reason: `Subagent ${definition.name} is not allowed to use ${toolName}.` }
+      }
+      if (!parentSession.yoloMode) {
+        if (safeReadTools.has(toolName)) return undefined
+        return createApprovalPromise(parentSession, context.toolCall?.id, toolName, context.args, {
+          type: 'subagent',
+          subagent: definition.name,
+          label: definition.label,
+          sessionId: subagentSessionId,
+        })
+      }
+      return undefined
+    },
+  })
+
+  let timedOut = false
+  const timeout = setTimeout(() => {
+    timedOut = true
+    subagent.abort()
+  }, timeoutMs)
+  const onParentAbort = () => subagent.abort()
+  parentSignal?.addEventListener?.('abort', onParentAbort, { once: true })
+
+  const startedAt = Date.now()
+  try {
+    await subagent.prompt(userMessage)
+    if (timedOut) throw new Error(`Subagent ${definition.name} timed out after ${timeoutMs}ms.`)
+    if (parentSignal?.aborted) throw new Error(`Subagent ${definition.name} aborted with parent run.`)
+  } finally {
+    clearTimeout(timeout)
+    parentSignal?.removeEventListener?.('abort', onParentAbort)
+  }
+
+  const content = lastAssistantText(subagent.state.messages) || `Subagent ${definition.name} completed without a text response.`
+  return {
+    content,
+    details: {
+      subagent: definition.name,
+      label: definition.label,
+      sessionId: subagentSessionId,
+      parentSessionId: parentSession.sessionId,
+      toolCalls,
+      allowedTools: definition.allowedTools,
+      timeoutMs,
+      durationMs: Date.now() - startedAt,
+    },
+  }
+}
+
 function applyActiveCommandPrompt(messages, commandPrompt) {
   if (!commandPrompt) return messages
 
@@ -717,6 +907,7 @@ export async function createAgent(sessionId, config = {}) {
     systemPrompt = null,
     title = 'New chat',
     createdAt = new Date().toISOString(),
+    lastModified = null,
     contextCompaction = null,
   } = config
 
@@ -764,6 +955,7 @@ export async function createAgent(sessionId, config = {}) {
       const session = agentSessions.get(sessionId)
       return session ? createCommandToolPermissions(session)(toolName) : null
     },
+    { parentSessionId: sessionId },
   )
 
   // Resolve API key
@@ -798,6 +990,7 @@ export async function createAgent(sessionId, config = {}) {
       const isSkillTool = toolName === 'activate_skill' || toolName === 'read_skill_resource'
       if (isSkillTool) return undefined
       const currentSession = agentSessions.get(sessionId)
+      if (toolName === 'run_subagent') return undefined
       if (isMcpToolName(toolName)) {
         if (!currentSession?.yoloMode) return createApprovalPromise(currentSession, toolCallId, toolName, context.args)
         return undefined
@@ -828,6 +1021,7 @@ export async function createAgent(sessionId, config = {}) {
     scope,
     title,
     createdAt,
+    lastModified,
     globalSkillNames: skillsContext.globalSkillNames,
     projectSkillNames: skillsContext.projectSkillNames,
     status: 'idle',
@@ -902,11 +1096,35 @@ export async function createAgent(sessionId, config = {}) {
   return session
 }
 
+function messageTimestampMs(message) {
+  const timestamp = message?.timestamp
+  if (typeof timestamp === 'number' && Number.isFinite(timestamp)) return timestamp
+  if (typeof timestamp === 'string') {
+    const trimmed = timestamp.trim()
+    if (!trimmed) return undefined
+    const numeric = Number(trimmed)
+    if (Number.isFinite(numeric)) return numeric
+    const parsed = Date.parse(trimmed)
+    return Number.isNaN(parsed) ? undefined : parsed
+  }
+  return undefined
+}
+
+function sessionLastModifiedFromMessages(messages, fallback) {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const timestamp = messageTimestampMs(messages[index])
+    if (timestamp !== undefined) return new Date(timestamp).toISOString()
+  }
+
+  const fallbackMs = Date.parse(fallback)
+  return Number.isNaN(fallbackMs) ? new Date().toISOString() : new Date(fallbackMs).toISOString()
+}
+
 /**
  * Persist session data to storage.
  */
 async function persistSession(session) {
-  const { sessionId, agent, scope, projectId, title, createdAt, status, startedAt, finishedAt, model, thinkingLevel, yoloMode, contextCompaction } = session
+  const { sessionId, agent, scope, projectId, title, createdAt, lastModified: storedLastModified, status, startedAt, finishedAt, model, thinkingLevel, yoloMode, contextCompaction } = session
   const messages = agent.state.messages
 
   if (messages.length === 0) {
@@ -923,6 +1141,7 @@ async function persistSession(session) {
   }
 
   const now = new Date().toISOString()
+  const lastModified = sessionLastModifiedFromMessages(messages, storedLastModified || createdAt || now)
   const sessionData = {
     id: sessionId,
     title,
@@ -931,7 +1150,7 @@ async function persistSession(session) {
     yoloMode,
     messages,
     createdAt: createdAt || now,
-    lastModified: now,
+    lastModified,
     scope,
     projectId: scope === 'project' ? projectId : undefined,
     taskStatus: status,
@@ -939,6 +1158,7 @@ async function persistSession(session) {
     taskFinishedAt: finishedAt,
     contextCompaction: contextCompaction || undefined,
   }
+  session.lastModified = lastModified
 
   // Calculate usage
   let usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 }
@@ -974,7 +1194,7 @@ async function persistSession(session) {
     id: sessionId,
     title,
     createdAt: createdAt || now,
-    lastModified: now,
+    lastModified,
     messageCount: messages.length,
     usage,
     thinkingLevel,
@@ -1261,6 +1481,7 @@ export function getSessionState(sessionId) {
     thinkingLevel: session.thinkingLevel,
     title: session.title,
     createdAt: session.createdAt,
+    lastModified: session.lastModified,
     status: session.status,
     startedAt: session.startedAt,
     finishedAt: session.finishedAt,
@@ -1362,6 +1583,7 @@ export async function restoreAgent(sessionId) {
       messages: sessionData.messages || [],
       title: sessionData.title || 'New chat',
       createdAt: sessionData.createdAt,
+      lastModified: sessionData.lastModified,
       contextCompaction: sessionData.contextCompaction || null,
     })
   } catch (err) {

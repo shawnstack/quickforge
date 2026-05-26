@@ -376,6 +376,7 @@ function isStaticAssetPath(pathname) {
   return pathname.startsWith('/assets/')
     || pathname === '/favicon.svg'
     || pathname === '/vite.svg'
+    || pathname === '/manifest.webmanifest'
 }
 
 function isSharePath(pathname) {

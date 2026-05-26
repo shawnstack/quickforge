@@ -1,13 +1,18 @@
 import { streamSimple } from '@mariozechner/pi-ai'
 import { buildInstructionsPayload } from './project-config.mjs'
 import { composeSystemPrompt } from './system-prompt.mjs'
+import { listSubagentSummaries } from './subagents.mjs'
 
 // ---------------------------------------------------------------------------
 // System prompt
 // ---------------------------------------------------------------------------
 
 export async function buildSystemPrompt(projectId) {
-  return composeSystemPrompt(await buildInstructionsPayload(projectId))
+  const instructions = await buildInstructionsPayload(projectId)
+  return composeSystemPrompt({
+    ...instructions,
+    subagents: listSubagentSummaries(),
+  })
 }
 
 // ---------------------------------------------------------------------------

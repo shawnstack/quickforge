@@ -131,6 +131,12 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   const [taskStatuses, setTaskStatuses] = useState<Record<string, BackgroundTaskStatus>>({})
   const [chatPanelRevision, setChatPanelRevision] = useState(0)
 
+  const disposeDetachedAgent = useCallback((currentAgent: ServerAgent | DeferredSessionAgent | null, nextAgent?: ServerAgent | DeferredSessionAgent | null) => {
+    if (!currentAgent || currentAgent === nextAgent) return
+    const isTrackedTaskAgent = [...taskMapRef.current.values()].some((task) => task.agent === currentAgent)
+    if (!isTrackedTaskAgent) currentAgent.dispose()
+  }, [taskMapRef])
+
   // --- Sync session UI after agent events ---
   const syncSessionUI = useCallback(
     async (task: BackgroundTask) => {
@@ -151,7 +157,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
 
   // --- Attach a task to the current view ---
   const attachTaskToView = useCallback((task: BackgroundTask) => {
-    agentRef.current?.dispose()
+    disposeDetachedAgent(agentRef.current, task.agent)
     currentChatScopeRef.current = task.scope
     currentSessionIdRef.current = task.sessionId
     currentCreatedAtRef.current = task.createdAt
@@ -166,7 +172,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     const url = new URL(window.location.href)
     url.searchParams.set('session', task.sessionId)
     window.history.replaceState({}, '', url)
-  }, [])
+  }, [disposeDetachedAgent])
 
   // --- Create or retrieve an agent ---
   const createAgent = useCallback(
@@ -179,7 +185,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       const existingTask = taskMapRef.current.get(sessionId)
       if (existingTask) {
         if (options?.attachToView !== false) {
-          previousAgent?.dispose()
+          disposeDetachedAgent(previousAgent, existingTask.agent)
           attachTaskToView(existingTask)
         }
         return existingTask.agent
@@ -304,7 +310,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       }
 
       if (options?.attachToView !== false) {
-        if (agentRef.current === previousAgent) previousAgent?.dispose()
+        if (agentRef.current === previousAgent) disposeDetachedAgent(previousAgent, task.agent)
         attachTaskToView(task)
       }
       if (nextAgent.state.messages.length > 0) {
@@ -312,7 +318,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       }
       return nextAgent
     },
-    [attachTaskToView, refreshSessions, syncSessionUI, storageRef, activeModelRef, yoloModeRef, activeProjectRef, setYoloMode],
+    [attachTaskToView, disposeDetachedAgent, refreshSessions, syncSessionUI, storageRef, activeModelRef, yoloModeRef, activeProjectRef, setYoloMode],
   )
 
   const startDeferredSession = useCallback(async (options: { scope: ChatScope; project?: ProjectInfo }) => {
@@ -336,7 +342,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       createAgent,
     })
 
-    agentRef.current?.dispose()
+    disposeDetachedAgent(agentRef.current)
     currentChatScopeRef.current = scope
     currentSessionIdRef.current = undefined
     currentCreatedAtRef.current = undefined
@@ -352,7 +358,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     url.searchParams.delete('session')
     window.history.replaceState({}, '', url)
     return deferredAgent
-  }, [activeModelRef, createAgent, storageRef, yoloModeRef])
+  }, [activeModelRef, createAgent, disposeDetachedAgent, storageRef, yoloModeRef])
 
   // --- Load a persisted session ---
   const loadSession = useCallback(

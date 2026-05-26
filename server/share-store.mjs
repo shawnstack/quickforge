@@ -370,6 +370,29 @@ export async function issueConversationShareToken(shareId) {
   })
 }
 
+function messageTimestampMs(message) {
+  const timestamp = message?.timestamp
+  if (typeof timestamp === 'number' && Number.isFinite(timestamp)) return timestamp
+  if (typeof timestamp === 'string') {
+    const trimmed = timestamp.trim()
+    if (!trimmed) return undefined
+    const numeric = Number(trimmed)
+    if (Number.isFinite(numeric)) return numeric
+    const parsed = Date.parse(trimmed)
+    return Number.isNaN(parsed) ? undefined : parsed
+  }
+  return undefined
+}
+
+function lastModifiedFromMessages(messages, fallback) {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const timestamp = messageTimestampMs(messages[index])
+    if (timestamp !== undefined) return new Date(timestamp).toISOString()
+  }
+  const fallbackMs = Date.parse(fallback)
+  return Number.isNaN(fallbackMs) ? new Date().toISOString() : new Date(fallbackMs).toISOString()
+}
+
 export async function rollbackSharedSessionMessages(record, rollbackMessageIndex) {
   const { readSessionValue, writeSessionValue, atomicUpdate } = await import('./storage.mjs')
   const { rollbackSessionMessages, rollbackStartIndexFromMessage } = await import('./agent-manager.mjs')
@@ -394,11 +417,11 @@ export async function rollbackSharedSessionMessages(record, rollbackMessageIndex
   }
 
   const nextMessages = messages.slice(0, rollbackIndex)
-  const now = new Date().toISOString()
+  const lastModified = lastModifiedFromMessages(nextMessages, session.createdAt || session.lastModified)
   await writeSessionValue(record.sessionId, {
     ...session,
     messages: nextMessages,
-    lastModified: now,
+    lastModified,
   })
   await atomicUpdate('sessions-metadata', (metadata) => {
     const existing = metadata[record.sessionId]
@@ -406,13 +429,13 @@ export async function rollbackSharedSessionMessages(record, rollbackMessageIndex
       metadata[record.sessionId] = {
         ...existing,
         messageCount: nextMessages.length,
-        lastModified: now,
+        lastModified,
         preview: previewFromMessages(nextMessages),
       }
     }
     return metadata
   })
-  return { session: { ...session, messages: nextMessages, lastModified: now }, rollbackIndex }
+  return { session: { ...session, messages: nextMessages, lastModified }, rollbackIndex }
 }
 
 function textFromContent(content) {

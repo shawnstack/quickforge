@@ -153,7 +153,7 @@ export function ChatPanelHost({
   const decorateFnRef = useRef<(() => void) | null>(null)
   const scrollSyncRef = useRef<ReturnType<typeof createScrollSync> | null>(null)
   const scheduleDecorateRef = useRef<(() => void) | null>(null)
-  const pendingApprovalRef = useRef<{ toolCallId: string; toolName: string; args: Record<string, unknown>; sessionId: string } | null>(null)
+  const pendingApprovalRef = useRef<{ toolCallId: string; toolName: string; args: Record<string, unknown>; sessionId: string; source?: import('./panel-decoration').ToolApprovalSource } | null>(null)
   const pendingAutoCompactApprovalRef = useRef<{ approvalId: string; usage?: { percent?: number }; thresholdPercent?: number; keepRecentTurns?: number; sessionId: string } | null>(null)
 
   // --- Load custom commands for the current project ---
@@ -323,6 +323,7 @@ export function ChatPanelHost({
           pending.toolName,
           capturedToolCallId,
           pending.args,
+          pending.source,
         )
       } else {
         const pendingAutoCompact = pendingAutoCompactApprovalRef.current
@@ -465,8 +466,8 @@ export function ChatPanelHost({
       }
       // Store pending approval and trigger re-decoration
       if ((event as Record<string, unknown>).type === 'tool_approval_required') {
-        const approvalEvent = event as unknown as { toolCallId: string; toolName: string; args: Record<string, unknown>; sessionId: string }
-        pendingApprovalRef.current = { toolCallId: approvalEvent.toolCallId, toolName: approvalEvent.toolName, args: approvalEvent.args, sessionId: approvalEvent.sessionId }
+        const approvalEvent = event as unknown as { toolCallId: string; toolName: string; args: Record<string, unknown>; sessionId: string; source?: import('./panel-decoration').ToolApprovalSource }
+        pendingApprovalRef.current = { toolCallId: approvalEvent.toolCallId, toolName: approvalEvent.toolName, args: approvalEvent.args, sessionId: approvalEvent.sessionId, source: approvalEvent.source }
         scheduleDecorateRef.current?.()
       }
       if ((event as Record<string, unknown>).type === 'auto_compact_approval_required') {

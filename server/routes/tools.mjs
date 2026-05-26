@@ -4,6 +4,8 @@ import { toolHandlers, loadSkillToolContext } from '../tools/index.mjs'
 import { createSkillTools, workspaceTools } from '../tools/definitions.mjs'
 import { projectContextFromId, readProjectConfig } from '../project-config.mjs'
 
+const directRouteDisabledTools = new Set(['run_subagent'])
+
 /**
  * GET /api/tools — returns canonical tool definitions (no project context needed).
  */
@@ -68,7 +70,7 @@ export async function handleToolApi(req, res, url) {
   }
 
   const handler = toolHandlers[name]
-  if (!handler) {
+  if (!handler || directRouteDisabledTools.has(name)) {
     const error = new Error(`Unknown tool: ${name}`)
     error.statusCode = 404
     throw error

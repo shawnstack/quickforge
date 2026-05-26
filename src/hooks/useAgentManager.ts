@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentState } from '@mariozechner/pi-agent-core'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import { logger } from '@/lib/logger'
-import { ServerAgent } from '@/lib/server-agent'
+import { ServerAgent, type ServerAgentContextCompaction } from '@/lib/server-agent'
 import {
   defaultThinkingLevelForModel,
   loadDefaultOptions,
@@ -54,7 +54,7 @@ export interface AgentManager {
 
   // Stable callbacks
   createAgent: (
-    initialState?: Partial<AgentState>,
+    initialState?: Partial<AgentState> & { contextCompaction?: ServerAgentContextCompaction | null },
     sessionId?: string,
     options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string; yoloMode?: boolean },
   ) => Promise<ServerAgent>
@@ -69,6 +69,27 @@ export interface AgentManager {
 
   // Stable state setters
   setChatPanelRevision: React.Dispatch<React.SetStateAction<number>>
+}
+
+function isCompactSummaryMessage(message: unknown) {
+  const typed = message as { role?: string; content?: unknown } | undefined
+  if (typed?.role !== 'user') return false
+  const content = typed.content
+  const text = typeof content === 'string'
+    ? content
+    : Array.isArray(content)
+      ? content.filter((block) => (block as { type?: string })?.type === 'text').map((block) => String((block as { text?: unknown }).text ?? '')).join('\n')
+      : ''
+  return text.includes('<compact_summary>')
+}
+
+function manualCompactionFromMessages(messages: AgentState['messages']): ServerAgentContextCompaction | null {
+  const summaryIndex = messages.findIndex(isCompactSummaryMessage)
+  if (summaryIndex < 0) return null
+  return {
+    summaryMessage: messages[summaryIndex] as ServerAgentContextCompaction['summaryMessage'],
+    compactedUpToIndex: Math.min(messages.length, summaryIndex + 2),
+  }
 }
 
 export function useAgentManager(deps: AgentManagerDeps): AgentManager {
@@ -145,7 +166,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   // --- Create or retrieve an agent ---
   const createAgent = useCallback(
     async (
-      initialState?: Partial<AgentState>,
+      initialState?: Partial<AgentState> & { contextCompaction?: ServerAgentContextCompaction | null },
       sessionId: string = randomId(),
       options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string; yoloMode?: boolean },
     ) => {
@@ -187,6 +208,10 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
         messages: (restInitialState as { messages?: AgentState['messages'] }).messages ?? [],
         title: options?.title,
       })
+
+      if (restInitialState.contextCompaction && !nextAgent.state.contextCompaction) {
+        nextAgent.state.contextCompaction = restInitialState.contextCompaction
+      }
 
       const initialStatus: BackgroundTaskStatus = nextAgent.state.isStreaming
         ? 'running'
@@ -340,7 +365,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
           model: session.model,
           thinkingLevel: session.thinkingLevel,
           messages: session.messages,
-          tools: [],
+          contextCompaction: manualCompactionFromMessages(session.messages),
         },
         session.id,
         {

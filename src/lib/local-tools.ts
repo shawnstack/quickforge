@@ -119,13 +119,29 @@ function toolOutputText(toolName: string, params: Record<string, unknown> | unde
   return ''
 }
 
-function summarizeParams(toolName: string, params: Record<string, unknown> | undefined) {
-  if (!params) return ''
-  if (toolName === 'run_command' && typeof params.command === 'string') return params.command
-  if (toolName === 'activate_skill' && typeof params.name === 'string') return params.name
-  if (toolName === 'read_skill_resource' && typeof params.path === 'string') return params.path
-  if ('path' in params && typeof params.path === 'string') return params.path
-  if ('query' in params && typeof params.query === 'string') return params.query
+function detailString(details: unknown, key: string) {
+  return isRecord(details) && typeof details[key] === 'string' ? details[key] : ''
+}
+
+function summarizeParams(toolName: string, params: Record<string, unknown> | undefined, result?: ToolResultLike) {
+  if (!params && !result?.details) return ''
+  if (toolName === 'run_command' && typeof params?.command === 'string') return params.command
+  if (toolName === 'grep_files') {
+    const query = typeof params?.query === 'string' && params.query
+      ? params.query
+      : detailString(result?.details, 'query')
+    const path = typeof params?.path === 'string' && params.path
+      ? params.path
+      : detailString(result?.details, 'path') || '.'
+    const regex = Boolean(params?.regex || (isRecord(result?.details) && isRecord(result.details.searchOptions) && result.details.searchOptions.regex))
+    const mode = regex ? 'regex' : 'text'
+    const scope = path && path !== '.' ? ` in ${path}` : ' in current workspace'
+    return query ? `${mode}: ${query}${scope}` : `searching${scope}`
+  }
+  if (toolName === 'activate_skill' && typeof params?.name === 'string') return params.name
+  if (toolName === 'read_skill_resource' && typeof params?.path === 'string') return params.path
+  if (params && 'path' in params && typeof params.path === 'string') return params.path
+  if (params && 'query' in params && typeof params.query === 'string') return params.query
   return ''
 }
 
@@ -429,7 +445,7 @@ class LocalWorkspaceToolRenderer {
   render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
     const status: ToolStatusKey = result?.isError ? 'error' : isStreaming ? 'running' : result ? 'done' : 'called'
     const timing = extractQuickForgeTiming(result?.details)
-    const summary = summarizeParams(this.toolName, params)
+    const summary = summarizeParams(this.toolName, params, result)
     const toolDisplaySettings = getCachedToolDisplaySettings()
     const showToolDetails = toolDisplaySettings.showToolDetails
     const expandToolsByDefault = toolDisplaySettings.expandToolsByDefault

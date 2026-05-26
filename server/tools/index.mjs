@@ -236,6 +236,31 @@ function ripgrepRelativePath(value) {
   return String(value || '').replace(/\\/g, '/')
 }
 
+function formatCommandArg(value) {
+  const text = String(value ?? '')
+  return /^[A-Za-z0-9_@%+=:,./\\-]+$/.test(text) ? text : JSON.stringify(text)
+}
+
+function formatSpawnCommand(command, args) {
+  return [command, ...args].map(formatCommandArg).join(' ')
+}
+
+function grepSearchOptionsDetails(options) {
+  return {
+    regex: options.regex,
+    caseSensitive: options.caseSensitive,
+    glob: options.glob,
+    context: options.context,
+    beforeContext: options.beforeContext,
+    afterContext: options.afterContext,
+    filesWithMatches: options.filesWithMatches,
+    respectGitIgnore: options.respectGitIgnore,
+    maxFileSize: RIPGREP_MAX_FILESIZE,
+    defaultExcludeGlobs: DEFAULT_EXCLUDE_GLOBS,
+    sensitiveExcludeGlobs: SENSITIVE_EXCLUDE_GLOBS,
+  }
+}
+
 function formatRipgrepJsonEvent(event) {
   if (event?.type !== 'match' && event?.type !== 'context') return null
   const data = event.data || {}
@@ -349,6 +374,11 @@ async function grepFilesWithRipgrep(executable, options, context, runtime = {}) 
       limit: options.limit,
       backend: 'ripgrep',
       ripgrepSource: executable.source,
+      cwd,
+      command: formatSpawnCommand(executable.command, args),
+      executable: executable.command,
+      args,
+      searchOptions: grepSearchOptionsDetails(options),
     },
   }
 }
@@ -426,6 +456,7 @@ async function grepFilesWithNode(options, context, extraDetails = {}) {
       count: matches.length,
       limit: options.limit,
       backend: 'node',
+      searchOptions: grepSearchOptionsDetails(options),
       ...fallbackDetails(extraDetails),
     },
   }

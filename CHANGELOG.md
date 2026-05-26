@@ -2,6 +2,34 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.17] - 2026-05-26
+
+### Added
+
+- Show compact summary in chat.
+- Improve context compaction feedback.
+
+### Changed
+
+- Refine tool terminate button style.
+- Fix live tool elapsed time updates.
+- Polish composer stop button style.
+
+### Fixed
+
+- Preserve compacted context tail.
+- Use real usage for auto compact trigger.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.17` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.17.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.17.tgz
+  ```
+
 ## [1.3.16] - 2026-05-25
 
 ### Changed

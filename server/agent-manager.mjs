@@ -181,7 +181,7 @@ const agentSessions = new Map()
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
 const APPROVAL_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes for tool approval
-const SUBAGENT_DEFAULT_TIMEOUT_MS = 120 * 1000
+const SUBAGENT_DEFAULT_TIMEOUT_MS = 30 * 60 * 1000
 const commandRestrictedTools = new Set(['write_file', 'edit_file', 'run_command'])
 const safeReadTools = new Set(['read_file', 'grep_files'])
 const pendingApprovals = new Map() // toolCallId → { resolve, reject, sessionId, toolName, args, source, timeout }
@@ -694,7 +694,7 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
     throw new Error('No active model is configured for the parent session.')
   }
 
-  const timeoutMs = Math.max(1000, Math.min(Number(definition.maxRuntimeMs || SUBAGENT_DEFAULT_TIMEOUT_MS), 5 * 60 * 1000))
+  const timeoutMs = Math.max(1000, Math.min(Number(definition.maxRuntimeMs || SUBAGENT_DEFAULT_TIMEOUT_MS), 30 * 60 * 1000))
   const subagentSessionId = `${parentSession.sessionId}:subagent:${definition.name}:${randomUUID()}`
   const startedAt = Date.now()
   let toolCalls = 0

@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
+import type { AppStorage } from '@mariozechner/pi-web-ui'
 import {
   ApiKeyPromptDialog,
   ChatPanel,
@@ -12,10 +13,17 @@ import { emptyDraft, hasDraft } from './chat-utils'
 import { createScrollSync } from './scroll-sync'
 import { createCommandSuggestions } from './command-suggestions'
 import { createContextUsageIndicator } from './context-usage'
-import { decorateMessages, decorateEditor, captureComposerDraft, restoreComposerDraft, injectApprovalCard, removeApprovalCard, syncContextCompactionNotice } from './panel-decoration'
+import { decorateMessages, decorateEditor, captureComposerDraft, readComposerDraft, restoreComposerDraft, injectApprovalCard, removeApprovalCard, syncContextCompactionNotice } from './panel-decoration'
 import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
-import type { ProjectInfo, RestoredDraft } from '@/lib/types'
+import type { ChatScope, ProjectInfo, RestoredDraft } from '@/lib/types'
+import {
+  buildComposerDraftKey,
+  clearComposerDraft,
+  loadComposerDraft,
+  saveComposerDraft,
+  type ComposerDraftContext,
+} from '@/lib/composer-drafts'
 
 type AgentLike = ServerAgent | SharedServerAgent | DeferredSessionAgent
 
@@ -40,6 +48,8 @@ type ChatPanelHostProps = {
   workspaceToolsEnabled: boolean
   project?: ProjectInfo
   projectId?: string
+  chatScope?: ChatScope
+  storage?: AppStorage | null
   onToggleYoloMode: () => void
   onRollbackFromMessage: (messageIndex: number) => void
   onCopyAnswer: (text: string) => Promise<void> | void
@@ -85,6 +95,9 @@ export function ChatPanelHost({
   yoloMode,
   workspaceToolsEnabled,
   project,
+  projectId,
+  chatScope = 'global',
+  storage = null,
   onToggleYoloMode,
   onRollbackFromMessage,
   onCopyAnswer,
@@ -103,9 +116,63 @@ export function ChatPanelHost({
   const restoredDraftIdRef = useRef<number | undefined>(undefined)
   const restoredDraftRef = useRef<RestoredDraft | undefined>(undefined)
   const composerDraftsRef = useRef<Map<string, ComposerDraft>>(new Map())
+  const storageRef = useRef<AppStorage | null>(storage)
   const customCommandsRef = useRef<CustomCommandSummary[]>([])
   const lastAppliedRestoredDraftRef = useRef<{ id: number; text: string } | undefined>(undefined)
   const consumedRestoredDraftIdsRef = useRef<Set<number>>(new Set())
+  const saveDraftTimerRef = useRef<number | undefined>(undefined)
+
+  useEffect(() => {
+    storageRef.current = storage
+  }, [storage])
+
+  const draftContext: ComposerDraftContext = useMemo(() => ({
+    sessionId: agent?.sessionId,
+    scope: chatScope,
+    projectId,
+  }), [agent?.sessionId, chatScope, projectId])
+  const draftKey = buildComposerDraftKey(draftContext)
+  const draftContextRef = useRef(draftContext)
+  const draftKeyRef = useRef(draftKey)
+
+  useEffect(() => {
+    draftContextRef.current = draftContext
+    draftKeyRef.current = draftKey
+  }, [draftContext, draftKey])
+
+  useEffect(() => {
+    return () => {
+      if (saveDraftTimerRef.current) window.clearTimeout(saveDraftTimerRef.current)
+    }
+  }, [])
+
+  const persistDraft = useCallback((key: string, draft: ComposerDraft, context: ComposerDraftContext) => {
+    const storage = storageRef.current
+    if (!storage) return
+    if (draft.text.length === 0) {
+      void clearComposerDraft(storage, key).catch((err) => logger.error('Failed to clear composer draft:', err))
+      return
+    }
+    void saveComposerDraft(storage, key, draft, context).catch((err) => logger.error('Failed to save composer draft:', err))
+  }, [])
+
+  const schedulePersistDraft = useCallback((key: string, draft: ComposerDraft, context: ComposerDraftContext) => {
+    if (saveDraftTimerRef.current) window.clearTimeout(saveDraftTimerRef.current)
+    saveDraftTimerRef.current = window.setTimeout(() => {
+      saveDraftTimerRef.current = undefined
+      persistDraft(key, draft, context)
+    }, 400)
+  }, [persistDraft])
+
+  const persistCurrentComposerDraft = useCallback((panel: HTMLElement, key = draftKeyRef.current, context = draftContextRef.current) => {
+    const draft = readComposerDraft(panel)
+    if (hasDraft(draft)) {
+      composerDraftsRef.current.set(key, draft)
+    } else {
+      composerDraftsRef.current.delete(key)
+    }
+    persistDraft(key, draft, context)
+  }, [persistDraft])
 
   // --- Stable ref for props (avoids re-creating panel on callback changes) ---
   const propsRef = useRef<PropsRef>({
@@ -178,7 +245,7 @@ export function ChatPanelHost({
     return () => { disposed = true }
   }, [project?.id, revision])
 
-  const restoreDraftForSession = (panel: HTMLElement, draft: RestoredDraft, sessionId: string, force = false) => {
+  const restoreDraftForSession = (panel: HTMLElement, draft: RestoredDraft, sessionId: string, key: string, force = false) => {
     if (draft.sessionId && draft.sessionId !== sessionId) return
     if (!hasDraft(draft)) return
     if (!force && consumedRestoredDraftIdsRef.current.has(draft.id)) return
@@ -191,13 +258,13 @@ export function ChatPanelHost({
             text: editor.value ?? editor.querySelector<HTMLTextAreaElement>('textarea')?.value ?? '',
             attachments: editor.attachments ? [...editor.attachments] : [],
           }
-        : composerDraftsRef.current.get(sessionId)
+        : composerDraftsRef.current.get(key)
       const lastApplied = lastAppliedRestoredDraftRef.current
       const isFirstApplyForDraft = lastApplied?.id !== draft.id
       const canApply = isFirstApplyForDraft || !hasDraft(currentDraft ?? emptyDraft()) || currentDraft?.text === lastApplied.text
       if (!canApply) return
 
-      restoreComposerDraft(panel, draft, composerDraftsRef.current, sessionId)
+      restoreComposerDraft(panel, draft, composerDraftsRef.current, key)
       lastAppliedRestoredDraftRef.current = { id: draft.id, text: draft.text }
     }
 
@@ -221,6 +288,8 @@ export function ChatPanelHost({
 
     const panel = new ChatPanel()
     const sessionId = agent.sessionId
+    const currentDraftKey = draftKeyRef.current
+    const currentDraftContext = draftContextRef.current
     let disposed = false
     let observer: MutationObserver | undefined
 
@@ -233,10 +302,11 @@ export function ChatPanelHost({
       panel,
       getCustomCommands: () => customCommandsRef.current,
       getComposerDrafts: () => composerDraftsRef.current,
-      sessionId,
+      sessionId: currentDraftKey,
       setComposerDrafts: (drafts) => { composerDraftsRef.current = drafts },
       restoreDraftIntoComposer: (draft) => {
-        restoreComposerDraft(panel, draft, composerDraftsRef.current, sessionId)
+        restoreComposerDraft(panel, draft, composerDraftsRef.current, currentDraftKey)
+        schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
       },
     })
 
@@ -255,13 +325,17 @@ export function ChatPanelHost({
     const handleEditorInput = (value: string) => {
       const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
       const attachments = editor?.attachments ? [...editor.attachments] : []
-      composerDraftsRef.current.set(sessionId, { text: value, attachments })
+      const draft = { text: value, attachments }
+      composerDraftsRef.current.set(currentDraftKey, draft)
+      schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
     }
     const handleEditorFilesChange = (files: unknown[]) => {
       const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
       const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
       const text = editor?.value ?? textarea?.value ?? ''
-      composerDraftsRef.current.set(sessionId, { text, attachments: files ? [...files] : [] })
+      const draft = { text, attachments: files ? [...files] : [] }
+      composerDraftsRef.current.set(currentDraftKey, draft)
+      schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
     }
 
     // --- The core decoration function (called on DOM changes & prop changes) ---
@@ -384,7 +458,11 @@ export function ChatPanelHost({
         const draft = restoredDraftRef.current
         if (draft) consumedRestoredDraftIdsRef.current.add(draft.id)
         cmdSuggestions.remove()
-        composerDraftsRef.current.delete(sessionId)
+        composerDraftsRef.current.delete(currentDraftKey)
+        const storage = storageRef.current
+        if (storage) {
+          void clearComposerDraft(storage, currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
+        }
         scrollSync.enable()
       },
       onModelSelect: propsRef.current.onModelSelect,
@@ -394,11 +472,28 @@ export function ChatPanelHost({
 
       // Restore draft
       const draft = restoredDraftRef.current
+      const restoreStoredDraft = (storedDraft?: ComposerDraft) => {
+        if (disposed) return
+        if (draft && restoredDraftIdRef.current !== draft.id) {
+          restoredDraftIdRef.current = draft.id
+          restoreDraftForSession(panel, draft, sessionId, currentDraftKey)
+        } else {
+          restoreComposerDraft(panel, storedDraft ?? composerDraftsRef.current.get(currentDraftKey) ?? emptyDraft(), composerDraftsRef.current, currentDraftKey)
+        }
+      }
       if (draft && restoredDraftIdRef.current !== draft.id) {
-        restoredDraftIdRef.current = draft.id
-        restoreDraftForSession(panel, draft, sessionId)
+        restoreStoredDraft()
       } else {
-        restoreComposerDraft(panel, composerDraftsRef.current.get(sessionId) ?? emptyDraft(), composerDraftsRef.current, sessionId)
+        const memoryDraft = composerDraftsRef.current.get(currentDraftKey)
+        if (memoryDraft) {
+          restoreStoredDraft(memoryDraft)
+        } else if (storageRef.current) {
+          void loadComposerDraft(storageRef.current, currentDraftKey)
+            .then((storedDraft) => restoreStoredDraft(storedDraft))
+            .catch((err) => logger.error('Failed to load composer draft:', err))
+        } else {
+          restoreStoredDraft()
+        }
       }
 
       // Observe DOM changes for re-decoration
@@ -435,7 +530,7 @@ export function ChatPanelHost({
       if ((event as { type: string }).type === 'messages_replaced') {
         const draft = restoredDraftRef.current
         if (draft && restoredDraftIdRef.current === draft.id) {
-          restoreDraftForSession(panel, draft, sessionId)
+          restoreDraftForSession(panel, draft, sessionId, currentDraftKey)
         }
       }
       const eventType = (event as { type: string }).type
@@ -486,7 +581,8 @@ export function ChatPanelHost({
     })
 
     return () => {
-      captureComposerDraft(panel, composerDraftsRef.current, sessionId)
+      captureComposerDraft(panel, composerDraftsRef.current, currentDraftKey)
+      persistCurrentComposerDraft(panel, currentDraftKey, currentDraftContext)
       cmdSuggestions.remove()
       cmdSuggestions.cleanupTextareaHandler()
       disposed = true
@@ -497,7 +593,7 @@ export function ChatPanelHost({
       decorateFnRef.current = null
       panel.remove()
     }
-  }, [agent]) // ← ONLY agent triggers panel recreation
+  }, [agent, persistCurrentComposerDraft, schedulePersistDraft]) // ← ONLY agent triggers panel recreation; callback deps are stable
 
   // =========================================================================
   // Decoration trigger: re-run decoration when UI props change (without
@@ -521,7 +617,7 @@ export function ChatPanelHost({
     const panel = hostRef.current.querySelector('pi-chat-panel')
     if (!panel) return
     restoredDraftIdRef.current = draft.id
-    restoreDraftForSession(panel as HTMLElement, draft, sessionId, true)
+    restoreDraftForSession(panel as HTMLElement, draft, sessionId, draftKeyRef.current, true)
   }, [restoredDraft, agent])
 
   return <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden" />

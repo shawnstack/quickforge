@@ -122,6 +122,7 @@ function MainApp() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [workspaceInspectorOpen, setWorkspaceInspectorOpen] = useState(false)
   const [terminalOpen, setTerminalOpen] = useState(false)
+  const [storage, setStorage] = useState<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
   const { toasts, handleTaskComplete, addToast, dismissToast } = useTaskToasts()
 
   // --- Session list + cross-tab sync ---
@@ -211,10 +212,10 @@ function MainApp() {
     setScheduledTasksOpen(false)
     setRestoredDraft({
       id: Date.now(),
-      sessionId: currentSessionIdRef.current,
+      sessionId: agentRef.current?.sessionId,
       text,
     })
-  }, [currentSessionIdRef])
+  }, [agentRef])
 
   useEffect(() => {
     const unsubscribe = subscribeToAgentEvents((event) => {
@@ -258,6 +259,7 @@ function MainApp() {
     switchActiveProject,
     createAgent,
     setNeedsModelSetup,
+    onStorageReady: setStorage,
   })
 
   useEffect(() => {
@@ -697,6 +699,8 @@ function MainApp() {
                       workspaceToolsEnabled={Boolean(agentManager.currentToolProject?.id)}
                       project={agentManager.currentToolProject}
                       projectId={agentManager.currentToolProject?.id}
+                      chatScope={agentManager.chatScope}
+                      storage={storage}
                       onToggleYoloMode={toggleYoloMode}
                       onRollbackFromMessage={rollbackFromMessage}
                       onCopyAnswer={copyAnswer}

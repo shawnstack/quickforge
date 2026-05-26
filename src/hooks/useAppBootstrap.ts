@@ -33,6 +33,7 @@ type UseAppBootstrapOptions = {
   switchActiveProject: (projectId: string) => Promise<ProjectInfo>
   createAgent: AgentManager['createAgent']
   setNeedsModelSetup: React.Dispatch<React.SetStateAction<boolean>>
+  onStorageReady?: (storage: Awaited<ReturnType<typeof initializePiStorage>>) => void
 }
 
 export function useAppBootstrap({
@@ -49,6 +50,7 @@ export function useAppBootstrap({
   switchActiveProject,
   createAgent,
   setNeedsModelSetup,
+  onStorageReady,
 }: UseAppBootstrapOptions) {
   const [ready, setReady] = useState(false)
   const [startupError, setStartupError] = useState<string>()
@@ -62,6 +64,7 @@ export function useAppBootstrap({
         if (cancelled) return
 
         storageRef.current = storage
+        onStorageReady?.(storage)
         backendRef.current = storage.backend as HttpStorageBackend
         await initializeAppLanguage(storage)
         await loadToolDisplaySettings(storage)
@@ -176,6 +179,7 @@ export function useAppBootstrap({
     switchActiveProject,
     createAgent,
     setNeedsModelSetup,
+    onStorageReady,
   ])
 
   return { ready, startupError }

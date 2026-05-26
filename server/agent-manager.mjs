@@ -96,10 +96,10 @@ function wrapMcpToolDefinition(definition, toolPermissions) {
 function wrapSubagentToolDefinition(definition, parentSessionId) {
   return {
     ...definition,
-    execute: async (_toolCallId, params, signal) => {
+    execute: async (_toolCallId, params, signal, onUpdate) => {
       const parentSession = agentSessions.get(parentSessionId)
       if (!parentSession) throw new Error('Parent session is no longer active.')
-      const result = await runSubagent(parentSession, params || {}, signal)
+      const result = await runSubagent(parentSession, params || {}, signal, onUpdate)
       return {
         content: [{ type: 'text', text: result.content }],
         details: result.details,
@@ -673,7 +673,7 @@ function lastAssistantText(messages) {
   return ''
 }
 
-async function runSubagent(parentSession, params, parentSignal) {
+async function runSubagent(parentSession, params, parentSignal, onUpdate) {
   const definition = getSubagentDefinition(params?.subagent)
   if (!definition) {
     const error = new Error(`Unknown subagent: ${params?.subagent || ''}`)
@@ -696,7 +696,11 @@ async function runSubagent(parentSession, params, parentSignal) {
 
   const timeoutMs = Math.max(1000, Math.min(Number(definition.maxRuntimeMs || SUBAGENT_DEFAULT_TIMEOUT_MS), 5 * 60 * 1000))
   const subagentSessionId = `${parentSession.sessionId}:subagent:${definition.name}:${randomUUID()}`
+  const startedAt = Date.now()
   let toolCalls = 0
+  let latestMessages = []
+  let latestPendingToolCalls = []
+  let toolsForClient = []
 
   const tools = await createServerTools(
     parentSession.projectId,
@@ -713,6 +717,26 @@ async function runSubagent(parentSession, params, parentSignal) {
       includeMcpTools: false,
     },
   )
+  toolsForClient = tools.map(({ execute, prepareArguments, ...tool }) => tool)
+
+  const emitSubagentTrace = () => {
+    onUpdate?.({
+      content: [],
+      details: {
+        subagent: definition.name,
+        label: definition.label,
+        sessionId: subagentSessionId,
+        parentSessionId: parentSession.sessionId,
+        toolCalls,
+        allowedTools: definition.allowedTools,
+        timeoutMs,
+        durationMs: Date.now() - startedAt,
+        messages: latestMessages,
+        tools: toolsForClient,
+        pendingToolCalls: latestPendingToolCalls,
+      },
+    })
+  }
 
   const systemPrompt = composeSubagentSystemPrompt({
     definition,
@@ -742,6 +766,7 @@ async function runSubagent(parentSession, params, parentSignal) {
     beforeToolCall: async (context) => {
       const toolName = context.toolCall?.name
       toolCalls += 1
+      emitSubagentTrace()
       if (toolCalls > Number(definition.maxToolCalls || 12)) {
         return { block: true, reason: `Subagent ${definition.name} exceeded its tool-call budget.` }
       }
@@ -761,6 +786,17 @@ async function runSubagent(parentSession, params, parentSignal) {
     },
   })
 
+  subagent.subscribe((event) => {
+    latestMessages = subagent.state.messages.slice()
+    latestPendingToolCalls = Array.from(subagent.state.pendingToolCalls || [])
+    if (event.type === 'message_start' || event.type === 'message_update') {
+      if (event.message?.role === 'assistant') {
+        latestMessages = [...latestMessages, event.message]
+      }
+    }
+    emitSubagentTrace()
+  })
+
   let timedOut = false
   const timeout = setTimeout(() => {
     timedOut = true
@@ -769,7 +805,6 @@ async function runSubagent(parentSession, params, parentSignal) {
   const onParentAbort = () => subagent.abort()
   parentSignal?.addEventListener?.('abort', onParentAbort, { once: true })
 
-  const startedAt = Date.now()
   try {
     await subagent.prompt(userMessage)
     if (timedOut) throw new Error(`Subagent ${definition.name} timed out after ${timeoutMs}ms.`)
@@ -791,6 +826,9 @@ async function runSubagent(parentSession, params, parentSignal) {
       allowedTools: definition.allowedTools,
       timeoutMs,
       durationMs: Date.now() - startedAt,
+      messages: latestMessages,
+      tools: toolsForClient,
+      pendingToolCalls: latestPendingToolCalls,
     },
   }
 }

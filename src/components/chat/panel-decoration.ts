@@ -18,7 +18,7 @@ import {
   patchContent,
   hasDraft,
 } from './chat-utils'
-import { assistantText, draftTextFromUserMessage } from '@/lib/message-utils'
+import { assistantText, copyTextToClipboard, draftTextFromUserMessage } from '@/lib/message-utils'
 import { t } from '@/lib/i18n'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 
@@ -115,6 +115,34 @@ function insertBeforeMessageElement(panel: HTMLElement, messages: MessageWithUsa
   if (messageList) messageList.prepend(notice)
 }
 
+function compactSummaryText(summaryMessage: unknown) {
+  const message = summaryMessage as MessageWithUsage | undefined
+  const rawText = message?.role === 'assistant'
+    ? assistantText(message as Parameters<typeof assistantText>[0])
+    : draftTextFromUserMessage(message as Parameters<typeof draftTextFromUserMessage>[0])
+  const match = rawText.match(/<compact_summary>\s*([\s\S]*?)\s*<\/compact_summary>/i)
+  return (match?.[1] ?? rawText).trim()
+}
+
+function syncCompactionSummaryHandlers(notice: HTMLElement, summaryText: string) {
+  const details = notice.querySelector<HTMLDetailsElement>('.quickforge-context-compaction-details')
+  const toggleLabel = notice.querySelector<HTMLElement>('.quickforge-context-compaction-toggle-label')
+  const copyButton = notice.querySelector<HTMLButtonElement>('[data-quickforge-action="copy-compact-summary"]')
+  const syncToggleLabel = () => {
+    if (toggleLabel && details) toggleLabel.textContent = details.open ? t('contextCompactedHideSummary') : t('contextCompactedViewSummary')
+  }
+  details?.addEventListener('toggle', syncToggleLabel)
+  syncToggleLabel()
+  if (copyButton) {
+    copyButton.onclick = async (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      await copyTextToClipboard(summaryText)
+      showCopiedFeedback(copyButton, t('contextCompactedCopySummary'), copyIcon)
+    }
+  }
+}
+
 export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
   const { panel, getMessages, getContextCompaction } = deps
   const compaction = getContextCompaction()
@@ -132,19 +160,32 @@ export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
     return
   }
 
+  const summaryText = compactSummaryText(compaction.summaryMessage)
   const notice = existing ?? document.createElement('div')
   notice.className = 'quickforge-context-compaction-notice'
   notice.dataset.tailStart = String(tailStart)
   notice.title = t('contextCompactedTooltip')
   notice.setAttribute('aria-label', t('contextCompactedTooltip'))
   notice.innerHTML = `
-    <div class="quickforge-context-compaction-line"></div>
-    <div class="quickforge-context-compaction-pill">
-      <span class="quickforge-context-compaction-dot" aria-hidden="true"></span>
-      <span><strong>${escapeHtml(t('contextCompactedLabel'))}</strong> · ${escapeHtml(t('contextCompactedTimelineLabel'))}</span>
-    </div>
-    <div class="quickforge-context-compaction-line"></div>
+    <details class="quickforge-context-compaction-details">
+      <summary class="quickforge-context-compaction-summary">
+        <div class="quickforge-context-compaction-line"></div>
+        <div class="quickforge-context-compaction-pill">
+          <span class="quickforge-context-compaction-dot" aria-hidden="true"></span>
+          <span><strong>${escapeHtml(t('contextCompactedLabel'))}</strong> · ${escapeHtml(t('contextCompactedTimelineLabel'))} · <span class="quickforge-context-compaction-toggle-label"></span></span>
+        </div>
+        <div class="quickforge-context-compaction-line"></div>
+      </summary>
+      <div class="quickforge-context-compaction-card">
+        <div class="quickforge-context-compaction-card-header">
+          <span>${escapeHtml(t('contextCompactedSummaryTitle'))}</span>
+          <button type="button" class="quickforge-context-compaction-copy" data-quickforge-action="copy-compact-summary">${copyIcon}<span>${escapeHtml(t('contextCompactedCopySummary'))}</span></button>
+        </div>
+        <pre class="quickforge-context-compaction-text">${escapeHtml(summaryText)}</pre>
+      </div>
+    </details>
   `
+  syncCompactionSummaryHandlers(notice, summaryText)
 
   insertBeforeMessageElement(panel, messages, tailStart, notice)
 }

@@ -18,7 +18,7 @@ const subagentNames = listSubagentSummaries().map((subagent) => subagent.name)
 export const subagentTool = {
   name: 'run_subagent',
   label: 'Run subagent',
-  description: 'Delegate a bounded task to a built-in temporary subagent. Use general for complex multi-step work with full built-in workspace tools, or explore for fast read-only codebase exploration. Subagents are short-lived and do not receive MCP or Agent Skill tools.',
+  description: 'Delegate a bounded task to a built-in temporary subagent. Use general for complex multi-step work with full built-in workspace tools, or explore for fast read-only lookup and focused analysis. Subagents are short-lived and do not receive MCP or Agent Skill tools.',
   parameters: Type.Object({
     subagent: subagentNames.length
       ? Type.String({ enum: subagentNames, description: 'Specialized subagent to invoke.' })

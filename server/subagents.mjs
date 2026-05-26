@@ -32,12 +32,12 @@ export const subagentDefinitions = [
     name: 'explore',
     label: 'Explore',
     mode: 'subagent',
-    description: 'A fast read-only agent for exploring the codebase. It cannot modify files. Use it to quickly find files by pattern, search code for keywords, or answer questions about the repository.',
+    description: 'A fast read-only agent for targeted exploration and focused questions. It cannot modify files. Use it to quickly find relevant files, search keywords, identify patterns, or summarize findings.',
     allowedTools: ['read_file', 'grep_files'],
     allowFileMutations: false,
     maxRuntimeMs: 120000,
     maxToolCalls: 16,
-    systemPrompt: `You are Explore, a fast read-only codebase exploration subagent. Use read_file and grep_files to locate relevant files, search keywords, identify patterns, and answer repository questions. You cannot modify files or run commands.`,
+    systemPrompt: `You are Explore, a fast read-only exploration subagent. Use read_file and grep_files to locate relevant files, search keywords, identify patterns, and answer focused questions. You cannot modify files or run commands.`,
   },
 ]
 

@@ -125,8 +125,8 @@ export function estimateContextUsage({ systemPrompt, messages, tools, model, kno
     estimateTextTokens(safeJson(tools))
   const knownInput = Math.max(0, Number(knownInputTokens) || 0)
   const inputTokens = Math.max(estimatedInputTokens, knownInput)
-  const totalTokens = inputTokens + reservedOutputTokens
-  const percent = contextWindow > 0 ? Math.round((totalTokens / contextWindow) * 1000) / 10 : 0
+  const totalTokens = inputTokens
+  const percent = contextWindow > 0 ? Math.round((inputTokens / contextWindow) * 1000) / 10 : 0
   return { inputTokens, estimatedInputTokens, knownInputTokens: knownInput, reservedOutputTokens, totalTokens, contextWindow, percent }
 }
 

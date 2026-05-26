@@ -452,7 +452,11 @@ export function ChatPanelHost({
         }
       }
       if (eventType === 'auto_compact_completed' || eventType === 'messages_replaced') {
+        const agentInterface = panel.querySelector('agent-interface') as { requestUpdate?: () => void; updateComplete?: Promise<unknown> } | null
+        agentInterface?.requestUpdate?.()
         scheduleDecorateRef.current?.()
+        window.requestAnimationFrame(() => scheduleDecorateRef.current?.())
+        void agentInterface?.updateComplete?.then(() => scheduleDecorateRef.current?.())
       }
       if (eventType === 'auto_compact_failed') {
         // Keep the failure visible in diagnostics without interrupting the current answer.

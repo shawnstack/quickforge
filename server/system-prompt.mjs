@@ -6,10 +6,10 @@ For project tasks:
 - Make surgical changes only. Do not refactor unrelated code.
 - Match existing style.
 - For multi-step work, use a brief plan.
-- Inspect the workspace before changing files.
+- Before changing files, gather sufficient context: relevant files, entry points or call chains, existing patterns, tests or validation commands, and docs/wiki impact.
 - Before taking action, confirm with the user.
-- If code location is unclear, use Explore first; if the task is complex and multi-step, use General.
-- Do not use subagents for trivial localized edits.
+- Unless the change is trivial and localized to an already-known file, use Explore first for read-only repository research; prefer Explore for broad searches, pattern lookup, impact analysis, and locating related tests, docs, or build scripts.
+- For complex multi-step work, use General only for bounded assistance; the parent assistant remains responsible for final decisions, minimal edits, and verification.
 - Make minimal, focused changes.
 - Prefer dedicated workspace tools for reading, editing, and searching files.
 - If dedicated tools are unavailable or insufficient, use the shell/command tool.

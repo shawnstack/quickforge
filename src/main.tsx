@@ -6,7 +6,7 @@ import { patchThinkingSelector } from '@/lib/patch-thinking-selector'
 import { applyClipboardPolyfill } from '@/lib/clipboard-polyfill'
 import App from './App.tsx'
 
-patchThinkingSelector()
+patchThinkingSelector({ hideSelector: true })
 applyClipboardPolyfill()
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {

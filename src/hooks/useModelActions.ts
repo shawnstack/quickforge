@@ -185,12 +185,15 @@ export function useModelActions({
       customModels,
       (model) => {
         const nextModel = model as Model<Api>
-        currentAgent.state.model = nextModel
+        const nextThinkingLevel = nextModel.reasoning ? currentAgent.state.thinkingLevel : 'off'
+        if (currentAgent.state.thinkingLevel !== nextThinkingLevel) {
+          currentAgent.state.thinkingLevel = nextThinkingLevel
+          void currentAgent.updateThinkingLevel(nextThinkingLevel).catch((error) => {
+            logger.error('Failed to sync thinking level to server:', error)
+          })
+        }
         activeModelRef.current = nextModel
         updateCurrentAgentModel(nextModel)
-        void currentAgent.updateModel(nextModel).catch((error) => {
-          logger.error('Failed to sync model to server:', error)
-        })
 
         if (currentInput) {
           setRestoredDraft({
@@ -213,6 +216,16 @@ export function useModelActions({
           dialog.activeTabIndex = 1
           dialog.requestUpdate?.()
         }
+      },
+      {
+        thinkingLevel: currentAgent.state.thinkingLevel,
+        onThinkingLevelSelect: (level) => {
+          currentAgent.state.thinkingLevel = level
+          void currentAgent.updateThinkingLevel(level).catch((error) => {
+            logger.error('Failed to sync thinking level to server:', error)
+          })
+          setChatPanelRevision((value) => value + 1)
+        },
       },
     )
   }, [

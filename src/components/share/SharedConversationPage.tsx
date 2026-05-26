@@ -11,6 +11,7 @@ import { copyTextToClipboard, draftTextFromUserMessage, rollbackStartIndexFromMe
 import { unlockSharedConversation, loadSharedConversationMeta, loadSharedModelProviders } from '@/lib/share-client'
 import { defaultThinkingLevelForModel } from '@/lib/pi-chat'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
+import { logger } from '@/lib/logger'
 import { SharedServerAgent } from '@/lib/shared-server-agent'
 import type { SharedSessionState } from '@/lib/shared-server-agent'
 import type { RestoredDraft } from '@/lib/types'
@@ -143,12 +144,31 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
       const providers = await sharedModelProviders(shareId, agent.state.model)
       const models = providers.flatMap((provider) => provider.models ?? []) as Model<Api>[]
       if (!models.length) return
-      openCustomOnlyModelSelector(agent.state.model, models, (model) => {
-        installSharedPageStorage(shareId, model)
-        void agent.updateModel(model).catch((err) => {
-          setError(err instanceof Error ? err.message : 'Failed to update model')
-        })
-      })
+      openCustomOnlyModelSelector(
+        agent.state.model,
+        models,
+        (model) => {
+          if (!model.reasoning && agent.state.thinkingLevel !== 'off') {
+            void agent.updateThinkingLevel('off').catch((err) => {
+              logger.error('Failed to update shared thinking level:', err)
+            })
+          }
+          installSharedPageStorage(shareId, model)
+          void agent.updateModel(model).catch((err) => {
+            setError(err instanceof Error ? err.message : 'Failed to update model')
+          })
+        },
+        undefined,
+        {
+          thinkingLevel: agent.state.thinkingLevel,
+          onThinkingLevelSelect: (level) => {
+            void agent.updateThinkingLevel(level).catch((err) => {
+              logger.error('Failed to update shared thinking level:', err)
+              setError(err instanceof Error ? err.message : 'Failed to update thinking level')
+            })
+          },
+        },
+      )
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load models')
     }

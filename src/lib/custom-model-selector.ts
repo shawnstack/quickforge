@@ -1,4 +1,5 @@
 import { type Api, type Model, modelsAreEqual } from '@mariozechner/pi-ai'
+import type { ThinkingLevel } from '@mariozechner/pi-agent-core'
 import { t } from '@/lib/i18n'
 
 type AnyModel = Model<Api>
@@ -7,6 +8,23 @@ type CustomModelEntry = {
   provider: string
   id: string
   model: AnyModel
+}
+
+type ModelSelectorOptions = {
+  thinkingLevel?: ThinkingLevel
+  onThinkingLevelSelect?: (level: ThinkingLevel) => void
+}
+
+const THINKING_LEVELS: ThinkingLevel[] = ['off', 'low', 'medium', 'high', 'xhigh']
+
+function thinkingLevelLabel(level: ThinkingLevel) {
+  switch (level) {
+    case 'low': return t('thinkingLow')
+    case 'medium': return t('thinkingMedium')
+    case 'high': return t('thinkingHigh')
+    case 'xhigh': return t('thinkingXHigh')
+    default: return t('thinkingOff')
+  }
 }
 
 function modelLabel(model: AnyModel) {
@@ -28,12 +46,15 @@ export function openCustomOnlyModelSelector(
   models: AnyModel[],
   onSelect: (model: AnyModel) => void,
   onEditModel?: (model: AnyModel) => void,
+  options: ModelSelectorOptions = {},
 ) {
   const entries: CustomModelEntry[] = models.map((model) => ({
     provider: model.provider,
     id: model.id,
     model,
   }))
+
+  let selectedThinkingLevel = options.thinkingLevel ?? 'off'
 
   const overlay = document.createElement('div')
   overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'
@@ -61,6 +82,54 @@ export function openCustomOnlyModelSelector(
   search.placeholder = t('searchModels')
 
   header.append(titleRow, search)
+
+  const config = document.createElement('div')
+  config.className = 'mt-3 rounded-lg border border-border bg-muted/20 p-3'
+
+  const currentConfigTitle = document.createElement('div')
+  currentConfigTitle.className = 'text-xs font-medium text-muted-foreground'
+  currentConfigTitle.textContent = t('currentConfiguration')
+
+  const currentModelLine = document.createElement('div')
+  currentModelLine.className = 'mt-1 truncate text-sm font-medium'
+  currentModelLine.textContent = currentModel ? modelLabel(currentModel) : t('noModelAdded')
+
+  const thinkingRow = document.createElement('div')
+  thinkingRow.className = 'mt-3 flex flex-wrap items-center gap-1.5'
+
+  const thinkingLabel = document.createElement('span')
+  thinkingLabel.className = 'mr-1 text-xs text-muted-foreground'
+  thinkingLabel.textContent = t('thinkingLevel')
+
+  const renderThinkingControls = () => {
+    thinkingRow.replaceChildren(thinkingLabel)
+    const supportsThinking = currentModel?.reasoning === true
+
+    if (!supportsThinking) {
+      const note = document.createElement('span')
+      note.className = 'text-xs text-muted-foreground'
+      note.textContent = t('thinkingNotSupported')
+      thinkingRow.append(note)
+      return
+    }
+
+    for (const level of THINKING_LEVELS) {
+      const button = createButton(
+        `rounded-full border px-2.5 py-1 text-xs transition-colors ${selectedThinkingLevel === level ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'}`,
+        thinkingLevelLabel(level),
+      )
+      button.onclick = () => {
+        selectedThinkingLevel = level
+        options.onThinkingLevelSelect?.(level)
+        renderThinkingControls()
+      }
+      thinkingRow.append(button)
+    }
+  }
+
+  config.append(currentConfigTitle, currentModelLine, thinkingRow)
+  header.append(config)
+  renderThinkingControls()
 
   const list = document.createElement('div')
   list.className = 'min-h-0 flex-1 overflow-y-auto'
@@ -130,7 +199,7 @@ export function openCustomOnlyModelSelector(
 
       const meta = document.createElement('div')
       meta.className = 'mt-1 text-xs text-muted-foreground'
-      meta.textContent = `${model.api} · ${model.contextWindow}/${model.maxTokens}`
+      meta.textContent = `${model.api} · ${model.contextWindow}/${model.maxTokens}${model.reasoning ? ` · ${t('thinkingSupported')}` : ''}`
 
       if (modelsAreEqual(currentModel, model)) {
         const current = document.createElement('span')
@@ -141,7 +210,12 @@ export function openCustomOnlyModelSelector(
 
       item.append(top, meta)
       item.onclick = () => {
+        if (!model.reasoning && selectedThinkingLevel !== 'off') {
+          selectedThinkingLevel = 'off'
+          options.onThinkingLevelSelect?.('off')
+        }
         onSelect(model)
+        currentModelLine.textContent = modelLabel(model)
         overlay.remove()
       }
       list.append(item)

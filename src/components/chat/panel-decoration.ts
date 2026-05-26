@@ -600,6 +600,37 @@ export type EditorDecorationDeps = {
   setupCommandTextareaHandler: (editor: MessageEditorElement | null) => void
 }
 
+type EditorModelState = {
+  currentModel?: { id?: string; reasoning?: boolean }
+  thinkingLevel?: string
+}
+
+function thinkingLevelLabel(level: string | undefined) {
+  switch (level) {
+    case 'low': return t('thinkingLow')
+    case 'medium': return t('thinkingMedium')
+    case 'high': return t('thinkingHigh')
+    case 'xhigh': return t('thinkingXHigh')
+    default: return t('thinkingOff')
+  }
+}
+
+function decorateModelButtonLabel(editor: MessageEditorElement | null, rightControls: HTMLElement) {
+  const modelState = editor as (MessageEditorElement & EditorModelState) | null
+  const model = modelState?.currentModel
+  rightControls.querySelector<HTMLElement>('[data-quickforge-thinking-badge]')?.remove()
+  const modelButton = Array.from(rightControls.querySelectorAll<HTMLButtonElement>('button:not(.quickforge-yolo-inline)'))
+    .find((button) => Boolean(model?.id && button.textContent?.includes(model.id)))
+  if (!modelButton) return
+
+  modelButton.classList.add('quickforge-model-trigger')
+  if (model?.reasoning) {
+    modelButton.dataset.quickforgeThinkingLevel = `· ${thinkingLevelLabel(modelState?.thinkingLevel)}`
+  } else {
+    delete modelButton.dataset.quickforgeThinkingLevel
+  }
+}
+
 export function decorateEditor(deps: EditorDecorationDeps) {
   const {
     panel,
@@ -640,17 +671,19 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     return
   }
 
-  if (!allowModelControls) {
-    const agentInterface = panel.querySelector<AgentInterfaceElement>('agent-interface')
-    if (agentInterface) {
+  const agentInterface = panel.querySelector<AgentInterfaceElement>('agent-interface')
+  if (agentInterface) {
+    if (!allowModelControls) {
       agentInterface.enableModelSelector = false
-      agentInterface.enableThinkingSelector = false
     }
+    agentInterface.enableThinkingSelector = false
   }
 
   const editorRows = editor?.querySelectorAll<HTMLElement>('.flex.gap-2.items-center')
+  const leftControls = editorRows?.[0]
   const rightControls = editorRows?.[editorRows.length - 1]
   if (!rightControls) return
+  decorateModelButtonLabel(editor, rightControls)
 
   const actionButton = rightControls.querySelector<QuickForgeActionButton>('button:last-child')
   if (actionButton) {
@@ -697,8 +730,8 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     }
   }
 
-  if (!workspaceToolsEnabled) {
-    rightControls.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')?.remove()
+  if (!workspaceToolsEnabled || !leftControls) {
+    panel.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')?.remove()
     return
   }
 
@@ -720,7 +753,7 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     handleYoloToggle(event)
   }
 
-  const existingButton = rightControls.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')
+  const existingButton = panel.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')
   if (existingButton) {
     const prevMode = existingButton.getAttribute('aria-pressed')
     const nextMode = String(yoloMode)
@@ -755,7 +788,7 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     event.stopPropagation()
   }
   button.onkeydown = handleYoloKeyDown
-  rightControls.prepend(button)
+  leftControls.append(button)
 }
 
 // --- Draft helpers (operate on a draft Map) ---

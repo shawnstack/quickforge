@@ -452,10 +452,36 @@
   color: rgb(5 150 105) !important;
 }
 
-.quickforge-composer > div:first-child > .px-2.pb-2 > div:last-child > button:first-child:not(:last-child) {
+.quickforge-composer .quickforge-yolo-inline {
+  width: 2rem;
+  min-width: 2rem;
+  padding: 0 !important;
+}
+
+.quickforge-composer .quickforge-model-trigger {
   max-width: min(14rem, 38vw);
   border: 1px solid color-mix(in oklab, var(--border) 70%, transparent) !important;
   background: color-mix(in oklab, var(--muted) 34%, transparent) !important;
+}
+
+.quickforge-composer .quickforge-model-trigger svg {
+  display: none;
+}
+
+.quickforge-composer .quickforge-model-trigger::before {
+  content: "";
+  width: 0.875rem;
+  height: 0.875rem;
+  flex: 0 0 auto;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5a3 3 0 0 0-5.997-.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z'/%3E%3Cpath d='M12 5a3 3 0 0 1 5.997-.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z'/%3E%3Cpath d='M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5a3 3 0 0 0-5.997-.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z'/%3E%3Cpath d='M12 5a3 3 0 0 1 5.997-.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z'/%3E%3Cpath d='M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.quickforge-composer .quickforge-model-trigger[data-quickforge-thinking-level]::after {
+  content: attr(data-quickforge-thinking-level);
+  flex: 0 0 auto;
+  color: color-mix(in oklab, var(--muted-foreground) 92%, transparent);
 }
 
 .quickforge-composer .quickforge-send-button,

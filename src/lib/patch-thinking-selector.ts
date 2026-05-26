@@ -91,7 +91,8 @@ function patchEditorInstance(editor: HTMLElement) {
   renderThinkingSelector(wrapper, editorWithState)
 }
 
-export function patchThinkingSelector() {
+export function patchThinkingSelector(options: { hideSelector?: boolean } = {}) {
+  const { hideSelector = false } = options
   const tryPatch = () => {
     const MessageEditor = customElements.get('message-editor') as (CustomElementConstructor & {
       prototype: { render?: () => unknown }
@@ -107,7 +108,17 @@ export function patchThinkingSelector() {
     const originalRender = MessageEditor.prototype.render
     MessageEditor.prototype.render = function patchedRender(this: HTMLElement) {
       const result = originalRender.call(this)
-      queueMicrotask(() => patchEditorInstance(this))
+      queueMicrotask(() => {
+        if (hideSelector) {
+          const editor = this as HTMLElement & { showThinkingSelector?: boolean; requestUpdate?: () => void }
+          if (editor.showThinkingSelector !== false) {
+            editor.showThinkingSelector = false
+            editor.requestUpdate?.()
+          }
+          return
+        }
+        patchEditorInstance(this)
+      })
       return result
     }
     ;(MessageEditor.prototype.render as { __quickforgePatched?: boolean }).__quickforgePatched = true

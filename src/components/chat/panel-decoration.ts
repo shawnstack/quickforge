@@ -124,13 +124,22 @@ function compactSummaryText(summaryMessage: unknown) {
   return (match?.[1] ?? rawText).trim()
 }
 
-function syncCompactionSummaryHandlers(notice: HTMLElement, summaryText: string) {
+function syncCompactionSummaryHandlers(notice: HTMLElement, summaryText: string, initialOpen = false) {
   const details = notice.querySelector<HTMLDetailsElement>('.quickforge-context-compaction-details')
+  const summary = notice.querySelector<HTMLElement>('.quickforge-context-compaction-summary')
   const toggleLabel = notice.querySelector<HTMLElement>('.quickforge-context-compaction-toggle-label')
   const copyButton = notice.querySelector<HTMLButtonElement>('[data-quickforge-action="copy-compact-summary"]')
+  if (details) details.open = initialOpen
   const syncToggleLabel = () => {
     if (toggleLabel && details) toggleLabel.textContent = details.open ? t('contextCompactedHideSummary') : t('contextCompactedViewSummary')
   }
+  summary?.addEventListener('click', (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!details) return
+    details.open = !details.open
+    syncToggleLabel()
+  })
   details?.addEventListener('toggle', syncToggleLabel)
   syncToggleLabel()
   if (copyButton) {
@@ -161,6 +170,7 @@ export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
   }
 
   const summaryText = compaction.summaryMessage ? compactSummaryText(compaction.summaryMessage) : ''
+  const initialOpen = existing?.querySelector<HTMLDetailsElement>('.quickforge-context-compaction-details')?.open ?? false
   const notice = existing ?? document.createElement('div')
   notice.className = 'quickforge-context-compaction-notice'
   notice.dataset.tailStart = String(tailStart)
@@ -194,7 +204,7 @@ export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
       <div class="quickforge-context-compaction-line"></div>
     </div>
   `
-  if (summaryText) syncCompactionSummaryHandlers(notice, summaryText)
+  if (summaryText) syncCompactionSummaryHandlers(notice, summaryText, initialOpen)
 
   insertBeforeMessageElement(panel, messages, tailStart, notice)
 }

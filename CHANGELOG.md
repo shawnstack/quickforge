@@ -2,6 +2,23 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.18] - 2026-05-26
+
+### Changed
+
+- Enhanced `run_command` for long-running tests with configurable timeouts, last-100-line output streaming, duration metadata, and full command log files.
+- Updated the server tools wiki for the long-running command output behavior.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.18` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.18.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.18.tgz
+  ```
+
 ## [1.3.17] - 2026-05-26
 
 ### Added

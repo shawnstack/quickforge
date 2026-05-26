@@ -183,6 +183,7 @@ function MainApp() {
   // Destructure stable values for use in dependency arrays
   const {
     createAgent,
+    startDeferredSession,
     loadSession: loadAgentSession,
     syncSessionUI,
     setCurrentAgentMessages,
@@ -281,6 +282,7 @@ function MainApp() {
     taskMapRef,
     agentRef,
     createAgent,
+    startDeferredSession,
     syncSessionUI,
     setCurrentAgentMessages,
     setChatPanelRevision,

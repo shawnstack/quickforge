@@ -24,6 +24,7 @@ type UseChatActionsOptions = {
   currentSessionIdRef: AgentManager['currentSessionIdRef']
   taskMapRef: AgentManager['taskMapRef']
   agentRef: AgentManager['agentRef']
+  startDeferredSession: AgentManager['startDeferredSession']
   createAgent: AgentManager['createAgent']
   syncSessionUI: AgentManager['syncSessionUI']
   setCurrentAgentMessages: AgentManager['setCurrentAgentMessages']
@@ -41,6 +42,10 @@ function clearSessionQueryParam() {
   window.history.replaceState({}, '', url)
 }
 
+function isIdleEmptyAgent(agent: AgentManager['agentRef']['current']) {
+  return Boolean(agent && !agent.state.isStreaming && agent.state.messages.length === 0)
+}
+
 export function useChatActions({
   storageRef,
   activeModelRef,
@@ -49,6 +54,7 @@ export function useChatActions({
   currentSessionIdRef,
   taskMapRef,
   agentRef,
+  startDeferredSession,
   createAgent,
   syncSessionUI,
   setCurrentAgentMessages,
@@ -66,17 +72,14 @@ export function useChatActions({
     }
 
     setScheduledTasksOpen(false)
+    if (isIdleEmptyAgent(agentRef.current) && currentChatScopeRef.current === 'global') {
+      return
+    }
     setRestoredDraft(undefined)
-
-    const sessionId = randomId()
     clearSessionQueryParam()
 
-    await createAgent(
-      { tools: [] },
-      sessionId,
-      { scope: 'global', attachToView: true },
-    )
-  }, [createAgent, needsModelSetup, setRestoredDraft, setScheduledTasksOpen])
+    await startDeferredSession({ scope: 'global' })
+  }, [agentRef, currentChatScopeRef, needsModelSetup, setRestoredDraft, setScheduledTasksOpen, startDeferredSession])
 
   const startNewProjectChat = useCallback(async (targetProject?: ProjectInfo) => {
     if (needsModelSetup) {
@@ -85,24 +88,23 @@ export function useChatActions({
     }
 
     setScheduledTasksOpen(false)
-    setRestoredDraft(undefined)
 
     const nextProject = targetProject ?? activeProjectRef.current
     if (!nextProject) return
+
+    if (isIdleEmptyAgent(agentRef.current) && currentChatScopeRef.current === 'project' && activeProjectRef.current?.id === nextProject.id) {
+      return
+    }
 
     if (activeProjectRef.current?.id !== nextProject.id) {
       await switchActiveProject(nextProject.id)
     }
 
-    const sessionId = randomId()
+    setRestoredDraft(undefined)
     clearSessionQueryParam()
 
-    await createAgent(
-      { tools: [] },
-      sessionId,
-      { scope: 'project', project: nextProject, attachToView: true },
-    )
-  }, [activeProjectRef, createAgent, needsModelSetup, setRestoredDraft, setScheduledTasksOpen, switchActiveProject])
+    await startDeferredSession({ scope: 'project', project: nextProject })
+  }, [activeProjectRef, agentRef, currentChatScopeRef, needsModelSetup, setRestoredDraft, setScheduledTasksOpen, startDeferredSession, switchActiveProject])
 
   const rollbackFromMessage = useCallback(async (messageIndex: number) => {
     const currentAgent = agentRef.current

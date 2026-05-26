@@ -3,6 +3,7 @@ import type { AgentState } from '@mariozechner/pi-agent-core'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import { logger } from '@/lib/logger'
 import { ServerAgent, type ServerAgentContextCompaction } from '@/lib/server-agent'
+import { DeferredSessionAgent } from '@/lib/deferred-session-agent'
 import {
   defaultThinkingLevelForModel,
   loadDefaultOptions,
@@ -40,13 +41,13 @@ export interface AgentManagerDeps {
 
 export interface AgentManager {
   // Refs (stable across renders)
-  agentRef: React.MutableRefObject<ServerAgent | null>
+  agentRef: React.MutableRefObject<ServerAgent | DeferredSessionAgent | null>
   taskMapRef: React.MutableRefObject<Map<string, BackgroundTask>>
   currentSessionIdRef: React.MutableRefObject<string | undefined>
   currentChatScopeRef: React.MutableRefObject<ChatScope>
 
   // State (may change each render)
-  agent: ServerAgent | null
+  agent: ServerAgent | DeferredSessionAgent | null
   currentSessionId: string | undefined
   currentTitle: string
   chatScope: ChatScope
@@ -60,6 +61,7 @@ export interface AgentManager {
     sessionId?: string,
     options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string; yoloMode?: boolean },
   ) => Promise<ServerAgent>
+  startDeferredSession: (options: { scope: ChatScope; project?: ProjectInfo }) => Promise<DeferredSessionAgent>
   loadSession: (
     sessionId: string,
     hints?: { title?: string; createdAt?: string; scope?: ChatScope; projectId?: string },
@@ -107,7 +109,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   } = deps
 
   // --- Refs (stable) ---
-  const agentRef = useRef<ServerAgent | null>(null)
+  const agentRef = useRef<ServerAgent | DeferredSessionAgent | null>(null)
   const taskMapRef = useRef<Map<string, BackgroundTask>>(new Map())
   const currentChatScopeRef = useRef<ChatScope>('global')
   const currentSessionIdRef = useRef<string | undefined>(undefined)
@@ -121,7 +123,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   })
 
   // --- State ---
-  const [agent, setAgent] = useState<ServerAgent | null>(null)
+  const [agent, setAgent] = useState<ServerAgent | DeferredSessionAgent | null>(null)
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>()
   const [currentTitle, setCurrentTitle] = useState('New chat')
   const [chatScope, setChatScope] = useState<ChatScope>('global')
@@ -149,6 +151,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
 
   // --- Attach a task to the current view ---
   const attachTaskToView = useCallback((task: BackgroundTask) => {
+    agentRef.current?.dispose()
     currentChatScopeRef.current = task.scope
     currentSessionIdRef.current = task.sessionId
     currentCreatedAtRef.current = task.createdAt
@@ -172,9 +175,13 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       sessionId: string = randomId(),
       options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string; yoloMode?: boolean },
     ) => {
+      const previousAgent = agentRef.current
       const existingTask = taskMapRef.current.get(sessionId)
       if (existingTask) {
-        if (options?.attachToView !== false) attachTaskToView(existingTask)
+        if (options?.attachToView !== false) {
+          previousAgent?.dispose()
+          attachTaskToView(existingTask)
+        }
         return existingTask.agent
       }
 
@@ -295,7 +302,10 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
         setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
       }
 
-      if (options?.attachToView !== false) attachTaskToView(task)
+      if (options?.attachToView !== false) {
+        if (agentRef.current === previousAgent) previousAgent?.dispose()
+        attachTaskToView(task)
+      }
       if (nextAgent.state.messages.length > 0) {
         await refreshSessions({ broadcast: true })
       }
@@ -303,6 +313,45 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     },
     [attachTaskToView, refreshSessions, syncSessionUI, storageRef, activeModelRef, yoloModeRef, activeProjectRef, setYoloMode],
   )
+
+  const startDeferredSession = useCallback(async (options: { scope: ChatScope; project?: ProjectInfo }) => {
+    const storage = storageRef.current
+    const defaultOptions = storage ? await loadDefaultOptions(storage) : {}
+    const requestedOrDefaultModel = defaultOptions.model ?? activeModelRef.current
+    const resolvedModel = storage
+      ? await resolveConfiguredModel(storage, requestedOrDefaultModel as Model<Api>)
+      : normalizeModelForProvider(requestedOrDefaultModel as Model<Api>)
+    const resolvedThinkingLevel = defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(resolvedModel)
+    activeModelRef.current = resolvedModel
+
+    const scope = options.scope
+    const project = scope === 'project' ? options.project : undefined
+    const deferredAgent = new DeferredSessionAgent({
+      scope,
+      project,
+      model: resolvedModel,
+      thinkingLevel: resolvedThinkingLevel,
+      yoloMode: yoloModeRef.current,
+      createAgent,
+    })
+
+    agentRef.current?.dispose()
+    currentChatScopeRef.current = scope
+    currentSessionIdRef.current = undefined
+    currentCreatedAtRef.current = undefined
+    currentTitleRef.current = 'New chat'
+    setChatScope(scope)
+    setCurrentSessionId(undefined)
+    setCurrentTitle('New chat')
+    setCurrentToolProject(project)
+    agentRef.current = deferredAgent
+    setAgent(deferredAgent)
+
+    const url = new URL(window.location.href)
+    url.searchParams.delete('session')
+    window.history.replaceState({}, '', url)
+    return deferredAgent
+  }, [activeModelRef, createAgent, storageRef, yoloModeRef])
 
   // --- Load a persisted session ---
   const loadSession = useCallback(
@@ -422,6 +471,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     chatPanelRevision,
 
     createAgent,
+    startDeferredSession,
     loadSession,
     syncSessionUI,
     setChatPanelRevision,

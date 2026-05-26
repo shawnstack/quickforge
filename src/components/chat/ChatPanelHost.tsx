@@ -5,6 +5,7 @@ import {
 } from '@mariozechner/pi-web-ui'
 import type { ServerAgent, ServerAgentContextCompaction } from '@/lib/server-agent'
 import type { SharedServerAgent } from '@/lib/shared-server-agent'
+import type { DeferredSessionAgent } from '@/lib/deferred-session-agent'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
 import type { ComposerDraft, CustomCommandSummary, MessageWithUsage } from './chat-utils'
 import { emptyDraft, hasDraft } from './chat-utils'
@@ -16,7 +17,7 @@ import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
 import type { ProjectInfo, RestoredDraft } from '@/lib/types'
 
-type AgentLike = ServerAgent | SharedServerAgent
+type AgentLike = ServerAgent | SharedServerAgent | DeferredSessionAgent
 
 type AgentWithContextCompaction = AgentLike & {
   state: AgentLike['state'] & { contextCompaction?: ServerAgentContextCompaction | null }

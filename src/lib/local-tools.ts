@@ -90,8 +90,16 @@ function runCommandOutputFromDetails(params: Record<string, unknown> | undefined
       : ''
   if (!command || !detailRecord) return ''
 
-  const stdout = typeof detailRecord.stdout === 'string' ? detailRecord.stdout : ''
-  const stderr = typeof detailRecord.stderr === 'string' ? detailRecord.stderr : ''
+  const stdout = typeof detailRecord?.stdout_preview === 'string'
+    ? detailRecord.stdout_preview
+    : typeof detailRecord?.stdout === 'string'
+      ? detailRecord.stdout
+      : ''
+  const stderr = typeof detailRecord?.stderr_preview === 'string'
+    ? detailRecord.stderr_preview
+    : typeof detailRecord?.stderr === 'string'
+      ? detailRecord.stderr
+      : ''
   const hasOutput = Boolean(stdout || stderr)
   const hasStatus = detailRecord.running === true
     || detailRecord.code !== undefined

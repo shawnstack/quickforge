@@ -53,6 +53,6 @@
 - **ripgrep 内置搜索**: `grep_files` 优先使用 `@vscode/ripgrep` 随包提供的 `rg`，支持 glob、上下文行、只返回匹配文件；不可用或正则不兼容时回退 Node.js 实现
 - **搜索安全边界**: ripgrep 调用使用 `spawn(..., { shell: false })`，强制排除敏感文件 glob，并默认保持旧搜索行为（`--hidden --no-ignore` + 内置排除规则）
 - **写入防误**: `write_file` 验证文件在项目内；`edit_file` 确保 `oldText` 唯一匹配
-- **命令超时与长输出**: `run_command` 默认超时 30 分钟，支持通过 `timeoutMs` 在安全上下限内调整；运行中和最终结果默认只展示 stdout/stderr 最后 100 行、`durationMs`、退出码、超时/中止状态，并将完整 stdout/stderr 写入 `~/.quickforge/logs/commands/`。Agent 运行中的 `run_command` 会按 `toolCallId` 登记，前端工具卡片可手动终止。
+- **命令超时与长输出**: `run_command` 默认超时 30 分钟，支持通过 `timeoutMs` 在安全上下限内调整；运行中和最终结果默认只向模型/界面返回 stdout/stderr 预览：每路最多最后 200 行，且 `stdout_preview + stderr_preview` 合计最多 10,000 字符。若发生行数或字符数截断，结果会设置 `truncated: true`，并同时提供 `stdout_truncated`/`stderr_truncated` 及兼容旧字段 `stdoutTruncated`/`stderrTruncated`/`outputTruncated`。完整 stdout/stderr 会写入 `~/.quickforge/logs/commands/`，结果通过 `outputFile` 指向日志文件。Agent 运行中的 `run_command` 会按 `toolCallId` 登记，前端工具卡片可手动终止。
 - **Error 对象传递**: 工具错误通过 `statusCode` 属性传递 HTTP 状态码
 - **Subagent 约束**: `run_subagent` 只在 Agent 内部可用，不开放直接 REST 执行；子 Agent 为短生命周期、不持久化、不允许递归调用 `run_subagent`，且不注入 MCP 或 Agent Skill 工具。内置 `explore` 只允许 `read_file`/`grep_files`；内置 `general` 可使用完整内置工作区工具（读、搜、写、编辑、命令），危险工具在 YOLO 关闭时仍走父会话审批。

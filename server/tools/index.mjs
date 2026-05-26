@@ -622,7 +622,8 @@ export async function toolReadSkillResource(params, context) {
 const DEFAULT_RUN_COMMAND_TIMEOUT_MS = 30 * 60 * 1000
 const MIN_RUN_COMMAND_TIMEOUT_MS = 1000
 const MAX_RUN_COMMAND_TIMEOUT_MS = 30 * 60 * 1000
-const COMMAND_TAIL_LINES = 100
+const COMMAND_PREVIEW_LINES = 200
+const COMMAND_PREVIEW_TOTAL_CHARS = 10000
 
 function formatDurationMs(durationMs = 0) {
   const totalSeconds = Math.max(0, Math.floor(durationMs / 1000))
@@ -632,14 +633,51 @@ function formatDurationMs(durationMs = 0) {
   return `${seconds}s (${durationMs}ms)`
 }
 
-function tailText(current, chunk, maxLines = COMMAND_TAIL_LINES) {
+function tailText(current, chunk, maxLines = COMMAND_PREVIEW_LINES, maxChars = COMMAND_PREVIEW_TOTAL_CHARS) {
   const lines = (current + chunk).split(/\r?\n/)
-  if (lines.length <= maxLines) return lines.join('\n')
-  return lines.slice(lines.length - maxLines).join('\n')
+  const truncatedByLines = lines.length > maxLines
+  const lineLimitedText = truncatedByLines ? lines.slice(lines.length - maxLines).join('\n') : lines.join('\n')
+  const charLimitedText = tailChars(lineLimitedText, maxChars)
+  return {
+    text: charLimitedText.text,
+    truncated: truncatedByLines || charLimitedText.truncated,
+  }
+}
+
+function tailChars(text, maxChars) {
+  if (text.length <= maxChars) return { text, truncated: false }
+  return { text: text.slice(text.length - maxChars), truncated: true }
+}
+
+function balanceCommandPreviews(stdout, stderr, maxChars = COMMAND_PREVIEW_TOTAL_CHARS) {
+  if (stdout.length + stderr.length <= maxChars) {
+    return { stdout, stderr, stdoutTruncated: false, stderrTruncated: false }
+  }
+
+  const half = Math.floor(maxChars / 2)
+  let stdoutBudget = Math.min(stdout.length, half)
+  let stderrBudget = Math.min(stderr.length, half)
+  const remaining = maxChars - stdoutBudget - stderrBudget
+
+  if (remaining > 0) {
+    const stdoutNeed = Math.max(0, stdout.length - stdoutBudget)
+    const stderrNeed = Math.max(0, stderr.length - stderrBudget)
+    if (stderrNeed >= stdoutNeed) stderrBudget += Math.min(remaining, stderrNeed)
+    else stdoutBudget += Math.min(remaining, stdoutNeed)
+  }
+
+  const nextStdout = tailChars(stdout, stdoutBudget)
+  const nextStderr = tailChars(stderr, stderrBudget)
+  return {
+    stdout: nextStdout.text,
+    stderr: nextStderr.text,
+    stdoutTruncated: nextStdout.truncated,
+    stderrTruncated: nextStderr.truncated,
+  }
 }
 
 function tailLabel(name, truncated) {
-  return truncated ? `${name} (last ${COMMAND_TAIL_LINES} lines):` : `${name}:`
+  return truncated ? `${name} preview (last ${COMMAND_PREVIEW_LINES} lines, shared ${COMMAND_PREVIEW_TOTAL_CHARS} chars):` : `${name} preview:`
 }
 
 function commandStatus(meta = {}) {
@@ -662,7 +700,7 @@ function formatCommandOutput(command, stdout, stderr, meta = {}) {
   if (typeof meta.timeoutMs === 'number') lines.push(`Timeout: ${formatDurationMs(meta.timeoutMs)}`)
   if (meta.cwd) lines.push(`CWD: ${meta.cwd}`)
   if (meta.outputFile) lines.push(`Full output: ${meta.outputFile}`)
-  if (meta.outputTruncated) lines.push(`Output mode: showing the last ${COMMAND_TAIL_LINES} lines; full output is saved to the log file.`)
+  if (meta.truncated) lines.push(`Output mode: showing stdout/stderr previews; each stream is limited to the last ${COMMAND_PREVIEW_LINES} lines and both streams share ${COMMAND_PREVIEW_TOTAL_CHARS} characters. Full output is saved to the log file.`)
   if (meta.logError) lines.push(`Log warning: ${meta.logError}`)
   lines.push('', tailLabel('STDOUT', meta.stdoutTruncated), stdout || '(empty)', '', tailLabel('STDERR', meta.stderrTruncated), stderr || '(empty)')
   return lines.join('\n')
@@ -740,14 +778,31 @@ export async function toolRunCommand(params, context, runtime = {}) {
   const startedAt = Date.now()
 
   if (runtime.signal?.aborted) {
-    const content = formatCommandOutput(command, '', 'Command aborted before start.', {
-      aborted: true,
-      cwd,
+    const details = {
+      command,
       description,
+      project: context?.project,
+      cwd,
       timeoutMs,
+      outputFile: null,
+      stdout: '',
+      stderr: 'Command aborted before start.',
+      stdout_preview: '',
+      stderr_preview: 'Command aborted before start.',
+      stdoutTruncated: false,
+      stderrTruncated: false,
+      stdout_truncated: false,
+      stderr_truncated: false,
+      outputTruncated: false,
+      truncated: false,
+      previewLineLimit: COMMAND_PREVIEW_LINES,
+      previewCharLimit: COMMAND_PREVIEW_TOTAL_CHARS,
+      previewMode: 'tail',
       durationMs: 0,
-    })
-    return { content: truncateText(content), details: { command, description, project: context?.project, cwd, timeoutMs, durationMs: 0, aborted: true } }
+      aborted: true,
+    }
+    const content = formatCommandOutput(command, details.stdout, details.stderr, details)
+    return { content: truncateText(content), details }
   }
 
   let logStream = null
@@ -794,6 +849,12 @@ export async function toolRunCommand(params, context, runtime = {}) {
 
     const commonDetails = (extra = {}) => {
       const now = Date.now()
+      const previews = balanceCommandPreviews(stdout, stderr)
+      const stdoutPreview = previews.stdout
+      const stderrPreview = previews.stderr
+      const stdoutPreviewTruncated = stdoutTruncated || previews.stdoutTruncated
+      const stderrPreviewTruncated = stderrTruncated || previews.stderrTruncated
+      const truncated = stdoutPreviewTruncated || stderrPreviewTruncated
       return {
         command,
         description,
@@ -801,11 +862,19 @@ export async function toolRunCommand(params, context, runtime = {}) {
         cwd,
         timeoutMs,
         outputFile,
-        stdout,
-        stderr,
-        stdoutTruncated,
-        stderrTruncated,
-        outputTruncated: stdoutTruncated || stderrTruncated,
+        stdout: stdoutPreview,
+        stderr: stderrPreview,
+        stdout_preview: stdoutPreview,
+        stderr_preview: stderrPreview,
+        stdoutTruncated: stdoutPreviewTruncated,
+        stderrTruncated: stderrPreviewTruncated,
+        stdout_truncated: stdoutPreviewTruncated,
+        stderr_truncated: stderrPreviewTruncated,
+        outputTruncated: truncated,
+        truncated,
+        previewLineLimit: COMMAND_PREVIEW_LINES,
+        previewCharLimit: COMMAND_PREVIEW_TOTAL_CHARS,
+        previewMode: 'tail',
         durationMs: now - startedAt,
         toolCallId: runtime.toolCallId,
         logError,
@@ -843,13 +912,13 @@ export async function toolRunCommand(params, context, runtime = {}) {
         const details = commonDetails({ error: error.message, aborted, timedOut, durationMs })
         resolveAfterLogClose({
           isError: true,
-          content: truncateText(formatCommandOutput(command, stdout, `Error running command: ${error.message}\n${stderr}`.trim(), details)),
+          content: truncateText(formatCommandOutput(command, details.stdout, `Error running command: ${error.message}\n${details.stderr}`.trim(), details)),
           details,
         })
         return
       }
       const details = commonDetails({ code, signal, timedOut, aborted, durationMs })
-      const content = formatCommandOutput(command, stdout, stderr, details)
+      const content = formatCommandOutput(command, details.stdout, details.stderr, details)
       resolveAfterLogClose({ content: truncateText(content), details })
     }
 
@@ -877,7 +946,7 @@ export async function toolRunCommand(params, context, runtime = {}) {
       updatePending = false
       const details = runningDetails()
       runtime.onUpdate?.({
-        content: [{ type: 'text', text: truncateText(formatCommandOutput(command, stdout, stderr, details)) }],
+        content: [{ type: 'text', text: truncateText(formatCommandOutput(command, details.stdout, details.stderr, details)) }],
         details,
       })
     }
@@ -890,7 +959,7 @@ export async function toolRunCommand(params, context, runtime = {}) {
       updatePending = false
       const details = runningDetails()
       runtime.onUpdate?.({
-        content: [{ type: 'text', text: truncateText(formatCommandOutput(command, stdout, stderr, details)) }],
+        content: [{ type: 'text', text: truncateText(formatCommandOutput(command, details.stdout, details.stderr, details)) }],
         details,
       })
     }
@@ -909,16 +978,18 @@ export async function toolRunCommand(params, context, runtime = {}) {
     child.stdout.on('data', (chunk) => {
       if (settled) return
       const text = chunk.toString()
-      stdoutTruncated = stdoutTruncated || (stdout + text).split(/\r?\n/).length > COMMAND_TAIL_LINES
-      stdout = tailText(stdout, text)
+      const nextStdout = tailText(stdout, text)
+      stdoutTruncated = stdoutTruncated || nextStdout.truncated
+      stdout = nextStdout.text
       if (logStream && !logError) writeCommandLog(logStream, 'stdout', text)
       scheduleUpdate()
     })
     child.stderr.on('data', (chunk) => {
       if (settled) return
       const text = chunk.toString()
-      stderrTruncated = stderrTruncated || (stderr + text).split(/\r?\n/).length > COMMAND_TAIL_LINES
-      stderr = tailText(stderr, text)
+      const nextStderr = tailText(stderr, text)
+      stderrTruncated = stderrTruncated || nextStderr.truncated
+      stderr = nextStderr.text
       if (logStream && !logError) writeCommandLog(logStream, 'stderr', text)
       scheduleUpdate()
     })

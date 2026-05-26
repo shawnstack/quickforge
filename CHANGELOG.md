@@ -6,7 +6,7 @@ All notable changes to QuickForge will be documented in this file.
 
 ### Changed
 
-- Enhanced `run_command` for long-running tests with configurable timeouts, last-100-line output streaming, duration metadata, and full command log files.
+- Enhanced `run_command` for long-running tests with configurable timeouts, stdout/stderr previews capped at the last 200 lines and 10,000 shared characters, truncation metadata, duration metadata, and full command log files.
 - Updated the server tools wiki for the long-running command output behavior.
 
 ### Released

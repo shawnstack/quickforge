@@ -702,10 +702,12 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     return
   }
 
-  const yoloIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 8 4 4-4 4"/><path d="M13 16h4"/><rect width="18" height="14" x="3" y="5" rx="2"/></svg>'
-  const yoloLabel = `${yoloIcon}<span>YOLO</span><span class="ml-0.5 size-1.5 rounded-full ${yoloMode ? 'bg-emerald-500' : 'bg-muted-foreground/45'}"></span>`
-  const yoloClass = `quickforge-yolo-inline inline-flex h-8 items-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium ${yoloMode ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'}`
-  const yoloTitle = yoloMode ? t('yoloEnabledTitle') : t('yoloDisabledTitle')
+  const workspaceAccessIcon = yoloMode
+    ? '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 19 6v5c0 4.5-2.8 8.4-7 10-4.2-1.6-7-5.5-7-10V6l7-3Z"/><path d="m9 12 2 2 4-4"/></svg>'
+    : '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 19 6v5c0 4.5-2.8 8.4-7 10-4.2-1.6-7-5.5-7-10V6l7-3Z"/><path d="M9 12h6"/></svg>'
+  const workspaceAccessLabel = workspaceAccessIcon
+  const workspaceAccessClass = `quickforge-yolo-inline inline-flex h-8 items-center justify-center rounded-md border border-transparent px-2 text-xs font-medium ${yoloMode ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'}`
+  const workspaceAccessTitle = yoloMode ? t('yoloEnabledTitle') : t('yoloDisabledTitle')
 
   const handleYoloToggle = (event: Event) => {
     event.preventDefault()
@@ -723,13 +725,13 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     const prevMode = existingButton.getAttribute('aria-pressed')
     const nextMode = String(yoloMode)
     if (prevMode !== nextMode) {
-      patchContent(existingButton, yoloLabel)
+      patchContent(existingButton, workspaceAccessLabel)
       existingButton.setAttribute('aria-pressed', nextMode)
-      existingButton.className = yoloClass
+      existingButton.className = workspaceAccessClass
     }
-    if (existingButton.title !== yoloTitle) {
-      existingButton.title = yoloTitle
-      existingButton.setAttribute('aria-label', yoloTitle)
+    if (existingButton.title !== workspaceAccessTitle) {
+      existingButton.title = workspaceAccessTitle
+      existingButton.setAttribute('aria-label', workspaceAccessTitle)
     }
     existingButton.onpointerdown = handleYoloToggle
     existingButton.onclick = (event) => {
@@ -742,11 +744,11 @@ export function decorateEditor(deps: EditorDecorationDeps) {
 
   const button = document.createElement('button')
   button.type = 'button'
-  patchContent(button, yoloLabel)
-  button.title = yoloTitle
-  button.setAttribute('aria-label', yoloTitle)
+  patchContent(button, workspaceAccessLabel)
+  button.title = workspaceAccessTitle
+  button.setAttribute('aria-label', workspaceAccessTitle)
   button.setAttribute('aria-pressed', String(yoloMode))
-  button.className = yoloClass
+  button.className = workspaceAccessClass
   button.onpointerdown = handleYoloToggle
   button.onclick = (event) => {
     event.preventDefault()

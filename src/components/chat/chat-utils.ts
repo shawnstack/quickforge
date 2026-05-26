@@ -58,6 +58,7 @@ export type MessageWithUsage = {
   toolCallId?: string
   toolCall?: unknown
   result?: unknown
+  details?: unknown
   usage?: MessageUsage
   timestamp?: number | string
 }
@@ -148,31 +149,37 @@ export const hasDraft = (draft: ComposerDraft) => draft.text.length > 0 || (draf
 // Token estimation (approximate)
 // ---------------------------------------------------------------------------
 
-export function estimateTextTokens(text: string) {
-  let ascii = 0
-  let nonAscii = 0
-  for (const char of text) {
-    if (/\s/.test(char)) continue
-    if (char.charCodeAt(0) <= 0x7f) ascii += 1
-    else nonAscii += 1
+export function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return ''
   }
-  return Math.ceil(ascii / 4 + nonAscii / 1.8)
+}
+
+export function estimateTextTokens(text: string) {
+  const value = String(text || '')
+  if (!value) return 0
+  const cjkChars = value.match(/[\u3400-\u9fff\uf900-\ufaff]/g)?.length ?? 0
+  const otherChars = Math.max(0, value.length - cjkChars)
+  return Math.ceil(cjkChars + otherChars / 3.5)
 }
 
 export function textFromUnknown(value: unknown): string {
   if (!value) return ''
   if (typeof value === 'string') return value
-  if (Array.isArray(value)) return value.map(textFromUnknown).filter(Boolean).join('\n')
-  if (typeof value === 'object') {
-    const record = value as Record<string, unknown>
-    if (typeof record.text === 'string') return record.text
-    if (typeof record.content === 'string') return record.content
-    try {
-      return JSON.stringify(value)
-    } catch {
-      return ''
-    }
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      if (!item || typeof item !== 'object') return textFromUnknown(item)
+      const record = item as Record<string, unknown>
+      if (record.type === 'text') return typeof record.text === 'string' ? record.text : ''
+      if (record.type === 'thinking') return typeof record.thinking === 'string' ? record.thinking : ''
+      if (record.type === 'image') return `[image:${typeof record.mimeType === 'string' ? record.mimeType : 'unknown'}]`
+      if (record.type === 'toolCall') return `[toolCall:${typeof record.name === 'string' ? record.name : 'unknown'}] ${safeJson(record.arguments)}`
+      return safeJson(record)
+    }).filter(Boolean).join('\n')
   }
+  if (typeof value === 'object') return safeJson(value)
   return String(value)
 }
 
@@ -197,13 +204,15 @@ export function estimateMessageTokens(message: MessageWithUsage) {
   const parts = [message.role ?? '', textFromUnknown(message.content)]
   if (message.toolName) parts.push(message.toolName)
   if (message.toolCallId) parts.push(message.toolCallId)
-  if (message.toolCall) parts.push(textFromUnknown(message.toolCall))
-  if (message.result) parts.push(textFromUnknown(message.result))
-  return 4 + estimateTextTokens(parts.filter(Boolean).join('\n')) + estimateAttachmentTokens(message.attachments)
+  if (message.details !== undefined) parts.push(safeJson(message.details))
+  if (message.attachments !== undefined) parts.push(safeJson(message.attachments))
+  return estimateTextTokens(parts.filter(Boolean).join('\n'))
 }
 
-export function estimateHistoryTokens(systemPrompt: string, messages: MessageWithUsage[]) {
-  return estimateTextTokens(systemPrompt) + messages.reduce((total, message) => total + estimateMessageTokens(message), 0)
+export function estimateHistoryTokens(systemPrompt: string, messages: MessageWithUsage[], tools: unknown = []) {
+  return estimateTextTokens(systemPrompt)
+    + messages.reduce((total, message) => total + estimateMessageTokens(message), 0)
+    + estimateTextTokens(safeJson(tools))
 }
 
 // ---------------------------------------------------------------------------
@@ -234,8 +243,10 @@ export function latestCompactTimestamp(messages: MessageWithUsage[]) {
 export type ContextUsageInfo = {
   contextWindow: number
   usedTokens: number
+  totalTokens: number
   inputTokens: number
-  estimatedTokens: number
+  estimatedInputTokens: number
+  reservedOutputTokens: number
   percent: number
   color: string
 }
@@ -244,6 +255,8 @@ export function getContextUsage(
   systemPrompt: string,
   messages: MessageWithUsage[],
   contextWindow: number,
+  tools: unknown = [],
+  maxTokens?: number,
 ): ContextUsageInfo {
   const compactedAt = latestCompactTimestamp(messages)
   const usage = messages.reduce((latestUsage, message) => {
@@ -253,11 +266,14 @@ export function getContextUsage(
     return currentUsage
   }, undefined as MessageUsage | undefined)
   const inputTokens = usage?.input ?? usage?.totalTokens ?? 0
-  const estimatedTokens = estimateHistoryTokens(systemPrompt, messages)
-  const usedTokens = Math.max(inputTokens, estimatedTokens)
-  const percent = contextWindow > 0 ? Math.min(100, Math.max(0, Math.round((usedTokens / contextWindow) * 100))) : 0
-  const hue = Math.round(142 - (142 * percent / 100))
-  return { contextWindow, usedTokens, inputTokens, estimatedTokens, percent, color: `hsl(${hue} 72% 45%)` }
+  const estimatedInputTokens = estimateHistoryTokens(systemPrompt, messages, tools)
+  const usedTokens = Math.max(inputTokens, estimatedInputTokens)
+  const reservedOutputTokens = Math.max(0, Number(maxTokens) || 4096)
+  const totalTokens = usedTokens + reservedOutputTokens
+  const percent = contextWindow > 0 ? Math.round((totalTokens / contextWindow) * 1000) / 10 : 0
+  const colorPercent = Math.min(100, Math.max(0, percent))
+  const hue = Math.round(142 - (142 * colorPercent / 100))
+  return { contextWindow, usedTokens, totalTokens, inputTokens, estimatedInputTokens, reservedOutputTokens, percent, color: `hsl(${hue} 72% 45%)` }
 }
 
 export function formatTokens(value: number) {

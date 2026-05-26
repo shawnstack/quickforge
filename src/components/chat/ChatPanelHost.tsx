@@ -247,6 +247,8 @@ export function ChatPanelHost({
       getMessages: () => agent.state.messages as MessageWithUsage[],
       getEffectiveMessages: () => effectiveContextMessages(agent),
       getContextWindow: () => agent.state.model?.contextWindow ?? 0,
+      getTools: () => agent.state.tools,
+      getMaxTokens: () => agent.state.model?.maxTokens,
     })
 
     // --- Composer input/file-change handlers (update draft map) ---

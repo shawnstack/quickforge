@@ -16,15 +16,17 @@ type ContextUsageOptions = {
   getSystemPrompt: () => string
   getMessages: () => MessageWithUsage[]
   getContextWindow: () => number
+  getTools?: () => unknown
+  getMaxTokens?: () => number | undefined
   getEffectiveMessages?: () => MessageWithUsage[]
 }
 
-export function createContextUsageIndicator({ panel, getSystemPrompt, getMessages, getContextWindow, getEffectiveMessages }: ContextUsageOptions) {
+export function createContextUsageIndicator({ panel, getSystemPrompt, getMessages, getContextWindow, getTools, getMaxTokens, getEffectiveMessages }: ContextUsageOptions) {
   const update = () => {
     const contextWindow = getContextWindow()
     const visibleMessages = getMessages()
     const effectiveMessages = getEffectiveMessages?.() ?? visibleMessages
-    const usage = getContextUsage(getSystemPrompt(), effectiveMessages, contextWindow)
+    const usage = getContextUsage(getSystemPrompt(), effectiveMessages, contextWindow, getTools?.() ?? [], getMaxTokens?.())
     const existing = panel.querySelector<HTMLElement>('.quickforge-context-usage')
     const statsRight = panel.querySelector('message-editor')?.parentElement?.querySelector<HTMLElement>('.ml-auto.items-center')
     if (!contextWindow || !statsRight) {
@@ -34,8 +36,9 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
     }
 
     const isCompacted = effectiveMessages !== visibleMessages
-    const title = `Context used: ${usage.percent}% (${formatTokens(usage.usedTokens)} / ${formatTokens(contextWindow)} tokens, input ${formatTokens(usage.inputTokens)}, estimated history ${formatTokens(usage.estimatedTokens)}${isCompacted ? ', compacted model context' : ''})`
-    const ring = `conic-gradient(${usage.color} ${usage.percent * 3.6}deg, rgb(229 231 235) 0deg)`
+    const title = `Context used: ${usage.percent}% (${formatTokens(usage.totalTokens)} / ${formatTokens(contextWindow)} tokens, input ${formatTokens(usage.inputTokens)}, estimated input ${formatTokens(usage.estimatedInputTokens)}, reserved output ${formatTokens(usage.reservedOutputTokens)}${isCompacted ? ', compacted model context' : ''})`
+    const ringPercent = Math.min(100, Math.max(0, usage.percent))
+    const ring = `conic-gradient(${usage.color} ${ringPercent * 3.6}deg, rgb(229 231 235) 0deg)`
     const icon = existing ?? document.createElement('span')
     icon.className = 'quickforge-context-usage'
     icon.title = title

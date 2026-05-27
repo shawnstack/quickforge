@@ -93,10 +93,20 @@ function isDisplayMessage(message: MessageWithUsage) {
   return message.role === 'user' || message.role === 'user-with-attachments' || message.role === 'assistant'
 }
 
+function getPrimaryMessageList(panel: HTMLElement) {
+  return panel.querySelector<HTMLElement>('message-list')
+}
+
+function getPrimaryMessageElements(panel: HTMLElement) {
+  const messageList = getPrimaryMessageList(panel)
+  if (!messageList) return []
+
+  return Array.from(messageList.querySelectorAll<HTMLElement>('user-message, assistant-message'))
+    .filter((element) => element.closest('message-list') === messageList)
+}
+
 function insertBeforeMessageElement(panel: HTMLElement, messages: MessageWithUsage[], messageIndex: number, notice: HTMLElement) {
-  const messageElements = Array.from(
-    panel.querySelectorAll<HTMLElement>('message-list user-message, message-list assistant-message'),
-  )
+  const messageElements = getPrimaryMessageElements(panel)
   let displayIndex = 0
   for (let index = 0; index < messages.length; index++) {
     if (!isDisplayMessage(messages[index])) continue
@@ -231,9 +241,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
       return message.role === 'user' || message.role === 'user-with-attachments' || message.role === 'assistant'
     })
 
-  const messageElements = Array.from(
-    panel.querySelectorAll<HTMLElement>('message-list user-message, message-list assistant-message'),
-  )
+  const messageElements = getPrimaryMessageElements(panel)
 
   const createCopyButton = (getText: () => string) => {
     const title = t('copy')
@@ -574,9 +582,7 @@ function decorateProcessTurn(assistants: AssistantMessageElement[], isAgentStrea
 }
 
 function decorateProcessBlocks(panel: HTMLElement, isAgentStreaming: boolean) {
-  const orderedMessages = Array.from(
-    panel.querySelectorAll<HTMLElement>('message-list user-message, message-list assistant-message'),
-  )
+  const orderedMessages = getPrimaryMessageElements(panel)
 
   const turns: AssistantMessageElement[][] = []
   let currentAssistants: AssistantMessageElement[] = []

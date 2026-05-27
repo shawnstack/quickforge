@@ -200,7 +200,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     const isReasoningModel = modelForm.reasoning === true
     const isDeepSeek = baseUrl.includes('api.deepseek.com')
 
-    return normalizeModelForProvider({
+    const model = {
       id: modelForm.modelId,
       name: `${modelForm.modelId} (${name})`,
       api: this.form.protocol,
@@ -212,6 +212,15 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       contextWindow: Number(modelForm.contextWindow) || DEFAULT_CONNECTION.contextWindow,
       maxTokens: Number(modelForm.maxTokens) || DEFAULT_CONNECTION.maxTokens,
       headers: Object.keys(headers).length > 0 ? headers : undefined,
+      thinkingLevelMap:
+        isDeepSeek && isReasoningModel
+          ? {
+              low: 'high',
+              medium: 'high',
+              high: 'high',
+              xhigh: 'max',
+            }
+          : undefined,
       compat:
         this.form.protocol === 'openai-completions'
           ? {
@@ -226,17 +235,13 @@ export class CustomProvidersOnlyTab extends SettingsTab {
                 ? {
                     requiresReasoningContentOnAssistantMessages: true,
                     thinkingFormat: 'deepseek' as const,
-                    reasoningEffortMap: {
-                      low: 'high',
-                      medium: 'high',
-                      high: 'high',
-                      xhigh: 'max',
-                    } as Record<string, string>,
                   }
                 : {}),
             }
           : undefined,
-    } satisfies AnyModel)
+    } satisfies AnyModel
+
+    return normalizeModelForProvider(model)
   }
 
   private async saveModel() {

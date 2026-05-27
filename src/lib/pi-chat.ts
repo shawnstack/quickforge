@@ -69,14 +69,15 @@ function deepSeekThinkingCompat(): OpenAICompletionsCompat {
   return {
     requiresReasoningContentOnAssistantMessages: true,
     thinkingFormat: 'deepseek',
-    reasoningEffortMap: {
-      low: 'high',
-      medium: 'high',
-      high: 'high',
-      xhigh: 'max',
-    },
   }
 }
+
+const deepSeekThinkingLevelMap = {
+  low: 'high',
+  medium: 'high',
+  high: 'high',
+  xhigh: 'max',
+} as const
 
 function inferCustomThinkingFormat(provider: string, baseUrl: string): NonNullable<OpenAICompletionsCompat['thinkingFormat']> {
   const normalizedProvider = provider.toLowerCase()
@@ -134,6 +135,10 @@ export function normalizeModelForProvider<TApi extends Api>(model: Model<TApi>):
   return {
     ...openAiModel,
     reasoning: true,
+    thinkingLevelMap: {
+      ...openAiModel.thinkingLevelMap,
+      ...deepSeekThinkingLevelMap,
+    },
     compat: {
       ...openAiModel.compat,
       supportsReasoningEffort: true,
@@ -149,7 +154,7 @@ export function buildConnectionModel(form: ConnectionForm): Model<'openai-comple
   const isDeepSeekThinking = isDeepSeekThinkingModelInfo(modelId, baseUrl, provider)
   const isReasoningModel = form.reasoning === true || isDeepSeekThinking
 
-  return normalizeModelForProvider({
+  const model = {
     id: modelId,
     name: `${modelId} (${provider})`,
     api: 'openai-completions',
@@ -160,6 +165,7 @@ export function buildConnectionModel(form: ConnectionForm): Model<'openai-comple
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: Number(form.contextWindow) || DEFAULT_CONNECTION.contextWindow,
     maxTokens: Number(form.maxTokens) || DEFAULT_CONNECTION.maxTokens,
+    thinkingLevelMap: isDeepSeekThinking ? deepSeekThinkingLevelMap : undefined,
     compat: {
       supportsStore: false,
       supportsDeveloperRole: false,
@@ -170,7 +176,9 @@ export function buildConnectionModel(form: ConnectionForm): Model<'openai-comple
       // DeepSeek V4 requires reasoning_content on assistant messages in tool-call rounds
       ...(isDeepSeekThinking ? deepSeekThinkingCompat() : {}),
     },
-  })
+  } satisfies Model<'openai-completions'>
+
+  return normalizeModelForProvider(model)
 }
 
 function createStores(): StoreBundle {

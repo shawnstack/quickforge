@@ -51,8 +51,8 @@
     "preview": "node server/index.mjs"
   },
   "dependencies": {
-    "@mariozechner/pi-agent-core": "^0.70.5",
-    "@mariozechner/pi-ai": "^0.70.5",
+    "@mariozechner/pi-agent-core": "^0.73.1",
+    "@mariozechner/pi-ai": "^0.73.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@vscode/ripgrep": "^1.18.0",
     "ws": "^8.20.1"
@@ -60,7 +60,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@mariozechner/mini-lit": "^0.2.1",
-    "@mariozechner/pi-web-ui": "^0.70.5",
+    "@mariozechner/pi-web-ui": "^0.73.1",
     "@monaco-editor/react": "^4.7.0",
     "@tailwindcss/vite": "^4.2.4",
     "@types/node": "^24.12.2",

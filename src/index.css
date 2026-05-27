@@ -79,6 +79,13 @@
   margin-left: auto;
 }
 
+@media (hover: none), (pointer: coarse), (width < 48rem) {
+  .quickforge-message-actions {
+    opacity: 1 !important;
+    pointer-events: auto;
+  }
+}
+
 .quickforge-user-message markdown-block {
   overflow-wrap: anywhere;
 }

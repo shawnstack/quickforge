@@ -265,7 +265,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     element.classList.toggle('quickforge-assistant-message', entry.message.role === 'assistant')
     element.classList.toggle('quickforge-user-message', entry.message.role !== 'assistant')
 
-    const actionsClass = `quickforge-message-actions pointer-events-none mt-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 ${entry.message.role === 'assistant' ? 'px-4 justify-start' : 'mx-4 justify-end'}`
+    const actionsClass = `quickforge-message-actions pointer-events-none mt-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${entry.message.role === 'assistant' ? 'px-4 justify-start' : 'mx-4 justify-end'}`
     const existingActions = element.querySelector<HTMLElement>('.quickforge-message-actions')
     if (existingActions?.dataset.quickforgeLayout === 'message-bottom') {
       existingActions.className = actionsClass

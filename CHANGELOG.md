@@ -2,6 +2,31 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.19] - 2026-05-27
+
+### Added
+
+- Added subagent support and streamed subagent traces in chat.
+
+### Changed
+
+- Improved project task prompt guidance, search tool visibility, workspace authorization styling, and subagent timeout behavior.
+- Updated Pi dependencies and DeepSeek thinking-level model configuration.
+
+### Fixed
+
+- Fixed context usage accounting, compact summary notices, collapsed subagent tool-call display, and chat decoration for subagent traces.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.19` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.19.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.19.tgz
+  ```
+
 ## [1.3.18] - 2026-05-26
 
 ### Changed

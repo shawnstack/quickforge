@@ -38,15 +38,17 @@ git log --oneline -10 --decorate --all
 - 若变更正是本次待发布内容，可继续。
 - 若变更来源不明，先询问用户。
 
-### 3.2 快速准备脚本（推荐）
+### 3.2 快速准备脚本（仅人工调试使用，不要默认执行）
 
-优先使用脚本完成可自动化步骤：
+> 经验记录：2026-05-27 在 Windows 工作区中执行 `npm run release:patch:prepare -- --notes ...` 时，脚本在调用 `npm.cmd version patch --no-git-tag-version` 阶段失败，报错 `spawnSync npm.cmd EINVAL`。后续发布默认不要执行该脚本，改走 3.3 起的手动流程。仅在人工明确要求调试该脚本时使用。
+
+该脚本原本用于自动化以下步骤：
 
 ```bash
 npm run release:patch:prepare
 ```
 
-该脚本会：
+它会：
 
 - 执行 `npm version patch --no-git-tag-version`。
 - 更新 `README.md` 中的版本徽章、npm 安装版本、离线包路径和 tag 文案。
@@ -57,7 +59,7 @@ npm run release:patch:prepare
 
 脚本不会自动 Git commit、打 tag、push 或 npm publish；这些仍需复核后手动执行，或由 Agent 在用户明确授权后执行。
 
-常用参数：
+常用参数仅供调试参考：
 
 ```bash
 # 仅预览目标版本、当前变更和将执行的步骤，不改文件
@@ -73,7 +75,7 @@ npm run release:patch:prepare -- --skip-version
 npm run release:patch:prepare -- --no-build --no-lint --no-pack
 ```
 
-如果脚本失败：
+如果脚本被人工用于调试且失败：
 
 - 若已经完成版本递增，修复问题后可用 `--skip-version` 继续，避免再次递增 patch。
 - 若需要放弃本次准备，按 `git diff` / `git status` 检查后手动还原版本和文档改动。

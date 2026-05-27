@@ -447,6 +447,30 @@ function arrayFromUnknown(value: unknown) {
   return Array.isArray(value) ? value : []
 }
 
+function subagentToolTraceMessages(messages: unknown[]) {
+  const toolCallIds = new Set<string>()
+  const assistantMessages: unknown[] = []
+
+  for (const message of messages) {
+    if (!isRecord(message) || message.role !== 'assistant' || !Array.isArray(message.content)) continue
+    const toolContent = message.content.filter((chunk) => isRecord(chunk) && chunk.type === 'toolCall')
+    if (toolContent.length === 0) continue
+    for (const chunk of toolContent) {
+      if (isRecord(chunk) && typeof chunk.id === 'string') toolCallIds.add(chunk.id)
+    }
+    assistantMessages.push({ ...message, content: toolContent, usage: undefined })
+  }
+
+  const toolResults = messages.filter((message) => (
+    isRecord(message)
+    && message.role === 'toolResult'
+    && typeof message.toolCallId === 'string'
+    && toolCallIds.has(message.toolCallId)
+  ))
+
+  return [...assistantMessages, ...toolResults]
+}
+
 class SubagentToolRenderer {
   render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
     const status: ToolStatusKey = result?.isError ? 'error' : isStreaming ? 'running' : result ? 'done' : 'called'
@@ -467,6 +491,7 @@ class SubagentToolRenderer {
     const traceTools = arrayFromUnknown(details?.tools)
     const pendingToolCalls = new Set(stringArrayFromUnknown(details?.pendingToolCalls))
     const toolDisplaySettings = getCachedToolDisplaySettings()
+    const visibleTraceMessages = toolDisplaySettings.showToolDetails ? traceMessages : subagentToolTraceMessages(traceMessages)
     const input = toolDisplaySettings.showToolDetails ? stringifyValue(params) : ''
     const detailJson = toolDisplaySettings.showToolDetails ? stringifyValue(result?.details) : ''
     const output = resultText(result)
@@ -489,7 +514,7 @@ class SubagentToolRenderer {
             ${renderStatus(status, timing)}
           </summary>
           <div class="mt-3 space-y-3">
-            <div class="quickforge-subagent-summary rounded-lg border border-border/75 bg-muted/20 px-3 py-2.5 text-sm">
+            ${toolDisplaySettings.showToolDetails ? html`<div class="quickforge-subagent-summary rounded-lg border border-border/75 bg-muted/20 px-3 py-2.5 text-sm">
               <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
                 <span class="font-medium text-foreground/85">${label}</span>
                 ${toolCalls !== undefined ? html`<span>${t('subagentToolCalls')}: ${toolCalls}</span>` : nothing}
@@ -499,8 +524,8 @@ class SubagentToolRenderer {
               ${context ? html`<div class="mt-1 text-xs text-muted-foreground/70"><span class="font-medium">${t('subagentContext')}:</span> ${context}</div>` : nothing}
               ${expectedOutput ? html`<div class="mt-1 text-xs text-muted-foreground/70"><span class="font-medium">${t('subagentExpectedOutput')}:</span> ${expectedOutput}</div>` : nothing}
               ${allowedTools.length > 0 ? html`<div class="mt-2 flex flex-wrap gap-1.5">${allowedTools.map((tool) => html`<span class="rounded-full bg-background/80 px-2 py-0.5 text-[11px] text-muted-foreground/80">${tool}</span>`)}</div>` : nothing}
-            </div>
-            ${toolDisplaySettings.showToolDetails && traceMessages.length > 0 ? html`<div class="quickforge-subagent-trace rounded-lg border border-border/70 bg-background/60 p-2.5"><message-list .messages=${traceMessages} .tools=${traceTools} .pendingToolCalls=${pendingToolCalls} .isStreaming=${status === 'running'}></message-list></div>` : nothing}
+            </div>` : nothing}
+            ${visibleTraceMessages.length > 0 ? html`<div class="quickforge-subagent-trace rounded-lg border border-border/70 bg-background/60 p-2.5"><message-list .messages=${visibleTraceMessages} .tools=${traceTools} .pendingToolCalls=${pendingToolCalls} .isStreaming=${status === 'running'}></message-list></div>` : nothing}
             ${output ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('subagentResult')}</div><code-block .code=${output} language="text"></code-block></div>` : nothing}
             ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : nothing}
             ${detailJson ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('details')}</div><code-block .code=${detailJson} language="json"></code-block></div>` : nothing}

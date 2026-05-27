@@ -36,7 +36,8 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
     }
 
     const isCompacted = effectiveMessages !== visibleMessages
-    const title = `Context used: ${usage.percent}% (${formatTokens(usage.totalTokens)} / ${formatTokens(contextWindow)} tokens, input ${formatTokens(usage.inputTokens)}, estimated input ${formatTokens(usage.estimatedInputTokens)}, reserved output ${formatTokens(usage.reservedOutputTokens)}${isCompacted ? ', compacted model context' : ''})`
+    const inputLabel = usage.inputTokenSource === 'provider' ? 'provider input' : 'estimated input'
+    const title = `Context used: ${usage.percent}% (${formatTokens(usage.totalTokens)} / ${formatTokens(contextWindow)} tokens, ${inputLabel} ${formatTokens(usage.inputTokens)}, estimated input ${formatTokens(usage.estimatedInputTokens)}, reserved output ${formatTokens(usage.reservedOutputTokens)}${isCompacted ? ', compacted model context' : ''})`
     const ringPercent = Math.min(100, Math.max(0, usage.percent))
     const ring = `conic-gradient(${usage.color} ${ringPercent * 3.6}deg, rgb(229 231 235) 0deg)`
     const icon = existing ?? document.createElement('span')

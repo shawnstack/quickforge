@@ -70,7 +70,6 @@ function estimateMessageTokens(message) {
   const parts = [message.role || '', contentToText(message.content)]
   if (message.toolName) parts.push(message.toolName)
   if (message.toolCallId) parts.push(message.toolCallId)
-  if (message.details !== undefined) parts.push(safeJson(message.details))
   if (message.attachments !== undefined) parts.push(safeJson(message.attachments))
   return estimateTextTokens(parts.join('\n'))
 }
@@ -82,7 +81,7 @@ function estimateMessagesTokens(messages) {
 function estimateMessagesChars(messages) {
   return (Array.isArray(messages) ? messages : []).reduce((total, message) => {
     if (!message || typeof message !== 'object') return total
-    return total + [message.role || '', contentToText(message.content), safeJson(message.details), safeJson(message.attachments)].join('\n').length
+    return total + [message.role || '', contentToText(message.content), safeJson(message.attachments)].join('\n').length
   }, 0)
 }
 

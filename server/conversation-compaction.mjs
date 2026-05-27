@@ -134,10 +134,6 @@ function formatMessageForTranscript(message, index) {
   const attachments = attachmentsSummary(message)
   if (attachments) bodyParts.push(attachments)
 
-  if (role === 'toolResult' && message?.details !== undefined) {
-    bodyParts.push(`[tool result details]\n${safeJson(message.details, 4000)}`)
-  }
-
   const body = bodyParts.join('\n\n').trim() || '[empty]'
   return redactSensitive(`### Message ${index + 1}: ${role}\n${body}`)
 }
@@ -158,7 +154,6 @@ function approximateMessageChars(message) {
   if (message?.attachments) total += safeJson(message.attachments, 1000).length
   if (message?.toolName) total += String(message.toolName).length
   if (message?.toolCallId) total += String(message.toolCallId).length
-  if (message?.details) total += safeJson(message.details, 1000).length
   return total
 }
 

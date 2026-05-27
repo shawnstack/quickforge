@@ -619,6 +619,13 @@ async function resolveCommandState(session, userMessage) {
   }
 }
 
+function omitDetailsForLlm(message) {
+  if (!message || typeof message !== 'object' || message.details === undefined) return message
+  const copy = { ...message }
+  delete copy.details
+  return copy
+}
+
 /**
  * Convert AgentMessage[] to LLM-compatible Message[].
  * Handles "user-with-attachments" → "user" with multi-modal content blocks.
@@ -642,9 +649,9 @@ function serverConvertToLlm(messages) {
             }
           }
         }
-        return { ...m, role: 'user', content: textContent }
+        return omitDetailsForLlm({ ...m, role: 'user', content: textContent })
       }
-      if (m.role === 'user' || m.role === 'assistant' || m.role === 'toolResult') return m
+      if (m.role === 'user' || m.role === 'assistant' || m.role === 'toolResult') return omitDetailsForLlm(m)
       return null
     })
     .filter(Boolean)

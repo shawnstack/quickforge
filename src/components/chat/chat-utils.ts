@@ -204,7 +204,6 @@ export function estimateMessageTokens(message: MessageWithUsage) {
   const parts = [message.role ?? '', textFromUnknown(message.content)]
   if (message.toolName) parts.push(message.toolName)
   if (message.toolCallId) parts.push(message.toolCallId)
-  if (message.details !== undefined) parts.push(safeJson(message.details))
   if (message.attachments !== undefined) parts.push(safeJson(message.attachments))
   return estimateTextTokens(parts.filter(Boolean).join('\n'))
 }
@@ -246,6 +245,7 @@ export type ContextUsageInfo = {
   totalTokens: number
   inputTokens: number
   estimatedInputTokens: number
+  inputTokenSource: 'provider' | 'estimated'
   reservedOutputTokens: number
   percent: number
   color: string
@@ -265,15 +265,18 @@ export function getContextUsage(
     if (compactedAt > 0 && messageTimestamp(message) <= compactedAt) return latestUsage
     return currentUsage
   }, undefined as MessageUsage | undefined)
-  const inputTokens = usage?.input ?? usage?.totalTokens ?? 0
+  const providerInputTokens = usage?.input ?? usage?.totalTokens ?? 0
   const estimatedInputTokens = estimateHistoryTokens(systemPrompt, messages, tools)
-  const usedTokens = Math.max(inputTokens, estimatedInputTokens)
+  const hasProviderInputTokens = Number.isFinite(Number(providerInputTokens)) && Number(providerInputTokens) > 0
+  const inputTokens = hasProviderInputTokens ? Number(providerInputTokens) : estimatedInputTokens
+  const usedTokens = inputTokens
+  const inputTokenSource = hasProviderInputTokens ? 'provider' : 'estimated'
   const reservedOutputTokens = Math.max(0, Number(maxTokens) || 4096)
   const totalTokens = usedTokens + reservedOutputTokens
   const percent = contextWindow > 0 ? Math.round((totalTokens / contextWindow) * 1000) / 10 : 0
   const colorPercent = Math.min(100, Math.max(0, percent))
   const hue = Math.round(142 - (142 * colorPercent / 100))
-  return { contextWindow, usedTokens, totalTokens, inputTokens, estimatedInputTokens, reservedOutputTokens, percent, color: `hsl(${hue} 72% 45%)` }
+  return { contextWindow, usedTokens, totalTokens, inputTokens, estimatedInputTokens, inputTokenSource, reservedOutputTokens, percent, color: `hsl(${hue} 72% 45%)` }
 }
 
 export function formatTokens(value: number) {

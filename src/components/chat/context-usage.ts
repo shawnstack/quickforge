@@ -26,7 +26,6 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
     const contextWindow = getContextWindow()
     const visibleMessages = getMessages()
     const effectiveMessages = getEffectiveMessages?.() ?? visibleMessages
-    const usage = getContextUsage(getSystemPrompt(), effectiveMessages, contextWindow, getTools?.() ?? [], getMaxTokens?.())
     const existing = panel.querySelector<HTMLElement>('.quickforge-context-usage')
     const statsRight = panel.querySelector('message-editor')?.parentElement?.querySelector<HTMLElement>('.ml-auto.items-center')
     if (!contextWindow || !statsRight) {
@@ -34,6 +33,19 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
       panel.querySelector<HTMLElement>('.quickforge-context-usage-label')?.remove()
       return
     }
+
+    const hasEffectiveMessages = effectiveMessages.length > 0
+    const usage = hasEffectiveMessages
+      ? getContextUsage(getSystemPrompt(), effectiveMessages, contextWindow, getTools?.() ?? [], getMaxTokens?.())
+      : {
+        totalTokens: 0,
+        inputTokens: 0,
+        estimatedInputTokens: 0,
+        inputTokenSource: 'estimated' as const,
+        reservedOutputTokens: 0,
+        percent: 0,
+        color: 'hsl(142 72% 45%)',
+      }
 
     const isCompacted = effectiveMessages !== visibleMessages
     const inputLabel = usage.inputTokenSource === 'provider' ? 'provider input' : 'estimated input'

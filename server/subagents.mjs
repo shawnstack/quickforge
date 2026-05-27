@@ -25,7 +25,7 @@ export const subagentDefinitions = [
     allowedTools: ['read_file', 'grep_files', 'write_file', 'edit_file', 'run_command'],
     allowFileMutations: true,
     maxRuntimeMs: 30 * 60 * 1000,
-    maxToolCalls: 30,
+    maxToolCalls: 300,
     systemPrompt: `You are General, a general-purpose subagent for complex research and multi-step implementation tasks. You may inspect, edit, write files, and run commands using the built-in workspace tools when needed. You do not have MCP tools or Agent Skills. Make focused, minimal changes that satisfy the delegated task, and verify your changes when appropriate.`,
   },
   {
@@ -36,7 +36,7 @@ export const subagentDefinitions = [
     allowedTools: ['read_file', 'grep_files'],
     allowFileMutations: false,
     maxRuntimeMs: 30 * 60 * 1000,
-    maxToolCalls: 16,
+    maxToolCalls: 300,
     systemPrompt: `You are Explore, a fast read-only exploration subagent. Use read_file and grep_files to locate relevant files, search keywords, identify patterns, and answer focused questions. You cannot modify files or run commands.`,
   },
 ]

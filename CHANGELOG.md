@@ -2,6 +2,22 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.20] - 2026-05-27
+
+### Changed
+
+- Increased built-in `general` and `explore` subagent tool-call budgets to 300.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.20` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.20.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.20.tgz
+  ```
+
 ## [1.3.19] - 2026-05-27
 
 ### Added

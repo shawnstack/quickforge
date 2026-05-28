@@ -1,6 +1,6 @@
 {
   "name": "@shawnstack/quickforge",
-  "version": "1.3.20",
+  "version": "1.3.21",
   "description": "AI chat application with YOLO-mode local workspace tools. React + Vite + Tailwind CSS frontend, local Node.js storage server.",
   "keywords": [
     "ai",

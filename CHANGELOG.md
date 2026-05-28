@@ -2,6 +2,27 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.21] - 2026-05-28
+
+### Changed
+
+- Updated patch release guidance to avoid the automated preparation script by default on Windows workspaces.
+
+### Fixed
+
+- Improved mobile message action spacing and touch behavior.
+- Show zero context usage for empty chats.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.21` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.21.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.21.tgz
+  ```
+
 ## [1.3.20] - 2026-05-27
 
 ### Changed

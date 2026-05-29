@@ -12,7 +12,7 @@
 | `filesystem.mjs` | 87 | 文件系统浏览 |
 | `tools.mjs` | 82 | 工具定义和执行 |
 | `skills.mjs` | 191 | Skills 管理 |
-| `agent-profiles.mjs` | 64 | Agent Profile 管理 API |
+| `agent-profiles.mjs` | 173 | Agent Profile 管理 API，支持 AI 填充基础定义 |
 | `scheduled-tasks.mjs` | 881 | 定时任务管理，支持绑定 Agent Profile |
 | `shares.mjs` | 90 | 分享管理 |
 | `shared-conversation.mjs` | 404 | 共享会话查看 |
@@ -101,6 +101,7 @@ Agent Profile 管理路由。
 - `GET /api/agent-profiles` — 列出内置和自定义 Agent Profile。
 - `POST /api/agent-profiles` — 创建自定义 Agent。
 - `GET /api/agent-profiles/available-tools` — 获取第一阶段可配置的 workspace 工具列表。
+- `POST /api/agent-profiles/ai-fill` — 使用默认模型生成 Agent 名称、显示名称、描述和系统提示词。
 - `GET /api/agent-profiles/:id` — 获取单个 Agent。
 - `PATCH|PUT /api/agent-profiles/:id` — 更新自定义 Agent。
 - `DELETE /api/agent-profiles/:id` — 删除自定义 Agent。

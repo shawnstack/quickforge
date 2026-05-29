@@ -77,6 +77,7 @@ components/
 
 - 与定时任务平级的 Agent Profiles 独立管理页面
 - 创建自定义 Agent，配置系统提示词、工具白名单、运行时间、工具调用次数和是否启用为 sub agent
+- 创建/编辑弹窗支持用默认模型 AI 填充 Agent 名称、显示名称、描述和系统提示词，不自动修改工具白名单或运行限制
 - 展示内置 Agent Profiles，但内置项只读
 
 ### skills-dialog.tsx (410 行)

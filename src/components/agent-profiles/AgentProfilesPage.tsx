@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Bot } from 'lucide-react'
+import type { ThinkingLevel } from '@mariozechner/pi-agent-core'
+import type { Api, Model } from '@mariozechner/pi-ai'
+import { Bot, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
 import { showConfirm } from '@/components/ui/confirm-dialog'
+import { defaultThinkingLevelForModel, getConfiguredModels, initializePiStorage, loadDefaultOptions, loadInitialConfiguredModel } from '@/lib/pi-chat'
 
 type RiskLevel = 'safe' | 'dangerous'
 
@@ -37,6 +40,9 @@ type AgentFormState = {
   maxToolCalls: string
   enabledAsSubagent: boolean
 }
+
+type GeneratedAgentFields = Pick<AgentFormState, 'name' | 'label' | 'description' | 'systemPrompt'>
+type AnyModel = Model<Api>
 
 function defaultAgentForm(): AgentFormState {
   return {
@@ -101,6 +107,10 @@ export function AgentProfilesPage() {
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null)
   const [agentForm, setAgentForm] = useState<AgentFormState>(() => defaultAgentForm())
   const [agentLoading, setAgentLoading] = useState(false)
+  const [aiFillInstruction, setAiFillInstruction] = useState('')
+  const [aiFillLoading, setAiFillLoading] = useState(false)
+  const [selectedModel, setSelectedModel] = useState<AnyModel>()
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('off')
   const [error, setError] = useState('')
 
   async function loadAgentProfiles() {
@@ -133,6 +143,27 @@ export function AgentProfilesPage() {
     }
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+    async function loadDefaultModel() {
+      try {
+        const storage = await initializePiStorage()
+        const configuredModels = await getConfiguredModels(storage)
+        const defaultOptions = await loadDefaultOptions(storage)
+        const activeModel = defaultOptions.model ?? await loadInitialConfiguredModel(storage) ?? configuredModels[0]
+        if (cancelled) return
+        setSelectedModel(activeModel)
+        setThinkingLevel(defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(activeModel))
+      } catch {
+        // AI fill will show a clear error if no model is available.
+      }
+    }
+    void loadDefaultModel()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const editingAgent = useMemo(() => agentProfiles.find((agent) => agent.id === editingAgentId) ?? null, [agentProfiles, editingAgentId])
 
   function updateAgentForm<K extends keyof AgentFormState>(key: K, value: AgentFormState[K]) {
@@ -151,6 +182,7 @@ export function AgentProfilesPage() {
   function openCreateAgentDialog() {
     setEditingAgentId(null)
     setAgentForm(defaultAgentForm())
+    setAiFillInstruction('')
     setError('')
     setAgentDialogOpen(true)
   }
@@ -158,15 +190,48 @@ export function AgentProfilesPage() {
   function openEditAgentDialog(agent: AgentProfile) {
     setEditingAgentId(agent.id)
     setAgentForm(agentFormFromProfile(agent))
+    setAiFillInstruction('')
     setError('')
     setAgentDialogOpen(true)
   }
 
   function closeAgentDialog() {
-    if (agentLoading) return
+    if (agentLoading || aiFillLoading) return
     setAgentDialogOpen(false)
     setEditingAgentId(null)
     setAgentForm(defaultAgentForm())
+    setAiFillInstruction('')
+  }
+
+  async function handleAiFillAgent() {
+    const instruction = aiFillInstruction.trim()
+    if (!instruction) {
+      setError(t('aiFillAgentInputRequired'))
+      return
+    }
+    if (!selectedModel) {
+      setError(t('aiFillAgentNoModel'))
+      return
+    }
+    setAiFillLoading(true)
+    setError('')
+    try {
+      const payload = await requestJson<{ agent: GeneratedAgentFields }>('/api/agent-profiles/ai-fill', {
+        method: 'POST',
+        body: JSON.stringify({ instruction, model: selectedModel, thinkingLevel }),
+      })
+      setAgentForm((current) => ({
+        ...current,
+        name: payload.agent.name,
+        label: payload.agent.label,
+        description: payload.agent.description,
+        systemPrompt: payload.agent.systemPrompt,
+      }))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('aiFillAgentFailed'))
+    } finally {
+      setAiFillLoading(false)
+    }
   }
 
   async function handleSaveAgent() {
@@ -276,6 +341,25 @@ export function AgentProfilesPage() {
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               <div className="space-y-4">
+                <div className="rounded-2xl border border-border bg-muted/20 p-3">
+                  <div className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
+                    <Sparkles className="size-4 text-primary" />{t('aiFillAgent')}
+                  </div>
+                  <p className="mb-2 text-xs text-muted-foreground">{t('aiFillAgentDescription')}</p>
+                  <textarea
+                    className="min-h-20 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/65 focus:border-ring disabled:opacity-60"
+                    value={aiFillInstruction}
+                    disabled={Boolean(editingAgent?.builtin) || aiFillLoading}
+                    onChange={(event) => setAiFillInstruction(event.target.value)}
+                    placeholder={t('aiFillAgentPlaceholder')}
+                  />
+                  <div className="mt-2 flex justify-end">
+                    <Button variant="outline" size="sm" onClick={() => void handleAiFillAgent()} disabled={Boolean(editingAgent?.builtin) || aiFillLoading || !aiFillInstruction.trim()}>
+                      <Sparkles className="mr-1 size-3.5" />{aiFillLoading ? t('aiFillAgentLoading') : t('aiFillAgent')}
+                    </Button>
+                  </div>
+                </div>
+
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="block text-sm font-medium text-foreground">
                     {t('agentName')}
@@ -329,8 +413,8 @@ export function AgentProfilesPage() {
             </div>
             <div className="shrink-0 border-t border-border px-5 py-4">
               <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={closeAgentDialog} disabled={agentLoading}>{t('cancel')}</Button>
-                <Button onClick={handleSaveAgent} disabled={agentLoading || Boolean(editingAgent?.builtin) || !agentFormIsValid(agentForm)}>{t('save')}</Button>
+                <Button variant="outline" onClick={closeAgentDialog} disabled={agentLoading || aiFillLoading}>{t('cancel')}</Button>
+                <Button onClick={handleSaveAgent} disabled={agentLoading || aiFillLoading || Boolean(editingAgent?.builtin) || !agentFormIsValid(agentForm)}>{t('save')}</Button>
               </div>
             </div>
           </div>

@@ -103,6 +103,7 @@ server/
 - 使用 `custom-agents` store 保存用户自定义 Agent。
 - 校验 Agent 名称、系统提示词、工具白名单、运行时间和工具调用预算。
 - 为 `run_subagent`、定时任务和前端 Agents 页面提供统一列表。
+- 提供 AI 填充能力，生成 Agent 名称、显示名称、描述和系统提示词，工具权限仍由用户手动配置。
 
 ### skills.mjs (553 行)
 

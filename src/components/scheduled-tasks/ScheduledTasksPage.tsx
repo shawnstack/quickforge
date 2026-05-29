@@ -11,6 +11,7 @@ import { showConfirm } from '@/components/ui/confirm-dialog'
 type ScheduleType = 'once' | 'daily' | 'weekly' | 'monthly' | 'interval' | 'cron'
 type TaskStatus = 'enabled' | 'paused' | 'running' | 'failed' | 'completed'
 type RunStatus = 'running' | 'success' | 'failed'
+type ExecutionMode = 'serial' | 'parallel'
 type ActiveTab = 'tasks' | 'history'
 
 type AgentProfile = {
@@ -49,11 +50,13 @@ type ScheduledTask = {
   lastRunAt?: string
   lastSessionId?: string
   currentRunId?: string | null
+  currentRunIds?: string[]
   createdAt: string
   runs: ScheduledTaskRun[]
   projectName?: string
   projectId?: string | null
   agentId?: string | null
+  executionMode?: ExecutionMode
   model?: AnyModel
   thinkingLevel?: ThinkingLevel
 }
@@ -93,6 +96,7 @@ type FormState = {
   nextRunAt: string
   enabled: boolean
   agentId: string
+  executionMode: ExecutionMode
 }
 
 type AnyModel = Model<Api>
@@ -140,6 +144,7 @@ function defaultForm(): FormState {
     nextRunAt: '',
     enabled: true,
     agentId: '',
+    executionMode: 'serial',
   }
 }
 
@@ -166,6 +171,7 @@ function formFromTask(task: ScheduledTask): FormState {
     nextRunAt: task.nextRunAt,
     enabled: task.status !== 'paused',
     agentId: task.agentId ?? '',
+    executionMode: task.executionMode ?? 'serial',
   }
 }
 
@@ -191,7 +197,20 @@ function buildTaskPayload(form: FormState) {
     nextRunAt: form.nextRunAt,
     enabled: form.enabled,
     agentId: form.agentId || null,
+    executionMode: form.executionMode,
   }
+}
+
+function taskHasRunningRuns(task: ScheduledTask) {
+  return Boolean(task.currentRunId || task.currentRunIds?.length)
+}
+
+function canRunTaskNow(task: ScheduledTask) {
+  return (task.executionMode ?? 'serial') === 'parallel' || !taskHasRunningRuns(task)
+}
+
+function executionModeLabel(mode?: ExecutionMode) {
+  return mode === 'parallel' ? t('taskExecutionModeParallel') : t('taskExecutionModeSerial')
 }
 
 type ScheduledTasksPageProps = {
@@ -597,6 +616,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                 ) : tasks.map((task) => {
                   const taskEnabled = task.status === 'enabled'
                   const switchDisabled = task.status === 'completed'
+                  const taskRunning = taskHasRunningRuns(task)
                   return (
                     <div key={task.id} className="relative cursor-pointer rounded-2xl border border-border bg-card p-4 shadow-sm transition-colors hover:border-primary/40" onClick={() => setDetailTaskId(task.id)}>
                       <div className="flex items-start justify-between gap-3">
@@ -624,16 +644,16 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                             </Button>
                             {openMenuTaskId === task.id ? (
                               <div className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-xl border border-border bg-popover py-1 text-sm shadow-lg">
-                                <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={Boolean(task.currentRunId)} onClick={() => void taskAction(task.id, 'run')}>
+                                <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={!canRunTaskNow(task)} onClick={() => void taskAction(task.id, 'run')}>
                                   <Zap className="size-3.5" />{t('executeNow')}
                                 </button>
-                                <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={Boolean(task.currentRunId)} onClick={() => startEdit(task)}>
+                                <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={taskRunning} onClick={() => startEdit(task)}>
                                   <Edit3 className="size-3.5" />{t('editTask')}
                                 </button>
                                 <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted" onClick={() => { setOpenMenuTaskId(null); setDetailTaskId(task.id) }}>
                                   <Eye className="size-3.5" />{t('viewDetails')}
                                 </button>
-                                <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-destructive hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={Boolean(task.currentRunId)} onClick={() => void taskAction(task.id, 'delete')}>
+                                <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-destructive hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={taskRunning} onClick={() => void taskAction(task.id, 'delete')}>
                                   <Trash2 className="size-3.5" />{t('deleteTask')}
                                 </button>
                               </div>
@@ -644,6 +664,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                         <span className="inline-flex items-center gap-1"><Clock3 className="size-3" />{task.scheduleRule}</span>
                         <span className="inline-flex items-center gap-1"><Bot className="size-3" />{agentLabel(task.agentId)}</span>
+                        <span>{t('taskExecutionMode')}：{executionModeLabel(task.executionMode)}</span>
                         {task.projectName ? <span>{t('taskProject')}{task.projectName}</span> : null}
                       </div>
                       <div className="mt-4 grid gap-2 border-t border-border pt-3 text-xs text-muted-foreground sm:grid-cols-2">
@@ -765,6 +786,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                 </div>
                 <div className="grid gap-3 text-muted-foreground sm:grid-cols-2">
                   <div>{t('executionRule')}<span className="text-foreground">{detailTask.scheduleRule}</span></div>
+                  <div>{t('taskExecutionMode')}：<span className="text-foreground">{executionModeLabel(detailTask.executionMode)}</span></div>
                   <div>cron：<span className="font-mono text-foreground">{detailTask.cronExpression ?? '-'}</span></div>
                   <div>{t('lastExecution')}<span className="text-foreground">{formatDateTime(detailTask.lastRunAt)}</span></div>
                   <div>{t('nextExecution')}<span className="text-foreground">{formatDateTime(detailTask.nextRunAt)}</span></div>
@@ -794,9 +816,9 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
             <div className="shrink-0 border-t border-border px-5 py-4">
               <div className="flex flex-wrap justify-end gap-2">
                 {detailTask.lastSessionId ? <Button variant="outline" onClick={() => onOpenSession?.(detailTask.lastSessionId!)}>{t('viewConversation')}</Button> : null}
-                <Button variant="outline" disabled={Boolean(detailTask.currentRunId)} onClick={() => void taskAction(detailTask.id, 'run')}><Zap className="mr-1 size-3.5" />{t('executeNow')}</Button>
-                <Button variant="outline" disabled={Boolean(detailTask.currentRunId)} onClick={() => startEdit(detailTask)}><Edit3 className="mr-1 size-3.5" />{t('editTask')}</Button>
-                <Button variant="destructive" disabled={Boolean(detailTask.currentRunId)} onClick={() => void taskAction(detailTask.id, 'delete')}><Trash2 className="mr-1 size-3.5" />{t('deleteTask')}</Button>
+                <Button variant="outline" disabled={!canRunTaskNow(detailTask)} onClick={() => void taskAction(detailTask.id, 'run')}><Zap className="mr-1 size-3.5" />{t('executeNow')}</Button>
+                <Button variant="outline" disabled={taskHasRunningRuns(detailTask)} onClick={() => startEdit(detailTask)}><Edit3 className="mr-1 size-3.5" />{t('editTask')}</Button>
+                <Button variant="destructive" disabled={taskHasRunningRuns(detailTask)} onClick={() => void taskAction(detailTask.id, 'delete')}><Trash2 className="mr-1 size-3.5" />{t('deleteTask')}</Button>
               </div>
             </div>
           </div>
@@ -861,6 +883,19 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                       {formatDateTime(form.nextRunAt)}
                     </div>
                   </div>
+
+                  <label className="block text-sm font-medium text-foreground sm:col-span-2">
+                    {t('taskExecutionMode')}
+                    <select
+                      className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:border-ring"
+                      value={form.executionMode}
+                      onChange={(event) => updateForm('executionMode', event.target.value as ExecutionMode)}
+                    >
+                      <option value="serial">{t('taskExecutionModeSerial')}</option>
+                      <option value="parallel">{t('taskExecutionModeParallel')}</option>
+                    </select>
+                    <span className="mt-1 block text-xs font-normal text-muted-foreground">{t('taskExecutionModeHelp')}</span>
+                  </label>
 
                   <label className="block text-sm font-medium text-foreground sm:col-span-2">
                     {t('promptContentLabel')}

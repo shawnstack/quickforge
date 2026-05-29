@@ -13,7 +13,7 @@
 | `tools.mjs` | 82 | 工具定义和执行 |
 | `skills.mjs` | 191 | Skills 管理 |
 | `agent-profiles.mjs` | 173 | Agent Profile 管理 API，支持 AI 填充基础定义 |
-| `scheduled-tasks.mjs` | 881 | 定时任务管理，支持绑定 Agent Profile |
+| `scheduled-tasks.mjs` | 949 | 定时任务管理，支持绑定 Agent Profile 与配置单任务执行模式 |
 | `shares.mjs` | 90 | 分享管理 |
 | `shared-conversation.mjs` | 404 | 共享会话查看 |
 | `backup.mjs` | 395 | 数据备份和恢复 |
@@ -108,20 +108,22 @@ Agent Profile 管理路由。
 
 内置 Agent 只读，不允许更新或删除。
 
-## scheduled-tasks.mjs (881 行)
+## scheduled-tasks.mjs (949 行)
 
 定时任务管理（最复杂的路由模块）。
 
 **主要端点**:
 - `GET /api/scheduled-tasks` — 列出任务
+- `GET /api/scheduled-tasks/runs` — 分页查询运行历史
+- `POST /api/scheduled-tasks/parse` — 使用 AI 将自然语言解析为 cron 任务草稿
 - `POST /api/scheduled-tasks` — 创建任务
 - `PUT /api/scheduled-tasks/:id` — 更新任务
 - `DELETE /api/scheduled-tasks/:id` — 删除任务
-- `POST /api/scheduled-tasks/:id/toggle` — 暂停/启用
-- `GET /api/scheduled-tasks/:id/runs` — 运行历史
-- `POST /api/scheduled-tasks/:id/abort-run` — 中止运行
+- `POST /api/scheduled-tasks/:id/pause` — 暂停任务
+- `POST /api/scheduled-tasks/:id/resume` — 恢复任务
+- `POST /api/scheduled-tasks/:id/run` — 手动触发任务
 
-**调度引擎**: 内置调度器（`startScheduledTaskRunner`），支持 Cron 表达式和间隔调度。任务可通过 `agentId` 绑定 Agent Profile；执行时会追加 profile 系统提示词、限制工具白名单，并在运行历史中记录 `agentId`、`agentLabel` 和 `agentSnapshot`。
+**调度引擎**: 内置调度器（`startScheduledTaskRunner`），支持 Cron 表达式和间隔调度。任务可通过 `agentId` 绑定 Agent Profile；执行时会追加 profile 系统提示词、限制工具白名单，并在运行历史中记录 `agentId`、`agentLabel` 和 `agentSnapshot`。每个任务可配置 `executionMode`：默认 `serial`，同一任务已有运行实例时跳过新的到期执行；`parallel` 允许同一任务重叠执行。不同任务之间始终并行触发。
 
 ## shares.mjs (90 行)
 

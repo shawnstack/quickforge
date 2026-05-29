@@ -18,7 +18,55 @@ const weekDayNames = ['周日', '周一', '周二', '周三', '周四', '周五'
 
 let schedulerTimer = null
 let running = false
-const runningTaskIds = new Set()
+const runningTaskRunIds = new Map()
+
+function executionModeFor(task) {
+  return task?.executionMode === 'parallel' ? 'parallel' : 'serial'
+}
+
+function normalizeExecutionMode(value) {
+  if (value === undefined || value === null || value === '') return 'serial'
+  const mode = String(value)
+  if (mode === 'serial' || mode === 'parallel') return mode
+  throw requestError('executionMode must be serial or parallel')
+}
+
+function currentRunIdsFor(task) {
+  const ids = []
+  if (Array.isArray(task?.currentRunIds)) ids.push(...task.currentRunIds.filter(Boolean))
+  if (task?.currentRunId) ids.push(task.currentRunId)
+  return [...new Set(ids)]
+}
+
+function activeRunIdsFor(task) {
+  const runningIds = [...(runningTaskRunIds.get(task?.id) || [])]
+  return [...new Set([...runningIds, ...currentRunIdsFor(task)])]
+}
+
+function hasActiveTaskRuns(task) {
+  return activeRunIdsFor(task).length > 0
+}
+
+function addActiveRun(taskId, runId) {
+  const ids = runningTaskRunIds.get(taskId) || new Set()
+  ids.add(runId)
+  runningTaskRunIds.set(taskId, ids)
+}
+
+function removeActiveRun(taskId, runId) {
+  const ids = runningTaskRunIds.get(taskId)
+  if (!ids) return
+  ids.delete(runId)
+  if (ids.size === 0) runningTaskRunIds.delete(taskId)
+}
+
+function appendCurrentRunId(task, runId) {
+  return [...new Set([...currentRunIdsFor(task), runId])]
+}
+
+function removeCurrentRunId(task, runId) {
+  return currentRunIdsFor(task).filter((id) => id !== runId)
+}
 
 function createId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
@@ -262,6 +310,7 @@ function normalizeTaskInput(input, existing = {}) {
   const instruction = nonEmptyString(input?.instruction ?? existing.instruction, 'instruction')
   const scheduleType = String(input?.scheduleType ?? existing.scheduleType ?? 'daily')
   const agentId = Object.prototype.hasOwnProperty.call(input || {}, 'agentId') ? (input.agentId || null) : (existing.agentId || null)
+  const executionMode = normalizeExecutionMode(input?.executionMode ?? existing.executionMode)
 
   if (scheduleType === 'cron') {
     const cronExpression = String(input?.cronExpression ?? existing.cronExpression ?? '').trim()
@@ -272,6 +321,7 @@ function normalizeTaskInput(input, existing = {}) {
       title,
       instruction,
       agentId,
+      executionMode,
       scheduleType: 'cron',
       scheduleRule: String(input?.scheduleRule ?? existing.scheduleRule ?? cronExpression).trim(),
       cronExpression,
@@ -292,6 +342,7 @@ function normalizeTaskInput(input, existing = {}) {
       title,
       instruction,
       agentId,
+      executionMode,
       scheduleType,
       scheduleRule: `单次 ${formatLocalDateTime(executeAt)}`,
       cronExpression: undefined,
@@ -311,6 +362,7 @@ function normalizeTaskInput(input, existing = {}) {
       title,
       instruction,
       agentId,
+      executionMode,
       scheduleType,
       scheduleRule: `每天 ${executeTime}`,
       cronExpression: undefined,
@@ -329,6 +381,7 @@ function normalizeTaskInput(input, existing = {}) {
       title,
       instruction,
       agentId,
+      executionMode,
       scheduleType,
       scheduleRule: `每${weekDayNames[weekDay]} ${executeTime}`,
       cronExpression: undefined,
@@ -346,6 +399,7 @@ function normalizeTaskInput(input, existing = {}) {
     title,
     instruction,
     agentId,
+    executionMode,
     scheduleType,
     scheduleRule: `每月 ${monthDay} 号 ${executeTime}`,
     cronExpression: undefined,
@@ -521,9 +575,11 @@ async function resolveExecutionProject(task) {
 }
 
 async function executeTask(task, trigger = 'schedule', onStarted) {
-  if (runningTaskIds.has(task.id)) return
-  runningTaskIds.add(task.id)
+  const mode = executionModeFor(task)
+  const advanceNextRunAtAtStart = trigger === 'schedule' && mode === 'parallel'
+  if (mode === 'serial' && hasActiveTaskRuns(task)) return
   const runId = createId()
+  addActiveRun(task.id, runId)
   const startedAt = new Date().toISOString()
   const scheduledAt = task.nextRunAt
   let sessionId = `scheduled-${task.id}-${Date.now().toString(36)}`
@@ -535,24 +591,40 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
   }
   const agentSnapshot = executionAgent ? agentProfileSnapshot(executionAgent) : null
 
-  await updateTask(task.id, (current) => ({
-    ...current,
-    currentRunId: runId,
-    lastSessionId: sessionId,
-    runs: [{
-      id: runId,
-      status: 'running',
-      trigger,
-      inputContent: current.instruction,
-      sessionId,
-      agentId: executionAgent?.id || task.agentId || null,
-      agentLabel: executionAgent?.label || null,
-      agentSnapshot,
-      warning: agentWarning || undefined,
-      scheduledAt,
-      startedAt,
-    }, ...(current.runs || [])].slice(0, MAX_RUN_HISTORY_PER_TASK),
-  }))
+  let started = false
+  await updateTask(task.id, (current) => {
+    const otherRunIds = activeRunIdsFor(current).filter((id) => id !== runId)
+    if (mode === 'serial' && otherRunIds.length > 0) return current
+    started = true
+    const nextRunAt = advanceNextRunAtAtStart
+      ? calculateNextRun(current, new Date(startedAt))
+      : current.nextRunAt
+    const activeRunIds = appendCurrentRunId(current, runId)
+    return {
+      ...current,
+      currentRunId: activeRunIds[activeRunIds.length - 1] || null,
+      currentRunIds: activeRunIds,
+      lastSessionId: sessionId,
+      nextRunAt,
+      runs: [{
+        id: runId,
+        status: 'running',
+        trigger,
+        inputContent: current.instruction,
+        sessionId,
+        agentId: executionAgent?.id || task.agentId || null,
+        agentLabel: executionAgent?.label || null,
+        agentSnapshot,
+        warning: agentWarning || undefined,
+        scheduledAt,
+        startedAt,
+      }, ...(current.runs || [])].slice(0, MAX_RUN_HISTORY_PER_TASK),
+    }
+  })
+  if (!started) {
+    removeActiveRun(task.id, runId)
+    return
+  }
 
   let settled = false
 
@@ -641,19 +713,25 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
     const aiResult = result.ok ? latestAssistantText(result.messages) : ''
     const latestTask = (await readStore(STORE))[task.id] ?? task
     const recurring = isRecurringTask(latestTask)
-    const nextRunAt = calculateNextRun(latestTask, new Date(finishedAt))
-    const nextStatus = latestTask.status === 'paused'
-      ? 'paused'
-      : result.aborted
-        ? (recurring && nextRunAt ? 'paused' : 'failed')
-        : result.ok
-          ? (nextRunAt ? 'enabled' : 'completed')
-          : (recurring && nextRunAt ? 'enabled' : 'failed')
+    removeActiveRun(task.id, runId)
+    const remainingRunIds = removeCurrentRunId(latestTask, runId)
+    const stillRunning = remainingRunIds.length > 0
+    const nextRunAt = stillRunning ? latestTask.nextRunAt : (advanceNextRunAtAtStart ? latestTask.nextRunAt : calculateNextRun(latestTask, new Date(finishedAt)))
+    const nextStatus = stillRunning
+      ? latestTask.status
+      : latestTask.status === 'paused'
+        ? 'paused'
+        : result.aborted
+          ? (recurring && nextRunAt ? 'paused' : 'failed')
+          : result.ok
+            ? (nextRunAt ? 'enabled' : 'completed')
+            : (recurring && nextRunAt ? 'enabled' : 'failed')
 
     await updateTask(task.id, (current) => ({
       ...current,
       status: nextStatus,
-      currentRunId: null,
+      currentRunId: stillRunning ? remainingRunIds[remainingRunIds.length - 1] : null,
+      currentRunIds: remainingRunIds,
       lastRunAt: finishedAt,
       nextRunAt: nextRunAt ?? current.nextRunAt,
       lastSessionId: sessionId,
@@ -685,26 +763,32 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
   } catch (error) {
     const finishedAt = new Date().toISOString()
     const durationMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime()
-    await updateTask(task.id, (current) => ({
-      ...current,
-      status: current.status === 'paused' ? 'paused' : (isRecurringTask(current) ? 'enabled' : 'failed'),
-      currentRunId: null,
-      lastRunAt: finishedAt,
-      lastSessionId: sessionId,
-      nextRunAt: isRecurringTask(current) ? (calculateNextRun(current, new Date(finishedAt)) ?? current.nextRunAt) : current.nextRunAt,
-      runs: (current.runs || []).map((run) => run.id === runId ? {
-        ...run,
-        status: 'failed',
-        errorMessage: error?.message || String(error),
-        sessionId,
-        agentId: executionAgent?.id || current.agentId || null,
-        agentLabel: executionAgent?.label || null,
-        agentSnapshot,
-        warning: agentWarning || run.warning,
-        finishedAt,
-        durationMs,
-      } : run),
-    }))
+    removeActiveRun(task.id, runId)
+    await updateTask(task.id, (current) => {
+      const remainingRunIds = removeCurrentRunId(current, runId)
+      const stillRunning = remainingRunIds.length > 0
+      return {
+        ...current,
+        status: stillRunning ? current.status : (current.status === 'paused' ? 'paused' : (isRecurringTask(current) ? 'enabled' : 'failed')),
+        currentRunId: stillRunning ? remainingRunIds[remainingRunIds.length - 1] : null,
+        currentRunIds: remainingRunIds,
+        lastRunAt: finishedAt,
+        lastSessionId: sessionId,
+        nextRunAt: stillRunning || advanceNextRunAtAtStart ? current.nextRunAt : (isRecurringTask(current) ? (calculateNextRun(current, new Date(finishedAt)) ?? current.nextRunAt) : current.nextRunAt),
+        runs: (current.runs || []).map((run) => run.id === runId ? {
+          ...run,
+          status: 'failed',
+          errorMessage: error?.message || String(error),
+          sessionId,
+          agentId: executionAgent?.id || current.agentId || null,
+          agentLabel: executionAgent?.label || null,
+          agentSnapshot,
+          warning: agentWarning || run.warning,
+          finishedAt,
+          durationMs,
+        } : run),
+      }
+    })
     emitScheduledTaskNotification({
       task,
       runId,
@@ -714,7 +798,6 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
       errorMessage: error?.message || String(error),
     })
   } finally {
-    runningTaskIds.delete(task.id)
     if (!settled) logger.warn(`Scheduled task ${task.id} finished without normal agent_end`)
   }
 }
@@ -729,6 +812,7 @@ async function schedulerTick() {
     for (const task of tasks) {
       if (task.status !== 'enabled') continue
       if (!task.nextRunAt || new Date(task.nextRunAt).getTime() > now) continue
+      if (executionModeFor(task) === 'serial' && hasActiveTaskRuns(task)) continue
       executeTask(task, 'schedule').catch((error) => logger.error(`Scheduled task ${task.id} failed:`, error))
     }
   } finally {
@@ -748,6 +832,7 @@ export function stopScheduledTaskRunner() {
   if (!schedulerTimer) return
   clearInterval(schedulerTimer)
   schedulerTimer = null
+  runningTaskRunIds.clear()
 }
 
 export async function handleScheduledTasksApi(req, res, url) {
@@ -780,6 +865,7 @@ export async function handleScheduledTasksApi(req, res, url) {
       id: createId(),
       ...normalized,
       scheduleRule: normalized.scheduleRule || scheduleRuleFor(normalized),
+      executionMode: normalized.executionMode || 'serial',
       model: body?.model,
       thinkingLevel: body?.thinkingLevel || (body?.model?.reasoning ? 'medium' : 'off'),
       projectId: body?.projectId || null,
@@ -815,6 +901,7 @@ export async function handleScheduledTasksApi(req, res, url) {
         ...current,
         ...normalized,
         scheduleRule: normalized.scheduleRule || scheduleRuleFor(normalized),
+        executionMode: normalized.executionMode || 'serial',
         model: body?.model ?? current.model,
         thinkingLevel: body?.thinkingLevel ?? current.thinkingLevel,
         projectId: hasProject ? (body.projectId || null) : current.projectId,
@@ -861,7 +948,7 @@ export async function handleScheduledTasksApi(req, res, url) {
       const data = await readStore(STORE)
       const task = data[taskId]
       if (!task) throw requestError('Task not found', 404)
-      if (runningTaskIds.has(task.id) || task.currentRunId) throw requestError('Task is already running', 409)
+      if (executionModeFor(task) === 'serial' && hasActiveTaskRuns(task)) throw requestError('Task is already running', 409)
       await new Promise((resolve) => {
         executeTask(task, 'manual', resolve).catch((error) => {
           logger.error(`Manual scheduled task ${task.id} failed:`, error)

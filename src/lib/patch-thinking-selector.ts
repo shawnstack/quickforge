@@ -93,17 +93,12 @@ function patchEditorInstance(editor: HTMLElement) {
 
 export function patchThinkingSelector(options: { hideSelector?: boolean } = {}) {
   const { hideSelector = false } = options
-  const startedAt = Date.now()
-  const maxWaitMs = 30000
   const tryPatch = () => {
     const MessageEditor = customElements.get('message-editor') as (CustomElementConstructor & {
       prototype: { render?: () => unknown }
     }) | undefined
 
-    if (!MessageEditor?.prototype.render) {
-      if (Date.now() - startedAt < maxWaitMs) setTimeout(tryPatch, 100)
-      return
-    }
+    if (!MessageEditor?.prototype.render) return
 
     if ((MessageEditor.prototype.render as { __quickforgePatched?: boolean }).__quickforgePatched) return
 
@@ -126,5 +121,10 @@ export function patchThinkingSelector(options: { hideSelector?: boolean } = {}) 
     ;(MessageEditor.prototype.render as { __quickforgePatched?: boolean }).__quickforgePatched = true
   }
 
-  tryPatch()
+  if (customElements.get('message-editor')) {
+    tryPatch()
+    return
+  }
+
+  customElements.whenDefined('message-editor').then(tryPatch).catch(() => {})
 }

@@ -132,7 +132,7 @@ export class DeferredSessionAgent {
     if (!this.promotedAgent) {
       void this.realAgentPromise?.then((agent) => {
         if (this.promotedAgent !== agent) agent.dispose()
-      })
+      }).catch(() => {})
     }
   }
 

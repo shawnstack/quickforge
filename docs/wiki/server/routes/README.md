@@ -12,7 +12,8 @@
 | `filesystem.mjs` | 87 | 文件系统浏览 |
 | `tools.mjs` | 82 | 工具定义和执行 |
 | `skills.mjs` | 191 | Skills 管理 |
-| `scheduled-tasks.mjs` | 853 | 定时任务管理 |
+| `agent-profiles.mjs` | 64 | Agent Profile 管理 API |
+| `scheduled-tasks.mjs` | 881 | 定时任务管理，支持绑定 Agent Profile |
 | `shares.mjs` | 90 | 分享管理 |
 | `shared-conversation.mjs` | 404 | 共享会话查看 |
 | `backup.mjs` | 395 | 数据备份和恢复 |
@@ -92,7 +93,21 @@ Skills 管理路由。
 - `PUT /api/skills` — 更新已选技能
 - 支持项目级技能发现
 
-## scheduled-tasks.mjs (853 行)
+## agent-profiles.mjs (64 行)
+
+Agent Profile 管理路由。
+
+**主要端点**:
+- `GET /api/agent-profiles` — 列出内置和自定义 Agent Profile。
+- `POST /api/agent-profiles` — 创建自定义 Agent。
+- `GET /api/agent-profiles/available-tools` — 获取第一阶段可配置的 workspace 工具列表。
+- `GET /api/agent-profiles/:id` — 获取单个 Agent。
+- `PATCH|PUT /api/agent-profiles/:id` — 更新自定义 Agent。
+- `DELETE /api/agent-profiles/:id` — 删除自定义 Agent。
+
+内置 Agent 只读，不允许更新或删除。
+
+## scheduled-tasks.mjs (881 行)
 
 定时任务管理（最复杂的路由模块）。
 
@@ -105,7 +120,7 @@ Skills 管理路由。
 - `GET /api/scheduled-tasks/:id/runs` — 运行历史
 - `POST /api/scheduled-tasks/:id/abort-run` — 中止运行
 
-**调度引擎**: 内置调度器（`startScheduledTaskRunner`），支持 Cron 表达式和间隔调度。
+**调度引擎**: 内置调度器（`startScheduledTaskRunner`），支持 Cron 表达式和间隔调度。任务可通过 `agentId` 绑定 Agent Profile；执行时会追加 profile 系统提示词、限制工具白名单，并在运行历史中记录 `agentId`、`agentLabel` 和 `agentSnapshot`。
 
 ## shares.mjs (90 行)
 

@@ -215,6 +215,24 @@ export function buildAutoCompactLoopMessages(session, messages) {
   return [summaryMessage, ...source.slice(compactedUpToIndex)]
 }
 
+export function estimateSessionContextUsage(session, messages = session?.agent?.state?.messages ?? []) {
+  if (!session?.agent?.state) return null
+  const sourceMessages = Array.isArray(messages) ? messages : []
+  const contextWindow = Number(session.model?.contextWindow) || 0
+  if (sourceMessages.length === 0) {
+    return { inputTokens: 0, estimatedInputTokens: 0, knownInputTokens: 0, reservedOutputTokens: 0, totalTokens: 0, contextWindow, percent: 0 }
+  }
+  const loopMessages = buildAutoCompactLoopMessages(session, sourceMessages)
+  const knownInputTokens = latestKnownInputTokens(sourceMessages, latestCompactTimestampMs(session))
+  return estimateContextUsage({
+    systemPrompt: session.agent.state.systemPrompt,
+    messages: loopMessages,
+    tools: session.agent.state.tools,
+    model: session.model,
+    knownInputTokens,
+  })
+}
+
 export async function maybeAutoCompactSession({ session, messages, signal, emitSessionEvent, persistSession, logger, confirmAutoCompact }) {
   if (!session || session.autoCompacting) return { compacted: false }
   const settings = await readAutoCompactSettings()
@@ -300,12 +318,14 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
       usage,
       thresholdPercent: settings.thresholdPercent,
       contextCompaction: session.contextCompaction,
+      contextUsage: estimateSessionContextUsage(session, messages),
     })
     emitSessionEvent(session, {
       type: 'messages_replaced',
       reason: 'auto_compact',
       messages,
       contextCompaction: session.contextCompaction,
+      contextUsage: estimateSessionContextUsage(session, messages),
     })
     return { compacted: true, usage }
   } catch (error) {

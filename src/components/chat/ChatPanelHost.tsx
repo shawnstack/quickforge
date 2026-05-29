@@ -4,7 +4,7 @@ import {
   ApiKeyPromptDialog,
   ChatPanel,
 } from '@mariozechner/pi-web-ui'
-import type { ServerAgent, ServerAgentContextCompaction } from '@/lib/server-agent'
+import type { ServerAgent, ServerAgentContextCompaction, ServerAgentContextUsage } from '@/lib/server-agent'
 import type { SharedServerAgent } from '@/lib/shared-server-agent'
 import type { DeferredSessionAgent } from '@/lib/deferred-session-agent'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
@@ -28,7 +28,10 @@ import {
 type AgentLike = ServerAgent | SharedServerAgent | DeferredSessionAgent
 
 type AgentWithContextCompaction = AgentLike & {
-  state: AgentLike['state'] & { contextCompaction?: ServerAgentContextCompaction | null }
+  state: AgentLike['state'] & {
+    contextCompaction?: ServerAgentContextCompaction | null
+    contextUsage?: ServerAgentContextUsage | null
+  }
 }
 
 function effectiveContextMessages(agent: AgentLike): MessageWithUsage[] {
@@ -319,6 +322,7 @@ export function ChatPanelHost({
       getContextWindow: () => agent.state.model?.contextWindow ?? 0,
       getTools: () => agent.state.tools,
       getMaxTokens: () => agent.state.model?.maxTokens,
+      getServerContextUsage: () => (agent as AgentWithContextCompaction).state.contextUsage ?? null,
     })
 
     // --- Composer input/file-change handlers (update draft map) ---

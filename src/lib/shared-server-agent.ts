@@ -1,6 +1,7 @@
 import type { AgentEvent, AgentMessage, ThinkingLevel } from '@mariozechner/pi-agent-core'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import { streamSimple } from '@mariozechner/pi-ai'
+import type { ServerAgentContextCompaction, ServerAgentContextUsage } from '@/lib/server-agent'
 import type { SharePermission } from '@/lib/share-client'
 import { logger } from '@/lib/logger'
 import { toolStartEventWithPartialResult, upsertMessage, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
@@ -18,6 +19,8 @@ export type SharedSessionState = {
   yoloMode?: boolean
   isStreaming?: boolean
   errorMessage?: string
+  contextCompaction?: ServerAgentContextCompaction | null
+  contextUsage?: ServerAgentContextUsage | null
 }
 
 type SseEvent = Record<string, unknown> & { type?: string; message?: AgentMessage; messages?: AgentMessage[] }
@@ -104,6 +107,8 @@ export class SharedServerAgent {
     streamingMessage?: AgentMessage
     pendingToolCalls: Set<string>
     errorMessage?: string
+    contextCompaction?: ServerAgentContextCompaction | null
+    contextUsage?: ServerAgentContextUsage | null
   }
 
   streamFn = streamSimple
@@ -134,6 +139,8 @@ export class SharedServerAgent {
       streamingMessage: undefined,
       pendingToolCalls: new Set<string>(),
       errorMessage: initialState.errorMessage,
+      contextCompaction: initialState.contextCompaction ?? null,
+      contextUsage: initialState.contextUsage ?? null,
     }
     this.state = new Proxy(rawState, {
       set: (target, prop, value) => {
@@ -295,7 +302,7 @@ export class SharedServerAgent {
       'state', 'agent_start', 'agent_end', 'message_start', 'message_end',
       'turn_start', 'turn_end', 'message_update',
       'tool_execution_start', 'tool_execution_update', 'tool_execution_end',
-      'error', 'title_updated', 'messages_replaced',
+      'error', 'title_updated', 'messages_replaced', 'auto_compact_completed',
     ]
     const handleMessage = (eventType?: string) => (event: MessageEvent) => {
       try {
@@ -355,6 +362,7 @@ export class SharedServerAgent {
           } else {
             this.state.messages = [...this.state.messages, event.message]
           }
+          this.state.contextUsage = null
         }
         break
       case 'message_update':
@@ -364,6 +372,7 @@ export class SharedServerAgent {
         if (event.message) {
           this.state.messages = upsertMessage(this.state.messages, event.message)
         }
+        this.state.contextUsage = 'contextUsage' in event ? event.contextUsage as ServerAgentContextUsage | null : null
         this.state.streamingMessage = undefined
         break
       case 'messages_replaced':
@@ -371,6 +380,12 @@ export class SharedServerAgent {
           this.state.messages = event.messages
           this.state.streamingMessage = undefined
         }
+        if ('contextCompaction' in event) this.state.contextCompaction = event.contextCompaction as ServerAgentContextCompaction | null
+        if ('contextUsage' in event) this.state.contextUsage = event.contextUsage as ServerAgentContextUsage | null
+        break
+      case 'auto_compact_completed':
+        if ('contextCompaction' in event) this.state.contextCompaction = event.contextCompaction as ServerAgentContextCompaction | null
+        if ('contextUsage' in event) this.state.contextUsage = event.contextUsage as ServerAgentContextUsage | null
         break
       case 'tool_execution_start': {
         const toolEvent = event as ToolExecutionEvent
@@ -408,7 +423,10 @@ export class SharedServerAgent {
 
   private applyState(state: SharedSessionState) {
     this.sessionId = state.sessionId || state.id || this.sessionId
-    if (state.messages) this.state.messages = state.messages
+    if (state.messages) {
+      this.state.messages = state.messages
+      this.state.contextUsage = state.contextUsage !== undefined ? state.contextUsage : null
+    }
     if (state.systemPrompt !== undefined) this.state.systemPrompt = state.systemPrompt
     if (state.model) this.state.model = state.model
     if (state.thinkingLevel) {
@@ -419,6 +437,8 @@ export class SharedServerAgent {
     if (state.tools) this.state.tools = state.tools
     if (state.isStreaming !== undefined) this.state.isStreaming = Boolean(state.isStreaming)
     if (state.errorMessage !== undefined) this.state.errorMessage = state.errorMessage
+    if (state.contextCompaction !== undefined) this.state.contextCompaction = state.contextCompaction
+    if (state.contextUsage !== undefined) this.state.contextUsage = state.contextUsage
   }
 
   private emit(event: AgentEvent) {

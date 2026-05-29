@@ -8,8 +8,8 @@ import { callMcpTool, createMcpToolDefinitions, isMcpToolName } from './mcp/regi
 import {
   composeSubagentSystemPrompt,
   formatSubagentTask,
-  getSubagentDefinition,
 } from './subagents.mjs'
+import { agentProfileSnapshot, getAgentProfile } from './agent-profiles.mjs'
 import { projectContextFromId, readProjectConfig } from './project-config.mjs'
 import { readStore, atomicUpdate, readSessionValue, writeSessionValue, deleteSessionValue } from './storage.mjs'
 import { logger } from './utils/logger.mjs'
@@ -22,6 +22,7 @@ import {
 } from './conversation-compaction.mjs'
 import {
   buildAutoCompactLoopMessages,
+  estimateSessionContextUsage,
   maybeAutoCompactSession,
 } from './auto-compaction.mjs'
 import {
@@ -366,8 +367,12 @@ function estimateTokenReduction(originalChars, finalChars) {
 }
 
 function emitSessionEvent(session, event) {
-  session.eventBus.emit('agent_event', event)
-  agentEvents.emit('agent_event', { sessionId: session.sessionId, ...event })
+  const enrichedEvent = (event?.type === 'message_end' || event?.type === 'agent_end' || event?.type === 'messages_replaced' || event?.type === 'auto_compact_completed')
+    && event.contextUsage === undefined
+    ? { ...event, contextUsage: getSessionContextUsage(session) }
+    : event
+  session.eventBus.emit('agent_event', enrichedEvent)
+  agentEvents.emit('agent_event', { sessionId: session.sessionId, ...enrichedEvent })
 }
 
 function addToolTimingToEvent(session, event) {
@@ -681,12 +686,13 @@ function lastAssistantText(messages) {
 }
 
 async function runSubagent(parentSession, params, parentSignal, onUpdate) {
-  const definition = getSubagentDefinition(params?.subagent)
-  if (!definition) {
-    const error = new Error(`Unknown subagent: ${params?.subagent || ''}`)
+  const profile = await getAgentProfile(params?.subagent)
+  if (!profile || !profile.enabledAsSubagent) {
+    const error = new Error(`Unknown or disabled subagent: ${params?.subagent || ''}`)
     error.statusCode = 400
     throw error
   }
+  const definition = profile
 
   const task = String(params?.task || '').trim()
   if (!task) {
@@ -774,7 +780,7 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
       const toolName = context.toolCall?.name
       toolCalls += 1
       emitSubagentTrace()
-      if (toolCalls > Number(definition.maxToolCalls || 12)) {
+      if (toolCalls > Number(definition.maxToolCalls || 300)) {
         return { block: true, reason: `Subagent ${definition.name} exceeded its tool-call budget.` }
       }
       if (!definition.allowedTools.includes(toolName)) {
@@ -954,6 +960,7 @@ export async function createAgent(sessionId, config = {}) {
     createdAt = new Date().toISOString(),
     lastModified = null,
     contextCompaction = null,
+    agentProfile = null,
   } = config
 
   // Resolve project context for tool calls
@@ -975,7 +982,8 @@ export async function createAgent(sessionId, config = {}) {
     globalSkillNames: projectConfig.globalSkills,
     projectSkillNames: configuredProject?.skills,
   }
-  const resolvedSystemPrompt = systemPrompt ?? (await buildSystemPrompt(projectId))
+  const profileSystemPrompt = agentProfile?.systemPrompt ? `\n\n<agent_profile_instructions>\nAgent Profile: ${agentProfile.label || agentProfile.name}\n${agentProfile.systemPrompt}\n</agent_profile_instructions>` : ''
+  const resolvedSystemPrompt = systemPrompt ?? `${await buildSystemPrompt(projectId)}${profileSystemPrompt}`
 
   // Resolve model
   let resolvedModel = model
@@ -991,16 +999,25 @@ export async function createAgent(sessionId, config = {}) {
   }
 
   // Build skills tools for enabled skills, plus workspace tools when a project is available.
+  const profileToolNames = Array.isArray(agentProfile?.allowedTools) ? agentProfile.allowedTools : null
   const tools = await createServerTools(
     projectId,
     projectContext,
     skillsContext,
     !!(projectId && projectContext),
     (toolName) => {
+      if (profileToolNames && !profileToolNames.includes(toolName)) return `Agent profile ${agentProfile.name} is not allowed to use ${toolName}.`
       const session = agentSessions.get(sessionId)
       return session ? createCommandToolPermissions(session)(toolName) : null
     },
-    { parentSessionId: sessionId },
+    agentProfile
+      ? {
+          allowedToolNames: profileToolNames,
+          includeSubagentTool: false,
+          includeMcpTools: false,
+          parentSessionId: sessionId,
+        }
+      : { parentSessionId: sessionId },
   )
 
   // Resolve API key
@@ -1035,6 +1052,7 @@ export async function createAgent(sessionId, config = {}) {
       const isSkillTool = toolName === 'activate_skill' || toolName === 'read_skill_resource'
       if (isSkillTool) return undefined
       const currentSession = agentSessions.get(sessionId)
+      if (profileToolNames && !profileToolNames.includes(toolName)) return { block: true, reason: `Agent profile ${agentProfile.name} is not allowed to use ${toolName}.` }
       if (toolName === 'run_subagent') return undefined
       if (isMcpToolName(toolName)) {
         if (!currentSession?.yoloMode) return createApprovalPromise(currentSession, toolCallId, toolName, context.args)
@@ -1081,6 +1099,7 @@ export async function createAgent(sessionId, config = {}) {
     toolTimings: new Map(),
     getApiKey,
     contextCompaction,
+    agentProfile: agentProfile ? agentProfileSnapshot(agentProfile) : null,
     lastTransformedContextMessages: null,
     autoCompacting: false,
     lastAutoCompactAt: null,
@@ -1102,8 +1121,7 @@ export async function createAgent(sessionId, config = {}) {
       : timedEvent
 
     // Forward all events to the session event bus and the global bus.
-    eventBus.emit('agent_event', forwardEvent)
-    agentEvents.emit('agent_event', { sessionId, ...forwardEvent })
+    emitSessionEvent(session, forwardEvent)
 
     // Track status
     if (event.type === 'agent_start') {
@@ -1320,6 +1338,8 @@ export async function rollbackSessionMessages(sessionId, rollbackMessageIndex) {
     reason: 'rollback',
     rollbackIndex,
     messages: session.agent.state.messages,
+    contextCompaction: session.contextCompaction,
+    contextUsage: getSessionContextUsage(session),
   }
   emitSessionEvent(session, replacedEvent)
   emitSessionEvent(session, { type: 'message_end', messages: session.agent.state.messages })
@@ -1340,8 +1360,9 @@ export async function replaceSessionMessages(sessionId, messages) {
   session.finishedAt = new Date().toISOString()
   await persistSession(session)
   const nextMessages = session.agent.state.messages
-  emitSessionEvent(session, { type: 'message_end', messages: nextMessages })
-  emitSessionEvent(session, { type: 'agent_end', messages: nextMessages })
+  const contextUsage = getSessionContextUsage(session)
+  emitSessionEvent(session, { type: 'message_end', messages: nextMessages, contextUsage })
+  emitSessionEvent(session, { type: 'agent_end', messages: nextMessages, contextUsage })
   return getSessionState(sessionId)
 }
 
@@ -1375,10 +1396,8 @@ export async function runPrompt(sessionId, message) {
     ]
     await persistSession(session)
     const messages = session.agent.state.messages
-    session.eventBus.emit('agent_event', { type: 'message_end', messages })
-    session.eventBus.emit('agent_event', { type: 'agent_end', messages })
-    agentEvents.emit('agent_event', { sessionId, type: 'message_end', messages })
-    agentEvents.emit('agent_event', { sessionId, type: 'agent_end', messages })
+    emitSessionEvent(session, { type: 'message_end', messages })
+    emitSessionEvent(session, { type: 'agent_end', messages })
     return { sessionId, status: session.status }
   }
 
@@ -1403,8 +1422,7 @@ export async function runPrompt(sessionId, message) {
       if (aiTitle && aiTitle !== 'New chat') {
         session.title = aiTitle
         await persistSession(session)
-        session.eventBus.emit('agent_event', { type: 'title_updated', title: aiTitle })
-        agentEvents.emit('agent_event', { sessionId, type: 'title_updated', title: aiTitle })
+        emitSessionEvent(session, { type: 'title_updated', title: aiTitle })
       }
     }).catch((err) => {
       logger.warn(`Title generation failed for session ${sessionId}:`, err.message || err, { sessionId })
@@ -1422,8 +1440,7 @@ export async function runPrompt(sessionId, message) {
       type: 'error',
       error: err.message || 'Unknown error',
     }
-    session.eventBus.emit('agent_event', event)
-    agentEvents.emit('agent_event', { sessionId, ...event })
+    emitSessionEvent(session, event)
   }).finally(() => {
     session.activeCommandName = null
     session.activeCommandPermissions = null
@@ -1468,8 +1485,7 @@ export async function abortRun(sessionId) {
       type: 'agent_end',
       messages: session.agent.state.messages,
     }
-    session.eventBus.emit('agent_event', event)
-    agentEvents.emit('agent_event', { sessionId, ...event })
+    emitSessionEvent(session, event)
   }
 
   return { sessionId, aborted: true }
@@ -1509,6 +1525,15 @@ export function followUpAgent(sessionId, message) {
   return { sessionId, followUp: true }
 }
 
+function getSessionContextUsage(session) {
+  try {
+    return estimateSessionContextUsage(session)
+  } catch (error) {
+    logger.warn(`Failed to estimate context usage for session ${session?.sessionId}:`, error?.message || error, { sessionId: session?.sessionId })
+    return null
+  }
+}
+
 /**
  * Get the current state of a session (for page refresh recovery).
  */
@@ -1533,6 +1558,7 @@ export function getSessionState(sessionId) {
     tools: session.agent.state.tools,
     messages: session.agent.state.messages,
     contextCompaction: session.contextCompaction,
+    contextUsage: getSessionContextUsage(session),
     isStreaming: session.agent.state.isStreaming,
     errorMessage: session.agent.state.errorMessage,
   }

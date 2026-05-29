@@ -1,6 +1,5 @@
 import { Type } from 'typebox'
 import { loadSelectedGlobalSkills, loadSelectedProjectSkills, mergeSkills } from '../skills.mjs'
-import { listSubagentSummaries } from '../subagents.mjs'
 
 // ---------------------------------------------------------------------------
 // Canonical workspace tool definitions.
@@ -13,16 +12,12 @@ import { listSubagentSummaries } from '../subagents.mjs'
 // it to a handler, and the frontend can fetch definitions from /api/tools.
 // ---------------------------------------------------------------------------
 
-const subagentNames = listSubagentSummaries().map((subagent) => subagent.name)
-
 export const subagentTool = {
   name: 'run_subagent',
   label: 'Run subagent',
-  description: 'Delegate a bounded task to a built-in temporary subagent. Use general for complex multi-step work with full built-in workspace tools, or explore for fast read-only lookup and focused analysis. Subagents are short-lived and do not receive MCP or Agent Skill tools.',
+  description: 'Delegate a bounded task to an enabled temporary Agent Profile. Built-in profiles include general for complex multi-step work and explore for fast read-only lookup. Custom profiles can also be enabled as subagents. Subagents are short-lived and do not receive MCP or Agent Skill tools.',
   parameters: Type.Object({
-    subagent: subagentNames.length
-      ? Type.String({ enum: subagentNames, description: 'Specialized subagent to invoke.' })
-      : Type.String({ description: 'Specialized subagent to invoke.' }),
+    subagent: Type.String({ description: 'Agent Profile name to invoke.' }),
     task: Type.String({ description: 'Concrete, bounded task for the subagent. Do not delegate vague or open-ended work.' }),
     context: Type.Optional(Type.String({ description: 'Relevant context from the parent conversation or current plan. Keep this focused.' })),
     expectedOutput: Type.Optional(Type.String({ description: 'Optional output requirements for the subagent result.' })),

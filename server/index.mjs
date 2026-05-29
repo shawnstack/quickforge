@@ -16,6 +16,7 @@ import { handleToolApi, handleGetTools } from './routes/tools.mjs'
 import { handleInstructionsApi } from './routes/instructions.mjs'
 import { handleSkillsApi } from './routes/skills.mjs'
 import { handleAgentApi } from './routes/agent.mjs'
+import { handleAgentProfilesApi } from './routes/agent-profiles.mjs'
 import { handleScheduledTasksApi, startScheduledTaskRunner, stopScheduledTaskRunner } from './routes/scheduled-tasks.mjs'
 import { handleBackupApi } from './routes/backup.mjs'
 import { handleSystemApi } from './routes/system.mjs'
@@ -205,6 +206,12 @@ async function handleApi(req, res, url) {
   // Instructions
   if (req.method === 'GET' && pathname === '/api/instructions') {
     await handleInstructionsApi(req, res, url)
+    return
+  }
+
+  // Agent profiles
+  if (pathname === '/api/agent-profiles' || pathname.startsWith('/api/agent-profiles/')) {
+    await handleAgentProfilesApi(req, res, url)
     return
   }
 

@@ -12,7 +12,7 @@ type UseSessionActionsOptions = {
   loadAgentSession: AgentManager['loadSession']
   setCurrentTitleRef: AgentManager['setCurrentTitleRef']
   refreshSessions: (opts?: { broadcast?: boolean }) => Promise<void>
-  setScheduledTasksOpen: React.Dispatch<React.SetStateAction<boolean>>
+  closeWorkspacePage: () => void
   startNewGlobalChat: () => Promise<void>
 }
 
@@ -23,13 +23,13 @@ export function useSessionActions({
   loadAgentSession,
   setCurrentTitleRef,
   refreshSessions,
-  setScheduledTasksOpen,
+  closeWorkspacePage,
   startNewGlobalChat,
 }: UseSessionActionsOptions) {
   const loadSession = useCallback((sessionId: string) => {
-    setScheduledTasksOpen(false)
+    closeWorkspacePage()
     void loadAgentSession(sessionId)
-  }, [loadAgentSession, setScheduledTasksOpen])
+  }, [loadAgentSession, closeWorkspacePage])
 
   const renameSession = useCallback(async (sessionId: string, currentTitle: string) => {
     const storage = storageRef.current
@@ -70,15 +70,15 @@ export function useSessionActions({
     await storage.sessions.delete(sessionId)
     await refreshSessions({ broadcast: true })
     if (currentSessionIdRef.current === sessionId) {
-      setScheduledTasksOpen(false)
+      closeWorkspacePage()
       await startNewGlobalChat()
     }
-  }, [currentSessionIdRef, refreshSessions, setScheduledTasksOpen, startNewGlobalChat, storageRef, taskMapRef])
+  }, [currentSessionIdRef, refreshSessions, closeWorkspacePage, startNewGlobalChat, storageRef, taskMapRef])
 
   const startNewGlobalSession = useCallback(() => {
-    setScheduledTasksOpen(false)
+    closeWorkspacePage()
     void startNewGlobalChat()
-  }, [setScheduledTasksOpen, startNewGlobalChat])
+  }, [closeWorkspacePage, startNewGlobalChat])
 
   return {
     loadSession,

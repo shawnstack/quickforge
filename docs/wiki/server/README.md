@@ -7,7 +7,8 @@
 ```
 server/
 ├── index.mjs                 # 服务器入口 (486 行)
-├── agent-manager.mjs         # Agent 生命周期管理 (1350 行)
+├── agent-manager.mjs         # Agent 生命周期管理 (含 Agent Profile / subagent 执行)
+├── agent-profiles.mjs        # Agent Profile 配置层，合并内置和自定义 Agent
 ├── storage.mjs               # 文件存储层 (707 行)
 ├── skills.mjs                # Agent Skills 管理和加载 (553 行)
 ├── mcp/                      # MCP Client 配置、连接和工具适配
@@ -58,7 +59,8 @@ server/
 - SSE 事件流管理：向连接的客户端广播 Agent 事件
 - 后台任务运行（`runTask` / `abortTask`）
 - Agent 恢复（`restoreAgent`）：从持久化状态恢复会话
-- Subagent 工具：`run_subagent` 在父会话内创建短生命周期临时 Agent；内置 `general`（复杂研究/多步骤任务，可使用完整内置工作区工具但不含 MCP/Skills）和 `explore`（快速只读代码库探索）两种模式，子 Agent 不作为普通会话持久化。
+- Subagent 工具：`run_subagent` 在父会话内创建短生命周期临时 Agent；可调用启用的 Agent Profile。内置 `general`（复杂研究/多步骤任务，可使用完整内置工作区工具但不含 MCP/Skills）和 `explore`（快速只读代码库探索）保持兼容，自定义 Agent Profile 也可通过白名单工具执行。子 Agent 不作为普通会话持久化，默认不能递归调用 `run_subagent`。
+- Agent Profile 执行：`createAgent` 支持传入 `agentProfile`，在默认系统提示词后追加 profile 系统提示词，并按 `allowedTools` 限制 workspace 工具；定时任务可绑定 profile 执行。
 - 工具管理：基于 Skills 和 YOLO 模式动态构建工具列表
 - 对话压缩（`compactConversation`）：手动 `/compact` 会创建压缩后的新会话；自动上下文压缩会在模型请求前按配置阈值生成滚动摘要，只影响 Agent loop 输入，完整历史仍保留用于 UI 展示和持久化。
 - 自定义命令处理
@@ -91,6 +93,16 @@ server/
 - `readSessionStoreScoped` — 作用域会话查询
 - 写操作的原子锁队列
 - 目录大小计算
+
+### agent-profiles.mjs
+
+**用途**: Agent Profile 配置层。
+
+**功能**:
+- 将内置 `general` / `explore` sub agent 映射为内置 Agent Profile。
+- 使用 `custom-agents` store 保存用户自定义 Agent。
+- 校验 Agent 名称、系统提示词、工具白名单、运行时间和工具调用预算。
+- 为 `run_subagent`、定时任务和前端 Agents 页面提供统一列表。
 
 ### skills.mjs (553 行)
 
@@ -156,7 +168,7 @@ server/
 
 ### auto-compaction.mjs
 
-**用途**: 自动上下文压缩。读取 `settings['auto-compact-settings']`，在 Agent 每次请求模型前估算 `systemPrompt + effective messages + tools + maxTokens` 占当前模型 `contextWindow` 的比例；超过阈值时生成滚动摘要。该用量口径与聊天底部上下文百分比保持一致，但触发只发生在下一次模型请求前，并会受最小历史长度、最近拒绝、压缩间隔等保护条件限制。自动压缩采用“双轨”模式：完整 `messages` 继续持久化并展示在 UI 中，后续 Agent loop 只使用最新 compact summary 与最近若干用户回合。
+**用途**: 自动上下文压缩。读取 `settings['auto-compact-settings']`，在 Agent 每次请求模型前估算 `systemPrompt + effective messages + tools + maxTokens` 占当前模型 `contextWindow` 的比例；超过阈值时生成滚动摘要。后端同时在 session state 中返回同一口径的权威 `contextUsage`，聊天底部上下文百分比优先展示该值；触发只发生在下一次模型请求前，并会受最小历史长度、最近拒绝、压缩间隔等保护条件限制。自动压缩采用“双轨”模式：完整 `messages` 继续持久化并展示在 UI 中，后续 Agent loop 只使用最新 compact summary 与最近若干用户回合。
 
 ### custom-commands.mjs (344 行)
 

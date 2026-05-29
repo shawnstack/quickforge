@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
   CalendarClock,
+  Bot,
   ChevronRight,
   Ellipsis,
   Folder,
@@ -29,6 +30,7 @@ type ChatSidebarProps = {
   sidebarOpen: boolean
   variant?: 'desktop' | 'mobile'
   scheduledTasksActive: boolean
+  agentProfilesActive: boolean
   projectsCollapsed: boolean
   conversationsCollapsed: boolean
   projects: ProjectInfo[]
@@ -61,6 +63,7 @@ type ChatSidebarProps = {
   onDeleteSession: (sessionId: string) => void
   onStartNewGlobalChat: () => void
   onOpenScheduledTasks: () => void
+  onOpenAgentProfiles: () => void
   onOpenSettings: () => void
   onToggleSidebar: () => void
 }
@@ -90,6 +93,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   sidebarOpen,
   variant = 'desktop',
   scheduledTasksActive,
+  agentProfilesActive,
   projectsCollapsed,
   conversationsCollapsed,
   projects,
@@ -122,6 +126,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   onDeleteSession,
   onStartNewGlobalChat,
   onOpenScheduledTasks,
+  onOpenAgentProfiles,
   onOpenSettings,
   onToggleSidebar,
 }: ChatSidebarProps) {
@@ -257,6 +262,18 @@ export const ChatSidebar = memo(function ChatSidebar({
             <CalendarClock className="size-4" />
           </span>
           {sidebarOpen ? <span className={cn(sessionTitleClass, scheduledTasksActive && activeSessionTitleClass)}>{t('scheduledTasksLabel')}</span> : null}
+        </button>
+        <button
+          type="button"
+          className={cn(rowClass, 'w-full', agentProfilesActive ? activeRowClass : inactiveRowClass)}
+          onClick={onOpenAgentProfiles}
+          aria-label={t('agentsTab')}
+          title={t('agentsTab')}
+        >
+          <span className={iconSlotClass}>
+            <Bot className="size-4" />
+          </span>
+          {sidebarOpen ? <span className={cn(sessionTitleClass, agentProfilesActive && activeSessionTitleClass)}>{t('agentsTab')}</span> : null}
         </button>
       </div>
 

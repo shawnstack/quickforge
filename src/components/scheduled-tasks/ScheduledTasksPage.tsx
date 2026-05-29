@@ -1,7 +1,7 @@
 import type { ThinkingLevel } from '@mariozechner/pi-agent-core'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import { useEffect, useMemo, useState } from 'react'
-import { Brain, CalendarClock, CheckCircle2, Clock3, Edit3, Eye, Folder, MoreHorizontal, Search, Sparkles, Trash2, X, Zap } from 'lucide-react'
+import { Bot, Brain, CalendarClock, CheckCircle2, Clock3, Edit3, Eye, Folder, MoreHorizontal, Search, Sparkles, Trash2, X, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { defaultThinkingLevelForModel, getConfiguredModels, initializePiStorage, loadDefaultOptions, loadInitialConfiguredModel } from '@/lib/pi-chat'
@@ -13,6 +13,12 @@ type TaskStatus = 'enabled' | 'paused' | 'running' | 'failed' | 'completed'
 type RunStatus = 'running' | 'success' | 'failed'
 type ActiveTab = 'tasks' | 'history'
 
+type AgentProfile = {
+  id: string
+  name: string
+  label: string
+}
+
 type ScheduledTaskRun = {
   id: string
   status: RunStatus
@@ -21,11 +27,14 @@ type ScheduledTaskRun = {
   aiResult?: string
   inputContent?: string
   errorMessage?: string
+  warning?: string
   sessionId?: string
   scheduledAt?: string
   startedAt: string
   finishedAt?: string
   durationMs?: number
+  agentId?: string | null
+  agentLabel?: string | null
 }
 
 type ScheduledTask = {
@@ -44,6 +53,7 @@ type ScheduledTask = {
   runs: ScheduledTaskRun[]
   projectName?: string
   projectId?: string | null
+  agentId?: string | null
   model?: AnyModel
   thinkingLevel?: ThinkingLevel
 }
@@ -82,6 +92,7 @@ type FormState = {
   scheduleRule: string
   nextRunAt: string
   enabled: boolean
+  agentId: string
 }
 
 type AnyModel = Model<Api>
@@ -128,6 +139,7 @@ function defaultForm(): FormState {
     scheduleRule: '',
     nextRunAt: '',
     enabled: true,
+    agentId: '',
   }
 }
 
@@ -153,6 +165,7 @@ function formFromTask(task: ScheduledTask): FormState {
     scheduleRule: task.scheduleRule,
     nextRunAt: task.nextRunAt,
     enabled: task.status !== 'paused',
+    agentId: task.agentId ?? '',
   }
 }
 
@@ -177,6 +190,7 @@ function buildTaskPayload(form: FormState) {
     cronExpression: form.cronExpression.trim(),
     nextRunAt: form.nextRunAt,
     enabled: form.enabled,
+    agentId: form.agentId || null,
   }
 }
 
@@ -239,6 +253,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
   const [historyPayload, setHistoryPayload] = useState<HistoryPayload>({ runs: [], total: 0, page: 1, pageSize: 10 })
   const [historyLoading, setHistoryLoading] = useState(false)
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null)
+  const [agentProfiles, setAgentProfiles] = useState<AgentProfile[]>([])
   const defaultProjectId = projects[0]?.id ?? ''
 
   async function loadTasks() {
@@ -325,10 +340,32 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
     }
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+    async function loadInitialAgents() {
+      try {
+        const agentsPayload = await requestJson<{ agents: AgentProfile[] }>('/api/agent-profiles')
+        if (cancelled) return
+        setAgentProfiles(agentsPayload.agents)
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : t('requestFailed'))
+      }
+    }
+    void loadInitialAgents()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const editingTask = useMemo(() => tasks.find((task) => task.id === editingTaskId), [editingTaskId, tasks])
   const detailTask = useMemo(() => tasks.find((task) => task.id === detailTaskId) ?? null, [detailTaskId, tasks])
   const enabledCount = useMemo(() => tasks.filter((task) => task.status === 'enabled').length, [tasks])
   const totalHistoryPages = Math.max(1, Math.ceil(historyPayload.total / historyPayload.pageSize))
+
+  function agentLabel(agentId?: string | null) {
+    if (!agentId) return t('defaultAgent')
+    return agentProfiles.find((agent) => agent.id === agentId || agent.name === agentId)?.label ?? agentId
+  }
 
   function updateForm<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [key]: value }))
@@ -439,6 +476,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
       }
       closeDialog()
       await loadTasks()
+      if (activeTab === 'history') await loadHistory(appliedHistoryFilters)
     } catch (err) {
       setError(err instanceof Error ? err.message : t('requestFailed'))
     } finally {
@@ -493,6 +531,8 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
             {t('viewConversation')}
           </Button>
         ) : null}
+        <div>{t('executionAgent')}{run.agentLabel || agentLabel(run.agentId)}</div>
+        {run.warning ? <div className="text-amber-600">{run.warning}</div> : null}
         {run.inputContent ? <div><div className="font-medium text-foreground">{t('runInputContent')}</div><pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap">{run.inputContent}</pre></div> : null}
         {run.aiResult || run.result ? <div><div className="font-medium text-foreground">{t('runAiResult')}</div><pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap">{run.aiResult || run.result}</pre></div> : null}
         {run.errorMessage ? <div className="text-destructive">{run.errorMessage}</div> : null}
@@ -603,6 +643,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                       </div>
                       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                         <span className="inline-flex items-center gap-1"><Clock3 className="size-3" />{task.scheduleRule}</span>
+                        <span className="inline-flex items-center gap-1"><Bot className="size-3" />{agentLabel(task.agentId)}</span>
                         {task.projectName ? <span>{t('taskProject')}{task.projectName}</span> : null}
                       </div>
                       <div className="mt-4 grid gap-2 border-t border-border pt-3 text-xs text-muted-foreground sm:grid-cols-2">
@@ -727,6 +768,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                   <div>cron：<span className="font-mono text-foreground">{detailTask.cronExpression ?? '-'}</span></div>
                   <div>{t('lastExecution')}<span className="text-foreground">{formatDateTime(detailTask.lastRunAt)}</span></div>
                   <div>{t('nextExecution')}<span className="text-foreground">{formatDateTime(detailTask.nextRunAt)}</span></div>
+                  <div>{t('executionAgent')}<span className="text-foreground">{agentLabel(detailTask.agentId)}</span></div>
                   {detailTask.projectName ? <div>{t('taskProject')}<span className="text-foreground">{detailTask.projectName}</span></div> : null}
                   {detailTask.model ? <div>{t('taskModel')}：<span className="text-foreground">{modelLabel(detailTask.model)}</span></div> : null}
                   {detailTask.thinkingLevel ? <div>{t('taskThinkingLevel')}<span className="text-foreground">{THINKING_OPTIONS.find((option) => option.value === detailTask.thinkingLevel)?.label() ?? detailTask.thinkingLevel}</span></div> : null}
@@ -884,6 +926,20 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                       ))}
                     </select>
                   </span>
+                  <span className="relative inline-flex items-center">
+                    <Bot className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground/70" />
+                    <select
+                      className="h-8 max-w-[220px] rounded-md border border-transparent bg-transparent pl-7 pr-2 text-xs text-muted-foreground outline-none hover:bg-background focus:border-ring"
+                      value={form.agentId}
+                      onChange={(event) => updateForm('agentId', event.target.value)}
+                      title={t('executionAgent')}
+                    >
+                      <option value="">{t('defaultAgent')}</option>
+                      {agentProfiles.map((agent) => (
+                        <option key={agent.id} value={agent.id}>{agent.label}</option>
+                      ))}
+                    </select>
+                  </span>
                 </div>
 
                 {parsedTask ? (
@@ -917,6 +973,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
           </div>
         </div>
       ) : null}
+
     </div>
   )
 }

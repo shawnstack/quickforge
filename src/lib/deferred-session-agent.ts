@@ -1,7 +1,7 @@
 import type { AgentEvent, AgentMessage, AgentState, ThinkingLevel } from '@mariozechner/pi-agent-core'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import { streamSimple } from '@mariozechner/pi-ai'
-import type { ServerAgent, ServerAgentContextCompaction } from '@/lib/server-agent'
+import type { ServerAgent, ServerAgentContextCompaction, ServerAgentContextUsage } from '@/lib/server-agent'
 import type { ChatScope, ProjectInfo } from '@/lib/types'
 import { randomId } from '@/lib/random-id'
 
@@ -41,6 +41,7 @@ export class DeferredSessionAgent {
     pendingToolCalls: Set<string>
     errorMessage?: string
     contextCompaction?: ServerAgentContextCompaction | null
+    contextUsage?: ServerAgentContextUsage | null
   }
 
   constructor(options: DeferredSessionAgentOptions) {
@@ -58,6 +59,7 @@ export class DeferredSessionAgent {
       isStreaming: false,
       pendingToolCalls: new Set<string>(),
       contextCompaction: null,
+      contextUsage: null,
     }
   }
 

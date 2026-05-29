@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScheduledTasksPage } from '@/components/scheduled-tasks/ScheduledTasksPage'
+import { AgentProfilesPage } from '@/components/agent-profiles/AgentProfilesPage'
 import { ProjectDirectoryPicker } from '@/components/project-directory-picker'
 import { SkillsDialog } from '@/components/skills-dialog'
 import { McpServersDialog } from '@/components/mcp-servers-dialog'
@@ -51,6 +52,8 @@ import { SharedConversationPage } from '@/components/share/SharedConversationPag
 import { WorkspaceInspector } from '@/components/workspace/WorkspaceInspector'
 import { TerminalDock } from '@/components/terminal/TerminalDock'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
+
+type WorkspacePage = 'chat' | 'scheduledTasks' | 'agentProfiles'
 
 type ScheduledTaskNotificationEvent = {
   type?: unknown
@@ -116,7 +119,7 @@ function MainApp() {
   const [conversationsCollapsed, setConversationsCollapsed] = useState(false)
   const [needsModelSetup, setNeedsModelSetup] = useState(false)
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
-  const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false)
+  const [workspacePage, setWorkspacePage] = useState<WorkspacePage>('chat')
   const [mcpServersDialogOpen, setMcpServersDialogOpen] = useState(false)
   const [skillsDialog, setSkillsDialog] = useState<{ scope: SkillsScope; project?: ProjectInfo }>()
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
@@ -124,6 +127,10 @@ function MainApp() {
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [storage, setStorage] = useState<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
   const { toasts, handleTaskComplete, addToast, dismissToast } = useTaskToasts()
+  const scheduledTasksOpen = workspacePage === 'scheduledTasks'
+  const agentProfilesOpen = workspacePage === 'agentProfiles'
+  const workspacePageOpen = workspacePage !== 'chat'
+  const closeWorkspacePage = useCallback(() => setWorkspacePage('chat'), [])
 
   // --- Session list + cross-tab sync ---
   const crossTabRef = useRef<ReturnType<typeof useCrossTabSync> | null>(null)
@@ -201,21 +208,21 @@ function MainApp() {
   const handleToastClick = useCallback(
     (sessionId: string) => {
       if (!sessionId) return
-      setScheduledTasksOpen(false)
+      closeWorkspacePage()
       loadAgentSession(sessionId)
     },
-    [loadAgentSession],
+    [closeWorkspacePage, loadAgentSession],
   )
 
   const restoreWorkspaceDraft = useCallback((text: string) => {
     if (!text.trim()) return
-    setScheduledTasksOpen(false)
+    closeWorkspacePage()
     setRestoredDraft({
       id: Date.now(),
       sessionId: agentRef.current?.sessionId,
       text,
     })
-  }, [agentRef])
+  }, [agentRef, closeWorkspacePage])
 
   useEffect(() => {
     const unsubscribe = subscribeToAgentEvents((event) => {
@@ -294,7 +301,7 @@ function MainApp() {
     refreshSessions,
     needsModelSetup,
     switchActiveProject,
-    setScheduledTasksOpen,
+    closeWorkspacePage,
     setRestoredDraft,
   })
 
@@ -364,7 +371,7 @@ function MainApp() {
     loadAgentSession,
     setCurrentTitleRef,
     refreshSessions,
-    setScheduledTasksOpen,
+    closeWorkspacePage,
     startNewGlobalChat,
   })
 
@@ -446,7 +453,12 @@ function MainApp() {
 
   const openScheduledTasksFromSidebar = useCallback(() => {
     closeMobileSidebar()
-    setScheduledTasksOpen(true)
+    setWorkspacePage('scheduledTasks')
+  }, [closeMobileSidebar])
+
+  const openAgentProfilesFromSidebar = useCallback(() => {
+    closeMobileSidebar()
+    setWorkspacePage('agentProfiles')
   }, [closeMobileSidebar])
 
   const openGlobalSkillsFromSidebar = useCallback(() => {
@@ -513,6 +525,7 @@ function MainApp() {
       <ChatSidebar
         sidebarOpen={sidebarOpen}
         scheduledTasksActive={scheduledTasksOpen}
+        agentProfilesActive={agentProfilesOpen}
         projectsCollapsed={projectsCollapsed}
         conversationsCollapsed={conversationsCollapsed}
         projects={projects}
@@ -549,7 +562,8 @@ function MainApp() {
         onRenameSession={renameSession}
         onDeleteSession={deleteSession}
         onStartNewGlobalChat={startNewGlobalSession}
-        onOpenScheduledTasks={() => setScheduledTasksOpen(true)}
+        onOpenScheduledTasks={() => setWorkspacePage('scheduledTasks')}
+        onOpenAgentProfiles={() => setWorkspacePage('agentProfiles')}
         onOpenSettings={openDefaultOptionsSettings}
         onToggleSidebar={() => setSidebarOpen((value) => !value)}
       />
@@ -567,6 +581,7 @@ function MainApp() {
               variant="mobile"
               sidebarOpen
               scheduledTasksActive={scheduledTasksOpen}
+              agentProfilesActive={agentProfilesOpen}
               projectsCollapsed={projectsCollapsed}
               conversationsCollapsed={conversationsCollapsed}
               projects={projects}
@@ -608,6 +623,7 @@ function MainApp() {
               onDeleteSession={deleteSession}
               onStartNewGlobalChat={startNewGlobalSessionFromSidebar}
               onOpenScheduledTasks={openScheduledTasksFromSidebar}
+              onOpenAgentProfiles={openAgentProfilesFromSidebar}
               onOpenSettings={() => {
                 closeMobileSidebar()
                 openDefaultOptionsSettings()
@@ -630,6 +646,11 @@ function MainApp() {
                 <div className="truncate text-xs text-muted-foreground">AI Workspace</div>
                 <div className="truncate text-sm font-semibold">{t('scheduledTasks')}</div>
               </>
+            ) : agentProfilesOpen ? (
+              <>
+                <div className="truncate text-xs text-muted-foreground">AI Workspace</div>
+                <div className="truncate text-sm font-semibold">{t('agentsTab')}</div>
+              </>
             ) : (
               <>
                 <div className="truncate text-xs text-muted-foreground">
@@ -644,7 +665,7 @@ function MainApp() {
             variant="ghost"
             size="icon"
             onClick={() => setWorkspaceInspectorOpen((value) => !value)}
-            disabled={!agentManager.currentToolProject?.id || scheduledTasksOpen || needsModelSetup}
+            disabled={!agentManager.currentToolProject?.id || workspacePageOpen || needsModelSetup}
             aria-label="Workspace"
             title="Workspace"
             className="hidden lg:inline-flex"
@@ -656,7 +677,7 @@ function MainApp() {
             variant="ghost"
             size="icon"
             onClick={() => setTerminalOpen((value) => !value)}
-            disabled={scheduledTasksOpen || needsModelSetup}
+            disabled={workspacePageOpen || needsModelSetup}
             aria-label="终端"
             title="终端"
             className={terminalOpen ? 'bg-accent text-accent-foreground' : undefined}
@@ -668,7 +689,7 @@ function MainApp() {
             variant="ghost"
             size="icon"
             onClick={() => setShareDialogOpen(true)}
-            disabled={!agentManager.currentSessionId || scheduledTasksOpen || needsModelSetup}
+            disabled={!agentManager.currentSessionId || workspacePageOpen || needsModelSetup}
             aria-label="分享到局域网"
             title="分享到局域网"
           >
@@ -680,6 +701,8 @@ function MainApp() {
         <section className="relative flex min-h-0 flex-1 flex-col">
           {scheduledTasksOpen ? (
               <ScheduledTasksPage onOpenSession={handleToastClick} />
+            ) : agentProfilesOpen ? (
+              <AgentProfilesPage />
             ) : needsModelSetup ? (
               <ModelSetupEmptyState
                 onAddModel={openModelSettings}

@@ -32,7 +32,7 @@ type UseChatActionsOptions = {
   refreshSessions: (opts?: { broadcast?: boolean }) => Promise<void>
   needsModelSetup: boolean
   switchActiveProject: (projectId: string) => Promise<ProjectInfo>
-  setScheduledTasksOpen: React.Dispatch<React.SetStateAction<boolean>>
+  closeWorkspacePage: () => void
   setRestoredDraft: React.Dispatch<React.SetStateAction<RestoredDraft | undefined>>
 }
 
@@ -62,7 +62,7 @@ export function useChatActions({
   refreshSessions,
   needsModelSetup,
   switchActiveProject,
-  setScheduledTasksOpen,
+  closeWorkspacePage,
   setRestoredDraft,
 }: UseChatActionsOptions) {
   const startNewGlobalChat = useCallback(async () => {
@@ -71,7 +71,7 @@ export function useChatActions({
       return
     }
 
-    setScheduledTasksOpen(false)
+    closeWorkspacePage()
     if (isIdleEmptyAgent(agentRef.current) && currentChatScopeRef.current === 'global') {
       return
     }
@@ -79,7 +79,7 @@ export function useChatActions({
     clearSessionQueryParam()
 
     await startDeferredSession({ scope: 'global' })
-  }, [agentRef, currentChatScopeRef, needsModelSetup, setRestoredDraft, setScheduledTasksOpen, startDeferredSession])
+  }, [agentRef, currentChatScopeRef, needsModelSetup, setRestoredDraft, closeWorkspacePage, startDeferredSession])
 
   const startNewProjectChat = useCallback(async (targetProject?: ProjectInfo) => {
     if (needsModelSetup) {
@@ -87,7 +87,7 @@ export function useChatActions({
       return
     }
 
-    setScheduledTasksOpen(false)
+    closeWorkspacePage()
 
     const nextProject = targetProject ?? activeProjectRef.current
     if (!nextProject) return
@@ -104,7 +104,7 @@ export function useChatActions({
     clearSessionQueryParam()
 
     await startDeferredSession({ scope: 'project', project: nextProject })
-  }, [activeProjectRef, agentRef, currentChatScopeRef, needsModelSetup, setRestoredDraft, setScheduledTasksOpen, startDeferredSession, switchActiveProject])
+  }, [activeProjectRef, agentRef, currentChatScopeRef, needsModelSetup, setRestoredDraft, closeWorkspacePage, startDeferredSession, switchActiveProject])
 
   const rollbackFromMessage = useCallback(async (messageIndex: number) => {
     const currentAgent = agentRef.current

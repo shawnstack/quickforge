@@ -53,6 +53,7 @@ export const stores = new Set([
   'sessions',
   'sessions-metadata',
   'scheduled-tasks',
+  'custom-agents',
 ])
 
 // --- In-memory session bucket index ---

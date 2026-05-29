@@ -2,6 +2,7 @@ import { streamSimple } from '@mariozechner/pi-ai'
 import { readJsonBody, sendJson, decodeSegment } from '../utils/response.mjs'
 import { readStore, atomicUpdate } from '../storage.mjs'
 import { createAgent, getSessionEventBus, agentEvents, persistSessionState } from '../agent-manager.mjs'
+import { agentProfileSnapshot, getAgentProfile } from '../agent-profiles.mjs'
 import { projectContextFromId, readProjectConfig } from '../project-config.mjs'
 import { logger } from '../utils/logger.mjs'
 
@@ -260,6 +261,7 @@ function normalizeTaskInput(input, existing = {}) {
   const title = nonEmptyString(input?.title ?? existing.title, 'title').slice(0, 80)
   const instruction = nonEmptyString(input?.instruction ?? existing.instruction, 'instruction')
   const scheduleType = String(input?.scheduleType ?? existing.scheduleType ?? 'daily')
+  const agentId = Object.prototype.hasOwnProperty.call(input || {}, 'agentId') ? (input.agentId || null) : (existing.agentId || null)
 
   if (scheduleType === 'cron') {
     const cronExpression = String(input?.cronExpression ?? existing.cronExpression ?? '').trim()
@@ -269,6 +271,7 @@ function normalizeTaskInput(input, existing = {}) {
     return {
       title,
       instruction,
+      agentId,
       scheduleType: 'cron',
       scheduleRule: String(input?.scheduleRule ?? existing.scheduleRule ?? cronExpression).trim(),
       cronExpression,
@@ -288,6 +291,7 @@ function normalizeTaskInput(input, existing = {}) {
     return {
       title,
       instruction,
+      agentId,
       scheduleType,
       scheduleRule: `单次 ${formatLocalDateTime(executeAt)}`,
       cronExpression: undefined,
@@ -306,6 +310,7 @@ function normalizeTaskInput(input, existing = {}) {
     return {
       title,
       instruction,
+      agentId,
       scheduleType,
       scheduleRule: `每天 ${executeTime}`,
       cronExpression: undefined,
@@ -323,6 +328,7 @@ function normalizeTaskInput(input, existing = {}) {
     return {
       title,
       instruction,
+      agentId,
       scheduleType,
       scheduleRule: `每${weekDayNames[weekDay]} ${executeTime}`,
       cronExpression: undefined,
@@ -339,6 +345,7 @@ function normalizeTaskInput(input, existing = {}) {
   return {
     title,
     instruction,
+    agentId,
     scheduleType,
     scheduleRule: `每月 ${monthDay} 号 ${executeTime}`,
     cronExpression: undefined,
@@ -520,6 +527,13 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
   const startedAt = new Date().toISOString()
   const scheduledAt = task.nextRunAt
   let sessionId = `scheduled-${task.id}-${Date.now().toString(36)}`
+  let executionAgent = null
+  let agentWarning = null
+  if (task.agentId) {
+    executionAgent = await getAgentProfile(task.agentId)
+    if (!executionAgent) agentWarning = `Configured agent not found: ${task.agentId}`
+  }
+  const agentSnapshot = executionAgent ? agentProfileSnapshot(executionAgent) : null
 
   await updateTask(task.id, (current) => ({
     ...current,
@@ -531,6 +545,10 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
       trigger,
       inputContent: current.instruction,
       sessionId,
+      agentId: executionAgent?.id || task.agentId || null,
+      agentLabel: executionAgent?.label || null,
+      agentSnapshot,
+      warning: agentWarning || undefined,
       scheduledAt,
       startedAt,
     }, ...(current.runs || [])].slice(0, MAX_RUN_HISTORY_PER_TASK),
@@ -550,6 +568,7 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
       model: task.model,
       thinkingLevel: task.thinkingLevel,
       title: `[定时任务] ${task.title}`,
+      agentProfile: executionAgent,
     })
 
     const userMessage = {
@@ -577,7 +596,7 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
     await updateTask(task.id, (current) => ({
       ...current,
       lastSessionId: sessionId,
-      runs: (current.runs || []).map((run) => run.id === runId ? { ...run, sessionId } : run),
+      runs: (current.runs || []).map((run) => run.id === runId ? { ...run, sessionId, agentId: executionAgent?.id || task.agentId || null, agentLabel: executionAgent?.label || null, agentSnapshot, warning: agentWarning || run.warning } : run),
     }))
     onStarted?.({ taskId: task.id, runId, sessionId })
 
@@ -602,7 +621,7 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
       const timeout = setTimeout(() => {
         cleanup(handler, timeout)
         resolve({ ok: false, aborted: false, error: '执行超时', messages: session.agent.state.messages })
-      }, 30 * 60 * 1000)
+      }, Math.max(1000, Math.min(Number(executionAgent?.maxRuntimeMs || 30 * 60 * 1000), 30 * 60 * 1000)))
       eventBus?.on('agent_event', handler)
     })
 
@@ -646,6 +665,10 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
         result: result.ok ? (aiResult || `已完成，结果保存在会话 ${sessionId}`) : undefined,
         errorMessage: result.aborted ? '已暂停执行' : result.error,
         sessionId,
+        agentId: executionAgent?.id || latestTask.agentId || null,
+        agentLabel: executionAgent?.label || null,
+        agentSnapshot,
+        warning: agentWarning || run.warning,
         finishedAt,
         durationMs,
       } : run),
@@ -674,6 +697,10 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
         status: 'failed',
         errorMessage: error?.message || String(error),
         sessionId,
+        agentId: executionAgent?.id || current.agentId || null,
+        agentLabel: executionAgent?.label || null,
+        agentSnapshot,
+        warning: agentWarning || run.warning,
         finishedAt,
         durationMs,
       } : run),

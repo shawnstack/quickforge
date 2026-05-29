@@ -57,6 +57,14 @@ function sanitizeMessage(message) {
   return message
 }
 
+function sanitizeContextCompaction(compaction) {
+  if (!compaction || typeof compaction !== 'object') return null
+  return {
+    ...compaction,
+    summaryMessage: sanitizeMessage(compaction.summaryMessage),
+  }
+}
+
 function sanitizeSession(session, record) {
   const messages = Array.isArray(session?.messages) ? session.messages.map(sanitizeMessage).filter(Boolean) : []
   return {
@@ -74,6 +82,8 @@ function sanitizeSession(session, record) {
     tools: Array.isArray(session?.tools) ? session.tools : [],
     yoloMode: Boolean(session?.yoloMode),
     messages,
+    contextCompaction: sanitizeContextCompaction(session?.contextCompaction),
+    contextUsage: null,
     isStreaming: Boolean(session?.isStreaming || session?.taskStatus === 'running'),
     taskStatus: session?.taskStatus || session?.status,
     errorMessage: session?.errorMessage,
@@ -102,6 +112,10 @@ function sanitizeEvent(event) {
   const next = { ...event }
   if (next.message) next.message = sanitizeMessage(next.message)
   if (Array.isArray(next.messages)) next.messages = next.messages.map(sanitizeMessage).filter(Boolean)
+  if (next.contextCompaction?.summaryMessage) {
+    next.contextCompaction = sanitizeContextCompaction(next.contextCompaction)
+  }
+  delete next.contextUsage
   return next
 }
 

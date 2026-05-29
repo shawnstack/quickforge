@@ -54,11 +54,11 @@ function appendSubagentCatalog(parts, subagents) {
   const subagentParts = subagents.map(formatSubagentCatalogItem)
   parts.push(`
 <available_subagents>
-The run_subagent tool can delegate work to one of QuickForge's built-in temporary subagents.
+The run_subagent tool can delegate work to an enabled temporary Agent Profile. Built-in profiles include Explore for fast read-only codebase search and General for complex multi-step implementation work; custom profiles may also be available when enabled.
 
-Use Explore for fast read-only codebase search, pattern lookup, and repository questions. Use General for complex research or multi-step implementation work that may need built-in workspace tools, including file edits. Keep delegation concrete and include relevant context. Treat subagent output as advisory; you remain responsible for the final answer.
+Choose the most appropriate subagent by name, keep delegation concrete, and include relevant context. Treat subagent output as advisory; you remain responsible for the final answer.
 
-Subagents are short-lived, cannot call other subagents, and do not receive MCP tools or Agent Skill tools. General may modify files subject to the parent session approval/YOLO policy; Explore is read-only.
+Subagents are short-lived, cannot call other subagents, and do not receive MCP tools or Agent Skill tools. File mutation tools remain subject to the parent session approval/YOLO policy.
 
 ${subagentParts.join('\n')}
 </available_subagents>`)

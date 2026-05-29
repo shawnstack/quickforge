@@ -12,8 +12,10 @@ components/
 │   ├── context-usage.ts            # 上下文用量环状指示器 (78 行)
 │   ├── panel-decoration.ts         # 消息操作按钮和编辑器装饰 (554 行)
 │   └── scroll-sync.ts              # 自动滚动同步 (174 行)
+├── agent-profiles/
+│   └── AgentProfilesPage.tsx        # Agent Profiles 独立管理页面
 ├── scheduled-tasks/
-│   └── ScheduledTasksPage.tsx      # 定时任务页面 (913 行)
+│   └── ScheduledTasksPage.tsx      # 定时任务和执行历史页面
 ├── share/
 │   ├── ShareConversationDialog.tsx # 分享对话对话框 (199 行)
 │   └── SharedConversationPage.tsx  # 查看分享的对话页面 (266 行)
@@ -60,15 +62,22 @@ components/
 - 搜索、删除、重命名会话
 - 折叠/展开项目分组
 - 无限滚动加载会话 (Intersection Observer)
-- 定时任务入口、Skills 管理入口
+- 定时任务入口、Agents 管理入口、Skills 管理入口
 
-### ScheduledTasksPage.tsx (913 行)
+### ScheduledTasksPage.tsx
 
-- 定时任务管理页面
+- 定时任务管理页面，包含 Tasks / History 两个页签
 - 创建/编辑/删除/手动触发定时任务
 - 支持多种调度类型: once / daily / weekly / monthly / interval / cron
 - 任务运行历史查看
 - AI 模型选择、参数配置
+- 定时任务可选择执行 Agent；任务卡片、详情和运行历史展示 Agent 信息
+
+### AgentProfilesPage.tsx
+
+- 与定时任务平级的 Agent Profiles 独立管理页面
+- 创建自定义 Agent，配置系统提示词、工具白名单、运行时间、工具调用次数和是否启用为 sub agent
+- 展示内置 Agent Profiles，但内置项只读
 
 ### skills-dialog.tsx (410 行)
 
@@ -90,7 +99,7 @@ components/
 - 草稿恢复支持
 
 **context-usage.ts** (78 行)
-- 上下文用量环状指示器
+- 上下文用量环状指示器，优先展示后端 session state 返回的权威 `contextUsage`，缺失时回退到前端本地估算
 - 在输入框旁显示彩色环，指示当前对话所占模型上下文窗口比例
 
 **panel-decoration.ts** (554 行)

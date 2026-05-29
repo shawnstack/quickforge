@@ -198,6 +198,16 @@ export type ServerAgentContextCompaction = {
   thresholdPercent?: number
 }
 
+export type ServerAgentContextUsage = {
+  contextWindow: number
+  inputTokens: number
+  estimatedInputTokens: number
+  knownInputTokens?: number
+  reservedOutputTokens: number
+  totalTokens: number
+  percent: number
+}
+
 // ---------------------------------------------------------------------------
 // ServerAgent - Agent-compatible proxy that delegates to the server
 // ---------------------------------------------------------------------------
@@ -215,6 +225,7 @@ export type ServerAgentConfig = {
     isStreaming?: boolean
     errorMessage?: string
     contextCompaction?: ServerAgentContextCompaction | null
+    contextUsage?: ServerAgentContextUsage | null
   }
 }
 
@@ -231,6 +242,7 @@ export type ServerRollbackResult = {
     isStreaming?: boolean
     errorMessage?: string
     contextCompaction?: ServerAgentContextCompaction | null
+    contextUsage?: ServerAgentContextUsage | null
   }
 }
 
@@ -248,6 +260,7 @@ export class ServerAgent {
     pendingToolCalls: Set<string>
     errorMessage?: string
     contextCompaction?: ServerAgentContextCompaction | null
+    contextUsage?: ServerAgentContextUsage | null
   }
 
   // --- AgentInterface expects these properties ---
@@ -287,6 +300,7 @@ export class ServerAgent {
       pendingToolCalls: new Set<string>(),
       errorMessage: init.errorMessage as string | undefined,
       contextCompaction: init.contextCompaction ?? null,
+      contextUsage: init.contextUsage ?? null,
     }
 
     // Proxy that auto-syncs thinkingLevel changes to the server
@@ -330,6 +344,7 @@ export class ServerAgent {
     // Add to local state immediately for optimistic UI
     const agentMessage = message as unknown as AgentMessage
     this.state.messages = [...this.state.messages, agentMessage]
+    this.state.contextUsage = null
     this.emitToListeners({ type: 'message_start', message: agentMessage } as unknown as AgentEvent)
 
     if (!this.state.isStreaming) {
@@ -418,6 +433,7 @@ export class ServerAgent {
    */
   async updateModel(model: Model<Api>): Promise<void> {
     this.state.model = model
+    this.state.contextUsage = null
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/model`
     fetch(url, {
       method: 'POST',
@@ -553,7 +569,7 @@ export class ServerAgent {
         // Guard against SSE reconnect overwriting client messages with a stale
         // server snapshot: only accept server messages if the client has none
         // (initial load) or if the server has at least as many messages.
-        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; yoloMode?: boolean; isStreaming?: boolean; status?: string; contextCompaction?: ServerAgentContextCompaction | null }
+        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; yoloMode?: boolean; isStreaming?: boolean; status?: string; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null }
         if (s.systemPrompt !== undefined) {
           this.state.systemPrompt = s.systemPrompt
         }
@@ -577,6 +593,11 @@ export class ServerAgent {
         }
         if (s.contextCompaction !== undefined) {
           this.state.contextCompaction = s.contextCompaction
+        }
+        if (s.contextUsage !== undefined) {
+          this.state.contextUsage = s.contextUsage
+        } else if (s.messages) {
+          this.state.contextUsage = null
         }
         let wasStreaming = this.state.isStreaming
         if (s.isStreaming !== undefined) {
@@ -628,15 +649,17 @@ export class ServerAgent {
         // calls are executed after the assistant message_end event, so keeping
         // this message in local state lets pending run_command cards render
         // immediately instead of waiting for a full state refresh.
-        const msgEvent = event as { message?: AgentMessage; messages?: AgentMessage[] }
+        const msgEvent = event as { message?: AgentMessage; messages?: AgentMessage[]; contextUsage?: ServerAgentContextUsage | null }
         if (msgEvent.message) {
           this.state.messages = upsertMessage(this.state.messages, msgEvent.message)
+          this.state.contextUsage = msgEvent.contextUsage !== undefined ? msgEvent.contextUsage : null
           this.stateVersion++
           this.emitToListeners(event as unknown as AgentEvent)
           return
         }
         if (msgEvent.messages && msgEvent.messages.length >= this.state.messages.length) {
           this.state.messages = msgEvent.messages
+          this.state.contextUsage = msgEvent.contextUsage !== undefined ? msgEvent.contextUsage : null
           this.stateVersion++
           this.emitToListeners(event as unknown as AgentEvent)
           return
@@ -653,9 +676,10 @@ export class ServerAgent {
         // point it is already in state and tool results may have followed it.
         // Do not upsert event.message here, otherwise it can duplicate the
         // assistant message after tool results.
-        const msgEvent = event as { messages?: AgentMessage[] }
+        const msgEvent = event as { messages?: AgentMessage[]; contextUsage?: ServerAgentContextUsage | null }
         if (msgEvent.messages && msgEvent.messages.length >= this.state.messages.length) {
           this.state.messages = msgEvent.messages
+          this.state.contextUsage = msgEvent.contextUsage !== undefined ? msgEvent.contextUsage : null
           this.stateVersion++
           this.emitToListeners(event as unknown as AgentEvent)
           return
@@ -667,7 +691,7 @@ export class ServerAgent {
       }
 
       case 'messages_replaced': {
-        const replacedEvent = event as { messages?: AgentMessage[]; contextCompaction?: ServerAgentContextCompaction | null }
+        const replacedEvent = event as { messages?: AgentMessage[]; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null }
         if (replacedEvent.messages) {
           this.state.messages = replacedEvent.messages
           this.state.streamingMessage = undefined
@@ -675,6 +699,11 @@ export class ServerAgent {
         }
         if (replacedEvent.contextCompaction !== undefined) {
           this.state.contextCompaction = replacedEvent.contextCompaction
+        }
+        if (replacedEvent.contextUsage !== undefined) {
+          this.state.contextUsage = replacedEvent.contextUsage
+        } else if (replacedEvent.messages) {
+          this.state.contextUsage = null
         }
         break
       }
@@ -729,9 +758,12 @@ export class ServerAgent {
       }
 
       case 'auto_compact_completed': {
-        const compactEvent = event as { contextCompaction?: ServerAgentContextCompaction | null }
+        const compactEvent = event as { contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null }
         if (compactEvent.contextCompaction !== undefined) {
           this.state.contextCompaction = compactEvent.contextCompaction
+        }
+        if (compactEvent.contextUsage !== undefined) {
+          this.state.contextUsage = compactEvent.contextUsage
         }
         break
       }
@@ -795,6 +827,7 @@ export class ServerAgent {
       )
       if (shouldReplaceMessages) {
         this.state.messages = state.messages
+        this.state.contextUsage = state.contextUsage !== undefined ? state.contextUsage : null
         this.stateVersion++
       }
       if (state.systemPrompt !== undefined) {
@@ -816,6 +849,9 @@ export class ServerAgent {
       }
       if (state.contextCompaction !== undefined) {
         this.state.contextCompaction = state.contextCompaction
+      }
+      if (state.contextUsage !== undefined) {
+        this.state.contextUsage = state.contextUsage
       }
       if (state.isStreaming !== undefined) {
         const wasStreaming = this.state.isStreaming
@@ -862,6 +898,7 @@ export class ServerAgent {
       messages?: AgentMessage[]
       title?: string
       contextCompaction?: ServerAgentContextCompaction | null
+      contextUsage?: ServerAgentContextUsage | null
       baseUrl?: string
     } = {},
   ): Promise<ServerAgent> {
@@ -908,6 +945,7 @@ export class ServerAgent {
         isStreaming: Boolean(serverState.isStreaming),
         errorMessage: serverState.errorMessage as string | undefined,
         contextCompaction: serverState.contextCompaction as ServerAgentContextCompaction | null | undefined,
+        contextUsage: serverState.contextUsage as ServerAgentContextUsage | null | undefined,
       },
     })
   }

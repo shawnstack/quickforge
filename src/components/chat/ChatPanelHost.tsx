@@ -125,6 +125,12 @@ export function ChatPanelHost({
   const consumedRestoredDraftIdsRef = useRef<Set<number>>(new Set())
   const saveDraftTimerRef = useRef<number | undefined>(undefined)
 
+  const cancelPendingDraftSave = useCallback(() => {
+    if (!saveDraftTimerRef.current) return
+    window.clearTimeout(saveDraftTimerRef.current)
+    saveDraftTimerRef.current = undefined
+  }, [])
+
   useEffect(() => {
     storageRef.current = storage
   }, [storage])
@@ -145,9 +151,9 @@ export function ChatPanelHost({
 
   useEffect(() => {
     return () => {
-      if (saveDraftTimerRef.current) window.clearTimeout(saveDraftTimerRef.current)
+      cancelPendingDraftSave()
     }
-  }, [])
+  }, [cancelPendingDraftSave])
 
   const persistDraft = useCallback((key: string, draft: ComposerDraft, context: ComposerDraftContext) => {
     const storage = storageRef.current
@@ -295,6 +301,7 @@ export function ChatPanelHost({
     const currentDraftContext = draftContextRef.current
     let disposed = false
     let observer: MutationObserver | undefined
+    let composerClearedForSend = false
 
     // --- Scroll sync subsystem ---
     const scrollSync = createScrollSync({ panel })
@@ -327,18 +334,28 @@ export function ChatPanelHost({
 
     // --- Composer input/file-change handlers (update draft map) ---
     const handleEditorInput = (value: string) => {
+      composerClearedForSend = false
       const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
       const attachments = editor?.attachments ? [...editor.attachments] : []
       const draft = { text: value, attachments }
-      composerDraftsRef.current.set(currentDraftKey, draft)
+      if (hasDraft(draft)) {
+        composerDraftsRef.current.set(currentDraftKey, draft)
+      } else {
+        composerDraftsRef.current.delete(currentDraftKey)
+      }
       schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
     }
     const handleEditorFilesChange = (files: unknown[]) => {
+      composerClearedForSend = false
       const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
       const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
       const text = editor?.value ?? textarea?.value ?? ''
       const draft = { text, attachments: files ? [...files] : [] }
-      composerDraftsRef.current.set(currentDraftKey, draft)
+      if (hasDraft(draft)) {
+        composerDraftsRef.current.set(currentDraftKey, draft)
+      } else {
+        composerDraftsRef.current.delete(currentDraftKey)
+      }
       schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
     }
 
@@ -461,6 +478,8 @@ export function ChatPanelHost({
       onBeforeSend: () => {
         const draft = restoredDraftRef.current
         if (draft) consumedRestoredDraftIdsRef.current.add(draft.id)
+        cancelPendingDraftSave()
+        composerClearedForSend = true
         cmdSuggestions.remove()
         composerDraftsRef.current.delete(currentDraftKey)
         const storage = storageRef.current
@@ -585,8 +604,17 @@ export function ChatPanelHost({
     })
 
     return () => {
-      captureComposerDraft(panel, composerDraftsRef.current, currentDraftKey)
-      persistCurrentComposerDraft(panel, currentDraftKey, currentDraftContext)
+      if (composerClearedForSend) {
+        cancelPendingDraftSave()
+        composerDraftsRef.current.delete(currentDraftKey)
+        const storage = storageRef.current
+        if (storage) {
+          void clearComposerDraft(storage, currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
+        }
+      } else {
+        captureComposerDraft(panel, composerDraftsRef.current, currentDraftKey)
+        persistCurrentComposerDraft(panel, currentDraftKey, currentDraftContext)
+      }
       cmdSuggestions.remove()
       cmdSuggestions.cleanupTextareaHandler()
       disposed = true
@@ -597,7 +625,7 @@ export function ChatPanelHost({
       decorateFnRef.current = null
       panel.remove()
     }
-  }, [agent, persistCurrentComposerDraft, schedulePersistDraft]) // ← ONLY agent triggers panel recreation; callback deps are stable
+  }, [agent, cancelPendingDraftSave, persistCurrentComposerDraft, schedulePersistDraft]) // ← ONLY agent triggers panel recreation; callback deps are stable
 
   // =========================================================================
   // Decoration trigger: re-run decoration when UI props change (without

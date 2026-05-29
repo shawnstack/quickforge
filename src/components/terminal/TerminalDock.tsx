@@ -100,7 +100,7 @@ export function TerminalDock({ project, onCollapse }: TerminalDockProps) {
         setActiveSessionId(payload.sessions[0]?.id)
         if (nextCapabilities.enabled && payload.sessions.length === 0) {
           const defaultProfile = profileFromCapabilities(nextCapabilities)
-          void createTerminalSession({
+          createTerminalSession({
             projectId,
             name: nextTerminalName([], defaultProfile),
             cols: 120,
@@ -108,7 +108,10 @@ export function TerminalDock({ project, onCollapse }: TerminalDockProps) {
             shellProfileId: defaultProfile?.id,
             shellProfileName: defaultProfile?.name,
           }).then((session) => {
-            if (disposed) return
+            if (disposed) {
+              void deleteTerminalSession(session.id).catch(() => {})
+              return
+            }
             setSessions([session])
             setActiveSessionId(session.id)
           }).catch((err) => {

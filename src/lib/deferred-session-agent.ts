@@ -29,6 +29,8 @@ export class DeferredSessionAgent {
   private disposed = false
   private realAgentPromise: Promise<ServerAgent> | undefined
 
+  private promotedAgent: ServerAgent | undefined
+
   state: {
     systemPrompt: string
     model: Model<Api>
@@ -127,6 +129,16 @@ export class DeferredSessionAgent {
   dispose(): void {
     this.disposed = true
     this.listeners.clear()
+    if (!this.promotedAgent) {
+      void this.realAgentPromise?.then((agent) => {
+        if (this.promotedAgent !== agent) agent.dispose()
+      })
+    }
+  }
+
+  promoteTo(agent: ServerAgent): void {
+    this.promotedAgent = agent
+    this.listeners.clear()
   }
 
   private async ensureRealAgent() {
@@ -145,7 +157,10 @@ export class DeferredSessionAgent {
           attachToView: true,
           yoloMode: this.state.yoloMode,
         },
-      )
+      ).then((agent) => {
+        if (this.disposed && this.promotedAgent !== agent) agent.dispose()
+        return agent
+      })
     }
     return this.realAgentPromise
   }

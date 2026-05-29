@@ -10,6 +10,10 @@ export function sendJson(res, status, value) {
 }
 
 export function sendError(res, error) {
+  if (res.headersSent) {
+    try { res.end() } catch { /* ignore */ }
+    return
+  }
   const status = error?.statusCode || 500
   sendJson(res, status, { error: error?.message || 'Internal server error' })
 }

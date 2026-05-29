@@ -34,29 +34,44 @@ export function useCrossTabSync(callbacks: {
   const channelRef = useRef<BroadcastChannel | null>(null)
 
   useEffect(() => {
-    const channel = new BroadcastChannel(CHANNEL_NAME)
-    channelRef.current = channel
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        const channel = new BroadcastChannel(CHANNEL_NAME)
+        channelRef.current = channel
 
-    const handleMessage = (event: MessageEvent<SyncMessage>) => {
-      const msg = event.data
-      // Ignore messages from our own tab
-      if (!msg || msg.sourceTabId === tabId.current) return
+        const handleMessage = (event: MessageEvent<SyncMessage>) => {
+          const msg = event.data
+          // Ignore messages from our own tab
+          if (!msg || msg.sourceTabId === tabId.current) return
 
-      switch (msg.type) {
-        case 'sessions-changed':
-          callbacksRef.current.onSessionsChanged()
-          break
-        case 'projects-changed':
-          callbacksRef.current.onProjectsChanged()
-          break
-        case 'settings-changed':
-          callbacksRef.current.onSettingsChanged()
-          break
+          switch (msg.type) {
+            case 'sessions-changed':
+              callbacksRef.current.onSessionsChanged()
+              break
+            case 'projects-changed':
+              callbacksRef.current.onProjectsChanged()
+              break
+            case 'settings-changed':
+              callbacksRef.current.onSettingsChanged()
+              break
+          }
+        }
+
+        channel.addEventListener('message', handleMessage)
+
+        return () => {
+          channel.removeEventListener('message', handleMessage)
+          channel.close()
+        }
+      } catch {
+        channelRef.current = null
       }
     }
 
-    channel.addEventListener('message', handleMessage)
+    return undefined
+  }, [])
 
+  useEffect(() => {
     // Refresh when tab becomes visible (user switches back to this tab)
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
@@ -67,8 +82,6 @@ export function useCrossTabSync(callbacks: {
     document.addEventListener('visibilitychange', handleVisibility)
 
     return () => {
-      channel.removeEventListener('message', handleMessage)
-      channel.close()
       document.removeEventListener('visibilitychange', handleVisibility)
     }
   }, [])

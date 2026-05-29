@@ -310,7 +310,8 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       }
 
       if (options?.attachToView !== false) {
-        if (agentRef.current === previousAgent) disposeDetachedAgent(previousAgent, task.agent)
+        if (previousAgent instanceof DeferredSessionAgent) previousAgent.promoteTo(task.agent)
+        else if (agentRef.current === previousAgent) disposeDetachedAgent(previousAgent, task.agent)
         attachTaskToView(task)
       }
       if (nextAgent.state.messages.length > 0) {

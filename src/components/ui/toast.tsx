@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CheckCircle, XCircle, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
@@ -23,25 +23,28 @@ function Toast({ toast, onDismiss, onClick }: ToastProps) {
   const [visible, setVisible] = useState(false)
   const [leaving, setLeaving] = useState(false)
 
+  const dismissTimerRef = useRef<number | null>(null)
+
   useEffect(() => {
     // Trigger enter animation
     const enterTimer = window.setTimeout(() => setVisible(true), 10)
 
     // Auto-dismiss after 5s
-    const dismissTimer = window.setTimeout(() => {
+    dismissTimerRef.current = window.setTimeout(() => {
       setLeaving(true)
-      window.setTimeout(() => onDismiss(toast.id), 200)
+      dismissTimerRef.current = window.setTimeout(() => onDismiss(toast.id), 200)
     }, 5000)
 
     return () => {
       window.clearTimeout(enterTimer)
-      window.clearTimeout(dismissTimer)
+      if (dismissTimerRef.current !== null) window.clearTimeout(dismissTimerRef.current)
     }
   }, [toast.id, onDismiss])
 
   const handleDismiss = () => {
     setLeaving(true)
-    window.setTimeout(() => onDismiss(toast.id), 200)
+    if (dismissTimerRef.current !== null) window.clearTimeout(dismissTimerRef.current)
+    dismissTimerRef.current = window.setTimeout(() => onDismiss(toast.id), 200)
   }
 
   const isError = toast.status === 'error'

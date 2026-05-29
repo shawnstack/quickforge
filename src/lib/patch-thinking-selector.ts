@@ -93,13 +93,15 @@ function patchEditorInstance(editor: HTMLElement) {
 
 export function patchThinkingSelector(options: { hideSelector?: boolean } = {}) {
   const { hideSelector = false } = options
+  const startedAt = Date.now()
+  const maxWaitMs = 30000
   const tryPatch = () => {
     const MessageEditor = customElements.get('message-editor') as (CustomElementConstructor & {
       prototype: { render?: () => unknown }
     }) | undefined
 
     if (!MessageEditor?.prototype.render) {
-      setTimeout(tryPatch, 0)
+      if (Date.now() - startedAt < maxWaitMs) setTimeout(tryPatch, 100)
       return
     }
 

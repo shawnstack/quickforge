@@ -27,6 +27,11 @@ function escapeXml(value) {
     .replace(/>/g, '&gt;')
 }
 
+function formatAllowedTools(value) {
+  if (Array.isArray(value)) return value.join(', ')
+  return value
+}
+
 function formatSkillCatalogItem(skill) {
   const details = [
     `    <name>${escapeXml(skill.name)}</name>`,
@@ -34,7 +39,7 @@ function formatSkillCatalogItem(skill) {
   ]
 
   if (skill.compatibility) details.push(`    <compatibility>${escapeXml(skill.compatibility)}</compatibility>`)
-  if (skill.allowedTools) details.push(`    <allowed_tools>${escapeXml(skill.allowedTools)}</allowed_tools>`)
+  if (skill.allowedTools) details.push(`    <allowed_tools>${escapeXml(formatAllowedTools(skill.allowedTools))}</allowed_tools>`)
 
   return `  <skill>\n${details.join('\n')}\n  </skill>`
 }
@@ -44,7 +49,7 @@ function formatSubagentCatalogItem(subagent) {
     `    <name>${escapeXml(subagent.name)}</name>`,
     `    <description>${escapeXml(subagent.description)}</description>`,
   ]
-  if (Array.isArray(subagent.allowedTools)) details.push(`    <allowed_tools>${escapeXml(subagent.allowedTools.join(', '))}</allowed_tools>`)
+  if (subagent.allowedTools) details.push(`    <allowed_tools>${escapeXml(formatAllowedTools(subagent.allowedTools))}</allowed_tools>`)
   return `  <subagent>\n${details.join('\n')}\n  </subagent>`
 }
 

@@ -326,6 +326,10 @@ function startVite() {
     shell: false,
     env: { ...process.env, QUICKFORGE_SERVER_PORT: String(port) },
   })
+  viteChild.on('error', (error) => {
+    logger.error('Failed to start Vite dev server:', error)
+    process.exitCode = 1
+  })
   viteChild.on('exit', (code) => {
     if (code && code !== 0) process.exitCode = code
   })
@@ -492,10 +496,17 @@ const server = createServer(async (req, res) => {
   }
 })
 
+function writeAndDestroySocket(socket, statusLine) {
+  socket.on('error', () => {})
+  if (!socket.destroyed) {
+    try { socket.write(`${statusLine}\r\n\r\n`) } catch { /* ignore */ }
+  }
+  socket.destroy()
+}
+
 server.on('upgrade', (req, socket, head) => {
   if (!isAllowedHostHeader(req.headers.host)) {
-    socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
-    socket.destroy()
+    writeAndDestroySocket(socket, 'HTTP/1.1 403 Forbidden')
     return
   }
 
@@ -507,11 +518,9 @@ server.on('upgrade', (req, socket, head) => {
       })
       return
     }
-    socket.write('HTTP/1.1 404 Not Found\r\n\r\n')
-    socket.destroy()
+    writeAndDestroySocket(socket, 'HTTP/1.1 404 Not Found')
   } catch {
-    socket.write('HTTP/1.1 400 Bad Request\r\n\r\n')
-    socket.destroy()
+    writeAndDestroySocket(socket, 'HTTP/1.1 400 Bad Request')
   }
 })
 
@@ -553,5 +562,13 @@ async function gracefulShutdown(signal) {
   process.exit(0)
 }
 
-process.on('SIGINT', (signal) => gracefulShutdown(signal))
-process.on('SIGTERM', (signal) => gracefulShutdown(signal))
+function handleShutdownSignal(signal) {
+  void gracefulShutdown(signal).catch((error) => {
+    logger.error('Graceful shutdown failed:', error)
+    flushLogger()
+    process.exit(1)
+  })
+}
+
+process.on('SIGINT', handleShutdownSignal)
+process.on('SIGTERM', handleShutdownSignal)

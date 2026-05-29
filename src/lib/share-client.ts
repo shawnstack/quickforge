@@ -54,9 +54,18 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return payload as T
 }
 
+function randomAlphabetChar(alphabet: string) {
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const values = new Uint8Array(1)
+    crypto.getRandomValues(values)
+    return alphabet[values[0] % alphabet.length]
+  }
+  return alphabet[Math.floor(Math.random() * alphabet.length)]
+}
+
 export function generateSharePassword() {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  const part = () => Array.from({ length: 6 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('')
+  const part = () => Array.from({ length: 6 }, () => randomAlphabetChar(alphabet)).join('')
   return `${part()}-${part()}`
 }
 

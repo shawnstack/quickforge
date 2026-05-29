@@ -135,6 +135,7 @@ class GlobalAgentSseClient {
     if (this.reconnectTimer || (this.handlersBySession.size === 0 && this.globalHandlers.size === 0)) return
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
+      if (this.handlersBySession.size === 0 && this.globalHandlers.size === 0) return
       this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000)
       this.connect()
     }, this.reconnectDelay)

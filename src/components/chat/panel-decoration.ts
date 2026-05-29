@@ -673,6 +673,12 @@ export function decorateEditor(deps: EditorDecorationDeps) {
   editor?.parentElement?.parentElement?.classList.add('quickforge-composer-dock')
   const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
   if (textarea) textarea.placeholder = t('composerPlaceholder')
+
+  if (readOnly) {
+    panel.querySelector<HTMLElement>('.quickforge-composer-dock')?.remove()
+    return
+  }
+
   if (editor) {
     editor.onInput = (value) => {
       onInput(value)
@@ -684,11 +690,6 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     updateCommandSuggestions()
   }
   setupCommandTextareaHandler(editor)
-
-  if (readOnly) {
-    panel.querySelector<HTMLElement>('.quickforge-composer-dock')?.remove()
-    return
-  }
 
   const agentInterface = panel.querySelector<AgentInterfaceElement>('agent-interface')
   if (agentInterface) {

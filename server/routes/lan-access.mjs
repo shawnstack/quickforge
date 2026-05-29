@@ -12,7 +12,26 @@ import {
 const MAX_FAILED_ATTEMPTS = 5
 const ATTEMPT_WINDOW_MS = 5 * 60 * 1000
 const LOCK_MS = 5 * 60 * 1000
+const ATTEMPT_CLEANUP_MS = 5 * 60 * 1000
 const attempts = new Map()
+let cleanupTimer = null
+
+function cleanupAttempts() {
+  const now = Date.now()
+  for (const [key, state] of attempts) {
+    if (state.resetAt <= now && state.lockedUntil <= now) attempts.delete(key)
+  }
+  if (attempts.size === 0 && cleanupTimer) {
+    clearInterval(cleanupTimer)
+    cleanupTimer = null
+  }
+}
+
+function scheduleAttemptCleanup() {
+  if (cleanupTimer) return
+  cleanupTimer = setInterval(cleanupAttempts, ATTEMPT_CLEANUP_MS)
+  cleanupTimer.unref?.()
+}
 
 function remoteKey(req) {
   return String(req.socket.remoteAddress || 'unknown')
@@ -25,6 +44,7 @@ function attemptState(req) {
   if (!state || state.resetAt <= now) {
     const fresh = { count: 0, resetAt: now + ATTEMPT_WINDOW_MS, lockedUntil: 0 }
     attempts.set(key, fresh)
+    scheduleAttemptCleanup()
     return fresh
   }
   return state

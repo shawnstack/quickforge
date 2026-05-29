@@ -27,8 +27,7 @@ export async function cleanOldLogs() {
     // Remove files older than retention
     for (const f of fileStats) {
       if (f.mtime < cutoff) {
-        try { await fs.unlink(f.path) } catch { /* ignore */ }
-        totalSize -= f.size
+        try { await fs.unlink(f.path); totalSize -= f.size } catch { /* ignore */ }
       }
     }
 
@@ -37,8 +36,7 @@ export async function cleanOldLogs() {
       const remaining = fileStats.filter((f) => f.mtime >= cutoff).sort((a, b) => a.mtime - b.mtime)
       for (const f of remaining) {
         if (totalSize <= LOG_MAX_TOTAL_SIZE_MB * 1024 * 1024) break
-        try { await fs.unlink(f.path) } catch { /* ignore */ }
-        totalSize -= f.size
+        try { await fs.unlink(f.path); totalSize -= f.size } catch { /* ignore */ }
       }
     }
   } catch {

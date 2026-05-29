@@ -104,15 +104,25 @@ async function handleTerminalUpgradeAsync(req, socket, head, url, options = {}) 
     const sessionId = decodeSegment(match[1])
 
     wsServer.handleUpgrade(req, socket, head, (ws) => {
+      ws.on('error', () => {
+        // The terminal manager installs its own handler after a successful attach.
+        // Keep this fallback so attach failures do not leave an unhandled ws error.
+      })
       try {
         attachTerminalClient(sessionId, ws)
       } catch (err) {
-        ws.send(JSON.stringify({ type: 'error', message: err?.message || 'Terminal connection failed' }))
-        ws.close()
+        try {
+          ws.send(JSON.stringify({ type: 'error', message: err?.message || 'Terminal connection failed' }), () => ws.close())
+        } catch {
+          ws.close()
+        }
       }
     })
   } catch (err) {
-    socket.write(`HTTP/1.1 ${err.statusCode || 500} ${err.message || 'Terminal upgrade failed'}\r\n\r\n`)
+    socket.on('error', () => {})
+    if (!socket.destroyed) {
+      try { socket.write(`HTTP/1.1 ${err.statusCode || 500} ${err.message || 'Terminal upgrade failed'}\r\n\r\n`) } catch { /* ignore */ }
+    }
     socket.destroy()
   }
 }

@@ -9,6 +9,7 @@ const TOOL_PREFIX = 'mcp__'
 const CONNECT_TIMEOUT_MS = 15_000
 const CALL_TIMEOUT_MS = 120_000
 const MAX_TEXT_LENGTH = 60_000
+const RETRY_ERROR_AFTER_MS = 30_000
 
 const connections = new Map()
 let refreshPromise = null
@@ -126,6 +127,7 @@ async function connectServer(config) {
     error: null,
     tools: [],
     connectedAt: null,
+    lastAttemptAt: Date.now(),
     stderr: '',
   }
 
@@ -133,7 +135,7 @@ async function connectServer(config) {
     connection.stderr = truncateText(connection.stderr + chunk.toString(), 4000)
   })
   transport.onclose = () => {
-    connection.status = 'disconnected'
+    if (connection.status !== 'error') connection.status = 'disconnected'
   }
   transport.onerror = (error) => {
     connection.status = 'error'
@@ -189,7 +191,15 @@ async function refreshConnections() {
   }
 
   for (const config of enabled.values()) {
-    if (connections.has(config.name)) continue
+    const existing = connections.get(config.name)
+    if (existing) {
+      if (existing.status === 'error' && Date.now() - (existing.lastAttemptAt || 0) >= RETRY_ERROR_AFTER_MS) {
+        connections.delete(config.name)
+        await closeConnection(existing)
+      } else {
+        continue
+      }
+    }
     try {
       const connection = await connectServer(config)
       connections.set(config.name, connection)
@@ -204,6 +214,7 @@ async function refreshConnections() {
         tools: [],
         connectedAt: null,
         stderr: '',
+        lastAttemptAt: Date.now(),
       })
     }
   }

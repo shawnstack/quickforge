@@ -1030,6 +1030,7 @@ export async function createAgent(sessionId, config = {}) {
     }
   }
 
+  let session
   const agent = new Agent({
     initialState: {
       systemPrompt: resolvedSystemPrompt,
@@ -1073,7 +1074,7 @@ export async function createAgent(sessionId, config = {}) {
   const eventBus = new EventEmitter()
   eventBus.setMaxListeners(100)
 
-  const session = {
+  session = {
     sessionId,
     agent,
     projectContext,
@@ -1615,6 +1616,14 @@ export async function destroyAgent(sessionId) {
     session.agent.abort()
   } catch {
     // ignore
+  }
+
+  // Clean up any pending approvals for this session before removing it.
+  for (const [toolCallId, approval] of pendingApprovals) {
+    if (approval.sessionId === sessionId) approval.reject(new Error('Session destroyed'))
+  }
+  for (const [approvalId, approval] of pendingAutoCompactApprovals) {
+    if (approval.sessionId === sessionId) approval.reject(new Error('Session destroyed'))
   }
 
   // Final persist (empty sessions are cleaned up by persistSession)

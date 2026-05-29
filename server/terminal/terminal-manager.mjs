@@ -69,7 +69,9 @@ function serializeSession(session) {
 
 function send(client, message) {
   if (client.readyState === client.OPEN) {
-    client.send(JSON.stringify(message))
+    client.send(JSON.stringify(message), (error) => {
+      if (error) logger.warn('Failed to send terminal websocket message', { error: error?.message })
+    })
   }
 }
 
@@ -222,6 +224,12 @@ export function attachTerminalClient(sessionId, client) {
     } catch (error) {
       send(client, { type: 'error', message: error instanceof Error ? error.message : 'Invalid terminal message' })
     }
+  })
+
+  client.on('error', (error) => {
+    logger.warn('Terminal websocket client error', { sessionId, error: error?.message })
+    session.clients.delete(client)
+    session.disconnectedAt = Date.now()
   })
 
   client.on('close', () => {

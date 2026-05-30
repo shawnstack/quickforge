@@ -49,6 +49,7 @@ export type QuickForgeSessionMetadata = SessionMetadata & {
   taskStartedAt?: string
   taskFinishedAt?: string
   contextCompaction?: ServerAgentContextCompaction | null
+  pinnedAt?: string
 }
 
 export type QuickForgeSessionData = SessionData & {
@@ -61,6 +62,7 @@ export type QuickForgeSessionData = SessionData & {
   taskStartedAt?: string
   taskFinishedAt?: string
   contextCompaction?: ServerAgentContextCompaction | null
+  pinnedAt?: string
 }
 
 export type BackgroundTask = {

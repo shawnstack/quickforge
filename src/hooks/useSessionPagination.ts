@@ -4,6 +4,22 @@ import type { QuickForgeSessionMetadata } from '@/lib/types'
 
 const PAGE_SIZE = 20
 
+function sessionSortTime(value?: string) {
+  if (!value) return 0
+  const time = new Date(value).getTime()
+  return Number.isNaN(time) ? 0 : time
+}
+
+function sortSessions(items: QuickForgeSessionMetadata[]) {
+  return [...items].sort((a, b) => {
+    const pinnedDiff = sessionSortTime(b.pinnedAt) - sessionSortTime(a.pinnedAt)
+    if (pinnedDiff !== 0) return pinnedDiff
+    if (a.pinnedAt && !b.pinnedAt) return -1
+    if (!a.pinnedAt && b.pinnedAt) return 1
+    return sessionSortTime(b.lastModified) - sessionSortTime(a.lastModified)
+  })
+}
+
 type SessionPage = {
   items: QuickForgeSessionMetadata[]
   total: number
@@ -52,7 +68,7 @@ export function useSessionPagination({
         { direction: 'desc', limit: PAGE_SIZE, offset, scope: 'global' },
       )
       setGlobalPage((prev) => ({
-        items: offset === 0 ? result.values : [...prev.items, ...result.values],
+        items: sortSessions(offset === 0 ? result.values : [...prev.items, ...result.values]),
         total: result.total,
         loading: false,
       }))
@@ -79,7 +95,7 @@ export function useSessionPagination({
         return {
           ...prev,
           [projectId]: {
-            items: offset === 0 ? result.values : [...prevItems, ...result.values],
+            items: sortSessions(offset === 0 ? result.values : [...prevItems, ...result.values]),
             total: result.total,
             loading: false,
           },

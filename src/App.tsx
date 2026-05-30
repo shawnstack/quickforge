@@ -2,8 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import type { BackgroundTaskStatus } from '@/lib/types'
 import {
+  Ellipsis,
   Menu,
   PanelRightOpen,
+  Pencil,
+  Pin,
+  PinOff,
   Share2,
   SquareTerminal,
 } from 'lucide-react'
@@ -123,6 +127,7 @@ function MainApp() {
   const [mcpServersDialogOpen, setMcpServersDialogOpen] = useState(false)
   const [skillsDialog, setSkillsDialog] = useState<{ scope: SkillsScope; project?: ProjectInfo }>()
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
+  const [conversationMenuOpen, setConversationMenuOpen] = useState(false)
   const [workspaceInspectorOpen, setWorkspaceInspectorOpen] = useState(false)
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [storage, setStorage] = useState<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
@@ -362,6 +367,7 @@ function MainApp() {
   const {
     loadSession,
     renameSession,
+    togglePinSession,
     deleteSession,
     startNewGlobalSession,
   } = useSessionActions({
@@ -398,6 +404,11 @@ function MainApp() {
     ...globalSessions,
     ...projects.flatMap((project) => sessionsForProject(project.id)),
   ], [globalSessions, projects, sessionsForProject])
+  const currentSessionMetadata = useMemo(() => {
+    if (!agentManager.currentSessionId) return undefined
+    return visibleSessions.find((session) => session.id === agentManager.currentSessionId)
+  }, [agentManager.currentSessionId, visibleSessions])
+  const currentSessionPinned = Boolean(currentSessionMetadata?.pinnedAt)
   const visibleRuntimeStatuses = useVisibleRuntimeStatuses(visibleSessions)
 
   const sessionTaskStatus = useCallback((session: QuickForgeSessionMetadata) => {
@@ -406,6 +417,36 @@ function MainApp() {
       ?? session.taskStatus
       ?? 'idle'
   }, [agentManager.taskStatuses, visibleRuntimeStatuses])
+
+  useEffect(() => {
+    if (!conversationMenuOpen) return
+    const closeMenu = () => setConversationMenuOpen(false)
+    window.addEventListener('click', closeMenu)
+    window.addEventListener('blur', closeMenu)
+    return () => {
+      window.removeEventListener('click', closeMenu)
+      window.removeEventListener('blur', closeMenu)
+    }
+  }, [conversationMenuOpen])
+
+  const handleToggleCurrentSessionPinned = useCallback(() => {
+    const sessionId = agentManager.currentSessionId
+    if (!sessionId) return
+    setConversationMenuOpen(false)
+    void togglePinSession(sessionId)
+  }, [agentManager.currentSessionId, togglePinSession])
+
+  const handleRenameCurrentSession = useCallback(() => {
+    const sessionId = agentManager.currentSessionId
+    if (!sessionId) return
+    setConversationMenuOpen(false)
+    void renameSession(sessionId, agentManager.currentTitle)
+  }, [agentManager.currentSessionId, agentManager.currentTitle, renameSession])
+
+  const handleShareCurrentSession = useCallback(() => {
+    setConversationMenuOpen(false)
+    setShareDialogOpen(true)
+  }, [])
 
   const toggleProjectsCollapsed = useCallback(() => {
     setProjectsCollapsed((value) => !value)
@@ -559,6 +600,7 @@ function MainApp() {
         }}
         onDeleteProject={deleteProjectInline}
         onLoadSession={loadSession}
+        onTogglePinSession={togglePinSession}
         onRenameSession={renameSession}
         onDeleteSession={deleteSession}
         onStartNewGlobalChat={startNewGlobalSession}
@@ -619,6 +661,7 @@ function MainApp() {
               }}
               onDeleteProject={deleteProjectInline}
               onLoadSession={loadSessionFromSidebar}
+              onTogglePinSession={togglePinSession}
               onRenameSession={renameSession}
               onDeleteSession={deleteSession}
               onStartNewGlobalChat={startNewGlobalSessionFromSidebar}
@@ -652,12 +695,50 @@ function MainApp() {
                 <div className="truncate text-sm font-semibold">{t('agentsTab')}</div>
               </>
             ) : (
-              <>
-                <div className="truncate text-xs text-muted-foreground">
-                  {agentManager.chatScope === 'project' ? (agentManager.currentToolProject?.name ?? t('projectChat')) : t('normalChat')}
+              <div className="flex max-w-full min-w-0 items-center">
+                <div className="min-w-0 max-w-[calc(100%-1.5rem)] truncate text-sm font-semibold">{sessionTitle(agentManager.currentTitle)}</div>
+                <div className="relative ml-0.5 shrink-0" onClick={(event) => event.stopPropagation()}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6"
+                    onClick={() => setConversationMenuOpen((value) => !value)}
+                    disabled={!agentManager.currentSessionId || needsModelSetup}
+                    aria-label={t('moreOptions')}
+                    aria-expanded={conversationMenuOpen}
+                  >
+                    <Ellipsis className="size-4" />
+                  </Button>
+                  {conversationMenuOpen ? (
+                    <div className="absolute left-0 top-8 z-30 min-w-44 rounded-lg border border-border bg-card p-1 shadow-xl">
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+                        onClick={handleToggleCurrentSessionPinned}
+                      >
+                        {currentSessionPinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+                        <span>{currentSessionPinned ? t('unpinSession') : t('pinSession')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+                        onClick={handleRenameCurrentSession}
+                      >
+                        <Pencil className="size-4" />
+                        <span>{t('renameSession')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+                        onClick={handleShareCurrentSession}
+                      >
+                        <Share2 className="size-4" />
+                        <span>{t('shareSession')}</span>
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
-                <div className="truncate text-sm font-semibold">{sessionTitle(agentManager.currentTitle)}</div>
-              </>
+              </div>
             )}
           </div>
 
@@ -683,17 +764,6 @@ function MainApp() {
             className={terminalOpen ? 'bg-accent text-accent-foreground' : undefined}
           >
             <SquareTerminal className="size-4" />
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setShareDialogOpen(true)}
-            disabled={!agentManager.currentSessionId || workspacePageOpen || needsModelSetup}
-            aria-label="分享到局域网"
-            title="分享到局域网"
-          >
-            <Share2 className="size-4" />
           </Button>
 
         </header>

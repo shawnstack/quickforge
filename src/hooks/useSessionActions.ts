@@ -1,5 +1,6 @@
 import { useCallback } from 'react'
 import type { AgentManager } from '@/hooks/useAgentManager'
+import type { QuickForgeSessionData, QuickForgeSessionMetadata } from '@/lib/types'
 import { initializePiStorage } from '@/lib/pi-chat'
 import { t } from '@/lib/i18n'
 import { showConfirm } from '@/components/ui/confirm-dialog'
@@ -53,6 +54,21 @@ export function useSessionActions({
     }
   }, [currentSessionIdRef, refreshSessions, setCurrentTitleRef, storageRef])
 
+  const togglePinSession = useCallback(async (sessionId: string) => {
+    const storage = storageRef.current
+    if (!storage) return
+    const session = await storage.sessions.get(sessionId) as QuickForgeSessionData | null
+    if (!session) return
+    const metadata = await storage.sessions.getMetadata(sessionId) as QuickForgeSessionMetadata | null
+    if (!metadata) return
+
+    const pinnedAt = metadata.pinnedAt ? undefined : new Date().toISOString()
+    const nextSession = { ...session, pinnedAt }
+    const nextMetadata = { ...metadata, pinnedAt }
+    await storage.sessions.save(nextSession, nextMetadata)
+    await refreshSessions({ broadcast: true })
+  }, [refreshSessions, storageRef])
+
   const deleteSession = useCallback(async (sessionId: string) => {
     const storage = storageRef.current
     if (!storage) return
@@ -83,6 +99,7 @@ export function useSessionActions({
   return {
     loadSession,
     renameSession,
+    togglePinSession,
     deleteSession,
     startNewGlobalSession,
   }

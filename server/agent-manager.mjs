@@ -1282,7 +1282,10 @@ async function persistSession(session) {
   try {
     await writeSessionValue(sessionId, sessionData)
     await atomicUpdate('sessions-metadata', (data) => {
-      data[sessionId] = metadata
+      data[sessionId] = {
+        ...metadata,
+        pinnedAt: data[sessionId]?.pinnedAt,
+      }
       return data
     })
   } catch (err) {

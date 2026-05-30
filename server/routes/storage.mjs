@@ -56,6 +56,16 @@ export async function handleStorageApi(req, res, url) {
       values = values.filter((value) => value?.messageCount !== 0)
     }
     values.sort((a, b) => {
+      if (store === 'sessions-metadata' && indexName === 'lastModified') {
+        const leftPinned = getComparable(a, 'pinnedAt')
+        const rightPinned = getComparable(b, 'pinnedAt')
+        if (leftPinned !== rightPinned) {
+          if (leftPinned === undefined || leftPinned === null) return 1
+          if (rightPinned === undefined || rightPinned === null) return -1
+          return -String(leftPinned).localeCompare(String(rightPinned))
+        }
+      }
+
       const left = getComparable(a, indexName)
       const right = getComparable(b, indexName)
       if (left === right) return 0

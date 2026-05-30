@@ -11,6 +11,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
+  Pin,
   Plug,
   Plus,
   Puzzle,
@@ -59,6 +60,7 @@ type ChatSidebarProps = {
   onOpenProjectInExplorer: (project: ProjectInfo) => void
   onDeleteProject: (projectId: string) => void
   onLoadSession: (sessionId: string) => void
+  onTogglePinSession: (sessionId: string) => void
   onRenameSession: (sessionId: string, currentTitle: string) => void
   onDeleteSession: (sessionId: string) => void
   onStartNewGlobalChat: () => void
@@ -129,6 +131,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   onOpenProjectInExplorer,
   onDeleteProject,
   onLoadSession,
+  onTogglePinSession,
   onRenameSession,
   onDeleteSession,
   onStartNewGlobalChat,
@@ -153,21 +156,24 @@ export const ChatSidebar = memo(function ChatSidebar({
   const sessionInactiveRowClass = 'text-muted-foreground/76 hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)] hover:text-foreground/90'
   const iconSlotClass = 'inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-colors group-hover:text-foreground/70'
   const iconButtonClass = `size-7 shrink-0 rounded-full text-muted-foreground/55 transition-all duration-160 ease-out hover:-translate-y-px hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)] hover:text-foreground/85 active:translate-y-0 ${iconHoverShadowClass}`
-  const actionOverlayClass = 'pointer-events-none absolute inset-y-0 right-1 flex items-center gap-0.5 rounded-r-lg bg-gradient-to-l from-background via-background/95 to-transparent pl-8 opacity-0 transition-opacity duration-160 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100'
-  const overlayIconButtonClass = iconButtonClass
-  const overlayDangerIconButtonClass = `size-7 shrink-0 rounded-full text-muted-foreground/55 transition-all duration-160 ease-out hover:-translate-y-px hover:bg-destructive/14 hover:text-destructive/90 active:translate-y-0 ${iconHoverShadowClass}`
+  const actionOverlayClass = 'pointer-events-none absolute inset-y-0 right-1 flex items-center gap-px rounded-r-lg bg-gradient-to-l from-background via-background/95 to-transparent pl-4 opacity-0 transition-opacity duration-160 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100'
+  const overlayIconButtonClass = `size-6 shrink-0 rounded-full text-muted-foreground/55 transition-all duration-160 ease-out hover:-translate-y-px hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)] hover:text-foreground/85 active:translate-y-0 ${iconHoverShadowClass}`
+  const overlayDangerIconButtonClass = `size-6 shrink-0 rounded-full text-muted-foreground/55 transition-all duration-160 ease-out hover:-translate-y-px hover:bg-destructive/14 hover:text-destructive/90 active:translate-y-0 ${iconHoverShadowClass}`
   const sessionTitleClass = 'truncate text-sm leading-5'
   const sessionButtonClass = 'flex min-w-0 flex-1 items-center gap-2 text-left'
-  const sessionTitleRowClass = 'flex min-w-0 flex-1 items-center gap-1 truncate'
+  const sessionTitleRowClass = 'flex min-w-0 flex-1 items-center gap-1 truncate transition-[padding] duration-160 group-hover:pr-14 group-focus-within:pr-14'
+  const pinnedSessionButtonClass = 'relative z-10 inline-flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-opacity duration-160 transition-colors hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)] hover:text-foreground/85'
+  const sessionMetaHoverHiddenClass = 'group-hover:opacity-0 group-focus-within:opacity-0'
   const activeSessionTitleClass = 'font-medium text-foreground/92'
   const activeProjectTitleClass = 'font-medium text-foreground/84'
-  const timeClass = 'shrink-0 text-[11px] leading-4 text-muted-foreground/55 transition-opacity duration-160 group-hover:opacity-0 group-focus-within:opacity-0'
+  const timeClass = 'shrink-0 text-[11px] leading-4 text-muted-foreground/55 transition-opacity duration-160'
   const searchDialogClass = 'fixed inset-0 z-50 flex items-start justify-center bg-background/50 px-4 pt-[12vh] backdrop-blur-sm'
   const projectMenuClass = 'absolute right-0 top-8 z-30 min-w-48 rounded-lg border border-border bg-card p-1 shadow-xl'
   const isMobile = variant === 'mobile'
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [projectMenuId, setProjectMenuId] = useState<string | null>(null)
+  const [suppressedSessionActionsId, setSuppressedSessionActionsId] = useState<string | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const searchableSessions = useMemo(() => {
     const projectSessions = projects.flatMap((project) => sessionsForProject(project.id).map((session) => ({ session, projectName: project.name })))
@@ -190,6 +196,11 @@ export const ChatSidebar = memo(function ChatSidebar({
     onLoadSession(sessionId)
     setSearchOpen(false)
     setSearchQuery('')
+  }
+  const toggleSessionPinFromActions = (event: React.MouseEvent<HTMLButtonElement>, sessionId: string) => {
+    event.currentTarget.blur()
+    setSuppressedSessionActionsId(sessionId)
+    onTogglePinSession(sessionId)
   }
 
   useEffect(() => {
@@ -427,16 +438,44 @@ export const ChatSidebar = memo(function ChatSidebar({
                                       <>
                                         {projectSessions.map((session) => {
                                           const selected = currentSessionId === session.id
+                                          const actionsSuppressed = suppressedSessionActionsId === session.id
                                           return (
-                                            <div key={session.id} className={cn(rowClass, 'gap-1', selected ? activeRowClass : sessionInactiveRowClass)}>
+                                            <div
+                                              key={session.id}
+                                              className={cn(rowClass, 'gap-1', selected ? activeRowClass : sessionInactiveRowClass)}
+                                              onMouseLeave={() => setSuppressedSessionActionsId((current) => current === session.id ? null : current)}
+                                            >
                                               <button className={sessionButtonClass} type="button" onClick={() => onLoadSession(session.id)}>
                                                 <div className={sessionTitleRowClass}>
                                                   {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
                                                   <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title)}</span>
                                                 </div>
-                                                <span className={timeClass}>{formatSessionTime(session.lastModified)}</span>
+                                                {session.pinnedAt ? (
+                                                  <button
+                                                    type="button"
+                                                    className={cn(pinnedSessionButtonClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}
+                                                    onClick={(event) => {
+                                                      event.stopPropagation()
+                                                      onTogglePinSession(session.id)
+                                                    }}
+                                                    aria-label={t('unpinSession')}
+                                                    title={t('unpinSession')}
+                                                  >
+                                                    <Pin className="size-3" />
+                                                  </button>
+                                                ) : null}
+                                                <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{formatSessionTime(session.lastModified)}</span>
                                               </button>
-                                              <div className={actionOverlayClass}>
+                                              <div className={cn(actionOverlayClass, actionsSuppressed && 'hidden')}>
+                                                <Button
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  className={overlayIconButtonClass}
+                                                  onClick={(event) => toggleSessionPinFromActions(event, session.id)}
+                                                  aria-label={session.pinnedAt ? t('unpinSession') : t('pinSession')}
+                                                >
+                                                  <Pin className="size-3.5" />
+                                                </Button>
                                                 <Button
                                                   variant="ghost"
                                                   size="icon"
@@ -453,7 +492,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                   onClick={() => onDeleteSession(session.id)}
                                                   aria-label={t('deleteSession')}
                                                 >
-                                                  <Trash2 className="size-4" />
+                                                  <Trash2 className="size-3.5" />
                                                 </Button>
                                               </div>
                                             </div>
@@ -505,16 +544,44 @@ export const ChatSidebar = memo(function ChatSidebar({
                     <div className="space-y-0.5">
                       {globalSessions.map((session) => {
                         const selected = currentSessionId === session.id
+                        const actionsSuppressed = suppressedSessionActionsId === session.id
                         return (
-                          <div key={session.id} className={cn(rowClass, selected ? activeRowClass : sessionInactiveRowClass)}>
+                          <div
+                            key={session.id}
+                            className={cn(rowClass, selected ? activeRowClass : sessionInactiveRowClass)}
+                            onMouseLeave={() => setSuppressedSessionActionsId((current) => current === session.id ? null : current)}
+                          >
                             <button className={sessionButtonClass} type="button" onClick={() => onLoadSession(session.id)}>
                               <div className={sessionTitleRowClass}>
                                 {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
                                 <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title)}</span>
                               </div>
-                              <span className={timeClass}>{formatSessionTime(session.lastModified)}</span>
+                              {session.pinnedAt ? (
+                                <button
+                                  type="button"
+                                  className={cn(pinnedSessionButtonClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    onTogglePinSession(session.id)
+                                  }}
+                                  aria-label={t('unpinSession')}
+                                  title={t('unpinSession')}
+                                >
+                                  <Pin className="size-3" />
+                                </button>
+                              ) : null}
+                              <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{formatSessionTime(session.lastModified)}</span>
                             </button>
-                            <div className={actionOverlayClass}>
+                            <div className={cn(actionOverlayClass, actionsSuppressed && 'hidden')}>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className={overlayIconButtonClass}
+                                onClick={(event) => toggleSessionPinFromActions(event, session.id)}
+                                aria-label={session.pinnedAt ? t('unpinSession') : t('pinSession')}
+                              >
+                                <Pin className="size-3.5" />
+                              </Button>
                               <Button
                                 variant="ghost"
                                 size="icon"

@@ -275,6 +275,17 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
   const [agentProfiles, setAgentProfiles] = useState<AgentProfile[]>([])
   const defaultProjectId = projects[0]?.id ?? ''
 
+  useEffect(() => {
+    if (!openMenuTaskId) return
+    const closeMenu = () => setOpenMenuTaskId(null)
+    window.addEventListener('click', closeMenu)
+    window.addEventListener('blur', closeMenu)
+    return () => {
+      window.removeEventListener('click', closeMenu)
+      window.removeEventListener('blur', closeMenu)
+    }
+  }, [openMenuTaskId])
+
   async function loadTasks() {
     const payload = await requestJson<{ tasks: ScheduledTask[] }>('/api/scheduled-tasks')
     setTasks(payload.tasks)
@@ -504,6 +515,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
   }
 
   function startEdit(task: ScheduledTask) {
+    setOpenMenuTaskId(null)
     setEditingTaskId(task.id)
     setForm(formFromTask(task))
     setParsedTask(null)

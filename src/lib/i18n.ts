@@ -542,6 +542,11 @@ export const appTranslations = {
     processAborted: 'Aborted',
     expandProcess: 'Expand processing details',
     collapseProcess: 'Collapse processing details',
+    relativeMinuteShort: '{count}m',
+    relativeHourShort: '{count}h',
+    relativeDayShort: '{count}d',
+    relativeWeekShort: '{count}w',
+    relativeYearShort: '{count}y',
   },
   zh: {
     language: '语言',
@@ -1072,6 +1077,11 @@ export const appTranslations = {
     processAborted: '已中止',
     expandProcess: '展开处理详情',
     collapseProcess: '收起处理详情',
+    relativeMinuteShort: '{count}分',
+    relativeHourShort: '{count}小时',
+    relativeDayShort: '{count}天',
+    relativeWeekShort: '{count}周',
+    relativeYearShort: '{count}年',
   },
 } as const
 

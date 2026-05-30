@@ -68,15 +68,22 @@ type ChatSidebarProps = {
   onToggleSidebar: () => void
 }
 
-const sessionTimeFormatter = new Intl.DateTimeFormat(undefined, {
-  month: 'short',
-  day: 'numeric',
-  hour: '2-digit',
-  minute: '2-digit',
-})
+const minuteMs = 60 * 1000
+const hourMs = 60 * minuteMs
+const dayMs = 24 * hourMs
+const weekMs = 7 * dayMs
+const yearMs = 365 * dayMs
 
 function formatSessionTime(value: string) {
-  return sessionTimeFormatter.format(new Date(value))
+  const timestamp = new Date(value).getTime()
+  if (Number.isNaN(timestamp)) return ''
+
+  const elapsedMs = Math.max(0, Date.now() - timestamp)
+  if (elapsedMs < hourMs) return t('relativeMinuteShort', { count: Math.max(1, Math.floor(elapsedMs / minuteMs)) })
+  if (elapsedMs < dayMs) return t('relativeHourShort', { count: Math.floor(elapsedMs / hourMs) })
+  if (elapsedMs < weekMs) return t('relativeDayShort', { count: Math.floor(elapsedMs / dayMs) })
+  if (elapsedMs < yearMs) return t('relativeWeekShort', { count: Math.floor(elapsedMs / weekMs) })
+  return t('relativeYearShort', { count: Math.floor(elapsedMs / yearMs) })
 }
 
 function LoadMoreSentinel({ onLoadMore, enabled }: { onLoadMore: () => void; enabled: boolean }) {
@@ -150,9 +157,11 @@ export const ChatSidebar = memo(function ChatSidebar({
   const overlayIconButtonClass = iconButtonClass
   const overlayDangerIconButtonClass = `size-7 shrink-0 rounded-full text-muted-foreground/55 transition-all duration-160 ease-out hover:-translate-y-px hover:bg-destructive/14 hover:text-destructive/90 active:translate-y-0 ${iconHoverShadowClass}`
   const sessionTitleClass = 'truncate text-sm leading-5'
+  const sessionButtonClass = 'flex min-w-0 flex-1 items-center gap-2 text-left'
+  const sessionTitleRowClass = 'flex min-w-0 flex-1 items-center gap-1 truncate'
   const activeSessionTitleClass = 'font-medium text-foreground/92'
   const activeProjectTitleClass = 'font-medium text-foreground/84'
-  const timeClass = 'mt-0.5 truncate text-[11px] leading-4 text-muted-foreground/55'
+  const timeClass = 'shrink-0 text-[11px] leading-4 text-muted-foreground/55 transition-opacity duration-160 group-hover:opacity-0 group-focus-within:opacity-0'
   const searchDialogClass = 'fixed inset-0 z-50 flex items-start justify-center bg-background/50 px-4 pt-[12vh] backdrop-blur-sm'
   const projectMenuClass = 'absolute right-0 top-8 z-30 min-w-48 rounded-lg border border-border bg-card p-1 shadow-xl'
   const isMobile = variant === 'mobile'
@@ -420,12 +429,12 @@ export const ChatSidebar = memo(function ChatSidebar({
                                           const selected = currentSessionId === session.id
                                           return (
                                             <div key={session.id} className={cn(rowClass, 'gap-1', selected ? activeRowClass : sessionInactiveRowClass)}>
-                                              <button className="min-w-0 flex-1 text-left" type="button" onClick={() => onLoadSession(session.id)}>
-                                                <div className="flex items-center gap-1 truncate">
+                                              <button className={sessionButtonClass} type="button" onClick={() => onLoadSession(session.id)}>
+                                                <div className={sessionTitleRowClass}>
                                                   {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
                                                   <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title)}</span>
                                                 </div>
-                                                <div className={timeClass}>{formatSessionTime(session.lastModified)}</div>
+                                                <span className={timeClass}>{formatSessionTime(session.lastModified)}</span>
                                               </button>
                                               <div className={actionOverlayClass}>
                                                 <Button
@@ -498,12 +507,12 @@ export const ChatSidebar = memo(function ChatSidebar({
                         const selected = currentSessionId === session.id
                         return (
                           <div key={session.id} className={cn(rowClass, selected ? activeRowClass : sessionInactiveRowClass)}>
-                            <button className="min-w-0 flex-1 text-left" type="button" onClick={() => onLoadSession(session.id)}>
-                              <div className="flex items-center gap-1 truncate">
+                            <button className={sessionButtonClass} type="button" onClick={() => onLoadSession(session.id)}>
+                              <div className={sessionTitleRowClass}>
                                 {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
                                 <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title)}</span>
                               </div>
-                              <div className={timeClass}>{formatSessionTime(session.lastModified)}</div>
+                              <span className={timeClass}>{formatSessionTime(session.lastModified)}</span>
                             </button>
                             <div className={actionOverlayClass}>
                               <Button

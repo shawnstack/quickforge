@@ -912,10 +912,10 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                   <label className="block text-sm font-medium text-foreground sm:col-span-2">
                     {t('promptContentLabel')}
                     <textarea
-                      className="mt-1 min-h-28 w-full resize-y rounded-xl border border-input bg-muted/20 px-3 py-2 text-sm text-muted-foreground outline-none"
+                      className="mt-1 min-h-28 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/65 focus:border-ring"
                       value={form.instruction}
-                      readOnly
-                      placeholder="-"
+                      onChange={(event) => updateForm('instruction', event.target.value)}
+                      placeholder={t('promptContentPlaceholder')}
                     />
                   </label>
                 </div>

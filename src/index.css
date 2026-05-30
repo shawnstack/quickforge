@@ -3,6 +3,8 @@
 
 @theme {
   --radius: 0.5rem;
+  --text-sm: 12px;
+  --text-sm--line-height: calc(16 / 12);
 }
 
 /*
@@ -32,6 +34,10 @@
     min-width: 0;
     height: 100%;
     margin: 0;
+  }
+
+  html {
+    font-size: 14px;
   }
 
   body {

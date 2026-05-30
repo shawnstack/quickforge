@@ -16,6 +16,10 @@ import {
   loadAutoCompactSettings,
   saveAutoCompactSettings,
 } from '@/lib/auto-compact-settings'
+import {
+  loadFontSizeSettings,
+  saveFontSizeSettings,
+} from '@/lib/font-size-settings'
 import { t } from '@/lib/i18n'
 
 type AnyModel = Model<Api>
@@ -55,6 +59,8 @@ class DefaultOptionsSettingsTab extends SettingsTab {
   private autoCompactRequireConfirmation = true
   private autoCompactThresholdPercent = 80
   private autoCompactKeepRecentTurns = 2
+  private baseFontSizePx = 14
+  private bodyFontSizePx = 12
   private loading = true
   private saved = false
   private error = ''
@@ -91,11 +97,12 @@ class DefaultOptionsSettingsTab extends SettingsTab {
 
     try {
       const storage = getAppStorage()
-      const [models, defaults, toolDisplaySettings, autoCompactSettings] = await Promise.all([
+      const [models, defaults, toolDisplaySettings, autoCompactSettings, fontSizeSettings] = await Promise.all([
         getConfiguredModels(storage),
         loadDefaultOptions(storage),
         loadToolDisplaySettings(storage),
         loadAutoCompactSettings(storage),
+        loadFontSizeSettings(storage),
       ])
       this.models = models
       this.selectedModel = defaults.model
@@ -108,6 +115,8 @@ class DefaultOptionsSettingsTab extends SettingsTab {
       this.autoCompactRequireConfirmation = autoCompactSettings.requireConfirmation
       this.autoCompactThresholdPercent = autoCompactSettings.thresholdPercent
       this.autoCompactKeepRecentTurns = autoCompactSettings.keepRecentTurns
+      this.baseFontSizePx = fontSizeSettings.baseFontSizePx
+      this.bodyFontSizePx = fontSizeSettings.bodyFontSizePx
     } catch (error) {
       this.error = error instanceof Error ? error.message : t('requestFailed')
     } finally {
@@ -166,6 +175,18 @@ class DefaultOptionsSettingsTab extends SettingsTab {
     this.requestUpdate()
   }
 
+  private updateBaseFontSize(value: string) {
+    this.baseFontSizePx = Number(value) || 14
+    this.saved = false
+    this.requestUpdate()
+  }
+
+  private updateBodyFontSize(value: string) {
+    this.bodyFontSizePx = Number(value) || 12
+    this.saved = false
+    this.requestUpdate()
+  }
+
   private modelOptions() {
     if (!this.selectedModel) return this.models
 
@@ -191,6 +212,10 @@ class DefaultOptionsSettingsTab extends SettingsTab {
         keepRecentTurns: this.autoCompactKeepRecentTurns,
         minSourceChars: 1600,
         requireConfirmation: this.autoCompactRequireConfirmation,
+      })
+      await saveFontSizeSettings(getAppStorage(), {
+        baseFontSizePx: this.baseFontSizePx,
+        bodyFontSizePx: this.bodyFontSizePx,
       })
       await this.loadSettings()
       this.saved = true
@@ -270,6 +295,38 @@ class DefaultOptionsSettingsTab extends SettingsTab {
               @change=${(event: Event) => this.updateExpandToolsByDefault((event.target as HTMLInputElement).checked)}
             />
             <span>${t('expandToolsByDefault')}</span>
+          </label>
+        </div>
+
+        <div class="grid max-w-xl gap-3 rounded-lg border border-border p-4">
+          <div>
+            <h4 class="text-sm font-medium text-foreground">${t('fontSize')}</h4>
+            <p class="mt-1 text-xs text-muted-foreground">${t('fontSizeDescription')}</p>
+          </div>
+          <label class="grid max-w-xs gap-1.5 text-sm">
+            <span class="text-foreground">${t('baseFontSize')}</span>
+            <input
+              class="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              type="number"
+              min="12"
+              max="18"
+              step="1"
+              .value=${String(this.baseFontSizePx)}
+              @input=${(event: Event) => this.updateBaseFontSize((event.target as HTMLInputElement).value)}
+            />
+          </label>
+          <label class="grid max-w-xs gap-1.5 text-sm">
+            <span class="text-foreground">${t('bodyFontSize')}</span>
+            <input
+              class="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              type="number"
+              min="11"
+              max="16"
+              step="1"
+              .value=${String(this.bodyFontSizePx)}
+              @input=${(event: Event) => this.updateBodyFontSize((event.target as HTMLInputElement).value)}
+            />
+            <span class="text-xs text-muted-foreground">${t('bodyFontSizeNote')}</span>
           </label>
         </div>
 

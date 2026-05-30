@@ -9,6 +9,7 @@ import {
 import { initializeAppLanguage, t } from '@/lib/i18n'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { loadToolDisplaySettings } from '@/lib/tool-display-settings'
+import { loadAndApplyFontSizeSettings } from '@/lib/font-size-settings'
 import type {
   ProjectInfo,
   QuickForgeSessionData,
@@ -68,6 +69,7 @@ export function useAppBootstrap({
         backendRef.current = storage.backend as HttpStorageBackend
         await initializeAppLanguage(storage)
         await loadToolDisplaySettings(storage)
+        await loadAndApplyFontSizeSettings(storage)
         await Promise.all([loadGlobalSessions(0), loadProject()])
 
         const savedYoloMode = await initYoloMode(storage)

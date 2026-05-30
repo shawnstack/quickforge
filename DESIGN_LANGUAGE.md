@@ -120,6 +120,20 @@ text-foreground/90
 
 ## 字体层级
 
+### 全局基准
+
+QuickForge 的默认全局基础字号为 **14px**：
+
+```css
+html {
+  font-size: 14px;
+}
+```
+
+界面常用正文字号统一使用 `text-sm`，默认映射为 **12px**。以上字号可在设置页的“默认选项 / 字号”中调整。
+
+---
+
 ### Section 标题
 
 用于 Projects、Conversations 等分组标题。
@@ -144,6 +158,8 @@ text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60
 ```tsx
 text-sm leading-5
 ```
+
+其中 `text-sm` 在当前主题中默认是 **12px**，用于保持界面正文紧凑一致。
 
 当前选中项可略微加重：
 

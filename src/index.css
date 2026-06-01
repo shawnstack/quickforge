@@ -96,6 +96,23 @@
   overflow-wrap: anywhere;
 }
 
+.quickforge-file-path-link {
+  display: inline;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--primary);
+  font: inherit;
+  text-align: inherit;
+  text-decoration-line: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.quickforge-file-path-link:hover {
+  color: color-mix(in oklab, var(--primary) 80%, transparent);
+}
+
 .quickforge-user-message .user-message-container :where(p, ul, ol, pre, blockquote):first-child {
   margin-top: 0;
 }

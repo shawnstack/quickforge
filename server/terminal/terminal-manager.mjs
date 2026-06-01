@@ -242,6 +242,18 @@ export function attachTerminalClient(sessionId, client) {
   }
 }
 
+export function writeTerminalInput(sessionId, data) {
+  const session = sessions.get(sessionId)
+  if (!session) throw createError('Terminal session not found', 404)
+  if (session.exited) throw createError('Terminal session has exited', 410)
+  if (typeof data !== 'string') throw createError('Terminal input must be a string', 400)
+
+  session.touchedAt = Date.now()
+  session.updatedAt = new Date().toISOString()
+  session.pty.write(data)
+  return serializeSession(session)
+}
+
 export function destroyTerminalSession(sessionId) {
   const session = sessions.get(sessionId)
   if (!session) return false

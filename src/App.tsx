@@ -49,13 +49,16 @@ import { useYoloActions } from '@/hooks/useYoloActions'
 import { useVisibleRuntimeStatuses } from '@/hooks/useVisibleRuntimeStatuses'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { logger } from '@/lib/logger'
-import { showAlert } from '@/components/ui/confirm-dialog'
+import { showAlert, showConfirm } from '@/components/ui/confirm-dialog'
 import { ToastContainer } from '@/components/ui/toast'
 import { ShareConversationDialog } from '@/components/share/ShareConversationDialog'
 import { SharedConversationPage } from '@/components/share/SharedConversationPage'
 import { WorkspaceInspector } from '@/components/workspace/WorkspaceInspector'
-import type { WorkspaceInspectorFocusTarget } from '@/components/workspace/workspace-types'
+import { WorkspaceReaderDialog } from '@/components/workspace/WorkspaceReaderDialog'
+import type { WorkspaceFileResponse, WorkspaceInspectorFocusTarget } from '@/components/workspace/workspace-types'
+import { getWorkspaceFile, resolveWorkspacePath } from '@/components/workspace/workspace-api'
 import { TerminalDock } from '@/components/terminal/TerminalDock'
+import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
 
 type WorkspacePage = 'chat' | 'scheduledTasks' | 'agentProfiles'
@@ -76,6 +79,12 @@ type ScheduledTaskStartedEvent = {
   projectId?: unknown
   createdAt?: unknown
 }
+
+type ExecuteMarkdownCommandEvent = CustomEvent<{
+  command?: unknown
+  confirm?: unknown
+  dangerous?: unknown
+}>
 
 function isBackgroundTaskStatus(value: unknown): value is BackgroundTaskStatus {
   return value === 'idle' || value === 'running' || value === 'error' || value === 'aborted'
@@ -131,7 +140,13 @@ function MainApp() {
   const [conversationMenuOpen, setConversationMenuOpen] = useState(false)
   const [workspaceInspectorOpen, setWorkspaceInspectorOpen] = useState(false)
   const [workspaceInspectorFocusTarget, setWorkspaceInspectorFocusTarget] = useState<WorkspaceInspectorFocusTarget>()
+  const [inlineReaderOpen, setInlineReaderOpen] = useState(false)
+  const [inlineReaderFile, setInlineReaderFile] = useState<WorkspaceFileResponse>()
+  const [inlineReaderLoading, setInlineReaderLoading] = useState(false)
+  const [inlineReaderError, setInlineReaderError] = useState<string>()
   const [terminalOpen, setTerminalOpen] = useState(false)
+  const [pendingTerminalCommand, setPendingTerminalCommand] = useState<PendingTerminalCommand | null>(null)
+  const terminalCommandIdRef = useRef(0)
   const [storage, setStorage] = useState<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
   const { toasts, handleTaskComplete, addToast, dismissToast } = useTaskToasts()
   const scheduledTasksOpen = workspacePage === 'scheduledTasks'
@@ -237,6 +252,31 @@ function MainApp() {
     setWorkspaceInspectorFocusTarget({ tab: 'git', nonce: Date.now() })
     setWorkspaceInspectorOpen(true)
   }, [agentManager.currentToolProject?.id, closeWorkspacePage])
+
+  const openLocalFilePathFromChat = useCallback(async (filePath: string) => {
+    const projectId = agentManager.currentToolProject?.id
+    if (!projectId) {
+      addToast({ sessionId: agentManager.currentSessionId ?? '', title: '无法打开文件', status: 'error', message: '当前对话没有关联项目。' })
+      return
+    }
+
+    setInlineReaderOpen(true)
+    setInlineReaderLoading(true)
+    setInlineReaderError(undefined)
+    setInlineReaderFile(undefined)
+
+    try {
+      const resolved = await resolveWorkspacePath(projectId, filePath)
+      const file = await getWorkspaceFile(projectId, resolved.relativePath)
+      setInlineReaderFile(file)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '打开文件失败'
+      setInlineReaderError(message)
+      addToast({ sessionId: agentManager.currentSessionId ?? '', title: '无法打开文件', status: 'error', message })
+    } finally {
+      setInlineReaderLoading(false)
+    }
+  }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id])
 
   useEffect(() => {
     const unsubscribe = subscribeToAgentEvents((event) => {
@@ -437,6 +477,47 @@ function MainApp() {
       window.removeEventListener('blur', closeMenu)
     }
   }, [conversationMenuOpen])
+
+  useEffect(() => {
+    const handleExecuteMarkdownCommand = (event: Event) => {
+      const detail = (event as ExecuteMarkdownCommandEvent).detail
+      const command = typeof detail?.command === 'string' ? detail.command.trim() : ''
+      if (!command) return
+
+      const run = async () => {
+        const requiresConfirm = Boolean(detail?.confirm || detail?.dangerous)
+        if (requiresConfirm) {
+          const confirmed = await showConfirm({
+            title: t('confirmExecuteCommandTitle'),
+            description: detail?.dangerous ? t('confirmExecuteDangerousCommand') : t('confirmExecuteMultipleCommands'),
+            confirmLabel: t('executeInTerminal'),
+            cancelLabel: t('cancel'),
+            variant: detail?.dangerous ? 'destructive' : 'default',
+          })
+          if (!confirmed) return
+        }
+
+        setTerminalOpen(true)
+        setPendingTerminalCommand({
+          id: ++terminalCommandIdRef.current,
+          command,
+          execute: true,
+        })
+      }
+
+      void run().catch((error) => {
+        logger.error('Failed to execute markdown command:', error)
+        void showAlert(error instanceof Error ? error.message : t('terminalCommandExecuteFailed'))
+      })
+    }
+
+    window.addEventListener('quickforge:execute-markdown-command', handleExecuteMarkdownCommand)
+    return () => window.removeEventListener('quickforge:execute-markdown-command', handleExecuteMarkdownCommand)
+  }, [])
+
+  const handlePendingTerminalCommandHandled = useCallback((id: number) => {
+    setPendingTerminalCommand((current) => current?.id === id ? null : current)
+  }, [])
 
   const handleToggleCurrentSessionPinned = useCallback(() => {
     const sessionId = agentManager.currentSessionId
@@ -812,6 +893,7 @@ function MainApp() {
                       onApproveAutoCompact={handleApproveAutoCompact}
                       onRejectAutoCompact={handleRejectAutoCompact}
                       onOpenWorkspaceGitChanges={openWorkspaceGitChanges}
+                      onOpenLocalFilePath={openLocalFilePathFromChat}
                       disableFork={false}
                       restoredDraft={restoredDraft}
                     />
@@ -820,6 +902,8 @@ function MainApp() {
                 {terminalOpen ? (
                   <TerminalDock
                     project={agentManager.currentToolProject}
+                    pendingCommand={pendingTerminalCommand}
+                    onPendingCommandHandled={handlePendingTerminalCommandHandled}
                     onCollapse={() => setTerminalOpen(false)}
                   />
                 ) : null}
@@ -833,6 +917,15 @@ function MainApp() {
         onOpenChange={setWorkspaceInspectorOpen}
         onDraftRequest={restoreWorkspaceDraft}
         focusTarget={workspaceInspectorFocusTarget}
+      />
+      <WorkspaceReaderDialog
+        open={inlineReaderOpen}
+        mode="file"
+        file={inlineReaderFile}
+        loading={inlineReaderLoading}
+        error={inlineReaderError}
+        onOpenChange={setInlineReaderOpen}
+        onDraftRequest={restoreWorkspaceDraft}
       />
     </div>
     <ProjectDirectoryPicker

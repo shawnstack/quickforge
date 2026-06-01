@@ -1,5 +1,11 @@
 import type { TerminalCapabilities, TerminalSession, TerminalShellConfig } from './terminal-types'
 
+export type PendingTerminalCommand = {
+  id: number
+  command: string
+  execute?: boolean
+}
+
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { cache: 'no-store', ...init })
   const payload = await response.json().catch(() => null)
@@ -40,4 +46,12 @@ export function saveTerminalShellConfig(input: Pick<TerminalShellConfig, 'defaul
 
 export function deleteTerminalSession(sessionId: string) {
   return fetchJson<{ ok: true }>(`/api/terminal/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
+}
+
+export function sendTerminalInput(sessionId: string, data: string) {
+  return fetchJson<{ ok: true }>(`/api/terminal/sessions/${encodeURIComponent(sessionId)}/input`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ data }),
+  })
 }

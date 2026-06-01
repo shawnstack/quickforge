@@ -125,7 +125,8 @@ components/
 
 - `TerminalDock.tsx` 管理底部多会话终端、会话 tab、新建/关闭和高度拖拽。
 - 新建终端默认使用后端返回的默认 Shell profile，也可以从 Dock 右侧 Shell 下拉列表选择指定 profile 创建新会话；下拉列表来自后端按当前平台自动识别的内置 profiles 加用户自定义 profiles。
-- `terminal-api.ts` 封装 `/api/terminal/capabilities`、`/api/terminal/sessions` 和 `/api/system/terminal-shell` 相关请求。
+- `TerminalDock` 还接收 Markdown shell 代码块触发的 pending command：AI 回复中的 `bash`/`sh`/`powershell` 等代码块会在复制按钮旁显示“在终端中执行”，点击后打开当前项目终端并写入命令执行；多行或高风险命令会先确认。
+- `terminal-api.ts` 封装 `/api/terminal/capabilities`、`/api/terminal/sessions`、`/api/terminal/sessions/:id/input` 和 `/api/system/terminal-shell` 相关请求。
 
 ### ShareConversationDialog.tsx (199 行)
 

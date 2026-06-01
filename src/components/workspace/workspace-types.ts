@@ -28,6 +28,12 @@ export type WorkspaceTreeResponse = {
   tree: WorkspaceTreeNode[]
 }
 
+export type WorkspaceResolvedPathResponse = {
+  relativePath: string
+  exists: true
+  isDirectory: boolean
+}
+
 export type WorkspaceFileResponse = {
   path: string
   content: string

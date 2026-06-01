@@ -28,6 +28,7 @@ const copyIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"
 const copiedIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>'
 const rollbackIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>'
 const forkIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/><path d="M12 12v3"/></svg>'
+const runIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>'
 
 // --- Shared helpers ---
 
@@ -80,7 +81,9 @@ export type MessageDecorationDeps = {
   onCopyAnswer: (text: string) => Promise<void> | void
   onRollbackFromMessage: (messageIndex: number) => void
   onForkFromMessage: (messageIndex: number) => void
+  onOpenLocalFilePath?: (path: string) => void
   disableFork: boolean
+  enableTerminalCommandActions?: boolean
 }
 
 type ContextCompactionNoticeDeps = {
@@ -88,6 +91,15 @@ type ContextCompactionNoticeDeps = {
   getMessages: () => MessageWithUsage[]
   getContextCompaction: () => { summaryMessage?: unknown; compactedUpToIndex?: number } | null | undefined
 }
+
+type CodeBlockElement = HTMLElement & {
+  code?: string
+  language?: string
+  getDecodedCode?: () => string
+}
+
+const SHELL_CODE_LANGUAGES = new Set(['bash', 'sh', 'shell', 'zsh', 'fish', 'cmd', 'bat', 'batch', 'powershell', 'ps1', 'terminal', 'console'])
+const DANGEROUS_COMMAND_PATTERN = /\b(rm\s+-rf|sudo|chmod\b|chown\b|npm\s+publish|pnpm\s+publish|yarn\s+publish|git\s+push|curl\b[^\n|;]*\|\s*(sh|bash)|wget\b[^\n|;]*\|\s*(sh|bash))\b/i
 
 function isDisplayMessage(message: MessageWithUsage) {
   return message.role === 'user' || message.role === 'user-with-attachments' || message.role === 'assistant'
@@ -103,6 +115,82 @@ function getPrimaryMessageElements(panel: HTMLElement) {
 
   return Array.from(messageList.querySelectorAll<HTMLElement>('user-message, assistant-message'))
     .filter((element) => element.closest('message-list') === messageList)
+}
+
+function decodeCodeBlockText(block: CodeBlockElement) {
+  if (typeof block.getDecodedCode === 'function') {
+    try { return block.getDecodedCode() } catch { /* fallback below */ }
+  }
+  const raw = typeof block.code === 'string' ? block.code : block.getAttribute('code') ?? ''
+  if (!raw) return ''
+  try {
+    return decodeURIComponent(escape(window.atob(raw)))
+  } catch {
+    return raw
+  }
+}
+
+function normalizeShellCommand(command: string) {
+  return command
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line
+      .replace(/^\s*\$\s+/, '')
+      .replace(/^\s*>\s+/, '')
+      .replace(/^\s*PS\s+[^>\n]+>\s+/i, ''))
+    .join('\n')
+    .trim()
+}
+
+function commandLineCount(command: string) {
+  return command.split('\n').map((line) => line.trim()).filter(Boolean).length
+}
+
+function isShellCodeBlock(block: CodeBlockElement) {
+  const language = String(block.language ?? block.getAttribute('language') ?? '').trim().toLowerCase()
+  return SHELL_CODE_LANGUAGES.has(language)
+}
+
+function decorateMarkdownCommandBlocks(panel: HTMLElement, isStreaming: boolean) {
+  panel.querySelectorAll<CodeBlockElement>('assistant-message markdown-block code-block').forEach((block) => {
+    const existing = block.querySelector<HTMLButtonElement>('[data-quickforge-action="execute-markdown-command"]')
+    if (!isShellCodeBlock(block)) {
+      existing?.remove()
+      return
+    }
+
+    const command = normalizeShellCommand(decodeCodeBlockText(block))
+    if (!command) {
+      existing?.remove()
+      return
+    }
+
+    const title = t('executeInTerminal')
+    const button = existing ?? createIconActionButton('execute-markdown-command', title, runIcon, () => {
+      const latestCommand = normalizeShellCommand(decodeCodeBlockText(block))
+      if (!latestCommand) return
+      window.dispatchEvent(new CustomEvent('quickforge:execute-markdown-command', {
+        detail: {
+          command: latestCommand,
+          confirm: commandLineCount(latestCommand) > 1,
+          dangerous: DANGEROUS_COMMAND_PATTERN.test(latestCommand),
+        },
+      }))
+    })
+    button.title = title
+    button.setAttribute('aria-label', title)
+    button.disabled = isStreaming
+    button.className = 'pointer-events-auto inline-flex size-8 items-center justify-center rounded-md text-emerald-600 transition-colors hover:bg-emerald-500/10 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-400 dark:hover:text-emerald-300'
+
+    if (!existing) {
+      const titleBar = block.querySelector<HTMLElement>(':scope > div > div:first-child')
+      const actions = titleBar?.lastElementChild
+      if (titleBar && actions) {
+        titleBar.classList.add('gap-2')
+        actions.after(button)
+      }
+    }
+  })
 }
 
 function insertBeforeMessageElement(panel: HTMLElement, messages: MessageWithUsage[], messageIndex: number, notice: HTMLElement) {
@@ -233,7 +321,7 @@ export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
 }
 
 export function decorateMessages(deps: MessageDecorationDeps) {
-  const { panel, getMessages, isStreaming, onCopyAnswer, onRollbackFromMessage, onForkFromMessage, disableFork } = deps
+  const { panel, getMessages, isStreaming, onCopyAnswer, onRollbackFromMessage, onForkFromMessage, onOpenLocalFilePath, disableFork, enableTerminalCommandActions = true } = deps
 
   const displayEntries = getMessages()
     .map((message, index) => ({ message, index }))
@@ -264,6 +352,10 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     element.classList.add('group', 'relative')
     element.classList.toggle('quickforge-assistant-message', entry.message.role === 'assistant')
     element.classList.toggle('quickforge-user-message', entry.message.role !== 'assistant')
+
+    if (entry.message.role === 'assistant' && onOpenLocalFilePath) {
+      decorateLocalFilePathLinks(element, onOpenLocalFilePath)
+    }
 
     const actionsClass = `quickforge-message-actions pointer-events-none mt-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${entry.message.role === 'assistant' ? 'px-4 justify-start' : 'mx-4 justify-end'}`
     const existingActions = element.querySelector<HTMLElement>('.quickforge-message-actions')
@@ -318,6 +410,107 @@ export function decorateMessages(deps: MessageDecorationDeps) {
   })
 
   decorateProcessBlocks(panel, isStreaming())
+  if (enableTerminalCommandActions) {
+    decorateMarkdownCommandBlocks(panel, isStreaming())
+  } else {
+    panel.querySelectorAll('[data-quickforge-action="execute-markdown-command"]').forEach((button) => button.remove())
+  }
+}
+
+// --- Inline local file path links ---
+
+const LOCAL_FILE_PATH_REGEX = /[A-Za-z]:[\\/][^\s"'<>`]+|(?:\/Users|\/home|\/workspace|\/mnt|\/Volumes)\/[^\s"'<>`]+/g
+const TRAILING_PATH_PUNCTUATION = new Set(['.', ',', ';', ':', '!', '?', ')', ']', '}', '>', '。', '，', '；', '：', '！', '？', '）', '】', '》'])
+const SKIP_LOCAL_PATH_SELECTOR = [
+  'pre',
+  'code',
+  'a',
+  'button',
+  'textarea',
+  'input',
+  'select',
+  'thinking-block',
+  'tool-message',
+  '.quickforge-file-path-link',
+  '.quickforge-message-actions',
+  '.quickforge-process-group',
+  '.quickforge-approval-card',
+].join(',')
+
+function trimTrailingPathPunctuation(value: string) {
+  let end = value.length
+  while (end > 0 && TRAILING_PATH_PUNCTUATION.has(value[end - 1])) end -= 1
+  return { path: value.slice(0, end), suffix: value.slice(end) }
+}
+
+function createLocalFilePathLink(pathValue: string, onOpenLocalFilePath: (path: string) => void) {
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'quickforge-file-path-link'
+  button.dataset.quickforgeFilePath = pathValue
+  button.textContent = pathValue
+  button.title = 'Open file'
+  button.setAttribute('aria-label', `Open file ${pathValue}`)
+  button.onclick = (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onOpenLocalFilePath(pathValue)
+  }
+  return button
+}
+
+function collectLocalFilePathTextNodes(root: HTMLElement) {
+  const nodes: Text[] = []
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const text = node.textContent ?? ''
+      if (!LOCAL_FILE_PATH_REGEX.test(text)) return NodeFilter.FILTER_REJECT
+      LOCAL_FILE_PATH_REGEX.lastIndex = 0
+      const parent = node.parentElement
+      if (!parent || parent.closest(SKIP_LOCAL_PATH_SELECTOR)) return NodeFilter.FILTER_REJECT
+      return NodeFilter.FILTER_ACCEPT
+    },
+  })
+
+  let current = walker.nextNode()
+  while (current) {
+    nodes.push(current as Text)
+    current = walker.nextNode()
+  }
+  return nodes
+}
+
+function linkLocalFilePathTextNode(node: Text, onOpenLocalFilePath: (path: string) => void) {
+  const text = node.textContent ?? ''
+  LOCAL_FILE_PATH_REGEX.lastIndex = 0
+  let match: RegExpExecArray | null
+  let lastIndex = 0
+  const fragment = document.createDocumentFragment()
+  let changed = false
+
+  while ((match = LOCAL_FILE_PATH_REGEX.exec(text))) {
+    const rawMatch = match[0]
+    const { path: pathValue, suffix } = trimTrailingPathPunctuation(rawMatch)
+    if (!pathValue) continue
+
+    const start = match.index
+    const end = start + rawMatch.length
+    if (start > lastIndex) fragment.append(document.createTextNode(text.slice(lastIndex, start)))
+    fragment.append(createLocalFilePathLink(pathValue, onOpenLocalFilePath))
+    if (suffix) fragment.append(document.createTextNode(suffix))
+    lastIndex = end
+    changed = true
+  }
+
+  if (!changed) return
+  if (lastIndex < text.length) fragment.append(document.createTextNode(text.slice(lastIndex)))
+  node.replaceWith(fragment)
+}
+
+function decorateLocalFilePathLinks(element: HTMLElement, onOpenLocalFilePath: (path: string) => void) {
+  element.querySelectorAll<HTMLElement>('markdown-block').forEach((block) => {
+    collectLocalFilePathTextNodes(block).forEach((node) => linkLocalFilePathTextNode(node, onOpenLocalFilePath))
+  })
 }
 
 // --- AI process folding (thinking + tool calls) ---

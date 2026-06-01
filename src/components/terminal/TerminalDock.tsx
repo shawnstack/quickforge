@@ -4,13 +4,16 @@ import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import type { ProjectInfo } from '@/lib/types'
-import { createTerminalSession, deleteTerminalSession, getTerminalCapabilities, listTerminalSessions } from './terminal-api'
+import { createTerminalSession, deleteTerminalSession, getTerminalCapabilities, listTerminalSessions, sendTerminalInput } from './terminal-api'
+import type { PendingTerminalCommand } from './terminal-api'
 import { TerminalPane } from './TerminalPane'
 import type { TerminalCapabilities, TerminalSession, TerminalShellProfile } from './terminal-types'
 
 type TerminalDockProps = {
   project?: ProjectInfo
   onCollapse: () => void
+  pendingCommand?: PendingTerminalCommand | null
+  onPendingCommandHandled?: (id: number) => void
 }
 
 const MIN_HEIGHT = 180
@@ -32,7 +35,7 @@ function profileFromCapabilities(capabilities: TerminalCapabilities | null, prof
   return profiles.find((profile) => profile.id === selectedId) || profiles.find((profile) => profile.id === 'auto')
 }
 
-export function TerminalDock({ project, onCollapse }: TerminalDockProps) {
+export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCommandHandled }: TerminalDockProps) {
   const [capabilities, setCapabilities] = useState<TerminalCapabilities | null>(null)
   const [sessions, setSessions] = useState<TerminalSession[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string>()
@@ -43,6 +46,7 @@ export function TerminalDock({ project, onCollapse }: TerminalDockProps) {
   const [shellMenuOpen, setShellMenuOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const creatingRef = useRef(false)
+  const handledPendingCommandIdsRef = useRef<Set<number>>(new Set())
   const dragRef = useRef<{ startY: number; startHeight: number } | null>(null)
   const shellMenuRef = useRef<HTMLDivElement | null>(null)
   const projectId = project?.id
@@ -154,6 +158,52 @@ export function TerminalDock({ project, onCollapse }: TerminalDockProps) {
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [fullscreen])
+
+  useEffect(() => {
+    if (!pendingCommand) return
+    if (handledPendingCommandIdsRef.current.has(pendingCommand.id)) return
+    if (loading || creating || !capabilities) return
+    if (!capabilities.enabled) {
+      handledPendingCommandIdsRef.current.add(pendingCommand.id)
+      window.setTimeout(() => {
+        setError(capabilities.reason || t('terminalUnavailable'))
+        onPendingCommandHandled?.(pendingCommand.id)
+      }, 0)
+      return
+    }
+
+    let disposed = false
+    const handlePendingCommand = async () => {
+      handledPendingCommandIdsRef.current.add(pendingCommand.id)
+      setError(undefined)
+      try {
+        let target = activeSession && !activeSession.exited ? activeSession : sessions.find((session) => !session.exited)
+        if (!target) {
+          const profile = profileFromCapabilities(capabilities)
+          target = await createTerminalSession({
+            projectId,
+            name: nextTerminalName(sessions, profile),
+            cols: 120,
+            rows: 30,
+            shellProfileId: profile?.id,
+            shellProfileName: profile?.name,
+          })
+          if (disposed) return
+          setSessions((current) => [...current, target as TerminalSession])
+        }
+
+        setActiveSessionId(target.id)
+        await sendTerminalInput(target.id, pendingCommand.execute ? `${pendingCommand.command}\r` : pendingCommand.command)
+      } catch (err) {
+        if (!disposed) setError(err instanceof Error ? err.message : t('terminalCommandExecuteFailed'))
+      } finally {
+        if (!disposed) onPendingCommandHandled?.(pendingCommand.id)
+      }
+    }
+
+    void handlePendingCommand()
+    return () => { disposed = true }
+  }, [activeSession, capabilities, creating, loading, onPendingCommandHandled, pendingCommand, projectId, sessions])
 
   const closeSession = async (sessionId: string) => {
     setError(undefined)

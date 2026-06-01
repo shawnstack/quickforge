@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
-import { sendJson } from '../utils/response.mjs'
+import { sendJson, readJsonBody } from '../utils/response.mjs'
 import { projectContextFromId } from '../project-config.mjs'
 import {
   assertSafeWorkspacePath,
@@ -246,6 +246,44 @@ async function handleWorkspaceFile(req, res, url) {
   })
 }
 
+async function handleWorkspaceResolvePath(req, res) {
+  const body = await readJsonBody(req, 16 * 1024)
+  const projectId = typeof body?.projectId === 'string' ? body.projectId : ''
+  const inputPath = typeof body?.path === 'string' ? body.path.trim() : ''
+
+  if (!projectId) {
+    const error = new Error('projectId is required')
+    error.statusCode = 400
+    throw error
+  }
+  if (!inputPath) {
+    const error = new Error('path is required')
+    error.statusCode = 400
+    throw error
+  }
+  if (!path.isAbsolute(inputPath)) {
+    const error = new Error('Only absolute paths are supported')
+    error.statusCode = 400
+    throw error
+  }
+
+  const context = await projectContextFromId(projectId)
+  const file = resolveWorkspacePath(inputPath, context)
+  await assertSafeWorkspacePath(file, context)
+  const stat = await fs.stat(file)
+  if (!stat.isFile()) {
+    const error = new Error('Path is not a file')
+    error.statusCode = 400
+    throw error
+  }
+
+  sendJson(res, 200, {
+    relativePath: toWorkspaceRelative(file, context),
+    exists: true,
+    isDirectory: false,
+  })
+}
+
 async function handleGitStatus(req, res, url) {
   const context = await projectContextFromUrl(url)
   sendJson(res, 200, await listGitStatus(context))
@@ -304,6 +342,10 @@ export async function handleWorkspaceApi(req, res, url) {
   }
   if (req.method === 'GET' && url.pathname === '/api/workspace/file') {
     await handleWorkspaceFile(req, res, url)
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/workspace/resolve-path') {
+    await handleWorkspaceResolvePath(req, res)
     return
   }
 

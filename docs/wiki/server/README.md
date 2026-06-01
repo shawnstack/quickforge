@@ -141,8 +141,8 @@ server/
 **用途**: 基于 `node-pty` 管理多开终端会话，并通过 WebSocket 连接前端 `xterm.js` 面板。
 
 **核心文件**:
-- `terminal/terminal-manager.mjs` — PTY 创建、输入输出转发、resize、会话上限、空闲清理和关闭清理。
-- `routes/terminal.mjs` — `/api/terminal/capabilities`、`/api/terminal/sessions` 和 `/api/terminal/sessions/:id/ws`。
+- `terminal/terminal-manager.mjs` — PTY 创建、输入输出转发、REST/WS 输入写入、resize、会话上限、空闲清理和关闭清理。
+- `routes/terminal.mjs` — `/api/terminal/capabilities`、`/api/terminal/sessions`、`/api/terminal/sessions/:id/input` 和 `/api/terminal/sessions/:id/ws`。
 
 **安全边界**:
 - 终端接口强制仅允许 localhost 访问；LAN 分享和共享会话页面不能访问。

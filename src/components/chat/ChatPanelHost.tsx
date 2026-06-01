@@ -63,6 +63,7 @@ type ChatPanelHostProps = {
   onApproveAutoCompact?: (approvalId: string) => Promise<void> | void
   onRejectAutoCompact?: (approvalId: string) => Promise<void> | void
   onOpenWorkspaceGitChanges?: () => void
+  onOpenLocalFilePath?: (path: string) => void
   restoredDraft?: RestoredDraft
   disableFork?: boolean
   readOnly?: boolean
@@ -85,6 +86,7 @@ type PropsRef = {
   onApproveAutoCompact?: (approvalId: string) => Promise<void> | void
   onRejectAutoCompact?: (approvalId: string) => Promise<void> | void
   onOpenWorkspaceGitChanges?: () => void
+  onOpenLocalFilePath?: (path: string) => void
   onModelSelect?: () => void
   yoloMode: boolean
   workspaceToolsEnabled: boolean
@@ -114,6 +116,7 @@ export function ChatPanelHost({
   onApproveAutoCompact,
   onRejectAutoCompact,
   onOpenWorkspaceGitChanges,
+  onOpenLocalFilePath,
   restoredDraft,
   disableFork = false,
   readOnly = false,
@@ -200,6 +203,7 @@ export function ChatPanelHost({
     onApproveAutoCompact,
     onRejectAutoCompact,
     onOpenWorkspaceGitChanges,
+    onOpenLocalFilePath,
     onModelSelect,
     yoloMode,
     workspaceToolsEnabled,
@@ -223,6 +227,7 @@ export function ChatPanelHost({
       onApproveAutoCompact,
       onRejectAutoCompact,
       onOpenWorkspaceGitChanges,
+      onOpenLocalFilePath,
       onModelSelect,
       yoloMode,
       workspaceToolsEnabled,
@@ -416,7 +421,9 @@ export function ChatPanelHost({
           onCopyAnswer: props.onCopyAnswer,
           onRollbackFromMessage: props.onRollbackFromMessage,
           onForkFromMessage: props.onForkFromMessage,
+          onOpenLocalFilePath: props.onOpenLocalFilePath,
           disableFork: props.disableFork,
+          enableTerminalCommandActions: !props.readOnly,
         })
         syncContextCompactionNotice({
           panel,

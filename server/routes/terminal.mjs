@@ -10,6 +10,7 @@ import {
   listTerminalSessions,
   platformInfo,
   terminalCapabilities,
+  writeTerminalInput,
 } from '../terminal/terminal-manager.mjs'
 
 const wsServer = new WebSocketServer({ noServer: true })
@@ -49,6 +50,11 @@ function sessionIdFromPath(pathname) {
   return match ? decodeSegment(match[1]) : null
 }
 
+function inputSessionIdFromPath(pathname) {
+  const match = pathname.match(/^\/api\/terminal\/sessions\/([^/]+)\/input$/)
+  return match ? decodeSegment(match[1]) : null
+}
+
 export async function handleTerminalApi(req, res, url, options = {}) {
   await assertLocalTerminalRequest(req, options.isLocalRequest)
 
@@ -82,11 +88,30 @@ export async function handleTerminalApi(req, res, url, options = {}) {
     return
   }
 
-  const sessionId = sessionIdFromPath(url.pathname)
-  if (req.method === 'DELETE' && sessionId) {
-    destroyTerminalSession(sessionId)
+  const inputSessionId = inputSessionIdFromPath(url.pathname)
+  if ((req.method === 'POST' || req.method === 'PUT') && inputSessionId) {
+    const body = await readJsonBody(req, 256 * 1024) || {}
+    if (typeof body.data !== 'string') throw error('Terminal input data is required', 400)
+    writeTerminalInput(inputSessionId, body.data)
     sendJson(res, 200, { ok: true })
     return
+  }
+
+  const sessionId = sessionIdFromPath(url.pathname)
+  if (sessionId) {
+    if (req.method === 'POST' || req.method === 'PUT') {
+      const body = await readJsonBody(req, 256 * 1024) || {}
+      if (typeof body.data !== 'string') throw error('Terminal input data is required', 400)
+      writeTerminalInput(sessionId, body.data)
+      sendJson(res, 200, { ok: true })
+      return
+    }
+
+    if (req.method === 'DELETE') {
+      destroyTerminalSession(sessionId)
+      sendJson(res, 200, { ok: true })
+      return
+    }
   }
 
   throw error('Not found', 404)

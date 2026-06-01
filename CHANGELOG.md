@@ -2,6 +2,36 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.22] - 2026-06-01
+
+### Added
+
+- Added custom agent profiles with AI fill support.
+- Added per-task scheduled execution mode for scheduled tasks.
+- Added conversation pinning and header actions.
+
+### Changed
+
+- Improved sidebar conversation list timestamps.
+- Updated scheduled task prompts and font size settings.
+- Updated bug triage documentation and related server/frontend wiki coverage.
+
+### Fixed
+
+- Closed the scheduled task menu when interacting outside of it.
+- Hardened deferred agent cleanup.
+- Prevented sent chat drafts from reappearing.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.22` for npm publishing with the `latest` tag.
+- Built offline installation tarball: `package-offline/shawnstack-quickforge-1.3.22.tgz`.
+- The offline tarball bundles runtime dependencies and can be installed with:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.22.tgz
+  ```
+
 ## [1.3.21] - 2026-05-28
 
 ### Changed

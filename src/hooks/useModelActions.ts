@@ -4,8 +4,8 @@ import type { Api, Model } from '@mariozechner/pi-ai'
 import type { AgentManager } from '@/hooks/useAgentManager'
 import {
   buildConnectionModel,
+  configuredModelsFromProviders,
   DEFAULT_CONNECTION,
-  getConfiguredModels,
   initializePiStorage,
   loadInitialConfiguredModel,
   saveActiveModel,
@@ -159,14 +159,7 @@ export function useModelActions({
     const currentInput = textarea?.value ?? ''
 
     const customProviders = await storage.customProviders.getAll()
-
-    for (const provider of customProviders) {
-      if (provider.apiKey) {
-        await storage.providerKeys.set(provider.name, provider.apiKey)
-      }
-    }
-
-    const customModels = await getConfiguredModels(storage)
+    const customModels = configuredModelsFromProviders(customProviders)
 
     if (customModels.length === 0) {
       const confirmed = await showConfirm({

@@ -266,12 +266,16 @@ function isUsableModel(model: unknown): model is Model<Api> {
   return Boolean(candidate?.id && candidate.provider && candidate.api && candidate.baseUrl)
 }
 
-export async function getConfiguredModels(storage: AppStorage): Promise<Model<Api>[]> {
-  const providers = await storage.customProviders.getAll()
+export function configuredModelsFromProviders(providers: CustomProvider[]): Model<Api>[] {
   return providers
     .flatMap((provider) => provider.models ?? [])
     .filter(isUsableModel)
     .map((model) => normalizeModelForProvider(model))
+}
+
+export async function getConfiguredModels(storage: AppStorage): Promise<Model<Api>[]> {
+  const providers = await storage.customProviders.getAll()
+  return configuredModelsFromProviders(providers)
 }
 
 export async function loadInitialConfiguredModel(storage: AppStorage): Promise<Model<Api> | null> {

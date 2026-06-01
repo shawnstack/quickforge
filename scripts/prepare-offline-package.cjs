@@ -28,5 +28,5 @@ for (const name of offlineOptionalDependencies) {
   delete pkg.dependencies[name]
 }
 
-pkg.bundledDependencies = Object.keys(pkg.dependencies || {})
+delete pkg.bundledDependencies
 fs.writeFileSync(path.join(outDir, 'package.json'), `${JSON.stringify(pkg, null, 2)}\n`)

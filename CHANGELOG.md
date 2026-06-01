@@ -2,6 +2,24 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.23] - 2026-06-01
+
+### Changed
+
+- Kept the `package-offline` npm publishing path while removing bundled runtime dependencies from the generated package.
+- Updated patch release guidance and automation to pack `package-offline` without installing `node_modules`, avoiding npm/cnpm package size sync limits.
+- Clarified release documentation for the offline release tarball dependency behavior.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.23` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.3.23.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.23.tgz
+  ```
+
 ## [1.3.22] - 2026-06-01
 
 ### Added

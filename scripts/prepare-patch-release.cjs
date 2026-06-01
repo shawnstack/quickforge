@@ -219,7 +219,7 @@ function generatedNotes(lastTag, initialStatus) {
 }
 
 function releaseBlock(version) {
-  return `### Released\n\n- Prepared \`@shawnstack/quickforge@${version}\` for npm publishing with the \`latest\` tag.\n- Built offline installation tarball: \`package-offline/shawnstack-quickforge-${version}.tgz\`.\n- The offline tarball bundles runtime dependencies and can be installed with:\n\n  \`\`\`bash\n  npm install -g ./package-offline/shawnstack-quickforge-${version}.tgz\n  \`\`\``
+  return `### Released\n\n- Prepared \`@shawnstack/quickforge@${version}\` for npm publishing with the \`latest\` tag.\n- Built offline release tarball: \`package-offline/shawnstack-quickforge-${version}.tgz\`.\n- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:\n\n  \`\`\`bash\n  npm install -g ./package-offline/shawnstack-quickforge-${version}.tgz\n  \`\`\``
 }
 
 function updateChangelog(version, date, notes) {
@@ -331,8 +331,6 @@ function main() {
   if (options.pack) {
     run(nodeCmd, ['scripts/prepare-runtime-package.cjs'])
     run(nodeCmd, ['scripts/prepare-offline-package.cjs'])
-    run(npmCmd, ['install', '--omit=dev', '--ignore-scripts'], { cwd: path.join(root, 'package-offline') })
-    run(nodeCmd, ['scripts/prune-offline-package.cjs'])
     run(npmCmd, ['pack'], { cwd: path.join(root, 'package-offline') })
   }
 

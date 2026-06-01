@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AppStorage } from '@mariozechner/pi-web-ui'
 import {
   ApiKeyPromptDialog,
@@ -16,6 +16,7 @@ import { createContextUsageIndicator } from './context-usage'
 import { decorateMessages, decorateEditor, captureComposerDraft, readComposerDraft, restoreComposerDraft, injectApprovalCard, removeApprovalCard, syncContextCompactionNotice } from './panel-decoration'
 import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
+import { getGitStatus } from '../workspace/workspace-api'
 import type { ChatScope, ProjectInfo, RestoredDraft } from '@/lib/types'
 import {
   buildComposerDraftKey,
@@ -61,6 +62,7 @@ type ChatPanelHostProps = {
   onRejectToolCall: (toolCallId: string) => Promise<void> | void
   onApproveAutoCompact?: (approvalId: string) => Promise<void> | void
   onRejectAutoCompact?: (approvalId: string) => Promise<void> | void
+  onOpenWorkspaceGitChanges?: () => void
   restoredDraft?: RestoredDraft
   disableFork?: boolean
   readOnly?: boolean
@@ -82,6 +84,7 @@ type PropsRef = {
   onRejectToolCall: (toolCallId: string) => Promise<void> | void
   onApproveAutoCompact?: (approvalId: string) => Promise<void> | void
   onRejectAutoCompact?: (approvalId: string) => Promise<void> | void
+  onOpenWorkspaceGitChanges?: () => void
   onModelSelect?: () => void
   yoloMode: boolean
   workspaceToolsEnabled: boolean
@@ -89,6 +92,7 @@ type PropsRef = {
   readOnly: boolean
   allowModelControls: boolean
   bypassClientApiKeyCheck: boolean
+  gitBranch?: string
 }
 
 export function ChatPanelHost({
@@ -109,6 +113,7 @@ export function ChatPanelHost({
   onRejectToolCall,
   onApproveAutoCompact,
   onRejectAutoCompact,
+  onOpenWorkspaceGitChanges,
   restoredDraft,
   disableFork = false,
   readOnly = false,
@@ -124,6 +129,7 @@ export function ChatPanelHost({
   const lastAppliedRestoredDraftRef = useRef<{ id: number; text: string } | undefined>(undefined)
   const consumedRestoredDraftIdsRef = useRef<Set<number>>(new Set())
   const saveDraftTimerRef = useRef<number | undefined>(undefined)
+  const [gitBranch, setGitBranch] = useState<string>()
 
   const cancelPendingDraftSave = useCallback(() => {
     if (!saveDraftTimerRef.current) return
@@ -193,6 +199,7 @@ export function ChatPanelHost({
     onRejectToolCall,
     onApproveAutoCompact,
     onRejectAutoCompact,
+    onOpenWorkspaceGitChanges,
     onModelSelect,
     yoloMode,
     workspaceToolsEnabled,
@@ -200,6 +207,7 @@ export function ChatPanelHost({
     readOnly,
     allowModelControls,
     bypassClientApiKeyCheck,
+    gitBranch,
   })
   // Keep ref in sync with the latest props so closures always read fresh values.
   // Using useEffect (instead of render-time assignment) satisfies the
@@ -214,6 +222,7 @@ export function ChatPanelHost({
       onRejectToolCall,
       onApproveAutoCompact,
       onRejectAutoCompact,
+      onOpenWorkspaceGitChanges,
       onModelSelect,
       yoloMode,
       workspaceToolsEnabled,
@@ -221,9 +230,37 @@ export function ChatPanelHost({
       readOnly,
       allowModelControls,
       bypassClientApiKeyCheck,
+      gitBranch,
     }
     restoredDraftRef.current = restoredDraft
   })
+
+  const gitProjectId = project?.id ?? projectId
+
+  useEffect(() => {
+    let disposed = false
+
+    queueMicrotask(() => {
+      if (disposed) return
+      if (!gitProjectId) {
+        setGitBranch(undefined)
+        return
+      }
+
+      getGitStatus(gitProjectId)
+        .then((status) => {
+          if (disposed) return
+          setGitBranch(status.isGitRepository ? status.branch : undefined)
+        })
+        .catch((err: unknown) => {
+          if (disposed) return
+          logger.warn('Failed to load git branch:', err)
+          setGitBranch(undefined)
+        })
+    })
+
+    return () => { disposed = true }
+  }, [gitProjectId, revision])
 
   // --- Refs that let the decoration trigger effect call into the active panel ---
   const decorateFnRef = useRef<(() => void) | null>(null)
@@ -330,6 +367,8 @@ export function ChatPanelHost({
       getTools: () => agent.state.tools,
       getMaxTokens: () => agent.state.model?.maxTokens,
       getServerContextUsage: () => (agent as AgentWithContextCompaction).state.contextUsage ?? null,
+      getGitBranch: () => propsRef.current.gitBranch,
+      onGitBranchClick: () => propsRef.current.onOpenWorkspaceGitChanges?.(),
     })
 
     // --- Composer input/file-change handlers (update draft map) ---
@@ -638,7 +677,7 @@ export function ChatPanelHost({
     // 外部对 state.model 的直接赋值，需要手动触发重渲染才能刷新模型名称等 UI。
     const ai = hostRef.current?.querySelector('agent-interface') as { requestUpdate?: () => void } | null
     ai?.requestUpdate?.()
-  }, [yoloMode, workspaceToolsEnabled, disableFork, readOnly, allowModelControls, revision])
+  }, [yoloMode, workspaceToolsEnabled, gitBranch, disableFork, readOnly, allowModelControls, revision])
 
   // Draft restoration trigger
   useEffect(() => {

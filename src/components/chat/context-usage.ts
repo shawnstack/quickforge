@@ -5,6 +5,9 @@
  * model's context window is consumed by the current conversation.
  */
 
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { GitBranch } from 'lucide-react'
 import type { ContextUsageInfo, MessageWithUsage } from './chat-utils'
 import {
   getContextUsage,
@@ -33,6 +36,8 @@ type ContextUsageOptions = {
   getMaxTokens?: () => number | undefined
   getEffectiveMessages?: () => MessageWithUsage[]
   getServerContextUsage?: () => ServerContextUsageInfo | null | undefined
+  getGitBranch?: () => string | undefined
+  onGitBranchClick?: () => void
 }
 
 function usageColor(percent: number) {
@@ -62,15 +67,93 @@ function normalizeServerContextUsage(usage: ServerContextUsageInfo, contextWindo
   }
 }
 
-export function createContextUsageIndicator({ panel, getSystemPrompt, getMessages, getContextWindow, getTools, getMaxTokens, getEffectiveMessages, getServerContextUsage }: ContextUsageOptions) {
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function bindGitBranchClick(branchBadge: HTMLElement, onGitBranchClick: (() => void) | undefined) {
+  if (!onGitBranchClick) {
+    branchBadge.removeAttribute('role')
+    branchBadge.removeAttribute('tabindex')
+    branchBadge.style.cursor = ''
+    return
+  }
+  branchBadge.setAttribute('role', 'button')
+  branchBadge.tabIndex = 0
+  branchBadge.style.cursor = 'pointer'
+  if (branchBadge.dataset.quickforgeGitBranchBound) return
+  branchBadge.dataset.quickforgeGitBranchBound = 'true'
+  branchBadge.addEventListener('click', (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onGitBranchClick()
+  })
+  branchBadge.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    event.stopPropagation()
+    onGitBranchClick()
+  })
+}
+
+const gitBranchIcon = renderToStaticMarkup(createElement(GitBranch, {
+  size: 13,
+  strokeWidth: 2,
+  'aria-hidden': true,
+  style: { flex: '0 0 auto' },
+}))
+
+export function createContextUsageIndicator({ panel, getSystemPrompt, getMessages, getContextWindow, getTools, getMaxTokens, getEffectiveMessages, getServerContextUsage, getGitBranch, onGitBranchClick }: ContextUsageOptions) {
   const update = () => {
     const contextWindow = getContextWindow()
     const visibleMessages = getMessages()
     const effectiveMessages = getEffectiveMessages?.() ?? visibleMessages
     const existing = panel.querySelector<HTMLElement>('.quickforge-context-usage')
+    const existingGitBranch = panel.querySelector<HTMLElement>('.quickforge-git-branch-inline')
     const statsRight = panel.querySelector('message-editor')?.parentElement?.querySelector<HTMLElement>('.ml-auto.items-center')
+
+    const gitBranch = getGitBranch?.()?.trim()
+    if (gitBranch && statsRight) {
+      const gitBranchLabel = `${gitBranchIcon}<span style="max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(gitBranch)}</span>`
+      const gitBranchTitle = `Git branch: ${gitBranch}`
+      if (existingGitBranch) {
+        if (existingGitBranch.dataset.quickforgeGitBranch !== gitBranch) {
+          existingGitBranch.innerHTML = gitBranchLabel
+          existingGitBranch.dataset.quickforgeGitBranch = gitBranch
+        }
+        existingGitBranch.title = gitBranchTitle
+        existingGitBranch.setAttribute('aria-label', gitBranchTitle)
+        bindGitBranchClick(existingGitBranch, onGitBranchClick)
+      } else {
+        const branchBadge = document.createElement('span')
+        branchBadge.className = 'quickforge-git-branch-inline'
+        branchBadge.dataset.quickforgeGitBranch = gitBranch
+        branchBadge.title = gitBranchTitle
+        branchBadge.setAttribute('aria-label', gitBranchTitle)
+        branchBadge.innerHTML = gitBranchLabel
+        branchBadge.style.cssText = [
+          'display: inline-flex',
+          'align-items: center',
+          'gap: 0.25rem',
+          'max-width: 10rem',
+          'color: hsl(var(--muted-foreground))',
+          'font-size: 12px',
+          'line-height: 1',
+          'font-weight: 500',
+        ].join(';')
+        bindGitBranchClick(branchBadge, onGitBranchClick)
+        statsRight.prepend(branchBadge)
+      }
+    } else {
+      existingGitBranch?.remove()
+    }
+
     if (!contextWindow || !statsRight) {
-      const existing = panel.querySelector<HTMLElement>('.quickforge-context-usage')
       existing?.remove()
       panel.querySelector<HTMLElement>('.quickforge-context-usage-label')?.remove()
       return

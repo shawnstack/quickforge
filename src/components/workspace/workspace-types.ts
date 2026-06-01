@@ -1,3 +1,8 @@
+export type WorkspaceInspectorFocusTarget = {
+  tab: 'files' | 'git'
+  nonce: number
+}
+
 export type WorkspaceTreeNode = {
   name: string
   path: string

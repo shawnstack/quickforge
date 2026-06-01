@@ -54,6 +54,7 @@ import { ToastContainer } from '@/components/ui/toast'
 import { ShareConversationDialog } from '@/components/share/ShareConversationDialog'
 import { SharedConversationPage } from '@/components/share/SharedConversationPage'
 import { WorkspaceInspector } from '@/components/workspace/WorkspaceInspector'
+import type { WorkspaceInspectorFocusTarget } from '@/components/workspace/workspace-types'
 import { TerminalDock } from '@/components/terminal/TerminalDock'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
 
@@ -129,6 +130,7 @@ function MainApp() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [conversationMenuOpen, setConversationMenuOpen] = useState(false)
   const [workspaceInspectorOpen, setWorkspaceInspectorOpen] = useState(false)
+  const [workspaceInspectorFocusTarget, setWorkspaceInspectorFocusTarget] = useState<WorkspaceInspectorFocusTarget>()
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [storage, setStorage] = useState<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
   const { toasts, handleTaskComplete, addToast, dismissToast } = useTaskToasts()
@@ -228,6 +230,13 @@ function MainApp() {
       text,
     })
   }, [agentRef, closeWorkspacePage])
+
+  const openWorkspaceGitChanges = useCallback(() => {
+    if (!agentManager.currentToolProject?.id) return
+    closeWorkspacePage()
+    setWorkspaceInspectorFocusTarget({ tab: 'git', nonce: Date.now() })
+    setWorkspaceInspectorOpen(true)
+  }, [agentManager.currentToolProject?.id, closeWorkspacePage])
 
   useEffect(() => {
     const unsubscribe = subscribeToAgentEvents((event) => {
@@ -802,6 +811,7 @@ function MainApp() {
                       onRejectToolCall={handleRejectToolCall}
                       onApproveAutoCompact={handleApproveAutoCompact}
                       onRejectAutoCompact={handleRejectAutoCompact}
+                      onOpenWorkspaceGitChanges={openWorkspaceGitChanges}
                       disableFork={false}
                       restoredDraft={restoredDraft}
                     />
@@ -822,6 +832,7 @@ function MainApp() {
         open={workspaceInspectorOpen && Boolean(agentManager.currentToolProject?.id)}
         onOpenChange={setWorkspaceInspectorOpen}
         onDraftRequest={restoreWorkspaceDraft}
+        focusTarget={workspaceInspectorFocusTarget}
       />
     </div>
     <ProjectDirectoryPicker

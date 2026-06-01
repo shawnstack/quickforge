@@ -1,18 +1,20 @@
 import { Code2, MessageSquare, PanelRightClose, RefreshCw, Search } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { ProjectInfo } from '@/lib/types'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { getGitFileDiff, getGitStatus, getWorkspaceFile, getWorkspaceTree } from './workspace-api'
 import { WorkspaceChangesList } from './WorkspaceChangesList'
 import { WorkspaceFileTree } from './WorkspaceFileTree'
 import { WorkspaceReaderDialog } from './WorkspaceReaderDialog'
-import type { GitChangedFile, GitFileDiffResponse, GitStatusResponse, WorkspaceFileResponse, WorkspaceTreeNode } from './workspace-types'
+import type { GitChangedFile, GitFileDiffResponse, GitStatusResponse, WorkspaceFileResponse, WorkspaceInspectorFocusTarget, WorkspaceTreeNode } from './workspace-types'
 
 type WorkspaceInspectorProps = {
   project?: ProjectInfo
   open: boolean
   onOpenChange: (open: boolean) => void
   onDraftRequest?: (text: string) => void
+  focusTarget?: WorkspaceInspectorFocusTarget
 }
 
 type WorkspaceTab = 'files' | 'git'
@@ -61,7 +63,7 @@ function GitGroup({ title, files, selectedPath, onSelectFile }: {
   )
 }
 
-export function WorkspaceInspector({ project, open, onOpenChange, onDraftRequest }: WorkspaceInspectorProps) {
+export function WorkspaceInspector({ project, open, onOpenChange, onDraftRequest, focusTarget }: WorkspaceInspectorProps) {
   const [tab, setTab] = useState<WorkspaceTab>('files')
   const [tree, setTree] = useState<WorkspaceTreeNode[]>([])
   const [changes, setChanges] = useState<GitChangedFile[]>([])
@@ -84,6 +86,8 @@ export function WorkspaceInspector({ project, open, onOpenChange, onDraftRequest
   const [diffError, setDiffError] = useState<string>()
   const [readerOpen, setReaderOpen] = useState(false)
   const [readerMode, setReaderMode] = useState<ReaderMode>('file')
+  const [mounted, setMounted] = useState(open)
+  const [visible, setVisible] = useState(false)
 
   const projectId = project?.id
 
@@ -101,6 +105,39 @@ export function WorkspaceInspector({ project, open, onOpenChange, onDraftRequest
     unstaged: changes.filter((file) => !file.conflict && file.status !== 'untracked' && file.unstaged),
     untracked: changes.filter((file) => !file.conflict && file.status === 'untracked'),
   }), [changes])
+
+  useEffect(() => {
+    if (open) {
+      let disposed = false
+      queueMicrotask(() => {
+        if (disposed) return
+        setMounted(true)
+        window.requestAnimationFrame(() => {
+          if (!disposed) setVisible(true)
+        })
+      })
+      return () => { disposed = true }
+    }
+
+    let disposed = false
+    queueMicrotask(() => {
+      if (!disposed) setVisible(false)
+    })
+    const timer = window.setTimeout(() => setMounted(false), 180)
+    return () => {
+      disposed = true
+      window.clearTimeout(timer)
+    }
+  }, [open])
+
+  useEffect(() => {
+    let disposed = false
+    if (!open || !focusTarget) return () => { disposed = true }
+    queueMicrotask(() => {
+      if (!disposed) setTab(focusTarget.tab)
+    })
+    return () => { disposed = true }
+  }, [focusTarget, open])
 
   useEffect(() => {
     let disposed = false
@@ -185,11 +222,16 @@ export function WorkspaceInspector({ project, open, onOpenChange, onDraftRequest
     setRefreshToken((value) => value + 1)
   }
 
-  if (!open) return null
+  if (!mounted) return null
 
   return (
     <>
-      <aside className="hidden w-[340px] min-w-[280px] max-w-[380px] shrink-0 flex-col border-l border-border bg-background lg:flex">
+      <aside
+        className={cn(
+          'hidden shrink-0 overflow-hidden flex-col border-l border-border bg-background transition-[width,min-width,max-width,opacity,transform] duration-200 ease-out will-change-[width,opacity,transform] lg:flex',
+          visible ? 'w-[340px] min-w-[280px] max-w-[380px] translate-x-0 opacity-100' : 'w-0 min-w-0 max-w-0 translate-x-4 opacity-0',
+        )}
+      >
         <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-3">
           <Code2 className="size-4 text-emerald-600 dark:text-emerald-500" />
           <div className="min-w-0 flex-1">

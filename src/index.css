@@ -62,7 +62,7 @@
 .quickforge-assistant-message > div > .px-4.mt-2.text-xs.text-muted-foreground,
 .quickforge-composer + .text-xs.text-muted-foreground.flex.justify-between.items-center.h-5
   > .ml-auto.items-center
-  > span:not(.quickforge-context-usage):not(.quickforge-context-usage-label) {
+  > span:not(.quickforge-context-usage):not(.quickforge-context-usage-label):not(.quickforge-git-branch-inline) {
   display: none !important;
 }
 

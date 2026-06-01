@@ -184,10 +184,13 @@ function decorateMarkdownCommandBlocks(panel: HTMLElement, isStreaming: boolean)
 
     if (!existing) {
       const titleBar = block.querySelector<HTMLElement>(':scope > div > div:first-child')
-      const actions = titleBar?.lastElementChild
-      if (titleBar && actions) {
-        titleBar.classList.add('gap-2')
-        actions.after(button)
+      const copyButton = titleBar?.querySelector('copy-button')
+      if (titleBar && copyButton) {
+        const wrapper = document.createElement('div')
+        wrapper.className = 'flex items-center gap-1'
+        copyButton.before(wrapper)
+        wrapper.appendChild(copyButton)
+        wrapper.appendChild(button)
       }
     }
   })

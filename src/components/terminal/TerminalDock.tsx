@@ -193,7 +193,14 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
         }
 
         setActiveSessionId(target.id)
-        await sendTerminalInput(target.id, pendingCommand.execute ? `${pendingCommand.command}\r` : pendingCommand.command)
+        if (pendingCommand.execute) {
+          const lines = pendingCommand.command.split('\n')
+          const parts = lines.flatMap((line, i) => i < lines.length - 1 ? [line, '\r'] : [line])
+          parts.push('\r')
+          await sendTerminalInput(target.id, parts.join(''))
+        } else {
+          await sendTerminalInput(target.id, pendingCommand.command)
+        }
       } catch (err) {
         if (!disposed) setError(err instanceof Error ? err.message : t('terminalCommandExecuteFailed'))
       } finally {

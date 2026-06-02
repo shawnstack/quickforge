@@ -339,6 +339,7 @@ function MainApp() {
     startNewGlobalChat,
     startNewProjectChat,
     rollbackFromMessage,
+    retryFromMessage,
     copyAnswer,
     forkFromMessage,
   } = useChatActions({
@@ -892,6 +893,7 @@ function MainApp() {
                       storage={storage}
                       onToggleYoloMode={toggleYoloMode}
                       onRollbackFromMessage={rollbackFromMessage}
+                      onRetryFromMessage={retryFromMessage}
                       onCopyAnswer={copyAnswer}
                       onForkFromMessage={forkFromMessage}
                       onApproveToolCall={handleApproveToolCall}

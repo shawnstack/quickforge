@@ -56,6 +56,7 @@ type ChatPanelHostProps = {
   storage?: AppStorage | null
   onToggleYoloMode: () => void
   onRollbackFromMessage: (messageIndex: number) => void
+  onRetryFromMessage: (messageIndex: number) => void
   onCopyAnswer: (text: string) => Promise<void> | void
   onForkFromMessage: (messageIndex: number) => void
   onApproveToolCall: (toolCallId: string) => Promise<void> | void
@@ -79,6 +80,7 @@ type ChatPanelHostProps = {
 type PropsRef = {
   onCopyAnswer: (text: string) => Promise<void> | void
   onRollbackFromMessage: (messageIndex: number) => void
+  onRetryFromMessage: (messageIndex: number) => void
   onForkFromMessage: (messageIndex: number) => void
   onToggleYoloMode: () => void
   onApproveToolCall: (toolCallId: string) => Promise<void> | void
@@ -109,6 +111,7 @@ export function ChatPanelHost({
   storage = null,
   onToggleYoloMode,
   onRollbackFromMessage,
+  onRetryFromMessage,
   onCopyAnswer,
   onForkFromMessage,
   onApproveToolCall,
@@ -196,6 +199,7 @@ export function ChatPanelHost({
   const propsRef = useRef<PropsRef>({
     onCopyAnswer,
     onRollbackFromMessage,
+    onRetryFromMessage,
     onForkFromMessage,
     onToggleYoloMode,
     onApproveToolCall,
@@ -220,6 +224,7 @@ export function ChatPanelHost({
     propsRef.current = {
       onCopyAnswer,
       onRollbackFromMessage,
+      onRetryFromMessage,
       onForkFromMessage,
       onToggleYoloMode,
       onApproveToolCall,
@@ -420,6 +425,7 @@ export function ChatPanelHost({
           isStreaming: () => agent.state.isStreaming,
           onCopyAnswer: props.onCopyAnswer,
           onRollbackFromMessage: props.onRollbackFromMessage,
+          onRetryFromMessage: props.onRetryFromMessage,
           onForkFromMessage: props.onForkFromMessage,
           onOpenLocalFilePath: props.onOpenLocalFilePath,
           disableFork: props.disableFork,

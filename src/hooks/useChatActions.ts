@@ -268,10 +268,49 @@ export function useChatActions({
     }
   }, [activeModelRef, activeProjectRef, agentRef, createAgent, currentChatScopeRef, refreshSessions, storageRef])
 
+  const retryFromMessage = useCallback(async (messageIndex: number) => {
+    const currentAgent = agentRef.current
+    if (!currentAgent) return
+
+    if (currentAgent.state.isStreaming) {
+      void showAlert(t('generationStillRunning'))
+      return
+    }
+
+    const messages = currentAgent.state.messages
+    if (messageIndex < 0 || messageIndex >= messages.length) return
+
+    const message = messages[messageIndex]
+    if (message.role !== 'user' && message.role !== 'user-with-attachments') return
+
+    // Trim messages to before the user message (prompt will re-add it)
+    const nextMessages = messages.slice(0, messageIndex)
+    setCurrentAgentMessages(nextMessages)
+    setChatPanelRevision((value) => value + 1)
+
+    try {
+      await currentAgent.prompt(message)
+    } catch (error) {
+      logger.error('Failed to retry:', error)
+      void showAlert(error instanceof Error ? error.message : t('retryFailed'))
+      return
+    }
+
+    // Sync session UI after regeneration
+    const currentTask = currentSessionIdRef.current
+      ? taskMapRef.current.get(currentSessionIdRef.current)
+      : undefined
+    if (currentTask) {
+      syncSessionUI(currentTask).catch((err) => logger.error('Failed to sync session UI after retry:', err))
+      setChatPanelRevision((value) => value + 1)
+    }
+  }, [agentRef, currentSessionIdRef, setChatPanelRevision, setCurrentAgentMessages, syncSessionUI, taskMapRef])
+
   return {
     startNewGlobalChat,
     startNewProjectChat,
     rollbackFromMessage,
+    retryFromMessage,
     copyAnswer,
     forkFromMessage,
   }

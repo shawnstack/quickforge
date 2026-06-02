@@ -272,6 +272,7 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
         onModelSelect={openSharedModelSelector}
         onToggleYoloMode={() => undefined}
         onRollbackFromMessage={rollback}
+        onRetryFromMessage={() => undefined}
         onCopyAnswer={copyAnswer}
         onForkFromMessage={() => undefined}
         onApproveToolCall={() => undefined}

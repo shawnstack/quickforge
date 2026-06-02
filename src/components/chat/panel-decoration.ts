@@ -29,6 +29,7 @@ const copiedIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="1
 const rollbackIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>'
 const forkIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/><path d="M12 12v3"/></svg>'
 const runIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>'
+const retryIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15.36-5.64L21 9"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15.36 5.64L3 15"/></svg>'
 
 // --- Shared helpers ---
 
@@ -80,6 +81,7 @@ export type MessageDecorationDeps = {
   isStreaming: () => boolean
   onCopyAnswer: (text: string) => Promise<void> | void
   onRollbackFromMessage: (messageIndex: number) => void
+  onRetryFromMessage: (messageIndex: number) => void
   onForkFromMessage: (messageIndex: number) => void
   onOpenLocalFilePath?: (path: string) => void
   disableFork: boolean
@@ -324,13 +326,20 @@ export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
 }
 
 export function decorateMessages(deps: MessageDecorationDeps) {
-  const { panel, getMessages, isStreaming, onCopyAnswer, onRollbackFromMessage, onForkFromMessage, onOpenLocalFilePath, disableFork, enableTerminalCommandActions = true } = deps
+  const { panel, getMessages, isStreaming, onCopyAnswer, onRollbackFromMessage, onRetryFromMessage, onForkFromMessage, onOpenLocalFilePath, disableFork, enableTerminalCommandActions = true } = deps
 
   const displayEntries = getMessages()
     .map((message, index) => ({ message, index }))
     .filter(({ message }) => {
       return message.role === 'user' || message.role === 'user-with-attachments' || message.role === 'assistant'
     })
+
+  const lastUserEntry = (() => {
+    for (let i = displayEntries.length - 1; i >= 0; i--) {
+      if (displayEntries[i].message.role !== 'assistant') return displayEntries[i]
+    }
+    return undefined
+  })()
 
   const messageElements = getPrimaryMessageElements(panel)
 
@@ -364,9 +373,23 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     const existingActions = element.querySelector<HTMLElement>('.quickforge-message-actions')
     if (existingActions?.dataset.quickforgeLayout === 'message-bottom') {
       existingActions.className = actionsClass
-      existingActions.querySelectorAll<HTMLButtonElement>('button[data-quickforge-action="rollback"], button[data-quickforge-action="fork"]').forEach((button) => {
+      existingActions.querySelectorAll<HTMLButtonElement>('button[data-quickforge-action="rollback"], button[data-quickforge-action="retry"], button[data-quickforge-action="fork"]').forEach((button) => {
         button.disabled = isStreaming()
       })
+
+      // Manage retry button visibility: only show on the last user message
+      const existingRetry = existingActions.querySelector<HTMLButtonElement>('button[data-quickforge-action="retry"]')
+      const isLastUser = lastUserEntry && entry.index === lastUserEntry.index && entry.message.role !== 'assistant'
+      if (existingRetry && !isLastUser) {
+        existingRetry.remove()
+      } else if (!existingRetry && isLastUser) {
+        const retryButton = createIconActionButton('retry', t('retry'), retryIcon, () => {
+          onRetryFromMessage(entry.index)
+        })
+        retryButton.disabled = isStreaming()
+        existingActions.append(retryButton)
+      }
+
       return
     }
     existingActions?.remove()
@@ -407,6 +430,14 @@ export function decorateMessages(deps: MessageDecorationDeps) {
       })
       rollbackButton.disabled = isStreaming()
       actions.append(rollbackButton)
+
+      if (lastUserEntry && entry.index === lastUserEntry.index) {
+        const retryButton = createIconActionButton('retry', t('retry'), retryIcon, () => {
+          onRetryFromMessage(entry.index)
+        })
+        retryButton.disabled = isStreaming()
+        actions.append(retryButton)
+      }
     }
 
     element.append(actions)

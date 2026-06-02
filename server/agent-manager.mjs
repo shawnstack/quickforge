@@ -2,9 +2,9 @@ import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import { Agent } from '@mariozechner/pi-agent-core'
 import { streamSimpleWithAiHttpLogging } from './ai-http-logger.mjs'
-import { toolHandlers, loadSkillToolContext, abortRunningCommand } from './tools/index.mjs'
+import { loadSkillToolContext, abortRunningCommand } from './tools/index.mjs'
 import { createSkillTools, workspaceTools } from './tools/definitions.mjs'
-import { callMcpTool, createMcpToolDefinitions, isMcpToolName } from './mcp/registry.mjs'
+import { createMcpToolDefinitions } from './mcp/registry.mjs'
 import {
   composeSubagentSystemPrompt,
   formatSubagentTask,
@@ -30,69 +30,21 @@ import {
   parseInternalCommandInvocation,
   resolveCustomCommandInvocation,
 } from './custom-commands.mjs'
+import { omitDetailsForLlm, serverConvertToLlm, messageText, lastAssistantText } from './message-converters.mjs'
+import { isPlainObject, mergeQuickForgeTiming, wrapToolDefinition, wrapMcpToolDefinition, sessionSkillsContext } from './tool-wiring.mjs'
+import {
+  APPROVAL_TIMEOUT_MS,
+  commandRestrictedTools,
+  safeReadTools,
+  pendingApprovals,
+  pendingAutoCompactApprovals,
+  commandToolPermissionError,
+  createCommandToolPermissions,
+} from './approval-store.mjs'
 
 // ---------------------------------------------------------------------------
 // Tool definitions (server-side, no REST roundtrip)
 // ---------------------------------------------------------------------------
-
-function isPlainObject(value) {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
-}
-
-function mergeQuickForgeTiming(details, timing) {
-  if (!isPlainObject(details)) return { quickforgeTiming: timing }
-  return { ...details, quickforgeTiming: timing }
-}
-
-function wrapToolDefinition(definition, context, toolPermissions) {
-  const handler = toolHandlers[definition.name]
-  if (!handler) throw new Error(`Missing handler for tool: ${definition.name}`)
-  return {
-    ...definition,
-    execute: async (_toolCallId, params, signal, onUpdate) => {
-      if (toolPermissions) {
-        const permissionError = toolPermissions(definition.name)
-        if (permissionError) throw new Error(permissionError)
-      }
-
-      const startedAt = Date.now()
-      const startedAtPerf = performance.now()
-      const result = await handler(params || {}, context, { signal, onUpdate, toolCallId: _toolCallId })
-      const finishedAt = Date.now()
-      const durationMs = Math.max(0, Math.round(performance.now() - startedAtPerf))
-      const details = mergeQuickForgeTiming(result.details, { startedAt, finishedAt, durationMs })
-      return {
-        content: [{ type: 'text', text: result.content }],
-        details: isPlainObject(details) ? { ...details, toolCallId: _toolCallId } : details,
-      }
-    },
-  }
-}
-
-function wrapMcpToolDefinition(definition, toolPermissions) {
-  return {
-    ...definition,
-    execute: async (_toolCallId, params) => {
-      if (toolPermissions) {
-        const permissionError = toolPermissions(definition.name)
-        if (permissionError) throw new Error(permissionError)
-      }
-
-      const startedAt = Date.now()
-      const startedAtPerf = performance.now()
-      const result = await callMcpTool(definition.name, params || {})
-      const finishedAt = Date.now()
-      const durationMs = Math.max(0, Math.round(performance.now() - startedAtPerf))
-      if (result.isError) {
-        throw new Error(result.content || `MCP tool failed: ${definition.name}`)
-      }
-      return {
-        content: [{ type: 'text', text: result.content }],
-        details: mergeQuickForgeTiming(result.details, { startedAt, finishedAt, durationMs }),
-      }
-    },
-  }
-}
 
 function wrapSubagentToolDefinition(definition, parentSessionId) {
   return {
@@ -154,13 +106,6 @@ async function createServerTools(projectId, projectContext, skillsContext, inclu
   return tools
 }
 
-function sessionSkillsContext(session) {
-  return {
-    globalSkillNames: session.globalSkillNames,
-    projectSkillNames: session.projectSkillNames,
-  }
-}
-
 async function rebuildSessionTools(session) {
   session.agent.state.tools = await createServerTools(
     session.projectId,
@@ -181,31 +126,7 @@ const agentSessions = new Map()
 /** @typedef {{ agent: Agent, projectContext: object|null, projectId: string|null, yoloMode: boolean, model: object, thinkingLevel: string, scope: string, title: string, createdAt: string, status: string, startedAt: string|null, finishedAt: string|null, listeners: Set<function>, idleTimer: NodeJS.Timeout|null, eventBus: EventEmitter }} AgentSession */
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
-const APPROVAL_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes for tool approval
 const SUBAGENT_DEFAULT_TIMEOUT_MS = 30 * 60 * 1000
-const commandRestrictedTools = new Set(['write_file', 'edit_file', 'run_command', 'run_subagent'])
-const safeReadTools = new Set(['read_file', 'grep_files'])
-const pendingApprovals = new Map() // toolCallId → { resolve, reject, sessionId, toolName, args, source, timeout }
-const pendingAutoCompactApprovals = new Map() // approvalId → { resolve, reject, sessionId, timeout }
-
-function commandToolPermissionError(session, toolName) {
-  const permissions = session?.activeCommandPermissions
-  if (!permissions || !commandRestrictedTools.has(toolName)) return null
-  if (toolName === 'run_command' && permissions.allowCommands === false) {
-    return `Command /${session.activeCommandName} does not allow running shell commands.`
-  }
-  if (toolName === 'run_subagent' && permissions.allowCommands === false) {
-    return `Command /${session.activeCommandName} does not allow running subagents.`
-  }
-  if ((toolName === 'write_file' || toolName === 'edit_file') && permissions.allowEdit === false) {
-    return `Command /${session.activeCommandName} does not allow editing files.`
-  }
-  return null
-}
-
-function createCommandToolPermissions(session) {
-  return (toolName) => commandToolPermissionError(session, toolName)
-}
 
 /**
  * Create a Promise that only resolves when the user accepts or rejects the tool call.
@@ -663,67 +584,6 @@ End by telling the user they can reply “允许”, “按计划执行”, or a
 User task:
 ${taskText}
 </plan_command_invocation>`
-}
-
-function omitDetailsForLlm(message) {
-  if (!message || typeof message !== 'object' || message.details === undefined) return message
-  const copy = { ...message }
-  delete copy.details
-  return copy
-}
-
-/**
- * Convert AgentMessage[] to LLM-compatible Message[].
- * Handles "user-with-attachments" → "user" with multi-modal content blocks.
- * Without this the default pi-agent-core convertToLlm silently drops
- * user-with-attachments messages, so the LLM never sees attachments.
- */
-function serverConvertToLlm(messages) {
-  return messages
-    .filter(m => m.role !== 'artifact')
-    .map(m => {
-      if (m.role === 'user-with-attachments') {
-        const textContent = typeof m.content === 'string'
-          ? [{ type: 'text', text: m.content }]
-          : [...m.content]
-        if (Array.isArray(m.attachments)) {
-          for (const att of m.attachments) {
-            if (att.type === 'image' && att.content) {
-              textContent.push({ type: 'image', data: att.content, mimeType: att.mimeType })
-            } else if (att.type === 'document' && att.extractedText) {
-              textContent.push({ type: 'text', text: `\n\n[Document: ${att.fileName}]\n${att.extractedText}` })
-            }
-          }
-        }
-        return omitDetailsForLlm({ ...m, role: 'user', content: textContent })
-      }
-      if (m.role === 'user' || m.role === 'assistant' || m.role === 'toolResult') return omitDetailsForLlm(m)
-      return null
-    })
-    .filter(Boolean)
-}
-
-function messageText(message) {
-  const content = message?.content
-  if (typeof content === 'string') return content
-  if (Array.isArray(content)) {
-    return content
-      .filter((block) => block?.type === 'text')
-      .map((block) => block.text ?? '')
-      .join('\n')
-      .trim()
-  }
-  return ''
-}
-
-function lastAssistantText(messages) {
-  for (let index = messages.length - 1; index >= 0; index--) {
-    const message = messages[index]
-    if (message?.role !== 'assistant') continue
-    const text = messageText(message)
-    if (text) return text
-  }
-  return ''
 }
 
 async function runSubagent(parentSession, params, parentSignal, onUpdate) {

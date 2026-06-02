@@ -47,6 +47,7 @@ import { useChatActions } from '@/hooks/useChatActions'
 import { useProjectActions } from '@/hooks/useProjectActions'
 import { useSessionActions } from '@/hooks/useSessionActions'
 import { useYoloActions } from '@/hooks/useYoloActions'
+import { useUIState } from '@/hooks/useUIState'
 import { useVisibleRuntimeStatuses } from '@/hooks/useVisibleRuntimeStatuses'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { logger } from '@/lib/logger'
@@ -56,7 +57,6 @@ import { ShareConversationDialog } from '@/components/share/ShareConversationDia
 import { SharedConversationPage } from '@/components/share/SharedConversationPage'
 import { WorkspaceInspector } from '@/components/workspace/WorkspaceInspector'
 import { WorkspaceReaderDialog } from '@/components/workspace/WorkspaceReaderDialog'
-import type { WorkspaceFileResponse, WorkspaceInspectorFocusTarget } from '@/components/workspace/workspace-types'
 import { getWorkspaceFile, resolveWorkspacePath } from '@/components/workspace/workspace-api'
 import { TerminalDock } from '@/components/terminal/TerminalDock'
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
@@ -129,29 +129,17 @@ function MainApp() {
   // --- YOLO hook ---
   const { yoloMode, setYoloMode, initialize: initYoloMode } = useYoloMode()
 
-  // --- UI state ---
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
-  const [projectsCollapsed, setProjectsCollapsed] = useState(false)
-  const [conversationsCollapsed, setConversationsCollapsed] = useState(false)
+  // --- Pure UI state (sidebar, dialogs, overlays, inspector, reader) ---
+  const ui = useUIState()
+
+  // --- UI state shared with other hooks ---
   const [needsModelSetup, setNeedsModelSetup] = useState(false)
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
   const [workspacePage, setWorkspacePage] = useState<WorkspacePage>('chat')
-  const [mcpServersDialogOpen, setMcpServersDialogOpen] = useState(false)
-  const [skillsDialog, setSkillsDialog] = useState<{ scope: SkillsScope; project?: ProjectInfo }>()
-  const [shareDialogOpen, setShareDialogOpen] = useState(false)
-  const [conversationMenuOpen, setConversationMenuOpen] = useState(false)
-  const [workspaceInspectorOpen, setWorkspaceInspectorOpen] = useState(false)
-  const [workspaceInspectorFocusTarget, setWorkspaceInspectorFocusTarget] = useState<WorkspaceInspectorFocusTarget>()
-  const [inlineReaderOpen, setInlineReaderOpen] = useState(false)
-  const [inlineReaderFile, setInlineReaderFile] = useState<WorkspaceFileResponse>()
-  const [inlineReaderLoading, setInlineReaderLoading] = useState(false)
-  const [inlineReaderError, setInlineReaderError] = useState<string>()
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState<PendingTerminalCommand | null>(null)
   const terminalCommandIdRef = useRef(0)
   const [storage, setStorage] = useState<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
-  const [firstUseGuideDismissed, setFirstUseGuideDismissed] = useState(false)
   const { toasts, handleTaskComplete, addToast, dismissToast } = useTaskToasts()
   const scheduledTasksOpen = workspacePage === 'scheduledTasks'
   const agentProfilesOpen = workspacePage === 'agentProfiles'
@@ -253,9 +241,9 @@ function MainApp() {
   const openWorkspaceGitChanges = useCallback(() => {
     if (!agentManager.currentToolProject?.id) return
     closeWorkspacePage()
-    setWorkspaceInspectorFocusTarget({ tab: 'git', nonce: Date.now() })
-    setWorkspaceInspectorOpen(true)
-  }, [agentManager.currentToolProject?.id, closeWorkspacePage])
+    ui.setWorkspaceInspectorFocusTarget({ tab: 'git', nonce: Date.now() })
+    ui.setWorkspaceInspectorOpen(true)
+  }, [agentManager.currentToolProject?.id, closeWorkspacePage, ui])
 
   const openLocalFilePathFromChat = useCallback(async (filePath: string) => {
     const projectId = agentManager.currentToolProject?.id
@@ -264,23 +252,23 @@ function MainApp() {
       return
     }
 
-    setInlineReaderOpen(true)
-    setInlineReaderLoading(true)
-    setInlineReaderError(undefined)
-    setInlineReaderFile(undefined)
+    ui.setInlineReaderOpen(true)
+    ui.setInlineReaderLoading(true)
+    ui.setInlineReaderError(undefined)
+    ui.setInlineReaderFile(undefined)
 
     try {
       const resolved = await resolveWorkspacePath(projectId, filePath)
       const file = await getWorkspaceFile(projectId, resolved.relativePath)
-      setInlineReaderFile(file)
+      ui.setInlineReaderFile(file)
     } catch (error) {
       const message = error instanceof Error ? error.message : '打开文件失败'
-      setInlineReaderError(message)
+      ui.setInlineReaderError(message)
       addToast({ sessionId: agentManager.currentSessionId ?? '', title: '无法打开文件', status: 'error', message })
     } finally {
-      setInlineReaderLoading(false)
+      ui.setInlineReaderLoading(false)
     }
-  }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id])
+  }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id, ui])
 
   useEffect(() => {
     const unsubscribe = subscribeToAgentEvents((event) => {
@@ -473,15 +461,15 @@ function MainApp() {
   }, [agentManager.taskStatuses, visibleRuntimeStatuses])
 
   useEffect(() => {
-    if (!conversationMenuOpen) return
-    const closeMenu = () => setConversationMenuOpen(false)
+    if (!ui.conversationMenuOpen) return
+    const closeMenu = () => ui.setConversationMenuOpen(false)
     window.addEventListener('click', closeMenu)
     window.addEventListener('blur', closeMenu)
     return () => {
       window.removeEventListener('click', closeMenu)
       window.removeEventListener('blur', closeMenu)
     }
-  }, [conversationMenuOpen])
+  }, [ui, ui.conversationMenuOpen])
 
   useEffect(() => {
     const handleExecuteMarkdownCommand = (event: Event) => {
@@ -525,8 +513,8 @@ function MainApp() {
   }, [])
 
   const handleDismissFirstUseGuide = useCallback(() => {
-    setFirstUseGuideDismissed(true)
-  }, [])
+    ui.setFirstUseGuideDismissed(true)
+  }, [ui])
 
   const handleCopyFirstGuidePrompt = useCallback(() => {
     const text = agentManager.currentToolProject?.id
@@ -546,7 +534,7 @@ function MainApp() {
   }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id])
 
   const showFirstUseGuide = Boolean(storage)
-    && !firstUseGuideDismissed
+    && !ui.firstUseGuideDismissed
     && !terminalOpen
     && projects.length === 0
     && globalSessions.length === 0
@@ -554,37 +542,29 @@ function MainApp() {
   const handleToggleCurrentSessionPinned = useCallback(() => {
     const sessionId = agentManager.currentSessionId
     if (!sessionId) return
-    setConversationMenuOpen(false)
+    ui.setConversationMenuOpen(false)
     void togglePinSession(sessionId)
-  }, [agentManager.currentSessionId, togglePinSession])
+  }, [agentManager.currentSessionId, togglePinSession, ui])
 
   const handleRenameCurrentSession = useCallback(() => {
     const sessionId = agentManager.currentSessionId
     if (!sessionId) return
-    setConversationMenuOpen(false)
+    ui.setConversationMenuOpen(false)
     void renameSession(sessionId, agentManager.currentTitle)
-  }, [agentManager.currentSessionId, agentManager.currentTitle, renameSession])
+  }, [agentManager.currentSessionId, agentManager.currentTitle, renameSession, ui])
 
   const handleShareCurrentSession = useCallback(() => {
-    setConversationMenuOpen(false)
-    setShareDialogOpen(true)
-  }, [])
-
-  const toggleProjectsCollapsed = useCallback(() => {
-    setProjectsCollapsed((value) => !value)
-  }, [])
-
-  const toggleConversationsCollapsed = useCallback(() => {
-    setConversationsCollapsed((value) => !value)
-  }, [])
+    ui.setConversationMenuOpen(false)
+    ui.setShareDialogOpen(true)
+  }, [ui])
 
   const openGlobalSkills = useCallback(() => {
-    setSkillsDialog({ scope: 'global' })
-  }, [])
+    ui.setSkillsDialog({ scope: 'global' })
+  }, [ui])
 
   const openProjectSkills = useCallback((project: ProjectInfo) => {
-    setSkillsDialog({ scope: 'project', project })
-  }, [])
+    ui.setSkillsDialog({ scope: 'project', project })
+  }, [ui])
 
   const openProjectInExplorer = useCallback(async (project: ProjectInfo) => {
     const response = await fetch(`/api/project/${encodeURIComponent(project.id)}/open-in-explorer`, {
@@ -596,8 +576,8 @@ function MainApp() {
   }, [])
 
   const closeMobileSidebar = useCallback(() => {
-    setMobileSidebarOpen(false)
-  }, [])
+    ui.setMobileSidebarOpen(false)
+  }, [ui])
 
   const loadSessionFromSidebar = useCallback((sessionId: string) => {
     closeMobileSidebar()
@@ -631,8 +611,8 @@ function MainApp() {
 
   const openMcpServersFromSidebar = useCallback(() => {
     closeMobileSidebar()
-    setMcpServersDialogOpen(true)
-  }, [closeMobileSidebar])
+    ui.setMcpServersDialogOpen(true)
+  }, [closeMobileSidebar, ui])
 
   const openProjectSkillsFromSidebar = useCallback((project: ProjectInfo) => {
     closeMobileSidebar()
@@ -642,7 +622,7 @@ function MainApp() {
   const handleSkillsSaved = useCallback((payload: { scope: SkillsScope; project?: ProjectInfo; projects?: ProjectInfo[] }) => {
     if (payload.scope === 'project' && payload.project && payload.projects) {
       setProjects(payload.projects)
-      setSkillsDialog({ scope: 'project', project: payload.project })
+      ui.setSkillsDialog({ scope: 'project', project: payload.project })
       if (activeProjectRef.current?.id === payload.project.id) {
         setActiveProject(payload.project)
         activeProjectRef.current = payload.project
@@ -652,7 +632,7 @@ function MainApp() {
     }
 
     crossTab.notifyProjectsChanged()
-  }, [crossTab, setActiveProject, setProjects])
+  }, [crossTab, setActiveProject, setProjects, ui])
 
   // --- Loading state ---
   if (startupError) {
@@ -686,11 +666,11 @@ function MainApp() {
     <>
     <div className="flex h-screen min-h-0 bg-background text-foreground">
       <ChatSidebar
-        sidebarOpen={sidebarOpen}
+        sidebarOpen={ui.sidebarOpen}
         scheduledTasksActive={scheduledTasksOpen}
         agentProfilesActive={agentProfilesOpen}
-        projectsCollapsed={projectsCollapsed}
-        conversationsCollapsed={conversationsCollapsed}
+        projectsCollapsed={ui.projectsCollapsed}
+        conversationsCollapsed={ui.conversationsCollapsed}
         projects={projects}
         expandedProjectIds={expandedProjectIds}
         activeProject={activeProject}
@@ -706,15 +686,15 @@ function MainApp() {
         onLoadMoreProject={loadMoreProject}
         sessionTaskStatus={sessionTaskStatus}
         selectingProject={selectingProject}
-        onToggleProjectsCollapsed={toggleProjectsCollapsed}
-        onToggleConversationsCollapsed={toggleConversationsCollapsed}
+        onToggleProjectsCollapsed={ui.toggleProjectsCollapsed}
+        onToggleConversationsCollapsed={ui.toggleConversationsCollapsed}
         onToggleProjectExpanded={toggleProjectExpanded}
         onToggleAllProjectsExpanded={toggleAllProjectsExpanded}
         onReorderProjects={reorderProjects}
         onSelectProjectDirectory={selectProjectDirectory}
         onStartNewProjectChat={startNewProjectChat}
         onOpenGlobalSkills={openGlobalSkills}
-        onOpenMcpServers={() => setMcpServersDialogOpen(true)}
+        onOpenMcpServers={() => ui.setMcpServersDialogOpen(true)}
         onOpenProjectSkills={openProjectSkills}
         onOpenProjectInExplorer={(project) => {
           void openProjectInExplorer(project).catch((error) => {
@@ -731,10 +711,10 @@ function MainApp() {
         onOpenScheduledTasks={() => setWorkspacePage('scheduledTasks')}
         onOpenAgentProfiles={() => setWorkspacePage('agentProfiles')}
         onOpenSettings={openDefaultOptionsSettings}
-        onToggleSidebar={() => setSidebarOpen((value) => !value)}
+        onToggleSidebar={() => ui.setSidebarOpen((value) => !value)}
       />
 
-      {mobileSidebarOpen ? (
+      {ui.mobileSidebarOpen ? (
         <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true">
           <button
             type="button"
@@ -748,8 +728,8 @@ function MainApp() {
               sidebarOpen
               scheduledTasksActive={scheduledTasksOpen}
               agentProfilesActive={agentProfilesOpen}
-              projectsCollapsed={projectsCollapsed}
-              conversationsCollapsed={conversationsCollapsed}
+              projectsCollapsed={ui.projectsCollapsed}
+              conversationsCollapsed={ui.conversationsCollapsed}
               projects={projects}
               expandedProjectIds={expandedProjectIds}
               activeProject={activeProject}
@@ -765,8 +745,8 @@ function MainApp() {
               onLoadMoreProject={loadMoreProject}
               sessionTaskStatus={sessionTaskStatus}
               selectingProject={selectingProject}
-              onToggleProjectsCollapsed={toggleProjectsCollapsed}
-              onToggleConversationsCollapsed={toggleConversationsCollapsed}
+              onToggleProjectsCollapsed={ui.toggleProjectsCollapsed}
+              onToggleConversationsCollapsed={ui.toggleConversationsCollapsed}
               onToggleProjectExpanded={toggleProjectExpanded}
               onToggleAllProjectsExpanded={toggleAllProjectsExpanded}
               onReorderProjects={reorderProjects}
@@ -805,7 +785,7 @@ function MainApp() {
 
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-3">
-          <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileSidebarOpen(true)} aria-label={t('toggleSidebar')}>
+          <Button variant="ghost" size="icon" className="md:hidden" onClick={() => ui.setMobileSidebarOpen(true)} aria-label={t('toggleSidebar')}>
             <Menu className="size-4" />
           </Button>
 
@@ -828,14 +808,14 @@ function MainApp() {
                     variant="ghost"
                     size="icon"
                     className="size-6"
-                    onClick={() => setConversationMenuOpen((value) => !value)}
+                    onClick={() => ui.setConversationMenuOpen((value) => !value)}
                     disabled={!agentManager.currentSessionId || needsModelSetup}
                     aria-label={t('moreOptions')}
-                    aria-expanded={conversationMenuOpen}
+                    aria-expanded={ui.conversationMenuOpen}
                   >
                     <Ellipsis className="size-4" />
                   </Button>
-                  {conversationMenuOpen ? (
+                  {ui.conversationMenuOpen ? (
                     <div className="absolute left-0 top-8 z-30 min-w-44 rounded-lg border border-border bg-card p-1 shadow-xl">
                       <button
                         type="button"
@@ -871,7 +851,7 @@ function MainApp() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => setWorkspaceInspectorOpen((value) => !value)}
+            onClick={() => ui.setWorkspaceInspectorOpen((value) => !value)}
             disabled={!agentManager.currentToolProject?.id || workspacePageOpen || needsModelSetup}
             aria-label="Workspace"
             title="Workspace"
@@ -959,18 +939,18 @@ function MainApp() {
       </main>
       <WorkspaceInspector
         project={agentManager.currentToolProject}
-        open={workspaceInspectorOpen && Boolean(agentManager.currentToolProject?.id)}
-        onOpenChange={setWorkspaceInspectorOpen}
+        open={ui.workspaceInspectorOpen && Boolean(agentManager.currentToolProject?.id)}
+        onOpenChange={ui.setWorkspaceInspectorOpen}
         onDraftRequest={restoreWorkspaceDraft}
-        focusTarget={workspaceInspectorFocusTarget}
+        focusTarget={ui.workspaceInspectorFocusTarget}
       />
       <WorkspaceReaderDialog
-        open={inlineReaderOpen}
+        open={ui.inlineReaderOpen}
         mode="file"
-        file={inlineReaderFile}
-        loading={inlineReaderLoading}
-        error={inlineReaderError}
-        onOpenChange={setInlineReaderOpen}
+        file={ui.inlineReaderFile}
+        loading={ui.inlineReaderLoading}
+        error={ui.inlineReaderError}
+        onOpenChange={ui.setInlineReaderOpen}
         onDraftRequest={restoreWorkspaceDraft}
       />
     </div>
@@ -982,23 +962,23 @@ function MainApp() {
       onSelect={handleSelectProjectPath}
     />
     <SkillsDialog
-      open={Boolean(skillsDialog)}
-      scope={skillsDialog?.scope ?? 'global'}
-      project={skillsDialog?.project}
+      open={Boolean(ui.skillsDialog)}
+      scope={ui.skillsDialog?.scope ?? 'global'}
+      project={ui.skillsDialog?.project}
       onOpenChange={(open) => {
-        if (!open) setSkillsDialog(undefined)
+        if (!open) ui.setSkillsDialog(undefined)
       }}
       onSaved={handleSkillsSaved}
     />
     <McpServersDialog
-      open={mcpServersDialogOpen}
-      onOpenChange={setMcpServersDialogOpen}
+      open={ui.mcpServersDialogOpen}
+      onOpenChange={ui.setMcpServersDialogOpen}
     />
     <ShareConversationDialog
-      open={shareDialogOpen}
+      open={ui.shareDialogOpen}
       sessionId={agentManager.currentSessionId}
       title={sessionTitle(agentManager.currentTitle)}
-      onOpenChange={setShareDialogOpen}
+      onOpenChange={ui.setShareDialogOpen}
     />
     <ToastContainer
       toasts={toasts}

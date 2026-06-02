@@ -43,8 +43,6 @@ export type RestoredDraft = {
 export type QuickForgeSessionMetadata = SessionMetadata & {
   scope?: ChatScope
   projectId?: string
-  projectName?: string
-  projectPath?: string
   yoloMode?: boolean
   taskStatus?: BackgroundTaskStatus
   taskStartedAt?: string
@@ -56,8 +54,6 @@ export type QuickForgeSessionMetadata = SessionMetadata & {
 export type QuickForgeSessionData = SessionData & {
   scope?: ChatScope
   projectId?: string
-  projectName?: string
-  projectPath?: string
   yoloMode?: boolean
   taskStatus?: BackgroundTaskStatus
   taskStartedAt?: string

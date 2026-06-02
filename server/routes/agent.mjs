@@ -96,7 +96,13 @@ export async function handleAgentApi(req, res, url) {
 
   // GET /api/agents/:sessionId/state — get session state
   if (req.method === 'GET' && subPath === 'state') {
-    const state = getSessionState(sessionId)
+    let state = getSessionState(sessionId)
+    if (!state) {
+      // Try to restore from persistent storage before giving up.
+      // This recovers sessions that were evicted by idle timeout.
+      await restoreAgent(sessionId)
+      state = getSessionState(sessionId)
+    }
     if (!state) {
       const error = new Error('Session not found')
       error.statusCode = 404

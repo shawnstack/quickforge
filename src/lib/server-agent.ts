@@ -354,17 +354,29 @@ export class ServerAgent {
       this.emitToListeners({ type: 'agent_start' } as AgentEvent)
     }
 
-    // Send to server
+    // Send to server (with timeout to avoid hanging indefinitely)
+    const PROMPT_TIMEOUT_MS = 30_000
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), PROMPT_TIMEOUT_MS)
+    const msgCountBeforeOptimistic = this.state.messages.length
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/prompt`
     fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ message: agentMessage }),
+      signal: controller.signal,
     }).then((response) => {
+      clearTimeout(timeoutId)
       if (!response.ok) throw new Error(`Failed to send prompt: HTTP ${response.status}`)
     }).catch((err) => {
+      clearTimeout(timeoutId)
       const message = err instanceof Error ? err.message : String(err)
       logger.error('Failed to send prompt:', err)
+      // Roll back the optimistic message so the UI doesn't show a message
+      // that was never received by the server.
+      if (this.state.messages.length === msgCountBeforeOptimistic + 1) {
+        this.state.messages = this.state.messages.slice(0, -1)
+      }
       this.state.errorMessage = message
       this.state.isStreaming = false
       this.state.streamingMessage = undefined
@@ -809,7 +821,16 @@ export class ServerAgent {
       // Snapshot the version before the async gap
       const versionBeforeFetch = this.stateVersion
       const res = await fetch(url)
-      if (!res.ok) return
+      if (!res.ok) {
+        // If the session no longer exists (e.g. destroyed by idle timeout),
+        // stop streaming so the UI doesn't get stuck showing a Stop button.
+        if (res.status === 404 && this.state.isStreaming) {
+          this.state.isStreaming = false
+          this.stopPollingState()
+          this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
+        }
+        return
+      }
       const state = await res.json()
 
       // Discard stale responses: if state was updated by an SSE event while

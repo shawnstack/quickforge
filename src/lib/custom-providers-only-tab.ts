@@ -37,7 +37,7 @@ const emptyModelForm = (): ModelForm => ({
   modelId: '',
   contextWindow: DEFAULT_CONNECTION.contextWindow,
   maxTokens: DEFAULT_CONNECTION.maxTokens,
-  reasoning: false,
+  reasoning: true,
 })
 
 const emptyForm = (): ProviderForm => ({

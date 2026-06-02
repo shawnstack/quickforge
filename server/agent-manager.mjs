@@ -183,23 +183,28 @@ const agentSessions = new Map()
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
 const APPROVAL_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes for tool approval
 const SUBAGENT_DEFAULT_TIMEOUT_MS = 30 * 60 * 1000
-const commandRestrictedTools = new Set(['write_file', 'edit_file', 'run_command'])
+const commandRestrictedTools = new Set(['write_file', 'edit_file', 'run_command', 'run_subagent'])
 const safeReadTools = new Set(['read_file', 'grep_files'])
 const pendingApprovals = new Map() // toolCallId → { resolve, reject, sessionId, toolName, args, source, timeout }
 const pendingAutoCompactApprovals = new Map() // approvalId → { resolve, reject, sessionId, timeout }
 
-function createCommandToolPermissions(session) {
-  return (toolName) => {
-    const permissions = session.activeCommandPermissions
-    if (!permissions || !commandRestrictedTools.has(toolName)) return null
-    if (toolName === 'run_command' && permissions.allowCommands === false) {
-      return `Custom command /${session.activeCommandName} does not allow running shell commands.`
-    }
-    if ((toolName === 'write_file' || toolName === 'edit_file') && permissions.allowEdit === false) {
-      return `Custom command /${session.activeCommandName} does not allow editing files.`
-    }
-    return null
+function commandToolPermissionError(session, toolName) {
+  const permissions = session?.activeCommandPermissions
+  if (!permissions || !commandRestrictedTools.has(toolName)) return null
+  if (toolName === 'run_command' && permissions.allowCommands === false) {
+    return `Command /${session.activeCommandName} does not allow running shell commands.`
   }
+  if (toolName === 'run_subagent' && permissions.allowCommands === false) {
+    return `Command /${session.activeCommandName} does not allow running subagents.`
+  }
+  if ((toolName === 'write_file' || toolName === 'edit_file') && permissions.allowEdit === false) {
+    return `Command /${session.activeCommandName} does not allow editing files.`
+  }
+  return null
+}
+
+function createCommandToolPermissions(session) {
+  return (toolName) => commandToolPermissionError(session, toolName)
 }
 
 /**
@@ -606,6 +611,14 @@ async function resolveCommandState(session, userMessage) {
   if (typeof internalResponse === 'string') return { textResponse: internalResponse }
   if (internalResponse?.clear) return { clear: internalResponse }
   if (internalResponse?.compact) return { compact: internalResponse }
+  if (internalResponse?.plan) {
+    return {
+      userMessage,
+      commandPrompt: formatPlanCommandPrompt(internalResponse.args),
+      permissions: { allowEdit: false, allowCommands: false },
+      commandName: 'plan',
+    }
+  }
 
   if (!session.projectContext?.workspaceRoot) return { userMessage }
 
@@ -622,6 +635,34 @@ async function resolveCommandState(session, userMessage) {
     permissions: invocation.permissions,
     commandName: invocation.command.name,
   }
+}
+
+function formatPlanCommandPrompt(task) {
+  const taskText = String(task || '').trim()
+  return `<plan_command_invocation name="plan">
+This /plan command applies only to the current user request. Generate an implementation plan before execution.
+
+Rules for this turn:
+- Do not modify files.
+- Do not create files.
+- Do not run shell commands.
+- Do not use write_file, edit_file, run_command, or any other state-changing tool.
+- You may use read-only tools such as read_file and grep_files if needed to inspect the project.
+- Output the plan and then stop. Do not start implementation.
+
+Plan should include:
+1. Task understanding
+2. Relevant files or areas to inspect/change
+3. Step-by-step implementation plan
+4. Risks or assumptions
+5. Validation commands/checks to run after implementation
+6. Whether documentation/wiki updates are needed
+
+End by telling the user they can reply “允许”, “按计划执行”, or an equivalent approval phrase to continue in a normal follow-up turn.
+
+User task:
+${taskText}
+</plan_command_invocation>`
 }
 
 function omitDetailsForLlm(message) {
@@ -1050,9 +1091,11 @@ export async function createAgent(sessionId, config = {}) {
     beforeToolCall: async (context) => {
       const toolName = context.toolCall?.name
       const toolCallId = context.toolCall?.id
+      const currentSession = agentSessions.get(sessionId)
+      const commandPermissionError = commandToolPermissionError(currentSession, toolName)
+      if (commandPermissionError) return { block: true, reason: commandPermissionError }
       const isSkillTool = toolName === 'activate_skill' || toolName === 'read_skill_resource'
       if (isSkillTool) return undefined
-      const currentSession = agentSessions.get(sessionId)
       if (profileToolNames && !profileToolNames.includes(toolName)) return { block: true, reason: `Agent profile ${agentProfile.name} is not allowed to use ${toolName}.` }
       if (toolName === 'run_subagent') return undefined
       if (isMcpToolName(toolName)) {

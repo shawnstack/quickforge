@@ -251,6 +251,9 @@ export function parseInternalCommandInvocation(message) {
   if (/^\/clear\s*$/i.test(text)) return { type: 'clear' }
   if (/^\/clear(?:\s+[\s\S]+)$/i.test(text)) return { type: 'invalid-clear-args' }
 
+  const planMatch = text.match(/^\/plan(?:\s+([\s\S]*))?$/i)
+  if (planMatch) return { type: 'plan', args: (planMatch[1] || '').trim() }
+
   const compactMatch = text.match(/^\/compact(?:\s+([\s\S]*))?$/i)
   if (compactMatch) return { type: 'compact', args: (compactMatch[1] || '').trim() }
 
@@ -268,6 +271,11 @@ export async function handleInternalCommand(invocation, workspaceRoot, commandDi
 
   if (invocation.type === 'compact') {
     return { compact: true, args: invocation.args || '' }
+  }
+
+  if (invocation.type === 'plan') {
+    if (!invocation.args) return 'Usage: /plan <task>'
+    return { plan: true, args: invocation.args }
   }
 
   if (invocation.type === 'clear') {

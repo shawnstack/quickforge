@@ -32,6 +32,7 @@ export function createCommandSuggestions({
     `/${command.name}${command.argumentHint ? ` ${command.argumentHint}` : ''}`
 
   const builtinCommands = (): CustomCommandSummary[] => [
+    { name: 'plan', description: t('planCommandDescription'), argumentHint: '[task]' },
     { name: 'compact', description: t('compactCommandDescription'), argumentHint: '' },
     { name: 'clear', description: t('clearCommandDescription'), argumentHint: '' },
   ]

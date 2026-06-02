@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import type { AgentManager } from '@/hooks/useAgentManager'
 import {
@@ -56,23 +56,55 @@ export function useAppBootstrap({
   const [ready, setReady] = useState(false)
   const [startupError, setStartupError] = useState<string>()
 
+  // Keep callbacks in refs so the bootstrap effect runs exactly once
+  const depsRef = useRef({
+    loadGlobalSessions,
+    loadProject,
+    initYoloMode,
+    switchActiveProject,
+    createAgent,
+    setNeedsModelSetup,
+    onStorageReady,
+  })
+  useEffect(() => {
+    depsRef.current = {
+      loadGlobalSessions,
+      loadProject,
+      initYoloMode,
+      switchActiveProject,
+      createAgent,
+      setNeedsModelSetup,
+      onStorageReady,
+    }
+  })
+
   useEffect(() => {
     let cancelled = false
 
     async function boot() {
+      const {
+        loadGlobalSessions: loadSessions,
+        loadProject: loadProj,
+        initYoloMode: initYolo,
+        switchActiveProject: switchProject,
+        createAgent: create,
+        setNeedsModelSetup: setModelSetup,
+        onStorageReady: onReady,
+      } = depsRef.current
+
       try {
         const storage = await initializePiStorage()
         if (cancelled) return
 
         storageRef.current = storage
-        onStorageReady?.(storage)
+        onReady?.(storage)
         backendRef.current = storage.backend as HttpStorageBackend
         await initializeAppLanguage(storage)
         await loadToolDisplaySettings(storage)
         await loadAndApplyFontSizeSettings(storage)
-        await Promise.all([loadGlobalSessions(0), loadProject()])
+        await Promise.all([loadSessions(0), loadProj()])
 
-        const savedYoloMode = await initYoloMode(storage)
+        const savedYoloMode = await initYolo(storage)
         yoloModeRef.current = savedYoloMode
 
         const initialModel = await loadInitialConfiguredModel(storage)
@@ -90,18 +122,18 @@ export function useAppBootstrap({
               const projectId = (metadata?.projectId ?? (existing as QuickForgeSessionData).projectId)!
               if (activeProjectRef.current?.id !== projectId) {
                 try {
-                  project = await switchActiveProject(projectId)
+                  project = await switchProject(projectId)
                 } catch (error) {
                   logger.error('Failed to switch project for initial session:', error)
                   void showAlert(t('projectSwitchFailed'))
                   if (initialModel) {
-                    await createAgent(
+                    await create(
                       { model: defaultOptions.model ?? initialModel, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },
                       randomId(),
                       { scope: 'global', attachToView: true },
                     )
                   } else {
-                    setNeedsModelSetup(true)
+                    setModelSetup(true)
                   }
                   setReady(true)
                   return
@@ -114,7 +146,7 @@ export function useAppBootstrap({
             const sessionYoloMode = (existing as QuickForgeSessionData).yoloMode === true
             yoloModeRef.current = sessionYoloMode
             setYoloMode(sessionYoloMode)
-            await createAgent(
+            await create(
               {
                 model: existing.model,
                 thinkingLevel: existing.thinkingLevel,
@@ -132,22 +164,22 @@ export function useAppBootstrap({
               },
             )
           } else if (initialModel) {
-            await createAgent(
+            await create(
               { model: defaultOptions.model ?? initialModel, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },
               randomId(),
               { scope: 'global', attachToView: true },
             )
           } else {
-            setNeedsModelSetup(true)
+            setModelSetup(true)
           }
         } else if (initialModel) {
-          await createAgent(
+          await create(
             { model: defaultOptions.model ?? initialModel, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },
             randomId(),
             { scope: 'global', attachToView: true },
           )
         } else {
-          setNeedsModelSetup(true)
+          setModelSetup(true)
         }
 
         setReady(true)
@@ -175,13 +207,6 @@ export function useAppBootstrap({
     activeProjectRef,
     setYoloMode,
     taskMapRef,
-    loadGlobalSessions,
-    loadProject,
-    initYoloMode,
-    switchActiveProject,
-    createAgent,
-    setNeedsModelSetup,
-    onStorageReady,
   ])
 
   return { ready, startupError }

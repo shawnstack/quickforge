@@ -275,6 +275,7 @@ export class ServerAgent {
   private disposed = false
   private _syncingThinkingLevel = false
   private pollTimer: ReturnType<typeof setInterval> | null = null
+  private refreshPromise: Promise<void> | null = null
 
   /**
    * Monotonically increasing version counter for state writes.
@@ -651,16 +652,25 @@ export class ServerAgent {
 
       case 'agent_end': {
         this.stopPollingState()
-        const endEvent = event as { messages?: AgentMessage[]; errorMessage?: string }
+        const endEvent = event as { messages?: AgentMessage[]; errorMessage?: string; contextUsage?: ServerAgentContextUsage | null }
 
-        // The pi-agent-core agent loop emits agent_end with `messages` that
-        // only contains messages generated during THIS run (newMessages), not
-        // the complete session history.  Always fetch the authoritative full
-        // state from the server to avoid overwriting and losing earlier messages.
-        //
-        // We clear streaming state only AFTER the fetch completes, so there is
-        // no visual gap between the transient streaming message disappearing
-        // and the finalized message appearing in the stable list.
+        // The server normalizes pi-agent-core's agent_end payload to include
+        // the authoritative full session history. Prefer that SSE payload to
+        // avoid an extra /state request that would transfer the same long
+        // message list again. If the event is missing messages or looks older
+        // than local state, fall back to the full state fetch for safety.
+        if (endEvent.messages && endEvent.messages.length >= this.state.messages.length) {
+          this.state.messages = endEvent.messages
+          this.state.contextUsage = endEvent.contextUsage !== undefined ? endEvent.contextUsage : null
+          this.state.isStreaming = false
+          this.state.streamingMessage = undefined
+          if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
+          this.stateVersion++
+          this.emitToListeners(event as unknown as AgentEvent)
+          return
+        }
+
+        // Fallback for stale/malformed events or legacy servers.
         void this.refreshStateFromServer({ forceMessages: true }).finally(() => {
           this.state.isStreaming = false
           this.state.streamingMessage = undefined
@@ -829,6 +839,15 @@ export class ServerAgent {
   }
 
   private async refreshStateFromServer(options?: { notify?: boolean; forceMessages?: boolean }) {
+    // Deduplicate concurrent refresh requests
+    if (this.refreshPromise) return this.refreshPromise
+    this.refreshPromise = this._doRefreshStateFromServer(options).finally(() => {
+      this.refreshPromise = null
+    })
+    return this.refreshPromise
+  }
+
+  private async _doRefreshStateFromServer(options?: { notify?: boolean; forceMessages?: boolean }) {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/state`
     try {
       // Snapshot the version before the async gap

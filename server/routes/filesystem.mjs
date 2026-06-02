@@ -50,9 +50,21 @@ async function getFilesystemRoots() {
   return roots
 }
 
-async function listFilesystemDirectories(inputPath) {
+async function listFilesystemDirectories(inputPath, allowedRoots) {
   const requestedPath = String(inputPath || os.homedir())
   const resolved = path.resolve(requestedPath)
+
+  // Only allow browsing within or at known filesystem roots
+  const isAllowed = allowedRoots.some((root) => {
+    const rel = path.relative(root, resolved)
+    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
+  })
+  if (!isAllowed) {
+    const error = new Error('Access denied: path is outside allowed roots')
+    error.statusCode = 403
+    throw error
+  }
+
   await assertDirectory(resolved)
 
   const entries = await fs.readdir(resolved, { withFileTypes: true }).catch((error) => {
@@ -77,7 +89,11 @@ export async function handleFilesystemApi(req, res, url) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/filesystem/directories') {
-    sendJson(res, 200, await listFilesystemDirectories(url.searchParams.get('path')))
+    const roots = await getFilesystemRoots()
+    const allowedRootPaths = roots.map((r) => path.resolve(r.path))
+    // Always allow browsing from home directory as a fallback
+    allowedRootPaths.push(os.homedir())
+    sendJson(res, 200, await listFilesystemDirectories(url.searchParams.get('path'), allowedRootPaths))
     return
   }
 

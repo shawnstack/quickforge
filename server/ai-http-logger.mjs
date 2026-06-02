@@ -16,14 +16,29 @@ function currentLogFile() {
   return path.join(logsDir, `ai-http-${date}.jsonl`)
 }
 
-function writeAiHttpRecord(record) {
-  if (!aiHttpLogEnabled) return
+let logsDirEnsured = false
+
+async function ensureLogsDir() {
+  if (logsDirEnsured) return
   try {
-    fs.mkdirSync(logsDir, { recursive: true })
-    fs.appendFile(currentLogFile(), `${JSON.stringify({ ts: new Date().toISOString(), ...record })}\n`, () => {})
+    const { promises: fsp } = await import('node:fs')
+    await fsp.mkdir(logsDir, { recursive: true })
+    logsDirEnsured = true
   } catch {
     // Keep AI calls working even when diagnostic logging fails.
   }
+}
+
+function writeAiHttpRecord(record) {
+  if (!aiHttpLogEnabled) return
+  // Schedule async write — never blocks the event loop
+  void ensureLogsDir().then(() => {
+    try {
+      fs.appendFile(currentLogFile(), `${JSON.stringify({ ts: new Date().toISOString(), ...record })}\n`, () => {})
+    } catch {
+      // Keep AI calls working even when diagnostic logging fails.
+    }
+  })
 }
 
 function headersToRecord(headers) {

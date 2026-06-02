@@ -127,6 +127,7 @@ const agentSessions = new Map()
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
 const SUBAGENT_DEFAULT_TIMEOUT_MS = 30 * 60 * 1000
+const SUBAGENT_TRACE_THROTTLE_MS = 150
 
 /**
  * Create a Promise that only resolves when the user accepts or rejects the tool call.
@@ -145,8 +146,14 @@ function createApprovalPromise(session, toolCallId, toolName, args, source) {
       resolve({ block: true, reason: `Approval timeout for ${toolName}` })
     }, APPROVAL_TIMEOUT_MS)
 
+    let onAbort = null
+
     const cleanup = () => {
       clearTimeout(timeout)
+      if (onAbort) {
+        session.agent.signal?.removeEventListener('abort', onAbort)
+        onAbort = null
+      }
       if (settled) return
       settled = true
       pendingApprovals.delete(toolCallId)
@@ -160,7 +167,7 @@ function createApprovalPromise(session, toolCallId, toolName, args, source) {
         reject(new Error('Run aborted'))
         return
       }
-      const onAbort = () => {
+      onAbort = () => {
         cleanup()
         reject(new Error('Run aborted'))
       }
@@ -210,8 +217,14 @@ function createAutoCompactApprovalPromise(session, details = {}) {
       resolve(false)
     }, APPROVAL_TIMEOUT_MS)
 
+    let onAbort = null
+
     const cleanup = () => {
       clearTimeout(timeout)
+      if (onAbort) {
+        session.agent.signal?.removeEventListener('abort', onAbort)
+        onAbort = null
+      }
       if (settled) return
       settled = true
       pendingAutoCompactApprovals.delete(approvalId)
@@ -224,7 +237,7 @@ function createAutoCompactApprovalPromise(session, details = {}) {
         reject(new Error('Run aborted'))
         return
       }
-      const onAbort = () => {
+      onAbort = () => {
         cleanup()
         reject(new Error('Run aborted'))
       }
@@ -615,6 +628,9 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
   let latestMessages = []
   let latestPendingToolCalls = []
   let toolsForClient = []
+  let lastTraceAt = 0
+  let tracePending = false
+  let traceTimer = null
 
   const tools = await createServerTools(
     parentSession.projectId,
@@ -634,6 +650,12 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
   toolsForClient = tools.map(({ execute, prepareArguments, ...tool }) => tool)
 
   const emitSubagentTrace = () => {
+    if (traceTimer) {
+      clearTimeout(traceTimer)
+      traceTimer = null
+    }
+    tracePending = false
+    lastTraceAt = Date.now()
     onUpdate?.({
       content: [],
       details: {
@@ -650,6 +672,19 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
         pendingToolCalls: latestPendingToolCalls,
       },
     })
+  }
+
+  const emitSubagentTraceThrottled = () => {
+    const elapsed = Date.now() - lastTraceAt
+    if (elapsed >= SUBAGENT_TRACE_THROTTLE_MS) {
+      emitSubagentTrace()
+      return
+    }
+    tracePending = true
+    if (traceTimer) return
+    traceTimer = setTimeout(() => {
+      if (tracePending) emitSubagentTrace()
+    }, SUBAGENT_TRACE_THROTTLE_MS - elapsed)
   }
 
   const systemPrompt = composeSubagentSystemPrompt({
@@ -708,7 +743,11 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
         latestMessages = [...latestMessages, event.message]
       }
     }
-    emitSubagentTrace()
+    if (event.type === 'tool_execution_start' || event.type === 'tool_execution_end' || event.type === 'message_end') {
+      emitSubagentTrace()
+    } else {
+      emitSubagentTraceThrottled()
+    }
   })
 
   let timedOut = false
@@ -726,6 +765,7 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
   } finally {
     clearTimeout(timeout)
     parentSignal?.removeEventListener?.('abort', onParentAbort)
+    emitSubagentTrace()
   }
 
   const content = lastAssistantText(subagent.state.messages) || `Subagent ${definition.name} completed without a text response.`
@@ -1041,6 +1081,7 @@ export async function createAgent(sessionId, config = {}) {
     if (event.type === 'agent_end') {
       session.status = session.agent.state.errorMessage ? 'error' : 'idle'
       session.finishedAt = new Date().toISOString()
+      session.toolTimings?.clear()
       resetIdleTimer(session)
 
       // Persist after run ends
@@ -1284,6 +1325,10 @@ export async function runPrompt(sessionId, message) {
   }
   if (!session) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
+  }
+
+  if (session.agent.state.isStreaming) {
+    throw Object.assign(new Error('Generation is still running. Stop it or wait until it finishes.'), { statusCode: 409 })
   }
 
   resetIdleTimer(session)
@@ -1561,6 +1606,7 @@ export async function destroyAgent(sessionId) {
   logger.info(`Destroying session ${sessionId} (status: ${session.status})`, { sessionId, status: session.status })
 
   if (session.idleTimer) clearTimeout(session.idleTimer)
+  session.toolTimings?.clear()
 
   try {
     session.agent.abort()

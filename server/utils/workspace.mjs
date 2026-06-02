@@ -131,18 +131,37 @@ export async function assertDirectory(dir) {
   }
 }
 
+const SIZE_SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'dist-ssr', '.vite', '.cache', '.next', '.nuxt', '__pycache__', '.venv', 'venv'])
+const directorySizeCache = new Map()
+const DIRECTORY_SIZE_CACHE_TTL_MS = 10_000
+
 export async function directorySize(dir) {
   try {
+    const now = Date.now()
+    const cached = directorySizeCache.get(dir)
+    if (cached && now - cached.ts < DIRECTORY_SIZE_CACHE_TTL_MS) return cached.size
+
     const entries = await fs.readdir(dir, { withFileTypes: true })
     const sizes = await Promise.all(entries.map(async (entry) => {
+      if (entry.isDirectory() && SIZE_SKIP_DIRS.has(entry.name)) return 0
       const full = path.join(dir, entry.name)
       if (entry.isDirectory()) return directorySize(full)
       const stat = await fs.stat(full)
       return stat.size
     }))
-    return sizes.reduce((sum, value) => sum + value, 0)
+    const size = sizes.reduce((sum, value) => sum + value, 0)
+    directorySizeCache.set(dir, { size, ts: now })
+    return size
   } catch {
     return 0
+  }
+}
+
+export function invalidateDirectorySizeCache(dir) {
+  if (dir) {
+    directorySizeCache.delete(dir)
+  } else {
+    directorySizeCache.clear()
   }
 }
 

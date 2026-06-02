@@ -503,6 +503,19 @@ export class ServerAgent {
   }
 
   /**
+   * Continue generation from the current last message (retry / regenerate).
+   * The last message must be a user or tool-result message.
+   */
+  async continue(): Promise<void> {
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/continue`
+    const res = await fetch(url, { method: 'POST' })
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null) as { error?: string } | null
+      throw new Error(payload?.error || `Failed to continue: HTTP ${res.status}`)
+    }
+  }
+
+  /**
    * Approve a pending tool call so it can execute.
    */
   async approveToolCall(toolCallId: string): Promise<void> {

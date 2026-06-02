@@ -92,6 +92,11 @@ export class DeferredSessionAgent {
     throw new Error('Cannot roll back a pending chat')
   }
 
+  async continue(): Promise<void> {
+    const realAgent = await this.ensureRealAgent()
+    await realAgent.continue()
+  }
+
   async approveToolCall(): Promise<never> {
     throw new Error('No pending tool call')
   }

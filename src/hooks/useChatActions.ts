@@ -283,13 +283,14 @@ export function useChatActions({
     const message = messages[messageIndex]
     if (message.role !== 'user' && message.role !== 'user-with-attachments') return
 
-    // Trim messages to before the user message (prompt will re-add it)
-    const nextMessages = messages.slice(0, messageIndex)
+    // Trim local messages to keep the user message (server will do the same)
+    const nextMessages = messages.slice(0, messageIndex + 1)
     setCurrentAgentMessages(nextMessages)
     setChatPanelRevision((value) => value + 1)
 
+    // Continue generation from the user message (server trims + regenerates in place)
     try {
-      await currentAgent.prompt(message)
+      await currentAgent.continue()
     } catch (error) {
       logger.error('Failed to retry:', error)
       void showAlert(error instanceof Error ? error.message : t('retryFailed'))

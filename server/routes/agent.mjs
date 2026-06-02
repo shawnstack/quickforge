@@ -25,6 +25,7 @@ import {
   abortToolCall,
   replaceSessionMessages,
   rollbackSessionMessages,
+  continueSession,
   agentEvents,
 } from '../agent-manager.mjs'
 
@@ -187,6 +188,13 @@ export async function handleAgentApi(req, res, url) {
     const body = await readJsonBody(req)
     const result = await rollbackSessionMessages(sessionId, body?.messageIndex)
     sendJson(res, 200, { ok: true, rollbackIndex: result.rollbackIndex, session: result.session })
+    return
+  }
+
+  // POST /api/agents/:sessionId/continue — continue generation from last message (retry)
+  if (req.method === 'POST' && subPath === 'continue') {
+    const result = await continueSession(sessionId)
+    sendJson(res, 200, result)
     return
   }
 

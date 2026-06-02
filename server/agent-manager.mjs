@@ -1455,6 +1455,50 @@ export async function runPrompt(sessionId, message) {
 }
 
 /**
+ * Continue generation from the current last message (must be a user or
+ * tool-result message).  Used by the retry button to regenerate a response
+ * in-place without appending a new user message.
+ *
+ * Trims messages to keep up to and including the last user message,
+ * removing the assistant response that follows it.
+ */
+export async function continueSession(sessionId) {
+  const session = agentSessions.get(sessionId)
+  if (!session) {
+    throw Object.assign(new Error('Session not found'), { statusCode: 404 })
+  }
+  if (session.agent.state.isStreaming) {
+    throw Object.assign(new Error('Generation is still running. Stop it or wait until it finishes.'), { statusCode: 409 })
+  }
+
+  const messages = Array.isArray(session.agent.state.messages) ? session.agent.state.messages : []
+
+  // Find the last user message and trim everything after it (the assistant response)
+  let lastUserIndex = -1
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user' || messages[i].role === 'user-with-attachments') {
+      lastUserIndex = i
+      break
+    }
+  }
+  if (lastUserIndex < 0) {
+    throw Object.assign(new Error('Cannot continue: no user message found.'), { statusCode: 400 })
+  }
+
+  const trimmedMessages = messages.slice(0, lastUserIndex + 1)
+  updateSessionMessages(session, trimmedMessages)
+  resetSessionCompaction(session)
+
+  resetIdleTimer(session)
+  session.agent.continue().catch((err) => {
+    logger.error(`Agent continue error for session ${sessionId}:`, err, { sessionId })
+    emitSessionEvent(session, { type: 'error', error: err.message || 'Unknown error' })
+  })
+
+  return { sessionId, status: 'running' }
+}
+
+/**
  * Abort the current agent run.
  */
 export async function abortRun(sessionId) {

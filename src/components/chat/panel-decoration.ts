@@ -94,6 +94,13 @@ type ContextCompactionNoticeDeps = {
   getContextCompaction: () => { summaryMessage?: unknown; compactedUpToIndex?: number } | null | undefined
 }
 
+type AssistantWaitingBubbleDeps = {
+  panel: HTMLElement
+  getMessages: () => MessageWithUsage[]
+  isStreaming: () => boolean
+  startedAt?: number
+}
+
 type CodeBlockElement = HTMLElement & {
   code?: string
   language?: string
@@ -105,6 +112,15 @@ const DANGEROUS_COMMAND_PATTERN = /\b(rm\s+-rf|sudo|chmod\b|chown\b|npm\s+publis
 
 function isDisplayMessage(message: MessageWithUsage) {
   return message.role === 'user' || message.role === 'user-with-attachments' || message.role === 'assistant'
+}
+
+function isUserMessage(message: MessageWithUsage) {
+  return message.role === 'user' || message.role === 'user-with-attachments'
+}
+
+function hasAssistantContent(message: MessageWithUsage) {
+  if (message.role !== 'assistant') return false
+  return assistantText(message as Parameters<typeof assistantText>[0]).trim().length > 0
 }
 
 function getPrimaryMessageList(panel: HTMLElement) {
@@ -323,6 +339,103 @@ export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
   if (summaryText) syncCompactionSummaryHandlers(notice, summaryText, initialOpen)
 
   insertBeforeMessageElement(panel, messages, tailStart, notice)
+}
+
+const ASSISTANT_WAITING_SELECTOR = '.quickforge-assistant-waiting'
+const TYPEWRITER_INTERVAL_MS = 70
+
+function removeAssistantWaitingBubble(panel: HTMLElement) {
+  panel.querySelectorAll(ASSISTANT_WAITING_SELECTOR).forEach((element) => element.remove())
+}
+
+function assistantElementHasVisibleContent(element: HTMLElement) {
+  if (element.querySelector('thinking-block, tool-message')) return true
+  if (Array.from(element.querySelectorAll<HTMLElement>('markdown-block, code-block')).some((block) => (block.textContent ?? '').trim().length > 0)) return true
+
+  const clone = element.cloneNode(true) as HTMLElement
+  clone.querySelectorAll('.quickforge-message-actions').forEach((node) => node.remove())
+  return (clone.textContent ?? '').trim().length > 0
+}
+
+function waitingPhrase(elapsedMs: number) {
+  if (elapsedMs >= 8000) {
+    return { text: t('assistantWaitingContinuing'), stageStartedAt: 8000 }
+  }
+  if (elapsedMs >= 3000) {
+    return { text: t('assistantWaitingOrganizing'), stageStartedAt: 3000 }
+  }
+  return { text: t('assistantWaitingThinking'), stageStartedAt: 0 }
+}
+
+function waitingTypewriterText(startedAt: number) {
+  const elapsedMs = Math.max(0, Date.now() - startedAt)
+  const phrase = waitingPhrase(elapsedMs)
+  const typedCount = Math.min(
+    phrase.text.length,
+    Math.max(1, Math.floor((elapsedMs - phrase.stageStartedAt) / TYPEWRITER_INTERVAL_MS) + 1),
+  )
+  return phrase.text.slice(0, typedCount)
+}
+
+export function syncAssistantWaitingBubble(deps: AssistantWaitingBubbleDeps) {
+  const { panel, getMessages, isStreaming, startedAt } = deps
+  const existing = panel.querySelector<HTMLElement>(ASSISTANT_WAITING_SELECTOR)
+
+  if (!isStreaming() || !startedAt) {
+    removeAssistantWaitingBubble(panel)
+    return false
+  }
+
+  const messageList = getPrimaryMessageList(panel)
+  const messages = getMessages()
+  const displayEntries = messages
+    .map((message, index) => ({ message, index }))
+    .filter(({ message }) => isDisplayMessage(message))
+  const lastUserDisplayIndex = (() => {
+    for (let i = displayEntries.length - 1; i >= 0; i--) {
+      if (isUserMessage(displayEntries[i].message)) return i
+    }
+    return -1
+  })()
+
+  if (!messageList || lastUserDisplayIndex < 0) {
+    existing?.remove()
+    return false
+  }
+
+  const lastUserEntry = displayEntries[lastUserDisplayIndex]
+  const hasAssistantAfterLastUser = messages.slice(lastUserEntry.index + 1).some(hasAssistantContent)
+  const messageElements = getPrimaryMessageElements(panel)
+  const lastUserElement = messageElements[lastUserDisplayIndex]
+  const hasVisibleAssistantAfterLastUser = messageElements
+    .slice(lastUserDisplayIndex + 1)
+    .some((element) => element.matches('assistant-message') && assistantElementHasVisibleContent(element))
+
+  if (!lastUserElement || hasAssistantAfterLastUser || hasVisibleAssistantAfterLastUser) {
+    existing?.remove()
+    return false
+  }
+
+  const bubble = existing ?? document.createElement('div')
+  bubble.className = 'quickforge-assistant-waiting'
+  bubble.setAttribute('role', 'status')
+  bubble.setAttribute('aria-live', 'polite')
+  bubble.setAttribute('aria-label', t('assistantWaitingAriaLabel'))
+  if (!existing) {
+    bubble.innerHTML = `
+      <div class="quickforge-assistant-waiting-bubble">
+        <span class="quickforge-assistant-waiting-text"></span>
+        <span class="quickforge-assistant-waiting-cursor" aria-hidden="true">▌</span>
+      </div>
+    `
+  }
+
+  const text = waitingTypewriterText(startedAt)
+  const textElement = bubble.querySelector<HTMLElement>('.quickforge-assistant-waiting-text')
+  if (textElement && textElement.textContent !== text) textElement.textContent = text
+
+  if (bubble.previousElementSibling !== lastUserElement) lastUserElement.after(bubble)
+  return true
 }
 
 export function decorateMessages(deps: MessageDecorationDeps) {

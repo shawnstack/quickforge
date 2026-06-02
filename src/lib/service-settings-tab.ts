@@ -260,8 +260,9 @@ class ServiceSettingsTab extends SettingsTab {
     `
   }
 
-  private shellProfileRow(profile: TerminalShellProfile) {
+  private shellProfileRow(profile: TerminalShellProfile, isFirstDetected = false) {
     const isDefault = profile.id === this.terminalShellConfig.defaultProfileId
+      || (this.terminalShellConfig.defaultProfileId === 'auto' && isFirstDetected)
 
     return html`
       <div class="flex min-w-0 items-center gap-3 border-b px-1.5 py-2 last:border-b-0 hover:bg-muted/5" style="border-bottom-color: color-mix(in oklab, var(--border) 32%, transparent);">
@@ -318,7 +319,7 @@ class ServiceSettingsTab extends SettingsTab {
 
         <div class="mt-4 overflow-hidden rounded-lg border bg-transparent" style="border-color: color-mix(in oklab, var(--border) 36%, transparent);">
           ${profiles.length > 0
-            ? profiles.map((profile) => this.shellProfileRow(profile))
+            ? profiles.map((profile, index) => this.shellProfileRow(profile, index === 0))
             : html`<div class="px-2 py-3 text-sm text-muted-foreground">${t('terminalShellNoDetected')}</div>`}
         </div>
 

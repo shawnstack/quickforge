@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Check, ChevronDown, Loader2, Maximize2, Minimize2, Plus, SquareTerminal, X } from 'lucide-react'
+import { ChevronDown, Loader2, Maximize2, Minimize2, Plus, SquareTerminal, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -21,7 +21,7 @@ const MAX_HEIGHT_RATIO = 0.7
 const DEFAULT_HEIGHT = 320
 
 function nextTerminalName(sessions: TerminalSession[], profile?: TerminalShellProfile) {
-  const baseName = profile && profile.id !== 'auto' ? profile.name : 'Terminal'
+  const baseName = profile ? profile.name : 'Terminal'
   const used = new Set(sessions.map((session) => session.name))
   if (baseName !== 'Terminal' && !used.has(baseName)) return baseName
   let index = 1
@@ -31,8 +31,8 @@ function nextTerminalName(sessions: TerminalSession[], profile?: TerminalShellPr
 
 function profileFromCapabilities(capabilities: TerminalCapabilities | null, profileId?: string) {
   const profiles = capabilities?.terminalShellProfiles || []
-  const selectedId = profileId || capabilities?.defaultTerminalShellProfileId || 'auto'
-  return profiles.find((profile) => profile.id === selectedId) || profiles.find((profile) => profile.id === 'auto')
+  const selectedId = profileId || capabilities?.defaultTerminalShellProfileId || ''
+  return profiles.find((profile) => profile.id === selectedId) || profiles[0]
 }
 
 export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCommandHandled }: TerminalDockProps) {
@@ -250,7 +250,7 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
   }
 
   const shellProfiles = capabilities?.terminalShellProfiles || []
-  const defaultProfileId = capabilities?.defaultTerminalShellProfileId || 'auto'
+  const defaultProfileId = capabilities?.defaultTerminalShellProfileId || ''
   const defaultProfile = shellProfiles.find((profile) => profile.id === defaultProfileId) || shellProfiles[0]
   const maxSessionsReached = Boolean(capabilities && sessions.length >= capabilities.maxSessions)
   const createDisabled = creating || maxSessionsReached
@@ -343,7 +343,6 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
             <div className="absolute bottom-9 right-0 z-30 w-64 overflow-hidden rounded-lg border border-border bg-background p-1.5 shadow-[0_16px_38px_-22px_rgb(15_23_42_/_0.65)]">
               <div className="px-2 pb-1.5 pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">{t('terminalNewWith')}</div>
               {shellProfiles.map((profile) => {
-                const isDefault = profile.id === defaultProfileId
                 return (
                   <button
                     key={profile.id}
@@ -361,7 +360,6 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
                       <span className="block truncate font-medium">{profile.name}</span>
                       <span className="block truncate font-mono text-[11px] text-muted-foreground/55">{profile.command}</span>
                     </span>
-                    {isDefault ? <Check className="size-3.5 shrink-0 text-emerald-500/80" /> : null}
                   </button>
                 )
               })}

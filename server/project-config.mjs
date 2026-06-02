@@ -39,7 +39,6 @@ export async function readProjectConfig() {
 }
 
 const TERMINAL_SHELL_PROFILE_CANDIDATES = [
-  { id: 'auto', name: 'Auto', command: 'auto', platforms: ['win32', 'darwin', 'linux', 'freebsd', 'openbsd'] },
   { id: 'cmd', name: 'Command Prompt', command: 'cmd.exe', platforms: ['win32'] },
   { id: 'powershell', name: 'Windows PowerShell', command: 'powershell.exe', platforms: ['win32'] },
   { id: 'pwsh', name: 'PowerShell 7+', command: 'pwsh.exe', platforms: ['win32', 'darwin', 'linux', 'freebsd', 'openbsd'] },
@@ -56,7 +55,7 @@ function isWindows() {
 }
 
 function commandExists(command) {
-  if (!command || command === 'auto') return true
+  if (!command) return true
   if (command.includes('/') || command.includes('\\')) return existsSync(command)
   const probe = isWindows() ? 'where' : 'command'
   const args = isWindows() ? [command] : ['-v', command]
@@ -66,13 +65,11 @@ function commandExists(command) {
 
 function terminalShellProfileCandidatesForPlatform(platform = os.platform()) {
   const profiles = TERMINAL_SHELL_PROFILE_CANDIDATES
-    .filter((profile) => profile.platforms.includes(platform) || profile.id === 'auto')
-    .filter((profile) => profile.id === 'auto' || commandExists(profile.command))
+    .filter((profile) => profile.platforms.includes(platform))
+    .filter((profile) => commandExists(profile.command))
     .map(({ platforms, ...profile }) => ({ ...profile, builtin: true, detected: true }))
 
-  return profiles.length > 1
-    ? profiles
-    : [TERMINAL_SHELL_PROFILE_CANDIDATES[0]].map(({ platforms, ...profile }) => ({ ...profile, builtin: true, detected: true }))
+  return profiles
 }
 
 function nameFromTerminalShellCommand(command) {

@@ -31,6 +31,7 @@ import type {
 } from '@/lib/types'
 import { sessionTitle } from '@/lib/types'
 import { ChatPanelHost } from '@/components/chat/ChatPanelHost'
+import { FirstUseGuideCard } from '@/components/chat/FirstUseGuideCard'
 import { ModelSetupEmptyState } from '@/components/chat/ModelSetupEmptyState'
 import { ChatSidebar } from '@/components/sidebar/ChatSidebar'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
@@ -150,6 +151,7 @@ function MainApp() {
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState<PendingTerminalCommand | null>(null)
   const terminalCommandIdRef = useRef(0)
   const [storage, setStorage] = useState<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
+  const [firstUseGuideDismissed, setFirstUseGuideDismissed] = useState(false)
   const { toasts, handleTaskComplete, addToast, dismissToast } = useTaskToasts()
   const scheduledTasksOpen = workspacePage === 'scheduledTasks'
   const agentProfilesOpen = workspacePage === 'agentProfiles'
@@ -521,6 +523,33 @@ function MainApp() {
   const handlePendingTerminalCommandHandled = useCallback((id: number) => {
     setPendingTerminalCommand((current) => current?.id === id ? null : current)
   }, [])
+
+  const handleDismissFirstUseGuide = useCallback(() => {
+    setFirstUseGuideDismissed(true)
+  }, [])
+
+  const handleCopyFirstGuidePrompt = useCallback(() => {
+    const text = agentManager.currentToolProject?.id
+      ? t('firstUseGuideProjectPrompt')
+      : t('firstUseGuideGeneralPrompt')
+    void navigator.clipboard.writeText(text)
+      .then(() => addToast({
+        sessionId: agentManager.currentSessionId ?? '',
+        title: t('copied'),
+        status: 'idle',
+        message: text,
+      }))
+      .catch((error) => {
+        logger.error('Failed to copy first-use guide prompt:', error)
+        void showAlert(t('copyFailed'))
+      })
+  }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id])
+
+  const showFirstUseGuide = Boolean(storage)
+    && !firstUseGuideDismissed
+    && !terminalOpen
+    && projects.length === 0
+    && globalSessions.length === 0
 
   const handleToggleCurrentSessionPinned = useCallback(() => {
     const sessionId = agentManager.currentSessionId
@@ -907,6 +936,15 @@ function MainApp() {
                     />
                   </ErrorBoundary>
                 </div>
+                {showFirstUseGuide ? (
+                  <FirstUseGuideCard
+                    hasProject={Boolean(agentManager.currentToolProject?.id)}
+                    onConfigureModel={openModelSettings}
+                    onAddProject={selectProjectDirectory}
+                    onCopyExamplePrompt={handleCopyFirstGuidePrompt}
+                    onDismiss={handleDismissFirstUseGuide}
+                  />
+                ) : null}
                 {terminalOpen ? (
                   <TerminalDock
                     project={agentManager.currentToolProject}

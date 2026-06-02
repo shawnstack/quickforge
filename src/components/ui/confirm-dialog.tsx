@@ -57,10 +57,14 @@ function MessageDialog({
     focusRef.current?.focus()
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') resolveCancelOnce()
+      if (event.key === 'Enter') {
+        const primary = actions[actions.length - 1]
+        if (primary) runAction(primary)
+      }
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
-  }, [resolveCancelOnce])
+  }, [resolveCancelOnce, runAction, actions])
 
   return createPortal(
     <div
@@ -133,12 +137,12 @@ export function showConfirm(options: ConfirmOptions): Promise<boolean> {
         {
           label: options.cancelLabel ?? 'Cancel',
           variant: 'outline',
-          autoFocus: true,
           onClick: () => resolve(false),
         },
         {
           label: options.confirmLabel ?? 'Confirm',
           variant: options.variant === 'destructive' ? 'destructive' : 'default',
+          autoFocus: true,
           onClick: () => resolve(true),
         },
       ]}

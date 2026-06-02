@@ -2,6 +2,36 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.24] - 2026-06-02
+
+### Added
+
+- Added the `/plan` command to generate implementation plans before execution.
+- Added terminal execution for markdown shell code blocks and workspace path resolution support.
+- Added chat/project navigation improvements including git branch display, project drag-and-drop reordering, and collapse/expand-all controls.
+
+### Changed
+
+- Enhanced terminal dock behavior, workspace APIs, chat panel decoration, layout, and context-usage display.
+- Improved model selector open performance and model option defaults.
+- Refined terminal shell selection behavior.
+
+### Fixed
+
+- Used the server-side continue endpoint for in-place retry instead of creating a new conversation turn.
+- Prevented message loss on request timeout or disconnect.
+- Fixed confirmation Enter-key handling, task completion toast placement, and the missing `DefaultOptions` model settings tab.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.24` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.3.24.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.24.tgz
+  ```
+
 ## [1.3.23] - 2026-06-01
 
 ### Changed

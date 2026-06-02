@@ -98,7 +98,7 @@ type AssistantWaitingBubbleDeps = {
   panel: HTMLElement
   getMessages: () => MessageWithUsage[]
   isStreaming: () => boolean
-  startedAt?: number
+  isActive: boolean
 }
 
 type CodeBlockElement = HTMLElement & {
@@ -342,7 +342,6 @@ export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
 }
 
 const ASSISTANT_WAITING_SELECTOR = '.quickforge-assistant-waiting'
-const TYPEWRITER_INTERVAL_MS = 70
 
 function removeAssistantWaitingBubble(panel: HTMLElement) {
   panel.querySelectorAll(ASSISTANT_WAITING_SELECTOR).forEach((element) => element.remove())
@@ -357,31 +356,11 @@ function assistantElementHasVisibleContent(element: HTMLElement) {
   return (clone.textContent ?? '').trim().length > 0
 }
 
-function waitingPhrase(elapsedMs: number) {
-  if (elapsedMs >= 8000) {
-    return { text: t('assistantWaitingContinuing'), stageStartedAt: 8000 }
-  }
-  if (elapsedMs >= 3000) {
-    return { text: t('assistantWaitingOrganizing'), stageStartedAt: 3000 }
-  }
-  return { text: t('assistantWaitingThinking'), stageStartedAt: 0 }
-}
-
-function waitingTypewriterText(startedAt: number) {
-  const elapsedMs = Math.max(0, Date.now() - startedAt)
-  const phrase = waitingPhrase(elapsedMs)
-  const typedCount = Math.min(
-    phrase.text.length,
-    Math.max(1, Math.floor((elapsedMs - phrase.stageStartedAt) / TYPEWRITER_INTERVAL_MS) + 1),
-  )
-  return phrase.text.slice(0, typedCount)
-}
-
 export function syncAssistantWaitingBubble(deps: AssistantWaitingBubbleDeps) {
-  const { panel, getMessages, isStreaming, startedAt } = deps
+  const { panel, getMessages, isStreaming, isActive } = deps
   const existing = panel.querySelector<HTMLElement>(ASSISTANT_WAITING_SELECTOR)
 
-  if (!isStreaming() || !startedAt) {
+  if (!isStreaming() || !isActive) {
     removeAssistantWaitingBubble(panel)
     return false
   }
@@ -423,16 +402,13 @@ export function syncAssistantWaitingBubble(deps: AssistantWaitingBubbleDeps) {
   bubble.setAttribute('aria-label', t('assistantWaitingAriaLabel'))
   if (!existing) {
     bubble.innerHTML = `
-      <div class="quickforge-assistant-waiting-bubble">
-        <span class="quickforge-assistant-waiting-text"></span>
-        <span class="quickforge-assistant-waiting-cursor" aria-hidden="true">▌</span>
+      <div class="quickforge-assistant-waiting-dots" aria-hidden="true">
+        <span></span>
+        <span></span>
+        <span></span>
       </div>
     `
   }
-
-  const text = waitingTypewriterText(startedAt)
-  const textElement = bubble.querySelector<HTMLElement>('.quickforge-assistant-waiting-text')
-  if (textElement && textElement.textContent !== text) textElement.textContent = text
 
   if (bubble.previousElementSibling !== lastUserElement) lastUserElement.after(bubble)
   return true

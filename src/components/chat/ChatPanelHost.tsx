@@ -349,21 +349,7 @@ export function ChatPanelHost({
     let disposed = false
     let observer: MutationObserver | undefined
     let composerClearedForSend = false
-    let assistantWaitingStartedAt: number | undefined
-    let assistantWaitingTimer: number | undefined
-
-    const stopAssistantWaitingTimer = () => {
-      if (!assistantWaitingTimer) return
-      window.clearInterval(assistantWaitingTimer)
-      assistantWaitingTimer = undefined
-    }
-
-    const startAssistantWaitingTimer = () => {
-      if (assistantWaitingTimer) return
-      assistantWaitingTimer = window.setInterval(() => {
-        scheduleDecorateRef.current?.()
-      }, 160)
-    }
+    let assistantWaitingActive = false
 
     // --- Scroll sync subsystem ---
     const scrollSync = createScrollSync({ panel })
@@ -455,7 +441,7 @@ export function ChatPanelHost({
           panel,
           getMessages: () => agent.state.messages as MessageWithUsage[],
           isStreaming: () => agent.state.isStreaming,
-          startedAt: assistantWaitingStartedAt,
+          isActive: assistantWaitingActive,
         })
       } catch { /* continue to editor & approval card */ }
 
@@ -611,8 +597,7 @@ export function ChatPanelHost({
     // --- Subscribe to agent events for auto-scroll and tool approvals ---
     const unsubscribeScrollEvents = agent.subscribe((event) => {
       if (event.type === 'agent_start') {
-        assistantWaitingStartedAt = Date.now()
-        startAssistantWaitingTimer()
+        assistantWaitingActive = true
         scheduleDecorateRef.current?.()
         scrollSync.enable()
         // A new run started — clear any pending approval for this session
@@ -626,8 +611,7 @@ export function ChatPanelHost({
       if (event.type === 'message_start' || event.type === 'message_update' || event.type === 'message_end' || event.type === 'turn_end' || event.type === 'agent_end') {
         const eventMessage = (event as { message?: { role?: string } }).message
         if (event.type === 'message_update' || eventMessage?.role === 'assistant') {
-          assistantWaitingStartedAt = undefined
-          stopAssistantWaitingTimer()
+          assistantWaitingActive = false
         }
         scheduleDecorateRef.current?.()
         if (scrollSync.isEnabled) scrollSync.scheduleScrollToBottom()
@@ -645,8 +629,7 @@ export function ChatPanelHost({
         if (scrollSync.isEnabled) scrollSync.scheduleScrollToBottom()
       }
       if (event.type === 'agent_end') {
-        assistantWaitingStartedAt = undefined
-        stopAssistantWaitingTimer()
+        assistantWaitingActive = false
         scheduleDecorateRef.current?.()
         // Run finished (or aborted) — clear pending approval for this session
         if (pendingApprovalRef.current?.sessionId === agent.sessionId) {
@@ -703,7 +686,6 @@ export function ChatPanelHost({
       cmdSuggestions.remove()
       cmdSuggestions.cleanupTextareaHandler()
       disposed = true
-      stopAssistantWaitingTimer()
       scrollSync.cleanup()
       scrollSyncRef.current = null
       unsubscribeScrollEvents()

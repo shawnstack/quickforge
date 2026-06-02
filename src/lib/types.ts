@@ -11,6 +11,7 @@ export type ProjectInfo = {
   name: string
   path: string
   lastOpenedAt: string
+  sortOrder?: number
   skills?: string[]
   commandDir?: string
 }

@@ -119,6 +119,7 @@ function MainApp() {
     setProjectPickerOpen,
     toggleProjectExpanded,
     toggleAllProjectsExpanded,
+    reorderProjects,
     setActiveProject,
     setProjects,
     setExpandedProjectIds,
@@ -679,6 +680,7 @@ function MainApp() {
         onToggleConversationsCollapsed={toggleConversationsCollapsed}
         onToggleProjectExpanded={toggleProjectExpanded}
         onToggleAllProjectsExpanded={toggleAllProjectsExpanded}
+        onReorderProjects={reorderProjects}
         onSelectProjectDirectory={selectProjectDirectory}
         onStartNewProjectChat={startNewProjectChat}
         onOpenGlobalSkills={openGlobalSkills}
@@ -737,6 +739,7 @@ function MainApp() {
               onToggleConversationsCollapsed={toggleConversationsCollapsed}
               onToggleProjectExpanded={toggleProjectExpanded}
               onToggleAllProjectsExpanded={toggleAllProjectsExpanded}
+              onReorderProjects={reorderProjects}
               onSelectProjectDirectory={() => {
                 closeMobileSidebar()
                 selectProjectDirectory()

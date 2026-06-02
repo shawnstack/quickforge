@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   CalendarClock,
   Bot,
@@ -22,6 +22,21 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react'
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import type { Transform } from '@dnd-kit/utilities'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
@@ -55,6 +70,7 @@ type ChatSidebarProps = {
   onToggleConversationsCollapsed: () => void
   onToggleProjectExpanded: (projectId: string) => void
   onToggleAllProjectsExpanded: () => void
+  onReorderProjects: (orderedIds: string[]) => void
   onSelectProjectDirectory: () => void
   onStartNewProjectChat: (project: ProjectInfo) => void
   onOpenGlobalSkills: () => void
@@ -101,6 +117,21 @@ function LoadMoreSentinel({ onLoadMore, enabled }: { onLoadMore: () => void; ena
   )
 }
 
+function SortableProjectItem({ id, children }: { id: string; children: (props: { listeners: ReturnType<typeof useSortable>['listeners']; attributes: ReturnType<typeof useSortable>['attributes'] }) => React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  }
+
+  return (
+    <div ref={setNodeRef} style={style} className={cn(isDragging && 'relative z-50 opacity-40')}>
+      {children({ listeners, attributes })}
+    </div>
+  )
+}
+
 export const ChatSidebar = memo(function ChatSidebar({
   sidebarOpen,
   variant = 'desktop',
@@ -127,6 +158,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   onToggleConversationsCollapsed,
   onToggleProjectExpanded,
   onToggleAllProjectsExpanded,
+  onReorderProjects,
   onSelectProjectDirectory,
   onStartNewProjectChat,
   onOpenGlobalSkills,
@@ -178,6 +210,30 @@ export const ChatSidebar = memo(function ChatSidebar({
   const [searchQuery, setSearchQuery] = useState('')
   const [projectMenuId, setProjectMenuId] = useState<string | null>(null)
   const [suppressedSessionActionsId, setSuppressedSessionActionsId] = useState<string | null>(null)
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+  )
+
+  const restrictToVertical = useCallback((args: { transform: Transform }) => ({
+    ...args.transform,
+    x: 0,
+  }), [])
+
+  const projectIds = useMemo(() => projects.map((p) => p.id), [projects])
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = projectIds.indexOf(active.id as string)
+    const newIndex = projectIds.indexOf(over.id as string)
+    if (oldIndex === -1 || newIndex === -1) return
+    const reordered = [...projectIds]
+    reordered.splice(oldIndex, 1)
+    reordered.splice(newIndex, 0, active.id as string)
+    onReorderProjects(reordered)
+  }, [projectIds, onReorderProjects])
+
   const searchInputRef = useRef<HTMLInputElement>(null)
   const searchableSessions = useMemo(() => {
     const projectSessions = projects.flatMap((project) => sessionsForProject(project.id).map((session) => ({ session, projectName: project.name })))
@@ -340,7 +396,9 @@ export const ChatSidebar = memo(function ChatSidebar({
                       {projects.length === 0 ? (
                         <div className="px-3 py-3 text-xs text-muted-foreground/55">{t('noProjects')}</div>
                       ) : (
-                        projects.map((item) => {
+                        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd} modifiers={[restrictToVertical]}>
+                          <SortableContext items={projectIds} strategy={verticalListSortingStrategy}>
+                            {projects.map((item) => {
                           const projectSessions = sessionsForProject(item.id)
                           const expanded = expandedProjectIds.has(item.id)
                           const active = activeProject?.id === item.id
@@ -348,8 +406,15 @@ export const ChatSidebar = memo(function ChatSidebar({
                           const menuOpen = projectMenuId === item.id
 
                           return (
-                            <div key={item.id}>
-                              <div className={cn(rowClass, active ? projectActiveRowClass : inactiveRowClass, menuOpen && 'z-20 overflow-visible')}>
+                            <SortableProjectItem key={item.id} id={item.id}>
+                              {({ listeners, attributes }) => (
+                                <div>
+                              <div
+                                className={cn(rowClass, active ? projectActiveRowClass : inactiveRowClass, menuOpen && 'z-20 overflow-visible')}
+                                style={{ touchAction: 'none' }}
+                                {...listeners}
+                                {...attributes}
+                              >
                                 <button
                                   type="button"
                                   className={iconSlotClass}
@@ -523,8 +588,12 @@ export const ChatSidebar = memo(function ChatSidebar({
                                 </div>
                               </div>
                             </div>
+                              )}
+                            </SortableProjectItem>
                           )
-                        })
+                        })}
+                          </SortableContext>
+                        </DndContext>
                       )}
                     </div>
                   </div>

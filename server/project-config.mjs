@@ -229,10 +229,11 @@ export async function setActiveProjectPath(inputPath) {
         name: projectNameFromPath(resolved),
         path: resolved,
         lastOpenedAt: now,
+        sortOrder: config.projects.length,
         skills: [],
         commandDir: '',
       }
-      config.projects.unshift(project)
+      config.projects.push(project)
     } else {
       project.name = projectNameFromPath(resolved)
       project.path = resolved
@@ -240,7 +241,7 @@ export async function setActiveProjectPath(inputPath) {
     }
 
     config.activeProjectId = project.id
-    config.projects = [project, ...config.projects.filter((item) => item.id !== project.id)].slice(0, 20)
+    if (config.projects.length > 20) config.projects = config.projects.slice(-20)
     return config
   })
 

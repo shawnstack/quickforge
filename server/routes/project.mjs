@@ -10,7 +10,8 @@ export async function handleProjectApi(req, res, url) {
   const config = await readProjectConfig()
 
   if (req.method === 'GET' && url.pathname === '/api/project') {
-    sendJson(res, 200, { project: getActiveProject(config), projects: config.projects, workspaceRoot: getWorkspaceRoot() })
+    const sorted = [...config.projects].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+    sendJson(res, 200, { project: getActiveProject(config), projects: sorted, workspaceRoot: getWorkspaceRoot() })
     return
   }
 
@@ -122,6 +123,37 @@ export async function handleProjectApi(req, res, url) {
       setWorkspaceRoot(path.resolve(active.path))
     }
     sendJson(res, 200, { project: active ?? null, projects: updated.projects, workspaceRoot: getWorkspaceRoot() })
+    return
+  }
+
+  if (req.method === 'PUT' && url.pathname === '/api/project/reorder') {
+    const body = await readJsonBody(req)
+    if (!Array.isArray(body?.orderedIds)) {
+      const error = new Error('orderedIds must be an array')
+      error.statusCode = 400
+      throw error
+    }
+    const orderedIds = body.orderedIds
+    const updated = await atomicProjectConfigUpdate((cfg) => {
+      const idToProject = new Map(cfg.projects.map((p) => [p.id, p]))
+      const reordered = []
+      for (const id of orderedIds) {
+        const p = idToProject.get(id)
+        if (p) {
+          p.sortOrder = reordered.length
+          reordered.push(p)
+          idToProject.delete(id)
+        }
+      }
+      // append any remaining projects not in orderedIds (shouldn't happen normally)
+      for (const p of idToProject.values()) {
+        p.sortOrder = reordered.length
+        reordered.push(p)
+      }
+      cfg.projects = reordered
+      return cfg
+    })
+    sendJson(res, 200, { projects: updated.projects, workspaceRoot: getWorkspaceRoot() })
     return
   }
 

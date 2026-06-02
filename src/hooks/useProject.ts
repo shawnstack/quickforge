@@ -96,6 +96,35 @@ export function useProject() {
     })
   }, [projects])
 
+  const reorderProjects = useCallback(async (orderedIds: string[]) => {
+    // Optimistic update
+    setProjects((current) => {
+      const idToProject = new Map(current.map((p) => [p.id, p]))
+      const reordered: ProjectInfo[] = []
+      for (const id of orderedIds) {
+        const p = idToProject.get(id)
+        if (p) {
+          reordered.push(p)
+          idToProject.delete(id)
+        }
+      }
+      return reordered
+    })
+
+    try {
+      const response = await fetch('/api/project/reorder', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ orderedIds }),
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(payload?.error || `Reorder failed with HTTP ${response.status}`)
+      if (Array.isArray(payload?.projects)) setProjects(payload.projects)
+    } catch (error) {
+      logger.error('Failed to reorder projects:', error)
+    }
+  }, [])
+
   return {
     activeProject,
     projects,
@@ -109,6 +138,7 @@ export function useProject() {
     setProjectPickerOpen,
     toggleProjectExpanded,
     toggleAllProjectsExpanded,
+    reorderProjects,
     setActiveProject,
     setProjects,
     setExpandedProjectIds,

@@ -85,6 +85,17 @@ export function useProject() {
     })
   }, [])
 
+  const toggleAllProjectsExpanded = useCallback(() => {
+    setExpandedProjectIds((current) => {
+      if (current.size === projects.length && projects.length > 0) {
+        // All expanded → collapse all
+        return new Set()
+      }
+      // Not all expanded (or empty) → expand all
+      return new Set(projects.map((p) => p.id))
+    })
+  }, [projects])
+
   return {
     activeProject,
     projects,
@@ -97,6 +108,7 @@ export function useProject() {
     selectProjectDirectory,
     setProjectPickerOpen,
     toggleProjectExpanded,
+    toggleAllProjectsExpanded,
     setActiveProject,
     setProjects,
     setExpandedProjectIds,

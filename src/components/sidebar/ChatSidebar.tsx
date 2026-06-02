@@ -3,6 +3,8 @@ import {
   CalendarClock,
   Bot,
   ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
   Ellipsis,
   Folder,
   FolderOpen,
@@ -52,6 +54,7 @@ type ChatSidebarProps = {
   onToggleProjectsCollapsed: () => void
   onToggleConversationsCollapsed: () => void
   onToggleProjectExpanded: (projectId: string) => void
+  onToggleAllProjectsExpanded: () => void
   onSelectProjectDirectory: () => void
   onStartNewProjectChat: (project: ProjectInfo) => void
   onOpenGlobalSkills: () => void
@@ -123,6 +126,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   onToggleProjectsCollapsed,
   onToggleConversationsCollapsed,
   onToggleProjectExpanded,
+  onToggleAllProjectsExpanded,
   onSelectProjectDirectory,
   onStartNewProjectChat,
   onOpenGlobalSkills,
@@ -306,6 +310,17 @@ export const ChatSidebar = memo(function ChatSidebar({
                   <ChevronRight className={cn(chevronClass, !projectsCollapsed && 'rotate-90')} />
                   <span className="flex-1 truncate">{t('projects')}</span>
                 </button>
+                {projects.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={iconButtonClass}
+                    onClick={onToggleAllProjectsExpanded}
+                    aria-label={expandedProjectIds.size === projects.length ? t('collapseAllProjects') : t('expandAllProjects')}
+                  >
+                    {expandedProjectIds.size === projects.length ? <ChevronsDownUp className="size-4" /> : <ChevronsUpDown className="size-4" />}
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   size="icon"

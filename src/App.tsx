@@ -118,6 +118,7 @@ function MainApp() {
     selectProjectDirectory,
     setProjectPickerOpen,
     toggleProjectExpanded,
+    toggleAllProjectsExpanded,
     setActiveProject,
     setProjects,
     setExpandedProjectIds,
@@ -677,6 +678,7 @@ function MainApp() {
         onToggleProjectsCollapsed={toggleProjectsCollapsed}
         onToggleConversationsCollapsed={toggleConversationsCollapsed}
         onToggleProjectExpanded={toggleProjectExpanded}
+        onToggleAllProjectsExpanded={toggleAllProjectsExpanded}
         onSelectProjectDirectory={selectProjectDirectory}
         onStartNewProjectChat={startNewProjectChat}
         onOpenGlobalSkills={openGlobalSkills}
@@ -734,6 +736,7 @@ function MainApp() {
               onToggleProjectsCollapsed={toggleProjectsCollapsed}
               onToggleConversationsCollapsed={toggleConversationsCollapsed}
               onToggleProjectExpanded={toggleProjectExpanded}
+              onToggleAllProjectsExpanded={toggleAllProjectsExpanded}
               onSelectProjectDirectory={() => {
                 closeMobileSidebar()
                 selectProjectDirectory()

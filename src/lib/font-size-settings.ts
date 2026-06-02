@@ -1,4 +1,4 @@
-import type { AppStorage } from '@mariozechner/pi-web-ui'
+import type { AppStorage } from '@earendil-works/pi-web-ui'
 
 const FONT_SIZE_SETTINGS_KEY = 'font-size-settings'
 

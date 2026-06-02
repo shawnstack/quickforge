@@ -1,5 +1,5 @@
-import type { AgentMessage } from '@mariozechner/pi-agent-core'
-import type { ToolResultMessage } from '@mariozechner/pi-ai'
+import type { AgentMessage } from '@earendil-works/pi-agent-core'
+import type { ToolResultMessage } from '@earendil-works/pi-ai'
 
 export type QuickForgeToolTiming = {
   startedAt?: number

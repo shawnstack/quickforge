@@ -1,4 +1,4 @@
-import type { AppStorage } from '@mariozechner/pi-web-ui'
+import type { AppStorage } from '@earendil-works/pi-web-ui'
 
 export const AUTO_COMPACT_SETTINGS_KEY = 'auto-compact-settings'
 

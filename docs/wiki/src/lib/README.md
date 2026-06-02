@@ -134,7 +134,7 @@
 
 ## 设置选项卡
 
-所有设置选项卡继承自 `@mariozechner/pi-web-ui` 的 `SettingsTab` 类，使用 Lit HTML 渲染。
+所有设置选项卡继承自 `@earendil-works/pi-web-ui` 的 `SettingsTab` 类，使用 Lit HTML 渲染。
 
 | 文件 | 用途 |
 |------|------|

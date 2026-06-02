@@ -48,7 +48,7 @@ components/
 ### ChatPanelHost.tsx (439 行)
 
 - 核心聊天面板宿主
-- 封装 `@mariozechner/pi-web-ui` 的 `ChatPanel` 组件
+- 封装 `@earendil-works/pi-web-ui` 的 `ChatPanel` 组件
 - 集成 YOLO 模式切换、工作区工具渲染、分享对话渲染
 - 支持本地工具渲染器 (`getLocalWorkspaceTools`)
 - 工具审批卡片会展示 subagent 来源，避免 General 子任务请求写文件/跑命令时与主 Agent 混淆

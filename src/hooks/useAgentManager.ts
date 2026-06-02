@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AgentState } from '@mariozechner/pi-agent-core'
-import type { Api, Model } from '@mariozechner/pi-ai'
+import type { AgentState } from '@earendil-works/pi-agent-core'
+import type { Api, Model } from '@earendil-works/pi-ai'
 import { logger } from '@/lib/logger'
 import { ServerAgent, type ServerAgentContextCompaction } from '@/lib/server-agent'
 import { DeferredSessionAgent } from '@/lib/deferred-session-agent'

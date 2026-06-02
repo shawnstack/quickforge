@@ -1,5 +1,5 @@
-import type { ThinkingLevel } from '@mariozechner/pi-agent-core'
-import type { Api, Model, OpenAICompletionsCompat } from '@mariozechner/pi-ai'
+import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
+import type { Api, Model, OpenAICompletionsCompat } from '@earendil-works/pi-ai'
 import {
   AppStorage,
   CustomProvidersStore,
@@ -9,7 +9,7 @@ import {
   setAppStorage,
   type CustomProvider,
   type StorageBackend,
-} from '@mariozechner/pi-web-ui'
+} from '@earendil-works/pi-web-ui'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'

@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
-import { SettingsDialog } from '@mariozechner/pi-web-ui'
-import type { Api, Model } from '@mariozechner/pi-ai'
+import { SettingsDialog } from '@earendil-works/pi-web-ui'
+import type { Api, Model } from '@earendil-works/pi-ai'
 import type { AgentManager } from '@/hooks/useAgentManager'
 import {
   buildConnectionModel,

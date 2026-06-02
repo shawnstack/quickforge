@@ -1,4 +1,4 @@
-import { streamSimple } from '@mariozechner/pi-ai'
+import { streamSimple } from '@earendil-works/pi-ai'
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { readStore } from '../storage.mjs'
 import { logger } from '../utils/logger.mjs'

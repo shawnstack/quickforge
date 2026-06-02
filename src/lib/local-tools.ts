@@ -1,9 +1,9 @@
-import { registerToolRenderer } from '@mariozechner/pi-web-ui'
+import { registerToolRenderer } from '@earendil-works/pi-web-ui'
 import { html, nothing } from 'lit'
 import { styleMap } from 'lit/directives/style-map.js'
 import { t, type AppTextKey } from '@/lib/i18n'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
-import type { AgentTool } from '@mariozechner/pi-agent-core'
+import type { AgentTool } from '@earendil-works/pi-agent-core'
 import { extractQuickForgeTiming, type QuickForgeToolTiming } from '@/lib/tool-execution-events'
 
 type ToolResultLike = {

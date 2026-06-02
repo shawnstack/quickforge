@@ -1,6 +1,6 @@
-import type { AgentEvent, AgentMessage, ThinkingLevel } from '@mariozechner/pi-agent-core'
-import type { Api, Model } from '@mariozechner/pi-ai'
-import { streamSimple } from '@mariozechner/pi-ai'
+import type { AgentEvent, AgentMessage, ThinkingLevel } from '@earendil-works/pi-agent-core'
+import type { Api, Model } from '@earendil-works/pi-ai'
+import { streamSimple } from '@earendil-works/pi-ai'
 import { logger } from '@/lib/logger'
 import { toolStartEventWithPartialResult, upsertMessage, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
 

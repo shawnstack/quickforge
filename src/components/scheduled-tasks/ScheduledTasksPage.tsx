@@ -1,5 +1,5 @@
-import type { ThinkingLevel } from '@mariozechner/pi-agent-core'
-import type { Api, Model } from '@mariozechner/pi-ai'
+import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
+import type { Api, Model } from '@earendil-works/pi-ai'
 import { useEffect, useMemo, useState } from 'react'
 import { Bot, Brain, CalendarClock, CheckCircle2, Clock3, Edit3, Eye, Folder, MoreHorizontal, Search, Sparkles, Trash2, X, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { AppStorage } from '@mariozechner/pi-web-ui'
+import type { AppStorage } from '@earendil-works/pi-web-ui'
 import {
   ApiKeyPromptDialog,
   ChatPanel,
-} from '@mariozechner/pi-web-ui'
+} from '@earendil-works/pi-web-ui'
 import type { ServerAgent, ServerAgentContextCompaction, ServerAgentContextUsage } from '@/lib/server-agent'
 import type { SharedServerAgent } from '@/lib/shared-server-agent'
 import type { DeferredSessionAgent } from '@/lib/deferred-session-agent'

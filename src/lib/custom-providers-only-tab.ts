@@ -3,9 +3,9 @@ import {
   SettingsTab,
   type CustomProvider,
   type CustomProviderType,
-} from '@mariozechner/pi-web-ui'
+} from '@earendil-works/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
-import type { Api, Model } from '@mariozechner/pi-ai'
+import type { Api, Model } from '@earendil-works/pi-ai'
 import { t } from '@/lib/i18n'
 import { DEFAULT_CONNECTION, normalizeModelForProvider } from '@/lib/pi-chat'
 import { logger } from '@/lib/logger'

@@ -1,6 +1,6 @@
-import type { ThinkingLevel } from '@mariozechner/pi-agent-core'
-import type { Api, Model } from '@mariozechner/pi-ai'
-import { getAppStorage, SettingsTab } from '@mariozechner/pi-web-ui'
+import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
+import type { Api, Model } from '@earendil-works/pi-ai'
+import { getAppStorage, SettingsTab } from '@earendil-works/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
 import {
   defaultThinkingLevelForModel,

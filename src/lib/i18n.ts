@@ -1,4 +1,4 @@
-import { translations, type AppStorage } from '@mariozechner/pi-web-ui'
+import { translations, type AppStorage } from '@earendil-works/pi-web-ui'
 
 // Re-export the language type
 export type AppLanguage = 'en' | 'zh'

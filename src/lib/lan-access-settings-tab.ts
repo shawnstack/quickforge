@@ -1,4 +1,4 @@
-import { SettingsTab } from '@mariozechner/pi-web-ui'
+import { SettingsTab } from '@earendil-works/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
 import { t } from '@/lib/i18n'
 import { showConfirm } from '@/components/ui/confirm-dialog'

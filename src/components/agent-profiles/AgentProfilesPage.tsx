@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { ThinkingLevel } from '@mariozechner/pi-agent-core'
-import type { Api, Model } from '@mariozechner/pi-ai'
+import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
+import type { Api, Model } from '@earendil-works/pi-ai'
 import { Bot, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'

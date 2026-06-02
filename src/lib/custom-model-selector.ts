@@ -1,5 +1,5 @@
-import { type Api, type Model, modelsAreEqual } from '@mariozechner/pi-ai'
-import type { ThinkingLevel } from '@mariozechner/pi-agent-core'
+import { type Api, type Model, modelsAreEqual } from '@earendil-works/pi-ai'
+import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
 import { t } from '@/lib/i18n'
 
 type AnyModel = Model<Api>

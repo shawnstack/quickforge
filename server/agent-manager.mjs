@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
-import { Agent } from '@mariozechner/pi-agent-core'
+import { Agent } from '@earendil-works/pi-agent-core'
 import { streamSimpleWithAiHttpLogging } from './ai-http-logger.mjs'
 import { loadSkillToolContext, abortRunningCommand } from './tools/index.mjs'
 import { createSkillTools, workspaceTools } from './tools/definitions.mjs'

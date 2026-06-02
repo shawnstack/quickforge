@@ -1,4 +1,4 @@
-import type { SessionMetadata, SessionData } from '@mariozechner/pi-web-ui'
+import type { SessionMetadata, SessionData } from '@earendil-works/pi-web-ui'
 import type { ServerAgent, ServerAgentContextCompaction } from '@/lib/server-agent'
 import { t } from '@/lib/i18n'
 

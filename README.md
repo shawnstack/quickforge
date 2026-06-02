@@ -153,8 +153,8 @@ API Key: 按你的 LiteLLM 配置填写，可为空
 | 层级 | 技术 |
 |---|---|
 | 前端 | React 19, Vite 8, Tailwind CSS 4, TypeScript |
-| UI | shadcn-style primitives, Lucide icons, `@mariozechner/pi-web-ui` |
-| Agent / 模型编排 | `@mariozechner/pi-agent-core`, `@mariozechner/pi-ai`, MCP SDK |
+| UI | shadcn-style primitives, Lucide icons, `@earendil-works/pi-web-ui` |
+| Agent / 模型编排 | `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, MCP SDK |
 | 后端 | Node.js ESM，原生 `http` 模块 |
 | 存储 | 本地 JSON 文件，默认在 `~/.quickforge/` |
 
@@ -316,8 +316,8 @@ Located under `~/.quickforge/` by default (`%USERPROFILE%\.quickforge` on Window
 | Layer | Technology |
 |---|---|
 | Frontend | React 19, Vite 8, Tailwind CSS 4, TypeScript |
-| UI | shadcn-style primitives, Lucide icons, `@mariozechner/pi-web-ui` |
-| Agent / model orchestration | `@mariozechner/pi-agent-core`, `@mariozechner/pi-ai`, MCP SDK |
+| UI | shadcn-style primitives, Lucide icons, `@earendil-works/pi-web-ui` |
+| Agent / model orchestration | `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, MCP SDK |
 | Server | Node.js ESM, plain `http` module |
 | Storage | Local JSON files under `~/.quickforge/` by default |
 

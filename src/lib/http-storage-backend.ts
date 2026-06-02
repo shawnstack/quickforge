@@ -1,4 +1,4 @@
-import type { StorageBackend, StorageTransaction } from '@mariozechner/pi-web-ui'
+import type { StorageBackend, StorageTransaction } from '@earendil-works/pi-web-ui'
 
 const DEFAULT_BLOCKED_STORES = new Set<string>()
 

@@ -1,4 +1,4 @@
-import type { AppStorage } from '@mariozechner/pi-web-ui'
+import type { AppStorage } from '@earendil-works/pi-web-ui'
 import type { ChatScope } from '@/lib/types'
 import type { ComposerDraft } from '@/components/chat/chat-utils'
 

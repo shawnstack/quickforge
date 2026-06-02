@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
-import { streamSimple } from '@mariozechner/pi-ai'
+import { streamSimple } from '@earendil-works/pi-ai'
 import { logsDir } from './storage.mjs'
 
 const PATCH_MARKER = Symbol.for('quickforge.aiHttpLogger.fetchPatched')

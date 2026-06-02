@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { Api, Model } from '@mariozechner/pi-ai'
+import type { Api, Model } from '@earendil-works/pi-ai'
 import type { AgentManager } from '@/hooks/useAgentManager'
 import {
   initializePiStorage,

@@ -2,7 +2,7 @@ import { icon } from '@mariozechner/mini-lit'
 import { Select, type SelectOption } from '@mariozechner/mini-lit/dist/Select.js'
 import { Brain } from 'lucide'
 import { render } from 'lit'
-import { i18n } from '@mariozechner/pi-web-ui'
+import { i18n } from '@earendil-works/pi-web-ui'
 import { getAppLanguage } from '@/lib/i18n'
 
 const THINKING_LEVELS = new Set(['off', 'low', 'medium', 'high', 'xhigh'])

@@ -1,4 +1,4 @@
-import type { AppStorage } from '@mariozechner/pi-web-ui'
+import type { AppStorage } from '@earendil-works/pi-web-ui'
 
 const TOOL_DISPLAY_SETTINGS_KEY = 'tool-display-settings'
 

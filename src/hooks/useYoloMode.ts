@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import type { AppStorage } from '@mariozechner/pi-web-ui'
+import type { AppStorage } from '@earendil-works/pi-web-ui'
 import { loadYoloMode } from '@/lib/pi-chat'
 
 export function useYoloMode() {

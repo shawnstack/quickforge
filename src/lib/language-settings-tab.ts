@@ -1,4 +1,4 @@
-import { getAppStorage, SettingsTab } from '@mariozechner/pi-web-ui'
+import { getAppStorage, SettingsTab } from '@earendil-works/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
 import { applyAppLanguage, getAppLanguage, t, type AppLanguage } from '@/lib/i18n'
 import { showAlert } from '@/components/ui/confirm-dialog'

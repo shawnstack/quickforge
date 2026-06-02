@@ -1,4 +1,4 @@
-import { streamSimple } from '@mariozechner/pi-ai'
+import { streamSimple } from '@earendil-works/pi-ai'
 import { readJsonBody, sendJson, decodeSegment } from '../utils/response.mjs'
 import { readStore, atomicUpdate } from '../storage.mjs'
 import { createAgent, getSessionEventBus, agentEvents, persistSessionState } from '../agent-manager.mjs'

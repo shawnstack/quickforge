@@ -188,12 +188,18 @@ git tag --points-at HEAD
 2. `npm whoami` 成功，确认当前 npm 账号已登录。
 3. 包内容已构建、离线包已生成、Git tag 已推送。
 
-如果未登录 npm，最终只给用户完整发布指令。
+如果未登录 npm，最终只给用户完整发布指令，并提醒先执行 `npm login`。
 
 检查 npm 登录：
 
 ```bash
 npm whoami
+```
+
+用户手动发布前如未登录 npm，先执行：
+
+```bash
+npm login
 ```
 
 用户手动发布指令：

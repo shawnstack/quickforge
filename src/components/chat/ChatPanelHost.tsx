@@ -350,6 +350,7 @@ export function ChatPanelHost({
     let observer: MutationObserver | undefined
     let composerClearedForSend = false
     let assistantWaitingActive = false
+    let toolUpdateScheduled = false
 
     // --- Scroll sync subsystem ---
     const scrollSync = createScrollSync({ panel })
@@ -527,6 +528,17 @@ export function ChatPanelHost({
         decorate()
       })
     }
+    const scheduleToolInterfaceUpdate = () => {
+      if (toolUpdateScheduled) return
+      toolUpdateScheduled = true
+      window.requestAnimationFrame(() => {
+        toolUpdateScheduled = false
+        if (disposed) return
+        const agentInterface = panel.querySelector('agent-interface') as { requestUpdate?: () => void } | null
+        agentInterface?.requestUpdate?.()
+        if (scrollSync.isEnabled) scrollSync.scheduleScrollToBottom()
+      })
+    }
     scheduleDecorateRef.current = scheduleDecorate
 
     // --- Initialize panel ---
@@ -623,10 +635,13 @@ export function ChatPanelHost({
         }
       }
       const eventType = (event as { type: string }).type
-      if (eventType === 'tool_execution_start' || eventType === 'tool_execution_update' || eventType === 'tool_execution_end') {
+      if (eventType === 'tool_execution_start' || eventType === 'tool_execution_end') {
         const agentInterface = panel.querySelector('agent-interface') as { requestUpdate?: () => void } | null
         agentInterface?.requestUpdate?.()
         if (scrollSync.isEnabled) scrollSync.scheduleScrollToBottom()
+      }
+      if (eventType === 'tool_execution_update') {
+        scheduleToolInterfaceUpdate()
       }
       if (event.type === 'agent_end') {
         assistantWaitingActive = false

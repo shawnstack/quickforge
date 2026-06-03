@@ -1,7 +1,71 @@
 import path from 'node:path'
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
-import { readStore, writeStore, atomicUpdate, getComparable, readSessionStoreScoped, readSessionValue, writeSessionValue, deleteSessionValue, ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir } from '../storage.mjs'
+import { readStore, writeStore, atomicUpdate, getComparable, getStoreRevision, readSessionStoreScoped, readSessionValue, writeSessionValue, deleteSessionValue, ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir } from '../storage.mjs'
 import { directorySize } from '../utils/workspace.mjs'
+
+const metadataIndexCache = new Map()
+const MAX_METADATA_INDEX_CACHE_ENTRIES = 50
+
+function metadataIndexCacheKey({ scope, projectId, indexName, direction }) {
+  return JSON.stringify({ scope: scope || '', projectId: projectId || '', indexName, direction })
+}
+
+function sortIndexedValues(values, store, indexName, direction) {
+  values.sort((a, b) => {
+    if (store === 'sessions-metadata' && indexName === 'lastModified') {
+      const leftPinned = getComparable(a, 'pinnedAt')
+      const rightPinned = getComparable(b, 'pinnedAt')
+      if (leftPinned !== rightPinned) {
+        if (leftPinned === undefined || leftPinned === null) return 1
+        if (rightPinned === undefined || rightPinned === null) return -1
+        return -String(leftPinned).localeCompare(String(rightPinned))
+      }
+    }
+
+    const left = getComparable(a, indexName)
+    const right = getComparable(b, indexName)
+    if (left === right) return 0
+    if (left === undefined || left === null) return direction === 'desc' ? 1 : -1
+    if (right === undefined || right === null) return direction === 'desc' ? -1 : 1
+    const result = String(left).localeCompare(String(right))
+    return direction === 'desc' ? -result : result
+  })
+  return values
+}
+
+async function readIndexedValues(store, indexName, direction, scope, projectId) {
+  if (store !== 'sessions-metadata') {
+    let data
+    if (scope && store === 'sessions') {
+      data = await readSessionStoreScoped(store, scope, scope === 'project' ? projectId : undefined)
+    } else {
+      data = await readStore(store)
+    }
+    return sortIndexedValues(Object.values(data), store, indexName, direction)
+  }
+
+  const revision = getStoreRevision(store)
+  const key = metadataIndexCacheKey({ scope, projectId, indexName, direction })
+  const cached = metadataIndexCache.get(key)
+  if (cached && cached.revision === revision) return cached.values
+
+  const data = scope
+    ? await readSessionStoreScoped(store, scope, scope === 'project' ? projectId : undefined)
+    : await readStore(store)
+  const values = sortIndexedValues(
+    Object.values(data).filter((value) => value?.messageCount !== 0),
+    store,
+    indexName,
+    direction,
+  )
+
+  metadataIndexCache.set(key, { revision, values })
+  if (metadataIndexCache.size > MAX_METADATA_INDEX_CACHE_ENTRIES) {
+    const firstKey = metadataIndexCache.keys().next().value
+    if (firstKey) metadataIndexCache.delete(firstKey)
+  }
+  return values
+}
 
 export async function handleStorageApi(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean)
@@ -44,36 +108,7 @@ export async function handleStorageApi(req, res, url) {
 
     await ensureStorage()
 
-    let data
-    if (scope && (store === 'sessions' || store === 'sessions-metadata')) {
-      data = await readSessionStoreScoped(store, scope, scope === 'project' ? projectId : undefined)
-    } else {
-      data = await readStore(store)
-    }
-
-    let values = Object.values(data)
-    if (store === 'sessions-metadata') {
-      values = values.filter((value) => value?.messageCount !== 0)
-    }
-    values.sort((a, b) => {
-      if (store === 'sessions-metadata' && indexName === 'lastModified') {
-        const leftPinned = getComparable(a, 'pinnedAt')
-        const rightPinned = getComparable(b, 'pinnedAt')
-        if (leftPinned !== rightPinned) {
-          if (leftPinned === undefined || leftPinned === null) return 1
-          if (rightPinned === undefined || rightPinned === null) return -1
-          return -String(leftPinned).localeCompare(String(rightPinned))
-        }
-      }
-
-      const left = getComparable(a, indexName)
-      const right = getComparable(b, indexName)
-      if (left === right) return 0
-      if (left === undefined || left === null) return direction === 'desc' ? 1 : -1
-      if (right === undefined || right === null) return direction === 'desc' ? -1 : 1
-      const result = String(left).localeCompare(String(right))
-      return direction === 'desc' ? -result : result
-    })
+    const values = await readIndexedValues(store, indexName, direction, scope, projectId)
 
     const total = values.length
     const limit = limitParam ? parseInt(limitParam, 10) : undefined

@@ -471,6 +471,18 @@ function subagentToolTraceMessages(messages: unknown[]) {
   return [...assistantMessages, ...toolResults]
 }
 
+const subagentDetailsOpen = new Map<string, boolean>()
+const MAX_SUBAGENT_DETAILS_OPEN_ENTRIES = 100
+
+function rememberSubagentDetailsOpen(key: string, open: boolean) {
+  if (!key) return
+  if (!subagentDetailsOpen.has(key) && subagentDetailsOpen.size >= MAX_SUBAGENT_DETAILS_OPEN_ENTRIES) {
+    const oldestKey = subagentDetailsOpen.keys().next().value
+    if (oldestKey) subagentDetailsOpen.delete(oldestKey)
+  }
+  subagentDetailsOpen.set(key, open)
+}
+
 class SubagentToolRenderer {
   render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
     const status: ToolStatusKey = result?.isError ? 'error' : isStreaming ? 'running' : result ? 'done' : 'called'
@@ -495,6 +507,10 @@ class SubagentToolRenderer {
     const input = toolDisplaySettings.showToolDetails ? stringifyValue(params) : ''
     const detailJson = toolDisplaySettings.showToolDetails ? stringifyValue(result?.details) : ''
     const output = resultText(result)
+    const detailsKey = typeof details?.sessionId === 'string'
+      ? details.sessionId
+      : `${name}:${task}`
+    const detailsOpen = subagentDetailsOpen.get(detailsKey) ?? toolDisplaySettings.expandToolsByDefault
     const statusLabel = status === 'running'
       ? t('subagentRunning', { name: label })
       : status === 'done'
@@ -506,7 +522,7 @@ class SubagentToolRenderer {
     return {
       isCustom: false,
       content: html`
-        <details class="group/tool quickforge-subagent-tool" ?open=${toolDisplaySettings.expandToolsByDefault}>
+        <details class="group/tool quickforge-subagent-tool" ?open=${detailsOpen} @toggle=${(event: Event) => rememberSubagentDetailsOpen(detailsKey, (event.currentTarget as HTMLDetailsElement).open)}>
           <summary class="flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
             <svg class="shrink-0 transition-transform group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
             ${renderToolIcon('run_subagent')}

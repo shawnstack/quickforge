@@ -43,7 +43,7 @@ function commitMessagePrompt(files: GitChangedFile[]) {
 }
 
 function gitSummary(branch?: string, counts?: GitStatusResponse['counts']) {
-  const parts = [branch || 'Git repository']
+  const parts = [`Current branch: ${branch || 'Unknown branch'}`]
   if (counts?.total) parts.push(`${counts.total} change${counts.total === 1 ? '' : 's'}`)
   return parts.join(' · ')
 }

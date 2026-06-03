@@ -553,6 +553,14 @@ async function resolveCommandState(session, userMessage) {
       commandName: 'plan',
     }
   }
+  if (internalResponse?.review) {
+    return {
+      userMessage,
+      commandPrompt: formatReviewCommandPrompt(internalResponse.args),
+      permissions: { allowEdit: false, allowCommands: true, allowSubagents: false },
+      commandName: 'review',
+    }
+  }
 
   if (!session.projectContext?.workspaceRoot) return { userMessage }
 
@@ -597,6 +605,33 @@ End by telling the user they can reply “允许”, “按计划执行”, or a
 User task:
 ${taskText}
 </plan_command_invocation>`
+}
+
+function formatReviewCommandPrompt(scope) {
+  const scopeText = String(scope || '').trim() || '(none; review the repository changes that appear relevant for a pre-commit check)'
+  return `<review_command_invocation name="review">
+This /review command applies only to the current user request. Perform a pre-commit self-review of the code that is about to be committed.
+
+Rules for this turn:
+- Do not modify files.
+- Do not create files.
+- Do not stage, unstage, commit, tag, push, publish, or otherwise change repository state.
+- Do not use write_file or edit_file.
+- You may use read-only tools and shell commands to inspect the workspace and run validation checks.
+- Do not use subagents; perform the review directly in this turn.
+- Prefer safe inspection commands such as git status, git diff, git diff --cached, and targeted lint/build/test commands.
+- Treat command output as evidence; distinguish confirmed issues from risks or suggestions.
+
+Review checklist:
+1. Identify the changes under review, prioritizing staged changes when present and otherwise unstaged working tree changes.
+2. Look for correctness bugs, regressions, edge cases, missing error handling, security or privacy risks, and unintended side effects.
+3. Check whether tests, lint/build validation, or documentation/wiki updates are needed.
+4. Call out any risky commands that should not be run automatically.
+5. Output a concise review with severity, file/area, evidence, and recommended next steps. If no blocking issues are found, say so clearly.
+
+User review scope or focus:
+${scopeText}
+</review_command_invocation>`
 }
 
 async function runSubagent(parentSession, params, parentSignal, onUpdate) {

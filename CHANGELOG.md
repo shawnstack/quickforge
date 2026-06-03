@@ -6,6 +6,7 @@ All notable changes to QuickForge will be documented in this file.
 
 ### Added
 
+- Added the `/review` command for pre-commit self-review of pending code changes without editing files.
 - Added Vitest-based server utility and tool definition coverage.
 - Added first-use guide and assistant waiting bubble improvements.
 

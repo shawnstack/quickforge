@@ -9,6 +9,7 @@
 import type {
   AgentInterfaceElement,
   MessageEditorElement,
+  CommandTextareaElement,
   MessageWithUsage,
   QuickForgeActionButton,
   ComposerDraft,
@@ -30,6 +31,8 @@ const rollbackIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height=
 const forkIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/><path d="M12 12v3"/></svg>'
 const runIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>'
 const retryIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15.36-5.64L21 9"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15.36 5.64L3 15"/></svg>'
+const planIcon = '<svg class="quickforge-plan-mode-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h1"/><path d="M4 12h1"/><path d="M4 18h1"/><path d="M9 6h11"/><path d="M9 12h11"/><path d="M9 18h11"/></svg>'
+const removePlanIcon = '<svg class="quickforge-plan-remove-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>'
 
 // --- Shared helpers ---
 
@@ -924,10 +927,13 @@ export type EditorDecorationDeps = {
   isStreaming: () => boolean
   abort: () => void
   yoloMode: boolean
+  planMode: boolean
   workspaceToolsEnabled: boolean
   readOnly: boolean
   allowModelControls: boolean
   onToggleYoloMode: () => void
+  onTogglePlanMode: () => void
+  onPlanModeSent: () => void
   onInput: (value: string) => void
   onFilesChange: (files: unknown[]) => void
   removeCommandSuggestions: () => void
@@ -954,7 +960,7 @@ function decorateModelButtonLabel(editor: MessageEditorElement | null, rightCont
   const modelState = editor as (MessageEditorElement & EditorModelState) | null
   const model = modelState?.currentModel
   rightControls.querySelector<HTMLElement>('[data-quickforge-thinking-badge]')?.remove()
-  const modelButton = Array.from(rightControls.querySelectorAll<HTMLButtonElement>('button:not(.quickforge-yolo-inline)'))
+  const modelButton = Array.from(rightControls.querySelectorAll<HTMLButtonElement>('button:not(.quickforge-yolo-inline):not(.quickforge-plan-inline)'))
     .find((button) => Boolean(model?.id && button.textContent?.includes(model.id)))
   if (!modelButton) return
 
@@ -966,16 +972,44 @@ function decorateModelButtonLabel(editor: MessageEditorElement | null, rightCont
   }
 }
 
+function setupPlanModeControls(
+  editor: MessageEditorElement | null,
+  planMode: boolean,
+  onTogglePlanMode: () => void,
+) {
+  const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
+  if (!textarea) return
+
+  const planTextarea = textarea as CommandTextareaElement
+  if (planTextarea.__quickforgePlanModeHandler) {
+    planTextarea.removeEventListener('keydown', planTextarea.__quickforgePlanModeHandler, true)
+  }
+
+  planTextarea.__quickforgePlanModeHandler = (event: KeyboardEvent) => {
+    if (event.isComposing || event.key === 'Process') return
+    if (event.key !== 'Tab' || !event.shiftKey) return
+    event.preventDefault()
+    event.stopPropagation()
+    event.stopImmediatePropagation()
+    onTogglePlanMode()
+  }
+  planTextarea.addEventListener('keydown', planTextarea.__quickforgePlanModeHandler, true)
+  if (editor) editor.dataset.quickforgePlanMode = String(planMode)
+}
+
 export function decorateEditor(deps: EditorDecorationDeps) {
   const {
     panel,
     isStreaming,
     abort,
     yoloMode,
+    planMode,
     workspaceToolsEnabled,
     readOnly,
     allowModelControls,
     onToggleYoloMode,
+    onTogglePlanMode,
+    onPlanModeSent,
     onInput,
     onFilesChange,
     removeCommandSuggestions,
@@ -1003,9 +1037,26 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     editor.onFilesChange = (attachments) => {
       onFilesChange(attachments ? [...attachments] : [])
     }
+    const currentOnSend = editor.onSend
+    if (currentOnSend && currentOnSend !== editor.__quickforgePlanWrappedOnSend) {
+      editor.__quickforgePlanBaseOnSend = currentOnSend
+    }
+    const baseOnSend = editor.__quickforgePlanBaseOnSend
+    if (baseOnSend) {
+      const wrappedOnSend = (input: string, attachments: unknown[]) => {
+        const rawText = String(input ?? '')
+        const text = rawText.trim()
+        const shouldUsePlanCommand = planMode && text.length > 0 && !text.toLowerCase().startsWith('/plan')
+        if (shouldUsePlanCommand) onPlanModeSent()
+        baseOnSend(shouldUsePlanCommand ? `/plan ${rawText}` : rawText, attachments)
+      }
+      editor.__quickforgePlanWrappedOnSend = wrappedOnSend
+      editor.onSend = wrappedOnSend
+    }
     updateCommandSuggestions()
   }
   setupCommandTextareaHandler(editor)
+  setupPlanModeControls(editor, planMode, onTogglePlanMode)
 
   const agentInterface = panel.querySelector<AgentInterfaceElement>('agent-interface')
   if (agentInterface) {
@@ -1066,7 +1117,55 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     }
   }
 
-  if (!workspaceToolsEnabled || !leftControls) {
+  if (!leftControls) {
+    panel.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')?.remove()
+    panel.querySelector<HTMLButtonElement>('.quickforge-plan-inline')?.remove()
+    return
+  }
+
+  const planModeTitle = t('planModeEnabledTitle')
+  const planModeLabel = `${planIcon}${removePlanIcon}<span>${t('planModeLabel')}</span>`
+  const planModeClass = 'quickforge-plan-inline inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium text-muted-foreground'
+  const handlePlanToggle = (event: Event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onTogglePlanMode()
+  }
+  const handlePlanKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    handlePlanToggle(event)
+  }
+  const existingPlanButton = panel.querySelector<HTMLButtonElement>('.quickforge-plan-inline')
+  const syncPlanButton = (planButton: HTMLButtonElement) => {
+    patchContent(planButton, planModeLabel)
+    planButton.title = planModeTitle
+    planButton.setAttribute('aria-label', planModeTitle)
+    planButton.setAttribute('aria-pressed', String(planMode))
+    planButton.className = planModeClass
+    planButton.onpointerdown = handlePlanToggle
+    planButton.onclick = (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+    }
+    planButton.onkeydown = handlePlanKeyDown
+  }
+  if (!planMode) {
+    existingPlanButton?.remove()
+  } else if (existingPlanButton) {
+    syncPlanButton(existingPlanButton)
+  } else {
+    const planButton = document.createElement('button')
+    planButton.type = 'button'
+    syncPlanButton(planButton)
+    const yoloButton = leftControls.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')
+    if (yoloButton) {
+      leftControls.insertBefore(planButton, yoloButton.nextSibling)
+    } else {
+      leftControls.append(planButton)
+    }
+  }
+
+  if (!workspaceToolsEnabled) {
     panel.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')?.remove()
     return
   }
@@ -1108,6 +1207,10 @@ export function decorateEditor(deps: EditorDecorationDeps) {
       event.stopPropagation()
     }
     existingButton.onkeydown = handleYoloKeyDown
+    const planButton = leftControls.querySelector<HTMLButtonElement>('.quickforge-plan-inline')
+    if (planButton && existingButton.nextSibling !== planButton) {
+      leftControls.insertBefore(planButton, existingButton.nextSibling)
+    }
     return
   }
 
@@ -1125,6 +1228,8 @@ export function decorateEditor(deps: EditorDecorationDeps) {
   }
   button.onkeydown = handleYoloKeyDown
   leftControls.append(button)
+  const planButton = leftControls.querySelector<HTMLButtonElement>('.quickforge-plan-inline')
+  if (planButton) leftControls.insertBefore(planButton, button.nextSibling)
 }
 
 // --- Draft helpers (operate on a draft Map) ---

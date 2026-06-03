@@ -149,7 +149,7 @@ export function createCommandSuggestions({
       }
       if (event.key !== 'Tab') return
       const currentText = editor?.value ?? commandTextarea.value ?? ''
-      if (!currentText.startsWith('/')) return
+      if (!currentText.startsWith('/') || event.shiftKey) return
       const command = selectedCommandFromSuggestions()
       if (!command) return
       event.preventDefault()

@@ -31,6 +31,7 @@ import type {
 } from '@/lib/types'
 import { sessionTitle } from '@/lib/types'
 import { ChatPanelHost } from '@/components/chat/ChatPanelHost'
+import type { ContextUsageDisplayInfo } from '@/components/chat/context-usage'
 import { FirstUseGuideCard } from '@/components/chat/FirstUseGuideCard'
 import { ModelSetupEmptyState } from '@/components/chat/ModelSetupEmptyState'
 import { ChatSidebar } from '@/components/sidebar/ChatSidebar'
@@ -138,6 +139,7 @@ function MainApp() {
   const [workspacePage, setWorkspacePage] = useState<WorkspacePage>('chat')
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState<PendingTerminalCommand | null>(null)
+  const [currentSessionHoverInfo, setCurrentSessionHoverInfo] = useState<(ContextUsageDisplayInfo & { sessionId?: string }) | undefined>()
   const terminalCommandIdRef = useRef(0)
   const [storage, setStorage] = useState<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
   const { toasts, handleTaskComplete, addToast, dismissToast } = useTaskToasts()
@@ -188,6 +190,10 @@ function MainApp() {
   }, [activeProject])
 
   useEffect(() => { crossTabRef.current = crossTab }, [crossTab])
+
+  const handleContextUsageDisplayChange = useCallback((sessionId: string, info: ContextUsageDisplayInfo) => {
+    setCurrentSessionHoverInfo({ sessionId, ...info })
+  }, [])
 
   // --- Agent manager ---
   const agentManager = useAgentManager({
@@ -712,6 +718,7 @@ function MainApp() {
         onOpenAgentProfiles={() => setWorkspacePage('agentProfiles')}
         onOpenSettings={openDefaultOptionsSettings}
         onToggleSidebar={() => ui.setSidebarOpen((value) => !value)}
+        currentSessionHoverInfo={currentSessionHoverInfo}
       />
 
       {ui.mobileSidebarOpen ? (
@@ -778,6 +785,7 @@ function MainApp() {
                 openDefaultOptionsSettings()
               }}
               onToggleSidebar={closeMobileSidebar}
+              currentSessionHoverInfo={currentSessionHoverInfo}
             />
           </div>
         </div>
@@ -911,6 +919,7 @@ function MainApp() {
                       onRejectAutoCompact={handleRejectAutoCompact}
                       onOpenWorkspaceGitChanges={openWorkspaceGitChanges}
                       onOpenLocalFilePath={openLocalFilePathFromChat}
+                      onContextUsageDisplayChange={handleContextUsageDisplayChange}
                       disableFork={false}
                       restoredDraft={restoredDraft}
                     />

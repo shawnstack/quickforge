@@ -38,6 +38,18 @@ type ContextUsageOptions = {
   getServerContextUsage?: () => ServerContextUsageInfo | null | undefined
   getGitBranch?: () => string | undefined
   onGitBranchClick?: () => void
+  renderInline?: boolean
+  onDisplayChange?: (info: ContextUsageDisplayInfo) => void
+}
+
+export type ContextUsageDisplayInfo = {
+  gitBranch?: string
+  context?: {
+    percent: number
+    color: string
+    label: string
+    title: string
+  }
 }
 
 function usageColor(percent: number) {
@@ -108,17 +120,25 @@ const gitBranchIcon = renderToStaticMarkup(createElement(GitBranch, {
   style: { flex: '0 0 auto' },
 }))
 
-export function createContextUsageIndicator({ panel, getSystemPrompt, getMessages, getContextWindow, getTools, getMaxTokens, getEffectiveMessages, getServerContextUsage, getGitBranch, onGitBranchClick }: ContextUsageOptions) {
+export function createContextUsageIndicator({ panel, getSystemPrompt, getMessages, getContextWindow, getTools, getMaxTokens, getEffectiveMessages, getServerContextUsage, getGitBranch, onGitBranchClick, renderInline = true, onDisplayChange }: ContextUsageOptions) {
   const update = () => {
     const contextWindow = getContextWindow()
     const visibleMessages = getMessages()
     const effectiveMessages = getEffectiveMessages?.() ?? visibleMessages
     const existing = panel.querySelector<HTMLElement>('.quickforge-context-usage')
+    const existingLabel = panel.querySelector<HTMLElement>('.quickforge-context-usage-label')
     const existingGitBranch = panel.querySelector<HTMLElement>('.quickforge-git-branch-inline')
-    const statsRight = panel.querySelector('message-editor')?.parentElement?.querySelector<HTMLElement>('.ml-auto.items-center')
+    const statsRight = renderInline
+      ? panel.querySelector('message-editor')?.parentElement?.querySelector<HTMLElement>('.ml-auto.items-center')
+      : null
+    const gitBranch = getGitBranch?.()?.trim() || undefined
+    const displayInfo: ContextUsageDisplayInfo = { gitBranch }
 
-    const gitBranch = getGitBranch?.()?.trim()
-    if (gitBranch && statsRight) {
+    if (!renderInline) {
+      existingGitBranch?.remove()
+      existing?.remove()
+      existingLabel?.remove()
+    } else if (gitBranch && statsRight) {
       const gitBranchLabel = `${gitBranchIcon}<span style="max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(gitBranch)}</span>`
       const gitBranchTitle = `Git branch: ${gitBranch}`
       if (existingGitBranch) {
@@ -153,10 +173,13 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
       existingGitBranch?.remove()
     }
 
-    if (!contextWindow || !statsRight) {
-      existing?.remove()
-      panel.querySelector<HTMLElement>('.quickforge-context-usage-label')?.remove()
-      return
+    if (!contextWindow) {
+      if (renderInline) {
+        existing?.remove()
+        existingLabel?.remove()
+      }
+      onDisplayChange?.(displayInfo)
+      return displayInfo
     }
 
     const serverUsage = getServerContextUsage?.()
@@ -181,6 +204,20 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
     const isCompacted = effectiveMessages !== visibleMessages
     const inputLabel = usage.inputTokenSource === 'provider' ? 'provider input' : 'estimated input'
     const title = `Context used: ${usage.percent}% (${formatTokens(usage.totalTokens)} / ${formatTokens(displayContextWindow)} tokens, ${inputLabel} ${formatTokens(usage.inputTokens)}, estimated input ${formatTokens(usage.estimatedInputTokens)}, reserved output ${formatTokens(usage.reservedOutputTokens)}${serverUsage ? ', server calculated' : ''}${isCompacted ? ', compacted model context' : ''})`
+    displayInfo.context = {
+      percent: usage.percent,
+      color: usage.color,
+      label: `${usage.percent}% · ${formatTokens(usage.totalTokens)} / ${formatTokens(displayContextWindow)} tokens`,
+      title,
+    }
+    onDisplayChange?.(displayInfo)
+
+    if (!renderInline || !statsRight) {
+      existing?.remove()
+      existingLabel?.remove()
+      return displayInfo
+    }
+
     const ringPercent = Math.min(100, Math.max(0, usage.percent))
     const ring = `conic-gradient(${usage.color} ${ringPercent * 3.6}deg, rgb(229 231 235) 0deg)`
     const icon = existing ?? document.createElement('span')
@@ -224,6 +261,8 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
     } else if (icon.nextElementSibling !== label) {
       icon.after(label)
     }
+
+    return displayInfo
   }
 
   return { update }

@@ -21,6 +21,8 @@ import {
   Settings,
   Sparkles,
   Trash2,
+  GitBranch,
+  Gauge,
 } from 'lucide-react'
 import {
   DndContext,
@@ -87,6 +89,15 @@ type ChatSidebarProps = {
   onOpenAgentProfiles: () => void
   onOpenSettings: () => void
   onToggleSidebar: () => void
+  currentSessionHoverInfo?: {
+    sessionId?: string
+    gitBranch?: string
+    context?: {
+      color: string
+      label: string
+      title: string
+    }
+  }
 }
 
 const minuteMs = 60 * 1000
@@ -175,6 +186,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   onOpenAgentProfiles,
   onOpenSettings,
   onToggleSidebar,
+  currentSessionHoverInfo,
 }: ChatSidebarProps) {
   const sectionHeaderClass = 'mb-1 flex w-full items-center gap-1 rounded-lg px-2 py-1 text-sm font-medium leading-5 text-muted-foreground/72 transition-colors hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)]'
   const sectionToggleClass = 'flex min-w-0 flex-1 items-center gap-1 text-left transition-colors hover:text-foreground/80'
@@ -205,11 +217,17 @@ export const ChatSidebar = memo(function ChatSidebar({
   const timeClass = 'shrink-0 text-[11px] leading-4 text-muted-foreground/55 transition-opacity duration-160'
   const searchDialogClass = 'fixed inset-0 z-50 flex items-start justify-center bg-background/50 px-4 pt-[12vh] backdrop-blur-sm'
   const projectMenuClass = 'absolute right-0 top-8 z-30 min-w-48 rounded-lg border border-border bg-card p-1 shadow-xl'
+  const sessionHoverTipClass = 'pointer-events-none fixed z-50 w-[min(24rem,calc(100vw-1rem))] max-w-sm rounded-2xl border border-border bg-card px-4 py-3 text-left shadow-xl'
+  const sessionHoverTipMetaClass = 'mt-2 flex items-center gap-2 text-sm leading-5 text-muted-foreground/72'
   const isMobile = variant === 'mobile'
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [projectMenuId, setProjectMenuId] = useState<string | null>(null)
   const [suppressedSessionActionsId, setSuppressedSessionActionsId] = useState<string | null>(null)
+  const [confirmingDeleteSessionId, setConfirmingDeleteSessionId] = useState<string | null>(null)
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
+  const [hoveredSessionTip, setHoveredSessionTip] = useState<{ sessionId: string; x: number; y: number } | null>(null)
+  const deleteAnimationTimeoutRef = useRef<number | null>(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -257,11 +275,48 @@ export const ChatSidebar = memo(function ChatSidebar({
     setSearchOpen(false)
     setSearchQuery('')
   }
+  const showSessionHoverTip = (event: React.MouseEvent<HTMLElement>, sessionId: string) => {
+    if (isMobile) return
+    const rect = event.currentTarget.getBoundingClientRect()
+    setHoveredSessionTip({
+      sessionId,
+      x: Math.max(8, Math.min(rect.right + 8, window.innerWidth - 392)),
+      y: rect.top + rect.height / 2,
+    })
+  }
+  const hideSessionHoverTip = (sessionId: string) => {
+    setHoveredSessionTip((current) => current?.sessionId === sessionId ? null : current)
+  }
   const toggleSessionPinFromActions = (event: React.MouseEvent<HTMLButtonElement>, sessionId: string) => {
     event.currentTarget.blur()
     setSuppressedSessionActionsId(sessionId)
     onTogglePinSession(sessionId)
   }
+  const requestDeleteSession = (event: React.MouseEvent<HTMLButtonElement>, sessionId: string) => {
+    event.stopPropagation()
+    event.currentTarget.blur()
+    setConfirmingDeleteSessionId(sessionId)
+  }
+  const confirmDeleteSession = (event: React.MouseEvent<HTMLButtonElement>, sessionId: string) => {
+    event.stopPropagation()
+    setConfirmingDeleteSessionId(null)
+    setDeletingSessionId(sessionId)
+    hideSessionHoverTip(sessionId)
+    if (deleteAnimationTimeoutRef.current !== null) {
+      window.clearTimeout(deleteAnimationTimeoutRef.current)
+    }
+    deleteAnimationTimeoutRef.current = window.setTimeout(() => {
+      deleteAnimationTimeoutRef.current = null
+      onDeleteSession(sessionId)
+      setDeletingSessionId((current) => current === sessionId ? null : current)
+    }, 320)
+  }
+
+  useEffect(() => () => {
+    if (deleteAnimationTimeoutRef.current !== null) {
+      window.clearTimeout(deleteAnimationTimeoutRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     if (!projectMenuId) return
@@ -519,11 +574,19 @@ export const ChatSidebar = memo(function ChatSidebar({
                                         {projectSessions.map((session) => {
                                           const selected = currentSessionId === session.id
                                           const actionsSuppressed = suppressedSessionActionsId === session.id
+                                          const deleting = deletingSessionId === session.id
                                           return (
                                             <div
                                               key={session.id}
-                                              className={cn(rowClass, 'gap-1', selected ? activeRowClass : sessionInactiveRowClass)}
-                                              onMouseLeave={() => setSuppressedSessionActionsId((current) => current === session.id ? null : current)}
+                                              className={cn(rowClass, 'gap-1', selected ? activeRowClass : sessionInactiveRowClass, deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-300 ease-in')}
+                                              onMouseEnter={(event) => showSessionHoverTip(event, session.id)}
+                                              onMouseLeave={() => {
+                                                setSuppressedSessionActionsId((current) => current === session.id ? null : current)
+                                                if (!deleting) {
+                                                  setConfirmingDeleteSessionId((current) => current === session.id ? null : current)
+                                                }
+                                                hideSessionHoverTip(session.id)
+                                              }}
                                             >
                                               <button className={sessionButtonClass} type="button" onClick={() => onLoadSession(session.id)}>
                                                 <div className={sessionTitleRowClass}>
@@ -547,33 +610,48 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                 <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{formatSessionTime(session.lastModified)}</span>
                                               </button>
                                               <div className={cn(actionOverlayClass, actionsSuppressed && 'hidden')}>
-                                                <Button
-                                                  variant="ghost"
-                                                  size="icon"
-                                                  className={overlayIconButtonClass}
-                                                  onClick={(event) => toggleSessionPinFromActions(event, session.id)}
-                                                  aria-label={session.pinnedAt ? t('unpinSession') : t('pinSession')}
-                                                >
-                                                  <Pin className="size-3.5" />
-                                                </Button>
-                                                <Button
-                                                  variant="ghost"
-                                                  size="icon"
-                                                  className={overlayIconButtonClass}
-                                                  onClick={() => onRenameSession(session.id, session.title)}
-                                                  aria-label={t('renameSession')}
-                                                >
-                                                  <Pencil className="size-3.5" />
-                                                </Button>
-                                                <Button
-                                                  variant="ghost"
-                                                  size="icon"
-                                                  className={overlayDangerIconButtonClass}
-                                                  onClick={() => onDeleteSession(session.id)}
-                                                  aria-label={t('deleteSession')}
-                                                >
-                                                  <Trash2 className="size-3.5" />
-                                                </Button>
+                                                {confirmingDeleteSessionId === session.id ? (
+                                                  <Button
+                                                    variant="destructive"
+                                                    size="sm"
+                                                    className="h-6 rounded-full px-2 text-xs"
+                                                    onClick={(event) => confirmDeleteSession(event, session.id)}
+                                                    aria-label={t('confirmDelete')}
+                                                    title={t('confirmDelete')}
+                                                  >
+                                                    {t('confirm')}
+                                                  </Button>
+                                                ) : (
+                                                  <>
+                                                    <Button
+                                                      variant="ghost"
+                                                      size="icon"
+                                                      className={overlayIconButtonClass}
+                                                      onClick={(event) => toggleSessionPinFromActions(event, session.id)}
+                                                      aria-label={session.pinnedAt ? t('unpinSession') : t('pinSession')}
+                                                    >
+                                                      <Pin className="size-3.5" />
+                                                    </Button>
+                                                    <Button
+                                                      variant="ghost"
+                                                      size="icon"
+                                                      className={overlayIconButtonClass}
+                                                      onClick={() => onRenameSession(session.id, session.title)}
+                                                      aria-label={t('renameSession')}
+                                                    >
+                                                      <Pencil className="size-3.5" />
+                                                    </Button>
+                                                    <Button
+                                                      variant="ghost"
+                                                      size="icon"
+                                                      className={overlayDangerIconButtonClass}
+                                                      onClick={(event) => requestDeleteSession(event, session.id)}
+                                                      aria-label={t('deleteSession')}
+                                                    >
+                                                      <Trash2 className="size-3.5" />
+                                                    </Button>
+                                                  </>
+                                                )}
                                               </div>
                                             </div>
                                           )
@@ -629,11 +707,19 @@ export const ChatSidebar = memo(function ChatSidebar({
                       {globalSessions.map((session) => {
                         const selected = currentSessionId === session.id
                         const actionsSuppressed = suppressedSessionActionsId === session.id
+                        const deleting = deletingSessionId === session.id
                         return (
                           <div
                             key={session.id}
-                            className={cn(rowClass, selected ? activeRowClass : sessionInactiveRowClass)}
-                            onMouseLeave={() => setSuppressedSessionActionsId((current) => current === session.id ? null : current)}
+                            className={cn(rowClass, selected ? activeRowClass : sessionInactiveRowClass, deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-300 ease-in')}
+                            onMouseEnter={(event) => showSessionHoverTip(event, session.id)}
+                            onMouseLeave={() => {
+                              setSuppressedSessionActionsId((current) => current === session.id ? null : current)
+                              if (!deleting) {
+                                setConfirmingDeleteSessionId((current) => current === session.id ? null : current)
+                              }
+                              hideSessionHoverTip(session.id)
+                            }}
                           >
                             <button className={sessionButtonClass} type="button" onClick={() => onLoadSession(session.id)}>
                               <div className={sessionTitleRowClass}>
@@ -657,33 +743,48 @@ export const ChatSidebar = memo(function ChatSidebar({
                               <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{formatSessionTime(session.lastModified)}</span>
                             </button>
                             <div className={cn(actionOverlayClass, actionsSuppressed && 'hidden')}>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className={overlayIconButtonClass}
-                                onClick={(event) => toggleSessionPinFromActions(event, session.id)}
-                                aria-label={session.pinnedAt ? t('unpinSession') : t('pinSession')}
-                              >
-                                <Pin className="size-3.5" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className={overlayIconButtonClass}
-                                onClick={() => onRenameSession(session.id, session.title)}
-                                aria-label={t('renameSession')}
-                              >
-                                <Pencil className="size-3.5" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className={overlayDangerIconButtonClass}
-                                onClick={() => onDeleteSession(session.id)}
-                                aria-label={t('deleteSession')}
-                              >
-                                <Trash2 className="size-4" />
-                              </Button>
+                              {confirmingDeleteSessionId === session.id ? (
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  className="h-6 rounded-full px-2 text-xs"
+                                  onClick={(event) => confirmDeleteSession(event, session.id)}
+                                  aria-label={t('confirmDelete')}
+                                  title={t('confirmDelete')}
+                                >
+                                  {t('confirm')}
+                                </Button>
+                              ) : (
+                                <>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className={overlayIconButtonClass}
+                                    onClick={(event) => toggleSessionPinFromActions(event, session.id)}
+                                    aria-label={session.pinnedAt ? t('unpinSession') : t('pinSession')}
+                                  >
+                                    <Pin className="size-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className={overlayIconButtonClass}
+                                    onClick={() => onRenameSession(session.id, session.title)}
+                                    aria-label={t('renameSession')}
+                                  >
+                                    <Pencil className="size-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className={overlayDangerIconButtonClass}
+                                    onClick={(event) => requestDeleteSession(event, session.id)}
+                                    aria-label={t('deleteSession')}
+                                  >
+                                    <Trash2 className="size-4" />
+                                  </Button>
+                                </>
+                              )}
                             </div>
                           </div>
                         )
@@ -715,6 +816,33 @@ export const ChatSidebar = memo(function ChatSidebar({
           {sidebarOpen ? <span className={sessionTitleClass}>{t('settings')}</span> : null}
         </button>
       </div>
+
+      {hoveredSessionTip ? (() => {
+        const session = searchableSessions.find((item) => item.session.id === hoveredSessionTip.sessionId)?.session
+        if (!session) return null
+        const showRuntimeInfo = currentSessionHoverInfo?.sessionId === session.id
+        return (
+          <div
+            className={sessionHoverTipClass}
+            style={{ left: hoveredSessionTip.x, top: hoveredSessionTip.y, transform: 'translateY(-50%)' }}
+          >
+            <div className="truncate text-sm font-medium leading-5 text-foreground/92">{sessionTitle(session.title)}</div>
+            {showRuntimeInfo && currentSessionHoverInfo?.gitBranch ? (
+              <div className={sessionHoverTipMetaClass}>
+                <GitBranch className="size-4 shrink-0 text-muted-foreground/60" />
+                <span className="truncate">{currentSessionHoverInfo.gitBranch}</span>
+              </div>
+            ) : null}
+            {showRuntimeInfo && currentSessionHoverInfo?.context ? (
+              <div className={sessionHoverTipMetaClass} title={currentSessionHoverInfo.context.title}>
+                <Gauge className="size-4 shrink-0 text-muted-foreground/60" />
+                <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: currentSessionHoverInfo.context.color }} />
+                <span className="truncate">{currentSessionHoverInfo.context.label}</span>
+              </div>
+            ) : null}
+          </div>
+        )
+      })() : null}
 
       {searchOpen ? (
         <div className={searchDialogClass} role="dialog" aria-modal="true" onMouseDown={() => setSearchOpen(false)}>

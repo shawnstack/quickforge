@@ -525,7 +525,8 @@ streaming-message-container > div:has(> span.animate-pulse:only-child) {
   transform: translateY(-1px);
 }
 
-.quickforge-composer .quickforge-yolo-inline {
+.quickforge-composer .quickforge-yolo-inline,
+.quickforge-composer .quickforge-plan-inline {
   height: 2rem;
   border: 1px solid color-mix(in oklab, var(--border) 70%, transparent) !important;
   border-radius: 999px !important;
@@ -536,6 +537,26 @@ streaming-message-container > div:has(> span.animate-pulse:only-child) {
   border-color: color-mix(in oklab, rgb(16 185 129) 45%, transparent) !important;
   background: color-mix(in oklab, rgb(16 185 129) 14%, transparent) !important;
   color: rgb(5 150 105) !important;
+}
+
+.quickforge-composer .quickforge-plan-inline[aria-pressed="true"] {
+  border-color: color-mix(in oklab, var(--border) 70%, transparent) !important;
+  background: color-mix(in oklab, var(--muted) 42%, transparent) !important;
+  color: color-mix(in oklab, var(--muted-foreground) 92%, transparent) !important;
+}
+
+.quickforge-composer .quickforge-plan-inline .quickforge-plan-remove-icon {
+  display: none;
+}
+
+.quickforge-composer .quickforge-plan-inline:hover .quickforge-plan-mode-icon,
+.quickforge-composer .quickforge-plan-inline:focus-visible .quickforge-plan-mode-icon {
+  display: none;
+}
+
+.quickforge-composer .quickforge-plan-inline:hover .quickforge-plan-remove-icon,
+.quickforge-composer .quickforge-plan-inline:focus-visible .quickforge-plan-remove-icon {
+  display: block;
 }
 
 .quickforge-composer .quickforge-yolo-inline {

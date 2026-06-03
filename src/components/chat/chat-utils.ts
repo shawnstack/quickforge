@@ -13,7 +13,10 @@ export type MessageEditorElement = HTMLElement & {
   value?: string
   attachments?: unknown[]
   onInput?: (value: string) => void
+  onSend?: (input: string, attachments: unknown[]) => void
   onFilesChange?: (files: unknown[]) => void
+  __quickforgePlanBaseOnSend?: (input: string, attachments: unknown[]) => void
+  __quickforgePlanWrappedOnSend?: (input: string, attachments: unknown[]) => void
 }
 
 export type CommandSuggestionElement = HTMLDivElement & {
@@ -22,6 +25,7 @@ export type CommandSuggestionElement = HTMLDivElement & {
 
 export type CommandTextareaElement = HTMLTextAreaElement & {
   __quickforgeCommandCompleteHandler?: (event: KeyboardEvent) => void
+  __quickforgePlanModeHandler?: (event: KeyboardEvent) => void
 }
 
 export type AgentInterfaceElement = HTMLElement & {

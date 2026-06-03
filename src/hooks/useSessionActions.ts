@@ -3,7 +3,6 @@ import type { AgentManager } from '@/hooks/useAgentManager'
 import type { QuickForgeSessionData, QuickForgeSessionMetadata } from '@/lib/types'
 import { initializePiStorage } from '@/lib/pi-chat'
 import { t } from '@/lib/i18n'
-import { showConfirm } from '@/components/ui/confirm-dialog'
 import { showPrompt } from '@/components/ui/prompt-dialog'
 
 type UseSessionActionsOptions = {
@@ -72,13 +71,6 @@ export function useSessionActions({
   const deleteSession = useCallback(async (sessionId: string) => {
     const storage = storageRef.current
     if (!storage) return
-    const confirmed = await showConfirm({
-      title: t('deleteSession'),
-      description: t('deleteSessionConfirm'),
-      confirmLabel: t('confirmDelete'),
-      cancelLabel: t('cancel'),
-    })
-    if (!confirmed) return
     const task = taskMapRef.current.get(sessionId)
     task?.unsubscribe()
     task?.agent.dispose()

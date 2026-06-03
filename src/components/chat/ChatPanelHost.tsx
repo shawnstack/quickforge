@@ -12,7 +12,7 @@ import type { ComposerDraft, CustomCommandSummary, MessageWithUsage } from './ch
 import { emptyDraft, hasDraft } from './chat-utils'
 import { createScrollSync } from './scroll-sync'
 import { createCommandSuggestions } from './command-suggestions'
-import { createContextUsageIndicator } from './context-usage'
+import { createContextUsageIndicator, type ContextUsageDisplayInfo } from './context-usage'
 import { decorateMessages, decorateEditor, captureComposerDraft, readComposerDraft, restoreComposerDraft, injectApprovalCard, removeApprovalCard, syncAssistantWaitingBubble, syncContextCompactionNotice } from './panel-decoration'
 import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
@@ -65,6 +65,7 @@ type ChatPanelHostProps = {
   onRejectAutoCompact?: (approvalId: string) => Promise<void> | void
   onOpenWorkspaceGitChanges?: () => void
   onOpenLocalFilePath?: (path: string) => void
+  onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
   restoredDraft?: RestoredDraft
   disableFork?: boolean
   readOnly?: boolean
@@ -83,14 +84,18 @@ type PropsRef = {
   onRetryFromMessage: (messageIndex: number) => void
   onForkFromMessage: (messageIndex: number) => void
   onToggleYoloMode: () => void
+  onTogglePlanMode: () => void
+  onPlanModeSent: () => void
   onApproveToolCall: (toolCallId: string) => Promise<void> | void
   onRejectToolCall: (toolCallId: string) => Promise<void> | void
   onApproveAutoCompact?: (approvalId: string) => Promise<void> | void
   onRejectAutoCompact?: (approvalId: string) => Promise<void> | void
   onOpenWorkspaceGitChanges?: () => void
   onOpenLocalFilePath?: (path: string) => void
+  onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
   onModelSelect?: () => void
   yoloMode: boolean
+  planMode: boolean
   workspaceToolsEnabled: boolean
   disableFork: boolean
   readOnly: boolean
@@ -120,6 +125,7 @@ export function ChatPanelHost({
   onRejectAutoCompact,
   onOpenWorkspaceGitChanges,
   onOpenLocalFilePath,
+  onContextUsageDisplayChange,
   restoredDraft,
   disableFork = false,
   readOnly = false,
@@ -136,6 +142,9 @@ export function ChatPanelHost({
   const consumedRestoredDraftIdsRef = useRef<Set<number>>(new Set())
   const saveDraftTimerRef = useRef<number | undefined>(undefined)
   const [gitBranch, setGitBranch] = useState<string>()
+  const [planMode, setPlanMode] = useState(false)
+  const togglePlanMode = useCallback(() => setPlanMode((mode) => !mode), [])
+  const clearPlanMode = useCallback(() => setPlanMode(false), [])
 
   const cancelPendingDraftSave = useCallback(() => {
     if (!saveDraftTimerRef.current) return
@@ -202,14 +211,18 @@ export function ChatPanelHost({
     onRetryFromMessage,
     onForkFromMessage,
     onToggleYoloMode,
+    onTogglePlanMode: togglePlanMode,
+    onPlanModeSent: clearPlanMode,
     onApproveToolCall,
     onRejectToolCall,
     onApproveAutoCompact,
     onRejectAutoCompact,
     onOpenWorkspaceGitChanges,
     onOpenLocalFilePath,
+    onContextUsageDisplayChange,
     onModelSelect,
     yoloMode,
+    planMode,
     workspaceToolsEnabled,
     disableFork,
     readOnly,
@@ -227,14 +240,18 @@ export function ChatPanelHost({
       onRetryFromMessage,
       onForkFromMessage,
       onToggleYoloMode,
+      onTogglePlanMode: togglePlanMode,
+      onPlanModeSent: clearPlanMode,
       onApproveToolCall,
       onRejectToolCall,
       onApproveAutoCompact,
       onRejectAutoCompact,
       onOpenWorkspaceGitChanges,
       onOpenLocalFilePath,
+      onContextUsageDisplayChange,
       onModelSelect,
       yoloMode,
+      planMode,
       workspaceToolsEnabled,
       disableFork,
       readOnly,
@@ -343,6 +360,7 @@ export function ChatPanelHost({
     if (!hostRef.current || !agent) return
 
     const panel = new ChatPanel()
+    setPlanMode(false)
     const sessionId = agent.sessionId
     const currentDraftKey = draftKeyRef.current
     const currentDraftContext = draftContextRef.current
@@ -381,6 +399,8 @@ export function ChatPanelHost({
       getServerContextUsage: () => (agent as AgentWithContextCompaction).state.contextUsage ?? null,
       getGitBranch: () => propsRef.current.gitBranch,
       onGitBranchClick: () => propsRef.current.onOpenWorkspaceGitChanges?.(),
+      renderInline: false,
+      onDisplayChange: (info) => propsRef.current.onContextUsageDisplayChange?.(agent.sessionId, info),
     })
 
     // --- Composer input/file-change handlers (update draft map) ---
@@ -452,10 +472,13 @@ export function ChatPanelHost({
           isStreaming: () => agent.state.isStreaming,
           abort: () => agent.abort(),
           yoloMode: props.yoloMode,
+          planMode: props.planMode,
           workspaceToolsEnabled: props.workspaceToolsEnabled,
           readOnly: props.readOnly,
           allowModelControls: props.allowModelControls,
           onToggleYoloMode: props.onToggleYoloMode,
+          onTogglePlanMode: props.onTogglePlanMode,
+          onPlanModeSent: props.onPlanModeSent,
           onInput: handleEditorInput,
           onFilesChange: handleEditorFilesChange,
           removeCommandSuggestions: cmdSuggestions.remove,
@@ -721,7 +744,7 @@ export function ChatPanelHost({
     // 外部对 state.model 的直接赋值，需要手动触发重渲染才能刷新模型名称等 UI。
     const ai = hostRef.current?.querySelector('agent-interface') as { requestUpdate?: () => void } | null
     ai?.requestUpdate?.()
-  }, [yoloMode, workspaceToolsEnabled, gitBranch, disableFork, readOnly, allowModelControls, revision])
+  }, [yoloMode, planMode, workspaceToolsEnabled, gitBranch, disableFork, readOnly, allowModelControls, revision])
 
   // Draft restoration trigger
   useEffect(() => {

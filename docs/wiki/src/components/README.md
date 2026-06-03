@@ -49,7 +49,7 @@ components/
 
 - 核心聊天面板宿主
 - 封装 `@earendil-works/pi-web-ui` 的 `ChatPanel` 组件
-- 集成 YOLO 模式切换、工作区工具渲染、分享对话渲染
+- 集成 YOLO 模式切换、Plan 模式输入态、工作区工具渲染、分享对话渲染
 - 支持本地工具渲染器 (`getLocalWorkspaceTools`)
 - 工具审批卡片会展示 subagent 来源，避免 General 子任务请求写文件/跑命令时与主 Agent 混淆
 - 消息回滚、分叉、复制功能
@@ -98,6 +98,7 @@ components/
 **command-suggestions.ts** (174 行)
 - 聊天输入框 "/" 命令建议下拉菜单
 - 支持内置命令（/plan, /compact, /clear）和项目级自定义命令
+- Tab 补全命令；Shift+Tab 保留给 Composer 的 Plan 模式切换
 - 草稿恢复支持
 
 **context-usage.ts** (78 行)
@@ -106,7 +107,8 @@ components/
 
 **panel-decoration.ts** (554 行)
 - 消息操作按钮注入（复制、回滚、分叉）
-- Composer 区域装饰（发送/停止切换、YOLO 按钮、占位符）
+- Composer 区域装饰（发送/停止切换、YOLO 按钮、Plan 按钮、占位符）
+- Plan 按钮和 Shift+Tab 切换前端 Plan 模式；发送时复用 `/plan <任务>` 的单轮计划逻辑
 - 命令绑定和草稿指示器
 
 **scroll-sync.ts** (174 行)

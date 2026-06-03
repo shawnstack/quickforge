@@ -17,6 +17,10 @@
   <a href="#中文">中文</a> · <a href="#english">English</a> · <a href="./docs/user-guide.zh-CN.md">中文教程</a> · <a href="./docs/user-guide.en-US.md">User Guide</a>
 </p>
 
+<p align="center">
+  <img src="./welcome.png" alt="QuickForge welcome screen" width="900" />
+</p>
+
 ---
 
 ## 中文

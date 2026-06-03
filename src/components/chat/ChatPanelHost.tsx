@@ -12,6 +12,7 @@ import type { ComposerDraft, CustomCommandSummary, MessageWithUsage } from './ch
 import { emptyDraft, hasDraft } from './chat-utils'
 import { createScrollSync } from './scroll-sync'
 import { createCommandSuggestions } from './command-suggestions'
+import { createCapabilitySuggestions } from './capability-suggestions'
 import { createContextUsageIndicator, type ContextUsageDisplayInfo } from './context-usage'
 import { decorateMessages, decorateEditor, captureComposerDraft, readComposerDraft, restoreComposerDraft, injectApprovalCard, removeApprovalCard, syncAssistantWaitingBubble, syncContextCompactionNotice } from './panel-decoration'
 import { t } from '@/lib/i18n'
@@ -33,6 +34,10 @@ type AgentWithContextCompaction = AgentLike & {
     contextCompaction?: ServerAgentContextCompaction | null
     contextUsage?: ServerAgentContextUsage | null
   }
+}
+
+type AgentWithCapabilityPrompt = AgentLike & {
+  setNextPromptCapabilities?: (capabilities: unknown[]) => void
 }
 
 function effectiveContextMessages(agent: AgentLike): MessageWithUsage[] {
@@ -387,6 +392,15 @@ export function ChatPanelHost({
       },
     })
 
+    // --- @ capability suggestions subsystem ---
+    const capabilitySuggestions = createCapabilitySuggestions({
+      panel,
+      restoreDraftIntoComposer: (draft) => {
+        restoreComposerDraft(panel, draft, composerDraftsRef.current, currentDraftKey)
+        schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
+      },
+    })
+
     // --- Context usage subsystem ---
     const contextUsage = createContextUsageIndicator({
       panel,
@@ -484,6 +498,13 @@ export function ChatPanelHost({
           removeCommandSuggestions: cmdSuggestions.remove,
           updateCommandSuggestions: cmdSuggestions.update,
           setupCommandTextareaHandler: cmdSuggestions.setupTextareaHandler,
+          removeCapabilitySuggestions: capabilitySuggestions.remove,
+          updateCapabilitySuggestions: capabilitySuggestions.update,
+          setupCapabilityTextareaHandler: capabilitySuggestions.setupTextareaHandler,
+          onBeforeSend: (input) => {
+            const capabilities = capabilitySuggestions.consumeSelectedCapabilities(input)
+            ;(agent as AgentWithCapabilityPrompt).setNextPromptCapabilities?.(capabilities)
+          },
         })
       } catch { /* continue to approval card */ }
 
@@ -723,6 +744,8 @@ export function ChatPanelHost({
       }
       cmdSuggestions.remove()
       cmdSuggestions.cleanupTextareaHandler()
+      capabilitySuggestions.remove()
+      capabilitySuggestions.cleanupTextareaHandler()
       disposed = true
       scrollSync.cleanup()
       scrollSyncRef.current = null

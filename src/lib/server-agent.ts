@@ -247,6 +247,14 @@ export type ServerRollbackResult = {
   }
 }
 
+export type PromptCapabilitySelection = {
+  type: 'plugin' | 'skill' | 'tool' | 'command'
+  pluginName: string
+  name: string
+  label: string
+  description?: string
+}
+
 export class ServerAgent {
   // --- Public state (mutable, AgentInterface-compatible) ---
   state: {
@@ -276,6 +284,7 @@ export class ServerAgent {
   private _syncingThinkingLevel = false
   private pollTimer: ReturnType<typeof setInterval> | null = null
   private refreshPromise: Promise<void> | null = null
+  private nextPromptCapabilities: PromptCapabilitySelection[] = []
 
   /**
    * Monotonically increasing version counter for state writes.
@@ -327,6 +336,10 @@ export class ServerAgent {
     return () => { this.listeners.delete(listener) }
   }
 
+  setNextPromptCapabilities(capabilities: PromptCapabilitySelection[]): void {
+    this.nextPromptCapabilities = Array.isArray(capabilities) ? capabilities.slice(0, 4) : []
+  }
+
   async prompt(input: string | AgentMessage | AgentMessage[]): Promise<void> {
     if (this.disposed) return
 
@@ -342,6 +355,9 @@ export class ServerAgent {
     } else {
       message = input as unknown as Record<string, unknown>
     }
+
+    const selectedCapabilities = this.nextPromptCapabilities
+    this.nextPromptCapabilities = []
 
     // Add to local state immediately for optimistic UI
     const agentMessage = message as unknown as AgentMessage
@@ -364,7 +380,7 @@ export class ServerAgent {
     fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ message: agentMessage }),
+      body: JSON.stringify({ message: agentMessage, selectedCapabilities }),
       signal: controller.signal,
     }).then((response) => {
       clearTimeout(timeoutId)

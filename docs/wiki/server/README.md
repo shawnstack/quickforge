@@ -12,6 +12,7 @@ server/
 ├── storage.mjs               # 文件存储层 (707 行)
 ├── skills.mjs                # Agent Skills 管理和加载 (553 行)
 ├── mcp/                      # MCP Client 配置、连接和工具适配
+├── plugins/                  # 本地插件 manifest、加载和工具适配
 ├── share-store.mjs           # 分享数据存储 (432 行)
 ├── session-utils.mjs         # 会话工具 (102 行)
 ├── system-prompt.mjs         # 系统提示词合成 (91 行)
@@ -110,10 +111,11 @@ server/
 **用途**: Agent Skills 的发现、加载和管理。
 
 **搜索路径**:
-1. `~/.quickforge/skills/` — 用户级全局 skills
-2. `~/.agents/skills/` — 用户级共享 skills
-3. `<workspace>/.ai/skills/` — 项目级 skills
-4. 项目自带 bundled skills
+1. `~/.agents/skills/` — 用户级共享 skills
+2. `~/.quickforge/skills/` — 用户级全局 skills
+3. `<workspace>/.agents/skills/` — 项目级共享 skills
+4. `<workspace>/.quickforge/skills/` — 项目级 QuickForge skills
+5. 启用插件贡献的 `contributes.skills` — 插件打包 skills
 
 **功能**:
 - `listGlobalSkillSummaries()` / `listProjectSkillSummaries()` — 技能列表
@@ -135,6 +137,23 @@ server/
 - 当前支持 `stdio`、`sse` 和 Streamable HTTP (`http`) transport。
 - MCP 工具注入时使用 `mcp__{serverName}__{toolName}` 命名空间，避免和内置工具重名。
 - YOLO 关闭时，MCP 工具调用需要用户审批；YOLO 开启时允许直接调用。
+
+### plugins/ — Agent 能力插件系统
+
+**用途**: 发现本地 QuickForge 插件，并把插件声明的 Agent 能力接入 QuickForge。插件系统定位为 Agent 能力包，而不是传统 IDE UI 插件：未来同一 manifest 会统一承载 Skills、Commands、Hooks、Tools/MCP、Agent/Subagent、LSP、Monitors、Context、Permissions 和 Audit。当前 V1 已落地 `contributes.tools`、静态 `contributes.skills` 和静态 `contributes.commands`。
+
+**核心文件**:
+- `plugins/manifest.mjs` — `plugin.json` 解析、校验、工具命名规范和静态 skills/commands 路径贡献规范；后续扩展更多 capability。
+- `plugins/loader.mjs` — 动态加载插件入口 `index.mjs` / `main` 并调用 `createPlugin(context)`。
+- `plugins/registry.mjs` — 插件搜索、启用状态、配置、工具定义和工具调用转发。
+- `routes/plugins.mjs` — `/api/plugins`、启用/禁用、配置和 reload API。
+
+**行为约束**:
+- 当前 V1 支持 `<quickforge>/plugins`、`~/.quickforge/plugins`、`~/.agents/plugins` 和 `<project>/.quickforge/plugins` 本地目录发现；同名插件优先级为 `project > user > shared-user > builtin`。
+- 插件工具注入时使用 `plugin__{pluginName}__{toolName}` 命名空间。
+- 启用插件贡献的静态 Skills 会自动参与项目 Agent 的 available skills catalog；启用插件贡献的静态 Commands 会自动参与项目 slash command 发现。
+- 首版插件是本地可信 Node.js ESM 代码；manifest 权限目前用于展示和后续强校验，不提供完整沙箱。
+- 详细架构见 `docs/architecture/agent-plugin-system.zh-CN.md` 和 `docs/architecture/plugin-system.zh-CN.md`。
 
 ### terminal/ — 本地交互式终端
 

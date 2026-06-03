@@ -1,0 +1,20 @@
+{
+  "name": "openai-documents",
+  "displayName": "OpenAI Documents",
+  "version": "0.1.0",
+  "description": "Document creation, editing, review, and export workflows for QuickForge agents.",
+  "apiVersion": 1,
+  "quickforgeVersion": ">=1.3.25",
+  "enabledByDefault": true,
+  "contributes": {
+    "skills": "skills",
+    "commands": "commands"
+  },
+  "permissions": {
+    "filesystem": ["read", "workspace-write"],
+    "shell": "approval-required",
+    "network": "disabled",
+    "secrets": "no-secrets",
+    "git": ["read"]
+  }
+}

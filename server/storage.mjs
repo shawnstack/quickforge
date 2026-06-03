@@ -48,6 +48,7 @@ export const stores = new Set([
   'settings',
   'provider-keys',
   'custom-providers',
+  'plugins',
   'sessions',
   'sessions-metadata',
   'scheduled-tasks',
@@ -73,13 +74,14 @@ export function getStoreRevision(storeName) {
   return storeRevisions.get(storeName) || 0
 }
 
-const configStores = new Set(['settings', 'provider-keys', 'custom-providers'])
+const configStores = new Set(['settings', 'provider-keys', 'custom-providers', 'plugins'])
 const sessionStores = new Set(['sessions', 'sessions-metadata'])
 
 const configStoreSections = {
   settings: ['app', 'settings'],
   'provider-keys': ['credentials', 'providerKeys'],
   'custom-providers': ['providers', 'customProviders'],
+  plugins: ['extensions', 'plugins'],
 }
 
 export function getDataDir() {
@@ -149,6 +151,9 @@ function defaultConfig() {
     credentials: {
       providerKeys: {},
     },
+    extensions: {
+      plugins: {},
+    },
     projects: defaultProjectConfig(),
   }
 }
@@ -211,6 +216,13 @@ function normalizeConfig(value) {
         input.credentials?.providerKeys && typeof input.credentials.providerKeys === 'object'
           ? input.credentials.providerKeys
           : base.credentials.providerKeys,
+    },
+    extensions: {
+      ...(input.extensions && typeof input.extensions === 'object' ? input.extensions : {}),
+      plugins:
+        input.extensions?.plugins && typeof input.extensions.plugins === 'object'
+          ? input.extensions.plugins
+          : base.extensions.plugins,
     },
     projects: normalizeProjectConfig(input.projects),
   }

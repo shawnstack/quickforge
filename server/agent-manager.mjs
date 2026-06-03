@@ -5,6 +5,7 @@ import { streamSimpleWithAiHttpLogging } from './ai-http-logger.mjs'
 import { loadSkillToolContext, abortRunningCommand } from './tools/index.mjs'
 import { createSkillTools, workspaceTools } from './tools/definitions.mjs'
 import { createMcpToolDefinitions, isMcpToolName } from './mcp/registry.mjs'
+import { createPluginToolDefinitions, isPluginToolName } from './plugins/registry.mjs'
 import {
   composeSubagentSystemPrompt,
   formatSubagentTask,
@@ -31,7 +32,7 @@ import {
   resolveCustomCommandInvocation,
 } from './custom-commands.mjs'
 import { omitDetailsForLlm, serverConvertToLlm, messageText, lastAssistantText } from './message-converters.mjs'
-import { isPlainObject, mergeQuickForgeTiming, wrapToolDefinition, wrapMcpToolDefinition, sessionSkillsContext } from './tool-wiring.mjs'
+import { isPlainObject, mergeQuickForgeTiming, wrapToolDefinition, wrapMcpToolDefinition, wrapPluginToolDefinition, sessionSkillsContext } from './tool-wiring.mjs'
 import {
   APPROVAL_TIMEOUT_MS,
   commandRestrictedTools,
@@ -71,6 +72,7 @@ async function createServerTools(projectId, projectContext, skillsContext, inclu
     allowedToolNames = null,
     includeSubagentTool = true,
     includeMcpTools = true,
+    includePluginTools = true,
     parentSessionId = null,
   } = options
   const allowedTools = allowedToolNames ? new Set(allowedToolNames) : null
@@ -101,6 +103,11 @@ async function createServerTools(projectId, projectContext, skillsContext, inclu
   if (includeMcpTools) {
     const mcpTools = await createMcpToolDefinitions()
     tools.push(...mcpTools.filter(isAllowed).map((definition) => wrapMcpToolDefinition(definition, toolPermissions)))
+  }
+
+  if (includePluginTools) {
+    const pluginTools = await createPluginToolDefinitions(projectContext)
+    tools.push(...pluginTools.filter(isAllowed).map((definition) => wrapPluginToolDefinition(definition, toolContext, toolPermissions)))
   }
 
   return tools
@@ -840,6 +847,57 @@ function applyActiveCommandPrompt(messages, commandPrompt) {
   return messages
 }
 
+function textFromMessageContent(content) {
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) {
+    return content.filter((block) => block?.type === 'text').map((block) => block.text ?? '').join('\n')
+  }
+  return ''
+}
+
+function selectedCapabilityPrompt(capabilities) {
+  if (!Array.isArray(capabilities) || capabilities.length === 0) return null
+  const normalized = capabilities
+    .filter((capability) => capability && typeof capability === 'object')
+    .map((capability) => ({
+      type: String(capability.type || '').slice(0, 32),
+      pluginName: String(capability.pluginName || '').slice(0, 120),
+      name: String(capability.name || '').slice(0, 120),
+      label: String(capability.label || capability.name || '').slice(0, 160),
+      description: String(capability.description || '').slice(0, 400),
+    }))
+    .filter((capability) => capability.type && capability.pluginName && capability.name)
+    .slice(0, 4)
+  if (normalized.length === 0) return null
+
+  const lines = normalized.map((capability) => {
+    const toolHint = capability.type === 'tool' ? ` Tool name: plugin__${capability.pluginName}__${capability.name}.` : ''
+    const description = capability.description ? ` Description: ${capability.description}` : ''
+    return `- ${capability.label} (${capability.type}, plugin: ${capability.pluginName}, name: ${capability.name}).${toolHint}${description}`
+  }).join('\n')
+
+  return `The user selected the following QuickForge plugin capability mentions for this turn. Treat them as an explicit preference for routing and context. Use the selected capability when relevant, but do not force it if it is unrelated to the actual request.\n\n${lines}`
+}
+
+function applyActiveCapabilityPrompt(messages, capabilityPrompt) {
+  if (!capabilityPrompt) return messages
+
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]
+    if (message?.role !== 'user' && message?.role !== 'user-with-attachments') continue
+
+    const visibleText = textFromMessageContent(message.content)
+    const transformed = messages.slice()
+    transformed[index] = {
+      ...message,
+      content: `${capabilityPrompt}\n\nUser request:\n${visibleText}`,
+    }
+    return transformed
+  }
+
+  return messages
+}
+
 function compactSummaryIndex(messages) {
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]
@@ -878,7 +936,10 @@ async function transformSessionContext(session, messages, signal) {
   }
   const transformedMessages = buildAutoCompactLoopMessages(session, messages)
   session.lastTransformedContextMessages = transformedMessages
-  return applyActiveCommandPrompt(compactedContextMessages(transformedMessages), session?.activeCommandPrompt)
+  return applyActiveCapabilityPrompt(
+    applyActiveCommandPrompt(compactedContextMessages(transformedMessages), session?.activeCommandPrompt),
+    session?.activeCapabilityPrompt,
+  )
 }
 
 export const agentEvents = new EventEmitter()
@@ -1033,7 +1094,7 @@ export async function createAgent(sessionId, config = {}) {
       if (isSkillTool) return undefined
       if (profileToolNames && !profileToolNames.includes(toolName)) return { block: true, reason: `Agent profile ${agentProfile.name} is not allowed to use ${toolName}.` }
       if (toolName === 'run_subagent') return undefined
-      if (isMcpToolName(toolName)) {
+      if (isMcpToolName(toolName) || isPluginToolName(toolName)) {
         if (!currentSession?.yoloMode) return createApprovalPromise(currentSession, toolCallId, toolName, context.args)
         return undefined
       }
@@ -1335,7 +1396,7 @@ export async function rollbackSessionMessages(sessionId, rollbackMessageIndex) {
  * Send a user message to the agent and start the agent loop.
  * Returns immediately; events are streamed via the event bus.
  */
-export async function runPrompt(sessionId, message) {
+export async function runPrompt(sessionId, message, selectedCapabilities = []) {
   let session = agentSessions.get(sessionId)
   if (!session) {
     session = await restoreAgent(sessionId)
@@ -1401,6 +1462,7 @@ export async function runPrompt(sessionId, message) {
   session.activeCommandName = commandState.commandName ?? null
   session.activeCommandPermissions = commandState.permissions ?? null
   session.activeCommandPrompt = commandState.commandPrompt ?? null
+  session.activeCapabilityPrompt = selectedCapabilityPrompt(selectedCapabilities)
 
   // Fire and forget — events come through eventBus
   session.agent.prompt(userMessage).catch((err) => {
@@ -1414,6 +1476,7 @@ export async function runPrompt(sessionId, message) {
     session.activeCommandName = null
     session.activeCommandPermissions = null
     session.activeCommandPrompt = null
+    session.activeCapabilityPrompt = null
   })
 
   return { sessionId, status: session.status }

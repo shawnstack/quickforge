@@ -2,6 +2,8 @@ import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { readStore } from '../storage.mjs'
 import { toolHandlers, loadSkillToolContext } from '../tools/index.mjs'
 import { createSkillTools, workspaceTools } from '../tools/definitions.mjs'
+import { createMcpToolDefinitions } from '../mcp/registry.mjs'
+import { callPluginTool, createPluginToolDefinitions, isPluginToolName } from '../plugins/registry.mjs'
 import { projectContextFromId, readProjectConfig } from '../project-config.mjs'
 
 const directRouteDisabledTools = new Set(['run_subagent'])
@@ -17,7 +19,9 @@ export async function handleGetTools(_req, res) {
     projectSkillNames: activeProject?.skills,
     workspaceRoot: activeProject?.path,
   })
-  sendJson(res, 200, { tools: [...skillTools, ...workspaceTools] })
+  const pluginTools = await createPluginToolDefinitions(activeProject ? { workspaceRoot: activeProject.path, project: activeProject } : null)
+  const mcpTools = await createMcpToolDefinitions()
+  sendJson(res, 200, { tools: [...skillTools, ...workspaceTools, ...mcpTools, ...pluginTools] })
 }
 
 const workspaceToolNames = new Set(workspaceTools.map((tool) => tool.name))
@@ -67,6 +71,13 @@ export async function handleToolApi(req, res, url) {
       })),
     }
     name = decodeSegment(parts[4])
+  }
+
+  if (isPluginToolName(name)) {
+    const params = await readJsonBody(req)
+    const result = await callPluginTool(name, params || {}, context)
+    sendJson(res, 200, result)
+    return
   }
 
   const handler = toolHandlers[name]

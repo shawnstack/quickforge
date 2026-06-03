@@ -1,0 +1,20 @@
+{
+  "name": "openai-presentations",
+  "displayName": "OpenAI Presentations",
+  "version": "0.1.0",
+  "description": "Presentation planning, slide writing, storyboard, and deck review workflows for QuickForge agents.",
+  "apiVersion": 1,
+  "quickforgeVersion": ">=1.3.25",
+  "enabledByDefault": true,
+  "contributes": {
+    "skills": "skills",
+    "commands": "commands"
+  },
+  "permissions": {
+    "filesystem": ["read", "workspace-write"],
+    "shell": "approval-required",
+    "network": "disabled",
+    "secrets": "no-secrets",
+    "git": ["read"]
+  }
+}

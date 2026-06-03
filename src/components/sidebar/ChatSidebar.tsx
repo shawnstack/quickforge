@@ -51,6 +51,7 @@ type ChatSidebarProps = {
   variant?: 'desktop' | 'mobile'
   scheduledTasksActive: boolean
   agentProfilesActive: boolean
+  pluginsActive: boolean
   projectsCollapsed: boolean
   conversationsCollapsed: boolean
   projects: ProjectInfo[]
@@ -87,6 +88,7 @@ type ChatSidebarProps = {
   onStartNewGlobalChat: () => void
   onOpenScheduledTasks: () => void
   onOpenAgentProfiles: () => void
+  onOpenPlugins: () => void
   onOpenSettings: () => void
   onToggleSidebar: () => void
   currentSessionHoverInfo?: {
@@ -149,6 +151,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   variant = 'desktop',
   scheduledTasksActive,
   agentProfilesActive,
+  pluginsActive,
   projectsCollapsed,
   conversationsCollapsed,
   projects,
@@ -185,6 +188,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   onStartNewGlobalChat,
   onOpenScheduledTasks,
   onOpenAgentProfiles,
+  onOpenPlugins,
   onOpenSettings,
   onToggleSidebar,
   currentSessionHoverInfo,
@@ -411,6 +415,18 @@ export const ChatSidebar = memo(function ChatSidebar({
             <Bot className="size-4" />
           </span>
           {sidebarOpen ? <span className={cn(sessionTitleClass, agentProfilesActive && activeSessionTitleClass)}>{t('agentsTab')}</span> : null}
+        </button>
+        <button
+          type="button"
+          className={cn(rowClass, 'w-full', pluginsActive ? activeRowClass : inactiveRowClass)}
+          onClick={onOpenPlugins}
+          aria-label={t('plugins')}
+          title={t('plugins')}
+        >
+          <span className={iconSlotClass}>
+            <Puzzle className="size-4" />
+          </span>
+          {sidebarOpen ? <span className={cn(sessionTitleClass, pluginsActive && activeSessionTitleClass)}>{t('plugins')}</span> : null}
         </button>
       </div>
 

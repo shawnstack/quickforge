@@ -2,6 +2,7 @@ import { existsSync, promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { dataDir } from './storage.mjs'
+import { getEnabledPluginSkillSources } from './plugins/registry.mjs'
 
 const userSkillsDir = path.join(dataDir, 'skills')
 const sharedUserSkillsDir = path.join(os.homedir(), '.agents', 'skills')
@@ -335,6 +336,30 @@ async function loadSkillsFromSources(sources) {
   })
 }
 
+async function loadSkillsFromExplicitSources(sources) {
+  const skillsByName = new Map()
+
+  for (const source of sources) {
+    const candidateDirs = [source.dir, ...(await listSkillDirectories(source.dir))]
+    for (const skillDir of candidateDirs) {
+      try {
+        const skill = await loadSkillDirectory(skillDir, source.name)
+        if (!skill) continue
+        if (skillsByName.has(skill.name)) skillsByName.delete(skill.name)
+        skillsByName.set(skill.name, skill)
+      } catch (error) {
+        console.warn(`Failed to load skill from ${skillDir}:`, error.message || error)
+      }
+    }
+  }
+
+  return [...skillsByName.values()].sort((a, b) => {
+    const left = (a.displayName || a.name).toLowerCase()
+    const right = (b.displayName || b.name).toLowerCase()
+    return left.localeCompare(right)
+  })
+}
+
 function searchDirsForList(value) {
   return value.length === 1 ? value[0] : value.slice()
 }
@@ -378,7 +403,13 @@ export const skillSearchPaths = {
 
 export function projectSkillSearchPaths(workspaceRoot) {
   if (!workspaceRoot) return skillSearchPaths.project.slice()
-  return searchDirsForList([projectSharedSkillsDir(workspaceRoot), projectClientSkillsDir(workspaceRoot)])
+  return searchDirsForList([projectSharedSkillsDir(workspaceRoot), projectClientSkillsDir(workspaceRoot), '<enabled-plugin>/skills'])
+}
+
+async function loadPluginSkills(workspaceRoot) {
+  if (!workspaceRoot) return []
+  const sources = await getEnabledPluginSkillSources({ workspaceRoot })
+  return loadSkillsFromExplicitSources(sources.map((source) => ({ dir: source.dir, name: source.source })))
 }
 
 export async function loadGlobalSkills() {
@@ -389,10 +420,16 @@ export async function loadGlobalSkills() {
 }
 
 export async function loadProjectSkills(workspaceRoot) {
-  return loadSkillsFromSources([
+  const pluginSkills = await loadPluginSkills(workspaceRoot)
+  const projectSkills = await loadSkillsFromSources([
     { dir: projectSharedSkillsDir(workspaceRoot), name: 'project-shared' },
     { dir: projectClientSkillsDir(workspaceRoot), name: 'project' },
   ])
+  return mergeSkills(pluginSkills, projectSkills).sort((a, b) => {
+    const left = (a.displayName || a.name).toLowerCase()
+    const right = (b.displayName || b.name).toLowerCase()
+    return left.localeCompare(right)
+  })
 }
 
 export async function loadSkills() {
@@ -442,7 +479,9 @@ export async function loadSelectedGlobalSkills(skillNames) {
 }
 
 export async function loadSelectedProjectSkills(skillNames, workspaceRoot) {
-  return selectSkills(skillNames, await loadProjectSkills(workspaceRoot))
+  const skills = await loadProjectSkills(workspaceRoot)
+  const pluginSkills = skills.filter((skill) => String(skill.source || '').startsWith('plugin:'))
+  return mergeSkills(pluginSkills, selectSkills(skillNames, skills))
 }
 
 export async function loadSelectedSkills(skillNames) {

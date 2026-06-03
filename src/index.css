@@ -453,7 +453,8 @@ streaming-message-container > div:has(> span.animate-pulse:only-child) {
   color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
 }
 
-.quickforge-command-suggestions {
+.quickforge-command-suggestions,
+.quickforge-capability-suggestions {
   margin: 0.5rem 0.75rem 0;
   max-height: 17rem;
   overflow-y: auto;
@@ -463,7 +464,8 @@ streaming-message-container > div:has(> span.animate-pulse:only-child) {
   box-shadow: 0 18px 46px -28px rgb(15 23 42 / 0.38);
 }
 
-.quickforge-command-suggestions-header {
+.quickforge-command-suggestions-header,
+.quickforge-capability-suggestions-header {
   padding: 0.55rem 0.75rem 0.35rem;
   color: color-mix(in oklab, var(--muted-foreground) 86%, transparent);
   font-size: 0.72rem;
@@ -480,7 +482,19 @@ streaming-message-container > div:has(> span.animate-pulse:only-child) {
   text-align: left;
 }
 
-.quickforge-command-suggestion-item:hover {
+.quickforge-capability-suggestion-item {
+  display: grid !important;
+  width: 100%;
+  grid-template-columns: 1.35rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.75rem !important;
+  border-radius: 0 !important;
+  text-align: left;
+}
+
+.quickforge-command-suggestion-item:hover,
+.quickforge-capability-suggestion-item:hover {
   background: color-mix(in oklab, var(--muted) 62%, transparent) !important;
   transform: none !important;
 }
@@ -497,6 +511,87 @@ streaming-message-container > div:has(> span.animate-pulse:only-child) {
   overflow: hidden;
   color: var(--muted-foreground);
   font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickforge-capability-suggestion-icon {
+  display: inline-flex;
+  width: 1.15rem;
+  height: 1.15rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.35rem;
+  color: rgb(59 130 246);
+}
+
+.quickforge-capability-suggestion-icon-skill {
+  color: rgb(37 99 235);
+}
+
+.quickforge-capability-suggestion-icon-tool {
+  color: rgb(14 165 233);
+}
+
+.quickforge-capability-suggestion-icon-command {
+  color: rgb(245 158 11);
+}
+
+.quickforge-capability-suggestion-icon-plugin {
+  color: rgb(139 92 246);
+}
+
+.quickforge-capability-suggestion-item[data-quickforge-plugin-name="openai-documents"] .quickforge-capability-suggestion-icon {
+  color: rgb(37 99 235);
+}
+
+.quickforge-capability-suggestion-item[data-quickforge-plugin-name="openai-spreadsheets"] .quickforge-capability-suggestion-icon {
+  color: rgb(34 197 94);
+}
+
+.quickforge-capability-suggestion-item[data-quickforge-plugin-name="openai-presentations"] .quickforge-capability-suggestion-icon {
+  color: rgb(245 158 11);
+}
+
+.quickforge-capability-suggestion-icon svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.quickforge-capability-suggestion-main {
+  min-width: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+
+.quickforge-capability-suggestion-line {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.45rem;
+}
+
+.quickforge-capability-suggestion-name {
+  min-width: 0;
+  overflow: hidden;
+  color: color-mix(in oklab, var(--foreground) 90%, transparent);
+  font-size: 0.82rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickforge-capability-suggestion-kind {
+  color: color-mix(in oklab, var(--muted-foreground) 64%, transparent);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.quickforge-capability-suggestion-description {
+  min-width: 0;
+  overflow: hidden;
+  color: color-mix(in oklab, var(--muted-foreground) 74%, transparent);
+  font-size: 0.76rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

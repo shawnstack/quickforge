@@ -29,6 +29,8 @@ export async function handleProjectApi(req, res, url) {
         allowEdit: command.allowEdit,
         allowCommands: command.allowCommands,
         relativePath: command.relativePath,
+        source: command.source,
+        pluginName: command.pluginName,
       })),
     })
     return

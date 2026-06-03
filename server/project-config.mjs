@@ -315,7 +315,7 @@ export async function buildInstructionsPayload(projectId) {
 
   const globalInstructions = await readInstructionsFile(path.join(dataDir, 'AGENTS.md'))
   const globalSkills = await loadSelectedGlobalSkills(config.globalSkills)
-  const projectSkills = project?.skills && project?.path
+  const projectSkills = project?.path
     ? await loadSelectedProjectSkills(project.skills, project.path)
     : []
   const activeSkills = mergeSkills(globalSkills, projectSkills)

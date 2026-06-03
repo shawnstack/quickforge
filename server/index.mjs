@@ -24,6 +24,7 @@ import { handleSharesApi } from './routes/shares.mjs'
 import { handleSharedConversationApi } from './routes/shared-conversation.mjs'
 import { handleLanAccessApi, renderLanUnlockPage } from './routes/lan-access.mjs'
 import { handleMcpApi } from './routes/mcp.mjs'
+import { handlePluginsApi } from './routes/plugins.mjs'
 import { handleWorkspaceApi, handleGitApi } from './routes/workspace.mjs'
 import { handleTerminalApi, handleTerminalUpgrade } from './routes/terminal.mjs'
 import { serveStatic } from './routes/static.mjs'
@@ -224,6 +225,12 @@ async function handleApi(req, res, url) {
   // MCP servers
   if (pathname === '/api/mcp' || pathname.startsWith('/api/mcp/')) {
     await handleMcpApi(req, res, url)
+    return
+  }
+
+  // Plugins
+  if (pathname === '/api/plugins' || pathname.startsWith('/api/plugins/')) {
+    await handlePluginsApi(req, res, url)
     return
   }
 

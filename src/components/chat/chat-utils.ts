@@ -23,9 +23,17 @@ export type CommandSuggestionElement = HTMLDivElement & {
   __quickforgeDismissHandler?: (event: Event) => void
 }
 
+export type CapabilitySuggestionElement = HTMLDivElement & {
+  __quickforgeDismissHandler?: (event: Event) => void
+}
+
 export type CommandTextareaElement = HTMLTextAreaElement & {
   __quickforgeCommandCompleteHandler?: (event: KeyboardEvent) => void
   __quickforgePlanModeHandler?: (event: KeyboardEvent) => void
+}
+
+export type CapabilityTextareaElement = HTMLTextAreaElement & {
+  __quickforgeCapabilityCompleteHandler?: (event: KeyboardEvent) => void
 }
 
 export type AgentInterfaceElement = HTMLElement & {

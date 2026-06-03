@@ -939,6 +939,10 @@ export type EditorDecorationDeps = {
   removeCommandSuggestions: () => void
   updateCommandSuggestions: (value?: string) => void
   setupCommandTextareaHandler: (editor: MessageEditorElement | null) => void
+  removeCapabilitySuggestions: () => void
+  updateCapabilitySuggestions: (value?: string) => void
+  setupCapabilityTextareaHandler: (editor: MessageEditorElement | null) => void
+  onBeforeSend?: (input: string) => void
 }
 
 type EditorModelState = {
@@ -1015,6 +1019,10 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     removeCommandSuggestions,
     updateCommandSuggestions,
     setupCommandTextareaHandler,
+    removeCapabilitySuggestions,
+    updateCapabilitySuggestions,
+    setupCapabilityTextareaHandler,
+    onBeforeSend,
   } = deps
 
   const editor = panel.querySelector<MessageEditorElement>('message-editor')
@@ -1033,6 +1041,7 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     editor.onInput = (value) => {
       onInput(value)
       updateCommandSuggestions(value)
+      updateCapabilitySuggestions(value)
     }
     editor.onFilesChange = (attachments) => {
       onFilesChange(attachments ? [...attachments] : [])
@@ -1047,6 +1056,9 @@ export function decorateEditor(deps: EditorDecorationDeps) {
         const rawText = String(input ?? '')
         const text = rawText.trim()
         const shouldUsePlanCommand = planMode && text.length > 0 && !text.toLowerCase().startsWith('/plan')
+        if (text.length > 0) onBeforeSend?.(rawText)
+        removeCommandSuggestions()
+        removeCapabilitySuggestions()
         if (shouldUsePlanCommand) onPlanModeSent()
         baseOnSend(shouldUsePlanCommand ? `/plan ${rawText}` : rawText, attachments)
       }
@@ -1054,8 +1066,10 @@ export function decorateEditor(deps: EditorDecorationDeps) {
       editor.onSend = wrappedOnSend
     }
     updateCommandSuggestions()
+    updateCapabilitySuggestions()
   }
   setupCommandTextareaHandler(editor)
+  setupCapabilityTextareaHandler(editor)
   setupPlanModeControls(editor, planMode, onTogglePlanMode)
 
   const agentInterface = panel.querySelector<AgentInterfaceElement>('agent-interface')

@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { ScheduledTasksPage } from '@/components/scheduled-tasks/ScheduledTasksPage'
 import { AgentProfilesPage } from '@/components/agent-profiles/AgentProfilesPage'
+import { PluginsPage } from '@/components/plugins/PluginsPage'
 import { ProjectDirectoryPicker } from '@/components/project-directory-picker'
 import { SkillsDialog } from '@/components/skills-dialog'
 import { McpServersDialog } from '@/components/mcp-servers-dialog'
@@ -63,7 +64,7 @@ import { TerminalDock } from '@/components/terminal/TerminalDock'
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
 
-type WorkspacePage = 'chat' | 'scheduledTasks' | 'agentProfiles'
+type WorkspacePage = 'chat' | 'scheduledTasks' | 'agentProfiles' | 'plugins'
 
 type ScheduledTaskNotificationEvent = {
   type?: unknown
@@ -145,6 +146,7 @@ function MainApp() {
   const { toasts, handleTaskComplete, addToast, dismissToast } = useTaskToasts()
   const scheduledTasksOpen = workspacePage === 'scheduledTasks'
   const agentProfilesOpen = workspacePage === 'agentProfiles'
+  const pluginsOpen = workspacePage === 'plugins'
   const workspacePageOpen = workspacePage !== 'chat'
   const closeWorkspacePage = useCallback(() => setWorkspacePage('chat'), [])
 
@@ -675,6 +677,7 @@ function MainApp() {
         sidebarOpen={ui.sidebarOpen}
         scheduledTasksActive={scheduledTasksOpen}
         agentProfilesActive={agentProfilesOpen}
+        pluginsActive={pluginsOpen}
         projectsCollapsed={ui.projectsCollapsed}
         conversationsCollapsed={ui.conversationsCollapsed}
         projects={projects}
@@ -716,6 +719,7 @@ function MainApp() {
         onStartNewGlobalChat={startNewGlobalSession}
         onOpenScheduledTasks={() => setWorkspacePage('scheduledTasks')}
         onOpenAgentProfiles={() => setWorkspacePage('agentProfiles')}
+        onOpenPlugins={() => setWorkspacePage('plugins')}
         onOpenSettings={openDefaultOptionsSettings}
         onToggleSidebar={() => ui.setSidebarOpen((value) => !value)}
         currentSessionHoverInfo={currentSessionHoverInfo}
@@ -735,6 +739,7 @@ function MainApp() {
               sidebarOpen
               scheduledTasksActive={scheduledTasksOpen}
               agentProfilesActive={agentProfilesOpen}
+              pluginsActive={pluginsOpen}
               projectsCollapsed={ui.projectsCollapsed}
               conversationsCollapsed={ui.conversationsCollapsed}
               projects={projects}
@@ -780,6 +785,10 @@ function MainApp() {
               onStartNewGlobalChat={startNewGlobalSessionFromSidebar}
               onOpenScheduledTasks={openScheduledTasksFromSidebar}
               onOpenAgentProfiles={openAgentProfilesFromSidebar}
+              onOpenPlugins={() => {
+                closeMobileSidebar()
+                setWorkspacePage('plugins')
+              }}
               onOpenSettings={() => {
                 closeMobileSidebar()
                 openDefaultOptionsSettings()
@@ -807,6 +816,11 @@ function MainApp() {
               <>
                 <div className="truncate text-xs text-muted-foreground">AI Workspace</div>
                 <div className="truncate text-sm font-semibold">{t('agentsTab')}</div>
+              </>
+            ) : pluginsOpen ? (
+              <>
+                <div className="truncate text-xs text-muted-foreground">AI Workspace</div>
+                <div className="truncate text-sm font-semibold">{t('plugins')}</div>
               </>
             ) : (
               <div className="flex max-w-full min-w-0 items-center">
@@ -887,6 +901,8 @@ function MainApp() {
               <ScheduledTasksPage onOpenSession={handleToastClick} />
             ) : agentProfilesOpen ? (
               <AgentProfilesPage />
+            ) : pluginsOpen ? (
+              <PluginsPage />
             ) : needsModelSetup ? (
               <ModelSetupEmptyState
                 onAddModel={openModelSettings}

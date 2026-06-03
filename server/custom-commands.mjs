@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { getEnabledPluginCommandSources } from './plugins/registry.mjs'
 
 const commandsRelativeDir = '.ai/commands'
 const commandNamePattern = /^(?!.*--)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
@@ -102,7 +103,7 @@ function firstOptionalBoolean(...values) {
   return undefined
 }
 
-function commandFromFile(file, text) {
+function commandFromFile(file, text, options = {}) {
   const parsed = parseFrontmatter(text)
   if (!parsed.body) return null
 
@@ -127,7 +128,9 @@ function commandFromFile(file, text) {
     ),
     body: parsed.body,
     filePath: file,
-    relativePath: path.relative(path.dirname(path.dirname(file)), file).replace(/\\/g, '/'),
+    relativePath: options.relativePath || path.relative(path.dirname(path.dirname(file)), file).replace(/\\/g, '/'),
+    source: options.source,
+    pluginName: options.pluginName,
   }
 }
 
@@ -159,7 +162,7 @@ export function textFromUserMessage(message) {
     .join('\n')
 }
 
-async function listCommandsFromDirectory(dir) {
+async function listCommandsFromDirectory(dir, options = {}) {
   let entries
   try {
     entries = await fs.readdir(dir, { withFileTypes: true })
@@ -173,7 +176,14 @@ async function listCommandsFromDirectory(dir) {
     if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.md')) continue
     const file = path.join(dir, entry.name)
     try {
-      const command = commandFromFile(file, await fs.readFile(file, 'utf8'))
+      const relativePath = options.relativeRoot
+        ? `${options.relativeRoot}/${entry.name}`.replace(/\\/g, '/')
+        : undefined
+      const command = commandFromFile(file, await fs.readFile(file, 'utf8'), {
+        source: options.source,
+        pluginName: options.pluginName,
+        relativePath,
+      })
       if (command) commands.push(command)
     } catch (error) {
       console.warn(`Failed to load custom command ${file}:`, error.message || error)
@@ -183,8 +193,48 @@ async function listCommandsFromDirectory(dir) {
   return commands
 }
 
+async function listCommandsFromFile(file, options = {}) {
+  if (!file.toLowerCase().endsWith('.md')) return []
+  try {
+    const command = commandFromFile(file, await fs.readFile(file, 'utf8'), options)
+    return command ? [command] : []
+  } catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR' || error?.code === 'EACCES' || error?.code === 'EPERM') return []
+    console.warn(`Failed to load custom command ${file}:`, error.message || error)
+    return []
+  }
+}
+
+async function listCommandsFromPluginSource(source) {
+  const stat = await fs.stat(source.path).catch(() => null)
+  if (!stat) return []
+  const options = {
+    source: source.source,
+    pluginName: source.pluginName,
+    relativePath: source.relativePath,
+    relativeRoot: source.relativePath,
+  }
+  if (stat.isFile()) return listCommandsFromFile(source.path, options)
+  if (stat.isDirectory()) return listCommandsFromDirectory(source.path, options)
+  return []
+}
+
+async function listPluginCommands(workspaceRoot) {
+  if (!workspaceRoot) return []
+  const sources = await getEnabledPluginCommandSources({ workspaceRoot })
+  const commands = []
+  for (const source of sources) {
+    commands.push(...await listCommandsFromPluginSource(source))
+  }
+  return commands
+}
+
 export async function listProjectCommands(workspaceRoot, commandDir) {
   const byName = new Map()
+
+  for (const command of (await listPluginCommands(workspaceRoot)).sort((a, b) => a.name.localeCompare(b.name))) {
+    byName.set(command.name, command)
+  }
 
   for (const dir of commandDirectories(workspaceRoot, commandDir)) {
     const commands = await listCommandsFromDirectory(dir)

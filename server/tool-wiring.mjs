@@ -7,6 +7,7 @@
 
 import { toolHandlers } from './tools/index.mjs'
 import { callMcpTool } from './mcp/registry.mjs'
+import { callPluginTool } from './plugins/registry.mjs'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -66,6 +67,31 @@ export function wrapMcpToolDefinition(definition, toolPermissions) {
       const durationMs = Math.max(0, Math.round(performance.now() - startedAtPerf))
       if (result.isError) {
         throw new Error(result.content || `MCP tool failed: ${definition.name}`)
+      }
+      return {
+        content: [{ type: 'text', text: result.content }],
+        details: mergeQuickForgeTiming(result.details, { startedAt, finishedAt, durationMs }),
+      }
+    },
+  }
+}
+
+export function wrapPluginToolDefinition(definition, context, toolPermissions) {
+  return {
+    ...definition,
+    execute: async (_toolCallId, params, signal, onUpdate) => {
+      if (toolPermissions) {
+        const permissionError = toolPermissions(definition.name)
+        if (permissionError) throw new Error(permissionError)
+      }
+
+      const startedAt = Date.now()
+      const startedAtPerf = performance.now()
+      const result = await callPluginTool(definition.name, params || {}, { ...context, signal, onUpdate, toolCallId: _toolCallId })
+      const finishedAt = Date.now()
+      const durationMs = Math.max(0, Math.round(performance.now() - startedAtPerf))
+      if (result.isError) {
+        throw new Error(result.content || `Plugin tool failed: ${definition.name}`)
       }
       return {
         content: [{ type: 'text', text: result.content }],

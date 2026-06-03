@@ -36,6 +36,7 @@
     "bin",
     "server",
     "skills",
+    "plugins",
     "dist",
     "README.md",
     "LICENSE",

@@ -473,22 +473,6 @@ export class ServerAgent {
   }
 
   /**
-   * Sync messages to the server (legacy path; rollback should use rollback()).
-   */
-  async syncMessages(messages: AgentMessage[]): Promise<void> {
-    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/messages`
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ messages }),
-    })
-    if (!res.ok) {
-      const payload = await res.json().catch(() => null) as { error?: string } | null
-      throw new Error(payload?.error || `Failed to sync messages: HTTP ${res.status}`)
-    }
-  }
-
-  /**
    * Roll back from a message index on the authoritative server state.
    */
   async rollback(messageIndex: number): Promise<ServerRollbackResult> {

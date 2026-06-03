@@ -1296,24 +1296,6 @@ export async function rollbackSessionMessages(sessionId, rollbackMessageIndex) {
   return { session: getSessionState(sessionId), rollbackIndex }
 }
 
-export async function replaceSessionMessages(sessionId, messages) {
-  const session = agentSessions.get(sessionId)
-  if (!session) return null
-  if (session.agent.state.isStreaming) {
-    throw Object.assign(new Error('Generation is still running. Stop it or wait until it finishes before rolling back.'), { statusCode: 409 })
-  }
-  updateSessionMessages(session, Array.isArray(messages) ? messages : [])
-  resetSessionCompaction(session)
-  session.status = 'idle'
-  session.finishedAt = new Date().toISOString()
-  await persistSession(session)
-  const nextMessages = session.agent.state.messages
-  const contextUsage = getSessionContextUsage(session)
-  emitSessionEvent(session, { type: 'message_end', messages: nextMessages, contextUsage })
-  emitSessionEvent(session, { type: 'agent_end', messages: nextMessages, contextUsage })
-  return getSessionState(sessionId)
-}
-
 /**
  * Send a user message to the agent and start the agent loop.
  * Returns immediately; events are streamed via the event bus.

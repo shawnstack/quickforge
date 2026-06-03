@@ -107,11 +107,6 @@ export function configFile() {
   return quickForgeConfigFile
 }
 
-// Compatibility export for older modules/imports. Project config now lives inside config/config.json -> projects.
-export function projectConfigFile() {
-  return quickForgeConfigFile
-}
-
 function legacyFlatStoreFile(storeName) {
   return path.join(storageDir, `${storeName}.json`)
 }

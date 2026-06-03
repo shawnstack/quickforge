@@ -23,7 +23,6 @@ import {
   approveAutoCompact,
   rejectAutoCompact,
   abortToolCall,
-  replaceSessionMessages,
   rollbackSessionMessages,
   continueSession,
   agentEvents,
@@ -166,20 +165,6 @@ export async function handleAgentApi(req, res, url) {
     }
     const result = updateSessionThinkingLevel(sessionId, thinkingLevel)
     sendJson(res, 200, result)
-    return
-  }
-
-  // POST /api/agents/:sessionId/messages — replace session messages (legacy rollback/sync)
-  if (req.method === 'POST' && subPath === 'messages') {
-    const body = await readJsonBody(req)
-    const messages = body?.messages
-    if (!Array.isArray(messages)) {
-      const error = new Error('Missing messages array in request body')
-      error.statusCode = 400
-      throw error
-    }
-    const state = await replaceSessionMessages(sessionId, messages)
-    sendJson(res, 200, { ok: true, messages: state?.messages })
     return
   }
 

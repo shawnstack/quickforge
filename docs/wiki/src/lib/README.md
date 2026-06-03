@@ -16,7 +16,6 @@
 | `types.ts` | 82 | 类型定义 |
 | `utils.ts` | 6 | 通用工具函数（cn） |
 | `message-utils.ts` | 127 | 消息处理工具 |
-| `reasoning-content-cache.ts` | 276 | DeepSeek 推理内容缓存 |
 | `custom-model-selector.ts` | 162 | 自定义模型选择器 |
 | `custom-providers-only-tab.ts` | 565 | 自定义供应商设置选项卡 |
 | `service-settings-tab.ts` | 189 | 后端服务状态选项卡 |
@@ -146,10 +145,6 @@
 | `language-settings-tab.ts` | 语言切换设置 |
 | `patch-thinking-selector.ts` | 修补 pi-web-ui 的模型选择器 |
 | `custom-model-selector.ts` | 自定义模型选择器对话框 |
-
-### reasoning-content-cache.ts (276 行)
-
-**用途**: DeepSeek V4 推理内容缓存。当 API 在工具调用轮次中剥离推理内容时，从 Agent 状态恢复。
 
 ### message-utils.ts (127 行)
 

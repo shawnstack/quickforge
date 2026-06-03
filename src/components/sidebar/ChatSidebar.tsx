@@ -83,7 +83,7 @@ type ChatSidebarProps = {
   onLoadSession: (sessionId: string) => void
   onTogglePinSession: (sessionId: string) => void
   onRenameSession: (sessionId: string, currentTitle: string) => void
-  onDeleteSession: (sessionId: string) => void
+  onDeleteSession: (sessionId: string) => void | Promise<void>
   onStartNewGlobalChat: () => void
   onOpenScheduledTasks: () => void
   onOpenAgentProfiles: () => void
@@ -105,6 +105,7 @@ const hourMs = 60 * minuteMs
 const dayMs = 24 * hourMs
 const weekMs = 7 * dayMs
 const yearMs = 365 * dayMs
+const deleteSessionFadeMs = 360
 
 function formatSessionTime(value: string) {
   const timestamp = new Date(value).getTime()
@@ -299,7 +300,6 @@ export const ChatSidebar = memo(function ChatSidebar({
   }
   const confirmDeleteSession = (event: React.MouseEvent<HTMLButtonElement>, sessionId: string) => {
     event.stopPropagation()
-    setConfirmingDeleteSessionId(null)
     setDeletingSessionId(sessionId)
     hideSessionHoverTip(sessionId)
     if (deleteAnimationTimeoutRef.current !== null) {
@@ -307,9 +307,11 @@ export const ChatSidebar = memo(function ChatSidebar({
     }
     deleteAnimationTimeoutRef.current = window.setTimeout(() => {
       deleteAnimationTimeoutRef.current = null
-      onDeleteSession(sessionId)
-      setDeletingSessionId((current) => current === sessionId ? null : current)
-    }, 320)
+      setConfirmingDeleteSessionId((current) => current === sessionId ? null : current)
+      void Promise.resolve(onDeleteSession(sessionId)).catch(() => {
+        setDeletingSessionId((current) => current === sessionId ? null : current)
+      })
+    }, deleteSessionFadeMs)
   }
 
   useEffect(() => () => {
@@ -578,16 +580,28 @@ export const ChatSidebar = memo(function ChatSidebar({
                                           return (
                                             <div
                                               key={session.id}
-                                              className={cn(rowClass, 'gap-1', selected ? activeRowClass : sessionInactiveRowClass, deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-300 ease-in')}
-                                              onMouseEnter={(event) => showSessionHoverTip(event, session.id)}
-                                              onMouseLeave={() => {
-                                                setSuppressedSessionActionsId((current) => current === session.id ? null : current)
-                                                if (!deleting) {
-                                                  setConfirmingDeleteSessionId((current) => current === session.id ? null : current)
-                                                }
-                                                hideSessionHoverTip(session.id)
-                                              }}
+                                              className={cn(
+                                                'grid transition-[grid-template-rows,opacity,transform] duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+                                                deleting ? 'grid-rows-[0fr] -translate-x-1 opacity-0' : 'grid-rows-[1fr] translate-x-0 opacity-100',
+                                              )}
                                             >
+                                              <div className="min-h-0 overflow-hidden">
+                                                <div
+                                                  className={cn(
+                                                    rowClass,
+                                                    'gap-1',
+                                                    selected ? activeRowClass : sessionInactiveRowClass,
+                                                    deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+                                                  )}
+                                                  onMouseEnter={(event) => showSessionHoverTip(event, session.id)}
+                                                  onMouseLeave={() => {
+                                                    setSuppressedSessionActionsId((current) => current === session.id ? null : current)
+                                                    if (!deleting) {
+                                                      setConfirmingDeleteSessionId((current) => current === session.id ? null : current)
+                                                    }
+                                                    hideSessionHoverTip(session.id)
+                                                  }}
+                                                >
                                               <button className={sessionButtonClass} type="button" onClick={() => onLoadSession(session.id)}>
                                                 <div className={sessionTitleRowClass}>
                                                   {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
@@ -652,8 +666,10 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                     </Button>
                                                   </>
                                                 )}
+                                                </div>
                                               </div>
                                             </div>
+                                          </div>
                                           )
                                         })}
                                         <LoadMoreSentinel
@@ -711,16 +727,27 @@ export const ChatSidebar = memo(function ChatSidebar({
                         return (
                           <div
                             key={session.id}
-                            className={cn(rowClass, selected ? activeRowClass : sessionInactiveRowClass, deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-300 ease-in')}
-                            onMouseEnter={(event) => showSessionHoverTip(event, session.id)}
-                            onMouseLeave={() => {
-                              setSuppressedSessionActionsId((current) => current === session.id ? null : current)
-                              if (!deleting) {
-                                setConfirmingDeleteSessionId((current) => current === session.id ? null : current)
-                              }
-                              hideSessionHoverTip(session.id)
-                            }}
+                            className={cn(
+                              'grid transition-[grid-template-rows,opacity,transform] duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+                              deleting ? 'grid-rows-[0fr] -translate-x-1 opacity-0' : 'grid-rows-[1fr] translate-x-0 opacity-100',
+                            )}
                           >
+                            <div className="min-h-0 overflow-hidden">
+                              <div
+                                className={cn(
+                                  rowClass,
+                                  selected ? activeRowClass : sessionInactiveRowClass,
+                                  deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+                                )}
+                                onMouseEnter={(event) => showSessionHoverTip(event, session.id)}
+                                onMouseLeave={() => {
+                                  setSuppressedSessionActionsId((current) => current === session.id ? null : current)
+                                  if (!deleting) {
+                                    setConfirmingDeleteSessionId((current) => current === session.id ? null : current)
+                                  }
+                                  hideSessionHoverTip(session.id)
+                                }}
+                              >
                             <button className={sessionButtonClass} type="button" onClick={() => onLoadSession(session.id)}>
                               <div className={sessionTitleRowClass}>
                                 {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
@@ -785,8 +812,10 @@ export const ChatSidebar = memo(function ChatSidebar({
                                   </Button>
                                 </>
                               )}
+                              </div>
                             </div>
                           </div>
+                        </div>
                         )
                       })}
                       <LoadMoreSentinel

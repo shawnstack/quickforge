@@ -2,6 +2,35 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.25] - 2026-06-03
+
+### Added
+
+- Added Vitest-based server utility and tool definition coverage.
+- Added first-use guide and assistant waiting bubble improvements.
+
+### Changed
+
+- Migrated Pi packages to the `@earendil-works` scope.
+- Split large agent manager and app modules while cleaning obsolete type fields.
+- Improved sidebar session deletion flow, chat waiting indicators, and scoped session metadata updates.
+
+### Fixed
+
+- Resolved high-priority memory leak, race condition, performance, and security issues.
+- Fixed MCP tool name helper imports.
+- Smoothed session deletion animation behavior.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.25` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.3.25.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.25.tgz
+  ```
+
 ## [1.3.24] - 2026-06-02
 
 ### Added

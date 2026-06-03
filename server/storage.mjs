@@ -62,6 +62,17 @@ export const stores = new Set([
 const sessionBucketIndex = new Map()
 let bucketIndexBuilt = false
 
+// Monotonic in-process revisions for cache invalidation in route-level indexes.
+const storeRevisions = new Map()
+
+function bumpStoreRevision(storeName) {
+  storeRevisions.set(storeName, (storeRevisions.get(storeName) || 0) + 1)
+}
+
+export function getStoreRevision(storeName) {
+  return storeRevisions.get(storeName) || 0
+}
+
 const configStores = new Set(['settings', 'provider-keys', 'custom-providers'])
 const sessionStores = new Set(['sessions', 'sessions-metadata'])
 
@@ -370,6 +381,34 @@ async function readAllSessionValues() {
   return result
 }
 
+function sessionMetadataQueueName(bucket) {
+  return bucket.scope === 'project' ? `sessions-metadata:${bucket.projectId}` : 'sessions-metadata:global'
+}
+
+function sameSessionBucket(left, right) {
+  if (!left || !right) return false
+  return left.scope === right.scope && (left.projectId || undefined) === (right.projectId || undefined)
+}
+
+function updateSessionMetadataBucketIndex(bucket, previousData, nextData) {
+  const ids = new Set([
+    ...Object.keys(previousData || {}),
+    ...Object.keys(nextData || {}),
+  ])
+
+  for (const sessionId of ids) {
+    const meta = nextData?.[sessionId]
+    if (meta && typeof meta === 'object') {
+      sessionBucketIndex.set(sessionId, sessionBucket(meta))
+      continue
+    }
+
+    if (sameSessionBucket(sessionBucketIndex.get(sessionId), bucket)) {
+      sessionBucketIndex.delete(sessionId)
+    }
+  }
+}
+
 async function writeSessionValueFile(sessionId, value) {
   await writeJsonAtomic(sessionDataFile(sessionId, sessionBucket(value)), value)
   // Keep in-memory index current
@@ -497,6 +536,15 @@ async function writeSessionStore(storeName, data) {
     filesToWrite.add(sessionStoreFile(storeName, bucket))
   }
 
+  const previousByFile = new Map()
+  if (storeName === 'sessions-metadata') {
+    await Promise.all(
+      [...filesToWrite].map(async (file) => {
+        previousByFile.set(file, await readJsonFile(file, {}))
+      }),
+    )
+  }
+
   await Promise.all(
     [...filesToWrite].map(async (file) => {
       const bucketEntry = [...buckets.values()].find((entry) => sessionStoreFile(storeName, entry.bucket) === file)
@@ -506,9 +554,14 @@ async function writeSessionStore(storeName, data) {
 
   // Keep in-memory bucket index current for metadata writes
   if (storeName === 'sessions-metadata') {
-    for (const [sessionId, meta] of Object.entries(data || {})) {
-      if (meta && typeof meta === 'object') sessionBucketIndex.set(sessionId, sessionBucket(meta))
+    for (const file of filesToWrite) {
+      const bucketEntry = [...buckets.values()].find((entry) => sessionStoreFile(storeName, entry.bucket) === file)
+      const bucket = bucketEntry?.bucket ?? (file === sessionStoreFile(storeName, { scope: 'global' })
+        ? { scope: 'global' }
+        : { scope: 'project', projectId: path.basename(path.dirname(file)) })
+      updateSessionMetadataBucketIndex(bucket, previousByFile.get(file) ?? {}, bucketEntry?.data ?? {})
     }
+    bumpStoreRevision(storeName)
   }
 }
 
@@ -603,6 +656,29 @@ export async function atomicUpdate(storeName, updateFn) {
     const data = await readSessionStore(storeName)
     const updated = updateFn(data)
     await writeSessionStore(storeName, updated)
+    return updated
+  })
+}
+
+/**
+ * Atomically read-modify-write the scoped sessions metadata file within its serialized write queue.
+ *
+ * @param {string} scope
+ * @param {string|null|undefined} projectId
+ * @param {(data: object) => object} updateFn — receives current scoped metadata, returns updated metadata
+ * @returns {Promise<object>} the updated scoped metadata
+ */
+export async function atomicSessionMetadataUpdate(scope, projectId, updateFn) {
+  const bucket = scope === 'project' ? { scope: 'project', projectId } : { scope: 'global' }
+  const file = sessionStoreFile('sessions-metadata', bucket)
+  return enqueueWrite(sessionMetadataQueueName(bucket), async () => {
+    await ensureStorage()
+    const data = await readJsonFile(file, {})
+    const previousData = { ...data }
+    const updated = updateFn(data)
+    await writeJsonAtomic(file, updated)
+    updateSessionMetadataBucketIndex(bucket, previousData, updated)
+    bumpStoreRevision('sessions-metadata')
     return updated
   })
 }

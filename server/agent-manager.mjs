@@ -11,7 +11,7 @@ import {
 } from './subagents.mjs'
 import { agentProfileSnapshot, getAgentProfile } from './agent-profiles.mjs'
 import { projectContextFromId, readProjectConfig } from './project-config.mjs'
-import { readStore, atomicUpdate, readSessionValue, writeSessionValue, deleteSessionValue } from './storage.mjs'
+import { readStore, atomicUpdate, atomicSessionMetadataUpdate, readSessionValue, writeSessionValue, deleteSessionValue } from './storage.mjs'
 import { logger } from './utils/logger.mjs'
 import { buildSystemPrompt, generateAiTitle, generateTitle } from './session-utils.mjs'
 import { restoreReasoningContentInPayload } from './reasoning-cache.mjs'
@@ -1138,7 +1138,7 @@ async function persistSession(session) {
   if (messages.length === 0) {
     try {
       await deleteSessionValue(sessionId)
-      await atomicUpdate('sessions-metadata', (data) => {
+      await atomicSessionMetadataUpdate(scope, projectId, (data) => {
         delete data[sessionId]
         return data
       })
@@ -1225,7 +1225,7 @@ async function persistSession(session) {
   // Write to storage atomically (read-modify-write within queue)
   try {
     await writeSessionValue(sessionId, sessionData)
-    await atomicUpdate('sessions-metadata', (data) => {
+    await atomicSessionMetadataUpdate(scope, projectId, (data) => {
       data[sessionId] = {
         ...metadata,
         pinnedAt: data[sessionId]?.pinnedAt,

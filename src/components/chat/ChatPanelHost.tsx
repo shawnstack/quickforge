@@ -367,7 +367,7 @@ export function ChatPanelHost({
     let disposed = false
     let observer: MutationObserver | undefined
     let composerClearedForSend = false
-    let assistantWaitingActive = false
+    let assistantWaitingActive = agent.state.isStreaming
     let toolUpdateScheduled = false
 
     // --- Scroll sync subsystem ---

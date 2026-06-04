@@ -2,6 +2,35 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.26] - 2026-06-04
+
+### Added
+
+- Added the Agent plugin system with bundled document, presentation, and spreadsheet capability plugins.
+- Added composer plus-menu capability suggestions and the `/review` slash command.
+- Added Claude/opencode-compatible custom instruction, skills, and command discovery paths.
+- Added plugin management UI details and plugin capability documentation.
+
+### Changed
+
+- Improved plugin details display, composer capability discovery, chat panel decoration, and custom command discovery precedence.
+- Updated Agent Skills and project command documentation to describe compatible Claude/opencode directories.
+- Removed unused legacy reasoning-content cache code.
+
+### Fixed
+
+- Restored the assistant waiting dots animation after page refresh.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.26` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.3.26.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.26.tgz
+  ```
+
 ## [1.3.25] - 2026-06-03
 
 ### Added

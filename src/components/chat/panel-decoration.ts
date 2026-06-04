@@ -6,6 +6,7 @@
  * command bindings).
  */
 
+import type { BuiltinPluginMention } from './capability-suggestions'
 import type {
   AgentInterfaceElement,
   MessageEditorElement,
@@ -33,6 +34,12 @@ const runIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" 
 const retryIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15.36-5.64L21 9"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15.36 5.64L3 15"/></svg>'
 const planIcon = '<svg class="quickforge-plan-mode-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h1"/><path d="M4 12h1"/><path d="M4 18h1"/><path d="M9 6h11"/><path d="M9 12h11"/><path d="M9 18h11"/></svg>'
 const removePlanIcon = '<svg class="quickforge-plan-remove-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>'
+const plusIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>'
+const attachmentIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>'
+const pluginsIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 4.5h5a1.5 1.5 0 0 1 1.5 1.5v2h1a2.5 2.5 0 0 1 0 5h-1v2a1.5 1.5 0 0 1-1.5 1.5h-2v1a2.5 2.5 0 0 1-5 0v-1h-2A1.5 1.5 0 0 1 2 15.5v-3h1a2 2 0 1 0 0-4H2v-2A1.5 1.5 0 0 1 3.5 5h2v-1a2.5 2.5 0 0 1 5 0v.5Z"/></svg>'
+const documentPluginIcon = '<svg viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M5.4 2.8h6.1L15.8 7v10.2H5.4z"/><path d="M11.4 2.9V7h4.1"/><path d="M7.6 10.2h5"/><path d="M7.6 13h4.3"/></svg>'
+const spreadsheetPluginIcon = '<svg viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><rect x="3.4" y="4" width="13.2" height="12.2" rx="1.5"/><path d="M3.4 8h13.2"/><path d="M7.8 4v12.2"/><path d="M12.2 4v12.2"/><path d="M3.4 12h13.2"/></svg>'
+const presentationPluginIcon = '<svg viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.2h14"/><rect x="4.2" y="4.2" width="11.6" height="8.4" rx="1.2"/><path d="M10 12.6v3.2"/><path d="m7.2 17 2.8-1.2 2.8 1.2"/><path d="M7.1 9.5 9 7.7l1.5 1.3 2.4-2.5"/></svg>'
 
 // --- Shared helpers ---
 
@@ -942,6 +949,7 @@ export type EditorDecorationDeps = {
   removeCapabilitySuggestions: () => void
   updateCapabilitySuggestions: (value?: string) => void
   setupCapabilityTextareaHandler: (editor: MessageEditorElement | null) => void
+  insertBuiltinPluginMention: (mention: BuiltinPluginMention) => void
   onBeforeSend?: (input: string) => void
 }
 
@@ -1001,6 +1009,205 @@ function setupPlanModeControls(
   if (editor) editor.dataset.quickforgePlanMode = String(planMode)
 }
 
+type ComposerPlusPopoverElement = HTMLDivElement & {
+  __quickforgeDismissHandler?: (event: Event) => void
+}
+
+type ComposerPlusMenuDeps = {
+  panel: HTMLElement
+  editor: MessageEditorElement
+  leftControls: HTMLElement
+  insertBuiltinPluginMention: (mention: BuiltinPluginMention) => void
+  removeCommandSuggestions: () => void
+  removeCapabilitySuggestions: () => void
+}
+
+const builtinPluginChoices: Array<{
+  mention: BuiltinPluginMention
+  nameKey: 'pluginOpenaiDocumentsName' | 'pluginOpenaiSpreadsheetsName' | 'pluginOpenaiPresentationsName'
+  descriptionKey: 'pluginOpenaiDocumentsDescription' | 'pluginOpenaiSpreadsheetsDescription' | 'pluginOpenaiPresentationsDescription'
+  pluginName: string
+  icon: string
+}> = [
+  { mention: 'Documents', nameKey: 'pluginOpenaiDocumentsName', descriptionKey: 'pluginOpenaiDocumentsDescription', pluginName: 'openai-documents', icon: documentPluginIcon },
+  { mention: 'Spreadsheets', nameKey: 'pluginOpenaiSpreadsheetsName', descriptionKey: 'pluginOpenaiSpreadsheetsDescription', pluginName: 'openai-spreadsheets', icon: spreadsheetPluginIcon },
+  { mention: 'Presentations', nameKey: 'pluginOpenaiPresentationsName', descriptionKey: 'pluginOpenaiPresentationsDescription', pluginName: 'openai-presentations', icon: presentationPluginIcon },
+]
+
+function removeComposerPlusPopover(panel: HTMLElement) {
+  const popover = panel.querySelector<ComposerPlusPopoverElement>('.quickforge-plus-popover')
+  if (popover?.__quickforgeDismissHandler) {
+    document.removeEventListener('pointerdown', popover.__quickforgeDismissHandler, true)
+    popover.__quickforgeDismissHandler = undefined
+  }
+  popover?.remove()
+  panel.querySelector<HTMLButtonElement>('.quickforge-plus-inline')?.setAttribute('aria-expanded', 'false')
+}
+
+function findNativeAttachmentButton(editor: MessageEditorElement, leftControls: HTMLElement) {
+  const marked = leftControls.querySelector<HTMLButtonElement>('.quickforge-native-attachment-hidden')
+  if (marked) return marked
+  return Array.from(leftControls.querySelectorAll<HTMLButtonElement>('button'))
+    .find((button) => !button.classList.contains('quickforge-plus-inline') && !button.classList.contains('quickforge-yolo-inline') && !button.classList.contains('quickforge-plan-inline'))
+    ?? Array.from(editor.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => !button.classList.contains('quickforge-plus-inline') && !button.classList.contains('quickforge-yolo-inline') && !button.classList.contains('quickforge-plan-inline'))
+}
+
+function triggerAttachmentPicker(editor: MessageEditorElement, leftControls: HTMLElement) {
+  const fileInput = editor.querySelector<HTMLInputElement>('input[type="file"]')
+  if (fileInput) {
+    fileInput.click()
+    return
+  }
+  const nativeAttachmentButton = findNativeAttachmentButton(editor, leftControls)
+  nativeAttachmentButton?.click()
+}
+
+function createPlusMenuItem({
+  className,
+  icon,
+  label,
+  description,
+  pluginName,
+  onSelect,
+}: {
+  className?: string
+  icon: string
+  label: string
+  description?: string
+  pluginName?: string
+  onSelect: () => void
+}) {
+  const item = document.createElement('button')
+  item.type = 'button'
+  item.className = `quickforge-plus-popover-item${className ? ` ${className}` : ''}`
+  if (pluginName) item.dataset.quickforgePluginName = pluginName
+  item.innerHTML = `
+    <span class="quickforge-plus-popover-item-icon">${icon}</span>
+    <span class="quickforge-plus-popover-item-main">
+      <span class="quickforge-plus-popover-item-label"></span>
+      ${description ? '<span class="quickforge-plus-popover-item-description"></span>' : ''}
+    </span>
+  `
+  item.querySelector<HTMLElement>('.quickforge-plus-popover-item-label')!.textContent = label
+  const descriptionEl = item.querySelector<HTMLElement>('.quickforge-plus-popover-item-description')
+  if (descriptionEl && description) descriptionEl.textContent = description
+  item.onpointerdown = (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onSelect()
+  }
+  return item
+}
+
+function renderComposerPlusPopover(deps: ComposerPlusMenuDeps, view: 'main' | 'plugins') {
+  const { panel, editor, leftControls, insertBuiltinPluginMention, removeCommandSuggestions, removeCapabilitySuggestions } = deps
+  removeCommandSuggestions()
+  removeCapabilitySuggestions()
+
+  const popover = (panel.querySelector<ComposerPlusPopoverElement>('.quickforge-plus-popover') ?? document.createElement('div')) as ComposerPlusPopoverElement
+  popover.className = 'quickforge-plus-popover'
+  popover.setAttribute('role', 'menu')
+  popover.innerHTML = ''
+
+  const header = document.createElement('div')
+  header.className = 'quickforge-plus-popover-header'
+  header.textContent = view === 'plugins' ? t('composerAddPlugins') : t('composerAddMenu')
+  popover.append(header)
+
+  if (view === 'main') {
+    popover.append(
+      createPlusMenuItem({
+        icon: attachmentIcon,
+        label: t('composerAddAttachment'),
+        onSelect: () => {
+          removeComposerPlusPopover(panel)
+          triggerAttachmentPicker(editor, leftControls)
+        },
+      }),
+      createPlusMenuItem({
+        icon: pluginsIcon,
+        label: t('composerAddPlugins'),
+        onSelect: () => renderComposerPlusPopover(deps, 'plugins'),
+      }),
+    )
+  } else {
+    const backButton = createPlusMenuItem({
+      className: 'quickforge-plus-popover-back',
+      icon: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>',
+      label: t('composerAddBack'),
+      onSelect: () => renderComposerPlusPopover(deps, 'main'),
+    })
+    popover.append(backButton)
+    for (const choice of builtinPluginChoices) {
+      popover.append(createPlusMenuItem({
+        icon: choice.icon,
+        label: t(choice.nameKey),
+        description: t(choice.descriptionKey),
+        pluginName: choice.pluginName,
+        onSelect: () => {
+          insertBuiltinPluginMention(choice.mention)
+          removeComposerPlusPopover(panel)
+        },
+      }))
+    }
+  }
+
+  if (!popover.isConnected) {
+    editor.parentElement?.insertBefore(popover, editor)
+  }
+  if (popover.__quickforgeDismissHandler) {
+    document.removeEventListener('pointerdown', popover.__quickforgeDismissHandler, true)
+  }
+  popover.__quickforgeDismissHandler = (event: Event) => {
+    const target = event.target as Node
+    if (popover.contains(target)) return
+    if (panel.querySelector<HTMLButtonElement>('.quickforge-plus-inline')?.contains(target)) return
+    removeComposerPlusPopover(panel)
+  }
+  document.addEventListener('pointerdown', popover.__quickforgeDismissHandler, true)
+  panel.querySelector<HTMLButtonElement>('.quickforge-plus-inline')?.setAttribute('aria-expanded', 'true')
+}
+
+function setupComposerPlusMenu(deps: ComposerPlusMenuDeps) {
+  const { panel, editor, leftControls } = deps
+  const nativeAttachmentButton = findNativeAttachmentButton(editor, leftControls)
+  nativeAttachmentButton?.classList.add('quickforge-native-attachment-hidden')
+
+  const existingButton = leftControls.querySelector<HTMLButtonElement>('.quickforge-plus-inline')
+  const syncButton = (button: HTMLButtonElement) => {
+    button.type = 'button'
+    patchContent(button, plusIcon)
+    button.title = t('composerAddMenu')
+    button.setAttribute('aria-label', t('composerAddMenu'))
+    button.setAttribute('aria-haspopup', 'menu')
+    button.setAttribute('aria-expanded', panel.querySelector('.quickforge-plus-popover') ? 'true' : 'false')
+    button.className = 'quickforge-plus-inline inline-flex h-8 w-8 items-center justify-center rounded-md border border-transparent text-muted-foreground'
+    button.onpointerdown = (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      if (panel.querySelector('.quickforge-plus-popover')) {
+        removeComposerPlusPopover(panel)
+      } else {
+        renderComposerPlusPopover(deps, 'main')
+      }
+    }
+    button.onclick = (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+    }
+  }
+
+  if (existingButton) {
+    syncButton(existingButton)
+    return
+  }
+
+  const button = document.createElement('button')
+  syncButton(button)
+  leftControls.prepend(button)
+}
+
 export function decorateEditor(deps: EditorDecorationDeps) {
   const {
     panel,
@@ -1022,6 +1229,7 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     removeCapabilitySuggestions,
     updateCapabilitySuggestions,
     setupCapabilityTextareaHandler,
+    insertBuiltinPluginMention,
     onBeforeSend,
   } = deps
 
@@ -1132,9 +1340,22 @@ export function decorateEditor(deps: EditorDecorationDeps) {
   }
 
   if (!leftControls) {
+    panel.querySelector<HTMLButtonElement>('.quickforge-plus-inline')?.remove()
+    removeComposerPlusPopover(panel)
     panel.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')?.remove()
     panel.querySelector<HTMLButtonElement>('.quickforge-plan-inline')?.remove()
     return
+  }
+
+  if (editor) {
+    setupComposerPlusMenu({
+      panel,
+      editor,
+      leftControls,
+      insertBuiltinPluginMention,
+      removeCommandSuggestions,
+      removeCapabilitySuggestions,
+    })
   }
 
   const planModeTitle = t('planModeEnabledTitle')

@@ -620,6 +620,111 @@ streaming-message-container > div:has(> span.animate-pulse:only-child) {
   transform: translateY(-1px);
 }
 
+.quickforge-composer .quickforge-native-attachment-hidden {
+  display: none !important;
+}
+
+.quickforge-composer .quickforge-plus-inline {
+  height: 2rem;
+  width: 2rem;
+  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent) !important;
+  border-radius: 999px !important;
+  background: color-mix(in oklab, var(--muted) 42%, transparent);
+}
+
+.quickforge-composer .quickforge-plus-inline[aria-expanded="true"] {
+  background: color-mix(in oklab, var(--primary) 12%, transparent) !important;
+  color: var(--primary) !important;
+}
+
+.quickforge-plus-popover {
+  width: min(20rem, calc(100vw - 2rem));
+  margin: 0 0.75rem 0.5rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in oklab, var(--popover) 96%, transparent);
+  box-shadow: 0 18px 46px -28px rgb(15 23 42 / 0.42);
+}
+
+.quickforge-plus-popover-header {
+  padding: 0.55rem 0.75rem 0.35rem;
+  color: color-mix(in oklab, var(--muted-foreground) 86%, transparent);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.quickforge-plus-popover-item {
+  display: grid !important;
+  width: 100%;
+  grid-template-columns: 1.35rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.75rem !important;
+  border-radius: 0 !important;
+  text-align: left;
+}
+
+.quickforge-plus-popover-item:hover {
+  background: color-mix(in oklab, var(--muted) 62%, transparent) !important;
+  transform: none !important;
+}
+
+.quickforge-plus-popover-back {
+  color: color-mix(in oklab, var(--muted-foreground) 86%, transparent);
+}
+
+.quickforge-plus-popover-item-icon {
+  display: inline-flex;
+  width: 1.15rem;
+  height: 1.15rem;
+  align-items: center;
+  justify-content: center;
+  color: rgb(139 92 246);
+}
+
+.quickforge-plus-popover-item[data-quickforge-plugin-name="openai-documents"] .quickforge-plus-popover-item-icon {
+  color: rgb(37 99 235);
+}
+
+.quickforge-plus-popover-item[data-quickforge-plugin-name="openai-spreadsheets"] .quickforge-plus-popover-item-icon {
+  color: rgb(34 197 94);
+}
+
+.quickforge-plus-popover-item[data-quickforge-plugin-name="openai-presentations"] .quickforge-plus-popover-item-icon {
+  color: rgb(245 158 11);
+}
+
+.quickforge-plus-popover-item-icon svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.quickforge-plus-popover-item-main {
+  min-width: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+
+.quickforge-plus-popover-item-label {
+  min-width: 0;
+  overflow: hidden;
+  color: color-mix(in oklab, var(--foreground) 90%, transparent);
+  font-size: 0.82rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickforge-plus-popover-item-description {
+  min-width: 0;
+  overflow: hidden;
+  color: color-mix(in oklab, var(--muted-foreground) 74%, transparent);
+  font-size: 0.76rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .quickforge-composer .quickforge-yolo-inline,
 .quickforge-composer .quickforge-plan-inline {
   height: 2rem;

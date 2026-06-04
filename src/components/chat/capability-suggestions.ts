@@ -7,6 +7,8 @@ import type {
   ComposerDraft,
 } from './chat-utils'
 
+export type BuiltinPluginMention = 'Documents' | 'Spreadsheets' | 'Presentations'
+
 export type SelectedCapability = {
   type: 'plugin' | 'skill' | 'tool' | 'command'
   pluginName: string
@@ -205,6 +207,18 @@ export function createCapabilitySuggestions({
     remove()
   }
 
+  const insertBuiltinPluginMention = (mention: BuiltinPluginMention) => {
+    const insert = () => {
+      const capability = rows().find((row) => row.insertText === mention)
+      if (capability) insertCapabilityIntoComposer(capability)
+    }
+    if (plugins.length === 0) {
+      void refresh().then(insert)
+      return
+    }
+    insert()
+  }
+
   const update = (value?: string) => {
     const editor = panel.querySelector<MessageEditorElement>('message-editor')
     const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
@@ -339,6 +353,7 @@ export function createCapabilitySuggestions({
     setupTextareaHandler,
     cleanupTextareaHandler,
     consumeSelectedCapabilities,
+    insertBuiltinPluginMention,
   }
 }
 

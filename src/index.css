@@ -680,7 +680,7 @@ streaming-message-container > div:has(> span.animate-pulse:only-child) {
   height: 1.15rem;
   align-items: center;
   justify-content: center;
-  color: rgb(139 92 246);
+  color: color-mix(in oklab, var(--foreground) 78%, transparent);
 }
 
 .quickforge-plus-popover-item[data-quickforge-plugin-name="openai-documents"] .quickforge-plus-popover-item-icon {

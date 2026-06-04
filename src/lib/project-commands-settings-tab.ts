@@ -116,7 +116,6 @@ class ProjectCommandsSettingsTab extends SettingsTab {
           <ul class="list-disc space-y-1 pl-5">
             <li>.ai/commands</li>
             <li>.claude/commands</li>
-            <li>.opencode/command</li>
             <li>.opencode/commands</li>
             <li>D:\\shared\\ai-commands</li>
           </ul>

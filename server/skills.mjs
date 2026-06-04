@@ -6,6 +6,8 @@ import { getEnabledPluginSkillSources } from './plugins/registry.mjs'
 
 const userSkillsDir = path.join(dataDir, 'skills')
 const sharedUserSkillsDir = path.join(os.homedir(), '.agents', 'skills')
+const claudeUserSkillsDir = path.join(os.homedir(), '.claude', 'skills')
+const opencodeUserSkillsDir = path.join(os.homedir(), '.opencode', 'skills')
 const defaultEntry = 'SKILL.md'
 const resourceDirs = ['scripts', 'references', 'assets']
 const maxResourceFiles = 200
@@ -313,6 +315,14 @@ function projectSharedSkillsDir(workspaceRoot) {
   return workspaceRoot ? path.join(path.resolve(workspaceRoot), '.agents', 'skills') : ''
 }
 
+function projectClaudeSkillsDir(workspaceRoot) {
+  return workspaceRoot ? path.join(path.resolve(workspaceRoot), '.claude', 'skills') : ''
+}
+
+function projectOpencodeSkillsDir(workspaceRoot) {
+  return workspaceRoot ? path.join(path.resolve(workspaceRoot), '.opencode', 'skills') : ''
+}
+
 async function loadSkillsFromSources(sources) {
   const skillsByName = new Map()
 
@@ -397,13 +407,19 @@ export function mergeSkills(...skillLists) {
 }
 
 export const skillSearchPaths = {
-  global: searchDirsForList([sharedUserSkillsDir, userSkillsDir]),
-  project: ['<project>/.agents/skills', '<project>/.quickforge/skills'],
+  global: searchDirsForList([claudeUserSkillsDir, opencodeUserSkillsDir, sharedUserSkillsDir, userSkillsDir]),
+  project: ['<project>/.claude/skills', '<project>/.opencode/skills', '<project>/.agents/skills', '<project>/.quickforge/skills'],
 }
 
 export function projectSkillSearchPaths(workspaceRoot) {
   if (!workspaceRoot) return skillSearchPaths.project.slice()
-  return searchDirsForList([projectSharedSkillsDir(workspaceRoot), projectClientSkillsDir(workspaceRoot), '<enabled-plugin>/skills'])
+  return searchDirsForList([
+    projectClaudeSkillsDir(workspaceRoot),
+    projectOpencodeSkillsDir(workspaceRoot),
+    projectSharedSkillsDir(workspaceRoot),
+    projectClientSkillsDir(workspaceRoot),
+    '<enabled-plugin>/skills',
+  ])
 }
 
 async function loadPluginSkills(workspaceRoot) {
@@ -414,6 +430,8 @@ async function loadPluginSkills(workspaceRoot) {
 
 export async function loadGlobalSkills() {
   return loadSkillsFromSources([
+    { dir: claudeUserSkillsDir, name: 'user-claude' },
+    { dir: opencodeUserSkillsDir, name: 'user-opencode' },
     { dir: sharedUserSkillsDir, name: 'user-shared' },
     { dir: userSkillsDir, name: 'user' },
   ])
@@ -422,10 +440,12 @@ export async function loadGlobalSkills() {
 export async function loadProjectSkills(workspaceRoot) {
   const pluginSkills = await loadPluginSkills(workspaceRoot)
   const projectSkills = await loadSkillsFromSources([
+    { dir: projectClaudeSkillsDir(workspaceRoot), name: 'project-claude' },
+    { dir: projectOpencodeSkillsDir(workspaceRoot), name: 'project-opencode' },
     { dir: projectSharedSkillsDir(workspaceRoot), name: 'project-shared' },
     { dir: projectClientSkillsDir(workspaceRoot), name: 'project' },
   ])
-  return mergeSkills(pluginSkills, projectSkills).sort((a, b) => {
+  return mergeSkills(projectSkills, pluginSkills).sort((a, b) => {
     const left = (a.displayName || a.name).toLowerCase()
     const right = (b.displayName || b.name).toLowerCase()
     return left.localeCompare(right)

@@ -298,22 +298,69 @@ export async function readInstructionsFile(filePath) {
   return null
 }
 
+async function readInstructionSources(candidates) {
+  const sources = []
+  const seen = new Set()
+
+  for (const candidate of candidates) {
+    const file = path.resolve(candidate.file)
+    if (seen.has(file)) continue
+    seen.add(file)
+
+    try {
+      const content = await fs.readFile(file, 'utf8')
+      const trimmed = content.trim()
+      if (trimmed) sources.push({ source: candidate.source, content: trimmed })
+    } catch {
+      // optional compatibility source
+    }
+  }
+
+  return sources
+}
+
+function combineInstructionSources(sources) {
+  return sources.map((source) => source.content).join('\n\n') || null
+}
+
+function globalInstructionCandidates() {
+  const home = os.homedir()
+  return [
+    { file: path.join(home, '.claude', 'CLAUDE.md'), source: '~/.claude/CLAUDE.md' },
+    { file: path.join(home, '.opencode', 'AGENTS.md'), source: '~/.opencode/AGENTS.md' },
+    { file: path.join(dataDir, 'AGENTS.md'), source: '~/.quickforge/AGENTS.md' },
+    { file: path.join(dataDir, 'agents.md'), source: '~/.quickforge/agents.md' },
+  ]
+}
+
+function projectInstructionCandidates(workspaceRoot) {
+  return [
+    { file: path.join(workspaceRoot, 'CLAUDE.md'), source: 'CLAUDE.md' },
+    { file: path.join(workspaceRoot, 'AGENTS.md'), source: 'AGENTS.md' },
+    { file: path.join(workspaceRoot, 'agents.md'), source: 'agents.md' },
+    { file: path.join(workspaceRoot, '.opencode', 'AGENTS.md'), source: '.opencode/AGENTS.md' },
+    { file: path.join(workspaceRoot, '.quickforge', 'AGENTS.md'), source: '.quickforge/AGENTS.md' },
+  ]
+}
+
 export async function buildInstructionsPayload(projectId) {
   const config = await readProjectConfig()
-  let projectInstructions = null
+  let projectInstructionSources = []
   let project = projectId ? config.projects.find((item) => item.id === projectId) ?? null : null
 
   if (projectId) {
     try {
       const context = await projectContextFromId(projectId)
       project = context.project
-      projectInstructions = await readInstructionsFile(path.join(context.workspaceRoot, 'AGENTS.md'))
+      projectInstructionSources = await readInstructionSources(projectInstructionCandidates(context.workspaceRoot))
     } catch {
       // project not found or inaccessible — leave projectInstructions null
     }
   }
 
-  const globalInstructions = await readInstructionsFile(path.join(dataDir, 'AGENTS.md'))
+  const globalInstructionSources = await readInstructionSources(globalInstructionCandidates())
+  const globalInstructions = combineInstructionSources(globalInstructionSources)
+  const projectInstructions = combineInstructionSources(projectInstructionSources)
   const globalSkills = await loadSelectedGlobalSkills(config.globalSkills)
   const projectSkills = project?.path
     ? await loadSelectedProjectSkills(project.skills, project.path)
@@ -331,6 +378,8 @@ export async function buildInstructionsPayload(projectId) {
       : null,
     global: globalInstructions,
     project: projectInstructions,
+    globalSources: globalInstructionSources,
+    projectSources: projectInstructionSources,
     globalSkills: globalSkills.map(stripRuntimeFields),
     projectSkills: projectSkills.map(stripRuntimeFields),
     skills: activeSkills.map(stripRuntimeFields),

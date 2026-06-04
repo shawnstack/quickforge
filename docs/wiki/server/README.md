@@ -111,11 +111,15 @@ server/
 **用途**: Agent Skills 的发现、加载和管理。
 
 **搜索路径**:
-1. `~/.agents/skills/` — 用户级共享 skills
-2. `~/.quickforge/skills/` — 用户级全局 skills
-3. `<workspace>/.agents/skills/` — 项目级共享 skills
-4. `<workspace>/.quickforge/skills/` — 项目级 QuickForge skills
-5. 启用插件贡献的 `contributes.skills` — 插件打包 skills
+1. `~/.claude/skills/` — Claude 用户级 skills
+2. `~/.opencode/skills/` — opencode 用户级 skills
+3. `~/.agents/skills/` — 用户级共享 skills
+4. `~/.quickforge/skills/` — 用户级全局 skills
+5. `<workspace>/.claude/skills/` — Claude 项目级 skills
+6. `<workspace>/.opencode/skills/` — opencode 项目级 skills
+7. `<workspace>/.agents/skills/` — 项目级共享 skills
+8. `<workspace>/.quickforge/skills/` — 项目级 QuickForge skills
+9. 启用插件贡献的 `contributes.skills` — 插件打包 skills
 
 **功能**:
 - `listGlobalSkillSummaries()` / `listProjectSkillSummaries()` — 技能列表
@@ -192,7 +196,7 @@ server/
 
 ### custom-commands.mjs (344 行)
 
-**用途**: 自定义命令系统。从 `<workspace>/.ai/commands/` 和项目配置 `commandDir` 指向的一个或多个相对/绝对目录读取命令定义；同名命令由后面的配置目录覆盖前面的目录。
+**用途**: 自定义命令系统。从 `<workspace>/.claude/commands/`、`<workspace>/.opencode/commands/`、`<workspace>/.ai/commands/` 和项目配置 `commandDir` 指向的一个或多个相对/绝对目录读取命令定义；同名命令由后面的目录覆盖前面的目录。
 
 **功能**:
 - `listProjectCommands()` — 列出命令
@@ -206,7 +210,7 @@ server/
 
 ### system-prompt.mjs (91 行)
 
-合成系统提示词。将基础提示词、用户指令、项目指令和 Skills 目录组装成完整的系统提示词。
+合成系统提示词。将基础提示词、workspace 上下文、多来源用户/项目指令（兼容 `~/.claude/CLAUDE.md`、`~/.opencode/AGENTS.md`、项目 `CLAUDE.md` / `AGENTS.md` 等）、Skills 目录和 Subagents 目录组装成完整的系统提示词。
 
 ### project-config.mjs (162 行)
 

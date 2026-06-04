@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { getEnabledPluginCommandSources } from './plugins/registry.mjs'
 
+const commandsRelativeDirs = ['.claude/commands', '.opencode/commands', '.ai/commands']
 const commandsRelativeDir = '.ai/commands'
 const commandNamePattern = /^(?!.*--)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
 
@@ -24,10 +25,9 @@ function configuredCommandDirectories(workspaceRoot, commandDir) {
 }
 
 function commandDirectories(workspaceRoot, commandDir) {
-  const defaultDir = commandDirectory(workspaceRoot)
-  if (!defaultDir) return []
+  if (!workspaceRoot) return []
 
-  const dirs = [defaultDir]
+  const dirs = commandsRelativeDirs.map((dir) => path.join(path.resolve(workspaceRoot), dir))
   for (const configuredDir of configuredCommandDirectories(workspaceRoot, commandDir)) {
     if (!dirs.some((dir) => path.resolve(dir) === path.resolve(configuredDir))) {
       dirs.push(configuredDir)
@@ -377,7 +377,7 @@ function formatCommandList(commands) {
       '/command new review',
       '```',
       '',
-      'Or add Markdown files under `.ai/commands/`, for example `.ai/commands/review.md`.',
+      'Or add Markdown files under `.claude/commands/`, `.opencode/commands/`, or `.ai/commands/`, for example `.ai/commands/review.md`.',
     ].join('\n')
   }
 
@@ -393,7 +393,7 @@ function formatCommandList(commands) {
     '',
     ...rows,
     '',
-    'Command files live in `.ai/commands/*.md`. Use `$ARGUMENTS` inside a command file to insert invocation arguments.',
+    'Command files live in `.claude/commands/*.md`, `.opencode/commands/*.md`, `.ai/commands/*.md`, or configured directories. Use `$ARGUMENTS` inside a command file to insert invocation arguments.',
   ].join('\n')
 }
 

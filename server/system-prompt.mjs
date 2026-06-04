@@ -27,6 +27,10 @@ function escapeXml(value) {
     .replace(/>/g, '&gt;')
 }
 
+function escapeAttribute(value) {
+  return escapeXml(value).replace(/"/g, '&quot;')
+}
+
 function formatAllowedTools(value) {
   if (Array.isArray(value)) return value.join(', ')
   return value
@@ -83,6 +87,22 @@ ${skillParts.join('\n')}
 </available_skills>`)
 }
 
+function appendInstructionSources(parts, tagName, sources, fallback) {
+  const instructionSources = Array.isArray(sources)
+    ? sources.filter((source) => source?.content)
+    : []
+
+  if (instructionSources.length > 0) {
+    for (const source of instructionSources) {
+      const sourceAttribute = source.source ? ` source="${escapeAttribute(source.source)}"` : ''
+      parts.push(`\n<${tagName}${sourceAttribute}>\n${source.content}\n</${tagName}>`)
+    }
+    return
+  }
+
+  if (fallback) parts.push(`\n<${tagName}>\n${fallback}\n</${tagName}>`)
+}
+
 export function composeSystemPrompt(instructions = {}) {
   const parts = [BASE_SYSTEM_PROMPT]
 
@@ -103,12 +123,14 @@ ${lines.join('\n')}
     }
   }
 
-  if (instructions.global) {
-    parts.push(`\n<user_instructions>\n${instructions.global}\n</user_instructions>`)
-  }
+  appendInstructionSources(parts, 'user_instructions', instructions.globalSources, instructions.global)
+  appendInstructionSources(parts, 'project_instructions', instructions.projectSources, instructions.project)
 
-  if (instructions.project) {
-    parts.push(`\n<project_instructions>\n${instructions.project}\n</project_instructions>`)
+  if (instructions.globalSources?.length || instructions.projectSources?.length) {
+    parts.push(`
+<instruction_precedence>
+When instructions from different sources conflict, prefer project-specific instructions over global instructions, and prefer QuickForge project instructions over external compatibility instructions.
+</instruction_precedence>`)
   }
 
   const skills = Array.isArray(instructions.skills)

@@ -2,6 +2,22 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.27] - 2026-06-04
+
+### Fixed
+
+- Corrected the project Commands settings example to show `.opencode/commands` without the invalid singular `.opencode/command` entry.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.27` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.3.27.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.27.tgz
+  ```
+
 ## [1.3.26] - 2026-06-04
 
 ### Added

@@ -2,6 +2,25 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.28] - 2026-06-05
+
+### Fixed
+
+- Included bundled plugins in both runtime and offline package builds.
+- Improved project deletion confirmation menu behavior.
+- Improved slash command suggestions.
+- Corrected the composer image paste model display.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.28` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.3.28.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.28.tgz
+  ```
+
 ## [1.3.27] - 2026-06-04
 
 ### Fixed

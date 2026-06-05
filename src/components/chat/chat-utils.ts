@@ -39,6 +39,8 @@ export type CapabilityTextareaElement = HTMLTextAreaElement & {
 export type AgentInterfaceElement = HTMLElement & {
   setInput?: (text: string, attachments?: unknown[]) => void
   setAutoScroll?: (enabled: boolean) => void
+  requestUpdate?: () => void
+  updateComplete?: Promise<unknown>
   enableModelSelector?: boolean
   enableThinkingSelector?: boolean
 }

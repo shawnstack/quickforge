@@ -8,7 +8,7 @@ import type { ServerAgent, ServerAgentContextCompaction, ServerAgentContextUsage
 import type { SharedServerAgent } from '@/lib/shared-server-agent'
 import type { DeferredSessionAgent } from '@/lib/deferred-session-agent'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
-import type { ComposerDraft, CustomCommandSummary, MessageWithUsage } from './chat-utils'
+import type { AgentInterfaceElement, ComposerDraft, CustomCommandSummary, MessageWithUsage } from './chat-utils'
 import { emptyDraft, hasDraft } from './chat-utils'
 import { createScrollSync } from './scroll-sync'
 import { createCommandSuggestions } from './command-suggestions'
@@ -446,6 +446,11 @@ export function ChatPanelHost({
         composerDraftsRef.current.delete(currentDraftKey)
       }
       schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
+
+      const agentInterface = panel.querySelector<AgentInterfaceElement>('agent-interface')
+      agentInterface?.requestUpdate?.()
+      window.requestAnimationFrame(() => scheduleDecorateRef.current?.())
+      void agentInterface?.updateComplete?.then(() => scheduleDecorateRef.current?.())
     }
 
     // --- The core decoration function (called on DOM changes & prop changes) ---

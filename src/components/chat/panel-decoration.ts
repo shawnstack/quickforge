@@ -1044,13 +1044,17 @@ function removeComposerPlusPopover(panel: HTMLElement) {
   panel.querySelector<HTMLButtonElement>('.quickforge-plus-inline')?.setAttribute('aria-expanded', 'false')
 }
 
-function findNativeAttachmentButton(editor: MessageEditorElement, leftControls: HTMLElement) {
+function clearMisplacedNativeAttachmentButtonMarks(editor: MessageEditorElement, leftControls: HTMLElement) {
+  editor.querySelectorAll<HTMLButtonElement>('.quickforge-native-attachment-hidden').forEach((button) => {
+    if (!leftControls.contains(button)) button.classList.remove('quickforge-native-attachment-hidden')
+  })
+}
+
+function findNativeAttachmentButton(leftControls: HTMLElement) {
   const marked = leftControls.querySelector<HTMLButtonElement>('.quickforge-native-attachment-hidden')
   if (marked) return marked
   return Array.from(leftControls.querySelectorAll<HTMLButtonElement>('button'))
     .find((button) => !button.classList.contains('quickforge-plus-inline') && !button.classList.contains('quickforge-yolo-inline') && !button.classList.contains('quickforge-plan-inline'))
-    ?? Array.from(editor.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => !button.classList.contains('quickforge-plus-inline') && !button.classList.contains('quickforge-yolo-inline') && !button.classList.contains('quickforge-plan-inline'))
 }
 
 function triggerAttachmentPicker(editor: MessageEditorElement, leftControls: HTMLElement) {
@@ -1059,7 +1063,7 @@ function triggerAttachmentPicker(editor: MessageEditorElement, leftControls: HTM
     fileInput.click()
     return
   }
-  const nativeAttachmentButton = findNativeAttachmentButton(editor, leftControls)
+  const nativeAttachmentButton = findNativeAttachmentButton(leftControls)
   nativeAttachmentButton?.click()
 }
 
@@ -1171,7 +1175,8 @@ function renderComposerPlusPopover(deps: ComposerPlusMenuDeps, view: 'main' | 'p
 
 function setupComposerPlusMenu(deps: ComposerPlusMenuDeps) {
   const { panel, editor, leftControls } = deps
-  const nativeAttachmentButton = findNativeAttachmentButton(editor, leftControls)
+  clearMisplacedNativeAttachmentButtonMarks(editor, leftControls)
+  const nativeAttachmentButton = findNativeAttachmentButton(leftControls)
   nativeAttachmentButton?.classList.add('quickforge-native-attachment-hidden')
 
   const existingButton = leftControls.querySelector<HTMLButtonElement>('.quickforge-plus-inline')
@@ -1282,10 +1287,10 @@ export function decorateEditor(deps: EditorDecorationDeps) {
 
   const agentInterface = panel.querySelector<AgentInterfaceElement>('agent-interface')
   if (agentInterface) {
-    if (!allowModelControls) {
-      agentInterface.enableModelSelector = false
-    }
+    const shouldRequestUpdate = agentInterface.enableModelSelector !== allowModelControls
+    agentInterface.enableModelSelector = allowModelControls
     agentInterface.enableThinkingSelector = false
+    if (shouldRequestUpdate) agentInterface.requestUpdate?.()
   }
 
   const editorRows = editor?.querySelectorAll<HTMLElement>('.flex.gap-2.items-center')

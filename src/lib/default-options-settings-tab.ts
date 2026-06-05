@@ -58,6 +58,7 @@ class DefaultOptionsSettingsTab extends SettingsTab {
   private autoCompactEnabled = false
   private autoCompactRequireConfirmation = true
   private autoCompactThresholdPercent = 80
+  private autoCompactThresholdPercentInput = '80'
   private autoCompactKeepRecentTurns = 2
   private baseFontSizePx = 14
   private bodyFontSizePx = 12
@@ -114,6 +115,7 @@ class DefaultOptionsSettingsTab extends SettingsTab {
       this.autoCompactEnabled = autoCompactSettings.enabled
       this.autoCompactRequireConfirmation = autoCompactSettings.requireConfirmation
       this.autoCompactThresholdPercent = autoCompactSettings.thresholdPercent
+      this.autoCompactThresholdPercentInput = String(autoCompactSettings.thresholdPercent)
       this.autoCompactKeepRecentTurns = autoCompactSettings.keepRecentTurns
       this.baseFontSizePx = fontSizeSettings.baseFontSizePx
       this.bodyFontSizePx = fontSizeSettings.bodyFontSizePx
@@ -164,7 +166,11 @@ class DefaultOptionsSettingsTab extends SettingsTab {
   }
 
   private updateAutoCompactThresholdPercent(value: string) {
-    this.autoCompactThresholdPercent = Number(value) || 80
+    this.autoCompactThresholdPercentInput = value
+    const parsed = Number(value)
+    if (value !== '' && Number.isFinite(parsed)) {
+      this.autoCompactThresholdPercent = parsed
+    }
     this.saved = false
     this.requestUpdate()
   }
@@ -363,7 +369,7 @@ class DefaultOptionsSettingsTab extends SettingsTab {
               min="50"
               max="95"
               step="1"
-              .value=${String(this.autoCompactThresholdPercent)}
+              .value=${this.autoCompactThresholdPercentInput}
               ?disabled=${!this.autoCompactEnabled}
               @input=${(event: Event) => this.updateAutoCompactThresholdPercent((event.target as HTMLInputElement).value)}
             />

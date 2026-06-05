@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   CalendarClock,
   Bot,
@@ -80,7 +81,7 @@ type ChatSidebarProps = {
   onOpenMcpServers: () => void
   onOpenProjectSkills: (project: ProjectInfo) => void
   onOpenProjectInExplorer: (project: ProjectInfo) => void
-  onDeleteProject: (projectId: string) => void
+  onDeleteProject: (projectId: string) => void | Promise<void>
   onLoadSession: (sessionId: string) => void
   onTogglePinSession: (sessionId: string) => void
   onRenameSession: (sessionId: string, currentTitle: string) => void
@@ -108,6 +109,8 @@ const dayMs = 24 * hourMs
 const weekMs = 7 * dayMs
 const yearMs = 365 * dayMs
 const deleteSessionFadeMs = 360
+const projectMenuWidth = 192
+const projectMenuHeight = 120
 
 function formatSessionTime(value: string) {
   const timestamp = new Date(value).getTime()
@@ -221,18 +224,22 @@ export const ChatSidebar = memo(function ChatSidebar({
   const activeProjectTitleClass = 'font-medium text-foreground/84'
   const timeClass = 'shrink-0 text-[11px] leading-4 text-muted-foreground/55 transition-opacity duration-160'
   const searchDialogClass = 'fixed inset-0 z-50 flex items-start justify-center bg-background/50 px-4 pt-[12vh] backdrop-blur-sm'
-  const projectMenuClass = 'absolute right-0 top-8 z-30 min-w-48 rounded-lg border border-border bg-card p-1 shadow-xl'
+  const projectMenuClass = 'fixed z-50 min-w-48 overflow-hidden rounded-lg border border-border bg-background p-1 shadow-xl'
   const sessionHoverTipClass = 'pointer-events-none fixed z-50 w-[min(24rem,calc(100vw-1rem))] max-w-sm rounded-2xl border border-border bg-card px-4 py-3 text-left shadow-xl'
   const sessionHoverTipMetaClass = 'mt-2 flex items-center gap-2 text-sm leading-5 text-muted-foreground/72'
   const isMobile = variant === 'mobile'
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [projectMenuId, setProjectMenuId] = useState<string | null>(null)
+  const [projectMenuPosition, setProjectMenuPosition] = useState<{ x: number; y: number } | null>(null)
+  const [confirmingDeleteProjectId, setConfirmingDeleteProjectId] = useState<string | null>(null)
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null)
   const [suppressedSessionActionsId, setSuppressedSessionActionsId] = useState<string | null>(null)
   const [confirmingDeleteSessionId, setConfirmingDeleteSessionId] = useState<string | null>(null)
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
   const [hoveredSessionTip, setHoveredSessionTip] = useState<{ sessionId: string; x: number; y: number } | null>(null)
   const deleteAnimationTimeoutRef = useRef<number | null>(null)
+  const projectDeleteAnimationTimeoutRef = useRef<number | null>(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -244,6 +251,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   }), [])
 
   const projectIds = useMemo(() => projects.map((p) => p.id), [projects])
+  const openProjectMenuProject = useMemo(() => projects.find((project) => project.id === projectMenuId), [projectMenuId, projects])
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event
@@ -292,6 +300,47 @@ export const ChatSidebar = memo(function ChatSidebar({
   const hideSessionHoverTip = (sessionId: string) => {
     setHoveredSessionTip((current) => current?.sessionId === sessionId ? null : current)
   }
+  const openProjectMenu = (event: React.MouseEvent<HTMLButtonElement>, projectId: string) => {
+    event.stopPropagation()
+    const rect = event.currentTarget.getBoundingClientRect()
+    setConfirmingDeleteProjectId(null)
+    setProjectMenuId((current) => {
+      if (current === projectId) {
+        setProjectMenuPosition(null)
+        return null
+      }
+      setProjectMenuPosition({
+        x: Math.max(8, Math.min(rect.right - projectMenuWidth, window.innerWidth - projectMenuWidth - 8)),
+        y: Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - projectMenuHeight - 8)),
+      })
+      return projectId
+    })
+  }
+  const closeProjectMenu = useCallback(() => {
+    setProjectMenuId(null)
+    setProjectMenuPosition(null)
+    setConfirmingDeleteProjectId(null)
+  }, [])
+  const requestDeleteProject = (event: React.MouseEvent<HTMLButtonElement>, projectId: string) => {
+    event.stopPropagation()
+    setConfirmingDeleteProjectId(projectId)
+  }
+  const confirmDeleteProject = (event: React.MouseEvent<HTMLButtonElement>, projectId: string) => {
+    event.stopPropagation()
+    setProjectMenuId(null)
+    setProjectMenuPosition(null)
+    setDeletingProjectId(projectId)
+    if (projectDeleteAnimationTimeoutRef.current !== null) {
+      window.clearTimeout(projectDeleteAnimationTimeoutRef.current)
+    }
+    projectDeleteAnimationTimeoutRef.current = window.setTimeout(() => {
+      projectDeleteAnimationTimeoutRef.current = null
+      setConfirmingDeleteProjectId((current) => current === projectId ? null : current)
+      void Promise.resolve(onDeleteProject(projectId)).catch(() => {
+        setDeletingProjectId((current) => current === projectId ? null : current)
+      })
+    }, deleteSessionFadeMs)
+  }
   const toggleSessionPinFromActions = (event: React.MouseEvent<HTMLButtonElement>, sessionId: string) => {
     event.currentTarget.blur()
     setSuppressedSessionActionsId(sessionId)
@@ -322,18 +371,22 @@ export const ChatSidebar = memo(function ChatSidebar({
     if (deleteAnimationTimeoutRef.current !== null) {
       window.clearTimeout(deleteAnimationTimeoutRef.current)
     }
+    if (projectDeleteAnimationTimeoutRef.current !== null) {
+      window.clearTimeout(projectDeleteAnimationTimeoutRef.current)
+    }
   }, [])
 
   useEffect(() => {
     if (!projectMenuId) return
-    const closeMenu = () => setProjectMenuId(null)
-    window.addEventListener('click', closeMenu)
-    window.addEventListener('blur', closeMenu)
+    window.addEventListener('click', closeProjectMenu)
+    window.addEventListener('blur', closeProjectMenu)
+    window.addEventListener('resize', closeProjectMenu)
     return () => {
-      window.removeEventListener('click', closeMenu)
-      window.removeEventListener('blur', closeMenu)
+      window.removeEventListener('click', closeProjectMenu)
+      window.removeEventListener('blur', closeProjectMenu)
+      window.removeEventListener('resize', closeProjectMenu)
     }
-  }, [projectMenuId])
+  }, [projectMenuId, closeProjectMenu])
 
   return (
     <aside
@@ -477,13 +530,25 @@ export const ChatSidebar = memo(function ChatSidebar({
                           const active = activeProject?.id === item.id
                           const loaded = projectLoaded(item.id)
                           const menuOpen = projectMenuId === item.id
+                          const deleting = deletingProjectId === item.id
 
                           return (
                             <SortableProjectItem key={item.id} id={item.id}>
                               {({ listeners, attributes }) => (
-                                <div>
+                                <div
+                                  className={cn(
+                                    'grid transition-[grid-template-rows,opacity,transform] duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+                                    deleting ? 'grid-rows-[0fr] -translate-x-1 opacity-0' : 'grid-rows-[1fr] translate-x-0 opacity-100',
+                                  )}
+                                >
+                                  <div className="min-h-0 overflow-hidden">
                               <div
-                                className={cn(rowClass, active ? projectActiveRowClass : inactiveRowClass, menuOpen && 'z-20 overflow-visible')}
+                                className={cn(
+                                  rowClass,
+                                  active ? projectActiveRowClass : inactiveRowClass,
+                                  menuOpen && 'z-20 overflow-visible',
+                                  deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+                                )}
                                 style={{ touchAction: 'none' }}
                                 {...listeners}
                                 {...attributes}
@@ -505,61 +570,16 @@ export const ChatSidebar = memo(function ChatSidebar({
                                   <span className={cn(sessionTitleClass, active && activeProjectTitleClass)}>{item.name}</span>
                                 </button>
                                 <div className={actionOverlayClass}>
-                                  <div className="relative">
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className={overlayIconButtonClass}
-                                      onClick={(event) => {
-                                        event.stopPropagation()
-                                        setProjectMenuId((current) => current === item.id ? null : item.id)
-                                      }}
-                                      aria-label={t('moreOptions')}
-                                      aria-expanded={menuOpen}
-                                    >
-                                      <Ellipsis className="size-4" />
-                                    </Button>
-                                    {menuOpen ? (
-                                      <div className={projectMenuClass} onClick={(event) => event.stopPropagation()}>
-                                        <button
-                                          type="button"
-                                          className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
-                                          title={t('openInExplorer')}
-                                          aria-label={t('openInExplorer')}
-                                          onClick={() => {
-                                            setProjectMenuId(null)
-                                            onOpenProjectInExplorer(item)
-                                          }}
-                                        >
-                                          <FolderOpen className="size-4 shrink-0 text-muted-foreground/70" />
-                                          <span>{t('openFolder')}</span>
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
-                                          onClick={() => {
-                                            setProjectMenuId(null)
-                                            onOpenProjectSkills(item)
-                                          }}
-                                        >
-                                          <Puzzle className="size-4 shrink-0 text-muted-foreground/70" />
-                                          <span>{t('manageProjectSkills')}</span>
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
-                                          aria-label={t('deleteProject')}
-                                          onClick={() => {
-                                            setProjectMenuId(null)
-                                            onDeleteProject(item.id)
-                                          }}
-                                        >
-                                          <Trash2 className="size-4 shrink-0" />
-                                          <span>{t('deleteProject')}</span>
-                                        </button>
-                                      </div>
-                                    ) : null}
-                                  </div>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className={overlayIconButtonClass}
+                                    onClick={(event) => openProjectMenu(event, item.id)}
+                                    aria-label={t('moreOptions')}
+                                    aria-expanded={menuOpen}
+                                  >
+                                    <Ellipsis className="size-4" />
+                                  </Button>
                                   <Button
                                     variant="ghost"
                                     size="icon"
@@ -697,7 +717,8 @@ export const ChatSidebar = memo(function ChatSidebar({
                                   </div>
                                 </div>
                               </div>
-                            </div>
+                                  </div>
+                                </div>
                               )}
                             </SortableProjectItem>
                           )
@@ -888,6 +909,60 @@ export const ChatSidebar = memo(function ChatSidebar({
           </div>
         )
       })() : null}
+
+      {openProjectMenuProject && projectMenuPosition ? createPortal(
+        <div
+          className={projectMenuClass}
+          style={{ left: projectMenuPosition.x, top: projectMenuPosition.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+            title={t('openInExplorer')}
+            aria-label={t('openInExplorer')}
+            onClick={() => {
+              closeProjectMenu()
+              onOpenProjectInExplorer(openProjectMenuProject)
+            }}
+          >
+            <FolderOpen className="size-4 shrink-0 text-muted-foreground/70" />
+            <span>{t('openFolder')}</span>
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+            onClick={() => {
+              closeProjectMenu()
+              onOpenProjectSkills(openProjectMenuProject)
+            }}
+          >
+            <Puzzle className="size-4 shrink-0 text-muted-foreground/70" />
+            <span>{t('manageProjectSkills')}</span>
+          </button>
+          {confirmingDeleteProjectId === openProjectMenuProject.id ? (
+            <button
+              type="button"
+              className="flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-md bg-destructive px-2 py-1.5 text-left text-sm font-medium text-destructive-foreground transition-colors hover:bg-destructive/90"
+              aria-label={t('confirmDelete')}
+              onClick={(event) => confirmDeleteProject(event, openProjectMenuProject.id)}
+            >
+              <span>{t('confirm')}</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
+              aria-label={t('deleteProject')}
+              onClick={(event) => requestDeleteProject(event, openProjectMenuProject.id)}
+            >
+              <Trash2 className="size-4 shrink-0" />
+              <span>{t('deleteProject')}</span>
+            </button>
+          )}
+        </div>,
+        document.body,
+      ) : null}
 
       {searchOpen ? (
         <div className={searchDialogClass} role="dialog" aria-modal="true" onMouseDown={() => setSearchOpen(false)}>

@@ -1,11 +1,8 @@
 import { useCallback } from 'react'
 import type { AgentManager } from '@/hooks/useAgentManager'
-import { t } from '@/lib/i18n'
 import type { ProjectInfo } from '@/lib/types'
-import { showConfirm } from '@/components/ui/confirm-dialog'
 
 type UseProjectActionsOptions = {
-  projects: ProjectInfo[]
   activeProjectRef: React.MutableRefObject<ProjectInfo | undefined>
   refreshSessions: (opts?: { broadcast?: boolean }) => Promise<void>
   notifyProjectsChanged: () => void
@@ -16,7 +13,6 @@ type UseProjectActionsOptions = {
 }
 
 export function useProjectActions({
-  projects,
   activeProjectRef,
   refreshSessions,
   notifyProjectsChanged,
@@ -27,15 +23,6 @@ export function useProjectActions({
 }: UseProjectActionsOptions) {
   const deleteProjectInline = useCallback(
     async (projectId: string) => {
-      const project = projects.find((p) => p.id === projectId)
-      const confirmed = await showConfirm({
-        title: t('deleteProject'),
-        description: t('deleteProjectConfirm', { name: project?.name ?? projectId }),
-        confirmLabel: t('confirmDelete'),
-        cancelLabel: t('cancel'),
-      })
-      if (!confirmed) return
-
       const response = await fetch(`/api/project/${encodeURIComponent(projectId)}`, {
         method: 'DELETE',
       })
@@ -56,7 +43,6 @@ export function useProjectActions({
       }
     },
     [
-      projects,
       activeProjectRef,
       refreshSessions,
       notifyProjectsChanged,

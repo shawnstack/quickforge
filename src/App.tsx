@@ -361,7 +361,6 @@ function MainApp() {
   })
 
   const { deleteProjectInline } = useProjectActions({
-    projects,
     activeProjectRef,
     refreshSessions,
     notifyProjectsChanged: crossTab.notifyProjectsChanged,

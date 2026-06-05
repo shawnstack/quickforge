@@ -315,9 +315,13 @@ export function ChatPanelHost({
       .then((payload: { commands?: CustomCommandSummary[] }) => {
         if (disposed) return
         customCommandsRef.current = Array.isArray(payload.commands) ? payload.commands : []
+        scheduleDecorateRef.current?.()
       })
       .catch(() => {
-        if (!disposed) customCommandsRef.current = []
+        if (!disposed) {
+          customCommandsRef.current = []
+          scheduleDecorateRef.current?.()
+        }
       })
 
     return () => { disposed = true }

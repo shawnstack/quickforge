@@ -84,7 +84,6 @@ export function createCommandSuggestions({
     const projectCommands = getCustomCommands()
     const commands = [...builtinCommands(), ...projectCommands]
       .filter((command) => command.name.includes(query) || command.description?.toLowerCase().includes(query))
-      .slice(0, 8)
 
     if (commands.length === 0) {
       existing?.remove()

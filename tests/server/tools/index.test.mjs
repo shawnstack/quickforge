@@ -16,6 +16,12 @@ import {
   toolHandlers,
 } from '../../../server/tools/index.mjs'
 
+import {
+  loadProjectSkills,
+  normalizeSkillNames,
+  filterKnownProjectSkillNames,
+} from '../../../server/skills.mjs'
+
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
@@ -37,10 +43,30 @@ function makeContext(workspaceRoot) {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('tools/index — internal pure functions', () => {
-  it('countOccurrences is exercised via toolEditFile multi-match tests', () => {
-    // Tested indirectly through the toolEditFile tests below
-    expect(true).toBe(true)
+describe('skills name normalization', () => {
+  it('normalizes uppercase skill names to lowercase canonical names', () => {
+    expect(normalizeSkillNames(['SDD', 'sdd', 'Agent-Plan'])).toEqual(['sdd', 'agent-plan'])
+  })
+
+  it('loads standard project skills with uppercase names and directories', async () => {
+    const tmpDir = await createTempDir()
+    try {
+      const skillDir = path.join(tmpDir, '.quickforge', 'skills', 'SDD')
+      await fs.mkdir(skillDir, { recursive: true })
+      await fs.writeFile(
+        path.join(skillDir, 'SKILL.md'),
+        `---\nname: SDD\ndescription: Software Design Document workflow.\nmetadata:\n  displayName: SDD\n---\nUse SDD instructions.\n`,
+        'utf8',
+      )
+
+      const skills = await loadProjectSkills(tmpDir)
+      expect(skills).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: 'sdd', displayName: 'SDD' }),
+      ]))
+      await expect(filterKnownProjectSkillNames(['SDD'], tmpDir)).resolves.toEqual(['sdd'])
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    }
   })
 })
 
@@ -319,6 +345,16 @@ describe('toolGrepFiles — Node fallback', () => {
 })
 
 describe('toolActivateSkill', () => {
+  it('activates skills with uppercase input names', async () => {
+    const result = await toolHandlers.activate_skill(
+      { name: 'SDD' },
+      { globalSkills: [{ name: 'sdd', instructions: 'Use SDD instructions.' }] },
+    )
+
+    expect(result.details.skill).toBe('sdd')
+    expect(result.content).toContain('Use SDD instructions.')
+  })
+
   it('throws for unknown skill', async () => {
     await expect(
       toolHandlers.activate_skill({ name: 'nonexistent-skill' }, {}),
@@ -335,6 +371,24 @@ describe('toolActivateSkill', () => {
 })
 
 describe('toolReadSkillResource', () => {
+  it('reads resources with uppercase input skill names', async () => {
+    const tmpDir = await createTempDir()
+    try {
+      await fs.mkdir(path.join(tmpDir, 'references'), { recursive: true })
+      await fs.writeFile(path.join(tmpDir, 'references', 'guide.md'), 'resource content', 'utf8')
+
+      const result = await toolHandlers.read_skill_resource(
+        { skill: 'SDD', path: 'references/guide.md' },
+        { globalSkills: [{ name: 'sdd', rootDir: tmpDir }] },
+      )
+
+      expect(result.details.skill).toBe('sdd')
+      expect(result.content).toContain('resource content')
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    }
+  })
+
   it('throws for unknown skill', async () => {
     await expect(
       toolHandlers.read_skill_resource({ skill: 'nope', path: 'readme.md' }, {}),

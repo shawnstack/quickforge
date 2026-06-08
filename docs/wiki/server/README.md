@@ -126,7 +126,7 @@ server/
 - `loadSelectedGlobalSkills()` / `loadSelectedProjectSkills()` — 按选择加载
 - `mergeSkills()` — 合并全局和项目 skills
 - `readSkillResource()` — 读取技能资源文件
-- Skill 验证（名称格式、目录结构）
+- Skill 验证（名称格式、目录结构）：`name` 会按 `trim + lowercase` 归一化为内部 canonical slug，因此 `name: SDD`、配置中的 `SDD` 和工具调用 `activate_skill({ name: 'SDD' })` 都会匹配到内部 `sdd`；大写展示名应使用 `displayName`。
 
 ### mcp/ — MCP Client 集成
 

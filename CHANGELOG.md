@@ -2,6 +2,23 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.29] - 2026-06-08
+
+### Changed
+
+- Normalized Agent Skill names case-insensitively so uppercase names such as `SDD` are recognized from `SKILL.md`, `skill.json`, saved selections, and skill tool calls while preserving lowercase canonical names internally.
+- Documented the Agent Skills name normalization behavior in the server wiki.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.29` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.3.29.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.29.tgz
+  ```
+
 ## [1.3.28] - 2026-06-05
 
 ### Fixed

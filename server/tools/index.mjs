@@ -10,6 +10,7 @@ import {
   loadSelectedGlobalSkills,
   loadSelectedProjectSkills,
   mergeSkills,
+  normalizeSkillNames,
   readSkillResource,
 } from '../skills.mjs'
 import { getToolWorkspaceRoot } from '../utils/workspace.mjs'
@@ -571,7 +572,7 @@ function activeSkillsForContext(context) {
 }
 
 function activeSkillByName(context, name) {
-  const skillName = String(name || '')
+  const skillName = normalizeSkillNames([name])[0]
   return activeSkillsForContext(context).find((skill) => skill.name === skillName)
 }
 

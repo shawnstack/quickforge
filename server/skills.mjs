@@ -25,6 +25,10 @@ function normalizeString(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
+function normalizeSkillName(value) {
+  return normalizeString(value)?.toLowerCase()
+}
+
 function normalizeStringArray(value) {
   if (!Array.isArray(value)) return []
   const result = []
@@ -39,7 +43,16 @@ function normalizeStringArray(value) {
 }
 
 export function normalizeSkillNames(value) {
-  return normalizeStringArray(value).filter(isValidSkillName)
+  if (!Array.isArray(value)) return []
+  const result = []
+  const seen = new Set()
+  for (const item of value) {
+    const name = normalizeSkillName(item)
+    if (!name || !isValidSkillName(name) || seen.has(name)) continue
+    seen.add(name)
+    result.push(name)
+  }
+  return result
 }
 
 function isPathInside(root, target) {
@@ -234,10 +247,10 @@ function skillFromStandardMarkdown(rootDir, source, text) {
   if (!parsed?.body) return null
 
   const rawManifest = parseSimpleYamlMap(parsed.frontmatter)
-  const name = normalizeString(rawManifest.name)
+  const name = normalizeSkillName(rawManifest.name)
   const description = normalizeString(rawManifest.description)
   if (!name || !isValidSkillName(name)) return null
-  if (name !== path.basename(rootDir)) return null
+  if (name !== normalizeSkillName(path.basename(rootDir))) return null
   if (!description || description.length > 1024) return null
 
   const metadata = normalizeMetadata(rawManifest.metadata)
@@ -267,7 +280,7 @@ async function loadLegacySkillDirectory(rootDir, source) {
   if (!rawManifest || typeof rawManifest !== 'object') return null
   if (rawManifest.enabled === false) return null
 
-  const name = normalizeString(rawManifest.name) || path.basename(rootDir)
+  const name = normalizeSkillName(rawManifest.name) || normalizeSkillName(path.basename(rootDir))
   if (!isValidSkillName(name)) return null
 
   const entry = normalizeString(rawManifest.entry) || defaultEntry
@@ -469,13 +482,15 @@ export async function listSkillSummaries() {
 }
 
 export async function findGlobalSkill(name) {
+  const skillName = normalizeSkillName(name)
   const skills = await loadGlobalSkills()
-  return skills.find((skill) => skill.name === name) || null
+  return skills.find((skill) => skill.name === skillName) || null
 }
 
 export async function findProjectSkill(name, workspaceRoot) {
+  const skillName = normalizeSkillName(name)
   const skills = await loadProjectSkills(workspaceRoot)
-  return skills.find((skill) => skill.name === name) || null
+  return skills.find((skill) => skill.name === skillName) || null
 }
 
 export async function findSkill(name) {

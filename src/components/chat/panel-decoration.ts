@@ -823,14 +823,37 @@ function updateProcessGroup(assistants: AssistantMessageElement[], group: Proces
   }
 }
 
-function moveProcessNodesIntoTurnGroup(assistants: AssistantMessageElement[], target: AssistantMessageElement, group: ProcessGroupElement) {
+function findFinalSummaryMarkdown(target: AssistantMessageElement, isAgentStreaming: boolean) {
+  if (isAgentStreaming) return null
+
+  const candidates = Array.from(target.querySelectorAll<HTMLElement>('markdown-block'))
+    .filter((node) => !node.closest(PROCESS_NODE_SELECTOR))
+  const nonEmptyCandidates = candidates.filter((node) => (node.textContent ?? '').trim().length > 0)
+  return nonEmptyCandidates[nonEmptyCandidates.length - 1] ?? candidates[candidates.length - 1] ?? null
+}
+
+function hasFoldableProcessContent(assistants: AssistantMessageElement[], finalSummaryMarkdown: HTMLElement | null) {
+  return assistants.some((assistant) => {
+    return Array.from(assistant.querySelectorAll<HTMLElement>(PROCESS_DETAIL_NODE_SELECTOR))
+      .some((node) => node !== finalSummaryMarkdown)
+  })
+}
+
+function restoreFinalSummaryMarkdown(group: ProcessGroupElement, finalSummaryMarkdown: HTMLElement | null) {
+  if (!finalSummaryMarkdown?.closest(PROCESS_BODY_SELECTOR)) return
+  group.after(finalSummaryMarkdown)
+}
+
+function processBodyHasContent(group: ProcessGroupElement) {
+  return (group.querySelector<HTMLElement>(PROCESS_BODY_SELECTOR)?.childElementCount ?? 0) > 0
+}
+
+function moveProcessNodesIntoTurnGroup(assistants: AssistantMessageElement[], group: ProcessGroupElement, finalSummaryMarkdown: HTMLElement | null) {
   const body = group.querySelector<HTMLElement>(PROCESS_BODY_SELECTOR)
   if (!body) return false
 
   let moved = false
   for (const assistant of assistants) {
-    const isTarget = assistant === target
-
     assistant.querySelectorAll<ProcessGroupElement>(PROCESS_GROUP_SELECTOR).forEach((existingGroup) => {
       const existingBody = existingGroup.querySelector<HTMLElement>(PROCESS_BODY_SELECTOR)
       if (existingBody && existingBody !== body) {
@@ -842,15 +865,16 @@ function moveProcessNodesIntoTurnGroup(assistants: AssistantMessageElement[], ta
       if (existingGroup !== group) existingGroup.remove()
     })
 
-    const selector = isTarget ? PROCESS_NODE_SELECTOR : PROCESS_DETAIL_NODE_SELECTOR
-    assistant.querySelectorAll<HTMLElement>(selector).forEach((node) => {
+    assistant.querySelectorAll<HTMLElement>(PROCESS_DETAIL_NODE_SELECTOR).forEach((node) => {
+      if (node === finalSummaryMarkdown) return
       if (node.closest(PROCESS_BODY_SELECTOR)) return
       body.append(node)
       moved = true
     })
   }
 
-  return moved || body.childElementCount > 0
+  restoreFinalSummaryMarkdown(group, finalSummaryMarkdown)
+  return moved || processBodyHasContent(group)
 }
 
 function updateEmptyProcessSources(assistants: AssistantMessageElement[], target: AssistantMessageElement) {
@@ -871,17 +895,22 @@ function decorateProcessTurn(assistants: AssistantMessageElement[], isAgentStrea
   if (assistants.length === 0) return
 
   const target = assistants[assistants.length - 1]
-  const hasProcessContent = assistants.some((assistant, index) => {
-    const selector = index === assistants.length - 1 ? PROCESS_NODE_SELECTOR : PROCESS_DETAIL_NODE_SELECTOR
-    return Boolean(assistant.querySelector(selector))
-  })
-  if (!hasProcessContent) return
+  const existingGroup = target.querySelector<ProcessGroupElement>(PROCESS_GROUP_SELECTOR)
+  const finalSummaryMarkdown = findFinalSummaryMarkdown(target, isAgentStreaming)
+  const hasProcessContent = hasFoldableProcessContent(assistants, finalSummaryMarkdown)
+  if (!hasProcessContent) {
+    if (existingGroup) {
+      restoreFinalSummaryMarkdown(existingGroup, finalSummaryMarkdown)
+      if (!processBodyHasContent(existingGroup)) existingGroup.remove()
+    }
+    return
+  }
 
   const group = ensureTurnProcessGroup(target)
   if (!group) return
 
-  const hasGroupedContent = moveProcessNodesIntoTurnGroup(assistants, target, group)
-  if (!hasGroupedContent) {
+  const hasGroupedContent = moveProcessNodesIntoTurnGroup(assistants, group, finalSummaryMarkdown)
+  if (!hasGroupedContent || !processBodyHasContent(group)) {
     group.remove()
     return
   }

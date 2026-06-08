@@ -867,25 +867,8 @@ function updateEmptyProcessSources(assistants: AssistantMessageElement[], target
   }
 }
 
-function restoreProcessTurn(assistants: AssistantMessageElement[]) {
-  for (const assistant of assistants) {
-    assistant.classList.remove('quickforge-process-source-empty')
-    assistant.querySelectorAll<ProcessGroupElement>(PROCESS_GROUP_SELECTOR).forEach((group) => {
-      const body = group.querySelector<HTMLElement>(PROCESS_BODY_SELECTOR)
-      if (body) {
-        Array.from(body.children).forEach((node) => group.parentElement?.insertBefore(node, group))
-      }
-      group.remove()
-    })
-  }
-}
-
 function decorateProcessTurn(assistants: AssistantMessageElement[], isAgentStreaming: boolean) {
   if (assistants.length === 0) return
-  if (isAgentStreaming) {
-    restoreProcessTurn(assistants)
-    return
-  }
 
   const target = assistants[assistants.length - 1]
   const hasProcessContent = assistants.some((assistant, index) => {
@@ -909,6 +892,8 @@ function decorateProcessTurn(assistants: AssistantMessageElement[], isAgentStrea
 
 function decorateProcessBlocks(panel: HTMLElement, isAgentStreaming: boolean) {
   const orderedMessages = getPrimaryMessageElements(panel)
+  const lastMessage = orderedMessages[orderedMessages.length - 1]
+  const isLastMessageAssistant = lastMessage?.tagName.toLowerCase() === 'assistant-message'
 
   const turns: AssistantMessageElement[][] = []
   let currentAssistants: AssistantMessageElement[] = []
@@ -923,7 +908,7 @@ function decorateProcessBlocks(panel: HTMLElement, isAgentStreaming: boolean) {
   if (currentAssistants.length > 0) turns.push(currentAssistants)
 
   turns.forEach((assistants, index) => {
-    decorateProcessTurn(assistants, isAgentStreaming && index === turns.length - 1)
+    decorateProcessTurn(assistants, isAgentStreaming && isLastMessageAssistant && index === turns.length - 1)
   })
 }
 

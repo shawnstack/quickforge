@@ -358,11 +358,21 @@ function removeAssistantWaitingBubble(panel: HTMLElement) {
 }
 
 function assistantElementHasVisibleContent(element: HTMLElement) {
-  if (element.querySelector('thinking-block, tool-message')) return true
-  if (Array.from(element.querySelectorAll<HTMLElement>('markdown-block, code-block')).some((block) => (block.textContent ?? '').trim().length > 0)) return true
+  // Check for thinking-block or tool-message that is NOT already inside a process-body
+  const processElements = element.querySelectorAll('thinking-block, tool-message')
+  for (const el of processElements) {
+    if (!el.closest('.quickforge-process-body')) return true
+  }
+  // Check for markdown-block or code-block that is NOT inside a process-body
+  const mdBlocks = element.querySelectorAll<HTMLElement>('markdown-block, code-block')
+  for (const block of mdBlocks) {
+    if (block.closest('.quickforge-process-body')) continue
+    if ((block.textContent ?? '').trim().length > 0) return true
+  }
 
   const clone = element.cloneNode(true) as HTMLElement
   clone.querySelectorAll('.quickforge-message-actions').forEach((node) => node.remove())
+  clone.querySelectorAll('.quickforge-process-body').forEach((node) => node.remove())
   return (clone.textContent ?? '').trim().length > 0
 }
 

@@ -569,19 +569,36 @@ export function ChatPanelHost({
       if (scrollSync.isEnabled) scrollSync.scheduleScrollToBottom()
     }
 
-    // Expose for the decoration trigger effect
-    decorateFnRef.current = decorate
-
-    // --- Schedule decoration via rAF to batch DOM mutations ---
+    // --- Schedule decoration in a microtask so process details are folded before paint ---
     let decorateScheduled = false
+    let suppressObserverMutations = false
+    let clearSuppressObserverFrame: number | undefined
+    const clearObserverSuppression = () => {
+      if (clearSuppressObserverFrame !== undefined) return
+      clearSuppressObserverFrame = window.requestAnimationFrame(() => {
+        clearSuppressObserverFrame = undefined
+        suppressObserverMutations = false
+      })
+    }
+    const runDecorate = () => {
+      if (disposed) return
+      suppressObserverMutations = true
+      try {
+        decorate()
+      } finally {
+        clearObserverSuppression()
+      }
+    }
     const scheduleDecorate = () => {
       if (decorateScheduled) return
       decorateScheduled = true
-      window.requestAnimationFrame(() => {
+      queueMicrotask(() => {
         decorateScheduled = false
-        decorate()
+        runDecorate()
       })
     }
+    // Expose for the decoration trigger effect
+    decorateFnRef.current = runDecorate
     const scheduleToolInterfaceUpdate = () => {
       if (toolUpdateScheduled) return
       toolUpdateScheduled = true
@@ -645,7 +662,10 @@ export function ChatPanelHost({
       }
 
       // Observe DOM changes for re-decoration
-      observer = new MutationObserver(scheduleDecorate)
+      observer = new MutationObserver(() => {
+        if (suppressObserverMutations) return
+        scheduleDecorate()
+      })
       observer.observe(panel, { childList: true, subtree: true })
 
       // Defer initial decoration to the next animation frame so the Lit
@@ -654,7 +674,7 @@ export function ChatPanelHost({
       // that is not yet fully laid out, causing style discrepancies.
       window.requestAnimationFrame(() => {
         if (disposed) return
-        decorate()
+        runDecorate()
       })
     })
 
@@ -761,6 +781,9 @@ export function ChatPanelHost({
       scrollSyncRef.current = null
       unsubscribeScrollEvents()
       observer?.disconnect()
+      if (clearSuppressObserverFrame !== undefined) {
+        window.cancelAnimationFrame(clearSuppressObserverFrame)
+      }
       decorateFnRef.current = null
       panel.remove()
     }

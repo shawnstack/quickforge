@@ -823,7 +823,13 @@ function MainApp() {
               </>
             ) : (
               <div className="flex max-w-full min-w-0 items-center">
-                <div className="min-w-0 max-w-[calc(100%-1.5rem)] truncate text-sm font-semibold">{sessionTitle(agentManager.currentTitle)}</div>
+                {agentManager.currentToolProject?.name ? (
+                  <>
+                    <div className="min-w-0 truncate text-sm font-semibold text-muted-foreground/72">{agentManager.currentToolProject.name}</div>
+                    <div className="mx-1 shrink-0 text-sm text-muted-foreground/45">/</div>
+                  </>
+                ) : null}
+                <div className="min-w-0 truncate text-sm font-semibold">{sessionTitle(agentManager.currentTitle)}</div>
                 <div className="relative ml-0.5 shrink-0" onClick={(event) => event.stopPropagation()}>
                   <Button
                     variant="ghost"

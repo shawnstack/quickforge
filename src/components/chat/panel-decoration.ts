@@ -663,6 +663,8 @@ const PROCESS_GROUP_SELECTOR = '.quickforge-process-group'
 const PROCESS_BODY_SELECTOR = '.quickforge-process-body'
 const PROCESS_NODE_SELECTOR = 'thinking-block, tool-message'
 const PROCESS_DETAIL_NODE_SELECTOR = 'thinking-block, tool-message, markdown-block'
+const PROCESS_FINAL_SUMMARY_ATTR = 'data-quickforge-process-final-summary'
+const PROCESS_FOLDED_ATTR = 'data-quickforge-process-folded'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
@@ -823,32 +825,102 @@ function updateProcessGroup(assistants: AssistantMessageElement[], group: Proces
   }
 }
 
-function findFinalSummaryMarkdown(target: AssistantMessageElement, isAgentStreaming: boolean) {
-  if (isAgentStreaming) return null
-
-  const candidates = Array.from(target.querySelectorAll<HTMLElement>('markdown-block'))
+function markdownCandidates(target: AssistantMessageElement) {
+  return Array.from(target.querySelectorAll<HTMLElement>('markdown-block'))
     .filter((node) => !node.closest(PROCESS_NODE_SELECTOR))
+}
+
+function lastNonEmptyOrLast(candidates: HTMLElement[]) {
   const nonEmptyCandidates = candidates.filter((node) => (node.textContent ?? '').trim().length > 0)
   return nonEmptyCandidates[nonEmptyCandidates.length - 1] ?? candidates[candidates.length - 1] ?? null
 }
 
-function hasFoldableProcessContent(assistants: AssistantMessageElement[], finalSummaryMarkdown: HTMLElement | null) {
+function setProcessFlag(node: HTMLElement, attr: string, enabled: boolean) {
+  if (enabled) {
+    if (!node.hasAttribute(attr)) node.setAttribute(attr, 'true')
+    return
+  }
+  if (node.hasAttribute(attr)) node.removeAttribute(attr)
+}
+
+function findFinalSummaryMarkdown(target: AssistantMessageElement, isAgentStreaming: boolean) {
+  if (isAgentStreaming) return null
+
+  const candidates = markdownCandidates(target)
+  const visibleCandidates = candidates.filter((node) => !node.closest(PROCESS_BODY_SELECTOR))
+  const visibleFinalSummary = lastNonEmptyOrLast(visibleCandidates)
+  if (visibleFinalSummary) return visibleFinalSummary
+
+  const markedFinalSummary = lastNonEmptyOrLast(candidates.filter((node) => node.hasAttribute(PROCESS_FINAL_SUMMARY_ATTR)))
+  if (markedFinalSummary) return markedFinalSummary
+
+  return lastNonEmptyOrLast(candidates)
+}
+
+function markFinalSummaryMarkdown(target: AssistantMessageElement, finalSummaryMarkdown: HTMLElement | null) {
+  markdownCandidates(target).forEach((node) => {
+    if (node === finalSummaryMarkdown) {
+      setProcessFlag(node, PROCESS_FINAL_SUMMARY_ATTR, true)
+      setProcessFlag(node, PROCESS_FOLDED_ATTR, false)
+    } else {
+      setProcessFlag(node, PROCESS_FINAL_SUMMARY_ATTR, false)
+    }
+  })
+}
+
+function hasTurnProcessSignals(assistants: AssistantMessageElement[]) {
+  return assistants.length > 1 || assistants.some((assistant) => Boolean(assistant.querySelector(PROCESS_NODE_SELECTOR)))
+}
+
+function isFoldableProcessDetail(node: HTMLElement, finalSummaryMarkdown: HTMLElement | null, canFoldMarkdown: boolean) {
+  if (node === finalSummaryMarkdown) return false
+  if (node.tagName.toLowerCase() === 'markdown-block') return canFoldMarkdown
+  return true
+}
+
+function hasFoldableProcessContent(assistants: AssistantMessageElement[], finalSummaryMarkdown: HTMLElement | null, canFoldMarkdown: boolean) {
   return assistants.some((assistant) => {
     return Array.from(assistant.querySelectorAll<HTMLElement>(PROCESS_DETAIL_NODE_SELECTOR))
-      .some((node) => node !== finalSummaryMarkdown)
+      .some((node) => isFoldableProcessDetail(node, finalSummaryMarkdown, canFoldMarkdown))
   })
 }
 
 function restoreFinalSummaryMarkdown(group: ProcessGroupElement, finalSummaryMarkdown: HTMLElement | null) {
-  if (!finalSummaryMarkdown?.closest(PROCESS_BODY_SELECTOR)) return
+  if (!finalSummaryMarkdown?.closest(PROCESS_BODY_SELECTOR)) return false
   group.after(finalSummaryMarkdown)
+  setProcessFlag(finalSummaryMarkdown, PROCESS_FOLDED_ATTR, false)
+  setProcessFlag(finalSummaryMarkdown, PROCESS_FINAL_SUMMARY_ATTR, true)
+  return true
 }
 
 function processBodyHasContent(group: ProcessGroupElement) {
   return (group.querySelector<HTMLElement>(PROCESS_BODY_SELECTOR)?.childElementCount ?? 0) > 0
 }
 
-function moveProcessNodesIntoTurnGroup(assistants: AssistantMessageElement[], group: ProcessGroupElement, finalSummaryMarkdown: HTMLElement | null) {
+function restoreProcessTurn(assistants: AssistantMessageElement[]) {
+  for (const assistant of assistants) {
+    assistant.classList.remove('quickforge-process-source-empty')
+    assistant.querySelectorAll<ProcessGroupElement>(PROCESS_GROUP_SELECTOR).forEach((group) => {
+      const body = group.querySelector<HTMLElement>(PROCESS_BODY_SELECTOR)
+      if (body) {
+        Array.from(body.children).forEach((node) => {
+          if (node instanceof HTMLElement) {
+            setProcessFlag(node, PROCESS_FOLDED_ATTR, false)
+            setProcessFlag(node, PROCESS_FINAL_SUMMARY_ATTR, false)
+          }
+          group.parentElement?.insertBefore(node, group)
+        })
+      }
+      group.remove()
+    })
+    markdownCandidates(assistant).forEach((node) => {
+      setProcessFlag(node, PROCESS_FOLDED_ATTR, false)
+      setProcessFlag(node, PROCESS_FINAL_SUMMARY_ATTR, false)
+    })
+  }
+}
+
+function moveProcessNodesIntoTurnGroup(assistants: AssistantMessageElement[], group: ProcessGroupElement, finalSummaryMarkdown: HTMLElement | null, canFoldMarkdown: boolean) {
   const body = group.querySelector<HTMLElement>(PROCESS_BODY_SELECTOR)
   if (!body) return false
 
@@ -866,8 +938,9 @@ function moveProcessNodesIntoTurnGroup(assistants: AssistantMessageElement[], gr
     })
 
     assistant.querySelectorAll<HTMLElement>(PROCESS_DETAIL_NODE_SELECTOR).forEach((node) => {
-      if (node === finalSummaryMarkdown) return
+      if (!isFoldableProcessDetail(node, finalSummaryMarkdown, canFoldMarkdown)) return
       if (node.closest(PROCESS_BODY_SELECTOR)) return
+      setProcessFlag(node, PROCESS_FOLDED_ATTR, true)
       body.append(node)
       moved = true
     })
@@ -896,12 +969,14 @@ function decorateProcessTurn(assistants: AssistantMessageElement[], isAgentStrea
 
   const target = assistants[assistants.length - 1]
   const existingGroup = target.querySelector<ProcessGroupElement>(PROCESS_GROUP_SELECTOR)
-  const finalSummaryMarkdown = findFinalSummaryMarkdown(target, isAgentStreaming)
-  const hasProcessContent = hasFoldableProcessContent(assistants, finalSummaryMarkdown)
+  const canFoldMarkdown = hasTurnProcessSignals(assistants)
+  const finalSummaryMarkdown = canFoldMarkdown ? findFinalSummaryMarkdown(target, isAgentStreaming) : null
+  if (canFoldMarkdown) markFinalSummaryMarkdown(target, finalSummaryMarkdown)
+  const hasProcessContent = hasFoldableProcessContent(assistants, finalSummaryMarkdown, canFoldMarkdown)
   if (!hasProcessContent) {
     if (existingGroup) {
       restoreFinalSummaryMarkdown(existingGroup, finalSummaryMarkdown)
-      if (!processBodyHasContent(existingGroup)) existingGroup.remove()
+      restoreProcessTurn(assistants)
     }
     return
   }
@@ -909,7 +984,7 @@ function decorateProcessTurn(assistants: AssistantMessageElement[], isAgentStrea
   const group = ensureTurnProcessGroup(target)
   if (!group) return
 
-  const hasGroupedContent = moveProcessNodesIntoTurnGroup(assistants, group, finalSummaryMarkdown)
+  const hasGroupedContent = moveProcessNodesIntoTurnGroup(assistants, group, finalSummaryMarkdown, canFoldMarkdown)
   if (!hasGroupedContent || !processBodyHasContent(group)) {
     group.remove()
     return

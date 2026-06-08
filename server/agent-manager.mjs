@@ -556,7 +556,7 @@ async function resolveCommandState(session, userMessage) {
     return {
       userMessage,
       commandPrompt: formatPlanCommandPrompt(internalResponse.args),
-      permissions: { allowEdit: false, allowCommands: false },
+      permissions: { allowEdit: false, allowCommands: false, allowSubagents: true },
       commandName: 'plan',
     }
   }
@@ -597,6 +597,7 @@ Rules for this turn:
 - Do not run shell commands.
 - Do not use write_file, edit_file, run_command, or any other state-changing tool.
 - You may use read-only tools such as read_file and grep_files if needed to inspect the project.
+- You may delegate bounded read-only research to subagents, but subagents must also obey this /plan turn: no file modifications and no shell commands.
 - Output the plan and then stop. Do not start implementation.
 
 Plan should include:
@@ -681,7 +682,7 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
     true,
     (toolName) => {
       if (!definition.allowedTools.includes(toolName)) return `Subagent ${definition.name} is not allowed to use ${toolName}.`
-      return null
+      return commandToolPermissionError(parentSession, toolName)
     },
     {
       allowedToolNames: definition.allowedTools,
@@ -764,6 +765,8 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
       if (!definition.allowedTools.includes(toolName)) {
         return { block: true, reason: `Subagent ${definition.name} is not allowed to use ${toolName}.` }
       }
+      const commandPermissionError = commandToolPermissionError(parentSession, toolName)
+      if (commandPermissionError) return { block: true, reason: commandPermissionError }
       if (!parentSession.yoloMode) {
         if (safeReadTools.has(toolName)) return undefined
         return createApprovalPromise(parentSession, context.toolCall?.id, toolName, context.args, {

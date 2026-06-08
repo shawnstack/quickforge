@@ -49,7 +49,7 @@ export function commandToolPermissionError(session, toolName) {
   if (toolName === 'run_command' && permissions.allowCommands === false) {
     return `Command /${session.activeCommandName} does not allow running shell commands.`
   }
-  if (toolName === 'run_subagent' && (permissions.allowSubagents === false || permissions.allowCommands === false)) {
+  if (toolName === 'run_subagent' && permissions.allowSubagents === false) {
     return `Command /${session.activeCommandName} does not allow running subagents.`
   }
   if ((toolName === 'write_file' || toolName === 'edit_file') && permissions.allowEdit === false) {

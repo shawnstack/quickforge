@@ -28,6 +28,20 @@ describe('internal slash commands', () => {
     await expect(handleInternalCommand({ type: 'review', args: '' }, null, '')).resolves.toBe('Review requires an active project chat.')
   })
 
+  it('allows subagents but blocks edits and commands for /plan permission state', () => {
+    const session = {
+      activeCommandName: 'plan',
+      activeCommandPermissions: { allowEdit: false, allowCommands: false, allowSubagents: true },
+    }
+
+    expect(commandToolPermissionError(session, 'read_file')).toBeNull()
+    expect(commandToolPermissionError(session, 'grep_files')).toBeNull()
+    expect(commandToolPermissionError(session, 'run_subagent')).toBeNull()
+    expect(commandToolPermissionError(session, 'run_command')).toBe('Command /plan does not allow running shell commands.')
+    expect(commandToolPermissionError(session, 'edit_file')).toBe('Command /plan does not allow editing files.')
+    expect(commandToolPermissionError(session, 'write_file')).toBe('Command /plan does not allow editing files.')
+  })
+
   it('allows commands but blocks edits for /review permission state', () => {
     const session = {
       activeCommandName: 'review',

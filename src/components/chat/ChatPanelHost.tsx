@@ -453,10 +453,20 @@ export function ChatPanelHost({
       void agentInterface?.updateComplete?.then(() => scheduleDecorateRef.current?.())
     }
 
+    const syncProcessStreamingState = () => {
+      if (agent.state.isStreaming) {
+        panel.dataset.quickforgeAgentStreaming = 'true'
+      } else {
+        delete panel.dataset.quickforgeAgentStreaming
+      }
+    }
+
     // --- The core decoration function (called on DOM changes & prop changes) ---
     const decorate = () => {
       if (disposed) return
       if (!panel.isConnected) return
+
+      syncProcessStreamingState()
 
       const props = propsRef.current
 
@@ -684,6 +694,7 @@ export function ChatPanelHost({
     const unsubscribeScrollEvents = agent.subscribe((event) => {
       if (event.type === 'agent_start') {
         assistantWaitingActive = true
+        syncProcessStreamingState()
         scheduleDecorateRef.current?.()
         scrollSync.enable()
         // A new run started — clear any pending approval for this session
@@ -695,6 +706,7 @@ export function ChatPanelHost({
         }
       }
       if (event.type === 'message_start' || event.type === 'message_update' || event.type === 'message_end' || event.type === 'turn_end' || event.type === 'agent_end') {
+        syncProcessStreamingState()
         const eventMessage = (event as { message?: { role?: string } }).message
         if (event.type === 'message_update' || eventMessage?.role === 'assistant') {
           assistantWaitingActive = false
@@ -719,6 +731,7 @@ export function ChatPanelHost({
       }
       if (event.type === 'agent_end') {
         assistantWaitingActive = false
+        syncProcessStreamingState()
         scheduleDecorateRef.current?.()
         // Run finished (or aborted) — clear pending approval for this session
         if (pendingApprovalRef.current?.sessionId === agent.sessionId) {

@@ -969,7 +969,7 @@ function decorateProcessTurn(assistants: AssistantMessageElement[], isAgentStrea
 
   const target = assistants[assistants.length - 1]
   const existingGroup = target.querySelector<ProcessGroupElement>(PROCESS_GROUP_SELECTOR)
-  const canFoldMarkdown = hasTurnProcessSignals(assistants)
+  const canFoldMarkdown = isAgentStreaming || hasTurnProcessSignals(assistants)
   const finalSummaryMarkdown = canFoldMarkdown ? findFinalSummaryMarkdown(target, isAgentStreaming) : null
   if (canFoldMarkdown) markFinalSummaryMarkdown(target, finalSummaryMarkdown)
   const hasProcessContent = hasFoldableProcessContent(assistants, finalSummaryMarkdown, canFoldMarkdown)

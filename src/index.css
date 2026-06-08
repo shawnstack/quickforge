@@ -336,6 +336,10 @@ streaming-message-container > div:has(> span.animate-pulse:only-child) {
   display: none;
 }
 
+pi-chat-panel[data-quickforge-agent-streaming="true"] message-list > assistant-message:last-child:not(:has(.quickforge-process-group[data-expanded="true"])) :is(thinking-block, tool-message, markdown-block):not(.quickforge-process-body :is(thinking-block, tool-message, markdown-block)) {
+  display: none !important;
+}
+
 .quickforge-process-source-empty {
   display: none !important;
 }

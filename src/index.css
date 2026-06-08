@@ -270,6 +270,10 @@ streaming-message-container > div:has(> span.animate-pulse:only-child) {
   display: none !important;
 }
 
+pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-container:not(.hidden) > div > span.animate-pulse {
+  display: none !important;
+}
+
 @keyframes quickforge-waiting-enter {
   from {
     opacity: 0;

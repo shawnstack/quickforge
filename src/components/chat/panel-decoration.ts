@@ -665,6 +665,44 @@ const PROCESS_NODE_SELECTOR = 'thinking-block, tool-message, streaming-message-c
 const PROCESS_DETAIL_NODE_SELECTOR = 'thinking-block, tool-message, markdown-block, streaming-message-container'
 const PROCESS_FINAL_SUMMARY_ATTR = 'data-quickforge-process-final-summary'
 const PROCESS_FOLDED_ATTR = 'data-quickforge-process-folded'
+const PROCESS_EXPANDED_STATE_LIMIT = 500
+const processExpandedStates = new WeakMap<HTMLElement, Map<string, boolean>>()
+
+function getProcessExpandedStates(panel: HTMLElement) {
+  let states = processExpandedStates.get(panel)
+  if (!states) {
+    states = new Map()
+    processExpandedStates.set(panel, states)
+  }
+  return states
+}
+
+function rememberProcessExpandedState(panel: HTMLElement, key: string, expanded: boolean) {
+  const states = getProcessExpandedStates(panel)
+  states.set(key, expanded)
+  if (states.size <= PROCESS_EXPANDED_STATE_LIMIT) return
+
+  const oldestKey = states.keys().next().value
+  if (oldestKey) states.delete(oldestKey)
+}
+
+function processTurnStateKey(assistants: AssistantMessageElement[], turnIndex: number) {
+  const firstTimestamp = timestampFromUnknown(assistants[0]?.message?.timestamp)
+  return `turn:${turnIndex}:started:${firstTimestamp ?? 'unknown'}`
+}
+
+function syncProcessGroupExpandedState(panel: HTMLElement, group: ProcessGroupElement, key: string) {
+  const previousKey = group.dataset.quickforgeProcessKey
+  group.dataset.quickforgeProcessKey = key
+
+  const savedExpanded = getProcessExpandedStates(panel).get(key)
+  if (savedExpanded !== undefined) {
+    group.dataset.expanded = String(savedExpanded)
+    return
+  }
+
+  group.dataset.expanded = previousKey === key && group.dataset.expanded === 'true' ? 'true' : 'false'
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
@@ -803,7 +841,8 @@ function ensureTurnProcessGroup(target: AssistantMessageElement) {
   return group
 }
 
-function updateProcessGroup(assistants: AssistantMessageElement[], group: ProcessGroupElement, isAgentStreaming: boolean) {
+function updateProcessGroup(panel: HTMLElement, processKey: string, assistants: AssistantMessageElement[], group: ProcessGroupElement, isAgentStreaming: boolean) {
+  syncProcessGroupExpandedState(panel, group, processKey)
   const body = group.querySelector<HTMLElement>(PROCESS_BODY_SELECTOR)
   const summary = group.querySelector<HTMLButtonElement>('.quickforge-process-summary')
   const label = group.querySelector<HTMLElement>('.quickforge-process-label')
@@ -820,6 +859,7 @@ function updateProcessGroup(assistants: AssistantMessageElement[], group: Proces
     event.stopPropagation()
     const nextExpanded = group.dataset.expanded !== 'true'
     group.dataset.expanded = String(nextExpanded)
+    rememberProcessExpandedState(panel, processKey, nextExpanded)
     summary.setAttribute('aria-expanded', String(nextExpanded))
     summary.setAttribute('aria-label', nextExpanded ? t('collapseProcess') : t('expandProcess'))
   }
@@ -847,12 +887,12 @@ function findFinalSummaryMarkdown(target: AssistantMessageElement, isAgentStream
   if (isAgentStreaming) return null
 
   const candidates = markdownCandidates(target)
+  const markedFinalSummary = lastNonEmptyOrLast(candidates.filter((node) => node.hasAttribute(PROCESS_FINAL_SUMMARY_ATTR)))
+  if (markedFinalSummary) return markedFinalSummary
+
   const visibleCandidates = candidates.filter((node) => !node.closest(PROCESS_BODY_SELECTOR))
   const visibleFinalSummary = lastNonEmptyOrLast(visibleCandidates)
   if (visibleFinalSummary) return visibleFinalSummary
-
-  const markedFinalSummary = lastNonEmptyOrLast(candidates.filter((node) => node.hasAttribute(PROCESS_FINAL_SUMMARY_ATTR)))
-  if (markedFinalSummary) return markedFinalSummary
 
   return lastNonEmptyOrLast(candidates)
 }
@@ -964,10 +1004,11 @@ function updateEmptyProcessSources(assistants: AssistantMessageElement[], target
   }
 }
 
-function decorateProcessTurn(assistants: AssistantMessageElement[], isAgentStreaming: boolean) {
+function decorateProcessTurn(panel: HTMLElement, assistants: AssistantMessageElement[], isAgentStreaming: boolean, turnIndex: number) {
   if (assistants.length === 0) return
 
   const target = assistants[assistants.length - 1]
+  const processKey = processTurnStateKey(assistants, turnIndex)
   const existingGroup = target.querySelector<ProcessGroupElement>(PROCESS_GROUP_SELECTOR)
   const canFoldMarkdown = isAgentStreaming || hasTurnProcessSignals(assistants)
   const finalSummaryMarkdown = canFoldMarkdown ? findFinalSummaryMarkdown(target, isAgentStreaming) : null
@@ -990,7 +1031,7 @@ function decorateProcessTurn(assistants: AssistantMessageElement[], isAgentStrea
     return
   }
 
-  updateProcessGroup(assistants, group, isAgentStreaming)
+  updateProcessGroup(panel, processKey, assistants, group, isAgentStreaming)
   updateEmptyProcessSources(assistants, target)
 }
 
@@ -1012,7 +1053,7 @@ function decorateProcessBlocks(panel: HTMLElement, isAgentStreaming: boolean) {
   if (currentAssistants.length > 0) turns.push(currentAssistants)
 
   turns.forEach((assistants, index) => {
-    decorateProcessTurn(assistants, isAgentStreaming && isLastMessageAssistant && index === turns.length - 1)
+    decorateProcessTurn(panel, assistants, isAgentStreaming && isLastMessageAssistant && index === turns.length - 1, index)
   })
 }
 

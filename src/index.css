@@ -336,6 +336,10 @@ streaming-message-container > div:has(> span.animate-pulse:only-child) {
   display: none;
 }
 
+assistant-message :is(thinking-block, tool-message, markdown-block, streaming-message-container)[data-quickforge-process-folded="true"]:not([data-quickforge-process-final-summary="true"]):not(.quickforge-process-body :is(thinking-block, tool-message, markdown-block, streaming-message-container)) {
+  display: none !important;
+}
+
 pi-chat-panel[data-quickforge-agent-streaming="true"] message-list:not(:has(> assistant-message:last-of-type ~ user-message)) > assistant-message:last-of-type:not(:has(.quickforge-process-group[data-expanded="true"])) :is(thinking-block, tool-message, markdown-block, streaming-message-container):not(.quickforge-process-body :is(thinking-block, tool-message, markdown-block, streaming-message-container)) {
   display: none !important;
 }

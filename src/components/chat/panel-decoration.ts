@@ -661,8 +661,8 @@ type AssistantMessageElement = HTMLElement & {
 
 const PROCESS_GROUP_SELECTOR = '.quickforge-process-group'
 const PROCESS_BODY_SELECTOR = '.quickforge-process-body'
-const PROCESS_NODE_SELECTOR = 'thinking-block, tool-message'
-const PROCESS_DETAIL_NODE_SELECTOR = 'thinking-block, tool-message, markdown-block'
+const PROCESS_NODE_SELECTOR = 'thinking-block, tool-message, streaming-message-container'
+const PROCESS_DETAIL_NODE_SELECTOR = 'thinking-block, tool-message, markdown-block, streaming-message-container'
 const PROCESS_FINAL_SUMMARY_ATTR = 'data-quickforge-process-final-summary'
 const PROCESS_FOLDED_ATTR = 'data-quickforge-process-folded'
 

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Copy } from 'lucide-react'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import { AppStorage, CustomProvidersStore, ProviderKeysStore, SessionsStore, SettingsStore, setAppStorage } from '@earendil-works/pi-web-ui'
-import { showAlert, showConfirm } from '@/components/ui/confirm-dialog'
+import { showAlert } from '@/components/ui/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import { ChatPanelHost } from '@/components/chat/ChatPanelHost'
 import { t } from '@/lib/i18n'
@@ -189,13 +189,6 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
       return
     }
 
-    const confirmed = await showConfirm({
-      title: t('sharedRollbackConfirmTitle'),
-      description: t('sharedRollbackConfirm'),
-      confirmLabel: t('confirmRollback'),
-      cancelLabel: t('cancel'),
-    })
-    if (!confirmed) return
     try {
       await agent.rollback(messageIndex)
       setRestoredDraft({
@@ -278,6 +271,8 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
         onApproveToolCall={() => undefined}
         onRejectToolCall={() => undefined}
         disableFork
+        rollbackConfirmTitle={t('sharedRollbackConfirmTitle')}
+        rollbackConfirmDescription={t('sharedRollbackConfirm')}
         readOnly={!operate}
         restoredDraft={restoredDraft}
         bypassClientApiKeyCheck

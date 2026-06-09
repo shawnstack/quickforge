@@ -97,6 +97,104 @@ user-message .user-message-container,
   margin-left: auto;
 }
 
+.quickforge-rollback-action {
+  position: relative;
+  display: inline-flex;
+  pointer-events: auto;
+}
+
+.quickforge-rollback-popover {
+  position: absolute;
+  z-index: 45;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  width: min(19rem, calc(100vw - 2rem));
+  padding: 0.75rem;
+  border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+  border-radius: 0.9rem;
+  background: color-mix(in oklab, var(--popover) 96%, transparent);
+  box-shadow: 0 18px 46px -28px rgb(15 23 42 / 0.42);
+  color: var(--popover-foreground);
+  text-align: left;
+  pointer-events: auto;
+}
+
+.quickforge-rollback-popover-arrow {
+  position: absolute;
+  top: -0.35rem;
+  right: 0.75rem;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-top: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+  border-left: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+  background: color-mix(in oklab, var(--popover) 96%, transparent);
+  transform: rotate(45deg);
+}
+
+.quickforge-rollback-popover-title {
+  color: color-mix(in oklab, var(--foreground) 92%, transparent);
+  font-size: 0.84rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.quickforge-rollback-popover-description {
+  margin-top: 0.35rem;
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.quickforge-rollback-popover-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.quickforge-rollback-popover-cancel,
+.quickforge-rollback-popover-confirm {
+  display: inline-flex;
+  min-height: 1.85rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.55rem;
+  padding: 0 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  transition: background-color 160ms ease, color 160ms ease, opacity 160ms ease;
+}
+
+.quickforge-rollback-popover-cancel {
+  color: color-mix(in oklab, var(--muted-foreground) 86%, transparent);
+}
+
+.quickforge-rollback-popover-cancel:hover {
+  background: color-mix(in oklab, var(--muted) 54%, transparent);
+  color: var(--foreground);
+}
+
+.quickforge-rollback-popover-confirm {
+  background: color-mix(in oklab, var(--destructive) 12%, transparent);
+  color: color-mix(in oklab, var(--destructive) 88%, var(--foreground));
+}
+
+.quickforge-rollback-popover-confirm:hover {
+  background: color-mix(in oklab, var(--destructive) 18%, transparent);
+  color: var(--destructive);
+}
+
+.quickforge-rollback-popover-cancel:disabled,
+.quickforge-rollback-popover-confirm:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+
+.quickforge-rollback-popover :where(button):focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 72%, transparent);
+  outline-offset: 2px;
+}
+
 @media (hover: none), (pointer: coarse), (width < 48rem) {
   .quickforge-message-actions {
     opacity: 1 !important;

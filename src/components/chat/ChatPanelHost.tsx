@@ -60,7 +60,7 @@ type ChatPanelHostProps = {
   chatScope?: ChatScope
   storage?: AppStorage | null
   onToggleYoloMode: () => void
-  onRollbackFromMessage: (messageIndex: number) => void
+  onRollbackFromMessage: (messageIndex: number) => Promise<void> | void
   onRetryFromMessage: (messageIndex: number) => void
   onCopyAnswer: (text: string) => Promise<void> | void
   onForkFromMessage: (messageIndex: number) => void
@@ -76,6 +76,8 @@ type ChatPanelHostProps = {
   readOnly?: boolean
   bypassClientApiKeyCheck?: boolean
   allowModelControls?: boolean
+  rollbackConfirmTitle?: string
+  rollbackConfirmDescription?: string
 }
 
 /**
@@ -85,7 +87,7 @@ type ChatPanelHostProps = {
  */
 type PropsRef = {
   onCopyAnswer: (text: string) => Promise<void> | void
-  onRollbackFromMessage: (messageIndex: number) => void
+  onRollbackFromMessage: (messageIndex: number) => Promise<void> | void
   onRetryFromMessage: (messageIndex: number) => void
   onForkFromMessage: (messageIndex: number) => void
   onToggleYoloMode: () => void
@@ -106,6 +108,8 @@ type PropsRef = {
   readOnly: boolean
   allowModelControls: boolean
   bypassClientApiKeyCheck: boolean
+  rollbackConfirmTitle?: string
+  rollbackConfirmDescription?: string
   gitBranch?: string
 }
 
@@ -136,6 +140,8 @@ export function ChatPanelHost({
   readOnly = false,
   bypassClientApiKeyCheck = false,
   allowModelControls = true,
+  rollbackConfirmTitle,
+  rollbackConfirmDescription,
 }: ChatPanelHostProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const restoredDraftIdRef = useRef<number | undefined>(undefined)
@@ -233,6 +239,8 @@ export function ChatPanelHost({
     readOnly,
     allowModelControls,
     bypassClientApiKeyCheck,
+    rollbackConfirmTitle,
+    rollbackConfirmDescription,
     gitBranch,
   })
   // Keep ref in sync with the latest props so closures always read fresh values.
@@ -262,6 +270,8 @@ export function ChatPanelHost({
       readOnly,
       allowModelControls,
       bypassClientApiKeyCheck,
+      rollbackConfirmTitle,
+      rollbackConfirmDescription,
       gitBranch,
     }
     restoredDraftRef.current = restoredDraft
@@ -485,6 +495,8 @@ export function ChatPanelHost({
           onOpenLocalFilePath: props.onOpenLocalFilePath,
           disableFork: props.disableFork,
           enableTerminalCommandActions: !props.readOnly,
+          rollbackConfirmTitle: props.rollbackConfirmTitle,
+          rollbackConfirmDescription: props.rollbackConfirmDescription,
         })
         syncContextCompactionNotice({
           panel,

@@ -83,6 +83,139 @@ function createIconActionButton(
   return button
 }
 
+type RollbackPopoverElement = HTMLElement & {
+  quickforgeCleanup?: () => void
+}
+
+function removeRollbackConfirmPopover(panel: HTMLElement) {
+  panel.querySelectorAll<RollbackPopoverElement>('.quickforge-rollback-popover').forEach((popover) => {
+    popover.quickforgeCleanup?.()
+    const wrapper = popover.closest<HTMLElement>('.quickforge-rollback-action')
+    const trigger = wrapper?.querySelector<HTMLButtonElement>('button[data-quickforge-action="rollback"]')
+    trigger?.setAttribute('aria-expanded', 'false')
+    popover.remove()
+  })
+}
+
+function showRollbackConfirmPopover(options: {
+  panel: HTMLElement
+  button: HTMLButtonElement
+  messageIndex: number
+  title: string
+  description: string
+  onConfirm: (messageIndex: number) => Promise<void> | void
+}) {
+  const { panel, button, messageIndex, title, description, onConfirm } = options
+  const wrapper = button.closest<HTMLElement>('.quickforge-rollback-action')
+  if (!wrapper || button.disabled) return
+
+  const existing = wrapper.querySelector<RollbackPopoverElement>('.quickforge-rollback-popover')
+  if (existing) {
+    removeRollbackConfirmPopover(panel)
+    return
+  }
+
+  removeRollbackConfirmPopover(panel)
+
+  const popover = document.createElement('div') as RollbackPopoverElement
+  popover.className = 'quickforge-rollback-popover'
+  popover.setAttribute('role', 'dialog')
+  popover.setAttribute('aria-label', title)
+  popover.tabIndex = -1
+
+  const arrow = document.createElement('div')
+  arrow.className = 'quickforge-rollback-popover-arrow'
+
+  const titleElement = document.createElement('div')
+  titleElement.className = 'quickforge-rollback-popover-title'
+  titleElement.textContent = title
+
+  const descriptionElement = document.createElement('div')
+  descriptionElement.className = 'quickforge-rollback-popover-description'
+  descriptionElement.textContent = description
+
+  const footer = document.createElement('div')
+  footer.className = 'quickforge-rollback-popover-footer'
+
+  const cancelButton = document.createElement('button')
+  cancelButton.type = 'button'
+  cancelButton.className = 'quickforge-rollback-popover-cancel'
+  cancelButton.textContent = t('cancel')
+
+  const confirmButton = document.createElement('button')
+  confirmButton.type = 'button'
+  confirmButton.className = 'quickforge-rollback-popover-confirm'
+  confirmButton.textContent = t('confirmRollback')
+
+  footer.append(cancelButton, confirmButton)
+  popover.append(arrow, titleElement, descriptionElement, footer)
+
+  const close = () => removeRollbackConfirmPopover(panel)
+  const handleOutsidePointerDown = (event: PointerEvent) => {
+    const target = event.target as Node | null
+    if (!target || popover.contains(target) || button.contains(target)) return
+    close()
+  }
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape') return
+    event.preventDefault()
+    close()
+  }
+
+  popover.quickforgeCleanup = () => {
+    document.removeEventListener('pointerdown', handleOutsidePointerDown, true)
+    document.removeEventListener('keydown', handleKeyDown)
+  }
+  popover.addEventListener('pointerdown', (event) => event.stopPropagation())
+  popover.addEventListener('click', (event) => event.stopPropagation())
+  cancelButton.addEventListener('click', close)
+  confirmButton.addEventListener('click', async () => {
+    confirmButton.disabled = true
+    cancelButton.disabled = true
+    confirmButton.textContent = t('rollingBack')
+    try {
+      await onConfirm(messageIndex)
+    } finally {
+      close()
+    }
+  })
+
+  wrapper.append(popover)
+  button.setAttribute('aria-expanded', 'true')
+  document.addEventListener('pointerdown', handleOutsidePointerDown, true)
+  document.addEventListener('keydown', handleKeyDown)
+  window.requestAnimationFrame(() => confirmButton.focus())
+}
+
+function createRollbackAction(options: {
+  panel: HTMLElement
+  messageIndex: number
+  isDisabled: boolean
+  title: string
+  description: string
+  onConfirm: (messageIndex: number) => Promise<void> | void
+}) {
+  const wrapper = document.createElement('span')
+  wrapper.className = 'quickforge-rollback-action'
+
+  const rollbackButton = createIconActionButton('rollback', t('rollback'), rollbackIcon, (button) => {
+    showRollbackConfirmPopover({
+      panel: options.panel,
+      button,
+      messageIndex: options.messageIndex,
+      title: options.title,
+      description: options.description,
+      onConfirm: options.onConfirm,
+    })
+  })
+  rollbackButton.disabled = options.isDisabled
+  rollbackButton.setAttribute('aria-haspopup', 'dialog')
+  rollbackButton.setAttribute('aria-expanded', 'false')
+
+  wrapper.append(rollbackButton)
+  return wrapper
+}
+
 // --- Message decoration ---
 
 export type MessageDecorationDeps = {
@@ -90,12 +223,14 @@ export type MessageDecorationDeps = {
   getMessages: () => MessageWithUsage[]
   isStreaming: () => boolean
   onCopyAnswer: (text: string) => Promise<void> | void
-  onRollbackFromMessage: (messageIndex: number) => void
+  onRollbackFromMessage: (messageIndex: number) => Promise<void> | void
   onRetryFromMessage: (messageIndex: number) => void
   onForkFromMessage: (messageIndex: number) => void
   onOpenLocalFilePath?: (path: string) => void
   disableFork: boolean
   enableTerminalCommandActions?: boolean
+  rollbackConfirmTitle?: string
+  rollbackConfirmDescription?: string
 }
 
 type ContextCompactionNoticeDeps = {
@@ -435,7 +570,20 @@ export function syncAssistantWaitingBubble(deps: AssistantWaitingBubbleDeps) {
 }
 
 export function decorateMessages(deps: MessageDecorationDeps) {
-  const { panel, getMessages, isStreaming, onCopyAnswer, onRollbackFromMessage, onRetryFromMessage, onForkFromMessage, onOpenLocalFilePath, disableFork, enableTerminalCommandActions = true } = deps
+  const {
+    panel,
+    getMessages,
+    isStreaming,
+    onCopyAnswer,
+    onRollbackFromMessage,
+    onRetryFromMessage,
+    onForkFromMessage,
+    onOpenLocalFilePath,
+    disableFork,
+    enableTerminalCommandActions = true,
+    rollbackConfirmTitle = t('rollbackConfirmTitle'),
+    rollbackConfirmDescription = t('rollbackConfirm'),
+  } = deps
 
   const displayEntries = getMessages()
     .map((message, index) => ({ message, index }))
@@ -486,6 +634,8 @@ export function decorateMessages(deps: MessageDecorationDeps) {
         button.disabled = isStreaming()
       })
 
+      if (isStreaming()) removeRollbackConfirmPopover(panel)
+
       // Manage retry button visibility: only show on the last user message
       const existingRetry = existingActions.querySelector<HTMLButtonElement>('button[data-quickforge-action="retry"]')
       const isLastUser = lastUserEntry && entry.index === lastUserEntry.index && entry.message.role !== 'assistant'
@@ -534,11 +684,15 @@ export function decorateMessages(deps: MessageDecorationDeps) {
         actions.append(copyBtn)
       }
 
-      const rollbackButton = createIconActionButton('rollback', t('rollback'), rollbackIcon, () => {
-        onRollbackFromMessage(entry.index)
+      const rollbackAction = createRollbackAction({
+        panel,
+        messageIndex: entry.index,
+        isDisabled: isStreaming(),
+        title: rollbackConfirmTitle,
+        description: rollbackConfirmDescription,
+        onConfirm: onRollbackFromMessage,
       })
-      rollbackButton.disabled = isStreaming()
-      actions.append(rollbackButton)
+      actions.append(rollbackAction)
 
       if (lastUserEntry && entry.index === lastUserEntry.index) {
         const retryButton = createIconActionButton('retry', t('retry'), retryIcon, () => {

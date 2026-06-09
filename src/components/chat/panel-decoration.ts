@@ -228,6 +228,7 @@ export type MessageDecorationDeps = {
   onForkFromMessage: (messageIndex: number) => void
   onOpenLocalFilePath?: (path: string) => void
   disableFork: boolean
+  readOnly?: boolean
   enableTerminalCommandActions?: boolean
   rollbackConfirmTitle?: string
   rollbackConfirmDescription?: string
@@ -580,6 +581,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     onForkFromMessage,
     onOpenLocalFilePath,
     disableFork,
+    readOnly = false,
     enableTerminalCommandActions = true,
     rollbackConfirmTitle = t('rollbackConfirmTitle'),
     rollbackConfirmDescription = t('rollbackConfirm'),
@@ -633,7 +635,13 @@ export function decorateMessages(deps: MessageDecorationDeps) {
       if (existingActions.parentElement === element && existingActions !== element.lastElementChild) {
         element.append(existingActions)
       }
+      if (readOnly) removeRollbackConfirmPopover(panel)
       existingActions.querySelectorAll<HTMLButtonElement>('button[data-quickforge-action="rollback"], button[data-quickforge-action="retry"], button[data-quickforge-action="fork"]').forEach((button) => {
+        if (readOnly) {
+          button.closest('.quickforge-rollback-action')?.remove()
+          button.remove()
+          return
+        }
         button.disabled = isStreaming()
       })
 
@@ -641,7 +649,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
 
       // Manage retry button visibility: only show on the last user message
       const existingRetry = existingActions.querySelector<HTMLButtonElement>('button[data-quickforge-action="retry"]')
-      const isLastUser = lastUserEntry && entry.index === lastUserEntry.index && entry.message.role !== 'assistant'
+      const isLastUser = !readOnly && lastUserEntry && entry.index === lastUserEntry.index && entry.message.role !== 'assistant'
       if (existingRetry && !isLastUser) {
         existingRetry.remove()
       } else if (!existingRetry && isLastUser) {
@@ -670,7 +678,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
       })
       actions.append(copyBtn)
 
-      if (!disableFork) {
+      if (!readOnly && !disableFork) {
         const forkButton = createIconActionButton('fork', t('forkConversation'), forkIcon, () => {
           onForkFromMessage(entry.index)
         })
@@ -687,17 +695,19 @@ export function decorateMessages(deps: MessageDecorationDeps) {
         actions.append(copyBtn)
       }
 
-      const rollbackAction = createRollbackAction({
-        panel,
-        messageIndex: entry.index,
-        isDisabled: isStreaming(),
-        title: rollbackConfirmTitle,
-        description: rollbackConfirmDescription,
-        onConfirm: onRollbackFromMessage,
-      })
-      actions.append(rollbackAction)
+      if (!readOnly) {
+        const rollbackAction = createRollbackAction({
+          panel,
+          messageIndex: entry.index,
+          isDisabled: isStreaming(),
+          title: rollbackConfirmTitle,
+          description: rollbackConfirmDescription,
+          onConfirm: onRollbackFromMessage,
+        })
+        actions.append(rollbackAction)
+      }
 
-      if (lastUserEntry && entry.index === lastUserEntry.index) {
+      if (!readOnly && lastUserEntry && entry.index === lastUserEntry.index) {
         const retryButton = createIconActionButton('retry', t('retry'), retryIcon, () => {
           onRetryFromMessage(entry.index)
         })

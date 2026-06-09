@@ -494,6 +494,7 @@ export function ChatPanelHost({
           onForkFromMessage: props.onForkFromMessage,
           onOpenLocalFilePath: props.onOpenLocalFilePath,
           disableFork: props.disableFork,
+          readOnly: props.readOnly,
           enableTerminalCommandActions: !props.readOnly,
           rollbackConfirmTitle: props.rollbackConfirmTitle,
           rollbackConfirmDescription: props.rollbackConfirmDescription,

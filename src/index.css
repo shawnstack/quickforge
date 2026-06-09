@@ -71,9 +71,19 @@
   flex-direction: column !important;
 }
 
+.quickforge-assistant-message {
+  display: flex !important;
+  flex-direction: column !important;
+}
+
 .quickforge-user-message > div.flex.justify-start {
   order: 1;
   justify-content: flex-end !important;
+}
+
+.quickforge-assistant-message > .quickforge-message-actions {
+  order: 2;
+  align-self: flex-start;
 }
 
 .quickforge-user-message > .quickforge-message-actions {

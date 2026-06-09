@@ -630,6 +630,9 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     const existingActions = element.querySelector<HTMLElement>('.quickforge-message-actions')
     if (existingActions?.dataset.quickforgeLayout === 'message-bottom') {
       existingActions.className = actionsClass
+      if (existingActions.parentElement === element && existingActions !== element.lastElementChild) {
+        element.append(existingActions)
+      }
       existingActions.querySelectorAll<HTMLButtonElement>('button[data-quickforge-action="rollback"], button[data-quickforge-action="retry"], button[data-quickforge-action="fork"]').forEach((button) => {
         button.disabled = isStreaming()
       })

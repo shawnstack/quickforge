@@ -615,8 +615,11 @@ export function ChatPanelHost({
       window.requestAnimationFrame(() => {
         toolUpdateScheduled = false
         if (disposed) return
-        const agentInterface = panel.querySelector('agent-interface') as { requestUpdate?: () => void } | null
+        syncProcessStreamingState()
+        const agentInterface = panel.querySelector('agent-interface') as { requestUpdate?: () => void; updateComplete?: Promise<unknown> } | null
         agentInterface?.requestUpdate?.()
+        scheduleDecorateRef.current?.()
+        void agentInterface?.updateComplete?.then(() => scheduleDecorateRef.current?.())
         if (scrollSync.isEnabled) scrollSync.scheduleScrollToBottom()
       })
     }
@@ -722,8 +725,12 @@ export function ChatPanelHost({
       }
       const eventType = (event as { type: string }).type
       if (eventType === 'tool_execution_start' || eventType === 'tool_execution_end') {
-        const agentInterface = panel.querySelector('agent-interface') as { requestUpdate?: () => void } | null
+        syncProcessStreamingState()
+        const agentInterface = panel.querySelector('agent-interface') as { requestUpdate?: () => void; updateComplete?: Promise<unknown> } | null
         agentInterface?.requestUpdate?.()
+        scheduleDecorateRef.current?.()
+        window.requestAnimationFrame(() => scheduleDecorateRef.current?.())
+        void agentInterface?.updateComplete?.then(() => scheduleDecorateRef.current?.())
         if (scrollSync.isEnabled) scrollSync.scheduleScrollToBottom()
       }
       if (eventType === 'tool_execution_update') {

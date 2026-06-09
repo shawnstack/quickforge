@@ -1187,7 +1187,11 @@ function decorateProcessTurn(panel: HTMLElement, assistants: AssistantMessageEle
   const target = assistants[assistants.length - 1]
   const processKey = processTurnStateKey(assistants, turnIndex)
   const existingGroup = target.querySelector<ProcessGroupElement>(PROCESS_GROUP_SELECTOR)
-  const canFoldMarkdown = isAgentStreaming || hasTurnProcessSignals(assistants)
+  if (isAgentStreaming) {
+    if (existingGroup) restoreProcessTurn(assistants)
+    return
+  }
+  const canFoldMarkdown = hasTurnProcessSignals(assistants)
   const finalSummaryMarkdown = canFoldMarkdown ? findFinalSummaryMarkdown(target, isAgentStreaming) : null
   if (canFoldMarkdown) markFinalSummaryMarkdown(target, finalSummaryMarkdown)
   const hasProcessContent = hasFoldableProcessContent(assistants, finalSummaryMarkdown, canFoldMarkdown)

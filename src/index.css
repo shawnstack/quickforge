@@ -464,14 +464,6 @@ assistant-message :is(thinking-block, tool-message, markdown-block, streaming-me
   display: none !important;
 }
 
-pi-chat-panel[data-quickforge-agent-streaming="true"] message-list > div:not(:has(> assistant-message:last-of-type ~ user-message)) > assistant-message:last-of-type :is(thinking-block, tool-message, markdown-block, streaming-message-container):not(.quickforge-process-body :is(thinking-block, tool-message, markdown-block, streaming-message-container)) {
-  display: none !important;
-}
-
-pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-container:not(.hidden) :is(thinking-block, tool-message, markdown-block) {
-  display: none !important;
-}
-
 .quickforge-process-source-empty {
   display: none !important;
 }

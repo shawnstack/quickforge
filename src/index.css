@@ -81,6 +81,7 @@
   align-self: flex-end;
 }
 
+user-message .user-message-container,
 .quickforge-user-message .user-message-container {
   max-width: min(72%, 46rem) !important;
   border: 1px solid color-mix(in oklab, var(--primary) 18%, var(--border)) !important;
@@ -359,7 +360,7 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] message-list > div:not(:ha
   display: none !important;
 }
 
-pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-container:not(.hidden) :is(thinking-block, tool-message) {
+pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-container:not(.hidden) :is(thinking-block, tool-message, markdown-block) {
   display: none !important;
 }
 

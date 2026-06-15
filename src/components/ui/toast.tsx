@@ -19,6 +19,27 @@ type ToastProps = {
   onClick: (sessionId: string) => void
 }
 
+type ToastPresentation = {
+  tone: 'success' | 'error' | 'aborted' | 'running' | 'neutral'
+  message: string
+}
+
+function getToastPresentation(status: BackgroundTaskStatus): ToastPresentation {
+  if (status === 'idle') {
+    return { tone: 'success', message: t('taskCompleted') }
+  }
+  if (status === 'error') {
+    return { tone: 'error', message: t('taskError') }
+  }
+  if (status === 'aborted') {
+    return { tone: 'aborted', message: t('processAborted') }
+  }
+  if (status === 'running') {
+    return { tone: 'running', message: t('taskRunning') }
+  }
+  return { tone: 'neutral', message: t('taskRunning') }
+}
+
 function Toast({ toast, onDismiss, onClick }: ToastProps) {
   const [visible, setVisible] = useState(false)
   const [leaving, setLeaving] = useState(false)
@@ -47,7 +68,17 @@ function Toast({ toast, onDismiss, onClick }: ToastProps) {
     dismissTimerRef.current = window.setTimeout(() => onDismiss(toast.id), 200)
   }
 
-  const isError = toast.status === 'error'
+  const presentation = getToastPresentation(toast.status)
+  const isError = presentation.tone === 'error'
+  const isSuccess = presentation.tone === 'success'
+  const iconClassName = cn(
+    'size-5',
+    isError && 'text-destructive',
+    isSuccess && 'text-emerald-500',
+    presentation.tone === 'aborted' && 'text-amber-600',
+    presentation.tone === 'running' && 'text-blue-600',
+    presentation.tone === 'neutral' && 'text-muted-foreground',
+  )
 
   return (
     <div
@@ -61,10 +92,10 @@ function Toast({ toast, onDismiss, onClick }: ToastProps) {
       )}
     >
       <div className="mt-0.5 shrink-0">
-        {isError ? (
-          <XCircle className="size-5 text-destructive" />
+        {isSuccess ? (
+          <CheckCircle className={iconClassName} />
         ) : (
-          <CheckCircle className="size-5 text-emerald-500" />
+          <XCircle className={iconClassName} />
         )}
       </div>
 
@@ -73,7 +104,7 @@ function Toast({ toast, onDismiss, onClick }: ToastProps) {
           {toast.title}
         </p>
         <p className="mt-0.5 line-clamp-3 text-xs text-muted-foreground">
-          {toast.message || (isError ? t('taskError') : t('taskCompleted'))}
+          {toast.message || presentation.message}
         </p>
       </div>
 

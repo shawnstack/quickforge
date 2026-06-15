@@ -1159,8 +1159,20 @@ export async function createAgent(sessionId, config = {}) {
     // complete session history.  Replace with the authoritative full state
     // before forwarding to clients.
     const timedEvent = addToolTimingToEvent(session, event)
-    const forwardEvent = timedEvent.type === 'agent_end' && timedEvent.messages
-      ? { ...timedEvent, messages: agent.state.messages }
+    const eventEndStatus = event.type === 'agent_end'
+      ? session.agent.signal?.aborted
+        ? 'aborted'
+        : session.agent.state.errorMessage
+          ? 'error'
+          : 'idle'
+      : undefined
+    const forwardEvent = timedEvent.type === 'agent_end'
+      ? {
+          ...timedEvent,
+          ...(timedEvent.messages ? { messages: agent.state.messages } : {}),
+          status: eventEndStatus,
+          ...(session.agent.state.errorMessage && timedEvent.errorMessage === undefined ? { errorMessage: session.agent.state.errorMessage } : {}),
+        }
       : timedEvent
 
     // Forward all events to the session event bus and the global bus.
@@ -1178,7 +1190,7 @@ export async function createAgent(sessionId, config = {}) {
     }
 
     if (event.type === 'agent_end') {
-      session.status = session.agent.state.errorMessage ? 'error' : 'idle'
+      session.status = eventEndStatus || (session.agent.state.errorMessage ? 'error' : 'idle')
       session.finishedAt = new Date().toISOString()
       session.toolTimings?.clear()
       resetIdleTimer(session)
@@ -1562,6 +1574,7 @@ export async function abortRun(sessionId) {
     )
     const event = {
       type: 'agent_end',
+      status: 'aborted',
       messages: session.agent.state.messages,
     }
     emitSessionEvent(session, event)

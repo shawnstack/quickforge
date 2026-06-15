@@ -261,7 +261,12 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
 
         if (event.type === 'agent_end') {
           const wasRunning = task.status === 'running'
-          task.status = nextAgent.state.errorMessage ? 'error' : 'idle'
+          const endEvent = event as { status?: unknown; errorMessage?: unknown }
+          task.status = endEvent.status === 'aborted'
+            ? 'aborted'
+            : endEvent.errorMessage || nextAgent.state.errorMessage
+              ? 'error'
+              : 'idle'
           task.finishedAt = new Date().toISOString()
           setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
           // NOTE: Do NOT bump chatPanelRevision here — the ChatPanel is already

@@ -72,7 +72,12 @@ export function useVisibleRuntimeStatuses(sessions: QuickForgeSessionMetadata[])
       }
 
       if (event.type === 'agent_end') {
-        const status: BackgroundTaskStatus = event.errorMessage ? 'error' : 'idle'
+        const eventStatus = toBackgroundTaskStatus(event.status)
+        const status: BackgroundTaskStatus = eventStatus === 'aborted'
+          ? 'aborted'
+          : event.errorMessage
+            ? 'error'
+            : 'idle'
         setStatuses((current) => ({ ...current, [sessionId]: status }))
       }
     })

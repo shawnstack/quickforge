@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import '@xterm/xterm/css/xterm.css'
 import type { IDisposable } from '@xterm/xterm'
 import { getWebSocketBaseUrl } from '@/lib/backend-url'
 import { t } from '@/lib/i18n'

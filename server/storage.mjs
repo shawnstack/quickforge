@@ -705,26 +705,38 @@ export async function atomicProjectConfigUpdate(updateFn) {
   })
 }
 
-export async function ensureStorage() {
-  await fs.mkdir(configDir, { recursive: true })
-  await fs.mkdir(storageDir, { recursive: true })
-  await fs.mkdir(cacheDir, { recursive: true })
-  await fs.mkdir(logsDir, { recursive: true })
-  await Promise.all([
-    fs.mkdir(path.join(cacheDir, 'global', 'llm'), { recursive: true }),
-    fs.mkdir(path.join(cacheDir, 'global', 'tmp'), { recursive: true }),
-    fs.mkdir(path.join(cacheDir, 'projects'), { recursive: true }),
-    fs.mkdir(path.join(storageDir, 'conversations', 'global', 'sessions'), { recursive: true }),
-    fs.mkdir(path.join(storageDir, 'conversations', 'projects'), { recursive: true }),
-    cleanOldLogs(),
-  ])
+// Cached storage-initialization promise.  ensureStorage() is idempotent (mkdir
+// recursive, one-shot migration gated by a marker file, ensureJsonFile), so once
+// it succeeds we can skip the redundant syscalls (~20 per call) every later call
+// would perform.  Reset on failure so the next call can retry.
+let storageInitPromise = null
 
-  await migrateUnifiedConfig()
+export function ensureStorage() {
+  if (storageInitPromise) return storageInitPromise
+  storageInitPromise = (async () => {
+    await fs.mkdir(configDir, { recursive: true })
+    await fs.mkdir(storageDir, { recursive: true })
+    await fs.mkdir(cacheDir, { recursive: true })
+    await fs.mkdir(logsDir, { recursive: true })
+    await Promise.all([
+      fs.mkdir(path.join(cacheDir, 'global', 'llm'), { recursive: true }),
+      fs.mkdir(path.join(cacheDir, 'global', 'tmp'), { recursive: true }),
+      fs.mkdir(path.join(cacheDir, 'projects'), { recursive: true }),
+      fs.mkdir(path.join(storageDir, 'conversations', 'global', 'sessions'), { recursive: true }),
+      fs.mkdir(path.join(storageDir, 'conversations', 'projects'), { recursive: true }),
+      cleanOldLogs(),
+    ])
 
-  await Promise.all([
-    ensureJsonFile(quickForgeConfigFile, defaultConfig()),
-    ensureJsonFile(sessionStoreFile('sessions-metadata', { scope: 'global' })),
-  ])
+    await migrateUnifiedConfig()
+
+    await Promise.all([
+      ensureJsonFile(quickForgeConfigFile, defaultConfig()),
+      ensureJsonFile(sessionStoreFile('sessions-metadata', { scope: 'global' })),
+    ])
+  })()
+  // Reset on failure so the next call can retry instead of caching a rejection.
+  storageInitPromise.catch(() => { storageInitPromise = null })
+  return storageInitPromise
 }
 
 export async function readStore(storeName) {

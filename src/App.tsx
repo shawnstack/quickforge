@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import type { BackgroundTaskStatus } from '@/lib/types'
 import {
@@ -12,9 +12,6 @@ import {
   SquareTerminal,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { ScheduledTasksPage } from '@/components/scheduled-tasks/ScheduledTasksPage'
-import { AgentProfilesPage } from '@/components/agent-profiles/AgentProfilesPage'
-import { PluginsPage } from '@/components/plugins/PluginsPage'
 import { ProjectDirectoryPicker } from '@/components/project-directory-picker'
 import { SkillsDialog } from '@/components/skills-dialog'
 import { McpServersDialog } from '@/components/mcp-servers-dialog'
@@ -56,13 +53,30 @@ import { logger } from '@/lib/logger'
 import { showAlert, showConfirm } from '@/components/ui/confirm-dialog'
 import { ToastContainer } from '@/components/ui/toast'
 import { ShareConversationDialog } from '@/components/share/ShareConversationDialog'
-import { SharedConversationPage } from '@/components/share/SharedConversationPage'
 import { WorkspaceInspector } from '@/components/workspace/WorkspaceInspector'
 import { WorkspaceReaderDialog } from '@/components/workspace/WorkspaceReaderDialog'
 import { getWorkspaceFile, resolveWorkspacePath } from '@/components/workspace/workspace-api'
-import { TerminalDock } from '@/components/terminal/TerminalDock'
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
+
+// --- Code-split secondary views (only loaded when first opened) ---
+// These are conditionally-mounted routes/panels; lazy loading keeps the heavy
+// xterm dependency out of the initial bundle. Props types are inferred.
+const TerminalDock = lazy(() =>
+  import('@/components/terminal/TerminalDock').then((m) => ({ default: m.TerminalDock })),
+)
+const ScheduledTasksPage = lazy(() =>
+  import('@/components/scheduled-tasks/ScheduledTasksPage').then((m) => ({ default: m.ScheduledTasksPage })),
+)
+const AgentProfilesPage = lazy(() =>
+  import('@/components/agent-profiles/AgentProfilesPage').then((m) => ({ default: m.AgentProfilesPage })),
+)
+const PluginsPage = lazy(() =>
+  import('@/components/plugins/PluginsPage').then((m) => ({ default: m.PluginsPage })),
+)
+const SharedConversationPage = lazy(() =>
+  import('@/components/share/SharedConversationPage').then((m) => ({ default: m.SharedConversationPage })),
+)
 
 type WorkspacePage = 'chat' | 'scheduledTasks' | 'agentProfiles' | 'plugins'
 
@@ -565,13 +579,18 @@ function MainApp() {
     ui.setShareDialogOpen(true)
   }, [ui])
 
+  // Stable UI setters used by the desktop sidebar handlers below.  Destructuring
+  // them keeps the callbacks referentially stable (a useState setter never changes)
+  // without dragging the whole `ui` object into the dependency array.
+  const { setSkillsDialog, setMcpServersDialogOpen, setSidebarOpen } = ui
+
   const openGlobalSkills = useCallback(() => {
-    ui.setSkillsDialog({ scope: 'global' })
-  }, [ui])
+    setSkillsDialog({ scope: 'global' })
+  }, [setSkillsDialog])
 
   const openProjectSkills = useCallback((project: ProjectInfo) => {
-    ui.setSkillsDialog({ scope: 'project', project })
-  }, [ui])
+    setSkillsDialog({ scope: 'project', project })
+  }, [setSkillsDialog])
 
   const openProjectInExplorer = useCallback(async (project: ProjectInfo) => {
     const response = await fetch(`/api/project/${encodeURIComponent(project.id)}/open-in-explorer`, {
@@ -581,6 +600,25 @@ function MainApp() {
     const payload = await response.json().catch(() => null)
     throw new Error(payload?.error || t('openInExplorerFailed'))
   }, [])
+
+  // --- Desktop sidebar handlers (stable; do not auto-close the sidebar) ---
+  // Kept separate from the mobile `*FromSidebar` handlers so the memoized desktop
+  // <ChatSidebar> does not re-render on unrelated App state changes.
+  const openMcpServers = useCallback(() => {
+    setMcpServersDialogOpen(true)
+  }, [setMcpServersDialogOpen])
+
+  const openProjectInExplorerWithFeedback = useCallback((project: ProjectInfo) => {
+    void openProjectInExplorer(project).catch((error) => {
+      logger.error('Failed to open project in explorer:', error)
+      void showAlert(error instanceof Error ? error.message : t('openInExplorerFailed'))
+    })
+  }, [openProjectInExplorer])
+
+  const openScheduledTasks = useCallback(() => setWorkspacePage('scheduledTasks'), [setWorkspacePage])
+  const openAgentProfiles = useCallback(() => setWorkspacePage('agentProfiles'), [setWorkspacePage])
+  const openPlugins = useCallback(() => setWorkspacePage('plugins'), [setWorkspacePage])
+  const toggleSidebar = useCallback(() => setSidebarOpen((value) => !value), [setSidebarOpen])
 
   const closeMobileSidebar = useCallback(() => {
     ui.setMobileSidebarOpen(false)
@@ -640,6 +678,13 @@ function MainApp() {
 
     crossTab.notifyProjectsChanged()
   }, [crossTab, setActiveProject, setProjects, ui])
+
+  // Shared Suspense fallback for code-split secondary pages.
+  const pageSuspenseFallback = (
+    <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
+      {t('loadingChatWorkspace')}
+    </div>
+  )
 
   // --- Loading state ---
   if (startupError) {
@@ -710,25 +755,20 @@ function MainApp() {
         onSelectProjectDirectory={selectProjectDirectory}
         onStartNewProjectChat={startNewProjectChat}
         onOpenGlobalSkills={openGlobalSkills}
-        onOpenMcpServers={() => ui.setMcpServersDialogOpen(true)}
+        onOpenMcpServers={openMcpServers}
         onOpenProjectSkills={openProjectSkills}
-        onOpenProjectInExplorer={(project) => {
-          void openProjectInExplorer(project).catch((error) => {
-            logger.error('Failed to open project in explorer:', error)
-            void showAlert(error instanceof Error ? error.message : t('openInExplorerFailed'))
-          })
-        }}
+        onOpenProjectInExplorer={openProjectInExplorerWithFeedback}
         onDeleteProject={deleteProjectInline}
         onLoadSession={loadSession}
         onTogglePinSession={togglePinSession}
         onRenameSession={renameSession}
         onDeleteSession={deleteSession}
         onStartNewGlobalChat={startNewGlobalSession}
-        onOpenScheduledTasks={() => setWorkspacePage('scheduledTasks')}
-        onOpenAgentProfiles={() => setWorkspacePage('agentProfiles')}
-        onOpenPlugins={() => setWorkspacePage('plugins')}
+        onOpenScheduledTasks={openScheduledTasks}
+        onOpenAgentProfiles={openAgentProfiles}
+        onOpenPlugins={openPlugins}
         onOpenSettings={openDefaultOptionsSettings}
-        onToggleSidebar={() => ui.setSidebarOpen((value) => !value)}
+        onToggleSidebar={toggleSidebar}
         currentSessionHoverInfo={currentSessionHoverInfo}
       />
 
@@ -911,11 +951,17 @@ function MainApp() {
 
         <section className="relative flex min-h-0 flex-1 flex-col">
           {scheduledTasksOpen ? (
-              <ScheduledTasksPage onOpenSession={handleToastClick} />
+              <Suspense fallback={pageSuspenseFallback}>
+                <ScheduledTasksPage onOpenSession={handleToastClick} />
+              </Suspense>
             ) : agentProfilesOpen ? (
-              <AgentProfilesPage />
+              <Suspense fallback={pageSuspenseFallback}>
+                <AgentProfilesPage />
+              </Suspense>
             ) : pluginsOpen ? (
-              <PluginsPage />
+              <Suspense fallback={pageSuspenseFallback}>
+                <PluginsPage />
+              </Suspense>
             ) : needsModelSetup ? (
               <ModelSetupEmptyState
                 onAddModel={openModelSettings}
@@ -964,12 +1010,14 @@ function MainApp() {
                   />
                 ) : null}
                 {terminalOpen ? (
-                  <TerminalDock
-                    project={agentManager.currentToolProject}
-                    pendingCommand={pendingTerminalCommand}
-                    onPendingCommandHandled={handlePendingTerminalCommandHandled}
-                    onCollapse={() => setTerminalOpen(false)}
-                  />
+                  <Suspense fallback={null}>
+                    <TerminalDock
+                      project={agentManager.currentToolProject}
+                      pendingCommand={pendingTerminalCommand}
+                      onPendingCommandHandled={handlePendingTerminalCommandHandled}
+                      onCollapse={() => setTerminalOpen(false)}
+                    />
+                  </Suspense>
                 ) : null}
               </>
           )}
@@ -1029,7 +1077,13 @@ function MainApp() {
 
 function App() {
   const shareRouteId = window.location.pathname.match(/^\/share\/([^/]+)\/?$/)?.[1]
-  if (shareRouteId) return <SharedConversationPage shareId={decodeURIComponent(shareRouteId)} />
+  if (shareRouteId) {
+    return (
+      <Suspense fallback={<div className="flex h-screen items-center justify-center bg-background text-sm text-muted-foreground">{t('loadingChatWorkspace')}</div>}>
+        <SharedConversationPage shareId={decodeURIComponent(shareRouteId)} />
+      </Suspense>
+    )
+  }
   return <MainApp />
 }
 

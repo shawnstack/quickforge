@@ -28,7 +28,6 @@ import type {
   SkillsScope,
 } from '@/lib/types'
 import { sessionTitle } from '@/lib/types'
-import { ChatPanelHost } from '@/components/chat/ChatPanelHost'
 import type { ContextUsageDisplayInfo } from '@/components/chat/context-usage'
 import { FirstUseGuideCard } from '@/components/chat/FirstUseGuideCard'
 import { ModelSetupEmptyState } from '@/components/chat/ModelSetupEmptyState'
@@ -53,15 +52,16 @@ import { logger } from '@/lib/logger'
 import { showAlert, showConfirm } from '@/components/ui/confirm-dialog'
 import { ToastContainer } from '@/components/ui/toast'
 import { ShareConversationDialog } from '@/components/share/ShareConversationDialog'
-import { WorkspaceInspector } from '@/components/workspace/WorkspaceInspector'
-import { WorkspaceReaderDialog } from '@/components/workspace/WorkspaceReaderDialog'
 import { getWorkspaceFile, resolveWorkspacePath } from '@/components/workspace/workspace-api'
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
 
 // --- Code-split secondary views (only loaded when first opened) ---
-// These are conditionally-mounted routes/panels; lazy loading keeps the heavy
-// xterm dependency out of the initial bundle. Props types are inferred.
+// These are conditionally-mounted routes/panels; lazy loading keeps heavy
+// dependencies out of the initial bundle. Props types are inferred.
+const ChatPanelHost = lazy(() =>
+  import('@/components/chat/ChatPanelHost').then((m) => ({ default: m.ChatPanelHost })),
+)
 const TerminalDock = lazy(() =>
   import('@/components/terminal/TerminalDock').then((m) => ({ default: m.TerminalDock })),
 )
@@ -77,6 +77,20 @@ const PluginsPage = lazy(() =>
 const SharedConversationPage = lazy(() =>
   import('@/components/share/SharedConversationPage').then((m) => ({ default: m.SharedConversationPage })),
 )
+const WorkspaceInspector = lazy(() =>
+  import('@/components/workspace/WorkspaceInspector').then((m) => ({ default: m.WorkspaceInspector })),
+)
+const WorkspaceReaderDialog = lazy(() =>
+  import('@/components/workspace/WorkspaceReaderDialog').then((m) => ({ default: m.WorkspaceReaderDialog })),
+)
+
+function LazyPanelFallback() {
+  return <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">{t('loading')}</div>
+}
+
+function LazyOverlayFallback() {
+  return null
+}
 
 type WorkspacePage = 'chat' | 'scheduledTasks' | 'agentProfiles' | 'plugins'
 
@@ -973,6 +987,7 @@ function MainApp() {
               <>
                 <div className="flex min-h-0 flex-1 flex-col">
                   <ErrorBoundary>
+                    <Suspense fallback={<LazyPanelFallback />}>
                     <ChatPanelHost
                       agent={agentManager.agent}
                       onModelSelect={openCustomModelSelector}
@@ -998,6 +1013,7 @@ function MainApp() {
                       disableFork={false}
                       restoredDraft={restoredDraft}
                     />
+                    </Suspense>
                   </ErrorBoundary>
                 </div>
                 {showFirstUseGuide ? (
@@ -1023,22 +1039,30 @@ function MainApp() {
           )}
         </section>
       </main>
-      <WorkspaceInspector
-        project={agentManager.currentToolProject}
-        open={ui.workspaceInspectorOpen && Boolean(agentManager.currentToolProject?.id)}
-        onOpenChange={ui.setWorkspaceInspectorOpen}
-        onDraftRequest={restoreWorkspaceDraft}
-        focusTarget={ui.workspaceInspectorFocusTarget}
-      />
-      <WorkspaceReaderDialog
-        open={ui.inlineReaderOpen}
-        mode="file"
-        file={ui.inlineReaderFile}
-        loading={ui.inlineReaderLoading}
-        error={ui.inlineReaderError}
-        onOpenChange={ui.setInlineReaderOpen}
-        onDraftRequest={restoreWorkspaceDraft}
-      />
+      {ui.workspaceInspectorOpen && agentManager.currentToolProject?.id ? (
+        <Suspense fallback={<LazyOverlayFallback />}>
+          <WorkspaceInspector
+            project={agentManager.currentToolProject}
+            open
+            onOpenChange={ui.setWorkspaceInspectorOpen}
+            onDraftRequest={restoreWorkspaceDraft}
+            focusTarget={ui.workspaceInspectorFocusTarget}
+          />
+        </Suspense>
+      ) : null}
+      {ui.inlineReaderOpen ? (
+        <Suspense fallback={<LazyOverlayFallback />}>
+          <WorkspaceReaderDialog
+            open
+            mode="file"
+            file={ui.inlineReaderFile}
+            loading={ui.inlineReaderLoading}
+            error={ui.inlineReaderError}
+            onOpenChange={ui.setInlineReaderOpen}
+            onDraftRequest={restoreWorkspaceDraft}
+          />
+        </Suspense>
+      ) : null}
     </div>
     <ProjectDirectoryPicker
       open={projectPickerOpen}

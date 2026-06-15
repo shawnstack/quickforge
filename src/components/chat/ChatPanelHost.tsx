@@ -592,8 +592,9 @@ export function ChatPanelHost({
       if (scrollSync.isEnabled) scrollSync.scheduleScrollToBottom()
     }
 
-    // --- Schedule decoration in a microtask so process details are folded before paint ---
+    // --- Schedule decoration once per frame to coalesce mutation bursts in long chats ---
     let decorateScheduled = false
+    let decorateFrame: number | undefined
     let suppressObserverMutations = false
     let clearSuppressObserverFrame: number | undefined
     const clearObserverSuppression = () => {
@@ -615,7 +616,8 @@ export function ChatPanelHost({
     const scheduleDecorate = () => {
       if (decorateScheduled) return
       decorateScheduled = true
-      queueMicrotask(() => {
+      decorateFrame = window.requestAnimationFrame(() => {
+        decorateFrame = undefined
         decorateScheduled = false
         runDecorate()
       })
@@ -814,6 +816,9 @@ export function ChatPanelHost({
       scrollSyncRef.current = null
       unsubscribeScrollEvents()
       observer?.disconnect()
+      if (decorateFrame !== undefined) {
+        window.cancelAnimationFrame(decorateFrame)
+      }
       if (clearSuppressObserverFrame !== undefined) {
         window.cancelAnimationFrame(clearSuppressObserverFrame)
       }

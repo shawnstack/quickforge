@@ -222,15 +222,50 @@ export function estimateSessionContextUsage(session, messages = session?.agent?.
   if (sourceMessages.length === 0) {
     return { inputTokens: 0, estimatedInputTokens: 0, knownInputTokens: 0, reservedOutputTokens: 0, totalTokens: 0, contextWindow, percent: 0 }
   }
+
+  // Cache by input identity. estimateContextUsage() scans every message with a
+  // tokenizer regex (O(n)) and JSON-stringifies the full tools array, but its
+  // inputs (messages, model, systemPrompt, tools, contextCompaction) are stable
+  // within a run and only change on discrete events (message_end, tool result,
+  // compaction). Reference equality makes the cache check essentially free, so
+  // the repeated calls from emitSessionEvent() on message_end/agent_end/etc.
+  // only recompute when something actually changed.
+  const lastMessage = sourceMessages[sourceMessages.length - 1]
+  const cacheKey = {
+    messages,
+    messagesLength: sourceMessages.length,
+    lastMessage,
+    model: session.model,
+    systemPrompt: session.agent.state.systemPrompt,
+    tools: session.agent.state.tools,
+    contextCompaction: session.contextCompaction,
+  }
+  const cached = session._contextUsageCache
+  if (
+    cached &&
+    cached.key.messages === cacheKey.messages &&
+    cached.key.messagesLength === cacheKey.messagesLength &&
+    cached.key.lastMessage === cacheKey.lastMessage &&
+    cached.key.model === cacheKey.model &&
+    cached.key.systemPrompt === cacheKey.systemPrompt &&
+    cached.key.tools === cacheKey.tools &&
+    cached.key.contextCompaction === cacheKey.contextCompaction
+  ) {
+    return cached.value
+  }
+
   const loopMessages = buildAutoCompactLoopMessages(session, sourceMessages)
   const knownInputTokens = latestKnownInputTokens(sourceMessages, latestCompactTimestampMs(session))
-  return estimateContextUsage({
+  const value = estimateContextUsage({
     systemPrompt: session.agent.state.systemPrompt,
     messages: loopMessages,
     tools: session.agent.state.tools,
     model: session.model,
     knownInputTokens,
   })
+
+  session._contextUsageCache = { key: cacheKey, value }
+  return value
 }
 
 export async function maybeAutoCompactSession({ session, messages, signal, emitSessionEvent, persistSession, logger, confirmAutoCompact }) {

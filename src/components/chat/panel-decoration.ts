@@ -320,14 +320,31 @@ function decorateMarkdownCommandBlocks(panel: HTMLElement, isStreaming: boolean)
     const existing = block.querySelector<HTMLButtonElement>('[data-quickforge-action="execute-markdown-command"]')
     if (!isShellCodeBlock(block)) {
       existing?.remove()
+      delete block.dataset.quickforgeCommand
       return
     }
 
-    const command = normalizeShellCommand(decodeCodeBlockText(block))
+    // For blocks we have already decorated, skip the base64 decode + regex
+    // normalization when the decoded command has not changed (cheaply tracked
+    // via a dataset fingerprint). During streaming this avoid re-decoding every
+    // shell code-block in the panel on each rAF-batched decorate pass; the click
+    // handler below always re-reads the latest command, so correctness is kept.
+    let command: string | null
+    if (existing && block.dataset.quickforgeCommand !== undefined) {
+      if (existing.disabled === isStreaming) {
+        // Content unchanged AND streaming state unchanged → nothing to do.
+        return
+      }
+      command = block.dataset.quickforgeCommand
+    } else {
+      command = normalizeShellCommand(decodeCodeBlockText(block))
+    }
     if (!command) {
       existing?.remove()
+      delete block.dataset.quickforgeCommand
       return
     }
+    block.dataset.quickforgeCommand = command
 
     const title = t('executeInTerminal')
     const button = existing ?? createIconActionButton('execute-markdown-command', title, runIcon, () => {

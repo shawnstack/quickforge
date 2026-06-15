@@ -2,6 +2,36 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.3.30] - 2026-06-15
+
+### Added
+
+- Added a rollback confirmation popover to reduce accidental conversation rollbacks.
+- Allowed subagents to assist read-only research while using plan mode.
+
+### Changed
+
+- Improved chat process detail folding and streaming decoration behavior so intermediate process content stays collapsed and less distracting.
+- Improved app error handling.
+- Added a documented UX improvements plan.
+
+### Fixed
+
+- Kept message action controls below chat message bubbles.
+- Hid mutating actions in read-only shared chats.
+- Deferred process folding until streaming completes to avoid flicker and unstable intermediate UI states.
+- Preserved streaming response text while stabilizing tool-call/process-detail folding.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.3.30` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.3.30.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.3.30.tgz
+  ```
+
 ## [1.3.29] - 2026-06-08
 
 ### Changed

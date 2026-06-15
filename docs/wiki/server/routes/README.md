@@ -33,6 +33,8 @@ Agent 会话管理核心路由。
 - `GET /api/agents` — 列出活跃会话
 - `GET /api/agents/events` — 全局 SSE 事件流
 - `GET /api/agents/:sessionId/stream` — 会话级 SSE 流
+- `GET /api/agents/:sessionId/state` — 获取完整会话快照，用于初始化和异常恢复
+- `GET /api/agents/:sessionId/status` — 获取轻量运行状态，用于 SSE 静默后的版本探测
 - `HEAD /api/agents/:sessionId/stream` — 检查 SSE 可用性
 - `POST /api/agents/:sessionId/prompt` — 发送消息
 - `POST /api/agents/:sessionId/abort` — 中止运行

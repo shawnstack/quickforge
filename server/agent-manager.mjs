@@ -196,19 +196,14 @@ function createApprovalPromise(session, toolCallId, toolName, args, source) {
       source,
     })
 
-    // Notify the frontend via both the session-level and global event buses.
-    // The global SSE handler (/api/agents/events) only listens to `agentEvents`,
-    // so events emitted only on session.eventBus never reach the client.
-    const approvalEvent = {
+    emitSessionEvent(session, {
       type: 'tool_approval_required',
       sessionId: session.sessionId,
       toolCallId,
       toolName,
       args,
       source,
-    }
-    session.eventBus.emit('agent_event', approvalEvent)
-    agentEvents.emit('agent_event', approvalEvent)
+    })
   })
 }
 
@@ -312,11 +307,18 @@ function estimateTokenReduction(originalChars, finalChars) {
   return Math.max(0, Math.min(99, Math.round(((originalChars - finalChars) / originalChars) * 100)))
 }
 
+function nextSessionStateVersion(session) {
+  const current = Number.isFinite(session?.stateVersion) ? session.stateVersion : 0
+  session.stateVersion = current + 1
+  return session.stateVersion
+}
+
 function emitSessionEvent(session, event) {
+  const stateVersion = nextSessionStateVersion(session)
   const enrichedEvent = (event?.type === 'message_end' || event?.type === 'agent_end' || event?.type === 'messages_replaced' || event?.type === 'auto_compact_completed')
     && event.contextUsage === undefined
-    ? { ...event, contextUsage: getSessionContextUsage(session) }
-    : event
+    ? { ...event, contextUsage: getSessionContextUsage(session), stateVersion }
+    : { ...event, stateVersion }
   session.eventBus.emit('agent_event', enrichedEvent)
   agentEvents.emit('agent_event', { sessionId: session.sessionId, ...enrichedEvent })
 }
@@ -1146,6 +1148,7 @@ export async function createAgent(sessionId, config = {}) {
     agentProfile: agentProfile ? agentProfileSnapshot(agentProfile) : null,
     lastTransformedContextMessages: null,
     autoCompacting: false,
+    stateVersion: 0,
     lastAutoCompactAt: null,
     lastAutoCompactRejected: null,
     /** Track active SSE connections. Only one SSE stream allowed per session to prevent
@@ -1669,6 +1672,7 @@ export function getSessionState(sessionId) {
     title: session.title,
     createdAt: session.createdAt,
     lastModified: session.lastModified,
+    stateVersion: session.stateVersion || 0,
     status: session.status,
     startedAt: session.startedAt,
     finishedAt: session.finishedAt,
@@ -1678,6 +1682,33 @@ export function getSessionState(sessionId) {
     contextUsage: getSessionContextUsage(session),
     isStreaming: session.agent.state.isStreaming,
     errorMessage: session.agent.state.errorMessage,
+  }
+}
+
+/**
+ * Get a lightweight status snapshot for SSE-first state recovery.
+ */
+export function getSessionStatus(sessionId) {
+  const session = agentSessions.get(sessionId)
+  if (!session) return null
+
+  const messages = session.agent.state.messages || []
+  const lastMessage = messages[messages.length - 1]
+  return {
+    sessionId: session.sessionId,
+    scope: session.scope,
+    projectId: session.projectId,
+    title: session.title,
+    createdAt: session.createdAt,
+    lastModified: session.lastModified,
+    stateVersion: session.stateVersion || 0,
+    status: session.status,
+    startedAt: session.startedAt,
+    finishedAt: session.finishedAt,
+    isStreaming: session.agent.state.isStreaming,
+    errorMessage: session.agent.state.errorMessage,
+    messageCount: messages.length,
+    lastMessageTimestamp: lastMessage?.timestamp ?? null,
   }
 }
 

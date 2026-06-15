@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import type { AgentManager } from '@/hooks/useAgentManager'
 import {
@@ -55,6 +55,7 @@ export function useAppBootstrap({
 }: UseAppBootstrapOptions) {
   const [ready, setReady] = useState(false)
   const [startupError, setStartupError] = useState<string>()
+  const [retryNonce, setRetryNonce] = useState(0)
 
   // Keep callbacks in refs so the bootstrap effect runs exactly once
   const depsRef = useRef({
@@ -93,6 +94,8 @@ export function useAppBootstrap({
       } = depsRef.current
 
       try {
+        setReady(false)
+        setStartupError(undefined)
         const storage = await initializePiStorage()
         if (cancelled) return
 
@@ -207,7 +210,14 @@ export function useAppBootstrap({
     activeProjectRef,
     setYoloMode,
     taskMapRef,
+    retryNonce,
   ])
 
-  return { ready, startupError }
+  const retryBootstrap = useCallback(() => {
+    setReady(false)
+    setStartupError(undefined)
+    setRetryNonce((value) => value + 1)
+  }, [])
+
+  return { ready, startupError, retryBootstrap }
 }

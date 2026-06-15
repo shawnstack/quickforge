@@ -1,5 +1,6 @@
 import { ChevronRight, File, Folder } from 'lucide-react'
 import { useState } from 'react'
+import { t } from '@/lib/i18n'
 import type { GitChangedFile, WorkspaceTreeNode } from './workspace-types'
 
 type WorkspaceFileTreeProps = {
@@ -82,7 +83,7 @@ function WorkspaceTreeRow({
 
 export function WorkspaceFileTree({ tree, selectedPath, gitStatuses = {}, onSelectFile }: WorkspaceFileTreeProps) {
   if (tree.length === 0) {
-    return <div className="px-2 py-3 text-xs text-muted-foreground/70">No files to display.</div>
+    return <div className="px-2 py-3 text-xs text-muted-foreground/70">{t('workspaceNoFilesToDisplay')}</div>
   }
 
   return (

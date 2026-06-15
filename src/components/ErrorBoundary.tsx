@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
+import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
 
 interface ErrorBoundaryProps {
@@ -36,12 +37,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       return (
         <div className="flex h-screen items-center justify-center bg-background p-6 text-foreground">
           <div className="max-w-md rounded-lg border border-border bg-card p-5 shadow-sm text-center">
-            <h1 className="text-base font-semibold">Something went wrong</h1>
+            <h1 className="text-base font-semibold">{t('errorBoundaryTitle')}</h1>
             <p className="mt-2 text-sm text-muted-foreground break-all">
-              {this.state.error.message || 'An unexpected error occurred.'}
+              {this.state.error.message || t('errorBoundaryUnexpected')}
             </p>
             <Button variant="outline" size="sm" className="mt-4" onClick={this.handleRetry}>
-              Try again
+              {t('errorBoundaryTryAgain')}
             </Button>
           </div>
         </div>

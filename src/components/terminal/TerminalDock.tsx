@@ -43,6 +43,7 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string>()
+  const [connectionErrors, setConnectionErrors] = useState<Record<string, string>>({})
   const [shellMenuOpen, setShellMenuOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const creatingRef = useRef(false)
@@ -72,6 +73,7 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
     creatingRef.current = true
     setCreating(true)
     setError(undefined)
+    setConnectionErrors({})
     try {
       const session = await createTerminalSession({
         projectId,
@@ -214,6 +216,12 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
 
   const closeSession = async (sessionId: string) => {
     setError(undefined)
+    setConnectionErrors((current) => {
+      if (!current[sessionId]) return current
+      const next = { ...current }
+      delete next[sessionId]
+      return next
+    })
     const remaining = sessions.filter((session) => session.id !== sessionId)
     setSessions(remaining)
     if (activeSessionId === sessionId) setActiveSessionId(remaining[0]?.id)
@@ -229,6 +237,19 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
     setSessions((current) => current.map((session) => (
       session.id === sessionId ? { ...session, exited: true } : session
     )))
+  }, [])
+
+  const handleConnectionError = useCallback((sessionId: string, message?: string) => {
+    setConnectionErrors((current) => {
+      if (!message) {
+        if (!current[sessionId]) return current
+        const next = { ...current }
+        delete next[sessionId]
+        return next
+      }
+      if (current[sessionId] === message) return current
+      return { ...current, [sessionId]: message }
+    })
   }, [])
 
   const startDragging = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -254,9 +275,11 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
   const defaultProfile = shellProfiles.find((profile) => profile.id === defaultProfileId) || shellProfiles[0]
   const maxSessionsReached = Boolean(capabilities && sessions.length >= capabilities.maxSessions)
   const createDisabled = creating || maxSessionsReached
+  const activeConnectionError = activeSession ? connectionErrors[activeSession.id] : undefined
+  const visibleError = error ?? activeConnectionError
   const terminalBodyHeight = fullscreen
-    ? error ? 'calc(100% - 4.25rem)' : 'calc(100% - 2.25rem)'
-    : error ? height - 72 : height - 45
+    ? visibleError ? 'calc(100% - 4.25rem)' : 'calc(100% - 2.25rem)'
+    : visibleError ? height - 72 : height - 45
 
   return (
     <div
@@ -380,7 +403,7 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
           <ChevronDown className="size-3.5" />
         </Button>
       </div>
-      {error ? <div className="border-b border-border px-3 py-1.5 text-xs text-destructive">{error}</div> : null}
+      {visibleError ? <div className="border-b border-border px-3 py-1.5 text-xs text-destructive">{visibleError}</div> : null}
       <div className="min-h-0 bg-background" style={{ height: terminalBodyHeight }}>
         {loading ? (
           <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground/60">
@@ -402,6 +425,7 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
               active={session.id === activeSession?.id}
               height={fullscreen ? window.innerHeight - 36 : height}
               onExited={markExited}
+              onConnectionError={handleConnectionError}
             />
           ))
         )}

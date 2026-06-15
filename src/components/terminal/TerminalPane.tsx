@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { IDisposable } from '@xterm/xterm'
 import { getWebSocketBaseUrl } from '@/lib/backend-url'
+import { t } from '@/lib/i18n'
 import type { TerminalMessage, TerminalSession } from './terminal-types'
 
 type TerminalPaneProps = {
@@ -10,9 +11,10 @@ type TerminalPaneProps = {
   active: boolean
   height: number
   onExited: (sessionId: string) => void
+  onConnectionError: (sessionId: string, message?: string) => void
 }
 
-export function TerminalPane({ session, active, height, onExited }: TerminalPaneProps) {
+export function TerminalPane({ session, active, height, onExited, onConnectionError }: TerminalPaneProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -23,6 +25,17 @@ export function TerminalPane({ session, active, height, onExited }: TerminalPane
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
+
+    let disposed = false
+    let opened = false
+    let exited = false
+    let connectionErrorReported = false
+
+    const reportConnectionError = (message: string) => {
+      if (disposed || exited || connectionErrorReported) return
+      connectionErrorReported = true
+      onConnectionError(session.id, message)
+    }
 
     const terminal = new Terminal({
       cursorBlink: true,
@@ -64,6 +77,9 @@ export function TerminalPane({ session, active, height, onExited }: TerminalPane
     wsRef.current = ws
 
     ws.addEventListener('open', () => {
+      opened = true
+      connectionErrorReported = false
+      onConnectionError(session.id, undefined)
       dataDisposableRef.current = terminal.onData((data) => {
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }))
       })
@@ -76,6 +92,7 @@ export function TerminalPane({ session, active, height, onExited }: TerminalPane
         if (message.type === 'output') {
           terminal.write(message.data)
         } else if (message.type === 'exit') {
+          exited = true
           terminal.writeln('')
           terminal.writeln(`\x1b[33m[process exited with code ${message.exitCode ?? 'unknown'}]\x1b[0m`)
           onExited(session.id)
@@ -87,9 +104,18 @@ export function TerminalPane({ session, active, height, onExited }: TerminalPane
       }
     })
 
-    ws.addEventListener('close', () => {
+    ws.addEventListener('error', () => {
+      reportConnectionError(opened ? t('terminalConnectionClosedUnexpectedly') : t('terminalConnectionFailed'))
+    })
+
+    ws.addEventListener('close', (event) => {
       dataDisposableRef.current?.dispose()
       dataDisposableRef.current = null
+      if (disposed || exited) return
+
+      if (!event.wasClean || event.code !== 1000) {
+        reportConnectionError(opened ? t('terminalConnectionClosedUnexpectedly') : t('terminalConnectionFailed'))
+      }
     })
 
     const resizeObserver = new ResizeObserver(() => fitAndResize())
@@ -98,6 +124,7 @@ export function TerminalPane({ session, active, height, onExited }: TerminalPane
     window.setTimeout(fitAndResize, 50)
 
     return () => {
+      disposed = true
       resizeObserver.disconnect()
       resizeObserverRef.current = null
       dataDisposableRef.current?.dispose()
@@ -108,7 +135,7 @@ export function TerminalPane({ session, active, height, onExited }: TerminalPane
       terminalRef.current = null
       fitAddonRef.current = null
     }
-  }, [onExited, session.cwd, session.id])
+  }, [onConnectionError, onExited, session.cwd, session.id])
 
   useEffect(() => {
     if (!active) return

@@ -306,7 +306,7 @@ function MainApp() {
     return unsubscribe
   }, [addToast, loadProjectSessions, refreshSessions, setExpandedProjectIds])
 
-  const { ready, startupError } = useAppBootstrap({
+  const { ready, startupError, retryBootstrap } = useAppBootstrap({
     storageRef,
     backendRef,
     activeModelRef,
@@ -648,6 +648,11 @@ function MainApp() {
         <div className="max-w-md rounded-lg border border-border bg-card p-5 shadow-sm">
           <h1 className="text-base font-semibold">{t('localServiceUnavailableTitle')}</h1>
           <p className="mt-2 text-sm text-muted-foreground">{startupError}</p>
+          <div className="mt-4 flex justify-end">
+            <Button variant="outline" size="sm" onClick={retryBootstrap}>
+              {t('retry')}
+            </Button>
+          </div>
         </div>
       </div>
     )

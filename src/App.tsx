@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import type { BackgroundTaskStatus } from '@/lib/types'
 import {
@@ -12,9 +12,6 @@ import {
   SquareTerminal,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { ScheduledTasksPage } from '@/components/scheduled-tasks/ScheduledTasksPage'
-import { AgentProfilesPage } from '@/components/agent-profiles/AgentProfilesPage'
-import { PluginsPage } from '@/components/plugins/PluginsPage'
 import { ProjectDirectoryPicker } from '@/components/project-directory-picker'
 import { SkillsDialog } from '@/components/skills-dialog'
 import { McpServersDialog } from '@/components/mcp-servers-dialog'
@@ -31,7 +28,6 @@ import type {
   SkillsScope,
 } from '@/lib/types'
 import { sessionTitle } from '@/lib/types'
-import { ChatPanelHost } from '@/components/chat/ChatPanelHost'
 import type { ContextUsageDisplayInfo } from '@/components/chat/context-usage'
 import { FirstUseGuideCard } from '@/components/chat/FirstUseGuideCard'
 import { ModelSetupEmptyState } from '@/components/chat/ModelSetupEmptyState'
@@ -56,13 +52,26 @@ import { logger } from '@/lib/logger'
 import { showAlert, showConfirm } from '@/components/ui/confirm-dialog'
 import { ToastContainer } from '@/components/ui/toast'
 import { ShareConversationDialog } from '@/components/share/ShareConversationDialog'
-import { SharedConversationPage } from '@/components/share/SharedConversationPage'
-import { WorkspaceInspector } from '@/components/workspace/WorkspaceInspector'
-import { WorkspaceReaderDialog } from '@/components/workspace/WorkspaceReaderDialog'
 import { getWorkspaceFile, resolveWorkspacePath } from '@/components/workspace/workspace-api'
-import { TerminalDock } from '@/components/terminal/TerminalDock'
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
+
+const ChatPanelHost = lazy(function() { return import('@/components/chat/ChatPanelHost').then(function(module) { return { default: module.ChatPanelHost } }) })
+const SharedConversationPage = lazy(function() { return import('@/components/share/SharedConversationPage').then(function(module) { return { default: module.SharedConversationPage } }) })
+const ScheduledTasksPage = lazy(() => import('@/components/scheduled-tasks/ScheduledTasksPage').then((module) => ({ default: module.ScheduledTasksPage })))
+const AgentProfilesPage = lazy(() => import('@/components/agent-profiles/AgentProfilesPage').then((module) => ({ default: module.AgentProfilesPage })))
+const PluginsPage = lazy(() => import('@/components/plugins/PluginsPage').then((module) => ({ default: module.PluginsPage })))
+const WorkspaceInspector = lazy(() => import('@/components/workspace/WorkspaceInspector').then((module) => ({ default: module.WorkspaceInspector })))
+const WorkspaceReaderDialog = lazy(() => import('@/components/workspace/WorkspaceReaderDialog').then((module) => ({ default: module.WorkspaceReaderDialog })))
+const TerminalDock = lazy(() => import('@/components/terminal/TerminalDock').then((module) => ({ default: module.TerminalDock })))
+
+function LazyPanelFallback() {
+  return <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">{t('loading')}</div>
+}
+
+function LazyOverlayFallback() {
+  return null
+}
 
 type WorkspacePage = 'chat' | 'scheduledTasks' | 'agentProfiles' | 'plugins'
 
@@ -908,11 +917,17 @@ function MainApp() {
 
         <section className="relative flex min-h-0 flex-1 flex-col">
           {scheduledTasksOpen ? (
-              <ScheduledTasksPage onOpenSession={handleToastClick} />
+              <Suspense fallback={<LazyPanelFallback />}>
+                <ScheduledTasksPage onOpenSession={handleToastClick} />
+              </Suspense>
             ) : agentProfilesOpen ? (
-              <AgentProfilesPage />
+              <Suspense fallback={<LazyPanelFallback />}>
+                <AgentProfilesPage />
+              </Suspense>
             ) : pluginsOpen ? (
-              <PluginsPage />
+              <Suspense fallback={<LazyPanelFallback />}>
+                <PluginsPage />
+              </Suspense>
             ) : needsModelSetup ? (
               <ModelSetupEmptyState
                 onAddModel={openModelSettings}
@@ -924,6 +939,7 @@ function MainApp() {
               <>
                 <div className="flex min-h-0 flex-1 flex-col">
                   <ErrorBoundary>
+                    <Suspense fallback={<LazyPanelFallback />}>
                     <ChatPanelHost
                       agent={agentManager.agent}
                       onModelSelect={openCustomModelSelector}
@@ -949,6 +965,7 @@ function MainApp() {
                       disableFork={false}
                       restoredDraft={restoredDraft}
                     />
+                    </Suspense>
                   </ErrorBoundary>
                 </div>
                 {showFirstUseGuide ? (
@@ -961,33 +978,43 @@ function MainApp() {
                   />
                 ) : null}
                 {terminalOpen ? (
-                  <TerminalDock
-                    project={agentManager.currentToolProject}
-                    pendingCommand={pendingTerminalCommand}
-                    onPendingCommandHandled={handlePendingTerminalCommandHandled}
-                    onCollapse={() => setTerminalOpen(false)}
-                  />
+                  <Suspense fallback={<LazyOverlayFallback />}>
+                    <TerminalDock
+                      project={agentManager.currentToolProject}
+                      pendingCommand={pendingTerminalCommand}
+                      onPendingCommandHandled={handlePendingTerminalCommandHandled}
+                      onCollapse={() => setTerminalOpen(false)}
+                    />
+                  </Suspense>
                 ) : null}
               </>
           )}
         </section>
       </main>
-      <WorkspaceInspector
-        project={agentManager.currentToolProject}
-        open={ui.workspaceInspectorOpen && Boolean(agentManager.currentToolProject?.id)}
-        onOpenChange={ui.setWorkspaceInspectorOpen}
-        onDraftRequest={restoreWorkspaceDraft}
-        focusTarget={ui.workspaceInspectorFocusTarget}
-      />
-      <WorkspaceReaderDialog
-        open={ui.inlineReaderOpen}
-        mode="file"
-        file={ui.inlineReaderFile}
-        loading={ui.inlineReaderLoading}
-        error={ui.inlineReaderError}
-        onOpenChange={ui.setInlineReaderOpen}
-        onDraftRequest={restoreWorkspaceDraft}
-      />
+      {ui.workspaceInspectorOpen && agentManager.currentToolProject?.id ? (
+        <Suspense fallback={<LazyOverlayFallback />}>
+          <WorkspaceInspector
+            project={agentManager.currentToolProject}
+            open
+            onOpenChange={ui.setWorkspaceInspectorOpen}
+            onDraftRequest={restoreWorkspaceDraft}
+            focusTarget={ui.workspaceInspectorFocusTarget}
+          />
+        </Suspense>
+      ) : null}
+      {ui.inlineReaderOpen ? (
+        <Suspense fallback={<LazyOverlayFallback />}>
+          <WorkspaceReaderDialog
+            open
+            mode="file"
+            file={ui.inlineReaderFile}
+            loading={ui.inlineReaderLoading}
+            error={ui.inlineReaderError}
+            onOpenChange={ui.setInlineReaderOpen}
+            onDraftRequest={restoreWorkspaceDraft}
+          />
+        </Suspense>
+      ) : null}
     </div>
     <ProjectDirectoryPicker
       open={projectPickerOpen}
@@ -1026,7 +1053,13 @@ function MainApp() {
 
 function App() {
   const shareRouteId = window.location.pathname.match(/^\/share\/([^/]+)\/?$/)?.[1]
-  if (shareRouteId) return <SharedConversationPage shareId={decodeURIComponent(shareRouteId)} />
+  if (shareRouteId) {
+    return (
+      <Suspense fallback={<LazyPanelFallback />}>
+        <SharedConversationPage shareId={decodeURIComponent(shareRouteId)} />
+      </Suspense>
+    )
+  }
   return <MainApp />
 }
 

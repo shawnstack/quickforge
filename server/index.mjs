@@ -537,6 +537,19 @@ await initializeActiveProject()
 setActiveWorkspaceRootForFilesystem(getWorkspaceRoot())
 startScheduledTaskRunner()
 
+server.on('error', (error) => {
+  // Handle listen errors (most commonly EADDRINUSE). Without this, Node would
+  // throw an uncaught exception and crash with only a raw stack trace in the log.
+  if (error.code === 'EADDRINUSE') {
+    logger.error(`Port ${port} is already in use. QuickForge could not start.`)
+    logger.error('Hint: stop the running instance with "quickforge stop" or "quickforge restart", or use a different port with QUICKFORGE_PORT=<port>.')
+  } else {
+    logger.error(`QuickForge failed to listen on ${host}:${port}: ${error.message}`)
+  }
+  flushLogger()
+  process.exit(1)
+})
+
 server.listen(port, host, () => {
   logger.info(`QuickForge local API: http://${host}:${port}`)
   if (shareLanEnabled) {

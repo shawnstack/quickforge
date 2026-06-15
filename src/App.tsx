@@ -645,12 +645,15 @@ function MainApp() {
   if (startupError) {
     return (
       <div className="flex h-screen items-center justify-center bg-background p-6 text-foreground">
-        <div className="max-w-md rounded-lg border border-border bg-card p-5 shadow-sm">
+        <div className="max-w-md rounded-lg border border-border bg-card p-5 shadow-sm text-center">
           <h1 className="text-base font-semibold">{t('localServiceUnavailableTitle')}</h1>
           <p className="mt-2 text-sm text-muted-foreground">{startupError}</p>
-          <div className="mt-4 flex justify-end">
+          <div className="mt-4 flex justify-center gap-2">
             <Button variant="outline" size="sm" onClick={retryBootstrap}>
               {t('retry')}
+            </Button>
+            <Button variant="default" size="sm" onClick={() => window.location.reload()}>
+              {t('reloadPage')}
             </Button>
           </div>
         </div>

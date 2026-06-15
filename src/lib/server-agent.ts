@@ -25,6 +25,9 @@ function getDirectBackendUrl(): string {
 
 type SseHandler = (event: Record<string, unknown>) => void
 
+const SSE_WATCHDOG_INTERVAL_MS = 5000
+const SSE_SILENCE_RECOVERY_MS = 15000
+
 class GlobalAgentSseClient {
   private eventSource: EventSource | null = null
   private handlersBySession = new Map<string, Set<SseHandler>>()
@@ -227,6 +230,7 @@ export type ServerAgentConfig = {
     errorMessage?: string
     contextCompaction?: ServerAgentContextCompaction | null
     contextUsage?: ServerAgentContextUsage | null
+    stateVersion?: number
   }
 }
 
@@ -284,6 +288,9 @@ export class ServerAgent {
   private _syncingThinkingLevel = false
   private pollTimer: ReturnType<typeof setInterval> | null = null
   private refreshPromise: Promise<void> | null = null
+  private statusPromise: Promise<void> | null = null
+  private lastSseEventAt = Date.now()
+  private lastServerStateVersion = 0
   private nextPromptCapabilities: PromptCapabilitySelection[] = []
 
   /**
@@ -298,6 +305,7 @@ export class ServerAgent {
     this.baseUrl = config.baseUrl ?? ''
 
     const init = config.initialState ?? {}
+    this.lastServerStateVersion = typeof init.stateVersion === 'number' ? init.stateVersion : 0
 
     const rawState = {
       systemPrompt: init.systemPrompt ?? '',
@@ -327,6 +335,7 @@ export class ServerAgent {
     })
 
     this.unsubscribeSse = globalAgentSseClient.subscribe(this.sessionId, this.baseUrl, (event) => this.handleSseEvent(event))
+    if (this.state.isStreaming) this.startStateWatchdog()
   }
 
   // --- Agent-compatible interface ---
@@ -397,11 +406,11 @@ export class ServerAgent {
       this.state.errorMessage = message
       this.state.isStreaming = false
       this.state.streamingMessage = undefined
-      this.stopPollingState()
+      this.stopStateWatchdog()
       this.emitToListeners({ type: 'error', error: message } as unknown as AgentEvent)
       this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
     })
-    this.startPollingState()
+    this.startStateWatchdog()
   }
 
   abort(): void {
@@ -514,6 +523,9 @@ export class ServerAgent {
       const payload = await res.json().catch(() => null) as { error?: string } | null
       throw new Error(payload?.error || `Failed to continue: HTTP ${res.status}`)
     }
+    this.state.isStreaming = true
+    this.state.errorMessage = undefined
+    this.startStateWatchdog()
   }
 
   /**
@@ -580,6 +592,7 @@ export class ServerAgent {
       clearInterval(this.pollTimer)
       this.pollTimer = null
     }
+    this.statusPromise = null
     this.unsubscribeSse?.()
     this.unsubscribeSse = undefined
     this.listeners.clear()
@@ -588,6 +601,7 @@ export class ServerAgent {
   // --- SSE event handling ---
 
   private handleSseEvent(event: Record<string, unknown>) {
+    this.noteSseEvent(event)
     const type = event.type as string
 
     switch (type) {
@@ -630,8 +644,11 @@ export class ServerAgent {
         if (s.isStreaming !== undefined) {
           wasStreaming = this.state.isStreaming
           this.state.isStreaming = s.isStreaming
-          // SSE is alive — disable polling fallback if it was running
-          this.stopPollingState()
+          if (s.isStreaming) {
+            this.startStateWatchdog()
+          } else {
+            this.stopStateWatchdog()
+          }
         }
         // Emit the correct lifecycle event so the sidebar green dot stays in sync
         if (s.isStreaming) {
@@ -647,11 +664,12 @@ export class ServerAgent {
       case 'agent_start': {
         this.state.isStreaming = true
         this.state.errorMessage = undefined
+        this.startStateWatchdog()
         break
       }
 
       case 'agent_end': {
-        this.stopPollingState()
+        this.stopStateWatchdog()
         const endEvent = event as { messages?: AgentMessage[]; errorMessage?: string; contextUsage?: ServerAgentContextUsage | null }
 
         // The server normalizes pi-agent-core's agent_end payload to include
@@ -745,7 +763,7 @@ export class ServerAgent {
       }
 
       case 'error': {
-        this.stopPollingState()
+        this.stopStateWatchdog()
         const errMsg = (event as { error?: string }).error
         this.state.errorMessage = errMsg || 'Unknown error'
         this.state.isStreaming = false
@@ -825,17 +843,84 @@ export class ServerAgent {
     }
   }
 
-  private startPollingState() {
-    if (this.pollTimer || this.disposed) return
-    this.pollTimer = setInterval(() => {
-      void this.refreshStateFromServer({ notify: true })
-    }, 2000)
+  private noteSseEvent(event: Record<string, unknown>) {
+    this.lastSseEventAt = Date.now()
+    const stateVersion = event.stateVersion
+    if (typeof stateVersion === 'number' && Number.isFinite(stateVersion)) {
+      this.lastServerStateVersion = Math.max(this.lastServerStateVersion, stateVersion)
+    }
   }
 
-  private stopPollingState() {
+  private startStateWatchdog() {
+    if (this.pollTimer || this.disposed) return
+    this.lastSseEventAt = Date.now()
+    this.pollTimer = setInterval(() => {
+      if (this.disposed || !this.state.isStreaming) {
+        this.stopStateWatchdog()
+        return
+      }
+
+      if (Date.now() - this.lastSseEventAt < SSE_SILENCE_RECOVERY_MS) return
+      void this.refreshStatusFromServer()
+    }, SSE_WATCHDOG_INTERVAL_MS)
+  }
+
+  private stopStateWatchdog() {
     if (!this.pollTimer) return
     clearInterval(this.pollTimer)
     this.pollTimer = null
+  }
+
+  private async refreshStatusFromServer() {
+    if (this.statusPromise) return this.statusPromise
+    this.statusPromise = this._doRefreshStatusFromServer().finally(() => {
+      this.statusPromise = null
+    })
+    return this.statusPromise
+  }
+
+  private async _doRefreshStatusFromServer() {
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/status`
+    try {
+      const res = await fetch(url)
+      if (!res.ok) {
+        if (res.status === 404 && this.state.isStreaming) {
+          this.state.isStreaming = false
+          this.stopStateWatchdog()
+          this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
+        }
+        return
+      }
+
+      const status = await res.json() as {
+        stateVersion?: number
+        isStreaming?: boolean
+        status?: string
+        errorMessage?: string
+      }
+      this.lastSseEventAt = Date.now()
+
+      const serverStateVersion = typeof status.stateVersion === 'number' && Number.isFinite(status.stateVersion)
+        ? status.stateVersion
+        : this.lastServerStateVersion
+
+      if (status.isStreaming === false) {
+        this.stopStateWatchdog()
+        await this.refreshStateFromServer({ notify: true, forceMessages: true })
+        return
+      }
+
+      if (status.isStreaming === true) {
+        this.state.isStreaming = true
+        this.state.errorMessage = status.errorMessage
+      }
+
+      if (serverStateVersion > this.lastServerStateVersion) {
+        await this.refreshStateFromServer({ notify: true, forceMessages: true })
+      }
+    } catch {
+      // Keep the watchdog alive; EventSource may recover on its own.
+    }
   }
 
   private async refreshStateFromServer(options?: { notify?: boolean; forceMessages?: boolean }) {
@@ -858,12 +943,15 @@ export class ServerAgent {
         // stop streaming so the UI doesn't get stuck showing a Stop button.
         if (res.status === 404 && this.state.isStreaming) {
           this.state.isStreaming = false
-          this.stopPollingState()
+          this.stopStateWatchdog()
           this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
         }
         return
       }
       const state = await res.json()
+      if (typeof state.stateVersion === 'number' && Number.isFinite(state.stateVersion)) {
+        this.lastServerStateVersion = Math.max(this.lastServerStateVersion, state.stateVersion)
+      }
 
       // Discard stale responses: if state was updated by an SSE event while
       // this fetch was in flight, the poll response is obsolete.
@@ -916,7 +1004,7 @@ export class ServerAgent {
             this.emitToListeners({ type: 'agent_start' } as AgentEvent)
           }
         } else {
-          this.stopPollingState()
+          this.stopStateWatchdog()
         }
         if (options?.notify && wasStreaming && !state.isStreaming) {
           this.stateVersion++
@@ -1000,6 +1088,7 @@ export class ServerAgent {
         errorMessage: serverState.errorMessage as string | undefined,
         contextCompaction: serverState.contextCompaction as ServerAgentContextCompaction | null | undefined,
         contextUsage: serverState.contextUsage as ServerAgentContextUsage | null | undefined,
+        stateVersion: serverState.stateVersion as number | undefined,
       },
     })
   }

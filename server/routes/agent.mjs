@@ -6,6 +6,7 @@ import {
   steerAgent,
   followUpAgent,
   getSessionState,
+  getSessionStatus,
   getSessionEventBus,
   tryAcquireSse,
   releaseSse,
@@ -109,6 +110,24 @@ export async function handleAgentApi(req, res, url) {
       throw error
     }
     sendJson(res, 200, state)
+    return
+  }
+
+  // GET /api/agents/:sessionId/status - get lightweight session status
+  if (req.method === 'GET' && subPath === 'status') {
+    let status = getSessionStatus(sessionId)
+    if (!status) {
+      // Try to restore from persistent storage before giving up.
+      // This recovers sessions that were evicted by idle timeout.
+      await restoreAgent(sessionId)
+      status = getSessionStatus(sessionId)
+    }
+    if (!status) {
+      const error = new Error('Session not found')
+      error.statusCode = 404
+      throw error
+    }
+    sendJson(res, 200, status)
     return
   }
 

@@ -1138,6 +1138,7 @@ export async function createAgent(sessionId, config = {}) {
     activeCommandPrompt: null,
     eventBus,
     idleTimer: null,
+    persistTimer: null,
     titleGenerated: false,
     toolTimings: new Map(),
     getApiKey,
@@ -1183,17 +1184,16 @@ export async function createAgent(sessionId, config = {}) {
       session.toolTimings?.clear()
       resetIdleTimer(session)
 
-      // Persist after run ends
-      persistSession(session).catch((err) =>
+      // Persist after run ends. Flush any debounced write so the final state is durable.
+      flushSessionPersist(session).catch((err) =>
         logger.error(`Failed to persist session ${sessionId}:`, err, { sessionId }),
       )
     }
 
     if (event.type === 'message_end') {
-      // Do a lightweight persist on message_end for crash recovery
-      persistSession(session).catch((err) =>
-        logger.error(`Failed to persist session ${sessionId}:`, err, { sessionId }),
-      )
+      // Debounced persist for crash recovery; coalesces the many message_end
+      // events within a single run into infrequent full-session writes.
+      scheduleSessionPersist(session)
     }
   })
 
@@ -1337,6 +1337,44 @@ async function persistSession(session) {
 }
 
 export async function persistSessionState(session) {
+  await flushSessionPersist(session)
+}
+
+/**
+ * Coalesce fire-and-forget session persists during a run.
+ *
+ * persistSession() serializes the ENTIRE session (all messages) on every call,
+ * and the agent event loop calls it on agent_start / each message_end / agent_end.
+ * Within a single run these events fire many times (one per assistant turn +
+ * tool result), so writing on each one makes cumulative disk I/O O(n^2) as a
+ * conversation grows. These message_end call sites are fire-and-forget
+ * (crash-recovery only), so we debounce them into at most one write per
+ * PERSIST_DEBOUNCE_MS. Run boundaries (agent_end) and explicit persists cancel
+ * the pending timer and write the current state immediately, so the final
+ * state is always durable.
+ */
+const PERSIST_DEBOUNCE_MS = 400
+
+function scheduleSessionPersist(session) {
+  if (session.persistTimer) return
+  session.persistTimer = setTimeout(() => {
+    session.persistTimer = null
+    persistSession(session).catch((err) =>
+      logger.error(`Failed to persist session ${session.sessionId}:`, err, { sessionId: session.sessionId }),
+    )
+  }, PERSIST_DEBOUNCE_MS).unref?.()
+}
+
+/**
+ * Cancel any pending debounced write and persist the current state immediately.
+ * Used at run boundaries (agent_end) and by explicit persistSessionState() so
+ * the final state is always durable regardless of a pending timer.
+ */
+async function flushSessionPersist(session) {
+  if (session.persistTimer) {
+    clearTimeout(session.persistTimer)
+    session.persistTimer = null
+  }
   await persistSession(session)
 }
 
@@ -1689,6 +1727,10 @@ export async function destroyAgent(sessionId) {
   logger.info(`Destroying session ${sessionId} (status: ${session.status})`, { sessionId, status: session.status })
 
   if (session.idleTimer) clearTimeout(session.idleTimer)
+  if (session.persistTimer) {
+    clearTimeout(session.persistTimer)
+    session.persistTimer = null
+  }
   session.toolTimings?.clear()
 
   try {

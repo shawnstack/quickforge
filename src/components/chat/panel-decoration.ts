@@ -1285,7 +1285,7 @@ export type EditorDecorationDeps = {
   updateCapabilitySuggestions: (value?: string) => void
   setupCapabilityTextareaHandler: (editor: MessageEditorElement | null) => void
   insertBuiltinPluginMention: (mention: BuiltinPluginMention) => void
-  onBeforeSend?: (input: string) => void
+  onBeforeSend?: (input: string, options?: { planMode: boolean }) => void
 }
 
 type EditorModelState = {
@@ -1604,11 +1604,11 @@ export function decorateEditor(deps: EditorDecorationDeps) {
         const rawText = String(input ?? '')
         const text = rawText.trim()
         const shouldUsePlanCommand = planMode && text.length > 0 && !text.toLowerCase().startsWith('/plan')
-        if (text.length > 0) onBeforeSend?.(rawText)
+        if (text.length > 0) onBeforeSend?.(rawText, { planMode: shouldUsePlanCommand })
         removeCommandSuggestions()
         removeCapabilitySuggestions()
         if (shouldUsePlanCommand) onPlanModeSent()
-        baseOnSend(shouldUsePlanCommand ? `/plan ${rawText}` : rawText, attachments)
+        baseOnSend(rawText, attachments)
       }
       editor.__quickforgePlanWrappedOnSend = wrappedOnSend
       editor.onSend = wrappedOnSend

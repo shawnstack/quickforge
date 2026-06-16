@@ -28,6 +28,24 @@ describe('internal slash commands', () => {
     await expect(handleInternalCommand({ type: 'review', args: '' }, null, '')).resolves.toBe('Review requires an active project chat.')
   })
 
+  it('parses /plan with a task', () => {
+    expect(parseInternalCommandInvocation('/plan implement feature')).toEqual({
+      type: 'plan',
+      args: 'implement feature',
+    })
+  })
+
+  it('requires a task for /plan', async () => {
+    await expect(handleInternalCommand({ type: 'plan', args: '' }, process.cwd(), '')).resolves.toBe('Usage: /plan <task>')
+  })
+
+  it('handles /plan with a task', async () => {
+    await expect(handleInternalCommand({ type: 'plan', args: 'implement feature' }, process.cwd(), '')).resolves.toEqual({
+      plan: true,
+      args: 'implement feature',
+    })
+  })
+
   it('allows subagents but blocks edits and commands for /plan permission state', () => {
     const session = {
       activeCommandName: 'plan',
@@ -36,10 +54,13 @@ describe('internal slash commands', () => {
 
     expect(commandToolPermissionError(session, 'read_file')).toBeNull()
     expect(commandToolPermissionError(session, 'grep_files')).toBeNull()
+    expect(commandToolPermissionError(session, 'activate_skill')).toBeNull()
+    expect(commandToolPermissionError(session, 'read_skill_resource')).toBeNull()
     expect(commandToolPermissionError(session, 'run_subagent')).toBeNull()
-    expect(commandToolPermissionError(session, 'run_command')).toBe('Command /plan does not allow running shell commands.')
-    expect(commandToolPermissionError(session, 'edit_file')).toBe('Command /plan does not allow editing files.')
-    expect(commandToolPermissionError(session, 'write_file')).toBe('Command /plan does not allow editing files.')
+    expect(commandToolPermissionError(session, 'run_command')).toBe('Command /plan is read-only and cannot use run_command.')
+    expect(commandToolPermissionError(session, 'edit_file')).toBe('Command /plan is read-only and cannot use edit_file.')
+    expect(commandToolPermissionError(session, 'write_file')).toBe('Command /plan is read-only and cannot use write_file.')
+    expect(commandToolPermissionError(session, 'plugin__example__mutate')).toBe('Command /plan is read-only and cannot use plugin__example__mutate.')
   })
 
   it('allows commands but blocks edits for /review permission state', () => {

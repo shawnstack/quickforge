@@ -83,7 +83,7 @@ export async function handleAgentApi(req, res, url) {
       error.statusCode = 400
       throw error
     }
-    const result = await runPrompt(sessionId, message, body?.selectedCapabilities)
+    const result = await runPrompt(sessionId, message, body?.selectedCapabilities, body?.command)
     sendJson(res, 200, result)
     return
   }

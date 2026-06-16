@@ -259,6 +259,10 @@ export type PromptCapabilitySelection = {
   description?: string
 }
 
+export type PromptCommandSelection = {
+  type: 'plan'
+}
+
 export class ServerAgent {
   // --- Public state (mutable, AgentInterface-compatible) ---
   state: {
@@ -292,6 +296,7 @@ export class ServerAgent {
   private lastSseEventAt = Date.now()
   private lastServerStateVersion = 0
   private nextPromptCapabilities: PromptCapabilitySelection[] = []
+  private nextPromptCommand: PromptCommandSelection | undefined
 
   /**
    * Monotonically increasing version counter for state writes.
@@ -349,6 +354,10 @@ export class ServerAgent {
     this.nextPromptCapabilities = Array.isArray(capabilities) ? capabilities.slice(0, 4) : []
   }
 
+  setNextPromptCommand(command?: PromptCommandSelection): void {
+    this.nextPromptCommand = command?.type === 'plan' ? { type: 'plan' } : undefined
+  }
+
   async prompt(input: string | AgentMessage | AgentMessage[]): Promise<void> {
     if (this.disposed) return
 
@@ -366,7 +375,9 @@ export class ServerAgent {
     }
 
     const selectedCapabilities = this.nextPromptCapabilities
+    const selectedCommand = this.nextPromptCommand
     this.nextPromptCapabilities = []
+    this.nextPromptCommand = undefined
 
     // Add to local state immediately for optimistic UI
     const agentMessage = message as unknown as AgentMessage
@@ -389,7 +400,7 @@ export class ServerAgent {
     fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ message: agentMessage, selectedCapabilities }),
+      body: JSON.stringify({ message: agentMessage, selectedCapabilities, command: selectedCommand }),
       signal: controller.signal,
     }).then((response) => {
       clearTimeout(timeoutId)

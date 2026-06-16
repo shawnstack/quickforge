@@ -38,6 +38,7 @@ type AgentWithContextCompaction = AgentLike & {
 
 type AgentWithCapabilityPrompt = AgentLike & {
   setNextPromptCapabilities?: (capabilities: unknown[]) => void
+  setNextPromptCommand?: (command?: { type: 'plan' }) => void
 }
 
 function effectiveContextMessages(agent: AgentLike): MessageWithUsage[] {
@@ -534,9 +535,11 @@ export function ChatPanelHost({
           updateCapabilitySuggestions: capabilitySuggestions.update,
           setupCapabilityTextareaHandler: capabilitySuggestions.setupTextareaHandler,
           insertBuiltinPluginMention: capabilitySuggestions.insertBuiltinPluginMention,
-          onBeforeSend: (input) => {
+          onBeforeSend: (input, options) => {
             const capabilities = capabilitySuggestions.consumeSelectedCapabilities(input)
-            ;(agent as AgentWithCapabilityPrompt).setNextPromptCapabilities?.(capabilities)
+            const promptAgent = agent as AgentWithCapabilityPrompt
+            promptAgent.setNextPromptCapabilities?.(capabilities)
+            promptAgent.setNextPromptCommand?.(options?.planMode ? { type: 'plan' } : undefined)
           },
         })
       } catch { /* continue to approval card */ }

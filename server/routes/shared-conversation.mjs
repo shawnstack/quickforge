@@ -363,7 +363,7 @@ export async function handleSharedConversationApi(req, res, url) {
     assertOperate(record)
     const body = await readJsonBody(req)
     await restoreAgent(record.sessionId)
-    const result = await runPrompt(record.sessionId, messageFromBody(body, record, req))
+    const result = await runPrompt(record.sessionId, messageFromBody(body, record, req), [], body?.command)
     sendJson(res, 200, result)
     return
   }

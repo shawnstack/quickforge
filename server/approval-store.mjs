@@ -24,6 +24,14 @@ export const commandRestrictedTools = new Set([
   'run_subagent',
 ])
 
+export const planAllowedTools = new Set([
+  'read_file',
+  'grep_files',
+  'activate_skill',
+  'read_skill_resource',
+  'run_subagent',
+])
+
 export const safeReadTools = new Set([
   'read_file',
   'grep_files',
@@ -45,7 +53,11 @@ export const pendingAutoCompactApprovals = new Map()
 
 export function commandToolPermissionError(session, toolName) {
   const permissions = session?.activeCommandPermissions
-  if (!permissions || !commandRestrictedTools.has(toolName)) return null
+  if (!permissions) return null
+  if (session?.activeCommandName === 'plan' && !planAllowedTools.has(toolName)) {
+    return `Command /plan is read-only and cannot use ${toolName}.`
+  }
+  if (!commandRestrictedTools.has(toolName)) return null
   if (toolName === 'run_command' && permissions.allowCommands === false) {
     return `Command /${session.activeCommandName} does not allow running shell commands.`
   }

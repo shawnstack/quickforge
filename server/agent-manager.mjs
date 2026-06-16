@@ -35,7 +35,6 @@ import { omitDetailsForLlm, serverConvertToLlm, messageText, lastAssistantText }
 import { isPlainObject, mergeQuickForgeTiming, wrapToolDefinition, wrapMcpToolDefinition, wrapPluginToolDefinition, sessionSkillsContext } from './tool-wiring.mjs'
 import {
   APPROVAL_TIMEOUT_MS,
-  commandRestrictedTools,
   safeReadTools,
   pendingApprovals,
   pendingAutoCompactApprovals,
@@ -545,9 +544,52 @@ async function clearSession(session) {
   return { sessionId: session.sessionId, status: session.status, cleared: true }
 }
 
-async function resolveCommandState(session, userMessage) {
+const QUICKFORGE_COMMAND_DETAILS_KEY = 'quickforgeCommand'
+
+function normalizedPromptCommand(command) {
+  return command?.type === 'plan' ? { type: 'plan' } : null
+}
+
+function objectDetails(message) {
+  const details = message?.details
+  return details && typeof details === 'object' && !Array.isArray(details) ? details : {}
+}
+
+function promptCommandFromMessage(message) {
+  return normalizedPromptCommand(objectDetails(message)[QUICKFORGE_COMMAND_DETAILS_KEY])
+}
+
+function messageWithPromptCommand(message, command) {
+  const normalized = normalizedPromptCommand(command)
+  if (!normalized || !message || typeof message !== 'object') return message
+  return {
+    ...message,
+    details: {
+      ...objectDetails(message),
+      [QUICKFORGE_COMMAND_DETAILS_KEY]: normalized,
+    },
+  }
+}
+
+function internalInvocationForPromptCommand(userMessage, command) {
+  const normalized = normalizedPromptCommand(command)
+  if (normalized?.type === 'plan') return { type: 'plan', args: messageText(userMessage).trim() }
+  return parseInternalCommandInvocation(userMessage)
+}
+
+function planCommandState(userMessage, args) {
+  return {
+    userMessage: messageWithPromptCommand(userMessage, { type: 'plan' }),
+    commandPrompt: formatPlanCommandPrompt(args),
+    permissions: { allowEdit: false, allowCommands: false, allowSubagents: true },
+    commandName: 'plan',
+  }
+}
+
+async function resolveCommandState(session, userMessage, promptCommand = null) {
+  const command = normalizedPromptCommand(promptCommand) || promptCommandFromMessage(userMessage)
   const internalResponse = await handleInternalCommand(
-    parseInternalCommandInvocation(userMessage),
+    internalInvocationForPromptCommand(userMessage, command),
     session.projectContext?.workspaceRoot,
     session.projectContext?.project?.commandDir,
   )
@@ -555,12 +597,7 @@ async function resolveCommandState(session, userMessage) {
   if (internalResponse?.clear) return { clear: internalResponse }
   if (internalResponse?.compact) return { compact: internalResponse }
   if (internalResponse?.plan) {
-    return {
-      userMessage,
-      commandPrompt: formatPlanCommandPrompt(internalResponse.args),
-      permissions: { allowEdit: false, allowCommands: false, allowSubagents: true },
-      commandName: 'plan',
-    }
+    return planCommandState(userMessage, internalResponse.args)
   }
   if (internalResponse?.review) {
     return {
@@ -1452,7 +1489,7 @@ export async function rollbackSessionMessages(sessionId, rollbackMessageIndex) {
  * Send a user message to the agent and start the agent loop.
  * Returns immediately; events are streamed via the event bus.
  */
-export async function runPrompt(sessionId, message, selectedCapabilities = []) {
+export async function runPrompt(sessionId, message, selectedCapabilities = [], promptCommand = null) {
   let session = agentSessions.get(sessionId)
   if (!session) {
     session = await restoreAgent(sessionId)
@@ -1471,7 +1508,7 @@ export async function runPrompt(sessionId, message, selectedCapabilities = []) {
   const initialUserMessage = typeof message === 'string'
     ? { role: 'user', content: message, timestamp: new Date().toISOString() }
     : message
-  const commandState = await resolveCommandState(session, initialUserMessage)
+  const commandState = await resolveCommandState(session, initialUserMessage, promptCommand)
   const userMessage = commandState.userMessage ?? initialUserMessage
 
   if (commandState.textResponse) {
@@ -1569,14 +1606,27 @@ export async function continueSession(sessionId) {
     throw Object.assign(new Error('Cannot continue: no user message found.'), { statusCode: 400 })
   }
 
-  const trimmedMessages = messages.slice(0, lastUserIndex + 1)
+  const lastUserMessage = messages[lastUserIndex]
+  const commandState = await resolveCommandState(session, lastUserMessage)
+  const continuedUserMessage = commandState.userMessage ?? lastUserMessage
+  const trimmedMessages = messages.slice(0, lastUserIndex).concat(continuedUserMessage)
   updateSessionMessages(session, trimmedMessages)
   resetSessionCompaction(session)
 
   resetIdleTimer(session)
+  session.activeCommandName = commandState.commandName ?? null
+  session.activeCommandPermissions = commandState.permissions ?? null
+  session.activeCommandPrompt = commandState.commandPrompt ?? null
+  session.activeCapabilityPrompt = null
+
   session.agent.continue().catch((err) => {
     logger.error(`Agent continue error for session ${sessionId}:`, err, { sessionId })
     emitSessionEvent(session, { type: 'error', error: err.message || 'Unknown error' })
+  }).finally(() => {
+    session.activeCommandName = null
+    session.activeCommandPermissions = null
+    session.activeCommandPrompt = null
+    session.activeCapabilityPrompt = null
   })
 
   return { sessionId, status: 'running' }

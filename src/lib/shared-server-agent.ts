@@ -1,7 +1,7 @@
 import type { AgentEvent, AgentMessage, ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai'
-import type { ServerAgentContextCompaction, ServerAgentContextUsage } from '@/lib/server-agent'
+import type { ServerAgentContextCompaction, ServerAgentContextUsage, PromptCommandSelection } from '@/lib/server-agent'
 import type { SharePermission } from '@/lib/share-client'
 import { logger } from '@/lib/logger'
 import { toolStartEventWithPartialResult, upsertMessage, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
@@ -124,6 +124,7 @@ export class SharedServerAgent {
   private reconnectDelay = 1000
   private baseUrl = ''
   private syncingThinkingLevel = false
+  private nextPromptCommand: PromptCommandSelection | undefined
 
   constructor(shareId: string, initialState: SharedSessionState) {
     this.shareId = shareId
@@ -162,9 +163,19 @@ export class SharedServerAgent {
     return () => { this.listeners.delete(listener) }
   }
 
+  setNextPromptCapabilities(): void {
+    // Shared conversations currently do not route local capability mentions.
+  }
+
+  setNextPromptCommand(command?: PromptCommandSelection): void {
+    this.nextPromptCommand = command?.type === 'plan' ? { type: 'plan' } : undefined
+  }
+
   async prompt(input: string | AgentMessage | AgentMessage[]): Promise<void> {
     if (this.disposed || this.permission !== 'operate') return
     const { message, clientMessageId } = messageWithClientId(this.normalizeInput(input))
+    const command = this.nextPromptCommand
+    this.nextPromptCommand = undefined
     this.state.messages = [...this.state.messages, message]
     this.emit({ type: 'message_start', message } as AgentEvent)
     if (!this.state.isStreaming) {
@@ -176,7 +187,7 @@ export class SharedServerAgent {
     try {
       await readJson<{ sessionId: string; status: string }>(`/api/shared/${encodeURIComponent(this.shareId)}/message`, {
         method: 'POST',
-        body: JSON.stringify({ message, clientMessageId }),
+        body: JSON.stringify({ message, clientMessageId, command }),
       })
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)

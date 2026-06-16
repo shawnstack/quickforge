@@ -136,9 +136,7 @@ function writeLog(level, context, ...args) {
   const jsonLine = JSON.stringify(jsonObj) + '\n'
 
   try {
-    const s = getStream()
     pendingLines.push(jsonLine)
-    s.write(jsonLine) // also try immediate write
     scheduleFlush()
   } catch {
     // ignore write errors

@@ -30,6 +30,10 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     this.setState({ error: null })
   }
 
+  handleReload = () => {
+    window.location.reload()
+  }
+
   render() {
     if (this.state.error) {
       if (this.props.fallback) return this.props.fallback
@@ -41,9 +45,14 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             <p className="mt-2 text-sm text-muted-foreground break-all">
               {this.state.error.message || t('errorBoundaryUnexpected')}
             </p>
-            <Button variant="outline" size="sm" className="mt-4" onClick={this.handleRetry}>
-              {t('errorBoundaryTryAgain')}
-            </Button>
+            <div className="mt-4 flex justify-center gap-2">
+              <Button variant="outline" size="sm" onClick={this.handleRetry}>
+                {t('errorBoundaryTryAgain')}
+              </Button>
+              <Button variant="default" size="sm" onClick={this.handleReload}>
+                {t('reloadPage')}
+              </Button>
+            </div>
           </div>
         </div>
       )

@@ -25,6 +25,9 @@ type DialogAction = {
   onClick: () => void
   variant?: ButtonProps['variant']
   autoFocus?: boolean
+  // When false, this action is not triggered by the Enter key. Defaults to true.
+  // Used to avoid confirming destructive actions via a stray Enter press.
+  enter?: boolean
 }
 
 function MessageDialog({
@@ -58,7 +61,16 @@ function MessageDialog({
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') resolveCancelOnce()
       if (event.key === 'Enter') {
-        const primary = actions[actions.length - 1]
+        // Trigger the last action that is still reachable via Enter.
+        // Actions with `enter: false` (e.g. destructive confirm) are skipped
+        // so a stray Enter press cannot confirm an irreversible operation.
+        let primary: DialogAction | undefined
+        for (let i = actions.length - 1; i >= 0; i--) {
+          if (actions[i].enter !== false) {
+            primary = actions[i]
+            break
+          }
+        }
         if (primary) runAction(primary)
       }
     }
@@ -138,11 +150,15 @@ export function showConfirm(options: ConfirmOptions): Promise<boolean> {
           label: options.cancelLabel ?? 'Cancel',
           variant: 'outline',
           onClick: () => resolve(false),
+          // Focus the cancel button first for destructive actions so an
+          // accidental Enter does not perform an irreversible operation.
+          autoFocus: options.variant === 'destructive',
         },
         {
           label: options.confirmLabel ?? 'Confirm',
           variant: options.variant === 'destructive' ? 'destructive' : 'default',
-          autoFocus: true,
+          autoFocus: options.variant !== 'destructive',
+          enter: options.variant !== 'destructive',
           onClick: () => resolve(true),
         },
       ]}

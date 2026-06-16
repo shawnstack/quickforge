@@ -196,19 +196,14 @@ function createApprovalPromise(session, toolCallId, toolName, args, source) {
       source,
     })
 
-    // Notify the frontend via both the session-level and global event buses.
-    // The global SSE handler (/api/agents/events) only listens to `agentEvents`,
-    // so events emitted only on session.eventBus never reach the client.
-    const approvalEvent = {
+    emitSessionEvent(session, {
       type: 'tool_approval_required',
       sessionId: session.sessionId,
       toolCallId,
       toolName,
       args,
       source,
-    }
-    session.eventBus.emit('agent_event', approvalEvent)
-    agentEvents.emit('agent_event', approvalEvent)
+    })
   })
 }
 
@@ -312,11 +307,18 @@ function estimateTokenReduction(originalChars, finalChars) {
   return Math.max(0, Math.min(99, Math.round(((originalChars - finalChars) / originalChars) * 100)))
 }
 
+function nextSessionStateVersion(session) {
+  const current = Number.isFinite(session?.stateVersion) ? session.stateVersion : 0
+  session.stateVersion = current + 1
+  return session.stateVersion
+}
+
 function emitSessionEvent(session, event) {
+  const stateVersion = nextSessionStateVersion(session)
   const enrichedEvent = (event?.type === 'message_end' || event?.type === 'agent_end' || event?.type === 'messages_replaced' || event?.type === 'auto_compact_completed')
     && event.contextUsage === undefined
-    ? { ...event, contextUsage: getSessionContextUsage(session) }
-    : event
+    ? { ...event, contextUsage: getSessionContextUsage(session), stateVersion }
+    : { ...event, stateVersion }
   session.eventBus.emit('agent_event', enrichedEvent)
   agentEvents.emit('agent_event', { sessionId: session.sessionId, ...enrichedEvent })
 }
@@ -1138,6 +1140,7 @@ export async function createAgent(sessionId, config = {}) {
     activeCommandPrompt: null,
     eventBus,
     idleTimer: null,
+    persistTimer: null,
     titleGenerated: false,
     toolTimings: new Map(),
     getApiKey,
@@ -1145,6 +1148,7 @@ export async function createAgent(sessionId, config = {}) {
     agentProfile: agentProfile ? agentProfileSnapshot(agentProfile) : null,
     lastTransformedContextMessages: null,
     autoCompacting: false,
+    stateVersion: 0,
     lastAutoCompactAt: null,
     lastAutoCompactRejected: null,
     /** Track active SSE connections. Only one SSE stream allowed per session to prevent
@@ -1195,17 +1199,16 @@ export async function createAgent(sessionId, config = {}) {
       session.toolTimings?.clear()
       resetIdleTimer(session)
 
-      // Persist after run ends
-      persistSession(session).catch((err) =>
+      // Persist after run ends. Flush any debounced write so the final state is durable.
+      flushSessionPersist(session).catch((err) =>
         logger.error(`Failed to persist session ${sessionId}:`, err, { sessionId }),
       )
     }
 
     if (event.type === 'message_end') {
-      // Do a lightweight persist on message_end for crash recovery
-      persistSession(session).catch((err) =>
-        logger.error(`Failed to persist session ${sessionId}:`, err, { sessionId }),
-      )
+      // Debounced persist for crash recovery; coalesces the many message_end
+      // events within a single run into infrequent full-session writes.
+      scheduleSessionPersist(session)
     }
   })
 
@@ -1349,6 +1352,44 @@ async function persistSession(session) {
 }
 
 export async function persistSessionState(session) {
+  await flushSessionPersist(session)
+}
+
+/**
+ * Coalesce fire-and-forget session persists during a run.
+ *
+ * persistSession() serializes the ENTIRE session (all messages) on every call,
+ * and the agent event loop calls it on agent_start / each message_end / agent_end.
+ * Within a single run these events fire many times (one per assistant turn +
+ * tool result), so writing on each one makes cumulative disk I/O O(n^2) as a
+ * conversation grows. These message_end call sites are fire-and-forget
+ * (crash-recovery only), so we debounce them into at most one write per
+ * PERSIST_DEBOUNCE_MS. Run boundaries (agent_end) and explicit persists cancel
+ * the pending timer and write the current state immediately, so the final
+ * state is always durable.
+ */
+const PERSIST_DEBOUNCE_MS = 400
+
+function scheduleSessionPersist(session) {
+  if (session.persistTimer) return
+  session.persistTimer = setTimeout(() => {
+    session.persistTimer = null
+    persistSession(session).catch((err) =>
+      logger.error(`Failed to persist session ${session.sessionId}:`, err, { sessionId: session.sessionId }),
+    )
+  }, PERSIST_DEBOUNCE_MS).unref?.()
+}
+
+/**
+ * Cancel any pending debounced write and persist the current state immediately.
+ * Used at run boundaries (agent_end) and by explicit persistSessionState() so
+ * the final state is always durable regardless of a pending timer.
+ */
+async function flushSessionPersist(session) {
+  if (session.persistTimer) {
+    clearTimeout(session.persistTimer)
+    session.persistTimer = null
+  }
   await persistSession(session)
 }
 
@@ -1644,6 +1685,7 @@ export function getSessionState(sessionId) {
     title: session.title,
     createdAt: session.createdAt,
     lastModified: session.lastModified,
+    stateVersion: session.stateVersion || 0,
     status: session.status,
     startedAt: session.startedAt,
     finishedAt: session.finishedAt,
@@ -1653,6 +1695,33 @@ export function getSessionState(sessionId) {
     contextUsage: getSessionContextUsage(session),
     isStreaming: session.agent.state.isStreaming,
     errorMessage: session.agent.state.errorMessage,
+  }
+}
+
+/**
+ * Get a lightweight status snapshot for SSE-first state recovery.
+ */
+export function getSessionStatus(sessionId) {
+  const session = agentSessions.get(sessionId)
+  if (!session) return null
+
+  const messages = session.agent.state.messages || []
+  const lastMessage = messages[messages.length - 1]
+  return {
+    sessionId: session.sessionId,
+    scope: session.scope,
+    projectId: session.projectId,
+    title: session.title,
+    createdAt: session.createdAt,
+    lastModified: session.lastModified,
+    stateVersion: session.stateVersion || 0,
+    status: session.status,
+    startedAt: session.startedAt,
+    finishedAt: session.finishedAt,
+    isStreaming: session.agent.state.isStreaming,
+    errorMessage: session.agent.state.errorMessage,
+    messageCount: messages.length,
+    lastMessageTimestamp: lastMessage?.timestamp ?? null,
   }
 }
 
@@ -1702,6 +1771,10 @@ export async function destroyAgent(sessionId) {
   logger.info(`Destroying session ${sessionId} (status: ${session.status})`, { sessionId, status: session.status })
 
   if (session.idleTimer) clearTimeout(session.idleTimer)
+  if (session.persistTimer) {
+    clearTimeout(session.persistTimer)
+    session.persistTimer = null
+  }
   session.toolTimings?.clear()
 
   try {

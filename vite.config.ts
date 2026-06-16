@@ -48,7 +48,23 @@ export default defineConfig({
           if (id.includes('node_modules/lucide-react/')) {
             return 'icons'
           }
-          // pi-ai/pi-web-ui/pi-agent-core — the AI SDK bundle
+          // Heavy optional UI/runtime dependencies
+          if (id.includes('node_modules/monaco-editor/') || id.includes('node_modules/@monaco-editor/')) {
+            return 'monaco'
+          }
+          if (id.includes('node_modules/@xterm/')) {
+            return 'xterm'
+          }
+          if (id.includes('node_modules/@earendil-works/pi-web-ui/')) {
+            return 'pi-web-ui'
+          }
+          if (id.includes('node_modules/@earendil-works/pi-agent-core/')) {
+            return 'pi-agent-core'
+          }
+          if (id.includes('node_modules/@earendil-works/pi-ai/')) {
+            return 'pi-ai'
+          }
+          // pi-ai dynamic provider chunks support
           if (id.includes('node_modules/@mariozechner/')) {
             // Keep provider-specific splits the SDK already does via dynamic import
             return

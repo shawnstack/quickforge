@@ -320,14 +320,31 @@ function decorateMarkdownCommandBlocks(panel: HTMLElement, isStreaming: boolean)
     const existing = block.querySelector<HTMLButtonElement>('[data-quickforge-action="execute-markdown-command"]')
     if (!isShellCodeBlock(block)) {
       existing?.remove()
+      delete block.dataset.quickforgeCommand
       return
     }
 
-    const command = normalizeShellCommand(decodeCodeBlockText(block))
+    // For blocks we have already decorated, skip the base64 decode + regex
+    // normalization when the decoded command has not changed (cheaply tracked
+    // via a dataset fingerprint). During streaming this avoid re-decoding every
+    // shell code-block in the panel on each rAF-batched decorate pass; the click
+    // handler below always re-reads the latest command, so correctness is kept.
+    let command: string | null
+    if (existing && block.dataset.quickforgeCommand !== undefined) {
+      if (existing.disabled === isStreaming) {
+        // Content unchanged AND streaming state unchanged → nothing to do.
+        return
+      }
+      command = block.dataset.quickforgeCommand
+    } else {
+      command = normalizeShellCommand(decodeCodeBlockText(block))
+    }
     if (!command) {
       existing?.remove()
+      delete block.dataset.quickforgeCommand
       return
     }
+    block.dataset.quickforgeCommand = command
 
     const title = t('executeInTerminal')
     const button = existing ?? createIconActionButton('execute-markdown-command', title, runIcon, () => {
@@ -625,7 +642,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     element.classList.toggle('quickforge-user-message', entry.message.role !== 'assistant')
 
     if (entry.message.role === 'assistant' && onOpenLocalFilePath) {
-      decorateLocalFilePathLinks(element, onOpenLocalFilePath)
+      decorateLocalFilePathLinks(element, entry.message, onOpenLocalFilePath)
     }
 
     const actionsClass = `quickforge-message-actions pointer-events-none mt-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${entry.message.role === 'assistant' ? 'px-4 justify-start' : 'mx-4 justify-end'}`
@@ -817,10 +834,17 @@ function linkLocalFilePathTextNode(node: Text, onOpenLocalFilePath: (path: strin
   node.replaceWith(fragment)
 }
 
-function decorateLocalFilePathLinks(element: HTMLElement, onOpenLocalFilePath: (path: string) => void) {
-  element.querySelectorAll<HTMLElement>('markdown-block').forEach((block) => {
+function decorateLocalFilePathLinks(element: HTMLElement, message: MessageWithUsage, onOpenLocalFilePath: (path: string) => void) {
+  const markdownBlocks = Array.from(element.querySelectorAll<HTMLElement>('markdown-block'))
+  const markdownTextLength = markdownBlocks.reduce((total, block) => total + (block.textContent?.length ?? 0), 0)
+  const messageTextLength = assistantText(message as Parameters<typeof assistantText>[0]).length
+  const signature = `${String(message.timestamp ?? '')}:${messageTextLength}:${markdownBlocks.length}:${markdownTextLength}`
+  if (element.dataset.quickforgeLocalPathSignature === signature) return
+
+  markdownBlocks.forEach((block) => {
     collectLocalFilePathTextNodes(block).forEach((node) => linkLocalFilePathTextNode(node, onOpenLocalFilePath))
   })
+  element.dataset.quickforgeLocalPathSignature = signature
 }
 
 // --- AI process folding (thinking + tool calls) ---

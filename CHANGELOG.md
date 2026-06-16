@@ -2,6 +2,30 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.4.0] - 2026-06-16
+
+### Changed
+
+- Improved agent state recovery with an SSE-first recovery path.
+- Reduced avoidable persistence, context-estimation, code-block decoding, initial bundle, render, and filesystem overhead for better responsiveness.
+- Lazy-loaded heavy frontend modules and coalesced chat decoration work.
+
+### Fixed
+
+- Improved app error handling and resilience.
+- Preserved aborted task status.
+- Clarified task toast status presentation.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.4.0` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.4.0.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.4.0.tgz
+  ```
+
 ## [1.3.30] - 2026-06-15
 
 ### Added

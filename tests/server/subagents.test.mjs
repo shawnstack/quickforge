@@ -16,6 +16,18 @@ describe('subagent definitions', () => {
     expect(explore.allowFileMutations).toBe(false)
   })
 
+  it('describes Explore as the preferred repository discovery subagent', () => {
+    const explore = getSubagentDefinition('explore')
+    const general = getSubagentDefinition('general')
+
+    expect(explore.description).toContain('preferred subagent')
+    expect(explore.description).toContain('file discovery')
+    expect(explore.description).toContain('call-chain lookup')
+    expect(explore.description).toContain('tests/docs/wiki discovery')
+    expect(explore.description).toContain('impact analysis')
+    expect(general.description).toContain('Prefer Explore for focused read-only repository discovery')
+  })
+
   it('does not give Explore conflicting command instructions', () => {
     const prompt = composeSubagentSystemPrompt({
       definition: getSubagentDefinition('explore'),

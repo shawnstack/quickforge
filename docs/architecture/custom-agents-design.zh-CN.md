@@ -61,8 +61,8 @@
 
 | 名称 | 用途 | 工具范围 |
 |------|------|----------|
-| `explore` | 只读代码探索、定位文件、运行安全检查/诊断命令、总结上下文 | `read_file`, `grep_files`, `run_command` |
-| `general` | 多步骤实现或复杂任务 | `read_file`, `grep_files`, `write_file`, `edit_file`, `run_command` |
+| `explore` | 首选只读仓库调研、定位文件、源码搜索、调用链追踪、测试/文档/wiki 发现、运行安全检查/诊断命令、影响面分析和总结上下文 | `read_file`, `grep_files`, `run_command` |
+| `general` | 有边界的复杂多步骤实现或更广泛独立任务 | `read_file`, `grep_files`, `write_file`, `edit_file`, `run_command` |
 
 当前特点：
 
@@ -158,7 +158,7 @@ const builtinAgentProfiles = [
     id: 'explore',
     name: 'explore',
     label: 'Explore',
-    description: 'Fast read-only codebase exploration and focused analysis with safe inspection commands.',
+    description: 'Preferred read-only repository exploration for file discovery, source search, call-chain lookup, related tests/docs/wiki discovery, safe inspection commands, and impact analysis.',
     allowedTools: ['read_file', 'grep_files', 'run_command'],
     enabledAsSubagent: true,
     builtin: true
@@ -167,7 +167,7 @@ const builtinAgentProfiles = [
     id: 'general',
     name: 'general',
     label: 'General',
-    description: 'General-purpose agent for complex research and multi-step implementation work.',
+    description: 'General-purpose agent for bounded complex multi-step implementation or broader independent work; prefer Explore for focused read-only repository discovery.',
     allowedTools: ['read_file', 'grep_files', 'write_file', 'edit_file', 'run_command'],
     enabledAsSubagent: true,
     builtin: true
@@ -329,6 +329,8 @@ run_subagent.subagent enum = 所有 enabledAsSubagent=true 的 AgentProfile name
 
 注意事项：
 
+- 需要文件发现、源码搜索、调用链追踪、测试/文档/wiki 发现或影响面分析时，父 Agent 应优先委托 `explore` 做只读仓库调研，再由父 Agent 决策是否实现或调用其他 Agent。
+- `general` 适合有边界的复杂多步骤实现或更广泛独立任务；不要用它替代普通的只读仓库探索。
 - 自定义 Agent 作为 sub agent 使用时，默认禁止再次调用 `run_subagent`。
 - 自定义 Agent 运行超时或工具调用次数超限时，应返回明确错误。
 - 如果自定义 Agent 被禁用或删除，`run_subagent` 应返回可理解的错误。

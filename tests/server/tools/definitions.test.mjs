@@ -16,6 +16,15 @@ describe('definitions', () => {
       expect(typeof subagentTool.description).toBe('string')
     })
 
+    it('prioritizes explore for repository discovery', () => {
+      expect(subagentTool.description).toContain('Prefer explore')
+      expect(subagentTool.description).toContain('locating files')
+      expect(subagentTool.description).toContain('tracing call chains')
+      expect(subagentTool.description).toContain('related tests/docs/wiki pages')
+      expect(subagentTool.description).toContain('impact analysis')
+      expect(subagentTool.description).toContain('Use general for bounded complex multi-step implementation')
+    })
+
     it('has parameters with subagent and task', () => {
       const props = subagentTool.parameters.properties
       expect(props).toHaveProperty('subagent')

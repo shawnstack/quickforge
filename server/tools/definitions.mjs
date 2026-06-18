@@ -15,7 +15,7 @@ import { loadSelectedGlobalSkills, loadSelectedProjectSkills, mergeSkills } from
 export const subagentTool = {
   name: 'run_subagent',
   label: 'Run subagent',
-  description: 'Delegate a bounded task to an enabled temporary Agent Profile. Built-in profiles include general for complex multi-step work and explore for fast read-only lookup. Custom profiles can also be enabled as subagents. Subagents are short-lived and do not receive MCP or Agent Skill tools.',
+  description: 'Delegate a bounded task to an enabled temporary Agent Profile. Prefer explore for focused read-only repository discovery before implementation decisions, including locating files, searching source, tracing call chains, finding related tests/docs/wiki pages, and impact analysis. Use general for bounded complex multi-step implementation or broader independent work. Custom profiles can also be enabled as subagents. Subagents are short-lived and do not receive MCP or Agent Skill tools.',
   parameters: Type.Object({
     subagent: Type.String({ description: 'Agent Profile name to invoke.' }),
     task: Type.String({ description: 'Concrete, bounded task for the subagent. Do not delegate vague or open-ended work.' }),

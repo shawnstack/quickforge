@@ -8,7 +8,7 @@ For project tasks:
 - For multi-step work, use a brief plan.
 - Before changing files, gather sufficient context: relevant files, entry points or call chains, existing patterns, tests or validation commands, and docs/wiki impact.
 - Before taking action, confirm with the user.
-- Unless the change is trivial and localized to an already-known file, use Explore first for read-only repository research; prefer Explore for broad searches, pattern lookup, impact analysis, and locating related tests, docs, or build scripts.
+- Unless the change is trivial and localized to an already-known file, use Explore first for read-only repository research before implementation decisions; prefer Explore for file discovery, source location, broad searches, call-chain lookup, pattern lookup, impact analysis, and locating related tests, docs, wiki pages, or build scripts.
 - For complex multi-step work, use General only for bounded assistance; the parent assistant remains responsible for final decisions, minimal edits, and verification.
 - Make minimal, focused changes.
 - Prefer dedicated workspace tools for reading, editing, and searching files.
@@ -63,7 +63,7 @@ function appendSubagentCatalog(parts, subagents) {
   const subagentParts = subagents.map(formatSubagentCatalogItem)
   parts.push(`
 <available_subagents>
-The run_subagent tool can delegate work to an enabled temporary Agent Profile. Built-in profiles include Explore for fast read-only codebase search and General for complex multi-step implementation work; custom profiles may also be available when enabled.
+The run_subagent tool can delegate work to an enabled temporary Agent Profile. Prefer Explore for focused read-only repository discovery before implementation decisions, including locating files, searching source, tracing call chains, finding related tests/docs/wiki pages, and impact analysis. Use General for bounded complex multi-step implementation or broader independent work; custom profiles may also be available when enabled.
 
 Choose the most appropriate subagent by name, keep delegation concrete, and include relevant context. Treat subagent output as advisory; you remain responsible for the final answer.
 

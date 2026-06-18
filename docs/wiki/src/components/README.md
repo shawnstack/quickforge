@@ -92,17 +92,17 @@ components/
 **chat-utils.ts** (267 行)
 - 共享类型定义（MessageEditorElement, CommandSuggestionElement 等）
 - DOM 工具函数（`replaceSvg`, `patchContent` 等）
-- Token 估算和上下文用量计算（`getContextUsage`, `estimateTokens`）
+- Token 估算和上下文用量计算（`getContextUsage`, `estimateTokens`）；前端仅作为后端 `contextUsage` 缺失时的回退估算
 - 草稿管理（`hasDraft`, `serializeDraft`, `deserializeDraft`）
 
 **command-suggestions.ts** (174 行)
 - 聊天输入框 "/" 命令建议下拉菜单
-- 支持内置命令（/plan, /review, /compact, /clear）和项目级自定义命令
+- 支持内置命令（/plan, /review, /compact, /clear, /help）和自定义命令（用户级 + 项目级 + 插件）
 - Tab 补全命令；Shift+Tab 保留给 Composer 的 Plan 模式切换
 - 草稿恢复支持
 
 **context-usage.ts** (78 行)
-- 上下文用量环状指示器，优先展示后端 session state 返回的权威 `contextUsage`，缺失时回退到前端本地估算
+- 上下文用量环状指示器，优先展示后端 session state 返回的权威 `contextUsage`（后端统计复用 `pi-agent-core` / `pi-ai`），缺失时回退到前端本地估算
 - 在输入框旁显示彩色环，指示当前对话所占模型上下文窗口比例
 
 **panel-decoration.ts** (554 行)

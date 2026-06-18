@@ -56,6 +56,8 @@ export type CustomCommandSummary = {
   allowEdit?: boolean
   allowCommands?: boolean
   relativePath?: string
+  source?: string
+  pluginName?: string
 }
 
 export type MessageUsage = {
@@ -259,10 +261,25 @@ export type ContextUsageInfo = {
   totalTokens: number
   inputTokens: number
   estimatedInputTokens: number
-  inputTokenSource: 'provider' | 'estimated'
+  knownInputTokens?: number
+  inputTokenSource: 'provider' | 'estimated' | 'mixed'
   reservedOutputTokens: number
   percent: number
   color: string
+  isCompacted?: boolean
+  compactedUpToIndex?: number
+  originalMessageCount?: number
+  effectiveMessageCount?: number
+  breakdown?: {
+    systemPromptTokens?: number
+    messagesTokens?: number
+    toolsTokens?: number
+    reservedOutputTokens?: number
+    providerUsageTokens?: number
+    trailingTokens?: number
+    lastUsageIndex?: number | null
+    localEstimatedContextTokens?: number
+  }
 }
 
 export function getContextUsage(
@@ -290,7 +307,7 @@ export function getContextUsage(
   const percent = contextWindow > 0 ? Math.round((totalTokens / contextWindow) * 1000) / 10 : 0
   const colorPercent = Math.min(100, Math.max(0, percent))
   const hue = Math.round(142 - (142 * colorPercent / 100))
-  return { contextWindow, usedTokens, totalTokens, inputTokens, estimatedInputTokens, inputTokenSource, reservedOutputTokens, percent, color: `hsl(${hue} 72% 45%)` }
+  return { contextWindow, usedTokens, totalTokens, inputTokens, estimatedInputTokens, knownInputTokens: hasProviderInputTokens ? Number(providerInputTokens) : 0, inputTokenSource, reservedOutputTokens, percent, color: `hsl(${hue} 72% 45%)` }
 }
 
 export function formatTokens(value: number) {

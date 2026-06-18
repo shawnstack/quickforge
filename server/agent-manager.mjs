@@ -615,7 +615,22 @@ async function resolveCommandState(session, userMessage, promptCommand = null) {
     }
   }
 
-  if (!session.projectContext?.workspaceRoot) return { userMessage }
+  if (!session.projectContext?.workspaceRoot) {
+    // Even without a project, user-level custom commands (~/.quickforge/commands/) are available
+    const invocation = await resolveCustomCommandInvocation(
+      userMessage,
+      null,
+      session.projectContext?.project?.commandDir,
+    )
+    if (!invocation) return { userMessage }
+
+    return {
+      userMessage,
+      commandPrompt: invocation.systemPrompt,
+      permissions: invocation.permissions,
+      commandName: invocation.command.name,
+    }
+  }
 
   const invocation = await resolveCustomCommandInvocation(
     userMessage,

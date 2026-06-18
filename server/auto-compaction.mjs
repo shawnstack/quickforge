@@ -1,5 +1,6 @@
 import { readStore } from './storage.mjs'
 import { compactConversation, saveCompactBackup } from './conversation-compaction.mjs'
+import { estimateContextUsage, shouldCompactContextByPercent } from './context-usage.mjs'
 
 export const AUTO_COMPACT_SETTINGS_KEY = 'auto-compact-settings'
 
@@ -44,14 +45,6 @@ function safeJson(value) {
   }
 }
 
-function estimateTextTokens(value) {
-  const text = String(value || '')
-  if (!text) return 0
-  const cjkChars = text.match(/[\u3400-\u9fff\uf900-\ufaff]/g)?.length ?? 0
-  const otherChars = Math.max(0, text.length - cjkChars)
-  return Math.ceil(cjkChars + otherChars / 3.5)
-}
-
 function contentToText(content) {
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return ''
@@ -65,68 +58,11 @@ function contentToText(content) {
   }).filter(Boolean).join('\n')
 }
 
-function estimateMessageTokens(message) {
-  if (!message || typeof message !== 'object') return 0
-  const parts = [message.role || '', contentToText(message.content)]
-  if (message.toolName) parts.push(message.toolName)
-  if (message.toolCallId) parts.push(message.toolCallId)
-  if (message.attachments !== undefined) parts.push(safeJson(message.attachments))
-  return estimateTextTokens(parts.join('\n'))
-}
-
-function estimateMessagesTokens(messages) {
-  return (Array.isArray(messages) ? messages : []).reduce((total, message) => total + estimateMessageTokens(message), 0)
-}
-
 function estimateMessagesChars(messages) {
   return (Array.isArray(messages) ? messages : []).reduce((total, message) => {
     if (!message || typeof message !== 'object') return total
     return total + [message.role || '', contentToText(message.content), safeJson(message.attachments)].join('\n').length
   }, 0)
-}
-
-function messageTimestampMs(message) {
-  const timestamp = message?.timestamp
-  if (typeof timestamp === 'number') return timestamp
-  if (typeof timestamp === 'string') {
-    const parsed = Date.parse(timestamp)
-    return Number.isNaN(parsed) ? 0 : parsed
-  }
-  return 0
-}
-
-function latestCompactTimestampMs(session) {
-  return messageTimestampMs(session?.contextCompaction?.summaryMessage)
-}
-
-function latestKnownInputTokens(messages, sinceTimestamp = 0) {
-  let latestTimestamp = -1
-  let latestInput = 0
-  for (const message of Array.isArray(messages) ? messages : []) {
-    if (message?.role !== 'assistant' || !message.usage) continue
-    const timestamp = messageTimestampMs(message)
-    if (sinceTimestamp > 0 && timestamp <= sinceTimestamp) continue
-    if (timestamp < latestTimestamp) continue
-    const input = Math.max(0, Number(message.usage.input ?? message.usage.totalTokens) || 0)
-    if (input <= 0) continue
-    latestTimestamp = timestamp
-    latestInput = input
-  }
-  return latestInput
-}
-
-export function estimateContextUsage({ systemPrompt, messages, tools, model, knownInputTokens = 0 }) {
-  const contextWindow = Number(model?.contextWindow) || 0
-  const reservedOutputTokens = Math.max(0, Number(model?.maxTokens) || 4096)
-  const estimatedInputTokens =
-    estimateTextTokens(systemPrompt) +
-    estimateMessagesTokens(messages) +
-    estimateTextTokens(safeJson(tools))
-  const knownInput = Math.max(0, Number(knownInputTokens) || 0)
-  const inputTokens = Math.max(estimatedInputTokens, knownInput)
-  const totalTokens = inputTokens + reservedOutputTokens
-  const percent = contextWindow > 0 ? Math.round((totalTokens / contextWindow) * 1000) / 10 : 0
-  return { inputTokens, estimatedInputTokens, knownInputTokens: knownInput, reservedOutputTokens, totalTokens, contextWindow, percent }
 }
 
 function isUserMessage(message) {
@@ -220,11 +156,29 @@ export function estimateSessionContextUsage(session, messages = session?.agent?.
   const sourceMessages = Array.isArray(messages) ? messages : []
   const contextWindow = Number(session.model?.contextWindow) || 0
   if (sourceMessages.length === 0) {
-    return { inputTokens: 0, estimatedInputTokens: 0, knownInputTokens: 0, reservedOutputTokens: 0, totalTokens: 0, contextWindow, percent: 0 }
+    return {
+      inputTokens: 0,
+      estimatedInputTokens: 0,
+      knownInputTokens: 0,
+      inputTokenSource: 'estimated',
+      reservedOutputTokens: 0,
+      totalTokens: 0,
+      contextWindow,
+      percent: 0,
+      isCompacted: false,
+      originalMessageCount: 0,
+      effectiveMessageCount: 0,
+      breakdown: {
+        systemPromptTokens: 0,
+        messagesTokens: 0,
+        toolsTokens: 0,
+        reservedOutputTokens: 0,
+      },
+    }
   }
 
-  // Cache by input identity. estimateContextUsage() scans every message with a
-  // tokenizer regex (O(n)) and JSON-stringifies the full tools array, but its
+  // Cache by input identity. Context usage delegates message token estimation
+  // to pi-agent-core and JSON-stringifies the full tools array, but its
   // inputs (messages, model, systemPrompt, tools, contextCompaction) are stable
   // within a run and only change on discrete events (message_end, tool result,
   // compaction). Reference equality makes the cache check essentially free, so
@@ -255,14 +209,18 @@ export function estimateSessionContextUsage(session, messages = session?.agent?.
   }
 
   const loopMessages = buildAutoCompactLoopMessages(session, sourceMessages)
-  const knownInputTokens = latestKnownInputTokens(sourceMessages, latestCompactTimestampMs(session))
   const value = estimateContextUsage({
     systemPrompt: session.agent.state.systemPrompt,
     messages: loopMessages,
     tools: session.agent.state.tools,
     model: session.model,
-    knownInputTokens,
   })
+  value.isCompacted = loopMessages !== sourceMessages
+  value.originalMessageCount = sourceMessages.length
+  value.effectiveMessageCount = loopMessages.length
+  if (session.contextCompaction?.summaryMessage) {
+    value.compactedUpToIndex = Math.min(sourceMessages.length, Math.max(0, Number(session.contextCompaction.compactedUpToIndex) || 0))
+  }
 
   session._contextUsageCache = { key: cacheKey, value }
   return value
@@ -275,16 +233,14 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
   if (signal?.aborted) return { compacted: false, reason: 'aborted' }
 
   const loopMessages = buildAutoCompactLoopMessages(session, messages)
-  const knownInputTokens = latestKnownInputTokens(messages, latestCompactTimestampMs(session))
   const usage = estimateContextUsage({
     systemPrompt: session.agent.state.systemPrompt,
     messages: loopMessages,
     tools: session.agent.state.tools,
     model: session.model,
-    knownInputTokens,
   })
   if (!usage.contextWindow) return { compacted: false, usage, reason: 'missing_context_window' }
-  if (usage.percent < settings.thresholdPercent) return { compacted: false, usage, reason: 'below_threshold' }
+  if (!shouldCompactContextByPercent(usage, settings.thresholdPercent)) return { compacted: false, usage, reason: 'below_threshold' }
   if (shouldSuppressAfterRejection(session, messages, usage)) return { compacted: false, usage, reason: 'user_rejected_recently' }
 
   const now = Date.now()

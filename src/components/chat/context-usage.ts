@@ -14,6 +14,17 @@ import {
   formatTokens,
 } from './chat-utils'
 
+type ServerContextUsageBreakdown = {
+  systemPromptTokens?: number
+  messagesTokens?: number
+  toolsTokens?: number
+  reservedOutputTokens?: number
+  providerUsageTokens?: number
+  trailingTokens?: number
+  lastUsageIndex?: number | null
+  localEstimatedContextTokens?: number
+}
+
 type ServerContextUsageInfo = {
   contextWindow?: number
   usedTokens?: number
@@ -21,10 +32,16 @@ type ServerContextUsageInfo = {
   inputTokens?: number
   estimatedInputTokens?: number
   knownInputTokens?: number
-  inputTokenSource?: 'provider' | 'estimated'
+  providerContextTokens?: number
+  inputTokenSource?: 'provider' | 'estimated' | 'mixed'
   reservedOutputTokens?: number
   percent?: number
   color?: string
+  isCompacted?: boolean
+  compactedUpToIndex?: number
+  originalMessageCount?: number
+  effectiveMessageCount?: number
+  breakdown?: ServerContextUsageBreakdown
 }
 
 type ContextUsageOptions = {
@@ -60,7 +77,7 @@ function usageColor(percent: number) {
 
 function normalizeServerContextUsage(usage: ServerContextUsageInfo, contextWindow: number): ContextUsageInfo {
   const inputTokens = Number(usage.inputTokens) || 0
-  const knownInputTokens = Math.max(0, Number(usage.knownInputTokens) || 0)
+  const knownInputTokens = Math.max(0, Number(usage.knownInputTokens ?? usage.providerContextTokens) || 0)
   const estimatedInputTokens = Math.max(0, Number(usage.estimatedInputTokens) || 0)
   const reservedOutputTokens = Math.max(0, Number(usage.reservedOutputTokens) || 0)
   const totalTokens = Math.max(0, Number(usage.totalTokens) || inputTokens + reservedOutputTokens)
@@ -72,10 +89,16 @@ function normalizeServerContextUsage(usage: ServerContextUsageInfo, contextWindo
     totalTokens,
     inputTokens,
     estimatedInputTokens,
+    knownInputTokens,
     inputTokenSource,
     reservedOutputTokens,
     percent,
     color: usage.color || usageColor(percent),
+    isCompacted: usage.isCompacted,
+    compactedUpToIndex: usage.compactedUpToIndex,
+    originalMessageCount: usage.originalMessageCount,
+    effectiveMessageCount: usage.effectiveMessageCount,
+    breakdown: usage.breakdown,
   }
 }
 
@@ -86,6 +109,55 @@ function escapeHtml(text: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
+}
+
+function formatOptionalTokens(value: unknown): string | null {
+  const tokens = Math.max(0, Number(value) || 0)
+  return tokens > 0 ? formatTokens(tokens) : null
+}
+
+function buildContextUsageTitle({ usage, contextWindow, serverCalculated, compacted }: {
+  usage: ContextUsageInfo
+  contextWindow: number
+  serverCalculated: boolean
+  compacted: boolean
+}) {
+  const inputLabel = usage.inputTokenSource === 'provider'
+    ? 'provider context'
+    : usage.inputTokenSource === 'mixed'
+      ? 'provider/local mixed context'
+      : 'estimated context'
+  const lines = [
+    `Context used: ${usage.percent}% (${formatTokens(usage.totalTokens)} / ${formatTokens(contextWindow)} tokens)`,
+    `Input/context: ${formatTokens(usage.inputTokens)} (${inputLabel})`,
+    `Local estimate: ${formatTokens(usage.estimatedInputTokens)}`,
+  ]
+  const breakdown = usage.breakdown
+  if (breakdown) {
+    lines.push(
+      `  System prompt: ${formatOptionalTokens(breakdown.systemPromptTokens) ?? '0'}`,
+      `  Tools schema: ${formatOptionalTokens(breakdown.toolsTokens) ?? '0'}`,
+      `  Messages: ${formatOptionalTokens(breakdown.messagesTokens) ?? '0'}`,
+    )
+    if (breakdown.providerUsageTokens || breakdown.trailingTokens) {
+      lines.push(
+        `  Provider usage baseline: ${formatOptionalTokens(breakdown.providerUsageTokens) ?? '0'}`,
+        `  Trailing messages after usage: ${formatOptionalTokens(breakdown.trailingTokens) ?? '0'}`,
+      )
+    }
+  }
+  lines.push(`Reserved output: ${formatTokens(usage.reservedOutputTokens)}`)
+  if (serverCalculated) lines.push('Source: server calculated via pi-agent-core/pi-ai')
+  lines.push(compacted
+    ? 'Scope: compacted model context, not full visible chat history'
+    : 'Scope: full model context')
+  if (compacted && usage.originalMessageCount !== undefined && usage.effectiveMessageCount !== undefined) {
+    lines.push(`Messages: ${usage.effectiveMessageCount} effective / ${usage.originalMessageCount} visible`)
+  }
+  if (usage.knownInputTokens && usage.knownInputTokens > 0) {
+    lines.push(`Provider context tokens: ${formatTokens(usage.knownInputTokens)}`)
+  }
+  return lines.join('\n')
 }
 
 function bindGitBranchClick(branchBadge: HTMLElement, onGitBranchClick: (() => void) | undefined) {
@@ -201,9 +273,13 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
         }
 
     const displayContextWindow = usage.contextWindow || contextWindow
-    const isCompacted = effectiveMessages !== visibleMessages
-    const inputLabel = usage.inputTokenSource === 'provider' ? 'provider input' : 'estimated input'
-    const title = `Context used: ${usage.percent}% (${formatTokens(usage.totalTokens)} / ${formatTokens(displayContextWindow)} tokens, ${inputLabel} ${formatTokens(usage.inputTokens)}, estimated input ${formatTokens(usage.estimatedInputTokens)}, reserved output ${formatTokens(usage.reservedOutputTokens)}${serverUsage ? ', server calculated' : ''}${isCompacted ? ', compacted model context' : ''})`
+    const isCompacted = Boolean(usage.isCompacted) || effectiveMessages !== visibleMessages
+    const title = buildContextUsageTitle({
+      usage,
+      contextWindow: displayContextWindow,
+      serverCalculated: Boolean(serverUsage),
+      compacted: isCompacted,
+    })
     displayInfo.context = {
       percent: usage.percent,
       color: usage.color,

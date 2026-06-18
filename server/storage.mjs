@@ -94,6 +94,7 @@ export const configDir = path.join(dataDir, 'config')
 export const storageDir = path.join(dataDir, 'storage')
 export const cacheDir = path.join(dataDir, 'cache')
 export const logsDir = path.join(dataDir, 'logs')
+export const userCommandsDir = path.join(dataDir, 'commands')
 
 const quickForgeConfigFile = path.join(configDir, 'config.json')
 const configMigrationMarkerFile = path.join(configDir, '.layout-migrated')

@@ -202,14 +202,32 @@ export type ServerAgentContextCompaction = {
   thresholdPercent?: number
 }
 
+export type ServerAgentContextUsageBreakdown = {
+  systemPromptTokens?: number
+  messagesTokens?: number
+  toolsTokens?: number
+  reservedOutputTokens?: number
+  providerUsageTokens?: number
+  trailingTokens?: number
+  lastUsageIndex?: number | null
+  localEstimatedContextTokens?: number
+}
+
 export type ServerAgentContextUsage = {
   contextWindow: number
   inputTokens: number
   estimatedInputTokens: number
   knownInputTokens?: number
+  providerContextTokens?: number
+  inputTokenSource?: 'provider' | 'estimated' | 'mixed'
   reservedOutputTokens: number
   totalTokens: number
   percent: number
+  isCompacted?: boolean
+  compactedUpToIndex?: number
+  originalMessageCount?: number
+  effectiveMessageCount?: number
+  breakdown?: ServerAgentContextUsageBreakdown
 }
 
 // ---------------------------------------------------------------------------

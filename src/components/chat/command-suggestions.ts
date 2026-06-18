@@ -36,6 +36,7 @@ export function createCommandSuggestions({
     { name: 'review', description: t('reviewCommandDescription'), argumentHint: '[scope]' },
     { name: 'compact', description: t('compactCommandDescription'), argumentHint: '' },
     { name: 'clear', description: t('clearCommandDescription'), argumentHint: '' },
+    { name: 'help', description: t('helpCommandDescription'), argumentHint: '' },
   ]
 
   const selectedCommandFromSuggestions = (): CustomCommandSummary | undefined => {

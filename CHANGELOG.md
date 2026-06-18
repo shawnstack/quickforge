@@ -2,6 +2,35 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.4.1] - 2026-06-18
+
+### Added
+
+- Unified `/plan` command selection with plan mode and allowed Explore subagents to run read-only commands during repository research.
+- Added workspace browser preview support.
+- Added a redesigned MCP configuration UI with form and JSON editing modes.
+- Improved project command settings with multi-project support, command previews, and unified help popovers.
+
+### Changed
+
+- Improved context usage handling across server persistence, auto-compaction, chat utilities, and frontend usage display.
+- Prioritized Explore for repository discovery guidance.
+- Improved MCP tool call display.
+
+### Fixed
+
+- Preserved plan mode when sending prompts.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.4.1` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.4.1.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.4.1.tgz
+  ```
+
 ## [1.4.0] - 2026-06-16
 
 ### Changed

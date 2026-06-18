@@ -1,7 +1,7 @@
 import { sendJson, readJsonBody } from '../utils/response.mjs'
 import { refreshAllSessionTools } from '../agent-manager.mjs'
 import { deleteMcpServer, normalizeMcpServers, readMcpServers, setMcpServerEnabled, upsertMcpServer, writeMcpServers } from '../mcp/config.mjs'
-import { getMcpStatus, refreshMcpConnections } from '../mcp/registry.mjs'
+import { getMcpStatus, reconnectMcpServer, refreshMcpConnections } from '../mcp/registry.mjs'
 
 async function refreshMcpAndAgentTools() {
   await refreshMcpConnections()
@@ -50,6 +50,12 @@ export async function handleMcpApi(req, res, url) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/mcp/reconnect') {
+    sendJson(res, 200, await refreshMcpAndAgentTools())
+    return
+  }
+
+  if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'mcp' && parts[2] === 'reconnect' && parts[3]) {
+    await reconnectMcpServer(decodeURIComponent(parts[3]))
     sendJson(res, 200, await refreshMcpAndAgentTools())
     return
   }

@@ -18,7 +18,7 @@ server/
 ├── system-prompt.mjs         # 系统提示词合成 (91 行)
 ├── project-config.mjs        # 项目配置管理 (162 行)
 ├── conversation-compaction.mjs # 对话历史压缩 (302 行)
-├── custom-commands.mjs       # 自定义命令系统 (344 行)
+├── custom-commands.mjs       # 自定义命令系统 (539 行)
 ├── reasoning-cache.mjs       # 推理内容缓存 (51 行)
 ├── restart-supervisor.mjs    # 服务重启监控脚本 (38 行)
 ├── lan-access-store.mjs      # LAN 共享访问令牌存储 (215 行)
@@ -64,6 +64,7 @@ server/
 - Agent Profile 执行：`createAgent` 支持传入 `agentProfile`，在默认系统提示词后追加 profile 系统提示词，并按 `allowedTools` 限制 workspace 工具；定时任务可绑定 profile 执行。
 - 工具管理：基于 Skills 和 YOLO 模式动态构建工具列表；`/plan` 当前轮使用只读白名单，仅允许读取/搜索、Skill 加载和继承同样只读边界的 subagent 辅助调研，阻止写文件、编辑文件、运行命令以及未声明为允许的 MCP/Plugin/未知工具；Shift+Tab 计划模式通过结构化 command 元数据复用同一套 `/plan` 解析、prompt 和权限，并在 retry/continue 时恢复该权限；`/review` 当前轮允许读取和运行检查命令，但阻止编辑文件和 subagent 执行，用于提交前自检。
 - 对话压缩（`compactConversation`）：手动 `/compact` 会创建压缩后的新会话；自动上下文压缩会在模型请求前按配置阈值生成滚动摘要，只影响 Agent loop 输入，完整历史仍保留用于 UI 展示和持久化。
+- 上下文统计：`contextUsage` 由 `estimateSessionContextUsage()` 计算；存在 `contextCompaction` 时先构造 `summaryMessage + messages.slice(compactedUpToIndex)`，因此统计口径是压缩后的模型实际上下文，而不是完整可见聊天历史。底层 token 估算复用 `@earendil-works/pi-agent-core` 的 `estimateContextTokens()` / `estimateTokens()`，provider usage 与 `contextWindow` / `maxTokens` 来自 `@earendil-works/pi-ai` 的 assistant `usage` 和 model 元数据；自动压缩阈值判断通过百分比配置转换为 reserve tokens 后复用 `pi-agent-core.shouldCompact()`。返回值保留总量字段，并提供 `breakdown.systemPromptTokens`、`breakdown.toolsTokens`、`breakdown.messagesTokens`、`breakdown.providerUsageTokens`、`breakdown.trailingTokens`、`reservedOutputTokens`、`isCompacted`、`originalMessageCount` 和 `effectiveMessageCount`，用于前端解释固定成本、provider 基线、后续增量和压缩效果。
 - 自定义命令处理
 - 工具权限检查
 - 会话活动跟踪（`touchSession`）
@@ -134,8 +135,8 @@ server/
 
 **核心文件**:
 - `mcp/config.mjs` — MCP Server 配置读写和校验，配置存放在 `settings.mcpServers`；兼容 `mcpServers` JSON 导入、`type`/`transport` 和远程 `headers` 配置。
-- `mcp/registry.mjs` — stdio/SSE/Streamable HTTP 连接生命周期、工具发现、工具调用转发、关闭清理。
-- `routes/mcp.mjs` — `/api/mcp/servers`、`/api/mcp/config`、`/api/mcp/reconnect` 等管理接口。
+- `mcp/registry.mjs` — stdio/SSE/Streamable HTTP 连接生命周期、工具发现、工具调用转发、关闭清理；支持全量刷新（`refreshMcpConnections`，对 error 状态有重试退避）和单 server 强制重连（`reconnectMcpServer`，绕过退避）。
+- `routes/mcp.mjs` — `/api/mcp/servers`（列表与 upsert 单个）、`/api/mcp/config`（批量导入 merge/replace）、`/api/mcp/reconnect`（全量重连）、`/api/mcp/reconnect/:name`（单 server 重连）、启停开关与删除等管理接口。
 
 **行为约束**:
 - 当前支持 `stdio`、`sse` 和 Streamable HTTP (`http`) transport。
@@ -192,17 +193,20 @@ server/
 
 ### auto-compaction.mjs
 
-**用途**: 自动上下文压缩。读取 `settings['auto-compact-settings']`，在 Agent 每次请求模型前估算 `systemPrompt + effective messages + tools + maxTokens` 占当前模型 `contextWindow` 的比例；超过阈值时生成滚动摘要。后端同时在 session state 中返回同一口径的权威 `contextUsage`，聊天底部上下文百分比优先展示该值；触发只发生在下一次模型请求前，并会受最小历史长度、最近拒绝、压缩间隔等保护条件限制。自动压缩采用“双轨”模式：完整 `messages` 继续持久化并展示在 UI 中，后续 Agent loop 只使用最新 compact summary 与最近若干用户回合。
+**用途**: 自动上下文压缩。读取 `settings['auto-compact-settings']`，在 Agent 每次请求模型前按压缩后的有效上下文估算占当前模型 `contextWindow` 的比例；token 统计复用 `@earendil-works/pi-agent-core.estimateContextTokens()` / `estimateTokens()`，模型 `contextWindow` / `maxTokens` 和 assistant `usage` 来自 `@earendil-works/pi-ai`，阈值判断通过 QuickForge 百分比配置转换为 reserve tokens 后复用 `pi-agent-core.shouldCompact()`；超过阈值时生成滚动摘要。后端同时在 session state 中返回同一口径的权威 `contextUsage`，聊天底部上下文百分比优先展示该值；触发只发生在下一次模型请求前，并会受最小历史长度、最近拒绝、压缩间隔等保护条件限制。自动压缩采用“双轨”模式：完整 `messages` 继续持久化并展示在 UI 中，后续 Agent loop 只使用最新 compact summary 与最近若干用户回合。
 
-### custom-commands.mjs (344 行)
+### custom-commands.mjs (556 行)
 
-**用途**: 自定义命令系统。从 `<workspace>/.claude/commands/`、`<workspace>/.opencode/commands/`、`<workspace>/.ai/commands/` 和项目配置 `commandDir` 指向的一个或多个相对/绝对目录读取命令定义；同名命令由后面的目录覆盖前面的目录。
+**用途**: 自定义命令系统。从用户级 `~/.quickforge/commands/`（所有项目共享）和项目级 `<workspace>/.claude/commands/`、`<workspace>/.opencode/commands/`、`<workspace>/.ai/commands/` 及项目配置 `commandDir` 指向的目录读取命令定义；同名命令优先级由高到低：项目配置目录 > `.ai` > `.opencode` > `.claude` > 用户级目录 > 插件命令。内置命令元数据集中在 `builtinCommandCatalog` 常量表（单一事实源），`/help` 和前端建议均据此派生。
 
 **功能**:
-- `listProjectCommands()` — 列出命令
-- `readProjectCommand()` — 读取命令详情
+- `listProjectCommands()` — 列出命令（含插件、用户级、项目级三层）
+- `listUserCommands()` — 读取用户级 `~/.quickforge/commands/` 命令
+- `findProjectCommand()` — 查找单个命令
 - `resolveCustomCommandInvocation()` — 解析命令调用
-- `handleInternalCommand()` — 处理内置命令，包括 `/plan`（只生成计划，本轮禁止写入/命令执行，可调用受同样只读边界约束的 subagent）、`/review`（提交前自检，本轮禁止编辑文件）、`/compact`、`/clear` 等
+- `handleInternalCommand()` — 处理内置命令，包括 `/help`（显示全部命令参考）、`/plan`（只生成计划，本轮禁止写入/命令执行，可调用受同样只读边界约束的 subagent）、`/review`（提交前自检，本轮禁止编辑文件）、`/compact`、`/clear`、`/commands`、`/command new` 等
+- `formatHelpText()` — 生成 `/help` 输出（内置命令区 + 自定义命令区）
+- `createCommandFile()` — 在项目 `.ai/commands/` 下新建命令文件（带 frontmatter 模板，`flag:'wx'` 防覆盖），供 REST 路由和 `/command new` 复用
 
 ### session-utils.mjs (102 行)
 

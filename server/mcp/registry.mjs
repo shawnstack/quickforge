@@ -231,6 +231,46 @@ export async function refreshMcpConnections() {
   return refreshPromise
 }
 
+export async function reconnectMcpServer(name) {
+  const normalizedName = String(name || '').trim()
+  // close any existing connection first (bypasses retry backoff)
+  const existing = connections.get(normalizedName)
+  if (existing) {
+    connections.delete(normalizedName)
+    await closeConnection(existing)
+  }
+  const servers = await readMcpServers()
+  const config = servers.find((server) => server.name === normalizedName)
+  if (!config) {
+    const error = new Error(`MCP server not found: ${normalizedName}`)
+    error.statusCode = 404
+    throw error
+  }
+  if (!config.enabled) {
+    const error = new Error(`MCP server is disabled: ${normalizedName}`)
+    error.statusCode = 400
+    throw error
+  }
+  try {
+    const connection = await connectServer(config)
+    connections.set(config.name, connection)
+  } catch (error) {
+    logger.error(`Failed to reconnect MCP server ${config.name}:`, error)
+    connections.set(config.name, {
+      config,
+      client: null,
+      transport: null,
+      status: 'error',
+      error: error?.message || 'Failed to connect MCP server',
+      tools: [],
+      connectedAt: null,
+      stderr: '',
+      lastAttemptAt: Date.now(),
+    })
+  }
+  return connections
+}
+
 export async function getMcpStatus() {
   await refreshMcpConnections()
   const servers = await readMcpServers()

@@ -1275,7 +1275,6 @@ export type EditorDecorationDeps = {
   allowModelControls: boolean
   onToggleYoloMode: () => void
   onTogglePlanMode: () => void
-  onPlanModeSent: () => void
   onInput: (value: string) => void
   onFilesChange: (files: unknown[]) => void
   removeCommandSuggestions: () => void
@@ -1285,7 +1284,7 @@ export type EditorDecorationDeps = {
   updateCapabilitySuggestions: (value?: string) => void
   setupCapabilityTextareaHandler: (editor: MessageEditorElement | null) => void
   insertBuiltinPluginMention: (mention: BuiltinPluginMention) => void
-  onBeforeSend?: (input: string, options?: { planMode: boolean }) => void
+  onBeforeSend?: (input: string) => void
 }
 
 type EditorModelState = {
@@ -1560,7 +1559,6 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     allowModelControls,
     onToggleYoloMode,
     onTogglePlanMode,
-    onPlanModeSent,
     onInput,
     onFilesChange,
     removeCommandSuggestions,
@@ -1603,11 +1601,9 @@ export function decorateEditor(deps: EditorDecorationDeps) {
       const wrappedOnSend = (input: string, attachments: unknown[]) => {
         const rawText = String(input ?? '')
         const text = rawText.trim()
-        const shouldUsePlanCommand = planMode && text.length > 0 && !text.toLowerCase().startsWith('/plan')
-        if (text.length > 0) onBeforeSend?.(rawText, { planMode: shouldUsePlanCommand })
+        if (text.length > 0) onBeforeSend?.(rawText)
         removeCommandSuggestions()
         removeCapabilitySuggestions()
-        if (shouldUsePlanCommand) onPlanModeSent()
         baseOnSend(rawText, attachments)
       }
       editor.__quickforgePlanWrappedOnSend = wrappedOnSend

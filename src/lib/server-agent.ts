@@ -259,10 +259,6 @@ export type PromptCapabilitySelection = {
   description?: string
 }
 
-export type PromptCommandSelection = {
-  type: 'plan'
-}
-
 export class ServerAgent {
   // --- Public state (mutable, AgentInterface-compatible) ---
   state: {
@@ -296,7 +292,8 @@ export class ServerAgent {
   private lastSseEventAt = Date.now()
   private lastServerStateVersion = 0
   private nextPromptCapabilities: PromptCapabilitySelection[] = []
-  private nextPromptCommand: PromptCommandSelection | undefined
+  private planMode = false
+  private onPlanModeConsumed?: () => void
 
   /**
    * Monotonically increasing version counter for state writes.
@@ -354,8 +351,9 @@ export class ServerAgent {
     this.nextPromptCapabilities = Array.isArray(capabilities) ? capabilities.slice(0, 4) : []
   }
 
-  setNextPromptCommand(command?: PromptCommandSelection): void {
-    this.nextPromptCommand = command?.type === 'plan' ? { type: 'plan' } : undefined
+  setPlanMode(mode: boolean, onConsumed?: () => void): void {
+    this.planMode = mode
+    this.onPlanModeConsumed = mode ? onConsumed : undefined
   }
 
   async prompt(input: string | AgentMessage | AgentMessage[]): Promise<void> {
@@ -375,9 +373,14 @@ export class ServerAgent {
     }
 
     const selectedCapabilities = this.nextPromptCapabilities
-    const selectedCommand = this.nextPromptCommand
+    const selectedCommand = this.planMode ? { type: 'plan' as const } : undefined
     this.nextPromptCapabilities = []
-    this.nextPromptCommand = undefined
+    if (this.planMode) {
+      this.planMode = false
+      const onConsumed = this.onPlanModeConsumed
+      this.onPlanModeConsumed = undefined
+      onConsumed?.()
+    }
 
     // Add to local state immediately for optimistic UI
     const agentMessage = message as unknown as AgentMessage

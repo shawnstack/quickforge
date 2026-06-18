@@ -1,7 +1,7 @@
 import type { AgentEvent, AgentMessage, AgentState, ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai'
-import type { ServerAgent, ServerAgentContextCompaction, ServerAgentContextUsage, PromptCapabilitySelection, PromptCommandSelection } from '@/lib/server-agent'
+import type { ServerAgent, ServerAgentContextCompaction, ServerAgentContextUsage, PromptCapabilitySelection } from '@/lib/server-agent'
 import type { ChatScope, ProjectInfo } from '@/lib/types'
 import { randomId } from '@/lib/random-id'
 
@@ -31,7 +31,8 @@ export class DeferredSessionAgent {
 
   private promotedAgent: ServerAgent | undefined
   private nextPromptCapabilities: PromptCapabilitySelection[] = []
-  private nextPromptCommand: PromptCommandSelection | undefined
+  private planMode = false
+  private onPlanModeConsumed?: () => void
 
   state: {
     systemPrompt: string
@@ -76,17 +77,19 @@ export class DeferredSessionAgent {
     this.nextPromptCapabilities = Array.isArray(capabilities) ? capabilities.slice(0, 4) : []
   }
 
-  setNextPromptCommand(command?: PromptCommandSelection): void {
-    this.nextPromptCommand = command?.type === 'plan' ? { type: 'plan' } : undefined
+  setPlanMode(mode: boolean, onConsumed?: () => void): void {
+    this.planMode = mode
+    this.onPlanModeConsumed = mode ? onConsumed : undefined
   }
 
   async prompt(input: string | AgentMessage | AgentMessage[]): Promise<void> {
     if (this.disposed) return
     const realAgent = await this.ensureRealAgent()
     realAgent.setNextPromptCapabilities(this.nextPromptCapabilities)
-    realAgent.setNextPromptCommand(this.nextPromptCommand)
+    realAgent.setPlanMode(this.planMode, this.onPlanModeConsumed)
     this.nextPromptCapabilities = []
-    this.nextPromptCommand = undefined
+    this.planMode = false
+    this.onPlanModeConsumed = undefined
     await realAgent.prompt(input as string | AgentMessage | AgentMessage[])
   }
 

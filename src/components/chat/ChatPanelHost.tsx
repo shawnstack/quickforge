@@ -38,7 +38,7 @@ type AgentWithContextCompaction = AgentLike & {
 
 type AgentWithCapabilityPrompt = AgentLike & {
   setNextPromptCapabilities?: (capabilities: unknown[]) => void
-  setNextPromptCommand?: (command?: { type: 'plan' }) => void
+  setPlanMode?: (mode: boolean, onConsumed?: () => void) => void
 }
 
 function effectiveContextMessages(agent: AgentLike): MessageWithUsage[] {
@@ -93,7 +93,6 @@ type PropsRef = {
   onForkFromMessage: (messageIndex: number) => void
   onToggleYoloMode: () => void
   onTogglePlanMode: () => void
-  onPlanModeSent: () => void
   onApproveToolCall: (toolCallId: string) => Promise<void> | void
   onRejectToolCall: (toolCallId: string) => Promise<void> | void
   onApproveAutoCompact?: (approvalId: string) => Promise<void> | void
@@ -157,6 +156,16 @@ export function ChatPanelHost({
   const [planMode, setPlanMode] = useState(false)
   const togglePlanMode = useCallback(() => setPlanMode((mode) => !mode), [])
   const clearPlanMode = useCallback(() => setPlanMode(false), [])
+
+  // Sync plan mode to the agent as a persistent flag. The /plan command is then
+  // derived inside `agent.prompt()` (which always runs when a message is sent)
+  // rather than via the editor decoration's wrapped onSend. This keeps the
+  // command marker from being lost during panel rebuild / promotion races,
+  // where the bare editor onSend bypasses the decoration layer entirely.
+  useEffect(() => {
+    const promptAgent = agent as AgentWithCapabilityPrompt | null
+    promptAgent?.setPlanMode?.(planMode, planMode ? clearPlanMode : undefined)
+  }, [agent, planMode, clearPlanMode])
 
   const cancelPendingDraftSave = useCallback(() => {
     if (!saveDraftTimerRef.current) return
@@ -224,7 +233,6 @@ export function ChatPanelHost({
     onForkFromMessage,
     onToggleYoloMode,
     onTogglePlanMode: togglePlanMode,
-    onPlanModeSent: clearPlanMode,
     onApproveToolCall,
     onRejectToolCall,
     onApproveAutoCompact,
@@ -255,7 +263,6 @@ export function ChatPanelHost({
       onForkFromMessage,
       onToggleYoloMode,
       onTogglePlanMode: togglePlanMode,
-      onPlanModeSent: clearPlanMode,
       onApproveToolCall,
       onRejectToolCall,
       onApproveAutoCompact,
@@ -525,7 +532,6 @@ export function ChatPanelHost({
           allowModelControls: props.allowModelControls,
           onToggleYoloMode: props.onToggleYoloMode,
           onTogglePlanMode: props.onTogglePlanMode,
-          onPlanModeSent: props.onPlanModeSent,
           onInput: handleEditorInput,
           onFilesChange: handleEditorFilesChange,
           removeCommandSuggestions: cmdSuggestions.remove,
@@ -535,11 +541,10 @@ export function ChatPanelHost({
           updateCapabilitySuggestions: capabilitySuggestions.update,
           setupCapabilityTextareaHandler: capabilitySuggestions.setupTextareaHandler,
           insertBuiltinPluginMention: capabilitySuggestions.insertBuiltinPluginMention,
-          onBeforeSend: (input, options) => {
+          onBeforeSend: (input) => {
             const capabilities = capabilitySuggestions.consumeSelectedCapabilities(input)
             const promptAgent = agent as AgentWithCapabilityPrompt
             promptAgent.setNextPromptCapabilities?.(capabilities)
-            promptAgent.setNextPromptCommand?.(options?.planMode ? { type: 'plan' } : undefined)
           },
         })
       } catch { /* continue to approval card */ }

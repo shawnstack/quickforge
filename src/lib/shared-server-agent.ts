@@ -1,7 +1,7 @@
 import type { AgentEvent, AgentMessage, ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai'
-import type { ServerAgentContextCompaction, ServerAgentContextUsage, PromptCommandSelection } from '@/lib/server-agent'
+import type { ServerAgentContextCompaction, ServerAgentContextUsage } from '@/lib/server-agent'
 import type { SharePermission } from '@/lib/share-client'
 import { logger } from '@/lib/logger'
 import { toolStartEventWithPartialResult, upsertMessage, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
@@ -124,7 +124,8 @@ export class SharedServerAgent {
   private reconnectDelay = 1000
   private baseUrl = ''
   private syncingThinkingLevel = false
-  private nextPromptCommand: PromptCommandSelection | undefined
+  private planMode = false
+  private onPlanModeConsumed?: () => void
 
   constructor(shareId: string, initialState: SharedSessionState) {
     this.shareId = shareId
@@ -167,15 +168,21 @@ export class SharedServerAgent {
     // Shared conversations currently do not route local capability mentions.
   }
 
-  setNextPromptCommand(command?: PromptCommandSelection): void {
-    this.nextPromptCommand = command?.type === 'plan' ? { type: 'plan' } : undefined
+  setPlanMode(mode: boolean, onConsumed?: () => void): void {
+    this.planMode = mode
+    this.onPlanModeConsumed = mode ? onConsumed : undefined
   }
 
   async prompt(input: string | AgentMessage | AgentMessage[]): Promise<void> {
     if (this.disposed || this.permission !== 'operate') return
     const { message, clientMessageId } = messageWithClientId(this.normalizeInput(input))
-    const command = this.nextPromptCommand
-    this.nextPromptCommand = undefined
+    const command = this.planMode ? { type: 'plan' as const } : undefined
+    if (this.planMode) {
+      this.planMode = false
+      const onConsumed = this.onPlanModeConsumed
+      this.onPlanModeConsumed = undefined
+      onConsumed?.()
+    }
     this.state.messages = [...this.state.messages, message]
     this.emit({ type: 'message_start', message } as AgentEvent)
     if (!this.state.isStreaming) {

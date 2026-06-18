@@ -573,7 +573,14 @@ function messageWithPromptCommand(message, command) {
 
 function internalInvocationForPromptCommand(userMessage, command) {
   const normalized = normalizedPromptCommand(command)
-  if (normalized?.type === 'plan') return { type: 'plan', args: messageText(userMessage).trim() }
+  if (normalized?.type === 'plan') {
+    // Derive the task from the message text. Strip a leading "/plan" so that
+    // toggling plan mode while typing "/plan <task>" yields the clean task —
+    // matching the slash-command parse path and avoiding a redundant prefix.
+    const raw = messageText(userMessage).trim()
+    const planPrefix = raw.match(/^\/plan(?:\s+([\s\S]*))?$/i)
+    return { type: 'plan', args: planPrefix ? (planPrefix[1] || '').trim() : raw }
+  }
   return parseInternalCommandInvocation(userMessage)
 }
 

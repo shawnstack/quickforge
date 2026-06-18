@@ -32,12 +32,12 @@ export const subagentDefinitions = [
     name: 'explore',
     label: 'Explore',
     mode: 'subagent',
-    description: 'A fast read-only agent for targeted exploration and focused questions. It cannot modify files. Use it to quickly find relevant files, search keywords, identify patterns, or summarize findings.',
-    allowedTools: ['read_file', 'grep_files'],
+    description: 'A fast read-only agent for targeted exploration and focused questions. It cannot modify files. Use it to quickly find relevant files, search keywords, run safe inspection commands, identify patterns, or summarize findings.',
+    allowedTools: ['read_file', 'grep_files', 'run_command'],
     allowFileMutations: false,
     maxRuntimeMs: 30 * 60 * 1000,
     maxToolCalls: 300,
-    systemPrompt: `You are Explore, a fast read-only exploration subagent. Use read_file and grep_files to locate relevant files, search keywords, identify patterns, and answer focused questions. You cannot modify files or run commands.`,
+    systemPrompt: `You are Explore, a fast read-only exploration subagent. Use read_file, grep_files, and safe read-only run_command calls to locate relevant files, inspect project structure, run diagnostics, identify patterns, and answer focused questions. You cannot modify files.`,
   },
 ]
 
@@ -80,7 +80,9 @@ export function composeSubagentSystemPrompt({ definition, parentSystemPrompt, pr
     '- run_subagent is not available to subagents.',
     definition.allowFileMutations
       ? '- File modification tools are available when needed, subject to the parent session approval/YOLO policy.'
-      : '- This subagent is read-only. Do not modify files or run commands.',
+      : definition.allowedTools.includes('run_command')
+        ? '- This subagent is read-only. Do not modify files. Use run_command only for safe inspection or diagnostic commands.'
+        : '- This subagent is read-only. Do not modify files or run commands.',
     workspaceLines.length ? `\nWorkspace context:\n${workspaceLines.join('\n')}` : '',
     '</subagent_instructions>',
   ].filter(Boolean).join('\n')

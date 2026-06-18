@@ -61,7 +61,7 @@
 
 | 名称 | 用途 | 工具范围 |
 |------|------|----------|
-| `explore` | 只读代码探索、定位文件、总结上下文 | `read_file`, `grep_files` |
+| `explore` | 只读代码探索、定位文件、运行安全检查/诊断命令、总结上下文 | `read_file`, `grep_files`, `run_command` |
 | `general` | 多步骤实现或复杂任务 | `read_file`, `grep_files`, `write_file`, `edit_file`, `run_command` |
 
 当前特点：
@@ -158,8 +158,8 @@ const builtinAgentProfiles = [
     id: 'explore',
     name: 'explore',
     label: 'Explore',
-    description: 'Fast read-only codebase exploration and focused analysis.',
-    allowedTools: ['read_file', 'grep_files'],
+    description: 'Fast read-only codebase exploration and focused analysis with safe inspection commands.',
+    allowedTools: ['read_file', 'grep_files', 'run_command'],
     enabledAsSubagent: true,
     builtin: true
   },

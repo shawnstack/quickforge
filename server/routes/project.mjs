@@ -1,6 +1,6 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { getActiveProject, setActiveProjectPath, readProjectConfig } from '../project-config.mjs'
-import { listProjectCommands } from '../custom-commands.mjs'
+import { listProjectCommands, createCommandFile } from '../custom-commands.mjs'
 import { atomicProjectConfigUpdate } from '../storage.mjs'
 import { getWorkspaceRoot, setWorkspaceRoot } from '../utils/workspace.mjs'
 import { selectDirectoryDialog, openPathInFileManager } from '../utils/platform.mjs'
@@ -20,7 +20,7 @@ export async function handleProjectApi(req, res, url) {
     const project = projectId
       ? config.projects.find((item) => item.id === projectId)
       : getActiveProject(config)
-    const commands = project?.path ? await listProjectCommands(project.path, project.commandDir) : []
+    const commands = await listProjectCommands(project?.path, project?.commandDir)
     sendJson(res, 200, {
       commands: commands.map((command) => ({
         name: command.name,
@@ -29,6 +29,7 @@ export async function handleProjectApi(req, res, url) {
         allowEdit: command.allowEdit,
         allowCommands: command.allowCommands,
         relativePath: command.relativePath,
+        filePath: command.filePath,
         source: command.source,
         pluginName: command.pluginName,
       })),
@@ -104,6 +105,35 @@ export async function handleProjectApi(req, res, url) {
     }
     await openPathInFileManager(selected.path)
     sendJson(res, 200, { ok: true })
+    return
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/project/open-path') {
+    const body = await readJsonBody(req)
+    const active = body?.projectId
+      ? config.projects.find((project) => project.id === body.projectId) ?? getActiveProject(config)
+      : getActiveProject(config)
+    const target = String(body?.path || '')
+    const resolved = target && path.isAbsolute(target)
+      ? path.resolve(target)
+      : path.resolve(active?.path || '', target)
+    await openPathInFileManager(resolved)
+    sendJson(res, 200, { ok: true })
+    return
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/project/command') {
+    const body = await readJsonBody(req)
+    const active = body?.projectId
+      ? config.projects.find((project) => project.id === body.projectId) ?? getActiveProject(config)
+      : getActiveProject(config)
+    if (!active?.path) {
+      const error = new Error('No active project')
+      error.statusCode = 400
+      throw error
+    }
+    const result = await createCommandFile(active.path, body?.name)
+    sendJson(res, 200, result)
     return
   }
 

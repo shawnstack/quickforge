@@ -55,17 +55,21 @@ Agent 会话管理核心路由。
 - `GET|POST|DELETE /api/storage/:store/keys/:key` — 键值操作
 - `GET /api/storage/:store/index/:indexName` — 索引查询（支持排序、分页、作用域过滤）
 
-## project.mjs (106 行)
+## project.mjs (192 行)
 
 项目管理路由。
 
 **主要端点**:
 - `GET /api/project` — 获取活动项目和列表
-- `GET /api/project/commands` — 获取项目自定义命令
+- `GET /api/project/commands` — 获取项目自定义命令（含 name、description、argumentHint、allowEdit、allowCommands、relativePath、filePath、source、pluginName）
 - `POST /api/project/select-directory` — 打开系统目录选择器
 - `POST /api/project/path` — 按路径设置项目
 - `POST /api/project/active` — 切换活动项目
 - `PUT /api/project/:projectId/command-dir` — 保存项目自定义 command 目录，支持一行一个相对路径或绝对路径；读取命令时与默认 `.ai/commands` 合并
+- `POST /api/project/:projectId/open-in-explorer` — 在系统资源管理器中打开项目根目录
+- `POST /api/project/open-path` — 在系统资源管理器中打开任意目录（相对路径基于活动项目根解析）
+- `POST /api/project/command` — 在活动项目的 `.ai/commands/` 下新建命令文件（带 frontmatter 模板，`flag:'wx'` 防覆盖）
+- `PUT /api/project/reorder` — 按顺序重排项目列表
 - `DELETE /api/project/:projectId` — 删除项目
 
 ## filesystem.mjs (87 行)

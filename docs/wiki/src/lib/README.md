@@ -29,6 +29,7 @@
 | `random-id.ts` | 19 | UUID 生成 |
 | `tool-display-settings.ts` | 40 | 工具展示设置 |
 | `tool-execution-events.ts` | 120 | 工具执行事件处理 |
+| `info-tip.ts` | 134 | 统一问号说明浮层 Web Component |
 
 ---
 
@@ -131,6 +132,21 @@
 - `upsertMessage()` — 根据 `toolCallId` 合并或替换工具结果消息
 - `toolStartEventWithPartialResult()` / `upsertToolResult()` — 在运行中工具结果里保留计时、`sessionId` 和 `toolCallId`，用于前端展示耗时和结束运行中的 `run_command`。
 
+### info-tip.ts (134 行)
+
+**用途**: 统一的问号说明浮层组件，封装为 Web Component `<quickforge-info-tip>`。用于将大段辅助说明收拢到标题/字段旁的 `?` 图标中，hover / focus / click 时展开。
+
+**特性**:
+- 基于 `LitElement`，使用 light DOM（`createRenderRoot` 返回 `this`），Tailwind class 与全局 CSS 变量直接生效。
+- 渲染弱化 `?` 图标；hover（150ms 延迟）/ focus 展开，click 切换，外部 pointerdown / Escape 关闭。
+- 仅 `label` 属性（说明文案，为空则不弹出）；`aria-label` / `aria-expanded` / `role="tooltip"` 支持可访问性。
+- 幂等注册（`customElements.get` 守卫）。
+- 双端可用：Lit 模板用 `.label` 属性绑定，React 用 `label` prop。
+
+**样式**: 定义在 `src/index.css`（`.quickforge-info-tip*`），复用全局 `--popover` / `--border` 变量与轻阴影，不引入新的视觉模式。
+
+**首个使用点**: `project-commands-settings-tab.ts`（标题旁收拢 `projectCommandsDescription`）。设计约定见 `DESIGN_LANGUAGE.md`「辅助说明统一使用 `<quickforge-info-tip>`」。
+
 ## 设置选项卡
 
 所有设置选项卡继承自 `@earendil-works/pi-web-ui` 的 `SettingsTab` 类，使用 Lit HTML 渲染。
@@ -143,6 +159,7 @@
 | `backup-settings-tab.ts` | 数据备份导出和导入 |
 | `default-options-settings-tab.ts` | 设置默认模型和思考级别 |
 | `language-settings-tab.ts` | 语言切换设置 |
+| `project-commands-settings-tab.ts` | 项目命令目录配置 + 命令预览 + 新建命令 |
 | `patch-thinking-selector.ts` | 修补 pi-web-ui 的模型选择器 |
 | `custom-model-selector.ts` | 自定义模型选择器对话框 |
 

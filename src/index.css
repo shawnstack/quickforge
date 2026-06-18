@@ -113,6 +113,57 @@ user-message .user-message-container,
   pointer-events: auto;
 }
 
+/* ------------------------------------------------------------------ */
+/* 统一问号说明浮层 (quickforge-info-tip)                              */
+/* hover / focus / click 展开；弱化图标，视觉与 rollback popover 一致   */
+/* ------------------------------------------------------------------ */
+.quickforge-info-tip {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+.quickforge-info-tip-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-left: 0.25rem;
+  border: none;
+  border-radius: 9999px;
+  background: transparent;
+  color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+  cursor: help;
+  transition: color 160ms ease, background-color 160ms ease;
+}
+
+.quickforge-info-tip-trigger:hover {
+  color: var(--foreground);
+  background: color-mix(in oklab, var(--muted) 30%, transparent);
+}
+
+.quickforge-info-tip-trigger:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 72%, transparent);
+  outline-offset: 2px;
+}
+
+.quickforge-info-tip-popover {
+  position: fixed;
+  z-index: 9999;
+  max-width: min(20rem, calc(100vw - 2rem));
+  padding: 0.6rem 0.75rem;
+  border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+  border-radius: 0.6rem;
+  background: color-mix(in oklab, var(--popover) 96%, transparent);
+  box-shadow: 0 18px 46px -28px rgb(15 23 42 / 0.42);
+  color: var(--popover-foreground);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-line;
+  pointer-events: none;
+}
+
 .quickforge-rollback-popover {
   position: absolute;
   z-index: 45;

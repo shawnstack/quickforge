@@ -316,6 +316,15 @@ bg-card
 
 目标不是强拟物化，而是让界面保持轻量工具感：可点击区域清晰、操作反馈明确，同时不牺牲信息可读性。
 
+#### 辅助说明统一使用 `<quickforge-info-tip>`
+
+大段辅助说明（机制解释、解析规则、字段含义等）不应长期平铺在页面上，应收拢到标题或字段旁的 `?` 问号浮层中，hover / focus / click 时展开。
+
+- 触发器为弱化的圆形 `?` 图标（`text-muted-foreground/55`，hover 强化到 `text-foreground`），默认不抢眼。
+- 浮层复用全局 `--popover` / `--border` 变量与轻阴影，不引入新的视觉模式。
+- 组件位于 `src/lib/info-tip.ts`，基于 light DOM 的 Web Component，Lit 设置 Tab 与 React 页面均可直接使用 `<quickforge-info-tip .label=${...}>`。
+- 判断标准：保留标题与简短 helper 文本（一行能说清的），把多句机制说明收进 info-tip。
+
 ---
 
 ### 图标按钮

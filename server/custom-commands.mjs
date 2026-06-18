@@ -1,10 +1,58 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { getEnabledPluginCommandSources } from './plugins/registry.mjs'
+import { userCommandsDir } from './storage.mjs'
 
 const commandsRelativeDirs = ['.claude/commands', '.opencode/commands', '.ai/commands']
 const commandsRelativeDir = '.ai/commands'
 const commandNamePattern = /^(?!.*--)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
+
+/**
+ * Centralized metadata for all built-in slash commands.
+ * This is the single source of truth used by /help output.
+ * Front-end i18n descriptions (i18n.ts) should be kept in sync with the
+ * `description` values here.
+ */
+const builtinCommandCatalog = [
+  {
+    name: 'plan',
+    description: 'Create a plan first; this turn cannot edit files or run commands.',
+    argumentHint: '[task]',
+    permissionNote: 'read-only',
+  },
+  {
+    name: 'review',
+    description: 'Review pending code changes before commit; this turn cannot edit files.',
+    argumentHint: '[scope]',
+    permissionNote: 'no edits',
+  },
+  {
+    name: 'compact',
+    description: 'Create a new chat with this conversation compacted to reduce context usage.',
+    argumentHint: '',
+  },
+  {
+    name: 'clear',
+    description: 'Clear the current chat history and context without calling the model.',
+    argumentHint: '',
+  },
+  {
+    name: 'commands',
+    description: 'List custom commands (project, user-level, and plugin).',
+    argumentHint: '',
+  },
+  {
+    name: 'command new',
+    description: 'Create a project custom command template.',
+    argumentHint: '<name>',
+  },
+  {
+    name: 'help',
+    aliases: ['?'],
+    description: 'Show available commands and their usage.',
+    argumentHint: '',
+  },
+]
 
 function normalizeCommandName(value) {
   const name = String(value || '').trim().toLowerCase()
@@ -103,7 +151,7 @@ function firstOptionalBoolean(...values) {
   return undefined
 }
 
-function commandFromFile(file, text, options = {}) {
+export function commandFromFile(file, text, options = {}) {
   const parsed = parseFrontmatter(text)
   if (!parsed.body) return null
 
@@ -229,13 +277,27 @@ async function listPluginCommands(workspaceRoot) {
   return commands
 }
 
+async function listUserCommands() {
+  return listCommandsFromDirectory(userCommandsDir, {
+    source: 'user',
+    relativeRoot: '~/.quickforge/commands',
+  })
+}
+
 export async function listProjectCommands(workspaceRoot, commandDir) {
   const byName = new Map()
 
+  // 1. Plugin commands (lowest priority)
   for (const command of (await listPluginCommands(workspaceRoot)).sort((a, b) => a.name.localeCompare(b.name))) {
     byName.set(command.name, command)
   }
 
+  // 2. User-level commands (~/.quickforge/commands/) — override plugins, overridden by project
+  for (const command of (await listUserCommands()).sort((a, b) => a.name.localeCompare(b.name))) {
+    byName.set(command.name, command)
+  }
+
+  // 3. Project directories: .claude → .opencode → .ai → configured (highest priority)
   for (const dir of commandDirectories(workspaceRoot, commandDir)) {
     const commands = await listCommandsFromDirectory(dir)
     for (const command of commands.sort((a, b) => a.name.localeCompare(b.name))) {
@@ -297,6 +359,7 @@ function escapeXml(value) {
 
 export function parseInternalCommandInvocation(message) {
   const text = textFromUserMessage(message).trim()
+  if (/^\/(?:help|\?)(?:\s+.*)?$/i.test(text)) return { type: 'help' }
   if (/^\/commands(?:\s+.*)?$/i.test(text)) return { type: 'list' }
   if (/^\/clear\s*$/i.test(text)) return { type: 'clear' }
   if (/^\/clear(?:\s+[\s\S]+)$/i.test(text)) return { type: 'invalid-clear-args' }
@@ -344,12 +407,17 @@ export async function handleInternalCommand(invocation, workspaceRoot, commandDi
     return 'Usage: /clear'
   }
 
-  if (!workspaceRoot) {
-    return 'Custom commands require an active project chat.'
+  if (invocation.type === 'help') {
+    return formatHelpText(await listProjectCommands(workspaceRoot, commandDir))
   }
 
+  // /commands and /help work without a project (user-level commands are global)
   if (invocation.type === 'list') {
     return formatCommandList(await listProjectCommands(workspaceRoot, commandDir))
+  }
+
+  if (!workspaceRoot) {
+    return 'Custom commands require an active project chat.'
   }
 
   if (invocation.type === 'new') {
@@ -367,17 +435,17 @@ function formatPermission(value) {
   return value === false ? 'false' : 'true'
 }
 
-function formatCommandList(commands) {
+export function formatCommandList(commands) {
   if (commands.length === 0) {
     return [
-      'No project custom commands found.',
+      'No custom commands found.',
       '',
       'Create one with:',
       '```text',
       '/command new review',
       '```',
       '',
-      'Or add Markdown files under `.claude/commands/`, `.opencode/commands/`, or `.ai/commands/`, for example `.ai/commands/review.md`.',
+      'Or add Markdown files under `~/.quickforge/commands/` (user-level), or `.claude/commands/`, `.opencode/commands/`, `.ai/commands/` (project-level), for example `.ai/commands/review.md`.',
     ].join('\n')
   }
 
@@ -389,37 +457,59 @@ function formatCommandList(commands) {
   })
 
   return [
-    'Project custom commands:',
+    'Custom commands:',
     '',
     ...rows,
     '',
-    'Command files live in `.claude/commands/*.md`, `.opencode/commands/*.md`, `.ai/commands/*.md`, or configured directories. Use `$ARGUMENTS` inside a command file to insert invocation arguments.',
+    'Command files live in `~/.quickforge/commands/*.md` (user-level), `.claude/commands/*.md`, `.opencode/commands/*.md`, `.ai/commands/*.md`, or configured directories. Use `$ARGUMENTS` inside a command file to insert invocation arguments.',
   ].join('\n')
 }
 
-async function createCommandTemplate(workspaceRoot, name) {
-  const commandName = normalizeCommandName(name)
-  if (!commandName) {
-    return `Invalid command name: ${name}\n\nUse lowercase letters, numbers, and hyphens.`
-  }
+function formatBuiltinCommandRows() {
+  return builtinCommandCatalog.map((cmd) => {
+    const hint = cmd.argumentHint ? ` ${cmd.argumentHint}` : ''
+    const aliases = cmd.aliases?.length
+      ? ` (alias: ${cmd.aliases.map((alias) => `/${alias}`).join(', ')})`
+      : ''
+    const perm = cmd.permissionNote ? ` \[${cmd.permissionNote}\]` : ''
+    return `- \`/${cmd.name}${hint}\`${aliases} — ${cmd.description}${perm}`
+  })
+}
 
-  const dir = commandDirectory(workspaceRoot)
-  const file = path.join(dir, `${commandName}.md`)
-  try {
-    await fs.mkdir(dir, { recursive: true })
-    await fs.writeFile(file, commandTemplate(commandName), { encoding: 'utf8', flag: 'wx' })
-  } catch (error) {
-    if (error?.code === 'EEXIST') {
-      return `Custom command already exists: ${commandsRelativeDir}/${commandName}.md`
-    }
-    throw error
-  }
-
-  return [
-    `Created custom command: ${commandsRelativeDir}/${commandName}.md`,
+export function formatHelpText(customCommands = []) {
+  const sections = [
+    'QuickForge command reference',
     '',
-    `Run it with: /${commandName} your arguments`,
-  ].join('\n')
+    'Built-in commands:',
+    '',
+    ...formatBuiltinCommandRows(),
+  ]
+
+  if (customCommands.length > 0) {
+    sections.push('', formatCommandList(customCommands))
+  } else {
+    sections.push(
+      '',
+      'No custom commands found. Add Markdown files under `~/.quickforge/commands/` (user-level) or `.claude/commands/`, `.opencode/commands/`, `.ai/commands/` (project-level).',
+    )
+  }
+
+  return sections.join('\n')
+}
+
+async function createCommandTemplate(workspaceRoot, name) {
+  const result = await createCommandFile(workspaceRoot, name)
+  if (result.ok) {
+    return [
+      `Created custom command: ${result.relativePath}`,
+      '',
+      `Run it with: /${result.name} your arguments`,
+    ].join('\n')
+  }
+  if (result.reason === 'exists') {
+    return `Custom command already exists: ${commandsRelativeDir}/${result.name}.md`
+  }
+  return `Invalid command name: ${name}\n\nUse lowercase letters, numbers, and hyphens.`
 }
 
 function commandTemplate(name) {
@@ -435,4 +525,31 @@ allow_commands: false
 
 $ARGUMENTS
 `
+}
+
+export async function createCommandFile(workspaceRoot, name) {
+  const commandName = normalizeCommandName(name)
+  if (!commandName) {
+    return { ok: false, reason: 'invalid' }
+  }
+  const dir = commandDirectory(workspaceRoot)
+  if (!dir) {
+    return { ok: false, reason: 'no-project' }
+  }
+  const file = path.join(dir, `${commandName}.md`)
+  try {
+    await fs.mkdir(dir, { recursive: true })
+    await fs.writeFile(file, commandTemplate(commandName), { encoding: 'utf8', flag: 'wx' })
+  } catch (error) {
+    if (error?.code === 'EEXIST') {
+      return { ok: false, reason: 'exists', name: commandName, filePath: file }
+    }
+    throw error
+  }
+  return {
+    ok: true,
+    name: commandName,
+    filePath: file,
+    relativePath: `${commandsRelativeDir}/${commandName}.md`,
+  }
 }

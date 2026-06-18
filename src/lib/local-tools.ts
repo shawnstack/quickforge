@@ -150,6 +150,7 @@ function summarizeParams(toolName: string, params: Record<string, unknown> | und
   if (toolName === 'read_skill_resource' && typeof params?.path === 'string') return params.path
   if (params && 'path' in params && typeof params.path === 'string') return params.path
   if (params && 'query' in params && typeof params.query === 'string') return params.query
+  if (params && 'search_query' in params && typeof params.search_query === 'string') return params.search_query
   return ''
 }
 
@@ -607,6 +608,102 @@ class LocalWorkspaceToolRenderer {
   }
 }
 
+function parseMcpToolName(toolName: string) {
+  if (!toolName.startsWith('mcp__')) return null
+  const rest = toolName.slice('mcp__'.length)
+  const separatorIndex = rest.indexOf('__')
+  if (separatorIndex <= 0 || separatorIndex >= rest.length - 2) return null
+  return {
+    serverName: rest.slice(0, separatorIndex),
+    toolName: rest.slice(separatorIndex + 2),
+  }
+}
+
+function mcpToolInfo(toolName: string, details: unknown) {
+  const parsed = parseMcpToolName(toolName)
+  const detailRecord = isRecord(details) ? details : undefined
+  const serverName = typeof detailRecord?.server === 'string' && detailRecord.server
+    ? detailRecord.server
+    : parsed?.serverName ?? ''
+  const originalToolName = typeof detailRecord?.tool === 'string' && detailRecord.tool
+    ? detailRecord.tool
+    : parsed?.toolName ?? toolName
+  return parsed || detailRecord?.mcp === true
+    ? { serverName, toolName: originalToolName }
+    : null
+}
+
+function outputLanguageFromText(text: string) {
+  if (!text) return 'text'
+  try {
+    JSON.parse(text)
+    return 'json'
+  } catch {
+    return 'text'
+  }
+}
+
+class McpToolRenderer {
+  private toolName: string
+  private label?: string
+
+  constructor(toolName: string, label?: string) {
+    this.toolName = toolName
+    this.label = label
+  }
+
+  render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
+    const status: ToolStatusKey = result?.isError ? 'error' : isStreaming ? 'running' : result ? 'done' : 'called'
+    const timing = extractQuickForgeTiming(result?.details)
+    const info = mcpToolInfo(this.toolName, result?.details) ?? parseMcpToolName(this.toolName)
+    const serverName = info?.serverName ?? ''
+    const originalToolName = info?.toolName ?? this.toolName
+    const summary = summarizeParams(this.toolName, params, result)
+    const toolDisplaySettings = getCachedToolDisplaySettings()
+    const input = stringifyValue(params)
+    const output = toolOutputText(this.toolName, params, result, isStreaming)
+    const details = toolDisplaySettings.showToolDetails ? stringifyValue(result?.details) : ''
+    const title = this.label && this.label !== originalToolName
+      ? `${this.label} (${originalToolName})`
+      : originalToolName
+
+    return {
+      isCustom: false,
+      content: html`
+        <details class="group/tool quickforge-mcp-tool" ?open=${toolDisplaySettings.expandToolsByDefault}>
+          <summary class="flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
+            <svg class="shrink-0 transition-transform group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+            ${renderToolIcon(this.toolName)}
+            <span class="min-w-0 flex-1 truncate">MCP${serverName ? html`<span class="text-muted-foreground/70"> · ${serverName}</span>` : nothing}<span class="text-muted-foreground/70"> · ${title}</span>${summary ? html`<span class="text-muted-foreground/70"> · ${summary}</span>` : nothing}</span>
+            ${renderStatus(status, timing)}
+          </summary>
+          <div class="mt-3 space-y-3">
+            ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : nothing}
+            ${output ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('output')}</div><code-block .code=${output} language=${outputLanguageFromText(output)}></code-block></div>` : nothing}
+            ${details ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('details')}</div><code-block .code=${details} language="json"></code-block></div>` : nothing}
+          </div>
+        </details>
+      `,
+    }
+  }
+}
+
+const registeredMcpToolRenderers = new Set<string>()
+
+function registerMcpToolRenderers(tools: unknown[]) {
+  for (const tool of tools) {
+    if (!isRecord(tool) || typeof tool.name !== 'string') continue
+    if (!parseMcpToolName(tool.name) || registeredMcpToolRenderers.has(tool.name)) continue
+    const label = typeof tool.label === 'string'
+      ? tool.label
+      : typeof tool.description === 'string'
+        ? tool.description.replace(/^\[MCP:[^\]]+\]\s*/, '')
+        : undefined
+    registerToolRenderer(tool.name, new McpToolRenderer(tool.name, label))
+    registeredMcpToolRenderers.add(tool.name)
+  }
+}
+
 // Register renderers at import time
 for (const [name, label] of [
   ['read_file', 'readFile'],
@@ -626,5 +723,6 @@ registerToolRenderer('run_subagent', new SubagentToolRenderer())
 // on client-side tools — it only reads state.tools for display purposes.
 // Returning tool metadata is enough for the renderer to resolve names/labels.
 export function getLocalWorkspaceTools(tools: unknown[] = []): AgentTool[] {
+  registerMcpToolRenderers(tools)
   return tools as AgentTool[]
 }

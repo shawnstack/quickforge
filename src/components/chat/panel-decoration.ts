@@ -1876,6 +1876,17 @@ export type ToolApprovalSource = {
 
 const APPROVAL_CARD_SELECTOR = '.quickforge-approval-card'
 
+function parseMcpToolName(toolName: string) {
+  if (!toolName.startsWith('mcp__')) return null
+  const rest = toolName.slice('mcp__'.length)
+  const separatorIndex = rest.indexOf('__')
+  if (separatorIndex <= 0 || separatorIndex >= rest.length - 2) return null
+  return {
+    serverName: rest.slice(0, separatorIndex),
+    toolName: rest.slice(separatorIndex + 2),
+  }
+}
+
 function summarizeToolArgs(toolName: string, args: Record<string, unknown>) {
   if (typeof args.summary === 'string') return args.summary
   if (toolName === 'run_command' && typeof args.command === 'string') return args.command
@@ -1918,6 +1929,9 @@ export function injectApprovalCard(
   card.className = 'quickforge-approval-card pointer-events-auto mb-4 mx-4 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 p-4'
   card.dataset.toolCallId = toolCallId
 
+  const mcpTool = parseMcpToolName(toolName)
+  const displayToolName = mcpTool ? `MCP · ${mcpTool.serverName} · ${mcpTool.toolName}` : toolName
+
   const sourceLabel = source?.type === 'subagent'
     ? (source.label || source.subagent || 'Subagent')
     : ''
@@ -1926,7 +1940,7 @@ export function injectApprovalCard(
   const header = document.createElement('div')
   header.className = 'flex items-center gap-2 mb-3 text-sm font-medium text-amber-800 dark:text-amber-300'
   header.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`
-  header.append(` ${sourceLabel ? t('subagentToolApprovalWaiting', { source: sourceLabel, toolName }) : t('toolApprovalWaiting', { toolName })}`)
+  header.append(` ${sourceLabel ? t('subagentToolApprovalWaiting', { source: sourceLabel, toolName: displayToolName }) : t('toolApprovalWaiting', { toolName: displayToolName })}`)
   card.append(header)
 
   if (sourceLabel) {
@@ -1942,7 +1956,18 @@ export function injectApprovalCard(
 
   const showToolDetails = getCachedToolDisplaySettings().showToolDetails
 
-  if (toolName === 'write_file') {
+  if (mcpTool) {
+    preview.innerHTML = `
+      <div class="rounded-md border bg-background/70 p-2 text-xs text-muted-foreground">
+        <div><span class="font-medium text-foreground">Source:</span> MCP</div>
+        <div><span class="font-medium text-foreground">Server:</span> ${escapeHtml(mcpTool.serverName)}</div>
+        <div><span class="font-medium text-foreground">Tool:</span> ${escapeHtml(mcpTool.toolName)}</div>
+      </div>
+      ${showToolDetails
+        ? `<pre class="mt-2 text-xs bg-background border rounded p-2 max-h-40 overflow-auto font-mono whitespace-pre-wrap">${escapeHtml(JSON.stringify(args, null, 2))}</pre>`
+        : hiddenToolArgsPreview(toolName, args)}
+    `
+  } else if (toolName === 'write_file') {
     const filePath = String(args.path ?? '')
     const content = String(args.content ?? '')
     const truncated = content.length > 800

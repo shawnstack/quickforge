@@ -55,6 +55,7 @@ import { ShareConversationDialog } from '@/components/share/ShareConversationDia
 import { getWorkspaceFile, resolveWorkspacePath } from '@/components/workspace/workspace-api'
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
+import type { AiTurnArtifact } from '@/lib/tool-artifacts'
 
 // --- Code-split secondary views (only loaded when first opened) ---
 // These are conditionally-mounted routes/panels; lazy loading keeps heavy
@@ -168,6 +169,7 @@ function MainApp() {
   const [workspacePage, setWorkspacePage] = useState<WorkspacePage>('chat')
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState<PendingTerminalCommand | null>(null)
+  const [currentTurnArtifacts, setCurrentTurnArtifacts] = useState<AiTurnArtifact[]>([])
   const [currentSessionHoverInfo, setCurrentSessionHoverInfo] = useState<(ContextUsageDisplayInfo & { sessionId?: string }) | undefined>()
   const terminalCommandIdRef = useRef(0)
   const [storage, setStorage] = useState<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
@@ -277,6 +279,7 @@ function MainApp() {
   const openWorkspaceGitChanges = useCallback(() => {
     if (!agentManager.currentToolProject?.id) return
     closeWorkspacePage()
+    ui.setWorkspacePanelView('changes')
     ui.setWorkspaceInspectorFocusTarget({ tab: 'git', nonce: Date.now() })
     ui.setWorkspaceInspectorOpen(true)
   }, [agentManager.currentToolProject?.id, closeWorkspacePage, ui])
@@ -942,9 +945,9 @@ function MainApp() {
             size="icon"
             onClick={() => ui.setWorkspaceInspectorOpen((value) => !value)}
             disabled={!agentManager.currentToolProject?.id || workspacePageOpen || needsModelSetup}
-            aria-label="Workspace"
-            title="Workspace"
-            className="hidden lg:inline-flex"
+            aria-label={t('workspacePanel')}
+            title={t('workspacePanel')}
+            className={ui.workspaceInspectorOpen ? 'hidden bg-accent text-accent-foreground lg:inline-flex' : 'hidden lg:inline-flex'}
           >
             <PanelRightOpen className="size-4" />
           </Button>
@@ -1009,6 +1012,7 @@ function MainApp() {
                       onRejectAutoCompact={handleRejectAutoCompact}
                       onOpenWorkspaceGitChanges={openWorkspaceGitChanges}
                       onOpenLocalFilePath={openLocalFilePathFromChat}
+                      onArtifactsChange={setCurrentTurnArtifacts}
                       onContextUsageDisplayChange={handleContextUsageDisplayChange}
                       disableFork={false}
                       restoredDraft={restoredDraft}
@@ -1044,9 +1048,14 @@ function MainApp() {
           <WorkspaceInspector
             project={agentManager.currentToolProject}
             open
+            view={ui.workspacePanelView}
+            onViewChange={ui.setWorkspacePanelView}
             onOpenChange={ui.setWorkspaceInspectorOpen}
             onDraftRequest={restoreWorkspaceDraft}
             focusTarget={ui.workspaceInspectorFocusTarget}
+            previewUrl={ui.webPreviewUrl}
+            onPreviewUrlChange={ui.setWebPreviewUrl}
+            artifacts={currentTurnArtifacts}
           />
         </Suspense>
       ) : null}

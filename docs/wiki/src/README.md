@@ -8,6 +8,7 @@
 src/
 ├── components/          # React 组件
 │   ├── chat/            # 聊天面板（含多个子模块）
+│   ├── preview/          # 网页预览内容组件（iframe 加载本地 dev server URL）
 │   ├── scheduled-tasks/ # 定时任务页面
 │   ├── share/           # 对话分享
 │   ├── sidebar/         # 侧边栏
@@ -57,7 +58,8 @@ src/
 5. **分享对话框** (`ShareConversationDialog`)
 6. **共享会话页面** (`SharedConversationPage`)
 7. **终端 Dock** (`TerminalDock`) — 本地多开交互式终端，显示在对话区底部
-8. **项目目录选择器** (`ProjectDirectoryPicker`)
+8. **工作区面板** (`WorkspaceInspector`) — 右侧统一工作区入口，包含概览、工作空间文件、浏览器预览和 Git 变更
+9. **项目目录选择器** (`ProjectDirectoryPicker`)
 9. **Skills 对话框** (`SkillsDialog`)
 10. **Toast 容器** — 后台任务通知
 11. **错误边界** (`ErrorBoundary`) — 全局错误捕获

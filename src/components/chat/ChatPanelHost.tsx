@@ -17,6 +17,7 @@ import { createContextUsageIndicator, type ContextUsageDisplayInfo } from './con
 import { decorateMessages, decorateEditor, captureComposerDraft, readComposerDraft, restoreComposerDraft, injectApprovalCard, removeApprovalCard, syncAssistantWaitingBubble, syncContextCompactionNotice } from './panel-decoration'
 import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
+import { extractCurrentTurnArtifacts, type AiTurnArtifact } from '@/lib/tool-artifacts'
 import { getGitStatus } from '../workspace/workspace-api'
 import type { ChatScope, ProjectInfo, RestoredDraft } from '@/lib/types'
 import {
@@ -71,6 +72,7 @@ type ChatPanelHostProps = {
   onRejectAutoCompact?: (approvalId: string) => Promise<void> | void
   onOpenWorkspaceGitChanges?: () => void
   onOpenLocalFilePath?: (path: string) => void
+  onArtifactsChange?: (artifacts: AiTurnArtifact[]) => void
   onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
   restoredDraft?: RestoredDraft
   disableFork?: boolean
@@ -99,6 +101,7 @@ type PropsRef = {
   onRejectAutoCompact?: (approvalId: string) => Promise<void> | void
   onOpenWorkspaceGitChanges?: () => void
   onOpenLocalFilePath?: (path: string) => void
+  onArtifactsChange?: (artifacts: AiTurnArtifact[]) => void
   onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
   onModelSelect?: () => void
   yoloMode: boolean
@@ -134,6 +137,7 @@ export function ChatPanelHost({
   onRejectAutoCompact,
   onOpenWorkspaceGitChanges,
   onOpenLocalFilePath,
+  onArtifactsChange,
   onContextUsageDisplayChange,
   restoredDraft,
   disableFork = false,
@@ -152,6 +156,7 @@ export function ChatPanelHost({
   const lastAppliedRestoredDraftRef = useRef<{ id: number; text: string } | undefined>(undefined)
   const consumedRestoredDraftIdsRef = useRef<Set<number>>(new Set())
   const saveDraftTimerRef = useRef<number | undefined>(undefined)
+  const artifactsSignatureRef = useRef('')
   const [gitBranch, setGitBranch] = useState<string>()
   const [planMode, setPlanMode] = useState(false)
   const togglePlanMode = useCallback(() => setPlanMode((mode) => !mode), [])
@@ -239,6 +244,7 @@ export function ChatPanelHost({
     onRejectAutoCompact,
     onOpenWorkspaceGitChanges,
     onOpenLocalFilePath,
+    onArtifactsChange,
     onContextUsageDisplayChange,
     onModelSelect,
     yoloMode,
@@ -269,6 +275,7 @@ export function ChatPanelHost({
       onRejectAutoCompact,
       onOpenWorkspaceGitChanges,
       onOpenLocalFilePath,
+      onArtifactsChange,
       onContextUsageDisplayChange,
       onModelSelect,
       yoloMode,
@@ -487,6 +494,12 @@ export function ChatPanelHost({
       syncProcessStreamingState()
 
       const props = propsRef.current
+      const artifacts = extractCurrentTurnArtifacts(agent.state.messages as import('@earendil-works/pi-agent-core').AgentMessage[])
+      const artifactsSignature = JSON.stringify(artifacts.map((artifact) => [artifact.source, artifact.path, artifact.command, artifact.outputFile, artifact.confidence]))
+      if (artifactsSignature !== artifactsSignatureRef.current) {
+        artifactsSignatureRef.current = artifactsSignature
+        props.onArtifactsChange?.(artifacts)
+      }
 
       // Wrap message/editor decoration so a failure in one does not block
       // the approval card from rendering — the approval card is critical UI

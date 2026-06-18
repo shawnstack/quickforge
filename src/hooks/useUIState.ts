@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import type { SkillsScope } from '@/lib/types'
 import type { ProjectInfo } from '@/lib/types'
-import type { WorkspaceFileResponse, WorkspaceInspectorFocusTarget } from '@/components/workspace/workspace-types'
+import type { WorkspaceFileResponse, WorkspaceInspectorFocusTarget, WorkspacePanelView } from '@/components/workspace/workspace-types'
 
 /**
  * Pure UI state — sidebar, dialogs, overlays, inspector, and reader toggles.
@@ -19,7 +19,9 @@ export function useUIState() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [conversationMenuOpen, setConversationMenuOpen] = useState(false)
   const [workspaceInspectorOpen, setWorkspaceInspectorOpen] = useState(false)
+  const [workspacePanelView, setWorkspacePanelView] = useState<WorkspacePanelView>('files')
   const [workspaceInspectorFocusTarget, setWorkspaceInspectorFocusTarget] = useState<WorkspaceInspectorFocusTarget>()
+  const [webPreviewUrl, setWebPreviewUrl] = useState('')
   const [inlineReaderOpen, setInlineReaderOpen] = useState(false)
   const [inlineReaderFile, setInlineReaderFile] = useState<WorkspaceFileResponse>()
   const [inlineReaderLoading, setInlineReaderLoading] = useState(false)
@@ -39,7 +41,9 @@ export function useUIState() {
     shareDialogOpen, setShareDialogOpen,
     conversationMenuOpen, setConversationMenuOpen,
     workspaceInspectorOpen, setWorkspaceInspectorOpen,
+    workspacePanelView, setWorkspacePanelView,
     workspaceInspectorFocusTarget, setWorkspaceInspectorFocusTarget,
+    webPreviewUrl, setWebPreviewUrl,
     inlineReaderOpen, setInlineReaderOpen,
     inlineReaderFile, setInlineReaderFile,
     inlineReaderLoading, setInlineReaderLoading,

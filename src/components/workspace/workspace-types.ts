@@ -1,3 +1,5 @@
+export type WorkspacePanelView = 'overview' | 'files' | 'browser' | 'changes'
+
 export type WorkspaceInspectorFocusTarget = {
   tab: 'files' | 'git'
   nonce: number

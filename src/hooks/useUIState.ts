@@ -19,9 +19,11 @@ export function useUIState() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [conversationMenuOpen, setConversationMenuOpen] = useState(false)
   const [workspaceInspectorOpen, setWorkspaceInspectorOpen] = useState(false)
-  const [workspacePanelView, setWorkspacePanelView] = useState<WorkspacePanelView>('files')
+  const [workspacePanelView, setWorkspacePanelView] = useState<WorkspacePanelView>('overview')
   const [workspaceInspectorFocusTarget, setWorkspaceInspectorFocusTarget] = useState<WorkspaceInspectorFocusTarget>()
   const [webPreviewUrl, setWebPreviewUrl] = useState('')
+  const [artifactPreviewOpen, setArtifactPreviewOpen] = useState(false)
+  const [activeArtifactPath, setActiveArtifactPath] = useState<string>()
   const [inlineReaderOpen, setInlineReaderOpen] = useState(false)
   const [inlineReaderFile, setInlineReaderFile] = useState<WorkspaceFileResponse>()
   const [inlineReaderLoading, setInlineReaderLoading] = useState(false)
@@ -44,6 +46,8 @@ export function useUIState() {
     workspacePanelView, setWorkspacePanelView,
     workspaceInspectorFocusTarget, setWorkspaceInspectorFocusTarget,
     webPreviewUrl, setWebPreviewUrl,
+    artifactPreviewOpen, setArtifactPreviewOpen,
+    activeArtifactPath, setActiveArtifactPath,
     inlineReaderOpen, setInlineReaderOpen,
     inlineReaderFile, setInlineReaderFile,
     inlineReaderLoading, setInlineReaderLoading,

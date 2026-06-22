@@ -254,6 +254,37 @@ describe('toolEditFile', () => {
   })
 })
 
+describe('toolPresentFiles', () => {
+  let tmpDir
+  let context
+
+  beforeAll(async () => {
+    tmpDir = await createTempDir()
+    context = makeContext(tmpDir)
+    setWorkspaceRoot(tmpDir)
+    await fs.writeFile(path.join(tmpDir, 'index.html'), '<!doctype html><h1>Hello</h1>', 'utf8')
+    await fs.writeFile(path.join(tmpDir, 'style.css'), 'body{}', 'utf8')
+  })
+
+  afterAll(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true })
+  })
+
+  it('presents files with kind and preview metadata', async () => {
+    const result = await toolHandlers.present_files({ files: ['index.html', { path: 'style.css' }], defaultPreview: 'index.html' }, context)
+    expect(result.content).toContain('Presented 2 file')
+    expect(result.details.type).toBe('present_files_result')
+    expect(result.details.defaultPreview).toBe('index.html')
+    expect(result.details.files[0]).toMatchObject({ path: 'index.html', kind: 'html', preview: true, defaultPreview: true })
+    expect(result.details.files[1]).toMatchObject({ path: 'style.css', kind: 'code' })
+    expect(result.details.previewed).toContain('index.html')
+  })
+
+  it('throws for paths outside workspace', async () => {
+    await expect(toolHandlers.present_files({ files: ['../outside.html'] }, context)).rejects.toThrow()
+  })
+})
+
 describe('toolGrepFiles — Node fallback', () => {
   let tmpDir
   let context

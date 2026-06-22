@@ -45,10 +45,11 @@ describe('definitions', () => {
       expect(names).toContain('write_file')
       expect(names).toContain('edit_file')
       expect(names).toContain('run_command')
+      expect(names).toContain('present_files')
     })
 
-    it('has exactly 6 tools', () => {
-      expect(workspaceTools).toHaveLength(6)
+    it('has exactly 7 tools', () => {
+      expect(workspaceTools).toHaveLength(7)
     })
 
     it('each tool has name, label, description, and parameters', () => {
@@ -58,6 +59,11 @@ describe('definitions', () => {
         expect(tool.description).toBeTruthy()
         expect(tool.parameters).toBeTruthy()
       }
+    })
+
+    it('present_files supports defaultPreview', () => {
+      const tool = workspaceTools.find((t) => t.name === 'present_files')
+      expect(tool.parameters.properties).toHaveProperty('defaultPreview')
     })
 
     it('write_file has executionMode sequential', () => {

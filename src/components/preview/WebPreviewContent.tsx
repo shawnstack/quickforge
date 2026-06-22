@@ -10,9 +10,25 @@ const COMMON_PREVIEW_URLS = [
   'http://localhost:8080',
 ] as const
 
+function isWorkspacePreviewUrl(rawUrl: string) {
+  const trimmed = rawUrl.trim()
+  if (!trimmed.startsWith('/api/workspace/preview/')) return false
+  try {
+    const parsed = new URL(trimmed, window.location.origin)
+    return parsed.origin === window.location.origin && parsed.pathname.startsWith('/api/workspace/preview/')
+  } catch {
+    return false
+  }
+}
+
 function normalizePreviewUrl(rawUrl: string) {
   const trimmed = rawUrl.trim()
   if (!trimmed) return { url: '', error: '' }
+
+  if (isWorkspacePreviewUrl(trimmed)) {
+    const parsed = new URL(trimmed, window.location.origin)
+    return { url: `${parsed.pathname}${parsed.search}${parsed.hash}`, error: '' }
+  }
 
   const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`
   try {
@@ -32,10 +48,15 @@ type WebPreviewContentProps = {
 }
 
 export function WebPreviewContent({ url, onUrlChange }: WebPreviewContentProps) {
-  const [draftUrl, setDraftUrl] = useState(url)
+  const [draftState, setDraftState] = useState({ sourceUrl: url, value: url })
   const [error, setError] = useState('')
   const [reloadToken, setReloadToken] = useState(0)
   const previewUrl = useMemo(() => normalizePreviewUrl(url).url, [url])
+  const isWorkspacePreview = previewUrl.startsWith('/api/workspace/preview/')
+  const iframeSandbox = isWorkspacePreview
+    ? 'allow-scripts allow-forms'
+    : 'allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals allow-pointer-lock'
+  const draftUrl = draftState.sourceUrl === url ? draftState.value : url
 
   function applyUrl(nextUrl = draftUrl) {
     const result = normalizePreviewUrl(nextUrl)
@@ -45,7 +66,7 @@ export function WebPreviewContent({ url, onUrlChange }: WebPreviewContentProps) 
     }
 
     setError('')
-    setDraftUrl(result.url)
+    setDraftState({ sourceUrl: result.url, value: result.url })
     onUrlChange(result.url)
     if (result.url) setReloadToken((value) => value + 1)
   }
@@ -75,7 +96,7 @@ export function WebPreviewContent({ url, onUrlChange }: WebPreviewContentProps) 
             <input
               value={draftUrl}
               onChange={(event) => {
-                setDraftUrl(event.target.value)
+                setDraftState({ sourceUrl: url, value: event.target.value })
                 if (error) setError('')
               }}
               placeholder={t('previewUrlPlaceholder')}
@@ -113,7 +134,7 @@ export function WebPreviewContent({ url, onUrlChange }: WebPreviewContentProps) 
             key={`${previewUrl}:${reloadToken}`}
             title={t('webPreview')}
             src={previewUrl}
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals allow-pointer-lock"
+            sandbox={iframeSandbox}
             className="h-full w-full border-0 bg-background"
           />
         ) : (

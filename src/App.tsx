@@ -56,6 +56,7 @@ import { getWorkspaceFile, resolveWorkspacePath } from '@/components/workspace/w
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
+import { findBestPreviewableArtifact, inferArtifactKind, workspacePreviewUrl } from '@/components/workspace/artifact-preview-utils'
 
 // --- Code-split secondary views (only loaded when first opened) ---
 // These are conditionally-mounted routes/panels; lazy loading keeps heavy
@@ -162,6 +163,11 @@ function MainApp() {
 
   // --- Pure UI state (sidebar, dialogs, overlays, inspector, reader) ---
   const ui = useUIState()
+  const {
+    setArtifactPreviewOpen,
+    setWorkspaceInspectorOpen,
+    workspaceInspectorOpen,
+  } = ui
 
   // --- UI state shared with other hooks ---
   const [needsModelSetup, setNeedsModelSetup] = useState(false)
@@ -169,7 +175,8 @@ function MainApp() {
   const [workspacePage, setWorkspacePage] = useState<WorkspacePage>('chat')
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState<PendingTerminalCommand | null>(null)
-  const [currentTurnArtifacts, setCurrentTurnArtifacts] = useState<AiTurnArtifact[]>([])
+  const [currentSessionArtifacts, setCurrentSessionArtifacts] = useState<AiTurnArtifact[]>([])
+  const autoPreviewSignatureRef = useRef('')
   const [currentSessionHoverInfo, setCurrentSessionHoverInfo] = useState<(ContextUsageDisplayInfo & { sessionId?: string }) | undefined>()
   const terminalCommandIdRef = useRef(0)
   const [storage, setStorage] = useState<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
@@ -279,10 +286,11 @@ function MainApp() {
   const openWorkspaceGitChanges = useCallback(() => {
     if (!agentManager.currentToolProject?.id) return
     closeWorkspacePage()
+    setArtifactPreviewOpen(false)
     ui.setWorkspacePanelView('changes')
     ui.setWorkspaceInspectorFocusTarget({ tab: 'git', nonce: Date.now() })
     ui.setWorkspaceInspectorOpen(true)
-  }, [agentManager.currentToolProject?.id, closeWorkspacePage, ui])
+  }, [agentManager.currentToolProject?.id, closeWorkspacePage, setArtifactPreviewOpen, ui])
 
   const openLocalFilePathFromChat = useCallback(async (filePath: string) => {
     const projectId = agentManager.currentToolProject?.id
@@ -308,6 +316,39 @@ function MainApp() {
       ui.setInlineReaderLoading(false)
     }
   }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id, ui])
+
+  const openArtifactPreview = useCallback((path: string) => {
+    const projectId = agentManager.currentToolProject?.id
+    if (!projectId || inferArtifactKind(path) !== 'html') return
+    closeWorkspacePage()
+    setArtifactPreviewOpen(false)
+    ui.setWebPreviewUrl(workspacePreviewUrl(projectId, path))
+    ui.setWorkspacePanelView('browser')
+    setWorkspaceInspectorOpen(true)
+  }, [agentManager.currentToolProject?.id, closeWorkspacePage, setArtifactPreviewOpen, setWorkspaceInspectorOpen, ui])
+
+  useEffect(() => {
+    const projectId = agentManager.currentToolProject?.id
+    if (!projectId) return
+    const artifact = findBestPreviewableArtifact(currentSessionArtifacts)
+    if (!artifact?.path) return
+    const signature = `${projectId}:${artifact.path}:${artifact.defaultPreview ? 'default' : artifact.explicit ? 'explicit' : 'inferred'}`
+    if (signature === autoPreviewSignatureRef.current) return
+    if (workspaceInspectorOpen && !artifact.explicit) return
+    autoPreviewSignatureRef.current = signature
+    queueMicrotask(() => {
+      closeWorkspacePage()
+      setArtifactPreviewOpen(false)
+      ui.setWebPreviewUrl(workspacePreviewUrl(projectId, artifact.path))
+      ui.setWorkspacePanelView('browser')
+      setWorkspaceInspectorOpen(true)
+    })
+  }, [agentManager.currentToolProject?.id, closeWorkspacePage, currentSessionArtifacts, setArtifactPreviewOpen, setWorkspaceInspectorOpen, ui, workspaceInspectorOpen])
+
+  useEffect(() => {
+    autoPreviewSignatureRef.current = ''
+    setArtifactPreviewOpen(false)
+  }, [agentManager.currentToolProject?.id, setArtifactPreviewOpen])
 
   useEffect(() => {
     const unsubscribe = subscribeToAgentEvents((event) => {
@@ -943,7 +984,10 @@ function MainApp() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => ui.setWorkspaceInspectorOpen((value) => !value)}
+            onClick={() => {
+              setArtifactPreviewOpen(false)
+              ui.setWorkspaceInspectorOpen((value) => !value)
+            }}
             disabled={!agentManager.currentToolProject?.id || workspacePageOpen || needsModelSetup}
             aria-label={t('workspacePanel')}
             title={t('workspacePanel')}
@@ -1012,7 +1056,7 @@ function MainApp() {
                       onRejectAutoCompact={handleRejectAutoCompact}
                       onOpenWorkspaceGitChanges={openWorkspaceGitChanges}
                       onOpenLocalFilePath={openLocalFilePathFromChat}
-                      onArtifactsChange={setCurrentTurnArtifacts}
+                      onArtifactsChange={setCurrentSessionArtifacts}
                       onContextUsageDisplayChange={handleContextUsageDisplayChange}
                       disableFork={false}
                       restoredDraft={restoredDraft}
@@ -1051,11 +1095,12 @@ function MainApp() {
             view={ui.workspacePanelView}
             onViewChange={ui.setWorkspacePanelView}
             onOpenChange={ui.setWorkspaceInspectorOpen}
+            onPreviewArtifact={openArtifactPreview}
             onDraftRequest={restoreWorkspaceDraft}
             focusTarget={ui.workspaceInspectorFocusTarget}
             previewUrl={ui.webPreviewUrl}
             onPreviewUrlChange={ui.setWebPreviewUrl}
-            artifacts={currentTurnArtifacts}
+            artifacts={currentSessionArtifacts}
           />
         </Suspense>
       ) : null}

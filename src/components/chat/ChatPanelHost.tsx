@@ -17,7 +17,7 @@ import { createContextUsageIndicator, type ContextUsageDisplayInfo } from './con
 import { decorateMessages, decorateEditor, captureComposerDraft, readComposerDraft, restoreComposerDraft, injectApprovalCard, removeApprovalCard, syncAssistantWaitingBubble, syncContextCompactionNotice } from './panel-decoration'
 import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
-import { extractCurrentTurnArtifacts, type AiTurnArtifact } from '@/lib/tool-artifacts'
+import { extractSessionArtifacts, type AiTurnArtifact } from '@/lib/tool-artifacts'
 import { getGitStatus } from '../workspace/workspace-api'
 import type { ChatScope, ProjectInfo, RestoredDraft } from '@/lib/types'
 import {
@@ -494,8 +494,8 @@ export function ChatPanelHost({
       syncProcessStreamingState()
 
       const props = propsRef.current
-      const artifacts = extractCurrentTurnArtifacts(agent.state.messages as import('@earendil-works/pi-agent-core').AgentMessage[])
-      const artifactsSignature = JSON.stringify(artifacts.map((artifact) => [artifact.source, artifact.path, artifact.command, artifact.outputFile, artifact.confidence]))
+      const artifacts = extractSessionArtifacts(agent.state.messages as import('@earendil-works/pi-agent-core').AgentMessage[])
+      const artifactsSignature = JSON.stringify(artifacts.map((artifact) => [artifact.source, artifact.path, artifact.command, artifact.outputFile, artifact.confidence, artifact.preview, artifact.defaultPreview, artifact.addedLines, artifact.removedLines]))
       if (artifactsSignature !== artifactsSignatureRef.current) {
         artifactsSignatureRef.current = artifactsSignature
         props.onArtifactsChange?.(artifacts)

@@ -20,7 +20,7 @@
 | `lan-access.mjs` | 201 | LAN 共享访问管理 |
 | `instructions.mjs` | 20 | 系统提示词 |
 | `system.mjs` | 35 | 系统状态和重启 |
-| `workspace.mjs` | 296 | 工作区文件浏览与 Git 变更检查 |
+| `workspace.mjs` | 296 | 工作区文件浏览、产物预览静态读取与 Git 变更检查 |
 | `static.mjs` | 83 | 静态文件服务 |
 
 ---
@@ -189,6 +189,7 @@ Workspace Inspector 后端 API。
 **主要端点**:
 - `GET /api/workspace/tree?projectId=...` — 返回项目文件树，排除 `.git`、`node_modules`、构建产物和敏感文件
 - `GET /api/workspace/file?projectId=...&path=...` — 安全读取 1MB 以内文本文件，返回 Monaco 语言标识
+- `GET /api/workspace/preview/:projectId/*` — 安全读取项目内静态产物文件，供右侧 Artifact Preview iframe/img 加载 HTML、CSS、JS、图片等资源
 - `GET /api/git/status?projectId=...` — 基于 `git status --porcelain=v1 -z` 返回工作区变更列表
 - `GET /api/git/file-diff?projectId=...&path=...` — 返回单文件 `oldContent/newContent`，供 Monaco DiffEditor 展示
 

@@ -12,6 +12,8 @@ import {
 } from '../utils/workspace.mjs'
 
 const MAX_PREVIEW_BYTES = 1024 * 1024
+const MAX_STATIC_PREVIEW_BYTES = 10 * 1024 * 1024
+const PREVIEW_ALLOWED_EXTENSIONS = new Set(['.html', '.htm', '.css', '.js', '.mjs', '.json', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.ico', '.txt', '.md'])
 const MAX_TREE_NODES = 5000
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'dist-ssr', 'package-dist', 'package-offline', '.vite', 'coverage'])
 
@@ -32,6 +34,28 @@ function languageFromPath(filePath) {
   if (fileName === 'dockerfile' || fileName.endsWith('.dockerfile')) return 'dockerfile'
   const extension = fileName.includes('.') ? fileName.split('.').pop() : fileName
   return extensionLanguageMap.get(extension) || 'plaintext'
+}
+
+function previewContentType(filePath) {
+  const ext = path.extname(filePath).toLowerCase()
+  const map = {
+    '.html': 'text/html; charset=utf-8',
+    '.htm': 'text/html; charset=utf-8',
+    '.js': 'application/javascript; charset=utf-8',
+    '.mjs': 'application/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.webp': 'image/webp',
+    '.gif': 'image/gif',
+    '.ico': 'image/x-icon',
+    '.txt': 'text/plain; charset=utf-8',
+    '.md': 'text/markdown; charset=utf-8',
+  }
+  return map[ext] || 'application/octet-stream'
 }
 
 function isBinaryBuffer(buffer) {
@@ -246,6 +270,55 @@ async function handleWorkspaceFile(req, res, url) {
   })
 }
 
+async function handleWorkspacePreview(req, res, url) {
+  const prefix = '/api/workspace/preview/'
+  const tail = url.pathname.startsWith(prefix) ? url.pathname.slice(prefix.length) : ''
+  const slashIndex = tail.indexOf('/')
+  if (slashIndex <= 0) {
+    const error = new Error('projectId and path are required')
+    error.statusCode = 400
+    throw error
+  }
+
+  const projectId = decodeURIComponent(tail.slice(0, slashIndex))
+  const relativePath = decodeURIComponent(tail.slice(slashIndex + 1))
+  if (!projectId || !relativePath) {
+    const error = new Error('projectId and path are required')
+    error.statusCode = 400
+    throw error
+  }
+
+  const context = await projectContextFromId(projectId)
+  const file = resolveWorkspacePath(relativePath, context)
+  await assertSafeWorkspacePath(file, context)
+  const extension = path.extname(file).toLowerCase()
+  if (!PREVIEW_ALLOWED_EXTENSIONS.has(extension)) {
+    const error = new Error('Unsupported preview file type')
+    error.statusCode = 415
+    throw error
+  }
+  const stat = await fs.stat(file)
+  if (!stat.isFile()) {
+    const error = new Error('Path is not a file')
+    error.statusCode = 400
+    throw error
+  }
+  if (stat.size > MAX_STATIC_PREVIEW_BYTES) {
+    const error = new Error('File is too large to preview')
+    error.statusCode = 413
+    throw error
+  }
+
+  const contentType = previewContentType(file)
+  res.writeHead(200, {
+    'content-type': contentType,
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
+  })
+  const buffer = await fs.readFile(file)
+  res.end(buffer)
+}
+
 async function handleWorkspaceResolvePath(req, res) {
   const body = await readJsonBody(req, 16 * 1024)
   const projectId = typeof body?.projectId === 'string' ? body.projectId : ''
@@ -342,6 +415,10 @@ export async function handleWorkspaceApi(req, res, url) {
   }
   if (req.method === 'GET' && url.pathname === '/api/workspace/file') {
     await handleWorkspaceFile(req, res, url)
+    return
+  }
+  if (req.method === 'GET' && url.pathname.startsWith('/api/workspace/preview/')) {
+    await handleWorkspacePreview(req, res, url)
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/workspace/resolve-path') {

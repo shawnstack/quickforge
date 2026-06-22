@@ -619,6 +619,88 @@ export async function toolReadSkillResource(params, context) {
   }
 }
 
+// --- present_files ---
+function inferPresentedFileKind(relativePath) {
+  const lower = String(relativePath || '').toLowerCase()
+  if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'html'
+  if (/\.(svg|png|jpe?g|webp|gif|bmp|ico)$/.test(lower)) return 'image'
+  if (lower.endsWith('.md') || lower.endsWith('.mdx')) return 'markdown'
+  if (/\.(ts|tsx|js|jsx|mjs|cjs|css|scss|less|json|jsonc|txt|xml|yml|yaml|toml|ini|py|rb|go|rs|java|c|h|cpp|hpp|cs|php|sh|bash|zsh|ps1)$/.test(lower)) return 'code'
+  return 'unknown'
+}
+
+function normalizePresentFileEntry(entry) {
+  if (typeof entry === 'string') return { path: entry }
+  if (entry && typeof entry === 'object' && typeof entry.path === 'string') {
+    return {
+      path: entry.path,
+      title: typeof entry.title === 'string' ? entry.title : undefined,
+      description: typeof entry.description === 'string' ? entry.description : undefined,
+      kind: typeof entry.kind === 'string' ? entry.kind : undefined,
+      preview: typeof entry.preview === 'boolean' ? entry.preview : undefined,
+    }
+  }
+  return undefined
+}
+
+export async function toolPresentFiles(params, context) {
+  const rawFiles = Array.isArray(params?.files) ? params.files : []
+  const defaultPreviewInput = typeof params?.defaultPreview === 'string' ? params.defaultPreview : undefined
+  if (rawFiles.length === 0) {
+    const error = new Error('files must contain at least one path')
+    error.statusCode = 400
+    throw error
+  }
+
+  const files = []
+  const seen = new Set()
+  for (const raw of rawFiles) {
+    const entry = normalizePresentFileEntry(raw)
+    if (!entry?.path?.trim()) continue
+    const file = resolveWorkspacePath(entry.path, context)
+    await assertSafeWorkspacePath(file, context)
+    const stat = await fs.stat(file)
+    if (!stat.isFile()) {
+      const error = new Error(`Path is not a file: ${entry.path}`)
+      error.statusCode = 400
+      throw error
+    }
+    const relativePath = toWorkspaceRelative(file, context)
+    const key = relativePath.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    const kind = entry.kind || inferPresentedFileKind(relativePath)
+    const isDefaultPreview = defaultPreviewInput ? relativePath === defaultPreviewInput.replace(/\\/g, '/') : false
+    files.push({
+      path: relativePath,
+      title: entry.title,
+      description: entry.description,
+      kind,
+      preview: entry.preview ?? (isDefaultPreview || kind === 'html'),
+      defaultPreview: isDefaultPreview,
+      bytes: stat.size,
+    })
+  }
+
+  if (files.length === 0) {
+    const error = new Error('No valid files to present')
+    error.statusCode = 400
+    throw error
+  }
+
+  const previewed = files.filter((file) => file.preview || file.kind === 'html').map((file) => file.path)
+  return {
+    content: `Presented ${files.length} file(s)${previewed.length ? ` and opened ${previewed.length} preview(s)` : ''}: ${files.map((file) => file.path).join(', ')}`,
+    details: {
+      type: 'present_files_result',
+      files,
+      defaultPreview: files.find((file) => file.defaultPreview)?.path,
+      previewed,
+      project: context?.project,
+    },
+  }
+}
+
 // --- run_command ---
 const DEFAULT_RUN_COMMAND_TIMEOUT_MS = 30 * 60 * 1000
 const MIN_RUN_COMMAND_TIMEOUT_MS = 1000
@@ -1009,6 +1091,7 @@ export const toolHandlers = {
   write_file: toolWriteFile,
   edit_file: toolEditFile,
   run_command: toolRunCommand,
+  present_files: toolPresentFiles,
   activate_skill: toolActivateSkill,
   read_skill_resource: toolReadSkillResource,
 }

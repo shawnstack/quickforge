@@ -86,6 +86,24 @@ export const workspaceTools = [
     }),
     executionMode: 'sequential',
   },
+  {
+    name: 'present_files',
+    label: 'Present files',
+    description: 'Show one or more AI-produced artifact files to the user. Use this after creating or editing user-facing files such as HTML pages, SVG/images, Markdown documents, or other deliverables. HTML files will be previewed directly in the artifact preview panel.',
+    parameters: Type.Object({
+      files: Type.Array(Type.Union([
+        Type.String({ description: 'File path relative to the workspace root.' }),
+        Type.Object({
+          path: Type.String({ description: 'File path relative to the workspace root.' }),
+          title: Type.Optional(Type.String({ description: 'Optional display title.' })),
+          description: Type.Optional(Type.String({ description: 'Optional short description shown in artifact lists.' })),
+          kind: Type.Optional(Type.String({ description: 'Optional file kind hint, such as html, image, markdown, or code.' })),
+          preview: Type.Optional(Type.Boolean({ description: 'Whether this file should be opened as the default preview.' })),
+        }),
+      ]), { description: 'Artifact files to present.' }),
+      defaultPreview: Type.Optional(Type.String({ description: 'File path to open as the default preview when multiple files are presented.' })),
+    }),
+  },
 ]
 
 function activeSkillSchema(skills) {

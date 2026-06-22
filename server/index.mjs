@@ -241,7 +241,7 @@ async function handleApi(req, res, url) {
   }
 
   // Project workspace inspector routes
-  if (pathname === '/api/workspace/tree' || pathname === '/api/workspace/file' || pathname === '/api/workspace/resolve-path') {
+  if (pathname === '/api/workspace/tree' || pathname === '/api/workspace/file' || pathname === '/api/workspace/resolve-path' || pathname.startsWith('/api/workspace/preview/')) {
     await handleWorkspaceApi(req, res, url)
     return
   }

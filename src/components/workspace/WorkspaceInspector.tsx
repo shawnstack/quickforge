@@ -10,6 +10,7 @@ import { getGitFileDiff, getGitStatus, getWorkspaceFile, getWorkspaceTree } from
 import { WorkspaceChangesList } from './WorkspaceChangesList'
 import { WorkspaceFileTree } from './WorkspaceFileTree'
 import { WorkspaceReaderDialog } from './WorkspaceReaderDialog'
+import { artifactFileName, presentArtifacts } from './artifact-preview-utils'
 import type { GitChangedFile, GitFileDiffResponse, GitStatusResponse, WorkspaceFileResponse, WorkspaceInspectorFocusTarget, WorkspacePanelView, WorkspaceTreeNode } from './workspace-types'
 
 type WorkspaceInspectorProps = {
@@ -18,6 +19,7 @@ type WorkspaceInspectorProps = {
   view: WorkspacePanelView
   onViewChange: (view: WorkspacePanelView) => void
   onOpenChange: (open: boolean) => void
+  onPreviewArtifact?: (path: string) => void
   onDraftRequest?: (text: string) => void
   focusTarget?: WorkspaceInspectorFocusTarget
   previewUrl: string
@@ -136,17 +138,31 @@ function WorkspaceMenu({ view, changesCount, open, onOpenChange, onViewChange }:
   )
 }
 
-function WorkspaceOverview({ project, artifacts, changesCount, isGitRepository, gitBranch, onViewChange, onSelectFile }: {
+function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isGitRepository, gitBranch, onViewChange, onSelectFile, onSelectDiff, onPreviewFile }: {
   project?: ProjectInfo
   artifacts: AiTurnArtifact[]
   changesCount: number
+  changedPaths: Set<string>
   isGitRepository: boolean
   gitBranch?: string
   onViewChange: (view: WorkspacePanelView) => void
   onSelectFile: (path: string) => void
+  onSelectDiff: (path: string) => void
+  onPreviewFile: (path: string) => void
 }) {
-  const fileArtifacts = artifacts.filter((artifact) => artifact.path)
+  const [commandsOpen, setCommandsOpen] = useState(false)
+  const [expandedCommandIds, setExpandedCommandIds] = useState<Set<string>>(() => new Set())
+  const fileArtifacts = presentArtifacts(artifacts)
   const commandArtifacts = artifacts.filter((artifact) => artifact.command)
+
+  function toggleCommand(id: string) {
+    setExpandedCommandIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   return (
     <div className="space-y-3 p-2">
@@ -169,28 +185,88 @@ function WorkspaceOverview({ project, artifacts, changesCount, isGitRepository, 
             {fileArtifacts.length ? (
               <div className="space-y-1.5">
                 <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">{t('workspaceFiles')} {fileArtifacts.length}</div>
-                {fileArtifacts.slice(0, 8).map((artifact) => (
-                  <button
-                    key={artifact.id}
-                    type="button"
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground/85 transition-colors hover:bg-muted/20"
-                    onClick={() => artifact.path && onSelectFile(artifact.path)}
-                  >
-                    <span className="min-w-0 flex-1 truncate font-mono">{artifact.path}</span>
-                    <span className="shrink-0 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">{artifact.source}</span>
-                  </button>
-                ))}
+                {fileArtifacts.slice(0, 8).map((artifact) => {
+                  const path = artifact.path
+                  const canPreview = artifact.kind === 'html'
+                  const canViewDiff = changedPaths.has(path)
+                  const hasDiff = typeof artifact.addedLines === 'number' || typeof artifact.removedLines === 'number'
+                  return (
+                    <div key={artifact.id} className="group flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-xs text-foreground/85 transition-colors hover:bg-muted/20">
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 truncate text-left font-medium"
+                        onClick={() => canPreview ? onPreviewFile(path) : canViewDiff ? onSelectDiff(path) : onSelectFile(path)}
+                        title={path}
+                      >
+                        {artifact.title || artifactFileName(path)}
+                      </button>
+                      {hasDiff ? (
+                        <span className="shrink-0 font-mono text-[10px] font-medium">
+                          <span className="text-emerald-600 dark:text-emerald-400">+{artifact.addedLines ?? 0}</span>
+                          <span className="ml-1 text-red-600 dark:text-red-400">-{artifact.removedLines ?? 0}</span>
+                        </span>
+                      ) : null}
+                      <span className="shrink-0 rounded-full bg-muted/30 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/70">{artifact.kind}</span>
+                      {canPreview ? (
+                        <button
+                          type="button"
+                          className="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-blue-600 opacity-0 transition-opacity hover:bg-blue-500/10 group-hover:opacity-100 dark:text-blue-400"
+                          onClick={() => onPreviewFile(path)}
+                        >
+                          {t('openPreview')}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/70 opacity-0 transition-opacity hover:bg-muted/25 group-hover:opacity-100"
+                        onClick={() => canViewDiff ? onSelectDiff(path) : onSelectFile(path)}
+                      >
+                        {canViewDiff ? t('workspaceViewDiff') : t('artifactPreviewViewSource')}
+                      </button>
+                    </div>
+                  )
+                })}
                 {fileArtifacts.length > 8 ? <div className="px-2 text-[11px] text-muted-foreground/60">+{fileArtifacts.length - 8}</div> : null}
               </div>
             ) : null}
             {commandArtifacts.length ? (
               <div className="space-y-1.5">
-                <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">{t('workspaceCommands')} {commandArtifacts.length}</div>
-                {commandArtifacts.slice(0, 5).map((artifact) => (
-                  <div key={artifact.id} className="rounded-md bg-muted/15 px-2 py-1.5 font-mono text-[11px] leading-5 text-muted-foreground/80">
-                    {artifact.command}
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60 transition-colors hover:bg-muted/15 hover:text-foreground/75"
+                  onClick={() => setCommandsOpen((value) => !value)}
+                  aria-expanded={commandsOpen}
+                >
+                  <ChevronDown className={cn('size-3.5 transition-transform', commandsOpen ? '' : '-rotate-90')} />
+                  <span className="min-w-0 flex-1 truncate">{t('workspaceCommands')} {commandArtifacts.length}</span>
+                </button>
+                {commandsOpen ? (
+                  <div className="space-y-1">
+                    {commandArtifacts.map((artifact, index) => {
+                      const expanded = expandedCommandIds.has(artifact.id)
+                      return (
+                        <div key={artifact.id} className="rounded-md bg-muted/15 text-[11px] text-muted-foreground/80">
+                          <button
+                            type="button"
+                            className="flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors hover:bg-muted/20"
+                            onClick={() => toggleCommand(artifact.id)}
+                            aria-expanded={expanded}
+                          >
+                            <ChevronDown className={cn('size-3 shrink-0 transition-transform', expanded ? '' : '-rotate-90')} />
+                            <span className="shrink-0 font-medium text-muted-foreground/65">#{index + 1}</span>
+                            <span className="min-w-0 flex-1 truncate font-mono">{artifact.command}</span>
+                          </button>
+                          {expanded ? (
+                            <div className="space-y-1 border-t border-border/30 px-2 py-2">
+                              <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-foreground/80">{artifact.command}</pre>
+                              {artifact.outputFile ? <div className="text-[10px] text-muted-foreground/65">{t('workspaceCommandOutput')}: <span className="font-mono">{artifact.outputFile}</span></div> : null}
+                            </div>
+                          ) : null}
+                        </div>
+                      )
+                    })}
                   </div>
-                ))}
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -215,7 +291,7 @@ function WorkspaceOverview({ project, artifacts, changesCount, isGitRepository, 
   )
 }
 
-export function WorkspaceInspector({ project, open, view, onViewChange, onOpenChange, onDraftRequest, focusTarget, previewUrl, onPreviewUrlChange, artifacts = [] }: WorkspaceInspectorProps) {
+export function WorkspaceInspector({ project, open, view, onViewChange, onOpenChange, onPreviewArtifact, onDraftRequest, focusTarget, previewUrl, onPreviewUrlChange, artifacts = [] }: WorkspaceInspectorProps) {
   const [tree, setTree] = useState<WorkspaceTreeNode[]>([])
   const [changes, setChanges] = useState<GitChangedFile[]>([])
   const [gitBranch, setGitBranch] = useState<string>()
@@ -247,6 +323,15 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onOpenCh
     const map: Record<string, GitChangedFile> = {}
     for (const file of changes) map[file.path] = file
     return map
+  }, [changes])
+
+  const changedPaths = useMemo(() => {
+    const paths = new Set<string>()
+    for (const file of changes) {
+      paths.add(file.path)
+      if (file.oldPath) paths.add(file.oldPath)
+    }
+    return paths
   }, [changes])
 
   const filteredTree = useMemo(() => filterWorkspaceTree(tree, filter), [filter, tree])
@@ -333,6 +418,14 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onOpenCh
     })
   }, [projectId])
 
+  function selectPreviewFile(path: string) {
+    if (onPreviewArtifact) {
+      onPreviewArtifact(path)
+      return
+    }
+    selectFile(path)
+  }
+
   async function selectFile(path: string) {
     if (!projectId) return
     onViewChange('files')
@@ -352,9 +445,9 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onOpenCh
     }
   }
 
-  async function selectDiff(path: string) {
+  async function openDiff(path: string, switchToChanges: boolean) {
     if (!projectId) return
-    onViewChange('changes')
+    if (switchToChanges) onViewChange('changes')
     setReaderMode('diff')
     setReaderOpen(true)
     setSelectedDiffPath(path)
@@ -369,6 +462,14 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onOpenCh
     } finally {
       setDiffLoading(false)
     }
+  }
+
+  async function selectDiff(path: string) {
+    await openDiff(path, true)
+  }
+
+  async function selectDiffInPlace(path: string) {
+    await openDiff(path, false)
   }
 
   function refresh() {
@@ -419,10 +520,13 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onOpenCh
                   project={project}
                   artifacts={artifacts}
                   changesCount={changes.length}
+                  changedPaths={changedPaths}
                   isGitRepository={isGitRepository}
                   gitBranch={gitBranch}
                   onViewChange={onViewChange}
                   onSelectFile={selectFile}
+                  onSelectDiff={selectDiffInPlace}
+                  onPreviewFile={selectPreviewFile}
                 />
               ) : null}
               {!loading && view === 'files' ? (

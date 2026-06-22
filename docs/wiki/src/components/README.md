@@ -22,7 +22,7 @@ components/
 ├── sidebar/
 │   └── ChatSidebar.tsx             # 聊天侧边栏 (551 行)
 ├── workspace/
-│   ├── WorkspaceInspector.tsx      # 右侧工作区检查器，Files/Changes + Monaco
+│   ├── WorkspaceInspector.tsx      # 右侧统一工作区检查器，Overview/Files/Browser/Changes；Overview 展示当前 Session 修改，HTML 产物在 Browser 中打开
 │   ├── WorkspaceFileTree.tsx       # 项目文件树
 │   ├── WorkspaceChangesList.tsx    # Git 工作区变更列表
 │   ├── MonacoCodeViewer.tsx        # Monaco 只读代码查看器
@@ -121,7 +121,9 @@ components/
 - 右侧专业工作区检查器入口为 `WorkspaceInspector.tsx`
 - Files tab 通过后端 `/api/workspace/tree` 和 `/api/workspace/file` 安全读取当前项目文件，使用 Monaco Editor 只读展示
 - Changes tab 通过 `/api/git/status` 和 `/api/git/file-diff` 获取 Git 工作区变更，使用 Monaco DiffEditor 展示单文件差异
-- 第一版仅提供只读浏览和 diff review，不提供编辑、stage、commit、branch 操作
+- AI 产物预览由 `ArtifactPreviewPanel.tsx` 承担：当前 turn 产生 HTML/SVG/图片/Markdown/代码产物时自动打开右侧面板，HTML 通过 `HtmlArtifactPreview.tsx` 直接 iframe 渲染
+- `ArtifactFilesPopover.tsx` 提供类似浏览器 tools 的产物文件浮层，支持多个 artifact 之间切换和 pin
+- 第一版仅提供只读浏览、产物预览和 diff review，不提供编辑、stage、commit、branch 操作
 
 ### Terminal Dock (`terminal/`)
 

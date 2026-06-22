@@ -246,6 +246,34 @@ function diffLineStyle(line: string) {
   }
 }
 
+function renderInlineDiffStats(toolName: string, diff: ToolDiffDetails | undefined) {
+  if ((toolName !== 'write_file' && toolName !== 'edit_file') || !diff) return nothing
+
+  const addedLines = Number(diff.addedLines ?? 0)
+  const removedLines = Number(diff.removedLines ?? 0)
+
+  return html`
+    <span class="shrink-0 inline-flex items-center gap-1" title="+${addedLines} -${removedLines}">
+      <span
+        class="quickforge-diff-badge quickforge-diff-badge-add"
+        style=${styleMap({
+          ...DIFF_BADGE_BASE_STYLE,
+          background: 'color-mix(in oklab, rgb(34 197 94) 16%, transparent)',
+          color: 'rgb(22 101 52)',
+        })}
+      >+${addedLines}</span>
+      <span
+        class="quickforge-diff-badge quickforge-diff-badge-del"
+        style=${styleMap({
+          ...DIFF_BADGE_BASE_STYLE,
+          background: 'color-mix(in oklab, rgb(239 68 68) 14%, transparent)',
+          color: 'rgb(153 27 27)',
+        })}
+      >-${removedLines}</span>
+    </span>
+  `
+}
+
 function renderDiff(diff: ToolDiffDetails) {
   const lines = diff.text?.split('\n') ?? []
   const addedLines = Number(diff.addedLines ?? 0)
@@ -593,6 +621,7 @@ class LocalWorkspaceToolRenderer {
             <svg class="shrink-0 transition-transform group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
             ${renderToolIcon(this.toolName)}
             <span class="min-w-0 flex-1 truncate">${t(this.labelKey)}${summary ? html`<span class="text-muted-foreground/70"> · ${summary}</span>` : ''}</span>
+            ${renderInlineDiffStats(this.toolName, diff)}
             ${renderTerminateCommandButton(this.toolName, status, result?.details)}
             ${renderStatus(status, timing)}
           </summary>

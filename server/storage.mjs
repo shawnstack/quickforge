@@ -725,6 +725,9 @@ export function ensureStorage() {
       fs.mkdir(path.join(cacheDir, 'projects'), { recursive: true }),
       fs.mkdir(path.join(storageDir, 'conversations', 'global', 'sessions'), { recursive: true }),
       fs.mkdir(path.join(storageDir, 'conversations', 'projects'), { recursive: true }),
+      // Default workspace directory for global (non-project) conversations, so
+      // they share the same file-tool capabilities as project conversations.
+      fs.mkdir(path.join(dataDir, 'workspace'), { recursive: true }),
       cleanOldLogs(),
     ])
 

@@ -12,7 +12,7 @@
 | [useModelActions.ts](../../src/hooks/useModelActions.ts) | 228 | 模型操作：选择模型、切换 yolo、管理工具 |
 | [useSessionActions.ts](../../src/hooks/useSessionActions.ts) | 89 | 会话操作：删除、重命名、刷新 |
 | [useSessionPagination.ts](../../src/hooks/useSessionPagination.ts) | 157 | 会话分页加载 |
-| [useProject.ts](../../src/hooks/useProject.ts) | 104 | 项目状态管理 |
+| [useProject.ts](../../src/hooks/useProject.ts) | 104 | 项目状态管理；含 `defaultWorkspace`（全局对话默认工作目录的合成 project，由 `/api/project` 的 `defaultWorkspaceRoot` 构造） |
 | [useProjectActions.ts](../../src/hooks/useProjectActions.ts) | 71 | 项目操作：切换、添加、删除 |
 | [useYoloActions.ts](../../src/hooks/useYoloActions.ts) | 56 | YOLO 模式操作 |
 | [useYoloMode.ts](../../src/hooks/useYoloMode.ts) | 26 | YOLO 模式状态 |
@@ -47,6 +47,7 @@
 - **标题生成**: 自动为无标题会话生成 AI 标题
 - **后台任务**: 管理后台运行的任务状态
 - **对话压缩**: 支持 compact 命令压缩长对话
+- **全局会话默认工作目录**: 通过 `defaultWorkspaceRef`（来自 `useProject.defaultWorkspace`）为 global 作用域会话注入合成 project（id=`default`，指向 `~/.quickforge/workspace`），从而启用工作区面板/终端/Git；该合成 id 仅用于前端 UI 与 REST 端点，不会作为 `projectId` 发往后端创建 Agent
 
 ### useChatActions.ts (276 行)
 

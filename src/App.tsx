@@ -137,11 +137,13 @@ function MainApp() {
   const activeModelRef = useRef<Model<Api>>(buildConnectionModel(DEFAULT_CONNECTION))
   const yoloModeRef = useRef(false)
   const activeProjectRef = useRef<ProjectInfo | undefined>(undefined)
+  const defaultWorkspaceRef = useRef<ProjectInfo | undefined>(undefined)
 
   // --- Project hook ---
   const {
     activeProject,
     projects,
+    defaultWorkspace,
     expandedProjectIds,
     selectingProject,
     projectPickerOpen,
@@ -228,6 +230,10 @@ function MainApp() {
     activeProjectRef.current = activeProject
   }, [activeProject])
 
+  useEffect(() => {
+    defaultWorkspaceRef.current = defaultWorkspace
+  }, [defaultWorkspace])
+
   useEffect(() => { crossTabRef.current = crossTab }, [crossTab])
 
   const handleContextUsageDisplayChange = useCallback((sessionId: string, info: ContextUsageDisplayInfo) => {
@@ -240,6 +246,7 @@ function MainApp() {
     activeModelRef,
     yoloModeRef,
     activeProjectRef,
+    defaultWorkspaceRef,
     setYoloMode,
     switchActiveProject,
     sessions: allLoadedSessions,

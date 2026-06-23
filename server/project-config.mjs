@@ -13,6 +13,30 @@ export function setDefaultWorkspaceRoot(root) {
   defaultWorkspaceRoot = path.resolve(root)
 }
 
+export function getDefaultWorkspaceRoot() {
+  return defaultWorkspaceRoot
+}
+
+// Synthetic workspace context for global conversations (no projectId).
+// Gives global chats the same file-tool capabilities as project chats, rooted
+// at the default workspace directory (~/.quickforge/workspace by default). The
+// synthetic `project` object (id 'default') lets workspace/git/terminal REST
+// endpoints and subagents keep working without a real registered project.
+export function defaultGlobalWorkspaceContext() {
+  return {
+    project: {
+      id: 'default',
+      name: 'workspace',
+      path: defaultWorkspaceRoot,
+      lastOpenedAt: '',
+      sortOrder: 0,
+      skills: [],
+      commandDir: '',
+    },
+    workspaceRoot: defaultWorkspaceRoot,
+  }
+}
+
 function projectNameFromPath(dir) {
   return path.basename(dir) || dir
 }
@@ -264,16 +288,19 @@ export async function initializeActiveProject() {
     }
   }
 
-  // No project configured — leave workspace unset, user will be prompted to add one.
+  // No project configured — fall back to the default workspace root so global
+  // conversations still have a working directory and the filesystem browser works.
+  setWorkspaceRoot(defaultWorkspaceRoot)
 }
 
 export async function projectContextFromId(projectId) {
   const config = await readProjectConfig()
   const project = config.projects.find((item) => item.id === projectId)
   if (!project) {
-    const error = new Error('Unknown project')
-    error.statusCode = 404
-    throw error
+    // Unknown or removed project (e.g. a global conversation's synthetic id) —
+    // fall back to the default workspace so workspace/git REST endpoints keep
+    // working for global conversations.
+    return defaultGlobalWorkspaceContext()
   }
 
   await assertDirectory(project.path)
@@ -375,7 +402,7 @@ export async function buildInstructionsPayload(projectId) {
           name: project.name,
           root: project.path,
         }
-      : null,
+      : (defaultWorkspaceRoot ? { name: 'workspace', root: defaultWorkspaceRoot } : null),
     global: globalInstructions,
     project: projectInstructions,
     globalSources: globalInstructionSources,

@@ -11,7 +11,7 @@ import {
   formatSubagentTask,
 } from './subagents.mjs'
 import { agentProfileSnapshot, getAgentProfile } from './agent-profiles.mjs'
-import { projectContextFromId, readProjectConfig } from './project-config.mjs'
+import { projectContextFromId, defaultGlobalWorkspaceContext, readProjectConfig } from './project-config.mjs'
 import { readStore, atomicUpdate, atomicSessionMetadataUpdate, readSessionValue, writeSessionValue, deleteSessionValue } from './storage.mjs'
 import { logger } from './utils/logger.mjs'
 import { buildSystemPrompt, generateAiTitle, generateTitle } from './session-utils.mjs'
@@ -92,7 +92,7 @@ async function createServerTools(projectId, projectContext, skillsContext, inclu
     .filter(isAllowed)
     .map((definition) => wrapToolDefinition(definition, toolContext, toolPermissions))
 
-  if (includeWorkspaceTools && projectId && projectContext) {
+  if (includeWorkspaceTools && projectContext) {
     const definitions = workspaceTools.filter((definition) => includeSubagentTool || definition.name !== 'run_subagent')
     tools.push(...definitions
       .filter(isAllowed)
@@ -117,7 +117,7 @@ async function rebuildSessionTools(session) {
     session.projectId,
     session.projectContext,
     sessionSkillsContext(session),
-    !!(session.projectId && session.projectContext),
+    !!session.projectContext,
     createCommandToolPermissions(session),
     { parentSessionId: session.sessionId },
   )
@@ -1064,15 +1064,18 @@ export async function createAgent(sessionId, config = {}) {
     agentProfile = null,
   } = config
 
-  // Resolve project context for tool calls
+  // Resolve project context for tool calls. Project conversations resolve to
+  // their directory; global conversations (no projectId) and any fallback fall
+  // back to a synthetic default workspace context so file tools stay available.
   let projectContext = null
   if (projectId) {
     try {
       projectContext = await projectContextFromId(projectId)
     } catch {
-      // project not found — run without tools
+      // project not found — fall back to the default workspace below
     }
   }
+  projectContext ??= defaultGlobalWorkspaceContext()
 
   // Build system prompt
   const projectConfig = await readProjectConfig()
@@ -1105,7 +1108,7 @@ export async function createAgent(sessionId, config = {}) {
     projectId,
     projectContext,
     skillsContext,
-    !!(projectId && projectContext),
+    !!projectContext,
     (toolName) => {
       if (profileToolNames && !profileToolNames.includes(toolName)) return `Agent profile ${agentProfile.name} is not allowed to use ${toolName}.`
       const session = agentSessions.get(sessionId)
@@ -1162,7 +1165,7 @@ export async function createAgent(sessionId, config = {}) {
         if (!currentSession?.yoloMode) return createApprovalPromise(currentSession, toolCallId, toolName, context.args)
         return undefined
       }
-      if (!projectContext) {
+      if (!projectContext?.workspaceRoot) {
         return { block: true, reason: 'No active project. Select a project to use tools.' }
       }
       if (!currentSession?.yoloMode) {

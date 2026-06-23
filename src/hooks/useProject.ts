@@ -5,6 +5,7 @@ import { logger } from '@/lib/logger'
 export function useProject() {
   const [activeProject, setActiveProject] = useState<ProjectInfo>()
   const [projects, setProjects] = useState<ProjectInfo[]>([])
+  const [defaultWorkspace, setDefaultWorkspace] = useState<ProjectInfo>()
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => new Set())
   const [selectingProject, setSelectingProject] = useState(false)
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
@@ -16,6 +17,12 @@ export function useProject() {
       const payload = await response.json()
       setActiveProject(payload.project)
       setProjects(Array.isArray(payload.projects) ? payload.projects : [])
+      // Default workspace used as the synthetic project for global conversations.
+      setDefaultWorkspace(
+        typeof payload.defaultWorkspaceRoot === 'string' && payload.defaultWorkspaceRoot
+          ? { id: 'default', name: 'workspace', path: payload.defaultWorkspaceRoot, lastOpenedAt: '' }
+          : undefined,
+      )
       setExpandedProjectIds((current) => {
         const next = new Set(current)
         for (const project of Array.isArray(payload.projects) ? payload.projects : []) next.add(project.id)
@@ -128,6 +135,7 @@ export function useProject() {
   return {
     activeProject,
     projects,
+    defaultWorkspace,
     expandedProjectIds,
     selectingProject,
     projectPickerOpen,

@@ -32,6 +32,7 @@ export interface AgentManagerDeps {
   activeModelRef: React.MutableRefObject<Model<Api>>
   yoloModeRef: React.MutableRefObject<boolean>
   activeProjectRef: React.MutableRefObject<ProjectInfo | undefined>
+  defaultWorkspaceRef: React.MutableRefObject<ProjectInfo | undefined>
   setYoloMode: React.Dispatch<React.SetStateAction<boolean>>
   switchActiveProject: (projectId: string) => Promise<ProjectInfo>
   sessions: QuickForgeSessionMetadata[]
@@ -102,6 +103,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     activeModelRef,
     yoloModeRef,
     activeProjectRef,
+    defaultWorkspaceRef,
     setYoloMode,
     switchActiveProject,
     sessions,
@@ -192,7 +194,9 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       }
 
       const scope = options?.scope ?? currentChatScopeRef.current
-      const project = scope === 'project' ? (options?.project ?? activeProjectRef.current) : undefined
+      const project = scope === 'project'
+        ? (options?.project ?? activeProjectRef.current)
+        : (options?.project ?? defaultWorkspaceRef.current)
       const startedAt = new Date().toISOString()
 
       const {
@@ -216,7 +220,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
 
       const nextAgent = await ServerAgent.create(sessionId, {
         scope,
-        projectId: project?.id,
+        projectId: scope === 'project' ? project?.id : undefined,
         yoloMode: resolvedYoloMode,
         model: resolvedModel,
         thinkingLevel: resolvedThinkingLevel,
@@ -324,7 +328,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       }
       return nextAgent
     },
-    [attachTaskToView, disposeDetachedAgent, refreshSessions, syncSessionUI, storageRef, activeModelRef, yoloModeRef, activeProjectRef, setYoloMode],
+    [attachTaskToView, disposeDetachedAgent, refreshSessions, syncSessionUI, storageRef, activeModelRef, yoloModeRef, activeProjectRef, defaultWorkspaceRef, setYoloMode],
   )
 
   const startDeferredSession = useCallback(async (options: { scope: ChatScope; project?: ProjectInfo }) => {
@@ -338,7 +342,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     activeModelRef.current = resolvedModel
 
     const scope = options.scope
-    const project = scope === 'project' ? options.project : undefined
+    const project = scope === 'project' ? options.project : (options.project ?? defaultWorkspaceRef.current)
     const deferredAgent = new DeferredSessionAgent({
       scope,
       project,
@@ -364,7 +368,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     url.searchParams.delete('session')
     window.history.replaceState({}, '', url)
     return deferredAgent
-  }, [activeModelRef, createAgent, disposeDetachedAgent, storageRef, yoloModeRef])
+  }, [activeModelRef, createAgent, defaultWorkspaceRef, disposeDetachedAgent, storageRef, yoloModeRef])
 
   // --- Load a persisted session ---
   const loadSession = useCallback(

@@ -1,5 +1,5 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
-import { getActiveProject, setActiveProjectPath, readProjectConfig } from '../project-config.mjs'
+import { getActiveProject, setActiveProjectPath, readProjectConfig, getDefaultWorkspaceRoot } from '../project-config.mjs'
 import { listProjectCommands, createCommandFile } from '../custom-commands.mjs'
 import { atomicProjectConfigUpdate } from '../storage.mjs'
 import { getWorkspaceRoot, setWorkspaceRoot } from '../utils/workspace.mjs'
@@ -11,7 +11,7 @@ export async function handleProjectApi(req, res, url) {
 
   if (req.method === 'GET' && url.pathname === '/api/project') {
     const sorted = [...config.projects].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-    sendJson(res, 200, { project: getActiveProject(config), projects: sorted, workspaceRoot: getWorkspaceRoot() })
+    sendJson(res, 200, { project: getActiveProject(config), projects: sorted, workspaceRoot: getWorkspaceRoot(), defaultWorkspaceRoot: getDefaultWorkspaceRoot() })
     return
   }
 

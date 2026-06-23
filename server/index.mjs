@@ -57,7 +57,7 @@ const vitePort = Number(process.env.QUICKFORGE_VITE_PORT || 5176)
 let restartInProgress = false
 let updateInProgress = false
 
-setDefaultWorkspaceRoot(process.env.QUICKFORGE_WORKSPACE_DIR || projectRoot)
+setDefaultWorkspaceRoot(process.env.QUICKFORGE_WORKSPACE_DIR || path.join(dataDir, 'workspace'))
 installAiHttpLogger()
 
 function getRestartSupport() {

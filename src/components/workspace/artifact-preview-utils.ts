@@ -35,9 +35,20 @@ export function isPreviewablePath(path: string) {
   return inferArtifactKind(path) === 'html'
 }
 
+export function workspaceArtifactDiskPath(workspaceRoot: string | undefined, artifactPath: string) {
+  const normalizedArtifactPath = artifactPath.replace(/\\/g, '/')
+  if (!workspaceRoot?.trim() || normalizedArtifactPath.startsWith('/') || /^[a-zA-Z]:\//.test(normalizedArtifactPath)) return artifactPath
+
+  const normalizedRoot = workspaceRoot.trim().replace(/\\/g, '/').replace(/\/+$/, '')
+  const relativePath = normalizedArtifactPath.replace(/^\/+/, '')
+  return `${normalizedRoot}/${relativePath}`
+}
+
 export function workspacePreviewUrl(projectId: string, path: string, reloadToken?: number) {
-  const encodedPath = path
-    .replace(/\\/g, '/')
+  const normalizedPath = path.replace(/\\/g, '/')
+  const leadingSlashes = normalizedPath.match(/^\/+/)?.[0] ?? ''
+  const encodedPath = leadingSlashes + normalizedPath
+    .slice(leadingSlashes.length)
     .split('/')
     .filter(Boolean)
     .map((part) => encodeURIComponent(part))

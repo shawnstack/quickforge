@@ -2,6 +2,7 @@ import { ExternalLink, Globe2, RefreshCw } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { t } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
+import { workspacePreviewUrl } from '@/components/workspace/artifact-preview-utils'
 
 const COMMON_PREVIEW_URLS = [
   'http://localhost:5173',
@@ -21,53 +22,83 @@ function isWorkspacePreviewUrl(rawUrl: string) {
   }
 }
 
-function normalizePreviewUrl(rawUrl: string) {
+function isDiskAbsolutePath(rawPath: string) {
+  const normalized = rawPath.trim().replace(/\\/g, '/')
+  return normalized.startsWith('/') || /^[a-zA-Z]:\//.test(normalized)
+}
+
+function displayUrlFromWorkspacePreview(rawUrl: string, projectId?: string) {
   const trimmed = rawUrl.trim()
-  if (!trimmed) return { url: '', error: '' }
+  if (!projectId || !isWorkspacePreviewUrl(trimmed)) return trimmed
+
+  try {
+    const parsed = new URL(trimmed, window.location.origin)
+    const prefix = `/api/workspace/preview/${encodeURIComponent(projectId)}/`
+    if (!parsed.pathname.startsWith(prefix)) return trimmed
+    const encodedPath = parsed.pathname.slice(prefix.length)
+    return encodedPath.split('/').map((part) => decodeURIComponent(part)).join('/')
+  } catch {
+    return trimmed
+  }
+}
+
+function normalizePreviewUrl(rawUrl: string, projectId?: string) {
+  const trimmed = rawUrl.trim()
+  if (!trimmed) return { url: '', displayUrl: '', error: '' }
 
   if (isWorkspacePreviewUrl(trimmed)) {
     const parsed = new URL(trimmed, window.location.origin)
-    return { url: `${parsed.pathname}${parsed.search}${parsed.hash}`, error: '' }
+    return {
+      url: `${parsed.pathname}${parsed.search}${parsed.hash}`,
+      displayUrl: displayUrlFromWorkspacePreview(trimmed, projectId),
+      error: '',
+    }
+  }
+
+  if (projectId && isDiskAbsolutePath(trimmed)) {
+    return { url: workspacePreviewUrl(projectId, trimmed), displayUrl: trimmed, error: '' }
   }
 
   const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`
   try {
     const parsed = new URL(withProtocol)
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return { url: '', error: t('invalidPreviewUrl') }
+      return { url: '', displayUrl: trimmed, error: t('invalidPreviewUrl') }
     }
-    return { url: parsed.toString(), error: '' }
+    return { url: parsed.toString(), displayUrl: parsed.toString(), error: '' }
   } catch {
-    return { url: '', error: t('invalidPreviewUrl') }
+    return { url: '', displayUrl: trimmed, error: t('invalidPreviewUrl') }
   }
 }
 
 type WebPreviewContentProps = {
   url: string
   onUrlChange: (url: string) => void
+  projectId?: string
 }
 
-export function WebPreviewContent({ url, onUrlChange }: WebPreviewContentProps) {
-  const [draftState, setDraftState] = useState({ sourceUrl: url, value: url })
+export function WebPreviewContent({ url, onUrlChange, projectId }: WebPreviewContentProps) {
+  const normalized = useMemo(() => normalizePreviewUrl(url, projectId), [projectId, url])
+  const [draftState, setDraftState] = useState({ sourceUrl: url, value: normalized.displayUrl })
   const [error, setError] = useState('')
   const [reloadToken, setReloadToken] = useState(0)
-  const previewUrl = useMemo(() => normalizePreviewUrl(url).url, [url])
+  const previewUrl = normalized.url
   const isWorkspacePreview = previewUrl.startsWith('/api/workspace/preview/')
   const iframeSandbox = isWorkspacePreview
     ? 'allow-scripts allow-forms'
     : 'allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals allow-pointer-lock'
-  const draftUrl = draftState.sourceUrl === url ? draftState.value : url
+  const draftUrl = draftState.sourceUrl === url ? draftState.value : normalized.displayUrl
 
   function applyUrl(nextUrl = draftUrl) {
-    const result = normalizePreviewUrl(nextUrl)
+    const result = normalizePreviewUrl(nextUrl, projectId)
     if (result.error) {
       setError(result.error)
       return
     }
 
     setError('')
-    setDraftState({ sourceUrl: result.url, value: result.url })
-    onUrlChange(result.url)
+    setDraftState({ sourceUrl: result.displayUrl, value: result.displayUrl })
+    onUrlChange(result.displayUrl)
     if (result.url) setReloadToken((value) => value + 1)
   }
 

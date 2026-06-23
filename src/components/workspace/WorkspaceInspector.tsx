@@ -509,7 +509,7 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onOpenCh
           {!project?.id ? (
             <div className="p-4 text-sm text-muted-foreground/70">{t('workspaceSelectProject')}</div>
           ) : view === 'browser' ? (
-            <WebPreviewContent url={previewUrl} onUrlChange={onPreviewUrlChange} />
+            <WebPreviewContent url={previewUrl} onUrlChange={onPreviewUrlChange} projectId={project.id} />
           ) : error ? (
             <div className="p-4 text-sm text-destructive">{error}</div>
           ) : (

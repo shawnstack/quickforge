@@ -56,7 +56,7 @@ import { getWorkspaceFile, resolveWorkspacePath } from '@/components/workspace/w
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
-import { findBestPreviewableArtifact, inferArtifactKind, workspacePreviewUrl } from '@/components/workspace/artifact-preview-utils'
+import { findBestPreviewableArtifact, inferArtifactKind, workspaceArtifactDiskPath } from '@/components/workspace/artifact-preview-utils'
 
 // --- Code-split secondary views (only loaded when first opened) ---
 // These are conditionally-mounted routes/panels; lazy loading keeps heavy
@@ -318,17 +318,19 @@ function MainApp() {
   }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id, ui])
 
   const openArtifactPreview = useCallback((path: string) => {
-    const projectId = agentManager.currentToolProject?.id
+    const project = agentManager.currentToolProject
+    const projectId = project?.id
     if (!projectId || inferArtifactKind(path) !== 'html') return
     closeWorkspacePage()
     setArtifactPreviewOpen(false)
-    ui.setWebPreviewUrl(workspacePreviewUrl(projectId, path))
+    ui.setWebPreviewUrl(workspaceArtifactDiskPath(project.path, path))
     ui.setWorkspacePanelView('browser')
     setWorkspaceInspectorOpen(true)
-  }, [agentManager.currentToolProject?.id, closeWorkspacePage, setArtifactPreviewOpen, setWorkspaceInspectorOpen, ui])
+  }, [agentManager.currentToolProject, closeWorkspacePage, setArtifactPreviewOpen, setWorkspaceInspectorOpen, ui])
 
   useEffect(() => {
-    const projectId = agentManager.currentToolProject?.id
+    const project = agentManager.currentToolProject
+    const projectId = project?.id
     if (!projectId) return
     const artifact = findBestPreviewableArtifact(currentSessionArtifacts)
     if (!artifact?.path) return
@@ -339,11 +341,11 @@ function MainApp() {
     queueMicrotask(() => {
       closeWorkspacePage()
       setArtifactPreviewOpen(false)
-      ui.setWebPreviewUrl(workspacePreviewUrl(projectId, artifact.path))
+      ui.setWebPreviewUrl(workspaceArtifactDiskPath(project.path, artifact.path))
       ui.setWorkspacePanelView('browser')
       setWorkspaceInspectorOpen(true)
     })
-  }, [agentManager.currentToolProject?.id, closeWorkspacePage, currentSessionArtifacts, setArtifactPreviewOpen, setWorkspaceInspectorOpen, ui, workspaceInspectorOpen])
+  }, [agentManager.currentToolProject, closeWorkspacePage, currentSessionArtifacts, setArtifactPreviewOpen, setWorkspaceInspectorOpen, ui, workspaceInspectorOpen])
 
   useEffect(() => {
     autoPreviewSignatureRef.current = ''

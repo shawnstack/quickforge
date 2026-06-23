@@ -110,6 +110,7 @@ components/
 - Composer 区域装饰（发送/停止切换、YOLO 按钮、Plan 按钮、占位符）
 - Plan 按钮和 Shift+Tab 切换前端 Plan 模式；发送时复用 `/plan <任务>` 的单轮计划逻辑
 - 命令绑定和草稿指示器
+- Assistant Markdown 中的 ```svg 代码块会默认进入安全图片预览，可在代码块右上角切换预览/源码，并支持复制源码和下载 SVG
 
 **scroll-sync.ts** (174 行)
 - 自动滚动同步管理

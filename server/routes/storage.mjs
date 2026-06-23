@@ -5,6 +5,7 @@ import { directorySize } from '../utils/workspace.mjs'
 
 const metadataIndexCache = new Map()
 const MAX_METADATA_INDEX_CACHE_ENTRIES = 50
+const METADATA_INDEX_CACHE_TTL_MS = 1000
 
 function metadataIndexCacheKey({ scope, projectId, indexName, direction }) {
   return JSON.stringify({ scope: scope || '', projectId: projectId || '', indexName, direction })
@@ -47,7 +48,8 @@ async function readIndexedValues(store, indexName, direction, scope, projectId) 
   const revision = getStoreRevision(store)
   const key = metadataIndexCacheKey({ scope, projectId, indexName, direction })
   const cached = metadataIndexCache.get(key)
-  if (cached && cached.revision === revision) return cached.values
+  const now = Date.now()
+  if (cached && cached.revision === revision && now - cached.cachedAt < METADATA_INDEX_CACHE_TTL_MS) return cached.values
 
   const data = scope
     ? await readSessionStoreScoped(store, scope, scope === 'project' ? projectId : undefined)
@@ -59,7 +61,7 @@ async function readIndexedValues(store, indexName, direction, scope, projectId) 
     direction,
   )
 
-  metadataIndexCache.set(key, { revision, values })
+  metadataIndexCache.set(key, { revision, values, cachedAt: now })
   if (metadataIndexCache.size > MAX_METADATA_INDEX_CACHE_ENTRIES) {
     const firstKey = metadataIndexCache.keys().next().value
     if (firstKey) metadataIndexCache.delete(firstKey)

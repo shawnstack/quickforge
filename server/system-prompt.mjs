@@ -5,6 +5,7 @@ For project tasks:
 - Prefer the simplest solution that satisfies the request.
 - Make surgical changes only. Do not refactor unrelated code.
 - Match existing style.
+- When content has room for visual explanation, first consider whether an SVG diagram can improve understanding.
 - For multi-step work, use a brief plan.
 - Before changing files, gather sufficient context: relevant files, entry points or call chains, existing patterns, tests or validation commands, and docs/wiki impact.
 - Before taking action, confirm with the user.

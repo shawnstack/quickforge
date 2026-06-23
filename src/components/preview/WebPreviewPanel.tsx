@@ -24,7 +24,7 @@ export function WebPreviewPanel({ project, url, onUrlChange, onOpenChange }: Web
           <PanelRightClose className="size-4" />
         </Button>
       </div>
-      <WebPreviewContent url={url} onUrlChange={onUrlChange} />
+      <WebPreviewContent url={url} onUrlChange={onUrlChange} projectId={project?.id} />
     </aside>
   )
 }

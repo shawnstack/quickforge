@@ -1,5 +1,5 @@
-import { Check, ChevronDown, Code2, Folder, GitBranch, Globe2, LayoutGrid, MessageSquare, PanelRightClose, RefreshCw, Search } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { Check, ChevronDown, ChevronsLeftRight, Code2, Folder, GitBranch, Globe2, LayoutGrid, Maximize2, MessageSquare, Minimize2, PanelRightClose, RefreshCw, Search } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ProjectInfo } from '@/lib/types'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
 import { cn } from '@/lib/utils'
@@ -41,6 +41,10 @@ const WORKSPACE_MENU_ITEMS: WorkspaceMenuItem[] = [
   { view: 'browser', label: t('workspaceBrowser'), icon: Globe2 },
   { view: 'changes', label: t('workspaceChanges'), icon: GitBranch },
 ]
+
+const WORKSPACE_INSPECTOR_MIN_WIDTH = 300
+const WORKSPACE_INSPECTOR_DEFAULT_WIDTH = 380
+const WORKSPACE_INSPECTOR_MAX_WIDTH = 560
 
 function filterWorkspaceTree(tree: WorkspaceTreeNode[], rawQuery: string): WorkspaceTreeNode[] {
   const query = rawQuery.trim().toLowerCase()
@@ -316,6 +320,15 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onOpenCh
   const [readerMode, setReaderMode] = useState<ReaderMode>('file')
   const [mounted, setMounted] = useState(open)
   const [visible, setVisible] = useState(false)
+  const [width, setWidth] = useState(WORKSPACE_INSPECTOR_DEFAULT_WIDTH)
+  const [isResizing, setIsResizing] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
+  const [fullscreenAnimating, setFullscreenAnimating] = useState(false)
+  const asideRef = useRef<HTMLElement | null>(null)
+  const resizeDragRef = useRef<{ startX: number; startWidth: number; currentWidth: number } | null>(null)
+  const resizeFrameRef = useRef<number | null>(null)
+  const fullscreenAnimationRef = useRef<Animation | null>(null)
+  const previousBodyStyleRef = useRef<{ cursor: string; userSelect: string } | null>(null)
 
   const projectId = project?.id
 
@@ -476,17 +489,218 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onOpenCh
     setRefreshToken((value) => value + 1)
   }
 
+  function startResizing(event: React.PointerEvent<HTMLDivElement>) {
+    resizeDragRef.current = { startX: event.clientX, startWidth: width, currentWidth: width }
+    previousBodyStyleRef.current = {
+      cursor: document.body.style.cursor,
+      userSelect: document.body.style.userSelect,
+    }
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    setIsResizing(true)
+    event.preventDefault()
+    try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* ignore */ }
+  }
+
+  function resize(event: React.PointerEvent<HTMLDivElement>) {
+    const start = resizeDragRef.current
+    const aside = asideRef.current
+    if (!start || !aside) return
+    start.currentWidth = Math.min(
+      WORKSPACE_INSPECTOR_MAX_WIDTH,
+      Math.max(WORKSPACE_INSPECTOR_MIN_WIDTH, start.startWidth + start.startX - event.clientX),
+    )
+    if (resizeFrameRef.current !== null) return
+    resizeFrameRef.current = window.requestAnimationFrame(() => {
+      resizeFrameRef.current = null
+      const current = resizeDragRef.current
+      if (!current || !asideRef.current) return
+      asideRef.current.style.width = `${current.currentWidth}px`
+    })
+  }
+
+  function stopResizing(event: React.PointerEvent<HTMLDivElement>) {
+    const finalWidth = resizeDragRef.current?.currentWidth
+    resizeDragRef.current = null
+    if (resizeFrameRef.current !== null) {
+      window.cancelAnimationFrame(resizeFrameRef.current)
+      resizeFrameRef.current = null
+    }
+    if (typeof finalWidth === 'number') {
+      if (asideRef.current) asideRef.current.style.width = `${finalWidth}px`
+      setWidth(finalWidth)
+    }
+    const previousBodyStyle = previousBodyStyleRef.current
+    if (previousBodyStyle) {
+      document.body.style.cursor = previousBodyStyle.cursor
+      document.body.style.userSelect = previousBodyStyle.userSelect
+      previousBodyStyleRef.current = null
+    }
+    setIsResizing(false)
+    try { event.currentTarget.releasePointerCapture(event.pointerId) } catch { /* ignore */ }
+  }
+
+  const toggleFullscreen = useCallback(() => {
+    const aside = asideRef.current
+    if (!aside) {
+      setFullscreen((value) => !value)
+      return
+    }
+
+    fullscreenAnimationRef.current?.cancel()
+    const rect = aside.getBoundingClientRect()
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    const easing = 'cubic-bezier(0.22, 1, 0.36, 1)'
+    setFullscreenAnimating(true)
+
+    if (!fullscreen) {
+      window.requestAnimationFrame(() => {
+        const currentAside = asideRef.current
+        if (!currentAside) return
+        Object.assign(currentAside.style, {
+          position: 'fixed',
+          left: `${rect.left}px`,
+          top: `${rect.top}px`,
+          right: 'auto',
+          bottom: 'auto',
+          width: `${rect.width}px`,
+          height: `${rect.height}px`,
+          minWidth: '0px',
+          maxWidth: 'none',
+          zIndex: '40',
+        })
+        const animation = currentAside.animate(
+          [
+            { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` },
+            { left: '0px', top: '0px', width: `${viewportWidth}px`, height: `${viewportHeight}px` },
+          ],
+          { duration: 240, easing, fill: 'forwards' },
+        )
+        fullscreenAnimationRef.current = animation
+        animation.onfinish = () => {
+          fullscreenAnimationRef.current = null
+          setFullscreen(true)
+          window.requestAnimationFrame(() => {
+            animation.cancel()
+            currentAside.removeAttribute('style')
+            window.requestAnimationFrame(() => setFullscreenAnimating(false))
+          })
+        }
+        animation.oncancel = () => {
+          fullscreenAnimationRef.current = null
+          setFullscreenAnimating(false)
+        }
+      })
+      return
+    }
+
+    window.requestAnimationFrame(() => {
+      const currentAside = asideRef.current
+      if (!currentAside) return
+      Object.assign(currentAside.style, {
+        position: 'fixed',
+        left: '0px',
+        top: '0px',
+        right: 'auto',
+        bottom: 'auto',
+        width: `${rect.width}px`,
+        height: `${rect.height}px`,
+        zIndex: '40',
+      })
+      const targetLeft = viewportWidth - width
+      const animation = currentAside.animate(
+        [
+          { left: '0px', top: '0px', width: `${rect.width}px`, height: `${rect.height}px` },
+          { left: `${targetLeft}px`, top: '0px', width: `${width}px`, height: `${viewportHeight}px` },
+        ],
+        { duration: 240, easing, fill: 'forwards' },
+      )
+      fullscreenAnimationRef.current = animation
+      animation.onfinish = () => {
+        fullscreenAnimationRef.current = null
+        setFullscreen(false)
+        window.requestAnimationFrame(() => {
+          animation.cancel()
+          currentAside.style.position = ''
+          currentAside.style.left = ''
+          currentAside.style.top = ''
+          currentAside.style.right = ''
+          currentAside.style.bottom = ''
+          currentAside.style.height = ''
+          currentAside.style.zIndex = ''
+          currentAside.style.width = `${width}px`
+          currentAside.style.minWidth = `${WORKSPACE_INSPECTOR_MIN_WIDTH}px`
+          currentAside.style.maxWidth = `${WORKSPACE_INSPECTOR_MAX_WIDTH}px`
+          window.requestAnimationFrame(() => setFullscreenAnimating(false))
+        })
+      }
+      animation.oncancel = () => {
+        fullscreenAnimationRef.current = null
+        setFullscreenAnimating(false)
+      }
+    })
+  }, [fullscreen, width])
+
+  useEffect(() => {
+    if (!fullscreen) return undefined
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setFullscreen(false)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [fullscreen])
+
+  useEffect(() => () => {
+    if (resizeFrameRef.current !== null) window.cancelAnimationFrame(resizeFrameRef.current)
+    fullscreenAnimationRef.current?.cancel()
+    if (asideRef.current) asideRef.current.removeAttribute('style')
+    const previousBodyStyle = previousBodyStyleRef.current
+    if (previousBodyStyle) {
+      document.body.style.cursor = previousBodyStyle.cursor
+      document.body.style.userSelect = previousBodyStyle.userSelect
+    }
+  }, [])
+
   if (!mounted) return null
 
   return (
     <>
       <aside
+        ref={asideRef}
         className={cn(
-          'hidden shrink-0 overflow-hidden flex-col border-l border-border bg-background transition-[width,min-width,max-width,opacity,transform] duration-200 ease-out will-change-[width,opacity,transform] lg:flex',
-          visible ? 'w-[380px] min-w-[300px] max-w-[560px] translate-x-0 opacity-100' : 'w-0 min-w-0 max-w-0 translate-x-4 opacity-0',
+          'relative hidden shrink-0 overflow-hidden flex-col border-l border-border bg-background transition-[width,min-width,max-width,opacity,transform] duration-200 ease-out will-change-[width,opacity,transform] lg:flex',
+          visible ? 'translate-x-0 opacity-100' : 'w-0 min-w-0 max-w-0 translate-x-4 opacity-0',
+          isResizing ? 'transition-none' : '',
+          fullscreen ? 'fixed inset-0 z-40 border-l-0' : '',
         )}
+        style={visible ? fullscreen ? undefined : { width, minWidth: WORKSPACE_INSPECTOR_MIN_WIDTH, maxWidth: WORKSPACE_INSPECTOR_MAX_WIDTH } : undefined}
       >
-        <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-3">
+        {visible && !fullscreen ? (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-valuemin={WORKSPACE_INSPECTOR_MIN_WIDTH}
+            aria-valuemax={WORKSPACE_INSPECTOR_MAX_WIDTH}
+            aria-valuenow={width}
+            className={cn(
+              'group absolute inset-y-0 -left-2 z-20 flex w-4 cursor-col-resize items-center justify-center bg-transparent transition-colors hover:bg-border/40',
+              isResizing ? 'bg-border/45' : '',
+            )}
+            onPointerDown={startResizing}
+            onPointerMove={resize}
+            onPointerUp={stopResizing}
+            onPointerCancel={stopResizing}
+          >
+            <div className={cn(
+              'flex h-10 w-3 items-center justify-center rounded-full border border-border bg-background text-muted-foreground/60 opacity-0 shadow-sm transition-opacity',
+              isResizing ? 'opacity-100' : 'group-hover:opacity-100',
+            )}>
+              <ChevronsLeftRight className="size-3" />
+            </div>
+          </div>
+        ) : null}
+        <div className={cn('flex h-14 shrink-0 items-center gap-2 border-b border-border px-3 transition-opacity duration-150', fullscreenAnimating ? 'opacity-0' : 'opacity-100')}>
           <WorkspaceMenu
             view={view}
             changesCount={changes.length}
@@ -500,12 +714,21 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onOpenCh
           <Button variant="ghost" size="icon" onClick={refresh} disabled={!project?.id || loading} aria-label={t('refreshWorkspace')} title={t('refreshWorkspace')}>
             <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
           </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleFullscreen}
+            aria-label={fullscreen ? t('workspaceExitFullscreen') : t('workspaceFullscreen')}
+            title={fullscreen ? t('workspaceExitFullscreen') : t('workspaceFullscreen')}
+          >
+            {fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+          </Button>
           <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)} aria-label={t('closeWorkspace')} title={t('closeWorkspace')}>
             <PanelRightClose className="size-4" />
           </Button>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div className={cn('flex min-h-0 flex-1 flex-col transition-opacity duration-150', fullscreenAnimating ? 'opacity-0' : 'opacity-100')}>
           {!project?.id ? (
             <div className="p-4 text-sm text-muted-foreground/70">{t('workspaceSelectProject')}</div>
           ) : view === 'browser' ? (

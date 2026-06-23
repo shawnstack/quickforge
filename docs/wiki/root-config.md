@@ -43,7 +43,7 @@
 - 包名: `@shawnstack/quickforge`
 - 类型: `module` (ESM)
 - 注册 CLI: `quickforge` / `qf` → `bin/quickforge.mjs`
-- 核心依赖: `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`
+- 核心依赖: `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, `@agentclientprotocol/sdk`
 - 发布包含: `bin/`, `server/`, `skills/`, `dist/`, `README.md`, `LICENSE`
 
 ### `vite.config.ts`

@@ -24,6 +24,7 @@ CLI 启动脚本，注册为 `quickforge` 和 `qf` 命令。
 | `cmdRestart()` | 打印重启前后 `pid`/`bootId`/`startedAt`，停止真实服务后启动并校验新服务 |
 | `cmdStatus()` | 通过 `/api/health` 检查服务状态，并在需要时修复 PID 文件 |
 | `cmdLogs()` | 查看当天服务日志，支持 JSON、level、grep 过滤 |
+| `cmdAcp()` | 以前台 stdio 方式运行 ACP AgentSideConnection，供 ACP Client/IDE 启动 |
 | `cmdVersion()` | 显示当前安装版本、包名和 Node.js 版本 |
 | `cmdCheckUpdate()` | 检查 npm registry 上是否有新版本，并提示升级命令 |
 | `cmdUpdate()` | 通过 npm 全局安装最新版本 |
@@ -37,13 +38,14 @@ CLI 启动脚本，注册为 `quickforge` 和 `qf` 命令。
 | `qf restart` | 重启后台服务并校验新实例 |
 | `qf status` | 查看服务状态 |
 | `qf logs` | 查看当天服务日志 |
+| `qf acp` | 通过 stdio 运行 QuickForge ACP Agent，stdout 保留给 ACP 协议 |
 | `qf --version` / `qf -v` / `qf version` | 显示当前安装版本 |
 | `qf check-update` | 检查 npm 上是否有新版本，不自动安装 |
 | `qf update` | 从 npm 下载安装最新版本 |
 
 ### 启动与重启流程
 
-1. 解析命令行参数 (`start` / `stop` / `restart` / `status` / `logs` / `version` / `check-update` / `update` / `help`)。
+1. 解析命令行参数 (`start` / `stop` / `restart` / `status` / `logs` / `acp` / `version` / `check-update` / `update` / `help`)。
 2. `start` 时派生 `server/index.mjs` 子进程。
 3. 轮询 `http://127.0.0.1:<port>/api/health`，确认子进程 PID、`bootId` 和服务就绪。
 4. 就绪后写入 PID 到 `~/.quickforge/quickforge.pid`，并打印 URL、日志路径等信息。

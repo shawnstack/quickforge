@@ -8,6 +8,7 @@
 server/
 ├── index.mjs                 # 服务器入口 (486 行)
 ├── agent-manager.mjs         # Agent 生命周期管理 (含 Agent Profile / subagent 执行)
+├── acp/                      # ACP AgentSideConnection stdio 适配层
 ├── agent-profiles.mjs        # Agent Profile 配置层，合并内置和自定义 Agent
 ├── storage.mjs               # 文件存储层 (707 行)
 ├── skills.mjs                # Agent Skills 管理和加载 (553 行)
@@ -69,6 +70,19 @@ server/
 - 工具权限检查
 - 会话活动跟踪（`touchSession`）
 - Agent 销毁和资源清理
+
+### acp/ — ACP Agent 适配层
+
+**用途**: 通过 `@agentclientprotocol/sdk` 的 `AgentSideConnection` 将 QuickForge 暴露为 stdio ACP Agent。入口命令为 `quickforge acp` / `qf acp`，供支持 ACP 的 IDE/客户端启动并通信。
+
+**核心文件**:
+- `acp/server.mjs` — 创建 stdio ACP 连接，处理 `initialize`、`session/new`、`session/load`、`session/set_config_option`、`session/prompt`、`session/cancel`、`session/list`、`session/delete` 和 `session/close`，并把 QuickForge Agent 事件转换为 ACP `session/update`。
+
+**行为约束**:
+- stdout 保留给 ACP NDJSON 协议；日志走 QuickForge logger 的 stderr / 日志文件。
+- 新会话会按 ACP `cwd` 注册/激活 QuickForge 项目，并复用现有 `agent-manager` 的工具、MCP、Plugin、审批和持久化能力。
+- `session/new` / `session/load` 会返回 ACP `configOptions` 模型和 Thinking Level 下拉选项，模型来源于 QuickForge 已配置的自定义模型；客户端调用 `session/set_config_option` 后会通过 `updateSessionModel` / `updateSessionThinkingLevel` 切换当前 ACP 会话配置。切换到不支持 reasoning 的模型时会自动将 Thinking Level 置为 `off`。
+- 工具审批事件会转成 ACP `session/request_permission`，客户端选择 allow/reject 后调用现有 `approveToolCall` / `rejectToolCall`。
 
 ### storage.mjs (707 行)
 

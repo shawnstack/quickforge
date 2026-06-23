@@ -667,6 +667,11 @@ async function cmdLogs() {
   }
 }
 
+async function cmdAcp() {
+  const { runQuickForgeAcpStdio } = await import('../server/acp/server.mjs')
+  await runQuickForgeAcpStdio()
+}
+
 async function main() {
   const command = process.argv[2] || 'start'
 
@@ -689,6 +694,9 @@ async function main() {
       break
     case 'logs':
       await cmdLogs()
+      break
+    case 'acp':
+      await cmdAcp()
       break
     case '--version':
     case '-v':
@@ -714,6 +722,7 @@ async function main() {
       console.log('  quickforge restart      Restart the background service')
       console.log('  quickforge status       Check if the service is running')
       console.log('  quickforge logs         Watch today\'s server log')
+      console.log('  quickforge acp          Run QuickForge as an ACP Agent over stdio')
       console.log('  quickforge version      Show installed version')
       console.log('  quickforge --version    Show installed version')
       console.log('  quickforge check-update Check npm for newer version')

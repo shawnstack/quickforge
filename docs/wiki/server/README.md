@@ -76,11 +76,13 @@ server/
 **用途**: 通过 `@agentclientprotocol/sdk` 的 `AgentSideConnection` 将 QuickForge 暴露为 stdio ACP Agent。入口命令为 `quickforge acp` / `qf acp`，供支持 ACP 的 IDE/客户端启动并通信。
 
 **核心文件**:
-- `acp/server.mjs` — 创建 stdio ACP 连接，处理 `initialize`、`session/new`、`session/load`、`session/set_config_option`、`session/prompt`、`session/cancel`、`session/list`、`session/delete` 和 `session/close`，并把 QuickForge Agent 事件转换为 ACP `session/update`。
+- `acp/server.mjs` — 创建 stdio ACP 连接，处理 `initialize`、`session/new`、`session/load`、`session/set_config_option`、`session/prompt`、`session/cancel`、`session/list`、`session/delete`、`session/close` 和 `document/didOpen` / `didChange` / `didSave` / `didClose` / `didFocus`，并把 QuickForge Agent 事件转换为 ACP `session/update`。
 
 **行为约束**:
 - stdout 保留给 ACP NDJSON 协议；日志走 QuickForge logger 的 stderr / 日志文件。
-- 新会话会按 ACP `cwd` 注册/激活 QuickForge 项目，并复用现有 `agent-manager` 的工具、MCP、Plugin、审批和持久化能力。
+- 新会话会按 ACP `cwd` 注册/激活 QuickForge 项目，并校验记录 `additionalDirectories`；额外目录会作为 ACP 上下文注入 prompt，但不会在当前实现中直接放宽 QuickForge workspace 工具的写入边界。
+- `session/list` 会合并 QuickForge 持久化 `sessions-metadata` 与当前内存 active sessions；`session/load` 恢复会话后会通过 ACP `session/update` 回放历史 user/assistant 消息。
+- ACP document 事件会维护当前打开/聚焦文档缓存，并在 prompt 前注入 `<acp_context>`，使“当前文件/打开文件”类请求能获得 IDE buffer 上下文。
 - `session/new` / `session/load` 会返回 ACP `configOptions` 模型和 Thinking Level 下拉选项，模型来源于 QuickForge 已配置的自定义模型；客户端调用 `session/set_config_option` 后会通过 `updateSessionModel` / `updateSessionThinkingLevel` 切换当前 ACP 会话配置。切换到不支持 reasoning 的模型时会自动将 Thinking Level 置为 `off`。
 - 工具审批事件会转成 ACP `session/request_permission`，客户端选择 allow/reject 后调用现有 `approveToolCall` / `rejectToolCall`。
 

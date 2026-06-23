@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import path from 'node:path'
-import { convertEventToUpdates, createQuickForgeAcpAgent } from '../../../server/acp/server.mjs'
+import { convertEventToUpdates, convertMessagesToHistoryUpdates, createQuickForgeAcpAgent } from '../../../server/acp/server.mjs'
 
 describe('ACP event conversion', () => {
   it('converts assistant message updates to incremental ACP chunks', () => {
@@ -54,6 +54,34 @@ describe('ACP event conversion', () => {
       rawOutput: 'ok',
       content: [{ type: 'content', content: { type: 'text', text: 'ok' } }],
     }])
+  })
+
+  it('converts stored messages to ACP history replay updates', () => {
+    expect(convertMessagesToHistoryUpdates([
+      { role: 'user', content: 'Hi' },
+      { role: 'assistant', content: [{ type: 'text', text: 'Hello' }] },
+      { role: 'tool', content: 'ignored' },
+    ])).toEqual([
+      {
+        sessionUpdate: 'user_message_chunk',
+        content: { type: 'text', text: 'Hi' },
+        messageId: 'history-user-0',
+      },
+      {
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: 'Hello' },
+        messageId: 'history-assistant-1',
+      },
+    ])
+  })
+
+  it('advertises ACP document and additional directory capabilities', async () => {
+    const agent = await createQuickForgeAcpAgent()
+    const initialized = await agent.initialize({ protocolVersion: 1 })
+
+    expect(initialized.agentCapabilities.sessionCapabilities.additionalDirectories).toEqual({})
+    expect(initialized.agentCapabilities.nes.events.document.didOpen).toEqual({})
+    expect(initialized.agentCapabilities.nes.events.document.didChange).toEqual({ syncKind: 'full' })
   })
 
   it('rejects unsafe ACP cwd values', async () => {

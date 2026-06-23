@@ -20,7 +20,7 @@ import {
   updateSessionThinkingLevel,
 } from '../agent-manager.mjs'
 import { getActiveProject, readProjectConfig, setActiveProjectPath } from '../project-config.mjs'
-import { readStore } from '../storage.mjs'
+import { readSessionValue, readStore } from '../storage.mjs'
 import { logger } from '../utils/logger.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -39,6 +39,9 @@ const THINKING_LEVELS = [
   { value: 'xhigh', name: 'Extra High' },
 ]
 const EVENT_TEXT_LIMIT = 64 * 1024
+const DOCUMENT_CONTEXT_LIMIT = 24 * 1024
+const DOCUMENT_PREVIEW_LIMIT = 4 * 1024
+const MAX_CONTEXT_DOCUMENTS = 4
 const DANGEROUS_WORKSPACE_ROOTS = new Set([
   path.parse(process.cwd()).root,
   os.homedir(),
@@ -46,6 +49,9 @@ const DANGEROUS_WORKSPACE_ROOTS = new Set([
 
 const pendingPrompts = new Map()
 const pendingPermissions = new Set()
+const acpSessions = new Map()
+const acpDocuments = new Map()
+let focusedDocumentUri = null
 
 let packageInfoPromise = null
 
@@ -105,6 +111,140 @@ function messageContentText(message) {
 
 function eventMessageText(event) {
   return messageContentText(event?.message)
+}
+
+function documentUriFromParams(params = {}) {
+  return params.textDocument?.uri || params.document?.uri || params.uri || params.textDocumentUri || null
+}
+
+function documentTextFromParams(params = {}) {
+  if (typeof params.text === 'string') return params.text
+  if (typeof params.content === 'string') return params.content
+  if (typeof params.textDocument?.text === 'string') return params.textDocument.text
+  if (typeof params.document?.text === 'string') return params.document.text
+  const fullChange = Array.isArray(params.contentChanges)
+    ? params.contentChanges.find((change) => change && typeof change.text === 'string' && !change.range)
+    : null
+  return fullChange?.text ?? null
+}
+
+function documentLanguageFromParams(params = {}) {
+  return params.textDocument?.languageId || params.document?.languageId || params.languageId || ''
+}
+
+function documentVersionFromParams(params = {}) {
+  return params.textDocument?.version ?? params.document?.version ?? params.version ?? null
+}
+
+function updateAcpDocument(params = {}, reason = 'open') {
+  const uri = documentUriFromParams(params)
+  if (!uri) return
+  const previous = acpDocuments.get(uri) || { uri, text: '', languageId: '', version: null, updatedAt: new Date().toISOString() }
+  const text = documentTextFromParams(params)
+  const next = {
+    ...previous,
+    uri,
+    languageId: documentLanguageFromParams(params) || previous.languageId || '',
+    version: documentVersionFromParams(params) ?? previous.version ?? null,
+    text: typeof text === 'string' ? text : previous.text,
+    reason,
+    updatedAt: new Date().toISOString(),
+  }
+  acpDocuments.set(uri, next)
+}
+
+function closeAcpDocument(params = {}) {
+  const uri = documentUriFromParams(params)
+  if (!uri) return
+  acpDocuments.delete(uri)
+  if (focusedDocumentUri === uri) focusedDocumentUri = null
+}
+
+function focusAcpDocument(params = {}) {
+  const uri = documentUriFromParams(params)
+  if (!uri) return
+  focusedDocumentUri = uri
+  if (!acpDocuments.has(uri)) updateAcpDocument({ ...params, text: '' }, 'focus')
+}
+
+function formatDocumentContext(doc, limit) {
+  if (!doc) return ''
+  const header = [`URI: ${doc.uri}`]
+  if (doc.languageId) header.push(`Language: ${doc.languageId}`)
+  if (doc.version !== null && doc.version !== undefined) header.push(`Version: ${doc.version}`)
+  const text = truncateText(doc.text || '', limit)
+  return `${header.join('\n')}\nContent:\n${text}`
+}
+
+function sessionContext(sessionId) {
+  return acpSessions.get(sessionId) || null
+}
+
+function acpContextPrompt(sessionId) {
+  const parts = []
+  const session = sessionContext(sessionId)
+  if (session?.cwd) parts.push(`Workspace root: ${session.cwd}`)
+  if (Array.isArray(session?.additionalDirectories) && session.additionalDirectories.length > 0) {
+    parts.push(`Additional workspace roots:\n${session.additionalDirectories.map((dir) => `- ${dir}`).join('\n')}`)
+  }
+
+  const docs = []
+  if (focusedDocumentUri && acpDocuments.has(focusedDocumentUri)) docs.push(acpDocuments.get(focusedDocumentUri))
+  for (const doc of acpDocuments.values()) {
+    if (docs.length >= MAX_CONTEXT_DOCUMENTS) break
+    if (!docs.some((item) => item.uri === doc.uri)) docs.push(doc)
+  }
+  if (docs.length > 0) {
+    const renderedDocs = docs.map((doc, index) => {
+      const limit = index === 0 ? DOCUMENT_CONTEXT_LIMIT : DOCUMENT_PREVIEW_LIMIT
+      return `<document${doc.uri === focusedDocumentUri ? ' focused="true"' : ''}>\n${formatDocumentContext(doc, limit)}\n</document>`
+    }).join('\n\n')
+    parts.push(`Open editor documents:\n${renderedDocs}`)
+  }
+
+  if (parts.length === 0) return ''
+  return `<acp_context>\n${parts.join('\n\n')}\n</acp_context>`
+}
+
+function withAcpContext(sessionId, message) {
+  const context = acpContextPrompt(sessionId)
+  return context ? `${context}\n\n${message}` : message
+}
+
+function historyMessageUpdate(message, index) {
+  const role = message?.role
+  const text = messageContentText(message)
+  if (!text) return null
+  if (role === 'assistant') {
+    return {
+      sessionUpdate: 'agent_message_chunk',
+      content: textContent(text),
+      messageId: `history-assistant-${index}`,
+    }
+  }
+  if (role === 'user' || role === 'user-with-attachments') {
+    return {
+      sessionUpdate: 'user_message_chunk',
+      content: textContent(text),
+      messageId: `history-user-${index}`,
+    }
+  }
+  return null
+}
+
+export function convertMessagesToHistoryUpdates(messages = []) {
+  return (Array.isArray(messages) ? messages : [])
+    .map((message, index) => historyMessageUpdate(message, index))
+    .filter(Boolean)
+}
+
+async function replaySessionHistory(sessionId, conn) {
+  if (!conn?.sessionUpdate) return
+  const state = getSessionState(sessionId)
+  const messages = state?.messages || (await readSessionValue(sessionId))?.messages || []
+  for (const update of convertMessagesToHistoryUpdates(messages)) {
+    await conn.sessionUpdate({ sessionId, update })
+  }
 }
 
 function toolKind(toolName = '') {
@@ -447,6 +587,21 @@ async function assertSafeAcpCwd(cwd) {
   return real
 }
 
+async function assertSafeAcpAdditionalDirectories(additionalDirectories = []) {
+  if (!Array.isArray(additionalDirectories)) return []
+  const result = []
+  const seen = new Set()
+  for (const dir of additionalDirectories) {
+    const safeDir = await assertSafeAcpCwd(dir)
+    const key = safeDir.toLowerCase()
+    if (!seen.has(key)) {
+      seen.add(key)
+      result.push(safeDir)
+    }
+  }
+  return result
+}
+
 async function resolveProjectForCwd(cwd) {
   const resolvedCwd = await assertSafeAcpCwd(cwd)
   const config = await readProjectConfig()
@@ -460,6 +615,7 @@ async function resolveProjectForCwd(cwd) {
 
 async function createQuickForgeSession(params = {}) {
   const cwd = await assertSafeAcpCwd(params.cwd)
+  const additionalDirectories = await assertSafeAcpAdditionalDirectories(params.additionalDirectories)
   const project = await resolveProjectForCwd(cwd)
   const sessionId = params._meta?.quickforgeSessionId || randomUUID()
   const model = await resolveInitialModel()
@@ -470,6 +626,7 @@ async function createQuickForgeSession(params = {}) {
     model,
     title: 'ACP session',
   })
+  acpSessions.set(sessionId, { cwd, additionalDirectories, projectId: project?.id || null })
   return { sessionId, modes: sessionModes(), configOptions: await sessionConfigOptions(model, 'off') }
 }
 
@@ -547,6 +704,46 @@ function waitForPromptEnd(sessionId, conn, signal) {
   })
 }
 
+async function listPersistedAcpSessions(params = {}) {
+  const [metadata, projectConfig] = await Promise.all([
+    readStore('sessions-metadata').catch(() => ({})),
+    readProjectConfig().catch(() => ({ projects: [] })),
+  ])
+  const projectPathById = new Map((projectConfig.projects || []).map((project) => [project.id, path.resolve(project.path)]))
+  const requestedCwd = params.cwd ? path.resolve(params.cwd) : null
+  const sessionsById = new Map()
+
+  for (const meta of Object.values(metadata || {})) {
+    if (!meta?.id) continue
+    const cwd = meta.scope === 'project' && meta.projectId && projectPathById.has(meta.projectId)
+      ? projectPathById.get(meta.projectId)
+      : process.cwd()
+    if (requestedCwd && path.resolve(cwd) !== requestedCwd) continue
+    sessionsById.set(meta.id, {
+      sessionId: meta.id,
+      cwd,
+      additionalDirectories: [],
+      title: meta.title || 'ACP session',
+      updatedAt: meta.lastModified || meta.createdAt || new Date().toISOString(),
+    })
+  }
+
+  for (const session of listAgentSessions()) {
+    const context = acpSessions.get(session.sessionId)
+    const cwd = context?.cwd || process.cwd()
+    if (requestedCwd && path.resolve(cwd) !== requestedCwd) continue
+    sessionsById.set(session.sessionId, {
+      sessionId: session.sessionId,
+      cwd,
+      additionalDirectories: context?.additionalDirectories || [],
+      title: session.title || sessionsById.get(session.sessionId)?.title || 'ACP session',
+      updatedAt: new Date().toISOString(),
+    })
+  }
+
+  return [...sessionsById.values()].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
+}
+
 export async function createQuickForgeAcpAgent() {
   const pkg = await readPackageInfo()
   return {
@@ -561,6 +758,18 @@ export async function createQuickForgeAcpAgent() {
             list: {},
             delete: {},
             close: {},
+            additionalDirectories: {},
+          },
+          nes: {
+            events: {
+              document: {
+                didOpen: {},
+                didChange: { syncKind: 'full' },
+                didClose: {},
+                didSave: {},
+                didFocus: {},
+              },
+            },
           },
         },
         authMethods: [],
@@ -575,24 +784,28 @@ export async function createQuickForgeAcpAgent() {
       return createQuickForgeSession(params)
     },
 
-    async loadSession(params = {}) {
+    async loadSession(params = {}, conn = null) {
+      const additionalDirectories = await assertSafeAcpAdditionalDirectories(params.additionalDirectories)
       const session = await restoreAgent(params.sessionId)
       if (!session) throw new Error('Session not found')
+      const projectConfig = await readProjectConfig().catch(() => ({ projects: [] }))
+      const project = session.projectId ? projectConfig.projects.find((item) => item.id === session.projectId) : null
+      acpSessions.set(params.sessionId, {
+        cwd: params.cwd ? await assertSafeAcpCwd(params.cwd) : path.resolve(project?.path || process.cwd()),
+        additionalDirectories,
+        projectId: session.projectId || null,
+      })
+      await replaySessionHistory(params.sessionId, conn)
       return { modes: sessionModes(), configOptions: await sessionConfigOptionsForSession(params.sessionId) }
     },
 
-    async listSessions() {
-      const sessions = listAgentSessions().map((session) => ({
-        sessionId: session.sessionId,
-        cwd: process.cwd(),
-        title: session.title,
-        updatedAt: new Date().toISOString(),
-      }))
-      return { sessions }
+    async listSessions(params = {}) {
+      return { sessions: await listPersistedAcpSessions(params) }
     },
 
     async deleteSession(params = {}) {
       await destroyAgent(params.sessionId)
+      acpSessions.delete(params.sessionId)
       return {}
     },
 
@@ -603,6 +816,7 @@ export async function createQuickForgeAcpAgent() {
         // ignore idle or missing active run during close
       }
       await destroyAgent(params.sessionId)
+      acpSessions.delete(params.sessionId)
       return {}
     },
 
@@ -619,7 +833,7 @@ export async function createQuickForgeAcpAgent() {
       const state = getSessionState(params.sessionId)
       if (!state) throw new Error('Session not found')
       const done = waitForPromptEnd(params.sessionId, conn, signal)
-      await runPrompt(params.sessionId, message)
+      await runPrompt(params.sessionId, withAcpContext(params.sessionId, message))
       return done
     },
 
@@ -630,6 +844,26 @@ export async function createQuickForgeAcpAgent() {
         return
       }
       await abortRun(params.sessionId)
+    },
+
+    async didOpenDocument(params = {}) {
+      updateAcpDocument(params, 'open')
+    },
+
+    async didChangeDocument(params = {}) {
+      updateAcpDocument(params, 'change')
+    },
+
+    async didSaveDocument(params = {}) {
+      updateAcpDocument(params, 'save')
+    },
+
+    async didCloseDocument(params = {}) {
+      closeAcpDocument(params)
+    },
+
+    async didFocusDocument(params = {}) {
+      focusAcpDocument(params)
     },
   }
 }
@@ -646,13 +880,18 @@ export async function runQuickForgeAcpStdio() {
     const connection = new AgentSideConnection((conn) => ({
       initialize: (params) => quickForgeAgent.initialize(params),
       newSession: (params) => quickForgeAgent.newSession(params),
-      loadSession: (params) => quickForgeAgent.loadSession(params),
+      loadSession: (params) => quickForgeAgent.loadSession(params, conn),
       listSessions: (params) => quickForgeAgent.listSessions(params),
       deleteSession: (params) => quickForgeAgent.deleteSession(params),
       closeSession: (params) => quickForgeAgent.closeSession(params),
       setSessionConfigOption: (params) => quickForgeAgent.setSessionConfigOption(params),
       prompt: (params) => quickForgeAgent.prompt(params, conn, connection.signal),
       cancel: (params) => quickForgeAgent.cancel(params),
+      unstable_didOpenDocument: (params) => quickForgeAgent.didOpenDocument(params),
+      unstable_didChangeDocument: (params) => quickForgeAgent.didChangeDocument(params),
+      unstable_didSaveDocument: (params) => quickForgeAgent.didSaveDocument(params),
+      unstable_didCloseDocument: (params) => quickForgeAgent.didCloseDocument(params),
+      unstable_didFocusDocument: (params) => quickForgeAgent.didFocusDocument(params),
     }), stream)
     await connection.closed
   } finally {

@@ -19,7 +19,7 @@ import {
   updateSessionModel,
   updateSessionThinkingLevel,
 } from '../agent-manager.mjs'
-import { getActiveProject, readProjectConfig, setActiveProjectPath } from '../project-config.mjs'
+import { getActiveProject, readProjectConfig, setActiveProjectPath, sameProjectPath } from '../project-config.mjs'
 import { readSessionValue, readStore } from '../storage.mjs'
 import { logger } from '../utils/logger.mjs'
 
@@ -498,6 +498,17 @@ async function resolveInitialModel() {
   return configuredModels[0] || null
 }
 
+// Resolve the initial thinking level for a new ACP session, mirroring the web UI
+// (src/hooks/useAgentManager.ts): prefer the user's saved default thinking level,
+// otherwise fall back to 'medium' for reasoning models and 'off' otherwise.
+async function resolveInitialThinkingLevel(model) {
+  const settings = await readStore('settings').catch(() => ({}))
+  const defaultOptions = parseStoredJson(settings?.['default-options'])
+  const saved = defaultOptions?.thinkingLevel
+  if (isThinkingLevel(saved)) return saved
+  return model?.reasoning === true ? 'medium' : 'off'
+}
+
 async function sessionConfigOptions(currentModel = null, currentThinkingLevel = 'off') {
   const configuredModels = await readConfiguredModels()
   const models = [...configuredModels]
@@ -605,7 +616,7 @@ async function assertSafeAcpAdditionalDirectories(additionalDirectories = []) {
 async function resolveProjectForCwd(cwd) {
   const resolvedCwd = await assertSafeAcpCwd(cwd)
   const config = await readProjectConfig()
-  let project = config.projects.find((item) => path.resolve(item.path) === resolvedCwd)
+  let project = config.projects.find((item) => sameProjectPath(item.path, resolvedCwd))
   if (!project) {
     const updated = await setActiveProjectPath(resolvedCwd)
     project = updated.project
@@ -619,15 +630,17 @@ async function createQuickForgeSession(params = {}) {
   const project = await resolveProjectForCwd(cwd)
   const sessionId = params._meta?.quickforgeSessionId || randomUUID()
   const model = await resolveInitialModel()
+  const thinkingLevel = await resolveInitialThinkingLevel(model)
   await createAgent(sessionId, {
     scope: project?.id ? 'project' : 'global',
     projectId: project?.id || null,
     yoloMode: false,
     model,
+    thinkingLevel,
     title: 'ACP session',
   })
   acpSessions.set(sessionId, { cwd, additionalDirectories, projectId: project?.id || null })
-  return { sessionId, modes: sessionModes(), configOptions: await sessionConfigOptions(model, 'off') }
+  return { sessionId, modes: sessionModes(), configOptions: await sessionConfigOptions(model, thinkingLevel) }
 }
 
 function waitForPromptEnd(sessionId, conn, signal) {

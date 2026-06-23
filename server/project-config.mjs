@@ -41,6 +41,16 @@ function projectNameFromPath(dir) {
   return path.basename(dir) || dir
 }
 
+// Compare two project paths for equality in a cross-platform way.
+// On Windows (and other case-insensitive filesystems) drive-letter casing and
+// path separators can differ while pointing at the same directory. Normalize
+// both sides to a resolved lowercase form so the same directory always matches
+// an existing project instead of being re-registered with a new id.
+export function sameProjectPath(a, b) {
+  if (!a || !b) return false
+  return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase()
+}
+
 function defaultProjectConfig() {
   return {
     activeProjectId: null,
@@ -246,7 +256,7 @@ export async function setActiveProjectPath(inputPath) {
   let project
 
   const updated = await atomicProjectConfigUpdate((config) => {
-    project = config.projects.find((item) => path.resolve(item.path) === resolved)
+    project = config.projects.find((item) => sameProjectPath(item.path, resolved))
     if (!project) {
       project = {
         id: randomUUID(),

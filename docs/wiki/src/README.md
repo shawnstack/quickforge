@@ -34,6 +34,7 @@ src/
 - 从 `react-dom/client` 创建根节点
 - 应用全局 CSS（`index.css`）
 - 调用 `patchThinkingSelector()` 修补 pi-web-ui 的模型选择器
+- 设置弹窗由 `hooks/useModelActions.ts` 组装多个 `SettingsTab`，底部包含 `lib/about-settings-tab.ts` 的“关于”页，用于展示 GitHub、检查 npm 更新并触发本机一键更新
 - 调用 `applyClipboardPolyfill()` 应用剪贴板兼容处理
 - 生产环境注册 `/sw.js`，启用轻量 PWA 安装和前端静态资源缓存
 - 在 `<StrictMode>` 中渲染 `<App />` 组件

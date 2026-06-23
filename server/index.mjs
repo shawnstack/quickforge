@@ -29,6 +29,7 @@ import { handleWorkspaceApi, handleGitApi } from './routes/workspace.mjs'
 import { handleTerminalApi, handleTerminalUpgrade } from './routes/terminal.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { logger, flushLogger } from './utils/logger.mjs'
+import { getPackageInfo, checkForUpdates, installLatestVersion } from './utils/package-update.mjs'
 import { installAiHttpLogger } from './ai-http-logger.mjs'
 import { isLoopbackAddress, getLanUrls } from './utils/network.mjs'
 import { parseCookies } from './share-store.mjs'
@@ -54,6 +55,7 @@ if (!['127.0.0.1', 'localhost'].includes(host) && process.env.QUICKFORGE_ALLOW_R
 const port = Number(process.env.QUICKFORGE_PORT || (isDev ? 32176 : 5176))
 const vitePort = Number(process.env.QUICKFORGE_VITE_PORT || 5176)
 let restartInProgress = false
+let updateInProgress = false
 
 setDefaultWorkspaceRoot(process.env.QUICKFORGE_WORKSPACE_DIR || projectRoot)
 installAiHttpLogger()
@@ -167,6 +169,29 @@ async function requestRestart() {
   }, 100)
 
   return { ok: true, restarting: true, bootId }
+}
+
+async function updateQuickForge() {
+  if (updateInProgress) {
+    const error = new Error('Update already in progress')
+    error.statusCode = 423
+    throw error
+  }
+
+  updateInProgress = true
+  try {
+    const update = await checkForUpdates(projectRoot)
+    if (!update.updateAvailable) {
+      return { ...update, ok: true, updated: false }
+    }
+
+    logger.info(`Updating QuickForge from ${update.currentVersion} to ${update.latestVersion}.`)
+    await installLatestVersion(update.name, { cwd: projectRoot })
+    logger.info('QuickForge update completed.')
+    return { ...update, ok: true, updated: true }
+  } finally {
+    updateInProgress = false
+  }
 }
 
 // --- Route dispatching ---
@@ -288,10 +313,14 @@ async function handleApi(req, res, url) {
   }
 
   // System routes
-  if (pathname === '/api/system/status' || pathname === '/api/system/restart' || pathname === '/api/system/network' || pathname === '/api/system/terminal-shell') {
+  if (pathname === '/api/system/status' || pathname === '/api/system/restart' || pathname === '/api/system/network' || pathname === '/api/system/terminal-shell' || pathname === '/api/system/about' || pathname === '/api/system/update/check' || pathname === '/api/system/update') {
     await handleSystemApi(req, res, url, {
       getSystemStatus,
       requestRestart,
+      getPackageInfo: () => getPackageInfo(projectRoot),
+      checkForUpdates: () => checkForUpdates(projectRoot),
+      updateQuickForge,
+      isLocalRequest: isLoopbackAddress(req.socket.remoteAddress),
       getTerminalShellSetting: readTerminalShellSetting,
       updateTerminalShellSetting,
       getTerminalShellConfig: readTerminalShellConfig,

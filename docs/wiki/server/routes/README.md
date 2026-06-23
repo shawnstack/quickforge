@@ -19,7 +19,7 @@
 | `backup.mjs` | 395 | 数据备份和恢复 |
 | `lan-access.mjs` | 201 | LAN 共享访问管理 |
 | `instructions.mjs` | 20 | 系统提示词 |
-| `system.mjs` | 35 | 系统状态和重启 |
+| `system.mjs` | 81 | 系统状态、重启、关于信息和 npm 更新 |
 | `workspace.mjs` | 296 | 工作区文件浏览、产物预览静态读取与 Git 变更检查 |
 | `static.mjs` | 83 | 静态文件服务 |
 
@@ -175,11 +175,14 @@ LAN 共享访问管理路由。
 
 **用途**: 提供系统提示词 API。返回基础提示词、指令和 Skills 目录。
 
-## system.mjs (35 行)
+## system.mjs (81 行)
 
 **主要端点**:
 - `GET /api/system/status` — 系统状态
 - `GET /api/system/network` — 网络信息
+- `GET /api/system/about` — 包名、版本、GitHub / homepage / issues 地址
+- `GET /api/system/update/check` — 查询 npm 最新版本并返回是否可更新
+- `POST /api/system/update` — 执行一键更新（本机请求限定，需 `x-quickforge-action: update`，内部运行 `npm install -g @shawnstack/quickforge@latest`）
 - `POST /api/system/restart` — 服务重启
 
 ## workspace.mjs (296 行)

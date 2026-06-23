@@ -167,6 +167,7 @@ server/
 **核心文件**:
 - `terminal/terminal-manager.mjs` — PTY 创建、输入输出转发、REST/WS 输入写入、resize、会话上限、空闲清理和关闭清理。
 - `routes/terminal.mjs` — `/api/terminal/capabilities`、`/api/terminal/sessions`、`/api/terminal/sessions/:id/input` 和 `/api/terminal/sessions/:id/ws`。
+- `routes/system.mjs` — 系统状态、服务重启、关于信息和 QuickForge npm 更新 API；`POST /api/system/update` 会在本机执行 `npm install -g @shawnstack/quickforge@latest`，仅允许 localhost 请求并要求 `x-quickforge-action: update`。
 
 **安全边界**:
 - 终端接口强制仅允许 localhost 访问；LAN 分享和共享会话页面不能访问。

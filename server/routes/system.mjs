@@ -2,6 +2,33 @@ import { sendJson, readJsonBody } from '../utils/response.mjs'
 import { getLanUrls } from '../utils/network.mjs'
 
 export async function handleSystemApi(req, res, url, context) {
+  if (req.method === 'GET' && url.pathname === '/api/system/about') {
+    sendJson(res, 200, await context.getPackageInfo())
+    return
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/system/update/check') {
+    sendJson(res, 200, await context.checkForUpdates())
+    return
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/system/update') {
+    if (!context.isLocalRequest) {
+      const error = new Error('Update is only allowed from this computer')
+      error.statusCode = 403
+      throw error
+    }
+
+    if (req.headers['x-quickforge-action'] !== 'update') {
+      const error = new Error('Forbidden action')
+      error.statusCode = 403
+      throw error
+    }
+
+    sendJson(res, 200, await context.updateQuickForge())
+    return
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/system/restart') {
     if (req.headers['x-quickforge-action'] !== 'restart') {
       const error = new Error('Forbidden action')

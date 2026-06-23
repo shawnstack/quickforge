@@ -48,6 +48,12 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
   const [fullscreen, setFullscreen] = useState(false)
   const creatingRef = useRef(false)
   const handledPendingCommandIdsRef = useRef<Set<number>>(new Set())
+  const latestPendingCommandRef = useRef<PendingTerminalCommand | null | undefined>(pendingCommand)
+  const pendingCommandCreationIdsRef = useRef<Set<number>>(new Set())
+  const pendingCommandSendingIdsRef = useRef<Set<number>>(new Set())
+  const pendingCommandSessionIdsRef = useRef<Map<number, string>>(new Map())
+  const mountedRef = useRef(true)
+  const [readySessionIds, setReadySessionIds] = useState<Set<string>>(() => new Set())
   const dragRef = useRef<{ startY: number; startHeight: number } | null>(null)
   const shellMenuRef = useRef<HTMLDivElement | null>(null)
   const projectId = project?.id
@@ -56,6 +62,12 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
     () => sessions.find((session) => session.id === activeSessionId) ?? sessions[0],
     [activeSessionId, sessions],
   )
+
+  useEffect(() => {
+    latestPendingCommandRef.current = pendingCommand
+  }, [pendingCommand])
+
+  useEffect(() => () => { mountedRef.current = false }, [])
 
   const refreshSessions = useCallback(async () => {
     const payload = await listTerminalSessions(projectId)
@@ -104,7 +116,7 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
         setCapabilities(nextCapabilities)
         setSessions(payload.sessions)
         setActiveSessionId(payload.sessions[0]?.id)
-        if (nextCapabilities.enabled && payload.sessions.length === 0) {
+        if (nextCapabilities.enabled && payload.sessions.length === 0 && !latestPendingCommandRef.current) {
           const defaultProfile = profileFromCapabilities(nextCapabilities)
           createTerminalSession({
             projectId,
@@ -164,6 +176,8 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
   useEffect(() => {
     if (!pendingCommand) return
     if (handledPendingCommandIdsRef.current.has(pendingCommand.id)) return
+    if (pendingCommandSessionIdsRef.current.has(pendingCommand.id)) return
+    if (pendingCommandCreationIdsRef.current.has(pendingCommand.id)) return
     if (loading || creating || !capabilities) return
     if (!capabilities.enabled) {
       handledPendingCommandIdsRef.current.add(pendingCommand.id)
@@ -174,27 +188,66 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
       return
     }
 
-    let disposed = false
-    const handlePendingCommand = async () => {
-      handledPendingCommandIdsRef.current.add(pendingCommand.id)
-      setError(undefined)
-      try {
-        let target = activeSession && !activeSession.exited ? activeSession : sessions.find((session) => !session.exited)
-        if (!target) {
-          const profile = profileFromCapabilities(capabilities)
-          target = await createTerminalSession({
-            projectId,
-            name: nextTerminalName(sessions, profile),
-            cols: 120,
-            rows: 30,
-            shellProfileId: profile?.id,
-            shellProfileName: profile?.name,
-          })
-          if (disposed) return
-          setSessions((current) => [...current, target as TerminalSession])
-        }
+    const target = activeSession && !activeSession.exited ? activeSession : sessions.find((session) => !session.exited)
+    if (target) {
+      pendingCommandSessionIdsRef.current.set(pendingCommand.id, target.id)
+      window.setTimeout(() => {
+        if (mountedRef.current) setActiveSessionId(target.id)
+      }, 0)
+      return
+    }
 
+    pendingCommandCreationIdsRef.current.add(pendingCommand.id)
+    window.setTimeout(() => {
+      if (mountedRef.current) setError(undefined)
+    }, 0)
+    const profile = profileFromCapabilities(capabilities)
+    createTerminalSession({
+      projectId,
+      name: nextTerminalName(sessions, profile),
+      cols: 120,
+      rows: 30,
+      shellProfileId: profile?.id,
+      shellProfileName: profile?.name,
+    }).then((session) => {
+      if (!mountedRef.current) {
+        void deleteTerminalSession(session.id).catch(() => {})
+        return
+      }
+      pendingCommandSessionIdsRef.current.set(pendingCommand.id, session.id)
+      setSessions((current) => current.some((item) => item.id === session.id) ? current : [...current, session])
+      setActiveSessionId(session.id)
+    }).catch((err) => {
+      if (!mountedRef.current) return
+      setError(err instanceof Error ? err.message : t('terminalCommandExecuteFailed'))
+      handledPendingCommandIdsRef.current.add(pendingCommand.id)
+      onPendingCommandHandled?.(pendingCommand.id)
+    }).finally(() => {
+      pendingCommandCreationIdsRef.current.delete(pendingCommand.id)
+    })
+  }, [activeSession, capabilities, creating, loading, onPendingCommandHandled, pendingCommand, projectId, sessions])
+
+  useEffect(() => {
+    if (!pendingCommand) return
+    if (handledPendingCommandIdsRef.current.has(pendingCommand.id)) return
+    if (pendingCommandSendingIdsRef.current.has(pendingCommand.id)) return
+
+    const targetSessionId = pendingCommandSessionIdsRef.current.get(pendingCommand.id)
+    const target = targetSessionId
+      ? sessions.find((session) => session.id === targetSessionId)
+      : activeSession && !activeSession.exited ? activeSession : sessions.find((session) => !session.exited)
+    if (!target || target.exited || !readySessionIds.has(target.id)) return
+
+    pendingCommandSendingIdsRef.current.add(pendingCommand.id)
+    window.setTimeout(() => {
+      if (mountedRef.current) {
         setActiveSessionId(target.id)
+        setError(undefined)
+      }
+    }, 0)
+
+    const sendCommand = async () => {
+      try {
         if (pendingCommand.execute) {
           const lines = pendingCommand.command.split('\n')
           const parts = lines.flatMap((line, i) => i < lines.length - 1 ? [line, '\r'] : [line])
@@ -204,15 +257,17 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
           await sendTerminalInput(target.id, pendingCommand.command)
         }
       } catch (err) {
-        if (!disposed) setError(err instanceof Error ? err.message : t('terminalCommandExecuteFailed'))
+        if (mountedRef.current) setError(err instanceof Error ? err.message : t('terminalCommandExecuteFailed'))
       } finally {
-        if (!disposed) onPendingCommandHandled?.(pendingCommand.id)
+        handledPendingCommandIdsRef.current.add(pendingCommand.id)
+        pendingCommandSendingIdsRef.current.delete(pendingCommand.id)
+        pendingCommandSessionIdsRef.current.delete(pendingCommand.id)
+        if (mountedRef.current) onPendingCommandHandled?.(pendingCommand.id)
       }
     }
 
-    void handlePendingCommand()
-    return () => { disposed = true }
-  }, [activeSession, capabilities, creating, loading, onPendingCommandHandled, pendingCommand, projectId, sessions])
+    void sendCommand()
+  }, [activeSession, onPendingCommandHandled, pendingCommand, readySessionIds, sessions])
 
   const closeSession = async (sessionId: string) => {
     setError(undefined)
@@ -237,6 +292,21 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
     setSessions((current) => current.map((session) => (
       session.id === sessionId ? { ...session, exited: true } : session
     )))
+    setReadySessionIds((current) => {
+      if (!current.has(sessionId)) return current
+      const next = new Set(current)
+      next.delete(sessionId)
+      return next
+    })
+  }, [])
+
+  const handleTerminalReady = useCallback((sessionId: string) => {
+    setReadySessionIds((current) => {
+      if (current.has(sessionId)) return current
+      const next = new Set(current)
+      next.add(sessionId)
+      return next
+    })
   }, [])
 
   const handleConnectionError = useCallback((sessionId: string, message?: string) => {
@@ -424,6 +494,7 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
               session={session}
               active={session.id === activeSession?.id}
               height={fullscreen ? window.innerHeight - 36 : height}
+              onReady={handleTerminalReady}
               onExited={markExited}
               onConnectionError={handleConnectionError}
             />

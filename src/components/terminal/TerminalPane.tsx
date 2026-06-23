@@ -12,11 +12,12 @@ type TerminalPaneProps = {
   session: TerminalSession
   active: boolean
   height: number
+  onReady: (sessionId: string) => void
   onExited: (sessionId: string) => void
   onConnectionError: (sessionId: string, message?: string) => void
 }
 
-export function TerminalPane({ session, active, height, onExited, onConnectionError }: TerminalPaneProps) {
+export function TerminalPane({ session, active, height, onReady, onExited, onConnectionError }: TerminalPaneProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -91,7 +92,9 @@ export function TerminalPane({ session, active, height, onExited, onConnectionEr
     ws.addEventListener('message', (event) => {
       try {
         const message = JSON.parse(String(event.data)) as TerminalMessage
-        if (message.type === 'output') {
+        if (message.type === 'ready') {
+          onReady(session.id)
+        } else if (message.type === 'output') {
           terminal.write(message.data)
         } else if (message.type === 'exit') {
           exited = true
@@ -137,7 +140,7 @@ export function TerminalPane({ session, active, height, onExited, onConnectionEr
       terminalRef.current = null
       fitAddonRef.current = null
     }
-  }, [onConnectionError, onExited, session.cwd, session.id])
+  }, [onConnectionError, onExited, onReady, session.cwd, session.id])
 
   useEffect(() => {
     if (!active) return

@@ -1059,11 +1059,10 @@ assistant-message :is(thinking-block, tool-message, markdown-block, streaming-me
   padding: 0 0.6rem !important;
 }
 
-.quickforge-composer .quickforge-agent-access-inline[aria-expanded="true"],
-.quickforge-composer .quickforge-agent-access-inline-full {
-  border-color: color-mix(in oklab, rgb(245 158 11) 35%, transparent) !important;
-  background: color-mix(in oklab, rgb(245 158 11) 12%, transparent) !important;
-  color: color-mix(in oklab, rgb(180 83 9) 92%, var(--foreground)) !important;
+.quickforge-composer .quickforge-agent-access-inline[aria-expanded="true"] {
+  border-color: color-mix(in oklab, var(--border) 76%, transparent) !important;
+  background: color-mix(in oklab, var(--muted) 58%, transparent) !important;
+  color: var(--foreground) !important;
 }
 
 .quickforge-composer-left-controls {
@@ -1127,10 +1126,6 @@ assistant-message :is(thinking-block, tool-message, markdown-block, streaming-me
 
 .quickforge-agent-access-option-icon-wrap {
   color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
-}
-
-.quickforge-agent-access-item[data-quickforge-agent-access-mode="full-access"] .quickforge-agent-access-option-icon-wrap {
-  color: rgb(251 191 36);
 }
 
 .quickforge-composer .quickforge-plan-inline[aria-pressed="true"] {

@@ -1243,7 +1243,7 @@ export async function createAgent(sessionId, config = {}) {
   }
 
   // Subscribe to agent lifecycle events and forward to eventBus
-  agent.subscribe((event) => {
+  agent.subscribe(async (event) => {
     // The pi-agent-core agent loop emits agent_end with `messages` that only
     // contains messages generated during THIS run (newMessages), not the
     // complete session history.  Replace with the authoritative full state
@@ -1273,10 +1273,14 @@ export async function createAgent(sessionId, config = {}) {
       session.status = 'running'
       session.startedAt = session.startedAt ?? new Date().toISOString()
       session.finishedAt = null
-      // Persist running state immediately so a browser refresh still shows the green dot
-      persistSession(session).catch((err) =>
-        logger.error(`Failed to persist session on start ${sessionId}:`, err, { sessionId }),
-      )
+      // Persist running state immediately so a browser refresh still shows the green dot.
+      // Brand-new runs have no messages until the first user message_end; persisting
+      // here would only trigger the empty-session cleanup path.
+      if (session.agent.state.messages.length > 0) {
+        persistSession(session).catch((err) =>
+          logger.error(`Failed to persist session on start ${sessionId}:`, err, { sessionId }),
+        )
+      }
     }
 
     if (event.type === 'agent_end') {
@@ -1292,9 +1296,22 @@ export async function createAgent(sessionId, config = {}) {
     }
 
     if (event.type === 'message_end') {
-      // Debounced persist for crash recovery; coalesces the many message_end
-      // events within a single run into infrequent full-session writes.
-      scheduleSessionPersist(session)
+      const isInitialUserMessage = (event.message?.role === 'user' || event.message?.role === 'user-with-attachments')
+        && session.agent.state.messages.length === 1
+      if (isInitialUserMessage) {
+        // External ACP channels run in a separate process from the web UI. Persist
+        // the first user message immediately so the session becomes visible on
+        // disk before a long/failed agent run can exit or be restarted.
+        try {
+          await flushSessionPersist(session)
+        } catch (err) {
+          logger.error(`Failed to persist initial user message for session ${sessionId}:`, err, { sessionId })
+        }
+      } else {
+        // Debounced persist for crash recovery; coalesces the many message_end
+        // events within a single run into infrequent full-session writes.
+        scheduleSessionPersist(session)
+      }
     }
   })
 

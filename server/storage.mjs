@@ -468,6 +468,26 @@ async function rebuildBucketIndex() {
   bucketIndexBuilt = true
 }
 
+async function findSessionBucketByDataFile(sessionId) {
+  assertSafePathSegment(sessionId)
+  const buckets = [
+    { scope: 'global' },
+    ...(await listProjectIds()).map((projectId) => ({ scope: 'project', projectId })),
+  ]
+
+  for (const bucket of buckets) {
+    const file = sessionDataFile(sessionId, bucket)
+    try {
+      const stat = await fs.stat(file)
+      if (stat.isFile()) return bucket
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+    }
+  }
+
+  return null
+}
+
 export async function findSessionBucket(sessionId) {
   if (!bucketIndexBuilt) {
     await ensureStorage()
@@ -478,8 +498,12 @@ export async function findSessionBucket(sessionId) {
 
 export async function readSessionValue(sessionId) {
   const bucket = await findSessionBucket(sessionId)
-  if (!bucket) return null
-  return readJsonFile(sessionDataFile(sessionId, bucket), null)
+  if (bucket) return readJsonFile(sessionDataFile(sessionId, bucket), null)
+
+  const recoveredBucket = await findSessionBucketByDataFile(sessionId)
+  if (!recoveredBucket) return null
+  sessionBucketIndex.set(sessionId, recoveredBucket)
+  return readJsonFile(sessionDataFile(sessionId, recoveredBucket), null)
 }
 
 export async function writeSessionValue(sessionId, value) {

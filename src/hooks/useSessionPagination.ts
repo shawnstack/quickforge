@@ -29,18 +29,21 @@ type SessionPage = {
 type UseSessionPaginationOptions = {
   backendRef: React.MutableRefObject<HttpStorageBackend | null>
   expandedProjectIds: Set<string>
+  externalProjectIds?: Set<string>
   onBroadcastSessionsChanged?: () => void
 }
 
 export function useSessionPagination({
   backendRef,
   expandedProjectIds,
+  externalProjectIds,
   onBroadcastSessionsChanged,
 }: UseSessionPaginationOptions) {
   const [globalPage, setGlobalPage] = useState<SessionPage>({ items: [], total: 0, loading: false })
   const [projectPages, setProjectPages] = useState<Record<string, SessionPage>>({})
   const projectPagesRef = useRef(projectPages)
   const expandedProjectIdsRef = useRef(expandedProjectIds)
+  const externalProjectIdsRef = useRef(externalProjectIds ?? new Set<string>())
 
   useEffect(() => {
     projectPagesRef.current = projectPages
@@ -49,6 +52,10 @@ export function useSessionPagination({
   useEffect(() => {
     expandedProjectIdsRef.current = expandedProjectIds
   }, [expandedProjectIds])
+
+  useEffect(() => {
+    externalProjectIdsRef.current = externalProjectIds ?? new Set<string>()
+  }, [externalProjectIds])
 
   const allLoadedSessions: QuickForgeSessionMetadata[] = useMemo(
     () => [
@@ -116,6 +123,7 @@ export function useSessionPagination({
     const loadedProjectIds = new Set([
       ...Object.keys(projectPagesRef.current),
       ...expandedProjectIdsRef.current,
+      ...externalProjectIdsRef.current,
     ])
     if (loadedProjectIds.size === 0) {
       setProjectPages({})

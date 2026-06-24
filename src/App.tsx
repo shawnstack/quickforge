@@ -114,11 +114,21 @@ type ScheduledTaskStartedEvent = {
   createdAt?: unknown
 }
 
+type ChannelWorkspace = {
+  id?: unknown
+  kind?: unknown
+}
+
+type ChannelStatusSnapshot = {
+  status?: unknown
+  launchWorkspace?: ChannelWorkspace | null
+}
+
 type ChannelRefreshEvent = {
   type?: unknown
   status?: unknown
-  channels?: Array<{ status?: unknown }>
-  snapshot?: { status?: unknown }
+  channels?: ChannelStatusSnapshot[]
+  snapshot?: ChannelStatusSnapshot
 }
 
 type ExecuteMarkdownCommandEvent = CustomEvent<{
@@ -146,6 +156,18 @@ function isChannelActiveStatus(status: unknown) {
 function channelEventHasActiveChannel(event: ChannelRefreshEvent) {
   if (Array.isArray(event.channels)) return event.channels.some((channel) => isChannelActiveStatus(channel.status))
   return isChannelActiveStatus(event.snapshot?.status) || isChannelActiveStatus(event.status)
+}
+
+function channelEventProjectIds(event: ChannelRefreshEvent) {
+  const snapshots = [
+    ...(Array.isArray(event.channels) ? event.channels : []),
+    ...(event.snapshot ? [event.snapshot] : []),
+  ]
+  return snapshots
+    .filter((snapshot) => isChannelActiveStatus(snapshot.status))
+    .map((snapshot) => snapshot.launchWorkspace)
+    .filter((workspace): workspace is ChannelWorkspace => workspace?.kind === 'project' && typeof workspace.id === 'string' && workspace.id.length > 0)
+    .map((workspace) => workspace.id as string)
 }
 
 function MainApp() {
@@ -197,6 +219,7 @@ function MainApp() {
   const [currentSessionArtifacts, setCurrentSessionArtifacts] = useState<AiTurnArtifact[]>([])
   const autoPreviewSignatureRef = useRef('')
   const [currentSessionHoverInfo, setCurrentSessionHoverInfo] = useState<(ContextUsageDisplayInfo & { sessionId?: string }) | undefined>()
+  const [externalProjectIds, setExternalProjectIds] = useState<Set<string>>(() => new Set())
   const terminalCommandIdRef = useRef(0)
   const [storage, setStorage] = useState<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
   const { toasts, handleTaskComplete, addToast, dismissToast } = useTaskToasts()
@@ -229,6 +252,7 @@ function MainApp() {
   } = useSessionPagination({
     backendRef,
     expandedProjectIds,
+    externalProjectIds,
     onBroadcastSessionsChanged: notifySessionsChanged,
   })
 
@@ -426,12 +450,20 @@ function MainApp() {
     let lastRefreshAt = 0
     let pollTimer: number | undefined
 
-    const refreshExternalSessions = () => {
+    const refreshExternalSessions = (projectIds: string[] = []) => {
       const now = Date.now()
+      if (projectIds.length > 0) {
+        setExternalProjectIds((prev) => {
+          const next = new Set(prev)
+          for (const projectId of projectIds) next.add(projectId)
+          return next
+        })
+      }
       if (now - lastRefreshAt < 5000) return
       lastRefreshAt = now
       void loadProject()
       void refreshSessions()
+      for (const projectId of projectIds) void loadProjectSessions(projectId, 0)
     }
 
     const setPolling = (active: boolean) => {
@@ -448,9 +480,10 @@ function MainApp() {
     const handleEvent = (event: MessageEvent) => {
       try {
         const payload = JSON.parse(event.data) as ChannelRefreshEvent
+        const projectIds = channelEventProjectIds(payload)
         if (channelEventHasActiveChannel(payload)) {
           setPolling(true)
-          refreshExternalSessions()
+          refreshExternalSessions(projectIds)
         } else if (payload.type === 'snapshot' || payload.type === 'status') {
           setPolling(false)
         }
@@ -466,7 +499,7 @@ function MainApp() {
       source.close()
       if (pollTimer) window.clearInterval(pollTimer)
     }
-  }, [loadProject, ready, refreshSessions])
+  }, [loadProject, loadProjectSessions, ready, refreshSessions])
 
   useEffect(() => {
     if (!ready) return

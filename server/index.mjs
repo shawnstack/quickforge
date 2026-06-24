@@ -27,6 +27,7 @@ import { handleMcpApi } from './routes/mcp.mjs'
 import { handlePluginsApi } from './routes/plugins.mjs'
 import { handleWorkspaceApi, handleGitApi } from './routes/workspace.mjs'
 import { handleTerminalApi, handleTerminalUpgrade } from './routes/terminal.mjs'
+import { handleChannelsApi } from './routes/channels.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { logger, flushLogger } from './utils/logger.mjs'
 import { getPackageInfo, checkForUpdates, installLatestVersion } from './utils/package-update.mjs'
@@ -35,6 +36,7 @@ import { isLoopbackAddress, getLanUrls } from './utils/network.mjs'
 import { parseCookies } from './share-store.mjs'
 import { lanAccessCookieName, verifyLanAccessToken } from './lan-access-store.mjs'
 import { shutdown as shutdownAgentManager, resetStaleTaskStatuses } from './agent-manager.mjs'
+import { initializeChannels, shutdownChannels } from './channels/registry.mjs'
 import { shutdownMcpConnections } from './mcp/registry.mjs'
 import { shutdownTerminalSessions } from './terminal/terminal-manager.mjs'
 
@@ -141,6 +143,7 @@ async function performRestart() {
   stopVite()
   await shutdownAgentManager()
   await shutdownMcpConnections()
+  await shutdownChannels()
   shutdownTerminalSessions()
   await closeHttpServer()
   process.exit(0)
@@ -250,6 +253,14 @@ async function handleApi(req, res, url) {
   // MCP servers
   if (pathname === '/api/mcp' || pathname.startsWith('/api/mcp/')) {
     await handleMcpApi(req, res, url)
+    return
+  }
+
+  // Channels
+  if (pathname === '/api/channels' || pathname.startsWith('/api/channels/')) {
+    await handleChannelsApi(req, res, url, {
+      isLocalRequest: isLoopbackAddress(req.socket.remoteAddress),
+    })
     return
   }
 
@@ -561,6 +572,7 @@ server.on('upgrade', (req, socket, head) => {
 })
 
 await ensureStorage()
+initializeChannels({ projectRoot })
 await resetStaleTaskStatuses()
 await initializeActiveProject()
 setActiveWorkspaceRootForFilesystem(getWorkspaceRoot())
@@ -606,6 +618,7 @@ async function gracefulShutdown(signal) {
   stopVite()
   await shutdownAgentManager()
   await shutdownMcpConnections()
+  await shutdownChannels()
   shutdownTerminalSessions()
   flushLogger()
   process.exit(0)

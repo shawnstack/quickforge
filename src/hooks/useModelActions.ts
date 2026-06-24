@@ -20,6 +20,7 @@ import { createServiceSettingsTab } from '@/lib/service-settings-tab'
 import { createLanAccessSettingsTab } from '@/lib/lan-access-settings-tab'
 import { createAboutSettingsTab } from '@/lib/about-settings-tab'
 import { createProjectCommandsSettingsTab } from '@/lib/project-commands-settings-tab'
+import { createChannelsSettingsTab } from '@/lib/channels-settings-tab'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
 import type { RestoredDraft } from '@/lib/types'
 import { logger } from '@/lib/logger'
@@ -92,7 +93,7 @@ export function useModelActions({
 
   const openSettingsDialog = useCallback((initialTab: 'defaults' | 'customModels') => {
     SettingsDialog.open(
-      [createLanguageSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab(), createProjectCommandsSettingsTab(), createBackupSettingsTab(), createServiceSettingsTab(), createLanAccessSettingsTab(), createAboutSettingsTab()],
+      [createLanguageSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab(), createProjectCommandsSettingsTab(), createBackupSettingsTab(), createServiceSettingsTab(), createChannelsSettingsTab(), createLanAccessSettingsTab(), createAboutSettingsTab()],
       () => {
         if (needsModelSetup || !agentRef.current) {
           void activateConfiguredModel().catch((error) => logger.error('Failed to activate configured model:', error))
@@ -203,7 +204,7 @@ export function useModelActions({
         })
       },
       async (model) => {
-        await SettingsDialog.open([createLanguageSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab(model.provider), createProjectCommandsSettingsTab(), createBackupSettingsTab(), createServiceSettingsTab(), createLanAccessSettingsTab(), createAboutSettingsTab()])
+        await SettingsDialog.open([createLanguageSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab(model.provider), createProjectCommandsSettingsTab(), createBackupSettingsTab(), createServiceSettingsTab(), createChannelsSettingsTab(), createLanAccessSettingsTab(), createAboutSettingsTab()])
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const dialog = document.querySelector('settings-dialog') as any
         if (dialog) {

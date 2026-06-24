@@ -114,6 +114,13 @@ type ScheduledTaskStartedEvent = {
   createdAt?: unknown
 }
 
+type ChannelRefreshEvent = {
+  type?: unknown
+  status?: unknown
+  channels?: Array<{ status?: unknown }>
+  snapshot?: { status?: unknown }
+}
+
 type ExecuteMarkdownCommandEvent = CustomEvent<{
   command?: unknown
   confirm?: unknown
@@ -130,6 +137,15 @@ function isScheduledTaskNotification(event: Record<string, unknown>): event is S
 
 function isScheduledTaskStarted(event: Record<string, unknown>): event is ScheduledTaskStartedEvent {
   return event.type === 'scheduled_task_started'
+}
+
+function isChannelActiveStatus(status: unknown) {
+  return status === 'starting' || status === 'waiting_scan' || status === 'running' || status === 'stopping'
+}
+
+function channelEventHasActiveChannel(event: ChannelRefreshEvent) {
+  if (Array.isArray(event.channels)) return event.channels.some((channel) => isChannelActiveStatus(channel.status))
+  return isChannelActiveStatus(event.snapshot?.status) || isChannelActiveStatus(event.status)
 }
 
 function MainApp() {
@@ -404,6 +420,53 @@ function MainApp() {
     setNeedsModelSetup,
     onStorageReady: setStorage,
   })
+
+  useEffect(() => {
+    if (!ready) return undefined
+    let lastRefreshAt = 0
+    let pollTimer: number | undefined
+
+    const refreshExternalSessions = () => {
+      const now = Date.now()
+      if (now - lastRefreshAt < 5000) return
+      lastRefreshAt = now
+      void loadProject()
+      void refreshSessions()
+    }
+
+    const setPolling = (active: boolean) => {
+      if (!active) {
+        if (pollTimer) window.clearInterval(pollTimer)
+        pollTimer = undefined
+        return
+      }
+      if (pollTimer) return
+      pollTimer = window.setInterval(refreshExternalSessions, 15000)
+    }
+
+    const source = new EventSource('/api/channels/events')
+    const handleEvent = (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data) as ChannelRefreshEvent
+        if (channelEventHasActiveChannel(payload)) {
+          setPolling(true)
+          refreshExternalSessions()
+        } else if (payload.type === 'snapshot' || payload.type === 'status') {
+          setPolling(false)
+        }
+      } catch {
+        // Ignore malformed channel events.
+      }
+    }
+
+    source.addEventListener('snapshot', handleEvent)
+    source.addEventListener('status', handleEvent)
+    source.addEventListener('log', handleEvent)
+    return () => {
+      source.close()
+      if (pollTimer) window.clearInterval(pollTimer)
+    }
+  }, [loadProject, ready, refreshSessions])
 
   useEffect(() => {
     if (!ready) return

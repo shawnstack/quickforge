@@ -25,6 +25,30 @@ function appendLineBuffer(buffer, text, onLine) {
   return nextBuffer
 }
 
+function runDetachedCommand(command, args) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { windowsHide: true, stdio: 'ignore' })
+    child.once('error', () => resolve(false))
+    child.once('exit', (code) => resolve(code === 0))
+  })
+}
+
+async function terminateProcess(child, signal = 'SIGTERM') {
+  if (!child?.pid) return false
+  if (process.platform === 'win32') {
+    return runDetachedCommand('taskkill.exe', ['/PID', String(child.pid), '/T', signal === 'SIGKILL' ? '/F' : undefined].filter(Boolean))
+  }
+  try {
+    return process.kill(-child.pid, signal)
+  } catch {
+    try {
+      return child.kill(signal)
+    } catch {
+      return false
+    }
+  }
+}
+
 export class ProcessChannelProvider extends EventEmitter {
   constructor(definition, options = {}) {
     super()
@@ -45,6 +69,8 @@ export class ProcessChannelProvider extends EventEmitter {
     this.stopRequested = false
     this.stdoutBuffer = ''
     this.stderrBuffer = ''
+    this.startPromise = null
+    this.stopPromise = null
   }
 
   snapshot() {
@@ -134,11 +160,18 @@ export class ProcessChannelProvider extends EventEmitter {
 
   async start(options = {}) {
     if (this.process) return this.snapshot()
-    if (this.status === 'starting' || this.status === 'stopping') return this.snapshot()
+    if (this.startPromise) return this.startPromise
+    if (this.status === 'stopping') return this.snapshot()
 
-    await this.beforeStart(options)
+    this.startPromise = this.#startProcess(options)
+    try {
+      return await this.startPromise
+    } finally {
+      this.startPromise = null
+    }
+  }
 
-    const commandSpec = this.buildStartCommand(options)
+  async #startProcess(options = {}) {
     this.stopRequested = false
     this.exitCode = null
     this.exitSignal = null
@@ -151,10 +184,16 @@ export class ProcessChannelProvider extends EventEmitter {
     this.stoppedAt = null
     this.setStatus('starting')
 
+    await this.beforeStart(options)
+    if (this.process) return this.snapshot()
+
+    const commandSpec = this.buildStartCommand(options)
+
     const child = spawn(commandSpec.command, commandSpec.args || [], {
       cwd: commandSpec.cwd,
       env: commandSpec.env || process.env,
       windowsHide: true,
+      detached: process.platform !== 'win32',
       shell: commandSpec.shell === true,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
@@ -194,6 +233,16 @@ export class ProcessChannelProvider extends EventEmitter {
   }
 
   async stop() {
+    if (this.stopPromise) return this.stopPromise
+    this.stopPromise = this.#stopProcess()
+    try {
+      return await this.stopPromise
+    } finally {
+      this.stopPromise = null
+    }
+  }
+
+  async #stopProcess() {
     if (!this.process) {
       this.setStatus('stopped')
       return this.snapshot()
@@ -202,7 +251,7 @@ export class ProcessChannelProvider extends EventEmitter {
     this.stopRequested = true
     this.setStatus('stopping')
     const child = this.process
-    child.kill('SIGTERM')
+    await terminateProcess(child, 'SIGTERM')
 
     const exited = await Promise.race([
       new Promise((resolve) => child.once('exit', () => resolve(true))),
@@ -210,7 +259,7 @@ export class ProcessChannelProvider extends EventEmitter {
     ])
 
     if (!exited && this.process === child) {
-      child.kill('SIGKILL')
+      await terminateProcess(child, 'SIGKILL')
     }
 
     return this.snapshot()

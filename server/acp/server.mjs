@@ -19,7 +19,7 @@ import {
   updateSessionModel,
   updateSessionThinkingLevel,
 } from '../agent-manager.mjs'
-import { getActiveProject, readProjectConfig, setActiveProjectPath, sameProjectPath } from '../project-config.mjs'
+import { getActiveProject, getDefaultWorkspaceRoot, readProjectConfig, setActiveProjectPath, sameProjectPath } from '../project-config.mjs'
 import { readSessionValue, readStore } from '../storage.mjs'
 import { logger } from '../utils/logger.mjs'
 
@@ -613,8 +613,14 @@ async function assertSafeAcpAdditionalDirectories(additionalDirectories = []) {
   return result
 }
 
+function isDefaultWorkspaceCwd(cwd) {
+  const defaultWorkspaceRoot = getDefaultWorkspaceRoot()
+  return defaultWorkspaceRoot && sameProjectPath(cwd, defaultWorkspaceRoot)
+}
+
 async function resolveProjectForCwd(cwd) {
   const resolvedCwd = await assertSafeAcpCwd(cwd)
+  if (isDefaultWorkspaceCwd(resolvedCwd)) return null
   const config = await readProjectConfig()
   let project = config.projects.find((item) => sameProjectPath(item.path, resolvedCwd))
   if (!project) {

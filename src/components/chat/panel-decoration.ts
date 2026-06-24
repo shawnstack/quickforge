@@ -1562,6 +1562,8 @@ function decorateModelButtonLabel(editor: MessageEditorElement | null, rightCont
   if (!modelButton) return
 
   modelButton.classList.add('quickforge-model-trigger')
+  modelButton.setAttribute('aria-haspopup', 'menu')
+  modelButton.setAttribute('aria-expanded', document.querySelector('.quickforge-model-menu') ? 'true' : 'false')
   if (model?.reasoning) {
     modelButton.dataset.quickforgeThinkingLevel = `· ${thinkingLevelLabel(modelState?.thinkingLevel)}`
   } else {

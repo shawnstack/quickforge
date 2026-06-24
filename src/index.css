@@ -1154,6 +1154,12 @@ assistant-message :is(thinking-block, tool-message, markdown-block, streaming-me
   background: color-mix(in oklab, var(--muted) 34%, transparent) !important;
 }
 
+.quickforge-composer .quickforge-model-trigger[aria-expanded="true"] {
+  border-color: color-mix(in oklab, var(--border) 76%, transparent) !important;
+  background: color-mix(in oklab, var(--muted) 58%, transparent) !important;
+  color: var(--foreground) !important;
+}
+
 .quickforge-composer .quickforge-model-trigger svg {
   display: none;
 }
@@ -1172,6 +1178,74 @@ assistant-message :is(thinking-block, tool-message, markdown-block, streaming-me
   content: attr(data-quickforge-thinking-level);
   flex: 0 0 auto;
   color: color-mix(in oklab, var(--muted-foreground) 92%, transparent);
+}
+
+.quickforge-model-menu,
+.quickforge-model-submenu {
+  position: fixed;
+  z-index: 10000;
+  overflow: hidden;
+  padding: 0.5rem 0.4rem;
+  border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+  border-radius: 0.95rem;
+  background: color-mix(in oklab, var(--popover) 98%, white);
+  color: var(--foreground);
+  box-shadow: 0 18px 46px -26px rgb(15 23 42 / 0.42), 0 0 0 1px rgb(255 255 255 / 0.72) inset;
+}
+
+.quickforge-model-menu-header {
+  padding: 0.05rem 0.75rem 0.45rem;
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.quickforge-model-menu-item {
+  display: grid !important;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) 1.3rem;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.42rem 0.55rem 0.42rem 0.75rem !important;
+  border-radius: 0.6rem !important;
+  color: inherit !important;
+  font-size: 0.88rem;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.quickforge-model-menu-item:hover,
+.quickforge-model-menu-item:focus-visible {
+  background: color-mix(in oklab, var(--muted) 72%, transparent) !important;
+  transform: none !important;
+}
+
+.quickforge-model-menu-item-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickforge-model-menu-item-suffix {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.quickforge-model-menu-separator {
+  height: 1px;
+  margin: 0.25rem 0.45rem 0.35rem;
+  background: color-mix(in oklab, var(--border) 72%, transparent);
+}
+
+.quickforge-model-menu-note {
+  padding: 0.25rem 0.75rem 0.5rem;
+  color: color-mix(in oklab, var(--muted-foreground) 86%, transparent);
+  font-size: 0.78rem;
 }
 
 .quickforge-composer .quickforge-send-button,

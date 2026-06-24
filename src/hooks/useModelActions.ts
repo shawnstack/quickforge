@@ -150,10 +150,16 @@ export function useModelActions({
     notifySettingsChanged,
   ])
 
-  const openCustomModelSelector = useCallback(async () => {
+  const openCustomModelSelector = useCallback(async (event?: Event | HTMLElement) => {
     const storage = storageRef.current
     const currentAgent = agentRef.current
     if (!storage || !currentAgent) return
+
+    const anchor = event instanceof HTMLElement
+      ? event
+      : event?.currentTarget instanceof HTMLElement
+        ? event.currentTarget
+        : document.querySelector<HTMLElement>('.quickforge-model-trigger')
 
     const textarea = document.querySelector<HTMLTextAreaElement>(
       'agent-interface message-editor textarea',
@@ -214,6 +220,7 @@ export function useModelActions({
       },
       {
         thinkingLevel: currentAgent.state.thinkingLevel,
+        anchor,
         onThinkingLevelSelect: (level) => {
           currentAgent.state.thinkingLevel = level
           void currentAgent.updateThinkingLevel(level).catch((error) => {

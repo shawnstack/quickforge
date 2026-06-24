@@ -23,8 +23,11 @@ import {
 } from './conversation-compaction.mjs'
 import {
   buildAutoCompactLoopMessages,
+  compactSessionInPlace,
+  DEFAULT_AUTO_COMPACT_SETTINGS,
   estimateSessionContextUsage,
   maybeAutoCompactSession,
+  readAutoCompactSettings,
 } from './auto-compaction.mjs'
 import {
   handleInternalCommand,
@@ -389,12 +392,12 @@ function finishManualSessionRun(session, status, errorMessage) {
   session.agent.state.errorMessage = errorMessage
 }
 
-async function compactSession(session, initialUserMessage, compactOptions) {
+async function summarySession(session, initialUserMessage, summaryOptions) {
   if (session.agent.state.isStreaming) {
     session.agent.state.messages = [
       ...session.agent.state.messages,
       initialUserMessage,
-      assistantTextMessage('Cannot compact while a generation is still running. Stop it or wait until it finishes, then run /compact again.', session.model),
+      assistantTextMessage('Cannot summarize while a generation is still running. Stop it or wait until it finishes, then run /summary again.', session.model),
     ]
     await persistSession(session)
     const messages = session.agent.state.messages
@@ -418,13 +421,13 @@ async function compactSession(session, initialUserMessage, compactOptions) {
 
   try {
     const originalMessages = session.agent.state.messages.slice()
-    const options = parseCompactArgs(compactOptions?.args || '')
+    const options = parseCompactArgs(summaryOptions?.args || '')
 
     if (options.unsupported?.length) {
       session.agent.state.messages = [
         ...originalMessages,
         initialUserMessage,
-        assistantTextMessage(`Unsupported /compact option(s): ${options.unsupported.join(', ')}\n\nSupported usage: /compact or /compact keep=0`, session.model),
+        assistantTextMessage(`Unsupported /summary option(s): ${options.unsupported.join(', ')}\n\nSupported usage: /summary or /summary keep=0`, session.model),
       ]
       finishManualSessionRun(session, 'idle')
       await persistSession(session)
@@ -446,7 +449,7 @@ async function compactSession(session, initialUserMessage, compactOptions) {
       session.agent.state.messages = [
         ...originalMessages,
         initialUserMessage,
-        assistantTextMessage('Not enough earlier history to compact. Continue chatting and run /compact again later.', session.model),
+        assistantTextMessage('Not enough earlier history to summarize. Continue chatting and run /summary again later.', session.model),
       ]
       finishManualSessionRun(session, 'idle')
       await persistSession(session)
@@ -516,6 +519,97 @@ async function compactSession(session, initialUserMessage, compactOptions) {
     emitSessionEvent(compactedSession, { type: 'message_end', messages: compactedSession.agent.state.messages })
     emitSessionEvent(compactedSession, { type: 'agent_end', messages: compactedSession.agent.state.messages })
     return { sessionId: session.sessionId, status: session.status, compactedSessionId }
+  } catch (err) {
+    const errorMessage = err?.message || 'Conversation compaction failed'
+    session.agent.state.messages = [
+      ...session.agent.state.messages,
+      initialUserMessage,
+      assistantTextMessage(`Conversation compaction failed: ${errorMessage}`, session.model),
+    ]
+    finishManualSessionRun(session, 'error', errorMessage)
+    await persistSession(session)
+    const messages = session.agent.state.messages
+    emitSessionEvent(session, { type: 'error', error: errorMessage })
+    emitSessionEvent(session, { type: 'agent_end', messages, errorMessage })
+    return { sessionId: session.sessionId, status: session.status }
+  }
+}
+
+async function compactSession(session, initialUserMessage, compactOptions) {
+  if (session.agent.state.isStreaming) {
+    session.agent.state.messages = [
+      ...session.agent.state.messages,
+      initialUserMessage,
+      assistantTextMessage('Cannot compact while a generation is still running. Stop it or wait until it finishes, then run /compact again.', session.model),
+    ]
+    await persistSession(session)
+    const messages = session.agent.state.messages
+    emitSessionEvent(session, { type: 'message_end', messages })
+    emitSessionEvent(session, { type: 'agent_end', messages })
+    return { sessionId: session.sessionId, status: session.status }
+  }
+
+  const args = String(compactOptions?.args || '').trim()
+  if (args) {
+    session.agent.state.messages = [
+      ...session.agent.state.messages,
+      initialUserMessage,
+      assistantTextMessage('Unsupported /compact option(s). Supported usage: /compact', session.model),
+    ]
+    session.status = 'idle'
+    session.finishedAt = new Date().toISOString()
+    await persistSession(session)
+    const messages = session.agent.state.messages
+    emitSessionEvent(session, { type: 'message_end', messages })
+    emitSessionEvent(session, { type: 'agent_end', messages })
+    return { sessionId: session.sessionId, status: session.status }
+  }
+
+  resetIdleTimer(session)
+  session.status = 'running'
+  session.startedAt = session.startedAt ?? new Date().toISOString()
+  session.finishedAt = null
+  session.agent.state.isStreaming = true
+  session.agent.state.errorMessage = undefined
+  emitSessionEvent(session, { type: 'agent_start' })
+
+  try {
+    const messages = session.agent.state.messages.slice()
+    const settings = await readAutoCompactSettings().catch(() => DEFAULT_AUTO_COMPACT_SETTINGS)
+    const usage = getSessionContextUsage(session)
+    const result = await compactSessionInPlace({
+      session,
+      messages,
+      keepRecentTurns: settings.keepRecentTurns,
+      minSourceChars: settings.minSourceChars,
+      usage,
+      thresholdPercent: settings.thresholdPercent,
+      emitSessionEvent,
+      persistSession,
+      reason: 'manual_compact',
+      onBeforePersist: () => {
+        finishManualSessionRun(session, 'idle')
+      },
+    })
+
+    if (!result.compacted) {
+      session.agent.state.messages = [
+        ...messages,
+        initialUserMessage,
+        assistantTextMessage('Not enough earlier history to compact. Continue chatting and run /compact again later.', session.model),
+      ]
+      finishManualSessionRun(session, 'idle')
+      await persistSession(session)
+      const nextMessages = session.agent.state.messages
+      emitSessionEvent(session, { type: 'message_end', messages: nextMessages })
+      emitSessionEvent(session, { type: 'agent_end', messages: nextMessages })
+      return { sessionId: session.sessionId, status: session.status }
+    }
+
+    const nextMessages = session.agent.state.messages
+    emitSessionEvent(session, { type: 'message_end', messages: nextMessages })
+    emitSessionEvent(session, { type: 'agent_end', messages: nextMessages })
+    return { sessionId: session.sessionId, status: session.status }
   } catch (err) {
     const errorMessage = err?.message || 'Conversation compaction failed'
     session.agent.state.messages = [
@@ -622,6 +716,7 @@ async function resolveCommandState(session, userMessage, promptCommand = null) {
   )
   if (typeof internalResponse === 'string') return { textResponse: internalResponse }
   if (internalResponse?.clear) return { clear: internalResponse }
+  if (internalResponse?.summary) return { summary: internalResponse }
   if (internalResponse?.compact) return { compact: internalResponse }
   if (internalResponse?.plan) {
     return planCommandState(userMessage, internalResponse.args)
@@ -1594,6 +1689,10 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
 
   if (commandState.clear) {
     return clearSession(session)
+  }
+
+  if (commandState.summary) {
+    return summarySession(session, initialUserMessage, commandState.summary)
   }
 
   if (commandState.compact) {

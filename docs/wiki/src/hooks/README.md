@@ -46,7 +46,7 @@
 - **会话列表**: `refreshSessions()` — 刷新会话元数据列表
 - **标题生成**: 自动为无标题会话生成 AI 标题
 - **后台任务**: 管理后台运行的任务状态
-- **对话压缩**: 支持 compact 命令压缩长对话
+- **对话压缩**: 支持 `/summary` 创建总结后的新对话，支持 `/compact` 在当前会话内滚动压缩上下文
 - **全局会话默认工作目录**: 通过 `defaultWorkspaceRef`（来自 `useProject.defaultWorkspace`）为 global 作用域会话注入合成 project（id=`default`，指向 `~/.quickforge/workspace`），从而启用工作区面板/终端/Git；该合成 id 仅用于前端 UI 与 REST 端点，不会作为 `projectId` 发往后端创建 Agent
 
 ### useChatActions.ts (276 行)

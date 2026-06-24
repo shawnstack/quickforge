@@ -151,6 +151,76 @@ export function buildAutoCompactLoopMessages(session, messages) {
   return [summaryMessage, ...source.slice(compactedUpToIndex)]
 }
 
+export async function compactSessionInPlace({
+  session,
+  messages,
+  keepRecentTurns = DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns,
+  minSourceChars = DEFAULT_AUTO_COMPACT_SETTINGS.minSourceChars,
+  usage,
+  thresholdPercent,
+  emitSessionEvent,
+  persistSession,
+  reason = 'manual_compact',
+  summaryIntro = 'The previous conversation has been compacted. Treat the following summary as the authoritative replacement for earlier history. If information is missing, ask for clarification instead of guessing.',
+  onBeforePersist,
+}) {
+  const source = Array.isArray(messages) ? messages : []
+  const normalizedKeepRecentTurns = clampNumber(keepRecentTurns, DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns, 1, 20)
+  const normalizedMinSourceChars = clampNumber(minSourceChars, DEFAULT_AUTO_COMPACT_SETTINGS.minSourceChars, 0, 200000)
+  const tailStart = tailStartForRecentTurns(source, normalizedKeepRecentTurns)
+  const sourceMessages = buildCompactionSourceMessages(session, source, tailStart)
+  if (sourceMessages.length < 2 || estimateMessagesChars(sourceMessages) < normalizedMinSourceChars) {
+    return { compacted: false, usage, reason: 'not_enough_history' }
+  }
+
+  const result = await compactConversation({
+    messages: sourceMessages,
+    model: session.model,
+    thinkingLevel: session.thinkingLevel,
+    getApiKey: session.getApiKey,
+    keepTurns: 0,
+  })
+
+  if (result.skipped) return { compacted: false, usage, reason: result.reason || 'skipped' }
+
+  await saveCompactBackup(session.sessionId, sourceMessages)
+  const summaryMessage = userTextMessage([
+    summaryIntro,
+    '',
+    '<compact_summary>',
+    result.summary,
+    '</compact_summary>',
+  ].join('\n'))
+  session.contextCompaction = {
+    summaryMessage,
+    compactedUpToIndex: tailStart,
+    compactedAt: new Date().toISOString(),
+    keepRecentTurns: normalizedKeepRecentTurns,
+    sourceMessageCount: source.length,
+    usageBefore: usage,
+    thresholdPercent,
+  }
+  onBeforePersist?.({ result, sourceMessages, tailStart, summaryMessage })
+  await persistSession?.(session)
+  const contextUsage = estimateSessionContextUsage(session, source)
+  emitSessionEvent?.(session, {
+    type: 'auto_compact_completed',
+    reason,
+    usage,
+    thresholdPercent,
+    contextCompaction: session.contextCompaction,
+    contextUsage,
+  })
+  emitSessionEvent?.(session, {
+    type: 'messages_replaced',
+    reason,
+    messages: source,
+    contextCompaction: session.contextCompaction,
+    contextUsage,
+  })
+  return { compacted: true, usage, result, sourceMessages, tailStart }
+}
+
 export function estimateSessionContextUsage(session, messages = session?.agent?.state?.messages ?? []) {
   if (!session?.agent?.state) return null
   const sourceMessages = Array.isArray(messages) ? messages : []
@@ -274,50 +344,23 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
 
   session.autoCompacting = true
   try {
-    const result = await compactConversation({
-      messages: sourceMessages,
-      model: session.model,
-      thinkingLevel: session.thinkingLevel,
-      getApiKey: session.getApiKey,
-      keepTurns: 0,
-    })
-
-    if (result.skipped) return { compacted: false, usage, reason: result.reason || 'skipped' }
-
-    await saveCompactBackup(session.sessionId, sourceMessages)
-    const summaryMessage = userTextMessage([
-      'The previous conversation has been automatically compacted. Treat the following summary as the authoritative replacement for earlier history. If information is missing, ask for clarification instead of guessing.',
-      '',
-      '<compact_summary>',
-      result.summary,
-      '</compact_summary>',
-    ].join('\n'))
-    session.contextCompaction = {
-      summaryMessage,
-      compactedUpToIndex: tailStart,
-      compactedAt: new Date().toISOString(),
+    const result = await compactSessionInPlace({
+      session,
+      messages,
       keepRecentTurns: settings.keepRecentTurns,
-      sourceMessageCount: messages.length,
-      usageBefore: usage,
-      thresholdPercent: settings.thresholdPercent,
-    }
-    clearAutoCompactRejected(session)
-    session.lastAutoCompactAt = now
-    await persistSession(session)
-    emitSessionEvent(session, {
-      type: 'auto_compact_completed',
+      minSourceChars: settings.minSourceChars,
       usage,
       thresholdPercent: settings.thresholdPercent,
-      contextCompaction: session.contextCompaction,
-      contextUsage: estimateSessionContextUsage(session, messages),
-    })
-    emitSessionEvent(session, {
-      type: 'messages_replaced',
+      emitSessionEvent,
+      persistSession,
       reason: 'auto_compact',
-      messages,
-      contextCompaction: session.contextCompaction,
-      contextUsage: estimateSessionContextUsage(session, messages),
+      summaryIntro: 'The previous conversation has been automatically compacted. Treat the following summary as the authoritative replacement for earlier history. If information is missing, ask for clarification instead of guessing.',
+      onBeforePersist: () => {
+        clearAutoCompactRejected(session)
+        session.lastAutoCompactAt = now
+      },
     })
+    if (!result.compacted) return result
     return { compacted: true, usage }
   } catch (error) {
     logger?.warn?.(`Auto compact failed for session ${session.sessionId}:`, error?.message || error, { sessionId: session.sessionId })

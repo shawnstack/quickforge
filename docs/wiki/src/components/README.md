@@ -97,7 +97,7 @@ components/
 
 **command-suggestions.ts** (174 行)
 - 聊天输入框 "/" 命令建议下拉菜单
-- 支持内置命令（/plan, /review, /compact, /clear, /help）和自定义命令（用户级 + 项目级 + 插件）
+- 支持内置命令（/plan, /review, /summary, /compact, /clear, /help）和自定义命令（用户级 + 项目级 + 插件）
 - Tab 补全命令；Shift+Tab 保留给 Composer 的 Plan 模式切换
 - 草稿恢复支持
 

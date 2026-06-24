@@ -49,6 +49,31 @@ describe('internal slash commands', () => {
     })
   })
 
+  it('parses /summary with arguments', () => {
+    expect(parseInternalCommandInvocation('/summary keep=2')).toEqual({
+      type: 'summary',
+      args: 'keep=2',
+    })
+  })
+
+  it('handles /summary as the new-chat summary command', async () => {
+    await expect(handleInternalCommand({ type: 'summary', args: 'keep=2' }, process.cwd(), '')).resolves.toEqual({
+      summary: true,
+      args: 'keep=2',
+    })
+  })
+
+  it('parses /compact as the in-place compaction command', () => {
+    expect(parseInternalCommandInvocation('/compact')).toEqual({ type: 'compact', args: '' })
+  })
+
+  it('handles /compact as the in-place compaction command', async () => {
+    await expect(handleInternalCommand({ type: 'compact', args: '' }, process.cwd(), '')).resolves.toEqual({
+      compact: true,
+      args: '',
+    })
+  })
+
   it('allows subagents but blocks edits and commands for /plan permission state', () => {
     const session = {
       activeCommandName: 'plan',
@@ -98,6 +123,7 @@ describe('/help command', () => {
     expect(result).toContain('QuickForge command reference')
     expect(result).toContain('`/plan [task]`')
     expect(result).toContain('`/review [scope]`')
+    expect(result).toContain('`/summary`')
     expect(result).toContain('`/compact`')
     expect(result).toContain('`/clear`')
     expect(result).toContain('`/help`')

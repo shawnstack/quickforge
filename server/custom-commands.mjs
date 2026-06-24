@@ -27,8 +27,13 @@ const builtinCommandCatalog = [
     permissionNote: 'no edits',
   },
   {
+    name: 'summary',
+    description: 'Create a new chat with this conversation summarized to reduce context usage.',
+    argumentHint: '',
+  },
+  {
     name: 'compact',
-    description: 'Create a new chat with this conversation compacted to reduce context usage.',
+    description: 'Compact this conversation context in place using the same rolling summary as auto-compaction.',
     argumentHint: '',
   },
   {
@@ -373,6 +378,9 @@ export function parseInternalCommandInvocation(message) {
   const compactMatch = text.match(/^\/compact(?:\s+([\s\S]*))?$/i)
   if (compactMatch) return { type: 'compact', args: (compactMatch[1] || '').trim() }
 
+  const summaryMatch = text.match(/^\/summary(?:\s+([\s\S]*))?$/i)
+  if (summaryMatch) return { type: 'summary', args: (summaryMatch[1] || '').trim() }
+
   const createMatch = text.match(/^\/command\s+new\s+([A-Za-z0-9][A-Za-z0-9-]*)\s*$/i)
   if (createMatch) {
     const name = normalizeCommandName(createMatch[1])
@@ -387,6 +395,10 @@ export async function handleInternalCommand(invocation, workspaceRoot, commandDi
 
   if (invocation.type === 'compact') {
     return { compact: true, args: invocation.args || '' }
+  }
+
+  if (invocation.type === 'summary') {
+    return { summary: true, args: invocation.args || '' }
   }
 
   if (invocation.type === 'plan') {

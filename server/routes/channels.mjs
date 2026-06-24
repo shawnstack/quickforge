@@ -1,4 +1,4 @@
-import { sendJson, decodeSegment } from '../utils/response.mjs'
+import { sendJson, decodeSegment, readJsonBody } from '../utils/response.mjs'
 import {
   channelEvents,
   getChannelStatus,
@@ -23,6 +23,13 @@ function assertActionHeader(req) {
     error.statusCode = 403
     throw error
   }
+}
+
+async function readActionOptions(req) {
+  if (!['POST', 'PUT', 'PATCH'].includes(req.method || '')) return {}
+  const contentType = String(req.headers['content-type'] || '')
+  if (!contentType.toLowerCase().includes('application/json')) return {}
+  return await readJsonBody(req, 64 * 1024) || {}
 }
 
 export async function handleChannelsApi(req, res, url, context = {}) {
@@ -62,7 +69,7 @@ export async function handleChannelsApi(req, res, url, context = {}) {
 
   if (req.method === 'POST' && subPath[0] === 'start') {
     assertActionHeader(req)
-    sendJson(res, 202, await startChannel(channelId))
+    sendJson(res, 202, await startChannel(channelId, await readActionOptions(req)))
     return
   }
 
@@ -74,13 +81,13 @@ export async function handleChannelsApi(req, res, url, context = {}) {
 
   if (req.method === 'POST' && subPath[0] === 'restart') {
     assertActionHeader(req)
-    sendJson(res, 202, await restartChannel(channelId))
+    sendJson(res, 202, await restartChannel(channelId, await readActionOptions(req)))
     return
   }
 
   if (req.method === 'POST' && subPath[0] === 'actions' && subPath[1]) {
     assertActionHeader(req)
-    sendJson(res, 202, await runChannelAction(channelId, subPath[1]))
+    sendJson(res, 202, await runChannelAction(channelId, subPath[1], await readActionOptions(req)))
     return
   }
 

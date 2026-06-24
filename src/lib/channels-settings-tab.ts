@@ -24,6 +24,8 @@ type ChannelStatus = {
   description: string
   provider?: string
   commandLabel?: string
+  supportsWorkspaceSelection?: boolean
+  launchWorkspace?: WorkspaceOption | null
   status: 'stopped' | 'starting' | 'waiting_scan' | 'running' | 'stopping' | 'error'
   pid?: number | null
   startedAt?: string | null
@@ -35,6 +37,19 @@ type ChannelStatus = {
   actions?: ChannelAction[]
   requirements?: string[]
   activeAction?: string | null
+}
+
+type WorkspaceOption = {
+  id: string
+  name: string
+  path: string
+  kind?: 'default' | 'project'
+}
+
+type ProjectPayload = {
+  project?: WorkspaceOption | null
+  projects?: WorkspaceOption[]
+  defaultWorkspaceRoot?: string
 }
 
 type ChannelsPayload = {
@@ -87,6 +102,8 @@ function formatDate(value?: string | null) {
 class ChannelsSettingsTab extends SettingsTab {
   private loading = true
   private channels: ChannelStatus[] = []
+  private workspaces: WorkspaceOption[] = []
+  private selectedWorkspaceIdByChannel: Record<string, string> = {}
   private error = ''
   private message = ''
   private eventSource?: EventSource
@@ -98,7 +115,7 @@ class ChannelsSettingsTab extends SettingsTab {
 
   override async connectedCallback() {
     super.connectedCallback()
-    await this.loadChannels()
+    await Promise.all([this.loadChannels(), this.loadWorkspaces()])
     this.connectEvents()
   }
 
@@ -128,12 +145,53 @@ class ChannelsSettingsTab extends SettingsTab {
     try {
       const payload = await this.request<ChannelsPayload>('/api/channels')
       this.channels = Array.isArray(payload.channels) ? payload.channels : []
+      this.ensureWorkspaceSelections()
     } catch (error) {
       this.error = error instanceof Error ? error.message : t('requestFailed')
     } finally {
       this.loading = false
       this.requestUpdate()
     }
+  }
+
+  private async loadWorkspaces() {
+    try {
+      const payload = await this.request<ProjectPayload>('/api/project')
+      const defaultRoot = payload.defaultWorkspaceRoot || ''
+      const defaultWorkspace: WorkspaceOption[] = defaultRoot
+        ? [{ id: 'default', name: t('channelDefaultWorkspace'), path: defaultRoot, kind: 'default' }]
+        : []
+      const projects = (Array.isArray(payload.projects) ? payload.projects : []).map((project) => ({
+        id: project.id,
+        name: project.name,
+        path: project.path,
+        kind: 'project' as const,
+      }))
+      this.workspaces = [...defaultWorkspace, ...projects]
+      this.ensureWorkspaceSelections()
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : t('requestFailed')
+    } finally {
+      this.requestUpdate()
+    }
+  }
+
+  private ensureWorkspaceSelections() {
+    const availableIds = new Set(this.workspaces.map((workspace) => workspace.id))
+    const nextSelections = { ...this.selectedWorkspaceIdByChannel }
+    for (const channel of this.channels) {
+      if (!channel.supportsWorkspaceSelection) continue
+      const current = nextSelections[channel.id]
+      const launchId = channel.launchWorkspace?.id
+      const isActive = channel.status !== 'stopped' && channel.status !== 'error'
+      if (launchId && availableIds.has(launchId) && isActive) {
+        nextSelections[channel.id] = launchId
+        continue
+      }
+      if (current && availableIds.has(current)) continue
+      nextSelections[channel.id] = launchId && availableIds.has(launchId) ? launchId : 'default'
+    }
+    this.selectedWorkspaceIdByChannel = nextSelections
   }
 
   private connectEvents() {
@@ -162,6 +220,7 @@ class ChannelsSettingsTab extends SettingsTab {
   private applyChannelEvent(event: ChannelEvent) {
     if (Array.isArray(event.channels)) {
       this.channels = event.channels
+      this.ensureWorkspaceSelections()
       this.requestUpdate()
       return
     }
@@ -191,7 +250,28 @@ class ChannelsSettingsTab extends SettingsTab {
     } else {
       this.channels = [...this.channels, channel]
     }
+    this.ensureWorkspaceSelections()
     this.requestUpdate()
+  }
+
+  private selectedWorkspaceId(channel: ChannelStatus) {
+    return this.selectedWorkspaceIdByChannel[channel.id] || channel.launchWorkspace?.id || 'default'
+  }
+
+  private handleWorkspaceChange(channel: ChannelStatus, event: Event) {
+    const target = event.currentTarget as HTMLSelectElement | null
+    if (!target) return
+    this.selectedWorkspaceIdByChannel = {
+      ...this.selectedWorkspaceIdByChannel,
+      [channel.id]: target.value || 'default',
+    }
+    this.requestUpdate()
+  }
+
+  private startOptions(channel: ChannelStatus) {
+    return channel.supportsWorkspaceSelection
+      ? { projectId: this.selectedWorkspaceId(channel) }
+      : undefined
   }
 
   private async invoke(channel: ChannelStatus, operation: 'start' | 'stop' | 'restart') {
@@ -210,9 +290,11 @@ class ChannelsSettingsTab extends SettingsTab {
     this.message = ''
     this.requestUpdate()
     try {
+      const body = operation === 'start' || operation === 'restart' ? this.startOptions(channel) : undefined
       const snapshot = await this.request<ChannelStatus>(`/api/channels/${encodeURIComponent(channel.id)}/${operation}`, {
         method: 'POST',
-        headers: ACTION_HEADER,
+        headers: body ? { ...ACTION_HEADER, 'content-type': 'application/json' } : ACTION_HEADER,
+        body: body ? JSON.stringify(body) : undefined,
       })
       this.upsertChannel(snapshot)
     } catch (error) {
@@ -242,9 +324,11 @@ class ChannelsSettingsTab extends SettingsTab {
     this.message = ''
     this.requestUpdate()
     try {
+      const body = action.id === 'relogin' ? this.startOptions(channel) : undefined
       const snapshot = await this.request<ChannelStatus>(`/api/channels/${encodeURIComponent(channel.id)}/actions/${encodeURIComponent(action.id)}`, {
         method: 'POST',
-        headers: ACTION_HEADER,
+        headers: body ? { ...ACTION_HEADER, 'content-type': 'application/json' } : ACTION_HEADER,
+        body: body ? JSON.stringify(body) : undefined,
       })
       this.upsertChannel(snapshot)
     } catch (error) {
@@ -253,6 +337,32 @@ class ChannelsSettingsTab extends SettingsTab {
       this.busyChannelId = ''
       this.requestUpdate()
     }
+  }
+
+  private workspaceSection(channel: ChannelStatus, disabled: boolean) {
+    if (!channel.supportsWorkspaceSelection) return null
+    const selectedId = this.selectedWorkspaceId(channel)
+    const currentWorkspace = channel.launchWorkspace
+    return html`
+      <div class="mt-4 rounded-lg border border-border bg-muted/10 p-3">
+        <label class="text-sm font-medium text-foreground" for=${`channel-workspace-${channel.id}`}>${t('channelWorkspace')}</label>
+        <p class="mt-1 text-sm text-muted-foreground">${t('channelWorkspaceDescription')}</p>
+        <select
+          id=${`channel-workspace-${channel.id}`}
+          class="mt-3 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground disabled:opacity-60"
+          ?disabled=${disabled}
+          .value=${selectedId}
+          @change=${(event: Event) => this.handleWorkspaceChange(channel, event)}
+        >
+          ${this.workspaces.map((workspace) => html`
+            <option value=${workspace.id}>${workspace.kind === 'default' ? t('channelDefaultWorkspace') : workspace.name} — ${workspace.path}</option>
+          `)}
+        </select>
+        ${currentWorkspace
+          ? html`<div class="mt-2 text-xs text-muted-foreground">${t('channelCurrentWorkspace')}: <span class="font-mono">${currentWorkspace.path}</span></div>`
+          : null}
+      </div>
+    `
   }
 
   private channelMeta(channel: ChannelStatus) {
@@ -317,6 +427,7 @@ class ChannelsSettingsTab extends SettingsTab {
     const busy = this.busyChannelId === channel.id || Boolean(channel.activeAction)
     const isRunning = channel.status === 'running' || channel.status === 'waiting_scan' || channel.status === 'starting'
     const isStopping = channel.status === 'stopping'
+    const noWorkspace = Boolean(channel.supportsWorkspaceSelection && this.workspaces.length === 0)
     return html`
       <section class="rounded-lg border border-border p-4">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -331,15 +442,17 @@ class ChannelsSettingsTab extends SettingsTab {
               : null}
           </div>
           <div class="flex shrink-0 flex-wrap gap-2">
-            <button class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60" type="button" ?disabled=${busy || isRunning || isStopping} @click=${() => this.invoke(channel, 'start')}>${t('start')}</button>
+            <button class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60" type="button" ?disabled=${busy || isRunning || isStopping || noWorkspace} @click=${() => this.invoke(channel, 'start')}>${t('start')}</button>
             <button class="rounded-md border border-input px-3 py-2 text-sm hover:bg-muted/20 disabled:opacity-60" type="button" ?disabled=${busy || !isRunning || isStopping} @click=${() => this.invoke(channel, 'stop')}>${t('stop')}</button>
-            <button class="rounded-md border border-input px-3 py-2 text-sm hover:bg-muted/20 disabled:opacity-60" type="button" ?disabled=${busy || isStopping} @click=${() => this.invoke(channel, 'restart')}>${t('restart')}</button>
+            <button class="rounded-md border border-input px-3 py-2 text-sm hover:bg-muted/20 disabled:opacity-60" type="button" ?disabled=${busy || isStopping || noWorkspace} @click=${() => this.invoke(channel, 'restart')}>${t('restart')}</button>
             ${channel.actions?.map((action) => html`
               <button class=${action.destructive ? 'rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-60' : 'rounded-md border border-input px-3 py-2 text-sm hover:bg-muted/20 disabled:opacity-60'} type="button" ?disabled=${busy} @click=${() => this.invokeAction(channel, action)}>${action.label}</button>
             `)}
           </div>
         </div>
 
+        ${this.workspaceSection(channel, busy || isRunning || isStopping)}
+        ${noWorkspace ? html`<div class="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">${t('channelNoWorkspaces')}</div>` : null}
         <div class="mt-4">${this.channelMeta(channel)}</div>
         ${channel.error ? html`<div class="mt-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">${channel.error}</div>` : null}
         ${this.qrSection(channel)}

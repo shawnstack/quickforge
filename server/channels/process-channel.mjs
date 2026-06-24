@@ -56,6 +56,7 @@ export class ProcessChannelProvider extends EventEmitter {
       provider: this.definition.provider,
       icon: this.definition.icon,
       commandLabel: this.definition.commandLabel,
+      supportsWorkspaceSelection: this.definition.supportsWorkspaceSelection === true,
       status: this.status,
       pid: this.pid,
       startedAt: this.startedAt,
@@ -129,15 +130,15 @@ export class ProcessChannelProvider extends EventEmitter {
     throw new Error('buildStartCommand() is not implemented')
   }
 
-  async beforeStart() {}
+  async beforeStart(_options = {}) {}
 
-  async start() {
+  async start(options = {}) {
     if (this.process) return this.snapshot()
     if (this.status === 'starting' || this.status === 'stopping') return this.snapshot()
 
-    await this.beforeStart()
+    await this.beforeStart(options)
 
-    const commandSpec = this.buildStartCommand()
+    const commandSpec = this.buildStartCommand(options)
     this.stopRequested = false
     this.exitCode = null
     this.exitSignal = null
@@ -215,12 +216,12 @@ export class ProcessChannelProvider extends EventEmitter {
     return this.snapshot()
   }
 
-  async restart() {
+  async restart(options = {}) {
     await this.stop()
-    return this.start()
+    return this.start(options)
   }
 
-  async runAction(_action) {
+  async runAction(_action, _options = {}) {
     const error = new Error('Unsupported channel action')
     error.statusCode = 404
     throw error

@@ -155,8 +155,8 @@ server/
 **核心文件**:
 - `channels/registry.mjs` — 渠道注册、列表、状态查询、启动/停止/重启/action 分发和全局事件总线。
 - `channels/process-channel.mjs` — 通用外部进程渠道基类，负责 `spawn` 生命周期、日志 ring buffer、状态、PID、二维码字段和关闭清理。
-- `channels/providers/wechat.mjs` — 微信渠道 Provider，使用 `npx -y weixin-acp start -- node <quickforge>/bin/quickforge.mjs acp` 启动微信 ACP bridge；UI 展示命令为 `npx weixin-acp start -- qf acp`。
-- `routes/channels.mjs` — `/api/channels`、`/api/channels/events` SSE、`/api/channels/:id/start|stop|restart|actions/:action`。
+- `channels/providers/wechat.mjs` — 微信渠道 Provider，使用 `npx -y weixin-acp start -- node <quickforge>/bin/quickforge.mjs acp` 启动微信 ACP bridge；UI 展示命令为 `npx weixin-acp start -- qf acp`；默认以非项目的全局默认工作区作为启动 cwd，也可由设置页选择已有项目作为启动工作区。
+- `routes/channels.mjs` — `/api/channels`、`/api/channels/events` SSE、`/api/channels/:id/start|stop|restart|actions/:action`；`start`/`restart` 可通过 JSON body 传入 `projectId`，`default` 表示全局默认工作区。
 
 **行为约束**:
 - 启动/停止/action 属于本地命令执行，仅允许 localhost 请求，并要求 `x-quickforge-action: channel-action`。

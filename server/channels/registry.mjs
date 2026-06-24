@@ -37,20 +37,20 @@ export function getChannelStatus(id) {
   return requireProvider(id).snapshot()
 }
 
-export async function startChannel(id) {
-  return requireProvider(id).start()
+export async function startChannel(id, options = {}) {
+  return requireProvider(id).start(options)
 }
 
 export async function stopChannel(id) {
   return requireProvider(id).stop()
 }
 
-export async function restartChannel(id) {
-  return requireProvider(id).restart()
+export async function restartChannel(id, options = {}) {
+  return requireProvider(id).restart(options)
 }
 
-export async function runChannelAction(id, action) {
-  return requireProvider(id).runAction(action)
+export async function runChannelAction(id, action, options = {}) {
+  return requireProvider(id).runAction(action, options)
 }
 
 export async function shutdownChannels() {

@@ -1,10 +1,13 @@
 import { spawn } from 'node:child_process'
+import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { ProcessChannelProvider } from '../process-channel.mjs'
+import { getDefaultWorkspaceRoot, readProjectConfig } from '../../project-config.mjs'
 
 const WEIXIN_ACP_PACKAGE = 'weixin-acp'
 const MIN_NODE_MAJOR = 22
 const ACTION_TIMEOUT_MS = 120_000
+const DEFAULT_WORKSPACE_ID = 'default'
 
 function npxCommand() {
   return process.platform === 'win32' ? 'npx.cmd' : 'npx'
@@ -21,6 +24,46 @@ function nodeMajor() {
 function qfAcpCommand(projectRoot) {
   const nodeCommand = process.platform === 'win32' ? 'node' : process.execPath
   return [nodeCommand, path.join(projectRoot, 'bin', 'quickforge.mjs'), 'acp']
+}
+
+function workspaceSummary(id, name, workspacePath, kind) {
+  return {
+    id,
+    name,
+    path: workspacePath,
+    kind,
+  }
+}
+
+async function assertDirectoryExists(workspacePath) {
+  try {
+    const stat = await fs.stat(workspacePath)
+    if (stat.isDirectory()) return
+  } catch {
+    // Report a clear channel action error below.
+  }
+  const error = new Error(`Workspace is not a directory: ${workspacePath}`)
+  error.statusCode = 400
+  throw error
+}
+
+async function resolveLaunchWorkspace(options = {}) {
+  const requestedId = typeof options.projectId === 'string' ? options.projectId : DEFAULT_WORKSPACE_ID
+  if (!requestedId || requestedId === DEFAULT_WORKSPACE_ID) {
+    const workspacePath = getDefaultWorkspaceRoot()
+    await assertDirectoryExists(workspacePath)
+    return workspaceSummary(DEFAULT_WORKSPACE_ID, 'workspace', workspacePath, 'default')
+  }
+
+  const config = await readProjectConfig()
+  const project = config.projects.find((item) => item.id === requestedId)
+  if (!project) {
+    const error = new Error(`Unknown project: ${requestedId}`)
+    error.statusCode = 404
+    throw error
+  }
+  await assertDirectoryExists(project.path)
+  return workspaceSummary(project.id, project.name, project.path, 'project')
 }
 
 function extractUrl(text) {
@@ -99,6 +142,7 @@ export class WechatChannelProvider extends ProcessChannelProvider {
       provider: 'weixin-acp',
       icon: 'wechat',
       commandLabel: 'npx weixin-acp start -- qf acp',
+      supportsWorkspaceSelection: true,
       actions: [
         { id: 'logout', label: '退出登录', destructive: true },
         { id: 'relogin', label: '重新登录' },
@@ -106,9 +150,17 @@ export class WechatChannelProvider extends ProcessChannelProvider {
       requirements: [`Node.js >= ${MIN_NODE_MAJOR}`, 'npm/npx 可用', '首次启动需要微信扫码登录'],
     })
     this.projectRoot = projectRoot
+    this.launchWorkspace = null
   }
 
-  async beforeStart() {
+  snapshot() {
+    return {
+      ...super.snapshot(),
+      launchWorkspace: this.launchWorkspace,
+    }
+  }
+
+  async beforeStart(options = {}) {
     if (nodeMajor() < MIN_NODE_MAJOR) {
       const message = `微信渠道需要 Node.js >= ${MIN_NODE_MAJOR}，当前版本是 ${process.versions.node}。请升级 Node 后重试。`
       this.error = message
@@ -117,6 +169,7 @@ export class WechatChannelProvider extends ProcessChannelProvider {
       error.statusCode = 409
       throw error
     }
+    this.launchWorkspace = await resolveLaunchWorkspace(options)
   }
 
   buildStartCommand() {
@@ -124,7 +177,7 @@ export class WechatChannelProvider extends ProcessChannelProvider {
     return {
       command: npxCommand(),
       args: ['-y', WEIXIN_ACP_PACKAGE, 'start', '--', acpCommand, ...acpArgs],
-      cwd: this.projectRoot,
+      cwd: this.launchWorkspace?.path || getDefaultWorkspaceRoot() || this.projectRoot,
       env: process.env,
       shell: shouldUseShellForNpx(),
     }
@@ -162,10 +215,10 @@ export class WechatChannelProvider extends ProcessChannelProvider {
     }
   }
 
-  async runAction(action) {
+  async runAction(action, options = {}) {
     if (action === 'logout') return this.logout()
-    if (action === 'relogin') return this.relogin()
-    return super.runAction(action)
+    if (action === 'relogin') return this.relogin(options)
+    return super.runAction(action, options)
   }
 
   async logout({ preserveActiveAction = false } = {}) {
@@ -199,13 +252,13 @@ export class WechatChannelProvider extends ProcessChannelProvider {
     }
   }
 
-  async relogin() {
+  async relogin(options = {}) {
     if (this.activeAction) return this.snapshot()
     this.activeAction = 'relogin'
     this.emitEvent('status', { status: this.status, snapshot: this.snapshot() })
     try {
       await this.logout({ preserveActiveAction: true })
-      return await this.start()
+      return await this.start({ projectId: options.projectId || this.launchWorkspace?.id || DEFAULT_WORKSPACE_ID })
     } finally {
       this.activeAction = null
       this.emitEvent('status', { status: this.status, snapshot: this.snapshot() })

@@ -15,6 +15,7 @@ import {
   titleNeedsGeneration,
 } from '@/lib/message-utils'
 import type {
+  AgentAccessMode,
   BackgroundTask,
   BackgroundTaskStatus,
   ChatScope,
@@ -22,7 +23,7 @@ import type {
   QuickForgeSessionData,
   QuickForgeSessionMetadata,
 } from '@/lib/types'
-import { sessionScope } from '@/lib/types'
+import { agentAccessModeToYoloMode, normalizeAgentAccessMode, sessionScope } from '@/lib/types'
 import { randomId } from '@/lib/random-id'
 import { showAlert } from '@/components/ui/confirm-dialog'
 import { t } from '@/lib/i18n'
@@ -30,10 +31,10 @@ import { t } from '@/lib/i18n'
 export interface AgentManagerDeps {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof import('@/lib/pi-chat').initializePiStorage>> | null>
   activeModelRef: React.MutableRefObject<Model<Api>>
-  yoloModeRef: React.MutableRefObject<boolean>
+  agentAccessModeRef: React.MutableRefObject<AgentAccessMode>
   activeProjectRef: React.MutableRefObject<ProjectInfo | undefined>
   defaultWorkspaceRef: React.MutableRefObject<ProjectInfo | undefined>
-  setYoloMode: React.Dispatch<React.SetStateAction<boolean>>
+  setAgentAccessMode: React.Dispatch<React.SetStateAction<AgentAccessMode>>
   switchActiveProject: (projectId: string) => Promise<ProjectInfo>
   sessions: QuickForgeSessionMetadata[]
   refreshSessions: (opts?: { broadcast?: boolean }) => Promise<void>
@@ -60,7 +61,7 @@ export interface AgentManager {
   createAgent: (
     initialState?: Partial<AgentState> & { contextCompaction?: ServerAgentContextCompaction | null },
     sessionId?: string,
-    options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string; yoloMode?: boolean },
+    options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string; accessMode?: AgentAccessMode; yoloMode?: boolean },
   ) => Promise<ServerAgent>
   startDeferredSession: (options: { scope: ChatScope; project?: ProjectInfo }) => Promise<DeferredSessionAgent>
   loadSession: (
@@ -101,10 +102,10 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   const {
     storageRef,
     activeModelRef,
-    yoloModeRef,
+    agentAccessModeRef,
     activeProjectRef,
     defaultWorkspaceRef,
-    setYoloMode,
+    setAgentAccessMode,
     switchActiveProject,
     sessions,
     refreshSessions,
@@ -181,7 +182,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     async (
       initialState?: Partial<AgentState> & { contextCompaction?: ServerAgentContextCompaction | null },
       sessionId: string = randomId(),
-      options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string; yoloMode?: boolean },
+      options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string; accessMode?: AgentAccessMode; yoloMode?: boolean },
     ) => {
       const previousAgent = agentRef.current
       const existingTask = taskMapRef.current.get(sessionId)
@@ -214,14 +215,15 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
         : normalizeModelForProvider(requestedOrDefaultModel as Model<Api>)
       const resolvedThinkingLevel = requestedThinkingLevel ?? defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(resolvedModel)
       activeModelRef.current = resolvedModel
-      const resolvedYoloMode = options?.yoloMode ?? yoloModeRef.current
-      yoloModeRef.current = resolvedYoloMode
-      setYoloMode(resolvedYoloMode)
+      const resolvedAccessMode = normalizeAgentAccessMode(options?.accessMode, options?.yoloMode ?? agentAccessModeRef.current)
+      agentAccessModeRef.current = resolvedAccessMode
+      setAgentAccessMode(resolvedAccessMode)
 
       const nextAgent = await ServerAgent.create(sessionId, {
         scope,
         projectId: scope === 'project' ? project?.id : undefined,
-        yoloMode: resolvedYoloMode,
+        accessMode: resolvedAccessMode,
+        yoloMode: agentAccessModeToYoloMode(resolvedAccessMode),
         model: resolvedModel,
         thinkingLevel: resolvedThinkingLevel,
         messages: (restInitialState as { messages?: AgentState['messages'] }).messages ?? [],
@@ -328,7 +330,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       }
       return nextAgent
     },
-    [attachTaskToView, disposeDetachedAgent, refreshSessions, syncSessionUI, storageRef, activeModelRef, yoloModeRef, activeProjectRef, defaultWorkspaceRef, setYoloMode],
+    [attachTaskToView, disposeDetachedAgent, refreshSessions, syncSessionUI, storageRef, activeModelRef, agentAccessModeRef, activeProjectRef, defaultWorkspaceRef, setAgentAccessMode],
   )
 
   const startDeferredSession = useCallback(async (options: { scope: ChatScope; project?: ProjectInfo }) => {
@@ -348,7 +350,8 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       project,
       model: resolvedModel,
       thinkingLevel: resolvedThinkingLevel,
-      yoloMode: yoloModeRef.current,
+      accessMode: agentAccessModeRef.current,
+      yoloMode: agentAccessModeToYoloMode(agentAccessModeRef.current),
       createAgent,
     })
 
@@ -368,7 +371,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     url.searchParams.delete('session')
     window.history.replaceState({}, '', url)
     return deferredAgent
-  }, [activeModelRef, createAgent, defaultWorkspaceRef, disposeDetachedAgent, storageRef, yoloModeRef])
+  }, [activeModelRef, createAgent, defaultWorkspaceRef, disposeDetachedAgent, storageRef, agentAccessModeRef])
 
   // --- Load a persisted session ---
   const loadSession = useCallback(
@@ -442,7 +445,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
           attachToView: true,
           createdAt: session.createdAt ?? hints?.createdAt,
           title: session.title ?? hints?.title,
-          yoloMode: session.yoloMode === true,
+          accessMode: normalizeAgentAccessMode(session.accessMode, session.yoloMode),
         },
       )
     },

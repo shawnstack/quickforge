@@ -42,7 +42,8 @@ Agent 会话管理核心路由。
 - `POST /api/agents/:sessionId/follow-up` — 后续处理
 - `POST /api/agents/:sessionId/destroy` — 销毁 Agent
 - `POST /api/agents/:sessionId/compact` — 压缩对话
-- `PATCH /api/agents/:sessionId/yolo` — 切换 YOLO 模式
+- `POST /api/agents/:sessionId/access-mode` — 切换 Agent 权限模式（`default` / `full-access`）
+- `POST /api/agents/:sessionId/yolo-mode` — 旧客户端兼容入口
 - `PATCH /api/agents/:sessionId/model` — 更新模型
 - `PATCH /api/agents/:sessionId/thinking` — 更新思考级别
 
@@ -88,7 +89,7 @@ Agent 会话管理核心路由。
 - `GET /api/tools` — 获取工具定义列表
 - `POST /api/tools/:name` — 执行全局工具
 - `POST /api/projects/:projectId/tools/:name` — 在项目上下文中执行工具
-- 强制执行 YOLO 模式检查
+- 按 Agent 权限模式执行审批检查
 
 ## skills.mjs (191 行)
 

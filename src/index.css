@@ -1046,7 +1046,7 @@ assistant-message :is(thinking-block, tool-message, markdown-block, streaming-me
   white-space: nowrap;
 }
 
-.quickforge-composer .quickforge-yolo-inline,
+.quickforge-composer .quickforge-agent-access-inline,
 .quickforge-composer .quickforge-plan-inline {
   height: 2rem;
   border: 1px solid color-mix(in oklab, var(--border) 70%, transparent) !important;
@@ -1054,10 +1054,83 @@ assistant-message :is(thinking-block, tool-message, markdown-block, streaming-me
   background: color-mix(in oklab, var(--muted) 42%, transparent);
 }
 
-.quickforge-composer .quickforge-yolo-inline[aria-pressed="true"] {
-  border-color: color-mix(in oklab, rgb(16 185 129) 45%, transparent) !important;
-  background: color-mix(in oklab, rgb(16 185 129) 14%, transparent) !important;
-  color: rgb(5 150 105) !important;
+.quickforge-composer .quickforge-agent-access-inline {
+  min-width: 2rem;
+  padding: 0 0.6rem !important;
+}
+
+.quickforge-composer .quickforge-agent-access-inline[aria-expanded="true"],
+.quickforge-composer .quickforge-agent-access-inline-full {
+  border-color: color-mix(in oklab, rgb(245 158 11) 35%, transparent) !important;
+  background: color-mix(in oklab, rgb(245 158 11) 12%, transparent) !important;
+  color: color-mix(in oklab, rgb(180 83 9) 92%, var(--foreground)) !important;
+}
+
+.quickforge-composer-left-controls {
+  position: relative;
+}
+
+.quickforge-agent-access-trigger-icon,
+.quickforge-agent-access-chevron {
+  flex: 0 0 auto;
+}
+
+.quickforge-agent-access-label {
+  max-width: min(7.5rem, 28vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickforge-agent-access-menu {
+  position: fixed;
+  z-index: 10000;
+  overflow: hidden;
+  padding: 0.35rem;
+  border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+  border-radius: 0.85rem;
+  background: color-mix(in oklab, var(--popover) 98%, white);
+  color: var(--foreground);
+  box-shadow: 0 18px 46px -26px rgb(15 23 42 / 0.42), 0 0 0 1px rgb(255 255 255 / 0.72) inset;
+}
+
+.quickforge-agent-access-item {
+  display: grid !important;
+  width: 100%;
+  grid-template-columns: 1rem 1.15rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.6rem !important;
+  border-radius: 0.55rem !important;
+  color: inherit !important;
+  font-size: 0.78rem;
+  line-height: 1.15;
+  text-align: left;
+}
+
+.quickforge-agent-access-item:hover,
+.quickforge-agent-access-item:focus-visible {
+  background: color-mix(in oklab, var(--muted) 72%, transparent) !important;
+  transform: none !important;
+}
+
+.quickforge-agent-access-check-slot,
+.quickforge-agent-access-option-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.quickforge-agent-access-check-slot {
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+}
+
+.quickforge-agent-access-option-icon-wrap {
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+}
+
+.quickforge-agent-access-item[data-quickforge-agent-access-mode="full-access"] .quickforge-agent-access-option-icon-wrap {
+  color: rgb(251 191 36);
 }
 
 .quickforge-composer .quickforge-plan-inline[aria-pressed="true"] {
@@ -1078,12 +1151,6 @@ assistant-message :is(thinking-block, tool-message, markdown-block, streaming-me
 .quickforge-composer .quickforge-plan-inline:hover .quickforge-plan-remove-icon,
 .quickforge-composer .quickforge-plan-inline:focus-visible .quickforge-plan-remove-icon {
   display: block;
-}
-
-.quickforge-composer .quickforge-yolo-inline {
-  width: 2rem;
-  min-width: 2rem;
-  padding: 0 !important;
 }
 
 .quickforge-composer .quickforge-model-trigger {

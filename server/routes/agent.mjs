@@ -16,6 +16,7 @@ import {
   touchSession,
   listSessions,
   refreshAllSessionTools,
+  updateSessionAccessMode,
   updateSessionYoloMode,
   updateSessionModel,
   updateSessionThinkingLevel,
@@ -140,6 +141,8 @@ export async function handleAgentApi(req, res, url) {
       status: session.status,
       scope: session.scope,
       title: session.title,
+      accessMode: session.accessMode,
+      yoloMode: session.yoloMode,
     })
     return
   }
@@ -151,7 +154,15 @@ export async function handleAgentApi(req, res, url) {
     return
   }
 
-  // POST /api/agents/:sessionId/yolo-mode — update session YOLO mode
+  // POST /api/agents/:sessionId/access-mode — update session Agent access mode
+  if (req.method === 'POST' && subPath === 'access-mode') {
+    const body = await readJsonBody(req)
+    const result = await updateSessionAccessMode(sessionId, body?.accessMode)
+    sendJson(res, 200, result)
+    return
+  }
+
+  // POST /api/agents/:sessionId/yolo-mode — legacy compatibility for old clients
   if (req.method === 'POST' && subPath === 'yolo-mode') {
     const body = await readJsonBody(req)
     const result = await updateSessionYoloMode(sessionId, body?.yoloMode === true)

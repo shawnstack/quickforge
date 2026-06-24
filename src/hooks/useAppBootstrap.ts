@@ -11,11 +11,12 @@ import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { loadToolDisplaySettings } from '@/lib/tool-display-settings'
 import { loadAndApplyFontSizeSettings } from '@/lib/font-size-settings'
 import type {
+  AgentAccessMode,
   ProjectInfo,
   QuickForgeSessionData,
   QuickForgeSessionMetadata,
 } from '@/lib/types'
-import { sessionScope } from '@/lib/types'
+import { normalizeAgentAccessMode, sessionScope } from '@/lib/types'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
 import { showAlert } from '@/components/ui/confirm-dialog'
@@ -24,13 +25,13 @@ type UseAppBootstrapOptions = {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof initializePiStorage>> | null>
   backendRef: React.MutableRefObject<HttpStorageBackend | null>
   activeModelRef: React.MutableRefObject<Model<Api>>
-  yoloModeRef: React.MutableRefObject<boolean>
+  agentAccessModeRef: React.MutableRefObject<AgentAccessMode>
   activeProjectRef: React.MutableRefObject<ProjectInfo | undefined>
-  setYoloMode: React.Dispatch<React.SetStateAction<boolean>>
+  setAgentAccessMode: React.Dispatch<React.SetStateAction<AgentAccessMode>>
   taskMapRef: AgentManager['taskMapRef']
   loadGlobalSessions: (offset: number) => Promise<void>
   loadProject: () => Promise<void>
-  initYoloMode: (storage: Awaited<ReturnType<typeof initializePiStorage>>) => Promise<boolean>
+  initAgentAccessMode: (storage: Awaited<ReturnType<typeof initializePiStorage>>) => Promise<AgentAccessMode>
   switchActiveProject: (projectId: string) => Promise<ProjectInfo>
   createAgent: AgentManager['createAgent']
   setNeedsModelSetup: React.Dispatch<React.SetStateAction<boolean>>
@@ -41,13 +42,13 @@ export function useAppBootstrap({
   storageRef,
   backendRef,
   activeModelRef,
-  yoloModeRef,
+  agentAccessModeRef,
   activeProjectRef,
-  setYoloMode,
+  setAgentAccessMode,
   taskMapRef,
   loadGlobalSessions,
   loadProject,
-  initYoloMode,
+  initAgentAccessMode,
   switchActiveProject,
   createAgent,
   setNeedsModelSetup,
@@ -61,7 +62,7 @@ export function useAppBootstrap({
   const depsRef = useRef({
     loadGlobalSessions,
     loadProject,
-    initYoloMode,
+    initAgentAccessMode,
     switchActiveProject,
     createAgent,
     setNeedsModelSetup,
@@ -71,7 +72,7 @@ export function useAppBootstrap({
     depsRef.current = {
       loadGlobalSessions,
       loadProject,
-      initYoloMode,
+      initAgentAccessMode,
       switchActiveProject,
       createAgent,
       setNeedsModelSetup,
@@ -86,7 +87,7 @@ export function useAppBootstrap({
       const {
         loadGlobalSessions: loadSessions,
         loadProject: loadProj,
-        initYoloMode: initYolo,
+        initAgentAccessMode: initAccessMode,
         switchActiveProject: switchProject,
         createAgent: create,
         setNeedsModelSetup: setModelSetup,
@@ -107,8 +108,8 @@ export function useAppBootstrap({
         await loadAndApplyFontSizeSettings(storage)
         await Promise.all([loadSessions(0), loadProj()])
 
-        const savedYoloMode = await initYolo(storage)
-        yoloModeRef.current = savedYoloMode
+        const savedAccessMode = await initAccessMode(storage)
+        agentAccessModeRef.current = savedAccessMode
 
         const initialModel = await loadInitialConfiguredModel(storage)
         const defaultOptions = await loadDefaultOptions(storage)
@@ -146,9 +147,9 @@ export function useAppBootstrap({
               }
             }
             activeModelRef.current = existing.model as Model<Api>
-            const sessionYoloMode = (existing as QuickForgeSessionData).yoloMode === true
-            yoloModeRef.current = sessionYoloMode
-            setYoloMode(sessionYoloMode)
+            const sessionAccessMode = normalizeAgentAccessMode((existing as QuickForgeSessionData).accessMode, (existing as QuickForgeSessionData).yoloMode)
+            agentAccessModeRef.current = sessionAccessMode
+            setAgentAccessMode(sessionAccessMode)
             await create(
               {
                 model: existing.model,
@@ -163,7 +164,7 @@ export function useAppBootstrap({
                 attachToView: true,
                 createdAt: existing.createdAt,
                 title: existing.title,
-                yoloMode: sessionYoloMode,
+                accessMode: sessionAccessMode,
               },
             )
           } else if (initialModel) {
@@ -206,9 +207,9 @@ export function useAppBootstrap({
     storageRef,
     backendRef,
     activeModelRef,
-    yoloModeRef,
+    agentAccessModeRef,
     activeProjectRef,
-    setYoloMode,
+    setAgentAccessMode,
     taskMapRef,
     retryNonce,
   ])

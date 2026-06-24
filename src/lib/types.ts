@@ -2,6 +2,24 @@ import type { SessionMetadata, SessionData } from '@earendil-works/pi-web-ui'
 import type { ServerAgent, ServerAgentContextCompaction } from '@/lib/server-agent'
 import { t } from '@/lib/i18n'
 
+export type AgentAccessMode = 'default' | 'full-access'
+
+export function agentAccessModeFromYoloMode(yoloMode: unknown): AgentAccessMode {
+  return yoloMode === true || yoloMode === 'true' ? 'full-access' : 'default'
+}
+
+export function normalizeAgentAccessMode(value: unknown, fallback: unknown = 'default'): AgentAccessMode {
+  if (value === 'default' || value === 'full-access') return value
+  if (value === true || value === 'true') return 'full-access'
+  if (value === false || value === 'false') return 'default'
+  if (fallback !== value) return normalizeAgentAccessMode(fallback, 'default')
+  return 'default'
+}
+
+export function agentAccessModeToYoloMode(mode: AgentAccessMode): boolean {
+  return mode === 'full-access'
+}
+
 export type BackgroundTaskStatus = 'running' | 'idle' | 'error' | 'aborted'
 
 export type ChatScope = 'global' | 'project'
@@ -43,6 +61,7 @@ export type RestoredDraft = {
 export type QuickForgeSessionMetadata = SessionMetadata & {
   scope?: ChatScope
   projectId?: string
+  accessMode?: AgentAccessMode
   yoloMode?: boolean
   taskStatus?: BackgroundTaskStatus
   taskStartedAt?: string
@@ -54,6 +73,7 @@ export type QuickForgeSessionMetadata = SessionMetadata & {
 export type QuickForgeSessionData = SessionData & {
   scope?: ChatScope
   projectId?: string
+  accessMode?: AgentAccessMode
   yoloMode?: boolean
   taskStatus?: BackgroundTaskStatus
   taskStartedAt?: string

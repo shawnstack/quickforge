@@ -2,7 +2,7 @@
  * Message and editor decoration for the ChatPanel.
  *
  * Handles injecting action buttons (copy, rollback, fork) below messages,
- * and decorating the composer area (Send/Stop toggle, YOLO button, placeholder,
+ * and decorating the composer area (Send/Stop toggle, Agent access selector, placeholder,
  * command bindings).
  */
 
@@ -22,6 +22,7 @@ import {
 } from './chat-utils'
 import { assistantText, copyTextToClipboard, draftTextFromUserMessage } from '@/lib/message-utils'
 import { t } from '@/lib/i18n'
+import type { AgentAccessMode } from '@/lib/types'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 
 // --- Icon SVGs ---
@@ -1518,12 +1519,12 @@ export type EditorDecorationDeps = {
   panel: HTMLElement
   isStreaming: () => boolean
   abort: () => void
-  yoloMode: boolean
+  agentAccessMode: AgentAccessMode
   planMode: boolean
   workspaceToolsEnabled: boolean
   readOnly: boolean
   allowModelControls: boolean
-  onToggleYoloMode: () => void
+  onAccessModeChange: (mode: AgentAccessMode) => void
   onTogglePlanMode: () => void
   onInput: (value: string) => void
   onFilesChange: (files: unknown[]) => void
@@ -1556,7 +1557,7 @@ function decorateModelButtonLabel(editor: MessageEditorElement | null, rightCont
   const modelState = editor as (MessageEditorElement & EditorModelState) | null
   const model = modelState?.currentModel
   rightControls.querySelector<HTMLElement>('[data-quickforge-thinking-badge]')?.remove()
-  const modelButton = Array.from(rightControls.querySelectorAll<HTMLButtonElement>('button:not(.quickforge-yolo-inline):not(.quickforge-plan-inline)'))
+  const modelButton = Array.from(rightControls.querySelectorAll<HTMLButtonElement>('button:not(.quickforge-agent-access-inline):not(.quickforge-yolo-inline):not(.quickforge-plan-inline)'))
     .find((button) => Boolean(model?.id && button.textContent?.includes(model.id)))
   if (!modelButton) return
 
@@ -1638,7 +1639,7 @@ function findNativeAttachmentButton(leftControls: HTMLElement) {
   const marked = leftControls.querySelector<HTMLButtonElement>('.quickforge-native-attachment-hidden')
   if (marked) return marked
   return Array.from(leftControls.querySelectorAll<HTMLButtonElement>('button'))
-    .find((button) => !button.classList.contains('quickforge-plus-inline') && !button.classList.contains('quickforge-yolo-inline') && !button.classList.contains('quickforge-plan-inline'))
+    .find((button) => !button.classList.contains('quickforge-plus-inline') && !button.classList.contains('quickforge-agent-access-inline') && !button.classList.contains('quickforge-yolo-inline') && !button.classList.contains('quickforge-plan-inline'))
 }
 
 function triggerAttachmentPicker(editor: MessageEditorElement, leftControls: HTMLElement) {
@@ -1797,17 +1798,188 @@ function setupComposerPlusMenu(deps: ComposerPlusMenuDeps) {
   leftControls.prepend(button)
 }
 
+type AgentAccessMenuElement = HTMLDivElement & {
+  __quickforgeDismissHandler?: (event: Event) => void
+}
+
+const agentAccessShieldIcon = '<svg class="quickforge-agent-access-trigger-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 19 6v5c0 4.5-2.8 8.4-7 10-4.2-1.6-7-5.5-7-10V6l7-3Z"/><path d="M9 12h6"/></svg>'
+const agentAccessWarningIcon = '<svg class="quickforge-agent-access-option-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>'
+const agentAccessCheckIcon = '<svg class="quickforge-agent-access-check" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>'
+const agentAccessChevronIcon = '<svg class="quickforge-agent-access-chevron" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>'
+
+function agentAccessLabel(mode: AgentAccessMode) {
+  return mode === 'full-access' ? t('agentAccessFullLabel') : t('agentAccessDefaultLabel')
+}
+
+function removeAgentAccessMenu(panel: HTMLElement) {
+  const menu = document.querySelector<AgentAccessMenuElement>('.quickforge-agent-access-menu')
+  if (menu?.__quickforgeDismissHandler) {
+    document.removeEventListener('pointerdown', menu.__quickforgeDismissHandler, true)
+    document.removeEventListener('keydown', menu.__quickforgeDismissHandler, true)
+    window.removeEventListener('resize', menu.__quickforgeDismissHandler, true)
+    window.removeEventListener('scroll', menu.__quickforgeDismissHandler, true)
+    menu.__quickforgeDismissHandler = undefined
+  }
+  menu?.remove()
+  panel.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')?.setAttribute('aria-expanded', 'false')
+}
+
+function createAgentAccessItem(mode: AgentAccessMode, currentMode: AgentAccessMode, onSelect: (mode: AgentAccessMode) => void) {
+  const selected = mode === currentMode
+  const item = document.createElement('button')
+  item.type = 'button'
+  item.className = 'quickforge-agent-access-item'
+  item.setAttribute('role', 'menuitemradio')
+  item.setAttribute('aria-checked', String(selected))
+  item.dataset.quickforgeAgentAccessMode = mode
+  item.innerHTML = `
+    <span class="quickforge-agent-access-check-slot">${selected ? agentAccessCheckIcon : ''}</span>
+    <span class="quickforge-agent-access-option-icon-wrap">${mode === 'full-access' ? agentAccessWarningIcon : agentAccessShieldIcon}</span>
+    <span class="quickforge-agent-access-item-label"></span>
+  `
+  item.querySelector<HTMLElement>('.quickforge-agent-access-item-label')!.textContent = agentAccessLabel(mode)
+  item.onpointerdown = (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onSelect(mode)
+  }
+  return item
+}
+
+function renderAgentAccessMenu(options: {
+  panel: HTMLElement
+  trigger: HTMLButtonElement
+  agentAccessMode: AgentAccessMode
+  onAccessModeChange: (mode: AgentAccessMode) => void
+}) {
+  const { panel, trigger, agentAccessMode, onAccessModeChange } = options
+  const existing = document.querySelector<AgentAccessMenuElement>('.quickforge-agent-access-menu')
+  if (existing) {
+    removeAgentAccessMenu(panel)
+    return
+  }
+
+  removeComposerPlusPopover(panel)
+  removeAgentAccessMenu(panel)
+
+  const menu = document.createElement('div') as AgentAccessMenuElement
+  menu.className = 'quickforge-agent-access-menu'
+  menu.setAttribute('role', 'menu')
+  menu.setAttribute('aria-label', t('agentAccessMenuLabel'))
+
+  const select = (mode: AgentAccessMode) => {
+    removeAgentAccessMenu(panel)
+    if (mode !== agentAccessMode) onAccessModeChange(mode)
+  }
+
+  menu.append(
+    createAgentAccessItem('default', agentAccessMode, select),
+    createAgentAccessItem('full-access', agentAccessMode, select),
+  )
+
+  const positionMenu = () => {
+    const rect = trigger.getBoundingClientRect()
+    const gap = 8
+    const width = Math.min(196, window.innerWidth - 24)
+    menu.style.width = `${width}px`
+    const measuredHeight = menu.offsetHeight || 96
+    const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12))
+    const top = Math.max(12, rect.top - measuredHeight - gap)
+    menu.style.left = `${left}px`
+    menu.style.top = `${top}px`
+  }
+
+  const dismiss = (event: Event) => {
+    if (event.type === 'resize' || event.type === 'scroll') {
+      positionMenu()
+      return
+    }
+    if (event instanceof KeyboardEvent) {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+    } else {
+      const target = event.target as Node
+      if (menu.contains(target) || trigger.contains(target)) return
+    }
+    removeAgentAccessMenu(panel)
+  }
+  menu.__quickforgeDismissHandler = dismiss
+  menu.addEventListener('pointerdown', (event) => event.stopPropagation())
+  document.addEventListener('pointerdown', dismiss, true)
+  document.addEventListener('keydown', dismiss, true)
+  window.addEventListener('resize', dismiss, true)
+  window.addEventListener('scroll', dismiss, true)
+  document.body.append(menu)
+  positionMenu()
+  trigger.setAttribute('aria-expanded', 'true')
+}
+
+function setupAgentAccessMenu(options: {
+  panel: HTMLElement
+  leftControls: HTMLElement
+  agentAccessMode: AgentAccessMode
+  onAccessModeChange: (mode: AgentAccessMode) => void
+}) {
+  const { panel, leftControls, agentAccessMode, onAccessModeChange } = options
+  leftControls.classList.add('quickforge-composer-left-controls')
+  panel.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')?.remove()
+  const label = agentAccessLabel(agentAccessMode)
+  const title = agentAccessMode === 'full-access' ? t('agentAccessFullTitle') : t('agentAccessDefaultTitle')
+  const content = `${agentAccessMode === 'full-access' ? agentAccessWarningIcon : agentAccessShieldIcon}<span class="quickforge-agent-access-label"></span>${agentAccessChevronIcon}`
+  const buttonClass = `quickforge-agent-access-inline inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium text-muted-foreground${agentAccessMode === 'full-access' ? ' quickforge-agent-access-inline-full' : ''}`
+  const existingButton = leftControls.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')
+  const syncButton = (button: HTMLButtonElement) => {
+    patchContent(button, content)
+    button.querySelector<HTMLElement>('.quickforge-agent-access-label')!.textContent = label
+    button.title = title
+    button.setAttribute('aria-label', title)
+    button.setAttribute('aria-haspopup', 'menu')
+    button.setAttribute('aria-expanded', document.querySelector('.quickforge-agent-access-menu') ? 'true' : 'false')
+    button.dataset.quickforgeAgentAccessMode = agentAccessMode
+    button.className = buttonClass
+    button.onpointerdown = (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      renderAgentAccessMenu({ panel, trigger: button, agentAccessMode, onAccessModeChange })
+    }
+    button.onclick = (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+    }
+    button.onkeydown = (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'ArrowDown') return
+      event.preventDefault()
+      renderAgentAccessMenu({ panel, trigger: button, agentAccessMode, onAccessModeChange })
+    }
+  }
+
+  if (existingButton) {
+    syncButton(existingButton)
+  } else {
+    const button = document.createElement('button')
+    button.type = 'button'
+    syncButton(button)
+    leftControls.append(button)
+  }
+
+  const accessButton = leftControls.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')
+  const planButton = leftControls.querySelector<HTMLButtonElement>('.quickforge-plan-inline')
+  if (accessButton && planButton && accessButton.nextSibling !== planButton) {
+    leftControls.insertBefore(planButton, accessButton.nextSibling)
+  }
+}
+
 export function decorateEditor(deps: EditorDecorationDeps) {
   const {
     panel,
     isStreaming,
     abort,
-    yoloMode,
+    agentAccessMode,
     planMode,
     workspaceToolsEnabled,
     readOnly,
     allowModelControls,
-    onToggleYoloMode,
+    onAccessModeChange,
     onTogglePlanMode,
     onInput,
     onFilesChange,
@@ -1928,6 +2100,8 @@ export function decorateEditor(deps: EditorDecorationDeps) {
   if (!leftControls) {
     panel.querySelector<HTMLButtonElement>('.quickforge-plus-inline')?.remove()
     removeComposerPlusPopover(panel)
+    panel.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')?.remove()
+    removeAgentAccessMenu(panel)
     panel.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')?.remove()
     panel.querySelector<HTMLButtonElement>('.quickforge-plan-inline')?.remove()
     return
@@ -1978,79 +2152,27 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     const planButton = document.createElement('button')
     planButton.type = 'button'
     syncPlanButton(planButton)
-    const yoloButton = leftControls.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')
-    if (yoloButton) {
-      leftControls.insertBefore(planButton, yoloButton.nextSibling)
+    const accessButton = leftControls.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')
+    if (accessButton) {
+      leftControls.insertBefore(planButton, accessButton.nextSibling)
     } else {
       leftControls.append(planButton)
     }
   }
 
   if (!workspaceToolsEnabled) {
+    panel.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')?.remove()
+    removeAgentAccessMenu(panel)
     panel.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')?.remove()
     return
   }
 
-  const workspaceAccessIcon = yoloMode
-    ? '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 19 6v5c0 4.5-2.8 8.4-7 10-4.2-1.6-7-5.5-7-10V6l7-3Z"/><path d="m9 12 2 2 4-4"/></svg>'
-    : '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 19 6v5c0 4.5-2.8 8.4-7 10-4.2-1.6-7-5.5-7-10V6l7-3Z"/><path d="M9 12h6"/></svg>'
-  const workspaceAccessLabel = workspaceAccessIcon
-  const workspaceAccessClass = `quickforge-yolo-inline inline-flex h-8 items-center justify-center rounded-md border border-transparent px-2 text-xs font-medium ${yoloMode ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'}`
-  const workspaceAccessTitle = yoloMode ? t('yoloEnabledTitle') : t('yoloDisabledTitle')
-
-  const handleYoloToggle = (event: Event) => {
-    event.preventDefault()
-    event.stopPropagation()
-    onToggleYoloMode()
-  }
-
-  const handleYoloKeyDown = (event: KeyboardEvent) => {
-    if (event.key !== 'Enter' && event.key !== ' ') return
-    handleYoloToggle(event)
-  }
-
-  const existingButton = panel.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')
-  if (existingButton) {
-    const prevMode = existingButton.getAttribute('aria-pressed')
-    const nextMode = String(yoloMode)
-    if (prevMode !== nextMode) {
-      patchContent(existingButton, workspaceAccessLabel)
-      existingButton.setAttribute('aria-pressed', nextMode)
-      existingButton.className = workspaceAccessClass
-    }
-    if (existingButton.title !== workspaceAccessTitle) {
-      existingButton.title = workspaceAccessTitle
-      existingButton.setAttribute('aria-label', workspaceAccessTitle)
-    }
-    existingButton.onpointerdown = handleYoloToggle
-    existingButton.onclick = (event) => {
-      event.preventDefault()
-      event.stopPropagation()
-    }
-    existingButton.onkeydown = handleYoloKeyDown
-    const planButton = leftControls.querySelector<HTMLButtonElement>('.quickforge-plan-inline')
-    if (planButton && existingButton.nextSibling !== planButton) {
-      leftControls.insertBefore(planButton, existingButton.nextSibling)
-    }
-    return
-  }
-
-  const button = document.createElement('button')
-  button.type = 'button'
-  patchContent(button, workspaceAccessLabel)
-  button.title = workspaceAccessTitle
-  button.setAttribute('aria-label', workspaceAccessTitle)
-  button.setAttribute('aria-pressed', String(yoloMode))
-  button.className = workspaceAccessClass
-  button.onpointerdown = handleYoloToggle
-  button.onclick = (event) => {
-    event.preventDefault()
-    event.stopPropagation()
-  }
-  button.onkeydown = handleYoloKeyDown
-  leftControls.append(button)
-  const planButton = leftControls.querySelector<HTMLButtonElement>('.quickforge-plan-inline')
-  if (planButton) leftControls.insertBefore(planButton, button.nextSibling)
+  setupAgentAccessMenu({
+    panel,
+    leftControls,
+    agentAccessMode,
+    onAccessModeChange,
+  })
 }
 
 // --- Draft helpers (operate on a draft Map) ---

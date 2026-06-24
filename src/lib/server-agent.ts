@@ -1,6 +1,8 @@
 import type { AgentEvent, AgentMessage, ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai'
+import type { AgentAccessMode } from '@/lib/types'
+import { agentAccessModeFromYoloMode, agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
 import { logger } from '@/lib/logger'
 import { toolStartEventWithPartialResult, upsertMessage, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
 
@@ -243,6 +245,7 @@ export type ServerAgentConfig = {
     thinkingLevel?: ThinkingLevel
     messages?: AgentMessage[]
     tools?: unknown[]
+    accessMode?: AgentAccessMode
     yoloMode?: boolean
     isStreaming?: boolean
     errorMessage?: string
@@ -261,6 +264,7 @@ export type ServerRollbackResult = {
     model?: Model<Api>
     thinkingLevel?: ThinkingLevel
     tools?: unknown[]
+    accessMode?: AgentAccessMode
     yoloMode?: boolean
     isStreaming?: boolean
     errorMessage?: string
@@ -285,6 +289,7 @@ export class ServerAgent {
     thinkingLevel: ThinkingLevel
     messages: AgentMessage[]
     tools: unknown[]
+    accessMode: AgentAccessMode
     yoloMode: boolean
     isStreaming: boolean
     streamingMessage?: AgentMessage
@@ -333,7 +338,8 @@ export class ServerAgent {
       thinkingLevel: (init.thinkingLevel ?? 'off') as ThinkingLevel,
       messages: init.messages?.slice() ?? [],
       tools: init.tools ?? [],
-      yoloMode: init.yoloMode ?? false,
+      accessMode: normalizeAgentAccessMode(init.accessMode, agentAccessModeFromYoloMode(init.yoloMode)),
+      yoloMode: agentAccessModeToYoloMode(normalizeAgentAccessMode(init.accessMode, agentAccessModeFromYoloMode(init.yoloMode))),
       isStreaming: init.isStreaming ?? false,
       streamingMessage: undefined as AgentMessage | undefined,
       pendingToolCalls: new Set<string>(),
@@ -483,20 +489,29 @@ export class ServerAgent {
   }
 
   /**
-   * Sync a YOLO mode change to the server so current session tools match the UI toggle.
+   * Sync an Agent access mode change to the server so current session tools match the UI selector.
    */
-  async updateYoloMode(yoloMode: boolean): Promise<void> {
-    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/yolo-mode`
+  async updateAccessMode(accessMode: AgentAccessMode): Promise<void> {
+    const normalized = normalizeAgentAccessMode(accessMode)
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/access-mode`
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ yoloMode }),
+      body: JSON.stringify({ accessMode: normalized }),
     })
     if (!res.ok) {
       const payload = await res.json().catch(() => null) as { error?: string } | null
-      throw new Error(payload?.error || `Failed to sync YOLO mode: HTTP ${res.status}`)
+      throw new Error(payload?.error || `Failed to sync Agent access mode: HTTP ${res.status}`)
     }
-    this.state.yoloMode = yoloMode
+    this.state.accessMode = normalized
+    this.state.yoloMode = agentAccessModeToYoloMode(normalized)
+  }
+
+  /**
+   * Legacy compatibility for callers that still use the old YOLO boolean.
+   */
+  async updateYoloMode(yoloMode: boolean): Promise<void> {
+    await this.updateAccessMode(yoloMode ? 'full-access' : 'default')
   }
 
   /**
@@ -642,7 +657,7 @@ export class ServerAgent {
         // Guard against SSE reconnect overwriting client messages with a stale
         // server snapshot: only accept server messages if the client has none
         // (initial load) or if the server has at least as many messages.
-        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; yoloMode?: boolean; isStreaming?: boolean; status?: string; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null }
+        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; accessMode?: AgentAccessMode; yoloMode?: boolean; isStreaming?: boolean; status?: string; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null }
         if (s.systemPrompt !== undefined) {
           this.state.systemPrompt = s.systemPrompt
         }
@@ -658,8 +673,10 @@ export class ServerAgent {
           this.state.thinkingLevel = s.thinkingLevel as ThinkingLevel
           this._syncingThinkingLevel = false
         }
-        if (s.yoloMode !== undefined) {
-          this.state.yoloMode = Boolean(s.yoloMode)
+        if (s.accessMode !== undefined || s.yoloMode !== undefined) {
+          const nextAccessMode = normalizeAgentAccessMode(s.accessMode, agentAccessModeFromYoloMode(s.yoloMode))
+          this.state.accessMode = nextAccessMode
+          this.state.yoloMode = agentAccessModeToYoloMode(nextAccessMode)
         }
         if (s.tools) {
           this.state.tools = s.tools
@@ -1015,8 +1032,10 @@ export class ServerAgent {
         this.state.thinkingLevel = state.thinkingLevel as ThinkingLevel
         this._syncingThinkingLevel = false
       }
-      if (state.yoloMode !== undefined) {
-        this.state.yoloMode = Boolean(state.yoloMode)
+      if (state.accessMode !== undefined || state.yoloMode !== undefined) {
+        const nextAccessMode = normalizeAgentAccessMode(state.accessMode, agentAccessModeFromYoloMode(state.yoloMode))
+        this.state.accessMode = nextAccessMode
+        this.state.yoloMode = agentAccessModeToYoloMode(nextAccessMode)
       }
       if (state.tools) {
         this.state.tools = state.tools
@@ -1066,6 +1085,7 @@ export class ServerAgent {
     config: {
       scope?: 'global' | 'project'
       projectId?: string
+      accessMode?: AgentAccessMode
       yoloMode?: boolean
       model?: Model<Api>
       thinkingLevel?: ThinkingLevel
@@ -1085,7 +1105,8 @@ export class ServerAgent {
       body: JSON.stringify({
         scope: config.scope ?? 'global',
         projectId: config.projectId,
-        yoloMode: config.yoloMode ?? false,
+        accessMode: config.accessMode,
+        yoloMode: config.yoloMode ?? agentAccessModeToYoloMode(normalizeAgentAccessMode(config.accessMode)),
         model: config.model,
         thinkingLevel: config.thinkingLevel ?? 'off',
         messages: config.messages ?? [],
@@ -1115,6 +1136,7 @@ export class ServerAgent {
         thinkingLevel: (serverState.thinkingLevel ?? config.thinkingLevel ?? 'off') as ThinkingLevel,
         messages: (serverState.messages ?? config.messages ?? []) as AgentMessage[],
         tools: (serverState.tools ?? []) as unknown[],
+        accessMode: normalizeAgentAccessMode(serverState.accessMode, config.accessMode ?? serverState.yoloMode ?? config.yoloMode),
         yoloMode: Boolean(serverState.yoloMode ?? config.yoloMode),
         isStreaming: Boolean(serverState.isStreaming),
         errorMessage: serverState.errorMessage as string | undefined,

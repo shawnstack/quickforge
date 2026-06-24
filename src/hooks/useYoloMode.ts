@@ -1,15 +1,20 @@
-import { useState, useCallback } from 'react'
-import type { AppStorage } from '@earendil-works/pi-web-ui'
-import { loadYoloMode } from '@/lib/pi-chat'
+import type React from 'react'
+import { useAgentAccessMode } from '@/hooks/useAgentAccessMode'
 
 export function useYoloMode() {
-  const [yoloMode, setYoloMode] = useState(false)
+  const { agentAccessMode, setAgentAccessMode, initialize } = useAgentAccessMode()
+  const yoloMode = agentAccessMode === 'full-access'
+  const setYoloMode: React.Dispatch<React.SetStateAction<boolean>> = (value) => {
+    setAgentAccessMode((previous) => {
+      const previousYolo = previous === 'full-access'
+      const nextYolo = typeof value === 'function' ? value(previousYolo) : value
+      return nextYolo ? 'full-access' : 'default'
+    })
+  }
 
-  const initialize = useCallback(async (storage: AppStorage) => {
-    const saved = await loadYoloMode(storage)
-    setYoloMode(saved)
-    return saved
-  }, [])
-
-  return { yoloMode, setYoloMode, initialize }
+  return {
+    yoloMode,
+    setYoloMode,
+    initialize: async (...args: Parameters<typeof initialize>) => (await initialize(...args)) === 'full-access',
+  }
 }

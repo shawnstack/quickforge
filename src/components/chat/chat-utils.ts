@@ -5,6 +5,8 @@
  * All functions are pure or operate on explicit inputs — no React or Lit dependencies.
  */
 
+import type { AgentAccessMode } from '@/lib/types'
+
 // ---------------------------------------------------------------------------
 // Element types (narrowed HTMLElement subtypes for Web Component interop)
 // ---------------------------------------------------------------------------
@@ -102,9 +104,9 @@ export type DecorationContext = {
   onCopyAnswer: (text: string) => Promise<void> | void
   onRollbackFromMessage: (messageIndex: number) => void
   onForkFromMessage: (messageIndex: number) => void
-  onToggleYoloMode: () => void
+  onAccessModeChange: (mode: AgentAccessMode) => void
   disableFork: boolean
-  yoloMode: boolean
+  agentAccessMode: AgentAccessMode
   workspaceToolsEnabled: boolean
   readOnly: boolean
   allowModelControls: boolean

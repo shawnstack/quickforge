@@ -12,6 +12,7 @@ server/
 ├── agent-profiles.mjs        # Agent Profile 配置层，合并内置和自定义 Agent
 ├── storage.mjs               # 文件存储层 (707 行)
 ├── skills.mjs                # Agent Skills 管理和加载 (553 行)
+├── channels/                 # 通用渠道管理（外部应用 bridge 进程，如微信 weixin-acp）
 ├── mcp/                      # MCP Client 配置、连接和工具适配
 ├── plugins/                  # 本地插件 manifest、加载和工具适配
 ├── share-store.mjs           # 分享数据存储 (432 行)
@@ -57,14 +58,14 @@ server/
 
 **功能**:
 - Agent 创建（`createAgent`）：初始化 Agent 实例，配置工具和系统提示词
-- 默认工作目录：全局会话（无 `projectId`）会合成默认 workspace 上下文（`defaultGlobalWorkspaceContext`，根目录 `~/.quickforge/workspace`，合成 project id 为 `default`），使「对话」与「项目」享有相同的文件工具（读/写/编辑/grep/命令）、工作区面板、终端和 Git 能力；文件操作受该目录沙箱约束，读类工具放行、写类按 YOLO/审批；`projectContextFromId` 找不到项目时同样回落到该默认 workspace
+- 默认工作目录：全局会话（无 `projectId`）会合成默认 workspace 上下文（`defaultGlobalWorkspaceContext`，根目录 `~/.quickforge/workspace`，合成 project id 为 `default`），使「对话」与「项目」享有相同的文件工具（读/写/编辑/grep/命令）、工作区面板、终端和 Git 能力；文件操作受该目录沙箱约束，默认权限下读类工具放行、写入/命令/MCP/Plugin 等可能影响系统的工具走审批，完全访问权限则在既有沙箱与敏感文件限制内自动执行；`projectContextFromId` 找不到项目时同样回落到该默认 workspace
 - 消息运行（`runPrompt`）：执行 AI 对话，管理消息历史
 - SSE 事件流管理：向连接的客户端广播 Agent 事件
 - 后台任务运行（`runTask` / `abortTask`）
 - Agent 恢复（`restoreAgent`）：从持久化状态恢复会话
 - Subagent 工具：`run_subagent` 在父会话内创建短生命周期临时 Agent；可调用启用的 Agent Profile。内置 `explore` 是只读仓库调研的首选，用于文件发现、源码搜索、调用链追踪、测试/文档/wiki 发现和影响面分析，可执行安全的检查/诊断命令但不能修改文件；内置 `general` 适合有边界的复杂多步骤实现或更广泛独立任务，可使用完整内置工作区工具但不含 MCP/Skills。自定义 Agent Profile 也可通过白名单工具执行。子 Agent 不作为普通会话持久化，默认不能递归调用 `run_subagent`。
 - Agent Profile 执行：`createAgent` 支持传入 `agentProfile`，在默认系统提示词后追加 profile 系统提示词，并按 `allowedTools` 限制 workspace 工具；定时任务可绑定 profile 执行。
-- 工具管理：基于 Skills 和 YOLO 模式动态构建工具列表；`/plan` 当前轮使用只读白名单，仅允许读取/搜索、Skill 加载和继承同样只读边界的 subagent 辅助调研，阻止写文件、编辑文件、运行命令以及未声明为允许的 MCP/Plugin/未知工具；Shift+Tab 计划模式通过结构化 command 元数据复用同一套 `/plan` 解析、prompt 和权限，并在 retry/continue 时恢复该权限；`/review` 当前轮允许读取和运行检查命令，但阻止编辑文件和 subagent 执行，用于提交前自检。
+- 工具管理：基于 Skills 和 Agent 权限模式动态构建工具列表；默认权限下安全读取工具自动通过，写入、命令、MCP/Plugin 等可能改变状态或影响外部系统的工具需要审批；完全访问权限等同开发者授权，在 workspace 沙箱和命令级限制内跳过审批；`/plan` 当前轮使用只读白名单，仅允许读取/搜索、Skill 加载和继承同样只读边界的 subagent 辅助调研，阻止写文件、编辑文件、运行命令以及未声明为允许的 MCP/Plugin/未知工具；Shift+Tab 计划模式通过结构化 command 元数据复用同一套 `/plan` 解析、prompt 和权限，并在 retry/continue 时恢复该权限；`/review` 当前轮允许读取和运行检查命令，但阻止编辑文件和 subagent 执行，用于提交前自检。
 - 对话压缩（`compactConversation`）：手动 `/compact` 会创建压缩后的新会话；自动上下文压缩会在模型请求前按配置阈值生成滚动摘要，只影响 Agent loop 输入，完整历史仍保留用于 UI 展示和持久化。
 - 上下文统计：`contextUsage` 由 `estimateSessionContextUsage()` 计算；存在 `contextCompaction` 时先构造 `summaryMessage + messages.slice(compactedUpToIndex)`，因此统计口径是压缩后的模型实际上下文，而不是完整可见聊天历史。底层 token 估算复用 `@earendil-works/pi-agent-core` 的 `estimateContextTokens()` / `estimateTokens()`，provider usage 与 `contextWindow` / `maxTokens` 来自 `@earendil-works/pi-ai` 的 assistant `usage` 和 model 元数据；自动压缩阈值判断通过百分比配置转换为 reserve tokens 后复用 `pi-agent-core.shouldCompact()`。返回值保留总量字段，并提供 `breakdown.systemPromptTokens`、`breakdown.toolsTokens`、`breakdown.messagesTokens`、`breakdown.providerUsageTokens`、`breakdown.trailingTokens`、`reservedOutputTokens`、`isCompacted`、`originalMessageCount` 和 `effectiveMessageCount`，用于前端解释固定成本、provider 基线、后续增量和压缩效果。
 - 自定义命令处理
@@ -146,6 +147,21 @@ server/
 - `mergeSkills()` — 合并全局和项目 skills
 - `readSkillResource()` — 读取技能资源文件
 - Skill 验证（名称格式、目录结构）：`name` 会按 `trim + lowercase` 归一化为内部 canonical slug，因此 `name: SDD`、配置中的 `SDD` 和工具调用 `activate_skill({ name: 'SDD' })` 都会匹配到内部 `sdd`；大写展示名应使用 `displayName`。
+
+### channels/ — 外部通信渠道
+
+**用途**: 管理把外部应用接入 QuickForge Agent 的本地渠道。渠道以 Provider 形式注册到 `channels/registry.mjs`，当前内置微信渠道。
+
+**核心文件**:
+- `channels/registry.mjs` — 渠道注册、列表、状态查询、启动/停止/重启/action 分发和全局事件总线。
+- `channels/process-channel.mjs` — 通用外部进程渠道基类，负责 `spawn` 生命周期、日志 ring buffer、状态、PID、二维码字段和关闭清理。
+- `channels/providers/wechat.mjs` — 微信渠道 Provider，使用 `npx -y weixin-acp start -- node <quickforge>/bin/quickforge.mjs acp` 启动微信 ACP bridge；UI 展示命令为 `npx weixin-acp start -- qf acp`。
+- `routes/channels.mjs` — `/api/channels`、`/api/channels/events` SSE、`/api/channels/:id/start|stop|restart|actions/:action`。
+
+**行为约束**:
+- 启动/停止/action 属于本地命令执行，仅允许 localhost 请求，并要求 `x-quickforge-action: channel-action`。
+- QuickForge 退出或重启时会调用 `shutdownChannels()` 停止渠道子进程。
+- 微信渠道要求 Node.js >= 22、npm/npx 可用；首次启动由 `weixin-acp` 输出终端二维码/登录链接，设置页通过日志和二维码字段展示扫码入口。
 
 ### mcp/ — MCP Client 集成
 

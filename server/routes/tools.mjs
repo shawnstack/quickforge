@@ -4,6 +4,7 @@ import { toolHandlers, loadSkillToolContext } from '../tools/index.mjs'
 import { createSkillTools, workspaceTools } from '../tools/definitions.mjs'
 import { createMcpToolDefinitions } from '../mcp/registry.mjs'
 import { callPluginTool, createPluginToolDefinitions, isPluginToolName } from '../plugins/registry.mjs'
+import { safeReadTools } from '../approval-store.mjs'
 import { projectContextFromId, readProjectConfig } from '../project-config.mjs'
 
 const directRouteDisabledTools = new Set(['run_subagent'])
@@ -26,13 +27,22 @@ export async function handleGetTools(_req, res) {
 
 const workspaceToolNames = new Set(workspaceTools.map((tool) => tool.name))
 
-async function assertYoloEnabledForTool(name) {
-  if (!workspaceToolNames.has(name)) return
+function normalizeAccessMode(value, fallback = 'default') {
+  if (value === 'default' || value === 'full-access') return value
+  if (value === true || value === 'true') return 'full-access'
+  if (value === false || value === 'false') return 'default'
+  if (fallback !== value) return normalizeAccessMode(fallback, 'default')
+  return 'default'
+}
+
+async function assertAccessModeAllowsDirectTool(name) {
+  const protectedTool = workspaceToolNames.has(name) || isPluginToolName(name)
+  if (!protectedTool || safeReadTools.has(name)) return
 
   const settings = await readStore('settings')
-  const yoloMode = settings?.['yolo-mode'] === true || settings?.['yolo-mode'] === 'true'
-  if (!yoloMode) {
-    const error = new Error('YOLO mode is disabled. Enable it to use this tool.')
+  const accessMode = normalizeAccessMode(settings?.['agent-access-mode'], settings?.['yolo-mode'])
+  if (accessMode !== 'full-access') {
+    const error = new Error('Full access permission is required to execute this tool directly.')
     error.statusCode = 403
     throw error
   }
@@ -74,6 +84,7 @@ export async function handleToolApi(req, res, url) {
   }
 
   if (isPluginToolName(name)) {
+    await assertAccessModeAllowsDirectTool(name)
     const params = await readJsonBody(req)
     const result = await callPluginTool(name, params || {}, context)
     sendJson(res, 200, result)
@@ -87,7 +98,7 @@ export async function handleToolApi(req, res, url) {
     throw error
   }
 
-  await assertYoloEnabledForTool(name)
+  await assertAccessModeAllowsDirectTool(name)
 
   const params = await readJsonBody(req)
   const result = await handler(params || {}, context)

@@ -19,7 +19,7 @@ import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
 import { extractSessionArtifacts, type AiTurnArtifact } from '@/lib/tool-artifacts'
 import { getGitStatus } from '../workspace/workspace-api'
-import type { ChatScope, ProjectInfo, RestoredDraft } from '@/lib/types'
+import type { ChatScope, ProjectInfo, RestoredDraft, AgentAccessMode } from '@/lib/types'
 import {
   buildComposerDraftKey,
   clearComposerDraft,
@@ -55,13 +55,13 @@ type ChatPanelHostProps = {
   agent: AgentLike | null
   onModelSelect?: () => void
   revision: number
-  yoloMode: boolean
+  agentAccessMode: AgentAccessMode
   workspaceToolsEnabled: boolean
   project?: ProjectInfo
   projectId?: string
   chatScope?: ChatScope
   storage?: AppStorage | null
-  onToggleYoloMode: () => void
+  onAccessModeChange: (mode: AgentAccessMode) => void
   onRollbackFromMessage: (messageIndex: number) => Promise<void> | void
   onRetryFromMessage: (messageIndex: number) => void
   onCopyAnswer: (text: string) => Promise<void> | void
@@ -93,7 +93,7 @@ type PropsRef = {
   onRollbackFromMessage: (messageIndex: number) => Promise<void> | void
   onRetryFromMessage: (messageIndex: number) => void
   onForkFromMessage: (messageIndex: number) => void
-  onToggleYoloMode: () => void
+  onAccessModeChange: (mode: AgentAccessMode) => void
   onTogglePlanMode: () => void
   onApproveToolCall: (toolCallId: string) => Promise<void> | void
   onRejectToolCall: (toolCallId: string) => Promise<void> | void
@@ -104,7 +104,7 @@ type PropsRef = {
   onArtifactsChange?: (artifacts: AiTurnArtifact[]) => void
   onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
   onModelSelect?: () => void
-  yoloMode: boolean
+  agentAccessMode: AgentAccessMode
   planMode: boolean
   workspaceToolsEnabled: boolean
   disableFork: boolean
@@ -120,13 +120,13 @@ export function ChatPanelHost({
   agent,
   onModelSelect,
   revision,
-  yoloMode,
+  agentAccessMode,
   workspaceToolsEnabled,
   project,
   projectId,
   chatScope = 'global',
   storage = null,
-  onToggleYoloMode,
+  onAccessModeChange,
   onRollbackFromMessage,
   onRetryFromMessage,
   onCopyAnswer,
@@ -236,7 +236,7 @@ export function ChatPanelHost({
     onRollbackFromMessage,
     onRetryFromMessage,
     onForkFromMessage,
-    onToggleYoloMode,
+    onAccessModeChange,
     onTogglePlanMode: togglePlanMode,
     onApproveToolCall,
     onRejectToolCall,
@@ -247,7 +247,7 @@ export function ChatPanelHost({
     onArtifactsChange,
     onContextUsageDisplayChange,
     onModelSelect,
-    yoloMode,
+    agentAccessMode,
     planMode,
     workspaceToolsEnabled,
     disableFork,
@@ -267,7 +267,7 @@ export function ChatPanelHost({
       onRollbackFromMessage,
       onRetryFromMessage,
       onForkFromMessage,
-      onToggleYoloMode,
+      onAccessModeChange,
       onTogglePlanMode: togglePlanMode,
       onApproveToolCall,
       onRejectToolCall,
@@ -278,7 +278,7 @@ export function ChatPanelHost({
       onArtifactsChange,
       onContextUsageDisplayChange,
       onModelSelect,
-      yoloMode,
+      agentAccessMode,
       planMode,
       workspaceToolsEnabled,
       disableFork,
@@ -538,12 +538,12 @@ export function ChatPanelHost({
           panel,
           isStreaming: () => agent.state.isStreaming,
           abort: () => agent.abort(),
-          yoloMode: props.yoloMode,
+          agentAccessMode: props.agentAccessMode,
           planMode: props.planMode,
           workspaceToolsEnabled: props.workspaceToolsEnabled,
           readOnly: props.readOnly,
           allowModelControls: props.allowModelControls,
-          onToggleYoloMode: props.onToggleYoloMode,
+          onAccessModeChange: props.onAccessModeChange,
           onTogglePlanMode: props.onTogglePlanMode,
           onInput: handleEditorInput,
           onFilesChange: handleEditorFilesChange,
@@ -859,7 +859,7 @@ export function ChatPanelHost({
     // 外部对 state.model 的直接赋值，需要手动触发重渲染才能刷新模型名称等 UI。
     const ai = hostRef.current?.querySelector('agent-interface') as { requestUpdate?: () => void } | null
     ai?.requestUpdate?.()
-  }, [yoloMode, planMode, workspaceToolsEnabled, gitBranch, disableFork, readOnly, allowModelControls, revision])
+  }, [agentAccessMode, planMode, workspaceToolsEnabled, gitBranch, disableFork, readOnly, allowModelControls, revision])
 
   // Draft restoration trigger
   useEffect(() => {

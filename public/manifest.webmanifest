@@ -2,7 +2,7 @@
   "id": "/",
   "name": "QuickForge",
   "short_name": "QuickForge",
-  "description": "AI chat application with YOLO-mode local workspace tools.",
+  "description": "AI chat application with Agent access modes for local workspace tools.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

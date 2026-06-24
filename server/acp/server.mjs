@@ -634,6 +634,7 @@ async function createQuickForgeSession(params = {}) {
   await createAgent(sessionId, {
     scope: project?.id ? 'project' : 'global',
     projectId: project?.id || null,
+    accessMode: 'default',
     yoloMode: false,
     model,
     thinkingLevel,

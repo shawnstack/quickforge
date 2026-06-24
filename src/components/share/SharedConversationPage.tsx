@@ -260,10 +260,10 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
       <ChatPanelHost
         agent={agent}
         revision={0}
-        yoloMode={workspaceToolsEnabled}
+        agentAccessMode={workspaceToolsEnabled ? 'full-access' : 'default'}
         workspaceToolsEnabled={workspaceToolsEnabled}
         onModelSelect={openSharedModelSelector}
-        onToggleYoloMode={() => undefined}
+        onAccessModeChange={() => undefined}
         onRollbackFromMessage={rollback}
         onRetryFromMessage={() => undefined}
         onCopyAnswer={copyAnswer}

@@ -2,7 +2,8 @@ import type { AgentEvent, AgentMessage, AgentState, ThinkingLevel } from '@earen
 import type { Api, Model } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai'
 import type { ServerAgent, ServerAgentContextCompaction, ServerAgentContextUsage, PromptCapabilitySelection } from '@/lib/server-agent'
-import type { ChatScope, ProjectInfo } from '@/lib/types'
+import type { AgentAccessMode, ChatScope, ProjectInfo } from '@/lib/types'
+import { agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
 import { randomId } from '@/lib/random-id'
 
 type DeferredSessionAgentOptions = {
@@ -10,11 +11,12 @@ type DeferredSessionAgentOptions = {
   project?: ProjectInfo
   model: Model<Api>
   thinkingLevel: ThinkingLevel
+  accessMode?: AgentAccessMode
   yoloMode: boolean
   createAgent: (
     initialState?: Partial<AgentState> & { contextCompaction?: ServerAgentContextCompaction | null },
     sessionId?: string,
-    options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string; yoloMode?: boolean },
+    options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string; accessMode?: AgentAccessMode; yoloMode?: boolean },
   ) => Promise<ServerAgent>
 }
 
@@ -40,6 +42,7 @@ export class DeferredSessionAgent {
     thinkingLevel: ThinkingLevel
     messages: AgentMessage[]
     tools: unknown[]
+    accessMode: AgentAccessMode
     yoloMode: boolean
     isStreaming: boolean
     streamingMessage?: AgentMessage
@@ -54,13 +57,15 @@ export class DeferredSessionAgent {
     this.scope = options.scope
     this.project = options.project
     this.createAgent = options.createAgent
+    const accessMode = normalizeAgentAccessMode(options.accessMode, options.yoloMode ? 'full-access' : 'default')
     this.state = {
       systemPrompt: '',
       model: options.model,
       thinkingLevel: options.thinkingLevel,
       messages: [],
       tools: [],
-      yoloMode: options.yoloMode,
+      accessMode,
+      yoloMode: agentAccessModeToYoloMode(accessMode),
       isStreaming: false,
       pendingToolCalls: new Set<string>(),
       contextCompaction: null,
@@ -130,10 +135,16 @@ export class DeferredSessionAgent {
     throw new Error('No pending auto compact request')
   }
 
-  async updateYoloMode(yoloMode: boolean): Promise<void> {
-    this.state.yoloMode = yoloMode
+  async updateAccessMode(accessMode: AgentAccessMode): Promise<void> {
+    const normalized = normalizeAgentAccessMode(accessMode)
+    this.state.accessMode = normalized
+    this.state.yoloMode = agentAccessModeToYoloMode(normalized)
     const realAgent = await this.realAgentPromise
-    if (realAgent) await realAgent.updateYoloMode(yoloMode)
+    if (realAgent) await realAgent.updateAccessMode(normalized)
+  }
+
+  async updateYoloMode(yoloMode: boolean): Promise<void> {
+    await this.updateAccessMode(yoloMode ? 'full-access' : 'default')
   }
 
   async updateModel(model: Model<Api>): Promise<void> {
@@ -177,6 +188,7 @@ export class DeferredSessionAgent {
           scope: this.scope,
           project: this.project,
           attachToView: true,
+          accessMode: this.state.accessMode,
           yoloMode: this.state.yoloMode,
         },
       ).then((agent) => {

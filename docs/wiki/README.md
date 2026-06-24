@@ -1,6 +1,6 @@
 # 速构 QuickForge — Wiki 文档
 
-> AI chat application with YOLO-mode local workspace tools.
+> AI chat application with Agent access modes for local workspace tools.
 > React 19 + Vite 8 + Tailwind CSS 4 frontend, local Node.js storage server.
 
 ## 目录结构
@@ -41,7 +41,7 @@ quickforge/
 - **后端**: Node.js (ESM), 纯 `http` 模块, `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`
 - **ACP Agent**: `quickforge acp` 通过 `@agentclientprotocol/sdk` 的 `AgentSideConnection` 暴露 stdio ACP Agent，桥接现有 `server/agent-manager.mjs` 会话和工具事件。
 - **数据存储**: 本地 `~/.quickforge/` 目录 (config / storage / cache / logs)
-- **YOLO 模式**: 授权 agent 读取、写入、编辑工作区文件，执行 shell 命令
+- **Agent 权限模式**: 默认权限允许读取/搜索当前 workspace，并对写入、命令、MCP/Plugin 等可能影响系统的工具请求审批；完全访问权限等同开发者授权，在既有 workspace 沙箱和敏感文件限制内自动执行工具
 - **多模型供应商**: OpenAI 兼容 `/v1/chat/completions` 和 Anthropic Messages API
 
 ## 快速链接

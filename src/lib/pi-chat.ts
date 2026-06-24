@@ -13,8 +13,12 @@ import {
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
+import type { AgentAccessMode } from '@/lib/types'
+import { agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
 
 const ACTIVE_MODEL_SETTING_KEY = 'active-model'
+const AGENT_ACCESS_MODE_SETTING_KEY = 'agent-access-mode'
+const AGENT_ACCESS_MODE_PROJECT_PREFIX = 'agent-access-mode-project:'
 const YOLO_MODE_SETTING_KEY = 'yolo-mode'
 const YOLO_MODE_PROJECT_PREFIX = 'yolo-mode-project:'
 const DEFAULT_OPTIONS_SETTING_KEY = 'default-options'
@@ -330,26 +334,49 @@ export async function resolveConfiguredModel(storage: AppStorage, model: Model<A
   return normalizeModelForProvider(model)
 }
 
-export async function saveYoloMode(storage: AppStorage, enabled: boolean, projectId?: string) {
-  const key = projectId ? `${YOLO_MODE_PROJECT_PREFIX}${projectId}` : YOLO_MODE_SETTING_KEY
-  await storage.settings.set(key, enabled)
+export async function saveAgentAccessMode(storage: AppStorage, mode: AgentAccessMode, projectId?: string) {
+  const normalized = normalizeAgentAccessMode(mode)
+  const key = projectId ? `${AGENT_ACCESS_MODE_PROJECT_PREFIX}${projectId}` : AGENT_ACCESS_MODE_SETTING_KEY
+  await storage.settings.set(key, normalized)
+
+  // Keep the legacy setting in sync so older QuickForge versions and persisted
+  // sessions continue to interpret the selected permission mode correctly.
+  const legacyKey = projectId ? `${YOLO_MODE_PROJECT_PREFIX}${projectId}` : YOLO_MODE_SETTING_KEY
+  await storage.settings.set(legacyKey, agentAccessModeToYoloMode(normalized))
 }
 
-export async function loadYoloMode(storage: AppStorage, projectId?: string): Promise<boolean> {
+export async function loadAgentAccessMode(storage: AppStorage, projectId?: string): Promise<AgentAccessMode> {
   if (projectId) {
-    const projectKey = `${YOLO_MODE_PROJECT_PREFIX}${projectId}`
+    const projectKey = `${AGENT_ACCESS_MODE_PROJECT_PREFIX}${projectId}`
     const projectSaved = await storage.settings.get<unknown>(projectKey)
     if (projectSaved !== null && projectSaved !== undefined) {
-      return projectSaved === true || projectSaved === 'true'
+      return normalizeAgentAccessMode(projectSaved)
+    }
+
+    const legacyProjectKey = `${YOLO_MODE_PROJECT_PREFIX}${projectId}`
+    const legacyProjectSaved = await storage.settings.get<unknown>(legacyProjectKey)
+    if (legacyProjectSaved !== null && legacyProjectSaved !== undefined) {
+      return normalizeAgentAccessMode(legacyProjectSaved)
     }
     // Fall back to global default
   }
-  const saved = await storage.settings.get<unknown>(YOLO_MODE_SETTING_KEY)
-  if (saved === null || saved === undefined) {
-    await saveYoloMode(storage, true)
-    return true
-  }
-  return saved === true || saved === 'true'
+
+  const saved = await storage.settings.get<unknown>(AGENT_ACCESS_MODE_SETTING_KEY)
+  if (saved !== null && saved !== undefined) return normalizeAgentAccessMode(saved)
+
+  const legacySaved = await storage.settings.get<unknown>(YOLO_MODE_SETTING_KEY)
+  if (legacySaved !== null && legacySaved !== undefined) return normalizeAgentAccessMode(legacySaved)
+
+  await saveAgentAccessMode(storage, 'default')
+  return 'default'
+}
+
+export async function saveYoloMode(storage: AppStorage, enabled: boolean, projectId?: string) {
+  await saveAgentAccessMode(storage, enabled ? 'full-access' : 'default', projectId)
+}
+
+export async function loadYoloMode(storage: AppStorage, projectId?: string): Promise<boolean> {
+  return (await loadAgentAccessMode(storage, projectId)) === 'full-access'
 }
 
 export async function saveConnectionProfile(

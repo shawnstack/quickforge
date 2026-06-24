@@ -1,57 +1,37 @@
-import { useCallback } from 'react'
-import type { AgentManager } from '@/hooks/useAgentManager'
-import { saveYoloMode, initializePiStorage } from '@/lib/pi-chat'
-import { t } from '@/lib/i18n'
-import { logger } from '@/lib/logger'
-import { showAlert } from '@/components/ui/confirm-dialog'
+import type React from 'react'
+import { useAgentAccessActions, type UseAgentAccessActionsOptions } from '@/hooks/useAgentAccessActions'
+import type { AgentAccessMode } from '@/lib/types'
 
-type UseYoloActionsOptions = {
-  storageRef: React.MutableRefObject<Awaited<ReturnType<typeof initializePiStorage>> | null>
+type UseYoloActionsOptions = Omit<UseAgentAccessActionsOptions, 'agentAccessModeRef' | 'setAgentAccessMode'> & {
   yoloModeRef: React.MutableRefObject<boolean>
   setYoloMode: React.Dispatch<React.SetStateAction<boolean>>
-  agentRef: AgentManager['agentRef']
-  setChatPanelRevision: AgentManager['setChatPanelRevision']
-  notifySettingsChanged: () => void
 }
 
 export function useYoloActions({
-  storageRef,
   yoloModeRef,
   setYoloMode,
-  agentRef,
-  setChatPanelRevision,
-  notifySettingsChanged,
+  ...rest
 }: UseYoloActionsOptions) {
-  const toggleYoloMode = useCallback(() => {
-    const storage = storageRef.current
-    const currentAgent = agentRef.current
-    const previous = yoloModeRef.current
-    const next = !previous
+  const agentAccessModeRef = {
+    get current(): AgentAccessMode {
+      return yoloModeRef.current ? 'full-access' : 'default'
+    },
+    set current(value: AgentAccessMode) {
+      yoloModeRef.current = value === 'full-access'
+    },
+  } as React.MutableRefObject<AgentAccessMode>
 
-    setYoloMode(next)
-    yoloModeRef.current = next
+  const setAgentAccessMode: React.Dispatch<React.SetStateAction<AgentAccessMode>> = (value) => {
+    setYoloMode((previous) => {
+      const previousMode: AgentAccessMode = previous ? 'full-access' : 'default'
+      const nextMode = typeof value === 'function' ? value(previousMode) : value
+      return nextMode === 'full-access'
+    })
+  }
 
-    const rollback = () => {
-      yoloModeRef.current = previous
-      setYoloMode(previous)
-      setChatPanelRevision((value) => value + 1)
-    }
-
-    const sync = async () => {
-      try {
-        if (currentAgent) await currentAgent.updateYoloMode(next)
-        if (storage) await saveYoloMode(storage, next)
-        setChatPanelRevision((value) => value + 1)
-        notifySettingsChanged()
-      } catch (error) {
-        logger.error('Failed to sync YOLO mode:', error)
-        rollback()
-        void showAlert(error instanceof Error ? error.message : t('yoloModeSyncFailed'))
-      }
-    }
-
-    void sync()
-  }, [agentRef, notifySettingsChanged, setChatPanelRevision, setYoloMode, storageRef, yoloModeRef])
-
-  return { toggleYoloMode }
+  return useAgentAccessActions({
+    ...rest,
+    agentAccessModeRef,
+    setAgentAccessMode,
+  })
 }

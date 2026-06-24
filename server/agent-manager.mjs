@@ -129,7 +129,26 @@ async function rebuildSessionTools(session) {
 
 const agentSessions = new Map()
 
-/** @typedef {{ agent: Agent, projectContext: object|null, projectId: string|null, yoloMode: boolean, model: object, thinkingLevel: string, scope: string, title: string, createdAt: string, status: string, startedAt: string|null, finishedAt: string|null, listeners: Set<function>, idleTimer: NodeJS.Timeout|null, eventBus: EventEmitter }} AgentSession */
+const AGENT_ACCESS_MODE_DEFAULT = 'default'
+const AGENT_ACCESS_MODE_FULL_ACCESS = 'full-access'
+
+function normalizeAccessMode(value, fallback = AGENT_ACCESS_MODE_DEFAULT) {
+  if (value === AGENT_ACCESS_MODE_DEFAULT || value === AGENT_ACCESS_MODE_FULL_ACCESS) return value
+  if (value === true || value === 'true') return AGENT_ACCESS_MODE_FULL_ACCESS
+  if (value === false || value === 'false') return AGENT_ACCESS_MODE_DEFAULT
+  if (fallback !== value) return normalizeAccessMode(fallback, AGENT_ACCESS_MODE_DEFAULT)
+  return AGENT_ACCESS_MODE_DEFAULT
+}
+
+function yoloModeFromAccessMode(accessMode) {
+  return normalizeAccessMode(accessMode) === AGENT_ACCESS_MODE_FULL_ACCESS
+}
+
+function hasFullAccess(session) {
+  return normalizeAccessMode(session?.accessMode, session?.yoloMode) === AGENT_ACCESS_MODE_FULL_ACCESS
+}
+
+/** @typedef {{ agent: Agent, projectContext: object|null, projectId: string|null, accessMode: string, yoloMode: boolean, model: object, thinkingLevel: string, scope: string, title: string, createdAt: string, status: string, startedAt: string|null, finishedAt: string|null, listeners: Set<function>, idleTimer: NodeJS.Timeout|null, eventBus: EventEmitter }} AgentSession */
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
 const SUBAGENT_DEFAULT_TIMEOUT_MS = 30 * 60 * 1000
@@ -463,6 +482,7 @@ async function compactSession(session, initialUserMessage, compactOptions) {
     const compactedSession = await createAgent(compactedSessionId, {
       scope: session.scope,
       projectId: session.projectId,
+      accessMode: session.accessMode,
       yoloMode: session.yoloMode,
       model: session.model,
       thinkingLevel: session.thinkingLevel,
@@ -828,7 +848,7 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
       }
       const commandPermissionError = commandToolPermissionError(parentSession, toolName)
       if (commandPermissionError) return { block: true, reason: commandPermissionError }
-      if (!parentSession.yoloMode) {
+      if (!hasFullAccess(parentSession)) {
         if (safeReadTools.has(toolName)) return undefined
         return createApprovalPromise(parentSession, context.toolCall?.id, toolName, context.args, {
           type: 'subagent',
@@ -1052,6 +1072,7 @@ export async function createAgent(sessionId, config = {}) {
   const {
     scope = 'global',
     projectId = null,
+    accessMode: rawAccessMode,
     yoloMode = false,
     model = null,
     thinkingLevel = 'off',
@@ -1063,6 +1084,8 @@ export async function createAgent(sessionId, config = {}) {
     contextCompaction = null,
     agentProfile = null,
   } = config
+  const accessMode = normalizeAccessMode(rawAccessMode, yoloMode)
+  const resolvedYoloMode = yoloModeFromAccessMode(accessMode)
 
   // Resolve project context for tool calls. Project conversations resolve to
   // their directory; global conversations (no projectId) and any fallback fall
@@ -1162,14 +1185,14 @@ export async function createAgent(sessionId, config = {}) {
       if (profileToolNames && !profileToolNames.includes(toolName)) return { block: true, reason: `Agent profile ${agentProfile.name} is not allowed to use ${toolName}.` }
       if (toolName === 'run_subagent') return undefined
       if (isMcpToolName(toolName) || isPluginToolName(toolName)) {
-        if (!currentSession?.yoloMode) return createApprovalPromise(currentSession, toolCallId, toolName, context.args)
+        if (!hasFullAccess(currentSession)) return createApprovalPromise(currentSession, toolCallId, toolName, context.args)
         return undefined
       }
       if (!projectContext?.workspaceRoot) {
         return { block: true, reason: 'No active project. Select a project to use tools.' }
       }
-      if (!currentSession?.yoloMode) {
-        // YOLO OFF: safe reads auto-pass, dangerous writes require approval
+      if (!hasFullAccess(currentSession)) {
+        // Default access: safe reads auto-pass, state-changing or external tools require approval
         if (safeReadTools.has(toolName)) return undefined
         return createApprovalPromise(currentSession, toolCallId, toolName, context.args)
       }
@@ -1185,7 +1208,8 @@ export async function createAgent(sessionId, config = {}) {
     agent,
     projectContext,
     projectId,
-    yoloMode,
+    accessMode,
+    yoloMode: resolvedYoloMode,
     model: resolvedModel,
     thinkingLevel,
     scope,
@@ -1276,7 +1300,7 @@ export async function createAgent(sessionId, config = {}) {
 
   agentSessions.set(sessionId, session)
   resetIdleTimer(session)
-  logger.info(`Created session ${sessionId} (scope: ${scope}, project: ${projectId || 'none'}, yolo: ${yoloMode})`, { sessionId, scope, projectId: projectId || undefined, yoloMode })
+  logger.info(`Created session ${sessionId} (scope: ${scope}, project: ${projectId || 'none'}, access: ${accessMode})`, { sessionId, scope, projectId: projectId || undefined, accessMode, yoloMode: resolvedYoloMode })
   return session
 }
 
@@ -1308,7 +1332,7 @@ function sessionLastModifiedFromMessages(messages, fallback) {
  * Persist session data to storage.
  */
 async function persistSession(session) {
-  const { sessionId, agent, scope, projectId, title, createdAt, lastModified: storedLastModified, status, startedAt, finishedAt, model, thinkingLevel, yoloMode, contextCompaction } = session
+  const { sessionId, agent, scope, projectId, title, createdAt, lastModified: storedLastModified, status, startedAt, finishedAt, model, thinkingLevel, accessMode, yoloMode, contextCompaction } = session
   const messages = agent.state.messages
 
   if (messages.length === 0) {
@@ -1331,6 +1355,7 @@ async function persistSession(session) {
     title,
     model,
     thinkingLevel,
+    accessMode,
     yoloMode,
     messages,
     createdAt: createdAt || now,
@@ -1382,6 +1407,7 @@ async function persistSession(session) {
     messageCount: messages.length,
     usage,
     thinkingLevel,
+    accessMode,
     yoloMode,
     preview,
     scope,
@@ -1753,6 +1779,7 @@ export function getSessionState(sessionId) {
     sessionId: session.sessionId,
     scope: session.scope,
     projectId: session.projectId,
+    accessMode: session.accessMode,
     yoloMode: session.yoloMode,
     systemPrompt: session.agent.state.systemPrompt,
     model: session.model,
@@ -1897,6 +1924,7 @@ export async function restoreAgent(sessionId) {
     return await createAgent(sessionId, {
       scope: sessionData.scope || 'global',
       projectId: sessionData.projectId || null,
+      accessMode: normalizeAccessMode(sessionData.accessMode, sessionData.yoloMode),
       yoloMode: sessionData.yoloMode || false,
       model: sessionData.model,
       thinkingLevel: sessionData.thinkingLevel || 'off',
@@ -1998,20 +2026,25 @@ export async function refreshAllSessionTools() {
   return result
 }
 
-export async function updateSessionYoloMode(sessionId, yoloMode) {
+export async function updateSessionAccessMode(sessionId, accessMode) {
   const session = agentSessions.get(sessionId)
   if (!session) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
   }
 
-  session.yoloMode = Boolean(yoloMode)
+  session.accessMode = normalizeAccessMode(accessMode, session.accessMode)
+  session.yoloMode = yoloModeFromAccessMode(session.accessMode)
   await rebuildSessionTools(session)
   await persistSession(session)
 
   const state = getSessionState(sessionId)
   emitSessionEvent(session, { type: 'state', ...state })
 
-  return { sessionId, yoloMode: session.yoloMode }
+  return { sessionId, accessMode: session.accessMode, yoloMode: session.yoloMode }
+}
+
+export async function updateSessionYoloMode(sessionId, yoloMode) {
+  return updateSessionAccessMode(sessionId, yoloMode ? AGENT_ACCESS_MODE_FULL_ACCESS : AGENT_ACCESS_MODE_DEFAULT)
 }
 
 /**

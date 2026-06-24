@@ -22,6 +22,7 @@ import {
 } from '@/lib/pi-chat'
 import { t } from '@/lib/i18n'
 import type {
+  AgentAccessMode,
   ProjectInfo,
   QuickForgeSessionMetadata,
   RestoredDraft,
@@ -34,7 +35,7 @@ import { ModelSetupEmptyState } from '@/components/chat/ModelSetupEmptyState'
 import { ChatSidebar } from '@/components/sidebar/ChatSidebar'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useProject } from '@/hooks/useProject'
-import { useYoloMode } from '@/hooks/useYoloMode'
+import { useAgentAccessMode } from '@/hooks/useAgentAccessMode'
 import { useCrossTabSync } from '@/hooks/useCrossTabSync'
 import { useAgentManager } from '@/hooks/useAgentManager'
 import { useSessionPagination } from '@/hooks/useSessionPagination'
@@ -44,7 +45,7 @@ import { useModelActions } from '@/hooks/useModelActions'
 import { useChatActions } from '@/hooks/useChatActions'
 import { useProjectActions } from '@/hooks/useProjectActions'
 import { useSessionActions } from '@/hooks/useSessionActions'
-import { useYoloActions } from '@/hooks/useYoloActions'
+import { useAgentAccessActions } from '@/hooks/useAgentAccessActions'
 import { useUIState } from '@/hooks/useUIState'
 import { useVisibleRuntimeStatuses } from '@/hooks/useVisibleRuntimeStatuses'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
@@ -135,7 +136,7 @@ function MainApp() {
   // --- Top-level refs (owned by App) ---
   const storageRef = useRef<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
   const activeModelRef = useRef<Model<Api>>(buildConnectionModel(DEFAULT_CONNECTION))
-  const yoloModeRef = useRef(false)
+  const agentAccessModeRef = useRef<AgentAccessMode>('default')
   const activeProjectRef = useRef<ProjectInfo | undefined>(undefined)
   const defaultWorkspaceRef = useRef<ProjectInfo | undefined>(undefined)
 
@@ -160,8 +161,8 @@ function MainApp() {
     setExpandedProjectIds,
   } = useProject()
 
-  // --- YOLO hook ---
-  const { yoloMode, setYoloMode, initialize: initYoloMode } = useYoloMode()
+  // --- Agent access mode hook ---
+  const { agentAccessMode, setAgentAccessMode, initialize: initAgentAccessMode } = useAgentAccessMode()
 
   // --- Pure UI state (sidebar, dialogs, overlays, inspector, reader) ---
   const ui = useUIState()
@@ -223,8 +224,8 @@ function MainApp() {
 
   // --- Sync refs ---
   useEffect(() => {
-    yoloModeRef.current = yoloMode
-  }, [yoloMode])
+    agentAccessModeRef.current = agentAccessMode
+  }, [agentAccessMode])
 
   useEffect(() => {
     activeProjectRef.current = activeProject
@@ -244,10 +245,10 @@ function MainApp() {
   const agentManager = useAgentManager({
     storageRef,
     activeModelRef,
-    yoloModeRef,
+    agentAccessModeRef,
     activeProjectRef,
     defaultWorkspaceRef,
-    setYoloMode,
+    setAgentAccessMode,
     switchActiveProject,
     sessions: allLoadedSessions,
     refreshSessions,
@@ -391,13 +392,13 @@ function MainApp() {
     storageRef,
     backendRef,
     activeModelRef,
-    yoloModeRef,
+    agentAccessModeRef,
     activeProjectRef,
-    setYoloMode,
+    setAgentAccessMode,
     taskMapRef,
     loadGlobalSessions,
     loadProject,
-    initYoloMode,
+    initAgentAccessMode,
     switchActiveProject,
     createAgent,
     setNeedsModelSetup,
@@ -451,10 +452,10 @@ function MainApp() {
     setChatPanelRevision,
   })
 
-  const { toggleYoloMode } = useYoloActions({
+  const { setAccessMode } = useAgentAccessActions({
     storageRef,
-    yoloModeRef,
-    setYoloMode,
+    agentAccessModeRef,
+    setAgentAccessMode,
     agentRef,
     setChatPanelRevision,
     notifySettingsChanged: crossTab.notifySettingsChanged,
@@ -1048,13 +1049,13 @@ function MainApp() {
                       agent={agentManager.agent}
                       onModelSelect={openCustomModelSelector}
                       revision={agentManager.chatPanelRevision}
-                      yoloMode={yoloMode}
+                      agentAccessMode={agentAccessMode}
                       workspaceToolsEnabled={Boolean(agentManager.currentToolProject?.id)}
                       project={agentManager.currentToolProject}
                       projectId={agentManager.currentToolProject?.id}
                       chatScope={agentManager.chatScope}
                       storage={storage}
-                      onToggleYoloMode={toggleYoloMode}
+                      onAccessModeChange={setAccessMode}
                       onRollbackFromMessage={rollbackFromMessage}
                       onRetryFromMessage={retryFromMessage}
                       onCopyAnswer={copyAnswer}

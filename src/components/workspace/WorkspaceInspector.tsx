@@ -44,7 +44,7 @@ const WORKSPACE_MENU_ITEMS: WorkspaceMenuItem[] = [
 
 const WORKSPACE_INSPECTOR_MIN_WIDTH = 300
 const WORKSPACE_INSPECTOR_DEFAULT_WIDTH = 380
-const WORKSPACE_INSPECTOR_MAX_WIDTH = 560
+const WORKSPACE_INSPECTOR_MAX_WIDTH = 640
 
 function filterWorkspaceTree(tree: WorkspaceTreeNode[], rawQuery: string): WorkspaceTreeNode[] {
   const query = rawQuery.trim().toLowerCase()

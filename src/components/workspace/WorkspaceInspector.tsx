@@ -1056,7 +1056,6 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
                             className="min-w-0 flex-1 bg-transparent text-xs text-foreground/85 outline-none placeholder:text-muted-foreground/50"
                           />
                         </label>
-                        <div className="mb-2 px-2 text-xs text-muted-foreground/60">{t('workspaceOpenFileHint')}</div>
                         <WorkspaceFileTree tree={filteredTree} selectedPath={undefined} gitStatuses={gitStatuses} onSelectFile={openFileTab} />
                       </>
                     ) : null}

@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { readStore, atomicUpdate } from './storage.mjs'
 import { subagentDefinitions } from './subagents.mjs'
 import { workspaceTools } from './tools/definitions.mjs'
+import { defaultGlobalWorkspaceContext, projectContextFromId } from './project-config.mjs'
+import { loadFileAgentProfiles } from './agent-profile-files.mjs'
 
 const STORE = 'custom-agents'
 const RESERVED_NAMES = new Set(subagentDefinitions.map((definition) => definition.name))
@@ -56,6 +58,9 @@ function builtinProfileFromSubagent(definition) {
     maxToolCalls: definition.maxToolCalls || DEFAULT_MAX_TOOL_CALLS,
     enabledAsSubagent: true,
     builtin: true,
+    source: 'builtin',
+    readonly: true,
+    allowFileMutations: definition.allowFileMutations === true,
     createdAt: 'builtin',
     updatedAt: 'builtin',
   }
@@ -92,6 +97,9 @@ function normalizeProfileInput(input, existing = null, { creating = false } = {}
     maxToolCalls: normalizeOptionalPositiveInteger(input?.maxToolCalls ?? existing?.maxToolCalls, DEFAULT_MAX_TOOL_CALLS, 300),
     enabledAsSubagent: input?.enabledAsSubagent === undefined ? Boolean(existing?.enabledAsSubagent ?? true) : input.enabledAsSubagent === true,
     builtin: false,
+    source: 'store',
+    readonly: false,
+    allowFileMutations: allowedTools.some((toolName) => toolName === 'write_file' || toolName === 'edit_file'),
     createdAt: existing?.createdAt || now,
     updatedAt: now,
   }
@@ -102,20 +110,61 @@ async function readCustomAgentMap() {
   return data && typeof data === 'object' ? data : {}
 }
 
+async function resolveWorkspaceRoot(options = {}) {
+  if (options.workspaceRoot) return options.workspaceRoot
+  if (options.projectId) {
+    try {
+      return (await projectContextFromId(options.projectId))?.workspaceRoot || null
+    } catch {
+      return null
+    }
+  }
+  return defaultGlobalWorkspaceContext()?.workspaceRoot || null
+}
+
+function mergeProfiles({ builtin = [], file = [], custom = [] }) {
+  const reservedNames = new Set(builtin.map((profile) => profile.name))
+  const byName = new Map()
+
+  for (const profile of builtin) {
+    byName.set(profile.name, profile)
+  }
+  for (const profile of file) {
+    if (!profile?.name || reservedNames.has(profile.name)) continue
+    byName.set(profile.name, profile)
+  }
+  for (const profile of custom) {
+    if (!profile?.id) continue
+    if (!reservedNames.has(profile.name) && !byName.has(profile.name)) byName.set(profile.name, profile)
+  }
+
+  return [...byName.values()].sort((a, b) => {
+    if (a.builtin && !b.builtin) return -1
+    if (!a.builtin && b.builtin) return 1
+    return a.name.localeCompare(b.name)
+  })
+}
+
 export async function listAgentProfiles(options = {}) {
   const custom = Object.values(await readCustomAgentMap())
-  const profiles = [...listBuiltinAgentProfiles(), ...custom]
+  const workspaceRoot = await resolveWorkspaceRoot(options)
+  const file = await loadFileAgentProfiles(workspaceRoot, { reservedNames: RESERVED_NAMES })
+  const profiles = mergeProfiles({ builtin: listBuiltinAgentProfiles(), file, custom })
   return options.includeDisabled ? profiles : profiles.filter((profile) => profile.enabledAsSubagent || profile.builtin || profile.enabledAsSubagent === false)
 }
 
-export async function listSubagentProfiles() {
-  return (await listAgentProfiles({ includeDisabled: true })).filter((profile) => profile.enabledAsSubagent)
+export async function listSubagentProfiles(options = {}) {
+  return (await listAgentProfiles({ ...options, includeDisabled: true })).filter((profile) => profile.enabledAsSubagent)
 }
 
-export async function getAgentProfile(idOrName) {
+export async function getAgentProfile(idOrName, options = {}) {
   const key = String(idOrName || '').trim().toLowerCase()
   if (!key) return null
-  return (await listAgentProfiles({ includeDisabled: true })).find((profile) => profile.id === key || profile.name === key) || null
+  const profiles = await listAgentProfiles({ ...options, includeDisabled: true })
+  const byName = profiles.find((profile) => profile.name === key)
+  if (byName) return byName
+  const custom = Object.values(await readCustomAgentMap())
+  return custom.find((profile) => profile?.id === key) || profiles.find((profile) => profile.id === key) || null
 }
 
 export async function createCustomAgentProfile(input) {
@@ -167,7 +216,12 @@ export function agentProfileSnapshot(profile) {
     allowedTools: [...profile.allowedTools],
     maxRuntimeMs: profile.maxRuntimeMs,
     maxToolCalls: profile.maxToolCalls,
+    enabledAsSubagent: profile.enabledAsSubagent === true,
     builtin: profile.builtin === true,
+    source: profile.source || (profile.builtin ? 'builtin' : 'store'),
+    readonly: profile.readonly === true || profile.builtin === true,
+    filePath: profile.filePath,
+    relativePath: profile.relativePath,
   }
 }
 

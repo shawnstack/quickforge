@@ -585,11 +585,7 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
   let sessionId = `scheduled-${task.id}-${Date.now().toString(36)}`
   let executionAgent = null
   let agentWarning = null
-  if (task.agentId) {
-    executionAgent = await getAgentProfile(task.agentId)
-    if (!executionAgent) agentWarning = `Configured agent not found: ${task.agentId}`
-  }
-  const agentSnapshot = executionAgent ? agentProfileSnapshot(executionAgent) : null
+  let agentSnapshot = null
 
   let started = false
   await updateTask(task.id, (current) => {
@@ -630,6 +626,11 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
 
   try {
     const executionProject = await resolveExecutionProject(task)
+    if (task.agentId) {
+      executionAgent = await getAgentProfile(task.agentId, { projectId: executionProject?.id || null, workspaceRoot: executionProject?.path })
+      if (!executionAgent) agentWarning = `Configured agent not found: ${task.agentId}`
+    }
+    agentSnapshot = executionAgent ? agentProfileSnapshot(executionAgent) : null
     const settings = await readStore('settings')
     const yoloMode = settings?.['yolo-mode'] === true || settings?.['yolo-mode'] === 'true'
 

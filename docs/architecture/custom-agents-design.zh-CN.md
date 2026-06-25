@@ -224,21 +224,47 @@ custom-agents
 
 ### 8.1 新增模块
 
-建议新增：
+建议新增，当前实现已包含：
 
 ```txt
 server/agent-profiles.mjs
+server/agent-profile-files.mjs
+server/frontmatter.mjs
 server/routes/agent-profiles.mjs
 ```
 
 `server/agent-profiles.mjs` 负责：
 
 - 返回内置 Agent Profile。
-- 读取自定义 Agent Profile。
-- 合并内置和自定义 Agent Profile。
+- 读取 store 自定义 Agent Profile。
+- 合并内置、文件化和 store 自定义 Agent Profile。
 - 根据 `id` 或 `name` 查找 Agent Profile。
 - 校验工具白名单是否合法。
 - 校验名称冲突。
+
+`server/agent-profile-files.mjs` 负责：
+
+- 读取 Markdown 文件化 Agent Profile：`~/.claude/agents/*.md`、`~/.quickforge/agents/*.md`、`<project>/.claude/agents/*.md`、`<project>/.quickforge/agents/*.md`。
+- 将 frontmatter 映射到 Agent Profile 字段，正文映射为 `systemPrompt`。
+- 支持 Claude 工具别名：`Read`、`Grep`、`Bash`、`Write`、`Edit`。
+- 保留 `general` / `explore`，禁止文件化 Agent 覆盖内置 Agent。
+
+文件化 Agent 示例：
+
+```md
+---
+name: checker
+label: Checker
+description: 运行验证命令并返回完整失败报告
+tools: Read, Grep, Bash
+enabled-as-subagent: true
+max-runtime-ms: 1800000
+max-tool-calls: 120
+---
+
+你是一个只负责检查的 subagent。
+成功时输出 ALL GREEN；失败时输出 FAILED 并保留完整错误信息。
+```
 
 核心函数建议：
 
@@ -301,8 +327,10 @@ run_subagent.subagent enum = ['general', 'explore']
 扩展后：
 
 ```txt
-run_subagent.subagent enum = 所有 enabledAsSubagent=true 的 AgentProfile name
+run_subagent.subagent = 所有 enabledAsSubagent=true 的 AgentProfile name 或 id
 ```
+
+`run_subagent` schema 保持字符串，不强制 enum，以支持动态加载的文件化 Agent Profile。
 
 示例：
 

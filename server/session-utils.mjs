@@ -1,5 +1,5 @@
 import { streamSimple } from '@earendil-works/pi-ai'
-import { buildInstructionsPayload } from './project-config.mjs'
+import { buildInstructionsPayload, projectContextFromId } from './project-config.mjs'
 import { composeSystemPrompt } from './system-prompt.mjs'
 import { listSubagentProfiles } from './agent-profiles.mjs'
 
@@ -9,9 +9,17 @@ import { listSubagentProfiles } from './agent-profiles.mjs'
 
 export async function buildSystemPrompt(projectId) {
   const instructions = await buildInstructionsPayload(projectId)
+  let workspaceRoot = instructions.workspace?.root || null
+  if (projectId && !workspaceRoot) {
+    try {
+      workspaceRoot = (await projectContextFromId(projectId))?.workspaceRoot || null
+    } catch {
+      // project may have been removed; fall back to global agent profile discovery
+    }
+  }
   return composeSystemPrompt({
     ...instructions,
-    subagents: await listSubagentProfiles(),
+    subagents: await listSubagentProfiles({ projectId, workspaceRoot }),
   })
 }
 

@@ -3,6 +3,7 @@ import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { readStore } from '../storage.mjs'
 import { logger } from '../utils/logger.mjs'
 import {
+  agentProfileSnapshot,
   createCustomAgentProfile,
   deleteCustomAgentProfile,
   getAgentProfile,
@@ -120,7 +121,8 @@ export async function handleAgentProfilesApi(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean)
 
   if (req.method === 'GET' && url.pathname === '/api/agent-profiles') {
-    sendJson(res, 200, { agents: await listAgentProfiles({ includeDisabled: true }) })
+    const agents = await listAgentProfiles({ includeDisabled: true })
+    sendJson(res, 200, { agents: agents.map(agentProfileSnapshot) })
     return
   }
 
@@ -147,13 +149,14 @@ export async function handleAgentProfilesApi(req, res, url) {
     if (req.method === 'GET') {
       const agent = await getAgentProfile(id)
       if (!agent) throw requestError('Agent not found', 404)
-      sendJson(res, 200, { agent })
+      sendJson(res, 200, { agent: agentProfileSnapshot(agent) })
       return
     }
 
     if (req.method === 'PATCH' || req.method === 'PUT') {
       const current = await getAgentProfile(id)
       if (current?.builtin) throw requestError('Built-in agents cannot be modified', 403)
+      if (current?.readonly) throw requestError('File-based agents cannot be modified from the API', 403)
       const body = await readJsonBody(req)
       sendJson(res, 200, { agent: await updateCustomAgentProfile(id, body || {}) })
       return
@@ -162,6 +165,7 @@ export async function handleAgentProfilesApi(req, res, url) {
     if (req.method === 'DELETE') {
       const current = await getAgentProfile(id)
       if (current?.builtin) throw requestError('Built-in agents cannot be deleted', 403)
+      if (current?.readonly) throw requestError('File-based agents cannot be deleted from the API', 403)
       await deleteCustomAgentProfile(id)
       sendJson(res, 200, { ok: true })
       return

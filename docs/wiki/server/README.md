@@ -121,7 +121,10 @@ server/
 
 **功能**:
 - 将内置 `general` / `explore` sub agent 映射为内置 Agent Profile。
-- 使用 `custom-agents` store 保存用户自定义 Agent。
+- 使用 `custom-agents` store 保存 UI/API 创建的用户自定义 Agent。
+- 加载文件化 Agent Profile：用户级 `~/.claude/agents/*.md`、`~/.quickforge/agents/*.md`，项目级 `<workspace>/.claude/agents/*.md`、`<workspace>/.quickforge/agents/*.md`；Markdown frontmatter 放 `name`、`description`、`tools` 等元数据，正文作为 `systemPrompt`。
+- 文件化 Agent 支持 Claude 风格工具别名：`Read`、`Grep`、`Bash`、`Write`、`Edit` 会映射为 QuickForge 的 workspace tools；`general` / `explore` 是保留名，不能被文件覆盖。
+- 合并优先级：内置 Agent 保留；文件化 Agent 中项目级覆盖用户级；store Agent 仍可通过 id 访问，通过 name 查找时不覆盖同名项目文件 Agent。
 - 校验 Agent 名称、系统提示词、工具白名单、运行时间和工具调用预算。
 - 为 `run_subagent`、定时任务和前端 Agents 页面提供统一列表。
 - 提供 AI 填充能力，生成 Agent 名称、显示名称、描述和系统提示词，工具权限仍由用户手动配置。

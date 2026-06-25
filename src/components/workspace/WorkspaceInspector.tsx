@@ -520,6 +520,7 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
     [activeReaderTabId, readerTabs],
   )
   const isBrowserActive = activeReaderTab?.mode === 'browser'
+  const hasFileTab = Boolean(activeReaderTab && activeReaderTab.mode !== 'browser')
   const navView: 'overview' | 'files' | 'changes' = view === 'browser' ? 'files' : view
 
   const gitStatuses = useMemo(() => {
@@ -1019,8 +1020,11 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
           ) : (
             <>
               <div
-                className="flex min-h-0 shrink-0 flex-col border-r border-border bg-muted/20"
-                style={{ width: leftWidth, minWidth: NAV_PANEL_MIN_WIDTH, maxWidth: NAV_PANEL_MAX_WIDTH }}
+                className={cn(
+                  'flex min-h-0 flex-col bg-muted/20',
+                  hasFileTab ? 'shrink-0 border-r border-border' : 'flex-1',
+                )}
+                style={hasFileTab ? { width: leftWidth, minWidth: NAV_PANEL_MIN_WIDTH, maxWidth: NAV_PANEL_MAX_WIDTH } : undefined}
               >
                 {error ? (
                   <div className="p-4 text-sm text-destructive">{error}</div>
@@ -1108,39 +1112,39 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
                 )}
               </div>
 
-              <div
-                role="separator"
-                aria-orientation="vertical"
-                aria-valuemin={NAV_PANEL_MIN_WIDTH}
-                aria-valuemax={NAV_PANEL_MAX_WIDTH}
-                aria-valuenow={leftWidth}
-                className={cn(
-                  'group relative z-10 w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors',
-                  isNavResizing ? 'bg-primary/30' : 'hover:bg-border/60',
-                )}
-                onPointerDown={startNavResizing}
-                onPointerMove={navResize}
-                onPointerUp={stopNavResizing}
-                onPointerCancel={stopNavResizing}
-              />
-
-              <div className="flex min-w-0 flex-1 flex-col bg-background">
-                {activeReaderTab ? (
-                  <InlineReader
-                    mode={activeReaderTab.mode}
-                    file={activeReaderTab.file}
-                    diff={activeReaderTab.diff}
-                    loading={activeReaderTab.loading}
-                    error={activeReaderTab.error}
-                    onClose={() => closeReaderTab(activeReaderTab.id)}
-                    onDraftRequest={onDraftRequest}
+              {hasFileTab ? (
+                <>
+                  <div
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-valuemin={NAV_PANEL_MIN_WIDTH}
+                    aria-valuemax={NAV_PANEL_MAX_WIDTH}
+                    aria-valuenow={leftWidth}
+                    className={cn(
+                      'group relative z-10 w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors',
+                      isNavResizing ? 'bg-primary/30' : 'hover:bg-border/60',
+                    )}
+                    onPointerDown={startNavResizing}
+                    onPointerMove={navResize}
+                    onPointerUp={stopNavResizing}
+                    onPointerCancel={stopNavResizing}
                   />
-                ) : (
-                  <div className="flex flex-1 items-center justify-center p-4 text-center text-xs text-muted-foreground/50">
-                    {t('workspaceNoArtifacts')}
+
+                  <div className="flex min-w-0 flex-1 flex-col bg-background">
+                    {activeReaderTab ? (
+                      <InlineReader
+                        mode={activeReaderTab.mode}
+                        file={activeReaderTab.file}
+                        diff={activeReaderTab.diff}
+                        loading={activeReaderTab.loading}
+                        error={activeReaderTab.error}
+                        onClose={() => closeReaderTab(activeReaderTab.id)}
+                        onDraftRequest={onDraftRequest}
+                      />
+                    ) : null}
                   </div>
-                )}
-              </div>
+                </>
+              ) : null}
             </>
           )}
         </div>

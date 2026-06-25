@@ -11,7 +11,7 @@ import {
   FolderOpen,
   Loader2,
   MessageSquarePlus,
-  PanelLeftClose,
+  PanelLeft,
   PanelLeftOpen,
   Pencil,
   Pin,
@@ -408,7 +408,7 @@ export const ChatSidebar = memo(function ChatSidebar({
             {!sidebarOpen ? <PanelLeftOpen className="absolute size-4 opacity-0 transition-opacity duration-160 group-hover:opacity-100" /> : null}
           </span>
           <span className={cn('ml-auto inline-flex size-6 items-center justify-center text-muted-foreground/55 transition-opacity duration-100 group-hover:text-foreground/70', !sidebarOpen && 'opacity-0')}>
-            <PanelLeftClose className="size-4" />
+            <PanelLeft className="size-4" />
           </span>
         </button>
         <button

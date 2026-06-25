@@ -4,13 +4,6 @@ import { t } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
 import { workspacePreviewUrl } from '@/components/workspace/artifact-preview-utils'
 
-const COMMON_PREVIEW_URLS = [
-  'http://localhost:5173',
-  'http://localhost:3000',
-  'http://localhost:4173',
-  'http://localhost:8080',
-] as const
-
 function isWorkspacePreviewUrl(rawUrl: string) {
   const trimmed = rawUrl.trim()
   if (!trimmed.startsWith('/api/workspace/preview/')) return false
@@ -145,18 +138,6 @@ export function WebPreviewContent({ url, onUrlChange, projectId }: WebPreviewCon
           </Button>
         </form>
         {error ? <div className="text-xs text-destructive">{error}</div> : null}
-        <div className="flex flex-wrap gap-1.5">
-          {COMMON_PREVIEW_URLS.map((item) => (
-            <button
-              key={item}
-              type="button"
-              className="rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground/72 transition-colors hover:bg-muted/20 hover:text-foreground/85"
-              onClick={() => applyUrl(item)}
-            >
-              {item.replace('http://', '')}
-            </button>
-          ))}
-        </div>
       </div>
 
       <div className="min-h-0 flex-1 bg-muted/10">

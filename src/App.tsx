@@ -4,7 +4,7 @@ import type { BackgroundTaskStatus } from '@/lib/types'
 import {
   Ellipsis,
   Menu,
-  PanelRightOpen,
+  PanelRight,
   Pencil,
   Pin,
   PinOff,
@@ -1090,6 +1090,18 @@ function MainApp() {
           <Button
             variant="ghost"
             size="icon"
+            onClick={() => setTerminalOpen((value) => !value)}
+            disabled={workspacePageOpen || needsModelSetup}
+            aria-label="终端"
+            title="终端"
+            className={terminalOpen ? 'bg-accent text-accent-foreground' : undefined}
+          >
+            <SquareTerminal className="size-4" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={() => {
               setArtifactPreviewOpen(false)
               ui.setWorkspaceInspectorOpen((value) => !value)
@@ -1099,19 +1111,7 @@ function MainApp() {
             title={t('workspacePanel')}
             className={ui.workspaceInspectorOpen ? 'hidden bg-accent text-accent-foreground lg:inline-flex' : 'hidden lg:inline-flex'}
           >
-            <PanelRightOpen className="size-4" />
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setTerminalOpen((value) => !value)}
-            disabled={workspacePageOpen || needsModelSetup}
-            aria-label="终端"
-            title="终端"
-            className={terminalOpen ? 'bg-accent text-accent-foreground' : undefined}
-          >
-            <SquareTerminal className="size-4" />
+            <PanelRight className="size-4" />
           </Button>
 
         </header>
@@ -1200,7 +1200,6 @@ function MainApp() {
             open
             view={ui.workspacePanelView}
             onViewChange={ui.setWorkspacePanelView}
-            onOpenChange={ui.setWorkspaceInspectorOpen}
             onPreviewArtifact={openArtifactPreview}
             onDraftRequest={restoreWorkspaceDraft}
             focusTarget={ui.workspaceInspectorFocusTarget}

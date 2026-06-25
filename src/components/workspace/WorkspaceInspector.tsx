@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronsLeftRight, Code2, Folder, GitBranch, Globe2, LayoutGrid, Maximize2, MessageSquare, Minimize2, PanelRightClose, RefreshCw, Search } from 'lucide-react'
+import { Check, ChevronDown, ChevronsLeftRight, Code2, Folder, GitBranch, Globe2, LayoutGrid, Maximize2, MessageSquare, Minimize2, RefreshCw, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ProjectInfo } from '@/lib/types'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
@@ -18,7 +18,6 @@ type WorkspaceInspectorProps = {
   open: boolean
   view: WorkspacePanelView
   onViewChange: (view: WorkspacePanelView) => void
-  onOpenChange: (open: boolean) => void
   onPreviewArtifact?: (path: string) => void
   onDraftRequest?: (text: string) => void
   focusTarget?: WorkspaceInspectorFocusTarget
@@ -295,7 +294,7 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
   )
 }
 
-export function WorkspaceInspector({ project, open, view, onViewChange, onOpenChange, onPreviewArtifact, onDraftRequest, focusTarget, previewUrl, onPreviewUrlChange, artifacts = [] }: WorkspaceInspectorProps) {
+export function WorkspaceInspector({ project, open, view, onViewChange, onPreviewArtifact, onDraftRequest, focusTarget, previewUrl, onPreviewUrlChange, artifacts = [] }: WorkspaceInspectorProps) {
   const [tree, setTree] = useState<WorkspaceTreeNode[]>([])
   const [changes, setChanges] = useState<GitChangedFile[]>([])
   const [gitBranch, setGitBranch] = useState<string>()
@@ -722,9 +721,6 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onOpenCh
             title={fullscreen ? t('workspaceExitFullscreen') : t('workspaceFullscreen')}
           >
             {fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)} aria-label={t('closeWorkspace')} title={t('closeWorkspace')}>
-            <PanelRightClose className="size-4" />
           </Button>
         </div>
 

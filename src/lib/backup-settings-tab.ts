@@ -2,6 +2,7 @@ import { SettingsTab } from '@earendil-works/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
 import { t } from '@/lib/i18n'
 import { showConfirm } from '@/components/ui/confirm-dialog'
+import './info-tip'
 
 const BACKUP_FILE_PREFIX = 'quickforge-backup'
 
@@ -298,13 +299,17 @@ class BackupSettingsTab extends SettingsTab {
     return html`
       <div class="flex flex-col gap-6">
         <div>
-          <h3 class="mb-2 text-sm font-semibold text-foreground">${t('backupRestore')}</h3>
-          <p class="text-sm text-muted-foreground">${t('backupRestoreDescription')}</p>
+          <h3 class="mb-2 inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            ${t('backupRestore')}
+            <quickforge-info-tip .label=${t('backupRestoreDescription')}></quickforge-info-tip>
+          </h3>
         </div>
 
         <section class="rounded-lg border border-border p-4">
-          <h4 class="text-sm font-semibold text-foreground">${t('exportData')}</h4>
-          <p class="mt-1 text-sm text-muted-foreground">${t('exportDataDescription')}</p>
+          <h4 class="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            ${t('exportData')}
+            <quickforge-info-tip .label=${t('exportDataDescription')}></quickforge-info-tip>
+          </h4>
 
           <label class="mt-4 grid max-w-sm gap-1.5 text-sm">
             <span class="text-foreground">${t('exportScope')}</span>
@@ -345,8 +350,10 @@ class BackupSettingsTab extends SettingsTab {
         </section>
 
         <section class="rounded-lg border border-border p-4">
-          <h4 class="text-sm font-semibold text-foreground">${t('importData')}</h4>
-          <p class="mt-1 text-sm text-muted-foreground">${t('importDataDescription')}</p>
+          <h4 class="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            ${t('importData')}
+            <quickforge-info-tip .label=${t('importDataDescription')}></quickforge-info-tip>
+          </h4>
 
           <label class="mt-4 inline-flex cursor-pointer rounded-md border border-input px-3 py-2 text-sm hover:bg-muted/60 ${this.busy ? 'pointer-events-none opacity-60' : ''}">
             <input

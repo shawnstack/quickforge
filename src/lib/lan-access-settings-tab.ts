@@ -2,6 +2,7 @@ import { SettingsTab } from '@earendil-works/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
 import { t } from '@/lib/i18n'
 import { showConfirm } from '@/components/ui/confirm-dialog'
+import './info-tip'
 
 function generateLanPassword() {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*'
@@ -163,8 +164,10 @@ class LanAccessSettingsTab extends SettingsTab {
     return html`
       <div class="flex flex-col gap-6">
         <div>
-          <h3 class="mb-2 text-sm font-semibold text-foreground">${t('lanAccess')}</h3>
-          <p class="text-sm text-muted-foreground">${t('lanAccessDescription')}</p>
+          <h3 class="mb-2 inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            ${t('lanAccess')}
+            <quickforge-info-tip .label=${t('lanAccessDescription')}></quickforge-info-tip>
+          </h3>
         </div>
 
         <section class="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-200">

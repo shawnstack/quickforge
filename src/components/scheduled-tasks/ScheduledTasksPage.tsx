@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { defaultThinkingLevelForModel, getConfiguredModels, initializePiStorage, loadDefaultOptions, loadInitialConfiguredModel } from '@/lib/pi-chat'
 import { t } from '@/lib/i18n'
+import { InfoTip } from '@/components/ui/info-tip'
 import { showConfirm } from '@/components/ui/confirm-dialog'
 
 type ScheduleType = 'once' | 'daily' | 'weekly' | 'monthly' | 'interval' | 'cron'
@@ -581,8 +582,10 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
               <CalendarClock className="size-5" />
             </div>
             <div>
-              <h1 className="text-lg font-semibold text-foreground">{t('scheduledTasks')}</h1>
-              <p className="text-sm text-muted-foreground">{t('scheduledTasksDescription')}</p>
+              <h1 className="inline-flex items-center gap-1.5 text-lg font-semibold text-foreground">
+                {t('scheduledTasks')}
+                <InfoTip label={t('scheduledTasksDescription')} />
+              </h1>
             </div>
           </div>
           <Button onClick={openCreateDialog}>{t('createTask')}</Button>
@@ -841,8 +844,10 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDialog() }}>
           <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
             <div className="shrink-0 border-b border-border px-5 py-4">
-              <h2 className="text-base font-semibold text-foreground">{editingTask ? t('editTask') : t('createTask')}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">{t('quickAiParseTask')}</p>
+              <h2 className="inline-flex items-center gap-1.5 text-base font-semibold text-foreground">
+                {editingTask ? t('editTask') : t('createTask')}
+                <InfoTip label={t('quickAiParseTask')} />
+              </h2>
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -897,7 +902,10 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                   </div>
 
                   <label className="block text-sm font-medium text-foreground sm:col-span-2">
-                    {t('taskExecutionMode')}
+                    <span className="inline-flex items-center gap-1.5">
+                      {t('taskExecutionMode')}
+                      <InfoTip label={t('taskExecutionModeHelp')} />
+                    </span>
                     <select
                       className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:border-ring"
                       value={form.executionMode}
@@ -906,7 +914,6 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                       <option value="serial">{t('taskExecutionModeSerial')}</option>
                       <option value="parallel">{t('taskExecutionModeParallel')}</option>
                     </select>
-                    <span className="mt-1 block text-xs font-normal text-muted-foreground">{t('taskExecutionModeHelp')}</span>
                   </label>
 
                   <label className="block text-sm font-medium text-foreground sm:col-span-2">

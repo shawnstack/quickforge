@@ -1,5 +1,6 @@
 import { Loader2, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { InfoTip } from '@/components/ui/info-tip'
 import { t } from '@/lib/i18n'
 
 type McpImportPanelProps = {
@@ -13,7 +14,10 @@ type McpImportPanelProps = {
 export function McpImportPanel({ configText, onConfigTextChange, onImport, onUseExample, saving }: McpImportPanelProps) {
   return (
     <div className="space-y-3 p-3">
-      <p className="text-xs leading-5 text-muted-foreground/72">{t('mcpImportConfigDescription')}</p>
+      <div className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground/90">
+        {t('mcpImportConfig')}
+        <InfoTip label={t('mcpImportConfigDescription')} />
+      </div>
       <textarea
         className="min-h-96 w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-ring"
         value={configText}

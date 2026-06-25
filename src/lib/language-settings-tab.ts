@@ -2,6 +2,7 @@ import { getAppStorage, SettingsTab } from '@earendil-works/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
 import { applyAppLanguage, getAppLanguage, t, type AppLanguage } from '@/lib/i18n'
 import { showAlert } from '@/components/ui/confirm-dialog'
+import './info-tip'
 
 class LanguageSettingsTab extends SettingsTab {
   private selectedLanguage: AppLanguage = getAppLanguage()
@@ -26,8 +27,10 @@ class LanguageSettingsTab extends SettingsTab {
     return html`
       <div class="flex flex-col gap-6">
         <div>
-          <h3 class="mb-2 text-sm font-semibold text-foreground">${t('language')}</h3>
-          <p class="text-sm text-muted-foreground">${t('languageDescription')}</p>
+          <h3 class="mb-2 inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            ${t('language')}
+            <quickforge-info-tip .label=${t('languageDescription')}></quickforge-info-tip>
+          </h3>
         </div>
 
         <label class="grid max-w-sm gap-1.5 text-sm">

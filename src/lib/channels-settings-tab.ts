@@ -2,6 +2,7 @@ import { SettingsTab } from '@earendil-works/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
 import { t } from '@/lib/i18n'
 import { showConfirm } from '@/components/ui/confirm-dialog'
+import './info-tip'
 
 const ACTION_HEADER = { 'x-quickforge-action': 'channel-action' }
 
@@ -345,8 +346,10 @@ class ChannelsSettingsTab extends SettingsTab {
     const currentWorkspace = channel.launchWorkspace
     return html`
       <div class="mt-4 rounded-lg border border-border bg-muted/10 p-3">
-        <label class="text-sm font-medium text-foreground" for=${`channel-workspace-${channel.id}`}>${t('channelWorkspace')}</label>
-        <p class="mt-1 text-sm text-muted-foreground">${t('channelWorkspaceDescription')}</p>
+        <label class="inline-flex items-center gap-1.5 text-sm font-medium text-foreground" for=${`channel-workspace-${channel.id}`}>
+          ${t('channelWorkspace')}
+          <quickforge-info-tip .label=${t('channelWorkspaceDescription')}></quickforge-info-tip>
+        </label>
         <select
           id=${`channel-workspace-${channel.id}`}
           class="mt-3 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground disabled:opacity-60"
@@ -388,8 +391,10 @@ class ChannelsSettingsTab extends SettingsTab {
     if (!channel.qrCodeText && !channel.qrCodeUrl && channel.status !== 'waiting_scan') return null
     return html`
       <div class="mt-4 rounded-lg border border-border bg-muted/10 p-3">
-        <div class="text-sm font-medium text-foreground">${t('channelQrTitle')}</div>
-        <p class="mt-1 text-sm text-muted-foreground">${t('channelQrDescription')}</p>
+        <div class="inline-flex items-center gap-1.5 text-sm font-medium text-foreground">
+          ${t('channelQrTitle')}
+          <quickforge-info-tip .label=${t('channelQrDescription')}></quickforge-info-tip>
+        </div>
         ${channel.qrCodeText
           ? html`<pre class="mt-3 max-h-96 overflow-auto whitespace-pre font-mono text-[10px] leading-none text-foreground">${channel.qrCodeText}</pre>`
           : null}
@@ -467,8 +472,10 @@ class ChannelsSettingsTab extends SettingsTab {
     return html`
       <div class="flex flex-col gap-6">
         <div>
-          <h3 class="mb-2 text-sm font-semibold text-foreground">${t('channels')}</h3>
-          <p class="text-sm text-muted-foreground">${t('channelsDescription')}</p>
+          <h3 class="mb-2 inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            ${t('channels')}
+            <quickforge-info-tip .label=${t('channelsDescription')}></quickforge-info-tip>
+          </h3>
         </div>
 
         <section class="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-200">

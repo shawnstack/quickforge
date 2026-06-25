@@ -4,6 +4,7 @@ import type { Api, Model } from '@earendil-works/pi-ai'
 import { Bot, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
+import { InfoTip } from '@/components/ui/info-tip'
 import { showConfirm } from '@/components/ui/confirm-dialog'
 import { defaultThinkingLevelForModel, getConfiguredModels, initializePiStorage, loadDefaultOptions, loadInitialConfiguredModel } from '@/lib/pi-chat'
 
@@ -20,6 +21,9 @@ type AgentProfile = {
   maxToolCalls?: number
   enabledAsSubagent: boolean
   builtin?: boolean
+  readonly?: boolean
+  source?: string
+  relativePath?: string
   updatedAt?: string
 }
 
@@ -261,7 +265,7 @@ export function AgentProfilesPage() {
   }
 
   async function deleteAgent(agent: AgentProfile) {
-    if (agent.builtin) return
+    if (agent.builtin || agent.readonly) return
     const confirmed = await showConfirm({
       description: t('confirmDeleteAgent'),
       confirmLabel: t('confirmDelete'),
@@ -287,8 +291,10 @@ export function AgentProfilesPage() {
               <Bot className="size-5" />
             </div>
             <div>
-              <h1 className="text-lg font-semibold text-foreground">{t('agentsTab')}</h1>
-              <p className="text-sm text-muted-foreground">{t('agentsDescription')}</p>
+              <h1 className="inline-flex items-center gap-1.5 text-lg font-semibold text-foreground">
+                {t('agentsTab')}
+                <InfoTip label={t('agentsDescription')} />
+              </h1>
             </div>
           </div>
           <Button onClick={openCreateAgentDialog}>{t('createAgent')}</Button>
@@ -310,11 +316,12 @@ export function AgentProfilesPage() {
                       {agent.enabledAsSubagent ? <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-700">{t('enabledAsSubagent')}</span> : null}
                     </div>
                     <p className="mt-1 font-mono text-xs text-muted-foreground">{agent.name}</p>
+                    {agent.source && !agent.builtin ? <p className="mt-1 text-xs text-muted-foreground">{agent.source}{agent.relativePath ? ` · ${agent.relativePath}` : ''}</p> : null}
                     <p className="mt-2 text-sm text-muted-foreground">{agent.description || t('noDescription')}</p>
                   </div>
                   <div className="flex shrink-0 gap-1">
-                    <Button variant="outline" size="sm" disabled={agent.builtin} onClick={() => openEditAgentDialog(agent)}>{t('editTask')}</Button>
-                    <Button variant="destructive" size="sm" disabled={agent.builtin} onClick={() => void deleteAgent(agent)}>{t('delete')}</Button>
+                    <Button variant="outline" size="sm" disabled={agent.builtin || agent.readonly} onClick={() => openEditAgentDialog(agent)}>{t('editTask')}</Button>
+                    <Button variant="destructive" size="sm" disabled={agent.builtin || agent.readonly} onClick={() => void deleteAgent(agent)}>{t('delete')}</Button>
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-1">
@@ -337,24 +344,25 @@ export function AgentProfilesPage() {
           <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
             <div className="shrink-0 border-b border-border px-5 py-4">
               <h2 className="text-base font-semibold text-foreground">{editingAgent ? t('editAgent') : t('createAgent')}</h2>
-              {editingAgent?.builtin ? <p className="mt-1 text-sm text-muted-foreground">{t('builtinAgentReadonly')}</p> : null}
+              {editingAgent?.readonly ? <p className="mt-1 text-sm text-muted-foreground">{t('builtinAgentReadonly')}</p> : null}
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               <div className="space-y-4">
                 <div className="rounded-2xl border border-border bg-muted/20 p-3">
                   <div className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
-                    <Sparkles className="size-4 text-primary" />{t('aiFillAgent')}
+                    <Sparkles className="size-4 text-primary" />
+                    {t('aiFillAgent')}
+                    <InfoTip label={t('aiFillAgentDescription')} />
                   </div>
-                  <p className="mb-2 text-xs text-muted-foreground">{t('aiFillAgentDescription')}</p>
                   <textarea
                     className="min-h-20 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/65 focus:border-ring disabled:opacity-60"
                     value={aiFillInstruction}
-                    disabled={Boolean(editingAgent?.builtin) || aiFillLoading}
+                    disabled={Boolean(editingAgent?.readonly) || aiFillLoading}
                     onChange={(event) => setAiFillInstruction(event.target.value)}
                     placeholder={t('aiFillAgentPlaceholder')}
                   />
                   <div className="mt-2 flex justify-end">
-                    <Button variant="outline" size="sm" onClick={() => void handleAiFillAgent()} disabled={Boolean(editingAgent?.builtin) || aiFillLoading || !aiFillInstruction.trim()}>
+                    <Button variant="outline" size="sm" onClick={() => void handleAiFillAgent()} disabled={Boolean(editingAgent?.readonly) || aiFillLoading || !aiFillInstruction.trim()}>
                       <Sparkles className="mr-1 size-3.5" />{aiFillLoading ? t('aiFillAgentLoading') : t('aiFillAgent')}
                     </Button>
                   </div>
@@ -363,27 +371,27 @@ export function AgentProfilesPage() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="block text-sm font-medium text-foreground">
                     {t('agentName')}
-                    <input className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.name} disabled={Boolean(editingAgent?.builtin)} onChange={(event) => updateAgentForm('name', event.target.value)} placeholder="reviewer" />
+                    <input className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.name} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('name', event.target.value)} placeholder="reviewer" />
                   </label>
                   <label className="block text-sm font-medium text-foreground">
                     {t('agentLabel')}
-                    <input className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.label} disabled={Boolean(editingAgent?.builtin)} onChange={(event) => updateAgentForm('label', event.target.value)} placeholder={t('agentLabelPlaceholder')} />
+                    <input className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.label} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('label', event.target.value)} placeholder={t('agentLabelPlaceholder')} />
                   </label>
                 </div>
                 <label className="block text-sm font-medium text-foreground">
                   {t('agentDescription')}
-                  <input className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.description} disabled={Boolean(editingAgent?.builtin)} onChange={(event) => updateAgentForm('description', event.target.value)} />
+                  <input className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.description} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('description', event.target.value)} />
                 </label>
                 <label className="block text-sm font-medium text-foreground">
                   {t('agentSystemPrompt')}
-                  <textarea className="mt-1 min-h-36 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.systemPrompt} disabled={Boolean(editingAgent?.builtin)} onChange={(event) => updateAgentForm('systemPrompt', event.target.value)} />
+                  <textarea className="mt-1 min-h-36 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.systemPrompt} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('systemPrompt', event.target.value)} />
                 </label>
                 <div>
                   <div className="mb-2 text-sm font-medium text-foreground">{t('allowedTools')}</div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {availableTools.map((tool) => (
                       <label key={tool.name} className="flex items-start gap-2 rounded-xl border border-border bg-muted/20 p-3 text-sm disabled:opacity-60">
-                        <input type="checkbox" className="mt-1" disabled={Boolean(editingAgent?.builtin)} checked={agentForm.allowedTools.includes(tool.name)} onChange={() => toggleAgentTool(tool.name)} />
+                        <input type="checkbox" className="mt-1" disabled={Boolean(editingAgent?.readonly)} checked={agentForm.allowedTools.includes(tool.name)} onChange={() => toggleAgentTool(tool.name)} />
                         <span>
                           <span className="font-medium text-foreground">{tool.label}</span>
                           <span className="ml-2 font-mono text-xs text-muted-foreground">{tool.name}</span>
@@ -397,15 +405,15 @@ export function AgentProfilesPage() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="block text-sm font-medium text-foreground">
                     {t('maxRuntimeMs')}
-                    <input type="number" className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.maxRuntimeMs} disabled={Boolean(editingAgent?.builtin)} onChange={(event) => updateAgentForm('maxRuntimeMs', event.target.value)} />
+                    <input type="number" className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.maxRuntimeMs} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('maxRuntimeMs', event.target.value)} />
                   </label>
                   <label className="block text-sm font-medium text-foreground">
                     {t('maxToolCalls')}
-                    <input type="number" className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.maxToolCalls} disabled={Boolean(editingAgent?.builtin)} onChange={(event) => updateAgentForm('maxToolCalls', event.target.value)} />
+                    <input type="number" className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.maxToolCalls} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('maxToolCalls', event.target.value)} />
                   </label>
                 </div>
                 <label className="flex items-center gap-2 text-sm text-foreground">
-                  <input type="checkbox" checked={agentForm.enabledAsSubagent} disabled={Boolean(editingAgent?.builtin)} onChange={(event) => updateAgentForm('enabledAsSubagent', event.target.checked)} />
+                  <input type="checkbox" checked={agentForm.enabledAsSubagent} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('enabledAsSubagent', event.target.checked)} />
                   {t('enabledAsSubagent')}
                 </label>
                 {error ? <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
@@ -414,7 +422,7 @@ export function AgentProfilesPage() {
             <div className="shrink-0 border-t border-border px-5 py-4">
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={closeAgentDialog} disabled={agentLoading || aiFillLoading}>{t('cancel')}</Button>
-                <Button onClick={handleSaveAgent} disabled={agentLoading || aiFillLoading || Boolean(editingAgent?.builtin) || !agentFormIsValid(agentForm)}>{t('save')}</Button>
+                <Button onClick={handleSaveAgent} disabled={agentLoading || aiFillLoading || Boolean(editingAgent?.readonly) || !agentFormIsValid(agentForm)}>{t('save')}</Button>
               </div>
             </div>
           </div>

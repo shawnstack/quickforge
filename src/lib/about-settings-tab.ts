@@ -2,6 +2,7 @@ import { SettingsTab } from '@earendil-works/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
 import { t } from '@/lib/i18n'
 import { showConfirm } from '@/components/ui/confirm-dialog'
+import './info-tip'
 
 type AboutInfo = {
   name: string
@@ -180,8 +181,10 @@ class AboutSettingsTab extends SettingsTab {
     return html`
       <div class="flex flex-col gap-6">
         <div>
-          <h3 class="mb-2 text-sm font-semibold text-foreground">${t('aboutQuickForge')}</h3>
-          <p class="text-sm text-muted-foreground">${t('aboutQuickForgeDescription')}</p>
+          <h3 class="mb-2 inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            ${t('aboutQuickForge')}
+            <quickforge-info-tip .label=${t('aboutQuickForgeDescription')}></quickforge-info-tip>
+          </h3>
         </div>
 
         <section class="rounded-lg border border-border p-4">
@@ -190,8 +193,10 @@ class AboutSettingsTab extends SettingsTab {
         </section>
 
         <section class="rounded-lg border border-border p-4">
-          <h4 class="text-sm font-semibold text-foreground">${t('checkUpdate')}</h4>
-          <p class="mt-1 text-sm text-muted-foreground">${t('checkUpdateDescription')}</p>
+          <h4 class="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            ${t('checkUpdate')}
+            <quickforge-info-tip .label=${t('checkUpdateDescription')}></quickforge-info-tip>
+          </h4>
           ${this.updateStatus()}
 
           <div class="mt-4 flex flex-wrap gap-2">

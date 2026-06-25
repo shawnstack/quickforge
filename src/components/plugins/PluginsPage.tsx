@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Loader2, Puzzle, RefreshCw, Shield, Wrench } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { InfoTip } from '@/components/ui/info-tip'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { loadPlugins, reloadPlugins, setPluginEnabled, type PluginsResponse, type QuickForgePlugin, type PluginToolSummary } from './plugin-api'
@@ -127,8 +128,10 @@ export function PluginsPage({ onChanged }: PluginsPageProps) {
               <Puzzle className="size-5" />
             </div>
             <div>
-              <h1 className="text-lg font-semibold text-foreground">{t('plugins')}</h1>
-              <p className="text-sm text-muted-foreground">{t('pluginsDescription')}</p>
+              <h1 className="inline-flex items-center gap-1.5 text-lg font-semibold text-foreground">
+                {t('plugins')}
+                <InfoTip label={t('pluginsDescription')} />
+              </h1>
             </div>
           </div>
           <Button variant="outline" size="sm" onClick={() => void refresh('reload')} disabled={loading}>

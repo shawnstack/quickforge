@@ -2,6 +2,7 @@ import { SettingsTab } from '@earendil-works/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
 import { getDateLocale, t } from '@/lib/i18n'
 import { showConfirm } from '@/components/ui/confirm-dialog'
+import './info-tip'
 
 type ServiceStatus = {
   ok: boolean
@@ -312,8 +313,10 @@ class ServiceSettingsTab extends SettingsTab {
     return html`
       <section class="rounded-lg border border-border p-4">
         <div>
-          <h4 class="text-sm font-semibold text-foreground">${t('terminalShell')}</h4>
-          <p class="mt-1 max-w-2xl text-sm text-muted-foreground">${t('terminalShellDescription')}</p>
+          <h4 class="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            ${t('terminalShell')}
+            <quickforge-info-tip .label=${t('terminalShellDescription')}></quickforge-info-tip>
+          </h4>
           <p class="mt-1 text-xs text-muted-foreground/60">${t('terminalShellAutoDetectedHint')}</p>
         </div>
 
@@ -361,8 +364,10 @@ class ServiceSettingsTab extends SettingsTab {
     return html`
       <div class="flex flex-col gap-6">
         <div>
-          <h3 class="mb-2 text-sm font-semibold text-foreground">${t('backendService')}</h3>
-          <p class="text-sm text-muted-foreground">${t('backendServiceDescription')}</p>
+          <h3 class="mb-2 inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            ${t('backendService')}
+            <quickforge-info-tip .label=${t('backendServiceDescription')}></quickforge-info-tip>
+          </h3>
         </div>
 
         <section class="rounded-lg border border-border p-4">
@@ -373,8 +378,10 @@ class ServiceSettingsTab extends SettingsTab {
         ${this.terminalShellSettings()}
 
         <section class="rounded-lg border border-border p-4">
-          <h4 class="text-sm font-semibold text-foreground">${t('restartBackendService')}</h4>
-          <p class="mt-1 text-sm text-muted-foreground">${t('restartBackendServiceDescription')}</p>
+          <h4 class="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            ${t('restartBackendService')}
+            <quickforge-info-tip .label=${t('restartBackendServiceDescription')}></quickforge-info-tip>
+          </h4>
 
           ${!this.status?.restartSupported
             ? html`<div class="mt-4 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">${unsupportedReason}</div>`

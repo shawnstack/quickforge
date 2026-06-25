@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { BookOpen, Check, ChevronLeft, Loader2, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { InfoTip } from '@/components/ui/info-tip'
 import { t } from '@/lib/i18n'
 import type { ProjectInfo, SkillSummary, SkillsScope } from '@/lib/types'
 
@@ -232,10 +233,10 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
             </button>
           ) : (
             <>
-              <h2 className="text-base font-semibold text-foreground">{title}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {description}
-              </p>
+              <h2 className="inline-flex items-center gap-1.5 text-base font-semibold text-foreground">
+                {title}
+                <InfoTip label={description} />
+              </h2>
               {searchPaths.length ? (
                 <p className="mt-2 break-all text-xs text-muted-foreground/65">
                   {t('skillSearchPaths')}: {searchPaths.join(' · ')}

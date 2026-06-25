@@ -214,14 +214,16 @@ class ProjectCommandsSettingsTab extends SettingsTab {
         </div>
 
         <label class="grid max-w-xl gap-1.5 text-sm">
-          <span class="text-foreground">${t('commandDirectories')}</span>
+          <span class="inline-flex items-center gap-1.5 text-foreground">
+            ${t('commandDirectories')}
+            <quickforge-info-tip .label=${t('commandDirectoryHelp')}></quickforge-info-tip>
+          </span>
           <textarea
             class="min-h-28 rounded-md border border-input bg-background px-3 py-2 text-sm"
             .value=${this.commandDir}
             placeholder=${t('commandDirectoryPlaceholder')}
             @input=${(event: Event) => this.updateCommandDir((event.target as HTMLTextAreaElement).value)}
           ></textarea>
-          <span class="text-xs leading-5 text-muted-foreground">${t('commandDirectoryHelp')}</span>
         </label>
 
         <div class="rounded-lg border border-border p-4 text-xs leading-5 text-muted-foreground">

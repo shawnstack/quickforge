@@ -9,6 +9,7 @@ import { McpServerCard } from '@/components/mcp/mcp-server-card'
 import {
   McpServerForm,
 } from '@/components/mcp/mcp-server-form'
+import { InfoTip } from '@/components/ui/info-tip'
 import { McpImportPanel } from '@/components/mcp/mcp-import-panel'
 import {
   emptyMcpDraft,
@@ -427,7 +428,10 @@ export function McpServersDialog({ open, onOpenChange }: McpServersDialogProps) 
                         {jsonError ? (
                           <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">{jsonError}</div>
                         ) : null}
-                        <p className="text-[11px] text-muted-foreground/55">{t('mcpImportConfigDescription')}</p>
+                        <div className="inline-flex items-center gap-1.5 text-[11px] font-medium text-foreground/90">
+                          {t('mcpTabJson')}
+                          <InfoTip label={t('mcpImportConfigDescription')} />
+                        </div>
                       </div>
                     )}
                   </div>

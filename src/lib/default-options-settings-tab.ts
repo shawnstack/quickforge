@@ -21,6 +21,7 @@ import {
   saveFontSizeSettings,
 } from '@/lib/font-size-settings'
 import { t } from '@/lib/i18n'
+import './info-tip'
 
 type AnyModel = Model<Api>
 
@@ -241,8 +242,10 @@ class DefaultOptionsSettingsTab extends SettingsTab {
     return html`
       <div class="flex flex-col gap-6">
         <div>
-          <h3 class="mb-2 text-sm font-semibold text-foreground">${t('defaultOptions')}</h3>
-          <p class="text-sm text-muted-foreground">${t('defaultOptionsDescription')}</p>
+          <h3 class="mb-2 inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            ${t('defaultOptions')}
+            <quickforge-info-tip .label=${t('defaultOptionsDescription')}></quickforge-info-tip>
+          </h3>
         </div>
 
         <label class="grid max-w-md gap-1.5 text-sm">
@@ -281,8 +284,10 @@ class DefaultOptionsSettingsTab extends SettingsTab {
 
         <div class="grid max-w-xl gap-3 rounded-lg border border-border p-4">
           <div>
-            <h4 class="text-sm font-medium text-foreground">${t('toolDisplay')}</h4>
-            <p class="mt-1 text-xs text-muted-foreground">${t('showToolDetailsDescription')}</p>
+            <h4 class="inline-flex items-center gap-1.5 text-sm font-medium text-foreground">
+              ${t('toolDisplay')}
+              <quickforge-info-tip .label=${t('showToolDetailsDescription')}></quickforge-info-tip>
+            </h4>
           </div>
           <label class="flex items-center gap-2 text-sm text-foreground">
             <input
@@ -306,8 +311,10 @@ class DefaultOptionsSettingsTab extends SettingsTab {
 
         <div class="grid max-w-xl gap-3 rounded-lg border border-border p-4">
           <div>
-            <h4 class="text-sm font-medium text-foreground">${t('fontSize')}</h4>
-            <p class="mt-1 text-xs text-muted-foreground">${t('fontSizeDescription')}</p>
+            <h4 class="inline-flex items-center gap-1.5 text-sm font-medium text-foreground">
+              ${t('fontSize')}
+              <quickforge-info-tip .label=${t('fontSizeDescription')}></quickforge-info-tip>
+            </h4>
           </div>
           <label class="grid max-w-xs gap-1.5 text-sm">
             <span class="text-foreground">${t('baseFontSize')}</span>
@@ -322,7 +329,10 @@ class DefaultOptionsSettingsTab extends SettingsTab {
             />
           </label>
           <label class="grid max-w-xs gap-1.5 text-sm">
-            <span class="text-foreground">${t('bodyFontSize')}</span>
+            <span class="inline-flex items-center gap-1.5 text-foreground">
+              ${t('bodyFontSize')}
+              <quickforge-info-tip .label=${t('bodyFontSizeNote')}></quickforge-info-tip>
+            </span>
             <input
               class="rounded-md border border-input bg-background px-3 py-2 text-sm"
               type="number"
@@ -332,14 +342,15 @@ class DefaultOptionsSettingsTab extends SettingsTab {
               .value=${String(this.bodyFontSizePx)}
               @input=${(event: Event) => this.updateBodyFontSize((event.target as HTMLInputElement).value)}
             />
-            <span class="text-xs text-muted-foreground">${t('bodyFontSizeNote')}</span>
           </label>
         </div>
 
         <div class="grid max-w-xl gap-3 rounded-lg border border-border p-4">
           <div>
-            <h4 class="text-sm font-medium text-foreground">${t('contextManagement')}</h4>
-            <p class="mt-1 text-xs text-muted-foreground">${t('autoCompactDescription')}</p>
+            <h4 class="inline-flex items-center gap-1.5 text-sm font-medium text-foreground">
+              ${t('contextManagement')}
+              <quickforge-info-tip .label=${t('autoCompactDescription')}></quickforge-info-tip>
+            </h4>
           </div>
           <label class="flex items-center gap-2 text-sm text-foreground">
             <input
@@ -348,9 +359,11 @@ class DefaultOptionsSettingsTab extends SettingsTab {
               .checked=${this.autoCompactEnabled}
               @change=${(event: Event) => this.updateAutoCompactEnabled((event.target as HTMLInputElement).checked)}
             />
-            <span>${t('autoCompactEnabled')}</span>
+            <span class="inline-flex items-center gap-1.5">
+              ${t('autoCompactEnabled')}
+              <quickforge-info-tip .label=${t('autoCompactTriggerNote')}></quickforge-info-tip>
+            </span>
           </label>
-          <p class="text-xs text-muted-foreground">${t('autoCompactTriggerNote')}</p>
           <label class="flex items-center gap-2 text-sm text-foreground">
             <input
               type="checkbox"
@@ -375,7 +388,10 @@ class DefaultOptionsSettingsTab extends SettingsTab {
             />
           </label>
           <label class="grid max-w-xs gap-1.5 text-sm">
-            <span class="text-foreground">${t('autoCompactKeepRecentTurns')}</span>
+            <span class="inline-flex items-center gap-1.5 text-foreground">
+              ${t('autoCompactKeepRecentTurns')}
+              <quickforge-info-tip .label=${t('autoCompactHistoryPreserved')}></quickforge-info-tip>
+            </span>
             <input
               class="rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-60"
               type="number"
@@ -386,7 +402,6 @@ class DefaultOptionsSettingsTab extends SettingsTab {
               ?disabled=${!this.autoCompactEnabled}
               @input=${(event: Event) => this.updateAutoCompactKeepRecentTurns((event.target as HTMLInputElement).value)}
             />
-            <span class="text-xs text-muted-foreground">${t('autoCompactHistoryPreserved')}</span>
           </label>
         </div>
 

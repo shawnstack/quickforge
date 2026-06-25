@@ -16,9 +16,10 @@ export function MonacoDiffViewer({ path, oldContent, newContent, language, statu
       original={oldContent}
       modified={newContent}
       language={language}
-      theme="vs-dark"
+      theme="vs"
       options={{
         readOnly: true,
+        contextmenu: false,
         automaticLayout: true,
         renderSideBySide: true,
         minimap: { enabled: false },
@@ -26,6 +27,12 @@ export function MonacoDiffViewer({ path, oldContent, newContent, language, statu
         lineHeight: 20,
         scrollBeyondLastLine: false,
         ignoreTrimWhitespace: false,
+        folding: false,
+        glyphMargin: false,
+        scrollbar: {
+          verticalScrollbarSize: 8,
+          horizontalScrollbarSize: 8,
+        },
       }}
     />
   )

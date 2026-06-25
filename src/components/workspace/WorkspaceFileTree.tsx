@@ -1,6 +1,7 @@
-import { ChevronRight, File, Folder } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { useState } from 'react'
 import { t } from '@/lib/i18n'
+import { DirectoryIcon, FileIcon } from './file-icon'
 import type { GitChangedFile, WorkspaceTreeNode } from './workspace-types'
 
 type WorkspaceFileTreeProps = {
@@ -59,7 +60,11 @@ function WorkspaceTreeRow({
         ) : (
           <span className="w-3 shrink-0" />
         )}
-        {isDirectory ? <Folder className="size-3.5 shrink-0" /> : <File className="size-3.5 shrink-0" />}
+        {isDirectory ? (
+          <DirectoryIcon name={node.name} open={expanded} className="size-3.5 shrink-0" />
+        ) : (
+          <FileIcon path={node.path} className="size-3.5 shrink-0" />
+        )}
         <span className="min-w-0 flex-1 truncate">{node.name}</span>
         {status ? <span className="shrink-0 font-mono text-[0.68rem] text-emerald-600 dark:text-emerald-500">{status}</span> : null}
       </button>

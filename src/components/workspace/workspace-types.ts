@@ -23,6 +23,8 @@ export type GitChangedFile = {
   conflict?: boolean
   x?: string
   y?: string
+  additions?: number
+  deletions?: number
 }
 
 export type WorkspaceTreeResponse = {

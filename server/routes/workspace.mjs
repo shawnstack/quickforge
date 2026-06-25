@@ -168,10 +168,71 @@ function countGitStatus(files) {
   }, { staged: 0, unstaged: 0, untracked: 0, conflicts: 0, total: 0 })
 }
 
+function countTextLines(text) {
+  if (text.length === 0) return 0
+  return text.split('\n').length - (text.endsWith('\n') ? 1 : 0)
+}
+
+// numstat 的路径列对 rename 用 "prefix/{old => new}" 或 "old => new" 形式，取新路径
+function numstatNewPath(rawPath) {
+  const arrow = rawPath.indexOf(' => ')
+  if (arrow < 0) return rawPath
+  const head = rawPath.slice(0, arrow)
+  const tail = rawPath.slice(arrow + 4)
+  const brace = head.lastIndexOf('{')
+  if (brace < 0) return tail
+  return `${head.slice(0, brace)}${tail.replace(/\}$/, '')}`
+}
+
+// 工作区 vs HEAD 的每个文件增删行数（口径与 git diff --numstat 一致）
+async function collectNumstat(context) {
+  const map = new Map()
+  const result = await git(['diff', 'HEAD', '--numstat', '-z'], context.workspaceRoot, { allowFailure: true })
+  if (result.code !== 0) return map
+  const records = result.stdout.toString('utf8').split('\0').filter(Boolean)
+  for (const record of records) {
+    const fields = record.split('\t')
+    if (fields.length < 3) continue
+    const added = fields[0]
+    const removed = fields[1]
+    const rawPath = fields.slice(2).join('\t')
+    if (added === '-' || removed === '-') continue // 二进制文件
+    const additions = Number(added)
+    const deletions = Number(removed)
+    if (!Number.isFinite(additions) || !Number.isFinite(deletions)) continue
+    map.set(numstatNewPath(rawPath), { additions, deletions })
+  }
+  return map
+}
+
+// 未跟踪文件不在 numstat 中，按工作区文件行数估算新增行
+async function countWorkspaceLines(context, relativePath) {
+  try {
+    const { content } = await readWorkspaceTextFile(context, relativePath)
+    return countTextLines(content)
+  } catch {
+    return undefined
+  }
+}
+
 async function listGitStatus(context) {
   if (!(await isGitRepository(context.workspaceRoot))) return { isGitRepository: false, files: [] }
   const result = await git(['status', '--porcelain=v1', '-z'], context.workspaceRoot)
   const files = parseGitStatus(result.stdout)
+  const numstat = await collectNumstat(context)
+  for (const file of files) {
+    const entry = numstat.get(file.path)
+    if (entry) {
+      file.additions = entry.additions
+      file.deletions = entry.deletions
+    } else if (file.status === 'untracked' || file.status === 'added') {
+      const count = await countWorkspaceLines(context, file.path)
+      if (typeof count === 'number') {
+        file.additions = count
+        file.deletions = 0
+      }
+    }
+  }
   return {
     isGitRepository: true,
     branch: await currentGitBranch(context.workspaceRoot),

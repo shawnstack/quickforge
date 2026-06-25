@@ -12,9 +12,10 @@ export function MonacoCodeViewer({ path, content, language }: MonacoCodeViewerPr
       key={path}
       value={content}
       language={language}
-      theme="vs-dark"
+      theme="vs"
       options={{
         readOnly: true,
+        contextmenu: false,
         automaticLayout: true,
         minimap: { enabled: false },
         fontSize: 13,
@@ -23,8 +24,12 @@ export function MonacoCodeViewer({ path, content, language }: MonacoCodeViewerPr
         scrollBeyondLastLine: false,
         wordWrap: 'off',
         renderLineHighlight: 'line',
-        folding: true,
+        folding: false,
         glyphMargin: false,
+        scrollbar: {
+          verticalScrollbarSize: 8,
+          horizontalScrollbarSize: 8,
+        },
       }}
     />
   )

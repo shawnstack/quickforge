@@ -1,11 +1,13 @@
 import { Check, Copy, MessageSquare, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { MarkdownReader } from './MarkdownReader'
 import { MonacoCodeViewer } from './MonacoCodeViewer'
 import { MonacoDiffViewer } from './MonacoDiffViewer'
+import { countDiffLines } from './diff-line-counts'
 import type { GitFileDiffResponse, WorkspaceFileResponse } from './workspace-types'
+import { t } from '@/lib/i18n'
 
 type WorkspaceReaderDialogProps = {
   open: boolean
@@ -27,11 +29,11 @@ function formatBytes(value: number) {
 
 function statusText(diff?: GitFileDiffResponse) {
   if (!diff) return ''
-  if (diff.status === 'added') return 'Added'
-  if (diff.status === 'deleted') return 'Deleted'
-  if (diff.status === 'renamed') return 'Renamed'
-  if (diff.status === 'untracked') return 'Untracked'
-  return 'Modified'
+  if (diff.status === 'added') return t('workspaceStatusAdded')
+  if (diff.status === 'deleted') return t('workspaceStatusDeleted')
+  if (diff.status === 'renamed') return t('workspaceStatusRenamed')
+  if (diff.status === 'untracked') return t('workspaceStatusUntracked')
+  return t('workspaceStatusModified')
 }
 
 function isMarkdownFile(file?: WorkspaceFileResponse) {
@@ -41,13 +43,13 @@ function isMarkdownFile(file?: WorkspaceFileResponse) {
 
 function filePrompt(path: string, markdown = false) {
   if (markdown) {
-    return `Please read the Markdown document \`${path}\` in the current workspace. Summarize its purpose, key sections, important instructions, outdated or risky parts, and suggest concise improvements.`
+    return t('readerFileMarkdownPrompt', { path })
   }
-  return `Please inspect \`${path}\` in the current workspace and explain its role, important implementation details, and any risks or improvement opportunities.`
+  return t('readerFilePrompt', { path })
 }
 
 function diffPrompt(path: string) {
-  return `Please review the working-tree changes in \`${path}\`. Summarize what changed, point out possible bugs or regressions, and suggest focused verification steps.`
+  return t('readerDiffPrompt', { path })
 }
 
 function diffText(diff: GitFileDiffResponse) {
@@ -57,6 +59,7 @@ function diffText(diff: GitFileDiffResponse) {
 
 export function WorkspaceReaderDialog({ open, mode, file, diff, loading, error, onOpenChange, onDraftRequest }: WorkspaceReaderDialogProps) {
   const [copied, setCopied] = useState<'path' | 'content'>()
+  const [markdownMode, setMarkdownMode] = useState<'preview' | 'source'>('preview')
 
   async function copyToClipboard(kind: 'path' | 'content', value?: string) {
     if (!value) return
@@ -73,6 +76,11 @@ export function WorkspaceReaderDialog({ open, mode, file, diff, loading, error, 
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
   }, [onOpenChange, open])
+
+  const diffStats = useMemo(
+    () => (mode === 'diff' && diff ? countDiffLines(diff.oldContent, diff.newContent) : undefined),
+    [mode, diff],
+  )
 
   if (!open) return null
 
@@ -91,7 +99,7 @@ export function WorkspaceReaderDialog({ open, mode, file, diff, loading, error, 
       <button
         type="button"
         className="absolute inset-0 cursor-default"
-        aria-label="Close workspace reader"
+        aria-label={t('close')}
         onClick={() => onOpenChange(false)}
       />
       <div className="relative flex h-[min(88vh,900px)] w-[min(92vw,1280px)] min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-quickforge">
@@ -100,25 +108,47 @@ export function WorkspaceReaderDialog({ open, mode, file, diff, loading, error, 
             <div className="truncate text-sm font-semibold text-foreground/90">{title ?? (mode === 'file' ? 'Code reader' : 'Diff reader')}</div>
             {subtitle ? <div className="truncate text-xs text-muted-foreground/65">{subtitle}</div> : null}
           </div>
-          <Button variant="ghost" size="icon" onClick={() => void copyToClipboard('path', title)} disabled={!title} aria-label="Copy path" title="Copy path">
+          {isMarkdown ? (
+            <div className="inline-flex shrink-0 rounded-full bg-muted/25 p-1 text-xs">
+              {(['preview', 'source'] as const).map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  className={item === markdownMode
+                    ? 'rounded-full bg-background px-3 py-1 font-medium text-foreground/90 shadow-[0_8px_20px_-16px_rgb(15_23_42_/_0.42)]'
+                    : 'rounded-full px-3 py-1 text-muted-foreground/70 hover:text-foreground/85'}
+                  onClick={() => setMarkdownMode(item)}
+                >
+                  {item === 'preview' ? t('markdownPreview') : t('markdownSource')}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {diffStats ? (
+            <span className="shrink-0 font-mono text-xs font-medium">
+              <span className="text-emerald-600 dark:text-emerald-400">+{diffStats.added}</span>
+              <span className="ml-1.5 text-red-600 dark:text-red-400">-{diffStats.removed}</span>
+            </span>
+          ) : null}
+          <Button variant="ghost" size="icon" onClick={() => void copyToClipboard('path', title)} disabled={!title} aria-label={t('copyPath')} title={t('copyPath')}>
             {copied === 'path' ? <Check className="size-4" /> : <Copy className="size-4" />}
           </Button>
-          <Button variant="ghost" size="icon" onClick={() => void copyToClipboard('content', copyableContent)} disabled={!copyableContent} aria-label="Copy content" title={mode === 'file' ? 'Copy content' : 'Copy diff content'}>
+          <Button variant="ghost" size="icon" onClick={() => void copyToClipboard('content', copyableContent)} disabled={!copyableContent} aria-label={t('copyContent')} title={mode === 'file' ? t('copyContent') : t('copyDiffContent')}>
             {copied === 'content' ? <Check className="size-4" /> : <Copy className="size-4" />}
           </Button>
-          <Button variant="ghost" size="icon" onClick={() => aiPrompt && onDraftRequest?.(aiPrompt)} disabled={!aiPrompt || !onDraftRequest} aria-label="Ask AI" title="Ask AI about this">
+          <Button variant="ghost" size="icon" onClick={() => aiPrompt && onDraftRequest?.(aiPrompt)} disabled={!aiPrompt || !onDraftRequest} aria-label={t('askAiAboutThis')} title={t('askAiAboutThis')}>
             <MessageSquare className="size-4" />
           </Button>
-          <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)} aria-label="Close workspace reader" title="Close">
+          <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)} aria-label={t('close')} title={t('close')}>
             <X className="size-4" />
           </Button>
         </header>
         <div className="min-h-0 flex-1 bg-background">
-          {loading ? <div className="p-4 text-sm text-muted-foreground/70">Opening...</div> : null}
+          {loading ? <div className="p-4 text-sm text-muted-foreground/70">{t('openingReader')}</div> : null}
           {!loading && error ? <div className="p-4 text-sm text-destructive">{error}</div> : null}
           {!loading && !error && mode === 'file' && file ? (
             isMarkdown ? (
-              <MarkdownReader key={file.path} path={file.path} content={file.content} language={file.language} />
+              <MarkdownReader key={file.path} path={file.path} content={file.content} language={file.language} mode={markdownMode} />
             ) : (
               <MonacoCodeViewer path={file.path} content={file.content} language={file.language} />
             )

@@ -1,10 +1,11 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import { MonacoCodeViewer } from './MonacoCodeViewer'
 
 type MarkdownReaderProps = {
   path: string
   content: string
   language: string
+  mode: MarkdownMode
 }
 
 type MarkdownMode = 'preview' | 'source'
@@ -219,29 +220,11 @@ function renderMarkdown(content: string) {
   return blocks
 }
 
-export function MarkdownReader({ path, content, language }: MarkdownReaderProps) {
-  const [mode, setMode] = useState<MarkdownMode>('preview')
+export function MarkdownReader({ path, content, language, mode }: MarkdownReaderProps) {
   const renderedContent = useMemo(() => renderMarkdown(content), [content])
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-4">
-        <div className="text-xs text-muted-foreground/65">Markdown reader</div>
-        <div className="inline-flex rounded-full bg-muted/25 p-1 text-xs">
-          {(['preview', 'source'] as const).map((item) => (
-            <button
-              key={item}
-              type="button"
-              className={item === mode
-                ? 'rounded-full bg-background px-3 py-1 font-medium text-foreground/90 shadow-[0_8px_20px_-16px_rgb(15_23_42_/_0.42)]'
-                : 'rounded-full px-3 py-1 text-muted-foreground/70 hover:text-foreground/85'}
-              onClick={() => setMode(item)}
-            >
-              {item === 'preview' ? 'Preview' : 'Source'}
-            </button>
-          ))}
-        </div>
-      </div>
       <div className="min-h-0 flex-1">
         {mode === 'source' ? (
           <MonacoCodeViewer path={path} content={content} language={language} />

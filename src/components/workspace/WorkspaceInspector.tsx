@@ -9,6 +9,7 @@ import { WebPreviewContent } from '@/components/preview/WebPreviewContent'
 import { MarkdownReader } from './MarkdownReader'
 import { MonacoCodeViewer } from './MonacoCodeViewer'
 import { MonacoDiffViewer } from './MonacoDiffViewer'
+import { countDiffLines } from './diff-line-counts'
 import { getGitFileDiff, getGitStatus, getWorkspaceFile, getWorkspaceTree } from './workspace-api'
 import { WorkspaceChangesList } from './WorkspaceChangesList'
 import { WorkspaceFileTree } from './WorkspaceFileTree'
@@ -60,9 +61,23 @@ const WORKSPACE_MENU_ITEMS: WorkspaceMenuItem[] = [
 const WORKSPACE_INSPECTOR_MIN_WIDTH = 380
 const WORKSPACE_INSPECTOR_DEFAULT_WIDTH = 480
 const WORKSPACE_INSPECTOR_MAX_WIDTH = 800
+const WORKSPACE_INSPECTOR_WIDTH_STORAGE_KEY = 'quickforge_workspaceInspectorWidth'
 const NAV_PANEL_MIN_WIDTH = 140
 const NAV_PANEL_DEFAULT_WIDTH = 200
 const NAV_PANEL_MAX_WIDTH = 400
+
+function readPersistedInspectorWidth(): number {
+  if (typeof window === 'undefined') return WORKSPACE_INSPECTOR_DEFAULT_WIDTH
+  try {
+    const raw = window.localStorage.getItem(WORKSPACE_INSPECTOR_WIDTH_STORAGE_KEY)
+    if (!raw) return WORKSPACE_INSPECTOR_DEFAULT_WIDTH
+    const value = Number(raw)
+    if (!Number.isFinite(value)) return WORKSPACE_INSPECTOR_DEFAULT_WIDTH
+    return Math.min(WORKSPACE_INSPECTOR_MAX_WIDTH, Math.max(WORKSPACE_INSPECTOR_MIN_WIDTH, value))
+  } catch {
+    return WORKSPACE_INSPECTOR_DEFAULT_WIDTH
+  }
+}
 
 function filterWorkspaceTree(tree: WorkspaceTreeNode[], rawQuery: string): WorkspaceTreeNode[] {
   const query = rawQuery.trim().toLowerCase()
@@ -78,12 +93,12 @@ function filterWorkspaceTree(tree: WorkspaceTreeNode[], rawQuery: string): Works
 
 function allChangesPrompt(files: GitChangedFile[]) {
   const list = files.map((file) => `- ${file.status}: ${file.oldPath ? `${file.oldPath} -> ` : ''}${file.path}`).join('\n')
-  return `Please review the current workspace changes and generate a concise summary, risk assessment, verification plan, and a suggested commit message.\n\nChanged files:\n${list}`
+  return t('workspaceReviewPrompt', { list })
 }
 
 function commitMessagePrompt(files: GitChangedFile[]) {
   const list = files.map((file) => `- ${file.status}: ${file.oldPath ? `${file.oldPath} -> ` : ''}${file.path}`).join('\n')
-  return `Please generate a concise Conventional Commit message for the current Git changes. Include a one-line subject and an optional short body if useful.\n\nChanged files:\n${list}`
+  return t('workspaceCommitMessagePrompt', { list })
 }
 
 function gitSummary(branch?: string, counts?: GitStatusResponse['counts']) {
@@ -160,22 +175,6 @@ function WorkspaceMenu({ view, changesCount, open, onOpenChange, onViewChange }:
   )
 }
 
-function formatBytes(value: number) {
-  if (!Number.isFinite(value)) return ''
-  if (value < 1024) return `${value} B`
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
-  return `${(value / 1024 / 1024).toFixed(1)} MB`
-}
-
-function readerStatusText(diff?: GitFileDiffResponse) {
-  if (!diff) return ''
-  if (diff.status === 'added') return 'Added'
-  if (diff.status === 'deleted') return 'Deleted'
-  if (diff.status === 'renamed') return 'Renamed'
-  if (diff.status === 'untracked') return 'Untracked'
-  return 'Modified'
-}
-
 function isMarkdownFile(file?: WorkspaceFileResponse) {
   if (!file) return false
   return file.language === 'markdown' || /\.(md|markdown)$/i.test(file.path)
@@ -183,13 +182,13 @@ function isMarkdownFile(file?: WorkspaceFileResponse) {
 
 function readerFilePrompt(path: string, markdown = false) {
   if (markdown) {
-    return `Please read the Markdown document \`${path}\` in the current workspace. Summarize its purpose, key sections, important instructions, outdated or risky parts, and suggest concise improvements.`
+    return t('readerFileMarkdownPrompt', { path })
   }
-  return `Please inspect \`${path}\` in the current workspace and explain its role, important implementation details, and any risks or improvement opportunities.`
+  return t('readerFilePrompt', { path })
 }
 
 function readerDiffPrompt(path: string) {
-  return `Please review the working-tree changes in \`${path}\`. Summarize what changed, point out possible bugs or regressions, and suggest focused verification steps.`
+  return t('readerDiffPrompt', { path })
 }
 
 function readerDiffText(diff: GitFileDiffResponse) {
@@ -269,6 +268,7 @@ function InlineReader({ mode, file, diff, loading, error, onClose, onDraftReques
   onDraftRequest?: (text: string) => void
 }) {
   const [copied, setCopied] = useState<'path' | 'content'>()
+  const [markdownMode, setMarkdownMode] = useState<'preview' | 'source'>('preview')
 
   async function copyToClipboard(kind: 'path' | 'content', value?: string) {
     if (!value) return
@@ -281,26 +281,44 @@ function InlineReader({ mode, file, diff, loading, error, onClose, onDraftReques
   const isMarkdown = mode === 'file' && isMarkdownFile(file)
   const copyableContent = mode === 'file' ? file?.content : diff ? readerDiffText(diff) : undefined
   const aiPrompt = mode === 'file' && file ? readerFilePrompt(file.path, isMarkdown) : mode === 'diff' && diff ? readerDiffPrompt(diff.path) : undefined
-  const subtitle = mode === 'file' && file
-    ? `${file.language} · ${formatBytes(file.size)}`
-    : mode === 'diff' && diff
-      ? `${readerStatusText(diff)} · ${diff.language}`
-      : ''
+  const diffStats = useMemo(
+    () => (mode === 'diff' && diff ? countDiffLines(diff.oldContent, diff.newContent) : undefined),
+    [mode, diff],
+  )
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-xs font-medium text-foreground/90">{title ?? (mode === 'file' ? 'Code reader' : 'Diff reader')}</div>
-          {subtitle ? <div className="truncate text-[11px] text-muted-foreground/60">{subtitle}</div> : null}
-        </div>
-        <Button variant="ghost" size="icon" className="size-7" onClick={() => void copyToClipboard('path', title)} disabled={!title} aria-label="Copy path" title="Copy path">
+        {isMarkdown ? (
+          <div className="inline-flex rounded-full bg-muted/25 p-1 text-xs">
+            {(['preview', 'source'] as const).map((item) => (
+              <button
+                key={item}
+                type="button"
+                className={item === markdownMode
+                  ? 'rounded-full bg-background px-3 py-1 font-medium text-foreground/90 shadow-[0_8px_20px_-16px_rgb(15_23_42_/_0.42)]'
+                  : 'rounded-full px-3 py-1 text-muted-foreground/70 hover:text-foreground/85'}
+                onClick={() => setMarkdownMode(item)}
+              >
+                {item === 'preview' ? t('markdownPreview') : t('markdownSource')}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {diffStats ? (
+          <span className="shrink-0 font-mono text-[11px] font-medium">
+            <span className="text-emerald-600 dark:text-emerald-400">+{diffStats.added}</span>
+            <span className="ml-1.5 text-red-600 dark:text-red-400">-{diffStats.removed}</span>
+          </span>
+        ) : null}
+        <div className="flex-1" />
+        <Button variant="ghost" size="icon" className="size-7" onClick={() => void copyToClipboard('path', title)} disabled={!title} aria-label={t('copyPath')} title={t('copyPath')}>
           {copied === 'path' ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
         </Button>
-        <Button variant="ghost" size="icon" className="size-7" onClick={() => void copyToClipboard('content', copyableContent)} disabled={!copyableContent} aria-label="Copy content" title={mode === 'file' ? 'Copy content' : 'Copy diff content'}>
+        <Button variant="ghost" size="icon" className="size-7" onClick={() => void copyToClipboard('content', copyableContent)} disabled={!copyableContent} aria-label={t('copyContent')} title={mode === 'file' ? t('copyContent') : t('copyDiffContent')}>
           {copied === 'content' ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
         </Button>
-        <Button variant="ghost" size="icon" className="size-7" onClick={() => aiPrompt && onDraftRequest?.(aiPrompt)} disabled={!aiPrompt || !onDraftRequest} aria-label="Ask AI" title="Ask AI about this">
+        <Button variant="ghost" size="icon" className="size-7" onClick={() => aiPrompt && onDraftRequest?.(aiPrompt)} disabled={!aiPrompt || !onDraftRequest} aria-label={t('askAiAboutThis')} title={t('askAiAboutThis')}>
           <MessageSquare className="size-3.5" />
         </Button>
         <Button variant="ghost" size="icon" className="size-7" onClick={onClose} aria-label={t('close')} title={t('close')}>
@@ -308,11 +326,11 @@ function InlineReader({ mode, file, diff, loading, error, onClose, onDraftReques
         </Button>
       </div>
       <div className="min-h-0 flex-1 bg-background">
-        {loading ? <div className="p-4 text-sm text-muted-foreground/70">Opening...</div> : null}
+        {loading ? <div className="p-4 text-sm text-muted-foreground/70">{t('openingReader')}</div> : null}
         {!loading && error ? <div className="p-4 text-sm text-destructive">{error}</div> : null}
         {!loading && !error && mode === 'file' && file ? (
           isMarkdown ? (
-            <MarkdownReader key={file.path} path={file.path} content={file.content} language={file.language} />
+            <MarkdownReader key={file.path} path={file.path} content={file.content} language={file.language} mode={markdownMode} />
           ) : (
             <MonacoCodeViewer path={file.path} content={file.content} language={file.language} />
           )
@@ -331,14 +349,13 @@ function InlineReader({ mode, file, diff, loading, error, onClose, onDraftReques
   )
 }
 
-function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isGitRepository, gitBranch, onViewChange, onSelectFile, onSelectDiff, onPreviewFile }: {
+function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isGitRepository, gitBranch, onSelectFile, onSelectDiff, onPreviewFile }: {
   project?: ProjectInfo
   artifacts: AiTurnArtifact[]
   changesCount: number
   changedPaths: Set<string>
   isGitRepository: boolean
   gitBranch?: string
-  onViewChange: (view: WorkspacePanelView) => void
   onSelectFile: (path: string) => void
   onSelectDiff: (path: string) => void
   onPreviewFile: (path: string) => void
@@ -465,21 +482,6 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
           </div>
         )}
       </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <button type="button" className="rounded-lg border border-border bg-background px-3 py-2 text-left text-xs font-medium text-foreground/85 transition-colors hover:bg-muted/20" onClick={() => onViewChange('files')}>
-          <Folder className="mb-1 size-4" />
-          {t('workspaceFiles')}
-        </button>
-        <button type="button" className="rounded-lg border border-border bg-background px-3 py-2 text-left text-xs font-medium text-foreground/85 transition-colors hover:bg-muted/20" onClick={() => onViewChange('browser')}>
-          <Globe2 className="mb-1 size-4" />
-          {t('workspaceBrowser')}
-        </button>
-        <button type="button" className="rounded-lg border border-border bg-background px-3 py-2 text-left text-xs font-medium text-foreground/85 transition-colors hover:bg-muted/20" onClick={() => onViewChange('changes')}>
-          <GitBranch className="mb-1 size-4" />
-          {t('workspaceChanges')} {changesCount ? changesCount : ''}
-        </button>
-      </div>
     </div>
   )
 }
@@ -501,7 +503,7 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
   const [isNavResizing, setIsNavResizing] = useState(false)
   const [mounted, setMounted] = useState(open)
   const [visible, setVisible] = useState(false)
-  const [width, setWidth] = useState(WORKSPACE_INSPECTOR_DEFAULT_WIDTH)
+  const [width, setWidth] = useState(readPersistedInspectorWidth)
   const [isResizing, setIsResizing] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [fullscreenAnimating, setFullscreenAnimating] = useState(false)
@@ -522,6 +524,7 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
   const isBrowserActive = activeReaderTab?.mode === 'browser'
   const hasFileTab = Boolean(activeReaderTab && activeReaderTab.mode !== 'browser')
   const navView: 'overview' | 'files' | 'changes' = view === 'browser' ? 'files' : view
+  const activeTabId = activeReaderTab?.id
 
   const gitStatuses = useMemo(() => {
     const map: Record<string, GitChangedFile> = {}
@@ -606,6 +609,27 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
       setActiveReaderTabId(readerTabs.find((tab) => tab.mode !== 'browser')?.id)
     }
   }, [view, open, activeReaderTabId, activeReaderTab, readerTabs])
+
+  // 持久化工作区宽度：拖拽或自动展开后都写入，刷新后保持上次宽度
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(WORKSPACE_INSPECTOR_WIDTH_STORAGE_KEY, String(width))
+    } catch {
+      /* ignore quota / privacy mode */
+    }
+  }, [width])
+
+  const expandInspectorToMax = useCallback(() => {
+    setWidth((current) => (current < WORKSPACE_INSPECTOR_MAX_WIDTH ? WORKSPACE_INSPECTOR_MAX_WIDTH : current))
+  }, [])
+
+  // 打开文件 / 网页预览时自动拉到当前允许的最宽范围（全屏模式不处理；已是最宽则保持不变）
+  useEffect(() => {
+    if (!visible || fullscreen) return
+    const viewingContent = view === 'browser' || (view !== 'overview' && Boolean(activeTabId))
+    if (!viewingContent) return
+    expandInspectorToMax()
+  }, [activeTabId, view, visible, fullscreen, expandInspectorToMax])
 
   useEffect(() => {
     let disposed = false
@@ -1039,7 +1063,6 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
                         changedPaths={changedPaths}
                         isGitRepository={isGitRepository}
                         gitBranch={gitBranch}
-                        onViewChange={onViewChange}
                         onSelectFile={openFileTab}
                         onSelectDiff={selectDiffInPlace}
                         onPreviewFile={selectPreviewFile}

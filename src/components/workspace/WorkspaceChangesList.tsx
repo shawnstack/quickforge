@@ -39,6 +39,12 @@ export function WorkspaceChangesList({ files, selectedPath, onSelectFile, emptyM
           >
             <span className={`w-4 shrink-0 font-mono text-[0.68rem] font-semibold ${meta.className}`}>{meta.label}</span>
             <span className="min-w-0 flex-1 truncate">{file.path}</span>
+            {typeof file.additions === 'number' && typeof file.deletions === 'number' ? (
+              <span className="shrink-0 font-mono text-[10px] font-medium">
+                <span className="text-emerald-600 dark:text-emerald-500">+{file.additions}</span>
+                <span className="ml-1 text-red-600 dark:text-red-500">-{file.deletions}</span>
+              </span>
+            ) : null}
             <span className="shrink-0 text-[0.68rem] text-muted-foreground/55">{meta.text}</span>
           </button>
         )

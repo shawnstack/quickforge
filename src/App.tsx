@@ -21,6 +21,7 @@ import {
   initializePiStorage,
 } from '@/lib/pi-chat'
 import { t } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 import type {
   AgentAccessMode,
   ProjectInfo,
@@ -888,6 +889,39 @@ function MainApp() {
 
   return (
     <>
+    <div
+      className="fixed right-2 top-2 z-[60] flex items-center gap-1"
+      aria-label={t('workspacePanel')}
+    >
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={() => setTerminalOpen((value) => !value)}
+        disabled={workspacePageOpen || needsModelSetup}
+        aria-label="终端"
+        title="终端"
+        className={terminalOpen ? 'bg-accent text-accent-foreground' : undefined}
+      >
+        <SquareTerminal className="size-4" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={() => {
+          setArtifactPreviewOpen(false)
+          ui.setWorkspaceInspectorOpen((value) => !value)
+        }}
+        disabled={!agentManager.currentToolProject?.id || workspacePageOpen || needsModelSetup}
+        aria-label={t('workspacePanel')}
+        title={t('workspacePanel')}
+        className={cn(
+          'hidden lg:inline-flex',
+          ui.workspaceInspectorOpen ? 'bg-accent text-accent-foreground' : undefined,
+        )}
+      >
+        <PanelRight className="size-4" />
+      </Button>
+    </div>
     <div className="flex h-screen min-h-0 bg-background text-foreground">
       <ChatSidebar
         sidebarOpen={ui.sidebarOpen}
@@ -1012,7 +1046,7 @@ function MainApp() {
       ) : null}
 
       <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-3">
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-3 pr-20">
           <Button variant="ghost" size="icon" className="md:hidden" onClick={() => ui.setMobileSidebarOpen(true)} aria-label={t('toggleSidebar')}>
             <Menu className="size-4" />
           </Button>
@@ -1086,33 +1120,6 @@ function MainApp() {
               </div>
             )}
           </div>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setTerminalOpen((value) => !value)}
-            disabled={workspacePageOpen || needsModelSetup}
-            aria-label="终端"
-            title="终端"
-            className={terminalOpen ? 'bg-accent text-accent-foreground' : undefined}
-          >
-            <SquareTerminal className="size-4" />
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => {
-              setArtifactPreviewOpen(false)
-              ui.setWorkspaceInspectorOpen((value) => !value)
-            }}
-            disabled={!agentManager.currentToolProject?.id || workspacePageOpen || needsModelSetup}
-            aria-label={t('workspacePanel')}
-            title={t('workspacePanel')}
-            className={ui.workspaceInspectorOpen ? 'hidden bg-accent text-accent-foreground lg:inline-flex' : 'hidden lg:inline-flex'}
-          >
-            <PanelRight className="size-4" />
-          </Button>
 
         </header>
 

@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronsLeftRight, Code2, Folder, GitBranch, Globe2, LayoutGrid, Maximize2, MessageSquare, Minimize2, RefreshCw, Search } from 'lucide-react'
+import { ChevronDown, ChevronsLeftRight, Code2, Folder, GitBranch, Globe2, LayoutGrid, Maximize2, MessageSquare, Minimize2, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ProjectInfo } from '@/lib/types'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
@@ -88,55 +88,33 @@ function GitGroup({ title, files, selectedPath, onSelectFile }: {
   )
 }
 
-function WorkspaceMenu({ view, changesCount, open, onOpenChange, onViewChange }: {
+function WorkspaceMenu({ view, changesCount, onViewChange }: {
   view: WorkspacePanelView
   changesCount: number
-  open: boolean
-  onOpenChange: (open: boolean) => void
   onViewChange: (view: WorkspacePanelView) => void
 }) {
-  const selected = WORKSPACE_MENU_ITEMS.find((item) => item.view === view) ?? WORKSPACE_MENU_ITEMS[0]
-  const SelectedIcon = selected.icon
-
   return (
-    <div className="relative min-w-0">
-      <button
-        type="button"
-        className="flex max-w-full items-center gap-2 rounded-xl bg-muted/20 px-2.5 py-1.5 text-left text-sm font-semibold text-foreground/90 transition-colors hover:bg-muted/28"
-        onClick={() => onOpenChange(!open)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-      >
-        <SelectedIcon className="size-4 shrink-0 text-foreground/75" />
-        <span className="min-w-0 truncate">{selected.label}</span>
-        <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground/65 transition-transform', open ? 'rotate-180' : '')} />
-      </button>
-      {open ? (
-        <div className="absolute left-0 top-11 z-40 w-64 rounded-2xl border border-border bg-popover p-2 shadow-quickforge">
-          {WORKSPACE_MENU_ITEMS.map((item) => {
-            const Icon = item.icon
-            const active = item.view === view
-            return (
-              <button
-                key={item.view}
-                type="button"
-                className={cn(
-                  'flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm transition-colors',
-                  active ? 'bg-muted/28 text-foreground/90' : 'text-foreground/80 hover:bg-muted/20 hover:text-foreground/90',
-                )}
-                onClick={() => {
-                  onViewChange(item.view)
-                  onOpenChange(false)
-                }}
-              >
-                <Icon className="size-4 shrink-0" />
-                <span className="min-w-0 flex-1 truncate">{item.label}{item.view === 'changes' && changesCount ? ` ${changesCount}` : ''}</span>
-                {active ? <Check className="size-4 shrink-0 text-emerald-600 dark:text-emerald-500" /> : null}
-              </button>
-            )
-          })}
-        </div>
-      ) : null}
+    <div className="flex items-center gap-0.5">
+      {WORKSPACE_MENU_ITEMS.map((item) => {
+        const Icon = item.icon
+        const active = item.view === view
+        return (
+          <Button
+            key={item.view}
+            variant="ghost"
+            size="icon"
+            onClick={() => onViewChange(item.view)}
+            aria-label={item.label}
+            title={item.label}
+            className={active ? 'bg-accent text-accent-foreground' : undefined}
+          >
+            <Icon className="size-4" />
+            {item.view === 'changes' && changesCount > 0 ? (
+              <span className="ml-0.5 text-[10px]">{changesCount}</span>
+            ) : null}
+          </Button>
+        )
+      })}
     </div>
   )
 }
@@ -303,8 +281,6 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>()
   const [filter, setFilter] = useState('')
-  const [refreshToken, setRefreshToken] = useState(0)
-  const [menuOpen, setMenuOpen] = useState(false)
 
   const [selectedFilePath, setSelectedFilePath] = useState<string>()
   const [selectedFile, setSelectedFile] = useState<WorkspaceFileResponse>()
@@ -416,7 +392,7 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
         })
     })
     return () => { disposed = true }
-  }, [open, projectId, refreshToken])
+  }, [open, projectId])
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -482,10 +458,6 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
 
   async function selectDiffInPlace(path: string) {
     await openDiff(path, false)
-  }
-
-  function refresh() {
-    setRefreshToken((value) => value + 1)
   }
 
   function startResizing(event: React.PointerEvent<HTMLDivElement>) {
@@ -699,20 +671,13 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
             </div>
           </div>
         ) : null}
-        <div className={cn('flex h-14 shrink-0 items-center gap-2 border-b border-border px-3 transition-opacity duration-150', fullscreenAnimating ? 'opacity-0' : 'opacity-100')}>
+        <div className={cn('flex h-14 shrink-0 items-center gap-2 border-b border-border px-3 pr-20 transition-opacity duration-150', fullscreenAnimating ? 'opacity-0' : 'opacity-100')}>
           <WorkspaceMenu
             view={view}
             changesCount={changes.length}
-            open={menuOpen}
-            onOpenChange={setMenuOpen}
             onViewChange={onViewChange}
           />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-xs text-muted-foreground/65">{project?.name ?? t('noProjectSelected')}</div>
-          </div>
-          <Button variant="ghost" size="icon" onClick={refresh} disabled={!project?.id || loading} aria-label={t('refreshWorkspace')} title={t('refreshWorkspace')}>
-            <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
-          </Button>
+          <div className="min-w-0 flex-1" />
           <Button
             variant="ghost"
             size="icon"

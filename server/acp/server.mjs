@@ -645,6 +645,7 @@ async function createQuickForgeSession(params = {}) {
     model,
     thinkingLevel,
     title: 'ACP session',
+    idleRetention: 'always',
   })
   acpSessions.set(sessionId, { cwd, additionalDirectories, projectId: project?.id || null })
   return { sessionId, modes: sessionModes(), configOptions: await sessionConfigOptions(model, thinkingLevel) }

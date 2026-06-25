@@ -819,7 +819,7 @@ ${scopeText}
 }
 
 async function runSubagent(parentSession, params, parentSignal, onUpdate) {
-  const profile = await getAgentProfile(params?.subagent)
+  const profile = await getAgentProfile(params?.subagent, { workspaceRoot: parentSession.projectContext?.workspaceRoot })
   if (!profile || !profile.enabledAsSubagent) {
     const error = new Error(`Unknown or disabled subagent: ${params?.subagent || ''}`)
     error.statusCode = 400
@@ -1124,8 +1124,15 @@ async function transformSessionContext(session, messages, signal) {
 export const agentEvents = new EventEmitter()
 agentEvents.setMaxListeners(100)
 
+function isIdleRetainedSession(session) {
+  return session?.idleRetention === 'always'
+}
+
 function resetIdleTimer(session) {
   if (session.idleTimer) clearTimeout(session.idleTimer)
+  session.idleTimer = null
+  if (isIdleRetainedSession(session)) return
+
   session.idleTimer = setTimeout(() => {
     if (session.status === 'running') {
       logger.info(`Session ${session.sessionId} idle timer fired but still running, resetting...`, { sessionId: session.sessionId, status: session.status })
@@ -1160,6 +1167,7 @@ export function touchSession(sessionId) {
 export async function createAgent(sessionId, config = {}) {
   const existing = agentSessions.get(sessionId)
   if (existing) {
+    if (config.idleRetention !== undefined) existing.idleRetention = config.idleRetention
     resetIdleTimer(existing)
     return existing
   }
@@ -1178,6 +1186,7 @@ export async function createAgent(sessionId, config = {}) {
     lastModified = null,
     contextCompaction = null,
     agentProfile = null,
+    idleRetention = null,
   } = config
   const accessMode = normalizeAccessMode(rawAccessMode, yoloMode)
   const resolvedYoloMode = yoloModeFromAccessMode(accessMode)
@@ -1327,6 +1336,7 @@ export async function createAgent(sessionId, config = {}) {
     getApiKey,
     contextCompaction,
     agentProfile: agentProfile ? agentProfileSnapshot(agentProfile) : null,
+    idleRetention,
     lastTransformedContextMessages: null,
     autoCompacting: false,
     stateVersion: 0,
@@ -1412,7 +1422,7 @@ export async function createAgent(sessionId, config = {}) {
 
   agentSessions.set(sessionId, session)
   resetIdleTimer(session)
-  logger.info(`Created session ${sessionId} (scope: ${scope}, project: ${projectId || 'none'}, access: ${accessMode})`, { sessionId, scope, projectId: projectId || undefined, accessMode, yoloMode: resolvedYoloMode })
+  logger.info(`Created session ${sessionId} (scope: ${scope}, project: ${projectId || 'none'}, access: ${accessMode})`, { sessionId, scope, projectId: projectId || undefined, accessMode, yoloMode: resolvedYoloMode, idleRetention: idleRetention || undefined })
   return session
 }
 
@@ -1478,6 +1488,7 @@ async function persistSession(session) {
     taskStartedAt: startedAt,
     taskFinishedAt: finishedAt,
     contextCompaction: contextCompaction || undefined,
+    idleRetention: session.idleRetention || undefined,
   }
   session.lastModified = lastModified
 
@@ -1534,6 +1545,7 @@ async function persistSession(session) {
       thresholdPercent: contextCompaction.thresholdPercent,
       usageBefore: contextCompaction.usageBefore,
     } : undefined,
+    idleRetention: session.idleRetention || undefined,
   }
 
   // Write to storage atomically (read-modify-write within queue)
@@ -2049,6 +2061,7 @@ export async function restoreAgent(sessionId) {
       createdAt: sessionData.createdAt,
       lastModified: sessionData.lastModified,
       contextCompaction: sessionData.contextCompaction || null,
+      idleRetention: sessionData.idleRetention || null,
     })
   } catch (err) {
     logger.error(`Failed to restore agent ${sessionId}:`, err, { sessionId })
@@ -2121,6 +2134,7 @@ export function listSessions() {
       scope: session.scope,
       status: session.status,
       title: session.title,
+      idleRetention: session.idleRetention || undefined,
     })
   }
   return result

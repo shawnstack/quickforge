@@ -11,6 +11,7 @@ import { DEFAULT_CONNECTION, normalizeModelForProvider } from '@/lib/pi-chat'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
 import { showAlert, showConfirm } from '@/components/ui/confirm-dialog'
+import './info-tip'
 
 type ProviderProtocol = Extract<CustomProviderType, 'openai-completions' | 'anthropic-messages'>
 type AnyModel = Model<Api>
@@ -20,7 +21,10 @@ type ModelForm = {
   contextWindow: number
   maxTokens: number
   reasoning: boolean
+  open?: boolean
 }
+
+type HeaderRow = { key: string; value: string }
 
 type ProviderForm = {
   providerId?: string
@@ -28,23 +32,50 @@ type ProviderForm = {
   name: string
   baseUrl: string
   apiKey: string
-  headersJson: string
+  headerRows: HeaderRow[]
   protocol: ProviderProtocol
   models: ModelForm[]
 }
+
+type PresetKey = 'openai' | 'deepseek' | 'glm' | 'ollama' | 'litellm' | 'custom'
+
+// Preset values that get filled into the form fields. Labels for the chips come
+// from i18n; these are the concrete provider/model values.
+const PROVIDER_PRESETS: Record<Exclude<PresetKey, 'custom'>, {
+  name: string
+  baseUrl: string
+  protocol: ProviderProtocol
+  modelId: string
+}> = {
+  openai: { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', protocol: 'openai-completions', modelId: 'gpt-4o' },
+  deepseek: { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', protocol: 'openai-completions', modelId: 'deepseek-chat' },
+  glm: { name: 'Zhipu GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', protocol: 'openai-completions', modelId: 'glm-4-plus' },
+  ollama: { name: 'Ollama', baseUrl: 'http://localhost:11434/v1', protocol: 'openai-completions', modelId: 'llama3.1' },
+  litellm: { name: DEFAULT_CONNECTION.name, baseUrl: DEFAULT_CONNECTION.baseUrl, protocol: 'openai-completions', modelId: DEFAULT_CONNECTION.modelId },
+}
+
+const PRESET_OPTIONS: { key: PresetKey; label: string }[] = [
+  { key: 'openai', label: t('presetOpenai') },
+  { key: 'deepseek', label: t('presetDeepseek') },
+  { key: 'glm', label: t('presetGlm') },
+  { key: 'ollama', label: t('presetOllama') },
+  { key: 'litellm', label: t('presetLitellm') },
+  { key: 'custom', label: t('presetCustom') },
+]
 
 const emptyModelForm = (): ModelForm => ({
   modelId: '',
   contextWindow: DEFAULT_CONNECTION.contextWindow,
   maxTokens: DEFAULT_CONNECTION.maxTokens,
   reasoning: true,
+  open: false,
 })
 
 const emptyForm = (): ProviderForm => ({
   name: DEFAULT_CONNECTION.name,
   baseUrl: DEFAULT_CONNECTION.baseUrl,
   apiKey: '',
-  headersJson: '{}',
+  headerRows: [],
   protocol: 'openai-completions',
   models: [emptyModelForm()],
 })
@@ -56,6 +87,13 @@ export class CustomProvidersOnlyTab extends SettingsTab {
   private formOpen = false
   private loading = true
   private apiKeyVisible = false
+
+  // Progressive disclosure / connection-test UI state
+  private advancedOpen = false
+  private activePreset: PresetKey | '' = ''
+  private testing = false
+  private testResult: 'idle' | 'ok' | 'fail' = 'idle'
+  private testError = ''
 
   public autoEditProviderName: string | null = null
 
@@ -90,10 +128,19 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     }
   }
 
+  private resetTestState() {
+    this.testing = false
+    this.testResult = 'idle'
+    this.testError = ''
+  }
+
   private openAddForm() {
     this.editingProviderId = undefined
     this.form = emptyForm()
     this.apiKeyVisible = false
+    this.advancedOpen = false
+    this.activePreset = ''
+    this.resetTestState()
     this.formOpen = true
     this.requestUpdate()
   }
@@ -109,8 +156,15 @@ export class CustomProvidersOnlyTab extends SettingsTab {
             contextWindow: model.contextWindow ?? DEFAULT_CONNECTION.contextWindow,
             maxTokens: model.maxTokens ?? DEFAULT_CONNECTION.maxTokens,
             reasoning: model.reasoning === true,
+            open: false,
           }))
         : [emptyModelForm()]
+
+    const sourceHeaders = existingModels[0]?.headers ?? {}
+    const headerRows: HeaderRow[] = Object.entries(sourceHeaders).map(([key, value]) => ({
+      key,
+      value: String(value),
+    }))
 
     this.editingProviderId = provider.id
     this.form = {
@@ -119,11 +173,14 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       name: provider.name,
       baseUrl: provider.baseUrl,
       apiKey,
-      headersJson: JSON.stringify(existingModels[0]?.headers ?? {}, null, 2),
+      headerRows,
       protocol: provider.type === 'anthropic-messages' ? 'anthropic-messages' : 'openai-completions',
       models,
     }
     this.apiKeyVisible = false
+    this.advancedOpen = headerRows.length > 0 || provider.type === 'anthropic-messages'
+    this.activePreset = ''
+    this.resetTestState()
     this.formOpen = true
     this.requestUpdate()
   }
@@ -133,6 +190,9 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     this.editingProviderId = undefined
     this.form = emptyForm()
     this.apiKeyVisible = false
+    this.advancedOpen = false
+    this.activePreset = ''
+    this.resetTestState()
     this.requestUpdate()
   }
 
@@ -143,6 +203,11 @@ export class CustomProvidersOnlyTab extends SettingsTab {
 
   private updateForm<K extends keyof ProviderForm>(key: K, value: ProviderForm[K]) {
     this.form = { ...this.form, [key]: value }
+    // Manual edits to identity fields invalidate the active preset highlight.
+    if (key === 'name' || key === 'baseUrl') {
+      this.activePreset = ''
+    }
+    this.resetTestState()
     this.requestUpdate()
   }
 
@@ -151,6 +216,10 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       i === index ? { ...model, [key]: value } : model,
     )
     this.form = { ...this.form, models }
+    if (key === 'modelId') {
+      this.activePreset = ''
+      this.resetTestState()
+    }
     this.requestUpdate()
   }
 
@@ -165,32 +234,67 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     this.requestUpdate()
   }
 
-  private parseHeadersJson(): Record<string, string> | null {
-    const value = this.form.headersJson.trim()
-    if (!value) return {}
+  private toggleModelExpanded(index: number) {
+    const models = this.form.models.map((model, i) =>
+      i === index ? { ...model, open: !model.open } : model,
+    )
+    this.form = { ...this.form, models }
+    this.requestUpdate()
+  }
 
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(value)
-    } catch {
-      void showAlert(t('invalidHeadersJson'))
-      return null
-    }
+  private addHeaderRow() {
+    this.form = { ...this.form, headerRows: [...this.form.headerRows, { key: '', value: '' }] }
+    this.requestUpdate()
+  }
 
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      void showAlert(t('invalidHeadersJson'))
-      return null
-    }
+  private updateHeaderRow(index: number, field: keyof HeaderRow, value: string) {
+    const headerRows = this.form.headerRows.map((row, i) =>
+      i === index ? { ...row, [field]: value } : row,
+    )
+    this.form = { ...this.form, headerRows }
+    this.requestUpdate()
+  }
 
-    const headers: Record<string, string> = {}
-    for (const [key, headerValue] of Object.entries(parsed)) {
-      if (!key.trim() || typeof headerValue !== 'string') {
-        void showAlert(t('invalidHeadersJson'))
-        return null
+  private removeHeaderRow(index: number) {
+    const headerRows = this.form.headerRows.filter((_, i) => i !== index)
+    this.form = { ...this.form, headerRows }
+    this.requestUpdate()
+  }
+
+  private applyPreset(key: PresetKey) {
+    this.activePreset = key
+    if (key === 'custom') {
+      this.form = {
+        ...this.form,
+        name: '',
+        baseUrl: '',
+        protocol: 'openai-completions',
+        models: [emptyModelForm()],
       }
-      headers[key] = headerValue
+    } else {
+      const preset = PROVIDER_PRESETS[key]
+      this.form = {
+        ...this.form,
+        name: preset.name,
+        baseUrl: preset.baseUrl,
+        protocol: preset.protocol,
+        models: [{ ...emptyModelForm(), modelId: preset.modelId, open: false }],
+      }
     }
+    this.resetTestState()
+    this.requestUpdate()
+  }
 
+  // Build a headers object from the key/value rows, skipping empty rows.
+  private buildHeadersFromRows(): Record<string, string> {
+    const headers: Record<string, string> = {}
+    for (const row of this.form.headerRows) {
+      const key = row.key.trim()
+      const value = row.value.trim()
+      if (key && value) {
+        headers[key] = value
+      }
+    }
     return headers
   }
 
@@ -244,6 +348,48 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     return normalizeModelForProvider(model)
   }
 
+  private async testConnection() {
+    const baseUrl = this.form.baseUrl.trim()
+    const firstModel = this.form.models.find((m) => m.modelId.trim())
+    if (!baseUrl || !firstModel) {
+      this.testing = false
+      this.testResult = 'fail'
+      this.testError = t('testRequiresFields')
+      this.requestUpdate()
+      return
+    }
+
+    const headers = this.buildHeadersFromRows()
+    const model = this.buildModel(firstModel, headers)
+
+    this.testing = true
+    this.testResult = 'idle'
+    this.testError = ''
+    this.requestUpdate()
+
+    try {
+      const resp = await fetch('/api/models/test-connection', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model, apiKey: this.form.apiKey.trim() }),
+      })
+      const data = (await resp.json().catch(() => ({}))) as { ok?: boolean; error?: string }
+      if (data?.ok) {
+        this.testResult = 'ok'
+        this.testError = ''
+      } else {
+        this.testResult = 'fail'
+        this.testError = data?.error || t('connectionFailed')
+      }
+    } catch (error) {
+      this.testResult = 'fail'
+      this.testError = (error as Error)?.message || t('connectionFailed')
+    } finally {
+      this.testing = false
+      this.requestUpdate()
+    }
+  }
+
   private async saveModel() {
     const name = this.form.name.trim()
     const baseUrl = this.form.baseUrl.trim()
@@ -269,9 +415,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       return
     }
 
-    const headers = this.parseHeadersJson()
-    if (!headers) return
-
+    const headers = this.buildHeadersFromRows()
     const models = filledModels.map((modelForm) => this.buildModel(modelForm, headers))
     const apiKey = this.form.apiKey.trim()
     const oldProvider = this.editingProviderId
@@ -376,16 +520,57 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     `
   }
 
-  private renderModelRow(model: ModelForm, index: number): TemplateResult {
+  private renderPresetChips(): TemplateResult {
     return html`
-      <div class="rounded-md border border-border p-3">
-        <div class="mb-2 flex items-center justify-between">
-          <span class="text-xs font-medium text-muted-foreground">${t('modelIndex', { index: index + 1 })}</span>
+      <div class="grid gap-1.5">
+        <span class="text-xs text-muted-foreground">${t('presets')}</span>
+        <div class="flex flex-wrap gap-1.5">
+          ${PRESET_OPTIONS.map((option) => {
+            const active = this.activePreset === option.key
+            return html`
+              <button
+                class="rounded-full border px-3 py-1 text-xs ${active
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground'}"
+                type="button"
+                @click=${() => this.applyPreset(option.key)}
+              >
+                ${option.label}
+              </button>
+            `
+          })}
+        </div>
+      </div>
+    `
+  }
+
+  private renderModelRow(model: ModelForm, index: number): TemplateResult {
+    const expanded = model.open === true
+    return html`
+      <div class="rounded-md border border-border">
+        <div class="flex items-center gap-2 p-2">
+          <button
+            class="shrink-0 inline-flex size-6 items-center justify-center rounded text-xs text-muted-foreground hover:bg-secondary hover:text-foreground"
+            type="button"
+            title=${t('expandModel')}
+            aria-expanded=${expanded ? 'true' : 'false'}
+            @click=${() => this.toggleModelExpanded(index)}
+          >
+            ${expanded ? '▾' : '▸'}
+          </button>
+          <input
+            class="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+            .value=${model.modelId}
+            @input=${(event: Event) =>
+              this.updateModelField(index, 'modelId', (event.target as HTMLInputElement).value)}
+            placeholder=${t('modelIdPlaceholder')}
+          />
           ${this.form.models.length > 1
             ? html`
                 <button
-                  class="rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-destructive hover:bg-secondary"
+                  class="shrink-0 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-secondary hover:text-destructive"
                   type="button"
+                  title=${t('delete')}
                   @click=${() => this.removeModelRow(index)}
                 >
                   ✕
@@ -393,52 +578,107 @@ export class CustomProvidersOnlyTab extends SettingsTab {
               `
             : ''}
         </div>
-        <div class="grid gap-3">
-          <label class="grid gap-1 text-xs">
-            <span class="text-muted-foreground">${t('modelId')}</span>
-            <input
-              class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-              .value=${model.modelId}
-              @input=${(event: Event) =>
-                this.updateModelField(index, 'modelId', (event.target as HTMLInputElement).value)}
-              placeholder=${t('modelIdPlaceholder')}
-            />
-          </label>
-          <div class="grid grid-cols-2 gap-3">
-            <label class="grid gap-1 text-xs">
-              <span class="text-muted-foreground">${t('contextWindow')}</span>
-              <input
-                class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-                .value=${String(model.contextWindow)}
-                type="number"
-                @input=${(event: Event) =>
-                  this.updateModelField(index, 'contextWindow', Number((event.target as HTMLInputElement).value))}
-              />
-            </label>
-            <label class="grid gap-1 text-xs">
-              <span class="text-muted-foreground">${t('maxTokens')}</span>
-              <input
-                class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-                .value=${String(model.maxTokens)}
-                type="number"
-                @input=${(event: Event) =>
-                  this.updateModelField(index, 'maxTokens', Number((event.target as HTMLInputElement).value))}
-              />
-            </label>
-          </div>
-          <label class="mt-3 flex items-center gap-2 text-xs">
-            <input
-              class="rounded border-border"
-              type="checkbox"
-              .checked=${model.reasoning}
-              @change=${(event: Event) =>
-                this.updateModelField(index, 'reasoning', (event.target as HTMLInputElement).checked)}
-            />
-            <span class="text-muted-foreground">${t('reasoningModel')}</span>
-          </label>
-        </div>
+        ${expanded
+          ? html`
+              <div class="grid gap-3 border-t border-border p-3">
+                <div class="grid grid-cols-2 gap-3">
+                  <label class="grid gap-1 text-xs">
+                    <span class="text-muted-foreground">${t('contextWindow')}</span>
+                    <input
+                      class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                      .value=${String(model.contextWindow)}
+                      type="number"
+                      @input=${(event: Event) =>
+                        this.updateModelField(index, 'contextWindow', Number((event.target as HTMLInputElement).value))}
+                    />
+                  </label>
+                  <label class="grid gap-1 text-xs">
+                    <span class="text-muted-foreground">${t('maxTokens')}</span>
+                    <input
+                      class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                      .value=${String(model.maxTokens)}
+                      type="number"
+                      @input=${(event: Event) =>
+                        this.updateModelField(index, 'maxTokens', Number((event.target as HTMLInputElement).value))}
+                    />
+                  </label>
+                </div>
+                <label class="mt-1 flex items-center gap-2 text-xs">
+                  <input
+                    class="rounded border-border"
+                    type="checkbox"
+                    .checked=${model.reasoning}
+                    @change=${(event: Event) =>
+                      this.updateModelField(index, 'reasoning', (event.target as HTMLInputElement).checked)}
+                  />
+                  <span class="text-muted-foreground">${t('reasoningModel')}</span>
+                </label>
+              </div>
+            `
+          : ''}
       </div>
     `
+  }
+
+  private renderHeadersEditor(): TemplateResult {
+    return html`
+      <div class="grid gap-1.5">
+        <span class="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+          ${t('customHeaders')}
+          <quickforge-info-tip .label=${t('customHeadersHelp')}></quickforge-info-tip>
+        </span>
+        ${this.form.headerRows.length === 0
+          ? html``
+          : html`
+              <div class="grid gap-2">
+                ${this.form.headerRows.map((row, index) => html`
+                  <div class="grid grid-cols-[1fr_1fr_auto] items-center gap-2">
+                    <input
+                      class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                      .value=${row.key}
+                      @input=${(event: Event) =>
+                        this.updateHeaderRow(index, 'key', (event.target as HTMLInputElement).value)}
+                      placeholder=${t('headerName')}
+                    />
+                    <input
+                      class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                      .value=${row.value}
+                      @input=${(event: Event) =>
+                        this.updateHeaderRow(index, 'value', (event.target as HTMLInputElement).value)}
+                      placeholder=${t('headerValue')}
+                    />
+                    <button
+                      class="shrink-0 rounded px-1.5 py-1.5 text-xs text-muted-foreground hover:bg-secondary hover:text-destructive"
+                      type="button"
+                      title=${t('removeHeader')}
+                      @click=${() => this.removeHeaderRow(index)}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                `)}
+              </div>
+            `}
+        <button
+          class="justify-self-start rounded px-1 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+          type="button"
+          @click=${() => this.addHeaderRow()}
+        >
+          + ${t('addHeader')}
+        </button>
+      </div>
+    `
+  }
+
+  private renderTestStatus(): TemplateResult {
+    if (this.testResult === 'idle' && !this.testing) return html``
+    if (this.testing) {
+      return html`<span class="text-xs text-muted-foreground">${t('testingConnection')}</span>`
+    }
+    if (this.testResult === 'ok') {
+      return html`<span class="text-xs text-green-600">✓ ${t('connectionOk')}</span>`
+    }
+    return html`<span class="break-all text-xs text-destructive">✗ ${this.testError || t('connectionFailed')}</span>`
   }
 
   private renderForm(): TemplateResult {
@@ -449,6 +689,8 @@ export class CustomProvidersOnlyTab extends SettingsTab {
         </div>
 
         <div class="grid gap-4">
+          ${this.renderPresetChips()}
+
           <label class="grid gap-1.5 text-sm">
             <span class="text-foreground">${t('providerName')}</span>
             <input
@@ -457,22 +699,6 @@ export class CustomProvidersOnlyTab extends SettingsTab {
               @input=${(event: Event) => this.updateForm('name', (event.target as HTMLInputElement).value)}
               placeholder=${t('providerNamePlaceholder')}
             />
-          </label>
-
-          <label class="grid gap-1.5 text-sm">
-            <span class="text-foreground">${t('protocolType')}</span>
-            <select
-              class="rounded-md border border-input bg-background px-3 py-2 text-sm"
-              .value=${this.form.protocol}
-              @change=${(event: Event) =>
-                this.updateForm('protocol', (event.target as HTMLSelectElement).value as ProviderProtocol)}
-            >
-              <option value="openai-completions">OpenAI Compatible / Chat Completions</option>
-              <option value="anthropic-messages">Anthropic Messages</option>
-            </select>
-            <span class="text-xs text-muted-foreground">
-              ${t('protocolHelp')}
-            </span>
           </label>
 
           <label class="grid gap-1.5 text-sm">
@@ -512,20 +738,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
             </div>
           </label>
 
-          <label class="grid gap-1.5 text-sm">
-            <span class="text-foreground">${t('customHeaders')}</span>
-            <textarea
-              class="min-h-24 rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-              .value=${this.form.headersJson}
-              @input=${(event: Event) => this.updateForm('headersJson', (event.target as HTMLTextAreaElement).value)}
-              placeholder=${t('customHeadersPlaceholder')}
-            ></textarea>
-            <span class="text-xs text-muted-foreground">
-              ${t('customHeadersHelp')}
-            </span>
-          </label>
-
-          <div class="grid gap-3">
+          <div class="grid gap-2">
             <div class="flex items-center justify-between">
               <span class="text-sm font-medium text-foreground">${t('modelsList')}</span>
               <button
@@ -538,11 +751,60 @@ export class CustomProvidersOnlyTab extends SettingsTab {
             </div>
             ${this.form.models.map((model, index) => this.renderModelRow(model, index))}
           </div>
+
+          <button
+            class="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+            type="button"
+            aria-expanded=${this.advancedOpen ? 'true' : 'false'}
+            @click=${() => {
+              this.advancedOpen = !this.advancedOpen
+              this.requestUpdate()
+            }}
+          >
+            <span>${this.advancedOpen ? '▾' : '▸'}</span>
+            ${t('providerAdvanced')}
+          </button>
+
+          ${this.advancedOpen
+            ? html`
+                <div class="grid gap-4 rounded-md border border-border p-3">
+                  <label class="grid gap-1.5 text-sm">
+                    <span class="inline-flex items-center gap-1.5 text-foreground">
+                      ${t('protocolType')}
+                      <quickforge-info-tip .label=${t('protocolHelp')}></quickforge-info-tip>
+                    </span>
+                    <select
+                      class="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      .value=${this.form.protocol}
+                      @change=${(event: Event) =>
+                        this.updateForm('protocol', (event.target as HTMLSelectElement).value as ProviderProtocol)}
+                    >
+                      <option value="openai-completions">OpenAI Compatible / Chat Completions</option>
+                      <option value="anthropic-messages">Anthropic Messages</option>
+                    </select>
+                  </label>
+                  ${this.renderHeadersEditor()}
+                </div>
+              `
+            : ''}
         </div>
 
-        <div class="mt-4 flex justify-end gap-2">
-          <button class="rounded-md px-3 py-2 text-sm hover:bg-secondary" type="button" @click=${() => this.closeForm()}>
+        <div class="mt-4 flex items-center gap-2">
+          <span class="mr-auto">${this.renderTestStatus()}</span>
+          <button
+            class="rounded-md px-3 py-2 text-sm hover:bg-secondary"
+            type="button"
+            @click=${() => this.closeForm()}
+          >
             ${t('cancel')}
+          </button>
+          <button
+            class="rounded-md px-3 py-2 text-sm hover:bg-secondary ${this.testing ? 'opacity-50 pointer-events-none' : ''}"
+            type="button"
+            ?disabled=${this.testing}
+            @click=${() => this.testConnection()}
+          >
+            ${t('testConnection')}
           </button>
           <button
             class="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground"
@@ -561,8 +823,10 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       <div class="flex flex-col gap-6">
         <div class="flex items-center justify-between gap-4">
           <div>
-            <h3 class="mb-2 text-sm font-semibold text-foreground">${t('customModelsTitle')}</h3>
-            <p class="text-sm text-muted-foreground">${t('customModelsDescription')}</p>
+            <h3 class="mb-2 inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+              ${t('customModelsTitle')}
+              <quickforge-info-tip .label=${t('customModelsDescription')}></quickforge-info-tip>
+            </h3>
           </div>
           <button
             class="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground"

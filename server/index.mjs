@@ -28,6 +28,7 @@ import { handlePluginsApi } from './routes/plugins.mjs'
 import { handleWorkspaceApi, handleGitApi } from './routes/workspace.mjs'
 import { handleTerminalApi, handleTerminalUpgrade } from './routes/terminal.mjs'
 import { handleChannelsApi } from './routes/channels.mjs'
+import { handleModelsApi } from './routes/models.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { logger, flushLogger } from './utils/logger.mjs'
 import { getPackageInfo, checkForUpdates, installLatestVersion } from './utils/package-update.mjs'
@@ -241,6 +242,12 @@ async function handleApi(req, res, url) {
   // Agent profiles
   if (pathname === '/api/agent-profiles' || pathname.startsWith('/api/agent-profiles/')) {
     await handleAgentProfilesApi(req, res, url)
+    return
+  }
+
+  // Custom model management (connection test)
+  if (pathname === '/api/models/test-connection') {
+    await handleModelsApi(req, res, url)
     return
   }
 

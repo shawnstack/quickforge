@@ -13,6 +13,7 @@
 | `tools.mjs` | 82 | 工具定义和执行 |
 | `skills.mjs` | 191 | Skills 管理 |
 | `agent-profiles.mjs` | 173 | Agent Profile 管理 API，支持 AI 填充基础定义 |
+| `models.mjs` | 68 | 自定义模型连接测试 |
 | `scheduled-tasks.mjs` | 949 | 定时任务管理，支持绑定 Agent Profile 与配置单任务执行模式 |
 | `shares.mjs` | 90 | 分享管理 |
 | `shared-conversation.mjs` | 404 | 共享会话查看 |
@@ -114,6 +115,13 @@ Agent Profile 管理路由。
 - `DELETE /api/agent-profiles/:id` — 删除自定义 Agent。
 
 内置 Agent 只读，不允许更新或删除。
+
+## models.mjs (68 行)
+
+自定义模型连接测试路由。
+
+**主要端点**:
+- `POST /api/models/test-connection` — 用当前配置（Base URL、API Key、模型 ID）发送最小请求验证连通性。请求体 `{ model, apiKey? }`（`model` 为完整模型对象，`apiKey` 可选，用于测试尚未保存的配置）；成功返回 `{ ok: true }`，失败返回 `{ ok: false, error }`。错误统一以 HTTP 200 返回，便于前端统一解析。
 
 ## scheduled-tasks.mjs (949 行)
 

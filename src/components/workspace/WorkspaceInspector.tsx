@@ -113,7 +113,7 @@ function WorkspaceMenu({ view, changesCount, open, onOpenChange, onViewChange }:
         <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground/65 transition-transform', open ? 'rotate-180' : '')} />
       </button>
       {open ? (
-        <div className="absolute left-0 top-11 z-40 w-64 rounded-2xl border border-border bg-card p-2 shadow-xl">
+        <div className="absolute left-0 top-11 z-40 w-64 rounded-2xl border border-border bg-popover p-2 shadow-quickforge">
           {WORKSPACE_MENU_ITEMS.map((item) => {
             const Icon = item.icon
             const active = item.view === view

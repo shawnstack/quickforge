@@ -5,6 +5,8 @@
   --radius: 0.5rem;
   --text-sm: 12px;
   --text-sm--line-height: calc(16 / 12);
+  /* Design-language light shadow token. Use via `shadow-quickforge` for inputs, hover/active feedback, and popovers. */
+  --shadow-quickforge: 0 10px 26px -18px rgb(15 23 42 / 0.48);
 }
 
 /*

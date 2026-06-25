@@ -307,11 +307,11 @@ export function AgentProfilesPage() {
 
           <div className="grid gap-4 md:grid-cols-2">
             {agentProfiles.map((agent) => (
-              <div key={agent.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+              <div key={agent.id} className="rounded-xl border border-border bg-card p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="truncate text-base font-semibold text-foreground">{agent.label}</h3>
+                      <h3 className="truncate text-sm font-medium text-foreground/90">{agent.label}</h3>
                       {agent.builtin ? <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">{t('builtinAgent')}</span> : null}
                       {agent.enabledAsSubagent ? <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-700">{t('enabledAsSubagent')}</span> : null}
                     </div>
@@ -341,9 +341,9 @@ export function AgentProfilesPage() {
 
       {agentDialogOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) closeAgentDialog() }}>
-          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-quickforge" onMouseDown={(event) => event.stopPropagation()}>
             <div className="shrink-0 border-b border-border px-5 py-4">
-              <h2 className="text-base font-semibold text-foreground">{editingAgent ? t('editAgent') : t('createAgent')}</h2>
+              <h2 className="text-base font-medium text-foreground">{editingAgent ? t('editAgent') : t('createAgent')}</h2>
               {editingAgent?.readonly ? <p className="mt-1 text-sm text-muted-foreground">{t('builtinAgentReadonly')}</p> : null}
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">

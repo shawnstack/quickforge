@@ -205,7 +205,7 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
   if (!unlocked) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
-        <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl">
+        <div className="w-full max-w-md rounded-2xl border border-border bg-background p-6 shadow-quickforge">
           <div className="flex items-center gap-2 text-base font-semibold">
             <AlertTriangle className="size-5 text-amber-500" />
             QuickForge 局域网对话分享
@@ -231,7 +231,7 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
 
   return (
     <div className="flex h-screen min-h-0 flex-col bg-background text-foreground">
-      <header className={cn('shrink-0 border-b px-4 py-3', operate ? 'border-red-300 bg-red-50 text-red-950' : 'border-border bg-card')}>
+      <header className={cn('shrink-0 border-b px-4 py-3', operate ? 'border-red-300 bg-red-50 text-red-950' : 'border-border bg-background')}>
         <div className="mx-auto flex max-w-4xl items-start gap-3">
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-semibold">{title}</div>

@@ -55,7 +55,7 @@ function PromptDialogInner({
     >
       <div
         className={cn(
-          'w-full max-w-sm rounded-lg border border-border bg-background p-6 shadow-lg',
+          'w-full max-w-sm rounded-lg border border-border bg-background p-6 shadow-quickforge',
           'mx-4',
         )}
       >

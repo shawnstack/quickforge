@@ -445,7 +445,13 @@ border border-dashed bg-muted/20 rounded-xl
 
 普通列表、section、空状态不默认使用阴影。
 
-推荐轻阴影：
+推荐轻阴影（已注册为全局 token，优先使用）：
+
+```tsx
+shadow-quickforge
+```
+
+token 定义在 `src/index.css` 的 `@theme` 中（`--shadow-quickforge`），等价于：
 
 ```tsx
 shadow-[0_10px_26px_-18px_rgb(15_23_42_/_0.48)]

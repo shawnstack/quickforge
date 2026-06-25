@@ -82,7 +82,7 @@ export function McpServerCard({ server, toggling, reconnecting, onToggle, onEdit
       {visibleTools.length > 0 ? (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {visibleTools.map((tool) => (
-            <span key={tool.quickForgeName} className="rounded-md bg-muted/50 px-1.5 py-0.5 text-[11px] text-muted-foreground/75" title={tool.quickForgeName}>{tool.name}</span>
+            <span key={tool.quickForgeName} className="rounded-md bg-muted/28 px-1.5 py-0.5 text-[11px] text-muted-foreground/75" title={tool.quickForgeName}>{tool.name}</span>
           ))}
           {hiddenCount > 0 ? (
             <span className="rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground/55">{t('mcpMoreTools', { count: hiddenCount })}</span>

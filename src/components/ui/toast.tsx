@@ -85,7 +85,7 @@ function Toast({ toast, onDismiss, onClick }: ToastProps) {
       role="alert"
       onClick={() => onClick(toast.sessionId)}
       className={cn(
-        'pointer-events-auto flex w-80 cursor-pointer items-start gap-3 rounded-xl border border-border bg-background p-3 shadow-lg transition-all duration-200 ease-out',
+        'pointer-events-auto flex w-80 cursor-pointer items-start gap-3 rounded-xl border border-border bg-background p-3 shadow-quickforge transition-all duration-200 ease-out',
         visible && !leaving
           ? 'translate-x-0 opacity-100'
           : 'translate-x-4 opacity-0',

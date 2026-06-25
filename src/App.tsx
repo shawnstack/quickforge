@@ -854,7 +854,7 @@ function MainApp() {
   if (startupError) {
     return (
       <div className="flex h-screen items-center justify-center bg-background p-6 text-foreground">
-        <div className="max-w-md rounded-lg border border-border bg-card p-5 shadow-sm text-center">
+        <div className="max-w-md rounded-lg border border-border bg-background p-5 text-center">
           <h1 className="text-base font-semibold">{t('localServiceUnavailableTitle')}</h1>
           <p className="mt-2 text-sm text-muted-foreground">{startupError}</p>
           <div className="mt-4 flex justify-center gap-2">
@@ -944,7 +944,7 @@ function MainApp() {
             onClick={closeMobileSidebar}
             aria-label={t('toggleSidebar')}
           />
-          <div className="absolute inset-y-0 left-0 max-w-[85vw] shadow-2xl">
+          <div className="absolute inset-y-0 left-0 max-w-[85vw] shadow-quickforge">
             <ChatSidebar
               variant="mobile"
               sidebarOpen
@@ -1021,27 +1021,27 @@ function MainApp() {
             {scheduledTasksOpen ? (
               <>
                 <div className="truncate text-xs text-muted-foreground">AI Workspace</div>
-                <div className="truncate text-sm font-semibold">{t('scheduledTasks')}</div>
+                <div className="truncate text-sm font-medium">{t('scheduledTasks')}</div>
               </>
             ) : agentProfilesOpen ? (
               <>
                 <div className="truncate text-xs text-muted-foreground">AI Workspace</div>
-                <div className="truncate text-sm font-semibold">{t('agentsTab')}</div>
+                <div className="truncate text-sm font-medium">{t('agentsTab')}</div>
               </>
             ) : pluginsOpen ? (
               <>
                 <div className="truncate text-xs text-muted-foreground">AI Workspace</div>
-                <div className="truncate text-sm font-semibold">{t('plugins')}</div>
+                <div className="truncate text-sm font-medium">{t('plugins')}</div>
               </>
             ) : (
               <div className="flex max-w-full min-w-0 items-center">
                 {agentManager.currentToolProject?.name ? (
                   <>
-                    <div className="min-w-0 truncate text-sm font-semibold text-muted-foreground/72">{agentManager.currentToolProject.name}</div>
+                    <div className="min-w-0 truncate text-sm text-muted-foreground/60">{agentManager.currentToolProject.name}</div>
                     <div className="mx-1 shrink-0 text-sm text-muted-foreground/45">/</div>
                   </>
                 ) : null}
-                <div className="min-w-0 truncate text-sm font-semibold">{sessionTitle(agentManager.currentTitle)}</div>
+                <div className="min-w-0 truncate text-sm font-medium text-foreground/90">{sessionTitle(agentManager.currentTitle)}</div>
                 <div className="relative ml-0.5 shrink-0" onClick={(event) => event.stopPropagation()}>
                   <Button
                     variant="ghost"
@@ -1055,7 +1055,7 @@ function MainApp() {
                     <Ellipsis className="size-4" />
                   </Button>
                   {ui.conversationMenuOpen ? (
-                    <div className="absolute left-0 top-8 z-30 min-w-44 rounded-lg border border-border bg-card p-1 shadow-xl">
+                    <div className="absolute left-0 top-8 z-30 min-w-44 rounded-lg border border-border bg-popover p-1 shadow-quickforge">
                       <button
                         type="button"
                         className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"

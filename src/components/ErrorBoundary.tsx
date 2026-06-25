@@ -40,8 +40,8 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
       return (
         <div className="flex h-screen items-center justify-center bg-background p-6 text-foreground">
-          <div className="max-w-md rounded-lg border border-border bg-card p-5 shadow-sm text-center">
-            <h1 className="text-base font-semibold">{t('errorBoundaryTitle')}</h1>
+          <div className="max-w-md rounded-lg border border-border bg-background p-5 text-center">
+            <h1 className="text-base font-medium">{t('errorBoundaryTitle')}</h1>
             <p className="mt-2 text-sm text-muted-foreground break-all">
               {this.state.error.message || t('errorBoundaryUnexpected')}
             </p>

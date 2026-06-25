@@ -224,8 +224,8 @@ export const ChatSidebar = memo(function ChatSidebar({
   const activeProjectTitleClass = 'font-medium text-foreground/84'
   const timeClass = 'shrink-0 text-[11px] leading-4 text-muted-foreground/55 transition-opacity duration-160'
   const searchDialogClass = 'fixed inset-0 z-50 flex items-start justify-center bg-background/50 px-4 pt-[12vh] backdrop-blur-sm'
-  const projectMenuClass = 'fixed z-50 min-w-48 overflow-hidden rounded-lg border border-border bg-background p-1 shadow-xl'
-  const sessionHoverTipClass = 'pointer-events-none fixed z-50 w-[min(24rem,calc(100vw-1rem))] max-w-sm rounded-2xl border border-border bg-card px-4 py-3 text-left shadow-xl'
+  const projectMenuClass = 'fixed z-50 min-w-48 overflow-hidden rounded-lg border border-border bg-background p-1 shadow-quickforge'
+  const sessionHoverTipClass = 'pointer-events-none fixed z-50 w-[min(24rem,calc(100vw-1rem))] max-w-sm rounded-2xl border border-border bg-popover px-4 py-3 text-left shadow-quickforge'
   const sessionHoverTipMetaClass = 'mt-2 flex items-center gap-2 text-sm leading-5 text-muted-foreground/72'
   const isMobile = variant === 'mobile'
   const [searchOpen, setSearchOpen] = useState(false)
@@ -966,7 +966,7 @@ export const ChatSidebar = memo(function ChatSidebar({
 
       {searchOpen ? (
         <div className={searchDialogClass} role="dialog" aria-modal="true" onMouseDown={() => setSearchOpen(false)}>
-          <div className="w-full max-w-xl rounded-2xl border border-border bg-card p-3 shadow-xl" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="w-full max-w-xl rounded-2xl border border-border bg-popover p-3 shadow-quickforge" onMouseDown={(event) => event.stopPropagation()}>
             <div className="flex items-center gap-2 rounded-xl border border-input bg-background px-3 py-2">
               <Search className="size-4 shrink-0 text-muted-foreground/60" />
               <input
@@ -987,7 +987,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                     <button
                       key={session.id}
                       type="button"
-                      className="block w-full rounded-xl px-3 py-2 text-left transition-colors hover:bg-muted/60"
+                      className="block w-full rounded-xl px-3 py-2 text-left transition-colors hover:bg-muted/28"
                       onClick={() => selectSearchResult(session.id)}
                     >
                       <div className="truncate text-sm text-foreground/90">{sessionTitle(session.title)}</div>

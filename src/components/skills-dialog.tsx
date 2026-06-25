@@ -219,7 +219,7 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
         if (event.target === event.currentTarget && !saving) closeDialog()
       }}
     >
-      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-background shadow-xl">
+      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-background shadow-quickforge">
         {/* Header */}
         <div className="border-b border-border p-4">
           {isReading ? (
@@ -336,8 +336,8 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
                         <div
                           key={skill.name}
                           className={cn(
-                            'flex w-full items-start gap-3 rounded-md px-3 py-3 text-left text-sm transition-colors hover:bg-secondary disabled:opacity-50',
-                            checked && 'bg-secondary/70',
+                            'flex w-full items-start gap-3 rounded-md px-3 py-3 text-left text-sm transition-colors hover:bg-muted/28 disabled:opacity-50',
+                            checked && 'bg-muted/28',
                           )}
                         >
                           <button
@@ -376,7 +376,7 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
                           </span>
                           <button
                             type="button"
-                            className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-foreground"
+                            className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-muted/28 hover:text-foreground"
                             onClick={() => void readSkillContent(skill.name)}
                             disabled={saving || readingLoading}
                             title={t('readSkill')}

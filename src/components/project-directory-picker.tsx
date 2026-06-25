@@ -133,7 +133,7 @@ export function ProjectDirectoryPicker({
         if (event.target === event.currentTarget && !submitting) onOpenChange(false)
       }}
     >
-      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-background shadow-xl">
+      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-background shadow-quickforge">
         <div className="border-b border-border p-4">
           <h2 className="text-base font-semibold text-foreground">{t('selectProjectDirectory')}</h2>
           <p className="mt-1 text-sm text-muted-foreground">{t('selectProjectDirectoryDescription')}</p>
@@ -203,7 +203,7 @@ export function ProjectDirectoryPicker({
               {parentPath ? (
                 <button
                   type="button"
-                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-secondary disabled:opacity-50"
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-muted/28 disabled:opacity-50"
                   onClick={() => loadDirectory(parentPath)}
                   disabled={loading || submitting}
                 >
@@ -220,7 +220,7 @@ export function ProjectDirectoryPicker({
                 <button
                   key={directory.path}
                   type="button"
-                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-secondary disabled:opacity-50"
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-muted/28 disabled:opacity-50"
                   onClick={() => loadDirectory(directory.path)}
                   disabled={loading || submitting}
                   title={directory.path}

@@ -173,7 +173,7 @@ export function PluginsPage({ onChanged }: PluginsPageProps) {
           ) : null}
 
           {!loading && data && data.plugins.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-border bg-card p-6 text-sm text-muted-foreground">
+            <div className="rounded-lg border border-border bg-muted/15 p-4 text-xs text-muted-foreground/55">
               <div className="text-base font-medium text-foreground">{t('noPlugins')}</div>
               <p className="mt-2">{t('noPluginsDescription')}</p>
               <div className="mt-4 space-y-1">
@@ -186,11 +186,11 @@ export function PluginsPage({ onChanged }: PluginsPageProps) {
 
           <div className="grid gap-4 md:grid-cols-2">
             {(data?.plugins || []).map((plugin) => (
-              <article key={plugin.name} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+              <article key={plugin.name} className="rounded-xl border border-border bg-card p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="truncate text-base font-semibold text-foreground">{displayPluginName(plugin)}</h2>
+                      <h2 className="truncate text-sm font-medium text-foreground/90">{displayPluginName(plugin)}</h2>
                       <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">v{plugin.version}</span>
                       <span className={cn('rounded-full px-2 py-0.5 text-xs', pluginStatusClass(plugin.status))}>{pluginStatusLabel(plugin.status)}</span>
                     </div>
@@ -229,10 +229,10 @@ export function PluginsPage({ onChanged }: PluginsPageProps) {
 
       {detailPlugin ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setDetailPluginName(null) }}>
-          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-quickforge" onMouseDown={(event) => event.stopPropagation()}>
             <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-5 py-4">
               <div className="min-w-0">
-                <h2 className="text-base font-semibold text-foreground">{t('pluginDetails')}</h2>
+                <h2 className="text-base font-medium text-foreground">{t('pluginDetails')}</h2>
                 <p className="mt-1 truncate text-sm text-muted-foreground">{displayPluginName(detailPlugin)}</p>
               </div>
               <Button variant="ghost" size="sm" onClick={() => setDetailPluginName(null)}>{t('close')}</Button>
@@ -243,7 +243,7 @@ export function PluginsPage({ onChanged }: PluginsPageProps) {
                   <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-3 py-2 text-sm text-destructive">{detailPlugin.error}</div>
                 ) : null}
 
-                <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+                <div className="rounded-xl border border-border bg-card p-4">
                   <p className="text-sm text-muted-foreground">{displayPluginDescription(detailPlugin)}</p>
                   <div className="mt-3 grid gap-2 border-t border-border pt-3 text-xs text-muted-foreground sm:grid-cols-2">
                     <span>{t('pluginVersion')}：{detailPlugin.version}</span>
@@ -253,8 +253,8 @@ export function PluginsPage({ onChanged }: PluginsPageProps) {
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+                <div className="rounded-xl border border-border bg-card p-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
                     <Wrench className="size-4 text-muted-foreground" />
                     {t('pluginTools')}
                   </div>
@@ -272,8 +272,8 @@ export function PluginsPage({ onChanged }: PluginsPageProps) {
                   )}
                 </div>
 
-                <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+                <div className="rounded-xl border border-border bg-card p-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
                     <Shield className="size-4 text-muted-foreground" />
                     {t('pluginPermissions')}
                   </div>

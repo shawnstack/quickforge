@@ -94,7 +94,7 @@ export function WorkspaceReaderDialog({ open, mode, file, diff, loading, error, 
         aria-label="Close workspace reader"
         onClick={() => onOpenChange(false)}
       />
-      <div className="relative flex h-[min(88vh,900px)] w-[min(92vw,1280px)] min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
+      <div className="relative flex h-[min(88vh,900px)] w-[min(92vw,1280px)] min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-quickforge">
         <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-semibold text-foreground/90">{title ?? (mode === 'file' ? 'Code reader' : 'Diff reader')}</div>

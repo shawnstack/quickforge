@@ -320,7 +320,7 @@ export function McpServersDialog({ open, onOpenChange }: McpServersDialogProps) 
         if (event.target === event.currentTarget && !busy) onOpenChange(false)
       }}
     >
-      <div className="flex max-h-[88vh] w-full max-w-5xl flex-col rounded-lg border border-border bg-background shadow-xl">
+      <div className="flex max-h-[88vh] w-full max-w-5xl flex-col rounded-lg border border-border bg-background shadow-quickforge">
         <div className="flex items-start gap-3 border-b border-border p-4">
           <span className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-muted/40 text-muted-foreground">
             <Plug className="size-4" />

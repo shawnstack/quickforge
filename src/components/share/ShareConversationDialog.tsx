@@ -92,7 +92,7 @@ export function ShareConversationDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onOpenChange(false) }}>
-      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-quickforge" onMouseDown={(event) => event.stopPropagation()}>
         <div className="shrink-0 border-b border-border px-5 py-4">
           <h2 className="text-base font-semibold">分享到局域网</h2>
           <p className="mt-1 text-sm text-muted-foreground">当前对话：{title}。同一个对话只会有一个固定分享链接；只读分享密码可选，可操作分享必须设置密码。</p>

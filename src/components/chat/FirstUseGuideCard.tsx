@@ -19,7 +19,7 @@ export function FirstUseGuideCard({
 }: FirstUseGuideCardProps) {
   return (
     <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-background/35 p-3 backdrop-blur-sm sm:p-6">
-      <div className="pointer-events-auto w-full max-w-4xl rounded-2xl border border-border bg-background/95 p-5 shadow-lg backdrop-blur-md sm:p-6">
+      <div className="pointer-events-auto w-full max-w-4xl rounded-2xl border border-border bg-background/95 p-5 shadow-quickforge backdrop-blur-md sm:p-6">
         <div className="flex items-start gap-3">
           <div className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
             <Bot className="size-5" />

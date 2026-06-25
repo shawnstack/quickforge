@@ -614,7 +614,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
 
           {activeTab === 'tasks' ? (
             <>
-              <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+              <div className="rounded-xl border border-border bg-card p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h2 className="text-base font-semibold text-foreground">{t('taskList')}</h2>
@@ -625,7 +625,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
 
               <div className="grid gap-4 md:grid-cols-2">
                 {tasks.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground md:col-span-2">
+                  <div className="rounded-lg px-3 py-3 text-center text-xs text-muted-foreground/55 md:col-span-2">
                     {t('noScheduledTasks')}
                   </div>
                 ) : tasks.map((task) => {
@@ -633,11 +633,11 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                   const switchDisabled = task.status === 'completed'
                   const taskRunning = taskHasRunningRuns(task)
                   return (
-                    <div key={task.id} className="relative cursor-pointer rounded-2xl border border-border bg-card p-4 shadow-sm transition-colors hover:border-primary/40" onClick={() => setDetailTaskId(task.id)}>
+                    <div key={task.id} className="relative cursor-pointer rounded-xl border border-border bg-card p-4 transition-colors hover:bg-muted/15" onClick={() => setDetailTaskId(task.id)}>
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <h3 className="truncate text-base font-semibold text-foreground">{task.title}</h3>
+                            <h3 className="truncate text-sm font-medium text-foreground/90">{task.title}</h3>
                           </div>
                           <p className="mt-2 text-sm text-muted-foreground">{truncateContent(task.instruction, 20)}</p>
                         </div>
@@ -658,7 +658,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                               <MoreHorizontal className="size-4" />
                             </Button>
                             {openMenuTaskId === task.id ? (
-                              <div className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-xl border border-border bg-popover py-1 text-sm shadow-lg">
+                              <div className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-xl border border-border bg-popover py-1 text-sm shadow-quickforge">
                                 <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={!canRunTaskNow(task)} onClick={() => void taskAction(task.id, 'run')}>
                                   <Zap className="size-3.5" />{t('executeNow')}
                                 </button>
@@ -693,8 +693,8 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
             </>
           ) : (
             <div className="space-y-4">
-              <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-                <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
                   <Search className="size-4" />{t('historyFilters')}
                 </div>
                 <div className="grid gap-3 md:grid-cols-3">
@@ -741,7 +741,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                 </div>
               </div>
 
-              <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+              <div className="overflow-hidden rounded-xl border border-border bg-card">
                 <div className="grid grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.7fr] gap-3 border-b border-border px-4 py-3 text-xs font-medium text-muted-foreground">
                   <span>{t('taskName')}</span>
                   <span>{t('status')}</span>
@@ -783,7 +783,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
 
       {detailTask ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setDetailTaskId(null) }}>
-          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-quickforge" onMouseDown={(event) => event.stopPropagation()}>
             <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-5 py-4">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -842,7 +842,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
 
       {dialogOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDialog() }}>
-          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-quickforge" onMouseDown={(event) => event.stopPropagation()}>
             <div className="shrink-0 border-b border-border px-5 py-4">
               <h2 className="inline-flex items-center gap-1.5 text-base font-semibold text-foreground">
                 {editingTask ? t('editTask') : t('createTask')}

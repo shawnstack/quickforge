@@ -87,7 +87,7 @@ function MessageDialog({
     >
       <div
         className={cn(
-          'w-full max-w-[420px] rounded-2xl border border-border bg-background p-5 shadow-xl',
+          'w-full max-w-[420px] rounded-2xl border border-border bg-background p-5 shadow-quickforge',
         )}
         role="dialog"
         aria-modal="true"

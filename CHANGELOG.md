@@ -2,6 +2,46 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.5.0] - 2026-06-26
+
+### Added
+
+- Added an ACP (Agent Communication Protocol) agent server with enhanced session context, keep-alive, and per-workspace subagent resolution.
+- Added a channel framework with a WeChat bridge, including workspace selection and stabilized channel sessions.
+- Replaced YOLO mode with explicit agent access modes for finer control over what the agent can do.
+- Allowed loading file-based agent profiles from project and user `agents` directories.
+- Simplified the custom model configuration UI with presets and a connection test, and updated the composer model selector menu.
+- Enhanced the artifact workspace preview and added file-edit diff stats to tool summaries.
+- Gave global conversations a default workspace and improved workspace UI and ACP session visibility.
+- Added an update settings entry on the About page.
+- Polished the workspace reader, file tree, and auto-widening inspector.
+
+### Changed
+
+- Replaced inline description text with reusable InfoTip components across settings and pages.
+- Aligned popovers, pages, and inputs with the design language; widened the workspace inspector max width to 640px.
+- Simplified the workspace inspector and polished toolbar, terminal, and sidebar toggle icons.
+- Split the inspector into a left navigation pane and a right preview pane, and trimmed verbose hint copy.
+- Rewrote the design language documentation to focus on aesthetics over implementation details.
+- Adjusted the `/compact` and `/summary` commands.
+
+### Fixed
+
+- Waited for the terminal to be ready before sending markdown commands.
+- Hid internal preview URLs and matched ACP project paths case-insensitively.
+- Improved ACP session persistence and recovery.
+- Hid the splitter and right pane when no preview tab is open, and fixed the sidebar browser preview with a new tool-card preview entry.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.5.0` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.5.0.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.5.0.tgz
+  ```
+
 ## [1.4.1] - 2026-06-18
 
 ### Added

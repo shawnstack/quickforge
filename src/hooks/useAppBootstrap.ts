@@ -10,6 +10,7 @@ import { initializeAppLanguage, t } from '@/lib/i18n'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { loadToolDisplaySettings } from '@/lib/tool-display-settings'
 import { loadAndApplyFontSizeSettings } from '@/lib/font-size-settings'
+import { loadAndApplyAppearanceSettings } from '@/lib/appearance-settings'
 import type {
   AgentAccessMode,
   ProjectInfo,
@@ -105,6 +106,7 @@ export function useAppBootstrap({
         backendRef.current = storage.backend as HttpStorageBackend
         await initializeAppLanguage(storage)
         await loadToolDisplaySettings(storage)
+        await loadAndApplyAppearanceSettings(storage)
         await loadAndApplyFontSizeSettings(storage)
         await Promise.all([loadSessions(0), loadProj()])
 

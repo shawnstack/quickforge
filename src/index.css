@@ -403,8 +403,15 @@ user-message .user-message-container,
   }
 }
 
+.quickforge-assistant-message markdown-block,
 .quickforge-user-message markdown-block {
+  font-size: var(--quickforge-message-font-size, 16px);
   overflow-wrap: anywhere;
+}
+
+.quickforge-assistant-message markdown-block :where(p, li),
+.quickforge-user-message markdown-block :where(p, li) {
+  line-height: var(--quickforge-message-line-height, 1.625);
 }
 
 .quickforge-file-path-link {

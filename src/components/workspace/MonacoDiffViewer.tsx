@@ -1,4 +1,5 @@
 import { DiffEditor } from '@monaco-editor/react'
+import { useAppTheme } from '@/hooks/useAppTheme'
 import type { GitFileStatus } from './workspace-types'
 
 type MonacoDiffViewerProps = {
@@ -10,13 +11,15 @@ type MonacoDiffViewerProps = {
 }
 
 export function MonacoDiffViewer({ path, oldContent, newContent, language, status }: MonacoDiffViewerProps) {
+  const theme = useAppTheme()
+
   return (
     <DiffEditor
       key={`${status}:${path}`}
       original={oldContent}
       modified={newContent}
       language={language}
-      theme="vs"
+      theme={theme === 'dark' ? 'vs-dark' : 'vs'}
       options={{
         readOnly: true,
         contextmenu: false,

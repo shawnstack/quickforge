@@ -14,6 +14,7 @@ import {
 import { createCustomProvidersOnlyTab } from '@/lib/custom-providers-only-tab'
 import { t } from '@/lib/i18n'
 import { createLanguageSettingsTab } from '@/lib/language-settings-tab'
+import { createAppearanceSettingsTab } from '@/lib/appearance-settings-tab'
 import { createDefaultOptionsSettingsTab } from '@/lib/default-options-settings-tab'
 import { createBackupSettingsTab } from '@/lib/backup-settings-tab'
 import { createServiceSettingsTab } from '@/lib/service-settings-tab'
@@ -96,7 +97,7 @@ export function useModelActions({
   const openSettingsDialog = useCallback((initialTab: 'defaults' | 'customModels') => {
     setSettingsDialogOpen(true)
     SettingsDialog.open(
-      [createLanguageSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab(), createProjectCommandsSettingsTab(), createBackupSettingsTab(), createServiceSettingsTab(), createChannelsSettingsTab(), createLanAccessSettingsTab(), createAboutSettingsTab()],
+      [createLanguageSettingsTab(), createAppearanceSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab(), createProjectCommandsSettingsTab(), createBackupSettingsTab(), createServiceSettingsTab(), createChannelsSettingsTab(), createLanAccessSettingsTab(), createAboutSettingsTab()],
       () => {
         setSettingsDialogOpen(false)
         if (needsModelSetup || !agentRef.current) {
@@ -108,7 +109,7 @@ export function useModelActions({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const dialog = document.querySelector('settings-dialog') as any
       if (dialog) {
-        dialog.activeTabIndex = initialTab === 'defaults' ? 1 : 2
+        dialog.activeTabIndex = initialTab === 'defaults' ? 2 : 3
         dialog.requestUpdate?.()
       }
     }, 0)
@@ -215,11 +216,11 @@ export function useModelActions({
       },
       async (model) => {
         setSettingsDialogOpen(true)
-        await SettingsDialog.open([createLanguageSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab(model.provider), createProjectCommandsSettingsTab(), createBackupSettingsTab(), createServiceSettingsTab(), createChannelsSettingsTab(), createLanAccessSettingsTab(), createAboutSettingsTab()], () => setSettingsDialogOpen(false))
+        await SettingsDialog.open([createLanguageSettingsTab(), createAppearanceSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab(model.provider), createProjectCommandsSettingsTab(), createBackupSettingsTab(), createServiceSettingsTab(), createChannelsSettingsTab(), createLanAccessSettingsTab(), createAboutSettingsTab()], () => setSettingsDialogOpen(false))
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const dialog = document.querySelector('settings-dialog') as any
         if (dialog) {
-          dialog.activeTabIndex = 2
+          dialog.activeTabIndex = 3
           dialog.requestUpdate?.()
         }
       },

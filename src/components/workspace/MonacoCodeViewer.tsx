@@ -1,4 +1,5 @@
 import Editor from '@monaco-editor/react'
+import { useAppTheme } from '@/hooks/useAppTheme'
 
 type MonacoCodeViewerProps = {
   path: string
@@ -7,12 +8,14 @@ type MonacoCodeViewerProps = {
 }
 
 export function MonacoCodeViewer({ path, content, language }: MonacoCodeViewerProps) {
+  const theme = useAppTheme()
+
   return (
     <Editor
       key={path}
       value={content}
       language={language}
-      theme="vs"
+      theme={theme === 'dark' ? 'vs-dark' : 'vs'}
       options={{
         readOnly: true,
         contextmenu: false,

@@ -5,11 +5,13 @@ const FONT_SIZE_SETTINGS_KEY = 'font-size-settings'
 export type FontSizeSettings = {
   baseFontSizePx: number
   bodyFontSizePx: number
+  messageFontSizePx: number
 }
 
 export const DEFAULT_FONT_SIZE_SETTINGS: FontSizeSettings = {
   baseFontSizePx: 14,
   bodyFontSizePx: 12,
+  messageFontSizePx: 16,
 }
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number) {
@@ -24,6 +26,7 @@ export function normalizeFontSizeSettings(value: unknown): FontSizeSettings {
   return {
     baseFontSizePx: clampNumber(settings.baseFontSizePx, DEFAULT_FONT_SIZE_SETTINGS.baseFontSizePx, 12, 18),
     bodyFontSizePx: clampNumber(settings.bodyFontSizePx, DEFAULT_FONT_SIZE_SETTINGS.bodyFontSizePx, 11, 16),
+    messageFontSizePx: clampNumber(settings.messageFontSizePx, DEFAULT_FONT_SIZE_SETTINGS.messageFontSizePx, 13, 20),
   }
 }
 
@@ -34,6 +37,8 @@ export function applyFontSizeSettings(settings: FontSizeSettings) {
   root.style.fontSize = `${normalized.baseFontSizePx}px`
   root.style.setProperty('--text-sm', `${normalized.bodyFontSizePx}px`)
   root.style.setProperty('--text-sm--line-height', String(16 / normalized.bodyFontSizePx))
+  root.style.setProperty('--quickforge-message-font-size', `${normalized.messageFontSizePx}px`)
+  root.style.setProperty('--quickforge-message-line-height', '1.625')
 }
 
 export async function loadFontSizeSettings(storage: AppStorage): Promise<FontSizeSettings> {

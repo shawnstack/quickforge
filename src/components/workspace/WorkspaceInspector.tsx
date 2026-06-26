@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronsLeftRight, Code2, Copy, FileCode2, Folder, GitBranch, Globe2, LayoutGrid, Maximize2, MessageSquare, Minimize2, Search, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronsLeftRight, Code2, Copy, Eye, FileCode2, Folder, GitBranch, Globe2, LayoutGrid, Maximize2, MessageSquare, Minimize2, Search, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ProjectInfo } from '@/lib/types'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
@@ -13,7 +13,7 @@ import { countDiffLines } from './diff-line-counts'
 import { getGitFileDiff, getGitStatus, getWorkspaceFile, getWorkspaceTree } from './workspace-api'
 import { WorkspaceChangesList } from './WorkspaceChangesList'
 import { WorkspaceFileTree } from './WorkspaceFileTree'
-import { artifactFileName, presentArtifacts } from './artifact-preview-utils'
+import { artifactFileName, isBrowserPreviewablePath, presentArtifacts } from './artifact-preview-utils'
 import type { GitChangedFile, GitFileDiffResponse, GitStatusResponse, WorkspaceFileResponse, WorkspaceInspectorFocusTarget, WorkspacePanelView, WorkspaceTreeNode } from './workspace-types'
 
 type WorkspaceInspectorProps = {
@@ -397,7 +397,7 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
                 <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">{t('workspaceFiles')} {fileArtifacts.length}</div>
                 {fileArtifacts.slice(0, 8).map((artifact) => {
                   const path = artifact.path
-                  const canPreview = artifact.kind === 'html'
+                  const canPreview = isBrowserPreviewablePath(path)
                   const canViewDiff = changedPaths.has(path)
                   const hasDiff = typeof artifact.addedLines === 'number' || typeof artifact.removedLines === 'number'
                   return (
@@ -420,10 +420,12 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
                       {canPreview ? (
                         <button
                           type="button"
-                          className="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-blue-600 opacity-0 transition-opacity hover:bg-blue-500/10 group-hover:opacity-100 dark:text-blue-400"
+                          className="shrink-0 inline-flex size-5 items-center justify-center text-blue-600 opacity-0 transition-opacity hover:bg-blue-500/10 hover:text-blue-700 group-hover:opacity-100 dark:text-blue-400"
                           onClick={() => onPreviewFile(path)}
+                          aria-label={t('previewArtifact')}
+                          title={t('previewArtifact')}
                         >
-                          {t('openPreview')}
+                          <Eye className="size-3.5" />
                         </button>
                       ) : null}
                       <button
@@ -604,7 +606,16 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
     if (!open) return
     const browserTab = readerTabs.find((tab) => tab.mode === 'browser')
     if (view === 'browser') {
-      if (activeReaderTabId !== browserTab?.id) setActiveReaderTabId(browserTab?.id)
+      // artifact 预览入口只设 view='browser'，但不会创建 browser tab。
+      // inspector 每次 open 重挂载时 readerTabs 会被重置为空，因此首次需要在此补建，
+      // 否则 isBrowserActive 永远为 false，右侧只会渲染文件树而非浏览器预览。
+      if (!browserTab) {
+        const id = readerTabId('browser', '')
+        setReaderTabs((prev) => (prev.some((tab) => tab.id === id) ? prev : [...prev, { id, mode: 'browser', path: '', loading: false }]))
+        setActiveReaderTabId(id)
+        return
+      }
+      if (activeReaderTabId !== browserTab.id) setActiveReaderTabId(browserTab.id)
     } else if (activeReaderTab?.mode === 'browser') {
       setActiveReaderTabId(readerTabs.find((tab) => tab.mode !== 'browser')?.id)
     }

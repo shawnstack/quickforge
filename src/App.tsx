@@ -58,7 +58,7 @@ import { getWorkspaceFile, resolveWorkspacePath } from '@/components/workspace/w
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
-import { findBestPreviewableArtifact, inferArtifactKind, workspaceArtifactDiskPath } from '@/components/workspace/artifact-preview-utils'
+import { findBestPreviewableArtifact, isBrowserPreviewablePath, workspaceArtifactDiskPath } from '@/components/workspace/artifact-preview-utils'
 
 // --- Code-split secondary views (only loaded when first opened) ---
 // These are conditionally-mounted routes/panels; lazy loading keeps heavy
@@ -369,7 +369,7 @@ function MainApp() {
   const openArtifactPreview = useCallback((path: string) => {
     const project = agentManager.currentToolProject
     const projectId = project?.id
-    if (!projectId || inferArtifactKind(path) !== 'html') return
+    if (!projectId || !isBrowserPreviewablePath(path)) return
     closeWorkspacePage()
     setArtifactPreviewOpen(false)
     ui.setWebPreviewUrl(workspaceArtifactDiskPath(project.path, path))
@@ -400,6 +400,18 @@ function MainApp() {
     autoPreviewSignatureRef.current = ''
     setArtifactPreviewOpen(false)
   }, [agentManager.currentToolProject?.id, setArtifactPreviewOpen])
+
+  // 监听工具卡片预览按钮的桥接事件（事件名与 local-tools.ts 的 PREVIEW_ARTIFACT_EVENT 对应），
+  // 转调 openArtifactPreview，复用与自动预览完全一致的逻辑。
+  useEffect(() => {
+    if (!openArtifactPreview) return
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ path?: string }>).detail
+      if (detail && typeof detail.path === 'string') openArtifactPreview(detail.path)
+    }
+    window.addEventListener('quickforge:preview-artifact', handler as EventListener)
+    return () => window.removeEventListener('quickforge:preview-artifact', handler as EventListener)
+  }, [openArtifactPreview])
 
   useEffect(() => {
     const unsubscribe = subscribeToAgentEvents((event) => {

@@ -35,6 +35,15 @@ export function isPreviewablePath(path: string) {
   return inferArtifactKind(path) === 'html'
 }
 
+// 浏览器 iframe 手动预览支持的类型：HTML + 可被 iframe 直接显示的图片。
+// 与 server 的 PREVIEW_ALLOWED_EXTENSIONS 图片子集对齐（注意：不含 .bmp，server 不支持）。
+// 与 isPreviewablePath 区分：后者仅用于"自动预览"判断，保持只 HTML；本函数用于"手动点 eye/文件树预览"。
+const BROWSER_PREVIEWABLE_IMAGE_RE = /\.(svg|png|jpe?g|webp|gif|ico)$/i
+
+export function isBrowserPreviewablePath(path: string) {
+  return inferArtifactKind(path) === 'html' || BROWSER_PREVIEWABLE_IMAGE_RE.test(path)
+}
+
 export function workspaceArtifactDiskPath(workspaceRoot: string | undefined, artifactPath: string) {
   const normalizedArtifactPath = artifactPath.replace(/\\/g, '/')
   if (!workspaceRoot?.trim() || normalizedArtifactPath.startsWith('/') || /^[a-zA-Z]:\//.test(normalizedArtifactPath)) return artifactPath

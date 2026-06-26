@@ -5,6 +5,7 @@ import { t, type AppTextKey } from '@/lib/i18n'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import type { AgentTool } from '@earendil-works/pi-agent-core'
 import { extractQuickForgeTiming, type QuickForgeToolTiming } from '@/lib/tool-execution-events'
+import { isBrowserPreviewablePath } from '@/components/workspace/artifact-preview-utils'
 
 type ToolResultLike = {
   isError?: boolean
@@ -467,6 +468,48 @@ function renderTerminateCommandButton(toolName: string, status: ToolStatusKey, d
   `
 }
 
+// 对话流工具卡片是 Lit 渲染器（React 树之外），无法直接调用 React 的 openArtifactPreview。
+// 通过 window CustomEvent 桥接：点击预览按钮 → 派发事件 → App.tsx 监听 → 复用现有预览逻辑。
+export const PREVIEW_ARTIFACT_EVENT = 'quickforge:preview-artifact'
+
+// 从工具参数中解析出可被浏览器预览的文件路径（若存在）。
+// write_file/edit_file 取单个 path；present_files 从 files 数组中按 defaultPreview 优先、
+// 否则取第一个可预览文件（HTML/图片）。找不到则返回空串（不渲染按钮）。
+function resolvePreviewablePath(toolName: string, params: Record<string, unknown> | undefined): string {
+  if (toolName === 'write_file' || toolName === 'edit_file') {
+    const path = params && 'path' in params && typeof params.path === 'string' ? params.path : ''
+    return path && isBrowserPreviewablePath(path) ? path : ''
+  }
+  if (toolName === 'present_files') {
+    const files = params && Array.isArray(params.files) ? params.files : []
+    const paths = files
+      .map((item) => (typeof item === 'string' ? item : isRecord(item) && typeof item.path === 'string' ? item.path : ''))
+      .filter(Boolean)
+    const defaultPreview = params && typeof params.defaultPreview === 'string' ? params.defaultPreview : ''
+    if (defaultPreview && isBrowserPreviewablePath(defaultPreview)) return defaultPreview
+    return paths.find((p) => isBrowserPreviewablePath(p)) ?? ''
+  }
+  return ''
+}
+
+function renderPreviewButton(toolName: string, params: Record<string, unknown> | undefined) {
+  const path = resolvePreviewablePath(toolName, params)
+  if (!path) return nothing
+  return html`
+    <button
+      type="button"
+      class="shrink-0 inline-flex size-5 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+      title=${t('previewArtifact')}
+      aria-label=${t('previewArtifact')}
+      @click=${(event: Event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        window.dispatchEvent(new CustomEvent(PREVIEW_ARTIFACT_EVENT, { detail: { path } }))
+      }}
+    ><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button>
+  `
+}
+
 function subagentLabel(name: string, details?: unknown) {
   if (isRecord(details) && typeof details.label === 'string' && details.label) return details.label
   if (name === 'general') return t('subagentGeneral')
@@ -628,6 +671,7 @@ class LocalWorkspaceToolRenderer {
             ${renderToolIcon(this.toolName)}
             <span class="min-w-0 flex-1 truncate">${t(this.labelKey)}${summary ? html`<span class="text-muted-foreground/70"> · ${summary}</span>` : ''}</span>
             ${renderInlineDiffStats(this.toolName, diff)}
+            ${renderPreviewButton(this.toolName, params)}
             ${renderTerminateCommandButton(this.toolName, status, result?.details)}
             ${renderStatus(status, timing)}
           </summary>

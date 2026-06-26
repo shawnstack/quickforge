@@ -77,8 +77,11 @@ export function WebPreviewContent({ url, onUrlChange, projectId }: WebPreviewCon
   const [reloadToken, setReloadToken] = useState(0)
   const previewUrl = normalized.url
   const isWorkspacePreview = previewUrl.startsWith('/api/workspace/preview/')
+  // workspace 预览与本体同源，需要 allow-same-origin 让 localStorage/cookie 等基础能力可用，
+  // 否则依赖它们的 SPA 会白屏。权衡：被预览的工作区 HTML 会以本体 origin 运行，理论上能访问本体数据；
+  // QuickForge 是本地工具且预览的是用户自己工作区的文件，信任模型等同于浏览器直接打开项目页面。
   const iframeSandbox = isWorkspacePreview
-    ? 'allow-scripts allow-forms'
+    ? 'allow-scripts allow-same-origin allow-forms'
     : 'allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals allow-pointer-lock'
   const draftUrl = draftState.sourceUrl === url ? draftState.value : normalized.displayUrl
 

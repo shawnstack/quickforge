@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="560" viewBox="0 0 920 560" font-family="'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
+  <rect width="920" height="560" fill="#ffffff"/>
+
+  <!-- 标题 -->
+  <text x="460" y="34" text-anchor="middle" font-size="20" font-weight="700" fill="#0f172a">工具卡片新增「预览」icon 按钮 · 设计方案</text>
+  <text x="460" y="56" text-anchor="middle" font-size="12.5" fill="#64748b">点击重新打开右侧浏览器预览，不依赖一次性自动预览</text>
+
+  <!-- ============ BEFORE ============ -->
+  <text x="40" y="92" font-size="13" font-weight="700" fill="#94a3b8">现状 · write_file 卡片</text>
+  <rect x="40" y="102" width="840" height="58" rx="8" fill="#fafafa" stroke="#e2e8f0" stroke-width="1"/>
+  <!-- 折叠箭头 -->
+  <path d="M58 131 l6 6 6-6" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 工具 icon (绿色, file-plus) -->
+  <g transform="translate(80,121)" stroke="#10b981" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 1H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V5Z"/><path d="M9 1v4h4"/>
+  </g>
+  <!-- 文本 -->
+  <text x="106" y="136" font-size="13" fill="#475569">写入文件</text>
+  <text x="162" y="136" font-size="13" fill="#94a3b8">·</text>
+  <text x="172" y="136" font-size="13" fill="#94a3b8">index.html</text>
+  <!-- diff 徽标 -->
+  <rect x="408" y="122" width="48" height="18" rx="4" fill="#ecfdf5"/>
+  <text x="432" y="135" text-anchor="middle" font-size="11" fill="#10b981" font-weight="600">+12</text>
+  <rect x="462" y="122" width="48" height="18" rx="4" fill="#fef2f2"/>
+  <text x="486" y="135" text-anchor="middle" font-size="11" fill="#ef4444" font-weight="600">-3</text>
+  <!-- 状态 icon (绿色勾) -->
+  <g transform="translate(844,122)" stroke="#10b981" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 6 l2 2 4-4"/>
+  </g>
+  <text x="856" y="135" font-size="11" fill="#94a3b8">0.8s</text>
+
+  <!-- 红色标注：没有预览入口 -->
+  <rect x="540" y="110" width="160" height="42" rx="6" fill="none" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <text x="620" y="102" text-anchor="middle" font-size="11" fill="#dc2626" font-weight="600">⚠ 关掉预览后无法再次打开</text>
+
+  <!-- ============ 箭头分隔 ============ -->
+  <path d="M460 188 v20 m-8-8 l8 8 8-8" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- ============ AFTER ============ -->
+  <text x="40" y="232" font-size="13" font-weight="700" fill="#3b82f6">方案 · 新增预览 icon</text>
+  <rect x="40" y="242" width="840" height="58" rx="8" fill="#f8fafc" stroke="#3b82f6" stroke-width="1.5"/>
+  <!-- 折叠箭头 -->
+  <path d="M58 271 l6 6 6-6" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 工具 icon -->
+  <g transform="translate(80,261)" stroke="#10b981" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 1H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V5Z"/><path d="M9 1v4h4"/>
+  </g>
+  <text x="106" y="276" font-size="13" fill="#475569">写入文件</text>
+  <text x="162" y="276" font-size="13" fill="#94a3b8">·</text>
+  <text x="172" y="276" font-size="13" fill="#94a3b8">index.html</text>
+  <!-- diff 徽标 -->
+  <rect x="408" y="262" width="48" height="18" rx="4" fill="#ecfdf5"/>
+  <text x="432" y="275" text-anchor="middle" font-size="11" fill="#10b981" font-weight="600">+12</text>
+  <rect x="462" y="262" width="48" height="18" rx="4" fill="#fef2f2"/>
+  <text x="486" y="275" text-anchor="middle" font-size="11" fill="#ef4444" font-weight="600">-3</text>
+
+  <!-- ★ 新增预览按钮 (eye icon) ★ -->
+  <rect x="528" y="258" width="32" height="26" rx="6" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.5"/>
+  <g transform="translate(537,268)" stroke="#2563eb" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2 8s3-5 6-5 6 5 6 5-3 5-6 5-6-5-6-5Z"/><circle cx="8" cy="8" r="2"/>
+  </g>
+  <!-- 指引线 -->
+  <line x1="544" y1="256" x2="544" y2="232" stroke="#3b82f6" stroke-width="1" stroke-dasharray="3 2"/>
+  <text x="544" y="226" text-anchor="middle" font-size="11.5" fill="#2563eb" font-weight="600">★ 新增：eye 预览按钮</text>
+
+  <!-- 状态 icon -->
+  <g transform="translate(844,262)" stroke="#10b981" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 6 l2 2 4-4"/>
+  </g>
+  <text x="856" y="275" font-size="11" fill="#94a3b8">0.8s</text>
+
+  <!-- 非HTML不显示按钮 说明 -->
+  <rect x="40" y="316" width="840" height="44" rx="8" fill="#fafafa" stroke="#e2e8f0" stroke-width="1"/>
+  <path d="M58 340 l6 6 6-6" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <g transform="translate(80,330)" stroke="#10b981" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 1H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V5Z"/><path d="M9 1v4h4"/>
+  </g>
+  <text x="106" y="345" font-size="13" fill="#475569">写入文件</text>
+  <text x="162" y="345" font-size="13" fill="#94a3b8">·</text>
+  <text x="172" y="345" font-size="13" fill="#94a3b8">utils.ts</text>
+  <text x="232" y="345" font-size="11.5" fill="#94a3b8" font-style="italic">→ 非 HTML，不显示预览按钮</text>
+
+  <!-- ============ 交互说明 ============ -->
+  <rect x="40" y="384" width="840" height="158" rx="10" fill="#fffbeb" stroke="#f59e0b" stroke-width="1.2"/>
+  <text x="60" y="408" font-size="13" font-weight="700" fill="#92400e">交互与决策</text>
+  <text x="60" y="430" font-size="12" fill="#78350f">▸ <tspan font-weight="600">位置</tspan>：summary 行，diff 徽标之后、状态 icon 之前（与现有 icon 同一视觉轴）</text>
+  <text x="60" y="450" font-size="12" fill="#78350f">▸ <tspan font-weight="600">图标</tspan>：eye（眼睛），语义=「预览」；内联 SVG，14×14，与工具 icon 一致</text>
+  <text x="60" y="470" font-size="12" fill="#78350f">▸ <tspan font-weight="600">显示条件</tspan>：仅当 inferArtifactKind(path)==='html' 时渲染（预览当前只支持 HTML）</text>
+  <text x="60" y="490" font-size="12" fill="#78350f">▸ <tspan font-weight="600">点击</tspan>：stopPropagation（避免折叠卡片）→ dispatch CustomEvent → App.tsx 监听 → openArtifactPreview</text>
+  <text x="60" y="510" font-size="12" fill="#78350f">▸ <tspan font-weight="600">样式</tspan>：遵循 DESIGN_LANGUAGE — 默认 muted 弱化，hover 强化，title+aria-label 保证可访问</text>
+  <text x="60" y="530" font-size="12" fill="#78350f">▸ <tspan font-weight="600">桥接</tspan>：工具卡片是 Lit(React 树外)，用 window CustomEvent 桥接，复用现有预览逻辑，零新增架构</text>
+</svg>

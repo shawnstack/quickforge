@@ -38,6 +38,7 @@ type UseModelActionsOptions = {
   setNeedsModelSetup: React.Dispatch<React.SetStateAction<boolean>>
   setRestoredDraft: React.Dispatch<React.SetStateAction<RestoredDraft | undefined>>
   notifySettingsChanged: () => void
+  setSettingsDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
 }
 
 export function useModelActions({
@@ -51,6 +52,7 @@ export function useModelActions({
   setNeedsModelSetup,
   setRestoredDraft,
   notifySettingsChanged,
+  setSettingsDialogOpen,
 }: UseModelActionsOptions) {
   const activateConfiguredModel = useCallback(async () => {
     const storage = storageRef.current
@@ -92,9 +94,11 @@ export function useModelActions({
   ])
 
   const openSettingsDialog = useCallback((initialTab: 'defaults' | 'customModels') => {
+    setSettingsDialogOpen(true)
     SettingsDialog.open(
       [createLanguageSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab(), createProjectCommandsSettingsTab(), createBackupSettingsTab(), createServiceSettingsTab(), createChannelsSettingsTab(), createLanAccessSettingsTab(), createAboutSettingsTab()],
       () => {
+        setSettingsDialogOpen(false)
         if (needsModelSetup || !agentRef.current) {
           void activateConfiguredModel().catch((error) => logger.error('Failed to activate configured model:', error))
         }
@@ -108,7 +112,7 @@ export function useModelActions({
         dialog.requestUpdate?.()
       }
     }, 0)
-  }, [activateConfiguredModel, needsModelSetup, agentRef])
+  }, [activateConfiguredModel, needsModelSetup, agentRef, setSettingsDialogOpen])
 
   const openModelSettings = useCallback(() => {
     openSettingsDialog('customModels')
@@ -210,7 +214,8 @@ export function useModelActions({
         })
       },
       async (model) => {
-        await SettingsDialog.open([createLanguageSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab(model.provider), createProjectCommandsSettingsTab(), createBackupSettingsTab(), createServiceSettingsTab(), createChannelsSettingsTab(), createLanAccessSettingsTab(), createAboutSettingsTab()])
+        setSettingsDialogOpen(true)
+        await SettingsDialog.open([createLanguageSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab(model.provider), createProjectCommandsSettingsTab(), createBackupSettingsTab(), createServiceSettingsTab(), createChannelsSettingsTab(), createLanAccessSettingsTab(), createAboutSettingsTab()], () => setSettingsDialogOpen(false))
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const dialog = document.querySelector('settings-dialog') as any
         if (dialog) {
@@ -238,6 +243,7 @@ export function useModelActions({
     setChatPanelRevision,
     setRestoredDraft,
     openModelSettings,
+    setSettingsDialogOpen,
   ])
 
   return {

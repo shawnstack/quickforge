@@ -29,6 +29,7 @@ export function useUIState() {
   const [inlineReaderLoading, setInlineReaderLoading] = useState(false)
   const [inlineReaderError, setInlineReaderError] = useState<string>()
   const [firstUseGuideDismissed, setFirstUseGuideDismissed] = useState(false)
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
 
   const toggleProjectsCollapsed = useCallback(() => setProjectsCollapsed(v => !v), [])
   const toggleConversationsCollapsed = useCallback(() => setConversationsCollapsed(v => !v), [])
@@ -53,6 +54,7 @@ export function useUIState() {
     inlineReaderLoading, setInlineReaderLoading,
     inlineReaderError, setInlineReaderError,
     firstUseGuideDismissed, setFirstUseGuideDismissed,
+    settingsDialogOpen, setSettingsDialogOpen,
     toggleProjectsCollapsed,
     toggleConversationsCollapsed,
   } as const

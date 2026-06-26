@@ -637,6 +637,7 @@ function MainApp() {
     setNeedsModelSetup,
     setRestoredDraft,
     notifySettingsChanged: crossTab.notifySettingsChanged,
+    setSettingsDialogOpen: ui.setSettingsDialogOpen,
   })
 
   // --- Derived data ---
@@ -901,6 +902,7 @@ function MainApp() {
 
   return (
     <>
+    {!ui.settingsDialogOpen && (
     <div
       className="fixed right-2 top-2 z-[60] flex items-center gap-1"
       aria-label={t('workspacePanel')}
@@ -934,6 +936,7 @@ function MainApp() {
         <PanelRight className="size-4" />
       </Button>
     </div>
+    )}
     <div className="flex h-screen min-h-0 bg-background text-foreground">
       <ChatSidebar
         sidebarOpen={ui.sidebarOpen}

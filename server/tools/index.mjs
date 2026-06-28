@@ -671,12 +671,15 @@ export async function toolPresentFiles(params, context) {
     seen.add(key)
     const kind = entry.kind || inferPresentedFileKind(relativePath)
     const isDefaultPreview = defaultPreviewInput ? relativePath === defaultPreviewInput.replace(/\\/g, '/') : false
+    // 可自动预览的 kind：HTML（browser iframe）+ Markdown（侧栏 MarkdownReader 渲染）。
+    // 与前端 artifact-preview-utils.ts 的 isPreviewablePath 语义保持一致。
+    const autoPreviewable = kind === 'html' || kind === 'markdown'
     files.push({
       path: relativePath,
       title: entry.title,
       description: entry.description,
       kind,
-      preview: entry.preview ?? (isDefaultPreview || kind === 'html'),
+      preview: entry.preview ?? (isDefaultPreview || autoPreviewable),
       defaultPreview: isDefaultPreview,
       bytes: stat.size,
     })
@@ -688,7 +691,7 @@ export async function toolPresentFiles(params, context) {
     throw error
   }
 
-  const previewed = files.filter((file) => file.preview || file.kind === 'html').map((file) => file.path)
+  const previewed = files.filter((file) => file.preview).map((file) => file.path)
   return {
     content: `Presented ${files.length} file(s)${previewed.length ? ` and opened ${previewed.length} preview(s)` : ''}: ${files.map((file) => file.path).join(', ')}`,
     details: {

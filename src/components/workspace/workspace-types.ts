@@ -3,6 +3,8 @@ export type WorkspacePanelView = 'overview' | 'files' | 'browser' | 'changes'
 export type WorkspaceInspectorFocusTarget = {
   tab: 'files' | 'git'
   nonce: number
+  // 可选：指向需在侧栏打开的具体文件（如自动预览 Markdown 时触发 openFileTab → MarkdownReader 渲染）。
+  filePath?: string
 }
 
 export type WorkspaceTreeNode = {

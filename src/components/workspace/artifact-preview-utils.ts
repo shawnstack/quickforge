@@ -31,13 +31,18 @@ export function inferArtifactKind(path: string): ArtifactKind {
   return 'unknown'
 }
 
+// 「可自动预览」的文件类型：HTML（browser iframe）+ Markdown（侧栏 MarkdownReader 渲染）。
+// 图片/源码等不走自动预览：图片会在文件树里展示缩略，源码默认在编辑器中查看。
+// presentArtifacts 用此函数给缺省 preview 字段兜底；findBestPreviewableArtifact 进一步在这些可预览项里选首个。
 export function isPreviewablePath(path: string) {
-  return inferArtifactKind(path) === 'html'
+  const kind = inferArtifactKind(path)
+  return kind === 'html' || kind === 'markdown'
 }
 
 // 浏览器 iframe 手动预览支持的类型：HTML + 可被 iframe 直接显示的图片。
 // 与 server 的 PREVIEW_ALLOWED_EXTENSIONS 图片子集对齐（注意：不含 .bmp，server 不支持）。
 // 与 isPreviewablePath 区分：后者仅用于"自动预览"判断，保持只 HTML；本函数用于"手动点 eye/文件树预览"。
+// 注意：Markdown 不在此列 —— md 在侧栏通过 MarkdownReader 渲染阅读（openFileTab），不走 browser iframe（那只会显示源码）。
 const BROWSER_PREVIEWABLE_IMAGE_RE = /\.(svg|png|jpe?g|webp|gif|ico)$/i
 
 export function isBrowserPreviewablePath(path: string) {
@@ -127,6 +132,30 @@ export function presentArtifacts(artifacts: AiTurnArtifact[]): PresentedArtifact
   return [...byPath.values()].sort((left, right) => artifactSortScore(left) - artifactSortScore(right))
 }
 
-export function findBestPreviewableArtifact(artifacts: AiTurnArtifact[]) {
-  return presentArtifacts(artifacts).find((artifact) => artifact.kind === 'html' && artifact.preview)
+// 自动预览候选：HTML 走 browser iframe，Markdown 走侧栏 MarkdownReader 渲染（openFileTab）。
+// 两者都可在 AI 写完后自动打开，由调用方（App.tsx 自动预览副作用）按 kind 决定渲染方式。
+// 注意：按「最近一次工具调用」选取 —— 原始 artifacts 数组按时序排列，取最后一个满足条件的，
+// 避免旧的同分 artifact（如 README.md）永远排在前面、挡住新 present 的文件。
+export function findBestPreviewableArtifact(artifacts: AiTurnArtifact[]): PresentedArtifact | undefined {
+  const candidates = presentArtifacts(artifacts).filter((artifact) =>
+    (artifact.kind === 'html' || artifact.kind === 'markdown') && artifact.preview,
+  )
+  if (candidates.length <= 1) return candidates[0]
+  // 多个候选时，按各自最新的 toolCallId 在原始 artifacts 中的出现位置排序，取最新的。
+  // toolCallId 出现越靠后 = 越新的工具调用，应优先自动预览。
+  const orderOfToolCall = new Map<string, number>()
+  for (let i = 0; i < artifacts.length; i++) {
+    const tcid = artifacts[i]?.toolCallId
+    if (tcid) orderOfToolCall.set(tcid, i)
+  }
+  const latestIndex = (artifact: PresentedArtifact): number => {
+    const ids = artifact.toolCallIds
+    let max = -1
+    for (const id of ids) {
+      const pos = orderOfToolCall.get(id)
+      if (typeof pos === 'number' && pos > max) max = pos
+    }
+    return max
+  }
+  return [...candidates].sort((a, b) => latestIndex(b) - latestIndex(a))[0]
 }

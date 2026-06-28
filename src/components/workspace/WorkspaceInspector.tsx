@@ -517,6 +517,11 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
   const resizeFrameRef = useRef<number | null>(null)
   const fullscreenAnimationRef = useRef<Animation | null>(null)
   const previousBodyStyleRef = useRef<{ cursor: string; userSelect: string } | null>(null)
+  // openFileTab 依赖 readerTabs 等渲染期状态，用 ref 持有最新引用，供 focusTarget 副作用安全调用。
+  const openFileTabRef = useRef<((path: string) => void) | undefined>(undefined)
+  // 记录上次的 projectId，让 tabs 清空副作用只在「项目真正切换」时清空，跳过首次 mount，
+  // 避免 mount 时清空 microtask 与自动预览 openFileTab 的 microtask 竞态（后者创建的 tab 会被前者清掉）。
+  const prevProjectIdForTabsRef = useRef<string | undefined>(undefined)
 
   const projectId = project?.id
   const activeReaderTab = useMemo(
@@ -598,6 +603,8 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
     queueMicrotask(() => {
       if (disposed) return
       onViewChange(focusTarget.tab === 'git' ? 'changes' : 'files')
+      // 自动预览 Markdown：触发 openFileTab → InlineReader → MarkdownReader 渲染。
+      if (focusTarget.filePath) void openFileTabRef.current?.(focusTarget.filePath)
     })
     return () => { disposed = true }
   }, [focusTarget, onViewChange, open])
@@ -672,10 +679,13 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
   }, [open, projectId])
 
   useEffect(() => {
-    queueMicrotask(() => {
-      setReaderTabs([])
-      setActiveReaderTabId(undefined)
-    })
+    const prevId = prevProjectIdForTabsRef.current
+    prevProjectIdForTabsRef.current = projectId
+    // 首次 mount 时 tabs 本就为空，无需清空；否则清空 microtask 会晚于自动预览的 openFileTab 执行，
+    // 把刚创建的 tab 清掉。仅当项目真正切换（prevId 有值且变化）时才清空旧 tab。
+    if (prevId === undefined || prevId === projectId) return
+    setReaderTabs([])
+    setActiveReaderTabId(undefined)
   }, [projectId])
 
   function selectPreviewFile(path: string) {
@@ -704,6 +714,8 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
       setReaderTabs((prev) => prev.map((tab) => tab.id === id ? { ...tab, loading: false, error: err instanceof Error ? err.message : t('workspaceOpenFileFailed') } : tab))
     }
   }
+  // 每次渲染刷新 ref，使 focusTarget 副作用总能调用到持有最新 readerTabs 闭包的 openFileTab。
+  openFileTabRef.current = openFileTab
 
   function openBrowserTab() {
     const id = readerTabId('browser', '')

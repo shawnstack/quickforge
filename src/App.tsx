@@ -383,15 +383,24 @@ function MainApp() {
     if (!projectId) return
     const artifact = findBestPreviewableArtifact(currentSessionArtifacts)
     if (!artifact?.path) return
-    const signature = `${projectId}:${artifact.path}:${artifact.defaultPreview ? 'default' : artifact.explicit ? 'explicit' : 'inferred'}`
+    // 签名纳入最新 toolCallId：同一次 present_files/write_file 的重复更新（同 toolCallId）被去重，
+    // 但新的工具调用（新 toolCallId）能正常触发，避免「再次 present 同一文件」被永远拦截。
+    const lastToolCallId = artifact.toolCallIds[artifact.toolCallIds.length - 1]
+    const signature = `${projectId}:${artifact.path}:${artifact.defaultPreview ? 'default' : artifact.explicit ? 'explicit' : 'inferred'}:${lastToolCallId ?? ''}`
     if (signature === autoPreviewSignatureRef.current) return
     if (workspaceInspectorOpen && !artifact.explicit) return
     autoPreviewSignatureRef.current = signature
     queueMicrotask(() => {
       closeWorkspacePage()
       setArtifactPreviewOpen(false)
-      ui.setWebPreviewUrl(workspaceArtifactDiskPath(project.path, artifact.path))
-      ui.setWorkspacePanelView('browser')
+      if (artifact.kind === 'markdown') {
+        // Markdown 走侧栏 MarkdownReader 渲染（openFileTab），不走 browser iframe（那只会显示源码）。
+        ui.setWorkspacePanelView('files')
+        ui.setWorkspaceInspectorFocusTarget({ tab: 'files', filePath: artifact.path, nonce: Date.now() })
+      } else {
+        ui.setWebPreviewUrl(workspaceArtifactDiskPath(project.path, artifact.path))
+        ui.setWorkspacePanelView('browser')
+      }
       setWorkspaceInspectorOpen(true)
     })
   }, [agentManager.currentToolProject, closeWorkspacePage, currentSessionArtifacts, setArtifactPreviewOpen, setWorkspaceInspectorOpen, ui, workspaceInspectorOpen])

@@ -60,6 +60,7 @@ class AppearanceSettingsTab extends SettingsTab {
   private loading = true
   private fontSizeSaved = false
   private error = ''
+  private fontSizePreviewTimer: ReturnType<typeof setTimeout> | null = null
 
   override getTabName(): string {
     return t('appearance')
@@ -68,6 +69,14 @@ class AppearanceSettingsTab extends SettingsTab {
   override async connectedCallback() {
     super.connectedCallback()
     await this.loadSettings()
+  }
+
+  override disconnectedCallback() {
+    super.disconnectedCallback()
+    if (this.fontSizePreviewTimer) {
+      clearTimeout(this.fontSizePreviewTimer)
+      this.fontSizePreviewTimer = null
+    }
   }
 
   private async loadSettings() {
@@ -167,25 +176,35 @@ class AppearanceSettingsTab extends SettingsTab {
   }
 
   // Advanced font size: preview live on input, persist on explicit save.
+  // The numeric value updates instantly (keeps the input responsive), but the
+  // expensive live preview — applying global CSS variables (forced reflow) plus
+  // a re-render — is debounced so rapid typing doesn't trigger a layout storm
+  // on every keystroke. Final value & explicit save are unaffected.
+  private scheduleFontSizePreview() {
+    if (this.fontSizePreviewTimer) clearTimeout(this.fontSizePreviewTimer)
+    this.fontSizePreviewTimer = setTimeout(() => {
+      this.fontSizePreviewTimer = null
+      applyFontSizeSettings(this.currentFontSizeSettings())
+      this.requestUpdate()
+    }, 120)
+  }
+
   private updateBaseFontSize(value: string) {
     this.baseFontSizePx = Number(value) || DEFAULT_FONT_SIZE_SETTINGS.baseFontSizePx
-    applyFontSizeSettings(this.currentFontSizeSettings())
     this.fontSizeSaved = false
-    this.requestUpdate()
+    this.scheduleFontSizePreview()
   }
 
   private updateBodyFontSize(value: string) {
     this.bodyFontSizePx = Number(value) || DEFAULT_FONT_SIZE_SETTINGS.bodyFontSizePx
-    applyFontSizeSettings(this.currentFontSizeSettings())
     this.fontSizeSaved = false
-    this.requestUpdate()
+    this.scheduleFontSizePreview()
   }
 
   private updateMessageFontSize(value: string) {
     this.messageFontSizePx = Number(value) || DEFAULT_FONT_SIZE_SETTINGS.messageFontSizePx
-    applyFontSizeSettings(this.currentFontSizeSettings())
     this.fontSizeSaved = false
-    this.requestUpdate()
+    this.scheduleFontSizePreview()
   }
 
   private async saveFontSize() {

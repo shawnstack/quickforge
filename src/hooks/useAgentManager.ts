@@ -61,7 +61,7 @@ export interface AgentManager {
   createAgent: (
     initialState?: Partial<AgentState> & { contextCompaction?: ServerAgentContextCompaction | null },
     sessionId?: string,
-    options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string; accessMode?: AgentAccessMode; yoloMode?: boolean },
+    options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string; accessMode?: AgentAccessMode; yoloMode?: boolean; refreshSessions?: boolean },
   ) => Promise<ServerAgent>
   startDeferredSession: (options: { scope: ChatScope; project?: ProjectInfo }) => Promise<DeferredSessionAgent>
   loadSession: (
@@ -182,7 +182,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     async (
       initialState?: Partial<AgentState> & { contextCompaction?: ServerAgentContextCompaction | null },
       sessionId: string = randomId(),
-      options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string; accessMode?: AgentAccessMode; yoloMode?: boolean },
+      options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string; accessMode?: AgentAccessMode; yoloMode?: boolean; refreshSessions?: boolean },
     ) => {
       const previousAgent = agentRef.current
       const existingTask = taskMapRef.current.get(sessionId)
@@ -328,7 +328,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
         else if (agentRef.current === previousAgent) disposeDetachedAgent(previousAgent, task.agent)
         attachTaskToView(task)
       }
-      if (nextAgent.state.messages.length > 0) {
+      if (options?.refreshSessions !== false && nextAgent.state.messages.length > 0) {
         await refreshSessions({ broadcast: true })
       }
       return nextAgent
@@ -449,6 +449,10 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
           createdAt: session.createdAt ?? hints?.createdAt,
           title: session.title ?? hints?.title,
           accessMode: normalizeAgentAccessMode(session.accessMode, session.yoloMode),
+          // The session already exists in the sidebar list; loading it doesn't
+          // change its metadata, so a full list refresh is unnecessary and only
+          // triggers a wasteful re-render storm when switching sessions.
+          refreshSessions: false,
         },
       )
     },

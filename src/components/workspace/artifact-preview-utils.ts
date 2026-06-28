@@ -31,12 +31,12 @@ export function inferArtifactKind(path: string): ArtifactKind {
   return 'unknown'
 }
 
-// 「可自动预览」的文件类型：HTML（browser iframe）+ Markdown（侧栏 MarkdownReader 渲染）。
-// 图片/源码等不走自动预览：图片会在文件树里展示缩略，源码默认在编辑器中查看。
-// presentArtifacts 用此函数给缺省 preview 字段兜底；findBestPreviewableArtifact 进一步在这些可预览项里选首个。
+// 「可自动预览」的文件类型：所有已知 kind（html/image/markdown/code）均自动预览。
+// 调用 present_files / write_file 等工具后即自动在侧栏打开 tab，渲染路径由调用方按 kind 决定。
+// presentArtifacts 用此函数给缺省 preview 字段兜底；findBestPreviewableArtifact 进一步选取最新预览项。
 export function isPreviewablePath(path: string) {
   const kind = inferArtifactKind(path)
-  return kind === 'html' || kind === 'markdown'
+  return kind !== 'unknown'
 }
 
 // 浏览器 iframe 手动预览支持的类型：HTML + 可被 iframe 直接显示的图片。
@@ -132,14 +132,13 @@ export function presentArtifacts(artifacts: AiTurnArtifact[]): PresentedArtifact
   return [...byPath.values()].sort((left, right) => artifactSortScore(left) - artifactSortScore(right))
 }
 
-// 自动预览候选：HTML 走 browser iframe，Markdown 走侧栏 MarkdownReader 渲染（openFileTab）。
-// 两者都可在 AI 写完后自动打开，由调用方（App.tsx 自动预览副作用）按 kind 决定渲染方式。
+// 自动预览候选：所有 preview=true 的 artifact 均可自动打开，不再限制格式。
+// 渲染路径由调用方（App.tsx 自动预览副作用）按 kind 决定：
+//   html/image → browser iframe；markdown/code → 侧栏 openFileTab（MarkdownReader / MonacoCodeViewer）。
 // 注意：按「最近一次工具调用」选取 —— 原始 artifacts 数组按时序排列，取最后一个满足条件的，
 // 避免旧的同分 artifact（如 README.md）永远排在前面、挡住新 present 的文件。
 export function findBestPreviewableArtifact(artifacts: AiTurnArtifact[]): PresentedArtifact | undefined {
-  const candidates = presentArtifacts(artifacts).filter((artifact) =>
-    (artifact.kind === 'html' || artifact.kind === 'markdown') && artifact.preview,
-  )
+  const candidates = presentArtifacts(artifacts).filter((artifact) => artifact.preview)
   if (candidates.length <= 1) return candidates[0]
   // 多个候选时，按各自最新的 toolCallId 在原始 artifacts 中的出现位置排序，取最新的。
   // toolCallId 出现越靠后 = 越新的工具调用，应优先自动预览。

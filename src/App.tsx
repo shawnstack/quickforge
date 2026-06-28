@@ -393,11 +393,14 @@ function MainApp() {
     queueMicrotask(() => {
       closeWorkspacePage()
       setArtifactPreviewOpen(false)
-      if (artifact.kind === 'markdown') {
-        // Markdown 走侧栏 MarkdownReader 渲染（openFileTab），不走 browser iframe（那只会显示源码）。
+      if (artifact.kind === 'markdown' || artifact.kind === 'code') {
+        // markdown/code 走侧栏 reader 渲染（openFileTab）：
+        // markdown → MarkdownReader 富文本；code → MonacoCodeViewer 语法高亮。
+        // 不走 browser iframe：iframe 加载这些类型只会显示源码或触发下载。
         ui.setWorkspacePanelView('files')
         ui.setWorkspaceInspectorFocusTarget({ tab: 'files', filePath: artifact.path, nonce: Date.now() })
       } else {
+        // html/image 走 browser iframe：html 渲染交互页，image（含 svg/png/jpg…）直接显示。
         ui.setWebPreviewUrl(workspaceArtifactDiskPath(project.path, artifact.path))
         ui.setWorkspacePanelView('browser')
       }

@@ -671,9 +671,9 @@ export async function toolPresentFiles(params, context) {
     seen.add(key)
     const kind = entry.kind || inferPresentedFileKind(relativePath)
     const isDefaultPreview = defaultPreviewInput ? relativePath === defaultPreviewInput.replace(/\\/g, '/') : false
-    // 可自动预览的 kind：HTML（browser iframe）+ Markdown（侧栏 MarkdownReader 渲染）。
-    // 与前端 artifact-preview-utils.ts 的 isPreviewablePath 语义保持一致。
-    const autoPreviewable = kind === 'html' || kind === 'markdown'
+    // 所有已知 kind 均自动预览（与前端 isPreviewablePath 语义一致）：调用 present_files 即自动打开 tab。
+    // 渲染路径由前端按 kind 决定：html/image → browser iframe；markdown/code → 侧栏渲染。
+    const autoPreviewable = kind !== 'unknown'
     files.push({
       path: relativePath,
       title: entry.title,

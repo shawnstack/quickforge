@@ -1,4 +1,5 @@
 import { t } from '@/lib/i18n'
+import { FileIcon } from './file-icon'
 import type { GitChangedFile, GitFileStatus } from './workspace-types'
 
 type WorkspaceChangesListProps = {
@@ -38,6 +39,7 @@ export function WorkspaceChangesList({ files, selectedPath, onSelectFile, emptyM
             title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
           >
             <span className={`w-4 shrink-0 font-mono text-[0.68rem] font-semibold ${meta.className}`}>{meta.label}</span>
+            <FileIcon path={file.path} className="size-3.5 shrink-0" />
             <span className="min-w-0 flex-1 truncate">{file.path}</span>
             {typeof file.additions === 'number' && typeof file.deletions === 'number' ? (
               <span className="shrink-0 font-mono text-[10px] font-medium">

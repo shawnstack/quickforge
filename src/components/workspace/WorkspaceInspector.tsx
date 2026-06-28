@@ -1102,7 +1102,7 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
                             className="min-w-0 flex-1 bg-transparent text-xs text-foreground/85 outline-none placeholder:text-muted-foreground/50"
                           />
                         </label>
-                        <WorkspaceFileTree tree={filteredTree} selectedPath={undefined} gitStatuses={gitStatuses} onSelectFile={openFileTab} />
+                        <WorkspaceFileTree tree={filteredTree} selectedPath={undefined} gitStatuses={gitStatuses} onSelectFile={openFileTab} onPreviewFile={selectPreviewFile} projectId={projectId} />
                       </>
                     ) : null}
                     {!loading && navView === 'changes' ? (

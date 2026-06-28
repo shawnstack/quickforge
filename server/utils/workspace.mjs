@@ -76,7 +76,7 @@ async function realpathNearestExistingParent(inputPath) {
 }
 
 export async function assertSafeWorkspacePath(fullPath, context, options = {}) {
-  if (isSensitiveWorkspacePath(fullPath, context)) {
+  if (!options.allowSensitive && isSensitiveWorkspacePath(fullPath, context)) {
     const error = new Error(`Access to sensitive path is blocked: ${toWorkspaceRelative(fullPath, context)}`)
     error.statusCode = 403
     throw error

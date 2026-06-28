@@ -198,6 +198,9 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       const project = scope === 'project'
         ? (options?.project ?? activeProjectRef.current)
         : (options?.project ?? defaultWorkspaceRef.current)
+      if (scope === 'project' && !project?.id) {
+        throw new Error('Cannot create project chat without an active project.')
+      }
       const startedAt = new Date().toISOString()
 
       const {

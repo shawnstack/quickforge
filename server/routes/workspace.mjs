@@ -5,17 +5,15 @@ import { sendJson, readJsonBody } from '../utils/response.mjs'
 import { projectContextFromId } from '../project-config.mjs'
 import {
   assertSafeWorkspacePath,
-  isSensitiveWorkspacePath,
   resolveWorkspacePath,
-  shouldSearchFile,
   toWorkspaceRelative,
 } from '../utils/workspace.mjs'
 
-const MAX_PREVIEW_BYTES = 1024 * 1024
-const MAX_STATIC_PREVIEW_BYTES = 10 * 1024 * 1024
+const MAX_PREVIEW_BYTES = 50 * 1024 * 1024
+const MAX_STATIC_PREVIEW_BYTES = 50 * 1024 * 1024
 const PREVIEW_ALLOWED_EXTENSIONS = new Set(['.html', '.htm', '.css', '.js', '.mjs', '.json', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.ico', '.txt', '.md'])
-const MAX_TREE_NODES = 5000
-const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'dist-ssr', 'package-dist', 'package-offline', '.vite', 'coverage'])
+const MAX_TREE_NODES = 50000
+const SKIP_DIRS = new Set(['.git', 'node_modules'])
 
 const extensionLanguageMap = new Map([
   ['ts', 'typescript'], ['tsx', 'typescript'], ['js', 'javascript'], ['jsx', 'javascript'],
@@ -56,14 +54,6 @@ function previewContentType(filePath) {
     '.md': 'text/markdown; charset=utf-8',
   }
   return map[ext] || 'application/octet-stream'
-}
-
-function isBinaryBuffer(buffer) {
-  const length = Math.min(buffer.length, 8000)
-  for (let index = 0; index < length; index += 1) {
-    if (buffer[index] === 0) return true
-  }
-  return false
 }
 
 async function projectContextFromUrl(url) {
@@ -248,7 +238,7 @@ async function readGitFile(workspaceRoot, ref, relativePath) {
 
 async function readWorkspaceTextFile(context, relativePath) {
   const file = resolveWorkspacePath(relativePath, context)
-  await assertSafeWorkspacePath(file, context)
+  await assertSafeWorkspacePath(file, context, { allowSensitive: true })
   const stat = await fs.stat(file)
   if (!stat.isFile()) {
     const error = new Error('Path is not a file')
@@ -261,11 +251,6 @@ async function readWorkspaceTextFile(context, relativePath) {
     throw error
   }
   const buffer = await fs.readFile(file)
-  if (isBinaryBuffer(buffer)) {
-    const error = new Error('Binary file cannot be previewed')
-    error.statusCode = 415
-    throw error
-  }
   return { content: buffer.toString('utf8'), size: stat.size, path: toWorkspaceRelative(file, context) }
 }
 
@@ -282,9 +267,9 @@ async function buildTreeForDirectory(dir, context, counter) {
     const fullPath = path.join(dir, entry.name)
     const relativePath = toWorkspaceRelative(fullPath, context)
     if (entry.isDirectory()) {
-      if (SKIP_DIRS.has(entry.name) || isSensitiveWorkspacePath(fullPath, context)) continue
+      if (SKIP_DIRS.has(entry.name)) continue
       try {
-        await assertSafeWorkspacePath(fullPath, context)
+        await assertSafeWorkspacePath(fullPath, context, { allowSensitive: true })
         counter.count += 1
         nodes.push({
           name: entry.name,
@@ -296,9 +281,8 @@ async function buildTreeForDirectory(dir, context, counter) {
         // Skip directories that cannot be safely resolved.
       }
     } else if (entry.isFile()) {
-      if (!shouldSearchFile(entry.name) || isSensitiveWorkspacePath(fullPath, context)) continue
       try {
-        await assertSafeWorkspacePath(fullPath, context)
+        await assertSafeWorkspacePath(fullPath, context, { allowSensitive: true })
         counter.count += 1
         nodes.push({ name: entry.name, path: relativePath, type: 'file' })
       } catch {

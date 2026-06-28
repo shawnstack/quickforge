@@ -833,8 +833,8 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
     error.statusCode = 400
     throw error
   }
-  if (!parentSession.projectId || !parentSession.projectContext) {
-    throw new Error('Subagents require an active project workspace.')
+  if (!parentSession.projectContext?.workspaceRoot) {
+    throw new Error('Subagents require an active workspace.')
   }
   if (!parentSession.model) {
     throw new Error('No active model is configured for the parent session.')

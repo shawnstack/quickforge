@@ -12,6 +12,7 @@ dist
 dist-ssr
 package-dist
 package-offline
+.agentbridge
 *.tgz
 *.local
 .env

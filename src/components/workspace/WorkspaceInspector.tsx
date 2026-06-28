@@ -469,7 +469,7 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
                             <span className="min-w-0 flex-1 truncate font-mono">{artifact.command}</span>
                           </button>
                           {expanded ? (
-                            <div className="space-y-1 border-t border-border/30 px-2 py-2">
+                            <div className="space-y-1 px-2 pb-2 pt-1.5">
                               <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-foreground/80">{artifact.command}</pre>
                               {artifact.outputFile ? <div className="text-[10px] text-muted-foreground/65">{t('workspaceCommandOutput')}: <span className="font-mono">{artifact.outputFile}</span></div> : null}
                             </div>

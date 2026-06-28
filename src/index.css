@@ -462,6 +462,14 @@ user-message .user-message-container,
   display: none;
 }
 
+.quickforge-channel-logs-summary {
+  list-style: none;
+}
+
+.quickforge-channel-logs-summary::-webkit-details-marker {
+  display: none;
+}
+
 .quickforge-context-compaction-line {
   height: 1px;
   flex: 1 1 0;

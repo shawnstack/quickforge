@@ -412,8 +412,8 @@ class ChannelsSettingsTab extends SettingsTab {
     const logs = channel.logs || []
     return html`
       <details class="mt-4 rounded-lg border border-border bg-muted/10" open>
-        <summary class="cursor-pointer px-3 py-2 text-sm font-medium text-foreground">${t('channelRecentLogs')}</summary>
-        <div class="max-h-72 overflow-auto border-t border-border/60 p-3 font-mono text-xs leading-5">
+        <summary class="quickforge-channel-logs-summary cursor-pointer px-3 py-2 text-sm font-medium text-foreground">${t('channelRecentLogs')}</summary>
+        <div class="max-h-72 overflow-auto p-3 font-mono text-xs leading-5">
           ${logs.length
             ? logs.slice(-80).map((log) => html`
               <div class="grid gap-1 py-0.5 sm:grid-cols-[72px_56px_1fr]">

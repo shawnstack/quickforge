@@ -619,7 +619,7 @@ class SubagentToolRenderer {
               ${expectedOutput ? html`<div class="mt-1 text-xs text-muted-foreground/70"><span class="font-medium">${t('subagentExpectedOutput')}:</span> ${expectedOutput}</div>` : nothing}
               ${allowedTools.length > 0 ? html`<div class="mt-2 flex flex-wrap gap-1.5">${allowedTools.map((tool) => html`<span class="rounded-full bg-background/80 px-2 py-0.5 text-[11px] text-muted-foreground/80">${tool}</span>`)}</div>` : nothing}
             </div>` : nothing}
-            ${visibleTraceMessages.length > 0 ? html`<div class="quickforge-subagent-trace rounded-lg border border-border/70 bg-background/60 p-2.5"><message-list .messages=${visibleTraceMessages} .tools=${traceTools} .pendingToolCalls=${pendingToolCalls} .isStreaming=${status === 'running'}></message-list></div>` : nothing}
+            ${visibleTraceMessages.length > 0 ? html`<div class="quickforge-subagent-trace rounded-lg border border-border bg-background/60 p-2.5"><message-list .messages=${visibleTraceMessages} .tools=${traceTools} .pendingToolCalls=${pendingToolCalls} .isStreaming=${status === 'running'}></message-list></div>` : nothing}
             ${output ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('subagentResult')}</div><code-block .code=${output} language="text"></code-block></div>` : nothing}
             ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : nothing}
             ${detailJson ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('details')}</div><code-block .code=${detailJson} language="json"></code-block></div>` : nothing}

@@ -2,6 +2,35 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.5.1] - 2026-06-29
+
+### Added
+
+- Added a background update checker that runs asynchronously on startup, surfaces an update reminder in the lower-left corner, and lets you configure the update check frequency on the About settings page.
+- Added image thumbnails, a preview entry, and file-type icons across the workspace file tree and changes list.
+- Added automatic file preview: invoking `present_files` opens the preview pane without format restrictions, and Markdown artifacts render as preview tabs in the sidebar.
+- Added an appearance settings panel with theme and font size options.
+- Relaxed subagent workspace requirements and expanded file preview limits.
+
+### Changed
+
+- Improved responsiveness by skipping redundant list refreshes when switching sessions and debouncing font-size preview updates.
+- Removed stray dark divider lines in the overview command and the channel log expansion for visual consistency.
+
+### Fixed
+
+- Hid the upper-right console and workspace icons when opening the settings dialog.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.5.1` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.5.1.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.5.1.tgz
+  ```
+
 ## [1.5.0] - 2026-06-26
 
 ### Added

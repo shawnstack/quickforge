@@ -7,7 +7,7 @@ import {
   nextWeeklyRun,
   normalizeExecutionMode,
   parseExecuteTime,
-} from '../../server/routes/scheduled-tasks.mjs'
+} from '../../server/utils/scheduled-tasks.mjs'
 
 function parts(date) {
   return {

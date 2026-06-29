@@ -24,7 +24,7 @@ function executionModeFor(task) {
   return task?.executionMode === 'parallel' ? 'parallel' : 'serial'
 }
 
-function normalizeExecutionMode(value) {
+export function normalizeExecutionMode(value) {
   if (value === undefined || value === null || value === '') return 'serial'
   const mode = String(value)
   if (mode === 'serial' || mode === 'parallel') return mode
@@ -98,7 +98,7 @@ function nonEmptyString(value, fieldName) {
   return text
 }
 
-function parseExecuteTime(value) {
+export function parseExecuteTime(value) {
   const text = String(value ?? '').trim()
   const match = text.match(/^(\d{1,2}):(\d{2})$/)
   if (!match) throw requestError('executeTime must use HH:mm format')
@@ -123,13 +123,13 @@ function parseDateTime(value, fieldName) {
   return date
 }
 
-function nextDailyRun(executeTime, base = new Date()) {
+export function nextDailyRun(executeTime, base = new Date()) {
   const next = dateWithTime(base, executeTime)
   if (next.getTime() <= base.getTime()) next.setDate(next.getDate() + 1)
   return next
 }
 
-function nextWeeklyRun(weekDay, executeTime, base = new Date()) {
+export function nextWeeklyRun(weekDay, executeTime, base = new Date()) {
   const targetDay = Number(weekDay)
   if (!Number.isInteger(targetDay) || targetDay < 0 || targetDay > 6) {
     throw requestError('weekDay must be between 0 and 6')
@@ -151,7 +151,7 @@ function monthlyCandidate(year, month, monthDay, executeTime) {
   return new Date(year, month, Math.min(targetDay, lastDay), hours, minutes, 0, 0)
 }
 
-function nextMonthlyRun(monthDay, executeTime, base = new Date()) {
+export function nextMonthlyRun(monthDay, executeTime, base = new Date()) {
   let next = monthlyCandidate(base.getFullYear(), base.getMonth(), monthDay, executeTime)
   if (next.getTime() <= base.getTime()) {
     next = monthlyCandidate(base.getFullYear(), base.getMonth() + 1, monthDay, executeTime)
@@ -185,7 +185,7 @@ function parseCronField(field, min, max) {
   return { any: false, values: [...values] }
 }
 
-function cronMatches(date, cronExpression) {
+export function cronMatches(date, cronExpression) {
   const fields = String(cronExpression || '').trim().split(/\s+/)
   if (fields.length !== 5) return false
   const checks = [
@@ -198,7 +198,7 @@ function cronMatches(date, cronExpression) {
   return checks.every(([value, rule]) => rule.any || rule.values.includes(value))
 }
 
-function nextCronRun(cronExpression, base = new Date()) {
+export function nextCronRun(cronExpression, base = new Date()) {
   const cursor = new Date(base.getTime() + minuteMs)
   cursor.setSeconds(0, 0)
   const maxChecks = 366 * 24 * 60

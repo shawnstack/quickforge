@@ -115,6 +115,7 @@ const dayMs = 24 * hourMs
 const weekMs = 7 * dayMs
 const yearMs = 365 * dayMs
 const deleteSessionFadeMs = 360
+const sessionHoverTipDelayMs = 300
 const projectMenuWidth = 192
 const projectMenuHeight = 120
 
@@ -251,6 +252,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   const [hoveredSessionTip, setHoveredSessionTip] = useState<{ sessionId: string; x: number; y: number } | null>(null)
   const deleteAnimationTimeoutRef = useRef<number | null>(null)
   const projectDeleteAnimationTimeoutRef = useRef<number | null>(null)
+  const hoverTipTimerRef = useRef<number | null>(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -299,16 +301,26 @@ export const ChatSidebar = memo(function ChatSidebar({
     setSearchOpen(false)
     setSearchQuery('')
   }
+  const clearHoverTipTimer = () => {
+    if (hoverTipTimerRef.current !== null) {
+      window.clearTimeout(hoverTipTimerRef.current)
+      hoverTipTimerRef.current = null
+    }
+  }
   const showSessionHoverTip = (event: React.MouseEvent<HTMLElement>, sessionId: string) => {
     if (isMobile) return
+    // 同步读取位置：React 合成事件进入异步回调后 currentTarget 会被回收为 null
     const rect = event.currentTarget.getBoundingClientRect()
-    setHoveredSessionTip({
-      sessionId,
-      x: Math.max(8, Math.min(rect.right + 8, window.innerWidth - 392)),
-      y: rect.top + rect.height / 2,
-    })
+    const x = Math.max(8, Math.min(rect.right + 8, window.innerWidth - 392))
+    const y = rect.top + rect.height / 2
+    clearHoverTipTimer()
+    hoverTipTimerRef.current = window.setTimeout(() => {
+      hoverTipTimerRef.current = null
+      setHoveredSessionTip({ sessionId, x, y })
+    }, sessionHoverTipDelayMs)
   }
   const hideSessionHoverTip = (sessionId: string) => {
+    clearHoverTipTimer()
     setHoveredSessionTip((current) => current?.sessionId === sessionId ? null : current)
   }
   const openProjectMenu = (event: React.MouseEvent<HTMLButtonElement>, projectId: string) => {
@@ -384,6 +396,9 @@ export const ChatSidebar = memo(function ChatSidebar({
     }
     if (projectDeleteAnimationTimeoutRef.current !== null) {
       window.clearTimeout(projectDeleteAnimationTimeoutRef.current)
+    }
+    if (hoverTipTimerRef.current !== null) {
+      window.clearTimeout(hoverTipTimerRef.current)
     }
   }, [])
 

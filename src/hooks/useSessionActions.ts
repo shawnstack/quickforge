@@ -68,14 +68,23 @@ export function useSessionActions({
     await refreshSessions({ broadcast: true })
   }, [refreshSessions, storageRef])
 
-  const deleteSession = useCallback(async (sessionId: string) => {
+  const archiveSession = useCallback(async (sessionId: string) => {
     const storage = storageRef.current
     if (!storage) return
     const task = taskMapRef.current.get(sessionId)
     task?.unsubscribe()
     task?.agent.dispose()
     taskMapRef.current.delete(sessionId)
-    await storage.sessions.delete(sessionId)
+
+    const session = await storage.sessions.get(sessionId) as QuickForgeSessionData | null
+    if (!session) return
+    const metadata = await storage.sessions.getMetadata(sessionId) as QuickForgeSessionMetadata | null
+    if (!metadata) return
+
+    const archivedAt = new Date().toISOString()
+    const nextSession: QuickForgeSessionData = { ...session, archivedAt }
+    const nextMetadata: QuickForgeSessionMetadata = { ...metadata, archivedAt }
+    await storage.sessions.save(nextSession, nextMetadata)
     await refreshSessions({ broadcast: true })
     if (currentSessionIdRef.current === sessionId) {
       closeWorkspacePage()
@@ -92,7 +101,7 @@ export function useSessionActions({
     loadSession,
     renameSession,
     togglePinSession,
-    deleteSession,
+    archiveSession,
     startNewGlobalSession,
   }
 }

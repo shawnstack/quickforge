@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  Archive,
   CalendarClock,
   Bot,
   ChevronRight,
@@ -226,7 +227,6 @@ export const ChatSidebar = memo(function ChatSidebar({
   const iconButtonClass = `size-7 shrink-0 rounded-full text-muted-foreground/55 transition-all duration-160 ease-out hover:-translate-y-px hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)] hover:text-foreground/85 active:translate-y-0 ${iconHoverShadowClass}`
   const actionOverlayClass = 'pointer-events-none absolute inset-y-0 right-1 flex items-center gap-px rounded-r-lg bg-gradient-to-l from-background via-background/95 to-transparent pl-4 opacity-0 transition-opacity duration-160 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100'
   const overlayIconButtonClass = `size-6 shrink-0 rounded-full text-muted-foreground/55 transition-all duration-160 ease-out hover:-translate-y-px hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)] hover:text-foreground/85 active:translate-y-0 ${iconHoverShadowClass}`
-  const overlayDangerIconButtonClass = `size-6 shrink-0 rounded-full text-muted-foreground/55 transition-all duration-160 ease-out hover:-translate-y-px hover:bg-destructive/14 hover:text-destructive/90 active:translate-y-0 ${iconHoverShadowClass}`
   const sessionTitleClass = 'truncate text-sm leading-5'
   const sessionButtonClass = 'flex min-w-0 flex-1 items-center gap-2 text-left'
   const sessionTitleRowClass = 'flex min-w-0 flex-1 items-center gap-1 truncate transition-[padding] duration-160 group-hover:pr-14 group-focus-within:pr-14'
@@ -692,8 +692,8 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                     size="sm"
                                                     className="h-6 rounded-full px-2 text-xs"
                                                     onClick={(event) => confirmDeleteSession(event, session.id)}
-                                                    aria-label={t('confirmDelete')}
-                                                    title={t('confirmDelete')}
+                                                    aria-label={t('confirmArchive')}
+                                                    title={t('confirmArchive')}
                                                   >
                                                     {t('confirm')}
                                                   </Button>
@@ -720,11 +720,11 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                     <Button
                                                       variant="ghost"
                                                       size="icon"
-                                                      className={overlayDangerIconButtonClass}
+                                                      className={overlayIconButtonClass}
                                                       onClick={(event) => requestDeleteSession(event, session.id)}
-                                                      aria-label={t('deleteSession')}
+                                                      aria-label={t('archiveSession')}
                                                     >
-                                                      <Trash2 className="size-3.5" />
+                                                      <Archive className="size-3.5" />
                                                     </Button>
                                                   </>
                                                 )}
@@ -839,8 +839,8 @@ export const ChatSidebar = memo(function ChatSidebar({
                                   size="sm"
                                   className="h-6 rounded-full px-2 text-xs"
                                   onClick={(event) => confirmDeleteSession(event, session.id)}
-                                  aria-label={t('confirmDelete')}
-                                  title={t('confirmDelete')}
+                                  aria-label={t('confirmArchive')}
+                                  title={t('confirmArchive')}
                                 >
                                   {t('confirm')}
                                 </Button>
@@ -867,11 +867,11 @@ export const ChatSidebar = memo(function ChatSidebar({
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    className={overlayDangerIconButtonClass}
+                                    className={overlayIconButtonClass}
                                     onClick={(event) => requestDeleteSession(event, session.id)}
-                                    aria-label={t('deleteSession')}
+                                    aria-label={t('archiveSession')}
                                   >
-                                    <Trash2 className="size-4" />
+                                    <Archive className="size-4" />
                                   </Button>
                                 </>
                               )}

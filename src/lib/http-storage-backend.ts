@@ -143,6 +143,7 @@ export class HttpStorageBackend implements StorageBackend {
       offset: number
       scope?: string
       projectId?: string
+      archived?: 'only' | 'include'
     },
   ): Promise<{ values: T[]; total: number }> {
     this.assertStoreAccess(storeName)
@@ -152,6 +153,7 @@ export class HttpStorageBackend implements StorageBackend {
     params.set('offset', String(options.offset))
     if (options.scope) params.set('scope', options.scope)
     if (options.projectId) params.set('projectId', options.projectId)
+    if (options.archived) params.set('archived', options.archived)
 
     return this.request<{ values: T[]; total: number }>(
       `${this.path(storeName, 'index', indexName)}?${params.toString()}`,

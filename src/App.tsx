@@ -656,7 +656,7 @@ function MainApp() {
     loadSession,
     renameSession,
     togglePinSession,
-    deleteSession,
+    archiveSession,
     startNewGlobalSession,
   } = useSessionActions({
     storageRef,
@@ -1024,7 +1024,7 @@ function MainApp() {
         onLoadSession={loadSession}
         onTogglePinSession={togglePinSession}
         onRenameSession={renameSession}
-        onDeleteSession={deleteSession}
+        onDeleteSession={archiveSession}
         onStartNewGlobalChat={startNewGlobalSession}
         onOpenScheduledTasks={openScheduledTasks}
         onOpenAgentProfiles={openAgentProfiles}
@@ -1095,7 +1095,7 @@ function MainApp() {
               onLoadSession={loadSessionFromSidebar}
               onTogglePinSession={togglePinSession}
               onRenameSession={renameSession}
-              onDeleteSession={deleteSession}
+              onDeleteSession={archiveSession}
               onStartNewGlobalChat={startNewGlobalSessionFromSidebar}
               onOpenScheduledTasks={openScheduledTasksFromSidebar}
               onOpenAgentProfiles={openAgentProfilesFromSidebar}

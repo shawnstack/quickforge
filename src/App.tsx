@@ -1234,7 +1234,6 @@ function MainApp() {
                       project={agentManager.currentToolProject}
                       projectId={agentManager.currentToolProject?.id}
                       chatScope={agentManager.chatScope}
-                      storage={storage}
                       onAccessModeChange={setAccessMode}
                       onRollbackFromMessage={rollbackFromMessage}
                       onRetryFromMessage={retryFromMessage}

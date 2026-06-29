@@ -53,7 +53,7 @@ components/
 - 支持本地工具渲染器 (`getLocalWorkspaceTools`)
 - 工具审批卡片会展示 subagent 来源，避免 General 子任务请求写文件/跑命令时与主 Agent 混淆
 - 消息回滚、分叉、复制功能
-- 草稿恢复支持
+- 草稿恢复支持；Composer 草稿持久化由 `src/lib/composer-drafts.ts` 直接使用浏览器 `localStorage`，不再经过 `AppStorage/settings` 或后端存储
 
 ### ChatSidebar.tsx (551 行)
 
@@ -93,7 +93,7 @@ components/
 - 共享类型定义（MessageEditorElement, CommandSuggestionElement 等）
 - DOM 工具函数（`replaceSvg`, `patchContent` 等）
 - Token 估算和上下文用量计算（`getContextUsage`, `estimateTokens`）；前端仅作为后端 `contextUsage` 缺失时的回退估算
-- 草稿管理（`hasDraft`, `serializeDraft`, `deserializeDraft`）
+- 草稿运行时管理（`hasDraft` 等）；持久化在 `src/lib/composer-drafts.ts`，使用浏览器 `localStorage` 保存当前浏览器本地草稿，不迁移旧的 settings 后端草稿，也不参与后端备份/跨设备同步
 
 **command-suggestions.ts** (174 行)
 - 聊天输入框 "/" 命令建议下拉菜单

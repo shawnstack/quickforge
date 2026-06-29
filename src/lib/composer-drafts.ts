@@ -1,8 +1,8 @@
-import type { AppStorage } from '@earendil-works/pi-web-ui'
 import type { ChatScope } from '@/lib/types'
 import type { ComposerDraft } from '@/components/chat/chat-utils'
 
-const COMPOSER_DRAFTS_SETTING_KEY = 'composer-drafts:v1'
+const COMPOSER_DRAFTS_STORAGE_KEY = 'quickforge:composer-drafts:v1'
+const MAX_COMPOSER_DRAFTS = 100
 
 export type ComposerDraftContext = {
   sessionId?: string
@@ -19,6 +19,9 @@ type PersistedComposerDraft = {
 }
 
 type PersistedComposerDrafts = Record<string, PersistedComposerDraft>
+
+let fallbackDrafts: PersistedComposerDrafts = {}
+let useFallbackDrafts = false
 
 function isRealSessionId(sessionId: string | undefined) {
   return Boolean(sessionId && !sessionId.startsWith('pending-'))
@@ -48,29 +51,89 @@ function normalizeDrafts(value: unknown): PersistedComposerDrafts {
   return drafts
 }
 
-async function loadDrafts(storage: AppStorage): Promise<PersistedComposerDrafts> {
-  return normalizeDrafts(await storage.settings.get<unknown>(COMPOSER_DRAFTS_SETTING_KEY))
+function getLocalDraftStorage(): Storage | undefined {
+  try {
+    return globalThis.localStorage
+  } catch {
+    return undefined
+  }
 }
 
-export async function loadComposerDraft(storage: AppStorage, key: string): Promise<ComposerDraft | undefined> {
-  const draft = (await loadDrafts(storage))[key]
+function pruneDrafts(drafts: PersistedComposerDrafts, limit = MAX_COMPOSER_DRAFTS): PersistedComposerDrafts {
+  return Object.fromEntries(
+    Object.entries(drafts)
+      .filter(([, draft]) => draft.text.length > 0)
+      .sort(([, a], [, b]) => b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, limit),
+  )
+}
+
+function readDrafts(): PersistedComposerDrafts {
+  const storage = getLocalDraftStorage()
+  if (!storage || useFallbackDrafts) return fallbackDrafts
+
+  let raw: string | null
+  try {
+    raw = storage.getItem(COMPOSER_DRAFTS_STORAGE_KEY)
+  } catch {
+    useFallbackDrafts = true
+    return fallbackDrafts
+  }
+
+  try {
+    return normalizeDrafts(raw ? JSON.parse(raw) : undefined)
+  } catch {
+    return fallbackDrafts
+  }
+}
+
+function writeDrafts(drafts: PersistedComposerDrafts): void {
+  const prunedDrafts = pruneDrafts(drafts)
+  fallbackDrafts = prunedDrafts
+
+  const storage = getLocalDraftStorage()
+  if (!storage || useFallbackDrafts) return
+
+  try {
+    if (Object.keys(prunedDrafts).length === 0) {
+      storage.removeItem(COMPOSER_DRAFTS_STORAGE_KEY)
+    } else {
+      storage.setItem(COMPOSER_DRAFTS_STORAGE_KEY, JSON.stringify(prunedDrafts))
+    }
+  } catch {
+    const reducedDrafts = pruneDrafts(prunedDrafts, Math.ceil(MAX_COMPOSER_DRAFTS / 2))
+    fallbackDrafts = reducedDrafts
+    try {
+      if (Object.keys(reducedDrafts).length === 0) {
+        storage.removeItem(COMPOSER_DRAFTS_STORAGE_KEY)
+      } else {
+        storage.setItem(COMPOSER_DRAFTS_STORAGE_KEY, JSON.stringify(reducedDrafts))
+      }
+    } catch {
+      useFallbackDrafts = true
+      // Keep the in-memory fallback only. Draft persistence should never block chat usage.
+    }
+  }
+}
+
+export async function loadComposerDraft(key: string): Promise<ComposerDraft | undefined> {
+  const draft = readDrafts()[key]
   if (!draft || draft.text.length === 0) return undefined
   return { text: draft.text, attachments: [] }
 }
 
 export async function saveComposerDraft(
-  storage: AppStorage,
   key: string,
   draft: ComposerDraft,
   context: ComposerDraftContext,
 ): Promise<void> {
   const text = draft.text ?? ''
   if (text.length === 0) {
-    await clearComposerDraft(storage, key)
+    await clearComposerDraft(key)
     return
   }
 
-  const drafts = await loadDrafts(storage)
+  const drafts = readDrafts()
   drafts[key] = {
     text,
     updatedAt: new Date().toISOString(),
@@ -78,12 +141,12 @@ export async function saveComposerDraft(
     projectId: context.scope === 'project' ? context.projectId : undefined,
     sessionId: isRealSessionId(context.sessionId) ? context.sessionId : undefined,
   }
-  await storage.settings.set(COMPOSER_DRAFTS_SETTING_KEY, drafts)
+  writeDrafts(drafts)
 }
 
-export async function clearComposerDraft(storage: AppStorage, key: string): Promise<void> {
-  const drafts = await loadDrafts(storage)
+export async function clearComposerDraft(key: string): Promise<void> {
+  const drafts = readDrafts()
   if (!Object.prototype.hasOwnProperty.call(drafts, key)) return
   delete drafts[key]
-  await storage.settings.set(COMPOSER_DRAFTS_SETTING_KEY, drafts)
+  writeDrafts(drafts)
 }

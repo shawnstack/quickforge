@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { AppStorage } from '@earendil-works/pi-web-ui'
 import {
   ApiKeyPromptDialog,
   ChatPanel,
@@ -60,7 +59,6 @@ type ChatPanelHostProps = {
   project?: ProjectInfo
   projectId?: string
   chatScope?: ChatScope
-  storage?: AppStorage | null
   onAccessModeChange: (mode: AgentAccessMode) => void
   onRollbackFromMessage: (messageIndex: number) => Promise<void> | void
   onRetryFromMessage: (messageIndex: number) => void
@@ -125,7 +123,6 @@ export function ChatPanelHost({
   project,
   projectId,
   chatScope = 'global',
-  storage = null,
   onAccessModeChange,
   onRollbackFromMessage,
   onRetryFromMessage,
@@ -151,7 +148,6 @@ export function ChatPanelHost({
   const restoredDraftIdRef = useRef<number | undefined>(undefined)
   const restoredDraftRef = useRef<RestoredDraft | undefined>(undefined)
   const composerDraftsRef = useRef<Map<string, ComposerDraft>>(new Map())
-  const storageRef = useRef<AppStorage | null>(storage)
   const customCommandsRef = useRef<CustomCommandSummary[]>([])
   const lastAppliedRestoredDraftRef = useRef<{ id: number; text: string } | undefined>(undefined)
   const consumedRestoredDraftIdsRef = useRef<Set<number>>(new Set())
@@ -178,10 +174,6 @@ export function ChatPanelHost({
     saveDraftTimerRef.current = undefined
   }, [])
 
-  useEffect(() => {
-    storageRef.current = storage
-  }, [storage])
-
   const draftContext: ComposerDraftContext = useMemo(() => ({
     sessionId: agent?.sessionId,
     scope: chatScope,
@@ -203,13 +195,11 @@ export function ChatPanelHost({
   }, [cancelPendingDraftSave])
 
   const persistDraft = useCallback((key: string, draft: ComposerDraft, context: ComposerDraftContext) => {
-    const storage = storageRef.current
-    if (!storage) return
     if (draft.text.length === 0) {
-      void clearComposerDraft(storage, key).catch((err) => logger.error('Failed to clear composer draft:', err))
+      void clearComposerDraft(key).catch((err) => logger.error('Failed to clear composer draft:', err))
       return
     }
-    void saveComposerDraft(storage, key, draft, context).catch((err) => logger.error('Failed to save composer draft:', err))
+    void saveComposerDraft(key, draft, context).catch((err) => logger.error('Failed to save composer draft:', err))
   }, [])
 
   const schedulePersistDraft = useCallback((key: string, draft: ComposerDraft, context: ComposerDraftContext) => {
@@ -673,10 +663,7 @@ export function ChatPanelHost({
         composerClearedForSend = true
         cmdSuggestions.remove()
         composerDraftsRef.current.delete(currentDraftKey)
-        const storage = storageRef.current
-        if (storage) {
-          void clearComposerDraft(storage, currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
-        }
+        void clearComposerDraft(currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
         scrollSync.enable()
       },
       onModelSelect: propsRef.current.onModelSelect,
@@ -701,12 +688,10 @@ export function ChatPanelHost({
         const memoryDraft = composerDraftsRef.current.get(currentDraftKey)
         if (memoryDraft) {
           restoreStoredDraft(memoryDraft)
-        } else if (storageRef.current) {
-          void loadComposerDraft(storageRef.current, currentDraftKey)
+        } else {
+          void loadComposerDraft(currentDraftKey)
             .then((storedDraft) => restoreStoredDraft(storedDraft))
             .catch((err) => logger.error('Failed to load composer draft:', err))
-        } else {
-          restoreStoredDraft()
         }
       }
 
@@ -820,10 +805,7 @@ export function ChatPanelHost({
       if (composerClearedForSend) {
         cancelPendingDraftSave()
         composerDraftsRef.current.delete(currentDraftKey)
-        const storage = storageRef.current
-        if (storage) {
-          void clearComposerDraft(storage, currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
-        }
+        void clearComposerDraft(currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
       } else {
         captureComposerDraft(panel, composerDraftsRef.current, currentDraftKey)
         persistCurrentComposerDraft(panel, currentDraftKey, currentDraftContext)

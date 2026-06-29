@@ -209,7 +209,6 @@ function MainApp() {
   const {
     setArtifactPreviewOpen,
     setWorkspaceInspectorOpen,
-    workspaceInspectorOpen,
   } = ui
 
   // --- UI state shared with other hooks ---
@@ -389,7 +388,6 @@ function MainApp() {
     const lastToolCallId = artifact.toolCallIds[artifact.toolCallIds.length - 1]
     const signature = `${projectId}:${artifact.path}:${artifact.defaultPreview ? 'default' : artifact.explicit ? 'explicit' : 'inferred'}:${lastToolCallId ?? ''}`
     if (signature === autoPreviewSignatureRef.current) return
-    if (workspaceInspectorOpen && !artifact.explicit) return
     autoPreviewSignatureRef.current = signature
     queueMicrotask(() => {
       closeWorkspacePage()
@@ -407,7 +405,7 @@ function MainApp() {
       }
       setWorkspaceInspectorOpen(true)
     })
-  }, [agentManager.currentToolProject, closeWorkspacePage, currentSessionArtifacts, setArtifactPreviewOpen, setWorkspaceInspectorOpen, ui, workspaceInspectorOpen])
+  }, [agentManager.currentToolProject, closeWorkspacePage, currentSessionArtifacts, setArtifactPreviewOpen, setWorkspaceInspectorOpen, ui])
 
   useEffect(() => {
     autoPreviewSignatureRef.current = ''

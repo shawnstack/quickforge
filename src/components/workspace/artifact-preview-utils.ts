@@ -132,13 +132,14 @@ export function presentArtifacts(artifacts: AiTurnArtifact[]): PresentedArtifact
   return [...byPath.values()].sort((left, right) => artifactSortScore(left) - artifactSortScore(right))
 }
 
-// 自动预览候选：所有 preview=true 的 artifact 均可自动打开，不再限制格式。
+// 自动预览候选：仅 present_files（explicit）来源且 preview=true 的 artifact 才自动打开。
+// write_file/edit_file（inferred）产物仍会进入侧栏产物列表（presentArtifacts）供手动查看，但不自动弹 tab。
 // 渲染路径由调用方（App.tsx 自动预览副作用）按 kind 决定：
 //   html/image → browser iframe；markdown/code → 侧栏 openFileTab（MarkdownReader / MonacoCodeViewer）。
 // 注意：按「最近一次工具调用」选取 —— 原始 artifacts 数组按时序排列，取最后一个满足条件的，
 // 避免旧的同分 artifact（如 README.md）永远排在前面、挡住新 present 的文件。
 export function findBestPreviewableArtifact(artifacts: AiTurnArtifact[]): PresentedArtifact | undefined {
-  const candidates = presentArtifacts(artifacts).filter((artifact) => artifact.preview)
+  const candidates = presentArtifacts(artifacts).filter((artifact) => artifact.preview && artifact.explicit)
   if (candidates.length <= 1) return candidates[0]
   // 多个候选时，按各自最新的 toolCallId 在原始 artifacts 中的出现位置排序，取最新的。
   // toolCallId 出现越靠后 = 越新的工具调用，应优先自动预览。

@@ -942,8 +942,8 @@ function MainApp() {
           ui.setWorkspaceInspectorOpen((value) => !value)
         }}
         disabled={!agentManager.currentToolProject?.id || workspacePageOpen || needsModelSetup}
-        aria-label={t('workspacePanel')}
-        title={t('workspacePanel')}
+        aria-label={ui.workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
+        title={ui.workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
         className={cn(
           'hidden lg:inline-flex',
           ui.workspaceInspectorOpen ? 'bg-accent text-accent-foreground' : undefined,

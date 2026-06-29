@@ -89,6 +89,35 @@ const WorkspaceReaderDialog = lazy(() =>
   import('@/components/workspace/WorkspaceReaderDialog').then((m) => ({ default: m.WorkspaceReaderDialog })),
 )
 
+const AUTO_PREVIEW_SEEN_STORAGE_KEY = 'quickforge:auto-preview-seen-signatures'
+const MAX_AUTO_PREVIEW_SEEN_SIGNATURES = 200
+
+function readSeenAutoPreviewSignatures() {
+  if (typeof window === 'undefined') return new Set<string>()
+  try {
+    const raw = window.sessionStorage.getItem(AUTO_PREVIEW_SEEN_STORAGE_KEY)
+    const parsed = raw ? JSON.parse(raw) : undefined
+    if (!Array.isArray(parsed)) return new Set<string>()
+    return new Set(parsed.filter((value): value is string => typeof value === 'string' && value.length > 0))
+  } catch {
+    return new Set<string>()
+  }
+}
+
+function hasSeenAutoPreviewSignature(signature: string) {
+  return readSeenAutoPreviewSignatures().has(signature)
+}
+
+function rememberAutoPreviewSignature(signature: string) {
+  if (typeof window === 'undefined') return
+  try {
+    const signatures = [...readSeenAutoPreviewSignatures(), signature].slice(-MAX_AUTO_PREVIEW_SEEN_SIGNATURES)
+    window.sessionStorage.setItem(AUTO_PREVIEW_SEEN_STORAGE_KEY, JSON.stringify(signatures))
+  } catch {
+    // Ignore storage failures (private mode/quota/etc.); in-memory de-dupe still applies.
+  }
+}
+
 function LazyPanelFallback() {
   return <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">{t('loading')}</div>
 }
@@ -383,12 +412,18 @@ function MainApp() {
     if (!projectId) return
     const artifact = findBestPreviewableArtifact(currentSessionArtifacts)
     if (!artifact?.path) return
-    // 签名纳入最新 toolCallId：同一次 present_files/write_file 的重复更新（同 toolCallId）被去重，
-    // 但新的工具调用（新 toolCallId）能正常触发，避免「再次 present 同一文件」被永远拦截。
+    // 签名纳入最新 toolCallId：同一次 present_files 的重复更新（同 toolCallId）被去重，
+    // 并写入 sessionStorage，避免刷新浏览器后把历史 present_files 再自动弹一次。
+    // 新的工具调用（新 toolCallId）能正常触发，避免「再次 present 同一文件」被永远拦截。
     const lastToolCallId = artifact.toolCallIds[artifact.toolCallIds.length - 1]
     const signature = `${projectId}:${artifact.path}:${artifact.defaultPreview ? 'default' : artifact.explicit ? 'explicit' : 'inferred'}:${lastToolCallId ?? ''}`
     if (signature === autoPreviewSignatureRef.current) return
+    if (hasSeenAutoPreviewSignature(signature)) {
+      autoPreviewSignatureRef.current = signature
+      return
+    }
     autoPreviewSignatureRef.current = signature
+    rememberAutoPreviewSignature(signature)
     queueMicrotask(() => {
       closeWorkspacePage()
       setArtifactPreviewOpen(false)

@@ -1,4 +1,5 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
+import { logger } from '../utils/logger.mjs'
 import { getActiveProject, setActiveProjectPath, readProjectConfig, getDefaultWorkspaceRoot } from '../project-config.mjs'
 import { listProjectCommands, createCommandFile } from '../custom-commands.mjs'
 import { atomicProjectConfigUpdate } from '../storage.mjs'
@@ -38,9 +39,9 @@ export async function handleProjectApi(req, res, url) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/project/select-directory') {
-    console.log('[project] Opening directory picker dialog...')
+    logger.info('[project] Opening directory picker dialog...')
     const selectedPath = await selectDirectoryDialog()
-    console.log('[project] Directory picker result:', selectedPath ? `"${selectedPath}"` : '(cancelled/empty)')
+    logger.info('[project] Directory picker result', { selectedPath: selectedPath || null })
     if (!selectedPath) {
       sendJson(res, 200, { cancelled: true, project: getActiveProject(config), projects: config.projects })
       return

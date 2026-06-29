@@ -43,7 +43,7 @@ async function readJsonFile(filePath) {
 }
 
 async function listPluginDirs(root) {
-  let entries = []
+  let entries
   try {
     entries = await fs.readdir(root, { withFileTypes: true })
   } catch (error) {

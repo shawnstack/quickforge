@@ -10,7 +10,7 @@ components/
 │   ├── chat-utils.ts               # 共享类型、DOM 工具、token 估算 (267 行)
 │   ├── command-suggestions.ts      # 聊天输入框命令建议下拉菜单 (174 行)
 │   ├── context-usage.ts            # 上下文用量环状指示器 (78 行)
-│   ├── panel-decoration.ts         # 消息操作按钮和编辑器装饰 (554 行)
+│   ├── panel-decoration.ts         # 聊天面板 DOM 装饰兼容入口 / editor 编排 facade (175 行)
 │   └── scroll-sync.ts              # 自动滚动同步 (174 行)
 ├── agent-profiles/
 │   └── AgentProfilesPage.tsx        # Agent Profiles 独立管理页面
@@ -105,11 +105,11 @@ components/
 - 上下文用量环状指示器，优先展示后端 session state 返回的权威 `contextUsage`（后端统计复用 `pi-agent-core` / `pi-ai`），缺失时回退到前端本地估算
 - 在输入框旁显示彩色环，指示当前对话所占模型上下文窗口比例
 
-**panel-decoration.ts** (554 行)
-- 消息操作按钮注入（复制、回滚、分叉）
-- Composer 区域装饰（发送/停止切换、Agent 权限下拉、Plan 按钮、占位符）
+**panel-decoration.ts** (175 行)
+- 聊天面板 DOM 装饰的兼容入口，继续向 `ChatPanelHost.tsx` re-export 消息装饰、草稿、审批卡、上下文压缩提示和等待气泡等能力
+- `decorateEditor` 仅保留 Composer/editor 编排：占位符、只读清理、model selector 开关、left/right controls 定位，以及调用各 focused helper
+- 细分实现位于 `panel-decoration/` 子目录：`message-actions.ts`（复制/回滚/重试/分叉）、`composer-plus-menu.ts`（附件和内置插件菜单）、`agent-access-menu.ts`、`plan-mode-controls.ts`、`send-stop-button.ts`、`model-controls.ts`、`editor-bindings.ts`、`code-blocks.ts`、`process-folding.ts`、`context-compaction.ts` 等
 - Plan 按钮和 Shift+Tab 切换前端 Plan 模式；发送时复用 `/plan <任务>` 的单轮计划逻辑
-- 命令绑定和草稿指示器
 - Assistant Markdown 中的 ```svg 代码块会默认进入安全图片预览，可在代码块右上角切换预览/源码，并支持复制源码和下载 SVG
 
 **scroll-sync.ts** (174 行)

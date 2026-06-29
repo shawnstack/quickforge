@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { dataDir } from './storage.mjs'
 import { getEnabledPluginSkillSources } from './plugins/registry.mjs'
+import { logger } from './utils/logger.mjs'
 
 const userSkillsDir = path.join(dataDir, 'skills')
 const sharedUserSkillsDir = path.join(os.homedir(), '.agents', 'skills')
@@ -347,7 +348,7 @@ async function loadSkillsFromSources(sources) {
         if (skillsByName.has(skill.name)) skillsByName.delete(skill.name)
         skillsByName.set(skill.name, skill)
       } catch (error) {
-        console.warn(`Failed to load skill from ${skillDir}:`, error.message || error)
+        logger.warn(`Failed to load skill from ${skillDir}:`, error.message || error)
       }
     }
   }
@@ -371,7 +372,7 @@ async function loadSkillsFromExplicitSources(sources) {
         if (skillsByName.has(skill.name)) skillsByName.delete(skill.name)
         skillsByName.set(skill.name, skill)
       } catch (error) {
-        console.warn(`Failed to load skill from ${skillDir}:`, error.message || error)
+        logger.warn(`Failed to load skill from ${skillDir}:`, error.message || error)
       }
     }
   }

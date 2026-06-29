@@ -2,6 +2,7 @@ import { streamSimple } from '@earendil-works/pi-ai'
 import { buildInstructionsPayload, projectContextFromId } from './project-config.mjs'
 import { composeSystemPrompt } from './system-prompt.mjs'
 import { listSubagentProfiles } from './agent-profiles.mjs'
+import { logger } from './utils/logger.mjs'
 
 // ---------------------------------------------------------------------------
 // System prompt
@@ -109,7 +110,7 @@ export async function generateAiTitle(messages, model, thinkingLevel, getApiKey)
     const title = normalizeAiTitle(titleText)
     return title || null
   } catch (error) {
-    console.warn('Failed to generate AI title:', error.message || error)
+    logger.warn('Failed to generate AI title:', error.message || error)
     return null
   }
 }

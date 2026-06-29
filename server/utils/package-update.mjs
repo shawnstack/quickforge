@@ -27,7 +27,7 @@ export async function getPackageInfo(projectRoot) {
       bugsUrl: typeof pkg.bugs === 'string' ? pkg.bugs : pkg.bugs?.url || '',
     }
   } catch (error) {
-    throw new Error(`Unable to read package metadata: ${error.message}`)
+    throw new Error(`Unable to read package metadata: ${error.message}`, { cause: error })
   }
 }
 
@@ -109,7 +109,7 @@ export async function fetchLatestVersion(packageName) {
     if (!latest || typeof latest !== 'string') throw new Error('latest version not found in registry response')
     return latest
   } catch (error) {
-    if (error.name === 'AbortError') throw new Error('request timeout')
+    if (error.name === 'AbortError') throw new Error('request timeout', { cause: error })
     throw error
   } finally {
     clearTimeout(timeout)

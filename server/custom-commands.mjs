@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { getEnabledPluginCommandSources } from './plugins/registry.mjs'
 import { userCommandsDir } from './storage.mjs'
+import { logger } from './utils/logger.mjs'
 
 const commandsRelativeDirs = ['.claude/commands', '.opencode/commands', '.ai/commands']
 const commandsRelativeDir = '.ai/commands'
@@ -239,7 +240,7 @@ async function listCommandsFromDirectory(dir, options = {}) {
       })
       if (command) commands.push(command)
     } catch (error) {
-      console.warn(`Failed to load custom command ${file}:`, error.message || error)
+      logger.warn(`Failed to load custom command ${file}:`, error.message || error)
     }
   }
 
@@ -253,7 +254,7 @@ async function listCommandsFromFile(file, options = {}) {
     return command ? [command] : []
   } catch (error) {
     if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR' || error?.code === 'EACCES' || error?.code === 'EPERM') return []
-    console.warn(`Failed to load custom command ${file}:`, error.message || error)
+    logger.warn(`Failed to load custom command ${file}:`, error.message || error)
     return []
   }
 }
@@ -483,7 +484,7 @@ function formatBuiltinCommandRows() {
     const aliases = cmd.aliases?.length
       ? ` (alias: ${cmd.aliases.map((alias) => `/${alias}`).join(', ')})`
       : ''
-    const perm = cmd.permissionNote ? ` \[${cmd.permissionNote}\]` : ''
+    const perm = cmd.permissionNote ? ` [${cmd.permissionNote}]` : ''
     return `- \`/${cmd.name}${hint}\`${aliases} — ${cmd.description}${perm}`
   })
 }

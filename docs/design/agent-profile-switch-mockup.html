@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Agent Profile 卡片开关 — 交互设计预览</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --border:#e5e7eb; --border-soft:#eef0f3;
+    --fg:#1f2430; --muted:#6b7280; --muted-2:#9aa3af;
+    --primary:#6366f1; --primary-soft:#eef0ff;
+    --emerald:#10b981; --emerald-text:#047857; --emerald-soft:#e7f7f0;
+    --chip:#f3f4f6; --danger:#ef4444;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1080px;margin:0 auto;padding:32px 24px 80px}
+  h1{font-size:20px;font-weight:600;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:24px}
+  .section-title{font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.04em;
+    text-transform:uppercase;margin:28px 0 12px;display:flex;align-items:center;gap:8px}
+  .section-title .tag{font-size:11px;font-weight:600;background:var(--primary-soft);color:var(--primary);
+    padding:2px 8px;border-radius:9999px;text-transform:none;letter-spacing:0}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px}
+
+  /* 卡片 */
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;
+    transition:background .15s ease}
+  .card:hover{background:#fcfcfd}
+  .card.is-off .card-title{color:var(--muted-2)}
+  .card.is-off .card-name{color:var(--muted-2)}
+  .top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+  .left{min-width:0}
+  .title-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+  .card-title{font-size:14px;font-weight:500;color:#374151;margin:0}
+  .badge{font-size:11px;padding:2px 8px;border-radius:9999px;line-height:1.4}
+  .badge.builtin{background:var(--primary-soft);color:var(--primary)}
+  .badge.readonly{background:var(--chip);color:var(--muted)}
+  .badge.on{background:var(--emerald-soft);color:var(--emerald-text)}
+  .card-name{margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:12px;color:var(--muted)}
+  .card-source{margin-top:4px;font-size:12px;color:var(--muted)}
+  .card-desc{margin-top:8px;font-size:13px;color:var(--muted)}
+  .actions{display:flex;flex-shrink:0;align-items:center;gap:6px}
+  .btn{font-size:12px;height:28px;padding:0 10px;border-radius:8px;border:1px solid var(--border);
+    background:#fff;color:#374151;cursor:pointer;transition:all .12s}
+  .btn:hover{background:#f9fafb;border-color:#d1d5db}
+  .btn.danger{color:#b91c1c}
+  .btn.danger:hover{background:#fef2f2;border-color:#fecaca}
+  .more{height:28px;width:28px;display:flex;align-items:center;justify-content:center;border-radius:8px;
+    border:1px solid var(--border);background:#fff;cursor:pointer;color:var(--muted)}
+  .more:hover{background:#f9fafb;color:#374151}
+
+  .tools{margin-top:12px;display:flex;flex-wrap:wrap;gap:6px}
+  .chip{background:var(--chip);color:var(--muted);padding:2px 8px;border-radius:9999px;font-size:11px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .chip.safe{color:#047857;background:var(--emerald-soft)}
+  .chip.danger{color:#b45309;background:#fef3c7}
+  .foot{margin-top:12px;border-top:1px solid var(--border-soft);padding-top:12px;
+    display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;color:var(--muted)}
+  .foot b{color:#4b5563;font-weight:500}
+
+  /* 开关 —— 复刻 ScheduledTasksPage / mcp-server-card 的约定式开关 */
+  .switch{position:relative;height:24px;width:44px;border-radius:9999px;border:none;cursor:pointer;
+    transition:background-color .2s ease;flex-shrink:0;padding:0}
+  .switch .dot{position:absolute;top:2px;left:2px;height:20px;width:20px;border-radius:9999px;
+    background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .2s ease}
+  .switch.on{background:var(--emerald)}
+  .switch.on .dot{transform:translateX(20px)}
+  .switch.off{background:rgba(100,116,139,.35)}
+  .switch.off .dot{transform:translateX(0)}
+  .switch:disabled{opacity:.6;cursor:not-allowed}
+  .switch:disabled .dot{box-shadow:none}
+
+  /* 改造前对比 */
+  .before{display:flex;align-items:center;gap:8px}
+  .legend{display:flex;flex-wrap:wrap;gap:18px;margin-top:4px;color:var(--muted);font-size:12px}
+  .legend .sw{display:inline-flex;align-items:center;gap:6px}
+  .note{margin-top:24px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
+  .note h3{margin:0 0 8px;font-size:14px}
+  .note ul{margin:6px 0 0;padding-left:18px;color:var(--muted)}
+  .note li{margin:4px 0}
+  .pill-q{display:inline-block;font-size:12px;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;
+    padding:2px 10px;border-radius:9999px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Agent Profile 卡片开关 · 交互设计预览</h1>
+  <p class="sub">在卡片上直接启用 / 禁用某个 Agent Profile 作为 sub agent（仿定时任务卡片开关）。下方开关可点击演示。</p>
+
+  <!-- 方案 A -->
+  <div class="section-title">方案 A（主推）<span class="tag">改动最小 · 保留显式按钮</span></div>
+  <div class="grid" id="groupA">
+    <!-- 卡片1：自定义，启用 -->
+    <div class="card">
+      <div class="top">
+        <div class="left">
+          <div class="title-row"><h3 class="card-title">全栈架构师</h3></div>
+          <p class="card-name">fullstack_architect</p>
+          <p class="card-source">store · ~/.quickforge</p>
+          <p class="card-desc">围绕任务目标制定全栈代码设计方案，并关联设计文档。</p>
+        </div>
+        <div class="actions">
+          <button class="btn">编辑</button>
+          <button class="btn danger">删除</button>
+          <button class="switch on" role="switch" aria-checked="true" title="允许作为 sub agent（点击关闭）"><span class="dot"></span></button>
+        </div>
+      </div>
+      <div class="tools">
+        <span class="chip safe">read_file</span><span class="chip safe">grep_files</span>
+        <span class="chip">edit_file</span><span class="chip">write_file</span><span class="chip danger">run_command</span>
+      </div>
+      <div class="foot"><span><b>最大运行</b> 1,800,000ms</span><span><b>最大调用</b> 300</span></div>
+    </div>
+
+    <!-- 卡片2：自定义，禁用 -->
+    <div class="card is-off">
+      <div class="top">
+        <div class="left">
+          <div class="title-row"><h3 class="card-title">需求拆解员</h3></div>
+          <p class="card-name">todo_task_planner</p>
+          <p class="card-source">store · ~/.quickforge</p>
+          <p class="card-desc">拆解、归档或更新 tasks/todo.md 中的可执行任务。</p>
+        </div>
+        <div class="actions">
+          <button class="btn">编辑</button>
+          <button class="btn danger">删除</button>
+          <button class="switch off" role="switch" aria-checked="false" title="禁止作为 sub agent（点击启用）"><span class="dot"></span></button>
+        </div>
+      </div>
+      <div class="tools"><span class="chip safe">read_file</span><span class="chip safe">grep_files</span><span class="chip">edit_file</span><span class="chip">write_file</span></div>
+      <div class="foot"><span><b>最大运行</b> 1,800,000ms</span><span><b>最大调用</b> 300</span></div>
+    </div>
+
+    <!-- 卡片3：builtin，锁定启用 -->
+    <div class="card">
+      <div class="top">
+        <div class="left">
+          <div class="title-row"><h3 class="card-title">Explore</h3><span class="badge builtin">内置</span></div>
+          <p class="card-name">explore</p>
+          <p class="card-desc">只读仓库探索：定位文件、搜索源码、追踪调用链与影响分析。</p>
+        </div>
+        <div class="actions">
+          <button class="btn" disabled style="opacity:.5;cursor:not-allowed">编辑</button>
+          <button class="btn danger" disabled style="opacity:.5;cursor:not-allowed">删除</button>
+          <button class="switch on" role="switch" aria-checked="true" disabled title="内置 Profile，不可更改"><span class="dot"></span></button>
+        </div>
+      </div>
+      <div class="tools"><span class="chip safe">read_file</span><span class="chip safe">grep_files</span><span class="chip">run_command</span></div>
+      <div class="foot"><span><b>最大运行</b> 1,800,000ms</span><span><b>最大调用</b> 300</span></div>
+    </div>
+
+    <!-- 卡片4：file readonly，锁定 -->
+    <div class="card is-off">
+      <div class="top">
+        <div class="left">
+          <div class="title-row"><h3 class="card-title">UI 评审</h3><span class="badge readonly">文件 · 只读</span></div>
+          <p class="card-name">ui_design_reviewer</p>
+          <p class="card-source">file · .quickforge/agents/ui-review.json</p>
+          <p class="card-desc">审查界面、交互、布局与视觉一致性，产出改进文档。</p>
+        </div>
+        <div class="actions">
+          <button class="btn" disabled style="opacity:.5;cursor:not-allowed">编辑</button>
+          <button class="btn danger" disabled style="opacity:.5;cursor:not-allowed">删除</button>
+          <button class="switch off" role="switch" aria-checked="false" disabled title="文件型 Profile，不可在此更改"><span class="dot"></span></button>
+        </div>
+      </div>
+      <div class="tools"><span class="chip safe">read_file</span><span class="chip safe">grep_files</span><span class="chip">write_file</span></div>
+      <div class="foot"><span><b>最大运行</b> 1,800,000ms</span><span><b>最大调用</b> 300</span></div>
+    </div>
+  </div>
+
+  <!-- 方案 B -->
+  <div class="section-title">方案 B（可选）<span class="tag">最贴近定时任务 · 操作收进更多菜单</span></div>
+  <div class="grid">
+    <div class="card">
+      <div class="top">
+        <div class="left">
+          <div class="title-row"><h3 class="card-title">产品经理</h3></div>
+          <p class="card-name">core_product_manager</p>
+          <p class="card-source">store · ~/.quickforge</p>
+          <p class="card-desc">挖掘真实高价值需求，设计收益大、体验好的核心功能方案。</p>
+        </div>
+        <div class="actions">
+          <button class="switch on" role="switch" aria-checked="true" title="允许作为 sub agent"><span class="dot"></span></button>
+          <button class="more" title="更多">⋯</button>
+        </div>
+      </div>
+      <div class="tools"><span class="chip safe">read_file</span><span class="chip safe">grep_files</span></div>
+      <div class="foot"><span><b>最大运行</b> 1,800,000ms</span><span><b>最大调用</b> 300</span></div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span class="sw"><button class="switch on" style="pointer-events:none"><span class="dot"></span></button> 启用：AI 可在对话中 run_subagent 调用它</span>
+    <span class="sw"><button class="switch off" style="pointer-events:none"><span class="dot"></span></button> 禁用：对该 Profile 调用会被服务端拒绝</span>
+    <span class="sw"><button class="switch on" disabled style="pointer-events:none"><span class="dot"></span></button> 置灰：内置 / 只读 Profile，不可在此修改</span>
+  </div>
+
+  <div class="note">
+    <h3>改造前 → 改造后（对照）</h3>
+    <div class="before" style="margin:8px 0">
+      <span style="color:var(--muted);font-size:13px">原来：</span>
+      <span class="badge on">允许作为 sub agent</span>
+      <span style="color:var(--muted-2)">仅展示徽章，必须点「编辑」进弹窗勾选 checkbox 才能改</span>
+    </div>
+    <div class="before" style="margin:8px 0">
+      <span style="color:var(--muted);font-size:13px">现在：</span>
+      <button class="switch on" style="pointer-events:none"><span class="dot"></span></button>
+      <span style="color:var(--muted-2)">卡片上一键切换，乐观更新 + PATCH 接口，失败回滚</span>
+    </div>
+    <ul>
+      <li>开关 = 启用/禁用该 Profile 作为 <b>sub agent</b>（对应字段 <code>enabledAsSubagent</code>）</li>
+      <li>触发：乐观翻转 → <code>PATCH /api/agent-profiles/:id { enabledAsSubagent }</code> → 成功保留 / 失败回滚并提示</li>
+      <li>内置 / 只读 Profile：开关锁定（后端 PATCH 会 403），标题弱化提示「未启用」</li>
+      <li>无需新增依赖；复用与定时任务、MCP 卡片同一套约定式开关写法（符合设计语言：克制 / 一致）</li>
+    </ul>
+  </div>
+
+  <div class="note" style="border-color:#fed7aa;background:#fffbeb">
+    <h3><span class="pill-q">需你确认</span> 「启动 sub agent」的语义</h3>
+    <ul>
+      <li>本方案按 <b>「启用该 Profile 作为可被 AI 调用的 sub agent」</b>（持续状态，适合开关）来设计。</li>
+      <li>如果你指的是 <b>「手动一键运行 / 测试某个 sub agent」</b>（一次性动作），那应该是一个「运行」按钮 + 输入任务后触发，方向不同，请告诉我。</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  // 演示：可点击的开关（非 disabled）切换 on/off，并联动卡片弱化效果
+  document.querySelectorAll('#groupA .switch').forEach(sw=>{
+    if(sw.disabled) return;
+    sw.addEventListener('click',()=>{
+      const card=sw.closest('.card');
+      const on=sw.classList.toggle('on');
+      const off=sw.classList.toggle('off');
+      // 保证互斥
+      if(on){sw.classList.remove('off');sw.setAttribute('aria-checked','true');sw.title='允许作为 sub agent（点击关闭）';card.classList.remove('is-off')}
+      else {sw.classList.remove('on');sw.setAttribute('aria-checked','false');sw.title='禁止作为 sub agent（点击启用）';card.classList.add('is-off')}
+    });
+  });
+</script>
+</body>
+</html>

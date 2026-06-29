@@ -889,6 +889,7 @@ export async function createQuickForgeAcpAgent() {
   }
 }
 
+/* eslint-disable no-console -- ACP stdio mode redirects console.log away from stdout protocol traffic. */
 export async function runQuickForgeAcpStdio() {
   const originalConsoleLog = console.log
   console.log = (...args) => console.error(...args)

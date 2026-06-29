@@ -1,4 +1,3 @@
-import path from 'node:path'
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { readStore, writeStore, atomicUpdate, getComparable, getStoreRevision, readSessionStoreScoped, readSessionValue, writeSessionValue, deleteSessionValue, ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir } from '../storage.mjs'
 import { directorySize } from '../utils/workspace.mjs'

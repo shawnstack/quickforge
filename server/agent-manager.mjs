@@ -34,8 +34,8 @@ import {
   parseInternalCommandInvocation,
   resolveCustomCommandInvocation,
 } from './custom-commands.mjs'
-import { omitDetailsForLlm, serverConvertToLlm, messageText, lastAssistantText } from './message-converters.mjs'
-import { isPlainObject, mergeQuickForgeTiming, wrapToolDefinition, wrapMcpToolDefinition, wrapPluginToolDefinition, sessionSkillsContext } from './tool-wiring.mjs'
+import { serverConvertToLlm, messageText, lastAssistantText } from './message-converters.mjs'
+import { mergeQuickForgeTiming, wrapToolDefinition, wrapMcpToolDefinition, wrapPluginToolDefinition, sessionSkillsContext } from './tool-wiring.mjs'
 import {
   APPROVAL_TIMEOUT_MS,
   safeReadTools,
@@ -866,7 +866,7 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
       includeMcpTools: false,
     },
   )
-  toolsForClient = tools.map(({ execute, prepareArguments, ...tool }) => tool)
+  toolsForClient = tools.map(({ execute: _execute, prepareArguments: _prepareArguments, ...tool }) => tool)
 
   const emitSubagentTrace = () => {
     if (traceTimer) {
@@ -1821,7 +1821,7 @@ export async function abortRun(sessionId) {
   }
 
   // Clean up any pending tool approvals for this session
-  for (const [toolCallId, approval] of pendingApprovals) {
+  for (const [_toolCallId, approval] of pendingApprovals) {
     if (approval.sessionId === sessionId) {
       approval.reject(new Error('Run aborted'))
     }
@@ -2014,10 +2014,10 @@ export async function destroyAgent(sessionId) {
   }
 
   // Clean up any pending approvals for this session before removing it.
-  for (const [toolCallId, approval] of pendingApprovals) {
+  for (const [_toolCallId, approval] of pendingApprovals) {
     if (approval.sessionId === sessionId) approval.reject(new Error('Session destroyed'))
   }
-  for (const [approvalId, approval] of pendingAutoCompactApprovals) {
+  for (const [_approvalId, approval] of pendingAutoCompactApprovals) {
     if (approval.sessionId === sessionId) approval.reject(new Error('Session destroyed'))
   }
 

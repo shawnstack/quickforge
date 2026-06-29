@@ -1,3 +1,4 @@
+/* eslint-disable no-control-regex -- ANSI escape matching intentionally includes ESC. */
 import { spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { setTimeout as delay } from 'node:timers/promises'

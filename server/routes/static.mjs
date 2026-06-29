@@ -48,7 +48,7 @@ function shouldFallbackToIndex(url, pathname) {
 export async function serveStatic(req, res, url) {
   const distDir = path.join(projectRoot, 'dist')
   const requested = decodeURIComponent(requestPathname(url))
-  const normalized = path.normalize(requested).replace(/^([.][.][\/])+/, '').replace(/^[/\\]+/, '')
+  const normalized = path.normalize(requested).replace(/^([.][.][/])+/, '').replace(/^[/\\]+/, '')
   let filePath = path.resolve(distDir, normalized)
 
   const relative = path.relative(distDir, filePath)

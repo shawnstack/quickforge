@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { existsSync, promises as fs } from 'node:fs'
 import { ensureProjectCache, readProjectConfigData, atomicProjectConfigUpdate, dataDir, readStore, atomicUpdate } from './storage.mjs'
-import { setWorkspaceRoot, getWorkspaceRoot, assertDirectory } from './utils/workspace.mjs'
+import { setWorkspaceRoot, assertDirectory } from './utils/workspace.mjs'
 import { loadSelectedGlobalSkills, loadSelectedProjectSkills, mergeSkills } from './skills.mjs'
 
 let defaultWorkspaceRoot = ''
@@ -101,7 +101,7 @@ function terminalShellProfileCandidatesForPlatform(platform = os.platform()) {
   const profiles = TERMINAL_SHELL_PROFILE_CANDIDATES
     .filter((profile) => profile.platforms.includes(platform))
     .filter((profile) => commandExists(profile.command))
-    .map(({ platforms, ...profile }) => ({ ...profile, builtin: true, detected: true }))
+    .map(({ platforms: _platforms, ...profile }) => ({ ...profile, builtin: true, detected: true }))
 
   return profiles
 }

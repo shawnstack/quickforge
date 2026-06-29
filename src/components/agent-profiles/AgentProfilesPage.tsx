@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
-import { Bot, Sparkles } from 'lucide-react'
+import { Bot, MoreHorizontal, Edit3, Sparkles, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { InfoTip } from '@/components/ui/info-tip'
 import { showConfirm } from '@/components/ui/confirm-dialog'
@@ -116,6 +117,7 @@ export function AgentProfilesPage() {
   const [selectedModel, setSelectedModel] = useState<AnyModel>()
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('off')
   const [error, setError] = useState('')
+  const [openMenuProfileId, setOpenMenuProfileId] = useState<string | null>(null)
 
   async function loadAgentProfiles() {
     const [agentsPayload, toolsPayload] = await Promise.all([
@@ -167,6 +169,17 @@ export function AgentProfilesPage() {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (!openMenuProfileId) return
+    const closeMenu = () => setOpenMenuProfileId(null)
+    window.addEventListener('click', closeMenu)
+    window.addEventListener('blur', closeMenu)
+    return () => {
+      window.removeEventListener('click', closeMenu)
+      window.removeEventListener('blur', closeMenu)
+    }
+  }, [openMenuProfileId])
 
   const editingAgent = useMemo(() => agentProfiles.find((agent) => agent.id === editingAgentId) ?? null, [agentProfiles, editingAgentId])
 
@@ -264,6 +277,23 @@ export function AgentProfilesPage() {
     }
   }
 
+  async function toggleSubagentEnabled(agent: AgentProfile) {
+    if (agent.builtin || agent.readonly) return
+    const next = !agent.enabledAsSubagent
+    const previous = agent.enabledAsSubagent
+    setAgentProfiles((current) => current.map((item) => (item.id === agent.id ? { ...item, enabledAsSubagent: next } : item)))
+    setOpenMenuProfileId(null)
+    try {
+      await requestJson(`/api/agent-profiles/${encodeURIComponent(agent.id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabledAsSubagent: next }),
+      })
+    } catch (err) {
+      setAgentProfiles((current) => current.map((item) => (item.id === agent.id ? { ...item, enabledAsSubagent: previous } : item)))
+      setError(err instanceof Error ? err.message : t('requestFailed'))
+    }
+  }
+
   async function deleteAgent(agent: AgentProfile) {
     if (agent.builtin || agent.readonly) return
     const confirmed = await showConfirm({
@@ -311,17 +341,40 @@ export function AgentProfilesPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="truncate text-sm font-medium text-foreground/90">{agent.label}</h3>
+                      <h3 className={cn('truncate text-sm font-medium', agent.enabledAsSubagent ? 'text-foreground/90' : 'text-muted-foreground')}>{agent.label}</h3>
                       {agent.builtin ? <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">{t('builtinAgent')}</span> : null}
-                      {agent.enabledAsSubagent ? <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-700">{t('enabledAsSubagent')}</span> : null}
                     </div>
                     <p className="mt-1 font-mono text-xs text-muted-foreground">{agent.name}</p>
                     {agent.source && !agent.builtin ? <p className="mt-1 text-xs text-muted-foreground">{agent.source}{agent.relativePath ? ` · ${agent.relativePath}` : ''}</p> : null}
                     <p className="mt-2 text-sm text-muted-foreground">{agent.description || t('noDescription')}</p>
                   </div>
-                  <div className="flex shrink-0 gap-1">
-                    <Button variant="outline" size="sm" disabled={agent.builtin || agent.readonly} onClick={() => openEditAgentDialog(agent)}>{t('editTask')}</Button>
-                    <Button variant="destructive" size="sm" disabled={agent.builtin || agent.readonly} onClick={() => void deleteAgent(agent)}>{t('delete')}</Button>
+                  <div className="flex shrink-0 items-center gap-2" onClick={(event) => event.stopPropagation()}>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={agent.enabledAsSubagent}
+                      disabled={agent.builtin || agent.readonly}
+                      className={cn('relative h-6 w-11 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60', agent.enabledAsSubagent ? 'bg-emerald-500' : 'bg-muted-foreground/30')}
+                      onClick={() => void toggleSubagentEnabled(agent)}
+                      title={agent.enabledAsSubagent ? t('disableAsSubagent') : t('enableAsSubagent')}
+                    >
+                      <span className={cn('absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform', agent.enabledAsSubagent ? 'translate-x-5' : 'translate-x-0')} />
+                    </button>
+                    <div className="relative">
+                      <Button variant="ghost" size="icon" onClick={() => setOpenMenuProfileId(openMenuProfileId === agent.id ? null : agent.id)} title={t('moreActions')}>
+                        <MoreHorizontal className="size-4" />
+                      </Button>
+                      {openMenuProfileId === agent.id ? (
+                        <div className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-xl border border-border bg-popover py-1 text-sm shadow-quickforge">
+                          <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={agent.builtin || agent.readonly} onClick={() => { setOpenMenuProfileId(null); openEditAgentDialog(agent) }}>
+                            <Edit3 className="size-3.5" />{t('editTask')}
+                          </button>
+                          <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-destructive hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={agent.builtin || agent.readonly} onClick={() => { setOpenMenuProfileId(null); void deleteAgent(agent) }}>
+                            <Trash2 className="size-3.5" />{t('delete')}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-1">

@@ -19,4 +19,22 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    files: ['server/**/*.mjs'],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: globals.node,
+    },
+    rules: {
+      'no-console': 'warn',
+      'no-empty': 'warn',
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
+      'no-control-regex': 'warn',
+      'no-useless-escape': 'warn',
+      'no-useless-assignment': 'warn',
+      'preserve-caught-error': 'warn',
+    },
+  },
 ])

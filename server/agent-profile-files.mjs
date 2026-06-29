@@ -2,6 +2,7 @@ import { existsSync, promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { dataDir } from './storage.mjs'
+import { logger } from './utils/logger.mjs'
 import { firstOptionalBoolean, firstString, parseFrontmatter, splitDelimitedList } from './frontmatter.mjs'
 
 const DEFAULT_MAX_RUNTIME_MS = 30 * 60 * 1000
@@ -123,7 +124,7 @@ async function listAgentFilesFromDirectory(dir, options = {}) {
       })
       if (profile) profiles.push(profile)
     } catch (error) {
-      console.warn(`Failed to load agent profile ${file}:`, error.message || error)
+      logger.warn(`Failed to load agent profile ${file}:`, error.message || error)
     }
   }
   return profiles

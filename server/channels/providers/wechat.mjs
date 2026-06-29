@@ -1,3 +1,4 @@
+/* eslint-disable no-control-regex -- URL extraction intentionally treats ESC as a delimiter. */
 import { spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'

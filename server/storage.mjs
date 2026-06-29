@@ -75,7 +75,6 @@ export function getStoreRevision(storeName) {
 }
 
 const configStores = new Set(['settings', 'provider-keys', 'custom-providers', 'plugins'])
-const sessionStores = new Set(['sessions', 'sessions-metadata'])
 
 const configStoreSections = {
   settings: ['app', 'settings'],

@@ -4,7 +4,6 @@ import { logsDir } from '../storage.mjs'
 
 // --- Level control ---
 const LEVELS = { ERROR: 0, WARN: 1, INFO: 2, DEBUG: 3 }
-const levelNames = Object.keys(LEVELS)
 
 const envLevel = (process.env.QUICKFORGE_LOG_LEVEL || '').toUpperCase()
 const minLevel = LEVELS[envLevel] ?? LEVELS.INFO

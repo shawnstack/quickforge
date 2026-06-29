@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 460" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <style>
+      .panel { fill: #f8fafc; stroke: #e2e8f0; stroke-width: 1.5; }
+      .row { fill: #fff; stroke: #e2e8f0; stroke-width: 1; }
+      .row-active { fill: #eff6ff; stroke: #bfdbfe; stroke-width: 1; }
+      .row-muted { fill: #fff; stroke: #e2e8f0; stroke-width: 1; }
+      .t-title { font-size: 13px; font-weight: 700; fill: #0f172a; }
+      .t-sub { font-size: 11px; fill: #64748b; }
+      .t-row { font-size: 12px; fill: #334155; }
+      .t-accent { font-size: 12px; font-weight: 700; fill: #2563eb; }
+      .t-dim { font-size: 11px; fill: #94a3b8; }
+      .badge { fill: #3b82f6; }
+      .badge-t { font-size: 9px; font-weight: 700; fill: #fff; }
+      .section-h { font-size: 14px; font-weight: 700; fill: #0f172a; }
+      .caption { font-size: 11px; fill: #2563eb; font-weight: 600; }
+      .opt { fill: #f1f5f9; stroke: #e2e8f0; stroke-width: 1; }
+      .opt-sel { fill: #eff6ff; stroke: #3b82f6; stroke-width: 1.5; }
+    </style>
+  </defs>
+
+  <!-- ============ 侧边栏：展开态 ============ -->
+  <text x="30" y="30" class="section-h">A. 侧边栏左下角提醒（展开态）</text>
+  <text x="30" y="48" class="caption">在「设置」按钮上方常驻一行，轻量、带文字、非红色</text>
+
+  <!-- sidebar panel -->
+  <rect x="30" y="62" width="300" height="360" rx="10" class="panel"/>
+  <text x="50" y="88" class="t-dim">会话列表 …</text>
+  <rect x="46" y="100" width="268" height="28" rx="6" class="row-muted"/>
+  <text x="58" y="118" class="t-dim">会话 A</text>
+  <rect x="46" y="134" width="268" height="28" rx="6" class="row-muted"/>
+  <text x="58" y="152" class="t-dim">会话 B</text>
+
+  <!-- footer area -->
+  <line x1="30" y1="300" x2="330" y2="300" stroke="#e2e8f0"/>
+
+  <!-- NEW: update reminder row -->
+  <rect x="42" y="312" width="276" height="44" rx="8" class="row-active"/>
+  <!-- icon -->
+  <circle cx="62" cy="334" r="9" fill="#dbeafe"/>
+  <path d="M62 329 v6 m0 0 l-3 -3 m3 3 l3 -3" stroke="#2563eb" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="80" y="330" class="t-accent">发现新版本 v1.6.0</text>
+  <text x="80" y="346" class="t-dim">当前 v1.5.0 · 点击查看</text>
+  <!-- dismiss -->
+  <text x="306" y="338" text-anchor="end" class="t-dim" font-size="13">⋯</text>
+
+  <!-- settings button (existing) -->
+  <rect x="42" y="364" width="276" height="44" rx="8" class="row"/>
+  <circle cx="62" cy="386" r="9" fill="#f1f5f9"/>
+  <text x="58" y="390" class="t-dim" font-size="12">⚙</text>
+  <text x="80" y="390" class="t-row">设置</text>
+
+  <!-- ============ 侧边栏：折叠态 ============ -->
+  <text x="360" y="30" class="section-h">B. 折叠态</text>
+  <text x="360" y="48" class="caption">仅图标，右上角小蓝点提示</text>
+  <rect x="360" y="62" width="60" height="360" rx="10" class="panel"/>
+  <rect x="372" y="316" width="36" height="36" rx="8" class="row-active"/>
+  <path d="M390 324 v6 m0 0 l-3 -3 m3 3 l3 -3" stroke="#2563eb" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="404" cy="322" r="3.5" class="badge"/>
+  <rect x="372" y="360" width="36" height="36" rx="8" class="row"/>
+  <text x="390" y="383" text-anchor="middle" class="t-dim" font-size="13">⚙</text>
+
+  <!-- ============ 设置 关于：频次 ============ -->
+  <text x="460" y="30" class="section-h">C. 设置 → 关于：更新频次</text>
+  <text x="460" y="48" class="caption">离散选项，点击即时保存（照搬 appearance 模式）</text>
+
+  <rect x="460" y="62" width="470" height="230" rx="10" class="panel"/>
+
+  <text x="480" y="92" class="t-title">自动检查更新</text>
+  <text x="480" y="110" class="t-sub">启动时在后台检测，有新版本会在左下角提醒</text>
+
+  <!-- options -->
+  <rect x="480" y="124" width="200" height="34" rx="8" class="opt-sel"/>
+  <text x="494" y="146" class="t-accent">● 启动时检查</text>
+
+  <rect x="690" y="124" width="100" height="34" rx="8" class="opt"/>
+  <text x="704" y="146" class="t-row">每天一次</text>
+
+  <rect x="480" y="166" width="100" height="34" rx="8" class="opt"/>
+  <text x="494" y="188" class="t-row">每周一次</text>
+
+  <rect x="590" y="166" width="100" height="34" rx="8" class="opt"/>
+  <text x="604" y="188" class="t-row">关闭</text>
+
+  <!-- last check info -->
+  <text x="480" y="226" class="t-dim">上次检查：2026-06-28 18:47</text>
+
+  <!-- existing manual check section (kept) -->
+  <line x1="480" y1="244" x2="910" y2="244" stroke="#e2e8f0"/>
+  <text x="480" y="266" class="t-title">检查更新</text>
+  <rect x="480" y="276" width="96" height="0"/>
+  <rect x="480" y="278" width="92" height="30" rx="6" fill="#0f172a"/>
+  <text x="526" y="298" text-anchor="middle" font-size="12" fill="#fff">检查更新</text>
+  <text x="584" y="298" class="t-dim">已是最新 / 发现新版本 …（已有逻辑保留）</text>
+</svg>

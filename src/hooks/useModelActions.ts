@@ -94,7 +94,7 @@ export function useModelActions({
     notifySettingsChanged,
   ])
 
-  const openSettingsDialog = useCallback((initialTab: 'defaults' | 'customModels') => {
+  const openSettingsDialog = useCallback((initialTab: 'defaults' | 'customModels' | 'about') => {
     setSettingsDialogOpen(true)
     SettingsDialog.open(
       [createLanguageSettingsTab(), createAppearanceSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab(), createProjectCommandsSettingsTab(), createBackupSettingsTab(), createServiceSettingsTab(), createChannelsSettingsTab(), createLanAccessSettingsTab(), createAboutSettingsTab()],
@@ -109,7 +109,7 @@ export function useModelActions({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const dialog = document.querySelector('settings-dialog') as any
       if (dialog) {
-        dialog.activeTabIndex = initialTab === 'defaults' ? 2 : 3
+        dialog.activeTabIndex = initialTab === 'defaults' ? 2 : initialTab === 'customModels' ? 3 : 9
         dialog.requestUpdate?.()
       }
     }, 0)
@@ -121,6 +121,10 @@ export function useModelActions({
 
   const openDefaultOptionsSettings = useCallback(() => {
     openSettingsDialog('defaults')
+  }, [openSettingsDialog])
+
+  const openAboutSettings = useCallback(() => {
+    openSettingsDialog('about')
   }, [openSettingsDialog])
 
   const activateLiteLlmExampleModel = useCallback(async () => {
@@ -251,6 +255,7 @@ export function useModelActions({
     activateConfiguredModel,
     openModelSettings,
     openDefaultOptionsSettings,
+    openAboutSettings,
     activateLiteLlmExampleModel,
     openCustomModelSelector,
   }

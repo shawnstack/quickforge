@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+    <style>
+      .box { fill: #fff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .box-new { fill: #eff6ff; stroke: #3b82f6; stroke-width: 1.5; }
+      .box-backend { fill: #f0fdf4; stroke: #22c55e; stroke-width: 1.5; }
+      .box-existing { fill: #fafafa; stroke: #94a3b8; stroke-width: 1.5; stroke-dasharray: 5 3; }
+      .title { font-size: 15px; font-weight: 700; fill: #0f172a; }
+      .sub { font-size: 11px; fill: #475569; }
+      .tag-new { font-size: 10px; font-weight: 700; fill: #fff; }
+      .tag-bg-new { fill: #3b82f6; }
+      .tag-bg-existing { fill: #94a3b8; }
+      .tag-bg-back { fill: #22c55e; }
+      .flow { stroke: #64748b; stroke-width: 1.5; fill: none; }
+      .label { font-size: 11px; fill: #334155; font-weight: 600; }
+      .step { font-size: 12px; font-weight: 700; fill: #2563eb; }
+    </style>
+  </defs>
+
+  <!-- Title -->
+  <text x="480" y="34" text-anchor="middle" class="title" font-size="18">更新检测功能 · 数据流与启动时序</text>
+
+  <!-- ============ 启动时序（左列） ============ -->
+  <text x="40" y="76" class="step">① 启动时序（前端）</text>
+
+  <rect x="40" y="90" width="200" height="46" rx="8" class="box-existing"/>
+  <text x="140" y="112" text-anchor="middle" class="title" font-size="13">App 启动</text>
+  <text x="140" y="128" text-anchor="middle" class="sub">main.tsx → App.tsx</text>
+
+  <rect x="40" y="160" width="200" height="46" rx="8" class="box-existing"/>
+  <text x="140" y="182" text-anchor="middle" class="title" font-size="13">useAppBootstrap</text>
+  <text x="140" y="198" text-anchor="middle" class="sub">onStorageReady 回调</text>
+
+  <rect x="40" y="230" width="200" height="46" rx="8" class="box-new"/>
+  <text x="140" y="252" text-anchor="middle" class="title" font-size="13">useUpdateCheck</text>
+  <text x="140" y="268" text-anchor="middle" class="sub">读频次 + 判断是否到期</text>
+  <rect x="44" y="234" width="40" height="14" rx="3" class="tag-bg-new"/>
+  <text x="64" y="244" text-anchor="middle" class="tag-new">新增</text>
+
+  <rect x="40" y="300" width="200" height="46" rx="8" class="box-new"/>
+  <text x="140" y="322" text-anchor="middle" class="title" font-size="13">fetch 检测（fire&amp;forget）</text>
+  <text x="140" y="338" text-anchor="middle" class="sub">静默失败，不阻塞 UI</text>
+  <rect x="44" y="304" width="40" height="14" rx="3" class="tag-bg-new"/>
+  <text x="64" y="314" text-anchor="middle" class="tag-new">新增</text>
+
+  <rect x="40" y="370" width="200" height="46" rx="8" class="box-new"/>
+  <text x="140" y="392" text-anchor="middle" class="title" font-size="13">写入检测结果</text>
+  <text x="140" y="408" text-anchor="middle" class="sub">lastCheckAt + React state</text>
+  <rect x="44" y="374" width="40" height="14" rx="3" class="tag-bg-new"/>
+  <text x="64" y="384" text-anchor="middle" class="tag-new">新增</text>
+
+  <!-- arrows startup -->
+  <line x1="140" y1="136" x2="140" y2="156" class="flow" marker-end="url(#arrow)"/>
+  <line x1="140" y1="206" x2="140" y2="226" class="flow" marker-end="url(#arrow)"/>
+  <line x1="140" y1="276" x2="140" y2="296" class="flow" marker-end="url(#arrow)"/>
+  <line x1="140" y1="346" x2="140" y2="366" class="flow" marker-end="url(#arrow)"/>
+
+  <!-- ============ 中间：后端 ============ -->
+  <text x="400" y="76" class="step">② 后端（已有，无需改动）</text>
+
+  <rect x="320" y="300" width="220" height="46" rx="8" class="box-backend"/>
+  <text x="430" y="322" text-anchor="middle" class="title" font-size="13">/api/system/update/check</text>
+  <text x="430" y="338" text-anchor="middle" class="sub">server/routes/system.mjs</text>
+  <rect x="324" y="304" width="44" height="14" rx="3" class="tag-bg-back"/>
+  <text x="346" y="314" text-anchor="middle" class="tag-new">已有</text>
+
+  <rect x="320" y="370" width="220" height="46" rx="8" class="box-backend"/>
+  <text x="430" y="392" text-anchor="middle" class="title" font-size="13">package-update.mjs</text>
+  <text x="430" y="408" text-anchor="middle" class="sub">查 npm registry（5s 超时）</text>
+  <rect x="324" y="374" width="44" height="14" rx="3" class="tag-bg-back"/>
+  <text x="346" y="384" text-anchor="middle" class="tag-new">已有</text>
+
+  <!-- call to backend -->
+  <line x1="240" y1="323" x2="316" y2="323" class="flow" marker-end="url(#arrow)"/>
+  <text x="278" y="316" text-anchor="middle" class="label">GET</text>
+  <line x1="430" y1="346" x2="430" y2="366" class="flow" marker-end="url(#arrow)"/>
+
+  <!-- return -->
+  <path d="M 320 388 C 280 388, 260 393, 240 393" class="flow" marker-end="url(#arrow)" stroke-dasharray="4 3"/>
+  <text x="278" y="382" text-anchor="middle" class="label">result</text>
+
+  <!-- ============ 右列：UI 呈现 ============ -->
+  <text x="690" y="76" class="step">③ UI 呈现</text>
+
+  <rect x="600" y="160" width="280" height="56" rx="8" class="box-new"/>
+  <text x="740" y="184" text-anchor="middle" class="title" font-size="13">ChatSidebar 左下角提醒</text>
+  <text x="740" y="202" text-anchor="middle" class="sub">有新版本时常驻一行 · 点击跳转「关于」</text>
+  <rect x="604" y="164" width="40" height="14" rx="3" class="tag-bg-new"/>
+  <text x="624" y="174" text-anchor="middle" class="tag-new">新增</text>
+
+  <rect x="600" y="300" width="280" height="56" rx="8" class="box-new"/>
+  <text x="740" y="324" text-anchor="middle" class="title" font-size="13">设置 → 关于：更新频次</text>
+  <text x="740" y="342" text-anchor="middle" class="sub">启动时 / 每天 / 每周 / 关闭（即时保存）</text>
+  <rect x="604" y="304" width="40" height="14" rx="3" class="tag-bg-new"/>
+  <text x="624" y="314" text-anchor="middle" class="tag-new">新增</text>
+
+  <rect x="600" y="440" width="280" height="56" rx="8" class="box-existing"/>
+  <text x="740" y="464" text-anchor="middle" class="title" font-size="13">设置 → 关于：手动检测/更新</text>
+  <text x="740" y="482" text-anchor="middle" class="sub">about-settings-tab.ts（已有，保留）</text>
+  <rect x="604" y="444" width="40" height="14" rx="3" class="tag-bg-existing"/>
+  <text x="624" y="454" text-anchor="middle" class="tag-new">已有</text>
+
+  <!-- state to sidebar -->
+  <line x1="240" y1="393" x2="596" y2="188" class="flow" marker-end="url(#arrow)"/>
+  <text x="430" y="265" text-anchor="middle" class="label">React state（updateInfo）</text>
+
+  <!-- storage shared -->
+  <rect x="600" y="90" width="280" height="50" rx="8" class="box"/>
+  <text x="740" y="112" text-anchor="middle" class="title" font-size="13">storage.settings</text>
+  <text x="740" y="128" text-anchor="middle" class="sub">key: update-check-settings</text>
+  <line x1="140" y1="253" x2="596" y2="110" class="flow" marker-end="url(#arrow)" stroke-dasharray="4 3"/>
+  <text x="370" y="170" text-anchor="middle" class="label">读写频次 / lastCheckAt</text>
+  <line x1="740" y1="356" x2="740" y2="138" class="flow" marker-end="url(#arrow)" stroke-dasharray="4 3"/>
+
+  <!-- Legend -->
+  <rect x="40" y="540" width="14" height="14" rx="3" class="box-new"/>
+  <text x="60" y="552" class="sub">新增</text>
+  <rect x="110" y="540" width="14" height="14" rx="3" class="box-backend"/>
+  <text x="130" y="552" class="sub">后端复用（不改）</text>
+  <rect x="250" y="540" width="14" height="14" rx="3" class="box-existing"/>
+  <text x="270" y="552" class="sub">已有（保留）</text>
+</svg>

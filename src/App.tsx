@@ -42,6 +42,7 @@ import { useAgentManager } from '@/hooks/useAgentManager'
 import { useSessionPagination } from '@/hooks/useSessionPagination'
 import { useTaskToasts } from '@/hooks/useTaskToasts'
 import { useAppBootstrap } from '@/hooks/useAppBootstrap'
+import { useUpdateCheck } from '@/hooks/useUpdateCheck'
 import { useModelActions } from '@/hooks/useModelActions'
 import { useChatActions } from '@/hooks/useChatActions'
 import { useProjectActions } from '@/hooks/useProjectActions'
@@ -470,6 +471,8 @@ function MainApp() {
     onStorageReady: setStorage,
   })
 
+  const updateCheck = useUpdateCheck(storageRef, ready)
+
   useEffect(() => {
     if (!ready) return undefined
     let lastRefreshAt = 0
@@ -636,6 +639,7 @@ function MainApp() {
   const {
     openModelSettings,
     openDefaultOptionsSettings,
+    openAboutSettings,
     activateLiteLlmExampleModel,
     openCustomModelSelector,
   } = useModelActions({
@@ -993,6 +997,11 @@ function MainApp() {
         onOpenAgentProfiles={openAgentProfiles}
         onOpenPlugins={openPlugins}
         onOpenSettings={openDefaultOptionsSettings}
+        updateAvailable={updateCheck.result.updateAvailable}
+        latestVersion={updateCheck.result.latestVersion}
+        currentVersion={updateCheck.result.currentVersion}
+        onOpenUpdate={openAboutSettings}
+        onDismissUpdate={updateCheck.dismissUpdate}
         onToggleSidebar={toggleSidebar}
         currentSessionHoverInfo={currentSessionHoverInfo}
       />
@@ -1065,6 +1074,14 @@ function MainApp() {
                 closeMobileSidebar()
                 openDefaultOptionsSettings()
               }}
+              updateAvailable={updateCheck.result.updateAvailable}
+              latestVersion={updateCheck.result.latestVersion}
+              currentVersion={updateCheck.result.currentVersion}
+              onOpenUpdate={() => {
+                closeMobileSidebar()
+                openAboutSettings()
+              }}
+              onDismissUpdate={updateCheck.dismissUpdate}
               onToggleSidebar={closeMobileSidebar}
               currentSessionHoverInfo={currentSessionHoverInfo}
             />

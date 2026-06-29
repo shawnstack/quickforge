@@ -1,7 +1,13 @@
-import { SettingsTab } from '@earendil-works/pi-web-ui'
+import { getAppStorage, SettingsTab } from '@earendil-works/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
-import { t } from '@/lib/i18n'
+import { getDateLocale, t } from '@/lib/i18n'
 import { showConfirm } from '@/components/ui/confirm-dialog'
+import {
+  DEFAULT_UPDATE_CHECK_SETTINGS,
+  loadUpdateCheckSettings,
+  saveUpdateCheckSettings,
+  type UpdateCheckFrequency,
+} from '@/lib/update-check-settings'
 import './info-tip'
 
 type AboutInfo = {
@@ -20,6 +26,13 @@ type UpdateInfo = AboutInfo & {
   installCommand: string
 }
 
+const FREQUENCY_OPTIONS: { value: UpdateCheckFrequency; label: () => string }[] = [
+  { value: 'startup', label: () => t('frequencyStartup') },
+  { value: 'daily', label: () => t('frequencyDaily') },
+  { value: 'weekly', label: () => t('frequencyWeekly') },
+  { value: 'off', label: () => t('frequencyOff') },
+]
+
 class AboutSettingsTab extends SettingsTab {
   private about?: AboutInfo
   private updateInfo?: UpdateInfo
@@ -28,6 +41,8 @@ class AboutSettingsTab extends SettingsTab {
   private updating = false
   private message = ''
   private error = ''
+  private frequency: UpdateCheckFrequency = DEFAULT_UPDATE_CHECK_SETTINGS.frequency
+  private lastCheckAt: string | null = null
 
   override getTabName(): string {
     return t('about')
@@ -48,6 +63,13 @@ class AboutSettingsTab extends SettingsTab {
       const payload = await response.json().catch(() => null)
       if (!response.ok) throw new Error(payload?.error || t('requestFailed'))
       this.about = payload as AboutInfo
+      try {
+        const settings = await loadUpdateCheckSettings(getAppStorage())
+        this.frequency = settings.frequency
+        this.lastCheckAt = settings.lastCheckAt
+      } catch {
+        // ignore — defaults are fine
+      }
     } catch (error) {
       this.error = error instanceof Error ? error.message : t('requestFailed')
     } finally {
@@ -125,6 +147,39 @@ class AboutSettingsTab extends SettingsTab {
     }
   }
 
+  private async selectFrequency(frequency: UpdateCheckFrequency) {
+    if (this.frequency === frequency) return
+    this.frequency = frequency
+    this.requestUpdate()
+    try {
+      const storage = getAppStorage()
+      const settings = await loadUpdateCheckSettings(storage)
+      await saveUpdateCheckSettings(storage, { ...settings, frequency })
+      this.error = ''
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : t('requestFailed')
+    } finally {
+      this.requestUpdate()
+    }
+  }
+
+  private renderFrequencyOption(option: { value: UpdateCheckFrequency; label: () => string }) {
+    const selected = this.frequency === option.value
+    return html`
+      <button
+        type="button"
+        class="rounded-md border px-3 py-1.5 text-sm transition-colors ${
+          selected
+            ? 'border-primary bg-primary text-primary-foreground'
+            : 'border-border bg-background text-foreground hover:bg-accent'
+        }"
+        @click=${() => this.selectFrequency(option.value)}
+      >
+        ${option.label()}
+      </button>
+    `
+  }
+
   private infoRows() {
     const about = this.about
     if (!about) return null
@@ -197,6 +252,22 @@ class AboutSettingsTab extends SettingsTab {
             ${t('checkUpdate')}
             <quickforge-info-tip .label=${t('checkUpdateDescription')}></quickforge-info-tip>
           </h4>
+
+          <div class="mt-4">
+            <div class="text-sm font-medium text-foreground">${t('updateFrequencySection')}</div>
+            <div class="mt-1 text-xs text-muted-foreground">${t('updateFrequencyDescription')}</div>
+            <div class="mt-2 flex flex-wrap gap-2">
+              ${FREQUENCY_OPTIONS.map((option) => this.renderFrequencyOption(option))}
+            </div>
+            <div class="mt-2 text-xs text-muted-foreground">${
+              this.lastCheckAt
+                ? t('lastCheckedAt', { time: new Date(this.lastCheckAt).toLocaleString(getDateLocale()) })
+                : t('lastCheckedNever')
+            }</div>
+          </div>
+
+          <div class="my-4 border-t border-border"></div>
+
           ${this.updateStatus()}
 
           <div class="mt-4 flex flex-wrap gap-2">

@@ -20,6 +20,7 @@ import {
   Puzzle,
   Search,
   Settings,
+  DownloadCloud,
   Sparkles,
   Trash2,
   GitBranch,
@@ -91,6 +92,11 @@ type ChatSidebarProps = {
   onOpenAgentProfiles: () => void
   onOpenPlugins: () => void
   onOpenSettings: () => void
+  onOpenUpdate?: () => void
+  onDismissUpdate?: () => void
+  updateAvailable?: boolean
+  latestVersion?: string
+  currentVersion?: string
   onToggleSidebar: () => void
   currentSessionHoverInfo?: {
     sessionId?: string
@@ -193,6 +199,11 @@ export const ChatSidebar = memo(function ChatSidebar({
   onOpenAgentProfiles,
   onOpenPlugins,
   onOpenSettings,
+  onOpenUpdate,
+  onDismissUpdate,
+  updateAvailable,
+  latestVersion,
+  currentVersion,
   onToggleSidebar,
   currentSessionHoverInfo,
 }: ChatSidebarProps) {
@@ -869,6 +880,57 @@ export const ChatSidebar = memo(function ChatSidebar({
       ) : null}
 
       <div className="mt-auto shrink-0 border-t border-border px-3 py-3">
+        {updateAvailable && latestVersion ? (
+          <button
+            type="button"
+            className={cn(
+              rowClass,
+              'relative mb-2 w-full border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10',
+            )}
+            onClick={onOpenUpdate}
+            aria-label={t('newVersionAvailable', { version: latestVersion })}
+            title={t('newVersionAvailable', { version: latestVersion })}
+          >
+            <span className={cn(iconSlotClass, 'text-primary/80')}>
+              <DownloadCloud className="size-4" />
+            </span>
+            {sidebarOpen ? (
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-xs font-medium leading-tight">
+                  {t('newVersionAvailable', { version: latestVersion })}
+                </span>
+                {currentVersion ? (
+                  <span className="block truncate text-[11px] leading-tight text-primary/70">
+                    {t('newVersionAvailableSub', { current: currentVersion })}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
+            {sidebarOpen && onDismissUpdate ? (
+              <span
+                className="shrink-0 rounded-full px-1.5 py-0.5 text-[11px] text-primary/60 transition-colors hover:bg-primary/15 hover:text-primary"
+                role="button"
+                tabIndex={0}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onDismissUpdate()
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.stopPropagation()
+                    event.preventDefault()
+                    onDismissUpdate()
+                  }
+                }}
+              >
+                {t('updateLater')}
+              </span>
+            ) : null}
+            {!sidebarOpen ? (
+              <span className="absolute right-1 top-1 size-2 rounded-full bg-primary" />
+            ) : null}
+          </button>
+        ) : null}
         <button
           type="button"
           className={cn(rowClass, 'w-full', inactiveRowClass)}

@@ -2,6 +2,36 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.5.2] - 2026-06-30
+
+### Added
+
+- Added the ability to archive conversations instead of permanently deleting them.
+- Surfaced the right-side workspace toggle tooltip according to its expand/collapse state.
+
+### Changed
+
+- Split the chat panel decoration logic into focused modules and extracted scheduled task utilities into a reusable module, with added test coverage for the scheduling helpers.
+- Improved streaming performance by skipping artifact extraction and process decoration for stable turns, and omitting redundant scroll writes when pinned to the bottom.
+- Delayed the conversation sidebar hover tooltip to avoid re-render churn when quickly moving across the list.
+
+### Fixed
+
+- Stored composer drafts locally so in-progress input is restored across reloads.
+- Restricted automatic preview to `present_files`; `write_file`/`edit_file` no longer auto-open a preview tab.
+- Prevented historical previews from re-opening after a refresh.
+- Aligned the subagent trace border color.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.5.2` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.5.2.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.5.2.tgz
+  ```
+
 ## [1.5.1] - 2026-06-29
 
 ### Added

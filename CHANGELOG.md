@@ -2,6 +2,33 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.5.3] - 2026-06-30
+
+### Changed
+
+- Split the monolithic runtime `config.json` into per-store files so each configuration domain is persisted and written independently:
+  - `settings.json` (general app preferences, no longer holds MCP servers).
+  - `mcp-servers.json` (MCP promoted from a nested `settings.mcpServers` key to its own store with an independent write queue).
+  - `providers.json` (custom model provider definitions and their API keys kept together as strongly-coupled data under a shared write queue).
+  - `plugins.json` and `projects.json` (each with its own file and write queue).
+- Demoted `config.json` to metadata only (`layoutVersion: 2`) after a one-time idempotent migration (`migrateSplitConfig()`), with a read-side fallback to legacy sections for interrupted migrations.
+
+### Added
+
+- Added MCP servers as a first-class backup section; importing an older backup automatically lifts `settings.mcpServers` into the new `mcp` section.
+- Added a merge restore mode for backups (backup wins on conflict, local-only entries preserved) covering settings, MCP, provider keys, custom providers, projects, scheduled tasks, and conversations.
+- Added tests covering the config split migration, read-side fallback, shared `providers.json` store, and the backup merge/replace modes.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.5.3` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.5.3.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.5.3.tgz
+  ```
+
 ## [1.5.2] - 2026-06-30
 
 ### Added

@@ -97,7 +97,13 @@ server/
 **目录结构**:
 ```
 ~/.quickforge/
-├── config/config.json     # 配置数据
+├── config/                # 配置数据（按 store 拆分为多文件）
+│   ├── config.json        # 仅元数据/迁移标记
+│   ├── settings.json      # 应用设置
+│   ├── mcp-servers.json   # MCP 服务配置
+│   ├── providers.json     # 自定义服务商 + API 密钥
+│   ├── plugins.json       # 插件配置
+│   └── projects.json      # 项目注册表
 ├── storage/               # 会话数据和索引
 │   ├── sessions/          # 按 scope/projectId 分桶的会话文件
 │   ├── sessions-metadata/ # 会话元数据索引
@@ -108,8 +114,8 @@ server/
 ```
 
 **功能**:
-- 存储布局迁移（v1 → v2）
-- `readStore` / `writeStore` / `atomicUpdate` — 通用存储操作
+- 存储布局迁移：早期 v1→v2 布局迁移 + 配置按 store 拆分（`migrateSplitConfig()`，单体 `config.json` → `settings`/`mcp`/`providers`/`plugins`/`projects` 多文件）
+- `readStore` / `writeStore` / `atomicUpdate` — 通用存储操作（各配置 store 独立文件与写入队列）
 - 会话分桶存储（按 scope 和 projectId）
 - `readSessionStoreScoped` — 作用域会话查询
 - 写操作的原子锁队列
@@ -171,7 +177,7 @@ server/
 **用途**: 管理全局 stdio MCP Server，并把外部 MCP tools 适配为 QuickForge Agent tools。
 
 **核心文件**:
-- `mcp/config.mjs` — MCP Server 配置读写和校验，配置存放在 `settings.mcpServers`；兼容 `mcpServers` JSON 导入、`type`/`transport` 和远程 `headers` 配置。
+- `mcp/config.mjs` — MCP Server 配置读写和校验，配置存放在独立的 `mcp` store（`config/mcp-servers.json`，内部 key 仍为 `mcpServers`）；兼容 `mcpServers` JSON 导入、`type`/`transport` 和远程 `headers` 配置。
 - `mcp/registry.mjs` — stdio/SSE/Streamable HTTP 连接生命周期、工具发现、工具调用转发、关闭清理；支持全量刷新（`refreshMcpConnections`，对 error 状态有重试退避）和单 server 强制重连（`reconnectMcpServer`，绕过退避）。
 - `routes/mcp.mjs` — `/api/mcp/servers`（列表与 upsert 单个）、`/api/mcp/config`（批量导入 merge/replace）、`/api/mcp/reconnect`（全量重连）、`/api/mcp/reconnect/:name`（单 server 重连）、启停开关与删除等管理接口。
 
@@ -256,7 +262,7 @@ server/
 
 ### project-config.mjs (162 行)
 
-项目配置管理（在 `config/config.json` 的 `projects` 数组中）。
+项目配置管理（在 `config/projects.json` 的 `projects` 数组中）。
 
 ### reasoning-cache.mjs (51 行)
 

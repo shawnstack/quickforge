@@ -46,6 +46,7 @@ export async function cleanOldLogs() {
 
 export const stores = new Set([
   'settings',
+  'mcp',
   'provider-keys',
   'custom-providers',
   'plugins',
@@ -74,13 +75,102 @@ export function getStoreRevision(storeName) {
   return storeRevisions.get(storeName) || 0
 }
 
-const configStores = new Set(['settings', 'provider-keys', 'custom-providers', 'plugins'])
+// Each configuration store is persisted to its own file under config/.
+// "Solo" stores own a file whose root object *is* the store data.
+// "Shared" stores share one file (providers.json) keyed by section, so that
+// strongly-coupled provider definitions and their API keys stay in sync under
+// a single write queue.
+const soloConfigStores = {
+  settings: 'settings.json',
+  mcp: 'mcp-servers.json',
+  plugins: 'plugins.json',
+}
 
-const configStoreSections = {
-  settings: ['app', 'settings'],
-  'provider-keys': ['credentials', 'providerKeys'],
-  'custom-providers': ['providers', 'customProviders'],
-  plugins: ['extensions', 'plugins'],
+const sharedConfigGroups = {
+  'providers.json': {
+    queue: 'providers',
+    sections: {
+      'provider-keys': 'providerKeys',
+      'custom-providers': 'customProviders',
+    },
+  },
+}
+
+// Reverse index: storeName -> { file, queue, sectionKey|null }
+const configStoreLocations = (() => {
+  const map = {}
+  for (const [store, file] of Object.entries(soloConfigStores)) {
+    map[store] = { file, queue: store, sectionKey: null }
+  }
+  for (const [file, group] of Object.entries(sharedConfigGroups)) {
+    for (const [store, sectionKey] of Object.entries(group.sections)) {
+      map[store] = { file, queue: group.queue, sectionKey }
+    }
+  }
+  return map
+})()
+
+function isConfigStore(storeName) {
+  return Boolean(configStoreLocations[storeName])
+}
+
+function configStoreFilePath(storeName) {
+  return path.join(configDir, configStoreLocations[storeName].file)
+}
+
+// Coerce a value into a plain object record (the shape every config store holds).
+function asRecord(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+}
+
+// Where each config store lived in the legacy unified config.json, used only as
+// a read fallback (D6 read-side safety net).  Note: `mcp` was lifted out of
+// `settings.mcpServers` — its legacy source is nested, not a direct section.
+const legacyConfigSectionReaders = {
+  settings: (config) => asRecord(config.app?.settings),
+  mcp: (config) => ({ mcpServers: Array.isArray(config.app?.settings?.mcpServers) ? config.app.settings.mcpServers : [] }),
+  plugins: (config) => asRecord(config.extensions?.plugins),
+  'provider-keys': (config) => asRecord(config.credentials?.providerKeys),
+  'custom-providers': (config) => asRecord(config.providers?.customProviders),
+}
+
+// Read a single config store from its (possibly shared) file, with a fallback
+// to the legacy unified config.json section when the split file is absent and
+// the split migration has not completed yet (D6 read-side safety net, so an
+// interrupted or partially-completed migration can never surface empty data).
+async function readConfigStore(storeName) {
+  const loc = configStoreLocations[storeName]
+  const file = configStoreFilePath(storeName)
+
+  if (existsSync(file)) {
+    const content = await readJsonFile(file, {})
+    if (loc.sectionKey) return asRecord(content?.[loc.sectionKey])
+    return asRecord(content)
+  }
+
+  // Split file missing: only fall back to the legacy section while the split
+  // migration is still pending. Once `.split-migrated` exists the split files
+  // are authoritative, so a genuinely missing file means an empty store.
+  if (!existsSync(splitMigrationMarkerFile)) {
+    const reader = legacyConfigSectionReaders[storeName]
+    if (reader) return reader(await readConfigFile())
+  }
+
+  return {}
+}
+
+// Write a single config store back to its (possibly shared) file.  For shared
+// files the sibling sections are preserved.  Must run inside the store's queue.
+async function writeConfigStore(storeName, data) {
+  const loc = configStoreLocations[storeName]
+  const file = configStoreFilePath(storeName)
+  if (loc.sectionKey) {
+    const content = await readJsonFile(file, {})
+    content[loc.sectionKey] = data && typeof data === 'object' && !Array.isArray(data) ? data : {}
+    await writeJsonAtomic(file, content)
+    return
+  }
+  await writeJsonAtomic(file, data && typeof data === 'object' && !Array.isArray(data) ? data : {})
 }
 
 export function getDataDir() {
@@ -97,16 +187,14 @@ export const userCommandsDir = path.join(dataDir, 'commands')
 
 const quickForgeConfigFile = path.join(configDir, 'config.json')
 const configMigrationMarkerFile = path.join(configDir, '.layout-migrated')
+const splitMigrationMarkerFile = path.join(configDir, '.split-migrated')
+const projectsConfigFile = path.join(configDir, 'projects.json')
 const legacyStorageMigrationMarkerFile = path.join(storageDir, '.layout-migrated')
 
 export function storeFile(storeName) {
   assertStore(storeName)
-  if (configStores.has(storeName)) return quickForgeConfigFile
+  if (isConfigStore(storeName)) return configStoreFilePath(storeName)
   return sessionStoreFile(storeName, { scope: 'global' })
-}
-
-export function configFile() {
-  return quickForgeConfigFile
 }
 
 function legacyFlatStoreFile(storeName) {
@@ -228,17 +316,6 @@ function normalizeConfig(value) {
   }
 }
 
-function configSection(config, storeName) {
-  const [section, key] = configStoreSections[storeName]
-  return config?.[section]?.[key] && typeof config[section][key] === 'object' ? config[section][key] : {}
-}
-
-function setConfigSection(config, storeName, data) {
-  const [section, key] = configStoreSections[storeName]
-  config[section] = config[section] && typeof config[section] === 'object' ? config[section] : {}
-  config[section][key] = data && typeof data === 'object' ? data : {}
-}
-
 function sessionBucket(value) {
   if (value?.scope === 'project' && value?.projectId) {
     return { scope: 'project', projectId: String(value.projectId) }
@@ -322,6 +399,10 @@ async function readConfigFile() {
   return normalizeConfig(await readJsonFile(quickForgeConfigFile, defaultConfig()))
 }
 
+// Used only within the migration chain (migrateUnifiedConfig). It persists the
+// unified (pre-split) layout at layoutVersion 1 as an intermediate step; the
+// subsequent migrateSplitConfig() then demotes config.json to metadata-only
+// (layoutVersion 2). Do not use for normal runtime config writes.
 async function writeConfigFile(config) {
   const next = normalizeConfig(config)
   next.layoutVersion = 1
@@ -651,6 +732,68 @@ async function migrateUnifiedConfig() {
   await fs.writeFile(configMigrationMarkerFile, `${new Date().toISOString()}\n`, 'utf8')
 }
 
+// Split the legacy unified config.json into per-store files under config/.
+// Each target file is only written when it does not already exist, so a
+// partially-completed migration can safely resume.  config.json is demoted to
+// metadata only after the split succeeds.
+async function migrateSplitConfig() {
+  if (existsSync(splitMigrationMarkerFile)) return
+
+  // Fresh installs have no unified config.json to split — just record marker.
+  if (!existsSync(quickForgeConfigFile)) {
+    await fs.writeFile(splitMigrationMarkerFile, `${new Date().toISOString()}\n`, 'utf8')
+    return
+  }
+
+  const config = await readConfigFile()
+
+  // settings.json — mcpServers is stripped out (moved to its own store below)
+  if (!existsSync(path.join(configDir, 'settings.json'))) {
+    const oldSettings = config.app?.settings && typeof config.app.settings === 'object'
+      ? { ...config.app.settings }
+      : {}
+    delete oldSettings.mcpServers
+    await writeJsonAtomic(path.join(configDir, 'settings.json'), oldSettings)
+  }
+
+  // mcp-servers.json — lifted out of settings.mcpServers
+  if (!existsSync(path.join(configDir, 'mcp-servers.json'))) {
+    const mcpServers = config.app?.settings?.mcpServers
+    await writeJsonAtomic(path.join(configDir, 'mcp-servers.json'), {
+      mcpServers: Array.isArray(mcpServers) ? mcpServers : [],
+    })
+  }
+
+  // providers.json — customProviders + providerKeys kept together (coupled)
+  if (!existsSync(path.join(configDir, 'providers.json'))) {
+    const customProviders = config.providers?.customProviders && typeof config.providers.customProviders === 'object'
+      ? config.providers.customProviders
+      : {}
+    const providerKeys = config.credentials?.providerKeys && typeof config.credentials.providerKeys === 'object'
+      ? config.credentials.providerKeys
+      : {}
+    await writeJsonAtomic(path.join(configDir, 'providers.json'), { customProviders, providerKeys })
+  }
+
+  // plugins.json
+  if (!existsSync(path.join(configDir, 'plugins.json'))) {
+    const plugins = config.extensions?.plugins && typeof config.extensions.plugins === 'object'
+      ? config.extensions.plugins
+      : {}
+    await writeJsonAtomic(path.join(configDir, 'plugins.json'), plugins)
+  }
+
+  // projects.json
+  if (!existsSync(projectsConfigFile)) {
+    await writeJsonAtomic(projectsConfigFile, normalizeProjectConfig(config.projects))
+  }
+
+  // Demote config.json to metadata only.
+  await writeJsonAtomic(quickForgeConfigFile, { layoutVersion: 2, migratedAt: new Date().toISOString() })
+
+  await fs.writeFile(splitMigrationMarkerFile, `${new Date().toISOString()}\n`, 'utf8')
+}
+
 const writeQueues = new Map()
 
 function enqueueWrite(queueName, operation) {
@@ -673,15 +816,13 @@ function enqueueWrite(queueName, operation) {
  */
 export async function atomicUpdate(storeName, updateFn) {
   assertStore(storeName)
-  const queueName = configStores.has(storeName) ? 'config' : storeName
+  const queueName = isConfigStore(storeName) ? configStoreLocations[storeName].queue : storeName
   return enqueueWrite(queueName, async () => {
     await ensureStorage()
-    if (configStores.has(storeName)) {
-      const config = await readConfigFile()
-      const data = configSection(config, storeName)
+    if (isConfigStore(storeName)) {
+      const data = await readConfigStore(storeName)
       const updated = updateFn(data)
-      setConfigSection(config, storeName, updated)
-      await writeConfigFile(config)
+      await writeConfigStore(storeName, updated)
       return updated
     }
     const data = await readSessionStore(storeName)
@@ -718,13 +859,11 @@ export async function atomicSessionMetadataUpdate(scope, projectId, updateFn) {
  * Atomically read-modify-write the project config within the config queue.
  */
 export async function atomicProjectConfigUpdate(updateFn) {
-  return enqueueWrite('config', async () => {
+  return enqueueWrite('projects', async () => {
     await ensureStorage()
-    const config = await readConfigFile()
-    const projectConfig = normalizeProjectConfig(config.projects)
+    const projectConfig = normalizeProjectConfig(await readJsonFile(projectsConfigFile, defaultProjectConfig()))
     const updated = updateFn(projectConfig)
-    config.projects = normalizeProjectConfig(updated)
-    await writeConfigFile(config)
+    await writeJsonAtomic(projectsConfigFile, normalizeProjectConfig(updated))
     return updated
   })
 }
@@ -755,9 +894,10 @@ export function ensureStorage() {
     ])
 
     await migrateUnifiedConfig()
+    await migrateSplitConfig()
 
     await Promise.all([
-      ensureJsonFile(quickForgeConfigFile, defaultConfig()),
+      ensureJsonFile(quickForgeConfigFile, { layoutVersion: 2 }),
       ensureJsonFile(sessionStoreFile('sessions-metadata', { scope: 'global' })),
     ])
   })()
@@ -770,9 +910,8 @@ export async function readStore(storeName) {
   assertStore(storeName)
   await ensureStorage()
 
-  if (configStores.has(storeName)) {
-    const config = await readConfigFile()
-    return configSection(config, storeName)
+  if (isConfigStore(storeName)) {
+    return readConfigStore(storeName)
   }
 
   return readSessionStore(storeName)
@@ -780,15 +919,13 @@ export async function readStore(storeName) {
 
 export async function writeStore(storeName, data) {
   assertStore(storeName)
-  const queueName = configStores.has(storeName) ? 'config' : storeName
+  const queueName = isConfigStore(storeName) ? configStoreLocations[storeName].queue : storeName
 
   return enqueueWrite(queueName, async () => {
     await ensureStorage()
 
-    if (configStores.has(storeName)) {
-      const config = await readConfigFile()
-      setConfigSection(config, storeName, data)
-      await writeConfigFile(config)
+    if (isConfigStore(storeName)) {
+      await writeConfigStore(storeName, data)
       return
     }
 
@@ -798,16 +935,13 @@ export async function writeStore(storeName, data) {
 
 export async function readProjectConfigData() {
   await ensureStorage()
-  const config = await readConfigFile()
-  return normalizeProjectConfig(config.projects)
+  return normalizeProjectConfig(await readJsonFile(projectsConfigFile, defaultProjectConfig()))
 }
 
 export async function writeProjectConfigData(projectConfig) {
-  return enqueueWrite('config', async () => {
+  return enqueueWrite('projects', async () => {
     await ensureStorage()
-    const config = await readConfigFile()
-    config.projects = normalizeProjectConfig(projectConfig)
-    await writeConfigFile(config)
+    await writeJsonAtomic(projectsConfigFile, normalizeProjectConfig(projectConfig))
   })
 }
 

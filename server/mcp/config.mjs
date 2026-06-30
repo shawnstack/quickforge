@@ -163,43 +163,43 @@ export function normalizeMcpServers(value) {
 }
 
 export async function readMcpServers() {
-  const settings = await readStore('settings')
-  return normalizeMcpServers(settings?.[MCP_CONFIG_KEY])
+  const mcp = await readStore('mcp')
+  return normalizeMcpServers(mcp?.[MCP_CONFIG_KEY])
 }
 
 export async function writeMcpServers(servers) {
   const normalized = normalizeMcpServers(servers)
-  return atomicUpdate('settings', (settings) => {
-    settings[MCP_CONFIG_KEY] = normalized.map((server) => ({ ...server, updatedAt: new Date().toISOString() }))
-    return settings
-  }).then((settings) => normalizeMcpServers(settings?.[MCP_CONFIG_KEY]))
+  return atomicUpdate('mcp', (mcp) => {
+    mcp[MCP_CONFIG_KEY] = normalized.map((server) => ({ ...server, updatedAt: new Date().toISOString() }))
+    return mcp
+  }).then((mcp) => normalizeMcpServers(mcp?.[MCP_CONFIG_KEY]))
 }
 
 export async function upsertMcpServer(server) {
   const normalized = normalizeMcpServerConfig(server)
-  return atomicUpdate('settings', (settings) => {
-    const servers = normalizeMcpServers(settings?.[MCP_CONFIG_KEY])
+  return atomicUpdate('mcp', (mcp) => {
+    const servers = normalizeMcpServers(mcp?.[MCP_CONFIG_KEY])
     const index = servers.findIndex((item) => item.name === normalized.name)
     const next = { ...normalized, updatedAt: new Date().toISOString() }
     if (index >= 0) servers[index] = next
     else servers.push(next)
-    settings[MCP_CONFIG_KEY] = servers
-    return settings
-  }).then((settings) => normalizeMcpServers(settings?.[MCP_CONFIG_KEY]))
+    mcp[MCP_CONFIG_KEY] = servers
+    return mcp
+  }).then((mcp) => normalizeMcpServers(mcp?.[MCP_CONFIG_KEY]))
 }
 
 export async function deleteMcpServer(name) {
   const normalizedName = normalizeName(name)
-  return atomicUpdate('settings', (settings) => {
-    settings[MCP_CONFIG_KEY] = normalizeMcpServers(settings?.[MCP_CONFIG_KEY]).filter((server) => server.name !== normalizedName)
-    return settings
-  }).then((settings) => normalizeMcpServers(settings?.[MCP_CONFIG_KEY]))
+  return atomicUpdate('mcp', (mcp) => {
+    mcp[MCP_CONFIG_KEY] = normalizeMcpServers(mcp?.[MCP_CONFIG_KEY]).filter((server) => server.name !== normalizedName)
+    return mcp
+  }).then((mcp) => normalizeMcpServers(mcp?.[MCP_CONFIG_KEY]))
 }
 
 export async function setMcpServerEnabled(name, enabled) {
   const normalizedName = normalizeName(name)
-  return atomicUpdate('settings', (settings) => {
-    const servers = normalizeMcpServers(settings?.[MCP_CONFIG_KEY])
+  return atomicUpdate('mcp', (mcp) => {
+    const servers = normalizeMcpServers(mcp?.[MCP_CONFIG_KEY])
     const index = servers.findIndex((server) => server.name === normalizedName)
     if (index < 0) {
       const error = new Error(`MCP server not found: ${normalizedName}`)
@@ -211,7 +211,7 @@ export async function setMcpServerEnabled(name, enabled) {
       enabled: Boolean(enabled),
       updatedAt: new Date().toISOString(),
     }
-    settings[MCP_CONFIG_KEY] = servers
-    return settings
-  }).then((settings) => normalizeMcpServers(settings?.[MCP_CONFIG_KEY]))
+    mcp[MCP_CONFIG_KEY] = servers
+    return mcp
+  }).then((mcp) => normalizeMcpServers(mcp?.[MCP_CONFIG_KEY]))
 }

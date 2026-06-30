@@ -1,0 +1,153 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', Roboto, sans-serif" text-rendering="geometricPrecision">
+  <defs>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2563EB"/>
+    </marker>
+  </defs>
+
+  <!-- canvas -->
+  <rect width="1280" height="720" fill="#FAFBFC"/>
+
+  <!-- ===== Header ===== -->
+  <text x="640" y="44" text-anchor="middle" font-size="22" font-weight="700" fill="#1F2937">QuickForge 配置文件拆分设计</text>
+  <text x="640" y="68" text-anchor="middle" font-size="13" fill="#94A3B8">运行时配置存储 · Before → After</text>
+  <line x1="60" y1="86" x2="1220" y2="86" stroke="#EEF2F6" stroke-width="1"/>
+
+  <!-- ===== LEFT : BEFORE ===== -->
+  <text x="300" y="114" text-anchor="middle" font-size="15" font-weight="600" fill="#334155">① 现状 · 1 个文件装 5 类配置</text>
+
+  <!-- config.json card -->
+  <rect x="80" y="132" width="440" height="380" rx="10" fill="#FFFFFF" stroke="#E5E7EB" stroke-width="1"/>
+  <!-- file tab header -->
+  <path d="M80,142 a10,10 0 0 1 10,-10 h120 l14,14 h286 a10,10 0 0 1 10,10 v8 h-440 z" fill="#F8FAFC" stroke="#E5E7EB" stroke-width="1"/>
+  <text x="100" y="150" font-size="13.5" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#475569">📄 config.json</text>
+  <line x1="96" y1="172" x2="504" y2="172" stroke="#EEF2F6"/>
+
+  <!-- section 1: app.settings (mess) -->
+  <g>
+    <rect x="96" y="184" width="408" height="60" rx="6" fill="#FFFFFF" stroke="#F1F5F9"/>
+    <text x="110" y="205" font-size="12.5" font-family="ui-monospace, Menlo, monospace" fill="#334155">app.settings</text>
+    <text x="110" y="224" font-size="10.5" fill="#94A3B8">MCP · 终端 · 自动压缩 · yolo · 模型 · 外观 · LAN …</text>
+    <rect x="404" y="196" width="86" height="20" rx="10" fill="#FEF2F2" stroke="#FECACA"/>
+    <text x="447" y="210" text-anchor="middle" font-size="10.5" font-weight="600" fill="#B91C1C">大杂烩</text>
+  </g>
+
+  <!-- section 2: providerKeys (sensitive) -->
+  <g>
+    <rect x="96" y="250" width="408" height="60" rx="6" fill="#FFFBEB" stroke="#FDE68A"/>
+    <text x="110" y="271" font-size="12.5" font-family="ui-monospace, Menlo, monospace" fill="#92400E">credentials.providerKeys</text>
+    <text x="110" y="290" font-size="10.5" fill="#B45309">API 密钥（敏感数据）</text>
+    <rect x="418" y="262" width="72" height="20" rx="10" fill="#FFFFFF" stroke="#FCD34D"/>
+    <text x="454" y="276" text-anchor="middle" font-size="10.5" font-weight="600" fill="#B45309">敏感</text>
+  </g>
+
+  <!-- section 3: customProviders -->
+  <g>
+    <rect x="96" y="316" width="408" height="60" rx="6" fill="#FFFBEB" stroke="#FDE68A"/>
+    <text x="110" y="337" font-size="12.5" font-family="ui-monospace, Menlo, monospace" fill="#92400E">providers.customProviders</text>
+    <text x="110" y="356" font-size="10.5" fill="#B45309">自定义模型服务商（与密钥强相关）</text>
+  </g>
+
+  <!-- section 4: plugins -->
+  <g>
+    <rect x="96" y="382" width="408" height="60" rx="6" fill="#FFFFFF" stroke="#F1F5F9"/>
+    <text x="110" y="403" font-size="12.5" font-family="ui-monospace, Menlo, monospace" fill="#334155">extensions.plugins</text>
+    <text x="110" y="422" font-size="10.5" fill="#94A3B8">插件配置</text>
+  </g>
+
+  <!-- section 5: projects -->
+  <g>
+    <rect x="96" y="448" width="408" height="56" rx="6" fill="#FFFFFF" stroke="#F1F5F9"/>
+    <text x="110" y="469" font-size="12.5" font-family="ui-monospace, Menlo, monospace" fill="#334155">projects</text>
+    <text x="110" y="487" font-size="10.5" fill="#94A3B8">项目注册表（activeProjectId / 列表 / skills）</text>
+  </g>
+
+  <!-- single write queue bar -->
+  <rect x="80" y="530" width="440" height="46" rx="8" fill="#FEF2F2" stroke="#FECACA"/>
+  <text x="300" y="558" text-anchor="middle" font-size="12.5" font-weight="600" fill="#B91C1C">⚠ 单一 'config' 写入队列：任何写入都重写整个文件（串行）</text>
+
+  <!-- problem notes -->
+  <text x="80" y="604" font-size="11.5" fill="#64748B">• 敏感凭据与普通配置同文件，备份 / 权限难隔离</text>
+  <text x="80" y="624" font-size="11.5" fill="#64748B">• MCP 生命周期独立，却被绑在 settings 上</text>
+  <text x="80" y="644" font-size="11.5" fill="#64748B">• 一处写损坏 → 全部 5 类配置同时受影响</text>
+  <text x="80" y="664" font-size="11.5" fill="#64748B">• 写入串行化成为并发瓶颈</text>
+
+  <!-- ===== MIDDLE : migration arrow ===== -->
+  <line x1="528" y1="318" x2="692" y2="318" stroke="#2563EB" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <text x="610" y="308" text-anchor="middle" font-size="11.5" font-weight="600" fill="#2563EB">一次性迁移</text>
+  <text x="610" y="336" text-anchor="middle" font-size="10.5" font-family="ui-monospace, Menlo, monospace" fill="#2563EB">migrateSplitConfig()</text>
+
+  <!-- ===== RIGHT : AFTER ===== -->
+  <text x="950" y="114" text-anchor="middle" font-size="15" font-weight="600" fill="#334155">② 目标 · 每类配置独立文件 + 独立队列</text>
+
+  <!-- config/ dir card -->
+  <rect x="700" y="132" width="500" height="376" rx="10" fill="#FFFFFF" stroke="#E5E7EB" stroke-width="1"/>
+  <path d="M700,142 a10,10 0 0 1 10,-10 h150 l14,14 h316 a10,10 0 0 1 10,10 v8 h-500 z" fill="#F8FAFC" stroke="#E5E7EB" stroke-width="1"/>
+  <text x="720" y="150" font-size="13.5" font-family="ui-monospace, Menlo, monospace" fill="#475569">📁 ~/.quickforge/config/</text>
+  <line x1="716" y1="172" x2="1184" y2="172" stroke="#EEF2F6"/>
+
+  <!-- row 1 settings.json -->
+  <g>
+    <rect x="716" y="182" width="468" height="58" rx="6" fill="#FFFFFF" stroke="#F1F5F9"/>
+    <rect x="728" y="200" width="16" height="20" rx="2" fill="#E0E7FF" stroke="#C7D2FE"/>
+    <text x="754" y="206" font-size="13" font-family="ui-monospace, Menlo, monospace" fill="#334155">settings.json</text>
+    <text x="754" y="226" font-size="10.5" fill="#94A3B8">通用应用设置（终端 / 自动压缩 / yolo / 模型 / 外观）</text>
+    <circle cx="1150" cy="203" r="4.5" fill="#10B981"/>
+    <text x="1142" y="226" text-anchor="end" font-size="9.5" fill="#10B981">独立队列</text>
+  </g>
+
+  <!-- row 2 mcp-servers.json (highlight) -->
+  <g>
+    <rect x="716" y="244" width="468" height="58" rx="6" fill="#EFF6FF" stroke="#BFDBFE"/>
+    <rect x="728" y="262" width="16" height="20" rx="2" fill="#BFDBFE" stroke="#93C5FD"/>
+    <text x="754" y="268" font-size="13" font-family="ui-monospace, Menlo, monospace" fill="#1D4ED8">mcp-servers.json</text>
+    <text x="754" y="288" font-size="10.5" fill="#2563EB">MCP 服务器 · 由 settings 拆出，升级为独立 store</text>
+    <circle cx="1150" cy="265" r="4.5" fill="#10B981"/>
+    <text x="1142" y="288" text-anchor="end" font-size="9.5" fill="#10B981">独立队列</text>
+  </g>
+
+  <!-- row 3 providers.json (merged, sensitive) -->
+  <g>
+    <rect x="716" y="306" width="468" height="58" rx="6" fill="#FFFBEB" stroke="#FDE68A"/>
+    <rect x="728" y="324" width="16" height="20" rx="2" fill="#FDE68A" stroke="#FCD34D"/>
+    <text x="754" y="330" font-size="13" font-family="ui-monospace, Menlo, monospace" fill="#92400E">providers.json</text>
+    <text x="754" y="350" font-size="10.5" fill="#B45309">模型服务商 + API 密钥（合并 · 强相关 · 整体敏感）</text>
+    <circle cx="1150" cy="327" r="4.5" fill="#F59E0B"/>
+    <text x="1142" y="350" text-anchor="end" font-size="9.5" fill="#F59E0B">共享队列</text>
+  </g>
+
+  <!-- row 4 plugins.json -->
+  <g>
+    <rect x="716" y="368" width="468" height="58" rx="6" fill="#FFFFFF" stroke="#F1F5F9"/>
+    <rect x="728" y="386" width="16" height="20" rx="2" fill="#E0E7FF" stroke="#C7D2FE"/>
+    <text x="754" y="392" font-size="13" font-family="ui-monospace, Menlo, monospace" fill="#334155">plugins.json</text>
+    <text x="754" y="412" font-size="10.5" fill="#94A3B8">插件配置</text>
+    <circle cx="1150" cy="389" r="4.5" fill="#10B981"/>
+    <text x="1142" y="412" text-anchor="end" font-size="9.5" fill="#10B981">独立队列</text>
+  </g>
+
+  <!-- row 5 projects.json -->
+  <g>
+    <rect x="716" y="430" width="468" height="58" rx="6" fill="#FFFFFF" stroke="#F1F5F9"/>
+    <rect x="728" y="448" width="16" height="20" rx="2" fill="#E0E7FF" stroke="#C7D2FE"/>
+    <text x="754" y="454" font-size="13" font-family="ui-monospace, Menlo, monospace" fill="#334155">projects.json</text>
+    <text x="754" y="474" font-size="10.5" fill="#94A3B8">项目注册表</text>
+    <circle cx="1150" cy="451" r="4.5" fill="#10B981"/>
+    <text x="1142" y="474" text-anchor="end" font-size="9.5" fill="#10B981">独立队列</text>
+  </g>
+
+  <!-- already independent band -->
+  <rect x="700" y="526" width="500" height="96" rx="10" fill="#F0FDF4" stroke="#BBF7D0"/>
+  <text x="720" y="550" font-size="12.5" font-weight="600" fill="#15803D">✓ 已独立存储 · 本次无需改动</text>
+  <text x="720" y="574" font-size="11" fill="#16A34A">• 定时任务　storage/.../scheduled-tasks.json（已独立 store）</text>
+  <text x="720" y="594" font-size="11" fill="#16A34A">• 自定义 agent　custom-agents store</text>
+  <text x="720" y="614" font-size="11" fill="#16A34A">• 文件 agent　.claude/agents · .quickforge/agents (.md)</text>
+
+  <!-- footer legend -->
+  <line x1="60" y1="650" x2="1220" y2="650" stroke="#EEF2F6"/>
+  <circle cx="76" cy="674" r="4.5" fill="#10B981"/><text x="88" y="678" font-size="11" fill="#64748B">独立写队列</text>
+  <circle cx="186" cy="674" r="4.5" fill="#F59E0B"/><text x="198" y="678" font-size="11" fill="#64748B">共享写队列（强相关合并）</text>
+  <rect x="372" y="669" width="12" height="10" rx="2" fill="#FFFBEB" stroke="#FDE68A"/><text x="392" y="678" font-size="11" fill="#64748B">敏感数据</text>
+  <rect x="486" y="669" width="12" height="10" rx="2" fill="#EFF6FF" stroke="#BFDBFE"/><text x="506" y="678" font-size="11" fill="#64748B">本次拆分 / 升级</text>
+  <text x="1220" y="678" text-anchor="end" font-size="11" fill="#94A3B8">数据目录可由 QUICKFORGE_DATA_DIR 覆盖</text>
+</svg>

@@ -7,7 +7,8 @@ import './info-tip'
 const BACKUP_FILE_PREFIX = 'quickforge-backup'
 
 type BackupScope = 'all' | 'config' | 'sessions'
-type BackupRestoreSection = 'settings' | 'providerKeys' | 'customProviders' | 'projects' | 'scheduledTasks' | 'conversations'
+type BackupRestoreSection = 'settings' | 'mcp' | 'providerKeys' | 'customProviders' | 'projects' | 'scheduledTasks' | 'conversations'
+type BackupRestoreMode = 'replace' | 'merge'
 type BackupImportSummary = Record<string, number>
 
 type BackupInspectResponse = {
@@ -26,6 +27,7 @@ type PendingBackupImport = {
   backup: unknown
   inspect: BackupInspectResponse
   selectedSections: Set<BackupRestoreSection>
+  mode: BackupRestoreMode
 }
 
 type BackupImportResponse = {
@@ -36,6 +38,7 @@ type BackupImportResponse = {
 
 const restoreSections: Array<{ id: BackupRestoreSection; countKey: keyof BackupImportSummary; label: () => string; description: () => string }> = [
   { id: 'settings', countKey: 'settings', label: () => t('restoreSettings'), description: () => t('restoreSettingsDescription') },
+  { id: 'mcp', countKey: 'mcp', label: () => t('restoreMcp'), description: () => t('restoreMcpDescription') },
   { id: 'providerKeys', countKey: 'providerKeys', label: () => t('restoreProviderKeys'), description: () => t('restoreProviderKeysDescription') },
   { id: 'customProviders', countKey: 'customProviders', label: () => t('restoreCustomProviders'), description: () => t('restoreCustomProvidersDescription') },
   { id: 'projects', countKey: 'projects', label: () => t('restoreProjects'), description: () => t('restoreProjectsDescription') },
@@ -159,7 +162,7 @@ class BackupSettingsTab extends SettingsTab {
       const backup = JSON.parse(text) as unknown
       const inspect = await this.inspectBackup(backup)
       const selectedSections = new Set(availableRestoreSections(inspect).map((section) => section.id))
-      this.pendingImport = { backup, inspect, selectedSections }
+      this.pendingImport = { backup, inspect, selectedSections, mode: 'replace' }
       this.message = t('backupInspected')
     } catch (error) {
       this.error = error instanceof Error ? error.message : t('backupImportFailed')
@@ -173,6 +176,14 @@ class BackupSettingsTab extends SettingsTab {
     if (!this.pendingImport) return
     if (checked) this.pendingImport.selectedSections.add(section)
     else this.pendingImport.selectedSections.delete(section)
+    this.message = ''
+    this.error = ''
+    this.requestUpdate()
+  }
+
+  private setRestoreMode(mode: BackupRestoreMode) {
+    if (!this.pendingImport) return
+    this.pendingImport.mode = mode
     this.message = ''
     this.error = ''
     this.requestUpdate()
@@ -204,6 +215,7 @@ class BackupSettingsTab extends SettingsTab {
         body: JSON.stringify({
           backup: this.pendingImport.backup,
           sections: [...this.pendingImport.selectedSections],
+          mode: this.pendingImport.mode,
         }),
       })
       const payload = await response.json().catch(() => null) as BackupImportResponse & { error?: string } | null
@@ -251,6 +263,40 @@ class BackupSettingsTab extends SettingsTab {
             ${inspect.warnings.map((warning) => html`<div>⚠ ${warning}</div>`)}
           </div>
         ` : null}
+
+        <div class="mt-4">
+          <div class="text-sm font-medium text-foreground">${t('restoreMode')}</div>
+          <div class="mt-2 grid gap-2">
+            <label class="flex items-start gap-2 rounded-md border border-border bg-background/60 p-3 text-sm ${this.pendingImport.mode === 'replace' ? 'border-primary' : ''}">
+              <input
+                class="mt-1"
+                type="radio"
+                name="restore-mode"
+                .checked=${this.pendingImport.mode === 'replace'}
+                ?disabled=${this.busy}
+                @change=${() => this.setRestoreMode('replace')}
+              />
+              <span>
+                <span class="block text-foreground">${t('restoreModeReplace')}</span>
+                <span class="block text-xs text-muted-foreground">${t('restoreModeReplaceDescription')}</span>
+              </span>
+            </label>
+            <label class="flex items-start gap-2 rounded-md border border-border bg-background/60 p-3 text-sm ${this.pendingImport.mode === 'merge' ? 'border-primary' : ''}">
+              <input
+                class="mt-1"
+                type="radio"
+                name="restore-mode"
+                .checked=${this.pendingImport.mode === 'merge'}
+                ?disabled=${this.busy}
+                @change=${() => this.setRestoreMode('merge')}
+              />
+              <span>
+                <span class="block text-foreground">${t('restoreModeMerge')}</span>
+                <span class="block text-xs text-muted-foreground">${t('restoreModeMergeDescription')}</span>
+              </span>
+            </label>
+          </div>
+        </div>
 
         <div class="mt-4">
           <div class="text-sm font-medium text-foreground">${t('selectRestoreSections')}</div>

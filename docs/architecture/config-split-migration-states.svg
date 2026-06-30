@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 360" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <marker id="arrow-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2f9e6e"/>
+    </marker>
+    <marker id="arrow-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#c2410c"/>
+    </marker>
+    <marker id="arrow-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#c0392b"/>
+    </marker>
+  </defs>
+
+  <rect width="760" height="360" fill="#fafaf9"/>
+
+  <!-- 标题 -->
+  <text x="380" y="34" text-anchor="middle" font-size="17" font-weight="700" fill="#1c1917">配置拆分迁移：版本切换状态图</text>
+
+  <!-- 节点1: 旧版用户 -->
+  <g>
+    <rect x="30" y="150" width="190" height="92" rx="12" fill="#fff" stroke="#94a3b8" stroke-width="1.5"/>
+    <text x="125" y="180" text-anchor="middle" font-size="14" font-weight="700" fill="#334155">旧版用户</text>
+    <text x="125" y="202" text-anchor="middle" font-size="11.5" fill="#475569">config.json 旧结构</text>
+    <text x="125" y="220" text-anchor="middle" font-size="11" fill="#64748b">providers / credentials /</text>
+    <text x="125" y="234" text-anchor="middle" font-size="11" fill="#64748b">app.settings 全在里面</text>
+  </g>
+
+  <!-- 节点2: 新版正常 -->
+  <g>
+    <rect x="300" y="80" width="190" height="92" rx="12" fill="#ecfdf5" stroke="#2f9e6e" stroke-width="1.5"/>
+    <text x="395" y="110" text-anchor="middle" font-size="14" font-weight="700" fill="#166534">新版 · 正常</text>
+    <text x="395" y="132" text-anchor="middle" font-size="11.5" fill="#15803d">providers.json 等独立文件</text>
+    <text x="395" y="150" text-anchor="middle" font-size="11" fill="#16a34a">config.json 仅元数据</text>
+    <text x="395" y="164" text-anchor="middle" font-size="11" fill="#16a34a">.split-migrated 标记存在</text>
+  </g>
+
+  <!-- 节点3: 分叉（危险） -->
+  <g>
+    <rect x="300" y="220" width="190" height="92" rx="12" fill="#fef2f2" stroke="#c0392b" stroke-width="1.5"/>
+    <text x="395" y="250" text-anchor="middle" font-size="14" font-weight="700" fill="#991b1b">新版 · 数据分叉</text>
+    <text x="395" y="272" text-anchor="middle" font-size="11.5" fill="#b91c1c">config.json 被旧版“复活”写入</text>
+    <text x="395" y="290" text-anchor="middle" font-size="11" fill="#dc2626">新旧两处各存一部分配置</text>
+    <text x="395" y="304" text-anchor="middle" font-size="11" fill="#dc2626">界面只显示其中一处 → “不全”</text>
+  </g>
+
+  <!-- 节点4: 危险提示 -->
+  <g>
+    <rect x="540" y="220" width="190" height="92" rx="12" fill="#fffbeb" stroke="#c2410c" stroke-width="1.5"/>
+    <text x="635" y="250" text-anchor="middle" font-size="14" font-weight="700" fill="#9a3412">回新版也无法自愈</text>
+    <text x="635" y="272" text-anchor="middle" font-size="11" fill="#9a3412">.split-migrated 仍在</text>
+    <text x="635" y="288" text-anchor="middle" font-size="11" fill="#b45309">→ migrateSplitConfig 直接跳过</text>
+    <text x="635" y="304" text-anchor="middle" font-size="11" fill="#b45309">→ 旧版新写的配置丢失</text>
+  </g>
+
+  <!-- 箭头: 旧版 -> 新版正常 (绿, 升级迁移) -->
+  <path d="M 220 180 C 260 150, 270 130, 300 126" fill="none" stroke="#2f9e6e" stroke-width="2" marker-end="url(#arrow-ok)"/>
+  <text x="248" y="148" font-size="11.5" font-weight="600" fill="#166534">① 升级新版</text>
+  <text x="248" y="162" font-size="10.5" fill="#15803d">自动迁移，完全无缝 ✅</text>
+
+  <!-- 箭头: 新版正常 -> 分叉 (红, 误跑旧版) -->
+  <path d="M 395 172 L 395 220" fill="none" stroke="#c0392b" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrow-bad)"/>
+  <text x="403" y="200" font-size="11.5" font-weight="600" fill="#991b1b">② 又跑回旧版</text>
+
+  <!-- 箭头: 分叉 -> 无法自愈 (橙) -->
+  <path d="M 490 266 L 540 266" fill="none" stroke="#c2410c" stroke-width="2" marker-end="url(#arrow-warn)"/>
+  <text x="462" y="252" font-size="11.5" font-weight="600" fill="#9a3412">③ 再回新版</text>
+
+  <!-- 图例 -->
+  <g transform="translate(30, 320)">
+    <rect x="0" y="0" width="14" height="14" rx="3" fill="#ecfdf5" stroke="#2f9e6e"/>
+    <text x="20" y="11" font-size="11" fill="#475569">推荐路径</text>
+    <rect x="100" y="0" width="14" height="14" rx="3" fill="#fef2f2" stroke="#c0392b"/>
+    <text x="120" y="11" font-size="11" fill="#475569">禁止：新旧混用</text>
+    <rect x="230" y="0" width="14" height="14" rx="3" fill="#fffbeb" stroke="#c2410c"/>
+    <text x="250" y="11" font-size="11" fill="#475569">迁移标记挡住自动修复</text>
+  </g>
+</svg>

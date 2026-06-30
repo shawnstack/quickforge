@@ -50,6 +50,26 @@ function effectiveContextMessages(agent: AgentLike): MessageWithUsage[] {
   return [compaction.summaryMessage as MessageWithUsage, ...messages.slice(compactedUpToIndex)]
 }
 
+/**
+ * Lightweight fingerprint of the messages that contribute session artifacts.
+ *
+ * `extractSessionArtifacts` (+ the signature string it derives) scans every
+ * message and JSON.parses present_files payloads — expensive to repeat on each
+ * animation frame. Artifacts only originate from `toolResult` messages, which
+ * are stable during streaming (only the trailing assistant message grows), so
+ * this key lets the decorate hot-path skip recomputation until something
+ * relevant actually changes. Rollback / compaction change the message set, so
+ * the key naturally invalidates in those cases.
+ */
+function artifactsInputKey(messages: ReadonlyArray<{ role?: string; toolCallId?: string; toolName?: string }>): string {
+  let key = String(messages.length)
+  for (const message of messages) {
+    if (message.role !== 'toolResult') continue
+    key += `|${message.toolCallId ?? ''}:${message.toolName ?? ''}`
+  }
+  return key
+}
+
 type ChatPanelHostProps = {
   agent: AgentLike | null
   onModelSelect?: () => void
@@ -153,6 +173,7 @@ export function ChatPanelHost({
   const consumedRestoredDraftIdsRef = useRef<Set<number>>(new Set())
   const saveDraftTimerRef = useRef<number | undefined>(undefined)
   const artifactsSignatureRef = useRef('')
+  const artifactsInputKeyRef = useRef('')
   const [gitBranch, setGitBranch] = useState<string>()
   const [planMode, setPlanMode] = useState(false)
   const togglePlanMode = useCallback(() => setPlanMode((mode) => !mode), [])
@@ -484,11 +505,15 @@ export function ChatPanelHost({
       syncProcessStreamingState()
 
       const props = propsRef.current
-      const artifacts = extractSessionArtifacts(agent.state.messages as import('@earendil-works/pi-agent-core').AgentMessage[])
-      const artifactsSignature = JSON.stringify(artifacts.map((artifact) => [artifact.source, artifact.path, artifact.command, artifact.outputFile, artifact.confidence, artifact.preview, artifact.defaultPreview, artifact.addedLines, artifact.removedLines]))
-      if (artifactsSignature !== artifactsSignatureRef.current) {
-        artifactsSignatureRef.current = artifactsSignature
-        props.onArtifactsChange?.(artifacts)
+      const inputKey = artifactsInputKey(agent.state.messages as MessageWithUsage[])
+      if (inputKey !== artifactsInputKeyRef.current) {
+        artifactsInputKeyRef.current = inputKey
+        const artifacts = extractSessionArtifacts(agent.state.messages as import('@earendil-works/pi-agent-core').AgentMessage[])
+        const artifactsSignature = JSON.stringify(artifacts.map((artifact) => [artifact.source, artifact.path, artifact.command, artifact.outputFile, artifact.confidence, artifact.preview, artifact.defaultPreview, artifact.addedLines, artifact.removedLines]))
+        if (artifactsSignature !== artifactsSignatureRef.current) {
+          artifactsSignatureRef.current = artifactsSignature
+          props.onArtifactsChange?.(artifacts)
+        }
       }
 
       // Wrap message/editor decoration so a failure in one does not block

@@ -357,7 +357,28 @@ function updateEmptyProcessSources(assistants: AssistantMessageElement[], target
   }
 }
 
-function decorateProcessTurn(panel: HTMLElement, assistants: AssistantMessageElement[], isAgentStreaming: boolean, turnIndex: number) {
+/**
+ * Structural fingerprint of a turn's foldable content.
+ *
+ * Used to short-circuit re-decoration of already-grouped, non-streaming turns.
+ * During streaming only the trailing turn changes, so every preceding turn's
+ * fingerprint stays stable frame-to-frame — letting us skip the expensive
+ * markdown-block scanning and node moving until the content really changes.
+ * Folded nodes remain descendants of the assistant element (they live inside
+ * the process group, which is itself inside the assistant), so the counts are
+ * unaffected by grouping and the fingerprint is stable before/after a pass.
+ */
+function processTurnFingerprint(assistants: AssistantMessageElement[]): string {
+  let detailCount = 0
+  let toolCount = 0
+  for (const assistant of assistants) {
+    detailCount += assistant.querySelectorAll(PROCESS_DETAIL_NODE_SELECTOR).length
+    toolCount += assistant.querySelectorAll('tool-message').length
+  }
+  return `${assistants.length}:${detailCount}:${toolCount}`
+}
+
+function decorateProcessTurn(panel: HTMLElement, assistants: AssistantMessageElement[], isAgentStreaming: boolean, turnIndex: number, canShortCircuit: boolean) {
   if (assistants.length === 0) return
 
   const target = assistants[assistants.length - 1]
@@ -367,6 +388,20 @@ function decorateProcessTurn(panel: HTMLElement, assistants: AssistantMessageEle
     if (existingGroup) restoreProcessTurn(assistants)
     return
   }
+
+  // Stable-turn short-circuit: this turn is not the active streaming target
+  // (isAgentStreaming is already false here). When the agent is globally
+  // streaming (canShortCircuit) the preceding turns are guaranteed unchanged,
+  // so if such a turn has already been grouped and its foldable content
+  // fingerprint is unchanged we skip the markdown-block scanning / node moving.
+  // This is the main win for long chats: every already-completed turn is
+  // skipped each streaming frame. Non-streaming passes always run in full to
+  // stay correct after rollbacks / compaction / new messages.
+  const fingerprint = processTurnFingerprint(assistants)
+  if (canShortCircuit && existingGroup && existingGroup.dataset.quickforgeProcessFp === fingerprint) {
+    return
+  }
+
   const canFoldMarkdown = hasTurnProcessSignals(assistants)
   const finalSummaryMarkdown = canFoldMarkdown ? findFinalSummaryMarkdown(target, isAgentStreaming) : null
   if (canFoldMarkdown) markFinalSummaryMarkdown(target, finalSummaryMarkdown)
@@ -387,6 +422,10 @@ function decorateProcessTurn(panel: HTMLElement, assistants: AssistantMessageEle
     group.remove()
     return
   }
+
+  // Record the fingerprint after a successful grouping so subsequent passes
+  // short-circuit until the foldable content actually changes.
+  group.dataset.quickforgeProcessFp = fingerprint
 
   updateProcessGroup(panel, processKey, assistants, group, isAgentStreaming)
   updateEmptyProcessSources(assistants, target)
@@ -413,6 +452,7 @@ export function decorateProcessBlocks(
   if (currentAssistants.length > 0) turns.push(currentAssistants)
 
   turns.forEach((assistants, index) => {
-    decorateProcessTurn(panel, assistants, isAgentStreaming && isLastMessageAssistant && index === turns.length - 1, index)
+    const isActiveTurn = isAgentStreaming && isLastMessageAssistant && index === turns.length - 1
+    decorateProcessTurn(panel, assistants, isActiveTurn, index, isAgentStreaming && !isActiveTurn)
   })
 }

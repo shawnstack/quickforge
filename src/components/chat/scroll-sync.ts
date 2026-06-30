@@ -60,6 +60,14 @@ export function createScrollSync({ panel }: ScrollSyncOptions) {
   const scrollToBottom = () => {
     const scrollContainer = findScrollContainer()
     if (!scrollContainer || !autoScrollEnabled) return
+    // Skip the layout-invalidating write when already pinned to the bottom.
+    // On very large chat DOMs a redundant `scrollTop =` forces a synchronous
+    // reflow each frame even though the position does not change.
+    const maxScroll = scrollContainer.scrollHeight - scrollContainer.clientHeight
+    if (Math.abs(scrollContainer.scrollTop - maxScroll) <= 1) {
+      lastScrollTop = scrollContainer.scrollTop
+      return
+    }
     scrollContainer.scrollTop = scrollContainer.scrollHeight
     lastScrollTop = scrollContainer.scrollTop
   }

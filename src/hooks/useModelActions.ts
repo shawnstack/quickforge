@@ -174,7 +174,11 @@ export function useModelActions({
     const textarea = document.querySelector<HTMLTextAreaElement>(
       'agent-interface message-editor textarea',
     )
+    const messageEditor = document.querySelector<HTMLElement & { attachments?: unknown[] }>(
+      'agent-interface message-editor',
+    )
     const currentInput = textarea?.value ?? ''
+    const currentAttachments = messageEditor?.attachments ? [...messageEditor.attachments] : []
 
     const customProviders = await storage.customProviders.getAll()
     const customModels = configuredModelsFromProviders(customProviders)
@@ -206,11 +210,12 @@ export function useModelActions({
         activeModelRef.current = nextModel
         updateCurrentAgentModel(nextModel)
 
-        if (currentInput) {
+        if (currentInput || currentAttachments.length > 0) {
           setRestoredDraft({
             id: Date.now(),
             sessionId: currentAgent.sessionId,
             text: currentInput,
+            attachments: currentAttachments,
           })
         }
 

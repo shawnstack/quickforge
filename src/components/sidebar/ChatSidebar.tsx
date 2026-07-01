@@ -209,28 +209,31 @@ export const ChatSidebar = memo(function ChatSidebar({
   onToggleSidebar,
   currentSessionHoverInfo,
 }: ChatSidebarProps) {
-  const sectionHeaderClass = 'mb-1 flex w-full items-center gap-1 rounded-lg px-2 py-1 text-sm font-medium leading-5 text-muted-foreground/72 transition-colors hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)]'
+  const sidebarHoverBgClass = 'hover:bg-[var(--quickforge-sidebar-hover-bg)]'
+  const sidebarActiveBgClass = 'bg-[var(--quickforge-sidebar-active-bg)]'
+  const sectionHeaderClass = `group mb-1 flex w-full items-center gap-1 rounded-lg px-2 py-1 text-sm font-medium leading-5 text-muted-foreground/72 transition-colors ${sidebarHoverBgClass}`
   const sectionToggleClass = 'flex min-w-0 flex-1 items-center gap-1 text-left transition-colors hover:text-foreground/80'
   const chevronClass = 'size-4 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none'
   const collapsePanelClass = 'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none'
   const collapsePanelOpenClass = 'grid-rows-[1fr] opacity-100'
   const collapsePanelClosedClass = 'pointer-events-none grid-rows-[0fr] opacity-0'
   const collapseInnerClass = 'min-h-0 overflow-hidden'
-  const rowHoverShadowClass = 'hover:shadow-[0_10px_26px_-18px_rgb(15_23_42_/_0.48)]'
-  const iconHoverShadowClass = 'hover:shadow-[0_8px_18px_-14px_rgb(15_23_42_/_0.5)]'
-  const rowClass = `group relative flex items-center gap-2 overflow-hidden rounded-lg px-2 py-1.5 text-left transition-all duration-160 ease-out hover:-translate-y-px active:translate-y-0 ${rowHoverShadowClass}`
-  const activeRowClass = 'bg-[color-mix(in_oklab,var(--muted)_70%,transparent)] text-foreground/92 shadow-[0_10px_26px_-20px_rgb(15_23_42_/_0.36)]'
-  const projectActiveRowClass = 'text-foreground/84 hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)]'
-  const inactiveRowClass = 'text-muted-foreground/72 hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)] hover:text-foreground/86'
-  const sessionInactiveRowClass = 'text-muted-foreground/76 hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)] hover:text-foreground/90'
+  const rowHoverShadowClass = 'hover:shadow-[0_8px_20px_-18px_rgb(15_23_42_/_0.35)]'
+  const iconHoverShadowClass = 'hover:shadow-[0_6px_14px_-14px_rgb(15_23_42_/_0.35)]'
+  const rowClass = `group relative flex items-center gap-2 overflow-hidden rounded-lg px-2 py-1.5 text-left transition-[background-color,color,box-shadow] duration-160 ease-out ${rowHoverShadowClass}`
+  const activeRowClass = `${sidebarActiveBgClass} text-foreground/92 shadow-[0_8px_22px_-20px_rgb(15_23_42_/_0.32)]`
+  const projectActiveRowClass = `text-foreground/84 ${sidebarHoverBgClass}`
+  const inactiveRowClass = `text-muted-foreground/72 ${sidebarHoverBgClass} hover:text-foreground/86`
+  const sessionInactiveRowClass = `text-muted-foreground/76 ${sidebarHoverBgClass} hover:text-foreground/90`
   const iconSlotClass = 'inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-colors group-hover:text-foreground/70'
-  const iconButtonClass = `size-7 shrink-0 rounded-full text-muted-foreground/55 transition-all duration-160 ease-out hover:-translate-y-px hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)] hover:text-foreground/85 active:translate-y-0 ${iconHoverShadowClass}`
-  const actionOverlayClass = 'pointer-events-none absolute inset-y-0 right-1 flex items-center gap-px rounded-r-lg bg-gradient-to-l from-[var(--quickforge-sidebar-bg)] via-[var(--quickforge-sidebar-bg)]/95 to-transparent pl-4 opacity-0 transition-opacity duration-160 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100'
-  const overlayIconButtonClass = `size-6 shrink-0 rounded-full text-muted-foreground/55 transition-all duration-160 ease-out hover:-translate-y-px hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)] hover:text-foreground/85 active:translate-y-0 ${iconHoverShadowClass}`
+  const iconButtonClass = `size-7 shrink-0 rounded-full text-muted-foreground/55 transition-[background-color,color,box-shadow,opacity] duration-160 ease-out ${sidebarHoverBgClass} hover:text-foreground/85 ${iconHoverShadowClass}`
+  const sectionActionButtonClass = `${iconButtonClass} pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100`
+  const actionOverlayClass = 'pointer-events-none absolute inset-y-0 right-1 flex items-center gap-px rounded-r-lg bg-gradient-to-l from-[var(--quickforge-sidebar-hover-bg)] via-[var(--quickforge-sidebar-hover-bg)]/95 to-transparent pl-4 opacity-0 transition-opacity duration-160 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100'
+  const overlayIconButtonClass = `size-6 shrink-0 rounded-full text-muted-foreground/55 transition-[background-color,color,box-shadow] duration-160 ease-out ${sidebarHoverBgClass} hover:text-foreground/85 ${iconHoverShadowClass}`
   const sessionTitleClass = 'truncate text-sm leading-5'
   const sessionButtonClass = 'flex min-w-0 flex-1 items-center gap-2 text-left'
   const sessionTitleRowClass = 'flex min-w-0 flex-1 items-center gap-1 truncate transition-[padding] duration-160 group-hover:pr-14 group-focus-within:pr-14'
-  const pinnedSessionButtonClass = 'relative z-10 inline-flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-opacity duration-160 transition-colors hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)] hover:text-foreground/85'
+  const pinnedSessionButtonClass = `relative z-10 inline-flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-opacity duration-160 transition-colors ${sidebarHoverBgClass} hover:text-foreground/85`
   const sessionMetaHoverHiddenClass = 'group-hover:opacity-0 group-focus-within:opacity-0'
   const activeSessionTitleClass = 'font-medium text-foreground/92'
   const activeProjectTitleClass = 'font-medium text-foreground/84'
@@ -522,7 +525,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className={iconButtonClass}
+                    className={sectionActionButtonClass}
                     onClick={onToggleAllProjectsExpanded}
                     aria-label={expandedProjectIds.size === projects.length ? t('collapseAllProjects') : t('expandAllProjects')}
                   >
@@ -532,7 +535,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className={iconButtonClass}
+                  className={sectionActionButtonClass}
                   onClick={onSelectProjectDirectory}
                   disabled={selectingProject}
                   aria-label={t('addProject')}

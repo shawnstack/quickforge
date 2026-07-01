@@ -2,6 +2,35 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.5.4] - 2026-07-01
+
+### Added
+
+- Added an Electron desktop app entry that reuses the same QuickForge local service and frontend build output for Windows/macOS/Linux desktop builds.
+- Added desktop build scripts and a GitHub Actions `Desktop Build` workflow for producing platform-specific desktop artifacts without publishing npm automatically.
+- Added npm-importable startup API metadata while preserving the existing `qf` / `quickforge` CLI entry points.
+
+### Changed
+
+- Polished the desktop shell with system tray support, localized tray labels, titlebar spacing, and app icon handling for desktop builds.
+- Refined workspace and sidebar UI details, including hover feedback, overview panel layout, and workspace changes placement.
+- Kept Electron and desktop-only resources isolated from the npm runtime package whitelist.
+
+### Fixed
+
+- Preserved attachments when switching models.
+- Ran settings updates through the external update supervisor to avoid replacing the active process directly.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.5.4` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.5.4.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.5.4.tgz
+  ```
+
 ## [1.5.3] - 2026-06-30
 
 ### Changed

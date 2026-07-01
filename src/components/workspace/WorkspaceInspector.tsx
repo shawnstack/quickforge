@@ -1109,6 +1109,17 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
                       isGitRepository
                         ? (
                           <div className="space-y-3">
+                            {changes.length === 0 ? (
+                              <div className="px-2 py-3 text-xs text-muted-foreground/70">{t('workspaceNoWorkingTreeChanges')}</div>
+                            ) : (
+                              <>
+                                <GitGroup title={t('workspaceConflicts')} files={gitGroups.conflicts} selectedPath={undefined} onSelectFile={selectDiff} />
+                                <GitGroup title={t('workspaceStagedChanges')} files={gitGroups.staged} selectedPath={undefined} onSelectFile={selectDiff} />
+                                <GitGroup title={t('workspaceChanges')} files={gitGroups.unstaged} selectedPath={undefined} onSelectFile={selectDiff} />
+                                <GitGroup title={t('workspaceUntracked')} files={gitGroups.untracked} selectedPath={undefined} onSelectFile={selectDiff} />
+                              </>
+                            )}
+
                             <div className="rounded-lg border border-border bg-muted/10 px-3 py-2">
                               <div className="truncate text-xs font-medium text-foreground/85">{gitSummary(gitBranch, gitCounts)}</div>
                               <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground/60">
@@ -1138,17 +1149,6 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
                                 </div>
                               ) : null}
                             </div>
-
-                            {changes.length === 0 ? (
-                              <div className="px-2 py-3 text-xs text-muted-foreground/70">{t('workspaceNoWorkingTreeChanges')}</div>
-                            ) : (
-                              <>
-                                <GitGroup title={t('workspaceConflicts')} files={gitGroups.conflicts} selectedPath={undefined} onSelectFile={selectDiff} />
-                                <GitGroup title={t('workspaceStagedChanges')} files={gitGroups.staged} selectedPath={undefined} onSelectFile={selectDiff} />
-                                <GitGroup title={t('workspaceChanges')} files={gitGroups.unstaged} selectedPath={undefined} onSelectFile={selectDiff} />
-                                <GitGroup title={t('workspaceUntracked')} files={gitGroups.untracked} selectedPath={undefined} onSelectFile={selectDiff} />
-                              </>
-                            )}
                           </div>
                         )
                         : <div className="px-2 py-3 text-xs text-muted-foreground/70">{t('workspaceNotGitRepository')}</div>

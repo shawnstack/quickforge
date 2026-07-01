@@ -225,7 +225,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   const sessionInactiveRowClass = 'text-muted-foreground/76 hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)] hover:text-foreground/90'
   const iconSlotClass = 'inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-colors group-hover:text-foreground/70'
   const iconButtonClass = `size-7 shrink-0 rounded-full text-muted-foreground/55 transition-all duration-160 ease-out hover:-translate-y-px hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)] hover:text-foreground/85 active:translate-y-0 ${iconHoverShadowClass}`
-  const actionOverlayClass = 'pointer-events-none absolute inset-y-0 right-1 flex items-center gap-px rounded-r-lg bg-gradient-to-l from-background via-background/95 to-transparent pl-4 opacity-0 transition-opacity duration-160 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100'
+  const actionOverlayClass = 'pointer-events-none absolute inset-y-0 right-1 flex items-center gap-px rounded-r-lg bg-gradient-to-l from-[var(--quickforge-sidebar-bg)] via-[var(--quickforge-sidebar-bg)]/95 to-transparent pl-4 opacity-0 transition-opacity duration-160 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100'
   const overlayIconButtonClass = `size-6 shrink-0 rounded-full text-muted-foreground/55 transition-all duration-160 ease-out hover:-translate-y-px hover:bg-[color-mix(in_oklab,var(--muted)_52%,transparent)] hover:text-foreground/85 active:translate-y-0 ${iconHoverShadowClass}`
   const sessionTitleClass = 'truncate text-sm leading-5'
   const sessionButtonClass = 'flex min-w-0 flex-1 items-center gap-2 text-left'
@@ -417,7 +417,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   return (
     <aside
       className={cn(
-        'relative z-10 min-h-0 shrink-0 overflow-hidden border-r border-border bg-background transition-[width] duration-200 ease-out motion-reduce:transition-none',
+        'relative z-10 min-h-0 shrink-0 overflow-hidden border-r border-border/60 bg-[var(--quickforge-sidebar-bg)] transition-[width] duration-200 ease-out motion-reduce:transition-none md:border-r-0',
         isMobile ? 'flex h-full flex-col w-80 max-w-[85vw]' : 'hidden md:flex md:flex-col',
         sidebarOpen ? 'w-80' : 'w-14',
       )}

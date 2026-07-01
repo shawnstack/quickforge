@@ -986,7 +986,7 @@ function MainApp() {
       </Button>
     </div>
     )}
-    <div className="flex h-screen min-h-0 bg-background text-foreground">
+    <div className="flex h-screen min-h-0 bg-[var(--quickforge-sidebar-bg)] text-foreground">
       <ChatSidebar
         sidebarOpen={ui.sidebarOpen}
         scheduledTasksActive={scheduledTasksOpen}
@@ -1122,8 +1122,11 @@ function MainApp() {
         </div>
       ) : null}
 
-      <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-3 pr-20">
+      <main className={cn(
+        'flex min-w-0 flex-1 flex-col bg-[var(--quickforge-main-bg)] md:overflow-hidden md:rounded-l-2xl',
+        ui.workspaceInspectorOpen && agentManager.currentToolProject?.id ? 'lg:rounded-r-2xl' : undefined,
+      )}>
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-3 pr-20">
           <Button variant="ghost" size="icon" className="md:hidden" onClick={() => ui.setMobileSidebarOpen(true)} aria-label={t('toggleSidebar')}>
             <Menu className="size-4" />
           </Button>
@@ -1277,20 +1280,23 @@ function MainApp() {
         </section>
       </main>
       {ui.workspaceInspectorOpen && agentManager.currentToolProject?.id ? (
-        <Suspense fallback={<LazyOverlayFallback />}>
-          <WorkspaceInspector
-            project={agentManager.currentToolProject}
-            open
-            view={ui.workspacePanelView}
-            onViewChange={ui.setWorkspacePanelView}
-            onPreviewArtifact={openArtifactPreview}
-            onDraftRequest={restoreWorkspaceDraft}
-            focusTarget={ui.workspaceInspectorFocusTarget}
-            previewUrl={ui.webPreviewUrl}
-            onPreviewUrlChange={ui.setWebPreviewUrl}
-            artifacts={currentSessionArtifacts}
-          />
-        </Suspense>
+        <>
+          <div aria-hidden="true" className="hidden w-px shrink-0 bg-[color-mix(in_oklab,var(--border)_30%,var(--quickforge-sidebar-bg))] lg:block" />
+          <Suspense fallback={<LazyOverlayFallback />}>
+            <WorkspaceInspector
+              project={agentManager.currentToolProject}
+              open
+              view={ui.workspacePanelView}
+              onViewChange={ui.setWorkspacePanelView}
+              onPreviewArtifact={openArtifactPreview}
+              onDraftRequest={restoreWorkspaceDraft}
+              focusTarget={ui.workspaceInspectorFocusTarget}
+              previewUrl={ui.webPreviewUrl}
+              onPreviewUrlChange={ui.setWebPreviewUrl}
+              artifacts={currentSessionArtifacts}
+            />
+          </Suspense>
+        </>
       ) : null}
       {ui.inlineReaderOpen ? (
         <Suspense fallback={<LazyOverlayFallback />}>

@@ -988,10 +988,10 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
       <aside
         ref={asideRef}
         className={cn(
-          'relative hidden shrink-0 overflow-hidden flex-col border-l border-border bg-background transition-[width,min-width,max-width,opacity,transform] duration-200 ease-out will-change-[width,opacity,transform] lg:flex',
+          'relative hidden shrink-0 overflow-hidden flex-col bg-background transition-[width,min-width,max-width,opacity,transform] duration-200 ease-out will-change-[width,opacity,transform] lg:flex',
           visible ? 'translate-x-0 opacity-100' : 'w-0 min-w-0 max-w-0 translate-x-4 opacity-0',
           isResizing ? 'transition-none' : '',
-          fullscreen ? 'fixed inset-0 z-40 border-l-0' : '',
+          fullscreen ? 'fixed inset-0 z-40 rounded-none border-l-0' : 'lg:rounded-l-2xl',
         )}
         style={visible ? fullscreen ? undefined : { width, minWidth: WORKSPACE_INSPECTOR_MIN_WIDTH, maxWidth: WORKSPACE_INSPECTOR_MAX_WIDTH } : undefined}
       >
@@ -1019,7 +1019,7 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
             </div>
           </div>
         ) : null}
-        <div className={cn('flex h-14 shrink-0 items-center gap-2 border-b border-border bg-muted/20 px-3 pr-20 transition-opacity duration-150', fullscreenAnimating ? 'opacity-0' : 'opacity-100')}>
+        <div className={cn('flex h-14 shrink-0 items-center gap-2 border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-muted/20 px-3 pr-20 transition-opacity duration-150', fullscreenAnimating ? 'opacity-0' : 'opacity-100')}>
           <div ref={menuRef} className="shrink-0">
             <WorkspaceMenu
               view={view}

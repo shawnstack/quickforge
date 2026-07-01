@@ -23,6 +23,8 @@
 @layer base {
   :root {
     color-scheme: light;
+    --quickforge-sidebar-bg: #f3f4f6;
+    --quickforge-main-bg: #ffffff;
   }
 
   * {

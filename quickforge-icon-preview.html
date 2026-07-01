@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QuickForge 图标预览</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --sidebar-bg: #f3f4f6;
+      --main-bg: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, #f8fafc, #eef2ff);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+    }
+    .page {
+      width: min(960px, calc(100vw - 48px));
+      background: rgba(255,255,255,.78);
+      border: 1px solid rgba(229,231,235,.9);
+      border-radius: 28px;
+      box-shadow: 0 24px 80px -48px rgb(15 23 42 / .55);
+      padding: 32px;
+      backdrop-filter: blur(18px);
+    }
+    .header { display: flex; align-items: center; gap: 16px; margin-bottom: 28px; }
+    .header img { width: 44px; height: 44px; }
+    h1 { margin: 0; font-size: 24px; letter-spacing: -0.03em; }
+    .desc { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      background: white;
+      padding: 20px;
+      min-height: 210px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .stage {
+      min-height: 118px;
+      display: grid;
+      place-items: center;
+      border-radius: 18px;
+      background:
+        linear-gradient(45deg, #f9fafb 25%, transparent 25%),
+        linear-gradient(-45deg, #f9fafb 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #f9fafb 75%),
+        linear-gradient(-45deg, transparent 75%, #f9fafb 75%);
+      background-size: 18px 18px;
+      background-position: 0 0, 0 9px, 9px -9px, -9px 0;
+      background-color: #fff;
+      border: 1px solid #f3f4f6;
+    }
+    .icon-128 { width: 128px; height: 128px; }
+    .icon-64 { width: 64px; height: 64px; }
+    .icon-32 { width: 32px; height: 32px; }
+    .icon-16 { width: 16px; height: 16px; }
+    .label { margin-top: 14px; font-weight: 650; font-size: 14px; }
+    .meta { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .titlebar {
+      width: 100%;
+      height: 118px;
+      border-radius: 18px;
+      overflow: hidden;
+      border: 1px solid #dfe3ea;
+      background: white;
+    }
+    .bar {
+      height: 28px;
+      background: var(--sidebar-bg);
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      padding-right: 10px;
+      gap: 7px;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 999px; background: #d1d5db; }
+    .appbody { display: flex; height: 90px; }
+    .side { width: 34%; background: var(--sidebar-bg); display: grid; place-items: center; }
+    .main { flex: 1; display: grid; place-items: center; background: white; }
+    .taskbar {
+      width: 100%;
+      height: 64px;
+      border-radius: 16px;
+      background: #111827;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      padding: 12px;
+    }
+    .task-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: rgba(255,255,255,.08);
+      display: grid;
+      place-items: center;
+    }
+    .task-icon img { width: 28px; height: 28px; }
+    code {
+      padding: 2px 6px;
+      border-radius: 8px;
+      background: #f3f4f6;
+      color: #374151;
+      font-size: 12px;
+    }
+    @media (max-width: 820px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="header">
+      <img src="public/favicon.svg" alt="QuickForge favicon" />
+      <div>
+        <h1>QuickForge 网站标题图标预览</h1>
+        <p class="desc">来源：<code>public/favicon.svg</code>，灰色六边形轮廓 + 黑色闪电（灰黑配色）。</p>
+      </div>
+    </div>
+
+    <section class="grid">
+      <article class="card">
+        <div class="stage"><img class="icon-128" src="public/favicon.svg" alt="128px icon" /></div>
+        <div>
+          <div class="label">桌面应用大图标</div>
+          <div class="meta">用于安装包 / EXE / Dock 的视觉方向。最终会转换为多尺寸 ICO。</div>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="stage"><img class="icon-64" src="public/favicon.svg" alt="64px icon" /></div>
+        <div>
+          <div class="label">窗口 / 启动图标</div>
+          <div class="meta">保持和浏览器标题栏 favicon 一致。</div>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="stage" style="gap:14px; display:flex; justify-content:center; align-items:center;">
+          <img class="icon-32" src="public/favicon.svg" alt="32px icon" />
+          <img class="icon-16" src="public/favicon.svg" alt="16px icon" />
+        </div>
+        <div>
+          <div class="label">托盘小尺寸</div>
+          <div class="meta">16/32px 下仍能看到六边形和闪电轮廓。</div>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="taskbar">
+          <div class="task-icon"><img src="public/favicon.svg" alt="taskbar icon" /></div>
+          <div class="task-icon" style="opacity:.45"></div>
+          <div class="task-icon" style="opacity:.45"></div>
+        </div>
+        <div>
+          <div class="label">Windows 任务栏示意</div>
+          <div class="meta">确认是不是你说的“网站标题那个”。</div>
+        </div>
+      </article>
+    </section>
+
+    <section style="margin-top:18px" class="card">
+      <div class="titlebar">
+        <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+        <div class="appbody">
+          <div class="side"><img class="icon-32" src="public/favicon.svg" alt="sidebar preview icon" /></div>
+          <div class="main"><span style="font-size:13px;color:#6b7280">打包 App 顶部区域 + 左侧区域颜色示意</span></div>
+        </div>
+      </div>
+      <div>
+        <div class="label">当前图标（已采用灰黑配色）</div>
+        <div class="meta">favicon.svg 已更新为灰色轮廓 + 黑色闪电，与浏览器标题栏 favicon 保持一致；PWA PNG 图标也已同步重新生成。</div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

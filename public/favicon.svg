@@ -1,16 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
   <defs>
     <linearGradient id="stroke" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#bd86ff" />
-      <stop offset="1" stop-color="#7e14ff" />
+      <stop offset="0" stop-color="#9ca3af" />
+      <stop offset="1" stop-color="#4b5563" />
     </linearGradient>
     <linearGradient id="bolt" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#7dd4ff" />
-      <stop offset="1" stop-color="#37a6ff" />
+      <stop offset="0" stop-color="#374151" />
+      <stop offset="1" stop-color="#0f172a" />
     </linearGradient>
   </defs>
   <polygon points="32,6 52.78,18 52.78,42 32,54 11.22,42 11.22,18"
     fill="none" stroke="url(#stroke)" stroke-width="4.5" stroke-linejoin="round" />
   <path d="M37.2 13 L22 34 L30.6 34 L26.8 50 L42.8 26 L33.8 26 Z" fill="url(#bolt)" />
-  <path d="M37.2 13 L22 34 L30.6 34 L33.8 26 Z" fill="#cdeeff" opacity="0.5" />
+  <path d="M37.2 13 L22 34 L30.6 34 L33.8 26 Z" fill="#e5e7eb" opacity="0.4" />
 </svg>

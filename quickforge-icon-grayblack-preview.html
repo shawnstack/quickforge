@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QuickForge 图标 · 灰黑配色方案</title>
+  <style>
+    :root {
+      --text: #111827;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, #f8fafc, #eef2ff);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+    }
+    .page {
+      width: min(1040px, calc(100vw - 48px));
+      background: rgba(255,255,255,.82);
+      border: 1px solid rgba(229,231,235,.9);
+      border-radius: 28px;
+      box-shadow: 0 24px 80px -48px rgb(15 23 42 / .55);
+      padding: 32px;
+      backdrop-filter: blur(18px);
+    }
+    h1 { margin: 0; font-size: 24px; letter-spacing: -0.03em; }
+    .desc { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; margin-top: 24px; }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      background: white;
+      padding: 20px;
+    }
+    .card.current { background: #fbfaff; }
+    .tag {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 650;
+      padding: 4px 10px;
+      border-radius: 999px;
+      letter-spacing: .02em;
+    }
+    .tag.old { background: #f3e8ff; color: #7e22ce; }
+    .tag.new { background: #111827; color: #fff; }
+    .label { margin-top: 6px; font-weight: 650; font-size: 15px; }
+    .meta { margin-top: 4px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+    .swatches { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .sw {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11px; color: #374151;
+      background: #f9fafb; border: 1px solid #e5e7eb;
+      padding: 3px 8px; border-radius: 8px;
+    }
+    .chip { width: 14px; height: 14px; border-radius: 4px; border: 1px solid rgba(0,0,0,.12); }
+
+    .stage-row { display: flex; align-items: flex-end; gap: 18px; margin-top: 14px; }
+    .stage {
+      display: grid;
+      place-items: center;
+      border-radius: 16px;
+      border: 1px solid #eef0f3;
+    }
+    .light { width: 120px; height: 120px; background: #fff; }
+    .dark  { width: 120px; height: 120px; background: #0b1220; }
+
+    svg { display: block; }
+
+    .palette-note {
+      margin-top: 22px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      color: #374151;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    code { padding: 2px 6px; border-radius: 8px; background: #eef2ff; color: #3730a3; font-size: 12px; }
+    @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } .stage-row { flex-wrap: wrap; } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <h1>QuickForge 图标 · 灰黑配色方案</h1>
+    <p class="desc">保持原有「六边形轮廓 + 闪电」造型不变，只替换配色。下面 3 个灰黑变体供你挑选（鼠标右键可另存为对比）。</p>
+
+    <div class="grid">
+
+      <!-- 方案 A -->
+      <article class="card">
+        <span class="tag new">方案 A</span>
+        <div class="label">灰轮廓 + 黑闪电（推荐）</div>
+        <div class="meta">灰色六边形外框 + 黑色闪电，对比清晰，最有「工具感」。</div>
+        <div class="swatches">
+          <span class="sw"><span class="chip" style="background:linear-gradient(135deg,#9ca3af,#4b5563)"></span>轮廓 #9CA3AF→#4B5563</span>
+          <span class="sw"><span class="chip" style="background:linear-gradient(135deg,#374151,#0f172a)"></span>闪电 #374151→#0F172A</span>
+        </div>
+        <div class="stage-row">
+          <div class="stage light">
+            <svg width="72" height="72" viewBox="0 0 64 64" fill="none">
+              <defs>
+                <linearGradient id="a-stroke" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#9ca3af"/><stop offset="1" stop-color="#4b5563"/>
+                </linearGradient>
+                <linearGradient id="a-bolt" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#374151"/><stop offset="1" stop-color="#0f172a"/>
+                </linearGradient>
+              </defs>
+              <polygon points="32,6 52.78,18 52.78,42 32,54 11.22,42 11.22,18"
+                fill="none" stroke="url(#a-stroke)" stroke-width="4.5" stroke-linejoin="round"/>
+              <path d="M37.2 13 L22 34 L30.6 34 L26.8 50 L42.8 26 L33.8 26 Z" fill="url(#a-bolt)"/>
+              <path d="M37.2 13 L22 34 L30.6 34 L33.8 26 Z" fill="#e5e7eb" opacity="0.4"/>
+            </svg>
+          </div>
+          <div class="stage dark">
+            <svg width="72" height="72" viewBox="0 0 64 64" fill="none">
+              <use href="#a-stroke"/>
+              <polygon points="32,6 52.78,18 52.78,42 32,54 11.22,42 11.22,18"
+                fill="none" stroke="url(#a-stroke)" stroke-width="4.5" stroke-linejoin="round"/>
+              <path d="M37.2 13 L22 34 L30.6 34 L26.8 50 L42.8 26 L33.8 26 Z" fill="url(#a-bolt)"/>
+              <path d="M37.2 13 L22 34 L30.6 34 L33.8 26 Z" fill="#e5e7eb" opacity="0.4"/>
+            </svg>
+          </div>
+        </div>
+      </article>
+
+      <!-- 方案 B -->
+      <article class="card">
+        <span class="tag new">方案 B</span>
+        <div class="label">黑轮廓 + 灰闪电</div>
+        <div class="meta">黑色外框更厚重，闪电用金属灰提亮，偏冷峻硬朗。</div>
+        <div class="swatches">
+          <span class="sw"><span class="chip" style="background:linear-gradient(135deg,#1f2937,#000000)"></span>轮廓 #1F2937→#000000</span>
+          <span class="sw"><span class="chip" style="background:linear-gradient(135deg,#9ca3af,#6b7280)"></span>闪电 #9CA3AF→#6B7280</span>
+        </div>
+        <div class="stage-row">
+          <div class="stage light">
+            <svg width="72" height="72" viewBox="0 0 64 64" fill="none">
+              <defs>
+                <linearGradient id="b-stroke" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#1f2937"/><stop offset="1" stop-color="#000000"/>
+                </linearGradient>
+                <linearGradient id="b-bolt" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#9ca3af"/><stop offset="1" stop-color="#6b7280"/>
+                </linearGradient>
+              </defs>
+              <polygon points="32,6 52.78,18 52.78,42 32,54 11.22,42 11.22,18"
+                fill="none" stroke="url(#b-stroke)" stroke-width="4.5" stroke-linejoin="round"/>
+              <path d="M37.2 13 L22 34 L30.6 34 L26.8 50 L42.8 26 L33.8 26 Z" fill="url(#b-bolt)"/>
+              <path d="M37.2 13 L22 34 L30.6 34 L33.8 26 Z" fill="#f3f4f6" opacity="0.55"/>
+            </svg>
+          </div>
+          <div class="stage dark">
+            <svg width="72" height="72" viewBox="0 0 64 64" fill="none">
+              <polygon points="32,6 52.78,18 52.78,42 32,54 11.22,42 11.22,18"
+                fill="none" stroke="url(#b-stroke)" stroke-width="4.5" stroke-linejoin="round"/>
+              <path d="M37.2 13 L22 34 L30.6 34 L26.8 50 L42.8 26 L33.8 26 Z" fill="url(#b-bolt)"/>
+              <path d="M37.2 13 L22 34 L30.6 34 L33.8 26 Z" fill="#f3f4f6" opacity="0.55"/>
+            </svg>
+          </div>
+        </div>
+      </article>
+
+      <!-- 方案 C -->
+      <article class="card">
+        <span class="tag new">方案 C</span>
+        <div class="label">全炭黑单色（极简）</div>
+        <div class="meta">轮廓与闪电都走深炭黑渐变，仅靠明度差区分，最克制低调。</div>
+        <div class="swatches">
+          <span class="sw"><span class="chip" style="background:linear-gradient(135deg,#4b5563,#111827)"></span>轮廓 #4B5563→#111827</span>
+          <span class="sw"><span class="chip" style="background:linear-gradient(135deg,#1f2937,#0f172a)"></span>闪电 #1F2937→#0F172A</span>
+        </div>
+        <div class="stage-row">
+          <div class="stage light">
+            <svg width="72" height="72" viewBox="0 0 64 64" fill="none">
+              <defs>
+                <linearGradient id="c-stroke" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#4b5563"/><stop offset="1" stop-color="#111827"/>
+                </linearGradient>
+                <linearGradient id="c-bolt" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#1f2937"/><stop offset="1" stop-color="#0f172a"/>
+                </linearGradient>
+              </defs>
+              <polygon points="32,6 52.78,18 52.78,42 32,54 11.22,42 11.22,18"
+                fill="none" stroke="url(#c-stroke)" stroke-width="4.5" stroke-linejoin="round"/>
+              <path d="M37.2 13 L22 34 L30.6 34 L26.8 50 L42.8 26 L33.8 26 Z" fill="url(#c-bolt)"/>
+              <path d="M37.2 13 L22 34 L30.6 34 L33.8 26 Z" fill="#9ca3af" opacity="0.3"/>
+            </svg>
+          </div>
+          <div class="stage dark">
+            <svg width="72" height="72" viewBox="0 0 64 64" fill="none">
+              <polygon points="32,6 52.78,18 52.78,42 32,54 11.22,42 11.22,18"
+                fill="none" stroke="url(#c-stroke)" stroke-width="4.5" stroke-linejoin="round"/>
+              <path d="M37.2 13 L22 34 L30.6 34 L26.8 50 L42.8 26 L33.8 26 Z" fill="url(#c-bolt)"/>
+              <path d="M37.2 13 L22 34 L30.6 34 L33.8 26 Z" fill="#9ca3af" opacity="0.3"/>
+            </svg>
+          </div>
+        </div>
+      </article>
+
+      <!-- 当前对比 -->
+      <article class="card current">
+        <span class="tag old">当前原版</span>
+        <div class="label">紫轮廓 + 蓝闪电</div>
+        <div class="meta">来源 <code>public/favicon.svg</code>，作为对比参照。</div>
+        <div class="swatches">
+          <span class="sw"><span class="chip" style="background:linear-gradient(135deg,#bd86ff,#7e14ff)"></span>轮廓 #BD86FF→#7E14FF</span>
+          <span class="sw"><span class="chip" style="background:linear-gradient(135deg,#7dd4ff,#37a6ff)"></span>闪电 #7DD4FF→#37A6FF</span>
+        </div>
+        <div class="stage-row">
+          <div class="stage light">
+            <img width="72" height="72" src="public/favicon.svg" alt="current favicon light" />
+          </div>
+          <div class="stage dark">
+            <img width="72" height="72" src="public/favicon.svg" alt="current favicon dark" />
+          </div>
+        </div>
+      </article>
+
+    </div>
+
+    <div class="palette-note">
+      💡 三个方案都保留六边形 + 闪电的几何造型，仅替换渐变配色。每个图标我都给了「浅色背景」和「深色背景（模拟任务栏/深色模式）」两个场景。<br/>
+      👉 你选一个方案（比如「A」），我就把 <code>public/favicon.svg</code> 替换为对应灰黑版本，并同步更新预览页描述。
+    </div>
+  </main>
+</body>
+</html>

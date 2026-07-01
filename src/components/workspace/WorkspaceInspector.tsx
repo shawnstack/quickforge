@@ -376,13 +376,6 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
 
   return (
     <div className="space-y-3 p-2">
-      <div className="rounded-lg border border-border bg-muted/10 px-3 py-3">
-        <div className="text-xs font-medium text-foreground/85">{project?.name ?? t('noProjectSelected')}</div>
-        <div className="mt-1 text-[11px] text-muted-foreground/65">
-          {isGitRepository ? `${t('workspaceCurrentBranch')}: ${gitBranch || t('unknown')} · ${changesCount} ${t('workspaceChangeCount')}` : t('workspaceNotGitRepository')}
-        </div>
-      </div>
-
       <div className="rounded-lg border border-border bg-background px-3 py-3">
         <div className="flex items-center gap-2 text-xs font-semibold text-foreground/90">
           <Code2 className="size-3.5 text-emerald-600 dark:text-emerald-500" />
@@ -483,6 +476,13 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
             ) : null}
           </div>
         )}
+      </div>
+
+      <div className="rounded-lg border border-border bg-muted/10 px-3 py-3">
+        <div className="text-xs font-medium text-foreground/85">{project?.name ?? t('noProjectSelected')}</div>
+        <div className="mt-1 text-[11px] text-muted-foreground/65">
+          {isGitRepository ? `${t('workspaceCurrentBranch')}: ${gitBranch || t('unknown')} · ${changesCount} ${t('workspaceChangeCount')}` : t('workspaceNotGitRepository')}
+        </div>
       </div>
     </div>
   )
@@ -1032,7 +1032,7 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
               }}
             />
           </div>
-          <div className="h-5 w-px shrink-0 bg-border/60" />
+          <div className="h-5 w-px shrink-0 bg-[color-mix(in_oklab,var(--border)_34%,transparent)]" />
           <ReaderTabBar
             tabs={readerTabs}
             activeId={activeReaderTabId}
@@ -1069,7 +1069,7 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
               <div
                 className={cn(
                   'flex min-h-0 flex-col bg-muted/20',
-                  hasFileTab ? 'shrink-0 border-r border-border' : 'flex-1',
+                  hasFileTab ? 'shrink-0 border-r-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)]' : 'flex-1',
                 )}
                 style={hasFileTab ? { width: leftWidth, minWidth: NAV_PANEL_MIN_WIDTH, maxWidth: NAV_PANEL_MAX_WIDTH } : undefined}
               >
@@ -1093,7 +1093,7 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
                     ) : null}
                     {!loading && navView === 'files' ? (
                       <>
-                        <label className="mb-2 flex items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-xs text-muted-foreground/65 focus-within:text-foreground/85">
+                        <label className="mb-2 flex items-center gap-2 rounded-md border-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-2 py-1.5 text-xs text-muted-foreground/65 focus-within:text-foreground/85">
                           <Search className="size-3.5 shrink-0" />
                           <input
                             value={filter}
@@ -1167,7 +1167,7 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
                     aria-valuenow={leftWidth}
                     className={cn(
                       'group relative z-10 w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors',
-                      isNavResizing ? 'bg-primary/30' : 'hover:bg-border/60',
+                      isNavResizing ? 'bg-primary/30' : 'hover:bg-[color-mix(in_oklab,var(--border)_52%,transparent)]',
                     )}
                     onPointerDown={startNavResizing}
                     onPointerMove={navResize}

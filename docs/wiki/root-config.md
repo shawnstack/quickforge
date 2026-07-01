@@ -42,9 +42,11 @@
 
 - 包名: `@shawnstack/quickforge`
 - 类型: `module` (ESM)
+- npm import 入口: `server/public-api.mjs` (`main` 字段)
 - 注册 CLI: `quickforge` / `qf` → `bin/quickforge.mjs`
+- Desktop 脚本: `desktop:dev`、`desktop:build`、`desktop:build:win/mac/linux`、`desktop:build:all`
 - 核心依赖: `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, `@agentclientprotocol/sdk`
-- 发布包含: `bin/`, `server/`, `skills/`, `dist/`, `README.md`, `LICENSE`
+- 发布包含: `bin/`, `server/`, `skills/`, `plugins/`, `dist/`, `README.md`, `LICENSE`；不包含 `desktop/` 和 Electron 构建产物
 
 ### `vite.config.ts`
 
@@ -64,7 +66,7 @@
 
 - ESLint 扁平化配置
 - 规则集: JS recommended, TypeScript recommended, React Hooks, React Refresh
-- 全局忽略: `dist`
+- 全局忽略: `dist`、`desktop-dist`、`package-dist`、`package-offline`
 
 ### `.editorconfig`
 

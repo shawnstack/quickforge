@@ -1,0 +1,72 @@
+name: Desktop Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  desktop:
+    name: Build desktop (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows
+            os: windows-latest
+            script: desktop:build:win
+            artifact: quickforge-desktop-windows
+          - name: macos
+            os: macos-latest
+            script: desktop:build:mac
+            artifact: quickforge-desktop-macos
+          - name: linux
+            os: ubuntu-latest
+            script: desktop:build:linux
+            artifact: quickforge-desktop-linux
+
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'npm'
+
+      - name: Install Linux packaging dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libarchive-tools
+
+      - run: npm ci
+
+      - name: Build ${{ matrix.name }} desktop package
+        run: npm run ${{ matrix.script }}
+
+      - name: Upload ${{ matrix.name }} desktop artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            desktop-dist/*.exe
+            desktop-dist/*.dmg
+            desktop-dist/*.AppImage
+            desktop-dist/*.zip
+            desktop-dist/*.blockmap
+            desktop-dist/*.yml
+            desktop-dist/*.yaml

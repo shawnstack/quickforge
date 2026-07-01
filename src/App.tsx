@@ -33,6 +33,7 @@ import { sessionTitle } from '@/lib/types'
 import type { ContextUsageDisplayInfo } from '@/components/chat/context-usage'
 import { FirstUseGuideCard } from '@/components/chat/FirstUseGuideCard'
 import { ModelSetupEmptyState } from '@/components/chat/ModelSetupEmptyState'
+import { NewChatProjectPicker } from '@/components/chat/NewChatProjectPicker'
 import { ChatSidebar } from '@/components/sidebar/ChatSidebar'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useProject } from '@/hooks/useProject'
@@ -781,9 +782,28 @@ function MainApp() {
       })
   }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id])
 
+  const showNewChatEmptyState = !needsModelSetup
+    && !workspacePageOpen
+    && Boolean(agentManager.agent)
+    && !agentManager.agent?.state.isStreaming
+    && (agentManager.agent?.state.messages.length ?? 0) === 0
+
+  const handleSelectEmptyStateProject = useCallback((project: ProjectInfo) => {
+    void startNewProjectChat(project)
+  }, [startNewProjectChat])
+
+  const handleClearEmptyStateProject = useCallback(() => {
+    startNewGlobalSession()
+  }, [startNewGlobalSession])
+
+  const handleSelectEmptyStateNewProject = useCallback(() => {
+    selectProjectDirectory()
+  }, [selectProjectDirectory])
+
   const showFirstUseGuide = Boolean(storage)
     && !ui.firstUseGuideDismissed
     && !terminalOpen
+    && !showNewChatEmptyState
     && projects.length === 0
     && globalSessions.length === 0
 
@@ -1225,7 +1245,15 @@ function MainApp() {
               />
             ) : (
               <>
-                <div className="flex min-h-0 flex-1 flex-col">
+                <div className={cn(
+                  'flex min-h-0 flex-1 flex-col',
+                  showNewChatEmptyState ? 'quickforge-empty-chat' : undefined,
+                )}>
+                  {showNewChatEmptyState ? (
+                    <div className="quickforge-empty-chat-hero" aria-hidden="true">
+                      <h1 className="quickforge-empty-chat-title">{t('newChatEmptyTitle')}</h1>
+                    </div>
+                  ) : null}
                   <ErrorBoundary>
                     <Suspense fallback={<LazyPanelFallback />}>
                     <ChatPanelHost
@@ -1252,9 +1280,20 @@ function MainApp() {
                       onContextUsageDisplayChange={handleContextUsageDisplayChange}
                       disableFork={false}
                       restoredDraft={restoredDraft}
+                      newChatEmptyState={showNewChatEmptyState}
                     />
                     </Suspense>
                   </ErrorBoundary>
+                  {showNewChatEmptyState ? (
+                    <NewChatProjectPicker
+                      projects={projects}
+                      selectedProject={agentManager.currentToolProject}
+                      chatScope={agentManager.chatScope}
+                      onSelectProject={handleSelectEmptyStateProject}
+                      onClearProject={handleClearEmptyStateProject}
+                      onNewProject={handleSelectEmptyStateNewProject}
+                    />
+                  ) : null}
                 </div>
                 {showFirstUseGuide ? (
                   <FirstUseGuideCard

@@ -97,6 +97,7 @@ type ChatPanelHostProps = {
   readOnly?: boolean
   bypassClientApiKeyCheck?: boolean
   allowModelControls?: boolean
+  newChatEmptyState?: boolean
   rollbackConfirmTitle?: string
   rollbackConfirmDescription?: string
 }
@@ -128,6 +129,7 @@ type PropsRef = {
   disableFork: boolean
   readOnly: boolean
   allowModelControls: boolean
+  newChatEmptyState: boolean
   bypassClientApiKeyCheck: boolean
   rollbackConfirmTitle?: string
   rollbackConfirmDescription?: string
@@ -161,6 +163,7 @@ export function ChatPanelHost({
   readOnly = false,
   bypassClientApiKeyCheck = false,
   allowModelControls = true,
+  newChatEmptyState = false,
   rollbackConfirmTitle,
   rollbackConfirmDescription,
 }: ChatPanelHostProps) {
@@ -264,6 +267,7 @@ export function ChatPanelHost({
     disableFork,
     readOnly,
     allowModelControls,
+    newChatEmptyState,
     bypassClientApiKeyCheck,
     rollbackConfirmTitle,
     rollbackConfirmDescription,
@@ -295,6 +299,7 @@ export function ChatPanelHost({
       disableFork,
       readOnly,
       allowModelControls,
+      newChatEmptyState,
       bypassClientApiKeyCheck,
       rollbackConfirmTitle,
       rollbackConfirmDescription,
@@ -854,6 +859,13 @@ export function ChatPanelHost({
       panel.remove()
     }
   }, [agent, cancelPendingDraftSave, persistCurrentComposerDraft, schedulePersistDraft]) // ← ONLY agent triggers panel recreation; callback deps are stable
+
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host) return
+    host.classList.toggle('quickforge-chat-panel-empty-host', newChatEmptyState)
+    host.dataset.quickforgeEmptyChat = newChatEmptyState ? 'true' : 'false'
+  }, [newChatEmptyState])
 
   // =========================================================================
   // Decoration trigger: re-run decoration when UI props change (without

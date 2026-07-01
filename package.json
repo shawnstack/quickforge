@@ -28,6 +28,7 @@
   },
   "homepage": "https://github.com/shawnstack/quickforge#readme",
   "type": "module",
+  "main": "./server/public-api.mjs",
   "bin": {
     "quickforge": "bin/quickforge.mjs",
     "qf": "bin/quickforge.mjs"
@@ -50,6 +51,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "desktop:dev": "electron desktop/electron-main.mjs",
+    "desktop:build": "npm run build && electron-builder --config desktop/electron-builder.config.cjs",
+    "desktop:build:win": "npm run build && electron-builder --config desktop/electron-builder.config.cjs --win",
+    "desktop:build:mac": "npm run build && electron-builder --config desktop/electron-builder.config.cjs --mac",
+    "desktop:build:linux": "npm run build && electron-builder --config desktop/electron-builder.config.cjs --linux",
+    "desktop:build:all": "npm run build && electron-builder --config desktop/electron-builder.config.cjs --win --mac --linux",
     "release:patch:prepare": "node scripts/prepare-patch-release.cjs",
     "start": "node server/index.mjs",
     "preview": "node server/index.mjs"
@@ -66,9 +73,9 @@
     "ws": "^8.20.1"
   },
   "devDependencies": {
+    "@earendil-works/pi-web-ui": "^0.75.3",
     "@eslint/js": "^10.0.1",
     "@mariozechner/mini-lit": "^0.2.1",
-    "@earendil-works/pi-web-ui": "^0.75.3",
     "@monaco-editor/react": "^4.7.0",
     "@tailwindcss/vite": "^4.2.4",
     "@types/node": "^24.12.2",
@@ -79,6 +86,8 @@
     "@xterm/xterm": "^6.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "electron": "^39.2.7",
+    "electron-builder": "^26.0.12",
     "eslint": "^10.2.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",

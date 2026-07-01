@@ -221,6 +221,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   const rowHoverShadowClass = 'hover:shadow-[0_8px_20px_-18px_rgb(15_23_42_/_0.35)]'
   const iconHoverShadowClass = 'hover:shadow-[0_6px_14px_-14px_rgb(15_23_42_/_0.35)]'
   const rowClass = `group relative flex items-center gap-2 overflow-hidden rounded-lg px-2 py-1.5 text-left transition-[background-color,color,box-shadow] duration-160 ease-out ${rowHoverShadowClass}`
+  const footerRowClass = 'group relative flex items-center gap-2 overflow-hidden px-2 py-1.5 text-left transition-[background-color,color,box-shadow] duration-160 ease-out'
   const activeRowClass = `${sidebarActiveBgClass} text-foreground/92 shadow-[0_8px_22px_-20px_rgb(15_23_42_/_0.32)]`
   const projectActiveRowClass = `text-foreground/84 ${sidebarHoverBgClass}`
   const inactiveRowClass = `text-muted-foreground/72 ${sidebarHoverBgClass} hover:text-foreground/86`
@@ -902,7 +903,7 @@ export const ChatSidebar = memo(function ChatSidebar({
           <button
             type="button"
             className={cn(
-              rowClass,
+              footerRowClass,
               'relative mb-2 w-full border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10',
             )}
             onClick={onOpenUpdate}
@@ -951,7 +952,7 @@ export const ChatSidebar = memo(function ChatSidebar({
         ) : null}
         <button
           type="button"
-          className={cn(rowClass, 'w-full', inactiveRowClass)}
+          className={cn(footerRowClass, 'w-full', inactiveRowClass)}
           onClick={onOpenSettings}
           aria-label={t('settings')}
           title={t('settings')}

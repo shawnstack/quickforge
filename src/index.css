@@ -1318,3 +1318,361 @@ assistant-message :is(thinking-block, tool-message, markdown-block, streaming-me
     min-height: 3.25rem !important;
   }
 }
+
+.quickforge-empty-chat {
+  position: relative;
+  overflow: hidden;
+}
+
+.quickforge-empty-chat-hero {
+  position: absolute;
+  z-index: 2;
+  top: calc(50% - 7.25rem);
+  left: 50%;
+  width: min(48rem, calc(100% - 2rem));
+  transform: translateX(-50%);
+  pointer-events: none;
+  text-align: center;
+}
+
+.quickforge-empty-chat-title {
+  margin: 0;
+  color: color-mix(in oklab, var(--foreground) 92%, transparent);
+  font-size: clamp(1.9rem, 3.2vw, 2.65rem);
+  font-weight: 400;
+  letter-spacing: -0.045em;
+  line-height: 1.08;
+}
+
+.quickforge-chat-panel-empty-host {
+  position: absolute;
+  inset: 0;
+  overflow: visible !important;
+}
+
+.quickforge-chat-panel-empty-host .quickforge-composer-dock {
+  position: absolute !important;
+  z-index: 5;
+  top: calc(50% - 1.75rem);
+  left: 50%;
+  width: min(48rem, calc(100% - 2rem));
+  padding: 0 !important;
+  transform: translateX(-50%);
+  background: transparent !important;
+  pointer-events: none;
+}
+
+.quickforge-chat-panel-empty-host .quickforge-composer-shell {
+  width: 100% !important;
+  max-width: none !important;
+  pointer-events: none;
+}
+
+.quickforge-chat-panel-empty-host .quickforge-composer > div:first-child {
+  border-color: color-mix(in oklab, var(--border) 82%, transparent) !important;
+  border-radius: 1.5rem !important;
+  background: color-mix(in oklab, var(--card) 96%, white) !important;
+  box-shadow:
+    0 34px 90px -46px rgb(15 23 42 / 0.36),
+    0 18px 44px -32px rgb(15 23 42 / 0.28),
+    inset 0 1px 0 rgb(255 255 255 / 0.8) !important;
+  backdrop-filter: none;
+  pointer-events: auto;
+}
+
+.quickforge-chat-panel-empty-host .quickforge-composer textarea {
+  min-height: 3.5rem !important;
+  padding: 1rem 1rem 0.5rem !important;
+  font-size: 0.95rem;
+}
+
+.quickforge-chat-panel-empty-host .quickforge-composer textarea::placeholder {
+  color: color-mix(in oklab, var(--muted-foreground) 44%, transparent);
+}
+
+.quickforge-chat-panel-empty-host .quickforge-composer > div:first-child > .px-2.pb-2 {
+  padding: 0 0.75rem 0.75rem !important;
+}
+
+.quickforge-chat-panel-empty-host .quickforge-composer > div:first-child > .px-2.pb-2::before {
+  display: none;
+}
+
+.quickforge-empty-project-picker {
+  position: absolute;
+  z-index: 3;
+  top: calc(50% + 3.9rem);
+  left: 50%;
+  width: min(48rem, calc(100% - 2rem));
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.quickforge-empty-project-picker-open {
+  z-index: 3;
+}
+
+.quickforge-empty-project-trigger {
+  display: flex;
+  width: 100%;
+  min-height: 4.1rem;
+  align-items: flex-end;
+  gap: 0.65rem;
+  padding: 0 1.25rem 1rem;
+  border: 0;
+  border-radius: 0 0 1.5rem 1.5rem;
+  background: color-mix(in oklab, var(--muted) 58%, var(--card));
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+  cursor: default;
+  font-size: 0.82rem;
+  pointer-events: none;
+  text-align: left;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.quickforge-empty-project-pill[aria-expanded="true"],
+.quickforge-empty-project-chip[aria-expanded="true"] {
+  color: var(--foreground);
+}
+
+.quickforge-empty-project-pill:focus-visible,
+.quickforge-empty-project-chip:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--primary) 70%, transparent);
+  outline-offset: 2px;
+}
+
+.quickforge-empty-project-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: 100%;
+  border-radius: 999px;
+  padding: 0.34rem 0.8rem;
+  margin-bottom: 0.06rem;
+  background: color-mix(in oklab, var(--card) 70%, transparent);
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.quickforge-empty-project-pill:hover {
+  background: color-mix(in oklab, var(--foreground) 14%, var(--card));
+  color: var(--foreground);
+}
+
+.quickforge-empty-project-pill svg {
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+  flex-shrink: 0;
+  transition: color 150ms ease;
+}
+
+.quickforge-empty-project-pill:hover svg {
+  color: var(--foreground);
+}
+
+.quickforge-empty-project-trigger svg {
+  margin-bottom: 0.05rem;
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+}
+
+.quickforge-empty-project-chip {
+  display: inline-flex;
+  max-width: min(18rem, 100%);
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--muted) 82%, var(--card));
+  padding: 0.32rem 0.72rem 0.32rem 0.34rem;
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+  cursor: pointer;
+  font-size: inherit;
+  pointer-events: auto;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.quickforge-empty-project-chip:hover,
+.quickforge-empty-project-chip:focus-within {
+  background: color-mix(in oklab, var(--muted) 82%, var(--card));
+  color: var(--foreground);
+}
+
+.quickforge-empty-project-chip-action {
+  position: relative;
+  display: inline-flex;
+  width: 1.15rem;
+  height: 1.15rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.quickforge-empty-project-chip-folder {
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+  transition: opacity 150ms ease, color 150ms ease;
+}
+
+.quickforge-empty-project-chip:hover .quickforge-empty-project-chip-folder,
+.quickforge-empty-project-chip:focus-within .quickforge-empty-project-chip-folder {
+  opacity: 0;
+}
+
+.quickforge-empty-project-chip-clear {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  width: 1.15rem;
+  height: 1.15rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--foreground) 88%, transparent);
+  color: var(--background);
+  cursor: pointer;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.quickforge-empty-project-chip:hover .quickforge-empty-project-chip-clear,
+.quickforge-empty-project-chip:focus-within .quickforge-empty-project-chip-clear {
+  opacity: 1;
+}
+
+.quickforge-empty-project-chip-clear svg {
+  margin: 0;
+  color: currentColor;
+}
+
+.quickforge-project-picker-popover,
+.quickforge-project-picker-submenu {
+  border: 1px solid color-mix(in oklab, var(--border) 76%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in oklab, var(--popover) 98%, transparent);
+  box-shadow:
+    0 26px 72px -42px rgb(15 23 42 / 0.52),
+    0 10px 24px -18px rgb(15 23 42 / 0.28);
+  color: var(--popover-foreground);
+}
+
+.quickforge-project-picker-popover {
+  z-index: 1000;
+  width: min(25rem, calc(100vw - 2rem));
+  padding: 0.55rem;
+  pointer-events: auto;
+}
+
+.quickforge-project-picker-search {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.65rem 0.65rem;
+  color: color-mix(in oklab, var(--muted-foreground) 86%, transparent);
+}
+
+.quickforge-project-picker-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.82rem;
+}
+
+.quickforge-project-picker-search input::placeholder {
+  color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+}
+
+.quickforge-project-picker-list {
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+.quickforge-project-picker-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.75rem;
+  border: 0;
+  border-radius: 0.7rem;
+  background: transparent;
+  color: color-mix(in oklab, var(--foreground) 90%, transparent);
+  cursor: pointer;
+  padding: 0.58rem 0.65rem;
+  font-size: 0.82rem;
+  text-align: left;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.quickforge-project-picker-item:hover,
+.quickforge-project-picker-item:focus-visible,
+.quickforge-project-picker-item-emphasis {
+  background: color-mix(in oklab, var(--muted) 80%, var(--foreground) 16%);
+  color: var(--foreground);
+  outline: 0;
+}
+
+.quickforge-project-picker-item svg {
+  flex-shrink: 0;
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+}
+
+.quickforge-project-picker-item:hover .quickforge-project-picker-item-leading,
+.quickforge-project-picker-item:focus-visible .quickforge-project-picker-item-leading {
+  color: color-mix(in oklab, var(--foreground) 78%, transparent);
+}
+
+.quickforge-project-picker-separator {
+  height: 1px;
+  margin: 0.45rem 0.25rem;
+  background: color-mix(in oklab, var(--border) 72%, transparent);
+}
+
+.quickforge-project-picker-new {
+  position: relative;
+}
+
+.quickforge-project-picker-submenu {
+  position: absolute;
+  left: calc(100% + 0.25rem);
+  bottom: 0;
+  width: 17rem;
+  padding: 0.55rem;
+}
+
+.quickforge-project-picker-empty {
+  padding: 0.8rem 0.65rem;
+  color: color-mix(in oklab, var(--muted-foreground) 86%, transparent);
+  font-size: 0.82rem;
+}
+
+@media (max-width: 768px) {
+  .quickforge-empty-chat-hero {
+    top: calc(50% - 7rem);
+    width: min(100% - 1.5rem, 48rem);
+  }
+
+  .quickforge-chat-panel-empty-host .quickforge-composer-dock,
+  .quickforge-empty-project-picker {
+    width: min(100% - 1.5rem, 48rem);
+  }
+
+  .quickforge-empty-chat-title {
+    font-size: clamp(1.7rem, 7vw, 2.25rem);
+  }
+
+  .quickforge-project-picker-popover {
+    width: min(22rem, calc(100vw - 1.5rem));
+  }
+
+  .quickforge-project-picker-submenu {
+    position: static;
+    width: 100%;
+    margin-top: 0.35rem;
+    box-shadow: none;
+  }
+}
+

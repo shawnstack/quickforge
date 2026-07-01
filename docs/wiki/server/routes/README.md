@@ -191,7 +191,7 @@ LAN 共享访问管理路由。
 - `GET /api/system/network` — 网络信息
 - `GET /api/system/about` — 包名、版本、GitHub / homepage / issues 地址
 - `GET /api/system/update/check` — 查询 npm 最新版本并返回是否可更新
-- `POST /api/system/update` — 执行一键更新（本机请求限定，需 `x-quickforge-action: update`，内部运行 `npm install -g @shawnstack/quickforge@latest`）
+- `POST /api/system/update` — 启动外部更新器执行一键更新（本机请求限定，需 `x-quickforge-action: update`）；接口返回 `202`、更新日志路径和旧 `bootId`，当前服务随后退出，`update-supervisor.mjs` 在外部执行 `npm install -g <package>@latest` 并自动重启服务
 - `POST /api/system/restart` — 服务重启
 
 ## workspace.mjs (296 行)

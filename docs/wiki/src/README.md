@@ -34,7 +34,7 @@ src/
 - 从 `react-dom/client` 创建根节点
 - 应用全局 CSS（`index.css`）
 - 调用 `patchThinkingSelector()` 修补 pi-web-ui 的模型选择器
-- 设置弹窗由 `hooks/useModelActions.ts` 组装多个 `SettingsTab`，包含 `lib/channels-settings-tab.ts` 的“渠道”页，用于管理本地外部应用 bridge（当前内置微信渠道，通过 `weixin-acp` 接入 `qf acp`，默认使用全局默认工作区，也可选择已有项目启动；渠道事件会触发主应用刷新外部 ACP 写入的 session），底部包含 `lib/about-settings-tab.ts` 的“关于”页，用于展示 GitHub、检查 npm 更新并触发本机一键更新
+- 设置弹窗由 `hooks/useModelActions.ts` 组装多个 `SettingsTab`，包含 `lib/channels-settings-tab.ts` 的“渠道”页，用于管理本地外部应用 bridge（当前内置微信渠道，通过 `weixin-acp` 接入 `qf acp`，默认使用全局默认工作区，也可选择已有项目启动；渠道事件会触发主应用刷新外部 ACP 写入的 session），底部包含 `lib/about-settings-tab.ts` 的“关于”页，用于展示 GitHub、检查 npm 更新并触发本机外部更新器；更新期间页面轮询 `/api/health`，服务重启后自动刷新
 - 调用 `applyClipboardPolyfill()` 应用剪贴板兼容处理
 - 生产环境注册 `/sw.js`，启用轻量 PWA 安装和前端静态资源缓存
 - 在 `<StrictMode>` 中渲染 `<App />` 组件

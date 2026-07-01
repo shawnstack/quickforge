@@ -25,7 +25,8 @@ export async function handleSystemApi(req, res, url, context) {
       throw error
     }
 
-    sendJson(res, 200, await context.updateQuickForge())
+    const result = await context.updateQuickForge()
+    sendJson(res, result.updateStarted ? 202 : 200, result)
     return
   }
 

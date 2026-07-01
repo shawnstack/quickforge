@@ -210,7 +210,7 @@ server/
 **核心文件**:
 - `terminal/terminal-manager.mjs` — PTY 创建、输入输出转发、REST/WS 输入写入、resize、会话上限、空闲清理和关闭清理。
 - `routes/terminal.mjs` — `/api/terminal/capabilities`、`/api/terminal/sessions`、`/api/terminal/sessions/:id/input` 和 `/api/terminal/sessions/:id/ws`。
-- `routes/system.mjs` — 系统状态、服务重启、关于信息和 QuickForge npm 更新 API；`POST /api/system/update` 会在本机执行 `npm install -g @shawnstack/quickforge@latest`，仅允许 localhost 请求并要求 `x-quickforge-action: update`。
+- `routes/system.mjs` — 系统状态、服务重启、关于信息和 QuickForge npm 更新 API；`POST /api/system/update` 仅允许 localhost 请求并要求 `x-quickforge-action: update`，会启动外部 `update-supervisor.mjs`，让当前服务退出后再执行全局 npm 更新并自动重启。
 
 **安全边界**:
 - 终端接口强制仅允许 localhost 访问；LAN 分享和共享会话页面不能访问。
@@ -218,6 +218,10 @@ server/
 - `QUICKFORGE_TERMINAL=0` 可关闭终端，`QUICKFORGE_MAX_TERMINALS` 可调整最大会话数。
 - 终端 Shell 配置保存在 `settings` store 中：系统会按平台和可执行文件可用性自动识别常见内置 profiles（Windows: cmd/PowerShell/pwsh；macOS/Linux: zsh/bash/fish/sh/pwsh），`terminalShellProfiles` 仅存放自定义 profiles，`defaultTerminalShellProfileId` 存放默认 profile；兼容旧的 `terminalShell` 字段。
 - `QUICKFORGE_TERMINAL_SHELL` 优先级最高，会覆盖 UI 中的默认 profile 和新建终端时选择的 profile。
+
+### update-supervisor.mjs
+
+**用途**: 设置页一键更新的外部更新器。由当前后端以 detached 子进程启动，等待旧服务退出后，在数据目录下执行 `npm install -g <package>@latest`，将 npm 输出写入 `~/.quickforge/logs/update-*.log`，成功后重新启动后端服务。这样避免 Windows 上“运行中的服务更新自己”导致安装目录文件被占用。
 
 ### share-store.mjs (432 行)
 

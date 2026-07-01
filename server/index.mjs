@@ -31,7 +31,7 @@ import { handleChannelsApi } from './routes/channels.mjs'
 import { handleModelsApi } from './routes/models.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { logger, flushLogger } from './utils/logger.mjs'
-import { getPackageInfo, checkForUpdates, installLatestVersion } from './utils/package-update.mjs'
+import { getPackageInfo, checkForUpdates } from './utils/package-update.mjs'
 import { installAiHttpLogger } from './ai-http-logger.mjs'
 import { isLoopbackAddress, getLanUrls } from './utils/network.mjs'
 import { parseCookies } from './share-store.mjs'
@@ -46,6 +46,7 @@ const __dirname = path.dirname(__filename)
 const projectRoot = path.resolve(__dirname, '..')
 const serverScript = path.join(__dirname, 'index.mjs')
 const restartSupervisorScript = path.join(__dirname, 'restart-supervisor.mjs')
+const updateSupervisorScript = path.join(__dirname, 'update-supervisor.mjs')
 const bootId = randomUUID()
 const startedAt = new Date().toISOString()
 
@@ -175,6 +176,56 @@ async function requestRestart() {
   return { ok: true, restarting: true, bootId }
 }
 
+function updateLogFile() {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').replace('Z', '')
+  return path.join(logsDir, `update-${stamp}.log`)
+}
+
+function spawnUpdateSupervisor(update) {
+  const logFile = updateLogFile()
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [
+      updateSupervisorScript,
+      String(process.pid),
+      update.name,
+      update.latestVersion,
+      serverScript,
+      projectRoot,
+      logFile,
+      ...process.argv.slice(2),
+    ], {
+      cwd: dataDir,
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+      shell: false,
+      env: {
+        ...process.env,
+        QUICKFORGE_NO_OPEN: '1',
+      },
+    })
+
+    child.once('error', reject)
+    child.once('spawn', () => {
+      child.unref()
+      resolve({ pid: child.pid, logFile })
+    })
+  })
+}
+
+async function shutdownForUpdate() {
+  logger.info('Shutting down QuickForge for external updater.')
+  stopScheduledTaskRunner()
+  stopVite()
+  await shutdownAgentManager()
+  await shutdownMcpConnections()
+  await shutdownChannels()
+  shutdownTerminalSessions()
+  await closeHttpServer()
+  flushLogger()
+  process.exit(0)
+}
+
 async function updateQuickForge() {
   if (updateInProgress) {
     const error = new Error('Update already in progress')
@@ -186,15 +237,34 @@ async function updateQuickForge() {
   try {
     const update = await checkForUpdates(projectRoot)
     if (!update.updateAvailable) {
+      updateInProgress = false
       return { ...update, ok: true, updated: false }
     }
 
-    logger.info(`Updating QuickForge from ${update.currentVersion} to ${update.latestVersion}.`)
-    await installLatestVersion(update.name, { cwd: projectRoot })
-    logger.info('QuickForge update completed.')
-    return { ...update, ok: true, updated: true }
-  } finally {
+    logger.info(`Starting external QuickForge updater from ${update.currentVersion} to ${update.latestVersion}.`)
+    const supervisor = await spawnUpdateSupervisor(update)
+    logger.info(`Update supervisor started (PID ${supervisor.pid}). Log: ${supervisor.logFile}`)
+
+    setTimeout(() => {
+      void shutdownForUpdate().catch((error) => {
+        logger.error('Failed to shut down for QuickForge update:', error)
+        updateInProgress = false
+      })
+    }, 100)
+
+    return {
+      ...update,
+      ok: true,
+      updated: false,
+      updateStarted: true,
+      restarting: true,
+      updaterPid: supervisor.pid,
+      logFile: supervisor.logFile,
+      bootId,
+    }
+  } catch (error) {
     updateInProgress = false
+    throw error
   }
 }
 

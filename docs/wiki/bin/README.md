@@ -41,7 +41,7 @@ CLI 启动脚本，注册为 `quickforge` 和 `qf` 命令。
 | `qf acp` | 通过 stdio 运行 QuickForge ACP Agent，stdout 保留给 ACP 协议 |
 | `qf --version` / `qf -v` / `qf version` | 显示当前安装版本 |
 | `qf check-update` | 检查 npm 上是否有新版本，不自动安装 |
-| `qf update` | 从 npm 下载安装最新版本 |
+| `qf update` | 从 npm 下载安装最新版本（终端手动更新入口，设置页更新另走外部更新器并自动重启服务） |
 
 ### 启动与重启流程
 

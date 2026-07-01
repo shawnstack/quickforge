@@ -24,6 +24,22 @@ type UpdateInfo = AboutInfo & {
   updateAvailable: boolean
   localVersionIsNewer?: boolean
   installCommand: string
+  updateStarted?: boolean
+  updaterPid?: number
+  logFile?: string
+  bootId?: string
+}
+
+type ServiceStatus = {
+  ok: boolean
+  bootId: string
+}
+
+const UPDATE_TIMEOUT_MS = 180_000
+const POLL_INTERVAL_MS = 1000
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
 const FREQUENCY_OPTIONS: { value: UpdateCheckFrequency; label: () => string }[] = [
@@ -114,6 +130,28 @@ class AboutSettingsTab extends SettingsTab {
     }
   }
 
+  private async pollUntilUpdated(previousBootId?: string) {
+    const started = Date.now()
+
+    while (Date.now() - started < UPDATE_TIMEOUT_MS) {
+      await sleep(POLL_INTERVAL_MS)
+      try {
+        const response = await fetch(`/api/health?updatePoll=${Date.now()}`, { cache: 'no-store' })
+        const payload = await response.json().catch(() => null) as ServiceStatus | null
+        if (response.ok && payload?.ok && payload.bootId && payload.bootId !== previousBootId) {
+          this.message = t('updateRestarted')
+          this.requestUpdate()
+          window.setTimeout(() => window.location.reload(), 300)
+          return
+        }
+      } catch {
+        // Expected while the local service is updating and restarting.
+      }
+    }
+
+    throw new Error(t('updateRestartTimeout'))
+  }
+
   private async updateQuickForge() {
     if (!this.updateInfo?.updateAvailable || this.updating) return
 
@@ -137,12 +175,20 @@ class AboutSettingsTab extends SettingsTab {
       const payload = await response.json().catch(() => null)
       if (!response.ok) throw new Error(payload?.error || t('updateFailed'))
       this.updateInfo = payload as UpdateInfo
-      this.message = payload?.updated ? t('updateCompleted') : t('alreadyLatestVersion', { version: payload?.currentVersion || this.about?.version || '-' })
+      if (payload?.updateStarted) {
+        const logHint = payload.logFile ? ` ${t('updateLogFile', { path: payload.logFile })}` : ''
+        this.message = `${t('updateStarted')}${logHint}`
+        this.requestUpdate()
+        await this.pollUntilUpdated(payload.bootId)
+      } else {
+        this.message = payload?.updated ? t('updateCompleted') : t('alreadyLatestVersion', { version: payload?.currentVersion || this.about?.version || '-' })
+        this.updating = false
+      }
     } catch (error) {
       this.error = error instanceof Error ? error.message : t('updateFailed')
       this.message = ''
-    } finally {
       this.updating = false
+    } finally {
       this.requestUpdate()
     }
   }
@@ -222,6 +268,12 @@ class AboutSettingsTab extends SettingsTab {
           <span class="text-muted-foreground">${t('updateCommand')}</span>
           <code class="min-w-0 break-all rounded bg-muted/20 px-1.5 py-0.5 font-mono text-xs text-foreground/90">${this.updateInfo.installCommand}</code>
         </div>
+        ${this.updateInfo.logFile ? html`
+          <div class="mt-2 grid gap-2 sm:grid-cols-[120px_1fr] sm:gap-3">
+            <span class="text-muted-foreground">${t('updateLog')}</span>
+            <code class="min-w-0 break-all rounded bg-muted/20 px-1.5 py-0.5 font-mono text-xs text-foreground/90">${this.updateInfo.logFile}</code>
+          </div>
+        ` : null}
       </div>
     `
   }

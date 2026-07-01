@@ -20,7 +20,7 @@ module.exports = {
   },
   win: {
     target: 'nsis',
-    icon: 'desktop/assets/icon.ico',
+    icon: 'desktop/assets/icon.svg',
   },
   mac: {
     target: 'dmg',

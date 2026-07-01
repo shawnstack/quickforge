@@ -92,9 +92,9 @@ function quitApp() {
 
 function getBrowserFaviconIcon() {
   const iconCandidates = [
+    path.join(__dirname, 'assets', 'icon.svg'),
     path.join(projectRoot, 'dist', 'favicon.svg'),
     path.join(projectRoot, 'public', 'favicon.svg'),
-    path.join(__dirname, 'assets', 'icon.ico'),
     path.join(projectRoot, 'dist', 'pwa-icon-192.png'),
     path.join(projectRoot, 'public', 'pwa-icon-192.png'),
   ]
@@ -165,6 +165,7 @@ function createWindow(url) {
     minHeight: 640,
     show: false,
     icon: getBrowserFaviconIcon(),
+    backgroundColor: desktopTitleBarColor,
     titleBarStyle: 'hidden',
     titleBarOverlay: {
       color: desktopTitleBarColor,
@@ -186,16 +187,8 @@ function createWindow(url) {
 
   mainWindow.webContents.on('dom-ready', () => {
     void mainWindow?.webContents.insertCSS(`
-      body.quickforge-desktop-app::before {
-        content: '';
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: ${desktopTitleBarHeight}px;
+      body.quickforge-desktop-app {
         background: ${desktopTitleBarColor};
-        -webkit-app-region: drag;
-        z-index: 2147483647;
       }
 
       body.quickforge-desktop-app #root {
@@ -206,13 +199,8 @@ function createWindow(url) {
         height: calc(100vh - ${desktopTitleBarHeight}px);
       }
 
-      body.quickforge-desktop-app button,
-      body.quickforge-desktop-app a,
-      body.quickforge-desktop-app input,
-      body.quickforge-desktop-app textarea,
-      body.quickforge-desktop-app select,
-      body.quickforge-desktop-app [role='button'] {
-        -webkit-app-region: no-drag;
+      body.quickforge-desktop-app .quickforge-window-toolbar {
+        top: calc(${desktopTitleBarHeight}px + 0.5rem);
       }
     `)
     void mainWindow?.webContents.executeJavaScript("document.body.classList.add('quickforge-desktop-app')")

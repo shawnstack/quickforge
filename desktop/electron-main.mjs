@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Menu, Tray, dialog, nativeImage, shell } from 'electron'
+import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startQuickForge, stopQuickForge } from '../server/public-api.mjs'
@@ -185,6 +186,38 @@ function getTrayIcon() {
   return icon.resize({ width: process.platform === 'darwin' ? 18 : 16, height: process.platform === 'darwin' ? 18 : 16 })
 }
 
+async function getDesktopRuntimeVersion() {
+  try {
+    const text = await fs.readFile(path.join(projectRoot, 'package.json'), 'utf8')
+    const pkg = JSON.parse(text)
+    return pkg.version || app.getVersion()
+  } catch {
+    return app.getVersion()
+  }
+}
+
+function getStartupErrorMessage(error) {
+  if (error?.code === 'QUICKFORGE_VERSION_MISMATCH') {
+    return {
+      message: 'QuickForge Desktop detected a mismatched local service.',
+      detail: [
+        `Desktop runtime version: ${error.expectedVersion || 'unknown'}`,
+        `Running service version: ${error.actualVersion || 'unknown'}`,
+        error.pid ? `Running service PID: ${error.pid}` : null,
+        error.port ? `Port: ${error.port}` : null,
+        '',
+        'To avoid loading incompatible frontend assets and styles, Desktop will not reuse this service.',
+        'Please close the existing QuickForge/qf service and start QuickForge Desktop again, or set QUICKFORGE_DESKTOP_PORT to an unused port.',
+      ].filter(Boolean).join('\n'),
+    }
+  }
+
+  return {
+    message: 'QuickForge could not start.',
+    detail: error?.stack || error?.message || String(error),
+  }
+}
+
 function updateTrayMenu() {
   if (!tray) return
 
@@ -347,14 +380,16 @@ async function boot() {
   try {
     app.setName(appName)
 
+    const desktopRuntimeVersion = await getDesktopRuntimeVersion()
     quickForgeInstance = await startQuickForge({
       host: process.env.QUICKFORGE_DESKTOP_HOST || '127.0.0.1',
       port: process.env.QUICKFORGE_DESKTOP_PORT || process.env.QUICKFORGE_PORT || 5176,
       dataDir: process.env.QUICKFORGE_DESKTOP_DATA_DIR,
       workspaceDir: process.env.QUICKFORGE_DESKTOP_WORKSPACE_DIR,
       openBrowser: false,
-      reuseExisting: true,
-      inline: process.env.QUICKFORGE_DESKTOP_INLINE === '1',
+      reuseExisting: 'same-version',
+      expectedVersion: desktopRuntimeVersion,
+      inline: process.env.QUICKFORGE_DESKTOP_INLINE !== '0',
       terminal: process.env.QUICKFORGE_DESKTOP_TERMINAL === '1',
       detached: false,
     })
@@ -364,11 +399,12 @@ async function boot() {
     createTray()
     void refreshTrayLanguage()
   } catch (error) {
+    const startupError = getStartupErrorMessage(error)
     await dialog.showMessageBox({
       type: 'error',
       title: 'QuickForge failed to start',
-      message: 'QuickForge could not start.',
-      detail: error?.stack || error?.message || String(error),
+      message: startupError.message,
+      detail: startupError.detail,
     })
     app.exit(1)
   }

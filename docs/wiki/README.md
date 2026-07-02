@@ -27,7 +27,7 @@ quickforge/
 | 目录 | 说明 |
 |------|------|
 | [bin/](bin/) | CLI 入口脚本 (`quickforge.mjs`) |
-| `desktop/` | Electron 桌面端入口（Windows/macOS/Linux 构建），复用 `server/public-api.mjs` |
+| `desktop/` | Electron 桌面端入口（Windows/macOS/Linux 构建），复用 `server/public-api.mjs`；桌面包内置 `server/` 与 `dist/` runtime，不依赖用户本机 Node/npm/qf，且只复用同版本的本地 QuickForge 服务 |
 | [server/](server/) | 后端服务 (HTTP、Agent管理、存储、路由、工具) |
 | [src/](src/) | 前端 React 应用 (组件、Hooks、工具库) |
 | [scripts/](scripts/) | 打包辅助脚本 |
@@ -42,6 +42,7 @@ quickforge/
 - **技术栈**: React 19, Vite 8, Tailwind CSS 4, TypeScript 6
 - **后端**: Node.js (ESM), 纯 `http` 模块, `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`
 - **三端入口**: CLI (`bin/quickforge.mjs`)、SDK (`server/public-api.mjs`)、Desktop (`desktop/electron-main.mjs`)
+- **桌面运行时隔离**: Desktop 安装包包含自身的 `server/` 与 `dist/` runtime，启动时通过 Electron 自带 Node 能力调用 `server/public-api.mjs`，不要求用户安装 Node/npm/qf；仅当已有本地 QuickForge 服务版本与桌面包版本一致时才复用，避免新版桌面壳加载旧 npm 服务的前端资源导致样式/API 错配。
 - **桌面托盘**: Desktop 端支持 Windows 系统托盘和 macOS 顶部菜单栏；关闭窗口隐藏到托盘，托盘菜单退出时停止桌面端启动的本地服务
 - **ACP Agent**: `quickforge acp` 通过 `@agentclientprotocol/sdk` 的 `AgentSideConnection` 暴露 stdio ACP Agent，桥接现有 `server/agent-manager.mjs` 会话和工具事件。
 - **数据存储**: 本地 `~/.quickforge/` 目录 (config / storage / cache / logs)

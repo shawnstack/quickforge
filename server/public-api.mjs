@@ -31,6 +31,42 @@ function getPort(port) {
   return Number(port || 5176)
 }
 
+function normalizeVersion(version) {
+  return String(version || '').trim().replace(/^v/i, '')
+}
+
+export function getQuickForgeHealthVersion(health) {
+  return health?.version || health?.package?.version || health?.packageInfo?.version || null
+}
+
+export function isQuickForgeHealthCompatible(health, options = {}) {
+  if (!health) return false
+  if (options.reuseExisting === false) return false
+
+  const expectedVersion = normalizeVersion(options.expectedVersion)
+  if (!expectedVersion && options.reuseExisting !== 'same-version') return true
+
+  const actualVersion = normalizeVersion(getQuickForgeHealthVersion(health))
+  return Boolean(actualVersion && actualVersion === expectedVersion)
+}
+
+function createVersionMismatchError(health, options = {}) {
+  const expectedVersion = normalizeVersion(options.expectedVersion) || 'unknown'
+  const actualVersion = getQuickForgeHealthVersion(health) || 'unknown'
+  const port = getPort(options.port)
+  const error = new Error(
+    `A QuickForge service is already running on port ${port}, but its version (${actualVersion}) does not match this desktop runtime (${expectedVersion}). `
+      + 'QuickForge Desktop will not reuse the mismatched service because it can load incompatible frontend assets. '
+      + 'Please close the existing QuickForge/qf service or start Desktop on another port.',
+  )
+  error.code = 'QUICKFORGE_VERSION_MISMATCH'
+  error.expectedVersion = expectedVersion
+  error.actualVersion = actualVersion
+  error.pid = health?.pid
+  error.port = port
+  return error
+}
+
 function buildEnv(options = {}) {
   const host = normalizeHost(options.host)
   const port = getPort(options.port)
@@ -51,6 +87,10 @@ function buildEnv(options = {}) {
   if (options.allowRemote || shareLan) env.QUICKFORGE_ALLOW_REMOTE = '1'
 
   return env
+}
+
+export function prepareQuickForgeEnv(options = {}) {
+  Object.assign(process.env, buildEnv(options))
 }
 
 export function getQuickForgeUrl(options = {}) {
@@ -105,6 +145,10 @@ export async function startQuickForge(options = {}) {
   const healthUrl = getQuickForgeHealthUrl(options)
 
   if (existingHealth) {
+    if (!isQuickForgeHealthCompatible(existingHealth, options)) {
+      throw createVersionMismatchError(existingHealth, options)
+    }
+
     return {
       url,
       healthUrl,
@@ -119,6 +163,7 @@ export async function startQuickForge(options = {}) {
   }
 
   if (options.inline === true) {
+    prepareQuickForgeEnv(options)
     await import(serverScriptUrl)
     const health = await waitForQuickForge(options)
     if (!health) throw new Error('QuickForge failed to start: health check timed out')

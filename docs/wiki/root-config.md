@@ -44,7 +44,7 @@
 - 类型: `module` (ESM)
 - npm import 入口: `server/public-api.mjs` (`main` 字段)
 - 注册 CLI: `quickforge` / `qf` → `bin/quickforge.mjs`
-- Desktop 脚本: `desktop:dev`、`desktop:build`、`desktop:build:win/mac/linux`、`desktop:build:all`
+- Desktop 脚本: `desktop:dev`、`desktop:build`、`desktop:build:win/mac/linux`、`desktop:build:all`；桌面包通过 Electron 自带 Node 能力启动打包内置 runtime，不依赖用户系统 Node/npm/qf；如本地已有 QuickForge 服务，仅同版本才复用。
 - 核心依赖: `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, `@agentclientprotocol/sdk`
 - 发布包含: `bin/`, `server/`, `skills/`, `plugins/`, `dist/`, `README.md`, `LICENSE`；不包含 `desktop/` 和 Electron 构建产物
 

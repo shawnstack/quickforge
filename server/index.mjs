@@ -71,12 +71,15 @@ function getRestartSupport() {
 async function getSystemStatus() {
   const config = await readProjectConfig()
   const restartSupport = getRestartSupport()
+  const packageInfo = await getPackageInfo(projectRoot)
   return {
     ok: true,
     mode: isDev ? 'development' : 'production',
     pid: process.pid,
     bootId,
     startedAt,
+    version: packageInfo.version,
+    package: packageInfo,
     restartSupported: restartSupport.supported,
     restartUnsupportedReason: restartSupport.reason,
     dataDir,

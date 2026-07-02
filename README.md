@@ -239,7 +239,7 @@ API Key: 按你的 LiteLLM 配置填写，可为空
 
 QuickForge is a local-first AI chat and development workspace. It keeps the familiar chat experience, but connects it to local projects, local storage, configurable model providers, workspace tools, MCP servers, Agent Skills, and scheduled tasks.
 
-The same core runtime now supports three entry points: the `qf` / `quickforge` CLI, an npm-importable SDK entry, and an Electron entry for building Windows/macOS/Linux desktop apps locally.
+The same core runtime now supports three entry points: the `qf` / `quickforge` CLI, an npm-importable SDK entry, and an Electron entry for building Windows/macOS/Linux desktop apps locally. Desktop builds include their own QuickForge runtime and do not require users to install Node.js, npm, or the global `qf` command; an already-running local service is reused only when its version matches the desktop runtime.
 
 It is not meant to replace your IDE or promise fully autonomous software development. The practical goal is narrower: give you a controllable place where an AI assistant can understand a project, propose a plan, make focused changes when authorized, and run the checks you ask for.
 

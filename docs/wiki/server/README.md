@@ -45,7 +45,7 @@ server/
 **主要功能**:
 - HTTP 路由分发（基于 `url.pathname` 匹配）
 - 中间件：CORS、JSON 请求体大小限制
-- `GET /api/health` — 健康检查
+- `GET /api/health` — 健康检查，返回 `version` 与 `package` 元数据，供 Desktop 启动时校验是否可复用已有本地服务
 - 静态文件服务（`serveStatic`）
 - SSE（`/api/agents/events`, `/api/agents/:sessionId/stream`）
 - WebSocket 交互式终端（`/api/terminal/sessions/:id/ws`，仅 localhost）

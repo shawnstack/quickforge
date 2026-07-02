@@ -24,6 +24,10 @@ export type BackgroundTaskStatus = 'running' | 'idle' | 'error' | 'aborted'
 
 export type ChatScope = 'global' | 'project'
 
+export type SidebarSessionViewMode = 'project' | 'timeline'
+
+export type SidebarSessionSortMode = 'updatedAt' | 'createdAt'
+
 export type ProjectInfo = {
   id: string
   name: string

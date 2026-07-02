@@ -3,6 +3,9 @@ import { createPortal } from 'react-dom'
 import {
   Archive,
   CalendarClock,
+  CalendarPlus,
+  Check,
+  Clock,
   Bot,
   ChevronRight,
   ChevronsDownUp,
@@ -19,6 +22,7 @@ import {
   Plug,
   Plus,
   Puzzle,
+  SlidersHorizontal,
   Search,
   Settings,
   DownloadCloud,
@@ -47,7 +51,13 @@ import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { sessionTitle } from '@/lib/types'
 import { useSentinel } from '@/hooks/useSentinel'
-import type { ProjectInfo, QuickForgeSessionMetadata, BackgroundTaskStatus } from '@/lib/types'
+import type {
+  ProjectInfo,
+  QuickForgeSessionMetadata,
+  BackgroundTaskStatus,
+  SidebarSessionSortMode,
+  SidebarSessionViewMode,
+} from '@/lib/types'
 
 type ChatSidebarProps = {
   sidebarOpen: boolean
@@ -61,8 +71,13 @@ type ChatSidebarProps = {
   expandedProjectIds: Set<string>
   activeProject?: ProjectInfo
   currentSessionId?: string
+  sessionViewMode: SidebarSessionViewMode
+  sessionSortMode: SidebarSessionSortMode
   globalSessions: QuickForgeSessionMetadata[]
   sessionsForProject: (projectId: string) => QuickForgeSessionMetadata[]
+  projectTimelineSessions: QuickForgeSessionMetadata[]
+  projectTimelineHasMore: boolean
+  projectTimelineLoading: boolean
   globalHasMore: boolean
   globalLoading: boolean
   onLoadMoreGlobal: () => void
@@ -70,6 +85,7 @@ type ChatSidebarProps = {
   projectLoading: (projectId: string) => boolean
   projectLoaded: (projectId: string) => boolean
   onLoadMoreProject: (projectId: string) => void
+  onLoadMoreProjectTimeline: () => void
   sessionTaskStatus: (session: QuickForgeSessionMetadata) => BackgroundTaskStatus
   selectingProject: boolean
   onToggleProjectsCollapsed: () => void
@@ -85,6 +101,8 @@ type ChatSidebarProps = {
   onOpenProjectInExplorer: (project: ProjectInfo) => void
   onDeleteProject: (projectId: string) => void | Promise<void>
   onLoadSession: (sessionId: string) => void
+  onSessionViewModeChange: (mode: SidebarSessionViewMode) => void
+  onSessionSortModeChange: (mode: SidebarSessionSortMode) => void
   onTogglePinSession: (sessionId: string) => void
   onRenameSession: (sessionId: string, currentTitle: string) => void
   onDeleteSession: (sessionId: string) => void | Promise<void>
@@ -119,8 +137,11 @@ const deleteSessionFadeMs = 360
 const sessionHoverTipDelayMs = 300
 const projectMenuWidth = 192
 const projectMenuHeight = 120
+const viewSortMenuWidth = 224
+const viewSortMenuHeight = 244
 
-function formatSessionTime(value: string) {
+function formatSessionTime(value?: string) {
+  if (!value) return ''
   const timestamp = new Date(value).getTime()
   if (Number.isNaN(timestamp)) return ''
 
@@ -169,8 +190,13 @@ export const ChatSidebar = memo(function ChatSidebar({
   expandedProjectIds,
   activeProject,
   currentSessionId,
+  sessionViewMode,
+  sessionSortMode,
   globalSessions,
   sessionsForProject,
+  projectTimelineSessions,
+  projectTimelineHasMore,
+  projectTimelineLoading,
   globalHasMore,
   globalLoading,
   onLoadMoreGlobal,
@@ -178,6 +204,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   projectLoading,
   projectLoaded,
   onLoadMoreProject,
+  onLoadMoreProjectTimeline,
   sessionTaskStatus,
   selectingProject,
   onToggleProjectsCollapsed,
@@ -193,6 +220,8 @@ export const ChatSidebar = memo(function ChatSidebar({
   onOpenProjectInExplorer,
   onDeleteProject,
   onLoadSession,
+  onSessionViewModeChange,
+  onSessionSortModeChange,
   onTogglePinSession,
   onRenameSession,
   onDeleteSession,
@@ -241,6 +270,9 @@ export const ChatSidebar = memo(function ChatSidebar({
   const timeClass = 'shrink-0 text-[11px] leading-4 text-muted-foreground/55 transition-opacity duration-160'
   const searchDialogClass = 'fixed inset-0 z-50 flex items-start justify-center bg-background/50 px-4 pt-[12vh] backdrop-blur-sm'
   const projectMenuClass = 'fixed z-50 min-w-48 overflow-hidden rounded-lg border border-border bg-background p-1 shadow-quickforge'
+  const viewSortMenuClass = 'fixed z-50 overflow-hidden rounded-2xl border border-border bg-background p-1.5 shadow-quickforge'
+  const viewSortMenuSectionLabelClass = 'px-3 pb-1 pt-2 text-xs font-medium leading-4 text-muted-foreground/55'
+  const viewSortMenuItemClass = 'flex w-full items-center gap-3 whitespace-nowrap rounded-xl px-3 py-2.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted/45'
   const sessionHoverTipClass = 'pointer-events-none fixed z-50 w-[min(24rem,calc(100vw-1rem))] max-w-sm rounded-2xl border border-border bg-popover px-4 py-3 text-left shadow-quickforge'
   const sessionHoverTipMetaClass = 'mt-2 flex items-center gap-2 text-sm leading-5 text-muted-foreground/72'
   const isMobile = variant === 'mobile'
@@ -248,6 +280,8 @@ export const ChatSidebar = memo(function ChatSidebar({
   const [searchQuery, setSearchQuery] = useState('')
   const [projectMenuId, setProjectMenuId] = useState<string | null>(null)
   const [projectMenuPosition, setProjectMenuPosition] = useState<{ x: number; y: number } | null>(null)
+  const [viewSortMenuOpen, setViewSortMenuOpen] = useState(false)
+  const [viewSortMenuPosition, setViewSortMenuPosition] = useState<{ x: number; y: number } | null>(null)
   const [confirmingDeleteProjectId, setConfirmingDeleteProjectId] = useState<string | null>(null)
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null)
   const [suppressedSessionActionsId, setSuppressedSessionActionsId] = useState<string | null>(null)
@@ -269,6 +303,20 @@ export const ChatSidebar = memo(function ChatSidebar({
 
   const projectIds = useMemo(() => projects.map((p) => p.id), [projects])
   const openProjectMenuProject = useMemo(() => projects.find((project) => project.id === projectMenuId), [projectMenuId, projects])
+  const projectNameById = useMemo(() => new Map(projects.map((project) => [project.id, project.name])), [projects])
+  const timelineSessions = useMemo(() => {
+    const seen = new Set<string>()
+    return projectTimelineSessions
+      .filter((session) => {
+        if (seen.has(session.id)) return false
+        seen.add(session.id)
+        return true
+      })
+      .map((session) => ({
+        session,
+        projectName: session.projectId ? projectNameById.get(session.projectId) ?? t('unknownProject') : t('unknownProject'),
+      }))
+  }, [projectNameById, projectTimelineSessions])
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event
@@ -285,14 +333,18 @@ export const ChatSidebar = memo(function ChatSidebar({
   const searchInputRef = useRef<HTMLInputElement>(null)
   const searchableSessions = useMemo(() => {
     const projectSessions = projects.flatMap((project) => sessionsForProject(project.id).map((session) => ({ session, projectName: project.name })))
+    const timeline = projectTimelineSessions.map((session) => ({
+      session,
+      projectName: session.projectId ? projectNameById.get(session.projectId) ?? t('unknownProject') : t('unknownProject'),
+    }))
     const global = globalSessions.map((session) => ({ session, projectName: '' }))
     const seen = new Set<string>()
-    return [...projectSessions, ...global].filter(({ session }) => {
+    return [...projectSessions, ...timeline, ...global].filter(({ session }) => {
       if (seen.has(session.id)) return false
       seen.add(session.id)
       return true
     })
-  }, [globalSessions, projects, sessionsForProject])
+  }, [globalSessions, projectNameById, projectTimelineSessions, projects, sessionsForProject])
   const searchResults = searchQuery.trim()
     ? searchableSessions.filter(({ session, projectName }) => `${sessionTitle(session.title)} ${projectName}`.toLowerCase().includes(searchQuery.trim().toLowerCase())).slice(0, 8)
     : []
@@ -342,6 +394,35 @@ export const ChatSidebar = memo(function ChatSidebar({
       })
       return projectId
     })
+  }
+  const openViewSortMenu = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation()
+    const rect = event.currentTarget.getBoundingClientRect()
+    setProjectMenuId(null)
+    setProjectMenuPosition(null)
+    setViewSortMenuOpen((open) => {
+      if (open) {
+        setViewSortMenuPosition(null)
+        return false
+      }
+      setViewSortMenuPosition({
+        x: Math.max(8, Math.min(rect.right - viewSortMenuWidth, window.innerWidth - viewSortMenuWidth - 8)),
+        y: Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - viewSortMenuHeight - 8)),
+      })
+      return true
+    })
+  }
+  const closeViewSortMenu = useCallback(() => {
+    setViewSortMenuOpen(false)
+    setViewSortMenuPosition(null)
+  }, [])
+  const selectViewMode = (mode: SidebarSessionViewMode) => {
+    onSessionViewModeChange(mode)
+    closeViewSortMenu()
+  }
+  const selectSortMode = (mode: SidebarSessionSortMode) => {
+    onSessionSortModeChange(mode)
+    closeViewSortMenu()
   }
   const closeProjectMenu = useCallback(() => {
     setProjectMenuId(null)
@@ -417,6 +498,18 @@ export const ChatSidebar = memo(function ChatSidebar({
       window.removeEventListener('resize', closeProjectMenu)
     }
   }, [projectMenuId, closeProjectMenu])
+
+  useEffect(() => {
+    if (!viewSortMenuOpen) return
+    window.addEventListener('click', closeViewSortMenu)
+    window.addEventListener('blur', closeViewSortMenu)
+    window.addEventListener('resize', closeViewSortMenu)
+    return () => {
+      window.removeEventListener('click', closeViewSortMenu)
+      window.removeEventListener('blur', closeViewSortMenu)
+      window.removeEventListener('resize', closeViewSortMenu)
+    }
+  }, [viewSortMenuOpen, closeViewSortMenu])
 
   return (
     <aside
@@ -516,12 +609,26 @@ export const ChatSidebar = memo(function ChatSidebar({
       {sidebarOpen ? (
         <>
           <div className="shrink-0 px-3 max-h-[55%] flex flex-col min-h-0 overflow-hidden">
-            <div className="shrink-0 mb-0.5">
+            <div className="mb-0.5 flex min-h-0 flex-1 flex-col">
               <div className={sectionHeaderClass}>
                 <button type="button" className={sectionToggleClass} onClick={onToggleProjectsCollapsed} aria-expanded={!projectsCollapsed}>
                   <ChevronRight className={cn(chevronClass, !projectsCollapsed && 'rotate-90')} />
                   <span className="flex-1 truncate">{t('projects')}</span>
                 </button>
+                {projects.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={sectionActionButtonClass}
+                    onClick={openViewSortMenu}
+                    aria-label={t('filterSort')}
+                    title={t('filterSort')}
+                    aria-haspopup="menu"
+                    aria-expanded={viewSortMenuOpen}
+                  >
+                    <SlidersHorizontal className="size-4" />
+                  </Button>
+                )}
                 {projects.length > 0 && (
                   <Button
                     variant="ghost"
@@ -551,6 +658,126 @@ export const ChatSidebar = memo(function ChatSidebar({
                     <div className="space-y-0.5">
                       {projects.length === 0 ? (
                         <div className="px-3 py-3 text-xs text-muted-foreground/55">{t('noProjects')}</div>
+                      ) : sessionViewMode === 'timeline' ? (
+                        timelineSessions.length === 0 ? (
+                          projectTimelineLoading ? (
+                            <div className="flex items-center px-3 py-3 text-xs text-muted-foreground/55">
+                              <Loader2 className="mr-1.5 size-3 animate-spin" />
+                              {t('loadingChatWorkspace')}
+                            </div>
+                          ) : (
+                            <div className="px-3 py-3 text-xs text-muted-foreground/55">{t('noConversations')}</div>
+                          )
+                        ) : (
+                          <>
+                            {timelineSessions.map(({ session, projectName }) => {
+                              const selected = currentSessionId === session.id
+                              const actionsSuppressed = suppressedSessionActionsId === session.id
+                              const deleting = deletingSessionId === session.id
+                              const timeValue = sessionSortMode === 'createdAt' ? session.createdAt : session.lastModified
+                              return (
+                                <div
+                                  key={session.id}
+                                  className={cn(
+                                    'grid transition-[grid-template-rows,opacity,transform] duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+                                    deleting ? 'grid-rows-[0fr] -translate-x-1 opacity-0' : 'grid-rows-[1fr] translate-x-0 opacity-100',
+                                  )}
+                                >
+                                  <div className="min-h-0 overflow-hidden">
+                                    <div
+                                      className={cn(
+                                        rowClass,
+                                        selected ? activeRowClass : sessionInactiveRowClass,
+                                        deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+                                      )}
+                                      onMouseEnter={(event) => showSessionHoverTip(event, session.id)}
+                                      onMouseLeave={() => {
+                                        setSuppressedSessionActionsId((current) => current === session.id ? null : current)
+                                        if (!deleting) {
+                                          setConfirmingDeleteSessionId((current) => current === session.id ? null : current)
+                                        }
+                                        hideSessionHoverTip(session.id)
+                                      }}
+                                    >
+                                      <button className="flex min-w-0 flex-1 items-center gap-2 text-left" type="button" onClick={() => onLoadSession(session.id)}>
+                                        <div className="min-w-0 flex-1">
+                                          <div className={sessionTitleRowClass}>
+                                            {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
+                                            <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title)}</span>
+                                          </div>
+                                          <div className="truncate text-[11px] leading-4 text-muted-foreground/50">{projectName}</div>
+                                        </div>
+                                        {session.pinnedAt ? (
+                                          <button
+                                            type="button"
+                                            className={cn(pinnedSessionButtonClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}
+                                            onClick={(event) => {
+                                              event.stopPropagation()
+                                              onTogglePinSession(session.id)
+                                            }}
+                                            aria-label={t('unpinSession')}
+                                            title={t('unpinSession')}
+                                          >
+                                            <Pin className="size-3" />
+                                          </button>
+                                        ) : null}
+                                        <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{formatSessionTime(timeValue)}</span>
+                                      </button>
+                                      <div className={cn(actionOverlayClass, actionsSuppressed && 'hidden')}>
+                                        {confirmingDeleteSessionId === session.id ? (
+                                          <Button
+                                            variant="destructive"
+                                            size="sm"
+                                            className="h-6 rounded-full px-2 text-xs"
+                                            onClick={(event) => confirmDeleteSession(event, session.id)}
+                                            aria-label={t('confirmArchive')}
+                                            title={t('confirmArchive')}
+                                          >
+                                            {t('confirm')}
+                                          </Button>
+                                        ) : (
+                                          <>
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              className={overlayIconButtonClass}
+                                              onClick={(event) => toggleSessionPinFromActions(event, session.id)}
+                                              aria-label={session.pinnedAt ? t('unpinSession') : t('pinSession')}
+                                            >
+                                              <Pin className="size-3.5" />
+                                            </Button>
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              className={overlayIconButtonClass}
+                                              onClick={() => onRenameSession(session.id, session.title)}
+                                              aria-label={t('renameSession')}
+                                            >
+                                              <Pencil className="size-3.5" />
+                                            </Button>
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              className={overlayIconButtonClass}
+                                              onClick={(event) => requestDeleteSession(event, session.id)}
+                                              aria-label={t('archiveSession')}
+                                            >
+                                              <Archive className="size-3.5" />
+                                            </Button>
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                            <LoadMoreSentinel
+                              onLoadMore={onLoadMoreProjectTimeline}
+                              enabled={projectTimelineHasMore && !projectTimelineLoading}
+                            />
+                          </>
+                        )
                       ) : (
                         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd} modifiers={[restrictToVertical]}>
                           <SortableContext items={projectIds} strategy={verticalListSortingStrategy}>
@@ -687,7 +914,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                     <Pin className="size-3" />
                                                   </button>
                                                 ) : null}
-                                                <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{formatSessionTime(session.lastModified)}</span>
+                                                <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{formatSessionTime(sessionSortMode === 'createdAt' ? session.createdAt : session.lastModified)}</span>
                                               </button>
                                               <div className={cn(actionOverlayClass, actionsSuppressed && 'hidden')}>
                                                 {confirmingDeleteSessionId === session.id ? (
@@ -834,7 +1061,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                   <Pin className="size-3" />
                                 </button>
                               ) : null}
-                              <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{formatSessionTime(session.lastModified)}</span>
+                              <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{formatSessionTime(sessionSortMode === 'createdAt' ? session.createdAt : session.lastModified)}</span>
                             </button>
                             <div className={cn(actionOverlayClass, actionsSuppressed && 'hidden')}>
                               {confirmingDeleteSessionId === session.id ? (
@@ -990,6 +1217,65 @@ export const ChatSidebar = memo(function ChatSidebar({
           </div>
         )
       })() : null}
+
+      {viewSortMenuOpen && viewSortMenuPosition ? createPortal(
+        <div
+          className={viewSortMenuClass}
+          style={{ left: viewSortMenuPosition.x, top: viewSortMenuPosition.y, width: viewSortMenuWidth }}
+          role="menu"
+          aria-label={t('filterSort')}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className={viewSortMenuSectionLabelClass}>{t('sidebarView')}</div>
+          <button
+            type="button"
+            role="menuitemradio"
+            aria-checked={sessionViewMode === 'project'}
+            className={viewSortMenuItemClass}
+            onClick={() => selectViewMode('project')}
+          >
+            <Folder className="size-4 shrink-0 text-muted-foreground/70" />
+            <span className="min-w-0 flex-1 truncate">{t('sidebarViewByProject')}</span>
+            {sessionViewMode === 'project' ? <Check className="size-4 shrink-0 text-muted-foreground/70" /> : <span className="size-4 shrink-0" />}
+          </button>
+          <button
+            type="button"
+            role="menuitemradio"
+            aria-checked={sessionViewMode === 'timeline'}
+            className={viewSortMenuItemClass}
+            onClick={() => selectViewMode('timeline')}
+          >
+            <Clock className="size-4 shrink-0 text-muted-foreground/70" />
+            <span className="min-w-0 flex-1 truncate">{t('sidebarViewTimeline')}</span>
+            {sessionViewMode === 'timeline' ? <Check className="size-4 shrink-0 text-muted-foreground/70" /> : <span className="size-4 shrink-0" />}
+          </button>
+          <div className="my-1 border-t border-border/70" />
+          <div className={viewSortMenuSectionLabelClass}>{t('sortBy')}</div>
+          <button
+            type="button"
+            role="menuitemradio"
+            aria-checked={sessionSortMode === 'updatedAt'}
+            className={viewSortMenuItemClass}
+            onClick={() => selectSortMode('updatedAt')}
+          >
+            <Clock className="size-4 shrink-0 text-muted-foreground/70" />
+            <span className="min-w-0 flex-1 truncate">{t('sortByUpdatedAt')}</span>
+            {sessionSortMode === 'updatedAt' ? <Check className="size-4 shrink-0 text-muted-foreground/70" /> : <span className="size-4 shrink-0" />}
+          </button>
+          <button
+            type="button"
+            role="menuitemradio"
+            aria-checked={sessionSortMode === 'createdAt'}
+            className={viewSortMenuItemClass}
+            onClick={() => selectSortMode('createdAt')}
+          >
+            <CalendarPlus className="size-4 shrink-0 text-muted-foreground/70" />
+            <span className="min-w-0 flex-1 truncate">{t('sortByCreatedAt')}</span>
+            {sessionSortMode === 'createdAt' ? <Check className="size-4 shrink-0 text-muted-foreground/70" /> : <span className="size-4 shrink-0" />}
+          </button>
+        </div>,
+        document.body,
+      ) : null}
 
       {openProjectMenuProject && projectMenuPosition ? createPortal(
         <div

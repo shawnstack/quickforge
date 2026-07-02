@@ -10,9 +10,13 @@ function metadataIndexCacheKey({ scope, projectId, indexName, direction, archive
   return JSON.stringify({ scope: scope || '', projectId: projectId || '', indexName, direction, archived: archived || '' })
 }
 
+function isProjectAggregateScope(scope) {
+  return scope === 'projects' || scope === 'project-all'
+}
+
 function sortIndexedValues(values, store, indexName, direction) {
   values.sort((a, b) => {
-    if (store === 'sessions-metadata' && indexName === 'lastModified') {
+    if (store === 'sessions-metadata' && (indexName === 'lastModified' || indexName === 'createdAt')) {
       const leftPinned = getComparable(a, 'pinnedAt')
       const rightPinned = getComparable(b, 'pinnedAt')
       if (leftPinned !== rightPinned) {
@@ -50,11 +54,15 @@ async function readIndexedValues(store, indexName, direction, scope, projectId, 
   const now = Date.now()
   if (cached && cached.revision === revision && now - cached.cachedAt < METADATA_INDEX_CACHE_TTL_MS) return cached.values
 
-  const data = scope
-    ? await readSessionStoreScoped(store, scope, scope === 'project' ? projectId : undefined)
-    : await readStore(store)
+  const projectAggregateScope = isProjectAggregateScope(scope)
+  const data = projectAggregateScope
+    ? await readStore(store)
+    : scope
+      ? await readSessionStoreScoped(store, scope, scope === 'project' ? projectId : undefined)
+      : await readStore(store)
   const values = sortIndexedValues(
     Object.values(data)
+      .filter((value) => !projectAggregateScope || (value?.scope === 'project' && value?.projectId))
       .filter((value) => value?.messageCount !== 0)
       .filter((value) => {
         if (archived === 'only') return Boolean(value?.archivedAt)

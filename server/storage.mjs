@@ -612,10 +612,19 @@ async function listSessionStoreFiles(storeName) {
 async function readSessionStore(storeName) {
   if (storeName === 'sessions') return readAllSessionValues()
 
-  const files = await listSessionStoreFiles(storeName)
-  const result = {}
-  for (const file of files) {
-    Object.assign(result, await readJsonFile(file, {}))
+  const result = { ...await readJsonFile(sessionStoreFile(storeName, { scope: 'global' }), {}) }
+  for (const projectId of await listProjectIds()) {
+    const data = await readJsonFile(sessionStoreFile(storeName, { scope: 'project', projectId }), {})
+    if (storeName !== 'sessions-metadata') {
+      Object.assign(result, data)
+      continue
+    }
+
+    for (const [id, value] of Object.entries(data)) {
+      result[id] = value && typeof value === 'object'
+        ? { ...value, scope: 'project', projectId: value.projectId || projectId }
+        : value
+    }
   }
   return result
 }

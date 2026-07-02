@@ -30,6 +30,8 @@ import type {
   ProjectInfo,
   QuickForgeSessionMetadata,
   RestoredDraft,
+  SidebarSessionSortMode,
+  SidebarSessionViewMode,
   SkillsScope,
 } from '@/lib/types'
 import { sessionTitle } from '@/lib/types'
@@ -253,6 +255,8 @@ function MainApp() {
   const [desktopTitlebarMenuOpen, setDesktopTitlebarMenuOpen] = useState(false)
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState<PendingTerminalCommand | null>(null)
   const [currentSessionArtifacts, setCurrentSessionArtifacts] = useState<AiTurnArtifact[]>([])
+  const [sidebarSessionViewMode, setSidebarSessionViewMode] = useState<SidebarSessionViewMode>('project')
+  const [sidebarSessionSortMode, setSidebarSessionSortMode] = useState<SidebarSessionSortMode>('updatedAt')
   const autoPreviewSignatureRef = useRef('')
   const [currentSessionHoverInfo, setCurrentSessionHoverInfo] = useState<(ContextUsageDisplayInfo & { sessionId?: string }) | undefined>()
   const [externalProjectIds, setExternalProjectIds] = useState<Set<string>>(() => new Set())
@@ -285,6 +289,9 @@ function MainApp() {
     globalSessions,
     sessionsForProject,
     globalHasMore,
+    projectTimelineSessions,
+    projectTimelineHasMore,
+    projectTimelineLoading,
     projectHasMore,
     globalLoading,
     projectLoading,
@@ -294,10 +301,13 @@ function MainApp() {
     refreshSessions,
     loadMoreGlobal,
     loadMoreProject,
+    loadMoreProjectTimeline,
   } = useSessionPagination({
     backendRef,
     expandedProjectIds,
     externalProjectIds,
+    viewMode: sidebarSessionViewMode,
+    sortMode: sidebarSessionSortMode,
     onBroadcastSessionsChanged: notifySessionsChanged,
   })
 
@@ -710,10 +720,7 @@ function MainApp() {
   }, [openAboutSettings])
 
   // --- Derived data ---
-  const visibleSessions = useMemo(() => [
-    ...globalSessions,
-    ...projects.flatMap((project) => sessionsForProject(project.id)),
-  ], [globalSessions, projects, sessionsForProject])
+  const visibleSessions = useMemo(() => allLoadedSessions, [allLoadedSessions])
   const currentSessionMetadata = useMemo(() => {
     if (!agentManager.currentSessionId) return undefined
     return visibleSessions.find((session) => session.id === agentManager.currentSessionId)
@@ -1097,8 +1104,13 @@ function MainApp() {
         expandedProjectIds={expandedProjectIds}
         activeProject={activeProject}
         currentSessionId={agentManager.currentSessionId}
+        sessionViewMode={sidebarSessionViewMode}
+        sessionSortMode={sidebarSessionSortMode}
         globalSessions={globalSessions}
         sessionsForProject={sessionsForProject}
+        projectTimelineSessions={projectTimelineSessions}
+        projectTimelineHasMore={projectTimelineHasMore}
+        projectTimelineLoading={projectTimelineLoading}
         globalHasMore={globalHasMore}
         globalLoading={globalLoading}
         onLoadMoreGlobal={loadMoreGlobal}
@@ -1106,6 +1118,7 @@ function MainApp() {
         projectLoading={projectLoading}
         projectLoaded={projectLoaded}
         onLoadMoreProject={loadMoreProject}
+        onLoadMoreProjectTimeline={loadMoreProjectTimeline}
         sessionTaskStatus={sessionTaskStatus}
         selectingProject={selectingProject}
         onToggleProjectsCollapsed={ui.toggleProjectsCollapsed}
@@ -1121,6 +1134,8 @@ function MainApp() {
         onOpenProjectInExplorer={openProjectInExplorerWithFeedback}
         onDeleteProject={deleteProjectInline}
         onLoadSession={loadSession}
+        onSessionViewModeChange={setSidebarSessionViewMode}
+        onSessionSortModeChange={setSidebarSessionSortMode}
         onTogglePinSession={togglePinSession}
         onRenameSession={renameSession}
         onDeleteSession={archiveSession}
@@ -1159,8 +1174,13 @@ function MainApp() {
               expandedProjectIds={expandedProjectIds}
               activeProject={activeProject}
               currentSessionId={agentManager.currentSessionId}
+              sessionViewMode={sidebarSessionViewMode}
+              sessionSortMode={sidebarSessionSortMode}
               globalSessions={globalSessions}
               sessionsForProject={sessionsForProject}
+              projectTimelineSessions={projectTimelineSessions}
+              projectTimelineHasMore={projectTimelineHasMore}
+              projectTimelineLoading={projectTimelineLoading}
               globalHasMore={globalHasMore}
               globalLoading={globalLoading}
               onLoadMoreGlobal={loadMoreGlobal}
@@ -1168,6 +1188,7 @@ function MainApp() {
               projectLoading={projectLoading}
               projectLoaded={projectLoaded}
               onLoadMoreProject={loadMoreProject}
+              onLoadMoreProjectTimeline={loadMoreProjectTimeline}
               sessionTaskStatus={sessionTaskStatus}
               selectingProject={selectingProject}
               onToggleProjectsCollapsed={ui.toggleProjectsCollapsed}
@@ -1192,6 +1213,8 @@ function MainApp() {
               }}
               onDeleteProject={deleteProjectInline}
               onLoadSession={loadSessionFromSidebar}
+              onSessionViewModeChange={setSidebarSessionViewMode}
+              onSessionSortModeChange={setSidebarSessionSortMode}
               onTogglePinSession={togglePinSession}
               onRenameSession={renameSession}
               onDeleteSession={archiveSession}

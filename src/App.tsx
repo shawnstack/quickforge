@@ -3,11 +3,14 @@ import type { Api, Model } from '@earendil-works/pi-ai'
 import type { BackgroundTaskStatus } from '@/lib/types'
 import {
   Ellipsis,
+  Info,
+  LogOut,
   Menu,
   PanelRight,
   Pencil,
   Pin,
   PinOff,
+  RefreshCw,
   Share2,
   SquareTerminal,
 } from 'lucide-react'
@@ -92,6 +95,7 @@ const WorkspaceReaderDialog = lazy(() =>
 
 const AUTO_PREVIEW_SEEN_STORAGE_KEY = 'quickforge:auto-preview-seen-signatures'
 const MAX_AUTO_PREVIEW_SEEN_SIGNATURES = 200
+const QUICKFORGE_TAGS_URL = 'https://github.com/shawnstack/quickforge/tags'
 
 function readSeenAutoPreviewSignatures() {
   if (typeof window === 'undefined') return new Set<string>()
@@ -246,6 +250,7 @@ function MainApp() {
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
   const [workspacePage, setWorkspacePage] = useState<WorkspacePage>('chat')
   const [terminalOpen, setTerminalOpen] = useState(false)
+  const [desktopTitlebarMenuOpen, setDesktopTitlebarMenuOpen] = useState(false)
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState<PendingTerminalCommand | null>(null)
   const [currentSessionArtifacts, setCurrentSessionArtifacts] = useState<AiTurnArtifact[]>([])
   const autoPreviewSignatureRef = useRef('')
@@ -259,6 +264,15 @@ function MainApp() {
   const pluginsOpen = workspacePage === 'plugins'
   const workspacePageOpen = workspacePage !== 'chat'
   const closeWorkspacePage = useCallback(() => setWorkspacePage('chat'), [])
+  const closeDesktopTitlebarMenu = useCallback(() => setDesktopTitlebarMenuOpen(false), [])
+  const openDesktopUpdatePage = useCallback(() => {
+    setDesktopTitlebarMenuOpen(false)
+    window.open(QUICKFORGE_TAGS_URL, '_blank', 'noopener,noreferrer')
+  }, [])
+  const exitDesktopApp = useCallback(() => {
+    setDesktopTitlebarMenuOpen(false)
+    window.open('quickforge://exit', '_blank', 'noopener,noreferrer')
+  }, [])
 
   // --- Session list + cross-tab sync ---
   const crossTabRef = useRef<ReturnType<typeof useCrossTabSync> | null>(null)
@@ -690,6 +704,11 @@ function MainApp() {
     setSettingsDialogOpen: ui.setSettingsDialogOpen,
   })
 
+  const openDesktopAbout = useCallback(() => {
+    setDesktopTitlebarMenuOpen(false)
+    openAboutSettings()
+  }, [openAboutSettings])
+
   // --- Derived data ---
   const visibleSessions = useMemo(() => [
     ...globalSessions,
@@ -708,6 +727,16 @@ function MainApp() {
       ?? session.taskStatus
       ?? 'idle'
   }, [agentManager.taskStatuses, visibleRuntimeStatuses])
+
+  useEffect(() => {
+    if (!desktopTitlebarMenuOpen) return
+    window.addEventListener('click', closeDesktopTitlebarMenu)
+    window.addEventListener('blur', closeDesktopTitlebarMenu)
+    return () => {
+      window.removeEventListener('click', closeDesktopTitlebarMenu)
+      window.removeEventListener('blur', closeDesktopTitlebarMenu)
+    }
+  }, [closeDesktopTitlebarMenu, desktopTitlebarMenuOpen])
 
   useEffect(() => {
     if (!ui.conversationMenuOpen) return
@@ -971,6 +1000,56 @@ function MainApp() {
 
   return (
     <>
+    <div className="quickforge-desktop-titlebar fixed left-0 right-0 top-0 z-40 hidden h-8 items-center px-2">
+      <button
+        type="button"
+        className="quickforge-desktop-titlebar-trigger inline-flex h-8 translate-y-1 items-center gap-2.5 rounded-none px-3 text-[13px] font-medium leading-none text-foreground/90 transition-colors hover:bg-accent hover:text-accent-foreground"
+        onClick={(event) => {
+          event.stopPropagation()
+          setDesktopTitlebarMenuOpen((open) => !open)
+        }}
+        aria-haspopup="menu"
+        aria-expanded={desktopTitlebarMenuOpen}
+      >
+        <svg className="h-[18px] w-[18px] shrink-0" viewBox="0 0 64 64" aria-hidden="true">
+          <defs>
+            <linearGradient id="titlebarIconStroke" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stopColor="#9ca3af" />
+              <stop offset="1" stopColor="#4b5563" />
+            </linearGradient>
+            <linearGradient id="titlebarIconBolt" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stopColor="#374151" />
+              <stop offset="1" stopColor="#0f172a" />
+            </linearGradient>
+          </defs>
+          <polygon points="32,6 52.78,18 52.78,42 32,54 11.22,42 11.22,18" fill="none" stroke="url(#titlebarIconStroke)" strokeWidth="4.5" strokeLinejoin="round" />
+          <path d="M37.2 13 L22 34 L30.6 34 L26.8 50 L42.8 26 L33.8 26 Z" fill="url(#titlebarIconBolt)" />
+          <path d="M37.2 13 L22 34 L30.6 34 L33.8 26 Z" fill="#e5e7eb" opacity="0.4" />
+        </svg>
+        <span>QuickForge</span>
+      </button>
+      {desktopTitlebarMenuOpen && (
+        <div
+          className="quickforge-desktop-titlebar-menu absolute left-2 top-8 min-w-40 overflow-hidden rounded-md border border-border bg-popover py-1 text-[13px] text-popover-foreground shadow-lg"
+          role="menu"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button type="button" className="flex h-8 w-full items-center gap-2.5 px-3 text-left hover:bg-accent hover:text-accent-foreground" role="menuitem" onClick={openDesktopAbout}>
+            <Info className="size-4" />
+            <span>{t('about')}</span>
+          </button>
+          <button type="button" className="flex h-8 w-full items-center gap-2.5 px-3 text-left hover:bg-accent hover:text-accent-foreground" role="menuitem" onClick={openDesktopUpdatePage}>
+            <RefreshCw className="size-4" />
+            <span>{t('desktopUpdate')}</span>
+          </button>
+          <div className="my-1 border-t border-border" />
+          <button type="button" className="flex h-8 w-full items-center gap-2.5 px-3 text-left text-destructive hover:bg-destructive/10" role="menuitem" onClick={exitDesktopApp}>
+            <LogOut className="size-4" />
+            <span>{t('desktopExit')}</span>
+          </button>
+        </div>
+      )}
+    </div>
     {!ui.settingsDialogOpen && (
     <div
       className="quickforge-window-toolbar fixed right-2 top-2 z-30 flex items-center gap-1"

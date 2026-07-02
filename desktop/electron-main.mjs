@@ -60,6 +60,10 @@ function applyDesktopTitleBarTheme(theme = desktopTheme) {
     symbolColor: titleBarTheme.symbolColor,
     height: desktopTitleBarHeight,
   })
+  void mainWindow?.webContents.executeJavaScript(
+    `document.body?.style.setProperty('--quickforge-desktop-titlebar-bg', ${JSON.stringify(titleBarTheme.color)})`,
+    true,
+  ).catch(() => undefined)
 }
 
 function stopDesktopThemePolling() {
@@ -273,6 +277,19 @@ function createWindow(url) {
       body.quickforge-desktop-app .quickforge-window-toolbar {
         top: calc(${desktopTitleBarHeight}px + 0.5rem);
       }
+
+      body.quickforge-desktop-app .quickforge-desktop-titlebar {
+        display: flex;
+        background: var(--quickforge-desktop-titlebar-bg, ${initialTitleBarTheme.color});
+        -webkit-app-region: drag;
+        user-select: none;
+      }
+
+      body.quickforge-desktop-app .quickforge-desktop-titlebar-trigger,
+      body.quickforge-desktop-app .quickforge-desktop-titlebar-menu,
+      body.quickforge-desktop-app .quickforge-desktop-titlebar-menu * {
+        -webkit-app-region: no-drag;
+      }
     `)
     void mainWindow?.webContents.executeJavaScript(`
       document.body.classList.add('quickforge-desktop-app');
@@ -314,6 +331,11 @@ function createWindow(url) {
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
+    if (targetUrl === 'quickforge://exit') {
+      quitApp()
+      return { action: 'deny' }
+    }
+
     void shell.openExternal(targetUrl)
     return { action: 'deny' }
   })

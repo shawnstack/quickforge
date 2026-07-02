@@ -1,4 +1,4 @@
-const CACHE_NAME = 'quickforge-pwa-v1'
+const CACHE_NAME = 'quickforge-pwa-v2'
 const PRECACHE_URLS = [
   '/',
   '/favicon.svg',

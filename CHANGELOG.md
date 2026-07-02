@@ -2,6 +2,31 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.5.5] - 2026-07-02
+
+### Added
+
+- Configured platform-specific installer icons for Electron desktop builds (mac `.icns` and linux `.png`), aligning the native installer branding with the gray-and-black app icon palette.
+
+### Changed
+
+- Bumped the auto-compact default `keepRecentTurns` from `2` to `3` so that more recent conversation turns are preserved when the rolling context compression triggers.
+
+### Fixed
+
+- Preserved the `archivedAt` field when persisting a session in `agent-manager`, preventing archived conversations from losing their archived state on subsequent writes.
+- Aligned the desktop titlebar theme and branding, and synchronized the desktop theme with the native installer appearance.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.5.5` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.5.5.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.5.5.tgz
+  ```
+
 ## [1.5.4] - 2026-07-01
 
 ### Added

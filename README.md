@@ -1,7 +1,7 @@
 # 速构 QuickForge
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.5.4-blue" />
+  <img alt="Version" src="https://img.shields.io/badge/version-1.5.5-blue" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green" />
   <img alt="Node" src="https://img.shields.io/badge/node-%3E%3D20-brightgreen" />
   <img alt="React" src="https://img.shields.io/badge/react-19-61DAFB?logo=react" />
@@ -73,7 +73,7 @@ QuickForge 的工具能力很直接，因此也需要谨慎使用：
 #### 从 npm 安装
 
 ```bash
-npm install -g @shawnstack/quickforge@1.5.4
+npm install -g @shawnstack/quickforge@1.5.5
 qf
 
 # CLI 工具
@@ -104,17 +104,17 @@ console.log(app.url)
 当前版本的离线包：
 
 ```text
-package-offline/shawnstack-quickforge-1.5.4.tgz
+package-offline/shawnstack-quickforge-1.5.5.tgz
 ```
 
 在安装了 Node.js 20+ 和 npm 的机器上执行：
 
 ```bash
-npm install -g ./package-offline/shawnstack-quickforge-1.5.4.tgz
+npm install -g ./package-offline/shawnstack-quickforge-1.5.5.tgz
 qf
 ```
 
-该包由 `v1.5.4` 标签生成，包含 QuickForge 运行时资源，依赖由 npm 安装。
+该包由 `v1.5.5` 标签生成，包含 QuickForge 运行时资源，依赖由 npm 安装。
 
 ### 本地开发
 
@@ -285,7 +285,7 @@ QuickForge intentionally exposes powerful local capabilities, so the boundaries 
 #### npm
 
 ```bash
-npm install -g @shawnstack/quickforge@1.5.4
+npm install -g @shawnstack/quickforge@1.5.5
 qf
 
 # CLI utilities
@@ -313,20 +313,20 @@ This entry is exposed through the `main` field in `package.json` and does not ch
 
 #### Offline tarball
 
-The offline release package for `v1.5.4` is:
+The offline release package for `v1.5.5` is:
 
 ```text
-package-offline/shawnstack-quickforge-1.5.4.tgz
+package-offline/shawnstack-quickforge-1.5.5.tgz
 ```
 
 Install it on a machine with Node.js 20+ and npm:
 
 ```bash
-npm install -g ./package-offline/shawnstack-quickforge-1.5.4.tgz
+npm install -g ./package-offline/shawnstack-quickforge-1.5.5.tgz
 qf
 ```
 
-The package was generated from tag `v1.5.4` and includes QuickForge runtime assets and installs dependencies with npm.
+The package was generated from tag `v1.5.5` and includes QuickForge runtime assets and installs dependencies with npm.
 
 ### Local development
 

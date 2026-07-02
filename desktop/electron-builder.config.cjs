@@ -34,8 +34,10 @@ module.exports = {
   },
   mac: {
     target: 'dmg',
+    icon: 'desktop/assets/icon.icns',
   },
   linux: {
     target: 'AppImage',
+    icon: 'desktop/assets/icon.png',
   },
 }

@@ -1551,13 +1551,20 @@ async function persistSession(session) {
   // Write to storage atomically (read-modify-write within queue)
   try {
     await writeSessionValue(sessionId, sessionData)
+    let archivedAt
     await atomicSessionMetadataUpdate(scope, projectId, (data) => {
+      const existingMetadata = data[sessionId]
+      archivedAt = existingMetadata?.archivedAt
       data[sessionId] = {
         ...metadata,
-        pinnedAt: data[sessionId]?.pinnedAt,
+        pinnedAt: existingMetadata?.pinnedAt,
+        ...(archivedAt ? { archivedAt } : {}),
       }
       return data
     })
+    if (archivedAt) {
+      await writeSessionValue(sessionId, { ...sessionData, archivedAt })
+    }
   } catch (err) {
     logger.error(`Failed to persist session ${sessionId}:`, err, { sessionId })
   }

@@ -56,7 +56,7 @@ class DefaultOptionsSettingsTab extends SettingsTab {
   private autoCompactRequireConfirmation = true
   private autoCompactThresholdPercent = 80
   private autoCompactThresholdPercentInput = '80'
-  private autoCompactKeepRecentTurns = 2
+  private autoCompactKeepRecentTurns = 3
   private loading = true
   private saved = false
   private error = ''
@@ -168,7 +168,7 @@ class DefaultOptionsSettingsTab extends SettingsTab {
   }
 
   private updateAutoCompactKeepRecentTurns(value: string) {
-    this.autoCompactKeepRecentTurns = Number(value) || 2
+    this.autoCompactKeepRecentTurns = Number(value) || 3
     this.saved = false
     this.requestUpdate()
   }

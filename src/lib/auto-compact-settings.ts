@@ -13,7 +13,7 @@ export type AutoCompactSettings = {
 export const DEFAULT_AUTO_COMPACT_SETTINGS: AutoCompactSettings = {
   enabled: false,
   thresholdPercent: 80,
-  keepRecentTurns: 2,
+  keepRecentTurns: 3,
   minSourceChars: 1600,
   requireConfirmation: true,
 }

@@ -615,12 +615,12 @@ export function ChatPanelHost({
             {
               percent: pendingAutoCompact.usage?.percent ?? 0,
               threshold: pendingAutoCompact.thresholdPercent ?? 0,
-              keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 2,
+              keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 3,
               summary: t('autoCompactApprovalWaiting', {
                 percent: pendingAutoCompact.usage?.percent ?? 0,
                 threshold: pendingAutoCompact.thresholdPercent ?? 0,
               }),
-              description: t('autoCompactApprovalPreview', { keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 2 }),
+              description: t('autoCompactApprovalPreview', { keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 3 }),
             },
           )
         } else {

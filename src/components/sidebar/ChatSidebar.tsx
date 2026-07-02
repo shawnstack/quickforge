@@ -537,6 +537,18 @@ export const ChatSidebar = memo(function ChatSidebar({
         <button
           type="button"
           className={cn(rowClass, 'mt-4 w-full', inactiveRowClass)}
+          onClick={onStartNewGlobalChat}
+          aria-label={t('startNewChat')}
+          title={t('startNewChat')}
+        >
+          <span className={iconSlotClass}>
+            <MessageSquarePlus className="size-4" />
+          </span>
+          {sidebarOpen ? <span className={sessionTitleClass}>{t('startNewChat')}</span> : null}
+        </button>
+        <button
+          type="button"
+          className={cn(rowClass, 'w-full', inactiveRowClass)}
           onClick={openSearch}
           aria-label={t('search')}
         >

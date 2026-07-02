@@ -27,6 +27,16 @@
     --quickforge-sidebar-hover-bg: #e5e7eb;
     --quickforge-sidebar-active-bg: #d9dee7;
     --quickforge-main-bg: #ffffff;
+    --quickforge-desktop-titlebar-bg: var(--quickforge-sidebar-bg);
+  }
+
+  html.dark {
+    color-scheme: dark;
+    --quickforge-sidebar-bg: color-mix(in oklab, var(--background) 94%, var(--muted));
+    --quickforge-sidebar-hover-bg: color-mix(in oklab, var(--muted) 74%, transparent);
+    --quickforge-sidebar-active-bg: color-mix(in oklab, var(--accent) 78%, var(--muted));
+    --quickforge-main-bg: var(--background);
+    --quickforge-desktop-titlebar-bg: var(--quickforge-sidebar-bg);
   }
 
   * {
@@ -61,6 +71,25 @@
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Desktop titlebar-safe fullscreen panels */
+
+.quickforge-terminal-fullscreen,
+.quickforge-workspace-inspector-fullscreen {
+  position: fixed;
+  inset: 0;
+}
+
+body.quickforge-desktop-app .quickforge-terminal-fullscreen,
+body.quickforge-desktop-app .quickforge-workspace-inspector-fullscreen {
+  top: var(--quickforge-desktop-titlebar-height, 0px);
+}
+
+body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
+  top: var(--quickforge-desktop-titlebar-height, 0px);
+}
+
+/* ------------------------------------------------------------------ */
 /* Chat messages: only customize user's outgoing bubble; assistant/tool rendering stays pi-web-ui default. */
 /* Hide pi-web-ui token/cost usage lines, e.g. "↑3.6k ↓246 R...".
  * Keep message.usage data intact for context usage, metadata, and debugging.

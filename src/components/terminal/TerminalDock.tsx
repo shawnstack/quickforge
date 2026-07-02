@@ -355,7 +355,7 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
     <div
       className={cn(
         'shrink-0 border-t border-border bg-background',
-        fullscreen && 'absolute inset-0 z-30 flex flex-col border-t-0',
+        fullscreen && 'quickforge-terminal-fullscreen z-40 flex flex-col border-t-0',
       )}
       style={fullscreen ? undefined : { height }}
     >

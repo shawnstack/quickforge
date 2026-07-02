@@ -7,14 +7,24 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const projectRoot = path.resolve(__dirname, '..')
 const appName = 'QuickForge'
-const desktopTitleBarColor = '#f3f4f6'
-const desktopTitleBarSymbolColor = '#111827'
+const desktopTitleBarThemes = {
+  light: {
+    color: '#f3f4f6',
+    symbolColor: '#111827',
+  },
+  dark: {
+    color: '#18181b',
+    symbolColor: '#f4f4f5',
+  },
+}
 const desktopTitleBarHeight = process.platform === 'darwin' ? 28 : 32
 
 let mainWindow = null
 let quickForgeInstance = null
 let tray = null
 let trayLanguage = null
+let desktopTheme = 'light'
+let desktopThemePollTimer = null
 let isQuitting = false
 let isStopping = false
 
@@ -31,6 +41,47 @@ const trayTranslations = {
     show: '显示 QuickForge',
     quit: '退出 QuickForge',
   },
+}
+
+function normalizeTheme(value) {
+  return value === 'dark' ? 'dark' : 'light'
+}
+
+function getDesktopTitleBarTheme(theme = desktopTheme) {
+  return desktopTitleBarThemes[normalizeTheme(theme)] || desktopTitleBarThemes.light
+}
+
+function applyDesktopTitleBarTheme(theme = desktopTheme) {
+  desktopTheme = normalizeTheme(theme)
+  const titleBarTheme = getDesktopTitleBarTheme(desktopTheme)
+  mainWindow?.setBackgroundColor(titleBarTheme.color)
+  mainWindow?.setTitleBarOverlay?.({
+    color: titleBarTheme.color,
+    symbolColor: titleBarTheme.symbolColor,
+    height: desktopTitleBarHeight,
+  })
+}
+
+function stopDesktopThemePolling() {
+  if (desktopThemePollTimer) {
+    clearInterval(desktopThemePollTimer)
+    desktopThemePollTimer = null
+  }
+}
+
+function startDesktopThemePolling() {
+  stopDesktopThemePolling()
+  desktopThemePollTimer = setInterval(() => {
+    if (!mainWindow) {
+      stopDesktopThemePolling()
+      return
+    }
+    void mainWindow.webContents.executeJavaScript('window.__quickforgeDesktopTheme', true)
+      .then((theme) => {
+        if (theme) applyDesktopTitleBarTheme(theme)
+      })
+      .catch(() => undefined)
+  }, 250)
 }
 
 function normalizeLanguage(value) {
@@ -60,6 +111,23 @@ async function refreshTrayLanguage() {
     trayLanguage = language
     updateTrayMenu()
     return language
+  } catch {
+    return null
+  }
+}
+
+async function refreshDesktopTheme() {
+  if (!quickForgeInstance?.url) return null
+
+  try {
+    const response = await fetch(`${quickForgeInstance.url}/api/storage/settings/key/appearance-settings`, {
+      headers: { accept: 'application/json' },
+    })
+    if (!response.ok) return null
+    const payload = await response.json()
+    const theme = normalizeTheme(payload?.value?.theme)
+    applyDesktopTitleBarTheme(theme)
+    return theme
   } catch {
     return null
   }
@@ -158,6 +226,7 @@ function createTray() {
 }
 
 function createWindow(url) {
+  const initialTitleBarTheme = getDesktopTitleBarTheme()
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
@@ -165,11 +234,11 @@ function createWindow(url) {
     minHeight: 640,
     show: false,
     icon: getBrowserFaviconIcon(),
-    backgroundColor: desktopTitleBarColor,
+    backgroundColor: initialTitleBarTheme.color,
     titleBarStyle: 'hidden',
     titleBarOverlay: {
-      color: desktopTitleBarColor,
-      symbolColor: desktopTitleBarSymbolColor,
+      color: initialTitleBarTheme.color,
+      symbolColor: initialTitleBarTheme.symbolColor,
       height: desktopTitleBarHeight,
     },
     autoHideMenuBar: true,
@@ -188,7 +257,9 @@ function createWindow(url) {
   mainWindow.webContents.on('dom-ready', () => {
     void mainWindow?.webContents.insertCSS(`
       body.quickforge-desktop-app {
-        background: ${desktopTitleBarColor};
+        --quickforge-desktop-titlebar-height: ${desktopTitleBarHeight}px;
+        background: var(--quickforge-desktop-titlebar-bg, ${initialTitleBarTheme.color});
+        transition: background-color 160ms ease;
       }
 
       body.quickforge-desktop-app #root {
@@ -203,7 +274,26 @@ function createWindow(url) {
         top: calc(${desktopTitleBarHeight}px + 0.5rem);
       }
     `)
-    void mainWindow?.webContents.executeJavaScript("document.body.classList.add('quickforge-desktop-app')")
+    void mainWindow?.webContents.executeJavaScript(`
+      document.body.classList.add('quickforge-desktop-app');
+      (() => {
+        const syncDesktopTheme = () => {
+          const theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+          window.__quickforgeDesktopTheme = theme;
+          return theme;
+        };
+        syncDesktopTheme();
+        if (!window.__quickforgeDesktopThemeObserver) {
+          window.__quickforgeDesktopThemeObserver = new MutationObserver(syncDesktopTheme);
+          window.__quickforgeDesktopThemeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+        }
+        return window.__quickforgeDesktopTheme;
+      })();
+    `).then((theme) => {
+      applyDesktopTitleBarTheme(theme)
+    }).catch(() => undefined)
+    void refreshDesktopTheme()
+    startDesktopThemePolling()
   })
 
   mainWindow.on('show', updateTrayMenu)
@@ -218,6 +308,7 @@ function createWindow(url) {
   })
 
   mainWindow.on('closed', () => {
+    stopDesktopThemePolling()
     mainWindow = null
     updateTrayMenu()
   })
@@ -246,6 +337,7 @@ async function boot() {
       detached: false,
     })
 
+    await refreshDesktopTheme()
     createWindow(quickForgeInstance.url)
     createTray()
     void refreshTrayLanguage()

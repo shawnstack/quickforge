@@ -41,6 +41,14 @@ type ReaderTab = {
   error?: string
 }
 
+function getDesktopTitlebarHeight() {
+  if (typeof window === 'undefined') return 0
+  const raw = window.getComputedStyle(document.body).getPropertyValue('--quickforge-desktop-titlebar-height').trim()
+  if (!raw) return 0
+  const value = Number.parseFloat(raw)
+  return Number.isFinite(value) ? value : 0
+}
+
 function readerTabId(mode: ReaderMode, path: string) {
   return mode === 'browser' ? 'browser' : `${mode}:${path}`
 }
@@ -868,7 +876,10 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
     fullscreenAnimationRef.current?.cancel()
     const rect = aside.getBoundingClientRect()
     const viewportWidth = window.innerWidth
-    const viewportHeight = window.innerHeight
+    const titlebarHeight = getDesktopTitlebarHeight()
+    const viewportHeight = window.innerHeight - titlebarHeight
+    const fullscreenTop = `${titlebarHeight}px`
+    const fullscreenHeight = `${viewportHeight}px`
     const easing = 'cubic-bezier(0.22, 1, 0.36, 1)'
     setFullscreenAnimating(true)
 
@@ -891,7 +902,7 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
         const animation = currentAside.animate(
           [
             { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` },
-            { left: '0px', top: '0px', width: `${viewportWidth}px`, height: `${viewportHeight}px` },
+            { left: '0px', top: fullscreenTop, width: `${viewportWidth}px`, height: fullscreenHeight },
           ],
           { duration: 240, easing, fill: 'forwards' },
         )
@@ -919,18 +930,18 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
       Object.assign(currentAside.style, {
         position: 'fixed',
         left: '0px',
-        top: '0px',
+        top: fullscreenTop,
         right: 'auto',
         bottom: 'auto',
         width: `${rect.width}px`,
-        height: `${rect.height}px`,
+        height: fullscreenHeight,
         zIndex: '40',
       })
       const targetLeft = viewportWidth - width
       const animation = currentAside.animate(
         [
-          { left: '0px', top: '0px', width: `${rect.width}px`, height: `${rect.height}px` },
-          { left: `${targetLeft}px`, top: '0px', width: `${width}px`, height: `${viewportHeight}px` },
+          { left: '0px', top: fullscreenTop, width: `${rect.width}px`, height: fullscreenHeight },
+          { left: `${targetLeft}px`, top: fullscreenTop, width: `${width}px`, height: fullscreenHeight },
         ],
         { duration: 240, easing, fill: 'forwards' },
       )
@@ -991,7 +1002,7 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
           'relative hidden shrink-0 overflow-hidden flex-col bg-background transition-[width,min-width,max-width,opacity,transform] duration-200 ease-out will-change-[width,opacity,transform] lg:flex',
           visible ? 'translate-x-0 opacity-100' : 'w-0 min-w-0 max-w-0 translate-x-4 opacity-0',
           isResizing ? 'transition-none' : '',
-          fullscreen ? 'fixed inset-0 z-40 rounded-none border-l-0' : 'lg:rounded-l-2xl',
+          fullscreen ? 'quickforge-workspace-inspector-fullscreen z-40 rounded-none border-l-0' : 'lg:rounded-l-2xl',
         )}
         style={visible ? fullscreen ? undefined : { width, minWidth: WORKSPACE_INSPECTOR_MIN_WIDTH, maxWidth: WORKSPACE_INSPECTOR_MAX_WIDTH } : undefined}
       >

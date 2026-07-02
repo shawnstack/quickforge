@@ -973,7 +973,7 @@ function MainApp() {
     <>
     {!ui.settingsDialogOpen && (
     <div
-      className="quickforge-window-toolbar fixed right-2 top-2 z-[60] flex items-center gap-1"
+      className="quickforge-window-toolbar fixed right-2 top-2 z-30 flex items-center gap-1"
       aria-label={t('workspacePanel')}
     >
       <Button

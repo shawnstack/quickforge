@@ -20,7 +20,17 @@ module.exports = {
   },
   win: {
     target: 'nsis',
-    icon: 'desktop/assets/icon.svg',
+    icon: 'desktop/assets/icon.ico',
+  },
+  nsis: {
+    oneClick: false,
+    allowToChangeInstallationDirectory: true,
+    createDesktopShortcut: true,
+    createStartMenuShortcut: true,
+    shortcutName: 'QuickForge',
+    runAfterFinish: true,
+    installerIcon: 'desktop/assets/icon.ico',
+    uninstallerIcon: 'desktop/assets/icon.ico',
   },
   mac: {
     target: 'dmg',

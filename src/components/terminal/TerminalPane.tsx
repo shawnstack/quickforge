@@ -6,6 +6,7 @@ import type { IDisposable } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { getWebSocketBaseUrl } from '@/lib/backend-url'
 import { t } from '@/lib/i18n'
+import { useAppTheme } from '@/hooks/useAppTheme'
 import type { TerminalMessage, TerminalSession } from './terminal-types'
 
 type TerminalPaneProps = {
@@ -17,7 +18,24 @@ type TerminalPaneProps = {
   onConnectionError: (sessionId: string, message?: string) => void
 }
 
+const TERMINAL_THEMES = {
+  light: {
+    background: '#ffffff',
+    foreground: '#1f2937',
+    cursor: '#1f2937',
+    selectionBackground: '#dbeafe',
+  },
+  dark: {
+    background: '#171717',
+    foreground: '#e5e7eb',
+    cursor: '#e5e7eb',
+    selectionBackground: '#3f3f46',
+  },
+}
+
 export function TerminalPane({ session, active, height, onReady, onExited, onConnectionError }: TerminalPaneProps) {
+  const appTheme = useAppTheme()
+  const terminalTheme = TERMINAL_THEMES[appTheme]
   const hostRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -47,12 +65,7 @@ export function TerminalPane({ session, active, height, onReady, onExited, onCon
       fontSize: 12,
       lineHeight: 1.2,
       scrollback: 5000,
-      theme: {
-        background: '#ffffff',
-        foreground: '#1f2937',
-        cursor: '#1f2937',
-        selectionBackground: '#dbeafe',
-      },
+      theme: terminalTheme,
     })
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
@@ -140,7 +153,7 @@ export function TerminalPane({ session, active, height, onReady, onExited, onCon
       terminalRef.current = null
       fitAddonRef.current = null
     }
-  }, [onConnectionError, onExited, onReady, session.cwd, session.id])
+  }, [appTheme, onConnectionError, onExited, onReady, session.cwd, session.id, terminalTheme])
 
   useEffect(() => {
     if (!active) return

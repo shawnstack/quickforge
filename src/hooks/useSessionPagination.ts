@@ -30,6 +30,13 @@ function uniqueSessions(items: QuickForgeSessionMetadata[]) {
   })
 }
 
+function isValidPinnedAt(value?: string) {
+  if (!value) return false
+  const normalized = value.trim()
+  if (!normalized || normalized === 'undefined' || normalized === 'null' || normalized === 'false') return false
+  return !Number.isNaN(Date.parse(normalized))
+}
+
 type SessionPage = {
   items: QuickForgeSessionMetadata[]
   total: number
@@ -54,6 +61,7 @@ export function useSessionPagination({
   onBroadcastSessionsChanged,
 }: UseSessionPaginationOptions) {
   const [globalPage, setGlobalPage] = useState<SessionPage>({ items: [], total: 0, loading: false })
+  const [pinnedPage, setPinnedPage] = useState<SessionPage>({ items: [], total: 0, loading: false })
   const [projectPages, setProjectPages] = useState<Record<string, SessionPage>>({})
   const [projectTimelinePage, setProjectTimelinePage] = useState<SessionPage>({ items: [], total: 0, loading: false })
   const projectPagesRef = useRef(projectPages)
@@ -82,12 +90,35 @@ export function useSessionPagination({
 
   const allLoadedSessions: QuickForgeSessionMetadata[] = useMemo(
     () => uniqueSessions([
+      ...pinnedPage.items,
       ...globalPage.items,
       ...Object.values(projectPages).flatMap((p) => p.items),
       ...projectTimelinePage.items,
     ]),
-    [globalPage.items, projectPages, projectTimelinePage.items],
+    [pinnedPage.items, globalPage.items, projectPages, projectTimelinePage.items],
   )
+
+  const loadPinnedSessions = useCallback(async (offset: number, version = requestVersionRef.current) => {
+    const backend = backendRef.current
+    if (!backend) return
+    setPinnedPage((prev) => ({ ...prev, loading: true }))
+    try {
+      const result = await backend.fetchPaginatedFromIndex<QuickForgeSessionMetadata>(
+        'sessions-metadata', 'pinnedAt',
+        { direction: 'desc', limit: PAGE_SIZE, offset, pinned: 'only' },
+      )
+      if (!isCurrentRequest(version)) return
+      const pinnedValues = result.values.filter((session) => isValidPinnedAt(session.pinnedAt))
+      setPinnedPage((prev) => ({
+        items: sortSessions(offset === 0 ? pinnedValues : uniqueSessions([...prev.items, ...pinnedValues]), sortMode),
+        total: result.total,
+        loading: false,
+      }))
+    } catch {
+      if (!isCurrentRequest(version)) return
+      setPinnedPage((prev) => ({ ...prev, loading: false }))
+    }
+  }, [backendRef, isCurrentRequest, sortMode])
 
   const loadGlobalSessions = useCallback(async (offset: number, version = requestVersionRef.current) => {
     const backend = backendRef.current
@@ -171,6 +202,8 @@ export function useSessionPagination({
   const refreshSessions = useCallback(async (opts?: { broadcast?: boolean }) => {
     const version = nextRequestVersion()
     // Reset and reload the visible initial pages.
+    await loadPinnedSessions(0, version)
+    if (!isCurrentRequest(version)) return
     await loadGlobalSessions(0, version)
     if (!isCurrentRequest(version)) return
 
@@ -207,7 +240,7 @@ export function useSessionPagination({
     }
 
     if (opts?.broadcast && isCurrentRequest(version)) onBroadcastSessionsChanged?.()
-  }, [isCurrentRequest, loadGlobalSessions, loadProjectSessions, loadProjectTimelineSessions, nextRequestVersion, onBroadcastSessionsChanged, viewMode])
+  }, [isCurrentRequest, loadGlobalSessions, loadPinnedSessions, loadProjectSessions, loadProjectTimelineSessions, nextRequestVersion, onBroadcastSessionsChanged, viewMode])
 
   const sessionsForProject = useCallback((projectId: string) => {
     return projectPages[projectId]?.items ?? []
@@ -221,6 +254,12 @@ export function useSessionPagination({
 
   const projectLoading = useCallback((projectId: string) => projectPages[projectId]?.loading ?? false, [projectPages])
   const projectLoaded = useCallback((projectId: string) => projectId in projectPages, [projectPages])
+
+  const loadMorePinned = useCallback(() => {
+    if (pinnedPage.loading) return
+    if (pinnedPage.items.length >= pinnedPage.total) return
+    void loadPinnedSessions(pinnedPage.items.length)
+  }, [loadPinnedSessions, pinnedPage.items.length, pinnedPage.loading, pinnedPage.total])
 
   const loadMoreGlobal = useCallback(() => {
     void loadGlobalSessions(globalPage.items.length)
@@ -248,6 +287,9 @@ export function useSessionPagination({
 
   return {
     allLoadedSessions,
+    pinnedSessions: pinnedPage.items,
+    pinnedHasMore: pinnedPage.items.length < pinnedPage.total,
+    pinnedLoading: pinnedPage.loading,
     globalSessions: globalPage.items,
     sessionsForProject,
     projectTimelineSessions: projectTimelinePage.items,
@@ -261,6 +303,7 @@ export function useSessionPagination({
     loadGlobalSessions,
     loadProjectSessions,
     refreshSessions,
+    loadMorePinned,
     loadMoreGlobal,
     loadMoreProject,
     loadMoreProjectTimeline,

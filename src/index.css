@@ -74,6 +74,200 @@
 }
 
 /* ------------------------------------------------------------------ */
+/* Startup splash */
+
+.quickforge-startup-splash {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  align-items: center;
+  justify-content: center;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.quickforge-startup-splash-exit {
+  animation: quickforge-startup-splash-exit 280ms ease-in both;
+}
+
+.quickforge-startup-splash-icon {
+  width: 6.25rem;
+  height: 6.25rem;
+  overflow: visible;
+  transform-origin: center;
+  animation: quickforge-startup-icon-settle 1280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.quickforge-startup-splash-outline {
+  stroke-dasharray: 145;
+  stroke-dashoffset: 145;
+  stroke-linecap: round;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: quickforge-startup-outline 820ms cubic-bezier(0.22, 1, 0.36, 1) 360ms both;
+}
+
+.quickforge-startup-splash-outline-final {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: quickforge-startup-outline-final 180ms ease-out 1160ms both;
+}
+
+.quickforge-startup-splash-bolt {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: quickforge-startup-bolt 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.quickforge-startup-splash-bolt-trace {
+  opacity: 0;
+  stroke-dasharray: 108;
+  stroke-dashoffset: 108;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: quickforge-startup-bolt-trace 720ms ease-out both;
+}
+
+.quickforge-startup-splash-bolt-highlight {
+  opacity: 0;
+  animation: quickforge-startup-highlight 720ms ease-out 320ms both;
+}
+
+@keyframes quickforge-startup-icon-settle {
+  0% {
+    transform: scale(0.9);
+  }
+
+  42% {
+    transform: scale(1.035);
+  }
+
+  72% {
+    transform: scale(0.99);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes quickforge-startup-bolt {
+  0% {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.86);
+    filter: drop-shadow(0 0 0 rgb(15 23 42 / 0));
+  }
+
+  45% {
+    opacity: 1;
+    transform: translateY(0) scale(1.04);
+    filter: drop-shadow(0 0 12px color-mix(in oklab, var(--foreground) 24%, transparent));
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: drop-shadow(0 0 0 rgb(15 23 42 / 0));
+  }
+}
+
+@keyframes quickforge-startup-bolt-trace {
+  0% {
+    opacity: 0;
+    stroke-dashoffset: 108;
+  }
+
+  16% {
+    opacity: 0.72;
+  }
+
+  74%,
+  100% {
+    opacity: 0;
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes quickforge-startup-highlight {
+  0% {
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes quickforge-startup-outline {
+  0% {
+    opacity: 0;
+    stroke-dashoffset: 145;
+    transform: scale(0.94);
+  }
+
+  18% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 1;
+    stroke-dashoffset: 0;
+    transform: scale(1);
+  }
+}
+
+@keyframes quickforge-startup-outline-final {
+  0% {
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes quickforge-startup-splash-exit {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.012);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-startup-splash-icon,
+  .quickforge-startup-splash-outline,
+  .quickforge-startup-splash-outline-final,
+  .quickforge-startup-splash-bolt,
+  .quickforge-startup-splash-bolt-trace,
+  .quickforge-startup-splash-bolt-highlight {
+    animation: none;
+  }
+
+  .quickforge-startup-splash-outline,
+  .quickforge-startup-splash-outline-final,
+  .quickforge-startup-splash-bolt,
+  .quickforge-startup-splash-bolt-highlight {
+    opacity: 1;
+    stroke-dashoffset: 0;
+    transform: none;
+  }
+
+  .quickforge-startup-splash-bolt-highlight {
+    opacity: 0.4;
+  }
+
+  .quickforge-startup-splash-bolt-trace {
+    opacity: 0;
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Desktop titlebar-safe fullscreen panels */
 
 .quickforge-terminal-fullscreen,
@@ -164,6 +358,18 @@ user-message .user-message-container,
   display: inline-flex;
   align-items: center;
   margin-left: auto;
+}
+
+.quickforge-sidebar-section-header .quickforge-sidebar-section-toggle,
+.quickforge-sidebar-section-header .quickforge-sidebar-section-icon {
+  color: inherit;
+}
+
+.quickforge-sidebar-section-header:hover .quickforge-sidebar-section-toggle,
+.quickforge-sidebar-section-header:focus-within .quickforge-sidebar-section-toggle,
+.quickforge-sidebar-section-header:hover .quickforge-sidebar-section-icon,
+.quickforge-sidebar-section-header:focus-within .quickforge-sidebar-section-icon {
+  color: color-mix(in oklab, var(--foreground) 80%, transparent) !important;
 }
 
 .quickforge-svg-code-menu {

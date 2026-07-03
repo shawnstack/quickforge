@@ -6,12 +6,19 @@ const metadataIndexCache = new Map()
 const MAX_METADATA_INDEX_CACHE_ENTRIES = 50
 const METADATA_INDEX_CACHE_TTL_MS = 1000
 
-function metadataIndexCacheKey({ scope, projectId, indexName, direction, archived }) {
-  return JSON.stringify({ scope: scope || '', projectId: projectId || '', indexName, direction, archived: archived || '' })
+function metadataIndexCacheKey({ scope, projectId, indexName, direction, archived, pinned }) {
+  return JSON.stringify({ scope: scope || '', projectId: projectId || '', indexName, direction, archived: archived || '', pinned: pinned || '' })
 }
 
 function isProjectAggregateScope(scope) {
   return scope === 'projects' || scope === 'project-all'
+}
+
+function isValidPinnedAt(value) {
+  if (typeof value !== 'string') return false
+  const normalized = value.trim()
+  if (!normalized || normalized === 'undefined' || normalized === 'null' || normalized === 'false') return false
+  return !Number.isNaN(Date.parse(normalized))
 }
 
 function sortIndexedValues(values, store, indexName, direction) {
@@ -37,7 +44,7 @@ function sortIndexedValues(values, store, indexName, direction) {
   return values
 }
 
-async function readIndexedValues(store, indexName, direction, scope, projectId, archived) {
+async function readIndexedValues(store, indexName, direction, scope, projectId, archived, pinned) {
   if (store !== 'sessions-metadata') {
     let data
     if (scope && store === 'sessions') {
@@ -49,7 +56,7 @@ async function readIndexedValues(store, indexName, direction, scope, projectId, 
   }
 
   const revision = getStoreRevision(store)
-  const key = metadataIndexCacheKey({ scope, projectId, indexName, direction, archived })
+  const key = metadataIndexCacheKey({ scope, projectId, indexName, direction, archived, pinned })
   const cached = metadataIndexCache.get(key)
   const now = Date.now()
   if (cached && cached.revision === revision && now - cached.cachedAt < METADATA_INDEX_CACHE_TTL_MS) return cached.values
@@ -68,6 +75,10 @@ async function readIndexedValues(store, indexName, direction, scope, projectId, 
         if (archived === 'only') return Boolean(value?.archivedAt)
         if (archived === 'include') return true
         return !value?.archivedAt
+      })
+      .filter((value) => {
+        if (pinned === 'only') return isValidPinnedAt(value?.pinnedAt)
+        return true
       }),
     store,
     indexName,
@@ -121,10 +132,11 @@ export async function handleStorageApi(req, res, url) {
     const limitParam = url.searchParams.get('limit')
     const offsetParam = url.searchParams.get('offset')
     const archived = url.searchParams.get('archived')
+    const pinned = url.searchParams.get('pinned')
 
     await ensureStorage()
 
-    const values = await readIndexedValues(store, indexName, direction, scope, projectId, archived)
+    const values = await readIndexedValues(store, indexName, direction, scope, projectId, archived, pinned)
 
     const total = values.length
     const limit = limitParam ? parseInt(limitParam, 10) : undefined

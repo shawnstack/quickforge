@@ -14,6 +14,7 @@ export function useUIState() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [projectsCollapsed, setProjectsCollapsed] = useState(false)
+  const [pinnedCollapsed, setPinnedCollapsed] = useState(false)
   const [conversationsCollapsed, setConversationsCollapsed] = useState(false)
   const [skillsDialog, setSkillsDialog] = useState<{ scope: SkillsScope; project?: ProjectInfo }>()
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
@@ -34,12 +35,14 @@ export function useUIState() {
   const [settingsCustomProvider, setSettingsCustomProvider] = useState<string>()
 
   const toggleProjectsCollapsed = useCallback(() => setProjectsCollapsed(v => !v), [])
+  const togglePinnedCollapsed = useCallback(() => setPinnedCollapsed(v => !v), [])
   const toggleConversationsCollapsed = useCallback(() => setConversationsCollapsed(v => !v), [])
 
   return {
     sidebarOpen, setSidebarOpen,
     mobileSidebarOpen, setMobileSidebarOpen,
     projectsCollapsed, setProjectsCollapsed,
+    pinnedCollapsed, setPinnedCollapsed,
     conversationsCollapsed, setConversationsCollapsed,
     skillsDialog, setSkillsDialog,
     shareDialogOpen, setShareDialogOpen,
@@ -59,6 +62,7 @@ export function useUIState() {
     settingsInitialTab, setSettingsInitialTab,
     settingsCustomProvider, setSettingsCustomProvider,
     toggleProjectsCollapsed,
+    togglePinnedCollapsed,
     toggleConversationsCollapsed,
   } as const
 }

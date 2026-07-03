@@ -91,6 +91,8 @@ const SettingsWorkspacePage = lazy(() =>
 const AUTO_PREVIEW_SEEN_STORAGE_KEY = 'quickforge:auto-preview-seen-signatures'
 const MAX_AUTO_PREVIEW_SEEN_SIGNATURES = 200
 const QUICKFORGE_TAGS_URL = 'https://github.com/shawnstack/quickforge/tags'
+const STARTUP_SPLASH_MIN_DURATION_MS = 1350
+const STARTUP_SPLASH_EXIT_DURATION_MS = 280
 
 function readSeenAutoPreviewSignatures() {
   if (typeof window === 'undefined') return new Set<string>()
@@ -124,6 +126,33 @@ function LazyPanelFallback() {
 
 function LazyOverlayFallback() {
   return null
+}
+
+function StartupSplash({ exiting = false }: { exiting?: boolean }) {
+  const label = t('loadingChatWorkspace')
+
+  return (
+    <div className={cn('quickforge-startup-splash', exiting && 'quickforge-startup-splash-exit')} role="status" aria-label={label}>
+      <svg className="quickforge-startup-splash-icon" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="startupIconStroke" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="#9ca3af" />
+            <stop offset="1" stopColor="#4b5563" />
+          </linearGradient>
+          <linearGradient id="startupIconBolt" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="#374151" />
+            <stop offset="1" stopColor="#0f172a" />
+          </linearGradient>
+        </defs>
+        <polygon className="quickforge-startup-splash-outline" points="32,6 52.78,18 52.78,42 32,54 11.22,42 11.22,18" fill="none" stroke="url(#startupIconStroke)" strokeWidth="4.5" strokeLinejoin="round" />
+        <polygon className="quickforge-startup-splash-outline-final" points="32,6 52.78,18 52.78,42 32,54 11.22,42 11.22,18" fill="none" stroke="url(#startupIconStroke)" strokeWidth="4.5" strokeLinejoin="round" />
+        <path className="quickforge-startup-splash-bolt" d="M37.2 13 L22 34 L30.6 34 L26.8 50 L42.8 26 L33.8 26 Z" fill="url(#startupIconBolt)" />
+        <path className="quickforge-startup-splash-bolt-trace" d="M37.2 13 L22 34 L30.6 34 L26.8 50 L42.8 26 L33.8 26 Z" fill="none" stroke="#f8fafc" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        <path className="quickforge-startup-splash-bolt-highlight" d="M37.2 13 L22 34 L30.6 34 L33.8 26 Z" fill="#e5e7eb" />
+      </svg>
+      <span className="sr-only">{label}</span>
+    </div>
+  )
 }
 
 type ScheduledTaskNotificationEvent = {
@@ -252,6 +281,8 @@ function MainApp() {
   const [externalProjectIds, setExternalProjectIds] = useState<Set<string>>(() => new Set())
   const terminalCommandIdRef = useRef(0)
   const [storage, setStorage] = useState<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
+  const [startupSplashDone, setStartupSplashDone] = useState(false)
+  const [startupSplashExited, setStartupSplashExited] = useState(false)
   const { toasts, handleTaskComplete, addToast, dismissToast } = useTaskToasts()
   const closeWorkspacePage = useCallback(() => undefined, [])
   const closeDesktopTitlebarMenu = useCallback(() => setDesktopTitlebarMenuOpen(false), [])
@@ -272,6 +303,9 @@ function MainApp() {
 
   const {
     allLoadedSessions,
+    pinnedSessions,
+    pinnedHasMore,
+    pinnedLoading,
     globalSessions,
     sessionsForProject,
     globalHasMore,
@@ -285,6 +319,7 @@ function MainApp() {
     loadGlobalSessions,
     loadProjectSessions,
     refreshSessions,
+    loadMorePinned,
     loadMoreGlobal,
     loadMoreProject,
     loadMoreProjectTimeline,
@@ -317,6 +352,11 @@ function MainApp() {
   }, [defaultWorkspace])
 
   useEffect(() => { crossTabRef.current = crossTab }, [crossTab])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setStartupSplashDone(true), STARTUP_SPLASH_MIN_DURATION_MS)
+    return () => window.clearTimeout(timer)
+  }, [])
 
   const handleContextUsageDisplayChange = useCallback((sessionId: string, info: ContextUsageDisplayInfo) => {
     setCurrentSessionHoverInfo({ sessionId, ...info })
@@ -520,6 +560,13 @@ function MainApp() {
   })
 
   const updateCheck = useUpdateCheck(storageRef, ready)
+  const startupReady = ready && startupSplashDone && Boolean(agentManager.agent || needsModelSetup)
+
+  useEffect(() => {
+    if (!startupReady) return undefined
+    const timer = window.setTimeout(() => setStartupSplashExited(true), STARTUP_SPLASH_EXIT_DURATION_MS)
+    return () => window.clearTimeout(timer)
+  }, [startupReady])
 
   useEffect(() => {
     if (!ready) return undefined
@@ -964,20 +1011,8 @@ function MainApp() {
     )
   }
 
-  if (!ready) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background text-foreground">
-        <div className="text-sm text-muted-foreground">{t('loadingChatWorkspace')}</div>
-      </div>
-    )
-  }
-
-  if (!agentManager.agent && !needsModelSetup) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background text-foreground">
-        <div className="text-sm text-muted-foreground">{t('loadingChatWorkspace')}</div>
-      </div>
-    )
+  if (!startupReady || !startupSplashExited) {
+    return <StartupSplash exiting={startupReady} />
   }
 
   return (
@@ -1080,6 +1115,7 @@ function MainApp() {
       <ChatSidebar
         sidebarOpen={ui.sidebarOpen}
         projectsCollapsed={ui.projectsCollapsed}
+        pinnedCollapsed={ui.pinnedCollapsed}
         conversationsCollapsed={ui.conversationsCollapsed}
         projects={projects}
         expandedProjectIds={expandedProjectIds}
@@ -1088,6 +1124,9 @@ function MainApp() {
         sessionViewMode={sidebarSessionViewMode}
         sessionSortMode={sidebarSessionSortMode}
         globalSessions={globalSessions}
+        pinnedSessions={pinnedSessions}
+        pinnedHasMore={pinnedHasMore}
+        pinnedLoading={pinnedLoading}
         sessionsForProject={sessionsForProject}
         projectTimelineSessions={projectTimelineSessions}
         projectTimelineHasMore={projectTimelineHasMore}
@@ -1095,6 +1134,7 @@ function MainApp() {
         globalHasMore={globalHasMore}
         globalLoading={globalLoading}
         onLoadMoreGlobal={loadMoreGlobal}
+        onLoadMorePinned={loadMorePinned}
         projectHasMore={projectHasMore}
         projectLoading={projectLoading}
         projectLoaded={projectLoaded}
@@ -1102,6 +1142,7 @@ function MainApp() {
         onLoadMoreProjectTimeline={loadMoreProjectTimeline}
         sessionTaskStatus={sessionTaskStatus}
         selectingProject={selectingProject}
+        onTogglePinnedCollapsed={ui.togglePinnedCollapsed}
         onToggleProjectsCollapsed={ui.toggleProjectsCollapsed}
         onToggleConversationsCollapsed={ui.toggleConversationsCollapsed}
         onToggleProjectExpanded={toggleProjectExpanded}
@@ -1143,6 +1184,7 @@ function MainApp() {
               variant="mobile"
               sidebarOpen
               projectsCollapsed={ui.projectsCollapsed}
+              pinnedCollapsed={ui.pinnedCollapsed}
               conversationsCollapsed={ui.conversationsCollapsed}
               projects={projects}
               expandedProjectIds={expandedProjectIds}
@@ -1151,6 +1193,9 @@ function MainApp() {
               sessionViewMode={sidebarSessionViewMode}
               sessionSortMode={sidebarSessionSortMode}
               globalSessions={globalSessions}
+              pinnedSessions={pinnedSessions}
+              pinnedHasMore={pinnedHasMore}
+              pinnedLoading={pinnedLoading}
               sessionsForProject={sessionsForProject}
               projectTimelineSessions={projectTimelineSessions}
               projectTimelineHasMore={projectTimelineHasMore}
@@ -1158,6 +1203,7 @@ function MainApp() {
               globalHasMore={globalHasMore}
               globalLoading={globalLoading}
               onLoadMoreGlobal={loadMoreGlobal}
+              onLoadMorePinned={loadMorePinned}
               projectHasMore={projectHasMore}
               projectLoading={projectLoading}
               projectLoaded={projectLoaded}
@@ -1165,6 +1211,7 @@ function MainApp() {
               onLoadMoreProjectTimeline={loadMoreProjectTimeline}
               sessionTaskStatus={sessionTaskStatus}
               selectingProject={selectingProject}
+              onTogglePinnedCollapsed={ui.togglePinnedCollapsed}
               onToggleProjectsCollapsed={ui.toggleProjectsCollapsed}
               onToggleConversationsCollapsed={ui.toggleConversationsCollapsed}
               onToggleProjectExpanded={toggleProjectExpanded}

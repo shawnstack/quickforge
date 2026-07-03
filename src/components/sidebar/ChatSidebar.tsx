@@ -60,6 +60,7 @@ type ChatSidebarProps = {
   sidebarOpen: boolean
   variant?: 'desktop' | 'mobile'
   projectsCollapsed: boolean
+  pinnedCollapsed: boolean
   conversationsCollapsed: boolean
   projects: ProjectInfo[]
   expandedProjectIds: Set<string>
@@ -68,6 +69,9 @@ type ChatSidebarProps = {
   sessionViewMode: SidebarSessionViewMode
   sessionSortMode: SidebarSessionSortMode
   globalSessions: QuickForgeSessionMetadata[]
+  pinnedSessions: QuickForgeSessionMetadata[]
+  pinnedHasMore: boolean
+  pinnedLoading: boolean
   sessionsForProject: (projectId: string) => QuickForgeSessionMetadata[]
   projectTimelineSessions: QuickForgeSessionMetadata[]
   projectTimelineHasMore: boolean
@@ -75,6 +79,7 @@ type ChatSidebarProps = {
   globalHasMore: boolean
   globalLoading: boolean
   onLoadMoreGlobal: () => void
+  onLoadMorePinned: () => void
   projectHasMore: (projectId: string) => boolean
   projectLoading: (projectId: string) => boolean
   projectLoaded: (projectId: string) => boolean
@@ -82,6 +87,7 @@ type ChatSidebarProps = {
   onLoadMoreProjectTimeline: () => void
   sessionTaskStatus: (session: QuickForgeSessionMetadata) => BackgroundTaskStatus
   selectingProject: boolean
+  onTogglePinnedCollapsed: () => void
   onToggleProjectsCollapsed: () => void
   onToggleConversationsCollapsed: () => void
   onToggleProjectExpanded: (projectId: string) => void
@@ -143,6 +149,13 @@ function formatSessionTime(value?: string) {
   return t('relativeYearShort', { count: Math.floor(elapsedMs / yearMs) })
 }
 
+function isValidPinnedAt(value?: string) {
+  if (!value) return false
+  const normalized = value.trim()
+  if (!normalized || normalized === 'undefined' || normalized === 'null' || normalized === 'false') return false
+  return !Number.isNaN(Date.parse(normalized))
+}
+
 function LoadMoreSentinel({ onLoadMore, enabled }: { onLoadMore: () => void; enabled: boolean }) {
   const ref = useSentinel(onLoadMore, enabled)
   if (!enabled) return null
@@ -172,6 +185,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   sidebarOpen,
   variant = 'desktop',
   projectsCollapsed,
+  pinnedCollapsed,
   conversationsCollapsed,
   projects,
   expandedProjectIds,
@@ -180,6 +194,9 @@ export const ChatSidebar = memo(function ChatSidebar({
   sessionViewMode,
   sessionSortMode,
   globalSessions,
+  pinnedSessions,
+  pinnedHasMore,
+  pinnedLoading,
   sessionsForProject,
   projectTimelineSessions,
   projectTimelineHasMore,
@@ -187,6 +204,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   globalHasMore,
   globalLoading,
   onLoadMoreGlobal,
+  onLoadMorePinned,
   projectHasMore,
   projectLoading,
   projectLoaded,
@@ -194,6 +212,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   onLoadMoreProjectTimeline,
   sessionTaskStatus,
   selectingProject,
+  onTogglePinnedCollapsed,
   onToggleProjectsCollapsed,
   onToggleConversationsCollapsed,
   onToggleProjectExpanded,
@@ -222,39 +241,39 @@ export const ChatSidebar = memo(function ChatSidebar({
   currentSessionHoverInfo,
 }: ChatSidebarProps) {
   const sidebarHoverBgClass = 'hover:bg-[var(--quickforge-sidebar-hover-bg)]'
-  const sidebarActiveBgClass = 'bg-[var(--quickforge-sidebar-active-bg)]'
-  const sectionHeaderClass = `group mb-1 flex w-full items-center gap-1 rounded-lg px-2 py-1 text-sm font-medium leading-5 text-muted-foreground/72 transition-colors ${sidebarHoverBgClass}`
-  const sectionToggleClass = 'flex min-w-0 flex-1 items-center gap-1 text-left transition-colors hover:text-foreground/80'
-  const chevronClass = 'size-4 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none'
+  const sidebarActiveBgClass = 'bg-[var(--quickforge-sidebar-hover-bg)]'
+  const sectionHeaderClass = `quickforge-sidebar-section-header group mb-1 flex w-full items-center gap-1 rounded-lg px-2 py-1 text-sm font-[350] leading-5 text-muted-foreground/50 transition-colors ${sidebarHoverBgClass}`
+  const sectionToggleClass = 'quickforge-sidebar-section-toggle flex min-w-0 flex-1 items-center gap-1 text-left transition-colors'
+  const chevronClass = 'quickforge-sidebar-section-icon size-4 shrink-0 text-current opacity-0 transition-[transform,opacity] duration-200 ease-out group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none'
   const collapsePanelClass = 'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none'
   const collapsePanelOpenClass = 'grid-rows-[1fr] opacity-100'
   const collapsePanelClosedClass = 'pointer-events-none grid-rows-[0fr] opacity-0'
   const collapseInnerClass = 'min-h-0 overflow-hidden'
-  const rowHoverShadowClass = 'hover:shadow-[0_8px_20px_-18px_rgb(15_23_42_/_0.35)]'
-  const iconHoverShadowClass = 'hover:shadow-[0_6px_14px_-14px_rgb(15_23_42_/_0.35)]'
+  const rowHoverShadowClass = ''
+  const iconHoverShadowClass = ''
   const rowClass = `group relative flex items-center gap-2 overflow-hidden rounded-lg px-2 py-1.5 text-left transition-[background-color,color,box-shadow] duration-160 ease-out ${rowHoverShadowClass}`
   const footerRowClass = 'group relative flex items-center gap-2 overflow-hidden px-2 py-1.5 text-left transition-[background-color,color,box-shadow] duration-160 ease-out'
-  const activeRowClass = `${sidebarActiveBgClass} text-foreground/92 shadow-[0_8px_22px_-20px_rgb(15_23_42_/_0.32)]`
-  const projectActiveRowClass = `text-foreground/84 ${sidebarHoverBgClass}`
-  const inactiveRowClass = `text-muted-foreground/72 ${sidebarHoverBgClass} hover:text-foreground/86`
-  const sessionInactiveRowClass = `text-muted-foreground/76 ${sidebarHoverBgClass} hover:text-foreground/90`
+  const activeRowClass = `${sidebarActiveBgClass} text-foreground/84 shadow-[0_8px_22px_-20px_rgb(15_23_42_/_0.32)]`
+  const projectActiveRowClass = `text-foreground/80 ${sidebarHoverBgClass}`
+  const inactiveRowClass = `text-muted-foreground/68 ${sidebarHoverBgClass} hover:text-foreground/80`
+  const sessionInactiveRowClass = `text-muted-foreground/70 ${sidebarHoverBgClass} hover:text-foreground/82`
   const iconSlotClass = 'inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-colors group-hover:text-foreground/70'
   const iconButtonClass = `size-7 shrink-0 rounded-full text-muted-foreground/55 transition-[background-color,color,box-shadow,opacity] duration-160 ease-out ${sidebarHoverBgClass} hover:text-foreground/85 ${iconHoverShadowClass}`
-  const sectionActionButtonClass = `${iconButtonClass} pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100`
+  const sectionActionButtonClass = `quickforge-sidebar-section-icon ${iconButtonClass} pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100`
   const actionOverlayClass = 'pointer-events-none absolute inset-y-0 right-1 flex items-center gap-px rounded-r-lg bg-gradient-to-l from-[var(--quickforge-sidebar-hover-bg)] via-[var(--quickforge-sidebar-hover-bg)]/95 to-transparent pl-4 opacity-0 transition-opacity duration-160 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100'
   const overlayIconButtonClass = `size-6 shrink-0 rounded-full text-muted-foreground/55 transition-[background-color,color,box-shadow] duration-160 ease-out ${sidebarHoverBgClass} hover:text-foreground/85 ${iconHoverShadowClass}`
-  const sessionTitleClass = 'truncate text-sm leading-5'
+  const sessionTitleClass = 'truncate text-sm font-[350] leading-5'
   const sessionButtonClass = 'flex min-w-0 flex-1 items-center gap-2 text-left'
   const sessionTitleRowClass = 'flex min-w-0 flex-1 items-center gap-1 truncate transition-[padding] duration-160 group-hover:pr-14 group-focus-within:pr-14'
   const pinnedSessionButtonClass = `relative z-10 inline-flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-opacity duration-160 transition-colors ${sidebarHoverBgClass} hover:text-foreground/85`
   const sessionMetaHoverHiddenClass = 'group-hover:opacity-0 group-focus-within:opacity-0'
-  const activeSessionTitleClass = 'font-medium text-foreground/92'
-  const activeProjectTitleClass = 'font-medium text-foreground/84'
+  const activeSessionTitleClass = 'font-[350] text-foreground/84'
+  const activeProjectTitleClass = 'font-[350] text-foreground/80'
   const timeClass = 'shrink-0 text-[11px] leading-4 text-muted-foreground/55 transition-opacity duration-160'
   const searchDialogClass = 'fixed inset-0 z-50 flex items-start justify-center bg-background/50 px-4 pt-[12vh] backdrop-blur-sm'
   const projectMenuClass = 'fixed z-50 min-w-48 overflow-hidden rounded-lg border border-border bg-background p-1 shadow-quickforge'
   const viewSortMenuClass = 'fixed z-50 overflow-hidden rounded-2xl border border-border bg-background p-1.5 shadow-quickforge'
-  const viewSortMenuSectionLabelClass = 'px-3 pb-1 pt-2 text-xs font-medium leading-4 text-muted-foreground/55'
+  const viewSortMenuSectionLabelClass = 'px-3 pb-1 pt-2 text-xs font-[350] leading-4 text-muted-foreground/50'
   const viewSortMenuItemClass = 'flex w-full items-center gap-3 whitespace-nowrap rounded-xl px-3 py-2.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted/45'
   const sessionHoverTipClass = 'pointer-events-none fixed z-50 w-[min(24rem,calc(100vw-1rem))] max-w-sm rounded-2xl border border-border bg-popover px-4 py-3 text-left shadow-quickforge'
   const sessionHoverTipMetaClass = 'mt-2 flex items-center gap-2 text-sm leading-5 text-muted-foreground/72'
@@ -300,6 +319,12 @@ export const ChatSidebar = memo(function ChatSidebar({
         projectName: session.projectId ? projectNameById.get(session.projectId) ?? t('unknownProject') : t('unknownProject'),
       }))
   }, [projectNameById, projectTimelineSessions])
+  const pinnedSessionItems = useMemo(() => pinnedSessions.filter((session) => isValidPinnedAt(session.pinnedAt)).map((session) => ({
+    session,
+    sourceName: session.scope === 'project'
+      ? session.projectId ? projectNameById.get(session.projectId) ?? t('unknownProject') : t('unknownProject')
+      : t('normalChat'),
+  })), [pinnedSessions, projectNameById])
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event
@@ -315,6 +340,7 @@ export const ChatSidebar = memo(function ChatSidebar({
 
   const searchInputRef = useRef<HTMLInputElement>(null)
   const searchableSessions = useMemo(() => {
+    const pinned = pinnedSessionItems.map(({ session, sourceName }) => ({ session, projectName: sourceName }))
     const projectSessions = projects.flatMap((project) => sessionsForProject(project.id).map((session) => ({ session, projectName: project.name })))
     const timeline = projectTimelineSessions.map((session) => ({
       session,
@@ -322,12 +348,12 @@ export const ChatSidebar = memo(function ChatSidebar({
     }))
     const global = globalSessions.map((session) => ({ session, projectName: '' }))
     const seen = new Set<string>()
-    return [...projectSessions, ...timeline, ...global].filter(({ session }) => {
+    return [...pinned, ...projectSessions, ...timeline, ...global].filter(({ session }) => {
       if (seen.has(session.id)) return false
       seen.add(session.id)
       return true
     })
-  }, [globalSessions, projectNameById, projectTimelineSessions, projects, sessionsForProject])
+  }, [globalSessions, pinnedSessionItems, projectNameById, projectTimelineSessions, projects, sessionsForProject])
   const searchResults = searchQuery.trim()
     ? searchableSessions.filter(({ session, projectName }) => `${sessionTitle(session.title)} ${projectName}`.toLowerCase().includes(searchQuery.trim().toLowerCase())).slice(0, 8)
     : []
@@ -494,6 +520,115 @@ export const ChatSidebar = memo(function ChatSidebar({
     }
   }, [viewSortMenuOpen, closeViewSortMenu])
 
+  const renderPinnedSessionItem = ({ session }: { session: QuickForgeSessionMetadata }) => {
+    const selected = currentSessionId === session.id
+    const actionsSuppressed = suppressedSessionActionsId === session.id
+    const deleting = deletingSessionId === session.id
+    return (
+      <div
+        key={session.id}
+        className={cn(
+          'grid transition-[grid-template-rows,opacity,transform] duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+          deleting ? 'grid-rows-[0fr] -translate-x-1 opacity-0' : 'grid-rows-[1fr] translate-x-0 opacity-100',
+        )}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div
+            className={cn(
+              rowClass,
+              selected ? activeRowClass : sessionInactiveRowClass,
+              deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+            )}
+            onMouseEnter={(event) => showSessionHoverTip(event, session.id)}
+            onMouseLeave={() => {
+              setSuppressedSessionActionsId((current) => current === session.id ? null : current)
+              if (!deleting) {
+                setConfirmingDeleteSessionId((current) => current === session.id ? null : current)
+              }
+              hideSessionHoverTip(session.id)
+            }}
+          >
+            <div
+              role="button"
+              tabIndex={0}
+              className="flex min-w-0 flex-1 items-center gap-2 text-left"
+              onClick={() => onLoadSession(session.id)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return
+                event.preventDefault()
+                onLoadSession(session.id)
+              }}
+            >
+              <div className="min-w-0 flex-1">
+                <div className={sessionTitleRowClass}>
+                  {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
+                  <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title)}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                className={cn(pinnedSessionButtonClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onTogglePinSession(session.id)
+                }}
+                aria-label={t('unpinSession')}
+                title={t('unpinSession')}
+              >
+                <Pin className="size-3" />
+              </button>
+              <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{formatSessionTime(session.pinnedAt)}</span>
+            </div>
+            <div className={cn(actionOverlayClass, actionsSuppressed && 'hidden')}>
+              {confirmingDeleteSessionId === session.id ? (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-6 rounded-full px-2 text-xs"
+                  onClick={(event) => confirmDeleteSession(event, session.id)}
+                  aria-label={t('confirmArchive')}
+                  title={t('confirmArchive')}
+                >
+                  {t('confirm')}
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={overlayIconButtonClass}
+                    onClick={(event) => toggleSessionPinFromActions(event, session.id)}
+                    aria-label={t('unpinSession')}
+                  >
+                    <Pin className="size-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={overlayIconButtonClass}
+                    onClick={() => onRenameSession(session.id, session.title)}
+                    aria-label={t('renameSession')}
+                  >
+                    <Pencil className="size-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={overlayIconButtonClass}
+                    onClick={(event) => requestDeleteSession(event, session.id)}
+                    aria-label={t('archiveSession')}
+                  >
+                    <Archive className="size-3.5" />
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <aside
       className={cn(
@@ -556,12 +691,41 @@ export const ChatSidebar = memo(function ChatSidebar({
 
       {sidebarOpen ? (
         <>
+          {(pinnedSessionItems.length > 0 || pinnedLoading) ? (
+            <div className="shrink-0 px-3 pb-1 max-h-[28%] flex flex-col min-h-0 overflow-hidden">
+              <div className={sectionHeaderClass}>
+                <button type="button" className={sectionToggleClass} onClick={onTogglePinnedCollapsed} aria-expanded={!pinnedCollapsed}>
+                  <span className="truncate">{t('pinnedConversations')}</span>
+                  <ChevronRight className={cn(chevronClass, !pinnedCollapsed && 'rotate-90')} />
+                </button>
+              </div>
+              <div className={cn(collapsePanelClass, 'flex-1 min-h-0', pinnedCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
+                <div className={collapseInnerClass}>
+                  <div className="h-full overflow-y-auto">
+                    <div className="space-y-0.5">
+                      {pinnedSessionItems.length === 0 ? (
+                        <div className="flex items-center px-3 py-3 text-xs text-muted-foreground/55">
+                          <Loader2 className="mr-1.5 size-3 animate-spin" />
+                          {t('loadingChatWorkspace')}
+                        </div>
+                      ) : (
+                        <>
+                          {pinnedSessionItems.map(renderPinnedSessionItem)}
+                          <LoadMoreSentinel onLoadMore={onLoadMorePinned} enabled={pinnedHasMore && !pinnedLoading} />
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
           <div className="shrink-0 px-3 max-h-[55%] flex flex-col min-h-0 overflow-hidden">
             <div className="mb-0.5 flex min-h-0 flex-1 flex-col">
               <div className={sectionHeaderClass}>
                 <button type="button" className={sectionToggleClass} onClick={onToggleProjectsCollapsed} aria-expanded={!projectsCollapsed}>
+                  <span className="truncate">{t('projects')}</span>
                   <ChevronRight className={cn(chevronClass, !projectsCollapsed && 'rotate-90')} />
-                  <span className="flex-1 truncate">{t('projects')}</span>
                 </button>
                 {projects.length > 0 && (
                   <Button
@@ -618,7 +782,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                           )
                         ) : (
                           <>
-                            {timelineSessions.map(({ session, projectName }) => {
+                            {timelineSessions.map(({ session }) => {
                               const selected = currentSessionId === session.id
                               const actionsSuppressed = suppressedSessionActionsId === session.id
                               const deleting = deletingSessionId === session.id
@@ -653,7 +817,6 @@ export const ChatSidebar = memo(function ChatSidebar({
                                             {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
                                             <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title)}</span>
                                           </div>
-                                          <div className="truncate text-[11px] leading-4 text-muted-foreground/50">{projectName}</div>
                                         </div>
                                         {session.pinnedAt ? (
                                           <button
@@ -941,13 +1104,13 @@ export const ChatSidebar = memo(function ChatSidebar({
           <div className="flex-1 min-h-0 flex flex-col px-3 pb-3">
             <div className={sectionHeaderClass}>
               <button type="button" className={sectionToggleClass} onClick={onToggleConversationsCollapsed} aria-expanded={!conversationsCollapsed}>
+                <span className="truncate">{t('conversations')}</span>
                 <ChevronRight className={cn(chevronClass, !conversationsCollapsed && 'rotate-90')} />
-                <span className="flex-1 truncate">{t('conversations')}</span>
               </button>
               <Button
                 variant="ghost"
                 size="icon"
-                className={iconButtonClass}
+                className={cn(iconButtonClass, 'quickforge-sidebar-section-icon')}
                 onClick={onStartNewGlobalChat}
                 aria-label={t('newChat')}
               >
@@ -1197,7 +1360,7 @@ export const ChatSidebar = memo(function ChatSidebar({
             <span className="min-w-0 flex-1 truncate">{t('sidebarViewTimeline')}</span>
             {sessionViewMode === 'timeline' ? <Check className="size-4 shrink-0 text-muted-foreground/70" /> : <span className="size-4 shrink-0" />}
           </button>
-          <div className="my-1 border-t border-border/10" />
+          <div className="my-1 border-t" style={{ borderColor: 'color-mix(in oklab, var(--muted-foreground) 50%, transparent)' }} />
           <div className={viewSortMenuSectionLabelClass}>{t('sortBy')}</div>
           <button
             type="button"

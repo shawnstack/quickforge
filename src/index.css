@@ -1450,6 +1450,7 @@ assistant-message :is(thinking-block, tool-message, markdown-block, streaming-me
   top: calc(50% + 3.9rem);
   left: 50%;
   width: min(var(--quickforge-chat-content-max-width), calc(100% - 2rem));
+  padding-inline: 1rem;
   transform: translateX(-50%);
   pointer-events: none;
 }
@@ -1704,6 +1705,10 @@ assistant-message :is(thinking-block, tool-message, markdown-block, streaming-me
   .quickforge-chat-panel-empty-host .quickforge-composer-dock,
   .quickforge-empty-project-picker {
     width: min(100% - 1.5rem, var(--quickforge-chat-content-max-width));
+  }
+
+  .quickforge-empty-project-picker {
+    padding-inline: 0;
   }
 
   .quickforge-empty-chat-title {

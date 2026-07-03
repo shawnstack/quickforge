@@ -2,6 +2,33 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.5.6] - 2026-07-03
+
+### Added
+
+- Added a sidebar entry for starting new chats and improved project-session controls for browsing and launching workspace conversations.
+- Added a workspace-style settings page that brings management views into a consolidated settings experience.
+
+### Changed
+
+- Refined sidebar, settings, empty-chat project picker, chat content width, icon stroke, and font-size controls for a more consistent interface.
+- Consolidated management pages into settings to reduce navigation fragmentation.
+
+### Fixed
+
+- Persisted pending approval state so interrupted approval flows survive state writes.
+- Isolated desktop runtime startup and polished the settings layout and tray icon behavior.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.5.6` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.5.6.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.5.6.tgz
+  ```
+
 ## [1.5.5] - 2026-07-02
 
 ### Added

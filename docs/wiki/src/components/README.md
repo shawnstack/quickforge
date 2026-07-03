@@ -40,7 +40,7 @@ components/
 │   └── toast.tsx                   # Toast 通知组件 (113 行)
 ├── ErrorBoundary.tsx               # 错误边界组件 (53 行)
 ├── project-directory-picker.tsx    # 项目目录选择器 (247 行)
-└── skills-dialog.tsx               # Skills 管理对话框 (410 行)
+└── skills-dialog.tsx               # Skills 管理面板与项目技能对话框
 ```
 
 ## 核心组件说明
@@ -62,7 +62,8 @@ components/
 - 搜索、删除、重命名会话
 - 折叠/展开项目分组
 - 无限滚动加载会话 (Intersection Observer)
-- 定时任务入口、Agents 管理入口、Skills 管理入口
+- 搜索入口、全局 Skills 设置入口
+- 项目分组和会话列表折叠/展开
 
 ### ScheduledTasksPage.tsx
 
@@ -81,11 +82,12 @@ components/
 - 创建/编辑弹窗支持用默认模型 AI 填充 Agent 名称、显示名称、描述和系统提示词，不自动修改工具白名单或运行限制
 - 展示内置 Agent Profiles，但内置项只读
 
-### skills-dialog.tsx (410 行)
+### skills-dialog.tsx
 
-- Skills 选择和搜索结果展示
-- 支持全局和项目级别 Skills
-- 搜索过滤
+- `SkillsManagerPanel` 提供可嵌入的 Skills 选择、搜索、阅读和保存能力
+- 全局 Skills 通过设置页 Skills tab 嵌入展示，左侧 Skills 图标会跳转到该设置 tab
+- 项目级 Skills 仍由项目菜单打开 `SkillsDialog` 对话框
+- 支持搜索过滤和读取 Skill 内容
 
 ### 聊天子模块
 

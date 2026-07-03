@@ -60,8 +60,8 @@ src/
 6. **终端 Dock** (`TerminalDock`) — 本地多开交互式终端，显示在对话区底部
 7. **工作区面板** (`WorkspaceInspector`) — 右侧统一工作区入口，包含概览、工作空间文件、浏览器预览和 Git 变更；Overview 展示当前 Session 产生/修改的文件，HTML 产物通过 Browser 打开
 8. **项目目录选择器** (`ProjectDirectoryPicker`)
-9. **Skills 对话框** (`SkillsDialog`)
-10. **设置工作区页** (`SettingsWorkspacePage`) — 页面式设置界面，左侧设置导航复用侧边栏视觉，右侧设置内容复用主对话区域视觉
+9. **Skills 管理** (`SkillsManagerPanel` / `SkillsDialog`) — 全局 Skills 从设置页进入，项目 Skills 仍由项目菜单打开对话框
+10. **设置工作区页** (`SettingsWorkspacePage`) — 页面式设置界面，左侧设置导航复用侧边栏视觉，右侧设置内容复用主对话区域视觉，包含 Agent、Skills、MCP、插件、定时任务等管理页
 11. **Toast 容器** — 后台任务通知
 12. **错误边界** (`ErrorBoundary`) — 全局错误捕获
 

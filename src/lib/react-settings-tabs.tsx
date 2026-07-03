@@ -11,6 +11,9 @@ const AgentProfilesPage = lazy(() =>
 const McpServersPanel = lazy(() =>
   import('@/components/mcp-servers-dialog').then((module) => ({ default: module.McpServersPanel })),
 )
+const SkillsManagerPanel = lazy(() =>
+  import('@/components/skills-dialog').then((module) => ({ default: module.SkillsManagerPanel })),
+)
 const PluginsPage = lazy(() =>
   import('@/components/plugins/PluginsPage').then((module) => ({ default: module.PluginsPage })),
 )
@@ -83,6 +86,14 @@ export function createAgentProfilesSettingsTab() {
   return createReactSettingsTab(t('agentsTab'), () => (
     <SettingsPanel>
       <AgentProfilesPage />
+    </SettingsPanel>
+  ))
+}
+
+export function createSkillsSettingsTab() {
+  return createReactSettingsTab(t('skills'), () => (
+    <SettingsPanel>
+      <SkillsManagerPanel active scope="global" embedded onSaved={() => undefined} />
     </SettingsPanel>
   ))
 }

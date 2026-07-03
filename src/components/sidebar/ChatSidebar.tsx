@@ -1073,7 +1073,7 @@ export const ChatSidebar = memo(function ChatSidebar({
         </>
       ) : null}
 
-      <div className="mt-auto shrink-0 border-t border-border px-3 py-3">
+      <div className="mt-auto shrink-0 px-3 py-3">
         {updateAvailable && latestVersion ? (
           <button
             type="button"
@@ -1197,7 +1197,7 @@ export const ChatSidebar = memo(function ChatSidebar({
             <span className="min-w-0 flex-1 truncate">{t('sidebarViewTimeline')}</span>
             {sessionViewMode === 'timeline' ? <Check className="size-4 shrink-0 text-muted-foreground/70" /> : <span className="size-4 shrink-0" />}
           </button>
-          <div className="my-1 border-t border-border/70" />
+          <div className="my-1 border-t border-border/10" />
           <div className={viewSortMenuSectionLabelClass}>{t('sortBy')}</div>
           <button
             type="button"

@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
 import type { SkillsScope } from '@/lib/types'
+import type { SettingsInitialTab } from '@/lib/settings-tabs'
 import type { ProjectInfo } from '@/lib/types'
 import type { WorkspaceFileResponse, WorkspaceInspectorFocusTarget, WorkspacePanelView } from '@/components/workspace/workspace-types'
 
@@ -29,7 +30,7 @@ export function useUIState() {
   const [inlineReaderError, setInlineReaderError] = useState<string>()
   const [firstUseGuideDismissed, setFirstUseGuideDismissed] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'language' | 'appearance' | 'defaults' | 'customModels' | 'agents' | 'mcp' | 'plugins' | 'scheduledTasks' | 'projectCommands' | 'backup' | 'archivedConversations' | 'service' | 'channels' | 'lanAccess' | 'about'>('defaults')
+  const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsInitialTab>('defaults')
   const [settingsCustomProvider, setSettingsCustomProvider] = useState<string>()
 
   const toggleProjectsCollapsed = useCallback(() => setProjectsCollapsed(v => !v), [])

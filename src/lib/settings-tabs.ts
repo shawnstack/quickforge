@@ -15,6 +15,7 @@ import {
   createMcpSettingsTab,
   createPluginsSettingsTab,
   createScheduledTasksSettingsTab,
+  createSkillsSettingsTab,
 } from '@/lib/react-settings-tabs'
 
 export type SettingsInitialTab =
@@ -23,6 +24,7 @@ export type SettingsInitialTab =
   | 'defaults'
   | 'customModels'
   | 'agents'
+  | 'skills'
   | 'mcp'
   | 'plugins'
   | 'scheduledTasks'
@@ -41,6 +43,7 @@ export function createSettingsTabs(customProvider?: string) {
     { key: 'defaults', tab: createDefaultOptionsSettingsTab() },
     { key: 'customModels', tab: createCustomProvidersOnlyTab(customProvider) },
     { key: 'agents', tab: createAgentProfilesSettingsTab() },
+    { key: 'skills', tab: createSkillsSettingsTab() },
     { key: 'mcp', tab: createMcpSettingsTab() },
     { key: 'plugins', tab: createPluginsSettingsTab() },
     { key: 'scheduledTasks', tab: createScheduledTasksSettingsTab() },

@@ -872,8 +872,8 @@ function MainApp() {
   const { setSkillsDialog, setSidebarOpen } = ui
 
   const openGlobalSkills = useCallback(() => {
-    setSkillsDialog({ scope: 'global' })
-  }, [setSkillsDialog])
+    openSettingsPage('skills')
+  }, [openSettingsPage])
 
   const openProjectSkills = useCallback((project: ProjectInfo) => {
     setSkillsDialog({ scope: 'project', project })

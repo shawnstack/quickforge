@@ -14,6 +14,16 @@ type SkillsDialogProps = {
   onSaved: (payload: { scope: SkillsScope; project?: ProjectInfo; projects?: ProjectInfo[]; selectedSkills: string[] }) => void
 }
 
+type SkillsManagerPanelProps = {
+  active?: boolean
+  scope: SkillsScope
+  project?: ProjectInfo
+  embedded?: boolean
+  closeOnSave?: boolean
+  onClose?: () => void
+  onSaved: (payload: { scope: SkillsScope; project?: ProjectInfo; projects?: ProjectInfo[]; selectedSkills: string[] }) => void
+}
+
 type SkillsPayload = {
   skills: SkillSummary[]
   selectedSkills: string[]
@@ -46,7 +56,15 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
   return payload as T
 }
 
-export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: SkillsDialogProps) {
+export function SkillsManagerPanel({
+  active = true,
+  scope,
+  project,
+  embedded = false,
+  closeOnSave = false,
+  onClose,
+  onSaved,
+}: SkillsManagerPanelProps) {
   const [skills, setSkills] = useState<SkillSummary[]>([])
   const [selectedSkills, setSelectedSkills] = useState<Set<string>>(() => new Set())
   const [query, setQuery] = useState('')
@@ -68,13 +86,13 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
     setReadingError('')
   }, [])
 
-  const closeDialog = useCallback(() => {
+  const closePanel = useCallback(() => {
     resetReadingState()
-    onOpenChange(false)
-  }, [onOpenChange, resetReadingState])
+    onClose?.()
+  }, [onClose, resetReadingState])
 
   useEffect(() => {
-    if (!open || (isProjectScope && !project)) return
+    if (!active || (isProjectScope && !project)) return
 
     let disposed = false
     const loadSkills = async () => {
@@ -101,22 +119,22 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
     return () => {
       disposed = true
     }
-  }, [open, project, isProjectScope])
+  }, [active, project, isProjectScope])
 
   useEffect(() => {
-    if (!open) return
+    if (!active || embedded) return
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         if (readingSkillName) {
           resetReadingState()
         } else if (!saving) {
-          closeDialog()
+          closePanel()
         }
       }
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
-  }, [closeDialog, open, saving, readingSkillName, resetReadingState])
+  }, [active, closePanel, embedded, saving, readingSkillName, resetReadingState])
 
   const filteredSkills = useMemo(() => {
     const text = query.trim().toLowerCase()
@@ -163,7 +181,7 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
     resetReadingState()
   }
 
-  if (!open || (isProjectScope && !project)) return null
+  if (!active || (isProjectScope && !project)) return null
 
   const toggleSkill = (skillName: string) => {
     setSelectedSkills((current) => {
@@ -196,7 +214,7 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
         projects: payload.projects,
         selectedSkills: payload.selectedSkills,
       })
-      closeDialog()
+      if (closeOnSave) closePanel()
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : t('failedToSaveSkills'))
     } finally {
@@ -214,12 +232,12 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className={embedded ? 'flex h-full min-h-0 flex-col' : 'fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'}
       onClick={(event) => {
-        if (event.target === event.currentTarget && !saving) closeDialog()
+        if (!embedded && event.target === event.currentTarget && !saving) closePanel()
       }}
     >
-      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-background shadow-quickforge">
+      <div className={embedded ? 'flex h-full min-h-0 flex-col overflow-hidden bg-background' : 'flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-background shadow-quickforge'}>
         {/* Header */}
         <div className="border-b border-border p-4">
           {isReading ? (
@@ -321,7 +339,7 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
                   <span>{t('availableSkills')}</span>
                   <span>{t('selectedSkillsCount', { count: selectedSkills.size })}</span>
                 </div>
-                <div className="max-h-[46vh] overflow-y-auto p-1">
+                <div className={embedded ? 'min-h-0 flex-1 overflow-y-auto p-1' : 'max-h-[46vh] overflow-y-auto p-1'}>
                   {loading ? (
                     <div className="flex items-center justify-center gap-2 px-3 py-8 text-sm text-muted-foreground">
                       <Loader2 className="size-4 animate-spin" />
@@ -397,9 +415,11 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
         {/* Footer */}
         {!isReading ? (
           <div className="flex justify-end gap-2 border-t border-border p-4">
-            <Button type="button" variant="outline" onClick={closeDialog} disabled={saving}>
-              {t('cancel')}
-            </Button>
+            {!embedded ? (
+              <Button type="button" variant="outline" onClick={closePanel} disabled={saving}>
+                {t('cancel')}
+              </Button>
+            ) : null}
             <Button type="button" onClick={save} disabled={loading || saving}>
               {saving ? t('saving') : t('save')}
             </Button>
@@ -407,5 +427,18 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
         ) : null}
       </div>
     </div>
+  )
+}
+
+export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: SkillsDialogProps) {
+  return (
+    <SkillsManagerPanel
+      active={open}
+      scope={scope}
+      project={project}
+      closeOnSave
+      onClose={() => onOpenChange(false)}
+      onSaved={onSaved}
+    />
   )
 }

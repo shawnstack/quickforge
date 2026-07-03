@@ -97,23 +97,25 @@ describe('settings normalizers', () => {
     expect(values.get('appearance-settings')).toEqual({ theme: 'dark' })
   })
 
-  it('normalizes font size settings with rounding and clamps', async () => {
+  it('normalizes font size settings with rounding, clamps, and legacy keys', async () => {
     expect(normalizeFontSizeSettings(null)).toEqual(DEFAULT_FONT_SIZE_SETTINGS)
-    expect(normalizeFontSizeSettings({ baseFontSizePx: 11, bodyFontSizePx: 20, messageFontSizePx: 16.6 })).toEqual({
-      baseFontSizePx: 12,
-      bodyFontSizePx: 16,
-      messageFontSizePx: 17,
+    expect(normalizeFontSizeSettings({ interfaceFontSizePx: 11, messageFontSizePx: 18.6 })).toEqual({
+      interfaceFontSizePx: 12,
+      messageFontSizePx: 18,
     })
-    expect(normalizeFontSizeSettings({ baseFontSizePx: 'bad', bodyFontSizePx: 13.4, messageFontSizePx: Number.NaN })).toEqual({
-      baseFontSizePx: DEFAULT_FONT_SIZE_SETTINGS.baseFontSizePx,
-      bodyFontSizePx: 13,
+    expect(normalizeFontSizeSettings({ interfaceFontSizePx: 'bad', messageFontSizePx: Number.NaN })).toEqual({
+      interfaceFontSizePx: DEFAULT_FONT_SIZE_SETTINGS.interfaceFontSizePx,
       messageFontSizePx: DEFAULT_FONT_SIZE_SETTINGS.messageFontSizePx,
+    })
+    expect(normalizeFontSizeSettings({ baseFontSizePx: 16, bodyFontSizePx: 13, messageFontSizePx: 20 })).toEqual({
+      interfaceFontSizePx: 16,
+      messageFontSizePx: 18,
     })
 
     const { storage, values } = createStorage({ 'font-size-settings': { baseFontSizePx: 20 } })
-    await expect(loadFontSizeSettings(storage)).resolves.toMatchObject({ baseFontSizePx: 18 })
-    await saveFontSizeSettings(storage, { baseFontSizePx: 13.7, bodyFontSizePx: 11.2, messageFontSizePx: 21 })
-    expect(values.get('font-size-settings')).toEqual({ baseFontSizePx: 14, bodyFontSizePx: 11, messageFontSizePx: 20 })
+    await expect(loadFontSizeSettings(storage)).resolves.toMatchObject({ interfaceFontSizePx: 18 })
+    await saveFontSizeSettings(storage, { interfaceFontSizePx: 13.7, messageFontSizePx: 21 })
+    expect(values.get('font-size-settings')).toEqual({ interfaceFontSizePx: 14, messageFontSizePx: 18 })
   })
 
   it('normalizes update check settings and decides startup checks', async () => {

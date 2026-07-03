@@ -2,16 +2,24 @@ import type { AppStorage } from '@earendil-works/pi-web-ui'
 
 const FONT_SIZE_SETTINGS_KEY = 'font-size-settings'
 
+export const FONT_SIZE_RANGE = {
+  min: 12,
+  max: 18,
+} as const
+
 export type FontSizeSettings = {
-  baseFontSizePx: number
-  bodyFontSizePx: number
+  interfaceFontSizePx: number
   messageFontSizePx: number
 }
 
 export const DEFAULT_FONT_SIZE_SETTINGS: FontSizeSettings = {
-  baseFontSizePx: 14,
-  bodyFontSizePx: 12,
-  messageFontSizePx: 16,
+  interfaceFontSizePx: 15,
+  messageFontSizePx: 15,
+}
+
+type RawFontSizeSettings = Partial<Record<keyof FontSizeSettings, unknown>> & {
+  baseFontSizePx?: unknown
+  bodyFontSizePx?: unknown
 }
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number) {
@@ -22,11 +30,20 @@ function clampNumber(value: unknown, fallback: number, min: number, max: number)
 
 export function normalizeFontSizeSettings(value: unknown): FontSizeSettings {
   if (!value || typeof value !== 'object') return { ...DEFAULT_FONT_SIZE_SETTINGS }
-  const settings = value as Partial<FontSizeSettings>
+  const settings = value as RawFontSizeSettings
   return {
-    baseFontSizePx: clampNumber(settings.baseFontSizePx, DEFAULT_FONT_SIZE_SETTINGS.baseFontSizePx, 12, 18),
-    bodyFontSizePx: clampNumber(settings.bodyFontSizePx, DEFAULT_FONT_SIZE_SETTINGS.bodyFontSizePx, 11, 16),
-    messageFontSizePx: clampNumber(settings.messageFontSizePx, DEFAULT_FONT_SIZE_SETTINGS.messageFontSizePx, 13, 20),
+    interfaceFontSizePx: clampNumber(
+      settings.interfaceFontSizePx ?? settings.baseFontSizePx ?? settings.bodyFontSizePx,
+      DEFAULT_FONT_SIZE_SETTINGS.interfaceFontSizePx,
+      FONT_SIZE_RANGE.min,
+      FONT_SIZE_RANGE.max,
+    ),
+    messageFontSizePx: clampNumber(
+      settings.messageFontSizePx,
+      DEFAULT_FONT_SIZE_SETTINGS.messageFontSizePx,
+      FONT_SIZE_RANGE.min,
+      FONT_SIZE_RANGE.max,
+    ),
   }
 }
 
@@ -34,9 +51,9 @@ export function applyFontSizeSettings(settings: FontSizeSettings) {
   if (typeof document === 'undefined') return
   const normalized = normalizeFontSizeSettings(settings)
   const root = document.documentElement
-  root.style.fontSize = `${normalized.baseFontSizePx}px`
-  root.style.setProperty('--text-sm', `${normalized.bodyFontSizePx}px`)
-  root.style.setProperty('--text-sm--line-height', String(16 / normalized.bodyFontSizePx))
+  root.style.fontSize = `${normalized.interfaceFontSizePx}px`
+  root.style.setProperty('--text-sm', `${normalized.interfaceFontSizePx}px`)
+  root.style.setProperty('--text-sm--line-height', String(20 / DEFAULT_FONT_SIZE_SETTINGS.interfaceFontSizePx))
   root.style.setProperty('--quickforge-message-font-size', `${normalized.messageFontSizePx}px`)
   root.style.setProperty('--quickforge-message-line-height', '1.625')
 }

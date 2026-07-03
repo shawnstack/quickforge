@@ -8,6 +8,7 @@ import {
 } from '@/lib/appearance-settings'
 import {
   DEFAULT_FONT_SIZE_SETTINGS,
+  FONT_SIZE_RANGE,
   applyFontSizeSettings,
   loadFontSizeSettings,
   normalizeFontSizeSettings,
@@ -22,45 +23,12 @@ const THEME_OPTIONS: { value: AppTheme; label: () => string }[] = [
   { value: 'dark', label: () => t('darkTheme') },
 ]
 
-type FontSizePresetValue = 'small' | 'default' | 'large' | 'extraLarge'
-type InterfaceFontSizeSettings = Pick<FontSizeSettings, 'baseFontSizePx' | 'bodyFontSizePx'>
-
-type InterfaceFontSizePreset = {
-  value: FontSizePresetValue
-  label: () => string
-  settings: InterfaceFontSizeSettings
-}
-
-type MessageFontSizePreset = {
-  value: FontSizePresetValue
-  label: () => string
-  messageFontSizePx: number
-}
-
-const INTERFACE_FONT_SIZE_PRESETS: InterfaceFontSizePreset[] = [
-  { value: 'small', label: () => t('fontSizeSmall'), settings: { baseFontSizePx: 13, bodyFontSizePx: 11 } },
-  { value: 'default', label: () => t('fontSizeDefault'), settings: DEFAULT_FONT_SIZE_SETTINGS },
-  { value: 'large', label: () => t('fontSizeLarge'), settings: { baseFontSizePx: 15, bodyFontSizePx: 13 } },
-  { value: 'extraLarge', label: () => t('fontSizeExtraLarge'), settings: { baseFontSizePx: 16, bodyFontSizePx: 14 } },
-]
-
-const MESSAGE_FONT_SIZE_PRESETS: MessageFontSizePreset[] = [
-  { value: 'small', label: () => t('fontSizeSmall'), messageFontSizePx: 14 },
-  { value: 'default', label: () => t('fontSizeDefault'), messageFontSizePx: DEFAULT_FONT_SIZE_SETTINGS.messageFontSizePx },
-  { value: 'large', label: () => t('fontSizeLarge'), messageFontSizePx: 17 },
-  { value: 'extraLarge', label: () => t('fontSizeExtraLarge'), messageFontSizePx: 18 },
-]
-
 class AppearanceSettingsTab extends SettingsTab {
   private theme: AppTheme = getCurrentTheme()
-  private baseFontSizePx = DEFAULT_FONT_SIZE_SETTINGS.baseFontSizePx
-  private bodyFontSizePx = DEFAULT_FONT_SIZE_SETTINGS.bodyFontSizePx
+  private interfaceFontSizePx = DEFAULT_FONT_SIZE_SETTINGS.interfaceFontSizePx
   private messageFontSizePx = DEFAULT_FONT_SIZE_SETTINGS.messageFontSizePx
-  private advancedFontSizeOpen = false
   private loading = true
-  private fontSizeSaved = false
   private error = ''
-  private fontSizePreviewTimer: ReturnType<typeof setTimeout> | null = null
 
   override getTabName(): string {
     return t('appearance')
@@ -69,14 +37,6 @@ class AppearanceSettingsTab extends SettingsTab {
   override async connectedCallback() {
     super.connectedCallback()
     await this.loadSettings()
-  }
-
-  override disconnectedCallback() {
-    super.disconnectedCallback()
-    if (this.fontSizePreviewTimer) {
-      clearTimeout(this.fontSizePreviewTimer)
-      this.fontSizePreviewTimer = null
-    }
   }
 
   private async loadSettings() {
@@ -91,10 +51,8 @@ class AppearanceSettingsTab extends SettingsTab {
         loadFontSizeSettings(storage),
       ])
       this.theme = appearance.theme
-      this.baseFontSizePx = fontSize.baseFontSizePx
-      this.bodyFontSizePx = fontSize.bodyFontSizePx
+      this.interfaceFontSizePx = fontSize.interfaceFontSizePx
       this.messageFontSizePx = fontSize.messageFontSizePx
-      this.advancedFontSizeOpen = !this.currentInterfaceFontSizePreset() || !this.currentMessageFontSizePreset()
     } catch (error) {
       this.error = error instanceof Error ? error.message : t('requestFailed')
     } finally {
@@ -120,104 +78,42 @@ class AppearanceSettingsTab extends SettingsTab {
 
   private currentFontSizeSettings(): FontSizeSettings {
     return normalizeFontSizeSettings({
-      baseFontSizePx: this.baseFontSizePx,
-      bodyFontSizePx: this.bodyFontSizePx,
+      interfaceFontSizePx: this.interfaceFontSizePx,
       messageFontSizePx: this.messageFontSizePx,
     })
   }
 
-  private currentInterfaceFontSizePreset() {
-    const settings = this.currentFontSizeSettings()
-    return INTERFACE_FONT_SIZE_PRESETS.find((preset) => (
-      preset.settings.baseFontSizePx === settings.baseFontSizePx
-        && preset.settings.bodyFontSizePx === settings.bodyFontSizePx
-    ))
-  }
-
-  private currentMessageFontSizePreset() {
-    const settings = this.currentFontSizeSettings()
-    return MESSAGE_FONT_SIZE_PRESETS.find((preset) => preset.messageFontSizePx === settings.messageFontSizePx)
-  }
-
-  private async applyAndSaveFontSize(settings: FontSizeSettings) {
+  private previewFontSize(settings: FontSizeSettings) {
     const normalized = normalizeFontSizeSettings(settings)
-    this.baseFontSizePx = normalized.baseFontSizePx
-    this.bodyFontSizePx = normalized.bodyFontSizePx
+    this.interfaceFontSizePx = normalized.interfaceFontSizePx
     this.messageFontSizePx = normalized.messageFontSizePx
-    this.fontSizeSaved = false
     applyFontSizeSettings(normalized)
     this.requestUpdate()
+  }
 
+  private updateInterfaceFontSize(value: string) {
+    this.previewFontSize({
+      ...this.currentFontSizeSettings(),
+      interfaceFontSizePx: Number(value) || DEFAULT_FONT_SIZE_SETTINGS.interfaceFontSizePx,
+    })
+  }
+
+  private updateMessageFontSize(value: string) {
+    this.previewFontSize({
+      ...this.currentFontSizeSettings(),
+      messageFontSizePx: Number(value) || DEFAULT_FONT_SIZE_SETTINGS.messageFontSizePx,
+    })
+  }
+
+  private async saveFontSize() {
     try {
-      await saveFontSizeSettings(getAppStorage(), normalized)
-      this.fontSizeSaved = true
+      await saveFontSizeSettings(getAppStorage(), this.currentFontSizeSettings())
       this.error = ''
       this.requestUpdate()
     } catch (error) {
       this.error = error instanceof Error ? error.message : t('requestFailed')
       this.requestUpdate()
     }
-  }
-
-  private async selectInterfaceFontSizePreset(preset: InterfaceFontSizePreset) {
-    this.advancedFontSizeOpen = false
-    await this.applyAndSaveFontSize({
-      ...this.currentFontSizeSettings(),
-      ...preset.settings,
-    })
-  }
-
-  private async selectMessageFontSizePreset(preset: MessageFontSizePreset) {
-    this.advancedFontSizeOpen = false
-    await this.applyAndSaveFontSize({
-      ...this.currentFontSizeSettings(),
-      messageFontSizePx: preset.messageFontSizePx,
-    })
-  }
-
-  // Advanced font size: preview live on input, persist on explicit save.
-  // The numeric value updates instantly (keeps the input responsive), but the
-  // expensive live preview — applying global CSS variables (forced reflow) plus
-  // a re-render — is debounced so rapid typing doesn't trigger a layout storm
-  // on every keystroke. Final value & explicit save are unaffected.
-  private scheduleFontSizePreview() {
-    if (this.fontSizePreviewTimer) clearTimeout(this.fontSizePreviewTimer)
-    this.fontSizePreviewTimer = setTimeout(() => {
-      this.fontSizePreviewTimer = null
-      applyFontSizeSettings(this.currentFontSizeSettings())
-      this.requestUpdate()
-    }, 120)
-  }
-
-  private updateBaseFontSize(value: string) {
-    this.baseFontSizePx = Number(value) || DEFAULT_FONT_SIZE_SETTINGS.baseFontSizePx
-    this.fontSizeSaved = false
-    this.scheduleFontSizePreview()
-  }
-
-  private updateBodyFontSize(value: string) {
-    this.bodyFontSizePx = Number(value) || DEFAULT_FONT_SIZE_SETTINGS.bodyFontSizePx
-    this.fontSizeSaved = false
-    this.scheduleFontSizePreview()
-  }
-
-  private updateMessageFontSize(value: string) {
-    this.messageFontSizePx = Number(value) || DEFAULT_FONT_SIZE_SETTINGS.messageFontSizePx
-    this.fontSizeSaved = false
-    this.scheduleFontSizePreview()
-  }
-
-  private async saveFontSize() {
-    await this.applyAndSaveFontSize(this.currentFontSizeSettings())
-  }
-
-  private async resetFontSize() {
-    await this.applyAndSaveFontSize(DEFAULT_FONT_SIZE_SETTINGS)
-  }
-
-  private toggleAdvancedFontSize() {
-    this.advancedFontSizeOpen = !this.advancedFontSizeOpen
-    this.requestUpdate()
   }
 
   private renderThemeOption(option: { value: AppTheme; label: () => string }) {
@@ -269,29 +165,41 @@ class AppearanceSettingsTab extends SettingsTab {
     `
   }
 
-  private renderInterfaceFontSizePreset(preset: InterfaceFontSizePreset) {
-    const selected = this.currentInterfaceFontSizePreset()?.value === preset.value
-    return this.renderFontSizePresetButton(selected, preset.label(), () => this.selectInterfaceFontSizePreset(preset))
+  private getFontSizeRangeProgress(value: number) {
+    return ((value - FONT_SIZE_RANGE.min) / (FONT_SIZE_RANGE.max - FONT_SIZE_RANGE.min)) * 100
   }
 
-  private renderMessageFontSizePreset(preset: MessageFontSizePreset) {
-    const selected = this.currentMessageFontSizePreset()?.value === preset.value
-    return this.renderFontSizePresetButton(selected, preset.label(), () => this.selectMessageFontSizePreset(preset))
-  }
-
-  private renderFontSizePresetButton(selected: boolean, label: string, onClick: () => void) {
+  private renderFontSizeSlider(
+    label: string,
+    note: string | null,
+    value: number,
+    onInput: (value: string) => void,
+  ) {
     return html`
-      <button
-        type="button"
-        class="rounded-md border px-3 py-2 text-sm transition-colors ${
-          selected
-            ? 'border-primary bg-primary text-primary-foreground'
-            : 'border-border bg-background text-foreground hover:bg-accent'
-        }"
-        @click=${onClick}
-      >
-        ${label}
-      </button>
+      <label class="grid gap-2 text-sm">
+        <div class="flex items-center justify-between gap-3">
+          <span class="inline-flex items-center gap-1.5 text-foreground">
+            ${label}
+            ${note ? html`<quickforge-info-tip .label=${note}></quickforge-info-tip>` : null}
+          </span>
+          <span class="rounded-md bg-muted px-2 py-0.5 font-mono text-xs text-foreground">${value}px</span>
+        </div>
+        <input
+          class="quickforge-font-size-slider w-full"
+          style=${`--quickforge-font-size-slider-progress: ${this.getFontSizeRangeProgress(value)}%`}
+          type="range"
+          min=${String(FONT_SIZE_RANGE.min)}
+          max=${String(FONT_SIZE_RANGE.max)}
+          step="1"
+          .value=${String(value)}
+          @input=${(event: Event) => onInput((event.target as HTMLInputElement).value)}
+          @change=${() => this.saveFontSize()}
+        />
+        <div class="flex justify-between text-xs text-muted-foreground">
+          <span>${FONT_SIZE_RANGE.min}px</span>
+          <span>${FONT_SIZE_RANGE.max}px</span>
+        </div>
+      </label>
     `
   }
 
@@ -299,9 +207,6 @@ class AppearanceSettingsTab extends SettingsTab {
     if (this.loading) {
       return html`<div class="text-sm text-muted-foreground">${t('loading')}</div>`
     }
-
-    const currentInterfacePreset = this.currentInterfaceFontSizePreset()
-    const currentMessagePreset = this.currentMessageFontSizePreset()
 
     return html`
       <div class="flex flex-col gap-6">
@@ -332,106 +237,19 @@ class AppearanceSettingsTab extends SettingsTab {
             </h4>
           </div>
 
-          <div class="grid gap-2">
-            <div class="flex items-center gap-2 text-sm text-foreground">
-              <span>${t('interfaceFontSize')}</span>
-              ${currentInterfacePreset ? null : html`<span class="text-xs text-muted-foreground">${t('customFontSize')}</span>`}
-            </div>
-            <div class="grid max-w-md grid-cols-2 gap-2 sm:grid-cols-4">
-              ${INTERFACE_FONT_SIZE_PRESETS.map((preset) => this.renderInterfaceFontSizePreset(preset))}
-            </div>
-          </div>
+          ${this.renderFontSizeSlider(
+            t('interfaceFontSize'),
+            null,
+            this.interfaceFontSizePx,
+            (value) => this.updateInterfaceFontSize(value),
+          )}
 
-          <div class="grid gap-2">
-            <div class="flex items-center gap-2 text-sm text-foreground">
-              <span>${t('messageFontSize')}</span>
-              <quickforge-info-tip .label=${t('messageFontSizeNote')}></quickforge-info-tip>
-              ${currentMessagePreset ? null : html`<span class="text-xs text-muted-foreground">${t('customFontSize')}</span>`}
-            </div>
-            <div class="grid max-w-md grid-cols-2 gap-2 sm:grid-cols-4">
-              ${MESSAGE_FONT_SIZE_PRESETS.map((preset) => this.renderMessageFontSizePreset(preset))}
-            </div>
-          </div>
-
-          <button
-            type="button"
-            class="inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-            @click=${() => this.toggleAdvancedFontSize()}
-          >
-            <span>${this.advancedFontSizeOpen ? '▾' : '▸'}</span>
-            <span>${t('advancedFontSizeSettings')}</span>
-          </button>
-
-          ${this.advancedFontSizeOpen
-            ? html`
-                <div class="grid gap-3 border-t border-border pt-3">
-                  <div class="grid gap-3 md:grid-cols-3">
-                    <label class="grid max-w-xs gap-1.5 text-sm">
-                      <span class="text-foreground">${t('baseFontSize')}</span>
-                      <input
-                        class="rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        type="number"
-                        min="12"
-                        max="18"
-                        step="1"
-                        .value=${String(this.baseFontSizePx)}
-                        @input=${(event: Event) => this.updateBaseFontSize((event.target as HTMLInputElement).value)}
-                      />
-                    </label>
-                    <label class="grid max-w-xs gap-1.5 text-sm">
-                      <span class="inline-flex items-center gap-1.5 text-foreground">
-                        ${t('bodyFontSize')}
-                        <quickforge-info-tip .label=${t('bodyFontSizeNote')}></quickforge-info-tip>
-                      </span>
-                      <input
-                        class="rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        type="number"
-                        min="11"
-                        max="16"
-                        step="1"
-                        .value=${String(this.bodyFontSizePx)}
-                        @input=${(event: Event) => this.updateBodyFontSize((event.target as HTMLInputElement).value)}
-                      />
-                    </label>
-                    <label class="grid max-w-xs gap-1.5 text-sm">
-                      <span class="inline-flex items-center gap-1.5 text-foreground">
-                        ${t('messageFontSize')}
-                        <quickforge-info-tip .label=${t('messageFontSizeNote')}></quickforge-info-tip>
-                      </span>
-                      <input
-                        class="rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        type="number"
-                        min="13"
-                        max="20"
-                        step="1"
-                        .value=${String(this.messageFontSizePx)}
-                        @input=${(event: Event) => this.updateMessageFontSize((event.target as HTMLInputElement).value)}
-                      />
-                    </label>
-                  </div>
-                  <div class="flex flex-wrap items-center gap-2">
-                    <button
-                      class="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground"
-                      type="button"
-                      @click=${() => this.saveFontSize()}
-                    >
-                      ${t('save')}
-                    </button>
-                    <button
-                      class="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground hover:bg-accent"
-                      type="button"
-                      @click=${() => this.resetFontSize()}
-                    >
-                      ${t('restoreDefault')}
-                    </button>
-                  </div>
-                </div>
-              `
-            : null}
-
-          ${this.fontSizeSaved
-            ? html`<span class="text-sm text-muted-foreground">${t('fontSizeSaved')}</span>`
-            : null}
+          ${this.renderFontSizeSlider(
+            t('messageFontSize'),
+            t('messageFontSizeNote'),
+            this.messageFontSizePx,
+            (value) => this.updateMessageFontSize(value),
+          )}
         </div>
 
         ${this.error ? html`<span class="text-sm text-destructive">${this.error}</span>` : null}

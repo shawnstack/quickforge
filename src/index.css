@@ -3,8 +3,8 @@
 
 @theme {
   --radius: 0.5rem;
-  --text-sm: 12px;
-  --text-sm--line-height: calc(16 / 12);
+  --text-sm: 15px;
+  --text-sm--line-height: calc(20 / 15);
   /* Design-language light shadow token. Use via `shadow-quickforge` for inputs, hover/active feedback, and popovers. */
   --shadow-quickforge: 0 10px 26px -18px rgb(15 23 42 / 0.48);
 }
@@ -53,7 +53,7 @@
   }
 
   html {
-    font-size: 14px;
+    font-size: 15px;
   }
 
   body {
@@ -448,7 +448,7 @@ user-message .user-message-container,
 
 .quickforge-assistant-message markdown-block,
 .quickforge-user-message markdown-block {
-  font-size: var(--quickforge-message-font-size, 16px);
+  font-size: var(--quickforge-message-font-size, 15px);
   overflow-wrap: anywhere;
 }
 
@@ -1713,5 +1713,67 @@ assistant-message :is(thinking-block, tool-message, markdown-block, streaming-me
     margin-top: 0.35rem;
     box-shadow: none;
   }
+}
+
+.quickforge-font-size-slider {
+  height: 0.35rem;
+  border-radius: 9999px;
+  appearance: none;
+  background: linear-gradient(
+    to right,
+    color-mix(in oklab, var(--foreground) 82%, transparent) 0%,
+    color-mix(in oklab, var(--foreground) 82%, transparent) var(--quickforge-font-size-slider-progress, 50%),
+    color-mix(in oklab, var(--muted-foreground) 26%, transparent) var(--quickforge-font-size-slider-progress, 50%),
+    color-mix(in oklab, var(--muted-foreground) 26%, transparent) 100%
+  );
+  outline: none;
+}
+
+.quickforge-font-size-slider::-webkit-slider-runnable-track {
+  height: 0.35rem;
+  border-radius: 9999px;
+  background: transparent;
+}
+
+.quickforge-font-size-slider::-webkit-slider-thumb {
+  width: 1rem;
+  height: 1rem;
+  margin-top: -0.325rem;
+  border: 0;
+  border-radius: 9999px;
+  appearance: none;
+  background: var(--foreground);
+  cursor: pointer;
+}
+
+.quickforge-font-size-slider::-moz-range-track {
+  height: 0.35rem;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--muted-foreground) 26%, transparent);
+}
+
+.quickforge-font-size-slider::-moz-range-progress {
+  height: 0.35rem;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--foreground) 82%, transparent);
+}
+
+.quickforge-font-size-slider::-moz-range-thumb {
+  width: 1rem;
+  height: 1rem;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--foreground);
+  cursor: pointer;
+}
+
+.quickforge-font-size-slider:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid color-mix(in oklab, var(--foreground) 36%, transparent);
+  outline-offset: 2px;
+}
+
+.quickforge-font-size-slider:focus-visible::-moz-range-thumb {
+  outline: 2px solid color-mix(in oklab, var(--foreground) 36%, transparent);
+  outline-offset: 2px;
 }
 

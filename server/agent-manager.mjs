@@ -41,6 +41,8 @@ import {
   safeReadTools,
   pendingApprovals,
   pendingAutoCompactApprovals,
+  getPendingApprovalForSession,
+  getPendingAutoCompactApprovalForSession,
   commandToolPermissionError,
   createCommandToolPermissions,
 } from './approval-store.mjs'
@@ -166,6 +168,8 @@ function createApprovalPromise(session, toolCallId, toolName, args, source) {
   if (!session) return { block: true, reason: 'No active session for tool approval.' }
   return new Promise((resolve, reject) => {
     let settled = false
+    const requestedAt = Date.now()
+    const expiresAt = requestedAt + APPROVAL_TIMEOUT_MS
 
     const timeout = setTimeout(() => {
       if (settled) return
@@ -215,6 +219,8 @@ function createApprovalPromise(session, toolCallId, toolName, args, source) {
       toolName,
       args,
       source,
+      requestedAt,
+      expiresAt,
     })
 
     emitSessionEvent(session, {
@@ -233,6 +239,8 @@ function createAutoCompactApprovalPromise(session, details = {}) {
   const approvalId = randomUUID()
   return new Promise((resolve, reject) => {
     let settled = false
+    const requestedAt = Date.now()
+    const expiresAt = requestedAt + APPROVAL_TIMEOUT_MS
     const timeout = setTimeout(() => {
       if (settled) return
       settled = true
@@ -277,6 +285,11 @@ function createAutoCompactApprovalPromise(session, details = {}) {
         reject(err)
       },
       sessionId: session.sessionId,
+      usage: details.usage,
+      thresholdPercent: details.settings?.thresholdPercent,
+      keepRecentTurns: details.settings?.keepRecentTurns,
+      requestedAt,
+      expiresAt,
     })
 
     emitSessionEvent(session, {
@@ -1930,6 +1943,8 @@ export function getSessionState(sessionId) {
     messages: session.agent.state.messages,
     contextCompaction: session.contextCompaction,
     contextUsage: getSessionContextUsage(session),
+    pendingToolApproval: getPendingApprovalForSession(session.sessionId),
+    pendingAutoCompactApproval: getPendingAutoCompactApprovalForSession(session.sessionId),
     isStreaming: session.agent.state.isStreaming,
     errorMessage: session.agent.state.errorMessage,
   }

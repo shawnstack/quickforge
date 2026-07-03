@@ -3,7 +3,7 @@ import {
   ApiKeyPromptDialog,
   ChatPanel,
 } from '@earendil-works/pi-web-ui'
-import type { ServerAgent, ServerAgentContextCompaction, ServerAgentContextUsage } from '@/lib/server-agent'
+import type { ServerAgent, ServerAgentContextCompaction, ServerAgentContextUsage, ServerAgentPendingAutoCompactApproval, ServerAgentPendingToolApproval } from '@/lib/server-agent'
 import type { SharedServerAgent } from '@/lib/shared-server-agent'
 import type { DeferredSessionAgent } from '@/lib/deferred-session-agent'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
@@ -33,6 +33,8 @@ type AgentWithContextCompaction = AgentLike & {
   state: AgentLike['state'] & {
     contextCompaction?: ServerAgentContextCompaction | null
     contextUsage?: ServerAgentContextUsage | null
+    pendingToolApproval?: ServerAgentPendingToolApproval | null
+    pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
   }
 }
 
@@ -585,15 +587,18 @@ export function ChatPanelHost({
       // Render or remove approval card based on pending state.
       // Must match the current session — otherwise a pending approval from a
       // different session would leak into this panel.
-      const pending = pendingApprovalRef.current
-      if (pending && pending.sessionId === agent.sessionId) {
+      const pending = pendingApprovalRef.current ?? (() => {
+        const statePending = (agent as AgentWithContextCompaction).state.pendingToolApproval
+        return statePending ? { ...statePending, sessionId: agent.sessionId } : null
+      })()
+      if (pending && pending.sessionId === agent.sessionId && typeof pending.toolCallId === 'string' && typeof pending.toolName === 'string') {
         // Capture the toolCallId now — propsRef.current may change by click time
         const capturedToolCallId = pending.toolCallId
         injectApprovalCard(
           {
             panel,
-            onApprove: async () => { await propsRef.current.onApproveToolCall(capturedToolCallId); pendingApprovalRef.current = null; removeApprovalCard(panel) },
-            onReject: async () => { await propsRef.current.onRejectToolCall(capturedToolCallId); pendingApprovalRef.current = null; removeApprovalCard(panel) },
+            onApprove: async () => { await propsRef.current.onApproveToolCall(capturedToolCallId); pendingApprovalRef.current = null; (agent as AgentWithContextCompaction).state.pendingToolApproval = null; removeApprovalCard(panel) },
+            onReject: async () => { await propsRef.current.onRejectToolCall(capturedToolCallId); pendingApprovalRef.current = null; (agent as AgentWithContextCompaction).state.pendingToolApproval = null; removeApprovalCard(panel) },
           },
           pending.toolName,
           capturedToolCallId,
@@ -601,14 +606,17 @@ export function ChatPanelHost({
           pending.source,
         )
       } else {
-        const pendingAutoCompact = pendingAutoCompactApprovalRef.current
+        const pendingAutoCompact = pendingAutoCompactApprovalRef.current ?? (() => {
+          const statePending = (agent as AgentWithContextCompaction).state.pendingAutoCompactApproval
+          return statePending ? { ...statePending, sessionId: agent.sessionId } : null
+        })()
         if (pendingAutoCompact && pendingAutoCompact.sessionId === agent.sessionId) {
           const capturedApprovalId = pendingAutoCompact.approvalId
           injectApprovalCard(
             {
               panel,
-              onApprove: async () => { await propsRef.current.onApproveAutoCompact?.(capturedApprovalId); pendingAutoCompactApprovalRef.current = null; removeApprovalCard(panel) },
-              onReject: async () => { await propsRef.current.onRejectAutoCompact?.(capturedApprovalId); pendingAutoCompactApprovalRef.current = null; removeApprovalCard(panel) },
+              onApprove: async () => { await propsRef.current.onApproveAutoCompact?.(capturedApprovalId); pendingAutoCompactApprovalRef.current = null; (agent as AgentWithContextCompaction).state.pendingAutoCompactApproval = null; removeApprovalCard(panel) },
+              onReject: async () => { await propsRef.current.onRejectAutoCompact?.(capturedApprovalId); pendingAutoCompactApprovalRef.current = null; (agent as AgentWithContextCompaction).state.pendingAutoCompactApproval = null; removeApprovalCard(panel) },
             },
             t('contextManagement'),
             capturedApprovalId,

@@ -18,7 +18,7 @@ export type ToolApprovalSource = {
 const APPROVAL_CARD_SELECTOR = '.quickforge-approval-card'
 
 function parseMcpToolName(toolName: string) {
-  if (!toolName.startsWith('mcp__')) return null
+  if (typeof toolName !== 'string' || !toolName.startsWith('mcp__')) return null
   const rest = toolName.slice('mcp__'.length)
   const separatorIndex = rest.indexOf('__')
   if (separatorIndex <= 0 || separatorIndex >= rest.length - 2) return null

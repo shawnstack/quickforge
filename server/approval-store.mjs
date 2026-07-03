@@ -41,11 +41,43 @@ export const safeReadTools = new Set([
 // Pending approval queues
 // ---------------------------------------------------------------------------
 
-/** toolCallId → { resolve, reject, sessionId, toolName, args, source, timeout } */
+/** toolCallId → { resolve, reject, sessionId, toolName, args, source, timeout, requestedAt, expiresAt } */
 export const pendingApprovals = new Map()
 
-/** approvalId → { resolve, reject, sessionId, timeout } */
+/** approvalId → { resolve, reject, sessionId, timeout, usage, thresholdPercent, keepRecentTurns, requestedAt, expiresAt } */
 export const pendingAutoCompactApprovals = new Map()
+
+export function getPendingApprovalForSession(sessionId) {
+  for (const [toolCallId, approval] of pendingApprovals) {
+    if (approval.sessionId === sessionId) {
+      return {
+        toolCallId,
+        toolName: approval.toolName,
+        args: approval.args,
+        source: approval.source,
+        requestedAt: approval.requestedAt,
+        expiresAt: approval.expiresAt,
+      }
+    }
+  }
+  return null
+}
+
+export function getPendingAutoCompactApprovalForSession(sessionId) {
+  for (const [approvalId, approval] of pendingAutoCompactApprovals) {
+    if (approval.sessionId === sessionId) {
+      return {
+        approvalId,
+        usage: approval.usage,
+        thresholdPercent: approval.thresholdPercent,
+        keepRecentTurns: approval.keepRecentTurns,
+        requestedAt: approval.requestedAt,
+        expiresAt: approval.expiresAt,
+      }
+    }
+  }
+  return null
+}
 
 // ---------------------------------------------------------------------------
 // Permission helpers

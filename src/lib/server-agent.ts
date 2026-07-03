@@ -232,6 +232,29 @@ export type ServerAgentContextUsage = {
   breakdown?: ServerAgentContextUsageBreakdown
 }
 
+export type ServerAgentPendingToolApproval = {
+  toolCallId: string
+  toolName: string
+  args: Record<string, unknown>
+  source?: {
+    type?: string
+    subagent?: string
+    label?: string
+    sessionId?: string
+  }
+  requestedAt?: number
+  expiresAt?: number
+}
+
+export type ServerAgentPendingAutoCompactApproval = {
+  approvalId: string
+  usage?: { percent?: number }
+  thresholdPercent?: number
+  keepRecentTurns?: number
+  requestedAt?: number
+  expiresAt?: number
+}
+
 // ---------------------------------------------------------------------------
 // ServerAgent - Agent-compatible proxy that delegates to the server
 // ---------------------------------------------------------------------------
@@ -251,6 +274,8 @@ export type ServerAgentConfig = {
     errorMessage?: string
     contextCompaction?: ServerAgentContextCompaction | null
     contextUsage?: ServerAgentContextUsage | null
+    pendingToolApproval?: ServerAgentPendingToolApproval | null
+    pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
     stateVersion?: number
   }
 }
@@ -297,9 +322,9 @@ export class ServerAgent {
     errorMessage?: string
     contextCompaction?: ServerAgentContextCompaction | null
     contextUsage?: ServerAgentContextUsage | null
+    pendingToolApproval?: ServerAgentPendingToolApproval | null
+    pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
   }
-
-  // --- AgentInterface expects these properties ---
   streamFn = streamSimple
   getApiKey?: (provider: string) => Promise<string | undefined>
   sessionId: string
@@ -346,6 +371,8 @@ export class ServerAgent {
       errorMessage: init.errorMessage as string | undefined,
       contextCompaction: init.contextCompaction ?? null,
       contextUsage: init.contextUsage ?? null,
+      pendingToolApproval: init.pendingToolApproval ?? null,
+      pendingAutoCompactApproval: init.pendingAutoCompactApproval ?? null,
     }
 
     // Proxy that auto-syncs thinkingLevel changes to the server
@@ -486,6 +513,8 @@ export class ServerAgent {
     this.state.isStreaming = false
     this.state.streamingMessage = undefined
     this.state.pendingToolCalls = new Set()
+    this.state.pendingToolApproval = null
+    this.state.pendingAutoCompactApproval = null
   }
 
   /**
@@ -589,6 +618,9 @@ export class ServerAgent {
       const payload = await res.json().catch(() => null) as { error?: string } | null
       throw new Error(payload?.error || `Failed to approve tool call: HTTP ${res.status}`)
     }
+    if (this.state.pendingToolApproval?.toolCallId === toolCallId) {
+      this.state.pendingToolApproval = null
+    }
   }
 
   /**
@@ -605,6 +637,9 @@ export class ServerAgent {
       const payload = await res.json().catch(() => null) as { error?: string } | null
       throw new Error(payload?.error || `Failed to reject tool call: HTTP ${res.status}`)
     }
+    if (this.state.pendingToolApproval?.toolCallId === toolCallId) {
+      this.state.pendingToolApproval = null
+    }
   }
 
   async approveAutoCompact(approvalId: string): Promise<void> {
@@ -618,6 +653,9 @@ export class ServerAgent {
       const payload = await res.json().catch(() => null) as { error?: string } | null
       throw new Error(payload?.error || `Failed to approve auto compact: HTTP ${res.status}`)
     }
+    if (this.state.pendingAutoCompactApproval?.approvalId === approvalId) {
+      this.state.pendingAutoCompactApproval = null
+    }
   }
 
   async rejectAutoCompact(approvalId: string): Promise<void> {
@@ -630,6 +668,9 @@ export class ServerAgent {
     if (!res.ok) {
       const payload = await res.json().catch(() => null) as { error?: string } | null
       throw new Error(payload?.error || `Failed to reject auto compact: HTTP ${res.status}`)
+    }
+    if (this.state.pendingAutoCompactApproval?.approvalId === approvalId) {
+      this.state.pendingAutoCompactApproval = null
     }
   }
 
@@ -657,7 +698,7 @@ export class ServerAgent {
         // Guard against SSE reconnect overwriting client messages with a stale
         // server snapshot: only accept server messages if the client has none
         // (initial load) or if the server has at least as many messages.
-        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; accessMode?: AgentAccessMode; yoloMode?: boolean; isStreaming?: boolean; status?: string; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null }
+        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; accessMode?: AgentAccessMode; yoloMode?: boolean; isStreaming?: boolean; status?: string; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null; pendingToolApproval?: ServerAgentPendingToolApproval | null; pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null }
         if (s.systemPrompt !== undefined) {
           this.state.systemPrompt = s.systemPrompt
         }
@@ -689,6 +730,12 @@ export class ServerAgent {
         } else if (s.messages) {
           this.state.contextUsage = null
         }
+        if (s.pendingToolApproval !== undefined) {
+          this.state.pendingToolApproval = s.pendingToolApproval
+        }
+        if (s.pendingAutoCompactApproval !== undefined) {
+          this.state.pendingAutoCompactApproval = s.pendingAutoCompactApproval
+        }
         let wasStreaming = this.state.isStreaming
         if (s.isStreaming !== undefined) {
           wasStreaming = this.state.isStreaming
@@ -713,6 +760,8 @@ export class ServerAgent {
       case 'agent_start': {
         this.state.isStreaming = true
         this.state.errorMessage = undefined
+        this.state.pendingToolApproval = null
+        this.state.pendingAutoCompactApproval = null
         this.startStateWatchdog()
         break
       }
@@ -731,6 +780,8 @@ export class ServerAgent {
           this.state.contextUsage = endEvent.contextUsage !== undefined ? endEvent.contextUsage : null
           this.state.isStreaming = false
           this.state.streamingMessage = undefined
+          this.state.pendingToolApproval = null
+          this.state.pendingAutoCompactApproval = null
           if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
           this.stateVersion++
           this.emitToListeners(event as unknown as AgentEvent)
@@ -741,6 +792,8 @@ export class ServerAgent {
         void this.refreshStateFromServer({ forceMessages: true }).finally(() => {
           this.state.isStreaming = false
           this.state.streamingMessage = undefined
+          this.state.pendingToolApproval = null
+          this.state.pendingAutoCompactApproval = null
           if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
           this.emitToListeners(event as unknown as AgentEvent)
         })
@@ -816,6 +869,8 @@ export class ServerAgent {
         const errMsg = (event as { error?: string }).error
         this.state.errorMessage = errMsg || 'Unknown error'
         this.state.isStreaming = false
+        this.state.pendingToolApproval = null
+        this.state.pendingAutoCompactApproval = null
         break
       }
 
@@ -875,11 +930,27 @@ export class ServerAgent {
       case 'message_start':
       case 'message_update':
       case 'turn_start':
-      case 'tool_approval_required':
       case 'auto_compact_threshold_reached':
-      case 'auto_compact_approval_required':
         // Forward as-is
         break
+
+      case 'tool_approval_required': {
+        const approvalEvent = event as unknown as ServerAgentPendingToolApproval
+        if (typeof approvalEvent.toolCallId === 'string' && typeof approvalEvent.toolName === 'string') {
+          this.state.pendingToolApproval = approvalEvent
+          this.state.pendingAutoCompactApproval = null
+        }
+        break
+      }
+
+      case 'auto_compact_approval_required': {
+        const approvalEvent = event as unknown as ServerAgentPendingAutoCompactApproval
+        if (typeof approvalEvent.approvalId === 'string') {
+          this.state.pendingAutoCompactApproval = approvalEvent
+          this.state.pendingToolApproval = null
+        }
+        break
+      }
     }
 
     // Forward event to subscribers
@@ -1046,6 +1117,12 @@ export class ServerAgent {
       if (state.contextUsage !== undefined) {
         this.state.contextUsage = state.contextUsage
       }
+      if (state.pendingToolApproval !== undefined) {
+        this.state.pendingToolApproval = state.pendingToolApproval
+      }
+      if (state.pendingAutoCompactApproval !== undefined) {
+        this.state.pendingAutoCompactApproval = state.pendingAutoCompactApproval
+      }
       if (state.isStreaming !== undefined) {
         const wasStreaming = this.state.isStreaming
         this.state.isStreaming = Boolean(state.isStreaming)
@@ -1056,6 +1133,8 @@ export class ServerAgent {
           }
         } else {
           this.stopStateWatchdog()
+          this.state.pendingToolApproval = null
+          this.state.pendingAutoCompactApproval = null
         }
         if (options?.notify && wasStreaming && !state.isStreaming) {
           this.stateVersion++
@@ -1142,6 +1221,8 @@ export class ServerAgent {
         errorMessage: serverState.errorMessage as string | undefined,
         contextCompaction: serverState.contextCompaction as ServerAgentContextCompaction | null | undefined,
         contextUsage: serverState.contextUsage as ServerAgentContextUsage | null | undefined,
+        pendingToolApproval: serverState.pendingToolApproval as ServerAgentPendingToolApproval | null | undefined,
+        pendingAutoCompactApproval: serverState.pendingAutoCompactApproval as ServerAgentPendingAutoCompactApproval | null | undefined,
         stateVersion: serverState.stateVersion as number | undefined,
       },
     })

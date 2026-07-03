@@ -1046,7 +1046,7 @@ function MainApp() {
         title="终端"
         className={terminalOpen ? 'bg-accent text-accent-foreground' : undefined}
       >
-        <SquareTerminal className="size-4" />
+        <SquareTerminal className="size-[18px]" />
       </Button>
       <Button
         variant="ghost"
@@ -1063,7 +1063,7 @@ function MainApp() {
           ui.workspaceInspectorOpen ? 'bg-accent text-accent-foreground' : undefined,
         )}
       >
-        <PanelRight className="size-4" />
+        <PanelRight className="size-[18px]" />
       </Button>
     </div>
     )}
@@ -1217,7 +1217,7 @@ function MainApp() {
       )}>
         <header className="flex h-14 shrink-0 items-center gap-2 border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-3 pr-20">
           <Button variant="ghost" size="icon" className="md:hidden" onClick={() => ui.setMobileSidebarOpen(true)} aria-label={t('toggleSidebar')}>
-            <Menu className="size-4" />
+            <Menu className="size-[18px]" />
           </Button>
 
           <div className="min-w-0 flex-1">
@@ -1239,7 +1239,7 @@ function MainApp() {
                   aria-label={t('moreOptions')}
                   aria-expanded={ui.conversationMenuOpen}
                 >
-                  <Ellipsis className="size-4" />
+                  <Ellipsis className="size-[18px]" />
                 </Button>
                 {ui.conversationMenuOpen ? (
                   <div className="absolute left-0 top-8 z-30 min-w-44 rounded-lg border border-border bg-popover p-1 shadow-quickforge">
@@ -1248,7 +1248,7 @@ function MainApp() {
                       className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
                       onClick={handleToggleCurrentSessionPinned}
                     >
-                      {currentSessionPinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+                      {currentSessionPinned ? <PinOff className="size-[18px]" /> : <Pin className="size-[18px]" />}
                       <span>{currentSessionPinned ? t('unpinSession') : t('pinSession')}</span>
                     </button>
                     <button
@@ -1256,7 +1256,7 @@ function MainApp() {
                       className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
                       onClick={handleRenameCurrentSession}
                     >
-                      <Pencil className="size-4" />
+                      <Pencil className="size-[18px]" />
                       <span>{t('renameSession')}</span>
                     </button>
                     <button
@@ -1264,7 +1264,7 @@ function MainApp() {
                       className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
                       onClick={handleShareCurrentSession}
                     >
-                      <Share2 className="size-4" />
+                      <Share2 className="size-[18px]" />
                       <span>{t('shareSession')}</span>
                     </button>
                   </div>

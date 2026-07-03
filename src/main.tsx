@@ -1,5 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { LucideProvider } from 'lucide-react'
 import './index.css'
 import { patchThinkingSelector } from '@/lib/patch-thinking-selector'
 import { applyClipboardPolyfill } from '@/lib/clipboard-polyfill'
@@ -32,8 +33,10 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
 // Keep this entry module explicit so Vite invalidates stale HMR import timestamps.
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
+    <LucideProvider strokeWidth={1.75}>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </LucideProvider>
   </StrictMode>,
 )

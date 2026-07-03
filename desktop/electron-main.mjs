@@ -163,15 +163,7 @@ function quitApp() {
   app.quit()
 }
 
-function getBrowserFaviconIcon() {
-  const iconCandidates = [
-    path.join(__dirname, 'assets', 'icon.svg'),
-    path.join(projectRoot, 'dist', 'favicon.svg'),
-    path.join(projectRoot, 'public', 'favicon.svg'),
-    path.join(projectRoot, 'dist', 'pwa-icon-192.png'),
-    path.join(projectRoot, 'public', 'pwa-icon-192.png'),
-  ]
-
+function getIconFromCandidates(iconCandidates) {
   for (const iconPath of iconCandidates) {
     const icon = nativeImage.createFromPath(iconPath)
     if (!icon.isEmpty()) return icon
@@ -180,7 +172,25 @@ function getBrowserFaviconIcon() {
   return nativeImage.createEmpty()
 }
 
+function getBrowserFaviconIcon() {
+  return getIconFromCandidates([
+    path.join(__dirname, 'assets', 'icon.svg'),
+    path.join(projectRoot, 'dist', 'favicon.svg'),
+    path.join(projectRoot, 'public', 'favicon.svg'),
+    path.join(projectRoot, 'dist', 'pwa-icon-192.png'),
+    path.join(projectRoot, 'public', 'pwa-icon-192.png'),
+  ])
+}
+
 function getTrayIcon() {
+  if (process.platform === 'win32') {
+    const icon = getIconFromCandidates([
+      path.join(__dirname, 'assets', 'icon.ico'),
+      path.join(__dirname, 'assets', 'icon.png'),
+    ])
+    if (!icon.isEmpty()) return icon
+  }
+
   const icon = getBrowserFaviconIcon()
   if (icon.isEmpty()) return icon
   return icon.resize({ width: process.platform === 'darwin' ? 18 : 16, height: process.platform === 'darwin' ? 18 : 16 })

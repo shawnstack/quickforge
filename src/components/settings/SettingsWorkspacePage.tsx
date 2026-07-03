@@ -53,9 +53,6 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4 pt-4">
-          <div className="mb-2 px-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground/55">
-            {t('settings')}
-          </div>
           <nav className="space-y-1" aria-label={t('settings')}>
             {settings.items.map((item, index) => {
               const active = index === activeTabIndex
@@ -86,11 +83,7 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
             <ArrowLeft className="size-4" />
           </Button>
           <div className="min-w-0 flex-1">
-            <div className="flex max-w-full min-w-0 items-center">
-              <div className="min-w-0 truncate text-sm text-muted-foreground/60">{t('settings')}</div>
-              <div className="mx-1 shrink-0 text-sm text-muted-foreground/45">/</div>
-              <div className="min-w-0 truncate text-sm font-medium text-foreground/90">{activeItem?.tab.getTabName()}</div>
-            </div>
+            <div className="min-w-0 truncate text-sm font-medium text-foreground/90">{activeItem?.tab.getTabName()}</div>
           </div>
         </header>
 

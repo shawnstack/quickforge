@@ -1397,13 +1397,15 @@ assistant-message :is(thinking-block, tool-message, markdown-block, streaming-me
 }
 
 .quickforge-chat-panel-empty-host .quickforge-composer-dock {
+  --quickforge-empty-composer-rest-height: calc(7.5rem + 2px);
+
   position: absolute !important;
   z-index: 5;
-  top: calc(50% - 1.75rem);
+  top: calc(50% - 1.75rem + var(--quickforge-empty-composer-rest-height));
   left: 50%;
   width: min(var(--quickforge-chat-content-max-width), calc(100% - 2rem));
   padding: 0 !important;
-  transform: translateX(-50%);
+  transform: translate(-50%, -100%);
   background: transparent !important;
   pointer-events: none;
 }

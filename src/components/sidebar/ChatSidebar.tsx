@@ -2,11 +2,9 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Archive,
-  CalendarClock,
   CalendarPlus,
   Check,
   Clock,
-  Bot,
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
@@ -19,7 +17,6 @@ import {
   PanelLeftOpen,
   Pencil,
   Pin,
-  Plug,
   Plus,
   Puzzle,
   SlidersHorizontal,
@@ -62,9 +59,6 @@ import type {
 type ChatSidebarProps = {
   sidebarOpen: boolean
   variant?: 'desktop' | 'mobile'
-  scheduledTasksActive: boolean
-  agentProfilesActive: boolean
-  pluginsActive: boolean
   projectsCollapsed: boolean
   conversationsCollapsed: boolean
   projects: ProjectInfo[]
@@ -96,7 +90,6 @@ type ChatSidebarProps = {
   onSelectProjectDirectory: () => void
   onStartNewProjectChat: (project: ProjectInfo) => void
   onOpenGlobalSkills: () => void
-  onOpenMcpServers: () => void
   onOpenProjectSkills: (project: ProjectInfo) => void
   onOpenProjectInExplorer: (project: ProjectInfo) => void
   onDeleteProject: (projectId: string) => void | Promise<void>
@@ -107,9 +100,6 @@ type ChatSidebarProps = {
   onRenameSession: (sessionId: string, currentTitle: string) => void
   onDeleteSession: (sessionId: string) => void | Promise<void>
   onStartNewGlobalChat: () => void
-  onOpenScheduledTasks: () => void
-  onOpenAgentProfiles: () => void
-  onOpenPlugins: () => void
   onOpenSettings: () => void
   onOpenUpdate?: () => void
   onDismissUpdate?: () => void
@@ -181,9 +171,6 @@ function SortableProjectItem({ id, children }: { id: string; children: (props: {
 export const ChatSidebar = memo(function ChatSidebar({
   sidebarOpen,
   variant = 'desktop',
-  scheduledTasksActive,
-  agentProfilesActive,
-  pluginsActive,
   projectsCollapsed,
   conversationsCollapsed,
   projects,
@@ -215,7 +202,6 @@ export const ChatSidebar = memo(function ChatSidebar({
   onSelectProjectDirectory,
   onStartNewProjectChat,
   onOpenGlobalSkills,
-  onOpenMcpServers,
   onOpenProjectSkills,
   onOpenProjectInExplorer,
   onDeleteProject,
@@ -226,9 +212,6 @@ export const ChatSidebar = memo(function ChatSidebar({
   onRenameSession,
   onDeleteSession,
   onStartNewGlobalChat,
-  onOpenScheduledTasks,
-  onOpenAgentProfiles,
-  onOpenPlugins,
   onOpenSettings,
   onOpenUpdate,
   onDismissUpdate,
@@ -568,53 +551,6 @@ export const ChatSidebar = memo(function ChatSidebar({
             <Puzzle className="size-4" />
           </span>
           {sidebarOpen ? <span className={sessionTitleClass}>{t('skills')}</span> : null}
-        </button>
-        <button
-          type="button"
-          className={cn(rowClass, 'w-full', inactiveRowClass)}
-          onClick={onOpenMcpServers}
-          aria-label={t('manageMcpServers')}
-          title={t('manageMcpServers')}
-        >
-          <span className={iconSlotClass}>
-            <Plug className="size-4" />
-          </span>
-          {sidebarOpen ? <span className={sessionTitleClass}>{t('mcp')}</span> : null}
-        </button>
-        <button
-          type="button"
-          className={cn(rowClass, 'w-full', scheduledTasksActive ? activeRowClass : inactiveRowClass)}
-          onClick={onOpenScheduledTasks}
-          aria-label={t('scheduledTasksLabel')}
-        >
-          <span className={iconSlotClass}>
-            <CalendarClock className="size-4" />
-          </span>
-          {sidebarOpen ? <span className={cn(sessionTitleClass, scheduledTasksActive && activeSessionTitleClass)}>{t('scheduledTasksLabel')}</span> : null}
-        </button>
-        <button
-          type="button"
-          className={cn(rowClass, 'w-full', agentProfilesActive ? activeRowClass : inactiveRowClass)}
-          onClick={onOpenAgentProfiles}
-          aria-label={t('agentsTab')}
-          title={t('agentsTab')}
-        >
-          <span className={iconSlotClass}>
-            <Bot className="size-4" />
-          </span>
-          {sidebarOpen ? <span className={cn(sessionTitleClass, agentProfilesActive && activeSessionTitleClass)}>{t('agentsTab')}</span> : null}
-        </button>
-        <button
-          type="button"
-          className={cn(rowClass, 'w-full', pluginsActive ? activeRowClass : inactiveRowClass)}
-          onClick={onOpenPlugins}
-          aria-label={t('plugins')}
-          title={t('plugins')}
-        >
-          <span className={iconSlotClass}>
-            <Puzzle className="size-4" />
-          </span>
-          {sidebarOpen ? <span className={cn(sessionTitleClass, pluginsActive && activeSessionTitleClass)}>{t('plugins')}</span> : null}
         </button>
       </div>
 

@@ -17,7 +17,6 @@ import {
 import { Button } from '@/components/ui/button'
 import { ProjectDirectoryPicker } from '@/components/project-directory-picker'
 import { SkillsDialog } from '@/components/skills-dialog'
-import { McpServersDialog } from '@/components/mcp-servers-dialog'
 import {
   buildConnectionModel,
   DEFAULT_CONNECTION,
@@ -76,15 +75,6 @@ const ChatPanelHost = lazy(() =>
 const TerminalDock = lazy(() =>
   import('@/components/terminal/TerminalDock').then((m) => ({ default: m.TerminalDock })),
 )
-const ScheduledTasksPage = lazy(() =>
-  import('@/components/scheduled-tasks/ScheduledTasksPage').then((m) => ({ default: m.ScheduledTasksPage })),
-)
-const AgentProfilesPage = lazy(() =>
-  import('@/components/agent-profiles/AgentProfilesPage').then((m) => ({ default: m.AgentProfilesPage })),
-)
-const PluginsPage = lazy(() =>
-  import('@/components/plugins/PluginsPage').then((m) => ({ default: m.PluginsPage })),
-)
 const SharedConversationPage = lazy(() =>
   import('@/components/share/SharedConversationPage').then((m) => ({ default: m.SharedConversationPage })),
 )
@@ -132,8 +122,6 @@ function LazyPanelFallback() {
 function LazyOverlayFallback() {
   return null
 }
-
-type WorkspacePage = 'chat' | 'scheduledTasks' | 'agentProfiles' | 'plugins'
 
 type ScheduledTaskNotificationEvent = {
   type?: unknown
@@ -250,7 +238,6 @@ function MainApp() {
   // --- UI state shared with other hooks ---
   const [needsModelSetup, setNeedsModelSetup] = useState(false)
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
-  const [workspacePage, setWorkspacePage] = useState<WorkspacePage>('chat')
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [desktopTitlebarMenuOpen, setDesktopTitlebarMenuOpen] = useState(false)
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState<PendingTerminalCommand | null>(null)
@@ -263,11 +250,7 @@ function MainApp() {
   const terminalCommandIdRef = useRef(0)
   const [storage, setStorage] = useState<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
   const { toasts, handleTaskComplete, addToast, dismissToast } = useTaskToasts()
-  const scheduledTasksOpen = workspacePage === 'scheduledTasks'
-  const agentProfilesOpen = workspacePage === 'agentProfiles'
-  const pluginsOpen = workspacePage === 'plugins'
-  const workspacePageOpen = workspacePage !== 'chat'
-  const closeWorkspacePage = useCallback(() => setWorkspacePage('chat'), [])
+  const closeWorkspacePage = useCallback(() => undefined, [])
   const closeDesktopTitlebarMenu = useCallback(() => setDesktopTitlebarMenuOpen(false), [])
   const openDesktopUpdatePage = useCallback(() => {
     setDesktopTitlebarMenuOpen(false)
@@ -370,30 +353,36 @@ function MainApp() {
   const handleToastClick = useCallback(
     (sessionId: string) => {
       if (!sessionId) return
-      closeWorkspacePage()
       loadAgentSession(sessionId)
     },
-    [closeWorkspacePage, loadAgentSession],
+    [loadAgentSession],
   )
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: unknown }>).detail
+      if (typeof detail?.sessionId === 'string') handleToastClick(detail.sessionId)
+    }
+    window.addEventListener('quickforge:open-session-from-settings', handler)
+    return () => window.removeEventListener('quickforge:open-session-from-settings', handler)
+  }, [handleToastClick])
 
   const restoreWorkspaceDraft = useCallback((text: string) => {
     if (!text.trim()) return
-    closeWorkspacePage()
     setRestoredDraft({
       id: Date.now(),
       sessionId: agentRef.current?.sessionId,
       text,
     })
-  }, [agentRef, closeWorkspacePage])
+  }, [agentRef])
 
   const openWorkspaceGitChanges = useCallback(() => {
     if (!agentManager.currentToolProject?.id) return
-    closeWorkspacePage()
     setArtifactPreviewOpen(false)
     ui.setWorkspacePanelView('changes')
     ui.setWorkspaceInspectorFocusTarget({ tab: 'git', nonce: Date.now() })
     ui.setWorkspaceInspectorOpen(true)
-  }, [agentManager.currentToolProject?.id, closeWorkspacePage, setArtifactPreviewOpen, ui])
+  }, [agentManager.currentToolProject?.id, setArtifactPreviewOpen, ui])
 
   const openLocalFilePathFromChat = useCallback(async (filePath: string) => {
     const projectId = agentManager.currentToolProject?.id
@@ -424,12 +413,11 @@ function MainApp() {
     const project = agentManager.currentToolProject
     const projectId = project?.id
     if (!projectId || !isBrowserPreviewablePath(path)) return
-    closeWorkspacePage()
     setArtifactPreviewOpen(false)
     ui.setWebPreviewUrl(workspaceArtifactDiskPath(project.path, path))
     ui.setWorkspacePanelView('browser')
     setWorkspaceInspectorOpen(true)
-  }, [agentManager.currentToolProject, closeWorkspacePage, setArtifactPreviewOpen, setWorkspaceInspectorOpen, ui])
+  }, [agentManager.currentToolProject, setArtifactPreviewOpen, setWorkspaceInspectorOpen, ui])
 
   useEffect(() => {
     const project = agentManager.currentToolProject
@@ -450,7 +438,6 @@ function MainApp() {
     autoPreviewSignatureRef.current = signature
     rememberAutoPreviewSignature(signature)
     queueMicrotask(() => {
-      closeWorkspacePage()
       setArtifactPreviewOpen(false)
       if (artifact.kind === 'markdown' || artifact.kind === 'code') {
         // markdown/code 走侧栏 reader 渲染（openFileTab）：
@@ -465,7 +452,7 @@ function MainApp() {
       }
       setWorkspaceInspectorOpen(true)
     })
-  }, [agentManager.currentToolProject, closeWorkspacePage, currentSessionArtifacts, setArtifactPreviewOpen, setWorkspaceInspectorOpen, ui])
+  }, [agentManager.currentToolProject, currentSessionArtifacts, setArtifactPreviewOpen, setWorkspaceInspectorOpen, ui])
 
   useEffect(() => {
     autoPreviewSignatureRef.current = ''
@@ -819,7 +806,6 @@ function MainApp() {
   }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id])
 
   const showNewChatEmptyState = !needsModelSetup
-    && !workspacePageOpen
     && Boolean(agentManager.agent)
     && !agentManager.agent?.state.isStreaming
     && (agentManager.agent?.state.messages.length ?? 0) === 0
@@ -865,7 +851,7 @@ function MainApp() {
   // Stable UI setters used by the desktop sidebar handlers below.  Destructuring
   // them keeps the callbacks referentially stable (a useState setter never changes)
   // without dragging the whole `ui` object into the dependency array.
-  const { setSkillsDialog, setMcpServersDialogOpen, setSidebarOpen } = ui
+  const { setSkillsDialog, setSidebarOpen } = ui
 
   const openGlobalSkills = useCallback(() => {
     setSkillsDialog({ scope: 'global' })
@@ -887,10 +873,6 @@ function MainApp() {
   // --- Desktop sidebar handlers (stable; do not auto-close the sidebar) ---
   // Kept separate from the mobile `*FromSidebar` handlers so the memoized desktop
   // <ChatSidebar> does not re-render on unrelated App state changes.
-  const openMcpServers = useCallback(() => {
-    setMcpServersDialogOpen(true)
-  }, [setMcpServersDialogOpen])
-
   const openProjectInExplorerWithFeedback = useCallback((project: ProjectInfo) => {
     void openProjectInExplorer(project).catch((error) => {
       logger.error('Failed to open project in explorer:', error)
@@ -898,9 +880,6 @@ function MainApp() {
     })
   }, [openProjectInExplorer])
 
-  const openScheduledTasks = useCallback(() => setWorkspacePage('scheduledTasks'), [setWorkspacePage])
-  const openAgentProfiles = useCallback(() => setWorkspacePage('agentProfiles'), [setWorkspacePage])
-  const openPlugins = useCallback(() => setWorkspacePage('plugins'), [setWorkspacePage])
   const toggleSidebar = useCallback(() => setSidebarOpen((value) => !value), [setSidebarOpen])
 
   const closeMobileSidebar = useCallback(() => {
@@ -922,25 +901,10 @@ function MainApp() {
     void startNewProjectChat(project)
   }, [closeMobileSidebar, startNewProjectChat])
 
-  const openScheduledTasksFromSidebar = useCallback(() => {
-    closeMobileSidebar()
-    setWorkspacePage('scheduledTasks')
-  }, [closeMobileSidebar])
-
-  const openAgentProfilesFromSidebar = useCallback(() => {
-    closeMobileSidebar()
-    setWorkspacePage('agentProfiles')
-  }, [closeMobileSidebar])
-
   const openGlobalSkillsFromSidebar = useCallback(() => {
     closeMobileSidebar()
     openGlobalSkills()
   }, [closeMobileSidebar, openGlobalSkills])
-
-  const openMcpServersFromSidebar = useCallback(() => {
-    closeMobileSidebar()
-    ui.setMcpServersDialogOpen(true)
-  }, [closeMobileSidebar, ui])
 
   const openProjectSkillsFromSidebar = useCallback((project: ProjectInfo) => {
     closeMobileSidebar()
@@ -961,13 +925,6 @@ function MainApp() {
 
     crossTab.notifyProjectsChanged()
   }, [crossTab, setActiveProject, setProjects, ui])
-
-  // Shared Suspense fallback for code-split secondary pages.
-  const pageSuspenseFallback = (
-    <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
-      {t('loadingChatWorkspace')}
-    </div>
-  )
 
   // --- Loading state ---
   if (startupError) {
@@ -1066,7 +1023,7 @@ function MainApp() {
         variant="ghost"
         size="icon"
         onClick={() => setTerminalOpen((value) => !value)}
-        disabled={workspacePageOpen || needsModelSetup}
+        disabled={needsModelSetup}
         aria-label="终端"
         title="终端"
         className={terminalOpen ? 'bg-accent text-accent-foreground' : undefined}
@@ -1080,7 +1037,7 @@ function MainApp() {
           setArtifactPreviewOpen(false)
           ui.setWorkspaceInspectorOpen((value) => !value)
         }}
-        disabled={!agentManager.currentToolProject?.id || workspacePageOpen || needsModelSetup}
+        disabled={!agentManager.currentToolProject?.id || needsModelSetup}
         aria-label={ui.workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
         title={ui.workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
         className={cn(
@@ -1095,9 +1052,6 @@ function MainApp() {
     <div className="flex h-screen min-h-0 bg-[var(--quickforge-sidebar-bg)] text-foreground">
       <ChatSidebar
         sidebarOpen={ui.sidebarOpen}
-        scheduledTasksActive={scheduledTasksOpen}
-        agentProfilesActive={agentProfilesOpen}
-        pluginsActive={pluginsOpen}
         projectsCollapsed={ui.projectsCollapsed}
         conversationsCollapsed={ui.conversationsCollapsed}
         projects={projects}
@@ -1129,7 +1083,6 @@ function MainApp() {
         onSelectProjectDirectory={selectProjectDirectory}
         onStartNewProjectChat={startNewProjectChat}
         onOpenGlobalSkills={openGlobalSkills}
-        onOpenMcpServers={openMcpServers}
         onOpenProjectSkills={openProjectSkills}
         onOpenProjectInExplorer={openProjectInExplorerWithFeedback}
         onDeleteProject={deleteProjectInline}
@@ -1140,9 +1093,6 @@ function MainApp() {
         onRenameSession={renameSession}
         onDeleteSession={archiveSession}
         onStartNewGlobalChat={startNewGlobalSession}
-        onOpenScheduledTasks={openScheduledTasks}
-        onOpenAgentProfiles={openAgentProfiles}
-        onOpenPlugins={openPlugins}
         onOpenSettings={openDefaultOptionsSettings}
         updateAvailable={updateCheck.result.updateAvailable}
         latestVersion={updateCheck.result.latestVersion}
@@ -1165,9 +1115,6 @@ function MainApp() {
             <ChatSidebar
               variant="mobile"
               sidebarOpen
-              scheduledTasksActive={scheduledTasksOpen}
-              agentProfilesActive={agentProfilesOpen}
-              pluginsActive={pluginsOpen}
               projectsCollapsed={ui.projectsCollapsed}
               conversationsCollapsed={ui.conversationsCollapsed}
               projects={projects}
@@ -1202,7 +1149,6 @@ function MainApp() {
               }}
               onStartNewProjectChat={startNewProjectChatFromSidebar}
               onOpenGlobalSkills={openGlobalSkillsFromSidebar}
-              onOpenMcpServers={openMcpServersFromSidebar}
               onOpenProjectSkills={openProjectSkillsFromSidebar}
               onOpenProjectInExplorer={(project) => {
                 closeMobileSidebar()
@@ -1219,12 +1165,6 @@ function MainApp() {
               onRenameSession={renameSession}
               onDeleteSession={archiveSession}
               onStartNewGlobalChat={startNewGlobalSessionFromSidebar}
-              onOpenScheduledTasks={openScheduledTasksFromSidebar}
-              onOpenAgentProfiles={openAgentProfilesFromSidebar}
-              onOpenPlugins={() => {
-                closeMobileSidebar()
-                setWorkspacePage('plugins')
-              }}
               onOpenSettings={() => {
                 closeMobileSidebar()
                 openDefaultOptionsSettings()
@@ -1254,98 +1194,69 @@ function MainApp() {
           </Button>
 
           <div className="min-w-0 flex-1">
-            {scheduledTasksOpen ? (
-              <>
-                <div className="truncate text-xs text-muted-foreground">AI Workspace</div>
-                <div className="truncate text-sm font-medium">{t('scheduledTasks')}</div>
-              </>
-            ) : agentProfilesOpen ? (
-              <>
-                <div className="truncate text-xs text-muted-foreground">AI Workspace</div>
-                <div className="truncate text-sm font-medium">{t('agentsTab')}</div>
-              </>
-            ) : pluginsOpen ? (
-              <>
-                <div className="truncate text-xs text-muted-foreground">AI Workspace</div>
-                <div className="truncate text-sm font-medium">{t('plugins')}</div>
-              </>
-            ) : (
-              <div className="flex max-w-full min-w-0 items-center">
-                {agentManager.currentToolProject?.name ? (
-                  <>
-                    <div className="min-w-0 truncate text-sm text-muted-foreground/60">{agentManager.currentToolProject.name}</div>
-                    <div className="mx-1 shrink-0 text-sm text-muted-foreground/45">/</div>
-                  </>
+            <div className="flex max-w-full min-w-0 items-center">
+              {agentManager.currentToolProject?.name ? (
+                <>
+                  <div className="min-w-0 truncate text-sm text-muted-foreground/60">{agentManager.currentToolProject.name}</div>
+                  <div className="mx-1 shrink-0 text-sm text-muted-foreground/45">/</div>
+                </>
+              ) : null}
+              <div className="min-w-0 truncate text-sm font-medium text-foreground/90">{sessionTitle(agentManager.currentTitle)}</div>
+              <div className="relative ml-0.5 shrink-0" onClick={(event) => event.stopPropagation()}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-6"
+                  onClick={() => ui.setConversationMenuOpen((value) => !value)}
+                  disabled={!agentManager.currentSessionId || needsModelSetup}
+                  aria-label={t('moreOptions')}
+                  aria-expanded={ui.conversationMenuOpen}
+                >
+                  <Ellipsis className="size-4" />
+                </Button>
+                {ui.conversationMenuOpen ? (
+                  <div className="absolute left-0 top-8 z-30 min-w-44 rounded-lg border border-border bg-popover p-1 shadow-quickforge">
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+                      onClick={handleToggleCurrentSessionPinned}
+                    >
+                      {currentSessionPinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+                      <span>{currentSessionPinned ? t('unpinSession') : t('pinSession')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+                      onClick={handleRenameCurrentSession}
+                    >
+                      <Pencil className="size-4" />
+                      <span>{t('renameSession')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+                      onClick={handleShareCurrentSession}
+                    >
+                      <Share2 className="size-4" />
+                      <span>{t('shareSession')}</span>
+                    </button>
+                  </div>
                 ) : null}
-                <div className="min-w-0 truncate text-sm font-medium text-foreground/90">{sessionTitle(agentManager.currentTitle)}</div>
-                <div className="relative ml-0.5 shrink-0" onClick={(event) => event.stopPropagation()}>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-6"
-                    onClick={() => ui.setConversationMenuOpen((value) => !value)}
-                    disabled={!agentManager.currentSessionId || needsModelSetup}
-                    aria-label={t('moreOptions')}
-                    aria-expanded={ui.conversationMenuOpen}
-                  >
-                    <Ellipsis className="size-4" />
-                  </Button>
-                  {ui.conversationMenuOpen ? (
-                    <div className="absolute left-0 top-8 z-30 min-w-44 rounded-lg border border-border bg-popover p-1 shadow-quickforge">
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
-                        onClick={handleToggleCurrentSessionPinned}
-                      >
-                        {currentSessionPinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
-                        <span>{currentSessionPinned ? t('unpinSession') : t('pinSession')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
-                        onClick={handleRenameCurrentSession}
-                      >
-                        <Pencil className="size-4" />
-                        <span>{t('renameSession')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
-                        onClick={handleShareCurrentSession}
-                      >
-                        <Share2 className="size-4" />
-                        <span>{t('shareSession')}</span>
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
               </div>
-            )}
+            </div>
           </div>
 
         </header>
 
         <section className="relative flex min-h-0 flex-1 flex-col">
-          {scheduledTasksOpen ? (
-              <Suspense fallback={pageSuspenseFallback}>
-                <ScheduledTasksPage onOpenSession={handleToastClick} />
-              </Suspense>
-            ) : agentProfilesOpen ? (
-              <Suspense fallback={pageSuspenseFallback}>
-                <AgentProfilesPage />
-              </Suspense>
-            ) : pluginsOpen ? (
-              <Suspense fallback={pageSuspenseFallback}>
-                <PluginsPage />
-              </Suspense>
-            ) : needsModelSetup ? (
-              <ModelSetupEmptyState
-                onAddModel={openModelSettings}
-                onUseExample={() => {
-                  void activateLiteLlmExampleModel().catch((error) => logger.error('Failed to use LiteLLM example:', error))
-                }}
-              />
-            ) : (
+          {needsModelSetup ? (
+            <ModelSetupEmptyState
+              onAddModel={openModelSettings}
+              onUseExample={() => {
+                void activateLiteLlmExampleModel().catch((error) => logger.error('Failed to use LiteLLM example:', error))
+              }}
+            />
+          ) : (
               <>
                 <div className={cn(
                   'flex min-h-0 flex-1 flex-col',
@@ -1468,10 +1379,6 @@ function MainApp() {
         if (!open) ui.setSkillsDialog(undefined)
       }}
       onSaved={handleSkillsSaved}
-    />
-    <McpServersDialog
-      open={ui.mcpServersDialogOpen}
-      onOpenChange={ui.setMcpServersDialogOpen}
     />
     <ShareConversationDialog
       open={ui.shareDialogOpen}

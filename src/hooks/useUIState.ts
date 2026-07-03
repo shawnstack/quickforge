@@ -14,7 +14,6 @@ export function useUIState() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [projectsCollapsed, setProjectsCollapsed] = useState(false)
   const [conversationsCollapsed, setConversationsCollapsed] = useState(false)
-  const [mcpServersDialogOpen, setMcpServersDialogOpen] = useState(false)
   const [skillsDialog, setSkillsDialog] = useState<{ scope: SkillsScope; project?: ProjectInfo }>()
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [conversationMenuOpen, setConversationMenuOpen] = useState(false)
@@ -39,7 +38,6 @@ export function useUIState() {
     mobileSidebarOpen, setMobileSidebarOpen,
     projectsCollapsed, setProjectsCollapsed,
     conversationsCollapsed, setConversationsCollapsed,
-    mcpServersDialogOpen, setMcpServersDialogOpen,
     skillsDialog, setSkillsDialog,
     shareDialogOpen, setShareDialogOpen,
     conversationMenuOpen, setConversationMenuOpen,

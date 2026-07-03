@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { FileJson, Loader2, Plug, Plus, RefreshCw, Server, X } from 'lucide-react'
+import { FileJson, Loader2, Plus, RefreshCw, Server } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
 import { showConfirm } from '@/components/ui/confirm-dialog'
@@ -19,9 +19,9 @@ import {
   type McpServerFormData,
 } from '@/lib/mcp-helpers'
 
-type McpServersDialogProps = {
-  open: boolean
-  onOpenChange: (open: boolean) => void
+type McpServersPanelProps = {
+  active?: boolean
+  className?: string
 }
 
 type EditorTab = 'form' | 'json'
@@ -79,7 +79,7 @@ function validateMcpJson(value: string) {
   return payload
 }
 
-export function McpServersDialog({ open, onOpenChange }: McpServersDialogProps) {
+export function McpServersPanel({ active = true, className }: McpServersPanelProps) {
   const [servers, setServers] = useState<McpServer[]>([])
   // Bulk import text (idle mode)
   const [configText, setConfigText] = useState(exampleJson)
@@ -97,8 +97,6 @@ export function McpServersDialog({ open, onOpenChange }: McpServersDialogProps) 
   const [activeTab, setActiveTab] = useState<EditorTab>('form')
   const [jsonText, setJsonText] = useState('')
   const [jsonError, setJsonError] = useState('')
-
-  const busy = saving || importing
 
   const applyServers = useCallback((payload: McpServersPayload | null | undefined) => {
     setServers(payload?.servers ?? [])
@@ -119,16 +117,16 @@ export function McpServersDialog({ open, onOpenChange }: McpServersDialogProps) 
   }, [applyServers])
 
   useEffect(() => {
-    if (!open) return undefined
+    if (!active) return undefined
     const timer = window.setTimeout(() => {
       void loadServers()
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [open, loadServers])
+  }, [active, loadServers])
 
   // When switching to the JSON tab, refresh jsonText from the current draft so
   // the two views always show the same data.
-  if (!open) return null
+  if (!active) return null
 
   const switchTab = (tab: EditorTab) => {
     if (tab === 'json') {
@@ -311,33 +309,12 @@ export function McpServersDialog({ open, onOpenChange }: McpServersDialogProps) 
   const canSave = Boolean(draft.name.trim()) && Boolean(draft.transport === 'stdio' ? draft.command.trim() : draft.url.trim())
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="mcp-servers-title"
-      onClick={(event) => {
-        if (event.target === event.currentTarget && !busy) onOpenChange(false)
-      }}
-    >
-      <div className="flex max-h-[88vh] w-full max-w-5xl flex-col rounded-lg border border-border bg-background shadow-quickforge">
-        <div className="flex items-start gap-3 border-b border-border p-4">
-          <span className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-muted/40 text-muted-foreground">
-            <Plug className="size-4" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <h2 id="mcp-servers-title" className="text-base font-semibold text-foreground">{t('mcpServers')}</h2>
-          </div>
-          <Button variant="ghost" size="icon" className="size-8 shrink-0 rounded-full text-muted-foreground" onClick={() => onOpenChange(false)} disabled={busy} aria-label={t('close')}>
-            <X className="size-4" />
-          </Button>
-        </div>
+    <div className={cn('flex h-full min-h-0 flex-col overflow-hidden bg-background', className)}>
+      {error ? <div className="m-4 mb-0 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          {error ? <div className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
-
-          <div className="grid gap-4 lg:grid-cols-[1fr_28rem]">
-            {/* Left: server list (always visible) */}
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_26rem]">
+          {/* Left: server list (always visible) */}
             <div className="min-w-0 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-sm font-medium text-foreground/90">{t('mcpConfiguredServers')}</h3>
@@ -457,6 +434,5 @@ export function McpServersDialog({ open, onOpenChange }: McpServersDialogProps) 
           </div>
         </div>
       </div>
-    </div>
   )
 }

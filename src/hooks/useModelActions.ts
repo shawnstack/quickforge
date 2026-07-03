@@ -1,5 +1,5 @@
 import { useCallback } from 'react'
-import { SettingsDialog } from '@earendil-works/pi-web-ui'
+import { SettingsDialog, type SettingsTab } from '@earendil-works/pi-web-ui'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import type { AgentManager } from '@/hooks/useAgentManager'
 import {
@@ -23,6 +23,12 @@ import { createLanAccessSettingsTab } from '@/lib/lan-access-settings-tab'
 import { createAboutSettingsTab } from '@/lib/about-settings-tab'
 import { createProjectCommandsSettingsTab } from '@/lib/project-commands-settings-tab'
 import { createChannelsSettingsTab } from '@/lib/channels-settings-tab'
+import {
+  createAgentProfilesSettingsTab,
+  createMcpSettingsTab,
+  createPluginsSettingsTab,
+  createScheduledTasksSettingsTab,
+} from '@/lib/react-settings-tabs'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
 import type { RestoredDraft } from '@/lib/types'
 import { logger } from '@/lib/logger'
@@ -41,6 +47,33 @@ type UseModelActionsOptions = {
   setRestoredDraft: React.Dispatch<React.SetStateAction<RestoredDraft | undefined>>
   notifySettingsChanged: () => void
   setSettingsDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+}
+
+type SettingsInitialTab = 'defaults' | 'customModels' | 'about'
+
+function createSettingsTabs(customProvider?: string) {
+  const tabs = [
+    { key: 'language', tab: createLanguageSettingsTab() },
+    { key: 'appearance', tab: createAppearanceSettingsTab() },
+    { key: 'defaults', tab: createDefaultOptionsSettingsTab() },
+    { key: 'customModels', tab: createCustomProvidersOnlyTab(customProvider) },
+    { key: 'agents', tab: createAgentProfilesSettingsTab() },
+    { key: 'mcp', tab: createMcpSettingsTab() },
+    { key: 'plugins', tab: createPluginsSettingsTab() },
+    { key: 'scheduledTasks', tab: createScheduledTasksSettingsTab() },
+    { key: 'projectCommands', tab: createProjectCommandsSettingsTab() },
+    { key: 'backup', tab: createBackupSettingsTab() },
+    { key: 'archivedConversations', tab: createArchivedConversationsSettingsTab() },
+    { key: 'service', tab: createServiceSettingsTab() },
+    { key: 'channels', tab: createChannelsSettingsTab() },
+    { key: 'lanAccess', tab: createLanAccessSettingsTab() },
+    { key: 'about', tab: createAboutSettingsTab() },
+  ] as const satisfies readonly { key: string; tab: SettingsTab }[]
+
+  return {
+    tabs: tabs.map((item) => item.tab),
+    indexOf: (key: SettingsInitialTab) => tabs.findIndex((item) => item.key === key),
+  }
 }
 
 export function useModelActions({
@@ -95,10 +128,11 @@ export function useModelActions({
     notifySettingsChanged,
   ])
 
-  const openSettingsDialog = useCallback((initialTab: 'defaults' | 'customModels' | 'about') => {
+  const openSettingsDialog = useCallback((initialTab: SettingsInitialTab) => {
+    const settings = createSettingsTabs()
     setSettingsDialogOpen(true)
     SettingsDialog.open(
-      [createLanguageSettingsTab(), createAppearanceSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab(), createProjectCommandsSettingsTab(), createBackupSettingsTab(), createArchivedConversationsSettingsTab(), createServiceSettingsTab(), createChannelsSettingsTab(), createLanAccessSettingsTab(), createAboutSettingsTab()],
+      settings.tabs,
       () => {
         setSettingsDialogOpen(false)
         if (needsModelSetup || !agentRef.current) {
@@ -109,8 +143,9 @@ export function useModelActions({
     window.setTimeout(() => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const dialog = document.querySelector('settings-dialog') as any
-      if (dialog) {
-        dialog.activeTabIndex = initialTab === 'defaults' ? 2 : initialTab === 'customModels' ? 3 : 10
+      const activeTabIndex = settings.indexOf(initialTab)
+      if (dialog && activeTabIndex >= 0) {
+        dialog.activeTabIndex = activeTabIndex
         dialog.requestUpdate?.()
       }
     }, 0)
@@ -225,12 +260,14 @@ export function useModelActions({
         })
       },
       async (model) => {
+        const settings = createSettingsTabs(model.provider)
         setSettingsDialogOpen(true)
-        await SettingsDialog.open([createLanguageSettingsTab(), createAppearanceSettingsTab(), createDefaultOptionsSettingsTab(), createCustomProvidersOnlyTab(model.provider), createProjectCommandsSettingsTab(), createBackupSettingsTab(), createArchivedConversationsSettingsTab(), createServiceSettingsTab(), createChannelsSettingsTab(), createLanAccessSettingsTab(), createAboutSettingsTab()], () => setSettingsDialogOpen(false))
+        await SettingsDialog.open(settings.tabs, () => setSettingsDialogOpen(false))
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const dialog = document.querySelector('settings-dialog') as any
-        if (dialog) {
-          dialog.activeTabIndex = 3
+        const activeTabIndex = settings.indexOf('customModels')
+        if (dialog && activeTabIndex >= 0) {
+          dialog.activeTabIndex = activeTabIndex
           dialog.requestUpdate?.()
         }
       },

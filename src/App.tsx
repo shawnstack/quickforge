@@ -84,6 +84,9 @@ const WorkspaceInspector = lazy(() =>
 const WorkspaceReaderDialog = lazy(() =>
   import('@/components/workspace/WorkspaceReaderDialog').then((m) => ({ default: m.WorkspaceReaderDialog })),
 )
+const SettingsWorkspacePage = lazy(() =>
+  import('@/components/settings/SettingsWorkspacePage').then((m) => ({ default: m.SettingsWorkspacePage })),
+)
 
 const AUTO_PREVIEW_SEEN_STORAGE_KEY = 'quickforge:auto-preview-seen-signatures'
 const MAX_AUTO_PREVIEW_SEEN_SIGNATURES = 200
@@ -681,7 +684,15 @@ function MainApp() {
     startNewGlobalChat,
   })
 
+  const openSettingsPage = useCallback((initialTab: typeof ui.settingsInitialTab, customProvider?: string) => {
+    ui.setSettingsInitialTab(initialTab)
+    ui.setSettingsCustomProvider(customProvider)
+    ui.setSettingsDialogOpen(true)
+    ui.setMobileSidebarOpen(false)
+  }, [ui])
+
   const {
+    activateConfiguredModel,
     openModelSettings,
     openDefaultOptionsSettings,
     openAboutSettings,
@@ -694,12 +705,19 @@ function MainApp() {
     createAgent,
     updateCurrentAgentModel,
     setChatPanelRevision,
-    needsModelSetup,
     setNeedsModelSetup,
     setRestoredDraft,
     notifySettingsChanged: crossTab.notifySettingsChanged,
-    setSettingsDialogOpen: ui.setSettingsDialogOpen,
+    openSettingsPage,
   })
+
+  const closeSettingsPage = useCallback(() => {
+    ui.setSettingsDialogOpen(false)
+    ui.setSettingsCustomProvider(undefined)
+    if (needsModelSetup || !agentRef.current) {
+      void activateConfiguredModel().catch((error) => logger.error('Failed to activate configured model:', error))
+    }
+  }, [activateConfiguredModel, agentRef, needsModelSetup, ui])
 
   const openDesktopAbout = useCallback(() => {
     setDesktopTitlebarMenuOpen(false)
@@ -1049,6 +1067,15 @@ function MainApp() {
       </Button>
     </div>
     )}
+    {ui.settingsDialogOpen ? (
+      <Suspense fallback={<LazyPanelFallback />}>
+        <SettingsWorkspacePage
+          initialTab={ui.settingsInitialTab}
+          customProvider={ui.settingsCustomProvider}
+          onBack={closeSettingsPage}
+        />
+      </Suspense>
+    ) : (
     <div className="flex h-screen min-h-0 bg-[var(--quickforge-sidebar-bg)] text-foreground">
       <ChatSidebar
         sidebarOpen={ui.sidebarOpen}
@@ -1364,6 +1391,7 @@ function MainApp() {
         </Suspense>
       ) : null}
     </div>
+    )}
     <ProjectDirectoryPicker
       open={projectPickerOpen}
       initialPath={activeProject?.path}

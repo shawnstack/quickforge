@@ -1,5 +1,4 @@
 import { useCallback } from 'react'
-import { SettingsDialog, type SettingsTab } from '@earendil-works/pi-web-ui'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import type { AgentManager } from '@/hooks/useAgentManager'
 import {
@@ -11,25 +10,9 @@ import {
   saveActiveModel,
   saveConnectionProfile,
 } from '@/lib/pi-chat'
-import { createCustomProvidersOnlyTab } from '@/lib/custom-providers-only-tab'
-import { t } from '@/lib/i18n'
-import { createLanguageSettingsTab } from '@/lib/language-settings-tab'
-import { createAppearanceSettingsTab } from '@/lib/appearance-settings-tab'
-import { createDefaultOptionsSettingsTab } from '@/lib/default-options-settings-tab'
-import { createBackupSettingsTab } from '@/lib/backup-settings-tab'
-import { createArchivedConversationsSettingsTab } from '@/lib/archived-conversations-settings-tab'
-import { createServiceSettingsTab } from '@/lib/service-settings-tab'
-import { createLanAccessSettingsTab } from '@/lib/lan-access-settings-tab'
-import { createAboutSettingsTab } from '@/lib/about-settings-tab'
-import { createProjectCommandsSettingsTab } from '@/lib/project-commands-settings-tab'
-import { createChannelsSettingsTab } from '@/lib/channels-settings-tab'
-import {
-  createAgentProfilesSettingsTab,
-  createMcpSettingsTab,
-  createPluginsSettingsTab,
-  createScheduledTasksSettingsTab,
-} from '@/lib/react-settings-tabs'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
+import type { SettingsInitialTab } from '@/lib/settings-tabs'
+import { t } from '@/lib/i18n'
 import type { RestoredDraft } from '@/lib/types'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
@@ -42,38 +25,10 @@ type UseModelActionsOptions = {
   createAgent: AgentManager['createAgent']
   updateCurrentAgentModel: AgentManager['updateCurrentAgentModel']
   setChatPanelRevision: AgentManager['setChatPanelRevision']
-  needsModelSetup: boolean
   setNeedsModelSetup: React.Dispatch<React.SetStateAction<boolean>>
   setRestoredDraft: React.Dispatch<React.SetStateAction<RestoredDraft | undefined>>
   notifySettingsChanged: () => void
-  setSettingsDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
-}
-
-type SettingsInitialTab = 'defaults' | 'customModels' | 'about'
-
-function createSettingsTabs(customProvider?: string) {
-  const tabs = [
-    { key: 'language', tab: createLanguageSettingsTab() },
-    { key: 'appearance', tab: createAppearanceSettingsTab() },
-    { key: 'defaults', tab: createDefaultOptionsSettingsTab() },
-    { key: 'customModels', tab: createCustomProvidersOnlyTab(customProvider) },
-    { key: 'agents', tab: createAgentProfilesSettingsTab() },
-    { key: 'mcp', tab: createMcpSettingsTab() },
-    { key: 'plugins', tab: createPluginsSettingsTab() },
-    { key: 'scheduledTasks', tab: createScheduledTasksSettingsTab() },
-    { key: 'projectCommands', tab: createProjectCommandsSettingsTab() },
-    { key: 'backup', tab: createBackupSettingsTab() },
-    { key: 'archivedConversations', tab: createArchivedConversationsSettingsTab() },
-    { key: 'service', tab: createServiceSettingsTab() },
-    { key: 'channels', tab: createChannelsSettingsTab() },
-    { key: 'lanAccess', tab: createLanAccessSettingsTab() },
-    { key: 'about', tab: createAboutSettingsTab() },
-  ] as const satisfies readonly { key: string; tab: SettingsTab }[]
-
-  return {
-    tabs: tabs.map((item) => item.tab),
-    indexOf: (key: SettingsInitialTab) => tabs.findIndex((item) => item.key === key),
-  }
+  openSettingsPage: (initialTab: SettingsInitialTab, customProvider?: string) => void
 }
 
 export function useModelActions({
@@ -83,11 +38,10 @@ export function useModelActions({
   createAgent,
   updateCurrentAgentModel,
   setChatPanelRevision,
-  needsModelSetup,
   setNeedsModelSetup,
   setRestoredDraft,
   notifySettingsChanged,
-  setSettingsDialogOpen,
+  openSettingsPage,
 }: UseModelActionsOptions) {
   const activateConfiguredModel = useCallback(async () => {
     const storage = storageRef.current
@@ -128,28 +82,9 @@ export function useModelActions({
     notifySettingsChanged,
   ])
 
-  const openSettingsDialog = useCallback((initialTab: SettingsInitialTab) => {
-    const settings = createSettingsTabs()
-    setSettingsDialogOpen(true)
-    SettingsDialog.open(
-      settings.tabs,
-      () => {
-        setSettingsDialogOpen(false)
-        if (needsModelSetup || !agentRef.current) {
-          void activateConfiguredModel().catch((error) => logger.error('Failed to activate configured model:', error))
-        }
-      },
-    )
-    window.setTimeout(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const dialog = document.querySelector('settings-dialog') as any
-      const activeTabIndex = settings.indexOf(initialTab)
-      if (dialog && activeTabIndex >= 0) {
-        dialog.activeTabIndex = activeTabIndex
-        dialog.requestUpdate?.()
-      }
-    }, 0)
-  }, [activateConfiguredModel, needsModelSetup, agentRef, setSettingsDialogOpen])
+  const openSettingsDialog = useCallback((initialTab: SettingsInitialTab, customProvider?: string) => {
+    openSettingsPage(initialTab, customProvider)
+  }, [openSettingsPage])
 
   const openModelSettings = useCallback(() => {
     openSettingsDialog('customModels')
@@ -260,16 +195,7 @@ export function useModelActions({
         })
       },
       async (model) => {
-        const settings = createSettingsTabs(model.provider)
-        setSettingsDialogOpen(true)
-        await SettingsDialog.open(settings.tabs, () => setSettingsDialogOpen(false))
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const dialog = document.querySelector('settings-dialog') as any
-        const activeTabIndex = settings.indexOf('customModels')
-        if (dialog && activeTabIndex >= 0) {
-          dialog.activeTabIndex = activeTabIndex
-          dialog.requestUpdate?.()
-        }
+        openSettingsDialog('customModels', model.provider)
       },
       {
         thinkingLevel: currentAgent.state.thinkingLevel,
@@ -291,7 +217,7 @@ export function useModelActions({
     setChatPanelRevision,
     setRestoredDraft,
     openModelSettings,
-    setSettingsDialogOpen,
+    openSettingsDialog,
   ])
 
   return {

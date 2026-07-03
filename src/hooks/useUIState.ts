@@ -29,6 +29,8 @@ export function useUIState() {
   const [inlineReaderError, setInlineReaderError] = useState<string>()
   const [firstUseGuideDismissed, setFirstUseGuideDismissed] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'language' | 'appearance' | 'defaults' | 'customModels' | 'agents' | 'mcp' | 'plugins' | 'scheduledTasks' | 'projectCommands' | 'backup' | 'archivedConversations' | 'service' | 'channels' | 'lanAccess' | 'about'>('defaults')
+  const [settingsCustomProvider, setSettingsCustomProvider] = useState<string>()
 
   const toggleProjectsCollapsed = useCallback(() => setProjectsCollapsed(v => !v), [])
   const toggleConversationsCollapsed = useCallback(() => setConversationsCollapsed(v => !v), [])
@@ -53,6 +55,8 @@ export function useUIState() {
     inlineReaderError, setInlineReaderError,
     firstUseGuideDismissed, setFirstUseGuideDismissed,
     settingsDialogOpen, setSettingsDialogOpen,
+    settingsInitialTab, setSettingsInitialTab,
+    settingsCustomProvider, setSettingsCustomProvider,
     toggleProjectsCollapsed,
     toggleConversationsCollapsed,
   } as const

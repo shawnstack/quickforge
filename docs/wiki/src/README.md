@@ -34,7 +34,7 @@ src/
 - 从 `react-dom/client` 创建根节点
 - 应用全局 CSS（`index.css`）
 - 调用 `patchThinkingSelector()` 修补 pi-web-ui 的模型选择器
-- 设置弹窗由 `hooks/useModelActions.ts` 组装多个 `SettingsTab`，包含模型、Agent、MCP、插件、定时任务等管理页，以及 `lib/channels-settings-tab.ts` 的“渠道”页，用于管理本地外部应用 bridge（当前内置微信渠道，通过 `weixin-acp` 接入 `qf acp`，默认使用全局默认工作区，也可选择已有项目启动；渠道事件会触发主应用刷新外部 ACP 写入的 session），底部包含 `lib/about-settings-tab.ts` 的“关于”页，用于展示 GitHub、检查 npm 更新并触发本机外部更新器；更新期间页面轮询 `/api/health`，服务重启后自动刷新
+- 设置界面由 `components/settings/SettingsWorkspacePage.tsx` 以工作区式布局承载：左侧复用侧边栏背景与导航风格，右侧复用主对话区域背景；`hooks/useModelActions.ts` 负责打开设置页并选择初始 tab，`lib/settings-tabs.ts` 组装多个 `SettingsTab`，包含模型、Agent、MCP、插件、定时任务等管理页，以及 `lib/channels-settings-tab.ts` 的“渠道”页，用于管理本地外部应用 bridge（当前内置微信渠道，通过 `weixin-acp` 接入 `qf acp`，默认使用全局默认工作区，也可选择已有项目启动；渠道事件会触发主应用刷新外部 ACP 写入的 session），底部包含 `lib/about-settings-tab.ts` 的“关于”页，用于展示 GitHub、检查 npm 更新并触发本机外部更新器；更新期间页面轮询 `/api/health`，服务重启后自动刷新
 - 调用 `applyClipboardPolyfill()` 应用剪贴板兼容处理
 - 生产环境注册 `/sw.js`，启用轻量 PWA 安装和前端静态资源缓存
 - 在 `<StrictMode>` 中渲染 `<App />` 组件
@@ -49,7 +49,7 @@ src/
 - `agentAccessModeRef` — Agent 权限模式状态（默认权限 / 完全访问权限）
 - `activeProjectRef` — 当前活动的项目
 - `needsModelSetup` — 是否需要模型设置
-- `view` — 当前视图（chat / share-view）；Agent、MCP、插件、定时任务等管理能力收拢在设置弹窗中
+- `view` — 当前视图（chat / share-view）；Agent、MCP、插件、定时任务等管理能力收拢在工作区式设置页中
 
 **主要 UI 区域**:
 1. **侧边栏** (`ChatSidebar`) — 左侧导航
@@ -61,7 +61,7 @@ src/
 7. **工作区面板** (`WorkspaceInspector`) — 右侧统一工作区入口，包含概览、工作空间文件、浏览器预览和 Git 变更；Overview 展示当前 Session 产生/修改的文件，HTML 产物通过 Browser 打开
 8. **项目目录选择器** (`ProjectDirectoryPicker`)
 9. **Skills 对话框** (`SkillsDialog`)
-10. **设置弹窗** (`SettingsDialog`) — 由 `useModelActions` 组装，包含 Agent、MCP、插件、定时任务等管理页
+10. **设置工作区页** (`SettingsWorkspacePage`) — 页面式设置界面，左侧设置导航复用侧边栏视觉，右侧设置内容复用主对话区域视觉
 11. **Toast 容器** — 后台任务通知
 12. **错误边界** (`ErrorBoundary`) — 全局错误捕获
 

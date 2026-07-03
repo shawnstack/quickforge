@@ -89,6 +89,16 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
   top: var(--quickforge-desktop-titlebar-height, 0px);
 }
 
+.quickforge-settings-tab-host > * {
+  display: block;
+  min-height: 100%;
+}
+
+.quickforge-settings-tab-host settings-tab,
+.quickforge-settings-tab-host .quickforge-react-settings-tab {
+  height: 100%;
+}
+
 /* ------------------------------------------------------------------ */
 /* Chat messages: only customize user's outgoing bubble; assistant/tool rendering stays pi-web-ui default. */
 /* Hide pi-web-ui token/cost usage lines, e.g. "↑3.6k ↓246 R...".

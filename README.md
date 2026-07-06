@@ -161,7 +161,7 @@ npm run desktop:build:all
 
 桌面端支持系统托盘：Windows 会显示在右下角系统托盘，macOS 会显示在顶部菜单栏。关闭窗口默认隐藏到托盘，使用托盘菜单中的退出操作才会真正退出并停止桌面端启动的本地服务。托盘菜单文案会优先跟随 QuickForge 设置中的界面语言（中文/英文），读取不到时回退系统语言。
 
-GitHub Actions 提供 `Desktop Build` 工作流，可手动触发或在推送 `v*` 标签时按 Windows/macOS/Linux runner 分别构建桌面包，并上传为 workflow artifacts；该流程不会自动创建 GitHub Release，也不会发布 npm。
+GitHub Actions 提供 `Desktop Build` 工作流，可手动触发或在推送 `v*` 标签时按 Windows/macOS/Linux runner 分别构建桌面包，并上传为 workflow artifacts；推送 `v*` 标签触发时，构建成功后会自动创建 GitHub Release 并上传桌面构建产物，但不会发布 npm。
 
 ### 首次配置模型
 
@@ -373,7 +373,7 @@ Desktop artifacts are written to `desktop-dist/`. This directory and Electron de
 
 The desktop app supports a system tray: Windows uses the bottom-right system tray and macOS uses the top menu bar. Closing the window hides it to the tray; use the quit action from the tray menu to fully exit and stop the local service started by the desktop app. Tray menu labels follow the QuickForge display language setting when available, and fall back to the system language.
 
-GitHub Actions provides a `Desktop Build` workflow. It can be run manually or by pushing a `v*` tag, builds on Windows/macOS/Linux runners, and uploads workflow artifacts. It does not create GitHub Releases or publish npm automatically.
+GitHub Actions provides a `Desktop Build` workflow. It can be run manually or by pushing a `v*` tag, builds on Windows/macOS/Linux runners, and uploads workflow artifacts. When triggered by a `v*` tag push, a successful build also creates a GitHub Release and uploads the desktop build assets, but it does not publish npm automatically.
 
 ### First model setup
 

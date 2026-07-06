@@ -31,7 +31,7 @@
 ## `workflows/desktop-build.yml` — 桌面三端构建工作流
 
 - **触发**: 手动 `workflow_dispatch`，或推送 `v*` 标签
-- **权限**: `contents: read`，只构建并上传 workflow artifacts，不创建 GitHub Release、不发布 npm
+- **权限**: 默认 `contents: read`；仅 Release job 使用 `contents: write` 创建 GitHub Release 和上传 assets；不发布 npm
 - **运行环境**:
   - Windows: `windows-latest` → `npm run desktop:build:win`
   - macOS: `macos-latest` → `npm run desktop:build:mac`
@@ -43,7 +43,8 @@
   3. Linux runner 额外安装 `libarchive-tools` 和 FUSE 2 兼容库（`libfuse2t64`，回退 `libfuse2`），并设置 `APPIMAGE_EXTRACT_AND_RUN=1` 以支持 AppImage 工具链
   4. `npm ci`
   5. 按平台执行桌面构建脚本；Linux AppImage 显式使用安全可执行名 `quickforge`，避免从 scoped npm 包名推导出非法路径字符
-  6. 上传 `desktop-dist/` 中的安装包和更新元数据为 artifacts
+  6. 上传 `desktop-dist/` 中的安装包和更新元数据为 workflow artifacts
+  7. 推送 `v*` 标签触发时，构建全部成功后下载三端 artifacts，创建 GitHub Release 并上传桌面构建产物；手动触发只生成 workflow artifacts
 
 ## `ISSUE_TEMPLATE/bug_report.md`
 

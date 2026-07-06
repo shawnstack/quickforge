@@ -56,15 +56,12 @@ export function useSessionActions({
   const togglePinSession = useCallback(async (sessionId: string) => {
     const storage = storageRef.current
     if (!storage) return
-    const session = await storage.sessions.get(sessionId) as QuickForgeSessionData | null
-    if (!session) return
     const metadata = await storage.sessions.getMetadata(sessionId) as QuickForgeSessionMetadata | null
     if (!metadata) return
 
     const pinnedAt = metadata.pinnedAt ? undefined : new Date().toISOString()
-    const nextSession = { ...session, pinnedAt }
     const nextMetadata = { ...metadata, pinnedAt }
-    await storage.sessions.save(nextSession, nextMetadata)
+    await storage.backend.set('sessions-metadata', sessionId, nextMetadata)
     await refreshSessions({ broadcast: true })
   }, [refreshSessions, storageRef])
 

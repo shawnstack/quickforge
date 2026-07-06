@@ -3,8 +3,8 @@
 
 @theme {
   --radius: 0.5rem;
-  --text-sm: 15px;
-  --text-sm--line-height: calc(20 / 15);
+  --text-sm: 14px;
+  --text-sm--line-height: calc(20 / 14);
   /* Design-language light shadow token. Use via `shadow-quickforge` for inputs, hover/active feedback, and popovers. */
   --shadow-quickforge: 0 10px 26px -18px rgb(15 23 42 / 0.48);
 }
@@ -55,7 +55,7 @@
   }
 
   html {
-    font-size: 15px;
+    font-size: 14px;
   }
 
   body {
@@ -358,6 +358,10 @@ user-message .user-message-container,
   display: inline-flex;
   align-items: center;
   margin-left: auto;
+}
+
+.quickforge-sidebar-session-time {
+  color: color-mix(in oklab, var(--muted-foreground) 55%, transparent) !important;
 }
 
 .quickforge-sidebar-section-header .quickforge-sidebar-section-toggle,

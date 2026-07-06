@@ -2,6 +2,26 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.5.7] - 2026-07-06
+
+### Added
+
+- Added icons to settings tabs to make the settings sections easier to scan.
+
+### Changed
+
+- Refined sidebar typography and session timestamp styling for a more balanced interface.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.5.7` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.5.7.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.5.7.tgz
+  ```
+
 ## [1.5.6] - 2026-07-03
 
 ### Added

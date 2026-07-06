@@ -3,7 +3,7 @@
 <p align="center">
   <img alt="Version" src="https://img.shields.io/badge/version-1.5.7-blue" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green" />
-  <img alt="Node" src="https://img.shields.io/badge/node-%3E%3D20-brightgreen" />
+  <img alt="Node" src="https://img.shields.io/badge/node-%3E%3D22.19-brightgreen" />
   <img alt="React" src="https://img.shields.io/badge/react-19-61DAFB?logo=react" />
   <img alt="Vite" src="https://img.shields.io/badge/vite-8-646CFF?logo=vite" />
 </p>
@@ -107,7 +107,7 @@ console.log(app.url)
 package-offline/shawnstack-quickforge-1.5.7.tgz
 ```
 
-在安装了 Node.js 20+ 和 npm 的机器上执行：
+在安装了 Node.js 22.19+ 和 npm 的机器上执行：
 
 ```bash
 npm install -g ./package-offline/shawnstack-quickforge-1.5.7.tgz
@@ -319,7 +319,7 @@ The offline release package for `v1.5.7` is:
 package-offline/shawnstack-quickforge-1.5.7.tgz
 ```
 
-Install it on a machine with Node.js 20+ and npm:
+Install it on a machine with Node.js 22.19+ and npm:
 
 ```bash
 npm install -g ./package-offline/shawnstack-quickforge-1.5.7.tgz

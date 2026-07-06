@@ -19,7 +19,7 @@
 
 - **触发**: push / pull request 到 main 或 master 分支
 - **运行环境**: ubuntu-latest
-- **Node 版本**: 20.x, 22.x
+- **Node 版本**: 22.19.x
 - **步骤**:
   1. `actions/checkout@v4`
   2. `actions/setup-node@v4` (带 npm 缓存)
@@ -36,7 +36,7 @@
   - Windows: `windows-latest` → `npm run desktop:build:win`
   - macOS: `macos-latest` → `npm run desktop:build:mac`
   - Linux: `ubuntu-latest` → `npm run desktop:build:linux`
-- **Node 版本**: 20.x
+- **Node 版本**: 22.19.x
 - **步骤**:
   1. `actions/checkout@v4`
   2. `actions/setup-node@v4` (带 npm 缓存)

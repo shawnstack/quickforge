@@ -2,6 +2,23 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.6.1] - 2026-07-06
+
+### Fixed
+
+- Set a safe Linux executable name (`quickforge`) for Electron AppImage builds so scoped npm package metadata no longer produces an invalid `@shawnstackquickforge` path.
+- Added Linux desktop metadata for window association and an explicit `Utility` category.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.6.1` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.6.1.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.6.1.tgz
+  ```
+
 ## [1.6.0] - 2026-07-06
 
 ### Fixed

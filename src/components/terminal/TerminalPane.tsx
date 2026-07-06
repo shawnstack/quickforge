@@ -170,10 +170,8 @@ export function TerminalPane({ session, active, height, onReady, onExited, onCon
   }, [active, height])
 
   return (
-    <div
-      ref={hostRef}
-      className={active ? 'h-full min-h-0 w-full' : 'hidden'}
-      aria-hidden={!active}
-    />
+    <div className={active ? 'h-full min-h-0 w-full pl-2 md:pl-3' : 'hidden'} aria-hidden={!active}>
+      <div ref={hostRef} className="h-full min-h-0 w-full" />
+    </div>
   )
 }

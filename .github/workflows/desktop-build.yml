@@ -37,6 +37,7 @@ jobs:
 
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      APPIMAGE_EXTRACT_AND_RUN: '1'
 
     steps:
       - uses: actions/checkout@v4
@@ -49,7 +50,10 @@ jobs:
 
       - name: Install Linux packaging dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libarchive-tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarchive-tools
+          sudo apt-get install -y libfuse2t64 || sudo apt-get install -y libfuse2
 
       - run: npm ci
 

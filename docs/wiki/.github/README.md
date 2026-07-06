@@ -40,7 +40,7 @@
 - **步骤**:
   1. `actions/checkout@v4`
   2. `actions/setup-node@v4` (带 npm 缓存)
-  3. Linux runner 额外安装 `libarchive-tools`
+  3. Linux runner 额外安装 `libarchive-tools` 和 FUSE 2 兼容库（`libfuse2t64`，回退 `libfuse2`），并设置 `APPIMAGE_EXTRACT_AND_RUN=1` 以支持 AppImage 工具链
   4. `npm ci`
   5. 按平台执行桌面构建脚本
   6. 上传 `desktop-dist/` 中的安装包和更新元数据为 artifacts

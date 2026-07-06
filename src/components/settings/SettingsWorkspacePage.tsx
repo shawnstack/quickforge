@@ -1,4 +1,23 @@
-import { ArrowLeft } from 'lucide-react'
+import {
+  Archive,
+  ArrowLeft,
+  BookOpen,
+  Bot,
+  CalendarClock,
+  Database,
+  DownloadCloud,
+  Gauge,
+  Globe2,
+  Info,
+  Languages,
+  Palette,
+  Puzzle,
+  Server,
+  Share2,
+  SlidersHorizontal,
+  SquareTerminal,
+  type LucideIcon,
+} from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { SettingsTab } from '@earendil-works/pi-web-ui'
 import { Button } from '@/components/ui/button'
@@ -11,6 +30,25 @@ type SettingsWorkspacePageProps = {
   customProvider?: string
   onBack: () => void
 }
+
+const SETTINGS_TAB_ICONS = {
+  language: Languages,
+  appearance: Palette,
+  defaults: SlidersHorizontal,
+  customModels: Database,
+  agents: Bot,
+  skills: BookOpen,
+  mcp: Server,
+  plugins: Puzzle,
+  scheduledTasks: CalendarClock,
+  projectCommands: SquareTerminal,
+  backup: DownloadCloud,
+  archivedConversations: Archive,
+  service: Gauge,
+  channels: Share2,
+  lanAccess: Globe2,
+  about: Info,
+} satisfies Record<SettingsInitialTab, LucideIcon>
 
 function SettingsTabHost({ tab }: { tab: SettingsTab }) {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -34,6 +72,7 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
   const [selectedTabIndex, setSelectedTabIndex] = useState<number | undefined>()
   const activeTabIndex = selectedTabIndex ?? defaultTabIndex
   const activeItem = settings.items[activeTabIndex] ?? settings.items[0]
+  const ActiveIcon = activeItem ? SETTINGS_TAB_ICONS[activeItem.key] : undefined
 
   return (
     <div className="flex h-screen min-h-0 bg-[var(--quickforge-sidebar-bg)] text-foreground">
@@ -56,12 +95,13 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
           <nav className="space-y-1" aria-label={t('settings')}>
             {settings.items.map((item, index) => {
               const active = index === activeTabIndex
+              const Icon = SETTINGS_TAB_ICONS[item.key]
               return (
                 <button
                   key={item.key}
                   type="button"
                   className={cn(
-                    'group relative flex w-full items-center gap-2 overflow-hidden rounded-lg px-2 py-1.5 text-left text-sm leading-5 transition-[background-color,color,box-shadow] duration-160 ease-out',
+                    'group relative flex w-full items-center gap-2.5 overflow-hidden rounded-lg px-2 py-1.5 text-left text-sm leading-5 transition-[background-color,color,box-shadow] duration-160 ease-out',
                     active
                       ? 'bg-[var(--quickforge-sidebar-active-bg)] font-medium text-foreground/92 shadow-[0_8px_22px_-20px_rgb(15_23_42_/_0.32)]'
                       : 'text-muted-foreground/76 hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-foreground/90 hover:shadow-[0_8px_20px_-18px_rgb(15_23_42_/_0.35)]',
@@ -69,6 +109,14 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
                   onClick={() => setSelectedTabIndex(index)}
                   aria-current={active ? 'page' : undefined}
                 >
+                  <span
+                    className={cn(
+                      'inline-flex size-5 shrink-0 items-center justify-center transition-colors',
+                      active ? 'text-foreground/72' : 'text-muted-foreground/52 group-hover:text-foreground/68',
+                    )}
+                  >
+                    <Icon className="size-4" aria-hidden="true" />
+                  </span>
                   <span className="truncate">{item.tab.getTabName()}</span>
                 </button>
               )
@@ -83,24 +131,29 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
             <ArrowLeft className="size-4" />
           </Button>
           <div className="min-w-0 flex-1">
-            <div className="min-w-0 truncate text-sm font-medium text-foreground/90">{activeItem?.tab.getTabName()}</div>
+            <div className="flex min-w-0 items-center gap-2">
+              {ActiveIcon ? <ActiveIcon className="size-4 shrink-0 text-muted-foreground/65" aria-hidden="true" /> : null}
+              <div className="min-w-0 truncate text-sm font-medium text-foreground/90">{activeItem?.tab.getTabName()}</div>
+            </div>
           </div>
         </header>
 
         <div className="quickforge-settings-mobile-tabs flex shrink-0 gap-1 overflow-x-auto border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_30%,transparent)] px-3 py-2 md:hidden">
           {settings.items.map((item, index) => {
             const active = index === activeTabIndex
+            const Icon = SETTINGS_TAB_ICONS[item.key]
             return (
               <button
                 key={item.key}
                 type="button"
                 className={cn(
-                  'shrink-0 rounded-full px-3 py-1.5 text-sm transition-colors',
+                  'inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition-colors',
                   active ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/55 hover:text-foreground',
                 )}
                 onClick={() => setSelectedTabIndex(index)}
               >
-                {item.tab.getTabName()}
+                <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+                <span>{item.tab.getTabName()}</span>
               </button>
             )
           })}

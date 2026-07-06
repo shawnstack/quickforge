@@ -17,6 +17,7 @@ module.exports = {
   npmRebuild: false,
   extraMetadata: {
     main: 'desktop/electron-main.mjs',
+    desktopName: 'quickforge',
   },
   win: {
     target: 'nsis',
@@ -39,5 +40,8 @@ module.exports = {
   linux: {
     target: 'AppImage',
     icon: 'desktop/assets/icon.png',
+    executableName: 'quickforge',
+    category: 'Utility',
+    syncDesktopName: true,
   },
 }

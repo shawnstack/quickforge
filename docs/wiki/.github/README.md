@@ -42,7 +42,7 @@
   2. `actions/setup-node@v4` (带 npm 缓存)
   3. Linux runner 额外安装 `libarchive-tools` 和 FUSE 2 兼容库（`libfuse2t64`，回退 `libfuse2`），并设置 `APPIMAGE_EXTRACT_AND_RUN=1` 以支持 AppImage 工具链
   4. `npm ci`
-  5. 按平台执行桌面构建脚本
+  5. 按平台执行桌面构建脚本；Linux AppImage 显式使用安全可执行名 `quickforge`，避免从 scoped npm 包名推导出非法路径字符
   6. 上传 `desktop-dist/` 中的安装包和更新元数据为 artifacts
 
 ## `ISSUE_TEMPLATE/bug_report.md`

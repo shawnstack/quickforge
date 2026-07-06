@@ -2,6 +2,22 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.6.2] - 2026-07-06
+
+### Added
+
+- Automatically creates a GitHub Release and uploads Windows, macOS, and Linux desktop build assets when the `Desktop Build` workflow runs from a `v*` tag.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.6.2` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.6.2.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.6.2.tgz
+  ```
+
 ## [1.6.1] - 2026-07-06
 
 ### Fixed

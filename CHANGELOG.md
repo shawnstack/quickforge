@@ -2,6 +2,27 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.5.8] - 2026-07-06
+
+### Fixed
+
+- Updated CI and desktop build workflows to use Node.js 22.19.x, matching the current dependency engine requirements.
+- Locked the `@emnapi/core` and `@emnapi/runtime` peer dependencies required by the Linux CI install tree so `npm ci` can resolve the package lock consistently.
+
+### Changed
+
+- Documented Node.js 22.19+ as the required runtime in README and workflow wiki docs.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.5.8` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.5.8.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.5.8.tgz
+  ```
+
 ## [1.5.7] - 2026-07-06
 
 ### Added

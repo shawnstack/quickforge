@@ -2,6 +2,22 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.6.0] - 2026-07-06
+
+### Fixed
+
+- Added Linux AppImage build dependencies in the desktop workflow by installing FUSE 2 compatibility libraries (`libfuse2t64` with `libfuse2` fallback) and enabling `APPIMAGE_EXTRACT_AND_RUN=1` for AppImage tooling on Ubuntu runners.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.6.0` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.6.0.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.6.0.tgz
+  ```
+
 ## [1.5.9] - 2026-07-06
 
 ### Fixed

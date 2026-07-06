@@ -2,6 +2,22 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.5.9] - 2026-07-06
+
+### Fixed
+
+- Disabled electron-builder's implicit publish behavior for desktop builds so tag-triggered workflow runs only build and upload artifacts, without requiring `GH_TOKEN` or creating GitHub Releases automatically.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.5.9` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.5.9.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.5.9.tgz
+  ```
+
 ## [1.5.8] - 2026-07-06
 
 ### Fixed

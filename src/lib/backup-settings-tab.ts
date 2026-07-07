@@ -20,11 +20,13 @@ type BackupInspectResponse = {
   includeSecrets?: boolean
   sections?: BackupImportSummary
   warnings?: string[]
+  importToken?: string
   error?: string
 }
 
 type PendingBackupImport = {
   backup: unknown
+  importToken?: string
   inspect: BackupInspectResponse
   selectedSections: Set<BackupRestoreSection>
   mode: BackupRestoreMode
@@ -73,8 +75,53 @@ function availableRestoreSections(inspect: BackupInspectResponse) {
   return restoreSections.filter((section) => (inspect.sections?.[section.countKey] ?? 0) > 0)
 }
 
+function defaultRestoreSections(inspect: BackupInspectResponse) {
+  return availableRestoreSections(inspect)
+    .filter((section) => section.id !== 'conversations')
+    .map((section) => section.id)
+}
+
+function isStringTooLargeError(error: unknown) {
+  return error instanceof RangeError || (error instanceof Error && error.message.includes('Invalid string length'))
+}
+
+function friendlyBackupError(error: unknown, fallback: string) {
+  if (isStringTooLargeError(error)) return t('backupStringTooLarge')
+  return error instanceof Error ? error.message : fallback
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function stripConversationSections(value: unknown): unknown {
+  if (!isPlainRecord(value)) return value
+  const next = { ...value }
+  delete next.sessions
+  delete next.sessionsMetadata
+  delete next['sessions-metadata']
+  return next
+}
+
+function backupWithoutConversations(backup: unknown): unknown {
+  if (!isPlainRecord(backup)) return backup
+  if (isPlainRecord(backup.data)) {
+    return {
+      ...backup,
+      scope: backup.scope === 'sessions' ? 'config' : backup.scope,
+      data: stripConversationSections(backup.data),
+    }
+  }
+  return stripConversationSections(backup)
+}
+
+function selectedBackupForImport(backup: unknown, sections: Set<BackupRestoreSection>): unknown {
+  if (sections.has('conversations')) return backup
+  return backupWithoutConversations(backup)
+}
+
 class BackupSettingsTab extends SettingsTab {
-  private exportScope: BackupScope = 'all'
+  private exportScope: BackupScope = 'config'
   private includeSecrets = false
   private busy = false
   private message = ''
@@ -132,18 +179,18 @@ class BackupSettingsTab extends SettingsTab {
       downloadJson(`${BACKUP_FILE_PREFIX}-${this.exportScope}-${suffix}-${timestampForFile()}.json`, payload)
       this.message = t('backupExported')
     } catch (error) {
-      this.error = error instanceof Error ? error.message : t('backupExportFailed')
+      this.error = friendlyBackupError(error, t('backupExportFailed'))
     } finally {
       this.busy = false
       this.requestUpdate()
     }
   }
 
-  private async inspectBackup(backup: unknown) {
-    const response = await fetch('/api/backup/inspect', {
+  private async inspectBackupFile(file: File) {
+    const response = await fetch('/api/backup/inspect-file', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(backup),
+      body: file,
     })
     const payload = await response.json().catch(() => null) as BackupInspectResponse | null
     if (!response.ok) throw new Error(payload?.error || t('backupInspectFailed'))
@@ -158,14 +205,14 @@ class BackupSettingsTab extends SettingsTab {
     this.requestUpdate()
 
     try {
-      const text = await file.text()
-      const backup = JSON.parse(text) as unknown
-      const inspect = await this.inspectBackup(backup)
-      const selectedSections = new Set(availableRestoreSections(inspect).map((section) => section.id))
-      this.pendingImport = { backup, inspect, selectedSections, mode: 'replace' }
-      this.message = t('backupInspected')
+      const inspect = await this.inspectBackupFile(file)
+      const selectedSections = new Set(defaultRestoreSections(inspect))
+      this.pendingImport = { backup: null, importToken: inspect.importToken, inspect, selectedSections, mode: 'replace' }
+      this.message = inspect.sections?.sessions
+        ? t('backupInspectedWithConversations')
+        : t('backupInspected')
     } catch (error) {
-      this.error = error instanceof Error ? error.message : t('backupImportFailed')
+      this.error = friendlyBackupError(error, t('backupImportFailed'))
     } finally {
       this.busy = false
       this.requestUpdate()
@@ -209,14 +256,21 @@ class BackupSettingsTab extends SettingsTab {
     this.requestUpdate()
 
     try {
+      const body = this.pendingImport.importToken
+        ? {
+            importToken: this.pendingImport.importToken,
+            sections: [...this.pendingImport.selectedSections],
+            mode: this.pendingImport.mode,
+          }
+        : {
+            backup: selectedBackupForImport(this.pendingImport.backup, this.pendingImport.selectedSections),
+            sections: [...this.pendingImport.selectedSections],
+            mode: this.pendingImport.mode,
+          }
       const response = await fetch('/api/backup/import', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          backup: this.pendingImport.backup,
-          sections: [...this.pendingImport.selectedSections],
-          mode: this.pendingImport.mode,
-        }),
+        body: JSON.stringify(body),
       })
       const payload = await response.json().catch(() => null) as BackupImportResponse & { error?: string } | null
       if (!response.ok) throw new Error(payload?.error || t('backupImportFailed'))
@@ -229,7 +283,7 @@ class BackupSettingsTab extends SettingsTab {
         : t('backupImported')
       window.setTimeout(() => window.location.reload(), 1500)
     } catch (error) {
-      this.error = error instanceof Error ? error.message : t('backupImportFailed')
+      this.error = friendlyBackupError(error, t('backupImportFailed'))
     } finally {
       this.busy = false
       this.requestUpdate()
@@ -410,6 +464,12 @@ class BackupSettingsTab extends SettingsTab {
               </select>
             </div>
           </div>
+
+          ${this.exportScope !== 'config' ? html`
+            <div class="quickforge-settings-warning quickforge-settings-warning-attached">
+              ⚠ ${t('exportLargeDataWarning')}
+            </div>
+          ` : null}
 
           <div class="quickforge-settings-row">
             <div class="quickforge-settings-row-main ${this.exportScope === 'sessions' ? 'opacity-60' : ''}">

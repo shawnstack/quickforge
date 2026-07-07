@@ -163,6 +163,34 @@ function quitApp() {
   app.quit()
 }
 
+function showRendererContextMenu(params) {
+  if (!mainWindow) return
+
+  const editFlags = params.editFlags || {}
+  const hasSelection = Boolean(params.selectionText?.trim())
+  const template = params.isEditable
+    ? [
+        { role: 'undo', enabled: Boolean(editFlags.canUndo) },
+        { role: 'redo', enabled: Boolean(editFlags.canRedo) },
+        { type: 'separator' },
+        { role: 'cut', enabled: Boolean(editFlags.canCut) },
+        { role: 'copy', enabled: Boolean(editFlags.canCopy || hasSelection) },
+        { role: 'paste', enabled: Boolean(editFlags.canPaste) },
+        { type: 'separator' },
+        { role: 'selectAll', enabled: Boolean(editFlags.canSelectAll) },
+      ]
+    : hasSelection
+      ? [
+          { role: 'copy' },
+          { type: 'separator' },
+          { role: 'selectAll' },
+        ]
+      : []
+
+  if (template.length === 0) return
+  Menu.buildFromTemplate(template).popup({ window: mainWindow })
+}
+
 function getIconFromCandidates(iconCandidates) {
   for (const iconPath of iconCandidates) {
     const icon = nativeImage.createFromPath(iconPath)
@@ -296,6 +324,10 @@ function createWindow(url) {
     },
   })
 
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    showRendererContextMenu(params)
+  })
+
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show()
     updateTrayMenu()
@@ -394,7 +426,7 @@ async function boot() {
     const desktopRuntimeVersion = await getDesktopRuntimeVersion()
     quickForgeInstance = await startQuickForge({
       host: process.env.QUICKFORGE_DESKTOP_HOST || '127.0.0.1',
-      port: process.env.QUICKFORGE_DESKTOP_PORT || process.env.QUICKFORGE_PORT || 5176,
+      port: process.env.QUICKFORGE_DESKTOP_PORT || process.env.QUICKFORGE_PORT || 5177,
       dataDir: process.env.QUICKFORGE_DESKTOP_DATA_DIR,
       workspaceDir: process.env.QUICKFORGE_DESKTOP_WORKSPACE_DIR,
       openBrowser: false,

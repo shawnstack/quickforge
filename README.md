@@ -186,7 +186,8 @@ API Key: 按你的 LiteLLM 配置填写，可为空
 | `QUICKFORGE_DATA_DIR` | `~/.quickforge` | 数据目录 |
 | `QUICKFORGE_WORKSPACE_DIR` | 项目根目录 | YOLO 工具默认工作区 |
 | `QUICKFORGE_HOST` | `127.0.0.1` | 服务绑定地址 |
-| `QUICKFORGE_PORT` | `32176`（dev）/ `5176`（prod） | 后端服务端口 |
+| `QUICKFORGE_PORT` | `32176`（dev）/ `5176`（prod） | 后端服务端口；`qf` / `quickforge` 默认使用生产端口 |
+| `QUICKFORGE_DESKTOP_PORT` | `5177` | 桌面 app 服务端口；未设置时与 `qf` CLI 默认端口分离 |
 | `QUICKFORGE_VITE_PORT` | `5176` | Vite 开发服务器端口 |
 | `QUICKFORGE_MAX_BODY_BYTES` | `52428800` (50MB) | 请求体大小上限 |
 
@@ -398,7 +399,8 @@ You can also configure OpenRouter, DeepSeek, Ollama, or any other OpenAI-compati
 | `QUICKFORGE_DATA_DIR` | `~/.quickforge` | Data directory |
 | `QUICKFORGE_WORKSPACE_DIR` | project root | Default workspace for YOLO tools |
 | `QUICKFORGE_HOST` | `127.0.0.1` | Server bind address |
-| `QUICKFORGE_PORT` | `32176` (dev) / `5176` (prod) | Backend server port |
+| `QUICKFORGE_PORT` | `32176` (dev) / `5176` (prod) | Backend server port; used by `qf` / `quickforge` by default |
+| `QUICKFORGE_DESKTOP_PORT` | `5177` | Desktop app service port; separated from the default `qf` CLI port |
 | `QUICKFORGE_VITE_PORT` | `5176` | Vite dev server port |
 | `QUICKFORGE_MAX_BODY_BYTES` | `52428800` (50MB) | Max request body size |
 

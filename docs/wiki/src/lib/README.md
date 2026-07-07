@@ -6,7 +6,7 @@
 
 | 文件 | 行数 | 用途 |
 |------|------|------|
-| `i18n.ts` | 1072 | 国际化（中/英）翻译和语言管理 |
+| `i18n.ts` | 2171 | 国际化（中/英）翻译和语言管理 |
 | `pi-chat.ts` | 365 | Pi Chat 初始化和模型管理 |
 | `server-agent.ts` | 832 | Server Agent — 服务端 Agent 客户端 |
 | `shared-server-agent.ts` | 429 | 共享会话 Agent 客户端 |
@@ -18,7 +18,7 @@
 | `message-utils.ts` | 127 | 消息处理工具 |
 | `custom-model-selector.ts` | 162 | 自定义模型选择器 |
 | `custom-providers-only-tab.ts` | 565 | 自定义供应商设置选项卡 |
-| `backup-settings-tab.ts` | 372 | 数据备份/恢复选项卡 |
+| `backup-settings-tab.ts` | 515 | 数据备份/恢复选项卡 |
 | `default-options-settings-tab.ts` | 257 | 默认选项设置选项卡 |
 | `language-settings-tab.ts` | 66 | 语言设置选项卡 |
 | `lan-access-settings-tab.ts` | 227 | LAN 共享设置选项卡 |

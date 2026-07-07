@@ -398,7 +398,7 @@ async function handleApi(req, res, url) {
   }
 
   // Backup / import-export routes
-  if (pathname === '/api/backup/export' || pathname === '/api/backup/import' || pathname === '/api/backup/inspect') {
+  if (pathname === '/api/backup/export' || pathname === '/api/backup/import' || pathname === '/api/backup/inspect' || pathname === '/api/backup/inspect-file') {
     await handleBackupApi(req, res, url)
     return
   }

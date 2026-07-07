@@ -17,7 +17,7 @@
 | `scheduled-tasks.mjs` | 949 | 定时任务管理，支持绑定 Agent Profile 与配置单任务执行模式 |
 | `shares.mjs` | 90 | 分享管理 |
 | `shared-conversation.mjs` | 404 | 共享会话查看 |
-| `backup.mjs` | 395 | 数据备份和恢复 |
+| `backup.mjs` | 460 | 数据备份和恢复 |
 | `lan-access.mjs` | 201 | LAN 共享访问管理 |
 | `instructions.mjs` | 20 | 系统提示词 |
 | `system.mjs` | 81 | 系统状态、重启、关于信息、Runtime 更新和 Desktop 发布页检查 |
@@ -165,7 +165,7 @@ Agent Profile 管理路由。
 数据备份和恢复路由。
 
 **主要端点**:
-- `GET /api/backup/export?scope=all|config|sessions&includeSecrets=0|1` — 导出备份，默认不包含 API Key
+- `GET /api/backup/export?scope=all|config|sessions&includeSecrets=0|1` — 导出备份，默认导出核心配置（`config`）且不包含 API Key；`all`/`sessions` 会包含对话历史，属于高级大数据导出
 - `POST /api/backup/inspect` — 检查备份文件并返回导入预览
 - `POST /api/backup/import` — 导入备份；请求体可为备份本身，或 `{ "backup": <备份>, "sections": [...] }` 选择性恢复
 

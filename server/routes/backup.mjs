@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { sendJson, readJsonBody } from '../utils/response.mjs'
@@ -15,6 +16,7 @@ import { getWorkspaceRoot } from '../utils/workspace.mjs'
 
 const BACKUP_VERSION = 1
 const BACKUP_APP = 'quickforge'
+const IMPORT_UPLOAD_MAX_BYTES = Number(process.env.QUICKFORGE_IMPORT_UPLOAD_MAX_BYTES || 1024 * 1024 * 1024)
 const backupScopes = new Set(['all', 'config', 'sessions'])
 const restoreSectionIds = new Set(['settings', 'mcp', 'providerKeys', 'customProviders', 'projects', 'scheduledTasks', 'conversations'])
 const restoreModes = new Set(['replace', 'merge'])
@@ -25,13 +27,74 @@ function normalizeMode(value) {
 }
 
 function normalizeScope(value) {
-  const scope = String(value || 'all')
-  return backupScopes.has(scope) ? scope : 'all'
+  const scope = String(value || 'config')
+  return backupScopes.has(scope) ? scope : 'config'
 }
 
 function parseBoolean(value) {
   const text = String(value || '').toLowerCase()
   return text === '1' || text === 'true' || text === 'yes'
+}
+
+function extractCoreBackupFromText(text) {
+  const backup = JSON.parse(text, (key, value) => (
+    key === 'sessions' || key === 'sessionsMetadata' || key === 'sessions-metadata'
+      ? undefined
+      : value
+  ))
+  if (backup && typeof backup === 'object' && !Array.isArray(backup)) {
+    if (backup.data && typeof backup.data === 'object' && !Array.isArray(backup.data)) {
+      backup.scope = 'config'
+      return backup
+    }
+    return {
+      app: backup.app ?? BACKUP_APP,
+      version: backup.version ?? BACKUP_VERSION,
+      exportedAt: backup.exportedAt ?? null,
+      scope: 'config',
+      includeSecrets: backup.includeSecrets === true,
+      data: backup,
+    }
+  }
+  const error = new Error('Invalid backup file')
+  error.statusCode = 400
+  throw error
+}
+
+async function readTextBody(req, maxBodyBytes = IMPORT_UPLOAD_MAX_BYTES) {
+  const chunks = []
+  let size = 0
+  for await (const chunk of req) {
+    size += chunk.length
+    if (size > maxBodyBytes) {
+      const error = new Error('Backup file is too large')
+      error.statusCode = 413
+      throw error
+    }
+    chunks.push(chunk)
+  }
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+async function writePendingImportBackup(backup) {
+  const dir = path.join(storageDir, 'pending-imports')
+  await fs.mkdir(dir, { recursive: true })
+  const token = randomUUID()
+  const file = path.join(dir, `${token}.json`)
+  await fs.writeFile(file, `${JSON.stringify(backup)}\n`, 'utf8')
+  return token
+}
+
+async function readPendingImportBackup(token) {
+  if (!/^[0-9a-f-]{36}$/i.test(String(token || ''))) {
+    const error = new Error('Invalid import token')
+    error.statusCode = 400
+    throw error
+  }
+  const file = path.join(storageDir, 'pending-imports', `${token}.json`)
+  const backup = JSON.parse(await fs.readFile(file, 'utf8'))
+  await fs.rm(file, { force: true })
+  return backup
 }
 
 function backupTimestamp(date = new Date()) {
@@ -333,8 +396,8 @@ function inspectBackup(payload) {
   }
 }
 
-async function writeSafetyBackup() {
-  const backup = await buildBackup('all', { includeSecrets: true })
+async function writeSafetyBackup(scope = 'config') {
+  const backup = await buildBackup(scope, { includeSecrets: true })
   const dir = path.join(storageDir, 'backups')
   await fs.mkdir(dir, { recursive: true })
   const file = path.join(dir, `quickforge-before-restore-${backupTimestamp()}.json`)
@@ -443,11 +506,22 @@ export async function handleBackupApi(req, res, url) {
     return
   }
 
+  if (req.method === 'POST' && url.pathname === '/api/backup/inspect-file') {
+    await ensureStorage()
+    const text = await readTextBody(req)
+    const backup = extractCoreBackupFromText(text)
+    const inspect = inspectBackup(backup)
+    const token = await writePendingImportBackup(backup)
+    sendJson(res, 200, { ...inspect, importToken: token })
+    return
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/backup/import') {
     await ensureStorage()
     const body = await readJsonBody(req)
-    const { backup, mode } = parseImportPayload(body)
-    const safetyBackupPath = await writeSafetyBackup()
+    const importBody = body?.importToken ? { ...body, backup: await readPendingImportBackup(body.importToken) } : body
+    const { backup, mode } = parseImportPayload(importBody)
+    const safetyBackupPath = await writeSafetyBackup(backup.sections.sessions !== undefined || backup.sections.sessionsMetadata !== undefined ? 'all' : 'config')
     const summary = await restoreValidatedBackup(backup, mode)
     sendJson(res, 200, { ok: true, safetyBackupPath, summary })
     return

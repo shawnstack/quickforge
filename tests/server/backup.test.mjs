@@ -67,6 +67,71 @@ async function callImport(backup, storage, body) {
   return { res, json: JSON.parse(res._body || '{}') }
 }
 
+async function callExport(backup, urlText = 'http://localhost/api/backup/export') {
+  const url = new URL(urlText)
+  const req = { method: 'GET' }
+  const res = mockRes()
+  await backup.handleBackupApi(req, res, url)
+  return { res, json: JSON.parse(res._body || '{}') }
+}
+
+describe('backup export — default scope', () => {
+  it('defaults to core config and excludes conversations', async () => {
+    await withTempBackup(async (backup, storage) => {
+      await storage.writeStore('settings', { theme: 'dark' })
+      await storage.writeStore('sessions', { session1: { title: 'large history' } })
+      await storage.writeStore('sessions-metadata', { session1: { id: 'session1' } })
+
+      const { res, json } = await callExport(backup)
+
+      expect(res._status).toBe(200)
+      expect(json.scope).toBe('config')
+      expect(json.data.settings).toEqual({ theme: 'dark' })
+      expect(json.data.sessions).toBeUndefined()
+      expect(json.data.sessionsMetadata).toBeUndefined()
+    })
+  })
+})
+
+async function callInspectFile(backup, text) {
+  const url = new URL('http://localhost/api/backup/inspect-file')
+  const req = {
+    method: 'POST',
+    [Symbol.asyncIterator]() {
+      let done = false
+      return {
+        async next() {
+          if (done) return { done: true }
+          done = true
+          return { value: Buffer.from(text), done: false }
+        },
+      }
+    },
+  }
+  const res = mockRes()
+  await backup.handleBackupApi(req, res, url)
+  return { res, json: JSON.parse(res._body || '{}') }
+}
+
+describe('backup import — file inspect', () => {
+  it('extracts core settings from a full backup and omits conversations', async () => {
+    await withTempBackup(async (backup) => {
+      const fullBackupText = JSON.stringify(makeBackup({
+        settings: { theme: 'dark' },
+        sessions: { big: { id: 'big', messages: ['history'] } },
+        sessionsMetadata: { big: { id: 'big' } },
+      }))
+
+      const { res, json } = await callInspectFile(backup, fullBackupText)
+
+      expect(res._status).toBe(200)
+      expect(json.importToken).toBeTruthy()
+      expect(json.sections.settings).toBe(1)
+      expect(json.sections.sessions).toBeUndefined()
+    })
+  })
+})
+
 describe('backup import — restore modes', () => {
   it('replace mode overwrites local settings entirely', async () => {
     await withTempBackup(async (backup, storage) => {
@@ -260,8 +325,32 @@ describe('backup import — safety backup', () => {
 
       expect(json.safetyBackupPath).toBeTruthy()
       // The safety backup should be a real file
-      const stat = await fs.stat(json.safetyBackupPath)
-      expect(stat.isFile()).toBe(true)
+      const safetyBackup = JSON.parse(await fs.readFile(json.safetyBackupPath, 'utf8'))
+      expect(safetyBackup.scope).toBe('config')
+      expect(safetyBackup.data.settings).toEqual({ important: 'data' })
+      expect(safetyBackup.data.sessions).toBeUndefined()
+    })
+  })
+
+  it('keeps full safety backup when restoring conversations', async () => {
+    await withTempBackup(async (backup, storage) => {
+      await storage.writeStore('settings', { important: 'data' })
+      await storage.writeStore('sessions', { local: { id: 'local', title: 'local' } })
+      await storage.writeStore('sessions-metadata', { local: { id: 'local' } })
+
+      const bk = makeBackup({
+        sessions: { incoming: { title: 'incoming' } },
+        sessionsMetadata: { incoming: { id: 'incoming' } },
+      })
+      const { json } = await callImport(backup, storage, {
+        backup: bk,
+        sections: ['conversations'],
+        mode: 'replace',
+      })
+
+      const safetyBackup = JSON.parse(await fs.readFile(json.safetyBackupPath, 'utf8'))
+      expect(safetyBackup.scope).toBe('all')
+      expect(safetyBackup.data.sessions.local.title).toBe('local')
     })
   })
 })

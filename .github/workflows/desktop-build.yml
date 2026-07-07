@@ -90,11 +90,32 @@ jobs:
           pattern: quickforge-desktop-*
           path: release-assets
 
-      - name: Create GitHub Release and upload assets
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: QuickForge ${{ github.ref_name }}
-          generate_release_notes: true
-          files: |
-            release-assets/**/*
+      - name: Create or update GitHub Release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          mapfile -d '' assets < <(find release-assets -type f -print0)
+
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "No release assets found in release-assets"
+            exit 1
+          fi
+
+          if gh release view "$TAG_NAME" --repo "$REPO" >/dev/null 2>&1; then
+            gh release edit "$TAG_NAME" \
+              --repo "$REPO" \
+              --title "QuickForge $TAG_NAME"
+          else
+            gh release create "$TAG_NAME" \
+              --repo "$REPO" \
+              --title "QuickForge $TAG_NAME" \
+              --generate-notes
+          fi
+
+          gh release upload "$TAG_NAME" "${assets[@]}" \
+            --repo "$REPO" \
+            --clobber

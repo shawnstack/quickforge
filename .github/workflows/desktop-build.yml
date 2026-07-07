@@ -78,7 +78,7 @@ jobs:
   release:
     name: Create GitHub Release
     needs: desktop
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.event.deleted == false
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -98,6 +98,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ "${GITHUB_REF_TYPE:-}" != "tag" ] || [ -z "$TAG_NAME" ]; then
+            echo "This job must run from a Git tag. GITHUB_REF_TYPE=${GITHUB_REF_TYPE:-}, TAG_NAME=$TAG_NAME"
+            exit 1
+          fi
+
           mapfile -d '' assets < <(find release-assets -type f -print0)
 
           if [ "${#assets[@]}" -eq 0 ]; then
@@ -113,9 +118,28 @@ jobs:
             gh release create "$TAG_NAME" \
               --repo "$REPO" \
               --title "QuickForge $TAG_NAME" \
-              --generate-notes
+              --generate-notes \
+              --verify-tag
           fi
 
-          gh release upload "$TAG_NAME" "${assets[@]}" \
-            --repo "$REPO" \
-            --clobber
+          release_tag="$(gh release view "$TAG_NAME" --repo "$REPO" --json tagName --jq .tagName)"
+          if [ "$release_tag" != "$TAG_NAME" ]; then
+            echo "Release tag mismatch: expected $TAG_NAME, got $release_tag"
+            exit 1
+          fi
+
+          for attempt in 1 2 3; do
+            if gh release upload "$TAG_NAME" "${assets[@]}" \
+              --repo "$REPO" \
+              --clobber; then
+              exit 0
+            fi
+
+            if [ "$attempt" -eq 3 ]; then
+              echo "Release asset upload failed after $attempt attempts"
+              exit 1
+            fi
+
+            echo "Release asset upload failed on attempt $attempt; retrying in 10 seconds..."
+            sleep 10
+          done

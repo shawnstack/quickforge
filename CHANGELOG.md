@@ -2,6 +2,33 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.6.3] - 2026-07-07
+
+### Added
+
+- Redesigned the settings workspace with clearer navigation and section structure.
+
+### Changed
+
+- Refined backup export/import defaults so core settings are the recommended path, while conversation history remains an advanced option.
+- Clarified runtime, desktop port, and desktop update documentation for CLI and Electron usage.
+- Simplified the skills tooltip copy and improved terminal/sidebar interaction polish.
+
+### Fixed
+
+- Fixed session pin metadata persistence races and sidebar conversation action hit areas.
+- Added safeguards and tests for large backup inspection, settings-only restore flows, and safety backup scope selection.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.6.3` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.6.3.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.6.3.tgz
+  ```
+
 ## [1.6.2] - 2026-07-06
 
 ### Added

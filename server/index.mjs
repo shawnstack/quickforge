@@ -31,7 +31,7 @@ import { handleChannelsApi } from './routes/channels.mjs'
 import { handleModelsApi } from './routes/models.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { logger, flushLogger } from './utils/logger.mjs'
-import { getPackageInfo, checkForUpdates } from './utils/package-update.mjs'
+import { getPackageInfo, checkForUpdates, checkDesktopRelease } from './utils/package-update.mjs'
 import { installAiHttpLogger } from './ai-http-logger.mjs'
 import { isLoopbackAddress, getLanUrls } from './utils/network.mjs'
 import { parseCookies } from './share-store.mjs'
@@ -404,12 +404,13 @@ async function handleApi(req, res, url) {
   }
 
   // System routes
-  if (pathname === '/api/system/status' || pathname === '/api/system/restart' || pathname === '/api/system/network' || pathname === '/api/system/terminal-shell' || pathname === '/api/system/about' || pathname === '/api/system/update/check' || pathname === '/api/system/update') {
+  if (pathname === '/api/system/status' || pathname === '/api/system/restart' || pathname === '/api/system/network' || pathname === '/api/system/terminal-shell' || pathname === '/api/system/about' || pathname === '/api/system/update/check' || pathname === '/api/system/update/desktop' || pathname === '/api/system/update') {
     await handleSystemApi(req, res, url, {
       getSystemStatus,
       requestRestart,
       getPackageInfo: () => getPackageInfo(projectRoot),
       checkForUpdates: () => checkForUpdates(projectRoot),
+      checkDesktopRelease: () => checkDesktopRelease(projectRoot),
       updateQuickForge,
       isLocalRequest: isLoopbackAddress(req.socket.remoteAddress),
       getTerminalShellSetting: readTerminalShellSetting,

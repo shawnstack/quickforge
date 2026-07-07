@@ -2,6 +2,9 @@ import { spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
+const QUICKFORGE_RELEASES_URL = 'https://github.com/shawnstack/quickforge/releases/latest'
+const QUICKFORGE_LATEST_RELEASE_API_URL = 'https://api.github.com/repos/shawnstack/quickforge/releases/latest'
+
 function normalizeRepositoryUrl(value) {
   if (!value || typeof value !== 'string') return ''
   return value
@@ -122,11 +125,54 @@ export async function checkForUpdates(projectRoot) {
   const comparison = compareVersions(pkg.version, latestVersion)
   return {
     ...pkg,
+    channel: 'npm-runtime',
+    distribution: 'npm',
     currentVersion: pkg.version,
     latestVersion,
     updateAvailable: comparison < 0,
     localVersionIsNewer: comparison > 0,
     installCommand: `npm install -g ${pkg.name}@latest`,
+    releaseUrl: QUICKFORGE_RELEASES_URL,
+  }
+}
+
+export async function checkDesktopRelease(projectRoot) {
+  const pkg = await getPackageInfo(projectRoot)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 5000)
+
+  try {
+    const response = await fetch(QUICKFORGE_LATEST_RELEASE_API_URL, {
+      headers: {
+        accept: 'application/vnd.github+json',
+        'user-agent': `${pkg.name || 'quickforge'}-desktop-update-check`,
+      },
+      signal: controller.signal,
+    })
+
+    if (!response.ok) throw new Error(`GitHub releases returned HTTP ${response.status}`)
+
+    const release = await response.json()
+    const latestVersion = release?.tag_name || release?.name
+    if (!latestVersion || typeof latestVersion !== 'string') throw new Error('latest release version not found in GitHub response')
+
+    const comparison = compareVersions(pkg.version, latestVersion)
+    return {
+      ...pkg,
+      channel: 'desktop-app',
+      distribution: 'github-releases',
+      currentVersion: pkg.version,
+      latestVersion,
+      updateAvailable: comparison < 0,
+      localVersionIsNewer: comparison > 0,
+      releaseUrl: release?.html_url || QUICKFORGE_RELEASES_URL,
+      installable: false,
+    }
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error('request timeout', { cause: error })
+    throw error
+  } finally {
+    clearTimeout(timeout)
   }
 }
 

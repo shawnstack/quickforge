@@ -26,6 +26,8 @@ export type UpdateCheckInfo = {
 }
 
 type UpdateCheckResponse = {
+  channel?: 'npm-runtime'
+  distribution?: 'npm'
   currentVersion: string
   latestVersion: string
   updateAvailable: boolean
@@ -35,6 +37,12 @@ type UpdateCheckResponse = {
 const INITIAL_RESULT: UpdateCheckResult = {
   status: 'idle',
   updateAvailable: false,
+}
+
+function isDesktopApp() {
+  if (typeof document === 'undefined') return false
+  const desktopWindow = window as Window & { __quickforgeDesktopApp?: boolean }
+  return document.body.classList.contains('quickforge-desktop-app') || desktopWindow.__quickforgeDesktopApp === true
 }
 
 /**
@@ -51,6 +59,7 @@ export function useUpdateCheck(
 
   useEffect(() => {
     if (!ready || startedRef.current) return
+    if (isDesktopApp()) return
     const storage = storageRef.current
     if (!storage) return
     startedRef.current = true

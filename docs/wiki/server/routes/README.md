@@ -20,7 +20,7 @@
 | `backup.mjs` | 395 | 数据备份和恢复 |
 | `lan-access.mjs` | 201 | LAN 共享访问管理 |
 | `instructions.mjs` | 20 | 系统提示词 |
-| `system.mjs` | 81 | 系统状态、重启、关于信息和 npm 更新 |
+| `system.mjs` | 81 | 系统状态、重启、关于信息、Runtime 更新和 Desktop 发布页检查 |
 | `workspace.mjs` | 296 | 工作区文件浏览、产物预览静态读取与 Git 变更检查 |
 | `static.mjs` | 83 | 静态文件服务 |
 
@@ -190,8 +190,9 @@ LAN 共享访问管理路由。
 - `GET /api/system/status` — 系统状态
 - `GET /api/system/network` — 网络信息
 - `GET /api/system/about` — 包名、版本、GitHub / homepage / issues 地址
-- `GET /api/system/update/check` — 查询 npm 最新版本并返回是否可更新
-- `POST /api/system/update` — 启动外部更新器执行一键更新（本机请求限定，需 `x-quickforge-action: update`）；接口返回 `202`、更新日志路径和旧 `bootId`，当前服务随后退出，`update-supervisor.mjs` 在外部执行 `npm install -g <package>@latest` 并自动重启服务
+- `GET /api/system/update/check` — 检查 npm 分发的 QuickForge Runtime 更新（CLI、本地后端、Web dist、skills、plugins），返回 `channel: "npm-runtime"`、`distribution: "npm"`、`installCommand` 等信息。
+- `GET /api/system/update/desktop` — 检查 GitHub Releases 上的 Desktop 发布版本，返回 `channel: "desktop-app"`、`distribution: "github-releases"`、`releaseUrl`；当前不执行桌面壳自动安装。
+- `POST /api/system/update` — 启动外部更新器执行 npm Runtime 更新（本机请求限定，需 `x-quickforge-action: update`）；接口返回 `202`、更新日志路径和旧 `bootId`，当前服务随后退出，`update-supervisor.mjs` 在外部执行 `npm install -g <package>@latest` 并自动重启服务。Desktop 客户端更新不走该入口。
 - `POST /api/system/restart` — 服务重启
 
 ## workspace.mjs (296 行)

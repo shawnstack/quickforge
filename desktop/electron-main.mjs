@@ -336,6 +336,7 @@ function createWindow(url) {
     `)
     void mainWindow?.webContents.executeJavaScript(`
       document.body.classList.add('quickforge-desktop-app');
+      window.__quickforgeDesktopApp = true;
       (() => {
         const syncDesktopTheme = () => {
           const theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';

@@ -90,7 +90,7 @@ const SettingsWorkspacePage = lazy(() =>
 
 const AUTO_PREVIEW_SEEN_STORAGE_KEY = 'quickforge:auto-preview-seen-signatures'
 const MAX_AUTO_PREVIEW_SEEN_SIGNATURES = 200
-const QUICKFORGE_TAGS_URL = 'https://github.com/shawnstack/quickforge/tags'
+const QUICKFORGE_RELEASES_URL = 'https://github.com/shawnstack/quickforge/releases/latest'
 const STARTUP_SPLASH_MIN_DURATION_MS = 1350
 const STARTUP_SPLASH_EXIT_DURATION_MS = 280
 
@@ -288,7 +288,7 @@ function MainApp() {
   const closeDesktopTitlebarMenu = useCallback(() => setDesktopTitlebarMenuOpen(false), [])
   const openDesktopUpdatePage = useCallback(() => {
     setDesktopTitlebarMenuOpen(false)
-    window.open(QUICKFORGE_TAGS_URL, '_blank', 'noopener,noreferrer')
+    window.open(QUICKFORGE_RELEASES_URL, '_blank', 'noopener,noreferrer')
   }, [])
   const exitDesktopApp = useCallback(() => {
     setDesktopTitlebarMenuOpen(false)

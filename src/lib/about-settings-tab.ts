@@ -19,11 +19,14 @@ type AboutInfo = {
 }
 
 type UpdateInfo = AboutInfo & {
+  channel?: 'npm-runtime'
+  distribution?: 'npm'
   currentVersion: string
   latestVersion: string
   updateAvailable: boolean
   localVersionIsNewer?: boolean
   installCommand: string
+  releaseUrl?: string
   updateStarted?: boolean
   updaterPid?: number
   logFile?: string
@@ -37,6 +40,13 @@ type ServiceStatus = {
 
 const UPDATE_TIMEOUT_MS = 180_000
 const POLL_INTERVAL_MS = 1000
+const QUICKFORGE_RELEASES_URL = 'https://github.com/shawnstack/quickforge/releases/latest'
+
+function isDesktopApp() {
+  if (typeof document === 'undefined') return false
+  const desktopWindow = window as Window & { __quickforgeDesktopApp?: boolean }
+  return document.body.classList.contains('quickforge-desktop-app') || desktopWindow.__quickforgeDesktopApp === true
+}
 
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
@@ -97,6 +107,14 @@ class AboutSettingsTab extends SettingsTab {
   private async checkUpdate() {
     if (this.checking || this.updating) return
 
+    if (isDesktopApp()) {
+      window.open(QUICKFORGE_RELEASES_URL, '_blank', 'noopener,noreferrer')
+      this.message = t('desktopUpdateHint')
+      this.error = ''
+      this.requestUpdate()
+      return
+    }
+
     this.checking = true
     this.message = ''
     this.error = ''
@@ -153,11 +171,19 @@ class AboutSettingsTab extends SettingsTab {
   }
 
   private async updateQuickForge() {
+    if (isDesktopApp()) {
+      window.open(QUICKFORGE_RELEASES_URL, '_blank', 'noopener,noreferrer')
+      this.message = t('desktopUpdateHint')
+      this.error = ''
+      this.requestUpdate()
+      return
+    }
+
     if (!this.updateInfo?.updateAvailable || this.updating) return
 
     const confirmed = await showConfirm({
       description: t('updateConfirm', { command: this.updateInfo.installCommand }),
-      confirmLabel: t('updateNow'),
+      confirmLabel: t('updateRuntimeNow'),
       cancelLabel: t('cancel'),
     })
     if (!confirmed) return
@@ -264,10 +290,6 @@ class AboutSettingsTab extends SettingsTab {
           <span class="text-muted-foreground">${t('latestVersion')}</span>
           <span class="text-foreground">${this.updateInfo.latestVersion}</span>
         </div>
-        <div class="mt-2 grid gap-2 sm:grid-cols-[120px_1fr] sm:gap-3">
-          <span class="text-muted-foreground">${t('updateCommand')}</span>
-          <code class="min-w-0 break-all rounded bg-muted/20 px-1.5 py-0.5 font-mono text-xs text-foreground/90">${this.updateInfo.installCommand}</code>
-        </div>
         ${this.updateInfo.logFile ? html`
           <div class="mt-2 grid gap-2 sm:grid-cols-[120px_1fr] sm:gap-3">
             <span class="text-muted-foreground">${t('updateLog')}</span>
@@ -284,6 +306,7 @@ class AboutSettingsTab extends SettingsTab {
     }
 
     const updateDisabled = this.checking || this.updating || !this.updateInfo?.updateAvailable
+    const desktopApp = isDesktopApp()
 
     return html`
       <div class="flex flex-col gap-6">
@@ -301,26 +324,28 @@ class AboutSettingsTab extends SettingsTab {
 
         <section class="rounded-lg border border-border p-4">
           <h4 class="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
-            ${t('checkUpdate')}
-            <quickforge-info-tip .label=${t('checkUpdateDescription')}></quickforge-info-tip>
+            ${desktopApp ? t('desktopUpdates') : t('runtimeUpdates')}
+            <quickforge-info-tip .label=${desktopApp ? t('desktopUpdatesDescription') : t('runtimeUpdatesDescription')}></quickforge-info-tip>
           </h4>
 
-          <div class="mt-4">
-            <div class="text-sm font-medium text-foreground">${t('updateFrequencySection')}</div>
-            <div class="mt-1 text-xs text-muted-foreground">${t('updateFrequencyDescription')}</div>
-            <div class="mt-2 flex flex-wrap gap-2">
-              ${FREQUENCY_OPTIONS.map((option) => this.renderFrequencyOption(option))}
+          ${desktopApp ? null : html`
+            <div class="mt-4">
+              <div class="text-sm font-medium text-foreground">${t('updateFrequencySection')}</div>
+              <div class="mt-1 text-xs text-muted-foreground">${t('updateFrequencyDescription')}</div>
+              <div class="mt-2 flex flex-wrap gap-2">
+                ${FREQUENCY_OPTIONS.map((option) => this.renderFrequencyOption(option))}
+              </div>
+              <div class="mt-2 text-xs text-muted-foreground">${
+                this.lastCheckAt
+                  ? t('lastCheckedAt', { time: new Date(this.lastCheckAt).toLocaleString(getDateLocale()) })
+                  : t('lastCheckedNever')
+              }</div>
             </div>
-            <div class="mt-2 text-xs text-muted-foreground">${
-              this.lastCheckAt
-                ? t('lastCheckedAt', { time: new Date(this.lastCheckAt).toLocaleString(getDateLocale()) })
-                : t('lastCheckedNever')
-            }</div>
-          </div>
 
-          <div class="my-4 border-t border-border"></div>
+            <div class="my-4 border-t border-border"></div>
 
-          ${this.updateStatus()}
+            ${this.updateStatus()}
+          `}
 
           <div class="mt-4 flex flex-wrap gap-2">
             <button
@@ -329,16 +354,18 @@ class AboutSettingsTab extends SettingsTab {
               ?disabled=${this.checking || this.updating}
               @click=${() => this.checkUpdate()}
             >
-              ${this.checking ? t('checkingUpdate') : t('checkUpdate')}
+              ${this.checking ? t('checkingUpdate') : (desktopApp ? t('openDesktopReleases') : t('checkRuntimeUpdate'))}
             </button>
-            <button
-              class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
-              type="button"
-              ?disabled=${updateDisabled}
-              @click=${() => this.updateQuickForge()}
-            >
-              ${this.updating ? t('updatingQuickForge') : t('updateNow')}
-            </button>
+            ${desktopApp ? null : html`
+              <button
+                class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                type="button"
+                ?disabled=${updateDisabled}
+                @click=${() => this.updateQuickForge()}
+              >
+                ${this.updating ? t('updatingQuickForge') : t('updateRuntimeNow')}
+              </button>
+            `}
           </div>
         </section>
 

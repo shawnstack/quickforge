@@ -12,6 +12,11 @@ export async function handleSystemApi(req, res, url, context) {
     return
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/system/update/desktop') {
+    sendJson(res, 200, await context.checkDesktopRelease())
+    return
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/system/update') {
     if (!context.isLocalRequest) {
       const error = new Error('Update is only allowed from this computer')

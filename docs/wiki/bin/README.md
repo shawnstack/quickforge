@@ -26,8 +26,8 @@ CLI 启动脚本，注册为 `quickforge` 和 `qf` 命令。
 | `cmdLogs()` | 查看当天服务日志，支持 JSON、level、grep 过滤 |
 | `cmdAcp()` | 以前台 stdio 方式运行 ACP AgentSideConnection，供 ACP Client/IDE 启动 |
 | `cmdVersion()` | 显示当前安装版本、包名和 Node.js 版本 |
-| `cmdCheckUpdate()` | 检查 npm registry 上是否有新版本，并提示升级命令 |
-| `cmdUpdate()` | 通过 npm 全局安装最新版本 |
+| `cmdCheckUpdate()` | 检查 npm registry 上是否有新的 Runtime 版本，并提示升级命令 |
+| `cmdUpdate()` | 通过 npm 全局安装最新 Runtime 版本 |
 
 ### 常用命令
 
@@ -40,8 +40,8 @@ CLI 启动脚本，注册为 `quickforge` 和 `qf` 命令。
 | `qf logs` | 查看当天服务日志 |
 | `qf acp` | 通过 stdio 运行 QuickForge ACP Agent，stdout 保留给 ACP 协议 |
 | `qf --version` / `qf -v` / `qf version` | 显示当前安装版本 |
-| `qf check-update` | 检查 npm 上是否有新版本，不自动安装 |
-| `qf update` | 从 npm 下载安装最新版本（终端手动更新入口，设置页更新另走外部更新器并自动重启服务） |
+| `qf check-update` | 检查 npm 上是否有新的 Runtime 版本，不自动安装 |
+| `qf update` | 从 npm 下载安装最新 Runtime 版本（终端手动更新入口；Web 设置页的 Runtime 更新通过外部更新器执行并自动重启服务；Desktop 客户端更新通过 GitHub Releases 分发） |
 
 ### 启动与重启流程
 

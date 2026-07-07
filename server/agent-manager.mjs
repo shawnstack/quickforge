@@ -1568,9 +1568,11 @@ async function persistSession(session) {
     await atomicSessionMetadataUpdate(scope, projectId, (data) => {
       const existingMetadata = data[sessionId]
       archivedAt = existingMetadata?.archivedAt
+      // Merge onto the existing record so storage-only fields the in-memory
+      // session does not own (pinnedAt, archivedAt, …) survive the rebuild.
       data[sessionId] = {
+        ...existingMetadata,
         ...metadata,
-        pinnedAt: existingMetadata?.pinnedAt,
         ...(archivedAt ? { archivedAt } : {}),
       }
       return data

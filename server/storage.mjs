@@ -469,10 +469,6 @@ async function readAllSessionValues() {
   return result
 }
 
-function sessionMetadataQueueName(bucket) {
-  return bucket.scope === 'project' ? `sessions-metadata:${bucket.projectId}` : 'sessions-metadata:global'
-}
-
 function sameSessionBucket(left, right) {
   if (!left || !right) return false
   return left.scope === right.scope && (left.projectId || undefined) === (right.projectId || undefined)
@@ -852,7 +848,12 @@ export async function atomicUpdate(storeName, updateFn) {
 export async function atomicSessionMetadataUpdate(scope, projectId, updateFn) {
   const bucket = scope === 'project' ? { scope: 'project', projectId } : { scope: 'global' }
   const file = sessionStoreFile('sessions-metadata', bucket)
-  return enqueueWrite(sessionMetadataQueueName(bucket), async () => {
+  // Scoped session-metadata writes MUST share the single 'sessions-metadata'
+  // write queue used by atomicUpdate('sessions-metadata'). Both paths
+  // read-modify-write the same physical files; separate queues let them run
+  // concurrently and clobber each other — e.g. persistSession (which rebuilds
+  // metadata without pinnedAt) racing with a pin update and dropping pinnedAt.
+  return enqueueWrite('sessions-metadata', async () => {
     await ensureStorage()
     const data = await readJsonFile(file, {})
     const previousData = { ...data }

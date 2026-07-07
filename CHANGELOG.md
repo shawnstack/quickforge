@@ -2,6 +2,22 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.6.5] - 2026-07-07
+
+### Fixed
+
+- Hardened the Desktop Build release job by ignoring deleted tag events, verifying release tags, checking the resolved GitHub Release tag, and retrying asset uploads.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.6.5` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.6.5.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.6.5.tgz
+  ```
+
 ## [1.6.4] - 2026-07-07
 
 ### Fixed

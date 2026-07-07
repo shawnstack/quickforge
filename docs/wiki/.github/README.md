@@ -44,7 +44,7 @@
   4. `npm ci`
   5. 按平台执行桌面构建脚本；Linux AppImage 显式使用安全可执行名 `quickforge`，避免从 scoped npm 包名推导出非法路径字符
   6. 上传 `desktop-dist/` 中的安装包和更新元数据为 workflow artifacts
-  7. 推送 `v*` 标签触发时，构建全部成功后下载三端 artifacts，使用 GitHub CLI 创建或更新 GitHub Release；Release job 会校验当前 ref 为真实 tag、用 `gh release create --verify-tag` 绑定标签，并通过带重试的 `gh release upload --clobber` 上传桌面构建产物；手动触发只生成 workflow artifacts
+  7. 推送 `v*` 标签触发时，构建全部成功后下载三端 artifacts，使用 GitHub CLI 创建或更新 GitHub Release；Release job 会校验当前 ref 为真实 tag、用 `gh release create --verify-tag` 绑定标签，过滤内部 `builder-debug.yml` 元数据，检查待上传资产文件名唯一，并通过带重试的 `gh release upload --clobber` 上传桌面构建产物；手动触发只生成 workflow artifacts
 
 ## `ISSUE_TEMPLATE/bug_report.md`
 

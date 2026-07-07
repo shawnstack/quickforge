@@ -103,12 +103,33 @@ jobs:
             exit 1
           fi
 
-          mapfile -d '' assets < <(find release-assets -type f -print0)
+          staging_dir="$(mktemp -d)"
+          while IFS= read -r -d '' asset; do
+            name="$(basename "$asset")"
+
+            if [ "$name" = "builder-debug.yml" ]; then
+              echo "Skipping internal electron-builder debug metadata: $asset"
+              continue
+            fi
+
+            target="$staging_dir/$name"
+            if [ -e "$target" ]; then
+              echo "Duplicate release asset filename after filtering: $name"
+              echo "GitHub Release assets share a flat namespace; make artifact filenames unique before upload."
+              exit 1
+            fi
+
+            cp "$asset" "$target"
+          done < <(find release-assets -type f -print0)
+
+          mapfile -d '' assets < <(find "$staging_dir" -type f -print0)
 
           if [ "${#assets[@]}" -eq 0 ]; then
             echo "No release assets found in release-assets"
             exit 1
           fi
+
+          printf 'Prepared release asset: %s\n' "${assets[@]}"
 
           if gh release view "$TAG_NAME" --repo "$REPO" >/dev/null 2>&1; then
             gh release edit "$TAG_NAME" \

@@ -16,7 +16,6 @@ import {
   MessageSquarePlus,
   PanelLeft,
   PanelLeftOpen,
-  Pencil,
   Pin,
   Plus,
   Puzzle,
@@ -105,7 +104,6 @@ type ChatSidebarProps = {
   onSessionViewModeChange: (mode: SidebarSessionViewMode) => void
   onSessionSortModeChange: (mode: SidebarSessionSortMode) => void
   onTogglePinSession: (sessionId: string) => void
-  onRenameSession: (sessionId: string, currentTitle: string) => void
   onDeleteSession: (sessionId: string) => void | Promise<void>
   onStartNewGlobalChat: () => void
   onOpenSettings: () => void
@@ -231,7 +229,6 @@ export const ChatSidebar = memo(function ChatSidebar({
   onSessionViewModeChange,
   onSessionSortModeChange,
   onTogglePinSession,
-  onRenameSession,
   onDeleteSession,
   onStartNewGlobalChat,
   onOpenSettings,
@@ -269,7 +266,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   const overlayIconButtonClass = `size-6 shrink-0 rounded-full text-muted-foreground/55 transition-[background-color,color,box-shadow] duration-160 ease-out ${sidebarHoverBgClass} hover:text-foreground/85 ${iconHoverShadowClass}`
   const sessionTitleClass = 'truncate text-sm font-[350] leading-5'
   const sessionButtonClass = 'flex min-w-0 flex-1 items-center gap-2 text-left'
-  const sessionTitleRowClass = 'flex min-w-0 flex-1 items-center gap-1 truncate transition-[padding] duration-160 group-hover:pr-24 group-focus-within:pr-24'
+  const sessionTitleRowClass = 'flex min-w-0 flex-1 items-center gap-1 truncate'
   const pinnedSessionButtonClass = `relative z-10 inline-flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-opacity duration-160 transition-colors ${sidebarHoverBgClass} hover:text-foreground/85`
   const sessionMetaHoverHiddenClass = 'group-hover:pointer-events-none group-hover:opacity-0 group-focus-within:pointer-events-none group-focus-within:opacity-0'
   const activeSessionTitleClass = 'font-[350] text-foreground/84'
@@ -611,15 +608,6 @@ export const ChatSidebar = memo(function ChatSidebar({
                     variant="ghost"
                     size="icon"
                     className={overlayIconButtonClass}
-                    onClick={() => onRenameSession(session.id, session.title)}
-                    aria-label={t('renameSession')}
-                  >
-                    <Pencil className="size-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={overlayIconButtonClass}
                     onClick={(event) => requestDeleteSession(event, session.id)}
                     aria-label={t('archiveSession')}
                   >
@@ -878,15 +866,6 @@ export const ChatSidebar = memo(function ChatSidebar({
                                               variant="ghost"
                                               size="icon"
                                               className={overlayIconButtonClass}
-                                              onClick={() => onRenameSession(session.id, session.title)}
-                                              aria-label={t('renameSession')}
-                                            >
-                                              <Pencil className="size-3.5" />
-                                            </Button>
-                                            <Button
-                                              variant="ghost"
-                                              size="icon"
-                                              className={overlayIconButtonClass}
                                               onClick={(event) => requestDeleteSession(event, session.id)}
                                               aria-label={t('archiveSession')}
                                             >
@@ -1071,15 +1050,6 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                       variant="ghost"
                                                       size="icon"
                                                       className={overlayIconButtonClass}
-                                                      onClick={() => onRenameSession(session.id, session.title)}
-                                                      aria-label={t('renameSession')}
-                                                    >
-                                                      <Pencil className="size-3.5" />
-                                                    </Button>
-                                                    <Button
-                                                      variant="ghost"
-                                                      size="icon"
-                                                      className={overlayIconButtonClass}
                                                       onClick={(event) => requestDeleteSession(event, session.id)}
                                                       aria-label={t('archiveSession')}
                                                     >
@@ -1213,15 +1183,6 @@ export const ChatSidebar = memo(function ChatSidebar({
                                     aria-label={session.pinnedAt ? t('unpinSession') : t('pinSession')}
                                   >
                                     <Pin className="size-3.5" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className={overlayIconButtonClass}
-                                    onClick={() => onRenameSession(session.id, session.title)}
-                                    aria-label={t('renameSession')}
-                                  >
-                                    <Pencil className="size-3.5" />
                                   </Button>
                                   <Button
                                     variant="ghost"

@@ -1168,7 +1168,6 @@ function MainApp() {
         onSessionViewModeChange={setSidebarSessionViewMode}
         onSessionSortModeChange={setSidebarSessionSortMode}
         onTogglePinSession={togglePinSession}
-        onRenameSession={renameSession}
         onDeleteSession={archiveSession}
         onStartNewGlobalChat={startNewGlobalSession}
         onOpenSettings={openDefaultOptionsSettings}
@@ -1247,7 +1246,6 @@ function MainApp() {
               onSessionViewModeChange={setSidebarSessionViewMode}
               onSessionSortModeChange={setSidebarSessionSortMode}
               onTogglePinSession={togglePinSession}
-              onRenameSession={renameSession}
               onDeleteSession={archiveSession}
               onStartNewGlobalChat={startNewGlobalSessionFromSidebar}
               onOpenSettings={() => {

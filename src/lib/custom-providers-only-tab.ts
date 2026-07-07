@@ -473,48 +473,54 @@ export class CustomProvidersOnlyTab extends SettingsTab {
   private renderProvider(provider: CustomProvider): TemplateResult {
     const models = provider.models ?? []
     const modelCount = models.length
+    const protocolLabel = provider.type === 'anthropic-messages' ? 'Anthropic Messages' : 'OpenAI Compatible'
+    const initial = provider.name.trim().charAt(0).toUpperCase() || 'M'
 
     return html`
-      <div class="rounded-lg border border-border p-4">
-        <div class="flex items-start justify-between gap-4">
-          <div class="min-w-0 flex-1">
-            <div class="text-sm font-medium text-foreground">${provider.name}</div>
-            <div class="mt-1 break-all text-xs text-muted-foreground">${provider.baseUrl}</div>
-            <div class="mt-2 text-xs text-muted-foreground">
-              ${t('providerProtocol')}: ${provider.type === 'anthropic-messages' ? 'Anthropic Messages' : 'OpenAI Compatible'}
+      <div class="quickforge-settings-list-item">
+        <div class="quickforge-settings-list-item-main">
+          <div class="flex min-w-0 items-start gap-3">
+            <span class="quickforge-settings-avatar" aria-hidden="true">${initial}</span>
+            <div class="min-w-0 flex-1">
+              <div class="quickforge-settings-row-title">${provider.name}</div>
+              <div class="quickforge-settings-row-description break-all">${provider.baseUrl}</div>
+              <div class="quickforge-settings-meta">
+                <span class="quickforge-settings-badge quickforge-settings-badge-muted">${t('providerProtocol')}: ${protocolLabel}</span>
+                <span class="quickforge-settings-badge quickforge-settings-badge-info">${t('modelsCount', { count: modelCount })}</span>
+                ${modelCount === 0
+                  ? html`<span class="quickforge-settings-badge quickforge-settings-badge-warning">${t('noModelAdded')}</span>`
+                  : null}
+              </div>
+              ${modelCount > 0
+                ? html`
+                    <div class="quickforge-settings-meta">
+                      ${models.slice(0, 6).map((model) => html`
+                        <code class="quickforge-settings-command-name">${model.id}</code>
+                      `)}
+                      ${models.length > 6
+                        ? html`<span class="quickforge-settings-badge quickforge-settings-badge-muted">+${models.length - 6}</span>`
+                        : null}
+                    </div>
+                  `
+                : null}
             </div>
-            ${modelCount === 0
-              ? html`<div class="mt-1 text-xs text-muted-foreground">${t('noModelAdded')}</div>`
-              : html`
-                  <div class="mt-2 text-xs text-muted-foreground">${t('modelsCount', { count: modelCount })}</div>
-                  <div class="mt-1 flex flex-wrap gap-1">
-                    ${models.map(
-                      (model) => html`
-                        <span class="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-0.5 text-xs text-foreground">
-                          <span class="font-medium">${model.id}</span>
-                          <span class="text-muted-foreground">${model.contextWindow}/${model.maxTokens}</span>
-                        </span>
-                      `,
-                    )}
-                  </div>
-                `}
           </div>
-          <div class="flex shrink-0 gap-2">
-            <button
-              class="rounded-md px-3 py-1.5 text-sm hover:bg-secondary"
-              type="button"
-              @click=${() => this.openEditForm(provider)}
-            >
-              ${t('editModel')}
-            </button>
-            <button
-              class="rounded-md px-3 py-1.5 text-sm text-destructive hover:bg-secondary"
-              type="button"
-              @click=${() => this.deleteProvider(provider)}
-            >
-              ${t('delete')}
-            </button>
-          </div>
+        </div>
+        <div class="quickforge-settings-list-item-actions">
+          <button
+            class="quickforge-settings-button quickforge-settings-button-secondary quickforge-settings-button-compact"
+            type="button"
+            @click=${() => this.openEditForm(provider)}
+          >
+            ${t('editModel')}
+          </button>
+          <button
+            class="quickforge-settings-button quickforge-settings-button-danger quickforge-settings-button-compact"
+            type="button"
+            @click=${() => this.deleteProvider(provider)}
+          >
+            ${t('delete')}
+          </button>
         </div>
       </div>
     `
@@ -522,16 +528,14 @@ export class CustomProvidersOnlyTab extends SettingsTab {
 
   private renderPresetChips(): TemplateResult {
     return html`
-      <div class="grid gap-1.5">
-        <span class="text-xs text-muted-foreground">${t('presets')}</span>
-        <div class="flex flex-wrap gap-1.5">
+      <div class="quickforge-settings-form-row">
+        <span class="quickforge-settings-form-label">${t('presets')}</span>
+        <div class="quickforge-settings-segmented quickforge-settings-segmented-wrap">
           ${PRESET_OPTIONS.map((option) => {
             const active = this.activePreset === option.key
             return html`
               <button
-                class="rounded-full border px-3 py-1 text-xs ${active
-                  ? 'border-primary bg-primary text-primary-foreground'
-                  : 'border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground'}"
+                class="quickforge-settings-segmented-option ${active ? 'quickforge-settings-segmented-option-active' : ''}"
                 type="button"
                 @click=${() => this.applyPreset(option.key)}
               >
@@ -547,55 +551,41 @@ export class CustomProvidersOnlyTab extends SettingsTab {
   private renderModelRow(model: ModelForm, index: number): TemplateResult {
     const expanded = model.open === true
     return html`
-      <div class="rounded-md border border-border">
-        <div class="flex items-center gap-2 p-2">
-          <button
-            class="shrink-0 inline-flex size-6 items-center justify-center rounded text-xs text-muted-foreground hover:bg-secondary hover:text-foreground"
-            type="button"
-            title=${t('expandModel')}
-            aria-expanded=${expanded ? 'true' : 'false'}
-            @click=${() => this.toggleModelExpanded(index)}
-          >
-            ${expanded ? '▾' : '▸'}
-          </button>
+      <div class="quickforge-settings-subrow quickforge-settings-row-align-start">
+        <button
+          class="quickforge-settings-icon-action"
+          type="button"
+          title=${t('expandModel')}
+          aria-expanded=${expanded ? 'true' : 'false'}
+          @click=${() => this.toggleModelExpanded(index)}
+        >
+          ${expanded ? '▾' : '▸'}
+        </button>
+        <div class="quickforge-settings-list-item-main">
           <input
-            class="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+            class="quickforge-settings-input quickforge-settings-mono"
             .value=${model.modelId}
             @input=${(event: Event) =>
               this.updateModelField(index, 'modelId', (event.target as HTMLInputElement).value)}
             placeholder=${t('modelIdPlaceholder')}
           />
-          ${this.form.models.length > 1
+          ${expanded
             ? html`
-                <button
-                  class="shrink-0 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-secondary hover:text-destructive"
-                  type="button"
-                  title=${t('delete')}
-                  @click=${() => this.removeModelRow(index)}
-                >
-                  ✕
-                </button>
-              `
-            : ''}
-        </div>
-        ${expanded
-          ? html`
-              <div class="grid gap-3 border-t border-border p-3">
-                <div class="grid grid-cols-2 gap-3">
-                  <label class="grid gap-1 text-xs">
-                    <span class="text-muted-foreground">${t('contextWindow')}</span>
+                <div class="quickforge-settings-model-grid mt-3">
+                  <label class="quickforge-settings-form-row">
+                    <span class="quickforge-settings-form-label">${t('contextWindow')}</span>
                     <input
-                      class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                      class="quickforge-settings-input"
                       .value=${String(model.contextWindow)}
                       type="number"
                       @input=${(event: Event) =>
                         this.updateModelField(index, 'contextWindow', Number((event.target as HTMLInputElement).value))}
                     />
                   </label>
-                  <label class="grid gap-1 text-xs">
-                    <span class="text-muted-foreground">${t('maxTokens')}</span>
+                  <label class="quickforge-settings-form-row">
+                    <span class="quickforge-settings-form-label">${t('maxTokens')}</span>
                     <input
-                      class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                      class="quickforge-settings-input"
                       .value=${String(model.maxTokens)}
                       type="number"
                       @input=${(event: Event) =>
@@ -603,52 +593,63 @@ export class CustomProvidersOnlyTab extends SettingsTab {
                     />
                   </label>
                 </div>
-                <label class="mt-1 flex items-center gap-2 text-xs">
+                <label class="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
                   <input
-                    class="rounded border-border"
                     type="checkbox"
                     .checked=${model.reasoning}
                     @change=${(event: Event) =>
                       this.updateModelField(index, 'reasoning', (event.target as HTMLInputElement).checked)}
                   />
-                  <span class="text-muted-foreground">${t('reasoningModel')}</span>
+                  <span>${t('reasoningModel')}</span>
                 </label>
-              </div>
+              `
+            : null}
+        </div>
+        ${this.form.models.length > 1
+          ? html`
+              <button
+                class="quickforge-settings-icon-action quickforge-settings-icon-action-danger"
+                type="button"
+                title=${t('delete')}
+                @click=${() => this.removeModelRow(index)}
+              >
+                ✕
+              </button>
             `
-          : ''}
+          : null}
       </div>
     `
   }
 
   private renderHeadersEditor(): TemplateResult {
     return html`
-      <div class="grid gap-1.5">
-        <span class="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+      <div class="quickforge-settings-form-row">
+        <span class="quickforge-settings-form-label">
           ${t('customHeaders')}
           <quickforge-info-tip .label=${t('customHeadersHelp')}></quickforge-info-tip>
         </span>
         ${this.form.headerRows.length === 0
           ? html``
           : html`
-              <div class="grid gap-2">
+              <div class="quickforge-settings-nested-list">
                 ${this.form.headerRows.map((row, index) => html`
-                  <div class="grid grid-cols-[1fr_1fr_auto] items-center gap-2">
+                  <div class="quickforge-settings-subrow">
                     <input
-                      class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                      class="quickforge-settings-input"
                       .value=${row.key}
                       @input=${(event: Event) =>
                         this.updateHeaderRow(index, 'key', (event.target as HTMLInputElement).value)}
                       placeholder=${t('headerName')}
                     />
                     <input
-                      class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                      class="quickforge-settings-input"
                       .value=${row.value}
                       @input=${(event: Event) =>
                         this.updateHeaderRow(index, 'value', (event.target as HTMLInputElement).value)}
                       placeholder=${t('headerValue')}
                     />
                     <button
-                      class="shrink-0 rounded px-1.5 py-1.5 text-xs text-muted-foreground hover:bg-secondary hover:text-destructive"
+                      class="quickforge-settings-icon-action quickforge-settings-icon-action-danger"
                       type="button"
                       title=${t('removeHeader')}
                       @click=${() => this.removeHeaderRow(index)}
@@ -660,7 +661,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
               </div>
             `}
         <button
-          class="justify-self-start rounded px-1 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+          class="quickforge-settings-button quickforge-settings-button-secondary quickforge-settings-button-compact"
           type="button"
           @click=${() => this.addHeaderRow()}
         >
@@ -673,38 +674,49 @@ export class CustomProvidersOnlyTab extends SettingsTab {
   private renderTestStatus(): TemplateResult {
     if (this.testResult === 'idle' && !this.testing) return html``
     if (this.testing) {
-      return html`<span class="text-xs text-muted-foreground">${t('testingConnection')}</span>`
+      return html`<span class="quickforge-settings-status">${t('testingConnection')}</span>`
     }
     if (this.testResult === 'ok') {
-      return html`<span class="text-xs text-green-600">✓ ${t('connectionOk')}</span>`
+      return html`<span class="quickforge-settings-badge quickforge-settings-badge-success">✓ ${t('connectionOk')}</span>`
     }
-    return html`<span class="break-all text-xs text-destructive">✗ ${this.testError || t('connectionFailed')}</span>`
+    return html`<span class="quickforge-settings-alert">✗ ${this.testError || t('connectionFailed')}</span>`
   }
 
   private renderForm(): TemplateResult {
     return html`
-      <div class="rounded-lg border border-border p-4">
-        <div class="mb-4 text-sm font-semibold text-foreground">
-          ${this.editingProviderId ? t('editCustomModel') : t('addCustomModel')}
+      <section class="quickforge-settings-section" aria-label=${this.editingProviderId ? t('editCustomModel') : t('addCustomModel')}>
+        <div class="quickforge-settings-toolbar">
+          <button
+            class="quickforge-settings-button quickforge-settings-button-secondary"
+            type="button"
+            @click=${() => this.closeForm()}
+          >
+            <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+            ${t('back')}
+          </button>
+          <div class="quickforge-settings-row-main">
+            <div class="quickforge-settings-row-title">${this.editingProviderId ? t('editCustomModel') : t('addCustomModel')}</div>
+            <div class="quickforge-settings-row-description">${t('customModelsDescription')}</div>
+          </div>
         </div>
 
-        <div class="grid gap-4">
+        <div class="quickforge-settings-form-grid">
           ${this.renderPresetChips()}
 
-          <label class="grid gap-1.5 text-sm">
-            <span class="text-foreground">${t('providerName')}</span>
+          <label class="quickforge-settings-form-row">
+            <span class="quickforge-settings-form-label">${t('providerName')}</span>
             <input
-              class="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              class="quickforge-settings-input"
               .value=${this.form.name}
               @input=${(event: Event) => this.updateForm('name', (event.target as HTMLInputElement).value)}
               placeholder=${t('providerNamePlaceholder')}
             />
           </label>
 
-          <label class="grid gap-1.5 text-sm">
-            <span class="text-foreground">Base URL</span>
+          <label class="quickforge-settings-form-row">
+            <span class="quickforge-settings-form-label">Base URL</span>
             <input
-              class="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              class="quickforge-settings-input"
               .value=${this.form.baseUrl}
               @input=${(event: Event) => this.updateForm('baseUrl', (event.target as HTMLInputElement).value)}
               placeholder=${this.form.protocol === 'anthropic-messages'
@@ -713,18 +725,18 @@ export class CustomProvidersOnlyTab extends SettingsTab {
             />
           </label>
 
-          <label class="grid gap-1.5 text-sm">
-            <span class="text-foreground">${t('apiKey')}</span>
-            <div class="relative">
+          <label class="quickforge-settings-form-row">
+            <span class="quickforge-settings-form-label">${t('apiKey')}</span>
+            <div class="quickforge-settings-inline-field">
               <input
-                class="w-full rounded-md border border-input bg-background px-3 py-2 pr-10 text-sm"
+                class="quickforge-settings-input pr-10"
                 .value=${this.form.apiKey}
                 type=${this.apiKeyVisible ? 'text' : 'password'}
                 @input=${(event: Event) => this.updateForm('apiKey', (event.target as HTMLInputElement).value)}
                 placeholder=${t('apiKeyPlaceholder')}
               />
               <button
-                class="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-md text-muted-foreground hover:text-foreground/85 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                class="quickforge-settings-inline-field-button"
                 type="button"
                 title=${this.apiKeyVisible ? t('hideApiKey') : t('showApiKey')}
                 aria-label=${this.apiKeyVisible ? t('hideApiKey') : t('showApiKey')}
@@ -738,22 +750,24 @@ export class CustomProvidersOnlyTab extends SettingsTab {
             </div>
           </label>
 
-          <div class="grid gap-2">
-            <div class="flex items-center justify-between">
-              <span class="text-sm font-medium text-foreground">${t('modelsList')}</span>
+          <div class="quickforge-settings-form-row">
+            <div class="flex items-center justify-between gap-3">
+              <span class="quickforge-settings-form-label">${t('modelsList')}</span>
               <button
-                class="rounded-md px-2 py-1 text-xs hover:bg-secondary"
+                class="quickforge-settings-button quickforge-settings-button-secondary quickforge-settings-button-compact"
                 type="button"
                 @click=${() => this.addModelRow()}
               >
                 + ${t('addModel')}
               </button>
             </div>
-            ${this.form.models.map((model, index) => this.renderModelRow(model, index))}
+            <div class="quickforge-settings-nested-list">
+              ${this.form.models.map((model, index) => this.renderModelRow(model, index))}
+            </div>
           </div>
 
           <button
-            class="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+            class="quickforge-settings-details-toggle"
             type="button"
             aria-expanded=${this.advancedOpen ? 'true' : 'false'}
             @click=${() => {
@@ -767,14 +781,14 @@ export class CustomProvidersOnlyTab extends SettingsTab {
 
           ${this.advancedOpen
             ? html`
-                <div class="grid gap-4 rounded-md border border-border p-3">
-                  <label class="grid gap-1.5 text-sm">
-                    <span class="inline-flex items-center gap-1.5 text-foreground">
+                <div class="quickforge-settings-form-grid rounded-lg border border-border p-3">
+                  <label class="quickforge-settings-form-row">
+                    <span class="quickforge-settings-form-label">
                       ${t('protocolType')}
                       <quickforge-info-tip .label=${t('protocolHelp')}></quickforge-info-tip>
                     </span>
                     <select
-                      class="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      class="quickforge-settings-select"
                       .value=${this.form.protocol}
                       @change=${(event: Event) =>
                         this.updateForm('protocol', (event.target as HTMLSelectElement).value as ProviderProtocol)}
@@ -786,64 +800,80 @@ export class CustomProvidersOnlyTab extends SettingsTab {
                   ${this.renderHeadersEditor()}
                 </div>
               `
-            : ''}
+            : null}
         </div>
 
-        <div class="mt-4 flex items-center gap-2">
-          <span class="mr-auto">${this.renderTestStatus()}</span>
-          <button
-            class="rounded-md px-3 py-2 text-sm hover:bg-secondary"
-            type="button"
-            @click=${() => this.closeForm()}
-          >
-            ${t('cancel')}
-          </button>
-          <button
-            class="rounded-md px-3 py-2 text-sm hover:bg-secondary ${this.testing ? 'opacity-50 pointer-events-none' : ''}"
-            type="button"
-            ?disabled=${this.testing}
-            @click=${() => this.testConnection()}
-          >
-            ${t('testConnection')}
-          </button>
-          <button
-            class="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground"
-            type="button"
-            @click=${() => this.saveModel()}
-          >
-            ${t('save')}
-          </button>
+        <div class="quickforge-settings-row">
+          <div class="quickforge-settings-row-main">
+            ${this.renderTestStatus()}
+          </div>
+          <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
+            <button
+              class="quickforge-settings-button quickforge-settings-button-secondary"
+              type="button"
+              @click=${() => this.closeForm()}
+            >
+              ${t('cancel')}
+            </button>
+            <button
+              class="quickforge-settings-button quickforge-settings-button-secondary"
+              type="button"
+              ?disabled=${this.testing}
+              @click=${() => this.testConnection()}
+            >
+              ${this.testing ? t('testingConnection') : t('testConnection')}
+            </button>
+            <button
+              class="quickforge-settings-button quickforge-settings-button-primary"
+              type="button"
+              @click=${() => this.saveModel()}
+            >
+              ${t('save')}
+            </button>
+          </div>
         </div>
-      </div>
+      </section>
     `
   }
 
   override render(): TemplateResult {
-    return html`
-      <div class="flex flex-col gap-6">
-        <div class="flex items-center justify-between gap-4">
-          <div>
-            <h3 class="mb-2 inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
-              ${t('customModelsTitle')}
+    if (this.formOpen) {
+      return html`
+        <div class="quickforge-settings-stack">
+          <div class="quickforge-settings-heading">
+            <h3 class="quickforge-settings-title">
+              ${this.editingProviderId ? t('editCustomModel') : t('addCustomModel')}
               <quickforge-info-tip .label=${t('customModelsDescription')}></quickforge-info-tip>
             </h3>
           </div>
-          <button
-            class="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground"
-            type="button"
-            @click=${() => this.openAddForm()}
-          >
-            ${t('addModel')}
-          </button>
+          ${this.renderForm()}
         </div>
+      `
+    }
 
-        ${this.formOpen ? this.renderForm() : ''}
+    return html`
+      <div class="quickforge-settings-stack">
+        <section class="quickforge-settings-section" aria-label=${t('customModelsTitle')}>
+          <div class="quickforge-settings-toolbar">
+            <div>
+              <div class="quickforge-settings-row-title">${t('customModelsTitle')}</div>
+              <div class="quickforge-settings-row-description">${t('customModelsDescription')}</div>
+            </div>
+            <button
+              class="quickforge-settings-button quickforge-settings-button-primary"
+              type="button"
+              @click=${() => this.openAddForm()}
+            >
+              ${t('addModel')}
+            </button>
+          </div>
 
-        ${this.loading
-          ? html`<div class="py-8 text-center text-sm text-muted-foreground">${t('loading')}</div>`
-          : this.providers.length === 0
-            ? html`<div class="py-8 text-center text-sm text-muted-foreground">${t('noCustomModels')}</div>`
-            : html`<div class="flex flex-col gap-3">${this.providers.map((provider) => this.renderProvider(provider))}</div>`}
+          ${this.loading
+            ? html`<div class="quickforge-settings-empty-row">${t('loading')}</div>`
+            : this.providers.length === 0
+              ? html`<div class="quickforge-settings-empty-row">${t('noCustomModels')}</div>`
+              : this.providers.map((provider) => this.renderProvider(provider))}
+        </section>
       </div>
     `
   }

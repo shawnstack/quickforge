@@ -70,8 +70,8 @@ function createReactSettingsTab(tabName: string, renderReact: ReactSettingsTabRe
 
 function SettingsPanel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="h-full min-h-[30rem] overflow-hidden rounded-xl border border-border bg-background">
-      <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">{t('loading')}</div>}>
+    <div className="quickforge-settings-stack h-full min-h-[30rem]">
+      <Suspense fallback={<div className="quickforge-settings-note">{t('loading')}</div>}>
         {children}
       </Suspense>
     </div>

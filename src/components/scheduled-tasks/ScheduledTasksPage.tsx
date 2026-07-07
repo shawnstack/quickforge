@@ -1,7 +1,7 @@
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import { useEffect, useMemo, useState } from 'react'
-import { Bot, Brain, CalendarClock, CheckCircle2, Clock3, Edit3, Eye, Folder, MoreHorizontal, Search, Sparkles, Trash2, X, Zap } from 'lucide-react'
+import { ArrowLeft, Bot, Brain, CheckCircle2, Clock3, Edit3, Eye, Folder, MoreHorizontal, Search, Sparkles, Trash2, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { defaultThinkingLevelForModel, getConfiguredModels, initializePiStorage, loadDefaultOptions, loadInitialConfiguredModel } from '@/lib/pi-chat'
@@ -576,20 +576,16 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
       <div className="border-b border-border px-6 py-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-              <CalendarClock className="size-5" />
-            </div>
-            <div>
-              <h1 className="inline-flex items-center gap-1.5 text-lg font-semibold text-foreground">
-                {t('scheduledTasks')}
-                <InfoTip label={t('scheduledTasksDescription')} />
-              </h1>
-            </div>
-          </div>
-          <Button onClick={openCreateDialog}>{t('createTask')}</Button>
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          {dialogOpen || detailTask ? (
+            <Button variant="outline" onClick={() => { if (dialogOpen) closeDialog(); else setDetailTaskId(null) }}>
+              <ArrowLeft className="mr-1 size-4" />{t('back')}
+            </Button>
+          ) : (
+            <Button onClick={openCreateDialog}>{t('createTask')}</Button>
+          )}
         </div>
+        {!dialogOpen && !detailTask ? (
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
@@ -606,252 +602,21 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
             {t('executionHistoryTab')}
           </button>
         </div>
+        ) : null}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-5xl space-y-5">
-          {error && !dialogOpen ? <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
 
-          {activeTab === 'tasks' ? (
+          {/* ===== 编辑/新建任务视图 ===== */}
+          {dialogOpen ? (
             <>
-              <div className="rounded-xl border border-border bg-card p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-base font-semibold text-foreground">{t('taskList')}</h2>
-                    <p className="text-sm text-muted-foreground">{t('tasksCount', { total: tasks.length, enabled: enabledCount })}</p>
-                  </div>
-                </div>
-              </div>
+              <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+                <h2 className="inline-flex items-center gap-1.5 text-base font-semibold text-foreground">
+                  {editingTask ? t('editTask') : t('createTask')}
+                  <InfoTip label={t('quickAiParseTask')} />
+                </h2>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                {tasks.length === 0 ? (
-                  <div className="rounded-lg px-3 py-3 text-center text-xs text-muted-foreground/55 md:col-span-2">
-                    {t('noScheduledTasks')}
-                  </div>
-                ) : tasks.map((task) => {
-                  const taskEnabled = task.status === 'enabled'
-                  const switchDisabled = task.status === 'completed'
-                  const taskRunning = taskHasRunningRuns(task)
-                  return (
-                    <div key={task.id} className="relative cursor-pointer rounded-xl border border-border bg-card p-4 transition-colors hover:bg-muted/15" onClick={() => setDetailTaskId(task.id)}>
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <h3 className="truncate text-sm font-medium text-foreground/90">{task.title}</h3>
-                          </div>
-                          <p className="mt-2 text-sm text-muted-foreground">{truncateContent(task.instruction, 20)}</p>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-2" onClick={(event) => event.stopPropagation()}>
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-checked={taskEnabled}
-                            disabled={switchDisabled}
-                            className={cn('relative h-6 w-11 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60', taskEnabled ? 'bg-emerald-500' : 'bg-muted-foreground/30')}
-                            onClick={() => void taskAction(task.id, task.status === 'paused' ? 'resume' : 'pause')}
-                            title={task.status === 'paused' ? t('enable') : t('pauseTask')}
-                          >
-                            <span className={cn('absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform', taskEnabled ? 'translate-x-5' : 'translate-x-0')} />
-                          </button>
-                          <div className="relative">
-                            <Button variant="ghost" size="icon" onClick={() => setOpenMenuTaskId(openMenuTaskId === task.id ? null : task.id)} title={t('moreActions')}>
-                              <MoreHorizontal className="size-4" />
-                            </Button>
-                            {openMenuTaskId === task.id ? (
-                              <div className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-xl border border-border bg-popover py-1 text-sm shadow-quickforge">
-                                <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={!canRunTaskNow(task)} onClick={() => void taskAction(task.id, 'run')}>
-                                  <Zap className="size-3.5" />{t('executeNow')}
-                                </button>
-                                <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={taskRunning} onClick={() => startEdit(task)}>
-                                  <Edit3 className="size-3.5" />{t('editTask')}
-                                </button>
-                                <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted" onClick={() => { setOpenMenuTaskId(null); setDetailTaskId(task.id) }}>
-                                  <Eye className="size-3.5" />{t('viewDetails')}
-                                </button>
-                                <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-destructive hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={taskRunning} onClick={() => void taskAction(task.id, 'delete')}>
-                                  <Trash2 className="size-3.5" />{t('deleteTask')}
-                                </button>
-                              </div>
-                            ) : null}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                        <span className="inline-flex items-center gap-1"><Clock3 className="size-3" />{task.scheduleRule}</span>
-                        <span className="inline-flex items-center gap-1"><Bot className="size-3" />{agentLabel(task.agentId)}</span>
-                        <span>{t('taskExecutionMode')}：{executionModeLabel(task.executionMode)}</span>
-                        {task.projectName ? <span>{t('taskProject')}{task.projectName}</span> : null}
-                      </div>
-                      <div className="mt-4 grid gap-2 border-t border-border pt-3 text-xs text-muted-foreground sm:grid-cols-2">
-                        <span>{t('lastExecution')}{formatDateTime(task.lastRunAt)}</span>
-                        <span>{t('nextExecution')}{formatDateTime(task.nextRunAt)}</span>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </>
-          ) : (
-            <div className="space-y-4">
-              <div className="rounded-xl border border-border bg-card p-4">
-                <div className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
-                  <Search className="size-4" />{t('historyFilters')}
-                </div>
-                <div className="grid gap-3 md:grid-cols-3">
-                  <label className="block text-xs font-medium text-muted-foreground">
-                    {t('taskName')}
-                    <select className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground" value={historyFilters.taskId} onChange={(event) => updateHistoryFilter('taskId', event.target.value)}>
-                      <option value="">{t('allTasks')}</option>
-                      {tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}
-                    </select>
-                  </label>
-                  <label className="block text-xs font-medium text-muted-foreground">
-                    {t('status')}
-                    <select className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground" value={historyFilters.status} onChange={(event) => updateHistoryFilter('status', event.target.value as HistoryFilters['status'])}>
-                      <option value="">{t('allStatuses')}</option>
-                      <option value="running">{t('executionRunning')}</option>
-                      <option value="success">{t('executionSuccess')}</option>
-                      <option value="failed">{t('taskFailed')}</option>
-                    </select>
-                  </label>
-                  <label className="block text-xs font-medium text-muted-foreground">
-                    {t('triggerType')}
-                    <select className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground" value={historyFilters.trigger} onChange={(event) => updateHistoryFilter('trigger', event.target.value as HistoryFilters['trigger'])}>
-                      <option value="">{t('allTriggers')}</option>
-                      <option value="schedule">{t('autoRun')}</option>
-                      <option value="manual">{t('manualRun')}</option>
-                    </select>
-                  </label>
-                  <label className="block text-xs font-medium text-muted-foreground">
-                    {t('startTime')}
-                    <input type="datetime-local" className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground" value={historyFilters.startedFrom} onChange={(event) => updateHistoryFilter('startedFrom', event.target.value)} />
-                  </label>
-                  <label className="block text-xs font-medium text-muted-foreground">
-                    {t('endTime')}
-                    <input type="datetime-local" className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground" value={historyFilters.startedTo} onChange={(event) => updateHistoryFilter('startedTo', event.target.value)} />
-                  </label>
-                  <label className="block text-xs font-medium text-muted-foreground">
-                    {t('keyword')}
-                    <input className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground" value={historyFilters.keyword} onChange={(event) => updateHistoryFilter('keyword', event.target.value)} placeholder={t('keywordPlaceholder')} />
-                  </label>
-                </div>
-                <div className="mt-3 flex justify-end gap-2">
-                  <Button variant="outline" onClick={resetHistoryFilters}>{t('reset')}</Button>
-                  <Button onClick={applyHistoryFilters}>{t('query')}</Button>
-                </div>
-              </div>
-
-              <div className="overflow-hidden rounded-xl border border-border bg-card">
-                <div className="grid grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.7fr] gap-3 border-b border-border px-4 py-3 text-xs font-medium text-muted-foreground">
-                  <span>{t('taskName')}</span>
-                  <span>{t('status')}</span>
-                  <span>{t('triggerType')}</span>
-                  <span>{t('startTime')}</span>
-                  <span>{t('runDuration')}</span>
-                </div>
-                {historyLoading ? (
-                  <div className="p-8 text-center text-sm text-muted-foreground">{t('loading')}</div>
-                ) : historyPayload.runs.length === 0 ? (
-                  <div className="p-8 text-center text-sm text-muted-foreground">{t('noExecutionHistory')}</div>
-                ) : historyPayload.runs.map((run) => (
-                  <div key={`${run.taskId}:${run.id}`} className="border-b border-border last:border-b-0">
-                    <button type="button" className="grid w-full grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.7fr] gap-3 px-4 py-3 text-left text-sm hover:bg-muted/40" onClick={() => setExpandedRunId(expandedRunId === run.id ? null : run.id)}>
-                      <span className="min-w-0 truncate text-foreground">{run.taskTitle}</span>
-                      <span><span className={cn('rounded-full px-2 py-0.5 text-xs', statusClass(run.status))}>{statusLabel(run.status)}</span></span>
-                      <span className="text-muted-foreground">{run.trigger === 'manual' ? t('manualRun') : t('autoRun')}</span>
-                      <span className="text-muted-foreground">{formatDateTime(run.startedAt)}</span>
-                      <span className="text-muted-foreground">{run.durationMs ? `${run.durationMs}ms` : '-'}</span>
-                    </button>
-                    {expandedRunId === run.id ? <div className="border-t border-border bg-muted/20 px-4 py-3">{renderRunDetails(run)}</div> : null}
-                  </div>
-                ))}
-                <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm text-muted-foreground">
-                  <span>{t('paginationSummary', { page: historyPayload.page, pages: totalHistoryPages, total: historyPayload.total })}</span>
-                  <div className="flex items-center gap-2">
-                    <select className="h-8 rounded-md border border-input bg-background px-2 text-sm" value={historyPayload.pageSize} onChange={(event) => changeHistoryPageSize(Number(event.target.value))}>
-                      {[10, 20, 50, 100].map((size) => <option key={size} value={size}>{t('pageSize', { size })}</option>)}
-                    </select>
-                    <Button variant="outline" size="sm" disabled={historyPayload.page <= 1} onClick={() => changeHistoryPage(historyPayload.page - 1)}>{t('previousPage')}</Button>
-                    <Button variant="outline" size="sm" disabled={historyPayload.page >= totalHistoryPages} onClick={() => changeHistoryPage(historyPayload.page + 1)}>{t('nextPage')}</Button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {detailTask ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setDetailTaskId(null) }}>
-          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-quickforge" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-5 py-4">
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-base font-semibold text-foreground">{detailTask.title}</h2>
-                </div>
-                <p className="mt-1 text-sm text-muted-foreground">{detailTask.scheduleRule}</p>
-              </div>
-              <Button variant="ghost" size="icon" onClick={() => setDetailTaskId(null)}><X className="size-4" /></Button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-              <div className="space-y-4 text-sm">
-                <div>
-                  <div className="mb-1 font-medium text-foreground">{t('taskContent')}</div>
-                  <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-xl border border-border bg-muted/20 p-3 text-muted-foreground">{detailTask.instruction}</pre>
-                </div>
-                <div className="grid gap-3 text-muted-foreground sm:grid-cols-2">
-                  <div>{t('executionRule')}<span className="text-foreground">{detailTask.scheduleRule}</span></div>
-                  <div>{t('taskExecutionMode')}：<span className="text-foreground">{executionModeLabel(detailTask.executionMode)}</span></div>
-                  <div>cron：<span className="font-mono text-foreground">{detailTask.cronExpression ?? '-'}</span></div>
-                  <div>{t('lastExecution')}<span className="text-foreground">{formatDateTime(detailTask.lastRunAt)}</span></div>
-                  <div>{t('nextExecution')}<span className="text-foreground">{formatDateTime(detailTask.nextRunAt)}</span></div>
-                  <div>{t('executionAgent')}<span className="text-foreground">{agentLabel(detailTask.agentId)}</span></div>
-                  {detailTask.projectName ? <div>{t('taskProject')}<span className="text-foreground">{detailTask.projectName}</span></div> : null}
-                  {detailTask.model ? <div>{t('taskModel')}：<span className="text-foreground">{modelLabel(detailTask.model)}</span></div> : null}
-                  {detailTask.thinkingLevel ? <div>{t('taskThinkingLevel')}<span className="text-foreground">{THINKING_OPTIONS.find((option) => option.value === detailTask.thinkingLevel)?.label() ?? detailTask.thinkingLevel}</span></div> : null}
-                  <div>{t('createdAt')}：<span className="text-foreground">{formatDateTime(detailTask.createdAt)}</span></div>
-                </div>
-                {detailTask.runs?.length > 0 ? (
-                  <div>
-                    <div className="mb-2 font-medium text-foreground">{t('recentExecutions')}</div>
-                    <div className="space-y-2">
-                      {detailTask.runs.slice(0, 5).map((run) => (
-                        <details key={run.id} className="rounded-lg border border-border bg-muted/20 p-2 text-xs text-muted-foreground">
-                          <summary className="cursor-pointer text-foreground">
-                            {formatDateTime(run.startedAt)} · {run.trigger === 'manual' ? t('manualRun') : t('autoRun')} · {statusLabel(run.status)}
-                          </summary>
-                          {renderRunDetails(run)}
-                        </details>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-            <div className="shrink-0 border-t border-border px-5 py-4">
-              <div className="flex flex-wrap justify-end gap-2">
-                {detailTask.lastSessionId ? <Button variant="outline" onClick={() => onOpenSession?.(detailTask.lastSessionId!)}>{t('viewConversation')}</Button> : null}
-                <Button variant="outline" disabled={!canRunTaskNow(detailTask)} onClick={() => void taskAction(detailTask.id, 'run')}><Zap className="mr-1 size-3.5" />{t('executeNow')}</Button>
-                <Button variant="outline" disabled={taskHasRunningRuns(detailTask)} onClick={() => startEdit(detailTask)}><Edit3 className="mr-1 size-3.5" />{t('editTask')}</Button>
-                <Button variant="destructive" disabled={taskHasRunningRuns(detailTask)} onClick={() => void taskAction(detailTask.id, 'delete')}><Trash2 className="mr-1 size-3.5" />{t('deleteTask')}</Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {dialogOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDialog() }}>
-          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-quickforge" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="shrink-0 border-b border-border px-5 py-4">
-              <h2 className="inline-flex items-center gap-1.5 text-base font-semibold text-foreground">
-                {editingTask ? t('editTask') : t('createTask')}
-                <InfoTip label={t('quickAiParseTask')} />
-              </h2>
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-              <div className="space-y-4">
                 <label className="block text-sm font-medium text-foreground">
                   {t('taskScheduleDescriptionLabel')}
                   <textarea
@@ -1014,19 +779,242 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
 
                 {error ? <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
               </div>
-            </div>
 
-            <div className="shrink-0 border-t border-border px-5 py-4">
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={closeDialog} disabled={loading}>{t('cancel')}</Button>
                 <Button onClick={handleSave} disabled={loading || !selectedModel || !formIsValid(form)}>
                   {editingTask ? t('saveTask') : t('confirmCreate')}
                 </Button>
               </div>
+            </>
+          ) : detailTask ? (
+            /* ===== 任务详情视图 ===== */
+            <div className="rounded-xl border border-border bg-card">
+              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-5 py-4">
+                <div>
+                  <h2 className="text-base font-semibold text-foreground">{detailTask.title}</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">{detailTask.scheduleRule}</p>
+                </div>
+              </div>
+              <div className="px-5 py-4">
+                <div className="space-y-4 text-sm">
+                  <div>
+                    <div className="mb-1 font-medium text-foreground">{t('taskContent')}</div>
+                    <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-xl border border-border bg-muted/20 p-3 text-muted-foreground">{detailTask.instruction}</pre>
+                  </div>
+                  <div className="grid gap-3 text-muted-foreground sm:grid-cols-2">
+                    <div>{t('executionRule')}<span className="text-foreground">{detailTask.scheduleRule}</span></div>
+                    <div>{t('taskExecutionMode')}：<span className="text-foreground">{executionModeLabel(detailTask.executionMode)}</span></div>
+                    <div>cron：<span className="font-mono text-foreground">{detailTask.cronExpression ?? '-'}</span></div>
+                    <div>{t('lastExecution')}<span className="text-foreground">{formatDateTime(detailTask.lastRunAt)}</span></div>
+                    <div>{t('nextExecution')}<span className="text-foreground">{formatDateTime(detailTask.nextRunAt)}</span></div>
+                    <div>{t('executionAgent')}<span className="text-foreground">{agentLabel(detailTask.agentId)}</span></div>
+                    {detailTask.projectName ? <div>{t('taskProject')}<span className="text-foreground">{detailTask.projectName}</span></div> : null}
+                    {detailTask.model ? <div>{t('taskModel')}：<span className="text-foreground">{modelLabel(detailTask.model)}</span></div> : null}
+                    {detailTask.thinkingLevel ? <div>{t('taskThinkingLevel')}<span className="text-foreground">{THINKING_OPTIONS.find((option) => option.value === detailTask.thinkingLevel)?.label() ?? detailTask.thinkingLevel}</span></div> : null}
+                    <div>{t('createdAt')}：<span className="text-foreground">{formatDateTime(detailTask.createdAt)}</span></div>
+                  </div>
+                  {detailTask.runs?.length > 0 ? (
+                    <div>
+                      <div className="mb-2 font-medium text-foreground">{t('recentExecutions')}</div>
+                      <div className="space-y-2">
+                        {detailTask.runs.slice(0, 5).map((run) => (
+                          <details key={run.id} className="rounded-lg border border-border bg-muted/20 p-2 text-xs text-muted-foreground">
+                            <summary className="cursor-pointer text-foreground">
+                              {formatDateTime(run.startedAt)} · {run.trigger === 'manual' ? t('manualRun') : t('autoRun')} · {statusLabel(run.status)}
+                            </summary>
+                            {renderRunDetails(run)}
+                          </details>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              <div className="border-t border-border px-5 py-4">
+                <div className="flex flex-wrap justify-end gap-2">
+                  {detailTask.lastSessionId ? <Button variant="outline" onClick={() => onOpenSession?.(detailTask.lastSessionId!)}>{t('viewConversation')}</Button> : null}
+                  <Button variant="outline" disabled={!canRunTaskNow(detailTask)} onClick={() => void taskAction(detailTask.id, 'run')}><Zap className="mr-1 size-3.5" />{t('executeNow')}</Button>
+                  <Button variant="outline" disabled={taskHasRunningRuns(detailTask)} onClick={() => startEdit(detailTask)}><Edit3 className="mr-1 size-3.5" />{t('editTask')}</Button>
+                  <Button variant="destructive" disabled={taskHasRunningRuns(detailTask)} onClick={() => void taskAction(detailTask.id, 'delete')}><Trash2 className="mr-1 size-3.5" />{t('deleteTask')}</Button>
+                </div>
+              </div>
             </div>
-          </div>
+          ) : (
+            /* ===== 列表 / 历史视图 ===== */
+            <>
+              {error ? <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
+
+              {activeTab === 'tasks' ? (
+                <>
+                  <div className="rounded-xl border border-border bg-card p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h2 className="text-base font-semibold text-foreground">{t('taskList')}</h2>
+                        <p className="text-sm text-muted-foreground">{t('tasksCount', { total: tasks.length, enabled: enabledCount })}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {tasks.length === 0 ? (
+                      <div className="rounded-lg px-3 py-3 text-center text-xs text-muted-foreground/55 md:col-span-2">
+                        {t('noScheduledTasks')}
+                      </div>
+                    ) : tasks.map((task) => {
+                      const taskEnabled = task.status === 'enabled'
+                      const switchDisabled = task.status === 'completed'
+                      const taskRunning = taskHasRunningRuns(task)
+                      return (
+                        <div key={task.id} className="relative cursor-pointer rounded-xl border border-border bg-card p-4 transition-colors hover:bg-muted/15" onClick={() => setDetailTaskId(task.id)}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <h3 className="truncate text-sm font-medium text-foreground/90">{task.title}</h3>
+                              </div>
+                              <p className="mt-2 text-sm text-muted-foreground">{truncateContent(task.instruction, 20)}</p>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2" onClick={(event) => event.stopPropagation()}>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={taskEnabled}
+                                disabled={switchDisabled}
+                                className={cn('relative h-6 w-11 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60', taskEnabled ? 'bg-emerald-500' : 'bg-muted-foreground/30')}
+                                onClick={() => void taskAction(task.id, task.status === 'paused' ? 'resume' : 'pause')}
+                                title={task.status === 'paused' ? t('enable') : t('pauseTask')}
+                              >
+                                <span className={cn('absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform', taskEnabled ? 'translate-x-5' : 'translate-x-0')} />
+                              </button>
+                              <div className="relative">
+                                <Button variant="ghost" size="icon" onClick={() => setOpenMenuTaskId(openMenuTaskId === task.id ? null : task.id)} title={t('moreActions')}>
+                                  <MoreHorizontal className="size-4" />
+                                </Button>
+                                {openMenuTaskId === task.id ? (
+                                  <div className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-xl border border-border bg-popover py-1 text-sm shadow-quickforge">
+                                    <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={!canRunTaskNow(task)} onClick={() => void taskAction(task.id, 'run')}>
+                                      <Zap className="size-3.5" />{t('executeNow')}
+                                    </button>
+                                    <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={taskRunning} onClick={() => startEdit(task)}>
+                                      <Edit3 className="size-3.5" />{t('editTask')}
+                                    </button>
+                                    <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted" onClick={() => { setOpenMenuTaskId(null); setDetailTaskId(task.id) }}>
+                                      <Eye className="size-3.5" />{t('viewDetails')}
+                                    </button>
+                                    <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-destructive hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={taskRunning} onClick={() => void taskAction(task.id, 'delete')}>
+                                      <Trash2 className="size-3.5" />{t('deleteTask')}
+                                    </button>
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                            <span className="inline-flex items-center gap-1"><Clock3 className="size-3" />{task.scheduleRule}</span>
+                            <span className="inline-flex items-center gap-1"><Bot className="size-3" />{agentLabel(task.agentId)}</span>
+                            <span>{t('taskExecutionMode')}：{executionModeLabel(task.executionMode)}</span>
+                            {task.projectName ? <span>{t('taskProject')}{task.projectName}</span> : null}
+                          </div>
+                          <div className="mt-4 grid gap-2 border-t border-border pt-3 text-xs text-muted-foreground sm:grid-cols-2">
+                            <span>{t('lastExecution')}{formatDateTime(task.lastRunAt)}</span>
+                            <span>{t('nextExecution')}{formatDateTime(task.nextRunAt)}</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-border bg-card p-4">
+                    <div className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
+                      <Search className="size-4" />{t('historyFilters')}
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <label className="block text-xs font-medium text-muted-foreground">
+                        {t('taskName')}
+                        <select className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground" value={historyFilters.taskId} onChange={(event) => updateHistoryFilter('taskId', event.target.value)}>
+                          <option value="">{t('allTasks')}</option>
+                          {tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}
+                        </select>
+                      </label>
+                      <label className="block text-xs font-medium text-muted-foreground">
+                        {t('status')}
+                        <select className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground" value={historyFilters.status} onChange={(event) => updateHistoryFilter('status', event.target.value as HistoryFilters['status'])}>
+                          <option value="">{t('allStatuses')}</option>
+                          <option value="running">{t('executionRunning')}</option>
+                          <option value="success">{t('executionSuccess')}</option>
+                          <option value="failed">{t('taskFailed')}</option>
+                        </select>
+                      </label>
+                      <label className="block text-xs font-medium text-muted-foreground">
+                        {t('triggerType')}
+                        <select className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground" value={historyFilters.trigger} onChange={(event) => updateHistoryFilter('trigger', event.target.value as HistoryFilters['trigger'])}>
+                          <option value="">{t('allTriggers')}</option>
+                          <option value="schedule">{t('autoRun')}</option>
+                          <option value="manual">{t('manualRun')}</option>
+                        </select>
+                      </label>
+                      <label className="block text-xs font-medium text-muted-foreground">
+                        {t('startTime')}
+                        <input type="datetime-local" className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground" value={historyFilters.startedFrom} onChange={(event) => updateHistoryFilter('startedFrom', event.target.value)} />
+                      </label>
+                      <label className="block text-xs font-medium text-muted-foreground">
+                        {t('endTime')}
+                        <input type="datetime-local" className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground" value={historyFilters.startedTo} onChange={(event) => updateHistoryFilter('startedTo', event.target.value)} />
+                      </label>
+                      <label className="block text-xs font-medium text-muted-foreground">
+                        {t('keyword')}
+                        <input className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground" value={historyFilters.keyword} onChange={(event) => updateHistoryFilter('keyword', event.target.value)} placeholder={t('keywordPlaceholder')} />
+                      </label>
+                    </div>
+                    <div className="mt-3 flex justify-end gap-2">
+                      <Button variant="outline" onClick={resetHistoryFilters}>{t('reset')}</Button>
+                      <Button onClick={applyHistoryFilters}>{t('query')}</Button>
+                    </div>
+                  </div>
+
+                  <div className="overflow-hidden rounded-xl border border-border bg-card">
+                    <div className="grid grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.7fr] gap-3 border-b border-border px-4 py-3 text-xs font-medium text-muted-foreground">
+                      <span>{t('taskName')}</span>
+                      <span>{t('status')}</span>
+                      <span>{t('triggerType')}</span>
+                      <span>{t('startTime')}</span>
+                      <span>{t('runDuration')}</span>
+                    </div>
+                    {historyLoading ? (
+                      <div className="p-8 text-center text-sm text-muted-foreground">{t('loading')}</div>
+                    ) : historyPayload.runs.length === 0 ? (
+                      <div className="p-8 text-center text-sm text-muted-foreground">{t('noExecutionHistory')}</div>
+                    ) : historyPayload.runs.map((run) => (
+                      <div key={`${run.taskId}:${run.id}`} className="border-b border-border last:border-b-0">
+                        <button type="button" className="grid w-full grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.7fr] gap-3 px-4 py-3 text-left text-sm hover:bg-muted/40" onClick={() => setExpandedRunId(expandedRunId === run.id ? null : run.id)}>
+                          <span className="min-w-0 truncate text-foreground">{run.taskTitle}</span>
+                          <span><span className={cn('rounded-full px-2 py-0.5 text-xs', statusClass(run.status))}>{statusLabel(run.status)}</span></span>
+                          <span className="text-muted-foreground">{run.trigger === 'manual' ? t('manualRun') : t('autoRun')}</span>
+                          <span className="text-muted-foreground">{formatDateTime(run.startedAt)}</span>
+                          <span className="text-muted-foreground">{run.durationMs ? `${run.durationMs}ms` : '-'}</span>
+                        </button>
+                        {expandedRunId === run.id ? <div className="border-t border-border bg-muted/20 px-4 py-3">{renderRunDetails(run)}</div> : null}
+                      </div>
+                    ))}
+                    <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm text-muted-foreground">
+                      <span>{t('paginationSummary', { page: historyPayload.page, pages: totalHistoryPages, total: historyPayload.total })}</span>
+                      <div className="flex items-center gap-2">
+                        <select className="h-8 rounded-md border border-input bg-background px-2 text-sm" value={historyPayload.pageSize} onChange={(event) => changeHistoryPageSize(Number(event.target.value))}>
+                          {[10, 20, 50, 100].map((size) => <option key={size} value={size}>{t('pageSize', { size })}</option>)}
+                        </select>
+                        <Button variant="outline" size="sm" disabled={historyPayload.page <= 1} onClick={() => changeHistoryPage(historyPayload.page - 1)}>{t('previousPage')}</Button>
+                        <Button variant="outline" size="sm" disabled={historyPayload.page >= totalHistoryPages} onClick={() => changeHistoryPage(historyPayload.page + 1)}>{t('nextPage')}</Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
-      ) : null}
+      </div>
 
     </div>
   )

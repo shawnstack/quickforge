@@ -1,6 +1,6 @@
 # `src/lib/` — 前端工具库
 
-包含 24 个工具模块，涵盖存储、聊天逻辑、本地工具、国际化、设置选项卡等。
+包含前端工具模块，涵盖存储、聊天逻辑、本地工具、国际化、设置选项卡等。
 
 ---
 
@@ -18,7 +18,6 @@
 | `message-utils.ts` | 127 | 消息处理工具 |
 | `custom-model-selector.ts` | 162 | 自定义模型选择器 |
 | `custom-providers-only-tab.ts` | 565 | 自定义供应商设置选项卡 |
-| `service-settings-tab.ts` | 189 | 后端服务状态选项卡 |
 | `backup-settings-tab.ts` | 372 | 数据备份/恢复选项卡 |
 | `default-options-settings-tab.ts` | 257 | 默认选项设置选项卡 |
 | `language-settings-tab.ts` | 66 | 语言设置选项卡 |
@@ -159,9 +158,9 @@
 |------|------|
 | `custom-providers-only-tab.ts` | 自定义模型供应商的完整 CRUD 管理界面 |
 | `lan-access-settings-tab.ts` | LAN 共享设置（启用/禁用、密码、会话 TTL） |
-| `service-settings-tab.ts` | 显示后端服务状态、支持重启，并以轻量列表管理自动识别的终端 Shell profiles 和自定义 Shell 命令 |
 | `backup-settings-tab.ts` | 数据备份导出和导入 |
-| `default-options-settings-tab.ts` | 设置默认模型和思考级别 |
+| `default-options-settings-tab.ts` | 设置默认模型、思考级别、工具展示、上下文管理和终端 Shell |
+| `about-settings-tab.ts` | 关于信息、更新检查/执行，以及后端服务重启 |
 | `language-settings-tab.ts` | 语言切换设置 |
 | `project-commands-settings-tab.ts` | 项目命令目录配置 + 命令预览 + 新建命令 |
 | `patch-thinking-selector.ts` | 修补 pi-web-ui 的模型选择器 |

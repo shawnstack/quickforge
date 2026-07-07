@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BookOpen, Check, ChevronLeft, Loader2, Search } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { ArrowLeft, BookOpen, Loader2, Search, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { InfoTip } from '@/components/ui/info-tip'
 import { t } from '@/lib/i18n'
@@ -19,7 +18,6 @@ type SkillsManagerPanelProps = {
   scope: SkillsScope
   project?: ProjectInfo
   embedded?: boolean
-  closeOnSave?: boolean
   onClose?: () => void
   onSaved: (payload: { scope: SkillsScope; project?: ProjectInfo; projects?: ProjectInfo[]; selectedSkills: string[] }) => void
 }
@@ -61,7 +59,6 @@ export function SkillsManagerPanel({
   scope,
   project,
   embedded = false,
-  closeOnSave = false,
   onClose,
   onSaved,
 }: SkillsManagerPanelProps) {
@@ -74,7 +71,7 @@ export function SkillsManagerPanel({
   const [error, setError] = useState('')
   const isProjectScope = scope === 'project'
 
-  // --- Reading state ---
+  // --- Reading state (instructions modal) ---
   const [readingSkillName, setReadingSkillName] = useState<string | null>(null)
   const [skillContent, setSkillContent] = useState<SkillContent | null>(null)
   const [readingLoading, setReadingLoading] = useState(false)
@@ -125,11 +122,8 @@ export function SkillsManagerPanel({
     if (!active || embedded) return
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        if (readingSkillName) {
-          resetReadingState()
-        } else if (!saving) {
-          closePanel()
-        }
+        if (readingSkillName) resetReadingState()
+        else if (!saving) closePanel()
       }
     }
     document.addEventListener('keydown', handleKey)
@@ -177,23 +171,18 @@ export function SkillsManagerPanel({
     }
   }
 
-  const backToList = () => {
-    resetReadingState()
-  }
-
   if (!active || (isProjectScope && !project)) return null
 
   const toggleSkill = (skillName: string) => {
-    setSelectedSkills((current) => {
-      const next = new Set(current)
-      if (next.has(skillName)) next.delete(skillName)
-      else next.add(skillName)
-      return next
-    })
+    if (saving) return
+    const next = new Set(selectedSkills)
+    if (next.has(skillName)) next.delete(skillName)
+    else next.add(skillName)
+    setSelectedSkills(next)
+    void persistSkills(next)
   }
 
-  const save = async () => {
-    if (saving) return
+  const persistSkills = async (next: Set<string>) => {
     setSaving(true)
     setError('')
     try {
@@ -201,8 +190,8 @@ export function SkillsManagerPanel({
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(isProjectScope
-          ? { projectId: project!.id, selectedSkills: [...selectedSkills] }
-          : { selectedSkills: [...selectedSkills] }),
+          ? { projectId: project!.id, selectedSkills: [...next] }
+          : { selectedSkills: [...next] }),
       })
       const payload = await readJsonResponse<SavePayload>(response)
       const updatedProject = isProjectScope
@@ -214,8 +203,8 @@ export function SkillsManagerPanel({
         projects: payload.projects,
         selectedSkills: payload.selectedSkills,
       })
-      if (closeOnSave) closePanel()
     } catch (saveError) {
+      setSelectedSkills(selectedSkills)
       setError(saveError instanceof Error ? saveError.message : t('failedToSaveSkills'))
     } finally {
       setSaving(false)
@@ -227,204 +216,199 @@ export function SkillsManagerPanel({
     ? t('projectSkillsDescription', { project: project!.name })
     : t('globalSkillsDescription')
 
-  // --- Reading panel ---
-  const isReading = !!readingSkillName
+  const searchAndList = (
+    <>
+      <div className="quickforge-settings-divider p-3">
+        <div className="quickforge-settings-inline-field">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/60" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t('searchSkills')}
+            className="quickforge-settings-input"
+            disabled={loading || saving}
+          />
+        </div>
+      </div>
+
+      {error ? <div className="quickforge-settings-alert quickforge-settings-warning-attached">{error}</div> : null}
+
+      <div className="quickforge-settings-toolbar">
+        <span className="quickforge-settings-row-title">{t('availableSkills')}</span>
+        <span className="quickforge-settings-badge quickforge-settings-badge-info">{t('selectedSkillsCount', { count: selectedSkills.size })}</span>
+      </div>
+
+      <div className={embedded ? '' : 'max-h-[46vh] overflow-y-auto'}>
+        {loading ? (
+          <div className="quickforge-settings-empty-row inline-flex items-center gap-2">
+            <Loader2 className="size-4 animate-spin" />
+            {t('loading')}
+          </div>
+        ) : filteredSkills.length === 0 ? (
+          <div className="quickforge-settings-empty-row">{t('noMatchingSkills')}</div>
+        ) : (
+          filteredSkills.map((skill) => {
+            const checked = selectedSkills.has(skill.name)
+            return (
+              <div key={skill.name} className={cn('quickforge-settings-list-item', checked && 'bg-muted/12')}>
+                <div className="quickforge-settings-list-item-main">
+                  <div className="quickforge-settings-row-title">{skill.displayName || skill.name}</div>
+                  {skill.description ? (
+                    <div className="quickforge-settings-row-description">{skill.description}</div>
+                  ) : null}
+                  <div className="quickforge-settings-meta">
+                    {skill.source ? <span className="quickforge-settings-badge quickforge-settings-badge-muted">{skill.source}</span> : null}
+                    {skill.compatibility ? <span className="quickforge-settings-badge quickforge-settings-badge-muted">{skill.compatibility}</span> : null}
+                    {skill.allowedTools ? <span className="quickforge-settings-badge quickforge-settings-badge-muted">{skill.allowedTools}</span> : null}
+                    {skill.tags?.slice(0, 5).map((tag) => (
+                      <span key={tag} className="quickforge-settings-badge quickforge-settings-badge-muted">{tag}</span>
+                    ))}
+                  </div>
+                </div>
+                <div className="quickforge-settings-list-item-actions" onClick={(event) => event.stopPropagation()}>
+                  <label className="quickforge-settings-switch" aria-disabled={saving ? 'true' : 'false'}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={saving}
+                      onChange={() => toggleSkill(skill.name)}
+                      aria-label={checked ? `Disable ${skill.name}` : `Enable ${skill.name}`}
+                    />
+                    <span aria-hidden="true" />
+                  </label>
+                  <button
+                    type="button"
+                    className="quickforge-settings-icon-action"
+                    onClick={() => void readSkillContent(skill.name)}
+                    disabled={saving || readingLoading}
+                    title={t('readSkill')}
+                    aria-label={`${t('readSkill')}: ${skill.displayName || skill.name}`}
+                  >
+                    <BookOpen className="size-4" />
+                  </button>
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
+    </>
+  )
+
+  const skillDetail = (
+    <>
+      <div className="quickforge-settings-toolbar">
+        <button
+          type="button"
+          className="quickforge-settings-button quickforge-settings-button-secondary"
+          onClick={resetReadingState}
+          disabled={readingLoading}
+        >
+          <ArrowLeft className="mr-2 size-4" />
+          {t('backToSkillList')}
+        </button>
+        <div className="quickforge-settings-row-main min-w-0">
+          <div className="quickforge-settings-row-title truncate">
+            {skillContent?.displayName || skillContent?.name || readingSkillName}
+          </div>
+        </div>
+      </div>
+
+      <div className="p-4">
+        {readingLoading ? (
+          <div className="quickforge-settings-empty-row inline-flex items-center gap-2">
+            <Loader2 className="size-4 animate-spin" />
+            {t('loading')}
+          </div>
+        ) : readingError ? (
+          <div className="quickforge-settings-alert quickforge-settings-warning-attached">{readingError}</div>
+        ) : skillContent ? (
+          <>
+            {skillContent.description ? (
+              <div className="quickforge-settings-row-description mb-3">{skillContent.description}</div>
+            ) : null}
+            <div className="quickforge-settings-meta mb-3">
+              {skillContent.version ? <span className="quickforge-settings-badge quickforge-settings-badge-muted">v{skillContent.version}</span> : null}
+              {skillContent.source ? <span className="quickforge-settings-badge quickforge-settings-badge-muted">{skillContent.source}</span> : null}
+              {skillContent.compatibility ? <span className="quickforge-settings-badge quickforge-settings-badge-muted">{skillContent.compatibility}</span> : null}
+              {skillContent.allowedTools ? <span className="quickforge-settings-badge quickforge-settings-badge-muted">{skillContent.allowedTools}</span> : null}
+              {skillContent.license ? <span className="quickforge-settings-badge quickforge-settings-badge-muted">{skillContent.license}</span> : null}
+              {skillContent.tags?.map((tag) => (
+                <span key={tag} className="quickforge-settings-badge quickforge-settings-badge-muted">{tag}</span>
+              ))}
+            </div>
+            {skillContent.triggers?.length ? (
+              <div className="quickforge-settings-row-description mb-3">Triggers: {skillContent.triggers.join(', ')}</div>
+            ) : null}
+            {skillContent.instructions ? (
+              <pre className="whitespace-pre-wrap break-words rounded-md border border-border bg-muted/30 px-4 py-3 font-mono text-sm leading-6 text-foreground/80">
+                {skillContent.instructions}
+              </pre>
+            ) : (
+              <div className="quickforge-settings-empty-row">{t('noSkillContent')}</div>
+            )}
+          </>
+        ) : null}
+      </div>
+    </>
+  )
+
+  if (embedded) {
+    return (
+      <div className="quickforge-settings-stack">
+        <section className="quickforge-settings-section" aria-label={title}>
+          {readingSkillName ? skillDetail : (
+            <>
+              {searchPaths.length ? (
+                <div className="px-5 pt-4">
+                  <span className="quickforge-settings-row-description break-all">
+                    {t('skillSearchPaths')}: {searchPaths.join(' · ')}
+                  </span>
+                </div>
+              ) : null}
+              {searchAndList}
+            </>
+          )}
+        </section>
+      </div>
+    )
+  }
 
   return (
     <div
-      className={embedded ? 'flex h-full min-h-0 flex-col' : 'fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={(event) => {
-        if (!embedded && event.target === event.currentTarget && !saving) closePanel()
+        if (event.target === event.currentTarget && !saving) closePanel()
       }}
     >
-      <div className={embedded ? 'flex h-full min-h-0 flex-col overflow-hidden bg-background' : 'flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-background shadow-quickforge'}>
-        {/* Header */}
-        <div className="border-b border-border p-4">
-          {isReading ? (
-            <button
-              type="button"
-              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-              onClick={backToList}
-            >
-              <ChevronLeft className="size-4" />
-              {t('backToSkillList')}
-            </button>
-          ) : (
-            <>
-              <h2 className="inline-flex items-center gap-1.5 text-base font-semibold text-foreground">
-                {title}
-                <InfoTip label={description} />
-              </h2>
-              {searchPaths.length ? (
-                <p className="mt-2 break-all text-xs text-muted-foreground/65">
-                  {t('skillSearchPaths')}: {searchPaths.join(' · ')}
-                </p>
-              ) : null}
-            </>
-          )}
-        </div>
-
-        {/* Body */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          {isReading ? (
-            // --- Reading panel ---
-            readingLoading ? (
-              <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
-                {t('loading')}
-              </div>
-            ) : readingError ? (
-              <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{readingError}</div>
-            ) : skillContent ? (
-              <div className="space-y-3">
-                {/* Metadata section */}
-                <div className="rounded-md border border-border px-3 py-2 text-sm space-y-1">
-                  <div className="font-medium text-foreground/90">
-                    {skillContent.displayName || skillContent.name}
-                    {skillContent.version ? <span className="ml-2 text-xs text-muted-foreground">v{skillContent.version}</span> : null}
-                  </div>
-                  {skillContent.description ? (
-                    <div className="text-muted-foreground/70">{skillContent.description}</div>
-                  ) : null}
-                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground/60">
-                    {skillContent.source ? <span>{skillContent.source}</span> : null}
-                    {skillContent.compatibility ? <span>· {skillContent.compatibility}</span> : null}
-                    {skillContent.allowedTools ? <span>· {skillContent.allowedTools}</span> : null}
-                    {skillContent.license ? <span>· {skillContent.license}</span> : null}
-                  </div>
-                  {skillContent.tags?.length ? (
-                    <div className="flex flex-wrap gap-1 pt-1">
-                      {skillContent.tags.map((tag) => (
-                        <span key={tag} className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                  {skillContent.triggers?.length ? (
-                    <div className="text-xs text-muted-foreground/60">
-                      Triggers: {skillContent.triggers.join(', ')}
-                    </div>
-                  ) : null}
-                </div>
-
-                {/* Instructions section */}
-                {skillContent.instructions ? (
-                  <pre className="whitespace-pre-wrap break-words rounded-md border border-border bg-muted/30 px-4 py-3 text-sm leading-6 text-foreground/80 font-mono">
-                    {skillContent.instructions}
-                  </pre>
-                ) : (
-                  <div className="py-4 text-center text-sm text-muted-foreground">{t('noSkillContent')}</div>
-                )}
-              </div>
-            ) : null
-          ) : (
-            // --- Skills list (existing) ---
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2">
-                <Search className="size-4 shrink-0 text-muted-foreground/60" />
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder={t('searchSkills')}
-                  className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/45"
-                  disabled={loading || saving}
-                />
-              </div>
-
-              {error ? <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
-
-              <div className="rounded-md border border-border">
-                <div className="flex items-center justify-between border-b border-border px-3 py-2 text-xs text-muted-foreground">
-                  <span>{t('availableSkills')}</span>
-                  <span>{t('selectedSkillsCount', { count: selectedSkills.size })}</span>
-                </div>
-                <div className={embedded ? 'min-h-0 flex-1 overflow-y-auto p-1' : 'max-h-[46vh] overflow-y-auto p-1'}>
-                  {loading ? (
-                    <div className="flex items-center justify-center gap-2 px-3 py-8 text-sm text-muted-foreground">
-                      <Loader2 className="size-4 animate-spin" />
-                      {t('loading')}
-                    </div>
-                  ) : filteredSkills.length === 0 ? (
-                    <div className="px-3 py-8 text-center text-sm text-muted-foreground">{t('noMatchingSkills')}</div>
-                  ) : (
-                    filteredSkills.map((skill) => {
-                      const checked = selectedSkills.has(skill.name)
-                      return (
-                        <div
-                          key={skill.name}
-                          className={cn(
-                            'flex w-full items-start gap-3 rounded-md px-3 py-3 text-left text-sm transition-colors hover:bg-muted/28 disabled:opacity-50',
-                            checked && 'bg-muted/28',
-                          )}
-                        >
-                          <button
-                            type="button"
-                            className={cn(
-                              'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded border border-input',
-                              checked && 'border-primary bg-primary text-primary-foreground',
-                            )}
-                            onClick={() => toggleSkill(skill.name)}
-                            disabled={saving}
-                            aria-label={checked ? `Deselect ${skill.name}` : `Select ${skill.name}`}
-                          >
-                            {checked ? <Check className="size-3.5" /> : null}
-                          </button>
-                          <span className="min-w-0 flex-1 cursor-pointer" onClick={() => toggleSkill(skill.name)}>
-                            <span className="block truncate font-medium text-foreground/90">
-                              {skill.displayName || skill.name}
-                            </span>
-                             {skill.description ? (
-                              <span className="mt-0.5 block text-xs leading-5 text-muted-foreground/70">{skill.description}</span>
-                            ) : null}
-                            <span className="mt-1 flex flex-wrap gap-1 text-[11px] text-muted-foreground/60">
-                              {skill.source ? <span>{skill.source}</span> : null}
-                              {skill.compatibility ? <span>· {skill.compatibility}</span> : null}
-                              {skill.allowedTools ? <span>· {skill.allowedTools}</span> : null}
-                            </span>
-                            {skill.tags?.length ? (
-                              <span className="mt-2 flex flex-wrap gap-1">
-                                {skill.tags.slice(0, 5).map((tag) => (
-                                  <span key={tag} className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                                    {tag}
-                                  </span>
-                                ))}
-                              </span>
-                            ) : null}
-                          </span>
-                          <button
-                            type="button"
-                            className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-muted/28 hover:text-foreground"
-                            onClick={() => void readSkillContent(skill.name)}
-                            disabled={saving || readingLoading}
-                            title={t('readSkill')}
-                            aria-label={`${t('readSkill')}: ${skill.displayName || skill.name}`}
-                          >
-                            <BookOpen className="size-4" />
-                          </button>
-                        </div>
-                      )
-                    })
-                  )}
-                </div>
-              </div>
+      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-background shadow-quickforge">
+        <div className="quickforge-settings-toolbar">
+          <div className="quickforge-settings-row-main">
+            <div className="quickforge-settings-row-title">
+              {title}
+              <InfoTip label={description} />
             </div>
-          )}
+            <div className="quickforge-settings-row-description">{description}</div>
+            {searchPaths.length ? (
+              <div className="quickforge-settings-row-description break-all">
+                {t('skillSearchPaths')}: {searchPaths.join(' · ')}
+              </div>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            className="quickforge-settings-icon-action"
+            onClick={closePanel}
+            disabled={saving}
+            aria-label={t('close')}
+          >
+            <X className="size-4" />
+          </button>
         </div>
 
-        {/* Footer */}
-        {!isReading ? (
-          <div className="flex justify-end gap-2 border-t border-border p-4">
-            {!embedded ? (
-              <Button type="button" variant="outline" onClick={closePanel} disabled={saving}>
-                {t('cancel')}
-              </Button>
-            ) : null}
-            <Button type="button" onClick={save} disabled={loading || saving}>
-              {saving ? t('saving') : t('save')}
-            </Button>
-          </div>
-        ) : null}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {readingSkillName ? skillDetail : searchAndList}
+        </div>
       </div>
     </div>
   )
@@ -436,7 +420,6 @@ export function SkillsDialog({ open, scope, project, onOpenChange, onSaved }: Sk
       active={open}
       scope={scope}
       project={project}
-      closeOnSave
       onClose={() => onOpenChange(false)}
       onSaved={onSaved}
     />

@@ -1,6 +1,7 @@
 import type { AppStorage } from '@earendil-works/pi-web-ui'
 
 const FONT_SIZE_SETTINGS_KEY = 'font-size-settings'
+const FONT_SIZE_FORCE_14PX_MIGRATION_KEY = 'font-size-settings-force-14px-v1'
 
 export const FONT_SIZE_RANGE = {
   min: 12,
@@ -13,8 +14,8 @@ export type FontSizeSettings = {
 }
 
 export const DEFAULT_FONT_SIZE_SETTINGS: FontSizeSettings = {
-  interfaceFontSizePx: 15,
-  messageFontSizePx: 15,
+  interfaceFontSizePx: 14,
+  messageFontSizePx: 14,
 }
 
 type RawFontSizeSettings = Partial<Record<keyof FontSizeSettings, unknown>> & {
@@ -59,6 +60,14 @@ export function applyFontSizeSettings(settings: FontSizeSettings) {
 }
 
 export async function loadFontSizeSettings(storage: AppStorage): Promise<FontSizeSettings> {
+  const hasForced14PxMigration = await storage.settings.get<boolean>(FONT_SIZE_FORCE_14PX_MIGRATION_KEY)
+  if (!hasForced14PxMigration) {
+    const settings = { ...DEFAULT_FONT_SIZE_SETTINGS }
+    await storage.settings.set(FONT_SIZE_SETTINGS_KEY, settings)
+    await storage.settings.set(FONT_SIZE_FORCE_14PX_MIGRATION_KEY, true)
+    return settings
+  }
+
   return normalizeFontSizeSettings(await storage.settings.get<unknown>(FONT_SIZE_SETTINGS_KEY))
 }
 

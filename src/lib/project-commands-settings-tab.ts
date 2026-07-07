@@ -22,6 +22,9 @@ class ProjectCommandsSettingsTab extends SettingsTab {
   private commandDir = ''
   private commands: CommandSummary[] = []
   private loadingCommands = false
+  private saveTimer: number | null = null
+  private lastSavedCommandDir = ''
+  private pendingSaveAfterCurrent = false
 
   override getTabName(): string {
     return t('projectCommands')
@@ -56,6 +59,7 @@ class ProjectCommandsSettingsTab extends SettingsTab {
       this.projects = payload?.projects ?? (payload?.project ? [payload.project] : [])
       this.project = payload?.project ?? this.projects[0]
       this.commandDir = typeof this.project?.commandDir === 'string' ? this.project.commandDir : ''
+      this.lastSavedCommandDir = this.commandDir
       await this.loadCommands()
     } catch (error) {
       this.error = error instanceof Error ? error.message : t('requestFailed')
@@ -66,11 +70,13 @@ class ProjectCommandsSettingsTab extends SettingsTab {
   }
 
   private selectProject(event: Event) {
+    this.clearSaveTimer()
     const select = event.target as HTMLSelectElement
     const selected = this.projects.find((item) => item.id === select.value)
     if (!selected) return
     this.project = selected
     this.commandDir = typeof selected.commandDir === 'string' ? selected.commandDir : ''
+    this.lastSavedCommandDir = this.commandDir
     this.saved = false
     this.message = ''
     this.error = ''
@@ -100,11 +106,41 @@ class ProjectCommandsSettingsTab extends SettingsTab {
     this.commandDir = value
     this.saved = false
     this.message = ''
+    this.scheduleSave()
     this.requestUpdate()
   }
 
+  private clearSaveTimer() {
+    if (this.saveTimer !== null) {
+      window.clearTimeout(this.saveTimer)
+      this.saveTimer = null
+    }
+  }
+
+  private scheduleSave() {
+    this.clearSaveTimer()
+    this.saveTimer = window.setTimeout(() => {
+      this.saveTimer = null
+      void this.save()
+    }, 800)
+  }
+
+  override disconnectedCallback() {
+    this.clearSaveTimer()
+    super.disconnectedCallback()
+  }
+
   private async save() {
-    if (!this.project || this.saving) return
+    if (!this.project) return
+    if (this.saving) {
+      this.pendingSaveAfterCurrent = true
+      return
+    }
+
+    const projectId = this.project.id
+    const commandDir = this.commandDir
+    if (commandDir === this.lastSavedCommandDir) return
+
     this.saving = true
     this.saved = false
     this.error = ''
@@ -113,21 +149,28 @@ class ProjectCommandsSettingsTab extends SettingsTab {
 
     try {
       const payload = await this.request<{ project?: ProjectInfo }>(
-        `/api/project/${encodeURIComponent(this.project.id)}/command-dir`,
-        { method: 'PUT', body: JSON.stringify({ commandDir: this.commandDir }) },
+        `/api/project/${encodeURIComponent(projectId)}/command-dir`,
+        { method: 'PUT', body: JSON.stringify({ commandDir }) },
       )
-      this.project = payload?.project ?? this.project
-      if (this.project) {
-        const index = this.projects.findIndex((item) => item.id === this.project!.id)
-        if (index >= 0) this.projects[index] = this.project
+      if (this.project?.id === projectId) {
+        this.project = payload?.project ?? this.project
+        if (this.project) {
+          const index = this.projects.findIndex((item) => item.id === this.project!.id)
+          if (index >= 0) this.projects[index] = this.project
+        }
+        this.commandDir = typeof this.project?.commandDir === 'string' ? this.project.commandDir : commandDir
+        this.lastSavedCommandDir = this.commandDir
+        this.saved = true
+        await this.loadCommands()
       }
-      this.commandDir = typeof this.project?.commandDir === 'string' ? this.project.commandDir : ''
-      this.saved = true
-      await this.loadCommands()
     } catch (error) {
       this.error = error instanceof Error ? error.message : t('requestFailed')
     } finally {
       this.saving = false
+      if (this.pendingSaveAfterCurrent) {
+        this.pendingSaveAfterCurrent = false
+        this.scheduleSave()
+      }
       this.requestUpdate()
     }
   }
@@ -177,87 +220,80 @@ class ProjectCommandsSettingsTab extends SettingsTab {
 
   override render(): TemplateResult {
     if (this.loading) {
-      return html`<div class="text-sm text-muted-foreground">${t('loading')}</div>`
+      return html`<div class="quickforge-settings-note">${t('loading')}</div>`
     }
 
     if (this.projects.length === 0) {
       return html`
-        <div class="flex flex-col gap-3">
-          <h3 class="text-sm font-semibold text-foreground">${t('projectCommands')}</h3>
-          <p class="text-sm text-muted-foreground">${t('selectProjectForCommands')}</p>
-          ${this.error ? html`<div class="text-sm text-destructive">${this.error}</div>` : null}
+        <div class="quickforge-settings-stack">
+          <div class="quickforge-settings-note">${t('selectProjectForCommands')}</div>
+          ${this.error ? html`<div class="quickforge-settings-alert">${this.error}</div>` : null}
         </div>
       `
     }
 
     return html`
-      <div class="flex flex-col gap-6">
-        <div>
-          <h3 class="mb-2 text-sm font-semibold text-foreground">
-            ${t('projectCommands')}
-            <quickforge-info-tip .label=${t('projectCommandsDescription')}></quickforge-info-tip>
-          </h3>
-        </div>
+      <div class="quickforge-settings-stack">
+        <section class="quickforge-settings-section" aria-label=${t('projectCommands')}>
+          <div class="quickforge-settings-row">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">${t('project')}</div>
+              <div class="quickforge-settings-row-description">
+                ${this.project?.path ? this.project.path : t('projectCommandsProjectDescription')}
+              </div>
+            </div>
+            <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
+              <select
+                class="quickforge-settings-select"
+                .value=${this.project?.id ?? ''}
+                @change=${(event: Event) => this.selectProject(event)}
+              >
+                ${this.projects.map((item) => html`<option value=${item.id} ?selected=${item.id === this.project?.id}>${item.name}</option>`)}
+              </select>
+            </div>
+          </div>
 
-        <div class="grid max-w-xl gap-1.5 text-sm">
-          <span class="text-foreground">${t('project')}</span>
-          <select
-            class="rounded-md border border-input bg-background px-3 py-2 text-sm"
-            .value=${this.project?.id ?? ''}
-            @change=${(event: Event) => this.selectProject(event)}
-          >
-            ${this.projects.map((item) => html`<option value=${item.id} ?selected=${item.id === this.project?.id}>${item.name}</option>`)}
-          </select>
-          ${this.project?.path
-            ? html`<span class="break-all text-xs text-muted-foreground">${this.project.path}</span>`
-            : null}
-        </div>
+          <div class="quickforge-settings-row quickforge-settings-row-align-start">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">
+                ${t('commandDirectories')}
+                <quickforge-info-tip .label=${t('commandDirectoryHelp')}></quickforge-info-tip>
+              </div>
+              <div class="quickforge-settings-row-description">${t('commandDirectoriesDescription')}</div>
+            </div>
+            <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
+              <textarea
+                class="quickforge-settings-textarea quickforge-settings-mono"
+                .value=${this.commandDir}
+                placeholder=${t('commandDirectoryPlaceholder')}
+                @input=${(event: Event) => this.updateCommandDir((event.target as HTMLTextAreaElement).value)}
+              ></textarea>
+            </div>
+          </div>
 
-        <label class="grid max-w-xl gap-1.5 text-sm">
-          <span class="inline-flex items-center gap-1.5 text-foreground">
-            ${t('commandDirectories')}
-            <quickforge-info-tip .label=${t('commandDirectoryHelp')}></quickforge-info-tip>
-          </span>
-          <textarea
-            class="min-h-28 rounded-md border border-input bg-background px-3 py-2 text-sm"
-            .value=${this.commandDir}
-            placeholder=${t('commandDirectoryPlaceholder')}
-            @input=${(event: Event) => this.updateCommandDir((event.target as HTMLTextAreaElement).value)}
-          ></textarea>
-        </label>
+          <div class="quickforge-settings-row quickforge-settings-row-align-start">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">${t('commandDirectoryExamples')}</div>
+              <div class="quickforge-settings-row-description">${t('commandDirectoryExamplesDescription')}</div>
+            </div>
+            <div class="quickforge-settings-row-control quickforge-settings-row-control-wide quickforge-settings-code-list">
+              <code>.ai/commands</code>
+              <code>.claude/commands</code>
+              <code>.opencode/commands</code>
+              <code>D:\shared\ai-commands</code>
+            </div>
+          </div>
+        </section>
 
-        <div class="rounded-lg border border-border p-4 text-xs leading-5 text-muted-foreground">
-          <div class="mb-1 font-medium text-foreground">${t('commandDirectoryExamples')}</div>
-          <ul class="list-disc space-y-1 pl-5">
-            <li>.ai/commands</li>
-            <li>.claude/commands</li>
-            <li>.opencode/commands</li>
-            <li>D:\\shared\\ai-commands</li>
-          </ul>
-        </div>
-
-        <div class="flex flex-wrap items-center gap-3">
-          <button
-            class="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-60"
-            type="button"
-            ?disabled=${this.saving}
-            @click=${() => this.save()}
-          >
-            ${this.saving ? t('saving') : t('save')}
-          </button>
-          ${this.saved ? html`<span class="text-sm text-muted-foreground">${t('projectCommandsSaved')}</span>` : null}
-          ${this.message ? html`<span class="text-sm text-muted-foreground">${this.message}</span>` : null}
-          ${this.error ? html`<span class="text-sm text-destructive">${this.error}</span>` : null}
-        </div>
-
-        <section class="rounded-lg border border-border p-4">
-          <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h4 class="text-sm font-semibold text-foreground">
-              ${t('loadedCommands', { count: this.commands.length })}
-            </h4>
-            <div class="flex items-center gap-2">
+        <section class="quickforge-settings-section" aria-label=${t('loadedCommands', { count: this.commands.length })}>
+          <div class="quickforge-settings-row">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">${t('loadedCommands', { count: this.commands.length })}</div>
+              <div class="quickforge-settings-row-description">${t('loadedCommandsDescription')}</div>
+            </div>
+            <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
               <button
-                class="rounded-md border border-border px-3 py-1.5 text-xs text-foreground hover:bg-muted/50 disabled:opacity-60"
+                class="quickforge-settings-button quickforge-settings-button-secondary"
                 type="button"
                 ?disabled=${this.loadingCommands}
                 @click=${() => this.openCommandDir()}
@@ -265,7 +301,7 @@ class ProjectCommandsSettingsTab extends SettingsTab {
                 ${t('openCommandDir')}
               </button>
               <button
-                class="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                class="quickforge-settings-button quickforge-settings-button-primary"
                 type="button"
                 ?disabled=${this.loadingCommands}
                 @click=${() => this.createCommand()}
@@ -275,25 +311,36 @@ class ProjectCommandsSettingsTab extends SettingsTab {
             </div>
           </div>
 
-          ${this.loadingCommands
-            ? html`<div class="text-sm text-muted-foreground">${t('loading')}</div>`
-            : this.commands.length === 0
-              ? html`<p class="text-sm text-muted-foreground">${t('noCommandsLoaded')}</p>`
-              : html`<ul class="grid gap-2">
-                  ${this.commands.map((command) => {
+          <div class="quickforge-settings-nested-list">
+            ${this.loadingCommands
+              ? html`<div class="quickforge-settings-empty-row">${t('loading')}</div>`
+              : this.commands.length === 0
+                ? html`<div class="quickforge-settings-empty-row">${t('noCommandsLoaded')}</div>`
+                : this.commands.map((command) => {
                     const hint = command.argumentHint ? ` ${command.argumentHint}` : ''
                     return html`
-                      <li class="grid gap-0.5 text-sm">
-                        <span class="text-foreground">
-                          <code class="text-xs">/${command.name}${hint}</code>
-                          ${command.description ? html` — <span class="text-muted-foreground">${command.description}</span>` : null}
-                        </span>
-                        ${command.relativePath ? html`<span class="text-xs text-muted-foreground">${command.relativePath}</span>` : null}
-                      </li>
+                      <div class="quickforge-settings-subrow">
+                        <div class="quickforge-settings-row-main">
+                          <div class="quickforge-settings-row-title">
+                            <code class="quickforge-settings-command-name">/${command.name}${hint}</code>
+                          </div>
+                          <div class="quickforge-settings-row-description">
+                            ${command.description || t('noDescription')}
+                          </div>
+                        </div>
+                        ${command.relativePath
+                          ? html`<div class="quickforge-settings-row-control quickforge-settings-row-control-wide quickforge-settings-readonly-value">${command.relativePath}</div>`
+                          : null}
+                      </div>
                     `
                   })}
-                </ul>`}
+          </div>
         </section>
+
+        ${this.saving ? html`<div class="quickforge-settings-note">${t('saving')}</div>` : null}
+        ${this.saved ? html`<div class="quickforge-settings-message">${t('projectCommandsSaved')}</div>` : null}
+        ${this.message ? html`<div class="quickforge-settings-message">${this.message}</div>` : null}
+        ${this.error ? html`<div class="quickforge-settings-alert">${this.error}</div>` : null}
       </div>
     `
   }

@@ -6,10 +6,8 @@ import {
   CalendarClock,
   Database,
   DownloadCloud,
-  Gauge,
   Globe2,
   Info,
-  Languages,
   Palette,
   Puzzle,
   Server,
@@ -21,6 +19,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { SettingsTab } from '@earendil-works/pi-web-ui'
 import { Button } from '@/components/ui/button'
+import { InfoTip } from '@/components/ui/info-tip'
 import { createSettingsTabs, type SettingsInitialTab } from '@/lib/settings-tabs'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -32,7 +31,6 @@ type SettingsWorkspacePageProps = {
 }
 
 const SETTINGS_TAB_ICONS = {
-  language: Languages,
   appearance: Palette,
   defaults: SlidersHorizontal,
   customModels: Database,
@@ -44,7 +42,6 @@ const SETTINGS_TAB_ICONS = {
   projectCommands: SquareTerminal,
   backup: DownloadCloud,
   archivedConversations: Archive,
-  service: Gauge,
   channels: Share2,
   lanAccess: Globe2,
   about: Info,
@@ -72,6 +69,7 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
   const [selectedTabIndex, setSelectedTabIndex] = useState<number | undefined>()
   const activeTabIndex = selectedTabIndex ?? defaultTabIndex
   const activeItem = settings.items[activeTabIndex] ?? settings.items[0]
+  const activeDescription = activeItem?.getDescription?.()
   const ActiveIcon = activeItem ? SETTINGS_TAB_ICONS[activeItem.key] : undefined
 
   return (
@@ -134,6 +132,7 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
             <div className="flex min-w-0 items-center gap-2">
               {ActiveIcon ? <ActiveIcon className="size-4 shrink-0 text-muted-foreground/65" aria-hidden="true" /> : null}
               <div className="min-w-0 truncate text-sm font-medium text-foreground/90">{activeItem?.tab.getTabName()}</div>
+              {activeDescription ? <InfoTip label={activeDescription} /> : null}
             </div>
           </div>
         </header>

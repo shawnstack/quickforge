@@ -243,99 +243,143 @@ class BackupSettingsTab extends SettingsTab {
     if (file) void this.importBackupFromFile(file)
   }
 
+  private renderSwitch(checked: boolean, onChange: (checked: boolean) => void, disabled = false) {
+    return html`
+      <label class="quickforge-settings-switch" aria-disabled=${disabled ? 'true' : 'false'}>
+        <input
+          type="checkbox"
+          .checked=${checked}
+          ?disabled=${disabled}
+          @change=${(event: Event) => onChange((event.target as HTMLInputElement).checked)}
+        />
+        <span aria-hidden="true"></span>
+      </label>
+    `
+  }
+
   private renderPendingImport() {
     if (!this.pendingImport) return null
     const { inspect, selectedSections } = this.pendingImport
     const sections = availableRestoreSections(inspect)
 
     return html`
-      <section class="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
-        <h4 class="text-sm font-semibold text-foreground">${t('backupInspectTitle')}</h4>
-        <dl class="mt-3 grid gap-1 text-sm text-muted-foreground">
-          <div><span class="text-foreground">${t('backupInspectExportedAt')}:</span> ${inspect.exportedAt || '-'}</div>
-          <div><span class="text-foreground">${t('backupInspectVersion')}:</span> ${inspect.version ?? '-'}</div>
-          <div><span class="text-foreground">${t('backupInspectScope')}:</span> ${inspect.scope || '-'}</div>
-          <div><span class="text-foreground">${t('backupInspectSecrets')}:</span> ${inspect.includeSecrets ? t('yes') : t('no')}</div>
-        </dl>
+      <section class="quickforge-settings-section" aria-label=${t('backupInspectTitle')}>
+        <div class="quickforge-settings-row quickforge-settings-row-top">
+          <div class="quickforge-settings-row-main">
+            <div class="quickforge-settings-row-title">${t('backupInspectTitle')}</div>
+            <div class="quickforge-settings-row-description">${t('backupInspectDescription')}</div>
+          </div>
+        </div>
+
+        <div class="quickforge-settings-nested-list">
+          <div class="quickforge-settings-subrow">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">${t('backupInspectExportedAt')}</div>
+            </div>
+            <div class="quickforge-settings-row-control quickforge-settings-readonly-value">${inspect.exportedAt || '-'}</div>
+          </div>
+          <div class="quickforge-settings-subrow">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">${t('backupInspectVersion')}</div>
+            </div>
+            <div class="quickforge-settings-row-control quickforge-settings-readonly-value">${inspect.version ?? '-'}</div>
+          </div>
+          <div class="quickforge-settings-subrow">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">${t('backupInspectScope')}</div>
+            </div>
+            <div class="quickforge-settings-row-control quickforge-settings-readonly-value">${inspect.scope || '-'}</div>
+          </div>
+          <div class="quickforge-settings-subrow">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">${t('backupInspectSecrets')}</div>
+            </div>
+            <div class="quickforge-settings-row-control quickforge-settings-readonly-value">${inspect.includeSecrets ? t('yes') : t('no')}</div>
+          </div>
+        </div>
 
         ${inspect.warnings?.length ? html`
-          <div class="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          <div class="quickforge-settings-warning quickforge-settings-warning-attached">
             ${inspect.warnings.map((warning) => html`<div>⚠ ${warning}</div>`)}
           </div>
         ` : null}
 
-        <div class="mt-4">
-          <div class="text-sm font-medium text-foreground">${t('restoreMode')}</div>
-          <div class="mt-2 grid gap-2">
-            <label class="flex items-start gap-2 rounded-md border border-border bg-background/60 p-3 text-sm ${this.pendingImport.mode === 'replace' ? 'border-primary' : ''}">
-              <input
-                class="mt-1"
-                type="radio"
-                name="restore-mode"
-                .checked=${this.pendingImport.mode === 'replace'}
+        <div class="quickforge-settings-row">
+          <div class="quickforge-settings-row-main">
+            <div class="quickforge-settings-row-title">${t('restoreMode')}</div>
+            <div class="quickforge-settings-row-description">${t('restoreModeDescription')}</div>
+          </div>
+          <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
+            <div class="quickforge-settings-segmented" role="group" aria-label=${t('restoreMode')}>
+              <button
+                type="button"
+                class="quickforge-settings-segmented-option ${this.pendingImport.mode === 'replace' ? 'quickforge-settings-segmented-option-active' : ''}"
                 ?disabled=${this.busy}
-                @change=${() => this.setRestoreMode('replace')}
-              />
-              <span>
-                <span class="block text-foreground">${t('restoreModeReplace')}</span>
-                <span class="block text-xs text-muted-foreground">${t('restoreModeReplaceDescription')}</span>
-              </span>
-            </label>
-            <label class="flex items-start gap-2 rounded-md border border-border bg-background/60 p-3 text-sm ${this.pendingImport.mode === 'merge' ? 'border-primary' : ''}">
-              <input
-                class="mt-1"
-                type="radio"
-                name="restore-mode"
-                .checked=${this.pendingImport.mode === 'merge'}
+                @click=${() => this.setRestoreMode('replace')}
+              >
+                ${t('restoreModeReplace')}
+              </button>
+              <button
+                type="button"
+                class="quickforge-settings-segmented-option ${this.pendingImport.mode === 'merge' ? 'quickforge-settings-segmented-option-active' : ''}"
                 ?disabled=${this.busy}
-                @change=${() => this.setRestoreMode('merge')}
-              />
-              <span>
-                <span class="block text-foreground">${t('restoreModeMerge')}</span>
-                <span class="block text-xs text-muted-foreground">${t('restoreModeMergeDescription')}</span>
-              </span>
-            </label>
+                @click=${() => this.setRestoreMode('merge')}
+              >
+                ${t('restoreModeMerge')}
+              </button>
+            </div>
           </div>
         </div>
 
-        <div class="mt-4">
-          <div class="text-sm font-medium text-foreground">${t('selectRestoreSections')}</div>
-          <div class="mt-2 grid gap-2">
-            ${sections.map((section) => html`
-              <label class="flex items-start gap-2 rounded-md border border-border bg-background/60 p-3 text-sm">
-                <input
-                  class="mt-1"
-                  type="checkbox"
-                  .checked=${selectedSections.has(section.id)}
-                  ?disabled=${this.busy}
-                  @change=${(event: Event) => this.togglePendingSection(section.id, (event.target as HTMLInputElement).checked)}
-                />
-                <span>
-                  <span class="block text-foreground">${section.label()} (${inspect.sections?.[section.countKey] ?? 0})</span>
-                  <span class="block text-xs text-muted-foreground">${section.description()}</span>
-                </span>
-              </label>
-            `)}
+        <div class="quickforge-settings-row quickforge-settings-row-top">
+          <div class="quickforge-settings-row-main">
+            <div class="quickforge-settings-row-title">${t('selectRestoreSections')}</div>
+            <div class="quickforge-settings-row-description">
+              ${this.pendingImport.mode === 'replace' ? t('restoreModeReplaceDescription') : t('restoreModeMergeDescription')}
+            </div>
           </div>
         </div>
+        <div class="quickforge-settings-nested-list">
+          ${sections.map((section) => html`
+            <div class="quickforge-settings-subrow">
+              <div class="quickforge-settings-row-main">
+                <div class="quickforge-settings-row-title">${section.label()} (${inspect.sections?.[section.countKey] ?? 0})</div>
+                <div class="quickforge-settings-row-description">${section.description()}</div>
+              </div>
+              <div class="quickforge-settings-row-control">
+                ${this.renderSwitch(
+                  selectedSections.has(section.id),
+                  (checked) => this.togglePendingSection(section.id, checked),
+                  this.busy,
+                )}
+              </div>
+            </div>
+          `)}
+        </div>
 
-        <div class="mt-4 flex flex-wrap gap-2">
-          <button
-            class="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-60"
-            type="button"
-            ?disabled=${this.busy || selectedSections.size === 0}
-            @click=${() => this.confirmPendingImport()}
-          >
-            ${this.busy ? t('loading') : t('confirmImportSelected')}
-          </button>
-          <button
-            class="rounded-md border border-input px-3 py-2 text-sm hover:bg-muted/60 disabled:opacity-60"
-            type="button"
-            ?disabled=${this.busy}
-            @click=${() => this.cancelPendingImport()}
-          >
-            ${t('cancel')}
-          </button>
+        <div class="quickforge-settings-row">
+          <div class="quickforge-settings-row-main">
+            <div class="quickforge-settings-row-title">${t('backupImportActions')}</div>
+            <div class="quickforge-settings-row-description">${t('backupImportActionsDescription')}</div>
+          </div>
+          <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
+            <button
+              class="quickforge-settings-button quickforge-settings-button-primary"
+              type="button"
+              ?disabled=${this.busy || selectedSections.size === 0}
+              @click=${() => this.confirmPendingImport()}
+            >
+              ${this.busy ? t('loading') : t('confirmImportSelected')}
+            </button>
+            <button
+              class="quickforge-settings-button quickforge-settings-button-secondary"
+              type="button"
+              ?disabled=${this.busy}
+              @click=${() => this.cancelPendingImport()}
+            >
+              ${t('cancel')}
+            </button>
+          </div>
         </div>
       </section>
     `
@@ -343,80 +387,86 @@ class BackupSettingsTab extends SettingsTab {
 
   override render(): TemplateResult {
     return html`
-      <div class="flex flex-col gap-6">
-        <div>
-          <h3 class="mb-2 inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
-            ${t('backupRestore')}
-            <quickforge-info-tip .label=${t('backupRestoreDescription')}></quickforge-info-tip>
-          </h3>
-        </div>
+      <div class="quickforge-settings-stack">
+        <section class="quickforge-settings-section" aria-label=${t('exportData')}>
+          <div class="quickforge-settings-row">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">
+                ${t('exportScope')}
+                <quickforge-info-tip .label=${t('exportDataDescription')}></quickforge-info-tip>
+              </div>
+              <div class="quickforge-settings-row-description">${t('exportScopeDescription')}</div>
+            </div>
+            <div class="quickforge-settings-row-control">
+              <select
+                class="quickforge-settings-select"
+                .value=${this.exportScope}
+                ?disabled=${this.busy}
+                @change=${(event: Event) => this.setScope((event.target as HTMLSelectElement).value)}
+              >
+                <option value="all">${t('exportScopeAll')}</option>
+                <option value="config">${t('exportScopeConfig')}</option>
+                <option value="sessions">${t('exportScopeSessions')}</option>
+              </select>
+            </div>
+          </div>
 
-        <section class="rounded-lg border border-border p-4">
-          <h4 class="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
-            ${t('exportData')}
-            <quickforge-info-tip .label=${t('exportDataDescription')}></quickforge-info-tip>
-          </h4>
+          <div class="quickforge-settings-row">
+            <div class="quickforge-settings-row-main ${this.exportScope === 'sessions' ? 'opacity-60' : ''}">
+              <div class="quickforge-settings-row-title">${t('includeApiKeys')}</div>
+              <div class="quickforge-settings-row-description">${t('includeApiKeysDescription')}</div>
+            </div>
+            <div class="quickforge-settings-row-control">
+              ${this.renderSwitch(this.includeSecrets, (checked) => this.setIncludeSecrets(checked), this.busy || this.exportScope === 'sessions')}
+            </div>
+          </div>
 
-          <label class="mt-4 grid max-w-sm gap-1.5 text-sm">
-            <span class="text-foreground">${t('exportScope')}</span>
-            <select
-              class="rounded-md border border-input bg-background px-3 py-2 text-sm"
-              .value=${this.exportScope}
-              ?disabled=${this.busy}
-              @change=${(event: Event) => this.setScope((event.target as HTMLSelectElement).value)}
-            >
-              <option value="all">${t('exportScopeAll')}</option>
-              <option value="config">${t('exportScopeConfig')}</option>
-              <option value="sessions">${t('exportScopeSessions')}</option>
-            </select>
-          </label>
-
-          <label class="mt-4 flex max-w-sm items-start gap-2 text-sm text-foreground ${this.exportScope === 'sessions' ? 'opacity-60' : ''}">
-            <input
-              class="mt-1"
-              type="checkbox"
-              .checked=${this.includeSecrets}
-              ?disabled=${this.busy || this.exportScope === 'sessions'}
-              @change=${(event: Event) => this.setIncludeSecrets((event.target as HTMLInputElement).checked)}
-            />
-            <span>
-              <span class="block">${t('includeApiKeys')}</span>
-              <span class="block text-xs text-muted-foreground">${t('includeApiKeysDescription')}</span>
-            </span>
-          </label>
-
-          <button
-            class="mt-4 rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-60"
-            type="button"
-            ?disabled=${this.busy}
-            @click=${() => this.exportBackup()}
-          >
-            ${this.busy ? t('loading') : t('exportBackup')}
-          </button>
+          <div class="quickforge-settings-row">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">${t('exportBackup')}</div>
+              <div class="quickforge-settings-row-description">${t('exportBackupDescription')}</div>
+            </div>
+            <div class="quickforge-settings-row-control">
+              <button
+                class="quickforge-settings-button quickforge-settings-button-primary"
+                type="button"
+                ?disabled=${this.busy}
+                @click=${() => this.exportBackup()}
+              >
+                ${this.busy ? t('loading') : t('exportBackup')}
+              </button>
+            </div>
+          </div>
         </section>
 
-        <section class="rounded-lg border border-border p-4">
-          <h4 class="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
-            ${t('importData')}
-            <quickforge-info-tip .label=${t('importDataDescription')}></quickforge-info-tip>
-          </h4>
-
-          <label class="mt-4 inline-flex cursor-pointer rounded-md border border-input px-3 py-2 text-sm hover:bg-muted/60 ${this.busy ? 'pointer-events-none opacity-60' : ''}">
-            <input
-              class="hidden"
-              type="file"
-              accept="application/json,.json"
-              ?disabled=${this.busy}
-              @change=${(event: Event) => this.handleFileChange(event)}
-            />
-            ${t('importBackup')}
-          </label>
+        <section class="quickforge-settings-section" aria-label=${t('importData')}>
+          <div class="quickforge-settings-row">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">
+                ${t('importBackup')}
+                <quickforge-info-tip .label=${t('importDataDescription')}></quickforge-info-tip>
+              </div>
+              <div class="quickforge-settings-row-description">${t('importDataDescription')}</div>
+            </div>
+            <div class="quickforge-settings-row-control">
+              <label class="quickforge-settings-button quickforge-settings-button-secondary ${this.busy ? 'pointer-events-none opacity-60' : ''}">
+                <input
+                  class="hidden"
+                  type="file"
+                  accept="application/json,.json"
+                  ?disabled=${this.busy}
+                  @change=${(event: Event) => this.handleFileChange(event)}
+                />
+                ${t('importBackup')}
+              </label>
+            </div>
+          </div>
         </section>
 
         ${this.renderPendingImport()}
-        ${this.message ? html`<div class="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">${this.message}</div>` : null}
-        ${this.safetyBackupPath ? html`<div class="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">${t('backupSafetyBackupPath')}: <code>${this.safetyBackupPath}</code></div>` : null}
-        ${this.error ? html`<div class="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">${this.error}</div>` : null}
+        ${this.message ? html`<div class="quickforge-settings-message">${this.message}</div>` : null}
+        ${this.safetyBackupPath ? html`<div class="quickforge-settings-note">${t('backupSafetyBackupPath')}: <code>${this.safetyBackupPath}</code></div>` : null}
+        ${this.error ? html`<div class="quickforge-settings-alert">${this.error}</div>` : null}
       </div>
     `
   }

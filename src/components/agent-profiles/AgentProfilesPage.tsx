@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
-import { Bot, MoreHorizontal, Edit3, Sparkles, Trash2 } from 'lucide-react'
+import { ArrowLeft, Bot, MoreHorizontal, Edit3, Sparkles, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
@@ -312,175 +312,183 @@ export function AgentProfilesPage() {
     }
   }
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      <div className="border-b border-border px-6 py-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-              <Bot className="size-5" />
-            </div>
-            <div>
-              <h1 className="inline-flex items-center gap-1.5 text-lg font-semibold text-foreground">
-                {t('agentsTab')}
-                <InfoTip label={t('agentsDescription')} />
-              </h1>
+  if (agentDialogOpen) {
+    return (
+      <div className="quickforge-settings-stack">
+        <div className="quickforge-settings-heading">
+          <h3 className="quickforge-settings-title">
+            {editingAgent ? t('editAgent') : t('createAgent')}
+            <InfoTip label={editingAgent?.readonly ? t('builtinAgentReadonly') : t('agentsDescription')} />
+          </h3>
+        </div>
+
+        <section className="quickforge-settings-section" aria-label={editingAgent ? t('editAgent') : t('createAgent')}>
+          <div className="quickforge-settings-toolbar">
+            <button className="quickforge-settings-button quickforge-settings-button-secondary" type="button" onClick={closeAgentDialog} disabled={agentLoading || aiFillLoading}>
+              <ArrowLeft className="mr-2 size-4" />
+              {t('back')}
+            </button>
+            <div className="quickforge-settings-row-main">
+              <div className="quickforge-settings-row-title">
+                {editingAgent ? t('editAgent') : t('createAgent')}
+              </div>
+              {editingAgent?.readonly ? <div className="quickforge-settings-row-description">{t('builtinAgentReadonly')}</div> : null}
             </div>
           </div>
-          <Button onClick={openCreateAgentDialog}>{t('createAgent')}</Button>
-        </div>
-      </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
-        <div className="mx-auto max-w-5xl space-y-5">
-          {error && !agentDialogOpen ? <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
-
-          <div className="grid gap-4 md:grid-cols-2">
-            {agentProfiles.map((agent) => (
-              <div key={agent.id} className="rounded-xl border border-border bg-card p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className={cn('truncate text-sm font-medium', agent.enabledAsSubagent ? 'text-foreground/90' : 'text-muted-foreground')}>{agent.label}</h3>
-                      {agent.builtin ? <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">{t('builtinAgent')}</span> : null}
-                    </div>
-                    <p className="mt-1 font-mono text-xs text-muted-foreground">{agent.name}</p>
-                    {agent.source && !agent.builtin ? <p className="mt-1 text-xs text-muted-foreground">{agent.source}{agent.relativePath ? ` · ${agent.relativePath}` : ''}</p> : null}
-                    <p className="mt-2 text-sm text-muted-foreground">{agent.description || t('noDescription')}</p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2" onClick={(event) => event.stopPropagation()}>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={agent.enabledAsSubagent}
-                      disabled={agent.builtin || agent.readonly}
-                      className={cn('relative h-6 w-11 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60', agent.enabledAsSubagent ? 'bg-emerald-500' : 'bg-muted-foreground/30')}
-                      onClick={() => void toggleSubagentEnabled(agent)}
-                      title={agent.enabledAsSubagent ? t('disableAsSubagent') : t('enableAsSubagent')}
-                    >
-                      <span className={cn('absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform', agent.enabledAsSubagent ? 'translate-x-5' : 'translate-x-0')} />
-                    </button>
-                    <div className="relative">
-                      <Button variant="ghost" size="icon" onClick={() => setOpenMenuProfileId(openMenuProfileId === agent.id ? null : agent.id)} title={t('moreActions')}>
-                        <MoreHorizontal className="size-4" />
-                      </Button>
-                      {openMenuProfileId === agent.id ? (
-                        <div className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-xl border border-border bg-popover py-1 text-sm shadow-quickforge">
-                          <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={agent.builtin || agent.readonly} onClick={() => { setOpenMenuProfileId(null); openEditAgentDialog(agent) }}>
-                            <Edit3 className="size-3.5" />{t('editTask')}
-                          </button>
-                          <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-destructive hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={agent.builtin || agent.readonly} onClick={() => { setOpenMenuProfileId(null); void deleteAgent(agent) }}>
-                            <Trash2 className="size-3.5" />{t('delete')}
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
+          <div className="px-5 py-4">
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-border bg-muted/20 p-3">
+                <div className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
+                  <Sparkles className="size-4 text-primary" />
+                  {t('aiFillAgent')}
+                  <InfoTip label={t('aiFillAgentDescription')} />
                 </div>
-                <div className="mt-3 flex flex-wrap gap-1">
-                  {agent.allowedTools.map((toolName) => (
-                    <span key={toolName} className="rounded-full bg-muted px-2 py-0.5 font-mono text-xs text-muted-foreground">{toolName}</span>
+                <textarea
+                  className="min-h-20 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/65 focus:border-ring disabled:opacity-60"
+                  value={aiFillInstruction}
+                  disabled={Boolean(editingAgent?.readonly) || aiFillLoading}
+                  onChange={(event) => setAiFillInstruction(event.target.value)}
+                  placeholder={t('aiFillAgentPlaceholder')}
+                />
+                <div className="mt-2 flex justify-end">
+                  <Button variant="outline" size="sm" onClick={() => void handleAiFillAgent()} disabled={Boolean(editingAgent?.readonly) || aiFillLoading || !aiFillInstruction.trim()}>
+                    <Sparkles className="mr-1 size-3.5" />{aiFillLoading ? t('aiFillAgentLoading') : t('aiFillAgent')}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-sm font-medium text-foreground">
+                  {t('agentName')}
+                  <input className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.name} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('name', event.target.value)} placeholder="reviewer" />
+                </label>
+                <label className="block text-sm font-medium text-foreground">
+                  {t('agentLabel')}
+                  <input className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.label} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('label', event.target.value)} placeholder={t('agentLabelPlaceholder')} />
+                </label>
+              </div>
+              <label className="block text-sm font-medium text-foreground">
+                {t('agentDescription')}
+                <input className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.description} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('description', event.target.value)} />
+              </label>
+              <label className="block text-sm font-medium text-foreground">
+                {t('agentSystemPrompt')}
+                <textarea className="mt-1 min-h-36 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.systemPrompt} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('systemPrompt', event.target.value)} />
+              </label>
+              <div>
+                <div className="mb-2 text-sm font-medium text-foreground">{t('allowedTools')}</div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {availableTools.map((tool) => (
+                    <label key={tool.name} className="flex items-start gap-2 rounded-xl border border-border bg-muted/20 p-3 text-sm disabled:opacity-60">
+                      <input type="checkbox" className="mt-1" disabled={Boolean(editingAgent?.readonly)} checked={agentForm.allowedTools.includes(tool.name)} onChange={() => toggleAgentTool(tool.name)} />
+                      <span>
+                        <span className="font-medium text-foreground">{tool.label}</span>
+                        <span className="ml-2 font-mono text-xs text-muted-foreground">{tool.name}</span>
+                        {tool.riskLevel === 'dangerous' ? <span className="ml-2 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs text-amber-700">{t('highRiskTool')}</span> : null}
+                        <span className="mt-1 block text-xs text-muted-foreground">{tool.description}</span>
+                      </span>
+                    </label>
                   ))}
                 </div>
-                <div className="mt-3 grid gap-2 border-t border-border pt-3 text-xs text-muted-foreground sm:grid-cols-2">
-                  <span>{t('maxRuntimeMs')}{agent.maxRuntimeMs ?? '-'}</span>
-                  <span>{t('maxToolCalls')}{agent.maxToolCalls ?? '-'}</span>
-                </div>
               </div>
-            ))}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-sm font-medium text-foreground">
+                  {t('maxRuntimeMs')}
+                  <input type="number" className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.maxRuntimeMs} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('maxRuntimeMs', event.target.value)} />
+                </label>
+                <label className="block text-sm font-medium text-foreground">
+                  {t('maxToolCalls')}
+                  <input type="number" className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.maxToolCalls} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('maxToolCalls', event.target.value)} />
+                </label>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <input type="checkbox" checked={agentForm.enabledAsSubagent} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('enabledAsSubagent', event.target.checked)} />
+                {t('enabledAsSubagent')}
+              </label>
+              {error ? <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
+            </div>
           </div>
-        </div>
+
+          <div className="quickforge-settings-divider flex justify-end gap-2 px-5 py-4">
+            <Button variant="outline" onClick={closeAgentDialog} disabled={agentLoading || aiFillLoading}>{t('cancel')}</Button>
+            <Button onClick={handleSaveAgent} disabled={agentLoading || aiFillLoading || Boolean(editingAgent?.readonly) || !agentFormIsValid(agentForm)}>{t('save')}</Button>
+          </div>
+        </section>
       </div>
+    )
+  }
 
-      {agentDialogOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) closeAgentDialog() }}>
-          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-quickforge" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="shrink-0 border-b border-border px-5 py-4">
-              <h2 className="text-base font-medium text-foreground">{editingAgent ? t('editAgent') : t('createAgent')}</h2>
-              {editingAgent?.readonly ? <p className="mt-1 text-sm text-muted-foreground">{t('builtinAgentReadonly')}</p> : null}
+  return (
+    <div className="quickforge-settings-stack">
+      <section className="quickforge-settings-section" aria-label={t('agentsTab')}>
+        <div className="quickforge-settings-toolbar">
+          <div className="quickforge-settings-row-main">
+            <div className="quickforge-settings-row-title">
+              <Bot className="size-4 text-primary" />
+              {t('agentsTab')}
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-              <div className="space-y-4">
-                <div className="rounded-2xl border border-border bg-muted/20 p-3">
-                  <div className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
-                    <Sparkles className="size-4 text-primary" />
-                    {t('aiFillAgent')}
-                    <InfoTip label={t('aiFillAgentDescription')} />
-                  </div>
-                  <textarea
-                    className="min-h-20 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/65 focus:border-ring disabled:opacity-60"
-                    value={aiFillInstruction}
-                    disabled={Boolean(editingAgent?.readonly) || aiFillLoading}
-                    onChange={(event) => setAiFillInstruction(event.target.value)}
-                    placeholder={t('aiFillAgentPlaceholder')}
-                  />
-                  <div className="mt-2 flex justify-end">
-                    <Button variant="outline" size="sm" onClick={() => void handleAiFillAgent()} disabled={Boolean(editingAgent?.readonly) || aiFillLoading || !aiFillInstruction.trim()}>
-                      <Sparkles className="mr-1 size-3.5" />{aiFillLoading ? t('aiFillAgentLoading') : t('aiFillAgent')}
-                    </Button>
-                  </div>
-                </div>
+            <div className="quickforge-settings-row-description">{t('agentsDescription')}</div>
+          </div>
+          <button className="quickforge-settings-button quickforge-settings-button-primary" type="button" onClick={openCreateAgentDialog}>{t('createAgent')}</button>
+        </div>
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block text-sm font-medium text-foreground">
-                    {t('agentName')}
-                    <input className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.name} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('name', event.target.value)} placeholder="reviewer" />
-                  </label>
-                  <label className="block text-sm font-medium text-foreground">
-                    {t('agentLabel')}
-                    <input className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.label} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('label', event.target.value)} placeholder={t('agentLabelPlaceholder')} />
-                  </label>
-                </div>
-                <label className="block text-sm font-medium text-foreground">
-                  {t('agentDescription')}
-                  <input className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.description} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('description', event.target.value)} />
-                </label>
-                <label className="block text-sm font-medium text-foreground">
-                  {t('agentSystemPrompt')}
-                  <textarea className="mt-1 min-h-36 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.systemPrompt} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('systemPrompt', event.target.value)} />
-                </label>
-                <div>
-                  <div className="mb-2 text-sm font-medium text-foreground">{t('allowedTools')}</div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {availableTools.map((tool) => (
-                      <label key={tool.name} className="flex items-start gap-2 rounded-xl border border-border bg-muted/20 p-3 text-sm disabled:opacity-60">
-                        <input type="checkbox" className="mt-1" disabled={Boolean(editingAgent?.readonly)} checked={agentForm.allowedTools.includes(tool.name)} onChange={() => toggleAgentTool(tool.name)} />
-                        <span>
-                          <span className="font-medium text-foreground">{tool.label}</span>
-                          <span className="ml-2 font-mono text-xs text-muted-foreground">{tool.name}</span>
-                          {tool.riskLevel === 'dangerous' ? <span className="ml-2 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs text-amber-700">{t('highRiskTool')}</span> : null}
-                          <span className="mt-1 block text-xs text-muted-foreground">{tool.description}</span>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block text-sm font-medium text-foreground">
-                    {t('maxRuntimeMs')}
-                    <input type="number" className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.maxRuntimeMs} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('maxRuntimeMs', event.target.value)} />
-                  </label>
-                  <label className="block text-sm font-medium text-foreground">
-                    {t('maxToolCalls')}
-                    <input type="number" className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.maxToolCalls} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('maxToolCalls', event.target.value)} />
-                  </label>
-                </div>
-                <label className="flex items-center gap-2 text-sm text-foreground">
-                  <input type="checkbox" checked={agentForm.enabledAsSubagent} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('enabledAsSubagent', event.target.checked)} />
-                  {t('enabledAsSubagent')}
-                </label>
-                {error ? <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
+        {error ? <div className="quickforge-settings-alert quickforge-settings-warning-attached">{error}</div> : null}
+
+        {agentProfiles.length === 0 ? (
+          <div className="quickforge-settings-empty-row">{t('loading')}</div>
+        ) : agentProfiles.map((agent) => (
+          <div key={agent.id} className="quickforge-settings-list-item">
+            <div className="quickforge-settings-list-item-main">
+              <div className="quickforge-settings-row-title">
+                {agent.label}
+                {agent.builtin ? <span className="quickforge-settings-badge quickforge-settings-badge-info">{t('builtinAgent')}</span> : null}
+                <span className={cn('quickforge-settings-badge', agent.enabledAsSubagent ? 'quickforge-settings-badge-success' : 'quickforge-settings-badge-muted')}>
+                  {agent.enabledAsSubagent ? t('enabled') : t('disabled')}
+                </span>
+              </div>
+              <div className="quickforge-settings-row-description quickforge-settings-mono">{agent.name}</div>
+              {agent.source && !agent.builtin ? <div className="quickforge-settings-row-description">{agent.source}{agent.relativePath ? ` · ${agent.relativePath}` : ''}</div> : null}
+              <div className="quickforge-settings-row-description">{agent.description || t('noDescription')}</div>
+              <div className="quickforge-settings-meta">
+                {agent.allowedTools.map((toolName) => (
+                  <code key={toolName} className="quickforge-settings-command-name">{toolName}</code>
+                ))}
+              </div>
+              <div className="quickforge-settings-meta">
+                <span className="quickforge-settings-badge quickforge-settings-badge-muted">{t('maxRuntimeMs')}{agent.maxRuntimeMs ?? '-'}</span>
+                <span className="quickforge-settings-badge quickforge-settings-badge-muted">{t('maxToolCalls')}{agent.maxToolCalls ?? '-'}</span>
               </div>
             </div>
-            <div className="shrink-0 border-t border-border px-5 py-4">
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={closeAgentDialog} disabled={agentLoading || aiFillLoading}>{t('cancel')}</Button>
-                <Button onClick={handleSaveAgent} disabled={agentLoading || aiFillLoading || Boolean(editingAgent?.readonly) || !agentFormIsValid(agentForm)}>{t('save')}</Button>
+            <div className="quickforge-settings-list-item-actions" onClick={(event) => event.stopPropagation()}>
+              <label className="quickforge-settings-switch" aria-disabled={agent.builtin || agent.readonly ? 'true' : 'false'} title={agent.enabledAsSubagent ? t('disableAsSubagent') : t('enableAsSubagent')}>
+                <input
+                  type="checkbox"
+                  checked={agent.enabledAsSubagent}
+                  disabled={agent.builtin || agent.readonly}
+                  onChange={() => void toggleSubagentEnabled(agent)}
+                />
+                <span aria-hidden="true" />
+              </label>
+              <div className="relative">
+                <button className="quickforge-settings-icon-action" type="button" onClick={() => setOpenMenuProfileId(openMenuProfileId === agent.id ? null : agent.id)} title={t('moreActions')}>
+                  <MoreHorizontal className="size-4" />
+                </button>
+                {openMenuProfileId === agent.id ? (
+                  <div className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-xl border border-border bg-popover py-1 text-sm shadow-quickforge">
+                    <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={agent.builtin || agent.readonly} onClick={() => { setOpenMenuProfileId(null); openEditAgentDialog(agent) }}>
+                      <Edit3 className="size-3.5" />{t('editTask')}
+                    </button>
+                    <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-destructive hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={agent.builtin || agent.readonly} onClick={() => { setOpenMenuProfileId(null); void deleteAgent(agent) }}>
+                      <Trash2 className="size-3.5" />{t('delete')}
+                    </button>
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
-        </div>
-      ) : null}
+        ))}
+      </section>
     </div>
   )
 }

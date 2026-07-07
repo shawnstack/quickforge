@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Archive,
+  CalendarClock,
   CalendarPlus,
   Check,
   Clock,
@@ -96,6 +97,7 @@ type ChatSidebarProps = {
   onSelectProjectDirectory: () => void
   onStartNewProjectChat: (project: ProjectInfo) => void
   onOpenGlobalSkills: () => void
+  onOpenScheduledTasks: () => void
   onOpenProjectSkills: (project: ProjectInfo) => void
   onOpenProjectInExplorer: (project: ProjectInfo) => void
   onDeleteProject: (projectId: string) => void | Promise<void>
@@ -221,6 +223,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   onSelectProjectDirectory,
   onStartNewProjectChat,
   onOpenGlobalSkills,
+  onOpenScheduledTasks,
   onOpenProjectSkills,
   onOpenProjectInExplorer,
   onDeleteProject,
@@ -260,7 +263,9 @@ export const ChatSidebar = memo(function ChatSidebar({
   const iconSlotClass = 'inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-colors group-hover:text-foreground/70'
   const iconButtonClass = `size-7 shrink-0 rounded-full text-muted-foreground/55 transition-[background-color,color,box-shadow,opacity] duration-160 ease-out ${sidebarHoverBgClass} hover:text-foreground/85 ${iconHoverShadowClass}`
   const sectionActionButtonClass = `quickforge-sidebar-section-icon ${iconButtonClass} pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100`
-  const actionOverlayClass = 'pointer-events-none absolute inset-y-0 right-1 z-20 flex items-center gap-px rounded-r-lg bg-gradient-to-l from-[var(--quickforge-sidebar-hover-bg)] via-[var(--quickforge-sidebar-hover-bg)]/95 to-transparent pl-4 opacity-0 transition-opacity duration-160 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100'
+  const actionOverlayBaseClass = 'pointer-events-none absolute inset-y-0 right-1 z-20 flex items-center gap-px rounded-r-lg bg-gradient-to-l from-[var(--quickforge-sidebar-hover-bg)] via-[var(--quickforge-sidebar-hover-bg)]/95 to-transparent pl-4 opacity-0 transition-opacity duration-160'
+  const actionOverlayClass = `${actionOverlayBaseClass} group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100`
+  const projectActionOverlayClass = `${actionOverlayBaseClass} group-hover:pointer-events-auto group-hover:opacity-100`
   const overlayIconButtonClass = `size-6 shrink-0 rounded-full text-muted-foreground/55 transition-[background-color,color,box-shadow] duration-160 ease-out ${sidebarHoverBgClass} hover:text-foreground/85 ${iconHoverShadowClass}`
   const sessionTitleClass = 'truncate text-sm font-[350] leading-5'
   const sessionButtonClass = 'flex min-w-0 flex-1 items-center gap-2 text-left'
@@ -678,6 +683,18 @@ export const ChatSidebar = memo(function ChatSidebar({
         <button
           type="button"
           className={cn(rowClass, 'w-full', inactiveRowClass)}
+          onClick={onOpenScheduledTasks}
+          aria-label={t('scheduledTasks')}
+          title={t('scheduledTasks')}
+        >
+          <span className={iconSlotClass}>
+            <CalendarClock className="size-4" />
+          </span>
+          {sidebarOpen ? <span className={sessionTitleClass}>{t('scheduledTasks')}</span> : null}
+        </button>
+        <button
+          type="button"
+          className={cn(rowClass, 'w-full', inactiveRowClass)}
           onClick={onOpenGlobalSkills}
           aria-label={t('manageGlobalSkills')}
           title={t('manageGlobalSkills')}
@@ -937,7 +954,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                 >
                                   <span className={cn(sessionTitleClass, active && activeProjectTitleClass)}>{item.name}</span>
                                 </button>
-                                <div className={actionOverlayClass}>
+                                <div className={projectActionOverlayClass}>
                                   <Button
                                     variant="ghost"
                                     size="icon"

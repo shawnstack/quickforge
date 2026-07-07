@@ -158,76 +158,127 @@ class LanAccessSettingsTab extends SettingsTab {
     }
   }
 
+  private renderSwitch(checked: boolean, onChange: (checked: boolean) => void, disabled = false) {
+    return html`
+      <label class="quickforge-settings-switch" aria-disabled=${disabled ? 'true' : 'false'}>
+        <input
+          type="checkbox"
+          .checked=${checked}
+          ?disabled=${disabled}
+          @change=${(event: Event) => onChange((event.target as HTMLInputElement).checked)}
+        />
+        <span aria-hidden="true"></span>
+      </label>
+    `
+  }
+
   override render(): TemplateResult {
     if (this.loading) return html`<div class="text-sm text-muted-foreground">${t('loading')}</div>`
 
     return html`
-      <div class="flex flex-col gap-6">
-        <div>
-          <h3 class="mb-2 inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
-            ${t('lanAccess')}
-            <quickforge-info-tip .label=${t('lanAccessDescription')}></quickforge-info-tip>
-          </h3>
-        </div>
+      <div class="quickforge-settings-stack">
+        <div class="quickforge-settings-warning">${t('lanAccessRiskWarning')}</div>
 
-        <section class="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-200">
-          ${t('lanAccessRiskWarning')}
-        </section>
-
-        <section class="rounded-lg border border-border p-4">
-          <h4 class="text-sm font-semibold text-foreground">${t('lanAccessStatus')}</h4>
-          <dl class="mt-4 grid gap-3 text-sm">
-            <div class="grid gap-1 sm:grid-cols-[140px_1fr] sm:gap-3">
-              <dt class="text-muted-foreground">${t('lanAccessEnabled')}</dt>
-              <dd>${this.enabled ? t('enabled') : t('disabled')}</dd>
+        <section class="quickforge-settings-section" aria-label=${t('lanAccessStatus')}>
+          <div class="quickforge-settings-row">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">${t('lanAccessEnabled')}</div>
+              <div class="quickforge-settings-row-description">${t('lanAccessEnabledDescription')}</div>
             </div>
-            <div class="grid gap-1 sm:grid-cols-[140px_1fr] sm:gap-3">
-              <dt class="text-muted-foreground">${t('lanAccessPassword')}</dt>
-              <dd>${this.hasPassword ? t('configured') : t('notConfigured')}</dd>
+            <div class="quickforge-settings-row-control quickforge-settings-readonly-value">${this.enabled ? t('enabled') : t('disabled')}</div>
+          </div>
+          <div class="quickforge-settings-row">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">${t('lanAccessPassword')}</div>
+              <div class="quickforge-settings-row-description">${t('lanAccessPasswordStatusDescription')}</div>
             </div>
-            <div class="grid gap-1 sm:grid-cols-[140px_1fr] sm:gap-3">
-              <dt class="text-muted-foreground">${t('lanAccessActiveDevices')}</dt>
-              <dd>${this.activeTokenCount}</dd>
+            <div class="quickforge-settings-row-control quickforge-settings-readonly-value">${this.hasPassword ? t('configured') : t('notConfigured')}</div>
+          </div>
+          <div class="quickforge-settings-row">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">${t('lanAccessActiveDevices')}</div>
+              <div class="quickforge-settings-row-description">${t('lanAccessActiveDevicesDescription')}</div>
             </div>
-            <div class="grid gap-1 sm:grid-cols-[140px_1fr] sm:gap-3">
-              <dt class="text-muted-foreground">${t('lanAccessUrls')}</dt>
-              <dd class="min-w-0 break-all">${this.lanUrls.length ? this.lanUrls.map((url) => html`<div>${url}</div>`) : '-'}</dd>
+            <div class="quickforge-settings-row-control quickforge-settings-readonly-value">${this.activeTokenCount}</div>
+          </div>
+          <div class="quickforge-settings-row">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">${t('lanAccessUrls')}</div>
+              <div class="quickforge-settings-row-description">${t('lanAccessUrlsDescription')}</div>
             </div>
-          </dl>
-        </section>
-
-        <section class="rounded-lg border border-border p-4">
-          <label class="flex items-center gap-2 text-sm font-medium text-foreground">
-            <input type="checkbox" .checked=${this.enabled} @change=${(event: Event) => this.updateEnabled((event.target as HTMLInputElement).checked)} />
-            ${t('lanAccessAllowFull')}
-          </label>
-
-          <label class="mt-4 block text-sm font-medium text-foreground">
-            ${t('lanAccessPassword')}
-            <div class="mt-2 flex flex-col gap-3 sm:flex-row">
-              <input class="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm" type="password" .value=${this.password} @input=${(event: Event) => this.updatePassword((event.target as HTMLInputElement).value)} placeholder=${this.hasPassword ? t('lanAccessPasswordPlaceholderConfigured') : t('lanAccessPasswordPlaceholder')} />
-              <button class="rounded-md border border-input px-3 py-2 text-sm" type="button" @click=${() => this.updatePassword(generateLanPassword())}>${t('generatePassword')}</button>
+            <div class="quickforge-settings-row-control quickforge-settings-row-control-wide quickforge-settings-readonly-value">
+              ${this.lanUrls.length ? this.lanUrls.map((url) => html`<div>${url}</div>`) : '-'}
             </div>
-          </label>
-
-          <label class="mt-4 block text-sm font-medium text-foreground">
-            ${t('lanAccessSessionTtl')}
-            <select class="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" .value=${String(this.sessionTtlHours)} @change=${(event: Event) => this.updateTtl((event.target as HTMLSelectElement).value)}>
-              <option value="1">1 ${t('hour')}</option>
-              <option value="12">12 ${t('hours')}</option>
-              <option value="24">24 ${t('hours')}</option>
-              <option value="168">7 ${t('days')}</option>
-            </select>
-          </label>
-
-          <div class="mt-4 flex flex-wrap gap-2">
-            <button class="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-60" type="button" ?disabled=${this.saving} @click=${() => this.saveSettings()}>${this.saving ? t('saving') : t('save')}</button>
-            <button class="rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive disabled:opacity-60" type="button" ?disabled=${this.saving} @click=${() => this.revokeAll()}>${t('lanAccessRevokeAll')}</button>
           </div>
         </section>
 
-        ${this.message ? html`<div class="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">${this.message}</div>` : null}
-        ${this.error ? html`<div class="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">${this.error}</div>` : null}
+        <section class="quickforge-settings-section" aria-label=${t('lanAccess')}>
+          <div class="quickforge-settings-row">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">${t('lanAccessAllowFull')}</div>
+              <div class="quickforge-settings-row-description">${t('lanAccessAllowFullDescription')}</div>
+            </div>
+            <div class="quickforge-settings-row-control">
+              ${this.renderSwitch(this.enabled, (checked) => this.updateEnabled(checked), this.saving)}
+            </div>
+          </div>
+
+          <div class="quickforge-settings-row">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">${t('lanAccessPassword')}</div>
+              <div class="quickforge-settings-row-description">${this.hasPassword ? t('lanAccessPasswordPlaceholderConfigured') : t('lanAccessPasswordPlaceholder')}</div>
+            </div>
+            <div class="quickforge-settings-row-control quickforge-settings-row-control-wide quickforge-lan-password-control">
+              <input
+                class="quickforge-settings-input"
+                type="password"
+                .value=${this.password}
+                @input=${(event: Event) => this.updatePassword((event.target as HTMLInputElement).value)}
+                placeholder=${this.hasPassword ? t('lanAccessPasswordPlaceholderConfigured') : t('lanAccessPasswordPlaceholder')}
+              />
+              <button
+                class="quickforge-settings-button quickforge-settings-button-secondary"
+                type="button"
+                @click=${() => this.updatePassword(generateLanPassword())}
+              >
+                ${t('generatePassword')}
+              </button>
+            </div>
+          </div>
+
+          <div class="quickforge-settings-row">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">${t('lanAccessSessionTtl')}</div>
+              <div class="quickforge-settings-row-description">${t('lanAccessSessionTtlDescription')}</div>
+            </div>
+            <div class="quickforge-settings-row-control">
+              <select class="quickforge-settings-select" .value=${String(this.sessionTtlHours)} @change=${(event: Event) => this.updateTtl((event.target as HTMLSelectElement).value)}>
+                <option value="1">1 ${t('hour')}</option>
+                <option value="12">12 ${t('hours')}</option>
+                <option value="24">24 ${t('hours')}</option>
+                <option value="168">7 ${t('days')}</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="quickforge-settings-row">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">${t('lanAccessActions')}</div>
+              <div class="quickforge-settings-row-description">${t('lanAccessActionsDescription')}</div>
+            </div>
+            <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
+              <button class="quickforge-settings-button quickforge-settings-button-primary" type="button" ?disabled=${this.saving} @click=${() => this.saveSettings()}>
+                ${this.saving ? t('saving') : t('save')}
+              </button>
+              <button class="quickforge-settings-button quickforge-settings-button-danger" type="button" ?disabled=${this.saving} @click=${() => this.revokeAll()}>
+                ${t('lanAccessRevokeAll')}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        ${this.message ? html`<div class="quickforge-settings-message">${this.message}</div>` : null}
+        ${this.error ? html`<div class="quickforge-settings-alert">${this.error}</div>` : null}
       </div>
     `
   }

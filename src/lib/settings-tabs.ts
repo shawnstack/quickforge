@@ -1,15 +1,14 @@
 import type { SettingsTab } from '@earendil-works/pi-web-ui'
 import { createCustomProvidersOnlyTab } from '@/lib/custom-providers-only-tab'
-import { createLanguageSettingsTab } from '@/lib/language-settings-tab'
 import { createAppearanceSettingsTab } from '@/lib/appearance-settings-tab'
 import { createDefaultOptionsSettingsTab } from '@/lib/default-options-settings-tab'
 import { createBackupSettingsTab } from '@/lib/backup-settings-tab'
 import { createArchivedConversationsSettingsTab } from '@/lib/archived-conversations-settings-tab'
-import { createServiceSettingsTab } from '@/lib/service-settings-tab'
 import { createLanAccessSettingsTab } from '@/lib/lan-access-settings-tab'
 import { createAboutSettingsTab } from '@/lib/about-settings-tab'
 import { createProjectCommandsSettingsTab } from '@/lib/project-commands-settings-tab'
 import { createChannelsSettingsTab } from '@/lib/channels-settings-tab'
+import { t } from '@/lib/i18n'
 import {
   createAgentProfilesSettingsTab,
   createMcpSettingsTab,
@@ -19,7 +18,6 @@ import {
 } from '@/lib/react-settings-tabs'
 
 export type SettingsInitialTab =
-  | 'language'
   | 'appearance'
   | 'defaults'
   | 'customModels'
@@ -31,30 +29,27 @@ export type SettingsInitialTab =
   | 'projectCommands'
   | 'backup'
   | 'archivedConversations'
-  | 'service'
   | 'channels'
   | 'lanAccess'
   | 'about'
 
 export function createSettingsTabs(customProvider?: string) {
   const tabs = [
-    { key: 'language', tab: createLanguageSettingsTab() },
-    { key: 'appearance', tab: createAppearanceSettingsTab() },
-    { key: 'defaults', tab: createDefaultOptionsSettingsTab() },
-    { key: 'customModels', tab: createCustomProvidersOnlyTab(customProvider) },
-    { key: 'agents', tab: createAgentProfilesSettingsTab() },
-    { key: 'skills', tab: createSkillsSettingsTab() },
-    { key: 'mcp', tab: createMcpSettingsTab() },
-    { key: 'plugins', tab: createPluginsSettingsTab() },
-    { key: 'scheduledTasks', tab: createScheduledTasksSettingsTab() },
-    { key: 'projectCommands', tab: createProjectCommandsSettingsTab() },
-    { key: 'backup', tab: createBackupSettingsTab() },
-    { key: 'archivedConversations', tab: createArchivedConversationsSettingsTab() },
-    { key: 'service', tab: createServiceSettingsTab() },
-    { key: 'channels', tab: createChannelsSettingsTab() },
-    { key: 'lanAccess', tab: createLanAccessSettingsTab() },
-    { key: 'about', tab: createAboutSettingsTab() },
-  ] as const satisfies readonly { key: SettingsInitialTab; tab: SettingsTab }[]
+    { key: 'appearance', tab: createAppearanceSettingsTab(), getDescription: () => t('appearanceDescription') },
+    { key: 'defaults', tab: createDefaultOptionsSettingsTab(), getDescription: () => t('defaultOptionsDescription') },
+    { key: 'customModels', tab: createCustomProvidersOnlyTab(customProvider), getDescription: () => t('customModelsDescription') },
+    { key: 'agents', tab: createAgentProfilesSettingsTab(), getDescription: () => t('agentsDescription') },
+    { key: 'skills', tab: createSkillsSettingsTab(), getDescription: () => t('globalSkillsDescription') },
+    { key: 'mcp', tab: createMcpSettingsTab(), getDescription: undefined },
+    { key: 'plugins', tab: createPluginsSettingsTab(), getDescription: () => t('pluginsDescription') },
+    { key: 'scheduledTasks', tab: createScheduledTasksSettingsTab(), getDescription: () => t('scheduledTasksDescription') },
+    { key: 'projectCommands', tab: createProjectCommandsSettingsTab(), getDescription: () => t('projectCommandsDescription') },
+    { key: 'backup', tab: createBackupSettingsTab(), getDescription: () => t('backupRestoreDescription') },
+    { key: 'archivedConversations', tab: createArchivedConversationsSettingsTab(), getDescription: () => t('archivedConversationsDescription') },
+    { key: 'channels', tab: createChannelsSettingsTab(), getDescription: () => t('channelsDescription') },
+    { key: 'lanAccess', tab: createLanAccessSettingsTab(), getDescription: () => t('lanAccessDescription') },
+    { key: 'about', tab: createAboutSettingsTab(), getDescription: () => t('aboutQuickForgeDescription') },
+  ] as const satisfies readonly { key: SettingsInitialTab; tab: SettingsTab; getDescription?: () => string }[]
 
   return {
     items: [...tabs],

@@ -36,9 +36,12 @@ type UpdateInfo = AboutInfo & {
 type ServiceStatus = {
   ok: boolean
   bootId: string
+  restartSupported?: boolean
+  restartUnsupportedReason?: string | null
 }
 
 const UPDATE_TIMEOUT_MS = 180_000
+const RESTART_TIMEOUT_MS = 30_000
 const POLL_INTERVAL_MS = 1000
 const QUICKFORGE_RELEASES_URL = 'https://github.com/shawnstack/quickforge/releases/latest'
 
@@ -65,10 +68,12 @@ class AboutSettingsTab extends SettingsTab {
   private loading = true
   private checking = false
   private updating = false
+  private restarting = false
   private message = ''
   private error = ''
   private frequency: UpdateCheckFrequency = DEFAULT_UPDATE_CHECK_SETTINGS.frequency
   private lastCheckAt: string | null = null
+  private serviceStatus?: ServiceStatus
 
   override getTabName(): string {
     return t('about')
@@ -90,9 +95,13 @@ class AboutSettingsTab extends SettingsTab {
       if (!response.ok) throw new Error(payload?.error || t('requestFailed'))
       this.about = payload as AboutInfo
       try {
-        const settings = await loadUpdateCheckSettings(getAppStorage())
+        const [settings, serviceStatus] = await Promise.all([
+          loadUpdateCheckSettings(getAppStorage()),
+          this.loadServiceStatus(),
+        ])
         this.frequency = settings.frequency
         this.lastCheckAt = settings.lastCheckAt
+        this.serviceStatus = serviceStatus
       } catch {
         // ignore — defaults are fine
       }
@@ -102,6 +111,13 @@ class AboutSettingsTab extends SettingsTab {
       this.loading = false
       this.requestUpdate()
     }
+  }
+
+  private async loadServiceStatus() {
+    const response = await fetch('/api/health', { cache: 'no-store' })
+    const payload = await response.json().catch(() => null)
+    if (!response.ok) throw new Error(payload?.error || t('requestFailed'))
+    return payload as ServiceStatus
   }
 
   private async checkUpdate() {
@@ -168,6 +184,60 @@ class AboutSettingsTab extends SettingsTab {
     }
 
     throw new Error(t('updateRestartTimeout'))
+  }
+
+  private async pollUntilRestarted(previousBootId?: string) {
+    const started = Date.now()
+
+    while (Date.now() - started < RESTART_TIMEOUT_MS) {
+      await sleep(POLL_INTERVAL_MS)
+      try {
+        const response = await fetch(`/api/health?restartPoll=${Date.now()}`, { cache: 'no-store' })
+        const payload = await response.json().catch(() => null) as ServiceStatus | null
+        if (response.ok && payload?.ok && payload.bootId && payload.bootId !== previousBootId) {
+          this.message = t('backendRestarted')
+          this.requestUpdate()
+          window.setTimeout(() => window.location.reload(), 300)
+          return
+        }
+      } catch {
+        // Expected while the local service is restarting.
+      }
+    }
+
+    throw new Error(t('backendRestartTimeout'))
+  }
+
+  private async restartService() {
+    if (!this.serviceStatus || this.restarting) return
+    const confirmed = await showConfirm({
+      description: t('restartBackendConfirm'),
+      confirmLabel: t('restartBackendService'),
+      cancelLabel: t('cancel'),
+    })
+    if (!confirmed) return
+
+    this.restarting = true
+    this.message = t('backendRestarting')
+    this.error = ''
+    this.requestUpdate()
+
+    const previousBootId = this.serviceStatus.bootId
+
+    try {
+      const response = await fetch('/api/system/restart', {
+        method: 'POST',
+        headers: { 'x-quickforge-action': 'restart' },
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(payload?.error || t('backendRestartFailed'))
+      await this.pollUntilRestarted(previousBootId)
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : t('backendRestartFailed')
+      this.message = ''
+      this.restarting = false
+      this.requestUpdate()
+    }
   }
 
   private async updateQuickForge() {
@@ -240,11 +310,8 @@ class AboutSettingsTab extends SettingsTab {
     return html`
       <button
         type="button"
-        class="rounded-md border px-3 py-1.5 text-sm transition-colors ${
-          selected
-            ? 'border-primary bg-primary text-primary-foreground'
-            : 'border-border bg-background text-foreground hover:bg-accent'
-        }"
+        class="quickforge-settings-segmented-option ${selected ? 'quickforge-settings-segmented-option-active' : ''}"
+        aria-pressed=${selected ? 'true' : 'false'}
         @click=${() => this.selectFrequency(option.value)}
       >
         ${option.label()}
@@ -256,28 +323,32 @@ class AboutSettingsTab extends SettingsTab {
     const about = this.about
     if (!about) return null
 
-    const rows = [
-      [t('packageName'), about.name],
-      [t('currentVersion'), about.version],
-    ]
-
     return html`
-      <dl class="grid gap-3 text-sm">
-        ${rows.map(([label, value]) => html`
-          <div class="grid gap-1 sm:grid-cols-[120px_1fr] sm:gap-3">
-            <dt class="text-muted-foreground">${label}</dt>
-            <dd class="min-w-0 break-all text-foreground">${value}</dd>
-          </div>
-        `)}
-        <div class="grid gap-1 sm:grid-cols-[120px_1fr] sm:gap-3">
-          <dt class="text-muted-foreground">${t('github')}</dt>
-          <dd class="min-w-0 break-all">
-            <a class="text-primary underline-offset-4 hover:underline" href=${about.repositoryUrl} target="_blank" rel="noreferrer">
-              ${about.repositoryUrl}
-            </a>
-          </dd>
+      <div class="quickforge-settings-row">
+        <div class="quickforge-settings-row-main">
+          <div class="quickforge-settings-row-title">${t('packageName')}</div>
+          <div class="quickforge-settings-row-description">${t('packageNameDescription')}</div>
         </div>
-      </dl>
+        <div class="quickforge-settings-row-control quickforge-settings-readonly-value">${about.name}</div>
+      </div>
+      <div class="quickforge-settings-row">
+        <div class="quickforge-settings-row-main">
+          <div class="quickforge-settings-row-title">${t('currentVersion')}</div>
+          <div class="quickforge-settings-row-description">${t('currentVersionDescription')}</div>
+        </div>
+        <div class="quickforge-settings-row-control quickforge-settings-readonly-value">${about.version}</div>
+      </div>
+      <div class="quickforge-settings-row">
+        <div class="quickforge-settings-row-main">
+          <div class="quickforge-settings-row-title">${t('github')}</div>
+          <div class="quickforge-settings-row-description">${t('githubDescription')}</div>
+        </div>
+        <div class="quickforge-settings-row-control quickforge-settings-row-control-wide quickforge-settings-readonly-value">
+          <a class="quickforge-settings-link" href=${about.repositoryUrl} target="_blank" rel="noreferrer">
+            ${about.repositoryUrl}
+          </a>
+        </div>
+      </div>
     `
   }
 
@@ -285,18 +356,55 @@ class AboutSettingsTab extends SettingsTab {
     if (!this.updateInfo) return null
 
     return html`
-      <div class="mt-4 rounded-lg border bg-transparent p-3 text-sm" style="border-color: color-mix(in oklab, var(--border) 36%, transparent);">
-        <div class="grid gap-2 sm:grid-cols-[120px_1fr] sm:gap-3">
-          <span class="text-muted-foreground">${t('latestVersion')}</span>
-          <span class="text-foreground">${this.updateInfo.latestVersion}</span>
+      <div class="quickforge-settings-row">
+        <div class="quickforge-settings-row-main">
+          <div class="quickforge-settings-row-title">${t('latestVersion')}</div>
+          <div class="quickforge-settings-row-description">${t('latestVersionDescription')}</div>
         </div>
-        ${this.updateInfo.logFile ? html`
-          <div class="mt-2 grid gap-2 sm:grid-cols-[120px_1fr] sm:gap-3">
-            <span class="text-muted-foreground">${t('updateLog')}</span>
-            <code class="min-w-0 break-all rounded bg-muted/20 px-1.5 py-0.5 font-mono text-xs text-foreground/90">${this.updateInfo.logFile}</code>
-          </div>
-        ` : null}
+        <div class="quickforge-settings-row-control quickforge-settings-readonly-value">${this.updateInfo.latestVersion}</div>
       </div>
+      ${this.updateInfo.logFile ? html`
+        <div class="quickforge-settings-row">
+          <div class="quickforge-settings-row-main">
+            <div class="quickforge-settings-row-title">${t('updateLog')}</div>
+            <div class="quickforge-settings-row-description">${t('updateLogDescription')}</div>
+          </div>
+          <div class="quickforge-settings-row-control quickforge-settings-row-control-wide quickforge-settings-readonly-value">
+            <code>${this.updateInfo.logFile}</code>
+          </div>
+        </div>
+      ` : null}
+    `
+  }
+
+  private restartSection() {
+    const unsupportedReason = this.serviceStatus?.restartUnsupportedReason || t('backendRestartUnsupported')
+    const restartDisabled = this.restarting || !this.serviceStatus?.restartSupported
+
+    return html`
+      <section class="quickforge-settings-section" aria-label=${t('restartBackendService')}>
+        <div class="quickforge-settings-row">
+          <div class="quickforge-settings-row-main">
+            <div class="quickforge-settings-row-title">
+              ${t('restartBackendService')}
+              <quickforge-info-tip .label=${t('restartBackendServiceDescription')}></quickforge-info-tip>
+            </div>
+            <div class="quickforge-settings-row-description">
+              ${this.serviceStatus?.restartSupported ? t('restartBackendServiceDescription') : unsupportedReason}
+            </div>
+          </div>
+          <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
+            <button
+              class="quickforge-settings-button quickforge-settings-button-danger"
+              type="button"
+              ?disabled=${restartDisabled}
+              @click=${() => this.restartService()}
+            >
+              ${this.restarting ? t('backendRestarting') : t('restartBackendService')}
+            </button>
+          </div>
+        </div>
+      </section>
     `
   }
 
@@ -309,68 +417,72 @@ class AboutSettingsTab extends SettingsTab {
     const desktopApp = isDesktopApp()
 
     return html`
-      <div class="flex flex-col gap-6">
-        <div>
-          <h3 class="mb-2 inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
-            ${t('aboutQuickForge')}
-            <quickforge-info-tip .label=${t('aboutQuickForgeDescription')}></quickforge-info-tip>
-          </h3>
-        </div>
-
-        <section class="rounded-lg border border-border p-4">
-          <h4 class="text-sm font-semibold text-foreground">${t('projectInfo')}</h4>
-          <div class="mt-4">${this.infoRows()}</div>
+      <div class="quickforge-settings-stack">
+        <section class="quickforge-settings-section" aria-label=${t('projectInfo')}>
+          ${this.infoRows()}
         </section>
 
-        <section class="rounded-lg border border-border p-4">
-          <h4 class="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
-            ${desktopApp ? t('desktopUpdates') : t('runtimeUpdates')}
-            <quickforge-info-tip .label=${desktopApp ? t('desktopUpdatesDescription') : t('runtimeUpdatesDescription')}></quickforge-info-tip>
-          </h4>
-
+        <section class="quickforge-settings-section" aria-label=${desktopApp ? t('desktopUpdates') : t('runtimeUpdates')}>
           ${desktopApp ? null : html`
-            <div class="mt-4">
-              <div class="text-sm font-medium text-foreground">${t('updateFrequencySection')}</div>
-              <div class="mt-1 text-xs text-muted-foreground">${t('updateFrequencyDescription')}</div>
-              <div class="mt-2 flex flex-wrap gap-2">
-                ${FREQUENCY_OPTIONS.map((option) => this.renderFrequencyOption(option))}
+            <div class="quickforge-settings-row">
+              <div class="quickforge-settings-row-main">
+                <div class="quickforge-settings-row-title">
+                  ${t('updateFrequencySection')}
+                  <quickforge-info-tip .label=${t('updateFrequencyDescription')}></quickforge-info-tip>
+                </div>
+                <div class="quickforge-settings-row-description">
+                  ${this.lastCheckAt
+                    ? t('lastCheckedAt', { time: new Date(this.lastCheckAt).toLocaleString(getDateLocale()) })
+                    : t('lastCheckedNever')}
+                </div>
               </div>
-              <div class="mt-2 text-xs text-muted-foreground">${
-                this.lastCheckAt
-                  ? t('lastCheckedAt', { time: new Date(this.lastCheckAt).toLocaleString(getDateLocale()) })
-                  : t('lastCheckedNever')
-              }</div>
+              <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
+                <div class="quickforge-settings-segmented quickforge-settings-segmented-wrap" role="group" aria-label=${t('updateFrequencySection')}>
+                  ${FREQUENCY_OPTIONS.map((option) => this.renderFrequencyOption(option))}
+                </div>
+              </div>
             </div>
-
-            <div class="my-4 border-t border-border"></div>
 
             ${this.updateStatus()}
           `}
 
-          <div class="mt-4 flex flex-wrap gap-2">
-            <button
-              class="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground hover:bg-muted/20 disabled:opacity-60"
-              type="button"
-              ?disabled=${this.checking || this.updating}
-              @click=${() => this.checkUpdate()}
-            >
-              ${this.checking ? t('checkingUpdate') : (desktopApp ? t('openDesktopReleases') : t('checkRuntimeUpdate'))}
-            </button>
-            ${desktopApp ? null : html`
+          <div class="quickforge-settings-row">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">
+                ${desktopApp ? t('desktopUpdates') : t('runtimeUpdates')}
+                <quickforge-info-tip .label=${desktopApp ? t('desktopUpdatesDescription') : t('runtimeUpdatesDescription')}></quickforge-info-tip>
+              </div>
+              <div class="quickforge-settings-row-description">
+                ${desktopApp ? t('desktopUpdatesDescription') : t('runtimeUpdatesDescription')}
+              </div>
+            </div>
+            <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
               <button
-                class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                class="quickforge-settings-button quickforge-settings-button-secondary"
                 type="button"
-                ?disabled=${updateDisabled}
-                @click=${() => this.updateQuickForge()}
+                ?disabled=${this.checking || this.updating}
+                @click=${() => this.checkUpdate()}
               >
-                ${this.updating ? t('updatingQuickForge') : t('updateRuntimeNow')}
+                ${this.checking ? t('checkingUpdate') : (desktopApp ? t('openDesktopReleases') : t('checkRuntimeUpdate'))}
               </button>
-            `}
+              ${desktopApp ? null : html`
+                <button
+                  class="quickforge-settings-button quickforge-settings-button-primary"
+                  type="button"
+                  ?disabled=${updateDisabled}
+                  @click=${() => this.updateQuickForge()}
+                >
+                  ${this.updating ? t('updatingQuickForge') : t('updateRuntimeNow')}
+                </button>
+              `}
+            </div>
           </div>
         </section>
 
-        ${this.message ? html`<div class="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">${this.message}</div>` : null}
-        ${this.error ? html`<div class="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">${this.error}</div>` : null}
+        ${this.restartSection()}
+
+        ${this.message ? html`<div class="quickforge-settings-message">${this.message}</div>` : null}
+        ${this.error ? html`<div class="quickforge-settings-alert">${this.error}</div>` : null}
       </div>
     `
   }

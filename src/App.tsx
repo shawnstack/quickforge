@@ -922,6 +922,10 @@ function MainApp() {
     openSettingsPage('skills')
   }, [openSettingsPage])
 
+  const openScheduledTasks = useCallback(() => {
+    openSettingsPage('scheduledTasks')
+  }, [openSettingsPage])
+
   const openProjectSkills = useCallback((project: ProjectInfo) => {
     setSkillsDialog({ scope: 'project', project })
   }, [setSkillsDialog])
@@ -970,6 +974,11 @@ function MainApp() {
     closeMobileSidebar()
     openGlobalSkills()
   }, [closeMobileSidebar, openGlobalSkills])
+
+  const openScheduledTasksFromSidebar = useCallback(() => {
+    closeMobileSidebar()
+    openScheduledTasks()
+  }, [closeMobileSidebar, openScheduledTasks])
 
   const openProjectSkillsFromSidebar = useCallback((project: ProjectInfo) => {
     closeMobileSidebar()
@@ -1151,6 +1160,7 @@ function MainApp() {
         onSelectProjectDirectory={selectProjectDirectory}
         onStartNewProjectChat={startNewProjectChat}
         onOpenGlobalSkills={openGlobalSkills}
+        onOpenScheduledTasks={openScheduledTasks}
         onOpenProjectSkills={openProjectSkills}
         onOpenProjectInExplorer={openProjectInExplorerWithFeedback}
         onDeleteProject={deleteProjectInline}
@@ -1223,6 +1233,7 @@ function MainApp() {
               }}
               onStartNewProjectChat={startNewProjectChatFromSidebar}
               onOpenGlobalSkills={openGlobalSkillsFromSidebar}
+              onOpenScheduledTasks={openScheduledTasksFromSidebar}
               onOpenProjectSkills={openProjectSkillsFromSidebar}
               onOpenProjectInExplorer={(project) => {
                 closeMobileSidebar()

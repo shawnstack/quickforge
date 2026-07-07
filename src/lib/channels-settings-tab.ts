@@ -70,15 +70,15 @@ type ChannelEvent = {
 function statusTone(status: ChannelStatus['status']) {
   switch (status) {
     case 'running':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+      return 'quickforge-settings-badge-success'
     case 'waiting_scan':
     case 'starting':
     case 'stopping':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+      return 'quickforge-settings-badge-warning'
     case 'error':
-      return 'border-destructive/30 bg-destructive/10 text-destructive'
+      return 'quickforge-settings-badge-danger'
     default:
-      return 'border-border bg-muted/15 text-muted-foreground'
+      return 'quickforge-settings-badge-muted'
   }
 }
 
@@ -345,25 +345,28 @@ class ChannelsSettingsTab extends SettingsTab {
     const selectedId = this.selectedWorkspaceId(channel)
     const currentWorkspace = channel.launchWorkspace
     return html`
-      <div class="mt-4 rounded-lg border border-border bg-muted/10 p-3">
-        <label class="inline-flex items-center gap-1.5 text-sm font-medium text-foreground" for=${`channel-workspace-${channel.id}`}>
-          ${t('channelWorkspace')}
-          <quickforge-info-tip .label=${t('channelWorkspaceDescription')}></quickforge-info-tip>
-        </label>
-        <select
-          id=${`channel-workspace-${channel.id}`}
-          class="mt-3 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground disabled:opacity-60"
-          ?disabled=${disabled}
-          .value=${selectedId}
-          @change=${(event: Event) => this.handleWorkspaceChange(channel, event)}
-        >
-          ${this.workspaces.map((workspace) => html`
-            <option value=${workspace.id}>${workspace.kind === 'default' ? t('channelDefaultWorkspace') : workspace.name} — ${workspace.path}</option>
-          `)}
-        </select>
-        ${currentWorkspace
-          ? html`<div class="mt-2 text-xs text-muted-foreground">${t('channelCurrentWorkspace')}: <span class="font-mono">${currentWorkspace.path}</span></div>`
-          : null}
+      <div class="quickforge-settings-row quickforge-settings-row-align-start">
+        <div class="quickforge-settings-row-main">
+          <div class="quickforge-settings-row-title">
+            ${t('channelWorkspace')}
+            <quickforge-info-tip .label=${t('channelWorkspaceDescription')}></quickforge-info-tip>
+          </div>
+          ${currentWorkspace
+            ? html`<div class="quickforge-settings-row-description">${t('channelCurrentWorkspace')}: <span class="quickforge-settings-mono">${currentWorkspace.path}</span></div>`
+            : html`<div class="quickforge-settings-row-description">${t('channelWorkspaceDescription')}</div>`}
+        </div>
+        <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
+          <select
+            class="quickforge-settings-select"
+            ?disabled=${disabled}
+            .value=${selectedId}
+            @change=${(event: Event) => this.handleWorkspaceChange(channel, event)}
+          >
+            ${this.workspaces.map((workspace) => html`
+              <option value=${workspace.id}>${workspace.kind === 'default' ? t('channelDefaultWorkspace') : workspace.name} — ${workspace.path}</option>
+            `)}
+          </select>
+        </div>
       </div>
     `
   }
@@ -376,33 +379,39 @@ class ChannelsSettingsTab extends SettingsTab {
       [t('channelStartedAt'), formatDate(channel.startedAt)],
     ]
     return html`
-      <dl class="grid gap-2 text-sm">
+      <div class="quickforge-settings-nested-list">
         ${rows.map(([label, value]) => html`
-          <div class="grid gap-1 sm:grid-cols-[112px_1fr] sm:gap-3">
-            <dt class="text-muted-foreground">${label}</dt>
-            <dd class="min-w-0 break-all ${label === t('channelCommand') ? 'font-mono text-xs' : 'text-foreground'}">${value}</dd>
+          <div class="quickforge-settings-subrow">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">${label}</div>
+            </div>
+            <div class="quickforge-settings-row-control quickforge-settings-row-control-wide quickforge-settings-readonly-value ${label === t('channelCommand') ? 'quickforge-settings-mono' : ''}">${value}</div>
           </div>
         `)}
-      </dl>
+      </div>
     `
   }
 
   private qrSection(channel: ChannelStatus) {
     if (!channel.qrCodeText && !channel.qrCodeUrl && channel.status !== 'waiting_scan') return null
     return html`
-      <div class="mt-4 rounded-lg border border-border bg-muted/10 p-3">
-        <div class="inline-flex items-center gap-1.5 text-sm font-medium text-foreground">
-          ${t('channelQrTitle')}
-          <quickforge-info-tip .label=${t('channelQrDescription')}></quickforge-info-tip>
+      <div class="quickforge-settings-row quickforge-settings-row-align-start">
+        <div class="quickforge-settings-row-main">
+          <div class="quickforge-settings-row-title">
+            ${t('channelQrTitle')}
+            <quickforge-info-tip .label=${t('channelQrDescription')}></quickforge-info-tip>
+          </div>
+          <div class="quickforge-settings-row-description">${t('channelQrDescription')}</div>
+          ${channel.qrCodeUrl
+            ? html`
+              <div class="quickforge-settings-meta">
+                <a class="quickforge-settings-link quickforge-settings-mono" href=${channel.qrCodeUrl} target="_blank" rel="noreferrer">${channel.qrCodeUrl}</a>
+              </div>
+            `
+            : null}
         </div>
         ${channel.qrCodeText
-          ? html`<pre class="mt-3 max-h-96 overflow-auto whitespace-pre font-mono text-[10px] leading-none text-foreground">${channel.qrCodeText}</pre>`
-          : null}
-        ${channel.qrCodeUrl
-          ? html`
-            <div class="mt-3 text-xs text-muted-foreground">${t('channelQrLink')}</div>
-            <a class="mt-1 block break-all font-mono text-xs text-primary hover:underline" href=${channel.qrCodeUrl} target="_blank" rel="noreferrer">${channel.qrCodeUrl}</a>
-          `
+          ? html`<pre class="quickforge-channel-qr-text">${channel.qrCodeText}</pre>`
           : null}
       </div>
     `
@@ -411,18 +420,18 @@ class ChannelsSettingsTab extends SettingsTab {
   private logsSection(channel: ChannelStatus) {
     const logs = channel.logs || []
     return html`
-      <details class="mt-4 rounded-lg border border-border bg-muted/10" open>
-        <summary class="quickforge-channel-logs-summary cursor-pointer px-3 py-2 text-sm font-medium text-foreground">${t('channelRecentLogs')}</summary>
-        <div class="max-h-72 overflow-auto p-3 font-mono text-xs leading-5">
+      <details class="quickforge-channel-logs" open>
+        <summary class="quickforge-channel-logs-summary">${t('channelRecentLogs')}</summary>
+        <div class="quickforge-channel-logs-body">
           ${logs.length
             ? logs.slice(-80).map((log) => html`
-              <div class="grid gap-1 py-0.5 sm:grid-cols-[72px_56px_1fr]">
+              <div class="quickforge-channel-log-row">
                 <span class="text-muted-foreground/55">${new Date(log.time).toLocaleTimeString()}</span>
                 <span class=${log.stream === 'stderr' ? 'text-destructive/80' : 'text-muted-foreground/70'}>${log.stream}</span>
                 <span class="min-w-0 whitespace-pre-wrap break-words text-foreground/85">${log.text}</span>
               </div>
             `)
-            : html`<div class="text-muted-foreground">${t('channelNoLogs')}</div>`}
+            : html`<div class="quickforge-settings-empty-row">${t('channelNoLogs')}</div>`}
         </div>
       </details>
     `
@@ -434,32 +443,32 @@ class ChannelsSettingsTab extends SettingsTab {
     const isStopping = channel.status === 'stopping'
     const noWorkspace = Boolean(channel.supportsWorkspaceSelection && this.workspaces.length === 0)
     return html`
-      <section class="rounded-lg border border-border p-4">
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div class="min-w-0">
-            <div class="flex flex-wrap items-center gap-2">
-              <h4 class="text-sm font-semibold text-foreground">${channel.name}</h4>
-              <span class="inline-flex rounded-full border px-2 py-0.5 text-xs ${statusTone(channel.status)}">${statusLabel(channel.status)}</span>
+      <section class="quickforge-settings-section" aria-label=${channel.name}>
+        <div class="quickforge-settings-row quickforge-settings-row-top">
+          <div class="quickforge-settings-row-main">
+            <div class="quickforge-settings-row-title">
+              ${channel.name}
+              <span class="quickforge-settings-badge ${statusTone(channel.status)}">${statusLabel(channel.status)}</span>
             </div>
-            <p class="mt-1 text-sm text-muted-foreground">${channel.description}</p>
+            <div class="quickforge-settings-row-description">${channel.description}</div>
             ${channel.requirements?.length
-              ? html`<div class="mt-2 text-xs text-muted-foreground/70">${t('channelRequirements')}: ${channel.requirements.join(' · ')}</div>`
+              ? html`<div class="quickforge-settings-row-description">${t('channelRequirements')}: ${channel.requirements.join(' · ')}</div>`
               : null}
           </div>
-          <div class="flex shrink-0 flex-wrap gap-2">
-            <button class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60" type="button" ?disabled=${busy || isRunning || isStopping || noWorkspace} @click=${() => this.invoke(channel, 'start')}>${t('start')}</button>
-            <button class="rounded-md border border-input px-3 py-2 text-sm hover:bg-muted/20 disabled:opacity-60" type="button" ?disabled=${busy || !isRunning || isStopping} @click=${() => this.invoke(channel, 'stop')}>${t('stop')}</button>
-            <button class="rounded-md border border-input px-3 py-2 text-sm hover:bg-muted/20 disabled:opacity-60" type="button" ?disabled=${busy || isStopping || noWorkspace} @click=${() => this.invoke(channel, 'restart')}>${t('restart')}</button>
+          <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
+            <button class="quickforge-settings-button quickforge-settings-button-primary" type="button" ?disabled=${busy || isRunning || isStopping || noWorkspace} @click=${() => this.invoke(channel, 'start')}>${t('start')}</button>
+            <button class="quickforge-settings-button quickforge-settings-button-secondary" type="button" ?disabled=${busy || !isRunning || isStopping} @click=${() => this.invoke(channel, 'stop')}>${t('stop')}</button>
+            <button class="quickforge-settings-button quickforge-settings-button-secondary" type="button" ?disabled=${busy || isStopping || noWorkspace} @click=${() => this.invoke(channel, 'restart')}>${t('restart')}</button>
             ${channel.actions?.map((action) => html`
-              <button class=${action.destructive ? 'rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-60' : 'rounded-md border border-input px-3 py-2 text-sm hover:bg-muted/20 disabled:opacity-60'} type="button" ?disabled=${busy} @click=${() => this.invokeAction(channel, action)}>${action.label}</button>
+              <button class="quickforge-settings-button ${action.destructive ? 'quickforge-settings-button-danger' : 'quickforge-settings-button-secondary'}" type="button" ?disabled=${busy} @click=${() => this.invokeAction(channel, action)}>${action.label}</button>
             `)}
           </div>
         </div>
 
         ${this.workspaceSection(channel, busy || isRunning || isStopping)}
-        ${noWorkspace ? html`<div class="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">${t('channelNoWorkspaces')}</div>` : null}
-        <div class="mt-4">${this.channelMeta(channel)}</div>
-        ${channel.error ? html`<div class="mt-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">${channel.error}</div>` : null}
+        ${noWorkspace ? html`<div class="quickforge-settings-alert quickforge-settings-warning-attached">${t('channelNoWorkspaces')}</div>` : null}
+        ${this.channelMeta(channel)}
+        ${channel.error ? html`<div class="quickforge-settings-alert quickforge-settings-warning-attached">${channel.error}</div>` : null}
         ${this.qrSection(channel)}
         ${this.logsSection(channel)}
       </section>
@@ -467,27 +476,20 @@ class ChannelsSettingsTab extends SettingsTab {
   }
 
   override render(): TemplateResult {
-    if (this.loading) return html`<div class="text-sm text-muted-foreground">${t('loading')}</div>`
+    if (this.loading) return html`<div class="quickforge-settings-note">${t('loading')}</div>`
 
     return html`
-      <div class="flex flex-col gap-6">
-        <div>
-          <h3 class="mb-2 inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
-            ${t('channels')}
-            <quickforge-info-tip .label=${t('channelsDescription')}></quickforge-info-tip>
-          </h3>
-        </div>
-
-        <section class="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-200">
+      <div class="quickforge-settings-stack">
+        <section class="quickforge-settings-warning">
           ${t('channelsSecurityWarning')}
         </section>
 
         ${this.channels.length
-          ? html`<div class="grid gap-4">${this.channels.map((channel) => this.channelCard(channel))}</div>`
-          : html`<div class="rounded-lg border border-border p-4 text-sm text-muted-foreground">${t('channelsEmpty')}</div>`}
+          ? html`${this.channels.map((channel) => this.channelCard(channel))}`
+          : html`<div class="quickforge-settings-note">${t('channelsEmpty')}</div>`}
 
-        ${this.message ? html`<div class="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">${this.message}</div>` : null}
-        ${this.error ? html`<div class="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">${this.error}</div>` : null}
+        ${this.message ? html`<div class="quickforge-settings-message">${this.message}</div>` : null}
+        ${this.error ? html`<div class="quickforge-settings-alert">${this.error}</div>` : null}
       </div>
     `
   }

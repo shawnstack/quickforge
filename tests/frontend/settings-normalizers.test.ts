@@ -121,10 +121,10 @@ describe('settings normalizers', () => {
     const { storage, values } = createStorage({ 'font-size-settings': { baseFontSizePx: 20 } })
     await expect(loadFontSizeSettings(storage)).resolves.toEqual(DEFAULT_FONT_SIZE_SETTINGS)
     expect(values.get('font-size-settings')).toEqual(DEFAULT_FONT_SIZE_SETTINGS)
-    expect(values.get('font-size-settings-force-14px-v1')).toBe(true)
+    expect(values.get('font-size-settings-force-13px-v1')).toBe(true)
 
     const migrated = createStorage({
-      'font-size-settings-force-14px-v1': true,
+      'font-size-settings-force-13px-v1': true,
       'font-size-settings': { baseFontSizePx: 20 },
     })
     await expect(loadFontSizeSettings(migrated.storage)).resolves.toMatchObject({ interfaceFontSizePx: 18 })

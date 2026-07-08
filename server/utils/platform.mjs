@@ -171,7 +171,10 @@ export async function openPathInVSCode(targetPath) {
 
   let command = 'code'
   let args = [resolved]
-  if (process.platform === 'win32') {
+  if (process.platform === 'darwin') {
+    command = 'open'
+    args = ['-a', 'Visual Studio Code', resolved]
+  } else if (process.platform === 'win32') {
     const candidates = [
       process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'Microsoft VS Code', 'Code.exe') : undefined,
       process.env.PROGRAMFILES ? path.join(process.env.PROGRAMFILES, 'Microsoft VS Code', 'Code.exe') : undefined,

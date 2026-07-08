@@ -522,16 +522,18 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
           ) : null}
           </div>
         )}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7"
-          onClick={() => setFullscreen((value) => !value)}
-          title={fullscreen ? t('terminalExitFullscreen') : t('terminalFullscreen')}
-          aria-label={fullscreen ? t('terminalExitFullscreen') : t('terminalFullscreen')}
-        >
-          {fullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
-        </Button>
+        {singlePanelSession ? null : (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            onClick={() => setFullscreen((value) => !value)}
+            title={fullscreen ? t('terminalExitFullscreen') : t('terminalFullscreen')}
+            aria-label={fullscreen ? t('terminalExitFullscreen') : t('terminalFullscreen')}
+          >
+            {fullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+          </Button>
+        )}
         <Button variant="ghost" size="icon" className={cn('size-7', isPanel && 'hidden')} onClick={onCollapse} title={t('terminalCollapse')} aria-label={t('terminalCollapse')}>
           <ChevronDown className="size-3.5" />
         </Button>

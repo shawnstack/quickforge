@@ -550,6 +550,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
   const [panelTabs, setPanelTabs] = useState<WorkspacePanelTab[]>(() => initialPanelTabStateRef.current?.tabs ?? [])
   const [activePanelTabId, setActivePanelTabId] = useState<string | undefined>(() => initialPanelTabStateRef.current?.activePanelTabId)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [tabListOpen, setTabListOpen] = useState(false)
   const [leftWidth, setLeftWidth] = useState(NAV_PANEL_DEFAULT_WIDTH)
   const [isNavResizing, setIsNavResizing] = useState(false)
   const [mounted, setMounted] = useState(open)
@@ -560,6 +561,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
   const [fullscreenAnimating, setFullscreenAnimating] = useState(false)
   const asideRef = useRef<HTMLElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const tabListRef = useRef<HTMLDivElement | null>(null)
   const navResizeDragRef = useRef<{ startX: number; startWidth: number; currentWidth: number } | null>(null)
   const navResizeFrameRef = useRef<number | null>(null)
   const resizeDragRef = useRef<{ startX: number; startWidth: number; currentWidth: number } | null>(null)
@@ -638,12 +640,17 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
   }, [open])
 
   useEffect(() => {
-    if (!menuOpen) return undefined
+    if (!menuOpen && !tabListOpen) return undefined
     const handlePointerDown = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false)
+      const target = event.target as Node
+      if (menuOpen && !menuRef.current?.contains(target)) setMenuOpen(false)
+      if (tabListOpen && !tabListRef.current?.contains(target)) setTabListOpen(false)
     }
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMenuOpen(false)
+      if (event.key === 'Escape') {
+        setMenuOpen(false)
+        setTabListOpen(false)
+      }
     }
     document.addEventListener('pointerdown', handlePointerDown)
     document.addEventListener('keydown', handleKeyDown)
@@ -651,7 +658,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
       document.removeEventListener('pointerdown', handlePointerDown)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [menuOpen])
+  }, [menuOpen, tabListOpen])
 
   useEffect(() => {
     let disposed = false
@@ -1192,7 +1199,67 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
           </div>
         ) : null}
         <div className={cn('flex h-14 shrink-0 items-center gap-2 border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-3 pr-20 transition-opacity duration-150', fullscreenAnimating ? 'opacity-0' : 'opacity-100')}>
-          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+          {panelTabs.length > 0 ? (
+            <div ref={tabListRef} className="relative shrink-0">
+              <button
+                type="button"
+                className="flex size-9 items-center justify-center rounded-2xl bg-transparent text-muted-foreground/85 transition-colors hover:bg-muted/45 hover:text-foreground/90"
+                onClick={() => setTabListOpen((value) => !value)}
+                aria-label={t('rightPanelOpenTabsTitle')}
+                title={t('rightPanelOpenTabsTitle')}
+                aria-haspopup="menu"
+                aria-expanded={tabListOpen}
+              >
+                <ChevronDown className={cn('size-4 transition-transform', tabListOpen && 'rotate-180')} />
+              </button>
+              {tabListOpen ? (
+                <div className="absolute left-0 top-12 z-40 w-72 max-w-[calc(100vw-2rem)] rounded-2xl border border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-popover p-2 shadow-quickforge" role="menu">
+                  {panelTabs.map((tab) => {
+                    const item = tab.kind === 'reader' ? undefined : PANEL_TAB_BY_KIND[tab.kind]
+                    const Icon = item?.icon ?? Code2
+                    const active = tab.id === activePanelTabId
+                    const label = panelTabLabel(tab, project?.name)
+                    return (
+                      <div
+                        key={tab.id}
+                        className={cn(
+                          'group flex h-10 w-full items-center gap-2 rounded-xl px-2 transition-colors',
+                          active ? 'bg-muted/55 text-foreground' : 'text-foreground/86 hover:bg-muted/34 hover:text-foreground',
+                        )}
+                        role="none"
+                      >
+                        <button
+                          type="button"
+                          className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm font-medium"
+                          onClick={() => {
+                            activatePanelTab(tab)
+                            setTabListOpen(false)
+                          }}
+                          role="menuitem"
+                          title={label}
+                        >
+                          <Icon className="size-4 shrink-0 text-muted-foreground/80" />
+                          <span className="min-w-0 flex-1 truncate">{label}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 opacity-70 transition-colors hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            closePanelTab(tab.id)
+                          }}
+                          aria-label={t('close')}
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
             {panelTabs.map((tab, index) => {
               const item = tab.kind === 'reader' ? undefined : PANEL_TAB_BY_KIND[tab.kind]
               const Icon = item?.icon ?? Code2

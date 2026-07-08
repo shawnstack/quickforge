@@ -1,5 +1,9 @@
 import type {
+  GitBranchesResponse,
+  GitCheckoutResponse,
+  GitCreateBranchResponse,
   GitFileDiffResponse,
+  GitLogResponse,
   GitStatusResponse,
   WorkspaceFileResponse,
   WorkspaceResolvedPathResponse,
@@ -50,4 +54,20 @@ export function getGitStatus(projectId: string) {
 
 export function getGitFileDiff(projectId: string, path: string) {
   return fetchJson<GitFileDiffResponse>(`/api/git/file-diff?${projectQuery(projectId)}&path=${encodeURIComponent(path)}`)
+}
+
+export function getGitBranches(projectId: string) {
+  return fetchJson<GitBranchesResponse>(`/api/git/branches?${projectQuery(projectId)}`)
+}
+
+export function checkoutGitBranch(projectId: string, branch: string) {
+  return postJson<GitCheckoutResponse>('/api/git/checkout', { projectId, branch })
+}
+
+export function createGitBranch(projectId: string, branch: string) {
+  return postJson<GitCreateBranchResponse>('/api/git/create-branch', { projectId, branch })
+}
+
+export function getGitLog(projectId: string) {
+  return fetchJson<GitLogResponse>(`/api/git/log?${projectQuery(projectId)}`)
 }

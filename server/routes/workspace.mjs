@@ -145,6 +145,97 @@ async function currentGitBranch(workspaceRoot) {
   return commit ? `HEAD ${commit}` : undefined
 }
 
+async function assertValidBranchName(workspaceRoot, branch) {
+  const value = typeof branch === 'string' ? branch.trim() : ''
+  if (!value || value.length > 240 || /[\0\r\n]/.test(value)) {
+    const error = new Error('Invalid branch name')
+    error.statusCode = 400
+    throw error
+  }
+  const result = await git(['check-ref-format', '--branch', value], workspaceRoot, { allowFailure: true })
+  if (result.code !== 0) {
+    const error = new Error('Invalid branch name')
+    error.statusCode = 400
+    throw error
+  }
+  return value
+}
+
+function branchSortKey(branch, current) {
+  return [branch.name === current ? '0' : '1', branch.remote ? '1' : '0', branch.name.toLowerCase()].join(':')
+}
+
+async function listGitBranches(context) {
+  if (!(await isGitRepository(context.workspaceRoot))) return { isGitRepository: false, branches: [] }
+  const current = await currentGitBranch(context.workspaceRoot)
+  const result = await git([
+    'for-each-ref',
+    '--format=%(refname)%1f%(refname:short)%1f%(objectname:short)%1f%(committerdate:iso8601-strict)%1f%(upstream:short)',
+    'refs/heads',
+    'refs/remotes',
+  ], context.workspaceRoot)
+  const branches = result.stdout.toString('utf8').split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [refname = '', name = '', commit = '', lastCommitAt = '', upstream = ''] = line.split('\x1f')
+      const remote = refname.startsWith('refs/remotes/')
+      return {
+        name,
+        current: name === current,
+        remote,
+        upstream: upstream || undefined,
+        commit: commit || undefined,
+        lastCommitAt: lastCommitAt || undefined,
+      }
+    })
+    .filter((branch) => branch.name && !branch.name.endsWith('/HEAD'))
+    .sort((left, right) => branchSortKey(left, current).localeCompare(branchSortKey(right, current)))
+  return { isGitRepository: true, current, branches }
+}
+
+function parseGitDecorations(raw) {
+  if (!raw) return []
+  return raw.split(', ')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      if (entry === 'HEAD') return { name: 'HEAD', type: 'head' }
+      if (entry.startsWith('HEAD -> ')) return { name: entry.slice('HEAD -> '.length), type: 'branch' }
+      if (entry.startsWith('tag: ')) return { name: entry.slice('tag: '.length), type: 'tag' }
+      if (entry.includes('/')) return { name: entry, type: 'remote' }
+      return { name: entry, type: 'branch' }
+    })
+}
+
+async function listGitLog(context) {
+  if (!(await isGitRepository(context.workspaceRoot))) return { isGitRepository: false, commits: [] }
+  const result = await git([
+    'log',
+    '--all',
+    '--date=iso-strict',
+    '--max-count=200',
+    '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e',
+  ], context.workspaceRoot, { allowFailure: true })
+  if (result.code !== 0) return { isGitRepository: true, commits: [] }
+  const commits = result.stdout.toString('utf8').split('\x1e')
+    .map((record) => record.trim())
+    .filter(Boolean)
+    .map((record) => {
+      const [hash = '', shortHash = '', parents = '', author = '', date = '', decorations = '', subject = ''] = record.split('\x1f')
+      return {
+        hash,
+        shortHash,
+        parents: parents ? parents.split(' ').filter(Boolean) : [],
+        author,
+        date,
+        subject,
+        decorations: parseGitDecorations(decorations),
+      }
+    })
+  return { isGitRepository: true, commits }
+}
+
 function countGitStatus(files) {
   return files.reduce((counts, file) => {
     if (file.conflict) counts.conflicts += 1
@@ -407,6 +498,54 @@ async function handleGitStatus(req, res, url) {
   sendJson(res, 200, await listGitStatus(context))
 }
 
+async function handleGitBranches(req, res, url) {
+  const context = await projectContextFromUrl(url)
+  sendJson(res, 200, await listGitBranches(context))
+}
+
+async function handleGitLog(req, res, url) {
+  const context = await projectContextFromUrl(url)
+  sendJson(res, 200, await listGitLog(context))
+}
+
+async function handleGitCheckout(req, res) {
+  const body = await readJsonBody(req, 16 * 1024)
+  const projectId = typeof body?.projectId === 'string' ? body.projectId : ''
+  if (!projectId) {
+    const error = new Error('projectId is required')
+    error.statusCode = 400
+    throw error
+  }
+  const context = await projectContextFromId(projectId)
+  if (!(await isGitRepository(context.workspaceRoot))) {
+    const error = new Error('This project is not a Git repository')
+    error.statusCode = 400
+    throw error
+  }
+  const branch = await assertValidBranchName(context.workspaceRoot, body?.branch)
+  await git(['checkout', branch], context.workspaceRoot)
+  sendJson(res, 200, await listGitStatus(context))
+}
+
+async function handleGitCreateBranch(req, res) {
+  const body = await readJsonBody(req, 16 * 1024)
+  const projectId = typeof body?.projectId === 'string' ? body.projectId : ''
+  if (!projectId) {
+    const error = new Error('projectId is required')
+    error.statusCode = 400
+    throw error
+  }
+  const context = await projectContextFromId(projectId)
+  if (!(await isGitRepository(context.workspaceRoot))) {
+    const error = new Error('This project is not a Git repository')
+    error.statusCode = 400
+    throw error
+  }
+  const branch = await assertValidBranchName(context.workspaceRoot, body?.branch)
+  await git(['checkout', '-b', branch], context.workspaceRoot)
+  sendJson(res, 200, await listGitStatus(context))
+}
+
 async function handleGitFileDiff(req, res, url) {
   const context = await projectContextFromUrl(url)
   const relativePath = url.searchParams.get('path') || ''
@@ -479,6 +618,22 @@ export async function handleWorkspaceApi(req, res, url) {
 export async function handleGitApi(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/api/git/status') {
     await handleGitStatus(req, res, url)
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/git/branches') {
+    await handleGitBranches(req, res, url)
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/git/log') {
+    await handleGitLog(req, res, url)
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/git/checkout') {
+    await handleGitCheckout(req, res)
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/git/create-branch') {
+    await handleGitCreateBranch(req, res)
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/git/file-diff') {

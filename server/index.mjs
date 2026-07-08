@@ -362,7 +362,7 @@ async function handleApi(req, res, url) {
     return
   }
 
-  if (pathname === '/api/git/status' || pathname === '/api/git/file-diff') {
+  if (pathname.startsWith('/api/git/')) {
     await handleGitApi(req, res, url)
     return
   }

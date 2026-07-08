@@ -21,7 +21,7 @@
 | `lan-access.mjs` | 201 | LAN 共享访问管理 |
 | `instructions.mjs` | 20 | 系统提示词 |
 | `system.mjs` | 81 | 系统状态、重启、关于信息、Runtime 更新和 Desktop 发布页检查 |
-| `workspace.mjs` | 296 | 工作区文件浏览、产物预览静态读取与 Git 变更检查 |
+| `workspace.mjs` | 493 | 工作区文件浏览、产物预览静态读取、Git 变更检查、分支操作和提交图谱（`server/index.mjs` 通过 `/api/git/*` 统一分发） |
 | `static.mjs` | 83 | 静态文件服务 |
 
 ---
@@ -207,6 +207,22 @@ Workspace Inspector 后端 API。
 - `GET /api/git/file-diff?projectId=...&path=...` — 返回单文件 `oldContent/newContent`，供 Monaco DiffEditor 展示
 
 **安全约束**: 所有路径必须位于项目 workspace 内，阻止敏感文件、二进制文件和超大文件预览。
+
+## workspace.mjs (493 行)
+
+工作区文件与 Git 能力路由。
+
+**主要端点**:
+- `GET /api/workspace/tree` — 读取当前项目文件树。
+- `GET /api/workspace/file?projectId=...&path=...` — 安全读取工作区文本文件。
+- `GET /api/workspace/preview/:projectId/:path` — 为 HTML/SVG/图片/Markdown 等允许类型提供静态预览。
+- `POST /api/workspace/resolve-path` — 将绝对路径解析为当前项目内的相对路径。
+- `GET /api/git/status` — 获取 Git 仓库状态、当前分支、变更计数和文件列表。
+- `GET /api/git/file-diff` — 获取单文件工作区 diff 内容。
+- `GET /api/git/branches` — 列出本地与远端分支。
+- `POST /api/git/checkout` — 检出已有分支。
+- `POST /api/git/create-branch` — 从当前 HEAD 创建并检出新分支。
+- `GET /api/git/log` — 获取最近提交和 refs 装饰，用于标题栏 Git 图谱弹窗。
 
 ## static.mjs (83 行)
 

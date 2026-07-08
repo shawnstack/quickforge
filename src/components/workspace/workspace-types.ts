@@ -69,3 +69,46 @@ export type GitFileDiffResponse = {
   newContent: string
   language: string
 }
+
+export type GitBranchSummary = {
+  name: string
+  current: boolean
+  remote: boolean
+  upstream?: string
+  commit?: string
+  lastCommitAt?: string
+}
+
+export type GitBranchesResponse = {
+  isGitRepository: boolean
+  current?: string
+  branches: GitBranchSummary[]
+}
+
+export type GitCheckoutResponse = GitStatusResponse & {
+  branch?: string
+}
+
+export type GitCreateBranchResponse = GitStatusResponse & {
+  branch?: string
+}
+
+export type GitLogDecoration = {
+  name: string
+  type: 'head' | 'branch' | 'remote' | 'tag' | 'other'
+}
+
+export type GitLogCommit = {
+  hash: string
+  shortHash: string
+  parents: string[]
+  author: string
+  date: string
+  subject: string
+  decorations: GitLogDecoration[]
+}
+
+export type GitLogResponse = {
+  isGitRepository: boolean
+  commits: GitLogCommit[]
+}

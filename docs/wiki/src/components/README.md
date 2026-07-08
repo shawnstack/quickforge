@@ -12,6 +12,9 @@ components/
 │   ├── context-usage.ts            # 上下文用量环状指示器 (78 行)
 │   ├── panel-decoration.ts         # 聊天面板 DOM 装饰兼容入口 / editor 编排 facade (175 行)
 │   └── scroll-sync.ts              # 自动滚动同步 (174 行)
+├── git/
+│   ├── GitBranchMenu.tsx           # 标题栏 Git 分支搜索、切换、创建分支和 Git 图谱入口
+│   └── GitGraphDialog.tsx          # Git 提交图谱大弹窗
 ├── agent-profiles/
 │   └── AgentProfilesPage.tsx        # Agent Profiles 独立管理页面
 ├── scheduled-tasks/
@@ -119,14 +122,19 @@ components/
 - 新消息时自动滚到底部；用户主动上滚时暂停自动滚动
 - 用户滚回底部时重新启用自动滚动
 
+### 标题栏 Git 组件 (`git/`)
+
+- `GitBranchMenu.tsx` 挂载在主对话标题栏的分支 chip 下方，提供分支搜索、当前未提交变更摘要、分支切换、创建并检出新分支，以及 Git 图谱入口。
+- `GitGraphDialog.tsx` 使用 `/api/git/log` 渲染居中的 Git 提交图谱弹窗，包含图线、描述、日期、作者和提交短哈希列，并支持刷新和关闭。
+
 ### Workspace Inspector (`workspace/`)
 
 - 右侧专业工作区检查器入口为 `WorkspaceInspector.tsx`
 - Files tab 通过后端 `/api/workspace/tree` 和 `/api/workspace/file` 安全读取当前项目文件，使用 Monaco Editor 只读展示
 - Changes tab 通过 `/api/git/status` 和 `/api/git/file-diff` 获取 Git 工作区变更，使用 Monaco DiffEditor 展示单文件差异
+- 标题栏 Git 分支 chip 通过 `/api/git/branches`、`/api/git/checkout`、`/api/git/create-branch` 和 `/api/git/log` 提供分支切换、创建并检出新分支和 Git 图谱弹窗；Workspace Inspector 仍聚焦文件浏览、产物预览和 diff review
 - AI 产物预览由 `ArtifactPreviewPanel.tsx` 承担：当前 turn 产生 HTML/SVG/图片/Markdown/代码产物时自动打开右侧面板，HTML 通过 `HtmlArtifactPreview.tsx` 直接 iframe 渲染
 - `ArtifactFilesPopover.tsx` 提供类似浏览器 tools 的产物文件浮层，支持多个 artifact 之间切换和 pin
-- 第一版仅提供只读浏览、产物预览和 diff review，不提供编辑、stage、commit、branch 操作
 
 ### Terminal Dock (`terminal/`)
 

@@ -2,7 +2,10 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import type { Api, Model } from '@earendil-works/pi-ai'
 import type { BackgroundTaskStatus } from '@/lib/types'
 import {
+  ChevronDown,
   Ellipsis,
+  Folder,
+  GitBranch,
   Info,
   LogOut,
   Menu,
@@ -59,8 +62,11 @@ import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { logger } from '@/lib/logger'
 import { showAlert, showConfirm } from '@/components/ui/confirm-dialog'
 import { ToastContainer } from '@/components/ui/toast'
+import { GitBranchMenu } from '@/components/git/GitBranchMenu'
+import { GitGraphDialog } from '@/components/git/GitGraphDialog'
 import { ShareConversationDialog } from '@/components/share/ShareConversationDialog'
-import { getWorkspaceFile, resolveWorkspacePath } from '@/components/workspace/workspace-api'
+import { checkoutGitBranch, getGitStatus, getWorkspaceFile, resolveWorkspacePath } from '@/components/workspace/workspace-api'
+import type { GitStatusResponse } from '@/components/workspace/workspace-types'
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
@@ -278,6 +284,9 @@ function MainApp() {
   const [sidebarSessionSortMode, setSidebarSessionSortMode] = useState<SidebarSessionSortMode>('updatedAt')
   const autoPreviewSignatureRef = useRef('')
   const [currentSessionHoverInfo, setCurrentSessionHoverInfo] = useState<(ContextUsageDisplayInfo & { sessionId?: string }) | undefined>()
+  const [titleGitStatus, setTitleGitStatus] = useState<GitStatusResponse | undefined>()
+  const [branchMenuOpen, setBranchMenuOpen] = useState(false)
+  const [gitGraphOpen, setGitGraphOpen] = useState(false)
   const [externalProjectIds, setExternalProjectIds] = useState<Set<string>>(() => new Set())
   const terminalCommandIdRef = useRef(0)
   const [storage, setStorage] = useState<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
@@ -426,6 +435,59 @@ function MainApp() {
     ui.setWorkspaceInspectorFocusTarget({ tab: 'git', nonce: Date.now() })
     ui.setWorkspaceInspectorOpen(true)
   }, [agentManager.currentToolProject?.id, setArtifactPreviewOpen, ui])
+
+  const refreshTitleGitStatus = useCallback(async () => {
+    const projectId = agentManager.currentToolProject?.id
+    if (!projectId) {
+      setTitleGitStatus(undefined)
+      return undefined
+    }
+    try {
+      const status = await getGitStatus(projectId)
+      setTitleGitStatus(status)
+      return status
+    } catch (error) {
+      logger.warn('Failed to refresh title git status:', error)
+      setTitleGitStatus(undefined)
+      return undefined
+    }
+  }, [agentManager.currentToolProject?.id])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void refreshTitleGitStatus() }, 0)
+    return () => window.clearTimeout(timer)
+  }, [refreshTitleGitStatus])
+
+  const handleCheckoutTitleBranch = useCallback(async (branch: string) => {
+    const projectId = agentManager.currentToolProject?.id
+    if (!projectId) return
+    try {
+      const status = await checkoutGitBranch(projectId, branch)
+      setTitleGitStatus(status)
+      setBranchMenuOpen(false)
+      addToast({
+        sessionId: agentManager.currentSessionId ?? '',
+        title: t('gitBranchSwitched'),
+        status: 'idle',
+        message: branch,
+      })
+    } catch (error) {
+      logger.error('Failed to checkout git branch:', error)
+      void showAlert(error instanceof Error ? error.message : t('gitCheckoutFailed'))
+      throw error
+    }
+  }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id])
+
+  const handleBranchCreated = useCallback((status: GitStatusResponse) => {
+    setTitleGitStatus(status)
+    setBranchMenuOpen(false)
+    addToast({
+      sessionId: agentManager.currentSessionId ?? '',
+      title: t('gitBranchCreated'),
+      status: 'idle',
+      message: status.branch ?? '',
+    })
+  }, [addToast, agentManager.currentSessionId])
 
   const openLocalFilePathFromChat = useCallback(async (filePath: string) => {
     const projectId = agentManager.currentToolProject?.id
@@ -807,6 +869,17 @@ function MainApp() {
       window.removeEventListener('blur', closeMenu)
     }
   }, [ui, ui.conversationMenuOpen])
+
+  useEffect(() => {
+    if (!branchMenuOpen) return
+    const closeMenu = () => setBranchMenuOpen(false)
+    window.addEventListener('click', closeMenu)
+    window.addEventListener('blur', closeMenu)
+    return () => {
+      window.removeEventListener('click', closeMenu)
+      window.removeEventListener('blur', closeMenu)
+    }
+  }, [branchMenuOpen])
 
   useEffect(() => {
     const handleExecuteMarkdownCommand = (event: Event) => {
@@ -1277,15 +1350,47 @@ function MainApp() {
           </Button>
 
           <div className="min-w-0 flex-1">
-            <div className="flex max-w-full min-w-0 items-center">
+            <div className="flex max-w-full min-w-0 items-center gap-2">
+              <div className="min-w-0 truncate text-sm font-semibold text-foreground/92">{sessionTitle(agentManager.currentTitle)}</div>
               {agentManager.currentToolProject?.name ? (
-                <>
-                  <div className="min-w-0 truncate text-sm text-muted-foreground/60">{agentManager.currentToolProject.name}</div>
-                  <div className="mx-1 shrink-0 text-sm text-muted-foreground/45">/</div>
-                </>
+                <div className="inline-flex h-9 max-w-[220px] shrink-0 items-center gap-2 rounded-full bg-muted/55 px-3 text-sm text-foreground/88" title={agentManager.currentToolProject.name}>
+                  <Folder className="size-4 text-muted-foreground" />
+                  <span className="min-w-0 truncate">{agentManager.currentToolProject.name}</span>
+                </div>
               ) : null}
-              <div className="min-w-0 truncate text-sm font-medium text-foreground/90">{sessionTitle(agentManager.currentTitle)}</div>
-              <div className="relative ml-0.5 shrink-0" onClick={(event) => event.stopPropagation()}>
+              {agentManager.currentToolProject?.id && titleGitStatus?.isGitRepository && titleGitStatus.branch ? (
+                <div className="relative shrink-0" onClick={(event) => event.stopPropagation()}>
+                  <button
+                    type="button"
+                    className="inline-flex h-9 max-w-[220px] items-center gap-2 rounded-full bg-muted/55 px-3 text-sm text-foreground/88 transition-colors hover:bg-muted"
+                    onClick={() => setBranchMenuOpen((value) => !value)}
+                    aria-label={t('gitBranchMenu')}
+                    aria-expanded={branchMenuOpen}
+                  >
+                    <GitBranch className="size-4 text-muted-foreground" />
+                    <span className="min-w-0 truncate">{titleGitStatus.branch}</span>
+                    <ChevronDown className="size-4 text-muted-foreground" />
+                  </button>
+                  {branchMenuOpen ? (
+                    <GitBranchMenu
+                      projectId={agentManager.currentToolProject.id}
+                      currentBranch={titleGitStatus.branch}
+                      dirtyCount={titleGitStatus.counts?.total ?? 0}
+                      onCheckout={handleCheckoutTitleBranch}
+                      onCreated={handleBranchCreated}
+                      onOpenGraph={() => {
+                        setBranchMenuOpen(false)
+                        setGitGraphOpen(true)
+                      }}
+                      onOpenChanges={() => {
+                        setBranchMenuOpen(false)
+                        openWorkspaceGitChanges()
+                      }}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+              <div className="relative shrink-0" onClick={(event) => event.stopPropagation()}>
                 <Button
                   variant="ghost"
                   size="icon"
@@ -1445,6 +1550,13 @@ function MainApp() {
             onDraftRequest={restoreWorkspaceDraft}
           />
         </Suspense>
+      ) : null}
+      {gitGraphOpen && agentManager.currentToolProject?.id ? (
+        <GitGraphDialog
+          projectId={agentManager.currentToolProject.id}
+          projectName={agentManager.currentToolProject.name}
+          onClose={() => setGitGraphOpen(false)}
+        />
       ) : null}
     </div>
     )}

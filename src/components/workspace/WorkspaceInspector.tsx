@@ -57,7 +57,8 @@ function readerTabId(mode: ReaderMode, path: string) {
   return mode === 'browser' ? 'browser' : `${mode}:${path}`
 }
 
-type WorkspacePanelTabKind = 'files' | 'review' | 'terminal' | 'browser'
+type WorkspacePanelPrimaryTabKind = 'files' | 'review' | 'terminal' | 'browser'
+type WorkspacePanelTabKind = WorkspacePanelPrimaryTabKind | 'reader'
 
 type WorkspacePanelTab = {
   id: string
@@ -69,7 +70,7 @@ type WorkspacePanelTab = {
 }
 
 type WorkspacePanelTabMeta = {
-  kind: WorkspacePanelTabKind
+  kind: WorkspacePanelPrimaryTabKind
   label: string
   description: string
   icon: typeof Folder
@@ -82,14 +83,14 @@ const PANEL_TAB_ITEMS: WorkspacePanelTabMeta[] = [
   { kind: 'browser', label: t('rightPanelBrowser'), description: t('rightPanelBrowserDesc'), icon: Globe },
 ]
 
-const PANEL_TAB_BY_KIND = Object.fromEntries(PANEL_TAB_ITEMS.map((item) => [item.kind, item])) as Record<WorkspacePanelTabKind, WorkspacePanelTabMeta>
+const PANEL_TAB_BY_KIND = Object.fromEntries(PANEL_TAB_ITEMS.map((item) => [item.kind, item])) as Record<WorkspacePanelPrimaryTabKind, WorkspacePanelTabMeta>
 
-function panelKindFromView(view: WorkspacePanelView): WorkspacePanelTabKind {
+function panelKindFromView(view: WorkspacePanelView): WorkspacePanelPrimaryTabKind {
   if (view === 'review' || view === 'changes') return 'review'
   return view
 }
 
-function viewFromPanelKind(kind: WorkspacePanelTabKind): WorkspacePanelView {
+function viewFromPanelKind(kind: WorkspacePanelPrimaryTabKind): WorkspacePanelView {
   return kind === 'review' ? 'changes' : kind
 }
 
@@ -108,6 +109,10 @@ function browserTabLabel(previewUrl: string) {
 function panelTabLabel(tab: WorkspacePanelTab, projectName: string | undefined) {
   if (tab.kind === 'terminal') return projectName || t('rightPanelTerminal')
   if (tab.kind === 'browser') return browserTabLabel(tab.url || '')
+  if (tab.kind === 'reader') {
+    const reader = tab.readerTabs?.find((item) => item.id === tab.activeReaderTabId) ?? tab.readerTabs?.[0]
+    return reader ? artifactFileName(reader.path) : t('rightPanelFiles')
+  }
   return PANEL_TAB_BY_KIND[tab.kind].label
 }
 
@@ -115,9 +120,111 @@ const WORKSPACE_INSPECTOR_MIN_WIDTH = 340
 const WORKSPACE_INSPECTOR_DEFAULT_WIDTH = 380
 const WORKSPACE_INSPECTOR_MAX_WIDTH = 640
 const WORKSPACE_INSPECTOR_WIDTH_STORAGE_KEY = 'quickforge_workspaceInspectorWidth_v2'
+const WORKSPACE_INSPECTOR_TABS_STORAGE_PREFIX = 'quickforge:workspace-inspector-tabs:v1:'
 const NAV_PANEL_MIN_WIDTH = 140
 const NAV_PANEL_DEFAULT_WIDTH = 200
 const NAV_PANEL_MAX_WIDTH = 400
+
+type PersistedWorkspacePanelTab = Pick<WorkspacePanelTab, 'id' | 'kind' | 'url' | 'terminalSessionId'> & {
+  reader?: {
+    mode: 'file'
+    path: string
+  }
+}
+
+type PersistedWorkspaceInspectorTabs = {
+  tabs: PersistedWorkspacePanelTab[]
+  activePanelTabId?: string
+}
+
+function workspaceInspectorTabsStorageKey(projectId: string) {
+  return `${WORKSPACE_INSPECTOR_TABS_STORAGE_PREFIX}${projectId}`
+}
+
+function isWorkspacePanelTabKind(value: unknown): value is WorkspacePanelTabKind {
+  return value === 'files' || value === 'review' || value === 'terminal' || value === 'browser' || value === 'reader'
+}
+
+function normalizePersistedPanelTabs(value: unknown): WorkspacePanelTab[] {
+  if (!Array.isArray(value)) return []
+  const seenReview = new Set<WorkspacePanelTabKind>()
+  const tabs: WorkspacePanelTab[] = []
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue
+    const raw = item as Partial<PersistedWorkspacePanelTab>
+    if (typeof raw.id !== 'string' || !raw.id || !isWorkspacePanelTabKind(raw.kind)) continue
+    if (raw.kind === 'review') {
+      if (seenReview.has(raw.kind)) continue
+      seenReview.add(raw.kind)
+    }
+    if (raw.kind === 'reader') {
+      const reader = raw.reader
+      if (!reader || reader.mode !== 'file' || typeof reader.path !== 'string' || !reader.path) continue
+      const readerId = readerTabId(reader.mode, reader.path)
+      tabs.push({
+        id: raw.id,
+        kind: raw.kind,
+        readerTabs: [{ id: readerId, mode: reader.mode, path: reader.path, loading: true }],
+        activeReaderTabId: readerId,
+      })
+      continue
+    }
+    tabs.push({
+      id: raw.id,
+      kind: raw.kind,
+      ...(raw.kind === 'browser' && typeof raw.url === 'string' ? { url: raw.url } : {}),
+      ...(raw.kind === 'terminal' && typeof raw.terminalSessionId === 'string' ? { terminalSessionId: raw.terminalSessionId } : {}),
+      ...(raw.kind === 'files' || raw.kind === 'review' ? { readerTabs: [], activeReaderTabId: undefined } : {}),
+    })
+  }
+  return tabs
+}
+
+function readPersistedPanelTabs(projectId: string): PersistedWorkspaceInspectorTabs {
+  if (typeof window === 'undefined') return { tabs: [] }
+  try {
+    const raw = window.localStorage.getItem(workspaceInspectorTabsStorageKey(projectId))
+    if (!raw) return { tabs: [] }
+    const parsed = JSON.parse(raw) as Partial<PersistedWorkspaceInspectorTabs>
+    const tabs = normalizePersistedPanelTabs(parsed.tabs)
+    const activePanelTabId = typeof parsed.activePanelTabId === 'string' && tabs.some((tab) => tab.id === parsed.activePanelTabId)
+      ? parsed.activePanelTabId
+      : tabs[0]?.id
+    return activePanelTabId ? { tabs, activePanelTabId } : { tabs }
+  } catch {
+    return { tabs: [] }
+  }
+}
+
+function serializePanelTabs(tabs: WorkspacePanelTab[], activePanelTabId: string | undefined): PersistedWorkspaceInspectorTabs {
+  const persistedTabs = tabs.flatMap((tab): PersistedWorkspacePanelTab[] => {
+    if (tab.kind === 'reader') {
+      const reader = tab.readerTabs?.find((item) => item.id === tab.activeReaderTabId) ?? tab.readerTabs?.[0]
+      if (!reader || reader.mode !== 'file') return []
+      return [{ id: tab.id, kind: tab.kind, reader: { mode: reader.mode, path: reader.path } }]
+    }
+    return [{
+      id: tab.id,
+      kind: tab.kind,
+      ...(tab.kind === 'browser' ? { url: tab.url || '' } : {}),
+      ...(tab.kind === 'terminal' && tab.terminalSessionId ? { terminalSessionId: tab.terminalSessionId } : {}),
+    }]
+  })
+  return {
+    tabs: persistedTabs,
+    activePanelTabId: activePanelTabId && persistedTabs.some((tab) => tab.id === activePanelTabId) ? activePanelTabId : persistedTabs[0]?.id,
+  }
+}
+
+function nextPanelTabIndexFromTabs(tabs: WorkspacePanelTab[]) {
+  const maxIndex = tabs.reduce((max, tab) => {
+    const match = tab.id.match(/-(\d+)$/)
+    if (!match) return max
+    const value = Number(match[1])
+    return Number.isFinite(value) ? Math.max(max, value) : max
+  }, 0)
+  return maxIndex + 1
+}
 
 function readPersistedInspectorWidth(): number {
   if (typeof window === 'undefined') return WORKSPACE_INSPECTOR_DEFAULT_WIDTH
@@ -436,8 +543,12 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
   const [error, setError] = useState<string>()
   const [filter, setFilter] = useState('')
 
-  const [panelTabs, setPanelTabs] = useState<WorkspacePanelTab[]>([])
-  const [activePanelTabId, setActivePanelTabId] = useState<string>()
+  const initialPanelTabStateRef = useRef<PersistedWorkspaceInspectorTabs | undefined>(undefined)
+  if (!initialPanelTabStateRef.current) {
+    initialPanelTabStateRef.current = project?.id ? readPersistedPanelTabs(project.id) : { tabs: [] }
+  }
+  const [panelTabs, setPanelTabs] = useState<WorkspacePanelTab[]>(() => initialPanelTabStateRef.current?.tabs ?? [])
+  const [activePanelTabId, setActivePanelTabId] = useState<string | undefined>(() => initialPanelTabStateRef.current?.activePanelTabId)
   const [menuOpen, setMenuOpen] = useState(false)
   const [leftWidth, setLeftWidth] = useState(NAV_PANEL_DEFAULT_WIDTH)
   const [isNavResizing, setIsNavResizing] = useState(false)
@@ -455,13 +566,15 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
   const resizeFrameRef = useRef<number | null>(null)
   const fullscreenAnimationRef = useRef<Animation | null>(null)
   const previousBodyStyleRef = useRef<{ cursor: string; userSelect: string } | null>(null)
-  const nextPanelTabIndexRef = useRef(1)
+  const nextPanelTabIndexRef = useRef(nextPanelTabIndexFromTabs(initialPanelTabStateRef.current?.tabs ?? []))
   const lastPreviewUrlRef = useRef(previewUrl)
   // openFileTab 依赖 readerTabs 等渲染期状态，用 ref 持有最新引用，供 focusTarget 副作用安全调用。
   const openFileTabRef = useRef<((path: string) => void) | undefined>(undefined)
   // 记录上次的 projectId，让 tabs 清空副作用只在「项目真正切换」时清空，跳过首次 mount，
   // 避免 mount 时清空 microtask 与自动预览 openFileTab 的 microtask 竞态（后者创建的 tab 会被前者清掉）。
-  const prevProjectIdForTabsRef = useRef<string | undefined>(undefined)
+  const persistedTabsProjectIdRef = useRef(project?.id)
+  const skipNextPanelTabsPersistRef = useRef(false)
+  const loadingReaderKeysRef = useRef<Set<string>>(new Set())
 
   const projectId = project?.id
   const activePanelTab = useMemo(
@@ -474,7 +587,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
     () => activeReaderTabs.find((tab) => tab.id === activeReaderTabId),
     [activeReaderTabId, activeReaderTabs],
   )
-  const hasFileTab = Boolean(activeReaderTab && activeReaderTab.mode !== 'browser' && (activePanelTab?.kind === 'files' || (activePanelTab?.kind === 'review' && activeReaderTab.mode === 'diff')))
+  const hasFileTab = Boolean(activeReaderTab && activeReaderTab.mode !== 'browser' && (activePanelTab?.kind === 'reader' || activePanelTab?.kind === 'files' || (activePanelTab?.kind === 'review' && activeReaderTab.mode === 'diff')))
   const navView: 'overview' | 'files' | 'changes' = activePanelTab?.kind === 'review' ? view === 'changes' ? 'changes' : 'overview' : 'files'
   const gitStatuses = useMemo(() => {
     const map: Record<string, GitChangedFile> = {}
@@ -623,29 +736,96 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
   }, [open, projectId])
 
   useEffect(() => {
-    const prevId = prevProjectIdForTabsRef.current
-    prevProjectIdForTabsRef.current = projectId
-    // 首次 mount 时 tabs 本就为空，无需清空；否则清空 microtask 会晚于自动预览的 openFileTab 执行，
-    // 把刚创建的 tab 清掉。仅当项目真正切换（prevId 有值且变化）时才清空旧 tab。
-    if (prevId === undefined || prevId === projectId) return
-    setPanelTabs([])
-    setActivePanelTabId(undefined)
-  }, [projectId])
+    if (!projectId) {
+      skipNextPanelTabsPersistRef.current = true
+      persistedTabsProjectIdRef.current = undefined
+      setPanelTabs([])
+      setActivePanelTabId(undefined)
+      return
+    }
+    if (persistedTabsProjectIdRef.current === projectId) return
+    const persisted = readPersistedPanelTabs(projectId)
+    skipNextPanelTabsPersistRef.current = true
+    persistedTabsProjectIdRef.current = projectId
+    nextPanelTabIndexRef.current = nextPanelTabIndexFromTabs(persisted.tabs)
+    setPanelTabs(persisted.tabs)
+    setActivePanelTabId(persisted.activePanelTabId)
+    const activeTab = persisted.tabs.find((tab) => tab.id === persisted.activePanelTabId) ?? persisted.tabs[0]
+    if (activeTab && activeTab.kind !== 'reader') onViewChange(viewFromPanelKind(activeTab.kind))
+  }, [onViewChange, projectId])
+
+  useEffect(() => {
+    if (!projectId) return
+    if (skipNextPanelTabsPersistRef.current) {
+      skipNextPanelTabsPersistRef.current = false
+      return
+    }
+    try {
+      window.localStorage.setItem(
+        workspaceInspectorTabsStorageKey(projectId),
+        JSON.stringify(serializePanelTabs(panelTabs, activePanelTabId)),
+      )
+    } catch {
+      /* ignore quota / privacy mode */
+    }
+  }, [activePanelTabId, panelTabs, projectId])
+
+  useEffect(() => {
+    if (!activePanelTabId || panelTabs.some((tab) => tab.id === activePanelTabId)) return
+    setActivePanelTabId(panelTabs[0]?.id)
+  }, [activePanelTabId, panelTabs])
+
+  useEffect(() => {
+    if (!projectId) return
+    const loadingReaders = panelTabs.flatMap((tab) => {
+      if (tab.kind !== 'reader') return []
+      return (tab.readerTabs || [])
+        .filter((reader) => reader.loading && reader.mode === 'file')
+        .map((reader) => ({ panelTabId: tab.id, reader }))
+    })
+    for (const { panelTabId, reader } of loadingReaders) {
+      const key = `${projectId}:${reader.id}`
+      if (loadingReaderKeysRef.current.has(key)) continue
+      loadingReaderKeysRef.current.add(key)
+      const request = getWorkspaceFile(projectId, reader.path).then((file) => ({ file }))
+      request
+        .then((payload) => {
+          updatePanelTab(panelTabId, (tab) => ({
+            ...tab,
+            readerTabs: (tab.readerTabs || []).map((item) => item.id === reader.id ? { ...item, ...payload, loading: false, error: undefined } : item),
+          }))
+        })
+        .catch((err: unknown) => {
+          updatePanelTab(panelTabId, (tab) => ({
+            ...tab,
+            readerTabs: (tab.readerTabs || []).map((item) => item.id === reader.id ? { ...item, loading: false, error: err instanceof Error ? err.message : t('workspaceOpenFileFailed') } : item),
+          }))
+        })
+        .finally(() => {
+          loadingReaderKeysRef.current.delete(key)
+        })
+    }
+  }, [panelTabs, projectId])
 
   function createPanelTab(kind: WorkspacePanelTabKind, options?: { url?: string; readerTab?: ReaderTab }): WorkspacePanelTab {
     const id = `${kind}-${nextPanelTabIndexRef.current++}`
     if (kind === 'browser') return { id, kind, url: options?.url || previewUrl || '' }
+    if (kind === 'reader') return { id, kind, readerTabs: options?.readerTab ? [options.readerTab] : [], activeReaderTabId: options?.readerTab?.id }
     if (kind === 'files' || kind === 'review') {
       return { id, kind, readerTabs: options?.readerTab ? [options.readerTab] : [], activeReaderTabId: options?.readerTab?.id }
     }
     return { id, kind }
   }
 
+  function createReaderPanelTab(readerTab: ReaderTab): WorkspacePanelTab {
+    return createPanelTab('reader', { readerTab })
+  }
+
   function updatePanelTab(id: string, updater: (tab: WorkspacePanelTab) => WorkspacePanelTab) {
     setPanelTabs((prev) => prev.map((tab) => tab.id === id ? updater(tab) : tab))
   }
 
-  function openPanelTab(kind: WorkspacePanelTabKind, nextView: WorkspacePanelView = viewFromPanelKind(kind), options?: { url?: string; readerTab?: ReaderTab }) {
+  function openPanelTab(kind: WorkspacePanelPrimaryTabKind, nextView: WorkspacePanelView = viewFromPanelKind(kind), options?: { url?: string; readerTab?: ReaderTab }) {
     const existing = kind === 'review' ? panelTabs.find((tab) => tab.kind === 'review') : undefined
     const targetTab = existing || createPanelTab(kind, options)
     if (!existing) setPanelTabs((prev) => [...prev, targetTab])
@@ -657,7 +837,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
 
   function activatePanelTab(tab: WorkspacePanelTab) {
     setActivePanelTabId(tab.id)
-    onViewChange(viewFromPanelKind(tab.kind))
+    if (tab.kind !== 'reader') onViewChange(viewFromPanelKind(tab.kind))
   }
 
   function closePanelTab(id: string) {
@@ -673,7 +853,11 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
       if (activePanelTabId === id) {
         const nextActive = next[index] ?? next[index - 1]
         setActivePanelTabId(nextActive?.id)
-        onViewChange(nextActive ? viewFromPanelKind(nextActive.kind) : 'review')
+        if (!nextActive) {
+          onViewChange('review')
+        } else if (nextActive.kind !== 'reader') {
+          onViewChange(viewFromPanelKind(nextActive.kind))
+        }
       }
       return next
     })
@@ -690,28 +874,21 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
   async function openFileTab(path: string) {
     if (!projectId) return
     const id = readerTabId('file', path)
-    const existingFileTab = activePanelTab?.kind === 'files' ? activePanelTab : undefined
-    if (existingFileTab?.readerTabs?.some((tab) => tab.id === id)) {
-      setActivePanelTabId(existingFileTab.id)
-      updatePanelTab(existingFileTab.id, (tab) => ({ ...tab, activeReaderTabId: id }))
-      onViewChange('files')
+    const existingReaderTab = panelTabs.find((tab) => tab.kind === 'reader' && tab.readerTabs?.some((item) => item.id === id))
+    if (existingReaderTab) {
+      setActivePanelTabId(existingReaderTab.id)
+      updatePanelTab(existingReaderTab.id, (tab) => ({ ...tab, activeReaderTabId: id }))
       return
     }
     const newTab: ReaderTab = { id, mode: 'file', path, loading: true }
-    const targetTab = existingFileTab || openPanelTab('files', 'files', { readerTab: newTab })
-    if (existingFileTab) {
-      updatePanelTab(existingFileTab.id, (tab) => ({
-        ...tab,
-        readerTabs: [...(tab.readerTabs || []), newTab],
-        activeReaderTabId: id,
-      }))
-      onViewChange('files')
-    }
+    const targetTab = createReaderPanelTab(newTab)
+    setPanelTabs((prev) => [...prev, targetTab])
+    setActivePanelTabId(targetTab.id)
     try {
       const file = await getWorkspaceFile(projectId, path)
-      if (targetTab) updatePanelTab(targetTab.id, (tab) => ({ ...tab, readerTabs: (tab.readerTabs || []).map((item) => item.id === id ? { ...item, file, loading: false } : item) }))
+      updatePanelTab(targetTab.id, (tab) => ({ ...tab, readerTabs: (tab.readerTabs || []).map((item) => item.id === id ? { ...item, file, loading: false, error: undefined } : item) }))
     } catch (err) {
-      if (targetTab) updatePanelTab(targetTab.id, (tab) => ({ ...tab, readerTabs: (tab.readerTabs || []).map((item) => item.id === id ? { ...item, loading: false, error: err instanceof Error ? err.message : t('workspaceOpenFileFailed') } : item) }))
+      updatePanelTab(targetTab.id, (tab) => ({ ...tab, readerTabs: (tab.readerTabs || []).map((item) => item.id === id ? { ...item, loading: false, error: err instanceof Error ? err.message : t('workspaceOpenFileFailed') } : item) }))
     }
   }
   // 每次渲染刷新 ref，使 focusTarget 副作用总能调用到持有最新 tab 闭包的 openFileTab。
@@ -721,26 +898,24 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
     if (!projectId) return
     const reviewTab = panelTabs.find((tab) => tab.kind === 'review')
     const targetTab = reviewTab || openPanelTab('review', switchToChanges ? 'changes' : 'review')
-    if (targetTab) setActivePanelTabId(targetTab.id)
+    setActivePanelTabId(targetTab.id)
     if (switchToChanges) onViewChange('changes')
     const id = readerTabId('diff', path)
-    if (targetTab?.readerTabs?.some((tab) => tab.id === id)) {
+    if (targetTab.readerTabs?.some((tab) => tab.id === id)) {
       updatePanelTab(targetTab.id, (tab) => ({ ...tab, activeReaderTabId: id }))
       return
     }
     const newTab: ReaderTab = { id, mode: 'diff', path, loading: true }
-    if (targetTab) {
-      updatePanelTab(targetTab.id, (tab) => ({
-        ...tab,
-        readerTabs: [...(tab.readerTabs || []), newTab],
-        activeReaderTabId: id,
-      }))
-    }
+    updatePanelTab(targetTab.id, (tab) => ({
+      ...tab,
+      readerTabs: [...(tab.readerTabs || []), newTab],
+      activeReaderTabId: id,
+    }))
     try {
       const diff = await getGitFileDiff(projectId, path)
-      if (targetTab) updatePanelTab(targetTab.id, (tab) => ({ ...tab, readerTabs: (tab.readerTabs || []).map((item) => item.id === id ? { ...item, diff, loading: false } : item) }))
+      updatePanelTab(targetTab.id, (tab) => ({ ...tab, readerTabs: (tab.readerTabs || []).map((item) => item.id === id ? { ...item, diff, loading: false, error: undefined } : item) }))
     } catch (err) {
-      if (targetTab) updatePanelTab(targetTab.id, (tab) => ({ ...tab, readerTabs: (tab.readerTabs || []).map((item) => item.id === id ? { ...item, loading: false, error: err instanceof Error ? err.message : t('workspaceOpenDiffFailed') } : item) }))
+      updatePanelTab(targetTab.id, (tab) => ({ ...tab, readerTabs: (tab.readerTabs || []).map((item) => item.id === id ? { ...item, loading: false, error: err instanceof Error ? err.message : t('workspaceOpenDiffFailed') } : item) }))
     }
   }
 
@@ -1019,8 +1194,8 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
         <div className={cn('flex h-14 shrink-0 items-center gap-2 border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-3 pr-20 transition-opacity duration-150', fullscreenAnimating ? 'opacity-0' : 'opacity-100')}>
           <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
             {panelTabs.map((tab, index) => {
-              const item = PANEL_TAB_BY_KIND[tab.kind]
-              const Icon = item.icon
+              const item = tab.kind === 'reader' ? undefined : PANEL_TAB_BY_KIND[tab.kind]
+              const Icon = item?.icon ?? Code2
               const active = tab.id === activePanelTabId
               const label = panelTabLabel(tab, project?.name)
               return (
@@ -1206,7 +1381,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
                             className="min-w-0 flex-1 bg-transparent text-xs text-foreground/85 outline-none placeholder:text-muted-foreground/50"
                           />
                         </label>
-                        <WorkspaceFileTree tree={filteredTree} selectedPath={undefined} gitStatuses={gitStatuses} onSelectFile={openFileTab} onPreviewFile={selectPreviewFile} projectId={projectId} />
+                        <WorkspaceFileTree tree={filteredTree} selectedPath={activeReaderTab?.mode === 'file' ? activeReaderTab.path : undefined} gitStatuses={gitStatuses} onSelectFile={openFileTab} onPreviewFile={selectPreviewFile} projectId={projectId} />
                       </>
                     ) : null}
                     {!loading && navView === 'changes' ? (
@@ -1287,7 +1462,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
                         diff={activeReaderTab.diff}
                         loading={activeReaderTab.loading}
                         error={activeReaderTab.error}
-                        onClose={() => closeReaderTab(activeReaderTab.id)}
+                        onClose={() => activePanelTab.kind === 'reader' ? closePanelTab(activePanelTab.id) : closeReaderTab(activeReaderTab.id)}
                         onDraftRequest={onDraftRequest}
                       />
                     ) : null}

@@ -1,5 +1,5 @@
-import { ExternalLink, Globe2, RefreshCw } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { ArrowLeft, ExternalLink, Globe, Minus, MoreVertical, Plus, RefreshCw } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { t } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
 import { workspacePreviewUrl } from '@/components/workspace/artifact-preview-utils'
@@ -75,6 +75,10 @@ export function WebPreviewContent({ url, onUrlChange, projectId }: WebPreviewCon
   const [draftState, setDraftState] = useState({ sourceUrl: url, value: normalized.displayUrl })
   const [error, setError] = useState('')
   const [reloadToken, setReloadToken] = useState(0)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [zoom, setZoom] = useState(100)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const previewFrameRef = useRef<HTMLIFrameElement | null>(null)
   const previewUrl = normalized.url
   const isWorkspacePreview = previewUrl.startsWith('/api/workspace/preview/')
   // workspace 预览与本体同源，需要 allow-same-origin 让 localStorage/cookie 等基础能力可用，
@@ -84,6 +88,26 @@ export function WebPreviewContent({ url, onUrlChange, projectId }: WebPreviewCon
     ? 'allow-scripts allow-same-origin allow-forms'
     : 'allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals allow-pointer-lock'
   const draftUrl = draftState.sourceUrl === url ? draftState.value : normalized.displayUrl
+
+  useEffect(() => {
+    if (!menuOpen) return
+
+    function handlePointerDown(event: PointerEvent) {
+      if (menuRef.current?.contains(event.target as Node)) return
+      setMenuOpen(false)
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [menuOpen])
+
+  function goBack() {
+    try {
+      previewFrameRef.current?.contentWindow?.history.back()
+    } catch {
+      // 跨域预览可能禁止访问 iframe history，忽略即可。
+    }
+  }
 
   function applyUrl(nextUrl = draftUrl) {
     const result = normalizePreviewUrl(nextUrl, projectId)
@@ -112,13 +136,19 @@ export function WebPreviewContent({ url, onUrlChange, projectId }: WebPreviewCon
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 flex-col gap-2 border-b border-border p-3">
         <form
-          className="flex gap-2"
+          className="flex items-center gap-2"
           onSubmit={(event) => {
             event.preventDefault()
             applyUrl()
           }}
         >
-          <label className="flex min-w-0 flex-1 items-center rounded-md border border-border bg-background px-2 py-1.5 text-xs text-muted-foreground/65 focus-within:text-foreground/85">
+          <Button type="button" variant="ghost" size="icon" onClick={goBack} disabled={!previewUrl} aria-label={t('back')} title={t('back')}>
+            <ArrowLeft className="size-4" />
+          </Button>
+          <Button type="button" variant="ghost" size="icon" onClick={refreshPreview} disabled={!previewUrl} aria-label={t('refreshPreview')} title={t('refreshPreview')}>
+            <RefreshCw className="size-4" />
+          </Button>
+          <label className="mx-auto flex h-9 min-w-0 max-w-xl flex-1 items-center rounded-full border border-[color-mix(in_oklab,var(--border)_42%,transparent)] bg-muted/30 px-3 text-sm text-muted-foreground/65 focus-within:bg-background focus-within:text-foreground/85">
             <span className="sr-only">{t('previewUrl')}</span>
             <input
               value={draftUrl}
@@ -127,38 +157,55 @@ export function WebPreviewContent({ url, onUrlChange, projectId }: WebPreviewCon
                 if (error) setError('')
               }}
               placeholder={t('previewUrlPlaceholder')}
-              className="min-w-0 flex-1 bg-transparent text-xs text-foreground/85 outline-none placeholder:text-muted-foreground/50"
+              className="min-w-0 flex-1 bg-transparent text-center text-sm text-foreground/85 outline-none placeholder:text-muted-foreground/55"
             />
           </label>
-          <Button type="submit" variant="outline" size="sm" className="h-8 shrink-0 px-3 text-xs">
-            {t('openPreview')}
-          </Button>
-          <Button variant="ghost" size="icon" onClick={refreshPreview} disabled={!previewUrl} aria-label={t('refreshPreview')} title={t('refreshPreview')}>
-            <RefreshCw className="size-4" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={openInBrowser} disabled={!previewUrl} aria-label={t('openInBrowser')} title={t('openInBrowser')}>
+          <Button type="button" variant="ghost" size="icon" onClick={openInBrowser} disabled={!previewUrl} aria-label={t('openInBrowser')} title={t('openInBrowser')}>
             <ExternalLink className="size-4" />
           </Button>
+          <div ref={menuRef} className="relative shrink-0">
+            <Button type="button" variant="ghost" size="icon" onClick={() => setMenuOpen((value) => !value)} aria-label={t('more')} title={t('more')} aria-haspopup="menu" aria-expanded={menuOpen}>
+              <MoreVertical className="size-4" />
+            </Button>
+            {menuOpen ? (
+              <div className="absolute right-0 top-10 z-30 w-48 rounded-2xl border border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-popover p-2 shadow-quickforge" role="menu">
+                <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">{t('zoom')}</div>
+                <div className="flex items-center justify-between gap-2 rounded-xl px-1 py-1.5">
+                  <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => setZoom((value) => Math.max(50, value - 10))} aria-label={t('zoomOut')} title={t('zoomOut')}>
+                    <Minus className="size-4" />
+                  </Button>
+                  <button type="button" className="min-w-14 rounded-lg px-2 py-1 text-sm font-medium text-foreground/85 hover:bg-muted/50" onClick={() => setZoom(100)} title={t('resetZoom')}>
+                    {zoom}%
+                  </button>
+                  <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => setZoom((value) => Math.min(200, value + 10))} aria-label={t('zoomIn')} title={t('zoomIn')}>
+                    <Plus className="size-4" />
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
         </form>
         {error ? <div className="text-xs text-destructive">{error}</div> : null}
       </div>
 
       <div className="min-h-0 flex-1 bg-muted/10">
         {previewUrl ? (
-          <iframe
-            key={`${previewUrl}:${reloadToken}`}
-            title={t('webPreview')}
-            src={previewUrl}
-            sandbox={iframeSandbox}
-            className="h-full w-full border-0 bg-background"
-          />
+          <div className="h-full w-full overflow-auto bg-background">
+            <iframe
+              ref={previewFrameRef}
+              key={`${previewUrl}:${reloadToken}`}
+              title={t('webPreview')}
+              src={previewUrl}
+              sandbox={iframeSandbox}
+              className="origin-top-left border-0 bg-background"
+              style={{ width: `${10000 / zoom}%`, height: `${10000 / zoom}%`, transform: `scale(${zoom / 100})` }}
+            />
+          </div>
         ) : (
           <div className="flex h-full flex-col items-center justify-center px-8 text-center">
-            <div className="rounded-full bg-muted/20 p-3 text-muted-foreground/70">
-              <Globe2 className="size-5" />
-            </div>
-            <div className="mt-4 text-sm font-medium text-foreground/85">{t('noPreviewUrlTitle')}</div>
-            <div className="mt-2 max-w-xs text-xs leading-5 text-muted-foreground/70">{t('noPreviewUrlDescription')}</div>
+            <Globe className="size-20 stroke-[1.55] text-muted-foreground/75" />
+            <div className="mt-8 text-xl font-semibold tracking-tight text-foreground/88">{t('noPreviewUrlTitle')}</div>
+            <div className="mt-4 max-w-xs text-base leading-6 text-muted-foreground/82">{t('noPreviewUrlDescription')}</div>
           </div>
         )}
       </div>

@@ -20,7 +20,7 @@ export function useUIState() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [conversationMenuOpen, setConversationMenuOpen] = useState(false)
   const [workspaceInspectorOpen, setWorkspaceInspectorOpen] = useState(false)
-  const [workspacePanelView, setWorkspacePanelView] = useState<WorkspacePanelView>('overview')
+  const [workspacePanelView, setWorkspacePanelView] = useState<WorkspacePanelView>('review')
   const [workspaceInspectorFocusTarget, setWorkspaceInspectorFocusTarget] = useState<WorkspaceInspectorFocusTarget>()
   const [webPreviewUrl, setWebPreviewUrl] = useState('')
   const [artifactPreviewOpen, setArtifactPreviewOpen] = useState(false)

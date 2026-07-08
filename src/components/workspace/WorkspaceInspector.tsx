@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronsLeftRight, Code2, Copy, Eye, FileCode2, Folder, GitBranch, Globe2, LayoutGrid, Maximize2, MessageSquare, Minimize2, Search, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronsLeftRight, Code2, Copy, Eye, Folder, GitBranch, Globe, Maximize2, MessageSquare, Minimize2, Plus, Search, SquareTerminal, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ProjectInfo } from '@/lib/types'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
@@ -14,11 +14,14 @@ import { getGitFileDiff, getGitStatus, getWorkspaceFile, getWorkspaceTree } from
 import { WorkspaceChangesList } from './WorkspaceChangesList'
 import { WorkspaceFileTree } from './WorkspaceFileTree'
 import { artifactFileName, isBrowserPreviewablePath, presentArtifacts } from './artifact-preview-utils'
+import { TerminalDock } from '@/components/terminal/TerminalDock'
+import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import type { GitChangedFile, GitFileDiffResponse, GitStatusResponse, WorkspaceFileResponse, WorkspaceInspectorFocusTarget, WorkspacePanelView, WorkspaceTreeNode } from './workspace-types'
 
 type WorkspaceInspectorProps = {
   project?: ProjectInfo
   open: boolean
+  onOpenChange: (open: boolean) => void
   view: WorkspacePanelView
   onViewChange: (view: WorkspacePanelView) => void
   onPreviewArtifact?: (path: string) => void
@@ -27,6 +30,8 @@ type WorkspaceInspectorProps = {
   previewUrl: string
   onPreviewUrlChange: (url: string) => void
   artifacts?: AiTurnArtifact[]
+  pendingTerminalCommand?: PendingTerminalCommand | null
+  onPendingTerminalCommandHandled?: (id: number) => void
 }
 
 type ReaderMode = 'file' | 'diff' | 'browser'
@@ -53,23 +58,55 @@ function readerTabId(mode: ReaderMode, path: string) {
   return mode === 'browser' ? 'browser' : `${mode}:${path}`
 }
 
-type WorkspaceMenuItem = {
-  view: WorkspacePanelView
+type WorkspacePanelTabKind = 'files' | 'review' | 'terminal' | 'browser'
+
+type WorkspacePanelTabMeta = {
+  kind: WorkspacePanelTabKind
   label: string
-  icon: typeof LayoutGrid
+  description: string
+  icon: typeof Folder
 }
 
-const WORKSPACE_MENU_ITEMS: WorkspaceMenuItem[] = [
-  { view: 'overview', label: t('workspaceOverview'), icon: LayoutGrid },
-  { view: 'files', label: t('workspaceFiles'), icon: Folder },
-  { view: 'changes', label: t('workspaceChanges'), icon: GitBranch },
-  { view: 'browser', label: t('workspaceBrowser'), icon: Globe2 },
+const PANEL_TAB_ITEMS: WorkspacePanelTabMeta[] = [
+  { kind: 'files', label: t('rightPanelFiles'), description: t('rightPanelFilesDesc'), icon: Folder },
+  { kind: 'review', label: t('rightPanelReview'), description: t('rightPanelReviewDesc'), icon: GitBranch },
+  { kind: 'terminal', label: t('rightPanelTerminal'), description: t('rightPanelTerminalDesc'), icon: SquareTerminal },
+  { kind: 'browser', label: t('rightPanelBrowser'), description: t('rightPanelBrowserDesc'), icon: Globe },
 ]
 
-const WORKSPACE_INSPECTOR_MIN_WIDTH = 380
-const WORKSPACE_INSPECTOR_DEFAULT_WIDTH = 480
-const WORKSPACE_INSPECTOR_MAX_WIDTH = 800
-const WORKSPACE_INSPECTOR_WIDTH_STORAGE_KEY = 'quickforge_workspaceInspectorWidth'
+const PANEL_TAB_BY_KIND = Object.fromEntries(PANEL_TAB_ITEMS.map((item) => [item.kind, item])) as Record<WorkspacePanelTabKind, WorkspacePanelTabMeta>
+
+function panelKindFromView(view: WorkspacePanelView): WorkspacePanelTabKind {
+  if (view === 'review' || view === 'changes') return 'review'
+  return view
+}
+
+function viewFromPanelKind(kind: WorkspacePanelTabKind): WorkspacePanelView {
+  return kind === 'review' ? 'review' : kind
+}
+
+function browserTabLabel(previewUrl: string) {
+  const value = previewUrl.trim()
+  if (!value) return 'about:blank'
+  try {
+    const url = new URL(value)
+    if (url.protocol === 'about:') return value
+    return url.host || value
+  } catch {
+    return value.split(/[\\/]/).pop() || value
+  }
+}
+
+function panelTabLabel(kind: WorkspacePanelTabKind, projectName: string | undefined, previewUrl: string) {
+  if (kind === 'terminal') return projectName || t('rightPanelTerminal')
+  if (kind === 'browser') return browserTabLabel(previewUrl)
+  return PANEL_TAB_BY_KIND[kind].label
+}
+
+const WORKSPACE_INSPECTOR_MIN_WIDTH = 340
+const WORKSPACE_INSPECTOR_DEFAULT_WIDTH = 380
+const WORKSPACE_INSPECTOR_MAX_WIDTH = 640
+const WORKSPACE_INSPECTOR_WIDTH_STORAGE_KEY = 'quickforge_workspaceInspectorWidth_v2'
 const NAV_PANEL_MIN_WIDTH = 140
 const NAV_PANEL_DEFAULT_WIDTH = 200
 const NAV_PANEL_MAX_WIDTH = 400
@@ -130,59 +167,6 @@ function GitGroup({ title, files, selectedPath, onSelectFile }: {
   )
 }
 
-function WorkspaceMenu({ view, changesCount, open, onOpenChange, onViewChange }: {
-  view: WorkspacePanelView
-  changesCount: number
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onViewChange: (view: WorkspacePanelView) => void
-}) {
-  const selected = WORKSPACE_MENU_ITEMS.find((item) => item.view === view) ?? WORKSPACE_MENU_ITEMS[0]
-  const SelectedIcon = selected.icon
-
-  return (
-    <div className="relative min-w-0">
-      <button
-        type="button"
-        className="flex max-w-full items-center gap-2 rounded-xl bg-muted/20 px-2.5 py-1.5 text-left text-sm font-semibold text-foreground/90 transition-colors hover:bg-muted/28"
-        onClick={() => onOpenChange(!open)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-      >
-        <SelectedIcon className="size-4 shrink-0 text-foreground/75" />
-        <span className="min-w-0 truncate">{selected.label}</span>
-        <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground/65 transition-transform', open ? 'rotate-180' : '')} />
-      </button>
-      {open ? (
-        <div className="absolute left-0 top-11 z-40 w-60 rounded-2xl border border-border bg-popover p-2 shadow-quickforge">
-          {WORKSPACE_MENU_ITEMS.map((item) => {
-            const Icon = item.icon
-            const active = item.view === view
-            return (
-              <button
-                key={item.view}
-                type="button"
-                className={cn(
-                  'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors',
-                  active ? 'bg-muted/28 text-foreground/90' : 'text-foreground/80 hover:bg-muted/20 hover:text-foreground/90',
-                )}
-                onClick={() => {
-                  onViewChange(item.view)
-                  onOpenChange(false)
-                }}
-              >
-                <Icon className="size-4 shrink-0" />
-                <span className="min-w-0 flex-1 truncate">{item.label}{item.view === 'changes' && changesCount ? ` ${changesCount}` : ''}</span>
-                {active ? <Check className="size-4 shrink-0 text-emerald-600 dark:text-emerald-500" /> : null}
-              </button>
-            )
-          })}
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
 function isMarkdownFile(file?: WorkspaceFileResponse) {
   if (!file) return false
   return file.language === 'markdown' || /\.(md|markdown)$/i.test(file.path)
@@ -202,68 +186,6 @@ function readerDiffPrompt(path: string) {
 function readerDiffText(diff: GitFileDiffResponse) {
   const header = diff.oldPath ? `${diff.oldPath} -> ${diff.path}` : diff.path
   return `Diff for ${header}\n\n--- OLD\n${diff.oldContent}\n\n--- NEW\n${diff.newContent}`
-}
-
-function ReaderTabBar({ tabs, activeId, onSelect, onClose }: {
-  tabs: ReaderTab[]
-  activeId?: string
-  onSelect: (id: string) => void
-  onClose: (id: string) => void
-}) {
-  return (
-    <div className="flex h-full min-w-0 flex-1 items-center gap-0.5 overflow-x-auto px-1.5">
-      {tabs.map((tab) => {
-        const active = tab.id === activeId
-        const isBrowser = tab.mode === 'browser'
-        const name = isBrowser ? t('workspaceBrowser') : (tab.path.split('/').pop() || tab.path)
-        const ext = tab.path.split('.').pop() || ''
-        return (
-          <button
-            key={tab.id}
-            type="button"
-            className={cn(
-              'group flex max-w-44 shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors',
-              active
-                ? 'bg-background shadow-sm text-foreground'
-                : 'text-muted-foreground/70 hover:bg-muted/40 hover:text-foreground/85',
-            )}
-            onClick={() => onSelect(tab.id)}
-            title={tab.path}
-          >
-            <span className={cn(
-              'flex size-4 shrink-0 items-center justify-center rounded-sm',
-              active ? 'bg-primary/10 text-primary' : 'bg-muted/30 text-muted-foreground/60',
-            )}>
-              {tab.loading ? <Maximize2 className="size-2.5 animate-spin" /> : isBrowser ? <Globe2 className="size-2.5" /> : ext === 'md' || ext === 'markdown' ? <LayoutGrid className="size-2.5" /> : <FileCode2 className="size-2.5" />}
-            </span>
-            <span className="min-w-0 truncate">{name}</span>
-            <span
-              role="button"
-              tabIndex={0}
-              className={cn(
-                'ml-0.5 shrink-0 rounded-sm p-0.5 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-destructive/15 hover:text-destructive',
-                active && 'opacity-100',
-              )}
-              onClick={(event) => {
-                event.stopPropagation()
-                onClose(tab.id)
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  onClose(tab.id)
-                }
-              }}
-              aria-label={t('close')}
-            >
-              <X className="size-3" />
-            </span>
-          </button>
-        )
-      })}
-    </div>
-  )
 }
 
 function InlineReader({ mode, file, diff, loading, error, onClose, onDraftRequest }: {
@@ -496,7 +418,7 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
   )
 }
 
-export function WorkspaceInspector({ project, open, view, onViewChange, onPreviewArtifact, onDraftRequest, focusTarget, previewUrl, onPreviewUrlChange, artifacts = [] }: WorkspaceInspectorProps) {
+export function WorkspaceInspector({ project, open, onOpenChange, view, onViewChange, onPreviewArtifact, onDraftRequest, focusTarget, previewUrl, onPreviewUrlChange, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled }: WorkspaceInspectorProps) {
   const [tree, setTree] = useState<WorkspaceTreeNode[]>([])
   const [changes, setChanges] = useState<GitChangedFile[]>([])
   const [gitBranch, setGitBranch] = useState<string>()
@@ -506,6 +428,8 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
   const [error, setError] = useState<string>()
   const [filter, setFilter] = useState('')
 
+  const [panelTabs, setPanelTabs] = useState<WorkspacePanelTabKind[]>([])
+  const [activePanelTab, setActivePanelTab] = useState<WorkspacePanelTabKind>()
   const [readerTabs, setReaderTabs] = useState<ReaderTab[]>([])
   const [activeReaderTabId, setActiveReaderTabId] = useState<string>()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -536,11 +460,8 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
     () => readerTabs.find((tab) => tab.id === activeReaderTabId),
     [activeReaderTabId, readerTabs],
   )
-  const isBrowserActive = activeReaderTab?.mode === 'browser'
-  const hasFileTab = Boolean(activeReaderTab && activeReaderTab.mode !== 'browser')
-  const navView: 'overview' | 'files' | 'changes' = view === 'browser' ? 'files' : view
-  const activeTabId = activeReaderTab?.id
-
+  const hasFileTab = activePanelTab === 'files' && Boolean(activeReaderTab && activeReaderTab.mode !== 'browser')
+  const navView: 'overview' | 'files' | 'changes' = activePanelTab === 'review' ? view === 'changes' ? 'changes' : 'overview' : 'files'
   const gitStatuses = useMemo(() => {
     const map: Record<string, GitChangedFile> = {}
     for (const file of changes) map[file.path] = file
@@ -619,23 +540,21 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
 
   useEffect(() => {
     if (!open) return
-    const browserTab = readerTabs.find((tab) => tab.mode === 'browser')
-    if (view === 'browser') {
-      // artifact 预览入口只设 view='browser'，但不会创建 browser tab。
-      // inspector 每次 open 重挂载时 readerTabs 会被重置为空，因此首次需要在此补建，
-      // 否则 isBrowserActive 永远为 false，右侧只会渲染文件树而非浏览器预览。
-      if (!browserTab) {
-        const id = readerTabId('browser', '')
-        setReaderTabs((prev) => (prev.some((tab) => tab.id === id) ? prev : [...prev, { id, mode: 'browser', path: '', loading: false }]))
-        setActiveReaderTabId(id)
-        return
-      }
-      if (activeReaderTabId !== browserTab.id) setActiveReaderTabId(browserTab.id)
-    } else if (activeReaderTab?.mode === 'browser') {
-      setActiveReaderTabId(readerTabs.find((tab) => tab.mode !== 'browser')?.id)
+    if (view === 'review') {
+      if (!activePanelTab) return
+      setPanelTabs((prev) => (prev.includes('review') ? prev : [...prev, 'review']))
+      setActivePanelTab('review')
+      return
     }
-  }, [view, open, activeReaderTabId, activeReaderTab, readerTabs])
-
+    const kind = panelKindFromView(view)
+    setPanelTabs((prev) => (prev.includes(kind) ? prev : [...prev, kind]))
+    setActivePanelTab(kind)
+    if (kind === 'browser') {
+      const id = readerTabId('browser', '')
+      setReaderTabs((prev) => (prev.some((tab) => tab.id === id) ? prev : [...prev, { id, mode: 'browser', path: '', loading: false }]))
+      setActiveReaderTabId(id)
+    }
+  }, [view, open, activePanelTab])
   // 持久化工作区宽度：拖拽或自动展开后都写入，刷新后保持上次宽度
   useEffect(() => {
     try {
@@ -652,10 +571,10 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
   // 打开文件 / 网页预览时自动拉到当前允许的最宽范围（全屏模式不处理；已是最宽则保持不变）
   useEffect(() => {
     if (!visible || fullscreen) return
-    const viewingContent = view === 'browser' || (view !== 'overview' && Boolean(activeTabId))
+    const viewingContent = activePanelTab === 'browser' || activePanelTab === 'terminal' || Boolean(activeReaderTabId)
     if (!viewingContent) return
     expandInspectorToMax()
-  }, [activeTabId, view, visible, fullscreen, expandInspectorToMax])
+  }, [activePanelTab, activeReaderTabId, visible, fullscreen, expandInspectorToMax])
 
   useEffect(() => {
     let disposed = false
@@ -694,7 +613,42 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
     if (prevId === undefined || prevId === projectId) return
     setReaderTabs([])
     setActiveReaderTabId(undefined)
+    setPanelTabs([])
+    setActivePanelTab(undefined)
   }, [projectId])
+
+  function openPanelTab(kind: WorkspacePanelTabKind, nextView: WorkspacePanelView = viewFromPanelKind(kind)) {
+    setPanelTabs((prev) => (prev.includes(kind) ? prev : [...prev, kind]))
+    setActivePanelTab(kind)
+    onViewChange(nextView)
+    setMenuOpen(false)
+    if (kind === 'browser') {
+      const id = readerTabId('browser', '')
+      setReaderTabs((prev) => (prev.some((tab) => tab.id === id) ? prev : [...prev, { id, mode: 'browser', path: '', loading: false }]))
+      setActiveReaderTabId(id)
+    } else if (kind !== 'files' && activeReaderTab?.mode === 'browser') {
+      setActiveReaderTabId(readerTabs.find((tab) => tab.mode !== 'browser')?.id)
+    }
+  }
+
+  function closePanelTab(kind: WorkspacePanelTabKind) {
+    setPanelTabs((prev) => {
+      const index = prev.indexOf(kind)
+      const next = prev.filter((item) => item !== kind)
+      if (next.length === 0) {
+        setActivePanelTab(undefined)
+        onViewChange('review')
+        onOpenChange(false)
+        return next
+      }
+      if (activePanelTab === kind) {
+        const nextActive = next[index] ?? next[index - 1]
+        setActivePanelTab(nextActive)
+        onViewChange(nextActive ? viewFromPanelKind(nextActive) : 'review')
+      }
+      return next
+    })
+  }
 
   function selectPreviewFile(path: string) {
     if (onPreviewArtifact) {
@@ -706,12 +660,13 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
 
   async function openFileTab(path: string) {
     if (!projectId) return
-    onViewChange('files')
     const id = readerTabId('file', path)
     if (readerTabs.some((tab) => tab.id === id)) {
+      openPanelTab('files', 'files')
       setActiveReaderTabId(id)
       return
     }
+    openPanelTab('files', 'files')
     const newTab: ReaderTab = { id, mode: 'file', path, loading: true }
     setReaderTabs((prev) => [...prev, newTab])
     setActiveReaderTabId(id)
@@ -725,22 +680,9 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
   // 每次渲染刷新 ref，使 focusTarget 副作用总能调用到持有最新 readerTabs 闭包的 openFileTab。
   openFileTabRef.current = openFileTab
 
-  function openBrowserTab() {
-    const id = readerTabId('browser', '')
-    if (readerTabs.some((tab) => tab.id === id)) {
-      setActiveReaderTabId(id)
-      onViewChange('browser')
-      return
-    }
-    const newTab: ReaderTab = { id, mode: 'browser', path: '', loading: false }
-    setReaderTabs((prev) => [...prev, newTab])
-    setActiveReaderTabId(id)
-    onViewChange('browser')
-  }
-
   async function openDiffTab(path: string, switchToChanges: boolean) {
     if (!projectId) return
-    if (switchToChanges) onViewChange('changes')
+    if (switchToChanges) openPanelTab('review', 'changes')
     const id = readerTabId('diff', path)
     if (readerTabs.some((tab) => tab.id === id)) {
       setActiveReaderTabId(id)
@@ -1030,34 +972,95 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
             </div>
           </div>
         ) : null}
-        <div className={cn('flex h-14 shrink-0 items-center gap-2 border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-muted/20 px-3 pr-20 transition-opacity duration-150', fullscreenAnimating ? 'opacity-0' : 'opacity-100')}>
-          <div ref={menuRef} className="shrink-0">
-            <WorkspaceMenu
-              view={view}
-              changesCount={changes.length}
-              open={menuOpen}
-              onOpenChange={setMenuOpen}
-              onViewChange={(next) => {
-                if (next === 'browser') openBrowserTab()
-                else onViewChange(next)
-              }}
-            />
+        <div className={cn('flex h-14 shrink-0 items-center gap-2 border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-3 pr-20 transition-opacity duration-150', fullscreenAnimating ? 'opacity-0' : 'opacity-100')}>
+          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+            {panelTabs.map((kind, index) => {
+              const item = PANEL_TAB_BY_KIND[kind]
+              const Icon = item.icon
+              const active = kind === activePanelTab
+              const label = panelTabLabel(kind, project?.name, previewUrl)
+              return (
+                <div key={kind} className="flex shrink-0 items-center gap-1">
+                  {index > 0 ? <span aria-hidden="true" className="mx-0.5 h-3.5 w-px bg-[color-mix(in_oklab,var(--muted-foreground)_18%,transparent)]" /> : null}
+                  <button
+                    type="button"
+                    className={cn(
+                      'group flex h-10 max-w-40 items-center gap-2 rounded-2xl px-3 text-[13px] font-medium transition-colors',
+                      active
+                        ? 'bg-[color-mix(in_oklab,var(--muted)_86%,transparent)] text-foreground/82 hover:bg-[color-mix(in_oklab,var(--muted)_86%,transparent)]'
+                        : 'text-muted-foreground/45 hover:bg-[color-mix(in_oklab,var(--muted)_72%,transparent)] hover:text-muted-foreground/72',
+                    )}
+                    onClick={() => openPanelTab(kind, viewFromPanelKind(kind))}
+                    title={label}
+                  >
+                    <Icon className={cn('size-4 shrink-0', active ? 'text-foreground/74' : 'text-muted-foreground/45 group-hover:text-muted-foreground/72')} />
+                    <span className="min-w-0 truncate">{label}</span>
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      className={cn(
+                        'ml-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-full opacity-0 transition-all hover:bg-black hover:text-white group-hover:opacity-100',
+                        active && 'opacity-100',
+                      )}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        closePanelTab(kind)
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          closePanelTab(kind)
+                        }
+                      }}
+                      aria-label={t('close')}
+                    >
+                      <X className="size-3.5" />
+                    </span>
+                  </button>
+                </div>
+              )
+            })}
+            {panelTabs.length === 0 ? <div className="min-w-0 flex-1" /> : null}
           </div>
-          <div className="h-5 w-px shrink-0 bg-[color-mix(in_oklab,var(--border)_34%,transparent)]" />
-          <ReaderTabBar
-            tabs={readerTabs}
-            activeId={activeReaderTabId}
-            onSelect={(id) => {
-              setActiveReaderTabId(id)
-              const tab = readerTabs.find((item) => item.id === id)
-              if (tab?.mode === 'browser') {
-                if (view !== 'browser') onViewChange('browser')
-              } else {
-                if (view === 'browser') onViewChange('files')
-              }
-            }}
-            onClose={closeReaderTab}
-          />
+          {panelTabs.length > 0 ? (
+            <div ref={menuRef} className="relative shrink-0">
+              <button
+                type="button"
+                className="flex size-9 items-center justify-center rounded-2xl bg-transparent text-muted-foreground/85 transition-colors hover:bg-muted/45 hover:text-foreground/90"
+                onClick={() => setMenuOpen((value) => !value)}
+                aria-label={t('rightPanelAddTab')}
+                title={t('rightPanelAddTab')}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+              >
+                <Plus className="size-4 stroke-[1.9]" />
+              </button>
+              {menuOpen ? (
+              <div className="absolute right-0 top-12 z-40 w-64 rounded-2xl border border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-popover p-2 shadow-quickforge" role="menu">
+                {PANEL_TAB_ITEMS.map((item) => {
+                  const Icon = item.icon
+                  const active = item.kind === activePanelTab
+                  return (
+                    <button
+                      key={item.kind}
+                      type="button"
+                      className={cn(
+                        'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-medium transition-colors',
+                        active ? 'bg-muted/55 text-foreground' : 'text-foreground/86 hover:bg-muted/34 hover:text-foreground',
+                      )}
+                      onClick={() => openPanelTab(item.kind, viewFromPanelKind(item.kind))}
+                      role="menuitem"
+                    >
+                      <Icon className="size-4 shrink-0 text-muted-foreground/80" />
+                      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            ) : null}
+            </div>
+          ) : null}
           <Button
             variant="ghost"
             size="icon"
@@ -1073,8 +1076,44 @@ export function WorkspaceInspector({ project, open, view, onViewChange, onPrevie
         <div className={cn('flex min-h-0 flex-1 transition-opacity duration-150', fullscreenAnimating ? 'opacity-0' : 'opacity-100')}>
           {!project?.id ? (
             <div className="p-4 text-sm text-muted-foreground/70">{t('workspaceSelectProject')}</div>
-          ) : isBrowserActive ? (
+          ) : !activePanelTab ? (
+            <div className="flex min-h-0 flex-1 items-center justify-center px-5">
+              <div className="w-full max-w-[26rem] space-y-4">
+                <div className="text-center font-sans">
+                  <div className="text-lg font-semibold leading-tight tracking-[-0.01em] text-foreground/90">{t('rightPanelOpenTabsTitle')}</div>
+                  <div className="mt-2 text-sm leading-5 text-muted-foreground/70">{t('rightPanelOpenTabsDescription')}</div>
+                </div>
+                <div className="space-y-2">
+                  {PANEL_TAB_ITEMS.map((item) => {
+                    const Icon = item.icon
+                    return (
+                      <button
+                        key={item.kind}
+                        type="button"
+                        className="flex w-full cursor-pointer items-center gap-3 rounded-xl border border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-muted/60 px-4 py-3 text-left transition-colors hover:bg-muted/72 active:bg-muted/82"
+                        onClick={() => openPanelTab(item.kind, viewFromPanelKind(item.kind))}
+                      >
+                        <Icon className="size-4 shrink-0 text-muted-foreground/78" />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium text-foreground/90">{item.label}</div>
+                          <div className="mt-0.5 text-xs leading-4 text-muted-foreground/60">{item.description}</div>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : activePanelTab === 'browser' ? (
             <WebPreviewContent url={previewUrl} onUrlChange={onPreviewUrlChange} projectId={project.id} />
+          ) : activePanelTab === 'terminal' ? (
+            <TerminalDock
+              project={project}
+              pendingCommand={pendingTerminalCommand}
+              onPendingCommandHandled={onPendingTerminalCommandHandled}
+              onCollapse={() => closePanelTab('terminal')}
+              variant="panel"
+            />
           ) : (
             <>
               <div

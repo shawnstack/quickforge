@@ -14,6 +14,7 @@ type TerminalDockProps = {
   onCollapse: () => void
   pendingCommand?: PendingTerminalCommand | null
   onPendingCommandHandled?: (id: number) => void
+  variant?: 'dock' | 'panel'
 }
 
 const MIN_HEIGHT = 180
@@ -35,7 +36,7 @@ function profileFromCapabilities(capabilities: TerminalCapabilities | null, prof
   return profiles.find((profile) => profile.id === selectedId) || profiles[0]
 }
 
-export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCommandHandled }: TerminalDockProps) {
+export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCommandHandled, variant = 'dock' }: TerminalDockProps) {
   const [capabilities, setCapabilities] = useState<TerminalCapabilities | null>(null)
   const [sessions, setSessions] = useState<TerminalSession[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string>()
@@ -347,19 +348,22 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
   const createDisabled = creating || maxSessionsReached
   const activeConnectionError = activeSession ? connectionErrors[activeSession.id] : undefined
   const visibleError = error ?? activeConnectionError
-  const terminalBodyHeight = fullscreen
-    ? visibleError ? 'calc(100% - 4.25rem)' : 'calc(100% - 2.25rem)'
-    : visibleError ? height - 72 : height - 45
+  const isPanel = variant === 'panel'
+  const terminalBodyHeight = isPanel
+    ? undefined
+    : fullscreen
+      ? visibleError ? 'calc(100% - 4.25rem)' : 'calc(100% - 2.25rem)'
+      : visibleError ? height - 72 : height - 45
 
   return (
     <div
       className={cn(
-        'shrink-0 border-t border-border bg-background',
+        isPanel ? 'flex min-h-0 flex-1 flex-col bg-background' : 'shrink-0 border-t border-border bg-background',
         fullscreen && 'quickforge-terminal-fullscreen z-40 flex flex-col border-t-0',
       )}
-      style={fullscreen ? undefined : { height }}
+      style={fullscreen || isPanel ? undefined : { height }}
     >
-      {!fullscreen ? (
+      {!fullscreen && !isPanel ? (
         <div
           className="h-1 cursor-row-resize bg-transparent hover:bg-border"
           onPointerDown={startDragging}
@@ -433,7 +437,10 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
             ) : null}
           </div>
           {shellMenuOpen ? (
-            <div className="absolute bottom-9 right-0 z-30 w-64 overflow-hidden rounded-lg border border-border bg-background p-1.5 shadow-[0_16px_38px_-22px_rgb(15_23_42_/_0.65)]">
+            <div className={cn(
+              'absolute right-0 z-30 w-64 overflow-hidden rounded-lg border border-border bg-background p-1.5 shadow-[0_16px_38px_-22px_rgb(15_23_42_/_0.65)]',
+              isPanel ? 'top-9' : 'bottom-9',
+            )}>
               <div className="px-2 pb-1.5 pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">{t('terminalNewWith')}</div>
               {shellProfiles.map((profile) => {
                 return (
@@ -469,12 +476,12 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
         >
           {fullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
         </Button>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onCollapse} title={t('terminalCollapse')} aria-label={t('terminalCollapse')}>
+        <Button variant="ghost" size="icon" className={cn('size-7', isPanel && 'hidden')} onClick={onCollapse} title={t('terminalCollapse')} aria-label={t('terminalCollapse')}>
           <ChevronDown className="size-3.5" />
         </Button>
       </div>
       {visibleError ? <div className="border-b border-border px-3 py-1.5 text-xs text-destructive">{visibleError}</div> : null}
-      <div className="min-h-0 bg-background" style={{ height: terminalBodyHeight }}>
+      <div className={cn('min-h-0 bg-background', isPanel && 'flex-1')} style={terminalBodyHeight === undefined ? undefined : { height: terminalBodyHeight }}>
         {loading ? (
           <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground/60">
             <Loader2 className="size-4 animate-spin" /> {t('terminalStarting')}
@@ -493,7 +500,7 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
               key={session.id}
               session={session}
               active={session.id === activeSession?.id}
-              height={fullscreen ? window.innerHeight - 36 : height}
+              height={fullscreen ? window.innerHeight - 36 : isPanel ? 0 : height}
               onReady={handleTerminalReady}
               onExited={markExited}
               onConnectionError={handleConnectionError}

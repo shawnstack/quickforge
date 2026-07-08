@@ -1,4 +1,4 @@
-export type WorkspacePanelView = 'overview' | 'files' | 'browser' | 'changes'
+export type WorkspacePanelView = 'review' | 'files' | 'browser' | 'changes' | 'terminal'
 
 export type WorkspaceInspectorFocusTarget = {
   tab: 'files' | 'git'

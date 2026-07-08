@@ -78,9 +78,6 @@ import { findBestPreviewableArtifact, isBrowserPreviewablePath, workspaceArtifac
 const ChatPanelHost = lazy(() =>
   import('@/components/chat/ChatPanelHost').then((m) => ({ default: m.ChatPanelHost })),
 )
-const TerminalDock = lazy(() =>
-  import('@/components/terminal/TerminalDock').then((m) => ({ default: m.TerminalDock })),
-)
 const SharedConversationPage = lazy(() =>
   import('@/components/share/SharedConversationPage').then((m) => ({ default: m.SharedConversationPage })),
 )
@@ -271,12 +268,12 @@ function MainApp() {
   const {
     setArtifactPreviewOpen,
     setWorkspaceInspectorOpen,
+    setWorkspacePanelView,
   } = ui
 
   // --- UI state shared with other hooks ---
   const [needsModelSetup, setNeedsModelSetup] = useState(false)
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
-  const [terminalOpen, setTerminalOpen] = useState(false)
   const [desktopTitlebarMenuOpen, setDesktopTitlebarMenuOpen] = useState(false)
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState<PendingTerminalCommand | null>(null)
   const [currentSessionArtifacts, setCurrentSessionArtifacts] = useState<AiTurnArtifact[]>([])
@@ -431,10 +428,10 @@ function MainApp() {
   const openWorkspaceGitChanges = useCallback(() => {
     if (!agentManager.currentToolProject?.id) return
     setArtifactPreviewOpen(false)
-    ui.setWorkspacePanelView('changes')
+    setWorkspacePanelView('changes')
     ui.setWorkspaceInspectorFocusTarget({ tab: 'git', nonce: Date.now() })
     ui.setWorkspaceInspectorOpen(true)
-  }, [agentManager.currentToolProject?.id, setArtifactPreviewOpen, ui])
+  }, [agentManager.currentToolProject?.id, setArtifactPreviewOpen, setWorkspacePanelView, ui])
 
   const refreshTitleGitStatus = useCallback(async () => {
     const projectId = agentManager.currentToolProject?.id
@@ -520,9 +517,9 @@ function MainApp() {
     if (!projectId || !isBrowserPreviewablePath(path)) return
     setArtifactPreviewOpen(false)
     ui.setWebPreviewUrl(workspaceArtifactDiskPath(project.path, path))
-    ui.setWorkspacePanelView('browser')
+    setWorkspacePanelView('browser')
     setWorkspaceInspectorOpen(true)
-  }, [agentManager.currentToolProject, setArtifactPreviewOpen, setWorkspaceInspectorOpen, ui])
+  }, [agentManager.currentToolProject, setArtifactPreviewOpen, setWorkspaceInspectorOpen, setWorkspacePanelView, ui])
 
   useEffect(() => {
     const project = agentManager.currentToolProject
@@ -548,16 +545,16 @@ function MainApp() {
         // markdown/code 走侧栏 reader 渲染（openFileTab）：
         // markdown → MarkdownReader 富文本；code → MonacoCodeViewer 语法高亮。
         // 不走 browser iframe：iframe 加载这些类型只会显示源码或触发下载。
-        ui.setWorkspacePanelView('files')
+        setWorkspacePanelView('files')
         ui.setWorkspaceInspectorFocusTarget({ tab: 'files', filePath: artifact.path, nonce: Date.now() })
       } else {
         // html/image 走 browser iframe：html 渲染交互页，image（含 svg/png/jpg…）直接显示。
         ui.setWebPreviewUrl(workspaceArtifactDiskPath(project.path, artifact.path))
-        ui.setWorkspacePanelView('browser')
+        setWorkspacePanelView('browser')
       }
       setWorkspaceInspectorOpen(true)
     })
-  }, [agentManager.currentToolProject, currentSessionArtifacts, setArtifactPreviewOpen, setWorkspaceInspectorOpen, ui])
+  }, [agentManager.currentToolProject, currentSessionArtifacts, setArtifactPreviewOpen, setWorkspaceInspectorOpen, setWorkspacePanelView, ui])
 
   useEffect(() => {
     autoPreviewSignatureRef.current = ''
@@ -900,7 +897,9 @@ function MainApp() {
           if (!confirmed) return
         }
 
-        setTerminalOpen(true)
+        setArtifactPreviewOpen(false)
+        setWorkspacePanelView('terminal')
+        setWorkspaceInspectorOpen(true)
         setPendingTerminalCommand({
           id: ++terminalCommandIdRef.current,
           command,
@@ -916,7 +915,7 @@ function MainApp() {
 
     window.addEventListener('quickforge:execute-markdown-command', handleExecuteMarkdownCommand)
     return () => window.removeEventListener('quickforge:execute-markdown-command', handleExecuteMarkdownCommand)
-  }, [])
+  }, [setArtifactPreviewOpen, setWorkspaceInspectorOpen, setWorkspacePanelView])
 
   const handlePendingTerminalCommandHandled = useCallback((id: number) => {
     setPendingTerminalCommand((current) => current?.id === id ? null : current)
@@ -962,7 +961,6 @@ function MainApp() {
 
   const showFirstUseGuide = Boolean(storage)
     && !ui.firstUseGuideDismissed
-    && !terminalOpen
     && !showNewChatEmptyState
     && projects.length === 0
     && globalSessions.length === 0
@@ -1157,11 +1155,15 @@ function MainApp() {
       <Button
         variant="ghost"
         size="icon"
-        onClick={() => setTerminalOpen((value) => !value)}
-        disabled={needsModelSetup}
-        aria-label="终端"
-        title="终端"
-        className={terminalOpen ? 'bg-accent text-accent-foreground' : undefined}
+        onClick={() => {
+          setArtifactPreviewOpen(false)
+          setWorkspacePanelView('terminal')
+          ui.setWorkspaceInspectorOpen(true)
+        }}
+        disabled={!agentManager.currentToolProject?.id || needsModelSetup}
+        aria-label={t('rightPanelTerminal')}
+        title={t('rightPanelTerminal')}
+        className={ui.workspaceInspectorOpen && ui.workspacePanelView === 'terminal' ? 'bg-accent text-accent-foreground' : undefined}
       >
         <SquareTerminal className="size-[18px]" />
       </Button>
@@ -1505,16 +1507,7 @@ function MainApp() {
                     onDismiss={handleDismissFirstUseGuide}
                   />
                 ) : null}
-                {terminalOpen ? (
-                  <Suspense fallback={null}>
-                    <TerminalDock
-                      project={agentManager.currentToolProject}
-                      pendingCommand={pendingTerminalCommand}
-                      onPendingCommandHandled={handlePendingTerminalCommandHandled}
-                      onCollapse={() => setTerminalOpen(false)}
-                    />
-                  </Suspense>
-                ) : null}
+
               </>
           )}
         </section>
@@ -1526,6 +1519,7 @@ function MainApp() {
             <WorkspaceInspector
               project={agentManager.currentToolProject}
               open
+              onOpenChange={ui.setWorkspaceInspectorOpen}
               view={ui.workspacePanelView}
               onViewChange={ui.setWorkspacePanelView}
               onPreviewArtifact={openArtifactPreview}
@@ -1534,6 +1528,8 @@ function MainApp() {
               previewUrl={ui.webPreviewUrl}
               onPreviewUrlChange={ui.setWebPreviewUrl}
               artifacts={currentSessionArtifacts}
+              pendingTerminalCommand={pendingTerminalCommand}
+              onPendingTerminalCommandHandled={handlePendingTerminalCommandHandled}
             />
           </Suspense>
         </>

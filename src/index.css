@@ -3,10 +3,37 @@
 
 @theme {
   --radius: 0.5rem;
-  --text-sm: 14px;
-  --text-sm--line-height: calc(20 / 14);
   /* Design-language light shadow token. Use via `shadow-quickforge` for inputs, hover/active feedback, and popovers. */
   --shadow-quickforge: 0 10px 26px -18px rgb(15 23 42 / 0.48);
+}
+
+/*
+ * Overrides for design tokens that pi-web-ui injects.
+ *
+ * IMPORTANT: pi-web-ui's app.css emits its theme via *unlayered* `:root,:host{}`,
+ * while Tailwind compiles a local `@theme` block into `@layer theme`. Per the CSS
+ * cascade, unlayered declarations beat any `@layer`, so overrides written inside
+ * `@theme` are silently overridden by pi-web-ui's values. Overrides therefore
+ * live in this unlayered `:root`: it appears textually after the `@import` of
+ * pi-web-ui, so within the same (unlayered) origin the later declaration wins.
+ */
+:root {
+  /* `--text-sm` is the body baseline; it deliberately equals `--text-base` (1rem)
+     and scales with the root font-size (the interface-font-size setting). */
+  --text-sm: 1rem;
+  --text-sm--line-height: calc(20 / 14);
+  /* Font stacks are defined once here and referenced via var(--font-sans) /
+     var(--font-mono) everywhere, instead of being copy-pasted per component.
+     System fonts are preferred (QuickForge bundles no custom UI font, avoiding a
+     "primary" font like Inter that only exists on some machines). The explicit
+     CJK fallback keeps Chinese text metrics stable across Windows/macOS/Linux. */
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
+    sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    "PingFang SC", "Microsoft YaHei", monospace;
 }
 
 /*
@@ -60,8 +87,7 @@
 
   body {
     overflow: hidden;
-    font-family:
-      Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family: var(--font-sans);
     background: var(--background);
     color: var(--foreground);
   }
@@ -320,7 +346,7 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
   margin: 0;
   color: var(--foreground);
   font-size: 1.125rem;
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 
@@ -511,7 +537,7 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
   color: color-mix(in oklab, var(--foreground) 88%, transparent);
   padding: 0.25rem 0.5rem;
   text-align: center;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.75rem;
 }
 
@@ -673,7 +699,7 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
   border-radius: 0.875rem;
   background: color-mix(in oklab, var(--primary) 14%, var(--muted));
   color: color-mix(in oklab, var(--primary) 86%, var(--foreground));
-  font-weight: 680;
+  font-weight: 700;
 }
 
 .quickforge-settings-inline-field {
@@ -801,7 +827,7 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
   padding: 0.75rem;
   overflow: auto;
   white-space: pre;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.625rem;
   line-height: 1;
 }
@@ -827,7 +853,7 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
   overflow: auto;
   border-top: 1px solid color-mix(in oklab, var(--border) 48%, transparent);
   padding: 0.75rem 1rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.75rem;
   line-height: 1.5;
 }
@@ -933,7 +959,7 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
 }
 
 .quickforge-settings-mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 .quickforge-settings-code-list {
@@ -951,7 +977,7 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
   color: color-mix(in oklab, var(--foreground) 88%, transparent);
   padding: 0.2rem 0.45rem;
   overflow-wrap: anywhere;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.8125rem;
   line-height: 1.35;
 }
@@ -1437,7 +1463,7 @@ user-message .user-message-container,
 .quickforge-rollback-popover-title {
   color: color-mix(in oklab, var(--foreground) 92%, transparent);
   font-size: 0.84rem;
-  font-weight: 650;
+  font-weight: 600;
   line-height: 1.35;
 }
 
@@ -1507,7 +1533,7 @@ user-message .user-message-container,
 
 .quickforge-assistant-message markdown-block,
 .quickforge-user-message markdown-block {
-  font-size: var(--quickforge-message-font-size, 15px);
+  font-size: var(--quickforge-message-font-size, 14px);
   overflow-wrap: anywhere;
 }
 
@@ -1788,7 +1814,7 @@ assistant-message :is(thinking-block, tool-message, markdown-block, streaming-me
   border: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
   border-radius: 0.75rem;
   background: color-mix(in oklab, var(--muted) 28%, transparent);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.78rem;
   line-height: 1.45;
 }
@@ -1828,9 +1854,9 @@ assistant-message :is(thinking-block, tool-message, markdown-block, streaming-me
   align-items: center;
   border-radius: 999px;
   padding: 0.05rem 0.45rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.72rem;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .quickforge-diff-badge-add {
@@ -1941,9 +1967,9 @@ assistant-message :is(thinking-block, tool-message, markdown-block, streaming-me
 
 .quickforge-command-suggestion-name {
   color: var(--foreground);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.78rem;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .quickforge-command-suggestion-description {
@@ -2016,7 +2042,7 @@ assistant-message :is(thinking-block, tool-message, markdown-block, streaming-me
   overflow: hidden;
   color: color-mix(in oklab, var(--foreground) 90%, transparent);
   font-size: 0.82rem;
-  font-weight: 650;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2091,7 +2117,7 @@ assistant-message :is(thinking-block, tool-message, markdown-block, streaming-me
   padding: 0.55rem 0.75rem 0.35rem;
   color: color-mix(in oklab, var(--muted-foreground) 86%, transparent);
   font-size: 0.72rem;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .quickforge-plus-popover-item {
@@ -2151,7 +2177,7 @@ assistant-message :is(thinking-block, tool-message, markdown-block, streaming-me
   overflow: hidden;
   color: color-mix(in oklab, var(--foreground) 90%, transparent);
   font-size: 0.82rem;
-  font-weight: 650;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

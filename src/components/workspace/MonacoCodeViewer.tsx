@@ -1,5 +1,6 @@
 import Editor from '@monaco-editor/react'
 import { useAppTheme } from '@/hooks/useAppTheme'
+import { useCodeFontMetrics } from '@/hooks/useCodeFontMetrics'
 
 type MonacoCodeViewerProps = {
   path: string
@@ -9,6 +10,7 @@ type MonacoCodeViewerProps = {
 
 export function MonacoCodeViewer({ path, content, language }: MonacoCodeViewerProps) {
   const theme = useAppTheme()
+  const codeFontMetrics = useCodeFontMetrics()
 
   return (
     <Editor
@@ -21,8 +23,11 @@ export function MonacoCodeViewer({ path, content, language }: MonacoCodeViewerPr
         contextmenu: false,
         automaticLayout: true,
         minimap: { enabled: false },
-        fontSize: 13,
-        lineHeight: 20,
+        fontFamily:
+          getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim() ||
+          `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace`,
+        fontSize: codeFontMetrics.fontSize,
+        lineHeight: codeFontMetrics.lineHeight,
         lineNumbers: 'on',
         scrollBeyondLastLine: false,
         wordWrap: 'off',

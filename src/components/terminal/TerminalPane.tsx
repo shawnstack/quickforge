@@ -6,6 +6,7 @@ import type { IDisposable } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { getWebSocketBaseUrl } from '@/lib/backend-url'
 import { t } from '@/lib/i18n'
+import { FONT_SIZE_SETTINGS_CHANGED_EVENT, getTerminalFontMetrics } from '@/lib/font-size-settings'
 import { useAppTheme } from '@/hooks/useAppTheme'
 import type { TerminalMessage, TerminalSession } from './terminal-types'
 
@@ -58,12 +59,15 @@ export function TerminalPane({ session, active, height, onReady, onExited, onCon
       onConnectionError(session.id, message)
     }
 
+    const terminalMetrics = getTerminalFontMetrics()
     const terminal = new Terminal({
       cursorBlink: true,
       convertEol: false,
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-      fontSize: 12,
-      lineHeight: 1.2,
+      fontFamily:
+        getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim() ||
+        `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace`,
+      fontSize: terminalMetrics.fontSize,
+      lineHeight: terminalMetrics.lineHeight,
       scrollback: 5000,
       theme: terminalTheme,
     })
@@ -139,10 +143,18 @@ export function TerminalPane({ session, active, height, onReady, onExited, onCon
     const resizeObserver = new ResizeObserver(() => fitAndResize())
     resizeObserver.observe(host)
     resizeObserverRef.current = resizeObserver
+    const handleFontSizeSettingsChanged = () => {
+      const nextMetrics = getTerminalFontMetrics()
+      terminal.options.fontSize = nextMetrics.fontSize
+      terminal.options.lineHeight = nextMetrics.lineHeight
+      window.setTimeout(fitAndResize, 0)
+    }
+    window.addEventListener(FONT_SIZE_SETTINGS_CHANGED_EVENT, handleFontSizeSettingsChanged)
     window.setTimeout(fitAndResize, 50)
 
     return () => {
       disposed = true
+      window.removeEventListener(FONT_SIZE_SETTINGS_CHANGED_EVENT, handleFontSizeSettingsChanged)
       resizeObserver.disconnect()
       resizeObserverRef.current = null
       dataDisposableRef.current?.dispose()

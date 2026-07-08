@@ -1,5 +1,6 @@
 import { DiffEditor } from '@monaco-editor/react'
 import { useAppTheme } from '@/hooks/useAppTheme'
+import { useCodeFontMetrics } from '@/hooks/useCodeFontMetrics'
 import type { GitFileStatus } from './workspace-types'
 
 type MonacoDiffViewerProps = {
@@ -12,6 +13,7 @@ type MonacoDiffViewerProps = {
 
 export function MonacoDiffViewer({ path, oldContent, newContent, language, status }: MonacoDiffViewerProps) {
   const theme = useAppTheme()
+  const codeFontMetrics = useCodeFontMetrics()
 
   return (
     <DiffEditor
@@ -26,8 +28,11 @@ export function MonacoDiffViewer({ path, oldContent, newContent, language, statu
         automaticLayout: true,
         renderSideBySide: true,
         minimap: { enabled: false },
-        fontSize: 13,
-        lineHeight: 20,
+        fontFamily:
+          getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim() ||
+          `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace`,
+        fontSize: codeFontMetrics.fontSize,
+        lineHeight: codeFontMetrics.lineHeight,
         scrollBeyondLastLine: false,
         ignoreTrimWhitespace: false,
         folding: false,

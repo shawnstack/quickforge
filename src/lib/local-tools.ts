@@ -32,7 +32,7 @@ const DIFF_BLOCK_STYLE = {
   border: '1px solid color-mix(in oklab, var(--border) 75%, transparent)',
   borderRadius: '0.75rem',
   background: 'color-mix(in oklab, var(--muted) 28%, transparent)',
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+  fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace)',
   fontSize: '0.78rem',
   lineHeight: '1.45',
 }
@@ -46,7 +46,7 @@ const DIFF_BADGE_BASE_STYLE = {
   alignItems: 'center',
   borderRadius: '999px',
   padding: '0.05rem 0.45rem',
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+  fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace)',
   fontSize: '0.72rem',
   fontWeight: '650',
 }

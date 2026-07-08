@@ -14,6 +14,8 @@ import {
 } from '../../src/lib/appearance-settings'
 import {
   DEFAULT_FONT_SIZE_SETTINGS,
+  getCodeFontMetrics,
+  getTerminalFontMetrics,
   loadFontSizeSettings,
   normalizeFontSizeSettings,
   saveFontSizeSettings,
@@ -111,6 +113,10 @@ describe('settings normalizers', () => {
       interfaceFontSizePx: 16,
       messageFontSizePx: 18,
     })
+    expect(getCodeFontMetrics(14)).toEqual({ fontSize: 13, lineHeight: 20 })
+    expect(getCodeFontMetrics(18)).toEqual({ fontSize: 17, lineHeight: 26 })
+    expect(getTerminalFontMetrics(14)).toEqual({ fontSize: 12, lineHeight: 1.2 })
+    expect(getTerminalFontMetrics(18)).toEqual({ fontSize: 16, lineHeight: 1.2 })
 
     const { storage, values } = createStorage({ 'font-size-settings': { baseFontSizePx: 20 } })
     await expect(loadFontSizeSettings(storage)).resolves.toEqual(DEFAULT_FONT_SIZE_SETTINGS)

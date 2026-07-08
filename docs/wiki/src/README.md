@@ -69,3 +69,15 @@ src/
 - `handleChatPanelEvent()` — 处理聊天面板事件
 - `handleScheduledTaskNotification()` — 处理定时任务通知事件
 - `subscribeToAgentEvents()` — 订阅全局 Agent 事件
+
+### index.css 样式架构
+
+全局样式入口 `src/index.css`，按顺序 `@import` pi-web-ui 预构建样式与 Tailwind，再叠加本地自定义。理解其层级关系是正确覆盖设计 token 的前提。
+
+**覆盖 pi-web-ui 的设计 token 必须写在 unlayered `:root`，而非 `@theme`。** pi-web-ui 的 `app.css` 通过 *unlayered* `:root,:host{}` 输出设计 token（`--text-sm`、`--font-sans`、`--font-mono` 等），而 Tailwind v4 会把本地 `@theme` 块编译进 `@layer theme`。按 CSS 层叠规则，unlayered 声明优先级高于任何 `@layer`，因此在 `@theme` 中覆盖 pi-web-ui 已有的 token 会**静默失效**。正确做法：把需要覆盖的 token 写在 `@import` pi-web-ui **之后**的 unlayered `:root{}` 中——同属 unlayered、源顺序后者胜，覆盖才能生效。此结论已通过 Chrome headless 读取 `getComputedStyle` 实测确认。
+
+**字体栈集中定义**：`--font-sans` / `--font-mono` 在 unlayered `:root` 统一定义一次，全局通过 `var(--font-sans)` / `var(--font-mono)` 引用（终端、Monaco、代码块等），避免逐组件复制字体栈。系统字体优先（不打包自定义 UI 字体），并显式补 CJK 回退（`PingFang SC` / `Microsoft YaHei` / `Noto Sans CJK SC`）保证中文跨平台度量一致。
+
+**字号体系**：`html { font-size }` 是基准（默认 14px）；界面字号设置由 `lib/font-size-settings.ts` 的 `applyFontSizeSettings()` 写入 `root.style.fontSize` 驱动所有 rem 单位。`--text-sm` 刻意等于 `1rem`（随界面字号缩放），消息正文字号走独立的 `--quickforge-message-font-size` 变量。Monaco 与终端等固定像素字号场景通过 `getCodeFontMetrics()` / `getTerminalFontMetrics()` 从界面字号派生，并监听 `quickforge:font-size-settings-changed` 做运行时刷新。
+
+**本地 Tailwind utilities 源顺序坑**：本地 Tailwind 构建产物晚于 pi-web-ui 的预构建 utilities 输出，`index.css` 中已用一段显式 `@media (width >= 48rem) { .md\:block { display: block } }` 修正侧边栏 `md:block` 被后续 `.hidden` 覆盖的问题。

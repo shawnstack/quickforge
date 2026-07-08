@@ -4,6 +4,7 @@ import {
   clearComposerDraft,
   loadComposerDraft,
   saveComposerDraft,
+  createComposerDraftRestoreGuard,
 } from '../../src/lib/composer-drafts'
 
 function createLocalStorageMock(initial: Record<string, string> = {}): Storage {
@@ -110,5 +111,15 @@ describe('composer drafts', () => {
     const before = globalThis.localStorage.getItem(draftsKey)
     await clearComposerDraft('missing')
     expect(globalThis.localStorage.getItem(draftsKey)).toBe(before)
+  })
+
+  it('invalidates stale async draft restores after a send clears the composer', () => {
+    const guard = createComposerDraftRestoreGuard()
+    const restoreVersion = guard.version()
+
+    guard.invalidate()
+
+    expect(guard.isCurrent(restoreVersion)).toBe(false)
+    expect(guard.isCurrent(guard.version())).toBe(true)
   })
 })

@@ -23,6 +23,10 @@ export type ToolExecutionEvent = {
   quickforgeTiming?: QuickForgeToolTiming
 }
 
+function isRoleWithTimestampDedupe(role: AgentMessage['role']): boolean {
+  return role === 'assistant' || role === 'user' || role === 'user-with-attachments'
+}
+
 export function upsertMessage(messages: AgentMessage[], message: AgentMessage): AgentMessage[] {
   const toolCallId = (message as { toolCallId?: unknown }).toolCallId
   if (message.role === 'toolResult' && typeof toolCallId === 'string') {
@@ -34,10 +38,10 @@ export function upsertMessage(messages: AgentMessage[], message: AgentMessage): 
     }
   }
 
-  if (message.role === 'assistant') {
+  if (isRoleWithTimestampDedupe(message.role)) {
     const timestamp = (message as { timestamp?: unknown }).timestamp
     if (timestamp !== undefined) {
-      const index = messages.findIndex((item) => item.role === 'assistant' && (item as { timestamp?: unknown }).timestamp === timestamp)
+      const index = messages.findIndex((item) => item.role === message.role && (item as { timestamp?: unknown }).timestamp === timestamp)
       if (index >= 0) {
         const next = messages.slice()
         next[index] = message

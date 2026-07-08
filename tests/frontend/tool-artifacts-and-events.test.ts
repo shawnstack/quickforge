@@ -158,6 +158,22 @@ describe('tool execution events', () => {
       { role: 'user', content: 'ask' },
       { role: 'assistant', content: 'answer' },
     ])
+
+    expect(upsertMessage(messages([
+      { role: 'user', timestamp: 10, content: 'old question' },
+      { role: 'assistant', content: 'working' },
+    ]), message({ role: 'user', timestamp: 10, content: 'new question' }))).toEqual([
+      { role: 'user', timestamp: 10, content: 'new question' },
+      { role: 'assistant', content: 'working' },
+    ])
+
+    expect(upsertMessage(messages([
+      { role: 'user-with-attachments', timestamp: 11, content: 'old file question' },
+      { role: 'assistant', content: 'working' },
+    ]), message({ role: 'user-with-attachments', timestamp: 11, content: 'new file question' }))).toEqual([
+      { role: 'user-with-attachments', timestamp: 11, content: 'new file question' },
+      { role: 'assistant', content: 'working' },
+    ])
   })
 
   it('extracts quickforge timing only from valid timing details', () => {

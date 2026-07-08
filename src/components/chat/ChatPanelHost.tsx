@@ -24,6 +24,7 @@ import {
   clearComposerDraft,
   loadComposerDraft,
   saveComposerDraft,
+  createComposerDraftRestoreGuard,
   type ComposerDraftContext,
 } from '@/lib/composer-drafts'
 
@@ -179,6 +180,7 @@ export function ChatPanelHost({
   const saveDraftTimerRef = useRef<number | undefined>(undefined)
   const artifactsSignatureRef = useRef('')
   const artifactsInputKeyRef = useRef('')
+  const draftRestoreGuardRef = useRef(createComposerDraftRestoreGuard())
   const [gitBranch, setGitBranch] = useState<string>()
   const [planMode, setPlanMode] = useState(false)
   const togglePlanMode = useCallback(() => setPlanMode((mode) => !mode), [])
@@ -695,6 +697,7 @@ export function ChatPanelHost({
         ? async () => true
         : (provider: string) => ApiKeyPromptDialog.prompt(provider),
       onBeforeSend: () => {
+        draftRestoreGuardRef.current.invalidate()
         const draft = restoredDraftRef.current
         if (draft) consumedRestoredDraftIdsRef.current.add(draft.id)
         cancelPendingDraftSave()
@@ -711,8 +714,9 @@ export function ChatPanelHost({
 
       // Restore draft
       const draft = restoredDraftRef.current
+      const restoreVersion = draftRestoreGuardRef.current.version()
       const restoreStoredDraft = (storedDraft?: ComposerDraft) => {
-        if (disposed) return
+        if (disposed || !draftRestoreGuardRef.current.isCurrent(restoreVersion)) return
         if (draft && restoredDraftIdRef.current !== draft.id) {
           restoredDraftIdRef.current = draft.id
           restoreDraftForSession(panel, draft, sessionId, currentDraftKey)

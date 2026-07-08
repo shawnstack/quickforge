@@ -410,6 +410,11 @@ export class ServerAgent {
   async prompt(input: string | AgentMessage | AgentMessage[]): Promise<void> {
     if (this.disposed) return
 
+    if (this.state.isStreaming) {
+      logger.warn('Ignored prompt while agent is already streaming')
+      return
+    }
+
     // Normalize input to a message
     let message: Record<string, unknown>
     if (typeof input === 'string') {
@@ -433,6 +438,8 @@ export class ServerAgent {
       onConsumed?.()
     }
 
+    const msgCountBeforeOptimistic = this.state.messages.length
+
     // Add to local state immediately for optimistic UI
     const agentMessage = message as unknown as AgentMessage
     this.state.messages = [...this.state.messages, agentMessage]
@@ -449,7 +456,6 @@ export class ServerAgent {
     const PROMPT_TIMEOUT_MS = 30_000
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), PROMPT_TIMEOUT_MS)
-    const msgCountBeforeOptimistic = this.state.messages.length
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/prompt`
     fetch(url, {
       method: 'POST',
@@ -465,7 +471,7 @@ export class ServerAgent {
       logger.error('Failed to send prompt:', err)
       // Roll back the optimistic message so the UI doesn't show a message
       // that was never received by the server.
-      if (this.state.messages.length === msgCountBeforeOptimistic + 1) {
+      if (this.state.messages.length === msgCountBeforeOptimistic + 1 && this.state.messages[this.state.messages.length - 1] === agentMessage) {
         this.state.messages = this.state.messages.slice(0, -1)
       }
       this.state.errorMessage = message

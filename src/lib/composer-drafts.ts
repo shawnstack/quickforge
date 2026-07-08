@@ -150,3 +150,21 @@ export async function clearComposerDraft(key: string): Promise<void> {
   delete drafts[key]
   writeDrafts(drafts)
 }
+
+export type ComposerDraftRestoreGuard = {
+  version: () => number
+  isCurrent: (version: number) => boolean
+  invalidate: () => number
+}
+
+export function createComposerDraftRestoreGuard(): ComposerDraftRestoreGuard {
+  let currentVersion = 0
+  return {
+    version: () => currentVersion,
+    isCurrent: (version: number) => version === currentVersion,
+    invalidate: () => {
+      currentVersion += 1
+      return currentVersion
+    },
+  }
+}

@@ -436,8 +436,8 @@ function MainApp() {
   const openWorkspaceGitChanges = useCallback(() => {
     if (!agentManager.currentToolProject?.id) return
     setArtifactPreviewOpen(false)
+    ui.setWorkspaceInspectorFocusTarget(undefined)
     setWorkspacePanelView('changes')
-    ui.setWorkspaceInspectorFocusTarget({ tab: 'git', nonce: Date.now() })
     ui.setWorkspaceInspectorOpen(true)
   }, [agentManager.currentToolProject?.id, setArtifactPreviewOpen, setWorkspacePanelView, ui])
 
@@ -1557,13 +1557,13 @@ function MainApp() {
           </Suspense>
         ) : null}
       </main>
-      {ui.workspaceInspectorOpen && agentManager.currentToolProject?.id ? (
+      {agentManager.currentToolProject?.id ? (
         <>
-          <div aria-hidden="true" className="hidden w-px shrink-0 bg-[color-mix(in_oklab,var(--border)_30%,var(--quickforge-sidebar-bg))] lg:block" />
+          {ui.workspaceInspectorOpen ? <div aria-hidden="true" className="hidden w-px shrink-0 bg-[color-mix(in_oklab,var(--border)_30%,var(--quickforge-sidebar-bg))] lg:block" /> : null}
           <Suspense fallback={<LazyOverlayFallback />}>
             <WorkspaceInspector
               project={agentManager.currentToolProject}
-              open
+              open={ui.workspaceInspectorOpen}
               onOpenChange={ui.setWorkspaceInspectorOpen}
               view={ui.workspacePanelView}
               onViewChange={ui.setWorkspacePanelView}

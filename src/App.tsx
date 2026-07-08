@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ProjectDirectoryPicker } from '@/components/project-directory-picker'
+import { ProjectOpenMenu } from '@/components/project/ProjectOpenMenu'
 import { SkillsDialog } from '@/components/skills-dialog'
 import {
   buildConnectionModel,
@@ -1027,6 +1028,15 @@ function MainApp() {
     throw new Error(payload?.error || t('openInExplorerFailed'))
   }, [])
 
+  const openProjectInVSCode = useCallback(async (project: ProjectInfo) => {
+    const response = await fetch(`/api/project/${encodeURIComponent(project.id)}/open-in-vscode`, {
+      method: 'POST',
+    })
+    if (response.ok) return
+    const payload = await response.json().catch(() => null)
+    throw new Error(payload?.error || t('openInVSCodeFailed'))
+  }, [])
+
   // --- Desktop sidebar handlers (stable; do not auto-close the sidebar) ---
   // Kept separate from the mobile `*FromSidebar` handlers so the memoized desktop
   // <ChatSidebar> does not re-render on unrelated App state changes.
@@ -1036,6 +1046,13 @@ function MainApp() {
       void showAlert(error instanceof Error ? error.message : t('openInExplorerFailed'))
     })
   }, [openProjectInExplorer])
+
+  const openProjectInVSCodeWithFeedback = useCallback((project: ProjectInfo) => {
+    void openProjectInVSCode(project).catch((error) => {
+      logger.error('Failed to open project in VS Code:', error)
+      void showAlert(error instanceof Error ? error.message : t('openInVSCodeFailed'))
+    })
+  }, [openProjectInVSCode])
 
   const toggleSidebar = useCallback(() => setSidebarOpen((value) => !value), [setSidebarOpen])
 
@@ -1169,6 +1186,14 @@ function MainApp() {
       className="quickforge-window-toolbar fixed right-2 top-2 z-30 flex items-center gap-1"
       aria-label={t('workspacePanel')}
     >
+      {!ui.workspaceInspectorOpen ? (
+        <ProjectOpenMenu
+          project={agentManager.currentToolProject}
+          disabled={needsModelSetup}
+          onOpenInExplorer={openProjectInExplorerWithFeedback}
+          onOpenInVSCode={openProjectInVSCodeWithFeedback}
+        />
+      ) : null}
       {!ui.workspaceInspectorOpen && agentManager.currentToolProject?.id && titleGitStatus?.isGitRepository ? (
         <GitToolsPinnedSummary
           projectId={agentManager.currentToolProject.id}

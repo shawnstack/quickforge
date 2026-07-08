@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="File Manager">
+  <defs>
+    <linearGradient id="folder-tab" x1="28" y1="42" x2="139" y2="99" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#EAA900"/>
+      <stop offset="1" stop-color="#FFD347"/>
+    </linearGradient>
+    <linearGradient id="folder-front" x1="30" y1="86" x2="226" y2="213" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFD85A"/>
+      <stop offset="0.58" stop-color="#FFC32B"/>
+      <stop offset="1" stop-color="#F2A700"/>
+    </linearGradient>
+    <linearGradient id="folder-blue" x1="75" y1="139" x2="152" y2="207" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#27A8F7"/>
+      <stop offset="1" stop-color="#0068B7"/>
+    </linearGradient>
+    <filter id="folder-shadow" x="12" y="35" width="232" height="190" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#0F172A" flood-opacity=".18"/>
+    </filter>
+  </defs>
+  <g filter="url(#folder-shadow)">
+    <path fill="url(#folder-tab)" d="M25 67.7C25 55.2 35.2 45 47.7 45h50.8c7.7 0 14.9 3.8 19.1 10.2l9.8 14.6h80.9c12.5 0 22.7 10.2 22.7 22.7v15.2H25v-40Z"/>
+    <path fill="#D89600" d="M25 92h206v25H25z" opacity=".55"/>
+    <path fill="url(#folder-front)" d="M25 94.3h206v91C231 198 220.7 208 208.3 208H47.7C35.2 208 25 197.8 25 185.3v-91Z"/>
+    <path fill="#FFE584" d="M35 105h186v18H35z" opacity=".35"/>
+    <rect width="93" height="61" x="61" y="134" fill="url(#folder-blue)" rx="8"/>
+    <path fill="#0B5FA9" d="M70 151h75v8H70zm0 18h60v8H70z" opacity=".95"/>
+    <path fill="#72C7FF" d="M71 143h72a5 5 0 0 1 5 5v2H66v-2a5 5 0 0 1 5-5Z" opacity=".55"/>
+  </g>
+</svg>

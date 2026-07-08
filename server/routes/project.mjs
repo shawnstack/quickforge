@@ -4,7 +4,7 @@ import { getActiveProject, setActiveProjectPath, readProjectConfig, getDefaultWo
 import { listProjectCommands, createCommandFile } from '../custom-commands.mjs'
 import { atomicProjectConfigUpdate } from '../storage.mjs'
 import { getWorkspaceRoot, setWorkspaceRoot } from '../utils/workspace.mjs'
-import { selectDirectoryDialog, openPathInFileManager } from '../utils/platform.mjs'
+import { selectDirectoryDialog, openPathInFileManager, openPathInVSCode } from '../utils/platform.mjs'
 import path from 'node:path'
 
 export async function handleProjectApi(req, res, url) {
@@ -105,6 +105,19 @@ export async function handleProjectApi(req, res, url) {
       throw error
     }
     await openPathInFileManager(selected.path)
+    sendJson(res, 200, { ok: true })
+    return
+  }
+
+  if (req.method === 'POST' && url.pathname.startsWith('/api/project/') && url.pathname.endsWith('/open-in-vscode')) {
+    const id = decodeSegment(url.pathname.split('/').filter(Boolean)[2])
+    const selected = config.projects.find((project) => project.id === id)
+    if (!selected) {
+      const error = new Error('Unknown project')
+      error.statusCode = 404
+      throw error
+    }
+    await openPathInVSCode(selected.path)
     sendJson(res, 200, { ok: true })
     return
   }

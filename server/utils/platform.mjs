@@ -122,6 +122,15 @@ try {
   throw error
 }
 
+async function findExistingFile(candidates) {
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    const stat = await fs.stat(candidate).catch(() => null)
+    if (stat?.isFile()) return candidate
+  }
+  return undefined
+}
+
 export async function openPathInFileManager(targetPath) {
   const resolved = path.resolve(String(targetPath || ''))
   const stat = await fs.stat(resolved).catch(() => null)
@@ -138,6 +147,51 @@ export async function openPathInFileManager(targetPath) {
       detached: true,
       stdio: 'ignore',
       windowsHide: false,
+      shell: false,
+    })
+    child.once('error', (error) => {
+      error.statusCode = 500
+      reject(error)
+    })
+    child.once('spawn', () => {
+      child.unref()
+      resolve()
+    })
+  })
+}
+
+export async function openPathInVSCode(targetPath) {
+  const resolved = path.resolve(String(targetPath || ''))
+  const stat = await fs.stat(resolved).catch(() => null)
+  if (!stat || !stat.isDirectory()) {
+    const error = new Error(`Directory does not exist: ${resolved}`)
+    error.statusCode = 400
+    throw error
+  }
+
+  let command = 'code'
+  let args = [resolved]
+  if (process.platform === 'win32') {
+    const candidates = [
+      process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'Microsoft VS Code', 'Code.exe') : undefined,
+      process.env.PROGRAMFILES ? path.join(process.env.PROGRAMFILES, 'Microsoft VS Code', 'Code.exe') : undefined,
+      process.env['PROGRAMFILES(X86)'] ? path.join(process.env['PROGRAMFILES(X86)'], 'Microsoft VS Code', 'Code.exe') : undefined,
+    ].filter(Boolean)
+    const codeExecutable = await findExistingFile(candidates)
+    if (codeExecutable) {
+      command = codeExecutable
+      args = [resolved]
+    } else {
+      command = 'cmd.exe'
+      args = ['/d', '/s', '/c', 'start', '""', '/b', 'code', resolved]
+    }
+  }
+
+  await new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
       shell: false,
     })
     child.once('error', (error) => {

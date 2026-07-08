@@ -15,6 +15,7 @@ type TerminalDockProps = {
   pendingCommand?: PendingTerminalCommand | null
   onPendingCommandHandled?: (id: number) => void
   variant?: 'dock' | 'panel'
+  singleSession?: boolean
   panelInstanceId?: string
   panelSessionId?: string
   onPanelSessionReady?: (sessionId: string) => void
@@ -39,7 +40,7 @@ function profileFromCapabilities(capabilities: TerminalCapabilities | null, prof
   return profiles.find((profile) => profile.id === selectedId) || profiles[0]
 }
 
-export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCommandHandled, variant = 'dock', panelInstanceId, panelSessionId, onPanelSessionReady }: TerminalDockProps) {
+export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCommandHandled, variant = 'dock', singleSession = false, panelInstanceId, panelSessionId, onPanelSessionReady }: TerminalDockProps) {
   const [capabilities, setCapabilities] = useState<TerminalCapabilities | null>(null)
   const [sessions, setSessions] = useState<TerminalSession[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string>()
@@ -390,6 +391,7 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
   const displaySessions = isPanelInstance && activeSession ? [activeSession] : sessions
   const visibleError = error ?? activeConnectionError
   const isPanel = variant === 'panel'
+  const singlePanelSession = isPanel && singleSession
   const terminalBodyHeight = isPanel
     ? undefined
     : fullscreen
@@ -416,42 +418,54 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
       <div className="flex h-9 items-center gap-1 border-b border-border px-2">
         <SquareTerminal className="size-4 shrink-0 text-muted-foreground/60" />
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-          {displaySessions.map((session) => (
-            <button
-              key={session.id}
-              type="button"
-              className={cn(
-                'group flex max-w-44 shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground/72 hover:bg-muted/20 hover:text-foreground/85',
-                activeSession?.id === session.id && 'bg-muted/28 text-foreground/90',
-              )}
-              onClick={() => setActiveSessionId(session.id)}
-              title={`${session.name} — ${session.cwd}`}
-            >
-              <span className={cn('size-1.5 rounded-full', session.exited ? 'bg-muted-foreground/40' : 'bg-emerald-500/80')} />
-              <span className="truncate">{session.name}</span>
-              <span
-                role="button"
-                tabIndex={0}
-                className="ml-1 rounded-sm p-0.5 opacity-60 hover:bg-background hover:opacity-100"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  void closeSession(session.id)
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault()
+          {displaySessions.map((session) => {
+            const sessionHeaderClassName = cn(
+              'flex max-w-44 shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground/72',
+              activeSession?.id === session.id && 'bg-muted/28 text-foreground/90',
+            )
+            if (singlePanelSession) {
+              return (
+                <div key={session.id} className={sessionHeaderClassName} title={`${session.name} — ${session.cwd}`}>
+                  <span className={cn('size-1.5 rounded-full', session.exited ? 'bg-muted-foreground/40' : 'bg-emerald-500/80')} />
+                  <span className="truncate">{session.name}</span>
+                </div>
+              )
+            }
+            return (
+              <button
+                key={session.id}
+                type="button"
+                className={cn(sessionHeaderClassName, 'hover:bg-muted/20 hover:text-foreground/85')}
+                onClick={() => setActiveSessionId(session.id)}
+                title={`${session.name} — ${session.cwd}`}
+              >
+                <span className={cn('size-1.5 rounded-full', session.exited ? 'bg-muted-foreground/40' : 'bg-emerald-500/80')} />
+                <span className="truncate">{session.name}</span>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="ml-1 rounded-sm p-0.5 opacity-60 hover:bg-background hover:opacity-100"
+                  onClick={(event) => {
                     event.stopPropagation()
                     void closeSession(session.id)
-                  }
-                }}
-                aria-label={t('terminalCloseSession', { name: session.name })}
-              >
-                <X className="size-3" />
-              </span>
-            </button>
-          ))}
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      void closeSession(session.id)
+                    }
+                  }}
+                  aria-label={t('terminalCloseSession', { name: session.name })}
+                >
+                  <X className="size-3" />
+                </span>
+              </button>
+            )
+          })}
         </div>
-        <div className="relative shrink-0" ref={shellMenuRef}>
+        {singlePanelSession ? null : (
+          <div className="relative shrink-0" ref={shellMenuRef}>
           <div className="flex items-center overflow-hidden rounded-md border border-border bg-background">
             <button
               type="button"
@@ -506,7 +520,8 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
               })}
             </div>
           ) : null}
-        </div>
+          </div>
+        )}
         <Button
           variant="ghost"
           size="icon"

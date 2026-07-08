@@ -1339,6 +1339,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
               onPendingCommandHandled={onPendingTerminalCommandHandled}
               onCollapse={() => closePanelTab(activePanelTab.id)}
               variant="panel"
+              singleSession
               panelInstanceId={activePanelTab.id}
               panelSessionId={activePanelTab.terminalSessionId}
               onPanelSessionReady={(sessionId) => updatePanelTab(activePanelTab.id, (tab) => ({ ...tab, terminalSessionId: sessionId }))}

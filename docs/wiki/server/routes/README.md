@@ -21,7 +21,7 @@
 | `lan-access.mjs` | 201 | LAN 共享访问管理 |
 | `instructions.mjs` | 20 | 系统提示词 |
 | `system.mjs` | 81 | 系统状态、重启、关于信息、Runtime 更新和 Desktop 发布页检查 |
-| `workspace.mjs` | 493 | 工作区文件浏览、产物预览静态读取、Git 变更检查、分支操作和提交图谱（`server/index.mjs` 通过 `/api/git/*` 统一分发） |
+| `workspace.mjs` | 828 | 工作区文件浏览、产物预览静态读取、Git 变更检查、分支操作、AI 提交信息生成、提交/推送和提交图谱（`server/index.mjs` 通过 `/api/git/*` 统一分发） |
 | `static.mjs` | 83 | 静态文件服务 |
 
 ---
@@ -195,7 +195,7 @@ LAN 共享访问管理路由。
 - `POST /api/system/update` — 启动外部更新器执行 npm Runtime 更新（本机请求限定，需 `x-quickforge-action: update`）；接口返回 `202`、更新日志路径和旧 `bootId`，当前服务随后退出，`update-supervisor.mjs` 在外部执行 `npm install -g <package>@latest` 并自动重启服务。Desktop 客户端更新不走该入口。
 - `POST /api/system/restart` — 服务重启
 
-## workspace.mjs (296 行)
+## workspace.mjs
 
 Workspace Inspector 后端 API。
 
@@ -208,7 +208,7 @@ Workspace Inspector 后端 API。
 
 **安全约束**: 所有路径必须位于项目 workspace 内，阻止敏感文件、二进制文件和超大文件预览。
 
-## workspace.mjs (493 行)
+## workspace.mjs
 
 工作区文件与 Git 能力路由。
 
@@ -223,6 +223,10 @@ Workspace Inspector 后端 API。
 - `POST /api/git/checkout` — 检出已有分支。
 - `POST /api/git/create-branch` — 从当前 HEAD 创建并检出新分支。
 - `GET /api/git/log` — 获取最近提交和 refs 装饰，用于标题栏 Git 图谱弹窗。
+- `POST /api/git/generate-commit-message` — 使用当前默认模型根据 staged/unstaged diff 生成 Conventional Commit 提交信息。
+- `POST /api/git/commit` — 提交已暂存内容；可选 `includeUnstaged` 时先执行 `git add -A`。
+- `POST /api/git/push` — 执行 `git push`，无 upstream 等错误直接返回给前端。
+- `POST /api/git/commit-and-push` — 提交后执行 `git push`。
 
 ## static.mjs (83 行)
 

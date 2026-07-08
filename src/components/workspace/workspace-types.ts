@@ -112,3 +112,7 @@ export type GitLogResponse = {
   isGitRepository: boolean
   commits: GitLogCommit[]
 }
+
+export type GitOperationResponse = GitStatusResponse & {
+  message?: string
+}

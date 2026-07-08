@@ -63,6 +63,8 @@ import { logger } from '@/lib/logger'
 import { showAlert, showConfirm } from '@/components/ui/confirm-dialog'
 import { ToastContainer } from '@/components/ui/toast'
 import { GitBranchMenu } from '@/components/git/GitBranchMenu'
+import { GitCommitPushDialog } from '@/components/git/GitCommitPushDialog'
+import { GitToolsPinnedSummary } from '@/components/git/GitToolsPinnedSummary'
 import { GitGraphDialog } from '@/components/git/GitGraphDialog'
 import { ShareConversationDialog } from '@/components/share/ShareConversationDialog'
 import { checkoutGitBranch, getGitStatus, getWorkspaceFile, resolveWorkspacePath } from '@/components/workspace/workspace-api'
@@ -83,6 +85,9 @@ const SharedConversationPage = lazy(() =>
 )
 const WorkspaceInspector = lazy(() =>
   import('@/components/workspace/WorkspaceInspector').then((m) => ({ default: m.WorkspaceInspector })),
+)
+const TerminalDock = lazy(() =>
+  import('@/components/terminal/TerminalDock').then((m) => ({ default: m.TerminalDock })),
 )
 const WorkspaceReaderDialog = lazy(() =>
   import('@/components/workspace/WorkspaceReaderDialog').then((m) => ({ default: m.WorkspaceReaderDialog })),
@@ -276,6 +281,7 @@ function MainApp() {
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
   const [desktopTitlebarMenuOpen, setDesktopTitlebarMenuOpen] = useState(false)
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState<PendingTerminalCommand | null>(null)
+  const [terminalDockOpen, setTerminalDockOpen] = useState(false)
   const [currentSessionArtifacts, setCurrentSessionArtifacts] = useState<AiTurnArtifact[]>([])
   const [sidebarSessionViewMode, setSidebarSessionViewMode] = useState<SidebarSessionViewMode>('project')
   const [sidebarSessionSortMode, setSidebarSessionSortMode] = useState<SidebarSessionSortMode>('updatedAt')
@@ -283,6 +289,8 @@ function MainApp() {
   const [currentSessionHoverInfo, setCurrentSessionHoverInfo] = useState<(ContextUsageDisplayInfo & { sessionId?: string }) | undefined>()
   const [titleGitStatus, setTitleGitStatus] = useState<GitStatusResponse | undefined>()
   const [branchMenuOpen, setBranchMenuOpen] = useState(false)
+  const [gitToolsExpanded, setGitToolsExpanded] = useState(false)
+  const [gitCommitDialogOpen, setGitCommitDialogOpen] = useState(false)
   const [gitGraphOpen, setGitGraphOpen] = useState(false)
   const [externalProjectIds, setExternalProjectIds] = useState<Set<string>>(() => new Set())
   const terminalCommandIdRef = useRef(0)
@@ -481,6 +489,16 @@ function MainApp() {
     addToast({
       sessionId: agentManager.currentSessionId ?? '',
       title: t('gitBranchCreated'),
+      status: 'idle',
+      message: status.branch ?? '',
+    })
+  }, [addToast, agentManager.currentSessionId])
+
+  const handleGitOperationCompleted = useCallback((status: GitStatusResponse) => {
+    setTitleGitStatus(status)
+    addToast({
+      sessionId: agentManager.currentSessionId ?? '',
+      title: t('gitOperationCompleted'),
       status: 'idle',
       message: status.branch ?? '',
     })
@@ -898,8 +916,7 @@ function MainApp() {
         }
 
         setArtifactPreviewOpen(false)
-        setWorkspacePanelView('terminal')
-        setWorkspaceInspectorOpen(true)
+        setTerminalDockOpen(true)
         setPendingTerminalCommand({
           id: ++terminalCommandIdRef.current,
           command,
@@ -915,7 +932,7 @@ function MainApp() {
 
     window.addEventListener('quickforge:execute-markdown-command', handleExecuteMarkdownCommand)
     return () => window.removeEventListener('quickforge:execute-markdown-command', handleExecuteMarkdownCommand)
-  }, [setArtifactPreviewOpen, setWorkspaceInspectorOpen, setWorkspacePanelView])
+  }, [setArtifactPreviewOpen])
 
   const handlePendingTerminalCommandHandled = useCallback((id: number) => {
     setPendingTerminalCommand((current) => current?.id === id ? null : current)
@@ -1152,18 +1169,36 @@ function MainApp() {
       className="quickforge-window-toolbar fixed right-2 top-2 z-30 flex items-center gap-1"
       aria-label={t('workspacePanel')}
     >
+      {!ui.workspaceInspectorOpen && agentManager.currentToolProject?.id && titleGitStatus?.isGitRepository ? (
+        <GitToolsPinnedSummary
+          projectId={agentManager.currentToolProject.id}
+          status={titleGitStatus}
+          expanded={gitToolsExpanded}
+          onExpandedChange={setGitToolsExpanded}
+          onOpenChanges={() => {
+            setGitToolsExpanded(false)
+            openWorkspaceGitChanges()
+          }}
+          onOpenCommitPush={() => {
+            setGitToolsExpanded(false)
+            setGitCommitDialogOpen(true)
+          }}
+          onCheckout={handleCheckoutTitleBranch}
+          onCreated={handleBranchCreated}
+          onOpenGraph={() => setGitGraphOpen(true)}
+        />
+      ) : null}
       <Button
         variant="ghost"
         size="icon"
         onClick={() => {
           setArtifactPreviewOpen(false)
-          setWorkspacePanelView('terminal')
-          ui.setWorkspaceInspectorOpen(true)
+          setTerminalDockOpen(true)
         }}
         disabled={!agentManager.currentToolProject?.id || needsModelSetup}
         aria-label={t('rightPanelTerminal')}
         title={t('rightPanelTerminal')}
-        className={ui.workspaceInspectorOpen && ui.workspacePanelView === 'terminal' ? 'bg-accent text-accent-foreground' : undefined}
+        className={terminalDockOpen ? 'bg-accent text-accent-foreground' : undefined}
       >
         <SquareTerminal className="size-[18px]" />
       </Button>
@@ -1511,6 +1546,16 @@ function MainApp() {
               </>
           )}
         </section>
+        {terminalDockOpen && agentManager.currentToolProject?.id ? (
+          <Suspense fallback={<LazyPanelFallback />}>
+            <TerminalDock
+              project={agentManager.currentToolProject}
+              pendingCommand={pendingTerminalCommand}
+              onPendingCommandHandled={handlePendingTerminalCommandHandled}
+              onCollapse={() => setTerminalDockOpen(false)}
+            />
+          </Suspense>
+        ) : null}
       </main>
       {ui.workspaceInspectorOpen && agentManager.currentToolProject?.id ? (
         <>
@@ -1526,10 +1571,7 @@ function MainApp() {
               onDraftRequest={restoreWorkspaceDraft}
               focusTarget={ui.workspaceInspectorFocusTarget}
               previewUrl={ui.webPreviewUrl}
-              onPreviewUrlChange={ui.setWebPreviewUrl}
               artifacts={currentSessionArtifacts}
-              pendingTerminalCommand={pendingTerminalCommand}
-              onPendingTerminalCommandHandled={handlePendingTerminalCommandHandled}
             />
           </Suspense>
         </>
@@ -1554,6 +1596,13 @@ function MainApp() {
           onClose={() => setGitGraphOpen(false)}
         />
       ) : null}
+      <GitCommitPushDialog
+        open={gitCommitDialogOpen}
+        projectId={agentManager.currentToolProject?.id}
+        status={titleGitStatus}
+        onClose={() => setGitCommitDialogOpen(false)}
+        onCompleted={handleGitOperationCompleted}
+      />
     </div>
     )}
     <ProjectDirectoryPicker

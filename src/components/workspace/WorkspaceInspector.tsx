@@ -28,7 +28,6 @@ type WorkspaceInspectorProps = {
   onDraftRequest?: (text: string) => void
   focusTarget?: WorkspaceInspectorFocusTarget
   previewUrl: string
-  onPreviewUrlChange: (url: string) => void
   artifacts?: AiTurnArtifact[]
   pendingTerminalCommand?: PendingTerminalCommand | null
   onPendingTerminalCommandHandled?: (id: number) => void
@@ -60,6 +59,15 @@ function readerTabId(mode: ReaderMode, path: string) {
 
 type WorkspacePanelTabKind = 'files' | 'review' | 'terminal' | 'browser'
 
+type WorkspacePanelTab = {
+  id: string
+  kind: WorkspacePanelTabKind
+  url?: string
+  readerTabs?: ReaderTab[]
+  activeReaderTabId?: string
+  terminalSessionId?: string
+}
+
 type WorkspacePanelTabMeta = {
   kind: WorkspacePanelTabKind
   label: string
@@ -82,7 +90,7 @@ function panelKindFromView(view: WorkspacePanelView): WorkspacePanelTabKind {
 }
 
 function viewFromPanelKind(kind: WorkspacePanelTabKind): WorkspacePanelView {
-  return kind === 'review' ? 'review' : kind
+  return kind === 'review' ? 'changes' : kind
 }
 
 function browserTabLabel(previewUrl: string) {
@@ -97,10 +105,10 @@ function browserTabLabel(previewUrl: string) {
   }
 }
 
-function panelTabLabel(kind: WorkspacePanelTabKind, projectName: string | undefined, previewUrl: string) {
-  if (kind === 'terminal') return projectName || t('rightPanelTerminal')
-  if (kind === 'browser') return browserTabLabel(previewUrl)
-  return PANEL_TAB_BY_KIND[kind].label
+function panelTabLabel(tab: WorkspacePanelTab, projectName: string | undefined) {
+  if (tab.kind === 'terminal') return projectName || t('rightPanelTerminal')
+  if (tab.kind === 'browser') return browserTabLabel(tab.url || '')
+  return PANEL_TAB_BY_KIND[tab.kind].label
 }
 
 const WORKSPACE_INSPECTOR_MIN_WIDTH = 340
@@ -418,7 +426,7 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
   )
 }
 
-export function WorkspaceInspector({ project, open, onOpenChange, view, onViewChange, onPreviewArtifact, onDraftRequest, focusTarget, previewUrl, onPreviewUrlChange, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled }: WorkspaceInspectorProps) {
+export function WorkspaceInspector({ project, open, onOpenChange, view, onViewChange, onPreviewArtifact, onDraftRequest, focusTarget, previewUrl, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled }: WorkspaceInspectorProps) {
   const [tree, setTree] = useState<WorkspaceTreeNode[]>([])
   const [changes, setChanges] = useState<GitChangedFile[]>([])
   const [gitBranch, setGitBranch] = useState<string>()
@@ -428,10 +436,8 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
   const [error, setError] = useState<string>()
   const [filter, setFilter] = useState('')
 
-  const [panelTabs, setPanelTabs] = useState<WorkspacePanelTabKind[]>([])
-  const [activePanelTab, setActivePanelTab] = useState<WorkspacePanelTabKind>()
-  const [readerTabs, setReaderTabs] = useState<ReaderTab[]>([])
-  const [activeReaderTabId, setActiveReaderTabId] = useState<string>()
+  const [panelTabs, setPanelTabs] = useState<WorkspacePanelTab[]>([])
+  const [activePanelTabId, setActivePanelTabId] = useState<string>()
   const [menuOpen, setMenuOpen] = useState(false)
   const [leftWidth, setLeftWidth] = useState(NAV_PANEL_DEFAULT_WIDTH)
   const [isNavResizing, setIsNavResizing] = useState(false)
@@ -449,6 +455,8 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
   const resizeFrameRef = useRef<number | null>(null)
   const fullscreenAnimationRef = useRef<Animation | null>(null)
   const previousBodyStyleRef = useRef<{ cursor: string; userSelect: string } | null>(null)
+  const nextPanelTabIndexRef = useRef(1)
+  const lastPreviewUrlRef = useRef(previewUrl)
   // openFileTab 依赖 readerTabs 等渲染期状态，用 ref 持有最新引用，供 focusTarget 副作用安全调用。
   const openFileTabRef = useRef<((path: string) => void) | undefined>(undefined)
   // 记录上次的 projectId，让 tabs 清空副作用只在「项目真正切换」时清空，跳过首次 mount，
@@ -456,12 +464,18 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
   const prevProjectIdForTabsRef = useRef<string | undefined>(undefined)
 
   const projectId = project?.id
-  const activeReaderTab = useMemo(
-    () => readerTabs.find((tab) => tab.id === activeReaderTabId),
-    [activeReaderTabId, readerTabs],
+  const activePanelTab = useMemo(
+    () => panelTabs.find((tab) => tab.id === activePanelTabId),
+    [activePanelTabId, panelTabs],
   )
-  const hasFileTab = activePanelTab === 'files' && Boolean(activeReaderTab && activeReaderTab.mode !== 'browser')
-  const navView: 'overview' | 'files' | 'changes' = activePanelTab === 'review' ? view === 'changes' ? 'changes' : 'overview' : 'files'
+  const activeReaderTabId = activePanelTab?.activeReaderTabId
+  const activeReaderTabs = useMemo(() => activePanelTab?.readerTabs || [], [activePanelTab?.readerTabs])
+  const activeReaderTab = useMemo(
+    () => activeReaderTabs.find((tab) => tab.id === activeReaderTabId),
+    [activeReaderTabId, activeReaderTabs],
+  )
+  const hasFileTab = Boolean(activeReaderTab && activeReaderTab.mode !== 'browser' && (activePanelTab?.kind === 'files' || (activePanelTab?.kind === 'review' && activeReaderTab.mode === 'diff')))
+  const navView: 'overview' | 'files' | 'changes' = activePanelTab?.kind === 'review' ? view === 'changes' ? 'changes' : 'overview' : 'files'
   const gitStatuses = useMemo(() => {
     const map: Record<string, GitChangedFile> = {}
     for (const file of changes) map[file.path] = file
@@ -531,7 +545,11 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
     if (!open || !focusTarget) return () => { disposed = true }
     queueMicrotask(() => {
       if (disposed) return
-      onViewChange(focusTarget.tab === 'git' ? 'changes' : 'files')
+      if (focusTarget.tab === 'git') {
+        openPanelTab('review', 'changes')
+      } else {
+        onViewChange('files')
+      }
       // 自动预览 Markdown：触发 openFileTab → InlineReader → MarkdownReader 渲染。
       if (focusTarget.filePath) void openFileTabRef.current?.(focusTarget.filePath)
     })
@@ -540,21 +558,20 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
 
   useEffect(() => {
     if (!open) return
-    if (view === 'review') {
-      if (!activePanelTab) return
-      setPanelTabs((prev) => (prev.includes('review') ? prev : [...prev, 'review']))
-      setActivePanelTab('review')
+    const kind = panelKindFromView(view)
+    if (kind === 'review') {
+      if (view === 'changes') openPanelTab('review', 'changes')
       return
     }
-    const kind = panelKindFromView(view)
-    setPanelTabs((prev) => (prev.includes(kind) ? prev : [...prev, kind]))
-    setActivePanelTab(kind)
     if (kind === 'browser') {
-      const id = readerTabId('browser', '')
-      setReaderTabs((prev) => (prev.some((tab) => tab.id === id) ? prev : [...prev, { id, mode: 'browser', path: '', loading: false }]))
-      setActiveReaderTabId(id)
+      if (previewUrl === lastPreviewUrlRef.current && activePanelTab?.kind === 'browser') return
+      lastPreviewUrlRef.current = previewUrl
+      openPanelTab('browser', 'browser', { url: previewUrl })
+      return
     }
-  }, [view, open, activePanelTab])
+    if (kind === activePanelTab?.kind) return
+    openPanelTab(kind, viewFromPanelKind(kind))
+  }, [view, open, previewUrl])
   // 持久化工作区宽度：拖拽或自动展开后都写入，刷新后保持上次宽度
   useEffect(() => {
     try {
@@ -571,10 +588,10 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
   // 打开文件 / 网页预览时自动拉到当前允许的最宽范围（全屏模式不处理；已是最宽则保持不变）
   useEffect(() => {
     if (!visible || fullscreen) return
-    const viewingContent = activePanelTab === 'browser' || activePanelTab === 'terminal' || Boolean(activeReaderTabId)
+    const viewingContent = activePanelTab?.kind === 'browser' || activePanelTab?.kind === 'terminal' || Boolean(activeReaderTabId)
     if (!viewingContent) return
     expandInspectorToMax()
-  }, [activePanelTab, activeReaderTabId, visible, fullscreen, expandInspectorToMax])
+  }, [activePanelTab?.kind, activeReaderTabId, visible, fullscreen, expandInspectorToMax])
 
   useEffect(() => {
     let disposed = false
@@ -611,40 +628,52 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
     // 首次 mount 时 tabs 本就为空，无需清空；否则清空 microtask 会晚于自动预览的 openFileTab 执行，
     // 把刚创建的 tab 清掉。仅当项目真正切换（prevId 有值且变化）时才清空旧 tab。
     if (prevId === undefined || prevId === projectId) return
-    setReaderTabs([])
-    setActiveReaderTabId(undefined)
     setPanelTabs([])
-    setActivePanelTab(undefined)
+    setActivePanelTabId(undefined)
   }, [projectId])
 
-  function openPanelTab(kind: WorkspacePanelTabKind, nextView: WorkspacePanelView = viewFromPanelKind(kind)) {
-    setPanelTabs((prev) => (prev.includes(kind) ? prev : [...prev, kind]))
-    setActivePanelTab(kind)
-    onViewChange(nextView)
-    setMenuOpen(false)
-    if (kind === 'browser') {
-      const id = readerTabId('browser', '')
-      setReaderTabs((prev) => (prev.some((tab) => tab.id === id) ? prev : [...prev, { id, mode: 'browser', path: '', loading: false }]))
-      setActiveReaderTabId(id)
-    } else if (kind !== 'files' && activeReaderTab?.mode === 'browser') {
-      setActiveReaderTabId(readerTabs.find((tab) => tab.mode !== 'browser')?.id)
+  function createPanelTab(kind: WorkspacePanelTabKind, options?: { url?: string; readerTab?: ReaderTab }): WorkspacePanelTab {
+    const id = `${kind}-${nextPanelTabIndexRef.current++}`
+    if (kind === 'browser') return { id, kind, url: options?.url || previewUrl || '' }
+    if (kind === 'files' || kind === 'review') {
+      return { id, kind, readerTabs: options?.readerTab ? [options.readerTab] : [], activeReaderTabId: options?.readerTab?.id }
     }
+    return { id, kind }
   }
 
-  function closePanelTab(kind: WorkspacePanelTabKind) {
+  function updatePanelTab(id: string, updater: (tab: WorkspacePanelTab) => WorkspacePanelTab) {
+    setPanelTabs((prev) => prev.map((tab) => tab.id === id ? updater(tab) : tab))
+  }
+
+  function openPanelTab(kind: WorkspacePanelTabKind, nextView: WorkspacePanelView = viewFromPanelKind(kind), options?: { url?: string; readerTab?: ReaderTab }) {
+    const existing = kind === 'review' ? panelTabs.find((tab) => tab.kind === 'review') : undefined
+    const targetTab = existing || createPanelTab(kind, options)
+    if (!existing) setPanelTabs((prev) => [...prev, targetTab])
+    setActivePanelTabId(targetTab.id)
+    onViewChange(nextView)
+    setMenuOpen(false)
+    return targetTab
+  }
+
+  function activatePanelTab(tab: WorkspacePanelTab) {
+    setActivePanelTabId(tab.id)
+    onViewChange(viewFromPanelKind(tab.kind))
+  }
+
+  function closePanelTab(id: string) {
     setPanelTabs((prev) => {
-      const index = prev.indexOf(kind)
-      const next = prev.filter((item) => item !== kind)
+      const index = prev.findIndex((tab) => tab.id === id)
+      const next = prev.filter((tab) => tab.id !== id)
       if (next.length === 0) {
-        setActivePanelTab(undefined)
+        setActivePanelTabId(undefined)
         onViewChange('review')
         onOpenChange(false)
         return next
       }
-      if (activePanelTab === kind) {
+      if (activePanelTabId === id) {
         const nextActive = next[index] ?? next[index - 1]
-        setActivePanelTab(nextActive)
-        onViewChange(nextActive ? viewFromPanelKind(nextActive) : 'review')
+        setActivePanelTabId(nextActive?.id)
+        onViewChange(nextActive ? viewFromPanelKind(nextActive.kind) : 'review')
       }
       return next
     })
@@ -661,53 +690,68 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
   async function openFileTab(path: string) {
     if (!projectId) return
     const id = readerTabId('file', path)
-    if (readerTabs.some((tab) => tab.id === id)) {
-      openPanelTab('files', 'files')
-      setActiveReaderTabId(id)
+    const existingFileTab = activePanelTab?.kind === 'files' ? activePanelTab : undefined
+    if (existingFileTab?.readerTabs?.some((tab) => tab.id === id)) {
+      setActivePanelTabId(existingFileTab.id)
+      updatePanelTab(existingFileTab.id, (tab) => ({ ...tab, activeReaderTabId: id }))
+      onViewChange('files')
       return
     }
-    openPanelTab('files', 'files')
     const newTab: ReaderTab = { id, mode: 'file', path, loading: true }
-    setReaderTabs((prev) => [...prev, newTab])
-    setActiveReaderTabId(id)
+    const targetTab = existingFileTab || openPanelTab('files', 'files', { readerTab: newTab })
+    if (existingFileTab) {
+      updatePanelTab(existingFileTab.id, (tab) => ({
+        ...tab,
+        readerTabs: [...(tab.readerTabs || []), newTab],
+        activeReaderTabId: id,
+      }))
+      onViewChange('files')
+    }
     try {
       const file = await getWorkspaceFile(projectId, path)
-      setReaderTabs((prev) => prev.map((tab) => tab.id === id ? { ...tab, file, loading: false } : tab))
+      if (targetTab) updatePanelTab(targetTab.id, (tab) => ({ ...tab, readerTabs: (tab.readerTabs || []).map((item) => item.id === id ? { ...item, file, loading: false } : item) }))
     } catch (err) {
-      setReaderTabs((prev) => prev.map((tab) => tab.id === id ? { ...tab, loading: false, error: err instanceof Error ? err.message : t('workspaceOpenFileFailed') } : tab))
+      if (targetTab) updatePanelTab(targetTab.id, (tab) => ({ ...tab, readerTabs: (tab.readerTabs || []).map((item) => item.id === id ? { ...item, loading: false, error: err instanceof Error ? err.message : t('workspaceOpenFileFailed') } : item) }))
     }
   }
-  // 每次渲染刷新 ref，使 focusTarget 副作用总能调用到持有最新 readerTabs 闭包的 openFileTab。
+  // 每次渲染刷新 ref，使 focusTarget 副作用总能调用到持有最新 tab 闭包的 openFileTab。
   openFileTabRef.current = openFileTab
 
   async function openDiffTab(path: string, switchToChanges: boolean) {
     if (!projectId) return
-    if (switchToChanges) openPanelTab('review', 'changes')
+    const reviewTab = panelTabs.find((tab) => tab.kind === 'review')
+    const targetTab = reviewTab || openPanelTab('review', switchToChanges ? 'changes' : 'review')
+    if (targetTab) setActivePanelTabId(targetTab.id)
+    if (switchToChanges) onViewChange('changes')
     const id = readerTabId('diff', path)
-    if (readerTabs.some((tab) => tab.id === id)) {
-      setActiveReaderTabId(id)
+    if (targetTab?.readerTabs?.some((tab) => tab.id === id)) {
+      updatePanelTab(targetTab.id, (tab) => ({ ...tab, activeReaderTabId: id }))
       return
     }
     const newTab: ReaderTab = { id, mode: 'diff', path, loading: true }
-    setReaderTabs((prev) => [...prev, newTab])
-    setActiveReaderTabId(id)
+    if (targetTab) {
+      updatePanelTab(targetTab.id, (tab) => ({
+        ...tab,
+        readerTabs: [...(tab.readerTabs || []), newTab],
+        activeReaderTabId: id,
+      }))
+    }
     try {
       const diff = await getGitFileDiff(projectId, path)
-      setReaderTabs((prev) => prev.map((tab) => tab.id === id ? { ...tab, diff, loading: false } : tab))
+      if (targetTab) updatePanelTab(targetTab.id, (tab) => ({ ...tab, readerTabs: (tab.readerTabs || []).map((item) => item.id === id ? { ...item, diff, loading: false } : item) }))
     } catch (err) {
-      setReaderTabs((prev) => prev.map((tab) => tab.id === id ? { ...tab, loading: false, error: err instanceof Error ? err.message : t('workspaceOpenDiffFailed') } : tab))
+      if (targetTab) updatePanelTab(targetTab.id, (tab) => ({ ...tab, readerTabs: (tab.readerTabs || []).map((item) => item.id === id ? { ...item, loading: false, error: err instanceof Error ? err.message : t('workspaceOpenDiffFailed') } : item) }))
     }
   }
 
   function closeReaderTab(id: string) {
-    setReaderTabs((prev) => {
-      const idx = prev.findIndex((tab) => tab.id === id)
-      const next = prev.filter((tab) => tab.id !== id)
-      if (activeReaderTabId === id) {
-        const nextActive = next[idx] ?? next[idx - 1]
-        setActiveReaderTabId(nextActive?.id)
-      }
-      return next
+    if (!activePanelTab) return
+    updatePanelTab(activePanelTab.id, (tab) => {
+      const currentTabs = tab.readerTabs || []
+      const idx = currentTabs.findIndex((item) => item.id === id)
+      const next = currentTabs.filter((item) => item.id !== id)
+      const nextActive = tab.activeReaderTabId === id ? (next[idx] ?? next[idx - 1])?.id : tab.activeReaderTabId
+      return { ...tab, readerTabs: next, activeReaderTabId: nextActive }
     })
   }
 
@@ -974,13 +1018,13 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
         ) : null}
         <div className={cn('flex h-14 shrink-0 items-center gap-2 border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-3 pr-20 transition-opacity duration-150', fullscreenAnimating ? 'opacity-0' : 'opacity-100')}>
           <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-            {panelTabs.map((kind, index) => {
-              const item = PANEL_TAB_BY_KIND[kind]
+            {panelTabs.map((tab, index) => {
+              const item = PANEL_TAB_BY_KIND[tab.kind]
               const Icon = item.icon
-              const active = kind === activePanelTab
-              const label = panelTabLabel(kind, project?.name, previewUrl)
+              const active = tab.id === activePanelTabId
+              const label = panelTabLabel(tab, project?.name)
               return (
-                <div key={kind} className="flex shrink-0 items-center gap-1">
+                <div key={tab.id} className="flex shrink-0 items-center gap-1">
                   {index > 0 ? <span aria-hidden="true" className="mx-0.5 h-3.5 w-px bg-[color-mix(in_oklab,var(--muted-foreground)_18%,transparent)]" /> : null}
                   <button
                     type="button"
@@ -990,7 +1034,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
                         ? 'bg-[color-mix(in_oklab,var(--muted)_86%,transparent)] text-foreground/82 hover:bg-[color-mix(in_oklab,var(--muted)_86%,transparent)]'
                         : 'text-muted-foreground/45 hover:bg-[color-mix(in_oklab,var(--muted)_72%,transparent)] hover:text-muted-foreground/72',
                     )}
-                    onClick={() => openPanelTab(kind, viewFromPanelKind(kind))}
+                    onClick={() => activatePanelTab(tab)}
                     title={label}
                   >
                     <Icon className={cn('size-4 shrink-0', active ? 'text-foreground/74' : 'text-muted-foreground/45 group-hover:text-muted-foreground/72')} />
@@ -1004,13 +1048,13 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
                       )}
                       onClick={(event) => {
                         event.stopPropagation()
-                        closePanelTab(kind)
+                        closePanelTab(tab.id)
                       }}
                       onKeyDown={(event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
                           event.preventDefault()
                           event.stopPropagation()
-                          closePanelTab(kind)
+                          closePanelTab(tab.id)
                         }
                       }}
                       aria-label={t('close')}
@@ -1040,7 +1084,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
               <div className="absolute right-0 top-12 z-40 w-64 rounded-2xl border border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-popover p-2 shadow-quickforge" role="menu">
                 {PANEL_TAB_ITEMS.map((item) => {
                   const Icon = item.icon
-                  const active = item.kind === activePanelTab
+                  const active = item.kind === activePanelTab?.kind
                   return (
                     <button
                       key={item.kind}
@@ -1104,15 +1148,25 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
                 </div>
               </div>
             </div>
-          ) : activePanelTab === 'browser' ? (
-            <WebPreviewContent url={previewUrl} onUrlChange={onPreviewUrlChange} projectId={project.id} />
-          ) : activePanelTab === 'terminal' ? (
+          ) : activePanelTab.kind === 'browser' ? (
+            <WebPreviewContent
+              url={activePanelTab.url || ''}
+              onUrlChange={(url) => {
+                updatePanelTab(activePanelTab.id, (tab) => ({ ...tab, url }))
+              }}
+              projectId={project.id}
+            />
+          ) : activePanelTab.kind === 'terminal' ? (
             <TerminalDock
+              key={activePanelTab.id}
               project={project}
               pendingCommand={pendingTerminalCommand}
               onPendingCommandHandled={onPendingTerminalCommandHandled}
-              onCollapse={() => closePanelTab('terminal')}
+              onCollapse={() => closePanelTab(activePanelTab.id)}
               variant="panel"
+              panelInstanceId={activePanelTab.id}
+              panelSessionId={activePanelTab.terminalSessionId}
+              onPanelSessionReady={(sessionId) => updatePanelTab(activePanelTab.id, (tab) => ({ ...tab, terminalSessionId: sessionId }))}
             />
           ) : (
             <>

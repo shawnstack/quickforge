@@ -15,6 +15,9 @@ type TerminalDockProps = {
   pendingCommand?: PendingTerminalCommand | null
   onPendingCommandHandled?: (id: number) => void
   variant?: 'dock' | 'panel'
+  panelInstanceId?: string
+  panelSessionId?: string
+  onPanelSessionReady?: (sessionId: string) => void
 }
 
 const MIN_HEIGHT = 180
@@ -36,7 +39,7 @@ function profileFromCapabilities(capabilities: TerminalCapabilities | null, prof
   return profiles.find((profile) => profile.id === selectedId) || profiles[0]
 }
 
-export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCommandHandled, variant = 'dock' }: TerminalDockProps) {
+export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCommandHandled, variant = 'dock', panelInstanceId, panelSessionId, onPanelSessionReady }: TerminalDockProps) {
   const [capabilities, setCapabilities] = useState<TerminalCapabilities | null>(null)
   const [sessions, setSessions] = useState<TerminalSession[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string>()
@@ -48,16 +51,19 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
   const [shellMenuOpen, setShellMenuOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const creatingRef = useRef(false)
+  const panelSessionCreatedRef = useRef(false)
   const handledPendingCommandIdsRef = useRef<Set<number>>(new Set())
   const latestPendingCommandRef = useRef<PendingTerminalCommand | null | undefined>(pendingCommand)
   const pendingCommandCreationIdsRef = useRef<Set<number>>(new Set())
   const pendingCommandSendingIdsRef = useRef<Set<number>>(new Set())
   const pendingCommandSessionIdsRef = useRef<Map<number, string>>(new Map())
   const mountedRef = useRef(true)
+  const onPanelSessionReadyRef = useRef(onPanelSessionReady)
   const [readySessionIds, setReadySessionIds] = useState<Set<string>>(() => new Set())
   const dragRef = useRef<{ startY: number; startHeight: number } | null>(null)
   const shellMenuRef = useRef<HTMLDivElement | null>(null)
   const projectId = project?.id
+  const isPanelInstance = variant === 'panel' && Boolean(panelInstanceId)
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? sessions[0],
@@ -67,6 +73,10 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
   useEffect(() => {
     latestPendingCommandRef.current = pendingCommand
   }, [pendingCommand])
+
+  useEffect(() => {
+    onPanelSessionReadyRef.current = onPanelSessionReady
+  }, [onPanelSessionReady])
 
   useEffect(() => () => { mountedRef.current = false }, [])
 
@@ -115,6 +125,36 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
         const [nextCapabilities, payload] = await Promise.all([getTerminalCapabilities(), listTerminalSessions(projectId)])
         if (disposed) return
         setCapabilities(nextCapabilities)
+        if (nextCapabilities.enabled && isPanelInstance && panelSessionId && payload.sessions.some((session) => session.id === panelSessionId)) {
+          panelSessionCreatedRef.current = true
+          setSessions(payload.sessions)
+          setActiveSessionId(panelSessionId)
+          return
+        }
+        if (nextCapabilities.enabled && isPanelInstance && !panelSessionCreatedRef.current) {
+          panelSessionCreatedRef.current = true
+          const defaultProfile = profileFromCapabilities(nextCapabilities)
+          try {
+            const session = await createTerminalSession({
+              projectId,
+              name: nextTerminalName(payload.sessions, defaultProfile),
+              cols: 120,
+              rows: 30,
+              shellProfileId: defaultProfile?.id,
+              shellProfileName: defaultProfile?.name,
+            })
+            if (disposed) {
+              void deleteTerminalSession(session.id).catch(() => {})
+              return
+            }
+            setSessions([...payload.sessions, session])
+            setActiveSessionId(session.id)
+            onPanelSessionReadyRef.current?.(session.id)
+            return
+          } catch (err) {
+            if (!disposed) setError(err instanceof Error ? err.message : t('terminalCreateFailed'))
+          }
+        }
         setSessions(payload.sessions)
         setActiveSessionId(payload.sessions[0]?.id)
         if (nextCapabilities.enabled && payload.sessions.length === 0 && !latestPendingCommandRef.current) {
@@ -147,7 +187,7 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
     void load()
 
     return () => { disposed = true }
-  }, [projectId])
+  }, [isPanelInstance, panelSessionId, projectId])
 
   useEffect(() => {
     if (!shellMenuOpen) return undefined
@@ -347,6 +387,7 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
   const maxSessionsReached = Boolean(capabilities && sessions.length >= capabilities.maxSessions)
   const createDisabled = creating || maxSessionsReached
   const activeConnectionError = activeSession ? connectionErrors[activeSession.id] : undefined
+  const displaySessions = isPanelInstance && activeSession ? [activeSession] : sessions
   const visibleError = error ?? activeConnectionError
   const isPanel = variant === 'panel'
   const terminalBodyHeight = isPanel
@@ -375,7 +416,7 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
       <div className="flex h-9 items-center gap-1 border-b border-border px-2">
         <SquareTerminal className="size-4 shrink-0 text-muted-foreground/60" />
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-          {sessions.map((session) => (
+          {displaySessions.map((session) => (
             <button
               key={session.id}
               type="button"

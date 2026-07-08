@@ -13,7 +13,9 @@ components/
 │   ├── panel-decoration.ts         # 聊天面板 DOM 装饰兼容入口 / editor 编排 facade (175 行)
 │   └── scroll-sync.ts              # 自动滚动同步 (174 行)
 ├── git/
-│   ├── GitBranchMenu.tsx           # 标题栏 Git 分支搜索、切换、创建分支和 Git 图谱入口
+│   ├── GitBranchMenu.tsx           # 标题栏 / Git 工具中的分支搜索、切换、创建分支和 Git 图谱入口
+│   ├── GitCommitPushDialog.tsx     # Git 提交 / 提交并推送 / 推送弹窗，支持 AI 生成提交信息
+│   ├── GitToolsPinnedSummary.tsx   # 顶部工具栏 Git 置顶摘要，支持收起胶囊和展开工具卡片
 │   └── GitGraphDialog.tsx          # Git 提交图谱大弹窗
 ├── agent-profiles/
 │   └── AgentProfilesPage.tsx        # Agent Profiles 独立管理页面
@@ -124,7 +126,9 @@ components/
 
 ### 标题栏 Git 组件 (`git/`)
 
-- `GitBranchMenu.tsx` 挂载在主对话标题栏的分支 chip 下方，提供分支搜索、当前未提交变更摘要、分支切换、创建并检出新分支，以及 Git 图谱入口。
+- `GitBranchMenu.tsx` 挂载在主对话标题栏的分支 chip 和 `GitToolsPinnedSummary` 展开卡片中，提供分支搜索、当前未提交变更摘要、分支切换、创建并检出新分支，以及 Git 图谱入口。
+- `GitToolsPinnedSummary.tsx` 显示在顶部窗口工具栏的终端按钮左侧，提供收起胶囊（更改 +增删行）和展开 Git 工具卡；更改入口跳转右侧 Changes/审查面板，分支入口复用 `GitBranchMenu`，提交入口打开 `GitCommitPushDialog`。
+- `GitCommitPushDialog.tsx` 提供提交、提交并推送、推送操作；提交信息可手动输入，留空或点击 Sparkles 时通过 `/api/git/generate-commit-message` 调默认模型生成 Conventional Commit 文案。
 - `GitGraphDialog.tsx` 使用 `/api/git/log` 渲染居中的 Git 提交图谱弹窗，包含图线、描述、日期、作者和提交短哈希列，并支持刷新和关闭。
 
 ### Workspace Inspector (`workspace/`)

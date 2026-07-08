@@ -1,8 +1,11 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
+import { streamSimple } from '@earendil-works/pi-ai'
 import { sendJson, readJsonBody } from '../utils/response.mjs'
 import { projectContextFromId } from '../project-config.mjs'
+import { readStore } from '../storage.mjs'
+import { logger } from '../utils/logger.mjs'
 import {
   assertSafeWorkspacePath,
   resolveWorkspacePath,
@@ -322,6 +325,150 @@ async function listGitStatus(context) {
   }
 }
 
+async function assertGitRepository(context) {
+  if (await isGitRepository(context.workspaceRoot)) return
+  const error = new Error('Not a Git repository')
+  error.statusCode = 400
+  throw error
+}
+
+function normalizeCommitMessage(value) {
+  const raw = String(value || '').trim()
+  if (!raw) {
+    const error = new Error('Commit message is required')
+    error.statusCode = 400
+    throw error
+  }
+  return raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n').slice(0, 4000)
+}
+
+async function hasStagedChanges(context) {
+  const result = await git(['diff', '--cached', '--quiet'], context.workspaceRoot, { allowFailure: true })
+  return result.code === 1
+}
+
+async function commitGitChanges(context, message, includeUnstaged) {
+  await assertGitRepository(context)
+  const commitMessage = normalizeCommitMessage(message)
+  if (includeUnstaged) await git(['add', '-A'], context.workspaceRoot)
+  if (!(await hasStagedChanges(context))) {
+    const error = new Error('No staged changes to commit')
+    error.statusCode = 400
+    throw error
+  }
+  await git(['commit', '-m', commitMessage], context.workspaceRoot)
+  return listGitStatus(context)
+}
+
+async function pushGitBranch(context) {
+  await assertGitRepository(context)
+  await git(['push'], context.workspaceRoot)
+  return listGitStatus(context)
+}
+
+async function getApiKey(provider) {
+  try {
+    const keys = await readStore('provider-keys')
+    return keys?.[provider] || undefined
+  } catch {
+    return undefined
+  }
+}
+
+function trimForPrompt(text, max = 14000) {
+  const raw = String(text || '').trim()
+  if (raw.length <= max) return raw
+  return `${raw.slice(0, max)}\n\n[Diff truncated]`
+}
+
+function normalizeAiCommitMessage(text) {
+  const raw = String(text || '').trim()
+    .replace(/^```(?:text)?/i, '')
+    .replace(/```$/i, '')
+    .trim()
+  const lines = raw.split('\n').map((line) => line.trimEnd())
+  while (lines.length && !lines[0].trim()) lines.shift()
+  while (lines.length && !lines[lines.length - 1].trim()) lines.pop()
+  const message = lines.join('\n').trim().slice(0, 2000)
+  if (!message) {
+    const error = new Error('AI did not generate a commit message')
+    error.statusCode = 502
+    throw error
+  }
+  return message
+}
+
+async function generateGitCommitMessage(context, model, thinkingLevel = 'off') {
+  await assertGitRepository(context)
+  if (!model) {
+    const error = new Error('Please configure a default model first')
+    error.statusCode = 400
+    throw error
+  }
+
+  const status = await listGitStatus(context)
+  if (!status.counts?.total) {
+    const error = new Error('No Git changes to summarize')
+    error.statusCode = 400
+    throw error
+  }
+
+  const cachedStat = (await git(['diff', '--cached', '--stat'], context.workspaceRoot, { allowFailure: true })).stdout.toString('utf8')
+  const cachedDiff = (await git(['diff', '--cached'], context.workspaceRoot, { allowFailure: true })).stdout.toString('utf8')
+  const worktreeStat = (await git(['diff', '--stat'], context.workspaceRoot, { allowFailure: true })).stdout.toString('utf8')
+  const worktreeDiff = (await git(['diff'], context.workspaceRoot, { allowFailure: true })).stdout.toString('utf8')
+  const files = status.files.map((file) => `- ${file.status}${file.staged ? ' staged' : ''}${file.unstaged ? ' unstaged' : ''}: ${file.oldPath ? `${file.oldPath} -> ` : ''}${file.path}`).join('\n')
+  const systemPrompt = `You generate Git commit messages.
+Return only the commit message, no Markdown, no explanation.
+Use Conventional Commit style when possible, for example: feat: add git tools summary.
+Keep the subject under 72 characters. Add a short body only if it is useful.`
+  const userPrompt = `Current branch: ${status.branch || 'unknown'}
+
+Changed files:
+${files}
+
+Staged diff stat:
+${cachedStat || '(none)'}
+
+Staged diff:
+${trimForPrompt(cachedDiff)}
+
+Unstaged diff stat:
+${worktreeStat || '(none)'}
+
+Unstaged diff:
+${trimForPrompt(worktreeDiff)}`
+
+  try {
+    const stream = streamSimple(
+      model,
+      {
+        systemPrompt,
+        messages: [{ role: 'user', content: userPrompt, timestamp: Date.now() }],
+        tools: [],
+      },
+      {
+        apiKey: await getApiKey(model.provider),
+        maxTokens: 500,
+        temperature: 0,
+        reasoning: thinkingLevel === 'off' ? undefined : thinkingLevel,
+        maxRetryDelayMs: 60000,
+      },
+    )
+    const message = await stream.result()
+    const content = Array.isArray(message.content)
+      ? message.content.filter((block) => block.type === 'text').map((block) => block.text ?? '').join('\n')
+      : ''
+    return normalizeAiCommitMessage(content)
+  } catch (error) {
+    if (error?.statusCode) throw error
+    logger.warn('AI commit message generation failed:', error?.message || error)
+    const wrapped = new Error(`AI generation failed: ${error?.message || 'check model configuration and API key'}`)
+    wrapped.statusCode = 502
+    throw wrapped
+  }
+}
+
 async function readGitFile(workspaceRoot, ref, relativePath) {
   const result = await git(['show', `${ref}:${relativePath}`], workspaceRoot, { allowFailure: true })
   return result.code === 0 ? result.stdout.toString('utf8') : ''
@@ -592,6 +739,39 @@ async function handleGitFileDiff(req, res, url) {
   })
 }
 
+async function contextFromGitBody(req) {
+  const body = await readJsonBody(req, 1024 * 1024)
+  const projectId = typeof body?.projectId === 'string' ? body.projectId : ''
+  if (!projectId) {
+    const error = new Error('projectId is required')
+    error.statusCode = 400
+    throw error
+  }
+  return { context: await projectContextFromId(projectId), body }
+}
+
+async function handleGitGenerateCommitMessage(req, res) {
+  const { context, body } = await contextFromGitBody(req)
+  const message = await generateGitCommitMessage(context, body?.model, body?.thinkingLevel)
+  sendJson(res, 200, { message })
+}
+
+async function handleGitCommit(req, res) {
+  const { context, body } = await contextFromGitBody(req)
+  sendJson(res, 200, await commitGitChanges(context, body?.message, Boolean(body?.includeUnstaged)))
+}
+
+async function handleGitPush(req, res) {
+  const { context } = await contextFromGitBody(req)
+  sendJson(res, 200, await pushGitBranch(context))
+}
+
+async function handleGitCommitAndPush(req, res) {
+  const { context, body } = await contextFromGitBody(req)
+  await commitGitChanges(context, body?.message, Boolean(body?.includeUnstaged))
+  sendJson(res, 200, await pushGitBranch(context))
+}
+
 export async function handleWorkspaceApi(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/api/workspace/tree') {
     await handleWorkspaceTree(req, res, url)
@@ -638,6 +818,22 @@ export async function handleGitApi(req, res, url) {
   }
   if (req.method === 'GET' && url.pathname === '/api/git/file-diff') {
     await handleGitFileDiff(req, res, url)
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/git/generate-commit-message') {
+    await handleGitGenerateCommitMessage(req, res)
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/git/commit') {
+    await handleGitCommit(req, res)
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/git/push') {
+    await handleGitPush(req, res)
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/git/commit-and-push') {
+    await handleGitCommitAndPush(req, res)
     return
   }
 

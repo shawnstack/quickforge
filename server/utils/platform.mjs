@@ -208,6 +208,57 @@ export async function openPathInVSCode(targetPath) {
   })
 }
 
+export async function openPathInIDEA(targetPath) {
+  const resolved = path.resolve(String(targetPath || ''))
+  const stat = await fs.stat(resolved).catch(() => null)
+  if (!stat || !stat.isDirectory()) {
+    const error = new Error(`Directory does not exist: ${resolved}`)
+    error.statusCode = 400
+    throw error
+  }
+
+  let command = 'idea'
+  let args = [resolved]
+  if (process.platform === 'darwin') {
+    command = 'open'
+    args = ['-a', 'IntelliJ IDEA', resolved]
+  } else if (process.platform === 'win32') {
+    const candidates = [
+      process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'IntelliJ IDEA', 'bin', 'idea64.exe') : undefined,
+      process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'IntelliJ IDEA', 'bin', 'idea.exe') : undefined,
+      process.env.PROGRAMFILES ? path.join(process.env.PROGRAMFILES, 'JetBrains', 'IntelliJ IDEA', 'bin', 'idea64.exe') : undefined,
+      process.env.PROGRAMFILES ? path.join(process.env.PROGRAMFILES, 'JetBrains', 'IntelliJ IDEA', 'bin', 'idea.exe') : undefined,
+      process.env['PROGRAMFILES(X86)'] ? path.join(process.env['PROGRAMFILES(X86)'], 'JetBrains', 'IntelliJ IDEA', 'bin', 'idea64.exe') : undefined,
+      process.env['PROGRAMFILES(X86)'] ? path.join(process.env['PROGRAMFILES(X86)'], 'JetBrains', 'IntelliJ IDEA', 'bin', 'idea.exe') : undefined,
+    ].filter(Boolean)
+    const ideaExecutable = await findExistingFile(candidates)
+    if (ideaExecutable) {
+      command = ideaExecutable
+      args = [resolved]
+    } else {
+      command = 'cmd.exe'
+      args = ['/d', '/s', '/c', 'start', '""', '/b', 'idea', resolved]
+    }
+  }
+
+  await new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+      shell: false,
+    })
+    child.once('error', (error) => {
+      error.statusCode = 500
+      reject(error)
+    })
+    child.once('spawn', () => {
+      child.unref()
+      resolve()
+    })
+  })
+}
+
 export function openBrowser(url) {
   if (process.env.QUICKFORGE_NO_OPEN === '1') return
 

@@ -1037,6 +1037,15 @@ function MainApp() {
     throw new Error(payload?.error || t('openInVSCodeFailed'))
   }, [])
 
+  const openProjectInIDEA = useCallback(async (project: ProjectInfo) => {
+    const response = await fetch(`/api/project/${encodeURIComponent(project.id)}/open-in-idea`, {
+      method: 'POST',
+    })
+    if (response.ok) return
+    const payload = await response.json().catch(() => null)
+    throw new Error(payload?.error || t('openInIDEAFailed'))
+  }, [])
+
   // --- Desktop sidebar handlers (stable; do not auto-close the sidebar) ---
   // Kept separate from the mobile `*FromSidebar` handlers so the memoized desktop
   // <ChatSidebar> does not re-render on unrelated App state changes.
@@ -1053,6 +1062,13 @@ function MainApp() {
       void showAlert(error instanceof Error ? error.message : t('openInVSCodeFailed'))
     })
   }, [openProjectInVSCode])
+
+  const openProjectInIDEAWithFeedback = useCallback((project: ProjectInfo) => {
+    void openProjectInIDEA(project).catch((error) => {
+      logger.error('Failed to open project in IntelliJ IDEA:', error)
+      void showAlert(error instanceof Error ? error.message : t('openInIDEAFailed'))
+    })
+  }, [openProjectInIDEA])
 
   const toggleSidebar = useCallback(() => setSidebarOpen((value) => !value), [setSidebarOpen])
 
@@ -1192,6 +1208,7 @@ function MainApp() {
           disabled={needsModelSetup}
           onOpenInExplorer={openProjectInExplorerWithFeedback}
           onOpenInVSCode={openProjectInVSCodeWithFeedback}
+          onOpenInIDEA={openProjectInIDEAWithFeedback}
         />
       ) : null}
       {!ui.workspaceInspectorOpen && agentManager.currentToolProject?.id && titleGitStatus?.isGitRepository ? (

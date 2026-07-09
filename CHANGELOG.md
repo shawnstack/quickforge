@@ -2,6 +2,36 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.6.7] - 2026-07-09
+
+### Added
+
+- Added workspace open menu options, including IntelliJ IDEA launch support and macOS VS Code opening support.
+- Added title bar Git controls and settings search.
+- Added browser-style workspace inspector tabs and file reader support.
+
+### Changed
+
+- Refined workspace inspector tab controls, right-panel workspace tabs, Git summary, and tab UI polish.
+- Adjusted typography scaling and restored compact default font size.
+- Removed sidebar conversation rename buttons.
+
+### Fixed
+
+- Raised the workspace open menu overlay above surrounding UI.
+- Kept the workspace inspector mounted when closed to preserve state.
+- Prevented duplicate chat messages.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.6.7` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.6.7.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.6.7.tgz
+  ```
+
 ## [1.6.6] - 2026-07-07
 
 ### Fixed

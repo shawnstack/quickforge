@@ -651,6 +651,8 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
 
 .quickforge-agent-profile-row-main {
   display: flex;
+  min-width: 0;
+  overflow: hidden;
   align-items: flex-start;
   gap: 0.625rem;
 }
@@ -674,7 +676,7 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
   display: grid;
   min-width: 0;
   flex: 1 1 auto;
-  grid-template-columns: minmax(0, max-content) max-content;
+  grid-template-columns: minmax(0, max-content) minmax(0, max-content);
   column-gap: 0.5rem;
   row-gap: 0.125rem;
   align-items: baseline;
@@ -715,6 +717,7 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
 .quickforge-agent-profile-row .quickforge-settings-list-item-actions {
   width: auto;
   flex-wrap: nowrap;
+  margin-left: auto;
 }
 
 .quickforge-settings-list-item-actions {

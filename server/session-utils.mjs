@@ -1,4 +1,4 @@
-import { streamSimple } from '@earendil-works/pi-ai'
+import { streamSimple } from '@earendil-works/pi-ai/compat'
 import { buildInstructionsPayload, projectContextFromId } from './project-config.mjs'
 import { composeSystemPrompt } from './system-prompt.mjs'
 import { listSubagentProfiles } from './agent-profiles.mjs'

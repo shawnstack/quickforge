@@ -76,7 +76,7 @@ export function ProjectOpenMenu({ project, disabled, onOpenInExplorer, onOpenInV
         </span>
       </button>
       {open && project ? (
-        <div className="absolute right-0 top-10 z-40 w-52 overflow-hidden rounded-2xl border border-[color-mix(in_oklab,var(--border)_38%,transparent)] bg-popover py-1.5 text-popover-foreground shadow-quickforge" role="menu">
+        <div className="absolute right-0 top-10 z-50 w-52 overflow-hidden rounded-2xl border border-[color-mix(in_oklab,var(--border)_38%,transparent)] bg-popover py-1.5 text-popover-foreground shadow-quickforge" role="menu">
           <button
             type="button"
             className="flex h-10 w-full items-center gap-3 px-3 text-left text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"

@@ -62,7 +62,8 @@
     "desktop:build:all": "npm run build && electron-builder --config desktop/electron-builder.config.cjs --win --mac --linux --publish never",
     "release:patch:prepare": "node scripts/prepare-patch-release.cjs",
     "start": "node server/index.mjs",
-    "preview": "node server/index.mjs"
+    "preview": "node server/index.mjs",
+    "prepare": "husky"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.29.0",
@@ -97,6 +98,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.5.0",
+    "husky": "^9.1.7",
     "lit": "^3.3.2",
     "lucide-react": "^1.11.0",
     "monaco-editor": "^0.55.1",

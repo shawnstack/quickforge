@@ -604,19 +604,21 @@ class SubagentToolRenderer {
           <summary class="flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
             <svg class="shrink-0 transition-transform group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
             ${renderToolIcon('run_subagent')}
-            <span class="min-w-0 flex-1 truncate">${statusLabel}${task ? html`<span class="text-muted-foreground/70"> · ${task}</span>` : ''}</span>
+            <span class="min-w-0 flex-1 truncate">${statusLabel}</span>
             ${renderStatus(status, timing)}
           </summary>
           <div class="mt-3 space-y-3">
+            ${task || context || expectedOutput ? html`<div class="quickforge-subagent-task rounded-lg border border-border/75 bg-muted/20 px-3 py-2.5 text-sm">
+              ${task ? html`<div class="text-muted-foreground/85"><span class="font-medium text-foreground/75">${t('subagentTask')}:</span> ${task}</div>` : nothing}
+              ${context ? html`<div class="mt-1 text-xs text-muted-foreground/70"><span class="font-medium">${t('subagentContext')}:</span> ${context}</div>` : nothing}
+              ${expectedOutput ? html`<div class="mt-1 text-xs text-muted-foreground/70"><span class="font-medium">${t('subagentExpectedOutput')}:</span> ${expectedOutput}</div>` : nothing}
+            </div>` : nothing}
             ${toolDisplaySettings.showToolDetails ? html`<div class="quickforge-subagent-summary rounded-lg border border-border/75 bg-muted/20 px-3 py-2.5 text-sm">
               <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
                 <span class="font-medium text-foreground/85">${label}</span>
                 ${toolCalls !== undefined ? html`<span>${t('subagentToolCalls')}: ${toolCalls}</span>` : nothing}
                 ${timing ? html`<span>${renderTiming(timing, status)}</span>` : nothing}
               </div>
-              ${task ? html`<div class="mt-2 text-muted-foreground/85"><span class="font-medium text-foreground/75">${t('subagentTask')}:</span> ${task}</div>` : nothing}
-              ${context ? html`<div class="mt-1 text-xs text-muted-foreground/70"><span class="font-medium">${t('subagentContext')}:</span> ${context}</div>` : nothing}
-              ${expectedOutput ? html`<div class="mt-1 text-xs text-muted-foreground/70"><span class="font-medium">${t('subagentExpectedOutput')}:</span> ${expectedOutput}</div>` : nothing}
               ${allowedTools.length > 0 ? html`<div class="mt-2 flex flex-wrap gap-1.5">${allowedTools.map((tool) => html`<span class="rounded-full bg-background/80 px-2 py-0.5 text-[11px] text-muted-foreground/80">${tool}</span>`)}</div>` : nothing}
             </div>` : nothing}
             ${visibleTraceMessages.length > 0 ? html`<div class="quickforge-subagent-trace rounded-lg border border-border bg-background/60 p-2.5"><message-list .messages=${visibleTraceMessages} .tools=${traceTools} .pendingToolCalls=${pendingToolCalls} .isStreaming=${status === 'running'}></message-list></div>` : nothing}

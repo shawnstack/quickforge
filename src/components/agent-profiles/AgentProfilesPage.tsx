@@ -368,6 +368,14 @@ export function AgentProfilesPage() {
                   <input className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.label} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('label', event.target.value)} placeholder={t('agentLabelPlaceholder')} />
                 </label>
               </div>
+              {editingAgent ? (
+                <div className="rounded-xl border border-border bg-muted/20 px-3 py-2 text-sm">
+                  <div className="text-xs font-medium text-muted-foreground">{t('agentSourcePath')}</div>
+                  <div className="mt-1 truncate font-mono text-xs text-foreground" title={editingAgent.source ? `${editingAgent.source}${editingAgent.relativePath ? ` · ${editingAgent.relativePath}` : ''}` : undefined}>
+                    {editingAgent.source ? `${editingAgent.source}${editingAgent.relativePath ? ` · ${editingAgent.relativePath}` : ''}` : editingAgent.builtin ? t('builtinAgent') : '-'}
+                  </div>
+                </div>
+              ) : null}
               <label className="block text-sm font-medium text-foreground">
                 {t('agentDescription')}
                 <input className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.description} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('description', event.target.value)} />
@@ -438,26 +446,30 @@ export function AgentProfilesPage() {
         {agentProfiles.length === 0 ? (
           <div className="quickforge-settings-empty-row">{t('loading')}</div>
         ) : agentProfiles.map((agent) => (
-          <div key={agent.id} className="quickforge-settings-list-item">
-            <div className="quickforge-settings-list-item-main">
-              <div className="quickforge-settings-row-title">
-                {agent.label}
-                {agent.builtin ? <span className="quickforge-settings-badge quickforge-settings-badge-info">{t('builtinAgent')}</span> : null}
-                <span className={cn('quickforge-settings-badge', agent.enabledAsSubagent ? 'quickforge-settings-badge-success' : 'quickforge-settings-badge-muted')}>
-                  {agent.enabledAsSubagent ? t('enabled') : t('disabled')}
-                </span>
-              </div>
-              <div className="quickforge-settings-row-description quickforge-settings-mono">{agent.name}</div>
-              {agent.source && !agent.builtin ? <div className="quickforge-settings-row-description">{agent.source}{agent.relativePath ? ` · ${agent.relativePath}` : ''}</div> : null}
-              <div className="quickforge-settings-row-description">{agent.description || t('noDescription')}</div>
-              <div className="quickforge-settings-meta">
-                {agent.allowedTools.map((toolName) => (
-                  <code key={toolName} className="quickforge-settings-command-name">{toolName}</code>
-                ))}
-              </div>
-              <div className="quickforge-settings-meta">
-                <span className="quickforge-settings-badge quickforge-settings-badge-muted">{t('maxRuntimeMs')}{agent.maxRuntimeMs ?? '-'}</span>
-                <span className="quickforge-settings-badge quickforge-settings-badge-muted">{t('maxToolCalls')}{agent.maxToolCalls ?? '-'}</span>
+          <div
+            key={agent.id}
+            className="quickforge-settings-list-item quickforge-agent-profile-row"
+            role="button"
+            tabIndex={0}
+            onClick={() => openEditAgentDialog(agent)}
+            onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                openEditAgentDialog(agent)
+              }
+            }}
+          >
+            <div className="quickforge-settings-list-item-main quickforge-agent-profile-row-main">
+              <span
+                className={cn('quickforge-agent-profile-status-dot', agent.enabledAsSubagent ? 'quickforge-agent-profile-status-dot--enabled' : null)}
+                aria-label={agent.enabledAsSubagent ? t('enabled') : t('disabled')}
+                title={agent.enabledAsSubagent ? t('enabled') : t('disabled')}
+              />
+              <div className="quickforge-agent-profile-summary">
+                <span className="quickforge-agent-profile-label" title={agent.label}>{agent.label}</span>
+                <span className="quickforge-agent-profile-name quickforge-settings-mono" title={agent.name}>{agent.name}</span>
+                <span className="quickforge-agent-profile-description" title={agent.description || t('noDescription')}>· {agent.description || t('noDescription')}</span>
               </div>
             </div>
             <div className="quickforge-settings-list-item-actions" onClick={(event) => event.stopPropagation()}>

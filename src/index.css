@@ -636,6 +636,81 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
   flex: 1 1 auto;
 }
 
+.quickforge-agent-profile-row {
+  min-height: 3.25rem;
+  cursor: pointer;
+  gap: 0.875rem;
+  padding-block: 0.625rem;
+}
+
+.quickforge-agent-profile-row:focus-visible {
+  background: color-mix(in oklab, var(--muted) 20%, transparent);
+  outline: 2px solid color-mix(in oklab, var(--ring) 70%, transparent);
+  outline-offset: -2px;
+}
+
+.quickforge-agent-profile-row-main {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.quickforge-agent-profile-status-dot {
+  display: inline-flex;
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in oklab, var(--muted-foreground) 58%, transparent);
+  border-radius: 999px;
+}
+
+.quickforge-agent-profile-status-dot--enabled {
+  border-color: color-mix(in oklab, #10b981 72%, var(--foreground));
+  background: color-mix(in oklab, #10b981 86%, transparent);
+}
+
+.quickforge-agent-profile-summary {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.quickforge-agent-profile-label {
+  flex: 0 1 auto;
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 0.875rem;
+  font-weight: 520;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickforge-agent-profile-name {
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.quickforge-agent-profile-description {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickforge-agent-profile-row .quickforge-settings-list-item-actions {
+  width: auto;
+  flex-wrap: nowrap;
+}
+
 .quickforge-settings-list-item-actions {
   display: flex;
   flex: 0 0 auto;
@@ -1122,6 +1197,22 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
     width: 100%;
     min-width: 0;
     justify-content: flex-start;
+  }
+
+  .quickforge-agent-profile-row {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.875rem;
+    padding-block: 0.625rem;
+  }
+
+  .quickforge-agent-profile-row .quickforge-settings-list-item-actions {
+    width: auto;
+    justify-content: flex-end;
+  }
+
+  .quickforge-agent-profile-summary {
+    gap: 0.375rem;
   }
 
   .quickforge-settings-segmented {

@@ -608,7 +608,7 @@ class SubagentToolRenderer {
             ${renderStatus(status, timing)}
           </summary>
           <div class="mt-3 space-y-3">
-            ${task || context || expectedOutput ? html`<div class="quickforge-subagent-task rounded-lg border border-border/75 bg-muted/20 px-3 py-2.5 text-sm">
+            ${task || context || expectedOutput ? html`<div class="quickforge-subagent-task rounded-lg border border-border bg-background/60 px-3 py-2.5 text-sm">
               ${task ? html`<div class="text-muted-foreground/85"><span class="font-medium text-foreground/75">${t('subagentTask')}:</span> ${task}</div>` : nothing}
               ${context ? html`<div class="mt-1 text-xs text-muted-foreground/70"><span class="font-medium">${t('subagentContext')}:</span> ${context}</div>` : nothing}
               ${expectedOutput ? html`<div class="mt-1 text-xs text-muted-foreground/70"><span class="font-medium">${t('subagentExpectedOutput')}:</span> ${expectedOutput}</div>` : nothing}

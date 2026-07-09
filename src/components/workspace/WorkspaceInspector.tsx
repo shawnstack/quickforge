@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronsLeftRight, Code2, Copy, Eye, Folder, GitBranch, Globe, Maximize2, MessageSquare, Minimize2, Plus, Search, SquareTerminal, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronsLeftRight, Code2, Copy, Eye, Folder, GitBranch, Globe, Maximize2, MessageSquare, Minimize2, Plus, RefreshCw, Search, SquareTerminal, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ProjectInfo } from '@/lib/types'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
@@ -16,7 +16,7 @@ import { WorkspaceFileTree } from './WorkspaceFileTree'
 import { artifactFileName, isBrowserPreviewablePath, presentArtifacts } from './artifact-preview-utils'
 import { TerminalDock } from '@/components/terminal/TerminalDock'
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
-import type { GitChangedFile, GitFileDiffResponse, GitStatusResponse, WorkspaceFileResponse, WorkspaceInspectorFocusTarget, WorkspacePanelView, WorkspaceTreeNode } from './workspace-types'
+import type { GitChangedFile, GitFileDiffResponse, WorkspaceFileResponse, WorkspaceInspectorFocusTarget, WorkspacePanelView, WorkspaceTreeNode } from './workspace-types'
 
 type WorkspaceInspectorProps = {
   project?: ProjectInfo
@@ -59,6 +59,7 @@ function readerTabId(mode: ReaderMode, path: string) {
 
 type WorkspacePanelPrimaryTabKind = 'files' | 'review' | 'terminal' | 'browser'
 type WorkspacePanelTabKind = WorkspacePanelPrimaryTabKind | 'reader'
+type ReviewFilter = 'unstaged' | 'staged' | 'all' | 'last'
 
 type WorkspacePanelTab = {
   id: string
@@ -81,6 +82,13 @@ const PANEL_TAB_ITEMS: WorkspacePanelTabMeta[] = [
   { kind: 'review', label: t('rightPanelReview'), description: t('rightPanelReviewDesc'), icon: GitBranch },
   { kind: 'terminal', label: t('rightPanelTerminal'), description: t('rightPanelTerminalDesc'), icon: SquareTerminal },
   { kind: 'browser', label: t('rightPanelBrowser'), description: t('rightPanelBrowserDesc'), icon: Globe },
+]
+
+const REVIEW_FILTER_ITEMS: { value: ReviewFilter; label: string }[] = [
+  { value: 'unstaged', label: t('workspaceReviewFilterUnstaged') },
+  { value: 'staged', label: t('workspaceReviewFilterStaged') },
+  { value: 'all', label: t('workspaceReviewFilterAllBranches') },
+  { value: 'last', label: t('workspaceReviewFilterLastRun') },
 ]
 
 const PANEL_TAB_BY_KIND = Object.fromEntries(PANEL_TAB_ITEMS.map((item) => [item.kind, item])) as Record<WorkspacePanelPrimaryTabKind, WorkspacePanelTabMeta>
@@ -251,35 +259,30 @@ function filterWorkspaceTree(tree: WorkspaceTreeNode[], rawQuery: string): Works
   })
 }
 
-function allChangesPrompt(files: GitChangedFile[]) {
-  const list = files.map((file) => `- ${file.status}: ${file.oldPath ? `${file.oldPath} -> ` : ''}${file.path}`).join('\n')
-  return t('workspaceReviewPrompt', { list })
+function normalizeWorkspacePath(path: string | undefined, projectRoot?: string) {
+  const raw = path?.trim()
+  if (!raw) return ''
+  let normalized = raw.replace(/\\/g, '/').replace(/^\.\/+/g, '')
+  const root = projectRoot?.trim().replace(/\\/g, '/').replace(/\/+$/g, '')
+  if (root && normalized.startsWith(`${root}/`)) normalized = normalized.slice(root.length + 1)
+  return normalized.replace(/^\/+/, '')
 }
 
-function commitMessagePrompt(files: GitChangedFile[]) {
-  const list = files.map((file) => `- ${file.status}: ${file.oldPath ? `${file.oldPath} -> ` : ''}${file.path}`).join('\n')
-  return t('workspaceCommitMessagePrompt', { list })
+function lastRunChangePaths(artifacts: AiTurnArtifact[], projectRoot?: string) {
+  const paths = new Set<string>()
+  for (const artifact of artifacts) {
+    const path = normalizeWorkspacePath(artifact.path, projectRoot)
+    const outputFile = normalizeWorkspacePath(artifact.outputFile, projectRoot)
+    if (path) paths.add(path)
+    if (outputFile) paths.add(outputFile)
+  }
+  return paths
 }
 
-function gitSummary(branch?: string, counts?: GitStatusResponse['counts']) {
-  const parts = [`${t('workspaceCurrentBranch')}: ${branch || t('unknown')}`]
-  if (counts?.total) parts.push(`${counts.total} ${t('workspaceChangeCount')}`)
-  return parts.join(' · ')
-}
-
-function GitGroup({ title, files, selectedPath, onSelectFile }: {
-  title: string
-  files: GitChangedFile[]
-  selectedPath?: string
-  onSelectFile: (path: string) => void
-}) {
-  if (files.length === 0) return null
-  return (
-    <div className="space-y-1">
-      <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">{title} {files.length}</div>
-      <WorkspaceChangesList files={files} selectedPath={selectedPath} onSelectFile={onSelectFile} />
-    </div>
-  )
+function reviewEmptyMessage(filter: ReviewFilter) {
+  if (filter === 'staged') return t('workspaceNoStagedChanges')
+  if (filter === 'last') return t('workspaceNoLastRunChanges')
+  return t('workspaceNoWorkingTreeChanges')
 }
 
 function isMarkdownFile(file?: WorkspaceFileResponse) {
@@ -537,11 +540,15 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
   const [tree, setTree] = useState<WorkspaceTreeNode[]>([])
   const [changes, setChanges] = useState<GitChangedFile[]>([])
   const [gitBranch, setGitBranch] = useState<string>()
-  const [gitCounts, setGitCounts] = useState<GitStatusResponse['counts']>()
   const [isGitRepository, setIsGitRepository] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>()
   const [filter, setFilter] = useState('')
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('unstaged')
+  const [expandedDiffPath, setExpandedDiffPath] = useState<string>()
+  const [expandedDiff, setExpandedDiff] = useState<GitFileDiffResponse>()
+  const [expandedDiffLoading, setExpandedDiffLoading] = useState(false)
+  const [expandedDiffError, setExpandedDiffError] = useState<string>()
 
   const initialPanelTabStateRef = useRef<PersistedWorkspaceInspectorTabs | undefined>(undefined)
   if (!initialPanelTabStateRef.current) {
@@ -551,6 +558,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
   const [activePanelTabId, setActivePanelTabId] = useState<string | undefined>(() => initialPanelTabStateRef.current?.activePanelTabId)
   const [menuOpen, setMenuOpen] = useState(false)
   const [tabListOpen, setTabListOpen] = useState(false)
+  const [reviewFilterOpen, setReviewFilterOpen] = useState(false)
   const [leftWidth, setLeftWidth] = useState(NAV_PANEL_DEFAULT_WIDTH)
   const [isNavResizing, setIsNavResizing] = useState(false)
   const [mounted, setMounted] = useState(open)
@@ -562,6 +570,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
   const asideRef = useRef<HTMLElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const tabListRef = useRef<HTMLDivElement | null>(null)
+  const reviewFilterRef = useRef<HTMLDivElement | null>(null)
   const navResizeDragRef = useRef<{ startX: number; startWidth: number; currentWidth: number } | null>(null)
   const navResizeFrameRef = useRef<number | null>(null)
   const resizeDragRef = useRef<{ startX: number; startWidth: number; currentWidth: number } | null>(null)
@@ -577,6 +586,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
   const persistedTabsProjectIdRef = useRef(project?.id)
   const skipNextPanelTabsPersistRef = useRef(false)
   const loadingReaderKeysRef = useRef<Set<string>>(new Set())
+  const expandedDiffRequestRef = useRef(0)
 
   const projectId = project?.id
   const activePanelTab = useMemo(
@@ -608,12 +618,22 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
 
   const filteredTree = useMemo(() => filterWorkspaceTree(tree, filter), [filter, tree])
 
-  const gitGroups = useMemo(() => ({
-    conflicts: changes.filter((file) => file.conflict || file.status === 'conflicted'),
-    staged: changes.filter((file) => !file.conflict && file.status !== 'untracked' && file.staged),
-    unstaged: changes.filter((file) => !file.conflict && file.status !== 'untracked' && file.unstaged),
-    untracked: changes.filter((file) => !file.conflict && file.status === 'untracked'),
-  }), [changes])
+  const lastRunPaths = useMemo(() => lastRunChangePaths(artifacts, project?.path), [artifacts, project?.path])
+
+  const reviewFiles = useMemo(() => {
+    if (reviewFilter === 'staged') return changes.filter((file) => file.staged)
+    if (reviewFilter === 'all') return changes
+    if (reviewFilter === 'last') return changes.filter((file) => lastRunPaths.has(file.path) || (file.oldPath ? lastRunPaths.has(file.oldPath) : false))
+    return changes.filter((file) => file.unstaged || file.status === 'untracked' || file.conflict || file.status === 'conflicted')
+  }, [changes, lastRunPaths, reviewFilter])
+
+  useEffect(() => {
+    if (!expandedDiffPath || reviewFiles.some((file) => file.path === expandedDiffPath)) return
+    setExpandedDiffPath(undefined)
+    setExpandedDiff(undefined)
+    setExpandedDiffError(undefined)
+    setExpandedDiffLoading(false)
+  }, [expandedDiffPath, reviewFiles])
 
   useEffect(() => {
     if (open) {
@@ -640,16 +660,18 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
   }, [open])
 
   useEffect(() => {
-    if (!menuOpen && !tabListOpen) return undefined
+    if (!menuOpen && !tabListOpen && !reviewFilterOpen) return undefined
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node
       if (menuOpen && !menuRef.current?.contains(target)) setMenuOpen(false)
       if (tabListOpen && !tabListRef.current?.contains(target)) setTabListOpen(false)
+      if (reviewFilterOpen && !reviewFilterRef.current?.contains(target)) setReviewFilterOpen(false)
     }
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setMenuOpen(false)
         setTabListOpen(false)
+        setReviewFilterOpen(false)
       }
     }
     document.addEventListener('pointerdown', handlePointerDown)
@@ -658,7 +680,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
       document.removeEventListener('pointerdown', handlePointerDown)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [menuOpen, tabListOpen])
+  }, [menuOpen, reviewFilterOpen, tabListOpen])
 
   useEffect(() => {
     let disposed = false
@@ -713,34 +735,35 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
     expandInspectorToMax()
   }, [activePanelTab?.kind, activeReaderTabId, visible, fullscreen, expandInspectorToMax])
 
+  const loadWorkspace = useCallback(async (isDisposed?: () => boolean) => {
+    if (!projectId) return
+    setLoading(true)
+    setError(undefined)
+    try {
+      const [treeResponse, statusResponse] = await Promise.all([
+        getWorkspaceTree(projectId),
+        getGitStatus(projectId),
+      ])
+      if (isDisposed?.()) return
+      setTree(treeResponse.tree)
+      setChanges(statusResponse.files)
+      setGitBranch(statusResponse.branch)
+      setIsGitRepository(statusResponse.isGitRepository)
+    } catch (err: unknown) {
+      if (!isDisposed?.()) setError(err instanceof Error ? err.message : t('workspaceLoadFailed'))
+    } finally {
+      if (!isDisposed?.()) setLoading(false)
+    }
+  }, [projectId])
+
   useEffect(() => {
     let disposed = false
     if (!projectId || !open) return
     queueMicrotask(() => {
-      if (disposed) return
-      setLoading(true)
-      setError(undefined)
-      Promise.all([
-        getWorkspaceTree(projectId),
-        getGitStatus(projectId),
-      ])
-        .then(([treeResponse, statusResponse]) => {
-          if (disposed) return
-          setTree(treeResponse.tree)
-          setChanges(statusResponse.files)
-          setGitBranch(statusResponse.branch)
-          setGitCounts(statusResponse.counts)
-          setIsGitRepository(statusResponse.isGitRepository)
-        })
-        .catch((err: unknown) => {
-          if (!disposed) setError(err instanceof Error ? err.message : t('workspaceLoadFailed'))
-        })
-        .finally(() => {
-          if (!disposed) setLoading(false)
-        })
+      if (!disposed) void loadWorkspace(() => disposed)
     })
     return () => { disposed = true }
-  }, [open, projectId])
+  }, [loadWorkspace, open, projectId])
 
   useEffect(() => {
     if (!projectId) {
@@ -853,7 +876,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
       const next = prev.filter((tab) => tab.id !== id)
       if (next.length === 0) {
         setActivePanelTabId(undefined)
-        onViewChange('review')
+        onViewChange('changes')
         onOpenChange(false)
         return next
       }
@@ -861,7 +884,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
         const nextActive = next[index] ?? next[index - 1]
         setActivePanelTabId(nextActive?.id)
         if (!nextActive) {
-          onViewChange('review')
+          onViewChange('changes')
         } else if (nextActive.kind !== 'reader') {
           onViewChange(viewFromPanelKind(nextActive.kind))
         }
@@ -926,6 +949,35 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
     }
   }
 
+  async function toggleReviewDiff(path: string) {
+    if (!projectId) return
+    if (expandedDiffPath === path) {
+      expandedDiffRequestRef.current += 1
+      setExpandedDiffPath(undefined)
+      setExpandedDiff(undefined)
+      setExpandedDiffError(undefined)
+      setExpandedDiffLoading(false)
+      return
+    }
+
+    const requestId = expandedDiffRequestRef.current + 1
+    expandedDiffRequestRef.current = requestId
+    setExpandedDiffPath(path)
+    setExpandedDiff(undefined)
+    setExpandedDiffError(undefined)
+    setExpandedDiffLoading(true)
+    try {
+      const diff = await getGitFileDiff(projectId, path)
+      if (expandedDiffRequestRef.current !== requestId) return
+      setExpandedDiff(diff)
+    } catch (err) {
+      if (expandedDiffRequestRef.current !== requestId) return
+      setExpandedDiffError(err instanceof Error ? err.message : t('workspaceOpenDiffFailed'))
+    } finally {
+      if (expandedDiffRequestRef.current === requestId) setExpandedDiffLoading(false)
+    }
+  }
+
   function closeReaderTab(id: string) {
     if (!activePanelTab) return
     updatePanelTab(activePanelTab.id, (tab) => {
@@ -935,10 +987,6 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
       const nextActive = tab.activeReaderTabId === id ? (next[idx] ?? next[idx - 1])?.id : tab.activeReaderTabId
       return { ...tab, readerTabs: next, activeReaderTabId: nextActive }
     })
-  }
-
-  async function selectDiff(path: string) {
-    await openDiffTab(path, true)
   }
 
   async function selectDiffInPlace(path: string) {
@@ -1456,46 +1504,69 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
                       isGitRepository
                         ? (
                           <div className="space-y-3">
-                            {changes.length === 0 ? (
-                              <div className="px-2 py-3 text-xs text-muted-foreground/70">{t('workspaceNoWorkingTreeChanges')}</div>
-                            ) : (
-                              <>
-                                <GitGroup title={t('workspaceConflicts')} files={gitGroups.conflicts} selectedPath={undefined} onSelectFile={selectDiff} />
-                                <GitGroup title={t('workspaceStagedChanges')} files={gitGroups.staged} selectedPath={undefined} onSelectFile={selectDiff} />
-                                <GitGroup title={t('workspaceChanges')} files={gitGroups.unstaged} selectedPath={undefined} onSelectFile={selectDiff} />
-                                <GitGroup title={t('workspaceUntracked')} files={gitGroups.untracked} selectedPath={undefined} onSelectFile={selectDiff} />
-                              </>
-                            )}
-
-                            <div className="rounded-lg border border-border bg-muted/10 px-3 py-2">
-                              <div className="truncate text-xs font-medium text-foreground/85">{gitSummary(gitBranch, gitCounts)}</div>
-                              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground/60">
-                                <span>{t('workspaceStaged')} {gitCounts?.staged ?? 0}</span>
-                                <span>{t('workspaceChanges')} {gitCounts?.unstaged ?? 0}</span>
-                                <span>{t('workspaceUntracked')} {gitCounts?.untracked ?? 0}</span>
-                                {gitCounts?.conflicts ? <span className="text-red-600 dark:text-red-500">{t('workspaceConflicts')} {gitCounts.conflicts}</span> : null}
+                            <div className="flex items-center justify-between gap-2">
+                              <div ref={reviewFilterRef} className="relative min-w-0">
+                                <button
+                                  type="button"
+                                  className="inline-flex h-8 min-w-32 items-center gap-2 rounded-xl border border-[color-mix(in_oklab,var(--border)_45%,transparent)] bg-background px-3 text-sm font-medium text-foreground/86 transition-colors hover:border-border/60 hover:bg-muted/30 hover:text-foreground"
+                                  onClick={() => setReviewFilterOpen((value) => !value)}
+                                  aria-haspopup="menu"
+                                  aria-expanded={reviewFilterOpen}
+                                  title={t('workspaceReviewFilter')}
+                                >
+                                  <span className="min-w-0 flex-1 truncate text-left">{REVIEW_FILTER_ITEMS.find((item) => item.value === reviewFilter)?.label}</span>
+                                  <ChevronDown className={cn('size-3.5 shrink-0 text-muted-foreground/70 transition-transform', reviewFilterOpen && 'rotate-180')} />
+                                </button>
+                                {reviewFilterOpen ? (
+                                  <div className="absolute left-0 top-10 z-40 w-48 rounded-2xl border border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-popover p-1.5 shadow-quickforge" role="menu" aria-label={t('workspaceReviewFilter')}>
+                                    {REVIEW_FILTER_ITEMS.map((item) => {
+                                      const active = item.value === reviewFilter
+                                      return (
+                                        <button
+                                          key={item.value}
+                                          type="button"
+                                          className={cn(
+                                            'flex h-9 w-full items-center gap-2 rounded-xl px-2.5 text-left text-sm font-medium transition-colors',
+                                            active ? 'bg-muted/55 text-foreground' : 'text-foreground/82 hover:bg-muted/34 hover:text-foreground',
+                                          )}
+                                          onClick={() => {
+                                            setReviewFilter(item.value)
+                                            setReviewFilterOpen(false)
+                                          }}
+                                          role="menuitemradio"
+                                          aria-checked={active}
+                                        >
+                                          <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                                          {active ? <Check className="size-3.5 shrink-0 text-muted-foreground/80" /> : null}
+                                        </button>
+                                      )
+                                    })}
+                                  </div>
+                                ) : null}
                               </div>
-                              {changes.length > 0 && onDraftRequest ? (
-                                <div className="mt-2 flex gap-1.5">
-                                  <button
-                                    type="button"
-                                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground/72 transition-colors hover:bg-muted/20 hover:text-foreground/85"
-                                    onClick={() => onDraftRequest(allChangesPrompt(changes))}
-                                  >
-                                    <MessageSquare className="size-3" />
-                                    {t('workspaceReview')}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground/72 transition-colors hover:bg-muted/20 hover:text-foreground/85"
-                                    onClick={() => onDraftRequest(commitMessagePrompt(changes))}
-                                  >
-                                    <MessageSquare className="size-3" />
-                                    {t('workspaceCommitMessage')}
-                                  </button>
-                                </div>
-                              ) : null}
+                              <button
+                                type="button"
+                                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xl px-2.5 text-sm font-medium text-muted-foreground/72 transition-colors hover:bg-muted/30 hover:text-foreground/85 disabled:cursor-not-allowed disabled:opacity-60"
+                                onClick={() => void loadWorkspace()}
+                                disabled={loading}
+                                aria-label={t('refreshWorkspace')}
+                                title={t('refreshWorkspace')}
+                              >
+                                <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
+                                <span>{t('refresh')}</span>
+                              </button>
                             </div>
+
+                            <WorkspaceChangesList
+                              files={reviewFiles}
+                              selectedPath={expandedDiffPath}
+                              expandedDiff={expandedDiff}
+                              expandedLoading={expandedDiffLoading}
+                              expandedError={expandedDiffError}
+                              onSelectFile={toggleReviewDiff}
+                              emptyMessage={reviewEmptyMessage(reviewFilter)}
+                            />
+
                           </div>
                         )
                         : <div className="px-2 py-3 text-xs text-muted-foreground/70">{t('workspaceNotGitRepository')}</div>

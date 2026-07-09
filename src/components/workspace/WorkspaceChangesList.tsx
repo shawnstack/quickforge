@@ -1,10 +1,16 @@
+import { ChevronDown } from 'lucide-react'
 import { t } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
+import { WorkspaceInlineDiffPreview } from './WorkspaceInlineDiffPreview'
 import { FileIcon } from './file-icon'
-import type { GitChangedFile, GitFileStatus } from './workspace-types'
+import type { GitChangedFile, GitFileDiffResponse, GitFileStatus } from './workspace-types'
 
 type WorkspaceChangesListProps = {
   files: GitChangedFile[]
   selectedPath?: string
+  expandedDiff?: GitFileDiffResponse
+  expandedLoading?: boolean
+  expandedError?: string
   onSelectFile: (path: string) => void
   emptyMessage?: string
 }
@@ -18,37 +24,63 @@ function statusMeta(status: GitFileStatus) {
   return { label: 'M', text: t('workspaceStatusModified'), className: 'text-emerald-600 dark:text-emerald-500' }
 }
 
-export function WorkspaceChangesList({ files, selectedPath, onSelectFile, emptyMessage = t('workspaceNoWorkingTreeChanges') }: WorkspaceChangesListProps) {
+function pathParts(path: string) {
+  const normalized = path.replace(/\\/g, '/')
+  const parts = normalized.split('/').filter(Boolean)
+  const fileName = parts.pop() || normalized || '—'
+  return {
+    fileName,
+    directory: parts.join('/'),
+  }
+}
+
+export function WorkspaceChangesList({ files, selectedPath, expandedDiff, expandedLoading, expandedError, onSelectFile, emptyMessage = t('workspaceNoWorkingTreeChanges') }: WorkspaceChangesListProps) {
   if (files.length === 0) {
     return <div className="px-2 py-3 text-xs text-muted-foreground/70">{emptyMessage}</div>
   }
 
   return (
-    <div className="space-y-0.5">
+    <div className="space-y-1">
       {files.map((file) => {
         const meta = statusMeta(file.status)
         const isSelected = selectedPath === file.path
+        const { fileName, directory } = pathParts(file.path)
         return (
-          <button
+          <div
             key={`${file.status}:${file.oldPath ?? ''}:${file.path}`}
-            type="button"
-            className={`flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-xs transition-colors ${
-              isSelected ? 'bg-muted/28 text-foreground/90' : 'text-muted-foreground/72 hover:bg-muted/20 hover:text-foreground/85'
-            }`}
-            onClick={() => onSelectFile(file.path)}
-            title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
+            className={cn('overflow-hidden rounded-xl', isSelected && 'border border-[color-mix(in_oklab,var(--border)_30%,transparent)] bg-background')}
           >
-            <span className={`w-4 shrink-0 font-mono text-[0.68rem] font-semibold ${meta.className}`}>{meta.label}</span>
-            <FileIcon path={file.path} className="size-3.5 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">{file.path}</span>
-            {typeof file.additions === 'number' && typeof file.deletions === 'number' ? (
-              <span className="shrink-0 font-mono text-[10px] font-medium">
-                <span className="text-emerald-600 dark:text-emerald-500">+{file.additions}</span>
-                <span className="ml-1 text-red-600 dark:text-red-500">-{file.deletions}</span>
+            <button
+              type="button"
+              className={cn(
+                'flex min-h-11 w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors',
+                isSelected
+                  ? 'rounded-t-xl bg-muted/40 text-foreground/92'
+                  : 'rounded-xl text-foreground/84 hover:bg-muted/24 hover:text-foreground/92',
+              )}
+              onClick={() => onSelectFile(file.path)}
+              title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
+              aria-expanded={isSelected}
+            >
+              <FileIcon path={file.path} className={cn('size-4 shrink-0', meta.className)} />
+              <span className="min-w-0 flex-1 truncate leading-5">
+                <span className="font-medium text-foreground/90">{fileName}</span>
+                <span className="ml-2 text-xs text-muted-foreground/55">
+                  {directory || (file.oldPath ? file.oldPath : t('workspaceRootPath'))}
+                </span>
               </span>
+              {typeof file.additions === 'number' && typeof file.deletions === 'number' ? (
+                <span className="shrink-0 whitespace-nowrap text-right font-mono text-xs font-medium leading-5">
+                  <span className="text-emerald-600 dark:text-emerald-500">+{file.additions}</span>
+                  <span className="ml-1.5 text-red-600 dark:text-red-500">-{file.deletions}</span>
+                </span>
+              ) : null}
+              <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground/45 transition-transform', isSelected && 'rotate-180')} />
+            </button>
+            {isSelected ? (
+              <WorkspaceInlineDiffPreview diff={expandedDiff} loading={expandedLoading} error={expandedError} />
             ) : null}
-            <span className="shrink-0 text-[0.68rem] text-muted-foreground/55">{meta.text}</span>
-          </button>
+          </div>
         )
       })}
     </div>

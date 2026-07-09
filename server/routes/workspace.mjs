@@ -360,6 +360,85 @@ async function commitGitChanges(context, message, includeUnstaged) {
   return listGitStatus(context)
 }
 
+async function normalizeGitOperationPath(context, value) {
+  const relativePath = typeof value === 'string' ? value.trim().replace(/\\/g, '/') : ''
+  if (!relativePath || relativePath === '.') {
+    const error = new Error('path is required')
+    error.statusCode = 400
+    throw error
+  }
+  const file = resolveWorkspacePath(relativePath, context)
+  await assertSafeWorkspacePath(file, context, { allowSensitive: true, ignoreMissing: true })
+  return toWorkspaceRelative(file, context)
+}
+
+async function stageGitPath(context, value) {
+  await assertGitRepository(context)
+  const relativePath = await normalizeGitOperationPath(context, value)
+  await git(['add', '-A', '--', relativePath], context.workspaceRoot)
+  return listGitStatus(context)
+}
+
+async function stageAllGitChanges(context) {
+  await assertGitRepository(context)
+  await git(['add', '-A'], context.workspaceRoot)
+  return listGitStatus(context)
+}
+
+async function unstageGitPath(context, value) {
+  await assertGitRepository(context)
+  const relativePath = await normalizeGitOperationPath(context, value)
+  await git(['restore', '--staged', '--', relativePath], context.workspaceRoot)
+  return listGitStatus(context)
+}
+
+async function unstageAllGitChanges(context) {
+  await assertGitRepository(context)
+  await git(['restore', '--staged', '--', '.'], context.workspaceRoot)
+  return listGitStatus(context)
+}
+
+async function restoreGitPath(context, value) {
+  await assertGitRepository(context)
+  const relativePath = await normalizeGitOperationPath(context, value)
+  const status = await listGitStatus(context)
+  const changedFile = status.files.find((file) => file.path === relativePath || file.oldPath === relativePath)
+  if (!changedFile) return status
+
+  if (changedFile.status === 'untracked') {
+    const file = resolveWorkspacePath(changedFile.path, context)
+    await assertSafeWorkspacePath(file, context, { allowSensitive: true, ignoreMissing: true })
+    await fs.rm(file, { recursive: true, force: true })
+    return listGitStatus(context)
+  }
+
+  const targets = [...new Set([changedFile.path, changedFile.oldPath].filter(Boolean))]
+  if (changedFile.staged) {
+    await git(['restore', '--staged', '--', ...targets], context.workspaceRoot, { allowFailure: true })
+  }
+
+  if (changedFile.status === 'added') {
+    await git(['clean', '-fd', '--', changedFile.path], context.workspaceRoot)
+    return listGitStatus(context)
+  }
+
+  if (changedFile.oldPath) {
+    await git(['restore', '--worktree', '--', changedFile.oldPath], context.workspaceRoot, { allowFailure: true })
+    await git(['clean', '-fd', '--', changedFile.path], context.workspaceRoot, { allowFailure: true })
+  } else {
+    await git(['restore', '--worktree', '--', changedFile.path], context.workspaceRoot)
+  }
+  return listGitStatus(context)
+}
+
+async function restoreAllGitChanges(context) {
+  await assertGitRepository(context)
+  await git(['restore', '--staged', '--', '.'], context.workspaceRoot, { allowFailure: true })
+  await git(['restore', '--worktree', '--', '.'], context.workspaceRoot, { allowFailure: true })
+  await git(['clean', '-fd'], context.workspaceRoot)
+  return listGitStatus(context)
+}
+
 async function pushGitBranch(context) {
   await assertGitRepository(context)
   await git(['push'], context.workspaceRoot)
@@ -756,6 +835,36 @@ async function handleGitGenerateCommitMessage(req, res) {
   sendJson(res, 200, { message })
 }
 
+async function handleGitStage(req, res) {
+  const { context, body } = await contextFromGitBody(req)
+  sendJson(res, 200, await stageGitPath(context, body?.path))
+}
+
+async function handleGitStageAll(req, res) {
+  const { context } = await contextFromGitBody(req)
+  sendJson(res, 200, await stageAllGitChanges(context))
+}
+
+async function handleGitUnstage(req, res) {
+  const { context, body } = await contextFromGitBody(req)
+  sendJson(res, 200, await unstageGitPath(context, body?.path))
+}
+
+async function handleGitUnstageAll(req, res) {
+  const { context } = await contextFromGitBody(req)
+  sendJson(res, 200, await unstageAllGitChanges(context))
+}
+
+async function handleGitRestore(req, res) {
+  const { context, body } = await contextFromGitBody(req)
+  sendJson(res, 200, await restoreGitPath(context, body?.path))
+}
+
+async function handleGitRestoreAll(req, res) {
+  const { context } = await contextFromGitBody(req)
+  sendJson(res, 200, await restoreAllGitChanges(context))
+}
+
 async function handleGitCommit(req, res) {
   const { context, body } = await contextFromGitBody(req)
   sendJson(res, 200, await commitGitChanges(context, body?.message, Boolean(body?.includeUnstaged)))
@@ -822,6 +931,30 @@ export async function handleGitApi(req, res, url) {
   }
   if (req.method === 'POST' && url.pathname === '/api/git/generate-commit-message') {
     await handleGitGenerateCommitMessage(req, res)
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/git/stage') {
+    await handleGitStage(req, res)
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/git/stage-all') {
+    await handleGitStageAll(req, res)
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/git/unstage') {
+    await handleGitUnstage(req, res)
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/git/unstage-all') {
+    await handleGitUnstageAll(req, res)
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/git/restore') {
+    await handleGitRestore(req, res)
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/git/restore-all') {
+    await handleGitRestoreAll(req, res)
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/git/commit') {

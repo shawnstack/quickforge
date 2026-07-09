@@ -5,12 +5,13 @@ import type { AiTurnArtifact } from '@/lib/tool-artifacts'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
+import { showAlert, showConfirm } from '@/components/ui/confirm-dialog'
 import { WebPreviewContent } from '@/components/preview/WebPreviewContent'
 import { MarkdownReader } from './MarkdownReader'
 import { MonacoCodeViewer } from './MonacoCodeViewer'
 import { MonacoDiffViewer } from './MonacoDiffViewer'
 import { countDiffLines } from './diff-line-counts'
-import { getGitFileDiff, getGitStatus, getWorkspaceFile, getWorkspaceTree } from './workspace-api'
+import { getGitFileDiff, getGitStatus, getWorkspaceFile, getWorkspaceTree, restoreAllGitChanges, restoreGitFile, stageAllGitChanges, stageGitFile, unstageAllGitChanges, unstageGitFile } from './workspace-api'
 import { WorkspaceChangesList } from './WorkspaceChangesList'
 import { WorkspaceFileTree } from './WorkspaceFileTree'
 import { artifactFileName, isBrowserPreviewablePath, presentArtifacts } from './artifact-preview-utils'
@@ -60,6 +61,7 @@ function readerTabId(mode: ReaderMode, path: string) {
 type WorkspacePanelPrimaryTabKind = 'files' | 'review' | 'terminal' | 'browser'
 type WorkspacePanelTabKind = WorkspacePanelPrimaryTabKind | 'reader'
 type ReviewFilter = 'unstaged' | 'staged' | 'all' | 'last'
+type GitChangeAction = 'restore' | 'stage' | 'unstage'
 
 type WorkspacePanelTab = {
   id: string
@@ -559,6 +561,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
   const [menuOpen, setMenuOpen] = useState(false)
   const [tabListOpen, setTabListOpen] = useState(false)
   const [reviewFilterOpen, setReviewFilterOpen] = useState(false)
+  const [pendingGitAction, setPendingGitAction] = useState<{ action: GitChangeAction; path?: string }>()
   const [leftWidth, setLeftWidth] = useState(NAV_PANEL_DEFAULT_WIDTH)
   const [isNavResizing, setIsNavResizing] = useState(false)
   const [mounted, setMounted] = useState(open)
@@ -626,6 +629,75 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
     if (reviewFilter === 'last') return changes.filter((file) => lastRunPaths.has(file.path) || (file.oldPath ? lastRunPaths.has(file.oldPath) : false))
     return changes.filter((file) => file.unstaged || file.status === 'untracked' || file.conflict || file.status === 'conflicted')
   }, [changes, lastRunPaths, reviewFilter])
+
+  function applyGitStatus(statusResponse: { files: GitChangedFile[]; branch?: string; isGitRepository: boolean }) {
+    setChanges(statusResponse.files)
+    setGitBranch(statusResponse.branch)
+    setIsGitRepository(statusResponse.isGitRepository)
+  }
+
+  async function runGitAction(action: GitChangeAction, path: string | undefined, operation: () => Promise<{ files: GitChangedFile[]; branch?: string; isGitRepository: boolean }>, fallbackError: string) {
+    setPendingGitAction({ action, path })
+    try {
+      const statusResponse = await operation()
+      applyGitStatus(statusResponse)
+    } catch (err) {
+      await showAlert(err instanceof Error ? err.message : fallbackError)
+    } finally {
+      setPendingGitAction(undefined)
+    }
+  }
+
+  async function handleStageFile(file: GitChangedFile) {
+    if (!projectId) return
+    await runGitAction('stage', file.path, () => stageGitFile(projectId, file.path), t('workspaceStageFailed'))
+  }
+
+  async function handleStageAll() {
+    if (!projectId) return
+    await runGitAction('stage', undefined, () => stageAllGitChanges(projectId), t('workspaceStageFailed'))
+  }
+
+  async function handleUnstageFile(file: GitChangedFile) {
+    if (!projectId) return
+    await runGitAction('unstage', file.path, () => unstageGitFile(projectId, file.path), t('workspaceUnstageFailed'))
+  }
+
+  async function handleUnstageAll() {
+    if (!projectId) return
+    await runGitAction('unstage', undefined, () => unstageAllGitChanges(projectId), t('workspaceUnstageFailed'))
+  }
+
+  async function handleRestoreFile(file: GitChangedFile) {
+    if (!projectId) return
+    const confirmed = await showConfirm({
+      title: t('workspaceRestoreConfirmTitle'),
+      description: t('workspaceRestoreFileConfirm', { path: file.path }),
+      confirmLabel: t('workspaceRestoreFile'),
+      cancelLabel: t('cancel'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    await runGitAction('restore', file.path, () => restoreGitFile(projectId, file.path), t('workspaceRestoreFailed'))
+  }
+
+  async function handleRestoreAll() {
+    if (!projectId) return
+    const confirmed = await showConfirm({
+      title: t('workspaceRestoreConfirmTitle'),
+      description: t('workspaceRestoreAllConfirm'),
+      confirmLabel: t('workspaceRestoreAll'),
+      cancelLabel: t('cancel'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    await runGitAction('restore', undefined, () => restoreAllGitChanges(projectId), t('workspaceRestoreFailed'))
+  }
+
+  function handleOpenChangedFile(file: GitChangedFile) {
+    if (file.status === 'deleted') return
+    void openFileTab(file.path)
+  }
 
   useEffect(() => {
     if (!expandedDiffPath || reviewFiles.some((file) => file.path === expandedDiffPath)) return
@@ -1471,7 +1543,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
                 {error ? (
                   <div className="p-4 text-sm text-destructive">{error}</div>
                 ) : (
-                  <div className="min-h-0 flex-1 overflow-auto p-2">
+                  <div className={cn('min-h-0 flex-1 p-2', navView === 'changes' ? 'flex flex-col overflow-hidden' : 'overflow-auto')}>
                     {loading ? <div className="px-2 py-3 text-xs text-muted-foreground/70">{t('workspaceLoading')}</div> : null}
                     {!loading && navView === 'overview' ? (
                       <WorkspaceOverview
@@ -1503,8 +1575,8 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
                     {!loading && navView === 'changes' ? (
                       isGitRepository
                         ? (
-                          <div className="space-y-3">
-                            <div className="flex items-center justify-between gap-2">
+                          <div className="flex min-h-0 flex-1 flex-col">
+                            <div className="flex shrink-0 items-center justify-between gap-2 px-2 pb-2">
                               <div ref={reviewFilterRef} className="relative min-w-0">
                                 <button
                                   type="button"
@@ -1564,6 +1636,15 @@ export function WorkspaceInspector({ project, open, onOpenChange, view, onViewCh
                               expandedLoading={expandedDiffLoading}
                               expandedError={expandedDiffError}
                               onSelectFile={toggleReviewDiff}
+                              onRestoreFile={handleRestoreFile}
+                              onStageFile={handleStageFile}
+                              onUnstageFile={handleUnstageFile}
+                              onOpenFile={handleOpenChangedFile}
+                              onRestoreAll={handleRestoreAll}
+                              onStageAll={handleStageAll}
+                              onUnstageAll={handleUnstageAll}
+                              showUnstageAll={reviewFilter === 'staged'}
+                              pendingAction={pendingGitAction}
                               emptyMessage={reviewEmptyMessage(reviewFilter)}
                             />
 

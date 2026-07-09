@@ -57,6 +57,30 @@ export function getGitFileDiff(projectId: string, path: string) {
   return fetchJson<GitFileDiffResponse>(`/api/git/file-diff?${projectQuery(projectId)}&path=${encodeURIComponent(path)}`)
 }
 
+export function stageGitFile(projectId: string, path: string) {
+  return postJson<GitOperationResponse>('/api/git/stage', { projectId, path })
+}
+
+export function stageAllGitChanges(projectId: string) {
+  return postJson<GitOperationResponse>('/api/git/stage-all', { projectId })
+}
+
+export function unstageGitFile(projectId: string, path: string) {
+  return postJson<GitOperationResponse>('/api/git/unstage', { projectId, path })
+}
+
+export function unstageAllGitChanges(projectId: string) {
+  return postJson<GitOperationResponse>('/api/git/unstage-all', { projectId })
+}
+
+export function restoreGitFile(projectId: string, path: string) {
+  return postJson<GitOperationResponse>('/api/git/restore', { projectId, path })
+}
+
+export function restoreAllGitChanges(projectId: string) {
+  return postJson<GitOperationResponse>('/api/git/restore-all', { projectId })
+}
+
 export function getGitBranches(projectId: string) {
   return fetchJson<GitBranchesResponse>(`/api/git/branches?${projectQuery(projectId)}`)
 }

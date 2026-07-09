@@ -21,7 +21,7 @@
 | `lan-access.mjs` | 201 | LAN 共享访问管理 |
 | `instructions.mjs` | 20 | 系统提示词 |
 | `system.mjs` | 81 | 系统状态、重启、关于信息、Runtime 更新和 Desktop 发布页检查 |
-| `workspace.mjs` | 828 | 工作区文件浏览、产物预览静态读取、Git 变更检查、分支操作、AI 提交信息生成、提交/推送和提交图谱（`server/index.mjs` 通过 `/api/git/*` 统一分发） |
+| `workspace.mjs` | 828 | 工作区文件浏览、产物预览静态读取、Git 变更检查、单文件/批量暂存与还原、分支操作、AI 提交信息生成、提交/推送和提交图谱（`server/index.mjs` 通过 `/api/git/*` 统一分发） |
 | `static.mjs` | 83 | 静态文件服务 |
 
 ---
@@ -219,6 +219,12 @@ Workspace Inspector 后端 API。
 - `POST /api/workspace/resolve-path` — 将绝对路径解析为当前项目内的相对路径。
 - `GET /api/git/status` — 获取 Git 仓库状态、当前分支、变更计数和文件列表。
 - `GET /api/git/file-diff` — 获取单文件工作区 diff 内容。
+- `POST /api/git/stage` — 暂存单个变更文件。
+- `POST /api/git/stage-all` — 暂存全部工作区变更。
+- `POST /api/git/unstage` — 将单个已暂存文件退回未暂存。
+- `POST /api/git/unstage-all` — 将全部已暂存内容退回未暂存。
+- `POST /api/git/restore` — 还原单个变更文件；未跟踪文件会被删除。
+- `POST /api/git/restore-all` — 还原全部 tracked 变更并清理未跟踪文件。
 - `GET /api/git/branches` — 列出本地与远端分支。
 - `POST /api/git/checkout` — 检出已有分支。
 - `POST /api/git/create-branch` — 从当前 HEAD 创建并检出新分支。

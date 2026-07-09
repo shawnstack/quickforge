@@ -135,7 +135,7 @@ components/
 
 - 右侧专业工作区检查器入口为 `WorkspaceInspector.tsx`，采用类浏览器顶部 Tab 工作区；`+` 菜单提供 Files / Review / Terminal / Browser 入口，普通折叠不会卸载组件，Tab 状态按项目持久化。
 - Files tab 通过后端 `/api/workspace/tree` 浏览当前项目文件；从 Files 中打开普通文件时，会提升为独立顶部 reader tab，Tab 标题显示文件名，内容区保留左侧工作目录树并在右侧使用 Monaco Editor / Markdown Reader 只读展示；文件 reader tab 按项目保存路径，恢复时重新加载最新内容。
-- Review tab 通过 `/api/git/status` 展示 Git 工作区变更，并在同一个 Review/Changes tab 内通过 `/api/git/file-diff` 展示单文件差异；标题栏 Git 更改入口会聚焦该 Review/Changes 工作区。
+- Review tab 通过 `/api/git/status` 展示 Git 工作区变更，并在同一个 Review/Changes tab 内通过 `/api/git/file-diff` 展示单文件差异；Changes 列表提供单文件还原、暂存、退回未暂存、在新标签中打开文件，以及底部批量还原/暂存/退回操作，分别调用 `/api/git/restore`、`/api/git/stage`、`/api/git/unstage`、`/api/git/restore-all`、`/api/git/stage-all`、`/api/git/unstage-all`；标题栏 Git 更改入口会聚焦该 Review/Changes 工作区。
 - 标题栏 Git 分支 chip 通过 `/api/git/branches`、`/api/git/checkout`、`/api/git/create-branch` 和 `/api/git/log` 提供分支切换、创建并检出新分支和 Git 图谱弹窗；Workspace Inspector 仍聚焦文件浏览、产物预览和 diff review
 - AI 产物预览由 `ArtifactPreviewPanel.tsx` 承担：当前 turn 产生 HTML/SVG/图片/Markdown/代码产物时自动打开右侧面板，HTML 通过 `HtmlArtifactPreview.tsx` 直接 iframe 渲染
 - `ArtifactFilesPopover.tsx` 提供类似浏览器 tools 的产物文件浮层，支持多个 artifact 之间切换和 pin

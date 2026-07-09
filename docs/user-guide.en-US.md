@@ -84,6 +84,7 @@ Common fields:
 | Context Window | Context length |
 | Max Tokens | Maximum output tokens per response |
 | Reasoning / Thinking model | Enable this if the model supports reasoning/thinking |
+| Image input / vision model | Advanced option. Enable only when the model explicitly supports image input; when disabled, images are omitted before requests are sent to avoid non-vision model errors |
 
 #### LiteLLM example
 
@@ -175,6 +176,16 @@ Recommendations:
 - Keep it disabled if you are unsure.
 - Enable it only when the provider documentation confirms support.
 - When enabled, QuickForge uses thinking settings better suited for reasoning models.
+
+#### Image input / vision models
+
+If a model supports image input, enable **Image input / vision model** in the expanded model capability options.
+
+Recommendations:
+
+- Keep it disabled if you are unsure.
+- When disabled, QuickForge omits attached images before sending the request, avoiding provider errors from non-vision models.
+- Switch to a model with this capability enabled when you need the model to analyze images.
 
 ### 5. Conversation Management
 

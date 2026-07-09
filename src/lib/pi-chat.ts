@@ -33,6 +33,8 @@ export type ConnectionForm = {
   maxTokens: number
   /** Whether the model supports thinking/reasoning (DeepSeek V4, Qwen, etc.). */
   reasoning?: boolean
+  /** Whether the model supports image input. Disabled models omit images before sending. */
+  supportsImages?: boolean
 }
 
 export type StoreBundle = {
@@ -55,6 +57,7 @@ export const DEFAULT_CONNECTION: ConnectionForm = {
   modelId: 'anthropic/claude-sonnet-4',
   contextWindow: 200000,
   maxTokens: 8192,
+  supportsImages: true,
 }
 
 function isDeepSeekThinkingModelInfo(modelId: string, baseUrl: string, provider = '') {
@@ -157,6 +160,7 @@ export function buildConnectionModel(form: ConnectionForm): Model<'openai-comple
   const provider = form.name.trim()
   const isDeepSeekThinking = isDeepSeekThinkingModelInfo(modelId, baseUrl, provider)
   const isReasoningModel = form.reasoning === true || isDeepSeekThinking
+  const input: ('text' | 'image')[] = form.supportsImages === true ? ['text', 'image'] : ['text']
 
   const model = {
     id: modelId,
@@ -165,7 +169,7 @@ export function buildConnectionModel(form: ConnectionForm): Model<'openai-comple
     provider,
     baseUrl,
     reasoning: isReasoningModel,
-    input: ['text', 'image'],
+    input,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: Number(form.contextWindow) || DEFAULT_CONNECTION.contextWindow,
     maxTokens: Number(form.maxTokens) || DEFAULT_CONNECTION.maxTokens,

@@ -21,6 +21,7 @@ type ModelForm = {
   contextWindow: number
   maxTokens: number
   reasoning: boolean
+  supportsImages: boolean
   open?: boolean
 }
 
@@ -46,12 +47,13 @@ const PROVIDER_PRESETS: Record<Exclude<PresetKey, 'custom'>, {
   baseUrl: string
   protocol: ProviderProtocol
   modelId: string
+  supportsImages?: boolean
 }> = {
-  openai: { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', protocol: 'openai-completions', modelId: 'gpt-4o' },
+  openai: { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', protocol: 'openai-completions', modelId: 'gpt-4o', supportsImages: true },
   deepseek: { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', protocol: 'openai-completions', modelId: 'deepseek-chat' },
   glm: { name: 'Zhipu GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', protocol: 'openai-completions', modelId: 'glm-4-plus' },
   ollama: { name: 'Ollama', baseUrl: 'http://localhost:11434/v1', protocol: 'openai-completions', modelId: 'llama3.1' },
-  litellm: { name: DEFAULT_CONNECTION.name, baseUrl: DEFAULT_CONNECTION.baseUrl, protocol: 'openai-completions', modelId: DEFAULT_CONNECTION.modelId },
+  litellm: { name: DEFAULT_CONNECTION.name, baseUrl: DEFAULT_CONNECTION.baseUrl, protocol: 'openai-completions', modelId: DEFAULT_CONNECTION.modelId, supportsImages: DEFAULT_CONNECTION.supportsImages },
 }
 
 const PRESET_OPTIONS: { key: PresetKey; label: string }[] = [
@@ -68,6 +70,7 @@ const emptyModelForm = (): ModelForm => ({
   contextWindow: DEFAULT_CONNECTION.contextWindow,
   maxTokens: DEFAULT_CONNECTION.maxTokens,
   reasoning: true,
+  supportsImages: false,
   open: false,
 })
 
@@ -156,6 +159,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
             contextWindow: model.contextWindow ?? DEFAULT_CONNECTION.contextWindow,
             maxTokens: model.maxTokens ?? DEFAULT_CONNECTION.maxTokens,
             reasoning: model.reasoning === true,
+            supportsImages: model.input?.includes('image') === true,
             open: false,
           }))
         : [emptyModelForm()]
@@ -278,7 +282,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
         name: preset.name,
         baseUrl: preset.baseUrl,
         protocol: preset.protocol,
-        models: [{ ...emptyModelForm(), modelId: preset.modelId, open: false }],
+        models: [{ ...emptyModelForm(), modelId: preset.modelId, supportsImages: preset.supportsImages === true, open: false }],
       }
     }
     this.resetTestState()
@@ -302,6 +306,8 @@ export class CustomProvidersOnlyTab extends SettingsTab {
     const name = this.form.name.trim()
     const baseUrl = this.form.baseUrl.trim()
     const isReasoningModel = modelForm.reasoning === true
+    const supportsImages = modelForm.supportsImages === true
+    const input: ('text' | 'image')[] = supportsImages ? ['text', 'image'] : ['text']
     const isDeepSeek = baseUrl.includes('api.deepseek.com')
 
     const model = {
@@ -311,7 +317,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       provider: name,
       baseUrl: baseUrl.replace(/\/$/, ''),
       reasoning: isReasoningModel,
-      input: ['text', 'image'],
+      input,
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: Number(modelForm.contextWindow) || DEFAULT_CONNECTION.contextWindow,
       maxTokens: Number(modelForm.maxTokens) || DEFAULT_CONNECTION.maxTokens,
@@ -601,6 +607,18 @@ export class CustomProvidersOnlyTab extends SettingsTab {
                       this.updateModelField(index, 'reasoning', (event.target as HTMLInputElement).checked)}
                   />
                   <span>${t('reasoningModel')}</span>
+                </label>
+                <label class="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    .checked=${model.supportsImages}
+                    @change=${(event: Event) =>
+                      this.updateModelField(index, 'supportsImages', (event.target as HTMLInputElement).checked)}
+                  />
+                  <span>
+                    ${t('imageInputModel')}
+                    <quickforge-info-tip .label=${t('imageInputModelHelp')}></quickforge-info-tip>
+                  </span>
                 </label>
               `
             : null}

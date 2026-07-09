@@ -84,6 +84,7 @@ Windows 用户也可以双击：
 | Context Window | 上下文长度 |
 | Max Tokens | 单次输出上限 |
 | Reasoning / Thinking model | 如果模型支持推理/思考，可开启 |
+| Image input / vision model | 高级选项。仅当模型明确支持图片输入时开启；关闭后发送请求前会省略图片，避免非视觉模型报错 |
 
 #### LiteLLM 示例
 
@@ -175,6 +176,16 @@ API Key: 可留空
 - 不确定模型是否支持时，先关闭。
 - 如果服务商文档明确支持 reasoning/thinking，再开启。
 - 开启后 QuickForge 会默认使用更适合推理模型的 thinking 设置。
+
+#### 图片输入 / 视觉模型
+
+如果模型支持图片输入，可以在模型展开项的高级能力里开启 **Image input / vision model**。
+
+建议：
+
+- 不确定模型是否支持时，先关闭。
+- 关闭后，QuickForge 会在发送给模型前省略附件图片，避免非视觉模型因为收到图片而报错。
+- 需要让模型分析图片时，请切换到已开启该能力的视觉模型。
 
 ### 5. 会话管理
 

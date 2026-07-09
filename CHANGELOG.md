@@ -2,6 +2,27 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.6.8] - 2026-07-09
+
+### Changed
+
+- Upgraded `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai` to `0.80.3`, and switched `streamSimple` usage to the compatibility entrypoint required by the newer `pi-ai` package.
+- Added a Husky pre-commit lint hook to catch lint issues before commits.
+
+### Fixed
+
+- Improved IntelliJ IDEA detection on Windows for workspace opening.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.6.8` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.6.8.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.6.8.tgz
+  ```
+
 ## [1.6.7] - 2026-07-09
 
 ### Added

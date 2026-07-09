@@ -131,6 +131,29 @@ async function findExistingFile(candidates) {
   return undefined
 }
 
+async function findIntelliJIdeaExecutable() {
+  const roots = [
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs') : undefined,
+    process.env.PROGRAMFILES ? path.join(process.env.PROGRAMFILES, 'JetBrains') : undefined,
+    process.env['PROGRAMFILES(X86)'] ? path.join(process.env['PROGRAMFILES(X86)'], 'JetBrains') : undefined,
+  ].filter(Boolean)
+  const candidates = []
+
+  for (const root of roots) {
+    const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => [])
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !entry.name.toLowerCase().includes('intellij idea')) continue
+      const dir = path.join(root, entry.name)
+      const stat = await fs.stat(dir).catch(() => null)
+      candidates.push({ file: path.join(dir, 'bin', 'idea64.exe'), mtimeMs: stat?.mtimeMs ?? 0 })
+      candidates.push({ file: path.join(dir, 'bin', 'idea.exe'), mtimeMs: stat?.mtimeMs ?? 0 })
+    }
+  }
+
+  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs || Number(b.file.endsWith('idea64.exe')) - Number(a.file.endsWith('idea64.exe')))
+  return findExistingFile(candidates.map((candidate) => candidate.file))
+}
+
 export async function openPathInFileManager(targetPath) {
   const resolved = path.resolve(String(targetPath || ''))
   const stat = await fs.stat(resolved).catch(() => null)
@@ -223,7 +246,7 @@ export async function openPathInIDEA(targetPath) {
     command = 'open'
     args = ['-a', 'IntelliJ IDEA', resolved]
   } else if (process.platform === 'win32') {
-    const candidates = [
+    const fixedCandidates = [
       process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'IntelliJ IDEA', 'bin', 'idea64.exe') : undefined,
       process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'IntelliJ IDEA', 'bin', 'idea.exe') : undefined,
       process.env.PROGRAMFILES ? path.join(process.env.PROGRAMFILES, 'JetBrains', 'IntelliJ IDEA', 'bin', 'idea64.exe') : undefined,
@@ -231,7 +254,7 @@ export async function openPathInIDEA(targetPath) {
       process.env['PROGRAMFILES(X86)'] ? path.join(process.env['PROGRAMFILES(X86)'], 'JetBrains', 'IntelliJ IDEA', 'bin', 'idea64.exe') : undefined,
       process.env['PROGRAMFILES(X86)'] ? path.join(process.env['PROGRAMFILES(X86)'], 'JetBrains', 'IntelliJ IDEA', 'bin', 'idea.exe') : undefined,
     ].filter(Boolean)
-    const ideaExecutable = await findExistingFile(candidates)
+    const ideaExecutable = await findExistingFile(fixedCandidates) ?? await findIntelliJIdeaExecutable()
     if (ideaExecutable) {
       command = ideaExecutable
       args = [resolved]

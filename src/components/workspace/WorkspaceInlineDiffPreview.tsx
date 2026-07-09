@@ -27,7 +27,7 @@ type WorkspaceInlineDiffPreviewProps = {
 }
 
 const INLINE_DIFF_CONTEXT_RADIUS = 3
-const INLINE_DIFF_MAX_CELLS = 10_000_000
+const INLINE_DIFF_MAX_CELLS = 50_000_000
 
 function contentLines(content: string) {
   const lines = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')

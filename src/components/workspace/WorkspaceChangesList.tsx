@@ -105,24 +105,24 @@ export function WorkspaceChangesList({
                 >
                   <div
                     className={cn(
-                      'grid min-h-[66px] grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl transition-colors',
+                      'grid min-h-[40px] grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl transition-colors',
                       isSelected ? 'bg-muted/40' : 'hover:bg-muted/24',
                     )}
                   >
                     <button
                       type="button"
-                      className="grid min-w-0 grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 px-3 py-3 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="grid min-w-0 grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={() => onSelectFile(file.path)}
                       title={`${statusText(file.status)} · ${title}`}
                       aria-expanded={isSelected}
                     >
-                      <FileIcon path={file.path} className="size-[18px] shrink-0" />
-                      <span className="flex min-w-0 items-baseline leading-5">
+                      <FileIcon path={file.path} className="size-[15px] shrink-0" />
+                      <span className="flex min-w-0 items-baseline leading-[18px]">
                         {directory ? <span className="min-w-0 truncate text-muted-foreground/62">{directory}</span> : null}
                         <span className="min-w-0 shrink-0 truncate font-medium text-foreground/90">{fileName}</span>
                       </span>
                       {typeof file.additions === 'number' && typeof file.deletions === 'number' ? (
-                        <span className="min-w-[64px] shrink-0 whitespace-nowrap text-right font-mono text-sm font-medium leading-5">
+                        <span className="min-w-[64px] shrink-0 whitespace-nowrap text-right font-mono text-sm font-medium leading-[18px]">
                           <span className="text-emerald-600 dark:text-emerald-500">+{file.additions}</span>
                           <span className="ml-1.5 text-red-600 dark:text-red-500">-{file.deletions}</span>
                         </span>
@@ -132,7 +132,7 @@ export function WorkspaceChangesList({
                     <div className="flex shrink-0 items-center gap-1 pr-2 text-muted-foreground/55 opacity-80 transition-opacity group-hover:opacity-100">
                       <button
                         type="button"
-                        className="inline-flex size-8 items-center justify-center rounded-full transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40"
+                        className="inline-flex size-[26px] items-center justify-center rounded-full transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40"
                         onClick={() => onRestoreFile?.(file)}
                         disabled={restoreDisabled}
                         aria-label={t('workspaceRestoreFile')}
@@ -143,7 +143,7 @@ export function WorkspaceChangesList({
                       <button
                         type="button"
                         className={cn(
-                          'inline-flex size-8 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+                          'inline-flex size-[26px] items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40',
                           isUnstageAction
                             ? 'hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-500'
                             : 'hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-500',
@@ -157,7 +157,7 @@ export function WorkspaceChangesList({
                       </button>
                       <button
                         type="button"
-                        className="inline-flex size-8 items-center justify-center rounded-full transition-colors hover:bg-muted/35 hover:text-foreground/85 disabled:cursor-not-allowed disabled:opacity-40"
+                        className="inline-flex size-[26px] items-center justify-center rounded-full transition-colors hover:bg-muted/35 hover:text-foreground/85 disabled:cursor-not-allowed disabled:opacity-40"
                         onClick={() => onOpenFile?.(file)}
                         disabled={openDisabled}
                         aria-label={t('workspaceOpenFileInNewTab')}

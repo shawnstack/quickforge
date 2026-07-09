@@ -16,6 +16,7 @@ package-offline
 .agentbridge
 *.tgz
 *.local
+nul
 .env
 .env.local
 .env.*.local

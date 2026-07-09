@@ -5,6 +5,13 @@
 - 除非用户明确要求，不要创建 Git commit、tag、push 到远端或发布 npm 包。
 - 当用户说“发布一个小版本” / “发一个小版本” / “小版本发布”时，遵循 `docs/architecture/patch-release-runbook.zh-CN.md`：提升 patch 版本，更新发布文档，运行 build/lint，生成 runtime/offline 包，创建 Git commit/tag/push，最后提供 npm publish 命令；默认不要直接发布 npm。
 
+## Subagent 协作
+
+- 实现非平凡需求时，优先使用 `explore` subagent 做只读仓库调研，包括定位入口、调用链、相关测试、文档/wiki 和影响面。
+- 对复杂多步骤任务，可将边界清晰的子任务委托给合适的 subagent 分工推进；父 Agent 仍负责最终方案、最小化修改、结果整合和验证。
+- subagent 不应绕过项目约束、审批边界或安全边界；涉及文件修改、命令执行、发布、Git 操作时仍遵循本文件现有规则。
+- 简单、局部且已知文件的小改动可直接处理，无需为了形式化而调用 subagent。
+
 ## 项目约束
 
 - 将 `dist/`、`package-dist/`、`package-offline/` 视为生成产物；除非任务明确要求更新打包产物，否则不要手工修改这些目录。

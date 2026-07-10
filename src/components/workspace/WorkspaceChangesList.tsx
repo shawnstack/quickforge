@@ -35,14 +35,10 @@ function statusText(status: GitFileStatus) {
   return t('workspaceStatusModified')
 }
 
-function pathParts(path: string) {
+function fileNameFromPath(path: string) {
   const normalized = path.replace(/\\/g, '/')
   const parts = normalized.split('/').filter(Boolean)
-  const fileName = parts.pop() || normalized || '—'
-  return {
-    fileName,
-    directory: parts.length > 0 ? `${parts.join('/')}/` : '',
-  }
+  return parts.pop() || normalized || '—'
 }
 
 function actionMatches(pendingAction: WorkspaceChangesListProps['pendingAction'], action: GitChangeAction, path?: string) {
@@ -87,7 +83,7 @@ export function WorkspaceChangesList({
           <div className="divide-y divide-[color-mix(in_oklab,var(--border)_28%,transparent)]">
             {files.map((file) => {
               const isSelected = selectedPath === file.path
-              const { fileName, directory } = pathParts(file.path)
+              const fileName = fileNameFromPath(file.path)
               const restorePending = actionMatches(pendingAction, 'restore', file.path)
               const stagePending = actionMatches(pendingAction, 'stage', file.path)
               const unstagePending = actionMatches(pendingAction, 'unstage', file.path)
@@ -117,10 +113,7 @@ export function WorkspaceChangesList({
                       aria-expanded={isSelected}
                     >
                       <FileIcon path={file.path} className="size-[15px] shrink-0" />
-                      <span className="flex min-w-0 items-baseline leading-[18px]">
-                        {directory ? <span className="min-w-0 truncate text-muted-foreground/62">{directory}</span> : null}
-                        <span className="min-w-0 shrink-0 truncate font-medium text-foreground/90">{fileName}</span>
-                      </span>
+                      <span className="min-w-0 truncate font-medium leading-[18px] text-foreground/90">{fileName}</span>
                       {typeof file.additions === 'number' && typeof file.deletions === 'number' ? (
                         <span className="min-w-[64px] shrink-0 whitespace-nowrap text-right font-mono text-sm font-medium leading-[18px]">
                           <span className="text-emerald-600 dark:text-emerald-500">+{file.additions}</span>

@@ -1,4 +1,5 @@
 import { t } from '@/lib/i18n'
+import { createMermaidSvgDataUrl, isMermaidLanguage, renderMermaidSvg } from '@/lib/mermaid-renderer'
 import { copyTextToClipboard } from '@/lib/message-utils'
 import { replaceSvg } from '../chat-utils'
 import { copiedIcon, copyIcon, runIcon } from './icons'
@@ -111,17 +112,17 @@ function closeSvgPreviewLightbox() {
   existing?.remove()
 }
 
-function showSvgPreviewLightbox(src: string) {
+function showSvgPreviewLightbox(src: string, label = 'SVG preview') {
   closeSvgPreviewLightbox()
 
   const lightbox = document.createElement('div') as SvgPreviewLightboxElement
   lightbox.className = 'quickforge-svg-code-lightbox'
   lightbox.setAttribute('role', 'dialog')
   lightbox.setAttribute('aria-modal', 'true')
-  lightbox.setAttribute('aria-label', 'SVG preview')
+  lightbox.setAttribute('aria-label', label)
 
   const image = document.createElement('img')
-  image.alt = 'SVG preview'
+  image.alt = label
   image.src = src
   image.addEventListener('click', (event) => event.stopPropagation())
   lightbox.append(image)
@@ -161,12 +162,13 @@ function cleanupMarkdownSvgCodeBlock(block: CodeBlockElement) {
     block.nextElementSibling.remove()
   }
   block.querySelector<HTMLElement>('[data-quickforge-svg-preview="true"]')?.remove()
-  block.classList.remove('quickforge-svg-code-block')
+  if (!block.classList.contains('quickforge-mermaid-code-block')) block.classList.remove('quickforge-svg-code-block')
   block.querySelector<HTMLElement>('copy-button[data-quickforge-svg-original-copy="true"]')?.removeAttribute('hidden')
   block.querySelector<HTMLElement>('copy-button[data-quickforge-svg-original-copy="true"]')?.removeAttribute('data-quickforge-svg-original-copy')
   block.querySelector<HTMLElement>('[data-quickforge-svg-toolbar="true"]')?.remove()
   const codeContent = block.querySelector('pre')?.parentElement
-  if (codeContent instanceof HTMLElement) codeContent.hidden = false
+  const hasMermaidPreview = block.querySelector('[data-quickforge-mermaid-preview="true"]') !== null
+  if (codeContent instanceof HTMLElement && !hasMermaidPreview) codeContent.hidden = false
   delete block.dataset.quickforgeSvgPreviewSource
   delete block.dataset.quickforgeSvgMode
 }
@@ -331,6 +333,232 @@ export function decorateMarkdownSvgCodeBlocks(panel: HTMLElement, isStreaming: b
     ensureSvgCodeBlockToolbar(block, svg)
     block.dataset.quickforgeSvgPreviewSource = fingerprint
     setSvgCodeBlockMode(block, block.dataset.quickforgeSvgMode === 'source' ? 'source' : 'preview')
+  })
+}
+
+let mermaidRenderRequestSequence = 0
+
+function isMermaidCodeBlock(block: CodeBlockElement) {
+  return isMermaidLanguage(String(block.language ?? block.getAttribute('language') ?? ''))
+}
+
+function cleanupMarkdownMermaidCodeBlock(block: CodeBlockElement) {
+  const wasMermaidDecorated = block.classList.contains('quickforge-mermaid-code-block')
+  const hasMermaidState = wasMermaidDecorated
+    || block.dataset.quickforgeMermaidRequestToken !== undefined
+    || block.dataset.quickforgeMermaidPendingSource !== undefined
+    || block.dataset.quickforgeMermaidPreviewSource !== undefined
+    || block.dataset.quickforgeMermaidFailedSource !== undefined
+    || block.querySelector('[data-quickforge-mermaid-preview="true"], [data-quickforge-mermaid-error="true"], [data-quickforge-mermaid-toolbar="true"], copy-button[data-quickforge-mermaid-original-copy="true"]') !== null
+  if (!hasMermaidState) return
+  if (block.dataset.quickforgeMermaidRequestToken) {
+    block.dataset.quickforgeMermaidRequestToken = String(++mermaidRenderRequestSequence)
+  }
+  block.querySelector<HTMLElement>('[data-quickforge-mermaid-preview="true"]')?.remove()
+  block.querySelector<HTMLElement>('[data-quickforge-mermaid-error="true"]')?.remove()
+  block.querySelector<HTMLElement>('[data-quickforge-mermaid-toolbar="true"]')?.remove()
+  block.classList.remove('quickforge-mermaid-code-block')
+  if (wasMermaidDecorated && !block.querySelector('[data-quickforge-svg-preview="true"]')) block.classList.remove('quickforge-svg-code-block')
+  block.querySelector<HTMLElement>('copy-button[data-quickforge-mermaid-original-copy="true"]')?.removeAttribute('hidden')
+  block.querySelector<HTMLElement>('copy-button[data-quickforge-mermaid-original-copy="true"]')?.removeAttribute('data-quickforge-mermaid-original-copy')
+  const codeContent = block.querySelector('pre')?.parentElement
+  const hasSvgPreview = block.querySelector('[data-quickforge-svg-preview="true"]') !== null
+  if (codeContent instanceof HTMLElement && !hasSvgPreview) codeContent.hidden = false
+  delete block.dataset.quickforgeMermaidMode
+  delete block.dataset.quickforgeMermaidPreviewSource
+  delete block.dataset.quickforgeMermaidPendingSource
+  delete block.dataset.quickforgeMermaidFailedSource
+  delete block.dataset.quickforgeMermaidRequestToken
+}
+
+function setMermaidCodeBlockMode(block: CodeBlockElement, mode: 'preview' | 'source') {
+  const preview = block.querySelector<HTMLElement>('[data-quickforge-mermaid-preview="true"]')
+  const titleBar = block.querySelector<HTMLElement>(':scope > div > div:first-child')
+  const codeContent = block.querySelector('pre')?.parentElement
+
+  block.dataset.quickforgeMermaidMode = mode
+  if (preview) preview.hidden = mode !== 'preview'
+  if (titleBar) titleBar.classList.toggle('quickforge-svg-code-toolbar-floating', mode === 'preview')
+  if (codeContent instanceof HTMLElement) codeContent.hidden = mode === 'preview'
+}
+
+function ensureMermaidCodeBlockToolbar(block: CodeBlockElement, source: string, svg: string) {
+  ensureSvgCodeMenuOutsideHandler()
+
+  const titleBar = block.querySelector<HTMLElement>(':scope > div > div:first-child')
+  const copyButton = titleBar?.querySelector<HTMLElement>('copy-button')
+  if (!titleBar || !copyButton) return
+
+  let toolbar = titleBar.querySelector<HTMLElement>('[data-quickforge-mermaid-toolbar="true"]')
+  if (!toolbar) {
+    toolbar = document.createElement('div')
+    toolbar.dataset.quickforgeMermaidToolbar = 'true'
+    toolbar.className = 'quickforge-svg-code-toolbar'
+
+    const menu = document.createElement('details')
+    menu.className = 'quickforge-svg-code-menu quickforge-mermaid-code-menu'
+
+    const trigger = document.createElement('summary')
+    trigger.className = 'quickforge-svg-code-menu-trigger'
+    trigger.title = t('moreActions')
+    trigger.setAttribute('aria-label', t('moreActions'))
+    trigger.textContent = '⋯'
+
+    const content = document.createElement('div')
+    content.className = 'quickforge-svg-code-menu-content'
+    content.setAttribute('role', 'menu')
+
+    const previewButton = createSvgMenuItem('mermaid-preview-mode', t('svgPreviewMode'), '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>')
+    const sourceButton = createSvgMenuItem('mermaid-source-mode', t('svgSourceMode'), '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/></svg>')
+    const copySourceButton = createSvgMenuItem('copy-mermaid-code', t('copyMermaidSource'), copyIcon)
+    const downloadButton = createSvgMenuItem('download-mermaid-svg', t('downloadMermaidSvg'), '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>')
+    content.append(previewButton, sourceButton, copySourceButton, downloadButton)
+
+    copyButton.before(toolbar)
+    copyButton.dataset.quickforgeMermaidOriginalCopy = 'true'
+    copyButton.setAttribute('hidden', '')
+    menu.append(trigger, content)
+    toolbar.append(menu)
+  }
+
+  const menu = toolbar.querySelector<HTMLDetailsElement>('.quickforge-mermaid-code-menu')
+  const previewButton = toolbar.querySelector<HTMLButtonElement>('[data-quickforge-action="mermaid-preview-mode"]')
+  const sourceButton = toolbar.querySelector<HTMLButtonElement>('[data-quickforge-action="mermaid-source-mode"]')
+  const copySourceButton = toolbar.querySelector<HTMLButtonElement>('[data-quickforge-action="copy-mermaid-code"]')
+  const downloadButton = toolbar.querySelector<HTMLButtonElement>('[data-quickforge-action="download-mermaid-svg"]')
+  const closeMenu = () => { if (menu) menu.open = false }
+
+  if (menu && !menu.dataset.quickforgeMermaidMenuBound) {
+    menu.dataset.quickforgeMermaidMenuBound = 'true'
+    menu.addEventListener('toggle', () => {
+      if (!menu.open) return
+      closeSvgCodeBlockMenus(block.closest('markdown-block') ?? document, menu)
+    })
+  }
+
+  if (previewButton) previewButton.onclick = () => {
+    setMermaidCodeBlockMode(block, 'preview')
+    closeMenu()
+  }
+  if (sourceButton) sourceButton.onclick = () => {
+    setMermaidCodeBlockMode(block, 'source')
+    closeMenu()
+  }
+  if (copySourceButton) copySourceButton.onclick = async () => {
+    await copyTextToClipboard(source)
+    showCopiedFeedback(copySourceButton, t('copyMermaidSource'), copyIcon)
+  }
+  if (downloadButton) downloadButton.onclick = () => {
+    downloadTextFile(`quickforge-mermaid-${Date.now()}.svg`, svg, 'image/svg+xml;charset=utf-8')
+    closeMenu()
+  }
+}
+
+function showMermaidRenderError(block: CodeBlockElement) {
+  const titleBar = block.querySelector<HTMLElement>(':scope > div > div:first-child')
+  if (!titleBar || block.querySelector('[data-quickforge-mermaid-error="true"]')) return
+  const error = document.createElement('div')
+  error.dataset.quickforgeMermaidError = 'true'
+  error.className = 'quickforge-mermaid-code-error'
+  error.textContent = t('mermaidRenderFailed')
+  titleBar.after(error)
+}
+
+export function decorateMarkdownMermaidCodeBlocks(panel: HTMLElement, isStreaming: boolean) {
+  panel.querySelectorAll<CodeBlockElement>('assistant-message markdown-block code-block').forEach((block) => {
+    try {
+      if (!isMermaidCodeBlock(block)) {
+        cleanupMarkdownMermaidCodeBlock(block)
+        return
+      }
+
+      const source = decodeCodeBlockText(block).trim()
+      if (!source) {
+        cleanupMarkdownMermaidCodeBlock(block)
+        return
+      }
+
+      const fingerprint = fingerprintText(source)
+      const existing = block.querySelector<HTMLElement>('[data-quickforge-mermaid-preview="true"]')
+      if (existing && block.dataset.quickforgeMermaidPreviewSource === fingerprint) {
+        setMermaidCodeBlockMode(block, block.dataset.quickforgeMermaidMode === 'source' ? 'source' : 'preview')
+        return
+      }
+
+      if (isStreaming) {
+        if (block.dataset.quickforgeMermaidPendingSource || block.dataset.quickforgeMermaidPreviewSource) {
+          cleanupMarkdownMermaidCodeBlock(block)
+        }
+        return
+      }
+      if (block.dataset.quickforgeMermaidPendingSource === fingerprint || block.dataset.quickforgeMermaidFailedSource === fingerprint) return
+
+      const titleBar = block.querySelector<HTMLElement>(':scope > div > div:first-child')
+      if (!titleBar) return
+
+      cleanupMarkdownMermaidCodeBlock(block)
+      const requestToken = String(++mermaidRenderRequestSequence)
+      block.dataset.quickforgeMermaidRequestToken = requestToken
+      block.dataset.quickforgeMermaidPendingSource = fingerprint
+
+      void (async () => {
+        try {
+          const svg = await renderMermaidSvg(source)
+          if (!svg) throw new Error('Empty Mermaid SVG')
+          const dataUrl = createMermaidSvgDataUrl(svg)
+          if (!block.isConnected
+            || block.dataset.quickforgeMermaidRequestToken !== requestToken
+            || panel.dataset.quickforgeAgentStreaming === 'true'
+            || !isMermaidCodeBlock(block)
+            || fingerprintText(decodeCodeBlockText(block).trim()) !== fingerprint) {
+            if (block.dataset.quickforgeMermaidRequestToken === requestToken) {
+              delete block.dataset.quickforgeMermaidPendingSource
+              delete block.dataset.quickforgeMermaidRequestToken
+            }
+            return
+          }
+
+          const currentTitleBar = block.querySelector<HTMLElement>(':scope > div > div:first-child')
+          if (!currentTitleBar) {
+            delete block.dataset.quickforgeMermaidPendingSource
+            delete block.dataset.quickforgeMermaidRequestToken
+            return
+          }
+          const preview = document.createElement('div')
+          preview.dataset.quickforgeMermaidPreview = 'true'
+          preview.className = 'quickforge-svg-code-preview quickforge-mermaid-code-preview'
+          preview.setAttribute('aria-label', t('mermaidPreviewLabel'))
+
+          const image = document.createElement('img')
+          image.alt = t('mermaidPreviewLabel')
+          image.src = dataUrl
+          image.title = t('mermaidEnlargePreview')
+          image.addEventListener('click', () => showSvgPreviewLightbox(image.src, t('mermaidPreviewLabel')))
+          preview.replaceChildren(image)
+
+          block.classList.add('quickforge-svg-code-block', 'quickforge-mermaid-code-block')
+          currentTitleBar.after(preview)
+          ensureMermaidCodeBlockToolbar(block, source, svg)
+          block.dataset.quickforgeMermaidPreviewSource = fingerprint
+          delete block.dataset.quickforgeMermaidPendingSource
+          delete block.dataset.quickforgeMermaidFailedSource
+          delete block.dataset.quickforgeMermaidRequestToken
+          setMermaidCodeBlockMode(block, 'preview')
+        } catch {
+          if (!block.isConnected
+            || block.dataset.quickforgeMermaidRequestToken !== requestToken
+            || !isMermaidCodeBlock(block)
+            || fingerprintText(decodeCodeBlockText(block).trim()) !== fingerprint) return
+          delete block.dataset.quickforgeMermaidPendingSource
+          delete block.dataset.quickforgeMermaidRequestToken
+          block.dataset.quickforgeMermaidFailedSource = fingerprint
+          showMermaidRenderError(block)
+        }
+      })()
+    } catch {
+      cleanupMarkdownMermaidCodeBlock(block)
+      showMermaidRenderError(block)
+    }
   })
 }
 

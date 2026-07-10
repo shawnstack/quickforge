@@ -1,4 +1,6 @@
 import { useMemo, type ReactNode } from 'react'
+import { isMermaidLanguage } from '@/lib/mermaid-renderer'
+import { MermaidDiagram } from './MermaidDiagram'
 import { MonacoCodeViewer } from './MonacoCodeViewer'
 
 type MarkdownReaderProps = {
@@ -114,12 +116,17 @@ function renderMarkdown(content: string) {
         index += 1
       }
       if (index < lines.length) index += 1
-      blocks.push(
-        <figure key={key} className="my-5 overflow-hidden rounded-xl border border-border bg-muted/20">
-          {language ? <figcaption className="border-b border-border px-3 py-1.5 font-mono text-[11px] text-muted-foreground/65">{language}</figcaption> : null}
-          <pre className="overflow-auto p-4 text-[12px] leading-5"><code>{codeLines.join('\n')}</code></pre>
-        </figure>,
-      )
+      const source = codeLines.join('\n')
+      if (isMermaidLanguage(language)) {
+        blocks.push(<MermaidDiagram key={key} source={source} />)
+      } else {
+        blocks.push(
+          <figure key={key} className="my-5 overflow-hidden rounded-xl border border-border bg-muted/20">
+            {language ? <figcaption className="border-b border-border px-3 py-1.5 font-mono text-[11px] text-muted-foreground/65">{language}</figcaption> : null}
+            <pre className="overflow-auto p-4 text-[12px] leading-5"><code>{source}</code></pre>
+          </figure>,
+        )
+      }
       continue
     }
 

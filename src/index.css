@@ -1456,6 +1456,22 @@ user-message .user-message-container,
   object-fit: contain;
 }
 
+.quickforge-mermaid-code-preview {
+  min-height: 5rem;
+  padding: 1rem 0.75rem;
+}
+
+.quickforge-mermaid-code-preview img {
+  max-height: min(42rem, 72vh);
+}
+
+.quickforge-mermaid-code-error {
+  margin: 0.25rem 0 0.65rem;
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
 .quickforge-svg-code-lightbox {
   position: fixed;
   z-index: 10000;

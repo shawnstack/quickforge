@@ -2,6 +2,12 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Added safe, on-demand Mermaid diagram previews for Assistant Markdown and Workspace Markdown Reader fenced code blocks, with preview/source switching and source fallback when rendering fails.
+
 ## [1.6.8] - 2026-07-09
 
 ### Changed

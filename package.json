@@ -74,6 +74,7 @@
     "@earendil-works/pi-ai": "^0.80.3",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@vscode/ripgrep": "^1.18.0",
+    "mermaid": "^11.16.0",
     "ws": "^8.20.1"
   },
   "devDependencies": {

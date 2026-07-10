@@ -16,6 +16,7 @@
 | `types.ts` | 82 | 类型定义 |
 | `utils.ts` | 6 | 通用工具函数（cn） |
 | `message-utils.ts` | 127 | 消息处理工具 |
+| `mermaid-renderer.ts` | 共享 Mermaid 动态加载、SVG 安全检查和渲染工具 |
 | `custom-model-selector.ts` | 162 | 自定义模型选择器 |
 | `custom-providers-only-tab.ts` | 565 | 自定义供应商设置选项卡 |
 | `backup-settings-tab.ts` | 515 | 数据备份/恢复选项卡 |
@@ -90,6 +91,10 @@
 ### tool-artifacts.ts
 
 **用途**: 从当前 AI turn 的工具结果中提取产物文件；识别 `write_file`、`edit_file` 和 `present_files`，为右侧 Artifact Preview 提供文件路径、类型、预览优先级和显式/推断展示来源。
+
+### mermaid-renderer.ts
+
+**用途**: 聊天 Markdown 与 Workspace Markdown Reader 共享的 Mermaid 渲染入口。首次遇到 Mermaid fenced code block 时动态加载 Mermaid，以严格安全配置生成 SVG，并在转为图片预览前拒绝脚本、事件属性、HTML 外嵌内容和外部资源。
 
 ### http-storage-backend.ts (200 行)
 

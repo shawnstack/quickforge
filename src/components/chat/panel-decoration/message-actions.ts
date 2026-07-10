@@ -5,6 +5,7 @@ import { t } from '@/lib/i18n'
 import {
   closeSvgCodeBlockMenus,
   decorateMarkdownCommandBlocks,
+  decorateMarkdownMermaidCodeBlocks,
   decorateMarkdownSvgCodeBlocks,
 } from './code-blocks'
 import { decorateProcessBlocks } from './process-folding'
@@ -370,6 +371,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
   closeSvgCodeBlockMenus(panel)
   decorateProcessBlocks(panel, messageElements, isStreaming())
   decorateMarkdownSvgCodeBlocks(panel, isStreaming())
+  decorateMarkdownMermaidCodeBlocks(panel, isStreaming())
   if (enableTerminalCommandActions) {
     decorateMarkdownCommandBlocks(panel, isStreaming())
   } else {

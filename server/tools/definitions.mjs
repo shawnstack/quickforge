@@ -1,6 +1,19 @@
 import { Type } from 'typebox'
 import { loadSelectedGlobalSkills, loadSelectedProjectSkills, mergeSkills } from '../skills.mjs'
 
+const temporarySubagentSchema = Type.Object({
+  type: Type.Literal('temporary'),
+  name: Type.String({ description: 'Temporary subagent name, lowercase ASCII identifier.' }),
+  label: Type.Optional(Type.String({ description: 'Optional display name.' })),
+  description: Type.Optional(Type.String({ description: 'Short description of the temporary subagent.' })),
+  instructions: Type.String({ description: 'System instructions for the temporary subagent.' }),
+  capabilityPolicy: Type.Optional(Type.String({ description: 'Capability policy, defaults to readonly-research.' })),
+  tools: Type.Optional(Type.Array(Type.String({ description: 'Requested built-in tool names, constrained by capabilityPolicy.' }))),
+  model: Type.Optional(Type.Any({ description: 'Model reference. Omit or use { mode: "inherit" } to inherit the parent model.' })),
+  maxRuntimeMs: Type.Optional(Type.Number({ description: 'Optional max runtime in milliseconds.' })),
+  maxToolCalls: Type.Optional(Type.Number({ description: 'Optional max tool-call budget.' })),
+})
+
 // ---------------------------------------------------------------------------
 // Canonical workspace tool definitions.
 // These are the single source of truth for tool metadata (name, label,
@@ -17,7 +30,10 @@ export const subagentTool = {
   label: 'Run subagent',
   description: 'Delegate a bounded task to an enabled temporary Agent Profile. Prefer explore for focused read-only repository discovery before implementation decisions, including locating files, searching source, tracing call chains, finding related tests/docs/wiki pages, and impact analysis. Use general for bounded complex multi-step implementation or broader independent work. Custom profiles can also be enabled as subagents. Subagents are short-lived and do not receive MCP or Agent Skill tools.',
   parameters: Type.Object({
-    subagent: Type.String({ description: 'Agent Profile name to invoke.' }),
+    subagent: Type.Union([
+      Type.String({ description: 'Agent Profile name to invoke.' }),
+      temporarySubagentSchema,
+    ], { description: 'Agent Profile name or an inline temporary subagent spec to create and run once.' }),
     task: Type.String({ description: 'Concrete, bounded task for the subagent. Do not delegate vague or open-ended work.' }),
     context: Type.Optional(Type.String({ description: 'Relevant context from the parent conversation or current plan. Keep this focused.' })),
     expectedOutput: Type.Optional(Type.String({ description: 'Optional output requirements for the subagent result.' })),

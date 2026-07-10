@@ -156,7 +156,7 @@ export async function handleAgentProfilesApi(req, res, url) {
     if (req.method === 'PATCH' || req.method === 'PUT') {
       const current = await getAgentProfile(id)
       if (current?.builtin) throw requestError('Built-in agents cannot be modified', 403)
-      if (current?.readonly) throw requestError('File-based agents cannot be modified from the API', 403)
+      if (current?.readonly) throw requestError('Read-only agents cannot be modified from the API', 403)
       const body = await readJsonBody(req)
       sendJson(res, 200, { agent: await updateCustomAgentProfile(id, body || {}) })
       return
@@ -165,7 +165,7 @@ export async function handleAgentProfilesApi(req, res, url) {
     if (req.method === 'DELETE') {
       const current = await getAgentProfile(id)
       if (current?.builtin) throw requestError('Built-in agents cannot be deleted', 403)
-      if (current?.readonly) throw requestError('File-based agents cannot be deleted from the API', 403)
+      if (current?.readonly) throw requestError('Read-only agents cannot be deleted from the API', 403)
       await deleteCustomAgentProfile(id)
       sendJson(res, 200, { ok: true })
       return

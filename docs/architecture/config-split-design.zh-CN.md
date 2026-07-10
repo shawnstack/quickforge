@@ -26,7 +26,7 @@
 ### 3. 已独立的部分（澄清，本次无需拆）
 
 - **定时任务** → `storage/conversations/{global|projects/<id>}/scheduled-tasks.json`，已是独立 store（`scheduled-tasks`）。
-- **自定义 agent** → `custom-agents` store，独立 JSON。
+- **自定义 agent** → 新版使用 `~/.quickforge/agents/<name>.md`；旧 `custom-agents` store 仅作为一次性迁移源。
 - **文件 agent** → `~/.claude/agents`、`~/.quickforge/agents`、`<project>/.{claude,quickforge}/agents` 下的 `.md`（`agent-profile-files.mjs` 已有成熟的"约定目录扫描 + frontmatter"范式，可作本次 MCP 文件化的参考）。
 
 ### 4. 主要问题

@@ -1,17 +1,34 @@
+import { existsSync, promises as fs } from 'node:fs'
+import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { readStore, atomicUpdate } from './storage.mjs'
-import { subagentDefinitions } from './subagents.mjs'
+import { readStore, userAgentsDir } from './storage.mjs'
+import { builtinSubagentProfilePath, ensureBuiltinSubagentMarkdownFiles, subagentDefinitions } from './subagents.mjs'
 import { workspaceTools } from './tools/definitions.mjs'
 import { defaultGlobalWorkspaceContext, projectContextFromId } from './project-config.mjs'
-import { loadFileAgentProfiles } from './agent-profile-files.mjs'
+import {
+  deleteUserAgentProfileMarkdown,
+  loadFileAgentProfiles,
+  userAgentProfileFilePath,
+  writeUserAgentProfileMarkdown,
+} from './agent-profile-files.mjs'
+import {
+  AGENT_PROFILE_TOOL_NAMES,
+  inferCapabilityPolicy,
+  modelReferenceSnapshot,
+  normalizeCapabilityPolicy,
+  normalizeModelReference,
+  validateAgentProfileTools,
+  validateModelReference,
+} from './agent-profile-schema.mjs'
 
 const STORE = 'custom-agents'
 const RESERVED_NAMES = new Set(subagentDefinitions.map((definition) => definition.name))
-export const AGENT_PROFILE_TOOL_NAMES = ['read_file', 'grep_files', 'write_file', 'edit_file', 'run_command']
 const allowedToolNames = new Set(AGENT_PROFILE_TOOL_NAMES)
 const nameRegex = /^[a-z][a-z0-9_-]{1,39}$/
 const DEFAULT_MAX_RUNTIME_MS = 30 * 60 * 1000
 const DEFAULT_MAX_TOOL_CALLS = 300
+const MIGRATION_MARKER_FILE = path.join(userAgentsDir, '.custom-agents-migrated.json')
+let customAgentMigrationPromise = null
 
 function requestError(message, statusCode = 400) {
   const error = new Error(message)
@@ -54,12 +71,18 @@ function builtinProfileFromSubagent(definition) {
     description: definition.description || '',
     systemPrompt: definition.systemPrompt || '',
     allowedTools: [...definition.allowedTools],
+    capabilityPolicy: definition.capabilityPolicy || inferCapabilityPolicy(definition.allowedTools),
+    model: modelReferenceSnapshot(definition.model),
+    lifecycle: 'builtin',
+    managed: true,
     maxRuntimeMs: definition.maxRuntimeMs || DEFAULT_MAX_RUNTIME_MS,
     maxToolCalls: definition.maxToolCalls || DEFAULT_MAX_TOOL_CALLS,
     enabledAsSubagent: true,
     builtin: true,
     source: 'builtin',
     readonly: true,
+    filePath: builtinSubagentProfilePath(definition.name),
+    relativePath: `~/.quickforge/agents/builtin/${definition.name}.md`,
     allowFileMutations: definition.allowFileMutations === true,
     createdAt: 'builtin',
     updatedAt: 'builtin',
@@ -85,6 +108,12 @@ function normalizeProfileInput(input, existing = null, { creating = false } = {}
   for (const toolName of allowedTools) {
     if (!allowedToolNames.has(toolName)) throw requestError(`Unsupported tool for custom agent: ${toolName}`)
   }
+  const capabilityPolicy = normalizeCapabilityPolicy(
+    input?.capabilityPolicy ?? existing?.capabilityPolicy,
+    allowedTools,
+  )
+  validateAgentProfileTools(allowedTools, capabilityPolicy)
+  const model = validateModelReference(normalizeModelReference(input?.model ?? existing?.model))
 
   return {
     id: existing?.id || `agent-${randomUUID()}`,
@@ -93,12 +122,17 @@ function normalizeProfileInput(input, existing = null, { creating = false } = {}
     description: String(input?.description ?? existing?.description ?? '').trim().slice(0, 500),
     systemPrompt: String(input?.systemPrompt ?? existing?.systemPrompt ?? '').trim(),
     allowedTools,
+    capabilityPolicy,
+    model,
+    lifecycle: existing?.lifecycle || 'persistent',
     maxRuntimeMs: normalizeOptionalRuntime(input?.maxRuntimeMs ?? existing?.maxRuntimeMs, DEFAULT_MAX_RUNTIME_MS),
     maxToolCalls: normalizeOptionalPositiveInteger(input?.maxToolCalls ?? existing?.maxToolCalls, DEFAULT_MAX_TOOL_CALLS, 300),
     enabledAsSubagent: input?.enabledAsSubagent === undefined ? Boolean(existing?.enabledAsSubagent ?? true) : input.enabledAsSubagent === true,
     builtin: false,
-    source: 'store',
+    source: 'user',
     readonly: false,
+    managed: true,
+    managedBy: 'quickforge',
     allowFileMutations: allowedTools.some((toolName) => toolName === 'write_file' || toolName === 'edit_file'),
     createdAt: existing?.createdAt || now,
     updatedAt: now,
@@ -108,6 +142,74 @@ function normalizeProfileInput(input, existing = null, { creating = false } = {}
 async function readCustomAgentMap() {
   const data = await readStore(STORE)
   return data && typeof data === 'object' ? data : {}
+}
+
+function migrationReportEntry(profile, file, extra = {}) {
+  return {
+    id: profile.id,
+    fromName: profile.name,
+    toName: path.basename(file, '.md'),
+    file,
+    ...extra,
+  }
+}
+
+function uniqueMigratedName(name, usedNames) {
+  const base = String(name || '').trim().toLowerCase()
+  const candidates = [base, `${base}-store`, `${base}-custom`]
+  for (const candidate of candidates) {
+    if (nameRegex.test(candidate) && !usedNames.has(candidate) && !RESERVED_NAMES.has(candidate) && !existsSync(userAgentProfileFilePath(candidate))) return candidate
+  }
+  for (let index = 2; index < 100; index += 1) {
+    const candidate = `${base.slice(0, 34)}-${index}`
+    if (nameRegex.test(candidate) && !usedNames.has(candidate) && !RESERVED_NAMES.has(candidate) && !existsSync(userAgentProfileFilePath(candidate))) return candidate
+  }
+  return null
+}
+
+async function migrateCustomAgentStoreToFiles() {
+  if (existsSync(MIGRATION_MARKER_FILE)) return
+  await fs.mkdir(userAgentsDir, { recursive: true })
+  const custom = Object.values(await readCustomAgentMap())
+  const report = { migratedAt: new Date().toISOString(), sourceStore: STORE, migrated: [], conflicts: [], skipped: [] }
+  if (custom.length === 0) {
+    await fs.writeFile(MIGRATION_MARKER_FILE, JSON.stringify(report, null, 2), 'utf8')
+    return
+  }
+
+  const usedNames = new Set()
+  for (const item of custom) {
+    try {
+      const profile = normalizeProfileInput({ ...item, id: item.id }, item)
+      let targetName = profile.name
+      let conflictReason = ''
+      if (RESERVED_NAMES.has(targetName) || existsSync(userAgentProfileFilePath(targetName)) || usedNames.has(targetName)) {
+        conflictReason = RESERVED_NAMES.has(targetName) ? 'reserved builtin name or duplicate' : 'target file already exists or duplicate'
+        targetName = uniqueMigratedName(targetName, usedNames)
+      }
+      if (!targetName) {
+        report.skipped.push({ id: item?.id, fromName: item?.name, reason: 'unable to allocate unique markdown file name' })
+        continue
+      }
+      const migrated = { ...profile, name: targetName, source: 'user', readonly: false, managed: true, managedBy: 'quickforge' }
+      const file = await writeUserAgentProfileMarkdown(migrated)
+      usedNames.add(targetName)
+      const entry = migrationReportEntry(item, file, conflictReason ? { reason: conflictReason } : {})
+      if (conflictReason) report.conflicts.push(entry)
+      else report.migrated.push(entry)
+    } catch (error) {
+      report.skipped.push({ id: item?.id, fromName: item?.name, reason: error?.message || String(error) })
+    }
+  }
+  await fs.writeFile(MIGRATION_MARKER_FILE, JSON.stringify(report, null, 2), 'utf8')
+}
+
+async function ensureCustomAgentStoreMigrated() {
+  if (existsSync(MIGRATION_MARKER_FILE)) return
+  customAgentMigrationPromise ||= migrateCustomAgentStoreToFiles().finally(() => {
+    customAgentMigrationPromise = null
+  })
+  await customAgentMigrationPromise
 }
 
 async function resolveWorkspaceRoot(options = {}) {
@@ -146,10 +248,11 @@ function mergeProfiles({ builtin = [], file = [], custom = [] }) {
 }
 
 export async function listAgentProfiles(options = {}) {
-  const custom = Object.values(await readCustomAgentMap())
+  await ensureBuiltinSubagentMarkdownFiles()
+  await ensureCustomAgentStoreMigrated()
   const workspaceRoot = await resolveWorkspaceRoot(options)
   const file = await loadFileAgentProfiles(workspaceRoot, { reservedNames: RESERVED_NAMES })
-  const profiles = mergeProfiles({ builtin: listBuiltinAgentProfiles(), file, custom })
+  const profiles = mergeProfiles({ builtin: listBuiltinAgentProfiles(), file, custom: [] })
   return options.includeDisabled ? profiles : profiles.filter((profile) => profile.enabledAsSubagent || profile.builtin || profile.enabledAsSubagent === false)
 }
 
@@ -163,46 +266,47 @@ export async function getAgentProfile(idOrName, options = {}) {
   const profiles = await listAgentProfiles({ ...options, includeDisabled: true })
   const byName = profiles.find((profile) => profile.name === key)
   if (byName) return byName
-  const custom = Object.values(await readCustomAgentMap())
-  return custom.find((profile) => profile?.id === key) || profiles.find((profile) => profile.id === key) || null
+  return profiles.find((profile) => String(profile.id || '').toLowerCase() === key) || null
+}
+
+function assertEditableUserProfile(profile) {
+  if (!profile) throw requestError('Agent not found', 404)
+  if (profile.builtin) throw requestError('Built-in agents cannot be modified', 403)
+  if (profile.readonly) throw requestError('Read-only agents cannot be modified from the API', 403)
+  if (profile.source !== 'user' || profile.managedBy !== 'quickforge') throw requestError('Only QuickForge-managed user agents can be modified from the API', 403)
+}
+
+async function assertNameAvailable(name, currentId = null) {
+  if (RESERVED_NAMES.has(name)) throw requestError(`Agent name is reserved: ${name}`, 409)
+  const existing = await listAgentProfiles({ includeDisabled: true })
+  const conflict = existing.find((profile) => profile.name === name && profile.id !== currentId)
+  if (conflict) throw requestError(`Agent name already exists: ${name}`, 409)
 }
 
 export async function createCustomAgentProfile(input) {
-  let created = null
-  await atomicUpdate(STORE, (data) => {
-    const map = data && typeof data === 'object' ? data : {}
-    const profile = normalizeProfileInput(input, null, { creating: true })
-    if (Object.values(map).some((item) => item?.name === profile.name)) throw requestError(`Agent name already exists: ${profile.name}`, 409)
-    created = profile
-    map[profile.id] = profile
-    return map
-  })
-  return created
+  await ensureCustomAgentStoreMigrated()
+  const profile = normalizeProfileInput(input, null, { creating: true })
+  await assertNameAvailable(profile.name)
+  const file = await writeUserAgentProfileMarkdown(profile)
+  return { ...profile, filePath: file, relativePath: `~/.quickforge/agents/${profile.name}.md` }
 }
 
 export async function updateCustomAgentProfile(id, patch) {
-  let updated = null
-  await atomicUpdate(STORE, (data) => {
-    const map = data && typeof data === 'object' ? data : {}
-    const current = map[id]
-    if (!current) throw requestError('Agent not found', 404)
-    const next = normalizeProfileInput(patch, current)
-    if (RESERVED_NAMES.has(next.name)) throw requestError(`Agent name is reserved: ${next.name}`, 409)
-    if (Object.values(map).some((item) => item?.id !== id && item?.name === next.name)) throw requestError(`Agent name already exists: ${next.name}`, 409)
-    updated = next
-    map[id] = next
-    return map
-  })
-  return updated
+  await ensureCustomAgentStoreMigrated()
+  const current = await getAgentProfile(id)
+  assertEditableUserProfile(current)
+  const next = normalizeProfileInput(patch, current)
+  await assertNameAvailable(next.name, current.id)
+  const file = await writeUserAgentProfileMarkdown(next)
+  if (next.name !== current.name) await deleteUserAgentProfileMarkdown(current)
+  return { ...next, filePath: file, relativePath: `~/.quickforge/agents/${next.name}.md` }
 }
 
 export async function deleteCustomAgentProfile(id) {
-  await atomicUpdate(STORE, (data) => {
-    const map = data && typeof data === 'object' ? data : {}
-    if (!map[id]) throw requestError('Agent not found', 404)
-    delete map[id]
-    return map
-  })
+  await ensureCustomAgentStoreMigrated()
+  const current = await getAgentProfile(id)
+  assertEditableUserProfile(current)
+  await deleteUserAgentProfileMarkdown(current)
 }
 
 export function agentProfileSnapshot(profile) {
@@ -214,6 +318,10 @@ export function agentProfileSnapshot(profile) {
     description: profile.description,
     systemPrompt: profile.systemPrompt,
     allowedTools: [...profile.allowedTools],
+    capabilityPolicy: profile.capabilityPolicy || inferCapabilityPolicy(profile.allowedTools || []),
+    model: modelReferenceSnapshot(profile.model),
+    lifecycle: profile.lifecycle || (profile.builtin ? 'builtin' : 'persistent'),
+    managed: profile.managed === true,
     maxRuntimeMs: profile.maxRuntimeMs,
     maxToolCalls: profile.maxToolCalls,
     enabledAsSubagent: profile.enabledAsSubagent === true,
@@ -222,8 +330,11 @@ export function agentProfileSnapshot(profile) {
     readonly: profile.readonly === true || profile.builtin === true,
     filePath: profile.filePath,
     relativePath: profile.relativePath,
+    warnings: Array.isArray(profile.warnings) ? [...profile.warnings] : undefined,
   }
 }
+
+export { AGENT_PROFILE_TOOL_NAMES } from './agent-profile-schema.mjs'
 
 export function listAvailableAgentTools() {
   const labels = {

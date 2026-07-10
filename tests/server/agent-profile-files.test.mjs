@@ -36,6 +36,8 @@ Run all checks and report failures.
       label: 'Checker',
       description: 'Run validation checks',
       allowedTools: ['read_file', 'grep_files', 'run_command'],
+      capabilityPolicy: 'readonly-research',
+      model: { mode: 'inherit' },
       enabledAsSubagent: true,
       maxRuntimeMs: 60000,
       maxToolCalls: 12,
@@ -57,6 +59,31 @@ Implement focused changes.
     expect(profile.name).toBe('builder')
     expect(profile.allowedTools).toEqual(['read_file', 'edit_file', 'write_file', 'run_command'])
     expect(profile.allowFileMutations).toBe(true)
+  })
+
+  it('parses fixed model references and capability policy from Markdown', () => {
+    const profile = agentProfileFromMarkdown('/workspace/.quickforge/agents/verifier.md', `---
+name: verifier
+description: Verify changes
+capabilityPolicy: safe-validation
+tools: Read, Grep, Bash
+model:
+  mode: fixed
+  provider: openrouter
+  modelId: anthropic/claude-3.5-sonnet
+---
+Validate the change.
+`)
+
+    expect(profile).toMatchObject({
+      name: 'verifier',
+      capabilityPolicy: 'safe-validation',
+      model: {
+        mode: 'fixed',
+        provider: 'openrouter',
+        modelId: 'anthropic/claude-3.5-sonnet',
+      },
+    })
   })
 
   it('does not load file agents with reserved builtin names', () => {

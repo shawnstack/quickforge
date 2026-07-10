@@ -1,3 +1,8 @@
+import { createHash } from 'node:crypto'
+import { existsSync, promises as fs } from 'node:fs'
+import path from 'node:path'
+import { builtinAgentsDir, ensureStorage } from './storage.mjs'
+
 const commonSubagentRules = `
 You are a focused QuickForge subagent invoked by a parent coding assistant.
 
@@ -23,6 +28,9 @@ export const subagentDefinitions = [
     mode: 'subagent',
     description: 'A general-purpose agent for bounded complex multi-step implementation or broader independent work. It has full built-in workspace tool access, excluding MCP tools and Agent Skills, so it can modify files when needed. Prefer Explore for focused read-only repository discovery, source search, call-chain lookup, tests/docs discovery, and impact analysis.',
     allowedTools: ['read_file', 'grep_files', 'write_file', 'edit_file', 'run_command'],
+    capabilityPolicy: 'code-edit',
+    model: { mode: 'inherit' },
+    lifecycle: 'builtin',
     allowFileMutations: true,
     maxRuntimeMs: 30 * 60 * 1000,
     maxToolCalls: 300,
@@ -34,6 +42,9 @@ export const subagentDefinitions = [
     mode: 'subagent',
     description: 'The preferred subagent for focused read-only repository exploration, file discovery, source search, call-chain lookup, related tests/docs/wiki discovery, safe inspection commands, pattern lookup, and impact analysis before non-trivial implementation. It cannot modify files.',
     allowedTools: ['read_file', 'grep_files', 'run_command'],
+    capabilityPolicy: 'readonly-research',
+    model: { mode: 'inherit' },
+    lifecycle: 'builtin',
     allowFileMutations: false,
     maxRuntimeMs: 30 * 60 * 1000,
     maxToolCalls: 300,
@@ -42,6 +53,59 @@ export const subagentDefinitions = [
 ]
 
 const subagentByName = new Map(subagentDefinitions.map((definition) => [definition.name, definition]))
+
+function markdownValue(value) {
+  return String(value ?? '').replace(/\r?\n/g, ' ').replace(/"/g, '\\"')
+}
+
+function builtinSubagentMarkdown(definition) {
+  const body = definition.systemPrompt || ''
+  const hash = createHash('sha256').update(JSON.stringify({
+    name: definition.name,
+    label: definition.label,
+    description: definition.description,
+    allowedTools: definition.allowedTools,
+    capabilityPolicy: definition.capabilityPolicy,
+    body,
+  })).digest('hex')
+  return `---
+name: ${definition.name}
+label: "${markdownValue(definition.label || definition.name)}"
+description: "${markdownValue(definition.description || '')}"
+source: builtin
+lifecycle: builtin
+managed: true
+managedBy: quickforge
+managedHash: ${hash}
+enabled-as-subagent: true
+capabilityPolicy: ${definition.capabilityPolicy || 'review-only'}
+tools: ${definition.allowedTools.join(', ')}
+model:
+  mode: inherit
+max-runtime-ms: ${definition.maxRuntimeMs || 30 * 60 * 1000}
+max-tool-calls: ${definition.maxToolCalls || 300}
+---
+${body}
+`
+}
+
+export async function ensureBuiltinSubagentMarkdownFiles() {
+  await ensureStorage()
+  await fs.mkdir(builtinAgentsDir, { recursive: true })
+  await Promise.all(subagentDefinitions.map(async (definition) => {
+    const file = path.join(builtinAgentsDir, `${definition.name}.md`)
+    const content = builtinSubagentMarkdown(definition)
+    if (existsSync(file)) {
+      const current = await fs.readFile(file, 'utf8').catch(() => '')
+      if (current === content) return
+    }
+    await fs.writeFile(file, content, 'utf8')
+  }))
+}
+
+export function builtinSubagentProfilePath(name) {
+  return path.join(builtinAgentsDir, `${String(name || '').trim().toLowerCase()}.md`)
+}
 
 export function listSubagentSummaries() {
   return subagentDefinitions.map(({ name, label, mode, description, allowedTools }) => ({

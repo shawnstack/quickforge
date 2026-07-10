@@ -63,7 +63,7 @@ server/
 - SSE 事件流管理：向连接的客户端广播 Agent 事件
 - 后台任务运行（`runTask` / `abortTask`）
 - Agent 恢复（`restoreAgent`）：从持久化状态恢复会话
-- Subagent 工具：`run_subagent` 在父会话内创建短生命周期临时 Agent；运行条件是父会话已解析出有效 `projectContext.workspaceRoot`，因此项目对话和合成默认 workspace 的全局对话都可使用，不再要求必须存在真实 `projectId`。可调用启用的 Agent Profile。内置 `explore` 是只读仓库调研的首选，用于文件发现、源码搜索、调用链追踪、测试/文档/wiki 发现和影响面分析，可执行安全的检查/诊断命令但不能修改文件；内置 `general` 适合有边界的复杂多步骤实现或更广泛独立任务，可使用完整内置工作区工具但不含 MCP/Skills。自定义 Agent Profile 也可通过白名单工具执行。子 Agent 不作为普通会话持久化，默认不能递归调用 `run_subagent`。
+- Subagent 工具：`run_subagent` 在父会话内创建短生命周期临时 Agent；运行条件是父会话已解析出有效 `projectContext.workspaceRoot`，因此项目对话和合成默认 workspace 的全局对话都可使用，不再要求必须存在真实 `projectId`。可调用启用的 Agent Profile。内置 `explore` 是只读仓库调研的首选，用于文件发现、源码搜索、调用链追踪、测试/文档/wiki 发现和影响面分析，可执行安全的检查/诊断命令但不能修改文件；内置 `general` 适合有边界的复杂多步骤实现或更广泛独立任务，可使用完整内置工作区工具但不含 MCP/Skills。自定义 Agent Profile 也可通过白名单工具执行。`run_subagent` 还支持 AI 按需传入一次性 `temporary` profile spec；服务端会校验名称、工具、`capabilityPolicy` 和模型引用，将该临时 subagent 写入 `~/.quickforge/cache/global/tmp/agents/<session>/<run>/*.md` 后再执行，并在结果 details 中返回 `profilePath`、`source`、`lifecycle`、`capabilityPolicy` 和实际模型信息。子 Agent 不作为普通会话持久化，默认不能递归调用 `run_subagent`。
 - Agent Profile 执行：`createAgent` 支持传入 `agentProfile`，在默认系统提示词后追加 profile 系统提示词，并按 `allowedTools` 限制 workspace 工具；定时任务可绑定 profile 执行。
 - 工具管理：基于 Skills 和 Agent 权限模式动态构建工具列表；默认权限下安全读取工具自动通过，写入、命令、MCP/Plugin 等可能改变状态或影响外部系统的工具需要审批；完全访问权限等同开发者授权，在 workspace 沙箱和命令级限制内跳过审批；`/plan` 当前轮使用只读白名单，仅允许读取/搜索、Skill 加载和继承同样只读边界的 subagent 辅助调研，阻止写文件、编辑文件、运行命令以及未声明为允许的 MCP/Plugin/未知工具；Shift+Tab 计划模式通过结构化 command 元数据复用同一套 `/plan` 解析、prompt 和权限，并在 retry/continue 时恢复该权限；`/review` 当前轮允许读取和运行检查命令，但阻止编辑文件和 subagent 执行，用于提交前自检。
 - 对话压缩（`compactConversation`）：手动 `/summary` 会创建总结后的新会话并保留原会话；手动 `/compact` 与自动上下文压缩保持一致，会在当前会话内生成/更新滚动摘要，只影响 Agent loop 输入，完整历史仍保留用于 UI 展示和持久化。自动上下文压缩会在模型请求前按配置阈值触发同一套当前会话内压缩。
@@ -108,7 +108,8 @@ server/
 │   ├── sessions/          # 按 scope/projectId 分桶的会话文件
 │   ├── sessions-metadata/ # 会话元数据索引
 │   └── shares/            # 分享数据
-├── cache/                 # 缓存数据
+├── cache/                 # 缓存数据（含 cache/global/tmp/agents 临时 subagent Markdown）
+├── agents/                # 用户 Agent Profile；agents/builtin 下生成内置 explore/general Markdown
 ├── workspace/             # 全局对话的默认工作目录（合成 project id=default）
 └── logs/                  # 日志文件
 ```
@@ -126,12 +127,12 @@ server/
 **用途**: Agent Profile 配置层。
 
 **功能**:
-- 将内置 `general` / `explore` sub agent 映射为内置 Agent Profile。
-- 使用 `custom-agents` store 保存 UI/API 创建的用户自定义 Agent。
-- 加载文件化 Agent Profile：用户级 `~/.claude/agents/*.md`、`~/.quickforge/agents/*.md`，项目级 `<workspace>/.claude/agents/*.md`、`<workspace>/.quickforge/agents/*.md`；Markdown frontmatter 放 `name`、`description`、`tools` 等元数据，正文作为 `systemPrompt`。
+- 将内置 `general` / `explore` sub agent 映射为内置 Agent Profile，并在 `~/.quickforge/agents/builtin/*.md` 生成受管 Markdown 供用户查看。
+- 使用 `~/.quickforge/agents/<name>.md` 保存 UI/API 创建的用户自定义 Agent；旧版 `custom-agents` store 会在首次加载时一次性迁移为 QuickForge-managed Markdown，并保留旧 `id` 以兼容已有引用。
+- 加载文件化 Agent Profile：用户级 `~/.claude/agents/*.md`、`~/.quickforge/agents/*.md`，项目级 `<workspace>/.claude/agents/*.md`、`<workspace>/.quickforge/agents/*.md`；Markdown frontmatter 放 `name`、`description`、`tools`、`capabilityPolicy`、`model` 等元数据，正文作为 `systemPrompt`。`model` 默认 `inherit` 父 Agent，也可声明固定模型引用（provider + modelId，可选 api/baseUrl）。
 - 文件化 Agent 支持 Claude 风格工具别名：`Read`、`Grep`、`Bash`、`Write`、`Edit` 会映射为 QuickForge 的 workspace tools；`general` / `explore` 是保留名，不能被文件覆盖。
-- 合并优先级：内置 Agent 保留；文件化 Agent 中项目级覆盖用户级；store Agent 仍可通过 id 访问，通过 name 查找时不覆盖同名项目文件 Agent。
-- 校验 Agent 名称、系统提示词、工具白名单、运行时间和工具调用预算。
+- 合并优先级：内置 Agent 保留；文件化 Agent 中项目级覆盖用户级；`~/.quickforge/agents` 会覆盖 `~/.claude/agents`；旧 `custom-agents` store 仅作为一次性迁移源，不再作为新自定义 Agent 的主存储。
+- 校验 Agent 名称、系统提示词、工具白名单、`capabilityPolicy`、模型引用、运行时间和工具调用预算。
 - 为 `run_subagent`、定时任务和前端 Agents 页面提供统一列表。
 - 提供 AI 填充能力，生成 Agent 名称、显示名称、描述和系统提示词，工具权限仍由用户手动配置。
 

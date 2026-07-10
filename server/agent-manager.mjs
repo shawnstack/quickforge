@@ -1,5 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
 import { Agent } from '@earendil-works/pi-agent-core'
 import { streamSimpleWithAiHttpLogging } from './ai-http-logger.mjs'
 import { loadSkillToolContext, abortRunningCommand } from './tools/index.mjs'
@@ -11,8 +13,19 @@ import {
   formatSubagentTask,
 } from './subagents.mjs'
 import { agentProfileSnapshot, getAgentProfile } from './agent-profiles.mjs'
+import { agentProfileFromMarkdown } from './agent-profile-files.mjs'
+import {
+  applyCapabilityPolicy,
+  inferCapabilityPolicy,
+  modelReferenceSnapshot,
+  normalizeCapabilityPolicy,
+  normalizeModelReference,
+  resolveAgentProfileModel,
+  validateAgentProfileTools,
+  validateModelReference,
+} from './agent-profile-schema.mjs'
 import { projectContextFromId, defaultGlobalWorkspaceContext, readProjectConfig } from './project-config.mjs'
-import { readStore, atomicUpdate, atomicSessionMetadataUpdate, readSessionValue, writeSessionValue, deleteSessionValue } from './storage.mjs'
+import { ensureStorage, readStore, atomicUpdate, atomicSessionMetadataUpdate, readSessionValue, writeSessionValue, deleteSessionValue, tempAgentsDir } from './storage.mjs'
 import { logger } from './utils/logger.mjs'
 import { buildSystemPrompt, generateAiTitle, generateTitle } from './session-utils.mjs'
 import { restoreReasoningContentInPayload } from './reasoning-cache.mjs'
@@ -831,10 +844,109 @@ ${scopeText}
 </review_command_invocation>`
 }
 
+const tempSubagentNameRegex = /^[a-z][a-z0-9_-]{1,39}$/
+
+function frontmatterString(value) {
+  return String(value ?? '').replace(/\r?\n/g, ' ').replace(/"/g, '\\"')
+}
+
+function normalizeTemporarySubagentSpec(input) {
+  const spec = input && typeof input === 'object' && !Array.isArray(input) ? input : null
+  if (!spec || spec.type !== 'temporary') return null
+  const name = String(spec.name || '').trim().toLowerCase()
+  if (!tempSubagentNameRegex.test(name)) {
+    const error = new Error('Temporary subagent name must start with a letter and contain only lowercase letters, numbers, underscores, or hyphens')
+    error.statusCode = 400
+    throw error
+  }
+  const instructions = String(spec.instructions || '').trim()
+  if (!instructions) {
+    const error = new Error('Temporary subagent instructions are required')
+    error.statusCode = 400
+    throw error
+  }
+  const requestedTools = Array.isArray(spec.tools)
+    ? [...new Set(spec.tools.map((toolName) => String(toolName || '').trim()).filter(Boolean))]
+    : ['read_file', 'grep_files', 'run_command']
+  const capabilityPolicy = normalizeCapabilityPolicy(spec.capabilityPolicy || 'readonly-research', requestedTools)
+  validateAgentProfileTools(requestedTools, capabilityPolicy)
+  const allowedTools = applyCapabilityPolicy(requestedTools, capabilityPolicy)
+  const model = validateModelReference(normalizeModelReference(spec.model))
+  return {
+    name,
+    label: String(spec.label || spec.description || name).trim().slice(0, 80) || name,
+    description: String(spec.description || '').trim().slice(0, 500),
+    systemPrompt: instructions,
+    allowedTools,
+    capabilityPolicy,
+    model,
+    maxRuntimeMs: spec.maxRuntimeMs,
+    maxToolCalls: spec.maxToolCalls,
+  }
+}
+
+function safeTempPathSegment(value, fallback) {
+  const text = String(value || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80)
+  return text || fallback
+}
+
+function temporarySubagentMarkdown(spec, parentSession, runId, expiresAt) {
+  return `---
+name: ${spec.name}
+label: "${frontmatterString(spec.label)}"
+description: "${frontmatterString(spec.description)}"
+source: temporary
+lifecycle: temporary
+createdBy: ai
+createdAt: ${new Date().toISOString()}
+parentSessionId: ${frontmatterString(parentSession.sessionId)}
+runId: ${runId}
+expiresAt: ${expiresAt}
+enabled-as-subagent: true
+capabilityPolicy: ${spec.capabilityPolicy}
+tools: ${spec.allowedTools.join(', ')}
+model:
+  mode: ${spec.model?.mode === 'fixed' ? 'fixed' : 'inherit'}${spec.model?.mode === 'fixed' ? `
+  provider: ${frontmatterString(spec.model.provider)}
+  modelId: ${frontmatterString(spec.model.modelId)}${spec.model.api ? `
+  api: ${frontmatterString(spec.model.api)}` : ''}${spec.model.baseUrl ? `
+  baseUrl: ${frontmatterString(spec.model.baseUrl)}` : ''}` : ''}
+max-runtime-ms: ${Math.max(1000, Math.min(Number(spec.maxRuntimeMs || SUBAGENT_DEFAULT_TIMEOUT_MS), 30 * 60 * 1000))}
+max-tool-calls: ${Math.max(1, Math.min(Number(spec.maxToolCalls || 300), 300))}
+---
+${spec.systemPrompt}
+`
+}
+
+async function createTemporarySubagentProfile(parentSession, spec) {
+  await ensureStorage()
+  const runId = `run_${Date.now()}_${randomUUID().slice(0, 8)}`
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+  const dir = path.join(tempAgentsDir, safeTempPathSegment(parentSession.sessionId, 'session'), runId)
+  await fs.mkdir(dir, { recursive: true })
+  const file = path.join(dir, `${spec.name}.md`)
+  const markdown = temporarySubagentMarkdown(spec, parentSession, runId, expiresAt)
+  await fs.writeFile(file, markdown, 'utf8')
+  const profile = agentProfileFromMarkdown(file, markdown, {
+    source: 'temporary',
+    idPrefix: `temporary:${safeTempPathSegment(parentSession.sessionId, 'session')}:${runId}`,
+    relativePath: path.relative(tempAgentsDir, file).replace(/\\/g, '/'),
+  })
+  if (!profile) throw new Error('Failed to create temporary subagent profile')
+  profile.readonly = true
+  return profile
+}
+
+async function resolveSubagentProfile(parentSession, requestedSubagent) {
+  const temporarySpec = normalizeTemporarySubagentSpec(requestedSubagent)
+  if (temporarySpec) return createTemporarySubagentProfile(parentSession, temporarySpec)
+  return getAgentProfile(requestedSubagent, { workspaceRoot: parentSession.projectContext?.workspaceRoot })
+}
+
 async function runSubagent(parentSession, params, parentSignal, onUpdate) {
-  const profile = await getAgentProfile(params?.subagent, { workspaceRoot: parentSession.projectContext?.workspaceRoot })
+  const profile = await resolveSubagentProfile(parentSession, params?.subagent)
   if (!profile || !profile.enabledAsSubagent) {
-    const error = new Error(`Unknown or disabled subagent: ${params?.subagent || ''}`)
+    const error = new Error(`Unknown or disabled subagent: ${typeof params?.subagent === 'string' ? params.subagent : params?.subagent?.name || ''}`)
     error.statusCode = 400
     throw error
   }
@@ -854,6 +966,9 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
   }
 
   const timeoutMs = Math.max(1000, Math.min(Number(definition.maxRuntimeMs || SUBAGENT_DEFAULT_TIMEOUT_MS), 30 * 60 * 1000))
+  definition.capabilityPolicy ||= inferCapabilityPolicy(definition.allowedTools || [])
+  definition.allowedTools = applyCapabilityPolicy(definition.allowedTools || [], definition.capabilityPolicy)
+  const { model: subagentModel, info: subagentModelInfo } = await resolveAgentProfileModel(definition, parentSession.model, readStore)
   const subagentSessionId = `${parentSession.sessionId}:subagent:${definition.name}:${randomUUID()}`
   const startedAt = Date.now()
   let toolCalls = 0
@@ -898,6 +1013,11 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
         toolCalls,
         allowedTools: definition.allowedTools,
         timeoutMs,
+        source: definition.source,
+        lifecycle: definition.lifecycle,
+        profilePath: definition.filePath,
+        capabilityPolicy: definition.capabilityPolicy,
+        model: subagentModelInfo,
         durationMs: Date.now() - startedAt,
         messages: latestMessages,
         tools: toolsForClient,
@@ -932,7 +1052,7 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
   const subagent = new Agent({
     initialState: {
       systemPrompt,
-      model: parentSession.model,
+      model: subagentModel,
       thinkingLevel: parentSession.thinkingLevel,
       messages: [],
       tools,
@@ -1013,6 +1133,11 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
       toolCalls,
       allowedTools: definition.allowedTools,
       timeoutMs,
+      source: definition.source,
+      lifecycle: definition.lifecycle,
+      profilePath: definition.filePath,
+      capabilityPolicy: definition.capabilityPolicy,
+      model: subagentModelInfo,
       durationMs: Date.now() - startedAt,
       messages: latestMessages,
       tools: toolsForClient,
@@ -1229,6 +1354,8 @@ export async function createAgent(sessionId, config = {}) {
   const profileSystemPrompt = agentProfile?.systemPrompt ? `\n\n<agent_profile_instructions>\nAgent Profile: ${agentProfile.label || agentProfile.name}\n${agentProfile.systemPrompt}\n</agent_profile_instructions>` : ''
   const resolvedSystemPrompt = systemPrompt ?? `${await buildSystemPrompt(projectId)}${profileSystemPrompt}`
 
+  let resolvedAgentProfile = agentProfile
+
   // Resolve model
   let resolvedModel = model
   if (!resolvedModel) {
@@ -1241,6 +1368,14 @@ export async function createAgent(sessionId, config = {}) {
       // ignore
     }
   }
+  if (agentProfile?.model?.mode === 'fixed') {
+    resolvedModel = (await resolveAgentProfileModel(agentProfile, resolvedModel, readStore)).model
+    resolvedAgentProfile = {
+      ...agentProfile,
+      model: modelReferenceSnapshot(agentProfile.model),
+    }
+  }
+  if (resolvedAgentProfile && !resolvedModel) throw new Error('No active model is configured for the agent session.')
 
   // Build skills tools for enabled skills, plus workspace tools when a project is available.
   const profileToolNames = Array.isArray(agentProfile?.allowedTools) ? agentProfile.allowedTools : null
@@ -1300,7 +1435,14 @@ export async function createAgent(sessionId, config = {}) {
       const isSkillTool = toolName === 'activate_skill' || toolName === 'read_skill_resource'
       if (isSkillTool) return undefined
       if (profileToolNames && !profileToolNames.includes(toolName)) return { block: true, reason: `Agent profile ${agentProfile.name} is not allowed to use ${toolName}.` }
-      if (toolName === 'run_subagent') return undefined
+      if (toolName === 'run_subagent') {
+        const requested = context.args?.subagent
+        const policy = requested && typeof requested === 'object' ? normalizeCapabilityPolicy(requested.capabilityPolicy || 'readonly-research', Array.isArray(requested.tools) ? requested.tools : []) : null
+        if (policy && ['code-edit', 'docs-edit'].includes(policy) && !hasFullAccess(currentSession)) {
+          return { block: true, reason: `Temporary subagent capability policy ${policy} requires full access or approval.` }
+        }
+        return undefined
+      }
       if (isMcpToolName(toolName) || isPluginToolName(toolName)) {
         if (!hasFullAccess(currentSession)) return createApprovalPromise(currentSession, toolCallId, toolName, context.args)
         return undefined
@@ -1348,7 +1490,7 @@ export async function createAgent(sessionId, config = {}) {
     toolTimings: new Map(),
     getApiKey,
     contextCompaction,
-    agentProfile: agentProfile ? agentProfileSnapshot(agentProfile) : null,
+    agentProfile: resolvedAgentProfile ? agentProfileSnapshot(resolvedAgentProfile) : null,
     idleRetention,
     lastTransformedContextMessages: null,
     autoCompacting: false,

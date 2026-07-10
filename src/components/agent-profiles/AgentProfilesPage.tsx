@@ -11,6 +11,10 @@ import { defaultThinkingLevelForModel, getConfiguredModels, initializePiStorage,
 
 type RiskLevel = 'safe' | 'dangerous'
 
+type AgentModelRef =
+  | { mode: 'inherit' }
+  | { mode: 'fixed'; provider: string; modelId: string; api?: string; baseUrl?: string }
+
 type AgentProfile = {
   id: string
   name: string
@@ -24,6 +28,8 @@ type AgentProfile = {
   builtin?: boolean
   readonly?: boolean
   source?: string
+  model?: AgentModelRef
+  capabilityPolicy?: string
   relativePath?: string
   updatedAt?: string
 }
@@ -44,10 +50,51 @@ type AgentFormState = {
   maxRuntimeMs: string
   maxToolCalls: string
   enabledAsSubagent: boolean
+  modelMode: 'inherit' | 'fixed'
+  fixedModelValue: string
 }
 
 type GeneratedAgentFields = Pick<AgentFormState, 'name' | 'label' | 'description' | 'systemPrompt'>
 type AnyModel = Model<Api>
+
+function modelOptionValue(model: AnyModel) {
+  return JSON.stringify({
+    provider: model.provider,
+    modelId: model.id,
+    api: model.api,
+    baseUrl: model.baseUrl,
+  })
+}
+
+function modelRefFromOption(value: string): AgentModelRef {
+  if (!value) return { mode: 'inherit' }
+  try {
+    const parsed = JSON.parse(value)
+    return {
+      mode: 'fixed',
+      provider: String(parsed.provider || ''),
+      modelId: String(parsed.modelId || ''),
+      api: parsed.api ? String(parsed.api) : undefined,
+      baseUrl: parsed.baseUrl ? String(parsed.baseUrl) : undefined,
+    }
+  } catch {
+    return { mode: 'inherit' }
+  }
+}
+
+function modelRefToOption(model?: AgentModelRef) {
+  if (!model || model.mode !== 'fixed') return ''
+  return JSON.stringify({
+    provider: model.provider,
+    modelId: model.modelId,
+    api: model.api,
+    baseUrl: model.baseUrl,
+  })
+}
+
+function modelLabel(model: AnyModel) {
+  return model.name || `${model.provider}/${model.id}`
+}
 
 function defaultAgentForm(): AgentFormState {
   return {
@@ -59,6 +106,8 @@ function defaultAgentForm(): AgentFormState {
     maxRuntimeMs: '1800000',
     maxToolCalls: '300',
     enabledAsSubagent: true,
+    modelMode: 'inherit',
+    fixedModelValue: '',
   }
 }
 
@@ -72,6 +121,8 @@ function agentFormFromProfile(agent: AgentProfile): AgentFormState {
     maxRuntimeMs: String(agent.maxRuntimeMs ?? 1800000),
     maxToolCalls: String(agent.maxToolCalls ?? 300),
     enabledAsSubagent: agent.enabledAsSubagent,
+    modelMode: agent.model?.mode === 'fixed' ? 'fixed' : 'inherit',
+    fixedModelValue: modelRefToOption(agent.model),
   }
 }
 
@@ -85,6 +136,7 @@ function buildAgentPayload(form: AgentFormState) {
     maxRuntimeMs: Number(form.maxRuntimeMs || 1800000),
     maxToolCalls: Number(form.maxToolCalls || 300),
     enabledAsSubagent: form.enabledAsSubagent,
+    model: form.modelMode === 'fixed' ? modelRefFromOption(form.fixedModelValue) : { mode: 'inherit' },
   }
 }
 
@@ -115,6 +167,7 @@ export function AgentProfilesPage() {
   const [aiFillInstruction, setAiFillInstruction] = useState('')
   const [aiFillLoading, setAiFillLoading] = useState(false)
   const [selectedModel, setSelectedModel] = useState<AnyModel>()
+  const [configuredModels, setConfiguredModels] = useState<AnyModel[]>([])
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('off')
   const [error, setError] = useState('')
   const [openMenuProfileId, setOpenMenuProfileId] = useState<string | null>(null)
@@ -155,6 +208,7 @@ export function AgentProfilesPage() {
       try {
         const storage = await initializePiStorage()
         const configuredModels = await getConfiguredModels(storage)
+        setConfiguredModels(configuredModels)
         const defaultOptions = await loadDefaultOptions(storage)
         const activeModel = defaultOptions.model ?? await loadInitialConfiguredModel(storage) ?? configuredModels[0]
         if (cancelled) return
@@ -384,6 +438,24 @@ export function AgentProfilesPage() {
                 {t('agentSystemPrompt')}
                 <textarea className="mt-1 min-h-36 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.systemPrompt} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('systemPrompt', event.target.value)} />
               </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-sm font-medium text-foreground">
+                  {t('agentModelMode')}
+                  <select className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.modelMode} disabled={Boolean(editingAgent?.readonly)} onChange={(event) => updateAgentForm('modelMode', event.target.value as AgentFormState['modelMode'])}>
+                    <option value="inherit">{t('agentModelInherit')}</option>
+                    <option value="fixed">{t('agentModelFixed')}</option>
+                  </select>
+                </label>
+                <label className="block text-sm font-medium text-foreground">
+                  {t('agentFixedModel')}
+                  <select className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.fixedModelValue} disabled={Boolean(editingAgent?.readonly) || agentForm.modelMode !== 'fixed'} onChange={(event) => updateAgentForm('fixedModelValue', event.target.value)}>
+                    <option value="">{t('agentModelInherit')}</option>
+                    {configuredModels.map((model) => (
+                      <option key={modelOptionValue(model)} value={modelOptionValue(model)}>{modelLabel(model)}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
               <div>
                 <div className="mb-2 text-sm font-medium text-foreground">{t('allowedTools')}</div>
                 <div className="grid gap-2 sm:grid-cols-2">
@@ -470,6 +542,7 @@ export function AgentProfilesPage() {
                 <span className="quickforge-agent-profile-label" title={agent.label}>{agent.label}</span>
                 <span className="quickforge-agent-profile-name quickforge-settings-mono" title={agent.name}>{agent.name}</span>
                 <span className="quickforge-agent-profile-description" title={agent.description || t('noDescription')}>· {agent.description || t('noDescription')}</span>
+                <span className="quickforge-agent-profile-name quickforge-settings-mono" title={agent.model?.mode === 'fixed' ? `${agent.model.provider}/${agent.model.modelId}` : t('agentModelInherit')}>· {agent.model?.mode === 'fixed' ? `${agent.model.provider}/${agent.model.modelId}` : t('agentModelInherit')}</span>
               </div>
             </div>
             <div className="quickforge-settings-list-item-actions" onClick={(event) => event.stopPropagation()}>

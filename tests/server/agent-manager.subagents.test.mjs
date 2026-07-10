@@ -1,10 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 
 class MockAgent {
+  static instances = []
+
   constructor(options = {}) {
+    MockAgent.instances.push(this)
+    this.options = options
     this.state = {
       ...(options.initialState || {}),
       messages: options.initialState?.messages ? [...options.initialState.messages] : [],
@@ -57,6 +61,7 @@ describe('agent manager subagent execution', () => {
     tmpDir = await mkdtemp(path.join(os.tmpdir(), 'quickforge-agent-manager-'))
     process.env.QUICKFORGE_DATA_DIR = path.join(tmpDir, 'data')
     vi.resetModules()
+    MockAgent.instances = []
   })
 
   afterEach(async () => {
@@ -94,6 +99,54 @@ describe('agent manager subagent execution', () => {
 
       expect(result.content[0].text).toBe('mock subagent completed')
       expect(result.details.subagent).toBe('explore')
+    } finally {
+      await destroyAgent(session.sessionId)
+    }
+  })
+
+  it('creates a temporary subagent markdown profile and runs it with inherited model', async () => {
+    const workspaceRoot = path.join(tmpDir, 'workspace')
+    const parentModel = { provider: 'mock', id: 'mock-model', api: 'mock-api', baseUrl: 'http://mock.local' }
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(workspaceRoot)
+
+    const { createAgent, destroyAgent } = await import('../../server/agent-manager.mjs')
+    const { tempAgentsDir } = await import('../../server/storage.mjs')
+    const session = await createAgent('temporary-subagent-workspace', {
+      scope: 'global',
+      model: parentModel,
+      systemPrompt: '',
+      idleRetention: 'always',
+    })
+
+    try {
+      const runSubagent = session.agent.state.tools.find((tool) => tool.name === 'run_subagent')
+      const result = await runSubagent.execute(
+        'tool-call-temp',
+        {
+          subagent: {
+            type: 'temporary',
+            name: 'test-finder',
+            label: 'Test Finder',
+            description: 'Find tests',
+            instructions: 'Only find relevant tests.',
+          },
+          task: 'Find tests.',
+        },
+        new AbortController().signal,
+      )
+
+      expect(result.content[0].text).toBe('mock subagent completed')
+      expect(result.details.subagent).toBe('test-finder')
+      expect(result.details.lifecycle).toBe('temporary')
+      expect(result.details.model).toMatchObject({ mode: 'inherit', inherited: true })
+      expect(result.details.profilePath).toContain(tempAgentsDir)
+      const markdown = await readFile(result.details.profilePath, 'utf8')
+      expect(markdown).toContain('name: test-finder')
+      expect(markdown).toContain('source: temporary')
+      expect(markdown).toContain('model:\n  mode: inherit')
+      const subagentInstance = MockAgent.instances.at(-1)
+      expect(subagentInstance.state.model).toBe(parentModel)
     } finally {
       await destroyAgent(session.sessionId)
     }

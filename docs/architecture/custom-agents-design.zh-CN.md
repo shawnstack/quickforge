@@ -183,35 +183,44 @@ const builtinAgentProfiles = [
 
 ## 7. 存储设计
 
-新增本地 store：
+用户在设置页/API 创建的自定义 Agent Profile 使用 Markdown 文件保存：
 
 ```txt
-custom-agents
+~/.quickforge/agents/<name>.md
 ```
 
-存储用户自定义 Agent Profile。
+旧版 `custom-agents` JSON store 仅作为迁移源保留。首次加载 Agent Profile 时，系统会把旧 store 中的数据一次性迁移为 QuickForge-managed Markdown，并写入迁移标记：
 
-建议存储结构：
+```txt
+~/.quickforge/agents/.custom-agents-migrated.json
+```
 
-```json
-{
-  "agents": [
-    {
-      "id": "agent-reviewer",
-      "name": "reviewer",
-      "label": "代码审查 Agent",
-      "description": "专注于代码审查和风险提示。",
-      "systemPrompt": "你是一个严谨的代码审查助手...",
-      "allowedTools": ["read_file", "grep_files"],
-      "maxRuntimeMs": 300000,
-      "maxToolCalls": 20,
-      "enabledAsSubagent": true,
-      "builtin": false,
-      "createdAt": "2026-05-29T00:00:00.000Z",
-      "updatedAt": "2026-05-29T00:00:00.000Z"
-    }
-  ]
-}
+迁移会保留旧 `id`，以兼容定时任务等已有引用。
+
+建议 Markdown 结构：
+
+```md
+---
+id: "agent-reviewer"
+name: reviewer
+label: "代码审查 Agent"
+description: "专注于代码审查和风险提示。"
+source: user
+lifecycle: persistent
+managed: true
+managedBy: quickforge
+readonly: false
+enabled-as-subagent: true
+capabilityPolicy: review-only
+tools: read_file, grep_files
+model:
+  mode: inherit
+max-runtime-ms: 300000
+max-tool-calls: 20
+created-at: "2026-05-29T00:00:00.000Z"
+updated-at: "2026-05-29T00:00:00.000Z"
+---
+你是一个严谨的代码审查助手...
 ```
 
 命名规则：
@@ -236,11 +245,12 @@ server/routes/agent-profiles.mjs
 `server/agent-profiles.mjs` 负责：
 
 - 返回内置 Agent Profile。
-- 读取 store 自定义 Agent Profile。
-- 合并内置、文件化和 store 自定义 Agent Profile。
+- 读取 QuickForge-managed Markdown 自定义 Agent Profile。
+- 合并内置和文件化 Agent Profile。
 - 根据 `id` 或 `name` 查找 Agent Profile。
-- 校验工具白名单是否合法。
+- 校验工具白名单、`capabilityPolicy` 和模型引用是否合法。
 - 校验名称冲突。
+- 将旧版 `custom-agents` store 一次性迁移到 `~/.quickforge/agents/*.md`。
 
 `server/agent-profile-files.mjs` 负责：
 

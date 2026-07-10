@@ -1,9 +1,10 @@
 import { existsSync, promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { dataDir } from './storage.mjs'
+import { userAgentsDir } from './storage.mjs'
 import { logger } from './utils/logger.mjs'
 import { firstOptionalBoolean, firstString, parseFrontmatter, splitDelimitedList } from './frontmatter.mjs'
+import { normalizeCapabilityPolicy, normalizeModelReference, validateAgentProfileTools, validateModelReference } from './agent-profile-schema.mjs'
 
 const DEFAULT_MAX_RUNTIME_MS = 30 * 60 * 1000
 const DEFAULT_MAX_TOOL_CALLS = 300
@@ -19,7 +20,6 @@ const toolAliases = new Map([
 ])
 
 const claudeUserAgentsDir = path.join(os.homedir(), '.claude', 'agents')
-const userAgentsDir = path.join(dataDir, 'agents')
 
 function normalizeString(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
@@ -60,6 +60,63 @@ function hasMutationTool(allowedTools) {
   return allowedTools.some((toolName) => toolName === 'write_file' || toolName === 'edit_file')
 }
 
+function quoteFrontmatter(value) {
+  return `"${String(value ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, ' ')}"`
+}
+
+function formatModelFrontmatter(model) {
+  if (!model || model.mode !== 'fixed') return 'model:\n  mode: inherit'
+  return [
+    'model:',
+    '  mode: fixed',
+    `  provider: ${quoteFrontmatter(model.provider)}`,
+    `  modelId: ${quoteFrontmatter(model.modelId)}`,
+    model.api ? `  api: ${quoteFrontmatter(model.api)}` : '',
+    model.baseUrl ? `  baseUrl: ${quoteFrontmatter(model.baseUrl)}` : '',
+  ].filter(Boolean).join('\n')
+}
+
+export function userAgentProfileFilePath(name) {
+  const normalized = normalizeName(name)
+  if (!normalized) throw new Error('Invalid agent profile name')
+  return path.join(userAgentsDir, `${normalized}.md`)
+}
+
+export function agentProfileToMarkdown(profile) {
+  return `---
+id: ${quoteFrontmatter(profile.id)}
+name: ${profile.name}
+label: ${quoteFrontmatter(profile.label || profile.name)}
+description: ${quoteFrontmatter(profile.description || '')}
+source: user
+lifecycle: persistent
+managed: true
+managedBy: quickforge
+readonly: false
+enabled-as-subagent: ${profile.enabledAsSubagent === true ? 'true' : 'false'}
+capabilityPolicy: ${profile.capabilityPolicy || 'review-only'}
+tools: ${(profile.allowedTools || []).join(', ')}
+${formatModelFrontmatter(profile.model)}
+max-runtime-ms: ${profile.maxRuntimeMs || DEFAULT_MAX_RUNTIME_MS}
+max-tool-calls: ${profile.maxToolCalls || DEFAULT_MAX_TOOL_CALLS}
+created-at: ${quoteFrontmatter(profile.createdAt || new Date().toISOString())}
+updated-at: ${quoteFrontmatter(profile.updatedAt || new Date().toISOString())}
+---
+${String(profile.systemPrompt || '').trim()}
+`
+}
+
+export async function writeUserAgentProfileMarkdown(profile) {
+  await fs.mkdir(userAgentsDir, { recursive: true })
+  const file = userAgentProfileFilePath(profile.name)
+  await fs.writeFile(file, agentProfileToMarkdown(profile), 'utf8')
+  return file
+}
+
+export async function deleteUserAgentProfileMarkdown(profile) {
+  await fs.rm(userAgentProfileFilePath(profile.name), { force: true })
+}
+
 export function agentProfileFromMarkdown(file, text, options = {}) {
   const parsed = parseFrontmatter(text)
   if (!parsed.body) return null
@@ -72,30 +129,49 @@ export function agentProfileFromMarkdown(file, text, options = {}) {
   const allowedTools = normalizeTools(
     metadata.tools ?? metadata['allowed-tools'] ?? metadata.allowedTools,
   )
+  const capabilityPolicy = normalizeCapabilityPolicy(
+    metadata.capabilityPolicy ?? metadata['capability-policy'] ?? metadata.capability_policy,
+    allowedTools,
+  )
+  validateAgentProfileTools(allowedTools, capabilityPolicy)
+  const model = validateModelReference(normalizeModelReference(metadata.model, metadata))
   const label = firstString(metadata.label, metadata.displayName, metadata.title) || name
   const enabledAsSubagent = firstOptionalBoolean(
     metadata['enabled-as-subagent'],
     metadata.enabled_as_subagent,
     metadata.enabledAsSubagent,
   )
+  const source = firstString(metadata.source) || options.source || 'file'
+  const lifecycle = firstString(metadata.lifecycle) || (source === 'temporary' ? 'temporary' : 'persistent')
+  const explicitReadonly = firstOptionalBoolean(metadata.readonly, metadata['read-only'])
+  const managedBy = firstString(metadata.managedBy, metadata['managed-by'])
+  const profileId = firstString(metadata.id) || `${options.idPrefix || source || 'file'}:${name}`
 
   return {
-    id: `${options.idPrefix || 'file'}:${name}`,
+    id: profileId,
     name,
     label: label.slice(0, 80),
     description: String(firstString(metadata.description) || '').slice(0, 500),
     systemPrompt: parsed.body,
     allowedTools,
+    capabilityPolicy,
+    model,
+    lifecycle,
+    managed: firstOptionalBoolean(metadata.managed) === true,
+    managedBy,
+    expiresAt: firstString(metadata.expiresAt, metadata['expires-at']),
+    parentSessionId: firstString(metadata.parentSessionId, metadata['parent-session-id']),
+    runId: firstString(metadata.runId, metadata['run-id']),
     maxRuntimeMs: normalizeRuntime(metadata['max-runtime-ms'] ?? metadata.max_runtime_ms ?? metadata.maxRuntimeMs),
     maxToolCalls: normalizeToolCalls(metadata['max-tool-calls'] ?? metadata.max_tool_calls ?? metadata.maxToolCalls),
     enabledAsSubagent: enabledAsSubagent === undefined ? true : enabledAsSubagent,
     builtin: false,
-    source: options.source || 'file',
-    readonly: true,
+    source,
+    readonly: explicitReadonly === undefined ? true : explicitReadonly,
     filePath: file,
     relativePath: options.relativePath || path.basename(file),
     allowFileMutations: hasMutationTool(allowedTools),
-    createdAt: 'file',
+    createdAt: firstString(metadata.createdAt, metadata['created-at']) || 'file',
     updatedAt: 'file',
   }
 }

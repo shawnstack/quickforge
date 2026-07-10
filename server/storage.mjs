@@ -184,6 +184,9 @@ export const storageDir = path.join(dataDir, 'storage')
 export const cacheDir = path.join(dataDir, 'cache')
 export const logsDir = path.join(dataDir, 'logs')
 export const userCommandsDir = path.join(dataDir, 'commands')
+export const userAgentsDir = path.join(dataDir, 'agents')
+export const builtinAgentsDir = path.join(userAgentsDir, 'builtin')
+export const tempAgentsDir = path.join(cacheDir, 'global', 'tmp', 'agents')
 
 const quickForgeConfigFile = path.join(configDir, 'config.json')
 const configMigrationMarkerFile = path.join(configDir, '.layout-migrated')
@@ -878,6 +881,31 @@ export async function atomicProjectConfigUpdate(updateFn) {
   })
 }
 
+export async function cleanOldTempAgents(retentionMs = 7 * 24 * 60 * 60 * 1000) {
+  try {
+    await fs.mkdir(tempAgentsDir, { recursive: true })
+    const cutoff = Date.now() - retentionMs
+    const sessionDirs = await fs.readdir(tempAgentsDir, { withFileTypes: true }).catch(() => [])
+    for (const sessionDir of sessionDirs) {
+      if (!sessionDir.isDirectory()) continue
+      const sessionPath = path.join(tempAgentsDir, sessionDir.name)
+      const runDirs = await fs.readdir(sessionPath, { withFileTypes: true }).catch(() => [])
+      await Promise.all(runDirs.map(async (runDir) => {
+        if (!runDir.isDirectory()) return
+        const runPath = path.join(sessionPath, runDir.name)
+        try {
+          const stat = await fs.stat(runPath)
+          if (stat.mtimeMs < cutoff) await fs.rm(runPath, { recursive: true, force: true })
+        } catch { /* ignore cleanup errors */ }
+      }))
+      const remaining = await fs.readdir(sessionPath).catch(() => [])
+      if (remaining.length === 0) await fs.rm(sessionPath, { recursive: true, force: true }).catch(() => {})
+    }
+  } catch {
+    // ignore cleanup errors
+  }
+}
+
 // Cached storage-initialization promise.  ensureStorage() is idempotent (mkdir
 // recursive, one-shot migration gated by a marker file, ensureJsonFile), so once
 // it succeeds we can skip the redundant syscalls (~20 per call) every later call
@@ -894,6 +922,9 @@ export function ensureStorage() {
     await Promise.all([
       fs.mkdir(path.join(cacheDir, 'global', 'llm'), { recursive: true }),
       fs.mkdir(path.join(cacheDir, 'global', 'tmp'), { recursive: true }),
+      fs.mkdir(tempAgentsDir, { recursive: true }),
+      fs.mkdir(userAgentsDir, { recursive: true }),
+      fs.mkdir(builtinAgentsDir, { recursive: true }),
       fs.mkdir(path.join(cacheDir, 'projects'), { recursive: true }),
       fs.mkdir(path.join(storageDir, 'conversations', 'global', 'sessions'), { recursive: true }),
       fs.mkdir(path.join(storageDir, 'conversations', 'projects'), { recursive: true }),
@@ -901,6 +932,7 @@ export function ensureStorage() {
       // they share the same file-tool capabilities as project conversations.
       fs.mkdir(path.join(dataDir, 'workspace'), { recursive: true }),
       cleanOldLogs(),
+      cleanOldTempAgents(),
     ])
 
     await migrateUnifiedConfig()

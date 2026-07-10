@@ -36,6 +36,7 @@ export function upsertMessage(messages: AgentMessage[], message: AgentMessage): 
       next[index] = message
       return next
     }
+    return [...messages, message]
   }
 
   if (isRoleWithTimestampDedupe(message.role)) {

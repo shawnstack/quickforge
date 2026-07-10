@@ -11,7 +11,7 @@ export type AutoCompactSettings = {
 }
 
 export const DEFAULT_AUTO_COMPACT_SETTINGS: AutoCompactSettings = {
-  enabled: false,
+  enabled: true,
   thresholdPercent: 80,
   keepRecentTurns: 3,
   minSourceChars: 1600,
@@ -28,7 +28,7 @@ export function normalizeAutoCompactSettings(value: unknown): AutoCompactSetting
   if (!value || typeof value !== 'object') return { ...DEFAULT_AUTO_COMPACT_SETTINGS }
   const settings = value as Partial<AutoCompactSettings>
   return {
-    enabled: settings.enabled === true,
+    enabled: settings.enabled !== false,
     thresholdPercent: clampNumber(
       settings.thresholdPercent,
       DEFAULT_AUTO_COMPACT_SETTINGS.thresholdPercent,

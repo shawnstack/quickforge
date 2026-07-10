@@ -13,7 +13,19 @@ import { createScrollSync } from './scroll-sync'
 import { createCommandSuggestions } from './command-suggestions'
 import { createCapabilitySuggestions } from './capability-suggestions'
 import { createContextUsageIndicator, type ContextUsageDisplayInfo } from './context-usage'
-import { decorateMessages, decorateEditor, captureComposerDraft, readComposerDraft, restoreComposerDraft, injectApprovalCard, removeApprovalCard, syncAssistantWaitingBubble, syncContextCompactionNotice } from './panel-decoration'
+import {
+  decorateMessages,
+  decorateEditor,
+  captureComposerDraft,
+  readComposerDraft,
+  restoreComposerDraft,
+  scheduleComposerDraftRestore,
+  injectApprovalCard,
+  removeApprovalCard,
+  syncAssistantWaitingBubble,
+  syncContextCompactionNotice,
+  type ComposerDraftRestoreHandle,
+} from './panel-decoration'
 import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
 import { extractSessionArtifacts, type AiTurnArtifact } from '@/lib/tool-artifacts'
@@ -96,6 +108,7 @@ type ChatPanelHostProps = {
   onArtifactsChange?: (artifacts: AiTurnArtifact[]) => void
   onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
   restoredDraft?: RestoredDraft
+  onRestoredDraftConsumed?: (id: number) => void
   disableFork?: boolean
   readOnly?: boolean
   bypassClientApiKeyCheck?: boolean
@@ -162,6 +175,7 @@ export function ChatPanelHost({
   onArtifactsChange,
   onContextUsageDisplayChange,
   restoredDraft,
+  onRestoredDraftConsumed,
   disableFork = false,
   readOnly = false,
   bypassClientApiKeyCheck = false,
@@ -178,6 +192,9 @@ export function ChatPanelHost({
   const lastAppliedRestoredDraftRef = useRef<{ id: number; text: string } | undefined>(undefined)
   const consumedRestoredDraftIdsRef = useRef<Set<number>>(new Set())
   const saveDraftTimerRef = useRef<number | undefined>(undefined)
+  const restoredDraftRestoreRef = useRef<ComposerDraftRestoreHandle | null>(null)
+  const applyingRestoredDraftRef = useRef(false)
+  const readyComposerPanelsRef = useRef<WeakSet<HTMLElement>>(new WeakSet())
   const artifactsSignatureRef = useRef('')
   const artifactsInputKeyRef = useRef('')
   const draftRestoreGuardRef = useRef(createComposerDraftRestoreGuard())
@@ -202,6 +219,17 @@ export function ChatPanelHost({
     saveDraftTimerRef.current = undefined
   }, [])
 
+  const cancelRestoredDraftRestore = useCallback(() => {
+    restoredDraftRestoreRef.current?.cancel()
+    restoredDraftRestoreRef.current = null
+    applyingRestoredDraftRef.current = false
+  }, [])
+
+  const consumeRestoredDraft = useCallback((draftId: number) => {
+    consumedRestoredDraftIdsRef.current.add(draftId)
+    onRestoredDraftConsumed?.(draftId)
+  }, [onRestoredDraftConsumed])
+
   const draftContext: ComposerDraftContext = useMemo(() => ({
     sessionId: agent?.sessionId,
     scope: chatScope,
@@ -219,8 +247,9 @@ export function ChatPanelHost({
   useEffect(() => {
     return () => {
       cancelPendingDraftSave()
+      cancelRestoredDraftRestore()
     }
-  }, [cancelPendingDraftSave])
+  }, [cancelPendingDraftSave, cancelRestoredDraftRestore])
 
   const persistDraft = useCallback((key: string, draft: ComposerDraft, context: ComposerDraftContext) => {
     if (draft.text.length === 0) {
@@ -372,38 +401,43 @@ export function ChatPanelHost({
     return () => { disposed = true }
   }, [project?.id, revision])
 
-  const restoreDraftForSession = (panel: HTMLElement, draft: RestoredDraft, sessionId: string, key: string, force = false) => {
+  const restoreDraftForSession = useCallback((panel: HTMLElement, draft: RestoredDraft, sessionId: string, key: string) => {
     if (draft.sessionId && draft.sessionId !== sessionId) return
     if (!hasDraft(draft)) return
-    if (!force && consumedRestoredDraftIdsRef.current.has(draft.id)) return
+    if (consumedRestoredDraftIdsRef.current.has(draft.id)) return
 
-    const apply = () => {
-      if (!force && consumedRestoredDraftIdsRef.current.has(draft.id)) return
-      const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
-      const currentDraft = editor
-        ? {
-            text: editor.value ?? editor.querySelector<HTMLTextAreaElement>('textarea')?.value ?? '',
-            attachments: editor.attachments ? [...editor.attachments] : [],
-          }
-        : composerDraftsRef.current.get(key)
-      const lastApplied = lastAppliedRestoredDraftRef.current
-      const isFirstApplyForDraft = lastApplied?.id !== draft.id
-      const canApply = isFirstApplyForDraft || !hasDraft(currentDraft ?? emptyDraft()) || currentDraft?.text === lastApplied.text
-      if (!canApply) return
+    const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
+    const currentDraft = editor
+      ? {
+          text: editor.value ?? editor.querySelector<HTMLTextAreaElement>('textarea')?.value ?? '',
+          attachments: editor.attachments ? [...editor.attachments] : [],
+        }
+      : composerDraftsRef.current.get(key)
+    const lastApplied = lastAppliedRestoredDraftRef.current
+    const isFirstApplyForDraft = lastApplied?.id !== draft.id
+    const canApply = isFirstApplyForDraft || !hasDraft(currentDraft ?? emptyDraft()) || currentDraft?.text === lastApplied.text
+    if (!canApply) return
 
-      restoreComposerDraft(panel, draft, composerDraftsRef.current, key)
-      lastAppliedRestoredDraftRef.current = { id: draft.id, text: draft.text }
-    }
-
-    apply()
-    window.requestAnimationFrame(apply)
-    for (const delay of [0, 50, 150, 300, 600]) {
-      window.setTimeout(apply, delay)
-    }
-
+    draftRestoreGuardRef.current.invalidate()
+    cancelRestoredDraftRestore()
     const agentInterface = panel.querySelector<HTMLElement & { updateComplete?: Promise<unknown> }>('agent-interface')
-    void agentInterface?.updateComplete?.then(apply)
-  }
+    restoredDraftRestoreRef.current = scheduleComposerDraftRestore(panel, draft, composerDraftsRef.current, key, {
+      shouldApply: () => (
+        !consumedRestoredDraftIdsRef.current.has(draft.id)
+        && panel.isConnected
+        && Boolean(hostRef.current?.contains(panel))
+      ),
+      onApplyStart: () => { applyingRestoredDraftRef.current = true },
+      onApplyEnd: () => { applyingRestoredDraftRef.current = false },
+      onApplied: () => {
+        readyComposerPanelsRef.current.add(panel)
+        restoredDraftIdRef.current = draft.id
+        lastAppliedRestoredDraftRef.current = { id: draft.id, text: draft.text }
+        consumeRestoredDraft(draft.id)
+      },
+      updateComplete: agentInterface?.updateComplete,
+    })
+  }, [cancelRestoredDraftRestore, consumeRestoredDraft])
 
   // =========================================================================
   // Main effect: create the ChatPanel and wire up all subsystems.
@@ -413,6 +447,8 @@ export function ChatPanelHost({
   useEffect(() => {
     if (!hostRef.current || !agent) return
 
+    const draftRestoreGuard = draftRestoreGuardRef.current
+    const readyComposerPanels = readyComposerPanelsRef.current
     const panel = new ChatPanel()
     setPlanMode(false)
     const sessionId = agent.sessionId
@@ -421,6 +457,8 @@ export function ChatPanelHost({
     let disposed = false
     let observer: MutationObserver | undefined
     let composerClearedForSend = false
+    let initialComposerStateReady = false
+    let composerInteracted = false
     let assistantWaitingActive = agent.state.isStreaming
     let toolUpdateScheduled = false
 
@@ -467,7 +505,18 @@ export function ChatPanelHost({
     })
 
     // --- Composer input/file-change handlers (update draft map) ---
+    const handleComposerInteraction = () => {
+      if (applyingRestoredDraftRef.current) return
+      composerInteracted = true
+      draftRestoreGuard.invalidate()
+      cancelRestoredDraftRestore()
+      const draft = restoredDraftRef.current
+      if (draft && (!draft.sessionId || draft.sessionId === sessionId)) {
+        consumeRestoredDraft(draft.id)
+      }
+    }
     const handleEditorInput = (value: string) => {
+      handleComposerInteraction()
       composerClearedForSend = false
       const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
       const attachments = editor?.attachments ? [...editor.attachments] : []
@@ -480,6 +529,7 @@ export function ChatPanelHost({
       schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
     }
     const handleEditorFilesChange = (files: unknown[]) => {
+      handleComposerInteraction()
       composerClearedForSend = false
       const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
       const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
@@ -697,9 +747,12 @@ export function ChatPanelHost({
         ? async () => true
         : (provider: string) => ApiKeyPromptDialog.prompt(provider),
       onBeforeSend: () => {
-        draftRestoreGuardRef.current.invalidate()
+        draftRestoreGuard.invalidate()
+        cancelRestoredDraftRestore()
         const draft = restoredDraftRef.current
-        if (draft) consumedRestoredDraftIdsRef.current.add(draft.id)
+        if (draft && (!draft.sessionId || draft.sessionId === sessionId)) {
+          consumeRestoredDraft(draft.id)
+        }
         cancelPendingDraftSave()
         composerClearedForSend = true
         cmdSuggestions.remove()
@@ -714,14 +767,31 @@ export function ChatPanelHost({
 
       // Restore draft
       const draft = restoredDraftRef.current
-      const restoreVersion = draftRestoreGuardRef.current.version()
+      const restoreVersion = draftRestoreGuard.version()
       const restoreStoredDraft = (storedDraft?: ComposerDraft) => {
-        if (disposed || !draftRestoreGuardRef.current.isCurrent(restoreVersion)) return
+        if (disposed || !draftRestoreGuard.isCurrent(restoreVersion)) return
         if (draft && restoredDraftIdRef.current !== draft.id) {
-          restoredDraftIdRef.current = draft.id
           restoreDraftForSession(panel, draft, sessionId, currentDraftKey)
         } else {
-          restoreComposerDraft(panel, storedDraft ?? composerDraftsRef.current.get(currentDraftKey) ?? emptyDraft(), composerDraftsRef.current, currentDraftKey)
+          const draftToRestore = storedDraft ?? composerDraftsRef.current.get(currentDraftKey) ?? emptyDraft()
+          if (!hasDraft(draftToRestore)) initialComposerStateReady = true
+          cancelRestoredDraftRestore()
+          const agentInterface = panel.querySelector<HTMLElement & { updateComplete?: Promise<unknown> }>('agent-interface')
+          restoredDraftRestoreRef.current = scheduleComposerDraftRestore(panel, draftToRestore, composerDraftsRef.current, currentDraftKey, {
+            shouldApply: () => (
+              !disposed
+              && draftRestoreGuard.isCurrent(restoreVersion)
+              && panel.isConnected
+              && Boolean(hostRef.current?.contains(panel))
+            ),
+            onApplyStart: () => { applyingRestoredDraftRef.current = true },
+            onApplyEnd: () => { applyingRestoredDraftRef.current = false },
+            onApplied: () => {
+              initialComposerStateReady = true
+              readyComposerPanelsRef.current.add(panel)
+            },
+            updateComplete: agentInterface?.updateComplete,
+          })
         }
       }
       if (draft && restoredDraftIdRef.current !== draft.id) {
@@ -844,11 +914,14 @@ export function ChatPanelHost({
     })
 
     return () => {
+      disposed = true
+      draftRestoreGuard.invalidate()
+      cancelRestoredDraftRestore()
+      cancelPendingDraftSave()
       if (composerClearedForSend) {
-        cancelPendingDraftSave()
         composerDraftsRef.current.delete(currentDraftKey)
         void clearComposerDraft(currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
-      } else {
+      } else if (initialComposerStateReady || composerInteracted || readyComposerPanels.has(panel)) {
         captureComposerDraft(panel, composerDraftsRef.current, currentDraftKey)
         persistCurrentComposerDraft(panel, currentDraftKey, currentDraftContext)
       }
@@ -856,7 +929,6 @@ export function ChatPanelHost({
       cmdSuggestions.cleanupTextareaHandler()
       capabilitySuggestions.remove()
       capabilitySuggestions.cleanupTextareaHandler()
-      disposed = true
       scrollSync.cleanup()
       scrollSyncRef.current = null
       unsubscribeScrollEvents()
@@ -870,7 +942,7 @@ export function ChatPanelHost({
       decorateFnRef.current = null
       panel.remove()
     }
-  }, [agent, cancelPendingDraftSave, persistCurrentComposerDraft, schedulePersistDraft]) // ← ONLY agent triggers panel recreation; callback deps are stable
+  }, [agent, cancelPendingDraftSave, cancelRestoredDraftRestore, consumeRestoredDraft, persistCurrentComposerDraft, restoreDraftForSession, schedulePersistDraft]) // ← ONLY agent triggers panel recreation; callback deps are stable
 
   useEffect(() => {
     const host = hostRef.current
@@ -898,11 +970,11 @@ export function ChatPanelHost({
     if (!draft || !hostRef.current) return
     const sessionId = (agent as ServerAgent | SharedServerAgent | null)?.sessionId ?? ''
     if (draft.sessionId && draft.sessionId !== sessionId) return
+    if (consumedRestoredDraftIdsRef.current.has(draft.id)) return
     const panel = hostRef.current.querySelector('pi-chat-panel')
     if (!panel) return
-    restoredDraftIdRef.current = draft.id
-    restoreDraftForSession(panel as HTMLElement, draft, sessionId, draftKeyRef.current, true)
-  }, [restoredDraft, agent])
+    restoreDraftForSession(panel as HTMLElement, draft, sessionId, draftKeyRef.current)
+  }, [restoredDraft, agent, restoreDraftForSession])
 
   return <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden" />
 }

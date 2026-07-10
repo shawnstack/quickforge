@@ -174,6 +174,10 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
     }
   }, [agent, shareId])
 
+  const consumeRestoredDraft = useCallback((id: number) => {
+    setRestoredDraft((current) => current?.id === id ? undefined : current)
+  }, [])
+
   const rollback = useCallback(async (messageIndex: number) => {
     if (!agent || agent.permission !== 'operate') return
     setError(undefined)
@@ -275,6 +279,7 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
         rollbackConfirmDescription={t('sharedRollbackConfirm')}
         readOnly={!operate}
         restoredDraft={restoredDraft}
+        onRestoredDraftConsumed={consumeRestoredDraft}
         bypassClientApiKeyCheck
       />
     </div>

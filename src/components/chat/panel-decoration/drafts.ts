@@ -1,5 +1,4 @@
 import type {
-  AgentInterfaceElement,
   MessageEditorElement,
   ComposerDraft,
 } from '../chat-utils'
@@ -27,34 +26,97 @@ export function restoreComposerDraft(
   draft: ComposerDraft,
   drafts: Map<string, ComposerDraft>,
   sessionId: string,
-) {
-  if (!hasDraft(draft)) return
+): boolean {
+  if (!hasDraft(draft)) return false
   const normalizedDraft = {
     text: draft.text,
     attachments: draft.attachments ? [...draft.attachments] : [],
   }
+  const editor = panel.querySelector<MessageEditorElement>('message-editor')
+  const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
+  if (!editor && !textarea) return false
 
-  const applyToEditor = () => {
-    const editor = panel.querySelector<MessageEditorElement>('message-editor')
-    const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
-    if (editor) {
-      editor.value = normalizedDraft.text
-      editor.attachments = normalizedDraft.attachments
-      ;(editor as MessageEditorElement & { requestUpdate?: () => void }).requestUpdate?.()
-      editor.onInput?.(normalizedDraft.text)
-      editor.onFilesChange?.(normalizedDraft.attachments)
+  if (editor) {
+    editor.value = normalizedDraft.text
+    editor.attachments = normalizedDraft.attachments
+    ;(editor as MessageEditorElement & { requestUpdate?: () => void }).requestUpdate?.()
+    editor.onInput?.(normalizedDraft.text)
+    editor.onFilesChange?.(normalizedDraft.attachments)
+  }
+  if (textarea) {
+    textarea.value = normalizedDraft.text
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    textarea.focus()
+  }
+  drafts.set(sessionId, normalizedDraft)
+  return true
+}
+
+type ComposerDraftRestoreOptions = {
+  shouldApply?: () => boolean
+  onApplyStart?: () => void
+  onApplyEnd?: () => void
+  onApplied?: () => void
+  updateComplete?: Promise<unknown>
+}
+
+export type ComposerDraftRestoreHandle = {
+  cancel: () => void
+}
+
+export function scheduleComposerDraftRestore(
+  panel: HTMLElement,
+  draft: ComposerDraft,
+  drafts: Map<string, ComposerDraft>,
+  sessionId: string,
+  options: ComposerDraftRestoreOptions = {},
+): ComposerDraftRestoreHandle {
+  let active = true
+  let animationFrame: number | undefined
+  const timers = new Set<number>()
+
+  const clearScheduled = () => {
+    if (animationFrame !== undefined) {
+      window.cancelAnimationFrame(animationFrame)
+      animationFrame = undefined
     }
-    if (textarea) {
-      textarea.value = normalizedDraft.text
-      textarea.dispatchEvent(new Event('input', { bubbles: true }))
-      textarea.focus()
+    for (const timer of timers) window.clearTimeout(timer)
+    timers.clear()
+  }
+  const cancel = () => {
+    if (!active) return
+    active = false
+    clearScheduled()
+  }
+  const apply = () => {
+    if (!active) return
+    if (options.shouldApply && !options.shouldApply()) {
+      cancel()
+      return
+    }
+
+    options.onApplyStart?.()
+    try {
+      if (!restoreComposerDraft(panel, draft, drafts, sessionId)) return
+      options.onApplied?.()
+      cancel()
+    } finally {
+      options.onApplyEnd?.()
     }
   }
 
-  const agentInterface = panel.querySelector<AgentInterfaceElement>('agent-interface')
-  agentInterface?.setInput?.(normalizedDraft.text, normalizedDraft.attachments)
-  applyToEditor()
-  requestAnimationFrame(applyToEditor)
-  window.setTimeout(applyToEditor, 0)
-  drafts.set(sessionId, normalizedDraft)
+  apply()
+  if (active) {
+    animationFrame = window.requestAnimationFrame(apply)
+    for (const delay of [0, 50, 150, 300, 600]) {
+      const timer = window.setTimeout(() => {
+        timers.delete(timer)
+        apply()
+      }, delay)
+      timers.add(timer)
+    }
+    void options.updateComplete?.then(apply)
+  }
+
+  return { cancel }
 }

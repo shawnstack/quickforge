@@ -51,6 +51,14 @@ function createStorage(initial: Record<string, unknown> = {}) {
 describe('settings normalizers', () => {
   it('normalizes auto compact settings with defaults, clamps, and booleans', () => {
     expect(normalizeAutoCompactSettings(null)).toEqual(DEFAULT_AUTO_COMPACT_SETTINGS)
+    expect(normalizeAutoCompactSettings({})).toMatchObject({
+      enabled: true,
+      requireConfirmation: true,
+    })
+    expect(normalizeAutoCompactSettings({ enabled: false, requireConfirmation: false })).toMatchObject({
+      enabled: false,
+      requireConfirmation: false,
+    })
     expect(normalizeAutoCompactSettings({
       enabled: true,
       thresholdPercent: 99.7,

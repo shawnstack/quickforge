@@ -106,6 +106,18 @@ function toolMessageStartedAt(toolMessage: ToolMessageElement): number | undefin
   return toolTimingFromResult(toolMessage.result)?.startedAt
 }
 
+function messageProcessFinishedAt(message: MessageWithUsage) {
+  if (!isRecord(message.details)) return undefined
+  return timestampFromUnknown(message.details.quickforgeProcessFinishedAt)
+}
+
+export function processFinishedAtFromMessages(messages: MessageWithUsage[]) {
+  const finishedTimes = messages
+    .map(messageProcessFinishedAt)
+    .filter((value): value is number => value !== undefined)
+  return finishedTimes.length > 0 ? Math.max(...finishedTimes) : undefined
+}
+
 function formatProcessDuration(durationMs?: number) {
   if (durationMs === undefined || durationMs < 1000) return ''
   const totalSeconds = Math.max(1, Math.round(durationMs / 1000))
@@ -122,7 +134,10 @@ function processLabel(assistants: AssistantMessageElement[], body: HTMLElement, 
     ...assistants.map((assistant) => timestampFromUnknown(assistant.message?.timestamp)),
     ...toolMessages.map(toolMessageStartedAt),
   ].filter((value): value is number => value !== undefined)
-  const finishedTimes = toolMessages.map(toolMessageFinishedAt).filter((value): value is number => value !== undefined)
+  const finishedTimes = [
+    processFinishedAtFromMessages(assistants.map((assistant) => assistant.message ?? {})),
+    ...toolMessages.map(toolMessageFinishedAt),
+  ].filter((value): value is number => value !== undefined)
   const startedAt = starts.length > 0 ? Math.min(...starts) : undefined
   let finishedAt = finishedTimes.length > 0 ? Math.max(...finishedTimes) : undefined
 

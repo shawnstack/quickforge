@@ -72,7 +72,7 @@ Agent 会话管理核心路由。
 - `POST /api/project/open-path` — 在系统资源管理器中打开任意目录（相对路径基于活动项目根解析）
 - `POST /api/project/command` — 在活动项目的 `.ai/commands/` 下新建命令文件（带 frontmatter 模板，`flag:'wx'` 防覆盖）
 - `PUT /api/project/reorder` — 按顺序重排项目列表
-- `DELETE /api/project/:projectId` — 删除项目
+- `DELETE /api/project/:projectId` — 删除项目；删除当前项目时活动项目切换到剩余列表中的后继项目，没有剩余项目时前端使用合成的默认 workspace；删除最后一个项目时后端 `workspaceRoot` 回退到默认工作区。
 
 ## filesystem.mjs (87 行)
 

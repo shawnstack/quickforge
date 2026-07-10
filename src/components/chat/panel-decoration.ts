@@ -19,7 +19,13 @@ import { decorateModelButtonLabel } from './panel-decoration/model-controls'
 import { setupPlanModeControls, syncPlanModeButton } from './panel-decoration/plan-mode-controls'
 import { syncSendStopButton } from './panel-decoration/send-stop-button'
 import { bindEditorCallbacks } from './panel-decoration/editor-bindings'
-export { readComposerDraft, captureComposerDraft, restoreComposerDraft } from './panel-decoration/drafts'
+export {
+  readComposerDraft,
+  captureComposerDraft,
+  restoreComposerDraft,
+  scheduleComposerDraftRestore,
+} from './panel-decoration/drafts'
+export type { ComposerDraftRestoreHandle } from './panel-decoration/drafts'
 export type { ApprovalCardDeps, ToolApprovalSource } from './panel-decoration/approval-card'
 export { injectApprovalCard, removeApprovalCard } from './panel-decoration/approval-card'
 export { syncContextCompactionNotice } from './panel-decoration/context-compaction'

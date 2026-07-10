@@ -61,6 +61,8 @@ import { useUIState } from '@/hooks/useUIState'
 import { useVisibleRuntimeStatuses } from '@/hooks/useVisibleRuntimeStatuses'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { logger } from '@/lib/logger'
+import { getDeletedProjectRecoveryDecision } from '@/lib/deleted-project-recovery'
+import { isCurrentProjectRequest } from '@/lib/project-request-guard'
 import { showAlert, showConfirm } from '@/components/ui/confirm-dialog'
 import { ToastContainer } from '@/components/ui/toast'
 import { GitBranchMenu } from '@/components/git/GitBranchMenu'
@@ -68,8 +70,8 @@ import { GitCommitPushDialog } from '@/components/git/GitCommitPushDialog'
 import { GitToolsPinnedSummary } from '@/components/git/GitToolsPinnedSummary'
 import { GitGraphDialog } from '@/components/git/GitGraphDialog'
 import { ShareConversationDialog } from '@/components/share/ShareConversationDialog'
-import { checkoutGitBranch, getGitStatus, getWorkspaceFile, resolveWorkspacePath } from '@/components/workspace/workspace-api'
-import type { GitStatusResponse } from '@/components/workspace/workspace-types'
+import { checkoutGitBranch, getGitStatus, resolveWorkspacePath } from '@/components/workspace/workspace-api'
+import type { GitStatusResponse, WorkspaceInspectorOpenRequestInput } from '@/components/workspace/workspace-types'
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
@@ -89,9 +91,6 @@ const WorkspaceInspector = lazy(() =>
 )
 const TerminalDock = lazy(() =>
   import('@/components/terminal/TerminalDock').then((m) => ({ default: m.TerminalDock })),
-)
-const WorkspaceReaderDialog = lazy(() =>
-  import('@/components/workspace/WorkspaceReaderDialog').then((m) => ({ default: m.WorkspaceReaderDialog })),
 )
 const SettingsWorkspacePage = lazy(() =>
   import('@/components/settings/SettingsWorkspacePage').then((m) => ({ default: m.SettingsWorkspacePage })),
@@ -274,7 +273,7 @@ function MainApp() {
   const {
     setArtifactPreviewOpen,
     setWorkspaceInspectorOpen,
-    setWorkspacePanelView,
+    setWorkspaceInspectorRequest,
   } = ui
 
   // --- UI state shared with other hooks ---
@@ -283,18 +282,27 @@ function MainApp() {
   const [desktopTitlebarMenuOpen, setDesktopTitlebarMenuOpen] = useState(false)
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState<PendingTerminalCommand | null>(null)
   const [terminalDockOpen, setTerminalDockOpen] = useState(false)
-  const [currentSessionArtifacts, setCurrentSessionArtifacts] = useState<AiTurnArtifact[]>([])
+  const [currentSessionArtifactsState, setCurrentSessionArtifactsState] = useState<{
+    projectId?: string
+    sessionId?: string
+    artifacts: AiTurnArtifact[]
+  }>({ artifacts: [] })
   const [sidebarSessionViewMode, setSidebarSessionViewMode] = useState<SidebarSessionViewMode>('project')
   const [sidebarSessionSortMode, setSidebarSessionSortMode] = useState<SidebarSessionSortMode>('updatedAt')
   const autoPreviewSignatureRef = useRef('')
   const [currentSessionHoverInfo, setCurrentSessionHoverInfo] = useState<(ContextUsageDisplayInfo & { sessionId?: string }) | undefined>()
   const [titleGitStatus, setTitleGitStatus] = useState<GitStatusResponse | undefined>()
+  const titleGitRequestIdRef = useRef(0)
+  const currentToolProjectIdRef = useRef<string | undefined>(undefined)
   const [branchMenuOpen, setBranchMenuOpen] = useState(false)
   const [gitToolsExpanded, setGitToolsExpanded] = useState(false)
   const [gitCommitDialogOpen, setGitCommitDialogOpen] = useState(false)
   const [gitGraphOpen, setGitGraphOpen] = useState(false)
   const [externalProjectIds, setExternalProjectIds] = useState<Set<string>>(() => new Set())
   const terminalCommandIdRef = useRef(0)
+  const workspaceInspectorRequestIdRef = useRef(0)
+  const chatFileRequestIdRef = useRef(0)
+  const recoveringDeletedToolProjectIdRef = useRef<string | undefined>(undefined)
   const [storage, setStorage] = useState<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
   const [startupSplashDone, setStartupSplashDone] = useState(false)
   const [startupSplashExited, setStartupSplashExited] = useState(false)
@@ -408,6 +416,12 @@ function MainApp() {
     currentChatScopeRef,
   } = agentManager
 
+  useEffect(() => {
+    currentToolProjectIdRef.current = agentManager.currentToolProject?.id
+    titleGitRequestIdRef.current += 1
+    chatFileRequestIdRef.current += 1
+  }, [agentManager.currentToolProject?.id])
+
   const handleToastClick = useCallback(
     (sessionId: string) => {
       if (!sessionId) return
@@ -425,6 +439,10 @@ function MainApp() {
     return () => window.removeEventListener('quickforge:open-session-from-settings', handler)
   }, [handleToastClick])
 
+  const consumeRestoredDraft = useCallback((id: number) => {
+    setRestoredDraft((current) => current?.id === id ? undefined : current)
+  }, [])
+
   const restoreWorkspaceDraft = useCallback((text: string) => {
     if (!text.trim()) return
     setRestoredDraft({
@@ -434,25 +452,38 @@ function MainApp() {
     })
   }, [agentRef])
 
+  const requestWorkspaceInspector = useCallback((request: WorkspaceInspectorOpenRequestInput) => {
+    workspaceInspectorRequestIdRef.current += 1
+    setWorkspaceInspectorRequest({ ...request, id: workspaceInspectorRequestIdRef.current })
+    setWorkspaceInspectorOpen(true)
+  }, [setWorkspaceInspectorOpen, setWorkspaceInspectorRequest])
+
+  const handleWorkspaceInspectorRequest = useCallback((id: number) => {
+    setWorkspaceInspectorRequest((current) => current?.id === id ? undefined : current)
+  }, [setWorkspaceInspectorRequest])
+
   const openWorkspaceGitChanges = useCallback(() => {
-    if (!agentManager.currentToolProject?.id) return
+    const projectId = agentManager.currentToolProject?.id
+    if (!projectId) return
     setArtifactPreviewOpen(false)
-    ui.setWorkspaceInspectorFocusTarget(undefined)
-    setWorkspacePanelView('changes')
-    ui.setWorkspaceInspectorOpen(true)
-  }, [agentManager.currentToolProject?.id, setArtifactPreviewOpen, setWorkspacePanelView, ui])
+    requestWorkspaceInspector({ projectId, kind: 'review', view: 'changes' })
+  }, [agentManager.currentToolProject?.id, requestWorkspaceInspector, setArtifactPreviewOpen])
 
   const refreshTitleGitStatus = useCallback(async () => {
     const projectId = agentManager.currentToolProject?.id
+    const requestId = titleGitRequestIdRef.current + 1
+    titleGitRequestIdRef.current = requestId
     if (!projectId) {
       setTitleGitStatus(undefined)
       return undefined
     }
     try {
       const status = await getGitStatus(projectId)
+      if (!isCurrentProjectRequest({ projectId, requestId }, currentToolProjectIdRef.current, titleGitRequestIdRef.current)) return undefined
       setTitleGitStatus(status)
       return status
     } catch (error) {
+      if (!isCurrentProjectRequest({ projectId, requestId }, currentToolProjectIdRef.current, titleGitRequestIdRef.current)) return undefined
       logger.warn('Failed to refresh title git status:', error)
       setTitleGitStatus(undefined)
       return undefined
@@ -467,8 +498,11 @@ function MainApp() {
   const handleCheckoutTitleBranch = useCallback(async (branch: string) => {
     const projectId = agentManager.currentToolProject?.id
     if (!projectId) return
+    const requestId = titleGitRequestIdRef.current + 1
+    titleGitRequestIdRef.current = requestId
     try {
       const status = await checkoutGitBranch(projectId, branch)
+      if (!isCurrentProjectRequest({ projectId, requestId }, currentToolProjectIdRef.current, titleGitRequestIdRef.current)) return
       setTitleGitStatus(status)
       setBranchMenuOpen(false)
       addToast({
@@ -478,6 +512,7 @@ function MainApp() {
         message: branch,
       })
     } catch (error) {
+      if (!isCurrentProjectRequest({ projectId, requestId }, currentToolProjectIdRef.current, titleGitRequestIdRef.current)) return
       logger.error('Failed to checkout git branch:', error)
       void showAlert(error instanceof Error ? error.message : t('gitCheckoutFailed'))
       throw error
@@ -511,40 +546,37 @@ function MainApp() {
       addToast({ sessionId: agentManager.currentSessionId ?? '', title: '无法打开文件', status: 'error', message: '当前对话没有关联项目。' })
       return
     }
-
-    ui.setInlineReaderOpen(true)
-    ui.setInlineReaderLoading(true)
-    ui.setInlineReaderError(undefined)
-    ui.setInlineReaderFile(undefined)
+    const requestId = chatFileRequestIdRef.current + 1
+    chatFileRequestIdRef.current = requestId
 
     try {
       const resolved = await resolveWorkspacePath(projectId, filePath)
-      const file = await getWorkspaceFile(projectId, resolved.relativePath)
-      ui.setInlineReaderFile(file)
+      if (!isCurrentProjectRequest({ projectId, requestId }, currentToolProjectIdRef.current, chatFileRequestIdRef.current)) return
+      requestWorkspaceInspector({ projectId, kind: 'reader', path: resolved.relativePath })
     } catch (error) {
+      if (!isCurrentProjectRequest({ projectId, requestId }, currentToolProjectIdRef.current, chatFileRequestIdRef.current)) return
       const message = error instanceof Error ? error.message : '打开文件失败'
-      ui.setInlineReaderError(message)
       addToast({ sessionId: agentManager.currentSessionId ?? '', title: '无法打开文件', status: 'error', message })
-    } finally {
-      ui.setInlineReaderLoading(false)
     }
-  }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id, ui])
+  }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id, requestWorkspaceInspector])
 
-  const openArtifactPreview = useCallback((path: string) => {
+  const openArtifactPreview = useCallback((projectId: string, path: string) => {
     const project = agentManager.currentToolProject
-    const projectId = project?.id
-    if (!projectId || !isBrowserPreviewablePath(path)) return
+    if (!project || project.id !== projectId || !isBrowserPreviewablePath(path)) return
     setArtifactPreviewOpen(false)
-    ui.setWebPreviewUrl(workspaceArtifactDiskPath(project.path, path))
-    setWorkspacePanelView('browser')
-    setWorkspaceInspectorOpen(true)
-  }, [agentManager.currentToolProject, setArtifactPreviewOpen, setWorkspaceInspectorOpen, setWorkspacePanelView, ui])
+    requestWorkspaceInspector({
+      projectId,
+      kind: 'browser',
+      url: workspaceArtifactDiskPath(project.path, path),
+    })
+  }, [agentManager.currentToolProject, requestWorkspaceInspector, setArtifactPreviewOpen])
 
   useEffect(() => {
     const project = agentManager.currentToolProject
     const projectId = project?.id
-    if (!projectId) return
-    const artifact = findBestPreviewableArtifact(currentSessionArtifacts)
+    if (!projectId || currentSessionArtifactsState.projectId !== projectId) return
+    if (currentSessionArtifactsState.sessionId !== agentManager.currentSessionId) return
+    const artifact = findBestPreviewableArtifact(currentSessionArtifactsState.artifacts)
     if (!artifact?.path) return
     // 签名纳入最新 toolCallId：同一次 present_files 的重复更新（同 toolCallId）被去重，
     // 并写入 sessionStorage，避免刷新浏览器后把历史 present_files 再自动弹一次。
@@ -564,21 +596,23 @@ function MainApp() {
         // markdown/code 走侧栏 reader 渲染（openFileTab）：
         // markdown → MarkdownReader 富文本；code → MonacoCodeViewer 语法高亮。
         // 不走 browser iframe：iframe 加载这些类型只会显示源码或触发下载。
-        setWorkspacePanelView('files')
-        ui.setWorkspaceInspectorFocusTarget({ tab: 'files', filePath: artifact.path, nonce: Date.now() })
+        requestWorkspaceInspector({ projectId, kind: 'reader', path: artifact.path })
       } else {
         // html/image 走 browser iframe：html 渲染交互页，image（含 svg/png/jpg…）直接显示。
-        ui.setWebPreviewUrl(workspaceArtifactDiskPath(project.path, artifact.path))
-        setWorkspacePanelView('browser')
+        requestWorkspaceInspector({
+          projectId,
+          kind: 'browser',
+          url: workspaceArtifactDiskPath(project.path, artifact.path),
+        })
       }
-      setWorkspaceInspectorOpen(true)
     })
-  }, [agentManager.currentToolProject, currentSessionArtifacts, setArtifactPreviewOpen, setWorkspaceInspectorOpen, setWorkspacePanelView, ui])
+  }, [agentManager.currentSessionId, agentManager.currentToolProject, currentSessionArtifactsState, requestWorkspaceInspector, setArtifactPreviewOpen])
 
   useEffect(() => {
     autoPreviewSignatureRef.current = ''
     setArtifactPreviewOpen(false)
-  }, [agentManager.currentToolProject?.id, setArtifactPreviewOpen])
+    setWorkspaceInspectorRequest(undefined)
+  }, [agentManager.currentToolProject?.id, setArtifactPreviewOpen, setWorkspaceInspectorRequest])
 
   // 监听工具卡片预览按钮的桥接事件（事件名与 local-tools.ts 的 PREVIEW_ARTIFACT_EVENT 对应），
   // 转调 openArtifactPreview，复用与自动预览完全一致的逻辑。
@@ -586,11 +620,12 @@ function MainApp() {
     if (!openArtifactPreview) return
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ path?: string }>).detail
-      if (detail && typeof detail.path === 'string') openArtifactPreview(detail.path)
+      const projectId = agentManager.currentToolProject?.id
+      if (projectId && detail && typeof detail.path === 'string') openArtifactPreview(projectId, detail.path)
     }
     window.addEventListener('quickforge:preview-artifact', handler as EventListener)
     return () => window.removeEventListener('quickforge:preview-artifact', handler as EventListener)
-  }, [openArtifactPreview])
+  }, [agentManager.currentToolProject?.id, openArtifactPreview])
 
   useEffect(() => {
     const unsubscribe = subscribeToAgentEvents((event) => {
@@ -748,6 +783,39 @@ function MainApp() {
     setExpandedProjectIds,
     setChatPanelRevision,
   })
+
+  useEffect(() => {
+    const recovery = getDeletedProjectRecoveryDecision({
+      ready,
+      currentToolProjectId: agentManager.currentToolProject?.id,
+      projects,
+      activeProject,
+      recoveringProjectId: recoveringDeletedToolProjectIdRef.current,
+    })
+    if (recovery.type === 'none') {
+      const toolProjectId = agentManager.currentToolProject?.id
+      if (recoveringDeletedToolProjectIdRef.current && recoveringDeletedToolProjectIdRef.current !== toolProjectId) {
+        recoveringDeletedToolProjectIdRef.current = undefined
+      }
+      return
+    }
+    recoveringDeletedToolProjectIdRef.current = recovery.deletedProjectId
+
+    setCurrentSessionArtifactsState({ artifacts: [] })
+    setWorkspaceInspectorRequest(undefined)
+    setArtifactPreviewOpen(false)
+    setPendingTerminalCommand(null)
+    setTerminalDockOpen(false)
+    chatFileRequestIdRef.current += 1
+
+    void startDeferredSession(recovery.type === 'project'
+      ? { scope: 'project', project: recovery.project }
+      : { scope: 'global' })
+      .catch((error) => {
+        recoveringDeletedToolProjectIdRef.current = undefined
+        logger.error('Failed to recover after the current project was deleted:', error)
+      })
+  }, [activeProject, agentManager.currentToolProject?.id, projects, ready, setArtifactPreviewOpen, setWorkspaceInspectorRequest, startDeferredSession])
 
   const { setAccessMode } = useAgentAccessActions({
     storageRef,
@@ -1556,10 +1624,17 @@ function MainApp() {
                       onRejectAutoCompact={handleRejectAutoCompact}
                       onOpenWorkspaceGitChanges={openWorkspaceGitChanges}
                       onOpenLocalFilePath={openLocalFilePathFromChat}
-                      onArtifactsChange={setCurrentSessionArtifacts}
+                      onArtifactsChange={(artifacts) => {
+                        setCurrentSessionArtifactsState({
+                          projectId: agentManager.currentToolProject?.id,
+                          sessionId: agentManager.currentSessionId,
+                          artifacts,
+                        })
+                      }}
                       onContextUsageDisplayChange={handleContextUsageDisplayChange}
                       disableFork={false}
                       restoredDraft={restoredDraft}
+                      onRestoredDraftConsumed={consumeRestoredDraft}
                       newChatEmptyState={showNewChatEmptyState}
                     />
                     </Suspense>
@@ -1604,32 +1679,20 @@ function MainApp() {
           {ui.workspaceInspectorOpen ? <div aria-hidden="true" className="hidden w-px shrink-0 bg-[color-mix(in_oklab,var(--border)_30%,var(--quickforge-sidebar-bg))] lg:block" /> : null}
           <Suspense fallback={<LazyOverlayFallback />}>
             <WorkspaceInspector
+              key={agentManager.currentToolProject.id}
               project={agentManager.currentToolProject}
               open={ui.workspaceInspectorOpen}
               onOpenChange={ui.setWorkspaceInspectorOpen}
-              view={ui.workspacePanelView}
-              onViewChange={ui.setWorkspacePanelView}
               onPreviewArtifact={openArtifactPreview}
               onDraftRequest={restoreWorkspaceDraft}
-              focusTarget={ui.workspaceInspectorFocusTarget}
-              previewUrl={ui.webPreviewUrl}
-              artifacts={currentSessionArtifacts}
+              request={ui.workspaceInspectorRequest}
+              onRequestHandled={handleWorkspaceInspectorRequest}
+              artifacts={currentSessionArtifactsState.projectId === agentManager.currentToolProject.id && currentSessionArtifactsState.sessionId === agentManager.currentSessionId
+                ? currentSessionArtifactsState.artifacts
+                : []}
             />
           </Suspense>
         </>
-      ) : null}
-      {ui.inlineReaderOpen ? (
-        <Suspense fallback={<LazyOverlayFallback />}>
-          <WorkspaceReaderDialog
-            open
-            mode="file"
-            file={ui.inlineReaderFile}
-            loading={ui.inlineReaderLoading}
-            error={ui.inlineReaderError}
-            onOpenChange={ui.setInlineReaderOpen}
-            onDraftRequest={restoreWorkspaceDraft}
-          />
-        </Suspense>
       ) : null}
       {gitGraphOpen && agentManager.currentToolProject?.id ? (
         <GitGraphDialog

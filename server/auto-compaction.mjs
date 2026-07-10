@@ -5,7 +5,7 @@ import { estimateContextUsage, shouldCompactContextByPercent } from './context-u
 export const AUTO_COMPACT_SETTINGS_KEY = 'auto-compact-settings'
 
 export const DEFAULT_AUTO_COMPACT_SETTINGS = {
-  enabled: false,
+  enabled: true,
   thresholdPercent: 80,
   keepRecentTurns: 2,
   minSourceChars: 1600,
@@ -24,7 +24,7 @@ function clampNumber(value, fallback, min, max) {
 export function normalizeAutoCompactSettings(value) {
   if (!value || typeof value !== 'object') return { ...DEFAULT_AUTO_COMPACT_SETTINGS }
   return {
-    enabled: value.enabled === true,
+    enabled: value.enabled !== false,
     thresholdPercent: clampNumber(value.thresholdPercent, DEFAULT_AUTO_COMPACT_SETTINGS.thresholdPercent, 50, 95),
     keepRecentTurns: clampNumber(value.keepRecentTurns, DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns, 1, 20),
     minSourceChars: clampNumber(value.minSourceChars, DEFAULT_AUTO_COMPACT_SETTINGS.minSourceChars, 0, 200000),

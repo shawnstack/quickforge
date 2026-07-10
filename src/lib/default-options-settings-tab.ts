@@ -101,7 +101,7 @@ class DefaultOptionsSettingsTab extends SettingsTab {
   private thinkingLevel: ThinkingLevel = 'off'
   private showToolDetails = false
   private expandToolsByDefault = false
-  private autoCompactEnabled = false
+  private autoCompactEnabled = true
   private autoCompactRequireConfirmation = true
   private autoCompactThresholdPercent = 80
   private autoCompactThresholdPercentInput = '80'

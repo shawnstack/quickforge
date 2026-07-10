@@ -398,6 +398,21 @@ function addToolTimingToEvent(session, event) {
   return event
 }
 
+export function markLatestAssistantProcessFinished(messages, finishedAt = Date.now()) {
+  if (!Array.isArray(messages)) return false
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]
+    if (!message || message.role !== 'assistant') continue
+    const details = message.details && typeof message.details === 'object' && !Array.isArray(message.details)
+      ? message.details
+      : {}
+    if (details.quickforgeProcessFinishedAt !== undefined) return false
+    messages[index] = { ...message, details: { ...details, quickforgeProcessFinishedAt: finishedAt } }
+    return true
+  }
+  return false
+}
+
 function updateSessionMessages(session, messages) {
   session.agent.state.messages = messages
 }
@@ -1516,6 +1531,9 @@ export async function createAgent(sessionId, config = {}) {
           ? 'error'
           : 'idle'
       : undefined
+    if (timedEvent.type === 'agent_end') {
+      markLatestAssistantProcessFinished(agent.state.messages)
+    }
     const forwardEvent = timedEvent.type === 'agent_end'
       ? {
           ...timedEvent,

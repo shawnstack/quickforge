@@ -1,0 +1,246 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1120" viewBox="0 0 1800 1120" role="img" aria-labelledby="title desc">
+  <title id="title">QuickForge 右侧审阅 Tab 改版 V2 线框稿</title>
+  <desc id="desc">展示宽栏、中栏、窄栏列表与窄栏全宽 Diff 四种状态。强调精确统计、容器响应式、轻量文件图标、常驻主操作和安全批量操作。</desc>
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="13" flood-color="#172033" flood-opacity="0.08"/>
+    </filter>
+    <style>
+      .canvas{fill:#f6f7f9}.panel{fill:#fff;stroke:#d9dee4;stroke-width:1.4}.soft{fill:#f2f4f6}.active{fill:#edf0f3}.line{stroke:#e1e5e9;stroke-width:1}.ink{fill:#24282e;font-family:Inter,"PingFang SC","Microsoft YaHei",sans-serif}.muted{fill:#747b85;font-family:Inter,"PingFang SC","Microsoft YaHei",sans-serif}.mono{font-family:"SFMono-Regular",Consolas,monospace}.green{fill:#087f3f}.red{fill:#b82b32}.blue{fill:#1684c8}.amber{fill:#a97910}.section{fill:#24282e;font:600 20px Inter,"PingFang SC","Microsoft YaHei",sans-serif}.caption{fill:#6d7480;font:400 14px Inter,"PingFang SC","Microsoft YaHei",sans-serif}.small{font-size:11px}.body{font-size:13px}.strong{font-weight:600}
+    </style>
+  </defs>
+  <rect class="canvas" width="1800" height="1120"/>
+  <text x="58" y="52" class="ink" font-size="29" font-weight="700">右侧「审阅」Tab 改版 V2</text>
+  <text x="58" y="82" class="muted" font-size="15">容器响应式 · 数据语义先行 · 文件名优先 · 安全主操作持续可达</text>
+
+  <!-- WIDE -->
+  <text x="58" y="132" class="section">宽栏 ≥ 520px</text>
+  <text x="58" y="157" class="caption">双层文件信息；主操作与更多常驻；Footer 只突出安全操作</text>
+  <g transform="translate(58 180)" filter="url(#shadow)">
+    <rect class="panel" width="620" height="820" rx="18"/>
+    <!-- tabs 56 -->
+    <rect x="14" y="12" width="168" height="42" rx="14" class="soft"/>
+    <rect x="30" y="23" width="19" height="19" rx="4" fill="none" stroke="#424950" stroke-width="1.8"/>
+    <path d="M35 32.5h9M39.5 28v9" fill="none" stroke="#424950" stroke-width="1.8" stroke-linecap="round"/>
+    <text x="65" y="40" class="ink" font-size="17" font-weight="600">审阅</text>
+    <path d="M205 33h21M215.5 22.5v21" stroke="#5e6570" stroke-width="1.8" stroke-linecap="round"/>
+    <rect x="578" y="12" width="28" height="42" rx="13" class="soft"/>
+    <rect x="585" y="23" width="14" height="20" rx="4" fill="none" stroke="#424950" stroke-width="1.8"/>
+    <line x1="0" y1="68" x2="620" y2="68" class="line"/>
+    <!-- toolbar 48 -->
+    <rect x="12" y="76" width="142" height="32" rx="11" fill="#fff" stroke="#d7dce1"/>
+    <text x="25" y="97" class="ink body strong">未暂存</text>
+    <rect x="87" y="82" width="30" height="20" rx="10" class="soft"/>
+    <text x="96" y="97" class="ink" font-size="12" font-weight="600">33</text>
+    <path d="M132 88l5 5 5-5" fill="none" stroke="#68707a" stroke-width="1.7" stroke-linecap="round"/>
+    <text x="169" y="97" class="mono green body">+577</text>
+    <text x="216" y="97" class="mono red body">−409</text>
+    <rect x="572" y="76" width="34" height="32" rx="10" class="soft"/>
+    <path d="M595 87a8 8 0 1 0 1 8" fill="none" stroke="#626a74" stroke-width="1.7"/>
+    <path d="M595 82v6h-6" fill="none" stroke="#626a74" stroke-width="1.7" stroke-linecap="round"/>
+    <line x1="0" y1="116" x2="620" y2="116" class="line"/>
+
+    <!-- rows, 50 -->
+    <g transform="translate(8 122)">
+      <rect width="604" height="50" rx="11" class="active"/>
+      <text x="14" y="30" class="green" font-family="Inter,sans-serif" font-size="13" font-weight="700">M↕</text>
+      <text x="46" y="21" class="ink body strong">README.md</text>
+      <text x="46" y="39" class="muted small">docs/wiki/server/routes</text>
+      <text x="397" y="29" class="mono green body">+1</text><text x="425" y="29" class="mono red body">−1</text>
+      <rect x="474" y="9" width="32" height="32" rx="16" fill="#e9f5ed"/>
+      <path d="M484 25h12M490 19v12" stroke="#087f3f" stroke-width="1.8" stroke-linecap="round"/>
+      <rect x="514" y="9" width="32" height="32" rx="16" fill="#fff"/>
+      <circle cx="524" cy="25" r="1.5" fill="#69717a"/><circle cx="530" cy="25" r="1.5" fill="#69717a"/><circle cx="536" cy="25" r="1.5" fill="#69717a"/>
+      <path d="M567 21l6 4-6 4" fill="none" stroke="#69717a" stroke-width="1.8"/>
+    </g>
+    <g transform="translate(8 174)">
+      <rect width="604" height="50" rx="11" fill="#fff"/>
+      <text x="14" y="30" class="amber" font-family="Inter,sans-serif" font-size="12" font-weight="700">JS</text>
+      <text x="46" y="21" class="ink body strong">agent-manager.mjs</text>
+      <text x="46" y="39" class="muted small">server</text>
+      <text x="389" y="29" class="mono green body">+18</text><text x="425" y="29" class="mono red body">−0</text>
+      <rect x="474" y="9" width="32" height="32" rx="16" fill="#f5f6f7"/>
+      <path d="M484 25h12M490 19v12" stroke="#68707a" stroke-width="1.8" stroke-linecap="round"/>
+      <rect x="514" y="9" width="32" height="32" rx="16" fill="#f5f6f7"/>
+      <circle cx="524" cy="25" r="1.5" fill="#69717a"/><circle cx="530" cy="25" r="1.5" fill="#69717a"/><circle cx="536" cy="25" r="1.5" fill="#69717a"/>
+    </g>
+    <line x1="18" y1="226" x2="602" y2="226" class="line"/>
+    <g transform="translate(8 228)">
+      <rect width="604" height="50" rx="11" fill="#fff"/>
+      <text x="12" y="30" class="blue" font-family="Inter,sans-serif" font-size="12" font-weight="700">TSX</text>
+      <text x="46" y="21" class="ink body strong">AgentProfilesPage.tsx</text>
+      <text x="46" y="39" class="muted small">src/components/agent-profiles</text>
+      <text x="389" y="29" class="mono green body">+95</text><text x="425" y="29" class="mono red body">−16</text>
+      <rect x="474" y="9" width="32" height="32" rx="16" fill="#f5f6f7"/><path d="M484 25h12M490 19v12" stroke="#68707a" stroke-width="1.8" stroke-linecap="round"/>
+      <rect x="514" y="9" width="32" height="32" rx="16" fill="#f5f6f7"/><circle cx="524" cy="25" r="1.5" fill="#69717a"/><circle cx="530" cy="25" r="1.5" fill="#69717a"/><circle cx="536" cy="25" r="1.5" fill="#69717a"/>
+    </g>
+    <g transform="translate(8 280)">
+      <rect width="604" height="50" rx="11" fill="#fff"/>
+      <text x="14" y="30" class="blue" font-family="Inter,sans-serif" font-size="12" font-weight="700">TS</text>
+      <text x="46" y="21" class="ink body strong">WorkspaceInspector.tsx</text>
+      <text x="46" y="39" class="muted small">src/components/workspace</text>
+      <text x="389" y="29" class="mono green body">+73</text><text x="425" y="29" class="mono red body">−224</text>
+      <rect x="474" y="9" width="32" height="32" rx="16" fill="#f5f6f7"/><path d="M484 25h12M490 19v12" stroke="#68707a" stroke-width="1.8" stroke-linecap="round"/>
+      <rect x="514" y="9" width="32" height="32" rx="16" fill="#f5f6f7"/><circle cx="524" cy="25" r="1.5" fill="#69717a"/><circle cx="530" cy="25" r="1.5" fill="#69717a"/><circle cx="536" cy="25" r="1.5" fill="#69717a"/>
+    </g>
+    <g transform="translate(8 332)">
+      <rect width="604" height="50" rx="11" fill="#fff"/>
+      <text x="14" y="30" class="blue" font-family="Inter,sans-serif" font-size="12" font-weight="700">TS</text>
+      <text x="46" y="21" class="ink body strong">index.ts</text>
+      <text x="46" y="39" class="muted small">src/components/chat</text>
+      <text x="397" y="29" class="mono green body">+7</text><text x="425" y="29" class="mono red body">−1</text>
+      <rect x="474" y="9" width="32" height="32" rx="16" fill="#f5f6f7"/><path d="M484 25h12M490 19v12" stroke="#68707a" stroke-width="1.8" stroke-linecap="round"/>
+      <rect x="514" y="9" width="32" height="32" rx="16" fill="#f5f6f7"/><circle cx="524" cy="25" r="1.5" fill="#69717a"/><circle cx="530" cy="25" r="1.5" fill="#69717a"/><circle cx="536" cy="25" r="1.5" fill="#69717a"/>
+    </g>
+
+    <!-- compact inline diff -->
+    <rect x="18" y="395" width="584" height="250" rx="12" fill="#fafbfc" stroke="#e1e5e9"/>
+    <text x="34" y="421" class="ink body strong">README.md · Diff</text>
+    <text x="34" y="440" class="muted small">docs/wiki/server/routes/README.md</text>
+    <rect x="34" y="457" width="552" height="19" rx="4" fill="#edf7f0"/>
+    <text x="45" y="471" class="mono green small">+ 新增 Git 状态接口说明</text>
+    <rect x="34" y="480" width="552" height="19" rx="4" fill="#fff0f1"/>
+    <text x="45" y="494" class="mono red small">− 删除过期的工作区描述</text>
+    <rect x="34" y="510" width="490" height="10" rx="4" fill="#e8ebef"/>
+    <rect x="34" y="528" width="530" height="10" rx="4" fill="#edf0f2"/>
+    <rect x="34" y="546" width="450" height="10" rx="4" fill="#edf0f2"/>
+    <rect x="34" y="564" width="510" height="10" rx="4" fill="#edf0f2"/>
+    <text x="34" y="617" class="muted small">选中背景保持轻量；完整路径在详情中可见</text>
+
+    <!-- 52 footer -->
+    <rect x="0" y="768" width="620" height="52" rx="0 0 18 18" fill="#fff"/>
+    <line x1="0" y1="768" x2="620" y2="768" class="line"/>
+    <rect x="14" y="778" width="84" height="32" rx="11" fill="#fff" stroke="#d7dce1"/>
+    <circle cx="31" cy="794" r="1.5" fill="#68707a"/><circle cx="37" cy="794" r="1.5" fill="#68707a"/><circle cx="43" cy="794" r="1.5" fill="#68707a"/>
+    <text x="53" y="799" class="muted" font-size="12" font-weight="600">更多</text>
+    <text x="116" y="799" class="muted" font-size="11">含“丢弃更改…”</text>
+    <rect x="469" y="778" width="137" height="32" rx="11" fill="#edf7f0" stroke="#cfe7d8"/>
+    <path d="M484 794h10M489 789v10" stroke="#087f3f" stroke-width="1.8" stroke-linecap="round"/>
+    <text x="503" y="799" class="green" font-size="12" font-weight="700">暂存当前 33 个</text>
+  </g>
+
+  <!-- MEDIUM -->
+  <text x="722" y="132" class="section">中栏 400–519px</text>
+  <text x="722" y="157" class="caption">同名时补路径；主操作常驻；长文件名先截断</text>
+  <g transform="translate(722 180)" filter="url(#shadow)">
+    <rect class="panel" width="430" height="820" rx="18"/>
+    <rect x="14" y="12" width="148" height="42" rx="14" class="soft"/>
+    <rect x="29" y="23" width="19" height="19" rx="4" fill="none" stroke="#424950" stroke-width="1.8"/>
+    <text x="63" y="40" class="ink" font-size="17" font-weight="600">审阅</text>
+    <path d="M186 33h21M196.5 22.5v21" stroke="#5e6570" stroke-width="1.8"/>
+    <rect x="388" y="12" width="28" height="42" rx="13" class="soft"/><rect x="395" y="23" width="14" height="20" rx="4" fill="none" stroke="#424950" stroke-width="1.8"/>
+    <line x1="0" y1="68" x2="430" y2="68" class="line"/>
+    <rect x="12" y="76" width="132" height="32" rx="11" fill="#fff" stroke="#d7dce1"/>
+    <text x="24" y="97" class="ink body strong">未暂存 · 33</text><path d="M124 88l5 5 5-5" fill="none" stroke="#68707a" stroke-width="1.7"/>
+    <text x="158" y="97" class="mono green" font-size="12">+577</text><text x="198" y="97" class="mono red" font-size="12">−409</text>
+    <rect x="384" y="76" width="34" height="32" rx="10" class="soft"/><path d="M407 87a8 8 0 1 0 1 8" fill="none" stroke="#626a74" stroke-width="1.7"/><path d="M407 82v6h-6" fill="none" stroke="#626a74" stroke-width="1.7"/>
+    <line x1="0" y1="116" x2="430" y2="116" class="line"/>
+
+    <g transform="translate(8 122)">
+      <rect width="414" height="44" rx="11" class="active"/>
+      <text x="12" y="27" class="green" font-family="Inter,sans-serif" font-size="13" font-weight="700">M↕</text>
+      <text x="44" y="27" class="ink body strong">README.md</text>
+      <text x="220" y="27" class="mono green" font-size="12">+1</text><text x="245" y="27" class="mono red" font-size="12">−1</text>
+      <rect x="288" y="6" width="32" height="32" rx="16" fill="#e9f5ed"/><path d="M298 22h12M304 16v12" stroke="#087f3f" stroke-width="1.8"/>
+      <rect x="328" y="6" width="32" height="32" rx="16" fill="#fff"/><circle cx="338" cy="22" r="1.5" fill="#69717a"/><circle cx="344" cy="22" r="1.5" fill="#69717a"/><circle cx="350" cy="22" r="1.5" fill="#69717a"/>
+      <path d="M384 18l6 4-6 4" fill="none" stroke="#69717a" stroke-width="1.8"/>
+    </g>
+    <g transform="translate(8 168)">
+      <rect width="414" height="44" rx="11" fill="#fff"/>
+      <text x="12" y="27" class="amber" font-family="Inter,sans-serif" font-size="12" font-weight="700">JS</text>
+      <text x="44" y="27" class="ink body strong">agent-manager.mjs</text>
+      <text x="212" y="27" class="mono green" font-size="12">+18</text><text x="245" y="27" class="mono red" font-size="12">−0</text>
+      <rect x="288" y="6" width="32" height="32" rx="16" class="soft"/><path d="M298 22h12M304 16v12" stroke="#68707a" stroke-width="1.8"/>
+      <rect x="328" y="6" width="32" height="32" rx="16" class="soft"/><circle cx="338" cy="22" r="1.5" fill="#69717a"/><circle cx="344" cy="22" r="1.5" fill="#69717a"/><circle cx="350" cy="22" r="1.5" fill="#69717a"/>
+    </g>
+    <line x1="18" y1="214" x2="412" y2="214" class="line"/>
+    <g transform="translate(8 216)">
+      <rect width="414" height="50" rx="11" fill="#fff"/>
+      <text x="10" y="30" class="blue" font-family="Inter,sans-serif" font-size="12" font-weight="700">TS</text>
+      <text x="44" y="20" class="ink body strong">index.ts</text>
+      <text x="44" y="38" class="muted small">src/components/chat</text>
+      <text x="220" y="29" class="mono green" font-size="12">+7</text><text x="245" y="29" class="mono red" font-size="12">−1</text>
+      <rect x="288" y="9" width="32" height="32" rx="16" class="soft"/><path d="M298 25h12M304 19v12" stroke="#68707a" stroke-width="1.8"/>
+      <rect x="328" y="9" width="32" height="32" rx="16" class="soft"/><circle cx="338" cy="25" r="1.5" fill="#69717a"/><circle cx="344" cy="25" r="1.5" fill="#69717a"/><circle cx="350" cy="25" r="1.5" fill="#69717a"/>
+    </g>
+    <g transform="translate(8 268)">
+      <rect width="414" height="50" rx="11" fill="#fff"/>
+      <text x="10" y="30" class="blue" font-family="Inter,sans-serif" font-size="12" font-weight="700">TS</text>
+      <text x="44" y="20" class="ink body strong">index.ts</text>
+      <text x="44" y="38" class="muted small">server/routes</text>
+      <text x="220" y="29" class="mono green" font-size="12">+4</text><text x="245" y="29" class="mono red" font-size="12">−2</text>
+      <rect x="288" y="9" width="32" height="32" rx="16" class="soft"/><path d="M298 25h12M304 19v12" stroke="#68707a" stroke-width="1.8"/>
+      <rect x="328" y="9" width="32" height="32" rx="16" class="soft"/><circle cx="338" cy="25" r="1.5" fill="#69717a"/><circle cx="344" cy="25" r="1.5" fill="#69717a"/><circle cx="350" cy="25" r="1.5" fill="#69717a"/>
+    </g>
+    <g transform="translate(8 320)">
+      <rect width="414" height="44" rx="11" fill="#fff"/>
+      <text x="10" y="27" class="blue" font-family="Inter,sans-serif" font-size="12" font-weight="700">TS</text>
+      <text x="44" y="27" class="ink body strong">WorkspaceInspector…</text>
+      <text x="212" y="27" class="mono green" font-size="12">+73</text><text x="245" y="27" class="mono red" font-size="12">−224</text>
+      <rect x="288" y="6" width="32" height="32" rx="16" class="soft"/><path d="M298 22h12M304 16v12" stroke="#68707a" stroke-width="1.8"/>
+      <rect x="328" y="6" width="32" height="32" rx="16" class="soft"/><circle cx="338" cy="22" r="1.5" fill="#69717a"/><circle cx="344" cy="22" r="1.5" fill="#69717a"/><circle cx="350" cy="22" r="1.5" fill="#69717a"/>
+    </g>
+    <text x="22" y="406" class="muted small">同名时显示最短父路径；统计与操作不被挤出</text>
+    <rect x="0" y="768" width="430" height="52" rx="0 0 18 18" fill="#fff"/><line x1="0" y1="768" x2="430" y2="768" class="line"/>
+    <rect x="14" y="778" width="82" height="32" rx="11" fill="#fff" stroke="#d7dce1"/><circle cx="31" cy="794" r="1.5" fill="#68707a"/><circle cx="37" cy="794" r="1.5" fill="#68707a"/><circle cx="43" cy="794" r="1.5" fill="#68707a"/><text x="53" y="799" class="muted" font-size="12" font-weight="600">更多</text>
+    <rect x="304" y="778" width="112" height="32" rx="11" fill="#edf7f0" stroke="#cfe7d8"/><path d="M319 794h10M324 789v10" stroke="#087f3f" stroke-width="1.8"/><text x="338" y="799" class="green" font-size="12" font-weight="700">暂存 33</text>
+  </g>
+
+  <!-- NARROW LIST -->
+  <text x="1194" y="132" class="section">窄栏 340–399px · 列表态</text>
+  <text x="1194" y="157" class="caption">更多常驻；摘要按空间降级；点击文件进入全宽 Diff</text>
+  <g transform="translate(1194 180)" filter="url(#shadow)">
+    <rect class="panel" width="340" height="820" rx="18"/>
+    <rect x="12" y="12" width="136" height="42" rx="14" class="soft"/><rect x="27" y="23" width="19" height="19" rx="4" fill="none" stroke="#424950" stroke-width="1.8"/><text x="60" y="40" class="ink" font-size="17" font-weight="600">审阅</text>
+    <path d="M172 33h20M182 23v20" stroke="#5e6570" stroke-width="1.8"/><rect x="300" y="12" width="28" height="42" rx="13" class="soft"/><rect x="307" y="23" width="14" height="20" rx="4" fill="none" stroke="#424950" stroke-width="1.8"/>
+    <line x1="0" y1="68" x2="340" y2="68" class="line"/>
+    <rect x="10" y="76" width="126" height="32" rx="11" fill="#fff" stroke="#d7dce1"/><text x="21" y="97" class="ink" font-size="12" font-weight="600">未暂存 · 33</text><path d="M117 88l5 5 5-5" fill="none" stroke="#68707a" stroke-width="1.7"/>
+    <text x="148" y="97" class="mono green small">+577</text><text x="183" y="97" class="mono red small">−409</text>
+    <rect x="296" y="76" width="32" height="32" rx="10" class="soft"/><path d="M318 87a8 8 0 1 0 1 8" fill="none" stroke="#626a74" stroke-width="1.7"/><path d="M318 82v6h-6" fill="none" stroke="#626a74" stroke-width="1.7"/>
+    <line x1="0" y1="116" x2="340" y2="116" class="line"/>
+
+    <g transform="translate(6 122)">
+      <rect width="328" height="44" rx="11" class="active"/>
+      <text x="11" y="27" class="green" font-family="Inter,sans-serif" font-size="13" font-weight="700">M↕</text><text x="42" y="27" class="ink body strong">README.md</text>
+      <text x="190" y="27" class="mono green small">+1</text><text x="212" y="27" class="mono red small">−1</text>
+      <rect x="246" y="6" width="32" height="32" rx="16" fill="#fff"/><circle cx="256" cy="22" r="1.5" fill="#69717a"/><circle cx="262" cy="22" r="1.5" fill="#69717a"/><circle cx="268" cy="22" r="1.5" fill="#69717a"/>
+      <path d="M300 18l6 4-6 4" fill="none" stroke="#69717a" stroke-width="1.8"/>
+    </g>
+    <g transform="translate(6 168)"><rect width="328" height="44" rx="11" fill="#fff"/><text x="11" y="27" class="amber" font-family="Inter,sans-serif" font-size="12" font-weight="700">JS</text><text x="42" y="27" class="ink body strong">agent-manager.mjs</text><text x="182" y="27" class="mono green small">+18</text><text x="212" y="27" class="mono red small">−0</text><rect x="246" y="6" width="32" height="32" rx="16" class="soft"/><circle cx="256" cy="22" r="1.5" fill="#69717a"/><circle cx="262" cy="22" r="1.5" fill="#69717a"/><circle cx="268" cy="22" r="1.5" fill="#69717a"/></g>
+    <line x1="16" y1="214" x2="324" y2="214" class="line"/>
+    <g transform="translate(6 216)"><rect width="328" height="48" rx="11" fill="#fff"/><text x="10" y="29" class="blue" font-family="Inter,sans-serif" font-size="12" font-weight="700">TS</text><text x="42" y="20" class="ink body strong">src/…/index.ts</text><text x="42" y="37" class="muted" font-size="10">最短可区分路径</text><text x="190" y="28" class="mono green small">+7</text><text x="212" y="28" class="mono red small">−1</text><rect x="246" y="8" width="32" height="32" rx="16" class="soft"/><circle cx="256" cy="24" r="1.5" fill="#69717a"/><circle cx="262" cy="24" r="1.5" fill="#69717a"/><circle cx="268" cy="24" r="1.5" fill="#69717a"/></g>
+    <g transform="translate(6 266)"><rect width="328" height="44" rx="11" fill="#fff"/><text x="10" y="27" class="blue" font-family="Inter,sans-serif" font-size="12" font-weight="700">TS</text><text x="42" y="27" class="ink body strong">WorkspaceInspect…</text><text x="182" y="27" class="mono green small">+73</text><text x="208" y="27" class="mono red small">−224</text><rect x="246" y="6" width="32" height="32" rx="16" class="soft"/><circle cx="256" cy="22" r="1.5" fill="#69717a"/><circle cx="262" cy="22" r="1.5" fill="#69717a"/><circle cx="268" cy="22" r="1.5" fill="#69717a"/></g>
+    <g transform="translate(6 312)"><rect width="328" height="44" rx="11" fill="#fff"/><text x="10" y="27" class="blue" font-family="Inter,sans-serif" font-size="12" font-weight="700">TS</text><text x="42" y="27" class="ink body strong">drafts.ts</text><text x="182" y="27" class="mono green small">+84</text><text x="212" y="27" class="mono red small">−22</text><rect x="246" y="6" width="32" height="32" rx="16" class="soft"/><circle cx="256" cy="22" r="1.5" fill="#69717a"/><circle cx="262" cy="22" r="1.5" fill="#69717a"/><circle cx="268" cy="22" r="1.5" fill="#69717a"/></g>
+    <text x="18" y="398" class="muted small">空间不足时：先保留筛选与数量，再收起摘要</text>
+    <rect x="0" y="768" width="340" height="52" rx="0 0 18 18" fill="#fff"/><line x1="0" y1="768" x2="340" y2="768" class="line"/>
+    <rect x="12" y="778" width="80" height="32" rx="11" fill="#fff" stroke="#d7dce1"/><circle cx="29" cy="794" r="1.5" fill="#68707a"/><circle cx="35" cy="794" r="1.5" fill="#68707a"/><circle cx="41" cy="794" r="1.5" fill="#68707a"/><text x="51" y="799" class="muted" font-size="12" font-weight="600">更多</text>
+    <rect x="222" y="778" width="106" height="32" rx="11" fill="#edf7f0" stroke="#cfe7d8"/><path d="M237 794h10M242 789v10" stroke="#087f3f" stroke-width="1.8"/><text x="256" y="799" class="green" font-size="12" font-weight="700">暂存 33</text>
+  </g>
+
+  <!-- NARROW DIFF -->
+  <text x="1565" y="132" class="section">窄栏 · Diff 详情</text>
+  <text x="1565" y="157" class="caption">不左右硬挤；全宽详情；返回时恢复列表上下文</text>
+  <g transform="translate(1565 180)" filter="url(#shadow)">
+    <rect class="panel" width="200" height="820" rx="18"/>
+    <rect x="10" y="12" width="180" height="42" rx="13" class="soft"/>
+    <path d="M27 33h14M27 33l6-6M27 33l6 6" fill="none" stroke="#4d555e" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="51" y="38" class="ink" font-size="13" font-weight="600">README.md</text>
+    <line x1="0" y1="68" x2="200" y2="68" class="line"/>
+    <text x="13" y="91" class="muted" font-size="9">docs/wiki/server/routes/README.md</text>
+    <rect x="12" y="106" width="176" height="32" rx="10" fill="#edf7f0"/>
+    <path d="M25 122h10M30 117v10" stroke="#087f3f" stroke-width="1.7"/><text x="45" y="126" class="green" font-size="11" font-weight="600">暂存文件</text>
+    <rect x="12" y="151" width="176" height="22" rx="4" fill="#edf7f0"/><text x="18" y="166" class="mono green" font-size="8">+ 新增路由说明</text>
+    <rect x="12" y="177" width="176" height="22" rx="4" fill="#fff0f1"/><text x="18" y="192" class="mono red" font-size="8">− 删除旧说明</text>
+    <rect x="12" y="212" width="166" height="8" rx="3" fill="#e8ebef"/><rect x="12" y="227" width="174" height="8" rx="3" fill="#edf0f2"/><rect x="12" y="242" width="150" height="8" rx="3" fill="#edf0f2"/>
+    <rect x="12" y="270" width="176" height="22" rx="4" fill="#edf7f0"/><text x="18" y="285" class="mono green" font-size="8">+ paths 批量接口</text>
+    <rect x="12" y="305" width="164" height="8" rx="3" fill="#e8ebef"/><rect x="12" y="320" width="172" height="8" rx="3" fill="#edf0f2"/><rect x="12" y="335" width="142" height="8" rx="3" fill="#edf0f2"/>
+    <text x="12" y="384" class="muted" font-size="9">Escape 返回列表</text>
+    <text x="12" y="401" class="muted" font-size="9">恢复筛选和滚动位置</text>
+  </g>
+
+  <!-- gate -->
+  <rect x="58" y="1030" width="1707" height="56" rx="14" fill="#fff8e7" stroke="#ead9a9"/>
+  <circle cx="82" cy="1058" r="7" fill="#a97910"/>
+  <text x="101" y="1053" class="ink" font-size="13" font-weight="700">MVP 安全门槛</text>
+  <text x="101" y="1073" class="muted" font-size="12">“当前 33 个”和顶部 +/− 只有在批量 paths 作用域与筛选统计精确实现后才展示；否则明确使用“工作区全部”文案或隐藏近似摘要。</text>
+</svg>

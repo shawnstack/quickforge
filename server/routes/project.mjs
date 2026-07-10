@@ -1,6 +1,7 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { logger } from '../utils/logger.mjs'
 import { getActiveProject, setActiveProjectPath, readProjectConfig, getDefaultWorkspaceRoot } from '../project-config.mjs'
+import { resolveRequestedProject, workspaceRootAfterProjectDeletion } from '../project-route-context.mjs'
 import { listProjectCommands, createCommandFile } from '../custom-commands.mjs'
 import { atomicProjectConfigUpdate } from '../storage.mjs'
 import { getWorkspaceRoot, setWorkspaceRoot } from '../utils/workspace.mjs'
@@ -137,13 +138,12 @@ export async function handleProjectApi(req, res, url) {
 
   if (req.method === 'POST' && url.pathname === '/api/project/open-path') {
     const body = await readJsonBody(req)
-    const active = body?.projectId
-      ? config.projects.find((project) => project.id === body.projectId) ?? getActiveProject(config)
-      : getActiveProject(config)
+    const active = resolveRequestedProject(config, body?.projectId, getDefaultWorkspaceRoot())
     const target = String(body?.path || '')
+    const root = active?.path || getWorkspaceRoot() || getDefaultWorkspaceRoot()
     const resolved = target && path.isAbsolute(target)
       ? path.resolve(target)
-      : path.resolve(active?.path || '', target)
+      : path.resolve(root, target)
     await openPathInFileManager(resolved)
     sendJson(res, 200, { ok: true })
     return
@@ -151,9 +151,7 @@ export async function handleProjectApi(req, res, url) {
 
   if (req.method === 'POST' && url.pathname === '/api/project/command') {
     const body = await readJsonBody(req)
-    const active = body?.projectId
-      ? config.projects.find((project) => project.id === body.projectId) ?? getActiveProject(config)
-      : getActiveProject(config)
+    const active = resolveRequestedProject(config, body?.projectId, getDefaultWorkspaceRoot())
     if (!active?.path) {
       const error = new Error('No active project')
       error.statusCode = 400
@@ -178,9 +176,7 @@ export async function handleProjectApi(req, res, url) {
       return cfg
     })
     const active = getActiveProject(updated)
-    if (active?.path) {
-      setWorkspaceRoot(path.resolve(active.path))
-    }
+    setWorkspaceRoot(workspaceRootAfterProjectDeletion(active, getDefaultWorkspaceRoot()))
     sendJson(res, 200, { project: active ?? null, projects: updated.projects, workspaceRoot: getWorkspaceRoot() })
     return
   }

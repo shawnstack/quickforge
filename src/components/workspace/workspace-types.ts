@@ -1,11 +1,17 @@
 export type WorkspacePanelView = 'review' | 'files' | 'browser' | 'changes' | 'terminal'
 
-export type WorkspaceInspectorFocusTarget = {
-  tab: 'files' | 'git'
-  nonce: number
-  // 可选：指向需在侧栏打开的具体文件（如自动预览 Markdown 时触发 openFileTab → MarkdownReader 渲染）。
-  filePath?: string
-}
+export type WorkspaceInspectorOpenRequest =
+  | { id: number; projectId: string; kind: 'review'; view: 'review' | 'changes' }
+  | { id: number; projectId: string; kind: 'files' | 'terminal' }
+  | { id: number; projectId: string; kind: 'reader'; path: string }
+  | { id: number; projectId: string; kind: 'browser'; url: string }
+
+export type WorkspaceInspectorOpenRequestInput =
+  WorkspaceInspectorOpenRequest extends infer Request
+    ? Request extends WorkspaceInspectorOpenRequest
+      ? Omit<Request, 'id'>
+      : never
+    : never
 
 export type WorkspaceTreeNode = {
   name: string

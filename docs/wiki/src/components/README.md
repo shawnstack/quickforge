@@ -58,7 +58,7 @@ components/
 - 支持本地工具渲染器 (`getLocalWorkspaceTools`)
 - 工具审批卡片会展示 subagent 来源，避免 General 子任务请求写文件/跑命令时与主 Agent 混淆
 - 消息回滚、分叉、复制功能
-- 草稿恢复支持；Composer 草稿持久化由 `src/lib/composer-drafts.ts` 直接使用浏览器 `localStorage`，不再经过 `AppStorage/settings` 或后端存储
+- 草稿恢复支持；Composer 草稿持久化由 `src/lib/composer-drafts.ts` 直接使用浏览器 `localStorage`，不再经过 `AppStorage/settings` 或后端存储；回滚、模型切换等外部恢复草稿按一次性事件消费，发送、编辑或 Session 切换会取消旧的延迟恢复任务
 
 ### ChatSidebar.tsx (551 行)
 
@@ -117,7 +117,7 @@ components/
 - `decorateEditor` 仅保留 Composer/editor 编排：占位符、只读清理、model selector 开关、left/right controls 定位，以及调用各 focused helper
 - 细分实现位于 `panel-decoration/` 子目录：`message-actions.ts`（复制/回滚/重试/分叉）、`composer-plus-menu.ts`（附件和内置插件菜单）、`agent-access-menu.ts`、`plan-mode-controls.ts`、`send-stop-button.ts`、`model-controls.ts`、`editor-bindings.ts`、`code-blocks.ts`、`process-folding.ts`、`context-compaction.ts` 等
 - Plan 按钮和 Shift+Tab 切换前端 Plan 模式；发送时复用 `/plan <任务>` 的单轮计划逻辑
-- Assistant Markdown 中的 ```svg 代码块会默认进入安全图片预览，可在代码块右上角切换预览/源码，并支持复制源码和下载 SVG
+- Assistant Markdown 中的 ```svg 和 ```mermaid 代码块会在流式输出结束后默认进入安全图片预览，可在代码块右上角切换预览/源码；Mermaid 按需加载并在失败时保留源码
 
 **scroll-sync.ts** (174 行)
 - 自动滚动同步管理
@@ -133,11 +133,12 @@ components/
 
 ### Workspace Inspector (`workspace/`)
 
-- 右侧专业工作区检查器入口为 `WorkspaceInspector.tsx`，采用类浏览器顶部 Tab 工作区；`+` 菜单提供 Files / Review / Terminal / Browser 入口，普通折叠不会卸载组件，Tab 状态按项目持久化。
-- Files tab 通过后端 `/api/workspace/tree` 浏览当前项目文件；从 Files 中打开普通文件时，会提升为独立顶部 reader tab，Tab 标题显示文件名，内容区保留左侧工作目录树并在右侧使用 Monaco Editor / Markdown Reader 只读展示；文件 reader tab 按项目保存路径，恢复时重新加载最新内容。
+- 右侧专业工作区检查器入口为 `WorkspaceInspector.tsx`，采用类浏览器顶部 Tab 工作区；`+` 菜单提供 Files / Review / Terminal / Browser 入口。Tab 列表、活动 `activePanelTabId` 和 Review 的 Overview/Changes 子视图按 `projectId` 写入浏览器 `localStorage`，活动 Tab 是恢复事实源；项目切换通过 React `key` 重建 Inspector，从而加载新项目各自的 Tab 状态。
+- 标题栏 Git、聊天文件链接、文件 Reader 和产物 Browser 等外部入口通过携带 `projectId` 的一次性请求打开对应 Tab；Inspector 仅在请求项目与当前项目一致时消费并清除请求，普通折叠后重新展开不会重放已处理请求。
+- Files tab 通过后端 `/api/workspace/tree` 浏览当前项目文件；从 Files 中打开普通文件时，会提升为独立顶部 reader tab，Tab 标题显示文件名，内容区保留左侧工作目录树并在右侧使用 Monaco Editor / Markdown Reader 只读展示；文件 reader tab 按项目保存路径，恢复时重新加载最新内容。Markdown 和代码产物进入 reader，HTML、SVG 和图片产物进入 Browser。
 - Review tab 通过 `/api/git/status` 展示 Git 工作区变更，并在同一个 Review/Changes tab 内通过 `/api/git/file-diff` 展示单文件差异；Changes 列表提供单文件还原、暂存、退回未暂存、在新标签中打开文件，以及底部批量还原/暂存/退回操作，分别调用 `/api/git/restore`、`/api/git/stage`、`/api/git/unstage`、`/api/git/restore-all`、`/api/git/stage-all`、`/api/git/unstage-all`；标题栏 Git 更改入口会聚焦该 Review/Changes 工作区。
 - 标题栏 Git 分支 chip 通过 `/api/git/branches`、`/api/git/checkout`、`/api/git/create-branch` 和 `/api/git/log` 提供分支切换、创建并检出新分支和 Git 图谱弹窗；Workspace Inspector 仍聚焦文件浏览、产物预览和 diff review
-- AI 产物预览由 `ArtifactPreviewPanel.tsx` 承担：当前 turn 产生 HTML/SVG/图片/Markdown/代码产物时自动打开右侧面板，HTML 通过 `HtmlArtifactPreview.tsx` 直接 iframe 渲染
+- AI 产物预览统一进入 Workspace Inspector：Markdown/代码打开项目级 reader Tab，HTML/SVG/图片打开项目级 Browser Tab；Tab 恢复由项目级持久化状态负责。
 - `ArtifactFilesPopover.tsx` 提供类似浏览器 tools 的产物文件浮层，支持多个 artifact 之间切换和 pin
 
 ### Terminal Dock (`terminal/`)

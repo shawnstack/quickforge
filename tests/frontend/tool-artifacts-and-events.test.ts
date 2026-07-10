@@ -146,6 +146,11 @@ describe('tool execution events', () => {
       { role: 'toolResult', toolCallId: 'a', content: ['new'] },
     ])
 
+    expect(upsertMessage(first, message({ role: 'toolResult', toolCallId: 'b', content: ['other'] }))).toEqual([
+      { role: 'toolResult', toolCallId: 'a', content: ['old'] },
+      { role: 'toolResult', toolCallId: 'b', content: ['other'] },
+    ])
+
     const assistantMessages = messages([{ role: 'assistant', timestamp: 1, content: 'old' }])
     expect(upsertMessage(assistantMessages, message({ role: 'assistant', timestamp: 1, content: 'new' }))).toEqual([
       { role: 'assistant', timestamp: 1, content: 'new' },
@@ -259,6 +264,39 @@ describe('tool execution events', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('keeps parallel tool results isolated across interleaved updates', () => {
+    let current = upsertToolResult([], {
+      toolCallId: 'subagent-a',
+      toolName: 'run_subagent',
+      partialResult: { content: [], details: { subagent: 'explore' } },
+    }, true)
+    current = upsertToolResult(current, {
+      toolCallId: 'subagent-b',
+      toolName: 'run_subagent',
+      partialResult: { content: [], details: { subagent: 'general' } },
+    }, true)
+    current = upsertToolResult(current, {
+      toolCallId: 'subagent-a',
+      toolName: 'run_subagent',
+      result: { content: [{ type: 'text', text: 'A done' }], details: { subagent: 'explore' } },
+    }, false)
+    current = upsertToolResult(current, {
+      toolCallId: 'subagent-b',
+      toolName: 'run_subagent',
+      partialResult: { content: [], details: { subagent: 'general', toolCalls: 1 } },
+    }, true)
+
+    expect(current).toHaveLength(2)
+    expect(current.find((item) => item.role === 'toolResult' && item.toolCallId === 'subagent-a')).toMatchObject({
+      content: [{ type: 'text', text: 'A done' }],
+      details: { subagent: 'explore' },
+    })
+    expect(current.find((item) => item.role === 'toolResult' && item.toolCallId === 'subagent-b')).toMatchObject({
+      content: [],
+      details: { subagent: 'general', toolCalls: 1 },
+    })
   })
 
   it('returns the original messages when a tool result event is incomplete', () => {

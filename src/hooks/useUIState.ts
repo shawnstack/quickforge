@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react'
 import type { SkillsScope } from '@/lib/types'
 import type { SettingsInitialTab } from '@/lib/settings-tabs'
 import type { ProjectInfo } from '@/lib/types'
-import type { WorkspaceFileResponse, WorkspaceInspectorFocusTarget, WorkspacePanelView } from '@/components/workspace/workspace-types'
+import type { WorkspaceInspectorOpenRequest } from '@/components/workspace/workspace-types'
 
 /**
  * Pure UI state — sidebar, dialogs, overlays, inspector, and reader toggles.
@@ -20,15 +20,9 @@ export function useUIState() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [conversationMenuOpen, setConversationMenuOpen] = useState(false)
   const [workspaceInspectorOpen, setWorkspaceInspectorOpen] = useState(false)
-  const [workspacePanelView, setWorkspacePanelView] = useState<WorkspacePanelView>('changes')
-  const [workspaceInspectorFocusTarget, setWorkspaceInspectorFocusTarget] = useState<WorkspaceInspectorFocusTarget>()
-  const [webPreviewUrl, setWebPreviewUrl] = useState('')
+  const [workspaceInspectorRequest, setWorkspaceInspectorRequest] = useState<WorkspaceInspectorOpenRequest>()
   const [artifactPreviewOpen, setArtifactPreviewOpen] = useState(false)
   const [activeArtifactPath, setActiveArtifactPath] = useState<string>()
-  const [inlineReaderOpen, setInlineReaderOpen] = useState(false)
-  const [inlineReaderFile, setInlineReaderFile] = useState<WorkspaceFileResponse>()
-  const [inlineReaderLoading, setInlineReaderLoading] = useState(false)
-  const [inlineReaderError, setInlineReaderError] = useState<string>()
   const [firstUseGuideDismissed, setFirstUseGuideDismissed] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsInitialTab>('defaults')
@@ -48,15 +42,9 @@ export function useUIState() {
     shareDialogOpen, setShareDialogOpen,
     conversationMenuOpen, setConversationMenuOpen,
     workspaceInspectorOpen, setWorkspaceInspectorOpen,
-    workspacePanelView, setWorkspacePanelView,
-    workspaceInspectorFocusTarget, setWorkspaceInspectorFocusTarget,
-    webPreviewUrl, setWebPreviewUrl,
+    workspaceInspectorRequest, setWorkspaceInspectorRequest,
     artifactPreviewOpen, setArtifactPreviewOpen,
     activeArtifactPath, setActiveArtifactPath,
-    inlineReaderOpen, setInlineReaderOpen,
-    inlineReaderFile, setInlineReaderFile,
-    inlineReaderLoading, setInlineReaderLoading,
-    inlineReaderError, setInlineReaderError,
     firstUseGuideDismissed, setFirstUseGuideDismissed,
     settingsDialogOpen, setSettingsDialogOpen,
     settingsInitialTab, setSettingsInitialTab,

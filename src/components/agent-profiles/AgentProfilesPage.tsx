@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import type { MouseEvent as ReactMouseEvent } from 'react'
+import { createPortal } from 'react-dom'
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import { ArrowLeft, Bot, MoreHorizontal, Edit3, Sparkles, Trash2 } from 'lucide-react'
@@ -56,6 +58,12 @@ type AgentFormState = {
 
 type GeneratedAgentFields = Pick<AgentFormState, 'name' | 'label' | 'description' | 'systemPrompt'>
 type AnyModel = Model<Api>
+type AgentMenuPosition = { left: number; top: number }
+
+const agentMenuWidth = 144
+const agentMenuHeight = 82
+const agentMenuGap = 4
+const agentMenuMargin = 8
 
 function modelOptionValue(model: AnyModel) {
   return JSON.stringify({
@@ -171,6 +179,7 @@ export function AgentProfilesPage() {
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('off')
   const [error, setError] = useState('')
   const [openMenuProfileId, setOpenMenuProfileId] = useState<string | null>(null)
+  const [agentMenuPosition, setAgentMenuPosition] = useState<AgentMenuPosition | null>(null)
 
   async function loadAgentProfiles() {
     const [agentsPayload, toolsPayload] = await Promise.all([
@@ -226,16 +235,52 @@ export function AgentProfilesPage() {
 
   useEffect(() => {
     if (!openMenuProfileId) return
-    const closeMenu = () => setOpenMenuProfileId(null)
+    const closeMenu = () => {
+      setOpenMenuProfileId(null)
+      setAgentMenuPosition(null)
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeMenu()
+    }
     window.addEventListener('click', closeMenu)
     window.addEventListener('blur', closeMenu)
+    window.addEventListener('resize', closeMenu)
+    window.addEventListener('scroll', closeMenu, true)
+    document.addEventListener('keydown', handleKeyDown)
     return () => {
       window.removeEventListener('click', closeMenu)
       window.removeEventListener('blur', closeMenu)
+      window.removeEventListener('resize', closeMenu)
+      window.removeEventListener('scroll', closeMenu, true)
+      document.removeEventListener('keydown', handleKeyDown)
     }
   }, [openMenuProfileId])
 
   const editingAgent = useMemo(() => agentProfiles.find((agent) => agent.id === editingAgentId) ?? null, [agentProfiles, editingAgentId])
+  const openMenuAgent = useMemo(() => agentProfiles.find((agent) => agent.id === openMenuProfileId) ?? null, [agentProfiles, openMenuProfileId])
+
+  function toggleAgentMenu(event: ReactMouseEvent<HTMLButtonElement>, agentId: string) {
+    event.stopPropagation()
+    if (openMenuProfileId === agentId) {
+      setOpenMenuProfileId(null)
+      setAgentMenuPosition(null)
+      return
+    }
+
+    const rect = event.currentTarget.getBoundingClientRect()
+    const left = Math.max(
+      agentMenuMargin,
+      Math.min(rect.right - agentMenuWidth, window.innerWidth - agentMenuWidth - agentMenuMargin),
+    )
+    const below = rect.bottom + agentMenuGap
+    const above = rect.top - agentMenuGap - agentMenuHeight
+    const top = below + agentMenuHeight <= window.innerHeight - agentMenuMargin
+      ? below
+      : Math.max(agentMenuMargin, above)
+
+    setAgentMenuPosition({ left, top })
+    setOpenMenuProfileId(agentId)
+  }
 
   function updateAgentForm<K extends keyof AgentFormState>(key: K, value: AgentFormState[K]) {
     setAgentForm((current) => ({ ...current, [key]: value }))
@@ -555,25 +600,59 @@ export function AgentProfilesPage() {
                 />
                 <span aria-hidden="true" />
               </label>
-              <div className="relative">
-                <button className="quickforge-settings-icon-action" type="button" onClick={() => setOpenMenuProfileId(openMenuProfileId === agent.id ? null : agent.id)} title={t('moreActions')}>
-                  <MoreHorizontal className="size-4" />
-                </button>
-                {openMenuProfileId === agent.id ? (
-                  <div className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-xl border border-border bg-popover py-1 text-sm shadow-quickforge">
-                    <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={agent.builtin || agent.readonly} onClick={() => { setOpenMenuProfileId(null); openEditAgentDialog(agent) }}>
-                      <Edit3 className="size-3.5" />{t('editTask')}
-                    </button>
-                    <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-destructive hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={agent.builtin || agent.readonly} onClick={() => { setOpenMenuProfileId(null); void deleteAgent(agent) }}>
-                      <Trash2 className="size-3.5" />{t('delete')}
-                    </button>
-                  </div>
-                ) : null}
-              </div>
+              <button
+                className="quickforge-settings-icon-action"
+                type="button"
+                onClick={(event) => toggleAgentMenu(event, agent.id)}
+                title={t('moreActions')}
+                aria-label={t('moreActions')}
+                aria-haspopup="menu"
+                aria-expanded={openMenuProfileId === agent.id}
+              >
+                <MoreHorizontal className="size-4" />
+              </button>
             </div>
           </div>
         ))}
       </section>
+
+      {openMenuAgent && agentMenuPosition ? createPortal(
+        <div
+          className="fixed z-50 w-36 overflow-hidden rounded-xl border border-border bg-popover py-1 text-sm shadow-quickforge"
+          style={{ left: agentMenuPosition.left, top: agentMenuPosition.top }}
+          role="menu"
+          aria-label={t('moreActions')}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+            type="button"
+            role="menuitem"
+            disabled={openMenuAgent.builtin || openMenuAgent.readonly}
+            onClick={() => {
+              setOpenMenuProfileId(null)
+              setAgentMenuPosition(null)
+              openEditAgentDialog(openMenuAgent)
+            }}
+          >
+            <Edit3 className="size-3.5" />{t('editTask')}
+          </button>
+          <button
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-destructive hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+            type="button"
+            role="menuitem"
+            disabled={openMenuAgent.builtin || openMenuAgent.readonly}
+            onClick={() => {
+              setOpenMenuProfileId(null)
+              setAgentMenuPosition(null)
+              void deleteAgent(openMenuAgent)
+            }}
+          >
+            <Trash2 className="size-3.5" />{t('delete')}
+          </button>
+        </div>,
+        document.body,
+      ) : null}
     </div>
   )
 }

@@ -5,7 +5,6 @@ import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import { ArrowLeft, Bot, MoreHorizontal, Edit3, Sparkles, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { InfoTip } from '@/components/ui/info-tip'
 import { showConfirm } from '@/components/ui/confirm-dialog'
@@ -615,16 +614,9 @@ export function AgentProfilesPage() {
             }}
           >
             <div className="quickforge-settings-list-item-main quickforge-agent-profile-row-main">
-              <span
-                className={cn('quickforge-agent-profile-status-dot', agent.enabledAsSubagent ? 'quickforge-agent-profile-status-dot--enabled' : null)}
-                aria-label={agent.enabledAsSubagent ? t('enabled') : t('disabled')}
-                title={agent.enabledAsSubagent ? t('enabled') : t('disabled')}
-              />
               <div className="quickforge-agent-profile-summary">
                 <span className="quickforge-agent-profile-label" title={agent.label}>{agent.label}</span>
-                <span className="quickforge-agent-profile-name quickforge-settings-mono" title={agent.name}>{agent.name}</span>
-                <span className="quickforge-agent-profile-description" title={agent.description || t('noDescription')}>· {agent.description || t('noDescription')}</span>
-                <span className="quickforge-agent-profile-name quickforge-settings-mono" title={agent.model?.mode === 'fixed' ? `${agent.model.provider}/${agent.model.modelId}` : t('agentModelInherit')}>· {agent.model?.mode === 'fixed' ? `${agent.model.provider}/${agent.model.modelId}` : t('agentModelInherit')}</span>
+                {agent.description ? <span className="quickforge-agent-profile-description" title={agent.description}>{agent.description}</span> : null}
               </div>
             </div>
             <div className="quickforge-settings-list-item-actions" onClick={(event) => event.stopPropagation()}>

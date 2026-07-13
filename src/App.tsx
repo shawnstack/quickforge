@@ -63,6 +63,7 @@ import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { logger } from '@/lib/logger'
 import { getDeletedProjectRecoveryDecision } from '@/lib/deleted-project-recovery'
 import { isCurrentProjectRequest } from '@/lib/project-request-guard'
+import { shouldRefreshTitleGitStatusOnToolEnd } from '@/lib/title-git-status-refresh'
 import { showAlert, showConfirm } from '@/components/ui/confirm-dialog'
 import { ToastContainer } from '@/components/ui/toast'
 import { GitBranchMenu } from '@/components/git/GitBranchMenu'
@@ -494,6 +495,28 @@ function MainApp() {
     const timer = window.setTimeout(() => { void refreshTitleGitStatus() }, 0)
     return () => window.clearTimeout(timer)
   }, [refreshTitleGitStatus])
+
+  useEffect(() => {
+    let refreshTimer: number | undefined
+    const unsubscribe = subscribeToAgentEvents((event) => {
+      if (!shouldRefreshTitleGitStatusOnToolEnd(
+        event,
+        currentSessionIdRef.current,
+        currentToolProjectIdRef.current,
+      )) return
+
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = undefined
+        void refreshTitleGitStatus()
+      }, 400)
+    })
+
+    return () => {
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
+      unsubscribe()
+    }
+  }, [agentManager.currentSessionId, currentSessionIdRef, refreshTitleGitStatus])
 
   const handleCheckoutTitleBranch = useCallback(async (branch: string) => {
     const projectId = agentManager.currentToolProject?.id

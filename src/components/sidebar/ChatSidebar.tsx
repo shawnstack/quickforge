@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Archive,
+  BookOpen,
   CalendarClock,
   CalendarPlus,
   Check,
@@ -702,7 +703,7 @@ export const ChatSidebar = memo(function ChatSidebar({
           title={t('manageGlobalSkills')}
         >
           <span className={iconSlotClass}>
-            <Puzzle className="size-4" />
+            <BookOpen className="size-4" />
           </span>
           {sidebarOpen ? <span className={sessionTitleClass}>{t('skills')}</span> : null}
         </button>

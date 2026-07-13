@@ -4,9 +4,35 @@ All notable changes to QuickForge will be documented in this file.
 
 ## [Unreleased]
 
+## [1.6.9] - 2026-07-13
+
 ### Added
 
+- Added managed Markdown agent profiles with capability policies, model and thinking-level controls, and inline temporary subagent support.
+- Added Git staging and unstaging actions, inline diff previews, and clearer file navigation to the workspace review panel.
 - Added safe, on-demand Mermaid diagram previews for Assistant Markdown and Workspace Markdown Reader fenced code blocks, with preview/source switching and source fallback when rendering fails.
+- Added a vision-model toggle for custom providers.
+
+### Changed
+
+- Improved workspace and chat workflows with persistent inspector tabs, draft restoration, deleted-project recovery, safer project request handling, and clearer process timing and folding.
+- Refined the Git commit and push workflow with staged-file selection, detached HEAD handling, and push retries.
+- Polished agent profile, workspace changes, sidebar, workspace opening, and subagent task interfaces.
+
+### Fixed
+
+- Prevented stale streamed state from overriding a conversation rollback.
+- Split workspace opening from workspace selection and refined the sidebar toggle interaction.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.6.9` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.6.9.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.6.9.tgz
+  ```
 
 ## [1.6.8] - 2026-07-09
 

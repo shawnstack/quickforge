@@ -35,8 +35,9 @@ export function MonacoCodeViewer({ path, content, language }: MonacoCodeViewerPr
         folding: false,
         glyphMargin: false,
         scrollbar: {
+          horizontal: 'visible',
+          horizontalScrollbarSize: 10,
           verticalScrollbarSize: 8,
-          horizontalScrollbarSize: 8,
         },
       }}
     />

@@ -186,8 +186,8 @@ export async function openPathInFileManager(targetPath) {
 export async function openPathInVSCode(targetPath) {
   const resolved = path.resolve(String(targetPath || ''))
   const stat = await fs.stat(resolved).catch(() => null)
-  if (!stat || !stat.isDirectory()) {
-    const error = new Error(`Directory does not exist: ${resolved}`)
+  if (!stat || (!stat.isDirectory() && !stat.isFile())) {
+    const error = new Error(`Path does not exist: ${resolved}`)
     error.statusCode = 400
     throw error
   }
@@ -234,8 +234,8 @@ export async function openPathInVSCode(targetPath) {
 export async function openPathInIDEA(targetPath) {
   const resolved = path.resolve(String(targetPath || ''))
   const stat = await fs.stat(resolved).catch(() => null)
-  if (!stat || !stat.isDirectory()) {
-    const error = new Error(`Directory does not exist: ${resolved}`)
+  if (!stat || (!stat.isDirectory() && !stat.isFile())) {
+    const error = new Error(`Path does not exist: ${resolved}`)
     error.statusCode = 400
     throw error
   }

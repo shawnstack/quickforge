@@ -130,7 +130,7 @@ function linePrefix(kind: DiffLine['kind']) {
 function DiffContentLine({ row }: { row: DiffLine }) {
   const lineNumber = row.kind === 'delete' ? row.oldLine : row.newLine ?? row.oldLine
   return (
-    <div className={cn('grid min-w-max grid-cols-[3rem_minmax(34rem,1fr)] text-[13px] leading-6', lineClassName(row.kind))}>
+    <div className={cn('grid w-max min-w-full grid-cols-[3rem_auto] text-[13px] leading-6', lineClassName(row.kind))}>
       <span className={cn('select-none pr-3 text-right font-mono', row.kind === 'delete' && 'text-red-600 dark:text-red-500', row.kind === 'add' && 'text-emerald-600 dark:text-emerald-500', row.kind === 'context' && 'text-muted-foreground/62')}>{lineNumber ?? ''}</span>
       <code className="whitespace-pre pr-4 font-mono">
         <span className={cn('mr-3 select-none', row.kind === 'add' && 'text-emerald-600 dark:text-emerald-500', row.kind === 'delete' && 'text-red-600 dark:text-red-500')}>{linePrefix(row.kind)}</span>
@@ -178,15 +178,15 @@ export function WorkspaceInlineDiffPreview({ diff, loading, error }: WorkspaceIn
   }
 
   return (
-    <div className="rounded-b-xl border-t border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background">
-      <div className="max-h-[28rem] overflow-auto pb-1">
-        <div className="min-w-max py-2">
+    <div className="min-w-0 max-w-full overflow-hidden rounded-b-xl border-t border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background">
+      <div className="max-h-[28rem] min-w-0 overflow-auto pb-1">
+        <div className="w-max min-w-full py-2">
           {rows.map((row) => {
             if (row.kind !== 'collapsed') return <DiffContentLine key={`${row.kind}:${row.oldLine ?? ''}:${row.newLine ?? ''}:${row.text}`} row={row} />
             const expanded = expandedGroups.has(row.id)
             return (
               <div key={row.id}>
-                <div className="grid min-w-max grid-cols-[3rem_minmax(34rem,1fr)] gap-1 py-1 pr-4">
+                <div className="grid w-full min-w-0 grid-cols-[3rem_minmax(0,1fr)] gap-1 py-1 pr-4">
                   <button
                     type="button"
                     className="flex h-12 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground/75 transition-colors hover:bg-muted/78 hover:text-foreground/80"

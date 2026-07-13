@@ -5,13 +5,14 @@ import type { AiTurnArtifact } from '@/lib/tool-artifacts'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
+import { ProjectOpenMenu } from '@/components/project/ProjectOpenMenu'
 import { showAlert, showConfirm } from '@/components/ui/confirm-dialog'
 import { WebPreviewContent } from '@/components/preview/WebPreviewContent'
 import { MarkdownReader } from './MarkdownReader'
 import { MonacoCodeViewer } from './MonacoCodeViewer'
 import { MonacoDiffViewer } from './MonacoDiffViewer'
 import { countDiffLines } from './diff-line-counts'
-import { getGitFileDiff, getGitStatus, getWorkspaceFile, getWorkspaceTree, restoreAllGitChanges, restoreGitFile, stageAllGitChanges, stageGitFile, unstageAllGitChanges, unstageGitFile } from './workspace-api'
+import { getGitFileDiff, getGitStatus, getWorkspaceFile, getWorkspaceTree, openWorkspaceExternal, restoreAllGitChanges, restoreGitFile, stageAllGitChanges, stageGitFile, unstageAllGitChanges, unstageGitFile } from './workspace-api'
 import { WorkspaceChangesList } from './WorkspaceChangesList'
 import { WorkspaceFileTree } from './WorkspaceFileTree'
 import { artifactFileName, isBrowserPreviewablePath, presentArtifacts } from './artifact-preview-utils'
@@ -39,6 +40,9 @@ type WorkspaceInspectorProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   onOpenCommitPush?: () => void
+  onOpenProjectInExplorer?: (project: ProjectInfo) => void
+  onOpenProjectInVSCode?: (project: ProjectInfo) => void
+  onOpenProjectInIDEA?: (project: ProjectInfo) => void
   onPreviewArtifact?: (projectId: string, path: string) => void
   onDraftRequest?: (text: string) => void
   request?: WorkspaceInspectorOpenRequest
@@ -93,12 +97,14 @@ function viewFromPanelKind(kind: WorkspacePanelPrimaryTabKind): WorkspacePanelVi
 function browserTabLabel(previewUrl: string) {
   const value = previewUrl.trim()
   if (!value) return 'about:blank'
+  if (/^[a-zA-Z]:[\\/]/.test(value)) return artifactFileName(value)
   try {
     const url = new URL(value)
     if (url.protocol === 'about:') return value
+    if (url.protocol === 'file:') return artifactFileName(decodeURIComponent(url.pathname))
     return url.host || value
   } catch {
-    return value.split(/[\\/]/).pop() || value
+    return artifactFileName(value)
   }
 }
 
@@ -113,6 +119,7 @@ function panelTabLabel(tab: WorkspacePanelTab, projectName: string | undefined) 
 }
 
 function panelTabTitle(tab: WorkspacePanelTab, fallbackLabel: string) {
+  if (tab.kind === 'browser') return tab.url || fallbackLabel
   if (tab.kind !== 'reader') return fallbackLabel
   const reader = tab.readerTabs?.find((item) => item.id === tab.activeReaderTabId) ?? tab.readerTabs?.[0]
   return reader?.path || fallbackLabel
@@ -428,7 +435,7 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
   )
 }
 
-export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPush, onPreviewArtifact, onDraftRequest, request, onRequestHandled, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled }: WorkspaceInspectorProps) {
+export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPush, onOpenProjectInExplorer, onOpenProjectInVSCode, onOpenProjectInIDEA, onPreviewArtifact, onDraftRequest, request, onRequestHandled, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled }: WorkspaceInspectorProps) {
   const [tree, setTree] = useState<WorkspaceTreeNode[]>([])
   const [changes, setChanges] = useState<GitChangedFile[]>([])
   const [gitBranch, setGitBranch] = useState<string>()
@@ -526,6 +533,9 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
     if (reviewFilter === 'last') return changes.filter((file) => lastRunPaths.has(file.path) || (file.oldPath ? lastRunPaths.has(file.oldPath) : false))
     return changes.filter((file) => file.unstaged || file.status === 'untracked' || file.conflict || file.status === 'conflicted')
   }, [changes, lastRunPaths, reviewFilter])
+  const selectedReviewFile = expandedDiffPath
+    ? reviewFiles.find((file) => file.path === expandedDiffPath)
+    : undefined
 
   function applyGitStatus(statusResponse: { files: GitChangedFile[]; branch?: string; isGitRepository: boolean }) {
     setChanges(statusResponse.files)
@@ -594,6 +604,27 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
   function handleOpenChangedFile(file: GitChangedFile) {
     if (file.status === 'deleted') return
     void openFileTab(file.path)
+  }
+
+  async function handleOpenSelectedChangeExternally(target: 'explorer' | 'vscode' | 'idea') {
+    if (!project) return
+    if (!selectedReviewFile) {
+      if (target === 'explorer') onOpenProjectInExplorer?.(project)
+      else if (target === 'idea') onOpenProjectInIDEA?.(project)
+      else onOpenProjectInVSCode?.(project)
+      return
+    }
+    if (!projectId) return
+    try {
+      await openWorkspaceExternal(projectId, selectedReviewFile.path, target)
+    } catch (err) {
+      const fallback = target === 'explorer'
+        ? t('openInExplorerFailed')
+        : target === 'idea'
+          ? t('openInIDEAFailed')
+          : t('openInVSCodeFailed')
+      await showAlert(err instanceof Error ? err.message : fallback)
+    }
   }
 
   useEffect(() => {
@@ -1393,7 +1424,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
             <>
               <div
                 className={cn(
-                  'flex min-h-0 flex-col bg-muted/20',
+                  'flex min-h-0 min-w-0 flex-col bg-muted/20',
                   hasFileTab ? 'shrink-0 border-r-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)]' : 'flex-1',
                 )}
                 style={hasFileTab ? { width: leftWidth, minWidth: NAV_PANEL_MIN_WIDTH, maxWidth: NAV_PANEL_MAX_WIDTH } : undefined}
@@ -1401,7 +1432,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
                 {error ? (
                   <div className="p-4 text-sm text-destructive">{error}</div>
                 ) : (
-                  <div className={cn('min-h-0 flex-1 p-2', navView === 'changes' ? 'flex flex-col overflow-hidden' : 'overflow-auto')}>
+                  <div className={cn('min-h-0 min-w-0 flex-1 p-2', navView === 'changes' ? 'flex flex-col overflow-hidden' : 'overflow-auto')}>
                     {loading ? <div className="px-2 py-3 text-xs text-muted-foreground/70">{t('workspaceLoading')}</div> : null}
                     {!loading && navView === 'overview' ? (
                       <WorkspaceOverview
@@ -1433,12 +1464,12 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
                     {!loading && navView === 'changes' ? (
                       isGitRepository
                         ? (
-                          <div className="flex min-h-0 flex-1 flex-col">
-                            <div className="flex shrink-0 items-center justify-between gap-2 px-2 pb-2">
-                              <div ref={reviewFilterRef} className="relative min-w-0">
+                          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                            <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-1.5 pb-2">
+                              <div ref={reviewFilterRef} className="relative min-w-24 flex-1">
                                 <button
                                   type="button"
-                                  className="inline-flex h-8 min-w-32 items-center gap-2 rounded-xl border border-[color-mix(in_oklab,var(--border)_45%,transparent)] bg-background px-3 text-sm font-medium text-foreground/86 transition-colors hover:border-border/60 hover:bg-muted/30 hover:text-foreground"
+                                  className="inline-flex h-8 w-full min-w-0 max-w-full items-center gap-2 rounded-xl border border-[color-mix(in_oklab,var(--border)_45%,transparent)] bg-background px-3 text-sm font-medium text-foreground/86 transition-colors hover:border-border/60 hover:bg-muted/30 hover:text-foreground"
                                   onClick={() => setReviewFilterOpen((value) => !value)}
                                   aria-haspopup="menu"
                                   aria-expanded={reviewFilterOpen}
@@ -1474,18 +1505,25 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
                                   </div>
                                 ) : null}
                               </div>
-                              <div className="flex shrink-0 items-center gap-1">
+                              <div className="ml-auto flex shrink-0 items-center gap-1">
                                 <button
                                   type="button"
-                                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xl px-2.5 text-sm font-medium text-muted-foreground/72 transition-colors hover:bg-muted/30 hover:text-foreground/85 disabled:cursor-not-allowed disabled:opacity-60"
+                                  className="inline-flex size-8 shrink-0 items-center justify-center rounded-xl text-muted-foreground/72 transition-colors hover:bg-muted/30 hover:text-foreground/85 disabled:cursor-not-allowed disabled:opacity-60"
                                   onClick={() => void loadWorkspace()}
                                   disabled={loading}
                                   aria-label={t('refreshWorkspace')}
                                   title={t('refreshWorkspace')}
                                 >
                                   <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
-                                  <span>{t('refresh')}</span>
                                 </button>
+                                <ProjectOpenMenu
+                                  project={project}
+                                  disabledTargets={selectedReviewFile?.status === 'deleted' ? { vscode: true, idea: true } : undefined}
+                                  targetDisabledLabel={t('workspaceCannotOpenDeletedFile')}
+                                  onOpenInExplorer={() => { void handleOpenSelectedChangeExternally('explorer') }}
+                                  onOpenInVSCode={() => { void handleOpenSelectedChangeExternally('vscode') }}
+                                  onOpenInIDEA={() => { void handleOpenSelectedChangeExternally('idea') }}
+                                />
                                 {onOpenCommitPush ? (
                                   <button
                                     type="button"

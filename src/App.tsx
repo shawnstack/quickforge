@@ -1707,6 +1707,9 @@ function MainApp() {
               open={ui.workspaceInspectorOpen}
               onOpenChange={ui.setWorkspaceInspectorOpen}
               onOpenCommitPush={() => setGitCommitDialogOpen(true)}
+              onOpenProjectInExplorer={openProjectInExplorerWithFeedback}
+              onOpenProjectInVSCode={openProjectInVSCodeWithFeedback}
+              onOpenProjectInIDEA={openProjectInIDEAWithFeedback}
               onPreviewArtifact={openArtifactPreview}
               onDraftRequest={restoreWorkspaceDraft}
               request={ui.workspaceInspectorRequest}

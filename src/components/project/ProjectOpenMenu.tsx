@@ -10,6 +10,8 @@ import vscodeIconUrl from '@/assets/icons/vscode.svg'
 type ProjectOpenMenuProps = {
   project?: ProjectInfo | null
   disabled?: boolean
+  disabledTargets?: Partial<Record<ProjectOpenTarget, boolean>>
+  targetDisabledLabel?: string
   onOpenInExplorer: (project: ProjectInfo) => void
   onOpenInVSCode: (project: ProjectInfo) => void
   onOpenInIDEA: (project: ProjectInfo) => void
@@ -25,13 +27,16 @@ function readProjectOpenTarget(): ProjectOpenTarget {
   return target === 'explorer' || target === 'idea' ? target : 'vscode'
 }
 
-export function ProjectOpenMenu({ project, disabled, onOpenInExplorer, onOpenInVSCode, onOpenInIDEA }: ProjectOpenMenuProps) {
+export function ProjectOpenMenu({ project, disabled, disabledTargets, targetDisabledLabel, onOpenInExplorer, onOpenInVSCode, onOpenInIDEA }: ProjectOpenMenuProps) {
   const [open, setOpen] = useState(false)
   const [selectedTarget, setSelectedTarget] = useState<ProjectOpenTarget>(readProjectOpenTarget)
   const ref = useRef<HTMLDivElement | null>(null)
   const unavailable = disabled || !project?.id
+  const selectedTargetDisabled = Boolean(disabledTargets?.[selectedTarget])
   const selectedIconUrl = selectedTarget === 'explorer' ? fileManagerIconUrl : selectedTarget === 'idea' ? ideaIconUrl : vscodeIconUrl
-  const selectedOpenLabel = selectedTarget === 'explorer' ? t('openInExplorer') : selectedTarget === 'idea' ? t('openInIDEA') : t('openInVSCode')
+  const selectedOpenLabel = selectedTargetDisabled && targetDisabledLabel
+    ? targetDisabledLabel
+    : selectedTarget === 'explorer' ? t('openInExplorer') : selectedTarget === 'idea' ? t('openInIDEA') : t('openInVSCode')
 
   useEffect(() => {
     if (!open) return undefined
@@ -69,7 +74,7 @@ export function ProjectOpenMenu({ project, disabled, onOpenInExplorer, onOpenInV
   }
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative shrink-0">
       <div
         className={cn(
           'inline-flex h-8 overflow-hidden rounded-xl border border-[color-mix(in_oklab,var(--border)_38%,transparent)] bg-background/90 text-foreground transition-colors',
@@ -80,7 +85,7 @@ export function ProjectOpenMenu({ project, disabled, onOpenInExplorer, onOpenInV
         <button
           type="button"
           className="flex h-full w-8 items-center justify-center bg-background/90 transition-colors hover:bg-muted/25 disabled:pointer-events-none"
-          disabled={unavailable}
+          disabled={unavailable || selectedTargetDisabled}
           onClick={handleOpenSelectedTarget}
           aria-label={selectedOpenLabel}
           title={selectedOpenLabel}
@@ -114,8 +119,10 @@ export function ProjectOpenMenu({ project, disabled, onOpenInExplorer, onOpenInV
           </button>
           <button
             type="button"
-            className="flex h-10 w-full items-center gap-3 px-3 text-left text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+            className="flex h-10 w-full items-center gap-3 px-3 text-left text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-45"
             onClick={() => handleSelectTarget('vscode')}
+            disabled={Boolean(disabledTargets?.vscode)}
+            title={disabledTargets?.vscode ? targetDisabledLabel : undefined}
             role="menuitem"
           >
             <img src={vscodeIconUrl} alt="" className="size-5 shrink-0" draggable={false} />
@@ -124,8 +131,10 @@ export function ProjectOpenMenu({ project, disabled, onOpenInExplorer, onOpenInV
           </button>
           <button
             type="button"
-            className="flex h-10 w-full items-center gap-3 px-3 text-left text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+            className="flex h-10 w-full items-center gap-3 px-3 text-left text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-45"
             onClick={() => handleSelectTarget('idea')}
+            disabled={Boolean(disabledTargets?.idea)}
+            title={disabledTargets?.idea ? targetDisabledLabel : undefined}
             role="menuitem"
           >
             <img src={ideaIconUrl} alt="" className="size-5 shrink-0" draggable={false} />

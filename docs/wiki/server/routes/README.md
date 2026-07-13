@@ -217,6 +217,7 @@ Workspace Inspector 后端 API。
 - `GET /api/workspace/file?projectId=...&path=...` — 安全读取工作区文本文件。
 - `GET /api/workspace/preview/:projectId/:path` — 为 HTML/SVG/图片/Markdown 等允许类型提供静态预览。
 - `POST /api/workspace/resolve-path` — 将绝对路径解析为当前项目内的相对路径。
+- `POST /api/workspace/open-external` — 在资源管理器中打开选中变更文件所在目录，或在 VS Code / IntelliJ IDEA 中直接打开工作区内的选中文件；路径经过工作区边界校验。
 - `GET /api/git/status` — 获取 Git 仓库状态、当前分支、变更计数和文件列表。
 - `GET /api/git/file-diff` — 获取单文件工作区 diff 内容。
 - `POST /api/git/stage` — 暂存单个变更文件。

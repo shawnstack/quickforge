@@ -75,12 +75,12 @@ export function WorkspaceChangesList({
   const hasPendingAction = Boolean(pendingAction)
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col bg-background">
-      <div className="min-h-0 flex-1 overflow-auto px-2 pb-20 pt-1">
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+      <div className="min-h-0 min-w-0 flex-1 overflow-auto px-2 pb-20 pt-1">
         {files.length === 0 ? (
           <div className="px-3 py-4 text-xs text-muted-foreground/70">{emptyMessage}</div>
         ) : (
-          <div className="divide-y divide-[color-mix(in_oklab,var(--border)_28%,transparent)]">
+          <div className="min-w-0 divide-y divide-[color-mix(in_oklab,var(--border)_28%,transparent)]">
             {files.map((file) => {
               const isSelected = selectedPath === file.path
               const fileName = fileNameFromPath(file.path)
@@ -97,7 +97,7 @@ export function WorkspaceChangesList({
               return (
                 <div
                   key={`${file.status}:${file.oldPath ?? ''}:${file.path}`}
-                  className={cn('group overflow-hidden', isSelected && 'rounded-xl bg-muted/30')}
+                  className={cn('group min-w-0 overflow-hidden', isSelected && 'rounded-xl bg-muted/30')}
                 >
                   <div
                     className={cn(
@@ -171,23 +171,23 @@ export function WorkspaceChangesList({
         )}
       </div>
 
-      <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 -translate-x-1/2">
-        <div className="pointer-events-auto inline-flex items-center gap-1 rounded-full border border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background/95 p-1 shadow-quickforge">
+      <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center px-2">
+        <div className="pointer-events-auto inline-flex max-w-full items-center gap-1 rounded-full border border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background/95 p-1 shadow-quickforge">
           <button
             type="button"
-            className="inline-flex h-8 items-center gap-2 rounded-full px-3 text-sm font-medium text-muted-foreground/78 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex h-8 min-w-0 items-center gap-2 rounded-full px-3 text-sm font-medium text-muted-foreground/78 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40"
             onClick={onRestoreAll}
             disabled={!onRestoreAll || files.length === 0 || hasPendingAction}
             aria-label={t('workspaceRestoreAll')}
             title={t('workspaceRestoreAll')}
           >
             {restoreAllPending ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />}
-            <span>{t('workspaceRestoreAll')}</span>
+            <span className="truncate">{t('workspaceRestoreAll')}</span>
           </button>
           <button
             type="button"
             className={cn(
-              'inline-flex h-8 items-center gap-2 rounded-full px-3 text-sm font-medium text-muted-foreground/78 transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+              'inline-flex h-8 min-w-0 items-center gap-2 rounded-full px-3 text-sm font-medium text-muted-foreground/78 transition-colors disabled:cursor-not-allowed disabled:opacity-40',
               showUnstageAll
                 ? 'hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-500'
                 : 'hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-500',
@@ -198,7 +198,7 @@ export function WorkspaceChangesList({
             title={showUnstageAll ? t('workspaceUnstageAll') : t('workspaceStageAll')}
           >
             {stageAllPending || unstageAllPending ? <Loader2 className="size-3.5 animate-spin" /> : showUnstageAll ? <Minus className="size-3.5" /> : <Plus className="size-3.5" />}
-            <span>{showUnstageAll ? t('workspaceUnstageAll') : t('workspaceStageAll')}</span>
+            <span className="truncate">{showUnstageAll ? t('workspaceUnstageAll') : t('workspaceStageAll')}</span>
           </button>
         </div>
       </div>

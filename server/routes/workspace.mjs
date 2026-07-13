@@ -6,6 +6,7 @@ import { sendJson, readJsonBody } from '../utils/response.mjs'
 import { projectContextFromId } from '../project-config.mjs'
 import { readStore } from '../storage.mjs'
 import { logger } from '../utils/logger.mjs'
+import { openPathInFileManager, openPathInIDEA, openPathInVSCode } from '../utils/platform.mjs'
 import {
   assertSafeWorkspacePath,
   resolveWorkspacePath,
@@ -745,6 +746,57 @@ async function handleWorkspaceResolvePath(req, res) {
   })
 }
 
+export async function openWorkspaceExternalPath(context, inputPath, target, openers = {}) {
+  const relativePath = typeof inputPath === 'string' ? inputPath.trim() : ''
+  if (!relativePath) {
+    const error = new Error('path is required')
+    error.statusCode = 400
+    throw error
+  }
+  if (target !== 'explorer' && target !== 'vscode' && target !== 'idea') {
+    const error = new Error('target must be explorer, vscode, or idea')
+    error.statusCode = 400
+    throw error
+  }
+
+  const fullPath = resolveWorkspacePath(relativePath, context)
+  await assertSafeWorkspacePath(fullPath, context, {
+    allowSensitive: true,
+    ignoreMissing: true,
+  })
+  const stat = await fs.stat(fullPath).catch(() => null)
+
+  if (target === 'explorer') {
+    const directory = stat?.isDirectory() ? fullPath : path.dirname(fullPath)
+    await assertSafeWorkspacePath(directory, context, { allowSensitive: true })
+    await (openers.explorer ?? openPathInFileManager)(directory)
+    return { ok: true, opened: 'directory', target }
+  }
+
+  if (!stat?.isFile()) {
+    const error = new Error(`File does not exist: ${toWorkspaceRelative(fullPath, context)}`)
+    error.statusCode = 400
+    throw error
+  }
+  const opener = target === 'vscode'
+    ? (openers.vscode ?? openPathInVSCode)
+    : (openers.idea ?? openPathInIDEA)
+  await opener(fullPath)
+  return { ok: true, opened: 'file', target }
+}
+
+async function handleWorkspaceOpenExternal(req, res) {
+  const body = await readJsonBody(req, 16 * 1024)
+  const projectId = typeof body?.projectId === 'string' ? body.projectId : ''
+  if (!projectId) {
+    const error = new Error('projectId is required')
+    error.statusCode = 400
+    throw error
+  }
+  const context = await projectContextFromId(projectId)
+  sendJson(res, 200, await openWorkspaceExternalPath(context, body?.path, body?.target))
+}
+
 async function handleGitStatus(req, res, url) {
   const context = await projectContextFromUrl(url)
   sendJson(res, 200, await listGitStatus(context))
@@ -936,6 +988,10 @@ export async function handleWorkspaceApi(req, res, url) {
   }
   if (req.method === 'POST' && url.pathname === '/api/workspace/resolve-path') {
     await handleWorkspaceResolvePath(req, res)
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/workspace/open-external') {
+    await handleWorkspaceOpenExternal(req, res)
     return
   }
 

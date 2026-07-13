@@ -50,6 +50,15 @@ export function resolveWorkspacePath(projectId: string, path: string) {
   return postJson<WorkspaceResolvedPathResponse>('/api/workspace/resolve-path', { projectId, path })
 }
 
+export type WorkspaceExternalOpenTarget = 'explorer' | 'vscode' | 'idea'
+
+export function openWorkspaceExternal(projectId: string, path: string, target: WorkspaceExternalOpenTarget) {
+  return postJson<{ ok: true; opened: 'file' | 'directory'; target: WorkspaceExternalOpenTarget }>(
+    '/api/workspace/open-external',
+    { projectId, path, target },
+  )
+}
+
 export function getGitStatus(projectId: string) {
   return fetchJson<GitStatusResponse>(`/api/git/status?${projectQuery(projectId)}`)
 }

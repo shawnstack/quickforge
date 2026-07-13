@@ -1326,11 +1326,11 @@ function MainApp() {
         size="icon"
         onClick={() => {
           setArtifactPreviewOpen(false)
-          setTerminalDockOpen(true)
+          setTerminalDockOpen((value) => !value)
         }}
         disabled={!agentManager.currentToolProject?.id || needsModelSetup}
-        aria-label={t('rightPanelTerminal')}
-        title={t('rightPanelTerminal')}
+        aria-label={terminalDockOpen ? t('terminalCollapse') : t('rightPanelTerminal')}
+        title={terminalDockOpen ? t('terminalCollapse') : t('rightPanelTerminal')}
         className={terminalDockOpen ? 'bg-accent text-accent-foreground' : undefined}
       >
         <SquareTerminal className="size-[18px]" />

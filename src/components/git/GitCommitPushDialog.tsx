@@ -164,7 +164,6 @@ export function GitCommitPushDialog({ open, projectId, status, onClose, onChecko
         const payload = await pushGitBranch(projectId)
         setPushError('')
         onCompleted(payload)
-        onClose()
         return
       }
       if (action === 'commit-push') {
@@ -175,13 +174,13 @@ export function GitCommitPushDialog({ open, projectId, status, onClose, onChecko
           setPushError(payload.pushError || t('gitOperationFailed'))
           return
         }
+        setMessage('')
         onCompleted(payload)
-        onClose()
         return
       }
       const payload = await commitGitChanges(projectId, message.trim(), includeUnstaged)
+      setMessage('')
       onCompleted(payload)
-      onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : t('gitOperationFailed'))
     } finally {

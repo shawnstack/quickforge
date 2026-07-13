@@ -136,7 +136,7 @@ components/
 - 右侧专业工作区检查器入口为 `WorkspaceInspector.tsx`，采用类浏览器顶部 Tab 工作区；`+` 菜单提供 Files / Review / Terminal / Browser 入口。Tab 列表、活动 `activePanelTabId` 和 Review 的 Overview/Changes 子视图按 `projectId` 写入浏览器 `localStorage`，活动 Tab 是恢复事实源；项目切换通过 React `key` 重建 Inspector，从而加载新项目各自的 Tab 状态。
 - 标题栏 Git、聊天文件链接、文件 Reader 和产物 Browser 等外部入口通过携带 `projectId` 的一次性请求打开对应 Tab；Inspector 仅在请求项目与当前项目一致时消费并清除请求，普通折叠后重新展开不会重放已处理请求。
 - Files tab 通过后端 `/api/workspace/tree` 浏览当前项目文件；从 Files 中打开普通文件时，会提升为独立顶部 reader tab，Tab 标题显示文件名，内容区保留左侧工作目录树并在右侧使用 Monaco Editor / Markdown Reader 只读展示；文件 reader tab 按项目保存路径，恢复时重新加载最新内容。Markdown 和代码产物进入 reader，HTML、SVG 和图片产物进入 Browser。
-- Review tab 通过 `/api/git/status` 展示 Git 工作区变更，并在同一个 Review/Changes tab 内通过 `/api/git/file-diff` 展示单文件差异；Changes 列表提供单文件还原、暂存、退回未暂存、在新标签中打开文件，以及底部批量还原/暂存/退回操作，分别调用 `/api/git/restore`、`/api/git/stage`、`/api/git/unstage`、`/api/git/restore-all`、`/api/git/stage-all`、`/api/git/unstage-all`；标题栏 Git 更改入口会聚焦该 Review/Changes 工作区。
+- Review tab 通过 `/api/git/status` 展示 Git 工作区变更，并在同一个 Review/Changes tab 内通过 `/api/git/file-diff` 展示单文件差异；Changes 顶部刷新按钮右侧提供提交入口并打开 `GitCommitPushDialog`；Changes 列表提供单文件还原、暂存、退回未暂存、在新标签中打开文件，以及底部批量还原/暂存/退回操作，分别调用 `/api/git/restore`、`/api/git/stage`、`/api/git/unstage`、`/api/git/restore-all`、`/api/git/stage-all`、`/api/git/unstage-all`；标题栏 Git 更改入口会聚焦该 Review/Changes 工作区。
 - 标题栏 Git 分支 chip 通过 `/api/git/branches`、`/api/git/checkout`、`/api/git/create-branch` 和 `/api/git/log` 提供分支切换、创建并检出新分支和 Git 图谱弹窗；Workspace Inspector 仍聚焦文件浏览、产物预览和 diff review
 - AI 产物预览统一进入 Workspace Inspector：Markdown/代码打开项目级 reader Tab，HTML/SVG/图片打开项目级 Browser Tab；Tab 恢复由项目级持久化状态负责。
 - `ArtifactFilesPopover.tsx` 提供类似浏览器 tools 的产物文件浮层，支持多个 artifact 之间切换和 pin

@@ -1706,6 +1706,7 @@ function MainApp() {
               project={agentManager.currentToolProject}
               open={ui.workspaceInspectorOpen}
               onOpenChange={ui.setWorkspaceInspectorOpen}
+              onOpenCommitPush={() => setGitCommitDialogOpen(true)}
               onPreviewArtifact={openArtifactPreview}
               onDraftRequest={restoreWorkspaceDraft}
               request={ui.workspaceInspectorRequest}

@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronsLeftRight, Code2, Copy, Eye, Folder, GitBranch, Globe, Maximize2, MessageSquare, Minimize2, Plus, RefreshCw, Search, SquareTerminal, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronsLeftRight, Code2, Copy, Eye, Folder, GitBranch, GitCommitHorizontal, Globe, Maximize2, MessageSquare, Minimize2, Plus, RefreshCw, Search, SquareTerminal, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ProjectInfo } from '@/lib/types'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
@@ -38,6 +38,7 @@ type WorkspaceInspectorProps = {
   project?: ProjectInfo
   open: boolean
   onOpenChange: (open: boolean) => void
+  onOpenCommitPush?: () => void
   onPreviewArtifact?: (projectId: string, path: string) => void
   onDraftRequest?: (text: string) => void
   request?: WorkspaceInspectorOpenRequest
@@ -109,6 +110,12 @@ function panelTabLabel(tab: WorkspacePanelTab, projectName: string | undefined) 
     return reader ? artifactFileName(reader.path) : t('rightPanelFiles')
   }
   return PANEL_TAB_BY_KIND[tab.kind].label
+}
+
+function panelTabTitle(tab: WorkspacePanelTab, fallbackLabel: string) {
+  if (tab.kind !== 'reader') return fallbackLabel
+  const reader = tab.readerTabs?.find((item) => item.id === tab.activeReaderTabId) ?? tab.readerTabs?.[0]
+  return reader?.path || fallbackLabel
 }
 
 const WORKSPACE_INSPECTOR_MIN_WIDTH = 340
@@ -421,7 +428,7 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
   )
 }
 
-export function WorkspaceInspector({ project, open, onOpenChange, onPreviewArtifact, onDraftRequest, request, onRequestHandled, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled }: WorkspaceInspectorProps) {
+export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPush, onPreviewArtifact, onDraftRequest, request, onRequestHandled, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled }: WorkspaceInspectorProps) {
   const [tree, setTree] = useState<WorkspaceTreeNode[]>([])
   const [changes, setChanges] = useState<GitChangedFile[]>([])
   const [gitBranch, setGitBranch] = useState<string>()
@@ -1188,6 +1195,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onPreviewArtif
                     const Icon = item?.icon ?? Code2
                     const active = tab.id === activePanelTabId
                     const label = panelTabLabel(tab, project?.name)
+                    const title = panelTabTitle(tab, label)
                     return (
                       <div
                         key={tab.id}
@@ -1205,7 +1213,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onPreviewArtif
                             setTabListOpen(false)
                           }}
                           role="menuitem"
-                          title={label}
+                          title={title}
                         >
                           <Icon className="size-4 shrink-0 text-muted-foreground/80" />
                           <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -1234,6 +1242,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onPreviewArtif
               const Icon = item?.icon ?? Code2
               const active = tab.id === activePanelTabId
               const label = panelTabLabel(tab, project?.name)
+              const title = panelTabTitle(tab, label)
               return (
                 <div key={tab.id} className="flex shrink-0 items-center gap-1">
                   {index > 0 ? <span aria-hidden="true" className="mx-0.5 h-3.5 w-px bg-[color-mix(in_oklab,var(--muted-foreground)_18%,transparent)]" /> : null}
@@ -1246,7 +1255,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onPreviewArtif
                         : 'text-muted-foreground/45 hover:bg-[color-mix(in_oklab,var(--muted)_72%,transparent)] hover:text-muted-foreground/72',
                     )}
                     onClick={() => activatePanelTab(tab)}
-                    title={label}
+                    title={title}
                   >
                     <Icon className={cn('size-4 shrink-0', active ? 'text-foreground/74' : 'text-muted-foreground/45 group-hover:text-muted-foreground/72')} />
                     <span className="min-w-0 truncate">{label}</span>
@@ -1465,17 +1474,30 @@ export function WorkspaceInspector({ project, open, onOpenChange, onPreviewArtif
                                   </div>
                                 ) : null}
                               </div>
-                              <button
-                                type="button"
-                                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xl px-2.5 text-sm font-medium text-muted-foreground/72 transition-colors hover:bg-muted/30 hover:text-foreground/85 disabled:cursor-not-allowed disabled:opacity-60"
-                                onClick={() => void loadWorkspace()}
-                                disabled={loading}
-                                aria-label={t('refreshWorkspace')}
-                                title={t('refreshWorkspace')}
-                              >
-                                <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
-                                <span>{t('refresh')}</span>
-                              </button>
+                              <div className="flex shrink-0 items-center gap-1">
+                                <button
+                                  type="button"
+                                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xl px-2.5 text-sm font-medium text-muted-foreground/72 transition-colors hover:bg-muted/30 hover:text-foreground/85 disabled:cursor-not-allowed disabled:opacity-60"
+                                  onClick={() => void loadWorkspace()}
+                                  disabled={loading}
+                                  aria-label={t('refreshWorkspace')}
+                                  title={t('refreshWorkspace')}
+                                >
+                                  <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
+                                  <span>{t('refresh')}</span>
+                                </button>
+                                {onOpenCommitPush ? (
+                                  <button
+                                    type="button"
+                                    className="inline-flex size-8 shrink-0 items-center justify-center rounded-xl text-muted-foreground/72 transition-colors hover:bg-muted/30 hover:text-foreground/85"
+                                    onClick={onOpenCommitPush}
+                                    aria-label={t('gitToolsCommitOrPush')}
+                                    title={t('gitToolsCommitOrPush')}
+                                  >
+                                    <GitCommitHorizontal className="size-3.5" />
+                                  </button>
+                                ) : null}
+                              </div>
                             </div>
 
                             <WorkspaceChangesList

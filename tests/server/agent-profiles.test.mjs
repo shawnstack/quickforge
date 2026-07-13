@@ -33,6 +33,7 @@ describe('managed custom agent markdown profiles', () => {
       allowedTools: ['read_file', 'grep_files'],
       capabilityPolicy: 'review-only',
       enabledAsSubagent: true,
+      thinkingLevel: 'high',
     })
 
     expect(created.source).toBe('user')
@@ -42,9 +43,10 @@ describe('managed custom agent markdown profiles', () => {
     expect(markdown).toContain('name: reviewer')
     expect(markdown).toContain('managedBy: quickforge')
     expect(markdown).toContain('readonly: false')
+    expect(markdown).toContain('thinking-level: high')
 
     const loaded = await getAgentProfile(created.id)
-    expect(loaded).toMatchObject({ name: 'reviewer', source: 'user', readonly: false })
+    expect(loaded).toMatchObject({ name: 'reviewer', source: 'user', readonly: false, thinkingLevel: 'high' })
   })
 
   it('updates, renames, and deletes managed markdown agents', async () => {
@@ -109,6 +111,33 @@ describe('managed custom agent markdown profiles', () => {
     expect(await readFile(path.join(userAgentsDir, '.custom-agents-migrated.json'), 'utf8')).toContain('agent-legacy')
     const loaded = await getAgentProfile('agent-legacy')
     expect(loaded).toMatchObject({ id: 'agent-legacy', name: 'legacy-reviewer', readonly: false })
+  })
+
+  it('persists model-only overrides for built-in agents', async () => {
+    const { getAgentProfile, updateBuiltinAgentModelOverride } = await import('../../server/agent-profiles.mjs')
+    const { writeStore } = await import('../../server/storage.mjs')
+    const model = {
+      provider: 'mock',
+      id: 'reasoning-model',
+      api: 'mock-api',
+      baseUrl: 'http://mock.local',
+      reasoning: true,
+    }
+    await writeStore('custom-providers', { mock: { models: [model] } })
+
+    const updated = await updateBuiltinAgentModelOverride('explore', {
+      mode: 'fixed',
+      provider: 'mock',
+      modelId: 'reasoning-model',
+      api: 'mock-api',
+      baseUrl: 'http://mock.local',
+    })
+
+    expect(updated).toMatchObject({ builtin: true, thinkingLevel: 'inherit', model: { mode: 'fixed', provider: 'mock', modelId: 'reasoning-model' } })
+    expect(await getAgentProfile('explore')).toMatchObject({ model: { mode: 'fixed', provider: 'mock', modelId: 'reasoning-model' } })
+
+    await updateBuiltinAgentModelOverride('explore', { mode: 'inherit' })
+    expect(await getAgentProfile('explore')).toMatchObject({ model: { mode: 'inherit' } })
   })
 
   it('does not load builtin subdirectory files as user profiles', async () => {

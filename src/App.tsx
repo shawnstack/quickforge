@@ -1701,13 +1701,19 @@ function MainApp() {
           onClose={() => setGitGraphOpen(false)}
         />
       ) : null}
-      <GitCommitPushDialog
-        open={gitCommitDialogOpen}
-        projectId={agentManager.currentToolProject?.id}
-        status={titleGitStatus}
-        onClose={() => setGitCommitDialogOpen(false)}
-        onCompleted={handleGitOperationCompleted}
-      />
+      {gitCommitDialogOpen ? (
+        <GitCommitPushDialog
+          key={agentManager.currentToolProject?.id ?? 'git-commit'}
+          open
+          projectId={agentManager.currentToolProject?.id}
+          status={titleGitStatus}
+          onClose={() => setGitCommitDialogOpen(false)}
+          onCheckout={handleCheckoutTitleBranch}
+          onRefreshStatus={refreshTitleGitStatus}
+          onStatusChange={setTitleGitStatus}
+          onCompleted={handleGitOperationCompleted}
+        />
+      ) : null}
     </div>
     )}
     <ProjectDirectoryPicker

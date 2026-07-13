@@ -57,6 +57,7 @@ export type WorkspaceFileResponse = {
 export type GitStatusResponse = {
   isGitRepository: boolean
   branch?: string
+  detached?: boolean
   counts?: {
     staged: number
     unstaged: number
@@ -121,4 +122,10 @@ export type GitLogResponse = {
 
 export type GitOperationResponse = GitStatusResponse & {
   message?: string
+}
+
+export type GitCommitPushResponse = GitOperationResponse & {
+  committed: true
+  pushed: boolean
+  pushError?: string
 }

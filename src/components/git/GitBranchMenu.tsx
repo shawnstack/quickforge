@@ -14,9 +14,9 @@ export type GitBranchMenuProps = {
   dirtyCount?: number
   className?: string
   onCheckout: (branch: string) => Promise<void>
-  onCreated: (status: GitStatusResponse) => void
-  onOpenGraph: () => void
-  onOpenChanges: () => void
+  onCreated?: (status: GitStatusResponse) => void
+  onOpenGraph?: () => void
+  onOpenChanges?: () => void
 }
 
 export function GitBranchMenu({
@@ -86,7 +86,7 @@ export function GitBranchMenu({
     setBusyBranch(branch)
     try {
       const status = await createGitBranch(projectId, branch)
-      onCreated(status)
+      onCreated?.(status)
       await refresh()
     } catch (err) {
       void showAlert(err instanceof Error ? err.message : t('gitCheckoutFailed'))
@@ -110,14 +110,16 @@ export function GitBranchMenu({
         </div>
       </div>
 
-      <button
-        type="button"
-        className="flex w-full items-center justify-center gap-2 border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-3 py-3 text-sm text-muted-foreground transition-colors hover:bg-muted/20 hover:text-foreground"
-        onClick={onOpenChanges}
-      >
-        <span>{t('uncommittedChanges')}</span>
-        <span>{t('filesCount', { count: dirtyCount })}</span>
-      </button>
+      {onOpenChanges ? (
+        <button
+          type="button"
+          className="flex w-full items-center justify-center gap-2 border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-3 py-3 text-sm text-muted-foreground transition-colors hover:bg-muted/20 hover:text-foreground"
+          onClick={onOpenChanges}
+        >
+          <span>{t('uncommittedChanges')}</span>
+          <span>{t('filesCount', { count: dirtyCount })}</span>
+        </button>
+      ) : null}
 
       <div className="max-h-[340px] overflow-y-auto p-2">
         {loading ? (
@@ -152,25 +154,31 @@ export function GitBranchMenu({
         })}
       </div>
 
-      <div className="border-t-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] p-2">
-        <button
-          type="button"
-          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/88 transition-colors hover:bg-muted/70"
-          onClick={() => void handleCreateBranch()}
-          disabled={Boolean(busyBranch)}
-        >
-          <Plus className="size-4 text-muted-foreground" />
-          <span>{t('createAndCheckoutBranchEllipsis')}</span>
-        </button>
-        <button
-          type="button"
-          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/88 transition-colors hover:bg-muted/70"
-          onClick={onOpenGraph}
-        >
-          <GitGraph className="size-4 text-muted-foreground" />
-          <span>{t('gitGraph')}</span>
-        </button>
-      </div>
+      {onCreated || onOpenGraph ? (
+        <div className="border-t-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] p-2">
+          {onCreated ? (
+            <button
+              type="button"
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/88 transition-colors hover:bg-muted/70"
+              onClick={() => void handleCreateBranch()}
+              disabled={Boolean(busyBranch)}
+            >
+              <Plus className="size-4 text-muted-foreground" />
+              <span>{t('createAndCheckoutBranchEllipsis')}</span>
+            </button>
+          ) : null}
+          {onOpenGraph ? (
+            <button
+              type="button"
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/88 transition-colors hover:bg-muted/70"
+              onClick={onOpenGraph}
+            >
+              <GitGraph className="size-4 text-muted-foreground" />
+              <span>{t('gitGraph')}</span>
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }

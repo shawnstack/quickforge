@@ -151,4 +151,54 @@ describe('agent manager subagent execution', () => {
       await destroyAgent(session.sessionId)
     }
   })
+
+  it('uses profile thinking levels and disables thinking for non-reasoning models', async () => {
+    const workspaceRoot = path.join(tmpDir, 'workspace')
+    const parentModel = { provider: 'mock', id: 'parent-model', reasoning: true }
+    const fixedModel = { provider: 'mock', id: 'fixed-model', api: 'mock-api', baseUrl: 'http://mock.local', reasoning: true }
+    const plainModel = { provider: 'mock', id: 'plain-model', api: 'mock-api', baseUrl: 'http://mock.local', reasoning: false }
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    const { createCustomAgentProfile } = await import('../../server/agent-profiles.mjs')
+    const { writeStore } = await import('../../server/storage.mjs')
+    setDefaultWorkspaceRoot(workspaceRoot)
+    await writeStore('custom-providers', { mock: { models: [fixedModel, plainModel] } })
+    await createCustomAgentProfile({
+      name: 'deep-review',
+      label: 'Deep Review',
+      systemPrompt: 'Review deeply.',
+      allowedTools: ['read_file', 'grep_files'],
+      capabilityPolicy: 'review-only',
+      thinkingLevel: 'high',
+      model: { mode: 'fixed', provider: 'mock', modelId: 'fixed-model', api: 'mock-api', baseUrl: 'http://mock.local' },
+    })
+    await createCustomAgentProfile({
+      name: 'plain-review',
+      label: 'Plain Review',
+      systemPrompt: 'Review plainly.',
+      allowedTools: ['read_file', 'grep_files'],
+      capabilityPolicy: 'review-only',
+      thinkingLevel: 'high',
+      model: { mode: 'fixed', provider: 'mock', modelId: 'plain-model', api: 'mock-api', baseUrl: 'http://mock.local' },
+    })
+
+    const { createAgent, destroyAgent } = await import('../../server/agent-manager.mjs')
+    const session = await createAgent('profile-thinking-workspace', {
+      scope: 'global',
+      model: parentModel,
+      thinkingLevel: 'medium',
+      systemPrompt: '',
+      idleRetention: 'always',
+    })
+
+    try {
+      const runSubagent = session.agent.state.tools.find((tool) => tool.name === 'run_subagent')
+      await runSubagent.execute('tool-call-deep', { subagent: 'deep-review', task: 'Review.' }, new AbortController().signal)
+      expect(MockAgent.instances.at(-1).state).toMatchObject({ model: fixedModel, thinkingLevel: 'high' })
+
+      await runSubagent.execute('tool-call-plain', { subagent: 'plain-review', task: 'Review.' }, new AbortController().signal)
+      expect(MockAgent.instances.at(-1).state).toMatchObject({ model: plainModel, thinkingLevel: 'off' })
+    } finally {
+      await destroyAgent(session.sessionId)
+    }
+  })
 })

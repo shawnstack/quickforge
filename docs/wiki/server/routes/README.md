@@ -45,8 +45,8 @@ Agent 会话管理核心路由。
 - `POST /api/agents/:sessionId/compact` — 压缩对话
 - `POST /api/agents/:sessionId/access-mode` — 切换 Agent 权限模式（`default` / `full-access`）
 - `POST /api/agents/:sessionId/yolo-mode` — 旧客户端兼容入口
-- `PATCH /api/agents/:sessionId/model` — 更新模型
-- `PATCH /api/agents/:sessionId/thinking` — 更新思考级别
+- `POST /api/agents/:sessionId/model` — 更新模型
+- `POST /api/agents/:sessionId/thinking-level` — 更新思考级别
 
 ## storage.mjs (151 行)
 
@@ -111,10 +111,10 @@ Agent Profile 管理路由。
 - `GET /api/agent-profiles/available-tools` — 获取第一阶段可配置的 workspace 工具列表。
 - `POST /api/agent-profiles/ai-fill` — 使用默认模型生成 Agent 名称、显示名称、描述和系统提示词。
 - `GET /api/agent-profiles/:id` — 获取单个 Agent。
-- `PATCH|PUT /api/agent-profiles/:id` — 更新自定义 Agent。
+- `PATCH|PUT /api/agent-profiles/:id` — 更新自定义 Agent；内置 Agent 只接受单一 `model` 字段，用于设置或恢复模型覆盖。
 - `DELETE /api/agent-profiles/:id` — 删除自定义 Agent。
 
-内置 Agent 只读，不允许更新或删除。
+内置 Agent 不允许删除，其提示词、工具、思考等级和运行预算不可修改。
 
 ## models.mjs (68 行)
 

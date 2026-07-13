@@ -1,5 +1,8 @@
 export const AGENT_PROFILE_TOOL_NAMES = ['read_file', 'grep_files', 'write_file', 'edit_file', 'run_command']
 export const AGENT_PROFILE_MODEL_INHERIT = { mode: 'inherit' }
+export const AGENT_PROFILE_THINKING_LEVELS = ['inherit', 'off', 'low', 'medium', 'high', 'xhigh']
+
+const agentProfileThinkingLevels = new Set(AGENT_PROFILE_THINKING_LEVELS)
 
 export const CAPABILITY_POLICIES = {
   'readonly-research': {
@@ -138,6 +141,22 @@ export function validateModelReference(modelRef) {
     api: ref.api,
     baseUrl: ref.baseUrl,
   }
+}
+
+export function normalizeAgentProfileThinkingLevel(value, fallback = 'inherit') {
+  const normalized = normalizeString(value)?.toLowerCase() || fallback
+  if (!agentProfileThinkingLevels.has(normalized)) {
+    throw requestError(`Unsupported agent thinking level: ${normalized}`)
+  }
+  return normalized
+}
+
+export function resolveAgentProfileThinkingLevel(profile, inheritedThinkingLevel, model) {
+  const configured = normalizeAgentProfileThinkingLevel(profile?.thinkingLevel)
+  const requested = configured === 'inherit'
+    ? normalizeAgentProfileThinkingLevel(inheritedThinkingLevel || 'off', 'off')
+    : configured
+  return model?.reasoning === true ? requested : 'off'
 }
 
 export function modelReferenceSnapshot(modelRef) {

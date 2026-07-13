@@ -4,7 +4,7 @@ import path from 'node:path'
 import { userAgentsDir } from './storage.mjs'
 import { logger } from './utils/logger.mjs'
 import { firstOptionalBoolean, firstString, parseFrontmatter, splitDelimitedList } from './frontmatter.mjs'
-import { normalizeCapabilityPolicy, normalizeModelReference, validateAgentProfileTools, validateModelReference } from './agent-profile-schema.mjs'
+import { normalizeAgentProfileThinkingLevel, normalizeCapabilityPolicy, normalizeModelReference, validateAgentProfileTools, validateModelReference } from './agent-profile-schema.mjs'
 
 const DEFAULT_MAX_RUNTIME_MS = 30 * 60 * 1000
 const DEFAULT_MAX_TOOL_CALLS = 300
@@ -97,6 +97,7 @@ enabled-as-subagent: ${profile.enabledAsSubagent === true ? 'true' : 'false'}
 capabilityPolicy: ${profile.capabilityPolicy || 'review-only'}
 tools: ${(profile.allowedTools || []).join(', ')}
 ${formatModelFrontmatter(profile.model)}
+thinking-level: ${normalizeAgentProfileThinkingLevel(profile.thinkingLevel)}
 max-runtime-ms: ${profile.maxRuntimeMs || DEFAULT_MAX_RUNTIME_MS}
 max-tool-calls: ${profile.maxToolCalls || DEFAULT_MAX_TOOL_CALLS}
 created-at: ${quoteFrontmatter(profile.createdAt || new Date().toISOString())}
@@ -156,6 +157,9 @@ export function agentProfileFromMarkdown(file, text, options = {}) {
     allowedTools,
     capabilityPolicy,
     model,
+    thinkingLevel: normalizeAgentProfileThinkingLevel(
+      metadata['thinking-level'] ?? metadata.thinking_level ?? metadata.thinkingLevel,
+    ),
     lifecycle,
     managed: firstOptionalBoolean(metadata.managed) === true,
     managedBy,

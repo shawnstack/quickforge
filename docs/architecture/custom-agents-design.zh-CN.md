@@ -120,6 +120,8 @@ type AgentProfile = {
 
   systemPrompt: string
   allowedTools: string[]
+  model: { mode: 'inherit' } | { mode: 'fixed'; provider: string; modelId: string }
+  thinkingLevel: 'inherit' | 'off' | 'low' | 'medium' | 'high' | 'xhigh'
 
   maxRuntimeMs?: number
   maxToolCalls?: number
@@ -142,6 +144,8 @@ type AgentProfile = {
 | `description` | Agent 能力描述，供用户和模型理解 |
 | `systemPrompt` | 自定义系统提示词 |
 | `allowedTools` | 工具白名单，只保存工具名 |
+| `model` | 继承调用方模型或绑定固定模型 |
+| `thinkingLevel` | 继承调用方或固定为 `off/low/medium/high/xhigh`；最终模型不支持推理时降级为 `off` |
 | `maxRuntimeMs` | 最大运行时间 |
 | `maxToolCalls` | 最大工具调用次数 |
 | `enabledAsSubagent` | 是否暴露给 `run_subagent` |
@@ -178,8 +182,9 @@ const builtinAgentProfiles = [
 兼容要求：
 
 - 现有 `run_subagent` 调用 `general` / `explore` 的行为不变。
-- 内置 Agent 不允许删除。
-- 内置 Agent 可先不支持编辑，避免破坏默认行为。
+- 内置 Agent 不允许删除，提示词、工具和运行预算继续由系统管理。
+- 内置 Agent 允许通过独立覆盖配置修改模型；覆盖值保存在 `agent-profile-overrides`，不修改自动生成的 builtin Markdown。
+- 内置 Agent 的思考等级固定为继承调用方，并按最终模型能力自动降级。
 
 ## 7. 存储设计
 
@@ -215,6 +220,7 @@ capabilityPolicy: review-only
 tools: read_file, grep_files
 model:
   mode: inherit
+thinking-level: inherit
 max-runtime-ms: 300000
 max-tool-calls: 20
 created-at: "2026-05-29T00:00:00.000Z"

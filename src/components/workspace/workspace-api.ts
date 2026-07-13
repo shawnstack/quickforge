@@ -1,6 +1,7 @@
 import type {
   GitBranchesResponse,
   GitCheckoutResponse,
+  GitCommitPushResponse,
   GitCreateBranchResponse,
   GitFileDiffResponse,
   GitLogResponse,
@@ -97,8 +98,8 @@ export function getGitLog(projectId: string) {
   return fetchJson<GitLogResponse>(`/api/git/log?${projectQuery(projectId)}`)
 }
 
-export function generateGitCommitMessage(projectId: string, model: unknown, thinkingLevel: unknown) {
-  return postJson<{ message: string }>('/api/git/generate-commit-message', { projectId, model, thinkingLevel })
+export function generateGitCommitMessage(projectId: string, model: unknown, thinkingLevel: unknown, includeUnstaged: boolean) {
+  return postJson<{ message: string }>('/api/git/generate-commit-message', { projectId, model, thinkingLevel, includeUnstaged })
 }
 
 export function commitGitChanges(projectId: string, message: string, includeUnstaged: boolean) {
@@ -110,5 +111,5 @@ export function pushGitBranch(projectId: string) {
 }
 
 export function commitAndPushGitChanges(projectId: string, message: string, includeUnstaged: boolean) {
-  return postJson<GitOperationResponse>('/api/git/commit-and-push', { projectId, message, includeUnstaged })
+  return postJson<GitCommitPushResponse>('/api/git/commit-and-push', { projectId, message, includeUnstaged })
 }

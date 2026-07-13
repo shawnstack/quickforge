@@ -9,6 +9,7 @@ import {
   getAgentProfile,
   listAgentProfiles,
   listAvailableAgentTools,
+  updateBuiltinAgentModelOverride,
   updateCustomAgentProfile,
 } from '../agent-profiles.mjs'
 
@@ -155,9 +156,14 @@ export async function handleAgentProfilesApi(req, res, url) {
 
     if (req.method === 'PATCH' || req.method === 'PUT') {
       const current = await getAgentProfile(id)
-      if (current?.builtin) throw requestError('Built-in agents cannot be modified', 403)
-      if (current?.readonly) throw requestError('Read-only agents cannot be modified from the API', 403)
       const body = await readJsonBody(req)
+      if (current?.builtin) {
+        const keys = Object.keys(body || {})
+        if (keys.length !== 1 || keys[0] !== 'model') throw requestError('Built-in agents only allow model updates', 403)
+        sendJson(res, 200, { agent: agentProfileSnapshot(await updateBuiltinAgentModelOverride(id, body.model)) })
+        return
+      }
+      if (current?.readonly) throw requestError('Read-only agents cannot be modified from the API', 403)
       sendJson(res, 200, { agent: await updateCustomAgentProfile(id, body || {}) })
       return
     }

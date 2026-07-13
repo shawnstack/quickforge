@@ -38,6 +38,7 @@ Run all checks and report failures.
       allowedTools: ['read_file', 'grep_files', 'run_command'],
       capabilityPolicy: 'readonly-research',
       model: { mode: 'inherit' },
+      thinkingLevel: 'inherit',
       enabledAsSubagent: true,
       maxRuntimeMs: 60000,
       maxToolCalls: 12,
@@ -61,7 +62,7 @@ Implement focused changes.
     expect(profile.allowFileMutations).toBe(true)
   })
 
-  it('parses fixed model references and capability policy from Markdown', () => {
+  it('parses fixed model references, thinking level, and capability policy from Markdown', () => {
     const profile = agentProfileFromMarkdown('/workspace/.quickforge/agents/verifier.md', `---
 name: verifier
 description: Verify changes
@@ -71,6 +72,7 @@ model:
   mode: fixed
   provider: openrouter
   modelId: anthropic/claude-3.5-sonnet
+thinking-level: high
 ---
 Validate the change.
 `)
@@ -83,6 +85,7 @@ Validate the change.
         provider: 'openrouter',
         modelId: 'anthropic/claude-3.5-sonnet',
       },
+      thinkingLevel: 'high',
     })
   })
 

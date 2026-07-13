@@ -21,6 +21,7 @@ import {
   normalizeCapabilityPolicy,
   normalizeModelReference,
   resolveAgentProfileModel,
+  resolveAgentProfileThinkingLevel,
   validateAgentProfileTools,
   validateModelReference,
 } from './agent-profile-schema.mjs'
@@ -984,6 +985,7 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
   definition.capabilityPolicy ||= inferCapabilityPolicy(definition.allowedTools || [])
   definition.allowedTools = applyCapabilityPolicy(definition.allowedTools || [], definition.capabilityPolicy)
   const { model: subagentModel, info: subagentModelInfo } = await resolveAgentProfileModel(definition, parentSession.model, readStore)
+  const subagentThinkingLevel = resolveAgentProfileThinkingLevel(definition, parentSession.thinkingLevel, subagentModel)
   const subagentSessionId = `${parentSession.sessionId}:subagent:${definition.name}:${randomUUID()}`
   const startedAt = Date.now()
   let toolCalls = 0
@@ -1068,7 +1070,7 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
     initialState: {
       systemPrompt,
       model: subagentModel,
-      thinkingLevel: parentSession.thinkingLevel,
+      thinkingLevel: subagentThinkingLevel,
       messages: [],
       tools,
     },
@@ -1391,6 +1393,9 @@ export async function createAgent(sessionId, config = {}) {
     }
   }
   if (resolvedAgentProfile && !resolvedModel) throw new Error('No active model is configured for the agent session.')
+  const resolvedThinkingLevel = agentProfile
+    ? resolveAgentProfileThinkingLevel(agentProfile, thinkingLevel, resolvedModel)
+    : thinkingLevel
 
   // Build skills tools for enabled skills, plus workspace tools when a project is available.
   const profileToolNames = Array.isArray(agentProfile?.allowedTools) ? agentProfile.allowedTools : null
@@ -1429,7 +1434,7 @@ export async function createAgent(sessionId, config = {}) {
     initialState: {
       systemPrompt: resolvedSystemPrompt,
       model: resolvedModel,
-      thinkingLevel,
+      thinkingLevel: resolvedThinkingLevel,
       messages,
       tools,
     },
@@ -1485,7 +1490,7 @@ export async function createAgent(sessionId, config = {}) {
     accessMode,
     yoloMode: resolvedYoloMode,
     model: resolvedModel,
-    thinkingLevel,
+    thinkingLevel: resolvedThinkingLevel,
     scope,
     title,
     createdAt,

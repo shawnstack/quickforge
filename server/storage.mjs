@@ -54,6 +54,7 @@ export const stores = new Set([
   'sessions-metadata',
   'scheduled-tasks',
   'custom-agents',
+  'agent-profile-overrides',
 ])
 
 // --- In-memory session bucket index ---
@@ -84,6 +85,7 @@ const soloConfigStores = {
   settings: 'settings.json',
   mcp: 'mcp-servers.json',
   plugins: 'plugins.json',
+  'agent-profile-overrides': 'agent-profile-overrides.json',
 }
 
 const sharedConfigGroups = {

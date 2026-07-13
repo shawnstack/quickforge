@@ -83,9 +83,9 @@ components/
 ### AgentProfilesPage.tsx
 
 - 与定时任务平级的 Agent Profiles 独立管理页面
-- 创建自定义 Agent，配置系统提示词、工具白名单、运行时间、工具调用次数和是否启用为 sub agent
+- 创建自定义 Agent，配置系统提示词、模型、思考等级、工具白名单、运行时间、工具调用次数和是否启用为 sub agent
 - 创建/编辑弹窗支持用默认模型 AI 填充 Agent 名称、显示名称、描述和系统提示词，不自动修改工具白名单或运行限制
-- 展示内置 Agent Profiles，但内置项只读
+- 展示内置 Agent Profiles；内置项的定义只读，但允许设置继承模型或固定模型
 
 ### skills-dialog.tsx
 
@@ -128,7 +128,7 @@ components/
 
 - `GitBranchMenu.tsx` 挂载在主对话标题栏的分支 chip 和 `GitToolsPinnedSummary` 展开卡片中，提供分支搜索、当前未提交变更摘要、分支切换、创建并检出新分支，以及 Git 图谱入口。
 - `GitToolsPinnedSummary.tsx` 显示在顶部窗口工具栏的终端按钮左侧，提供收起胶囊（更改 +增删行）和展开 Git 工具卡；更改入口跳转右侧 Changes/审查面板，分支入口复用 `GitBranchMenu`，提交入口打开 `GitCommitPushDialog`。
-- `GitCommitPushDialog.tsx` 提供提交、提交并推送、推送操作；提交信息可手动输入，留空或点击 Sparkles 时通过 `/api/git/generate-commit-message` 调默认模型生成 Conventional Commit 文案。
+- `GitCommitPushDialog.tsx` 提供提交、提交并推送、推送操作；默认只提交已暂存文件，可展开确认文件范围并显式选择是否包含全部未暂存更改；AI 仅生成可编辑的提交文案，不会自动继续提交。弹窗打开时刷新 Git 状态，detached HEAD 会阻止提交/推送；提交成功但推送失败时会保留成功状态并提供仅重试推送。
 - `GitGraphDialog.tsx` 使用 `/api/git/log` 渲染居中的 Git 提交图谱弹窗，包含图线、描述、日期、作者和提交短哈希列，并支持刷新和关闭。
 
 ### Workspace Inspector (`workspace/`)

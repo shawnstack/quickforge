@@ -139,13 +139,17 @@ function parseGitStatus(buffer) {
   return files.sort((left, right) => left.path.localeCompare(right.path, undefined, { sensitivity: 'base' }))
 }
 
-async function currentGitBranch(workspaceRoot) {
+async function currentGitHead(workspaceRoot) {
   const result = await git(['branch', '--show-current'], workspaceRoot, { allowFailure: true })
   const branch = result.stdout.toString('utf8').trim()
-  if (branch) return branch
+  if (branch) return { branch, detached: false }
   const head = await git(['rev-parse', '--short', 'HEAD'], workspaceRoot, { allowFailure: true })
   const commit = head.stdout.toString('utf8').trim()
-  return commit ? `HEAD ${commit}` : undefined
+  return { branch: commit ? `HEAD ${commit}` : undefined, detached: Boolean(commit) }
+}
+
+async function currentGitBranch(workspaceRoot) {
+  return (await currentGitHead(workspaceRoot)).branch
 }
 
 async function assertValidBranchName(workspaceRoot, branch) {
@@ -317,9 +321,11 @@ async function listGitStatus(context) {
       }
     }
   }
+  const head = await currentGitHead(context.workspaceRoot)
   return {
     isGitRepository: true,
-    branch: await currentGitBranch(context.workspaceRoot),
+    branch: head.branch,
+    detached: head.detached,
     counts: countGitStatus(files),
     files,
   }
@@ -347,8 +353,17 @@ async function hasStagedChanges(context) {
   return result.code === 1
 }
 
+async function assertAttachedGitHead(context) {
+  const head = await currentGitHead(context.workspaceRoot)
+  if (!head.detached) return head
+  const error = new Error('Cannot commit or push while HEAD is detached')
+  error.statusCode = 400
+  throw error
+}
+
 async function commitGitChanges(context, message, includeUnstaged) {
   await assertGitRepository(context)
+  await assertAttachedGitHead(context)
   const commitMessage = normalizeCommitMessage(message)
   if (includeUnstaged) await git(['add', '-A'], context.workspaceRoot)
   if (!(await hasStagedChanges(context))) {
@@ -441,6 +456,7 @@ async function restoreAllGitChanges(context) {
 
 async function pushGitBranch(context) {
   await assertGitRepository(context)
+  await assertAttachedGitHead(context)
   await git(['push'], context.workspaceRoot)
   return listGitStatus(context)
 }
@@ -477,7 +493,7 @@ function normalizeAiCommitMessage(text) {
   return message
 }
 
-async function generateGitCommitMessage(context, model, thinkingLevel = 'off') {
+async function generateGitCommitMessage(context, model, thinkingLevel = 'off', includeUnstaged = false) {
   await assertGitRepository(context)
   if (!model) {
     const error = new Error('Please configure a default model first')
@@ -494,9 +510,19 @@ async function generateGitCommitMessage(context, model, thinkingLevel = 'off') {
 
   const cachedStat = (await git(['diff', '--cached', '--stat'], context.workspaceRoot, { allowFailure: true })).stdout.toString('utf8')
   const cachedDiff = (await git(['diff', '--cached'], context.workspaceRoot, { allowFailure: true })).stdout.toString('utf8')
-  const worktreeStat = (await git(['diff', '--stat'], context.workspaceRoot, { allowFailure: true })).stdout.toString('utf8')
-  const worktreeDiff = (await git(['diff'], context.workspaceRoot, { allowFailure: true })).stdout.toString('utf8')
-  const files = status.files.map((file) => `- ${file.status}${file.staged ? ' staged' : ''}${file.unstaged ? ' unstaged' : ''}: ${file.oldPath ? `${file.oldPath} -> ` : ''}${file.path}`).join('\n')
+  const worktreeStat = includeUnstaged
+    ? (await git(['diff', '--stat'], context.workspaceRoot, { allowFailure: true })).stdout.toString('utf8')
+    : ''
+  const worktreeDiff = includeUnstaged
+    ? (await git(['diff'], context.workspaceRoot, { allowFailure: true })).stdout.toString('utf8')
+    : ''
+  const selectedFiles = includeUnstaged ? status.files : status.files.filter((file) => file.staged)
+  if (!selectedFiles.length) {
+    const error = new Error('No staged changes to summarize')
+    error.statusCode = 400
+    throw error
+  }
+  const files = selectedFiles.map((file) => `- ${file.status}${file.staged ? ' staged' : ''}${file.unstaged ? ' unstaged' : ''}: ${file.oldPath ? `${file.oldPath} -> ` : ''}${file.path}`).join('\n')
   const systemPrompt = `You generate Git commit messages.
 Return only the commit message, no Markdown, no explanation.
 Use Conventional Commit style when possible, for example: feat: add git tools summary.
@@ -831,7 +857,7 @@ async function contextFromGitBody(req) {
 
 async function handleGitGenerateCommitMessage(req, res) {
   const { context, body } = await contextFromGitBody(req)
-  const message = await generateGitCommitMessage(context, body?.model, body?.thinkingLevel)
+  const message = await generateGitCommitMessage(context, body?.model, body?.thinkingLevel, Boolean(body?.includeUnstaged))
   sendJson(res, 200, { message })
 }
 
@@ -875,10 +901,24 @@ async function handleGitPush(req, res) {
   sendJson(res, 200, await pushGitBranch(context))
 }
 
+export async function commitAndPushGitChanges(context, message, includeUnstaged) {
+  const committedStatus = await commitGitChanges(context, message, includeUnstaged)
+  try {
+    const pushedStatus = await pushGitBranch(context)
+    return { ...pushedStatus, committed: true, pushed: true }
+  } catch (error) {
+    return {
+      ...committedStatus,
+      committed: true,
+      pushed: false,
+      pushError: error?.message || 'Push failed',
+    }
+  }
+}
+
 async function handleGitCommitAndPush(req, res) {
   const { context, body } = await contextFromGitBody(req)
-  await commitGitChanges(context, body?.message, Boolean(body?.includeUnstaged))
-  sendJson(res, 200, await pushGitBranch(context))
+  sendJson(res, 200, await commitAndPushGitChanges(context, body?.message, Boolean(body?.includeUnstaged)))
 }
 
 export async function handleWorkspaceApi(req, res, url) {

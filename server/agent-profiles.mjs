@@ -1,7 +1,7 @@
 import { existsSync, promises as fs } from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { readStore, userAgentsDir } from './storage.mjs'
+import { readStore, userAgentsDir, writeStore } from './storage.mjs'
 import { builtinSubagentProfilePath, ensureBuiltinSubagentMarkdownFiles, subagentDefinitions } from './subagents.mjs'
 import { workspaceTools } from './tools/definitions.mjs'
 import { defaultGlobalWorkspaceContext, projectContextFromId } from './project-config.mjs'
@@ -15,6 +15,7 @@ import {
   AGENT_PROFILE_TOOL_NAMES,
   inferCapabilityPolicy,
   modelReferenceSnapshot,
+  normalizeAgentProfileThinkingLevel,
   normalizeCapabilityPolicy,
   normalizeModelReference,
   validateAgentProfileTools,
@@ -22,6 +23,7 @@ import {
 } from './agent-profile-schema.mjs'
 
 const STORE = 'custom-agents'
+const BUILTIN_OVERRIDES_STORE = 'agent-profile-overrides'
 const RESERVED_NAMES = new Set(subagentDefinitions.map((definition) => definition.name))
 const allowedToolNames = new Set(AGENT_PROFILE_TOOL_NAMES)
 const nameRegex = /^[a-z][a-z0-9_-]{1,39}$/
@@ -63,7 +65,7 @@ function normalizeOptionalRuntime(value, fallback) {
   return Math.min(Math.max(Math.round(parsed), 1000), DEFAULT_MAX_RUNTIME_MS)
 }
 
-function builtinProfileFromSubagent(definition) {
+function builtinProfileFromSubagent(definition, override = null) {
   return {
     id: definition.name,
     name: definition.name,
@@ -72,7 +74,8 @@ function builtinProfileFromSubagent(definition) {
     systemPrompt: definition.systemPrompt || '',
     allowedTools: [...definition.allowedTools],
     capabilityPolicy: definition.capabilityPolicy || inferCapabilityPolicy(definition.allowedTools),
-    model: modelReferenceSnapshot(definition.model),
+    model: modelReferenceSnapshot(override?.model || definition.model),
+    thinkingLevel: 'inherit',
     lifecycle: 'builtin',
     managed: true,
     maxRuntimeMs: definition.maxRuntimeMs || DEFAULT_MAX_RUNTIME_MS,
@@ -89,8 +92,9 @@ function builtinProfileFromSubagent(definition) {
   }
 }
 
-export function listBuiltinAgentProfiles() {
-  return subagentDefinitions.map(builtinProfileFromSubagent)
+export async function listBuiltinAgentProfiles() {
+  const overrides = await readStore(BUILTIN_OVERRIDES_STORE).catch(() => ({}))
+  return subagentDefinitions.map((definition) => builtinProfileFromSubagent(definition, overrides?.[definition.name]))
 }
 
 function normalizeProfileInput(input, existing = null, { creating = false } = {}) {
@@ -114,6 +118,7 @@ function normalizeProfileInput(input, existing = null, { creating = false } = {}
   )
   validateAgentProfileTools(allowedTools, capabilityPolicy)
   const model = validateModelReference(normalizeModelReference(input?.model ?? existing?.model))
+  const thinkingLevel = normalizeAgentProfileThinkingLevel(input?.thinkingLevel ?? existing?.thinkingLevel)
 
   return {
     id: existing?.id || `agent-${randomUUID()}`,
@@ -124,6 +129,7 @@ function normalizeProfileInput(input, existing = null, { creating = false } = {}
     allowedTools,
     capabilityPolicy,
     model,
+    thinkingLevel,
     lifecycle: existing?.lifecycle || 'persistent',
     maxRuntimeMs: normalizeOptionalRuntime(input?.maxRuntimeMs ?? existing?.maxRuntimeMs, DEFAULT_MAX_RUNTIME_MS),
     maxToolCalls: normalizeOptionalPositiveInteger(input?.maxToolCalls ?? existing?.maxToolCalls, DEFAULT_MAX_TOOL_CALLS, 300),
@@ -252,7 +258,7 @@ export async function listAgentProfiles(options = {}) {
   await ensureCustomAgentStoreMigrated()
   const workspaceRoot = await resolveWorkspaceRoot(options)
   const file = await loadFileAgentProfiles(workspaceRoot, { reservedNames: RESERVED_NAMES })
-  const profiles = mergeProfiles({ builtin: listBuiltinAgentProfiles(), file, custom: [] })
+  const profiles = mergeProfiles({ builtin: await listBuiltinAgentProfiles(), file, custom: [] })
   return options.includeDisabled ? profiles : profiles.filter((profile) => profile.enabledAsSubagent || profile.builtin || profile.enabledAsSubagent === false)
 }
 
@@ -302,6 +308,19 @@ export async function updateCustomAgentProfile(id, patch) {
   return { ...next, filePath: file, relativePath: `~/.quickforge/agents/${next.name}.md` }
 }
 
+export async function updateBuiltinAgentModelOverride(id, modelInput) {
+  const current = await getAgentProfile(id)
+  if (!current) throw requestError('Agent not found', 404)
+  if (!current.builtin) throw requestError('Only built-in agents support model overrides', 400)
+  const model = validateModelReference(normalizeModelReference(modelInput))
+  const overrides = await readStore(BUILTIN_OVERRIDES_STORE).catch(() => ({}))
+  const next = { ...(overrides && typeof overrides === 'object' ? overrides : {}) }
+  if (model.mode === 'fixed') next[current.name] = { model }
+  else delete next[current.name]
+  await writeStore(BUILTIN_OVERRIDES_STORE, next)
+  return { ...current, model: modelReferenceSnapshot(model) }
+}
+
 export async function deleteCustomAgentProfile(id) {
   await ensureCustomAgentStoreMigrated()
   const current = await getAgentProfile(id)
@@ -320,6 +339,7 @@ export function agentProfileSnapshot(profile) {
     allowedTools: [...profile.allowedTools],
     capabilityPolicy: profile.capabilityPolicy || inferCapabilityPolicy(profile.allowedTools || []),
     model: modelReferenceSnapshot(profile.model),
+    thinkingLevel: normalizeAgentProfileThinkingLevel(profile.thinkingLevel),
     lifecycle: profile.lifecycle || (profile.builtin ? 'builtin' : 'persistent'),
     managed: profile.managed === true,
     maxRuntimeMs: profile.maxRuntimeMs,

@@ -23,7 +23,6 @@ import {
   Search,
   Settings,
   DownloadCloud,
-  Sparkles,
   Trash2,
   GitBranch,
   Gauge,
@@ -631,20 +630,35 @@ export const ChatSidebar = memo(function ChatSidebar({
       )}
     >
       <div className="shrink-0 px-3 pt-3 pb-1">
-        <button
-          type="button"
-          className={cn(rowClass, 'w-full', inactiveRowClass)}
-          onClick={onToggleSidebar}
-          aria-label={t('toggleSidebar')}
-        >
-          <span className={cn(iconSlotClass, 'relative')}>
-            <Sparkles className={cn('size-4 transition-opacity duration-160', !sidebarOpen && 'group-hover:opacity-0')} />
-            {!sidebarOpen ? <PanelLeftOpen className="absolute size-4 opacity-0 transition-opacity duration-160 group-hover:opacity-100" /> : null}
-          </span>
-          <span className={cn('ml-auto inline-flex size-6 items-center justify-center text-muted-foreground/55 transition-opacity duration-100 group-hover:text-foreground/70', !sidebarOpen && 'opacity-0')}>
-            <PanelLeft className="size-4" />
-          </span>
-        </button>
+        <div className={cn(rowClass, 'w-full', !sidebarOpen && 'justify-center px-0')}>
+          {sidebarOpen ? (
+            <>
+              <span className={iconSlotClass}>
+                <img src="/favicon.svg" alt="" aria-hidden="true" className="size-4" />
+              </span>
+              <button
+                type="button"
+                className={cn(iconButtonClass, 'ml-auto inline-flex items-center justify-center')}
+                onClick={onToggleSidebar}
+                aria-label={t('toggleSidebar')}
+                title={t('toggleSidebar')}
+              >
+                <PanelLeft className="size-4" />
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className={cn(iconButtonClass, 'group/toggle relative inline-flex items-center justify-center')}
+              onClick={onToggleSidebar}
+              aria-label={t('toggleSidebar')}
+              title={t('toggleSidebar')}
+            >
+              <img src="/favicon.svg" alt="" aria-hidden="true" className="size-4 transition-opacity duration-160 group-hover/toggle:opacity-0 group-focus-visible/toggle:opacity-0" />
+              <PanelLeftOpen className="absolute size-4 opacity-0 transition-opacity duration-160 group-hover/toggle:opacity-100 group-focus-visible/toggle:opacity-100" />
+            </button>
+          )}
+        </div>
         <button
           type="button"
           className={cn(rowClass, 'mt-4 w-full', inactiveRowClass)}

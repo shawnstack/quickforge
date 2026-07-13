@@ -695,7 +695,7 @@ export class ServerAgent {
   // --- SSE event handling ---
 
   private handleSseEvent(event: Record<string, unknown>) {
-    this.noteSseEvent(event)
+    if (!this.noteSseEvent(event)) return
     const type = event.type as string
 
     switch (type) {
@@ -871,10 +871,8 @@ export class ServerAgent {
       }
 
       case 'error': {
-        this.stopStateWatchdog()
         const errMsg = (event as { error?: string }).error
         this.state.errorMessage = errMsg || 'Unknown error'
-        this.state.isStreaming = false
         this.state.pendingToolApproval = null
         this.state.pendingAutoCompactApproval = null
         break
@@ -969,12 +967,14 @@ export class ServerAgent {
     }
   }
 
-  private noteSseEvent(event: Record<string, unknown>) {
+  private noteSseEvent(event: Record<string, unknown>): boolean {
     this.lastSseEventAt = Date.now()
     const stateVersion = event.stateVersion
     if (typeof stateVersion === 'number' && Number.isFinite(stateVersion)) {
-      this.lastServerStateVersion = Math.max(this.lastServerStateVersion, stateVersion)
+      if (stateVersion < this.lastServerStateVersion) return false
+      this.lastServerStateVersion = stateVersion
     }
+    return true
   }
 
   private startStateWatchdog() {
@@ -1075,14 +1075,20 @@ export class ServerAgent {
         return
       }
       const state = await res.json()
-      if (typeof state.stateVersion === 'number' && Number.isFinite(state.stateVersion)) {
-        this.lastServerStateVersion = Math.max(this.lastServerStateVersion, state.stateVersion)
+      const serverStateVersion = typeof state.stateVersion === 'number' && Number.isFinite(state.stateVersion)
+        ? state.stateVersion
+        : undefined
+      if (serverStateVersion !== undefined && serverStateVersion < this.lastServerStateVersion) {
+        return
       }
 
       // Discard stale responses: if state was updated by an SSE event while
       // this fetch was in flight, the poll response is obsolete.
-      if (!options?.forceMessages && versionBeforeFetch !== this.stateVersion) {
+      if (versionBeforeFetch !== this.stateVersion) {
         return
+      }
+      if (serverStateVersion !== undefined) {
+        this.lastServerStateVersion = serverStateVersion
       }
 
       const shouldReplaceMessages = Boolean(

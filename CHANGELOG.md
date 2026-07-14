@@ -4,6 +4,29 @@ All notable changes to QuickForge will be documented in this file.
 
 ## [Unreleased]
 
+## [1.6.10] - 2026-07-14
+
+### Added
+
+- Added section-based settings backup and restore controls for selecting the configuration areas to export or import.
+- Added external-editor opening for changed files in the workspace review panel.
+- Added a commit action directly to the workspace review tab.
+- Added automatic title-bar Git status refreshes after workspace write tools complete.
+
+### Fixed
+
+- Kept the Git dialog open after terminal toggle and related Git actions.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.6.10` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.6.10.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.6.10.tgz
+  ```
+
 ## [1.6.9] - 2026-07-13
 
 ### Added

@@ -6,6 +6,7 @@ import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import type { AgentTool } from '@earendil-works/pi-agent-core'
 import { extractQuickForgeTiming, type QuickForgeToolTiming } from '@/lib/tool-execution-events'
 import { isBrowserPreviewablePath } from '@/components/workspace/artifact-preview-utils'
+import { formatManageGlobalMemoryOutput } from '@/lib/global-memory-tool-output'
 
 type ToolResultLike = {
   isError?: boolean
@@ -123,6 +124,9 @@ function runCommandOutputFromDetails(params: Record<string, unknown> | undefined
 
 function toolOutputText(toolName: string, params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
   const output = resultText(result)
+  if (toolName === 'manage_global_memory') {
+    return formatManageGlobalMemoryOutput(result, isStreaming, t) || output
+  }
   if (output) return output
   if (toolName === 'run_command') return runCommandOutputFromDetails(params, result?.details, isStreaming)
   return ''
@@ -412,6 +416,7 @@ function toolIconClass() {
 function renderToolIcon(toolName: string) {
   const className = `quickforge-tool-type-icon shrink-0 ${toolIconClass()}`
 
+  if (toolName === 'manage_global_memory') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 18V5"/><path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/><path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5"/><path d="M17.997 5.125a4 4 0 0 1 2.526 5.77"/><path d="M18 18a4 4 0 0 0 2-7.464"/><path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517"/><path d="M6 18a4 4 0 0 1-2-7.464"/><path d="M6.003 5.125a4 4 0 0 0-2.526 5.77"/></svg>`
   if (toolName === 'edit_file') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.4 2.6a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg>`
   if (toolName === 'write_file') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15h6"/></svg>`
   if (toolName === 'read_file') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>`
@@ -787,6 +792,7 @@ function registerMcpToolRenderers(tools: unknown[]) {
 
 // Register renderers at import time
 for (const [name, label] of [
+  ['manage_global_memory', 'manageGlobalMemory'],
   ['read_file', 'readFile'],
   ['grep_files', 'searchFiles'],
   ['write_file', 'writeFile'],

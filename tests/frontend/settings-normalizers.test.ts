@@ -6,6 +6,12 @@ import {
   saveAutoCompactSettings,
 } from '../../src/lib/auto-compact-settings'
 import {
+  DEFAULT_MEMORY_SETTINGS,
+  loadMemorySettings,
+  normalizeMemorySettings,
+  saveMemorySettings,
+} from '../../src/lib/memory-settings'
+import {
   DEFAULT_APPEARANCE_SETTINGS,
   getCurrentTheme,
   loadAppearanceSettings,
@@ -93,6 +99,17 @@ describe('settings normalizers', () => {
       minSourceChars: 12,
       requireConfirmation: true,
     })
+  })
+
+  it('normalizes, loads, and saves memory settings', async () => {
+    expect(normalizeMemorySettings(undefined)).toEqual(DEFAULT_MEMORY_SETTINGS)
+    expect(normalizeMemorySettings({})).toEqual({ enabled: true })
+    expect(normalizeMemorySettings({ enabled: false })).toEqual({ enabled: false })
+
+    const { storage, values } = createStorage({ 'memory-settings': { enabled: false } })
+    await expect(loadMemorySettings(storage)).resolves.toEqual({ enabled: false })
+    await saveMemorySettings(storage, { enabled: true })
+    expect(values.get('memory-settings')).toEqual({ enabled: true })
   })
 
   it('normalizes appearance settings and is a no-op in node without document', async () => {

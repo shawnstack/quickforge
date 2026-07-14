@@ -5,7 +5,7 @@ import path from 'node:path'
 import { Agent } from '@earendil-works/pi-agent-core'
 import { streamSimpleWithAiHttpLogging } from './ai-http-logger.mjs'
 import { loadSkillToolContext, abortRunningCommand } from './tools/index.mjs'
-import { createSkillTools, workspaceTools } from './tools/definitions.mjs'
+import { createSkillTools, globalMemoryTool, workspaceTools } from './tools/definitions.mjs'
 import { createMcpToolDefinitions, isMcpToolName } from './mcp/registry.mjs'
 import { createPluginToolDefinitions, isPluginToolName } from './plugins/registry.mjs'
 import {
@@ -28,6 +28,7 @@ import {
 import { projectContextFromId, defaultGlobalWorkspaceContext, readProjectConfig } from './project-config.mjs'
 import { ensureStorage, readStore, atomicUpdate, atomicSessionMetadataUpdate, readSessionValue, writeSessionValue, deleteSessionValue, tempAgentsDir } from './storage.mjs'
 import { logger } from './utils/logger.mjs'
+import { getGlobalMemoryRevision, isGlobalMemoryEnabled } from './global-memory.mjs'
 import { buildSystemPrompt, generateAiTitle, generateTitle } from './session-utils.mjs'
 import { restoreReasoningContentInPayload } from './reasoning-cache.mjs'
 import {
@@ -111,6 +112,10 @@ async function createServerTools(projectId, projectContext, skillsContext, inclu
     .filter(isAllowed)
     .map((definition) => wrapToolDefinition(definition, toolContext, toolPermissions))
 
+  if (!allowedTools && await isGlobalMemoryEnabled()) {
+    tools.push(wrapToolDefinition(globalMemoryTool, toolContext, toolPermissions))
+  }
+
   if (includeWorkspaceTools && projectContext) {
     const definitions = workspaceTools.filter((definition) => includeSubagentTool || definition.name !== 'run_subagent')
     tools.push(...definitions
@@ -132,13 +137,21 @@ async function createServerTools(projectId, projectContext, skillsContext, inclu
 }
 
 async function rebuildSessionTools(session) {
+  const profileToolNames = Array.isArray(session.agentProfile?.allowedTools) ? session.agentProfile.allowedTools : null
   session.agent.state.tools = await createServerTools(
     session.projectId,
     session.projectContext,
     sessionSkillsContext(session),
     !!session.projectContext,
     createCommandToolPermissions(session),
-    { parentSessionId: session.sessionId },
+    session.agentProfile
+      ? {
+          allowedToolNames: profileToolNames,
+          includeSubagentTool: false,
+          includeMcpTools: false,
+          parentSessionId: session.sessionId,
+        }
+      : { parentSessionId: session.sessionId },
   )
 }
 
@@ -1314,6 +1327,28 @@ export function touchSession(sessionId) {
   return false
 }
 
+function agentProfileSystemPrompt(agentProfile) {
+  return agentProfile?.systemPrompt
+    ? `\n\n<agent_profile_instructions>\nAgent Profile: ${agentProfile.label || agentProfile.name}\n${agentProfile.systemPrompt}\n</agent_profile_instructions>`
+    : ''
+}
+
+async function resolvedSessionSystemPrompt(projectId, agentProfile) {
+  return `${await buildSystemPrompt(projectId)}${agentProfileSystemPrompt(agentProfile)}`
+}
+
+async function refreshMemoryState(session) {
+  const memoryEnabled = await isGlobalMemoryEnabled()
+  const memoryRevision = memoryEnabled ? await getGlobalMemoryRevision() : null
+  if (session.memoryEnabled === memoryEnabled && session.memoryRevision === memoryRevision) return
+  session.memoryEnabled = memoryEnabled
+  session.memoryRevision = memoryRevision
+  if (session.managedSystemPrompt !== false) {
+    session.agent.state.systemPrompt = await resolvedSessionSystemPrompt(session.projectId, session.agentProfile)
+  }
+  await rebuildSessionTools(session)
+}
+
 /**
  * Create or retrieve an Agent for a session.
  * If the session already has a running agent, return it.
@@ -1368,7 +1403,7 @@ export async function createAgent(sessionId, config = {}) {
     globalSkillNames: projectConfig.globalSkills,
     projectSkillNames: configuredProject?.skills,
   }
-  const profileSystemPrompt = agentProfile?.systemPrompt ? `\n\n<agent_profile_instructions>\nAgent Profile: ${agentProfile.label || agentProfile.name}\n${agentProfile.systemPrompt}\n</agent_profile_instructions>` : ''
+  const profileSystemPrompt = agentProfileSystemPrompt(agentProfile)
   const resolvedSystemPrompt = systemPrompt ?? `${await buildSystemPrompt(projectId)}${profileSystemPrompt}`
 
   let resolvedAgentProfile = agentProfile
@@ -1429,6 +1464,8 @@ export async function createAgent(sessionId, config = {}) {
     }
   }
 
+  const initialMemoryEnabled = await isGlobalMemoryEnabled()
+  const initialMemoryRevision = initialMemoryEnabled ? await getGlobalMemoryRevision() : null
   let session
   const agent = new Agent({
     initialState: {
@@ -1455,6 +1492,7 @@ export async function createAgent(sessionId, config = {}) {
       const isSkillTool = toolName === 'activate_skill' || toolName === 'read_skill_resource'
       if (isSkillTool) return undefined
       if (profileToolNames && !profileToolNames.includes(toolName)) return { block: true, reason: `Agent profile ${agentProfile.name} is not allowed to use ${toolName}.` }
+      if (toolName === 'manage_global_memory') return undefined
       if (toolName === 'run_subagent') {
         const requested = context.args?.subagent
         const policy = requested && typeof requested === 'object' ? normalizeCapabilityPolicy(requested.capabilityPolicy || 'readonly-research', Array.isArray(requested.tools) ? requested.tools : []) : null
@@ -1517,6 +1555,9 @@ export async function createAgent(sessionId, config = {}) {
     stateVersion: 0,
     lastAutoCompactAt: null,
     lastAutoCompactRejected: null,
+    memoryEnabled: initialMemoryEnabled,
+    memoryRevision: initialMemoryRevision,
+    managedSystemPrompt: systemPrompt == null,
     /** Track active SSE connections. Only one SSE stream allowed per session to prevent
      *  connection-pool exhaustion when two browser tabs load the same session. */
     sseConnected: false,
@@ -1864,6 +1905,7 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
     throw Object.assign(new Error('Generation is still running. Stop it or wait until it finishes.'), { statusCode: 409 })
   }
 
+  await refreshMemoryState(session)
   resetIdleTimer(session)
 
   // Build user message

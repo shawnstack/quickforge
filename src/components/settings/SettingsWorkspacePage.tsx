@@ -8,6 +8,7 @@ import {
   DownloadCloud,
   Globe2,
   Info,
+  Brain,
   Palette,
   Puzzle,
   Search,
@@ -34,6 +35,7 @@ type SettingsWorkspacePageProps = {
 const SETTINGS_TAB_ICONS = {
   appearance: Palette,
   defaults: SlidersHorizontal,
+  memory: Brain,
   customModels: Database,
   agents: Bot,
   skills: BookOpen,

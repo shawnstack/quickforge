@@ -22,6 +22,7 @@ export const commandRestrictedTools = new Set([
   'edit_file',
   'run_command',
   'run_subagent',
+  'manage_global_memory',
 ])
 
 export const planAllowedTools = new Set([
@@ -98,6 +99,9 @@ export function commandToolPermissionError(session, toolName) {
   }
   if ((toolName === 'write_file' || toolName === 'edit_file') && permissions.allowEdit === false) {
     return `Command /${session.activeCommandName} does not allow editing files.`
+  }
+  if (toolName === 'manage_global_memory' && permissions.allowEdit === false) {
+    return `Command /${session.activeCommandName} does not allow editing global memory.`
   }
   return null
 }

@@ -464,6 +464,33 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
   padding: 0.75rem 0.875rem;
 }
 
+.quickforge-memory-content-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.875rem;
+}
+
+.quickforge-memory-editor-control {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: stretch;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.quickforge-memory-editor {
+  min-height: 24rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.quickforge-memory-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.625rem;
+}
+
 .quickforge-settings-select:hover,
 .quickforge-settings-input:hover,
 .quickforge-settings-textarea:hover {

@@ -6,6 +6,7 @@ import { existsSync, promises as fs } from 'node:fs'
 import { ensureProjectCache, readProjectConfigData, atomicProjectConfigUpdate, dataDir, readStore, atomicUpdate } from './storage.mjs'
 import { setWorkspaceRoot, assertDirectory } from './utils/workspace.mjs'
 import { loadSelectedGlobalSkills, loadSelectedProjectSkills, mergeSkills } from './skills.mjs'
+import { readGlobalMemoryPrompt } from './global-memory.mjs'
 
 let defaultWorkspaceRoot = ''
 
@@ -403,6 +404,7 @@ export async function buildInstructionsPayload(projectId) {
     ? await loadSelectedProjectSkills(project.skills, project.path)
     : []
   const activeSkills = mergeSkills(globalSkills, projectSkills)
+  const globalMemory = await readGlobalMemoryPrompt()
   const stripRuntimeFields = ({ rootDir: _rootDir, instructions: _instructions, location: _location, ...skill }) => skill
 
   return {
@@ -417,6 +419,7 @@ export async function buildInstructionsPayload(projectId) {
     project: projectInstructions,
     globalSources: globalInstructionSources,
     projectSources: projectInstructionSources,
+    globalMemory,
     globalSkills: globalSkills.map(stripRuntimeFields),
     projectSkills: projectSkills.map(stripRuntimeFields),
     skills: activeSkills.map(stripRuntimeFields),

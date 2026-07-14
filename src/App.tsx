@@ -1102,6 +1102,10 @@ function MainApp() {
     openSettingsPage('skills')
   }, [openSettingsPage])
 
+  const openAgents = useCallback(() => {
+    openSettingsPage('agents')
+  }, [openSettingsPage])
+
   const openScheduledTasks = useCallback(() => {
     openSettingsPage('scheduledTasks')
   }, [openSettingsPage])
@@ -1186,6 +1190,11 @@ function MainApp() {
     closeMobileSidebar()
     openGlobalSkills()
   }, [closeMobileSidebar, openGlobalSkills])
+
+  const openAgentsFromSidebar = useCallback(() => {
+    closeMobileSidebar()
+    openAgents()
+  }, [closeMobileSidebar, openAgents])
 
   const openScheduledTasksFromSidebar = useCallback(() => {
     closeMobileSidebar()
@@ -1403,6 +1412,7 @@ function MainApp() {
         onSelectProjectDirectory={selectProjectDirectory}
         onStartNewProjectChat={startNewProjectChat}
         onOpenGlobalSkills={openGlobalSkills}
+        onOpenAgents={openAgents}
         onOpenScheduledTasks={openScheduledTasks}
         onOpenProjectSkills={openProjectSkills}
         onOpenProjectInExplorer={openProjectInExplorerWithFeedback}
@@ -1475,6 +1485,7 @@ function MainApp() {
               }}
               onStartNewProjectChat={startNewProjectChatFromSidebar}
               onOpenGlobalSkills={openGlobalSkillsFromSidebar}
+              onOpenAgents={openAgentsFromSidebar}
               onOpenScheduledTasks={openScheduledTasksFromSidebar}
               onOpenProjectSkills={openProjectSkillsFromSidebar}
               onOpenProjectInExplorer={(project) => {

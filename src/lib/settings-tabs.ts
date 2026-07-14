@@ -2,6 +2,7 @@ import type { SettingsTab } from '@earendil-works/pi-web-ui'
 import { createCustomProvidersOnlyTab } from '@/lib/custom-providers-only-tab'
 import { createAppearanceSettingsTab } from '@/lib/appearance-settings-tab'
 import { createDefaultOptionsSettingsTab } from '@/lib/default-options-settings-tab'
+import { createMemorySettingsTab } from '@/lib/memory-settings-tab'
 import { createBackupSettingsTab } from '@/lib/backup-settings-tab'
 import { createArchivedConversationsSettingsTab } from '@/lib/archived-conversations-settings-tab'
 import { createLanAccessSettingsTab } from '@/lib/lan-access-settings-tab'
@@ -20,6 +21,7 @@ import {
 export type SettingsInitialTab =
   | 'appearance'
   | 'defaults'
+  | 'memory'
   | 'customModels'
   | 'agents'
   | 'skills'
@@ -37,6 +39,7 @@ export function createSettingsTabs(customProvider?: string) {
   const tabs = [
     { key: 'appearance', tab: createAppearanceSettingsTab(), getDescription: () => t('appearanceDescription') },
     { key: 'defaults', tab: createDefaultOptionsSettingsTab(), getDescription: () => t('defaultOptionsDescription') },
+    { key: 'memory', tab: createMemorySettingsTab(), getDescription: () => t('memoryDescription') },
     { key: 'customModels', tab: createCustomProvidersOnlyTab(customProvider), getDescription: () => t('customModelsDescription') },
     { key: 'agents', tab: createAgentProfilesSettingsTab(), getDescription: () => t('agentsDescription') },
     { key: 'skills', tab: createSkillsSettingsTab(), getDescription: () => t('globalSkillsDescription') },

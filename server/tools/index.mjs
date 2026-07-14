@@ -14,6 +14,7 @@ import {
   readSkillResource,
 } from '../skills.mjs'
 import { getToolWorkspaceRoot } from '../utils/workspace.mjs'
+import { manageGlobalMemory } from '../global-memory.mjs'
 
 const require = createRequire(import.meta.url)
 
@@ -1088,7 +1089,12 @@ export async function toolRunCommand(params, context, runtime = {}) {
   })
 }
 
+export async function toolManageGlobalMemory(params) {
+  return manageGlobalMemory(params)
+}
+
 export const toolHandlers = {
+  manage_global_memory: toolManageGlobalMemory,
   read_file: toolReadFile,
   grep_files: toolGrepFiles,
   write_file: toolWriteFile,

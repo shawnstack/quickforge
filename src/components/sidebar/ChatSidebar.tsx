@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import {
   Archive,
   BookOpen,
+  Bot,
   CalendarClock,
   CalendarPlus,
   Check,
@@ -96,6 +97,7 @@ type ChatSidebarProps = {
   onSelectProjectDirectory: () => void
   onStartNewProjectChat: (project: ProjectInfo) => void
   onOpenGlobalSkills: () => void
+  onOpenAgents: () => void
   onOpenScheduledTasks: () => void
   onOpenProjectSkills: (project: ProjectInfo) => void
   onOpenProjectInExplorer: (project: ProjectInfo) => void
@@ -221,6 +223,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   onSelectProjectDirectory,
   onStartNewProjectChat,
   onOpenGlobalSkills,
+  onOpenAgents,
   onOpenScheduledTasks,
   onOpenProjectSkills,
   onOpenProjectInExplorer,
@@ -706,6 +709,18 @@ export const ChatSidebar = memo(function ChatSidebar({
             <BookOpen className="size-4" />
           </span>
           {sidebarOpen ? <span className={sessionTitleClass}>{t('skills')}</span> : null}
+        </button>
+        <button
+          type="button"
+          className={cn(rowClass, 'w-full', inactiveRowClass)}
+          onClick={onOpenAgents}
+          aria-label={t('agentsTab')}
+          title={t('agentsTab')}
+        >
+          <span className={iconSlotClass}>
+            <Bot className="size-4" />
+          </span>
+          {sidebarOpen ? <span className={sessionTitleClass}>{t('agentsTab')}</span> : null}
         </button>
       </div>
 

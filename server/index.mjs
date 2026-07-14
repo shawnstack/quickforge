@@ -14,6 +14,7 @@ import { handleProjectApi } from './routes/project.mjs'
 import { handleFilesystemApi, setActiveWorkspaceRootForFilesystem } from './routes/filesystem.mjs'
 import { handleToolApi, handleGetTools } from './routes/tools.mjs'
 import { handleInstructionsApi } from './routes/instructions.mjs'
+import { handleMemoryApi } from './routes/memory.mjs'
 import { handleSkillsApi } from './routes/skills.mjs'
 import { handleAgentApi } from './routes/agent.mjs'
 import { handleAgentProfilesApi } from './routes/agent-profiles.mjs'
@@ -309,6 +310,12 @@ async function handleApi(req, res, url) {
   // Instructions
   if (req.method === 'GET' && pathname === '/api/instructions') {
     await handleInstructionsApi(req, res, url)
+    return
+  }
+
+  // Global user memory
+  if (pathname === '/api/memory') {
+    await handleMemoryApi(req, res)
     return
   }
 

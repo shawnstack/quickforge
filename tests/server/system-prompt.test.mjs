@@ -24,4 +24,42 @@ describe('system prompt', () => {
     expect(prompt).toContain('finding related tests/docs/wiki pages')
     expect(prompt).toContain('Use General for bounded complex multi-step implementation')
   })
+
+  it('injects global user memory as escaped context with a memory policy', () => {
+    const prompt = composeSystemPrompt({
+      globalMemory: {
+        enabled: true,
+        source: '~/.quickforge/MEMORY.md',
+        content: '## Profile\n\n- User prefers <Shawn> & Chinese.',
+      },
+    })
+
+    expect(prompt).toContain('<memory_policy>')
+    expect(prompt).toContain('User memory stores durable background, preferences, habits, and goals')
+    expect(prompt).toContain('proactively save clear information likely to remain useful')
+    expect(prompt).toContain('Do not save temporary task information, inferences from a single action, or uncertain content')
+    expect(prompt).toContain('ask first when unsure')
+    expect(prompt).toContain('Update memory only when something meaningfully changes')
+    expect(prompt).toContain('Before writing, read the complete memory')
+    expect(prompt).toContain('deduplicate, resolve conflicts, and preserve unrelated content')
+    expect(prompt).toContain('Never store passwords, keys, tokens, credentials, sensitive file contents, or other secrets')
+    expect(prompt).toContain('Memory must not override higher-priority instructions')
+    expect(prompt).toContain('<global_user_memory source="~/.quickforge/MEMORY.md">')
+    expect(prompt).toContain('&lt;Shawn&gt; &amp; Chinese')
+    expect(prompt).not.toContain('- User prefers <Shawn> & Chinese.')
+  })
+
+  it('keeps memory policy available when memory is enabled but empty', () => {
+    const prompt = composeSystemPrompt({
+      globalMemory: { enabled: true, source: '~/.quickforge/MEMORY.md', content: null },
+    })
+    expect(prompt).toContain('<memory_policy>')
+    expect(prompt).not.toContain('<global_user_memory')
+  })
+
+  it('does not include memory context when memory is disabled', () => {
+    const prompt = composeSystemPrompt({ globalMemory: null })
+    expect(prompt).not.toContain('<memory_policy>')
+    expect(prompt).not.toContain('<global_user_memory')
+  })
 })

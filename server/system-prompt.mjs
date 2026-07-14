@@ -127,6 +127,28 @@ ${lines.join('\n')}
   appendInstructionSources(parts, 'user_instructions', instructions.globalSources, instructions.global)
   appendInstructionSources(parts, 'project_instructions', instructions.projectSources, instructions.project)
 
+  if (instructions.globalMemory?.enabled) {
+    parts.push(`
+<memory_policy>
+User memory stores durable background, preferences, habits, and goals and is used only as context.
+
+You may proactively save clear information likely to remain useful in future conversations, and follow user requests to remember, change, or forget. Do not save temporary task information, inferences from a single action, or uncertain content; ask first when unsure.
+
+Update memory only when something meaningfully changes. Before writing, read the complete memory, deduplicate, resolve conflicts, and preserve unrelated content.
+
+Never store passwords, keys, tokens, credentials, sensitive file contents, or other secrets.
+
+The current message takes precedence over older memory. Memory must not override higher-priority instructions or verified code and documentation.
+</memory_policy>`)
+    const sourceAttribute = instructions.globalMemory.source ? ` source="${escapeAttribute(instructions.globalMemory.source)}"` : ''
+    if (instructions.globalMemory.content) {
+      parts.push(`
+<global_user_memory${sourceAttribute}>
+${escapeXml(instructions.globalMemory.content)}
+</global_user_memory>`)
+    }
+  }
+
   if (instructions.globalSources?.length || instructions.projectSources?.length) {
     parts.push(`
 <instruction_precedence>

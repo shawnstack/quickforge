@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { subagentTool, workspaceTools, createSkillTools } from '../../../server/tools/definitions.mjs'
+import { subagentTool, globalMemoryTool, workspaceTools, createSkillTools } from '../../../server/tools/definitions.mjs'
 
 describe('definitions', () => {
   describe('subagentTool', () => {
@@ -29,6 +29,22 @@ describe('definitions', () => {
       const props = subagentTool.parameters.properties
       expect(props).toHaveProperty('subagent')
       expect(props).toHaveProperty('task')
+    })
+  })
+
+  describe('globalMemoryTool', () => {
+    it('supports complete document reads and writes and is sequential', () => {
+      expect(globalMemoryTool.name).toBe('manage_global_memory')
+      expect(globalMemoryTool.executionMode).toBe('sequential')
+      expect(globalMemoryTool.description).toContain('complete global MEMORY.md')
+      expect(globalMemoryTool.description).toContain('proactively save durable preferences')
+      expect(globalMemoryTool.description).toContain('current-task instructions')
+      expect(globalMemoryTool.description).toContain('Do not force an update')
+      expect(globalMemoryTool.description).toContain('deduplicate or update conflicting information')
+      expect(globalMemoryTool.parameters.properties).toHaveProperty('action')
+      expect(globalMemoryTool.parameters.properties).toHaveProperty('markdown')
+      expect(globalMemoryTool.parameters.properties).not.toHaveProperty('type')
+      expect(globalMemoryTool.parameters.properties).not.toHaveProperty('id')
     })
   })
 

@@ -123,6 +123,19 @@ server/
 - 写操作的原子锁队列
 - 目录大小计算
 
+### global-memory.mjs
+
+**用途**: 管理一份跨项目、跨会话共享的全局用户记忆。
+
+- 设置项保存在 `settings['memory-settings']`，默认开启；设置页入口为「设置 → 记忆」，可直接查看、自由编辑、重新加载并原样保存完整 Markdown。
+- `GET /api/memory` 在开关关闭时也允许查看已有文件；`PUT /api/memory` 仅在开启时原样保存，并检查大小和敏感信息。
+- 记忆正文保存在 `~/.quickforge/MEMORY.md`，不要求固定标题、列表、分类或条目 ID；用于记录对未来对话有帮助的长期偏好、习惯、背景、工作方式和目标。
+- 开启时，`buildInstructionsPayload()` 会把精简后的记忆注入 `<global_user_memory>`，并附加 `<memory_policy>`；主 Agent 可在普通对话中主动识别并保存长期有价值的信息，也会响应用户明确的记住、修改或忘记要求。
+- 主动记忆会排除仅适用于当前任务的要求、临时项目细节、基于单次行为的推断和不确定猜测；没有有价值的变化时不调用工具，不确定时不保存或向用户确认。
+- `manage_global_memory` 工具支持读取或覆盖完整记忆文档；写入前必须读取完整文档、去重并更新冲突信息，同时保留无关内容和原有格式。写入不弹审批，并拒绝密码、Token、API Key、Cookie、私钥等敏感信息。
+- 关闭后不注入记忆内容或主动记忆规则，并停止工具读取和写入，但保留 `MEMORY.md`；运行中的会话会在下一次发送消息前刷新 system prompt 和工具列表。
+- Subagent 和自定义 Agent Profile 默认不获得记忆写入工具，避免临时 Agent 修改全局用户信息。
+
 ### agent-profiles.mjs
 
 **用途**: Agent Profile 配置层。

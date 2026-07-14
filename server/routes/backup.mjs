@@ -18,12 +18,17 @@ const BACKUP_VERSION = 1
 const BACKUP_APP = 'quickforge'
 const IMPORT_UPLOAD_MAX_BYTES = Number(process.env.QUICKFORGE_IMPORT_UPLOAD_MAX_BYTES || 1024 * 1024 * 1024)
 const backupScopes = new Set(['all', 'config', 'sessions'])
-const restoreSectionIds = new Set(['settings', 'mcp', 'providerKeys', 'customProviders', 'projects', 'scheduledTasks', 'conversations'])
+const settingsSectionIds = ['settings', 'mcp', 'providerKeys', 'customProviders', 'projects', 'scheduledTasks']
+const exportSectionIds = new Set(settingsSectionIds)
+const restoreSectionIds = new Set([...settingsSectionIds, 'conversations'])
 const restoreModes = new Set(['replace', 'merge'])
 
 function normalizeMode(value) {
   const mode = String(value || 'replace')
-  return restoreModes.has(mode) ? mode : 'replace'
+  if (restoreModes.has(mode)) return mode
+  const error = new Error(`Invalid restore mode: ${mode}`)
+  error.statusCode = 400
+  throw error
 }
 
 function normalizeScope(value) {
@@ -36,25 +41,27 @@ function parseBoolean(value) {
   return text === '1' || text === 'true' || text === 'yes'
 }
 
-function extractCoreBackupFromText(text) {
-  const backup = JSON.parse(text, (key, value) => (
-    key === 'sessions' || key === 'sessionsMetadata' || key === 'sessions-metadata'
-      ? undefined
-      : value
-  ))
+function extractSettingsBackupFromText(text) {
+  let ignoredConversations = false
+  const backup = JSON.parse(text, (key, value) => {
+    if (key === 'sessions' || key === 'sessionsMetadata' || key === 'sessions-metadata') {
+      ignoredConversations = true
+      return undefined
+    }
+    return value
+  })
   if (backup && typeof backup === 'object' && !Array.isArray(backup)) {
-    if (backup.data && typeof backup.data === 'object' && !Array.isArray(backup.data)) {
-      backup.scope = 'config'
-      return backup
-    }
-    return {
-      app: backup.app ?? BACKUP_APP,
-      version: backup.version ?? BACKUP_VERSION,
-      exportedAt: backup.exportedAt ?? null,
-      scope: 'config',
-      includeSecrets: backup.includeSecrets === true,
-      data: backup,
-    }
+    const normalized = backup.data && typeof backup.data === 'object' && !Array.isArray(backup.data)
+      ? { ...backup, scope: 'config' }
+      : {
+          app: backup.app ?? BACKUP_APP,
+          version: backup.version ?? BACKUP_VERSION,
+          exportedAt: backup.exportedAt ?? null,
+          scope: 'config',
+          includeSecrets: backup.includeSecrets === true,
+          data: backup,
+        }
+    return { backup: normalized, ignoredConversations }
   }
   const error = new Error('Invalid backup file')
   error.statusCode = 400
@@ -92,9 +99,22 @@ async function readPendingImportBackup(token) {
     throw error
   }
   const file = path.join(storageDir, 'pending-imports', `${token}.json`)
-  const backup = JSON.parse(await fs.readFile(file, 'utf8'))
+  try {
+    return JSON.parse(await fs.readFile(file, 'utf8'))
+  } catch (cause) {
+    if (cause?.code === 'ENOENT') {
+      const error = new Error('Import preview has expired. Please select the backup file again.')
+      error.statusCode = 400
+      throw error
+    }
+    throw cause
+  }
+}
+
+async function deletePendingImportBackup(token) {
+  if (!/^[0-9a-f-]{36}$/i.test(String(token || ''))) return
+  const file = path.join(storageDir, 'pending-imports', `${token}.json`)
   await fs.rm(file, { force: true })
-  return backup
 }
 
 function backupTimestamp(date = new Date()) {
@@ -170,30 +190,48 @@ function normalizeSessionMetadata(sessions, metadata) {
   return nextMetadata
 }
 
+function normalizeExportSections(value) {
+  if (value === null || value === undefined || value === '') return null
+  const items = Array.isArray(value) ? value : String(value).split(',')
+  const selected = new Set()
+  for (const item of items) {
+    const id = String(item).trim()
+    if (!exportSectionIds.has(id)) {
+      const error = new Error(`Invalid export section: ${id}`)
+      error.statusCode = 400
+      throw error
+    }
+    selected.add(id)
+  }
+  if (selected.size === 0) {
+    const error = new Error('No export sections selected')
+    error.statusCode = 400
+    throw error
+  }
+  return selected
+}
+
 async function buildBackup(scope = 'all', options = {}) {
   const normalizedScope = normalizeScope(scope)
-  const includeConfig = normalizedScope === 'all' || normalizedScope === 'config'
-  const includeSessions = normalizedScope === 'all' || normalizedScope === 'sessions'
-  const includeSecrets = Boolean(options.includeSecrets && includeConfig)
+  const selected = normalizeExportSections(options.sections)
+  const includeConfig = selected ? true : normalizedScope === 'all' || normalizedScope === 'config'
+  const includeSessions = selected ? false : normalizedScope === 'all' || normalizedScope === 'sessions'
+  const includeSecrets = selected ? selected.has('providerKeys') : Boolean(options.includeSecrets && includeConfig)
   const data = {}
 
   if (includeConfig) {
-    const [settings, mcp, providerKeys, customProviders, projects, scheduledTasks] = await Promise.all([
-      readStore('settings'),
-      readStore('mcp'),
-      includeSecrets ? readStore('provider-keys') : Promise.resolve(undefined),
-      readStore('custom-providers'),
-      readProjectConfigData(),
-      readStore('scheduled-tasks'),
+    const shouldInclude = (id) => !selected || selected.has(id)
+    const entries = await Promise.all([
+      shouldInclude('settings') ? readStore('settings').then((value) => ['settings', value]) : null,
+      shouldInclude('mcp') ? readStore('mcp').then((value) => ['mcp', value]) : null,
+      shouldInclude('providerKeys') ? readStore('provider-keys').then((value) => ['providerKeys', value]) : null,
+      shouldInclude('customProviders') ? readStore('custom-providers').then((value) => ['customProviders', value]) : null,
+      shouldInclude('projects') ? readProjectConfigData().then((value) => ['projects', value]) : null,
+      shouldInclude('scheduledTasks') ? readStore('scheduled-tasks').then((value) => ['scheduledTasks', value]) : null,
     ])
-    Object.assign(data, {
-      settings,
-      mcp,
-      customProviders,
-      projects,
-      scheduledTasks,
-    })
-    if (includeSecrets) data.providerKeys = providerKeys
+    for (const entry of entries) {
+      if (entry) data[entry[0]] = entry[1]
+    }
   }
 
   if (includeSessions) {
@@ -211,7 +249,8 @@ async function buildBackup(scope = 'all', options = {}) {
     app: BACKUP_APP,
     version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
-    scope: normalizedScope,
+    scope: selected ? 'config' : normalizedScope,
+    exportedSections: selected ? settingsSectionIds.filter((id) => selected.has(id)) : undefined,
     includeSecrets,
     data,
   }
@@ -264,6 +303,42 @@ function normalizeBackupPayload(payload) {
     scope: typeof backup.scope === 'string' ? backup.scope : null,
     includeSecrets: backup.includeSecrets === true,
     sections,
+  }
+}
+
+function validateSettingsImportBackup(payload) {
+  const normalized = normalizeBackupPayload(payload)
+  const validSections = {}
+  const invalidSections = {}
+
+  for (const id of settingsSectionIds) {
+    const value = normalized.sections[id]
+    if (value === undefined) continue
+    try {
+      validSections[id] = id === 'projects'
+        ? assertProjectConfig(value)
+        : assertObjectSection(value, id)
+    } catch (error) {
+      invalidSections[id] = error instanceof Error ? error.message : `Invalid backup section: ${id}`
+    }
+  }
+
+  if (Object.keys(validSections).length === 0) {
+    const error = new Error('Backup does not contain any valid settings sections')
+    error.statusCode = 400
+    throw error
+  }
+
+  return {
+    backup: {
+      app: normalized.app,
+      version: normalized.version,
+      exportedAt: normalized.exportedAt,
+      scope: 'config',
+      includeSecrets: normalized.includeSecrets,
+      data: validSections,
+    },
+    invalidSections,
   }
 }
 
@@ -349,11 +424,20 @@ function backupWithSelectedSections(backup, selected) {
 
 function parseImportPayload(body) {
   const payload = body?.backup && typeof body.backup === 'object' ? body.backup : body
-  const backup = validateBackupPayload(payload)
+  const normalized = normalizeBackupPayload(payload)
   const requestedSections = body?.backup && typeof body === 'object' ? body.sections : undefined
-  const selected = normalizeRestoreSections(requestedSections, backup.sections)
+  const selected = normalizeRestoreSections(requestedSections, normalized.sections)
+  const filtered = selected ? backupWithSelectedSections(normalized, selected) : normalized
+  const backup = validateBackupPayload({
+    app: filtered.app,
+    version: filtered.version,
+    exportedAt: filtered.exportedAt,
+    scope: filtered.scope,
+    includeSecrets: filtered.includeSecrets,
+    data: filtered.sections,
+  })
   const mode = normalizeMode(body?.mode)
-  return { backup: backupWithSelectedSections(backup, selected), mode }
+  return { backup, mode }
 }
 
 function countKeys(value) {
@@ -494,6 +578,7 @@ export async function handleBackupApi(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/api/backup/export') {
     await ensureStorage()
     sendJson(res, 200, await buildBackup(url.searchParams.get('scope'), {
+      sections: url.searchParams.get('sections'),
       includeSecrets: parseBoolean(url.searchParams.get('includeSecrets')),
     }))
     return
@@ -509,10 +594,11 @@ export async function handleBackupApi(req, res, url) {
   if (req.method === 'POST' && url.pathname === '/api/backup/inspect-file') {
     await ensureStorage()
     const text = await readTextBody(req)
-    const backup = extractCoreBackupFromText(text)
-    const inspect = inspectBackup(backup)
-    const token = await writePendingImportBackup(backup)
-    sendJson(res, 200, { ...inspect, importToken: token })
+    const { backup, ignoredConversations } = extractSettingsBackupFromText(text)
+    const { backup: validBackup, invalidSections } = validateSettingsImportBackup(backup)
+    const inspect = inspectBackup(validBackup)
+    const token = await writePendingImportBackup(validBackup)
+    sendJson(res, 200, { ...inspect, invalidSections, ignoredConversations, importToken: token })
     return
   }
 
@@ -523,6 +609,7 @@ export async function handleBackupApi(req, res, url) {
     const { backup, mode } = parseImportPayload(importBody)
     const safetyBackupPath = await writeSafetyBackup(backup.sections.sessions !== undefined || backup.sections.sessionsMetadata !== undefined ? 'all' : 'config')
     const summary = await restoreValidatedBackup(backup, mode)
+    if (body?.importToken) await deletePendingImportBackup(body.importToken)
     sendJson(res, 200, { ok: true, safetyBackupPath, summary })
     return
   }

@@ -19,7 +19,7 @@
 | `mermaid-renderer.ts` | 共享 Mermaid 动态加载、SVG 安全检查和渲染工具 |
 | `custom-model-selector.ts` | 162 | 自定义模型选择器 |
 | `custom-providers-only-tab.ts` | 565 | 自定义供应商设置选项卡 |
-| `backup-settings-tab.ts` | 515 | 数据备份/恢复选项卡 |
+| `backup-settings-tab.ts` | 备份与恢复设置选项卡：按设置数据项选择导出内容（不包含对话），上传后预览有效/异常数据项，并支持按项替换或合并恢复 |
 | `default-options-settings-tab.ts` | 257 | 默认选项设置选项卡 |
 | `language-settings-tab.ts` | 66 | 语言设置选项卡 |
 | `lan-access-settings-tab.ts` | 227 | LAN 共享设置选项卡 |

@@ -67,6 +67,14 @@ async function callImport(backup, storage, body) {
   return { res, json: JSON.parse(res._body || '{}') }
 }
 
+async function callImportWithToken(backup, body) {
+  const url = new URL('http://localhost/api/backup/import')
+  const req = { method: 'POST', ...mockReq(body) }
+  const res = mockRes()
+  await backup.handleBackupApi(req, res, url)
+  return { res, json: JSON.parse(res._body || '{}') }
+}
+
 async function callExport(backup, urlText = 'http://localhost/api/backup/export') {
   const url = new URL(urlText)
   const req = { method: 'GET' }
@@ -75,7 +83,7 @@ async function callExport(backup, urlText = 'http://localhost/api/backup/export'
   return { res, json: JSON.parse(res._body || '{}') }
 }
 
-describe('backup export — default scope', () => {
+describe('backup export — settings sections', () => {
   it('defaults to core config and excludes conversations', async () => {
     await withTempBackup(async (backup, storage) => {
       await storage.writeStore('settings', { theme: 'dark' })
@@ -89,6 +97,30 @@ describe('backup export — default scope', () => {
       expect(json.data.settings).toEqual({ theme: 'dark' })
       expect(json.data.sessions).toBeUndefined()
       expect(json.data.sessionsMetadata).toBeUndefined()
+    })
+  })
+
+  it('exports only selected settings sections, including provider keys', async () => {
+    await withTempBackup(async (backup, storage) => {
+      await storage.writeStore('settings', { theme: 'dark' })
+      await storage.writeStore('provider-keys', { openai: 'key' })
+      await storage.writeStore('custom-providers', { local: { id: 'local' } })
+
+      const { res, json } = await callExport(backup, 'http://localhost/api/backup/export?sections=settings,providerKeys')
+
+      expect(res._status).toBe(200)
+      expect(json.exportedSections).toEqual(['settings', 'providerKeys'])
+      expect(json.data.settings).toEqual({ theme: 'dark' })
+      expect(json.data.providerKeys).toEqual({ openai: 'key' })
+      expect(json.data.customProviders).toBeUndefined()
+      expect(json.data.sessions).toBeUndefined()
+    })
+  })
+
+  it('rejects conversations in the new section-based export API', async () => {
+    await withTempBackup(async (backup) => {
+      await expect(callExport(backup, 'http://localhost/api/backup/export?sections=settings,conversations'))
+        .rejects.toThrow('Invalid export section: conversations')
     })
   })
 })
@@ -114,7 +146,7 @@ async function callInspectFile(backup, text) {
 }
 
 describe('backup import — file inspect', () => {
-  it('extracts core settings from a full backup and omits conversations', async () => {
+  it('extracts settings from a full backup and reports ignored conversations', async () => {
     await withTempBackup(async (backup) => {
       const fullBackupText = JSON.stringify(makeBackup({
         settings: { theme: 'dark' },
@@ -128,6 +160,23 @@ describe('backup import — file inspect', () => {
       expect(json.importToken).toBeTruthy()
       expect(json.sections.settings).toBe(1)
       expect(json.sections.sessions).toBeUndefined()
+      expect(json.ignoredConversations).toBe(true)
+    })
+  })
+
+  it('skips invalid unselected sections while preserving valid settings', async () => {
+    await withTempBackup(async (backup) => {
+      const text = JSON.stringify(makeBackup({
+        settings: { theme: 'dark' },
+        projects: { projects: 'invalid' },
+      }))
+
+      const { res, json } = await callInspectFile(backup, text)
+
+      expect(res._status).toBe(200)
+      expect(json.sections.settings).toBe(1)
+      expect(json.sections.projects).toBeUndefined()
+      expect(json.invalidSections.projects).toContain('projects.projects')
     })
   })
 })
@@ -356,20 +405,44 @@ describe('backup import — safety backup', () => {
 })
 
 describe('backup import — validation', () => {
-  it('rejects unknown restore mode gracefully (falls back to replace)', async () => {
+  it('keeps an import token after a failed attempt and deletes it after success', async () => {
+    await withTempBackup(async (backup, storage) => {
+      const { json: inspect } = await callInspectFile(backup, JSON.stringify(makeBackup({ settings: { theme: 'light' } })))
+
+      await expect(callImportWithToken(backup, {
+        importToken: inspect.importToken,
+        sections: ['settings'],
+        mode: 'invalid',
+      })).rejects.toThrow('Invalid restore mode: invalid')
+
+      const { res } = await callImportWithToken(backup, {
+        importToken: inspect.importToken,
+        sections: ['settings'],
+        mode: 'replace',
+      })
+      expect(res._status).toBe(200)
+      expect(await storage.readStore('settings')).toEqual({ theme: 'light' })
+
+      await expect(callImportWithToken(backup, {
+        importToken: inspect.importToken,
+        sections: ['settings'],
+        mode: 'replace',
+      })).rejects.toThrow('Import preview has expired')
+    })
+  })
+
+  it('rejects unknown restore modes', async () => {
     await withTempBackup(async (backup, storage) => {
       await storage.writeStore('settings', { keep: 1 })
 
       const bk = makeBackup({ settings: { new: 2 } })
-      const { res } = await callImport(backup, storage, {
+      await expect(callImport(backup, storage, {
         backup: bk,
         sections: ['settings'],
         mode: 'bogus-mode',
-      })
+      })).rejects.toThrow('Invalid restore mode: bogus-mode')
 
-      // normalizeMode falls back to 'replace' for unknown values
-      expect(res._status).toBe(200)
-      expect(await storage.readStore('settings')).toEqual({ new: 2 })
+      expect(await storage.readStore('settings')).toEqual({ keep: 1 })
     })
   })
 })

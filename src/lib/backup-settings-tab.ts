@@ -6,8 +6,8 @@ import './info-tip'
 
 const BACKUP_FILE_PREFIX = 'quickforge-backup'
 
-type BackupScope = 'all' | 'config' | 'sessions'
-type BackupRestoreSection = 'settings' | 'mcp' | 'providerKeys' | 'customProviders' | 'projects' | 'scheduledTasks' | 'conversations'
+type BackupExportSection = 'settings' | 'mcp' | 'providerKeys' | 'customProviders' | 'projects' | 'scheduledTasks'
+type BackupRestoreSection = BackupExportSection
 type BackupRestoreMode = 'replace' | 'merge'
 type BackupImportSummary = Record<string, number>
 
@@ -19,7 +19,9 @@ type BackupInspectResponse = {
   scope?: string | null
   includeSecrets?: boolean
   sections?: BackupImportSummary
+  invalidSections?: Record<string, string>
   warnings?: string[]
+  ignoredConversations?: boolean
   importToken?: string
   error?: string
 }
@@ -38,15 +40,16 @@ type BackupImportResponse = {
   summary?: BackupImportSummary
 }
 
-const restoreSections: Array<{ id: BackupRestoreSection; countKey: keyof BackupImportSummary; label: () => string; description: () => string }> = [
+const dataSections: Array<{ id: BackupExportSection; countKey: keyof BackupImportSummary; label: () => string; description: () => string }> = [
   { id: 'settings', countKey: 'settings', label: () => t('restoreSettings'), description: () => t('restoreSettingsDescription') },
   { id: 'mcp', countKey: 'mcp', label: () => t('restoreMcp'), description: () => t('restoreMcpDescription') },
   { id: 'providerKeys', countKey: 'providerKeys', label: () => t('restoreProviderKeys'), description: () => t('restoreProviderKeysDescription') },
   { id: 'customProviders', countKey: 'customProviders', label: () => t('restoreCustomProviders'), description: () => t('restoreCustomProvidersDescription') },
   { id: 'projects', countKey: 'projects', label: () => t('restoreProjects'), description: () => t('restoreProjectsDescription') },
   { id: 'scheduledTasks', countKey: 'scheduledTasks', label: () => t('restoreScheduledTasks'), description: () => t('restoreScheduledTasksDescription') },
-  { id: 'conversations', countKey: 'sessions', label: () => t('restoreConversations'), description: () => t('restoreConversationsDescription') },
 ]
+
+const restoreSections = dataSections
 
 function downloadJson(filename: string, value: unknown) {
   const blob = new Blob([`${JSON.stringify(value, null, 2)}\n`], { type: 'application/json' })
@@ -76,9 +79,7 @@ function availableRestoreSections(inspect: BackupInspectResponse) {
 }
 
 function defaultRestoreSections(inspect: BackupInspectResponse) {
-  return availableRestoreSections(inspect)
-    .filter((section) => section.id !== 'conversations')
-    .map((section) => section.id)
+  return availableRestoreSections(inspect).map((section) => section.id)
 }
 
 function isStringTooLargeError(error: unknown) {
@@ -90,39 +91,8 @@ function friendlyBackupError(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
 }
 
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
-}
-
-function stripConversationSections(value: unknown): unknown {
-  if (!isPlainRecord(value)) return value
-  const next = { ...value }
-  delete next.sessions
-  delete next.sessionsMetadata
-  delete next['sessions-metadata']
-  return next
-}
-
-function backupWithoutConversations(backup: unknown): unknown {
-  if (!isPlainRecord(backup)) return backup
-  if (isPlainRecord(backup.data)) {
-    return {
-      ...backup,
-      scope: backup.scope === 'sessions' ? 'config' : backup.scope,
-      data: stripConversationSections(backup.data),
-    }
-  }
-  return stripConversationSections(backup)
-}
-
-function selectedBackupForImport(backup: unknown, sections: Set<BackupRestoreSection>): unknown {
-  if (sections.has('conversations')) return backup
-  return backupWithoutConversations(backup)
-}
-
 class BackupSettingsTab extends SettingsTab {
-  private exportScope: BackupScope = 'config'
-  private includeSecrets = false
+  private exportSections = new Set<BackupExportSection>(dataSections.map((section) => section.id))
   private busy = false
   private message = ''
   private error = ''
@@ -133,9 +103,9 @@ class BackupSettingsTab extends SettingsTab {
     return t('backupRestore')
   }
 
-  private setScope(value: string) {
-    this.exportScope = value === 'config' || value === 'sessions' ? value : 'all'
-    if (this.exportScope === 'sessions') this.includeSecrets = false
+  private toggleExportSection(section: BackupExportSection, checked: boolean) {
+    if (checked) this.exportSections.add(section)
+    else this.exportSections.delete(section)
     this.clearStatus()
     this.requestUpdate()
   }
@@ -146,21 +116,11 @@ class BackupSettingsTab extends SettingsTab {
     this.safetyBackupPath = ''
   }
 
-  private setIncludeSecrets(checked: boolean) {
-    this.includeSecrets = checked && this.exportScope !== 'sessions'
-    this.message = ''
-    this.error = ''
-    this.requestUpdate()
-  }
-
   private async exportBackup() {
-    if (this.includeSecrets) {
-      const confirmed = await showConfirm({
-        description: t('backupExportSecretsConfirm'),
-        confirmLabel: t('exportBackup'),
-        cancelLabel: t('cancel'),
-      })
-      if (!confirmed) return
+    if (this.exportSections.size === 0) {
+      this.error = t('selectAtLeastOneExportSection')
+      this.requestUpdate()
+      return
     }
 
     this.busy = true
@@ -169,14 +129,12 @@ class BackupSettingsTab extends SettingsTab {
 
     try {
       const query = new URLSearchParams({
-        scope: this.exportScope,
-        includeSecrets: this.includeSecrets ? '1' : '0',
+        sections: [...this.exportSections].join(','),
       })
       const response = await fetch(`/api/backup/export?${query.toString()}`, { cache: 'no-store' })
       const payload = await response.json().catch(() => null)
       if (!response.ok) throw new Error(payload?.error || t('backupExportFailed'))
-      const suffix = this.includeSecrets ? 'with-secrets' : 'no-secrets'
-      downloadJson(`${BACKUP_FILE_PREFIX}-${this.exportScope}-${suffix}-${timestampForFile()}.json`, payload)
+      downloadJson(`${BACKUP_FILE_PREFIX}-settings-${timestampForFile()}.json`, payload)
       this.message = t('backupExported')
     } catch (error) {
       this.error = friendlyBackupError(error, t('backupExportFailed'))
@@ -208,8 +166,8 @@ class BackupSettingsTab extends SettingsTab {
       const inspect = await this.inspectBackupFile(file)
       const selectedSections = new Set(defaultRestoreSections(inspect))
       this.pendingImport = { backup: null, importToken: inspect.importToken, inspect, selectedSections, mode: 'replace' }
-      this.message = inspect.sections?.sessions
-        ? t('backupInspectedWithConversations')
+      this.message = inspect.ignoredConversations
+        ? t('backupInspectedWithIgnoredConversations')
         : t('backupInspected')
     } catch (error) {
       this.error = friendlyBackupError(error, t('backupImportFailed'))
@@ -251,6 +209,15 @@ class BackupSettingsTab extends SettingsTab {
       return
     }
 
+    const confirmed = await showConfirm({
+      description: this.pendingImport.mode === 'replace'
+        ? t('backupImportReplaceConfirm')
+        : t('backupImportMergeConfirm'),
+      confirmLabel: t('confirmImportSelected'),
+      cancelLabel: t('cancel'),
+    })
+    if (!confirmed) return
+
     this.busy = true
     this.clearStatus()
     this.requestUpdate()
@@ -263,7 +230,7 @@ class BackupSettingsTab extends SettingsTab {
             mode: this.pendingImport.mode,
           }
         : {
-            backup: selectedBackupForImport(this.pendingImport.backup, this.pendingImport.selectedSections),
+            backup: this.pendingImport.backup,
             sections: [...this.pendingImport.selectedSections],
             mode: this.pendingImport.mode,
           }
@@ -358,6 +325,13 @@ class BackupSettingsTab extends SettingsTab {
           </div>
         ` : null}
 
+        ${inspect.invalidSections && Object.keys(inspect.invalidSections).length ? html`
+          <div class="quickforge-settings-warning quickforge-settings-warning-attached">
+            <div>${t('backupInvalidSections')}</div>
+            ${Object.entries(inspect.invalidSections).map(([key, message]) => html`<div>${key}: ${message}</div>`)}
+          </div>
+        ` : null}
+
         <div class="quickforge-settings-row">
           <div class="quickforge-settings-row-main">
             <div class="quickforge-settings-row-title">${t('restoreMode')}</div>
@@ -443,43 +417,35 @@ class BackupSettingsTab extends SettingsTab {
     return html`
       <div class="quickforge-settings-stack">
         <section class="quickforge-settings-section" aria-label=${t('exportData')}>
-          <div class="quickforge-settings-row">
+          <div class="quickforge-settings-row quickforge-settings-row-top">
             <div class="quickforge-settings-row-main">
               <div class="quickforge-settings-row-title">
-                ${t('exportScope')}
+                ${t('selectExportSections')}
                 <quickforge-info-tip .label=${t('exportDataDescription')}></quickforge-info-tip>
               </div>
-              <div class="quickforge-settings-row-description">${t('exportScopeDescription')}</div>
-            </div>
-            <div class="quickforge-settings-row-control">
-              <select
-                class="quickforge-settings-select"
-                .value=${this.exportScope}
-                ?disabled=${this.busy}
-                @change=${(event: Event) => this.setScope((event.target as HTMLSelectElement).value)}
-              >
-                <option value="all">${t('exportScopeAll')}</option>
-                <option value="config">${t('exportScopeConfig')}</option>
-                <option value="sessions">${t('exportScopeSessions')}</option>
-              </select>
+              <div class="quickforge-settings-row-description">${t('selectExportSectionsDescription')}</div>
             </div>
           </div>
 
-          ${this.exportScope !== 'config' ? html`
-            <div class="quickforge-settings-warning quickforge-settings-warning-attached">
-              ⚠ ${t('exportLargeDataWarning')}
-            </div>
-          ` : null}
-
-          <div class="quickforge-settings-row">
-            <div class="quickforge-settings-row-main ${this.exportScope === 'sessions' ? 'opacity-60' : ''}">
-              <div class="quickforge-settings-row-title">${t('includeApiKeys')}</div>
-              <div class="quickforge-settings-row-description">${t('includeApiKeysDescription')}</div>
-            </div>
-            <div class="quickforge-settings-row-control">
-              ${this.renderSwitch(this.includeSecrets, (checked) => this.setIncludeSecrets(checked), this.busy || this.exportScope === 'sessions')}
-            </div>
+          <div class="quickforge-settings-nested-list">
+            ${dataSections.map((section) => html`
+              <div class="quickforge-settings-subrow">
+                <div class="quickforge-settings-row-main">
+                  <div class="quickforge-settings-row-title">${section.label()}</div>
+                  <div class="quickforge-settings-row-description">${section.description()}</div>
+                </div>
+                <div class="quickforge-settings-row-control">
+                  ${this.renderSwitch(
+                    this.exportSections.has(section.id),
+                    (checked) => this.toggleExportSection(section.id, checked),
+                    this.busy,
+                  )}
+                </div>
+              </div>
+            `)}
           </div>
+
+          <div class="quickforge-settings-note">${t('conversationBackupExcluded')}</div>
 
           <div class="quickforge-settings-row">
             <div class="quickforge-settings-row-main">
@@ -490,7 +456,7 @@ class BackupSettingsTab extends SettingsTab {
               <button
                 class="quickforge-settings-button quickforge-settings-button-primary"
                 type="button"
-                ?disabled=${this.busy}
+                ?disabled=${this.busy || this.exportSections.size === 0}
                 @click=${() => this.exportBackup()}
               >
                 ${this.busy ? t('loading') : t('exportBackup')}

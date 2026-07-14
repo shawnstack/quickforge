@@ -160,14 +160,16 @@ Agent Profile 管理路由。
 - `POST /api/shared/:shareId/prompt` — 发送消息
 - `POST /api/shared/:shareId/rollback` — 回滚消息
 
-## backup.mjs (395 行)
+## backup.mjs
 
-数据备份和恢复路由。
+数据设置备份和恢复路由。设置备份只处理配置数据，不包含对话历史。
 
 **主要端点**:
-- `GET /api/backup/export?scope=all|config|sessions&includeSecrets=0|1` — 导出备份，默认导出核心配置（`config`）且不包含 API Key；`all`/`sessions` 会包含对话历史，属于高级大数据导出
-- `POST /api/backup/inspect` — 检查备份文件并返回导入预览
-- `POST /api/backup/import` — 导入备份；请求体可为备份本身，或 `{ "backup": <备份>, "sections": [...] }` 选择性恢复
+- `GET /api/backup/export?sections=settings,mcp,providerKeys,customProviders,projects,scheduledTasks` — 按数据项导出设置备份；至少选择一项。`providerKeys` 与其他设置项一致，不需要额外开关。新 `sections` 参数不接受对话数据。
+- `GET /api/backup/export?scope=all|config|sessions&includeSecrets=0|1` — 旧客户端兼容参数；新设置界面不再使用 `all` / `sessions`。
+- `POST /api/backup/inspect` — 检查 JSON 请求体中的备份并返回预览。
+- `POST /api/backup/inspect-file` — 上传备份文件，按设置数据项检查并返回 `importToken`。旧完整备份中的对话会被忽略并通过 `ignoredConversations` 明确告知；格式异常的数据项通过 `invalidSections` 返回，不阻塞其他有效项。
+- `POST /api/backup/import` — 使用 `{ "importToken": "...", "sections": [...], "mode": "replace|merge" }` 恢复所选数据，也兼容直接传入 `backup`。导入令牌仅在成功后删除，失败可重试；写入前会创建安全备份。
 
 ## lan-access.mjs (201 行)
 

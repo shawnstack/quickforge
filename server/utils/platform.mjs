@@ -131,6 +131,22 @@ async function findExistingFile(candidates) {
   return undefined
 }
 
+export function createExternalAppEnv(source = process.env) {
+  const env = { ...source }
+  delete env.ELECTRON_RUN_AS_NODE
+  delete env.ELECTRON_NO_ATTACH_CONSOLE
+  delete env.ATOM_SHELL_INTERNAL_RUN_AS_NODE
+  return env
+}
+
+export function createVSCodeOpenArgs(targetPath, platform = process.platform) {
+  return platform === 'win32' ? ['--reuse-window', targetPath] : [targetPath]
+}
+
+export function shouldHideVSCodeLauncherWindow(command, platform = process.platform) {
+  return platform === 'win32' && path.win32.basename(command).toLowerCase() === 'cmd.exe'
+}
+
 async function findIntelliJIdeaExecutable() {
   const roots = [
     process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs') : undefined,
@@ -206,10 +222,10 @@ export async function openPathInVSCode(targetPath) {
     const codeExecutable = await findExistingFile(candidates)
     if (codeExecutable) {
       command = codeExecutable
-      args = [resolved]
+      args = createVSCodeOpenArgs(resolved)
     } else {
       command = 'cmd.exe'
-      args = ['/d', '/s', '/c', 'start', '""', '/b', 'code', resolved]
+      args = ['/d', '/s', '/c', 'start', '""', '/b', 'code', '--reuse-window', resolved]
     }
   }
 
@@ -217,8 +233,9 @@ export async function openPathInVSCode(targetPath) {
     const child = spawn(command, args, {
       detached: true,
       stdio: 'ignore',
-      windowsHide: true,
+      windowsHide: shouldHideVSCodeLauncherWindow(command),
       shell: false,
+      env: createExternalAppEnv(),
     })
     child.once('error', (error) => {
       error.statusCode = 500

@@ -99,12 +99,7 @@ export async function handleProjectApi(req, res, url) {
 
   if (req.method === 'POST' && url.pathname.startsWith('/api/project/') && url.pathname.endsWith('/open-in-explorer')) {
     const id = decodeSegment(url.pathname.split('/').filter(Boolean)[2])
-    const selected = config.projects.find((project) => project.id === id)
-    if (!selected) {
-      const error = new Error('Unknown project')
-      error.statusCode = 404
-      throw error
-    }
+    const selected = resolveRequestedProject(config, id, getDefaultWorkspaceRoot())
     await openPathInFileManager(selected.path)
     sendJson(res, 200, { ok: true })
     return
@@ -112,12 +107,7 @@ export async function handleProjectApi(req, res, url) {
 
   if (req.method === 'POST' && url.pathname.startsWith('/api/project/') && url.pathname.endsWith('/open-in-vscode')) {
     const id = decodeSegment(url.pathname.split('/').filter(Boolean)[2])
-    const selected = config.projects.find((project) => project.id === id)
-    if (!selected) {
-      const error = new Error('Unknown project')
-      error.statusCode = 404
-      throw error
-    }
+    const selected = resolveRequestedProject(config, id, getDefaultWorkspaceRoot())
     await openPathInVSCode(selected.path)
     sendJson(res, 200, { ok: true })
     return
@@ -125,12 +115,7 @@ export async function handleProjectApi(req, res, url) {
 
   if (req.method === 'POST' && url.pathname.startsWith('/api/project/') && url.pathname.endsWith('/open-in-idea')) {
     const id = decodeSegment(url.pathname.split('/').filter(Boolean)[2])
-    const selected = config.projects.find((project) => project.id === id)
-    if (!selected) {
-      const error = new Error('Unknown project')
-      error.statusCode = 404
-      throw error
-    }
+    const selected = resolveRequestedProject(config, id, getDefaultWorkspaceRoot())
     await openPathInIDEA(selected.path)
     sendJson(res, 200, { ok: true })
     return

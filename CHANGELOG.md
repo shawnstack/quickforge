@@ -4,6 +4,30 @@ All notable changes to QuickForge will be documented in this file.
 
 ## [Unreleased]
 
+## [1.6.11] - 2026-07-15
+
+### Added
+
+- Added global memory management across the server, settings UI, local tools, and system prompts, with focused server and frontend test coverage.
+
+### Changed
+
+- Translated Agent-related terminology in the interface and supporting documentation into Chinese.
+
+### Fixed
+
+- Limited assistant message actions to the final message of each completed turn and kept them hidden during active streaming.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.6.11` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.6.11.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.6.11.tgz
+  ```
+
 ## [1.6.10] - 2026-07-14
 
 ### Added

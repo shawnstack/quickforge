@@ -17,6 +17,7 @@ import {
   rollbackIcon,
 } from './icons'
 import { decorateLocalFilePathLinks } from './local-file-path-links'
+import { assistantActionDisplayIndexes } from './message-action-visibility'
 
 function showCopiedFeedback(button: HTMLButtonElement, defaultTitle: string, defaultIcon: string) {
   const copiedTitle = t('copied')
@@ -250,6 +251,8 @@ export function decorateMessages(deps: MessageDecorationDeps) {
   })()
 
   const messageElements = getPrimaryMessageElements(panel)
+  const streaming = isStreaming()
+  const assistantActionIndexes = assistantActionDisplayIndexes(displayEntries.map(({ message }) => message), streaming)
 
   const createCopyButton = (getText: () => string) => {
     const title = t('copy')
@@ -279,6 +282,12 @@ export function decorateMessages(deps: MessageDecorationDeps) {
 
     const actionsClass = `quickforge-message-actions pointer-events-none mt-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${entry.message.role === 'assistant' ? 'px-4 justify-start' : 'mx-4 justify-end'}`
     const existingActions = element.querySelector<HTMLElement>('.quickforge-message-actions')
+    const showAssistantActions = entry.message.role !== 'assistant' || assistantActionIndexes.has(displayIndex)
+    if (!showAssistantActions) {
+      existingActions?.remove()
+      return
+    }
+
     if (existingActions?.dataset.quickforgeLayout === 'message-bottom') {
       existingActions.className = actionsClass
       if (existingActions.parentElement === element && existingActions !== element.lastElementChild) {

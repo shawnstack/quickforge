@@ -212,12 +212,22 @@ function getPrimaryMessageList(panel: HTMLElement) {
   return panel.querySelector<HTMLElement>('message-list')
 }
 
-function getPrimaryMessageElements(panel: HTMLElement) {
-  const messageList = getPrimaryMessageList(panel)
-  if (!messageList) return []
-
+function getMessageElements(messageList: HTMLElement) {
   return Array.from(messageList.querySelectorAll<HTMLElement>('user-message, assistant-message'))
     .filter((element) => element.closest('message-list') === messageList)
+}
+
+function getPrimaryMessageElements(panel: HTMLElement) {
+  const messageList = getPrimaryMessageList(panel)
+  return messageList ? getMessageElements(messageList) : []
+}
+
+function getStreamingAssistantMessage(panel: HTMLElement) {
+  const messageList = getPrimaryMessageList(panel)
+  const streamingContainer = messageList?.parentElement?.querySelector<HTMLElement>(
+    ':scope > streaming-message-container:not(.hidden)',
+  )
+  return streamingContainer?.querySelector<HTMLElement>(':scope > div > assistant-message') ?? null
 }
 
 export function decorateMessages(deps: MessageDecorationDeps) {
@@ -378,7 +388,19 @@ export function decorateMessages(deps: MessageDecorationDeps) {
   })
 
   closeSvgCodeBlockMenus(panel)
-  decorateProcessBlocks(panel, messageElements, isStreaming())
+  const processMessageElements = [...messageElements]
+  if (streaming) {
+    const streamingAssistant = getStreamingAssistantMessage(panel)
+    if (streamingAssistant) processMessageElements.push(streamingAssistant)
+  }
+  decorateProcessBlocks(panel, processMessageElements, streaming)
+  panel.querySelectorAll<HTMLElement>('message-list[data-quickforge-subagent-process="true"]').forEach((messageList) => {
+    decorateProcessBlocks(
+      messageList,
+      getMessageElements(messageList),
+      messageList.dataset.quickforgeSubagentStreaming === 'true',
+    )
+  })
   decorateMarkdownSvgCodeBlocks(panel, isStreaming())
   decorateMarkdownMermaidCodeBlocks(panel, isStreaming())
   if (enableTerminalCommandActions) {

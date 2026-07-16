@@ -29,6 +29,7 @@ export type { ComposerDraftRestoreHandle } from './panel-decoration/drafts'
 export type { ApprovalCardDeps, ToolApprovalSource } from './panel-decoration/approval-card'
 export { injectApprovalCard, removeApprovalCard } from './panel-decoration/approval-card'
 export { syncContextCompactionNotice } from './panel-decoration/context-compaction'
+export { releaseStreamingProcessGroups } from './panel-decoration/process-folding'
 
 export type { MessageDecorationDeps } from './panel-decoration/message-actions'
 export { decorateMessages } from './panel-decoration/message-actions'

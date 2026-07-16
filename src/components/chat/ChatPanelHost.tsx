@@ -22,6 +22,7 @@ import {
   scheduleComposerDraftRestore,
   injectApprovalCard,
   removeApprovalCard,
+  releaseStreamingProcessGroups,
   syncAssistantWaitingBubble,
   syncContextCompactionNotice,
   type ComposerDraftRestoreHandle,
@@ -461,6 +462,7 @@ export function ChatPanelHost({
     let composerInteracted = false
     let assistantWaitingActive = agent.state.isStreaming
     let toolUpdateScheduled = false
+    let processHandoffGeneration = 0
 
     // --- Scroll sync subsystem ---
     const scrollSync = createScrollSync({ panel })
@@ -725,6 +727,7 @@ export function ChatPanelHost({
     }
     // Expose for the decoration trigger effect
     decorateFnRef.current = runDecorate
+    const getAgentInterface = () => panel.querySelector<AgentInterfaceElement>('agent-interface')
     const scheduleToolInterfaceUpdate = () => {
       if (toolUpdateScheduled) return
       toolUpdateScheduled = true
@@ -732,14 +735,34 @@ export function ChatPanelHost({
         toolUpdateScheduled = false
         if (disposed) return
         syncProcessStreamingState()
-        const agentInterface = panel.querySelector('agent-interface') as { requestUpdate?: () => void; updateComplete?: Promise<unknown> } | null
+        const agentInterface = getAgentInterface()
         agentInterface?.requestUpdate?.()
-        scheduleDecorateRef.current?.()
-        void agentInterface?.updateComplete?.then(() => scheduleDecorateRef.current?.())
+        void (agentInterface?.updateComplete ?? Promise.resolve()).then(() => {
+          if (!disposed) runDecorate()
+        })
         if (scrollSync.isEnabled) scrollSync.scheduleScrollToBottom()
       })
     }
     scheduleDecorateRef.current = scheduleDecorate
+    const scheduleProcessHandoff = () => {
+      const generation = ++processHandoffGeneration
+      panel.dataset.quickforgeProcessHandoff = String(generation)
+      const agentInterface = getAgentInterface()
+      agentInterface?.requestUpdate?.()
+      scheduleDecorateRef.current?.()
+      window.requestAnimationFrame(() => {
+        if (!disposed && processHandoffGeneration === generation) scheduleDecorateRef.current?.()
+      })
+      const finishProcessHandoff = () => {
+        if (disposed || processHandoffGeneration !== generation) return
+        delete panel.dataset.quickforgeProcessHandoff
+        scheduleDecorateRef.current?.()
+        window.requestAnimationFrame(() => {
+          if (!disposed && processHandoffGeneration === generation) scheduleDecorateRef.current?.()
+        })
+      }
+      void (agentInterface?.updateComplete ?? Promise.resolve()).then(finishProcessHandoff, finishProcessHandoff)
+    }
 
     // --- Initialize panel ---
     void panel.setAgent(agent as unknown as Parameters<typeof panel.setAgent>[0], {
@@ -829,6 +852,8 @@ export function ChatPanelHost({
     // --- Subscribe to agent events for auto-scroll and tool approvals ---
     const unsubscribeScrollEvents = agent.subscribe((event) => {
       if (event.type === 'agent_start') {
+        processHandoffGeneration += 1
+        delete panel.dataset.quickforgeProcessHandoff
         assistantWaitingActive = true
         syncProcessStreamingState()
         scheduleDecorateRef.current?.()
@@ -844,10 +869,17 @@ export function ChatPanelHost({
       if (event.type === 'message_start' || event.type === 'message_update' || event.type === 'message_end' || event.type === 'turn_end' || event.type === 'agent_end') {
         syncProcessStreamingState()
         const eventMessage = (event as { message?: { role?: string } }).message
+        if (event.type === 'message_start' && eventMessage?.role === 'assistant') {
+          processHandoffGeneration += 1
+          delete panel.dataset.quickforgeProcessHandoff
+        }
         if (event.type === 'message_update' || eventMessage?.role === 'assistant') {
           assistantWaitingActive = false
         }
         scheduleDecorateRef.current?.()
+        if (event.type === 'message_end' && eventMessage?.role === 'assistant') {
+          scheduleProcessHandoff()
+        }
         if (scrollSync.isEnabled) scrollSync.scheduleScrollToBottom()
       }
       if ((event as { type: string }).type === 'messages_replaced') {
@@ -857,22 +889,13 @@ export function ChatPanelHost({
         }
       }
       const eventType = (event as { type: string }).type
-      if (eventType === 'tool_execution_start' || eventType === 'tool_execution_end') {
-        syncProcessStreamingState()
-        const agentInterface = panel.querySelector('agent-interface') as { requestUpdate?: () => void; updateComplete?: Promise<unknown> } | null
-        agentInterface?.requestUpdate?.()
-        scheduleDecorateRef.current?.()
-        window.requestAnimationFrame(() => scheduleDecorateRef.current?.())
-        void agentInterface?.updateComplete?.then(() => scheduleDecorateRef.current?.())
-        if (scrollSync.isEnabled) scrollSync.scheduleScrollToBottom()
-      }
-      if (eventType === 'tool_execution_update') {
+      if (eventType === 'tool_execution_start' || eventType === 'tool_execution_update' || eventType === 'tool_execution_end') {
         scheduleToolInterfaceUpdate()
       }
       if (event.type === 'agent_end') {
         assistantWaitingActive = false
         syncProcessStreamingState()
-        scheduleDecorateRef.current?.()
+        scheduleProcessHandoff()
         // Run finished (or aborted) — clear pending approval for this session
         if (pendingApprovalRef.current?.sessionId === agent.sessionId) {
           pendingApprovalRef.current = null
@@ -884,7 +907,8 @@ export function ChatPanelHost({
         }
       }
       if (eventType === 'auto_compact_completed' || eventType === 'messages_replaced') {
-        const agentInterface = panel.querySelector('agent-interface') as { requestUpdate?: () => void; updateComplete?: Promise<unknown> } | null
+        releaseStreamingProcessGroups(panel)
+        const agentInterface = getAgentInterface()
         agentInterface?.requestUpdate?.()
         scheduleDecorateRef.current?.()
         window.requestAnimationFrame(() => scheduleDecorateRef.current?.())

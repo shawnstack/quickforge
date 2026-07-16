@@ -7,6 +7,7 @@ import type { AgentTool } from '@earendil-works/pi-agent-core'
 import { extractQuickForgeTiming, type QuickForgeToolTiming } from '@/lib/tool-execution-events'
 import { isBrowserPreviewablePath } from '@/components/workspace/artifact-preview-utils'
 import { formatManageGlobalMemoryOutput } from '@/lib/global-memory-tool-output'
+import { subagentProcessTraceMessages } from '@/lib/subagent-process-trace'
 
 type ToolResultLike = {
   isError?: boolean
@@ -50,6 +51,13 @@ const DIFF_BADGE_BASE_STYLE = {
   fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace)',
   fontSize: '0.72rem',
   fontWeight: '650',
+}
+
+function toolStatus(result: ToolResultLike | undefined, isStreaming?: boolean): ToolStatusKey {
+  const details = isRecord(result?.details) ? result.details : undefined
+  if (result?.isError || details?.aborted === true || details?.timedOut === true) return 'error'
+  if (isStreaming) return 'running'
+  return result ? 'done' : 'called'
 }
 
 function stringifyValue(value: unknown) {
@@ -263,7 +271,7 @@ function renderInlineDiffStats(toolName: string, diff: ToolDiffDetails | undefin
   const removedLines = Number(diff.removedLines ?? 0)
 
   return html`
-    <span class="shrink-0 inline-flex items-center gap-1" title="+${addedLines} -${removedLines}">
+    <span class="quickforge-tool-meta-hover shrink-0 inline-flex items-center gap-1" title="+${addedLines} -${removedLines}">
       <span
         class="quickforge-diff-badge quickforge-diff-badge-add"
         style=${styleMap({
@@ -401,7 +409,7 @@ function renderTiming(timing: QuickForgeToolTiming | undefined, status: ToolStat
   if (elapsedMs === undefined) return nothing
   return html`
     <quickforge-elapsed-time
-      class="text-xs text-muted-foreground/70"
+      class="quickforge-tool-meta-hover text-xs text-muted-foreground/70"
       started-at=${String(timing?.startedAt ?? '')}
       duration-ms=${typeof timing?.durationMs === 'number' ? String(timing.durationMs) : ''}
       running=${String(status === 'running')}
@@ -410,7 +418,7 @@ function renderTiming(timing: QuickForgeToolTiming | undefined, status: ToolStat
 }
 
 function toolIconClass() {
-  return 'text-emerald-600 dark:text-emerald-500'
+  return 'text-muted-foreground/60'
 }
 
 function renderToolIcon(toolName: string) {
@@ -447,8 +455,9 @@ function renderStatusIcon(status: ToolStatusKey) {
 }
 
 function renderStatus(status: ToolStatusKey, timing: QuickForgeToolTiming | undefined) {
+  const metaClass = status === 'done' ? 'quickforge-tool-meta-hover' : 'quickforge-tool-meta-important'
   return html`
-    <span class="shrink-0 inline-flex items-center gap-1.5" title=${t(status)}>
+    <span class="${metaClass} shrink-0 inline-flex items-center gap-1.5" title=${t(status)}>
       ${renderStatusIcon(status)}${renderTiming(timing, status)}
     </span>
   `
@@ -530,30 +539,6 @@ function arrayFromUnknown(value: unknown) {
   return Array.isArray(value) ? value : []
 }
 
-function subagentToolTraceMessages(messages: unknown[]) {
-  const toolCallIds = new Set<string>()
-  const assistantMessages: unknown[] = []
-
-  for (const message of messages) {
-    if (!isRecord(message) || message.role !== 'assistant' || !Array.isArray(message.content)) continue
-    const toolContent = message.content.filter((chunk) => isRecord(chunk) && chunk.type === 'toolCall')
-    if (toolContent.length === 0) continue
-    for (const chunk of toolContent) {
-      if (isRecord(chunk) && typeof chunk.id === 'string') toolCallIds.add(chunk.id)
-    }
-    assistantMessages.push({ ...message, content: toolContent, usage: undefined })
-  }
-
-  const toolResults = messages.filter((message) => (
-    isRecord(message)
-    && message.role === 'toolResult'
-    && typeof message.toolCallId === 'string'
-    && toolCallIds.has(message.toolCallId)
-  ))
-
-  return [...assistantMessages, ...toolResults]
-}
-
 const subagentDetailsOpen = new Map<string, boolean>()
 const MAX_SUBAGENT_DETAILS_OPEN_ENTRIES = 100
 
@@ -568,7 +553,7 @@ function rememberSubagentDetailsOpen(key: string, open: boolean) {
 
 class SubagentToolRenderer {
   render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
-    const status: ToolStatusKey = result?.isError ? 'error' : isStreaming ? 'running' : result ? 'done' : 'called'
+    const status = toolStatus(result, isStreaming)
     const timing = extractQuickForgeTiming(result?.details)
     const details = isRecord(result?.details) ? result.details : undefined
     const name = typeof params?.subagent === 'string'
@@ -586,7 +571,7 @@ class SubagentToolRenderer {
     const traceTools = arrayFromUnknown(details?.tools)
     const pendingToolCalls = new Set(stringArrayFromUnknown(details?.pendingToolCalls))
     const toolDisplaySettings = getCachedToolDisplaySettings()
-    const visibleTraceMessages = toolDisplaySettings.showToolDetails ? traceMessages : subagentToolTraceMessages(traceMessages)
+    const visibleTraceMessages = subagentProcessTraceMessages(traceMessages)
     const input = toolDisplaySettings.showToolDetails ? stringifyValue(params) : ''
     const detailJson = toolDisplaySettings.showToolDetails ? stringifyValue(result?.details) : ''
     const output = resultText(result)
@@ -606,10 +591,12 @@ class SubagentToolRenderer {
       isCustom: false,
       content: html`
         <details class="group/tool quickforge-subagent-tool" ?open=${detailsOpen} @toggle=${(event: Event) => rememberSubagentDetailsOpen(detailsKey, (event.currentTarget as HTMLDetailsElement).open)}>
-          <summary class="flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
-            <svg class="shrink-0 transition-transform group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+          <summary class="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
             ${renderToolIcon('run_subagent')}
-            <span class="min-w-0 flex-1 truncate">${statusLabel}</span>
+            <span class="quickforge-subagent-title min-w-0 flex-1">
+              <span class="quickforge-subagent-label">${statusLabel}</span>
+              <svg class="quickforge-subagent-chevron shrink-0 group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+            </span>
             ${renderStatus(status, timing)}
           </summary>
           <div class="mt-3 space-y-3">
@@ -626,8 +613,8 @@ class SubagentToolRenderer {
               </div>
               ${allowedTools.length > 0 ? html`<div class="mt-2 flex flex-wrap gap-1.5">${allowedTools.map((tool) => html`<span class="rounded-full bg-background/80 px-2 py-0.5 text-[11px] text-muted-foreground/80">${tool}</span>`)}</div>` : nothing}
             </div>` : nothing}
-            ${visibleTraceMessages.length > 0 ? html`<div class="quickforge-subagent-trace rounded-lg border border-border bg-background/60 p-2.5"><message-list .messages=${visibleTraceMessages} .tools=${traceTools} .pendingToolCalls=${pendingToolCalls} .isStreaming=${status === 'running'}></message-list></div>` : nothing}
-            ${output ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('subagentResult')}</div><code-block .code=${output} language="text"></code-block></div>` : nothing}
+            ${visibleTraceMessages.length > 0 ? html`<div class="quickforge-subagent-trace rounded-lg border border-border bg-background/60 p-2.5"><message-list data-quickforge-subagent-process="true" data-quickforge-subagent-streaming=${String(status === 'running')} .messages=${visibleTraceMessages} .tools=${traceTools} .pendingToolCalls=${pendingToolCalls} .isStreaming=${false}></message-list></div>` : nothing}
+            ${output && visibleTraceMessages.length === 0 ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('subagentResult')}</div><code-block .code=${output} language="text"></code-block></div>` : nothing}
             ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : nothing}
             ${detailJson ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('details')}</div><code-block .code=${detailJson} language="json"></code-block></div>` : nothing}
           </div>
@@ -657,7 +644,7 @@ class LocalWorkspaceToolRenderer {
   }
 
   render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
-    const status: ToolStatusKey = result?.isError ? 'error' : isStreaming ? 'running' : result ? 'done' : 'called'
+    const status = toolStatus(result, isStreaming)
     const timing = extractQuickForgeTiming(result?.details)
     const summary = summarizeParams(this.toolName, params, result)
     const toolDisplaySettings = getCachedToolDisplaySettings()
@@ -673,7 +660,7 @@ class LocalWorkspaceToolRenderer {
       isCustom: false,
       content: html`
         <details class="group/tool" ?open=${expandToolsByDefault}>
-          <summary class="flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
+          <summary class="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
             <svg class="shrink-0 transition-transform group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
             ${renderToolIcon(this.toolName)}
             <span class="min-w-0 flex-1 truncate">${t(this.labelKey)}${summary ? html`<span class="text-muted-foreground/70"> · ${summary}</span>` : ''}</span>
@@ -739,7 +726,7 @@ class McpToolRenderer {
   }
 
   render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
-    const status: ToolStatusKey = result?.isError ? 'error' : isStreaming ? 'running' : result ? 'done' : 'called'
+    const status = toolStatus(result, isStreaming)
     const timing = extractQuickForgeTiming(result?.details)
     const info = mcpToolInfo(this.toolName, result?.details) ?? parseMcpToolName(this.toolName)
     const serverName = info?.serverName ?? ''
@@ -757,7 +744,7 @@ class McpToolRenderer {
       isCustom: false,
       content: html`
         <details class="group/tool quickforge-mcp-tool" ?open=${toolDisplaySettings.expandToolsByDefault}>
-          <summary class="flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
+          <summary class="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
             <svg class="shrink-0 transition-transform group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
             ${renderToolIcon(this.toolName)}
             <span class="min-w-0 flex-1 truncate">MCP${serverName ? html`<span class="text-muted-foreground/70"> · ${serverName}</span>` : nothing}<span class="text-muted-foreground/70"> · ${title}</span>${summary ? html`<span class="text-muted-foreground/70"> · ${summary}</span>` : nothing}</span>

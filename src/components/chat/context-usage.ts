@@ -544,14 +544,14 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
     icon.setAttribute('aria-label', t('contextUsageAriaLabel', { percent: usage.percent }))
     icon.style.cssText = [
       'display: inline-flex',
-      'width: 18px',
-      'height: 18px',
+      'width: 14px',
+      'height: 14px',
       'flex: 0 0 auto',
       'border-radius: 9999px',
       `background: ${ring}`,
       'vertical-align: middle',
-      'mask: radial-gradient(farthest-side, transparent calc(100% - 2.25px), #000 0)',
-      '-webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.25px), #000 0)',
+      'mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0)',
+      '-webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0)',
     ].join(';')
     icon.replaceChildren()
 

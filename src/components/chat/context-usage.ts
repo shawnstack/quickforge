@@ -8,6 +8,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { GitBranch } from 'lucide-react'
+import { t } from '@/lib/i18n'
 import type { ContextUsageInfo, MessageWithUsage } from './chat-utils'
 import {
   getContextUsage,
@@ -44,6 +45,13 @@ type ServerContextUsageInfo = {
   breakdown?: ServerContextUsageBreakdown
 }
 
+type ContextUsageTipData = {
+  usage: ContextUsageInfo
+  contextWindow: number
+  serverCalculated: boolean
+  compacted: boolean
+}
+
 type ContextUsageOptions = {
   panel: HTMLElement
   getSystemPrompt: () => string
@@ -56,6 +64,7 @@ type ContextUsageOptions = {
   getGitBranch?: () => string | undefined
   onGitBranchClick?: () => void
   renderInline?: boolean
+  renderModelRing?: boolean
   onDisplayChange?: (info: ContextUsageDisplayInfo) => void
 }
 
@@ -123,41 +132,257 @@ function buildContextUsageTitle({ usage, contextWindow, serverCalculated, compac
   compacted: boolean
 }) {
   const inputLabel = usage.inputTokenSource === 'provider'
-    ? 'provider context'
+    ? t('contextUsageSourceProvider')
     : usage.inputTokenSource === 'mixed'
-      ? 'provider/local mixed context'
-      : 'estimated context'
+      ? t('contextUsageSourceMixed')
+      : t('contextUsageSourceEstimated')
   const lines = [
-    `Context used: ${usage.percent}% (${formatTokens(usage.totalTokens)} / ${formatTokens(contextWindow)} tokens)`,
-    `Input/context: ${formatTokens(usage.inputTokens)} (${inputLabel})`,
-    `Local estimate: ${formatTokens(usage.estimatedInputTokens)}`,
+    t('contextUsageUsed', {
+      percent: usage.percent,
+      used: formatTokens(usage.totalTokens),
+      limit: formatTokens(contextWindow),
+    }),
+    t('contextUsageInput', { tokens: formatTokens(usage.inputTokens), source: inputLabel }),
+    t('contextUsageLocalEstimate', { tokens: formatTokens(usage.estimatedInputTokens) }),
   ]
   const breakdown = usage.breakdown
   if (breakdown) {
     lines.push(
-      `  System prompt: ${formatOptionalTokens(breakdown.systemPromptTokens) ?? '0'}`,
-      `  Tools schema: ${formatOptionalTokens(breakdown.toolsTokens) ?? '0'}`,
-      `  Messages: ${formatOptionalTokens(breakdown.messagesTokens) ?? '0'}`,
+      t('contextUsageSystemPrompt', { tokens: formatOptionalTokens(breakdown.systemPromptTokens) ?? '0' }),
+      t('contextUsageToolsSchema', { tokens: formatOptionalTokens(breakdown.toolsTokens) ?? '0' }),
+      t('contextUsageMessages', { tokens: formatOptionalTokens(breakdown.messagesTokens) ?? '0' }),
     )
     if (breakdown.providerUsageTokens || breakdown.trailingTokens) {
       lines.push(
-        `  Provider usage baseline: ${formatOptionalTokens(breakdown.providerUsageTokens) ?? '0'}`,
-        `  Trailing messages after usage: ${formatOptionalTokens(breakdown.trailingTokens) ?? '0'}`,
+        t('contextUsageProviderBaseline', { tokens: formatOptionalTokens(breakdown.providerUsageTokens) ?? '0' }),
+        t('contextUsageTrailingMessages', { tokens: formatOptionalTokens(breakdown.trailingTokens) ?? '0' }),
       )
     }
   }
-  lines.push(`Reserved output: ${formatTokens(usage.reservedOutputTokens)}`)
-  if (serverCalculated) lines.push('Source: server calculated via pi-agent-core/pi-ai')
-  lines.push(compacted
-    ? 'Scope: compacted model context, not full visible chat history'
-    : 'Scope: full model context')
+  lines.push(t('contextUsageReservedOutput', { tokens: formatTokens(usage.reservedOutputTokens) }))
+  if (serverCalculated) lines.push(t('contextUsageServerCalculated'))
+  lines.push(compacted ? t('contextUsageScopeCompacted') : t('contextUsageScopeFull'))
   if (compacted && usage.originalMessageCount !== undefined && usage.effectiveMessageCount !== undefined) {
-    lines.push(`Messages: ${usage.effectiveMessageCount} effective / ${usage.originalMessageCount} visible`)
+    lines.push(t('contextUsageEffectiveMessages', {
+      effective: usage.effectiveMessageCount,
+      visible: usage.originalMessageCount,
+    }))
   }
   if (usage.knownInputTokens && usage.knownInputTokens > 0) {
-    lines.push(`Provider context tokens: ${formatTokens(usage.knownInputTokens)}`)
+    lines.push(t('contextUsageProviderTokens', { tokens: formatTokens(usage.knownInputTokens) }))
   }
   return lines.join('\n')
+}
+
+function createContextUsageTipController() {
+  let tip: HTMLDivElement | null = null
+  let trigger: HTMLElement | null = null
+  let data: ContextUsageTipData | null = null
+  let dataSignature = ''
+  let hoverTimer: ReturnType<typeof setTimeout> | undefined
+  let boundTrigger: HTMLElement | null = null
+
+  const handleTriggerEnter = () => scheduleOpen()
+  const handleTriggerLeave = () => scheduleClose()
+  const handleTriggerFocus = () => open()
+  const handleTriggerBlur = () => scheduleClose()
+  const handleTriggerKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    if (tip) close()
+    else open()
+  }
+  const handleTriggerClick = (event: MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (tip) close()
+    else open()
+  }
+
+  const unbindTrigger = () => {
+    if (!boundTrigger) return
+    boundTrigger.removeEventListener('mouseenter', handleTriggerEnter)
+    boundTrigger.removeEventListener('mouseleave', handleTriggerLeave)
+    boundTrigger.removeEventListener('focus', handleTriggerFocus)
+    boundTrigger.removeEventListener('blur', handleTriggerBlur)
+    boundTrigger.removeEventListener('keydown', handleTriggerKeyDown)
+    boundTrigger.removeEventListener('click', handleTriggerClick)
+    boundTrigger = null
+  }
+
+  const clearHoverTimer = () => {
+    if (!hoverTimer) return
+    clearTimeout(hoverTimer)
+    hoverTimer = undefined
+  }
+
+  const removeTip = () => {
+    tip?.remove()
+    tip = null
+    trigger?.setAttribute('aria-expanded', 'false')
+    trigger?.removeAttribute('aria-describedby')
+  }
+
+  const positionTip = () => {
+    if (!trigger || !tip) return
+    const rect = trigger.getBoundingClientRect()
+    const margin = 12
+    const gap = 8
+    const { width, height } = tip.getBoundingClientRect()
+    let left = rect.right - width
+    left = Math.min(Math.max(margin, left), window.innerWidth - width - margin)
+    let top = rect.top - gap - height
+    if (top < margin) top = rect.bottom + gap
+    tip.style.left = `${Math.round(left)}px`
+    tip.style.top = `${Math.round(top)}px`
+  }
+
+  const addRow = (container: HTMLElement, label: string, value: string, subtle = false) => {
+    const row = document.createElement('div')
+    row.className = subtle ? 'quickforge-context-usage-tip-row is-subtle' : 'quickforge-context-usage-tip-row'
+    const labelElement = document.createElement('span')
+    labelElement.textContent = label
+    const valueElement = document.createElement('span')
+    valueElement.textContent = value
+    row.append(labelElement, valueElement)
+    container.append(row)
+  }
+
+  const renderTip = () => {
+    removeTip()
+    if (!trigger || !data) return
+    const { usage, contextWindow, serverCalculated, compacted } = data
+    const popover = document.createElement('div')
+    popover.className = 'quickforge-context-usage-tip'
+    popover.id = 'quickforge-context-usage-tip'
+    popover.setAttribute('role', 'tooltip')
+
+    const header = document.createElement('div')
+    header.className = 'quickforge-context-usage-tip-header'
+    const heading = document.createElement('span')
+    heading.textContent = t('contextUsageTitle')
+    const percent = document.createElement('span')
+    percent.className = 'quickforge-context-usage-tip-percent'
+    percent.style.color = usage.color
+    percent.textContent = `${usage.percent}%`
+    header.append(heading, percent)
+
+    const total = document.createElement('div')
+    total.className = 'quickforge-context-usage-tip-total'
+    total.textContent = t('contextUsageTotal', {
+      used: formatTokens(usage.totalTokens),
+      limit: formatTokens(contextWindow),
+    })
+
+    const coreRows = document.createElement('div')
+    coreRows.className = 'quickforge-context-usage-tip-section'
+    addRow(coreRows, t('contextUsageInputLabel'), formatTokens(usage.inputTokens))
+    addRow(coreRows, t('contextUsageReservedOutputLabel'), formatTokens(usage.reservedOutputTokens))
+
+    popover.append(header, total, coreRows)
+
+    const breakdown = usage.breakdown
+    const breakdownRows = [
+      [t('contextUsageSystemPromptLabel'), formatOptionalTokens(breakdown?.systemPromptTokens)],
+      [t('contextUsageToolsSchemaLabel'), formatOptionalTokens(breakdown?.toolsTokens)],
+      [t('contextUsageMessagesLabel'), formatOptionalTokens(breakdown?.messagesTokens)],
+    ].filter((row): row is [string, string] => Boolean(row[1]))
+    if (breakdownRows.length > 0) {
+      const details = document.createElement('div')
+      details.className = 'quickforge-context-usage-tip-section quickforge-context-usage-tip-details'
+      for (const [label, value] of breakdownRows) addRow(details, label, value, true)
+      popover.append(details)
+    }
+
+    const meta = document.createElement('div')
+    meta.className = 'quickforge-context-usage-tip-meta'
+    meta.textContent = `${serverCalculated ? t('contextUsageSourceServerShort') : t('contextUsageSourceLocalShort')} · ${compacted ? t('contextUsageScopeCompactedShort') : t('contextUsageScopeFullShort')}`
+    popover.append(meta)
+
+    document.body.append(popover)
+    tip = popover
+    trigger.setAttribute('aria-expanded', 'true')
+    trigger.setAttribute('aria-describedby', popover.id)
+    positionTip()
+  }
+
+  const open = () => {
+    clearHoverTimer()
+    renderTip()
+  }
+
+  const close = () => {
+    clearHoverTimer()
+    removeTip()
+  }
+
+  const scheduleOpen = () => {
+    clearHoverTimer()
+    hoverTimer = setTimeout(open, 150)
+  }
+
+  const scheduleClose = () => {
+    clearHoverTimer()
+    hoverTimer = setTimeout(close, 120)
+  }
+
+  const handlePointerDown = (event: PointerEvent) => {
+    const target = event.target as Node | null
+    if (target && (trigger?.contains(target) || tip?.contains(target))) return
+    close()
+  }
+
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape' || !tip) return
+    event.preventDefault()
+    close()
+    trigger?.focus()
+  }
+
+  const handlePositionChange = () => {
+    if (tip) positionTip()
+  }
+
+  document.addEventListener('pointerdown', handlePointerDown, true)
+  document.addEventListener('keydown', handleKeyDown, true)
+  window.addEventListener('scroll', handlePositionChange, true)
+  window.addEventListener('resize', handlePositionChange)
+
+  const bind = (nextTrigger: HTMLElement, nextData: ContextUsageTipData) => {
+    const nextDataSignature = JSON.stringify(nextData)
+    const dataChanged = dataSignature !== nextDataSignature
+    data = nextData
+    dataSignature = nextDataSignature
+    if (trigger !== nextTrigger) {
+      unbindTrigger()
+      trigger = nextTrigger
+      boundTrigger = nextTrigger
+      nextTrigger.tabIndex = 0
+      nextTrigger.setAttribute('role', 'button')
+      nextTrigger.setAttribute('aria-haspopup', 'true')
+      nextTrigger.setAttribute('aria-expanded', 'false')
+      nextTrigger.addEventListener('mouseenter', handleTriggerEnter)
+      nextTrigger.addEventListener('mouseleave', handleTriggerLeave)
+      nextTrigger.addEventListener('focus', handleTriggerFocus)
+      nextTrigger.addEventListener('blur', handleTriggerBlur)
+      nextTrigger.addEventListener('keydown', handleTriggerKeyDown)
+      nextTrigger.addEventListener('click', handleTriggerClick)
+    } else if (tip && dataChanged) {
+      renderTip()
+    }
+  }
+
+  const cleanup = () => {
+    clearHoverTimer()
+    removeTip()
+    unbindTrigger()
+    document.removeEventListener('pointerdown', handlePointerDown, true)
+    document.removeEventListener('keydown', handleKeyDown, true)
+    window.removeEventListener('scroll', handlePositionChange, true)
+    window.removeEventListener('resize', handlePositionChange)
+  }
+
+  return { bind, close, cleanup }
 }
 
 function bindGitBranchClick(branchBadge: HTMLElement, onGitBranchClick: (() => void) | undefined) {
@@ -192,7 +417,9 @@ const gitBranchIcon = renderToStaticMarkup(createElement(GitBranch, {
   style: { flex: '0 0 auto' },
 }))
 
-export function createContextUsageIndicator({ panel, getSystemPrompt, getMessages, getContextWindow, getTools, getMaxTokens, getEffectiveMessages, getServerContextUsage, getGitBranch, onGitBranchClick, renderInline = true, onDisplayChange }: ContextUsageOptions) {
+export function createContextUsageIndicator({ panel, getSystemPrompt, getMessages, getContextWindow, getTools, getMaxTokens, getEffectiveMessages, getServerContextUsage, getGitBranch, onGitBranchClick, renderInline = true, renderModelRing = false, onDisplayChange }: ContextUsageOptions) {
+  const tipController = createContextUsageTipController()
+
   const update = () => {
     const contextWindow = getContextWindow()
     const visibleMessages = getMessages()
@@ -203,13 +430,17 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
     const statsRight = renderInline
       ? panel.querySelector('message-editor')?.parentElement?.querySelector<HTMLElement>('.ml-auto.items-center')
       : null
+    const modelButton = renderModelRing
+      ? panel.querySelector<HTMLElement>('.quickforge-model-trigger')
+      : null
+    const modelControls = modelButton?.parentElement ?? null
     const gitBranch = getGitBranch?.()?.trim() || undefined
     const displayInfo: ContextUsageDisplayInfo = { gitBranch }
 
     if (!renderInline) {
       existingGitBranch?.remove()
-      existing?.remove()
       existingLabel?.remove()
+      if (!renderModelRing) existing?.remove()
     } else if (gitBranch && statsRight) {
       const gitBranchLabel = `${gitBranchIcon}<span style="max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(gitBranch)}</span>`
       const gitBranchTitle = `Git branch: ${gitBranch}`
@@ -246,10 +477,9 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
     }
 
     if (!contextWindow) {
-      if (renderInline) {
-        existing?.remove()
-        existingLabel?.remove()
-      }
+      tipController.close()
+      existing?.remove()
+      existingLabel?.remove()
       onDisplayChange?.(displayInfo)
       return displayInfo
     }
@@ -288,40 +518,59 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
     }
     onDisplayChange?.(displayInfo)
 
-    if (!renderInline || !statsRight) {
+    if (!renderInline && !renderModelRing) {
+      existing?.remove()
+      existingLabel?.remove()
+      return displayInfo
+    }
+
+    if (renderModelRing && (!modelButton || !modelControls)) {
+      existing?.remove()
+      existingLabel?.remove()
+      return displayInfo
+    }
+
+    if (!renderModelRing && !statsRight) {
       existing?.remove()
       existingLabel?.remove()
       return displayInfo
     }
 
     const ringPercent = Math.min(100, Math.max(0, usage.percent))
-    const ring = `conic-gradient(${usage.color} ${ringPercent * 3.6}deg, rgb(229 231 235) 0deg)`
+    const ring = `conic-gradient(${usage.color} ${ringPercent * 3.6}deg, color-mix(in oklab, var(--muted-foreground) 20%, transparent) 0deg)`
     const icon = existing ?? document.createElement('span')
     icon.className = 'quickforge-context-usage'
-    icon.title = title
-    icon.setAttribute('aria-label', title)
+    icon.removeAttribute('title')
+    icon.setAttribute('aria-label', t('contextUsageAriaLabel', { percent: usage.percent }))
     icon.style.cssText = [
-      'position: relative',
       'display: inline-flex',
-      'width: 14px',
-      'height: 14px',
+      'width: 18px',
+      'height: 18px',
       'flex: 0 0 auto',
       'border-radius: 9999px',
       `background: ${ring}`,
       'vertical-align: middle',
-      'box-shadow: 0 0 0 1px rgb(0 0 0 / 0.06)',
+      'mask: radial-gradient(farthest-side, transparent calc(100% - 2.25px), #000 0)',
+      '-webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.25px), #000 0)',
     ].join(';')
-    let hole = icon.firstElementChild as HTMLElement | null
-    if (!hole) {
-      hole = document.createElement('span')
-      icon.append(hole)
+    icon.replaceChildren()
+
+    if (renderModelRing && modelButton && modelControls) {
+      existingLabel?.remove()
+      if (icon.parentElement !== modelControls || icon.nextElementSibling !== modelButton) {
+        modelControls.insertBefore(icon, modelButton)
+      }
+      tipController.bind(icon, {
+        usage,
+        contextWindow: displayContextWindow,
+        serverCalculated: Boolean(serverUsage),
+        compacted: isCompacted,
+      })
+      return displayInfo
     }
-    hole.style.cssText = [
-      'position: absolute',
-      'inset: 3px',
-      'border-radius: 9999px',
-      'background: hsl(var(--background))',
-    ].join(';')
+
+    if (!statsRight) return displayInfo
+
     let label = icon.nextElementSibling as HTMLElement | null
     if (!label?.classList.contains('quickforge-context-usage-label')) {
       label = document.createElement('span')
@@ -341,5 +590,5 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
     return displayInfo
   }
 
-  return { update }
+  return { update, cleanup: tipController.cleanup }
 }

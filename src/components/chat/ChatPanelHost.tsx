@@ -503,6 +503,7 @@ export function ChatPanelHost({
       getGitBranch: () => propsRef.current.gitBranch,
       onGitBranchClick: () => propsRef.current.onOpenWorkspaceGitChanges?.(),
       renderInline: false,
+      renderModelRing: true,
       onDisplayChange: (info) => propsRef.current.onContextUsageDisplayChange?.(agent.sessionId, info),
     })
 
@@ -953,6 +954,7 @@ export function ChatPanelHost({
       cmdSuggestions.cleanupTextareaHandler()
       capabilitySuggestions.remove()
       capabilitySuggestions.cleanupTextareaHandler()
+      contextUsage.cleanup()
       scrollSync.cleanup()
       scrollSyncRef.current = null
       unsubscribeScrollEvents()

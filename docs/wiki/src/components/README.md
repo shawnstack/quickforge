@@ -108,9 +108,9 @@ components/
 - Tab 补全命令；Shift+Tab 保留给 Composer 的 Plan 模式切换
 - 草稿恢复支持
 
-**context-usage.ts** (78 行)
+**context-usage.ts**
 - 上下文用量环状指示器，优先展示后端 session state 返回的权威 `contextUsage`（后端统计复用 `pi-agent-core` / `pi-ai`），缺失时回退到前端本地估算
-- 在输入框旁显示彩色环，指示当前对话所占模型上下文窗口比例
+- 在现有模型选择按钮左侧单独显示中心镂空的彩色环，指示当前对话所占模型上下文窗口比例；悬停、聚焦或点击后显示结构化 Token 明细、统计来源与上下文范围
 
 **panel-decoration.ts** (175 行)
 - 聊天面板 DOM 装饰的兼容入口，继续向 `ChatPanelHost.tsx` re-export 消息装饰、草稿、审批卡、上下文压缩提示和等待气泡等能力

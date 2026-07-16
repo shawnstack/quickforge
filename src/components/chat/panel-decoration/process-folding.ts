@@ -1,5 +1,6 @@
 import type { MessageWithUsage } from '../chat-utils'
 import { t } from '@/lib/i18n'
+import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 
 type ProcessGroupElement = HTMLDivElement
 
@@ -487,9 +488,18 @@ function updateProcessToolsGroups(panel: HTMLElement, processKey: string, group:
     const toolsBodyId = `quickforge-${toolsKey.replace(/[^a-z0-9_-]+/gi, '-')}`
     toolsBody.id = toolsBodyId
     toolsSummary.setAttribute('aria-controls', toolsBodyId)
-    const savedExpanded = getProcessExpandedStates(panel).get(toolsKey)
-    if (savedExpanded !== undefined) tools.dataset.expanded = String(savedExpanded)
-    const expanded = tools.dataset.expanded !== 'false'
+    const detailed = getCachedToolDisplaySettings().toolDisplayMode === 'detailed'
+    const displayMode = detailed ? 'detailed' : 'compact'
+    const previousToolsKey = tools.dataset.quickforgeProcessKey
+    const previousDisplayMode = tools.dataset.quickforgeToolDisplayMode
+    tools.dataset.quickforgeProcessKey = toolsKey
+    tools.dataset.quickforgeToolDisplayMode = displayMode
+    const expanded = resolveProcessExpandedState(
+      getProcessExpandedStates(panel).get(toolsKey),
+      previousToolsKey === toolsKey && previousDisplayMode === displayMode,
+      tools.dataset.expanded === 'true',
+      detailed,
+    )
     tools.dataset.expanded = String(expanded)
     toolsLabel.textContent = processToolsLabel(summary)
     toolsSummary.setAttribute('aria-expanded', String(expanded))

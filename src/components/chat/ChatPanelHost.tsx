@@ -29,6 +29,7 @@ import {
 } from './panel-decoration'
 import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
+import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import { extractSessionArtifacts, type AiTurnArtifact } from '@/lib/tool-artifacts'
 import { getGitStatus } from '../workspace/workspace-api'
 import type { ChatScope, ProjectInfo, RestoredDraft, AgentAccessMode } from '@/lib/types'
@@ -503,7 +504,7 @@ export function ChatPanelHost({
       getGitBranch: () => propsRef.current.gitBranch,
       onGitBranchClick: () => propsRef.current.onOpenWorkspaceGitChanges?.(),
       renderInline: false,
-      renderModelRing: true,
+      renderModelRing: getCachedToolDisplaySettings().showContextUsage,
       onDisplayChange: (info) => propsRef.current.onContextUsageDisplayChange?.(agent.sessionId, info),
     })
 

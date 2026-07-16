@@ -95,7 +95,7 @@ export function injectApprovalCard(
   const preview = document.createElement('div')
   preview.className = 'quickforge-approval-preview mb-3'
 
-  const showToolDetails = getCachedToolDisplaySettings().showToolDetails
+  const detailed = getCachedToolDisplaySettings().toolDisplayMode === 'detailed'
 
   if (mcpTool) {
     preview.innerHTML = `
@@ -104,7 +104,7 @@ export function injectApprovalCard(
         <div><span class="font-medium text-foreground">Server:</span> ${escapeHtml(mcpTool.serverName)}</div>
         <div><span class="font-medium text-foreground">Tool:</span> ${escapeHtml(mcpTool.toolName)}</div>
       </div>
-      ${showToolDetails
+      ${detailed
         ? `<pre class="mt-2 text-xs bg-background border rounded p-2 max-h-40 overflow-auto font-mono whitespace-pre-wrap">${escapeHtml(JSON.stringify(args, null, 2))}</pre>`
         : hiddenToolArgsPreview(toolName, args)}
     `
@@ -135,7 +135,7 @@ export function injectApprovalCard(
   } else if (typeof args.description === 'string') {
     preview.innerHTML = `<div class="text-xs bg-background border rounded p-2 text-muted-foreground">${escapeHtml(args.description)}</div>`
   } else {
-    preview.innerHTML = showToolDetails
+    preview.innerHTML = detailed
       ? `<pre class="text-xs bg-background border rounded p-2 max-h-40 overflow-auto font-mono whitespace-pre-wrap">${escapeHtml(JSON.stringify(args, null, 2))}</pre>`
       : hiddenToolArgsPreview(toolName, args)
   }

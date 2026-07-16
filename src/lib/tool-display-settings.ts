@@ -2,14 +2,16 @@ import type { AppStorage } from '@earendil-works/pi-web-ui'
 
 const TOOL_DISPLAY_SETTINGS_KEY = 'tool-display-settings'
 
+export type ToolDisplayMode = 'compact' | 'detailed'
+
 export type ToolDisplaySettings = {
-  showToolDetails: boolean
-  expandToolsByDefault: boolean
+  toolDisplayMode: ToolDisplayMode
+  showContextUsage: boolean
 }
 
 export const DEFAULT_TOOL_DISPLAY_SETTINGS: ToolDisplaySettings = {
-  showToolDetails: false,
-  expandToolsByDefault: false,
+  toolDisplayMode: 'compact',
+  showContextUsage: false,
 }
 
 let cachedToolDisplaySettings: ToolDisplaySettings = { ...DEFAULT_TOOL_DISPLAY_SETTINGS }
@@ -18,8 +20,8 @@ function normalizeToolDisplaySettings(value: unknown): ToolDisplaySettings {
   if (!value || typeof value !== 'object') return { ...DEFAULT_TOOL_DISPLAY_SETTINGS }
   const settings = value as Partial<ToolDisplaySettings>
   return {
-    showToolDetails: settings.showToolDetails === true,
-    expandToolsByDefault: settings.expandToolsByDefault === true,
+    toolDisplayMode: settings.toolDisplayMode === 'detailed' ? 'detailed' : 'compact',
+    showContextUsage: settings.showContextUsage === true,
   }
 }
 

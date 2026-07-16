@@ -11,6 +11,7 @@ import {
 import {
   loadToolDisplaySettings,
   saveToolDisplaySettings,
+  type ToolDisplayMode,
 } from '@/lib/tool-display-settings'
 import {
   loadAutoCompactSettings,
@@ -42,6 +43,11 @@ const THINKING_OPTIONS: { value: ThinkingLevel; label: () => string }[] = [
   { value: 'medium', label: () => t('thinkingMedium') },
   { value: 'high', label: () => t('thinkingHigh') },
   { value: 'xhigh', label: () => t('thinkingXHigh') },
+]
+
+const TOOL_DISPLAY_MODE_OPTIONS: { value: ToolDisplayMode; label: () => string }[] = [
+  { value: 'compact', label: () => t('toolDisplayCompact') },
+  { value: 'detailed', label: () => t('toolDisplayDetailed') },
 ]
 
 const CUSTOM_SHELL_OPTION = '__custom__'
@@ -89,8 +95,8 @@ class DefaultOptionsSettingsTab extends SettingsTab {
   private models: AnyModel[] = []
   private selectedModel?: AnyModel
   private thinkingLevel: ThinkingLevel = 'off'
-  private showToolDetails = false
-  private expandToolsByDefault = false
+  private toolDisplayMode: ToolDisplayMode = 'compact'
+  private showContextUsage = false
   private autoCompactEnabled = true
   private autoCompactRequireConfirmation = true
   private autoCompactThresholdPercent = 80
@@ -160,8 +166,8 @@ class DefaultOptionsSettingsTab extends SettingsTab {
         ? models.find((model) => modelKey(model) === modelKey(defaults.model!)) ?? defaults.model
         : models[0]
       this.thinkingLevel = defaults.thinkingLevel ?? defaultThinkingLevelForModel(this.selectedModel)
-      this.showToolDetails = toolDisplaySettings.showToolDetails
-      this.expandToolsByDefault = toolDisplaySettings.expandToolsByDefault
+      this.toolDisplayMode = toolDisplaySettings.toolDisplayMode
+      this.showContextUsage = toolDisplaySettings.showContextUsage
       this.autoCompactEnabled = autoCompactSettings.enabled
       this.autoCompactRequireConfirmation = autoCompactSettings.requireConfirmation
       this.autoCompactThresholdPercent = autoCompactSettings.thresholdPercent
@@ -202,15 +208,16 @@ class DefaultOptionsSettingsTab extends SettingsTab {
     await applyAppLanguage(getAppStorage(), this.selectedLanguage)
   }
 
-  private updateShowToolDetails(checked: boolean) {
-    this.showToolDetails = checked
+  private updateToolDisplayMode(toolDisplayMode: ToolDisplayMode) {
+    if (this.toolDisplayMode === toolDisplayMode) return
+    this.toolDisplayMode = toolDisplayMode
     this.saved = false
     this.requestUpdate()
     void this.saveToolDisplayOptions()
   }
 
-  private updateExpandToolsByDefault(checked: boolean) {
-    this.expandToolsByDefault = checked
+  private updateShowContextUsage(checked: boolean) {
+    this.showContextUsage = checked
     this.saved = false
     this.requestUpdate()
     void this.saveToolDisplayOptions()
@@ -380,8 +387,8 @@ class DefaultOptionsSettingsTab extends SettingsTab {
   private async saveToolDisplayOptions() {
     try {
       await saveToolDisplaySettings(getAppStorage(), {
-        showToolDetails: this.showToolDetails,
-        expandToolsByDefault: this.expandToolsByDefault,
+        toolDisplayMode: this.toolDisplayMode,
+        showContextUsage: this.showContextUsage,
       })
       this.markSaved()
     } catch (error) {
@@ -493,6 +500,20 @@ class DefaultOptionsSettingsTab extends SettingsTab {
     `
   }
 
+  private renderToolDisplayModeOption(option: { value: ToolDisplayMode; label: () => string }) {
+    const selected = this.toolDisplayMode === option.value
+    return html`
+      <button
+        type="button"
+        class="quickforge-settings-segmented-option ${selected ? 'quickforge-settings-segmented-option-active' : ''}"
+        aria-pressed=${selected ? 'true' : 'false'}
+        @click=${() => this.updateToolDisplayMode(option.value)}
+      >
+        ${option.label()}
+      </button>
+    `
+  }
+
   private renderSwitch(checked: boolean, onChange: (checked: boolean) => void, disabled = false) {
     return html`
       <label class="quickforge-settings-switch" aria-disabled=${disabled ? 'true' : 'false'}>
@@ -582,23 +603,28 @@ class DefaultOptionsSettingsTab extends SettingsTab {
           <div class="quickforge-settings-row">
             <div class="quickforge-settings-row-main">
               <div class="quickforge-settings-row-title">
-                ${t('showToolDetails')}
-                <quickforge-info-tip .label=${t('showToolDetailsDescription')}></quickforge-info-tip>
+                ${t('toolDisplay')}
+                <quickforge-info-tip .label=${t('toolDisplayModeDescription')}></quickforge-info-tip>
               </div>
-              <div class="quickforge-settings-row-description">${t('showToolDetailsDescriptionShort')}</div>
+              <div class="quickforge-settings-row-description">${t('toolDisplayModeDescription')}</div>
             </div>
             <div class="quickforge-settings-row-control">
-              ${this.renderSwitch(this.showToolDetails, (checked) => this.updateShowToolDetails(checked))}
+              <div class="quickforge-settings-segmented" role="group" aria-label=${t('toolDisplay')}>
+                ${TOOL_DISPLAY_MODE_OPTIONS.map((option) => this.renderToolDisplayModeOption(option))}
+              </div>
             </div>
           </div>
 
           <div class="quickforge-settings-row">
             <div class="quickforge-settings-row-main">
-              <div class="quickforge-settings-row-title">${t('expandToolsByDefault')}</div>
-              <div class="quickforge-settings-row-description">${t('expandToolsByDefaultDescription')}</div>
+              <div class="quickforge-settings-row-title">
+                ${t('showContextUsage')}
+                <quickforge-info-tip .label=${t('showContextUsageDescription')}></quickforge-info-tip>
+              </div>
+              <div class="quickforge-settings-row-description">${t('showContextUsageDescription')}</div>
             </div>
             <div class="quickforge-settings-row-control">
-              ${this.renderSwitch(this.expandToolsByDefault, (checked) => this.updateExpandToolsByDefault(checked))}
+              ${this.renderSwitch(this.showContextUsage, (checked) => this.updateShowContextUsage(checked))}
             </div>
           </div>
 

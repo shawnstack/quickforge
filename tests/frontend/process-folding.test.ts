@@ -17,6 +17,9 @@ import {
 } from '../../src/components/chat/panel-decoration/process-folding'
 
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }), { virtual: true })
+vi.mock('@/lib/tool-display-settings', () => ({
+  getCachedToolDisplaySettings: () => ({ toolDisplayMode: 'compact', showContextUsage: false }),
+}), { virtual: true })
 
 describe('process folding timing', () => {
   it('restores a persisted thinking-only completion time after the panel is rebuilt', () => {
@@ -82,6 +85,15 @@ describe('process streaming updates', () => {
     expect(resolveProcessExpandedState(true, false, false, false)).toBe(true)
     expect(resolveProcessExpandedState(undefined, true, true, false)).toBe(true)
     expect(resolveProcessExpandedState(undefined, true, false, true)).toBe(false)
+  })
+
+  it('uses mode defaults for tool groups while preserving explicit state within the same mode', () => {
+    expect(resolveProcessExpandedState(undefined, false, false, false)).toBe(false)
+    expect(resolveProcessExpandedState(undefined, false, false, true)).toBe(true)
+    expect(resolveProcessExpandedState(false, false, true, true)).toBe(false)
+    expect(resolveProcessExpandedState(true, false, false, false)).toBe(true)
+    expect(resolveProcessExpandedState(undefined, true, true, false)).toBe(true)
+    expect(resolveProcessExpandedState(undefined, false, true, false)).toBe(false)
   })
 
   it('anchors a running turn to a stable assistant instead of the temporary streaming assistant', () => {

@@ -27,6 +27,11 @@ import {
   saveFontSizeSettings,
 } from '../../src/lib/font-size-settings'
 import {
+  DEFAULT_TOOL_DISPLAY_SETTINGS,
+  loadToolDisplaySettings,
+  saveToolDisplaySettings,
+} from '../../src/lib/tool-display-settings'
+import {
   DEFAULT_UPDATE_CHECK_SETTINGS,
   loadUpdateCheckSettings,
   normalizeUpdateCheckSettings,
@@ -110,6 +115,33 @@ describe('settings normalizers', () => {
     await expect(loadMemorySettings(storage)).resolves.toEqual({ enabled: false })
     await saveMemorySettings(storage, { enabled: true })
     expect(values.get('memory-settings')).toEqual({ enabled: true })
+  })
+
+  it('normalizes, loads, and saves tool display settings with compact mode by default', async () => {
+    const empty = createStorage()
+    await expect(loadToolDisplaySettings(empty.storage)).resolves.toEqual(DEFAULT_TOOL_DISPLAY_SETTINGS)
+
+    const legacy = createStorage({
+      'tool-display-settings': { showToolDetails: true, expandToolsByDefault: true, showContextUsage: true },
+    })
+    await expect(loadToolDisplaySettings(legacy.storage)).resolves.toEqual({
+      toolDisplayMode: 'compact',
+      showContextUsage: true,
+    })
+
+    const invalid = createStorage({
+      'tool-display-settings': { toolDisplayMode: 'expanded' },
+    })
+    await expect(loadToolDisplaySettings(invalid.storage)).resolves.toEqual(DEFAULT_TOOL_DISPLAY_SETTINGS)
+
+    await saveToolDisplaySettings(legacy.storage, {
+      toolDisplayMode: 'detailed',
+      showContextUsage: true,
+    })
+    expect(legacy.values.get('tool-display-settings')).toEqual({
+      toolDisplayMode: 'detailed',
+      showContextUsage: true,
+    })
   })
 
   it('normalizes appearance settings and is a no-op in node without document', async () => {

@@ -27,7 +27,7 @@
 | `clipboard-polyfill.ts` | 51 | 剪贴板 API polyfill |
 | `logger.ts` | 56 | 前端日志工具 |
 | `random-id.ts` | 19 | UUID 生成 |
-| `tool-display-settings.ts` | 40 | 工具展示设置 |
+| `tool-display-settings.ts` | 40 | Tool 与上下文用量展示设置 |
 | `tool-execution-events.ts` | 120 | 工具执行事件处理 |
 | `info-tip.ts` | 134 | 统一问号说明浮层 Web Component |
 
@@ -127,9 +127,9 @@
 
 **用途**: 生成 UUID v4，优先使用 `crypto.randomUUID()`，回退到手动构造。
 
-### tool-display-settings.ts (40 行)
+### tool-display-settings.ts
 
-**用途**: 工具展示设置管理（显示工具详情、默认展开工具）。
+**用途**: 工具展示设置管理。支持“简洁 / 详细”模式：简洁模式隐藏原始 Tool JSON 并默认收起详情；详细模式显示完整参数和 details，并默认展开工具调用。上下文用量显示设置也保存在该配置中。
 
 ### tool-execution-events.ts (120 行)
 

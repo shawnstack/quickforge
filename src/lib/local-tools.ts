@@ -539,6 +539,23 @@ function arrayFromUnknown(value: unknown) {
   return Array.isArray(value) ? value : []
 }
 
+const toolDetailsOpen = new Map<string, boolean>()
+const MAX_TOOL_DETAILS_OPEN_ENTRIES = 200
+
+function rememberToolDetailsOpen(key: string, open: boolean) {
+  if (!key) return
+  if (!toolDetailsOpen.has(key) && toolDetailsOpen.size >= MAX_TOOL_DETAILS_OPEN_ENTRIES) {
+    const oldestKey = toolDetailsOpen.keys().next().value
+    if (oldestKey) toolDetailsOpen.delete(oldestKey)
+  }
+  toolDetailsOpen.set(key, open)
+}
+
+function toolDetailsStateKey(toolName: string, params: Record<string, unknown> | undefined, details: unknown) {
+  const { toolCallId } = runtimeIdsFromDetails(details)
+  return toolCallId || `${toolName}:${stringifyValue(params)}`
+}
+
 const subagentDetailsOpen = new Map<string, boolean>()
 const MAX_SUBAGENT_DETAILS_OPEN_ENTRIES = 100
 
@@ -571,14 +588,15 @@ class SubagentToolRenderer {
     const traceTools = arrayFromUnknown(details?.tools)
     const pendingToolCalls = new Set(stringArrayFromUnknown(details?.pendingToolCalls))
     const toolDisplaySettings = getCachedToolDisplaySettings()
+    const detailed = toolDisplaySettings.toolDisplayMode === 'detailed'
     const visibleTraceMessages = subagentProcessTraceMessages(traceMessages)
-    const input = toolDisplaySettings.showToolDetails ? stringifyValue(params) : ''
-    const detailJson = toolDisplaySettings.showToolDetails ? stringifyValue(result?.details) : ''
+    const input = detailed ? stringifyValue(params) : ''
+    const detailJson = detailed ? stringifyValue(result?.details) : ''
     const output = resultText(result)
     const detailsKey = typeof details?.sessionId === 'string'
       ? details.sessionId
       : `${name}:${task}`
-    const detailsOpen = subagentDetailsOpen.get(detailsKey) ?? toolDisplaySettings.expandToolsByDefault
+    const detailsOpen = subagentDetailsOpen.get(detailsKey) ?? detailed
     const statusLabel = status === 'running'
       ? t('subagentRunning', { name: label })
       : status === 'done'
@@ -590,7 +608,9 @@ class SubagentToolRenderer {
     return {
       isCustom: false,
       content: html`
-        <details class="group/tool quickforge-subagent-tool" ?open=${detailsOpen} @toggle=${(event: Event) => rememberSubagentDetailsOpen(detailsKey, (event.currentTarget as HTMLDetailsElement).open)}>
+        <details class="group/tool quickforge-subagent-tool" ?open=${detailsOpen} @toggle=${(event: Event) => {
+          if (event.isTrusted) rememberSubagentDetailsOpen(detailsKey, (event.currentTarget as HTMLDetailsElement).open)
+        }}>
           <summary class="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
             ${renderToolIcon('run_subagent')}
             <span class="quickforge-subagent-title min-w-0">
@@ -605,7 +625,7 @@ class SubagentToolRenderer {
               ${context ? html`<div><span class="font-medium text-foreground/75">${t('subagentContext')}:</span> ${context}</div>` : nothing}
               ${expectedOutput ? html`<div><span class="font-medium text-foreground/75">${t('subagentExpectedOutput')}:</span> ${expectedOutput}</div>` : nothing}
             </div>` : nothing}
-            ${toolDisplaySettings.showToolDetails ? html`<div class="quickforge-subagent-summary rounded-lg border border-border/75 bg-muted/20 px-3 py-2.5 text-sm">
+            ${detailed ? html`<div class="quickforge-subagent-summary rounded-lg border border-border/75 bg-muted/20 px-3 py-2.5 text-sm">
               <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
                 <span class="font-medium text-foreground/85">${label}</span>
                 ${toolCalls !== undefined ? html`<span>${t('subagentToolCalls')}: ${toolCalls}</span>` : nothing}
@@ -648,12 +668,13 @@ class LocalWorkspaceToolRenderer {
     const timing = extractQuickForgeTiming(result?.details)
     const summary = summarizeParams(this.toolName, params, result)
     const toolDisplaySettings = getCachedToolDisplaySettings()
-    const showToolDetails = toolDisplaySettings.showToolDetails
-    const expandToolsByDefault = toolDisplaySettings.expandToolsByDefault
-    const input = showToolDetails ? stringifyValue(params) : ''
+    const detailed = toolDisplaySettings.toolDisplayMode === 'detailed'
+    const input = detailed ? stringifyValue(params) : ''
     const output = toolOutputText(this.toolName, params, result, isStreaming)
     const diff = getDiffDetails(result?.details)
-    const details = showToolDetails ? stringifyValue(diff ? detailsWithoutDiffText(result?.details) : result?.details) : ''
+    const details = detailed ? stringifyValue(diff ? detailsWithoutDiffText(result?.details) : result?.details) : ''
+    const detailsKey = toolDetailsStateKey(this.toolName, params, result?.details)
+    const detailsOpen = toolDetailsOpen.get(detailsKey) ?? detailed
     const variant = result?.isError ? 'error' : 'default'
 
     return {
@@ -662,7 +683,9 @@ class LocalWorkspaceToolRenderer {
       // before the DOM decoration pass moves the tool into the Process group.
       isCustom: true,
       content: html`
-        <details class="group/tool quickforge-local-tool" ?open=${expandToolsByDefault}>
+        <details class="group/tool quickforge-local-tool" ?open=${detailsOpen} @toggle=${(event: Event) => {
+          if (event.isTrusted) rememberToolDetailsOpen(detailsKey, (event.currentTarget as HTMLDetailsElement).open)
+        }}>
           <summary class="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
             ${renderToolIcon(this.toolName)}
             <span class="quickforge-tool-title min-w-0">
@@ -740,9 +763,12 @@ class McpToolRenderer {
     const originalToolName = info?.toolName ?? this.toolName
     const summary = summarizeParams(this.toolName, params, result)
     const toolDisplaySettings = getCachedToolDisplaySettings()
-    const input = stringifyValue(params)
+    const detailed = toolDisplaySettings.toolDisplayMode === 'detailed'
+    const input = detailed ? stringifyValue(params) : ''
     const output = toolOutputText(this.toolName, params, result, isStreaming)
-    const details = toolDisplaySettings.showToolDetails ? stringifyValue(result?.details) : ''
+    const details = detailed ? stringifyValue(result?.details) : ''
+    const detailsKey = toolDetailsStateKey(this.toolName, params, result?.details)
+    const detailsOpen = toolDetailsOpen.get(detailsKey) ?? detailed
     const title = this.label && this.label !== originalToolName
       ? `${this.label} (${originalToolName})`
       : originalToolName
@@ -750,7 +776,9 @@ class McpToolRenderer {
     return {
       isCustom: false,
       content: html`
-        <details class="group/tool quickforge-mcp-tool" ?open=${toolDisplaySettings.expandToolsByDefault}>
+        <details class="group/tool quickforge-mcp-tool" ?open=${detailsOpen} @toggle=${(event: Event) => {
+          if (event.isTrusted) rememberToolDetailsOpen(detailsKey, (event.currentTarget as HTMLDetailsElement).open)
+        }}>
           <summary class="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
             ${renderToolIcon(this.toolName)}
             <span class="quickforge-tool-title min-w-0">

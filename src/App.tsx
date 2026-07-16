@@ -8,6 +8,7 @@ import {
   GitBranch,
   Info,
   LogOut,
+  Loader2,
   Menu,
   PanelRight,
   Pencil,
@@ -102,6 +103,7 @@ const MAX_AUTO_PREVIEW_SEEN_SIGNATURES = 200
 const QUICKFORGE_RELEASES_URL = 'https://github.com/shawnstack/quickforge/releases/latest'
 const STARTUP_SPLASH_MIN_DURATION_MS = 1350
 const STARTUP_SPLASH_EXIT_DURATION_MS = 280
+const SESSION_LOADING_DELAY_MS = 150
 
 function readSeenAutoPreviewSignatures() {
   if (typeof window === 'undefined') return new Set<string>()
@@ -307,6 +309,7 @@ function MainApp() {
   const [storage, setStorage] = useState<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
   const [startupSplashDone, setStartupSplashDone] = useState(false)
   const [startupSplashExited, setStartupSplashExited] = useState(false)
+  const [visibleLoadingSessionId, setVisibleLoadingSessionId] = useState<string>()
   const { toasts, handleTaskComplete, addToast, dismissToast } = useTaskToasts()
   const closeWorkspacePage = useCallback(() => undefined, [])
   const closeDesktopTitlebarMenu = useCallback(() => setDesktopTitlebarMenuOpen(false), [])
@@ -399,6 +402,16 @@ function MainApp() {
     refreshSessions,
     onTaskComplete: handleTaskComplete,
   })
+
+  useEffect(() => {
+    if (!agentManager.loadingSessionId) {
+      const timer = window.setTimeout(() => setVisibleLoadingSessionId(undefined), 0)
+      return () => window.clearTimeout(timer)
+    }
+    const loadingSessionId = agentManager.loadingSessionId
+    const timer = window.setTimeout(() => setVisibleLoadingSessionId(loadingSessionId), SESSION_LOADING_DELAY_MS)
+    return () => window.clearTimeout(timer)
+  }, [agentManager.loadingSessionId])
 
   // Destructure stable values for use in dependency arrays
   const {
@@ -1382,6 +1395,7 @@ function MainApp() {
         expandedProjectIds={expandedProjectIds}
         activeProject={activeProject}
         currentSessionId={agentManager.currentSessionId}
+        loadingSessionId={agentManager.loadingSessionId}
         sessionViewMode={sidebarSessionViewMode}
         sessionSortMode={sidebarSessionSortMode}
         globalSessions={globalSessions}
@@ -1452,6 +1466,7 @@ function MainApp() {
               expandedProjectIds={expandedProjectIds}
               activeProject={activeProject}
               currentSessionId={agentManager.currentSessionId}
+              loadingSessionId={agentManager.loadingSessionId}
               sessionViewMode={sidebarSessionViewMode}
               sessionSortMode={sidebarSessionSortMode}
               globalSessions={globalSessions}
@@ -1618,6 +1633,19 @@ function MainApp() {
         </header>
 
         <section className="relative flex min-h-0 flex-1 flex-col">
+          {visibleLoadingSessionId && visibleLoadingSessionId === agentManager.loadingSessionId ? (
+            <div
+              className="absolute inset-0 z-20 flex items-center justify-center bg-background/55 backdrop-blur-[1px]"
+              role="status"
+              aria-live="polite"
+              aria-label={t('loadingConversation')}
+            >
+              <div className="flex items-center gap-2 text-sm text-muted-foreground/72">
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                <span>{t('loadingConversation')}</span>
+              </div>
+            </div>
+          ) : null}
           {needsModelSetup ? (
             <ModelSetupEmptyState
               onAddModel={openModelSettings}

@@ -56,12 +56,13 @@ export interface AgentManager {
   currentToolProject: ProjectInfo | undefined
   taskStatuses: Record<string, BackgroundTaskStatus>
   chatPanelRevision: number
+  loadingSessionId: string | undefined
 
   // Stable callbacks
   createAgent: (
     initialState?: Partial<AgentState> & { contextCompaction?: ServerAgentContextCompaction | null },
     sessionId?: string,
-    options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string; accessMode?: AgentAccessMode; yoloMode?: boolean; refreshSessions?: boolean },
+    options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; shouldAttachToView?: () => boolean; createdAt?: string; title?: string; accessMode?: AgentAccessMode; yoloMode?: boolean; refreshSessions?: boolean },
   ) => Promise<ServerAgent>
   startDeferredSession: (options: { scope: ChatScope; project?: ProjectInfo }) => Promise<DeferredSessionAgent>
   loadSession: (
@@ -119,6 +120,8 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   const currentTitleRef = useRef('New chat')
   const currentCreatedAtRef = useRef<string | undefined>(undefined)
   const loadSessionRef = useRef<AgentManager['loadSession'] | null>(null)
+  const loadSessionRequestRef = useRef(0)
+  const loadSessionQueueRef = useRef<Promise<void>>(Promise.resolve())
   const onTaskCompleteRef = useRef(deps.onTaskComplete)
 
   useEffect(() => {
@@ -133,6 +136,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   const [currentToolProject, setCurrentToolProject] = useState<ProjectInfo>()
   const [taskStatuses, setTaskStatuses] = useState<Record<string, BackgroundTaskStatus>>({})
   const [chatPanelRevision, setChatPanelRevision] = useState(0)
+  const [loadingSessionId, setLoadingSessionId] = useState<string>()
 
   const disposeDetachedAgent = useCallback((currentAgent: ServerAgent | DeferredSessionAgent | null, nextAgent?: ServerAgent | DeferredSessionAgent | null) => {
     if (!currentAgent || currentAgent === nextAgent) return
@@ -182,12 +186,12 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     async (
       initialState?: Partial<AgentState> & { contextCompaction?: ServerAgentContextCompaction | null },
       sessionId: string = randomId(),
-      options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string; accessMode?: AgentAccessMode; yoloMode?: boolean; refreshSessions?: boolean },
+      options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; shouldAttachToView?: () => boolean; createdAt?: string; title?: string; accessMode?: AgentAccessMode; yoloMode?: boolean; refreshSessions?: boolean },
     ) => {
       const previousAgent = agentRef.current
       const existingTask = taskMapRef.current.get(sessionId)
       if (existingTask) {
-        if (options?.attachToView !== false) {
+        if (options?.attachToView !== false && options?.shouldAttachToView?.() !== false) {
           disposeDetachedAgent(previousAgent, existingTask.agent)
           attachTaskToView(existingTask)
         }
@@ -323,7 +327,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
         setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
       }
 
-      if (options?.attachToView !== false) {
+      if (options?.attachToView !== false && options?.shouldAttachToView?.() !== false) {
         if (previousAgent instanceof DeferredSessionAgent) previousAgent.promoteTo(task.agent)
         else if (agentRef.current === previousAgent) disposeDetachedAgent(previousAgent, task.agent)
         attachTaskToView(task)
@@ -382,79 +386,100 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       sessionId: string,
       hints?: { title?: string; createdAt?: string; scope?: ChatScope; projectId?: string },
     ) => {
-      const runningTask = taskMapRef.current.get(sessionId)
-      if (runningTask) {
-        if (runningTask.scope === 'project' && runningTask.project?.id && activeProjectRef.current?.id !== runningTask.project.id) {
-          try {
-            await switchActiveProject(runningTask.project.id)
-          } catch (error) {
-            logger.error('Failed to switch project for running session:', error)
+      const requestId = ++loadSessionRequestRef.current
+      const isLatestRequest = () => loadSessionRequestRef.current === requestId
+      setLoadingSessionId(sessionId)
+
+      const run = async () => {
+        if (!isLatestRequest()) return
+
+        const runningTask = taskMapRef.current.get(sessionId)
+        if (runningTask) {
+          if (runningTask.scope === 'project' && runningTask.project?.id && activeProjectRef.current?.id !== runningTask.project.id) {
+            try {
+              await switchActiveProject(runningTask.project.id)
+            } catch (error) {
+              logger.error('Failed to switch project for running session:', error)
+            }
+          }
+          if (isLatestRequest()) attachTaskToView(runningTask)
+          return
+        }
+
+        const storage = storageRef.current
+        if (!storage) {
+          await createAgent(
+            { tools: [] },
+            sessionId,
+            {
+              scope: hints?.scope ?? 'global',
+              attachToView: true,
+              shouldAttachToView: isLatestRequest,
+              createdAt: hints?.createdAt,
+              title: hints?.title,
+            },
+          )
+          return
+        }
+
+        const session = (await storage.sessions.get(sessionId)) as QuickForgeSessionData | null
+        if (!session || !isLatestRequest()) return
+
+        const metadata = sessions.find((item) => item.id === sessionId) ?? ((await storage.sessions.getMetadata(sessionId)) as QuickForgeSessionMetadata | null)
+        if (!isLatestRequest()) return
+
+        const scope = hints?.scope ?? sessionScope(metadata ?? session)
+        const scopedProjectId = hints?.projectId ?? metadata?.projectId ?? session.projectId
+        let project: ProjectInfo | undefined
+        if (scope === 'project' && scopedProjectId) {
+          const projectId = scopedProjectId
+          if (activeProjectRef.current?.id !== projectId) {
+            try {
+              project = await switchActiveProject(projectId)
+            } catch (error) {
+              logger.error('Failed to switch project for session:', error)
+              if (isLatestRequest()) void showAlert(t('projectSwitchFailed'))
+              return
+            }
+          } else {
+            project = activeProjectRef.current
           }
         }
-        attachTaskToView(runningTask)
-        return
-      }
+        if (!isLatestRequest()) return
 
-      const storage = storageRef.current
-      if (!storage) {
+        activeModelRef.current = session.model as Model<Api>
+
         await createAgent(
-          { tools: [] },
-          sessionId,
           {
-            scope: hints?.scope ?? 'global',
+            model: session.model,
+            thinkingLevel: session.thinkingLevel,
+            messages: session.messages,
+            contextCompaction: session.contextCompaction ?? manualCompactionFromMessages(session.messages),
+          },
+          session.id,
+          {
+            scope,
+            project,
             attachToView: true,
-            createdAt: hints?.createdAt,
-            title: hints?.title,
+            shouldAttachToView: isLatestRequest,
+            createdAt: session.createdAt ?? hints?.createdAt,
+            title: session.title ?? hints?.title,
+            accessMode: normalizeAgentAccessMode(session.accessMode, session.yoloMode),
+            // The session already exists in the sidebar list; loading it doesn't
+            // change its metadata, so a full list refresh is unnecessary and only
+            // triggers a wasteful re-render storm when switching sessions.
+            refreshSessions: false,
           },
         )
-        return
       }
 
-      const session = (await storage.sessions.get(sessionId)) as QuickForgeSessionData | null
-      if (!session) return
-
-      const metadata = sessions.find((item) => item.id === sessionId) ?? ((await storage.sessions.getMetadata(sessionId)) as QuickForgeSessionMetadata | null)
-      const scope = hints?.scope ?? sessionScope(metadata ?? session)
-      const scopedProjectId = hints?.projectId ?? metadata?.projectId ?? session.projectId
-      let project: ProjectInfo | undefined
-      if (scope === 'project' && scopedProjectId) {
-        const projectId = scopedProjectId
-        if (activeProjectRef.current?.id !== projectId) {
-          try {
-            project = await switchActiveProject(projectId)
-          } catch (error) {
-            logger.error('Failed to switch project for session:', error)
-            void showAlert(t('projectSwitchFailed'))
-            return
-          }
-        } else {
-          project = activeProjectRef.current
-        }
+      const queuedLoad = loadSessionQueueRef.current.catch(() => undefined).then(run)
+      loadSessionQueueRef.current = queuedLoad
+      try {
+        await queuedLoad
+      } finally {
+        if (isLatestRequest()) setLoadingSessionId(undefined)
       }
-
-      activeModelRef.current = session.model as Model<Api>
-
-      await createAgent(
-        {
-          model: session.model,
-          thinkingLevel: session.thinkingLevel,
-          messages: session.messages,
-          contextCompaction: session.contextCompaction ?? manualCompactionFromMessages(session.messages),
-        },
-        session.id,
-        {
-          scope,
-          project,
-          attachToView: true,
-          createdAt: session.createdAt ?? hints?.createdAt,
-          title: session.title ?? hints?.title,
-          accessMode: normalizeAgentAccessMode(session.accessMode, session.yoloMode),
-          // The session already exists in the sidebar list; loading it doesn't
-          // change its metadata, so a full list refresh is unnecessary and only
-          // triggers a wasteful re-render storm when switching sessions.
-          refreshSessions: false,
-        },
-      )
     },
     [attachTaskToView, createAgent, sessions, switchActiveProject, storageRef, activeModelRef, activeProjectRef],
   )
@@ -496,6 +521,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     currentToolProject,
     taskStatuses,
     chatPanelRevision,
+    loadingSessionId,
 
     createAgent,
     startDeferredSession,

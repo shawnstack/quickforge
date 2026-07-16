@@ -67,6 +67,7 @@ type ChatSidebarProps = {
   expandedProjectIds: Set<string>
   activeProject?: ProjectInfo
   currentSessionId?: string
+  loadingSessionId?: string
   sessionViewMode: SidebarSessionViewMode
   sessionSortMode: SidebarSessionSortMode
   globalSessions: QuickForgeSessionMetadata[]
@@ -193,6 +194,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   expandedProjectIds,
   activeProject,
   currentSessionId,
+  loadingSessionId,
   sessionViewMode,
   sessionSortMode,
   globalSessions,
@@ -270,6 +272,9 @@ export const ChatSidebar = memo(function ChatSidebar({
   const sessionTitleClass = 'truncate text-sm font-[350] leading-5'
   const sessionButtonClass = 'flex min-w-0 flex-1 items-center gap-2 text-left'
   const sessionTitleRowClass = 'flex min-w-0 flex-1 items-center gap-1 truncate'
+  const sessionLoadingIndicator = (sessionId: string) => loadingSessionId === sessionId
+    ? <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground/55" aria-hidden="true" />
+    : null
   const pinnedSessionButtonClass = `relative z-10 inline-flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-opacity duration-160 transition-colors ${sidebarHoverBgClass} hover:text-foreground/85`
   const sessionMetaHoverHiddenClass = 'group-hover:pointer-events-none group-hover:opacity-0 group-focus-within:pointer-events-none group-focus-within:opacity-0'
   const activeSessionTitleClass = 'font-[350] text-foreground/84'
@@ -556,6 +561,7 @@ export const ChatSidebar = memo(function ChatSidebar({
             <div
               role="button"
               tabIndex={0}
+              aria-busy={loadingSessionId === session.id}
               className="flex min-w-0 flex-1 items-center gap-2 text-left"
               onClick={() => onLoadSession(session.id)}
               onKeyDown={(event) => {
@@ -566,6 +572,7 @@ export const ChatSidebar = memo(function ChatSidebar({
             >
               <div className="min-w-0 flex-1">
                 <div className={sessionTitleRowClass}>
+                  {sessionLoadingIndicator(session.id)}
                   {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
                   <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title)}</span>
                 </div>
@@ -846,9 +853,10 @@ export const ChatSidebar = memo(function ChatSidebar({
                                         hideSessionHoverTip(session.id)
                                       }}
                                     >
-                                      <button className="flex min-w-0 flex-1 items-center gap-2 text-left" type="button" onClick={() => onLoadSession(session.id)}>
+                                      <button className="flex min-w-0 flex-1 items-center gap-2 text-left" type="button" aria-busy={loadingSessionId === session.id} onClick={() => onLoadSession(session.id)}>
                                         <div className="min-w-0 flex-1">
                                           <div className={sessionTitleRowClass}>
+                                            {sessionLoadingIndicator(session.id)}
                                             {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
                                             <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title)}</span>
                                           </div>
@@ -1032,8 +1040,9 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                     hideSessionHoverTip(session.id)
                                                   }}
                                                 >
-                                              <button className={sessionButtonClass} type="button" onClick={() => onLoadSession(session.id)}>
+                                              <button className={sessionButtonClass} type="button" aria-busy={loadingSessionId === session.id} onClick={() => onLoadSession(session.id)}>
                                                 <div className={sessionTitleRowClass}>
+                                                  {sessionLoadingIndicator(session.id)}
                                                   {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
                                                   <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title)}</span>
                                                 </div>
@@ -1170,8 +1179,9 @@ export const ChatSidebar = memo(function ChatSidebar({
                                   hideSessionHoverTip(session.id)
                                 }}
                               >
-                            <button className={sessionButtonClass} type="button" onClick={() => onLoadSession(session.id)}>
+                            <button className={sessionButtonClass} type="button" aria-busy={loadingSessionId === session.id} onClick={() => onLoadSession(session.id)}>
                               <div className={sessionTitleRowClass}>
+                                {sessionLoadingIndicator(session.id)}
                                 {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
                                 <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title)}</span>
                               </div>
@@ -1473,11 +1483,15 @@ export const ChatSidebar = memo(function ChatSidebar({
                     <button
                       key={session.id}
                       type="button"
-                      className="block w-full rounded-xl px-3 py-2 text-left transition-colors hover:bg-muted/28"
+                      aria-busy={loadingSessionId === session.id}
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left transition-colors hover:bg-muted/28"
                       onClick={() => selectSearchResult(session.id)}
                     >
-                      <div className="truncate text-sm text-foreground/90">{sessionTitle(session.title)}</div>
-                      <div className="truncate text-[11px] text-muted-foreground/55">{projectName || t('normalChat')} · {formatSessionTime(session.lastModified)}</div>
+                      {sessionLoadingIndicator(session.id)}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm text-foreground/90">{sessionTitle(session.title)}</span>
+                        <span className="block truncate text-[11px] text-muted-foreground/55">{projectName || t('normalChat')} · {formatSessionTime(session.lastModified)}</span>
+                      </span>
                     </button>
                   ))
                 ) : (

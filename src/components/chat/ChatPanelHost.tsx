@@ -608,7 +608,9 @@ export function ChatPanelHost({
           isStreaming: () => agent.state.isStreaming,
           isActive: assistantWaitingActive,
         })
-      } catch { /* continue to editor & approval card */ }
+      } catch (error) {
+        logger.warn('Failed to decorate chat messages:', error)
+      }
 
       try {
         decorateEditor({

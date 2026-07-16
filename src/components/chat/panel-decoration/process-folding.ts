@@ -25,7 +25,6 @@ type GroupedProcessNode = {
 }
 
 type ProcessStep = {
-  assistant: AssistantMessageElement
   items: GroupedProcessNode[]
 }
 
@@ -103,19 +102,31 @@ function processTurnStateKey(panel: HTMLElement, assistants: AssistantMessageEle
   return `scope:${processScopeId(panel)}:turn:${turnIndex}:started:${firstTimestamp ?? 'unknown'}`
 }
 
+export function resolveProcessExpandedState(
+  savedExpanded: boolean | undefined,
+  previousKeyMatches: boolean,
+  currentExpanded: boolean,
+  defaultExpanded: boolean,
+) {
+  if (savedExpanded !== undefined) return savedExpanded
+  if (previousKeyMatches) return currentExpanded
+  return defaultExpanded
+}
+
 function syncProcessGroupExpandedState(panel: HTMLElement, group: ProcessGroupElement, key: string, defaultExpanded = false) {
   const previousKey = group.dataset.quickforgeProcessKey
   group.dataset.quickforgeProcessKey = key
 
-  const savedExpanded = getProcessExpandedStates(panel).get(key)
-  if (savedExpanded !== undefined) {
-    group.dataset.expanded = String(savedExpanded)
-    return
-  }
-
-  group.dataset.expanded = previousKey === key && group.dataset.expanded === 'true'
-    ? 'true'
-    : String(defaultExpanded)
+  const states = getProcessExpandedStates(panel)
+  const savedExpanded = states.get(key)
+  const expanded = resolveProcessExpandedState(
+    savedExpanded,
+    previousKey === key,
+    group.dataset.expanded === 'true',
+    defaultExpanded,
+  )
+  group.dataset.expanded = String(expanded)
+  if (savedExpanded === undefined && defaultExpanded) rememberProcessExpandedState(panel, key, expanded)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -325,32 +336,69 @@ function toolsIconMarkup() {
   return '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="14" x="3" y="5" rx="2"/><path d="m7 9 3 3-3 3"/><path d="M13 15h4"/></svg>'
 }
 
+export type ProcessThinkingChild = {
+  quickforgeIcon?: boolean
+  markedChevron?: boolean
+  markedLabel?: boolean
+  hasSvg?: boolean
+  rotated?: boolean
+}
+
+export function processThinkingChildIndexes(children: ProcessThinkingChild[]) {
+  const candidates = children
+    .map((child, index) => ({ child, index }))
+    .filter(({ child }) => !child.quickforgeIcon)
+  const chevron = candidates.find(({ child }) => child.markedChevron)
+    ?? candidates.find(({ child }) => child.hasSvg)
+  const label = candidates.find(({ child, index }) => child.markedLabel && index !== chevron?.index)
+    ?? candidates.find(({ index }) => index !== chevron?.index)
+  return {
+    chevronIndex: chevron?.index,
+    labelIndex: label?.index,
+    chevronExpanded: chevron?.child.rotated === true,
+  }
+}
+
 function decorateProcessThinkingBlocks(group: ProcessGroupElement) {
   group.querySelectorAll<HTMLElement>('thinking-block').forEach((thinkingBlock) => {
     if (thinkingBlock.closest(PROCESS_GROUP_SELECTOR) !== group) return
     const header = thinkingBlock.querySelector<HTMLElement>(':scope > .thinking-block > .thinking-header')
     if (!header) return
 
-    header.classList.add('quickforge-process-thinking-header')
-    const spans = Array.from(header.children).filter((child): child is HTMLElement => child instanceof HTMLElement)
-    const chevron = header.querySelector<HTMLElement>('.quickforge-process-thinking-chevron') ?? spans[0]
-    const label = header.querySelector<HTMLElement>('.quickforge-process-thinking-label') ?? spans.find((span) => span !== chevron)
+    const children = Array.from(header.children).filter((child): child is HTMLElement => child instanceof HTMLElement)
+    const { chevronIndex, labelIndex, chevronExpanded } = processThinkingChildIndexes(children.map((child) => ({
+      quickforgeIcon: child.dataset.quickforgeThinkingRole === 'icon' || child.classList.contains('quickforge-process-thinking-icon'),
+      markedChevron: child.dataset.quickforgeThinkingRole === 'chevron',
+      markedLabel: child.dataset.quickforgeThinkingRole === 'label',
+      hasSvg: Boolean(child.querySelector('svg')),
+      rotated: child.classList.contains('rotate-90') || child.classList.contains('quickforge-process-thinking-chevron-expanded'),
+    })))
+    const chevron = chevronIndex === undefined ? undefined : children[chevronIndex]
+    const label = labelIndex === undefined ? undefined : children[labelIndex]
     if (!chevron || !label) return
 
-    chevron.classList.add('quickforge-process-thinking-chevron')
-    label.classList.add('quickforge-process-thinking-label')
+    chevron.dataset.quickforgeThinkingRole = 'chevron'
+    label.dataset.quickforgeThinkingRole = 'label'
+    chevron.className = 'quickforge-process-thinking-chevron'
+    chevron.classList.toggle('quickforge-process-thinking-chevron-expanded', chevronExpanded)
+    label.className = 'quickforge-process-thinking-label'
     label.textContent = t('processThinking')
 
-    let icon = header.querySelector<HTMLElement>('.quickforge-process-thinking-icon')
+    let icon = children.find((child) => (
+      child.dataset.quickforgeThinkingRole === 'icon'
+      || child.classList.contains('quickforge-process-thinking-icon')
+    ))
     if (!icon) {
       icon = document.createElement('span')
-      icon.className = 'quickforge-process-thinking-icon'
       icon.setAttribute('aria-hidden', 'true')
       icon.innerHTML = thinkingIconMarkup()
     }
+    icon.dataset.quickforgeThinkingRole = 'icon'
+    icon.classList.add('quickforge-process-thinking-icon')
 
     header.prepend(icon)
     header.append(label, chevron)
+    header.className = 'thinking-header quickforge-process-thinking-header'
   })
 }
 
@@ -470,7 +518,8 @@ export function shouldToggleProcessSummary(
 }
 
 function updateProcessGroup(panel: HTMLElement, processKey: string, assistants: AssistantMessageElement[], group: ProcessGroupElement, isAgentStreaming: boolean) {
-  syncProcessGroupExpandedState(panel, group, processKey)
+  syncProcessGroupExpandedState(panel, group, processKey, isAgentStreaming)
+  group.dataset.streaming = String(isAgentStreaming)
   const body = group.querySelector<HTMLElement>(`:scope > ${PROCESS_BODY_SELECTOR}`)
   const summary = group.querySelector<HTMLButtonElement>('.quickforge-process-summary')
   const label = group.querySelector<HTMLElement>('.quickforge-process-label')
@@ -586,14 +635,6 @@ function isFoldableProcessDetail(node: HTMLElement, finalSummaryMarkdown: HTMLEl
   return true
 }
 
-export function groupProcessItemsBySource<T, S>(sources: S[], items: T[], sourceOf: (item: T) => S) {
-  const grouped = new Map<S, T[]>(sources.map((source) => [source, []]))
-  items.forEach((item) => grouped.get(sourceOf(item))?.push(item))
-  return sources
-    .map((source) => ({ source, items: grouped.get(source) ?? [] }))
-    .filter((group) => group.items.length > 0)
-}
-
 function collectFoldableProcessSteps(assistants: AssistantMessageElement[], finalSummaryMarkdown: HTMLElement | null, canFoldMarkdown: boolean) {
   const previousByNode = new Map<HTMLElement, GroupedProcessNode>()
   assistants.forEach((assistant) => {
@@ -616,8 +657,8 @@ function collectFoldableProcessSteps(assistants: AssistantMessageElement[], fina
       })
   ))
 
-  return groupProcessItemsBySource(assistants, items, (item) => item.sourceAssistant)
-    .map(({ source, items: stepItems }): ProcessStep => ({ assistant: source, items: stepItems }))
+  if (items.length === 0) return []
+  return [{ items }]
 }
 
 export function splitConsecutiveProcessNodes<T>(nodes: T[], isTool: (node: T) => boolean): ProcessNodeSegment<T>[] {
@@ -743,10 +784,7 @@ export function processToolSuffixAppendStart(
   const previousTail = previous[previous.length - 1]
   if (!isGroupableProcessTool(previousTail.node as HTMLElement)) return undefined
   const appended = current.slice(previous.length)
-  return appended.every((item) => (
-    item.sourceAssistant === previousTail.sourceAssistant
-    && isGroupableProcessTool(item.node as HTMLElement)
-  ))
+  return appended.every((item) => isGroupableProcessTool(item.node as HTMLElement))
     ? previous.length
     : undefined
 }

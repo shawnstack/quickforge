@@ -1,90 +1,222 @@
+<div align="center">
+  <img src="./desktop/assets/icon.svg" alt="QuickForge Logo" width="96" height="96" />
+
 # 速构 QuickForge
 
-<p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.6.11-blue" />
-  <img alt="License" src="https://img.shields.io/badge/license-MIT-green" />
-  <img alt="Node" src="https://img.shields.io/badge/node-%3E%3D22.19-brightgreen" />
-  <img alt="React" src="https://img.shields.io/badge/react-19-61DAFB?logo=react" />
-  <img alt="Vite" src="https://img.shields.io/badge/vite-8-646CFF?logo=vite" />
-</p>
+### 让 AI 在你的项目里工作，而不只是停留在聊天框里
+
+**本地优先 · 模型自选 · 权限可控的 AI 工程工作台**
+
+QuickForge 将 AI 对话、项目上下文、本地工具、代码审查、Git、终端与自动化工作流整合在一个本地应用中。先理解项目，再制定计划；每一次文件修改和命令执行，都由你决定如何授权。
+
+[下载桌面版](https://github.com/shawnstack/quickforge/releases/latest) · [npm 安装](#快速开始) · [核心能力](#核心能力) · [更新记录](./CHANGELOG.md)
+
+[![npm version](https://img.shields.io/npm/v/%40shawnstack%2Fquickforge?color=2563eb&label=npm)](https://www.npmjs.com/package/@shawnstack/quickforge)
+[![npm downloads](https://img.shields.io/npm/dm/%40shawnstack%2Fquickforge?color=0f766e&label=downloads)](https://www.npmjs.com/package/@shawnstack/quickforge)
+[![GitHub release](https://img.shields.io/github/v/release/shawnstack/quickforge?color=7c3aed&label=release)](https://github.com/shawnstack/quickforge/releases/latest)
+[![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.19-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![License](https://img.shields.io/github/license/shawnstack/quickforge?color=16a34a)](./LICENSE)
+
+</div>
 
 <p align="center">
-  <strong>本地优先的 AI 工作台：聊天、项目上下文、本地工具、MCP、Skills 与定时任务。</strong><br />
-  <strong>A local-first AI workspace for chat, project context, local tools, MCP, Skills, and scheduled tasks.</strong>
-</p>
-
-<p align="center">
-  <a href="#中文">中文</a> · <a href="#english">English</a> · <a href="./docs/user-guide.zh-CN.md">中文教程</a> · <a href="./docs/user-guide.en-US.md">User Guide</a>
-</p>
-
-<p align="center">
-  <img src="./welcome.png" alt="QuickForge welcome screen" width="900" />
+  <img src="./welcome.png" alt="QuickForge 产品界面" width="920" />
 </p>
 
 ---
 
-## 中文
+## QuickForge 能为你做什么？
 
-QuickForge 是一个运行在本机的 AI 对话与研发辅助工具。它保留 ChatGPT 类产品的对话体验，同时把会话、项目目录、模型配置和工具调用放在本地服务中管理。你可以用它做普通问答，也可以把它绑定到一个代码仓库，让模型在明确授权后阅读文件、搜索代码、编辑内容并运行命令。
+把一个本地项目交给 QuickForge，你可以直接用自然语言完成从理解到交付的工程流程：
 
-同一套核心服务支持三种入口：`qf` / `quickforge` CLI、npm 包 `import` 的 SDK 入口，以及用于本地构建 Windows/macOS/Linux 桌面应用的 Electron 入口。
+- **快速理解陌生项目**：阅读目录、搜索调用链、解释模块职责、梳理运行方式与风险。
+- **规划后再动手**：使用 `/plan` 进行只读调研，先确认方案，再开始修改。
+- **完成真实代码任务**：在工作区内读取、搜索、创建和精确编辑文件，并运行 lint、test、build 等命令。
+- **随时检查改动**：在应用内查看文件、Markdown、Mermaid、HTML/SVG/图片预览、Git Diff 和工作区变更。
+- **沉淀可复用流程**：通过 Agent Profiles、Subagent、Skills 和自定义命令复用团队规范与操作步骤。
+- **连接更多能力**：使用 MCP、插件、ACP 和定时任务，把 AI 接入外部工具与自动化流程。
 
-它的目标不是替代 IDE，也不是承诺“全自动开发”，而是提供一个可控的本地 AI 工作流入口：先理解项目，再制定计划，最后在你信任的范围内执行改动和验证。
-
-### 适合用来做什么
-
-- **理解项目**：查看目录结构、搜索调用链、解释模块职责、梳理新人接手路径。
-- **小步修改代码**：让模型在项目目录内读写文件，完成文案、配置、Bug 修复或局部功能改动。
-- **运行验证命令**：在项目工作区执行 lint、build、test、grep 等命令，并把结果带回对话。
-- **沉淀可复用流程**：用 Agent Skills 和项目自定义命令保存团队常用提示词、Runbook 和操作步骤。
-- **连接外部工具**：通过 MCP 接入文件系统、数据库、浏览器、内部服务等工具能力（取决于你配置的 MCP Server）。
-- **异步/周期任务**：创建一次性、每日、每周、每月、间隔或 cron 任务，让模型按计划运行指定工作。
-
-### 核心特性
-
-| 特性 | 说明 |
-|---|---|
-| 本地优先 | 配置、API Key、会话、项目列表、缓存和日志默认保存在 `~/.quickforge/`。QuickForge 不提供云同步，也不内置遥测。 |
-| 多模型提供商 | 支持 OpenAI-compatible `/v1/chat/completions` 与 Anthropic Messages API。可配置 LiteLLM、OpenRouter、DeepSeek、Qwen、Ollama 等兼容服务。 |
-| 普通对话与项目对话 | 普通对话适合问答；项目对话绑定本地目录，开启授权后可使用工作区工具。 |
-| YOLO 本地工具 | 授权模型在项目目录内读取、搜索、创建、覆盖、精确编辑文件，并从工作区运行 shell 命令。 |
-| MCP 集成 | 支持 stdio、SSE、Streamable HTTP (`http`) MCP Server，并将外部工具以命名空间形式注入到 Agent。 |
-| 自定义指令 | 自动合并 `~/.claude/CLAUDE.md`、`~/.opencode/AGENTS.md`、`~/.quickforge/AGENTS.md` 以及项目 `CLAUDE.md`、`AGENTS.md`、`.opencode/AGENTS.md`、`.quickforge/AGENTS.md`。 |
-| Agent Skills | 支持 Claude、opencode、共享、QuickForge 项目级和内置 Skills，用于加载专门的工作流说明、参考资料和工具使用规范。 |
-| 自定义命令 | 支持 `/plan`、`/review`、`/summary`、`/compact`、`/clear`、`/help` 等内置命令，也可从用户级 `~/.quickforge/commands/` 或项目 `.claude/commands/`、`.opencode/commands/`、`.ai/commands/` 加载自定义命令。`/summary` 基于当前对话创建总结后的新对话；`/compact` 在当前对话内执行与自动压缩一致的滚动上下文压缩。`/help` 一键查看全部可用命令；`/plan <任务>` 只生成执行计划，本轮禁止写文件、改文件和运行命令，可调用受同样只读边界约束的 subagent 辅助调研；`/review [范围]` 用于提交前自检待提交代码，本轮禁止编辑文件。同名命令优先级：项目目录 > 用户级目录 > 插件命令。 |
-| 会话工作流 | 支持流式回复、复制、回滚、分支、草稿恢复、会话搜索、上下文用量提示和长对话压缩。 |
-| 定时任务 | 支持创建、编辑、手动触发、查看历史，并为任务选择模型与参数。 |
-| 对话分享 | 支持创建分享链接、只读/可操作权限、可选密码保护，以及撤销分享。 |
-| CLI、SDK 与离线包 | 提供 `qf` / `quickforge` 命令、npm `import` 启动 API、版本检查、更新命令和离线 tarball 安装。 |
-| 桌面端构建入口 | 提供 Electron 桌面壳入口，可在本仓库内构建 Windows/macOS/Linux 桌面应用；Electron 仅作为开发依赖，不进入 npm runtime 包。 |
-
-### 安全边界
-
-QuickForge 的工具能力很直接，因此也需要谨慎使用：
-
-- 文件工具限制在绑定的项目根目录内。
-- `run_command` 会从项目目录启动命令，但它不是系统级沙箱，命令会以当前 OS 用户权限运行。
-- YOLO 模式不会为每次工具调用弹出确认；只建议在可信模型和可信项目中开启。
-- API Key 保存在本机配置文件中，请不要提交或分享 `~/.quickforge/`。
-- 重要仓库建议先提交 Git 或备份，再让模型执行修改。
-
-### 安装
-
-#### 从 npm 安装
-
-```bash
-npm install -g @shawnstack/quickforge@1.6.11
-qf
-
-# CLI 工具
-qf --version
-qf check-update
-qf update
+```mermaid
+flowchart LR
+    A[添加模型与项目] --> B[使用 /plan 理解并规划]
+    B --> C[审批工具或授予完全访问]
+    C --> D[修改文件并运行验证]
+    D --> E[Review Diff 与 Git 变更]
+    E --> F[提交或继续迭代]
 ```
 
-#### SDK 入口
+## 为什么选择 QuickForge？
 
-QuickForge 也可以作为 npm 包在 Node.js 项目中启动本地服务：
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 🔌 你的模型，你来选择
+
+QuickForge 不绑定单一模型厂商。你可以连接 OpenAI-compatible 或 Anthropic Messages API，以及 LiteLLM、OpenRouter、DeepSeek、Qwen、Ollama 等兼容服务。
+
+</td>
+<td width="50%" valign="top">
+
+### 🛡️ 默认安全，按需授权
+
+默认权限下，读取和搜索可直接执行；写文件、运行命令、调用 MCP/插件等可能改变状态的操作会请求确认。需要连续执行时，也可以主动授予完全访问权限。
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### 🧩 对话与工程工作区一体化
+
+聊天、文件阅读、代码预览、工具过程、Review、Git 和终端集中在同一界面。不必在多个应用之间反复复制上下文和执行结果。
+
+</td>
+<td width="50%" valign="top">
+
+### 💻 本地优先，不需要 QuickForge 账号
+
+会话、项目、模型配置、记忆、缓存和日志默认保存在你的电脑中。模型请求发送到你自己配置的服务商，QuickForge 负责本地界面、存储和工具编排。
+
+</td>
+</tr>
+</table>
+
+## 快速开始
+
+### 方式一：下载桌面版
+
+前往 [GitHub Releases](https://github.com/shawnstack/quickforge/releases/latest) 查看可用的 Windows、macOS 和 Linux 安装包。
+
+桌面应用内置 QuickForge 运行时，日常使用无需额外安装全局 `qf` 命令。MCP Server、外部编辑器等扩展能力仍可能依赖相应的本地程序。
+
+### 方式二：通过 npm 安装
+
+需要 [Node.js 22.19+](https://nodejs.org/) 和 npm：
+
+```bash
+npm install -g @shawnstack/quickforge@latest
+qf
+```
+
+`qf` 会启动本地服务并自动打开浏览器。常用命令：
+
+```bash
+qf status          # 查看运行状态
+qf logs            # 查看日志
+qf restart         # 重启服务
+qf stop            # 停止服务
+qf check-update    # 检查更新
+qf update          # 更新到新版本
+```
+
+### 配置你的第一个模型
+
+QuickForge 不内置默认模型。首次打开后，点击 **添加模型**，填写 Provider、API 地址、模型 ID 和 API Key 即可开始。
+
+以 OpenAI-compatible 服务为例：
+
+```text
+Provider name: OpenRouter / DeepSeek / LiteLLM / Ollama
+Protocol type: OpenAI Compatible
+Base URL:       服务商提供的 API 地址，通常以 /v1 结尾
+Model ID:       服务商提供的模型 ID
+API Key:        本地模型或部分代理服务可留空
+```
+
+> API Key 和模型配置保存在本机。请勿提交或分享 `~/.quickforge/` 目录中的敏感配置。
+
+### 第一次使用建议
+
+1. 添加一个模型。
+2. 新建普通对话，或添加一个本地项目。
+3. 先输入：
+
+   ```text
+   /plan 阅读这个项目，说明项目结构、运行方式和主要风险。先不要修改文件。
+   ```
+
+4. 确认计划后，让 Agent 完成一个小改动。
+5. 在 **Review** 中检查 Diff，并运行项目的 lint、test 或 build。
+6. 确认无误后提交，或继续让 Agent 调整。
+
+## 核心能力
+
+### AI 对话与上下文管理
+
+- 流式回复、停止生成、复制、回滚、重试与对话分支
+- 草稿恢复、会话置顶、归档、搜索和长对话压缩
+- 图片附件与视觉模型配置
+- `/plan`、`/review`、`/summary`、`/compact`、`/help` 等内置命令
+- 跨对话、跨项目的全局记忆，可在设置中查看、编辑或关闭
+
+### 项目与本地工具
+
+- 普通对话使用默认本地工作区，项目对话绑定你选择的目录
+- 读取文件、搜索代码、创建文件、精确编辑与命令执行
+- 文件路径限制在当前工作区内，并阻止访问 `.env`、私钥、凭据文件和 `.git/` 等敏感路径
+- 命令输出回传对话，运行中的命令可终止
+- 在资源管理器、VS Code 或 IntelliJ IDEA 中打开项目和文件
+
+### Review、Git 与终端
+
+- 工作区变更汇总与单文件 Diff
+- 暂存、取消暂存、还原、提交与推送
+- 分支查看、搜索、创建、切换与 Git 图谱
+- AI 生成并编辑提交信息
+- 多标签文件阅读与预览
+- 集成终端（可用性取决于运行方式和本地环境）
+
+### Agent 工作流
+
+- 内置 `explore` 与 `general` Agent Profiles
+- 自定义 Agent 的系统提示词、模型、思考等级、工具白名单和运行预算
+- 将边界清晰的任务委托给 Subagent
+- 加载 Claude、opencode、共享目录及 QuickForge 格式的 Skills
+- 用户级、项目级和插件级自定义命令
+
+### 扩展与自动化
+
+- MCP：支持 stdio、SSE 和 Streamable HTTP
+- 本地插件：扩展 Tools、Skills 与 Commands
+- ACP：通过 `qf acp` 接入兼容 IDE 或客户端
+- 定时任务：一次性、每日、每周、每月、固定间隔和 cron
+- 对话分享：只读或可操作链接、密码、有效期和撤销
+- 设置备份与恢复：按配置区域选择导出或导入
+
+## 权限、安全与隐私
+
+QuickForge 可以操作本地文件并运行命令，因此请在使用前了解边界：
+
+| 机制 | 行为 |
+|---|---|
+| 默认权限 | 安全读取和搜索自动执行；写入、命令、MCP、插件等操作请求确认 |
+| 完全访问权限 | 在当前工作区和敏感路径保护范围内自动执行工具，适合可信项目与可信模型 |
+| 工作区限制 | 文件工具不能访问当前工作区之外的路径，并校验符号链接的真实位置 |
+| 敏感文件保护 | 默认阻止 `.env`、私钥、证书、凭据文件和 `.git/` 等路径 |
+| Shell 命令 | 以当前操作系统用户权限运行，**不是系统级沙箱** |
+| 本地数据 | 默认存储在 `~/.quickforge/`；模型请求会发送到你配置的模型服务商 |
+
+建议在重要项目中：
+
+- 先提交 Git 或创建备份，再授权 AI 修改文件。
+- 默认使用 `/plan` 调研复杂任务，不要直接要求大范围改动。
+- 只在可信模型、可信项目中使用完全访问权限。
+- 配置局域网完整访问或可操作分享时，使用强密码并控制网络范围。
+
+更多说明请查看 [安全策略](./SECURITY.md)。
+
+## 支持的运行方式
+
+| 方式 | 适合谁 | 说明 |
+|---|---|---|
+| Desktop | 希望开箱即用的用户 | Windows / macOS / Linux 桌面入口，内置运行时 |
+| npm CLI | 开发者与高级用户 | `npm install -g @shawnstack/quickforge@latest`，需要 Node.js 22.19+ |
+| Node.js SDK | 需要嵌入本地服务的应用 | 通过 `startQuickForge()` 启动 QuickForge |
+| ACP Agent | IDE 与 Agent 客户端集成 | 使用 `qf acp` 暴露 stdio ACP Agent |
+
+<details>
+<summary><strong>Node.js SDK 示例</strong></summary>
 
 ```js
 import { startQuickForge } from '@shawnstack/quickforge'
@@ -97,356 +229,64 @@ const app = await startQuickForge({
 console.log(app.url)
 ```
 
-该入口使用 `package.json` 的 `main` 字段提供，不会改变 `qf` / `quickforge` CLI 发布方式。
+</details>
 
-#### 离线安装
+## 数据存储
 
-当前版本的离线包：
-
-```text
-package-offline/shawnstack-quickforge-1.6.11.tgz
-```
-
-在安装了 Node.js 22.19+ 和 npm 的机器上执行：
-
-```bash
-npm install -g ./package-offline/shawnstack-quickforge-1.6.11.tgz
-qf
-```
-
-该包由 `v1.6.11` 标签生成，包含 QuickForge 运行时资源，依赖由 npm 安装。
-
-### 本地开发
-
-```bash
-# 安装依赖
-npm install
-
-# 开发模式：本地服务 + Vite，默认端口 5176
-npm run dev
-
-# 生产构建与启动
-npm run build
-npm start
-```
-
-打开 [http://localhost:5176](http://localhost:5176)。
-
-Windows 用户也可以双击：
-
-- `dev-quickforge.bat`：开发模式
-- `start-quickforge.bat`：生产模式
-
-#### 桌面端开发与构建
-
-桌面端入口位于 `desktop/electron-main.mjs`，复用同一套本地服务和前端构建产物。
-
-```bash
-# 桌面端开发启动
-npm run desktop:dev
-
-# 构建当前平台桌面包
-npm run desktop:build
-
-# 分别构建三端桌面包
-npm run desktop:build:win
-npm run desktop:build:mac
-npm run desktop:build:linux
-
-# 本地尝试一键构建三端包（跨平台构建受本机环境限制）
-npm run desktop:build:all
-```
-
-桌面构建产物输出到 `desktop-dist/`。该目录和 Electron 相关依赖只用于本地桌面包构建，不包含在 npm runtime 发布白名单中。
-
-桌面端支持系统托盘：Windows 会显示在右下角系统托盘，macOS 会显示在顶部菜单栏。关闭窗口默认隐藏到托盘，使用托盘菜单中的退出操作才会真正退出并停止桌面端启动的本地服务。托盘菜单文案会优先跟随 QuickForge 设置中的界面语言（中文/英文），读取不到时回退系统语言。
-
-GitHub Actions 提供 `Desktop Build` 工作流，可手动触发或在推送 `v*` 标签时按 Windows/macOS/Linux runner 分别构建桌面包，并上传为 workflow artifacts；推送 `v*` 标签触发时，构建成功后会自动创建 GitHub Release 并上传桌面构建产物，但不会发布 npm。
-
-### 首次配置模型
-
-QuickForge 不内置默认模型。首次打开时，如果没有配置任何模型，聊天区会显示配置引导。
-
-你可以在设置中添加任意兼容提供商，例如：
+默认数据目录为 `~/.quickforge/`，Windows 通常对应 `%USERPROFILE%\.quickforge`：
 
 ```text
-Provider name: LiteLLM
-Protocol type: OpenAI Compatible
-Base URL: http://localhost:4000/v1
-Model ID: anthropic/claude-sonnet-4
-API Key: 按你的 LiteLLM 配置填写，可为空
+~/.quickforge/
+├── config/       # 应用、模型、MCP、插件和项目等配置
+├── storage/      # 会话、索引、分享等持久化数据
+├── cache/        # 可重新生成的缓存
+├── agents/       # 用户 Agent Profiles
+├── workspace/    # 普通对话的默认工作区
+├── MEMORY.md     # 可选的全局记忆
+└── logs/         # 本地日志
 ```
 
-也可以配置 OpenRouter、DeepSeek、Ollama 或其他 OpenAI-compatible / Anthropic-compatible 服务。模型请求会发送到你配置的提供商；QuickForge 只负责本地界面、存储、会话和工具编排。
+其中可能包含 API Key、项目路径、对话内容和命令日志，请勿公开分享整个数据目录。
 
-### 常用环境变量
-
-| 变量 | 默认值 | 说明 |
-|---|---|---|
-| `QUICKFORGE_DATA_DIR` | `~/.quickforge` | 数据目录 |
-| `QUICKFORGE_WORKSPACE_DIR` | 项目根目录 | YOLO 工具默认工作区 |
-| `QUICKFORGE_HOST` | `127.0.0.1` | 服务绑定地址 |
-| `QUICKFORGE_PORT` | `32176`（dev）/ `5176`（prod） | 后端服务端口；`qf` / `quickforge` 默认使用生产端口 |
-| `QUICKFORGE_DESKTOP_PORT` | `5177` | 桌面 app 服务端口；未设置时与 `qf` CLI 默认端口分离 |
-| `QUICKFORGE_VITE_PORT` | `5176` | Vite 开发服务器端口 |
-| `QUICKFORGE_MAX_BODY_BYTES` | `52428800` (50MB) | 请求体大小上限 |
-
-### 数据位置
-
-默认位于 `~/.quickforge/`（Windows 通常为 `%USERPROFILE%\.quickforge`）：
-
-- `config/config.json` — 统一本地配置，包含应用设置、自定义 Provider、Provider API Key 和项目列表。该文件可能包含密钥，请勿分享。
-- `storage/` — 会话、会话索引、分享数据等持久化数据。
-- `cache/` — 可删除缓存。
-- `logs/` — 本地日志。
-
-### 技术栈
-
-| 层级 | 技术 |
-|---|---|
-| 前端 | React 19, Vite 8, Tailwind CSS 4, TypeScript |
-| UI | shadcn-style primitives, Lucide icons, `@earendil-works/pi-web-ui` |
-| Agent / 模型编排 | `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, MCP SDK |
-| 后端 | Node.js ESM，原生 `http` 模块 |
-| 存储 | 本地 JSON 文件，默认在 `~/.quickforge/` |
-
-### 项目结构
-
-```text
-├── bin/quickforge.mjs       # CLI 入口
-├── desktop/                 # Electron 桌面端入口（构建 Windows/macOS/Linux 桌面包）
-├── server/                  # 本地 API、存储、Agent、工具、MCP、分享与任务服务
-│   └── public-api.mjs       # npm import / Desktop 复用的启动 API
-├── src/                     # React 前端
-├── skills/                  # 内置 Agent Skills
-├── scripts/                 # 打包与发布辅助脚本
-├── public/                  # 静态资源
-├── index.html               # HTML 入口
-├── vite.config.ts           # Vite + Tailwind 配置
-└── package.json
-```
-
-### 文档
+## 文档与帮助
 
 - [中文使用教程](./docs/user-guide.zh-CN.md)
 - [English User Guide](./docs/user-guide.en-US.md)
+- [更新记录](./CHANGELOG.md)
 - [项目 Wiki](./docs/wiki/README.md)
-- [贡献指南](./CONTRIBUTING.md)
 - [安全策略](./SECURITY.md)
+- [贡献指南](./CONTRIBUTING.md)
+- [GitHub Releases](https://github.com/shawnstack/quickforge/releases/latest)
+- [问题反馈](https://github.com/shawnstack/quickforge/issues)
 
----
-
-## English
-
-QuickForge is a local-first AI chat and development workspace. It keeps the familiar chat experience, but connects it to local projects, local storage, configurable model providers, workspace tools, MCP servers, Agent Skills, and scheduled tasks.
-
-The same core runtime now supports three entry points: the `qf` / `quickforge` CLI, an npm-importable SDK entry, and an Electron entry for building Windows/macOS/Linux desktop apps locally. Desktop builds include their own QuickForge runtime and do not require users to install Node.js, npm, or the global `qf` command; an already-running local service is reused only when its version matches the desktop runtime.
-
-It is not meant to replace your IDE or promise fully autonomous software development. The practical goal is narrower: give you a controllable place where an AI assistant can understand a project, propose a plan, make focused changes when authorized, and run the checks you ask for.
-
-### What it is good for
-
-- **Understanding a codebase**: inspect folders, search call chains, explain modules, and prepare onboarding notes.
-- **Focused edits**: let the model read, search, create, overwrite, or precisely edit files inside an attached project directory.
-- **Running verification commands**: run lint, build, tests, grep, and other shell commands from the project workspace.
-- **Reusable workflows**: keep team prompts, runbooks, and operating procedures as Agent Skills or project commands.
-- **External tools through MCP**: connect MCP servers for additional tools such as filesystem, database, browser, or internal service integrations, depending on your configuration.
-- **Async and recurring work**: create once, daily, weekly, monthly, interval, or cron-based tasks and review their run history.
-
-### Key features
-
-| Feature | Details |
-|---|---|
-| Local-first storage | Settings, API keys, conversations, project list, caches, and logs are stored under `~/.quickforge/` by default. No built-in cloud sync or telemetry. |
-| Bring your own model | Supports OpenAI-compatible `/v1/chat/completions` and Anthropic Messages API. Works with compatible providers such as LiteLLM, OpenRouter, DeepSeek, Qwen, Ollama, and others. |
-| Regular and project chats | Regular chats are for general questions. Project chats attach to a local directory and can use workspace tools when authorized. |
-| YOLO workspace tools | Allows the agent to read, search, create, overwrite, precisely edit files, and run shell commands from the attached workspace. |
-| MCP integration | Supports stdio, SSE, and Streamable HTTP (`http`) MCP servers. External tools are injected with namespaced tool names. |
-| Custom instructions | Automatically merges `~/.claude/CLAUDE.md`, `~/.opencode/AGENTS.md`, `~/.quickforge/AGENTS.md`, and project `CLAUDE.md`, `AGENTS.md`, `.opencode/AGENTS.md`, `.quickforge/AGENTS.md`. |
-| Agent Skills | Supports Claude, opencode, shared, QuickForge project-level, and bundled Skills for specialized workflows, references, and tool-use instructions. |
-| Custom commands | Includes built-in commands such as `/plan`, `/review`, `/summary`, `/compact`, `/clear`, and `/help`, and can load custom commands from user-level `~/.quickforge/commands/` or project `.claude/commands/`, `.opencode/commands/`, `.ai/commands/`, or configured directories. `/summary` creates a new summarized chat from the current conversation; `/compact` compacts context in the current chat using the same rolling summary behavior as auto-compaction. `/help` lists all available commands; `/plan <task>` drafts an implementation plan without edits or commands, and may call subagents under the same read-only boundary; `/review [scope]` performs a pre-commit self-review without editing files. Precedence: project directories > user-level > plugins. |
-| Conversation workflow | Streaming responses, copy, rollback, fork, draft recovery, search, context usage indicator, and conversation compaction. |
-| Scheduled tasks | Create, edit, manually trigger, and inspect tasks, with model and parameter selection per task. |
-| Conversation sharing | Share conversations with read-only or operate permissions, optional password protection, and revocation support. |
-| CLI, SDK, and offline package | Provides `qf` / `quickforge` commands, an npm-importable startup API, update checks, update command, and offline tarball installation. |
-| Desktop build entry | Provides an Electron desktop wrapper for building Windows/macOS/Linux desktop apps from this repository. Electron stays in dev dependencies and is not included in the npm runtime package. |
-
-### Safety model
-
-QuickForge intentionally exposes powerful local capabilities, so the boundaries matter:
-
-- File tools are restricted to the attached project root.
-- `run_command` starts in the project directory, but it is not an OS-level sandbox. Commands run with the current OS user's permissions.
-- YOLO mode does not ask for confirmation before every tool call. Use it only with trusted models and trusted workspaces.
-- API keys are stored locally. Do not commit or share your `~/.quickforge/` directory.
-- Commit to Git or make a backup before asking the model to change important repositories.
-
-### Installation
-
-#### npm
+## 本地开发
 
 ```bash
-npm install -g @shawnstack/quickforge@1.6.11
-qf
-
-# CLI utilities
-qf --version
-qf check-update
-qf update
-```
-
-#### SDK entry
-
-QuickForge can also be started from a Node.js project as an npm package:
-
-```js
-import { startQuickForge } from '@shawnstack/quickforge'
-
-const app = await startQuickForge({
-  host: '127.0.0.1',
-  port: 5176,
-})
-
-console.log(app.url)
-```
-
-This entry is exposed through the `main` field in `package.json` and does not change the `qf` / `quickforge` CLI publishing path.
-
-#### Offline tarball
-
-The offline release package for `v1.6.11` is:
-
-```text
-package-offline/shawnstack-quickforge-1.6.11.tgz
-```
-
-Install it on a machine with Node.js 22.19+ and npm:
-
-```bash
-npm install -g ./package-offline/shawnstack-quickforge-1.6.11.tgz
-qf
-```
-
-The package was generated from tag `v1.6.11` and includes QuickForge runtime assets and installs dependencies with npm.
-
-### Local development
-
-```bash
-# Install dependencies
-npm install
-
-# Development: local service + Vite, default port 5176
+git clone https://github.com/shawnstack/quickforge.git
+cd quickforge
+npm ci
 npm run dev
-
-# Production
-npm run build
-npm start
 ```
 
-Open [http://localhost:5176](http://localhost:5176).
-
-On Windows, you can also double-click:
-
-- `dev-quickforge.bat` for development mode
-- `start-quickforge.bat` for production mode
-
-#### Desktop development and builds
-
-The desktop entry lives at `desktop/electron-main.mjs` and reuses the same local service and frontend build output.
+提交改动前建议运行：
 
 ```bash
-# Start desktop app in development
-npm run desktop:dev
-
-# Build a desktop package for the current platform
-npm run desktop:build
-
-# Build desktop packages by platform
-npm run desktop:build:win
-npm run desktop:build:mac
-npm run desktop:build:linux
-
-# Try to build all desktop targets locally (cross-platform builds depend on local tooling)
-npm run desktop:build:all
+npm run lint
+npm run test
+npm run build
 ```
 
-Desktop artifacts are written to `desktop-dist/`. This directory and Electron dependencies are only for local desktop builds and are not part of the npm runtime publish whitelist.
-
-The desktop app supports a system tray: Windows uses the bottom-right system tray and macOS uses the top menu bar. Closing the window hides it to the tray; use the quit action from the tray menu to fully exit and stop the local service started by the desktop app. Tray menu labels follow the QuickForge display language setting when available, and fall back to the system language.
-
-GitHub Actions provides a `Desktop Build` workflow. It can be run manually or by pushing a `v*` tag, builds on Windows/macOS/Linux runners, and uploads workflow artifacts. When triggered by a `v*` tag push, a successful build also creates a GitHub Release and uploads the desktop build assets, but it does not publish npm automatically.
-
-### First model setup
-
-QuickForge does not ship with a default model. If no model is configured on first launch, the chat area shows a setup guide.
-
-You can add any compatible provider in Settings, for example:
-
-```text
-Provider name: LiteLLM
-Protocol type: OpenAI Compatible
-Base URL: http://localhost:4000/v1
-Model ID: anthropic/claude-sonnet-4
-API Key: optional, depending on your LiteLLM configuration
-```
-
-You can also configure OpenRouter, DeepSeek, Ollama, or any other OpenAI-compatible / Anthropic-compatible service. Model requests are sent to the provider you configure; QuickForge provides the local UI, storage, conversation management, and tool orchestration.
-
-### Common environment variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `QUICKFORGE_DATA_DIR` | `~/.quickforge` | Data directory |
-| `QUICKFORGE_WORKSPACE_DIR` | project root | Default workspace for YOLO tools |
-| `QUICKFORGE_HOST` | `127.0.0.1` | Server bind address |
-| `QUICKFORGE_PORT` | `32176` (dev) / `5176` (prod) | Backend server port; used by `qf` / `quickforge` by default |
-| `QUICKFORGE_DESKTOP_PORT` | `5177` | Desktop app service port; separated from the default `qf` CLI port |
-| `QUICKFORGE_VITE_PORT` | `5176` | Vite dev server port |
-| `QUICKFORGE_MAX_BODY_BYTES` | `52428800` (50MB) | Max request body size |
-
-### Data location
-
-Located under `~/.quickforge/` by default (`%USERPROFILE%\.quickforge` on Windows):
-
-- `config/config.json` — unified local config, including app settings, custom providers, provider API keys, and project list. This file may contain secrets; do not share it.
-- `storage/` — persistent conversations, indexes, shares, and related data.
-- `cache/` — removable cache files.
-- `logs/` — local logs.
-
-### Tech stack
-
-| Layer | Technology |
-|---|---|
-| Frontend | React 19, Vite 8, Tailwind CSS 4, TypeScript |
-| UI | shadcn-style primitives, Lucide icons, `@earendil-works/pi-web-ui` |
-| Agent / model orchestration | `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, MCP SDK |
-| Server | Node.js ESM, plain `http` module |
-| Storage | Local JSON files under `~/.quickforge/` by default |
-
-### Project structure
-
-```text
-├── bin/quickforge.mjs       # CLI entry point
-├── desktop/                 # Electron desktop entry for Windows/macOS/Linux builds
-├── server/                  # Local API, storage, agents, tools, MCP, sharing, and task service
-│   └── public-api.mjs       # startup API reused by npm import and Desktop
-├── src/                     # React frontend
-├── skills/                  # Bundled Agent Skills
-├── scripts/                 # Build and packaging helpers
-├── public/                  # Static assets
-├── index.html               # HTML entry
-├── vite.config.ts           # Vite + Tailwind config
-└── package.json
-```
-
-### Documentation
-
-- [中文使用教程](./docs/user-guide.zh-CN.md)
-- [English User Guide](./docs/user-guide.en-US.md)
-- [Project Wiki](./docs/wiki/README.md)
-- [Contributing Guide](./CONTRIBUTING.md)
-- [Security Policy](./SECURITY.md)
+架构和模块导航请查看 [代码 Wiki](./docs/wiki/README.md)，贡献要求请查看 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
 ## License
 
-[MIT](LICENSE)
+QuickForge 基于 [MIT License](./LICENSE) 开源。
+
+---
+
+<div align="center">
+
+如果 QuickForge 对你有帮助，欢迎点一个 **Star**。<br />
+你的反馈、Issue 和贡献，会帮助它成为更好用的本地 AI 工程工作台。
+
+</div>

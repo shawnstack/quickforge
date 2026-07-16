@@ -600,10 +600,10 @@ class SubagentToolRenderer {
             ${renderStatus(status, timing)}
           </summary>
           <div class="mt-3 space-y-3">
-            ${task || context || expectedOutput ? html`<div class="quickforge-subagent-task rounded-lg border border-border bg-background/60 px-3 py-2.5 text-sm">
-              ${task ? html`<div class="text-muted-foreground/85"><span class="font-medium text-foreground/75">${t('subagentTask')}:</span> ${task}</div>` : nothing}
-              ${context ? html`<div class="mt-1 text-xs text-muted-foreground/70"><span class="font-medium">${t('subagentContext')}:</span> ${context}</div>` : nothing}
-              ${expectedOutput ? html`<div class="mt-1 text-xs text-muted-foreground/70"><span class="font-medium">${t('subagentExpectedOutput')}:</span> ${expectedOutput}</div>` : nothing}
+            ${task || context || expectedOutput ? html`<div class="quickforge-subagent-task space-y-1 rounded-lg border border-border bg-background/60 px-3 py-2 text-xs leading-relaxed text-muted-foreground/70">
+              ${task ? html`<div><span class="font-medium text-foreground/75">${t('subagentTask')}:</span> ${task}</div>` : nothing}
+              ${context ? html`<div><span class="font-medium text-foreground/75">${t('subagentContext')}:</span> ${context}</div>` : nothing}
+              ${expectedOutput ? html`<div><span class="font-medium text-foreground/75">${t('subagentExpectedOutput')}:</span> ${expectedOutput}</div>` : nothing}
             </div>` : nothing}
             ${toolDisplaySettings.showToolDetails ? html`<div class="quickforge-subagent-summary rounded-lg border border-border/75 bg-muted/20 px-3 py-2.5 text-sm">
               <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
@@ -657,13 +657,18 @@ class LocalWorkspaceToolRenderer {
     const variant = result?.isError ? 'error' : 'default'
 
     return {
-      isCustom: false,
+      // QuickForge process rows are intentionally borderless. Rendering as
+      // custom content prevents pi-web-ui from adding its default tool card
+      // before the DOM decoration pass moves the tool into the Process group.
+      isCustom: true,
       content: html`
-        <details class="group/tool" ?open=${expandToolsByDefault}>
+        <details class="group/tool quickforge-local-tool" ?open=${expandToolsByDefault}>
           <summary class="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
-            <svg class="shrink-0 transition-transform group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
             ${renderToolIcon(this.toolName)}
-            <span class="min-w-0 flex-1 truncate">${t(this.labelKey)}${summary ? html`<span class="text-muted-foreground/70"> · ${summary}</span>` : ''}</span>
+            <span class="quickforge-tool-title min-w-0 flex-1">
+              <span class="quickforge-tool-label">${t(this.labelKey)}${summary ? html`<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${summary}</span>` : ''}</span>
+              <svg class="quickforge-tool-chevron shrink-0 group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+            </span>
             ${renderInlineDiffStats(this.toolName, diff)}
             ${renderPreviewButton(this.toolName, params)}
             ${renderTerminateCommandButton(this.toolName, status, result?.details)}
@@ -745,9 +750,11 @@ class McpToolRenderer {
       content: html`
         <details class="group/tool quickforge-mcp-tool" ?open=${toolDisplaySettings.expandToolsByDefault}>
           <summary class="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
-            <svg class="shrink-0 transition-transform group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
             ${renderToolIcon(this.toolName)}
-            <span class="min-w-0 flex-1 truncate">MCP${serverName ? html`<span class="text-muted-foreground/70"> · ${serverName}</span>` : nothing}<span class="text-muted-foreground/70"> · ${title}</span>${summary ? html`<span class="text-muted-foreground/70"> · ${summary}</span>` : nothing}</span>
+            <span class="quickforge-tool-title min-w-0 flex-1">
+              <span class="quickforge-tool-label">MCP${serverName ? html`<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${serverName}</span>` : nothing}<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${title}</span>${summary ? html`<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${summary}</span>` : nothing}</span>
+              <svg class="quickforge-tool-chevron shrink-0 group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+            </span>
             ${renderStatus(status, timing)}
           </summary>
           <div class="mt-3 space-y-3">

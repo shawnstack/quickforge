@@ -1,14 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
-  groupProcessItemsBySource,
   isProcessToolsGroupMember,
   isTopLevelProcessDetail,
   processFinishedAtFromMessages,
   processGroupTargetIndex,
   processNodeSequenceIsCurrent,
+  processThinkingChildIndexes,
   processToolGroupStateKey,
   processToolSuffixAppendStart,
   processTurnUpdateMode,
+  resolveProcessExpandedState,
   shouldPreserveProcessGroupDuringHandoff,
   shouldToggleProcessSummary,
   splitConsecutiveProcessNodes,
@@ -74,6 +75,15 @@ describe('process streaming updates', () => {
     expect(shouldToggleProcessSummary(false, 'click', { detail: 1 })).toBe(true)
   })
 
+  it('defaults a new streaming process to expanded and preserves explicit state', () => {
+    expect(resolveProcessExpandedState(undefined, false, false, true)).toBe(true)
+    expect(resolveProcessExpandedState(undefined, false, false, false)).toBe(false)
+    expect(resolveProcessExpandedState(false, false, true, true)).toBe(false)
+    expect(resolveProcessExpandedState(true, false, false, false)).toBe(true)
+    expect(resolveProcessExpandedState(undefined, true, true, false)).toBe(true)
+    expect(resolveProcessExpandedState(undefined, true, false, true)).toBe(false)
+  })
+
   it('anchors a running turn to a stable assistant instead of the temporary streaming assistant', () => {
     expect(processGroupTargetIndex([
       { streaming: false, hasGroup: false },
@@ -109,6 +119,18 @@ describe('process streaming updates', () => {
     )).toBe(1)
   })
 
+  it('recognizes a connected tool suffix across assistant message boundaries', () => {
+    const toolA = { isConnected: true, tagName: 'TOOL-MESSAGE', toolCall: { name: 'read_file' } }
+    const toolB = { isConnected: true, tagName: 'TOOL-MESSAGE', toolCall: { name: 'edit_file' } }
+    expect(processToolSuffixAppendStart(
+      [{ node: toolA, sourceAssistant: 'assistant-a' }],
+      [
+        { node: toolA, sourceAssistant: 'assistant-a' },
+        { node: toolB, sourceAssistant: 'assistant-b' },
+      ],
+    )).toBe(1)
+  })
+
   it('rejects suffix appends that would change the process structure', () => {
     const toolA = { isConnected: true, tagName: 'TOOL-MESSAGE', toolCall: { name: 'read_file' } }
     const toolB = { isConnected: true, tagName: 'TOOL-MESSAGE', toolCall: { name: 'edit_file' } }
@@ -119,13 +141,6 @@ describe('process streaming updates', () => {
       [
         { node: toolA, sourceAssistant: 'assistant-a' },
         { node: thinking, sourceAssistant: 'assistant-a' },
-      ],
-    )).toBeUndefined()
-    expect(processToolSuffixAppendStart(
-      [{ node: toolA, sourceAssistant: 'assistant-a' }],
-      [
-        { node: toolA, sourceAssistant: 'assistant-a' },
-        { node: toolB, sourceAssistant: 'assistant-b' },
       ],
     )).toBeUndefined()
     expect(processToolSuffixAppendStart(
@@ -183,34 +198,69 @@ describe('process folding order', () => {
     ])
   })
 
-  it('keeps assistant message boundaries while preserving each step timeline', () => {
-    const assistants = ['assistant-a', 'assistant-b']
+  it('treats assistant message boundaries as protocol metadata rather than visual boundaries', () => {
     const items = [
       { source: 'assistant-a', value: 'thinking-a' },
       { source: 'assistant-a', value: 'tool-a' },
-      { source: 'assistant-b', value: 'thinking-b' },
       { source: 'assistant-b', value: 'tool-b' },
     ]
 
-    expect(groupProcessItemsBySource(assistants, items, (item) => item.source)).toEqual([
-      { source: 'assistant-a', items: items.slice(0, 2) },
-      { source: 'assistant-b', items: items.slice(2) },
+    expect(splitConsecutiveProcessNodes(items, (item) => item.value.startsWith('tool'))).toEqual([
+      { kind: 'detail', items: items.slice(0, 1) },
+      { kind: 'tools', items: items.slice(1) },
     ])
   })
 
-  it('does not merge tools across assistant message boundaries', () => {
-    const steps = groupProcessItemsBySource(
-      ['assistant-a', 'assistant-b'],
-      [
-        { source: 'assistant-a', value: 'tool-a' },
-        { source: 'assistant-b', value: 'tool-b' },
-      ],
-      (item) => item.source,
-    )
+  it('keeps the injected Thinking icon separate from the native chevron after re-decoration', () => {
+    expect(processThinkingChildIndexes([
+      { quickforgeIcon: true, hasSvg: true },
+      { markedLabel: true },
+      { markedChevron: true, hasSvg: true },
+    ])).toEqual({ chevronIndex: 2, labelIndex: 1, chevronExpanded: false })
+  })
 
-    expect(steps.map((step) => splitConsecutiveProcessNodes(step.items, (item) => item.value.startsWith('tool')))).toEqual([
-      [{ kind: 'tools', items: [{ source: 'assistant-a', value: 'tool-a' }] }],
-      [{ kind: 'tools', items: [{ source: 'assistant-b', value: 'tool-b' }] }],
+  it('finds the native Thinking chevron by its svg when Lit replaces marker classes', () => {
+    expect(processThinkingChildIndexes([
+      { quickforgeIcon: true, hasSvg: true },
+      {},
+      { hasSvg: true },
+    ])).toEqual({ chevronIndex: 2, labelIndex: 1, chevronExpanded: false })
+  })
+
+  it('preserves the native Thinking expanded state when removing upstream classes', () => {
+    expect(processThinkingChildIndexes([
+      { quickforgeIcon: true, hasSvg: true },
+      { markedLabel: true },
+      { markedChevron: true, hasSvg: true, rotated: true },
+    ])).toEqual({ chevronIndex: 2, labelIndex: 1, chevronExpanded: true })
+  })
+
+  it('groups consecutive tools across assistant message boundaries', () => {
+    const items = [
+      { source: 'assistant-a', value: 'tool-a' },
+      { source: 'assistant-b', value: 'tool-b' },
+    ]
+
+    expect(splitConsecutiveProcessNodes(items, (item) => item.value.startsWith('tool'))).toEqual([
+      { kind: 'tools', items },
+    ])
+  })
+
+  it('keeps Thinking and agents as hard boundaries across assistant messages', () => {
+    const items = [
+      { source: 'assistant-a', value: 'tool-a' },
+      { source: 'assistant-b', value: 'thinking' },
+      { source: 'assistant-c', value: 'tool-b' },
+      { source: 'assistant-d', value: 'run_subagent' },
+      { source: 'assistant-e', value: 'tool-c' },
+    ]
+
+    expect(splitConsecutiveProcessNodes(items, (item) => item.value.startsWith('tool'))).toEqual([
+      { kind: 'tools', items: items.slice(0, 1) },
+      { kind: 'detail', items: items.slice(1, 2) },
+      { kind: 'tools', items: items.slice(2, 3) },
+      { kind: 'detail', items: items.slice(3, 4) },
+      { kind: 'tools', items: items.slice(4, 5) },
     ])
   })
 

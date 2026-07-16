@@ -2026,7 +2026,7 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
 .quickforge-subagent-title {
   display: inline-flex;
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   align-items: center;
   gap: 0.25rem;
 }

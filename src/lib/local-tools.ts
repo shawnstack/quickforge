@@ -593,11 +593,11 @@ class SubagentToolRenderer {
         <details class="group/tool quickforge-subagent-tool" ?open=${detailsOpen} @toggle=${(event: Event) => rememberSubagentDetailsOpen(detailsKey, (event.currentTarget as HTMLDetailsElement).open)}>
           <summary class="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
             ${renderToolIcon('run_subagent')}
-            <span class="quickforge-subagent-title min-w-0 flex-1">
+            <span class="quickforge-subagent-title min-w-0">
               <span class="quickforge-subagent-label">${statusLabel}</span>
               <svg class="quickforge-subagent-chevron shrink-0 group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+              ${renderStatus(status, timing)}
             </span>
-            ${renderStatus(status, timing)}
           </summary>
           <div class="mt-3 space-y-3">
             ${task || context || expectedOutput ? html`<div class="quickforge-subagent-task space-y-1 rounded-lg border border-border bg-background/60 px-3 py-2 text-xs leading-relaxed text-muted-foreground/70">
@@ -665,14 +665,16 @@ class LocalWorkspaceToolRenderer {
         <details class="group/tool quickforge-local-tool" ?open=${expandToolsByDefault}>
           <summary class="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
             ${renderToolIcon(this.toolName)}
-            <span class="quickforge-tool-title min-w-0 flex-1">
+            <span class="quickforge-tool-title min-w-0">
               <span class="quickforge-tool-label">${t(this.labelKey)}${summary ? html`<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${summary}</span>` : ''}</span>
               <svg class="quickforge-tool-chevron shrink-0 group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+              ${renderInlineDiffStats(this.toolName, diff)}
+              ${renderStatus(status, timing)}
             </span>
-            ${renderInlineDiffStats(this.toolName, diff)}
-            ${renderPreviewButton(this.toolName, params)}
-            ${renderTerminateCommandButton(this.toolName, status, result?.details)}
-            ${renderStatus(status, timing)}
+            <span class="quickforge-tool-actions ml-auto inline-flex shrink-0 items-center gap-1">
+              ${renderPreviewButton(this.toolName, params)}
+              ${renderTerminateCommandButton(this.toolName, status, result?.details)}
+            </span>
           </summary>
           <div class="mt-3 space-y-3">
             ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : ''}
@@ -751,11 +753,11 @@ class McpToolRenderer {
         <details class="group/tool quickforge-mcp-tool" ?open=${toolDisplaySettings.expandToolsByDefault}>
           <summary class="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
             ${renderToolIcon(this.toolName)}
-            <span class="quickforge-tool-title min-w-0 flex-1">
+            <span class="quickforge-tool-title min-w-0">
               <span class="quickforge-tool-label">MCP${serverName ? html`<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${serverName}</span>` : nothing}<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${title}</span>${summary ? html`<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${summary}</span>` : nothing}</span>
               <svg class="quickforge-tool-chevron shrink-0 group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+              ${renderStatus(status, timing)}
             </span>
-            ${renderStatus(status, timing)}
           </summary>
           <div class="mt-3 space-y-3">
             ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : nothing}

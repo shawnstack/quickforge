@@ -391,7 +391,10 @@ export function decorateMessages(deps: MessageDecorationDeps) {
   const processMessageElements = [...messageElements]
   if (streaming) {
     const streamingAssistant = getStreamingAssistantMessage(panel)
-    if (streamingAssistant) processMessageElements.push(streamingAssistant)
+    if (streamingAssistant) {
+      streamingAssistant.classList.add('quickforge-assistant-message')
+      processMessageElements.push(streamingAssistant)
+    }
   }
   decorateProcessBlocks(panel, processMessageElements, streaming)
   panel.querySelectorAll<HTMLElement>('message-list[data-quickforge-subagent-process="true"]').forEach((messageList) => {

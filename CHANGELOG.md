@@ -4,6 +4,31 @@ All notable changes to QuickForge will be documented in this file.
 
 ## [Unreleased]
 
+## [1.6.12] - 2026-07-16
+
+### Added
+
+- Added conversation loading feedback and a compact context-usage ring with a detailed tooltip.
+
+### Changed
+
+- Refined process timelines, subagent displays, tool metadata, and streaming text styles for clearer chat progress feedback.
+- Reduced the context-usage indicator size to better align with surrounding chat controls.
+
+### Fixed
+
+- Fixed opening resolved project paths in external applications.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.6.12` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.6.12.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.6.12.tgz
+  ```
+
 ## [1.6.11] - 2026-07-15
 
 ### Added

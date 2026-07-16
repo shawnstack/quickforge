@@ -164,7 +164,7 @@
 | `custom-providers-only-tab.ts` | 自定义模型供应商的完整 CRUD 管理界面 |
 | `lan-access-settings-tab.ts` | LAN 共享设置（启用/禁用、密码、会话 TTL） |
 | `backup-settings-tab.ts` | 数据备份导出和导入 |
-| `default-options-settings-tab.ts` | 设置默认模型、思考级别、工具展示、上下文管理和终端 Shell |
+| `default-options-settings-tab.ts` | 设置默认模型、思考级别、Tool 展示、上下文用量显示、上下文管理和终端 Shell；默认 Shell 从系统识别列表选择，并支持自定义命令或路径 |
 | `about-settings-tab.ts` | 关于信息、更新检查/执行，以及后端服务重启 |
 | `language-settings-tab.ts` | 语言切换设置 |
 | `project-commands-settings-tab.ts` | 项目命令目录配置 + 命令预览 + 新建命令 |

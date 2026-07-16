@@ -44,6 +44,8 @@ const THINKING_OPTIONS: { value: ThinkingLevel; label: () => string }[] = [
   { value: 'xhigh', label: () => t('thinkingXHigh') },
 ]
 
+const CUSTOM_SHELL_OPTION = '__custom__'
+
 function normalizeBaseUrl(value?: string) {
   return (value ?? '').trim().replace(/\/$/, '')
 }
@@ -77,18 +79,6 @@ function profileNameFromCommand(command: string) {
   return executable || 'Custom Shell'
 }
 
-const checkIcon = html`
-  <svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-    <path d="M3.5 8.2 6.6 11.3 12.7 4.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-  </svg>
-`
-
-const circleIcon = html`
-  <svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-    <circle cx="8" cy="8" r="4.8" stroke="currentColor" stroke-width="1.5" />
-  </svg>
-`
-
 const deleteIcon = html`
   <svg class="size-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
     <path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
@@ -113,6 +103,7 @@ class DefaultOptionsSettingsTab extends SettingsTab {
   private error = ''
   private terminalShellConfig: TerminalShellConfig = { terminalShell: 'auto', defaultProfileId: 'auto', profiles: [] }
   private customShellCommand = ''
+  private customShellEditorOpen = false
 
   override getTabName(): string {
     return t('defaultOptions')
@@ -141,6 +132,13 @@ class DefaultOptionsSettingsTab extends SettingsTab {
     const languageSelect = this.querySelector<HTMLSelectElement>('[data-language-select]')
     if (languageSelect) {
       languageSelect.value = this.selectedLanguage
+    }
+
+    const terminalShellSelect = this.querySelector<HTMLSelectElement>('[data-terminal-shell-select]')
+    if (terminalShellSelect) {
+      terminalShellSelect.value = this.customShellEditorOpen
+        ? CUSTOM_SHELL_OPTION
+        : this.selectedTerminalShellProfileId()
     }
   }
 
@@ -280,6 +278,26 @@ class DefaultOptionsSettingsTab extends SettingsTab {
     return this.terminalShellConfig.profiles.filter((profile) => !profile.builtin)
   }
 
+  private selectedTerminalShellProfileId() {
+    const profiles = this.terminalShellConfig.profiles
+    if (profiles.some((profile) => profile.id === this.terminalShellConfig.defaultProfileId)) {
+      return this.terminalShellConfig.defaultProfileId
+    }
+    return profiles[0]?.id || CUSTOM_SHELL_OPTION
+  }
+
+  private updateTerminalShellSelection(value: string) {
+    if (value === CUSTOM_SHELL_OPTION) {
+      this.customShellEditorOpen = true
+      this.requestUpdate()
+      return
+    }
+
+    this.customShellEditorOpen = false
+    this.requestUpdate()
+    void this.saveTerminalShellConfig(value)
+  }
+
   private async loadTerminalShell() {
     try {
       const response = await fetch('/api/system/terminal-shell', { cache: 'no-store' })
@@ -320,12 +338,14 @@ class DefaultOptionsSettingsTab extends SettingsTab {
       return
     }
 
+    const profile = { id: customProfileId(), name: profileNameFromCommand(command), command, builtin: false }
     const profiles = [
       ...this.customShellProfiles(),
-      { id: customProfileId(), name: profileNameFromCommand(command), command, builtin: false },
+      profile,
     ]
     this.customShellCommand = ''
-    await this.saveTerminalShellConfig(this.terminalShellConfig.defaultProfileId, profiles, t('terminalShellProfilesSaved'))
+    this.customShellEditorOpen = false
+    await this.saveTerminalShellConfig(profile.id, profiles, t('terminalShellProfilesSaved'))
   }
 
   private async deleteCustomTerminalShell(profileId: string) {
@@ -394,99 +414,81 @@ class DefaultOptionsSettingsTab extends SettingsTab {
     return exists ? this.models : [this.selectedModel, ...this.models]
   }
 
-  private shellProfileRow(profile: TerminalShellProfile, isFirstDetected = false) {
-    const isDefault = profile.id === this.terminalShellConfig.defaultProfileId
-      || (this.terminalShellConfig.defaultProfileId === 'auto' && isFirstDetected)
-
-    return html`
-      <div class="quickforge-settings-subrow">
-        <div class="quickforge-settings-row-main">
-          <div class="quickforge-settings-row-title">${profile.name}</div>
-          <div class="quickforge-settings-row-description quickforge-settings-mono" title=${profile.command}>${profile.command}</div>
-        </div>
-        <div class="quickforge-settings-row-control quickforge-settings-icon-actions">
-          ${isDefault
-            ? html`
-              <span class="quickforge-settings-icon-action quickforge-settings-icon-action-success" title=${t('terminalShellDefaultBadge')} aria-label=${t('terminalShellDefaultBadge')}>
-                ${checkIcon}
-              </span>
-            `
-            : html`
-              <button
-                class="quickforge-settings-icon-action"
-                type="button"
-                title=${t('terminalShellSetDefault')}
-                aria-label=${t('terminalShellSetDefault')}
-                @click=${() => this.saveTerminalShellConfig(profile.id)}
-              >
-                ${circleIcon}
-              </button>
-            `}
-          ${!profile.builtin
-            ? html`
-              <button
-                class="quickforge-settings-icon-action quickforge-settings-icon-action-danger"
-                type="button"
-                title=${t('delete')}
-                aria-label=${t('delete')}
-                @click=${() => this.deleteCustomTerminalShell(profile.id)}
-              >
-                ${deleteIcon}
-              </button>
-            `
-            : null}
-        </div>
-      </div>
-    `
-  }
-
   private terminalShellSettings() {
     const profiles = this.terminalShellConfig.profiles
+    const selectedProfileId = this.selectedTerminalShellProfileId()
+    const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId)
+    const showCustomEditor = this.customShellEditorOpen || profiles.length === 0
 
     return html`
       <section class="quickforge-settings-section" aria-label=${t('terminalShell')}>
-        <div class="quickforge-settings-row quickforge-settings-row-top">
-          <div class="quickforge-settings-row-main">
-            <div class="quickforge-settings-row-title">
-              ${t('terminalShell')}
-              <quickforge-info-tip .label=${t('terminalShellDescription')}></quickforge-info-tip>
-            </div>
-            <div class="quickforge-settings-row-description">${t('terminalShellAutoDetectedHint')}</div>
-          </div>
-        </div>
-
-        <div class="quickforge-settings-nested-list">
-          ${profiles.length > 0
-            ? profiles.map((profile, index) => this.shellProfileRow(profile, index === 0))
-            : html`<div class="quickforge-settings-empty-row">${t('terminalShellNoDetected')}</div>`}
-        </div>
-
         <div class="quickforge-settings-row">
           <div class="quickforge-settings-row-main">
-            <div class="quickforge-settings-row-title">${t('terminalShellCommand')}</div>
-            <div class="quickforge-settings-row-description">${t('terminalShellCustomDescription')}</div>
+            <div class="quickforge-settings-row-title">
+              ${t('terminalShellDefault')}
+              <quickforge-info-tip .label=${t('terminalShellDescription')}></quickforge-info-tip>
+            </div>
+            <div class="quickforge-settings-row-description quickforge-settings-mono">
+              ${selectedProfile?.command || t('terminalShellNoDetected')}
+            </div>
           </div>
-          <div class="quickforge-settings-row-control quickforge-settings-row-control-wide quickforge-terminal-shell-command-control">
-            <input
-              class="quickforge-settings-input quickforge-settings-mono"
-              type="text"
-              .value=${this.customShellCommand}
-              placeholder=${t('terminalShellCommandPlaceholder')}
-              @input=${(event: Event) => {
-                this.customShellCommand = (event.target as HTMLInputElement).value
-              }}
-            />
-            <button
-              class="quickforge-settings-button quickforge-settings-button-primary"
-              type="button"
-              title=${t('terminalShellAdd')}
-              aria-label=${t('terminalShellAdd')}
-              @click=${() => this.addCustomTerminalShell()}
+          <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
+            <select
+              data-terminal-shell-select
+              class="quickforge-settings-select"
+              .value=${showCustomEditor ? CUSTOM_SHELL_OPTION : selectedProfileId}
+              aria-label=${t('terminalShellDefault')}
+              @change=${(event: Event) => this.updateTerminalShellSelection((event.target as HTMLSelectElement).value)}
             >
-              ${t('terminalShellAdd')}
-            </button>
+              ${profiles.map((profile) => html`<option value=${profile.id}>${profile.name}</option>`)}
+              <option value=${CUSTOM_SHELL_OPTION}>${t('terminalShellCustomOption')}</option>
+            </select>
+            ${selectedProfile && !selectedProfile.builtin && !showCustomEditor
+              ? html`
+                <button
+                  class="quickforge-settings-icon-action quickforge-settings-icon-action-danger"
+                  type="button"
+                  title=${t('delete')}
+                  aria-label=${t('delete')}
+                  @click=${() => this.deleteCustomTerminalShell(selectedProfile.id)}
+                >
+                  ${deleteIcon}
+                </button>
+              `
+              : null}
           </div>
         </div>
+
+        ${showCustomEditor
+          ? html`
+            <div class="quickforge-settings-row">
+              <div class="quickforge-settings-row-main">
+                <div class="quickforge-settings-row-title">${t('terminalShellCommand')}</div>
+                <div class="quickforge-settings-row-description">${t('terminalShellCustomDescription')}</div>
+              </div>
+              <div class="quickforge-settings-row-control quickforge-settings-row-control-wide quickforge-terminal-shell-command-control">
+                <input
+                  class="quickforge-settings-input quickforge-settings-mono"
+                  type="text"
+                  .value=${this.customShellCommand}
+                  placeholder=${t('terminalShellCommandPlaceholder')}
+                  @input=${(event: Event) => {
+                    this.customShellCommand = (event.target as HTMLInputElement).value
+                  }}
+                />
+                <button
+                  class="quickforge-settings-button quickforge-settings-button-primary"
+                  type="button"
+                  title=${t('terminalShellAdd')}
+                  aria-label=${t('terminalShellAdd')}
+                  @click=${() => this.addCustomTerminalShell()}
+                >
+                  ${t('terminalShellAdd')}
+                </button>
+              </div>
+            </div>
+          `
+          : null}
       </section>
     `
   }

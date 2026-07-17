@@ -16,6 +16,12 @@ const commandNamePattern = /^(?!.*--)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
  */
 const builtinCommandCatalog = [
   {
+    name: 'init',
+    description: 'Generate or update a concise AGENTS.md contributor guide for the current repository.',
+    argumentHint: '',
+    permissionNote: 'may edit files and run commands',
+  },
+  {
     name: 'plan',
     description: 'Create a plan first; this turn cannot edit files or run commands.',
     argumentHint: '[task]',
@@ -367,6 +373,8 @@ export function parseInternalCommandInvocation(message) {
   const text = textFromUserMessage(message).trim()
   if (/^\/(?:help|\?)(?:\s+.*)?$/i.test(text)) return { type: 'help' }
   if (/^\/commands(?:\s+.*)?$/i.test(text)) return { type: 'list' }
+  if (/^\/init\s*$/i.test(text)) return { type: 'init' }
+  if (/^\/init(?:\s+[\s\S]+)$/i.test(text)) return { type: 'invalid-init-args' }
   if (/^\/clear\s*$/i.test(text)) return { type: 'clear' }
   if (/^\/clear(?:\s+[\s\S]+)$/i.test(text)) return { type: 'invalid-clear-args' }
 
@@ -405,6 +413,15 @@ export async function handleInternalCommand(invocation, workspaceRoot, commandDi
   if (invocation.type === 'plan') {
     if (!invocation.args) return 'Usage: /plan <task>'
     return { plan: true, args: invocation.args }
+  }
+
+  if (invocation.type === 'init') {
+    if (!workspaceRoot) return 'Initialization requires an active project chat.'
+    return { init: true }
+  }
+
+  if (invocation.type === 'invalid-init-args') {
+    return 'Usage: /init'
   }
 
   if (invocation.type === 'review') {

@@ -9,6 +9,26 @@ import {
 import { commandToolPermissionError } from '../../server/approval-store.mjs'
 
 describe('internal slash commands', () => {
+  it('parses /init without arguments', () => {
+    expect(parseInternalCommandInvocation('/init')).toEqual({ type: 'init' })
+  })
+
+  it('rejects arguments for /init', () => {
+    expect(parseInternalCommandInvocation('/init overwrite')).toEqual({ type: 'invalid-init-args' })
+  })
+
+  it('handles /init as an internal workspace command', async () => {
+    await expect(handleInternalCommand({ type: 'init' }, process.cwd(), '')).resolves.toEqual({ init: true })
+  })
+
+  it('requires an active workspace for /init', async () => {
+    await expect(handleInternalCommand({ type: 'init' }, null, '')).resolves.toBe('Initialization requires an active project chat.')
+  })
+
+  it('returns usage guidance when /init receives arguments', async () => {
+    await expect(handleInternalCommand({ type: 'invalid-init-args' }, process.cwd(), '')).resolves.toBe('Usage: /init')
+  })
+
   it('parses /review without arguments', () => {
     expect(parseInternalCommandInvocation('/review')).toEqual({ type: 'review', args: '' })
   })
@@ -74,6 +94,19 @@ describe('internal slash commands', () => {
     })
   })
 
+  it('allows edits, commands, and subagents for /init permission state', () => {
+    const session = {
+      activeCommandName: 'init',
+      activeCommandPermissions: { allowEdit: true, allowCommands: true, allowSubagents: true },
+    }
+
+    expect(commandToolPermissionError(session, 'read_file')).toBeNull()
+    expect(commandToolPermissionError(session, 'run_subagent')).toBeNull()
+    expect(commandToolPermissionError(session, 'run_command')).toBeNull()
+    expect(commandToolPermissionError(session, 'edit_file')).toBeNull()
+    expect(commandToolPermissionError(session, 'write_file')).toBeNull()
+  })
+
   it('allows subagents but blocks edits and commands for /plan permission state', () => {
     const session = {
       activeCommandName: 'plan',
@@ -121,6 +154,7 @@ describe('/help command', () => {
     const result = await handleInternalCommand({ type: 'help' }, null, '')
     expect(typeof result).toBe('string')
     expect(result).toContain('QuickForge command reference')
+    expect(result).toContain('`/init`')
     expect(result).toContain('`/plan [task]`')
     expect(result).toContain('`/review [scope]`')
     expect(result).toContain('`/summary`')
@@ -157,6 +191,7 @@ describe('formatHelpText', () => {
   it('includes built-in commands section when no custom commands exist', () => {
     const text = formatHelpText([])
     expect(text).toContain('Built-in commands:')
+    expect(text).toContain('`/init`')
     expect(text).toContain('`/plan [task]`')
     expect(text).toContain('No custom commands found')
   })

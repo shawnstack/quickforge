@@ -2,7 +2,7 @@
  * Command suggestion UI for the chat composer.
  *
  * Manages the dropdown that appears when the user types "/" in the composer,
- * showing built-in commands (/plan, /review, /summary, /compact, /clear) and project-level custom commands.
+ * showing built-in commands (/init, /plan, /review, /summary, /compact, /clear) and project-level custom commands.
  */
 
 import type {
@@ -32,6 +32,7 @@ export function createCommandSuggestions({
     `/${command.name}${command.argumentHint ? ` ${command.argumentHint}` : ''}`
 
   const builtinCommands = (): CustomCommandSummary[] => [
+    { name: 'init', description: t('initCommandDescription'), argumentHint: '' },
     { name: 'plan', description: t('planCommandDescription'), argumentHint: '[task]' },
     { name: 'review', description: t('reviewCommandDescription'), argumentHint: '[scope]' },
     { name: 'summary', description: t('summaryCommandDescription'), argumentHint: '' },

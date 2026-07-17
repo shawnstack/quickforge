@@ -25,7 +25,6 @@ let quickForgeInstance = null
 let tray = null
 let trayLanguage = null
 let desktopTheme = 'light'
-let desktopThemePollTimer = null
 let isQuitting = false
 let isStopping = false
 
@@ -61,32 +60,14 @@ function applyDesktopTitleBarTheme(theme = desktopTheme) {
     symbolColor: titleBarTheme.symbolColor,
     height: desktopTitleBarHeight,
   })
-  void mainWindow?.webContents.executeJavaScript(
-    `document.body?.style.setProperty('--quickforge-desktop-titlebar-bg', ${JSON.stringify(titleBarTheme.color)})`,
-    true,
-  ).catch(() => undefined)
 }
 
-function stopDesktopThemePolling() {
-  if (desktopThemePollTimer) {
-    clearInterval(desktopThemePollTimer)
-    desktopThemePollTimer = null
-  }
-}
-
-function startDesktopThemePolling() {
-  stopDesktopThemePolling()
-  desktopThemePollTimer = setInterval(() => {
-    if (!mainWindow) {
-      stopDesktopThemePolling()
-      return
-    }
-    void mainWindow.webContents.executeJavaScript('window.__quickforgeDesktopTheme', true)
-      .then((theme) => {
-        if (theme) applyDesktopTitleBarTheme(theme)
-      })
-      .catch(() => undefined)
-  }, 250)
+function getDesktopThemeFromColor(color) {
+  if (typeof color !== 'string') return null
+  const normalizedColor = color.toLowerCase()
+  if (normalizedColor === desktopTitleBarThemes.dark.color) return 'dark'
+  if (normalizedColor === desktopTitleBarThemes.light.color) return 'light'
+  return null
 }
 
 function normalizeLanguage(value) {
@@ -302,6 +283,9 @@ function createTray() {
 
 function createWindow(url) {
   const initialTitleBarTheme = getDesktopTitleBarTheme()
+  const rendererThemeColors = Object.fromEntries(
+    Object.entries(desktopTitleBarThemes).map(([theme, value]) => [theme, value.color]),
+  )
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
@@ -322,6 +306,14 @@ function createWindow(url) {
       nodeIntegration: false,
       sandbox: true,
     },
+  })
+
+  const desktopWindow = mainWindow
+
+  desktopWindow.webContents.on('did-change-theme-color', (_event, color) => {
+    if (desktopWindow !== mainWindow || desktopWindow.isDestroyed()) return
+    const theme = getDesktopThemeFromColor(color)
+    if (theme) applyDesktopTitleBarTheme(theme)
   })
 
   mainWindow.webContents.on('context-menu', (_event, params) => {
@@ -370,9 +362,21 @@ function createWindow(url) {
       document.body.classList.add('quickforge-desktop-app');
       window.__quickforgeDesktopApp = true;
       (() => {
+        const themeColors = ${JSON.stringify(rendererThemeColors)};
         const syncDesktopTheme = () => {
           const theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+          const color = themeColors[theme];
           window.__quickforgeDesktopTheme = theme;
+          document.body?.style.setProperty('--quickforge-desktop-titlebar-bg', color);
+          let themeColorMeta = document.querySelector('meta[name="theme-color"]');
+          if (!themeColorMeta) {
+            themeColorMeta = document.createElement('meta');
+            themeColorMeta.setAttribute('name', 'theme-color');
+            document.head.appendChild(themeColorMeta);
+          }
+          if (themeColorMeta.getAttribute('content') !== color) {
+            themeColorMeta.setAttribute('content', color);
+          }
           return theme;
         };
         syncDesktopTheme();
@@ -385,8 +389,6 @@ function createWindow(url) {
     `).then((theme) => {
       applyDesktopTitleBarTheme(theme)
     }).catch(() => undefined)
-    void refreshDesktopTheme()
-    startDesktopThemePolling()
   })
 
   mainWindow.on('show', updateTrayMenu)
@@ -401,7 +403,6 @@ function createWindow(url) {
   })
 
   mainWindow.on('closed', () => {
-    stopDesktopThemePolling()
     mainWindow = null
     updateTrayMenu()
   })

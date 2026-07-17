@@ -12,6 +12,8 @@ import { MarkdownReader } from './MarkdownReader'
 import { MonacoCodeViewer } from './MonacoCodeViewer'
 import { MonacoDiffViewer } from './MonacoDiffViewer'
 import { countDiffLines } from './diff-line-counts'
+import { FileIcon } from './file-icon'
+import { panelTabFilePath } from './workspace-tab-file-path'
 import { getGitFileDiff, getGitStatus, getWorkspaceFile, getWorkspaceTree, openWorkspaceExternal, restoreAllGitChanges, restoreGitFile, stageAllGitChanges, stageGitFile, unstageAllGitChanges, unstageGitFile } from './workspace-api'
 import { WorkspaceChangesList } from './WorkspaceChangesList'
 import { WorkspaceFileTree } from './WorkspaceFileTree'
@@ -342,6 +344,7 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
                   const hasDiff = typeof artifact.addedLines === 'number' || typeof artifact.removedLines === 'number'
                   return (
                     <div key={artifact.id} className="group flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-xs text-foreground/85 transition-colors hover:bg-muted/20">
+                      <FileIcon path={path} className="size-3.5 shrink-0" />
                       <button
                         type="button"
                         className="min-w-0 flex-1 truncate text-left font-medium"
@@ -1223,7 +1226,8 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
                 <div className="absolute left-0 top-12 z-40 w-72 max-w-[calc(100vw-2rem)] rounded-2xl border border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-popover p-2 shadow-quickforge" role="menu">
                   {panelTabs.map((tab) => {
                     const item = tab.kind === 'reader' ? undefined : PANEL_TAB_BY_KIND[tab.kind]
-                    const Icon = item?.icon ?? Code2
+                    const Icon = item?.icon
+                    const filePath = panelTabFilePath(tab)
                     const active = tab.id === activePanelTabId
                     const label = panelTabLabel(tab, project?.name)
                     const title = panelTabTitle(tab, label)
@@ -1246,7 +1250,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
                           role="menuitem"
                           title={title}
                         >
-                          <Icon className="size-4 shrink-0 text-muted-foreground/80" />
+                          {filePath ? <FileIcon path={filePath} className="size-4 shrink-0" /> : Icon ? <Icon className="size-4 shrink-0 text-muted-foreground/80" /> : <Code2 className="size-4 shrink-0 text-muted-foreground/80" />}
                           <span className="min-w-0 flex-1 truncate">{label}</span>
                         </button>
                         <button
@@ -1270,7 +1274,8 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
           <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
             {panelTabs.map((tab, index) => {
               const item = tab.kind === 'reader' ? undefined : PANEL_TAB_BY_KIND[tab.kind]
-              const Icon = item?.icon ?? Code2
+              const Icon = item?.icon
+              const filePath = panelTabFilePath(tab)
               const active = tab.id === activePanelTabId
               const label = panelTabLabel(tab, project?.name)
               const title = panelTabTitle(tab, label)
@@ -1288,7 +1293,13 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
                     onClick={() => activatePanelTab(tab)}
                     title={title}
                   >
-                    <Icon className={cn('size-4 shrink-0', active ? 'text-foreground/74' : 'text-muted-foreground/45 group-hover:text-muted-foreground/72')} />
+                    {filePath ? (
+                      <FileIcon path={filePath} className={cn('size-4 shrink-0 transition-opacity', active ? 'opacity-100' : 'opacity-55 group-hover:opacity-85')} />
+                    ) : Icon ? (
+                      <Icon className={cn('size-4 shrink-0', active ? 'text-foreground/74' : 'text-muted-foreground/45 group-hover:text-muted-foreground/72')} />
+                    ) : (
+                      <Code2 className={cn('size-4 shrink-0', active ? 'text-foreground/74' : 'text-muted-foreground/45 group-hover:text-muted-foreground/72')} />
+                    )}
                     <span className="min-w-0 truncate">{label}</span>
                     <span
                       role="button"
@@ -1449,15 +1460,27 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
                     ) : null}
                     {!loading && navView === 'files' ? (
                       <>
-                        <label className="mb-2 flex items-center gap-2 rounded-md border-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-2 py-1.5 text-xs text-muted-foreground/65 focus-within:text-foreground/85">
-                          <Search className="size-3.5 shrink-0" />
-                          <input
-                            value={filter}
-                            onChange={(event) => setFilter(event.target.value)}
-                            placeholder={t('workspaceFilterFiles')}
-                            className="min-w-0 flex-1 bg-transparent text-xs text-foreground/85 outline-none placeholder:text-muted-foreground/50"
-                          />
-                        </label>
+                        <div className="mb-2 flex items-center gap-1">
+                          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-md border-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-2 py-1.5 text-xs text-muted-foreground/65 focus-within:text-foreground/85">
+                            <Search className="size-3.5 shrink-0" />
+                            <input
+                              value={filter}
+                              onChange={(event) => setFilter(event.target.value)}
+                              placeholder={t('workspaceFilterFiles')}
+                              className="min-w-0 flex-1 bg-transparent text-xs text-foreground/85 outline-none placeholder:text-muted-foreground/50"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            className="inline-flex size-8 shrink-0 items-center justify-center rounded-xl text-muted-foreground/72 transition-colors hover:bg-muted/30 hover:text-foreground/85 disabled:cursor-not-allowed disabled:opacity-60"
+                            onClick={() => void loadWorkspace()}
+                            disabled={loading}
+                            aria-label={t('refreshWorkspace')}
+                            title={t('refreshWorkspace')}
+                          >
+                            <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
+                          </button>
+                        </div>
                         <WorkspaceFileTree tree={filteredTree} selectedPath={activeReaderTab?.mode === 'file' ? activeReaderTab.path : undefined} gitStatuses={gitStatuses} onSelectFile={openFileTab} onPreviewFile={selectPreviewFile} projectId={projectId} />
                       </>
                     ) : null}

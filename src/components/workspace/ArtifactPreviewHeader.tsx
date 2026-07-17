@@ -1,8 +1,8 @@
 import { Code2, ExternalLink, PanelRightClose, RefreshCw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
-import { artifactFileName, inferArtifactKind, workspacePreviewUrl } from './artifact-preview-utils'
-import { ArtifactFileIcon } from './ArtifactFileIcon'
+import { artifactFileName, workspacePreviewUrl } from './artifact-preview-utils'
+import { FileIcon } from './file-icon'
 
 type ArtifactPreviewHeaderProps = {
   projectId: string
@@ -14,8 +14,6 @@ type ArtifactPreviewHeaderProps = {
 }
 
 export function ArtifactPreviewHeader({ projectId, path, onToggleFiles, onRefresh, onOpenSource, onClose }: ArtifactPreviewHeaderProps) {
-  const kind = path ? inferArtifactKind(path) : 'unknown'
-
   function openInBrowser() {
     if (!path) return
     window.open(workspacePreviewUrl(projectId, path), '_blank', 'noopener,noreferrer')
@@ -28,7 +26,7 @@ export function ArtifactPreviewHeader({ projectId, path, onToggleFiles, onRefres
           <PanelRightClose className="size-4 rotate-180" />
         </Button>
         <div className="flex min-w-0 items-center gap-2 rounded-xl bg-muted/25 px-3 py-2 text-sm font-medium text-foreground/90">
-          <ArtifactFileIcon kind={kind} className="size-4 shrink-0 text-muted-foreground/75" />
+          {path ? <FileIcon path={path} className="size-4 shrink-0" /> : <Code2 className="size-4 shrink-0 text-muted-foreground/75" />}
           <span className="truncate">{path ? artifactFileName(path) : t('artifactPreview')}</span>
           <button
             type="button"

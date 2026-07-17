@@ -2,8 +2,8 @@ import { Pin, PinOff, X } from 'lucide-react'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { FileIcon } from './file-icon'
 import { artifactFileName, presentArtifacts } from './artifact-preview-utils'
-import { ArtifactFileIcon } from './ArtifactFileIcon'
 
 type ArtifactFilesPopoverProps = {
   artifacts: AiTurnArtifact[]
@@ -60,9 +60,7 @@ export function ArtifactFilesPopover({ artifacts, activePath, pinned, onPinnedCh
                   )}
                   onClick={() => onSelectPath(path)}
                 >
-                  <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                    <ArtifactFileIcon kind={kind} className="size-3.5" />
-                  </span>
+                  <FileIcon path={path} className="size-4 shrink-0" />
                   <span className="min-w-0 flex-1 truncate">{artifactFileName(path)}</span>
                   <span className="shrink-0 rounded-full bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground/70">{kind}</span>
                 </button>

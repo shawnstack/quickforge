@@ -1,0 +1,849 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>QuickForge 官方文件 Icon 对比</title>
+  <style>
+    @font-face {
+      font-family: "Seti";
+      src: url("./assets/file-icon-comparison/seti/seti.woff") format("woff");
+      font-style: normal;
+      font-weight: normal;
+      font-display: block;
+    }
+
+    :root {
+      color-scheme: light;
+      --page: #f3f6fa;
+      --page-glow: rgba(14, 165, 233, 0.08);
+      --surface: #ffffff;
+      --surface-soft: #f8fafc;
+      --surface-active: #e8f4fc;
+      --surface-hover: #f1f5f9;
+      --border: #dfe6ee;
+      --border-strong: #cbd5e1;
+      --text: #0f172a;
+      --text-soft: #334155;
+      --muted: #64748b;
+      --faint: #94a3b8;
+      --accent: #0284c7;
+      --accent-soft: #e0f2fe;
+      --shadow: 0 18px 50px rgba(15, 23, 42, 0.08);
+      --icon-size: 18px;
+      --row-height: 34px;
+    }
+
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --page: #11151b;
+      --page-glow: rgba(56, 189, 248, 0.07);
+      --surface: #181d25;
+      --surface-soft: #1d232d;
+      --surface-active: #173247;
+      --surface-hover: #222a35;
+      --border: #2b3441;
+      --border-strong: #3a4655;
+      --text: #e7edf5;
+      --text-soft: #c7d0dc;
+      --muted: #919eae;
+      --faint: #6f7c8c;
+      --accent: #38bdf8;
+      --accent-soft: #123248;
+      --shadow: 0 20px 56px rgba(0, 0, 0, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 12% 0%, var(--page-glow), transparent 30%),
+        radial-gradient(circle at 92% 4%, rgba(139, 92, 246, 0.05), transparent 26%),
+        var(--page);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      transition: background 160ms ease, color 160ms ease;
+    }
+
+    button, select { font: inherit; }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .page {
+      width: min(1540px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 42px 0 64px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: start;
+      gap: 28px;
+      margin-bottom: 24px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 750;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: currentColor;
+      box-shadow: 0 0 0 5px var(--accent-soft);
+      content: "";
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(28px, 4vw, 44px);
+      line-height: 1.08;
+      letter-spacing: -0.035em;
+    }
+
+    .lead {
+      max-width: 900px;
+      margin: 15px 0 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.75;
+    }
+
+    .official-note {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      max-width: 365px;
+      padding: 14px 16px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--surface) 92%, transparent);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+      box-shadow: 0 7px 24px rgba(15, 23, 42, 0.04);
+    }
+
+    .official-note strong { display: block; color: var(--text-soft); font-size: 13px; }
+
+    .check {
+      display: grid;
+      place-items: center;
+      width: 24px;
+      height: 24px;
+      flex: 0 0 24px;
+      border-radius: 999px;
+      color: #fff;
+      background: #10b981;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .toolbar {
+      position: sticky;
+      top: 14px;
+      z-index: 20;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 22px;
+      padding: 11px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: color-mix(in srgb, var(--surface) 90%, transparent);
+      box-shadow: 0 12px 34px rgba(15, 23, 42, 0.07);
+      backdrop-filter: blur(18px);
+    }
+
+    .control-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px;
+      border-radius: 11px;
+      background: var(--surface-soft);
+    }
+
+    .control-label {
+      padding: 0 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 650;
+      letter-spacing: 0.02em;
+    }
+
+    .control-button, .theme-button {
+      min-height: 32px;
+      padding: 0 11px;
+      border: 0;
+      border-radius: 8px;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+      transition: 140ms ease;
+    }
+
+    .control-button:hover, .theme-button:hover { color: var(--text); background: var(--surface-hover); }
+    .control-button[aria-pressed="true"], .theme-button[aria-pressed="true"] {
+      color: var(--text);
+      background: var(--surface);
+      box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
+    }
+
+    .toolbar-spacer { flex: 1; }
+
+    .repo-link {
+      display: inline-flex;
+      align-items: center;
+      min-height: 32px;
+      padding: 0 10px;
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .repo-link:hover { color: var(--text); background: var(--surface-hover); text-decoration: none; }
+
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(280px, 1fr));
+      gap: 16px;
+      align-items: start;
+    }
+
+    .comparison-grid.focus-mode {
+      grid-template-columns: minmax(320px, 760px);
+      justify-content: center;
+    }
+
+    .theme-card {
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      transition: border-color 160ms ease, transform 160ms ease, background 160ms ease;
+    }
+
+    .theme-card:hover { border-color: var(--border-strong); }
+    .theme-card.is-hidden { display: none; }
+
+    .card-head {
+      min-height: 126px;
+      padding: 20px 20px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .card-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .card-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      margin: 0;
+      font-size: 17px;
+      line-height: 1.2;
+    }
+
+    .theme-dot {
+      width: 10px;
+      height: 10px;
+      flex: 0 0 auto;
+      border-radius: 999px;
+      background: var(--dot, var(--accent));
+      box-shadow: 0 0 0 5px color-mix(in srgb, var(--dot, var(--accent)) 13%, transparent);
+    }
+
+    .official-badge {
+      flex: 0 0 auto;
+      padding: 4px 7px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--muted);
+      background: var(--surface-soft);
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .card-description {
+      min-height: 38px;
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .version {
+      margin-top: 8px;
+      color: var(--faint);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10px;
+    }
+
+    .explorer {
+      padding: 12px 10px 14px;
+    }
+
+    .explorer-search {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 34px;
+      margin: 0 2px 10px;
+      padding: 0 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--faint);
+      background: var(--surface-soft);
+      font-size: 11px;
+    }
+
+    .search-symbol {
+      width: 13px;
+      height: 13px;
+      border: 1.6px solid currentColor;
+      border-radius: 999px;
+      position: relative;
+    }
+    .search-symbol::after {
+      position: absolute;
+      right: -4px;
+      bottom: -3px;
+      width: 5px;
+      height: 1.5px;
+      border-radius: 999px;
+      background: currentColor;
+      transform: rotate(45deg);
+      content: "";
+    }
+
+    .tree { min-height: 462px; }
+
+    .tree-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      height: var(--row-height);
+      padding-right: 8px;
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+      transition: background 120ms ease, color 120ms ease;
+    }
+    .tree-row:hover { color: var(--text-soft); background: var(--surface-hover); }
+    .tree-row.selected { color: var(--text); background: var(--surface-active); font-weight: 620; }
+    .tree-row.depth-0 { padding-left: 7px; }
+    .tree-row.depth-1 { padding-left: 21px; }
+    .tree-row.depth-2 { padding-left: 39px; }
+
+    .chevron {
+      width: 11px;
+      height: 11px;
+      flex: 0 0 11px;
+      color: var(--faint);
+      position: relative;
+    }
+    .chevron::before {
+      position: absolute;
+      left: 2px;
+      top: 2px;
+      width: 5px;
+      height: 5px;
+      border-right: 1.5px solid currentColor;
+      border-bottom: 1.5px solid currentColor;
+      transform: rotate(-45deg);
+      content: "";
+    }
+    .chevron.open::before { left: 2px; top: 0; transform: rotate(45deg); }
+    .chevron.empty::before { display: none; }
+
+    .file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .status {
+      margin-left: auto;
+      color: #d97706;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10px;
+      font-weight: 750;
+    }
+    html[data-theme="dark"] .status { color: #fbbf24; }
+
+    .asset-icon {
+      width: var(--icon-size);
+      height: var(--icon-size);
+      flex: 0 0 var(--icon-size);
+      object-fit: contain;
+    }
+
+    .lucide-icon { opacity: 0.76; }
+    html[data-theme="dark"] .lucide-icon { filter: invert(1); opacity: 0.74; }
+
+    .seti-icon {
+      display: inline-grid;
+      place-items: center;
+      width: var(--icon-size);
+      height: var(--icon-size);
+      flex: 0 0 var(--icon-size);
+      font-family: "Seti" !important;
+      font-size: calc(var(--icon-size) * 1.27);
+      font-style: normal;
+      font-weight: normal;
+      line-height: 1;
+      speak: none;
+    }
+    .seti-default::before { content: "\E023"; }
+    .seti-typescript::before { content: "\E099"; }
+    .seti-react::before { content: "\E07D"; }
+    .seti-json::before { content: "\E055"; }
+    .seti-vite::before { content: "\E09C"; }
+    .seti-markdown::before { content: "\E060"; }
+    .seti-image::before { content: "\E04C"; }
+    .seti-docker::before { content: "\E025"; }
+    .seti-info::before { content: "\E04D"; }
+    .seti-default { color: #bfc2c1; }
+    .seti-typescript, .seti-react, .seti-markdown, .seti-docker, .seti-info { color: #498ba7; }
+    .seti-json, .seti-vite { color: #b7b73b; }
+    .seti-image { color: #9068b0; }
+    html[data-theme="dark"] .seti-default { color: #d4d7d6; }
+    html[data-theme="dark"] .seti-typescript,
+    html[data-theme="dark"] .seti-react,
+    html[data-theme="dark"] .seti-markdown,
+    html[data-theme="dark"] .seti-docker,
+    html[data-theme="dark"] .seti-info { color: #519aba; }
+    html[data-theme="dark"] .seti-json,
+    html[data-theme="dark"] .seti-vite { color: #cbcb41; }
+    html[data-theme="dark"] .seti-image { color: #a074c4; }
+
+    .seti-folder-space {
+      width: var(--icon-size);
+      height: var(--icon-size);
+      flex: 0 0 var(--icon-size);
+    }
+
+    .card-footer {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1px;
+      border-top: 1px solid var(--border);
+      background: var(--border);
+    }
+
+    .metric {
+      min-height: 65px;
+      padding: 12px 15px;
+      background: var(--surface);
+    }
+    .metric-label { color: var(--faint); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+    .metric-value { margin-top: 6px; color: var(--text-soft); font-size: 12px; font-weight: 700; }
+
+    .recommendation {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 16px;
+      margin-top: 22px;
+      padding: 18px;
+      border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+      border-radius: 18px;
+      background: color-mix(in srgb, var(--accent-soft) 50%, var(--surface));
+    }
+    .recommendation-icon {
+      display: grid;
+      place-items: center;
+      width: 44px;
+      height: 44px;
+      border-radius: 13px;
+      color: var(--accent);
+      background: var(--surface);
+      box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+      font-weight: 850;
+    }
+    .recommendation h2 { margin: 0; font-size: 15px; }
+    .recommendation p { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .recommendation-tag {
+      padding: 7px 10px;
+      border-radius: 999px;
+      color: var(--accent);
+      background: var(--surface);
+      font-size: 11px;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+
+    .sources {
+      margin-top: 22px;
+      padding: 22px;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: var(--surface);
+    }
+    .sources h2 { margin: 0 0 6px; font-size: 17px; }
+    .sources-intro { margin: 0 0 17px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+
+    .source-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .source-card {
+      min-width: 0;
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      background: var(--surface-soft);
+    }
+    .source-card strong { display: block; margin-bottom: 7px; font-size: 12px; }
+    .source-card p { margin: 0; color: var(--muted); font-size: 10.5px; line-height: 1.55; overflow-wrap: anywhere; }
+    .source-card code { color: var(--text-soft); font-size: 10px; }
+
+    details {
+      margin-top: 14px;
+      border-top: 1px solid var(--border);
+      padding-top: 14px;
+    }
+    summary { color: var(--text-soft); cursor: pointer; font-size: 12px; font-weight: 700; }
+    .license-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .license-links a {
+      padding: 7px 9px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--muted);
+      background: var(--surface-soft);
+      font-size: 10.5px;
+    }
+
+    .truth-note {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      color: var(--muted);
+      background: var(--surface-soft);
+      font-size: 11px;
+      line-height: 1.65;
+    }
+
+    @media (max-width: 1240px) {
+      .comparison-grid { grid-template-columns: repeat(2, minmax(290px, 1fr)); }
+      .source-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 760px) {
+      .page { width: min(100% - 24px, 620px); padding-top: 24px; }
+      .hero { grid-template-columns: 1fr; }
+      .official-note { max-width: none; }
+      .toolbar { position: static; }
+      .toolbar-spacer { display: none; }
+      .comparison-grid, .comparison-grid.focus-mode { grid-template-columns: 1fr; }
+      .source-grid { grid-template-columns: 1fr; }
+      .recommendation { grid-template-columns: auto 1fr; }
+      .recommendation-tag { grid-column: 1 / -1; justify-self: start; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div>
+        <div class="eyebrow">Official assets comparison</div>
+        <h1>QuickForge 官方文件 Icon 对比</h1>
+        <p class="lead">
+          本页直接加载 Lucide、VS Code Seti、Material Icon Theme 与 Catppuccin Icons 官方仓库中的原始 SVG 或 WOFF 资产，
+          并按各主题的官方文件名、扩展名或语言映射展示同一组项目文件。
+        </p>
+      </div>
+      <aside class="official-note">
+        <span class="check">✓</span>
+        <span><strong>非模拟绘制</strong>所有主题 Icon 均已从官方 Git 仓库复制到本地，页面不依赖 CDN，也没有用近似图形替代。</span>
+      </aside>
+    </header>
+
+    <nav class="toolbar" aria-label="对比控制">
+      <div class="control-group" aria-label="显示模式">
+        <span class="control-label">显示</span>
+        <button class="control-button" type="button" data-view="all" aria-pressed="true">四套对比</button>
+        <button class="control-button" type="button" data-view="lucide" aria-pressed="false">Lucide</button>
+        <button class="control-button" type="button" data-view="seti" aria-pressed="false">Seti</button>
+        <button class="control-button" type="button" data-view="material" aria-pressed="false">Material</button>
+        <button class="control-button" type="button" data-view="catppuccin" aria-pressed="false">Catppuccin</button>
+      </div>
+
+      <div class="control-group" aria-label="图标尺寸">
+        <span class="control-label">Icon</span>
+        <button class="control-button" type="button" data-size="16" aria-pressed="false">16</button>
+        <button class="control-button" type="button" data-size="18" aria-pressed="true">18</button>
+        <button class="control-button" type="button" data-size="20" aria-pressed="false">20</button>
+      </div>
+
+      <div class="control-group" aria-label="界面主题">
+        <button class="theme-button" type="button" data-theme-value="light" aria-pressed="true">浅色</button>
+        <button class="theme-button" type="button" data-theme-value="dark" aria-pressed="false">深色</button>
+      </div>
+
+      <span class="toolbar-spacer"></span>
+      <a class="repo-link" href="#sources">查看来源与许可证 ↓</a>
+    </nav>
+
+    <section id="comparison" class="comparison-grid" aria-label="官方文件 Icon 对比">
+      <article class="theme-card" data-theme-card="lucide" style="--dot:#64748b">
+        <header class="card-head">
+          <div class="card-title-row">
+            <h2 class="card-title"><span class="theme-dot"></span>Lucide</h2>
+            <span class="official-badge">Official SVG</span>
+          </div>
+          <p class="card-description">QuickForge 当前操作与文件图标来源。线性、统一、克制，但不同代码语言的轮廓差异较少。</p>
+          <div class="version">lucide-icons/lucide · f930bbe0</div>
+        </header>
+        <div class="explorer">
+          <div class="explorer-search"><span class="search-symbol"></span><span>搜索文件和路径…</span></div>
+          <div class="tree">
+            <div class="tree-row depth-0"><span class="chevron open"></span><img class="asset-icon lucide-icon" src="./assets/file-icon-comparison/lucide/folder-open.svg" alt="" /><span class="file-name">src</span></div>
+            <div class="tree-row depth-1"><span class="chevron open"></span><img class="asset-icon lucide-icon" src="./assets/file-icon-comparison/lucide/folder-open.svg" alt="" /><span class="file-name">components</span></div>
+            <div class="tree-row depth-2 selected"><span class="chevron empty"></span><img class="asset-icon lucide-icon" src="./assets/file-icon-comparison/lucide/file-code.svg" alt="" /><span class="file-name">WorkspaceFileTree.tsx</span><span class="status">M</span></div>
+            <div class="tree-row depth-2"><span class="chevron empty"></span><img class="asset-icon lucide-icon" src="./assets/file-icon-comparison/lucide/file-code.svg" alt="" /><span class="file-name">file-icon.tsx</span></div>
+            <div class="tree-row depth-1"><span class="chevron"></span><img class="asset-icon lucide-icon" src="./assets/file-icon-comparison/lucide/folder.svg" alt="" /><span class="file-name">hooks</span></div>
+            <div class="tree-row depth-1"><span class="chevron"></span><img class="asset-icon lucide-icon" src="./assets/file-icon-comparison/lucide/folder.svg" alt="" /><span class="file-name">lib</span></div>
+            <div class="tree-row depth-0"><span class="chevron"></span><img class="asset-icon lucide-icon" src="./assets/file-icon-comparison/lucide/folder.svg" alt="" /><span class="file-name">server</span></div>
+            <div class="tree-row depth-0"><span class="chevron"></span><img class="asset-icon lucide-icon" src="./assets/file-icon-comparison/lucide/folder.svg" alt="" /><span class="file-name">tests</span></div>
+            <div class="tree-row depth-0"><span class="chevron empty"></span><img class="asset-icon lucide-icon" src="./assets/file-icon-comparison/lucide/package.svg" alt="" /><span class="file-name">package.json</span></div>
+            <div class="tree-row depth-0"><span class="chevron empty"></span><img class="asset-icon lucide-icon" src="./assets/file-icon-comparison/lucide/file-code.svg" alt="" /><span class="file-name">vite.config.ts</span></div>
+            <div class="tree-row depth-0"><span class="chevron empty"></span><img class="asset-icon lucide-icon" src="./assets/file-icon-comparison/lucide/book-open.svg" alt="" /><span class="file-name">README.md</span></div>
+            <div class="tree-row depth-0"><span class="chevron empty"></span><img class="asset-icon lucide-icon" src="./assets/file-icon-comparison/lucide/file-image.svg" alt="" /><span class="file-name">preview.png</span></div>
+            <div class="tree-row depth-0"><span class="chevron empty"></span><img class="asset-icon lucide-icon" src="./assets/file-icon-comparison/lucide/container.svg" alt="" /><span class="file-name">Dockerfile</span></div>
+          </div>
+        </div>
+        <footer class="card-footer">
+          <div class="metric"><div class="metric-label">识别度</div><div class="metric-value">中等</div></div>
+          <div class="metric"><div class="metric-label">QuickForge 适配</div><div class="metric-value">风格最统一</div></div>
+        </footer>
+      </article>
+
+      <article class="theme-card" data-theme-card="seti" style="--dot:#519aba">
+        <header class="card-head">
+          <div class="card-title-row">
+            <h2 class="card-title"><span class="theme-dot"></span>VS Code Seti</h2>
+            <span class="official-badge">Official WOFF</span>
+          </div>
+          <p class="card-description">VS Code 内置文件 Icon 主题。这里直接加载官方 seti.woff 和官方字形颜色；官方主题不提供目录 Icon。</p>
+          <div class="version">microsoft/vscode theme-seti 10.0.0 · cc3e0fe1</div>
+        </header>
+        <div class="explorer">
+          <div class="explorer-search"><span class="search-symbol"></span><span>搜索文件和路径…</span></div>
+          <div class="tree">
+            <div class="tree-row depth-0"><span class="chevron open"></span><span class="seti-folder-space" aria-hidden="true"></span><span class="file-name">src</span></div>
+            <div class="tree-row depth-1"><span class="chevron open"></span><span class="seti-folder-space" aria-hidden="true"></span><span class="file-name">components</span></div>
+            <div class="tree-row depth-2 selected"><span class="chevron empty"></span><span class="seti-icon seti-react" aria-hidden="true"></span><span class="file-name">WorkspaceFileTree.tsx</span><span class="status">M</span></div>
+            <div class="tree-row depth-2"><span class="chevron empty"></span><span class="seti-icon seti-react" aria-hidden="true"></span><span class="file-name">file-icon.tsx</span></div>
+            <div class="tree-row depth-1"><span class="chevron"></span><span class="seti-folder-space" aria-hidden="true"></span><span class="file-name">hooks</span></div>
+            <div class="tree-row depth-1"><span class="chevron"></span><span class="seti-folder-space" aria-hidden="true"></span><span class="file-name">lib</span></div>
+            <div class="tree-row depth-0"><span class="chevron"></span><span class="seti-folder-space" aria-hidden="true"></span><span class="file-name">server</span></div>
+            <div class="tree-row depth-0"><span class="chevron"></span><span class="seti-folder-space" aria-hidden="true"></span><span class="file-name">tests</span></div>
+            <div class="tree-row depth-0"><span class="chevron empty"></span><span class="seti-icon seti-json" aria-hidden="true"></span><span class="file-name">package.json</span></div>
+            <div class="tree-row depth-0"><span class="chevron empty"></span><span class="seti-icon seti-vite" aria-hidden="true"></span><span class="file-name">vite.config.ts</span></div>
+            <div class="tree-row depth-0"><span class="chevron empty"></span><span class="seti-icon seti-info" aria-hidden="true"></span><span class="file-name">README.md</span></div>
+            <div class="tree-row depth-0"><span class="chevron empty"></span><span class="seti-icon seti-image" aria-hidden="true"></span><span class="file-name">preview.png</span></div>
+            <div class="tree-row depth-0"><span class="chevron empty"></span><span class="seti-icon seti-docker" aria-hidden="true"></span><span class="file-name">Dockerfile</span></div>
+          </div>
+        </div>
+        <footer class="card-footer">
+          <div class="metric"><div class="metric-label">识别度</div><div class="metric-value">高</div></div>
+          <div class="metric"><div class="metric-label">QuickForge 适配</div><div class="metric-value">紧凑克制</div></div>
+        </footer>
+      </article>
+
+      <article class="theme-card" data-theme-card="material" style="--dot:#f59e0b">
+        <header class="card-head">
+          <div class="card-title-row">
+            <h2 class="card-title"><span class="theme-dot"></span>Material Icon Theme</h2>
+            <span class="official-badge">Official SVG</span>
+          </div>
+          <p class="card-description">类型和特殊目录覆盖最丰富。展示使用官方 SVG，并按官方 fileIcons、folderIcons 规则选择资产。</p>
+          <div class="version">material-extensions/vscode-material-icon-theme 5.36.1 · cf0df2b7</div>
+        </header>
+        <div class="explorer">
+          <div class="explorer-search"><span class="search-symbol"></span><span>搜索文件和路径…</span></div>
+          <div class="tree">
+            <div class="tree-row depth-0"><span class="chevron open"></span><img class="asset-icon" src="./assets/file-icon-comparison/material/folder-src.svg" alt="" /><span class="file-name">src</span></div>
+            <div class="tree-row depth-1"><span class="chevron open"></span><img class="asset-icon" src="./assets/file-icon-comparison/material/folder-components.svg" alt="" /><span class="file-name">components</span></div>
+            <div class="tree-row depth-2 selected"><span class="chevron empty"></span><img class="asset-icon" src="./assets/file-icon-comparison/material/react_ts.svg" alt="" /><span class="file-name">WorkspaceFileTree.tsx</span><span class="status">M</span></div>
+            <div class="tree-row depth-2"><span class="chevron empty"></span><img class="asset-icon" src="./assets/file-icon-comparison/material/react_ts.svg" alt="" /><span class="file-name">file-icon.tsx</span></div>
+            <div class="tree-row depth-1"><span class="chevron"></span><img class="asset-icon" src="./assets/file-icon-comparison/material/folder-base.svg" alt="" /><span class="file-name">hooks</span></div>
+            <div class="tree-row depth-1"><span class="chevron"></span><img class="asset-icon" src="./assets/file-icon-comparison/material/folder-base.svg" alt="" /><span class="file-name">lib</span></div>
+            <div class="tree-row depth-0"><span class="chevron"></span><img class="asset-icon" src="./assets/file-icon-comparison/material/folder-base.svg" alt="" /><span class="file-name">server</span></div>
+            <div class="tree-row depth-0"><span class="chevron"></span><img class="asset-icon" src="./assets/file-icon-comparison/material/folder-test.svg" alt="" /><span class="file-name">tests</span></div>
+            <div class="tree-row depth-0"><span class="chevron empty"></span><img class="asset-icon" src="./assets/file-icon-comparison/material/nodejs.svg" alt="" /><span class="file-name">package.json</span></div>
+            <div class="tree-row depth-0"><span class="chevron empty"></span><img class="asset-icon" src="./assets/file-icon-comparison/material/vite.svg" alt="" /><span class="file-name">vite.config.ts</span></div>
+            <div class="tree-row depth-0"><span class="chevron empty"></span><img class="asset-icon" src="./assets/file-icon-comparison/material/readme.svg" alt="" /><span class="file-name">README.md</span></div>
+            <div class="tree-row depth-0"><span class="chevron empty"></span><img class="asset-icon" src="./assets/file-icon-comparison/material/image.svg" alt="" /><span class="file-name">preview.png</span></div>
+            <div class="tree-row depth-0"><span class="chevron empty"></span><img class="asset-icon" src="./assets/file-icon-comparison/material/docker.svg" alt="" /><span class="file-name">Dockerfile</span></div>
+          </div>
+        </div>
+        <footer class="card-footer">
+          <div class="metric"><div class="metric-label">识别度</div><div class="metric-value">最高</div></div>
+          <div class="metric"><div class="metric-label">QuickForge 适配</div><div class="metric-value">需要降噪</div></div>
+        </footer>
+      </article>
+
+      <article class="theme-card" data-theme-card="catppuccin" style="--dot:#cba6f7">
+        <header class="card-head">
+          <div class="card-title-row">
+            <h2 class="card-title"><span class="theme-dot"></span>Catppuccin Icons</h2>
+            <span class="official-badge">Official SVG</span>
+          </div>
+          <p class="card-description">柔和粉彩主题。浅色使用官方 Latte SVG，深色自动切换为官方 Mocha SVG。</p>
+          <div class="version">catppuccin/vscode-icons 1.26.0 · b6915da9</div>
+        </header>
+        <div class="explorer">
+          <div class="explorer-search"><span class="search-symbol"></span><span>搜索文件和路径…</span></div>
+          <div class="tree">
+            <div class="tree-row depth-0"><span class="chevron open"></span><img class="asset-icon cat-icon" data-icon="folder_src_open.svg" alt="" /><span class="file-name">src</span></div>
+            <div class="tree-row depth-1"><span class="chevron open"></span><img class="asset-icon cat-icon" data-icon="folder_components_open.svg" alt="" /><span class="file-name">components</span></div>
+            <div class="tree-row depth-2 selected"><span class="chevron empty"></span><img class="asset-icon cat-icon" data-icon="typescript-react.svg" alt="" /><span class="file-name">WorkspaceFileTree.tsx</span><span class="status">M</span></div>
+            <div class="tree-row depth-2"><span class="chevron empty"></span><img class="asset-icon cat-icon" data-icon="typescript-react.svg" alt="" /><span class="file-name">file-icon.tsx</span></div>
+            <div class="tree-row depth-1"><span class="chevron"></span><img class="asset-icon cat-icon" data-icon="_folder.svg" alt="" /><span class="file-name">hooks</span></div>
+            <div class="tree-row depth-1"><span class="chevron"></span><img class="asset-icon cat-icon" data-icon="_folder.svg" alt="" /><span class="file-name">lib</span></div>
+            <div class="tree-row depth-0"><span class="chevron"></span><img class="asset-icon cat-icon" data-icon="_folder.svg" alt="" /><span class="file-name">server</span></div>
+            <div class="tree-row depth-0"><span class="chevron"></span><img class="asset-icon cat-icon" data-icon="folder_tests.svg" alt="" /><span class="file-name">tests</span></div>
+            <div class="tree-row depth-0"><span class="chevron empty"></span><img class="asset-icon cat-icon" data-icon="package-json.svg" alt="" /><span class="file-name">package.json</span></div>
+            <div class="tree-row depth-0"><span class="chevron empty"></span><img class="asset-icon cat-icon" data-icon="vite.svg" alt="" /><span class="file-name">vite.config.ts</span></div>
+            <div class="tree-row depth-0"><span class="chevron empty"></span><img class="asset-icon cat-icon" data-icon="readme.svg" alt="" /><span class="file-name">README.md</span></div>
+            <div class="tree-row depth-0"><span class="chevron empty"></span><img class="asset-icon cat-icon" data-icon="image.svg" alt="" /><span class="file-name">preview.png</span></div>
+            <div class="tree-row depth-0"><span class="chevron empty"></span><img class="asset-icon cat-icon" data-icon="docker.svg" alt="" /><span class="file-name">Dockerfile</span></div>
+          </div>
+        </div>
+        <footer class="card-footer">
+          <div class="metric"><div class="metric-label">识别度</div><div class="metric-value">高</div></div>
+          <div class="metric"><div class="metric-label">QuickForge 适配</div><div class="metric-value">主题感较强</div></div>
+        </footer>
+      </article>
+    </section>
+
+    <section class="recommendation" aria-label="推荐结论">
+      <div class="recommendation-icon">QF</div>
+      <div>
+        <h2>推荐先在真实界面中试装 Material 与 Catppuccin，再决定是否替换当前 Lucide</h2>
+        <p>官方 Seti 的文件字形很克制，但它没有目录 Icon；如果需要“像 VS Code 插件主题一样”的完整文件夹与文件识别，Material 的覆盖最成熟。</p>
+      </div>
+      <span class="recommendation-tag">此页不修改应用代码</span>
+    </section>
+
+    <section id="sources" class="sources">
+      <h2>官方来源、版本与许可证</h2>
+      <p class="sources-intro">以下资产均来自对应官方 Git 仓库的固定提交。HTML 只引用本地副本，方便离线查看和后续评审。</p>
+
+      <div class="source-grid">
+        <article class="source-card">
+          <strong>Lucide</strong>
+          <p><a href="https://github.com/lucide-icons/lucide" target="_blank" rel="noreferrer">lucide-icons/lucide</a><br />Commit：<code>f930bbe07c92f57244515d9810e9ecbfdafd4488</code><br />许可证：ISC，部分 Feather 派生图标为 MIT。</p>
+        </article>
+        <article class="source-card">
+          <strong>VS Code Seti</strong>
+          <p><a href="https://github.com/microsoft/vscode/tree/main/extensions/theme-seti" target="_blank" rel="noreferrer">microsoft/vscode/extensions/theme-seti</a><br />Commit：<code>cc3e0fe114f721ed5a87317223b2822b597b174e</code><br />资产基于 Seti UI，ThirdPartyNotices 中附 MIT 条款。</p>
+        </article>
+        <article class="source-card">
+          <strong>Material Icon Theme</strong>
+          <p><a href="https://github.com/material-extensions/vscode-material-icon-theme" target="_blank" rel="noreferrer">material-extensions/vscode-material-icon-theme</a><br />Version：5.36.1<br />Commit：<code>cf0df2b786de4eca01b06cb7118435c6d195a0d1</code><br />许可证：MIT。</p>
+        </article>
+        <article class="source-card">
+          <strong>Catppuccin Icons</strong>
+          <p><a href="https://github.com/catppuccin/vscode-icons" target="_blank" rel="noreferrer">catppuccin/vscode-icons</a><br />Version：1.26.0<br />Commit：<code>b6915da9f6889b683a110aa747de96c2820a537d</code><br />许可证：MIT。</p>
+        </article>
+      </div>
+
+      <div class="truth-note">
+        <strong>展示真实性说明：</strong>Lucide、Material、Catppuccin 使用官方 SVG 文件；Seti 使用 VS Code 官方 <code>seti.woff</code>，字形编码与颜色来自官方 <code>vs-seti-icon-theme.json</code>。
+        Material 与 Catppuccin 的文件资产选择依据各仓库官方映射源码；Seti 因官方主题没有 Folder Icon，目录行特意留空而没有补用模拟图标。
+      </div>
+
+      <details>
+        <summary>查看本地许可证文件</summary>
+        <div class="license-links">
+          <a href="./assets/file-icon-comparison/licenses/LUCIDE-LICENSE.txt">Lucide License</a>
+          <a href="./assets/file-icon-comparison/licenses/SETI-ThirdPartyNotices.txt">Seti Third-Party Notices</a>
+          <a href="./assets/file-icon-comparison/licenses/MATERIAL-LICENSE.txt">Material License</a>
+          <a href="./assets/file-icon-comparison/licenses/CATPPUCCIN-LICENSE.txt">Catppuccin License</a>
+        </div>
+      </details>
+    </section>
+  </main>
+
+  <script>
+    const root = document.documentElement;
+    const grid = document.querySelector('.comparison-grid');
+    const cards = [...document.querySelectorAll('[data-theme-card]')];
+    const catIcons = [...document.querySelectorAll('.cat-icon')];
+
+    function updateCatppuccinAssets(theme) {
+      const flavor = theme === 'dark' ? 'mocha' : 'latte';
+      for (const icon of catIcons) {
+        icon.src = `./assets/file-icon-comparison/catppuccin/${flavor}/${icon.dataset.icon}`;
+      }
+    }
+
+    function setTheme(theme) {
+      root.dataset.theme = theme;
+      updateCatppuccinAssets(theme);
+      for (const button of document.querySelectorAll('[data-theme-value]')) {
+        button.setAttribute('aria-pressed', String(button.dataset.themeValue === theme));
+      }
+    }
+
+    function setView(view) {
+      grid.classList.toggle('focus-mode', view !== 'all');
+      for (const card of cards) {
+        card.classList.toggle('is-hidden', view !== 'all' && card.dataset.themeCard !== view);
+      }
+      for (const button of document.querySelectorAll('[data-view]')) {
+        button.setAttribute('aria-pressed', String(button.dataset.view === view));
+      }
+    }
+
+    function setSize(size) {
+      root.style.setProperty('--icon-size', `${size}px`);
+      root.style.setProperty('--row-height', `${Math.max(31, Number(size) + 16)}px`);
+      for (const button of document.querySelectorAll('[data-size]')) {
+        button.setAttribute('aria-pressed', String(button.dataset.size === String(size)));
+      }
+    }
+
+    document.addEventListener('click', (event) => {
+      const viewButton = event.target.closest('[data-view]');
+      if (viewButton) setView(viewButton.dataset.view);
+
+      const sizeButton = event.target.closest('[data-size]');
+      if (sizeButton) setSize(sizeButton.dataset.size);
+
+      const themeButton = event.target.closest('[data-theme-value]');
+      if (themeButton) setTheme(themeButton.dataset.themeValue);
+    });
+
+    const preferredTheme = window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    setTheme(preferredTheme);
+    setSize(18);
+  </script>
+</body>
+</html>

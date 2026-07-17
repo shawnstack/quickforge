@@ -2,7 +2,7 @@ import { ChevronRight, Eye } from 'lucide-react'
 import { useState } from 'react'
 import { t } from '@/lib/i18n'
 import { DirectoryIcon, FileIcon } from './file-icon'
-import { inferArtifactKind, isPreviewablePath, workspacePreviewUrl } from './artifact-preview-utils'
+import { inferArtifactKind, isBrowserPreviewablePath, workspacePreviewUrl } from './artifact-preview-utils'
 import type { GitChangedFile, WorkspaceTreeNode } from './workspace-types'
 
 type WorkspaceFileTreeProps = {
@@ -70,8 +70,8 @@ function WorkspaceTreeRow({
   const kind = isDirectory ? undefined : inferArtifactKind(node.path)
   const isImage = kind === 'image'
   const showThumbnail = Boolean(projectId) && isImage
-  // 图片：直接看图；HTML / Markdown：走各自的预览渲染。
-  const canPreview = Boolean(onPreviewFile) && (isImage || isPreviewablePath(node.path))
+  // Browser 预览入口只用于 HTML / SVG / 图片；Markdown 和代码直接走 Reader。
+  const canPreview = Boolean(onPreviewFile) && isBrowserPreviewablePath(node.path)
 
   function activatePreview() {
     onPreviewFile?.(node.path)

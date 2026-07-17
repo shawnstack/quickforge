@@ -304,9 +304,12 @@ async function countWorkspaceLines(context, relativePath) {
   }
 }
 
-async function listGitStatus(context) {
+export async function listGitStatus(context) {
   if (!(await isGitRepository(context.workspaceRoot))) return { isGitRepository: false, files: [] }
-  const result = await git(['status', '--porcelain=v1', '-z'], context.workspaceRoot)
+  const result = await git(
+    ['status', '--porcelain=v1', '-z', '--untracked-files=all'],
+    context.workspaceRoot,
+  )
   const files = parseGitStatus(result.stdout)
   const numstat = await collectNumstat(context)
   for (const file of files) {

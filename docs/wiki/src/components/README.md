@@ -55,7 +55,8 @@ components/
 - 核心聊天面板宿主
 - 封装 `@earendil-works/pi-web-ui` 的 `ChatPanel` 组件
 - 集成 Agent 权限模式选择器、Plan 模式输入态、工作区工具渲染、分享对话渲染
-- 支持本地工具渲染器 (`getLocalWorkspaceTools`)
+- 支持本地工具渲染器 (`getLocalWorkspaceTools`)；`generate_image` 不并入普通工具汇总，仍独立显示图片、模型信息、打开原图与下载入口，但与中间 Markdown、Thinking 和其他工具过程一起归入当前回合唯一的“执行中/已执行”顶层折叠区域
+- 分享页使用 `/api/shared/:shareId/assets/:assetId` 加载已授权会话的生成图片
 - 工具审批卡片会展示 subagent 来源，避免 General 子任务请求写文件/跑命令时与主 Agent 混淆
 - 消息回滚、分叉、复制功能
 - 草稿恢复支持；Composer 草稿持久化由 `src/lib/composer-drafts.ts` 直接使用浏览器 `localStorage`，不再经过 `AppStorage/settings` 或后端存储；回滚、模型切换等外部恢复草稿按一次性事件消费，发送、编辑或 Session 切换会取消旧的延迟恢复任务

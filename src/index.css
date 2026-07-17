@@ -1878,11 +1878,13 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
 }
 
 .quickforge-process-summary:hover,
+.quickforge-process-stage-summary:hover,
 .quickforge-process-tools-summary:hover {
   color: color-mix(in oklab, var(--foreground) 86%, transparent);
 }
 
 .quickforge-process-summary:focus-visible,
+.quickforge-process-stage-summary:focus-visible,
 .quickforge-process-tools-summary:focus-visible {
   border-radius: 0.25rem;
   outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent);
@@ -1890,6 +1892,7 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
 }
 
 .quickforge-process-chevron,
+.quickforge-process-stage-chevron,
 .quickforge-process-tools-chevron,
 .quickforge-process-tools-icon {
   display: inline-flex;
@@ -1901,6 +1904,7 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
 }
 
 .quickforge-process-chevron,
+.quickforge-process-stage-chevron,
 .quickforge-process-tools-chevron {
   visibility: hidden;
   opacity: 0;
@@ -1913,6 +1917,8 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
 
 .quickforge-process-summary:hover > .quickforge-process-chevron,
 .quickforge-process-summary:focus-visible > .quickforge-process-chevron,
+.quickforge-process-stage-summary:hover > .quickforge-process-stage-chevron,
+.quickforge-process-stage-summary:focus-visible > .quickforge-process-stage-chevron,
 .quickforge-process-tools-summary:hover > .quickforge-process-tools-chevron,
 .quickforge-process-tools-summary:focus-visible > .quickforge-process-tools-chevron {
   visibility: visible;
@@ -1920,7 +1926,8 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
   transition-delay: 0s;
 }
 
-.quickforge-process-label {
+.quickforge-process-label,
+.quickforge-process-stage-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1938,6 +1945,7 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
 }
 
 .quickforge-process-chevron svg,
+.quickforge-process-stage-chevron svg,
 .quickforge-process-tools-chevron svg,
 .quickforge-process-tools-icon svg {
   width: 1rem;
@@ -1945,11 +1953,14 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
 }
 
 .quickforge-process-group[data-expanded="true"] > .quickforge-process-summary .quickforge-process-chevron,
+.quickforge-process-stage[data-expanded="true"] > .quickforge-process-stage-summary .quickforge-process-stage-chevron,
 .quickforge-process-tools[data-expanded="true"] > .quickforge-process-tools-summary .quickforge-process-tools-chevron {
   transform: rotate(90deg);
 }
 
 .quickforge-process-body,
+.quickforge-process-stage,
+.quickforge-process-stage-body,
 .quickforge-process-step,
 .quickforge-process-tools,
 .quickforge-process-tools-body {
@@ -1981,6 +1992,7 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
   padding-top: 0.375rem;
 }
 
+.quickforge-process-stage-summary,
 .quickforge-process-tools-summary {
   display: flex;
   width: 100%;
@@ -1998,6 +2010,7 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
   transition: color 160ms ease;
 }
 
+.quickforge-process-stage-label,
 .quickforge-process-tools-label {
   min-width: 0;
   overflow: hidden;
@@ -2005,6 +2018,11 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
   white-space: nowrap;
 }
 
+.quickforge-process-stage {
+  margin-top: 0.25rem;
+}
+
+.quickforge-process-stage-body,
 .quickforge-process-tools-body {
   margin-top: 0;
 }
@@ -2195,11 +2213,15 @@ pi-chat-panel thinking-block > .thinking-block > markdown-block > .text-sm :wher
   line-height: 1.6;
 }
 
-.quickforge-process-tools[data-expanded="false"] .quickforge-process-tools-body {
+.quickforge-process-tools[data-expanded="false"] > .quickforge-process-tools-body {
   display: none;
 }
 
-.quickforge-process-group[data-expanded="false"] .quickforge-process-body {
+.quickforge-process-stage[data-expanded="false"] > .quickforge-process-stage-body {
+  display: none;
+}
+
+.quickforge-process-group[data-expanded="false"] > .quickforge-process-body {
   display: none;
 }
 

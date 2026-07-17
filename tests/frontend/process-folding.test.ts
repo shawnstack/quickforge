@@ -1,18 +1,28 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  formatProcessDuration,
   isProcessToolsGroupMember,
   isTopLevelProcessDetail,
+  processGroupAnchorIndex,
   processFinishedAtFromMessages,
   processGroupTargetIndex,
   processNodeSequenceIsCurrent,
+  processStatusLabel,
+  processStageDefaultExpanded,
+  processStageLabel,
+  processStageStateKey,
   processThinkingChildIndexes,
   processToolGroupStateKey,
   processToolSuffixAppendStart,
   processTurnUpdateMode,
   resolveProcessExpandedState,
+  selectFoldableProcessItems,
+  shouldDiscardGroupedProcessNode,
   shouldPreserveProcessGroupDuringHandoff,
   shouldToggleProcessSummary,
   splitConsecutiveProcessNodes,
+  splitProcessStageSections,
+  summarizeProcessStageTools,
   summarizeProcessTools,
 } from '../../src/components/chat/panel-decoration/process-folding'
 
@@ -33,6 +43,19 @@ describe('process folding timing', () => {
       { role: 'assistant', details: { quickforgeProcessFinishedAt: '2026-01-01T00:00:05.000Z' } },
       { role: 'assistant', details: { quickforgeProcessFinishedAt: '1767225610000' } },
     ])).toBe(1_767_225_610_000)
+  })
+
+  it('formats the top-level elapsed time in seconds and minutes', () => {
+    expect(formatProcessDuration(999)).toBe('')
+    expect(formatProcessDuration(12_400)).toBe('processDurationSeconds')
+    expect(formatProcessDuration(72_400)).toBe('processDurationMinutesSeconds')
+  })
+
+  it('keeps the top-level label limited to status and elapsed time', () => {
+    expect(processStatusLabel('processExecuting', 'processDurationSeconds')).toBe(
+      'processExecuting · processDurationSeconds',
+    )
+    expect(processStatusLabel('processExecuted', '')).toBe('processExecuted')
   })
 })
 
@@ -87,6 +110,12 @@ describe('process streaming updates', () => {
     expect(resolveProcessExpandedState(undefined, true, false, true)).toBe(false)
   })
 
+  it('preserves an expanded process when streaming completes so clicking 已执行 collapses it', () => {
+    expect(resolveProcessExpandedState(true, true, true, false)).toBe(true)
+    expect(resolveProcessExpandedState(false, true, false, false)).toBe(false)
+    expect(resolveProcessExpandedState(undefined, true, true, false)).toBe(true)
+  })
+
   it('uses mode defaults for tool groups while preserving explicit state within the same mode', () => {
     expect(resolveProcessExpandedState(undefined, false, false, false)).toBe(false)
     expect(resolveProcessExpandedState(undefined, false, false, true)).toBe(true)
@@ -94,6 +123,28 @@ describe('process streaming updates', () => {
     expect(resolveProcessExpandedState(true, false, false, false)).toBe(true)
     expect(resolveProcessExpandedState(undefined, true, true, false)).toBe(true)
     expect(resolveProcessExpandedState(undefined, false, true, false)).toBe(false)
+  })
+
+  it('anchors a process group at the first connected process node', () => {
+    expect(processGroupAnchorIndex([
+      { connected: true },
+      { connected: true },
+      { connected: true },
+    ])).toBe(0)
+  })
+
+  it('falls back to the next connected process node when the original anchor is detached', () => {
+    expect(processGroupAnchorIndex([
+      { connected: false },
+      { connected: true },
+    ])).toBe(1)
+    expect(processGroupAnchorIndex([])).toBe(-1)
+  })
+
+  it('discards detached or replaced grouped nodes before rebuilding the full process body', () => {
+    expect(shouldDiscardGroupedProcessNode(false, false)).toBe(true)
+    expect(shouldDiscardGroupedProcessNode(true, true)).toBe(true)
+    expect(shouldDiscardGroupedProcessNode(true, false)).toBe(false)
   })
 
   it('anchors a running turn to a stable assistant instead of the temporary streaming assistant', () => {
@@ -183,8 +234,9 @@ describe('process streaming updates', () => {
 })
 
 describe('process folding order', () => {
-  it('treats subagents as independent process items instead of tools summary members', () => {
+  it('treats subagents and generated images as independent details instead of compact tools summary members', () => {
     expect(isProcessToolsGroupMember('run_subagent')).toBe(false)
+    expect(isProcessToolsGroupMember('generate_image')).toBe(false)
     expect(isProcessToolsGroupMember('read_file')).toBe(true)
     expect(isProcessToolsGroupMember('edit_file')).toBe(true)
   })
@@ -287,6 +339,87 @@ describe('process folding order', () => {
 
     expect(isTopLevelProcessDetail(topLevel)).toBe(true)
     expect(isTopLevelProcessDetail(nested)).toBe(false)
+  })
+})
+
+describe('single top-level process group', () => {
+  const isMarkdown = (item: string) => item.startsWith('markdown')
+  const isFinal = (item: string) => item === 'markdown-final'
+
+  it('keeps intermediate markdown, thinking, and tools in the same top-level group', () => {
+    const items = ['thinking-a', 'markdown-stage', 'tool-a', 'thinking-b', 'markdown-final']
+    expect(selectFoldableProcessItems(items, isFinal, isMarkdown, true)).toEqual([
+      'thinking-a',
+      'markdown-stage',
+      'tool-a',
+      'thinking-b',
+    ])
+  })
+
+  it('keeps generate_image in the top-level process group instead of creating a sibling boundary', () => {
+    const items = ['tool-a', 'generate-image', 'markdown-stage', 'thinking-b', 'markdown-final']
+    expect(selectFoldableProcessItems(items, isFinal, isMarkdown, true)).toEqual([
+      'tool-a',
+      'generate-image',
+      'markdown-stage',
+      'thinking-b',
+    ])
+  })
+
+  it('does not fold plain markdown when the turn has no process signals', () => {
+    expect(selectFoldableProcessItems(['markdown-final'], isFinal, isMarkdown, false)).toEqual([])
+    expect(selectFoldableProcessItems(['markdown-only'], () => false, isMarkdown, false)).toEqual([])
+  })
+})
+
+describe('nested process stage groups', () => {
+  it('keeps the first process fragment directly under the top-level status and nests later fragments', () => {
+    const items = ['thinking-a', 'tool-a', 'markdown-stage', 'thinking-b', 'tool-b', 'markdown-stage-2', 'tool-c']
+    expect(splitProcessStageSections(items, (item) => item.startsWith('markdown'))).toEqual([
+      { kind: 'detail', items: ['thinking-a', 'tool-a'] },
+      { kind: 'detail', items: ['markdown-stage'] },
+      { kind: 'stage', items: ['thinking-b', 'tool-b'] },
+      { kind: 'detail', items: ['markdown-stage-2'] },
+      { kind: 'stage', items: ['tool-c'] },
+    ])
+  })
+
+  it('does not create an empty stage before a leading intermediate markdown block', () => {
+    expect(splitProcessStageSections(
+      ['markdown-stage', 'thinking-a', 'tool-a'],
+      (item) => item.startsWith('markdown'),
+    )).toEqual([
+      { kind: 'detail', items: ['markdown-stage'] },
+      { kind: 'stage', items: ['thinking-a', 'tool-a'] },
+    ])
+  })
+
+  it('defaults both running and completed inner stages to collapsed', () => {
+    expect(processStageDefaultExpanded()).toBe(false)
+    expect(resolveProcessExpandedState(undefined, false, true, processStageDefaultExpanded())).toBe(false)
+    expect(resolveProcessExpandedState(true, false, false, processStageDefaultExpanded())).toBe(true)
+  })
+
+  it('uses independent stable keys for inner stage state', () => {
+    expect(processStageStateKey('turn:0', 0)).toBe('turn:0:stage:0')
+    expect(processStageStateKey('turn:0', 1)).toBe('turn:0:stage:1')
+  })
+
+  it('builds stage titles from status and independent tool statistics', () => {
+    const summary = summarizeProcessStageTools([
+      ...Array.from({ length: 7 }, () => ({ toolCall: { name: 'run_command' } })),
+      ...Array.from({ length: 5 }, (_, index) => ({
+        toolCall: { name: 'edit_file', arguments: { path: `src/${index}.ts` } },
+      })),
+    ])
+    expect(summary).toEqual({ toolCallCount: 12, commandCount: 7, editedFileCount: 5 })
+    expect(processStageLabel(summary, true)).toBe(
+      'processExecuting  processGroupToolsCalled · processGroupCommandsRan · processGroupFilesEdited',
+    )
+    expect(processStageLabel(summary, false)).toBe(
+      'processExecuted  processGroupToolsCalled · processGroupCommandsRan · processGroupFilesEdited',
+    )
+    expect(processStageLabel(summarizeProcessStageTools([]), true)).toBe('processExecuting')
   })
 })
 

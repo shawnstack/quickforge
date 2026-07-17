@@ -18,15 +18,16 @@ type ProcessNodeSegment<T> = {
   items: T[]
 }
 
+export type ProcessStageSection<T> = {
+  kind: 'detail' | 'stage'
+  items: T[]
+}
+
 type GroupedProcessNode = {
   node: HTMLElement
   sourceAssistant: AssistantMessageElement
   sourceParent: HTMLElement | null
   sourceNextSibling: ChildNode | null
-}
-
-type ProcessStep = {
-  items: GroupedProcessNode[]
 }
 
 export type ProcessToolSummary = {
@@ -45,6 +46,8 @@ const PROCESS_GROUP_SELECTOR = '.quickforge-process-group'
 const PROCESS_BODY_SELECTOR = '.quickforge-process-body'
 const PROCESS_TOOLS_SELECTOR = '.quickforge-process-tools'
 const PROCESS_TOOLS_BODY_SELECTOR = '.quickforge-process-tools-body'
+const PROCESS_STAGE_SELECTOR = '.quickforge-process-stage'
+const PROCESS_STAGE_BODY_SELECTOR = '.quickforge-process-stage-body'
 const PROCESS_NODE_SELECTOR = 'thinking-block, tool-message'
 const PROCESS_DETAIL_NODE_SELECTOR = 'thinking-block, tool-message, markdown-block'
 const PROCESS_FINAL_SUMMARY_ATTR = 'data-quickforge-process-final-summary'
@@ -72,6 +75,14 @@ function rememberProcessExpandedState(panel: HTMLElement, key: string, expanded:
 
   const oldestKey = states.keys().next().value
   if (oldestKey) states.delete(oldestKey)
+}
+
+export type ProcessGroupAnchorSource = {
+  connected: boolean
+}
+
+export function processGroupAnchorIndex(sources: ProcessGroupAnchorSource[]) {
+  return sources.findIndex((source) => source.connected)
 }
 
 export type ProcessGroupTargetSource = {
@@ -114,7 +125,12 @@ export function resolveProcessExpandedState(
   return defaultExpanded
 }
 
-function syncProcessGroupExpandedState(panel: HTMLElement, group: ProcessGroupElement, key: string, defaultExpanded = false) {
+function syncProcessGroupExpandedState(
+  panel: HTMLElement,
+  group: ProcessGroupElement,
+  key: string,
+  defaultExpanded = false,
+) {
   const previousKey = group.dataset.quickforgeProcessKey
   group.dataset.quickforgeProcessKey = key
 
@@ -127,7 +143,9 @@ function syncProcessGroupExpandedState(panel: HTMLElement, group: ProcessGroupEl
     defaultExpanded,
   )
   group.dataset.expanded = String(expanded)
-  if (savedExpanded === undefined && defaultExpanded) rememberProcessExpandedState(panel, key, expanded)
+  if (savedExpanded === undefined && defaultExpanded) {
+    rememberProcessExpandedState(panel, key, expanded)
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -191,7 +209,7 @@ export function processFinishedAtFromMessages(messages: MessageWithUsage[]) {
   return finishedTimes.length > 0 ? Math.max(...finishedTimes) : undefined
 }
 
-function formatProcessDuration(durationMs?: number) {
+export function formatProcessDuration(durationMs?: number) {
   if (durationMs === undefined || durationMs < 1000) return ''
   const totalSeconds = Math.max(1, Math.round(durationMs / 1000))
   const minutes = Math.floor(totalSeconds / 60)
@@ -206,7 +224,7 @@ function toolNameFromMessage(toolMessage: ToolMessageElement) {
 }
 
 export function isProcessToolsGroupMember(toolName: string) {
-  return toolName !== 'run_subagent'
+  return toolName !== 'run_subagent' && toolName !== 'generate_image'
 }
 
 function isGroupableProcessTool(node: HTMLElement) {
@@ -244,6 +262,32 @@ export function summarizeProcessTools(toolMessages: ArrayLike<ToolMessageElement
   }
 }
 
+export type ProcessStageSummary = {
+  toolCallCount: number
+  commandCount: number
+  editedFileCount: number
+}
+
+export function summarizeProcessStageTools(toolMessages: ArrayLike<ToolMessageElement>): ProcessStageSummary {
+  const messages = Array.from(toolMessages)
+  const editedPaths = messages.map(toolMessageEditedFilePath)
+  const editedFilePaths = new Set(editedPaths.filter((path): path is string => Boolean(path)))
+  return {
+    toolCallCount: messages.length,
+    commandCount: messages.filter((message) => toolNameFromMessage(message) === 'run_command').length,
+    editedFileCount: editedFilePaths.size,
+  }
+}
+
+export function processStageLabel(summary: ProcessStageSummary, isStreaming: boolean) {
+  const details: string[] = []
+  if (summary.toolCallCount > 0) details.push(t('processGroupToolsCalled', { count: summary.toolCallCount }))
+  if (summary.commandCount > 0) details.push(t('processGroupCommandsRan', { count: summary.commandCount }))
+  if (summary.editedFileCount > 0) details.push(t('processGroupFilesEdited', { count: summary.editedFileCount }))
+  const status = isStreaming ? t('processExecuting') : t('processExecuted')
+  return details.length > 0 ? `${status}  ${details.join(' · ')}` : status
+}
+
 function processToolsLabel(summary: ProcessToolSummary) {
   const key = summary.commandsOnly
     ? 'processCommandsRan'
@@ -257,10 +301,19 @@ function processToolsLabel(summary: ProcessToolSummary) {
     : base
 }
 
-function processLabel(assistants: AssistantMessageElement[], body: HTMLElement, group: ProcessGroupElement, isAgentStreaming: boolean) {
-  const streaming = isAgentStreaming
-  const stopReason = [...assistants].reverse().find((assistant) => assistant.message?.stopReason)?.message?.stopReason
-  const toolMessages = Array.from(body.querySelectorAll<ToolMessageElement>('tool-message'))
+export function processStatusLabel(status: string, duration: string) {
+  return [status, duration].filter(Boolean).join(' · ')
+}
+
+function processGroupLabel(
+  assistants: AssistantMessageElement[],
+  group: ProcessGroupElement,
+  isAgentStreaming: boolean,
+) {
+  const groupedNodes = groupedProcessNodes(group).map(({ node }) => node)
+  const toolMessages = groupedNodes.filter(
+    (node): node is ToolMessageElement => node.tagName.toLowerCase() === 'tool-message',
+  )
   const starts = [
     ...assistants.map((assistant) => timestampFromUnknown(assistant.message?.timestamp)),
     ...toolMessages.map(toolMessageStartedAt),
@@ -272,15 +325,13 @@ function processLabel(assistants: AssistantMessageElement[], body: HTMLElement, 
   const startedAt = starts.length > 0 ? Math.min(...starts) : undefined
   let finishedAt = finishedTimes.length > 0 ? Math.max(...finishedTimes) : undefined
 
-  if (streaming) {
+  if (isAgentStreaming) {
     finishedAt = Date.now()
   } else {
     const cachedFinishedAt = timestampFromUnknown(group.dataset.quickforgeFinishedAt)
     if (cachedFinishedAt !== undefined && cachedFinishedAt > 0) {
       finishedAt = cachedFinishedAt
     } else {
-      // Once the run is complete, freeze the label timestamp so repeated
-      // decoration does not keep increasing thinking-only durations.
       finishedAt = finishedAt ?? Date.now()
       group.dataset.quickforgeFinishedAt = String(finishedAt)
     }
@@ -289,16 +340,15 @@ function processLabel(assistants: AssistantMessageElement[], body: HTMLElement, 
   const duration = startedAt !== undefined && finishedAt !== undefined
     ? formatProcessDuration(Math.max(0, finishedAt - startedAt))
     : ''
-
-  const base = stopReason === 'error'
+  const stopReason = [...assistants].reverse().find((assistant) => assistant.message?.stopReason)?.message?.stopReason
+  const status = stopReason === 'error'
     ? t('processFailed')
     : stopReason === 'aborted'
       ? t('processAborted')
-      : streaming
-        ? t('processing')
-        : t('processed')
-
-  return duration ? `${base} ${duration}` : base
+      : isAgentStreaming
+        ? t('processExecuting')
+        : t('processExecuted')
+  return processStatusLabel(status, duration)
 }
 
 function assistantMessageList(assistant: AssistantMessageElement) {
@@ -312,10 +362,6 @@ function processDetailIsInAssistantScope(node: HTMLElement, assistant: Assistant
 function processGroupsOwnedByAssistant(assistant: AssistantMessageElement) {
   return Array.from(assistant.querySelectorAll<ProcessGroupElement>(PROCESS_GROUP_SELECTOR))
     .filter((group) => group.closest('assistant-message') === assistant)
-}
-
-function processGroupOwnedByAssistant(assistant: AssistantMessageElement) {
-  return processGroupsOwnedByAssistant(assistant)[0] ?? null
 }
 
 function assistantContentContainer(assistant: AssistantMessageElement) {
@@ -427,6 +473,27 @@ function createProcessToolsGroup() {
   return tools
 }
 
+function createProcessStage() {
+  const stage = document.createElement('div')
+  stage.className = 'quickforge-process-stage'
+  stage.dataset.expanded = 'false'
+
+  const summary = document.createElement('button')
+  summary.type = 'button'
+  summary.className = 'quickforge-process-stage-summary'
+  summary.innerHTML = `
+    <span class="quickforge-process-stage-label"></span>
+    <span class="quickforge-process-stage-chevron" aria-hidden="true">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+    </span>
+  `
+
+  const body = document.createElement('div')
+  body.className = 'quickforge-process-stage-body'
+  stage.append(summary, body)
+  return stage
+}
+
 function createProcessGroup() {
   const group = document.createElement('div') as ProcessGroupElement
   group.className = 'quickforge-process-group'
@@ -449,16 +516,57 @@ function createProcessGroup() {
   return group
 }
 
-function ensureTurnProcessGroup(target: AssistantMessageElement) {
-  const existing = processGroupOwnedByAssistant(target)
-  if (existing) return existing
+export function processStageDefaultExpanded() {
+  return false
+}
 
-  const container = assistantContentContainer(target)
-  if (!container) return null
+export function processStageStateKey(processKey: string, index: number) {
+  return `${processKey}:stage:${index}`
+}
 
-  const group = createProcessGroup()
-  container.insertBefore(group, container.firstElementChild)
-  return group
+function updateProcessStageGroups(
+  panel: HTMLElement,
+  processKey: string,
+  group: ProcessGroupElement,
+  isAgentStreaming: boolean,
+) {
+  const stages = Array.from(group.querySelectorAll<HTMLElement>(PROCESS_STAGE_SELECTOR))
+    .filter((stage) => stage.closest(PROCESS_GROUP_SELECTOR) === group)
+  stages.forEach((stage, index) => {
+    const stageBody = stage.querySelector<HTMLElement>(`:scope > ${PROCESS_STAGE_BODY_SELECTOR}`)
+    const stageSummary = stage.querySelector<HTMLButtonElement>(':scope > .quickforge-process-stage-summary')
+    const stageLabel = stage.querySelector<HTMLElement>(':scope > .quickforge-process-stage-summary > .quickforge-process-stage-label')
+    if (!stageBody || !stageSummary || !stageLabel) return
+
+    const stageKey = processStageStateKey(processKey, index)
+    const stageBodyId = `quickforge-${stageKey.replace(/[^a-z0-9_-]+/gi, '-')}`
+    const previousStageKey = stage.dataset.quickforgeProcessKey
+    stage.dataset.quickforgeProcessKey = stageKey
+    const expanded = resolveProcessExpandedState(
+      getProcessExpandedStates(panel).get(stageKey),
+      previousStageKey === stageKey,
+      stage.dataset.expanded === 'true',
+      processStageDefaultExpanded(),
+    )
+    stage.dataset.expanded = String(expanded)
+    const stageStreaming = isAgentStreaming && index === stages.length - 1
+    stageLabel.textContent = processStageLabel(summarizeProcessStageTools(
+      stageBody.querySelectorAll<ToolMessageElement>('tool-message'),
+    ), stageStreaming)
+    stageBody.id = stageBodyId
+    stageSummary.setAttribute('aria-controls', stageBodyId)
+    stageSummary.setAttribute('aria-expanded', String(expanded))
+    stageSummary.setAttribute('aria-label', `${stageLabel.textContent} · ${expanded ? t('collapseProcess') : t('expandProcess')}`)
+    stageSummary.onclick = (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      const nextExpanded = stage.dataset.expanded !== 'true'
+      stage.dataset.expanded = String(nextExpanded)
+      rememberProcessExpandedState(panel, stageKey, nextExpanded)
+      stageSummary.setAttribute('aria-expanded', String(nextExpanded))
+      stageSummary.setAttribute('aria-label', `${stageLabel.textContent} · ${nextExpanded ? t('collapseProcess') : t('expandProcess')}`)
+    }
+  })
 }
 
 export function processToolGroupStateKey(processKey: string, firstToolId: string | undefined, index: number) {
@@ -527,7 +635,13 @@ export function shouldToggleProcessSummary(
   return !isStreaming || (options.detail ?? 0) === 0
 }
 
-function updateProcessGroup(panel: HTMLElement, processKey: string, assistants: AssistantMessageElement[], group: ProcessGroupElement, isAgentStreaming: boolean) {
+function updateProcessGroup(
+  panel: HTMLElement,
+  processKey: string,
+  assistants: AssistantMessageElement[],
+  group: ProcessGroupElement,
+  isAgentStreaming: boolean,
+) {
   syncProcessGroupExpandedState(panel, group, processKey, isAgentStreaming)
   group.dataset.streaming = String(isAgentStreaming)
   const body = group.querySelector<HTMLElement>(`:scope > ${PROCESS_BODY_SELECTOR}`)
@@ -535,7 +649,7 @@ function updateProcessGroup(panel: HTMLElement, processKey: string, assistants: 
   const label = group.querySelector<HTMLElement>('.quickforge-process-label')
   if (!body || !summary || !label) return
 
-  const nextLabel = processLabel(assistants, body, group, isAgentStreaming)
+  const nextLabel = processGroupLabel(assistants, group, isAgentStreaming)
   if (label.textContent !== nextLabel) label.textContent = nextLabel
 
   const expanded = group.dataset.expanded === 'true'
@@ -564,8 +678,23 @@ function updateProcessGroup(panel: HTMLElement, processKey: string, assistants: 
     toggleExpanded()
   }
 
+  updateProcessStageGroups(panel, processKey, group, isAgentStreaming)
   updateProcessToolsGroups(panel, processKey, group)
   decorateProcessThinkingBlocks(group)
+}
+
+function setProcessFlag(node: HTMLElement, attr: string, enabled: boolean) {
+  if (enabled) {
+    if (!node.hasAttribute(attr)) node.setAttribute(attr, 'true')
+    return
+  }
+  if (node.hasAttribute(attr)) node.removeAttribute(attr)
+}
+
+export function isTopLevelProcessDetail(node: HTMLElement) {
+  const processScope = node.closest('message-list')
+  const parentProcessDetail = node.parentElement?.closest(PROCESS_DETAIL_NODE_SELECTOR)
+  return !parentProcessDetail || parentProcessDetail.closest('message-list') !== processScope
 }
 
 function markdownCandidates(target: AssistantMessageElement) {
@@ -581,14 +710,6 @@ function markdownCandidates(target: AssistantMessageElement) {
 function lastNonEmptyOrLast(candidates: HTMLElement[]) {
   const nonEmptyCandidates = candidates.filter((node) => (node.textContent ?? '').trim().length > 0)
   return nonEmptyCandidates[nonEmptyCandidates.length - 1] ?? candidates[candidates.length - 1] ?? null
-}
-
-function setProcessFlag(node: HTMLElement, attr: string, enabled: boolean) {
-  if (enabled) {
-    if (!node.hasAttribute(attr)) node.setAttribute(attr, 'true')
-    return
-  }
-  if (node.hasAttribute(attr)) node.removeAttribute(attr)
 }
 
 function hasFollowingTopLevelProcessDetail(target: AssistantMessageElement, candidate: HTMLElement) {
@@ -608,20 +729,13 @@ function findFinalSummaryMarkdown(target: AssistantMessageElement, isAgentStream
   if (markedFinalSummary) return markedFinalSummary
 
   const visibleCandidates = candidates.filter((node) => !node.closest(PROCESS_BODY_SELECTOR))
-  const visibleFinalSummary = lastNonEmptyOrLast(visibleCandidates)
-  if (visibleFinalSummary) return visibleFinalSummary
-
-  return lastNonEmptyOrLast(candidates)
+  return lastNonEmptyOrLast(visibleCandidates) ?? lastNonEmptyOrLast(candidates)
 }
 
 function markFinalSummaryMarkdown(target: AssistantMessageElement, finalSummaryMarkdown: HTMLElement | null) {
   markdownCandidates(target).forEach((node) => {
-    if (node === finalSummaryMarkdown) {
-      setProcessFlag(node, PROCESS_FINAL_SUMMARY_ATTR, true)
-      setProcessFlag(node, PROCESS_FOLDED_ATTR, false)
-    } else {
-      setProcessFlag(node, PROCESS_FINAL_SUMMARY_ATTR, false)
-    }
+    setProcessFlag(node, PROCESS_FINAL_SUMMARY_ATTR, node === finalSummaryMarkdown)
+    if (node === finalSummaryMarkdown) setProcessFlag(node, PROCESS_FOLDED_ATTR, false)
   })
 }
 
@@ -632,20 +746,7 @@ function hasTurnProcessSignals(assistants: AssistantMessageElement[]) {
   ))
 }
 
-export function isTopLevelProcessDetail(node: HTMLElement) {
-  const processScope = node.closest('message-list')
-  const parentProcessDetail = node.parentElement?.closest(PROCESS_DETAIL_NODE_SELECTOR)
-  return !parentProcessDetail || parentProcessDetail.closest('message-list') !== processScope
-}
-
-function isFoldableProcessDetail(node: HTMLElement, finalSummaryMarkdown: HTMLElement | null, canFoldMarkdown: boolean) {
-  if (!isTopLevelProcessDetail(node)) return false
-  if (node === finalSummaryMarkdown) return false
-  if (node.tagName.toLowerCase() === 'markdown-block') return canFoldMarkdown
-  return true
-}
-
-function collectFoldableProcessSteps(assistants: AssistantMessageElement[], finalSummaryMarkdown: HTMLElement | null, canFoldMarkdown: boolean) {
+function collectProcessTimeline(assistants: AssistantMessageElement[]) {
   const previousByNode = new Map<HTMLElement, GroupedProcessNode>()
   assistants.forEach((assistant) => {
     processGroupsOwnedByAssistant(assistant).forEach((group) => {
@@ -653,12 +754,9 @@ function collectFoldableProcessSteps(assistants: AssistantMessageElement[], fina
     })
   })
 
-  const items = assistants.flatMap((renderedAssistant) => (
+  return assistants.flatMap((renderedAssistant) => (
     Array.from(renderedAssistant.querySelectorAll<HTMLElement>(PROCESS_DETAIL_NODE_SELECTOR))
-      .filter((node) => (
-        processDetailIsInAssistantScope(node, renderedAssistant)
-        && isFoldableProcessDetail(node, finalSummaryMarkdown, canFoldMarkdown)
-      ))
+      .filter((node) => processDetailIsInAssistantScope(node, renderedAssistant))
       .map((node) => previousByNode.get(node) ?? {
         node,
         sourceAssistant: renderedAssistant,
@@ -666,9 +764,52 @@ function collectFoldableProcessSteps(assistants: AssistantMessageElement[], fina
         sourceNextSibling: node.nextSibling,
       })
   ))
+}
 
-  if (items.length === 0) return []
-  return [{ items }]
+export function selectFoldableProcessItems<T>(
+  items: T[],
+  isFinalSummary: (item: T) => boolean,
+  isMarkdown: (item: T) => boolean,
+  canFoldMarkdown: boolean,
+) {
+  return items.filter((item) => !isFinalSummary(item) && (!isMarkdown(item) || canFoldMarkdown))
+}
+
+function collectFoldableProcessNodes(
+  assistants: AssistantMessageElement[],
+  finalSummaryMarkdown: HTMLElement | null,
+  canFoldMarkdown: boolean,
+) {
+  return selectFoldableProcessItems(
+    collectProcessTimeline(assistants),
+    (item) => item.node === finalSummaryMarkdown,
+    (item) => item.node.tagName.toLowerCase() === 'markdown-block',
+    canFoldMarkdown,
+  )
+}
+
+export function splitProcessStageSections<T>(items: T[], isMarkdown: (item: T) => boolean): ProcessStageSection<T>[] {
+  const sections: ProcessStageSection<T>[] = []
+  let processItems: T[] = []
+  let hasSeenMarkdown = false
+
+  const closeProcess = () => {
+    if (processItems.length === 0) return
+    sections.push({ kind: hasSeenMarkdown ? 'stage' : 'detail', items: processItems })
+    processItems = []
+  }
+
+  for (const item of items) {
+    if (isMarkdown(item)) {
+      closeProcess()
+      sections.push({ kind: 'detail', items: [item] })
+      hasSeenMarkdown = true
+    } else {
+      processItems.push(item)
+    }
+  }
+  closeProcess()
+  return sections
 }
 
 export function splitConsecutiveProcessNodes<T>(nodes: T[], isTool: (node: T) => boolean): ProcessNodeSegment<T>[] {
@@ -683,18 +824,6 @@ export function splitConsecutiveProcessNodes<T>(nodes: T[], isTool: (node: T) =>
     }
   }
   return segments
-}
-
-function hasFoldableProcessContent(assistants: AssistantMessageElement[], finalSummaryMarkdown: HTMLElement | null, canFoldMarkdown: boolean) {
-  return collectFoldableProcessSteps(assistants, finalSummaryMarkdown, canFoldMarkdown).some((step) => step.items.length > 0)
-}
-
-function restoreFinalSummaryMarkdown(group: ProcessGroupElement, finalSummaryMarkdown: HTMLElement | null) {
-  if (!finalSummaryMarkdown?.closest(PROCESS_BODY_SELECTOR)) return false
-  group.after(finalSummaryMarkdown)
-  setProcessFlag(finalSummaryMarkdown, PROCESS_FOLDED_ATTR, false)
-  setProcessFlag(finalSummaryMarkdown, PROCESS_FINAL_SUMMARY_ATTR, true)
-  return true
 }
 
 function processBodyHasContent(group: ProcessGroupElement) {
@@ -732,17 +861,49 @@ function restoreGroupedProcessNode(item: GroupedProcessNode, group: ProcessGroup
   else group.parentElement?.insertBefore(node, group)
 }
 
-function restoreProcessTurn(assistants: AssistantMessageElement[]) {
+export function shouldDiscardGroupedProcessNode(sourceStillCurrent: boolean, hasCurrentReplacement: boolean) {
+  return !sourceStillCurrent || hasCurrentReplacement
+}
+
+function groupedProcessNodeHasCurrentReplacement(item: GroupedProcessNode) {
+  if (!item.sourceAssistant.isConnected) return false
+  const tagName = item.node.tagName.toLowerCase()
+  const toolCallId = tagName === 'tool-message'
+    ? (item.node as ToolMessageElement).toolCall?.id
+    : undefined
+  return Array.from(item.sourceAssistant.querySelectorAll<HTMLElement>(PROCESS_NODE_SELECTOR))
+    .filter((node) => node !== item.node && !node.closest(PROCESS_GROUP_SELECTOR))
+    .filter((node) => processDetailIsInAssistantScope(node, item.sourceAssistant))
+    .some((node) => {
+      if (node.tagName.toLowerCase() !== tagName) return false
+      if (tagName !== 'tool-message' || !toolCallId) return true
+      return (node as ToolMessageElement).toolCall?.id === toolCallId
+    })
+}
+
+function discardGroupedProcessNode(item: GroupedProcessNode) {
+  setProcessFlag(item.node, PROCESS_FOLDED_ATTR, false)
+  setProcessFlag(item.node, PROCESS_FINAL_SUMMARY_ATTR, false)
+  item.node.remove()
+}
+
+function restoreProcessTurn(assistants: AssistantMessageElement[], discardStaleStreamingNodes = false) {
+  const currentAssistants = new Set(assistants)
   for (const assistant of assistants) {
     assistant.classList.remove('quickforge-process-source-empty')
     processGroupsOwnedByAssistant(assistant).forEach((group) => {
-      groupedProcessNodes(group).slice().reverse().forEach((item) => restoreGroupedProcessNode(item, group))
+      groupedProcessNodes(group).slice().reverse().forEach((item) => {
+        if (discardStaleStreamingNodes && shouldDiscardGroupedProcessNode(
+          currentAssistants.has(item.sourceAssistant),
+          groupedProcessNodeHasCurrentReplacement(item),
+        )) {
+          discardGroupedProcessNode(item)
+        } else {
+          restoreGroupedProcessNode(item, group)
+        }
+      })
       groupedProcessNodeSequences.delete(group)
       group.remove()
-    })
-    markdownCandidates(assistant).forEach((node) => {
-      setProcessFlag(node, PROCESS_FOLDED_ATTR, false)
-      setProcessFlag(node, PROCESS_FINAL_SUMMARY_ATTR, false)
     })
   }
 }
@@ -760,10 +921,6 @@ export function releaseStreamingProcessGroups(panel: HTMLElement) {
   })
 }
 
-function flattenProcessSteps(steps: ProcessStep[]) {
-  return steps.flatMap((step) => step.items)
-}
-
 export function processNodeSequenceIsCurrent(
   previous: Array<{ node: { isConnected: boolean }; sourceAssistant: unknown }> | undefined,
   current: Array<{ node: unknown; sourceAssistant: unknown }>,
@@ -773,10 +930,6 @@ export function processNodeSequenceIsCurrent(
     && item.node === current[index]?.node
     && item.sourceAssistant === current[index]?.sourceAssistant
   )))
-}
-
-function sameNodeSequence(left: GroupedProcessNode[] | undefined, right: GroupedProcessNode[]) {
-  return processNodeSequenceIsCurrent(left, right)
 }
 
 export function processToolSuffixAppendStart(
@@ -799,94 +952,77 @@ export function processToolSuffixAppendStart(
     : undefined
 }
 
-function appendProcessToolSuffix(group: ProcessGroupElement, previous: GroupedProcessNode[] | undefined, current: GroupedProcessNode[]) {
-  const appendStart = processToolSuffixAppendStart(previous, current)
-  if (appendStart === undefined) return false
-
-  const body = group.querySelector<HTMLElement>(`:scope > ${PROCESS_BODY_SELECTOR}`)
-  const lastStep = body?.lastElementChild
-  const tools = lastStep?.lastElementChild
-  if (!(lastStep instanceof HTMLElement) || !lastStep.matches('.quickforge-process-step')) return false
-  if (!(tools instanceof HTMLElement) || !tools.matches(PROCESS_TOOLS_SELECTOR)) return false
-  const toolsBody = tools.querySelector<HTMLElement>(PROCESS_TOOLS_BODY_SELECTOR)
-  if (!toolsBody) return false
-
-  current.slice(appendStart).forEach(({ node }) => {
-    setProcessFlag(node, PROCESS_FOLDED_ATTR, true)
-    toolsBody.append(node)
-  })
-  groupedProcessNodeSequences.set(group, current)
-  return true
-}
-
-function clearProcessBody(group: ProcessGroupElement) {
-  const body = group.querySelector<HTMLElement>(`:scope > ${PROCESS_BODY_SELECTOR}`)
-  if (!body) return null
-  Array.from(body.children).forEach((child) => child.remove())
-  return body
-}
-
-function moveProcessNodesIntoTurnGroup(assistants: AssistantMessageElement[], group: ProcessGroupElement, finalSummaryMarkdown: HTMLElement | null, canFoldMarkdown: boolean) {
-  const steps = collectFoldableProcessSteps(assistants, finalSummaryMarkdown, canFoldMarkdown)
-  const nodes = flattenProcessSteps(steps)
-  const previousNodes = groupedProcessNodeSequences.get(group)
-  if (sameNodeSequence(previousNodes, nodes)) {
-    restoreFinalSummaryMarkdown(group, finalSummaryMarkdown)
-    return nodes.length > 0
-  }
-  if (appendProcessToolSuffix(group, previousNodes, nodes)) {
-    restoreFinalSummaryMarkdown(group, finalSummaryMarkdown)
-    return true
-  }
-
-  const body = clearProcessBody(group)
-  if (!body) return false
-
-  for (const processStep of steps) {
-    const step = createProcessStep()
-    const segments = splitConsecutiveProcessNodes(processStep.items, (item) => isGroupableProcessTool(item.node))
-    for (const segment of segments) {
-      if (segment.kind === 'tools') {
-        const tools = createProcessToolsGroup()
-        const toolsBody = tools.querySelector<HTMLElement>(PROCESS_TOOLS_BODY_SELECTOR)
-        if (!toolsBody) continue
-        segment.items.forEach(({ node }) => {
-          setProcessFlag(node, PROCESS_FOLDED_ATTR, true)
-          toolsBody.append(node)
-        })
-        step.append(tools)
-        continue
-      }
-
+function populateProcessContainer(container: HTMLElement, items: GroupedProcessNode[]) {
+  const step = createProcessStep()
+  const segments = splitConsecutiveProcessNodes(items, (item) => isGroupableProcessTool(item.node))
+  for (const segment of segments) {
+    if (segment.kind === 'tools') {
+      const tools = createProcessToolsGroup()
+      const toolsBody = tools.querySelector<HTMLElement>(PROCESS_TOOLS_BODY_SELECTOR)
+      if (!toolsBody) continue
       segment.items.forEach(({ node }) => {
         setProcessFlag(node, PROCESS_FOLDED_ATTR, true)
-        step.append(node)
+        toolsBody.append(node)
       })
-    }
-    body.append(step)
-  }
-
-  groupedProcessNodeSequences.set(group, nodes)
-  for (const assistant of assistants) {
-    processGroupsOwnedByAssistant(assistant).forEach((existingGroup) => {
-      if (existingGroup !== group) {
-        groupedProcessNodeSequences.delete(existingGroup)
-        existingGroup.remove()
-      }
-    })
-  }
-
-  restoreFinalSummaryMarkdown(group, finalSummaryMarkdown)
-  return nodes.length > 0 || processBodyHasContent(group)
-}
-
-function updateEmptyProcessSources(assistants: AssistantMessageElement[], target: AssistantMessageElement) {
-  for (const assistant of assistants) {
-    if (assistant === target) {
-      assistant.classList.remove('quickforge-process-source-empty')
+      step.append(tools)
       continue
     }
 
+    segment.items.forEach(({ node }) => {
+      setProcessFlag(node, PROCESS_FOLDED_ATTR, true)
+      step.append(node)
+    })
+  }
+  container.append(step)
+}
+
+function populateProcessGroup(group: ProcessGroupElement, items: GroupedProcessNode[]) {
+  const body = group.querySelector<HTMLElement>(`:scope > ${PROCESS_BODY_SELECTOR}`)
+  if (!body) return false
+
+  const sections = splitProcessStageSections(
+    items,
+    (item) => item.node.tagName.toLowerCase() === 'markdown-block',
+  )
+  for (const section of sections) {
+    if (section.kind === 'detail') {
+      populateProcessContainer(body, section.items)
+      continue
+    }
+
+    const stage = createProcessStage()
+    const stageBody = stage.querySelector<HTMLElement>(PROCESS_STAGE_BODY_SELECTOR)
+    if (!stageBody) continue
+    populateProcessContainer(stageBody, section.items)
+    body.append(stage)
+  }
+  groupedProcessNodeSequences.set(group, items)
+  return processBodyHasContent(group)
+}
+
+function createTurnProcessGroup(
+  items: GroupedProcessNode[],
+  assistants: AssistantMessageElement[],
+) {
+  const anchorIndex = processGroupAnchorIndex(items.map((item) => ({
+    connected: item.sourceParent?.isConnected === true && item.node.isConnected,
+  })))
+  const anchor = anchorIndex >= 0 ? items[anchorIndex] : undefined
+  const stableAssistant = [...assistants].reverse().find((assistant) => assistant.isStreaming !== true)
+  const stableContainer = stableAssistant ? assistantContentContainer(stableAssistant) : null
+  if (!anchor?.sourceParent?.isConnected && !stableContainer) return null
+
+  const group = createProcessGroup()
+  if (anchor?.sourceParent?.isConnected) {
+    anchor.sourceParent.insertBefore(group, anchor.node)
+  } else if (stableContainer) {
+    stableContainer.append(group)
+  }
+  return populateProcessGroup(group, items) ? group : null
+}
+
+function updateEmptyProcessSources(assistants: AssistantMessageElement[]) {
+  for (const assistant of assistants) {
     const hasVisibleContent = Boolean(
       Array.from(assistant.querySelectorAll<HTMLElement>('markdown-block, thinking-block, tool-message, .quickforge-process-group, .quickforge-approval-card'))
         .some((node) => node.closest('message-list') === assistantMessageList(assistant)),
@@ -907,16 +1043,14 @@ function updateEmptyProcessSources(assistants: AssistantMessageElement[], target
  * unaffected by grouping and the fingerprint is stable before/after a pass.
  */
 function processTurnFingerprint(assistants: AssistantMessageElement[]): string {
-  const parts = assistants.flatMap((assistant, assistantIndex) => (
-    Array.from(assistant.querySelectorAll<HTMLElement>(PROCESS_DETAIL_NODE_SELECTOR))
-      .filter((node) => processDetailIsInAssistantScope(node, assistant))
-      .map((node) => {
-        const tagName = node.tagName.toLowerCase()
-        if (tagName !== 'tool-message') return `${assistantIndex}:${tagName}`
-        const toolMessage = node as ToolMessageElement
-        return `${assistantIndex}:${tagName}:${toolMessage.toolCall?.id ?? toolNameFromMessage(toolMessage)}`
-      })
-  ))
+  const assistantIndexes = new Map(assistants.map((assistant, index) => [assistant, index]))
+  const parts = collectProcessTimeline(assistants).map(({ node, sourceAssistant }) => {
+    const assistantIndex = assistantIndexes.get(sourceAssistant) ?? 0
+    const tagName = node.tagName.toLowerCase()
+    if (tagName !== 'tool-message') return `${assistantIndex}:${tagName}`
+    const toolMessage = node as ToolMessageElement
+    return `${assistantIndex}:${tagName}:${toolMessage.toolCall?.id ?? toolNameFromMessage(toolMessage)}`
+  })
   return `${assistants.length}|${parts.join('|')}`
 }
 
@@ -940,24 +1074,16 @@ export function shouldPreserveProcessGroupDuringHandoff(hasProcessContent: boole
 function decorateProcessTurn(panel: HTMLElement, assistants: AssistantMessageElement[], isAgentStreaming: boolean, turnIndex: number, canShortCircuit: boolean) {
   if (assistants.length === 0) return
 
-  const targetIndex = processGroupTargetIndex(assistants.map((assistant) => ({
-    streaming: assistant.isStreaming === true,
-    hasGroup: Boolean(processGroupOwnedByAssistant(assistant)),
-  })))
-  const target = assistants[targetIndex] ?? assistants[assistants.length - 1]
-  const finalSummaryTarget = assistants[assistants.length - 1]
   const processKey = processTurnStateKey(panel, assistants, turnIndex)
-  const existingGroup = processGroupOwnedByAssistant(target)
-
-  // Stable historical turns can be skipped completely while the active turn
-  // only refreshes its label when no foldable nodes changed. This preserves the
-  // user's expanded state without rebuilding the live process DOM every frame.
+  const finalSummaryTarget = assistants[assistants.length - 1]
+  const existingGroups = assistants.flatMap(processGroupsOwnedByAssistant)
+  const existingGroup = existingGroups.length === 1 ? existingGroups[0] : undefined
   const fingerprint = processTurnFingerprint(assistants)
   const canFoldMarkdown = hasTurnProcessSignals(assistants)
-  const finalSummaryMarkdown = canFoldMarkdown ? findFinalSummaryMarkdown(finalSummaryTarget, isAgentStreaming) : null
-  const currentNodes = existingGroup
-    ? flattenProcessSteps(collectFoldableProcessSteps(assistants, finalSummaryMarkdown, canFoldMarkdown))
-    : []
+  const finalSummaryMarkdown = canFoldMarkdown
+    ? findFinalSummaryMarkdown(finalSummaryTarget, isAgentStreaming)
+    : null
+  const currentNodes = collectFoldableProcessNodes(assistants, finalSummaryMarkdown, canFoldMarkdown)
   const nodeSequenceCurrent = !existingGroup
     || processNodeSequenceIsCurrent(groupedProcessNodeSequences.get(existingGroup), currentNodes)
   const updateMode = processTurnUpdateMode(
@@ -973,38 +1099,28 @@ function decorateProcessTurn(panel: HTMLElement, assistants: AssistantMessageEle
     return
   }
 
-  if (canFoldMarkdown) markFinalSummaryMarkdown(finalSummaryTarget, finalSummaryMarkdown)
-  const hasProcessContent = hasFoldableProcessContent(assistants, finalSummaryMarkdown, canFoldMarkdown)
-  if (!hasProcessContent) {
-    if (shouldPreserveProcessGroupDuringHandoff(
-      hasProcessContent,
-      Boolean(existingGroup),
-      panel.dataset.quickforgeProcessHandoff !== undefined,
-    )) {
-      return
-    }
-    if (existingGroup) {
-      restoreFinalSummaryMarkdown(existingGroup, finalSummaryMarkdown)
-      restoreProcessTurn(assistants)
-    }
+  if (currentNodes.length === 0 && shouldPreserveProcessGroupDuringHandoff(
+    false,
+    existingGroups.length > 0,
+    panel.dataset.quickforgeProcessHandoff !== undefined,
+  )) {
     return
   }
 
-  const group = ensureTurnProcessGroup(target)
+  restoreProcessTurn(assistants, true)
+  const restoredCanFoldMarkdown = hasTurnProcessSignals(assistants)
+  const restoredFinalSummary = restoredCanFoldMarkdown
+    ? findFinalSummaryMarkdown(finalSummaryTarget, isAgentStreaming)
+    : null
+  if (restoredCanFoldMarkdown) markFinalSummaryMarkdown(finalSummaryTarget, restoredFinalSummary)
+  const nodes = collectFoldableProcessNodes(assistants, restoredFinalSummary, restoredCanFoldMarkdown)
+  if (nodes.length === 0) return
+
+  const group = createTurnProcessGroup(nodes, assistants)
   if (!group) return
-
-  const hasGroupedContent = moveProcessNodesIntoTurnGroup(assistants, group, finalSummaryMarkdown, canFoldMarkdown)
-  if (!hasGroupedContent || !processBodyHasContent(group)) {
-    group.remove()
-    return
-  }
-
-  // Record the fingerprint after a successful grouping so subsequent passes
-  // short-circuit until the foldable content actually changes.
   group.dataset.quickforgeProcessFp = fingerprint
-
   updateProcessGroup(panel, processKey, assistants, group, isAgentStreaming)
-  updateEmptyProcessSources(assistants, target)
+  updateEmptyProcessSources(assistants)
 }
 
 export function decorateProcessBlocks(

@@ -517,7 +517,12 @@ async function writeSessionValues(data) {
     existingFiles.map(async (file) => {
       const sessionId = path.basename(file, '.json')
       if (!nextIds.has(sessionId)) {
+        const bucket = sessionBucketIndex.get(sessionId) || await findSessionBucketByDataFile(sessionId)
         await fs.rm(file, { force: true })
+        if (bucket) {
+          const { deleteSessionAssets } = await import('./session-assets.mjs')
+          await deleteSessionAssets(bucket, sessionId)
+        }
         sessionBucketIndex.delete(sessionId)
       }
     }),
@@ -574,7 +579,12 @@ export async function findSessionBucket(sessionId) {
     await ensureStorage()
     await rebuildBucketIndex()
   }
-  return sessionBucketIndex.get(sessionId) ?? null
+  const indexed = sessionBucketIndex.get(sessionId)
+  if (indexed) return indexed
+
+  const recovered = await findSessionBucketByDataFile(sessionId)
+  if (recovered) sessionBucketIndex.set(sessionId, recovered)
+  return recovered
 }
 
 export async function readSessionValue(sessionId) {
@@ -599,6 +609,8 @@ export async function deleteSessionValue(sessionId) {
     const bucket = await findSessionBucket(sessionId)
     if (!bucket) return
     await fs.rm(sessionDataFile(sessionId, bucket), { force: true })
+    const { deleteSessionAssets } = await import('./session-assets.mjs')
+    await deleteSessionAssets(bucket, sessionId)
     sessionBucketIndex.delete(sessionId)
   })
 }

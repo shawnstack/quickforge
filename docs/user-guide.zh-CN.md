@@ -187,6 +187,14 @@ API Key: 可留空
 - 关闭后，QuickForge 会在发送给模型前省略附件图片，避免非视觉模型因为收到图片而报错。
 - 需要让模型分析图片时，请切换到已开启该能力的视觉模型。
 
+#### 图片生成
+
+QuickForge 可通过内置 `generate_image` 工具调用已配置的 OpenRouter Images 模型，并把结果直接显示在对话中。图片会保存为当前会话资产，不会把大段 base64 写入消息历史。
+
+使用前请在自定义模型中配置 OpenRouter 服务商和 API Key。默认图片模型为 `google/gemini-2.5-flash-image`；也可以在提示中要求 Agent 使用其他已内置支持的 OpenRouter 图片模型。默认权限下，图片生成在执行前需要审批，因为它会访问外部服务并可能产生费用。
+
+当前限制：仅支持 OpenRouter Images；图片格式限 PNG、JPEG、WebP、GIF；设置备份不包含生成图片资产。
+
 ### 5. 会话管理
 
 左侧栏展示项目和对话列表。

@@ -15,6 +15,7 @@ import {
 } from '../skills.mjs'
 import { getToolWorkspaceRoot } from '../utils/workspace.mjs'
 import { manageGlobalMemory } from '../global-memory.mjs'
+import { generateSessionImages } from '../image-generation.mjs'
 
 const require = createRequire(import.meta.url)
 
@@ -1100,6 +1101,7 @@ export const toolHandlers = {
   write_file: toolWriteFile,
   edit_file: toolEditFile,
   run_command: toolRunCommand,
+  generate_image: generateSessionImages,
   present_files: toolPresentFiles,
   activate_skill: toolActivateSkill,
   read_skill_resource: toolReadSkillResource,

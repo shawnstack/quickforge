@@ -1,5 +1,6 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { readSessionValue, readStore } from '../storage.mjs'
+import { sendSessionAsset } from './session-assets.mjs'
 import { abortRun, restoreAgent, runPrompt, getSessionState, getSessionEventBus, updateSessionModel, updateSessionThinkingLevel } from '../agent-manager.mjs'
 import {
   assertShareActive,
@@ -307,6 +308,7 @@ export async function handleSharedConversationApi(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean)
   const shareId = decodeSegment(parts[2])
   const action = parts[3]
+  const actionId = parts[4]
 
   if (!shareId) {
     const error = new Error('Missing share id')
@@ -342,6 +344,14 @@ export async function handleSharedConversationApi(req, res, url) {
 
     const record = await requireShareAuth(req, shareId)
     if (record.permission === 'operate' && !record.passwordHash) throw passwordRequiredError()
+
+    if (req.method === 'GET' && action === 'assets' && actionId) {
+      const bucket = record.scope === 'project'
+        ? { scope: 'project', projectId: record.projectId }
+        : { scope: 'global' }
+      await sendSessionAsset(res, bucket, record.sessionId, decodeSegment(actionId))
+      return
+    }
 
     if (req.method === 'GET' && action === 'session') {
     sendJson(res, 200, await sharedSessionPayload(record))

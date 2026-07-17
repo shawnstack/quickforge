@@ -16,7 +16,8 @@
 | `models.mjs` | 68 | 自定义模型连接测试 |
 | `scheduled-tasks.mjs` | 949 | 定时任务管理，支持绑定 Agent Profile 与配置单任务执行模式 |
 | `shares.mjs` | 90 | 分享管理 |
-| `shared-conversation.mjs` | 404 | 共享会话查看 |
+| `shared-conversation.mjs` | 共享会话查看与共享图片资产读取 |
+| `session-assets.mjs` | 当前会话生成图片资产的同源二进制读取 |
 | `backup.mjs` | 460 | 数据备份和恢复 |
 | `lan-access.mjs` | 201 | LAN 共享访问管理 |
 | `instructions.mjs` | 20 | 系统提示词 |
@@ -159,6 +160,12 @@ Agent Profile 管理路由。
 - `POST /api/shared/:shareId/stream` — SSE 流式交互
 - `POST /api/shared/:shareId/prompt` — 发送消息
 - `POST /api/shared/:shareId/rollback` — 回滚消息
+- `GET /api/shared/:shareId/assets/:assetId` — 经分享权限校验读取该会话的生成图片资产
+
+## session-assets.mjs
+
+- `GET /api/session-assets/:sessionId/:assetId` — 读取当前会话的生成图片资产；服务端按会话 bucket 定位文件并返回受控图片 MIME、`nosniff` 与私有不可变缓存头。
+- 路由只接受服务端生成的 UUID 图片 ID，不接受任意相对路径。
 
 ## backup.mjs
 

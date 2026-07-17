@@ -117,6 +117,16 @@ export const workspaceTools = [
     executionMode: 'sequential',
   },
   {
+    name: 'generate_image',
+    label: 'Generate image',
+    description: 'Generate images with the configured OpenRouter provider and save them as assets owned by the current conversation. Use this when the user explicitly asks for a generated bitmap image. The operation may incur provider charges.',
+    parameters: Type.Object({
+      prompt: Type.String({ description: 'Detailed image-generation prompt.' }),
+      model: Type.Optional(Type.String({ description: 'Optional OpenRouter image model ID. Defaults to google/gemini-2.5-flash-image.' })),
+    }),
+    executionMode: 'sequential',
+  },
+  {
     name: 'present_files',
     label: 'Present files',
     description: 'Show one or more AI-produced artifact files to the user. Use this after creating or editing user-facing files such as HTML pages, SVG/images, Markdown documents, or other deliverables. HTML files will be previewed directly in the artifact preview panel.',

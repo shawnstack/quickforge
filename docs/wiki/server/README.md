@@ -65,7 +65,7 @@ server/
 - Agent 恢复（`restoreAgent`）：从持久化状态恢复会话
 - Subagent 工具：`run_subagent` 在父会话内创建短生命周期临时 Agent；运行条件是父会话已解析出有效 `projectContext.workspaceRoot`，因此项目对话和合成默认 workspace 的全局对话都可使用，不再要求必须存在真实 `projectId`。可调用启用的 Agent Profile。内置 `explore` 是只读仓库调研的首选，用于文件发现、源码搜索、调用链追踪、测试/文档/wiki 发现和影响面分析，可执行安全的检查/诊断命令但不能修改文件；内置 `general` 适合有边界的复杂多步骤实现或更广泛独立任务，可使用完整内置工作区工具但不含 MCP/Skills。自定义 Agent Profile 也可通过白名单工具执行。`run_subagent` 还支持 AI 按需传入一次性 `temporary` profile spec；服务端会校验名称、工具、`capabilityPolicy` 和模型引用，将该临时 subagent 写入 `~/.quickforge/cache/global/tmp/agents/<session>/<run>/*.md` 后再执行，并在结果 details 中返回 `profilePath`、`source`、`lifecycle`、`capabilityPolicy` 和实际模型信息。子 Agent 不作为普通会话持久化，默认不能递归调用 `run_subagent`。
 - Agent Profile 执行：`createAgent` 支持传入 `agentProfile`，在默认系统提示词后追加 profile 系统提示词，并按 `allowedTools` 限制 workspace 工具；定时任务可绑定 profile 执行。自定义 Profile 可将模型和思考等级设为继承或固定值；运行时先解析最终模型，再解析思考等级，非推理模型统一降级为 `off`。内置 Profile 的定义保持只读，仅模型可通过 `agent-profile-overrides` 覆盖。
-- 工具管理：基于 Skills 和 Agent 权限模式动态构建工具列表；默认权限下安全读取工具自动通过，写入、命令、MCP/Plugin 等可能改变状态或影响外部系统的工具需要审批；完全访问权限等同开发者授权，在 workspace 沙箱和命令级限制内跳过审批；`/init` 当前轮允许调研仓库、运行必要的只读命令、调用 subagent 并写入根目录 `AGENTS.md`，但仍受正常审批、工作区沙箱和敏感文件保护约束；`/plan` 当前轮使用只读白名单，仅允许读取/搜索、Skill 加载和继承同样只读边界的 subagent 辅助调研，阻止写文件、编辑文件、运行命令以及未声明为允许的 MCP/Plugin/未知工具；Shift+Tab 计划模式通过结构化 command 元数据复用同一套 `/plan` 解析、prompt 和权限，并在 retry/continue 时恢复该权限；`/review` 当前轮允许读取和运行检查命令，但阻止编辑文件和 subagent 执行，用于提交前自检。
+- 工具管理：基于 Skills 和 Agent 权限模式动态构建工具列表；工具上下文包含当前会话的 `sessionId/scope/projectId`，供 `generate_image` 将输出绑定到会话资产。默认权限下安全读取工具自动通过，写入、命令、图片生成、MCP/Plugin 等可能改变状态、产生费用或影响外部系统的工具需要审批；完全访问权限等同开发者授权，在 workspace 沙箱和命令级限制内跳过审批；`/init` 当前轮允许调研仓库、运行必要的只读命令、调用 subagent 并写入根目录 `AGENTS.md`，但仍受正常审批、工作区沙箱和敏感文件保护约束；`/plan` 当前轮使用只读白名单，仅允许读取/搜索、Skill 加载和继承同样只读边界的 subagent 辅助调研，阻止写文件、编辑文件、运行命令、图片生成以及未声明为允许的 MCP/Plugin/未知工具；Shift+Tab 计划模式通过结构化 command 元数据复用同一套 `/plan` 解析、prompt 和权限，并在 retry/continue 时恢复该权限；`/review` 当前轮允许读取和运行检查命令，但阻止编辑文件和 subagent 执行，用于提交前自检。
 - 对话压缩（`compactConversation`）：手动 `/summary` 会创建总结后的新会话并保留原会话；手动 `/compact` 与自动上下文压缩保持一致，会在当前会话内生成/更新滚动摘要，只影响 Agent loop 输入，完整历史仍保留用于 UI 展示和持久化。自动上下文压缩会在模型请求前按配置阈值触发同一套当前会话内压缩。
 - 上下文统计：`contextUsage` 由 `estimateSessionContextUsage()` 计算；存在 `contextCompaction` 时先构造 `summaryMessage + messages.slice(compactedUpToIndex)`，因此统计口径是压缩后的模型实际上下文，而不是完整可见聊天历史。底层 token 估算复用 `@earendil-works/pi-agent-core` 的 `estimateContextTokens()` / `estimateTokens()`，provider usage 与 `contextWindow` / `maxTokens` 来自 `@earendil-works/pi-ai` 的 assistant `usage` 和 model 元数据；自动压缩阈值判断通过百分比配置转换为 reserve tokens 后复用 `pi-agent-core.shouldCompact()`。返回值保留总量字段，并提供 `breakdown.systemPromptTokens`、`breakdown.toolsTokens`、`breakdown.messagesTokens`、`breakdown.providerUsageTokens`、`breakdown.trailingTokens`、`reservedOutputTokens`、`isCompacted`、`originalMessageCount` 和 `effectiveMessageCount`，用于前端解释固定成本、provider 基线、后续增量和压缩效果。
 - 自定义命令处理
@@ -106,9 +106,9 @@ server/
 │   ├── agent-profile-overrides.json # 内置 Agent 的模型覆盖
 │   └── projects.json      # 项目注册表
 ├── storage/               # 会话数据和索引
-│   ├── sessions/          # 按 scope/projectId 分桶的会话文件
-│   ├── sessions-metadata/ # 会话元数据索引
-│   └── shares/            # 分享数据
+│   └── conversations/
+│       ├── global/{sessions,assets}/
+│       └── projects/<projectId>/{sessions,assets}/
 ├── cache/                 # 缓存数据（含 cache/global/tmp/agents 临时 subagent Markdown）
 ├── agents/                # 用户 Agent Profile；agents/builtin 下生成内置 explore/general Markdown
 ├── workspace/             # 全局对话的默认工作目录（合成 project id=default）
@@ -118,7 +118,7 @@ server/
 **功能**:
 - 存储布局迁移：早期 v1→v2 布局迁移 + 配置按 store 拆分（`migrateSplitConfig()`，单体 `config.json` → `settings`/`mcp`/`providers`/`plugins`/`projects` 多文件）
 - `readStore` / `writeStore` / `atomicUpdate` — 通用存储操作（各配置 store 独立文件与写入队列）
-- 会话分桶存储（按 scope 和 projectId）
+- 会话分桶存储（按 scope 和 projectId）；会话图片资产位于同一 bucket 的 `assets/<sessionId>/`，永久删除会话时同步清理
 - `readSessionStoreScoped` — 作用域会话查询
 - 写操作的原子锁队列
 - 目录大小计算

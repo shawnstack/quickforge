@@ -8,6 +8,7 @@ import { extractQuickForgeTiming, type QuickForgeToolTiming } from '@/lib/tool-e
 import { isBrowserPreviewablePath } from '@/components/workspace/artifact-preview-utils'
 import { formatManageGlobalMemoryOutput } from '@/lib/global-memory-tool-output'
 import { subagentProcessTraceMessages } from '@/lib/subagent-process-trace'
+import { generatedImageAssetUrl, parseGeneratedImageDetails } from '@/lib/generated-image-assets'
 
 type ToolResultLike = {
   isError?: boolean
@@ -147,6 +148,10 @@ function detailString(details: unknown, key: string) {
 function summarizeParams(toolName: string, params: Record<string, unknown> | undefined, result?: ToolResultLike) {
   if (!params && !result?.details) return ''
   if (toolName === 'run_command' && typeof params?.command === 'string') return params.command
+  if (toolName === 'generate_image') {
+    const prompt = typeof params?.prompt === 'string' ? params.prompt.trim() : ''
+    return prompt.length > 100 ? `${prompt.slice(0, 100)}…` : prompt
+  }
   if (toolName === 'present_files') {
     const files = Array.isArray(params?.files) ? params.files : Array.isArray(result?.details && (result.details as Record<string, unknown>).files) ? (result?.details as Record<string, unknown>).files as unknown[] : []
     const paths = files.map((item) => typeof item === 'string' ? item : isRecord(item) && typeof item.path === 'string' ? item.path : '').filter(Boolean)
@@ -430,6 +435,7 @@ function renderToolIcon(toolName: string) {
   if (toolName === 'read_file') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>`
   if (toolName === 'grep_files') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>`
   if (toolName === 'present_files') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M10 13.5 8 16l2 2.5"/><path d="m14 13.5 2 2.5-2 2.5"/></svg>`
+  if (toolName === 'generate_image') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/><path d="m14 19.5-2-2a2 2 0 0 0-2.8 0L5.5 21"/></svg>`
   if (toolName === 'read_skill_resource') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3Z"/></svg>`
   if (toolName === 'run_command') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>`
   if (toolName === 'run_subagent') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>`
@@ -644,6 +650,52 @@ class SubagentToolRenderer {
   }
 }
 
+class GenerateImageToolRenderer {
+  render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
+    const status = toolStatus(result, isStreaming)
+    const timing = extractQuickForgeTiming(result?.details)
+    const details = parseGeneratedImageDetails(result?.details)
+    const summary = summarizeParams('generate_image', params, result)
+    const output = resultText(result)
+    const model = details?.model || (typeof params?.model === 'string' ? params.model : '')
+
+    return {
+      isCustom: true,
+      content: html`
+        <div class="quickforge-generated-image-tool space-y-3">
+          <div class="flex items-center gap-2 text-sm text-muted-foreground">
+            ${renderToolIcon('generate_image')}
+            <span class="min-w-0 flex-1 truncate">${t('generateImage')}${summary ? html`<span class="text-muted-foreground/70"> · ${summary}</span>` : nothing}</span>
+            ${renderStatus(status, timing)}
+          </div>
+          ${details ? html`
+            <div class=${details.assets.length > 1 ? 'grid grid-cols-1 gap-3 sm:grid-cols-2' : 'grid grid-cols-1 gap-3'}>
+              ${details.assets.map((asset, index) => {
+                const url = generatedImageAssetUrl(details, asset)
+                const label = t('generatedImageAlt', { index: index + 1 })
+                return html`
+                  <figure class="overflow-hidden rounded-lg border border-border bg-background/60">
+                    <a href=${url} target="_blank" rel="noopener noreferrer" title=${t('openGeneratedImage')} aria-label=${t('openGeneratedImage')}>
+                      <img class="block max-h-[32rem] w-full object-contain" src=${url} alt=${label} loading="lazy" referrerpolicy="no-referrer" />
+                    </a>
+                    <figcaption class="flex items-center gap-2 border-t border-border px-3 py-2 text-xs text-muted-foreground">
+                      <span class="min-w-0 flex-1 truncate">${model || asset.mimeType}</span>
+                      <a class="text-muted-foreground transition-colors hover:text-foreground" href=${url} download=${asset.assetId} title=${t('downloadGeneratedImage')} aria-label=${t('downloadGeneratedImage')}>${t('downloadGeneratedImage')}</a>
+                    </figcaption>
+                  </figure>
+                `
+              })}
+            </div>
+            ${details.text ? html`<div class="text-sm leading-relaxed text-muted-foreground">${details.text}</div>` : nothing}
+          ` : status === 'running' ? html`
+            <div class="rounded-lg border border-border bg-background/60 px-3 py-6 text-center text-sm text-muted-foreground">${t('generatingImage')}</div>
+          ` : output ? html`<code-block .code=${output} language="text"></code-block>` : nothing}
+        </div>
+      `,
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tool renderers (UI display only)
 // These map tool names to custom renderers so the ChatPanel shows input/output
@@ -830,6 +882,7 @@ for (const [name, label] of [
 }
 
 registerToolRenderer('run_subagent', new SubagentToolRenderer())
+registerToolRenderer('generate_image', new GenerateImageToolRenderer())
 
 // Tool execution is entirely server-side. The ChatPanel never calls .execute()
 // on client-side tools — it only reads state.tools for display purposes.

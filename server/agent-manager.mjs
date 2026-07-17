@@ -93,6 +93,8 @@ async function createServerTools(projectId, projectContext, skillsContext, inclu
     includeMcpTools = true,
     includePluginTools = true,
     parentSessionId = null,
+    sessionId = null,
+    scope = 'global',
   } = options
   const allowedTools = allowedToolNames ? new Set(allowedToolNames) : null
   const isAllowed = (definition) => !allowedTools || allowedTools.has(definition.name)
@@ -107,7 +109,11 @@ async function createServerTools(projectId, projectContext, skillsContext, inclu
     projectSkillNames: skillsContext.projectSkillNames,
     workspaceRoot: projectContext?.workspaceRoot,
   })
-  const toolContext = { ...projectContext, ...skillToolContext }
+  const toolContext = {
+    ...projectContext,
+    ...skillToolContext,
+    ...(sessionId ? { sessionId, scope, projectId } : {}),
+  }
   const tools = skillTools
     .filter(isAllowed)
     .map((definition) => wrapToolDefinition(definition, toolContext, toolPermissions))
@@ -150,8 +156,14 @@ async function rebuildSessionTools(session) {
           includeSubagentTool: false,
           includeMcpTools: false,
           parentSessionId: session.sessionId,
+          sessionId: session.sessionId,
+          scope: session.scope,
         }
-      : { parentSessionId: session.sessionId },
+      : {
+          parentSessionId: session.sessionId,
+          sessionId: session.sessionId,
+          scope: session.scope,
+        },
   )
 }
 
@@ -1506,8 +1518,14 @@ export async function createAgent(sessionId, config = {}) {
           includeSubagentTool: false,
           includeMcpTools: false,
           parentSessionId: sessionId,
+          sessionId,
+          scope,
         }
-      : { parentSessionId: sessionId },
+      : {
+          parentSessionId: sessionId,
+          sessionId,
+          scope,
+        },
   )
 
   // Resolve API key

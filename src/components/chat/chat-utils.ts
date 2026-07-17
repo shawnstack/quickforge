@@ -5,8 +5,6 @@
  * All functions are pure or operate on explicit inputs — no React or Lit dependencies.
  */
 
-import type { AgentAccessMode } from '@/lib/types'
-
 // ---------------------------------------------------------------------------
 // Element types (narrowed HTMLElement subtypes for Web Component interop)
 // ---------------------------------------------------------------------------
@@ -84,35 +82,6 @@ export type MessageWithUsage = {
 export type ComposerDraft = {
   text: string
   attachments?: unknown[]
-}
-
-export type DecorationContext = {
-  panel: HTMLElement
-  agent: {
-    state: {
-      messages: MessageWithUsage[]
-      isStreaming: boolean
-      model?: { contextWindow?: number }
-      systemPrompt: string
-      streamingMessage?: unknown
-      tools: unknown[]
-    }
-    subscribe: (listener: (event: { type: string }) => void) => () => void
-    abort: () => void
-    sessionId: string
-  }
-  onCopyAnswer: (text: string) => Promise<void> | void
-  onRollbackFromMessage: (messageIndex: number) => void
-  onForkFromMessage: (messageIndex: number) => void
-  onAccessModeChange: (mode: AgentAccessMode) => void
-  disableFork: boolean
-  agentAccessMode: AgentAccessMode
-  workspaceToolsEnabled: boolean
-  readOnly: boolean
-  allowModelControls: boolean
-  customCommands: CustomCommandSummary[]
-  composerDrafts: Map<string, ComposerDraft>
-  sessionId: string
 }
 
 // ---------------------------------------------------------------------------
@@ -199,23 +168,6 @@ export function textFromUnknown(value: unknown): string {
   }
   if (typeof value === 'object') return safeJson(value)
   return String(value)
-}
-
-export function estimateAttachmentTokens(attachments: unknown): number {
-  if (!Array.isArray(attachments)) return 0
-  let total = 0
-  for (const att of attachments) {
-    const record = att as Record<string, unknown> | null | undefined
-    if (!record) continue
-    if (record.type === 'image') {
-      total += 170
-    } else if (typeof record.extractedText === 'string') {
-      total += estimateTextTokens(record.extractedText)
-    } else {
-      total += 85
-    }
-  }
-  return total
 }
 
 export function estimateMessageTokens(message: MessageWithUsage) {

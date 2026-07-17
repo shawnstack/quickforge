@@ -140,14 +140,13 @@ components/
 - Review tab 通过 `/api/git/status` 展示 Git 工作区变更，并在同一个 Review/Changes tab 内通过 `/api/git/file-diff` 展示单文件差异；Changes 顶部刷新按钮右侧提供提交入口并打开 `GitCommitPushDialog`，提交入口左侧常驻项目打开方式菜单：未选择变更文件时在资源管理器、VS Code 或 IntelliJ IDEA 中打开项目，选择文件后则在资源管理器中打开其所在目录或在编辑器中直接打开该文件；Changes 列表提供单文件还原、暂存、退回未暂存、在新标签中打开文件，以及底部批量还原/暂存/退回操作，分别调用 `/api/git/restore`、`/api/git/stage`、`/api/git/unstage`、`/api/git/restore-all`、`/api/git/stage-all`、`/api/git/unstage-all`；标题栏 Git 更改入口会聚焦该 Review/Changes 工作区。
 - 标题栏 Git 分支 chip 通过 `/api/git/branches`、`/api/git/checkout`、`/api/git/create-branch` 和 `/api/git/log` 提供分支切换、创建并检出新分支和 Git 图谱弹窗；Workspace Inspector 仍聚焦文件浏览、产物预览和 diff review
 - AI 产物预览统一进入 Workspace Inspector：Markdown/代码打开项目级 reader Tab，HTML/SVG/图片打开项目级 Browser Tab；Tab 恢复由项目级持久化状态负责。
-- `ArtifactFilesPopover.tsx` 提供类似浏览器 tools 的产物文件浮层，支持多个 artifact 之间切换和 pin
 
 ### Terminal Dock (`terminal/`)
 
 - `TerminalDock.tsx` 管理底部多会话终端、会话 tab、新建/关闭和高度拖拽。
 - 新建终端默认使用后端返回的默认 Shell profile，也可以从 Dock 右侧 Shell 下拉列表选择指定 profile 创建新会话；下拉列表来自后端按当前平台自动识别的内置 profiles 加用户自定义 profiles。
 - `TerminalDock` 还接收 Markdown shell 代码块触发的 pending command：AI 回复中的 `bash`/`sh`/`powershell` 等代码块会在复制按钮旁显示“在终端中执行”，点击后打开当前项目终端并写入命令执行；多行或高风险命令会先确认。
-- `terminal-api.ts` 封装 `/api/terminal/capabilities`、`/api/terminal/sessions`、`/api/terminal/sessions/:id/input` 和 `/api/system/terminal-shell` 相关请求。
+- `terminal-api.ts` 封装 `/api/terminal/capabilities`、`/api/terminal/sessions` 和 `/api/terminal/sessions/:id/input` 相关请求。
 
 ### ShareConversationDialog.tsx (199 行)
 

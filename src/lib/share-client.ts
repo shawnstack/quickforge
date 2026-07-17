@@ -16,26 +16,6 @@ export type ConversationShare = {
   url?: string
 }
 
-export type SharedConversation = {
-  id: string
-  shareId?: string
-  sessionId?: string
-  title: string
-  permission: SharePermission
-  expiresAt?: string
-  scope?: 'global' | 'project'
-  projectId?: string
-  systemPrompt?: string
-  model?: unknown
-  thinkingLevel?: string
-  tools?: unknown[]
-  yoloMode?: boolean
-  messages: unknown[]
-  isStreaming?: boolean
-  taskStatus?: string
-  errorMessage?: string
-}
-
 type JsonResponse<T> = T & { error?: string }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -130,28 +110,4 @@ export type SharedModelProvider = {
 
 export async function loadSharedModelProviders(shareId: string) {
   return request<{ providers: SharedModelProvider[] }>(`/api/shared/${encodeURIComponent(shareId)}/models`)
-}
-
-export async function loadSharedConversation(shareId: string) {
-  return request<SharedConversation>(`/api/shared/${encodeURIComponent(shareId)}/session`)
-}
-
-export async function sendSharedMessage(shareId: string, content: string) {
-  return request<{ sessionId: string; status: string }>(`/api/shared/${encodeURIComponent(shareId)}/message`, {
-    method: 'POST',
-    body: JSON.stringify({ content }),
-  })
-}
-
-export async function abortSharedGeneration(shareId: string) {
-  return request<{ sessionId: string; aborted: boolean }>(`/api/shared/${encodeURIComponent(shareId)}/abort`, {
-    method: 'POST',
-  })
-}
-
-export async function rollbackSharedConversation(shareId: string, messageIndex: number) {
-  return request<{ ok: boolean; session: SharedConversation }>(`/api/shared/${encodeURIComponent(shareId)}/rollback`, {
-    method: 'POST',
-    body: JSON.stringify({ messageIndex }),
-  })
 }

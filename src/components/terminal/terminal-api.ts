@@ -1,4 +1,4 @@
-import type { TerminalCapabilities, TerminalSession, TerminalShellConfig } from './terminal-types'
+import type { TerminalCapabilities, TerminalSession } from './terminal-types'
 
 export type PendingTerminalCommand = {
   id: number
@@ -27,18 +27,6 @@ export function listTerminalSessions(projectId?: string) {
 export function createTerminalSession(input: { projectId?: string; name?: string; cols?: number; rows?: number; shellProfileId?: string; shellProfileName?: string }) {
   return fetchJson<TerminalSession>('/api/terminal/sessions', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(input),
-  })
-}
-
-export function getTerminalShellConfig() {
-  return fetchJson<TerminalShellConfig>('/api/system/terminal-shell')
-}
-
-export function saveTerminalShellConfig(input: Pick<TerminalShellConfig, 'defaultProfileId' | 'profiles'>) {
-  return fetchJson<TerminalShellConfig>('/api/system/terminal-shell', {
-    method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(input),
   })

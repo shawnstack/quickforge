@@ -15,13 +15,12 @@
 | `http-storage-backend.ts` | 200 | HTTP Storage Backend 实现 |
 | `types.ts` | 82 | 类型定义 |
 | `utils.ts` | 6 | 通用工具函数（cn） |
-| `message-utils.ts` | 127 | 消息处理工具 |
+| `message-utils.ts` | 95 | 消息处理工具 |
 | `mermaid-renderer.ts` | 共享 Mermaid 动态加载、SVG 安全检查和渲染工具 |
 | `custom-model-selector.ts` | 162 | 自定义模型选择器 |
 | `custom-providers-only-tab.ts` | 565 | 自定义供应商设置选项卡 |
 | `backup-settings-tab.ts` | 备份与恢复设置选项卡：按设置数据项选择导出内容（不包含对话），上传后预览有效/异常数据项，并支持按项替换或合并恢复 |
-| `default-options-settings-tab.ts` | 257 | 默认选项设置选项卡 |
-| `language-settings-tab.ts` | 66 | 语言设置选项卡 |
+| `default-options-settings-tab.ts` | 257 | 默认选项设置选项卡（包含语言切换） |
 | `lan-access-settings-tab.ts` | 227 | LAN 共享设置选项卡 |
 | `patch-thinking-selector.ts` | 117 | 思考模式选择器修补 |
 | `clipboard-polyfill.ts` | 51 | 剪贴板 API polyfill |
@@ -168,19 +167,17 @@
 | `custom-providers-only-tab.ts` | 自定义模型供应商的完整 CRUD 管理界面 |
 | `lan-access-settings-tab.ts` | LAN 共享设置（启用/禁用、密码、会话 TTL） |
 | `backup-settings-tab.ts` | 数据备份导出和导入 |
-| `default-options-settings-tab.ts` | 设置默认模型、思考级别、Tool 展示、上下文用量显示、上下文管理和终端 Shell；默认 Shell 从系统识别列表选择，并支持自定义命令或路径 |
+| `default-options-settings-tab.ts` | 设置默认模型、语言、思考级别、Tool 展示、上下文用量显示、上下文管理和终端 Shell；默认 Shell 从系统识别列表选择，并支持自定义命令或路径 |
 | `about-settings-tab.ts` | 关于信息、更新检查/执行，以及后端服务重启 |
-| `language-settings-tab.ts` | 语言切换设置 |
 | `project-commands-settings-tab.ts` | 项目命令目录配置 + 命令预览 + 新建命令 |
 | `patch-thinking-selector.ts` | 修补 pi-web-ui 的模型选择器 |
 | `custom-model-selector.ts` | 自定义模型选择器对话框 |
 
-### message-utils.ts (127 行)
+### message-utils.ts (95 行)
 
 **用途**: 消息处理工具函数。
 
 **功能**:
-- `buildSystemPrompt()` — 构建系统提示词
 - `assistantText()` — 提取助手消息文本
 - `rollbackStartIndexFromMessage()` — 计算回滚起点
 - `draftTextFromUserMessage()` — 从用户消息提取草稿

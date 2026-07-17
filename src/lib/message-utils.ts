@@ -1,33 +1,6 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { t } from '@/lib/i18n'
 
-type InstructionsPayload = {
-  systemPrompt?: string
-  global: string | null
-  project: string | null
-  globalSkills?: unknown[]
-  projectSkills?: unknown[]
-  skills?: unknown[]
-}
-
-async function fetchInstructions(projectId?: string): Promise<InstructionsPayload> {
-  const url = projectId
-    ? `/api/instructions?projectId=${encodeURIComponent(projectId)}`
-    : '/api/instructions'
-  try {
-    const response = await fetch(url)
-    if (!response.ok) return { global: null, project: null }
-    return await response.json()
-  } catch {
-    return { global: null, project: null }
-  }
-}
-
-export async function buildSystemPrompt(projectId?: string): Promise<string> {
-  const instructions = await fetchInstructions(projectId)
-  return instructions.systemPrompt ?? ''
-}
-
 function textFromContentBlocks(content: unknown, separator = ' ') {
   if (!Array.isArray(content)) return ''
   return content
@@ -65,12 +38,6 @@ export function rollbackStartIndexFromMessage(messages: AgentMessage[], messageI
   const message = messages[rollbackIndex]
   if (!message || (message.role !== 'user' && message.role !== 'user-with-attachments')) return -1
   return rollbackIndex
-}
-
-export function rollbackConversationFromMessage(messages: AgentMessage[], messageIndex: number) {
-  const rollbackIndex = rollbackStartIndexFromMessage(messages, messageIndex)
-  if (rollbackIndex < 0) return messages
-  return messages.slice(0, rollbackIndex)
 }
 
 export function draftTextFromUserMessage(message: AgentMessage) {

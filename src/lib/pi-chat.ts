@@ -375,14 +375,6 @@ export async function loadAgentAccessMode(storage: AppStorage, projectId?: strin
   return 'default'
 }
 
-export async function saveYoloMode(storage: AppStorage, enabled: boolean, projectId?: string) {
-  await saveAgentAccessMode(storage, enabled ? 'full-access' : 'default', projectId)
-}
-
-export async function loadYoloMode(storage: AppStorage, projectId?: string): Promise<boolean> {
-  return (await loadAgentAccessMode(storage, projectId)) === 'full-access'
-}
-
 export async function saveConnectionProfile(
   storage: AppStorage,
   form: ConnectionForm,

@@ -62,7 +62,7 @@ function WorkspaceTreeRow({
   onPreviewFile?: (path: string) => void
   projectId?: string
 }) {
-  const [expanded, setExpanded] = useState(depth < 1)
+  const [expanded, setExpanded] = useState(false)
   const isDirectory = node.type === 'directory'
   const isSelected = selectedPath === node.path
   const status = statusLabel(gitStatuses[node.path])

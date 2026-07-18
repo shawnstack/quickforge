@@ -1,46 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { HttpStorageBackend } from '@/lib/http-storage-backend'
+import type { HttpStorageBackend } from '@/lib/http-storage-backend'
 import type { QuickForgeSessionMetadata, SidebarSessionSortMode, SidebarSessionViewMode } from '@/lib/types'
+import {
+  patchSessionTitleInPage,
+  sortSessions,
+  uniqueSessions,
+  upsertSessionPage,
+  type SessionPage,
+} from '@/lib/session-list-updates'
 
 const PAGE_SIZE = 20
-
-function sessionSortTime(value?: string) {
-  if (!value) return 0
-  const time = new Date(value).getTime()
-  return Number.isNaN(time) ? 0 : time
-}
-
-function sortSessions(items: QuickForgeSessionMetadata[], sortMode: SidebarSessionSortMode) {
-  const timeKey = sortMode === 'createdAt' ? 'createdAt' : 'lastModified'
-  return [...items].sort((a, b) => {
-    const pinnedDiff = sessionSortTime(b.pinnedAt) - sessionSortTime(a.pinnedAt)
-    if (pinnedDiff !== 0) return pinnedDiff
-    if (a.pinnedAt && !b.pinnedAt) return -1
-    if (!a.pinnedAt && b.pinnedAt) return 1
-    return sessionSortTime(b[timeKey]) - sessionSortTime(a[timeKey])
-  })
-}
-
-function uniqueSessions(items: QuickForgeSessionMetadata[]) {
-  const seen = new Set<string>()
-  return items.filter((item) => {
-    if (seen.has(item.id)) return false
-    seen.add(item.id)
-    return true
-  })
-}
 
 function isValidPinnedAt(value?: string) {
   if (!value) return false
   const normalized = value.trim()
   if (!normalized || normalized === 'undefined' || normalized === 'null' || normalized === 'false') return false
   return !Number.isNaN(Date.parse(normalized))
-}
-
-type SessionPage = {
-  items: QuickForgeSessionMetadata[]
-  total: number
-  loading: boolean
 }
 
 type UseSessionPaginationOptions = {
@@ -242,6 +217,39 @@ export function useSessionPagination({
     if (opts?.broadcast && isCurrentRequest(version)) onBroadcastSessionsChanged?.()
   }, [isCurrentRequest, loadGlobalSessions, loadPinnedSessions, loadProjectSessions, loadProjectTimelineSessions, nextRequestVersion, onBroadcastSessionsChanged, viewMode])
 
+  const upsertSessionMetadata = useCallback((session: QuickForgeSessionMetadata) => {
+    if (isValidPinnedAt(session.pinnedAt)) {
+      setPinnedPage((page) => upsertSessionPage(page, session, sortMode))
+    }
+    if (session.scope === 'project' && session.projectId) {
+      setProjectPages((pages) => {
+        const page = pages[session.projectId!]
+        if (!page) return pages
+        return { ...pages, [session.projectId!]: upsertSessionPage(page, session, sortMode) }
+      })
+      if (viewMode === 'timeline') {
+        setProjectTimelinePage((page) => upsertSessionPage(page, session, sortMode))
+      }
+      return
+    }
+    setGlobalPage((page) => upsertSessionPage(page, session, sortMode))
+  }, [sortMode, viewMode])
+
+  const updateSessionTitle = useCallback((sessionId: string, title: string) => {
+    setPinnedPage((page) => patchSessionTitleInPage(page, sessionId, title))
+    setGlobalPage((page) => patchSessionTitleInPage(page, sessionId, title))
+    setProjectTimelinePage((page) => patchSessionTitleInPage(page, sessionId, title))
+    setProjectPages((pages) => {
+      let changed = false
+      const next = Object.fromEntries(Object.entries(pages).map(([projectId, page]) => {
+        const patched = patchSessionTitleInPage(page, sessionId, title)
+        if (patched !== page) changed = true
+        return [projectId, patched]
+      }))
+      return changed ? next : pages
+    })
+  }, [])
+
   const sessionsForProject = useCallback((projectId: string) => {
     return projectPages[projectId]?.items ?? []
   }, [projectPages])
@@ -303,6 +311,8 @@ export function useSessionPagination({
     loadGlobalSessions,
     loadProjectSessions,
     refreshSessions,
+    upsertSessionMetadata,
+    updateSessionTitle,
     loadMorePinned,
     loadMoreGlobal,
     loadMoreProject,

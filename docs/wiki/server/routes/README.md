@@ -39,6 +39,7 @@ Agent 会话管理核心路由。
 - `GET /api/agents/:sessionId/status` — 获取轻量运行状态，用于 SSE 静默后的版本探测
 - `HEAD /api/agents/:sessionId/stream` — 检查 SSE 可用性
 - `POST /api/agents/:sessionId/prompt` — 发送消息
+- `POST /api/agents/:sessionId/title` — 手动重命名会话；同步更新服务端活跃状态与持久化数据，优先于待完成的 AI 标题
 - `POST /api/agents/:sessionId/abort` — 中止运行
 - `POST /api/agents/:sessionId/steer` — 引导 Agent
 - `POST /api/agents/:sessionId/follow-up` — 后续处理

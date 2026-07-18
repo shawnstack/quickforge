@@ -38,6 +38,7 @@ export interface AgentManagerDeps {
   switchActiveProject: (projectId: string) => Promise<ProjectInfo>
   sessions: QuickForgeSessionMetadata[]
   refreshSessions: (opts?: { broadcast?: boolean }) => Promise<void>
+  updateSessionTitle: (sessionId: string, title: string) => void
   onTaskComplete?: (sessionId: string, title: string, status: BackgroundTaskStatus) => void
 }
 
@@ -110,6 +111,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     switchActiveProject,
     sessions,
     refreshSessions,
+    updateSessionTitle,
   } = deps
 
   // --- Refs (stable) ---
@@ -299,7 +301,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
             currentTitleRef.current = titleEvent.title
             setCurrentTitle(titleEvent.title)
           }
-          refreshSessions({ broadcast: true }).catch((err) => logger.error('Failed to refresh sessions:', err))
+          if (titleEvent.title) updateSessionTitle(task.sessionId, titleEvent.title)
         }
 
         if ((event as { type: string }).type === 'session_forked') {
@@ -337,7 +339,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       }
       return nextAgent
     },
-    [attachTaskToView, disposeDetachedAgent, refreshSessions, syncSessionUI, storageRef, activeModelRef, agentAccessModeRef, activeProjectRef, defaultWorkspaceRef, setAgentAccessMode],
+    [attachTaskToView, disposeDetachedAgent, refreshSessions, syncSessionUI, updateSessionTitle, storageRef, activeModelRef, agentAccessModeRef, activeProjectRef, defaultWorkspaceRef, setAgentAccessMode],
   )
 
   const startDeferredSession = useCallback(async (options: { scope: ChatScope; project?: ProjectInfo }) => {
@@ -506,6 +508,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
 
   const setCurrentTitleRef = useCallback((title: string) => {
     currentTitleRef.current = title
+    setCurrentTitle(title)
   }, [])
 
   return {

@@ -47,8 +47,8 @@
 - **创建/销毁 Agent**: `createAgent()`, `destroyAgent()`
 - **会话加载**: `loadSession(sessionId)` — 恢复 Agent 状态
 - **消息同步**: `syncSessionUI()` — 从 ServerAgent 同步消息到 UI
-- **会话列表**: `refreshSessions()` — 刷新会话元数据列表
-- **标题生成**: 自动为无标题会话生成 AI 标题
+- **会话列表**: `refreshSessions()` 负责完整刷新，`session_created` / `title_updated` SSE 分别用于局部插入会话和更新标题
+- **标题生成**: 服务端先持久化首条消息及 fallback 标题，再异步生成 AI 标题；用户手动重命名优先
 - **后台任务**: 管理后台运行的任务状态
 - **对话压缩**: 支持 `/summary` 创建总结后的新对话，支持 `/compact` 在当前会话内滚动压缩上下文
 - **全局会话默认工作目录**: 通过 `defaultWorkspaceRef`（来自 `useProject.defaultWorkspace`）为 global 作用域会话注入合成 project（id=`default`，指向 `~/.quickforge/workspace`），从而启用工作区面板/终端/Git；该合成 id 仅用于前端 UI 与 REST 端点，不会作为 `projectId` 发往后端创建 Agent
@@ -56,11 +56,10 @@
 ### useChatActions.ts (311 行)
 
 聊天交互操作:
-- `sendMessage(text)` — 发送消息给 Agent
+- `startNewGlobalChat()` / `startNewProjectChat()` — 创建延迟会话，首条消息发送时才创建真实 Session
 - `rollbackFromMessage(index)` — 回滚到指定消息
-- `forkConversationFromMessage(index)` — 从指定消息分叉新对话
+- `forkFromMessage(index)` — 从指定消息分叉新对话
 - `copyAnswer(text)` — 复制回答到剪贴板
-- `generateTitle(sessionId)` — AI 生成会话标题
 
 ### useModelActions.ts (232 行)
 
@@ -79,6 +78,7 @@
 ### useSessionPagination.ts (312 行)
 
 - 全局/项目会话分页 (每页 20 条)
+- 支持 `session_created` 局部插入与 `title_updated` 局部标题更新，避免纯标题变化触发全列表刷新
 - 展开/折叠项目时自动加载
 - 跟踪加载状态 (`hasMore`, `loading`)
 

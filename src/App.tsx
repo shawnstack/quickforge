@@ -346,6 +346,8 @@ function MainApp() {
     loadGlobalSessions,
     loadProjectSessions,
     refreshSessions,
+    upsertSessionMetadata,
+    updateSessionTitle,
     loadMorePinned,
     loadMoreGlobal,
     loadMoreProject,
@@ -400,6 +402,7 @@ function MainApp() {
     switchActiveProject,
     sessions: allLoadedSessions,
     refreshSessions,
+    updateSessionTitle,
     onTaskComplete: handleTaskComplete,
   })
 
@@ -678,7 +681,14 @@ function MainApp() {
         void refreshSessions({ broadcast: true })
         return
       }
-      if (event.type === 'agent_end' || event.type === 'title_updated' || event.type === 'session_forked') {
+      if (event.type === 'session_created') {
+        const metadata = event.metadata as QuickForgeSessionMetadata | undefined
+        if (metadata?.id) upsertSessionMetadata(metadata)
+      } else if (event.type === 'title_updated') {
+        const sessionId = typeof event.sessionId === 'string' ? event.sessionId : undefined
+        const title = typeof event.title === 'string' ? event.title : undefined
+        if (sessionId && title) updateSessionTitle(sessionId, title)
+      } else if (event.type === 'agent_end' || event.type === 'session_forked') {
         void refreshSessions({ broadcast: true })
       }
       if (!isScheduledTaskNotification(event)) return
@@ -689,7 +699,7 @@ function MainApp() {
       addToast({ sessionId: sessionId ?? '', title, status, message })
     })
     return unsubscribe
-  }, [addToast, loadProjectSessions, refreshSessions, setExpandedProjectIds])
+  }, [addToast, loadProjectSessions, refreshSessions, setExpandedProjectIds, updateSessionTitle, upsertSessionMetadata])
 
   const { ready, startupError, retryBootstrap } = useAppBootstrap({
     storageRef,
@@ -909,6 +919,7 @@ function MainApp() {
     loadAgentSession,
     setCurrentTitleRef,
     refreshSessions,
+    updateSessionTitle,
     closeWorkspacePage,
     startNewGlobalChat,
   })

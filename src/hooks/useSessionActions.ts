@@ -12,6 +12,7 @@ type UseSessionActionsOptions = {
   loadAgentSession: AgentManager['loadSession']
   setCurrentTitleRef: AgentManager['setCurrentTitleRef']
   refreshSessions: (opts?: { broadcast?: boolean }) => Promise<void>
+  updateSessionTitle: (sessionId: string, title: string) => void
   closeWorkspacePage: () => void
   startNewGlobalChat: () => Promise<void>
 }
@@ -23,6 +24,7 @@ export function useSessionActions({
   loadAgentSession,
   setCurrentTitleRef,
   refreshSessions,
+  updateSessionTitle,
   closeWorkspacePage,
   startNewGlobalChat,
 }: UseSessionActionsOptions) {
@@ -42,16 +44,17 @@ export function useSessionActions({
       cancelLabel: t('cancel'),
     })
     if (!newTitle || newTitle === currentTitle) return
-    const session = await storage.sessions.get(sessionId)
-    if (!session) return
-    const metadata = await storage.sessions.getMetadata(sessionId)
-    if (!metadata) return
-    await storage.sessions.save(session, { ...metadata, title: newTitle })
-    await refreshSessions({ broadcast: true })
+    const response = await fetch(`/api/agents/${encodeURIComponent(sessionId)}/title`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: newTitle }),
+    })
+    if (!response.ok) throw new Error(`Failed to rename session: HTTP ${response.status}`)
+    updateSessionTitle(sessionId, newTitle)
     if (currentSessionIdRef.current === sessionId) {
       setCurrentTitleRef(newTitle)
     }
-  }, [currentSessionIdRef, refreshSessions, setCurrentTitleRef, storageRef])
+  }, [currentSessionIdRef, setCurrentTitleRef, storageRef, updateSessionTitle])
 
   const togglePinSession = useCallback(async (sessionId: string) => {
     const storage = storageRef.current

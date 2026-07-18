@@ -100,7 +100,7 @@ class GlobalAgentSseClient {
       'state', 'agent_start', 'agent_end', 'message_start', 'message_end',
       'turn_start', 'turn_end', 'message_update',
       'tool_execution_start', 'tool_execution_update', 'tool_execution_end',
-      'error', 'title_updated', 'session_forked', 'scheduled_task_notification', 'scheduled_task_started',
+      'error', 'session_created', 'title_updated', 'session_forked', 'scheduled_task_notification', 'scheduled_task_started',
       'tool_approval_required', 'auto_compact_threshold_reached', 'auto_compact_approval_required', 'auto_compact_completed', 'auto_compact_failed', 'messages_replaced',
     ]
 

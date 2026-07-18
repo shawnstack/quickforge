@@ -16,6 +16,7 @@ import {
   touchSession,
   listSessions,
   updateSessionAccessMode,
+  updateSessionTitle,
   updateSessionYoloMode,
   updateSessionModel,
   updateSessionThinkingLevel,
@@ -150,6 +151,14 @@ export async function handleAgentApi(req, res, url) {
   if (req.method === 'DELETE' && parts.length === 3) {
     await destroyAgent(sessionId)
     sendJson(res, 200, { ok: true })
+    return
+  }
+
+  // POST /api/agents/:sessionId/title — update the authoritative session title
+  if (req.method === 'POST' && subPath === 'title') {
+    const body = await readJsonBody(req)
+    const result = await updateSessionTitle(sessionId, body?.title)
+    sendJson(res, 200, result)
     return
   }
 

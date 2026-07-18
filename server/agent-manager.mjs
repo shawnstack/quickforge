@@ -712,7 +712,8 @@ async function clearSession(session) {
   session.startedAt = null
   session.finishedAt = new Date().toISOString()
   session.title = 'New chat'
-  session.titleGenerated = false
+  session.titleSource = 'default'
+  session.titleGenerationId += 1
   session.agent.state.isStreaming = false
   session.agent.state.streamingMessage = undefined
   session.agent.state.errorMessage = undefined
@@ -1440,6 +1441,7 @@ export async function createAgent(sessionId, config = {}) {
     messages = [],
     systemPrompt = null,
     title = 'New chat',
+    titleSource = title === 'New chat' ? 'default' : 'manual',
     createdAt = new Date().toISOString(),
     lastModified = null,
     contextCompaction = null,
@@ -1605,6 +1607,7 @@ export async function createAgent(sessionId, config = {}) {
     thinkingLevel: resolvedThinkingLevel,
     scope,
     title,
+    titleSource,
     createdAt,
     lastModified,
     globalSkillNames: skillsContext.globalSkillNames,
@@ -1618,7 +1621,10 @@ export async function createAgent(sessionId, config = {}) {
     eventBus,
     idleTimer: null,
     persistTimer: null,
-    titleGenerated: false,
+    titleGenerationId: 0,
+    titleGenerationPromise: null,
+    titleGenerationPromiseId: null,
+    sessionCreatedEmitted: messages.length > 0,
     toolTimings: new Map(),
     getApiKey,
     contextCompaction,
@@ -1697,11 +1703,17 @@ export async function createAgent(sessionId, config = {}) {
       const isInitialUserMessage = (event.message?.role === 'user' || event.message?.role === 'user-with-attachments')
         && session.agent.state.messages.length === 1
       if (isInitialUserMessage) {
-        // External ACP channels run in a separate process from the web UI. Persist
-        // the first user message immediately so the session becomes visible on
-        // disk before a long/failed agent run can exit or be restarted.
+        // Persist the first user message before announcing the session or
+        // starting the asynchronous AI title request.
         try {
-          await flushSessionPersist(session)
+          const metadata = await flushSessionPersist(session)
+          if (metadata) {
+            if (!session.sessionCreatedEmitted) {
+              session.sessionCreatedEmitted = true
+              emitSessionEvent(session, { type: 'session_created', metadata })
+            }
+            scheduleSessionTitleGeneration(session, event.message)
+          }
         } catch (err) {
           logger.error(`Failed to persist initial user message for session ${sessionId}:`, err, { sessionId })
         }
@@ -1747,7 +1759,7 @@ function sessionLastModifiedFromMessages(messages, fallback) {
  * Persist session data to storage.
  */
 async function persistSession(session) {
-  const { sessionId, agent, scope, projectId, title, createdAt, lastModified: storedLastModified, status, startedAt, finishedAt, model, thinkingLevel, accessMode, yoloMode, contextCompaction } = session
+  const { sessionId, agent, scope, projectId, title, titleSource, createdAt, lastModified: storedLastModified, status, startedAt, finishedAt, model, thinkingLevel, accessMode, yoloMode, contextCompaction } = session
   const messages = agent.state.messages
 
   if (messages.length === 0) {
@@ -1768,6 +1780,7 @@ async function persistSession(session) {
   const sessionData = {
     id: sessionId,
     title,
+    titleSource,
     model,
     thinkingLevel,
     accessMode,
@@ -1818,6 +1831,7 @@ async function persistSession(session) {
   const metadata = {
     id: sessionId,
     title,
+    titleSource,
     createdAt: createdAt || now,
     lastModified,
     messageCount: messages.length,
@@ -1862,7 +1876,10 @@ async function persistSession(session) {
     }
   } catch (err) {
     logger.error(`Failed to persist session ${sessionId}:`, err, { sessionId })
+    return null
   }
+
+  return metadata
 }
 
 export async function persistSessionState(session) {
@@ -1904,7 +1921,7 @@ async function flushSessionPersist(session) {
     clearTimeout(session.persistTimer)
     session.persistTimer = null
   }
-  await persistSession(session)
+  return persistSession(session)
 }
 
 export function rollbackStartIndexFromMessage(messages, messageIndex) {
@@ -1962,6 +1979,39 @@ export async function rollbackSessionMessages(sessionId, rollbackMessageIndex) {
   return { session: getSessionState(sessionId), rollbackIndex }
 }
 
+export function canApplyGeneratedTitle(session, generationId, expectedTitle) {
+  return session.titleGenerationId === generationId
+    && session.titleSource === 'fallback'
+    && session.title === expectedTitle
+}
+
+function scheduleSessionTitleGeneration(session, userMessage) {
+  if (session.titleSource !== 'fallback') return
+  if (session.titleGenerationPromise && session.titleGenerationPromiseId === session.titleGenerationId) return
+  const generationId = ++session.titleGenerationId
+  const expectedTitle = session.title
+  const promise = generateAiTitle([userMessage], session.model, session.thinkingLevel, session.getApiKey)
+    .then(async (aiTitle) => {
+      if (!aiTitle || aiTitle === 'New chat') return
+      if (!canApplyGeneratedTitle(session, generationId, expectedTitle)) return
+      session.title = aiTitle
+      session.titleSource = 'ai'
+      await persistSession(session)
+      emitSessionEvent(session, { type: 'title_updated', title: aiTitle, titleSource: 'ai' })
+    })
+    .catch((err) => {
+      logger.warn(`Title generation failed for session ${session.sessionId}:`, err.message || err, { sessionId: session.sessionId })
+    })
+    .finally(() => {
+      if (session.titleGenerationPromise === promise) {
+        session.titleGenerationPromise = null
+        session.titleGenerationPromiseId = null
+      }
+    })
+  session.titleGenerationPromise = promise
+  session.titleGenerationPromiseId = generationId
+}
+
 /**
  * Send a user message to the agent and start the agent loop.
  * Returns immediately; events are streamed via the event bus.
@@ -2014,24 +2064,14 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
     return compactSession(session, initialUserMessage, commandState.compact)
   }
 
-  // AI title generation on first user message (fire-and-forget, before agent runs)
-  if (!session.titleGenerated && session.title === 'New chat') {
-    // Set a simple fallback title immediately so the sidebar shows something
-    // meaningful even if AI title generation fails or is slow.
+  // Set a meaningful fallback immediately. The AI title request starts only
+  // after the first user message has been persisted by the message_end handler.
+  if (session.titleSource === 'default' && session.title === 'New chat') {
     const simpleTitle = generateTitle([userMessage])
+    session.titleSource = 'fallback'
     if (simpleTitle !== 'New chat') {
       session.title = simpleTitle
     }
-    session.titleGenerated = true
-    generateAiTitle([userMessage], session.model, session.thinkingLevel, session.getApiKey).then(async (aiTitle) => {
-      if (aiTitle && aiTitle !== 'New chat') {
-        session.title = aiTitle
-        await persistSession(session)
-        emitSessionEvent(session, { type: 'title_updated', title: aiTitle })
-      }
-    }).catch((err) => {
-      logger.warn(`Title generation failed for session ${sessionId}:`, err.message || err, { sessionId })
-    })
   }
 
   session.activeCommandName = commandState.commandName ?? null
@@ -2216,6 +2256,7 @@ export function getSessionState(sessionId) {
     model: session.model,
     thinkingLevel: session.thinkingLevel,
     title: session.title,
+    titleSource: session.titleSource,
     createdAt: session.createdAt,
     lastModified: session.lastModified,
     stateVersion: session.stateVersion || 0,
@@ -2363,6 +2404,7 @@ export async function restoreAgent(sessionId) {
       thinkingLevel: sessionData.thinkingLevel || 'off',
       messages: sessionData.messages || [],
       title: sessionData.title || 'New chat',
+      titleSource: sessionData.titleSource || (sessionData.title && sessionData.title !== 'New chat' ? 'ai' : 'default'),
       createdAt: sessionData.createdAt,
       lastModified: sessionData.lastModified,
       contextCompaction: sessionData.contextCompaction || null,
@@ -2459,6 +2501,28 @@ export async function refreshAllSessionTools() {
     }
   }
   return result
+}
+
+export async function updateSessionTitle(sessionId, title) {
+  let session = agentSessions.get(sessionId)
+  if (!session) session = await restoreAgent(sessionId)
+  if (!session) {
+    throw Object.assign(new Error('Session not found'), { statusCode: 404 })
+  }
+  const normalizedTitle = typeof title === 'string' ? title.trim() : ''
+  if (!normalizedTitle) {
+    throw Object.assign(new Error('Title must not be empty'), { statusCode: 400 })
+  }
+  if (normalizedTitle.length > 200) {
+    throw Object.assign(new Error('Title is too long'), { statusCode: 400 })
+  }
+
+  session.titleGenerationId += 1
+  session.title = normalizedTitle
+  session.titleSource = 'manual'
+  await persistSession(session)
+  emitSessionEvent(session, { type: 'title_updated', title: normalizedTitle, titleSource: 'manual' })
+  return { sessionId, title: normalizedTitle, titleSource: 'manual' }
 }
 
 export async function updateSessionAccessMode(sessionId, accessMode) {

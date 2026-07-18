@@ -62,9 +62,12 @@ export type RestoredDraft = {
   attachments?: unknown[]
 }
 
+export type SessionTitleSource = 'default' | 'fallback' | 'ai' | 'manual'
+
 export type QuickForgeSessionMetadata = SessionMetadata & {
   scope?: ChatScope
   projectId?: string
+  titleSource?: SessionTitleSource
   accessMode?: AgentAccessMode
   yoloMode?: boolean
   taskStatus?: BackgroundTaskStatus
@@ -78,6 +81,7 @@ export type QuickForgeSessionMetadata = SessionMetadata & {
 export type QuickForgeSessionData = SessionData & {
   scope?: ChatScope
   projectId?: string
+  titleSource?: SessionTitleSource
   accessMode?: AgentAccessMode
   yoloMode?: boolean
   taskStatus?: BackgroundTaskStatus

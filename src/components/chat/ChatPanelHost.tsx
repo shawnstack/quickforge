@@ -501,6 +501,7 @@ export function ChatPanelHost({
       getTools: () => agent.state.tools,
       getMaxTokens: () => agent.state.model?.maxTokens,
       getServerContextUsage: () => (agent as AgentWithContextCompaction).state.contextUsage ?? null,
+      getIsCompacted: () => Boolean((agent as AgentWithContextCompaction).state.contextCompaction?.summaryMessage),
       getGitBranch: () => propsRef.current.gitBranch,
       onGitBranchClick: () => propsRef.current.onOpenWorkspaceGitChanges?.(),
       renderInline: false,

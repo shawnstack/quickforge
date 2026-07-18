@@ -61,6 +61,7 @@ type ContextUsageOptions = {
   getMaxTokens?: () => number | undefined
   getEffectiveMessages?: () => MessageWithUsage[]
   getServerContextUsage?: () => ServerContextUsageInfo | null | undefined
+  getIsCompacted?: () => boolean
   getGitBranch?: () => string | undefined
   onGitBranchClick?: () => void
   renderInline?: boolean
@@ -417,13 +418,16 @@ const gitBranchIcon = renderToStaticMarkup(createElement(GitBranch, {
   style: { flex: '0 0 auto' },
 }))
 
-export function createContextUsageIndicator({ panel, getSystemPrompt, getMessages, getContextWindow, getTools, getMaxTokens, getEffectiveMessages, getServerContextUsage, getGitBranch, onGitBranchClick, renderInline = true, renderModelRing = false, onDisplayChange }: ContextUsageOptions) {
+export function createContextUsageIndicator({ panel, getSystemPrompt, getMessages, getContextWindow, getTools, getMaxTokens, getEffectiveMessages, getServerContextUsage, getIsCompacted, getGitBranch, onGitBranchClick, renderInline = true, renderModelRing = false, onDisplayChange }: ContextUsageOptions) {
   const tipController = createContextUsageTipController()
 
   const update = () => {
     const contextWindow = getContextWindow()
     const visibleMessages = getMessages()
-    const effectiveMessages = getEffectiveMessages?.() ?? visibleMessages
+    const serverUsage = getServerContextUsage?.()
+    const effectiveMessages = serverUsage
+      ? visibleMessages
+      : getEffectiveMessages?.() ?? visibleMessages
     const existing = panel.querySelector<HTMLElement>('.quickforge-context-usage')
     const existingLabel = panel.querySelector<HTMLElement>('.quickforge-context-usage-label')
     const existingGitBranch = panel.querySelector<HTMLElement>('.quickforge-git-branch-inline')
@@ -484,7 +488,6 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
       return displayInfo
     }
 
-    const serverUsage = getServerContextUsage?.()
     const hasEffectiveMessages = effectiveMessages.length > 0
     const usage = serverUsage
       ? normalizeServerContextUsage(serverUsage, contextWindow)
@@ -503,7 +506,8 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
         }
 
     const displayContextWindow = usage.contextWindow || contextWindow
-    const isCompacted = Boolean(usage.isCompacted) || effectiveMessages !== visibleMessages
+    const isCompacted = Boolean(usage.isCompacted)
+      || (serverUsage ? Boolean(getIsCompacted?.()) : effectiveMessages !== visibleMessages)
     const title = buildContextUsageTitle({
       usage,
       contextWindow: displayContextWindow,

@@ -4,6 +4,33 @@ All notable changes to QuickForge will be documented in this file.
 
 ## [Unreleased]
 
+## [1.6.13] - 2026-07-20
+
+### Added
+
+- Added conversation image generation assets and documented generated-image rendering behavior.
+- Added Material file icons, a repository initialization command, and configurable tool display modes.
+- Added asynchronous conversation title updates to keep title generation out of the main response path.
+
+### Changed
+
+- Collapsed workspace file-tree folders by default and removed obsolete frontend compatibility modules.
+- Refined process folding and preferred server-reported context usage after conversation compaction.
+
+### Fixed
+
+- Fixed desktop title-bar theme synchronization and untracked-directory expansion in the workspace review list.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.6.13` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.6.13.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.6.13.tgz
+  ```
+
 ## [1.6.12] - 2026-07-16
 
 ### Added

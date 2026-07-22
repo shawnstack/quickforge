@@ -1548,10 +1548,9 @@ function MainApp() {
       ) : null}
 
       <main className={cn(
-        'flex min-w-0 flex-1 flex-col bg-[var(--quickforge-main-bg)] md:overflow-hidden md:rounded-l-2xl',
-        ui.workspaceInspectorOpen && agentManager.currentToolProject?.id ? 'lg:rounded-r-2xl' : undefined,
+        'flex min-w-0 flex-1 flex-col bg-[var(--quickforge-main-bg)] md:overflow-hidden md:rounded-tl-2xl',
       )}>
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-3 pr-20">
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-3 pr-20">
           <Button variant="ghost" size="icon" className="md:hidden" onClick={() => ui.setMobileSidebarOpen(true)} aria-label={t('toggleSidebar')}>
             <Menu className="size-[18px]" />
           </Button>

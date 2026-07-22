@@ -6,6 +6,16 @@ import { cacheDir } from './storage.mjs'
 export const DEFAULT_COMPACT_KEEP_TURNS = 0
 const MAX_COMPACT_KEEP_TURNS = 20
 const MIN_SUMMARY_SOURCE_CHARS = 1600
+const COMPACT_SUMMARY_OPEN_TAG = '<compact_summary>'
+const COMPACT_SUMMARY_CLOSE_TAG = '</compact_summary>'
+const COMPACTION_DETAILS_KEY = 'quickforgeCompaction'
+const LEGACY_COMPACT_SUMMARY_INTROS = [
+  'The previous conversation has been compacted.',
+  'The previous conversation has been automatically compacted.',
+  'Existing rolling compact summary from earlier conversation history:',
+]
+const LEGACY_COMPACTION_NOTICE_PREFIX = '已基于当前对话创建压缩后的新对话：'
+const LEGACY_COMPACTION_NOTICE_SUFFIX = '压缩前历史已保存到本地备份。'
 
 export const COMPACT_SYSTEM_PROMPT = `你是 QuickForge 的“历史对话压缩器”。你的任务是把一段较长的 AI 助手对话压缩成后续模型继续工作所需的最小充分上下文。
 
@@ -72,8 +82,60 @@ function normalizeKeepTurns(value) {
   return Math.min(MAX_COMPACT_KEEP_TURNS, Math.max(0, Math.floor(parsed)))
 }
 
+function messageContentText(message) {
+  const content = message?.content
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .filter((block) => block?.type === 'text' && typeof block.text === 'string')
+    .map((block) => block.text)
+    .join('\n')
+}
+
+function compactionMessageKind(message) {
+  const kind = message?.details?.[COMPACTION_DETAILS_KEY]?.kind
+  if (kind === 'summary' || kind === 'notice') return kind
+
+  const text = messageContentText(message).trim()
+  if (
+    message?.role === 'user'
+    && LEGACY_COMPACT_SUMMARY_INTROS.some((intro) => text.startsWith(intro))
+    && text.includes(COMPACT_SUMMARY_OPEN_TAG)
+    && text.lastIndexOf(COMPACT_SUMMARY_CLOSE_TAG) > text.indexOf(COMPACT_SUMMARY_OPEN_TAG)
+  ) return 'summary'
+
+  if (
+    message?.role === 'assistant'
+    && text.startsWith(LEGACY_COMPACTION_NOTICE_PREFIX)
+    && text.includes(LEGACY_COMPACTION_NOTICE_SUFFIX)
+  ) return 'notice'
+
+  return null
+}
+
+export function compactionMessageDetails(kind) {
+  return { [COMPACTION_DETAILS_KEY]: { version: 1, kind } }
+}
+
+export function isCompactSummaryMessage(message) {
+  return compactionMessageKind(message) === 'summary'
+}
+
+export function isCompactionNoticeMessage(message) {
+  return compactionMessageKind(message) === 'notice'
+}
+
+export function extractCompactSummaryText(message) {
+  const text = messageContentText(message).trim()
+  const openIndex = text.indexOf(COMPACT_SUMMARY_OPEN_TAG)
+  const closeIndex = text.lastIndexOf(COMPACT_SUMMARY_CLOSE_TAG)
+  if (openIndex < 0 || closeIndex <= openIndex) return text
+  return text.slice(openIndex + COMPACT_SUMMARY_OPEN_TAG.length, closeIndex).trim()
+}
+
 function isUserMessage(message) {
-  return message?.role === 'user' || message?.role === 'user-with-attachments'
+  return (message?.role === 'user' || message?.role === 'user-with-attachments')
+    && !isCompactSummaryMessage(message)
 }
 
 function truncateMiddle(value, maxLength) {
@@ -200,7 +262,7 @@ export function splitMessagesForCompaction(messages, options = {}) {
   if (keepTurns <= 0) {
     return {
       keepTurns,
-      compactRange: sourceMessages.slice(),
+      compactRange: sourceMessages.filter((message) => !isCompactionNoticeMessage(message)),
       recentTail: [],
       tailStart: sourceMessages.length,
     }
@@ -219,9 +281,13 @@ export function splitMessagesForCompaction(messages, options = {}) {
 
   if (seenUserTurns < keepTurns) tailStart = 0
 
+  const compactRange = sourceMessages
+    .slice(0, tailStart)
+    .filter((message) => !isCompactionNoticeMessage(message))
+
   return {
     keepTurns,
-    compactRange: sourceMessages.slice(0, tailStart),
+    compactRange,
     recentTail: sourceMessages.slice(tailStart),
     tailStart,
   }

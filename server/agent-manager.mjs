@@ -33,6 +33,8 @@ import { buildSystemPrompt, generateAiTitle, generateTitle } from './session-uti
 import { restoreReasoningContentInPayload } from './reasoning-cache.mjs'
 import {
   compactConversation,
+  compactionMessageDetails,
+  isCompactSummaryMessage,
   parseCompactArgs,
   saveCompactBackup,
 } from './conversation-compaction.mjs'
@@ -341,7 +343,7 @@ function createAutoCompactApprovalPromise(session, details = {}) {
   })
 }
 
-function assistantTextMessage(text, model) {
+function assistantTextMessage(text, model, details) {
   return {
     role: 'assistant',
     content: [{ type: 'text', text }],
@@ -358,14 +360,16 @@ function assistantTextMessage(text, model) {
     },
     stopReason: 'stop',
     timestamp: Date.now(),
+    ...(details ? { details } : {}),
   }
 }
 
-function userTextMessage(text) {
+function userTextMessage(text, details) {
   return {
     role: 'user',
     content: [{ type: 'text', text }],
     timestamp: Date.now(),
+    ...(details ? { details } : {}),
   }
 }
 
@@ -535,12 +539,12 @@ async function summarySession(session, initialUserMessage, summaryOptions) {
       '<compact_summary>',
       result.summary,
       '</compact_summary>',
-    ].join('\n'))
+    ].join('\n'), compactionMessageDetails('summary'))
     const notice = assistantTextMessage([
       `已基于当前对话创建压缩后的新对话：原 ${result.originalCount} 条消息 → ${result.recentTail.length + 2} 条消息。`,
       `当前原对话已完整保留，保留最近 ${result.keepTurns} 个用户回合原文，估算新对话上下文减少约 ${reduction}%。`,
       '压缩前历史已保存到本地备份。',
-    ].join('\n'), session.model)
+    ].join('\n'), session.model, compactionMessageDetails('notice'))
 
     const compactedMessages = [summaryMessage, notice, ...result.recentTail]
     const titleSourceMessages = [summaryMessage, ...result.recentTail]
@@ -1316,14 +1320,7 @@ function applyActiveCapabilityPrompt(messages, capabilityPrompt) {
 
 function compactSummaryIndex(messages) {
   for (let index = messages.length - 1; index >= 0; index--) {
-    const message = messages[index]
-    const content = message?.content
-    const text = typeof content === 'string'
-      ? content
-      : Array.isArray(content)
-        ? content.filter((block) => block?.type === 'text').map((block) => block.text ?? '').join('\n')
-        : ''
-    if (message?.role === 'user' && text.includes('<compact_summary>')) return index
+    if (isCompactSummaryMessage(messages[index])) return index
   }
   return -1
 }

@@ -1,5 +1,11 @@
 import { readStore } from './storage.mjs'
-import { compactConversation, saveCompactBackup } from './conversation-compaction.mjs'
+import {
+  compactConversation,
+  compactionMessageDetails,
+  extractCompactSummaryText,
+  isCompactSummaryMessage,
+  saveCompactBackup,
+} from './conversation-compaction.mjs'
 import { estimateContextUsage, shouldCompactContextByPercent } from './context-usage.mjs'
 
 export const AUTO_COMPACT_SETTINGS_KEY = 'auto-compact-settings'
@@ -7,7 +13,7 @@ export const AUTO_COMPACT_SETTINGS_KEY = 'auto-compact-settings'
 export const DEFAULT_AUTO_COMPACT_SETTINGS = {
   enabled: true,
   thresholdPercent: 80,
-  keepRecentTurns: 2,
+  keepRecentTurns: 3,
   minSourceChars: 1600,
   requireConfirmation: true,
 }
@@ -66,7 +72,8 @@ function estimateMessagesChars(messages) {
 }
 
 function isUserMessage(message) {
-  return message?.role === 'user' || message?.role === 'user-with-attachments'
+  return (message?.role === 'user' || message?.role === 'user-with-attachments')
+    && !isCompactSummaryMessage(message)
 }
 
 function tailStartForRecentTurns(messages, keepRecentTurns) {
@@ -108,22 +115,12 @@ function clearAutoCompactRejected(session) {
   session.lastAutoCompactRejected = null
 }
 
-function compactSummaryText(message) {
-  const content = message?.content
-  const text = typeof content === 'string'
-    ? content
-    : Array.isArray(content)
-      ? content.filter((block) => block?.type === 'text').map((block) => block.text || '').join('\n')
-      : ''
-  const match = text.match(/<compact_summary>\s*([\s\S]*?)\s*<\/compact_summary>/)
-  return match?.[1]?.trim() || text.trim()
-}
-
-function userTextMessage(text) {
+function userTextMessage(text, details) {
   return {
     role: 'user',
     content: [{ type: 'text', text }],
     timestamp: Date.now(),
+    ...(details ? { details } : {}),
   }
 }
 
@@ -135,9 +132,9 @@ function buildCompactionSourceMessages(session, messages, tailStart) {
       'Existing rolling compact summary from earlier conversation history:',
       '',
       '<compact_summary>',
-      compactSummaryText(previousSummary),
+      extractCompactSummaryText(previousSummary),
       '</compact_summary>',
-    ].join('\n')))
+    ].join('\n'), compactionMessageDetails('summary')))
   }
   source.push(...messages.slice(session.contextCompaction?.compactedUpToIndex || 0, tailStart))
   return source
@@ -190,7 +187,7 @@ export async function compactSessionInPlace({
     '<compact_summary>',
     result.summary,
     '</compact_summary>',
-  ].join('\n'))
+  ].join('\n'), compactionMessageDetails('summary'))
   session.contextCompaction = {
     summaryMessage,
     compactedUpToIndex: tailStart,

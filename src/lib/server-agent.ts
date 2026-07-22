@@ -1031,8 +1031,19 @@ export class ServerAgent {
         : this.lastServerStateVersion
 
       if (status.isStreaming === false) {
+        const wasStreaming = this.state.isStreaming
         this.stopStateWatchdog()
         await this.refreshStateFromServer({ notify: true, forceMessages: true })
+        // The lightweight status endpoint is authoritative for run completion.
+        // If a stale/lower-version state snapshot was rejected, still clear the
+        // optimistic streaming state so the UI cannot remain stuck loading.
+        if (wasStreaming && this.state.isStreaming) {
+          this.state.isStreaming = false
+          this.state.streamingMessage = undefined
+          this.state.pendingToolApproval = null
+          this.state.pendingAutoCompactApproval = null
+          this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
+        }
         return
       }
 

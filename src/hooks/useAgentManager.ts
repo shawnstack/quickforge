@@ -363,6 +363,12 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       yoloMode: agentAccessModeToYoloMode(agentAccessModeRef.current),
       createAgent,
     })
+    deferredAgent.subscribe((event) => {
+      if (agentRef.current !== deferredAgent) return
+      if (event.type === 'message_start' || event.type === 'agent_end') {
+        setChatPanelRevision((current) => current + 1)
+      }
+    })
 
     disposeDetachedAgent(agentRef.current)
     currentChatScopeRef.current = scope

@@ -56,7 +56,8 @@ Agent 会话管理核心路由。
 **主要端点**:
 - `GET /api/storage/quota` — 存储配额和用量
 - `GET|POST|DELETE /api/storage/:store/keys/:key` — 键值操作
-- `GET /api/storage/:store/index/:indexName` — 索引查询（支持排序、分页、作用域过滤）
+- `GET /api/storage/:store/index/:indexName` — 索引查询（支持排序、分页、作用域过滤）；会话元数据默认排除归档记录，`archived=only` 仅返回归档，`archived=include` 返回全部
+- 写入 `settings/auto-archive-settings` 并开启时，会立即执行一次超过 30 天未更新对话的自动归档扫描
 
 ## project.mjs (192 行)
 

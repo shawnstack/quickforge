@@ -1,0 +1,113 @@
+import type { AgentEvent, AgentMessage } from '@earendil-works/pi-agent-core'
+import type { Api, Model } from '@earendil-works/pi-ai'
+import { describe, expect, it, vi } from 'vitest'
+import type { ServerAgent } from '../../src/lib/server-agent'
+
+vi.mock('@/lib/types', () => ({
+  agentAccessModeToYoloMode: (accessMode: string) => accessMode === 'full-access',
+  normalizeAgentAccessMode: (accessMode?: string, fallback = 'default') => accessMode ?? fallback,
+}), { virtual: true })
+
+vi.mock('@/lib/random-id', () => ({
+  randomId: () => 'test-id',
+}), { virtual: true })
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((next, fail) => {
+    resolve = next
+    reject = fail
+  })
+  return { promise, resolve, reject }
+}
+
+async function createDeferredAgent(createAgent: () => Promise<ServerAgent>) {
+  const { DeferredSessionAgent } = await import('../../src/lib/deferred-session-agent')
+  return new DeferredSessionAgent({
+    scope: 'global',
+    model: { provider: 'test', id: 'test-model' } as Model<Api>,
+    thinkingLevel: 'off',
+    accessMode: 'default',
+    yoloMode: false,
+    createAgent,
+  })
+}
+
+function createRealAgent() {
+  const state = { messages: [] as AgentMessage[] }
+  const prompt = vi.fn(async (message: AgentMessage) => {
+    state.messages = [...state.messages, message]
+  })
+  return {
+    state,
+    prompt,
+    setNextPromptCapabilities: vi.fn(),
+    setPlanMode: vi.fn(),
+  } as unknown as ServerAgent
+}
+
+describe('DeferredSessionAgent', () => {
+  it('shows the first user message before the server session is ready', async () => {
+    const realAgent = deferred<ServerAgent>()
+    const createAgent = vi.fn(() => realAgent.promise)
+    const agent = await createDeferredAgent(createAgent)
+    const events: string[] = []
+    agent.subscribe((event: AgentEvent) => events.push(event.type))
+
+    void agent.prompt('hello')
+
+    expect(agent.state.messages).toEqual([
+      expect.objectContaining({ role: 'user', content: 'hello' }),
+    ])
+    expect(agent.state.isStreaming).toBe(true)
+    expect(events).toEqual(['message_start', 'agent_start'])
+    expect(createAgent).toHaveBeenCalledOnce()
+  })
+
+  it('hands the optimistic message to the real agent without duplicating it', async () => {
+    const pendingAgent = deferred<ServerAgent>()
+    const createAgent = vi.fn(() => pendingAgent.promise)
+    const agent = await createDeferredAgent(createAgent)
+    const realAgent = createRealAgent()
+
+    const promptPromise = agent.prompt('hello')
+    const optimisticMessage = agent.state.messages[0]
+    pendingAgent.resolve(realAgent)
+    await promptPromise
+
+    expect(realAgent.prompt).toHaveBeenCalledWith(optimisticMessage)
+    expect(realAgent.state.messages).toEqual([optimisticMessage])
+    expect(createAgent.mock.calls[0]?.[0]).not.toHaveProperty('messages')
+  })
+
+  it('rolls back the optimistic message when session creation fails', async () => {
+    const pendingAgent = deferred<ServerAgent>()
+    const agent = await createDeferredAgent(() => pendingAgent.promise)
+    const events: string[] = []
+    agent.subscribe((event: AgentEvent) => events.push(event.type))
+
+    const promptPromise = agent.prompt('hello')
+    pendingAgent.reject(new Error('Failed to create session'))
+
+    await expect(promptPromise).rejects.toThrow('Failed to create session')
+    expect(agent.state.messages).toEqual([])
+    expect(agent.state.isStreaming).toBe(false)
+    expect(agent.state.errorMessage).toBe('Failed to create session')
+    expect(events).toEqual(['message_start', 'agent_start', 'error', 'agent_end'])
+  })
+
+  it('ignores a second prompt while the first session is being created', async () => {
+    const pendingAgent = deferred<ServerAgent>()
+    const createAgent = vi.fn(() => pendingAgent.promise)
+    const agent = await createDeferredAgent(createAgent)
+
+    void agent.prompt('first')
+    void agent.prompt('second')
+
+    expect(createAgent).toHaveBeenCalledOnce()
+    expect(agent.state.messages).toEqual([
+      expect.objectContaining({ role: 'user', content: 'first' }),
+    ])
+  })
+})

@@ -88,14 +88,44 @@ export class DeferredSessionAgent {
   }
 
   async prompt(input: string | AgentMessage | AgentMessage[]): Promise<void> {
-    if (this.disposed) return
-    const realAgent = await this.ensureRealAgent()
+    if (this.disposed || this.state.isStreaming) return
+
+    const message = this.normalizePromptInput(input)
+    const messageCountBeforeOptimistic = this.state.messages.length
+
+    // Show the first message immediately while the real server session is created.
+    this.state.messages = [...this.state.messages, message]
+    this.state.contextUsage = null
+    this.emitToListeners({ type: 'message_start', message } as unknown as AgentEvent)
+    this.state.isStreaming = true
+    this.state.errorMessage = undefined
+    this.emitToListeners({ type: 'agent_start' } as AgentEvent)
+
+    let realAgent: ServerAgent
+    try {
+      realAgent = await this.ensureRealAgent()
+    } catch (error) {
+      if (
+        this.state.messages.length === messageCountBeforeOptimistic + 1
+        && this.state.messages[this.state.messages.length - 1] === message
+      ) {
+        this.state.messages = this.state.messages.slice(0, -1)
+      }
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      this.state.errorMessage = errorMessage
+      this.state.isStreaming = false
+      this.state.streamingMessage = undefined
+      this.emitToListeners({ type: 'error', error: errorMessage } as unknown as AgentEvent)
+      this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
+      throw error
+    }
+
     realAgent.setNextPromptCapabilities(this.nextPromptCapabilities)
     realAgent.setPlanMode(this.planMode, this.onPlanModeConsumed)
     this.nextPromptCapabilities = []
     this.planMode = false
     this.onPlanModeConsumed = undefined
-    await realAgent.prompt(input as string | AgentMessage | AgentMessage[])
+    await realAgent.prompt(message)
   }
 
   abort(): void {
@@ -172,6 +202,25 @@ export class DeferredSessionAgent {
   promoteTo(agent: ServerAgent): void {
     this.promotedAgent = agent
     this.listeners.clear()
+  }
+
+  private normalizePromptInput(input: string | AgentMessage | AgentMessage[]): AgentMessage {
+    if (typeof input === 'string') {
+      return { role: 'user', content: input, timestamp: Date.now() } as AgentMessage
+    }
+    if (Array.isArray(input)) {
+      const lastUser = [...input].reverse().find(
+        (message) => message.role === 'user' || message.role === 'user-with-attachments',
+      )
+      return (lastUser ?? input[input.length - 1]) as AgentMessage
+    }
+    return input
+  }
+
+  private emitToListeners(event: AgentEvent): void {
+    for (const listener of this.listeners) {
+      try { listener(event) } catch { /* ignore */ }
+    }
   }
 
   private async ensureRealAgent() {

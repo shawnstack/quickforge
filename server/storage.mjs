@@ -604,6 +604,17 @@ export async function writeSessionValue(sessionId, value) {
   })
 }
 
+export async function atomicSessionValueUpdate(sessionId, updateFn) {
+  return enqueueWrite('sessions', async () => {
+    await ensureStorage()
+    const current = await readSessionValue(sessionId)
+    if (!current) return null
+    const updated = updateFn(current)
+    await writeSessionValueFile(sessionId, updated)
+    return updated
+  })
+}
+
 export async function deleteSessionValue(sessionId) {
   return enqueueWrite('sessions', async () => {
     const bucket = await findSessionBucket(sessionId)

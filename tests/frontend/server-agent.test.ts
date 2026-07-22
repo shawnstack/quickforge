@@ -241,4 +241,43 @@ describe('ServerAgent', () => {
       agent.dispose()
     }
   })
+
+  it('clears streaming when status reports completion even if the state version went backwards', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith('/status')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ stateVersion: 1, isStreaming: false, status: 'idle' }),
+        }
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ stateVersion: 1, isStreaming: false, messages: [] }),
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: {
+        messages: [{ role: 'user', content: 'waiting' }] as AgentMessage[],
+        isStreaming: true,
+        stateVersion: 5,
+      },
+    })
+
+    try {
+      await vi.advanceTimersByTimeAsync(15_000)
+
+      expect(fetchMock).toHaveBeenCalledWith('/api/agents/session-1/status')
+      expect(fetchMock).toHaveBeenCalledWith('/api/agents/session-1/state')
+      expect(agent.state.isStreaming).toBe(false)
+    } finally {
+      agent.dispose()
+      vi.useRealTimers()
+    }
+  })
 })

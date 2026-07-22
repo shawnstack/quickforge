@@ -24,6 +24,10 @@ class MockAgent {
     return () => this.listeners.delete(listener)
   }
 
+  async emit(event) {
+    for (const listener of this.listeners) await listener(event)
+  }
+
   async prompt() {
     const message = {
       role: 'assistant',
@@ -38,7 +42,12 @@ class MockAgent {
   abort() {}
 }
 
-vi.mock('@earendil-works/pi-agent-core', () => ({ Agent: MockAgent }))
+vi.mock('@earendil-works/pi-agent-core', () => ({
+  Agent: MockAgent,
+  estimateContextTokens: vi.fn(() => 0),
+  estimateTokens: vi.fn(() => 0),
+  shouldCompact: vi.fn(() => false),
+}))
 vi.mock('../../server/ai-http-logger.mjs', () => ({ streamSimpleWithAiHttpLogging: vi.fn() }))
 vi.mock('../../server/mcp/registry.mjs', () => ({
   createMcpToolDefinitions: vi.fn(async () => []),
@@ -199,6 +208,34 @@ describe('agent manager subagent execution', () => {
       expect(MockAgent.instances.at(-1).state).toMatchObject({ model: plainModel, thinkingLevel: 'off' })
     } finally {
       await destroyAgent(session.sessionId)
+    }
+  })
+
+  it('preserves the SSE state version when a persisted session is restored', async () => {
+    const { createAgent, destroyAgent, getSessionState, restoreAgent } = await import('../../server/agent-manager.mjs')
+    const sessionId = 'restored-state-version'
+    const session = await createAgent(sessionId, {
+      scope: 'global',
+      model: { provider: 'mock', model: 'mock-model' },
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hello', timestamp: Date.now() }],
+      idleRetention: 'always',
+    })
+
+    await session.agent.emit({ type: 'agent_start' })
+    await session.agent.emit({ type: 'agent_end', messages: session.agent.state.messages })
+    const versionBeforeDestroy = getSessionState(sessionId)?.stateVersion
+    expect(versionBeforeDestroy).toBe(2)
+
+    await destroyAgent(sessionId)
+    const restored = await restoreAgent(sessionId)
+
+    try {
+      expect(restored?.stateVersion).toBe(versionBeforeDestroy)
+      await restored?.agent.emit({ type: 'agent_start' })
+      expect(getSessionState(sessionId)?.stateVersion).toBe(versionBeforeDestroy + 1)
+    } finally {
+      await destroyAgent(sessionId)
     }
   })
 })

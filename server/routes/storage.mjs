@@ -1,5 +1,6 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { readStore, writeStore, atomicUpdate, getComparable, getStoreRevision, readSessionStoreScoped, readSessionValue, writeSessionValue, deleteSessionValue, ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir } from '../storage.mjs'
+import { AUTO_ARCHIVE_SETTINGS_KEY, archiveInactiveSessions, normalizeAutoArchiveSettings } from '../auto-archive.mjs'
 import { directorySize } from '../utils/workspace.mjs'
 
 const metadataIndexCache = new Map()
@@ -194,6 +195,9 @@ export async function handleStorageApi(req, res, url) {
         data[key] = body?.value
         return data
       })
+      if (store === 'settings' && key === AUTO_ARCHIVE_SETTINGS_KEY && normalizeAutoArchiveSettings(body?.value).enabled) {
+        await archiveInactiveSessions()
+      }
       sendJson(res, 200, { ok: true })
       return
     }

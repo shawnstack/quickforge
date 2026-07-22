@@ -17,6 +17,10 @@ import {
   loadAutoCompactSettings,
   saveAutoCompactSettings,
 } from '@/lib/auto-compact-settings'
+import {
+  loadAutoArchiveSettings,
+  saveAutoArchiveSettings,
+} from '@/lib/auto-archive-settings'
 import { applyAppLanguage, getAppLanguage, t, type AppLanguage } from '@/lib/i18n'
 import { showConfirm } from '@/components/ui/confirm-dialog'
 import './info-tip'
@@ -102,6 +106,7 @@ class DefaultOptionsSettingsTab extends SettingsTab {
   private autoCompactThresholdPercent = 80
   private autoCompactThresholdPercentInput = '80'
   private autoCompactKeepRecentTurns = 3
+  private autoArchiveEnabled = false
   private selectedLanguage: AppLanguage = getAppLanguage()
   private loading = true
   private saved = false
@@ -155,11 +160,12 @@ class DefaultOptionsSettingsTab extends SettingsTab {
 
     try {
       const storage = getAppStorage()
-      const [models, defaults, toolDisplaySettings, autoCompactSettings] = await Promise.all([
+      const [models, defaults, toolDisplaySettings, autoCompactSettings, autoArchiveSettings] = await Promise.all([
         getConfiguredModels(storage),
         loadDefaultOptions(storage),
         loadToolDisplaySettings(storage),
         loadAutoCompactSettings(storage),
+        loadAutoArchiveSettings(storage),
       ])
       this.models = models
       this.selectedModel = defaults.model
@@ -173,6 +179,7 @@ class DefaultOptionsSettingsTab extends SettingsTab {
       this.autoCompactThresholdPercent = autoCompactSettings.thresholdPercent
       this.autoCompactThresholdPercentInput = String(autoCompactSettings.thresholdPercent)
       this.autoCompactKeepRecentTurns = autoCompactSettings.keepRecentTurns
+      this.autoArchiveEnabled = autoArchiveSettings.enabled
       await this.loadTerminalShell()
     } catch (error) {
       this.error = error instanceof Error ? error.message : t('requestFailed')
@@ -235,6 +242,13 @@ class DefaultOptionsSettingsTab extends SettingsTab {
     this.saved = false
     this.requestUpdate()
     void this.saveAutoCompactOptions()
+  }
+
+  private updateAutoArchiveEnabled(checked: boolean) {
+    this.autoArchiveEnabled = checked
+    this.saved = false
+    this.requestUpdate()
+    void this.saveAutoArchiveOptions()
   }
 
   private updateAutoCompactThresholdPercent(value: string) {
@@ -407,6 +421,29 @@ class DefaultOptionsSettingsTab extends SettingsTab {
         requireConfirmation: this.autoCompactRequireConfirmation,
       })
       this.markSaved()
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : t('requestFailed')
+      this.requestUpdate()
+    }
+  }
+
+  private async saveAutoArchiveOptions() {
+    try {
+      await saveAutoArchiveSettings(getAppStorage(), { enabled: this.autoArchiveEnabled })
+      this.markSaved(t('autoArchiveSaved'))
+      if (typeof BroadcastChannel !== 'undefined') {
+        try {
+          const channel = new BroadcastChannel('quickforge-sync')
+          channel.postMessage({
+            type: 'settings-changed',
+            sourceTabId: 'default-options-settings-tab',
+            timestamp: Date.now(),
+          })
+          channel.close()
+        } catch {
+          // Cross-tab refresh is best-effort only.
+        }
+      }
     } catch (error) {
       this.error = error instanceof Error ? error.message : t('requestFailed')
       this.requestUpdate()
@@ -625,6 +662,19 @@ class DefaultOptionsSettingsTab extends SettingsTab {
             </div>
             <div class="quickforge-settings-row-control">
               ${this.renderSwitch(this.showContextUsage, (checked) => this.updateShowContextUsage(checked))}
+            </div>
+          </div>
+
+          <div class="quickforge-settings-row">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">
+                ${t('autoArchiveEnabled')}
+                <quickforge-info-tip .label=${t('autoArchiveDescription')}></quickforge-info-tip>
+              </div>
+              <div class="quickforge-settings-row-description">${t('autoArchiveTriggerNote')}</div>
+            </div>
+            <div class="quickforge-settings-row-control">
+              ${this.renderSwitch(this.autoArchiveEnabled, (checked) => this.updateAutoArchiveEnabled(checked))}
             </div>
           </div>
 

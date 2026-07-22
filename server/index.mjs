@@ -19,6 +19,7 @@ import { handleSkillsApi } from './routes/skills.mjs'
 import { handleAgentApi } from './routes/agent.mjs'
 import { handleAgentProfilesApi } from './routes/agent-profiles.mjs'
 import { handleScheduledTasksApi, startScheduledTaskRunner, stopScheduledTaskRunner } from './routes/scheduled-tasks.mjs'
+import { startAutoArchiveRunner, stopAutoArchiveRunner } from './auto-archive.mjs'
 import { handleBackupApi } from './routes/backup.mjs'
 import { handleSystemApi } from './routes/system.mjs'
 import { handleSharesApi } from './routes/shares.mjs'
@@ -147,6 +148,7 @@ async function performRestart() {
   logger.info(`Restart supervisor started (PID ${supervisorPid}).`)
 
   stopScheduledTaskRunner()
+  stopAutoArchiveRunner()
   stopVite()
   await shutdownAgentManager()
   await shutdownMcpConnections()
@@ -221,6 +223,7 @@ function spawnUpdateSupervisor(update) {
 async function shutdownForUpdate() {
   logger.info('Shutting down QuickForge for external updater.')
   stopScheduledTaskRunner()
+  stopAutoArchiveRunner()
   stopVite()
   await shutdownAgentManager()
   await shutdownMcpConnections()
@@ -671,6 +674,7 @@ await resetStaleTaskStatuses()
 await initializeActiveProject()
 setActiveWorkspaceRootForFilesystem(getWorkspaceRoot())
 startScheduledTaskRunner()
+startAutoArchiveRunner()
 
 server.on('error', (error) => {
   // Handle listen errors (most commonly EADDRINUSE). Without this, Node would
@@ -709,6 +713,7 @@ server.listen(port, host, () => {
 async function gracefulShutdown(signal) {
   logger.info(`Received ${signal}, shutting down gracefully...`)
   stopScheduledTaskRunner()
+  stopAutoArchiveRunner()
   stopVite()
   await shutdownAgentManager()
   await shutdownMcpConnections()

@@ -8,6 +8,7 @@
 server/
 ├── index.mjs                 # 服务器入口 (486 行)
 ├── agent-manager.mjs         # Agent 生命周期管理 (含 Agent Profile / subagent 执行)
+├── auto-archive.mjs          # 超过 30 天未更新对话的自动归档 runner
 ├── acp/                      # ACP AgentSideConnection stdio 适配层
 ├── agent-profiles.mjs        # Agent Profile 配置层，合并内置和自定义 Agent
 ├── storage.mjs               # 文件存储层 (707 行)
@@ -118,10 +119,22 @@ server/
 **功能**:
 - 存储布局迁移：早期 v1→v2 布局迁移 + 配置按 store 拆分（`migrateSplitConfig()`，单体 `config.json` → `settings`/`mcp`/`providers`/`plugins`/`projects` 多文件）
 - `readStore` / `writeStore` / `atomicUpdate` — 通用存储操作（各配置 store 独立文件与写入队列）
+- `atomicSessionValueUpdate` — 在会话数据写队列中原子更新单个会话，供自动归档等后台维护任务避免覆盖并发持久化
 - 会话分桶存储（按 scope 和 projectId）；会话图片资产位于同一 bucket 的 `assets/<sessionId>/`，永久删除会话时同步清理
 - `readSessionStoreScoped` — 作用域会话查询
 - 写操作的原子锁队列
 - 目录大小计算
+
+### auto-archive.mjs
+
+**用途**: 按设置自动归档长期未更新的历史对话。
+
+- 设置保存在 `settings['auto-archive-settings']`，默认关闭。
+- 开启时立即扫描，服务启动时检查一次，之后每 24 小时检查一次。
+- 以 metadata、完整会话及消息时间戳中的最新活动时间判断是否超过 30 天；归档扫描与会话持久化串行，并在写入前再次校验，避免旧 metadata 造成误归档。
+- 超过 30 天且非空、非运行中的对话写入与手动归档相同的 `archivedAt`；不会删除会话数据。
+- 普通会话索引默认排除带 `archivedAt` 的记录；“已归档对话”页可查看、恢复或永久删除。
+- 关闭开关只停止后续自动归档，不恢复已有归档。
 
 ### global-memory.mjs
 

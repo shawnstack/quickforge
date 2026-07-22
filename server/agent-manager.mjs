@@ -28,6 +28,7 @@ import {
 import { projectContextFromId, defaultGlobalWorkspaceContext, readProjectConfig } from './project-config.mjs'
 import { ensureStorage, readStore, atomicUpdate, atomicSessionMetadataUpdate, readSessionValue, writeSessionValue, deleteSessionValue, tempAgentsDir } from './storage.mjs'
 import { logger } from './utils/logger.mjs'
+import { withSessionPersistenceLock } from './session-persistence-lock.mjs'
 import { getGlobalMemoryRevision, isGlobalMemoryEnabled } from './global-memory.mjs'
 import { buildSystemPrompt, generateAiTitle, generateTitle } from './session-utils.mjs'
 import { restoreReasoningContentInPayload } from './reasoning-cache.mjs'
@@ -1444,6 +1445,7 @@ export async function createAgent(sessionId, config = {}) {
     contextCompaction = null,
     agentProfile = null,
     idleRetention = null,
+    stateVersion = 0,
   } = config
   const accessMode = normalizeAccessMode(rawAccessMode, yoloMode)
   const resolvedYoloMode = yoloModeFromAccessMode(accessMode)
@@ -1629,7 +1631,7 @@ export async function createAgent(sessionId, config = {}) {
     idleRetention,
     lastTransformedContextMessages: null,
     autoCompacting: false,
-    stateVersion: 0,
+    stateVersion: Number.isFinite(stateVersion) ? Math.max(0, stateVersion) : 0,
     lastAutoCompactAt: null,
     lastAutoCompactRejected: null,
     memoryEnabled: initialMemoryEnabled,
@@ -1755,7 +1757,7 @@ function sessionLastModifiedFromMessages(messages, fallback) {
 /**
  * Persist session data to storage.
  */
-async function persistSession(session) {
+async function persistSessionUnlocked(session) {
   const { sessionId, agent, scope, projectId, title, titleSource, createdAt, lastModified: storedLastModified, status, startedAt, finishedAt, model, thinkingLevel, accessMode, yoloMode, contextCompaction } = session
   const messages = agent.state.messages
 
@@ -1792,6 +1794,7 @@ async function persistSession(session) {
     taskFinishedAt: finishedAt,
     contextCompaction: contextCompaction || undefined,
     idleRetention: session.idleRetention || undefined,
+    stateVersion: Number.isFinite(session.stateVersion) ? session.stateVersion : 0,
   }
   session.lastModified = lastModified
 
@@ -1877,6 +1880,10 @@ async function persistSession(session) {
   }
 
   return metadata
+}
+
+async function persistSession(session) {
+  return withSessionPersistenceLock(() => persistSessionUnlocked(session))
 }
 
 export async function persistSessionState(session) {
@@ -2406,6 +2413,7 @@ export async function restoreAgent(sessionId) {
       lastModified: sessionData.lastModified,
       contextCompaction: sessionData.contextCompaction || null,
       idleRetention: sessionData.idleRetention || null,
+      stateVersion: sessionData.stateVersion,
     })
   } catch (err) {
     logger.error(`Failed to restore agent ${sessionId}:`, err, { sessionId })

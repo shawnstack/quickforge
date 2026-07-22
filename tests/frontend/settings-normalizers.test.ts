@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_AUTO_ARCHIVE_SETTINGS,
+  loadAutoArchiveSettings,
+  normalizeAutoArchiveSettings,
+  saveAutoArchiveSettings,
+} from '../../src/lib/auto-archive-settings'
+import {
   DEFAULT_AUTO_COMPACT_SETTINGS,
   loadAutoCompactSettings,
   normalizeAutoCompactSettings,
@@ -60,6 +66,18 @@ function createStorage(initial: Record<string, unknown> = {}) {
 }
 
 describe('settings normalizers', () => {
+  it('normalizes, loads, and saves auto archive settings with disabled by default', async () => {
+    expect(normalizeAutoArchiveSettings(undefined)).toEqual(DEFAULT_AUTO_ARCHIVE_SETTINGS)
+    expect(normalizeAutoArchiveSettings({})).toEqual({ enabled: false })
+    expect(normalizeAutoArchiveSettings({ enabled: true })).toEqual({ enabled: true })
+    expect(normalizeAutoArchiveSettings({ enabled: 'true' })).toEqual({ enabled: false })
+
+    const { storage, values } = createStorage({ 'auto-archive-settings': { enabled: true } })
+    await expect(loadAutoArchiveSettings(storage)).resolves.toEqual({ enabled: true })
+    await saveAutoArchiveSettings(storage, { enabled: false })
+    expect(values.get('auto-archive-settings')).toEqual({ enabled: false })
+  })
+
   it('normalizes auto compact settings with defaults, clamps, and booleans', () => {
     expect(normalizeAutoCompactSettings(null)).toEqual(DEFAULT_AUTO_COMPACT_SETTINGS)
     expect(normalizeAutoCompactSettings({})).toMatchObject({

@@ -4,6 +4,28 @@ All notable changes to QuickForge will be documented in this file.
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-07-23
+
+### Added
+
+- Added automatic conversation archiving.
+- Improved workspace reader layout with a toggleable, resizable file navigation panel, path breadcrumbs, and external open actions.
+
+### Fixed
+
+- Improved conversation compaction handling.
+- Refined conversation workspace separators.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.7.0` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.7.0.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.7.0.tgz
+  ```
+
 ## [1.6.13] - 2026-07-20
 
 ### Added

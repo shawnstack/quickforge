@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronsLeftRight, Code2, Copy, Eye, Folder, GitBranch, GitCommitHorizontal, Globe, Maximize2, MessageSquare, Minimize2, Plus, RefreshCw, Search, SquareTerminal, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, ChevronsLeftRight, Code2, Copy, CornerDownLeft, Eye, Folder, GitBranch, GitCommitHorizontal, Globe, Maximize2, Minimize2, MoreHorizontal, Plus, RefreshCw, Search, SquareTerminal, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ProjectInfo } from '@/lib/types'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
@@ -46,7 +46,6 @@ type WorkspaceInspectorProps = {
   onOpenProjectInVSCode?: (project: ProjectInfo) => void
   onOpenProjectInIDEA?: (project: ProjectInfo) => void
   onPreviewArtifact?: (projectId: string, path: string) => void
-  onDraftRequest?: (text: string) => void
   request?: WorkspaceInspectorOpenRequest
   onRequestHandled?: (id: number) => void
   artifacts?: AiTurnArtifact[]
@@ -191,97 +190,199 @@ function isMarkdownFile(file?: WorkspaceFileResponse) {
   return file.language === 'markdown' || /\.(md|markdown)$/i.test(file.path)
 }
 
-function readerFilePrompt(path: string, markdown = false) {
-  if (markdown) {
-    return t('readerFileMarkdownPrompt', { path })
-  }
-  return t('readerFilePrompt', { path })
-}
-
-function readerDiffPrompt(path: string) {
-  return t('readerDiffPrompt', { path })
-}
-
 function readerDiffText(diff: GitFileDiffResponse) {
   const header = diff.oldPath ? `${diff.oldPath} -> ${diff.path}` : diff.path
   return `Diff for ${header}\n\n--- OLD\n${diff.oldContent}\n\n--- NEW\n${diff.newContent}`
 }
 
-function InlineReader({ mode, file, diff, loading, error, onClose, onDraftRequest }: {
+function InlineReader({ project, path, mode, file, diff, loading, error, navigationVisible, onNavigationVisibleChange }: {
+  project?: ProjectInfo
+  path?: string
   mode: ReaderMode
   file?: WorkspaceFileResponse
   diff?: GitFileDiffResponse
   loading?: boolean
   error?: string
-  onClose: () => void
-  onDraftRequest?: (text: string) => void
+  navigationVisible: boolean
+  onNavigationVisibleChange: (visible: boolean) => void
 }) {
   const [copied, setCopied] = useState<'path' | 'content'>()
   const [markdownMode, setMarkdownMode] = useState<'preview' | 'source'>('preview')
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [wordWrap, setWordWrap] = useState(false)
+  const actionsRef = useRef<HTMLDivElement | null>(null)
 
   async function copyToClipboard(kind: 'path' | 'content', value?: string) {
     if (!value) return
     await navigator.clipboard.writeText(value)
     setCopied(kind)
+    setMenuOpen(false)
     window.setTimeout(() => setCopied(undefined), 1200)
   }
 
-  const title = mode === 'file' ? file?.path : diff?.path
+  async function openExternal(target: 'explorer' | 'vscode' | 'idea') {
+    if (!project?.id || !title) return
+    try {
+      await openWorkspaceExternal(project.id, title, target)
+    } catch (err) {
+      const fallback = target === 'explorer'
+        ? t('openInExplorerFailed')
+        : target === 'idea'
+          ? t('openInIDEAFailed')
+          : t('openInVSCodeFailed')
+      await showAlert(err instanceof Error ? err.message : fallback)
+    }
+  }
+
+  const title = mode === 'file' ? file?.path || path : diff?.path || path
+  const pathSegments = useMemo(
+    () => normalizeWorkspacePath(title).split('/').filter(Boolean),
+    [title],
+  )
+  const breadcrumbTitle = [project?.name, ...pathSegments].filter(Boolean).join(' > ')
   const isMarkdown = mode === 'file' && isMarkdownFile(file)
+  const sourceVisible = mode === 'file' && (!isMarkdown || markdownMode === 'source')
   const copyableContent = mode === 'file' ? file?.content : diff ? readerDiffText(diff) : undefined
-  const aiPrompt = mode === 'file' && file ? readerFilePrompt(file.path, isMarkdown) : mode === 'diff' && diff ? readerDiffPrompt(diff.path) : undefined
   const diffStats = useMemo(
     () => (mode === 'diff' && diff ? countDiffLines(diff.oldContent, diff.newContent) : undefined),
     [mode, diff],
   )
 
+  useEffect(() => {
+    if (!menuOpen) return undefined
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!actionsRef.current?.contains(event.target as Node)) setMenuOpen(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [menuOpen])
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
-        {isMarkdown ? (
-          <div className="inline-flex rounded-full bg-muted/25 p-1 text-xs">
-            {(['preview', 'source'] as const).map((item) => (
-              <button
-                key={item}
-                type="button"
-                className={item === markdownMode
-                  ? 'rounded-full bg-background px-3 py-1 font-medium text-foreground/90 shadow-[0_8px_20px_-16px_rgb(15_23_42_/_0.42)]'
-                  : 'rounded-full px-3 py-1 text-muted-foreground/70 hover:text-foreground/85'}
-                onClick={() => setMarkdownMode(item)}
-              >
-                {item === 'preview' ? t('markdownPreview') : t('markdownSource')}
-              </button>
-            ))}
-          </div>
-        ) : null}
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
         {diffStats ? (
           <span className="shrink-0 font-mono text-[11px] font-medium">
             <span className="text-emerald-600 dark:text-emerald-400">+{diffStats.added}</span>
             <span className="ml-1.5 text-red-600 dark:text-red-400">-{diffStats.removed}</span>
           </span>
         ) : null}
-        <div className="flex-1" />
-        <Button variant="ghost" size="icon" className="size-7" onClick={() => void copyToClipboard('path', title)} disabled={!title} aria-label={t('copyPath')} title={t('copyPath')}>
-          {copied === 'path' ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-        </Button>
-        <Button variant="ghost" size="icon" className="size-7" onClick={() => void copyToClipboard('content', copyableContent)} disabled={!copyableContent} aria-label={t('copyContent')} title={mode === 'file' ? t('copyContent') : t('copyDiffContent')}>
-          {copied === 'content' ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-        </Button>
-        <Button variant="ghost" size="icon" className="size-7" onClick={() => aiPrompt && onDraftRequest?.(aiPrompt)} disabled={!aiPrompt || !onDraftRequest} aria-label={t('askAiAboutThis')} title={t('askAiAboutThis')}>
-          <MessageSquare className="size-3.5" />
-        </Button>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onClose} aria-label={t('close')} title={t('close')}>
-          <X className="size-3.5" />
-        </Button>
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-sm" title={breadcrumbTitle || title}>
+          {project?.name ? (
+            <span className="shrink-0 truncate text-muted-foreground/75">{project.name}</span>
+          ) : null}
+          {pathSegments.map((segment, index) => {
+            const isCurrentFile = index === pathSegments.length - 1
+            return (
+              <div key={`${segment}-${index}`} className={cn('flex min-w-0 items-center gap-1.5', isCurrentFile ? 'min-w-0' : 'shrink-0')}>
+                {(project?.name || index > 0) ? <ChevronRight className="size-4 shrink-0 text-muted-foreground/55" /> : null}
+                <span className={cn('truncate', isCurrentFile ? 'font-medium text-foreground/92' : 'text-muted-foreground/75')}>
+                  {segment}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+        <div ref={actionsRef} className="flex shrink-0 items-center gap-1">
+          {isMarkdown ? (
+            <button
+              type="button"
+              className="inline-flex h-8 items-center rounded-xl px-2.5 text-sm font-medium text-foreground/82 transition-colors hover:bg-muted/30 hover:text-foreground"
+              onClick={() => {
+                setMarkdownMode((value) => value === 'preview' ? 'source' : 'preview')
+                setMenuOpen(false)
+              }}
+            >
+              {markdownMode === 'preview' ? t('viewMarkdownSource') : t('returnToMarkdownPreview')}
+            </button>
+          ) : null}
+          <div className="relative">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn('size-8 rounded-xl text-muted-foreground/75', menuOpen && 'bg-muted/45 text-foreground/90')}
+              onClick={() => setMenuOpen((value) => !value)}
+              aria-label={t('readerMoreActions')}
+              title={t('readerMoreActions')}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+            >
+              <MoreHorizontal className="size-4" />
+            </Button>
+            {menuOpen ? (
+              <div className="absolute right-0 top-10 z-50 w-56 rounded-2xl border border-[color-mix(in_oklab,var(--border)_38%,transparent)] bg-popover p-1.5 text-popover-foreground shadow-quickforge" role="menu" aria-label={t('readerMoreActions')}>
+                <button
+                  type="button"
+                  className="flex h-10 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium text-foreground/86 transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-45"
+                  onClick={() => void copyToClipboard('path', title)}
+                  disabled={!title}
+                  role="menuitem"
+                >
+                  {copied === 'path' ? <Check className="size-4 shrink-0" /> : <Copy className="size-4 shrink-0 text-muted-foreground/80" />}
+                  <span>{t('copyPath')}</span>
+                </button>
+                <button
+                  type="button"
+                  className="flex h-10 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium text-foreground/86 transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-45"
+                  onClick={() => void copyToClipboard('content', copyableContent)}
+                  disabled={!copyableContent}
+                  role="menuitem"
+                >
+                  {copied === 'content' ? <Check className="size-4 shrink-0" /> : <Copy className="size-4 shrink-0 text-muted-foreground/80" />}
+                  <span>{mode === 'file' ? t('copyFileContent') : t('copyDiffContent')}</span>
+                </button>
+                <button
+                  type="button"
+                  className="flex h-10 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium text-foreground/86 transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-45"
+                  onClick={() => {
+                    setWordWrap((value) => !value)
+                    setMenuOpen(false)
+                  }}
+                  disabled={!sourceVisible}
+                  role="menuitemcheckbox"
+                  aria-checked={wordWrap}
+                >
+                  <CornerDownLeft className="size-4 shrink-0 text-muted-foreground/80" />
+                  <span className="min-w-0 flex-1">{t('enableWordWrap')}</span>
+                  {wordWrap ? <Check className="size-4 shrink-0 text-muted-foreground/80" /> : null}
+                </button>
+              </div>
+            ) : null}
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn('size-8 rounded-xl text-muted-foreground/75', navigationVisible && 'bg-muted/45 text-foreground/90')}
+            onClick={() => onNavigationVisibleChange(!navigationVisible)}
+            aria-label={navigationVisible ? t('hideFileNavigation') : t('showFileNavigation')}
+            title={navigationVisible ? t('hideFileNavigation') : t('showFileNavigation')}
+            aria-pressed={navigationVisible}
+          >
+            <Folder className="size-4" />
+          </Button>
+          <ProjectOpenMenu
+            project={project}
+            disabled={!title}
+            onOpenInExplorer={() => { void openExternal('explorer') }}
+            onOpenInVSCode={() => { void openExternal('vscode') }}
+            onOpenInIDEA={() => { void openExternal('idea') }}
+          />
+        </div>
       </div>
       <div className="min-h-0 flex-1 bg-background">
         {loading ? <div className="p-4 text-sm text-muted-foreground/70">{t('openingReader')}</div> : null}
         {!loading && error ? <div className="p-4 text-sm text-destructive">{error}</div> : null}
         {!loading && !error && mode === 'file' && file ? (
           isMarkdown ? (
-            <MarkdownReader key={file.path} path={file.path} content={file.content} language={file.language} mode={markdownMode} />
+            <MarkdownReader key={file.path} path={file.path} content={file.content} language={file.language} mode={markdownMode} wordWrap={wordWrap} />
           ) : (
-            <MonacoCodeViewer path={file.path} content={file.content} language={file.language} />
+            <MonacoCodeViewer path={file.path} content={file.content} language={file.language} wordWrap={wordWrap} />
           )
         ) : null}
         {!loading && !error && mode === 'diff' && diff ? (
@@ -438,7 +539,7 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
   )
 }
 
-export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPush, onOpenProjectInExplorer, onOpenProjectInVSCode, onOpenProjectInIDEA, onPreviewArtifact, onDraftRequest, request, onRequestHandled, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled }: WorkspaceInspectorProps) {
+export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPush, onOpenProjectInExplorer, onOpenProjectInVSCode, onOpenProjectInIDEA, onPreviewArtifact, request, onRequestHandled, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled }: WorkspaceInspectorProps) {
   const [tree, setTree] = useState<WorkspaceTreeNode[]>([])
   const [changes, setChanges] = useState<GitChangedFile[]>([])
   const [gitBranch, setGitBranch] = useState<string>()
@@ -463,6 +564,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
   const [reviewFilterOpen, setReviewFilterOpen] = useState(false)
   const [pendingGitAction, setPendingGitAction] = useState<{ action: GitChangeAction; path?: string }>()
   const [leftWidth, setLeftWidth] = useState(NAV_PANEL_DEFAULT_WIDTH)
+  const [readerNavigationVisible, setReaderNavigationVisible] = useState(true)
   const [isNavResizing, setIsNavResizing] = useState(false)
   const [mounted, setMounted] = useState(open)
   const [visible, setVisible] = useState(false)
@@ -508,6 +610,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
     [activeReaderTabId, activeReaderTabs],
   )
   const hasFileTab = Boolean(activeReaderTab && activeReaderTab.mode !== 'browser' && (activePanelTab?.kind === 'reader' || activePanelTab?.kind === 'files' || (activePanelTab?.kind === 'review' && activeReaderTab.mode === 'diff')))
+  const showNavigationPanel = !hasFileTab || readerNavigationVisible
   const navView: 'overview' | 'files' | 'changes' = activePanelTab?.kind === 'review'
     ? activePanelTab.reviewView === 'review' ? 'overview' : 'changes'
     : 'files'
@@ -940,17 +1043,6 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
     }
   }
 
-  function closeReaderTab(id: string) {
-    if (!activePanelTab) return
-    updatePanelTab(activePanelTab.id, (tab) => {
-      const currentTabs = tab.readerTabs || []
-      const idx = currentTabs.findIndex((item) => item.id === id)
-      const next = currentTabs.filter((item) => item.id !== id)
-      const nextActive = tab.activeReaderTabId === id ? (next[idx] ?? next[idx - 1])?.id : tab.activeReaderTabId
-      return { ...tab, readerTabs: next, activeReaderTabId: nextActive }
-    })
-  }
-
   async function selectDiffInPlace(path: string) {
     await openDiffTab(path, false)
   }
@@ -1020,7 +1112,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
     if (!start) return
     start.currentWidth = Math.min(
       NAV_PANEL_MAX_WIDTH,
-      Math.max(NAV_PANEL_MIN_WIDTH, start.startWidth + event.clientX - start.startX),
+      Math.max(NAV_PANEL_MIN_WIDTH, start.startWidth + start.startX - event.clientX),
     )
     if (navResizeFrameRef.current !== null) return
     navResizeFrameRef.current = window.requestAnimationFrame(() => {
@@ -1433,17 +1525,55 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
             />
           ) : (
             <>
-              <div
-                className={cn(
-                  'flex min-h-0 min-w-0 flex-col bg-muted/20',
-                  hasFileTab ? 'shrink-0 border-r-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)]' : 'flex-1',
-                )}
-                style={hasFileTab ? { width: leftWidth, minWidth: NAV_PANEL_MIN_WIDTH, maxWidth: NAV_PANEL_MAX_WIDTH } : undefined}
-              >
-                {error ? (
-                  <div className="p-4 text-sm text-destructive">{error}</div>
-                ) : (
-                  <div className={cn('min-h-0 min-w-0 flex-1 p-2', navView === 'changes' ? 'flex flex-col overflow-hidden' : 'overflow-auto')}>
+              {hasFileTab ? (
+                <div className="flex min-w-0 flex-1 flex-col bg-background">
+                  {activeReaderTab ? (
+                    <InlineReader
+                      key={activeReaderTab.id}
+                      project={project}
+                      path={activeReaderTab.path}
+                      mode={activeReaderTab.mode}
+                      file={activeReaderTab.file}
+                      diff={activeReaderTab.diff}
+                      loading={activeReaderTab.loading}
+                      error={activeReaderTab.error}
+                      navigationVisible={readerNavigationVisible}
+                      onNavigationVisibleChange={setReaderNavigationVisible}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+
+              {hasFileTab && readerNavigationVisible ? (
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-valuemin={NAV_PANEL_MIN_WIDTH}
+                  aria-valuemax={NAV_PANEL_MAX_WIDTH}
+                  aria-valuenow={leftWidth}
+                  className={cn(
+                    'group relative z-10 w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors',
+                    isNavResizing ? 'bg-primary/30' : 'hover:bg-[color-mix(in_oklab,var(--border)_52%,transparent)]',
+                  )}
+                  onPointerDown={startNavResizing}
+                  onPointerMove={navResize}
+                  onPointerUp={stopNavResizing}
+                  onPointerCancel={stopNavResizing}
+                />
+              ) : null}
+
+              {showNavigationPanel ? (
+                <div
+                  className={cn(
+                    'flex min-h-0 min-w-0 flex-col bg-muted/20',
+                    hasFileTab ? 'shrink-0 border-l-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)]' : 'flex-1',
+                  )}
+                  style={hasFileTab ? { width: leftWidth, minWidth: NAV_PANEL_MIN_WIDTH, maxWidth: NAV_PANEL_MAX_WIDTH } : undefined}
+                >
+                  {error ? (
+                    <div className="p-4 text-sm text-destructive">{error}</div>
+                  ) : (
+                    <div className={cn('min-h-0 min-w-0 flex-1 p-2', navView === 'changes' ? 'flex flex-col overflow-hidden' : 'overflow-auto')}>
                     {loading ? <div className="px-2 py-3 text-xs text-muted-foreground/70">{t('workspaceLoading')}</div> : null}
                     {!loading && navView === 'overview' ? (
                       <WorkspaceOverview
@@ -1461,13 +1591,13 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
                     {!loading && navView === 'files' ? (
                       <>
                         <div className="mb-2 flex items-center gap-1">
-                          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-md border-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-2 py-1.5 text-xs text-muted-foreground/65 focus-within:text-foreground/85">
-                            <Search className="size-3.5 shrink-0" />
+                          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-md border-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-2.5 py-2 text-sm text-muted-foreground/65 focus-within:text-foreground/85">
+                            <Search className="size-4 shrink-0" />
                             <input
                               value={filter}
                               onChange={(event) => setFilter(event.target.value)}
                               placeholder={t('workspaceFilterFiles')}
-                              className="min-w-0 flex-1 bg-transparent text-xs text-foreground/85 outline-none placeholder:text-muted-foreground/50"
+                              className="min-w-0 flex-1 bg-transparent text-sm text-foreground/85 outline-none placeholder:text-muted-foreground/50"
                             />
                           </label>
                           <button
@@ -1587,39 +1717,6 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
                   </div>
                 )}
               </div>
-
-              {hasFileTab ? (
-                <>
-                  <div
-                    role="separator"
-                    aria-orientation="vertical"
-                    aria-valuemin={NAV_PANEL_MIN_WIDTH}
-                    aria-valuemax={NAV_PANEL_MAX_WIDTH}
-                    aria-valuenow={leftWidth}
-                    className={cn(
-                      'group relative z-10 w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors',
-                      isNavResizing ? 'bg-primary/30' : 'hover:bg-[color-mix(in_oklab,var(--border)_52%,transparent)]',
-                    )}
-                    onPointerDown={startNavResizing}
-                    onPointerMove={navResize}
-                    onPointerUp={stopNavResizing}
-                    onPointerCancel={stopNavResizing}
-                  />
-
-                  <div className="flex min-w-0 flex-1 flex-col bg-background">
-                    {activeReaderTab ? (
-                      <InlineReader
-                        mode={activeReaderTab.mode}
-                        file={activeReaderTab.file}
-                        diff={activeReaderTab.diff}
-                        loading={activeReaderTab.loading}
-                        error={activeReaderTab.error}
-                        onClose={() => activePanelTab.kind === 'reader' ? closePanelTab(activePanelTab.id) : closeReaderTab(activeReaderTab.id)}
-                        onDraftRequest={onDraftRequest}
-                      />
-                    ) : null}
-                  </div>
-                </>
               ) : null}
             </>
           )}

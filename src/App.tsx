@@ -460,15 +460,6 @@ function MainApp() {
     setRestoredDraft((current) => current?.id === id ? undefined : current)
   }, [])
 
-  const restoreWorkspaceDraft = useCallback((text: string) => {
-    if (!text.trim()) return
-    setRestoredDraft({
-      id: Date.now(),
-      sessionId: agentRef.current?.sessionId,
-      text,
-    })
-  }, [agentRef])
-
   const requestWorkspaceInspector = useCallback((request: WorkspaceInspectorOpenRequestInput) => {
     workspaceInspectorRequestIdRef.current += 1
     setWorkspaceInspectorRequest({ ...request, id: workspaceInspectorRequestIdRef.current })
@@ -1760,7 +1751,6 @@ function MainApp() {
               onOpenProjectInVSCode={openProjectInVSCodeWithFeedback}
               onOpenProjectInIDEA={openProjectInIDEAWithFeedback}
               onPreviewArtifact={openArtifactPreview}
-              onDraftRequest={restoreWorkspaceDraft}
               request={ui.workspaceInspectorRequest}
               onRequestHandled={handleWorkspaceInspectorRequest}
               artifacts={currentSessionArtifactsState.projectId === agentManager.currentToolProject.id && currentSessionArtifactsState.sessionId === agentManager.currentSessionId

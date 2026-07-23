@@ -8,6 +8,7 @@ type MarkdownReaderProps = {
   content: string
   language: string
   mode: MarkdownMode
+  wordWrap?: boolean
 }
 
 type MarkdownMode = 'preview' | 'source'
@@ -227,14 +228,14 @@ function renderMarkdown(content: string) {
   return blocks
 }
 
-export function MarkdownReader({ path, content, language, mode }: MarkdownReaderProps) {
+export function MarkdownReader({ path, content, language, mode, wordWrap = false }: MarkdownReaderProps) {
   const renderedContent = useMemo(() => renderMarkdown(content), [content])
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="min-h-0 flex-1">
         {mode === 'source' ? (
-          <MonacoCodeViewer path={path} content={content} language={language} />
+          <MonacoCodeViewer path={path} content={content} language={language} wordWrap={wordWrap} />
         ) : (
           <div className="h-full overflow-auto bg-background">
             <article className="quickforge-markdown-reader mx-auto max-w-3xl px-8 py-7 text-sm leading-7 text-foreground/88">

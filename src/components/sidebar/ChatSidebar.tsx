@@ -1254,7 +1254,7 @@ export const ChatSidebar = memo(function ChatSidebar({
         </>
       ) : null}
 
-      <div className="mt-auto shrink-0 px-3 py-3">
+      <div className="mt-auto shrink-0 border-t border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-3 py-3">
         {updateAvailable && latestVersion ? (
           <button
             type="button"
@@ -1308,7 +1308,7 @@ export const ChatSidebar = memo(function ChatSidebar({
         ) : null}
         <button
           type="button"
-          className={cn(footerRowClass, 'w-full', inactiveRowClass)}
+          className={cn(footerRowClass, 'min-h-9 w-full shrink-0 rounded-lg', inactiveRowClass)}
           onClick={onOpenSettings}
           aria-label={t('settings')}
           title={t('settings')}

@@ -31,7 +31,7 @@ function statusLabel(file?: GitChangedFile) {
  */
 function FileThumbnail({ projectId, path }: { projectId: string; path: string }) {
   const [failed, setFailed] = useState(false)
-  if (failed) return <FileIcon path={path} className="size-3.5 shrink-0" />
+  if (failed) return <FileIcon path={path} className="size-4 shrink-0" />
   return (
     <img
       src={workspacePreviewUrl(projectId, path)}
@@ -40,7 +40,7 @@ function FileThumbnail({ projectId, path }: { projectId: string; path: string })
       loading="lazy"
       decoding="async"
       onError={() => setFailed(true)}
-      className="size-3.5 shrink-0 rounded-[3px] object-cover ring-1 ring-black/5 dark:ring-white/10"
+      className="size-4 shrink-0 rounded-[3px] object-cover ring-1 ring-black/5 dark:ring-white/10"
     />
   )
 }
@@ -81,7 +81,7 @@ function WorkspaceTreeRow({
     <div>
       <button
         type="button"
-        className={`group flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-xs transition-colors ${
+        className={`group flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors ${
           isSelected ? 'bg-muted/28 text-foreground/90' : 'text-muted-foreground/72 hover:bg-muted/20 hover:text-foreground/85'
         }`}
         style={{ paddingLeft: `${0.5 + depth * 0.75}rem` }}
@@ -98,19 +98,19 @@ function WorkspaceTreeRow({
         title={node.path}
       >
         {isDirectory ? (
-          <ChevronRight className={`size-3 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+          <ChevronRight className={`size-3.5 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} />
         ) : (
-          <span className="w-3 shrink-0" />
+          <span className="w-3.5 shrink-0" />
         )}
         {isDirectory ? (
-          <DirectoryIcon name={node.name} open={expanded} className="size-3.5 shrink-0" />
+          <DirectoryIcon name={node.name} open={expanded} className="size-4 shrink-0" />
         ) : showThumbnail ? (
           <FileThumbnail projectId={projectId as string} path={node.path} />
         ) : (
-          <FileIcon path={node.path} className="size-3.5 shrink-0" />
+          <FileIcon path={node.path} className="size-4 shrink-0" />
         )}
         <span className="min-w-0 flex-1 truncate">{node.name}</span>
-        {status ? <span className="shrink-0 font-mono text-[0.68rem] text-emerald-600 dark:text-emerald-500">{status}</span> : null}
+        {status ? <span className="shrink-0 font-mono text-xs text-emerald-600 dark:text-emerald-500">{status}</span> : null}
         {canPreview ? (
           <span
             role="button"
@@ -130,7 +130,7 @@ function WorkspaceTreeRow({
               }
             }}
           >
-            <Eye className="size-3.5" />
+            <Eye className="size-4" />
           </span>
         ) : null}
       </button>
@@ -156,7 +156,7 @@ function WorkspaceTreeRow({
 
 export function WorkspaceFileTree({ tree, selectedPath, gitStatuses = {}, onSelectFile, onPreviewFile, projectId }: WorkspaceFileTreeProps) {
   if (tree.length === 0) {
-    return <div className="px-2 py-3 text-xs text-muted-foreground/70">{t('workspaceNoFilesToDisplay')}</div>
+    return <div className="px-2 py-3 text-sm text-muted-foreground/70">{t('workspaceNoFilesToDisplay')}</div>
   }
 
   return (

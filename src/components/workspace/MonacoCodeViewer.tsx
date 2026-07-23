@@ -6,9 +6,10 @@ type MonacoCodeViewerProps = {
   path: string
   content: string
   language: string
+  wordWrap?: boolean
 }
 
-export function MonacoCodeViewer({ path, content, language }: MonacoCodeViewerProps) {
+export function MonacoCodeViewer({ path, content, language, wordWrap = false }: MonacoCodeViewerProps) {
   const theme = useAppTheme()
   const codeFontMetrics = useCodeFontMetrics()
 
@@ -30,12 +31,12 @@ export function MonacoCodeViewer({ path, content, language }: MonacoCodeViewerPr
         lineHeight: codeFontMetrics.lineHeight,
         lineNumbers: 'on',
         scrollBeyondLastLine: false,
-        wordWrap: 'off',
+        wordWrap: wordWrap ? 'on' : 'off',
         renderLineHighlight: 'line',
         folding: false,
         glyphMargin: false,
         scrollbar: {
-          horizontal: 'visible',
+          horizontal: wordWrap ? 'auto' : 'visible',
           horizontalScrollbarSize: 10,
           verticalScrollbarSize: 8,
         },

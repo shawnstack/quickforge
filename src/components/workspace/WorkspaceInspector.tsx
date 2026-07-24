@@ -613,8 +613,10 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
     () => activeReaderTabs.find((tab) => tab.id === activeReaderTabId),
     [activeReaderTabId, activeReaderTabs],
   )
-  const hasFileTab = Boolean(activeReaderTab && activeReaderTab.mode !== 'browser' && (activePanelTab?.kind === 'reader' || activePanelTab?.kind === 'files' || (activePanelTab?.kind === 'review' && activeReaderTab.mode === 'diff')))
-  const showNavigationPanel = !hasFileTab || readerNavigationVisible
+  const hasFileTab = Boolean(activeReaderTab && activeReaderTab.mode !== 'browser' && (activePanelTab?.kind === 'reader' || (activePanelTab?.kind === 'review' && activeReaderTab.mode === 'diff')))
+  const isFilesLanding = activePanelTab?.kind === 'files'
+  const hasReaderPane = hasFileTab || isFilesLanding
+  const showNavigationPanel = isFilesLanding || !hasFileTab || readerNavigationVisible
   const navView: 'overview' | 'files' | 'changes' = activePanelTab?.kind === 'review'
     ? activePanelTab.reviewView === 'review' ? 'overview' : 'changes'
     : 'files'
@@ -1592,7 +1594,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
             />
           ) : (
             <>
-              {hasFileTab ? (
+              {hasReaderPane ? (
                 <div className="flex min-w-0 flex-1 flex-col bg-background">
                   {activeReaderTab ? (
                     <InlineReader
@@ -1607,11 +1609,19 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
                       navigationVisible={readerNavigationVisible}
                       onNavigationVisibleChange={setReaderNavigationVisible}
                     />
+                  ) : isFilesLanding ? (
+                    <div className="flex min-h-0 flex-1 items-center justify-center px-6">
+                      <div className="max-w-sm text-center">
+                        <Folder className="mx-auto size-8 stroke-[1.6] text-muted-foreground/35" />
+                        <div className="mt-3 text-sm font-medium text-foreground/85">{t('workspaceOpenFileTitle')}</div>
+                        <div className="mt-1 text-xs leading-5 text-muted-foreground/60">{t('workspaceOpenFileDescription')}</div>
+                      </div>
+                    </div>
                   ) : null}
                 </div>
               ) : null}
 
-              {hasFileTab && readerNavigationVisible ? (
+              {hasReaderPane && (isFilesLanding || readerNavigationVisible) ? (
                 <div
                   role="separator"
                   aria-orientation="vertical"
@@ -1633,9 +1643,9 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
                 <div
                   className={cn(
                     'flex min-h-0 min-w-0 flex-col bg-muted/20',
-                    hasFileTab ? 'shrink-0 border-l-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)]' : 'flex-1',
+                    hasReaderPane ? 'shrink-0 border-l-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)]' : 'flex-1',
                   )}
-                  style={hasFileTab ? { width: leftWidth, minWidth: NAV_PANEL_MIN_WIDTH, maxWidth: NAV_PANEL_MAX_WIDTH } : undefined}
+                  style={hasReaderPane ? { width: leftWidth, minWidth: NAV_PANEL_MIN_WIDTH, maxWidth: NAV_PANEL_MAX_WIDTH } : undefined}
                 >
                   {error ? (
                     <div className="p-4 text-sm text-destructive">{error}</div>

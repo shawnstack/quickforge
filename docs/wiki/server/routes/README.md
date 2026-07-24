@@ -170,14 +170,14 @@ Agent Profile 管理路由。
 
 ## backup.mjs
 
-数据设置备份和恢复路由。设置备份只处理配置数据，不包含对话历史。
+数据设置备份和恢复路由。用户设置备份只处理可携带配置数据，不包含本机项目注册表与对话历史；恢复前的内部安全备份仍会保留项目注册表，用于同机回滚。
 
 **主要端点**:
-- `GET /api/backup/export?sections=settings,mcp,providerKeys,customProviders,projects,scheduledTasks` — 按数据项导出设置备份；至少选择一项。`providerKeys` 与其他设置项一致，不需要额外开关。新 `sections` 参数不接受对话数据。
-- `GET /api/backup/export?scope=all|config|sessions&includeSecrets=0|1` — 旧客户端兼容参数；新设置界面不再使用 `all` / `sessions`。
-- `POST /api/backup/inspect` — 检查 JSON 请求体中的备份并返回预览。
-- `POST /api/backup/inspect-file` — 上传备份文件，按设置数据项检查并返回 `importToken`。旧完整备份中的对话会被忽略并通过 `ignoredConversations` 明确告知；格式异常的数据项通过 `invalidSections` 返回，不阻塞其他有效项。
-- `POST /api/backup/import` — 使用 `{ "importToken": "...", "sections": [...], "mode": "replace|merge" }` 恢复所选数据，也兼容直接传入 `backup`。导入令牌仅在成功后删除，失败可重试；写入前会创建安全备份。
+- `GET /api/backup/export?sections=settings,mcp,providerKeys,customProviders,scheduledTasks` — 按数据项导出用户设置备份；至少选择一项。`providerKeys` 与其他设置项一致，不需要额外开关。项目注册表和对话数据均不接受导出。
+- `GET /api/backup/export?scope=all|config|sessions&includeSecrets=0|1` — 旧客户端兼容参数；用户导出不再包含项目注册表，新设置界面也不再使用 `all` / `sessions`。
+- `POST /api/backup/inspect` — 检查 JSON 请求体中的备份并返回预览；高于当前格式版本的备份会被拒绝。
+- `POST /api/backup/inspect-file` — 上传备份文件，按设置数据项检查并返回 `importToken`。旧完整备份中的对话和项目注册表会被忽略并明确告知；格式异常的数据项通过 `invalidSections` 返回，不阻塞其他有效项。
+- `POST /api/backup/import` — 使用 `{ "importToken": "...", "sections": [...], "mode": "replace|merge" }` 恢复所选数据，也兼容直接传入 `backup`。导入令牌仅在成功后删除，失败可重试；写入前会创建包含本机项目注册表的安全备份。项目绑定的定时任务若找不到对应本地项目，会保留绑定信息并自动暂停。
 
 ## lan-access.mjs (201 行)
 

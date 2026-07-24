@@ -6,7 +6,7 @@ import './info-tip'
 
 const BACKUP_FILE_PREFIX = 'quickforge-backup'
 
-type BackupExportSection = 'settings' | 'mcp' | 'providerKeys' | 'customProviders' | 'projects' | 'scheduledTasks'
+type BackupExportSection = 'settings' | 'mcp' | 'providerKeys' | 'customProviders' | 'scheduledTasks'
 type BackupRestoreSection = BackupExportSection
 type BackupRestoreMode = 'replace' | 'merge'
 type BackupImportSummary = Record<string, number>
@@ -45,7 +45,6 @@ const dataSections: Array<{ id: BackupExportSection; countKey: keyof BackupImpor
   { id: 'mcp', countKey: 'mcp', label: () => t('restoreMcp'), description: () => t('restoreMcpDescription') },
   { id: 'providerKeys', countKey: 'providerKeys', label: () => t('restoreProviderKeys'), description: () => t('restoreProviderKeysDescription') },
   { id: 'customProviders', countKey: 'customProviders', label: () => t('restoreCustomProviders'), description: () => t('restoreCustomProvidersDescription') },
-  { id: 'projects', countKey: 'projects', label: () => t('restoreProjects'), description: () => t('restoreProjectsDescription') },
   { id: 'scheduledTasks', countKey: 'scheduledTasks', label: () => t('restoreScheduledTasks'), description: () => t('restoreScheduledTasksDescription') },
 ]
 

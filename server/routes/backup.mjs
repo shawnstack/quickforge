@@ -7,18 +7,14 @@ import {
   readStore,
   writeStore,
   readProjectConfigData,
-  writeProjectConfigData,
   storageDir,
 } from '../storage.mjs'
-import { initializeActiveProject } from '../project-config.mjs'
-import { setActiveWorkspaceRootForFilesystem } from './filesystem.mjs'
-import { getWorkspaceRoot } from '../utils/workspace.mjs'
 
 const BACKUP_VERSION = 1
 const BACKUP_APP = 'quickforge'
 const IMPORT_UPLOAD_MAX_BYTES = Number(process.env.QUICKFORGE_IMPORT_UPLOAD_MAX_BYTES || 1024 * 1024 * 1024)
 const backupScopes = new Set(['all', 'config', 'sessions'])
-const settingsSectionIds = ['settings', 'mcp', 'providerKeys', 'customProviders', 'projects', 'scheduledTasks']
+const settingsSectionIds = ['settings', 'mcp', 'providerKeys', 'customProviders', 'scheduledTasks']
 const exportSectionIds = new Set(settingsSectionIds)
 const restoreSectionIds = new Set([...settingsSectionIds, 'conversations'])
 const restoreModes = new Set(['replace', 'merge'])
@@ -138,21 +134,6 @@ function assertObjectSection(value, name) {
   return value
 }
 
-function assertProjectConfig(value) {
-  const projectConfig = assertObjectSection(value, 'projects')
-  if (projectConfig === undefined) return undefined
-  if (!Array.isArray(projectConfig.projects)) {
-    const error = new Error('Invalid backup section: projects.projects must be an array')
-    error.statusCode = 400
-    throw error
-  }
-  return {
-    activeProjectId: typeof projectConfig.activeProjectId === 'string' ? projectConfig.activeProjectId : null,
-    globalSkills: Array.isArray(projectConfig.globalSkills) ? projectConfig.globalSkills : [],
-    projects: projectConfig.projects,
-  }
-}
-
 function filterSessionsByMetadata(sessions, metadata) {
   if (!sessions || !metadata) return sessions
   const metadataIds = new Set(Object.keys(metadata))
@@ -226,8 +207,8 @@ async function buildBackup(scope = 'all', options = {}) {
       shouldInclude('mcp') ? readStore('mcp').then((value) => ['mcp', value]) : null,
       shouldInclude('providerKeys') ? readStore('provider-keys').then((value) => ['providerKeys', value]) : null,
       shouldInclude('customProviders') ? readStore('custom-providers').then((value) => ['customProviders', value]) : null,
-      shouldInclude('projects') ? readProjectConfigData().then((value) => ['projects', value]) : null,
       shouldInclude('scheduledTasks') ? readStore('scheduled-tasks').then((value) => ['scheduledTasks', value]) : null,
+      options.includeLocalProjects ? readProjectConfigData().then((value) => ['projects', value]) : null,
     ])
     for (const entry of entries) {
       if (entry) data[entry[0]] = entry[1]
@@ -264,7 +245,14 @@ function normalizeBackupPayload(payload) {
     throw error
   }
 
-  const data = backup.data && typeof backup.data === 'object' && !Array.isArray(backup.data)
+  const hasEnvelope = backup.data && typeof backup.data === 'object' && !Array.isArray(backup.data)
+  if (hasEnvelope && Number.isInteger(backup.version) && backup.version > BACKUP_VERSION) {
+    const error = new Error(`Unsupported backup version: ${backup.version}`)
+    error.statusCode = 400
+    throw error
+  }
+
+  const data = hasEnvelope
     ? backup.data
     : backup
 
@@ -310,14 +298,13 @@ function validateSettingsImportBackup(payload) {
   const normalized = normalizeBackupPayload(payload)
   const validSections = {}
   const invalidSections = {}
+  const ignoredProjects = normalized.sections.projects !== undefined
 
   for (const id of settingsSectionIds) {
     const value = normalized.sections[id]
     if (value === undefined) continue
     try {
-      validSections[id] = id === 'projects'
-        ? assertProjectConfig(value)
-        : assertObjectSection(value, id)
+      validSections[id] = assertObjectSection(value, id)
     } catch (error) {
       invalidSections[id] = error instanceof Error ? error.message : `Invalid backup section: ${id}`
     }
@@ -339,6 +326,7 @@ function validateSettingsImportBackup(payload) {
       data: validSections,
     },
     invalidSections,
+    ignoredProjects,
   }
 }
 
@@ -351,18 +339,25 @@ function validateBackupPayload(payload) {
     ? normalizeSessionMetadata(sessions, sections.sessionsMetadata)
     : assertObjectSection(sections.sessionsMetadata, 'sessionsMetadata')
 
+  const validatedSections = {
+    settings: assertObjectSection(sections.settings, 'settings'),
+    mcp: assertObjectSection(sections.mcp, 'mcp'),
+    providerKeys: assertObjectSection(sections.providerKeys, 'providerKeys'),
+    customProviders: assertObjectSection(sections.customProviders, 'customProviders'),
+    scheduledTasks: assertObjectSection(sections.scheduledTasks, 'scheduledTasks'),
+    sessions,
+    sessionsMetadata,
+  }
+
+  if (Object.values(validatedSections).every((value) => value === undefined)) {
+    const error = new Error('Backup does not contain any restorable sections')
+    error.statusCode = 400
+    throw error
+  }
+
   return {
     ...backup,
-    sections: {
-      settings: assertObjectSection(sections.settings, 'settings'),
-      mcp: assertObjectSection(sections.mcp, 'mcp'),
-      providerKeys: assertObjectSection(sections.providerKeys, 'providerKeys'),
-      customProviders: assertObjectSection(sections.customProviders, 'customProviders'),
-      projects: assertProjectConfig(sections.projects),
-      scheduledTasks: assertObjectSection(sections.scheduledTasks, 'scheduledTasks'),
-      sessions,
-      sessionsMetadata,
-    },
+    sections: validatedSections,
   }
 }
 
@@ -411,7 +406,6 @@ function filterRestoreSections(sections, selected) {
     mcp: selected.has('mcp') ? sections.mcp : undefined,
     providerKeys: selected.has('providerKeys') ? sections.providerKeys : undefined,
     customProviders: selected.has('customProviders') ? sections.customProviders : undefined,
-    projects: selected.has('projects') ? sections.projects : undefined,
     scheduledTasks: selected.has('scheduledTasks') ? sections.scheduledTasks : undefined,
     sessions: selected.has('conversations') ? sections.sessions : undefined,
     sessionsMetadata: selected.has('conversations') ? sections.sessionsMetadata : undefined,
@@ -444,28 +438,66 @@ function countKeys(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value).length : 0
 }
 
+async function localProjectIds() {
+  const config = await readProjectConfigData()
+  return new Set(
+    (Array.isArray(config?.projects) ? config.projects : [])
+      .map((project) => project?.id)
+      .filter((id) => typeof id === 'string'),
+  )
+}
+
+function scheduledTasksWithMissingProjects(tasks, projectIds) {
+  if (!tasks || typeof tasks !== 'object' || Array.isArray(tasks)) return []
+  return Object.values(tasks).filter((task) => (
+    task && typeof task === 'object' && !Array.isArray(task) &&
+    typeof task.projectId === 'string' && task.projectId && !projectIds.has(task.projectId)
+  ))
+}
+
+function pauseScheduledTasksWithMissingProjects(tasks, projectIds) {
+  if (!tasks || typeof tasks !== 'object' || Array.isArray(tasks)) return tasks
+  return Object.fromEntries(Object.entries(tasks).map(([id, task]) => {
+    if (
+      task && typeof task === 'object' && !Array.isArray(task) &&
+      typeof task.projectId === 'string' && task.projectId && !projectIds.has(task.projectId)
+    ) {
+      return [id, { ...task, status: 'paused' }]
+    }
+    return [id, task]
+  }))
+}
+
 function buildSummary(sections) {
   const summary = {}
   if (sections.settings !== undefined) summary.settings = countKeys(sections.settings)
   if (sections.mcp !== undefined) summary.mcp = Array.isArray(sections.mcp?.mcpServers) ? sections.mcp.mcpServers.length : countKeys(sections.mcp)
   if (sections.providerKeys !== undefined) summary.providerKeys = countKeys(sections.providerKeys)
   if (sections.customProviders !== undefined) summary.customProviders = countKeys(sections.customProviders)
-  if (sections.projects !== undefined) summary.projects = sections.projects.projects.length
   if (sections.scheduledTasks !== undefined) summary.scheduledTasks = countKeys(sections.scheduledTasks)
   if (sections.sessions !== undefined) summary.sessions = countKeys(filterSessionsByMetadata(sections.sessions, sections.sessionsMetadata))
   if (sections.sessionsMetadata !== undefined) summary.sessionsMetadata = countKeys(sections.sessionsMetadata)
   return summary
 }
 
-function inspectBackup(payload) {
+async function inspectBackup(payload) {
+  const normalized = normalizeBackupPayload(payload)
+  const ignoredProjects = normalized.sections.projects !== undefined
   const backup = validateBackupPayload(payload)
   const summary = buildSummary(backup.sections)
   const warnings = []
   const containsSecrets = countKeys(backup.sections.providerKeys) > 0
+  const missingProjectTasks = backup.sections.scheduledTasks === undefined
+    ? []
+    : scheduledTasksWithMissingProjects(backup.sections.scheduledTasks, await localProjectIds())
 
   if (containsSecrets) warnings.push('Backup contains API keys.')
+  if (ignoredProjects) warnings.push('Project lists and project-specific settings are local machine data and will not be imported.')
   if (backup.sections.sessions !== undefined || backup.sections.sessionsMetadata !== undefined) {
     warnings.push('Importing conversations will replace local conversation data.')
+  }
+  if (missingProjectTasks.length > 0) {
+    warnings.push(`${missingProjectTasks.length} scheduled task(s) reference projects that are not registered locally and will be paused after import.`)
   }
 
   return {
@@ -481,7 +513,7 @@ function inspectBackup(payload) {
 }
 
 async function writeSafetyBackup(scope = 'config') {
-  const backup = await buildBackup(scope, { includeSecrets: true })
+  const backup = await buildBackup(scope, { includeSecrets: true, includeLocalProjects: true })
   const dir = path.join(storageDir, 'backups')
   await fs.mkdir(dir, { recursive: true })
   const file = path.join(dir, `quickforge-before-restore-${backupTimestamp()}.json`)
@@ -493,26 +525,6 @@ async function writeSafetyBackup(scope = 'config') {
 // local-only keys are preserved.
 function mergeRecordStore(localValue, backupValue) {
   return { ...(localValue && typeof localValue === 'object' ? localValue : {}), ...backupValue }
-}
-
-// Merge projects config: dedupe the projects array by id (backup wins on
-// collision, local-only entries preserved), take activeProjectId / globalSkills
-// from backup.
-function mergeProjectConfig(localConfig, backupConfig) {
-  const localProjects = Array.isArray(localConfig?.projects) ? localConfig.projects : []
-  const backupProjects = Array.isArray(backupConfig.projects) ? backupConfig.projects : []
-  const merged = new Map()
-  for (const project of localProjects) {
-    if (project && typeof project.id === 'string') merged.set(project.id, project)
-  }
-  for (const project of backupProjects) {
-    if (project && typeof project.id === 'string') merged.set(project.id, project)
-  }
-  return {
-    activeProjectId: typeof backupConfig.activeProjectId === 'string' ? backupConfig.activeProjectId : (localConfig?.activeProjectId ?? null),
-    globalSkills: Array.isArray(backupConfig.globalSkills) ? backupConfig.globalSkills : (Array.isArray(localConfig?.globalSkills) ? localConfig.globalSkills : []),
-    projects: [...merged.values()],
-  }
 }
 
 async function restoreValidatedBackup(backup, mode = 'replace') {
@@ -544,16 +556,10 @@ async function restoreValidatedBackup(backup, mode = 'replace') {
     summary.customProviders = countKeys(value)
   }
 
-  if (sections.projects !== undefined) {
-    const value = merge ? mergeProjectConfig(await readProjectConfigData(), sections.projects) : sections.projects
-    await writeProjectConfigData(value)
-    await initializeActiveProject()
-    setActiveWorkspaceRootForFilesystem(getWorkspaceRoot())
-    summary.projects = value.projects.length
-  }
-
   if (sections.scheduledTasks !== undefined) {
-    const value = merge ? mergeRecordStore(await readStore('scheduled-tasks'), sections.scheduledTasks) : sections.scheduledTasks
+    const projectIds = await localProjectIds()
+    const safeTasks = pauseScheduledTasksWithMissingProjects(sections.scheduledTasks, projectIds)
+    const value = merge ? mergeRecordStore(await readStore('scheduled-tasks'), safeTasks) : safeTasks
     await writeStore('scheduled-tasks', value)
     summary.scheduledTasks = countKeys(value)
   }
@@ -587,7 +593,7 @@ export async function handleBackupApi(req, res, url) {
   if (req.method === 'POST' && url.pathname === '/api/backup/inspect') {
     await ensureStorage()
     const body = await readJsonBody(req)
-    sendJson(res, 200, inspectBackup(body))
+    sendJson(res, 200, await inspectBackup(body))
     return
   }
 
@@ -595,10 +601,11 @@ export async function handleBackupApi(req, res, url) {
     await ensureStorage()
     const text = await readTextBody(req)
     const { backup, ignoredConversations } = extractSettingsBackupFromText(text)
-    const { backup: validBackup, invalidSections } = validateSettingsImportBackup(backup)
-    const inspect = inspectBackup(validBackup)
+    const { backup: validBackup, invalidSections, ignoredProjects } = validateSettingsImportBackup(backup)
+    const inspect = await inspectBackup(validBackup)
+    if (ignoredProjects) inspect.warnings.push('Project lists and project-specific settings are local machine data and will not be imported.')
     const token = await writePendingImportBackup(validBackup)
-    sendJson(res, 200, { ...inspect, invalidSections, ignoredConversations, importToken: token })
+    sendJson(res, 200, { ...inspect, invalidSections, ignoredConversations, ignoredProjects, importToken: token })
     return
   }
 

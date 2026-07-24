@@ -95,6 +95,7 @@ describe('backup export — settings sections', () => {
       expect(res._status).toBe(200)
       expect(json.scope).toBe('config')
       expect(json.data.settings).toEqual({ theme: 'dark' })
+      expect(json.data.projects).toBeUndefined()
       expect(json.data.sessions).toBeUndefined()
       expect(json.data.sessionsMetadata).toBeUndefined()
     })
@@ -114,6 +115,13 @@ describe('backup export — settings sections', () => {
       expect(json.data.providerKeys).toEqual({ openai: 'key' })
       expect(json.data.customProviders).toBeUndefined()
       expect(json.data.sessions).toBeUndefined()
+    })
+  })
+
+  it('rejects projects in the section-based export API', async () => {
+    await withTempBackup(async (backup) => {
+      await expect(callExport(backup, 'http://localhost/api/backup/export?sections=settings,projects'))
+        .rejects.toThrow('Invalid export section: projects')
     })
   })
 
@@ -164,11 +172,11 @@ describe('backup import — file inspect', () => {
     })
   })
 
-  it('skips invalid unselected sections while preserving valid settings', async () => {
+  it('ignores legacy project data while preserving valid settings', async () => {
     await withTempBackup(async (backup) => {
       const text = JSON.stringify(makeBackup({
         settings: { theme: 'dark' },
-        projects: { projects: 'invalid' },
+        projects: { activeProjectId: 'local', globalSkills: ['example'], projects: [] },
       }))
 
       const { res, json } = await callInspectFile(backup, text)
@@ -176,7 +184,8 @@ describe('backup import — file inspect', () => {
       expect(res._status).toBe(200)
       expect(json.sections.settings).toBe(1)
       expect(json.sections.projects).toBeUndefined()
-      expect(json.invalidSections.projects).toContain('projects.projects')
+      expect(json.ignoredProjects).toBe(true)
+      expect(json.warnings.some((warning) => warning.includes('local machine data'))).toBe(true)
     })
   })
 })
@@ -364,6 +373,11 @@ describe('backup import — safety backup', () => {
   it('writes a safety backup before restoring', async () => {
     await withTempBackup(async (backup, storage) => {
       await storage.writeStore('settings', { important: 'data' })
+      await storage.writeProjectConfigData({
+        activeProjectId: 'project-1',
+        globalSkills: ['example'],
+        projects: [{ id: 'project-1', name: 'Local', path: 'C:\\local', skills: [], commandDir: '' }],
+      })
 
       const bk = makeBackup({ settings: { replaced: true } })
       const { json } = await callImport(backup, storage, {
@@ -377,6 +391,7 @@ describe('backup import — safety backup', () => {
       const safetyBackup = JSON.parse(await fs.readFile(json.safetyBackupPath, 'utf8'))
       expect(safetyBackup.scope).toBe('config')
       expect(safetyBackup.data.settings).toEqual({ important: 'data' })
+      expect(safetyBackup.data.projects.projects[0].id).toBe('project-1')
       expect(safetyBackup.data.sessions).toBeUndefined()
     })
   })
@@ -428,6 +443,38 @@ describe('backup import — validation', () => {
         sections: ['settings'],
         mode: 'replace',
       })).rejects.toThrow('Import preview has expired')
+    })
+  })
+
+  it('pauses imported scheduled tasks whose projects are not registered locally', async () => {
+    await withTempBackup(async (backup, storage) => {
+      const tasks = {
+        global: { id: 'global', status: 'enabled', projectId: null },
+        missing: { id: 'missing', status: 'enabled', projectId: 'missing-project', projectName: 'Missing' },
+      }
+      const { json: inspect } = await callInspectFile(backup, JSON.stringify(makeBackup({ scheduledTasks: tasks })))
+
+      expect(inspect.warnings.some((warning) => warning.includes('will be paused'))).toBe(true)
+
+      const { res } = await callImportWithToken(backup, {
+        importToken: inspect.importToken,
+        sections: ['scheduledTasks'],
+        mode: 'replace',
+      })
+
+      expect(res._status).toBe(200)
+      const restored = await storage.readStore('scheduled-tasks')
+      expect(restored.global.status).toBe('enabled')
+      expect(restored.missing.status).toBe('paused')
+      expect(restored.missing.projectId).toBe('missing-project')
+    })
+  })
+
+  it('rejects backup versions newer than the current format', async () => {
+    await withTempBackup(async (backup) => {
+      const futureBackup = { ...makeBackup({ settings: { theme: 'dark' } }), version: 99 }
+      await expect(callInspectFile(backup, JSON.stringify(futureBackup)))
+        .rejects.toThrow('Unsupported backup version: 99')
     })
   })
 

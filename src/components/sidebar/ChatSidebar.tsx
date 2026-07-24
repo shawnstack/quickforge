@@ -138,6 +138,19 @@ const projectMenuWidth = 192
 const projectMenuHeight = 120
 const viewSortMenuWidth = 224
 const viewSortMenuHeight = 244
+const sidebarDefaultWidth = 320
+const sidebarMinWidth = 320
+const sidebarMaxWidth = 520
+const sidebarMaxViewportRatio = 0.5
+
+function getSidebarMaxWidth() {
+  if (typeof window === 'undefined') return sidebarMaxWidth
+  return Math.max(sidebarMinWidth, Math.min(sidebarMaxWidth, window.innerWidth * sidebarMaxViewportRatio))
+}
+
+function clampSidebarWidth(width: number) {
+  return Math.min(getSidebarMaxWidth(), Math.max(sidebarMinWidth, width))
+}
 
 function formatSessionTime(value?: string) {
   if (!value) return ''
@@ -256,8 +269,8 @@ export const ChatSidebar = memo(function ChatSidebar({
   const collapseInnerClass = 'min-h-0 overflow-hidden'
   const rowHoverShadowClass = ''
   const iconHoverShadowClass = ''
-  const rowClass = `group relative flex items-center gap-2 overflow-hidden rounded-lg px-2 py-1.5 text-left transition-[background-color,color,box-shadow] duration-160 ease-out ${rowHoverShadowClass}`
-  const footerRowClass = 'group relative flex items-center gap-2 overflow-hidden px-2 py-1.5 text-left transition-[background-color,color,box-shadow] duration-160 ease-out'
+  const rowClass = `group relative flex items-center gap-2 overflow-hidden rounded-lg py-1.5 text-left transition-[background-color,color,box-shadow] duration-160 ease-out ${sidebarOpen ? 'px-2' : 'justify-center px-0'} ${rowHoverShadowClass}`
+  const footerRowClass = `group relative flex items-center gap-2 overflow-hidden py-1.5 text-left transition-[background-color,color,box-shadow] duration-160 ease-out ${sidebarOpen ? 'px-2' : 'justify-center px-0'}`
   const activeRowClass = `${sidebarActiveBgClass} text-foreground/84 shadow-[0_8px_22px_-20px_rgb(15_23_42_/_0.32)]`
   const projectActiveRowClass = `text-foreground/80 ${sidebarHoverBgClass}`
   const inactiveRowClass = `text-muted-foreground/68 ${sidebarHoverBgClass} hover:text-foreground/80`
@@ -300,6 +313,12 @@ export const ChatSidebar = memo(function ChatSidebar({
   const [confirmingDeleteSessionId, setConfirmingDeleteSessionId] = useState<string | null>(null)
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
   const [hoveredSessionTip, setHoveredSessionTip] = useState<{ sessionId: string; x: number; y: number } | null>(null)
+  const [sidebarWidth, setSidebarWidth] = useState(sidebarDefaultWidth)
+  const [isResizing, setIsResizing] = useState(false)
+  const asideRef = useRef<HTMLElement | null>(null)
+  const resizeDragRef = useRef<{ startX: number; startWidth: number; currentWidth: number } | null>(null)
+  const resizeFrameRef = useRef<number | null>(null)
+  const previousBodyStyleRef = useRef<{ cursor: string; userSelect: string } | null>(null)
   const deleteAnimationTimeoutRef = useRef<number | null>(null)
   const projectDeleteAnimationTimeoutRef = useRef<number | null>(null)
   const hoverTipTimerRef = useRef<number | null>(null)
@@ -494,6 +513,67 @@ export const ChatSidebar = memo(function ChatSidebar({
     }, deleteSessionFadeMs)
   }
 
+  const restoreResizeBodyStyle = useCallback(() => {
+    const previousBodyStyle = previousBodyStyleRef.current
+    if (!previousBodyStyle) return
+    document.body.style.cursor = previousBodyStyle.cursor
+    document.body.style.userSelect = previousBodyStyle.userSelect
+    previousBodyStyleRef.current = null
+  }, [])
+
+  const finishResizing = useCallback((finalWidth?: number) => {
+    resizeDragRef.current = null
+    if (resizeFrameRef.current !== null) {
+      window.cancelAnimationFrame(resizeFrameRef.current)
+      resizeFrameRef.current = null
+    }
+    if (typeof finalWidth === 'number') {
+      const nextWidth = clampSidebarWidth(finalWidth)
+      if (asideRef.current) asideRef.current.style.width = `${nextWidth}px`
+      setSidebarWidth(nextWidth)
+    }
+    restoreResizeBodyStyle()
+    setIsResizing(false)
+  }, [restoreResizeBodyStyle])
+
+  function startResizing(event: React.PointerEvent<HTMLDivElement>) {
+    const currentWidth = asideRef.current?.getBoundingClientRect().width ?? sidebarWidth
+    resizeDragRef.current = { startX: event.clientX, startWidth: currentWidth, currentWidth }
+    previousBodyStyleRef.current = {
+      cursor: document.body.style.cursor,
+      userSelect: document.body.style.userSelect,
+    }
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    setIsResizing(true)
+    event.preventDefault()
+    event.stopPropagation()
+    try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* ignore */ }
+  }
+
+  function resizeSidebar(event: React.PointerEvent<HTMLDivElement>) {
+    const start = resizeDragRef.current
+    if (!start || !asideRef.current) return
+    start.currentWidth = clampSidebarWidth(start.startWidth + event.clientX - start.startX)
+    if (resizeFrameRef.current !== null) return
+    resizeFrameRef.current = window.requestAnimationFrame(() => {
+      resizeFrameRef.current = null
+      const current = resizeDragRef.current
+      if (!current || !asideRef.current) return
+      asideRef.current.style.width = `${current.currentWidth}px`
+    })
+  }
+
+  function stopResizing(event: React.PointerEvent<HTMLDivElement>) {
+    const finalWidth = resizeDragRef.current?.currentWidth
+    finishResizing(finalWidth)
+    try { event.currentTarget.releasePointerCapture(event.pointerId) } catch { /* ignore */ }
+  }
+
+  function resetSidebarWidth() {
+    finishResizing(sidebarDefaultWidth)
+  }
+
   useEffect(() => () => {
     if (deleteAnimationTimeoutRef.current !== null) {
       window.clearTimeout(deleteAnimationTimeoutRef.current)
@@ -504,7 +584,28 @@ export const ChatSidebar = memo(function ChatSidebar({
     if (hoverTipTimerRef.current !== null) {
       window.clearTimeout(hoverTipTimerRef.current)
     }
-  }, [])
+    if (resizeFrameRef.current !== null) {
+      window.cancelAnimationFrame(resizeFrameRef.current)
+    }
+    resizeDragRef.current = null
+    restoreResizeBodyStyle()
+  }, [restoreResizeBodyStyle])
+
+  useEffect(() => {
+    if (!isMobile && sidebarOpen) return
+    const frame = window.requestAnimationFrame(() => finishResizing())
+    return () => window.cancelAnimationFrame(frame)
+  }, [finishResizing, isMobile, sidebarOpen])
+
+  useEffect(() => {
+    if (isMobile) return
+    const syncWidthToViewport = () => {
+      const nextWidth = clampSidebarWidth(resizeDragRef.current?.currentWidth ?? sidebarWidth)
+      finishResizing(nextWidth)
+    }
+    window.addEventListener('resize', syncWidthToViewport)
+    return () => window.removeEventListener('resize', syncWidthToViewport)
+  }, [finishResizing, isMobile, sidebarWidth])
 
   useEffect(() => {
     if (!projectMenuId) return
@@ -634,18 +735,48 @@ export const ChatSidebar = memo(function ChatSidebar({
 
   return (
     <aside
+      ref={asideRef}
       className={cn(
         'relative z-10 min-h-0 shrink-0 overflow-hidden border-r-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-[var(--quickforge-sidebar-bg)] transition-[width] duration-200 ease-out motion-reduce:transition-none',
-        isMobile ? 'flex h-full flex-col w-80 max-w-[85vw]' : 'hidden md:flex md:flex-col',
-        sidebarOpen ? 'w-80' : 'w-14',
+        isMobile ? 'flex h-full w-80 max-w-[85vw] flex-col' : 'hidden md:flex md:flex-col',
+        !isMobile && !sidebarOpen ? 'w-14' : undefined,
+        isResizing && 'transition-none',
       )}
+      style={!isMobile && sidebarOpen ? {
+        width: sidebarWidth,
+        minWidth: sidebarMinWidth,
+        maxWidth: `min(${sidebarMaxWidth}px, ${sidebarMaxViewportRatio * 100}vw)`,
+      } : undefined}
     >
+      {!isMobile && sidebarOpen ? (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-valuemin={sidebarMinWidth}
+          aria-valuemax={getSidebarMaxWidth()}
+          aria-valuenow={Math.round(sidebarWidth)}
+          className={cn(
+            'group absolute inset-y-0 right-0 z-30 w-2 cursor-col-resize touch-none bg-transparent transition-colors hover:bg-border/20',
+            isResizing && 'bg-border/25',
+          )}
+          onDoubleClick={resetSidebarWidth}
+          onPointerDown={startResizing}
+          onPointerMove={resizeSidebar}
+          onPointerUp={stopResizing}
+          onPointerCancel={stopResizing}
+        >
+          <span className={cn(
+            'absolute inset-y-0 right-0 w-px bg-border/70 opacity-0 transition-opacity',
+            isResizing ? 'opacity-100' : 'group-hover:opacity-100',
+          )} />
+        </div>
+      ) : null}
       <div className="shrink-0 px-3 pt-3 pb-1">
-        <div className={cn(rowClass, 'w-full', !sidebarOpen && 'justify-center px-0')}>
+        <div className={cn(rowClass, 'w-full')}>
           {sidebarOpen ? (
             <>
               <span className={iconSlotClass}>
-                <img src="/favicon.svg" alt="" aria-hidden="true" className="size-4" />
+                <img src="/favicon.svg" alt="" aria-hidden="true" className="size-5" />
               </span>
               <button
                 type="button"
@@ -665,7 +796,7 @@ export const ChatSidebar = memo(function ChatSidebar({
               aria-label={t('toggleSidebar')}
               title={t('toggleSidebar')}
             >
-              <img src="/favicon.svg" alt="" aria-hidden="true" className="size-4 transition-opacity duration-160 group-hover/toggle:opacity-0 group-focus-visible/toggle:opacity-0" />
+              <img src="/favicon.svg" alt="" aria-hidden="true" className="size-5 transition-opacity duration-160 group-hover/toggle:opacity-0 group-focus-visible/toggle:opacity-0" />
               <PanelLeftOpen className="absolute size-4 opacity-0 transition-opacity duration-160 group-hover/toggle:opacity-100 group-focus-visible/toggle:opacity-100" />
             </button>
           )}

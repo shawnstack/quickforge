@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="data:," />
+  <title>QuickForge 全屏图标方案选择</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page: #f5f6f7;
+      --panel: #fff;
+      --text: #24272b;
+      --muted: #737881;
+      --soft: #a0a4ab;
+      --border: #e5e7e9;
+      --border-soft: rgba(22, 26, 31, .07);
+      --button: #555b64;
+      --hover: #f0f1f3;
+      --active-bg: #edf2f8;
+      --active-fg: #155ba7;
+      --selected: #2769b3;
+      --selected-soft: #f3f7fb;
+      --shadow: 0 18px 54px -38px rgba(18, 24, 32, .5);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+
+    body {
+      padding: 34px 26px 64px;
+      background: var(--page);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button { font: inherit; }
+    .page { width: min(1080px, 100%); margin: 0 auto; }
+
+    .eyebrow {
+      color: var(--soft);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+
+    h1 { margin: 8px 0 0; font-size: 30px; font-weight: 680; letter-spacing: -.035em; }
+    .intro { max-width: 760px; margin: 9px 0 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
+
+    .control-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+    .segments { display: inline-flex; gap: 3px; padding: 3px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,.76); }
+    .segment { height: 29px; padding: 0 11px; border: 0; border-radius: 7px; color: var(--muted); background: transparent; cursor: pointer; font-size: 12px; }
+    .segment:hover { color: var(--text); }
+    .segment.active { color: var(--text); background: #fff; box-shadow: 0 1px 4px rgba(20,24,30,.09); }
+
+    .stage-card { overflow: hidden; margin-top: 22px; border: 1px solid var(--border); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); }
+    .stage-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 17px; border-bottom: 1px solid var(--border-soft); }
+    .stage-title { font-size: 13px; font-weight: 660; }
+    .stage-help { color: var(--muted); font-size: 11px; }
+
+    .window { height: 218px; background: #fff; transition: background .18s ease; }
+    .titlebar { position: relative; height: 58px; border-bottom: 1px solid #ececee; background: #fff; transition: background .18s ease, border-color .18s ease; }
+    .workspace-label { position: absolute; top: 20px; left: 18px; color: #a3a7ad; font-size: 11px; }
+    .toolbar { position: absolute; top: 10px; right: 10px; display: flex; align-items: center; gap: 4px; }
+
+    .icon-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      border: 0;
+      border-radius: 10px;
+      color: var(--button);
+      background: transparent;
+      cursor: pointer;
+      transition: color .14s ease, background .14s ease, box-shadow .14s ease;
+    }
+    .icon-button:hover { color: var(--text); background: var(--hover); }
+    .icon-button.active { color: var(--active-fg); background: var(--active-bg); }
+    .icon-button svg { display: block; width: var(--icon-size, 18px); height: var(--icon-size, 18px); fill: none; stroke: currentColor; stroke-width: 1.85; stroke-linecap: round; stroke-linejoin: round; }
+
+    .body { display: grid; grid-template-columns: 1fr 126px; height: 160px; }
+    .main-ghost { padding: 23px 22px; border-right: 1px solid #eeeef0; }
+    .line { height: 7px; margin-bottom: 10px; border-radius: 999px; background: #f0f1f2; }
+    .line:nth-child(1) { width: 42%; }
+    .line:nth-child(2) { width: 70%; }
+    .line:nth-child(3) { width: 56%; }
+    .ghost-box { width: 70%; height: 45px; margin-top: 20px; border: 1px solid #ededee; border-radius: 10px; background: #fcfcfc; }
+    .side { padding: 18px 14px; background: #fdfdfd; }
+    .side .line { height: 6px; margin-bottom: 12px; }
+
+    .window.dark { background: #191a1c; }
+    .window.dark .titlebar { border-color: #2a2c2f; background: #1d1e20; }
+    .window.dark .workspace-label { color: #696e75; }
+    .window.dark .icon-button { color: #aeb3ba; }
+    .window.dark .icon-button:hover { color: #f1f2f3; background: #2a2c2f; }
+    .window.dark .icon-button.active { color: #83b6f4; background: #27313d; }
+    .window.dark .main-ghost { border-color: #2a2c2f; }
+    .window.dark .line { background: #292b2e; }
+    .window.dark .ghost-box { border-color: #2d2f32; background: #1d1e20; }
+    .window.dark .side { background: #1b1c1e; }
+
+    .selection-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 26px 2px 12px; }
+    .selection-title h2 { margin: 0; font-size: 15px; font-weight: 670; }
+    .selection-title span { color: var(--muted); font-size: 11px; }
+
+    .options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .option {
+      position: relative;
+      min-height: 188px;
+      padding: 15px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--panel);
+      cursor: pointer;
+      text-align: left;
+      box-shadow: 0 9px 28px -28px rgba(18,24,32,.42);
+      transition: border-color .14s ease, background .14s ease, box-shadow .14s ease, transform .14s ease;
+    }
+    .option:hover { border-color: #cfd3d8; transform: translateY(-1px); box-shadow: 0 15px 34px -27px rgba(18,24,32,.42); }
+    .option.selected { border-color: rgba(39,105,179,.52); background: var(--selected-soft); box-shadow: 0 0 0 2px rgba(39,105,179,.09); }
+    .option.selected::after { content: "✓ 已选择"; position: absolute; top: 12px; right: 12px; color: var(--selected); font-size: 10px; font-weight: 700; }
+
+    .option-no { color: var(--soft); font-size: 10px; font-weight: 700; letter-spacing: .08em; }
+    .pair { display: flex; align-items: center; gap: 11px; min-height: 67px; margin-top: 5px; }
+    .pair-item { display: grid; justify-items: center; gap: 5px; }
+    .pair-label { color: var(--soft); font-size: 9px; }
+    .pair-arrow { color: #c2c5ca; font-size: 12px; }
+    .option-name { font-size: 13px; font-weight: 670; }
+    .option-desc { margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .recommend { display: inline-flex; margin-left: 6px; padding: 2px 6px; border-radius: 999px; color: #367047; background: #e9f3ec; font-size: 9px; font-weight: 700; vertical-align: 1px; }
+
+    .choice-bar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 15px; padding: 13px 15px; border: 1px solid var(--border); border-radius: 13px; background: #fff; }
+    .choice-label { color: var(--muted); font-size: 11px; }
+    .choice-value { margin-top: 3px; font-size: 13px; font-weight: 670; }
+    .test-button { height: 32px; padding: 0 12px; border: 0; border-radius: 9px; color: #fff; background: #25282c; cursor: pointer; font-size: 11px; font-weight: 620; }
+    .test-button:hover { background: #111315; }
+    .footnote { margin: 14px 2px 0; color: var(--soft); font-size: 10px; line-height: 1.6; }
+
+    @media (max-width: 800px) { .options { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 520px) {
+      body { padding: 24px 14px 48px; }
+      h1 { font-size: 24px; }
+      .options { grid-template-columns: 1fr; }
+      .body { grid-template-columns: 1fr 90px; }
+      .workspace-label { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <div class="eyebrow">QuickForge · Icon Selection</div>
+      <h1>全屏 / 退出全屏图标选择</h1>
+      <p class="intro">下面每组都是 18px、1.85px 描边，并放进真实的四按钮工具栏中。点击方案卡片进行选择；点击顶部缩放按钮，查看“进入全屏 ↔ 退出全屏”的实际切换交互。</p>
+      <div class="control-row">
+        <div class="segments" aria-label="主题">
+          <button class="segment active" data-theme="light">浅色</button>
+          <button class="segment" data-theme="dark">深色</button>
+        </div>
+        <div class="segments" aria-label="尺寸">
+          <button class="segment" data-size="17">17px</button>
+          <button class="segment active" data-size="18">18px</button>
+          <button class="segment" data-size="19">19px</button>
+        </div>
+      </div>
+    </header>
+
+    <section class="stage-card">
+      <div class="stage-head">
+        <div class="stage-title">所选方案 · 工具栏实景</div>
+        <div class="stage-help" id="mode-text">点击缩放按钮进入全屏</div>
+      </div>
+      <div class="window" id="window">
+        <div class="titlebar">
+          <span class="workspace-label">工作区</span>
+          <div class="toolbar" id="toolbar"></div>
+        </div>
+        <div class="body">
+          <div class="main-ghost"><div class="line"></div><div class="line"></div><div class="line"></div><div class="ghost-box"></div></div>
+          <aside class="side"><div class="line"></div><div class="line"></div><div class="line"></div></aside>
+        </div>
+      </div>
+    </section>
+
+    <div class="selection-title">
+      <h2>候选方案</h2>
+      <span>点击卡片后，顶部工具栏立即更新</span>
+    </div>
+    <section class="options" id="options"></section>
+
+    <div class="choice-bar">
+      <div><div class="choice-label">当前选择</div><div class="choice-value" id="choice-value"></div></div>
+      <button class="test-button" id="test-button">切换全屏状态</button>
+    </div>
+    <p class="footnote">本页只用于选择图标，不修改应用代码。方案均使用现有 Lucide 图标或相同视觉语法的轻量 SVG，不新增依赖。</p>
+  </main>
+
+  <script>
+    const S = (body) => `<svg viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
+
+    const common = {
+      plus: S('<path d="M12 5v14M5 12h14"/>'),
+      terminal: S('<rect width="18" height="16" x="3" y="4" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/>'),
+      panel: S('<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>')
+    };
+
+    const options = [
+      {
+        id: 'corners', no: '方案 A', name: '四角框', recommended: true,
+        desc: '没有长对角线，轮廓均衡，和终端、侧栏的矩形语言最协调。',
+        enter: S('<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>'),
+        exit: S('<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>')
+      },
+      {
+        id: 'scan', no: '方案 B', name: '圆角取景框',
+        desc: '更轻、更安静；进入态清晰，退出态采用向内四角。',
+        enter: S('<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/>'),
+        exit: S('<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>')
+      },
+      {
+        id: 'window', no: '方案 C', name: '窗口扩展',
+        desc: '用窗口轮廓直接表达工作区全屏，语义直观，但细节稍多。',
+        enter: S('<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 4v5H4M15 20v-5h5"/>'),
+        exit: S('<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9h5V4M20 15h-5v5"/>')
+      },
+      {
+        id: 'diagonal', no: '方案 D', name: '双对角箭头',
+        desc: '原始方向。语义明确，但长斜线在这组工具栏中视觉张力较大。',
+        enter: S('<path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/><path d="M9 21H3v-6"/>'),
+        exit: S('<path d="m14 10 7-7"/><path d="M20 10h-6V4"/><path d="m3 21 7-7"/><path d="M4 14h6v6"/>')
+      },
+      {
+        id: 'four-arrows', no: '方案 E', name: '四向扩展',
+        desc: '当前替换方向。动作感强，但线条数量最多，容易显得繁杂。',
+        enter: S('<path d="m15 15 6 6M15 9l6-6M21 16v5h-5M21 8V3h-5M3 16v5h5M3 21l6-6M3 8V3h5M9 9 3 3"/>'),
+        exit: S('<path d="m15 15 6 6m-6-6v5m0-5h5M9 20v-5m0 0H4M9 15l-6 6M15 4v5m0 0h5M15 9l6-6M9 4v5m0 0H4M9 9 3 3"/>')
+      },
+      {
+        id: 'frame', no: '方案 F', name: '完整框体',
+        desc: '外框最稳定，和侧栏图标成套；面积更实，存在感略强。',
+        enter: S('<rect x="4" y="4" width="16" height="16" rx="2"/>'),
+        exit: S('<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 4v5H4M15 20v-5h5"/>')
+      }
+    ];
+
+    let selected = 'corners';
+    let fullscreen = false;
+    let iconSize = 18;
+
+    function optionById(id) { return options.find(item => item.id === id); }
+
+    function renderToolbar() {
+      const item = optionById(selected);
+      document.documentElement.style.setProperty('--icon-size', `${iconSize}px`);
+      document.getElementById('toolbar').innerHTML = `
+        <button class="icon-button" aria-label="添加标签页">${common.plus}</button>
+        <button class="icon-button ${fullscreen ? 'active' : ''}" id="fullscreen-button" aria-label="${fullscreen ? '退出全屏' : '进入全屏'}">${fullscreen ? item.exit : item.enter}</button>
+        <button class="icon-button" aria-label="终端">${common.terminal}</button>
+        <button class="icon-button active" aria-label="右侧工作区">${common.panel}</button>`;
+      document.getElementById('mode-text').textContent = fullscreen ? '当前：全屏模式 · 点击缩放按钮退出' : '当前：普通模式 · 点击缩放按钮进入全屏';
+      document.getElementById('fullscreen-button').addEventListener('click', toggleFullscreen);
+    }
+
+    function renderOptions() {
+      document.getElementById('options').innerHTML = options.map(item => `
+        <button class="option ${item.id === selected ? 'selected' : ''}" data-option="${item.id}" type="button">
+          <div class="option-no">${item.no}</div>
+          <div class="pair">
+            <div class="pair-item"><span class="icon-button">${item.enter}</span><span class="pair-label">进入</span></div>
+            <span class="pair-arrow">⇄</span>
+            <div class="pair-item"><span class="icon-button active">${item.exit}</span><span class="pair-label">退出</span></div>
+          </div>
+          <div class="option-name">${item.name}${item.recommended ? '<span class="recommend">推荐</span>' : ''}</div>
+          <div class="option-desc">${item.desc}</div>
+        </button>`).join('');
+      document.querySelectorAll('[data-option]').forEach(button => button.addEventListener('click', () => {
+        selected = button.dataset.option;
+        fullscreen = false;
+        renderAll();
+      }));
+    }
+
+    function renderChoice() {
+      const item = optionById(selected);
+      document.getElementById('choice-value').textContent = `${item.no} · ${item.name} · ${iconSize}px`;
+      document.getElementById('test-button').textContent = fullscreen ? '退出全屏' : '进入全屏';
+    }
+
+    function toggleFullscreen() {
+      fullscreen = !fullscreen;
+      renderToolbar();
+      renderChoice();
+    }
+
+    function renderAll() { renderToolbar(); renderOptions(); renderChoice(); }
+
+    document.querySelectorAll('[data-theme]').forEach(button => button.addEventListener('click', () => {
+      document.getElementById('window').classList.toggle('dark', button.dataset.theme === 'dark');
+      document.querySelectorAll('[data-theme]').forEach(item => item.classList.toggle('active', item === button));
+    }));
+
+    document.querySelectorAll('[data-size]').forEach(button => button.addEventListener('click', () => {
+      iconSize = Number(button.dataset.size);
+      document.querySelectorAll('[data-size]').forEach(item => item.classList.toggle('active', item === button));
+      renderAll();
+    }));
+
+    document.getElementById('test-button').addEventListener('click', toggleFullscreen);
+    renderAll();
+  </script>
+</body>
+</html>

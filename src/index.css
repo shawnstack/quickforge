@@ -294,6 +294,17 @@
 }
 
 /* ------------------------------------------------------------------ */
+/* Window toolbar alignment */
+
+.quickforge-window-toolbar {
+  top: 0.625rem;
+}
+
+body.quickforge-desktop-app .quickforge-window-toolbar {
+  top: calc(var(--quickforge-desktop-titlebar-height, 0px) + 0.625rem);
+}
+
+/* ------------------------------------------------------------------ */
 /* Desktop titlebar-safe fullscreen panels */
 
 .quickforge-terminal-fullscreen,

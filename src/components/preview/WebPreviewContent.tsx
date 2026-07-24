@@ -2,7 +2,9 @@ import { ArrowLeft, ExternalLink, Globe, Minus, MoreVertical, Plus, RefreshCw } 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { t } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
-import { workspacePreviewUrl } from '@/components/workspace/artifact-preview-utils'
+import { PreviewErrorState } from '@/components/preview/PreviewErrorState'
+import { classifyPreviewIssue, workspacePreviewCheckUrl, type PreviewIssue } from '@/components/preview/preview-error'
+import { isBrowserPreviewablePath, workspacePreviewUrl } from '@/components/workspace/artifact-preview-utils'
 
 function isWorkspacePreviewUrl(rawUrl: string) {
   const trimmed = rawUrl.trim()
@@ -77,10 +79,27 @@ export function WebPreviewContent({ url, onUrlChange, projectId }: WebPreviewCon
   const [reloadToken, setReloadToken] = useState(0)
   const [menuOpen, setMenuOpen] = useState(false)
   const [zoom, setZoom] = useState(100)
+  const [previewCheck, setPreviewCheck] = useState<{ key: string; issue: PreviewIssue | null } | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const previewFrameRef = useRef<HTMLIFrameElement | null>(null)
   const previewUrl = normalized.url
   const isWorkspacePreview = previewUrl.startsWith('/api/workspace/preview/')
+  const workspacePreviewPath = isWorkspacePreview ? normalized.displayUrl : ''
+  const unsupportedPreviewIssue = useMemo(() => (
+    workspacePreviewPath && !isBrowserPreviewablePath(workspacePreviewPath)
+      ? classifyPreviewIssue({
+          status: 415,
+          code: 'PREVIEW_UNSUPPORTED_TYPE',
+          path: workspacePreviewPath,
+          error: 'Unsupported preview file type',
+        })
+      : null
+  ), [workspacePreviewPath])
+  const previewCheckKey = isWorkspacePreview ? `${previewUrl}:${reloadToken}` : ''
+  const previewIssue = previewCheck?.key === previewCheckKey ? previewCheck.issue : null
+  const activePreviewIssue = unsupportedPreviewIssue ?? previewIssue
+  const checkingPreview = isWorkspacePreview && !unsupportedPreviewIssue && previewCheck?.key !== previewCheckKey
+  const workspacePreviewReady = !isWorkspacePreview || (previewCheck?.key === previewCheckKey && !previewCheck.issue)
   // workspace 预览与本体同源，需要 allow-same-origin 让 localStorage/cookie 等基础能力可用，
   // 否则依赖它们的 SPA 会白屏。权衡：被预览的工作区 HTML 会以本体 origin 运行，理论上能访问本体数据；
   // QuickForge 是本地工具且预览的是用户自己工作区的文件，信任模型等同于浏览器直接打开项目页面。
@@ -100,6 +119,43 @@ export function WebPreviewContent({ url, onUrlChange, projectId }: WebPreviewCon
     document.addEventListener('pointerdown', handlePointerDown)
     return () => document.removeEventListener('pointerdown', handlePointerDown)
   }, [menuOpen])
+
+  useEffect(() => {
+    if (!isWorkspacePreview || !workspacePreviewPath || unsupportedPreviewIssue) return
+
+    const controller = new AbortController()
+
+    void fetch(workspacePreviewCheckUrl(previewUrl), { cache: 'no-store', signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null)
+        if (response.ok) {
+          setPreviewCheck({ key: previewCheckKey, issue: null })
+          return
+        }
+        setPreviewCheck({
+          key: previewCheckKey,
+          issue: classifyPreviewIssue({
+            status: response.status,
+            code: typeof payload?.code === 'string' ? payload.code : undefined,
+            path: typeof payload?.path === 'string' ? payload.path : workspacePreviewPath,
+            error: typeof payload?.error === 'string' ? payload.error : `${response.status} ${response.statusText}`.trim(),
+          }),
+        })
+      })
+      .catch((fetchError) => {
+        if (controller.signal.aborted) return
+        setPreviewCheck({
+          key: previewCheckKey,
+          issue: classifyPreviewIssue({
+            code: 'PREVIEW_SERVICE_FAILED',
+            path: workspacePreviewPath,
+            error: fetchError instanceof Error ? fetchError.message : String(fetchError),
+          }),
+        })
+      })
+
+    return () => controller.abort()
+  }, [isWorkspacePreview, previewCheckKey, previewUrl, unsupportedPreviewIssue, workspacePreviewPath])
 
   function goBack() {
     try {
@@ -189,7 +245,14 @@ export function WebPreviewContent({ url, onUrlChange, projectId }: WebPreviewCon
       </div>
 
       <div className="min-h-0 flex-1 bg-muted/10">
-        {previewUrl ? (
+        {activePreviewIssue ? (
+          <PreviewErrorState issue={activePreviewIssue} onRetry={refreshPreview} />
+        ) : checkingPreview ? (
+          <div className="flex h-full items-center justify-center text-sm text-muted-foreground/75">
+            <RefreshCw className="mr-2 size-4 animate-spin" />
+            {t('previewChecking')}
+          </div>
+        ) : previewUrl && workspacePreviewReady ? (
           <div className="h-full w-full overflow-auto bg-background">
             <iframe
               ref={previewFrameRef}

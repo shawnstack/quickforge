@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronRight, ChevronsLeftRight, Code2, Copy, CornerDownLeft, Eye, Folder, GitBranch, GitCommitHorizontal, Globe, Maximize2, Minimize2, MoreHorizontal, Plus, RefreshCw, Search, SquareTerminal, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, ChevronsLeftRight, Code2, Copy, CornerDownLeft, Eye, Folder, GitBranch, GitCommitHorizontal, Globe, Maximize, Minimize, MoreHorizontal, PanelRight, Plus, RefreshCw, Search, SquareTerminal, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ProjectInfo } from '@/lib/types'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
@@ -51,6 +51,9 @@ type WorkspaceInspectorProps = {
   artifacts?: AiTurnArtifact[]
   pendingTerminalCommand?: PendingTerminalCommand | null
   onPendingTerminalCommandHandled?: (id: number) => void
+  globalTerminalOpen?: boolean
+  onShowGlobalTerminal?: () => void
+  onFullscreenChange?: (fullscreen: boolean) => void
 }
 
 function getDesktopTitlebarHeight() {
@@ -539,7 +542,7 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
   )
 }
 
-export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPush, onOpenProjectInExplorer, onOpenProjectInVSCode, onOpenProjectInIDEA, onPreviewArtifact, request, onRequestHandled, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled }: WorkspaceInspectorProps) {
+export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPush, onOpenProjectInExplorer, onOpenProjectInVSCode, onOpenProjectInIDEA, onPreviewArtifact, request, onRequestHandled, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled, globalTerminalOpen = false, onShowGlobalTerminal, onFullscreenChange }: WorkspaceInspectorProps) {
   const [tree, setTree] = useState<WorkspaceTreeNode[]>([])
   const [changes, setChanges] = useState<GitChangedFile[]>([])
   const [gitBranch, setGitBranch] = useState<string>()
@@ -581,6 +584,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
   const resizeDragRef = useRef<{ startX: number; startWidth: number; currentWidth: number } | null>(null)
   const resizeFrameRef = useRef<number | null>(null)
   const fullscreenAnimationRef = useRef<Animation | null>(null)
+  const fullscreenExitActionRef = useRef<(() => void) | null>(null)
   const previousBodyStyleRef = useRef<{ cursor: string; userSelect: string } | null>(null)
   const nextPanelTabIndexRef = useRef(nextPanelTabIndexFromTabs(initialPanelTabStateRef.current?.tabs ?? []))
   const openPanelTabRef = useRef<((kind: WorkspacePanelPrimaryTabKind, nextView?: WorkspacePanelView, options?: { url?: string; readerTab?: ReaderTab }) => WorkspacePanelTab) | undefined>(undefined)
@@ -759,11 +763,19 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
       if (!disposed) setVisible(false)
     })
     const timer = window.setTimeout(() => setMounted(false), 180)
+    if (fullscreen) {
+      fullscreenAnimationRef.current?.cancel()
+      fullscreenExitActionRef.current = null
+      setFullscreen(false)
+      setFullscreenAnimating(false)
+      onFullscreenChange?.(false)
+      asideRef.current?.removeAttribute('style')
+    }
     return () => {
       disposed = true
       window.clearTimeout(timer)
     }
-  }, [open])
+  }, [fullscreen, onFullscreenChange, open])
 
   useEffect(() => {
     if (!menuOpen && !tabListOpen && !reviewFilterOpen) return undefined
@@ -1136,13 +1148,17 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
     try { event.currentTarget.releasePointerCapture(event.pointerId) } catch { /* ignore */ }
   }
 
-  const toggleFullscreen = useCallback(() => {
+  const toggleFullscreen = useCallback((afterExit?: () => void) => {
     const aside = asideRef.current
     if (!aside) {
-      setFullscreen((value) => !value)
+      const nextFullscreen = !fullscreen
+      setFullscreen(nextFullscreen)
+      onFullscreenChange?.(nextFullscreen)
+      if (!nextFullscreen) afterExit?.()
       return
     }
 
+    if (fullscreen && afterExit) fullscreenExitActionRef.current = afterExit
     fullscreenAnimationRef.current?.cancel()
     const rect = aside.getBoundingClientRect()
     const viewportWidth = window.innerWidth
@@ -1180,6 +1196,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
         animation.onfinish = () => {
           fullscreenAnimationRef.current = null
           setFullscreen(true)
+          onFullscreenChange?.(true)
           window.requestAnimationFrame(() => {
             animation.cancel()
             currentAside.removeAttribute('style')
@@ -1188,6 +1205,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
         }
         animation.oncancel = () => {
           fullscreenAnimationRef.current = null
+          fullscreenExitActionRef.current = null
           setFullscreenAnimating(false)
         }
       })
@@ -1219,6 +1237,9 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
       animation.onfinish = () => {
         fullscreenAnimationRef.current = null
         setFullscreen(false)
+        onFullscreenChange?.(false)
+        const exitAction = fullscreenExitActionRef.current
+        fullscreenExitActionRef.current = null
         window.requestAnimationFrame(() => {
           animation.cancel()
           currentAside.style.position = ''
@@ -1231,24 +1252,32 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
           currentAside.style.width = `${width}px`
           currentAside.style.minWidth = `${WORKSPACE_INSPECTOR_MIN_WIDTH}px`
           currentAside.style.maxWidth = `${WORKSPACE_INSPECTOR_MAX_WIDTH}px`
-          window.requestAnimationFrame(() => setFullscreenAnimating(false))
+          window.requestAnimationFrame(() => {
+            setFullscreenAnimating(false)
+            exitAction?.()
+          })
         })
       }
       animation.oncancel = () => {
         fullscreenAnimationRef.current = null
+        fullscreenExitActionRef.current = null
         setFullscreenAnimating(false)
       }
     })
-  }, [fullscreen, width])
+  }, [fullscreen, onFullscreenChange, width])
 
   useEffect(() => {
     if (!fullscreen) return undefined
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setFullscreen(false)
+      if (event.key === 'Escape') toggleFullscreen()
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [fullscreen])
+  }, [fullscreen, toggleFullscreen])
+
+  useEffect(() => () => {
+    onFullscreenChange?.(false)
+  }, [onFullscreenChange])
 
   useEffect(() => () => {
     if (resizeFrameRef.current !== null) window.cancelAnimationFrame(resizeFrameRef.current)
@@ -1300,7 +1329,11 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
             </div>
           </div>
         ) : null}
-        <div className={cn('flex h-14 shrink-0 items-center gap-2 border-b border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-3 pr-20 transition-opacity duration-150', fullscreenAnimating ? 'opacity-0' : 'opacity-100')}>
+        <div className={cn(
+          'flex h-14 shrink-0 items-center gap-2 border-b border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background pl-3 transition-opacity duration-150',
+          fullscreen ? 'pr-2' : 'pr-[5.5rem]',
+          fullscreenAnimating ? 'opacity-0' : 'opacity-100',
+        )}>
           {panelTabs.length > 0 ? (
             <div ref={tabListRef} className="relative shrink-0">
               <button
@@ -1421,54 +1454,88 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
             })}
             {panelTabs.length === 0 ? <div className="min-w-0 flex-1" /> : null}
           </div>
-          {panelTabs.length > 0 ? (
-            <div ref={menuRef} className="relative shrink-0">
-              <button
-                type="button"
-                className="flex size-9 items-center justify-center rounded-2xl bg-transparent text-muted-foreground/85 transition-colors hover:bg-muted/45 hover:text-foreground/90"
-                onClick={() => setMenuOpen((value) => !value)}
-                aria-label={t('rightPanelAddTab')}
-                title={t('rightPanelAddTab')}
-                aria-haspopup="menu"
-                aria-expanded={menuOpen}
-              >
-                <Plus className="size-4 stroke-[1.9]" />
-              </button>
-              {menuOpen ? (
-              <div className="absolute right-0 top-12 z-40 w-64 rounded-2xl border border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-popover p-2 shadow-quickforge" role="menu">
-                {PANEL_TAB_ITEMS.map((item) => {
-                  const Icon = item.icon
-                  const active = item.kind === activePanelTab?.kind
-                  return (
-                    <button
-                      key={item.kind}
-                      type="button"
-                      className={cn(
-                        'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-medium transition-colors',
-                        active ? 'bg-muted/55 text-foreground' : 'text-foreground/86 hover:bg-muted/34 hover:text-foreground',
-                      )}
-                      onClick={() => openPanelTab(item.kind, viewFromPanelKind(item.kind))}
-                      role="menuitem"
-                    >
-                      <Icon className="size-4 shrink-0 text-muted-foreground/80" />
-                      <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                    </button>
-                  )
-                })}
+          <div className="flex shrink-0 items-center gap-1">
+            {panelTabs.length > 0 || fullscreen ? (
+              <div ref={menuRef} className="relative shrink-0">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  type="button"
+                  className="rounded-[10px] text-muted-foreground/85 hover:bg-muted/45 hover:text-foreground/90 disabled:opacity-40"
+                  onClick={() => setMenuOpen((value) => !value)}
+                  aria-label={t('rightPanelAddTab')}
+                  title={t('rightPanelAddTab')}
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                >
+                  <Plus className="size-[18px] stroke-[1.85]" />
+                </Button>
+                {menuOpen ? (
+                <div className="absolute right-0 top-12 z-40 w-64 rounded-2xl border border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-popover p-2 shadow-quickforge" role="menu">
+                  {PANEL_TAB_ITEMS.map((item) => {
+                    const Icon = item.icon
+                    const active = item.kind === activePanelTab?.kind
+                    return (
+                      <button
+                        key={item.kind}
+                        type="button"
+                        className={cn(
+                          'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-medium transition-colors',
+                          active ? 'bg-muted/55 text-foreground' : 'text-foreground/86 hover:bg-muted/34 hover:text-foreground',
+                        )}
+                        onClick={() => openPanelTab(item.kind, viewFromPanelKind(item.kind))}
+                        role="menuitem"
+                      >
+                        <Icon className="size-4 shrink-0 text-muted-foreground/80" />
+                        <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : null}
               </div>
             ) : null}
-            </div>
-          ) : null}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="shrink-0"
-            onClick={toggleFullscreen}
-            aria-label={fullscreen ? t('workspaceExitFullscreen') : t('workspaceFullscreen')}
-            title={fullscreen ? t('workspaceExitFullscreen') : t('workspaceFullscreen')}
-          >
-            {fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
-          </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0 rounded-[10px] text-muted-foreground/85 hover:bg-muted/45 hover:text-foreground/90 disabled:opacity-40"
+              disabled={fullscreenAnimating}
+              onClick={() => toggleFullscreen()}
+              aria-label={fullscreen ? t('workspaceExitFullscreen') : t('workspaceFullscreen')}
+              title={fullscreen ? t('workspaceExitFullscreen') : t('workspaceFullscreen')}
+            >
+              {fullscreen ? <Minimize className="size-[18px] stroke-[1.85]" /> : <Maximize className="size-[18px] stroke-[1.85]" />}
+            </Button>
+            {fullscreen ? (
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    'shrink-0 rounded-[10px] text-muted-foreground/85 hover:bg-muted/45 hover:text-foreground/90 disabled:opacity-40',
+                    globalTerminalOpen && 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground',
+                  )}
+                  disabled={fullscreenAnimating || !onShowGlobalTerminal}
+                  onClick={() => toggleFullscreen(onShowGlobalTerminal)}
+                  aria-label={t('rightPanelTerminal')}
+                  title={t('rightPanelTerminal')}
+                >
+                  <SquareTerminal className="size-[18px] stroke-[1.85]" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0 rounded-[10px] bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-40"
+                  disabled={fullscreenAnimating}
+                  onClick={() => toggleFullscreen(() => onOpenChange(false))}
+                  aria-label={t('workspaceCollapseRightPanel')}
+                  title={t('workspaceCollapseRightPanel')}
+                >
+                  <PanelRight className="size-[18px] stroke-[1.85]" />
+                </Button>
+              </>
+            ) : null}
+          </div>
         </div>
 
         <div className={cn('flex min-h-0 flex-1 transition-opacity duration-150', fullscreenAnimating ? 'opacity-0' : 'opacity-100')}>

@@ -285,6 +285,7 @@ function MainApp() {
   const [desktopTitlebarMenuOpen, setDesktopTitlebarMenuOpen] = useState(false)
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState<PendingTerminalCommand | null>(null)
   const [terminalDockOpen, setTerminalDockOpen] = useState(false)
+  const [workspaceInspectorFullscreen, setWorkspaceInspectorFullscreen] = useState(false)
   const [currentSessionArtifactsState, setCurrentSessionArtifactsState] = useState<{
     projectId?: string
     sessionId?: string
@@ -1314,7 +1315,11 @@ function MainApp() {
     </div>
     {!ui.settingsDialogOpen && (
     <div
-      className="quickforge-window-toolbar fixed right-2 top-2 z-30 flex items-center gap-1"
+      className={cn(
+        'quickforge-window-toolbar fixed right-2 z-30 flex items-center gap-1',
+        workspaceInspectorFullscreen && 'pointer-events-none invisible',
+      )}
+      aria-hidden={workspaceInspectorFullscreen || undefined}
       aria-label={t('workspacePanel')}
     >
       {!ui.workspaceInspectorOpen ? (
@@ -1355,9 +1360,12 @@ function MainApp() {
         disabled={!agentManager.currentToolProject?.id || needsModelSetup}
         aria-label={terminalDockOpen ? t('terminalCollapse') : t('rightPanelTerminal')}
         title={terminalDockOpen ? t('terminalCollapse') : t('rightPanelTerminal')}
-        className={terminalDockOpen ? 'bg-accent text-accent-foreground' : undefined}
+        className={cn(
+          'rounded-[10px] text-muted-foreground/85 hover:bg-muted/45 hover:text-foreground/90 disabled:opacity-40',
+          terminalDockOpen ? 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground' : undefined,
+        )}
       >
-        <SquareTerminal className="size-[18px]" />
+        <SquareTerminal className="size-[18px] stroke-[1.85]" />
       </Button>
       <Button
         variant="ghost"
@@ -1370,11 +1378,11 @@ function MainApp() {
         aria-label={ui.workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
         title={ui.workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
         className={cn(
-          'hidden lg:inline-flex',
-          ui.workspaceInspectorOpen ? 'bg-accent text-accent-foreground' : undefined,
+          'hidden rounded-[10px] text-muted-foreground/85 hover:bg-muted/45 hover:text-foreground/90 disabled:opacity-40 lg:inline-flex',
+          ui.workspaceInspectorOpen ? 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground' : undefined,
         )}
       >
-        <PanelRight className="size-[18px]" />
+        <PanelRight className="size-[18px] stroke-[1.85]" />
       </Button>
     </div>
     )}
@@ -1756,6 +1764,12 @@ function MainApp() {
               artifacts={currentSessionArtifactsState.projectId === agentManager.currentToolProject.id && currentSessionArtifactsState.sessionId === agentManager.currentSessionId
                 ? currentSessionArtifactsState.artifacts
                 : []}
+              globalTerminalOpen={terminalDockOpen}
+              onShowGlobalTerminal={() => {
+                setArtifactPreviewOpen(false)
+                setTerminalDockOpen(true)
+              }}
+              onFullscreenChange={setWorkspaceInspectorFullscreen}
             />
           </Suspense>
         </>

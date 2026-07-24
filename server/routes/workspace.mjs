@@ -662,53 +662,105 @@ async function handleWorkspaceFile(req, res, url) {
   })
 }
 
-async function handleWorkspacePreview(req, res, url) {
-  const prefix = '/api/workspace/preview/'
-  const tail = url.pathname.startsWith(prefix) ? url.pathname.slice(prefix.length) : ''
-  const slashIndex = tail.indexOf('/')
-  if (slashIndex <= 0) {
-    const error = new Error('projectId and path are required')
-    error.statusCode = 400
-    throw error
+function createWorkspacePreviewError(message, statusCode, previewCode) {
+  const error = new Error(message)
+  error.statusCode = statusCode
+  error.previewCode = previewCode
+  return error
+}
+
+export function workspacePreviewIssueFromError(error, requestedPath = '') {
+  let status = error?.statusCode || 500
+  let code = error?.previewCode || 'PREVIEW_SERVICE_FAILED'
+
+  if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') {
+    status = 404
+    code = 'PREVIEW_FILE_NOT_FOUND'
+  } else if (error?.name === 'URIError') {
+    status = 400
+    code = 'PREVIEW_INVALID_PATH'
+  } else if (error?.code === 'EACCES' || error?.code === 'EPERM') {
+    status = 403
+    code = 'PREVIEW_PERMISSION_DENIED'
+  } else if (status === 403 && !error?.previewCode) {
+    code = 'PREVIEW_PERMISSION_DENIED'
+  } else if (status === 400 && !error?.previewCode) {
+    code = 'PREVIEW_INVALID_PATH'
   }
 
-  const projectId = decodeURIComponent(tail.slice(0, slashIndex))
-  const relativePath = decodeURIComponent(tail.slice(slashIndex + 1))
-  if (!projectId || !relativePath) {
-    const error = new Error('projectId and path are required')
-    error.statusCode = 400
-    throw error
+  return {
+    status,
+    payload: {
+      error: error?.message || 'Internal server error',
+      code,
+      path: requestedPath,
+    },
   }
+}
 
-  const context = await projectContextFromId(projectId)
+export async function inspectWorkspacePreviewFile(context, relativePath) {
   const file = resolveWorkspacePath(relativePath, context)
   await assertSafeWorkspacePath(file, context)
   const extension = path.extname(file).toLowerCase()
   if (!PREVIEW_ALLOWED_EXTENSIONS.has(extension)) {
-    const error = new Error('Unsupported preview file type')
-    error.statusCode = 415
-    throw error
-  }
-  const stat = await fs.stat(file)
-  if (!stat.isFile()) {
-    const error = new Error('Path is not a file')
-    error.statusCode = 400
-    throw error
-  }
-  if (stat.size > MAX_STATIC_PREVIEW_BYTES) {
-    const error = new Error('File is too large to preview')
-    error.statusCode = 413
-    throw error
+    throw createWorkspacePreviewError('Unsupported preview file type', 415, 'PREVIEW_UNSUPPORTED_TYPE')
   }
 
-  const contentType = previewContentType(file)
-  res.writeHead(200, {
-    'content-type': contentType,
-    'cache-control': 'no-store',
-    'x-content-type-options': 'nosniff',
-  })
-  const buffer = await fs.readFile(file)
-  res.end(buffer)
+  const stat = await fs.stat(file)
+  if (!stat.isFile()) {
+    throw createWorkspacePreviewError('Path is not a file', 400, 'PREVIEW_INVALID_PATH')
+  }
+  if (stat.size > MAX_STATIC_PREVIEW_BYTES) {
+    throw createWorkspacePreviewError('File is too large to preview', 413, 'PREVIEW_FILE_TOO_LARGE')
+  }
+
+  return {
+    file,
+    stat,
+    contentType: previewContentType(file),
+  }
+}
+
+async function handleWorkspacePreview(req, res, url) {
+  let relativePath = ''
+  try {
+    const prefix = '/api/workspace/preview/'
+    const tail = url.pathname.startsWith(prefix) ? url.pathname.slice(prefix.length) : ''
+    const slashIndex = tail.indexOf('/')
+    if (slashIndex <= 0) {
+      throw createWorkspacePreviewError('projectId and path are required', 400, 'PREVIEW_INVALID_PATH')
+    }
+
+    const projectId = decodeURIComponent(tail.slice(0, slashIndex))
+    relativePath = decodeURIComponent(tail.slice(slashIndex + 1))
+    if (!projectId || !relativePath) {
+      throw createWorkspacePreviewError('projectId and path are required', 400, 'PREVIEW_INVALID_PATH')
+    }
+
+    const context = await projectContextFromId(projectId)
+    const preview = await inspectWorkspacePreviewFile(context, relativePath)
+    if (url.searchParams.get('__quickforge_check') === '1') {
+      sendJson(res, 200, {
+        ok: true,
+        path: relativePath,
+        size: preview.stat.size,
+        contentType: preview.contentType,
+      })
+      return
+    }
+
+    res.writeHead(200, {
+      'content-type': preview.contentType,
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    })
+    const buffer = await fs.readFile(preview.file)
+    res.end(buffer)
+  } catch (error) {
+    const issue = workspacePreviewIssueFromError(error, relativePath)
+    if (issue.status >= 500) logger.error('Workspace preview failed', { error: issue.payload.error, path: relativePath })
+    sendJson(res, issue.status, issue.payload)
+  }
 }
 
 async function handleWorkspaceResolvePath(req, res) {

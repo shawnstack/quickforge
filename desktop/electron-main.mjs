@@ -341,10 +341,6 @@ function createWindow(url) {
         height: calc(100vh - ${desktopTitleBarHeight}px);
       }
 
-      body.quickforge-desktop-app .quickforge-window-toolbar {
-        top: calc(${desktopTitleBarHeight}px + 0.5rem);
-      }
-
       body.quickforge-desktop-app .quickforge-desktop-titlebar {
         display: flex;
         background: var(--quickforge-desktop-titlebar-bg, ${initialTitleBarTheme.color});

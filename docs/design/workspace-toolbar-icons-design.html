@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="data:," />
+  <title>QuickForge 右上角工具栏图标统一设计</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page-bg: #f5f6f7;
+      --panel: #ffffff;
+      --panel-soft: #fafafa;
+      --text: #202124;
+      --muted-text: #6f747c;
+      --subtle-text: #959aa2;
+      --border: #e6e7e9;
+      --border-soft: rgba(28, 31, 35, 0.07);
+      --button-fg: #555b64;
+      --button-hover-fg: #25282d;
+      --button-hover-bg: #f1f2f4;
+      --button-active-fg: #1259a7;
+      --button-active-bg: #edf2f8;
+      --focus: rgba(37, 99, 235, 0.28);
+      --shadow: 0 14px 40px -28px rgba(18, 24, 32, 0.42);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { margin: 0; min-height: 100%; }
+
+    body {
+      padding: 36px 28px 72px;
+      background: var(--page-bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button { font: inherit; }
+
+    .page { width: min(1120px, 100%); margin: 0 auto; }
+
+    .eyebrow {
+      margin-bottom: 9px;
+      color: var(--subtle-text);
+      font-size: 11px;
+      font-weight: 680;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(24px, 3vw, 34px);
+      font-weight: 680;
+      letter-spacing: -0.035em;
+    }
+
+    .intro {
+      max-width: 780px;
+      margin: 10px 0 0;
+      color: var(--muted-text);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .toolbar-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 22px;
+    }
+
+    .segmented {
+      display: inline-flex;
+      gap: 3px;
+      padding: 3px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.7);
+    }
+
+    .segment {
+      height: 29px;
+      padding: 0 11px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted-text);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 560;
+    }
+
+    .segment:hover { color: var(--text); }
+    .segment.is-active { background: #fff; color: var(--text); box-shadow: 0 1px 4px rgba(20, 24, 30, 0.08); }
+
+    .comparison {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      margin-top: 28px;
+    }
+
+    .card {
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .card-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 17px 18px 15px;
+      border-bottom: 1px solid var(--border-soft);
+    }
+
+    .card-title { margin: 0; font-size: 14px; font-weight: 670; }
+    .card-desc { margin: 4px 0 0; color: var(--muted-text); font-size: 12px; line-height: 1.55; }
+
+    .badge {
+      flex: none;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+
+    .badge-now { background: #f5f1e9; color: #9a671c; }
+    .badge-new { background: #eaf4ed; color: #277346; }
+
+    .window {
+      position: relative;
+      min-height: 270px;
+      background: #fff;
+      transition: background 0.2s ease;
+    }
+
+    .window-titlebar {
+      position: relative;
+      height: 58px;
+      border-bottom: 1px solid #ececee;
+      background: rgba(255, 255, 255, 0.98);
+      transition: background 0.2s ease, border-color 0.2s ease;
+    }
+
+    .drag-label {
+      position: absolute;
+      top: 21px;
+      left: 18px;
+      color: #aaadb2;
+      font-size: 11px;
+    }
+
+    .toolbar {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .icon-button {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      cursor: pointer;
+      transition: color 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+    }
+
+    .icon-button svg {
+      display: block;
+      width: 18px;
+      height: 18px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .current .icon-button { border-radius: 6px; color: #24272b; }
+    .current .icon-button.plus { border-radius: 16px; color: #6e747c; }
+    .current .icon-button.plus svg,
+    .current .icon-button.expand svg { width: 16px; height: 16px; }
+    .current .icon-button.plus svg { stroke-width: 1.9; }
+    .current .icon-button.expand svg { stroke-width: 2; }
+    .current .icon-button.terminal svg,
+    .current .icon-button.panel-icon svg { stroke-width: 2.35; }
+    .current .icon-button:hover { background: #f0f1f2; }
+    .current .icon-button.plus:hover { background: #f3f3f4; color: #31343a; }
+    .current .icon-button.is-active { background: #f0f1f2; color: #0f57a6; }
+
+    .proposed .icon-button {
+      border-radius: 10px;
+      color: var(--button-fg);
+    }
+
+    .proposed .icon-button svg { stroke-width: 1.85; }
+    .proposed .icon-button:hover,
+    .proposed .icon-button.demo-hover {
+      color: var(--button-hover-fg);
+      background: var(--button-hover-bg);
+    }
+
+    .proposed .icon-button.is-active,
+    .proposed .icon-button.demo-active {
+      color: var(--button-active-fg);
+      background: var(--button-active-bg);
+    }
+
+    .proposed .icon-button:focus-visible,
+    .proposed .icon-button.demo-focus {
+      outline: none;
+      color: var(--button-hover-fg);
+      background: var(--button-hover-bg);
+      box-shadow: 0 0 0 2px var(--focus);
+    }
+
+    .proposed .icon-button:disabled,
+    .proposed .icon-button.demo-disabled {
+      color: var(--button-fg);
+      background: transparent;
+      cursor: not-allowed;
+      opacity: 0.38;
+    }
+
+    .workspace-body { display: grid; grid-template-columns: minmax(0, 1fr) 116px; height: 212px; }
+    .content-ghost { padding: 23px 22px; border-right: 1px solid #eeeeef; }
+    .ghost-line { height: 7px; margin-bottom: 10px; border-radius: 999px; background: #f1f1f2; }
+    .ghost-line:nth-child(1) { width: 46%; }
+    .ghost-line:nth-child(2) { width: 72%; }
+    .ghost-line:nth-child(3) { width: 61%; }
+    .ghost-card { width: 74%; height: 58px; margin-top: 25px; border: 1px solid #eeeeef; border-radius: 11px; background: #fcfcfc; }
+    .side-ghost { padding: 18px 13px; background: #fdfdfd; }
+    .side-title { width: 62%; height: 7px; margin-bottom: 14px; border-radius: 999px; background: #e8e9eb; }
+    .side-row { height: 6px; margin: 10px 0; border-radius: 999px; background: #f0f0f1; }
+
+    .dark .window { background: #18191b; }
+    .dark .window-titlebar { border-color: #292b2e; background: #1c1d1f; }
+    .dark .drag-label { color: #646970; }
+    .dark .content-ghost { border-color: #292b2e; }
+    .dark .ghost-line, .dark .side-row { background: #282a2d; }
+    .dark .ghost-card { border-color: #2b2d30; background: #1d1e20; }
+    .dark .side-ghost { background: #1b1c1e; }
+    .dark .side-title { background: #323438; }
+    .dark .current .icon-button { color: #dadde1; }
+    .dark .current .icon-button.plus { color: #a1a6ad; }
+    .dark .current .icon-button:hover,
+    .dark .current .icon-button.is-active { background: #292b2f; }
+    .dark .current .icon-button.is-active { color: #77adf2; }
+    .dark .proposed .icon-button { color: #aeb3ba; }
+    .dark .proposed .icon-button:hover,
+    .dark .proposed .icon-button.demo-hover,
+    .dark .proposed .icon-button:focus-visible,
+    .dark .proposed .icon-button.demo-focus { color: #f0f1f2; background: #292b2f; }
+    .dark .proposed .icon-button.is-active,
+    .dark .proposed .icon-button.demo-active { color: #82b5f4; background: #27313d; }
+
+    .state-section,
+    .spec-section {
+      margin-top: 18px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .section-head { padding: 17px 18px 0; }
+    .section-title { margin: 0; font-size: 14px; font-weight: 670; }
+    .section-desc { margin: 4px 0 0; color: var(--muted-text); font-size: 12px; }
+
+    .state-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+      padding: 16px 18px 19px;
+    }
+
+    .state-item {
+      display: grid;
+      place-items: center;
+      min-height: 92px;
+      border: 1px solid var(--border-soft);
+      border-radius: 12px;
+      background: var(--panel-soft);
+    }
+
+    .state-item span { margin-top: 9px; color: var(--muted-text); font-size: 11px; }
+    .state-item .icon-button { display: flex; margin: 0 auto; }
+
+    .spec-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      border-top: 1px solid var(--border-soft);
+      margin-top: 16px;
+    }
+
+    .spec { min-height: 88px; padding: 16px 17px; border-right: 1px solid var(--border-soft); }
+    .spec:last-child { border-right: 0; }
+    .spec-label { color: var(--subtle-text); font-size: 10px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; }
+    .spec-value { margin-top: 7px; font-size: 15px; font-weight: 660; }
+    .spec-note { margin-top: 3px; color: var(--muted-text); font-size: 11px; line-height: 1.45; }
+
+    .decision {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin-top: 18px;
+      padding: 15px 17px;
+      border: 1px solid #dce8df;
+      border-radius: 13px;
+      background: #f6faf7;
+      color: #355d43;
+      font-size: 12px;
+      line-height: 1.65;
+    }
+
+    .decision-mark {
+      display: grid;
+      place-items: center;
+      flex: none;
+      width: 20px;
+      height: 20px;
+      margin-top: 1px;
+      border-radius: 999px;
+      background: #e1efe5;
+      color: #267242;
+      font-weight: 800;
+    }
+
+    code {
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: #eff0f2;
+      color: #4e545d;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 11px;
+    }
+
+    .footnote { margin: 17px 2px 0; color: var(--subtle-text); font-size: 11px; line-height: 1.6; }
+
+    @media (max-width: 840px) {
+      .comparison { grid-template-columns: 1fr; }
+      .state-grid { grid-template-columns: repeat(3, 1fr); }
+      .spec-grid { grid-template-columns: repeat(2, 1fr); }
+      .spec { border-bottom: 1px solid var(--border-soft); }
+    }
+
+    @media (max-width: 520px) {
+      body { padding: 24px 14px 52px; }
+      .state-grid { grid-template-columns: repeat(2, 1fr); }
+      .spec-grid { grid-template-columns: 1fr; }
+      .spec { border-right: 0; }
+      .workspace-body { grid-template-columns: 1fr 92px; }
+      .drag-label { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <div class="eyebrow">QuickForge · Workspace Toolbar</div>
+      <h1>右上角工具栏图标统一设计</h1>
+      <p class="intro">
+        保留加号、工作区全屏、终端和右侧面板的原有功能与排列，仅统一点击热区、圆角、图标尺寸、描边重量和状态反馈。推荐方案延续 QuickForge 轻盈、克制的工具感。
+      </p>
+      <div class="toolbar-controls" aria-label="预览设置">
+        <div class="segmented" aria-label="主题">
+          <button class="segment is-active" data-theme="light">浅色</button>
+          <button class="segment" data-theme="dark">深色</button>
+        </div>
+        <div class="segmented" aria-label="选中按钮">
+          <button class="segment" data-active="terminal">终端选中</button>
+          <button class="segment is-active" data-active="panel">侧栏选中</button>
+          <button class="segment" data-active="none">无选中</button>
+        </div>
+      </div>
+    </header>
+
+    <section class="comparison">
+      <article class="card preview-card">
+        <div class="card-head">
+          <div>
+            <h2 class="card-title">当前视觉</h2>
+            <p class="card-desc">尺寸、圆角、颜色和线宽存在差异。</p>
+          </div>
+          <span class="badge badge-now">当前</span>
+        </div>
+        <div class="window current">
+          <div class="window-titlebar">
+            <span class="drag-label">工作区</span>
+            <div class="toolbar" data-toolbar="current"></div>
+          </div>
+          <div class="workspace-body">
+            <div class="content-ghost">
+              <div class="ghost-line"></div><div class="ghost-line"></div><div class="ghost-line"></div>
+              <div class="ghost-card"></div>
+            </div>
+            <aside class="side-ghost"><div class="side-title"></div><div class="side-row"></div><div class="side-row"></div><div class="side-row"></div></aside>
+          </div>
+        </div>
+      </article>
+
+      <article class="card preview-card">
+        <div class="card-head">
+          <div>
+            <h2 class="card-title">统一方案</h2>
+            <p class="card-desc">同尺寸、同圆角、同线宽、同一套状态语言。</p>
+          </div>
+          <span class="badge badge-new">推荐</span>
+        </div>
+        <div class="window proposed">
+          <div class="window-titlebar">
+            <span class="drag-label">工作区</span>
+            <div class="toolbar" data-toolbar="proposed"></div>
+          </div>
+          <div class="workspace-body">
+            <div class="content-ghost">
+              <div class="ghost-line"></div><div class="ghost-line"></div><div class="ghost-line"></div>
+              <div class="ghost-card"></div>
+            </div>
+            <aside class="side-ghost"><div class="side-title"></div><div class="side-row"></div><div class="side-row"></div><div class="side-row"></div></aside>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="state-section proposed">
+      <div class="section-head">
+        <h2 class="section-title">状态反馈</h2>
+        <p class="section-desc">所有图标按钮共用同一套 Default → Hover → Active → Focus → Disabled 规则。</p>
+      </div>
+      <div class="state-grid">
+        <div class="state-item"><div><button class="icon-button" aria-label="默认状态" data-single-icon="panel"></button><span>Default</span></div></div>
+        <div class="state-item"><div><button class="icon-button demo-hover" aria-label="悬停状态" data-single-icon="panel"></button><span>Hover</span></div></div>
+        <div class="state-item"><div><button class="icon-button demo-active" aria-label="选中状态" data-single-icon="panel"></button><span>Active</span></div></div>
+        <div class="state-item"><div><button class="icon-button demo-focus" aria-label="键盘聚焦状态" data-single-icon="panel"></button><span>Focus</span></div></div>
+        <div class="state-item"><div><button class="icon-button demo-disabled" aria-label="禁用状态" data-single-icon="panel"></button><span>Disabled</span></div></div>
+      </div>
+    </section>
+
+    <section class="spec-section">
+      <div class="section-head">
+        <h2 class="section-title">统一规格</h2>
+        <p class="section-desc">只调整视觉 class，不改变点击事件、禁用逻辑、菜单、全屏或面板开关。</p>
+      </div>
+      <div class="spec-grid">
+        <div class="spec"><div class="spec-label">点击区域</div><div class="spec-value">36 × 36px</div><div class="spec-note">维持当前操作热区。</div></div>
+        <div class="spec"><div class="spec-label">图标尺寸</div><div class="spec-value">18 × 18px</div><div class="spec-note">四枚图标统一视觉盒。</div></div>
+        <div class="spec"><div class="spec-label">描边</div><div class="spec-value">1.85px</div><div class="spec-note">减轻终端图标偏重问题。</div></div>
+        <div class="spec"><div class="spec-label">圆角</div><div class="spec-value">10px</div><div class="spec-note">统一为轻量圆角矩形。</div></div>
+        <div class="spec"><div class="spec-label">按钮间距</div><div class="spec-value">4px</div><div class="spec-note">保持现有紧凑排布。</div></div>
+      </div>
+    </section>
+
+    <div class="decision">
+      <span class="decision-mark">✓</span>
+      <div><strong>推荐落地方向：</strong>继续使用现有 Lucide 图标，不换图标库；统一到 <code>size-9</code> 点击区、18px 图标、约 10px 圆角与一致的弱化 / Hover / Active / Focus 样式。这样改动最小，也不会影响现有功能。</div>
+    </div>
+
+    <p class="footnote">本页面仅为独立 HTML 视觉原型，不接入应用运行时代码。点击顶部选项可切换主题和选中状态；点击预览中的终端或侧栏按钮也可切换 Active 状态。</p>
+  </main>
+
+  <script>
+    const ICONS = {
+      plus: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`,
+      expand: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>`,
+      terminal: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="16" x="3" y="4" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg>`,
+      panel: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg>`
+    };
+
+    const labels = {
+      plus: '打开标签页',
+      expand: '全屏工作空间',
+      terminal: '终端',
+      panel: '右侧工作区'
+    };
+
+    let activeName = 'panel';
+    const toolbarOrder = ['plus', 'expand', 'terminal', 'panel'];
+
+    function toolbarMarkup() {
+      return toolbarOrder.map(name => `
+        <button class="icon-button ${name} ${name === activeName ? 'is-active' : ''}"
+          type="button" data-icon="${name}" aria-label="${labels[name]}" title="${labels[name]}">
+          ${ICONS[name]}
+        </button>`).join('');
+    }
+
+    function renderToolbars() {
+      document.querySelectorAll('[data-toolbar]').forEach(el => { el.innerHTML = toolbarMarkup(); });
+      document.querySelectorAll('[data-single-icon]').forEach(el => { el.innerHTML = ICONS[el.dataset.singleIcon]; });
+      bindToolbarClicks();
+    }
+
+    function bindToolbarClicks() {
+      document.querySelectorAll('[data-toolbar] [data-icon="terminal"], [data-toolbar] [data-icon="panel"]').forEach(button => {
+        button.addEventListener('click', () => {
+          activeName = activeName === button.dataset.icon ? 'none' : button.dataset.icon;
+          syncActiveSegments();
+          renderToolbars();
+        });
+      });
+    }
+
+    function syncActiveSegments() {
+      document.querySelectorAll('[data-active]').forEach(button => {
+        button.classList.toggle('is-active', button.dataset.active === activeName);
+      });
+    }
+
+    document.querySelectorAll('[data-theme]').forEach(button => {
+      button.addEventListener('click', () => {
+        const dark = button.dataset.theme === 'dark';
+        document.querySelectorAll('.preview-card').forEach(card => card.classList.toggle('dark', dark));
+        document.querySelectorAll('[data-theme]').forEach(item => item.classList.toggle('is-active', item === button));
+      });
+    });
+
+    document.querySelectorAll('[data-active]').forEach(button => {
+      button.addEventListener('click', () => {
+        activeName = button.dataset.active;
+        syncActiveSegments();
+        renderToolbars();
+      });
+    });
+
+    renderToolbars();
+  </script>
+</body>
+</html>

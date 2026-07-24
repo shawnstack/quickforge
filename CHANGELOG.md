@@ -4,6 +4,27 @@ All notable changes to QuickForge will be documented in this file.
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-07-24
+
+### Changed
+
+- Enhanced workspace fullscreen toolbar interactions and refined the Files landing layout.
+
+### Fixed
+
+- Improved workspace preview error handling and recovery actions.
+- Excluded local projects from settings backups.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.7.1` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.7.1.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.7.1.tgz
+  ```
+
 ## [1.7.0] - 2026-07-23
 
 ### Added

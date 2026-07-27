@@ -49,11 +49,6 @@ export async function handleMcpApi(req, res, url) {
     return
   }
 
-  if (req.method === 'POST' && url.pathname === '/api/mcp/reconnect') {
-    sendJson(res, 200, await refreshMcpAndAgentTools())
-    return
-  }
-
   if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'mcp' && parts[2] === 'reconnect' && parts[3]) {
     await reconnectMcpServer(decodeURIComponent(parts[3]))
     sendJson(res, 200, await refreshMcpAndAgentTools())

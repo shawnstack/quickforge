@@ -207,7 +207,7 @@ server/
 **核心文件**:
 - `mcp/config.mjs` — MCP Server 配置读写和校验，配置存放在独立的 `mcp` store（`config/mcp-servers.json`，内部 key 仍为 `mcpServers`）；兼容 `mcpServers` JSON 导入、`type`/`transport` 和远程 `headers` 配置。
 - `mcp/registry.mjs` — stdio/SSE/Streamable HTTP 连接生命周期、工具发现、工具调用转发、关闭清理；支持全量刷新（`refreshMcpConnections`，对 error 状态有重试退避）和单 server 强制重连（`reconnectMcpServer`，绕过退避）。
-- `routes/mcp.mjs` — `/api/mcp/servers`（列表与 upsert 单个）、`/api/mcp/config`（批量导入 merge/replace）、`/api/mcp/reconnect`（全量重连）、`/api/mcp/reconnect/:name`（单 server 重连）、启停开关与删除等管理接口。
+- `routes/mcp.mjs` — `/api/mcp/servers`（列表与 upsert 单个）、`/api/mcp/config`（批量导入 merge/replace）、`/api/mcp/reconnect/:name`（单 server 重连）、启停开关与删除等管理接口。
 
 **行为约束**:
 - 当前支持 `stdio`、`sse` 和 Streamable HTTP (`http`) transport。

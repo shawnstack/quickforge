@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowLeft, FileJson, Loader2, Plus, RefreshCw, Server } from 'lucide-react'
+import { ArrowLeft, FileJson, Loader2, Plus, Server } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
 import { showConfirm } from '@/components/ui/confirm-dialog'
@@ -197,20 +197,6 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
     }
   }
 
-  const reconnectAll = async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const response = await fetch('/api/mcp/reconnect', { method: 'POST' })
-      const payload = await readJsonResponse<McpServersPayload>(response)
-      applyServers(payload)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('mcpReconnectFailed'))
-    } finally {
-      setLoading(false)
-    }
-  }
-
   const reconnectServer = async (name: string) => {
     if (reconnectingName) return
     setReconnectingName(name)
@@ -320,16 +306,10 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
       <div className="border-b border-border px-6 py-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-medium text-foreground/90">{t('mcpConfiguredServers')}</h3>
-          <div className="flex items-center gap-2">
-            <Button type="button" variant="ghost" size="sm" onClick={startAdd}>
-              <Plus className="mr-1.5 size-3.5" />
-              {t('mcpAddServer')}
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={reconnectAll} disabled={loading}>
-              {loading ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 size-3.5" />}
-              {t('mcpReconnect')}
-            </Button>
-          </div>
+          <Button type="button" variant="ghost" size="sm" onClick={startAdd}>
+            <Plus className="mr-1.5 size-3.5" />
+            {t('mcpAddServer')}
+          </Button>
         </div>
       </div>
       {error ? <div className="m-6 mb-0 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}

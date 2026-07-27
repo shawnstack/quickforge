@@ -964,6 +964,23 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
     })
   }
 
+  function closeOtherPanelTabs() {
+    setPanelTabs((prev) => {
+      const activeTab = prev.find((tab) => tab.id === activePanelTabId) ?? prev[0]
+      if (!activeTab) return prev
+      setActivePanelTabId(activeTab.id)
+      return [activeTab]
+    })
+    setTabListOpen(false)
+  }
+
+  function closeAllPanelTabs() {
+    setPanelTabs([])
+    setActivePanelTabId(undefined)
+    setTabListOpen(false)
+    onOpenChange(false)
+  }
+
   function selectPreviewFile(path: string) {
     if (onPreviewArtifact && projectId) {
       onPreviewArtifact(projectId, path)
@@ -1394,6 +1411,25 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
                       </div>
                     )
                   })}
+                  <div className="mt-2 border-t border-[color-mix(in_oklab,var(--border)_34%,transparent)] pt-2">
+                    <button
+                      type="button"
+                      className="flex h-9 w-full items-center rounded-xl px-3 text-left text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                      onClick={closeOtherPanelTabs}
+                      disabled={panelTabs.length <= 1}
+                      role="menuitem"
+                    >
+                      {t('rightPanelCloseOtherTabs')}
+                    </button>
+                    <button
+                      type="button"
+                      className="flex h-9 w-full items-center rounded-xl px-3 text-left text-sm font-medium text-foreground/80 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                      onClick={closeAllPanelTabs}
+                      role="menuitem"
+                    >
+                      {t('rightPanelCloseAllTabs')}
+                    </button>
+                  </div>
                 </div>
               ) : null}
             </div>

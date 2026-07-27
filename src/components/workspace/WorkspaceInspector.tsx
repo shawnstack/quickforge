@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronRight, ChevronsLeftRight, Code2, Copy, CornerDownLeft, Eye, Folder, GitBranch, GitCommitHorizontal, Globe, Maximize, Minimize, MoreHorizontal, PanelRight, Plus, RefreshCw, Search, SquareTerminal, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Code2, Copy, CornerDownLeft, Eye, Folder, GitBranch, GitCommitHorizontal, Globe, Maximize, Minimize, MoreHorizontal, PanelRight, Plus, RefreshCw, Search, SquareTerminal, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ProjectInfo } from '@/lib/types'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
@@ -1331,22 +1331,12 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
             aria-valuemin={WORKSPACE_INSPECTOR_MIN_WIDTH}
             aria-valuemax={WORKSPACE_INSPECTOR_MAX_WIDTH}
             aria-valuenow={width}
-            className={cn(
-              'group absolute inset-y-0 -left-2 z-20 flex w-4 cursor-col-resize items-center justify-center bg-transparent transition-colors hover:bg-border/40',
-              isResizing ? 'bg-border/45' : '',
-            )}
+            className="absolute inset-y-0 -left-2 z-20 w-4 cursor-col-resize bg-transparent"
             onPointerDown={startResizing}
             onPointerMove={resize}
             onPointerUp={stopResizing}
             onPointerCancel={stopResizing}
-          >
-            <div className={cn(
-              'flex h-10 w-3 items-center justify-center rounded-full border border-border bg-background text-muted-foreground/60 opacity-0 shadow-sm transition-opacity',
-              isResizing ? 'opacity-100' : 'group-hover:opacity-100',
-            )}>
-              <ChevronsLeftRight className="size-3" />
-            </div>
-          </div>
+          />
         ) : null}
         <div className={cn(
           'flex h-14 shrink-0 items-center gap-2 border-b border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background pl-3 transition-opacity duration-150',

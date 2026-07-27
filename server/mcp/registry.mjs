@@ -41,14 +41,24 @@ function parseQuickForgeToolName(value) {
   }
 }
 
-function withTimeout(promise, timeoutMs, message) {
+function withTimeout(promise, timeoutMs, message, onTimeout) {
   let timer
-  return Promise.race([
-    promise.finally(() => clearTimeout(timer)),
-    new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(message)), timeoutMs)
-    }),
-  ])
+  let timedOut = false
+  const guardedPromise = promise.catch((error) => {
+    if (timedOut) return new Promise(() => {})
+    throw error
+  })
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(async () => {
+      timedOut = true
+      try {
+        await onTimeout?.()
+      } finally {
+        reject(new Error(message))
+      }
+    }, timeoutMs)
+  })
+  return Promise.race([guardedPromise, timeoutPromise]).finally(() => clearTimeout(timer))
 }
 
 function truncateText(value, max = MAX_TEXT_LENGTH) {
@@ -142,12 +152,27 @@ async function connectServer(config) {
     connection.error = error?.message || 'MCP transport error'
   }
 
-  await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, `MCP server ${config.name} connection timed out`)
-  const listed = await withTimeout(client.listTools(), CONNECT_TIMEOUT_MS, `MCP server ${config.name} tool discovery timed out`)
-  connection.tools = Array.isArray(listed?.tools) ? listed.tools : []
-  connection.status = 'connected'
-  connection.connectedAt = new Date().toISOString()
-  return connection
+  try {
+    await withTimeout(
+      client.connect(transport),
+      CONNECT_TIMEOUT_MS,
+      `MCP server ${config.name} connection timed out`,
+    )
+    const listed = await withTimeout(
+      client.listTools(undefined, { timeout: CONNECT_TIMEOUT_MS }),
+      CONNECT_TIMEOUT_MS,
+      `MCP server ${config.name} tool discovery timed out`,
+    )
+    connection.tools = Array.isArray(listed?.tools) ? listed.tools : []
+    connection.status = 'connected'
+    connection.connectedAt = new Date().toISOString()
+    return connection
+  } catch (error) {
+    connection.status = 'error'
+    connection.error = error?.message || 'Failed to connect MCP server'
+    await closeConnection(connection)
+    throw error
+  }
 }
 
 async function closeConnection(connection) {
@@ -337,10 +362,25 @@ export async function callMcpTool(toolName, params = {}) {
     error.statusCode = 404
     throw error
   }
+  const controller = new AbortController()
   const result = await withTimeout(
-    connection.client.callTool({ name: tool.name, arguments: params || {} }),
+    connection.client.callTool(
+      { name: tool.name, arguments: params || {} },
+      undefined,
+      { signal: controller.signal, timeout: CALL_TIMEOUT_MS },
+    ),
     CALL_TIMEOUT_MS,
     `MCP tool ${toolName} timed out`,
+    async () => {
+      controller.abort()
+      if (connections.get(parsed.serverName) === connection) connections.delete(parsed.serverName)
+      connection.status = 'error'
+      connection.error = `MCP tool ${toolName} timed out`
+      await Promise.race([
+        closeConnection(connection),
+        new Promise((resolve) => setTimeout(resolve, 1000)),
+      ])
+    },
   )
   return {
     isError: Boolean(result?.isError),

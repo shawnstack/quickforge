@@ -18,6 +18,7 @@ const globalPluginDir = path.join(dataDir, 'plugins')
 const legacyGlobalPluginDir = path.join(os.homedir(), '.agents', 'plugins')
 let cachedCatalog = null
 let cachedCatalogKey = null
+let catalogDirty = false
 let refreshPromise = null
 
 function catalogKey(projectContext = null) {
@@ -96,7 +97,7 @@ async function discoverManifests(projectContext) {
   return { manifests, errors, roots }
 }
 
-async function loadEnabledPlugins(projectContext) {
+async function loadEnabledPlugins(projectContext, previousCatalog = null) {
   const store = await readPluginStore()
   const { manifests, errors, roots } = await discoverManifests(projectContext)
   const plugins = []
@@ -126,8 +127,16 @@ async function loadEnabledPlugins(projectContext) {
         handlers.set(manifest.name, loaded)
       } catch (error) {
         logger.error(`Failed to load plugin ${manifest.name}:`, error)
-        entry.status = 'error'
-        entry.error = error?.message || 'Failed to load plugin'
+        const previousPlugin = previousCatalog?.plugins?.find((plugin) => plugin.name === manifest.name)
+        const previousHandler = previousCatalog?.handlers?.get(manifest.name)
+        if (previousPlugin?.enabled && previousPlugin.status === 'loaded' && previousHandler) {
+          handlers.set(manifest.name, previousHandler)
+          entry.status = 'loaded'
+          entry.error = error?.message || 'Failed to reload plugin; using previous instance'
+        } else {
+          entry.status = 'error'
+          entry.error = error?.message || 'Failed to load plugin'
+        }
       }
     }
 
@@ -138,12 +147,27 @@ async function loadEnabledPlugins(projectContext) {
   return { plugins, handlers, errors, roots }
 }
 
+async function disposeHandlers(catalog, retainedHandlers = new Set()) {
+  if (!catalog?.handlers) return
+  await Promise.allSettled(Array.from(catalog.handlers.entries(), async ([name, handler]) => {
+    if (retainedHandlers.has(handler) || typeof handler?.dispose !== 'function') return
+    try {
+      await handler.dispose()
+    } catch (error) {
+      logger.warn(`Failed to dispose plugin ${name}:`, error)
+    }
+  }))
+}
+
 export async function refreshPlugins(projectContext = null) {
   const key = catalogKey(projectContext)
   if (!refreshPromise) {
-    refreshPromise = loadEnabledPlugins(projectContext).then((catalog) => {
+    const previousCatalog = cachedCatalogKey === key ? cachedCatalog : null
+    refreshPromise = loadEnabledPlugins(projectContext, previousCatalog).then(async (catalog) => {
       cachedCatalog = catalog
       cachedCatalogKey = key
+      catalogDirty = false
+      await disposeHandlers(previousCatalog, new Set(catalog.handlers.values()))
       return catalog
     }).finally(() => {
       refreshPromise = null
@@ -154,7 +178,7 @@ export async function refreshPlugins(projectContext = null) {
 
 async function getCatalog(projectContext = null) {
   const key = catalogKey(projectContext)
-  if (!cachedCatalog || cachedCatalogKey !== key) return refreshPlugins(projectContext)
+  if (!cachedCatalog || cachedCatalogKey !== key || catalogDirty) return refreshPlugins(projectContext)
   return cachedCatalog
 }
 
@@ -183,7 +207,7 @@ export async function getEnabledPluginCommandSources(projectContext = null) {
 }
 
 export async function getPluginStatus(projectContext = null) {
-  const catalog = await refreshPlugins(projectContext)
+  const catalog = await getCatalog(projectContext)
   return {
     searchPaths: catalog.roots,
     errors: catalog.errors,
@@ -221,8 +245,7 @@ export async function setPluginEnabled(name, enabled) {
     next.enabled[name] = enabled === true
     return next
   })
-  cachedCatalog = null
-  cachedCatalogKey = null
+  catalogDirty = true
 }
 
 export async function setPluginConfig(name, config) {
@@ -231,8 +254,7 @@ export async function setPluginConfig(name, config) {
     next.config[name] = isPlainObject(config) ? config : {}
     return next
   })
-  cachedCatalog = null
-  cachedCatalogKey = null
+  catalogDirty = true
 }
 
 export async function createPluginToolDefinitions(projectContext = null) {

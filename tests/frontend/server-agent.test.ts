@@ -242,6 +242,44 @@ describe('ServerAgent', () => {
     }
   })
 
+  it('restores messages and running state from the server when recreating an evicted agent', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return { ok: true, status: 200, json: async () => ({}) }
+      if (url.endsWith('/state')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            stateVersion: 7,
+            isStreaming: true,
+            messages: [
+              { role: 'user', content: 'server request' },
+              { role: 'assistant', content: 'server partial response' },
+            ],
+          }),
+        }
+      }
+      return { ok: true, status: 200, json: async () => ({}) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { ServerAgent } = await import('../../src/lib/server-agent')
+
+    const agent = await ServerAgent.create('evicted-session', {
+      messages: [{ role: 'user', content: 'stale local state' }] as AgentMessage[],
+    })
+
+    try {
+      expect(agent.state.messages).toEqual([
+        { role: 'user', content: 'server request' },
+        { role: 'assistant', content: 'server partial response' },
+      ])
+      expect(agent.state.isStreaming).toBe(true)
+      expect(fetchMock).toHaveBeenCalledWith('/api/agents/evicted-session/state')
+    } finally {
+      agent.dispose()
+    }
+  })
+
   it('clears streaming when status reports completion even if the state version went backwards', async () => {
     vi.useFakeTimers()
     const fetchMock = vi.fn(async (url: string) => {

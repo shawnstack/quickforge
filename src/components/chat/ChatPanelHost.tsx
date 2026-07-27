@@ -39,6 +39,7 @@ import {
   loadComposerDraft,
   saveComposerDraft,
   createComposerDraftRestoreGuard,
+  rememberConsumedRestoredDraftId,
   type ComposerDraftContext,
 } from '@/lib/composer-drafts'
 
@@ -228,7 +229,7 @@ export function ChatPanelHost({
   }, [])
 
   const consumeRestoredDraft = useCallback((draftId: number) => {
-    consumedRestoredDraftIdsRef.current.add(draftId)
+    rememberConsumedRestoredDraftId(consumedRestoredDraftIdsRef.current, draftId)
     onRestoredDraftConsumed?.(draftId)
   }, [onRestoredDraftConsumed])
 
@@ -528,10 +529,12 @@ export function ChatPanelHost({
       const draft = { text: value, attachments }
       if (hasDraft(draft)) {
         composerDraftsRef.current.set(currentDraftKey, draft)
+        schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
       } else {
         composerDraftsRef.current.delete(currentDraftKey)
+        cancelPendingDraftSave()
+        void clearComposerDraft(currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
       }
-      schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
     }
     const handleEditorFilesChange = (files: unknown[]) => {
       handleComposerInteraction()
@@ -542,10 +545,12 @@ export function ChatPanelHost({
       const draft = { text, attachments: files ? [...files] : [] }
       if (hasDraft(draft)) {
         composerDraftsRef.current.set(currentDraftKey, draft)
+        schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
       } else {
         composerDraftsRef.current.delete(currentDraftKey)
+        cancelPendingDraftSave()
+        void clearComposerDraft(currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
       }
-      schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
 
       const agentInterface = panel.querySelector<AgentInterfaceElement>('agent-interface')
       agentInterface?.requestUpdate?.()

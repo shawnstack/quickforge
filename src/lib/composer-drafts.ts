@@ -3,6 +3,7 @@ import type { ComposerDraft } from '@/components/chat/chat-utils'
 
 const COMPOSER_DRAFTS_STORAGE_KEY = 'quickforge:composer-drafts:v1'
 const MAX_COMPOSER_DRAFTS = 100
+export const MAX_CONSUMED_RESTORED_DRAFT_IDS = 200
 
 export type ComposerDraftContext = {
   sessionId?: string
@@ -149,6 +150,20 @@ export async function clearComposerDraft(key: string): Promise<void> {
   if (!Object.prototype.hasOwnProperty.call(drafts, key)) return
   delete drafts[key]
   writeDrafts(drafts)
+}
+
+export function rememberConsumedRestoredDraftId(
+  consumedIds: Set<number>,
+  draftId: number,
+  limit = MAX_CONSUMED_RESTORED_DRAFT_IDS,
+) {
+  consumedIds.delete(draftId)
+  consumedIds.add(draftId)
+  while (consumedIds.size > limit) {
+    const oldestId = consumedIds.values().next().value
+    if (oldestId === undefined) break
+    consumedIds.delete(oldestId)
+  }
 }
 
 export type ComposerDraftRestoreGuard = {

@@ -5,6 +5,8 @@ import {
   loadComposerDraft,
   saveComposerDraft,
   createComposerDraftRestoreGuard,
+  MAX_CONSUMED_RESTORED_DRAFT_IDS,
+  rememberConsumedRestoredDraftId,
 } from '../../src/lib/composer-drafts'
 
 function createLocalStorageMock(initial: Record<string, string> = {}): Storage {
@@ -111,6 +113,22 @@ describe('composer drafts', () => {
     const before = globalThis.localStorage.getItem(draftsKey)
     await clearComposerDraft('missing')
     expect(globalThis.localStorage.getItem(draftsKey)).toBe(before)
+  })
+
+  it('bounds consumed restored draft ids while keeping the newest ids', () => {
+    const consumedIds = new Set<number>()
+    for (let id = 1; id <= MAX_CONSUMED_RESTORED_DRAFT_IDS + 2; id += 1) {
+      rememberConsumedRestoredDraftId(consumedIds, id)
+    }
+
+    expect(consumedIds.size).toBe(MAX_CONSUMED_RESTORED_DRAFT_IDS)
+    expect(consumedIds.has(1)).toBe(false)
+    expect(consumedIds.has(2)).toBe(false)
+    expect(consumedIds.has(MAX_CONSUMED_RESTORED_DRAFT_IDS + 2)).toBe(true)
+
+    rememberConsumedRestoredDraftId(consumedIds, 3)
+    expect(consumedIds.size).toBe(MAX_CONSUMED_RESTORED_DRAFT_IDS)
+    expect([...consumedIds].at(-1)).toBe(3)
   })
 
   it('invalidates stale async draft restores after a send clears the composer', () => {

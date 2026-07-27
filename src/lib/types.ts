@@ -102,6 +102,7 @@ export type BackgroundTask = {
   status: BackgroundTaskStatus
   startedAt?: string
   finishedAt?: string
+  lastAccessedAt?: number
   unsubscribe: () => void
 }
 

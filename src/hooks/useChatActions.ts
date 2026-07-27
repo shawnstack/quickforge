@@ -15,6 +15,7 @@ import {
 import type { ProjectInfo, RestoredDraft } from '@/lib/types'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
+import { disposeAgentTask } from '@/lib/agent-task-retention'
 
 type UseChatActionsOptions = {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof initializePiStorage>> | null>
@@ -160,10 +161,7 @@ export function useChatActions({
     const thinkingLevel = currentAgent.state.thinkingLevel
 
     if (previousSessionId) {
-      const task = taskMapRef.current.get(previousSessionId)
-      task?.unsubscribe()
-      task?.agent.dispose()
-      taskMapRef.current.delete(previousSessionId)
+      disposeAgentTask(taskMapRef.current, previousSessionId)
     }
 
     if (storage && previousSessionId) {

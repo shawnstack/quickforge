@@ -1,3 +1,5 @@
+import { promises as fs } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 
 function isPlainObject(value) {
@@ -19,7 +21,9 @@ function contentToText(result) {
 
 export async function loadPlugin(manifest, context = {}) {
   const mainPath = new URL(manifest.main, pathToFileURL(`${manifest.dir}/`))
-  const moduleUrl = `${mainPath.href}?quickforgePluginReload=${Date.now()}`
+  const source = await fs.readFile(mainPath)
+  const reloadToken = createHash('sha256').update(source).digest('hex')
+  const moduleUrl = `${mainPath.href}?quickforgePluginReload=${reloadToken}`
   const module = await import(moduleUrl)
   const factory = module.createPlugin || module.default
   if (typeof factory !== 'function') {
@@ -41,6 +45,7 @@ export async function loadPlugin(manifest, context = {}) {
   }
 
   const tools = isPlainObject(plugin.tools) ? plugin.tools : {}
+  const dispose = typeof plugin.dispose === 'function' ? plugin.dispose.bind(plugin) : null
   return {
     async callTool(toolName, params = {}, toolContext = {}) {
       const handler = tools[toolName]
@@ -51,6 +56,9 @@ export async function loadPlugin(manifest, context = {}) {
         details: isPlainObject(result?.details) ? result.details : undefined,
         isError: Boolean(result?.isError),
       }
+    },
+    async dispose() {
+      if (dispose) await dispose()
     },
   }
 }

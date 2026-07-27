@@ -652,11 +652,12 @@ async function createQuickForgeSession(params = {}) {
 }
 
 function waitForPromptEnd(sessionId, conn, signal) {
-  if (pendingPrompts.has(sessionId)) return Promise.reject(new Error('ACP prompt is already running for this session.'))
+  if (pendingPrompts.has(sessionId)) throw new Error('ACP prompt is already running for this session.')
   const eventBus = getSessionEventBus(sessionId)
-  if (!eventBus) return Promise.reject(new Error('Session not found'))
+  if (!eventBus) throw new Error('Session not found')
 
-  return new Promise((resolve, reject) => {
+  let failPrompt
+  const done = new Promise((resolve, reject) => {
     let settled = false
 
     const cleanup = () => {
@@ -678,6 +679,7 @@ function waitForPromptEnd(sessionId, conn, signal) {
       cleanup()
       reject(err)
     }
+    failPrompt = fail
 
     const sendUpdate = (update) => {
       conn.sessionUpdate({ sessionId, update }).catch((err) => {
@@ -712,7 +714,7 @@ function waitForPromptEnd(sessionId, conn, signal) {
       finish({ stopReason: 'cancelled' })
     }
 
-    pendingPrompts.set(sessionId, { cancel: onAbort })
+    pendingPrompts.set(sessionId, { cancel: onAbort, fail })
 
     eventBus.on('agent_event', onEvent)
     if (signal) {
@@ -723,6 +725,7 @@ function waitForPromptEnd(sessionId, conn, signal) {
       signal.addEventListener('abort', onAbort, { once: true })
     }
   })
+  return { done, fail: (error) => failPrompt?.(error) }
 }
 
 async function listPersistedAcpSessions(params = {}) {
@@ -825,12 +828,17 @@ export async function createQuickForgeAcpAgent() {
     },
 
     async deleteSession(params = {}) {
+      pendingPrompts.get(params.sessionId)?.fail(new Error('ACP session deleted'))
       await destroyAgent(params.sessionId)
       acpSessions.delete(params.sessionId)
       return {}
     },
 
     async closeSession(params = {}) {
+      const pendingPrompt = pendingPrompts.get(params.sessionId)
+      if (pendingPrompt) {
+        pendingPrompt.cancel()
+      }
       try {
         await abortRun(params.sessionId)
       } catch {
@@ -853,9 +861,13 @@ export async function createQuickForgeAcpAgent() {
       if (!message) throw new Error('Prompt is empty or unsupported.')
       const state = getSessionState(params.sessionId)
       if (!state) throw new Error('Session not found')
-      const done = waitForPromptEnd(params.sessionId, conn, signal)
-      await runPrompt(params.sessionId, withAcpContext(params.sessionId, message))
-      return done
+      const pendingPrompt = waitForPromptEnd(params.sessionId, conn, signal)
+      try {
+        await runPrompt(params.sessionId, withAcpContext(params.sessionId, message))
+      } catch (error) {
+        pendingPrompt.fail(error)
+      }
+      return pendingPrompt.done
     },
 
     async cancel(params = {}) {

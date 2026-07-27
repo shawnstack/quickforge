@@ -20,6 +20,7 @@ import type {
 import { normalizeAgentAccessMode, sessionScope } from '@/lib/types'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
+import { disposeAllAgentTasks } from '@/lib/agent-task-retention'
 import { showAlert } from '@/components/ui/confirm-dialog'
 
 type UseAppBootstrapOptions = {
@@ -199,11 +200,7 @@ export function useAppBootstrap({
     const taskMap = taskMapRef.current
     return () => {
       cancelled = true
-      for (const task of taskMap.values()) {
-        task.unsubscribe()
-        task.agent.dispose()
-      }
-      taskMap.clear()
+      disposeAllAgentTasks(taskMap)
     }
   }, [
     storageRef,

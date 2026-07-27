@@ -4,6 +4,7 @@ import type { QuickForgeSessionData, QuickForgeSessionMetadata } from '@/lib/typ
 import { initializePiStorage } from '@/lib/pi-chat'
 import { t } from '@/lib/i18n'
 import { showPrompt } from '@/components/ui/prompt-dialog'
+import { disposeAgentTask } from '@/lib/agent-task-retention'
 
 type UseSessionActionsOptions = {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof initializePiStorage>> | null>
@@ -71,10 +72,7 @@ export function useSessionActions({
   const archiveSession = useCallback(async (sessionId: string) => {
     const storage = storageRef.current
     if (!storage) return
-    const task = taskMapRef.current.get(sessionId)
-    task?.unsubscribe()
-    task?.agent.dispose()
-    taskMapRef.current.delete(sessionId)
+    disposeAgentTask(taskMapRef.current, sessionId)
 
     const session = await storage.sessions.get(sessionId) as QuickForgeSessionData | null
     if (!session) return

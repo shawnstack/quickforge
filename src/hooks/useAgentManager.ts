@@ -25,6 +25,7 @@ import type {
 } from '@/lib/types'
 import { agentAccessModeToYoloMode, normalizeAgentAccessMode, sessionScope } from '@/lib/types'
 import { randomId } from '@/lib/random-id'
+import { disposeAgentTask, selectAgentTaskEvictions, touchAgentTask } from '@/lib/agent-task-retention'
 import { showAlert } from '@/components/ui/confirm-dialog'
 import { t } from '@/lib/i18n'
 
@@ -140,6 +141,26 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   const [chatPanelRevision, setChatPanelRevision] = useState(0)
   const [loadingSessionId, setLoadingSessionId] = useState<string>()
 
+  const removeTaskStatuses = useCallback((sessionIds: string[]) => {
+    if (sessionIds.length === 0) return
+    setTaskStatuses((current) => {
+      const next = { ...current }
+      let changed = false
+      for (const sessionId of sessionIds) {
+        if (!Object.prototype.hasOwnProperty.call(next, sessionId)) continue
+        delete next[sessionId]
+        changed = true
+      }
+      return changed ? next : current
+    })
+  }, [])
+
+  const pruneIdleTasks = useCallback((currentSessionId?: string) => {
+    const sessionIds = selectAgentTaskEvictions(taskMapRef.current.values(), currentSessionId)
+    for (const sessionId of sessionIds) disposeAgentTask(taskMapRef.current, sessionId)
+    removeTaskStatuses(sessionIds)
+  }, [removeTaskStatuses])
+
   const disposeDetachedAgent = useCallback((currentAgent: ServerAgent | DeferredSessionAgent | null, nextAgent?: ServerAgent | DeferredSessionAgent | null) => {
     if (!currentAgent || currentAgent === nextAgent) return
     const isTrackedTaskAgent = [...taskMapRef.current.values()].some((task) => task.agent === currentAgent)
@@ -167,6 +188,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   // --- Attach a task to the current view ---
   const attachTaskToView = useCallback((task: BackgroundTask) => {
     disposeDetachedAgent(agentRef.current, task.agent)
+    touchAgentTask(task)
     currentChatScopeRef.current = task.scope
     currentSessionIdRef.current = task.sessionId
     currentCreatedAtRef.current = task.createdAt
@@ -259,6 +281,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
         createdAt: options?.createdAt ?? startedAt,
         status: initialStatus,
         startedAt,
+        lastAccessedAt: Date.now(),
         unsubscribe: () => undefined,
       }
 
@@ -283,6 +306,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
               ? 'error'
               : 'idle'
           task.finishedAt = new Date().toISOString()
+          touchAgentTask(task)
           setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
           // NOTE: Do NOT bump chatPanelRevision here — the ChatPanel is already
           // showing the latest messages via the agent state.  Destroying /
@@ -292,6 +316,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
           if (wasRunning) {
             onTaskCompleteRef.current?.(task.sessionId, task.title, task.status)
           }
+          pruneIdleTasks(currentSessionIdRef.current)
         }
 
         if ((event as { type: string }).type === 'title_updated') {
@@ -334,12 +359,13 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
         else if (agentRef.current === previousAgent) disposeDetachedAgent(previousAgent, task.agent)
         attachTaskToView(task)
       }
+      pruneIdleTasks(currentSessionIdRef.current)
       if (options?.refreshSessions !== false && nextAgent.state.messages.length > 0) {
         await refreshSessions({ broadcast: true })
       }
       return nextAgent
     },
-    [attachTaskToView, disposeDetachedAgent, refreshSessions, syncSessionUI, updateSessionTitle, storageRef, activeModelRef, agentAccessModeRef, activeProjectRef, defaultWorkspaceRef, setAgentAccessMode],
+    [attachTaskToView, disposeDetachedAgent, pruneIdleTasks, refreshSessions, syncSessionUI, updateSessionTitle, storageRef, activeModelRef, agentAccessModeRef, activeProjectRef, defaultWorkspaceRef, setAgentAccessMode],
   )
 
   const startDeferredSession = useCallback(async (options: { scope: ChatScope; project?: ProjectInfo }) => {
@@ -410,7 +436,10 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
               logger.error('Failed to switch project for running session:', error)
             }
           }
-          if (isLatestRequest()) attachTaskToView(runningTask)
+          if (isLatestRequest()) {
+            attachTaskToView(runningTask)
+            pruneIdleTasks(runningTask.sessionId)
+          }
           return
         }
 
@@ -489,7 +518,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
         if (isLatestRequest()) setLoadingSessionId(undefined)
       }
     },
-    [attachTaskToView, createAgent, sessions, switchActiveProject, storageRef, activeModelRef, activeProjectRef],
+    [attachTaskToView, createAgent, pruneIdleTasks, sessions, switchActiveProject, storageRef, activeModelRef, activeProjectRef],
   )
 
   useEffect(() => {

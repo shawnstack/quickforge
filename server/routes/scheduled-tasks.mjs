@@ -1,7 +1,7 @@
 import { streamSimple } from '@earendil-works/pi-ai/compat'
 import { readJsonBody, sendJson, decodeSegment } from '../utils/response.mjs'
 import { readStore, atomicUpdate } from '../storage.mjs'
-import { createAgent, getSessionEventBus, agentEvents, persistSessionState } from '../agent-manager.mjs'
+import { createAgent, getSessionEventBus, agentEvents, persistSessionState, abortRun } from '../agent-manager.mjs'
 import { agentProfileSnapshot, getAgentProfile } from '../agent-profiles.mjs'
 import { projectContextFromId, readProjectConfig } from '../project-config.mjs'
 import { logger } from '../utils/logger.mjs'
@@ -575,14 +575,15 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
     onStarted?.({ taskId: task.id, runId, sessionId })
 
     const eventBus = getSessionEventBus(sessionId)
+    const runtimeLimitMs = Math.max(1000, Math.min(Number(executionAgent?.maxRuntimeMs || 30 * 60 * 1000), 30 * 60 * 1000))
+    let timeout = null
+    let handler = null
+    let timedOut = false
+    let resolveFinished
     const finished = new Promise((resolve) => {
-      const cleanup = (handler, timeout) => {
-        clearTimeout(timeout)
-        eventBus?.removeListener('agent_event', handler)
-      }
-      const handler = (event) => {
+      resolveFinished = resolve
+      handler = (event) => {
         if (event.type !== 'agent_end') return
-        cleanup(handler, timeout)
         const errorMessage = event.errorMessage || session.agent.state.errorMessage
         const aborted = session.status === 'aborted' || session.agent.state.messages.some((message) => message?.role === 'assistant' && message?.stopReason === 'aborted')
         resolve({
@@ -592,24 +593,54 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
           messages: event.messages ?? session.agent.state.messages,
         })
       }
-      const timeout = setTimeout(() => {
-        cleanup(handler, timeout)
-        resolve({ ok: false, aborted: false, error: '执行超时', messages: session.agent.state.messages })
-      }, Math.max(1000, Math.min(Number(executionAgent?.maxRuntimeMs || 30 * 60 * 1000), 30 * 60 * 1000)))
       eventBus?.on('agent_event', handler)
     })
 
-    try {
-      await session.agent.continue()
-    } catch (continueError) {
-      if (continueError?.message === 'Request was aborted' || continueError?.message === 'Scheduled task aborted') {
-        settled = true
-      } else {
-        throw continueError
+    const runPromise = (async () => {
+      try {
+        await session.agent.continue()
+      } catch (continueError) {
+        if (continueError?.message !== 'Request was aborted' && continueError?.message !== 'Scheduled task aborted') {
+          throw continueError
+        }
       }
+      return finished
+    })()
+    const timeoutPromise = new Promise((resolve) => {
+      timeout = setTimeout(() => resolve({ timedOut: true }), runtimeLimitMs)
+    })
+
+    let result
+    try {
+      const outcome = await Promise.race([
+        runPromise.then((value) => ({ result: value })),
+        timeoutPromise,
+      ])
+      if (outcome.timedOut) {
+        timedOut = true
+        const abortPromise = Promise.resolve()
+          .then(() => abortRun(sessionId))
+          .catch((error) => {
+            logger.warn(`Failed to abort timed out scheduled task ${task.id}:`, error)
+          })
+        await Promise.race([
+          abortPromise,
+          new Promise((resolve) => setTimeout(resolve, 1000)),
+        ])
+        await Promise.race([
+          runPromise.catch(() => undefined),
+          new Promise((resolve) => setTimeout(resolve, 1000)),
+        ])
+        result = { ok: false, aborted: true, error: '执行超时', messages: session.agent.state.messages }
+      } else {
+        result = outcome.result
+      }
+    } finally {
+      clearTimeout(timeout)
+      eventBus?.removeListener('agent_event', handler)
+      if (timedOut) resolveFinished?.({ ok: false, aborted: true, error: '执行超时', messages: session.agent.state.messages })
     }
-    const result = await finished
-    if (result.aborted) settled = true
+    settled = true
     const finishedAt = new Date().toISOString()
     const durationMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime()
     const aiResult = result.ok ? latestAssistantText(result.messages) : ''
@@ -643,7 +674,7 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
         inputContent: run.inputContent ?? latestTask.instruction,
         aiResult: result.ok ? aiResult : undefined,
         result: result.ok ? (aiResult || `已完成，结果保存在会话 ${sessionId}`) : undefined,
-        errorMessage: result.aborted ? '已暂停执行' : result.error,
+        errorMessage: result.error,
         sessionId,
         agentId: executionAgent?.id || latestTask.agentId || null,
         agentLabel: executionAgent?.label || null,
@@ -660,7 +691,7 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
       sessionId,
       status: result.aborted ? 'failed' : (result.ok ? 'success' : 'failed'),
       result: aiResult,
-      errorMessage: result.aborted ? '已暂停执行' : result.error,
+      errorMessage: result.error,
     })
   } catch (error) {
     const finishedAt = new Date().toISOString()

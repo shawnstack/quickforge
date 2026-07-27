@@ -4,6 +4,33 @@ All notable changes to QuickForge will be documented in this file.
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-07-27
+
+### Added
+
+- Added right-panel tab cleanup actions for managing workspace inspector tabs more efficiently.
+
+### Changed
+
+- Optimized workspace operations, chat streaming hot paths, and related state handling.
+- Simplified the workspace resize handle and removed the obsolete MCP bulk reconnect action.
+
+### Fixed
+
+- Hardened agent, MCP integration, and plugin lifecycle cleanup.
+- Improved scheduled-task execution and workspace Git handling.
+- Refined sidebar sizing, workspace layout alignment, and settings workspace corners.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.7.2` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.7.2.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.7.2.tgz
+  ```
+
 ## [1.7.1] - 2026-07-24
 
 ### Changed

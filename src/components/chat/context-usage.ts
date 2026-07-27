@@ -79,6 +79,16 @@ export type ContextUsageDisplayInfo = {
   }
 }
 
+export function isSameContextUsageDisplayInfo(left?: ContextUsageDisplayInfo, right?: ContextUsageDisplayInfo) {
+  if (left === right) return true
+  if (!left || !right || left.gitBranch !== right.gitBranch) return false
+  if (!left.context || !right.context) return left.context === right.context
+  return left.context.percent === right.context.percent
+    && left.context.color === right.context.color
+    && left.context.label === right.context.label
+    && left.context.title === right.context.title
+}
+
 function usageColor(percent: number) {
   const colorPercent = Math.min(100, Math.max(0, percent))
   const hue = Math.round(142 - (142 * colorPercent / 100))
@@ -420,6 +430,12 @@ const gitBranchIcon = renderToStaticMarkup(createElement(GitBranch, {
 
 export function createContextUsageIndicator({ panel, getSystemPrompt, getMessages, getContextWindow, getTools, getMaxTokens, getEffectiveMessages, getServerContextUsage, getIsCompacted, getGitBranch, onGitBranchClick, renderInline = true, renderModelRing = false, onDisplayChange }: ContextUsageOptions) {
   const tipController = createContextUsageTipController()
+  let previousDisplayInfo: ContextUsageDisplayInfo | undefined
+  const notifyDisplayChange = (displayInfo: ContextUsageDisplayInfo) => {
+    if (isSameContextUsageDisplayInfo(previousDisplayInfo, displayInfo)) return
+    previousDisplayInfo = displayInfo
+    onDisplayChange?.(displayInfo)
+  }
 
   const update = () => {
     const contextWindow = getContextWindow()
@@ -484,7 +500,7 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
       tipController.close()
       existing?.remove()
       existingLabel?.remove()
-      onDisplayChange?.(displayInfo)
+      notifyDisplayChange(displayInfo)
       return displayInfo
     }
 
@@ -520,7 +536,7 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
       label: `${usage.percent}% · ${formatTokens(usage.totalTokens)} / ${formatTokens(displayContextWindow)} tokens`,
       title,
     }
-    onDisplayChange?.(displayInfo)
+    notifyDisplayChange(displayInfo)
 
     if (!renderInline && !renderModelRing) {
       existing?.remove()

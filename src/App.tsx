@@ -39,7 +39,7 @@ import type {
   SkillsScope,
 } from '@/lib/types'
 import { sessionTitle } from '@/lib/types'
-import type { ContextUsageDisplayInfo } from '@/components/chat/context-usage'
+import { isSameContextUsageDisplayInfo, type ContextUsageDisplayInfo } from '@/components/chat/context-usage'
 import { FirstUseGuideCard } from '@/components/chat/FirstUseGuideCard'
 import { ModelSetupEmptyState } from '@/components/chat/ModelSetupEmptyState'
 import { NewChatProjectPicker } from '@/components/chat/NewChatProjectPicker'
@@ -389,7 +389,10 @@ function MainApp() {
   }, [])
 
   const handleContextUsageDisplayChange = useCallback((sessionId: string, info: ContextUsageDisplayInfo) => {
-    setCurrentSessionHoverInfo({ sessionId, ...info })
+    setCurrentSessionHoverInfo((current) => {
+      if (current?.sessionId === sessionId && isSameContextUsageDisplayInfo(current, info)) return current
+      return { sessionId, ...info }
+    })
   }, [])
 
   // --- Agent manager ---

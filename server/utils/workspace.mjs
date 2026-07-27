@@ -75,15 +75,13 @@ async function realpathNearestExistingParent(inputPath) {
   }
 }
 
-export async function assertSafeWorkspacePath(fullPath, context, options = {}) {
+async function assertSafeWorkspacePathWithRoot(fullPath, context, workspaceReal, options = {}) {
   if (!options.allowSensitive && isSensitiveWorkspacePath(fullPath, context)) {
     const error = new Error(`Access to sensitive path is blocked: ${toWorkspaceRelative(fullPath, context)}`)
     error.statusCode = 403
     throw error
   }
 
-  const workspaceRoot = getToolWorkspaceRoot(context)
-  const workspaceReal = await fs.realpath(workspaceRoot)
   let targetReal
   try {
     targetReal = await fs.realpath(fullPath)
@@ -102,6 +100,16 @@ export async function assertSafeWorkspacePath(fullPath, context, options = {}) {
     error.statusCode = 403
     throw error
   }
+}
+
+export async function createWorkspacePathValidator(context) {
+  const workspaceReal = await fs.realpath(getToolWorkspaceRoot(context))
+  return (fullPath, options = {}) => assertSafeWorkspacePathWithRoot(fullPath, context, workspaceReal, options)
+}
+
+export async function assertSafeWorkspacePath(fullPath, context, options = {}) {
+  const validateWorkspacePath = await createWorkspacePathValidator(context)
+  return validateWorkspacePath(fullPath, options)
 }
 
 export function truncateText(text, maxChars = 50000) {
@@ -134,12 +142,25 @@ export async function assertDirectory(dir) {
 const SIZE_SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'dist-ssr', '.vite', '.cache', '.next', '.nuxt', '__pycache__', '.venv', 'venv'])
 const directorySizeCache = new Map()
 const DIRECTORY_SIZE_CACHE_TTL_MS = 10_000
+const DIRECTORY_SIZE_CACHE_MAX_ENTRIES = 10_000
+
+function pruneDirectorySizeCache(now = Date.now()) {
+  for (const [key, cached] of directorySizeCache) {
+    if (now - cached.ts >= DIRECTORY_SIZE_CACHE_TTL_MS) directorySizeCache.delete(key)
+  }
+  while (directorySizeCache.size > DIRECTORY_SIZE_CACHE_MAX_ENTRIES) {
+    const oldestKey = directorySizeCache.keys().next().value
+    if (oldestKey === undefined) break
+    directorySizeCache.delete(oldestKey)
+  }
+}
 
 export async function directorySize(dir) {
   try {
     const now = Date.now()
     const cached = directorySizeCache.get(dir)
     if (cached && now - cached.ts < DIRECTORY_SIZE_CACHE_TTL_MS) return cached.size
+    if (cached) directorySizeCache.delete(dir)
 
     const entries = await fs.readdir(dir, { withFileTypes: true })
     const sizes = await Promise.all(entries.map(async (entry) => {
@@ -151,6 +172,7 @@ export async function directorySize(dir) {
     }))
     const size = sizes.reduce((sum, value) => sum + value, 0)
     directorySizeCache.set(dir, { size, ts: now })
+    if (directorySizeCache.size > DIRECTORY_SIZE_CACHE_MAX_ENTRIES) pruneDirectorySizeCache(now)
     return size
   } catch {
     return 0

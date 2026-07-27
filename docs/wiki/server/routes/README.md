@@ -213,7 +213,7 @@ Workspace Inspector 后端 API。
 - `GET /api/workspace/tree?projectId=...` — 返回项目文件树，排除 `.git`、`node_modules`、构建产物和敏感文件
 - `GET /api/workspace/file?projectId=...&path=...` — 安全读取 1MB 以内文本文件，返回 Monaco 语言标识
 - `GET /api/workspace/preview/:projectId/*` — 安全读取项目内静态产物文件，供右侧 Artifact Preview iframe/img 加载 HTML、CSS、JS、图片等资源；附加 `?__quickforge_check=1` 时仅执行预检并返回文件元数据，错误响应包含稳定错误代码、原始报错和请求路径，供前端统一展示 404/403/413/415/500 等状态
-- `GET /api/git/status?projectId=...` — 基于 `git status --porcelain=v1 -z --untracked-files=all` 返回扁平的工作区文件变更列表（未跟踪目录展开为具体文件，不返回目录分组项），并附加 `git diff HEAD --numstat` 的每个文件增删行数（`additions`/`deletions`）；未跟踪/新增文件按工作区文件行数估算，二进制文件不返回行数
+- `GET /api/git/status?projectId=...` — 基于 `git status --porcelain=v1 -z --untracked-files=all` 返回扁平的工作区文件变更列表（未跟踪目录展开为具体文件，不返回目录分组项），并附加 `git diff HEAD --numstat` 的每个文件增删行数（`additions`/`deletions`）；未跟踪/新增文件按工作区文件行数估算，最多统计排序后的 100 个文件，单文件上限 1MB、单次总量上限 10MB、并发数 6，超限文件仍返回状态但省略增删行数
 - `GET /api/git/file-diff?projectId=...&path=...` — 返回单文件 `oldContent/newContent`，供 Monaco DiffEditor 展示
 
 **安全约束**: 所有路径必须位于项目 workspace 内，阻止敏感文件、二进制文件和超大文件预览。

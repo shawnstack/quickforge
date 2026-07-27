@@ -9,12 +9,17 @@ import { logger } from '../utils/logger.mjs'
 import { openPathInFileManager, openPathInIDEA, openPathInVSCode } from '../utils/platform.mjs'
 import {
   assertSafeWorkspacePath,
+  createWorkspacePathValidator,
   resolveWorkspacePath,
   toWorkspaceRelative,
 } from '../utils/workspace.mjs'
 
 const MAX_PREVIEW_BYTES = 50 * 1024 * 1024
 const MAX_STATIC_PREVIEW_BYTES = 50 * 1024 * 1024
+const MAX_GIT_LINE_COUNT_FILES = 100
+const MAX_GIT_LINE_COUNT_FILE_BYTES = 1024 * 1024
+const MAX_GIT_LINE_COUNT_TOTAL_BYTES = 10 * 1024 * 1024
+const GIT_LINE_COUNT_CONCURRENCY = 6
 const PREVIEW_ALLOWED_EXTENSIONS = new Set(['.html', '.htm', '.css', '.js', '.mjs', '.json', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.ico', '.txt', '.md'])
 const MAX_TREE_NODES = 50000
 const SKIP_DIRS = new Set(['.git', 'node_modules'])
@@ -294,14 +299,76 @@ async function collectNumstat(context) {
   return map
 }
 
-// 未跟踪文件不在 numstat 中，按工作区文件行数估算新增行
-async function countWorkspaceLines(context, relativePath) {
+async function readUtf8FileAtMost(fullPath, maxBytes) {
+  if (maxBytes === 0) return ''
+  const handle = await fs.open(fullPath, 'r')
   try {
-    const { content } = await readWorkspaceTextFile(context, relativePath)
-    return countTextLines(content)
-  } catch {
-    return undefined
+    const buffer = Buffer.allocUnsafe(maxBytes)
+    let offset = 0
+    while (offset < maxBytes) {
+      const { bytesRead } = await handle.read(buffer, offset, maxBytes - offset, offset)
+      if (bytesRead === 0) break
+      offset += bytesRead
+    }
+    return buffer.subarray(0, offset).toString('utf8')
+  } finally {
+    await handle.close()
   }
+}
+
+async function poolMap(items, fn, concurrency) {
+  const results = new Array(items.length)
+  let cursor = 0
+  async function worker() {
+    while (cursor < items.length) {
+      const index = cursor
+      cursor += 1
+      results[index] = await fn(items[index], index)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()))
+  return results
+}
+
+// 未跟踪文件不在 numstat 中，在有界预算内按工作区文件行数估算新增行
+async function collectWorkspaceLineCounts(context, files) {
+  const candidates = files
+    .filter((file) => file.status === 'untracked' || file.status === 'added')
+    .slice(0, MAX_GIT_LINE_COUNT_FILES)
+  if (candidates.length === 0) return new Map()
+
+  const validateWorkspacePath = await createWorkspacePathValidator(context)
+  const inspected = await poolMap(candidates, async (file) => {
+    try {
+      const fullPath = resolveWorkspacePath(file.path, context)
+      await validateWorkspacePath(fullPath, { allowSensitive: true })
+      const stat = await fs.stat(fullPath)
+      if (!stat.isFile() || stat.size > MAX_GIT_LINE_COUNT_FILE_BYTES) return null
+      return { file, fullPath, size: stat.size }
+    } catch {
+      return null
+    }
+  }, GIT_LINE_COUNT_CONCURRENCY)
+
+  let totalBytes = 0
+  const selected = []
+  for (const entry of inspected) {
+    if (!entry || totalBytes + entry.size > MAX_GIT_LINE_COUNT_TOTAL_BYTES) continue
+    totalBytes += entry.size
+    selected.push(entry)
+  }
+
+  const counts = await poolMap(selected, async ({ file, fullPath, size }) => {
+    try {
+      const stat = await fs.stat(fullPath)
+      if (!stat.isFile() || stat.size > size) return null
+      const content = await readUtf8FileAtMost(fullPath, size)
+      return [file.path, countTextLines(content)]
+    } catch {
+      return null
+    }
+  }, GIT_LINE_COUNT_CONCURRENCY)
+  return new Map(counts.filter(Boolean))
 }
 
 export async function listGitStatus(context) {
@@ -312,17 +379,19 @@ export async function listGitStatus(context) {
   )
   const files = parseGitStatus(result.stdout)
   const numstat = await collectNumstat(context)
+  const fallbackFiles = files.filter((file) => !numstat.has(file.path))
+  const workspaceLineCounts = await collectWorkspaceLineCounts(context, fallbackFiles)
   for (const file of files) {
     const entry = numstat.get(file.path)
     if (entry) {
       file.additions = entry.additions
       file.deletions = entry.deletions
-    } else if (file.status === 'untracked' || file.status === 'added') {
-      const count = await countWorkspaceLines(context, file.path)
-      if (typeof count === 'number') {
-        file.additions = count
-        file.deletions = 0
-      }
+      continue
+    }
+    const count = workspaceLineCounts.get(file.path)
+    if (typeof count === 'number') {
+      file.additions = count
+      file.deletions = 0
     }
   }
   const head = await currentGitHead(context.workspaceRoot)
@@ -601,7 +670,7 @@ async function readWorkspaceTextFile(context, relativePath) {
   return { content: buffer.toString('utf8'), size: stat.size, path: toWorkspaceRelative(file, context) }
 }
 
-async function buildTreeForDirectory(dir, context, counter) {
+async function buildTreeForDirectory(dir, context, counter, validateWorkspacePath) {
   const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
   const nodes = []
   const sortedEntries = entries.sort((left, right) => {
@@ -616,20 +685,20 @@ async function buildTreeForDirectory(dir, context, counter) {
     if (entry.isDirectory()) {
       if (SKIP_DIRS.has(entry.name)) continue
       try {
-        await assertSafeWorkspacePath(fullPath, context, { allowSensitive: true })
+        await validateWorkspacePath(fullPath, { allowSensitive: true })
         counter.count += 1
         nodes.push({
           name: entry.name,
           path: relativePath,
           type: 'directory',
-          children: await buildTreeForDirectory(fullPath, context, counter),
+          children: await buildTreeForDirectory(fullPath, context, counter, validateWorkspacePath),
         })
       } catch {
         // Skip directories that cannot be safely resolved.
       }
     } else if (entry.isFile()) {
       try {
-        await assertSafeWorkspacePath(fullPath, context, { allowSensitive: true })
+        await validateWorkspacePath(fullPath, { allowSensitive: true })
         counter.count += 1
         nodes.push({ name: entry.name, path: relativePath, type: 'file' })
       } catch {
@@ -642,7 +711,8 @@ async function buildTreeForDirectory(dir, context, counter) {
 
 async function handleWorkspaceTree(req, res, url) {
   const context = await projectContextFromUrl(url)
-  const tree = await buildTreeForDirectory(context.workspaceRoot, context, { count: 0 })
+  const validateWorkspacePath = await createWorkspacePathValidator(context)
+  const tree = await buildTreeForDirectory(context.workspaceRoot, context, { count: 0 }, validateWorkspacePath)
   sendJson(res, 200, { root: context.project.name, tree })
 }
 

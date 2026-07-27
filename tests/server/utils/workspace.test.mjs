@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest'
+import { promises as fs } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import {
   setWorkspaceRoot,
   getWorkspaceRoot,
   getToolWorkspaceRoot,
+  createWorkspacePathValidator,
   isInside,
   resolveWorkspacePath,
   toWorkspaceRelative,
@@ -48,6 +51,36 @@ describe('workspace', () => {
 
     it('falls back when context has no workspaceRoot', () => {
       expect(getToolWorkspaceRoot({})).toBe(r('/test/project'))
+    })
+  })
+
+  describe('createWorkspacePathValidator', () => {
+    it('reuses a safe root while validating files inside the workspace', async () => {
+      const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-workspace-validator-'))
+      try {
+        const file = path.join(workspaceRoot, 'file.txt')
+        await fs.writeFile(file, 'ok')
+        const validateWorkspacePath = await createWorkspacePathValidator({ workspaceRoot })
+        await expect(validateWorkspacePath(file)).resolves.toBeUndefined()
+      } finally {
+        await fs.rm(workspaceRoot, { recursive: true, force: true })
+      }
+    })
+
+    it('rejects targets that resolve outside the workspace', async () => {
+      const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-workspace-root-'))
+      const outsideRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-workspace-outside-'))
+      try {
+        const outsideFile = path.join(outsideRoot, 'outside.txt')
+        const link = path.join(workspaceRoot, 'outside-link')
+        await fs.writeFile(outsideFile, 'outside')
+        await fs.symlink(outsideRoot, link, process.platform === 'win32' ? 'junction' : 'dir')
+        const validateWorkspacePath = await createWorkspacePathValidator({ workspaceRoot })
+        await expect(validateWorkspacePath(path.join(link, 'outside.txt'))).rejects.toMatchObject({ statusCode: 403 })
+      } finally {
+        await fs.rm(workspaceRoot, { recursive: true, force: true })
+        await fs.rm(outsideRoot, { recursive: true, force: true })
+      }
     })
   })
 

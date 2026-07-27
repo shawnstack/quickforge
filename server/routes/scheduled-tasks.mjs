@@ -436,21 +436,30 @@ async function updateTask(taskId, updater) {
   return updated
 }
 
+function recurringTaskStatusRepair(task, now) {
+  if (task?.status !== 'completed' || !isRecurringTask(task)) return null
+  const nextRunAt = task.nextRunAt && new Date(task.nextRunAt).getTime() > now.getTime()
+    ? task.nextRunAt
+    : calculateNextRun(task, now)
+  if (!nextRunAt) return null
+  return {
+    ...task,
+    status: 'enabled',
+    nextRunAt,
+    scheduleRule: scheduleRuleFor({ ...task, nextRunAt }),
+    updatedAt: now.toISOString(),
+  }
+}
+
 async function repairRecurringTaskStatuses() {
+  const now = new Date()
+  const snapshot = await readStore(STORE)
+  if (!Object.values(snapshot).some((task) => recurringTaskStatusRepair(task, now))) return
+
   await atomicUpdate(STORE, (data) => {
     for (const [taskId, task] of Object.entries(data)) {
-      if (task?.status !== 'completed' || !isRecurringTask(task)) continue
-      const nextRunAt = task.nextRunAt && new Date(task.nextRunAt).getTime() > Date.now()
-        ? task.nextRunAt
-        : calculateNextRun(task)
-      if (!nextRunAt) continue
-      data[taskId] = {
-        ...task,
-        status: 'enabled',
-        nextRunAt,
-        scheduleRule: scheduleRuleFor({ ...task, nextRunAt }),
-        updatedAt: new Date().toISOString(),
-      }
+      const repaired = recurringTaskStatusRepair(task, now)
+      if (repaired) data[taskId] = repaired
     }
     return data
   })

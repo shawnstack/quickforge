@@ -90,6 +90,7 @@ function parseCronField(field, min, max) {
   for (const part of field.split(',')) {
     if (/^\*\/\d+$/.test(part)) {
       const step = Number(part.slice(2))
+      if (!Number.isInteger(step) || step <= 0) return null
       for (let value = min; value <= max; value += step) values.add(value)
     } else if (/^\d+-\d+$/.test(part)) {
       const [start, end] = part.split('-').map(Number)
@@ -102,25 +103,37 @@ function parseCronField(field, min, max) {
   return { any: false, values: [...values] }
 }
 
-export function cronMatches(date, cronExpression) {
+function parseCronExpression(cronExpression) {
   const fields = String(cronExpression || '').trim().split(/\s+/)
-  if (fields.length !== 5) return false
-  const checks = [
-    [date.getMinutes(), parseCronField(fields[0], 0, 59)],
-    [date.getHours(), parseCronField(fields[1], 0, 23)],
-    [date.getDate(), parseCronField(fields[2], 1, 31)],
-    [date.getMonth() + 1, parseCronField(fields[3], 1, 12)],
-    [date.getDay(), parseCronField(fields[4], 0, 6)],
+  if (fields.length !== 5) return null
+  const rules = [
+    parseCronField(fields[0], 0, 59),
+    parseCronField(fields[1], 0, 23),
+    parseCronField(fields[2], 1, 31),
+    parseCronField(fields[3], 1, 12),
+    parseCronField(fields[4], 0, 6),
   ]
-  return checks.every(([value, rule]) => rule.any || rule.values.includes(value))
+  return rules.every(Boolean) ? rules : null
+}
+
+function cronRulesMatch(date, rules) {
+  const values = [date.getMinutes(), date.getHours(), date.getDate(), date.getMonth() + 1, date.getDay()]
+  return rules.every((rule, index) => rule.any || rule.values.includes(values[index]))
+}
+
+export function cronMatches(date, cronExpression) {
+  const rules = parseCronExpression(cronExpression)
+  return rules ? cronRulesMatch(date, rules) : false
 }
 
 export function nextCronRun(cronExpression, base = new Date()) {
+  const rules = parseCronExpression(cronExpression)
+  if (!rules) return null
   const cursor = new Date(base.getTime() + minuteMs)
   cursor.setSeconds(0, 0)
   const maxChecks = 366 * 24 * 60
   for (let index = 0; index < maxChecks; index += 1) {
-    if (cronMatches(cursor, cronExpression)) return cursor
+    if (cronRulesMatch(cursor, rules)) return cursor
     cursor.setMinutes(cursor.getMinutes() + 1)
   }
   return null

@@ -137,6 +137,13 @@ describe('scheduled task scheduling utilities', () => {
       expect(cronMatches(date, '30 10 * * *')).toBe(true)
     })
 
+    it('rejects zero step expressions without hanging', () => {
+      const date = new Date(2026, 0, 1, 10, 30)
+      expect(cronMatches(date, '*/0 * * * *')).toBe(false)
+      expect(cronMatches(date, '*/00 * * * *')).toBe(false)
+      expect(nextCronRun('*/0 * * * *', date)).toBeNull()
+    })
+
     it('returns false for malformed expressions', () => {
       expect(cronMatches(new Date(2026, 0, 1, 10, 30), '* * *')).toBe(false)
     })

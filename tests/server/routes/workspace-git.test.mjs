@@ -32,9 +32,69 @@ describe('workspace git status', () => {
       'untracked-dir/a.txt',
       'untracked-dir/nested/b.txt',
     ])
+    expect(result.files).toMatchObject([
+      { path: 'untracked-dir/a.txt', additions: 1, deletions: 0 },
+      { path: 'untracked-dir/nested/b.txt', additions: 1, deletions: 0 },
+    ])
     expect(result.files.every((file) => !file.path.endsWith('/'))).toBe(true)
     expect(result.counts?.untracked).toBe(2)
     expect(result.counts?.total).toBe(2)
+  })
+
+  it('keeps oversized untracked files while omitting line counts', async () => {
+    const workspaceRoot = await mkdtemp(path.join(tmpdir(), 'quickforge-git-'))
+    tempDirs.push(workspaceRoot)
+    await git(workspaceRoot, 'init')
+    await writeFile(path.join(workspaceRoot, 'small.txt'), 'first\nsecond\n')
+    await writeFile(path.join(workspaceRoot, 'large.txt'), 'x'.repeat(1024 * 1024 + 1))
+
+    const result = await listGitStatus({ workspaceRoot })
+    const small = result.files.find((file) => file.path === 'small.txt')
+    const large = result.files.find((file) => file.path === 'large.txt')
+
+    expect(small).toMatchObject({ additions: 2, deletions: 0 })
+    expect(large).toBeTruthy()
+    expect(large).not.toHaveProperty('additions')
+    expect(large).not.toHaveProperty('deletions')
+    expect(result.counts?.total).toBe(2)
+  })
+
+  it('counts at most 100 untracked files without truncating the status list', async () => {
+    const workspaceRoot = await mkdtemp(path.join(tmpdir(), 'quickforge-git-'))
+    tempDirs.push(workspaceRoot)
+    await git(workspaceRoot, 'init')
+    await Promise.all(Array.from({ length: 101 }, (_, index) => {
+      return writeFile(path.join(workspaceRoot, `file-${String(index).padStart(3, '0')}.txt`), `${index}\n`)
+    }))
+
+    const result = await listGitStatus({ workspaceRoot })
+    const counted = result.files.filter((file) => typeof file.additions === 'number')
+    const last = result.files.find((file) => file.path === 'file-100.txt')
+
+    expect(result.files).toHaveLength(101)
+    expect(result.counts?.total).toBe(101)
+    expect(counted).toHaveLength(100)
+    expect(last).toBeTruthy()
+    expect(last).not.toHaveProperty('additions')
+  })
+
+  it('limits total untracked line-count reads to 10MB', async () => {
+    const workspaceRoot = await mkdtemp(path.join(tmpdir(), 'quickforge-git-'))
+    tempDirs.push(workspaceRoot)
+    await git(workspaceRoot, 'init')
+    const oneMegabyteText = `${'x'.repeat(1024 * 1024 - 1)}\n`
+    await Promise.all(Array.from({ length: 11 }, (_, index) => {
+      return writeFile(path.join(workspaceRoot, `large-${String(index).padStart(2, '0')}.txt`), oneMegabyteText)
+    }))
+
+    const result = await listGitStatus({ workspaceRoot })
+    const counted = result.files.filter((file) => typeof file.additions === 'number')
+    const last = result.files.find((file) => file.path === 'large-10.txt')
+
+    expect(result.files).toHaveLength(11)
+    expect(counted).toHaveLength(10)
+    expect(last).toBeTruthy()
+    expect(last).not.toHaveProperty('additions')
   })
 })
 

@@ -4,6 +4,30 @@ All notable changes to QuickForge will be documented in this file.
 
 ## [Unreleased]
 
+## [1.7.3] - 2026-07-30
+
+### Added
+
+- Added system and manual proxy modes.
+- Added workspace tabs drag-and-drop reordering.
+
+### Fixed
+
+- Fixed project switching so it no longer expands all projects.
+- Kept projects collapsed while reordering.
+- Retried transient provider failures.
+- Refined pinned Git summary popover sizing and responsive positioning.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.7.3` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.7.3.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.7.3.tgz
+  ```
+
 ## [1.7.2] - 2026-07-27
 
 ### Added

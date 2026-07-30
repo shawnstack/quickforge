@@ -1,5 +1,21 @@
 import { Check, ChevronDown, ChevronRight, Code2, Copy, CornerDownLeft, Eye, Folder, GitBranch, GitCommitHorizontal, Globe, Maximize, Minimize, MoreHorizontal, PanelRight, Plus, RefreshCw, Search, SquareTerminal, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  horizontalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import type { Transform } from '@dnd-kit/utilities'
 import type { ProjectInfo } from '@/lib/types'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
 import { cn } from '@/lib/utils'
@@ -26,6 +42,7 @@ import {
   createWorkspaceInspectorProjectGuard,
   nextPanelTabIndexFromTabs,
   readPersistedPanelTabs,
+  reorderPanelTabs,
   writePersistedPanelTabs,
 } from './workspace-inspector-tabs'
 import type {
@@ -127,6 +144,31 @@ function panelTabTitle(tab: WorkspacePanelTab, fallbackLabel: string) {
   if (tab.kind !== 'reader') return fallbackLabel
   const reader = tab.readerTabs?.find((item) => item.id === tab.activeReaderTabId) ?? tab.readerTabs?.[0]
   return reader?.path || fallbackLabel
+}
+
+function SortablePanelTab({ id, children }: {
+  id: string
+  children: (props: {
+    listeners: ReturnType<typeof useSortable>['listeners']
+    attributes: ReturnType<typeof useSortable>['attributes']
+    isDragging: boolean
+  }) => React.ReactNode
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  const style: React.CSSProperties = {
+    transform: CSS.Translate.toString(transform),
+    transition: isDragging ? undefined : transition,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn('flex shrink-0 items-center gap-1', isDragging && 'relative z-30 opacity-55 drop-shadow-sm')}
+    >
+      {children({ listeners, attributes, isDragging })}
+    </div>
+  )
 }
 
 const WORKSPACE_INSPECTOR_MIN_WIDTH = 340
@@ -562,6 +604,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
   }
   const [panelTabs, setPanelTabs] = useState<WorkspacePanelTab[]>(() => initialPanelTabStateRef.current?.tabs ?? [])
   const [activePanelTabId, setActivePanelTabId] = useState<string | undefined>(() => initialPanelTabStateRef.current?.activePanelTabId)
+  const [draggingPanelTabId, setDraggingPanelTabId] = useState<string>()
   const [menuOpen, setMenuOpen] = useState(false)
   const [tabListOpen, setTabListOpen] = useState(false)
   const [reviewFilterOpen, setReviewFilterOpen] = useState(false)
@@ -603,6 +646,14 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
 
   const projectId = project?.id
   if (projectId) projectGuardRef.current.token(projectId)
+  const panelTabIds = useMemo(() => panelTabs.map((tab) => tab.id), [panelTabs])
+  const panelTabSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+  )
+  const restrictPanelTabToHorizontal = useCallback((args: { transform: Transform }) => ({
+    ...args.transform,
+    y: 0,
+  }), [])
   const activePanelTab = useMemo(
     () => panelTabs.find((tab) => tab.id === activePanelTabId),
     [activePanelTabId, panelTabs],
@@ -945,6 +996,23 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
 
   function activatePanelTab(tab: WorkspacePanelTab) {
     setActivePanelTabId(tab.id)
+  }
+
+  function handlePanelTabDragStart(event: DragStartEvent) {
+    setDraggingPanelTabId(event.active.id as string)
+    setMenuOpen(false)
+    setTabListOpen(false)
+  }
+
+  function finishPanelTabDrag() {
+    setDraggingPanelTabId(undefined)
+  }
+
+  function handlePanelTabDragEnd(event: DragEndEvent) {
+    finishPanelTabDrag()
+    const { active, over } = event
+    if (!over) return
+    setPanelTabs((prev) => reorderPanelTabs(prev, active.id as string, over.id as string))
   }
 
   function closePanelTab(id: string) {
@@ -1424,64 +1492,85 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
               ) : null}
             </div>
           ) : null}
-          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
-            {panelTabs.map((tab, index) => {
-              const item = tab.kind === 'reader' ? undefined : PANEL_TAB_BY_KIND[tab.kind]
-              const Icon = item?.icon
-              const filePath = panelTabFilePath(tab)
-              const active = tab.id === activePanelTabId
-              const label = panelTabLabel(tab, project?.name)
-              const title = panelTabTitle(tab, label)
-              return (
-                <div key={tab.id} className="flex shrink-0 items-center gap-1">
-                  {index > 0 ? <span aria-hidden="true" className="mx-0.5 h-3.5 w-px bg-[color-mix(in_oklab,var(--muted-foreground)_18%,transparent)]" /> : null}
-                  <button
-                    type="button"
-                    className={cn(
-                      'group flex h-10 max-w-40 items-center gap-2 rounded-2xl px-3 text-[13px] font-medium transition-colors',
-                      active
-                        ? 'bg-[color-mix(in_oklab,var(--muted)_86%,transparent)] text-foreground/82 hover:bg-[color-mix(in_oklab,var(--muted)_86%,transparent)]'
-                        : 'text-muted-foreground/45 hover:bg-[color-mix(in_oklab,var(--muted)_72%,transparent)] hover:text-muted-foreground/72',
-                    )}
-                    onClick={() => activatePanelTab(tab)}
-                    title={title}
-                  >
-                    {filePath ? (
-                      <FileIcon path={filePath} className={cn('size-4 shrink-0 transition-opacity', active ? 'opacity-100' : 'opacity-55 group-hover:opacity-85')} />
-                    ) : Icon ? (
-                      <Icon className={cn('size-4 shrink-0', active ? 'text-foreground/74' : 'text-muted-foreground/45 group-hover:text-muted-foreground/72')} />
-                    ) : (
-                      <Code2 className={cn('size-4 shrink-0', active ? 'text-foreground/74' : 'text-muted-foreground/45 group-hover:text-muted-foreground/72')} />
-                    )}
-                    <span className="min-w-0 truncate">{label}</span>
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      className={cn(
-                        'ml-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-full opacity-0 transition-all hover:bg-black hover:text-white group-hover:opacity-100',
-                        active && 'opacity-100',
+          <DndContext
+            sensors={panelTabSensors}
+            collisionDetection={closestCenter}
+            onDragStart={handlePanelTabDragStart}
+            onDragEnd={handlePanelTabDragEnd}
+            onDragCancel={finishPanelTabDrag}
+            modifiers={[restrictPanelTabToHorizontal]}
+          >
+            <SortableContext items={panelTabIds} strategy={horizontalListSortingStrategy}>
+              <div className={cn('flex min-w-0 flex-1 items-center gap-1 overflow-x-auto', draggingPanelTabId && 'cursor-grabbing')}>
+                {panelTabs.map((tab, index) => {
+                  const item = tab.kind === 'reader' ? undefined : PANEL_TAB_BY_KIND[tab.kind]
+                  const Icon = item?.icon
+                  const filePath = panelTabFilePath(tab)
+                  const active = tab.id === activePanelTabId
+                  const label = panelTabLabel(tab, project?.name)
+                  const title = panelTabTitle(tab, label)
+                  return (
+                    <SortablePanelTab key={tab.id} id={tab.id}>
+                      {({ listeners, attributes, isDragging }) => (
+                        <>
+                          {index > 0 ? <span aria-hidden="true" className="mx-0.5 h-3.5 w-px bg-[color-mix(in_oklab,var(--muted-foreground)_18%,transparent)]" /> : null}
+                          <button
+                            type="button"
+                            className={cn(
+                              'group flex h-10 max-w-40 cursor-grab items-center gap-2 rounded-2xl px-3 text-[13px] font-medium transition-[background-color,color,box-shadow] active:cursor-grabbing',
+                              active
+                                ? 'bg-[color-mix(in_oklab,var(--muted)_86%,transparent)] text-foreground/82 hover:bg-[color-mix(in_oklab,var(--muted)_86%,transparent)]'
+                                : 'text-muted-foreground/45 hover:bg-[color-mix(in_oklab,var(--muted)_72%,transparent)] hover:text-muted-foreground/72',
+                              isDragging && 'shadow-quickforge',
+                            )}
+                            onClick={() => {
+                              if (!draggingPanelTabId) activatePanelTab(tab)
+                            }}
+                            title={title}
+                            {...listeners}
+                            {...attributes}
+                          >
+                            {filePath ? (
+                              <FileIcon path={filePath} className={cn('size-4 shrink-0 transition-opacity', active ? 'opacity-100' : 'opacity-55 group-hover:opacity-85')} />
+                            ) : Icon ? (
+                              <Icon className={cn('size-4 shrink-0', active ? 'text-foreground/74' : 'text-muted-foreground/45 group-hover:text-muted-foreground/72')} />
+                            ) : (
+                              <Code2 className={cn('size-4 shrink-0', active ? 'text-foreground/74' : 'text-muted-foreground/45 group-hover:text-muted-foreground/72')} />
+                            )}
+                            <span className="min-w-0 truncate">{label}</span>
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              className={cn(
+                                'ml-0.5 inline-flex size-5 shrink-0 cursor-default items-center justify-center rounded-full opacity-0 transition-all hover:bg-black hover:text-white group-hover:opacity-100',
+                                active && 'opacity-100',
+                              )}
+                              onPointerDown={(event) => event.stopPropagation()}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                closePanelTab(tab.id)
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault()
+                                  event.stopPropagation()
+                                  closePanelTab(tab.id)
+                                }
+                              }}
+                              aria-label={t('close')}
+                            >
+                              <X className="size-3.5" />
+                            </span>
+                          </button>
+                        </>
                       )}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        closePanelTab(tab.id)
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault()
-                          event.stopPropagation()
-                          closePanelTab(tab.id)
-                        }
-                      }}
-                      aria-label={t('close')}
-                    >
-                      <X className="size-3.5" />
-                    </span>
-                  </button>
-                </div>
-              )
-            })}
-            {panelTabs.length === 0 ? <div className="min-w-0 flex-1" /> : null}
-          </div>
+                    </SortablePanelTab>
+                  )
+                })}
+                {panelTabs.length === 0 ? <div className="min-w-0 flex-1" /> : null}
+              </div>
+            </SortableContext>
+          </DndContext>
           <div className="flex shrink-0 items-center gap-1">
             {panelTabs.length > 0 || fullscreen ? (
               <div ref={menuRef} className="relative shrink-0">

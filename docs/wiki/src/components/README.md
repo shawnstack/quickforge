@@ -27,7 +27,7 @@ components/
 ├── sidebar/
 │   └── ChatSidebar.tsx             # 聊天侧边栏 (551 行)
 ├── workspace/
-│   ├── WorkspaceInspector.tsx      # 右侧统一工作区检查器，Overview/Files/Browser/Changes；Overview 展示当前 Session 修改，HTML 产物在 Browser 中打开
+│   ├── WorkspaceInspector.tsx      # 右侧统一工作区检查器，顶部 Tab 支持拖动排序并按项目持久化；Overview/Files/Browser/Changes；Overview 展示当前 Session 修改，HTML 产物在 Browser 中打开
 │   ├── WorkspaceFileTree.tsx       # 项目文件树
 │   ├── WorkspaceChangesList.tsx    # Git 工作区变更列表
 │   ├── MonacoCodeViewer.tsx        # Monaco 只读代码查看器

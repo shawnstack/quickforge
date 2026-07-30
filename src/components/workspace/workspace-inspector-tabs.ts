@@ -171,6 +171,17 @@ export function writePersistedPanelTabs(
   }
 }
 
+export function reorderPanelTabs(tabs: WorkspacePanelTab[], activeId: string, overId: string): WorkspacePanelTab[] {
+  if (activeId === overId) return tabs
+  const oldIndex = tabs.findIndex((tab) => tab.id === activeId)
+  const newIndex = tabs.findIndex((tab) => tab.id === overId)
+  if (oldIndex === -1 || newIndex === -1) return tabs
+  const reordered = [...tabs]
+  const [activeTab] = reordered.splice(oldIndex, 1)
+  reordered.splice(newIndex, 0, activeTab)
+  return reordered
+}
+
 export function nextPanelTabIndexFromTabs(tabs: WorkspacePanelTab[]) {
   const maxIndex = tabs.reduce((max, tab) => {
     const match = tab.id.match(/-(\d+)$/)

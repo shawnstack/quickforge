@@ -5,6 +5,7 @@ import {
   nextPanelTabIndexFromTabs,
   normalizePersistedPanelTabs,
   readPersistedPanelTabs,
+  reorderPanelTabs,
   serializePanelTabs,
   workspaceInspectorTabsStorageKey,
   writePersistedPanelTabs,
@@ -171,6 +172,32 @@ describe('workspace inspector tabs persistence', () => {
       tabs: [],
       activePanelTabId: undefined,
     })
+  })
+
+  it('reorders tabs by id without changing their contents', () => {
+    const tabs: WorkspacePanelTab[] = [
+      { id: 'files-1', kind: 'files' },
+      { id: 'review-2', kind: 'review' },
+      { id: 'terminal-3', kind: 'terminal' },
+    ]
+
+    expect(reorderPanelTabs(tabs, 'files-1', 'terminal-3')).toEqual([
+      tabs[1],
+      tabs[2],
+      tabs[0],
+    ])
+    expect(tabs.map((tab) => tab.id)).toEqual(['files-1', 'review-2', 'terminal-3'])
+  })
+
+  it('keeps the same tab array when reordering ids are unchanged or missing', () => {
+    const tabs: WorkspacePanelTab[] = [
+      { id: 'files-1', kind: 'files' },
+      { id: 'review-2', kind: 'review' },
+    ]
+
+    expect(reorderPanelTabs(tabs, 'files-1', 'files-1')).toBe(tabs)
+    expect(reorderPanelTabs(tabs, 'missing', 'review-2')).toBe(tabs)
+    expect(reorderPanelTabs(tabs, 'files-1', 'missing')).toBe(tabs)
   })
 
   it('calculates the next numeric tab suffix across mixed ids', () => {

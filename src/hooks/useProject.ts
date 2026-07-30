@@ -1,14 +1,23 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { ProjectInfo } from '@/lib/types'
 import { logger } from '@/lib/logger'
+import {
+  loadExpandedProjectIds,
+  pruneExpandedProjectIds,
+  saveExpandedProjectIds,
+} from '@/lib/project-expanded-ids'
 
 export function useProject() {
   const [activeProject, setActiveProject] = useState<ProjectInfo>()
   const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [defaultWorkspace, setDefaultWorkspace] = useState<ProjectInfo>()
-  const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => new Set())
+  const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => loadExpandedProjectIds())
   const [selectingProject, setSelectingProject] = useState(false)
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
+
+  useEffect(() => {
+    saveExpandedProjectIds(expandedProjectIds)
+  }, [expandedProjectIds])
 
   const loadProject = useCallback(async () => {
     try {
@@ -23,11 +32,12 @@ export function useProject() {
           ? { id: 'default', name: 'workspace', path: payload.defaultWorkspaceRoot, lastOpenedAt: '' }
           : undefined,
       )
-      setExpandedProjectIds((current) => {
-        const next = new Set(current)
-        for (const project of Array.isArray(payload.projects) ? payload.projects : []) next.add(project.id)
-        return next
-      })
+      setExpandedProjectIds((current) =>
+        pruneExpandedProjectIds(
+          current,
+          (Array.isArray(payload.projects) ? payload.projects : []).map((project: ProjectInfo) => project.id),
+        ),
+      )
     } catch (error) {
       logger.error('Failed to load project:', error)
     }
@@ -61,11 +71,12 @@ export function useProject() {
       if (payload?.project) {
         setActiveProject(payload.project)
         setProjects(Array.isArray(payload.projects) ? payload.projects : [])
-        setExpandedProjectIds((current) => {
-          const next = new Set(current)
-          for (const project of Array.isArray(payload.projects) ? payload.projects : []) next.add(project.id)
-          return next
-        })
+        setExpandedProjectIds((current) =>
+          pruneExpandedProjectIds(
+            current,
+            (Array.isArray(payload.projects) ? payload.projects : []).map((project: ProjectInfo) => project.id),
+          ),
+        )
       }
     } catch (error) {
       logger.error('Failed to select project:', error)

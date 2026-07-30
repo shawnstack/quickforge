@@ -70,7 +70,7 @@ export function GitToolsPinnedSummary({
       </button>
 
       {expanded ? (
-        <div className="absolute -right-20 top-11 z-40 w-[280px] rounded-3xl border border-[color-mix(in_oklab,var(--border)_38%,transparent)] bg-background p-4 text-foreground shadow-quickforge">
+        <div className="absolute -right-10 top-11 z-40 w-[min(15rem,calc(100vw-1rem))] rounded-3xl border border-[color-mix(in_oklab,var(--border)_38%,transparent)] bg-background p-4 text-foreground shadow-quickforge lg:-right-20">
         <div className="mb-4 flex items-center justify-between">
           <div className="text-sm font-medium text-muted-foreground">{t('environmentInfo')}</div>
           <div className="flex items-center gap-1 text-foreground/85">
@@ -105,7 +105,7 @@ export function GitToolsPinnedSummary({
                 projectId={projectId}
                 currentBranch={status.branch}
                 dirtyCount={dirtyCount}
-                className="left-auto right-full top-0 mr-3"
+                className="left-auto right-0 top-full mt-2 w-[min(340px,calc(100vw-1rem))] lg:right-full lg:top-0 lg:mr-3 lg:mt-0"
                 onCheckout={async (branch) => {
                   await onCheckout(branch)
                   setBranchMenuOpen(false)

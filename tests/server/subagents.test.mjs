@@ -40,4 +40,15 @@ describe('subagent definitions', () => {
     expect(prompt).not.toContain('Do not modify files or run commands.')
     expect(prompt).not.toContain('cannot modify files or run commands')
   })
+
+  it('constrains Explore systemPrompt to evidence-only research without solutioning', () => {
+    const explore = getSubagentDefinition('explore')
+    const prompt = explore.systemPrompt
+
+    expect(prompt).toContain('repository evidence')
+    expect(prompt).toContain('Do not design solutions or propose implementation, architecture, refactoring, or code changes')
+    expect(prompt).toContain('verified facts, reasonable inferences, and unknowns')
+    expect(prompt).toContain('never present an inference as a verified fact')
+    expect(prompt).toContain('do not provide an implementation plan, recommendations, or suggested next steps')
+  })
 })

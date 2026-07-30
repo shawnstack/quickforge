@@ -33,6 +33,7 @@ import {
   DndContext,
   closestCenter,
   PointerSensor,
+  MeasuringStrategy,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -186,8 +187,8 @@ function SortableProjectItem({ id, children }: { id: string; children: (props: {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
 
   const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
+    transform: CSS.Translate.toString(transform),
+    transition: isDragging ? undefined : transition,
   }
 
   return (
@@ -313,6 +314,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   const [confirmingDeleteSessionId, setConfirmingDeleteSessionId] = useState<string | null>(null)
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
   const [hoveredSessionTip, setHoveredSessionTip] = useState<{ sessionId: string; x: number; y: number } | null>(null)
+  const [isProjectDragging, setIsProjectDragging] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(sidebarDefaultWidth)
   const [isResizing, setIsResizing] = useState(false)
   const asideRef = useRef<HTMLElement | null>(null)
@@ -355,7 +357,23 @@ export const ChatSidebar = memo(function ChatSidebar({
       : t('normalChat'),
   })), [pinnedSessions, projectNameById])
 
+  const handleDragStart = useCallback(() => {
+    setIsProjectDragging(true)
+    setProjectMenuId(null)
+    setProjectMenuPosition(null)
+    if (hoverTipTimerRef.current !== null) {
+      window.clearTimeout(hoverTipTimerRef.current)
+      hoverTipTimerRef.current = null
+    }
+    setHoveredSessionTip(null)
+  }, [])
+
+  const finishProjectDrag = useCallback(() => {
+    setIsProjectDragging(false)
+  }, [])
+
   const handleDragEnd = useCallback((event: DragEndEvent) => {
+    finishProjectDrag()
     const { active, over } = event
     if (!over || active.id === over.id) return
     const oldIndex = projectIds.indexOf(active.id as string)
@@ -365,7 +383,7 @@ export const ChatSidebar = memo(function ChatSidebar({
     reordered.splice(oldIndex, 1)
     reordered.splice(newIndex, 0, active.id as string)
     onReorderProjects(reordered)
-  }, [projectIds, onReorderProjects])
+  }, [finishProjectDrag, projectIds, onReorderProjects])
 
   const searchInputRef = useRef<HTMLInputElement>(null)
   const searchableSessions = useMemo(() => {
@@ -1055,11 +1073,19 @@ export const ChatSidebar = memo(function ChatSidebar({
                           </>
                         )
                       ) : (
-                        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd} modifiers={[restrictToVertical]}>
+                        <DndContext
+                          sensors={sensors}
+                          collisionDetection={closestCenter}
+                          onDragStart={handleDragStart}
+                          onDragEnd={handleDragEnd}
+                          onDragCancel={finishProjectDrag}
+                          measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+                          modifiers={[restrictToVertical]}
+                        >
                           <SortableContext items={projectIds} strategy={verticalListSortingStrategy}>
                             {projects.map((item) => {
                           const projectSessions = sessionsForProject(item.id)
-                          const expanded = expandedProjectIds.has(item.id)
+                          const expanded = !isProjectDragging && expandedProjectIds.has(item.id)
                           const active = activeProject?.id === item.id
                           const loaded = projectLoaded(item.id)
                           const menuOpen = projectMenuId === item.id
@@ -1125,7 +1151,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                 </div>
                               </div>
 
-                              <div className={cn(collapsePanelClass, expanded ? collapsePanelOpenClass : collapsePanelClosedClass)}>
+                              <div className={cn(collapsePanelClass, isProjectDragging && 'transition-none', expanded ? collapsePanelOpenClass : collapsePanelClosedClass)}>
                                 <div className={collapseInnerClass}>
                                   <div className="mt-0.5 space-y-0.5 pl-8 max-h-[35vh] overflow-y-auto">
                                     {projectSessions.length === 0 && !loaded ? (

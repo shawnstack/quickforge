@@ -185,27 +185,6 @@ async function cmdUpdate() {
   const pkg = await getPackageInfo()
 
   try {
-    const latest = await fetchLatestVersion(pkg.name)
-    const versionComparison = compareVersions(pkg.version, latest)
-
-    if (versionComparison > 0) {
-      console.log('QuickForge local version is newer than npm latest.')
-      console.log(`Current: ${pkg.version}`)
-      console.log(`Latest:  ${latest}`)
-      return
-    }
-
-    if (versionComparison === 0) {
-      console.log('QuickForge is already up to date.')
-      console.log(`Current: ${pkg.version}`)
-      console.log(`Latest:  ${latest}`)
-      return
-    }
-
-    console.log('A new QuickForge version is available.')
-    console.log(`Current: ${pkg.version}`)
-    console.log(`Latest:  ${latest}`)
-    console.log('')
     console.log(`Installing ${pkg.name}@latest ...`)
     await installLatestVersion(pkg.name)
     console.log('')

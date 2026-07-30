@@ -44,11 +44,7 @@ export function useProject() {
 
     setActiveProject(payload.project)
     setProjects(Array.isArray(payload.projects) ? payload.projects : [])
-    setExpandedProjectIds((current) => {
-      const next = new Set(current)
-      for (const project of Array.isArray(payload.projects) ? payload.projects : []) next.add(project.id)
-      return next
-    })
+    setExpandedProjectIds(new Set([projectId]))
     return payload.project as ProjectInfo
   }, [])
 

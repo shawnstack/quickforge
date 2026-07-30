@@ -20,7 +20,7 @@
 | `custom-model-selector.ts` | 162 | 自定义模型选择器 |
 | `custom-providers-only-tab.ts` | 565 | 自定义供应商设置选项卡 |
 | `backup-settings-tab.ts` | 备份与恢复设置选项卡：按设置数据项选择导出内容（不包含对话），上传后预览有效/异常数据项，并支持按项替换或合并恢复 |
-| `default-options-settings-tab.ts` | 257 | 默认选项设置选项卡（包含语言切换） |
+| `default-options-settings-tab.ts` | 257 | 常规设置选项卡（语言、默认模型、网络代理、上下文和终端 Shell） |
 | `lan-access-settings-tab.ts` | 227 | LAN 共享设置选项卡 |
 | `patch-thinking-selector.ts` | 117 | 思考模式选择器修补 |
 | `clipboard-polyfill.ts` | 51 | 剪贴板 API polyfill |

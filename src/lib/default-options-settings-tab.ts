@@ -41,6 +41,27 @@ type TerminalShellConfig = {
   profiles: TerminalShellProfile[]
 }
 
+type NetworkProxyMode = 'direct' | 'system' | 'manual'
+
+type NetworkProxyState = {
+  config: {
+    mode: NetworkProxyMode
+    proxyUrl: string
+  }
+  status: {
+    effectiveMode: NetworkProxyMode | 'unsupported'
+    supported: boolean
+    source: string
+    runtimeKind: string
+    features?: {
+      pac?: boolean
+      wpad?: boolean
+      socks?: boolean
+    }
+    error?: string
+  }
+}
+
 const THINKING_OPTIONS: { value: ThinkingLevel; label: () => string }[] = [
   { value: 'off', label: () => t('thinkingOff') },
   { value: 'low', label: () => t('thinkingLow') },
@@ -115,6 +136,12 @@ class DefaultOptionsSettingsTab extends SettingsTab {
   private terminalShellConfig: TerminalShellConfig = { terminalShell: 'auto', defaultProfileId: 'auto', profiles: [] }
   private customShellCommand = ''
   private customShellEditorOpen = false
+  private networkProxyMode: NetworkProxyMode = 'direct'
+  private networkProxyUrl = ''
+  private savedNetworkProxyConfig = { mode: 'direct' as NetworkProxyMode, proxyUrl: '' }
+  private networkProxyStatus: NetworkProxyState['status'] | null = null
+  private networkProxySaving = false
+  private networkProxyLoaded = false
 
   override getTabName(): string {
     return t('defaultOptions')
@@ -180,7 +207,10 @@ class DefaultOptionsSettingsTab extends SettingsTab {
       this.autoCompactThresholdPercentInput = String(autoCompactSettings.thresholdPercent)
       this.autoCompactKeepRecentTurns = autoCompactSettings.keepRecentTurns
       this.autoArchiveEnabled = autoArchiveSettings.enabled
-      await this.loadTerminalShell()
+      await Promise.all([
+        this.loadTerminalShell(),
+        this.loadNetworkProxy(),
+      ])
     } catch (error) {
       this.error = error instanceof Error ? error.message : t('requestFailed')
     } finally {
@@ -317,6 +347,222 @@ class DefaultOptionsSettingsTab extends SettingsTab {
     this.customShellEditorOpen = false
     this.requestUpdate()
     void this.saveTerminalShellConfig(value)
+  }
+
+  private async loadNetworkProxy() {
+    try {
+      const response = await fetch('/api/system/network-proxy', { cache: 'no-store' })
+      const payload = await response.json().catch(() => null) as NetworkProxyState | null
+      if (!response.ok) throw new Error((payload as { error?: string } | null)?.error || t('requestFailed'))
+      this.networkProxyMode = payload?.config?.mode || 'direct'
+      this.networkProxyUrl = payload?.config?.proxyUrl || ''
+      this.savedNetworkProxyConfig = { mode: this.networkProxyMode, proxyUrl: this.networkProxyUrl }
+      this.networkProxyStatus = payload?.status || null
+      this.networkProxyLoaded = true
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : t('requestFailed')
+    }
+  }
+
+  private updateNetworkProxyMode(mode: NetworkProxyMode) {
+    if (this.networkProxyMode === mode || this.networkProxySaving || !this.networkProxyLoaded) return
+    this.networkProxyMode = mode
+    this.saved = false
+    this.error = ''
+    this.requestUpdate()
+    if (mode === 'manual' && !this.networkProxyUrl.trim()) return
+    void this.saveNetworkProxy()
+  }
+
+  private updateNetworkProxyUrl(value: string) {
+    this.networkProxyUrl = value
+    this.saved = false
+    this.requestUpdate()
+  }
+
+  private networkProxyValidationError() {
+    const value = this.networkProxyUrl.trim()
+    if (!value) return t('networkProxyAddressRequired')
+    try {
+      const url = new URL(value)
+      if (!['http:', 'https:'].includes(url.protocol)) return t('networkProxyAddressProtocolError')
+      if (!url.hostname || !url.port) return t('networkProxyAddressPortError')
+      if (url.username || url.password) return t('networkProxyAddressCredentialsError')
+      if ((url.pathname && url.pathname !== '/') || url.search || url.hash) return t('networkProxyAddressPathError')
+      return ''
+    } catch {
+      return t('networkProxyAddressInvalid')
+    }
+  }
+
+  private async saveNetworkProxy() {
+    if (this.networkProxySaving || !this.networkProxyLoaded) return
+    if (this.networkProxyMode === 'manual') {
+      const validationError = this.networkProxyValidationError()
+      if (validationError) {
+        this.saved = false
+        this.error = validationError
+        this.requestUpdate()
+        return
+      }
+    }
+    this.networkProxySaving = true
+    this.saved = false
+    this.error = ''
+    this.requestUpdate()
+    try {
+      const response = await fetch('/api/system/network-proxy', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: this.networkProxyMode, proxyUrl: this.networkProxyUrl }),
+      })
+      const payload = await response.json().catch(() => null) as NetworkProxyState | null
+      if (!response.ok) throw new Error((payload as { error?: string } | null)?.error || t('requestFailed'))
+      this.networkProxyMode = payload?.config?.mode || this.networkProxyMode
+      this.networkProxyUrl = payload?.config?.proxyUrl || ''
+      this.savedNetworkProxyConfig = { mode: this.networkProxyMode, proxyUrl: this.networkProxyUrl }
+      this.networkProxyStatus = payload?.status || null
+      this.markSaved(t('networkProxySaved'))
+    } catch (error) {
+      this.networkProxyMode = this.savedNetworkProxyConfig.mode
+      this.networkProxyUrl = this.savedNetworkProxyConfig.proxyUrl
+      this.saved = false
+      this.error = error instanceof Error ? error.message : t('requestFailed')
+    } finally {
+      this.networkProxySaving = false
+      this.requestUpdate()
+    }
+  }
+
+  private async refreshNetworkProxy() {
+    if (this.networkProxySaving || !this.networkProxyLoaded) return
+    this.networkProxySaving = true
+    this.saved = false
+    this.error = ''
+    this.requestUpdate()
+    try {
+      const response = await fetch('/api/system/network-proxy/refresh', { method: 'POST' })
+      const payload = await response.json().catch(() => null) as NetworkProxyState | null
+      if (!response.ok) throw new Error((payload as { error?: string } | null)?.error || t('requestFailed'))
+      this.networkProxyStatus = payload?.status || null
+      this.markSaved(t('networkProxyRefreshed'))
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : t('requestFailed')
+    } finally {
+      this.networkProxySaving = false
+      this.requestUpdate()
+    }
+  }
+
+  private renderNetworkProxyModeOption(mode: NetworkProxyMode, label: string) {
+    const selected = this.networkProxyMode === mode
+    return html`
+      <button
+        type="button"
+        class="quickforge-settings-segmented-option ${selected ? 'quickforge-settings-segmented-option-active' : ''}"
+        aria-pressed=${selected ? 'true' : 'false'}
+        ?disabled=${this.networkProxySaving || !this.networkProxyLoaded}
+        @click=${() => this.updateNetworkProxyMode(mode)}
+      >
+        ${label}
+      </button>
+    `
+  }
+
+  private networkProxySettings() {
+    const proxyValidationError = this.networkProxyMode === 'manual' ? this.networkProxyValidationError() : ''
+    const hasUnsavedManualProxy = this.networkProxyMode === 'manual' && (
+      this.networkProxyUrl !== this.savedNetworkProxyConfig.proxyUrl
+      || this.savedNetworkProxyConfig.mode !== 'manual'
+    )
+    const statusText = !this.networkProxyLoaded
+      ? t('networkProxyLoadFailed')
+      : this.networkProxyStatus?.supported === false
+        ? this.networkProxyStatus.error || t('networkProxyUnsupported')
+        : t('networkProxyStatus', {
+            source: this.networkProxyStatus?.source || t('unknown'),
+            runtime: this.networkProxyStatus?.runtimeKind || t('unknown'),
+          })
+
+    return html`
+      <section class="quickforge-settings-section" aria-label=${t('networkConnection')}>
+        <div class="quickforge-settings-row">
+          <div class="quickforge-settings-row-main">
+            <div class="quickforge-settings-row-title">
+              ${t('networkProxyMode')}
+              <quickforge-info-tip .label=${t('networkProxyDescription')}></quickforge-info-tip>
+            </div>
+            <div class="quickforge-settings-row-description">${statusText}</div>
+          </div>
+          <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
+            <div class="quickforge-settings-segmented quickforge-settings-segmented-wrap" role="group" aria-label=${t('networkProxyMode')}>
+              ${this.renderNetworkProxyModeOption('direct', t('networkProxyDirect'))}
+              ${this.renderNetworkProxyModeOption('system', t('networkProxySystem'))}
+              ${this.renderNetworkProxyModeOption('manual', t('networkProxyManual'))}
+            </div>
+          </div>
+        </div>
+
+        ${this.networkProxyMode === 'manual'
+          ? html`
+            <div class="quickforge-settings-row">
+              <div class="quickforge-settings-row-main">
+                <div class="quickforge-settings-row-title">${t('networkProxyAddress')}</div>
+                <div class="quickforge-settings-row-description">${t('networkProxyAddressDescription')}</div>
+              </div>
+              <div class="quickforge-settings-row-control quickforge-settings-row-control-wide quickforge-network-proxy-control">
+                <input
+                  id="quickforge-network-proxy-url"
+                  class="quickforge-settings-input quickforge-settings-mono"
+                  type="url"
+                  aria-label=${t('networkProxyAddress')}
+                  aria-invalid=${hasUnsavedManualProxy && proxyValidationError ? 'true' : 'false'}
+                  .value=${this.networkProxyUrl}
+                  placeholder="http://127.0.0.1:7890"
+                  ?disabled=${this.networkProxySaving || !this.networkProxyLoaded}
+                  @input=${(event: Event) => this.updateNetworkProxyUrl((event.target as HTMLInputElement).value)}
+                  @keydown=${(event: KeyboardEvent) => {
+                    if (event.key === 'Enter' && this.networkProxyUrl.trim()) {
+                      event.preventDefault()
+                      void this.saveNetworkProxy()
+                    }
+                  }}
+                />
+                <button
+                  class="quickforge-settings-button quickforge-settings-button-primary"
+                  type="button"
+                  ?disabled=${this.networkProxySaving || !this.networkProxyLoaded || Boolean(proxyValidationError) || !hasUnsavedManualProxy}
+                  @click=${() => this.saveNetworkProxy()}
+                >
+                  ${this.networkProxySaving ? t('saving') : t('networkProxySave')}
+                </button>
+              </div>
+            </div>
+          `
+          : null}
+
+        ${this.networkProxyMode === 'system'
+          ? html`
+            <div class="quickforge-settings-row">
+              <div class="quickforge-settings-row-main">
+                <div class="quickforge-settings-row-title">${t('networkProxyRefresh')}</div>
+                <div class="quickforge-settings-row-description">${t('networkProxyRefreshDescription')}</div>
+              </div>
+              <div class="quickforge-settings-row-control">
+                <button
+                  class="quickforge-settings-button"
+                  type="button"
+                  ?disabled=${this.networkProxySaving || !this.networkProxyLoaded}
+                  @click=${() => this.refreshNetworkProxy()}
+                >
+                  ${this.networkProxySaving ? t('saving') : t('networkProxyRefresh')}
+                </button>
+              </div>
+            </div>
+          `
+          : null}
+      </section>
+    `
   }
 
   private async loadTerminalShell() {
@@ -751,10 +997,12 @@ class DefaultOptionsSettingsTab extends SettingsTab {
           </div>
         </section>
 
+        ${this.networkProxySettings()}
+
         ${this.terminalShellSettings()}
 
-        ${this.saved ? html`<div class="quickforge-settings-message">${this.savedMessage || t('defaultOptionsSaved')}</div>` : null}
-        ${this.error ? html`<div class="quickforge-settings-alert">${this.error}</div>` : null}
+        ${this.saved ? html`<div class="quickforge-settings-message" role="status">${this.savedMessage || t('defaultOptionsSaved')}</div>` : null}
+        ${this.error ? html`<div class="quickforge-settings-alert" role="alert">${this.error}</div>` : null}
       </div>
     `
   }

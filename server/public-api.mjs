@@ -140,6 +140,10 @@ async function waitForQuickForge(options = {}) {
 }
 
 export async function startQuickForge(options = {}) {
+  if (options.networkRuntime) {
+    const { registerHostNetworkRuntime } = await import('./network-proxy.mjs')
+    registerHostNetworkRuntime(options.networkRuntime)
+  }
   const existingHealth = options.reuseExisting === false ? null : await checkQuickForgeHealth(options)
   const url = getQuickForgeUrl(options)
   const healthUrl = getQuickForgeHealthUrl(options)

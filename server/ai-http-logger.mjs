@@ -219,5 +219,3 @@ export function streamSimpleWithAiHttpLogging(model, context, options = {}) {
 
   return aiHttpContext.run(traceContext, () => streamSimple(model, context, options))
 }
-
-installAiHttpLogger()

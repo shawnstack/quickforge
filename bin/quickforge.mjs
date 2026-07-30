@@ -86,6 +86,8 @@ function getRegistryPackageUrl(packageName) {
 }
 
 async function fetchLatestVersion(packageName) {
+  const { initializeNetworkProxy } = await import('../server/network-proxy.mjs')
+  await initializeNetworkProxy()
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 5000)
 

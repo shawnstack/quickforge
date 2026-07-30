@@ -70,6 +70,32 @@ export async function handleSystemApi(req, res, url, context) {
     }
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/system/network-proxy') {
+    sendJson(res, 200, await context.getNetworkProxyConfig())
+    return
+  }
+
+  if (req.method === 'PUT' && url.pathname === '/api/system/network-proxy') {
+    if (!context.isLocalRequest) {
+      const error = new Error('Network proxy settings can only be changed from this computer')
+      error.statusCode = 403
+      throw error
+    }
+    const body = await readJsonBody(req, 64 * 1024) || {}
+    sendJson(res, 200, await context.updateNetworkProxyConfig(body))
+    return
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/system/network-proxy/refresh') {
+    if (!context.isLocalRequest) {
+      const error = new Error('System proxy can only be refreshed from this computer')
+      error.statusCode = 403
+      throw error
+    }
+    sendJson(res, 200, await context.refreshSystemProxy())
+    return
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/system/network') {
     sendJson(res, 200, {
       host: context.host,

@@ -12,6 +12,7 @@ server/
 ├── acp/                      # ACP AgentSideConnection stdio 适配层
 ├── agent-profiles.mjs        # Agent Profile 配置层，合并内置和自定义 Agent
 ├── storage.mjs               # 文件存储层 (707 行)
+├── network-proxy.mjs         # 直连、真实系统代理与手动 HTTP(S) 代理运行时
 ├── skills.mjs                # Agent Skills 管理和加载 (553 行)
 ├── channels/                 # 通用渠道管理（外部应用 bridge 进程，如微信 weixin-acp）
 ├── mcp/                      # MCP Client 配置、连接和工具适配
@@ -52,6 +53,7 @@ server/
 - WebSocket 交互式终端（`/api/terminal/sessions/:id/ws`，仅 localhost）
 - 启动时重置僵死任务状态
 - 支持 LAN 共享（显示局域网 URL）
+- 启动后初始化 `network-proxy.mjs`：读取 `settings['network-proxy']`，为外部 Fetch 请求应用直连、操作系统真实代理或手动 HTTP(S) 代理；localhost 始终直连。Desktop inline 由 Electron/Chromium Session 处理系统 PAC/WPAD，CLI/SDK 由 `@vscode/os-proxy-resolver` 调用 Windows、macOS 和 Linux 的原生系统代理来源
 
 ### agent-manager.mjs (1350 行)
 
@@ -59,6 +61,7 @@ server/
 
 **功能**:
 - Agent 创建（`createAgent`）：初始化 Agent 实例，配置工具和系统提示词
+- Provider 请求重试：主 Agent、Subagent、对话压缩和辅助模型生成默认设置 `maxRetries: 3`，即首次请求失败后最多再重试 3 次（最多共 4 次请求）；是否可重试及退避由各 Provider 实现决定，模型连通性探测显式保持不重试，`maxRetryDelayMs` 只限制服务端要求的单次等待上限
 - 默认工作目录：全局会话（无 `projectId`）会合成默认 workspace 上下文（`defaultGlobalWorkspaceContext`，根目录 `~/.quickforge/workspace`，合成 project id 为 `default`），使「对话」与「项目」享有相同的文件工具（读/写/编辑/grep/命令）、工作区面板、终端和 Git 能力；文件操作受该目录沙箱约束，默认权限下读类工具放行、写入/命令/MCP/Plugin 等可能影响系统的工具走审批，完全访问权限则在既有沙箱与敏感文件限制内自动执行；`projectContextFromId` 找不到项目时同样回落到该默认 workspace
 - 消息运行（`runPrompt`）：执行 AI 对话，管理消息历史
 - SSE 事件流管理：向连接的客户端广播 Agent 事件

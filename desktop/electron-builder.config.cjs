@@ -15,6 +15,11 @@ module.exports = {
     'README.md',
   ],
   npmRebuild: false,
+  asarUnpack: [
+    '**/*.node',
+    '**/node_modules/@vscode/os-proxy-resolver*/**',
+    '**/node_modules/@vscode/windows-ca-certs/**',
+  ],
   extraMetadata: {
     main: 'desktop/electron-main.mjs',
     desktopName: 'quickforge',

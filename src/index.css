@@ -426,12 +426,14 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
   min-width: min(28rem, 48%);
 }
 
-.quickforge-lan-password-control .quickforge-settings-input {
+.quickforge-lan-password-control .quickforge-settings-input,
+.quickforge-network-proxy-control .quickforge-settings-input {
   min-width: 0;
   flex: 1 1 12rem;
 }
 
-.quickforge-lan-password-control .quickforge-settings-button {
+.quickforge-lan-password-control .quickforge-settings-button,
+.quickforge-network-proxy-control .quickforge-settings-button {
   flex: 0 0 auto;
   white-space: nowrap;
 }

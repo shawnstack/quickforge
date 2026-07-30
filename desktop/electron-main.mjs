@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startQuickForge, stopQuickForge } from '../server/public-api.mjs'
+import { createDesktopNetworkRuntime } from './system-proxy-runtime.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -421,15 +422,17 @@ async function boot() {
     app.setName(appName)
 
     const desktopRuntimeVersion = await getDesktopRuntimeVersion()
+    const inline = process.env.QUICKFORGE_DESKTOP_INLINE !== '0'
     quickForgeInstance = await startQuickForge({
       host: process.env.QUICKFORGE_DESKTOP_HOST || '127.0.0.1',
       port: process.env.QUICKFORGE_DESKTOP_PORT || process.env.QUICKFORGE_PORT || 5177,
       dataDir: process.env.QUICKFORGE_DESKTOP_DATA_DIR,
       workspaceDir: process.env.QUICKFORGE_DESKTOP_WORKSPACE_DIR,
       openBrowser: false,
-      reuseExisting: 'same-version',
+      reuseExisting: inline ? false : 'same-version',
       expectedVersion: desktopRuntimeVersion,
-      inline: process.env.QUICKFORGE_DESKTOP_INLINE !== '0',
+      inline,
+      networkRuntime: inline ? createDesktopNetworkRuntime() : undefined,
       terminal: process.env.QUICKFORGE_DESKTOP_TERMINAL === '1',
       detached: false,
     })

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { sendJson, sendError } from './utils/response.mjs'
 import { openBrowser } from './utils/platform.mjs'
 import { ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir } from './storage.mjs'
+import { getNetworkProxyConfig, initializeNetworkProxy, refreshSystemProxy, updateNetworkProxyConfig } from './network-proxy.mjs'
 import { setDefaultWorkspaceRoot, initializeActiveProject, readProjectConfig, getActiveProject, readTerminalShellSetting, updateTerminalShellSetting, readTerminalShellConfig, updateTerminalShellConfig } from './project-config.mjs'
 import { getWorkspaceRoot } from './utils/workspace.mjs'
 import { handleStorageApi } from './routes/storage.mjs'
@@ -65,7 +66,6 @@ let restartInProgress = false
 let updateInProgress = false
 
 setDefaultWorkspaceRoot(process.env.QUICKFORGE_WORKSPACE_DIR || path.join(dataDir, 'workspace'))
-installAiHttpLogger()
 
 function getRestartSupport() {
   return { supported: true, reason: null }
@@ -420,7 +420,7 @@ async function handleApi(req, res, url) {
   }
 
   // System routes
-  if (pathname === '/api/system/status' || pathname === '/api/system/restart' || pathname === '/api/system/network' || pathname === '/api/system/terminal-shell' || pathname === '/api/system/about' || pathname === '/api/system/update/check' || pathname === '/api/system/update/desktop' || pathname === '/api/system/update') {
+  if (pathname === '/api/system/status' || pathname === '/api/system/restart' || pathname === '/api/system/network' || pathname === '/api/system/network-proxy' || pathname === '/api/system/network-proxy/refresh' || pathname === '/api/system/terminal-shell' || pathname === '/api/system/about' || pathname === '/api/system/update/check' || pathname === '/api/system/update/desktop' || pathname === '/api/system/update') {
     await handleSystemApi(req, res, url, {
       getSystemStatus,
       requestRestart,
@@ -433,6 +433,9 @@ async function handleApi(req, res, url) {
       updateTerminalShellSetting,
       getTerminalShellConfig: readTerminalShellConfig,
       updateTerminalShellConfig,
+      getNetworkProxyConfig,
+      updateNetworkProxyConfig,
+      refreshSystemProxy,
       host,
       port,
       remoteEnabled: host !== '127.0.0.1' && host !== 'localhost',
@@ -669,6 +672,8 @@ server.on('upgrade', (req, socket, head) => {
 })
 
 await ensureStorage()
+await initializeNetworkProxy()
+installAiHttpLogger()
 initializeChannels({ projectRoot })
 await resetStaleTaskStatuses()
 await initializeActiveProject()

@@ -1,4 +1,5 @@
 import { streamSimple } from '@earendil-works/pi-ai/compat'
+import { DEFAULT_AI_MAX_RETRIES } from '../ai-provider-options.mjs'
 import { readJsonBody, sendJson, decodeSegment } from '../utils/response.mjs'
 import { readStore, atomicUpdate } from '../storage.mjs'
 import { createAgent, getSessionEventBus, agentEvents, persistSessionState, abortRun } from '../agent-manager.mjs'
@@ -165,6 +166,7 @@ async function parseScheduledTaskInstructionWithAi(instruction, model, thinkingL
         maxTokens: 600,
         temperature: 0,
         reasoning: thinkingLevel === 'off' ? undefined : thinkingLevel,
+        maxRetries: DEFAULT_AI_MAX_RETRIES,
         maxRetryDelayMs: 60000,
       },
     )

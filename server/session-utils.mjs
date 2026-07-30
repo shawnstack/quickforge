@@ -1,4 +1,5 @@
 import { streamSimple } from '@earendil-works/pi-ai/compat'
+import { DEFAULT_AI_MAX_RETRIES } from './ai-provider-options.mjs'
 import { buildInstructionsPayload, projectContextFromId } from './project-config.mjs'
 import { composeSystemPrompt } from './system-prompt.mjs'
 import { listSubagentProfiles } from './agent-profiles.mjs'
@@ -99,6 +100,7 @@ export async function generateAiTitle(messages, model, thinkingLevel, getApiKey)
         maxTokens: 160,
         temperature: 0.2,
         reasoning: thinkingLevel === 'off' ? undefined : 'medium',
+        maxRetries: DEFAULT_AI_MAX_RETRIES,
         maxRetryDelayMs: 60000,
       },
     )

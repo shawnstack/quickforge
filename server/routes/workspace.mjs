@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { streamSimple } from '@earendil-works/pi-ai/compat'
+import { DEFAULT_AI_MAX_RETRIES } from '../ai-provider-options.mjs'
 import { sendJson, readJsonBody } from '../utils/response.mjs'
 import { projectContextFromId } from '../project-config.mjs'
 import { readStore } from '../storage.mjs'
@@ -630,6 +631,7 @@ ${trimForPrompt(worktreeDiff)}`
         maxTokens: 500,
         temperature: 0,
         reasoning: thinkingLevel === 'off' ? undefined : thinkingLevel,
+        maxRetries: DEFAULT_AI_MAX_RETRIES,
         maxRetryDelayMs: 60000,
       },
     )

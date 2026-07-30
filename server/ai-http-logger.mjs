@@ -3,6 +3,7 @@ import path from 'node:path'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 import { streamSimple } from '@earendil-works/pi-ai/compat'
+import { withDefaultAiProviderOptions } from './ai-provider-options.mjs'
 import { logsDir } from './storage.mjs'
 
 const PATCH_MARKER = Symbol.for('quickforge.aiHttpLogger.fetchPatched')
@@ -206,16 +207,17 @@ export function installAiHttpLogger() {
 }
 
 export function streamSimpleWithAiHttpLogging(model, context, options = {}) {
-  if (!aiHttpLogEnabled) return streamSimple(model, context, options)
+  const providerOptions = withDefaultAiProviderOptions(options)
+  if (!aiHttpLogEnabled) return streamSimple(model, context, providerOptions)
 
   const traceContext = {
     traceId: randomUUID(),
-    sessionId: options?.sessionId,
-    purpose: options?.metadata?.quickforgePurpose || 'chat',
+    sessionId: providerOptions.sessionId,
+    purpose: providerOptions.metadata?.quickforgePurpose || 'chat',
     provider: model?.provider,
     api: model?.api,
     model: model?.id,
   }
 
-  return aiHttpContext.run(traceContext, () => streamSimple(model, context, options))
+  return aiHttpContext.run(traceContext, () => streamSimple(model, context, providerOptions))
 }

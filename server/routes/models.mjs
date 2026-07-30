@@ -35,6 +35,7 @@ async function probeModelConnection(model, apiKeyOverride) {
       temperature: 0,
       // Keep reasoning off so thinking-capable models don't require extra tokens.
       reasoning: undefined,
+      maxRetries: 0,
       maxRetryDelayMs: 30000,
     },
   )

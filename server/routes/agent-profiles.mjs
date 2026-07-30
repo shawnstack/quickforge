@@ -1,4 +1,5 @@
 import { streamSimple } from '@earendil-works/pi-ai/compat'
+import { DEFAULT_AI_MAX_RETRIES } from '../ai-provider-options.mjs'
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { readStore } from '../storage.mjs'
 import { logger } from '../utils/logger.mjs'
@@ -101,6 +102,7 @@ Rules:
         maxTokens: 1600,
         temperature: 0,
         reasoning: thinkingLevel === 'off' ? undefined : thinkingLevel,
+        maxRetries: DEFAULT_AI_MAX_RETRIES,
         maxRetryDelayMs: 60000,
       },
     )

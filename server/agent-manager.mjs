@@ -1432,6 +1432,9 @@ export async function createAgent(sessionId, config = {}) {
   const {
     scope = 'global',
     projectId = null,
+    source = null,
+    channelId = null,
+    channelName = null,
     accessMode: rawAccessMode,
     yoloMode = false,
     model = null,
@@ -1600,6 +1603,9 @@ export async function createAgent(sessionId, config = {}) {
     agent,
     projectContext,
     projectId,
+    source: typeof source === 'string' && source.trim() ? source.trim() : null,
+    channelId: typeof channelId === 'string' && channelId.trim() ? channelId.trim() : null,
+    channelName: typeof channelName === 'string' && channelName.trim() ? channelName.trim() : null,
     accessMode,
     yoloMode: resolvedYoloMode,
     model: resolvedModel,
@@ -1758,7 +1764,7 @@ function sessionLastModifiedFromMessages(messages, fallback) {
  * Persist session data to storage.
  */
 async function persistSessionUnlocked(session) {
-  const { sessionId, agent, scope, projectId, title, titleSource, createdAt, lastModified: storedLastModified, status, startedAt, finishedAt, model, thinkingLevel, accessMode, yoloMode, contextCompaction } = session
+  const { sessionId, agent, scope, projectId, source, channelId, channelName, title, titleSource, createdAt, lastModified: storedLastModified, status, startedAt, finishedAt, model, thinkingLevel, accessMode, yoloMode, contextCompaction } = session
   const messages = agent.state.messages
 
   if (messages.length === 0) {
@@ -1789,6 +1795,9 @@ async function persistSessionUnlocked(session) {
     lastModified,
     scope,
     projectId: scope === 'project' ? projectId : undefined,
+    source: source || undefined,
+    channelId: channelId || undefined,
+    channelName: channelName || undefined,
     taskStatus: status,
     taskStartedAt: startedAt,
     taskFinishedAt: finishedAt,
@@ -1842,6 +1851,9 @@ async function persistSessionUnlocked(session) {
     preview,
     scope,
     projectId: scope === 'project' ? projectId : undefined,
+    source: source || undefined,
+    channelId: channelId || undefined,
+    channelName: channelName || undefined,
     taskStatus: status,
     taskStartedAt: startedAt,
     taskFinishedAt: finishedAt,
@@ -2254,6 +2266,9 @@ export function getSessionState(sessionId) {
     sessionId: session.sessionId,
     scope: session.scope,
     projectId: session.projectId,
+    source: session.source || undefined,
+    channelId: session.channelId || undefined,
+    channelName: session.channelName || undefined,
     accessMode: session.accessMode,
     yoloMode: session.yoloMode,
     systemPrompt: session.agent.state.systemPrompt,
@@ -2291,6 +2306,9 @@ export function getSessionStatus(sessionId) {
     sessionId: session.sessionId,
     scope: session.scope,
     projectId: session.projectId,
+    source: session.source || undefined,
+    channelId: session.channelId || undefined,
+    channelName: session.channelName || undefined,
     title: session.title,
     createdAt: session.createdAt,
     lastModified: session.lastModified,
@@ -2402,6 +2420,9 @@ export async function restoreAgent(sessionId) {
     return await createAgent(sessionId, {
       scope: sessionData.scope || 'global',
       projectId: sessionData.projectId || null,
+      source: sessionData.source || null,
+      channelId: sessionData.channelId || null,
+      channelName: sessionData.channelName || null,
       accessMode: normalizeAccessMode(sessionData.accessMode, sessionData.yoloMode),
       yoloMode: sessionData.yoloMode || false,
       model: sessionData.model,
@@ -2486,6 +2507,9 @@ export function listSessions() {
       scope: session.scope,
       status: session.status,
       title: session.title,
+      source: session.source || undefined,
+      channelId: session.channelId || undefined,
+      channelName: session.channelName || undefined,
       idleRetention: session.idleRetention || undefined,
     })
   }

@@ -1187,6 +1187,9 @@ export class ServerAgent {
     config: {
       scope?: 'global' | 'project'
       projectId?: string
+      source?: 'acp'
+      channelId?: string
+      channelName?: string
       accessMode?: AgentAccessMode
       yoloMode?: boolean
       model?: Model<Api>
@@ -1207,6 +1210,9 @@ export class ServerAgent {
       body: JSON.stringify({
         scope: config.scope ?? 'global',
         projectId: config.projectId,
+        source: config.source,
+        channelId: config.channelId,
+        channelName: config.channelName,
         accessMode: config.accessMode,
         yoloMode: config.yoloMode ?? agentAccessModeToYoloMode(normalizeAgentAccessMode(config.accessMode)),
         model: config.model,

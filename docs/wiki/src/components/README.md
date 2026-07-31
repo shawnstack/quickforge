@@ -70,6 +70,7 @@ components/
 - 无限滚动加载会话 (Intersection Observer)
 - 搜索入口、全局 Skills 设置入口
 - 项目分组和会话列表折叠/展开
+- 渠道会话在列表、搜索和对话页标题中按普通文字显示“渠道名 · 标题”，不改变真实标题，也不使用徽标或差异化样式
 
 ### ScheduledTasksPage.tsx
 

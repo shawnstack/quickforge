@@ -97,7 +97,7 @@ class ArchivedConversationsSettingsTab extends SettingsTab {
       }
       if (!normalizedQuery) return true
       const projectName = session.projectId ? this.projectNameById.get(session.projectId) || '' : ''
-      return `${sessionTitle(session.title)} ${projectName}`.toLowerCase().includes(normalizedQuery)
+      return `${sessionTitle(session.title, session.channelName)} ${projectName}`.toLowerCase().includes(normalizedQuery)
     })
   }
 
@@ -203,7 +203,7 @@ class ArchivedConversationsSettingsTab extends SettingsTab {
       <div class="border-t border-border px-4 py-3 first:border-t-0">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
-            <div class="truncate text-sm font-medium text-foreground">${sessionTitle(session.title)}</div>
+            <div class="truncate text-sm font-medium text-foreground">${sessionTitle(session.title, session.channelName)}</div>
             <div class="mt-1 text-xs text-muted-foreground">
               ${t('lastModified')}: ${formatDate(session.lastModified)} · ${t('archivedAt')}: ${formatDate(session.archivedAt)}
             </div>

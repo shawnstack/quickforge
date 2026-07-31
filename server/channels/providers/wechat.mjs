@@ -179,7 +179,11 @@ export class WechatChannelProvider extends ProcessChannelProvider {
       command: npxCommand(),
       args: ['-y', WEIXIN_ACP_PACKAGE, 'start', '--', acpCommand, ...acpArgs],
       cwd: this.launchWorkspace?.path || getDefaultWorkspaceRoot() || this.projectRoot,
-      env: process.env,
+      env: {
+        ...process.env,
+        QUICKFORGE_ACP_CHANNEL_ID: this.definition.id,
+        QUICKFORGE_ACP_CHANNEL_NAME: this.definition.name,
+      },
       shell: shouldUseShellForNpx(),
     }
   }

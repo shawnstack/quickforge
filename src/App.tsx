@@ -1564,7 +1564,7 @@ function MainApp() {
 
           <div className="min-w-0 flex-1">
             <div className="flex max-w-full min-w-0 items-center gap-2">
-              <div className="min-w-0 truncate text-sm font-semibold text-foreground/92">{sessionTitle(agentManager.currentTitle)}</div>
+              <div className="min-w-0 truncate text-sm font-semibold text-foreground/92">{sessionTitle(agentManager.currentTitle, currentSessionMetadata?.channelName)}</div>
               {agentManager.currentToolProject?.name ? (
                 <div className="inline-flex h-9 max-w-[220px] shrink-0 items-center gap-2 rounded-full bg-muted/55 px-3 text-sm text-foreground/88" title={agentManager.currentToolProject.name}>
                   <Folder className="size-4 text-muted-foreground" />

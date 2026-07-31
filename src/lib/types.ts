@@ -1,6 +1,6 @@
 import type { SessionMetadata, SessionData } from '@earendil-works/pi-web-ui'
 import type { ServerAgent, ServerAgentContextCompaction } from '@/lib/server-agent'
-import { t } from '@/lib/i18n'
+import { t } from './i18n'
 
 export type AgentAccessMode = 'default' | 'full-access'
 
@@ -67,6 +67,9 @@ export type SessionTitleSource = 'default' | 'fallback' | 'ai' | 'manual'
 export type QuickForgeSessionMetadata = SessionMetadata & {
   scope?: ChatScope
   projectId?: string
+  source?: 'acp'
+  channelId?: string
+  channelName?: string
   titleSource?: SessionTitleSource
   accessMode?: AgentAccessMode
   yoloMode?: boolean
@@ -81,6 +84,9 @@ export type QuickForgeSessionMetadata = SessionMetadata & {
 export type QuickForgeSessionData = SessionData & {
   scope?: ChatScope
   projectId?: string
+  source?: 'acp'
+  channelId?: string
+  channelName?: string
   titleSource?: SessionTitleSource
   accessMode?: AgentAccessMode
   yoloMode?: boolean
@@ -112,6 +118,8 @@ export function sessionScope(
   return session?.scope === 'project' ? 'project' : 'global'
 }
 
-export function sessionTitle(title: string) {
-  return title === 'New chat' ? t('newChat') : title
+export function sessionTitle(title: string, channelName?: string) {
+  const displayTitle = title === 'New chat' ? t('newChat') : title
+  const normalizedChannelName = channelName?.trim()
+  return normalizedChannelName ? `${normalizedChannelName} · ${displayTitle}` : displayTitle
 }

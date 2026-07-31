@@ -86,7 +86,7 @@ server/
 
 **行为约束**:
 - stdout 保留给 ACP NDJSON 协议；日志走 QuickForge logger 的 stderr / 日志文件。
-- 新会话会校验 ACP `cwd` 并记录 `additionalDirectories`；当 `cwd` 等于全局默认工作区时，会话保持 `global` scope，不会把该目录注册成项目；其他 `cwd` 会注册/激活 QuickForge 项目。额外目录会作为 ACP 上下文注入 prompt，但不会在当前实现中直接放宽 QuickForge workspace 工具的写入边界。项目路径匹配采用规范化 + 大小写不敏感比较（`sameProjectPath`），确保同一目录在 Windows 等大小写不敏感文件系统上始终命中同一已注册项目，而非被重复注册成新的 projectId。
+- 新会话会校验 ACP `cwd` 并记录 `additionalDirectories`；当 `cwd` 等于全局默认工作区时，会话保持 `global` scope，不会把该目录注册成项目；其他 `cwd` 会注册/激活 QuickForge 项目。额外目录会作为 ACP 上下文注入 prompt，但不会在当前实现中直接放宽 QuickForge workspace 工具的写入边界。项目路径匹配采用规范化 + 大小写不敏感比较（`sameProjectPath`），确保同一目录在 Windows 等大小写不敏感文件系统上始终命中同一已注册项目，而非被重复注册成新的 projectId。渠道 bridge 可通过 `QUICKFORGE_ACP_CHANNEL_ID` / `QUICKFORGE_ACP_CHANNEL_NAME` 传入来源，ACP 会把 `source`、`channelId`、`channelName` 持久化到会话数据及 metadata，但不修改真实标题。
 - `session/list` 会合并 QuickForge 持久化 `sessions-metadata` 与当前内存 active sessions；`session/load` 恢复会话后会通过 ACP `session/update` 回放历史 user/assistant 消息。
 - ACP document 事件会维护当前打开/聚焦文档缓存，并在 prompt 前注入 `<acp_context>`，使“当前文件/打开文件”类请求能获得 IDE buffer 上下文。
 - ACP prompt 启动失败、取消、删除或关闭会话时会统一移除 pending prompt、Agent EventEmitter 和 AbortSignal 监听器；同一会话的并发 prompt 会只拒绝后发请求，不中断已运行请求。
@@ -196,7 +196,7 @@ server/
 **核心文件**:
 - `channels/registry.mjs` — 渠道注册、列表、状态查询、启动/停止/重启/action 分发和全局事件总线。
 - `channels/process-channel.mjs` — 通用外部进程渠道基类，负责 `spawn` 生命周期、日志 ring buffer、状态、PID、二维码字段和关闭清理；启动过程带互斥保护，避免并发 start 生成多个 bridge，停止时会尽量终止整棵子进程树（Windows 使用 `taskkill /T`）。
-- `channels/providers/wechat.mjs` — 微信渠道 Provider，使用 `npx -y weixin-acp start -- node <quickforge>/bin/quickforge.mjs acp` 启动微信 ACP bridge；UI 展示命令为 `npx weixin-acp start -- qf acp`；默认以非项目的全局默认工作区作为启动 cwd，也可由设置页选择已有项目作为启动工作区。
+- `channels/providers/wechat.mjs` — 微信渠道 Provider，使用 `npx -y weixin-acp start -- node <quickforge>/bin/quickforge.mjs acp` 启动微信 ACP bridge；UI 展示命令为 `npx weixin-acp start -- qf acp`；默认以非项目的全局默认工作区作为启动 cwd，也可由设置页选择已有项目作为启动工作区；启动时通过 ACP 渠道环境变量传入 `wechat` / `微信`，用于会话来源展示。
 - `routes/channels.mjs` — `/api/channels`、`/api/channels/events` SSE、`/api/channels/:id/start|stop|restart|actions/:action`；`start`/`restart` 可通过 JSON body 传入 `projectId`，`default` 表示全局默认工作区。
 
 **行为约束**:

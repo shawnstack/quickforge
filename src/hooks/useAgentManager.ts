@@ -210,7 +210,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     async (
       initialState?: Partial<AgentState> & { contextCompaction?: ServerAgentContextCompaction | null },
       sessionId: string = randomId(),
-      options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; shouldAttachToView?: () => boolean; createdAt?: string; title?: string; accessMode?: AgentAccessMode; yoloMode?: boolean; refreshSessions?: boolean },
+      options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; shouldAttachToView?: () => boolean; createdAt?: string; title?: string; source?: 'acp'; channelId?: string; channelName?: string; accessMode?: AgentAccessMode; yoloMode?: boolean; refreshSessions?: boolean },
     ) => {
       const previousAgent = agentRef.current
       const existingTask = taskMapRef.current.get(sessionId)
@@ -253,6 +253,9 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       const nextAgent = await ServerAgent.create(sessionId, {
         scope,
         projectId: scope === 'project' ? project?.id : undefined,
+        source: options?.source,
+        channelId: options?.channelId,
+        channelName: options?.channelName,
         accessMode: resolvedAccessMode,
         yoloMode: agentAccessModeToYoloMode(resolvedAccessMode),
         model: resolvedModel,
@@ -418,7 +421,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   const loadSession = useCallback(
     async (
       sessionId: string,
-      hints?: { title?: string; createdAt?: string; scope?: ChatScope; projectId?: string },
+      hints?: { title?: string; createdAt?: string; scope?: ChatScope; projectId?: string; source?: 'acp'; channelId?: string; channelName?: string },
     ) => {
       const requestId = ++loadSessionRequestRef.current
       const isLatestRequest = () => loadSessionRequestRef.current === requestId
@@ -454,6 +457,9 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
               shouldAttachToView: isLatestRequest,
               createdAt: hints?.createdAt,
               title: hints?.title,
+              source: hints?.source,
+              channelId: hints?.channelId,
+              channelName: hints?.channelName,
             },
           )
           return
@@ -501,6 +507,9 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
             shouldAttachToView: isLatestRequest,
             createdAt: session.createdAt ?? hints?.createdAt,
             title: session.title ?? hints?.title,
+            source: metadata?.source ?? session.source ?? hints?.source,
+            channelId: metadata?.channelId ?? session.channelId ?? hints?.channelId,
+            channelName: metadata?.channelName ?? session.channelName ?? hints?.channelName,
             accessMode: normalizeAgentAccessMode(session.accessMode, session.yoloMode),
             // The session already exists in the sidebar list; loading it doesn't
             // change its metadata, so a full list refresh is unnecessary and only

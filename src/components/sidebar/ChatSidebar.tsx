@@ -402,7 +402,7 @@ export const ChatSidebar = memo(function ChatSidebar({
     })
   }, [globalSessions, pinnedSessionItems, projectNameById, projectTimelineSessions, projects, sessionsForProject])
   const searchResults = searchQuery.trim()
-    ? searchableSessions.filter(({ session, projectName }) => `${sessionTitle(session.title)} ${projectName}`.toLowerCase().includes(searchQuery.trim().toLowerCase())).slice(0, 8)
+    ? searchableSessions.filter(({ session, projectName }) => `${sessionTitle(session.title, session.channelName)} ${projectName}`.toLowerCase().includes(searchQuery.trim().toLowerCase())).slice(0, 8)
     : []
   const openSearch = () => {
     setSearchOpen(true)
@@ -693,7 +693,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                 <div className={sessionTitleRowClass}>
                   {sessionLoadingIndicator(session.id)}
                   {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
-                  <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title)}</span>
+                  <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title, session.channelName)}</span>
                 </div>
               </div>
               <button
@@ -1007,7 +1007,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                           <div className={sessionTitleRowClass}>
                                             {sessionLoadingIndicator(session.id)}
                                             {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
-                                            <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title)}</span>
+                                            <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title, session.channelName)}</span>
                                           </div>
                                         </div>
                                         {session.pinnedAt ? (
@@ -1201,7 +1201,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                 <div className={sessionTitleRowClass}>
                                                   {sessionLoadingIndicator(session.id)}
                                                   {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
-                                                  <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title)}</span>
+                                                  <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title, session.channelName)}</span>
                                                 </div>
                                                 {session.pinnedAt ? (
                                                   <button
@@ -1340,7 +1340,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                               <div className={sessionTitleRowClass}>
                                 {sessionLoadingIndicator(session.id)}
                                 {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
-                                <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title)}</span>
+                                <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title, session.channelName)}</span>
                               </div>
                               {session.pinnedAt ? (
                                 <button
@@ -1486,7 +1486,7 @@ export const ChatSidebar = memo(function ChatSidebar({
             className={sessionHoverTipClass}
             style={{ left: hoveredSessionTip.x, top: hoveredSessionTip.y, transform: 'translateY(-50%)' }}
           >
-            <div className="truncate text-sm font-medium leading-5 text-foreground/92">{sessionTitle(session.title)}</div>
+            <div className="truncate text-sm font-medium leading-5 text-foreground/92">{sessionTitle(session.title, session.channelName)}</div>
             {showRuntimeInfo && currentSessionHoverInfo?.gitBranch ? (
               <div className={sessionHoverTipMetaClass}>
                 <GitBranch className="size-4 shrink-0 text-muted-foreground/60" />
@@ -1646,7 +1646,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                     >
                       {sessionLoadingIndicator(session.id)}
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm text-foreground/90">{sessionTitle(session.title)}</span>
+                        <span className="block truncate text-sm text-foreground/90">{sessionTitle(session.title, session.channelName)}</span>
                         <span className="block truncate text-[11px] text-muted-foreground/55">{projectName || t('normalChat')} · {formatSessionTime(session.lastModified)}</span>
                       </span>
                     </button>

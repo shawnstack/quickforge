@@ -430,6 +430,71 @@ function addToolTimingToEvent(session, event) {
   return event
 }
 
+function isRecord(value) {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function updateRuntimeToolExecution(session, event) {
+  if (!event?.toolCallId) return
+  if (event.type !== 'tool_execution_start' && event.type !== 'tool_execution_update' && event.type !== 'tool_execution_end') return
+
+  const existing = session.runtimeToolExecutions?.get(event.toolCallId)
+  const toolName = event.toolName ?? existing?.toolName
+  if (!toolName) return
+  const result = event.type === 'tool_execution_end' ? event.result : event.partialResult
+  const existingDetails = isRecord(existing?.details) ? existing.details : {}
+  const resultDetails = isRecord(result?.details) ? result.details : {}
+  const quickforgeTiming = event.quickforgeTiming || resultDetails.quickforgeTiming || existingDetails.quickforgeTiming
+  const details = {
+    ...existingDetails,
+    ...resultDetails,
+    ...(quickforgeTiming ? { quickforgeTiming } : {}),
+    sessionId: resultDetails.sessionId ?? existingDetails.sessionId ?? session.sessionId,
+    toolCallId: resultDetails.toolCallId ?? existingDetails.toolCallId ?? event.toolCallId,
+  }
+
+  session.runtimeToolExecutions?.set(event.toolCallId, {
+    role: 'toolResult',
+    toolCallId: event.toolCallId,
+    toolName,
+    content: result?.content ?? existing?.content ?? [],
+    details,
+    isError: event.type === 'tool_execution_end' ? Boolean(event.isError) : false,
+    timestamp: existing?.timestamp ?? Date.now(),
+    pending: event.type !== 'tool_execution_end',
+  })
+}
+
+function messagesWithRuntimeToolExecutions(session) {
+  const messages = session.agent.state.messages || []
+  if (!session.runtimeToolExecutions?.size) return messages
+
+  const authoritativeToolCallIds = new Set(
+    messages
+      .filter((message) => message?.role === 'toolResult' && typeof message.toolCallId === 'string')
+      .map((message) => message.toolCallId),
+  )
+  const runtimeMessages = []
+  for (const [toolCallId, snapshot] of session.runtimeToolExecutions) {
+    if (authoritativeToolCallIds.has(toolCallId)) {
+      session.runtimeToolExecutions.delete(toolCallId)
+    } else {
+      const { pending: _pending, ...message } = snapshot
+      runtimeMessages.push(message)
+    }
+  }
+  return runtimeMessages.length > 0 ? [...messages, ...runtimeMessages] : messages
+}
+
+function runtimePendingToolCalls(session) {
+  const pending = new Set(session.agent.state.pendingToolCalls || [])
+  for (const [toolCallId, snapshot] of session.runtimeToolExecutions || []) {
+    if (snapshot.pending) pending.add(toolCallId)
+    else pending.delete(toolCallId)
+  }
+  return Array.from(pending)
+}
+
 export function markLatestAssistantProcessFinished(messages, finishedAt = Date.now()) {
   if (!Array.isArray(messages)) return false
   for (let index = messages.length - 1; index >= 0; index--) {
@@ -1320,6 +1385,12 @@ function applyActiveCapabilityPrompt(messages, capabilityPrompt) {
   return messages
 }
 
+function activeTurnContextPrompt(session) {
+  return [session?.activeTransientContextPrompt, session?.activeCapabilityPrompt]
+    .filter((prompt) => typeof prompt === 'string' && prompt.trim())
+    .join('\n\n') || null
+}
+
 function compactSummaryIndex(messages) {
   for (let index = messages.length - 1; index >= 0; index--) {
     if (isCompactSummaryMessage(messages[index])) return index
@@ -1353,7 +1424,7 @@ async function transformSessionContext(session, messages, signal) {
   session.lastTransformedContextMessages = transformedMessages
   return applyActiveCapabilityPrompt(
     applyActiveCommandPrompt(compactedContextMessages(transformedMessages), session?.activeCommandPrompt),
-    session?.activeCapabilityPrompt,
+    activeTurnContextPrompt(session),
   )
 }
 
@@ -1624,6 +1695,8 @@ export async function createAgent(sessionId, config = {}) {
     activeCommandName: null,
     activeCommandPermissions: null,
     activeCommandPrompt: null,
+    activeCapabilityPrompt: null,
+    activeTransientContextPrompt: null,
     eventBus,
     idleTimer: null,
     persistTimer: null,
@@ -1632,6 +1705,7 @@ export async function createAgent(sessionId, config = {}) {
     titleGenerationPromiseId: null,
     sessionCreatedEmitted: messages.length > 0,
     toolTimings: new Map(),
+    runtimeToolExecutions: new Map(),
     getApiKey,
     contextCompaction,
     agentProfile: resolvedAgentProfile ? agentProfileSnapshot(resolvedAgentProfile) : null,
@@ -1656,6 +1730,7 @@ export async function createAgent(sessionId, config = {}) {
     // complete session history.  Replace with the authoritative full state
     // before forwarding to clients.
     const timedEvent = addToolTimingToEvent(session, event)
+    updateRuntimeToolExecution(session, timedEvent)
     const eventEndStatus = event.type === 'agent_end'
       ? session.agent.signal?.aborted
         ? 'aborted'
@@ -2048,11 +2123,8 @@ function scheduleSessionTitleGeneration(session, userMessage) {
  * Send a user message to the agent and start the agent loop.
  * Returns immediately; events are streamed via the event bus.
  */
-export async function runPrompt(sessionId, message, selectedCapabilities = [], promptCommand = null) {
-  let session = agentSessions.get(sessionId)
-  if (!session) {
-    session = await restoreAgent(sessionId)
-  }
+export async function runPrompt(sessionId, message, selectedCapabilities = [], promptCommand = null, transientContextPrompt = null) {
+  let session = await syncSessionFromStorage(sessionId)
   if (!session) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
   }
@@ -2110,6 +2182,9 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
   session.activeCommandPermissions = commandState.permissions ?? null
   session.activeCommandPrompt = commandState.commandPrompt ?? null
   session.activeCapabilityPrompt = selectedCapabilityPrompt(selectedCapabilities)
+  session.activeTransientContextPrompt = typeof transientContextPrompt === 'string' && transientContextPrompt.trim()
+    ? transientContextPrompt
+    : null
 
   // Fire and forget — events come through eventBus
   session.agent.prompt(userMessage).catch((err) => {
@@ -2124,6 +2199,7 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
     session.activeCommandPermissions = null
     session.activeCommandPrompt = null
     session.activeCapabilityPrompt = null
+    session.activeTransientContextPrompt = null
   })
 
   return { sessionId, status: session.status }
@@ -2290,18 +2366,22 @@ export async function syncSessionFromStorage(sessionId) {
   try {
     const stored = await readSessionValue(sessionId)
     if (!stored || !Array.isArray(stored.messages)) return session
+
     const localMessages = Array.isArray(session.agent.state.messages) ? session.agent.state.messages : []
     const storedStateVersion = Number.isFinite(stored.stateVersion) ? stored.stateVersion : 0
     const localStateVersion = Number.isFinite(session.stateVersion) ? session.stateVersion : 0
     const storedLastModified = Date.parse(stored.lastModified || '')
     const localLastModified = Date.parse(session.lastModified || '')
     const hasNewerVersion = storedStateVersion > localStateVersion
-    const hasMoreMessages = storedMessagesExtendLocalHistory(localMessages, stored.messages)
+    const storedExtendsLocalHistory = storedMessagesExtendLocalHistory(localMessages, stored.messages)
+    const hasMoreMessages = storedExtendsLocalHistory
     const hasNewerActivityAtSameVersion = storedStateVersion === localStateVersion
       && stored.messages.length === localMessages.length
       && Number.isFinite(storedLastModified)
       && (!Number.isFinite(localLastModified) || storedLastModified > localLastModified)
+
     if (!hasNewerVersion && !hasMoreMessages && !hasNewerActivityAtSameVersion) return session
+
     session.agent.state.messages = stored.messages
     session.title = stored.title || session.title
     session.titleSource = stored.titleSource || session.titleSource
@@ -2314,6 +2394,7 @@ export async function syncSessionFromStorage(sessionId) {
     session.finishedAt = stored.taskFinishedAt || null
     session.contextCompaction = stored.contextCompaction || null
     session.stateVersion = Math.max(localStateVersion, storedStateVersion)
+    session.runtimeToolExecutions?.clear()
     resetIdleTimer(session)
     return session
   } catch (error) {
@@ -2329,6 +2410,7 @@ export function getSessionState(sessionId) {
   const session = agentSessions.get(sessionId)
   if (!session) return null
 
+  const messages = messagesWithRuntimeToolExecutions(session)
   return {
     sessionId: session.sessionId,
     scope: session.scope,
@@ -2350,7 +2432,8 @@ export function getSessionState(sessionId) {
     startedAt: session.startedAt,
     finishedAt: session.finishedAt,
     tools: session.agent.state.tools,
-    messages: session.agent.state.messages,
+    messages,
+    pendingToolCalls: runtimePendingToolCalls(session),
     contextCompaction: session.contextCompaction,
     contextUsage: getSessionContextUsage(session),
     pendingToolApproval: getPendingApprovalForSession(session.sessionId),

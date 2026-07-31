@@ -53,7 +53,7 @@ server/
 - WebSocket 交互式终端（`/api/terminal/sessions/:id/ws`，仅 localhost）
 - 启动时重置僵死任务状态
 - 支持 LAN 共享（显示局域网 URL）
-- 启动后初始化 `network-proxy.mjs`：读取 `settings['network-proxy']`，为外部 Fetch 请求应用直连、操作系统真实代理或手动 HTTP(S) 代理；localhost 始终直连。Desktop inline 由 Electron/Chromium Session 处理系统 PAC/WPAD，CLI/SDK 由 `@vscode/os-proxy-resolver` 调用 Windows、macOS 和 Linux 的原生系统代理来源
+- 启动后初始化 `network-proxy.mjs`：读取 `settings['network-proxy']`，为外部 Fetch 请求应用直连、操作系统真实代理、手动 HTTP(S) 代理或 PAC 地址；localhost 始终直连。Desktop inline 由 Electron/Chromium Session 处理系统 PAC/WPAD 和自定义 PAC 地址；CLI/SDK 由 `@vscode/os-proxy-resolver` 调用 Windows、macOS 和 Linux 的原生系统代理来源，当前不支持自定义 PAC 地址，且不会静默降级为直连
 
 ### agent-manager.mjs (1350 行)
 
@@ -67,7 +67,7 @@ server/
 - SSE 事件流管理：向连接的客户端广播 Agent 事件
 - 后台任务运行（`runTask` / `abortTask`）
 - Agent 恢复（`restoreAgent`）：从持久化状态恢复会话
-- Subagent 工具：`run_subagent` 在父会话内创建短生命周期临时 Agent；运行条件是父会话已解析出有效 `projectContext.workspaceRoot`，因此项目对话和合成默认 workspace 的全局对话都可使用，不再要求必须存在真实 `projectId`。可调用启用的 Agent Profile。内置 `explore` 是只读仓库调研的首选，用于文件发现、源码搜索、调用链追踪、测试/文档/wiki 发现和影响面分析，可执行安全的检查/诊断命令但不能修改文件；内置 `general` 适合有边界的复杂多步骤实现或更广泛独立任务，可使用完整内置工作区工具但不含 MCP/Skills。自定义 Agent Profile 也可通过白名单工具执行。`run_subagent` 还支持 AI 按需传入一次性 `temporary` profile spec；服务端会校验名称、工具、`capabilityPolicy` 和模型引用，将该临时 subagent 写入 `~/.quickforge/cache/global/tmp/agents/<session>/<run>/*.md` 后再执行，并在结果 details 中返回 `profilePath`、`source`、`lifecycle`、`capabilityPolicy` 和实际模型信息。子 Agent 不作为普通会话持久化，默认不能递归调用 `run_subagent`。
+- Subagent 工具：`run_subagent` 在父会话内创建短生命周期临时 Agent；运行条件是父会话已解析出有效 `projectContext.workspaceRoot`，因此项目对话和合成默认 workspace 的全局对话都可使用，不再要求必须存在真实 `projectId`。可调用启用的 Agent Profile。内置 `explore` 是只读仓库调研的首选，用于文件发现、源码搜索、调用链追踪、测试/文档/wiki 发现和影响面分析，可执行安全的检查/诊断命令但不能修改文件；内置 `general` 适合有边界的复杂多步骤实现或更广泛独立任务，可使用完整内置工作区工具但不含 MCP/Skills。自定义 Agent Profile 也可通过白名单工具执行。`run_subagent` 还支持 AI 按需传入一次性 `temporary` profile spec；服务端会校验名称、工具、`capabilityPolicy` 和模型引用，将该临时 subagent 写入 `~/.quickforge/cache/global/tmp/agents/<session>/<run>/*.md` 后再执行，并在结果 details 中返回 `profilePath`、`source`、`lifecycle`、`capabilityPolicy` 和实际模型信息。子 Agent 不作为普通会话持久化，默认不能递归调用 `run_subagent`。父会话会在内存中保留正在执行的工具快照，`getSessionState()` / SSE 初始 state 会将尚未进入权威消息历史的 `run_subagent` partial trace 和 `pendingToolCalls` 返回给刷新后的页面；该快照不写入持久化会话，也不进入 LLM 上下文，最终权威 `toolResult` 出现后自动去重清理。
 - Agent Profile 执行：`createAgent` 支持传入 `agentProfile`，在默认系统提示词后追加 profile 系统提示词，并按 `allowedTools` 限制 workspace 工具；定时任务可绑定 profile 执行。自定义 Profile 可将模型和思考等级设为继承或固定值；运行时先解析最终模型，再解析思考等级，非推理模型统一降级为 `off`。内置 Profile 的定义保持只读，仅模型可通过 `agent-profile-overrides` 覆盖。
 - 工具管理：基于 Skills 和 Agent 权限模式动态构建工具列表；工具上下文包含当前会话的 `sessionId/scope/projectId`，供 `generate_image` 将输出绑定到会话资产。默认权限下安全读取工具自动通过，写入、命令、图片生成、MCP/Plugin 等可能改变状态、产生费用或影响外部系统的工具需要审批；完全访问权限等同开发者授权，在 workspace 沙箱和命令级限制内跳过审批；`/init` 当前轮允许调研仓库、运行必要的只读命令、调用 subagent 并写入根目录 `AGENTS.md`，但仍受正常审批、工作区沙箱和敏感文件保护约束；`/plan` 当前轮使用只读白名单，仅允许读取/搜索、Skill 加载和继承同样只读边界的 subagent 辅助调研，阻止写文件、编辑文件、运行命令、图片生成以及未声明为允许的 MCP/Plugin/未知工具；Shift+Tab 计划模式通过结构化 command 元数据复用同一套 `/plan` 解析、prompt 和权限，并在 retry/continue 时恢复该权限；`/review` 当前轮允许读取和运行检查命令，但阻止编辑文件和 subagent 执行，用于提交前自检。
 - 对话压缩（`compactConversation`）：手动 `/summary` 会创建总结后的新会话并保留原会话；手动 `/compact` 与自动上下文压缩保持一致，会在当前会话内生成/更新滚动摘要，只影响 Agent loop 输入，完整历史仍保留用于 UI 展示和持久化。自动上下文压缩会在模型请求前按配置阈值触发同一套当前会话内压缩。
@@ -88,7 +88,7 @@ server/
 - stdout 保留给 ACP NDJSON 协议；日志走 QuickForge logger 的 stderr / 日志文件。
 - 新会话会校验 ACP `cwd` 并记录 `additionalDirectories`；当 `cwd` 等于全局默认工作区时，会话保持 `global` scope，不会把该目录注册成项目；其他 `cwd` 会注册/激活 QuickForge 项目。额外目录会作为 ACP 上下文注入 prompt，但不会在当前实现中直接放宽 QuickForge workspace 工具的写入边界。项目路径匹配采用规范化 + 大小写不敏感比较（`sameProjectPath`），确保同一目录在 Windows 等大小写不敏感文件系统上始终命中同一已注册项目，而非被重复注册成新的 projectId。渠道 bridge 可通过 `QUICKFORGE_ACP_CHANNEL_ID` / `QUICKFORGE_ACP_CHANNEL_NAME` 传入来源，ACP 会把 `source`、`channelId`、`channelName` 持久化到会话数据及 metadata，但不修改真实标题。
 - `session/list` 会合并 QuickForge 持久化 `sessions-metadata` 与当前内存 active sessions；`session/load` 恢复会话后会通过 ACP `session/update` 回放历史 user/assistant 消息。
-- ACP document 事件会维护当前打开/聚焦文档缓存，并在 prompt 前注入 `<acp_context>`，使“当前文件/打开文件”类请求能获得 IDE buffer 上下文。
+- ACP document 事件会维护当前打开/聚焦文档缓存，并在当前轮模型上下文中临时注入 `<acp_context>`，使“当前文件/打开文件”类请求能获得 IDE buffer 上下文；该内部上下文不会写入可见用户消息、持久化会话或历史回放。
 - ACP prompt 启动失败、取消、删除或关闭会话时会统一移除 pending prompt、Agent EventEmitter 和 AbortSignal 监听器；同一会话的并发 prompt 会只拒绝后发请求，不中断已运行请求。
 - `session/new` / `session/load` 会返回 ACP `configOptions` 模型和 Thinking Level 下拉选项，模型来源于 QuickForge 已配置的自定义模型；客户端调用 `session/set_config_option` 后会通过 `updateSessionModel` / `updateSessionThinkingLevel` 切换当前 ACP 会话配置。切换到不支持 reasoning 的模型时会自动将 Thinking Level 置为 `off`。新建会话时初始 Thinking Level 与 Web UI 保持一致：优先读取用户在设置中保存的默认思考级别（`settings['default-options'].thinkingLevel`），否则推理模型默认 `medium`、非推理模型默认 `off`（见 `resolveInitialThinkingLevel`）。
 - 工具审批事件会转成 ACP `session/request_permission`，客户端选择 allow/reject 后调用现有 `approveToolCall` / `rejectToolCall`。
@@ -196,14 +196,14 @@ server/
 **核心文件**:
 - `channels/registry.mjs` — 渠道注册、列表、状态查询、启动/停止/重启/action 分发和全局事件总线。
 - `channels/event-relay.mjs` — ACP 渠道子进程在会话持久化完成后，通过仅本机可访问的内部 HTTP relay 发布 `sessions-changed` 事件。
-- `channels/process-channel.mjs` — 通用外部进程渠道基类，负责 `spawn` 生命周期、日志 ring buffer、状态、PID、二维码字段和关闭清理；启动过程带互斥保护，避免并发 start 生成多个 bridge，停止时会尽量终止整棵子进程树（Windows 使用 `taskkill /T`）。
+- `channels/process-channel.mjs` — 通用外部进程渠道基类，负责 `spawn` 生命周期、日志 ring buffer、状态、PID、二维码字段和关闭清理；stdout/stderr/system 日志同时按日追加到 `~/.quickforge/logs/channels/<安全渠道 ID>/channel-YYYY-MM-DD.log`（UTF-8 JSON Lines，每行含时间、stream 和文本），写入失败只记录服务端警告，不影响渠道进程；启动过程带互斥保护，避免并发 start 生成多个 bridge，停止时会尽量终止整棵子进程树（Windows 使用 `taskkill /T`）。
 - `channels/providers/wechat.mjs` — 微信渠道 Provider，使用 `npx -y weixin-acp start -- node <quickforge>/bin/quickforge.mjs acp` 启动微信 ACP bridge；UI 展示命令为 `npx weixin-acp start -- qf acp`；默认以非项目的全局默认工作区作为启动 cwd，也可由设置页选择已有项目作为启动工作区；启动时通过 ACP 渠道环境变量传入 `wechat` / `微信`，用于会话来源展示。
-- `routes/channels.mjs` — `/api/channels`、`GET /api/channels/events` SSE、仅本机内部使用的 `POST /api/channels/events` 事件 relay、`/api/channels/:id/start|stop|restart|actions/:action`；`start`/`restart` 可通过 JSON body 传入 `projectId`，`default` 表示全局默认工作区。
+- `routes/channels.mjs` — `/api/channels`、`GET /api/channels/events` SSE、仅本机内部使用的 `POST /api/channels/events` 事件 relay、`/api/channels/:id/start|stop|restart|actions/:action|open-logs`；`start`/`restart` 可通过 JSON body 传入 `projectId`，`default` 表示全局默认工作区；`POST /api/channels/:id/open-logs` 仅接受已注册渠道 ID，由服务端创建并打开对应日志目录。
 
 **行为约束**:
 - 启动/停止/action 属于本地命令执行，仅允许 localhost 请求，并要求 `x-quickforge-action: channel-action`。
 - QuickForge 退出或重启时会调用 `shutdownChannels()` 停止渠道子进程。
-- 微信渠道要求 Node.js >= 22、npm/npx 可用；首次启动由 `weixin-acp` 输出终端二维码/登录链接，设置页通过日志和二维码字段展示扫码入口。
+- 微信渠道要求 Node.js >= 22、npm/npx 可用；首次启动由 `weixin-acp` 输出终端二维码，设置页仅在存在二维码内容时展示扫码入口，并提供“打开日志文件夹”访问持久化渠道日志，不再内嵌最近日志或常驻展示 PID、命令、环境要求等运行细节。
 - 微信 bridge 与 Web 服务运行在不同进程，但共享会话存储。外部 ACP 会话持久化完成后会通过内部 relay 发布 `sessions-changed` SSE，前端按事件更新受影响会话并同步当前打开的会话，不再进行固定间隔轮询；页面重新可见时仍会执行一次全量兜底同步。
 
 ### mcp/ — MCP Client 集成

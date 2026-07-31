@@ -34,7 +34,7 @@ src/
 - 从 `react-dom/client` 创建根节点
 - 应用全局 CSS（`index.css`）
 - 调用 `patchThinkingSelector()` 修补 pi-web-ui 的模型选择器
-- 设置界面由 `components/settings/SettingsWorkspacePage.tsx` 以工作区式布局承载：左侧复用侧边栏背景与导航风格，右侧复用主对话区域背景；`hooks/useModelActions.ts` 负责打开设置页并选择初始 tab，`lib/settings-tabs.ts` 组装多个 `SettingsTab`，包含模型、Agent、MCP、插件、定时任务等管理页，其中“常规”页包含默认模型、工具展示、上下文管理、超过 30 天未更新对话的自动归档、网络代理和终端 Shell 配置；网络代理提供直连、跟随操作系统真实代理、手动 HTTP(S) 地址三种模式，本地 API 始终直连；自动归档默认关闭，归档记录不会删除，可在“已归档对话”页查看和恢复；`lib/channels-settings-tab.ts` 的“渠道”页用于管理本地外部应用 bridge（当前内置微信渠道，通过 `weixin-acp` 接入 `qf acp`，默认使用全局默认工作区，也可选择已有项目启动；渠道事件会触发主应用刷新外部 ACP 写入的 session）；底部包含 `lib/about-settings-tab.ts` 的“关于”页，用于展示 GitHub、检查 npm 更新、触发本机外部更新器和重启后端服务；更新/重启期间页面轮询 `/api/health`，服务重启后自动刷新
+- 设置界面由 `components/settings/SettingsWorkspacePage.tsx` 以工作区式布局承载：左侧复用侧边栏背景与导航风格，右侧复用主对话区域背景；`hooks/useModelActions.ts` 负责打开设置页并选择初始 tab，`lib/settings-tabs.ts` 组装多个 `SettingsTab`，包含模型、Agent、MCP、插件、定时任务等管理页，其中“常规”页包含默认模型、工具展示、上下文管理、超过 30 天未更新对话的自动归档、网络代理和终端 Shell 配置；网络代理提供直连、跟随操作系统真实代理、手动 HTTP(S) 地址和 PAC 地址四种模式，自定义 PAC 地址仅 Desktop 支持，本地 API 始终直连；自动归档默认关闭，归档记录不会删除，可在“已归档对话”页查看和恢复；`lib/channels-settings-tab.ts` 的“渠道”页用于管理本地外部应用 bridge（当前内置微信渠道，通过 `weixin-acp` 接入 `qf acp`，默认使用全局默认工作区，也可选择已有项目启动；外部 ACP 会话持久化后通过 `sessions-changed` SSE 精准更新侧边栏，不使用固定轮询）；底部包含 `lib/about-settings-tab.ts` 的“关于”页，用于展示 GitHub、检查 npm 更新、触发本机外部更新器和重启后端服务；更新/重启期间页面轮询 `/api/health`，服务重启后自动刷新
 - 调用 `applyClipboardPolyfill()` 应用剪贴板兼容处理
 - 生产环境注册 `/sw.js`，启用轻量 PWA 安装和前端静态资源缓存
 - 在 `<StrictMode>` 中渲染 `<App />` 组件

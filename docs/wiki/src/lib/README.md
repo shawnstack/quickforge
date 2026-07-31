@@ -62,7 +62,7 @@
 **关键功能**:
 - SSE 事件流管理（`GlobalAgentSseClient`）
 - 消息发送/接收
-- Agent 状态管理（创建、恢复、销毁）
+- Agent 状态管理（创建、恢复、销毁）；页面刷新或 SSE 重连时会从服务端 state 恢复运行中工具的临时 `toolResult`（含 subagent `details.messages`）和 `pendingToolCalls`
 - 系统提示词加载
 - Agent 权限模式切换
 - 自定义命令注入
@@ -170,6 +170,7 @@
 | `default-options-settings-tab.ts` | 设置默认模型、语言、思考级别、Tool 展示、上下文用量显示、上下文管理和终端 Shell；默认 Shell 从系统识别列表选择，并支持自定义命令或路径 |
 | `about-settings-tab.ts` | 关于信息、更新检查/执行，以及后端服务重启 |
 | `project-commands-settings-tab.ts` | 项目命令目录配置 + 命令预览 + 新建命令 |
+| `channels-settings-tab.ts` | 渠道设置选项卡：展示名称、状态、简述、工作区与启动/停止/登录操作，仅在存在二维码内容时展示扫码入口，同时保留错误提示，并通过“打开日志文件夹”访问后端持久化渠道日志 |
 | `patch-thinking-selector.ts` | 修补 pi-web-ui 的模型选择器 |
 | `custom-model-selector.ts` | 自定义模型选择器对话框 |
 

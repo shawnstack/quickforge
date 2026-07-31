@@ -19,8 +19,8 @@ import {
   updateSessionModel,
   updateSessionThinkingLevel,
 } from '../agent-manager.mjs'
-import { getActiveProject, getDefaultWorkspaceRoot, readProjectConfig, setActiveProjectPath, sameProjectPath } from '../project-config.mjs'
-import { readSessionValue, readStore } from '../storage.mjs'
+import { getActiveProject, getDefaultWorkspaceRoot, readProjectConfig, setActiveProjectPath, setDefaultWorkspaceRoot, sameProjectPath } from '../project-config.mjs'
+import { dataDir, readSessionValue, readStore } from '../storage.mjs'
 import { logger } from '../utils/logger.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -204,11 +204,6 @@ function acpContextPrompt(sessionId) {
 
   if (parts.length === 0) return ''
   return `<acp_context>\n${parts.join('\n\n')}\n</acp_context>`
-}
-
-function withAcpContext(sessionId, message) {
-  const context = acpContextPrompt(sessionId)
-  return context ? `${context}\n\n${message}` : message
 }
 
 function historyMessageUpdate(message, index) {
@@ -744,7 +739,7 @@ async function listPersistedAcpSessions(params = {}) {
     if (!meta?.id) continue
     const cwd = meta.scope === 'project' && meta.projectId && projectPathById.has(meta.projectId)
       ? projectPathById.get(meta.projectId)
-      : process.cwd()
+      : getDefaultWorkspaceRoot() || process.cwd()
     if (requestedCwd && path.resolve(cwd) !== requestedCwd) continue
     sessionsById.set(meta.id, {
       sessionId: meta.id,
@@ -771,7 +766,14 @@ async function listPersistedAcpSessions(params = {}) {
   return [...sessionsById.values()].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
 }
 
+function ensureDefaultWorkspaceRoot() {
+  if (!getDefaultWorkspaceRoot()) {
+    setDefaultWorkspaceRoot(process.env.QUICKFORGE_WORKSPACE_DIR || path.join(dataDir, 'workspace'))
+  }
+}
+
 export async function createQuickForgeAcpAgent() {
+  ensureDefaultWorkspaceRoot()
   const pkg = await readPackageInfo()
   return {
     async initialize(params = {}) {
@@ -866,7 +868,7 @@ export async function createQuickForgeAcpAgent() {
       if (!state) throw new Error('Session not found')
       const pendingPrompt = waitForPromptEnd(params.sessionId, conn, signal)
       try {
-        await runPrompt(params.sessionId, withAcpContext(params.sessionId, message))
+        await runPrompt(params.sessionId, message, [], null, acpContextPrompt(params.sessionId))
       } catch (error) {
         pendingPrompt.fail(error)
       }

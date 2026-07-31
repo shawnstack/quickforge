@@ -1,4 +1,8 @@
+import { promises as fs } from 'node:fs'
+import { logger } from '../utils/logger.mjs'
 import { sendJson, decodeSegment, readJsonBody } from '../utils/response.mjs'
+import { channelLogsDirectory } from '../channels/channel-logs.mjs'
+import { openPathInFileManager } from '../utils/platform.mjs'
 import {
   channelEvents,
   getChannelStatus,
@@ -93,6 +97,22 @@ export async function handleChannelsApi(req, res, url, context = {}) {
   }
 
   assertLocal(context)
+
+  if (req.method === 'POST' && subPath.length === 1 && subPath[0] === 'open-logs') {
+    assertActionHeader(req)
+    getChannelStatus(channelId)
+    if (!context.logsDir) {
+      const error = new Error('Channel log directory is unavailable')
+      error.statusCode = 500
+      throw error
+    }
+    const directory = channelLogsDirectory(context.logsDir, channelId)
+    await fs.mkdir(directory, { recursive: true })
+    await (context.openPathInFileManager ?? openPathInFileManager)(directory)
+    logger.info('Opened channel log directory.', { channelId })
+    sendJson(res, 200, { ok: true })
+    return
+  }
 
   if (req.method === 'POST' && subPath[0] === 'start') {
     assertActionHeader(req)

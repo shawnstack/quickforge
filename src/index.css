@@ -927,39 +927,6 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
   line-height: 1;
 }
 
-.quickforge-channel-logs {
-  margin: 1rem;
-  overflow: hidden;
-  border: 1px solid color-mix(in oklab, var(--border) 64%, transparent);
-  border-radius: 0.875rem;
-  background: color-mix(in oklab, var(--muted) 18%, transparent);
-}
-
-.quickforge-channel-logs-summary {
-  cursor: pointer;
-  padding: 0.75rem 1rem;
-  color: color-mix(in oklab, var(--foreground) 88%, transparent);
-  font-size: 0.875rem;
-  font-weight: 520;
-}
-
-.quickforge-channel-logs-body {
-  max-height: 18rem;
-  overflow: auto;
-  border-top: 1px solid color-mix(in oklab, var(--border) 48%, transparent);
-  padding: 0.75rem 1rem;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  line-height: 1.5;
-}
-
-.quickforge-channel-log-row {
-  display: grid;
-  grid-template-columns: 4.5rem 3.5rem minmax(0, 1fr);
-  gap: 0.5rem;
-  padding: 0.125rem 0;
-}
-
 .quickforge-settings-alert {
   border: 1px solid color-mix(in oklab, var(--destructive) 32%, transparent);
   background: color-mix(in oklab, var(--destructive) 10%, transparent);
@@ -1255,10 +1222,6 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
   .quickforge-channel-qr-text {
     max-width: 100%;
     width: 100%;
-  }
-
-  .quickforge-channel-log-row {
-    grid-template-columns: 1fr;
   }
 
   .quickforge-settings-readonly-value {
@@ -1714,14 +1677,6 @@ user-message .user-message-container,
 }
 
 .quickforge-context-compaction-summary::-webkit-details-marker {
-  display: none;
-}
-
-.quickforge-channel-logs-summary {
-  list-style: none;
-}
-
-.quickforge-channel-logs-summary::-webkit-details-marker {
   display: none;
 }
 

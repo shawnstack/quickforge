@@ -143,6 +143,9 @@ export async function handleAgentApi(req, res, url) {
       status: session.status,
       scope: session.scope,
       title: session.title,
+      source: session.source || undefined,
+      channelId: session.channelId || undefined,
+      channelName: session.channelName || undefined,
       accessMode: session.accessMode,
       yoloMode: session.yoloMode,
     })

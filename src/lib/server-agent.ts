@@ -271,6 +271,7 @@ export type ServerAgentConfig = {
     accessMode?: AgentAccessMode
     yoloMode?: boolean
     isStreaming?: boolean
+    pendingToolCalls?: string[]
     errorMessage?: string
     contextCompaction?: ServerAgentContextCompaction | null
     contextUsage?: ServerAgentContextUsage | null
@@ -367,7 +368,7 @@ export class ServerAgent {
       yoloMode: agentAccessModeToYoloMode(normalizeAgentAccessMode(init.accessMode, agentAccessModeFromYoloMode(init.yoloMode))),
       isStreaming: init.isStreaming ?? false,
       streamingMessage: undefined as AgentMessage | undefined,
-      pendingToolCalls: new Set<string>(),
+      pendingToolCalls: new Set(init.pendingToolCalls ?? []),
       errorMessage: init.errorMessage as string | undefined,
       contextCompaction: init.contextCompaction ?? null,
       contextUsage: init.contextUsage ?? null,
@@ -704,7 +705,7 @@ export class ServerAgent {
         // Guard against SSE reconnect overwriting client messages with a stale
         // server snapshot: only accept server messages if the client has none
         // (initial load) or if the server has at least as many messages.
-        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; accessMode?: AgentAccessMode; yoloMode?: boolean; isStreaming?: boolean; status?: string; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null; pendingToolApproval?: ServerAgentPendingToolApproval | null; pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null }
+        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; accessMode?: AgentAccessMode; yoloMode?: boolean; isStreaming?: boolean; status?: string; pendingToolCalls?: string[]; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null; pendingToolApproval?: ServerAgentPendingToolApproval | null; pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null }
         if (s.systemPrompt !== undefined) {
           this.state.systemPrompt = s.systemPrompt
         }
@@ -741,6 +742,9 @@ export class ServerAgent {
         }
         if (s.pendingAutoCompactApproval !== undefined) {
           this.state.pendingAutoCompactApproval = s.pendingAutoCompactApproval
+        }
+        if (s.pendingToolCalls !== undefined) {
+          this.state.pendingToolCalls = new Set(s.pendingToolCalls)
         }
         let wasStreaming = this.state.isStreaming
         if (s.isStreaming !== undefined) {
@@ -1150,6 +1154,9 @@ export class ServerAgent {
       if (state.pendingAutoCompactApproval !== undefined) {
         this.state.pendingAutoCompactApproval = state.pendingAutoCompactApproval
       }
+      if (state.pendingToolCalls !== undefined) {
+        this.state.pendingToolCalls = new Set(state.pendingToolCalls)
+      }
       if (state.isStreaming !== undefined) {
         const wasStreaming = this.state.isStreaming
         this.state.isStreaming = Boolean(state.isStreaming)
@@ -1251,6 +1258,7 @@ export class ServerAgent {
         accessMode: normalizeAgentAccessMode(serverState.accessMode, config.accessMode ?? serverState.yoloMode ?? config.yoloMode),
         yoloMode: Boolean(serverState.yoloMode ?? config.yoloMode),
         isStreaming: Boolean(serverState.isStreaming),
+        pendingToolCalls: (serverState.pendingToolCalls ?? []) as string[],
         errorMessage: serverState.errorMessage as string | undefined,
         contextCompaction: serverState.contextCompaction as ServerAgentContextCompaction | null | undefined,
         contextUsage: serverState.contextUsage as ServerAgentContextUsage | null | undefined,

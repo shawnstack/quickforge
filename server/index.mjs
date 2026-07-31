@@ -5,7 +5,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { sendJson, sendError } from './utils/response.mjs'
-import { openBrowser } from './utils/platform.mjs'
+import { openBrowser, openPathInFileManager } from './utils/platform.mjs'
 import { ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir } from './storage.mjs'
 import { getNetworkProxyConfig, initializeNetworkProxy, refreshSystemProxy, updateNetworkProxyConfig } from './network-proxy.mjs'
 import { setDefaultWorkspaceRoot, initializeActiveProject, readProjectConfig, getActiveProject, readTerminalShellSetting, updateTerminalShellSetting, readTerminalShellConfig, updateTerminalShellConfig } from './project-config.mjs'
@@ -356,6 +356,8 @@ async function handleApi(req, res, url) {
   if (pathname === '/api/channels' || pathname.startsWith('/api/channels/')) {
     await handleChannelsApi(req, res, url, {
       isLocalRequest: isLoopbackAddress(req.socket.remoteAddress),
+      logsDir,
+      openPathInFileManager,
     })
     return
   }
@@ -677,6 +679,7 @@ installAiHttpLogger()
 initializeChannels({
   projectRoot,
   channelEventsUrl: `http://127.0.0.1:${port}/api/channels/events`,
+  logsDir,
 })
 await resetStaleTaskStatuses()
 await initializeActiveProject()

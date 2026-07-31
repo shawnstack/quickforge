@@ -6,13 +6,6 @@ import './info-tip'
 
 const ACTION_HEADER = { 'x-quickforge-action': 'channel-action' }
 
-type ChannelLog = {
-  id: string
-  time: string
-  stream: 'stdout' | 'stderr' | 'system'
-  text: string
-}
-
 type ChannelAction = {
   id: string
   label: string
@@ -23,20 +16,13 @@ type ChannelStatus = {
   id: string
   name: string
   description: string
-  provider?: string
-  commandLabel?: string
   supportsWorkspaceSelection?: boolean
   launchWorkspace?: WorkspaceOption | null
   status: 'stopped' | 'starting' | 'waiting_scan' | 'running' | 'stopping' | 'error'
-  pid?: number | null
-  startedAt?: string | null
-  stoppedAt?: string | null
   error?: string | null
-  logs: ChannelLog[]
   qrCodeUrl?: string | null
   qrCodeText?: string
   actions?: ChannelAction[]
-  requirements?: string[]
   activeAction?: string | null
 }
 
@@ -62,7 +48,6 @@ type ChannelEvent = {
   channelId?: string
   channels?: ChannelStatus[]
   snapshot?: ChannelStatus
-  log?: ChannelLog
   qrCodeUrl?: string | null
   qrCodeText?: string
 }
@@ -93,13 +78,6 @@ function statusLabel(status: ChannelStatus['status']) {
   }
 }
 
-function formatDate(value?: string | null) {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString()
-}
-
 class ChannelsSettingsTab extends SettingsTab {
   private loading = true
   private channels: ChannelStatus[] = []
@@ -109,6 +87,7 @@ class ChannelsSettingsTab extends SettingsTab {
   private message = ''
   private eventSource?: EventSource
   private busyChannelId = ''
+  private openingLogsChannelId = ''
 
   override getTabName(): string {
     return t('channels')
@@ -231,13 +210,6 @@ class ChannelsSettingsTab extends SettingsTab {
       return
     }
 
-    if (event.channelId && event.log) {
-      const channel = this.channels.find((item) => item.id === event.channelId)
-      if (channel) {
-        channel.logs = [...(channel.logs || []), event.log].slice(-300)
-        this.requestUpdate()
-      }
-    }
   }
 
   private upsertChannel(channel: ChannelStatus) {
@@ -340,10 +312,28 @@ class ChannelsSettingsTab extends SettingsTab {
     }
   }
 
+  private async openLogs(channel: ChannelStatus) {
+    if (this.openingLogsChannelId) return
+    this.openingLogsChannelId = channel.id
+    this.error = ''
+    this.message = ''
+    this.requestUpdate()
+    try {
+      await this.request<{ ok: true }>(`/api/channels/${encodeURIComponent(channel.id)}/open-logs`, {
+        method: 'POST',
+        headers: ACTION_HEADER,
+      })
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : t('channelOpenLogsFailed')
+    } finally {
+      this.openingLogsChannelId = ''
+      this.requestUpdate()
+    }
+  }
+
   private workspaceSection(channel: ChannelStatus, disabled: boolean) {
     if (!channel.supportsWorkspaceSelection) return null
     const selectedId = this.selectedWorkspaceId(channel)
-    const currentWorkspace = channel.launchWorkspace
     return html`
       <div class="quickforge-settings-row quickforge-settings-row-align-start">
         <div class="quickforge-settings-row-main">
@@ -351,9 +341,7 @@ class ChannelsSettingsTab extends SettingsTab {
             ${t('channelWorkspace')}
             <quickforge-info-tip .label=${t('channelWorkspaceDescription')}></quickforge-info-tip>
           </div>
-          ${currentWorkspace
-            ? html`<div class="quickforge-settings-row-description">${t('channelCurrentWorkspace')}: <span class="quickforge-settings-mono">${currentWorkspace.path}</span></div>`
-            : html`<div class="quickforge-settings-row-description">${t('channelWorkspaceDescription')}</div>`}
+          <div class="quickforge-settings-row-description">${t('channelWorkspaceDescription')}</div>
         </div>
         <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
           <select
@@ -363,7 +351,7 @@ class ChannelsSettingsTab extends SettingsTab {
             @change=${(event: Event) => this.handleWorkspaceChange(channel, event)}
           >
             ${this.workspaces.map((workspace) => html`
-              <option value=${workspace.id}>${workspace.kind === 'default' ? t('channelDefaultWorkspace') : workspace.name} — ${workspace.path}</option>
+              <option value=${workspace.id}>${workspace.kind === 'default' ? t('channelDefaultWorkspace') : workspace.name}</option>
             `)}
           </select>
         </div>
@@ -371,29 +359,8 @@ class ChannelsSettingsTab extends SettingsTab {
     `
   }
 
-  private channelMeta(channel: ChannelStatus) {
-    const rows = [
-      [t('channelProvider'), channel.provider || '-'],
-      [t('channelCommand'), channel.commandLabel || '-'],
-      [t('channelPid'), channel.pid ? String(channel.pid) : '-'],
-      [t('channelStartedAt'), formatDate(channel.startedAt)],
-    ]
-    return html`
-      <div class="quickforge-settings-nested-list">
-        ${rows.map(([label, value]) => html`
-          <div class="quickforge-settings-subrow">
-            <div class="quickforge-settings-row-main">
-              <div class="quickforge-settings-row-title">${label}</div>
-            </div>
-            <div class="quickforge-settings-row-control quickforge-settings-row-control-wide quickforge-settings-readonly-value ${label === t('channelCommand') ? 'quickforge-settings-mono' : ''}">${value}</div>
-          </div>
-        `)}
-      </div>
-    `
-  }
-
   private qrSection(channel: ChannelStatus) {
-    if (!channel.qrCodeText && !channel.qrCodeUrl && channel.status !== 'waiting_scan') return null
+    if (!channel.qrCodeText) return null
     return html`
       <div class="quickforge-settings-row quickforge-settings-row-align-start">
         <div class="quickforge-settings-row-main">
@@ -402,43 +369,15 @@ class ChannelsSettingsTab extends SettingsTab {
             <quickforge-info-tip .label=${t('channelQrDescription')}></quickforge-info-tip>
           </div>
           <div class="quickforge-settings-row-description">${t('channelQrDescription')}</div>
-          ${channel.qrCodeUrl
-            ? html`
-              <div class="quickforge-settings-meta">
-                <a class="quickforge-settings-link quickforge-settings-mono" href=${channel.qrCodeUrl} target="_blank" rel="noreferrer">${channel.qrCodeUrl}</a>
-              </div>
-            `
-            : null}
         </div>
-        ${channel.qrCodeText
-          ? html`<pre class="quickforge-channel-qr-text">${channel.qrCodeText}</pre>`
-          : null}
+        <pre class="quickforge-channel-qr-text">${channel.qrCodeText}</pre>
       </div>
-    `
-  }
-
-  private logsSection(channel: ChannelStatus) {
-    const logs = channel.logs || []
-    return html`
-      <details class="quickforge-channel-logs" open>
-        <summary class="quickforge-channel-logs-summary">${t('channelRecentLogs')}</summary>
-        <div class="quickforge-channel-logs-body">
-          ${logs.length
-            ? logs.slice(-80).map((log) => html`
-              <div class="quickforge-channel-log-row">
-                <span class="text-muted-foreground/55">${new Date(log.time).toLocaleTimeString()}</span>
-                <span class=${log.stream === 'stderr' ? 'text-destructive/80' : 'text-muted-foreground/70'}>${log.stream}</span>
-                <span class="min-w-0 whitespace-pre-wrap break-words text-foreground/85">${log.text}</span>
-              </div>
-            `)
-            : html`<div class="quickforge-settings-empty-row">${t('channelNoLogs')}</div>`}
-        </div>
-      </details>
     `
   }
 
   private channelCard(channel: ChannelStatus) {
     const busy = this.busyChannelId === channel.id || Boolean(channel.activeAction)
+    const openingLogs = this.openingLogsChannelId === channel.id
     const isRunning = channel.status === 'running' || channel.status === 'waiting_scan' || channel.status === 'starting'
     const isStopping = channel.status === 'stopping'
     const noWorkspace = Boolean(channel.supportsWorkspaceSelection && this.workspaces.length === 0)
@@ -451,9 +390,6 @@ class ChannelsSettingsTab extends SettingsTab {
               <span class="quickforge-settings-badge ${statusTone(channel.status)}">${statusLabel(channel.status)}</span>
             </div>
             <div class="quickforge-settings-row-description">${channel.description}</div>
-            ${channel.requirements?.length
-              ? html`<div class="quickforge-settings-row-description">${t('channelRequirements')}: ${channel.requirements.join(' · ')}</div>`
-              : null}
           </div>
           <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
             <button class="quickforge-settings-button quickforge-settings-button-primary" type="button" ?disabled=${busy || isRunning || isStopping || noWorkspace} @click=${() => this.invoke(channel, 'start')}>${t('start')}</button>
@@ -462,15 +398,14 @@ class ChannelsSettingsTab extends SettingsTab {
             ${channel.actions?.map((action) => html`
               <button class="quickforge-settings-button ${action.destructive ? 'quickforge-settings-button-danger' : 'quickforge-settings-button-secondary'}" type="button" ?disabled=${busy} @click=${() => this.invokeAction(channel, action)}>${action.label}</button>
             `)}
+            <button class="quickforge-settings-button quickforge-settings-button-secondary" type="button" ?disabled=${Boolean(this.openingLogsChannelId)} @click=${() => this.openLogs(channel)}>${openingLogs ? t('channelOpeningLogs') : t('channelOpenLogs')}</button>
           </div>
         </div>
 
         ${this.workspaceSection(channel, busy || isRunning || isStopping)}
         ${noWorkspace ? html`<div class="quickforge-settings-alert quickforge-settings-warning-attached">${t('channelNoWorkspaces')}</div>` : null}
-        ${this.channelMeta(channel)}
         ${channel.error ? html`<div class="quickforge-settings-alert quickforge-settings-warning-attached">${channel.error}</div>` : null}
         ${this.qrSection(channel)}
-        ${this.logsSection(channel)}
       </section>
     `
   }
@@ -480,9 +415,9 @@ class ChannelsSettingsTab extends SettingsTab {
 
     return html`
       <div class="quickforge-settings-stack">
-        <section class="quickforge-settings-warning">
+        <div class="quickforge-settings-note">
           ${t('channelsSecurityWarning')}
-        </section>
+        </div>
 
         ${this.channels.length
           ? html`${this.channels.map((channel) => this.channelCard(channel))}`

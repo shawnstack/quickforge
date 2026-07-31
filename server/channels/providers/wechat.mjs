@@ -134,7 +134,7 @@ function runCommand(command, args, options = {}) {
 }
 
 export class WechatChannelProvider extends ProcessChannelProvider {
-  constructor({ projectRoot, channelEventsUrl }) {
+  constructor({ projectRoot, channelEventsUrl, logsDir }) {
     super({
       id: 'wechat',
       name: '微信',
@@ -149,7 +149,7 @@ export class WechatChannelProvider extends ProcessChannelProvider {
         { id: 'relogin', label: '重新登录' },
       ],
       requirements: [`Node.js >= ${MIN_NODE_MAJOR}`, 'npm/npx 可用', '首次启动需要微信扫码登录'],
-    })
+    }, { logsDir })
     this.projectRoot = projectRoot
     this.channelEventsUrl = channelEventsUrl
     this.launchWorkspace = null

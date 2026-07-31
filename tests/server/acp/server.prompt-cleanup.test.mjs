@@ -45,6 +45,32 @@ beforeEach(() => {
 })
 
 describe('ACP prompt lifecycle', () => {
+  it('passes ACP context separately from the visible user message', async () => {
+    const { createQuickForgeAcpAgent } = await import('../../../server/acp/server.mjs')
+    const agent = await createQuickForgeAcpAgent()
+    const connection = { sessionUpdate: vi.fn(async () => {}) }
+    const signal = new MockSignal()
+    agent.didOpenDocument({ uri: 'file:///workspace/example.txt', text: 'context document' })
+    mocks.runPrompt.mockImplementationOnce(async () => {
+      queueMicrotask(() => mocks.eventBus.emit('agent_event', { type: 'agent_end', status: 'idle' }))
+    })
+
+    await expect(agent.prompt({
+      sessionId: 'acp-session',
+      prompt: [{ type: 'text', text: 'Hi' }],
+    }, connection, signal)).resolves.toEqual({ stopReason: 'end_turn' })
+
+    expect(mocks.runPrompt).toHaveBeenCalledWith(
+      'acp-session',
+      'Hi',
+      [],
+      null,
+      expect.stringContaining('<acp_context>'),
+    )
+    expect(mocks.runPrompt.mock.calls[0][4]).toContain('Open editor documents:')
+    expect(mocks.runPrompt.mock.calls[0][4]).toContain('context document')
+  })
+
   it('rejects a concurrent prompt without failing the active prompt', async () => {
     const { createQuickForgeAcpAgent } = await import('../../../server/acp/server.mjs')
     const agent = await createQuickForgeAcpAgent()

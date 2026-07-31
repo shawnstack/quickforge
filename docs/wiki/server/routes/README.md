@@ -23,6 +23,7 @@
 | `instructions.mjs` | 20 | 系统提示词 |
 | `system.mjs` | 107 | 系统状态、网络代理、重启、关于信息、Runtime 更新和 Desktop 发布页检查 |
 | `workspace.mjs` | 828 | 工作区文件浏览、产物预览静态读取、Git 变更检查、单文件/批量暂存与还原、分支操作、AI 提交信息生成、提交/推送和提交图谱（`server/index.mjs` 通过 `/api/git/*` 统一分发） |
+| `channels.mjs` | 外部渠道管理、SSE 状态/会话变更事件、仅 localhost + `x-quickforge-action: channel-event` 可调用的内部事件 relay，以及仅 localhost + `x-quickforge-action: channel-action` 可打开已注册渠道日志目录的 `POST /api/channels/:id/open-logs` |
 | `static.mjs` | 83 | 静态文件服务 |
 
 ### system.mjs
@@ -30,10 +31,10 @@
 系统与运行时设置路由。网络代理端点包括：
 
 - `GET /api/system/network-proxy` — 返回当前配置和运行时能力状态。
-- `PUT /api/system/network-proxy` — 本机请求可切换 `direct`、`system`、`manual`；手动模式仅接受包含端口的 HTTP/HTTPS 地址。
+- `PUT /api/system/network-proxy` — 本机请求可切换 `direct`、`system`、`manual`、`pac`；手动模式仅接受包含端口的 HTTP/HTTPS 地址，PAC 模式接受 HTTP/HTTPS PAC 地址。
 - `POST /api/system/network-proxy/refresh` — 重新读取操作系统代理并关闭旧连接。
 
-“跟随系统”不读取代理环境变量冒充系统代理：Desktop inline 使用 Electron/Chromium 系统代理；CLI/SDK 使用原生 Windows、macOS SystemConfiguration 和 Linux GNOME/libproxy 能力。localhost 始终直连。
+“跟随系统”不读取代理环境变量冒充系统代理：Desktop inline 使用 Electron/Chromium 系统代理；CLI/SDK 使用原生 Windows、macOS SystemConfiguration 和 Linux GNOME/libproxy 能力。自定义 PAC 地址仅 Desktop inline 支持；其他运行环境会拒绝保存，并且读取到已有 PAC 配置时不会静默直连。localhost 始终直连。
 
 ---
 

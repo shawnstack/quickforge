@@ -361,8 +361,9 @@ export function SkillsManagerPanel({
             <>
               {searchPaths.length ? (
                 <div className="px-5 pt-4">
-                  <span className="quickforge-settings-row-description break-all">
-                    {t('skillSearchPaths')}: {searchPaths.join(' · ')}
+                  <span className="quickforge-settings-row-description inline-flex items-center">
+                    {t('skillSearchPaths')}
+                    <InfoTip label={searchPaths.join('\n')} />
                   </span>
                 </div>
               ) : null}
@@ -390,8 +391,9 @@ export function SkillsManagerPanel({
             </div>
             <div className="quickforge-settings-row-description">{description}</div>
             {searchPaths.length ? (
-              <div className="quickforge-settings-row-description break-all">
-                {t('skillSearchPaths')}: {searchPaths.join(' · ')}
+              <div className="quickforge-settings-row-description inline-flex items-center">
+                {t('skillSearchPaths')}
+                <InfoTip label={searchPaths.join('\n')} />
               </div>
             ) : null}
           </div>

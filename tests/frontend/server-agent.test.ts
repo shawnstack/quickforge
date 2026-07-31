@@ -314,6 +314,64 @@ describe('ServerAgent', () => {
     }
   })
 
+  it('restores running tool snapshots and pending calls from the server when recreating an evicted agent', async () => {
+    const runningToolResult = {
+      role: 'toolResult',
+      toolCallId: 'tool-call-subagent',
+      toolName: 'run_subagent',
+      content: [],
+      details: {
+        sessionId: 'evicted-session:subagent:explore:1',
+        toolCallId: 'tool-call-subagent',
+        messages: [{ role: 'assistant', content: 'checking files' }],
+        tools: [{ name: 'read_file' }],
+        pendingToolCalls: ['nested-tool-call'],
+      },
+      isError: false,
+      timestamp: 123,
+    } as AgentMessage
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return { ok: true, status: 200, json: async () => ({}) }
+      if (url.endsWith('/state')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            stateVersion: 7,
+            isStreaming: true,
+            pendingToolCalls: ['tool-call-subagent'],
+            messages: [
+              { role: 'user', content: 'server request' },
+              runningToolResult,
+            ],
+          }),
+        }
+      }
+      return { ok: true, status: 200, json: async () => ({}) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { ServerAgent } = await import('../../src/lib/server-agent')
+
+    const agent = await ServerAgent.create('evicted-session', {
+      messages: [{ role: 'user', content: 'stale local state' }] as AgentMessage[],
+    })
+
+    try {
+      expect(agent.state.messages).toEqual([
+        { role: 'user', content: 'server request' },
+        runningToolResult,
+      ])
+      expect(Array.from(agent.state.pendingToolCalls)).toEqual(['tool-call-subagent'])
+      expect((agent.state.messages[1] as { details?: { messages?: AgentMessage[] } }).details?.messages).toEqual([
+        { role: 'assistant', content: 'checking files' },
+      ])
+      expect(agent.state.isStreaming).toBe(true)
+      expect(fetchMock).toHaveBeenCalledWith('/api/agents/evicted-session/state')
+    } finally {
+      agent.dispose()
+    }
+  })
+
   it('clears streaming when status reports completion even if the state version went backwards', async () => {
     vi.useFakeTimers()
     const fetchMock = vi.fn(async (url: string) => {

@@ -19,6 +19,7 @@ export function initializeChannels(options = {}) {
   attachProvider(createWechatChannelProvider({
     projectRoot: options.projectRoot,
     channelEventsUrl: options.channelEventsUrl,
+    logsDir: options.logsDir,
   }))
 }
 

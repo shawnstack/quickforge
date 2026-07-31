@@ -1,7 +1,11 @@
 /* eslint-disable no-control-regex -- ANSI escape matching intentionally includes ESC. */
 import { spawn } from 'node:child_process'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
 import { EventEmitter } from 'node:events'
 import { setTimeout as delay } from 'node:timers/promises'
+import { channelLogsDirectory } from './channel-logs.mjs'
+import { logger } from '../utils/logger.mjs'
 
 const DEFAULT_LOG_LIMIT = 300
 const STOP_TIMEOUT_MS = 5000
@@ -55,6 +59,9 @@ export class ProcessChannelProvider extends EventEmitter {
     super()
     this.definition = definition
     this.logLimit = options.logLimit || DEFAULT_LOG_LIMIT
+    this.logsDir = options.logsDir
+    this.logWriteErrorReported = false
+    this.logWritePromise = Promise.resolve()
     this.status = 'stopped'
     this.process = null
     this.pid = null
@@ -118,6 +125,27 @@ export class ProcessChannelProvider extends EventEmitter {
     this.emitEvent('status', { status, snapshot: this.snapshot() })
   }
 
+  persistLog(entry) {
+    if (!this.logsDir) return
+    const directory = channelLogsDirectory(this.logsDir, this.definition.id)
+    const filePath = path.join(directory, `channel-${entry.time.slice(0, 10)}.log`)
+    const line = `${JSON.stringify({ time: entry.time, stream: entry.stream, text: entry.text })}\n`
+    this.logWritePromise = this.logWritePromise
+      .then(() => fs.mkdir(directory, { recursive: true }))
+      .then(() => fs.appendFile(filePath, line, 'utf8'))
+      .then(() => {
+        this.logWriteErrorReported = false
+      })
+      .catch((error) => {
+        if (this.logWriteErrorReported) return
+        this.logWriteErrorReported = true
+        logger.warn('Failed to persist channel log.', {
+          channelId: this.definition.id,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
+  }
+
   addLog(stream, text) {
     if (!text) return
     const entry = {
@@ -131,6 +159,7 @@ export class ProcessChannelProvider extends EventEmitter {
       this.logs.splice(0, this.logs.length - this.logLimit)
     }
     this.emitEvent('log', { log: entry })
+    this.persistLog(entry)
   }
 
   addProcessText(stream, text) {

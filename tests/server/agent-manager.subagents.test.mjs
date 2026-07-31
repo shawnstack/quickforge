@@ -211,6 +211,95 @@ describe('agent manager subagent execution', () => {
     }
   })
 
+  it('exposes running subagent snapshots across refresh without duplicating the final tool result', async () => {
+    const { createAgent, destroyAgent, getSessionState } = await import('../../server/agent-manager.mjs')
+    const sessionId = 'running-subagent-snapshot'
+    const session = await createAgent(sessionId, {
+      scope: 'global',
+      model: { provider: 'mock', model: 'mock-model' },
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'inspect', timestamp: Date.now() }],
+      idleRetention: 'always',
+    })
+    const toolCallId = 'tool-call-running'
+    const partialMessages = [{ role: 'assistant', content: 'checking files', timestamp: Date.now() }]
+    const tools = [{ name: 'read_file', description: 'Read a file' }]
+
+    try {
+      await session.agent.emit({
+        type: 'tool_execution_start',
+        toolCallId,
+        toolName: 'run_subagent',
+      })
+      await session.agent.emit({
+        type: 'tool_execution_update',
+        toolCallId,
+        toolName: 'run_subagent',
+        partialResult: {
+          content: [],
+          details: {
+            sessionId: `${sessionId}:subagent:explore:1`,
+            messages: partialMessages,
+            tools,
+            pendingToolCalls: ['subagent-tool-call'],
+          },
+        },
+      })
+
+      const runningState = getSessionState(sessionId)
+      const runningResult = runningState.messages.find((message) => message.role === 'toolResult' && message.toolCallId === toolCallId)
+      expect(runningState.pendingToolCalls).toContain(toolCallId)
+      expect(runningResult).toMatchObject({
+        role: 'toolResult',
+        toolCallId,
+        toolName: 'run_subagent',
+        details: {
+          sessionId: `${sessionId}:subagent:explore:1`,
+          toolCallId,
+          messages: partialMessages,
+          tools,
+          pendingToolCalls: ['subagent-tool-call'],
+          quickforgeTiming: { startedAt: expect.any(Number) },
+        },
+      })
+      expect(session.agent.state.messages.some((message) => message.role === 'toolResult')).toBe(false)
+
+      await session.agent.emit({
+        type: 'tool_execution_end',
+        toolCallId,
+        toolName: 'run_subagent',
+        result: {
+          content: [{ type: 'text', text: 'completed' }],
+          details: {
+            sessionId: `${sessionId}:subagent:explore:1`,
+            messages: partialMessages,
+            tools,
+            pendingToolCalls: [],
+          },
+        },
+        isError: false,
+      })
+
+      const endedState = getSessionState(sessionId)
+      expect(endedState.pendingToolCalls).not.toContain(toolCallId)
+      expect(endedState.messages.filter((message) => message.role === 'toolResult' && message.toolCallId === toolCallId)).toHaveLength(1)
+
+      session.agent.state.messages.push({
+        role: 'toolResult',
+        toolCallId,
+        toolName: 'run_subagent',
+        content: [{ type: 'text', text: 'completed' }],
+        details: { sessionId: `${sessionId}:subagent:explore:1`, messages: partialMessages, tools, pendingToolCalls: [] },
+        isError: false,
+        timestamp: Date.now(),
+      })
+      const finalState = getSessionState(sessionId)
+      expect(finalState.messages.filter((message) => message.role === 'toolResult' && message.toolCallId === toolCallId)).toHaveLength(1)
+    } finally {
+      await destroyAgent(sessionId)
+    }
+  })
+
   it('preserves the SSE state version when a persisted session is restored', async () => {
     const { createAgent, destroyAgent, getSessionState, restoreAgent } = await import('../../server/agent-manager.mjs')
     const sessionId = 'restored-state-version'

@@ -909,6 +909,18 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
     }
   }, [projectId])
 
+  function refreshWorkspace() {
+    void loadWorkspace()
+    if (!activePanelTab || activeReaderTab?.mode !== 'file') return
+    const readerId = activeReaderTab.id
+    updatePanelTab(activePanelTab.id, (tab) => ({
+      ...tab,
+      readerTabs: (tab.readerTabs || []).map((reader) => reader.id === readerId
+        ? { ...reader, loading: true, error: undefined }
+        : reader),
+    }))
+  }
+
   useEffect(() => {
     let disposed = false
     if (!projectId || !open) return
@@ -1795,7 +1807,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
                           <button
                             type="button"
                             className="inline-flex size-8 shrink-0 items-center justify-center rounded-xl text-muted-foreground/72 transition-colors hover:bg-muted/30 hover:text-foreground/85 disabled:cursor-not-allowed disabled:opacity-60"
-                            onClick={() => void loadWorkspace()}
+                            onClick={refreshWorkspace}
                             disabled={loading}
                             aria-label={t('refreshWorkspace')}
                             title={t('refreshWorkspace')}

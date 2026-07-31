@@ -61,6 +61,7 @@ import { useAgentAccessActions } from '@/hooks/useAgentAccessActions'
 import { useUIState } from '@/hooks/useUIState'
 import { useVisibleRuntimeStatuses } from '@/hooks/useVisibleRuntimeStatuses'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
+import { ServerAgent } from '@/lib/server-agent'
 import { logger } from '@/lib/logger'
 import { getDeletedProjectRecoveryDecision } from '@/lib/deleted-project-recovery'
 import { isCurrentProjectRequest } from '@/lib/project-request-guard'
@@ -188,16 +189,12 @@ type ChannelWorkspace = {
   kind?: unknown
 }
 
-type ChannelStatusSnapshot = {
-  status?: unknown
-  launchWorkspace?: ChannelWorkspace | null
-}
-
 type ChannelRefreshEvent = {
   type?: unknown
-  status?: unknown
-  channels?: ChannelStatusSnapshot[]
-  snapshot?: ChannelStatusSnapshot
+  sessionId?: unknown
+  projectId?: unknown
+  workspace?: ChannelWorkspace | null
+  metadata?: QuickForgeSessionMetadata
 }
 
 type ExecuteMarkdownCommandEvent = CustomEvent<{
@@ -218,25 +215,11 @@ function isScheduledTaskStarted(event: Record<string, unknown>): event is Schedu
   return event.type === 'scheduled_task_started'
 }
 
-function isChannelActiveStatus(status: unknown) {
-  return status === 'starting' || status === 'waiting_scan' || status === 'running' || status === 'stopping'
-}
-
-function channelEventHasActiveChannel(event: ChannelRefreshEvent) {
-  if (Array.isArray(event.channels)) return event.channels.some((channel) => isChannelActiveStatus(channel.status))
-  return isChannelActiveStatus(event.snapshot?.status) || isChannelActiveStatus(event.status)
-}
-
-function channelEventProjectIds(event: ChannelRefreshEvent) {
-  const snapshots = [
-    ...(Array.isArray(event.channels) ? event.channels : []),
-    ...(event.snapshot ? [event.snapshot] : []),
-  ]
-  return snapshots
-    .filter((snapshot) => isChannelActiveStatus(snapshot.status))
-    .map((snapshot) => snapshot.launchWorkspace)
-    .filter((workspace): workspace is ChannelWorkspace => workspace?.kind === 'project' && typeof workspace.id === 'string' && workspace.id.length > 0)
-    .map((workspace) => workspace.id as string)
+function channelEventProjectId(event: ChannelRefreshEvent) {
+  if (event.workspace?.kind === 'project' && typeof event.workspace.id === 'string' && event.workspace.id.length > 0) {
+    return event.workspace.id
+  }
+  return typeof event.projectId === 'string' && event.projectId.length > 0 ? event.projectId : undefined
 }
 
 function MainApp() {
@@ -729,59 +712,41 @@ function MainApp() {
 
   useEffect(() => {
     if (!ready) return undefined
-    let lastRefreshAt = 0
-    let pollTimer: number | undefined
-
-    const refreshExternalSessions = (projectIds: string[] = []) => {
-      const now = Date.now()
-      if (projectIds.length > 0) {
-        setExternalProjectIds((prev) => {
-          const next = new Set(prev)
-          for (const projectId of projectIds) next.add(projectId)
-          return next
-        })
-      }
-      if (now - lastRefreshAt < 5000) return
-      lastRefreshAt = now
-      void loadProject()
-      void refreshSessions()
-      for (const projectId of projectIds) void loadProjectSessions(projectId, 0)
-    }
-
-    const setPolling = (active: boolean) => {
-      if (!active) {
-        if (pollTimer) window.clearInterval(pollTimer)
-        pollTimer = undefined
-        return
-      }
-      if (pollTimer) return
-      pollTimer = window.setInterval(refreshExternalSessions, 15000)
-    }
 
     const source = new EventSource('/api/channels/events')
-    const handleEvent = (event: MessageEvent) => {
+    const handleSessionsChanged = (event: MessageEvent) => {
       try {
         const payload = JSON.parse(event.data) as ChannelRefreshEvent
-        const projectIds = channelEventProjectIds(payload)
-        if (channelEventHasActiveChannel(payload)) {
-          setPolling(true)
-          refreshExternalSessions(projectIds)
-        } else if (payload.type === 'snapshot' || payload.type === 'status') {
-          setPolling(false)
+        if (payload.type !== 'sessions-changed' || typeof payload.sessionId !== 'string') return
+
+        const projectId = channelEventProjectId(payload)
+        if (projectId) {
+          setExternalProjectIds((current) => current.has(projectId) ? current : new Set([...current, projectId]))
+        }
+
+        if (payload.metadata?.id === payload.sessionId) {
+          upsertSessionMetadata(payload.metadata)
+        } else if (projectId) {
+          void loadProjectSessions(projectId, 0)
+        } else {
+          void loadGlobalSessions(0)
+        }
+
+        const currentAgent = agentRef.current
+        if (payload.sessionId === currentSessionIdRef.current && currentAgent instanceof ServerAgent) {
+          void currentAgent.syncState()
         }
       } catch {
         // Ignore malformed channel events.
       }
     }
 
-    source.addEventListener('snapshot', handleEvent)
-    source.addEventListener('status', handleEvent)
-    source.addEventListener('log', handleEvent)
+    source.addEventListener('sessions-changed', handleSessionsChanged)
     return () => {
+      source.removeEventListener('sessions-changed', handleSessionsChanged)
       source.close()
-      if (pollTimer) window.clearInterval(pollTimer)
     }
-  }, [loadProject, loadProjectSessions, ready, refreshSessions])
+  }, [agentRef, currentSessionIdRef, loadGlobalSessions, loadProjectSessions, ready, upsertSessionMetadata])
 
   useEffect(() => {
     if (!ready) return

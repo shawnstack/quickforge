@@ -1060,6 +1060,10 @@ export class ServerAgent {
     }
   }
 
+  async syncState(): Promise<void> {
+    await this.refreshStateFromServer({ notify: true, forceMessages: true })
+  }
+
   private async refreshStateFromServer(options?: { notify?: boolean; forceMessages?: boolean }) {
     // Deduplicate concurrent refresh requests
     if (this.refreshPromise) return this.refreshPromise

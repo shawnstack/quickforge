@@ -25,6 +25,24 @@ function assertActionHeader(req) {
   }
 }
 
+function assertEventHeader(req) {
+  if (req.headers['x-quickforge-action'] !== 'channel-event') {
+    const error = new Error('Forbidden event')
+    error.statusCode = 403
+    throw error
+  }
+}
+
+async function readChannelEvent(req) {
+  const event = await readJsonBody(req, 256 * 1024)
+  if (!event || event.type !== 'sessions-changed' || typeof event.sessionId !== 'string' || !event.sessionId.trim()) {
+    const error = new Error('Invalid channel event')
+    error.statusCode = 400
+    throw error
+  }
+  return event
+}
+
 async function readActionOptions(req) {
   if (!['POST', 'PUT', 'PATCH'].includes(req.method || '')) return {}
   const contentType = String(req.headers['content-type'] || '')
@@ -43,6 +61,15 @@ export async function handleChannelsApi(req, res, url, context = {}) {
 
   if (req.method === 'GET' && pathname === '/api/channels/events') {
     handleChannelEvents(req, res)
+    return
+  }
+
+  if (req.method === 'POST' && pathname === '/api/channels/events') {
+    assertLocal(context)
+    assertEventHeader(req)
+    const event = await readChannelEvent(req)
+    channelEvents.emit('channel_event', event)
+    sendJson(res, 202, { ok: true })
     return
   }
 

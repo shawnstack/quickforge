@@ -16,7 +16,10 @@ function attachProvider(provider) {
 export function initializeChannels(options = {}) {
   if (initialized) return
   initialized = true
-  attachProvider(createWechatChannelProvider({ projectRoot: options.projectRoot }))
+  attachProvider(createWechatChannelProvider({
+    projectRoot: options.projectRoot,
+    channelEventsUrl: options.channelEventsUrl,
+  }))
 }
 
 function requireProvider(id) {

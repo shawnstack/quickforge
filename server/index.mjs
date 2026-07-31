@@ -674,7 +674,10 @@ server.on('upgrade', (req, socket, head) => {
 await ensureStorage()
 await initializeNetworkProxy()
 installAiHttpLogger()
-initializeChannels({ projectRoot })
+initializeChannels({
+  projectRoot,
+  channelEventsUrl: `http://127.0.0.1:${port}/api/channels/events`,
+})
 await resetStaleTaskStatuses()
 await initializeActiveProject()
 setActiveWorkspaceRootForFilesystem(getWorkspaceRoot())

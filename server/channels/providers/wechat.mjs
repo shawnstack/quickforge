@@ -134,7 +134,7 @@ function runCommand(command, args, options = {}) {
 }
 
 export class WechatChannelProvider extends ProcessChannelProvider {
-  constructor({ projectRoot }) {
+  constructor({ projectRoot, channelEventsUrl }) {
     super({
       id: 'wechat',
       name: '微信',
@@ -151,6 +151,7 @@ export class WechatChannelProvider extends ProcessChannelProvider {
       requirements: [`Node.js >= ${MIN_NODE_MAJOR}`, 'npm/npx 可用', '首次启动需要微信扫码登录'],
     })
     this.projectRoot = projectRoot
+    this.channelEventsUrl = channelEventsUrl
     this.launchWorkspace = null
   }
 
@@ -183,6 +184,7 @@ export class WechatChannelProvider extends ProcessChannelProvider {
         ...process.env,
         QUICKFORGE_ACP_CHANNEL_ID: this.definition.id,
         QUICKFORGE_ACP_CHANNEL_NAME: this.definition.name,
+        ...(this.channelEventsUrl ? { QUICKFORGE_CHANNEL_EVENTS_URL: this.channelEventsUrl } : {}),
       },
       shell: shouldUseShellForNpx(),
     }

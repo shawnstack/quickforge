@@ -28,6 +28,7 @@ import {
 import { projectContextFromId, defaultGlobalWorkspaceContext, readProjectConfig } from './project-config.mjs'
 import { ensureStorage, readStore, atomicUpdate, atomicSessionMetadataUpdate, readSessionValue, writeSessionValue, deleteSessionValue, tempAgentsDir } from './storage.mjs'
 import { logger } from './utils/logger.mjs'
+import { publishChannelSessionChanged } from './channels/event-relay.mjs'
 import { withSessionPersistenceLock } from './session-persistence-lock.mjs'
 import { getGlobalMemoryRevision, isGlobalMemoryEnabled } from './global-memory.mjs'
 import { buildSystemPrompt, generateAiTitle, generateTitle } from './session-utils.mjs'
@@ -1868,30 +1869,45 @@ async function persistSessionUnlocked(session) {
   }
 
   // Write to storage atomically (read-modify-write within queue)
+  let persistedMetadata
   try {
     await writeSessionValue(sessionId, sessionData)
-    let archivedAt
     await atomicSessionMetadataUpdate(scope, projectId, (data) => {
       const existingMetadata = data[sessionId]
-      archivedAt = existingMetadata?.archivedAt
+      const archivedAt = existingMetadata?.archivedAt
       // Merge onto the existing record so storage-only fields the in-memory
       // session does not own (pinnedAt, archivedAt, …) survive the rebuild.
-      data[sessionId] = {
+      persistedMetadata = {
         ...existingMetadata,
         ...metadata,
         ...(archivedAt ? { archivedAt } : {}),
       }
+      data[sessionId] = persistedMetadata
       return data
     })
-    if (archivedAt) {
-      await writeSessionValue(sessionId, { ...sessionData, archivedAt })
+    if (persistedMetadata?.archivedAt) {
+      await writeSessionValue(sessionId, { ...sessionData, archivedAt: persistedMetadata.archivedAt })
     }
   } catch (err) {
     logger.error(`Failed to persist session ${sessionId}:`, err, { sessionId })
     return null
   }
 
-  return metadata
+  if (source === 'acp' && channelId && persistedMetadata) {
+    void publishChannelSessionChanged({
+      channelId,
+      channelName: channelName || undefined,
+      sessionId,
+      projectId: scope === 'project' ? projectId : null,
+      workspace: scope === 'project'
+        ? { id: projectId, kind: 'project' }
+        : { id: 'default', kind: 'default' },
+      change: 'upsert',
+      metadata: persistedMetadata,
+    })
+  }
+
+  return persistedMetadata || metadata
 }
 
 async function persistSession(session) {
@@ -2252,6 +2268,57 @@ function getSessionContextUsage(session) {
   } catch (error) {
     logger.warn(`Failed to estimate context usage for session ${session?.sessionId}:`, error?.message || error, { sessionId: session?.sessionId })
     return null
+  }
+}
+
+function storedMessagesExtendLocalHistory(localMessages, storedMessages) {
+  if (!Array.isArray(localMessages) || !Array.isArray(storedMessages) || storedMessages.length <= localMessages.length) return false
+  return localMessages.every((message, index) => {
+    const local = { ...message }
+    const stored = { ...storedMessages[index] }
+    delete local.processFinishedAt
+    delete stored.processFinishedAt
+    return JSON.stringify(local) === JSON.stringify(stored)
+  })
+}
+
+export async function syncSessionFromStorage(sessionId) {
+  let session = agentSessions.get(sessionId)
+  if (!session) return restoreAgent(sessionId)
+  if (session.agent.state.isStreaming) return session
+
+  try {
+    const stored = await readSessionValue(sessionId)
+    if (!stored || !Array.isArray(stored.messages)) return session
+    const localMessages = Array.isArray(session.agent.state.messages) ? session.agent.state.messages : []
+    const storedStateVersion = Number.isFinite(stored.stateVersion) ? stored.stateVersion : 0
+    const localStateVersion = Number.isFinite(session.stateVersion) ? session.stateVersion : 0
+    const storedLastModified = Date.parse(stored.lastModified || '')
+    const localLastModified = Date.parse(session.lastModified || '')
+    const hasNewerVersion = storedStateVersion > localStateVersion
+    const hasMoreMessages = storedMessagesExtendLocalHistory(localMessages, stored.messages)
+    const hasNewerActivityAtSameVersion = storedStateVersion === localStateVersion
+      && stored.messages.length === localMessages.length
+      && Number.isFinite(storedLastModified)
+      && (!Number.isFinite(localLastModified) || storedLastModified > localLastModified)
+    if (!hasNewerVersion && !hasMoreMessages && !hasNewerActivityAtSameVersion) return session
+    session.agent.state.messages = stored.messages
+    session.title = stored.title || session.title
+    session.titleSource = stored.titleSource || session.titleSource
+    session.source = stored.source || session.source
+    session.channelId = stored.channelId || session.channelId
+    session.channelName = stored.channelName || session.channelName
+    session.lastModified = stored.lastModified || session.lastModified
+    session.status = stored.taskStatus || 'idle'
+    session.startedAt = stored.taskStartedAt || null
+    session.finishedAt = stored.taskFinishedAt || null
+    session.contextCompaction = stored.contextCompaction || null
+    session.stateVersion = Math.max(localStateVersion, storedStateVersion)
+    resetIdleTimer(session)
+    return session
+  } catch (error) {
+    logger.warn(`Failed to sync session ${sessionId} from storage:`, error?.message || error, { sessionId })
+    return session
   }
 }
 

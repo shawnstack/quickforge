@@ -88,6 +88,40 @@ describe('ServerAgent', () => {
     vi.restoreAllMocks()
   })
 
+  it('refreshes visible messages from the server on demand', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        stateVersion: 2,
+        messages: [
+          { role: 'user', content: 'first' },
+          { role: 'assistant', content: 'reply' },
+          { role: 'user', content: 'second' },
+        ],
+        isStreaming: false,
+      }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: {
+        messages: [{ role: 'user', content: 'first' }] as AgentMessage[],
+        stateVersion: 1,
+      },
+    })
+
+    try {
+      await agent.syncState()
+
+      expect(fetchMock).toHaveBeenCalledWith('/api/agents/session-1/state')
+      expect(agent.state.messages.map((message) => message.content)).toEqual(['first', 'reply', 'second'])
+    } finally {
+      agent.dispose()
+    }
+  })
+
   it('rolls back the optimistic user message when sending fails', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 409 })
     vi.stubGlobal('fetch', fetchMock)

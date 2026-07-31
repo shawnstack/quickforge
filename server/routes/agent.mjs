@@ -7,6 +7,7 @@ import {
   followUpAgent,
   getSessionState,
   getSessionStatus,
+  syncSessionFromStorage,
   getSessionEventBus,
   tryAcquireSse,
   releaseSse,
@@ -98,6 +99,7 @@ export async function handleAgentApi(req, res, url) {
 
   // GET /api/agents/:sessionId/state — get session state
   if (req.method === 'GET' && subPath === 'state') {
+    await syncSessionFromStorage(sessionId)
     let state = getSessionState(sessionId)
     if (!state) {
       // Try to restore from persistent storage before giving up.

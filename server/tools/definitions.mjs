@@ -129,7 +129,7 @@ export const workspaceTools = [
   {
     name: 'present_files',
     label: 'Present files',
-    description: 'Show one or more AI-produced artifact files to the user. Use this after creating or editing user-facing files such as HTML pages, SVG/images, Markdown documents, or other deliverables. HTML files will be previewed directly in the artifact preview panel.',
+    description: 'Present one or more AI-produced artifact files to the user. Use this after creating or editing user-facing deliverables that are useful to inspect directly, including HTML pages, images, SVGs, Markdown documents, source code, configuration files, reports, and other readable text files. HTML and supported images open in Browser; Markdown, code, configuration, and text files open in Reader. Unsupported files remain available in the artifact list.',
     parameters: Type.Object({
       files: Type.Array(Type.Union([
         Type.String({ description: 'File path relative to the workspace root.' }),
@@ -138,7 +138,7 @@ export const workspaceTools = [
           title: Type.Optional(Type.String({ description: 'Optional display title.' })),
           description: Type.Optional(Type.String({ description: 'Optional short description shown in artifact lists.' })),
           kind: Type.Optional(Type.String({ description: 'Optional file kind hint, such as html, image, markdown, or code.' })),
-          preview: Type.Optional(Type.Boolean({ description: 'Whether this file should be opened as the default preview.' })),
+          preview: Type.Optional(Type.Boolean({ description: 'Whether this file may be opened automatically. Set false to list it without opening it.' })),
         }),
       ]), { description: 'Artifact files to present.' }),
       defaultPreview: Type.Optional(Type.String({ description: 'File path to open as the default preview when multiple files are presented.' })),

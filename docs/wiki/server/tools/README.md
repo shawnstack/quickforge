@@ -26,7 +26,7 @@
 | `edit_file` | 替换文件中的文本 |
 | `run_command` | 在工作区目录执行 shell 命令，也用于查看目录内容 |
 | `generate_image` | 通过已配置的 OpenRouter Images 模型生成位图，保存为当前会话资产并在对话中展示 |
-| `present_files` | 将 AI 生成的用户可见产物文件声明为待展示文件；HTML 产物会触发右侧预览 |
+| `present_files` | 将 AI 生成的用户可见产物声明为待展示文件；HTML/SVG/图片进入 Browser，Markdown、代码、配置与普通文本进入 Reader，不支持直接打开的文件仍保留在产物列表 |
 | `activate_skill` | 加载 Agent Skill 指令 |
 | `read_skill_resource` | 读取 Skill 资源文件 |
 
@@ -46,7 +46,7 @@
 | `toolEditFile` | `edit_file` | 查找并替换文本，验证唯一性 |
 | `toolRunCommand` | `run_command` | 执行 shell 命令，支持可控超时、流式 tail 输出和完整日志落盘 |
 | `generateSessionImages` | `generate_image` | 调用 OpenRouter Images，校验模型/MIME/大小，将 base64 解码为会话图片资产，工具结果仅返回元数据 |
-| `toolPresentFiles` | `present_files` | 校验并声明本轮需要展示的产物文件，返回 `present_files_result` 供前端打开 Artifact Preview |
+| `toolPresentFiles` | `present_files` | 校验并声明本轮需要展示的产物文件，推断 HTML、图片、Markdown、代码和可读文本类型，返回 `present_files_result` 供前端分流到 Browser 或 Reader |
 | `toolActivateSkill` | `activate_skill` | 激活 Agent Skill |
 | `toolReadSkillResource` | `read_skill_resource` | 读取技能资源 |
 | Agent-manager handler | `run_subagent` | 在父会话内创建短生命周期临时 Agent，使用受限工具执行专门子任务并返回建议性结果 |

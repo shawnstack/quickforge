@@ -4,6 +4,11 @@ All notable changes to QuickForge will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Expanded `present_files` from HTML-oriented previewing to general artifact presentation: HTML and supported images open in Browser, while Markdown, source code, configuration, reports, and other readable text open in Reader.
+- Added artifact recognition for `.markdown`, CSV/TSV, logs, SQL, Swift, Kotlin, Dockerfile, and Makefile outputs; tool-card preview actions now reopen Reader-compatible artifacts as well.
+
 ## [1.7.3] - 2026-07-30
 
 ### Added

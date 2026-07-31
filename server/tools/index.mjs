@@ -624,10 +624,12 @@ export async function toolReadSkillResource(params, context) {
 // --- present_files ---
 function inferPresentedFileKind(relativePath) {
   const lower = String(relativePath || '').toLowerCase()
+  const fileName = lower.replace(/\\/g, '/').split('/').pop() || lower
   if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'html'
-  if (/\.(svg|png|jpe?g|webp|gif|bmp|ico)$/.test(lower)) return 'image'
-  if (lower.endsWith('.md') || lower.endsWith('.mdx')) return 'markdown'
-  if (/\.(ts|tsx|js|jsx|mjs|cjs|css|scss|less|json|jsonc|txt|xml|yml|yaml|toml|ini|py|rb|go|rs|java|c|h|cpp|hpp|cs|php|sh|bash|zsh|ps1)$/.test(lower)) return 'code'
+  if (/\.(svg|png|jpe?g|webp|gif|ico)$/.test(lower)) return 'image'
+  if (/\.(md|mdx|markdown)$/.test(lower)) return 'markdown'
+  if (fileName === 'dockerfile' || fileName.endsWith('.dockerfile') || fileName === 'makefile') return 'code'
+  if (/\.(ts|tsx|js|jsx|mjs|cjs|css|scss|less|json|jsonc|txt|csv|tsv|log|sql|xml|yml|yaml|toml|ini|py|rb|go|rs|java|swift|kt|kts|c|h|cpp|hpp|cs|php|sh|bash|zsh|ps1)$/.test(lower)) return 'code'
   return 'unknown'
 }
 

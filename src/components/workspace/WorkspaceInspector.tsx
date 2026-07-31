@@ -232,7 +232,7 @@ function reviewEmptyMessage(filter: ReviewFilter) {
 
 function isMarkdownFile(file?: WorkspaceFileResponse) {
   if (!file) return false
-  return file.language === 'markdown' || /\.(md|markdown)$/i.test(file.path)
+  return file.language === 'markdown' || /\.(md|mdx|markdown)$/i.test(file.path)
 }
 
 function readerDiffText(diff: GitFileDiffResponse) {

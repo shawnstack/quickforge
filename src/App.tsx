@@ -77,7 +77,7 @@ import type { GitStatusResponse, WorkspaceInspectorOpenRequestInput } from '@/co
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
-import { findBestPreviewableArtifact, isBrowserPreviewablePath, workspaceArtifactDiskPath } from '@/components/workspace/artifact-preview-utils'
+import { artifactPreviewMode, findBestPreviewableArtifact, workspaceArtifactDiskPath } from '@/components/workspace/artifact-preview-utils'
 
 // --- Code-split secondary views (only loaded when first opened) ---
 // These are conditionally-mounted routes/panels; lazy loading keeps heavy
@@ -594,10 +594,15 @@ function MainApp() {
     }
   }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id, requestWorkspaceInspector])
 
-  const openArtifactPreview = useCallback((projectId: string, path: string) => {
+  const openArtifactPreview = useCallback((projectId: string, path: string, kind?: Parameters<typeof artifactPreviewMode>[1]) => {
     const project = agentManager.currentToolProject
-    if (!project || project.id !== projectId || !isBrowserPreviewablePath(path)) return
+    const mode = artifactPreviewMode(path, kind)
+    if (!project || project.id !== projectId || !mode) return
     setArtifactPreviewOpen(false)
+    if (mode === 'reader') {
+      requestWorkspaceInspector({ projectId, kind: 'reader', path })
+      return
+    }
     requestWorkspaceInspector({
       projectId,
       kind: 'browser',
@@ -625,14 +630,14 @@ function MainApp() {
     autoPreviewSignatureRef.current = signature
     rememberAutoPreviewSignature(signature)
     queueMicrotask(() => {
+      const mode = artifactPreviewMode(artifact.path, artifact.kind)
+      if (!mode) return
       setArtifactPreviewOpen(false)
-      if (artifact.kind === 'markdown' || artifact.kind === 'code') {
-        // markdown/code 走侧栏 reader 渲染（openFileTab）：
-        // markdown → MarkdownReader 富文本；code → MonacoCodeViewer 语法高亮。
-        // 不走 browser iframe：iframe 加载这些类型只会显示源码或触发下载。
+      if (mode === 'reader') {
+        // Markdown、代码、配置和文本走 Reader；Markdown 使用富文本预览，其余使用 Monaco 只读查看。
         requestWorkspaceInspector({ projectId, kind: 'reader', path: artifact.path })
       } else {
-        // html/image 走 browser iframe：html 渲染交互页，image（含 svg/png/jpg…）直接显示。
+        // HTML 和支持的图片走 Browser iframe。
         requestWorkspaceInspector({
           projectId,
           kind: 'browser',
@@ -653,9 +658,9 @@ function MainApp() {
   useEffect(() => {
     if (!openArtifactPreview) return
     const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ path?: string }>).detail
+      const detail = (event as CustomEvent<{ path?: string; kind?: Parameters<typeof artifactPreviewMode>[1] }>).detail
       const projectId = agentManager.currentToolProject?.id
-      if (projectId && detail && typeof detail.path === 'string') openArtifactPreview(projectId, detail.path)
+      if (projectId && detail && typeof detail.path === 'string') openArtifactPreview(projectId, detail.path, detail.kind)
     }
     window.addEventListener('quickforge:preview-artifact', handler as EventListener)
     return () => window.removeEventListener('quickforge:preview-artifact', handler as EventListener)

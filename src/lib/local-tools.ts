@@ -5,7 +5,7 @@ import { t, type AppTextKey } from '@/lib/i18n'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import type { AgentTool } from '@earendil-works/pi-agent-core'
 import { extractQuickForgeTiming, type QuickForgeToolTiming } from '@/lib/tool-execution-events'
-import { isBrowserPreviewablePath } from '@/components/workspace/artifact-preview-utils'
+import { artifactPreviewMode, type ArtifactKind } from '@/components/workspace/artifact-preview-utils'
 import { formatManageGlobalMemoryOutput } from '@/lib/global-memory-tool-output'
 import { subagentProcessTraceMessages } from '@/lib/subagent-process-trace'
 import { generatedImageAssetUrl, parseGeneratedImageDetails } from '@/lib/generated-image-assets'
@@ -492,29 +492,55 @@ function renderTerminateCommandButton(toolName: string, status: ToolStatusKey, d
 // 通过 window CustomEvent 桥接：点击预览按钮 → 派发事件 → App.tsx 监听 → 复用现有预览逻辑。
 export const PREVIEW_ARTIFACT_EVENT = 'quickforge:preview-artifact'
 
-// 从工具参数中解析出可被浏览器预览的文件路径（若存在）。
-// write_file/edit_file 取单个 path；present_files 从 files 数组中按 defaultPreview 优先、
-// 否则取第一个可预览文件（HTML/图片）。找不到则返回空串（不渲染按钮）。
-function resolvePreviewablePath(toolName: string, params: Record<string, unknown> | undefined): string {
+type PreviewableArtifact = {
+  path: string
+  kind?: ArtifactKind
+}
+
+function previewableArtifact(path: string, kind?: string): PreviewableArtifact | undefined {
+  const normalizedKind = kind === 'html' || kind === 'image' || kind === 'markdown' || kind === 'code' || kind === 'unknown'
+    ? kind
+    : undefined
+  return artifactPreviewMode(path, normalizedKind) ? { path, kind: normalizedKind } : undefined
+}
+
+// 从工具参数中解析出可展示的文件（若存在）。
+// write_file/edit_file 取单个已知文件；present_files 按 defaultPreview 优先，
+// 否则取第一个可在 Browser 或 Reader 中打开的文件。找不到则不渲染按钮。
+function resolvePreviewableArtifact(toolName: string, params: Record<string, unknown> | undefined): PreviewableArtifact | undefined {
   if (toolName === 'write_file' || toolName === 'edit_file') {
     const path = params && 'path' in params && typeof params.path === 'string' ? params.path : ''
-    return path && isBrowserPreviewablePath(path) ? path : ''
+    return path ? previewableArtifact(path) : undefined
   }
   if (toolName === 'present_files') {
     const files = params && Array.isArray(params.files) ? params.files : []
-    const paths = files
-      .map((item) => (typeof item === 'string' ? item : isRecord(item) && typeof item.path === 'string' ? item.path : ''))
-      .filter(Boolean)
+    const entries = files
+      .map((item) => {
+        if (typeof item === 'string') return { path: item, kind: undefined }
+        if (!isRecord(item) || typeof item.path !== 'string') return undefined
+        return {
+          path: item.path,
+          kind: typeof item.kind === 'string' ? item.kind : undefined,
+        }
+      })
+      .filter((entry): entry is { path: string; kind: string | undefined } => Boolean(entry))
     const defaultPreview = params && typeof params.defaultPreview === 'string' ? params.defaultPreview : ''
-    if (defaultPreview && isBrowserPreviewablePath(defaultPreview)) return defaultPreview
-    return paths.find((p) => isBrowserPreviewablePath(p)) ?? ''
+    const defaultEntry = entries.find((entry) => entry.path === defaultPreview)
+    if (defaultEntry) {
+      const artifact = previewableArtifact(defaultEntry.path, defaultEntry.kind)
+      if (artifact) return artifact
+    }
+    for (const entry of entries) {
+      const artifact = previewableArtifact(entry.path, entry.kind)
+      if (artifact) return artifact
+    }
   }
-  return ''
+  return undefined
 }
 
 function renderPreviewButton(toolName: string, params: Record<string, unknown> | undefined) {
-  const path = resolvePreviewablePath(toolName, params)
-  if (!path) return nothing
+  const artifact = resolvePreviewableArtifact(toolName, params)
+  if (!artifact) return nothing
   return html`
     <button
       type="button"
@@ -524,7 +550,7 @@ function renderPreviewButton(toolName: string, params: Record<string, unknown> |
       @click=${(event: Event) => {
         event.preventDefault()
         event.stopPropagation()
-        window.dispatchEvent(new CustomEvent(PREVIEW_ARTIFACT_EVENT, { detail: { path } }))
+        window.dispatchEvent(new CustomEvent(PREVIEW_ARTIFACT_EVENT, { detail: artifact }))
       }}
     ><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button>
   `

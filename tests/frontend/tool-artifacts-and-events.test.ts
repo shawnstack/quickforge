@@ -99,6 +99,27 @@ describe('tool artifacts', () => {
     expect(artifacts[2]).toMatchObject({ path: 'notes.txt', kind: 'code', preview: true })
   })
 
+  it('recognizes Markdown, code, and readable text files presented explicitly', () => {
+    const artifacts = extractSessionArtifacts(messages([
+      {
+        role: 'toolResult',
+        toolName: 'present_files',
+        toolCallId: 'present-readable',
+        details: {
+          files: ['guide.mdx', 'report.csv', 'Dockerfile', 'archive.bin'],
+          previewed: ['guide.mdx', 'report.csv', 'Dockerfile'],
+        },
+      },
+    ]))
+
+    expect(artifacts).toMatchObject([
+      { path: 'guide.mdx', kind: 'markdown', preview: true },
+      { path: 'report.csv', kind: 'code', preview: true },
+      { path: 'Dockerfile', kind: 'code', preview: true },
+      { path: 'archive.bin', kind: 'unknown', preview: false },
+    ])
+  })
+
   it('extracts low-confidence command artifacts and deduplicates repeated entries', () => {
     const artifacts = extractSessionArtifacts(messages([
       {

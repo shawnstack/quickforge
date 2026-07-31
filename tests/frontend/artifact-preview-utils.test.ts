@@ -1,5 +1,35 @@
 import { describe, expect, it } from 'vitest'
-import { isBrowserPreviewablePath } from '../../src/components/workspace/artifact-preview-utils'
+import { artifactPreviewMode, inferArtifactKind, isBrowserPreviewablePath, isPreviewablePath } from '../../src/components/workspace/artifact-preview-utils'
+
+describe('artifact preview classification', () => {
+  it.each([
+    ['README.md', 'markdown'],
+    ['guide.mdx', 'markdown'],
+    ['guide.markdown', 'markdown'],
+    ['src/App.tsx', 'code'],
+    ['report.csv', 'code'],
+    ['query.sql', 'code'],
+    ['app.log', 'code'],
+    ['Dockerfile', 'code'],
+    ['build/Makefile', 'code'],
+    ['archive.bin', 'unknown'],
+    ['image.bmp', 'unknown'],
+  ] as const)('classifies %s as %s', (path, kind) => {
+    expect(inferArtifactKind(path)).toBe(kind)
+  })
+
+  it.each([
+    ['index.html', 'browser'],
+    ['diagram.svg', 'browser'],
+    ['README.md', 'reader'],
+    ['src/App.tsx', 'reader'],
+    ['report.csv', 'reader'],
+    ['archive.bin', undefined],
+  ] as const)('opens %s using %s', (path, mode) => {
+    expect(artifactPreviewMode(path)).toBe(mode)
+    expect(isPreviewablePath(path)).toBe(mode !== undefined)
+  })
+})
 
 describe('isBrowserPreviewablePath', () => {
   it.each([

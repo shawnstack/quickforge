@@ -56,10 +56,12 @@ function latestUserMessageIndex(messages: AgentMessage[]) {
 
 function inferArtifactKind(path = ''): AiTurnArtifactKind {
   const lower = path.toLowerCase()
+  const fileName = lower.replace(/\\/g, '/').split('/').pop() || lower
   if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'html'
-  if (/\.(svg|png|jpe?g|webp|gif|bmp|ico)$/i.test(lower)) return 'image'
-  if (lower.endsWith('.md') || lower.endsWith('.mdx')) return 'markdown'
-  if (/\.(ts|tsx|js|jsx|mjs|cjs|css|scss|less|json|jsonc|txt|xml|yml|yaml|toml|ini|py|rb|go|rs|java|c|h|cpp|hpp|cs|php|sh|bash|zsh|ps1)$/i.test(lower)) return 'code'
+  if (/\.(svg|png|jpe?g|webp|gif|ico)$/i.test(lower)) return 'image'
+  if (/\.(md|mdx|markdown)$/i.test(lower)) return 'markdown'
+  if (fileName === 'dockerfile' || fileName.endsWith('.dockerfile') || fileName === 'makefile') return 'code'
+  if (/\.(ts|tsx|js|jsx|mjs|cjs|css|scss|less|json|jsonc|txt|csv|tsv|log|sql|xml|yml|yaml|toml|ini|py|rb|go|rs|java|swift|kt|kts|c|h|cpp|hpp|cs|php|sh|bash|zsh|ps1)$/i.test(lower)) return 'code'
   return 'unknown'
 }
 

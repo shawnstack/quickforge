@@ -78,9 +78,14 @@ describe('definitions', () => {
       }
     })
 
-    it('present_files supports defaultPreview', () => {
+    it('present_files describes readable artifacts beyond HTML', () => {
       const tool = workspaceTools.find((t) => t.name === 'present_files')
+      expect(tool.description).toContain('Markdown documents')
+      expect(tool.description).toContain('source code')
+      expect(tool.description).toContain('configuration files')
+      expect(tool.description).toContain('open in Reader')
       expect(tool.parameters.properties).toHaveProperty('defaultPreview')
+      expect(tool.parameters.properties.files.items.anyOf[1].properties.preview.description).toContain('list it without opening')
     })
 
     it('generate_image has prompt and optional model parameters', () => {

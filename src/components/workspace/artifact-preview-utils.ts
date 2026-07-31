@@ -24,29 +24,34 @@ export function artifactFileName(path: string) {
 
 export function inferArtifactKind(path: string): ArtifactKind {
   const lower = path.toLowerCase()
+  const fileName = lower.replace(/\\/g, '/').split('/').pop() || lower
   if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'html'
-  if (/\.(svg|png|jpe?g|webp|gif|bmp|ico)$/i.test(lower)) return 'image'
-  if (lower.endsWith('.md') || lower.endsWith('.mdx')) return 'markdown'
-  if (/\.(ts|tsx|js|jsx|mjs|cjs|css|scss|less|json|jsonc|txt|xml|yml|yaml|toml|ini|py|rb|go|rs|java|c|h|cpp|hpp|cs|php|sh|bash|zsh|ps1)$/i.test(lower)) return 'code'
+  if (/\.(svg|png|jpe?g|webp|gif|ico)$/i.test(lower)) return 'image'
+  if (/\.(md|mdx|markdown)$/i.test(lower)) return 'markdown'
+  if (fileName === 'dockerfile' || fileName.endsWith('.dockerfile') || fileName === 'makefile') return 'code'
+  if (/\.(ts|tsx|js|jsx|mjs|cjs|css|scss|less|json|jsonc|txt|csv|tsv|log|sql|xml|yml|yaml|toml|ini|py|rb|go|rs|java|swift|kt|kts|c|h|cpp|hpp|cs|php|sh|bash|zsh|ps1)$/i.test(lower)) return 'code'
   return 'unknown'
 }
 
-// 「可自动预览」的文件类型：所有已知 kind（html/image/markdown/code）均自动预览。
-// 调用 present_files / write_file 等工具后即自动在侧栏打开 tab，渲染路径由调用方按 kind 决定。
-// presentArtifacts 用此函数给缺省 preview 字段兜底；findBestPreviewableArtifact 进一步选取最新预览项。
+// 「可自动展示」的文件类型：所有已知 kind（html/image/markdown/code）。
+// Browser 与 Reader 的具体分流由 artifactPreviewMode 统一决定。
 export function isPreviewablePath(path: string) {
   const kind = inferArtifactKind(path)
   return kind !== 'unknown'
 }
 
-// 浏览器 iframe 手动预览支持的类型：HTML + 可被 iframe 直接显示的图片。
-// 与 server 的 PREVIEW_ALLOWED_EXTENSIONS 图片子集对齐（注意：不含 .bmp，server 不支持）。
-// 与 isPreviewablePath 区分：后者仅用于"自动预览"判断，保持只 HTML；本函数用于"手动点 eye/文件树预览"。
-// 注意：Markdown 不在此列 —— md 在侧栏通过 MarkdownReader 渲染阅读（openFileTab），不走 browser iframe（那只会显示源码）。
+// Browser iframe 仅支持 HTML 与可直接显示的图片类型。
+// 与 server 的 PREVIEW_ALLOWED_EXTENSIONS 图片子集对齐（不含 .bmp）。
 const BROWSER_PREVIEWABLE_IMAGE_RE = /\.(svg|png|jpe?g|webp|gif|ico)$/i
 
 export function isBrowserPreviewablePath(path: string) {
   return inferArtifactKind(path) === 'html' || BROWSER_PREVIEWABLE_IMAGE_RE.test(path)
+}
+
+export function artifactPreviewMode(path: string, kind: ArtifactKind = inferArtifactKind(path)): 'browser' | 'reader' | undefined {
+  if (kind === 'markdown' || kind === 'code') return 'reader'
+  if ((kind === 'html' || kind === 'image') && isBrowserPreviewablePath(path)) return 'browser'
+  return undefined
 }
 
 export function workspaceArtifactDiskPath(workspaceRoot: string | undefined, artifactPath: string) {

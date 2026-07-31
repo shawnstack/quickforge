@@ -264,6 +264,10 @@ describe('toolPresentFiles', () => {
     setWorkspaceRoot(tmpDir)
     await fs.writeFile(path.join(tmpDir, 'index.html'), '<!doctype html><h1>Hello</h1>', 'utf8')
     await fs.writeFile(path.join(tmpDir, 'style.css'), 'body{}', 'utf8')
+    await fs.writeFile(path.join(tmpDir, 'README.markdown'), '# Report', 'utf8')
+    await fs.writeFile(path.join(tmpDir, 'report.csv'), 'name,value\nalpha,1\n', 'utf8')
+    await fs.writeFile(path.join(tmpDir, 'Dockerfile'), 'FROM node:22\n', 'utf8')
+    await fs.writeFile(path.join(tmpDir, 'archive.bin'), 'binary-like', 'utf8')
   })
 
   afterAll(async () => {
@@ -278,6 +282,26 @@ describe('toolPresentFiles', () => {
     expect(result.details.files[0]).toMatchObject({ path: 'index.html', kind: 'html', preview: true, defaultPreview: true })
     expect(result.details.files[1]).toMatchObject({ path: 'style.css', kind: 'code' })
     expect(result.details.previewed).toContain('index.html')
+  })
+
+  it('recognizes Markdown, readable text, and extensionless code artifacts', async () => {
+    const result = await toolHandlers.present_files({
+      files: [
+        'README.markdown',
+        'report.csv',
+        'Dockerfile',
+        { path: 'archive.bin', preview: false },
+      ],
+      defaultPreview: 'README.markdown',
+    }, context)
+
+    expect(result.details.files).toMatchObject([
+      { path: 'README.markdown', kind: 'markdown', preview: true, defaultPreview: true },
+      { path: 'report.csv', kind: 'code', preview: true },
+      { path: 'Dockerfile', kind: 'code', preview: true },
+      { path: 'archive.bin', kind: 'unknown', preview: false },
+    ])
+    expect(result.details.previewed).toEqual(['README.markdown', 'report.csv', 'Dockerfile'])
   })
 
   it('throws for paths outside workspace', async () => {

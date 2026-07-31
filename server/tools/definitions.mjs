@@ -129,7 +129,7 @@ export const workspaceTools = [
   {
     name: 'present_files',
     label: 'Present files',
-    description: 'Present one or more AI-produced artifact files to the user. Use this after creating or editing user-facing deliverables that are useful to inspect directly, including HTML pages, images, SVGs, Markdown documents, source code, configuration files, reports, and other readable text files. HTML and supported images open in Browser; Markdown, code, configuration, and text files open in Reader. Unsupported files remain available in the artifact list.',
+    description: 'Present one or more AI-produced artifact files only when the user is likely to benefit from inspecting the actual deliverable directly. Use it for visual outputs, reports, documents, generated assets, or when the user explicitly asks to view or review a file. Source code and configuration files should only be presented when they are themselves the requested deliverable or the user asks to inspect them. Do not present routine implementation changes, test files, supporting code, or large sets of modified files merely because they were edited. Prefer a small, relevant selection. HTML and supported images open in Browser; Markdown, code, configuration, and text files open in Reader. Unsupported files remain available in the artifact list.',
     parameters: Type.Object({
       files: Type.Array(Type.Union([
         Type.String({ description: 'File path relative to the workspace root.' }),

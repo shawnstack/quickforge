@@ -26,7 +26,7 @@
 | `edit_file` | 替换文件中的文本 |
 | `run_command` | 在工作区目录执行 shell 命令，也用于查看目录内容 |
 | `generate_image` | 通过已配置的 OpenRouter Images 模型生成位图，保存为当前会话资产并在对话中展示 |
-| `present_files` | 将 AI 生成的用户可见产物声明为待展示文件；HTML/SVG/图片进入 Browser，Markdown、代码、配置与普通文本进入 Reader，不支持直接打开的文件仍保留在产物列表 |
+| `present_files` | 仅在用户适合直接检查实际交付物时展示少量相关文件，例如视觉产物、报告、文档、生成资源，或用户明确要求查看/审阅的文件；普通实现改动、测试和辅助代码不应仅因被修改就批量展示。HTML/SVG/图片进入 Browser，Markdown、代码、配置与普通文本进入 Reader |
 | `activate_skill` | 加载 Agent Skill 指令 |
 | `read_skill_resource` | 读取 Skill 资源文件 |
 

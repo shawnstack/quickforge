@@ -78,11 +78,14 @@ describe('definitions', () => {
       }
     })
 
-    it('present_files describes readable artifacts beyond HTML', () => {
+    it('present_files requires user-benefit intent and avoids routine code changes', () => {
       const tool = workspaceTools.find((t) => t.name === 'present_files')
-      expect(tool.description).toContain('Markdown documents')
-      expect(tool.description).toContain('source code')
-      expect(tool.description).toContain('configuration files')
+      expect(tool.description).toContain('only when the user is likely to benefit')
+      expect(tool.description).toContain('explicitly asks to view or review a file')
+      expect(tool.description).toContain('Source code and configuration files should only be presented')
+      expect(tool.description).toContain('Do not present routine implementation changes')
+      expect(tool.description).toContain('large sets of modified files')
+      expect(tool.description).toContain('Prefer a small, relevant selection')
       expect(tool.description).toContain('open in Reader')
       expect(tool.parameters.properties).toHaveProperty('defaultPreview')
       expect(tool.parameters.properties.files.items.anyOf[1].properties.preview.description).toContain('list it without opening')

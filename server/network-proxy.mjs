@@ -4,7 +4,7 @@ import { SocksClient } from 'socks'
 import { atomicUpdate, readStore } from './storage.mjs'
 
 const SETTINGS_KEY = 'network-proxy'
-const VALID_MODES = new Set(['direct', 'system', 'manual'])
+const VALID_MODES = new Set(['direct', 'system', 'manual', 'pac'])
 const PROXY_ENV_KEYS = [
   'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
   'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy',
@@ -58,6 +58,40 @@ export function validateManualProxyUrl(value) {
   }
 
   return `${url.protocol}//${url.host}`
+}
+
+export function validatePacUrl(value) {
+  let url
+  try {
+    url = new URL(String(value || '').trim())
+  } catch {
+    const error = new Error('PAC URL must be a valid HTTP or HTTPS URL')
+    error.statusCode = 400
+    throw error
+  }
+
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    const error = new Error('Only HTTP and HTTPS PAC URLs are supported')
+    error.statusCode = 400
+    throw error
+  }
+  if (!url.hostname) {
+    const error = new Error('PAC URL must include a host')
+    error.statusCode = 400
+    throw error
+  }
+  if (url.username || url.password) {
+    const error = new Error('Credentials are not supported in the PAC URL')
+    error.statusCode = 400
+    throw error
+  }
+  if (url.hash) {
+    const error = new Error('PAC URL cannot include a fragment')
+    error.statusCode = 400
+    throw error
+  }
+
+  return url.href
 }
 
 function isLoopbackUrl(input) {
@@ -251,9 +285,27 @@ class SystemProxyDispatcher extends Dispatcher {
   }
 }
 
+class UnsupportedProxyDispatcher extends Dispatcher {
+  constructor(message) {
+    super()
+    this.error = new Error(message)
+    this.error.code = 'QUICKFORGE_PROXY_UNSUPPORTED'
+  }
+
+  dispatch(_options, handler) {
+    queueMicrotask(() => handler.onResponseError?.(null, this.error))
+    return true
+  }
+
+  async close() {}
+
+  async destroy() {}
+}
+
 async function createNetworkDispatcher(config) {
   if (config.mode === 'manual') return new ProxyAgent(config.proxyUrl)
   if (config.mode === 'system') return new SystemProxyDispatcher(await getNativeResolver())
+  if (config.mode === 'pac') return new UnsupportedProxyDispatcher('Custom PAC URLs are not supported by this runtime')
   return new Agent()
 }
 
@@ -291,6 +343,7 @@ async function persistConfig(config) {
 async function applyConfig(config) {
   const normalized = normalizeNetworkProxyConfig(config)
   if (normalized.mode === 'manual') normalized.proxyUrl = validateManualProxyUrl(normalized.proxyUrl)
+  if (normalized.mode === 'pac') normalized.proxyUrl = validatePacUrl(normalized.proxyUrl)
 
   if (hostRuntime) await hostRuntime.apply(normalized)
   else await replaceNetworkDispatcher(normalized)
@@ -310,6 +363,7 @@ async function nativeStatus() {
       source,
       features: {
         pac: config.configuredPac?.state !== 'unsupported',
+        pacUrl: false,
         wpad: config.wpadDns?.state !== 'unsupported' || config.wpadDhcp?.state !== 'unsupported',
         httpProxy: true,
         httpsProxy: true,
@@ -320,7 +374,7 @@ async function nativeStatus() {
     return {
       supported: false,
       source: 'none',
-      features: { pac: false, wpad: false, httpProxy: false, httpsProxy: false, socks: false },
+      features: { pac: false, pacUrl: false, wpad: false, httpProxy: false, httpsProxy: false, socks: false },
       error: error instanceof Error ? error.message : String(error),
     }
   }
@@ -331,7 +385,9 @@ export async function getNetworkProxyStatus() {
     ? await hostRuntime.getStatus()
     : await nativeStatus()
   const configuredMode = currentConfig.mode
-  const modeSupported = configuredMode !== 'system' || runtimeStatus.supported
+  const modeSupported = configuredMode === 'system'
+    ? runtimeStatus.supported
+    : configuredMode !== 'pac' || runtimeStatus.features?.pacUrl === true
   return {
     configuredMode,
     effectiveMode: modeSupported ? configuredMode : 'unsupported',
@@ -361,6 +417,15 @@ export async function updateNetworkProxyConfig(value) {
   const previous = currentConfig
   const next = normalizeNetworkProxyConfig(value)
   if (next.mode === 'manual') next.proxyUrl = validateManualProxyUrl(next.proxyUrl)
+  if (next.mode === 'pac') {
+    next.proxyUrl = validatePacUrl(next.proxyUrl)
+    const runtimeStatus = hostRuntime ? await hostRuntime.getStatus() : await nativeStatus()
+    if (runtimeStatus.features?.pacUrl !== true) {
+      const error = new Error('Custom PAC URLs are not supported by this runtime')
+      error.statusCode = 400
+      throw error
+    }
+  }
 
   await applyConfig(next)
   try {

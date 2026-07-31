@@ -41,7 +41,7 @@ type TerminalShellConfig = {
   profiles: TerminalShellProfile[]
 }
 
-type NetworkProxyMode = 'direct' | 'system' | 'manual'
+type NetworkProxyMode = 'direct' | 'system' | 'manual' | 'pac'
 
 type NetworkProxyState = {
   config: {
@@ -55,6 +55,7 @@ type NetworkProxyState = {
     runtimeKind: string
     features?: {
       pac?: boolean
+      pacUrl?: boolean
       wpad?: boolean
       socks?: boolean
     }
@@ -366,11 +367,12 @@ class DefaultOptionsSettingsTab extends SettingsTab {
 
   private updateNetworkProxyMode(mode: NetworkProxyMode) {
     if (this.networkProxyMode === mode || this.networkProxySaving || !this.networkProxyLoaded) return
+    if (mode === 'pac' && this.networkProxyStatus?.features?.pacUrl !== true) return
     this.networkProxyMode = mode
     this.saved = false
     this.error = ''
     this.requestUpdate()
-    if (mode === 'manual' && !this.networkProxyUrl.trim()) return
+    if (mode === 'manual' || mode === 'pac') return
     void this.saveNetworkProxy()
   }
 
@@ -382,22 +384,37 @@ class DefaultOptionsSettingsTab extends SettingsTab {
 
   private networkProxyValidationError() {
     const value = this.networkProxyUrl.trim()
-    if (!value) return t('networkProxyAddressRequired')
+    const isPac = this.networkProxyMode === 'pac'
+    if (!value) return t(isPac ? 'networkProxyPacUrlRequired' : 'networkProxyAddressRequired')
     try {
       const url = new URL(value)
-      if (!['http:', 'https:'].includes(url.protocol)) return t('networkProxyAddressProtocolError')
-      if (!url.hostname || !url.port) return t('networkProxyAddressPortError')
-      if (url.username || url.password) return t('networkProxyAddressCredentialsError')
-      if ((url.pathname && url.pathname !== '/') || url.search || url.hash) return t('networkProxyAddressPathError')
+      if (!['http:', 'https:'].includes(url.protocol)) {
+        return t(isPac ? 'networkProxyPacUrlProtocolError' : 'networkProxyAddressProtocolError')
+      }
+      if (!url.hostname) return t(isPac ? 'networkProxyPacUrlHostError' : 'networkProxyAddressPortError')
+      if (!isPac && !url.port) return t('networkProxyAddressPortError')
+      if (url.username || url.password) {
+        return t(isPac ? 'networkProxyPacUrlCredentialsError' : 'networkProxyAddressCredentialsError')
+      }
+      if (isPac && url.hash) return t('networkProxyPacUrlFragmentError')
+      if (!isPac && ((url.pathname && url.pathname !== '/') || url.search || url.hash)) {
+        return t('networkProxyAddressPathError')
+      }
       return ''
     } catch {
-      return t('networkProxyAddressInvalid')
+      return t(isPac ? 'networkProxyPacUrlInvalid' : 'networkProxyAddressInvalid')
     }
   }
 
   private async saveNetworkProxy() {
     if (this.networkProxySaving || !this.networkProxyLoaded) return
-    if (this.networkProxyMode === 'manual') {
+    if (this.networkProxyMode === 'pac' && this.networkProxyStatus?.features?.pacUrl !== true) {
+      this.saved = false
+      this.error = t('networkProxyPacUnsupported')
+      this.requestUpdate()
+      return
+    }
+    if (this.networkProxyMode === 'manual' || this.networkProxyMode === 'pac') {
       const validationError = this.networkProxyValidationError()
       if (validationError) {
         this.saved = false
@@ -456,12 +473,14 @@ class DefaultOptionsSettingsTab extends SettingsTab {
 
   private renderNetworkProxyModeOption(mode: NetworkProxyMode, label: string) {
     const selected = this.networkProxyMode === mode
+    const unsupported = mode === 'pac' && this.networkProxyStatus?.features?.pacUrl !== true
     return html`
       <button
         type="button"
         class="quickforge-settings-segmented-option ${selected ? 'quickforge-settings-segmented-option-active' : ''}"
         aria-pressed=${selected ? 'true' : 'false'}
-        ?disabled=${this.networkProxySaving || !this.networkProxyLoaded}
+        title=${unsupported ? t('networkProxyPacUnsupported') : ''}
+        ?disabled=${this.networkProxySaving || !this.networkProxyLoaded || unsupported}
         @click=${() => this.updateNetworkProxyMode(mode)}
       >
         ${label}
@@ -470,19 +489,23 @@ class DefaultOptionsSettingsTab extends SettingsTab {
   }
 
   private networkProxySettings() {
-    const proxyValidationError = this.networkProxyMode === 'manual' ? this.networkProxyValidationError() : ''
-    const hasUnsavedManualProxy = this.networkProxyMode === 'manual' && (
+    const hasProxyUrlInput = this.networkProxyMode === 'manual' || this.networkProxyMode === 'pac'
+    const pacUnsupported = this.networkProxyMode === 'pac' && this.networkProxyStatus?.features?.pacUrl !== true
+    const proxyValidationError = hasProxyUrlInput ? this.networkProxyValidationError() : ''
+    const hasUnsavedProxyUrl = hasProxyUrlInput && (
       this.networkProxyUrl !== this.savedNetworkProxyConfig.proxyUrl
-      || this.savedNetworkProxyConfig.mode !== 'manual'
+      || this.savedNetworkProxyConfig.mode !== this.networkProxyMode
     )
     const statusText = !this.networkProxyLoaded
       ? t('networkProxyLoadFailed')
-      : this.networkProxyStatus?.supported === false
-        ? this.networkProxyStatus.error || t('networkProxyUnsupported')
-        : t('networkProxyStatus', {
-            source: this.networkProxyStatus?.source || t('unknown'),
-            runtime: this.networkProxyStatus?.runtimeKind || t('unknown'),
-          })
+      : pacUnsupported
+        ? t('networkProxyPacUnsupported')
+        : this.networkProxyStatus?.supported === false
+          ? this.networkProxyStatus.error || t('networkProxyUnsupported')
+          : t('networkProxyStatus', {
+              source: this.networkProxyStatus?.source || t('unknown'),
+              runtime: this.networkProxyStatus?.runtimeKind || t('unknown'),
+            })
 
     return html`
       <section class="quickforge-settings-section" aria-label=${t('networkConnection')}>
@@ -499,27 +522,32 @@ class DefaultOptionsSettingsTab extends SettingsTab {
               ${this.renderNetworkProxyModeOption('direct', t('networkProxyDirect'))}
               ${this.renderNetworkProxyModeOption('system', t('networkProxySystem'))}
               ${this.renderNetworkProxyModeOption('manual', t('networkProxyManual'))}
+              ${this.renderNetworkProxyModeOption('pac', t('networkProxyPac'))}
             </div>
           </div>
         </div>
 
-        ${this.networkProxyMode === 'manual'
+        ${hasProxyUrlInput
           ? html`
             <div class="quickforge-settings-row">
               <div class="quickforge-settings-row-main">
-                <div class="quickforge-settings-row-title">${t('networkProxyAddress')}</div>
-                <div class="quickforge-settings-row-description">${t('networkProxyAddressDescription')}</div>
+                <div class="quickforge-settings-row-title">
+                  ${t(this.networkProxyMode === 'pac' ? 'networkProxyPacUrl' : 'networkProxyAddress')}
+                </div>
+                <div class="quickforge-settings-row-description">
+                  ${t(this.networkProxyMode === 'pac' ? 'networkProxyPacUrlDescription' : 'networkProxyAddressDescription')}
+                </div>
               </div>
               <div class="quickforge-settings-row-control quickforge-settings-row-control-wide quickforge-network-proxy-control">
                 <input
                   id="quickforge-network-proxy-url"
                   class="quickforge-settings-input quickforge-settings-mono"
                   type="url"
-                  aria-label=${t('networkProxyAddress')}
-                  aria-invalid=${hasUnsavedManualProxy && proxyValidationError ? 'true' : 'false'}
+                  aria-label=${t(this.networkProxyMode === 'pac' ? 'networkProxyPacUrl' : 'networkProxyAddress')}
+                  aria-invalid=${hasUnsavedProxyUrl && proxyValidationError ? 'true' : 'false'}
                   .value=${this.networkProxyUrl}
-                  placeholder="http://127.0.0.1:7890"
-                  ?disabled=${this.networkProxySaving || !this.networkProxyLoaded}
+                  placeholder=${this.networkProxyMode === 'pac' ? 'https://example.com/proxy.pac' : 'http://127.0.0.1:7890'}
+                  ?disabled=${this.networkProxySaving || !this.networkProxyLoaded || pacUnsupported}
                   @input=${(event: Event) => this.updateNetworkProxyUrl((event.target as HTMLInputElement).value)}
                   @keydown=${(event: KeyboardEvent) => {
                     if (event.key === 'Enter' && this.networkProxyUrl.trim()) {
@@ -531,7 +559,7 @@ class DefaultOptionsSettingsTab extends SettingsTab {
                 <button
                   class="quickforge-settings-button quickforge-settings-button-primary"
                   type="button"
-                  ?disabled=${this.networkProxySaving || !this.networkProxyLoaded || Boolean(proxyValidationError) || !hasUnsavedManualProxy}
+                  ?disabled=${this.networkProxySaving || !this.networkProxyLoaded || pacUnsupported || Boolean(proxyValidationError) || !hasUnsavedProxyUrl}
                   @click=${() => this.saveNetworkProxy()}
                 >
                   ${this.networkProxySaving ? t('saving') : t('networkProxySave')}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeNetworkProxyConfig, validateManualProxyUrl } from '../../server/network-proxy.mjs'
+import { normalizeNetworkProxyConfig, validateManualProxyUrl, validatePacUrl } from '../../server/network-proxy.mjs'
 
 describe('network proxy configuration', () => {
   it('defaults to direct mode', () => {
@@ -11,6 +11,8 @@ describe('network proxy configuration', () => {
     expect(normalizeNetworkProxyConfig({ mode: 'system' })).toEqual({ mode: 'system', proxyUrl: '' })
     expect(normalizeNetworkProxyConfig({ mode: 'manual', proxyUrl: '  http://127.0.0.1:7890  ' }))
       .toEqual({ mode: 'manual', proxyUrl: 'http://127.0.0.1:7890' })
+    expect(normalizeNetworkProxyConfig({ mode: 'pac', proxyUrl: '  https://example.com/proxy.pac  ' }))
+      .toEqual({ mode: 'pac', proxyUrl: 'https://example.com/proxy.pac' })
   })
 
   it('accepts HTTP and HTTPS manual proxy URLs with an explicit port', () => {
@@ -23,5 +25,18 @@ describe('network proxy configuration', () => {
     expect(() => validateManualProxyUrl('http://proxy.example.com')).toThrow(/host and port/)
     expect(() => validateManualProxyUrl('http://user:secret@proxy.example.com:8080')).toThrow(/credentials/)
     expect(() => validateManualProxyUrl('http://proxy.example.com:8080/path')).toThrow(/path/)
+  })
+
+  it('accepts HTTP and HTTPS PAC URLs with paths and query strings', () => {
+    expect(validatePacUrl('http://example.com/proxy.pac')).toBe('http://example.com/proxy.pac')
+    expect(validatePacUrl('https://example.com:8443/proxy.pac?channel=stable'))
+      .toBe('https://example.com:8443/proxy.pac?channel=stable')
+  })
+
+  it('rejects unsupported or unsafe PAC URLs', () => {
+    expect(() => validatePacUrl('file:///proxy.pac')).toThrow(/HTTP and HTTPS/)
+    expect(() => validatePacUrl('https://user:secret@example.com/proxy.pac')).toThrow(/Credentials/)
+    expect(() => validatePacUrl('https://example.com/proxy.pac#section')).toThrow(/fragment/)
+    expect(() => validatePacUrl('not a url')).toThrow(/valid HTTP or HTTPS/)
   })
 })

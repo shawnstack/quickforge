@@ -32,6 +32,8 @@ export function createDesktopNetworkRuntime() {
     configuredMode = config.mode
     if (config.mode === 'system') {
       await networkSession.setProxy({ mode: 'system' })
+    } else if (config.mode === 'pac') {
+      await networkSession.setProxy({ mode: 'pac_script', pacScript: config.proxyUrl })
     } else if (config.mode === 'manual') {
       await networkSession.setProxy({
         mode: 'fixed_servers',
@@ -66,6 +68,7 @@ export function createDesktopNetworkRuntime() {
         source: 'electron-chromium',
         features: {
           pac: true,
+          pacUrl: true,
           wpad: true,
           httpProxy: true,
           httpsProxy: true,

@@ -149,7 +149,7 @@ API Key:        本地模型或部分代理服务可留空
 - 图片附件与视觉模型配置
 - `/init`、`/plan`、`/review`、`/summary`、`/compact`、`/help` 等内置命令；`/init` 会调研当前仓库并生成或更新根目录 `AGENTS.md` 贡献者指南
 - 跨对话、跨项目的全局记忆，可在设置中查看、编辑或关闭
-- 设置 → 常规提供直连、跟随操作系统真实代理、手动 HTTP(S) 代理三种网络模式；Desktop 使用 Electron/Chromium 系统代理，CLI/SDK 使用原生跨平台系统代理解析，本地地址始终直连
+- 设置 → 常规提供直连、跟随操作系统真实代理、手动 HTTP(S) 代理和 PAC 地址四种网络模式；自定义 PAC 地址由 Desktop 的 Electron/Chromium 处理，CLI/SDK 当前不支持，系统代理仍由原生跨平台解析，本地地址始终直连
 
 ### 项目与本地工具
 

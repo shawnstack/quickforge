@@ -7,15 +7,23 @@ import { getWebSocketBaseUrl } from '@/lib/backend-url'
 import { t } from '@/lib/i18n'
 import { FONT_SIZE_SETTINGS_CHANGED_EVENT, getTerminalFontMetrics } from '@/lib/font-size-settings'
 import { useAppTheme } from '@/hooks/useAppTheme'
+import {
+  MAX_AUTO_RECONNECT_ATTEMPTS,
+  TERMINAL_CONNECT_TIMEOUT_MS,
+  terminalReconnectDelay,
+} from './terminal-connection'
+import type { TerminalConnectionState } from './terminal-connection'
 import type { TerminalMessage, TerminalSession } from './terminal-types'
 
 type TerminalPaneProps = {
   session: TerminalSession
   active: boolean
   height: number
+  retryKey: number
   onReady: (sessionId: string) => void
   onExited: (sessionId: string) => void
   onConnectionError: (sessionId: string, message?: string) => void
+  onConnectionState: (sessionId: string, state: TerminalConnectionState) => void
 }
 
 const TERMINAL_THEMES = {
@@ -33,7 +41,16 @@ const TERMINAL_THEMES = {
   },
 }
 
-export function TerminalPane({ session, active, height, onReady, onExited, onConnectionError }: TerminalPaneProps) {
+export function TerminalPane({
+  session,
+  active,
+  height,
+  retryKey,
+  onReady,
+  onExited,
+  onConnectionError,
+  onConnectionState,
+}: TerminalPaneProps) {
   const appTheme = useAppTheme()
   const terminalTheme = TERMINAL_THEMES[appTheme]
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -41,22 +58,12 @@ export function TerminalPane({ session, active, height, onReady, onExited, onCon
   const fitAddonRef = useRef<FitAddon | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const dataDisposableRef = useRef<IDisposable | null>(null)
-  const resizeObserverRef = useRef<ResizeObserver | null>(null)
+  const fitAndResizeRef = useRef<() => void>(() => {})
+  const connectedOnceRef = useRef(false)
 
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
-
-    let disposed = false
-    let opened = false
-    let exited = false
-    let connectionErrorReported = false
-
-    const reportConnectionError = (message: string) => {
-      if (disposed || exited || connectionErrorReported) return
-      connectionErrorReported = true
-      onConnectionError(session.id, message)
-    }
 
     const terminalMetrics = getTerminalFontMetrics()
     const terminal = new Terminal({
@@ -68,12 +75,10 @@ export function TerminalPane({ session, active, height, onReady, onExited, onCon
       fontSize: terminalMetrics.fontSize,
       lineHeight: terminalMetrics.lineHeight,
       scrollback: 5000,
-      theme: terminalTheme,
     })
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
     terminal.open(host)
-    terminal.writeln(`\x1b[2mConnected to ${session.cwd}\x1b[0m`)
 
     terminalRef.current = terminal
     fitAddonRef.current = fitAddon
@@ -82,66 +87,18 @@ export function TerminalPane({ session, active, height, onReady, onExited, onCon
       if (!host.isConnected) return
       try {
         fitAddon.fit()
-        const { cols, rows } = terminal
         const ws = wsRef.current
         if (ws?.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'resize', cols, rows }))
+          ws.send(JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows }))
         }
       } catch {
         // xterm fit can throw while the pane is hidden or detached.
       }
     }
-
-    const ws = new WebSocket(`${getWebSocketBaseUrl()}/api/terminal/sessions/${encodeURIComponent(session.id)}/ws`)
-    wsRef.current = ws
-
-    ws.addEventListener('open', () => {
-      opened = true
-      connectionErrorReported = false
-      onConnectionError(session.id, undefined)
-      dataDisposableRef.current = terminal.onData((data) => {
-        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }))
-      })
-      window.setTimeout(fitAndResize, 0)
-    })
-
-    ws.addEventListener('message', (event) => {
-      try {
-        const message = JSON.parse(String(event.data)) as TerminalMessage
-        if (message.type === 'ready') {
-          onReady(session.id)
-        } else if (message.type === 'output') {
-          terminal.write(message.data)
-        } else if (message.type === 'exit') {
-          exited = true
-          terminal.writeln('')
-          terminal.writeln(`\x1b[33m[process exited with code ${message.exitCode ?? 'unknown'}]\x1b[0m`)
-          onExited(session.id)
-        } else if (message.type === 'error') {
-          terminal.writeln(`\x1b[31m${message.message}\x1b[0m`)
-        }
-      } catch {
-        // Ignore malformed terminal messages.
-      }
-    })
-
-    ws.addEventListener('error', () => {
-      reportConnectionError(opened ? t('terminalConnectionClosedUnexpectedly') : t('terminalConnectionFailed'))
-    })
-
-    ws.addEventListener('close', (event) => {
-      dataDisposableRef.current?.dispose()
-      dataDisposableRef.current = null
-      if (disposed || exited) return
-
-      if (!event.wasClean || event.code !== 1000) {
-        reportConnectionError(opened ? t('terminalConnectionClosedUnexpectedly') : t('terminalConnectionFailed'))
-      }
-    })
+    fitAndResizeRef.current = fitAndResize
 
     const resizeObserver = new ResizeObserver(() => fitAndResize())
     resizeObserver.observe(host)
-    resizeObserverRef.current = resizeObserver
     const handleFontSizeSettingsChanged = () => {
       const nextMetrics = getTerminalFontMetrics()
       terminal.options.fontSize = nextMetrics.fontSize
@@ -152,28 +109,146 @@ export function TerminalPane({ session, active, height, onReady, onExited, onCon
     window.setTimeout(fitAndResize, 50)
 
     return () => {
-      disposed = true
       window.removeEventListener(FONT_SIZE_SETTINGS_CHANGED_EVENT, handleFontSizeSettingsChanged)
       resizeObserver.disconnect()
-      resizeObserverRef.current = null
-      dataDisposableRef.current?.dispose()
-      dataDisposableRef.current = null
-      ws.close()
-      wsRef.current = null
+      fitAndResizeRef.current = () => {}
       terminal.dispose()
       terminalRef.current = null
       fitAddonRef.current = null
     }
-  }, [appTheme, onConnectionError, onExited, onReady, session.cwd, session.id, terminalTheme])
+  }, [session.id])
+
+  useEffect(() => {
+    const terminal = terminalRef.current
+    if (terminal) terminal.options.theme = terminalTheme
+  }, [terminalTheme])
+
+  useEffect(() => {
+    let disposed = false
+    let exited = false
+    let retriesUsed = 0
+    let reconnectTimer: number | undefined
+    let connectionSequence = 0
+
+    const setConnectionState = (state: TerminalConnectionState) => {
+      if (!disposed) onConnectionState(session.id, state)
+    }
+
+    const connect = () => {
+      if (disposed || exited) return
+      const sequence = ++connectionSequence
+      let failureHandled = false
+      let opened = false
+      const ws = new WebSocket(`${getWebSocketBaseUrl()}/api/terminal/sessions/${encodeURIComponent(session.id)}/ws`)
+      wsRef.current = ws
+      setConnectionState(retriesUsed === 0 ? { status: 'connecting' } : {
+        status: 'reconnecting',
+        reconnectAttempt: retriesUsed,
+      })
+
+      const connectionTimeout = window.setTimeout(() => {
+        if (disposed || exited || opened || sequence !== connectionSequence) return
+        handleFailure(t('terminalConnectionTimedOut'))
+        try { ws.close() } catch { /* ignore */ }
+      }, TERMINAL_CONNECT_TIMEOUT_MS)
+
+      const handleFailure = (message: string) => {
+        if (disposed || exited || failureHandled || sequence !== connectionSequence) return
+        failureHandled = true
+        window.clearTimeout(connectionTimeout)
+        dataDisposableRef.current?.dispose()
+        dataDisposableRef.current = null
+
+        const reconnectDelay = terminalReconnectDelay(retriesUsed)
+        if (retriesUsed < MAX_AUTO_RECONNECT_ATTEMPTS && reconnectDelay !== undefined) {
+          retriesUsed += 1
+          setConnectionState({ status: 'reconnecting', reconnectAttempt: retriesUsed })
+          reconnectTimer = window.setTimeout(connect, reconnectDelay)
+          return
+        }
+
+        setConnectionState({ status: 'disconnected' })
+        onConnectionError(session.id, message)
+      }
+
+      ws.addEventListener('open', () => {
+        if (disposed || exited || failureHandled || sequence !== connectionSequence) {
+          try { ws.close() } catch { /* ignore */ }
+          return
+        }
+        opened = true
+        retriesUsed = 0
+        window.clearTimeout(connectionTimeout)
+        onConnectionError(session.id, undefined)
+        setConnectionState({ status: 'connected' })
+        if (!connectedOnceRef.current) {
+          connectedOnceRef.current = true
+          terminalRef.current?.writeln(`\x1b[2mConnected to ${session.cwd}\x1b[0m`)
+        }
+        dataDisposableRef.current?.dispose()
+        dataDisposableRef.current = terminalRef.current?.onData((data) => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }))
+        }) ?? null
+        window.setTimeout(fitAndResizeRef.current, 0)
+      })
+
+      ws.addEventListener('message', (event) => {
+        try {
+          const message = JSON.parse(String(event.data)) as TerminalMessage
+          if (message.type === 'ready') {
+            onReady(session.id)
+          } else if (message.type === 'output') {
+            terminalRef.current?.write(message.data)
+          } else if (message.type === 'exit') {
+            exited = true
+            window.clearTimeout(connectionTimeout)
+            if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
+            terminalRef.current?.writeln('')
+            terminalRef.current?.writeln(`\x1b[33m[process exited with code ${message.exitCode ?? 'unknown'}]\x1b[0m`)
+            setConnectionState({ status: 'exited' })
+            onExited(session.id)
+          } else if (message.type === 'error') {
+            terminalRef.current?.writeln(`\x1b[31m${message.message}\x1b[0m`)
+          }
+        } catch {
+          // Ignore malformed terminal messages.
+        }
+      })
+
+      ws.addEventListener('error', () => {
+        handleFailure(opened ? t('terminalConnectionClosedUnexpectedly') : t('terminalConnectionFailed'))
+      })
+
+      ws.addEventListener('close', () => {
+        window.clearTimeout(connectionTimeout)
+        dataDisposableRef.current?.dispose()
+        dataDisposableRef.current = null
+        if (disposed || exited || failureHandled || sequence !== connectionSequence) return
+        handleFailure(opened ? t('terminalConnectionClosedUnexpectedly') : t('terminalConnectionFailed'))
+      })
+    }
+
+    onConnectionError(session.id, undefined)
+    connect()
+
+    return () => {
+      disposed = true
+      connectionSequence += 1
+      if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
+      dataDisposableRef.current?.dispose()
+      dataDisposableRef.current = null
+      const ws = wsRef.current
+      wsRef.current = null
+      try { ws?.close() } catch { /* ignore */ }
+    }
+  }, [onConnectionError, onConnectionState, onExited, onReady, retryKey, session.cwd, session.id])
 
   useEffect(() => {
     if (!active) return
-    const fitAddon = fitAddonRef.current
-    const terminal = terminalRef.current
     window.setTimeout(() => {
       try {
-        fitAddon?.fit()
-        terminal?.focus()
+        fitAddonRef.current?.fit()
+        terminalRef.current?.focus()
       } catch {
         // ignore hidden pane fit races
       }

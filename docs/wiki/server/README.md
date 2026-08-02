@@ -242,14 +242,14 @@ server/
 **用途**: 基于 `node-pty` 管理多开终端会话，并通过 WebSocket 连接前端 `xterm.js` 面板。
 
 **核心文件**:
-- `terminal/terminal-manager.mjs` — PTY 创建、输入输出转发、REST/WS 输入写入、resize、会话上限、空闲清理和关闭清理。
+- `terminal/terminal-manager.mjs` — PTY 创建、输入输出转发、REST/WS 输入写入、resize、会话上限、断线保留和关闭清理。已连接的终端不会因为无输入输出而自动销毁；最后一个客户端断开后默认保留 30 分钟，便于页面刷新、休眠恢复或前端重连。
 - `routes/terminal.mjs` — `/api/terminal/capabilities`、`/api/terminal/sessions`、`/api/terminal/sessions/:id/input` 和 `/api/terminal/sessions/:id/ws`。
 - `routes/system.mjs` — 系统状态、服务重启、关于信息和 QuickForge Runtime 更新 API；`GET /api/system/update/check` 检查 npm 分发的 Runtime 版本，`POST /api/system/update` 仅允许 localhost 请求并要求 `x-quickforge-action: update`，会启动外部 `update-supervisor.mjs`，让当前服务退出后再执行全局 npm 更新并自动重启；Desktop 客户端更新不走该 npm 更新入口，而是通过 GitHub Releases / 桌面包分发。
 
 **安全边界**:
 - 终端接口强制仅允许 localhost 访问；LAN 分享和共享会话页面不能访问。
 - 终端运行在本机用户权限下，不是沙箱；默认 cwd 为当前项目目录。
-- `QUICKFORGE_TERMINAL=0` 可关闭终端，`QUICKFORGE_MAX_TERMINALS` 可调整最大会话数。
+- `QUICKFORGE_TERMINAL=0` 可关闭终端，`QUICKFORGE_MAX_TERMINALS` 可调整最大会话数；`QUICKFORGE_TERMINAL_RECONNECT_MS` 可调整最后一个客户端断开后的 PTY 保留时间，默认 30 分钟。
 - 终端 Shell 配置保存在 `settings` store 中：系统会按平台和可执行文件可用性自动识别常见内置 profiles（Windows: cmd/PowerShell/pwsh；macOS/Linux: zsh/bash/fish/sh/pwsh），`terminalShellProfiles` 仅存放自定义 profiles，`defaultTerminalShellProfileId` 存放默认 profile；兼容旧的 `terminalShell` 字段。
 - `QUICKFORGE_TERMINAL_SHELL` 优先级最高，会覆盖 UI 中的默认 profile 和新建终端时选择的 profile。
 

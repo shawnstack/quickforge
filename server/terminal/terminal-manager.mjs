@@ -7,8 +7,7 @@ import { logger } from '../utils/logger.mjs'
 const require = createRequire(import.meta.url)
 const MAX_SESSIONS = Math.max(1, Number(process.env.QUICKFORGE_MAX_TERMINALS || 6))
 const TERMINAL_DISABLED = process.env.QUICKFORGE_TERMINAL === '0'
-const RECONNECT_GRACE_MS = Number(process.env.QUICKFORGE_TERMINAL_RECONNECT_MS || 5 * 60 * 1000)
-const IDLE_TIMEOUT_MS = Number(process.env.QUICKFORGE_TERMINAL_IDLE_MS || 30 * 60 * 1000)
+const RECONNECT_GRACE_MS = Number(process.env.QUICKFORGE_TERMINAL_RECONNECT_MS || 30 * 60 * 1000)
 
 const sessions = new Map()
 let cleanupTimer = null
@@ -85,8 +84,7 @@ function scheduleCleanup() {
     const now = Date.now()
     for (const session of sessions.values()) {
       const disconnectedTooLong = session.clients.size === 0 && now - session.disconnectedAt > RECONNECT_GRACE_MS
-      const idleTooLong = now - session.touchedAt > IDLE_TIMEOUT_MS
-      if (session.exited || disconnectedTooLong || idleTooLong) {
+      if (session.exited || disconnectedTooLong) {
         destroyTerminalSession(session.id)
       }
     }

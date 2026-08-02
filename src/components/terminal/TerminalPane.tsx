@@ -10,6 +10,7 @@ import { useAppTheme } from '@/hooks/useAppTheme'
 import {
   MAX_AUTO_RECONNECT_ATTEMPTS,
   TERMINAL_CONNECT_TIMEOUT_MS,
+  isTerminalSessionUnavailable,
   terminalReconnectDelay,
 } from './terminal-connection'
 import type { TerminalConnectionState } from './terminal-connection'
@@ -126,6 +127,7 @@ export function TerminalPane({
   useEffect(() => {
     let disposed = false
     let exited = false
+    let sessionUnavailable = false
     let retriesUsed = 0
     let reconnectTimer: number | undefined
     let connectionSequence = 0
@@ -135,10 +137,10 @@ export function TerminalPane({
     }
 
     const connect = () => {
-      if (disposed || exited) return
+      if (disposed || exited || sessionUnavailable) return
       const sequence = ++connectionSequence
       let failureHandled = false
-      let opened = false
+      let ready = false
       const ws = new WebSocket(`${getWebSocketBaseUrl()}/api/terminal/sessions/${encodeURIComponent(session.id)}/ws`)
       wsRef.current = ws
       setConnectionState(retriesUsed === 0 ? { status: 'connecting' } : {
@@ -147,13 +149,13 @@ export function TerminalPane({
       })
 
       const connectionTimeout = window.setTimeout(() => {
-        if (disposed || exited || opened || sequence !== connectionSequence) return
+        if (disposed || exited || sessionUnavailable || ready || sequence !== connectionSequence) return
         handleFailure(t('terminalConnectionTimedOut'))
         try { ws.close() } catch { /* ignore */ }
       }, TERMINAL_CONNECT_TIMEOUT_MS)
 
       const handleFailure = (message: string) => {
-        if (disposed || exited || failureHandled || sequence !== connectionSequence) return
+        if (disposed || exited || sessionUnavailable || failureHandled || sequence !== connectionSequence) return
         failureHandled = true
         window.clearTimeout(connectionTimeout)
         dataDisposableRef.current?.dispose()
@@ -176,15 +178,6 @@ export function TerminalPane({
           try { ws.close() } catch { /* ignore */ }
           return
         }
-        opened = true
-        retriesUsed = 0
-        window.clearTimeout(connectionTimeout)
-        onConnectionError(session.id, undefined)
-        setConnectionState({ status: 'connected' })
-        if (!connectedOnceRef.current) {
-          connectedOnceRef.current = true
-          terminalRef.current?.writeln(`\x1b[2mConnected to ${session.cwd}\x1b[0m`)
-        }
         dataDisposableRef.current?.dispose()
         dataDisposableRef.current = terminalRef.current?.onData((data) => {
           if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }))
@@ -196,6 +189,15 @@ export function TerminalPane({
         try {
           const message = JSON.parse(String(event.data)) as TerminalMessage
           if (message.type === 'ready') {
+            ready = true
+            retriesUsed = 0
+            window.clearTimeout(connectionTimeout)
+            onConnectionError(session.id, undefined)
+            setConnectionState({ status: 'connected' })
+            if (!connectedOnceRef.current) {
+              connectedOnceRef.current = true
+              terminalRef.current?.writeln(`\x1b[2mConnected to ${session.cwd}\x1b[0m`)
+            }
             onReady(session.id)
           } else if (message.type === 'output') {
             terminalRef.current?.write(message.data)
@@ -208,7 +210,19 @@ export function TerminalPane({
             setConnectionState({ status: 'exited' })
             onExited(session.id)
           } else if (message.type === 'error') {
-            terminalRef.current?.writeln(`\x1b[31m${message.message}\x1b[0m`)
+            if (isTerminalSessionUnavailable(message)) {
+              sessionUnavailable = true
+              failureHandled = true
+              window.clearTimeout(connectionTimeout)
+              if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
+              dataDisposableRef.current?.dispose()
+              dataDisposableRef.current = null
+              setConnectionState({ status: 'unavailable' })
+              onConnectionError(session.id, t('terminalSessionUnavailable'))
+              try { ws.close() } catch { /* ignore */ }
+            } else {
+              handleFailure(message.message || t('terminalConnectionFailed'))
+            }
           }
         } catch {
           // Ignore malformed terminal messages.
@@ -216,15 +230,15 @@ export function TerminalPane({
       })
 
       ws.addEventListener('error', () => {
-        handleFailure(opened ? t('terminalConnectionClosedUnexpectedly') : t('terminalConnectionFailed'))
+        handleFailure(ready ? t('terminalConnectionClosedUnexpectedly') : t('terminalConnectionFailed'))
       })
 
       ws.addEventListener('close', () => {
         window.clearTimeout(connectionTimeout)
         dataDisposableRef.current?.dispose()
         dataDisposableRef.current = null
-        if (disposed || exited || failureHandled || sequence !== connectionSequence) return
-        handleFailure(opened ? t('terminalConnectionClosedUnexpectedly') : t('terminalConnectionFailed'))
+        if (disposed || exited || sessionUnavailable || failureHandled || sequence !== connectionSequence) return
+        handleFailure(ready ? t('terminalConnectionClosedUnexpectedly') : t('terminalConnectionFailed'))
       })
     }
 

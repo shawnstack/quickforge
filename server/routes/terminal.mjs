@@ -137,7 +137,12 @@ async function handleTerminalUpgradeAsync(req, socket, head, url, options = {}) 
         attachTerminalClient(sessionId, ws)
       } catch (err) {
         try {
-          ws.send(JSON.stringify({ type: 'error', message: err?.message || 'Terminal connection failed' }), () => ws.close())
+          ws.send(JSON.stringify({
+            type: 'error',
+            code: err?.statusCode === 404 ? 'SESSION_NOT_FOUND' : 'TERMINAL_CONNECTION_FAILED',
+            message: err?.message || 'Terminal connection failed',
+            retryable: err?.statusCode !== 404,
+          }), () => ws.close())
         } catch {
           ws.close()
         }

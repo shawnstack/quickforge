@@ -3,6 +3,7 @@ import {
   MAX_AUTO_RECONNECT_ATTEMPTS,
   TERMINAL_CONNECT_TIMEOUT_MS,
   TERMINAL_RECONNECT_DELAYS_MS,
+  isTerminalSessionUnavailable,
   terminalReconnectDelay,
 } from '../../src/components/terminal/terminal-connection'
 
@@ -18,5 +19,12 @@ describe('terminal connection policy', () => {
     expect(terminalReconnectDelay(1)).toBe(2_000)
     expect(terminalReconnectDelay(2)).toBe(4_000)
     expect(terminalReconnectDelay(3)).toBeUndefined()
+  })
+
+  it('recognizes a missing server-side session as non-retryable', () => {
+    expect(isTerminalSessionUnavailable({ code: 'SESSION_NOT_FOUND' })).toBe(true)
+    expect(isTerminalSessionUnavailable({ retryable: false })).toBe(true)
+    expect(isTerminalSessionUnavailable({ message: 'Terminal session not found' })).toBe(true)
+    expect(isTerminalSessionUnavailable({ code: 'TERMINAL_CONNECTION_FAILED', retryable: true })).toBe(false)
   })
 })

@@ -145,7 +145,7 @@ components/
 ### Terminal Dock (`terminal/`)
 
 - `TerminalDock.tsx` 管理底部多会话终端、会话 tab、新建/关闭和高度拖拽。
-- `TerminalPane.tsx` 在 WebSocket 建连超过 10 秒时判定超时，连接中断后按 1/2/4 秒最多自动重试 3 次；重试复用同一 xterm 实例和后端 PTY 会话，因此终端标签与已有输出不会消失。自动重试失败后保留终端，并提供手动“重试”。状态点区分连接中/重连中、已连接、断开和进程退出。
+- `TerminalPane.tsx` 在 WebSocket 建连并收到服务端 `ready` 超过 10 秒时判定超时，连接中断后按 1/2/4 秒最多自动重试 3 次；重试复用同一 xterm 实例和后端 PTY 会话，因此终端标签与已有输出不会消失。服务端明确返回 `SESSION_NOT_FOUND` 时视为原 PTY 已不可恢复，立即停止重试且不向终端缓冲区重复写错误，保留界面并提供“启动新终端 / 关闭”。其他自动重试失败场景提供手动“重试”。状态点区分连接中/重连中、已连接、断开、会话失效和进程退出。
 - 新建终端默认使用后端返回的默认 Shell profile，也可以从 Dock 右侧 Shell 下拉列表选择指定 profile 创建新会话；下拉列表来自后端按当前平台自动识别的内置 profiles 加用户自定义 profiles。
 - `TerminalDock` 还接收 Markdown shell 代码块触发的 pending command：AI 回复中的 `bash`/`sh`/`powershell` 等代码块会在复制按钮旁显示“在终端中执行”，点击后打开当前项目终端并写入命令执行；多行或高风险命令会先确认。
 - `terminal-api.ts` 封装 `/api/terminal/capabilities`、`/api/terminal/sessions` 和 `/api/terminal/sessions/:id/input` 相关请求。

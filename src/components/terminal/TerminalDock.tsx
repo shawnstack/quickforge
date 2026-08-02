@@ -111,13 +111,14 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
       })
       setSessions((current) => [...current, session])
       setActiveSessionId(session.id)
+      if (isPanelInstance) onPanelSessionReadyRef.current?.(session.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : t('terminalCreateFailed'))
     } finally {
       creatingRef.current = false
       setCreating(false)
     }
-  }, [capabilities, projectId])
+  }, [capabilities, isPanelInstance, projectId])
 
   useEffect(() => {
     let disposed = false
@@ -396,8 +397,14 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
     setConnectionRetryKeys((current) => ({ ...current, [sessionId]: (current[sessionId] || 0) + 1 }))
   }, [])
 
+  const startNewTerminal = async (sessionId: string) => {
+    const remaining = sessions.filter((session) => session.id !== sessionId)
+    await closeSession(sessionId)
+    await createSession(remaining)
+  }
+
   const connectionDotClassName = (session: TerminalSession, status?: TerminalConnectionStatus) => {
-    if (session.exited || status === 'exited') return 'bg-muted-foreground/40'
+    if (session.exited || status === 'exited' || status === 'unavailable') return 'bg-muted-foreground/40'
     if (status === 'connected') return 'bg-emerald-500/80'
     if (status === 'connecting' || status === 'reconnecting') return 'bg-amber-500/80'
     return 'bg-destructive/70'
@@ -428,6 +435,7 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
   const createDisabled = creating || maxSessionsReached
   const activeConnectionError = activeSession ? connectionErrors[activeSession.id] : undefined
   const activeConnectionState = activeSession ? connectionStates[activeSession.id] : undefined
+  const activeSessionUnavailable = activeConnectionState?.status === 'unavailable'
   const activeConnectionStatusText = activeConnectionState?.status === 'connecting'
     ? t('terminalConnecting')
     : activeConnectionState?.status === 'reconnecting'
@@ -588,7 +596,25 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
       {visibleError ? (
         <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-1.5 text-xs text-destructive">
           <span>{visibleError}</span>
-          {activeConnectionError && activeSession && !activeSession.exited ? (
+          {activeSessionUnavailable && activeSession ? (
+            <span className="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                className="rounded px-1.5 py-0.5 font-medium text-foreground/80 hover:bg-muted/40"
+                onClick={() => void startNewTerminal(activeSession.id)}
+                disabled={creating}
+              >
+                {t('terminalStartNew')}
+              </button>
+              <button
+                type="button"
+                className="rounded px-1.5 py-0.5 font-medium text-muted-foreground hover:bg-muted/40"
+                onClick={() => void closeSession(activeSession.id)}
+              >
+                {t('close')}
+              </button>
+            </span>
+          ) : activeConnectionError && activeSession && !activeSession.exited ? (
             <button
               type="button"
               className="shrink-0 rounded px-1.5 py-0.5 font-medium text-destructive hover:bg-destructive/10"

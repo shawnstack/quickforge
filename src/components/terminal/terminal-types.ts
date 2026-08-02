@@ -42,5 +42,5 @@ export type TerminalMessage =
   | { type: 'ready'; session: TerminalSession }
   | { type: 'output'; data: string }
   | { type: 'exit'; exitCode: number | null; signal: number | string | null }
-  | { type: 'error'; message: string }
+  | { type: 'error'; message: string; code?: string; retryable?: boolean }
   | { type: 'pong' }

@@ -44,6 +44,7 @@ import { shutdown as shutdownAgentManager, resetStaleTaskStatuses } from './agen
 import { initializeChannels, shutdownChannels } from './channels/registry.mjs'
 import { shutdownMcpConnections } from './mcp/registry.mjs'
 import { shutdownTerminalSessions } from './terminal/terminal-manager.mjs'
+import { createNodeProcessEnv } from './utils/process-env.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -113,10 +114,9 @@ function spawnRestartSupervisor() {
       stdio: 'ignore',
       windowsHide: true,
       shell: false,
-      env: {
-        ...process.env,
+      env: createNodeProcessEnv(process.env, {
         QUICKFORGE_NO_OPEN: '1',
-      },
+      }),
     })
 
     child.once('error', reject)
@@ -206,10 +206,9 @@ function spawnUpdateSupervisor(update) {
       stdio: 'ignore',
       windowsHide: true,
       shell: false,
-      env: {
-        ...process.env,
+      env: createNodeProcessEnv(process.env, {
         QUICKFORGE_NO_OPEN: '1',
-      },
+      }),
     })
 
     child.once('error', reject)

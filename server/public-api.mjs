@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { createNodeProcessEnv } from './utils/process-env.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -83,13 +84,16 @@ function buildEnv(options = {}) {
   if (options.workspaceDir) env.QUICKFORGE_WORKSPACE_DIR = path.resolve(options.workspaceDir)
   if (options.vitePort) env.QUICKFORGE_VITE_PORT = String(options.vitePort)
   if (options.terminal === false) env.QUICKFORGE_TERMINAL = '0'
-  if (process.versions.electron) env.ELECTRON_RUN_AS_NODE = '1'
   if (options.allowRemote || shareLan) env.QUICKFORGE_ALLOW_REMOTE = '1'
+  delete env.ELECTRON_RUN_AS_NODE
+  delete env.ATOM_SHELL_INTERNAL_RUN_AS_NODE
 
   return env
 }
 
 export function prepareQuickForgeEnv(options = {}) {
+  delete process.env.ELECTRON_RUN_AS_NODE
+  delete process.env.ATOM_SHELL_INTERNAL_RUN_AS_NODE
   Object.assign(process.env, buildEnv(options))
 }
 
@@ -191,7 +195,7 @@ export async function startQuickForge(options = {}) {
     stdio: options.stdio || 'ignore',
     windowsHide: true,
     shell: false,
-    env: buildEnv(options),
+    env: createNodeProcessEnv(buildEnv(options)),
   })
 
   let exitInfo = null

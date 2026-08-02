@@ -4,6 +4,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { ProcessChannelProvider } from '../process-channel.mjs'
 import { getDefaultWorkspaceRoot, readProjectConfig } from '../../project-config.mjs'
+import { createNodeProcessEnv } from '../../utils/process-env.mjs'
 
 const WEIXIN_ACP_PACKAGE = 'weixin-acp'
 const MIN_NODE_MAJOR = 22
@@ -180,12 +181,11 @@ export class WechatChannelProvider extends ProcessChannelProvider {
       command: npxCommand(),
       args: ['-y', WEIXIN_ACP_PACKAGE, 'start', '--', acpCommand, ...acpArgs],
       cwd: this.launchWorkspace?.path || getDefaultWorkspaceRoot() || this.projectRoot,
-      env: {
-        ...process.env,
+      env: createNodeProcessEnv(process.env, {
         QUICKFORGE_ACP_CHANNEL_ID: this.definition.id,
         QUICKFORGE_ACP_CHANNEL_NAME: this.definition.name,
         ...(this.channelEventsUrl ? { QUICKFORGE_CHANNEL_EVENTS_URL: this.channelEventsUrl } : {}),
-      },
+      }),
       shell: shouldUseShellForNpx(),
     }
   }

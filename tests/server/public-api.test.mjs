@@ -35,12 +35,18 @@ describe('QuickForge public startup API', () => {
     const previousHost = process.env.QUICKFORGE_HOST
     const previousPort = process.env.QUICKFORGE_PORT
     const previousNoOpen = process.env.QUICKFORGE_NO_OPEN
+    const previousElectronRunAsNode = process.env.ELECTRON_RUN_AS_NODE
+    const previousAtomRunAsNode = process.env.ATOM_SHELL_INTERNAL_RUN_AS_NODE
 
     try {
+      process.env.ELECTRON_RUN_AS_NODE = '1'
+      process.env.ATOM_SHELL_INTERNAL_RUN_AS_NODE = '1'
       prepareQuickForgeEnv({ host: '127.0.0.1', port: 61234, openBrowser: false })
       expect(process.env.QUICKFORGE_HOST).toBe('127.0.0.1')
       expect(process.env.QUICKFORGE_PORT).toBe('61234')
       expect(process.env.QUICKFORGE_NO_OPEN).toBe('1')
+      expect(process.env.ELECTRON_RUN_AS_NODE).toBeUndefined()
+      expect(process.env.ATOM_SHELL_INTERNAL_RUN_AS_NODE).toBeUndefined()
     } finally {
       if (previousHost === undefined) delete process.env.QUICKFORGE_HOST
       else process.env.QUICKFORGE_HOST = previousHost
@@ -48,6 +54,10 @@ describe('QuickForge public startup API', () => {
       else process.env.QUICKFORGE_PORT = previousPort
       if (previousNoOpen === undefined) delete process.env.QUICKFORGE_NO_OPEN
       else process.env.QUICKFORGE_NO_OPEN = previousNoOpen
+      if (previousElectronRunAsNode === undefined) delete process.env.ELECTRON_RUN_AS_NODE
+      else process.env.ELECTRON_RUN_AS_NODE = previousElectronRunAsNode
+      if (previousAtomRunAsNode === undefined) delete process.env.ATOM_SHELL_INTERNAL_RUN_AS_NODE
+      else process.env.ATOM_SHELL_INTERNAL_RUN_AS_NODE = previousAtomRunAsNode
     }
   })
 })

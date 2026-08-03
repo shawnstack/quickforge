@@ -2,7 +2,7 @@
 
 ## 架构
 
-Android 端是 Capacitor 薄壳，不在 APK 内运行 QuickForge 服务。首次启动显示服务器连接页，用户输入 Tailscale MagicDNS 完整域名或 `100.64.0.0/10` 地址后，WebView 直接加载服务端提供的 QuickForge 页面。
+Android 端是 Capacitor 薄壳，不在 APK 内运行 QuickForge 服务。服务器设置页可保存多个地址，点击列表中的地址即可切换连接，并在下次启动时自动连接最后使用的地址；进入应用后可点击侧边栏底部显示的当前地址返回服务器设置。WebView 直接加载服务端提供的 QuickForge 页面。
 
 ```text
 Android App → Tailscale → http(s)://<QuickForge 服务>:5176
@@ -13,7 +13,7 @@ Android App → Tailscale → http(s)://<QuickForge 服务>:5176
 ## 安全边界
 
 - App 连接页只接受以 `.ts.net` 结尾的 MagicDNS 完整域名，或 Tailscale `100.64.0.0/10` 地址。
-- App 只保存服务器地址，不保存局域网访问密码。
+- App 保存服务器地址列表和最后使用的地址，不保存局域网访问密码。
 - 服务端仍要求在本机设置中显式开启“局域网完整访问”并配置强密码。
 - 已认证的远程请求仍不能使用终端、重启服务、弹出目录选择器或打开服务端电脑上的资源管理器/IDE。
 - 不要将 QuickForge `5176` 端口直接映射到公网；优先使用 Tailscale ACL 进一步限制可访问设备。

@@ -228,6 +228,7 @@ function channelEventProjectId(event: ChannelRefreshEvent) {
 function MainApp() {
   const remoteClient = isRemoteQuickForgeClient()
   const mobileShell = isMobileShell()
+  const mobileServerUrl = mobileShell ? window.location.origin : undefined
   // --- Top-level refs (owned by App) ---
   const storageRef = useRef<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
   const activeModelRef = useRef<Model<Api>>(buildConnectionModel(DEFAULT_CONNECTION))
@@ -1439,6 +1440,8 @@ function MainApp() {
         onDeleteSession={archiveSession}
         onStartNewGlobalChat={startNewGlobalSession}
         onOpenSettings={openDefaultOptionsSettings}
+        currentServerUrl={mobileServerUrl}
+        onOpenServer={mobileShell ? openMobileServerPicker : undefined}
         updateAvailable={updateCheck.result.updateAvailable}
         latestVersion={updateCheck.result.latestVersion}
         currentVersion={updateCheck.result.currentVersion}
@@ -1522,6 +1525,11 @@ function MainApp() {
                 closeMobileSidebar()
                 openDefaultOptionsSettings()
               }}
+              currentServerUrl={mobileServerUrl}
+              onOpenServer={mobileShell ? () => {
+                closeMobileSidebar()
+                openMobileServerPicker()
+              } : undefined}
               updateAvailable={updateCheck.result.updateAvailable}
               latestVersion={updateCheck.result.latestVersion}
               currentVersion={updateCheck.result.currentVersion}
@@ -1732,15 +1740,6 @@ function MainApp() {
               </>
           )}
         </section>
-        {mobileShell ? (
-          <button
-            type="button"
-            className="fixed bottom-[calc(env(safe-area-inset-bottom)+1rem)] right-4 z-40 rounded-full border border-border bg-background px-3 py-2 text-xs font-medium text-foreground/80 shadow-quickforge"
-            onClick={openMobileServerPicker}
-          >
-            切换服务器
-          </button>
-        ) : null}
         {terminalDockOpen && !remoteClient && agentManager.currentToolProject?.id ? (
           <Suspense fallback={<LazyPanelFallback />}>
             <TerminalDock

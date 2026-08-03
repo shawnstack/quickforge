@@ -1,8 +1,14 @@
 import { Capacitor } from '@capacitor/core'
 
 const MOBILE_SERVER_STORAGE_KEY = 'quickforge:mobile-server-url'
+const MOBILE_SERVER_SETTINGS_STORAGE_KEY = 'quickforge:mobile-server-settings:v1'
 const MOBILE_SHELL_QUERY_KEY = 'quickforgeMobile'
 const MOBILE_SHELL_SESSION_KEY = 'quickforge:mobile-shell'
+
+export type MobileServerSettings = {
+  urls: string[]
+  lastUsedUrl: string
+}
 
 function isTailscaleIPv4(hostname: string): boolean {
   const parts = hostname.split('.').map(Number)
@@ -31,7 +37,7 @@ export function normalizeTailscaleServerUrl(value: string): string {
   }
   if (url.username || url.password) throw new Error('服务地址不能包含用户名或密码')
   if (!isTailscaleHostname(url.hostname) && !isTailscaleIPv4(url.hostname)) {
-    throw new Error('请输入 .ts.net MagicDNS 完整域名或 Tailscale 100.x 地址')
+    throw new Error('该服务器地址不受支持')
   }
   if (url.pathname !== '/' || url.search || url.hash) {
     throw new Error('请输入服务根地址，不要附加路径、参数或锚点')
@@ -41,16 +47,60 @@ export function normalizeTailscaleServerUrl(value: string): string {
   return url.origin
 }
 
-export function readSavedMobileServerUrl(): string {
+function normalizeSavedUrls(values: unknown): string[] {
+  if (!Array.isArray(values)) return []
+  const urls: string[] = []
+  for (const value of values) {
+    if (typeof value !== 'string') continue
+    try {
+      const normalized = normalizeTailscaleServerUrl(value)
+      if (!urls.includes(normalized)) urls.push(normalized)
+    } catch {
+      // Ignore invalid saved entries.
+    }
+  }
+  return urls
+}
+
+export function readMobileServerSettings(storage: Storage = window.localStorage): MobileServerSettings {
   try {
-    return window.localStorage.getItem(MOBILE_SERVER_STORAGE_KEY) || ''
+    const storedSettings = storage.getItem(MOBILE_SERVER_SETTINGS_STORAGE_KEY)
+    if (storedSettings !== null) {
+      try {
+        const parsed = JSON.parse(storedSettings) as { urls?: unknown; lastUsedUrl?: unknown }
+        const urls = normalizeSavedUrls(parsed?.urls)
+        const normalizedLastUsedUrl = typeof parsed?.lastUsedUrl === 'string'
+          ? normalizeSavedUrls([parsed.lastUsedUrl])[0] || ''
+          : ''
+        return {
+          urls,
+          lastUsedUrl: urls.includes(normalizedLastUsedUrl) ? normalizedLastUsedUrl : urls[0] || '',
+        }
+      } catch {
+        // Fall back to the legacy single-server value.
+      }
+    }
+
+    const legacyUrl = storage.getItem(MOBILE_SERVER_STORAGE_KEY)
+    const normalizedLegacyUrl = legacyUrl ? normalizeSavedUrls([legacyUrl])[0] || '' : ''
+    return normalizedLegacyUrl
+      ? { urls: [normalizedLegacyUrl], lastUsedUrl: normalizedLegacyUrl }
+      : { urls: [], lastUsedUrl: '' }
   } catch {
-    return ''
+    return { urls: [], lastUsedUrl: '' }
   }
 }
 
-export function saveMobileServerUrl(url: string): void {
-  window.localStorage.setItem(MOBILE_SERVER_STORAGE_KEY, url)
+export function saveMobileServerSettings(settings: MobileServerSettings, storage: Storage = window.localStorage): void {
+  const urls = normalizeSavedUrls(settings.urls)
+  const normalizedLastUsedUrl = normalizeSavedUrls([settings.lastUsedUrl])[0] || ''
+  const lastUsedUrl = urls.includes(normalizedLastUsedUrl) ? normalizedLastUsedUrl : urls[0] || ''
+  storage.setItem(MOBILE_SERVER_SETTINGS_STORAGE_KEY, JSON.stringify({ urls, lastUsedUrl }))
+  if (lastUsedUrl) {
+    storage.setItem(MOBILE_SERVER_STORAGE_KEY, lastUsedUrl)
+  } else {
+    storage.removeItem(MOBILE_SERVER_STORAGE_KEY)
+  }
 }
 
 export function buildMobileServerAppUrl(serverUrl: string): string {

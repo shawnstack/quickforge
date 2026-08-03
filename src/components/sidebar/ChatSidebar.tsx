@@ -28,6 +28,7 @@ import {
   Trash2,
   GitBranch,
   Gauge,
+  Server,
 } from 'lucide-react'
 import {
   DndContext,
@@ -111,6 +112,8 @@ type ChatSidebarProps = {
   onDeleteSession: (sessionId: string) => void | Promise<void>
   onStartNewGlobalChat: () => void
   onOpenSettings: () => void
+  currentServerUrl?: string
+  onOpenServer?: () => void
   onOpenUpdate?: () => void
   onDismissUpdate?: () => void
   updateAvailable?: boolean
@@ -251,6 +254,8 @@ export const ChatSidebar = memo(function ChatSidebar({
   onDeleteSession,
   onStartNewGlobalChat,
   onOpenSettings,
+  currentServerUrl,
+  onOpenServer,
   onOpenUpdate,
   onDismissUpdate,
   updateAvailable,
@@ -1463,6 +1468,20 @@ export const ChatSidebar = memo(function ChatSidebar({
             {!sidebarOpen ? (
               <span className="absolute right-1 top-1 size-2 rounded-full bg-primary" />
             ) : null}
+          </button>
+        ) : null}
+        {currentServerUrl && onOpenServer ? (
+          <button
+            type="button"
+            className={cn(footerRowClass, 'min-h-9 w-full shrink-0 rounded-lg', inactiveRowClass)}
+            onClick={onOpenServer}
+            aria-label={currentServerUrl}
+            title={currentServerUrl}
+          >
+            <span className={iconSlotClass}>
+              <Server className="size-4" />
+            </span>
+            {sidebarOpen ? <span className={cn(sessionTitleClass, 'min-w-0 flex-1')}>{currentServerUrl}</span> : null}
           </button>
         ) : null}
         <button

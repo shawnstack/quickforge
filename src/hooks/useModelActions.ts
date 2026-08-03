@@ -11,6 +11,11 @@ import {
   saveConnectionProfile,
 } from '@/lib/pi-chat'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
+import {
+  readCachedModelList,
+  readCachedModelListStale,
+  writeCachedModelList,
+} from '@/lib/model-list-cache'
 import type { SettingsInitialTab } from '@/lib/settings-tabs'
 import { t } from '@/lib/i18n'
 import type { RestoredDraft } from '@/lib/types'
@@ -150,8 +155,20 @@ export function useModelActions({
     const currentInput = textarea?.value ?? ''
     const currentAttachments = messageEditor?.attachments ? [...messageEditor.attachments] : []
 
-    const customProviders = await storage.customProviders.getAll()
-    const customModels = configuredModelsFromProviders(customProviders)
+    // 缓存优先：TTL 内直接用缓存打开选择器，避免每次请求后端；
+    // 无有效缓存时拉取后端并写入缓存；请求失败用过期缓存兜底。
+    let customModels = readCachedModelList()
+    if (!customModels) {
+      try {
+        const customProviders = await storage.customProviders.getAll()
+        customModels = configuredModelsFromProviders(customProviders)
+        writeCachedModelList(customModels)
+      } catch (error) {
+        logger.error('Failed to load custom models, falling back to cache:', error)
+        customModels = readCachedModelListStale()
+      }
+      if (!customModels) return
+    }
 
     if (customModels.length === 0) {
       const confirmed = await showConfirm({

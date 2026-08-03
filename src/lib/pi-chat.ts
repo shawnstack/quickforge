@@ -11,6 +11,7 @@ import {
   type StorageBackend,
 } from '@earendil-works/pi-web-ui'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
+import { clearModelListCache } from '@/lib/model-list-cache'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
 import type { AgentAccessMode } from '@/lib/types'
@@ -396,6 +397,7 @@ export async function saveConnectionProfile(
     await storage.providerKeys.set(model.provider, form.apiKey.trim())
   }
 
+  clearModelListCache()
   return id
 }
 

@@ -11,6 +11,7 @@ import { DEFAULT_CONNECTION, normalizeModelForProvider } from '@/lib/pi-chat'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
 import { showAlert, showConfirm } from '@/components/ui/confirm-dialog'
+import { clearModelListCache } from '@/lib/model-list-cache'
 import './info-tip'
 
 type ProviderProtocol = Extract<CustomProviderType, 'openai-completions' | 'anthropic-messages'>
@@ -448,6 +449,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       } else {
         await storage.providerKeys.delete(provider.name)
       }
+      clearModelListCache()
       this.closeForm()
       await this.loadProviders()
     } catch (error) {
@@ -469,6 +471,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       const storage = getAppStorage()
       await storage.customProviders.delete(provider.id)
       await storage.providerKeys.delete(provider.name)
+      clearModelListCache()
       await this.loadProviders()
     } catch (error) {
       logger.error('Failed to delete custom provider:', error)

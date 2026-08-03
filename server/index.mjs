@@ -72,10 +72,11 @@ function getRestartSupport() {
   return { supported: true, reason: null }
 }
 
-async function getSystemStatus() {
+async function getSystemStatus({ isLocalRequest = true } = {}) {
   const config = await readProjectConfig()
   const restartSupport = getRestartSupport()
   const packageInfo = await getPackageInfo(projectRoot)
+  const restartSupported = isLocalRequest && restartSupport.supported
   return {
     ok: true,
     mode: isDev ? 'development' : 'production',
@@ -84,8 +85,14 @@ async function getSystemStatus() {
     startedAt,
     version: packageInfo.version,
     package: packageInfo,
-    restartSupported: restartSupport.supported,
-    restartUnsupportedReason: restartSupport.reason,
+    isLocalRequest,
+    capabilities: {
+      restart: restartSupported,
+      openLocalApps: isLocalRequest,
+      terminal: isLocalRequest,
+    },
+    restartSupported,
+    restartUnsupportedReason: isLocalRequest ? restartSupport.reason : 'Restart is only allowed from this computer',
     dataDir,
     configDir,
     storageDir,
@@ -276,7 +283,7 @@ async function updateQuickForge() {
 }
 
 // --- Route dispatching ---
-async function handleApi(req, res, url) {
+async function handleApi(req, res, url, requestContext = {}) {
   const pathname = url.pathname
   const parts = pathname.split('/').filter(Boolean)
 
@@ -299,19 +306,19 @@ async function handleApi(req, res, url) {
   if (pathname === '/api/lan-access/status' || pathname === '/api/lan-access/settings' || pathname === '/api/lan-access/unlock' || pathname === '/api/lan-access/logout' || pathname === '/api/lan-access/revoke-all') {
     await handleLanAccessApi(req, res, url, {
       port,
-      isLocalRequest: isLoopbackAddress(req.socket.remoteAddress),
+      isLocalRequest: requestContext.isLocalRequest === true,
     })
     return
   }
 
   // Health check
   if (req.method === 'GET' && pathname === '/api/health') {
-    sendJson(res, 200, await getSystemStatus())
+    sendJson(res, 200, await getSystemStatus(requestContext))
     return
   }
 
   if (req.method === 'GET' && pathname === '/api/project/commands') {
-    await handleProjectApi(req, res, url)
+    await handleProjectApi(req, res, url, requestContext)
     return
   }
 
@@ -354,7 +361,7 @@ async function handleApi(req, res, url) {
   // Channels
   if (pathname === '/api/channels' || pathname.startsWith('/api/channels/')) {
     await handleChannelsApi(req, res, url, {
-      isLocalRequest: isLoopbackAddress(req.socket.remoteAddress),
+      isLocalRequest: requestContext.isLocalRequest === true,
       logsDir,
       openPathInFileManager,
     })
@@ -369,13 +376,13 @@ async function handleApi(req, res, url) {
 
   // Project routes
   if (pathname === '/api/project' || pathname.startsWith('/api/project/')) {
-    await handleProjectApi(req, res, url)
+    await handleProjectApi(req, res, url, requestContext)
     return
   }
 
   // Project workspace inspector routes
   if (pathname === '/api/workspace/tree' || pathname === '/api/workspace/file' || pathname === '/api/workspace/resolve-path' || pathname === '/api/workspace/open-external' || pathname.startsWith('/api/workspace/preview/')) {
-    await handleWorkspaceApi(req, res, url)
+    await handleWorkspaceApi(req, res, url, requestContext)
     return
   }
 
@@ -423,13 +430,13 @@ async function handleApi(req, res, url) {
   // System routes
   if (pathname === '/api/system/status' || pathname === '/api/system/restart' || pathname === '/api/system/network' || pathname === '/api/system/network-proxy' || pathname === '/api/system/network-proxy/refresh' || pathname === '/api/system/terminal-shell' || pathname === '/api/system/about' || pathname === '/api/system/update/check' || pathname === '/api/system/update/desktop' || pathname === '/api/system/update') {
     await handleSystemApi(req, res, url, {
-      getSystemStatus,
+      getSystemStatus: () => getSystemStatus(requestContext),
       requestRestart,
       getPackageInfo: () => getPackageInfo(projectRoot),
       checkForUpdates: () => checkForUpdates(projectRoot),
       checkDesktopRelease: () => checkDesktopRelease(projectRoot),
       updateQuickForge,
-      isLocalRequest: isLoopbackAddress(req.socket.remoteAddress),
+      isLocalRequest: requestContext.isLocalRequest === true,
       getTerminalShellSetting: readTerminalShellSetting,
       updateTerminalShellSetting,
       getTerminalShellConfig: readTerminalShellConfig,
@@ -447,7 +454,7 @@ async function handleApi(req, res, url) {
   // Terminal routes (local-only; real shell access)
   if (pathname === '/api/terminal/capabilities' || pathname === '/api/terminal/sessions' || pathname.startsWith('/api/terminal/sessions/')) {
     await handleTerminalApi(req, res, url, {
-      isLocalRequest: isLoopbackAddress(req.socket.remoteAddress),
+      isLocalRequest: requestContext.isLocalRequest === true,
     })
     return
   }
@@ -611,7 +618,7 @@ const server = createServer(async (req, res) => {
     }
 
     if (url.pathname.startsWith('/api/')) {
-      await handleApi(req, res, url)
+      await handleApi(req, res, url, { isLocalRequest: !isRemoteRequest })
       return
     }
 

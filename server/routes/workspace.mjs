@@ -1100,7 +1100,7 @@ async function handleGitCommitAndPush(req, res) {
   sendJson(res, 200, await commitAndPushGitChanges(context, body?.message, Boolean(body?.includeUnstaged)))
 }
 
-export async function handleWorkspaceApi(req, res, url) {
+export async function handleWorkspaceApi(req, res, url, requestContext = {}) {
   if (req.method === 'GET' && url.pathname === '/api/workspace/tree') {
     await handleWorkspaceTree(req, res, url)
     return
@@ -1118,6 +1118,11 @@ export async function handleWorkspaceApi(req, res, url) {
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/workspace/open-external') {
+    if (requestContext.isLocalRequest !== true) {
+      const error = new Error('Opening applications is only allowed from this computer')
+      error.statusCode = 403
+      throw error
+    }
     await handleWorkspaceOpenExternal(req, res)
     return
   }

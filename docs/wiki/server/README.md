@@ -47,12 +47,12 @@ server/
 **主要功能**:
 - HTTP 路由分发（基于 `url.pathname` 匹配）
 - 中间件：CORS、JSON 请求体大小限制
-- `GET /api/health` — 健康检查，返回 `version` 与 `package` 元数据，供 Desktop 启动时校验是否可复用已有本地服务
+- `GET /api/health` — 健康检查，返回 `version` 与 `package` 元数据，并按当前请求返回 `isLocalRequest` 与 `capabilities`；远端客户端的终端、重启和打开本机应用能力为关闭状态
 - 静态文件服务（`serveStatic`）
 - SSE（`/api/agents/events`, `/api/agents/:sessionId/stream`）
 - WebSocket 交互式终端（`/api/terminal/sessions/:id/ws`，仅 localhost）
 - 启动时重置僵死任务状态
-- 支持 LAN 共享（显示局域网 URL）
+- 支持 LAN 共享（显示局域网 URL）；远程完整访问需在本机配置密码。已认证远端仍不能使用终端、重启服务、弹出目录选择器或打开资源管理器/IDE，Tailscale/VPN 是推荐的远程接入方式
 - 启动后初始化 `network-proxy.mjs`：读取 `settings['network-proxy']`，为外部 Fetch 请求应用直连、操作系统真实代理、手动 HTTP(S) 代理或 PAC 地址；localhost 始终直连。Desktop inline 由 Electron/Chromium Session 处理系统 PAC/WPAD 和自定义 PAC 地址；CLI/SDK 由 `@vscode/os-proxy-resolver` 调用 Windows、macOS 和 Linux 的原生系统代理来源，当前不支持自定义 PAC 地址，且不会静默降级为直连
 
 ### agent-manager.mjs (1350 行)

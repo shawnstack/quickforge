@@ -96,13 +96,13 @@ type ChatSidebarProps = {
   onToggleProjectExpanded: (projectId: string) => void
   onToggleAllProjectsExpanded: () => void
   onReorderProjects: (orderedIds: string[]) => void
-  onSelectProjectDirectory: () => void
+  onSelectProjectDirectory?: () => void
   onStartNewProjectChat: (project: ProjectInfo) => void
   onOpenGlobalSkills: () => void
   onOpenAgents: () => void
   onOpenScheduledTasks: () => void
   onOpenProjectSkills: (project: ProjectInfo) => void
-  onOpenProjectInExplorer: (project: ProjectInfo) => void
+  onOpenProjectInExplorer?: (project: ProjectInfo) => void
   onDeleteProject: (projectId: string) => void | Promise<void>
   onLoadSession: (sessionId: string) => void
   onSessionViewModeChange: (mode: SidebarSessionViewMode) => void
@@ -943,16 +943,18 @@ export const ChatSidebar = memo(function ChatSidebar({
                     {expandedProjectIds.size === projects.length ? <ChevronsDownUp className="size-4" /> : <ChevronsUpDown className="size-4" />}
                   </Button>
                 )}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={sectionActionButtonClass}
-                  onClick={onSelectProjectDirectory}
-                  disabled={selectingProject}
-                  aria-label={t('addProject')}
-                >
-                  <Plus className="size-4" />
-                </Button>
+                {onSelectProjectDirectory ? (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={sectionActionButtonClass}
+                    onClick={onSelectProjectDirectory}
+                    disabled={selectingProject}
+                    aria-label={t('addProject')}
+                  >
+                    <Plus className="size-4" />
+                  </Button>
+                ) : null}
               </div>
 
               <div className={cn(collapsePanelClass, 'flex-1 min-h-0', projectsCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
@@ -1569,19 +1571,21 @@ export const ChatSidebar = memo(function ChatSidebar({
           style={{ left: projectMenuPosition.x, top: projectMenuPosition.y }}
           onClick={(event) => event.stopPropagation()}
         >
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
-            title={t('openInExplorer')}
-            aria-label={t('openInExplorer')}
-            onClick={() => {
-              closeProjectMenu()
-              onOpenProjectInExplorer(openProjectMenuProject)
-            }}
-          >
-            <FolderOpen className="size-4 shrink-0 text-muted-foreground/70" />
-            <span>{t('openFolder')}</span>
-          </button>
+          {onOpenProjectInExplorer ? (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+              title={t('openInExplorer')}
+              aria-label={t('openInExplorer')}
+              onClick={() => {
+                closeProjectMenu()
+                onOpenProjectInExplorer(openProjectMenuProject)
+              }}
+            >
+              <FolderOpen className="size-4 shrink-0 text-muted-foreground/70" />
+              <span>{t('openFolder')}</span>
+            </button>
+          ) : null}
           <button
             type="button"
             className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"

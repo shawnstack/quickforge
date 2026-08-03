@@ -36,6 +36,12 @@ export async function handleSystemApi(req, res, url, context) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/system/restart') {
+    if (!context.isLocalRequest) {
+      const error = new Error('Restart is only allowed from this computer')
+      error.statusCode = 403
+      throw error
+    }
+
     if (req.headers['x-quickforge-action'] !== 'restart') {
       const error = new Error('Forbidden action')
       error.statusCode = 403
@@ -59,6 +65,11 @@ export async function handleSystemApi(req, res, url, context) {
     }
 
     if (req.method === 'PUT') {
+      if (!context.isLocalRequest) {
+        const error = new Error('Terminal shell settings can only be changed from this computer')
+        error.statusCode = 403
+        throw error
+      }
       const body = await readJsonBody(req, 64 * 1024) || {}
       if (Array.isArray(body.profiles) || typeof body.defaultProfileId === 'string') {
         sendJson(res, 200, await context.updateTerminalShellConfig(body))

@@ -240,7 +240,7 @@ function readerDiffText(diff: GitFileDiffResponse) {
   return `Diff for ${header}\n\n--- OLD\n${diff.oldContent}\n\n--- NEW\n${diff.newContent}`
 }
 
-function InlineReader({ project, path, mode, file, diff, loading, error, navigationVisible, onNavigationVisibleChange }: {
+function InlineReader({ project, path, mode, file, diff, loading, error, navigationVisible, onNavigationVisibleChange, allowExternalOpen = true }: {
   project?: ProjectInfo
   path?: string
   mode: ReaderMode
@@ -250,6 +250,7 @@ function InlineReader({ project, path, mode, file, diff, loading, error, navigat
   error?: string
   navigationVisible: boolean
   onNavigationVisibleChange: (visible: boolean) => void
+  allowExternalOpen?: boolean
 }) {
   const [copied, setCopied] = useState<'path' | 'content'>()
   const [markdownMode, setMarkdownMode] = useState<'preview' | 'source'>('preview')
@@ -411,13 +412,15 @@ function InlineReader({ project, path, mode, file, diff, loading, error, navigat
           >
             <Folder className="size-4" />
           </Button>
-          <ProjectOpenMenu
-            project={project}
-            disabled={!title}
-            onOpenInExplorer={() => { void openExternal('explorer') }}
-            onOpenInVSCode={() => { void openExternal('vscode') }}
-            onOpenInIDEA={() => { void openExternal('idea') }}
-          />
+          {allowExternalOpen ? (
+            <ProjectOpenMenu
+              project={project}
+              disabled={!title}
+              onOpenInExplorer={() => { void openExternal('explorer') }}
+              onOpenInVSCode={() => { void openExternal('vscode') }}
+              onOpenInIDEA={() => { void openExternal('idea') }}
+            />
+          ) : null}
         </div>
       </div>
       <div className="min-h-0 flex-1 bg-background">
@@ -598,11 +601,19 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
   const [expandedDiffLoading, setExpandedDiffLoading] = useState(false)
   const [expandedDiffError, setExpandedDiffError] = useState<string>()
 
+  const canUseTerminal = Boolean(onShowGlobalTerminal)
+  const availablePanelTabItems = useMemo(
+    () => canUseTerminal ? PANEL_TAB_ITEMS : PANEL_TAB_ITEMS.filter((item) => item.kind !== 'terminal'),
+    [canUseTerminal],
+  )
   const initialPanelTabStateRef = useRef<PersistedWorkspaceInspectorTabs | undefined>(undefined)
   if (!initialPanelTabStateRef.current) {
     initialPanelTabStateRef.current = project?.id ? readPersistedPanelTabs(project.id) : { tabs: [] }
   }
-  const [panelTabs, setPanelTabs] = useState<WorkspacePanelTab[]>(() => initialPanelTabStateRef.current?.tabs ?? [])
+  const [panelTabs, setPanelTabs] = useState<WorkspacePanelTab[]>(() => {
+    const tabs = initialPanelTabStateRef.current?.tabs ?? []
+    return canUseTerminal ? tabs : tabs.filter((tab) => tab.kind !== 'terminal')
+  })
   const [activePanelTabId, setActivePanelTabId] = useState<string | undefined>(() => initialPanelTabStateRef.current?.activePanelTabId)
   const [draggingPanelTabId, setDraggingPanelTabId] = useState<string>()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -1601,7 +1612,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
                 </Button>
                 {menuOpen ? (
                 <div className="absolute right-0 top-12 z-40 w-64 rounded-2xl border border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-popover p-2 shadow-quickforge" role="menu">
-                  {PANEL_TAB_ITEMS.map((item) => {
+                  {availablePanelTabItems.map((item) => {
                     const Icon = item.icon
                     const active = item.kind === activePanelTab?.kind
                     return (
@@ -1678,7 +1689,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
                   <div className="mt-2 text-sm leading-5 text-muted-foreground/70">{t('rightPanelOpenTabsDescription')}</div>
                 </div>
                 <div className="space-y-2">
-                  {PANEL_TAB_ITEMS.map((item) => {
+                  {availablePanelTabItems.map((item) => {
                     const Icon = item.icon
                     return (
                       <button
@@ -1735,6 +1746,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
                       error={activeReaderTab.error}
                       navigationVisible={readerNavigationVisible}
                       onNavigationVisibleChange={setReaderNavigationVisible}
+                      allowExternalOpen={Boolean(onOpenProjectInExplorer || onOpenProjectInVSCode || onOpenProjectInIDEA)}
                     />
                   ) : isFilesLanding ? (
                     <div className="flex min-h-0 flex-1 items-center justify-center px-6">
@@ -1873,14 +1885,16 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
                                 >
                                   <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
                                 </button>
-                                <ProjectOpenMenu
-                                  project={project}
-                                  disabledTargets={selectedReviewFile?.status === 'deleted' ? { vscode: true, idea: true } : undefined}
-                                  targetDisabledLabel={t('workspaceCannotOpenDeletedFile')}
-                                  onOpenInExplorer={() => { void handleOpenSelectedChangeExternally('explorer') }}
-                                  onOpenInVSCode={() => { void handleOpenSelectedChangeExternally('vscode') }}
-                                  onOpenInIDEA={() => { void handleOpenSelectedChangeExternally('idea') }}
-                                />
+                                {(onOpenProjectInExplorer || onOpenProjectInVSCode || onOpenProjectInIDEA) ? (
+                                  <ProjectOpenMenu
+                                    project={project}
+                                    disabledTargets={selectedReviewFile?.status === 'deleted' ? { vscode: true, idea: true } : undefined}
+                                    targetDisabledLabel={t('workspaceCannotOpenDeletedFile')}
+                                    onOpenInExplorer={() => { void handleOpenSelectedChangeExternally('explorer') }}
+                                    onOpenInVSCode={() => { void handleOpenSelectedChangeExternally('vscode') }}
+                                    onOpenInIDEA={() => { void handleOpenSelectedChangeExternally('idea') }}
+                                  />
+                                ) : null}
                                 {onOpenCommitPush ? (
                                   <button
                                     type="button"

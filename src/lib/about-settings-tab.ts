@@ -38,6 +38,7 @@ type ServiceStatus = {
   bootId: string
   restartSupported?: boolean
   restartUnsupportedReason?: string | null
+  isLocalRequest?: boolean
 }
 
 const UPDATE_TIMEOUT_MS = 180_000
@@ -479,7 +480,7 @@ class AboutSettingsTab extends SettingsTab {
           </div>
         </section>
 
-        ${this.restartSection()}
+        ${this.serviceStatus?.isLocalRequest === false ? null : this.restartSection()}
 
         ${this.message ? html`<div class="quickforge-settings-message">${this.message}</div>` : null}
         ${this.error ? html`<div class="quickforge-settings-alert">${this.error}</div>` : null}

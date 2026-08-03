@@ -60,6 +60,10 @@
     "desktop:build:mac": "npm run build && electron-builder --config desktop/electron-builder.config.cjs --mac --publish never",
     "desktop:build:linux": "npm run build && electron-builder --config desktop/electron-builder.config.cjs --linux --publish never",
     "desktop:build:all": "npm run build && electron-builder --config desktop/electron-builder.config.cjs --win --mac --linux --publish never",
+    "android:add": "npx cap add android",
+    "android:sync": "npm run build && npx cap sync android",
+    "android:open": "npx cap open android",
+    "android:build": "npm run android:sync && cd android && gradlew.bat assembleDebug",
     "release:patch:prepare": "node scripts/prepare-patch-release.cjs",
     "start": "node server/index.mjs",
     "preview": "node server/index.mjs",
@@ -67,6 +71,8 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.29.0",
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
@@ -81,6 +87,7 @@
     "ws": "^8.20.1"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.0",
     "@earendil-works/pi-web-ui": "^0.75.3",
     "@emnapi/core": "^1.11.2",
     "@emnapi/runtime": "^1.11.2",

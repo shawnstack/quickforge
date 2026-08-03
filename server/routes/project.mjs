@@ -8,7 +8,25 @@ import { getWorkspaceRoot, setWorkspaceRoot } from '../utils/workspace.mjs'
 import { selectDirectoryDialog, openPathInFileManager, openPathInIDEA, openPathInVSCode } from '../utils/platform.mjs'
 import path from 'node:path'
 
-export async function handleProjectApi(req, res, url) {
+function assertLocalExternalAction(context) {
+  if (context.isLocalRequest === true) return
+  const error = new Error('Opening applications is only allowed from this computer')
+  error.statusCode = 403
+  throw error
+}
+
+export async function handleProjectApi(req, res, url, context = {}) {
+  const externalAction = req.method === 'POST' && (
+    url.pathname === '/api/project/select-directory'
+    || (url.pathname.startsWith('/api/project/') && (
+      url.pathname.endsWith('/open-in-explorer')
+      || url.pathname.endsWith('/open-in-vscode')
+      || url.pathname.endsWith('/open-in-idea')
+    ))
+    || url.pathname === '/api/project/open-path'
+  )
+  if (externalAction) assertLocalExternalAction(context)
+
   const config = await readProjectConfig()
 
   if (req.method === 'GET' && url.pathname === '/api/project') {

@@ -79,6 +79,8 @@ import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
 import { artifactPreviewMode, findBestPreviewableArtifact, workspaceArtifactDiskPath } from '@/components/workspace/artifact-preview-utils'
+import { MobileServerConnectPage } from '@/components/mobile/MobileServerConnectPage'
+import { isMobileShell, isNativeMobileEntry, isRemoteQuickForgeClient, openMobileServerPicker } from '@/lib/mobile-server'
 
 // --- Code-split secondary views (only loaded when first opened) ---
 // These are conditionally-mounted routes/panels; lazy loading keeps heavy
@@ -223,6 +225,8 @@ function channelEventProjectId(event: ChannelRefreshEvent) {
 }
 
 function MainApp() {
+  const remoteClient = isRemoteQuickForgeClient()
+  const mobileShell = isMobileShell()
   // --- Top-level refs (owned by App) ---
   const storageRef = useRef<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
   const activeModelRef = useRef<Model<Api>>(buildConnectionModel(DEFAULT_CONNECTION))
@@ -979,6 +983,10 @@ function MainApp() {
 
   useEffect(() => {
     const handleExecuteMarkdownCommand = (event: Event) => {
+      if (remoteClient) {
+        void showAlert('远程客户端不能使用服务端终端')
+        return
+      }
       const detail = (event as ExecuteMarkdownCommandEvent).detail
       const command = typeof detail?.command === 'string' ? detail.command.trim() : ''
       if (!command) return
@@ -1013,7 +1021,7 @@ function MainApp() {
 
     window.addEventListener('quickforge:execute-markdown-command', handleExecuteMarkdownCommand)
     return () => window.removeEventListener('quickforge:execute-markdown-command', handleExecuteMarkdownCommand)
-  }, [setArtifactPreviewOpen])
+  }, [remoteClient, setArtifactPreviewOpen])
 
   const handlePendingTerminalCommandHandled = useCallback((id: number) => {
     setPendingTerminalCommand((current) => current?.id === id ? null : current)
@@ -1295,7 +1303,7 @@ function MainApp() {
       aria-hidden={workspaceInspectorFullscreen || undefined}
       aria-label={t('workspacePanel')}
     >
-      {!ui.workspaceInspectorOpen ? (
+      {!remoteClient && !ui.workspaceInspectorOpen ? (
         <ProjectOpenMenu
           project={agentManager.currentToolProject}
           disabled={needsModelSetup}
@@ -1323,23 +1331,25 @@ function MainApp() {
           onOpenGraph={() => setGitGraphOpen(true)}
         />
       ) : null}
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={() => {
-          setArtifactPreviewOpen(false)
-          setTerminalDockOpen((value) => !value)
-        }}
-        disabled={!agentManager.currentToolProject?.id || needsModelSetup}
-        aria-label={terminalDockOpen ? t('terminalCollapse') : t('rightPanelTerminal')}
-        title={terminalDockOpen ? t('terminalCollapse') : t('rightPanelTerminal')}
-        className={cn(
-          'rounded-[10px] text-muted-foreground/85 hover:bg-muted/45 hover:text-foreground/90 disabled:opacity-40',
-          terminalDockOpen ? 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground' : undefined,
-        )}
-      >
-        <SquareTerminal className="size-[18px] stroke-[1.85]" />
-      </Button>
+      {!remoteClient ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => {
+            setArtifactPreviewOpen(false)
+            setTerminalDockOpen((value) => !value)
+          }}
+          disabled={!agentManager.currentToolProject?.id || needsModelSetup}
+          aria-label={terminalDockOpen ? t('terminalCollapse') : t('rightPanelTerminal')}
+          title={terminalDockOpen ? t('terminalCollapse') : t('rightPanelTerminal')}
+          className={cn(
+            'rounded-[10px] text-muted-foreground/85 hover:bg-muted/45 hover:text-foreground/90 disabled:opacity-40',
+            terminalDockOpen ? 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground' : undefined,
+          )}
+        >
+          <SquareTerminal className="size-[18px] stroke-[1.85]" />
+        </Button>
+      ) : null}
       <Button
         variant="ghost"
         size="icon"
@@ -1368,7 +1378,7 @@ function MainApp() {
         />
       </Suspense>
     ) : (
-    <div className="flex h-screen min-h-0 bg-[var(--quickforge-sidebar-bg)] text-foreground">
+    <div className="flex h-screen min-h-0 supports-[height:100dvh]:h-dvh bg-[var(--quickforge-sidebar-bg)] text-foreground">
       <ChatSidebar
         sidebarOpen={ui.sidebarOpen}
         projectsCollapsed={ui.projectsCollapsed}
@@ -1406,13 +1416,13 @@ function MainApp() {
         onToggleProjectExpanded={toggleProjectExpanded}
         onToggleAllProjectsExpanded={toggleAllProjectsExpanded}
         onReorderProjects={reorderProjects}
-        onSelectProjectDirectory={selectProjectDirectory}
+        onSelectProjectDirectory={remoteClient ? undefined : selectProjectDirectory}
         onStartNewProjectChat={startNewProjectChat}
         onOpenGlobalSkills={openGlobalSkills}
         onOpenAgents={openAgents}
         onOpenScheduledTasks={openScheduledTasks}
         onOpenProjectSkills={openProjectSkills}
-        onOpenProjectInExplorer={openProjectInExplorerWithFeedback}
+        onOpenProjectInExplorer={remoteClient ? undefined : openProjectInExplorerWithFeedback}
         onDeleteProject={deleteProjectInline}
         onLoadSession={loadSession}
         onSessionViewModeChange={setSidebarSessionViewMode}
@@ -1477,7 +1487,7 @@ function MainApp() {
               onToggleProjectExpanded={toggleProjectExpanded}
               onToggleAllProjectsExpanded={toggleAllProjectsExpanded}
               onReorderProjects={reorderProjects}
-              onSelectProjectDirectory={() => {
+              onSelectProjectDirectory={remoteClient ? undefined : () => {
                 closeMobileSidebar()
                 selectProjectDirectory()
               }}
@@ -1486,7 +1496,7 @@ function MainApp() {
               onOpenAgents={openAgentsFromSidebar}
               onOpenScheduledTasks={openScheduledTasksFromSidebar}
               onOpenProjectSkills={openProjectSkillsFromSidebar}
-              onOpenProjectInExplorer={(project) => {
+              onOpenProjectInExplorer={remoteClient ? undefined : (project) => {
                 closeMobileSidebar()
                 void openProjectInExplorer(project).catch((error) => {
                   logger.error('Failed to open project in explorer:', error)
@@ -1707,7 +1717,16 @@ function MainApp() {
               </>
           )}
         </section>
-        {terminalDockOpen && agentManager.currentToolProject?.id ? (
+        {mobileShell ? (
+          <button
+            type="button"
+            className="fixed bottom-[calc(env(safe-area-inset-bottom)+1rem)] right-4 z-40 rounded-full border border-border bg-background px-3 py-2 text-xs font-medium text-foreground/80 shadow-quickforge"
+            onClick={openMobileServerPicker}
+          >
+            切换服务器
+          </button>
+        ) : null}
+        {terminalDockOpen && !remoteClient && agentManager.currentToolProject?.id ? (
           <Suspense fallback={<LazyPanelFallback />}>
             <TerminalDock
               project={agentManager.currentToolProject}
@@ -1728,17 +1747,17 @@ function MainApp() {
               open={ui.workspaceInspectorOpen}
               onOpenChange={ui.setWorkspaceInspectorOpen}
               onOpenCommitPush={() => setGitCommitDialogOpen(true)}
-              onOpenProjectInExplorer={openProjectInExplorerWithFeedback}
-              onOpenProjectInVSCode={openProjectInVSCodeWithFeedback}
-              onOpenProjectInIDEA={openProjectInIDEAWithFeedback}
+              onOpenProjectInExplorer={remoteClient ? undefined : openProjectInExplorerWithFeedback}
+              onOpenProjectInVSCode={remoteClient ? undefined : openProjectInVSCodeWithFeedback}
+              onOpenProjectInIDEA={remoteClient ? undefined : openProjectInIDEAWithFeedback}
               onPreviewArtifact={openArtifactPreview}
               request={ui.workspaceInspectorRequest}
               onRequestHandled={handleWorkspaceInspectorRequest}
               artifacts={currentSessionArtifactsState.projectId === agentManager.currentToolProject.id && currentSessionArtifactsState.sessionId === agentManager.currentSessionId
                 ? currentSessionArtifactsState.artifacts
                 : []}
-              globalTerminalOpen={terminalDockOpen}
-              onShowGlobalTerminal={() => {
+              globalTerminalOpen={remoteClient ? false : terminalDockOpen}
+              onShowGlobalTerminal={remoteClient ? undefined : () => {
                 setArtifactPreviewOpen(false)
                 setTerminalDockOpen(true)
               }}
@@ -1801,6 +1820,8 @@ function MainApp() {
 }
 
 function App() {
+  if (isNativeMobileEntry()) return <MobileServerConnectPage />
+
   const shareRouteId = window.location.pathname.match(/^\/share\/([^/]+)\/?$/)?.[1]
   if (shareRouteId) {
     return (

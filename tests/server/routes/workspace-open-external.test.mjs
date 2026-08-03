@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { openWorkspaceExternalPath } from '../../../server/routes/workspace.mjs'
+import { Readable } from 'node:stream'
+import { openWorkspaceExternalPath, handleWorkspaceApi } from '../../../server/routes/workspace.mjs'
 
 const tempDirs = []
 
@@ -55,6 +56,23 @@ describe('workspace external open', () => {
 
     await expect(openWorkspaceExternalPath(context, '../outside.ts', 'explorer', { explorer: vi.fn() }))
       .rejects.toMatchObject({ statusCode: 403 })
+  })
+
+  it('rejects the route for remote clients before reading or opening a path', async () => {
+    const req = Readable.from([Buffer.from(JSON.stringify({
+      projectId: 'project-1',
+      path: 'src/example.ts',
+      target: 'vscode',
+    }))])
+    req.method = 'POST'
+    req.headers = {}
+
+    await expect(handleWorkspaceApi(
+      req,
+      { writeHead() {}, end() {} },
+      new URL('http://localhost/api/workspace/open-external'),
+      { isLocalRequest: false },
+    )).rejects.toMatchObject({ statusCode: 403 })
   })
 
   it('rejects an unsupported target', async () => {

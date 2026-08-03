@@ -87,7 +87,7 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
   }, [settings.items, normalizedSettingsSearchQuery])
 
   return (
-    <div className="flex h-screen min-h-0 bg-[var(--quickforge-sidebar-bg)] text-foreground">
+    <div className="flex h-screen min-h-0 supports-[height:100dvh]:h-dvh bg-[var(--quickforge-sidebar-bg)] text-foreground">
       <aside className="relative z-10 hidden w-80 shrink-0 overflow-hidden bg-[var(--quickforge-sidebar-bg)] md:flex md:min-h-0 md:flex-col">
         <div className="shrink-0 px-3 pb-2 pt-3">
           <button

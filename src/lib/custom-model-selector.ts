@@ -39,7 +39,7 @@ type ComposerModelMenuElement = HTMLDivElement & {
 }
 
 function closeComposerModelMenu(anchor?: HTMLElement | null) {
-  document.querySelectorAll<ComposerModelMenuElement>('.quickforge-model-menu, .quickforge-model-submenu').forEach((menu) => {
+  document.querySelectorAll<ComposerModelMenuElement>('.quickforge-model-menu, .quickforge-model-submenu, .quickforge-model-sheet-backdrop').forEach((menu) => {
     menu.__quickforgeCleanup?.()
     menu.remove()
   })
@@ -95,6 +95,7 @@ function createMenuItem(options: {
   disabled?: boolean
   onPointerDown?: (event: PointerEvent) => void
   onPointerEnter?: () => void
+  onClick?: (event: MouseEvent) => void
 }) {
   const item = createButton('quickforge-model-menu-item')
   item.setAttribute('role', 'menuitemradio')
@@ -112,7 +113,216 @@ function createMenuItem(options: {
   item.append(label, suffix)
   if (options.onPointerDown) item.onpointerdown = options.onPointerDown
   if (options.onPointerEnter) item.onpointerenter = options.onPointerEnter
+  if (options.onClick) item.addEventListener('click', options.onClick)
   return item
+}
+
+function openMobileModelSelector(
+  currentModel: AnyModel | null,
+  models: AnyModel[],
+  onSelect: (model: AnyModel) => void,
+  options: ModelSelectorOptions,
+  anchor?: HTMLElement | null,
+) {
+  let selectedThinkingLevel = options.thinkingLevel ?? 'off'
+  let selectedModel = currentModel
+
+  const backdrop = document.createElement('div') as ComposerModelMenuElement
+  backdrop.className = 'quickforge-model-sheet-backdrop'
+
+  const sheet = document.createElement('div')
+  sheet.className = 'quickforge-model-sheet'
+  sheet.setAttribute('role', 'dialog')
+  sheet.setAttribute('aria-modal', 'true')
+  sheet.setAttribute('aria-label', t('selectCustomModel'))
+
+  const dragZone = document.createElement('div')
+  dragZone.className = 'quickforge-model-sheet-drag-zone'
+
+  const handle = document.createElement('div')
+  handle.className = 'quickforge-model-sheet-handle'
+  dragZone.append(handle)
+
+  const header = document.createElement('div')
+  header.className = 'quickforge-model-sheet-header'
+
+  const title = document.createElement('div')
+  title.className = 'quickforge-model-sheet-title'
+  title.textContent = t('selectCustomModel')
+
+  const closeButton = createButton('quickforge-model-sheet-close', '×')
+  closeButton.setAttribute('aria-label', t('close'))
+  closeButton.title = t('close')
+  closeButton.onpointerdown = (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    closeComposerModelMenu(anchor)
+  }
+  header.append(title, closeButton)
+
+  const thinkingSection = document.createElement('div')
+  thinkingSection.className = 'quickforge-model-sheet-section'
+
+  const thinkingLabel = document.createElement('div')
+  thinkingLabel.className = 'quickforge-model-sheet-section-label'
+  thinkingLabel.textContent = t('reasoning')
+
+  const renderThinkingSection = () => {
+    thinkingSection.replaceChildren(thinkingLabel)
+    if (selectedModel?.reasoning === true) {
+      const thinkingOptions = document.createElement('div')
+      thinkingOptions.className = 'quickforge-model-sheet-thinking-options'
+      const buttons = new Map<ThinkingLevel, HTMLButtonElement>()
+
+      for (const level of THINKING_LEVELS) {
+        const button = createButton('quickforge-model-sheet-thinking-option', thinkingLevelLabel(level))
+        buttons.set(level, button)
+        button.onpointerdown = (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          selectedThinkingLevel = level
+          options.onThinkingLevelSelect?.(level)
+          for (const [option, optionButton] of buttons) {
+            const selected = option === selectedThinkingLevel
+            optionButton.classList.toggle('is-selected', selected)
+            optionButton.setAttribute('aria-pressed', String(selected))
+          }
+        }
+        const selected = level === selectedThinkingLevel
+        button.classList.toggle('is-selected', selected)
+        button.setAttribute('aria-pressed', String(selected))
+        thinkingOptions.append(button)
+      }
+      thinkingSection.append(thinkingOptions)
+    } else {
+      const note = document.createElement('div')
+      note.className = 'quickforge-model-menu-note'
+      note.textContent = t('thinkingNotSupported')
+      thinkingSection.append(note)
+    }
+  }
+  renderThinkingSection()
+
+  const modelSectionLabel = document.createElement('div')
+  modelSectionLabel.className = 'quickforge-model-sheet-section-label quickforge-model-sheet-model-label'
+  modelSectionLabel.textContent = t('model')
+
+  const modelList = document.createElement('div')
+  modelList.className = 'quickforge-model-sheet-model-list'
+  modelList.setAttribute('role', 'menu')
+  modelList.setAttribute('aria-label', t('model'))
+
+  // 滚动期间忽略模型行点击，避免滚动误触选中模型
+  let lastScrollAt = 0
+  modelList.addEventListener('scroll', () => {
+    lastScrollAt = Date.now()
+  })
+
+  const modelItems = new Map<HTMLButtonElement, AnyModel>()
+
+  // 选中模型：立即生效，但保持抽屉打开，仅高亮当前项
+  const selectModel = (model: AnyModel) => {
+    selectedModel = model
+    if (!model.reasoning && selectedThinkingLevel !== 'off') {
+      selectedThinkingLevel = 'off'
+      options.onThinkingLevelSelect?.('off')
+    }
+    for (const [item, itemModel] of modelItems) {
+      const selected = modelsAreEqual(itemModel, model)
+      item.setAttribute('aria-checked', String(selected))
+      const suffix = item.querySelector<HTMLElement>('.quickforge-model-menu-item-suffix')
+      if (suffix) suffix.textContent = selected ? '✓' : ''
+    }
+    renderThinkingSection()
+    onSelect(model)
+  }
+
+  const sortedModels = [...models].sort((a, b) => modelLabel(a).localeCompare(modelLabel(b)))
+  for (const model of sortedModels) {
+    const item = createMenuItem({
+      label: modelLabel(model),
+      selected: modelsAreEqual(selectedModel, model),
+      onClick: (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        if (Date.now() - lastScrollAt < 300) return
+        selectModel(model)
+      },
+    })
+    modelItems.set(item, model)
+    modelList.append(item)
+  }
+
+  sheet.append(dragZone, header, thinkingSection, modelSectionLabel, modelList)
+  sheet.addEventListener('pointerdown', (event) => event.stopPropagation())
+  backdrop.addEventListener('pointerdown', (event) => {
+    if (event.target === backdrop) closeComposerModelMenu(anchor)
+  })
+
+  // 向下拖拽关闭：跟随手指位移，超过阈值滑出关闭，否则回弹
+  let dragStartY = 0
+  let dragging = false
+  let dragged = false
+  let closeTimer: ReturnType<typeof setTimeout> | undefined
+
+  const onDragStart = (event: PointerEvent) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    dragStartY = event.clientY
+    dragging = true
+    dragged = false
+    sheet.style.transition = 'none'
+  }
+  const onDragMove = (event: PointerEvent) => {
+    if (!dragging) return
+    const dy = event.clientY - dragStartY
+    if (dy > 0) {
+      dragged = true
+      sheet.style.transform = `translateY(${dy}px)`
+      backdrop.style.background = `rgb(15 23 42 / ${Math.max(0, 0.34 * (1 - dy / 480))})`
+    }
+  }
+  const onDragEnd = () => {
+    if (!dragging) return
+    dragging = false
+    sheet.style.transition = 'transform 0.24s ease'
+    const dy = dragged ? (Number.parseFloat(sheet.style.transform.replace(/[^0-9.-]/g, '')) || 0) : 0
+    if (dy >= 112) {
+      sheet.style.transform = 'translateY(110%)'
+      backdrop.style.background = 'rgb(15 23 42 / 0)'
+      closeTimer = setTimeout(() => closeComposerModelMenu(anchor), 220)
+    } else {
+      sheet.style.transform = ''
+      backdrop.style.background = ''
+    }
+  }
+  dragZone.addEventListener('pointerdown', onDragStart)
+  window.addEventListener('pointermove', onDragMove)
+  window.addEventListener('pointerup', onDragEnd)
+  window.addEventListener('pointercancel', onDragEnd)
+
+  const dismiss = (event: Event) => {
+    if (event.type === 'resize') {
+      if (window.innerWidth > 768) closeComposerModelMenu(anchor)
+      return
+    }
+    if (!(event instanceof KeyboardEvent) || event.key !== 'Escape') return
+    event.preventDefault()
+    closeComposerModelMenu(anchor)
+  }
+  backdrop.__quickforgeCleanup = () => {
+    if (closeTimer) clearTimeout(closeTimer)
+    document.removeEventListener('keydown', dismiss, true)
+    window.removeEventListener('resize', dismiss, true)
+    window.removeEventListener('pointermove', onDragMove)
+    window.removeEventListener('pointerup', onDragEnd)
+    window.removeEventListener('pointercancel', onDragEnd)
+  }
+
+  backdrop.append(sheet)
+  document.body.append(backdrop)
+  anchor?.setAttribute('aria-expanded', 'true')
+  document.addEventListener('keydown', dismiss, true)
+  window.addEventListener('resize', dismiss, true)
 }
 
 export function openCustomOnlyModelSelector(
@@ -123,8 +333,12 @@ export function openCustomOnlyModelSelector(
   options: ModelSelectorOptions = {},
 ) {
   const anchor = getAnchor(options.anchor)
-  if (document.querySelector('.quickforge-model-menu')) {
+  if (document.querySelector('.quickforge-model-menu, .quickforge-model-sheet-backdrop')) {
     closeComposerModelMenu(anchor)
+    return
+  }
+  if (window.innerWidth <= 768) {
+    openMobileModelSelector(currentModel, models, onSelect, options, anchor)
     return
   }
 

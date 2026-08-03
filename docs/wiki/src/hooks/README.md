@@ -10,7 +10,7 @@
 | [useAgentManager.ts](../../src/hooks/useAgentManager.ts) | 537 | Agent 生命周期管理：创建、加载、切换会话 |
 | [useChatActions.ts](../../src/hooks/useChatActions.ts) | 311 | 聊天操作：发送消息、回滚、分叉、复制 |
 | [useModelActions.ts](../../src/hooks/useModelActions.ts) | 232 | 模型操作：选择模型、切换访问模式、管理工具 |
-| [useSessionActions.ts](../../src/hooks/useSessionActions.ts) | 105 | 会话操作：删除、重命名、刷新 |
+| [useSessionActions.ts](../../src/hooks/useSessionActions.ts) | 105 | 会话操作：归档、置顶、重命名、刷新 |
 | [useSessionPagination.ts](../../src/hooks/useSessionPagination.ts) | 312 | 会话分页加载 |
 | [useProject.ts](../../src/hooks/useProject.ts) | 155 | 项目状态管理；含 `defaultWorkspace`（全局对话默认工作目录的合成 project，由 `/api/project` 的 `defaultWorkspaceRoot` 构造） |
 | [useProjectActions.ts](../../src/hooks/useProjectActions.ts) | 58 | 项目操作：切换、添加、删除 |

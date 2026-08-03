@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import type { Api, Model } from '@earendil-works/pi-ai'
 import type { BackgroundTaskStatus } from '@/lib/types'
 import {
+  Archive,
   ChevronDown,
   Ellipsis,
   Folder,
@@ -1090,6 +1091,13 @@ function MainApp() {
     ui.setShareDialogOpen(true)
   }, [ui])
 
+  const handleArchiveCurrentSession = useCallback(() => {
+    const sessionId = agentManager.currentSessionId
+    if (!sessionId) return
+    ui.setConversationMenuOpen(false)
+    void archiveSession(sessionId)
+  }, [agentManager.currentSessionId, archiveSession, ui])
+
   // Stable UI setters used by the desktop sidebar handlers below.  Destructuring
   // them keeps the callbacks referentially stable (a useState setter never changes)
   // without dragging the whole `ui` object into the dependency array.
@@ -1105,6 +1113,10 @@ function MainApp() {
 
   const openScheduledTasks = useCallback(() => {
     openSettingsPage('scheduledTasks')
+  }, [openSettingsPage])
+
+  const openArchivedConversations = useCallback(() => {
+    openSettingsPage('archivedConversations')
   }, [openSettingsPage])
 
   const openProjectSkills = useCallback((project: ProjectInfo) => {
@@ -1197,6 +1209,11 @@ function MainApp() {
     closeMobileSidebar()
     openScheduledTasks()
   }, [closeMobileSidebar, openScheduledTasks])
+
+  const openArchivedConversationsFromSidebar = useCallback(() => {
+    closeMobileSidebar()
+    openArchivedConversations()
+  }, [closeMobileSidebar, openArchivedConversations])
 
   const openProjectSkillsFromSidebar = useCallback((project: ProjectInfo) => {
     closeMobileSidebar()
@@ -1430,6 +1447,7 @@ function MainApp() {
         onTogglePinSession={togglePinSession}
         onDeleteSession={archiveSession}
         onStartNewGlobalChat={startNewGlobalSession}
+        onOpenArchivedConversations={openArchivedConversations}
         onOpenSettings={openDefaultOptionsSettings}
         updateAvailable={updateCheck.result.updateAvailable}
         latestVersion={updateCheck.result.latestVersion}
@@ -1510,6 +1528,7 @@ function MainApp() {
               onTogglePinSession={togglePinSession}
               onDeleteSession={archiveSession}
               onStartNewGlobalChat={startNewGlobalSessionFromSidebar}
+              onOpenArchivedConversations={openArchivedConversationsFromSidebar}
               onOpenSettings={() => {
                 closeMobileSidebar()
                 openDefaultOptionsSettings()
@@ -1582,7 +1601,6 @@ function MainApp() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="size-6"
                   onClick={() => ui.setConversationMenuOpen((value) => !value)}
                   disabled={!agentManager.currentSessionId || needsModelSetup}
                   aria-label={t('moreOptions')}
@@ -1591,7 +1609,7 @@ function MainApp() {
                   <Ellipsis className="size-[18px]" />
                 </Button>
                 {ui.conversationMenuOpen ? (
-                  <div className="absolute left-0 top-8 z-30 min-w-44 rounded-lg border border-border bg-popover p-1 shadow-quickforge">
+                  <div className="absolute left-0 top-full z-30 mt-1 min-w-44 rounded-lg border border-border bg-popover p-1 shadow-quickforge">
                     <button
                       type="button"
                       className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
@@ -1615,6 +1633,14 @@ function MainApp() {
                     >
                       <Share2 className="size-[18px]" />
                       <span>{t('shareSession')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+                      onClick={handleArchiveCurrentSession}
+                    >
+                      <Archive className="size-[18px]" />
+                      <span>{t('archiveSession')}</span>
                     </button>
                   </div>
                 ) : null}

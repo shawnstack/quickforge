@@ -29,6 +29,20 @@ type SseHandler = (event: Record<string, unknown>) => void
 
 const SSE_WATCHDOG_INTERVAL_MS = 5000
 const SSE_SILENCE_RECOVERY_MS = 15000
+const STATUS_REQUEST_TIMEOUT_MS = 10000
+const STATE_REQUEST_TIMEOUT_MS = 30000
+
+async function fetchJsonWithTimeout<T>(url: string, timeoutMs: number): Promise<{ response: Response; body?: T }> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const response = await fetch(url, { signal: controller.signal })
+    const body = response.ok ? await response.json() : undefined
+    return { response, body }
+  } finally {
+    clearTimeout(timeout)
+  }
+}
 
 class GlobalAgentSseClient {
   private eventSource: EventSource | null = null
@@ -305,6 +319,24 @@ export type PromptCapabilitySelection = {
   name: string
   label: string
   description?: string
+}
+
+type ServerAgentStateSnapshot = {
+  stateVersion?: number
+  messages?: AgentMessage[]
+  systemPrompt?: string
+  model?: Model<Api>
+  thinkingLevel?: ThinkingLevel
+  accessMode?: AgentAccessMode
+  yoloMode?: boolean
+  tools?: unknown[]
+  contextCompaction?: ServerAgentContextCompaction | null
+  contextUsage?: ServerAgentContextUsage | null
+  pendingToolApproval?: ServerAgentPendingToolApproval | null
+  pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
+  pendingToolCalls?: string[]
+  isStreaming?: boolean
+  errorMessage?: string
 }
 
 export class ServerAgent {
@@ -1012,7 +1044,12 @@ export class ServerAgent {
   private async _doRefreshStatusFromServer() {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/status`
     try {
-      const res = await fetch(url)
+      const { response: res, body: status } = await fetchJsonWithTimeout<{
+        stateVersion?: number
+        isStreaming?: boolean
+        status?: string
+        errorMessage?: string
+      }>(url, STATUS_REQUEST_TIMEOUT_MS)
       if (!res.ok) {
         if (res.status === 404 && this.state.isStreaming) {
           this.state.isStreaming = false
@@ -1022,19 +1059,14 @@ export class ServerAgent {
         return
       }
 
-      const status = await res.json() as {
-        stateVersion?: number
-        isStreaming?: boolean
-        status?: string
-        errorMessage?: string
-      }
+      const typedStatus = status ?? {}
       this.lastSseEventAt = Date.now()
 
-      const serverStateVersion = typeof status.stateVersion === 'number' && Number.isFinite(status.stateVersion)
-        ? status.stateVersion
+      const serverStateVersion = typeof typedStatus.stateVersion === 'number' && Number.isFinite(typedStatus.stateVersion)
+        ? typedStatus.stateVersion
         : this.lastServerStateVersion
 
-      if (status.isStreaming === false) {
+      if (typedStatus.isStreaming === false) {
         const wasStreaming = this.state.isStreaming
         this.stopStateWatchdog()
         await this.refreshStateFromServer({ notify: true, forceMessages: true })
@@ -1051,9 +1083,9 @@ export class ServerAgent {
         return
       }
 
-      if (status.isStreaming === true) {
+      if (typedStatus.isStreaming === true) {
         this.state.isStreaming = true
-        this.state.errorMessage = status.errorMessage
+        this.state.errorMessage = typedStatus.errorMessage
       }
 
       if (serverStateVersion > this.lastServerStateVersion) {
@@ -1082,7 +1114,7 @@ export class ServerAgent {
     try {
       // Snapshot the version before the async gap
       const versionBeforeFetch = this.stateVersion
-      const res = await fetch(url)
+      const { response: res, body } = await fetchJsonWithTimeout<ServerAgentStateSnapshot>(url, STATE_REQUEST_TIMEOUT_MS)
       if (!res.ok) {
         // If the session no longer exists (e.g. destroyed by idle timeout),
         // stop streaming so the UI doesn't get stuck showing a Stop button.
@@ -1093,7 +1125,7 @@ export class ServerAgent {
         }
         return
       }
-      const state = await res.json()
+      const state = body ?? {}
       const serverStateVersion = typeof state.stateVersion === 'number' && Number.isFinite(state.stateVersion)
         ? state.stateVersion
         : undefined
@@ -1118,7 +1150,7 @@ export class ServerAgent {
           || (!this.state.isStreaming && state.messages.length === this.state.messages.length)
         ),
       )
-      if (shouldReplaceMessages) {
+      if (shouldReplaceMessages && state.messages) {
         this.state.messages = state.messages
         this.state.contextUsage = state.contextUsage !== undefined ? state.contextUsage : null
         this.stateVersion++
@@ -1242,8 +1274,11 @@ export class ServerAgent {
     // Fetch initial state
     let serverState: Record<string, unknown> = {}
     try {
-      const stateRes = await fetch(`${baseUrl}/api/agents/${encodeURIComponent(sessionId)}/state`)
-      if (stateRes.ok) serverState = await stateRes.json()
+      const { response: stateRes, body } = await fetchJsonWithTimeout<Record<string, unknown>>(
+        `${baseUrl}/api/agents/${encodeURIComponent(sessionId)}/state`,
+        STATE_REQUEST_TIMEOUT_MS,
+      )
+      if (stateRes.ok) serverState = body ?? {}
     } catch { /* ignore */ }
 
     return new ServerAgent({

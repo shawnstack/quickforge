@@ -1,4 +1,4 @@
-import { streamSimple } from '@earendil-works/pi-ai/compat'
+import { streamSimpleWithAiHttpLogging } from './ai-http-logger.mjs'
 import { DEFAULT_AI_MAX_RETRIES } from './ai-provider-options.mjs'
 import { buildInstructionsPayload, projectContextFromId } from './project-config.mjs'
 import { composeSystemPrompt } from './system-prompt.mjs'
@@ -88,7 +88,7 @@ export async function generateAiTitle(messages, model, thinkingLevel, getApiKey)
 
   try {
     const apiKey = getApiKey ? await getApiKey(model.provider) : undefined
-    const stream = streamSimple(
+    const stream = streamSimpleWithAiHttpLogging(
       model,
       {
         systemPrompt: '你是对话标题生成器。请用和用户相同的语言，根据对话主题生成 3 到 5 个词的短标题。只输出标题，不要解释，不要标点。',

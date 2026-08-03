@@ -65,6 +65,7 @@ async function writePlugin(version, { dispose = false } = {}) {
     '  return {',
     '    tools: {',
     `      version() { return ${JSON.stringify(version)} },`,
+    "      hang(_params, context) { return new Promise((_, reject) => context.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true })) },",
     '    },',
     dispose
       ? `    async dispose() { appendFileSync(trackerPath, 'dispose:${version}\\n') },`
@@ -117,6 +118,10 @@ beforeEach(async () => {
         name: 'version',
         description: 'Returns the fixture version',
         parameters: { type: 'object', properties: {} },
+      }, {
+        name: 'hang',
+        description: 'Waits until aborted',
+        parameters: { type: 'object', properties: {} },
       }],
     },
   }, null, 2))
@@ -129,6 +134,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  vi.useRealTimers()
   if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
   else process.env.QUICKFORGE_DATA_DIR = previousDataDir
   vi.resetModules()
@@ -203,6 +209,37 @@ describe('plugin lifecycle', () => {
     await registry.refreshPlugins({ workspaceRoot })
 
     expect((await readTracker()).filter((line) => line === 'dispose:v1')).toHaveLength(1)
+  })
+
+  it('times out plugin tools that do not settle', async () => {
+    await writePlugin('v1')
+    const { registry } = await importModules()
+    await registry.refreshPlugins({ workspaceRoot })
+    vi.useFakeTimers()
+    const result = registry.callPluginTool('plugin__lifecycle-test__hang', {}, { workspaceRoot })
+    await Promise.resolve()
+
+    try {
+      const rejection = expect(result).rejects.toThrow(`timed out after ${registry.DEFAULT_PLUGIN_TOOL_TIMEOUT_MS}ms`)
+      await vi.advanceTimersByTimeAsync(registry.DEFAULT_PLUGIN_TOOL_TIMEOUT_MS)
+      await rejection
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('aborts a hanging plugin tool immediately when the caller signal is aborted', async () => {
+    await writePlugin('v1')
+    const { registry } = await importModules()
+    await registry.refreshPlugins({ workspaceRoot })
+    const controller = new AbortController()
+    const result = registry.callPluginTool('plugin__lifecycle-test__hang', {}, {
+      workspaceRoot,
+      signal: controller.signal,
+    })
+
+    controller.abort()
+    await expect(result).rejects.toThrow('Plugin tool call aborted')
   })
 
   it('disposes replaced instances and remains compatible with plugins without dispose', async () => {

@@ -84,6 +84,7 @@ describe('ServerAgent', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
@@ -115,7 +116,10 @@ describe('ServerAgent', () => {
     try {
       await agent.syncState()
 
-      expect(fetchMock).toHaveBeenCalledWith('/api/agents/session-1/state')
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/agents/session-1/state',
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      )
       expect(agent.state.messages.map((message) => message.content)).toEqual(['first', 'reply', 'second'])
     } finally {
       agent.dispose()
@@ -195,7 +199,10 @@ describe('ServerAgent', () => {
       eventSource.emit('agent_end', { sessionId: 'session-1', stateVersion: 2 })
       await flushPromises()
 
-      expect(fetchMock).toHaveBeenCalledWith('/api/agents/session-1/state')
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/agents/session-1/state',
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      )
 
       const rolledBackMessages = [] as AgentMessage[]
       eventSource.emit('messages_replaced', {
@@ -308,7 +315,10 @@ describe('ServerAgent', () => {
         { role: 'assistant', content: 'server partial response' },
       ])
       expect(agent.state.isStreaming).toBe(true)
-      expect(fetchMock).toHaveBeenCalledWith('/api/agents/evicted-session/state')
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/agents/evicted-session/state',
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      )
     } finally {
       agent.dispose()
     }
@@ -366,7 +376,85 @@ describe('ServerAgent', () => {
         { role: 'assistant', content: 'checking files' },
       ])
       expect(agent.state.isStreaming).toBe(true)
-      expect(fetchMock).toHaveBeenCalledWith('/api/agents/evicted-session/state')
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/agents/evicted-session/state',
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      )
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('retries status recovery after a timed out watchdog request', async () => {
+    vi.useFakeTimers()
+    let statusCalls = 0
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith('/status')) {
+        statusCalls += 1
+        if (statusCalls === 1) {
+          return new Promise((_, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+          })
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ stateVersion: 2, isStreaming: false, status: 'idle' }),
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ stateVersion: 2, isStreaming: false, messages: [] }),
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: { messages: [], isStreaming: true, stateVersion: 1 },
+    })
+
+    try {
+      await vi.advanceTimersByTimeAsync(25_000)
+      expect(statusCalls).toBe(1)
+      expect(agent.state.isStreaming).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(statusCalls).toBe(2)
+      expect(agent.state.isStreaming).toBe(false)
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('clears a timed out state refresh so a later sync can retry', async () => {
+    vi.useFakeTimers()
+    let stateCalls = 0
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+      stateCalls += 1
+      if (stateCalls === 1) {
+        return new Promise((_, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ stateVersion: 2, isStreaming: false, messages: [{ role: 'assistant', content: 'recovered' }] }),
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const agent = await createServerAgent({ sessionId: 'session-1', initialState: { messages: [] } })
+    try {
+      const firstSync = agent.syncState()
+      await vi.advanceTimersByTimeAsync(30_000)
+      await firstSync
+
+      await agent.syncState()
+      expect(stateCalls).toBe(2)
+      expect(agent.state.messages).toEqual([{ role: 'assistant', content: 'recovered' }])
     } finally {
       agent.dispose()
     }
@@ -402,8 +490,14 @@ describe('ServerAgent', () => {
     try {
       await vi.advanceTimersByTimeAsync(15_000)
 
-      expect(fetchMock).toHaveBeenCalledWith('/api/agents/session-1/status')
-      expect(fetchMock).toHaveBeenCalledWith('/api/agents/session-1/state')
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/agents/session-1/status',
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      )
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/agents/session-1/state',
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      )
       expect(agent.state.isStreaming).toBe(false)
     } finally {
       agent.dispose()

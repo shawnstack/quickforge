@@ -199,6 +199,7 @@ function hasFullAccess(session) {
 /** @typedef {{ agent: Agent, projectContext: object|null, projectId: string|null, accessMode: string, yoloMode: boolean, model: object, thinkingLevel: string, scope: string, title: string, createdAt: string, status: string, startedAt: string|null, finishedAt: string|null, listeners: Set<function>, idleTimer: NodeJS.Timeout|null, eventBus: EventEmitter }} AgentSession */
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
+const ABORT_IDLE_WAIT_TIMEOUT_MS = 3000
 const SUBAGENT_DEFAULT_TIMEOUT_MS = 30 * 60 * 1000
 const SUBAGENT_TRACE_THROTTLE_MS = 150
 
@@ -1721,6 +1722,8 @@ export async function createAgent(sessionId, config = {}) {
     /** Track active SSE connections. Only one SSE stream allowed per session to prevent
      *  connection-pool exhaustion when two browser tabs load the same session. */
     sseConnected: false,
+    abortPending: false,
+    abortEndEmitted: false,
   }
 
   // Subscribe to agent lifecycle events and forward to eventBus
@@ -1750,11 +1753,14 @@ export async function createAgent(sessionId, config = {}) {
         }
       : timedEvent
 
-    // Forward all events to the session event bus and the global bus.
-    emitSessionEvent(session, forwardEvent)
+    const shouldForwardEvent = !(timedEvent.type === 'agent_end' && session.abortEndEmitted)
+    if (shouldForwardEvent) {
+      emitSessionEvent(session, forwardEvent)
+    }
 
     // Track status
     if (event.type === 'agent_start') {
+      session.abortEndEmitted = false
       session.status = 'running'
       session.startedAt = session.startedAt ?? new Date().toISOString()
       session.finishedAt = null
@@ -1769,6 +1775,8 @@ export async function createAgent(sessionId, config = {}) {
     }
 
     if (event.type === 'agent_end') {
+      session.abortPending = false
+      session.abortEndEmitted = false
       session.status = eventEndStatus || (session.agent.state.errorMessage ? 'error' : 'idle')
       session.finishedAt = new Date().toISOString()
       session.toolTimings?.clear()
@@ -2129,7 +2137,7 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
   }
 
-  if (session.agent.state.isStreaming) {
+  if (session.agent.state.isStreaming || session.abortPending) {
     throw Object.assign(new Error('Generation is still running. Stop it or wait until it finishes.'), { statusCode: 409 })
   }
 
@@ -2285,7 +2293,19 @@ export async function abortRun(sessionId) {
   }
 
   session.agent.abort()
-  await session.agent.waitForIdle()
+  let idleWaitTimer
+  const becameIdle = await Promise.race([
+    session.agent.waitForIdle().then(() => true),
+    new Promise((resolve) => {
+      idleWaitTimer = setTimeout(() => resolve(false), ABORT_IDLE_WAIT_TIMEOUT_MS)
+      idleWaitTimer.unref?.()
+    }),
+  ])
+  clearTimeout(idleWaitTimer)
+  if (!becameIdle) {
+    session.abortPending = true
+    logger.warn(`Agent ${sessionId} did not become idle within ${ABORT_IDLE_WAIT_TIMEOUT_MS}ms after abort`, { sessionId })
+  }
 
   if (session.status === 'running') {
     session.status = 'aborted'
@@ -2293,6 +2313,7 @@ export async function abortRun(sessionId) {
     persistSession(session).catch((err) =>
       logger.error(`Failed to persist aborted session ${sessionId}:`, err, { sessionId }),
     )
+    session.abortEndEmitted = true
     const event = {
       type: 'agent_end',
       status: 'aborted',
@@ -2438,7 +2459,7 @@ export function getSessionState(sessionId) {
     contextUsage: getSessionContextUsage(session),
     pendingToolApproval: getPendingApprovalForSession(session.sessionId),
     pendingAutoCompactApproval: getPendingAutoCompactApprovalForSession(session.sessionId),
-    isStreaming: session.agent.state.isStreaming,
+    isStreaming: session.abortPending ? false : session.agent.state.isStreaming,
     errorMessage: session.agent.state.errorMessage,
   }
 }
@@ -2466,7 +2487,7 @@ export function getSessionStatus(sessionId) {
     status: session.status,
     startedAt: session.startedAt,
     finishedAt: session.finishedAt,
-    isStreaming: session.agent.state.isStreaming,
+    isStreaming: session.abortPending ? false : session.agent.state.isStreaming,
     errorMessage: session.agent.state.errorMessage,
     messageCount: messages.length,
     lastMessageTimestamp: lastMessage?.timestamp ?? null,

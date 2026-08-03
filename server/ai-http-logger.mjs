@@ -3,7 +3,10 @@ import path from 'node:path'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 import { streamSimple } from '@earendil-works/pi-ai/compat'
-import { withDefaultAiProviderOptions } from './ai-provider-options.mjs'
+import {
+  DEFAULT_AI_STREAM_DEADLINE_MS,
+  withDefaultAiProviderOptions,
+} from './ai-provider-options.mjs'
 import { logsDir } from './storage.mjs'
 
 const PATCH_MARKER = Symbol.for('quickforge.aiHttpLogger.fetchPatched')
@@ -206,18 +209,72 @@ export function installAiHttpLogger() {
   globalThis[PATCH_MARKER] = true
 }
 
+function combineAbortSignals(parentSignal, deadlineSignal) {
+  if (!parentSignal) return deadlineSignal
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any([parentSignal, deadlineSignal])
+
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  if (parentSignal.aborted || deadlineSignal.aborted) {
+    controller.abort()
+  } else {
+    parentSignal.addEventListener('abort', abort, { once: true })
+    deadlineSignal.addEventListener('abort', abort, { once: true })
+  }
+  return controller.signal
+}
+
+function wrapStreamWithDeadline(stream, deadlineController, deadlineMs) {
+  let timer
+  const deadlinePromise = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      deadlineController.abort()
+      reject(new Error(`AI stream timed out after ${deadlineMs}ms`))
+    }, deadlineMs)
+    timer.unref?.()
+  })
+  const resultPromise = Promise.race([stream.result(), deadlinePromise])
+    .finally(() => clearTimeout(timer))
+  resultPromise.catch(() => {})
+
+  return {
+    result: () => resultPromise,
+    [Symbol.asyncIterator]() {
+      const iterator = stream[Symbol.asyncIterator]()
+      return {
+        next: () => Promise.race([iterator.next(), deadlinePromise]),
+        return: async () => {
+          clearTimeout(timer)
+          if (typeof iterator.return === 'function') return iterator.return()
+          return { value: undefined, done: true }
+        },
+      }
+    },
+  }
+}
+
 export function streamSimpleWithAiHttpLogging(model, context, options = {}) {
   const providerOptions = withDefaultAiProviderOptions(options)
-  if (!aiHttpLogEnabled) return streamSimple(model, context, providerOptions)
-
-  const traceContext = {
-    traceId: randomUUID(),
-    sessionId: providerOptions.sessionId,
-    purpose: providerOptions.metadata?.quickforgePurpose || 'chat',
-    provider: model?.provider,
-    api: model?.api,
-    model: model?.id,
+  const deadlineMs = Number.isFinite(providerOptions.deadlineMs)
+    ? Math.max(1, providerOptions.deadlineMs)
+    : DEFAULT_AI_STREAM_DEADLINE_MS
+  const deadlineController = new AbortController()
+  const effectiveOptions = {
+    ...providerOptions,
+    signal: combineAbortSignals(providerOptions.signal, deadlineController.signal),
   }
+  delete effectiveOptions.deadlineMs
 
-  return aiHttpContext.run(traceContext, () => streamSimple(model, context, providerOptions))
+  const stream = aiHttpLogEnabled
+    ? aiHttpContext.run({
+        traceId: randomUUID(),
+        sessionId: effectiveOptions.sessionId,
+        purpose: effectiveOptions.metadata?.quickforgePurpose || 'chat',
+        provider: model?.provider,
+        api: model?.api,
+        model: model?.id,
+      }, () => streamSimple(model, context, effectiveOptions))
+    : streamSimple(model, context, effectiveOptions)
+
+  return wrapStreamWithDeadline(stream, deadlineController, deadlineMs)
 }

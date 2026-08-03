@@ -16,6 +16,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const bundledPluginDir = path.resolve(__dirname, '..', '..', 'plugins')
 const globalPluginDir = path.join(dataDir, 'plugins')
 const legacyGlobalPluginDir = path.join(os.homedir(), '.agents', 'plugins')
+export const DEFAULT_PLUGIN_TOOL_TIMEOUT_MS = 2 * 60 * 1000
 let cachedCatalog = null
 let cachedCatalogKey = null
 let catalogDirty = false
@@ -27,6 +28,56 @@ function catalogKey(projectContext = null) {
 
 function isPlainObject(value) {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function withTimeout(promise, timeoutMs, message, onTimeout, signal) {
+  let timer
+  let timedOut = false
+  let abortHandler
+  const guardedPromise = promise.catch((error) => {
+    if (timedOut) return new Promise(() => {})
+    throw error
+  })
+  const timeoutPromise = new Promise((_, reject) => {
+    const rejectForAbort = () => {
+      timedOut = true
+      reject(new Error('Plugin tool call aborted'))
+    }
+    if (signal?.aborted) {
+      rejectForAbort()
+      return
+    }
+    if (signal) {
+      abortHandler = rejectForAbort
+      signal.addEventListener('abort', abortHandler, { once: true })
+    }
+    timer = setTimeout(() => {
+      timedOut = true
+      try {
+        onTimeout?.()
+      } finally {
+        reject(new Error(message))
+      }
+    }, timeoutMs)
+  })
+  return Promise.race([guardedPromise, timeoutPromise]).finally(() => {
+    clearTimeout(timer)
+    if (abortHandler) signal?.removeEventListener('abort', abortHandler)
+  })
+}
+
+function combineAbortSignals(parentSignal, timeoutSignal) {
+  if (!parentSignal) return timeoutSignal
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any([parentSignal, timeoutSignal])
+
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  if (parentSignal.aborted || timeoutSignal.aborted) controller.abort()
+  else {
+    parentSignal.addEventListener('abort', abort, { once: true })
+    timeoutSignal.addEventListener('abort', abort, { once: true })
+  }
+  return controller.signal
 }
 
 async function exists(filePath) {
@@ -308,10 +359,19 @@ export async function callPluginTool(toolName, params = {}, toolContext = {}) {
     throw error
   }
 
-  const result = await handler.callTool(tool.name, params, {
-    ...toolContext,
-    plugin: { name: plugin.name, dir: plugin.dir, config: plugin.config },
-  })
+  const timeoutController = new AbortController()
+  const signal = combineAbortSignals(toolContext.signal, timeoutController.signal)
+  const result = await withTimeout(
+    Promise.resolve().then(() => handler.callTool(tool.name, params, {
+      ...toolContext,
+      signal,
+      plugin: { name: plugin.name, dir: plugin.dir, config: plugin.config },
+    })),
+    DEFAULT_PLUGIN_TOOL_TIMEOUT_MS,
+    `Plugin tool ${toolName} timed out after ${DEFAULT_PLUGIN_TOOL_TIMEOUT_MS}ms`,
+    () => timeoutController.abort(),
+    toolContext.signal,
+  )
 
   return {
     isError: Boolean(result.isError),

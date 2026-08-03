@@ -1,4 +1,4 @@
-import { streamSimple } from '@earendil-works/pi-ai/compat'
+import { streamSimpleWithAiHttpLogging } from '../ai-http-logger.mjs'
 import { DEFAULT_AI_MAX_RETRIES } from '../ai-provider-options.mjs'
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { readStore } from '../storage.mjs'
@@ -90,7 +90,7 @@ Rules:
 - If the user requests Chinese, write label, description, and systemPrompt in Chinese; otherwise match the user's language.`
 
   try {
-    const stream = streamSimple(
+    const stream = streamSimpleWithAiHttpLogging(
       model,
       {
         systemPrompt,

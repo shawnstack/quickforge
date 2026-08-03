@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
-import { streamSimple } from '@earendil-works/pi-ai/compat'
+import { streamSimpleWithAiHttpLogging } from '../ai-http-logger.mjs'
 import { DEFAULT_AI_MAX_RETRIES } from '../ai-provider-options.mjs'
 import { sendJson, readJsonBody } from '../utils/response.mjs'
 import { projectContextFromId } from '../project-config.mjs'
@@ -17,6 +17,7 @@ import {
 
 const MAX_PREVIEW_BYTES = 50 * 1024 * 1024
 const MAX_STATIC_PREVIEW_BYTES = 50 * 1024 * 1024
+const DEFAULT_GIT_TIMEOUT_MS = 2 * 60 * 1000
 const MAX_GIT_LINE_COUNT_FILES = 100
 const MAX_GIT_LINE_COUNT_FILE_BYTES = 1024 * 1024
 const MAX_GIT_LINE_COUNT_TOTAL_BYTES = 10 * 1024 * 1024
@@ -76,20 +77,65 @@ async function projectContextFromUrl(url) {
   return projectContextFromId(projectId)
 }
 
-function git(args, cwd, options = {}) {
+function killProcessTree(child) {
+  if (!child?.pid) return
+  if (process.platform === 'win32') {
+    const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    })
+    killer.on('error', () => {
+      try { child.kill('SIGKILL') } catch { /* ignore */ }
+    })
+    return
+  }
+  try {
+    process.kill(-child.pid, 'SIGKILL')
+  } catch {
+    try { child.kill('SIGKILL') } catch { /* ignore */ }
+  }
+}
+
+export function git(args, cwd, options = {}) {
   return new Promise((resolve, reject) => {
+    const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.max(1, options.timeoutMs) : DEFAULT_GIT_TIMEOUT_MS
     const child = spawn('git', args, {
       cwd,
       shell: false,
       windowsHide: true,
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+      detached: process.platform !== 'win32',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        GIT_OPTIONAL_LOCKS: '0',
+        GIT_TERMINAL_PROMPT: '0',
+        GCM_INTERACTIVE: 'Never',
+      },
     })
     const stdout = []
     const stderr = []
+    let settled = false
+    const finish = (callback) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      callback()
+    }
+    const timeout = setTimeout(() => {
+      killProcessTree(child)
+      finish(() => {
+        const error = new Error(`git ${args.join(' ')} timed out after ${timeoutMs}ms`)
+        error.statusCode = 504
+        error.code = 'GIT_TIMEOUT'
+        reject(error)
+      })
+    }, timeoutMs)
+    timeout.unref?.()
+
     child.stdout.on('data', (chunk) => stdout.push(chunk))
     child.stderr.on('data', (chunk) => stderr.push(chunk))
-    child.once('error', reject)
-    child.once('close', (code) => {
+    child.once('error', (error) => finish(() => reject(error)))
+    child.once('close', (code) => finish(() => {
       const out = Buffer.concat(stdout)
       const err = Buffer.concat(stderr).toString('utf8').trim()
       if (code === 0 || options.allowFailure) {
@@ -99,7 +145,7 @@ function git(args, cwd, options = {}) {
         error.statusCode = 400
         reject(error)
       }
-    })
+    }))
   })
 }
 
@@ -619,7 +665,7 @@ Unstaged diff:
 ${trimForPrompt(worktreeDiff)}`
 
   try {
-    const stream = streamSimple(
+    const stream = streamSimpleWithAiHttpLogging(
       model,
       {
         systemPrompt,

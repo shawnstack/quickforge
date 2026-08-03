@@ -1,4 +1,4 @@
-import { streamSimple } from '@earendil-works/pi-ai/compat'
+import { streamSimpleWithAiHttpLogging } from '../ai-http-logger.mjs'
 import { sendJson, readJsonBody } from '../utils/response.mjs'
 import { readStore } from '../storage.mjs'
 import { logger } from '../utils/logger.mjs'
@@ -22,7 +22,7 @@ async function getApiKey(provider) {
 // API key is valid. Returns { ok: true } on success; throws on failure.
 async function probeModelConnection(model, apiKeyOverride) {
   const apiKey = apiKeyOverride || (await getApiKey(model?.provider))
-  const stream = streamSimple(
+  const stream = streamSimpleWithAiHttpLogging(
     model,
     {
       systemPrompt: 'You are a connectivity test. Reply with a single word.',
@@ -39,7 +39,10 @@ async function probeModelConnection(model, apiKeyOverride) {
       maxRetryDelayMs: 30000,
     },
   )
-  await stream.result()
+  const message = await stream.result()
+  if (message?.stopReason === 'error' || message?.stopReason === 'aborted') {
+    throw new Error(message.errorMessage || `Model request ${message.stopReason}`)
+  }
   return { ok: true }
 }
 

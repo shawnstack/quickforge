@@ -1,4 +1,4 @@
-import { streamSimple } from '@earendil-works/pi-ai/compat'
+import { streamSimpleWithAiHttpLogging } from '../ai-http-logger.mjs'
 import { DEFAULT_AI_MAX_RETRIES } from '../ai-provider-options.mjs'
 import { readJsonBody, sendJson, decodeSegment } from '../utils/response.mjs'
 import { readStore, atomicUpdate } from '../storage.mjs'
@@ -154,7 +154,7 @@ async function parseScheduledTaskInstructionWithAi(instruction, model, thinkingL
 示例输出：{"title":"生成日报","instruction":"生成销售日报","cronExpression":"0 9 * * *","scheduleRule":"每天 09:00","question":""}`
 
   try {
-    const stream = streamSimple(
+    const stream = streamSimpleWithAiHttpLogging(
       model,
       {
         systemPrompt,

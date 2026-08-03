@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" href="data:," />
+<title>QuickForge H5 设置页 · 二级页钻取导航设计</title>
+<style>
+    :root{
+      color-scheme: light;
+      --page:#f5f6f7; --panel:#fff; --text:#25282d; --muted:#727780; --soft:#9ea3aa;
+      --border:#e5e7e9; --border-soft:rgba(25,29,34,.07); --icon:#555b64; --hover:#f0f1f3;
+      --active-bg:#edf2f8; --active-fg:#145ba8; --blue:#1684c8; --green:#087f3f; --red:#b82b32;
+      --shadow:0 18px 56px -40px rgba(18,24,32,.52);
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0}
+    body{
+      padding:34px 26px 70px; background:var(--page); color:var(--text);
+      font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+      -webkit-font-smoothing:antialiased;
+    }
+    button,input{font:inherit}
+    .page{width:min(1280px,100%);margin:0 auto}
+    .eyebrow{color:var(--soft);font-size:11px;font-weight:700;letter-spacing:.13em;text-transform:uppercase}
+    h1{margin:8px 0 0;font-size:30px;font-weight:680;letter-spacing:-.035em}
+    .intro{max-width:900px;margin:9px 0 0;color:var(--muted);font-size:13px;line-height:1.7}
+
+    .layout{display:flex;gap:28px;margin-top:26px;align-items:flex-start}
+    .phone{flex:0 0 400px}
+    .frame{width:400px;height:862px;border-radius:52px;background:#2c3138;padding:15px;box-shadow:var(--shadow)}
+    .screen{
+      position:relative;height:100%;border-radius:38px;background:#f2f4f6;overflow:hidden;
+    }
+    .island{width:110px;height:26px;border-radius:13px;background:#0e1116;margin:10px auto 0;flex:none}
+    .home{width:120px;height:5px;border-radius:3px;background:#c4cad1;position:absolute;bottom:6px;left:50%;transform:translateX(-50%)}
+
+    /* ===== views (menu / detail) ===== */
+    .view{
+      position:absolute;inset:0;display:flex;flex-direction:column;
+      transition:transform .24s ease,opacity .24s ease;background:#f2f4f6;
+    }
+    .view.menu{transform:none;opacity:1;z-index:1}
+    .view.detail{transform:translateX(100%);opacity:.4;z-index:2}
+    .screen.in-detail .view.menu{transform:translateX(-26%) scale(.98);opacity:.35;filter:brightness(.97)}
+    .screen.in-detail .view.detail{transform:none;opacity:1}
+
+    /* header */
+    .ph-header{display:flex;align-items:center;gap:10px;padding:8px 14px 4px;min-height:52px;flex:none}
+    .back{
+      width:32px;height:32px;border-radius:50%;border:1px solid var(--border);background:#fff;
+      display:grid;place-items:center;cursor:pointer;color:var(--icon);flex:none;
+    }
+    .back:hover{color:var(--text);border-color:#cfd4da}
+    .ph-title{display:flex;align-items:center;gap:8px;min-width:0;flex:1}
+    .ph-title .t-ic{width:20px;height:20px;color:var(--active-fg);flex:none;display:grid;place-items:center;font-size:14px}
+    .ph-title .name{font-size:13.5px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .info{
+      width:20px;height:20px;border-radius:50%;border:1px solid var(--border);background:#fff;
+      color:var(--muted);font-size:11px;display:grid;place-items:center;margin-left:2px;flex:none;
+    }
+
+    /* search */
+    .ph-search{position:relative;padding:4px 14px 6px;flex:none}
+    .ph-search input{
+      width:100%;height:38px;border-radius:11px;border:1px solid var(--border);background:#fff;
+      padding:0 12px 0 34px;font-size:12.5px;color:var(--text);outline:none;
+    }
+    .ph-search input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(22,132,200,.12)}
+    .ph-search input::placeholder{color:var(--soft)}
+    .s-ic{position:absolute;left:27px;top:50%;transform:translateY(-50%);color:var(--soft);display:grid;place-items:center}
+
+    /* menu list (one tab per row) */
+    .ph-list-scroll{flex:1;overflow-y:auto;min-height:0;padding:8px 14px 84px}
+    .ph-list-scroll::-webkit-scrollbar{width:4px}
+    .ph-list-scroll::-webkit-scrollbar-thumb{background:#d3d8de;border-radius:2px}
+    .menu-card{background:#fff;border:1px solid var(--border);border-radius:14px;overflow:hidden}
+    .m-item{
+      display:flex;align-items:center;gap:12px;width:100%;min-height:56px;padding:0 14px;
+      border:0;background:transparent;cursor:pointer;border-bottom:1px solid var(--border-soft);
+      text-align:left;
+    }
+    .m-item:last-child{border-bottom:0}
+    .m-item:active{background:var(--hover)}
+    .m-item .mi{
+      width:32px;height:32px;border-radius:9px;background:var(--hover);border:1px solid var(--border-soft);
+      display:grid;place-items:center;color:var(--icon);font-size:14px;flex:none;
+    }
+    .m-item .ml{font-size:13.5px;color:var(--text);font-weight:520;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .m-item .chev{color:var(--soft);flex:none;font-size:15px}
+    .m-item.hidden{display:none}
+
+    /* detail content */
+    .ph-content{flex:1;overflow-y:auto;padding:0 14px 70px;scroll-behavior:smooth;min-height:0}
+    .ph-content::-webkit-scrollbar{width:4px}
+    .ph-content::-webkit-scrollbar-thumb{background:#d3d8de;border-radius:2px}
+    .sec-title{font-size:11px;font-weight:650;color:var(--muted);margin:12px 2px 6px;letter-spacing:.02em}
+    .card{background:#fff;border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:10px}
+    .row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:54px;padding:0 14px;border-bottom:1px solid var(--border-soft)}
+    .row:last-child{border-bottom:0}
+    .row .rl{font-size:13px;min-width:0}
+    .row .rv{color:var(--muted);font-size:12px;display:flex;align-items:center;gap:7px;flex:none}
+    .row .desc{color:var(--muted);font-size:12px;margin:4px 0 0;line-height:1.55}
+    .p-ic{width:34px;height:34px;border-radius:9px;background:var(--hover);display:grid;place-items:center;font-size:15px;flex:none;color:var(--icon)}
+    .switch{width:40px;height:22px;border-radius:11px;background:#cfd5db;position:relative;transition:background .16s;flex:none;cursor:pointer}
+    .switch.on{background:var(--blue)}
+    .switch::after{content:"";position:absolute;top:2.5px;left:2.5px;width:17px;height:17px;border-radius:50%;background:#fff;transition:left .16s}
+    .switch.on::after{left:20.5px}
+    .btn-row{display:flex;gap:8px;margin:12px 2px 4px;flex-wrap:wrap}
+    .btn{flex:1;min-width:130px;height:40px;border-radius:11px;border:1px solid var(--border);background:#fff;color:var(--text);font-size:12.5px;font-weight:550;cursor:pointer}
+    .btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+    .badge{font-size:10px;color:var(--muted);background:var(--hover);border:1px solid var(--border);padding:1px 6px;border-radius:6px;margin-left:6px;white-space:nowrap}
+
+    /* to-top */
+    .to-top{
+      position:absolute;right:14px;bottom:34px;width:36px;height:36px;border-radius:10px;
+      background:#fff;border:1px solid var(--border);box-shadow:0 4px 14px rgba(18,24,32,.16);
+      display:grid;place-items:center;color:var(--icon);cursor:pointer;z-index:3;
+      opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;transform:translateY(4px);
+    }
+    .to-top.show{opacity:1;pointer-events:auto;transform:translateY(0)}
+    .phone-cap{color:var(--soft);font-size:11.5px;text-align:center;margin:12px 0 0}
+
+    /* notes */
+    .notes{flex:1;min-width:0;display:flex;flex-direction:column;gap:14px}
+    .note{
+      background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px 18px;
+      display:flex;gap:14px;align-items:flex-start;box-shadow:0 10px 30px -36px rgba(18,24,32,.5);
+    }
+    .note .no{
+      flex:none;width:26px;height:26px;border-radius:8px;background:var(--active-bg);color:var(--active-fg);
+      display:grid;place-items:center;font-size:12px;font-weight:700;margin-top:1px;
+    }
+    .note h3{margin:0;font-size:14px;font-weight:650;letter-spacing:-.01em}
+    .note p{margin:6px 0 0;font-size:12.5px;line-height:1.75;color:var(--muted)}
+    .note p b{color:var(--text);font-weight:600}
+    .note code{background:var(--hover);border:1px solid var(--border);border-radius:5px;padding:1px 5px;font-size:11px;color:var(--text)}
+    .tag{display:inline-block;font-size:10.5px;font-weight:650;border-radius:6px;padding:2px 7px;margin-left:8px;vertical-align:2px}
+    .tag.mobile{background:#e8f3ec;color:var(--green)}
+    .tag.desktop{background:#eef1f7;color:var(--active-fg)}
+    .kbd{display:inline-block;background:var(--hover);border:1px solid var(--border);border-bottom-width:2px;border-radius:6px;padding:1px 6px;font-size:11px;font-weight:600}
+    a{color:var(--blue)}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="eyebrow">QuickForge · H5 Settings</div>
+  <h1>设置页 · 二级页钻取导航</h1>
+  <p class="intro">
+    移动端（&lt;640px）把「设置」从<em>宫格导航 + 同屏内容</em>改为手机 App 式<em>钻取（Drill-down）</em>：
+    先看到设置主菜单，点任一 tab 图标<strong>推入全屏二级页</strong>上下滑动浏览内容，顶部返回箭头回到主菜单。
+    桌面端（≥768px）保持现有「左导航 + 右内容」双栏布局，<strong>零影响</strong>。
+  </p>
+
+  <div class="layout">
+    <div class="phone">
+      <div class="frame">
+        <div class="screen" id="screen">
+          <div class="island"></div>
+
+          <!-- ===== 主菜单页 ===== -->
+          <div class="view menu" id="viewMenu">
+            <div class="ph-header">
+              <button class="back" title="返回工作区" aria-label="返回工作区">←</button>
+              <div class="ph-title">
+                <span class="t-ic">⚙</span>
+                <span class="name">设置</span>
+              </div>
+            </div>
+            <div class="ph-search">
+              <span class="s-ic">⌕</span>
+              <input id="searchInput" placeholder="搜索设置" />
+            </div>
+            <div class="ph-list-scroll">
+              <div class="menu-card" id="menuList">
+                <button class="m-item" data-name="外观"><span class="mi">🎨</span><span class="ml">外观</span><span class="chev">›</span></button>
+                <button class="m-item" data-name="默认选项"><span class="mi">⚙</span><span class="ml">默认选项</span><span class="chev">›</span></button>
+                <button class="m-item" data-name="记忆"><span class="mi">🧠</span><span class="ml">记忆</span><span class="chev">›</span></button>
+                <button class="m-item" data-name="自定义模型"><span class="mi">🛢</span><span class="ml">自定义模型</span><span class="chev">›</span></button>
+                <button class="m-item" data-name="Agent"><span class="mi">🤖</span><span class="ml">Agent</span><span class="chev">›</span></button>
+                <button class="m-item" data-name="技能"><span class="mi">📖</span><span class="ml">技能</span><span class="chev">›</span></button>
+                <button class="m-item" data-name="MCP"><span class="mi">🗄</span><span class="ml">MCP</span><span class="chev">›</span></button>
+                <button class="m-item" data-name="插件"><span class="mi">🧩</span><span class="ml">插件</span><span class="chev">›</span></button>
+                <button class="m-item" data-name="定时任务"><span class="mi">📅</span><span class="ml">定时任务</span><span class="chev">›</span></button>
+                <button class="m-item" data-name="项目命令"><span class="mi">⌨</span><span class="ml">项目命令</span><span class="chev">›</span></button>
+                <button class="m-item" data-name="备份"><span class="mi">⬇</span><span class="ml">备份</span><span class="chev">›</span></button>
+                <button class="m-item" data-name="归档对话"><span class="mi">🗃</span><span class="ml">归档对话</span><span class="chev">›</span></button>
+                <button class="m-item" data-name="渠道"><span class="mi">🔗</span><span class="ml">渠道</span><span class="chev">›</span></button>
+                <button class="m-item" data-name="局域网访问"><span class="mi">🌐</span><span class="ml">局域网访问</span><span class="chev">›</span></button>
+                <button class="m-item" data-name="关于"><span class="mi">ℹ</span><span class="ml">关于</span><span class="chev">›</span></button>
+              </div>
+              <div id="gridEmpty" class="sec-title" style="display:none;text-align:center;padding:30px 0;color:var(--soft)">未找到匹配的设置项</div>
+            </div>
+          </div>
+
+          <!-- ===== 二级页 ===== -->
+          <div class="view detail" id="viewDetail">
+            <div class="ph-header">
+              <button class="back" id="detailBack" aria-label="返回设置">←</button>
+              <div class="ph-title">
+                <span class="t-ic" id="detailIcon">🧩</span>
+                <span class="name" id="detailName">插件</span>
+                <span class="info" title="插件市场与启用管理">?</span>
+              </div>
+            </div>
+            <div class="ph-content" id="detailContent">
+              <div class="sec-title">已启用插件</div>
+              <div class="card">
+                <div class="row">
+                  <div class="rl"><span class="p-ic">🧩</span></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px">Code Runner</div>
+                    <div class="desc">在对话中直接运行代码片段</div>
+                  </div>
+                  <span class="switch on"></span>
+                </div>
+                <div class="row">
+                  <div class="rl"><span class="p-ic">📊</span></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px">图表生成器</div>
+                    <div class="desc">根据数据自动绘制图表</div>
+                  </div>
+                  <span class="switch on"></span>
+                </div>
+                <div class="row">
+                  <div class="rl"><span class="p-ic">🌐</span></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px">网页抓取<span class="badge">v1.4.2</span></div>
+                    <div class="desc">提取网页正文与结构化数据</div>
+                  </div>
+                  <span class="switch"></span>
+                </div>
+                <div class="row">
+                  <div class="rl"><span class="p-ic">🔔</span></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px">定时提醒</div>
+                    <div class="desc">支持 cron 表达式的提醒任务</div>
+                  </div>
+                  <span class="switch on"></span>
+                </div>
+              </div>
+
+              <div class="sec-title">插件市场</div>
+              <div class="card">
+                <div class="row">
+                  <div class="rl"><span class="p-ic">🖼</span></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px">图片处理</div>
+                    <div class="desc">缩放、裁剪、格式转换</div>
+                  </div>
+                  <span class="btn" style="flex:none;min-width:auto;width:60px;height:32px">安装</span>
+                </div>
+                <div class="row">
+                  <div class="rl"><span class="p-ic">🔤</span></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px">翻译助手</div>
+                    <div class="desc">多语言互译与术语库</div>
+                  </div>
+                  <span class="btn" style="flex:none;min-width:auto;width:60px;height:32px">安装</span>
+                </div>
+                <div class="row">
+                  <div class="rl"><span class="p-ic">🧪</span></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px">测试生成器</div>
+                    <div class="desc">为代码自动生成单元测试</div>
+                  </div>
+                  <span class="btn" style="flex:none;min-width:auto;width:60px;height:32px">安装</span>
+                </div>
+              </div>
+
+              <div class="btn-row">
+                <button class="btn primary">打开插件目录</button>
+                <button class="btn">刷新插件列表</button>
+              </div>
+              <div class="sec-title" style="margin-top:18px">说明</div>
+              <div class="card">
+                <div class="row" style="min-height:auto;padding:14px">
+                  <div style="font-size:12px;color:var(--muted);line-height:1.8">
+                    插件以独立包形式安装在数据目录。启用/停用即时生效，无需重启。<br />
+                    安装第三方插件前请确认来源可信。
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button class="to-top" id="toTop" aria-label="返回顶部">↑</button>
+          </div>
+
+          <div class="home"></div>
+        </div>
+      </div>
+      <div class="phone-cap">可交互演示：点宫格图标 → 推入二级页；← 返回主菜单</div>
+    </div>
+
+    <div class="notes">
+      <div class="note">
+        <div class="no">1</div>
+        <div>
+          <h3>主菜单页（设置首页）<span class="tag mobile">移动端</span></h3>
+          <p>
+            顶部保留「返回工作区」与搜索框；中部为<b>一行一项的设置列表</b>（图标 + 名称 + 右侧 › 箭头），
+            与手机系统设置菜单一致，<b>整列可上下滚动</b>。搜索只<b>过滤列表项</b>，不再自动跳转内容；
+            清空搜索恢复全部。点击任一行 → 推入二级页。
+          </p>
+        </div>
+      </div>
+      <div class="note">
+        <div class="no">2</div>
+        <div>
+          <h3>二级页（单个 tab 内容）<span class="tag mobile">移动端</span></h3>
+          <p>
+            全屏页面：顶部<b>返回箭头 + tab 标题 + 描述信息</b>（同桌面标题行）；下方内容区<b>上下滑动</b>，
+            保持现有「回到顶部」悬浮按钮。进入时内容<b>滚动复位到顶部</b>，返回后主菜单滚动位置与搜索词保留。
+            推入/退出带轻微 <code>translateX</code> 转场，符合手机 App 直觉。
+          </p>
+        </div>
+      </div>
+      <div class="note">
+        <div class="no">3</div>
+        <div>
+          <h3>桌面端零影响 <span class="tag desktop">≥768px</span></h3>
+          <p>
+            所有移动端双页面结构仅在 <code>md:hidden</code> 容器内；桌面端继续使用
+            <code>aside</code>（左导航）+ <code>main</code>（右内容）同屏布局，
+            搜索联动内容区自动切换等现有行为<b>完全不变</b>。
+          </p>
+        </div>
+      </div>
+      <div class="note">
+        <div class="no">4</div>
+        <div>
+          <h3>实现要点</h3>
+          <p>
+            tab 的 Lit 自定义元素仍<b>单实例挂载</b>（复用现有 <code>SettingsTabHost</code>），
+            二级页与桌面端共用同一个内容区容器，仅用 CSS 控制显隐，避免元素重复挂载。
+            移动端新增一个「当前是否处于二级页」状态（<code>mobileDetail: null | index</code>）驱动两页切换。
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const screen = document.getElementById('screen')
+  const viewMenu = document.getElementById('viewMenu')
+  const viewDetail = document.getElementById('viewDetail')
+  const menuList = document.getElementById('menuList')
+  const searchInput = document.getElementById('searchInput')
+  const gridEmpty = document.getElementById('gridEmpty')
+  const detailName = document.getElementById('detailName')
+  const detailIcon = document.getElementById('detailIcon')
+  const detailContent = document.getElementById('detailContent')
+  const toTop = document.getElementById('toTop')
+
+  // 进入二级页
+  menuList.querySelectorAll('.m-item').forEach((item) => {
+    item.addEventListener('click', () => {
+      detailName.textContent = item.dataset.name
+      detailIcon.textContent = item.querySelector('.mi').textContent
+      screen.classList.add('in-detail')
+      detailContent.scrollTop = 0
+    })
+  })
+
+  // 返回主菜单
+  document.getElementById('detailBack').addEventListener('click', () => {
+    screen.classList.remove('in-detail')
+  })
+
+  // 搜索过滤
+  searchInput.addEventListener('input', () => {
+    const q = searchInput.value.trim().toLowerCase()
+    let visible = 0
+    menuList.querySelectorAll('.m-item').forEach((item) => {
+      const hit = !q || item.dataset.name.toLowerCase().includes(q)
+      item.classList.toggle('hidden', !hit)
+      if (hit) visible++
+    })
+    gridEmpty.style.display = visible === 0 ? 'block' : 'none'
+  })
+
+  // 二级页回到顶部
+  detailContent.addEventListener('scroll', () => {
+    toTop.classList.toggle('show', detailContent.scrollTop > 160)
+  })
+  toTop.addEventListener('click', () => {
+    detailContent.scrollTo({ top: 0, behavior: 'smooth' })
+  })
+</script>
+</body>
+</html>

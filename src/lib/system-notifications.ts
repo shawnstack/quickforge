@@ -10,6 +10,10 @@ const MAX_RECENT_ENTRIES = 100
 
 export type SystemNotificationPermission = 'unsupported' | 'prompt' | 'granted' | 'denied'
 
+type NativeNotificationBridge = {
+  setNotificationService?: (enabled: boolean, serverUrl: string) => void
+}
+
 type NotificationPayload = {
   key: string
   sessionId?: string
@@ -21,6 +25,42 @@ type NotificationPayload = {
 type RecentNotifications = Record<string, number>
 
 let nativeListenerInitialized = false
+
+function nativeNotificationBridge(): NativeNotificationBridge | undefined {
+  if (typeof window === 'undefined' || !Capacitor.isNativePlatform()) return undefined
+  const nativeWindow = window as Window & { QuickForgeBridge?: NativeNotificationBridge }
+  return nativeWindow.QuickForgeBridge
+}
+
+function registerNativeSessionOpener(): void {
+  if (typeof window === 'undefined') return
+  const nativeWindow = window as Window & { __quickforgeOpenSession?: (sessionId: string) => void }
+  if (nativeWindow.__quickforgeOpenSession) return
+  // Called by the Android shell after a task notification tap to open the session.
+  nativeWindow.__quickforgeOpenSession = (sessionId: string) => {
+    openSession(sessionId)
+  }
+}
+
+/**
+ * Keeps the native Android foreground service in sync with the user-facing
+ * switch. The service polls the server while the WebView JS is paused in the
+ * background, so task completion notifications still arrive on the lock screen
+ * or while another app is open.
+ */
+export function syncNativeNotificationService(): void {
+  const bridge = nativeNotificationBridge()
+  if (!bridge?.setNotificationService) return
+  const serverUrl = window.location.origin
+  if (!serverUrl) return
+  try {
+    bridge.setNotificationService(isSystemNotificationsEnabled(), serverUrl)
+  } catch (error) {
+    logger.warn('Failed to sync native notification service:', error)
+  }
+}
+
+registerNativeSessionOpener()
 
 function isDesktopApp(): boolean {
   if (typeof document === 'undefined' || typeof window === 'undefined') return false
@@ -109,6 +149,7 @@ export function setSystemNotificationsEnabled(enabled: boolean): void {
   } catch {
     // Device-local settings are best-effort when storage is unavailable.
   }
+  syncNativeNotificationService()
 }
 
 export async function getSystemNotificationPermission(): Promise<SystemNotificationPermission> {
@@ -155,6 +196,9 @@ export async function requestSystemNotificationPermission(): Promise<SystemNotif
 }
 
 export async function initializeSystemNotifications(): Promise<void> {
+  // Restore the native polling service on startup so background notifications
+  // survive page reloads and app restarts.
+  syncNativeNotificationService()
   if (!isNativeNotificationsAvailable() || nativeListenerInitialized) return
   nativeListenerInitialized = true
   try {

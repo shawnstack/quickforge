@@ -18,6 +18,12 @@ const config: CapacitorConfig = {
   },
   android: {
     allowMixedContent: false,
+    // The app loads remote server pages over plain http:// on the LAN/Tailscale.
+    // Capacitor's WebMessageListener bridge is origin-scoped and only exposes
+    // window.androidBridge for https:// allowNavigation rules, so remote pages
+    // would run without native capabilities. The legacy bridge injects
+    // androidBridge into every page, which is what a remote-client shell needs.
+    useLegacyBridge: true,
   },
 }
 

@@ -8,6 +8,14 @@ type ModelSelectorOptions = {
   thinkingLevel?: ThinkingLevel
   onThinkingLevelSelect?: (level: ThinkingLevel) => void
   anchor?: HTMLElement | null
+  /** 控制是否渲染思考等级区（表单场景传 false） */
+  showThinking?: boolean
+  /** 覆盖模型列表项的显示文案 */
+  modelLabelOverride?: (model: AnyModel) => string
+  /** 在模型列表顶部显示一个"无/继承"选项 */
+  noneLabel?: string
+  /** 点击 none 选项时回调 */
+  onNoneSelect?: () => void
 }
 
 const THINKING_LEVELS: ThinkingLevel[] = ['low', 'medium', 'high', 'xhigh']
@@ -160,48 +168,51 @@ function openMobileModelSelector(
   }
   header.append(title, closeButton)
 
-  const thinkingSection = document.createElement('div')
-  thinkingSection.className = 'quickforge-model-sheet-section'
+  const thinkingSection = options.showThinking === false ? null : document.createElement('div')
+  let renderThinkingSection: (() => void) | undefined
+  if (thinkingSection) {
+    thinkingSection.className = 'quickforge-model-sheet-section'
 
-  const thinkingLabel = document.createElement('div')
-  thinkingLabel.className = 'quickforge-model-sheet-section-label'
-  thinkingLabel.textContent = t('reasoning')
+    const thinkingLabel = document.createElement('div')
+    thinkingLabel.className = 'quickforge-model-sheet-section-label'
+    thinkingLabel.textContent = t('reasoning')
 
-  const renderThinkingSection = () => {
-    thinkingSection.replaceChildren(thinkingLabel)
-    if (selectedModel?.reasoning === true) {
-      const thinkingOptions = document.createElement('div')
-      thinkingOptions.className = 'quickforge-model-sheet-thinking-options'
-      const buttons = new Map<ThinkingLevel, HTMLButtonElement>()
+    renderThinkingSection = () => {
+      thinkingSection.replaceChildren(thinkingLabel)
+      if (selectedModel?.reasoning === true) {
+        const thinkingOptions = document.createElement('div')
+        thinkingOptions.className = 'quickforge-model-sheet-thinking-options'
+        const buttons = new Map<ThinkingLevel, HTMLButtonElement>()
 
-      for (const level of THINKING_LEVELS) {
-        const button = createButton('quickforge-model-sheet-thinking-option', thinkingLevelLabel(level))
-        buttons.set(level, button)
-        button.onpointerdown = (event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          selectedThinkingLevel = level
-          options.onThinkingLevelSelect?.(level)
-          for (const [option, optionButton] of buttons) {
-            const selected = option === selectedThinkingLevel
-            optionButton.classList.toggle('is-selected', selected)
-            optionButton.setAttribute('aria-pressed', String(selected))
+        for (const level of THINKING_LEVELS) {
+          const button = createButton('quickforge-model-sheet-thinking-option', thinkingLevelLabel(level))
+          buttons.set(level, button)
+          button.onpointerdown = (event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            selectedThinkingLevel = level
+            options.onThinkingLevelSelect?.(level)
+            for (const [option, optionButton] of buttons) {
+              const selected = option === selectedThinkingLevel
+              optionButton.classList.toggle('is-selected', selected)
+              optionButton.setAttribute('aria-pressed', String(selected))
+            }
           }
+          const selected = level === selectedThinkingLevel
+          button.classList.toggle('is-selected', selected)
+          button.setAttribute('aria-pressed', String(selected))
+          thinkingOptions.append(button)
         }
-        const selected = level === selectedThinkingLevel
-        button.classList.toggle('is-selected', selected)
-        button.setAttribute('aria-pressed', String(selected))
-        thinkingOptions.append(button)
+        thinkingSection.append(thinkingOptions)
+      } else {
+        const note = document.createElement('div')
+        note.className = 'quickforge-model-menu-note'
+        note.textContent = t('thinkingNotSupported')
+        thinkingSection.append(note)
       }
-      thinkingSection.append(thinkingOptions)
-    } else {
-      const note = document.createElement('div')
-      note.className = 'quickforge-model-menu-note'
-      note.textContent = t('thinkingNotSupported')
-      thinkingSection.append(note)
     }
+    renderThinkingSection()
   }
-  renderThinkingSection()
 
   const modelSectionLabel = document.createElement('div')
   modelSectionLabel.className = 'quickforge-model-sheet-section-label quickforge-model-sheet-model-label'
@@ -233,14 +244,29 @@ function openMobileModelSelector(
       const suffix = item.querySelector<HTMLElement>('.quickforge-model-menu-item-suffix')
       if (suffix) suffix.textContent = selected ? '✓' : ''
     }
-    renderThinkingSection()
+    renderThinkingSection?.()
     onSelect(model)
+  }
+
+  if (options.noneLabel) {
+    const noneItem = createMenuItem({
+      label: options.noneLabel,
+      selected: currentModel === null,
+    })
+    noneItem.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      if (Date.now() - lastScrollAt < 300) return
+      options.onNoneSelect?.()
+      closeComposerModelMenu(anchor)
+    })
+    modelList.append(noneItem)
   }
 
   const sortedModels = [...models].sort((a, b) => modelLabel(a).localeCompare(modelLabel(b)))
   for (const model of sortedModels) {
     const item = createMenuItem({
-      label: modelLabel(model),
+      label: options.modelLabelOverride ? options.modelLabelOverride(model) : modelLabel(model),
       selected: modelsAreEqual(selectedModel, model),
       onClick: (event) => {
         event.preventDefault()
@@ -253,7 +279,7 @@ function openMobileModelSelector(
     modelList.append(item)
   }
 
-  sheet.append(dragZone, header, thinkingSection, modelSectionLabel, modelList)
+  sheet.append(dragZone, header, ...(thinkingSection ? [thinkingSection] : []), modelSectionLabel, modelList)
   sheet.addEventListener('pointerdown', (event) => event.stopPropagation())
   backdrop.addEventListener('pointerdown', (event) => {
     if (event.target === backdrop) closeComposerModelMenu(anchor)
@@ -323,6 +349,36 @@ function openMobileModelSelector(
   anchor?.setAttribute('aria-expanded', 'true')
   document.addEventListener('keydown', dismiss, true)
   window.addEventListener('resize', dismiss, true)
+}
+
+/**
+ * 表单场景的模型选择底部弹层（移动端专用）：
+ * - 不渲染思考等级区
+ * - 可通过 noneLabel 在列表顶部提供"无/继承"选项，点击后回调 onSelect(null)
+ * 桌面端继续使用原生 select，由调用方按断点切换。
+ */
+export function openModelSheet(
+  currentModel: AnyModel | null,
+  models: AnyModel[],
+  onSelect: (model: AnyModel | null) => void,
+  options: ModelSelectorOptions = {},
+) {
+  const anchor = getAnchor(options.anchor)
+  if (document.querySelector('.quickforge-model-menu, .quickforge-model-sheet-backdrop')) {
+    closeComposerModelMenu(anchor)
+    return
+  }
+  openMobileModelSelector(
+    currentModel,
+    models,
+    onSelect,
+    {
+      ...options,
+      showThinking: false,
+      onNoneSelect: options.noneLabel ? () => onSelect(null) : undefined,
+    },
+    anchor,
+  )
 }
 
 export function openCustomOnlyModelSelector(

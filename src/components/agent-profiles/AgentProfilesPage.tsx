@@ -3,11 +3,12 @@ import type { MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
-import { ArrowLeft, Bot, MoreHorizontal, Edit3, Sparkles, Trash2 } from 'lucide-react'
+import { ArrowLeft, Bot, ChevronDown, MoreHorizontal, Edit3, Sparkles, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
 import { InfoTip } from '@/components/ui/info-tip'
 import { showConfirm } from '@/components/ui/confirm-dialog'
+import { openModelSheet } from '@/lib/custom-model-selector'
 import { defaultThinkingLevelForModel, getConfiguredModels, initializePiStorage, loadDefaultOptions, loadInitialConfiguredModel } from '@/lib/pi-chat'
 
 type RiskLevel = 'safe' | 'dangerous'
@@ -301,6 +302,15 @@ export function AgentProfilesPage() {
     setAgentForm((current) => ({ ...current, [key]: value }))
   }
 
+  function openFixedModelSheet(event: ReactMouseEvent<HTMLButtonElement>) {
+    openModelSheet(
+      selectedFixedModel ?? null,
+      configuredModels,
+      (model) => updateAgentForm('fixedModelValue', model ? modelOptionValue(model) : ''),
+      { anchor: event.currentTarget, noneLabel: t('agentModelInherit') },
+    )
+  }
+
   function toggleAgentTool(toolName: string) {
     setAgentForm((current) => ({
       ...current,
@@ -510,12 +520,21 @@ export function AgentProfilesPage() {
                 </label>
                 <label className="block text-sm font-medium text-foreground">
                   {t('agentFixedModel')}
-                  <select className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.fixedModelValue} disabled={modelReadonly || agentForm.modelMode !== 'fixed'} onChange={(event) => updateAgentForm('fixedModelValue', event.target.value)}>
+                  <select className="quickforge-model-select-desktop mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.fixedModelValue} disabled={modelReadonly || agentForm.modelMode !== 'fixed'} onChange={(event) => updateAgentForm('fixedModelValue', event.target.value)}>
                     <option value="">{t('agentModelInherit')}</option>
                     {configuredModels.map((model) => (
                       <option key={modelOptionValue(model)} value={modelOptionValue(model)}>{modelLabel(model)}</option>
                     ))}
                   </select>
+                  <button
+                    type="button"
+                    className="quickforge-model-select-mobile mt-1 flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 text-sm text-left outline-none focus:border-ring disabled:opacity-60"
+                    disabled={modelReadonly || agentForm.modelMode !== 'fixed'}
+                    onClick={openFixedModelSheet}
+                  >
+                    <span className="truncate">{selectedFixedModel ? modelLabel(selectedFixedModel) : t('agentModelInherit')}</span>
+                    <ChevronDown className="ml-2 size-4 shrink-0 text-muted-foreground" />
+                  </button>
                 </label>
               </div>
               <label className="block text-sm font-medium text-foreground">

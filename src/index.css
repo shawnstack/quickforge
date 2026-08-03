@@ -667,6 +667,37 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
   opacity: 0.58;
 }
 
+/* 移动端模型选择：桌面保留原生 select，移动端切换为按钮 + 底部弹层 */
+.quickforge-settings-select-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.quickforge-settings-select-chevron {
+  flex: 0 0 auto;
+  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.quickforge-model-select-mobile {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .quickforge-model-select-desktop {
+    display: none;
+  }
+  .quickforge-model-select-mobile {
+    display: flex;
+  }
+}
+
 .quickforge-settings-number-input {
   width: 6.75rem;
   text-align: right;

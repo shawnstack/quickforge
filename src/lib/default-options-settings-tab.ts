@@ -31,6 +31,7 @@ import {
   type SystemNotificationPermission,
 } from '@/lib/system-notifications'
 import { showConfirm } from '@/components/ui/confirm-dialog'
+import { openModelSheet } from '@/lib/custom-model-selector'
 import './info-tip'
 
 type AnyModel = Model<Api>
@@ -244,6 +245,15 @@ class DefaultOptionsSettingsTab extends SettingsTab {
     this.saved = false
     this.requestUpdate()
     void this.saveDefaultModelOptions()
+  }
+
+  private openDefaultModelSheet(event: Event) {
+    openModelSheet(
+      this.selectedModel ?? null,
+      this.models,
+      (model) => { if (model) this.updateModel(modelKey(model)) },
+      { anchor: event.currentTarget as HTMLElement },
+    )
   }
 
   private updateThinkingLevel(value: string) {
@@ -953,7 +963,7 @@ class DefaultOptionsSettingsTab extends SettingsTab {
             <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
               <select
                 data-default-model-select
-                class="quickforge-settings-select"
+                class="quickforge-settings-select quickforge-model-select-desktop"
                 .value=${this.selectedModel ? modelKey(this.selectedModel) : ''}
                 @change=${(event: Event) => this.updateModel((event.target as HTMLSelectElement).value)}
               >
@@ -963,6 +973,15 @@ class DefaultOptionsSettingsTab extends SettingsTab {
                       <option .value=${modelKey(model)}>${modelLabel(model)}</option>
                     `)}
               </select>
+              <button
+                type="button"
+                class="quickforge-settings-select quickforge-settings-select-button quickforge-model-select-mobile"
+                ?disabled=${this.models.length === 0}
+                @click=${(event: Event) => this.openDefaultModelSheet(event)}
+              >
+                <span>${this.selectedModel ? modelLabel(this.selectedModel) : t('noModelAvailable')}</span>
+                <span class="quickforge-settings-select-chevron" aria-hidden="true">▾</span>
+              </button>
             </div>
           </div>
 

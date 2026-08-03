@@ -24,7 +24,7 @@
 | `system.mjs` | 107 | 系统状态、网络代理、重启、关于信息、Runtime 更新和 Desktop 发布页检查 |
 | `workspace.mjs` | 828 | 工作区文件浏览、产物预览静态读取、Git 变更检查、单文件/批量暂存与还原、分支操作、AI 提交信息生成、提交/推送和提交图谱（`server/index.mjs` 通过 `/api/git/*` 统一分发） |
 | `channels.mjs` | 外部渠道管理、SSE 状态/会话变更事件、仅 localhost + `x-quickforge-action: channel-event` 可调用的内部事件 relay，以及仅 localhost + `x-quickforge-action: channel-action` 可打开已注册渠道日志目录的 `POST /api/channels/:id/open-logs` |
-| `static.mjs` | 83 | 静态文件服务 |
+| `static.mjs` | 89 | 静态文件服务；`index.html` 与可替换的 APK 下载使用 `no-cache`，其余构建资产长期缓存 |
 
 ### system.mjs
 
@@ -190,15 +190,17 @@ Agent Profile 管理路由。
 - `POST /api/backup/inspect-file` — 上传备份文件，按设置数据项检查并返回 `importToken`。旧完整备份中的对话和项目注册表会被忽略并明确告知；格式异常的数据项通过 `invalidSections` 返回，不阻塞其他有效项。
 - `POST /api/backup/import` — 使用 `{ "importToken": "...", "sections": [...], "mode": "replace|merge" }` 恢复所选数据，也兼容直接传入 `backup`。导入令牌仅在成功后删除，失败可重试；写入前会创建包含本机项目注册表的安全备份。项目绑定的定时任务若找不到对应本地项目，会保留绑定信息并自动暂停。
 
-## lan-access.mjs (201 行)
+## lan-access.mjs
 
 LAN 共享访问管理路由。
 
 **主要端点**:
-- `POST /api/lan-access/settings` — 更新 LAN 共享设置（密码、启用状态）
-- `GET /api/lan-access/status` — 获取 LAN 共享状态
-- `POST /api/lan-access/auth` — 密码认证获取令牌
-- `POST /api/lan-access/revoke` — 撤销所有令牌
+- `PUT /api/lan-access/settings` — 本机更新 LAN 共享设置（密码、启用状态、会话 TTL）
+- `GET /api/lan-access/status` — 本机获取完整状态、有效登录会话列表和 LAN 地址；远端只获取是否需要密码
+- `POST /api/lan-access/unlock` — 密码认证并创建带 IP、User-Agent 和有效期的登录会话
+- `POST /api/lan-access/logout` — 清理当前 Cookie，并同步撤销服务端会话
+- `POST /api/lan-access/revoke` — 本机按会话 ID 踢出单个局域网登录会话
+- `POST /api/lan-access/revoke-all` — 本机撤销所有局域网登录会话
 - 支持暴力破解保护（5 次失败后锁定 5 分钟）
 
 ## instructions.mjs (20 行)

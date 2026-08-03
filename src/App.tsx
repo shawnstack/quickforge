@@ -82,6 +82,7 @@ import type { AiTurnArtifact } from '@/lib/tool-artifacts'
 import { artifactPreviewMode, findBestPreviewableArtifact, workspaceArtifactDiskPath } from '@/components/workspace/artifact-preview-utils'
 import { MobileServerConnectPage } from '@/components/mobile/MobileServerConnectPage'
 import { isMobileShell, isNativeMobileEntry, isRemoteQuickForgeClient, openMobileServerPicker } from '@/lib/mobile-server'
+import { initializeSystemNotifications, showTaskSystemNotification } from '@/lib/system-notifications'
 
 // --- Code-split secondary views (only loaded when first opened) ---
 // These are conditionally-mounted routes/panels; lazy loading keeps heavy
@@ -108,6 +109,7 @@ const QUICKFORGE_RELEASES_URL = 'https://github.com/shawnstack/quickforge/releas
 const STARTUP_SPLASH_MIN_DURATION_MS = 1350
 const STARTUP_SPLASH_EXIT_DURATION_MS = 280
 const SESSION_LOADING_DELAY_MS = 150
+const CONVERSATION_TRANSITION_DURATION_MS = 280
 
 function readSeenAutoPreviewSignatures() {
   if (typeof window === 'undefined') return new Set<string>()
@@ -172,6 +174,7 @@ function StartupSplash({ exiting = false }: { exiting?: boolean }) {
 
 type ScheduledTaskNotificationEvent = {
   type?: unknown
+  runId?: unknown
   sessionId?: unknown
   title?: unknown
   status?: unknown
@@ -300,7 +303,17 @@ function MainApp() {
   const [startupSplashDone, setStartupSplashDone] = useState(false)
   const [startupSplashExited, setStartupSplashExited] = useState(false)
   const [visibleLoadingSessionId, setVisibleLoadingSessionId] = useState<string>()
-  const { toasts, handleTaskComplete, addToast, dismissToast } = useTaskToasts()
+  const visibleLoadingSessionIdRef = useRef<string | undefined>(undefined)
+  const { toasts, handleTaskComplete: addTaskCompletionToast, addToast, dismissToast } = useTaskToasts()
+  const handleTaskComplete = useCallback((sessionId: string, title: string, status: BackgroundTaskStatus) => {
+    addTaskCompletionToast(sessionId, title, status)
+    void showTaskSystemNotification({
+      key: `agent:${sessionId}:${status}`,
+      sessionId,
+      title,
+      status,
+    })
+  }, [addTaskCompletionToast])
   const closeWorkspacePage = useCallback(() => undefined, [])
   const closeDesktopTitlebarMenu = useCallback(() => setDesktopTitlebarMenuOpen(false), [])
   const openDesktopUpdatePage = useCallback(() => {
@@ -373,6 +386,10 @@ function MainApp() {
   useEffect(() => { crossTabRef.current = crossTab }, [crossTab])
 
   useEffect(() => {
+    void initializeSystemNotifications()
+  }, [])
+
+  useEffect(() => {
     const timer = window.setTimeout(() => setStartupSplashDone(true), STARTUP_SPLASH_MIN_DURATION_MS)
     return () => window.clearTimeout(timer)
   }, [])
@@ -400,12 +417,20 @@ function MainApp() {
   })
 
   useEffect(() => {
-    if (!agentManager.loadingSessionId) {
-      const timer = window.setTimeout(() => setVisibleLoadingSessionId(undefined), 0)
+    if (agentManager.loadingSessionId) {
+      const loadingSessionId = agentManager.loadingSessionId
+      const timer = window.setTimeout(() => {
+        visibleLoadingSessionIdRef.current = loadingSessionId
+        setVisibleLoadingSessionId(loadingSessionId)
+      }, SESSION_LOADING_DELAY_MS)
       return () => window.clearTimeout(timer)
     }
-    const loadingSessionId = agentManager.loadingSessionId
-    const timer = window.setTimeout(() => setVisibleLoadingSessionId(loadingSessionId), SESSION_LOADING_DELAY_MS)
+
+    if (!visibleLoadingSessionIdRef.current) return undefined
+    const timer = window.setTimeout(() => {
+      visibleLoadingSessionIdRef.current = undefined
+      setVisibleLoadingSessionId(undefined)
+    }, CONVERSATION_TRANSITION_DURATION_MS)
     return () => window.clearTimeout(timer)
   }, [agentManager.loadingSessionId])
 
@@ -686,6 +711,13 @@ function MainApp() {
       const status = isBackgroundTaskStatus(event.status) ? event.status : 'idle'
       const message = typeof event.message === 'string' ? event.message : undefined
       addToast({ sessionId: sessionId ?? '', title, status, message })
+      const runId = typeof event.runId === 'string' ? event.runId : undefined
+      void showTaskSystemNotification({
+        key: runId ? `scheduled:${runId}` : `scheduled:${sessionId ?? title}:${status}`,
+        sessionId,
+        title,
+        status,
+      })
     })
     return unsubscribe
   }, [addToast, loadProjectSessions, refreshSessions, setExpandedProjectIds, updateSessionTitle, upsertSessionMetadata])
@@ -698,7 +730,7 @@ function MainApp() {
     activeProjectRef,
     setAgentAccessMode,
     taskMapRef,
-    loadGlobalSessions,
+    refreshSessions,
     loadProject,
     initAgentAccessMode,
     switchActiveProject,
@@ -1247,8 +1279,8 @@ function MainApp() {
     )
   }
 
-  if (!startupReady || !startupSplashExited) {
-    return <StartupSplash exiting={startupReady} />
+  if (!startupReady) {
+    return <StartupSplash />
   }
 
   return (
@@ -1338,6 +1370,7 @@ function MainApp() {
           onCheckout={handleCheckoutTitleBranch}
           onCreated={handleBranchCreated}
           onOpenGraph={() => setGitGraphOpen(true)}
+          mobileShell={mobileShell}
         />
       ) : null}
       {!remoteClient ? (
@@ -1556,14 +1589,14 @@ function MainApp() {
           <div className="min-w-0 flex-1">
             <div className="flex max-w-full min-w-0 items-center gap-2">
               <div className="min-w-0 truncate text-sm font-semibold text-foreground/92">{sessionTitle(agentManager.currentTitle, currentSessionMetadata?.channelName)}</div>
-              {agentManager.currentToolProject?.name ? (
-                <div className="inline-flex h-9 max-w-[220px] shrink-0 items-center gap-2 rounded-full bg-muted/55 px-3 text-sm text-foreground/88" title={agentManager.currentToolProject.name}>
+              {!mobileShell && agentManager.currentToolProject?.name ? (
+                <div className="hidden h-9 max-w-[220px] shrink-0 items-center gap-2 rounded-full bg-muted/55 px-3 text-sm text-foreground/88 md:inline-flex" title={agentManager.currentToolProject.name}>
                   <Folder className="size-4 text-muted-foreground" />
                   <span className="min-w-0 truncate">{agentManager.currentToolProject.name}</span>
                 </div>
               ) : null}
-              {agentManager.currentToolProject?.id && titleGitStatus?.isGitRepository && titleGitStatus.branch ? (
-                <div className="relative shrink-0" onClick={(event) => event.stopPropagation()}>
+              {!mobileShell && agentManager.currentToolProject?.id && titleGitStatus?.isGitRepository && titleGitStatus.branch ? (
+                <div className="relative hidden shrink-0 md:block" onClick={(event) => event.stopPropagation()}>
                   <button
                     type="button"
                     className="inline-flex h-9 max-w-[220px] items-center gap-2 rounded-full bg-muted/55 px-3 text-sm text-foreground/88 transition-colors hover:bg-muted"
@@ -1648,15 +1681,18 @@ function MainApp() {
         </header>
 
         <section className="relative flex min-h-0 flex-1 flex-col">
-          {visibleLoadingSessionId && visibleLoadingSessionId === agentManager.loadingSessionId ? (
+          {visibleLoadingSessionId ? (
             <div
-              className="absolute inset-0 z-20 flex items-center justify-center bg-background/55 backdrop-blur-[1px]"
+              className={cn(
+                'quickforge-session-loading-overlay',
+                !agentManager.loadingSessionId && 'quickforge-session-loading-overlay-exit',
+              )}
               role="status"
               aria-live="polite"
               aria-label={t('loadingConversation')}
             >
-              <div className="flex items-center gap-2 text-sm text-muted-foreground/72">
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              <div className="quickforge-session-loading-indicator">
+                <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                 <span>{t('loadingConversation')}</span>
               </div>
             </div>
@@ -1673,6 +1709,7 @@ function MainApp() {
                 <div className={cn(
                   'flex min-h-0 flex-1 flex-col',
                   showNewChatEmptyState ? 'quickforge-empty-chat' : undefined,
+                  !agentManager.loadingSessionId && visibleLoadingSessionId && 'quickforge-conversation-enter',
                 )}>
                   {showNewChatEmptyState ? (
                     <div className="quickforge-empty-chat-hero" aria-hidden="true">
@@ -1802,6 +1839,7 @@ function MainApp() {
       ) : null}
     </div>
     )}
+    {!startupSplashExited ? <StartupSplash exiting /> : null}
     <ProjectDirectoryPicker
       open={projectPickerOpen}
       initialPath={activeProject?.path}

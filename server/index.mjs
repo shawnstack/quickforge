@@ -303,7 +303,7 @@ async function handleApi(req, res, url, requestContext = {}) {
     return
   }
 
-  if (pathname === '/api/lan-access/status' || pathname === '/api/lan-access/settings' || pathname === '/api/lan-access/unlock' || pathname === '/api/lan-access/logout' || pathname === '/api/lan-access/revoke-all') {
+  if (pathname.startsWith('/api/lan-access/')) {
     await handleLanAccessApi(req, res, url, {
       port,
       isLocalRequest: requestContext.isLocalRequest === true,
@@ -540,6 +540,7 @@ function isLanAccessBootstrapPath(pathname) {
 
 function isStaticAssetPath(pathname) {
   return pathname.startsWith('/assets/')
+    || pathname.startsWith('/downloads/')
     || pathname === '/favicon.svg'
     || pathname === '/vite.svg'
     || pathname === '/manifest.webmanifest'

@@ -130,7 +130,7 @@ components/
 ### 标题栏 Git 组件 (`git/`)
 
 - `GitBranchMenu.tsx` 挂载在主对话标题栏的分支 chip 和 `GitToolsPinnedSummary` 展开卡片中，提供分支搜索、当前未提交变更摘要、分支切换、创建并检出新分支，以及 Git 图谱入口。
-- `GitToolsPinnedSummary.tsx` 显示在顶部窗口工具栏的终端按钮左侧，提供收起胶囊（更改 +增删行）和展开 Git 工具卡；更改入口跳转右侧 Changes/审查面板，分支入口复用 `GitBranchMenu`，提交入口打开 `GitCommitPushDialog`。
+- `GitToolsPinnedSummary.tsx` 显示在顶部窗口工具栏中，收起态为 Git 摘要图标，展开后提供更改统计、分支操作和提交/推送入口。小屏 H5 与 Android WebView 使用标题栏下方、限制视口高度的固定浮层，支持点击外部或 Escape 关闭；由于 Workspace Inspector 暂未提供移动布局，小屏隐藏“更改”入口，桌面端仍可跳转 Changes/审查面板。
 - `GitCommitPushDialog.tsx` 提供提交、提交并推送、推送操作；默认只提交已暂存文件，可展开确认文件范围并显式选择是否包含全部未暂存更改；AI 仅生成可编辑的提交文案，不会自动继续提交。弹窗打开时刷新 Git 状态，detached HEAD 会阻止提交/推送；提交成功但推送失败时会保留成功状态并提供仅重试推送。
 - `GitGraphDialog.tsx` 使用 `/api/git/log` 渲染居中的 Git 提交图谱弹窗，包含图线、描述、日期、作者和提交短哈希列，并支持刷新和关闭。
 

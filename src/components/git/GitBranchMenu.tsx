@@ -13,6 +13,7 @@ export type GitBranchMenuProps = {
   currentBranch?: string
   dirtyCount?: number
   className?: string
+  openChangesClassName?: string
   onCheckout: (branch: string) => Promise<void>
   onCreated?: (status: GitStatusResponse) => void
   onOpenGraph?: () => void
@@ -24,6 +25,7 @@ export function GitBranchMenu({
   currentBranch,
   dirtyCount = 0,
   className,
+  openChangesClassName,
   onCheckout,
   onCreated,
   onOpenGraph,
@@ -113,7 +115,7 @@ export function GitBranchMenu({
       {onOpenChanges ? (
         <button
           type="button"
-          className="flex w-full items-center justify-center gap-2 border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-3 py-3 text-sm text-muted-foreground transition-colors hover:bg-muted/20 hover:text-foreground"
+          className={cn('flex w-full items-center justify-center gap-2 border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-3 py-3 text-sm text-muted-foreground transition-colors hover:bg-muted/20 hover:text-foreground', openChangesClassName)}
           onClick={onOpenChanges}
         >
           <span>{t('uncommittedChanges')}</span>

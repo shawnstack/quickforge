@@ -99,22 +99,50 @@
   }
 }
 
+html.quickforge-mobile-native :where(
+  .quickforge-assistant-message,
+  .quickforge-user-message,
+  .quickforge-markdown-reader,
+  .quickforge-context-compaction-text,
+  .quickforge-settings-row-description,
+  .quickforge-settings-readonly-value,
+  markdown-block,
+  thinking-block,
+  tool-message
+) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+html.quickforge-mobile-native :where(button, input, textarea, select, [role="button"], .select-none, .xterm) {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 /* ------------------------------------------------------------------ */
 /* Startup splash */
 
 .quickforge-startup-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
   display: flex;
   width: 100%;
   height: 100vh;
   height: 100dvh;
   align-items: center;
   justify-content: center;
-  background: var(--background);
+  background:
+    radial-gradient(circle at 50% 42%, color-mix(in oklab, var(--background) 82%, transparent) 0%, transparent 58%),
+    color-mix(in oklab, var(--background) 94%, transparent);
   color: var(--foreground);
+  backdrop-filter: blur(18px) saturate(112%);
+  -webkit-backdrop-filter: blur(18px) saturate(112%);
 }
 
 .quickforge-startup-splash-exit {
-  animation: quickforge-startup-splash-exit 280ms ease-in both;
+  pointer-events: none;
+  animation: quickforge-startup-splash-exit 280ms ease-out both;
 }
 
 .quickforge-startup-splash-icon {
@@ -257,16 +285,19 @@
 @keyframes quickforge-startup-splash-exit {
   0% {
     opacity: 1;
-    transform: scale(1);
+    backdrop-filter: blur(18px) saturate(112%);
+    -webkit-backdrop-filter: blur(18px) saturate(112%);
   }
 
   100% {
     opacity: 0;
-    transform: scale(1.012);
+    backdrop-filter: blur(0) saturate(100%);
+    -webkit-backdrop-filter: blur(0) saturate(100%);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .quickforge-startup-splash-exit,
   .quickforge-startup-splash-icon,
   .quickforge-startup-splash-outline,
   .quickforge-startup-splash-outline-final,
@@ -291,6 +322,74 @@
 
   .quickforge-startup-splash-bolt-trace {
     opacity: 0;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Conversation loading transition */
+
+.quickforge-session-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 38%, color-mix(in oklab, var(--background) 78%, transparent) 0%, transparent 62%),
+    color-mix(in oklab, var(--background) 88%, transparent);
+  backdrop-filter: blur(14px) saturate(108%);
+  -webkit-backdrop-filter: blur(14px) saturate(108%);
+}
+
+.quickforge-session-loading-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: color-mix(in oklab, var(--foreground) 72%, transparent);
+  font-size: 0.875rem;
+}
+
+.quickforge-session-loading-overlay-exit {
+  pointer-events: none;
+  animation: quickforge-session-loading-overlay-exit 280ms ease-out both;
+}
+
+.quickforge-conversation-enter {
+  animation: quickforge-conversation-enter 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes quickforge-session-loading-overlay-exit {
+  from {
+    opacity: 1;
+    backdrop-filter: blur(14px) saturate(108%);
+    -webkit-backdrop-filter: blur(14px) saturate(108%);
+  }
+
+  to {
+    opacity: 0;
+    backdrop-filter: blur(0) saturate(100%);
+    -webkit-backdrop-filter: blur(0) saturate(100%);
+  }
+}
+
+@keyframes quickforge-conversation-enter {
+  from {
+    opacity: 0.72;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-session-loading-overlay-exit,
+  .quickforge-conversation-enter {
+    animation: none;
   }
 }
 
@@ -431,6 +530,48 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
 .quickforge-network-proxy-control .quickforge-settings-input {
   min-width: 0;
   flex: 1 1 12rem;
+}
+
+.quickforge-lan-password-input-wrap {
+  position: relative;
+  min-width: 0;
+  flex: 1 1 12rem;
+}
+
+.quickforge-lan-password-input-wrap .quickforge-settings-input {
+  padding-right: 2.75rem;
+}
+
+.quickforge-lan-password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 0.5rem;
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0.625rem;
+  background: transparent;
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+  transform: translateY(-50%);
+  transition: background-color 160ms ease-out, color 160ms ease-out;
+}
+
+.quickforge-lan-password-toggle:hover {
+  background: color-mix(in oklab, var(--muted) 72%, transparent);
+  color: var(--foreground);
+}
+
+.quickforge-lan-password-toggle:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 70%, transparent);
+  outline-offset: 1px;
+}
+
+.quickforge-lan-password-toggle svg {
+  width: 1.125rem;
+  height: 1.125rem;
 }
 
 .quickforge-lan-password-control .quickforge-settings-button,
@@ -990,6 +1131,35 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
 
 .quickforge-settings-nested-list {
   border-bottom: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+}
+
+.quickforge-lan-device-list {
+  background: color-mix(in oklab, var(--muted) 10%, transparent);
+}
+
+.quickforge-lan-device-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin-top: 0.2rem;
+}
+
+.quickforge-lan-device-meta span:not(:last-child)::after {
+  margin-left: 0.75rem;
+  color: color-mix(in oklab, var(--muted-foreground) 42%, transparent);
+  content: '·';
+}
+
+@media (max-width: 640px) {
+  .quickforge-lan-device-list .quickforge-settings-subrow {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .quickforge-lan-device-list .quickforge-settings-list-item-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 
 .quickforge-settings-row-top {
@@ -3294,7 +3464,48 @@ assistant-message :is(thinking-block, tool-message, markdown-block)[data-quickfo
   }
 
   .quickforge-empty-project-picker {
-    padding-inline: 0;
+    padding-inline: 1rem;
+  }
+
+  .quickforge-chat-panel-empty-host .quickforge-composer textarea {
+    min-height: 3.25rem !important;
+  }
+
+  .quickforge-composer .quickforge-agent-access-inline {
+    width: 2rem;
+    gap: 0;
+    padding-inline: 0 !important;
+  }
+
+  .quickforge-composer .quickforge-agent-access-inline :is(.quickforge-agent-access-label, .quickforge-agent-access-chevron) {
+    display: none;
+  }
+
+  .quickforge-composer :is(.quickforge-context-usage, .quickforge-context-usage-label) {
+    display: none !important;
+  }
+
+  .quickforge-composer .quickforge-model-trigger {
+    width: 2rem;
+    min-width: 2rem;
+    gap: 0;
+    padding-inline: 0 !important;
+  }
+
+  .quickforge-composer .quickforge-model-trigger > span.ml-1 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    margin: -1px !important;
+    padding: 0;
+    border: 0;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .quickforge-composer .quickforge-model-trigger[data-quickforge-thinking-level]::after {
+    display: none;
   }
 
   .quickforge-empty-chat-title {

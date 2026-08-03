@@ -22,6 +22,14 @@ import {
   saveAutoArchiveSettings,
 } from '@/lib/auto-archive-settings'
 import { applyAppLanguage, getAppLanguage, t, type AppLanguage } from '@/lib/i18n'
+import {
+  getSystemNotificationPermission,
+  isSystemNotificationsEnabled,
+  requestSystemNotificationPermission,
+  setSystemNotificationsEnabled,
+  showTaskSystemNotification,
+  type SystemNotificationPermission,
+} from '@/lib/system-notifications'
 import { showConfirm } from '@/components/ui/confirm-dialog'
 import './info-tip'
 
@@ -129,6 +137,9 @@ class DefaultOptionsSettingsTab extends SettingsTab {
   private autoCompactThresholdPercentInput = '80'
   private autoCompactKeepRecentTurns = 3
   private autoArchiveEnabled = false
+  private systemNotificationsEnabled = false
+  private systemNotificationPermission: SystemNotificationPermission = 'unsupported'
+  private systemNotificationBusy = false
   private selectedLanguage: AppLanguage = getAppLanguage()
   private loading = true
   private saved = false
@@ -208,6 +219,12 @@ class DefaultOptionsSettingsTab extends SettingsTab {
       this.autoCompactThresholdPercentInput = String(autoCompactSettings.thresholdPercent)
       this.autoCompactKeepRecentTurns = autoCompactSettings.keepRecentTurns
       this.autoArchiveEnabled = autoArchiveSettings.enabled
+      this.systemNotificationsEnabled = isSystemNotificationsEnabled()
+      this.systemNotificationPermission = await getSystemNotificationPermission()
+      if (this.systemNotificationsEnabled && this.systemNotificationPermission !== 'granted') {
+        this.systemNotificationsEnabled = false
+        setSystemNotificationsEnabled(false)
+      }
       await Promise.all([
         this.loadTerminalShell(),
         this.loadNetworkProxy(),
@@ -280,6 +297,66 @@ class DefaultOptionsSettingsTab extends SettingsTab {
     this.saved = false
     this.requestUpdate()
     void this.saveAutoArchiveOptions()
+  }
+
+  private async updateSystemNotifications(checked: boolean) {
+    this.systemNotificationBusy = true
+    this.saved = false
+    this.error = ''
+    this.requestUpdate()
+    try {
+      if (!checked) {
+        setSystemNotificationsEnabled(false)
+        this.systemNotificationsEnabled = false
+        this.markSaved(t('systemNotificationsDisabled'))
+        return
+      }
+
+      const permission = await requestSystemNotificationPermission()
+      this.systemNotificationPermission = permission
+      this.systemNotificationsEnabled = permission === 'granted'
+      if (permission === 'granted') {
+        this.markSaved(t('systemNotificationsEnabled'))
+      } else if (permission === 'denied') {
+        this.error = t('systemNotificationsDeniedHelp')
+      } else if (permission === 'unsupported') {
+        this.error = t('systemNotificationsUnsupported')
+      }
+    } catch (error) {
+      this.systemNotificationsEnabled = false
+      setSystemNotificationsEnabled(false)
+      this.error = error instanceof Error ? error.message : t('requestFailed')
+    } finally {
+      this.systemNotificationBusy = false
+      this.requestUpdate()
+    }
+  }
+
+  private async sendTestSystemNotification() {
+    this.systemNotificationBusy = true
+    this.error = ''
+    this.requestUpdate()
+    try {
+      const shown = await showTaskSystemNotification({
+        key: `test:${Date.now()}`,
+        title: t('systemNotificationTestTitle'),
+        status: 'idle',
+        force: true,
+      })
+      if (!shown) this.error = t('systemNotificationTestFailed')
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : t('systemNotificationTestFailed')
+    } finally {
+      this.systemNotificationBusy = false
+      this.requestUpdate()
+    }
+  }
+
+  private systemNotificationStatusText() {
+    if (this.systemNotificationPermission === 'unsupported') return t('systemNotificationsUnsupported')
+    if (this.systemNotificationPermission === 'denied') return t('systemNotificationsPermissionDenied')
+    if (this.systemNotificationPermission === 'granted') return t('systemNotificationsPermissionGranted')
+    return t('systemNotificationsPermissionPrompt')
   }
 
   private updateAutoCompactThresholdPercent(value: string) {
@@ -923,6 +1000,31 @@ class DefaultOptionsSettingsTab extends SettingsTab {
               <div class="quickforge-settings-segmented" role="group" aria-label=${t('toolDisplay')}>
                 ${TOOL_DISPLAY_MODE_OPTIONS.map((option) => this.renderToolDisplayModeOption(option))}
               </div>
+            </div>
+          </div>
+
+          <div class="quickforge-settings-row">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">
+                ${t('systemNotifications')}
+                <quickforge-info-tip .label=${t('systemNotificationsDescription')}></quickforge-info-tip>
+              </div>
+              <div class="quickforge-settings-row-description">${this.systemNotificationStatusText()}</div>
+            </div>
+            <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
+              ${this.systemNotificationsEnabled ? html`
+                <button
+                  class="quickforge-settings-button quickforge-settings-button-secondary"
+                  type="button"
+                  ?disabled=${this.systemNotificationBusy}
+                  @click=${() => this.sendTestSystemNotification()}
+                >${t('systemNotificationsTest')}</button>
+              ` : null}
+              ${this.renderSwitch(
+                this.systemNotificationsEnabled,
+                (checked) => { void this.updateSystemNotifications(checked) },
+                this.systemNotificationBusy || this.systemNotificationPermission === 'unsupported',
+              )}
             </div>
           </div>
 

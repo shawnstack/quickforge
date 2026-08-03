@@ -59,4 +59,21 @@ http://devbox.example.ts.net:5176
 - `android/`：Android Studio 原生工程。
 - `src/components/mobile/MobileServerConnectPage.tsx`：连接页。
 - `src/lib/mobile-server.ts`：地址校验、持久化和移动壳标记。
+- `src/lib/system-notifications.ts`：浏览器通知与 Capacitor Android 本地通知的统一适配层。
+- `android/app/build/outputs/apk/debug/app-debug.apk`：Android 构建输出；服务端将其映射为 `/downloads/quickforge-android.apk`，不会复制进 APK 自身。
 - `server/routes/system.mjs`、`server/routes/project.mjs`、`server/routes/workspace.mjs`：远程能力限制。
+
+## 系统通知
+
+Android 薄壳通过 `@capacitor/local-notifications` 调用系统通知栏。用户必须在“设置 → 常规 → 系统通知”中主动授权；通知开关保存在当前设备，不会随 QuickForge 服务同步。任务完成事件仍来自现有 SSE，因此只有 App 仍在运行并能收到事件时才能通知；App 被系统结束后不会继续收到通知，也不等同于 FCM 推送。
+
+任务终态（完成 `idle`、失败 `error`、中止 `aborted`）在 App 前台时也会弹出系统通知，只有“运行中”（`running`）的调度任务通知在页面可见且有焦点时被抑制，避免前台打扰。
+
+Android 13 及以上会在启用时请求运行时通知权限。通知正文只显示任务状态和打开详情提示，不直接暴露完整 AI 输出。
+
+## 文字选择与外部链接
+
+- Android 客户端会显式允许对话正文、工具结果、Markdown Reader 和设置说明文字长按选择、跨行复制；按钮、拖拽控件和终端仍保留各自的交互策略。
+- 密码认证后的刷新、服务器连接/切换、页面 reload 及其他程序化 HTTP(S) 导航始终留在 App WebView。
+- 用户明确点击的文字或图片链接，以及 `target="_blank"` 和用户触发的 `window.open()`，由 Android 原生 `WebViewClient` / `WebChromeClient` 调用 `ACTION_VIEW`，交给系统默认浏览器；`mailto:`、`tel:`、`sms:` 和 `geo:` 链接交给对应系统应用。
+- QuickForge 内部通过按钮触发的页面切换、会话打开和设置导航不受影响，仍留在 App 内。

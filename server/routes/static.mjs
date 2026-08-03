@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 
 const __filename = fileURLToPath(import.meta.url)
 const projectRoot = path.resolve(path.dirname(__filename), '../..')
+const androidApkPath = path.join(projectRoot, 'android', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk')
 
 function getContentType(filePath) {
   const extension = path.extname(filePath).toLowerCase()
@@ -45,7 +46,31 @@ function shouldFallbackToIndex(url, pathname) {
   return !path.extname(pathname)
 }
 
+function cacheControlFor(filePath) {
+  if (filePath.endsWith('index.html')) return 'no-cache'
+  if (path.extname(filePath).toLowerCase() === '.apk') return 'no-cache'
+  return 'public, max-age=31536000, immutable'
+}
+
 export async function serveStatic(req, res, url) {
+  if (url.pathname === '/downloads/quickforge-android.apk') {
+    try {
+      const data = await fs.readFile(androidApkPath)
+      res.writeHead(200, {
+        'content-type': 'application/vnd.android.package-archive',
+        'content-length': data.length,
+        'content-disposition': 'attachment; filename="quickforge-android.apk"',
+        'cache-control': 'no-cache',
+        'x-content-type-options': 'nosniff',
+      })
+      res.end(data)
+    } catch {
+      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
+      res.end('Android APK not found. Run npm run android:build first.')
+    }
+    return
+  }
+
   const distDir = path.join(projectRoot, 'dist')
   const requested = decodeURIComponent(requestPathname(url))
   const normalized = path.normalize(requested).replace(/^([.][.][/])+/, '').replace(/^[/\\]+/, '')
@@ -74,7 +99,7 @@ export async function serveStatic(req, res, url) {
     const data = await fs.readFile(filePath)
     res.writeHead(200, {
       'content-type': getContentType(filePath),
-      'cache-control': filePath.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000, immutable',
+      'cache-control': cacheControlFor(filePath),
     })
     res.end(data)
   } catch {

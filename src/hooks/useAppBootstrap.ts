@@ -31,7 +31,7 @@ type UseAppBootstrapOptions = {
   activeProjectRef: React.MutableRefObject<ProjectInfo | undefined>
   setAgentAccessMode: React.Dispatch<React.SetStateAction<AgentAccessMode>>
   taskMapRef: AgentManager['taskMapRef']
-  loadGlobalSessions: (offset: number) => Promise<void>
+  refreshSessions: () => Promise<void>
   loadProject: () => Promise<void>
   initAgentAccessMode: (storage: Awaited<ReturnType<typeof initializePiStorage>>) => Promise<AgentAccessMode>
   switchActiveProject: (projectId: string) => Promise<ProjectInfo>
@@ -48,7 +48,7 @@ export function useAppBootstrap({
   activeProjectRef,
   setAgentAccessMode,
   taskMapRef,
-  loadGlobalSessions,
+  refreshSessions,
   loadProject,
   initAgentAccessMode,
   switchActiveProject,
@@ -62,7 +62,7 @@ export function useAppBootstrap({
 
   // Keep callbacks in refs so the bootstrap effect runs exactly once
   const depsRef = useRef({
-    loadGlobalSessions,
+    refreshSessions,
     loadProject,
     initAgentAccessMode,
     switchActiveProject,
@@ -72,7 +72,7 @@ export function useAppBootstrap({
   })
   useEffect(() => {
     depsRef.current = {
-      loadGlobalSessions,
+      refreshSessions,
       loadProject,
       initAgentAccessMode,
       switchActiveProject,
@@ -87,7 +87,7 @@ export function useAppBootstrap({
 
     async function boot() {
       const {
-        loadGlobalSessions: loadSessions,
+        refreshSessions: refreshSessionList,
         loadProject: loadProj,
         initAgentAccessMode: initAccessMode,
         switchActiveProject: switchProject,
@@ -109,7 +109,7 @@ export function useAppBootstrap({
         await loadToolDisplaySettings(storage)
         await loadAndApplyAppearanceSettings(storage)
         await loadAndApplyFontSizeSettings(storage)
-        await Promise.all([loadSessions(0), loadProj()])
+        await Promise.all([refreshSessionList(), loadProj()])
 
         const savedAccessMode = await initAccessMode(storage)
         agentAccessModeRef.current = savedAccessMode

@@ -5,12 +5,16 @@ import { Capacitor } from '@capacitor/core'
 import './index.css'
 import { patchThinkingSelector } from '@/lib/patch-thinking-selector'
 import { applyClipboardPolyfill } from '@/lib/clipboard-polyfill'
+import { isMobileShell } from '@/lib/mobile-server'
 import { logger } from '@/lib/logger'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import App from './App.tsx'
 
 patchThinkingSelector({ hideSelector: true })
 applyClipboardPolyfill()
+if (Capacitor.isNativePlatform() && isMobileShell()) {
+  document.documentElement.classList.add('quickforge-mobile-native')
+}
 
 // Global safety net for errors that escape React's render lifecycle
 // (async callbacks, fire-and-forget promises, native event handlers).

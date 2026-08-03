@@ -80,13 +80,41 @@ async function writeLanAccessFile(config) {
   await fs.writeFile(LAN_ACCESS_FILE, `${JSON.stringify(normalizeConfig(config), null, 2)}\n`, 'utf8')
 }
 
+function normalizeText(value, maxLength) {
+  if (typeof value !== 'string') return undefined
+  const text = value.trim()
+  return text ? text.slice(0, maxLength) : undefined
+}
+
+function normalizeRemoteAddress(value) {
+  const address = normalizeText(value, 128)
+  return address?.startsWith('::ffff:') ? address.slice(7) : address
+}
+
+function tokenRecordId(tokenRecord) {
+  const id = normalizeText(tokenRecord?.id, 128)
+  return id || `legacy_${sha256Base64Url(tokenRecord?.tokenHash || '').slice(0, 24)}`
+}
+
+function publicTokenRecord(tokenRecord) {
+  return {
+    id: tokenRecordId(tokenRecord),
+    address: normalizeRemoteAddress(tokenRecord.remoteAddress),
+    userAgent: normalizeText(tokenRecord.userAgent, 300),
+    issuedAt: tokenRecord.issuedAt,
+    expiresAt: tokenRecord.expiresAt,
+  }
+}
+
 function publicStatus(config) {
+  const activeTokens = pruneTokens(config.tokens)
   return {
     enabled: Boolean(config.enabled),
     hasPassword: Boolean(config.passwordHash),
     sessionTtlHours: config.sessionTtlHours,
     authVersion: config.authVersion || 1,
-    activeTokenCount: pruneTokens(config.tokens).length,
+    activeTokenCount: activeTokens.length,
+    activeDevices: activeTokens.map(publicTokenRecord),
     updatedAt: config.updatedAt,
   }
 }
@@ -98,6 +126,12 @@ function pruneTokens(tokens, now = Date.now()) {
       if (!tokenRecord.expiresAt) return true
       return Date.parse(tokenRecord.expiresAt) > now
     })
+    .map((tokenRecord) => ({
+      ...tokenRecord,
+      id: tokenRecordId(tokenRecord),
+      remoteAddress: normalizeRemoteAddress(tokenRecord.remoteAddress),
+      userAgent: normalizeText(tokenRecord.userAgent, 300),
+    }))
     .slice(-LAN_TOKEN_MAX_COUNT)
 }
 
@@ -162,11 +196,58 @@ export async function revokeLanAccessTokens() {
   })
 }
 
+export async function revokeLanAccessTokenById(id) {
+  const normalizedId = normalizeText(id, 128)
+  if (!normalizedId) {
+    const error = new Error('LAN access session id is required.')
+    error.statusCode = 400
+    throw error
+  }
+  return enqueueWrite(writeQueueName, async () => {
+    const current = await readLanAccessFile()
+    const tokens = pruneTokens(current.tokens)
+    const nextTokens = tokens.filter((tokenRecord) => tokenRecordId(tokenRecord) !== normalizedId)
+    if (nextTokens.length === tokens.length) {
+      const error = new Error('LAN access session not found.')
+      error.statusCode = 404
+      throw error
+    }
+    const next = normalizeConfig({
+      ...current,
+      tokens: nextTokens,
+      updatedAt: new Date().toISOString(),
+    })
+    await writeLanAccessFile(next)
+    return publicStatus(next)
+  })
+}
+
+export async function revokeLanAccessToken(token) {
+  if (!token || typeof token !== 'string') return false
+  const [versionText, secret] = token.split('.')
+  if (!secret) return false
+  const actualHash = sha256Base64Url(secret)
+  return enqueueWrite(writeQueueName, async () => {
+    const current = await readLanAccessFile()
+    if (Number(versionText) !== (current.authVersion || 1)) return false
+    const tokens = pruneTokens(current.tokens)
+    const nextTokens = tokens.filter((tokenRecord) => !safeHashEqual(tokenRecord.tokenHash, actualHash))
+    if (nextTokens.length === tokens.length) return false
+    const next = normalizeConfig({
+      ...current,
+      tokens: nextTokens,
+      updatedAt: new Date().toISOString(),
+    })
+    await writeLanAccessFile(next)
+    return true
+  })
+}
+
 export function lanAccessCookieName() {
   return 'qf_lan_access'
 }
 
-export async function issueLanAccessToken(password) {
+export async function issueLanAccessToken(password, metadata = {}) {
   return enqueueWrite(writeQueueName, async () => {
     const current = await readLanAccessFile()
     if (!current.enabled || !current.passwordHash) {
@@ -185,11 +266,20 @@ export async function issueLanAccessToken(password) {
     const issuedAt = new Date().toISOString()
     const ttlMs = normalizeSessionTtlHours(current.sessionTtlHours) * 60 * 60 * 1000
     const expiresAt = new Date(Date.now() + ttlMs).toISOString()
+    const tokenRecord = {
+      id: createRandomToken(18),
+      tokenHash,
+      issuedAt,
+      expiresAt,
+      authVersion: current.authVersion || 1,
+      remoteAddress: normalizeRemoteAddress(metadata.remoteAddress),
+      userAgent: normalizeText(metadata.userAgent, 300),
+    }
     const next = normalizeConfig({
       ...current,
       tokens: [
         ...pruneTokens(current.tokens),
-        { tokenHash, issuedAt, expiresAt, authVersion: current.authVersion || 1 },
+        tokenRecord,
       ].slice(-LAN_TOKEN_MAX_COUNT),
       updatedAt: issuedAt,
     })

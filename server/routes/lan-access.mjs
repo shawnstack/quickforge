@@ -1,10 +1,13 @@
 import { sendJson, readJsonBody } from '../utils/response.mjs'
 import { getLanUrls } from '../utils/network.mjs'
 import { logger } from '../utils/logger.mjs'
+import { parseCookies } from '../share-store.mjs'
 import {
   issueLanAccessToken,
   lanAccessCookieName,
   readLanAccessStatus,
+  revokeLanAccessToken,
+  revokeLanAccessTokenById,
   revokeLanAccessTokens,
   updateLanAccessSettings,
 } from '../lan-access-store.mjs'
@@ -394,7 +397,10 @@ export async function handleLanAccessApi(req, res, url, context = {}) {
     assertNotLocked(req)
     const body = await readJsonBody(req, 1024)
     try {
-      const result = await issueLanAccessToken(body?.password)
+      const result = await issueLanAccessToken(body?.password, {
+        remoteAddress: req.socket.remoteAddress,
+        userAgent: req.headers['user-agent'],
+      })
       setLanCookie(res, result.token, result.maxAge)
       clearFailures(req)
       logger.info('LAN access unlock succeeded.', { remoteAddress: req.socket.remoteAddress })
@@ -410,8 +416,19 @@ export async function handleLanAccessApi(req, res, url, context = {}) {
   }
 
   if (req.method === 'POST' && pathname === '/api/lan-access/logout') {
+    const token = parseCookies(req.headers.cookie).get(lanAccessCookieName())
+    await revokeLanAccessToken(token)
     clearLanCookie(res)
     sendJson(res, 200, { ok: true })
+    return
+  }
+
+  if (req.method === 'POST' && pathname === '/api/lan-access/revoke') {
+    requireLocal(context)
+    const body = await readJsonBody(req, 1024)
+    const status = await revokeLanAccessTokenById(body?.id)
+    logger.info('LAN access session revoked.', { sessionId: body?.id })
+    sendJson(res, 200, { ok: true, ...status })
     return
   }
 

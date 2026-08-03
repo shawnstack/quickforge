@@ -310,17 +310,20 @@ server/
 
 分离进程，用于重启时保证旧进程退出前新进程已就绪。
 
-### lan-access-store.mjs (215 行)
+### lan-access-store.mjs
 
-**用途**: LAN 共享访问令牌的持久化存储和验证。
+**用途**: LAN 共享访问会话的持久化存储和验证。
 
 **功能**:
-- `updateLanAccessSettings()` — 更新 LAN 共享设置（启用/禁用、密码）
-- `issueLanAccessToken()` — 签发访问令牌（带 TTL）
-- `readLanAccessStatus()` — 读取 LAN 共享状态
-- `revokeLanAccessTokens()` — 撤销所有令牌
+- `updateLanAccessSettings()` — 更新 LAN 共享设置（启用/禁用、密码、会话 TTL）
+- `issueLanAccessToken()` — 签发访问令牌，并记录会话 ID、IP、User-Agent 和有效期
+- `readLanAccessStatus()` — 读取 LAN 共享状态与有效登录会话列表
+- `revokeLanAccessTokenById()` — 按公开会话 ID 撤销单个会话
+- `revokeLanAccessToken()` — 按当前 Cookie 令牌撤销会话，用于主动退出
+- `revokeLanAccessTokens()` — 撤销所有会话
 - 密码哈希存储（scrypt）
-- 令牌数量上限保护（100 个）
+- 会话数量上限保护（100 个）
+- 兼容没有会话 ID/设备元数据的旧令牌记录
 
 ---
 

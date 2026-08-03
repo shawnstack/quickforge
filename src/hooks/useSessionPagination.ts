@@ -175,6 +175,8 @@ export function useSessionPagination({
   }, [backendRef, isCurrentRequest, sortMode])
 
   const refreshSessions = useCallback(async (opts?: { broadcast?: boolean }) => {
+    if (!backendRef.current) return
+
     const version = nextRequestVersion()
     // Reset and reload the visible initial pages.
     await loadPinnedSessions(0, version)
@@ -204,18 +206,11 @@ export function useSessionPagination({
     if (loadedProjectIds.size === 0) {
       setProjectPages({})
     } else {
-      setProjectPages((prev) => {
-        const next: Record<string, SessionPage> = {}
-        for (const projectId of loadedProjectIds) {
-          next[projectId] = { ...(prev[projectId] ?? { items: [], total: 0 }), loading: true }
-        }
-        return next
-      })
       await Promise.all([...loadedProjectIds].map((projectId) => loadProjectSessions(projectId, 0, version)))
     }
 
     if (opts?.broadcast && isCurrentRequest(version)) onBroadcastSessionsChanged?.()
-  }, [isCurrentRequest, loadGlobalSessions, loadPinnedSessions, loadProjectSessions, loadProjectTimelineSessions, nextRequestVersion, onBroadcastSessionsChanged, viewMode])
+  }, [backendRef, isCurrentRequest, loadGlobalSessions, loadPinnedSessions, loadProjectSessions, loadProjectTimelineSessions, nextRequestVersion, onBroadcastSessionsChanged, viewMode])
 
   const upsertSessionMetadata = useCallback((session: QuickForgeSessionMetadata) => {
     if (isValidPinnedAt(session.pinnedAt)) {

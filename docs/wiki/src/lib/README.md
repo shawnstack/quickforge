@@ -28,6 +28,7 @@
 | `random-id.ts` | 19 | UUID 生成 |
 | `tool-display-settings.ts` | 40 | Tool 与上下文用量展示设置 |
 | `tool-execution-events.ts` | 120 | 工具执行事件处理 |
+| `system-notifications.ts` | 浏览器 Notification API 与 Capacitor Android 本地通知统一适配；管理当前设备权限、开关、后台展示、点击打开会话和短时去重 |
 | `info-tip.ts` | 134 | 统一问号说明浮层 Web Component |
 
 ---
@@ -143,6 +144,16 @@
 - `upsertMessage()` — 根据 `toolCallId` 合并或替换工具结果消息
 - `toolStartEventWithPartialResult()` / `upsertToolResult()` — 在运行中工具结果里保留计时、`sessionId` 和 `toolCallId`，用于前端展示耗时和结束运行中的 `run_command`。
 
+### system-notifications.ts
+
+**用途**: 复用任务完成 SSE 事件，在 QuickForge 客户端仍运行时显示系统级通知。
+
+- Web 使用浏览器 `Notification` API；Android 使用 `@capacitor/local-notifications`。
+- 权限与启用开关按设备保存在 `localStorage`，设置页必须由用户操作发起授权。
+- 页面前台仍只显示 Toast，后台/失焦时才显示系统通知；通过任务 key 做短时跨标签去重。
+- 点击通知会聚焦应用，并派发已有会话打开事件；通知正文不包含完整 AI 输出。
+- 不提供浏览器关闭或 Android App 被杀死后的 Push/FCM 能力。
+
 ### info-tip.ts (134 行)
 
 **用途**: 统一的问号说明浮层组件，封装为 Web Component `<quickforge-info-tip>`。用于将大段辅助说明收拢到标题/字段旁的 `?` 图标中，hover / focus / click 时展开。
@@ -165,7 +176,7 @@
 | 文件 | 用途 |
 |------|------|
 | `custom-providers-only-tab.ts` | 自定义模型供应商的完整 CRUD 管理界面 |
-| `lan-access-settings-tab.ts` | LAN 共享设置（启用/禁用、密码、会话 TTL） |
+| `lan-access-settings-tab.ts` | LAN 共享设置（启用/禁用、密码、会话 TTL），仅展示当前仍有访问权限、可以踢出的局域网设备摘要、IP 与有效期，并支持逐个或全部踢出 |
 | `backup-settings-tab.ts` | 数据备份导出和导入 |
 | `default-options-settings-tab.ts` | 设置默认模型、语言、思考级别、Tool 展示、上下文用量显示、上下文管理和终端 Shell；默认 Shell 从系统识别列表选择，并支持自定义命令或路径 |
 | `about-settings-tab.ts` | 关于信息、更新检查/执行，以及后端服务重启 |

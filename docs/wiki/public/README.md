@@ -10,6 +10,7 @@
 | `pwa-icon-192.png` | PWA 192x192 PNG 图标，深色底 + QF 字母 |
 | `pwa-icon-512.png` | PWA 512x512 PNG 图标，深色底 + QF 字母 |
 | `pwa-maskable-512.png` | PWA maskable 512x512 PNG 图标，保留安全边距用于安装态裁切 |
+| `downloads/quickforge-android.apk` | Tailnet 内公开下载的最新 Android Debug APK 路径；服务端直接读取 Android 构建输出，不复制进前端资产，避免 APK 递归打包 |
 
 ---
 

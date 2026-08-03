@@ -38,7 +38,7 @@
 4. 加载上次使用的模型 (`loadInitialConfiguredModel`)
 5. 加载 Agent 访问模式状态
 6. 加载项目列表和活跃项目
-7. 加载全局会话列表
+7. Storage backend 就绪后，完整刷新当前会话视图（置顶、全局，以及已展开项目或时间线）
 8. 标记模型是否已配置 (`needsModelSetup`)
 
 ### useAgentManager.ts (537 行)
@@ -79,7 +79,7 @@
 
 - 全局/项目会话分页 (每页 20 条)
 - 支持 `session_created` 局部插入与 `title_updated` 局部标题更新，避免纯标题变化触发全列表刷新
-- 展开/折叠项目时自动加载
+- 展开/折叠项目时自动加载；启动阶段会等待 Storage backend 就绪后再刷新已恢复的展开项目，避免残留虚假的加载状态
 - 跟踪加载状态 (`hasMore`, `loading`)
 
 ### useVisibleRuntimeStatuses.ts (100 行)

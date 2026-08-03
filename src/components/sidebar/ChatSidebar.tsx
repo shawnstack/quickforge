@@ -110,7 +110,6 @@ type ChatSidebarProps = {
   onTogglePinSession: (sessionId: string) => void
   onDeleteSession: (sessionId: string) => void | Promise<void>
   onStartNewGlobalChat: () => void
-  onOpenArchivedConversations: () => void
   onOpenSettings: () => void
   onOpenUpdate?: () => void
   onDismissUpdate?: () => void
@@ -251,7 +250,6 @@ export const ChatSidebar = memo(function ChatSidebar({
   onTogglePinSession,
   onDeleteSession,
   onStartNewGlobalChat,
-  onOpenArchivedConversations,
   onOpenSettings,
   onOpenUpdate,
   onDismissUpdate,
@@ -1467,18 +1465,6 @@ export const ChatSidebar = memo(function ChatSidebar({
             ) : null}
           </button>
         ) : null}
-        <button
-          type="button"
-          className={cn(footerRowClass, 'min-h-9 w-full shrink-0 rounded-lg', inactiveRowClass)}
-          onClick={onOpenArchivedConversations}
-          aria-label={t('archivedConversations')}
-          title={t('archivedConversations')}
-        >
-          <span className={iconSlotClass}>
-            <Archive className="size-4" />
-          </span>
-          {sidebarOpen ? <span className={sessionTitleClass}>{t('archivedConversations')}</span> : null}
-        </button>
         <button
           type="button"
           className={cn(footerRowClass, 'min-h-9 w-full shrink-0 rounded-lg', inactiveRowClass)}

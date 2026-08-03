@@ -1115,10 +1115,6 @@ function MainApp() {
     openSettingsPage('scheduledTasks')
   }, [openSettingsPage])
 
-  const openArchivedConversations = useCallback(() => {
-    openSettingsPage('archivedConversations')
-  }, [openSettingsPage])
-
   const openProjectSkills = useCallback((project: ProjectInfo) => {
     setSkillsDialog({ scope: 'project', project })
   }, [setSkillsDialog])
@@ -1209,11 +1205,6 @@ function MainApp() {
     closeMobileSidebar()
     openScheduledTasks()
   }, [closeMobileSidebar, openScheduledTasks])
-
-  const openArchivedConversationsFromSidebar = useCallback(() => {
-    closeMobileSidebar()
-    openArchivedConversations()
-  }, [closeMobileSidebar, openArchivedConversations])
 
   const openProjectSkillsFromSidebar = useCallback((project: ProjectInfo) => {
     closeMobileSidebar()
@@ -1447,7 +1438,6 @@ function MainApp() {
         onTogglePinSession={togglePinSession}
         onDeleteSession={archiveSession}
         onStartNewGlobalChat={startNewGlobalSession}
-        onOpenArchivedConversations={openArchivedConversations}
         onOpenSettings={openDefaultOptionsSettings}
         updateAvailable={updateCheck.result.updateAvailable}
         latestVersion={updateCheck.result.latestVersion}
@@ -1528,7 +1518,6 @@ function MainApp() {
               onTogglePinSession={togglePinSession}
               onDeleteSession={archiveSession}
               onStartNewGlobalChat={startNewGlobalSessionFromSidebar}
-              onOpenArchivedConversations={openArchivedConversationsFromSidebar}
               onOpenSettings={() => {
                 closeMobileSidebar()
                 openDefaultOptionsSettings()

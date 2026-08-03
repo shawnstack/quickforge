@@ -46,7 +46,8 @@ Agent 会话管理核心路由。
 - `GET /api/agents` — 列出活跃会话
 - `GET /api/agents/events` — 全局 SSE 事件流
 - `GET /api/agents/:sessionId/stream` — 会话级 SSE 流
-- `GET /api/agents/:sessionId/state` — 获取完整会话快照，用于初始化和异常恢复
+- `POST /api/agents/:sessionId/restore` — 从内存复用或从持久化存储恢复 Agent，并在同一响应中返回完整权威快照，供历史会话冷加载使用
+- `GET /api/agents/:sessionId/state` — 获取完整会话快照，用于 SSE 异常恢复；仅在内存会话不存在时从磁盘恢复，不再每次无条件重读 Session
 - `GET /api/agents/:sessionId/status` — 获取轻量运行状态，用于 SSE 静默后的版本探测
 - `HEAD /api/agents/:sessionId/stream` — 检查 SSE 可用性
 - `POST /api/agents/:sessionId/prompt` — 发送消息；`/summary` 与 `/compact` 作为内置 slash command 通过此端点触发，不存在独立压缩 REST 路由
@@ -54,7 +55,7 @@ Agent 会话管理核心路由。
 - `POST /api/agents/:sessionId/abort` — 中止运行
 - `POST /api/agents/:sessionId/steer` — 引导 Agent
 - `POST /api/agents/:sessionId/follow-up` — 后续处理
-- `POST /api/agents/:sessionId/destroy` — 销毁 Agent
+- `DELETE /api/agents/:sessionId` — 销毁 Agent
 - `POST /api/agents/:sessionId/access-mode` — 切换 Agent 权限模式（`default` / `full-access`）
 - `POST /api/agents/:sessionId/yolo-mode` — 旧客户端兼容入口
 - `POST /api/agents/:sessionId/model` — 更新模型

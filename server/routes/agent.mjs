@@ -1,4 +1,5 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
+import { logger } from '../utils/logger.mjs'
 import {
   createAgent,
   runPrompt,
@@ -7,7 +8,6 @@ import {
   followUpAgent,
   getSessionState,
   getSessionStatus,
-  syncSessionFromStorage,
   getSessionEventBus,
   tryAcquireSse,
   releaseSse,
@@ -97,9 +97,32 @@ export async function handleAgentApi(req, res, url) {
     return
   }
 
+  // POST /api/agents/:sessionId/restore — restore once and return the authoritative state
+  if (req.method === 'POST' && subPath === 'restore') {
+    const startedAt = performance.now()
+    const session = await restoreAgent(sessionId)
+    if (!session) {
+      const error = new Error('Session not found')
+      error.statusCode = 404
+      throw error
+    }
+    const state = getSessionState(sessionId)
+    if (!state) {
+      const error = new Error('Session not found')
+      error.statusCode = 404
+      throw error
+    }
+    logger.debug(`Restored session ${sessionId} for client`, {
+      sessionId,
+      messageCount: state.messages?.length ?? 0,
+      durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
+    })
+    sendJson(res, 200, state)
+    return
+  }
+
   // GET /api/agents/:sessionId/state — get session state
   if (req.method === 'GET' && subPath === 'state') {
-    await syncSessionFromStorage(sessionId)
     let state = getSessionState(sessionId)
     if (!state) {
       // Try to restore from persistent storage before giving up.

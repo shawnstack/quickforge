@@ -32,15 +32,20 @@ const SSE_SILENCE_RECOVERY_MS = 15000
 const STATUS_REQUEST_TIMEOUT_MS = 10000
 const STATE_REQUEST_TIMEOUT_MS = 30000
 
-async function fetchJsonWithTimeout<T>(url: string, timeoutMs: number): Promise<{ response: Response; body?: T }> {
+async function fetchJsonWithTimeout<T>(url: string, timeoutMs: number, init: RequestInit = {}): Promise<{ response: Response; body?: T }> {
   const controller = new AbortController()
+  const externalSignal = init.signal
+  const abortFromExternal = () => controller.abort(externalSignal?.reason)
+  if (externalSignal?.aborted) abortFromExternal()
+  else externalSignal?.addEventListener('abort', abortFromExternal, { once: true })
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const response = await fetch(url, { signal: controller.signal })
-    const body = response.ok ? await response.json() : undefined
+    const response = await fetch(url, { ...init, signal: controller.signal })
+    const body = await response.json().catch(() => undefined) as T | undefined
     return { response, body }
   } finally {
     clearTimeout(timeout)
+    externalSignal?.removeEventListener('abort', abortFromExternal)
   }
 }
 
@@ -321,7 +326,18 @@ export type PromptCapabilitySelection = {
   description?: string
 }
 
-type ServerAgentStateSnapshot = {
+export type ServerAgentStateSnapshot = {
+  sessionId?: string
+  scope?: 'global' | 'project'
+  projectId?: string | null
+  source?: 'acp'
+  channelId?: string
+  channelName?: string
+  title?: string
+  createdAt?: string
+  status?: string
+  startedAt?: string | null
+  finishedAt?: string | null
   stateVersion?: number
   messages?: AgentMessage[]
   systemPrompt?: string
@@ -1223,7 +1239,53 @@ export class ServerAgent {
     }
   }
 
-  // --- Static factory ---
+  // --- Static factories ---
+
+  static async restore(
+    sessionId: string,
+    config: { baseUrl?: string; signal?: AbortSignal } = {},
+  ): Promise<{ agent: ServerAgent; snapshot: ServerAgentStateSnapshot }> {
+    const baseUrl = config.baseUrl ?? ''
+    const startedAt = performance.now()
+    const { response, body } = await fetchJsonWithTimeout<ServerAgentStateSnapshot & { error?: string }>(
+      `${baseUrl}/api/agents/${encodeURIComponent(sessionId)}/restore`,
+      STATE_REQUEST_TIMEOUT_MS,
+      { method: 'POST', signal: config.signal },
+    )
+    if (!response.ok) {
+      throw new Error(body?.error || `Failed to restore agent: HTTP ${response.status}`)
+    }
+    if (config.signal?.aborted) throw config.signal.reason ?? new DOMException('Aborted', 'AbortError')
+
+    const snapshot = body ?? {}
+    const agent = new ServerAgent({
+      sessionId,
+      baseUrl,
+      initialState: {
+        systemPrompt: snapshot.systemPrompt ?? '',
+        model: snapshot.model ?? null as unknown as Model<Api>,
+        thinkingLevel: snapshot.thinkingLevel ?? 'off',
+        messages: snapshot.messages ?? [],
+        tools: snapshot.tools ?? [],
+        accessMode: normalizeAgentAccessMode(snapshot.accessMode, snapshot.yoloMode),
+        yoloMode: Boolean(snapshot.yoloMode),
+        isStreaming: Boolean(snapshot.isStreaming),
+        pendingToolCalls: snapshot.pendingToolCalls ?? [],
+        errorMessage: snapshot.errorMessage,
+        contextCompaction: snapshot.contextCompaction,
+        contextUsage: snapshot.contextUsage,
+        pendingToolApproval: snapshot.pendingToolApproval,
+        pendingAutoCompactApproval: snapshot.pendingAutoCompactApproval,
+        stateVersion: snapshot.stateVersion,
+      },
+    })
+    logger.debug('Restored ServerAgent', {
+      sessionId,
+      messageCount: snapshot.messages?.length ?? 0,
+      durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
+    })
+    return { agent, snapshot }
+  }
 
   static async create(
     sessionId: string,

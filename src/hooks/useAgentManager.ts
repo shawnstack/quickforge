@@ -20,10 +20,9 @@ import type {
   BackgroundTaskStatus,
   ChatScope,
   ProjectInfo,
-  QuickForgeSessionData,
   QuickForgeSessionMetadata,
 } from '@/lib/types'
-import { agentAccessModeToYoloMode, normalizeAgentAccessMode, sessionScope } from '@/lib/types'
+import { agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
 import { randomId } from '@/lib/random-id'
 import { disposeAgentTask, selectAgentTaskEvictions, touchAgentTask } from '@/lib/agent-task-retention'
 import { showAlert } from '@/components/ui/confirm-dialog'
@@ -69,8 +68,8 @@ export interface AgentManager {
   startDeferredSession: (options: { scope: ChatScope; project?: ProjectInfo }) => Promise<DeferredSessionAgent>
   loadSession: (
     sessionId: string,
-    hints?: { title?: string; createdAt?: string; scope?: ChatScope; projectId?: string },
-  ) => Promise<void>
+    hints?: { title?: string; createdAt?: string; scope?: ChatScope; projectId?: string; source?: 'acp'; channelId?: string; channelName?: string },
+  ) => Promise<boolean>
   syncSessionUI: (task: BackgroundTask) => Promise<void>
   setCurrentAgentMessages: (messages: AgentState['messages']) => void
   updateCurrentAgentModel: (model: Model<Api>) => void
@@ -78,27 +77,6 @@ export interface AgentManager {
 
   // Stable state setters
   setChatPanelRevision: React.Dispatch<React.SetStateAction<number>>
-}
-
-function isCompactSummaryMessage(message: unknown) {
-  const typed = message as { role?: string; content?: unknown } | undefined
-  if (typed?.role !== 'user') return false
-  const content = typed.content
-  const text = typeof content === 'string'
-    ? content
-    : Array.isArray(content)
-      ? content.filter((block) => (block as { type?: string })?.type === 'text').map((block) => String((block as { text?: unknown }).text ?? '')).join('\n')
-      : ''
-  return text.includes('<compact_summary>')
-}
-
-function manualCompactionFromMessages(messages: AgentState['messages']): ServerAgentContextCompaction | null {
-  const summaryIndex = messages.findIndex(isCompactSummaryMessage)
-  if (summaryIndex < 0) return null
-  return {
-    summaryMessage: messages[summaryIndex] as ServerAgentContextCompaction['summaryMessage'],
-    compactedUpToIndex: Math.min(messages.length, summaryIndex + 2),
-  }
 }
 
 export function useAgentManager(deps: AgentManagerDeps): AgentManager {
@@ -110,7 +88,6 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     defaultWorkspaceRef,
     setAgentAccessMode,
     switchActiveProject,
-    sessions,
     refreshSessions,
     updateSessionTitle,
   } = deps
@@ -124,12 +101,16 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   const currentCreatedAtRef = useRef<string | undefined>(undefined)
   const loadSessionRef = useRef<AgentManager['loadSession'] | null>(null)
   const loadSessionRequestRef = useRef(0)
-  const loadSessionQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const loadSessionAbortRef = useRef<AbortController | null>(null)
   const onTaskCompleteRef = useRef(deps.onTaskComplete)
 
   useEffect(() => {
     onTaskCompleteRef.current = deps.onTaskComplete
   })
+
+  useEffect(() => () => {
+    loadSessionAbortRef.current?.abort()
+  }, [])
 
   // --- State ---
   const [agent, setAgent] = useState<ServerAgent | DeferredSessionAgent | null>(null)
@@ -424,11 +405,14 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       hints?: { title?: string; createdAt?: string; scope?: ChatScope; projectId?: string; source?: 'acp'; channelId?: string; channelName?: string },
     ) => {
       const requestId = ++loadSessionRequestRef.current
-      const isLatestRequest = () => loadSessionRequestRef.current === requestId
+      loadSessionAbortRef.current?.abort()
+      const controller = new AbortController()
+      loadSessionAbortRef.current = controller
+      const isLatestRequest = () => loadSessionRequestRef.current === requestId && !controller.signal.aborted
       setLoadingSessionId(sessionId)
 
-      const run = async () => {
-        if (!isLatestRequest()) return
+      try {
+        if (!isLatestRequest()) return false
 
         const runningTask = taskMapRef.current.get(sessionId)
         if (runningTask) {
@@ -442,92 +426,137 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
           if (isLatestRequest()) {
             attachTaskToView(runningTask)
             pruneIdleTasks(runningTask.sessionId)
+            return true
           }
-          return
+          return false
         }
 
-        const storage = storageRef.current
-        if (!storage) {
-          await createAgent(
-            { tools: [] },
-            sessionId,
-            {
-              scope: hints?.scope ?? 'global',
-              attachToView: true,
-              shouldAttachToView: isLatestRequest,
-              createdAt: hints?.createdAt,
-              title: hints?.title,
-              source: hints?.source,
-              channelId: hints?.channelId,
-              channelName: hints?.channelName,
-            },
-          )
-          return
+        let restoredAgent: ServerAgent
+        let snapshot: Awaited<ReturnType<typeof ServerAgent.restore>>['snapshot']
+        try {
+          const restored = await ServerAgent.restore(sessionId, { signal: controller.signal })
+          restoredAgent = restored.agent
+          snapshot = restored.snapshot
+        } catch (error) {
+          if (controller.signal.aborted || !isLatestRequest()) return false
+          logger.error('Failed to restore session:', error)
+          return false
         }
 
-        const session = (await storage.sessions.get(sessionId)) as QuickForgeSessionData | null
-        if (!session || !isLatestRequest()) return
+        if (!isLatestRequest()) {
+          restoredAgent.dispose()
+          return false
+        }
 
-        const metadata = sessions.find((item) => item.id === sessionId) ?? ((await storage.sessions.getMetadata(sessionId)) as QuickForgeSessionMetadata | null)
-        if (!isLatestRequest()) return
-
-        const scope = hints?.scope ?? sessionScope(metadata ?? session)
-        const scopedProjectId = hints?.projectId ?? metadata?.projectId ?? session.projectId
+        const scope = hints?.scope ?? snapshot.scope ?? 'global'
+        const scopedProjectId = hints?.projectId ?? snapshot.projectId ?? undefined
         let project: ProjectInfo | undefined
         if (scope === 'project' && scopedProjectId) {
-          const projectId = scopedProjectId
-          if (activeProjectRef.current?.id !== projectId) {
+          if (activeProjectRef.current?.id !== scopedProjectId) {
             try {
-              project = await switchActiveProject(projectId)
+              project = await switchActiveProject(scopedProjectId)
             } catch (error) {
+              restoredAgent.dispose()
               logger.error('Failed to switch project for session:', error)
               if (isLatestRequest()) void showAlert(t('projectSwitchFailed'))
-              return
+              return false
             }
           } else {
             project = activeProjectRef.current
           }
         }
-        if (!isLatestRequest()) return
+        if (!isLatestRequest()) {
+          restoredAgent.dispose()
+          return false
+        }
 
-        activeModelRef.current = session.model as Model<Api>
+        activeModelRef.current = restoredAgent.state.model
+        const sessionAccessMode = normalizeAgentAccessMode(restoredAgent.state.accessMode, restoredAgent.state.yoloMode)
+        agentAccessModeRef.current = sessionAccessMode
+        setAgentAccessMode(sessionAccessMode)
 
-        await createAgent(
-          {
-            model: session.model,
-            thinkingLevel: session.thinkingLevel,
-            messages: session.messages,
-            contextCompaction: session.contextCompaction ?? manualCompactionFromMessages(session.messages),
-          },
-          session.id,
-          {
-            scope,
-            project,
-            attachToView: true,
-            shouldAttachToView: isLatestRequest,
-            createdAt: session.createdAt ?? hints?.createdAt,
-            title: session.title ?? hints?.title,
-            source: metadata?.source ?? session.source ?? hints?.source,
-            channelId: metadata?.channelId ?? session.channelId ?? hints?.channelId,
-            channelName: metadata?.channelName ?? session.channelName ?? hints?.channelName,
-            accessMode: normalizeAgentAccessMode(session.accessMode, session.yoloMode),
-            // The session already exists in the sidebar list; loading it doesn't
-            // change its metadata, so a full list refresh is unnecessary and only
-            // triggers a wasteful re-render storm when switching sessions.
-            refreshSessions: false,
-          },
-        )
-      }
+        const task: BackgroundTask = {
+          sessionId,
+          agent: restoredAgent,
+          scope,
+          project: scope === 'project' ? project : defaultWorkspaceRef.current,
+          title: snapshot.title ?? hints?.title ?? 'New chat',
+          createdAt: snapshot.createdAt ?? hints?.createdAt ?? new Date().toISOString(),
+          status: snapshot.status === 'running' || restoredAgent.state.isStreaming
+            ? 'running'
+            : restoredAgent.state.errorMessage
+              ? 'error'
+              : snapshot.status === 'aborted'
+                ? 'aborted'
+                : 'idle',
+          startedAt: snapshot.startedAt ?? undefined,
+          finishedAt: snapshot.finishedAt ?? undefined,
+          lastAccessedAt: Date.now(),
+          unsubscribe: () => undefined,
+        }
+        task.unsubscribe = restoredAgent.subscribe((event) => {
+          if (event.type === 'agent_start') {
+            task.status = 'running'
+            task.startedAt = task.startedAt ?? new Date().toISOString()
+            task.finishedAt = undefined
+            setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
+          }
+          if (event.type === 'message_end') restoredAgent.state.messages = [...restoredAgent.state.messages]
+          if (event.type === 'agent_end') {
+            const wasRunning = task.status === 'running'
+            const endEvent = event as { status?: unknown; errorMessage?: unknown }
+            task.status = endEvent.status === 'aborted'
+              ? 'aborted'
+              : endEvent.errorMessage || restoredAgent.state.errorMessage
+                ? 'error'
+                : 'idle'
+            task.finishedAt = new Date().toISOString()
+            touchAgentTask(task)
+            setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
+            syncSessionUI(task).catch((err) => logger.error('Failed to sync session UI:', err))
+            if (wasRunning) onTaskCompleteRef.current?.(task.sessionId, task.title, task.status)
+            pruneIdleTasks(currentSessionIdRef.current)
+          }
+          if ((event as { type: string }).type === 'title_updated') {
+            const titleEvent = event as unknown as { type: 'title_updated'; title: string }
+            if (titleEvent.title) task.title = titleEvent.title
+            if (task.sessionId === currentSessionIdRef.current && titleEvent.title) {
+              currentTitleRef.current = titleEvent.title
+              setCurrentTitle(titleEvent.title)
+            }
+            if (titleEvent.title) updateSessionTitle(task.sessionId, titleEvent.title)
+          }
+          if ((event as { type: string }).type === 'session_forked') {
+            const forkEvent = event as unknown as {
+              type: 'session_forked'
+              targetSessionId?: string
+              title?: string
+              createdAt?: string
+              scope?: ChatScope
+              projectId?: string | null
+            }
+            if (!forkEvent.targetSessionId) return
+            refreshSessions({ broadcast: true }).catch((err) => logger.error('Failed to refresh sessions:', err))
+            void loadSessionRef.current?.(forkEvent.targetSessionId, {
+              title: forkEvent.title,
+              createdAt: forkEvent.createdAt,
+              scope: forkEvent.scope,
+              projectId: forkEvent.projectId ?? undefined,
+            })
+          }
+        })
 
-      const queuedLoad = loadSessionQueueRef.current.catch(() => undefined).then(run)
-      loadSessionQueueRef.current = queuedLoad
-      try {
-        await queuedLoad
+        taskMapRef.current.set(sessionId, task)
+        if (task.status !== 'idle') setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
+        attachTaskToView(task)
+        pruneIdleTasks(sessionId)
+        return true
       } finally {
-        if (isLatestRequest()) setLoadingSessionId(undefined)
+        if (loadSessionAbortRef.current === controller) loadSessionAbortRef.current = null
+        if (loadSessionRequestRef.current === requestId) setLoadingSessionId(undefined)
       }
     },
-    [attachTaskToView, createAgent, pruneIdleTasks, sessions, switchActiveProject, storageRef, activeModelRef, activeProjectRef],
+    [activeModelRef, activeProjectRef, agentAccessModeRef, attachTaskToView, defaultWorkspaceRef, pruneIdleTasks, refreshSessions, setAgentAccessMode, switchActiveProject, syncSessionUI, updateSessionTitle],
   )
 
   useEffect(() => {

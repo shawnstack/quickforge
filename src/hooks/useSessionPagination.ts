@@ -179,9 +179,10 @@ export function useSessionPagination({
 
     const version = nextRequestVersion()
     // Reset and reload the visible initial pages.
-    await loadPinnedSessions(0, version)
-    if (!isCurrentRequest(version)) return
-    await loadGlobalSessions(0, version)
+    await Promise.all([
+      loadPinnedSessions(0, version),
+      loadGlobalSessions(0, version),
+    ])
     if (!isCurrentRequest(version)) return
 
     if (viewMode === 'timeline') {

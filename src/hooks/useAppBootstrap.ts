@@ -11,31 +11,22 @@ import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { loadToolDisplaySettings } from '@/lib/tool-display-settings'
 import { loadAndApplyFontSizeSettings } from '@/lib/font-size-settings'
 import { loadAndApplyAppearanceSettings } from '@/lib/appearance-settings'
-import type {
-  AgentAccessMode,
-  ProjectInfo,
-  QuickForgeSessionData,
-  QuickForgeSessionMetadata,
-} from '@/lib/types'
-import { normalizeAgentAccessMode, sessionScope } from '@/lib/types'
+import type { AgentAccessMode } from '@/lib/types'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
 import { disposeAllAgentTasks } from '@/lib/agent-task-retention'
-import { showAlert } from '@/components/ui/confirm-dialog'
 
 type UseAppBootstrapOptions = {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof initializePiStorage>> | null>
   backendRef: React.MutableRefObject<HttpStorageBackend | null>
   activeModelRef: React.MutableRefObject<Model<Api>>
   agentAccessModeRef: React.MutableRefObject<AgentAccessMode>
-  activeProjectRef: React.MutableRefObject<ProjectInfo | undefined>
-  setAgentAccessMode: React.Dispatch<React.SetStateAction<AgentAccessMode>>
   taskMapRef: AgentManager['taskMapRef']
   refreshSessions: () => Promise<void>
   loadProject: () => Promise<void>
   initAgentAccessMode: (storage: Awaited<ReturnType<typeof initializePiStorage>>) => Promise<AgentAccessMode>
-  switchActiveProject: (projectId: string) => Promise<ProjectInfo>
   createAgent: AgentManager['createAgent']
+  loadSession: AgentManager['loadSession']
   setNeedsModelSetup: React.Dispatch<React.SetStateAction<boolean>>
   onStorageReady?: (storage: Awaited<ReturnType<typeof initializePiStorage>>) => void
 }
@@ -45,14 +36,12 @@ export function useAppBootstrap({
   backendRef,
   activeModelRef,
   agentAccessModeRef,
-  activeProjectRef,
-  setAgentAccessMode,
   taskMapRef,
   refreshSessions,
   loadProject,
   initAgentAccessMode,
-  switchActiveProject,
   createAgent,
+  loadSession,
   setNeedsModelSetup,
   onStorageReady,
 }: UseAppBootstrapOptions) {
@@ -65,8 +54,8 @@ export function useAppBootstrap({
     refreshSessions,
     loadProject,
     initAgentAccessMode,
-    switchActiveProject,
     createAgent,
+    loadSession,
     setNeedsModelSetup,
     onStorageReady,
   })
@@ -75,8 +64,8 @@ export function useAppBootstrap({
       refreshSessions,
       loadProject,
       initAgentAccessMode,
-      switchActiveProject,
       createAgent,
+      loadSession,
       setNeedsModelSetup,
       onStorageReady,
     }
@@ -90,8 +79,8 @@ export function useAppBootstrap({
         refreshSessions: refreshSessionList,
         loadProject: loadProj,
         initAgentAccessMode: initAccessMode,
-        switchActiveProject: switchProject,
         createAgent: create,
+        loadSession: restoreSession,
         setNeedsModelSetup: setModelSetup,
         onStorageReady: onReady,
       } = depsRef.current
@@ -120,64 +109,17 @@ export function useAppBootstrap({
 
         const sessionId = new URLSearchParams(window.location.search).get('session')
         if (sessionId) {
-          const existing = await storage.sessions.get(sessionId)
-          if (existing) {
-            const metadata = (await storage.sessions.getMetadata(existing.id)) as QuickForgeSessionMetadata | null
-            const scope = sessionScope(metadata ?? (existing as QuickForgeSessionData))
-            let project: ProjectInfo | undefined
-            if (scope === 'project' && (metadata?.projectId || (existing as QuickForgeSessionData).projectId)) {
-              const projectId = (metadata?.projectId ?? (existing as QuickForgeSessionData).projectId)!
-              if (activeProjectRef.current?.id !== projectId) {
-                try {
-                  project = await switchProject(projectId)
-                } catch (error) {
-                  logger.error('Failed to switch project for initial session:', error)
-                  void showAlert(t('projectSwitchFailed'))
-                  if (initialModel) {
-                    await create(
-                      { model: defaultOptions.model ?? initialModel, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },
-                      randomId(),
-                      { scope: 'global', attachToView: true },
-                    )
-                  } else {
-                    setModelSetup(true)
-                  }
-                  setReady(true)
-                  return
-                }
-              } else {
-                project = activeProjectRef.current
-              }
+          const restored = await restoreSession(sessionId)
+          if (!restored) {
+            if (initialModel) {
+              await create(
+                { model: defaultOptions.model ?? initialModel, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },
+                randomId(),
+                { scope: 'global', attachToView: true },
+              )
+            } else {
+              setModelSetup(true)
             }
-            activeModelRef.current = existing.model as Model<Api>
-            const sessionAccessMode = normalizeAgentAccessMode((existing as QuickForgeSessionData).accessMode, (existing as QuickForgeSessionData).yoloMode)
-            agentAccessModeRef.current = sessionAccessMode
-            setAgentAccessMode(sessionAccessMode)
-            await create(
-              {
-                model: existing.model,
-                thinkingLevel: existing.thinkingLevel,
-                messages: existing.messages,
-                tools: [],
-              },
-              existing.id,
-              {
-                scope,
-                project,
-                attachToView: true,
-                createdAt: existing.createdAt,
-                title: existing.title,
-                accessMode: sessionAccessMode,
-              },
-            )
-          } else if (initialModel) {
-            await create(
-              { model: defaultOptions.model ?? initialModel, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },
-              randomId(),
-              { scope: 'global', attachToView: true },
-            )
-          } else {
-            setModelSetup(true)
           }
         } else if (initialModel) {
           await create(
@@ -207,8 +149,6 @@ export function useAppBootstrap({
     backendRef,
     activeModelRef,
     agentAccessModeRef,
-    activeProjectRef,
-    setAgentAccessMode,
     taskMapRef,
     retryNonce,
   ])

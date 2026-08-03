@@ -283,31 +283,23 @@ describe('ServerAgent', () => {
     }
   })
 
-  it('restores messages and running state from the server when recreating an evicted agent', async () => {
-    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-      if (init?.method === 'POST') return { ok: true, status: 200, json: async () => ({}) }
-      if (url.endsWith('/state')) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            stateVersion: 7,
-            isStreaming: true,
-            messages: [
-              { role: 'user', content: 'server request' },
-              { role: 'assistant', content: 'server partial response' },
-            ],
-          }),
-        }
-      }
-      return { ok: true, status: 200, json: async () => ({}) }
-    })
+  it('restores messages and running state with a single restore request', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        stateVersion: 7,
+        isStreaming: true,
+        messages: [
+          { role: 'user', content: 'server request' },
+          { role: 'assistant', content: 'server partial response' },
+        ],
+      }),
+    }))
     vi.stubGlobal('fetch', fetchMock)
     const { ServerAgent } = await import('../../src/lib/server-agent')
 
-    const agent = await ServerAgent.create('evicted-session', {
-      messages: [{ role: 'user', content: 'stale local state' }] as AgentMessage[],
-    })
+    const { agent } = await ServerAgent.restore('evicted-session')
 
     try {
       expect(agent.state.messages).toEqual([
@@ -315,16 +307,35 @@ describe('ServerAgent', () => {
         { role: 'assistant', content: 'server partial response' },
       ])
       expect(agent.state.isStreaming).toBe(true)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
       expect(fetchMock).toHaveBeenCalledWith(
-        '/api/agents/evicted-session/state',
-        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        '/api/agents/evicted-session/restore',
+        expect.objectContaining({ method: 'POST', signal: expect.any(AbortSignal) }),
       )
     } finally {
       agent.dispose()
     }
   })
 
-  it('restores running tool snapshots and pending calls from the server when recreating an evicted agent', async () => {
+  it('does not create an SSE client when restore is aborted', async () => {
+    const pending = deferred<Response>()
+    const fetchMock = vi.fn(() => pending.promise)
+    vi.stubGlobal('fetch', fetchMock)
+    const { ServerAgent } = await import('../../src/lib/server-agent')
+    const controller = new AbortController()
+
+    const restore = ServerAgent.restore('aborted-session', { signal: controller.signal })
+    controller.abort()
+    pending.resolve(new Response(JSON.stringify({ messages: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    await expect(restore).rejects.toMatchObject({ name: 'AbortError' })
+    expect(MockEventSource.instances).toHaveLength(0)
+  })
+
+  it('restores running tool snapshots and pending calls with a single restore request', async () => {
     const runningToolResult = {
       role: 'toolResult',
       toolCallId: 'tool-call-subagent',
@@ -340,31 +351,23 @@ describe('ServerAgent', () => {
       isError: false,
       timestamp: 123,
     } as AgentMessage
-    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-      if (init?.method === 'POST') return { ok: true, status: 200, json: async () => ({}) }
-      if (url.endsWith('/state')) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            stateVersion: 7,
-            isStreaming: true,
-            pendingToolCalls: ['tool-call-subagent'],
-            messages: [
-              { role: 'user', content: 'server request' },
-              runningToolResult,
-            ],
-          }),
-        }
-      }
-      return { ok: true, status: 200, json: async () => ({}) }
-    })
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        stateVersion: 7,
+        isStreaming: true,
+        pendingToolCalls: ['tool-call-subagent'],
+        messages: [
+          { role: 'user', content: 'server request' },
+          runningToolResult,
+        ],
+      }),
+    }))
     vi.stubGlobal('fetch', fetchMock)
     const { ServerAgent } = await import('../../src/lib/server-agent')
 
-    const agent = await ServerAgent.create('evicted-session', {
-      messages: [{ role: 'user', content: 'stale local state' }] as AgentMessage[],
-    })
+    const { agent } = await ServerAgent.restore('evicted-session')
 
     try {
       expect(agent.state.messages).toEqual([
@@ -376,9 +379,10 @@ describe('ServerAgent', () => {
         { role: 'assistant', content: 'checking files' },
       ])
       expect(agent.state.isStreaming).toBe(true)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
       expect(fetchMock).toHaveBeenCalledWith(
-        '/api/agents/evicted-session/state',
-        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        '/api/agents/evicted-session/restore',
+        expect.objectContaining({ method: 'POST', signal: expect.any(AbortSignal) }),
       )
     } finally {
       agent.dispose()

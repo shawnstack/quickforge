@@ -38,14 +38,15 @@
 4. 加载上次使用的模型 (`loadInitialConfiguredModel`)
 5. 加载 Agent 访问模式状态
 6. 加载项目列表和活跃项目
-7. Storage backend 就绪后，完整刷新当前会话视图（置顶、全局，以及已展开项目或时间线）
-8. 标记模型是否已配置 (`needsModelSetup`)
+7. Storage backend 就绪后，并行刷新置顶与全局会话首屏，同时加载已恢复的展开项目或时间线
+8. URL 携带 `?session=` 时统一委托 `useAgentManager.loadSession()` 走可取消的单次服务端恢复链路
+9. 标记模型是否已配置 (`needsModelSetup`)
 
 ### useAgentManager.ts (537 行)
 
 核心 Agent 管理 Hook，封装了 Agent 的完整生命周期:
 - **创建/销毁 Agent**: `createAgent()`, `destroyAgent()`
-- **会话加载**: `loadSession(sessionId)` — 恢复 Agent 状态
+- **会话加载**: `loadSession(sessionId)` — 通过单次 `POST /api/agents/:sessionId/restore` 获取服务端权威快照，不再先下载 Session、再把完整 messages 上传回服务端、最后重复请求 state；切换会话时会取消旧恢复请求，仅最新请求可挂载到界面
 - **消息同步**: `syncSessionUI()` — 从 ServerAgent 同步消息到 UI
 - **会话列表**: `refreshSessions()` 负责完整刷新，`session_created` / `title_updated` SSE 分别用于局部插入会话和更新标题
 - **标题生成**: 服务端先持久化首条消息及 fallback 标题，再异步生成 AI 标题；用户手动重命名优先
@@ -78,6 +79,7 @@
 ### useSessionPagination.ts (312 行)
 
 - 全局/项目会话分页 (每页 20 条)
+- 首次刷新并行请求置顶与全局首屏，随后按视图加载已展开项目或项目时间线，避免无必要的串行等待
 - 支持 `session_created` 局部插入与 `title_updated` 局部标题更新，避免纯标题变化触发全列表刷新
 - 展开/折叠项目时自动加载；启动阶段会等待 Storage backend 就绪后再刷新已恢复的展开项目，避免残留虚假的加载状态
 - 跟踪加载状态 (`hasMore`, `loading`)

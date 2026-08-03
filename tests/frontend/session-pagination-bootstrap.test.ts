@@ -48,6 +48,12 @@ async function flushMicrotasks() {
   for (let index = 0; index < 10; index += 1) await Promise.resolve()
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((next) => { resolve = next })
+  return { promise, resolve }
+}
+
 describe('session pagination bootstrap', () => {
   beforeEach(() => {
     reactHarness.cursor = 0
@@ -65,6 +71,31 @@ describe('session pagination bootstrap', () => {
     await flushMicrotasks()
 
     expect(reactHarness.states[2]).toEqual({})
+  })
+
+  it('starts pinned and global initial-page requests in parallel', async () => {
+    const pinned = deferred<{ values: never[]; total: number }>()
+    const global = deferred<{ values: never[]; total: number }>()
+    const fetchPaginatedFromIndex = vi.fn((
+      _storeName: string,
+      _indexName: string,
+      options: { pinned?: string },
+    ) => options.pinned === 'only' ? pinned.promise : global.promise)
+    const backend = { fetchPaginatedFromIndex } as unknown as HttpStorageBackend
+
+    useSessionPagination({
+      backendRef: { current: backend },
+      expandedProjectIds: new Set(),
+      viewMode: 'project',
+      sortMode: 'updatedAt',
+    })
+
+    await Promise.resolve()
+    expect(fetchPaginatedFromIndex).toHaveBeenCalledTimes(2)
+
+    pinned.resolve({ values: [], total: 0 })
+    global.resolve({ values: [], total: 0 })
+    await flushMicrotasks()
   })
 
   it('loads restored project sessions once the backend is ready', async () => {

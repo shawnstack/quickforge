@@ -63,7 +63,7 @@
 **关键功能**:
 - SSE 事件流管理（`GlobalAgentSseClient`）
 - 消息发送/接收
-- Agent 状态管理（创建、恢复、销毁）；页面刷新或 SSE 重连时会从服务端 state 恢复运行中工具的临时 `toolResult`（含 subagent `details.messages`）和 `pendingToolCalls`
+- Agent 状态管理（创建、单次恢复、销毁）；`ServerAgent.restore()` 支持 `AbortSignal`，从 `/api/agents/:sessionId/restore` 一次取得完整权威快照，取消的旧会话请求不会创建 SSE；页面刷新或 SSE 重连时会从服务端 state 恢复运行中工具的临时 `toolResult`（含 subagent `details.messages`）和 `pendingToolCalls`
 - 系统提示词加载
 - Agent 权限模式切换
 - 自定义命令注入

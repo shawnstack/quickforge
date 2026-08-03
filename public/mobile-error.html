@@ -11,14 +11,14 @@
       main { width: min(86vw, 28rem); text-align: center; }
       h1 { font-size: 1.15rem; }
       p { color: GrayText; line-height: 1.6; }
-      a { display: inline-block; margin-top: 1rem; padding: .75rem 1rem; border: 1px solid ButtonBorder; border-radius: .75rem; color: ButtonText; text-decoration: none; }
+      button { margin-top: 1rem; padding: .75rem 1rem; border: 1px solid ButtonBorder; border-radius: .75rem; background: transparent; color: ButtonText; font: inherit; cursor: pointer; }
     </style>
   </head>
   <body>
     <main>
       <h1>无法连接 QuickForge</h1>
       <p>请检查服务器地址和服务状态。</p>
-      <a href="https://localhost/?connect=1">返回服务器设置</a>
+      <button type="button" onclick="window.location.href = 'https://localhost/?connect=1'">返回服务器设置</button>
     </main>
   </body>
 </html>

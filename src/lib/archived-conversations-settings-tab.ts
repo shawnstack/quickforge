@@ -201,14 +201,14 @@ class ArchivedConversationsSettingsTab extends SettingsTab {
     const busy = this.busySessionId === session.id || this.busySessionId === '__all__'
     return html`
       <div class="border-t border-border px-4 py-3 first:border-t-0">
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0">
+        <div class="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+          <div class="min-w-0 flex-1">
             <div class="truncate text-sm font-medium text-foreground">${sessionTitle(session.title, session.channelName)}</div>
             <div class="mt-1 text-xs text-muted-foreground">
               ${t('lastModified')}: ${formatDate(session.lastModified)} · ${t('archivedAt')}: ${formatDate(session.archivedAt)}
             </div>
           </div>
-          <div class="flex shrink-0 items-center gap-2">
+          <div class="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
             <button
               class="rounded-md border border-input px-2.5 py-1 text-xs hover:bg-muted/60 disabled:opacity-60"
               type="button"

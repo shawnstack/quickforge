@@ -1,6 +1,7 @@
 import {
   Archive,
   ArrowLeft,
+  ArrowUp,
   BookOpen,
   Bot,
   CalendarClock,
@@ -71,9 +72,6 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
   const defaultTabIndex = Math.max(0, settings.indexOf(initialTab))
   const [selectedTabIndex, setSelectedTabIndex] = useState<number | undefined>()
   const activeTabIndex = selectedTabIndex ?? defaultTabIndex
-  const activeItem = settings.items[activeTabIndex] ?? settings.items[0]
-  const activeDescription = activeItem?.getDescription?.()
-  const ActiveIcon = activeItem ? SETTINGS_TAB_ICONS[activeItem.key] : undefined
   const [settingsSearchQuery, setSettingsSearchQuery] = useState('')
   const normalizedSettingsSearchQuery = settingsSearchQuery.trim().toLowerCase()
   const filteredSettingsItems = useMemo(() => {
@@ -85,6 +83,25 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
         return searchText.includes(normalizedSettingsSearchQuery)
       })
   }, [settings.items, normalizedSettingsSearchQuery])
+
+  // 搜索联动：命中后内容区自动切到第一个匹配项，清空搜索回到原 tab
+  const visibleTabIndex = useMemo(() => {
+    if (!normalizedSettingsSearchQuery) return activeTabIndex
+    const first = filteredSettingsItems[0]
+    if (!first) return activeTabIndex
+    return filteredSettingsItems.some(({ index }) => index === activeTabIndex) ? activeTabIndex : first.index
+  }, [activeTabIndex, filteredSettingsItems, normalizedSettingsSearchQuery])
+
+  const activeItem = settings.items[visibleTabIndex] ?? settings.items[0]
+  const activeDescription = activeItem?.getDescription?.()
+  const ActiveIcon = activeItem ? SETTINGS_TAB_ICONS[activeItem.key] : undefined
+
+  const contentRef = useRef<HTMLElement>(null)
+  const [showToTop, setShowToTop] = useState(false)
+  // 切换 tab 时内容区滚动复位
+  useEffect(() => {
+    contentRef.current?.scrollTo({ top: 0 })
+  }, [visibleTabIndex])
 
   return (
     <div className="flex h-screen min-h-0 supports-[height:100dvh]:h-dvh bg-[var(--quickforge-sidebar-bg)] text-foreground">
@@ -116,7 +133,7 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4 pt-4">
           <nav className="space-y-1" aria-label={t('settings')}>
             {filteredSettingsItems.map(({ item, index }) => {
-              const active = index === activeTabIndex
+              const active = index === visibleTabIndex
               const Icon = SETTINGS_TAB_ICONS[item.key]
               return (
                 <button
@@ -150,7 +167,7 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
         </div>
       </aside>
 
-      <main className="flex min-w-0 flex-1 flex-col bg-[var(--quickforge-main-bg)] md:overflow-hidden md:rounded-tl-2xl">
+      <main className="relative flex min-w-0 flex-1 flex-col bg-[var(--quickforge-main-bg)] md:overflow-hidden md:rounded-tl-2xl">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-3 pr-4 md:px-5">
           <Button variant="ghost" size="icon" className="md:hidden" onClick={onBack} aria-label="返回工作区">
             <ArrowLeft className="size-4" />
@@ -177,35 +194,56 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
           </div>
         </div>
 
-        <div className="quickforge-settings-mobile-tabs flex shrink-0 gap-1 overflow-x-auto border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_30%,transparent)] px-3 py-2 md:hidden">
+        <nav className="quickforge-settings-mobile-grid shrink-0 border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_30%,transparent)] px-3 pb-3 pt-1 md:hidden" aria-label={t('settings')}>
           {filteredSettingsItems.map(({ item, index }) => {
-            const active = index === activeTabIndex
+            const active = index === visibleTabIndex
             const Icon = SETTINGS_TAB_ICONS[item.key]
             return (
               <button
                 key={item.key}
                 type="button"
-                className={cn(
-                  'inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition-colors',
-                  active ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/55 hover:text-foreground',
-                )}
+                className={cn('quickforge-settings-mobile-grid-item', active && 'is-active')}
                 onClick={() => setSelectedTabIndex(index)}
+                aria-current={active ? 'page' : undefined}
               >
-                <Icon className="size-3.5 shrink-0" aria-hidden="true" />
-                <span>{item.tab.getTabName()}</span>
+                <span className="quickforge-settings-mobile-grid-icon">
+                  <Icon className="size-5 shrink-0" aria-hidden="true" />
+                </span>
+                <span className="quickforge-settings-mobile-grid-label">{item.tab.getTabName()}</span>
               </button>
             )
           })}
           {filteredSettingsItems.length === 0 ? (
-            <div className="shrink-0 px-1 py-1.5 text-sm text-muted-foreground/70">{t('noSettingsResults')}</div>
+            <div className="col-span-5 px-1 py-2 text-center text-sm text-muted-foreground/70">{t('noSettingsResults')}</div>
           ) : null}
-        </div>
+        </nav>
 
-        <section className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-8 md:py-7">
+        <section
+          ref={contentRef}
+          onScroll={() => setShowToTop((contentRef.current?.scrollTop ?? 0) > 160)}
+          className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-8 md:py-7"
+        >
           <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col">
-            {activeItem ? <SettingsTabHost tab={activeItem.tab} /> : null}
+            {filteredSettingsItems.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-[color-mix(in_oklab,var(--border)_70%,transparent)] p-8 text-center text-sm text-muted-foreground/70">
+                {t('noSettingsResults')}
+              </div>
+            ) : activeItem ? (
+              <SettingsTabHost tab={activeItem.tab} />
+            ) : null}
           </div>
         </section>
+        <button
+          type="button"
+          onClick={() => contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+          aria-label="返回顶部"
+          className={cn(
+            'absolute bottom-5 right-4 z-20 flex size-9 items-center justify-center rounded-[10px] border-[0.5px] border-[color-mix(in_oklab,var(--border)_65%,transparent)] bg-[var(--background)] text-muted-foreground/85 shadow-[0_10px_24px_-16px_rgb(15_23_42_/_0.55)] transition-opacity duration-160 md:hidden',
+            showToTop ? 'opacity-100' : 'pointer-events-none opacity-0',
+          )}
+        >
+          <ArrowUp className="size-4" />
+        </button>
       </main>
     </div>
   )

@@ -974,8 +974,8 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                     </div>
                   </div>
 
-                  <div className="overflow-hidden rounded-xl border border-border bg-card">
-                    <div className="grid grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.7fr] gap-3 border-b border-border px-4 py-3 text-xs font-medium text-muted-foreground">
+                  <div className="overflow-x-auto rounded-xl border border-border bg-card">
+                    <div className="grid min-w-[600px] grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.7fr] gap-3 border-b border-border px-4 py-3 text-xs font-medium text-muted-foreground">
                       <span>{t('taskName')}</span>
                       <span>{t('status')}</span>
                       <span>{t('triggerType')}</span>
@@ -988,7 +988,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                       <div className="p-8 text-center text-sm text-muted-foreground">{t('noExecutionHistory')}</div>
                     ) : historyPayload.runs.map((run) => (
                       <div key={`${run.taskId}:${run.id}`} className="border-b border-border last:border-b-0">
-                        <button type="button" className="grid w-full grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.7fr] gap-3 px-4 py-3 text-left text-sm hover:bg-muted/40" onClick={() => setExpandedRunId(expandedRunId === run.id ? null : run.id)}>
+                        <button type="button" className="grid w-full min-w-[600px] grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.7fr] gap-3 px-4 py-3 text-left text-sm hover:bg-muted/40" onClick={() => setExpandedRunId(expandedRunId === run.id ? null : run.id)}>
                           <span className="min-w-0 truncate text-foreground">{run.taskTitle}</span>
                           <span><span className={cn('rounded-full px-2 py-0.5 text-xs', statusClass(run.status))}>{statusLabel(run.status)}</span></span>
                           <span className="text-muted-foreground">{run.trigger === 'manual' ? t('manualRun') : t('autoRun')}</span>

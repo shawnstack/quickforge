@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { ArrowRight, Check, Server, Trash2 } from 'lucide-react'
+import { ArrowRight, Check, Pencil, Server, Trash2, X } from 'lucide-react'
 import {
   buildMobileServerAppUrl,
   normalizeTailscaleServerUrl,
@@ -13,8 +13,12 @@ export function MobileServerConnectPage() {
   const manualSelection = new URLSearchParams(window.location.search).get('connect') === '1'
   const [settings, setSettings] = useState<MobileServerSettings>(initialSettings)
   const [serverUrl, setServerUrl] = useState('')
+  const [aliasInput, setAliasInput] = useState('')
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
+  // Inline alias editing for an existing server row.
+  const [editingUrl, setEditingUrl] = useState<string | null>(null)
+  const [editingAlias, setEditingAlias] = useState('')
 
   useEffect(() => {
     if (!manualSelection && initialSettings.lastUsedUrl) {
@@ -31,12 +35,17 @@ export function MobileServerConnectPage() {
     try {
       const normalized = normalizeTailscaleServerUrl(serverUrl)
       const urls = settings.urls.includes(normalized) ? settings.urls : [...settings.urls, normalized]
+      const alias = aliasInput.trim()
+      const aliases = { ...(settings.aliases ?? {}) }
+      if (alias) aliases[normalized] = alias
       const nextSettings = {
         urls,
+        aliases,
         lastUsedUrl: connectAfterSave ? normalized : settings.lastUsedUrl || normalized,
       }
       persistSettings(nextSettings)
       setServerUrl('')
+      setAliasInput('')
       setError('')
       setSaved(true)
       if (connectAfterSave) {
@@ -65,13 +74,34 @@ export function MobileServerConnectPage() {
   const deleteServer = (url: string) => {
     try {
       const urls = settings.urls.filter((item) => item !== url)
+      const aliases = { ...(settings.aliases ?? {}) }
+      delete aliases[url]
       const lastUsedUrl = settings.lastUsedUrl === url ? urls[0] || '' : settings.lastUsedUrl
-      persistSettings({ urls, lastUsedUrl })
+      persistSettings({ urls, aliases, lastUsedUrl })
+      if (editingUrl === url) {
+        setEditingUrl(null)
+        setEditingAlias('')
+      }
       setError('')
       setSaved(false)
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : '无法删除服务器地址')
     }
+  }
+
+  const startEditAlias = (url: string) => {
+    setEditingUrl(url)
+    setEditingAlias(settings.aliases?.[url] ?? '')
+  }
+
+  const saveAlias = (url: string) => {
+    const alias = editingAlias.trim()
+    const aliases = { ...(settings.aliases ?? {}) }
+    if (alias) aliases[url] = alias
+    else delete aliases[url]
+    persistSettings({ ...settings, aliases })
+    setEditingUrl(null)
+    setEditingAlias('')
   }
 
   return (
@@ -103,6 +133,24 @@ export function MobileServerConnectPage() {
             placeholder="http://服务器地址:5176"
             className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/60 focus:border-foreground/30 focus:shadow-quickforge"
           />
+          <label className="mt-4 block text-sm font-medium" htmlFor="quickforge-mobile-server-alias">
+            别名（可选）
+          </label>
+          <input
+            id="quickforge-mobile-server-alias"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            value={aliasInput}
+            onChange={(event) => {
+              setAliasInput(event.target.value)
+              setError('')
+              setSaved(false)
+            }}
+            placeholder="例如：公司开发机"
+            className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/60 focus:border-foreground/30 focus:shadow-quickforge"
+          />
+          <p className="mt-2 text-xs text-muted-foreground">不填写时，列表将直接显示服务器地址。</p>
           {error ? <p className="mt-3 text-sm text-destructive" role="alert">{error}</p> : null}
           {saved && !error ? (
             <p className="mt-3 flex items-center gap-1.5 text-sm text-muted-foreground" role="status">
@@ -132,28 +180,97 @@ export function MobileServerConnectPage() {
           <div className="mt-5 overflow-hidden rounded-2xl border border-border bg-background">
             {settings.urls.map((url) => {
               const active = url === settings.lastUsedUrl
+              const alias = settings.aliases?.[url]?.trim()
+              const isEditing = editingUrl === url
               return (
-                <div key={url} className="flex items-center gap-2 border-b border-border/60 p-2 last:border-b-0">
-                  <button
-                    type="button"
-                    className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-2 py-2.5 text-left text-sm text-foreground/80 transition-colors hover:bg-muted/45"
-                    onClick={() => connectServer(url)}
-                    title={url}
-                  >
-                    <span className="inline-flex size-5 shrink-0 items-center justify-center">
-                      {active ? <Check className="size-4 text-foreground/65" aria-hidden="true" /> : null}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate">{url}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground"
-                    onClick={() => deleteServer(url)}
-                    aria-label={`删除 ${url}`}
-                    title={`删除 ${url}`}
-                  >
-                    <Trash2 className="size-4" aria-hidden="true" />
-                  </button>
+                <div
+                  key={url}
+                  className="flex items-center gap-2 border-b border-[color-mix(in_oklab,var(--border)_38%,transparent)] p-2 last:border-b-0"
+                >
+                  {isEditing ? (
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <input
+                        autoFocus
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        value={editingAlias}
+                        onChange={(event) => setEditingAlias(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') saveAlias(url)
+                          if (event.key === 'Escape') {
+                            setEditingUrl(null)
+                            setEditingAlias('')
+                          }
+                        }}
+                        placeholder="输入别名，如：公司开发机"
+                        aria-label={`${alias || url} 的别名`}
+                        className="h-10 w-full min-w-0 flex-1 rounded-xl border border-input bg-background px-3 text-sm outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/60 focus:border-foreground/30 focus:shadow-quickforge"
+                      />
+                      <button
+                        type="button"
+                        className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-opacity hover:opacity-92 active:opacity-85"
+                        onClick={() => saveAlias(url)}
+                        aria-label="保存别名"
+                        title="保存别名"
+                      >
+                        <Check className="size-4" aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground"
+                        onClick={() => {
+                          setEditingUrl(null)
+                          setEditingAlias('')
+                        }}
+                        aria-label="取消"
+                        title="取消"
+                      >
+                        <X className="size-4" aria-hidden="true" />
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-2 py-2.5 text-left text-sm transition-colors hover:bg-muted/45"
+                        onClick={() => connectServer(url)}
+                        title={url}
+                      >
+                        <span className="inline-flex size-5 shrink-0 items-center justify-center">
+                          {active ? <Check className="size-4 text-foreground/65" aria-hidden="true" /> : null}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          {alias ? (
+                            <>
+                              <span className="block truncate text-sm font-medium text-foreground">{alias}</span>
+                              <span className="mt-0.5 block break-all font-mono text-xs text-muted-foreground">{url}</span>
+                            </>
+                          ) : (
+                            <span className="block break-all font-mono text-sm text-foreground/80">{url}</span>
+                          )}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground"
+                        onClick={() => startEditAlias(url)}
+                        aria-label={`编辑 ${alias || url} 的别名`}
+                        title="编辑别名"
+                      >
+                        <Pencil className="size-4" aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground"
+                        onClick={() => deleteServer(url)}
+                        aria-label={`删除 ${alias || url}`}
+                        title={`删除 ${alias || url}`}
+                      >
+                        <Trash2 className="size-4" aria-hidden="true" />
+                      </button>
+                    </>
+                  )}
                 </div>
               )
             })}

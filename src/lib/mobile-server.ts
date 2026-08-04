@@ -4,10 +4,16 @@ const MOBILE_SERVER_STORAGE_KEY = 'quickforge:mobile-server-url'
 const MOBILE_SERVER_SETTINGS_STORAGE_KEY = 'quickforge:mobile-server-settings:v1'
 const MOBILE_SHELL_QUERY_KEY = 'quickforgeMobile'
 const MOBILE_SHELL_SESSION_KEY = 'quickforge:mobile-shell'
+// Carries the alias for the currently connected server from the native settings
+// page (https://localhost) to the remote QuickForge page (different origin, so
+// localStorage is not shared there).
+const MOBILE_SHELL_ALIAS_QUERY_KEY = 'quickforgeAlias'
 
 export type MobileServerSettings = {
   urls: string[]
   lastUsedUrl: string
+  /** 服务器地址 → 用户设置的别名（仅保留规范化后仍有效的地址）。 */
+  aliases?: Record<string, string>
 }
 
 function isTailscaleIPv4(hostname: string): boolean {
@@ -62,12 +68,26 @@ function normalizeSavedUrls(values: unknown): string[] {
   return urls
 }
 
+function normalizeSavedAliases(values: unknown, urls: string[]): Record<string, string> {
+  if (typeof values !== 'object' || values === null || Array.isArray(values)) return {}
+  const aliases: Record<string, string> = {}
+  for (const [key, raw] of Object.entries(values)) {
+    if (typeof raw !== 'string') continue
+    const alias = raw.trim()
+    if (!alias) continue
+    const normalizedKey = normalizeSavedUrls([key])[0]
+    if (!normalizedKey || !urls.includes(normalizedKey)) continue
+    aliases[normalizedKey] = alias
+  }
+  return aliases
+}
+
 export function readMobileServerSettings(storage: Storage = window.localStorage): MobileServerSettings {
   try {
     const storedSettings = storage.getItem(MOBILE_SERVER_SETTINGS_STORAGE_KEY)
     if (storedSettings !== null) {
       try {
-        const parsed = JSON.parse(storedSettings) as { urls?: unknown; lastUsedUrl?: unknown }
+        const parsed = JSON.parse(storedSettings) as { urls?: unknown; lastUsedUrl?: unknown; aliases?: unknown }
         const urls = normalizeSavedUrls(parsed?.urls)
         const normalizedLastUsedUrl = typeof parsed?.lastUsedUrl === 'string'
           ? normalizeSavedUrls([parsed.lastUsedUrl])[0] || ''
@@ -75,6 +95,7 @@ export function readMobileServerSettings(storage: Storage = window.localStorage)
         return {
           urls,
           lastUsedUrl: urls.includes(normalizedLastUsedUrl) ? normalizedLastUsedUrl : urls[0] || '',
+          aliases: normalizeSavedAliases(parsed?.aliases, urls),
         }
       } catch {
         // Fall back to the legacy single-server value.
@@ -84,10 +105,10 @@ export function readMobileServerSettings(storage: Storage = window.localStorage)
     const legacyUrl = storage.getItem(MOBILE_SERVER_STORAGE_KEY)
     const normalizedLegacyUrl = legacyUrl ? normalizeSavedUrls([legacyUrl])[0] || '' : ''
     return normalizedLegacyUrl
-      ? { urls: [normalizedLegacyUrl], lastUsedUrl: normalizedLegacyUrl }
-      : { urls: [], lastUsedUrl: '' }
+      ? { urls: [normalizedLegacyUrl], lastUsedUrl: normalizedLegacyUrl, aliases: {} }
+      : { urls: [], lastUsedUrl: '', aliases: {} }
   } catch {
-    return { urls: [], lastUsedUrl: '' }
+    return { urls: [], lastUsedUrl: '', aliases: {} }
   }
 }
 
@@ -95,7 +116,8 @@ export function saveMobileServerSettings(settings: MobileServerSettings, storage
   const urls = normalizeSavedUrls(settings.urls)
   const normalizedLastUsedUrl = normalizeSavedUrls([settings.lastUsedUrl])[0] || ''
   const lastUsedUrl = urls.includes(normalizedLastUsedUrl) ? normalizedLastUsedUrl : urls[0] || ''
-  storage.setItem(MOBILE_SERVER_SETTINGS_STORAGE_KEY, JSON.stringify({ urls, lastUsedUrl }))
+  const aliases = normalizeSavedAliases(settings.aliases, urls)
+  storage.setItem(MOBILE_SERVER_SETTINGS_STORAGE_KEY, JSON.stringify({ urls, lastUsedUrl, aliases }))
   if (lastUsedUrl) {
     storage.setItem(MOBILE_SERVER_STORAGE_KEY, lastUsedUrl)
   } else {
@@ -103,10 +125,29 @@ export function saveMobileServerSettings(settings: MobileServerSettings, storage
   }
 }
 
+function readMobileServerAlias(serverUrl: string): string | undefined {
+  try {
+    const normalized = normalizeTailscaleServerUrl(serverUrl)
+    const alias = readMobileServerSettings().aliases?.[normalized]?.trim()
+    return alias || undefined
+  } catch {
+    // The settings page may not be available in every environment; without an
+    // alias the shell keeps showing the plain server URL.
+    return undefined
+  }
+}
+
 export function buildMobileServerAppUrl(serverUrl: string): string {
   const url = new URL(serverUrl)
   url.searchParams.set(MOBILE_SHELL_QUERY_KEY, '1')
+  const alias = readMobileServerAlias(serverUrl)
+  if (alias) url.searchParams.set(MOBILE_SHELL_ALIAS_QUERY_KEY, alias)
   return url.toString()
+}
+
+/** Reads the alias of the connected server, carried over by the shell URL. */
+export function readMobileServerAliasFromUrl(search: string = typeof window !== 'undefined' ? window.location.search : ''): string | undefined {
+  return new URLSearchParams(search).get(MOBILE_SHELL_ALIAS_QUERY_KEY)?.trim() || undefined
 }
 
 export function isNativeMobileEntry(): boolean {

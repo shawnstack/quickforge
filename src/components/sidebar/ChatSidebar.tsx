@@ -113,6 +113,7 @@ type ChatSidebarProps = {
   onStartNewGlobalChat: () => void
   onOpenSettings: () => void
   currentServerUrl?: string
+  currentServerAlias?: string
   onOpenServer?: () => void
   onOpenUpdate?: () => void
   onDismissUpdate?: () => void
@@ -255,6 +256,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   onStartNewGlobalChat,
   onOpenSettings,
   currentServerUrl,
+  currentServerAlias,
   onOpenServer,
   onOpenUpdate,
   onDismissUpdate,
@@ -1475,13 +1477,22 @@ export const ChatSidebar = memo(function ChatSidebar({
             type="button"
             className={cn(footerRowClass, 'min-h-9 w-full shrink-0 rounded-lg', inactiveRowClass)}
             onClick={onOpenServer}
-            aria-label={currentServerUrl}
+            aria-label={currentServerAlias ? `${currentServerAlias}（${currentServerUrl}）` : currentServerUrl}
             title={currentServerUrl}
           >
             <span className={iconSlotClass}>
               <Server className="size-4" />
             </span>
-            {sidebarOpen ? <span className={cn(sessionTitleClass, 'min-w-0 flex-1')}>{currentServerUrl}</span> : null}
+            {sidebarOpen ? (
+              currentServerAlias ? (
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className={cn(sessionTitleClass, 'text-foreground/80')}>{currentServerAlias}</span>
+                  <span className="truncate font-mono text-[11px] leading-4 text-muted-foreground/70">{currentServerUrl}</span>
+                </span>
+              ) : (
+                <span className={cn(sessionTitleClass, 'min-w-0 flex-1')}>{currentServerUrl}</span>
+              )
+            ) : null}
           </button>
         ) : null}
         <button

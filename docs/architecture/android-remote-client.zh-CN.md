@@ -2,7 +2,7 @@
 
 ## 架构
 
-Android 端是 Capacitor 薄壳，不在 APK 内运行 QuickForge 服务。服务器设置页可保存多个地址，点击列表中的地址即可切换连接，并在下次启动时自动连接最后使用的地址；进入应用后可点击侧边栏底部显示的当前地址返回服务器设置。WebView 直接加载服务端提供的 QuickForge 页面。
+Android 端是 Capacitor 薄壳，不在 APK 内运行 QuickForge 服务。服务器设置页可保存多个地址（可为每个地址设置别名便于区分），点击列表中的地址即可切换连接，并在下次启动时自动连接最后使用的地址；进入应用后可点击侧边栏底部显示的当前地址返回服务器设置。WebView 直接加载服务端提供的 QuickForge 页面。
 
 ```text
 Android App → Tailscale → http(s)://<QuickForge 服务>:5176

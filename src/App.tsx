@@ -82,7 +82,7 @@ import { subscribeToAgentEvents } from '@/lib/server-agent'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
 import { artifactPreviewMode, findBestPreviewableArtifact, workspaceArtifactDiskPath } from '@/components/workspace/artifact-preview-utils'
 import { MobileServerConnectPage } from '@/components/mobile/MobileServerConnectPage'
-import { isMobileShell, isNativeMobileEntry, isRemoteQuickForgeClient, openMobileServerPicker } from '@/lib/mobile-server'
+import { isMobileShell, isNativeMobileEntry, isRemoteQuickForgeClient, openMobileServerPicker, readMobileServerAliasFromUrl } from '@/lib/mobile-server'
 import { initializeSystemNotifications, showTaskSystemNotification } from '@/lib/system-notifications'
 
 // --- Code-split secondary views (only loaded when first opened) ---
@@ -234,6 +234,7 @@ function MainApp() {
   const mobileShell = isMobileShell()
   const cloudModels = useCloudModels(true)
   const mobileServerUrl = mobileShell ? window.location.origin : undefined
+  const mobileServerAlias = mobileShell ? readMobileServerAliasFromUrl() : undefined
   // --- Top-level refs (owned by App) ---
   const storageRef = useRef<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
   const activeModelRef = useRef<Model<Api>>(buildConnectionModel(DEFAULT_CONNECTION))
@@ -1514,6 +1515,7 @@ function MainApp() {
         onStartNewGlobalChat={startNewDefaultSession}
         onOpenSettings={openDefaultOptionsSettings}
         currentServerUrl={mobileServerUrl}
+        currentServerAlias={mobileServerAlias}
         onOpenServer={mobileShell ? openMobileServerPicker : undefined}
         updateAvailable={updateCheck.result.updateAvailable}
         latestVersion={updateCheck.result.latestVersion}
@@ -1599,6 +1601,7 @@ function MainApp() {
                 openDefaultOptionsSettings()
               }}
               currentServerUrl={mobileServerUrl}
+              currentServerAlias={mobileServerAlias}
               onOpenServer={mobileShell ? () => {
                 closeMobileSidebar()
                 openMobileServerPicker()

@@ -7,6 +7,7 @@ import type { ServerAgent, ServerAgentContextCompaction, ServerAgentContextUsage
 import type { SharedServerAgent } from '@/lib/shared-server-agent'
 import type { DeferredSessionAgent } from '@/lib/deferred-session-agent'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
+import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import type { AgentInterfaceElement, ComposerDraft, CustomCommandSummary, MessageWithUsage } from './chat-utils'
 import { emptyDraft, hasDraft } from './chat-utils'
 import { createScrollSync } from './scroll-sync'
@@ -778,7 +779,11 @@ export function ChatPanelHost({
     void panel.setAgent(agent as unknown as Parameters<typeof panel.setAgent>[0], {
       onApiKeyRequired: propsRef.current.bypassClientApiKeyCheck
         ? async () => true
-        : (provider: string) => ApiKeyPromptDialog.prompt(provider),
+        : (provider: string) => (
+            isManagedQuickForgeCloudModel(agent.state.model)
+              ? Promise.resolve(true)
+              : ApiKeyPromptDialog.prompt(provider)
+          ),
       onBeforeSend: () => {
         draftRestoreGuard.invalidate()
         cancelRestoredDraftRestore()

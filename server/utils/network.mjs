@@ -8,6 +8,15 @@ export function isPrivateIpv4(hostname) {
   return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
 }
 
+export function isTailscaleAddress(address) {
+  if (!address) return false
+  const normalized = String(address).replace(/^::ffff:/i, '')
+  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized)) return false
+  const parts = normalized.split('.').map((part) => Number(part))
+  if (parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false
+  return parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127
+}
+
 export function isLoopbackAddress(address) {
   if (!address) return false
   const normalized = address.replace(/^::ffff:/, '')

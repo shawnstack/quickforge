@@ -11,6 +11,7 @@
 | `server-agent.ts` | 832 | Server Agent — 服务端 Agent 客户端 |
 | `shared-server-agent.ts` | 429 | 共享会话 Agent 客户端 |
 | `local-tools.ts` | 247 | 前端本地工具渲染器注册 |
+| `cloud-client.ts` | QuickForge Cloud 本地 BFF 客户端和公开状态/额度/设备类型 |
 | `share-client.ts` | 148 | 分享功能客户端 API |
 | `http-storage-backend.ts` | 200 | HTTP Storage Backend 实现 |
 | `types.ts` | 82 | 类型定义 |
@@ -55,6 +56,16 @@
 - `loadDefaultOptions()` / `saveDefaultOptions()` — 默认选项管理
 - `getConfiguredModels()` — 获取已配置的模型列表
 - DeepSeek V4 推理兼容性处理
+
+### cloud-client.ts
+
+**用途**: 封装同源 `/api/cloud/*` 本地 BFF，只处理公开状态、模型、额度和设备数据，不在浏览器持有 Cloud Token。
+
+- `getCloudStatus()` 只读取本地安全摘要，不触发游客注册。
+- `startCloudGuest()` 是显式游客入口。
+- `getCloudUsage()` / `getCloudInstallations()` 读取额度与设备。
+- `revokeCloudInstallation()` / `logoutCloud()` 管理设备生命周期；当前设备退出的远端撤销顺序由 Node 保证。
+
 
 ### server-agent.ts (832 行)
 

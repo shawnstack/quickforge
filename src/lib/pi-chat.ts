@@ -12,6 +12,7 @@ import {
 } from '@earendil-works/pi-web-ui'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { clearModelListCache } from '@/lib/model-list-cache'
+import { mergeModelGroups, sameAvailableModel } from '@/lib/model-aggregation'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
 import type { AgentAccessMode } from '@/lib/types'
@@ -267,7 +268,7 @@ function sameBaseUrl(a?: string, b?: string) {
 }
 
 function sameConfiguredModel(a: Model<Api>, b: Model<Api>) {
-  return a.id === b.id && a.provider === b.provider && a.api === b.api && sameBaseUrl(a.baseUrl, b.baseUrl)
+  return sameAvailableModel(a, b)
 }
 
 function isUsableModel(model: unknown): model is Model<Api> {
@@ -287,8 +288,15 @@ export async function getConfiguredModels(storage: AppStorage): Promise<Model<Ap
   return configuredModelsFromProviders(providers)
 }
 
-export async function loadInitialConfiguredModel(storage: AppStorage): Promise<Model<Api> | null> {
-  const configuredModels = await getConfiguredModels(storage)
+export function mergeAvailableModels(...groups: ReadonlyArray<ReadonlyArray<Model<Api>>>): Model<Api>[] {
+  return mergeModelGroups(normalizeModelForProvider, isUsableModel, ...groups)
+}
+
+export async function loadInitialConfiguredModel(
+  storage: AppStorage,
+  additionalModels: Model<Api>[] = [],
+): Promise<Model<Api> | null> {
+  const configuredModels = mergeAvailableModels(await getConfiguredModels(storage), additionalModels)
   if (configuredModels.length === 0) return null
 
   const savedModel = await loadActiveModel(storage)

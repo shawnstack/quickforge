@@ -27,6 +27,7 @@ type UseAppBootstrapOptions = {
   initAgentAccessMode: (storage: Awaited<ReturnType<typeof initializePiStorage>>) => Promise<AgentAccessMode>
   createAgent: AgentManager['createAgent']
   loadSession: AgentManager['loadSession']
+  loadCloudModels: () => Promise<Model<Api>[]>
   setNeedsModelSetup: React.Dispatch<React.SetStateAction<boolean>>
   onStorageReady?: (storage: Awaited<ReturnType<typeof initializePiStorage>>) => void
 }
@@ -42,6 +43,7 @@ export function useAppBootstrap({
   initAgentAccessMode,
   createAgent,
   loadSession,
+  loadCloudModels,
   setNeedsModelSetup,
   onStorageReady,
 }: UseAppBootstrapOptions) {
@@ -56,6 +58,7 @@ export function useAppBootstrap({
     initAgentAccessMode,
     createAgent,
     loadSession,
+    loadCloudModels,
     setNeedsModelSetup,
     onStorageReady,
   })
@@ -66,6 +69,7 @@ export function useAppBootstrap({
       initAgentAccessMode,
       createAgent,
       loadSession,
+      loadCloudModels,
       setNeedsModelSetup,
       onStorageReady,
     }
@@ -81,6 +85,7 @@ export function useAppBootstrap({
         initAgentAccessMode: initAccessMode,
         createAgent: create,
         loadSession: restoreSession,
+        loadCloudModels: loadCloud,
         setNeedsModelSetup: setModelSetup,
         onStorageReady: onReady,
       } = depsRef.current
@@ -103,7 +108,13 @@ export function useAppBootstrap({
         const savedAccessMode = await initAccessMode(storage)
         agentAccessModeRef.current = savedAccessMode
 
-        const initialModel = await loadInitialConfiguredModel(storage)
+        let cloudModels: Model<Api>[] = []
+        try {
+          cloudModels = await loadCloud()
+        } catch (error) {
+          logger.warn('Failed to restore QuickForge Cloud models:', error)
+        }
+        const initialModel = await loadInitialConfiguredModel(storage, cloudModels)
         const defaultOptions = await loadDefaultOptions(storage)
         if (initialModel) activeModelRef.current = defaultOptions.model ?? initialModel
 

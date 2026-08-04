@@ -12,6 +12,8 @@ components/
 │   ├── context-usage.ts            # 上下文用量环状指示器 (78 行)
 │   ├── panel-decoration.ts         # 聊天面板 DOM 装饰兼容入口 / editor 编排 facade (175 行)
 │   └── scroll-sync.ts              # 自动滚动同步 (174 行)
+├── cloud/
+│   └── CloudAccountSettingsPage.tsx # 云身份、额度、设备和退出管理
 ├── git/
 │   ├── GitBranchMenu.tsx           # 标题栏 / Git 工具中的分支搜索、切换、创建分支和 Git 图谱入口
 │   ├── GitCommitPushDialog.tsx     # Git 提交 / 提交并推送 / 推送弹窗，支持 AI 生成提交信息
@@ -49,6 +51,15 @@ components/
 ```
 
 ## 核心组件说明
+
+### CloudAccountSettingsPage.tsx
+
+- 位于「设置 → 账户与云服务」，展示可选云身份、剩余额度、重置/到期时间和连接设备。
+- 用户仍需明确确认数据发送说明后才创建游客，页面挂载和刷新不会自动注册。
+- 可撤销其他设备；当前设备退出由本地 BFF 先完成云端撤销，失败时保留本地凭据供重试。
+- 退出后再次体验会创建新游客身份和额度，不宣称恢复旧游客。
+- 成功启用或退出后派发 `quickforge:cloud-state-changed`，清空 `useCloudModels` 的内存云模型缓存。
+
 
 ### ChatPanelHost.tsx (439 行)
 

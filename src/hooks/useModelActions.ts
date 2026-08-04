@@ -7,6 +7,7 @@ import {
   DEFAULT_CONNECTION,
   initializePiStorage,
   loadInitialConfiguredModel,
+  mergeAvailableModels,
   saveActiveModel,
   saveConnectionProfile,
 } from '@/lib/pi-chat'
@@ -34,6 +35,8 @@ type UseModelActionsOptions = {
   setRestoredDraft: React.Dispatch<React.SetStateAction<RestoredDraft | undefined>>
   notifySettingsChanged: () => void
   openSettingsPage: (initialTab: SettingsInitialTab, customProvider?: string) => void
+  loadCloudModels: () => Promise<Model<Api>[]>
+  startGuestCloud: () => Promise<Model<Api>[]>
 }
 
 export function useModelActions({
@@ -47,6 +50,8 @@ export function useModelActions({
   setRestoredDraft,
   notifySettingsChanged,
   openSettingsPage,
+  loadCloudModels,
+  startGuestCloud,
 }: UseModelActionsOptions) {
   const activateConfiguredModel = useCallback(async () => {
     const storage = storageRef.current
@@ -84,6 +89,42 @@ export function useModelActions({
     updateCurrentAgentModel,
     setChatPanelRevision,
     setNeedsModelSetup,
+    notifySettingsChanged,
+  ])
+
+  const activateGuestCloudModel = useCallback(async () => {
+    const storage = storageRef.current
+    if (!storage) return false
+
+    const cloudModels = await startGuestCloud()
+    const model = cloudModels[0]
+    if (!model) throw new Error('QuickForge Cloud 没有可用模型。')
+
+    activeModelRef.current = model
+    setNeedsModelSetup(false)
+    await saveActiveModel(storage, model)
+
+    if (agentRef.current) {
+      updateCurrentAgentModel(model)
+      setChatPanelRevision((value) => value + 1)
+    } else {
+      await createAgent(
+        { model, tools: [] },
+        randomId(),
+        { scope: 'global', attachToView: true },
+      )
+    }
+    notifySettingsChanged()
+    return true
+  }, [
+    storageRef,
+    startGuestCloud,
+    activeModelRef,
+    setNeedsModelSetup,
+    agentRef,
+    updateCurrentAgentModel,
+    setChatPanelRevision,
+    createAgent,
     notifySettingsChanged,
   ])
 
@@ -170,7 +211,13 @@ export function useModelActions({
       if (!customModels) return
     }
 
-    if (customModels.length === 0) {
+    const cloudModels = await loadCloudModels().catch((error) => {
+      logger.warn('Failed to load QuickForge Cloud models:', error)
+      return []
+    })
+    const availableModels = mergeAvailableModels(customModels, cloudModels)
+
+    if (availableModels.length === 0) {
       const confirmed = await showConfirm({
         description: t('addCustomModelFirst'),
         confirmLabel: t('modelSetupAddModel'),
@@ -184,7 +231,7 @@ export function useModelActions({
 
     openCustomOnlyModelSelector(
       currentAgent.state.model ?? activeModelRef.current,
-      customModels,
+      availableModels,
       (model) => {
         const nextModel = model as Model<Api>
         const nextThinkingLevel = nextModel.reasoning ? currentAgent.state.thinkingLevel : 'off'
@@ -212,6 +259,7 @@ export function useModelActions({
         })
       },
       async (model) => {
+        if (model.provider === 'quickforge-cloud') return
         openSettingsDialog('customModels', model.provider)
       },
       {
@@ -235,10 +283,12 @@ export function useModelActions({
     setRestoredDraft,
     openModelSettings,
     openSettingsDialog,
+    loadCloudModels,
   ])
 
   return {
     activateConfiguredModel,
+    activateGuestCloudModel,
     openModelSettings,
     openDefaultOptionsSettings,
     openAboutSettings,

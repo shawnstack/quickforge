@@ -2,6 +2,17 @@
 
 每个文件处理一组相关 API 端点。路由在 `server/index.mjs` 中分发。
 
+### cloud.mjs
+
+本地 Cloud BFF 默认只允许本机；显式启用 Tailscale 例外时仍要求来源属于 `100.64.0.0/10` 且已通过 LAN 密码认证。
+
+- `GET /api/cloud/status` — 返回本地安全摘要，不自动创建游客。
+- `POST /api/cloud/guest/start` — 用户明确确认后创建游客；退出后的下一次注册会先轮换安装密钥并创建新游客。
+- `GET /api/cloud/models|usage|installations` — 返回公开模型、额度和设备列表。
+- `DELETE /api/cloud/installations/:id` — 撤销指定设备。
+- `POST /api/cloud/logout` — 先撤销云端当前 installation，再清理本地 Session；远端失败时请求失败且本地凭据保留。
+
+
 ---
 
 | 文件 | 行数 | 用途 |
@@ -24,6 +35,7 @@
 | `system.mjs` | 107 | 系统状态、网络代理、重启、关于信息、Runtime 更新和 Desktop 发布页检查 |
 | `workspace.mjs` | 828 | 工作区文件浏览、产物预览静态读取、Git 变更检查、单文件/批量暂存与还原、分支操作、AI 提交信息生成、提交/推送和提交图谱（`server/index.mjs` 通过 `/api/git/*` 统一分发） |
 | `channels.mjs` | 外部渠道管理、SSE 状态/会话变更事件、仅 localhost + `x-quickforge-action: channel-event` 可调用的内部事件 relay，以及仅 localhost + `x-quickforge-action: channel-action` 可打开已注册渠道日志目录的 `POST /api/channels/:id/open-logs` |
+| `cloud.mjs` | QuickForge Cloud 本地 BFF：状态、显式游客创建、模型、额度、设备撤销和安全退出 |
 | `static.mjs` | 89 | 静态文件服务；`index.html` 与可替换的 APK 下载使用 `no-cache`，其余构建资产长期缓存 |
 
 ### system.mjs

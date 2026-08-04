@@ -3,6 +3,7 @@ import path from 'node:path'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 import { streamSimple } from '@earendil-works/pi-ai/compat'
+import { resolveManagedCloudProvider } from './cloud/runtime.mjs'
 import {
   DEFAULT_AI_STREAM_DEADLINE_MS,
   withDefaultAiProviderOptions,
@@ -45,20 +46,36 @@ function writeAiHttpRecord(record) {
   })
 }
 
-function headersToRecord(headers) {
+const SENSITIVE_HEADER_NAMES = new Set([
+  'authorization',
+  'proxy-authorization',
+  'x-api-key',
+  'api-key',
+  'cookie',
+  'set-cookie',
+])
+
+export function sanitizeHttpHeaders(headers) {
   const result = {}
   if (!headers) return result
 
   try {
     const iterable = typeof headers.entries === 'function' ? headers.entries() : Object.entries(headers)
     for (const [key, value] of iterable) {
-      result[String(key)] = Array.isArray(value) ? value.join(', ') : String(value)
+      const name = String(key)
+      result[name] = SENSITIVE_HEADER_NAMES.has(name.toLowerCase())
+        ? '[REDACTED]'
+        : Array.isArray(value) ? value.join(', ') : String(value)
     }
   } catch {
     // ignore malformed headers
   }
 
   return result
+}
+
+function headersToRecord(headers) {
+  return sanitizeHttpHeaders(headers)
 }
 
 function isRequest(value) {
@@ -253,6 +270,40 @@ function wrapStreamWithDeadline(stream, deadlineController, deadlineMs) {
   }
 }
 
+function lazyStream(streamPromise) {
+  return {
+    result: () => streamPromise.then((stream) => stream.result()),
+    [Symbol.asyncIterator]() {
+      let iteratorPromise
+      const iterator = () => {
+        iteratorPromise ||= streamPromise.then((stream) => stream[Symbol.asyncIterator]())
+        return iteratorPromise
+      }
+      return {
+        next: async () => (await iterator()).next(),
+        return: async () => {
+          const resolved = await iterator()
+          if (typeof resolved.return === 'function') return resolved.return()
+          return { value: undefined, done: true }
+        },
+      }
+    },
+  }
+}
+
+function createProviderStream(model, context, options) {
+  return aiHttpLogEnabled
+    ? aiHttpContext.run({
+        traceId: randomUUID(),
+        sessionId: options.sessionId,
+        purpose: options.metadata?.quickforgePurpose || 'chat',
+        provider: model?.provider,
+        api: model?.api,
+        model: model?.id,
+      }, () => streamSimple(model, context, options))
+    : streamSimple(model, context, options)
+}
+
 export function streamSimpleWithAiHttpLogging(model, context, options = {}) {
   const providerOptions = withDefaultAiProviderOptions(options)
   const deadlineMs = Number.isFinite(providerOptions.deadlineMs)
@@ -265,16 +316,23 @@ export function streamSimpleWithAiHttpLogging(model, context, options = {}) {
   }
   delete effectiveOptions.deadlineMs
 
-  const stream = aiHttpLogEnabled
-    ? aiHttpContext.run({
-        traceId: randomUUID(),
-        sessionId: effectiveOptions.sessionId,
-        purpose: effectiveOptions.metadata?.quickforgePurpose || 'chat',
-        provider: model?.provider,
-        api: model?.api,
-        model: model?.id,
-      }, () => streamSimple(model, context, effectiveOptions))
-    : streamSimple(model, context, effectiveOptions)
+  const managedCloud = model?.provider === 'quickforge-cloud' && model?.quickforgeModelSource === 'cloud'
+  const stream = managedCloud
+    ? lazyStream(resolveManagedCloudProvider(model, effectiveOptions.signal).then((resolved) => createProviderStream(
+        {
+          ...resolved.model,
+          headers: {
+            ...(resolved.model.headers || {}),
+            'Idempotency-Key': randomUUID(),
+          },
+        },
+        context,
+        {
+          ...effectiveOptions,
+          apiKey: resolved.apiKey,
+        },
+      )))
+    : createProviderStream(model, context, effectiveOptions)
 
   return wrapStreamWithDeadline(stream, deadlineController, deadlineMs)
 }

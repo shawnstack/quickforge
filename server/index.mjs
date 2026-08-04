@@ -33,6 +33,7 @@ import { handleWorkspaceApi, handleGitApi } from './routes/workspace.mjs'
 import { handleTerminalApi, handleTerminalUpgrade } from './routes/terminal.mjs'
 import { handleChannelsApi } from './routes/channels.mjs'
 import { handleModelsApi } from './routes/models.mjs'
+import { handleCloudApi } from './routes/cloud.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { logger, flushLogger } from './utils/logger.mjs'
 import { getPackageInfo, checkForUpdates, checkDesktopRelease } from './utils/package-update.mjs'
@@ -57,6 +58,7 @@ const startedAt = new Date().toISOString()
 
 const isDev = process.argv.includes('--dev')
 const shareLanEnabled = process.env.QUICKFORGE_SHARE_LAN !== '0'
+const cloudAllowTailscale = process.env.QUICKFORGE_CLOUD_ALLOW_TAILSCALE === '1'
 const host = process.env.QUICKFORGE_HOST || '0.0.0.0'
 if (!['127.0.0.1', 'localhost'].includes(host) && process.env.QUICKFORGE_ALLOW_REMOTE !== '1' && !shareLanEnabled) {
   throw new Error('Remote binding is disabled by default. Set QUICKFORGE_ALLOW_REMOTE=1 or keep QUICKFORGE_SHARE_LAN enabled to allow it.')
@@ -340,6 +342,17 @@ async function handleApi(req, res, url, requestContext = {}) {
     return
   }
 
+  // Optional QuickForge Cloud account and managed models (local requests only).
+  if (pathname === '/api/cloud' || pathname.startsWith('/api/cloud/')) {
+    await handleCloudApi(req, res, url, {
+      isLocalRequest: requestContext.isLocalRequest === true,
+      remoteAddress: requestContext.remoteAddress,
+      remoteAuthorized: requestContext.remoteAuthorized === true,
+      allowTailscale: cloudAllowTailscale,
+    })
+    return
+  }
+
   // Custom model management (connection test)
   if (pathname === '/api/models/test-connection') {
     await handleModelsApi(req, res, url)
@@ -619,7 +632,11 @@ const server = createServer(async (req, res) => {
     }
 
     if (url.pathname.startsWith('/api/')) {
-      await handleApi(req, res, url, { isLocalRequest: !isRemoteRequest })
+      await handleApi(req, res, url, {
+        isLocalRequest: !isRemoteRequest,
+        remoteAddress,
+        remoteAuthorized,
+      })
       return
     }
 

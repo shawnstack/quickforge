@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { isPrivateIpv4, isLoopbackAddress, getLanIpv4Addresses, getLanUrls } from '../../../server/utils/network.mjs'
+import { isPrivateIpv4, isLoopbackAddress, isTailscaleAddress, getLanIpv4Addresses, getLanUrls } from '../../../server/utils/network.mjs'
 
 describe('network', () => {
   describe('isPrivateIpv4', () => {
@@ -35,6 +35,27 @@ describe('network', () => {
     it('rejects IPs with invalid octets', () => {
       expect(isPrivateIpv4('10.999.0.1')).toBe(false)
       expect(isPrivateIpv4('10.0.0.256')).toBe(false)
+    })
+  })
+
+  describe('isTailscaleAddress', () => {
+    it('accepts the Tailscale CGNAT range and IPv4-mapped addresses', () => {
+      expect(isTailscaleAddress('100.64.0.0')).toBe(true)
+      expect(isTailscaleAddress('100.96.93.16')).toBe(true)
+      expect(isTailscaleAddress('100.127.255.255')).toBe(true)
+      expect(isTailscaleAddress('::ffff:100.96.93.16')).toBe(true)
+    })
+
+    it('rejects addresses outside 100.64.0.0/10 and malformed inputs', () => {
+      expect(isTailscaleAddress('100.63.255.255')).toBe(false)
+      expect(isTailscaleAddress('100.128.0.0')).toBe(false)
+      expect(isTailscaleAddress('192.168.1.30')).toBe(false)
+      expect(isTailscaleAddress('10.0.0.1')).toBe(false)
+      expect(isTailscaleAddress('8.8.8.8')).toBe(false)
+      expect(isTailscaleAddress('::1')).toBe(false)
+      expect(isTailscaleAddress('100.96.999.1')).toBe(false)
+      expect(isTailscaleAddress('')).toBe(false)
+      expect(isTailscaleAddress(null)).toBe(false)
     })
   })
 

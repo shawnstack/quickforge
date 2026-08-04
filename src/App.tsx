@@ -55,6 +55,7 @@ import { useTaskToasts } from '@/hooks/useTaskToasts'
 import { useAppBootstrap } from '@/hooks/useAppBootstrap'
 import { useUpdateCheck } from '@/hooks/useUpdateCheck'
 import { useModelActions } from '@/hooks/useModelActions'
+import { useCloudModels } from '@/hooks/useCloudModels'
 import { useChatActions } from '@/hooks/useChatActions'
 import { useProjectActions } from '@/hooks/useProjectActions'
 import { useSessionActions } from '@/hooks/useSessionActions'
@@ -231,6 +232,7 @@ function channelEventProjectId(event: ChannelRefreshEvent) {
 function MainApp() {
   const remoteClient = isRemoteQuickForgeClient()
   const mobileShell = isMobileShell()
+  const cloudModels = useCloudModels(true)
   const mobileServerUrl = mobileShell ? window.location.origin : undefined
   // --- Top-level refs (owned by App) ---
   const storageRef = useRef<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
@@ -736,6 +738,7 @@ function MainApp() {
     initAgentAccessMode,
     createAgent,
     loadSession: loadAgentSession,
+    loadCloudModels: cloudModels.loadCloudModels,
     setNeedsModelSetup,
     onStorageReady: setStorage,
   })
@@ -937,6 +940,7 @@ function MainApp() {
 
   const {
     activateConfiguredModel,
+    activateGuestCloudModel,
     openModelSettings,
     openDefaultOptionsSettings,
     openAboutSettings,
@@ -953,6 +957,8 @@ function MainApp() {
     setRestoredDraft,
     notifySettingsChanged: crossTab.notifySettingsChanged,
     openSettingsPage,
+    loadCloudModels: cloudModels.loadCloudModels,
+    startGuestCloud: cloudModels.startGuestCloud,
   })
 
   const closeSettingsPage = useCallback(() => {
@@ -1764,6 +1770,21 @@ function MainApp() {
           ) : null}
           {needsModelSetup ? (
             <ModelSetupEmptyState
+              onUseGuest={cloudModels.configured ? () => {
+                void showConfirm({
+                  title: '使用 QuickForge Cloud',
+                  description: '使用云模型时，你的消息、必要的文件片段和工具结果会发送到云端完成推理。不会自动上传整个项目、模型 API Key 或开启会话同步。',
+                  confirmLabel: '同意并开始',
+                  cancelLabel: t('cancel'),
+                }).then((confirmed) => {
+                  if (!confirmed) return
+                  return activateGuestCloudModel()
+                }).catch((error) => {
+                  logger.error('Failed to start QuickForge Cloud guest:', error)
+                  void showAlert(error instanceof Error ? error.message : 'QuickForge Cloud 连接失败')
+                })
+              } : undefined}
+              guestStarting={cloudModels.guestStarting}
               onAddModel={openModelSettings}
               onUseExample={() => {
                 void activateLiteLlmExampleModel().catch((error) => logger.error('Failed to use LiteLLM example:', error))

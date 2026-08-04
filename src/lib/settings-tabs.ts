@@ -12,6 +12,7 @@ import { createChannelsSettingsTab } from '@/lib/channels-settings-tab'
 import { t } from '@/lib/i18n'
 import {
   createAgentProfilesSettingsTab,
+  createCloudAccountSettingsTab,
   createMcpSettingsTab,
   createPluginsSettingsTab,
   createScheduledTasksSettingsTab,
@@ -20,6 +21,7 @@ import {
 
 export type SettingsInitialTab =
   | 'appearance'
+  | 'cloudAccount'
   | 'defaults'
   | 'memory'
   | 'customModels'
@@ -38,6 +40,7 @@ export type SettingsInitialTab =
 export function createSettingsTabs(customProvider?: string) {
   const tabs = [
     { key: 'appearance', tab: createAppearanceSettingsTab(), getDescription: () => t('appearanceDescription') },
+    { key: 'cloudAccount', tab: createCloudAccountSettingsTab(), getDescription: () => t('cloudAccountDescription') },
     { key: 'defaults', tab: createDefaultOptionsSettingsTab(), getDescription: () => t('defaultOptionsDescription') },
     { key: 'memory', tab: createMemorySettingsTab(), getDescription: () => t('memoryDescription') },
     { key: 'customModels', tab: createCustomProvidersOnlyTab(customProvider), getDescription: () => t('customModelsDescription') },

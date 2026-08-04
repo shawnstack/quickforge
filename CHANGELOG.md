@@ -4,10 +4,36 @@ All notable changes to QuickForge will be documented in this file.
 
 ## [Unreleased]
 
+## [1.7.4] - 2026-08-04
+
+### Added
+
+- Added Android remote-server support with multiple server profiles, Tailscale connectivity, task notifications, and updated launcher assets.
+- Added conversation archive actions, ACP channel labeling and event-driven updates, and improved WeChat channel diagnostics.
+- Expanded `present_files` into general artifact presentation for Browser- and Reader-compatible files, including Markdown, CSV/TSV, logs, SQL, Swift, Kotlin, Dockerfile, and Makefile outputs.
+- Added Desktop PAC proxy configuration, LAN access improvements, session pagination, and browser caches for model and application data.
+
 ### Changed
 
-- Expanded `present_files` from HTML-oriented previewing to general artifact presentation: HTML and supported images open in Browser, while Markdown, source code, configuration, reports, and other readable text open in Reader.
-- Added artifact recognition for `.markdown`, CSV/TSV, logs, SQL, Swift, Kotlin, Dockerfile, and Makefile outputs; tool-card preview actions now reopen Reader-compatible artifacts as well.
+- Redesigned mobile settings navigation and model selection with drill-down pages and bottom sheets.
+- Improved mobile chat context, project and branch visibility, default-project selection, and the responsive conversation actions menu.
+- Optimized conversation history restoration, session switching, API loading, workspace state handling, and task completion feedback.
+
+### Fixed
+
+- Prevented hanging provider requests and retried transient failures more reliably.
+- Fixed terminal reconnection behavior, macOS Desktop renderer startup, active workspace file refresh, and external project opening.
+- Preserved project expansion state, constrained artifact presentation to explicit user intent, and simplified CLI updates.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.7.4` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.7.4.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.7.4.tgz
+  ```
 
 ## [1.7.3] - 2026-07-30
 

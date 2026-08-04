@@ -60,7 +60,6 @@ components/
 - 退出后再次体验会创建新游客身份和额度，不宣称恢复旧游客。
 - 成功启用或退出后派发 `quickforge:cloud-state-changed`，清空 `useCloudModels` 的内存云模型缓存。
 
-
 ### ChatPanelHost.tsx (439 行)
 
 - 核心聊天面板宿主
@@ -163,14 +162,22 @@ components/
 - `TerminalDock` 还接收 Markdown shell 代码块触发的 pending command：AI 回复中的 `bash`/`sh`/`powershell` 等代码块会在复制按钮旁显示“在终端中执行”，点击后打开当前项目终端并写入命令执行；多行或高风险命令会先确认。
 - `terminal-api.ts` 封装 `/api/terminal/capabilities`、`/api/terminal/sessions` 和 `/api/terminal/sessions/:id/input` 相关请求。
 
-### ShareConversationDialog.tsx (199 行)
+### ShareConversationDialog.tsx
 
-- 创建/管理对话分享链接
-- 设置权限 (read / operate)
-- 可选密码保护
-- 分享列表管理 (撤销/删除)
+- 创建或更新当前对话的固定分享链接
+- 设置权限 (read / operate)、密码保护和有效期
+- 可复制当前链接并停用分享
 
-### SharedConversationPage.tsx (266 行)
+### ShareLinksSettingsPage.tsx
+
+- 位于「设置 → 分享链接」，统一列出当前 QuickForge 实例的全部分享
+- 展示状态、权限、密码保护、创建/到期/最近访问时间和访问次数
+- 支持搜索、复制、打开、修改有效期、停用、按新有效期恢复和永久删除
+- 支持编辑权限与密码（可生成或取消密码），可操作分享必须保留非空密码
+- 移动端行内操作收进「更多」底部弹层，编辑表单在小屏纵向排列
+- 停用、过期或删除后，公共请求和已建立的 SSE 均失效
+
+### SharedConversationPage.tsx
 
 - 查看他人分享的对话
 - 支持只读和操作模式

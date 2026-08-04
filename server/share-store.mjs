@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import { EventEmitter } from 'node:events'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { ensureStorage, storageDir } from './storage.mjs'
@@ -10,6 +11,25 @@ const SHARES_DIR = path.join(storageDir, 'shares')
 const SHARES_FILE = path.join(SHARES_DIR, 'conversation-shares.json')
 const writeQueueName = 'conversation-shares'
 const writeQueues = new Map()
+const shareLifecycleEvents = new EventEmitter()
+shareLifecycleEvents.setMaxListeners(0)
+
+export function onConversationShareInvalidated(listener) {
+  shareLifecycleEvents.on('invalidated', listener)
+  return () => shareLifecycleEvents.removeListener('invalidated', listener)
+}
+
+function emitConversationShareInvalidated(shareId, reason) {
+  shareLifecycleEvents.emit('invalidated', { shareId, reason })
+}
+
+function clearShareTokens(record) {
+  record.authVersion = (record.authVersion || 1) + 1
+  record.tokens = []
+  record.tokenHash = undefined
+  record.tokenIssuedAt = undefined
+  record.tokenExpiresAt = undefined
+}
 
 function enqueueWrite(queueName, operation) {
   const previous = writeQueues.get(queueName) || Promise.resolve()
@@ -233,14 +253,13 @@ export async function createConversationShare({
     }
 
     for (const stale of existingRecords.filter((record) => record?.id !== existing?.id)) {
+      const newlySuperseded = !stale.supersededAt
       stale.supersededAt = stale.supersededAt || now
       stale.revokedAt = stale.revokedAt || now
       stale.updatedAt = now
-      stale.tokens = []
-      stale.tokenHash = undefined
-      stale.tokenIssuedAt = undefined
-      stale.tokenExpiresAt = undefined
+      clearShareTokens(stale)
       data[stale.id] = stale
+      if (newlySuperseded) emitConversationShareInvalidated(stale.id, 'superseded')
     }
 
     if (existing?.id) {
@@ -264,19 +283,19 @@ export async function createConversationShare({
         tokenExpiresAt: existing.tokenExpiresAt,
       }
       if (passwordProvided) {
-        record.authVersion = (existing.authVersion || 1) + 1
-        record.tokens = []
-        record.tokenHash = undefined
-        record.tokenIssuedAt = undefined
-        record.tokenExpiresAt = undefined
+        clearShareTokens(record)
       }
       if (passwordProvided && !passwordInfo.passwordHash) {
         record.passwordHash = undefined
         record.passwordSalt = undefined
         record.passwordVersion = undefined
       }
+      const lifecycleChanged = Boolean(existing.revokedAt)
+        || String(existing.expiresAt || '') !== String(record.expiresAt || '')
+        || (passwordProvided && existing.authVersion !== record.authVersion)
       data[record.id] = record
       await writeShareStoreFile(data)
+      if (lifecycleChanged) emitConversationShareInvalidated(record.id, 'updated')
       return publicShareRecord(record)
     }
 
@@ -335,14 +354,141 @@ export async function revokeConversationShare(shareId) {
       error.statusCode = 404
       throw error
     }
+    const wasActive = !record.revokedAt
     record.revokedAt = record.revokedAt || new Date().toISOString()
     record.updatedAt = record.revokedAt
-    record.tokens = []
-    record.tokenHash = undefined
-    record.tokenIssuedAt = undefined
-    record.tokenExpiresAt = undefined
+    clearShareTokens(record)
     data[shareId] = record
     await writeShareStoreFile(data)
+    if (wasActive) emitConversationShareInvalidated(shareId, 'revoked')
+    return publicShareRecord(record)
+  })
+}
+
+export async function restoreConversationShare(shareId, expiresAt) {
+  assertSafeShareId(shareId)
+  if (expiresAt && (Number.isNaN(Date.parse(expiresAt)) || Date.parse(expiresAt) <= Date.now())) {
+    const error = new Error('Expiration time must be in the future')
+    error.statusCode = 400
+    throw error
+  }
+  return enqueueWrite(writeQueueName, async () => {
+    const data = await readShareStoreFile()
+    const record = data[shareId]
+    if (!record) {
+      const error = new Error('Share not found')
+      error.statusCode = 404
+      throw error
+    }
+    if (record.supersededAt) {
+      const error = new Error('Superseded shares cannot be restored')
+      error.statusCode = 409
+      throw error
+    }
+    record.revokedAt = undefined
+    record.expiresAt = expiresAt || undefined
+    record.updatedAt = new Date().toISOString()
+    clearShareTokens(record)
+    data[shareId] = record
+    await writeShareStoreFile(data)
+    return publicShareRecord(record)
+  })
+}
+
+export async function updateConversationShareExpiration(shareId, expiresAt) {
+  assertSafeShareId(shareId)
+  if (expiresAt && (Number.isNaN(Date.parse(expiresAt)) || Date.parse(expiresAt) <= Date.now())) {
+    const error = new Error('Expiration time must be in the future')
+    error.statusCode = 400
+    throw error
+  }
+  return enqueueWrite(writeQueueName, async () => {
+    const data = await readShareStoreFile()
+    const record = data[shareId]
+    if (!record) {
+      const error = new Error('Share not found')
+      error.statusCode = 404
+      throw error
+    }
+    if (record.supersededAt) {
+      const error = new Error('Superseded shares cannot be updated')
+      error.statusCode = 409
+      throw error
+    }
+    assertShareActive(record)
+    record.expiresAt = expiresAt || undefined
+    record.updatedAt = new Date().toISOString()
+    data[shareId] = record
+    await writeShareStoreFile(data)
+    emitConversationShareInvalidated(shareId, 'updated')
+    return publicShareRecord(record)
+  })
+}
+
+export async function updateConversationShare(shareId, { permission, password, expiresAt } = {}) {
+  assertSafeShareId(shareId)
+  const passwordProvided = typeof password === 'string'
+  const normalizedPassword = passwordProvided ? password.trim() : undefined
+  if (expiresAt && (Number.isNaN(Date.parse(expiresAt)) || Date.parse(expiresAt) <= Date.now())) {
+    const error = new Error('Expiration time must be in the future')
+    error.statusCode = 400
+    throw error
+  }
+  const passwordInfo = passwordProvided ? await hashSharePassword(normalizedPassword) : {}
+  return enqueueWrite(writeQueueName, async () => {
+    const data = await readShareStoreFile()
+    const record = data[shareId]
+    if (!record) {
+      const error = new Error('Share not found')
+      error.statusCode = 404
+      throw error
+    }
+    if (record.supersededAt) {
+      const error = new Error('Superseded shares cannot be updated')
+      error.statusCode = 409
+      throw error
+    }
+    assertShareActive(record)
+    const nextPermission = permission === undefined ? record.permission : permission
+    assertValidPermission(nextPermission)
+    const willHavePassword = passwordProvided ? Boolean(normalizedPassword) : Boolean(record.passwordHash)
+    if (nextPermission === 'operate' && !willHavePassword) {
+      const error = new Error('Editable shares require a non-empty password')
+      error.statusCode = 400
+      throw error
+    }
+    const lifecycleChanged = nextPermission !== record.permission
+      || (expiresAt !== undefined && String(record.expiresAt || '') !== String(expiresAt || ''))
+      || passwordProvided
+    if (passwordProvided) {
+      record.passwordHash = passwordInfo.passwordHash
+      record.passwordSalt = passwordInfo.passwordSalt
+      record.passwordVersion = passwordInfo.passwordVersion
+      clearShareTokens(record)
+    }
+    record.permission = nextPermission
+    if (expiresAt !== undefined) record.expiresAt = expiresAt || undefined
+    record.updatedAt = new Date().toISOString()
+    data[shareId] = record
+    await writeShareStoreFile(data)
+    if (lifecycleChanged) emitConversationShareInvalidated(shareId, 'updated')
+    return publicShareRecord(record)
+  })
+}
+
+export async function deleteConversationShare(shareId) {
+  assertSafeShareId(shareId)
+  return enqueueWrite(writeQueueName, async () => {
+    const data = await readShareStoreFile()
+    const record = data[shareId]
+    if (!record) {
+      const error = new Error('Share not found')
+      error.statusCode = 404
+      throw error
+    }
+    delete data[shareId]
+    await writeShareStoreFile(data)
+    emitConversationShareInvalidated(shareId, 'deleted')
     return publicShareRecord(record)
   })
 }

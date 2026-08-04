@@ -5,6 +5,7 @@ import { abortRun, restoreAgent, runPrompt, getSessionState, getSessionEventBus,
 import {
   assertShareActive,
   issueConversationShareToken,
+  onConversationShareInvalidated,
   parseCookies,
   readConversationShare,
   rollbackSharedSessionMessages,
@@ -147,6 +148,20 @@ async function handleSharedEvents(req, res, record) {
 
   writeSseEvent(res, 'state', await sharedSessionPayload(record))
 
+  let cleanedUp = false
+  let expirationTimeout
+  let removeShareInvalidationListener = () => undefined
+
+  const cleanup = () => {
+    if (cleanedUp) return
+    cleanedUp = true
+    clearInterval(keepAlive)
+    if (expirationTimeout) clearTimeout(expirationTimeout)
+    removeShareInvalidationListener()
+    eventBus.removeListener('agent_event', onAgentEvent)
+    if (!res.writableEnded) res.end()
+  }
+
   const keepAlive = setInterval(() => {
     try {
       res.write(': ping\n\n')
@@ -164,11 +179,19 @@ async function handleSharedEvents(req, res, record) {
     }
   }
 
-  const cleanup = () => {
-    clearInterval(keepAlive)
-    eventBus.removeListener('agent_event', onAgentEvent)
-    if (!res.writableEnded) res.end()
+  removeShareInvalidationListener = onConversationShareInvalidated(({ shareId }) => {
+    if (shareId === record.id) cleanup()
+  })
+  const scheduleExpiration = () => {
+    if (!record.expiresAt || cleanedUp) return
+    const delay = Date.parse(record.expiresAt) - Date.now()
+    if (delay <= 0) {
+      cleanup()
+      return
+    }
+    expirationTimeout = setTimeout(scheduleExpiration, Math.min(delay, 2_147_483_647))
   }
+  scheduleExpiration()
 
   eventBus.on('agent_event', onAgentEvent)
   req.on('close', cleanup)

@@ -2,17 +2,6 @@
 
 每个文件处理一组相关 API 端点。路由在 `server/index.mjs` 中分发。
 
-### cloud.mjs
-
-本地 Cloud BFF 默认只允许本机；显式启用 Tailscale 例外时仍要求来源属于 `100.64.0.0/10` 且已通过 LAN 密码认证。
-
-- `GET /api/cloud/status` — 返回本地安全摘要，不自动创建游客。
-- `POST /api/cloud/guest/start` — 用户明确确认后创建游客；退出后的下一次注册会先轮换安装密钥并创建新游客。
-- `GET /api/cloud/models|usage|installations` — 返回公开模型、额度和设备列表。
-- `DELETE /api/cloud/installations/:id` — 撤销指定设备。
-- `POST /api/cloud/logout` — 先撤销云端当前 installation，再清理本地 Session；远端失败时请求失败且本地凭据保留。
-
-
 ---
 
 | 文件 | 行数 | 用途 |
@@ -47,6 +36,16 @@
 - `POST /api/system/network-proxy/refresh` — 重新读取操作系统代理并关闭旧连接。
 
 “跟随系统”不读取代理环境变量冒充系统代理：Desktop inline 使用 Electron/Chromium 系统代理；CLI/SDK 使用原生 Windows、macOS SystemConfiguration 和 Linux GNOME/libproxy 能力。自定义 PAC 地址仅 Desktop inline 支持；其他运行环境会拒绝保存，并且读取到已有 PAC 配置时不会静默直连。localhost 始终直连。
+
+### cloud.mjs
+
+本地 Cloud BFF 默认只允许本机；显式启用 Tailscale 例外时仍要求来源属于 `100.64.0.0/10` 且已通过 LAN 密码认证。
+
+- `GET /api/cloud/status` — 返回本地安全摘要，不自动创建游客。
+- `POST /api/cloud/guest/start` — 用户明确确认后创建游客；退出后的下一次注册会先轮换安装密钥并创建新游客。
+- `GET /api/cloud/models|usage|installations` — 返回公开模型、额度和设备列表。
+- `DELETE /api/cloud/installations/:id` — 撤销指定设备。
+- `POST /api/cloud/logout` — 先撤销云端当前 installation，再清理本地 Session；远端失败时请求失败且本地凭据保留。
 
 ---
 
@@ -171,19 +170,29 @@ Agent Profile 管理路由。
 分享管理路由。
 
 **主要端点**:
-- `GET /api/shares` — 列出会话的分享
-- `POST /api/shares` — 创建分享
+- `GET /api/shares` — 列出当前实例全部分享；可用 `sessionId` 过滤指定会话
+- `POST /api/shares` — 创建或更新同一会话的固定分享链接
+- `DELETE /api/shares/:shareId` — 兼容旧客户端的停用入口
+- `POST /api/shares/:shareId/disable` — 停用分享，立即清除认证令牌并关闭已有共享 SSE
+- `POST /api/shares/:shareId/restore` — 按请求中的 `expiresAt` 恢复分享；恢复前验证原会话仍存在
+- `POST /api/shares/:shareId/expiration` — 修改仍有效分享的有效期，并关闭旧 SSE 使客户端按新配置重连
+- `POST /api/shares/:shareId/update` — 编辑仍有效分享的权限、密码和有效期；修改密码或取消密码后旧密码与已解锁状态失效，可操作分享必须保留非空密码
+- `DELETE /api/shares/:shareId/permanent` — 永久删除分享记录并关闭已有共享 SSE
 
-## shared-conversation.mjs (404 行)
+## shared-conversation.mjs (428 行)
 
-共享会话查看和交互路由。
+共享会话查看和交互路由。每次请求都会校验停用和过期状态；SSE 在停用、永久删除、链接被替代时立即关闭，并在到期时按时关闭。
 
 **主要端点**:
-- `GET /api/shared/:shareId` — 获取共享会话详情
-- `POST /api/shared/:shareId/unlock` — 密码解锁
-- `GET /api/shared/:shareId/providers` — 获取共享模型供应商
-- `POST /api/shared/:shareId/stream` — SSE 流式交互
-- `POST /api/shared/:shareId/prompt` — 发送消息
+- `GET /api/shared/:shareId/meta` — 获取分享元数据
+- `POST /api/shared/:shareId/unlock` — 密码解锁并写入分享 Cookie
+- `GET /api/shared/:shareId/session` — 获取共享会话快照
+- `GET /api/shared/:shareId/models` — 获取可操作分享可用的模型供应商
+- `GET /api/shared/:shareId/events` — 订阅共享会话 SSE
+- `POST /api/shared/:shareId/message` — 发送消息
+- `POST /api/shared/:shareId/model` — 更新模型
+- `POST /api/shared/:shareId/thinking-level` — 更新思考等级
+- `POST /api/shared/:shareId/abort` — 停止生成
 - `POST /api/shared/:shareId/rollback` — 回滚消息
 - `GET /api/shared/:shareId/assets/:assetId` — 经分享权限校验读取该会话的生成图片资产
 

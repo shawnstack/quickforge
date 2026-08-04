@@ -5,6 +5,7 @@ export type ConversationShare = {
   sessionId?: string
   permission: SharePermission
   createdAt?: string
+  updatedAt?: string
   expiresAt?: string
   revokedAt?: string
   titleSnapshot?: string
@@ -81,6 +82,49 @@ export async function revokeConversationShare(shareId: string) {
   return request<{ ok: boolean; share: ConversationShare }>(`/api/shares/${encodeURIComponent(shareId)}`, {
     method: 'DELETE',
   })
+}
+
+export async function disableConversationShare(shareId: string) {
+  return request<{ ok: boolean; share: ConversationShare }>(`/api/shares/${encodeURIComponent(shareId)}/disable`, {
+    method: 'POST',
+  })
+}
+
+export async function restoreConversationShare(shareId: string, expiresAt?: string) {
+  return request<{ ok: boolean; share: ConversationShare }>(`/api/shares/${encodeURIComponent(shareId)}/restore`, {
+    method: 'POST',
+    body: JSON.stringify({ expiresAt }),
+  })
+}
+
+export async function updateConversationShareExpiration(shareId: string, expiresAt?: string) {
+  return request<{ ok: boolean; share: ConversationShare }>(`/api/shares/${encodeURIComponent(shareId)}/expiration`, {
+    method: 'POST',
+    body: JSON.stringify({ expiresAt }),
+  })
+}
+
+export async function updateConversationShare(shareId: string, input: {
+  permission?: SharePermission
+  password?: string
+  expiresAt?: string
+}) {
+  return request<{ ok: boolean; share: ConversationShare }>(`/api/shares/${encodeURIComponent(shareId)}/update`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export async function deleteConversationShare(shareId: string) {
+  return request<{ ok: boolean; share: ConversationShare }>(`/api/shares/${encodeURIComponent(shareId)}/permanent`, {
+    method: 'DELETE',
+  })
+}
+
+export function conversationShareStatus(share: ConversationShare): 'active' | 'disabled' | 'expired' {
+  if (share.revokedAt) return 'disabled'
+  if (share.expiresAt && Date.parse(share.expiresAt) <= Date.now()) return 'expired'
+  return 'active'
 }
 
 export async function loadSharedConversationMeta(shareId: string) {

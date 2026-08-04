@@ -16,6 +16,7 @@ import {
   createMcpSettingsTab,
   createPluginsSettingsTab,
   createScheduledTasksSettingsTab,
+  createShareLinksSettingsTab,
   createSkillsSettingsTab,
 } from '@/lib/react-settings-tabs'
 
@@ -33,6 +34,7 @@ export type SettingsInitialTab =
   | 'projectCommands'
   | 'backup'
   | 'archivedConversations'
+  | 'shareLinks'
   | 'channels'
   | 'lanAccess'
   | 'about'
@@ -52,6 +54,7 @@ export function createSettingsTabs(customProvider?: string) {
     { key: 'projectCommands', tab: createProjectCommandsSettingsTab(), getDescription: () => t('projectCommandsDescription') },
     { key: 'backup', tab: createBackupSettingsTab(), getDescription: () => t('backupRestoreDescription') },
     { key: 'archivedConversations', tab: createArchivedConversationsSettingsTab(), getDescription: () => t('archivedConversationsDescription') },
+    { key: 'shareLinks', tab: createShareLinksSettingsTab(), getDescription: () => t('shareLinksDescription') },
     { key: 'channels', tab: createChannelsSettingsTab(), getDescription: () => t('channelsDescription') },
     { key: 'lanAccess', tab: createLanAccessSettingsTab(), getDescription: () => t('lanAccessDescription') },
     { key: 'about', tab: createAboutSettingsTab(), getDescription: () => t('aboutQuickForgeDescription') },

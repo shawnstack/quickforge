@@ -20,6 +20,9 @@ const PluginsPage = lazy(() =>
 const ScheduledTasksPage = lazy(() =>
   import('@/components/scheduled-tasks/ScheduledTasksPage').then((module) => ({ default: module.ScheduledTasksPage })),
 )
+const ShareLinksSettingsPage = lazy(() =>
+  import('@/components/share/ShareLinksSettingsPage').then((module) => ({ default: module.ShareLinksSettingsPage })),
+)
 const CloudAccountSettingsPage = lazy(() =>
   import('@/components/cloud/CloudAccountSettingsPage').then((module) => ({ default: module.CloudAccountSettingsPage })),
 )
@@ -129,6 +132,14 @@ export function createCloudAccountSettingsTab() {
   return createReactSettingsTab(t('cloudAccount'), () => (
     <SettingsPanel>
       <CloudAccountSettingsPage />
+    </SettingsPanel>
+  ))
+}
+
+export function createShareLinksSettingsTab() {
+  return createReactSettingsTab(t('shareLinks'), () => (
+    <SettingsPanel>
+      <ShareLinksSettingsPage />
     </SettingsPanel>
   ))
 }

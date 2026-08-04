@@ -15,6 +15,7 @@ server/
 ├── network-proxy.mjs         # 直连、真实系统代理与手动 HTTP(S) 代理运行时
 ├── skills.mjs                # Agent Skills 管理和加载 (553 行)
 ├── channels/                 # 通用渠道管理（外部应用 bridge 进程，如微信 weixin-acp）
+├── cloud/                    # QuickForge Cloud 配置、凭据、身份、模型目录和托管请求代理
 ├── mcp/                      # MCP Client 配置、连接和工具适配
 ├── plugins/                  # 本地插件 manifest、加载和工具适配
 ├── share-store.mjs           # 分享数据存储 (432 行)
@@ -42,7 +43,7 @@ server/
 
 **启动参数**:
 - `--dev`: 开发模式
-- 环境变量: `QUICKFORGE_PORT`, `QUICKFORGE_HOST`, `QUICKFORGE_DATA_DIR`, `QUICKFORGE_WORKSPACE_DIR`, `QUICKFORGE_SHARE_LAN`, `QUICKFORGE_ALLOW_REMOTE`
+- 环境变量: `QUICKFORGE_PORT`, `QUICKFORGE_HOST`, `QUICKFORGE_DATA_DIR`, `QUICKFORGE_WORKSPACE_DIR`, `QUICKFORGE_SHARE_LAN`, `QUICKFORGE_ALLOW_REMOTE`, `QUICKFORGE_CLOUD_ALLOW_TAILSCALE`
 
 **主要功能**:
 - HTTP 路由分发（基于 `url.pathname` 匹配）
@@ -52,8 +53,16 @@ server/
 - SSE（`/api/agents/events`, `/api/agents/:sessionId/stream`）
 - WebSocket 交互式终端（`/api/terminal/sessions/:id/ws`，仅 localhost）
 - 启动时重置僵死任务状态
-- 支持 LAN 共享（显示局域网 URL）；远程完整访问需在本机配置密码。已认证远端仍不能使用终端、重启服务、弹出目录选择器或打开资源管理器/IDE，Tailscale/VPN 是推荐的远程接入方式
+- 支持 LAN 共享（显示局域网 URL）；远程完整访问需在本机配置密码。已认证远端仍不能使用终端、重启服务、弹出目录选择器或打开资源管理器/IDE，Tailscale/VPN 是推荐的远程接入方式。默认远端不能消费主机 Cloud 额度；仅显式设置 `QUICKFORGE_CLOUD_ALLOW_TAILSCALE=1` 后，来源属于 `100.64.0.0/10` 且已通过 LAN 密码认证的 Tailscale 客户端可访问 `/api/cloud/*`，普通 LAN 仍拒绝
 - 启动后初始化 `network-proxy.mjs`：读取 `settings['network-proxy']`，为外部 Fetch 请求应用直连、操作系统真实代理、手动 HTTP(S) 代理或 PAC 地址；localhost 始终直连。Desktop inline 由 Electron/Chromium Session 处理系统 PAC/WPAD 和自定义 PAC 地址；CLI/SDK 由 `@vscode/os-proxy-resolver` 调用 Windows、macOS 和 Linux 的原生系统代理来源，当前不支持自定义 PAC 地址，且不会静默降级为直连
+
+### cloud/ — QuickForge Cloud 本地代理
+
+- `credential-store.mjs` 将安装密钥和 Refresh Token 原子保存在 `~/.quickforge/storage/security/cloud-identity.json`，公开状态不返回 Token、私钥或路径。
+- `identity.mjs` 管理显式游客注册、Access Token 内存缓存、Refresh Token 轮换、额度/设备读取和注销。
+- 退出当前设备时先调用云端 installation revoke，成功后才清理本地 Session；失败时保留凭据供重试。
+- 退出后再次创建游客会轮换 Ed25519 安装密钥，避免旧公钥指纹唯一约束冲突；该行为创建新游客，不恢复旧额度。
+- `models.mjs` 只向浏览器返回无密钥模型描述，真实 Cloud Token 和上游地址仅在 Node 请求期间注入。
 
 ### agent-manager.mjs (1350 行)
 
@@ -262,9 +271,14 @@ server/
 **用途**: 对话分享的持久化和访问控制。
 
 **功能**:
-- `createConversationShare()` — 创建分享
-- `listConversationShares()` — 列出分享
-- `revokeConversationShare()` — 撤销分享
+- `createConversationShare()` — 创建或更新同一会话的固定分享链接
+- `listConversationShares()` — 列出当前实例全部或指定会话的分享
+- `revokeConversationShare()` — 停用分享并清除已有认证令牌
+- `restoreConversationShare()` — 以新的有效期恢复分享，旧 Cookie 不会重新生效
+- `updateConversationShareExpiration()` — 修改仍有效分享的到期时间
+- `updateConversationShare()` — 编辑分享的权限、密码和有效期；修改/取消密码后旧 token 失效
+- `deleteConversationShare()` — 永久删除分享记录
+- 分享停用、永久删除、被替代或到期时，已建立的共享 SSE 连接会立即/按时关闭
 - 密码哈希验证（scrypt）
 - 令牌认证（7天有效期）
 - 口令保护

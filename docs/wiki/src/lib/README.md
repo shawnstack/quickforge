@@ -11,8 +11,8 @@
 | `server-agent.ts` | 832 | Server Agent — 服务端 Agent 客户端 |
 | `shared-server-agent.ts` | 429 | 共享会话 Agent 客户端 |
 | `local-tools.ts` | 247 | 前端本地工具渲染器注册 |
-| `cloud-client.ts` | QuickForge Cloud 本地 BFF 客户端和公开状态/额度/设备类型 |
 | `share-client.ts` | 148 | 分享功能客户端 API |
+| `cloud-client.ts` | QuickForge Cloud 本地 BFF 客户端和公开状态/额度/设备类型 |
 | `http-storage-backend.ts` | 200 | HTTP Storage Backend 实现 |
 | `types.ts` | 82 | 类型定义 |
 | `utils.ts` | 6 | 通用工具函数（cn） |
@@ -65,7 +65,6 @@
 - `startCloudGuest()` 是显式游客入口。
 - `getCloudUsage()` / `getCloudInstallations()` 读取额度与设备。
 - `revokeCloudInstallation()` / `logoutCloud()` 管理设备生命周期；当前设备退出的远端撤销顺序由 Node 保证。
-
 
 ### server-agent.ts (832 行)
 
@@ -192,6 +191,9 @@
 | `default-options-settings-tab.ts` | 设置默认模型、语言、思考级别、Tool 展示、上下文用量显示、上下文管理和终端 Shell；默认 Shell 从系统识别列表选择，并支持自定义命令或路径 |
 | `about-settings-tab.ts` | 关于信息、更新检查/执行，以及后端服务重启 |
 | `project-commands-settings-tab.ts` | 项目命令目录配置 + 命令预览 + 新建命令 |
+| `archived-conversations-settings-tab.ts` | 已归档对话的恢复和永久删除 |
+| `react-settings-tabs.tsx` | 将 Agent、Skills、MCP、插件、定时任务和分享链接管理等 React 页面适配为设置 Tab |
+| `share-client.ts` | 分享链接创建、列表、编辑（权限/密码/有效期）、停用、恢复、永久删除及状态推导 API |
 | `channels-settings-tab.ts` | 渠道设置选项卡：展示名称、状态、简述、工作区与启动/停止/登录操作，仅在存在二维码内容时展示扫码入口，同时保留错误提示，并通过“打开日志文件夹”访问后端持久化渠道日志 |
 | `patch-thinking-selector.ts` | 修补 pi-web-ui 的模型选择器 |
 | `custom-model-selector.ts` | 自定义模型选择器对话框 |

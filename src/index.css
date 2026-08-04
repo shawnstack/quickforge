@@ -913,6 +913,33 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
   gap: 0.5rem;
 }
 
+.quickforge-share-link-item {
+  align-items: flex-start;
+}
+
+.quickforge-share-link-url {
+  margin-top: 0.375rem;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickforge-share-link-actions {
+  max-width: 30rem;
+}
+
+.quickforge-share-expiration-select {
+  width: 8.5rem;
+}
+
+.quickforge-share-links-message {
+  margin: 1rem 1.25rem 0;
+}
+
 .quickforge-settings-meta {
   display: flex;
   flex-wrap: wrap;
@@ -1387,6 +1414,14 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
     min-width: 0;
     flex-wrap: wrap;
     justify-content: flex-start;
+  }
+
+  .quickforge-share-link-actions {
+    align-items: stretch;
+  }
+
+  .quickforge-share-expiration-select {
+    width: min(100%, 14rem);
   }
 
   .quickforge-agent-profile-row {

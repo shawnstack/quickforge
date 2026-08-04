@@ -3,8 +3,12 @@ import { readSessionValue } from '../storage.mjs'
 import { getLanUrls } from '../utils/network.mjs'
 import {
   createConversationShare,
+  deleteConversationShare,
   listConversationShares,
+  restoreConversationShare,
   revokeConversationShare,
+  updateConversationShare,
+  updateConversationShareExpiration,
 } from '../share-store.mjs'
 
 function localBaseUrl(req, port) {
@@ -75,6 +79,62 @@ export async function handleSharesApi(req, res, url, context = {}) {
       lanUrls: getLanUrls(context.port),
     })
     return
+  }
+
+  if (parts.length === 4 && parts[0] === 'api' && parts[1] === 'shares') {
+    const shareId = decodeSegment(parts[2])
+    const action = parts[3]
+
+    if (req.method === 'POST' && action === 'disable') {
+      const share = await revokeConversationShare(shareId)
+      sendJson(res, 200, { ok: true, share })
+      return
+    }
+
+    if (req.method === 'POST' && action === 'restore') {
+      const body = await readJsonBody(req)
+      const expiresAt = typeof body?.expiresAt === 'string' && body.expiresAt ? body.expiresAt : undefined
+      const currentShares = await listConversationShares()
+      const current = currentShares.find((share) => share.id === shareId)
+      if (!current) {
+        const error = new Error('Share not found')
+        error.statusCode = 404
+        throw error
+      }
+      const session = current.sessionId ? await readSessionValue(current.sessionId) : null
+      if (!session) {
+        const error = new Error('Session not found')
+        error.statusCode = 404
+        throw error
+      }
+      const share = await restoreConversationShare(shareId, expiresAt)
+      sendJson(res, 200, { ok: true, share })
+      return
+    }
+
+    if (req.method === 'POST' && action === 'expiration') {
+      const body = await readJsonBody(req)
+      const expiresAt = typeof body?.expiresAt === 'string' && body.expiresAt ? body.expiresAt : undefined
+      const share = await updateConversationShareExpiration(shareId, expiresAt)
+      sendJson(res, 200, { ok: true, share })
+      return
+    }
+
+    if (req.method === 'POST' && action === 'update') {
+      const body = await readJsonBody(req)
+      const permission = body?.permission
+      const password = typeof body?.password === 'string' ? body.password : undefined
+      const expiresAt = typeof body?.expiresAt === 'string' && body.expiresAt ? body.expiresAt : undefined
+      const share = await updateConversationShare(shareId, { permission, password, expiresAt })
+      sendJson(res, 200, { ok: true, share })
+      return
+    }
+
+    if (req.method === 'DELETE' && action === 'permanent') {
+      const share = await deleteConversationShare(shareId)
+      sendJson(res, 200, { ok: true, share })
+      return
+    }
   }
 
   if (req.method === 'DELETE' && parts.length === 3 && parts[0] === 'api' && parts[1] === 'shares') {

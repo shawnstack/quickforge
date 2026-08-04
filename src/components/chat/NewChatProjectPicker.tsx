@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 type NewChatProjectPickerProps = {
   projects: ProjectInfo[]
   selectedProject?: ProjectInfo
+  defaultProject?: ProjectInfo
   chatScope: ChatScope
   onSelectProject: (project: ProjectInfo) => void
   onClearProject: () => void
@@ -18,6 +19,7 @@ type NewChatProjectPickerProps = {
 export function NewChatProjectPicker({
   projects,
   selectedProject,
+  defaultProject,
   chatScope,
   onSelectProject,
   onClearProject,
@@ -30,7 +32,9 @@ export function NewChatProjectPicker({
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [popoverStyle, setPopoverStyle] = useState<CSSProperties>()
-  const selectedProjectId = chatScope === 'project' ? selectedProject?.id : undefined
+  // 项目对话空状态显示当前对话项目；全局对话空状态默认预选上次激活的项目。
+  const shownProject = chatScope === 'project' ? selectedProject : defaultProject
+  const selectedProjectId = shownProject?.id
 
   const filteredProjects = useMemo(() => {
     const keyword = query.trim().toLowerCase()
@@ -185,7 +189,7 @@ export function NewChatProjectPicker({
                 <X className="size-3" aria-hidden="true" />
               </button>
             </span>
-            <span className="truncate">{selectedProject?.name}</span>
+            <span className="truncate">{shownProject?.name}</span>
           </span>
         ) : (
           <span className="quickforge-empty-project-pill" {...triggerProps}>

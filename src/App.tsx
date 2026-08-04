@@ -285,6 +285,9 @@ function MainApp() {
   }>({ artifacts: [] })
   const [sidebarSessionViewMode, setSidebarSessionViewMode] = useState<SidebarSessionViewMode>('project')
   const [sidebarSessionSortMode, setSidebarSessionSortMode] = useState<SidebarSessionSortMode>('updatedAt')
+  // 用户在新对话空状态主动清除项目预选后，本次空状态内不再默认预选上次激活的项目。
+  const [emptyStateProjectDismissed, setEmptyStateProjectDismissed] = useState(false)
+  const wasNewChatEmptyStateRef = useRef(false)
   const autoPreviewSignatureRef = useRef('')
   const [currentSessionHoverInfo, setCurrentSessionHoverInfo] = useState<(ContextUsageDisplayInfo & { sessionId?: string }) | undefined>()
   const [titleGitStatus, setTitleGitStatus] = useState<GitStatusResponse | undefined>()
@@ -1085,11 +1088,20 @@ function MainApp() {
     && !agentManager.agent?.state.isStreaming
     && (agentManager.agent?.state.messages.length ?? 0) === 0
 
+  // 每次进入"新建对话"空状态时重置清除标记，保证新建对话默认预选上次激活的项目。
+  useEffect(() => {
+    if (showNewChatEmptyState && !wasNewChatEmptyStateRef.current) {
+      setEmptyStateProjectDismissed(false)
+    }
+    wasNewChatEmptyStateRef.current = showNewChatEmptyState
+  }, [showNewChatEmptyState])
+
   const handleSelectEmptyStateProject = useCallback((project: ProjectInfo) => {
     void startNewProjectChat(project)
   }, [startNewProjectChat])
 
   const handleClearEmptyStateProject = useCallback(() => {
+    setEmptyStateProjectDismissed(true)
     startNewGlobalSession()
   }, [startNewGlobalSession])
 
@@ -1755,6 +1767,7 @@ function MainApp() {
                     <NewChatProjectPicker
                       projects={projects}
                       selectedProject={agentManager.currentToolProject}
+                      defaultProject={emptyStateProjectDismissed ? undefined : activeProject}
                       chatScope={agentManager.chatScope}
                       onSelectProject={handleSelectEmptyStateProject}
                       onClearProject={handleClearEmptyStateProject}

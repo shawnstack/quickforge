@@ -200,7 +200,7 @@ function hasFullAccess(session) {
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
 const ABORT_IDLE_WAIT_TIMEOUT_MS = 3000
-const SUBAGENT_DEFAULT_TIMEOUT_MS = 30 * 60 * 1000
+const SUBAGENT_DEFAULT_TIMEOUT_MS = 60 * 60 * 1000
 const SUBAGENT_TRACE_THROTTLE_MS = 150
 
 /**
@@ -1081,7 +1081,7 @@ model:
   modelId: ${frontmatterString(spec.model.modelId)}${spec.model.api ? `
   api: ${frontmatterString(spec.model.api)}` : ''}${spec.model.baseUrl ? `
   baseUrl: ${frontmatterString(spec.model.baseUrl)}` : ''}` : ''}
-max-runtime-ms: ${Math.max(1000, Math.min(Number(spec.maxRuntimeMs || SUBAGENT_DEFAULT_TIMEOUT_MS), 30 * 60 * 1000))}
+max-runtime-ms: ${Math.max(1000, Math.min(Number(spec.maxRuntimeMs || SUBAGENT_DEFAULT_TIMEOUT_MS), 60 * 60 * 1000))}
 max-tool-calls: ${Math.max(1, Math.min(Number(spec.maxToolCalls || 300), 300))}
 ---
 ${spec.systemPrompt}
@@ -1135,7 +1135,7 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
     throw new Error('No active model is configured for the parent session.')
   }
 
-  const timeoutMs = Math.max(1000, Math.min(Number(definition.maxRuntimeMs || SUBAGENT_DEFAULT_TIMEOUT_MS), 30 * 60 * 1000))
+  const timeoutMs = Math.max(1000, Math.min(Number(definition.maxRuntimeMs || SUBAGENT_DEFAULT_TIMEOUT_MS), 60 * 60 * 1000))
   definition.capabilityPolicy ||= inferCapabilityPolicy(definition.allowedTools || [])
   definition.allowedTools = applyCapabilityPolicy(definition.allowedTools || [], definition.capabilityPolicy)
   const { model: subagentModel, info: subagentModelInfo } = await resolveAgentProfileModel(definition, parentSession.model, readStore)

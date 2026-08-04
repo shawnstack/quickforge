@@ -709,9 +709,9 @@ export async function toolPresentFiles(params, context) {
 }
 
 // --- run_command ---
-const DEFAULT_RUN_COMMAND_TIMEOUT_MS = 30 * 60 * 1000
+const DEFAULT_RUN_COMMAND_TIMEOUT_MS = 60 * 60 * 1000
 const MIN_RUN_COMMAND_TIMEOUT_MS = 1000
-const MAX_RUN_COMMAND_TIMEOUT_MS = 30 * 60 * 1000
+const MAX_RUN_COMMAND_TIMEOUT_MS = 60 * 60 * 1000
 const COMMAND_PREVIEW_LINES = 200
 const COMMAND_PREVIEW_TOTAL_CHARS = 10000
 

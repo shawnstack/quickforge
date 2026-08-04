@@ -6,7 +6,7 @@ import { logger } from './utils/logger.mjs'
 import { firstOptionalBoolean, firstString, parseFrontmatter, splitDelimitedList } from './frontmatter.mjs'
 import { normalizeAgentProfileThinkingLevel, normalizeCapabilityPolicy, normalizeModelReference, validateAgentProfileTools, validateModelReference } from './agent-profile-schema.mjs'
 
-const DEFAULT_MAX_RUNTIME_MS = 30 * 60 * 1000
+const DEFAULT_MAX_RUNTIME_MS = 60 * 60 * 1000
 const DEFAULT_MAX_TOOL_CALLS = 300
 const nameRegex = /^[a-z][a-z0-9_-]{1,39}$/
 const allowedToolNames = new Set(['read_file', 'grep_files', 'write_file', 'edit_file', 'run_command'])

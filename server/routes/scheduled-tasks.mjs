@@ -577,7 +577,7 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
     onStarted?.({ taskId: task.id, runId, sessionId })
 
     const eventBus = getSessionEventBus(sessionId)
-    const runtimeLimitMs = Math.max(1000, Math.min(Number(executionAgent?.maxRuntimeMs || 30 * 60 * 1000), 30 * 60 * 1000))
+    const runtimeLimitMs = Math.max(1000, Math.min(Number(executionAgent?.maxRuntimeMs || 60 * 60 * 1000), 60 * 60 * 1000))
     let timeout = null
     let handler = null
     let timedOut = false

@@ -221,7 +221,7 @@ tools: read_file, grep_files
 model:
   mode: inherit
 thinking-level: inherit
-max-runtime-ms: 300000
+max-runtime-ms: 3600000
 max-tool-calls: 20
 created-at: "2026-05-29T00:00:00.000Z"
 updated-at: "2026-05-29T00:00:00.000Z"
@@ -274,7 +274,7 @@ label: Checker
 description: 运行验证命令并返回完整失败报告
 tools: Read, Grep, Bash
 enabled-as-subagent: true
-max-runtime-ms: 1800000
+max-runtime-ms: 3600000
 max-tool-calls: 120
 ---
 

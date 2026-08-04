@@ -997,11 +997,20 @@ function MainApp() {
   useEffect(() => {
     if (!ui.conversationMenuOpen) return
     const closeMenu = () => ui.setConversationMenuOpen(false)
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeMenu()
+    }
     window.addEventListener('click', closeMenu)
     window.addEventListener('blur', closeMenu)
+    window.addEventListener('resize', closeMenu)
+    window.addEventListener('orientationchange', closeMenu)
+    document.addEventListener('keydown', handleKeyDown)
     return () => {
       window.removeEventListener('click', closeMenu)
       window.removeEventListener('blur', closeMenu)
+      window.removeEventListener('resize', closeMenu)
+      window.removeEventListener('orientationchange', closeMenu)
+      document.removeEventListener('keydown', handleKeyDown)
     }
   }, [ui, ui.conversationMenuOpen])
 
@@ -1674,18 +1683,28 @@ function MainApp() {
                 <Button
                   variant="ghost"
                   size="icon"
+                  className={cn(ui.conversationMenuOpen && 'bg-muted/45 text-foreground/90')}
                   onClick={() => ui.setConversationMenuOpen((value) => !value)}
                   disabled={!agentManager.currentSessionId || needsModelSetup}
                   aria-label={t('moreOptions')}
+                  aria-haspopup="menu"
                   aria-expanded={ui.conversationMenuOpen}
                 >
                   <Ellipsis className="size-[18px]" />
                 </Button>
                 {ui.conversationMenuOpen ? (
-                  <div className="absolute left-0 top-full z-30 mt-1 min-w-44 rounded-lg border border-border bg-popover p-1 shadow-quickforge">
+                  <div
+                    className={cn(
+                      'fixed inset-x-2 top-14 z-40 max-h-[calc(100dvh-4rem)] overflow-y-auto overscroll-contain rounded-lg border border-border bg-popover p-1 shadow-quickforge md:absolute md:inset-x-auto md:left-0 md:top-full md:z-30 md:mt-1 md:min-w-44 md:max-h-none md:overflow-visible',
+                      mobileShell && 'md:fixed md:inset-x-2 md:left-auto md:top-14 md:z-40 md:mt-0 md:max-h-[calc(100dvh-4rem)] md:min-w-0 md:overflow-y-auto lg:inset-x-2 lg:left-auto lg:top-14',
+                    )}
+                    role="menu"
+                    aria-label={t('moreOptions')}
+                  >
                     <button
                       type="button"
-                      className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+                      role="menuitem"
+                      className="flex h-10 w-full items-center gap-2 whitespace-nowrap rounded-md px-2 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
                       onClick={handleToggleCurrentSessionPinned}
                     >
                       {currentSessionPinned ? <PinOff className="size-[18px]" /> : <Pin className="size-[18px]" />}
@@ -1693,7 +1712,8 @@ function MainApp() {
                     </button>
                     <button
                       type="button"
-                      className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+                      role="menuitem"
+                      className="flex h-10 w-full items-center gap-2 whitespace-nowrap rounded-md px-2 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
                       onClick={handleRenameCurrentSession}
                     >
                       <Pencil className="size-[18px]" />
@@ -1701,7 +1721,8 @@ function MainApp() {
                     </button>
                     <button
                       type="button"
-                      className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+                      role="menuitem"
+                      className="flex h-10 w-full items-center gap-2 whitespace-nowrap rounded-md px-2 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
                       onClick={handleShareCurrentSession}
                     >
                       <Share2 className="size-[18px]" />
@@ -1709,7 +1730,8 @@ function MainApp() {
                     </button>
                     <button
                       type="button"
-                      className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+                      role="menuitem"
+                      className="flex h-10 w-full items-center gap-2 whitespace-nowrap rounded-md px-2 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
                       onClick={handleArchiveCurrentSession}
                     >
                       <Archive className="size-[18px]" />

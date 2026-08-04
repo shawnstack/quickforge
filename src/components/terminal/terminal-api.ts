@@ -16,7 +16,8 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function getTerminalCapabilities() {
-  return fetchJson<TerminalCapabilities>('/api/terminal/capabilities')
+  // 服务端为该 GET 接口返回短 TTL 缓存头（private, max-age=300）。
+  return fetchJson<TerminalCapabilities>('/api/terminal/capabilities', { cache: 'default' })
 }
 
 export function listTerminalSessions(projectId?: string) {

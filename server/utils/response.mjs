@@ -1,10 +1,10 @@
 const DEFAULT_MAX_BODY_BYTES = Number(process.env.QUICKFORGE_MAX_BODY_BYTES || 50 * 1024 * 1024)
 
-export function sendJson(res, status, value) {
+export function sendJson(res, status, value, cacheControl) {
   const body = JSON.stringify(value)
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
-    'cache-control': 'no-store',
+    'cache-control': cacheControl || 'no-store',
   })
   res.end(body)
 }

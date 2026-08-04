@@ -1,11 +1,22 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ProjectInfo } from '@/lib/types'
 import { logger } from '@/lib/logger'
+import { invalidateApiCache, readApiCache, writeApiCache } from '@/lib/api-cache'
 import {
   loadExpandedProjectIds,
   pruneExpandedProjectIds,
   saveExpandedProjectIds,
 } from '@/lib/project-expanded-ids'
+
+const PROJECT_LIST_CACHE_KEY = '/api/project'
+const PROJECT_LIST_CACHE_TTL_MS = 15 * 1000
+
+type ProjectListPayload = {
+  project?: ProjectInfo
+  projects?: ProjectInfo[]
+  workspaceRoot?: string
+  defaultWorkspaceRoot?: string
+}
 
 export function useProject() {
   const [activeProject, setActiveProject] = useState<ProjectInfo>()
@@ -19,29 +30,41 @@ export function useProject() {
     saveExpandedProjectIds(expandedProjectIds)
   }, [expandedProjectIds])
 
-  const loadProject = useCallback(async () => {
+  const applyProjectListPayload = useCallback((payload: ProjectListPayload) => {
+    setActiveProject(payload.project)
+    setProjects(Array.isArray(payload.projects) ? payload.projects : [])
+    // Default workspace used as the synthetic project for global conversations.
+    setDefaultWorkspace(
+      typeof payload.defaultWorkspaceRoot === 'string' && payload.defaultWorkspaceRoot
+        ? { id: 'default', name: 'workspace', path: payload.defaultWorkspaceRoot, lastOpenedAt: '' }
+        : undefined,
+    )
+    setExpandedProjectIds((current) =>
+      pruneExpandedProjectIds(
+        current,
+        (Array.isArray(payload.projects) ? payload.projects : []).map((project: ProjectInfo) => project.id),
+      ),
+    )
+  }, [])
+
+  const loadProject = useCallback(async (forceRefresh = false) => {
     try {
+      if (!forceRefresh) {
+        const cached = readApiCache<ProjectListPayload>(PROJECT_LIST_CACHE_KEY, PROJECT_LIST_CACHE_TTL_MS)
+        if (cached) {
+          applyProjectListPayload(cached)
+          return
+        }
+      }
       const response = await fetch('/api/project')
       if (!response.ok) return
-      const payload = await response.json()
-      setActiveProject(payload.project)
-      setProjects(Array.isArray(payload.projects) ? payload.projects : [])
-      // Default workspace used as the synthetic project for global conversations.
-      setDefaultWorkspace(
-        typeof payload.defaultWorkspaceRoot === 'string' && payload.defaultWorkspaceRoot
-          ? { id: 'default', name: 'workspace', path: payload.defaultWorkspaceRoot, lastOpenedAt: '' }
-          : undefined,
-      )
-      setExpandedProjectIds((current) =>
-        pruneExpandedProjectIds(
-          current,
-          (Array.isArray(payload.projects) ? payload.projects : []).map((project: ProjectInfo) => project.id),
-        ),
-      )
+      const payload = (await response.json()) as ProjectListPayload
+      writeApiCache(PROJECT_LIST_CACHE_KEY, payload)
+      applyProjectListPayload(payload)
     } catch (error) {
       logger.error('Failed to load project:', error)
     }
-  }, [])
+  }, [applyProjectListPayload])
 
   const switchActiveProject = useCallback(async (projectId: string) => {
     const response = await fetch('/api/project/active', {
@@ -55,6 +78,7 @@ export function useProject() {
     setActiveProject(payload.project)
     setProjects(Array.isArray(payload.projects) ? payload.projects : [])
     setExpandedProjectIds(new Set([projectId]))
+    invalidateApiCache(PROJECT_LIST_CACHE_KEY)
     return payload.project as ProjectInfo
   }, [])
 
@@ -71,6 +95,7 @@ export function useProject() {
       if (payload?.project) {
         setActiveProject(payload.project)
         setProjects(Array.isArray(payload.projects) ? payload.projects : [])
+        invalidateApiCache(PROJECT_LIST_CACHE_KEY)
         setExpandedProjectIds((current) =>
           pruneExpandedProjectIds(
             current,
@@ -134,6 +159,7 @@ export function useProject() {
       const payload = await response.json().catch(() => null)
       if (!response.ok) throw new Error(payload?.error || `Reorder failed with HTTP ${response.status}`)
       if (Array.isArray(payload?.projects)) setProjects(payload.projects)
+      invalidateApiCache(PROJECT_LIST_CACHE_KEY)
     } catch (error) {
       logger.error('Failed to reorder projects:', error)
     }

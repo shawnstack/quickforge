@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import type { AgentManager } from '@/hooks/useAgentManager'
 import type { ProjectInfo } from '@/lib/types'
+import { invalidateApiCache } from '@/lib/api-cache'
 
 type UseProjectActionsOptions = {
   activeProjectRef: React.MutableRefObject<ProjectInfo | undefined>
@@ -35,6 +36,7 @@ export function useProjectActions({
         next.delete(projectId)
         return next
       })
+      invalidateApiCache('/api/project')
       await refreshSessions({ broadcast: true })
       notifyProjectsChanged()
       if (activeProjectRef.current?.id === projectId) {

@@ -369,7 +369,7 @@ function MainApp() {
 
   const crossTab = useCrossTabSync({
     onSessionsChanged: () => { refreshSessions() },
-    onProjectsChanged: () => { loadProject() },
+    onProjectsChanged: () => { loadProject(true) },
     onSettingsChanged: () => { refreshSessions() },
   })
 

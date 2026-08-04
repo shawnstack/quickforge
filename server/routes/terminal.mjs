@@ -59,7 +59,7 @@ export async function handleTerminalApi(req, res, url, options = {}) {
   await assertLocalTerminalRequest(req, options.isLocalRequest)
 
   if (req.method === 'GET' && url.pathname === '/api/terminal/capabilities') {
-    sendJson(res, 200, { ...await terminalCapabilities(), ...await platformInfo() })
+    sendJson(res, 200, { ...await terminalCapabilities(), ...await platformInfo() }, 'private, max-age=300')
     return
   }
 

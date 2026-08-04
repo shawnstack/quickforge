@@ -1598,7 +1598,25 @@ function MainApp() {
 
           <div className="min-w-0 flex-1">
             <div className="flex max-w-full min-w-0 items-center gap-2">
-              <div className="min-w-0 truncate text-sm font-semibold text-foreground/92">{sessionTitle(agentManager.currentTitle, currentSessionMetadata?.channelName)}</div>
+              <div className="min-w-0">
+                <div className="min-w-0 truncate text-sm font-semibold text-foreground/92">{sessionTitle(agentManager.currentTitle, currentSessionMetadata?.channelName)}</div>
+                {agentManager.currentToolProject?.name || (titleGitStatus?.isGitRepository && titleGitStatus.branch) ? (
+                  <div className="mt-0.5 flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap text-xs leading-none text-muted-foreground sm:hidden">
+                    {agentManager.currentToolProject?.name ? (
+                      <div className="flex min-w-0 flex-1 basis-0 items-center gap-1" title={agentManager.currentToolProject.name}>
+                        <Folder className="size-3 shrink-0" />
+                        <span className="min-w-0 truncate">{agentManager.currentToolProject.name}</span>
+                      </div>
+                    ) : null}
+                    {titleGitStatus?.isGitRepository && titleGitStatus.branch ? (
+                      <div className="flex min-w-0 flex-1 basis-0 items-center gap-1" title={titleGitStatus.branch}>
+                        <GitBranch className="size-3 shrink-0" />
+                        <span className="min-w-0 truncate">{titleGitStatus.branch}</span>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
               {!mobileShell && agentManager.currentToolProject?.name ? (
                 <div className="hidden h-9 max-w-[220px] shrink-0 items-center gap-2 rounded-full bg-muted/55 px-3 text-sm text-foreground/88 md:inline-flex" title={agentManager.currentToolProject.name}>
                   <Folder className="size-4 text-muted-foreground" />

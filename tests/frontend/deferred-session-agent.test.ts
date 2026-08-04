@@ -22,10 +22,14 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
-async function createDeferredAgent(createAgent: () => Promise<ServerAgent>) {
+async function createDeferredAgent(
+  createAgent: () => Promise<ServerAgent>,
+  options?: { scope?: 'global' | 'project'; project?: { id: string; name: string; path: string; lastOpenedAt: string } },
+) {
   const { DeferredSessionAgent } = await import('../../src/lib/deferred-session-agent')
   return new DeferredSessionAgent({
-    scope: 'global',
+    scope: options?.scope ?? 'global',
+    project: options?.project,
     model: { provider: 'test', id: 'test-model' } as Model<Api>,
     thinkingLevel: 'off',
     accessMode: 'default',
@@ -79,6 +83,25 @@ describe('DeferredSessionAgent', () => {
     expect(realAgent.prompt).toHaveBeenCalledWith(optimisticMessage)
     expect(realAgent.state.messages).toEqual([optimisticMessage])
     expect(createAgent.mock.calls[0]?.[0]).not.toHaveProperty('messages')
+  })
+
+  it('passes the selected project to the real session', async () => {
+    const project = {
+      id: 'project-1',
+      name: 'Project 1',
+      path: '/workspace/project-1',
+      lastOpenedAt: '',
+    }
+    const createAgent = vi.fn(async () => createRealAgent())
+    const agent = await createDeferredAgent(createAgent, { scope: 'project', project })
+
+    await agent.prompt('hello')
+
+    expect(createAgent).toHaveBeenCalledWith(
+      expect.any(Object),
+      'test-id',
+      expect.objectContaining({ scope: 'project', project }),
+    )
   })
 
   it('rolls back the optimistic message when session creation fails', async () => {

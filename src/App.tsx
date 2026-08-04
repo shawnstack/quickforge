@@ -1088,13 +1088,28 @@ function MainApp() {
     && !agentManager.agent?.state.isStreaming
     && (agentManager.agent?.state.messages.length ?? 0) === 0
 
-  // 每次进入"新建对话"空状态时重置清除标记，保证新建对话默认预选上次激活的项目。
+  // 每次进入"新建对话"空状态时重置清除标记，保证新建对话默认使用上次激活的项目。
   useEffect(() => {
     if (showNewChatEmptyState && !wasNewChatEmptyStateRef.current) {
       setEmptyStateProjectDismissed(false)
     }
     wasNewChatEmptyStateRef.current = showNewChatEmptyState
   }, [showNewChatEmptyState])
+
+  // 默认项目必须进入真实会话状态，不能只在选择器中显示为已选。
+  useEffect(() => {
+    if (!showNewChatEmptyState || emptyStateProjectDismissed || !activeProject || agentManager.chatScope !== 'global') return
+    void startNewProjectChat(activeProject)
+  }, [activeProject, agentManager.chatScope, emptyStateProjectDismissed, showNewChatEmptyState, startNewProjectChat])
+
+  const startNewDefaultSession = useCallback(() => {
+    setEmptyStateProjectDismissed(false)
+    if (activeProject) {
+      void startNewProjectChat(activeProject)
+      return
+    }
+    startNewGlobalSession()
+  }, [activeProject, startNewGlobalSession, startNewProjectChat])
 
   const handleSelectEmptyStateProject = useCallback((project: ProjectInfo) => {
     void startNewProjectChat(project)
@@ -1224,10 +1239,10 @@ function MainApp() {
     loadSession(sessionId)
   }, [closeMobileSidebar, loadSession])
 
-  const startNewGlobalSessionFromSidebar = useCallback(() => {
+  const startNewDefaultSessionFromSidebar = useCallback(() => {
     closeMobileSidebar()
-    startNewGlobalSession()
-  }, [closeMobileSidebar, startNewGlobalSession])
+    startNewDefaultSession()
+  }, [closeMobileSidebar, startNewDefaultSession])
 
   const startNewProjectChatFromSidebar = useCallback((project: ProjectInfo) => {
     closeMobileSidebar()
@@ -1481,7 +1496,7 @@ function MainApp() {
         onSessionSortModeChange={setSidebarSessionSortMode}
         onTogglePinSession={togglePinSession}
         onDeleteSession={archiveSession}
-        onStartNewGlobalChat={startNewGlobalSession}
+        onStartNewGlobalChat={startNewDefaultSession}
         onOpenSettings={openDefaultOptionsSettings}
         currentServerUrl={mobileServerUrl}
         onOpenServer={mobileShell ? openMobileServerPicker : undefined}
@@ -1563,7 +1578,7 @@ function MainApp() {
               onSessionSortModeChange={setSidebarSessionSortMode}
               onTogglePinSession={togglePinSession}
               onDeleteSession={archiveSession}
-              onStartNewGlobalChat={startNewGlobalSessionFromSidebar}
+              onStartNewGlobalChat={startNewDefaultSessionFromSidebar}
               onOpenSettings={() => {
                 closeMobileSidebar()
                 openDefaultOptionsSettings()
@@ -1784,9 +1799,7 @@ function MainApp() {
                   {showNewChatEmptyState ? (
                     <NewChatProjectPicker
                       projects={projects}
-                      selectedProject={agentManager.currentToolProject}
-                      defaultProject={emptyStateProjectDismissed ? undefined : activeProject}
-                      chatScope={agentManager.chatScope}
+                      selectedProject={agentManager.chatScope === 'project' ? agentManager.currentToolProject : undefined}
                       onSelectProject={handleSelectEmptyStateProject}
                       onClearProject={handleClearEmptyStateProject}
                       onNewProject={handleSelectEmptyStateNewProject}

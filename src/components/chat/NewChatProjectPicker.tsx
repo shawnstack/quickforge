@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, Folder, Search, X } from 'lucide-react'
-import type { ChatScope, ProjectInfo } from '@/lib/types'
+import type { ProjectInfo } from '@/lib/types'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
 type NewChatProjectPickerProps = {
   projects: ProjectInfo[]
   selectedProject?: ProjectInfo
-  defaultProject?: ProjectInfo
-  chatScope: ChatScope
   onSelectProject: (project: ProjectInfo) => void
   onClearProject: () => void
   onNewProject: () => void
@@ -19,8 +17,6 @@ type NewChatProjectPickerProps = {
 export function NewChatProjectPicker({
   projects,
   selectedProject,
-  defaultProject,
-  chatScope,
   onSelectProject,
   onClearProject,
   onNewProject,
@@ -32,8 +28,7 @@ export function NewChatProjectPicker({
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [popoverStyle, setPopoverStyle] = useState<CSSProperties>()
-  // 项目对话空状态显示当前对话项目；全局对话空状态默认预选上次激活的项目。
-  const shownProject = chatScope === 'project' ? selectedProject : defaultProject
+  const shownProject = selectedProject
   const selectedProjectId = shownProject?.id
 
   const filteredProjects = useMemo(() => {

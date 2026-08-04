@@ -3730,7 +3730,7 @@ assistant-message :is(thinking-block, tool-message, markdown-block)[data-quickfo
   }
 
   .quickforge-composer :is(.quickforge-context-usage, .quickforge-context-usage-label) {
-    display: none !important;
+    margin-inline: 0.125rem;
   }
 
   .quickforge-composer .quickforge-model-trigger {

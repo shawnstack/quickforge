@@ -31,7 +31,7 @@ export function useSessionActions({
 }: UseSessionActionsOptions) {
   const loadSession = useCallback((sessionId: string) => {
     closeWorkspacePage()
-    void loadAgentSession(sessionId)
+    return loadAgentSession(sessionId)
   }, [loadAgentSession, closeWorkspacePage])
 
   const renameSession = useCallback(async (sessionId: string, currentTitle: string) => {

@@ -333,6 +333,7 @@ html.quickforge-mobile-native :where(button, input, textarea, select, [role="but
   inset: 0;
   z-index: 20;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   overflow: hidden;
@@ -349,6 +350,30 @@ html.quickforge-mobile-native :where(button, input, textarea, select, [role="but
   gap: 0.5rem;
   color: color-mix(in oklab, var(--foreground) 72%, transparent);
   font-size: 0.875rem;
+}
+
+.quickforge-session-loading-text {
+  animation: quickforge-session-loading-text-in 160ms ease-out both;
+}
+
+.quickforge-session-loading-progress {
+  position: relative;
+  width: 10rem;
+  height: 0.1875rem;
+  margin-top: 0.875rem;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--foreground) 10%, transparent);
+}
+
+.quickforge-session-loading-progress-bar {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 40%;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--foreground) 45%, transparent);
+  animation: quickforge-session-loading-progress-slide 1.1s ease-in-out infinite;
 }
 
 .quickforge-session-loading-overlay-exit {
@@ -374,6 +399,28 @@ html.quickforge-mobile-native :where(button, input, textarea, select, [role="but
   }
 }
 
+@keyframes quickforge-session-loading-text-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes quickforge-session-loading-progress-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(350%);
+  }
+}
+
 @keyframes quickforge-conversation-enter {
   from {
     opacity: 0.72;
@@ -388,7 +435,9 @@ html.quickforge-mobile-native :where(button, input, textarea, select, [role="but
 
 @media (prefers-reduced-motion: reduce) {
   .quickforge-session-loading-overlay-exit,
-  .quickforge-conversation-enter {
+  .quickforge-conversation-enter,
+  .quickforge-session-loading-text,
+  .quickforge-session-loading-progress-bar {
     animation: none;
   }
 }

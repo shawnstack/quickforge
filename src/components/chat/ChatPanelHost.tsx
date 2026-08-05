@@ -36,6 +36,7 @@ import {
 } from './panel-decoration'
 import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
+import { scheduleAfterPaint } from '@/lib/schedule-after-paint'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import { extractSessionArtifacts, type AiTurnArtifact } from '@/lib/tool-artifacts'
 import { getGitStatus } from '../workspace/workspace-api'
@@ -122,6 +123,7 @@ type ChatPanelHostProps = {
   onOpenLocalFilePath?: (path: string) => void
   onArtifactsChange?: (artifacts: AiTurnArtifact[]) => void
   onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
+  onInitialRenderReady?: (sessionId: string) => void
   restoredDraft?: RestoredDraft
   onRestoredDraftConsumed?: (id: number) => void
   disableFork?: boolean
@@ -154,6 +156,7 @@ type PropsRef = {
   onOpenLocalFilePath?: (path: string) => void
   onArtifactsChange?: (artifacts: AiTurnArtifact[]) => void
   onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
+  onInitialRenderReady?: (sessionId: string) => void
   onModelSelect?: () => void
   agentAccessMode: AgentAccessMode
   planMode: boolean
@@ -190,6 +193,7 @@ export function ChatPanelHost({
   onOpenLocalFilePath,
   onArtifactsChange,
   onContextUsageDisplayChange,
+  onInitialRenderReady,
   restoredDraft,
   onRestoredDraftConsumed,
   disableFork = false,
@@ -310,6 +314,7 @@ export function ChatPanelHost({
     onOpenLocalFilePath,
     onArtifactsChange,
     onContextUsageDisplayChange,
+    onInitialRenderReady,
     onModelSelect,
     agentAccessMode,
     planMode,
@@ -342,6 +347,7 @@ export function ChatPanelHost({
       onOpenLocalFilePath,
       onArtifactsChange,
       onContextUsageDisplayChange,
+      onInitialRenderReady,
       onModelSelect,
       agentAccessMode,
       planMode,
@@ -479,6 +485,7 @@ export function ChatPanelHost({
     let assistantWaitingActive = agent.state.isStreaming
     let toolUpdateScheduled = false
     let processHandoffGeneration = 0
+    let cancelInitialRenderReady: (() => void) | undefined
 
     // --- Windowed rendering for very long conversations ---
     const windowLayer = createMessageWindow()
@@ -643,6 +650,34 @@ export function ChatPanelHost({
       }
     }
 
+    // --- Artifact extraction, deferred to idle time ---------------------------
+    // `extractSessionArtifacts` JSON.parses the file payload of every
+    // toolResult, which on a huge session can block the first paint for
+    // hundreds of milliseconds. Run it via requestIdleCallback and always read
+    // the latest full state when it fires; the signature check still decides
+    // whether to notify. Falls back to a synchronous run when idle callbacks
+    // are unavailable.
+    let artifactsExtractionScheduled = false
+    const scheduleArtifactsExtraction = () => {
+      if (disposed || artifactsExtractionScheduled) return
+      artifactsExtractionScheduled = true
+      const run = () => {
+        artifactsExtractionScheduled = false
+        if (disposed) return
+        const artifacts = extractSessionArtifacts(agent.state.messages as import('@earendil-works/pi-agent-core').AgentMessage[])
+        const artifactsSignature = JSON.stringify(artifacts.map((artifact) => [artifact.source, artifact.path, artifact.command, artifact.outputFile, artifact.confidence, artifact.preview, artifact.defaultPreview, artifact.addedLines, artifact.removedLines]))
+        if (artifactsSignature !== artifactsSignatureRef.current) {
+          artifactsSignatureRef.current = artifactsSignature
+          propsRef.current.onArtifactsChange?.(artifacts)
+        }
+      }
+      if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(run, { timeout: 500 })
+      } else {
+        run()
+      }
+    }
+
     // --- The core decoration function (called on DOM changes & prop changes) ---
     const decorate = () => {
       if (disposed) return
@@ -665,12 +700,7 @@ export function ChatPanelHost({
       const inputKey = artifactsInputKey(agent.state.messages as MessageWithUsage[])
       if (inputKey !== artifactsInputKeyRef.current) {
         artifactsInputKeyRef.current = inputKey
-        const artifacts = extractSessionArtifacts(agent.state.messages as import('@earendil-works/pi-agent-core').AgentMessage[])
-        const artifactsSignature = JSON.stringify(artifacts.map((artifact) => [artifact.source, artifact.path, artifact.command, artifact.outputFile, artifact.confidence, artifact.preview, artifact.defaultPreview, artifact.addedLines, artifact.removedLines]))
-        if (artifactsSignature !== artifactsSignatureRef.current) {
-          artifactsSignatureRef.current = artifactsSignature
-          props.onArtifactsChange?.(artifacts)
-        }
+        scheduleArtifactsExtraction()
       }
 
       // Wrap message/editor decoration so a failure in one does not block
@@ -953,6 +983,15 @@ export function ChatPanelHost({
         if (disposed) return
         runDecorate()
       })
+
+      const agentInterface = getAgentInterface()
+      const notifyInitialRenderReady = () => {
+        if (disposed) return
+        cancelInitialRenderReady = scheduleAfterPaint(() => {
+          if (!disposed) propsRef.current.onInitialRenderReady?.(sessionId)
+        })
+      }
+      void (agentInterface?.updateComplete ?? Promise.resolve()).then(notifyInitialRenderReady, notifyInitialRenderReady)
     })
 
     hostRef.current.replaceChildren(panel)
@@ -1061,6 +1100,7 @@ export function ChatPanelHost({
       draftRestoreGuard.invalidate()
       cancelRestoredDraftRestore()
       cancelPendingDraftSave()
+      cancelInitialRenderReady?.()
       if (composerClearedForSend) {
         composerDraftsRef.current.delete(currentDraftKey)
         void clearComposerDraft(currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))

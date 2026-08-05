@@ -65,6 +65,7 @@ import { useVisibleRuntimeStatuses } from '@/hooks/useVisibleRuntimeStatuses'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { ServerAgent } from '@/lib/server-agent'
 import { logger } from '@/lib/logger'
+import { scheduleAfterPaint } from '@/lib/schedule-after-paint'
 import { getDeletedProjectRecoveryDecision } from '@/lib/deleted-project-recovery'
 import { isCurrentProjectRequest } from '@/lib/project-request-guard'
 import { shouldRefreshTitleGitStatusOnToolEnd } from '@/lib/title-git-status-refresh'
@@ -109,7 +110,7 @@ const MAX_AUTO_PREVIEW_SEEN_SIGNATURES = 200
 const QUICKFORGE_RELEASES_URL = 'https://github.com/shawnstack/quickforge/releases/latest'
 const STARTUP_SPLASH_MIN_DURATION_MS = 1350
 const STARTUP_SPLASH_EXIT_DURATION_MS = 280
-const SESSION_LOADING_DELAY_MS = 150
+const SESSION_LOADING_LONG_THRESHOLD_MS = 2500
 const CONVERSATION_TRANSITION_DURATION_MS = 280
 
 function readSeenAutoPreviewSignatures() {
@@ -310,6 +311,8 @@ function MainApp() {
   const [startupSplashExited, setStartupSplashExited] = useState(false)
   const [visibleLoadingSessionId, setVisibleLoadingSessionId] = useState<string>()
   const visibleLoadingSessionIdRef = useRef<string | undefined>(undefined)
+  const [renderedLoadingSessionId, setRenderedLoadingSessionId] = useState<string>()
+  const [sessionLoadingLong, setSessionLoadingLong] = useState(false)
   const { toasts, handleTaskComplete: addTaskCompletionToast, addToast, dismissToast } = useTaskToasts()
   const handleTaskComplete = useCallback((sessionId: string, title: string, status: BackgroundTaskStatus) => {
     addTaskCompletionToast(sessionId, title, status)
@@ -423,22 +426,34 @@ function MainApp() {
   })
 
   useEffect(() => {
-    if (agentManager.loadingSessionId) {
-      const loadingSessionId = agentManager.loadingSessionId
-      const timer = window.setTimeout(() => {
-        visibleLoadingSessionIdRef.current = loadingSessionId
-        setVisibleLoadingSessionId(loadingSessionId)
-      }, SESSION_LOADING_DELAY_MS)
-      return () => window.clearTimeout(timer)
-    }
-
-    if (!visibleLoadingSessionIdRef.current) return undefined
+    const loadingSessionId = agentManager.loadingSessionId
+    if (!loadingSessionId) return undefined
     const timer = window.setTimeout(() => {
+      setRenderedLoadingSessionId(undefined)
+      visibleLoadingSessionIdRef.current = loadingSessionId
+      setVisibleLoadingSessionId(loadingSessionId)
+      setSessionLoadingLong(false)
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [agentManager.loadingSessionId])
+
+  useEffect(() => {
+    const visibleSessionId = visibleLoadingSessionIdRef.current
+    if (!visibleSessionId || renderedLoadingSessionId !== visibleSessionId) return undefined
+
+    const fadeTimer = window.setTimeout(() => {
+      if (visibleLoadingSessionIdRef.current !== visibleSessionId) return
       visibleLoadingSessionIdRef.current = undefined
       setVisibleLoadingSessionId(undefined)
     }, CONVERSATION_TRANSITION_DURATION_MS)
+    return () => window.clearTimeout(fadeTimer)
+  }, [agentManager.loadingSessionId, renderedLoadingSessionId, visibleLoadingSessionId])
+
+  useEffect(() => {
+    if (!visibleLoadingSessionId) return undefined
+    const timer = window.setTimeout(() => setSessionLoadingLong(true), SESSION_LOADING_LONG_THRESHOLD_MS)
     return () => window.clearTimeout(timer)
-  }, [agentManager.loadingSessionId])
+  }, [visibleLoadingSessionId])
 
   // Destructure stable values for use in dependency arrays
   const {
@@ -463,12 +478,37 @@ function MainApp() {
     chatFileRequestIdRef.current += 1
   }, [agentManager.currentToolProject?.id])
 
+  const beginSessionTransition = useCallback((sessionId: string) => {
+    if (!sessionId || sessionId === currentSessionIdRef.current) return
+    setRenderedLoadingSessionId(undefined)
+    visibleLoadingSessionIdRef.current = sessionId
+    setVisibleLoadingSessionId(sessionId)
+    setSessionLoadingLong(false)
+  }, [currentSessionIdRef])
+
+  const cancelSessionTransition = useCallback((sessionId: string) => {
+    if (visibleLoadingSessionIdRef.current !== sessionId) return
+    visibleLoadingSessionIdRef.current = undefined
+    setRenderedLoadingSessionId(undefined)
+    setVisibleLoadingSessionId(undefined)
+  }, [])
+
+  const handleSessionInitialRenderReady = useCallback((sessionId: string) => {
+    if (visibleLoadingSessionIdRef.current !== sessionId) return
+    setRenderedLoadingSessionId(sessionId)
+  }, [])
+
   const handleToastClick = useCallback(
     (sessionId: string) => {
       if (!sessionId) return
-      loadAgentSession(sessionId)
+      beginSessionTransition(sessionId)
+      scheduleAfterPaint(() => {
+        void loadAgentSession(sessionId).then((loaded) => {
+          if (!loaded) cancelSessionTransition(sessionId)
+        })
+      })
     },
-    [loadAgentSession],
+    [beginSessionTransition, cancelSessionTransition, loadAgentSession],
   )
 
   useEffect(() => {
@@ -932,6 +972,19 @@ function MainApp() {
     startNewGlobalChat,
   })
 
+  const loadSessionWithTransition = useCallback((sessionId: string) => {
+    if (!sessionId || sessionId === currentSessionIdRef.current) {
+      loadSession(sessionId)
+      return
+    }
+    beginSessionTransition(sessionId)
+    scheduleAfterPaint(() => {
+      void loadSession(sessionId).then((loaded) => {
+        if (!loaded) cancelSessionTransition(sessionId)
+      })
+    })
+  }, [beginSessionTransition, cancelSessionTransition, currentSessionIdRef, loadSession])
+
   const openSettingsPage = useCallback((initialTab: typeof ui.settingsInitialTab, customProvider?: string) => {
     ui.setSettingsInitialTab(initialTab)
     ui.setSettingsCustomProvider(customProvider)
@@ -1252,8 +1305,8 @@ function MainApp() {
 
   const loadSessionFromSidebar = useCallback((sessionId: string) => {
     closeMobileSidebar()
-    loadSession(sessionId)
-  }, [closeMobileSidebar, loadSession])
+    loadSessionWithTransition(sessionId)
+  }, [closeMobileSidebar, loadSessionWithTransition])
 
   const startNewDefaultSessionFromSidebar = useCallback(() => {
     closeMobileSidebar()
@@ -1507,7 +1560,7 @@ function MainApp() {
         onOpenProjectSkills={openProjectSkills}
         onOpenProjectInExplorer={remoteClient ? undefined : openProjectInExplorerWithFeedback}
         onDeleteProject={deleteProjectInline}
-        onLoadSession={loadSession}
+        onLoadSession={loadSessionWithTransition}
         onSessionViewModeChange={setSidebarSessionViewMode}
         onSessionSortModeChange={setSidebarSessionSortMode}
         onTogglePinSession={togglePinSession}
@@ -1759,15 +1812,20 @@ function MainApp() {
             <div
               className={cn(
                 'quickforge-session-loading-overlay',
-                !agentManager.loadingSessionId && 'quickforge-session-loading-overlay-exit',
+                renderedLoadingSessionId === visibleLoadingSessionId && 'quickforge-session-loading-overlay-exit',
               )}
               role="status"
               aria-live="polite"
-              aria-label={t('loadingConversation')}
+              aria-label={t(sessionLoadingLong ? 'loadingConversationLong' : 'loadingConversation')}
             >
               <div className="quickforge-session-loading-indicator">
                 <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                <span>{t('loadingConversation')}</span>
+                <span key={sessionLoadingLong ? 'long' : 'short'} className="quickforge-session-loading-text">
+                  {t(sessionLoadingLong ? 'loadingConversationLong' : 'loadingConversation')}
+                </span>
+              </div>
+              <div className="quickforge-session-loading-progress" aria-hidden="true">
+                <div className="quickforge-session-loading-progress-bar" />
               </div>
             </div>
           ) : null}
@@ -1798,7 +1856,7 @@ function MainApp() {
                 <div className={cn(
                   'flex min-h-0 flex-1 flex-col',
                   showNewChatEmptyState ? 'quickforge-empty-chat' : undefined,
-                  !agentManager.loadingSessionId && visibleLoadingSessionId && 'quickforge-conversation-enter',
+                  renderedLoadingSessionId === visibleLoadingSessionId && 'quickforge-conversation-enter',
                 )}>
                   {showNewChatEmptyState ? (
                     <div className="quickforge-empty-chat-hero" aria-hidden="true">
@@ -1835,6 +1893,7 @@ function MainApp() {
                         })
                       }}
                       onContextUsageDisplayChange={handleContextUsageDisplayChange}
+                      onInitialRenderReady={handleSessionInitialRenderReady}
                       disableFork={false}
                       restoredDraft={restoredDraft}
                       onRestoredDraftConsumed={consumeRestoredDraft}

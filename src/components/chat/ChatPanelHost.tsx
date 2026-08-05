@@ -124,6 +124,7 @@ type ChatPanelHostProps = {
   onArtifactsChange?: (artifacts: AiTurnArtifact[]) => void
   onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
   onInitialRenderReady?: (sessionId: string) => void
+  onInitialRenderError?: (sessionId: string, error: unknown) => void
   restoredDraft?: RestoredDraft
   onRestoredDraftConsumed?: (id: number) => void
   disableFork?: boolean
@@ -157,6 +158,7 @@ type PropsRef = {
   onArtifactsChange?: (artifacts: AiTurnArtifact[]) => void
   onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
   onInitialRenderReady?: (sessionId: string) => void
+  onInitialRenderError?: (sessionId: string, error: unknown) => void
   onModelSelect?: () => void
   agentAccessMode: AgentAccessMode
   planMode: boolean
@@ -194,6 +196,7 @@ export function ChatPanelHost({
   onArtifactsChange,
   onContextUsageDisplayChange,
   onInitialRenderReady,
+  onInitialRenderError,
   restoredDraft,
   onRestoredDraftConsumed,
   disableFork = false,
@@ -315,6 +318,7 @@ export function ChatPanelHost({
     onArtifactsChange,
     onContextUsageDisplayChange,
     onInitialRenderReady,
+    onInitialRenderError,
     onModelSelect,
     agentAccessMode,
     planMode,
@@ -348,6 +352,7 @@ export function ChatPanelHost({
       onArtifactsChange,
       onContextUsageDisplayChange,
       onInitialRenderReady,
+      onInitialRenderError,
       onModelSelect,
       agentAccessMode,
       planMode,
@@ -992,6 +997,10 @@ export function ChatPanelHost({
         })
       }
       void (agentInterface?.updateComplete ?? Promise.resolve()).then(notifyInitialRenderReady, notifyInitialRenderReady)
+    }, (error: unknown) => {
+      if (disposed) return
+      logger.error('Failed to initialize chat panel:', error)
+      propsRef.current.onInitialRenderError?.(sessionId, error)
     })
 
     hostRef.current.replaceChildren(panel)

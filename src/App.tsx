@@ -9,7 +9,6 @@ import {
   GitBranch,
   Info,
   LogOut,
-  Loader2,
   Menu,
   PanelRight,
   Pencil,
@@ -110,7 +109,6 @@ const MAX_AUTO_PREVIEW_SEEN_SIGNATURES = 200
 const QUICKFORGE_RELEASES_URL = 'https://github.com/shawnstack/quickforge/releases/latest'
 const STARTUP_SPLASH_MIN_DURATION_MS = 1350
 const STARTUP_SPLASH_EXIT_DURATION_MS = 280
-const SESSION_LOADING_LONG_THRESHOLD_MS = 2500
 const CONVERSATION_TRANSITION_DURATION_MS = 280
 
 function readSeenAutoPreviewSignatures() {
@@ -170,6 +168,27 @@ function StartupSplash({ exiting = false }: { exiting?: boolean }) {
         <path className="quickforge-startup-splash-bolt-highlight" d="M37.2 13 L22 34 L30.6 34 L33.8 26 Z" fill="#e5e7eb" />
       </svg>
       <span className="sr-only">{label}</span>
+    </div>
+  )
+}
+
+function ConversationLoadingScreen({ exiting = false }: { exiting?: boolean }) {
+  const label = t('loadingConversation')
+
+  return (
+    <div className={cn('quickforge-conversation-loading', exiting && 'quickforge-conversation-loading-exit')} role="status" aria-live="polite" aria-label={label}>
+      <div className="quickforge-conversation-loading-status" aria-hidden="true">
+        <span>{label}</span>
+        <span className="quickforge-conversation-loading-dots">
+          <span>•</span>
+          <span>•</span>
+          <span>•</span>
+        </span>
+      </div>
+      <div className="quickforge-conversation-loading-track" aria-hidden="true">
+        <div className="quickforge-conversation-loading-runner" />
+      </div>
+      <span className="quickforge-conversation-loading-helper" aria-hidden="true">{t('loadingConversationPreparing')}</span>
     </div>
   )
 }
@@ -305,6 +324,8 @@ function MainApp() {
   const terminalCommandIdRef = useRef(0)
   const workspaceInspectorRequestIdRef = useRef(0)
   const chatFileRequestIdRef = useRef(0)
+  const sessionTransitionTokenRef = useRef(0)
+  const pendingSessionLoadCancelRef = useRef<(() => void) | undefined>(undefined)
   const recoveringDeletedToolProjectIdRef = useRef<string | undefined>(undefined)
   const [storage, setStorage] = useState<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
   const [startupSplashDone, setStartupSplashDone] = useState(false)
@@ -312,7 +333,6 @@ function MainApp() {
   const [visibleLoadingSessionId, setVisibleLoadingSessionId] = useState<string>()
   const visibleLoadingSessionIdRef = useRef<string | undefined>(undefined)
   const [renderedLoadingSessionId, setRenderedLoadingSessionId] = useState<string>()
-  const [sessionLoadingLong, setSessionLoadingLong] = useState(false)
   const { toasts, handleTaskComplete: addTaskCompletionToast, addToast, dismissToast } = useTaskToasts()
   const handleTaskComplete = useCallback((sessionId: string, title: string, status: BackgroundTaskStatus) => {
     addTaskCompletionToast(sessionId, title, status)
@@ -427,12 +447,15 @@ function MainApp() {
 
   useEffect(() => {
     const loadingSessionId = agentManager.loadingSessionId
-    if (!loadingSessionId) return undefined
+    if (!loadingSessionId || visibleLoadingSessionIdRef.current === loadingSessionId) return undefined
     const timer = window.setTimeout(() => {
+      if (visibleLoadingSessionIdRef.current === loadingSessionId) return
+      pendingSessionLoadCancelRef.current?.()
+      pendingSessionLoadCancelRef.current = undefined
+      sessionTransitionTokenRef.current += 1
       setRenderedLoadingSessionId(undefined)
       visibleLoadingSessionIdRef.current = loadingSessionId
       setVisibleLoadingSessionId(loadingSessionId)
-      setSessionLoadingLong(false)
     }, 0)
     return () => window.clearTimeout(timer)
   }, [agentManager.loadingSessionId])
@@ -448,12 +471,6 @@ function MainApp() {
     }, CONVERSATION_TRANSITION_DURATION_MS)
     return () => window.clearTimeout(fadeTimer)
   }, [agentManager.loadingSessionId, renderedLoadingSessionId, visibleLoadingSessionId])
-
-  useEffect(() => {
-    if (!visibleLoadingSessionId) return undefined
-    const timer = window.setTimeout(() => setSessionLoadingLong(true), SESSION_LOADING_LONG_THRESHOLD_MS)
-    return () => window.clearTimeout(timer)
-  }, [visibleLoadingSessionId])
 
   // Destructure stable values for use in dependency arrays
   const {
@@ -479,15 +496,23 @@ function MainApp() {
   }, [agentManager.currentToolProject?.id])
 
   const beginSessionTransition = useCallback((sessionId: string) => {
-    if (!sessionId || sessionId === currentSessionIdRef.current) return
+    if (!sessionId || sessionId === currentSessionIdRef.current) return undefined
+    pendingSessionLoadCancelRef.current?.()
+    pendingSessionLoadCancelRef.current = undefined
+    const token = sessionTransitionTokenRef.current + 1
+    sessionTransitionTokenRef.current = token
     setRenderedLoadingSessionId(undefined)
     visibleLoadingSessionIdRef.current = sessionId
     setVisibleLoadingSessionId(sessionId)
-    setSessionLoadingLong(false)
+    return token
   }, [currentSessionIdRef])
 
-  const cancelSessionTransition = useCallback((sessionId: string) => {
+  const cancelSessionTransition = useCallback((sessionId: string, token?: number) => {
+    if (token !== undefined && sessionTransitionTokenRef.current !== token) return
     if (visibleLoadingSessionIdRef.current !== sessionId) return
+    pendingSessionLoadCancelRef.current?.()
+    pendingSessionLoadCancelRef.current = undefined
+    sessionTransitionTokenRef.current += 1
     visibleLoadingSessionIdRef.current = undefined
     setRenderedLoadingSessionId(undefined)
     setVisibleLoadingSessionId(undefined)
@@ -495,20 +520,48 @@ function MainApp() {
 
   const handleSessionInitialRenderReady = useCallback((sessionId: string) => {
     if (visibleLoadingSessionIdRef.current !== sessionId) return
+    pendingSessionLoadCancelRef.current = undefined
     setRenderedLoadingSessionId(sessionId)
+  }, [])
+
+  const handleSessionInitialRenderError = useCallback((sessionId: string, error: unknown) => {
+    logger.error('Failed to render conversation:', error)
+    cancelSessionTransition(sessionId)
+    addToast({
+      sessionId,
+      title: t('conversationLoadFailed'),
+      status: 'error',
+    })
+  }, [addToast, cancelSessionTransition])
+
+  const scheduleSessionLoad = useCallback((sessionId: string, load: () => Promise<boolean>) => {
+    const token = beginSessionTransition(sessionId)
+    if (token === undefined) {
+      pendingSessionLoadCancelRef.current?.()
+      pendingSessionLoadCancelRef.current = undefined
+      sessionTransitionTokenRef.current += 1
+      void load()
+      return
+    }
+    pendingSessionLoadCancelRef.current = scheduleAfterPaint(() => {
+      pendingSessionLoadCancelRef.current = undefined
+      if (sessionTransitionTokenRef.current !== token || visibleLoadingSessionIdRef.current !== sessionId) return
+      void load().then((loaded) => {
+        if (!loaded) cancelSessionTransition(sessionId, token)
+      })
+    })
+  }, [beginSessionTransition, cancelSessionTransition])
+
+  useEffect(() => () => {
+    pendingSessionLoadCancelRef.current?.()
   }, [])
 
   const handleToastClick = useCallback(
     (sessionId: string) => {
       if (!sessionId) return
-      beginSessionTransition(sessionId)
-      scheduleAfterPaint(() => {
-        void loadAgentSession(sessionId).then((loaded) => {
-          if (!loaded) cancelSessionTransition(sessionId)
-        })
-      })
+      scheduleSessionLoad(sessionId, () => loadAgentSession(sessionId))
     },
-    [beginSessionTransition, cancelSessionTransition, loadAgentSession],
+    [loadAgentSession, scheduleSessionLoad],
   )
 
   useEffect(() => {
@@ -973,17 +1026,8 @@ function MainApp() {
   })
 
   const loadSessionWithTransition = useCallback((sessionId: string) => {
-    if (!sessionId || sessionId === currentSessionIdRef.current) {
-      loadSession(sessionId)
-      return
-    }
-    beginSessionTransition(sessionId)
-    scheduleAfterPaint(() => {
-      void loadSession(sessionId).then((loaded) => {
-        if (!loaded) cancelSessionTransition(sessionId)
-      })
-    })
-  }, [beginSessionTransition, cancelSessionTransition, currentSessionIdRef, loadSession])
+    scheduleSessionLoad(sessionId, () => loadSession(sessionId))
+  }, [loadSession, scheduleSessionLoad])
 
   const openSettingsPage = useCallback((initialTab: typeof ui.settingsInitialTab, customProvider?: string) => {
     ui.setSettingsInitialTab(initialTab)
@@ -1809,25 +1853,10 @@ function MainApp() {
 
         <section className="relative flex min-h-0 flex-1 flex-col">
           {visibleLoadingSessionId ? (
-            <div
-              className={cn(
-                'quickforge-session-loading-overlay',
-                renderedLoadingSessionId === visibleLoadingSessionId && 'quickforge-session-loading-overlay-exit',
-              )}
-              role="status"
-              aria-live="polite"
-              aria-label={t(sessionLoadingLong ? 'loadingConversationLong' : 'loadingConversation')}
-            >
-              <div className="quickforge-session-loading-indicator">
-                <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                <span key={sessionLoadingLong ? 'long' : 'short'} className="quickforge-session-loading-text">
-                  {t(sessionLoadingLong ? 'loadingConversationLong' : 'loadingConversation')}
-                </span>
-              </div>
-              <div className="quickforge-session-loading-progress" aria-hidden="true">
-                <div className="quickforge-session-loading-progress-bar" />
-              </div>
-            </div>
+            <ConversationLoadingScreen
+              key={visibleLoadingSessionId}
+              exiting={renderedLoadingSessionId === visibleLoadingSessionId}
+            />
           ) : null}
           {needsModelSetup ? (
             <ModelSetupEmptyState
@@ -1894,6 +1923,7 @@ function MainApp() {
                       }}
                       onContextUsageDisplayChange={handleContextUsageDisplayChange}
                       onInitialRenderReady={handleSessionInitialRenderReady}
+                      onInitialRenderError={handleSessionInitialRenderError}
                       disableFork={false}
                       restoredDraft={restoredDraft}
                       onRestoredDraftConsumed={consumeRestoredDraft}

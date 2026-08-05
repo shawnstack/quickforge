@@ -16,14 +16,19 @@
  *
  * A "turn" is one user message plus everything that follows it up to (not
  * including) the next user message — the assistant reply and any tool calls /
- * results in between. Conversations with at most `enableTurns` turns bypass
- * windowing entirely, so existing behavior is untouched for the common case.
+ * results in between. Small conversations bypass windowing; it is enabled when
+ * the history exceeds the turn, message-count, or approximate content-size
+ * thresholds below.
  */
 
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 
 /** Conversations with at most this many turns render exactly as before. */
 export const WINDOW_ENABLE_TURNS = 6
+/** Message-heavy conversations window even when they contain few user turns. */
+export const WINDOW_ENABLE_MESSAGES = 48
+/** Approximate content characters before a short-turn conversation is windowed. */
+export const WINDOW_ENABLE_CONTENT_CHARS = 80_000
 /** How many recent turns are rendered by default. */
 export const WINDOW_TURNS = 3
 /** How many older turns are loaded each time the user scrolls to the top. */
@@ -31,6 +36,8 @@ export const WINDOW_PAGE_TURNS = 3
 
 type MessageWindowOptions = {
   enableTurns?: number
+  enableMessages?: number
+  enableContentChars?: number
   windowTurns?: number
   pageTurns?: number
 }
@@ -69,6 +76,38 @@ function collectTurnStarts(messages: AgentMessage[]): number[] {
     if (isUserTurn(messages[i])) starts.push(i)
   }
   return starts
+}
+
+function approximateContentChars(value: unknown, limit: number): number {
+  if (typeof value === 'string') return Math.min(value.length, limit)
+  if (!Array.isArray(value)) return 0
+
+  let chars = 0
+  for (const chunk of value) {
+    if (chars >= limit) break
+    if (typeof chunk === 'string') {
+      chars += Math.min(chunk.length, limit - chars)
+      continue
+    }
+    if (!chunk || typeof chunk !== 'object') continue
+    const record = chunk as Record<string, unknown>
+    for (const field of ['text', 'content', 'arguments']) {
+      const fieldValue = record[field]
+      if (typeof fieldValue !== 'string') continue
+      chars += Math.min(fieldValue.length, limit - chars)
+      if (chars >= limit) break
+    }
+  }
+  return chars
+}
+
+function exceedsContentThreshold(messages: AgentMessage[], threshold: number): boolean {
+  let chars = 0
+  for (const message of messages) {
+    chars += approximateContentChars((message as { content?: unknown }).content, threshold - chars)
+    if (chars >= threshold) return true
+  }
+  return false
 }
 
 function collectToolCallIds(message: AgentMessage, into: Set<string>) {
@@ -110,18 +149,21 @@ function buildWindow(messages: AgentMessage[], start: number, end: number): Agen
 
 export function createMessageWindow(options: MessageWindowOptions = {}): MessageWindowController {
   const enableTurns = options.enableTurns ?? WINDOW_ENABLE_TURNS
+  const enableMessages = options.enableMessages ?? WINDOW_ENABLE_MESSAGES
+  const enableContentChars = options.enableContentChars ?? WINDOW_ENABLE_CONTENT_CHARS
   const windowTurns = options.windowTurns ?? WINDOW_TURNS
   const pageTurns = options.pageTurns ?? WINDOW_PAGE_TURNS
 
   let allMessages: AgentMessage[] = []
   let turnStarts: number[] = []
+  let activeWindowTurns = windowTurns
   let startOrdinal = 0
   let windowStart = 0
   let windowMessages: AgentMessage[] = []
   let pinned = false
   let enabled = false
 
-  const tailOrdinal = (turnCount: number) => Math.max(0, turnCount - windowTurns)
+  const tailOrdinal = (turnCount: number) => Math.max(0, turnCount - activeWindowTurns)
 
   const rebuild = () => {
     // Window covers exactly `windowTurns` turns, starting at the first turn
@@ -129,7 +171,7 @@ export function createMessageWindow(options: MessageWindowOptions = {}): Message
     // reaches all the way back to the first turn, include any leading
     // non-user messages (artifacts etc.) from index 0.
     const start = startOrdinal === 0 ? 0 : turnStarts[startOrdinal]
-    const endOrdinal = Math.min(turnStarts.length, startOrdinal + windowTurns)
+    const endOrdinal = Math.min(turnStarts.length, startOrdinal + activeWindowTurns)
     const end = endOrdinal < turnStarts.length ? turnStarts[endOrdinal] : allMessages.length
     windowStart = start
     windowMessages = buildWindow(allMessages, start, end)
@@ -140,7 +182,10 @@ export function createMessageWindow(options: MessageWindowOptions = {}): Message
       allMessages = messages
       turnStarts = collectTurnStarts(messages)
       const turnCount = turnStarts.length
-      enabled = turnCount > enableTurns
+      activeWindowTurns = Math.min(windowTurns, Math.max(1, turnCount - 1))
+      enabled = turnCount > 1 && (turnCount > enableTurns
+        || messages.length > enableMessages
+        || exceedsContentThreshold(messages, enableContentChars))
       if (!enabled) {
         startOrdinal = 0
         windowStart = 0
@@ -191,7 +236,7 @@ export function createMessageWindow(options: MessageWindowOptions = {}): Message
         targetOrdinal = ordinal
       }
 
-      const currentEndOrdinal = Math.min(turnStarts.length, startOrdinal + windowTurns)
+      const currentEndOrdinal = Math.min(turnStarts.length, startOrdinal + activeWindowTurns)
       if (targetOrdinal >= startOrdinal && targetOrdinal < currentEndOrdinal) return windowMessages
 
       pinned = true

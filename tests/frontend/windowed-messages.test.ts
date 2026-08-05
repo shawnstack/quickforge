@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   createMessageWindow,
   WINDOW_ENABLE_TURNS,
+  WINDOW_ENABLE_MESSAGES,
+  WINDOW_ENABLE_CONTENT_CHARS,
   WINDOW_TURNS,
   WINDOW_PAGE_TURNS,
 } from '../../src/components/chat/windowed-messages'
@@ -54,6 +56,35 @@ describe('message windowing (by turns)', () => {
     expect(window.isEnabled()).toBe(false)
     expect(window.getWindowMessages()).toBe(full)
     expect(window.hasMore()).toBe(false)
+  })
+
+  it('windows message-heavy conversations with only a few user turns', () => {
+    const window = createMessageWindow()
+    const full = turns(4, { withToolCalls: true })
+    while (full.length <= WINDOW_ENABLE_MESSAGES) {
+      full.splice(full.length - 1, 0, toolResultMessage(`extra-${full.length}`))
+    }
+
+    const rendered = window.setFullMessages(full)
+
+    expect(window.isEnabled()).toBe(true)
+    expect(rendered.length).toBeLessThan(full.length)
+    expect(window.getWindowStart()).toBeGreaterThan(0)
+  })
+
+  it('windows content-heavy conversations below the turn and message thresholds', () => {
+    const window = createMessageWindow()
+    const full = turns(4)
+    full[1] = {
+      ...full[1],
+      content: [{ type: 'text', text: 'x'.repeat(WINDOW_ENABLE_CONTENT_CHARS) }],
+    }
+
+    const rendered = window.setFullMessages(full)
+
+    expect(full.length).toBeLessThanOrEqual(WINDOW_ENABLE_MESSAGES)
+    expect(window.isEnabled()).toBe(true)
+    expect(rendered.length).toBeLessThan(full.length)
   })
 
   it('renders only the most recent turns for long conversations', () => {

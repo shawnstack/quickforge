@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { ArrowRight, Check, Pencil, Server, Trash2, X } from 'lucide-react'
+import { ArrowRight, Check, ChevronRight, MoreHorizontal, Pencil, Plus, Server, ShieldCheck, Trash2, X } from 'lucide-react'
 import {
   buildMobileServerAppUrl,
   normalizeTailscaleServerUrl,
@@ -12,13 +12,15 @@ export function MobileServerConnectPage() {
   const initialSettings = useMemo(() => readMobileServerSettings(), [])
   const manualSelection = new URLSearchParams(window.location.search).get('connect') === '1'
   const [settings, setSettings] = useState<MobileServerSettings>(initialSettings)
+  const [showAddForm, setShowAddForm] = useState(initialSettings.urls.length === 0)
   const [serverUrl, setServerUrl] = useState('')
   const [aliasInput, setAliasInput] = useState('')
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
-  // Inline alias editing for an existing server row.
+  const [managingUrl, setManagingUrl] = useState<string | null>(null)
   const [editingUrl, setEditingUrl] = useState<string | null>(null)
   const [editingAlias, setEditingAlias] = useState('')
+  const [deletingUrl, setDeletingUrl] = useState<string | null>(null)
 
   useEffect(() => {
     if (!manualSelection && initialSettings.lastUsedUrl) {
@@ -26,9 +28,32 @@ export function MobileServerConnectPage() {
     }
   }, [initialSettings, manualSelection])
 
+  const normalizedPreview = useMemo(() => {
+    if (!serverUrl.trim()) return ''
+    try {
+      return normalizeTailscaleServerUrl(serverUrl)
+    } catch {
+      return ''
+    }
+  }, [serverUrl])
+
   const persistSettings = (nextSettings: MobileServerSettings) => {
     saveMobileServerSettings(nextSettings)
     setSettings(nextSettings)
+  }
+
+  const resetAddForm = () => {
+    setServerUrl('')
+    setAliasInput('')
+    setError('')
+  }
+
+  const openAddForm = () => {
+    resetAddForm()
+    setSaved(false)
+    setManagingUrl(null)
+    setEditingUrl(null)
+    setShowAddForm(true)
   }
 
   const addServer = (connectAfterSave: boolean) => {
@@ -44,12 +69,12 @@ export function MobileServerConnectPage() {
         lastUsedUrl: connectAfterSave ? normalized : settings.lastUsedUrl || normalized,
       }
       persistSettings(nextSettings)
-      setServerUrl('')
-      setAliasInput('')
-      setError('')
+      resetAddForm()
       setSaved(true)
       if (connectAfterSave) {
         window.location.assign(buildMobileServerAppUrl(normalized))
+      } else {
+        setShowAddForm(false)
       }
     } catch (saveError) {
       setSaved(false)
@@ -78,13 +103,17 @@ export function MobileServerConnectPage() {
       delete aliases[url]
       const lastUsedUrl = settings.lastUsedUrl === url ? urls[0] || '' : settings.lastUsedUrl
       persistSettings({ urls, aliases, lastUsedUrl })
+      setManagingUrl(null)
+      setDeletingUrl(null)
       if (editingUrl === url) {
         setEditingUrl(null)
         setEditingAlias('')
       }
+      if (urls.length === 0) setShowAddForm(true)
       setError('')
       setSaved(false)
     } catch (deleteError) {
+      setDeletingUrl(null)
       setError(deleteError instanceof Error ? deleteError.message : '无法删除服务器地址')
     }
   }
@@ -94,189 +123,293 @@ export function MobileServerConnectPage() {
     setEditingAlias(settings.aliases?.[url] ?? '')
   }
 
+  const cancelEditAlias = () => {
+    setEditingUrl(null)
+    setEditingAlias('')
+  }
+
   const saveAlias = (url: string) => {
     const alias = editingAlias.trim()
     const aliases = { ...(settings.aliases ?? {}) }
     if (alias) aliases[url] = alias
     else delete aliases[url]
     persistSettings({ ...settings, aliases })
-    setEditingUrl(null)
-    setEditingAlias('')
+    cancelEditAlias()
+    setManagingUrl(null)
   }
 
-  return (
-    <main className="flex min-h-dvh items-center justify-center bg-background px-5 py-8 text-foreground">
-      <section className="w-full max-w-md">
-        <div className="mb-8 flex items-center gap-3">
-          <div className="flex size-11 items-center justify-center rounded-xl border border-border bg-background shadow-quickforge">
-            <Server className="size-5 text-foreground/80" aria-hidden="true" />
-          </div>
-          <h1 className="text-lg font-semibold tracking-tight">服务器设置</h1>
-        </div>
+  const deletingLabel = deletingUrl
+    ? settings.aliases?.[deletingUrl]?.trim() || deletingUrl
+    : ''
 
-        <form className="rounded-2xl border border-border bg-background p-5 shadow-quickforge" onSubmit={connect}>
-          <label className="block text-sm font-medium" htmlFor="quickforge-mobile-server">
-            服务器地址
-          </label>
-          <input
-            id="quickforge-mobile-server"
-            autoCapitalize="none"
-            autoCorrect="off"
-            inputMode="url"
-            spellCheck={false}
-            value={serverUrl}
-            onChange={(event) => {
-              setServerUrl(event.target.value)
-              setError('')
-              setSaved(false)
-            }}
-            placeholder="http://服务器地址:5176"
-            className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/60 focus:border-foreground/30 focus:shadow-quickforge"
-          />
-          <label className="mt-4 block text-sm font-medium" htmlFor="quickforge-mobile-server-alias">
-            别名（可选）
-          </label>
-          <input
-            id="quickforge-mobile-server-alias"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            value={aliasInput}
-            onChange={(event) => {
-              setAliasInput(event.target.value)
-              setError('')
-              setSaved(false)
-            }}
-            placeholder="例如：公司开发机"
-            className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/60 focus:border-foreground/30 focus:shadow-quickforge"
-          />
-          <p className="mt-2 text-xs text-muted-foreground">不填写时，列表将直接显示服务器地址。</p>
-          {error ? <p className="mt-3 text-sm text-destructive" role="alert">{error}</p> : null}
-          {saved && !error ? (
-            <p className="mt-3 flex items-center gap-1.5 text-sm text-muted-foreground" role="status">
-              <Check className="size-4" aria-hidden="true" />
-              已保存
-            </p>
-          ) : null}
-          <div className="mt-5 grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              className="inline-flex h-11 items-center justify-center rounded-xl border border-border bg-background px-4 text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/45 active:bg-muted/65"
-              onClick={() => addServer(false)}
-            >
-              保存
-            </button>
-            <button
-              type="submit"
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-92 active:opacity-85"
-            >
-              保存并连接
-              <ArrowRight className="size-4" aria-hidden="true" />
-            </button>
+  return (
+    <main className="min-h-dvh bg-background px-5 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[max(2rem,env(safe-area-inset-top))] text-foreground">
+      <section className="mx-auto w-full max-w-md">
+        <header className="mb-8 flex items-start gap-3.5">
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-border bg-background shadow-quickforge">
+            <Server className="size-5 text-foreground/75" aria-hidden="true" />
           </div>
-        </form>
+          <div className="min-w-0 pt-0.5">
+            <h1 className="text-lg font-semibold tracking-tight">连接 QuickForge</h1>
+            <p className="mt-1 text-sm leading-5 text-muted-foreground">选择一台已保存的服务器，或添加新的 Tailscale 地址。</p>
+          </div>
+        </header>
 
         {settings.urls.length > 0 ? (
-          <div className="mt-5 overflow-hidden rounded-2xl border border-border bg-background">
-            {settings.urls.map((url) => {
-              const active = url === settings.lastUsedUrl
-              const alias = settings.aliases?.[url]?.trim()
-              const isEditing = editingUrl === url
-              return (
-                <div
-                  key={url}
-                  className="flex items-center gap-2 border-b border-[color-mix(in_oklab,var(--border)_38%,transparent)] p-2 last:border-b-0"
-                >
-                  {isEditing ? (
-                    <div className="flex min-w-0 flex-1 items-center gap-2">
-                      <input
-                        autoFocus
-                        autoCapitalize="none"
-                        autoCorrect="off"
-                        spellCheck={false}
-                        value={editingAlias}
-                        onChange={(event) => setEditingAlias(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') saveAlias(url)
-                          if (event.key === 'Escape') {
-                            setEditingUrl(null)
-                            setEditingAlias('')
-                          }
-                        }}
-                        placeholder="输入别名，如：公司开发机"
-                        aria-label={`${alias || url} 的别名`}
-                        className="h-10 w-full min-w-0 flex-1 rounded-xl border border-input bg-background px-3 text-sm outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/60 focus:border-foreground/30 focus:shadow-quickforge"
-                      />
+          <section aria-labelledby="quickforge-mobile-saved-servers">
+            <div className="mb-2.5 flex items-center justify-between px-1">
+              <h2 id="quickforge-mobile-saved-servers" className="text-xs font-medium text-muted-foreground">已保存的服务器</h2>
+              <span className="text-xs text-muted-foreground/70">{settings.urls.length} 台</span>
+            </div>
+
+            <div className="overflow-hidden rounded-2xl border border-border bg-background">
+              {settings.urls.map((url) => {
+                const active = url === settings.lastUsedUrl
+                const alias = settings.aliases?.[url]?.trim()
+                const isManaging = managingUrl === url
+                const isEditing = editingUrl === url
+                return (
+                  <div key={url} className="border-b border-border last:border-b-0">
+                    <div className="flex min-h-[68px] items-stretch gap-1 p-1.5">
                       <button
                         type="button"
-                        className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-opacity hover:opacity-92 active:opacity-85"
-                        onClick={() => saveAlias(url)}
-                        aria-label="保存别名"
-                        title="保存别名"
-                      >
-                        <Check className="size-4" aria-hidden="true" />
-                      </button>
-                      <button
-                        type="button"
-                        className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground"
-                        onClick={() => {
-                          setEditingUrl(null)
-                          setEditingAlias('')
-                        }}
-                        aria-label="取消"
-                        title="取消"
-                      >
-                        <X className="size-4" aria-hidden="true" />
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-2 py-2.5 text-left text-sm transition-colors hover:bg-muted/45"
+                        className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-muted/45 active:bg-muted/65"
                         onClick={() => connectServer(url)}
-                        title={url}
+                        title={`连接 ${alias || url}`}
                       >
-                        <span className="inline-flex size-5 shrink-0 items-center justify-center">
-                          {active ? <Check className="size-4 text-foreground/65" aria-hidden="true" /> : null}
+                        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-muted/45 text-muted-foreground">
+                          <Server className="size-4" aria-hidden="true" />
                         </span>
                         <span className="min-w-0 flex-1">
-                          {alias ? (
-                            <>
-                              <span className="block truncate text-sm font-medium text-foreground">{alias}</span>
-                              <span className="mt-0.5 block break-all font-mono text-xs text-muted-foreground">{url}</span>
-                            </>
-                          ) : (
-                            <span className="block break-all font-mono text-sm text-foreground/80">{url}</span>
-                          )}
+                          <span className="flex items-center gap-2">
+                            <span className="truncate text-sm font-medium text-foreground">{alias || 'QuickForge 服务器'}</span>
+                            {active ? (
+                              <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">上次使用</span>
+                            ) : null}
+                          </span>
+                          <span className="mt-1 block truncate font-mono text-xs text-muted-foreground">{url}</span>
                         </span>
+                        <ChevronRight className="size-4 shrink-0 text-muted-foreground/65" aria-hidden="true" />
                       </button>
                       <button
                         type="button"
-                        className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground"
-                        onClick={() => startEditAlias(url)}
-                        aria-label={`编辑 ${alias || url} 的别名`}
-                        title="编辑别名"
+                        className="inline-flex w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground active:bg-muted/65"
+                        onClick={() => {
+                          setManagingUrl(isManaging ? null : url)
+                          if (isManaging) cancelEditAlias()
+                        }}
+                        aria-label={`管理 ${alias || url}`}
+                        title="管理服务器"
+                        aria-expanded={isManaging}
                       >
-                        <Pencil className="size-4" aria-hidden="true" />
+                        {isManaging ? <X className="size-4" aria-hidden="true" /> : <MoreHorizontal className="size-5" aria-hidden="true" />}
                       </button>
-                      <button
-                        type="button"
-                        className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground"
-                        onClick={() => deleteServer(url)}
-                        aria-label={`删除 ${alias || url}`}
-                        title={`删除 ${alias || url}`}
-                      >
-                        <Trash2 className="size-4" aria-hidden="true" />
-                      </button>
-                    </>
-                  )}
-                </div>
-              )
-            })}
-          </div>
+                    </div>
+
+                    {isManaging ? (
+                      <div className="border-t border-border bg-muted/30 px-3 py-3">
+                        {isEditing ? (
+                          <div>
+                            <label className="block text-xs font-medium text-muted-foreground" htmlFor={`quickforge-mobile-alias-${url}`}>
+                              服务器别名
+                            </label>
+                            <input
+                              id={`quickforge-mobile-alias-${url}`}
+                              autoFocus
+                              autoCapitalize="none"
+                              autoCorrect="off"
+                              spellCheck={false}
+                              value={editingAlias}
+                              onChange={(event) => setEditingAlias(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') saveAlias(url)
+                                if (event.key === 'Escape') cancelEditAlias()
+                              }}
+                              placeholder="例如：公司开发机"
+                              className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/60 focus:border-foreground/30 focus:shadow-quickforge"
+                            />
+                            <div className="mt-2.5 flex justify-end gap-2">
+                              <button
+                                type="button"
+                                className="inline-flex h-9 items-center justify-center rounded-xl px-3 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                                onClick={cancelEditAlias}
+                              >
+                                取消
+                              </button>
+                              <button
+                                type="button"
+                                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-primary px-3.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-92 active:opacity-85"
+                                onClick={() => saveAlias(url)}
+                              >
+                                <Check className="size-4" aria-hidden="true" />
+                                保存
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl text-sm text-foreground/80 transition-colors hover:bg-muted/60"
+                              onClick={() => startEditAlias(url)}
+                            >
+                              <Pencil className="size-4 text-muted-foreground" aria-hidden="true" />
+                              编辑别名
+                            </button>
+                            <button
+                              type="button"
+                              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl text-sm text-foreground/80 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                              onClick={() => setDeletingUrl(url)}
+                            >
+                              <Trash2 className="size-4 text-muted-foreground" aria-hidden="true" />
+                              删除服务器
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
+
+            {!showAddForm ? (
+              <button
+                type="button"
+                className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/45 active:bg-muted/65"
+                onClick={openAddForm}
+              >
+                <Plus className="size-4" aria-hidden="true" />
+                添加服务器
+              </button>
+            ) : null}
+
+            {saved && !showAddForm ? (
+              <p className="mt-2 flex items-center justify-center gap-1.5 text-sm text-muted-foreground" role="status">
+                <Check className="size-4" aria-hidden="true" />
+                服务器已保存
+              </p>
+            ) : null}
+          </section>
+        ) : null}
+
+        {showAddForm ? (
+          <section className={settings.urls.length > 0 ? 'mt-7' : ''} aria-labelledby="quickforge-mobile-add-server">
+            <div className="mb-2.5 flex items-center justify-between px-1">
+              <h2 id="quickforge-mobile-add-server" className="text-xs font-medium text-muted-foreground">
+                {settings.urls.length > 0 ? '添加服务器' : '添加第一台服务器'}
+              </h2>
+              {settings.urls.length > 0 ? (
+                <button
+                  type="button"
+                  className="rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground"
+                  onClick={() => {
+                    resetAddForm()
+                    setShowAddForm(false)
+                  }}
+                >
+                  收起
+                </button>
+              ) : null}
+            </div>
+
+            <form className="rounded-2xl border border-border bg-background p-5 shadow-quickforge" onSubmit={connect}>
+              <div className="mb-5 flex gap-2.5 rounded-xl bg-muted/30 px-3 py-2.5 text-xs leading-5 text-muted-foreground">
+                <ShieldCheck className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                <p>仅支持 Tailnet 内的 <span className="font-mono text-foreground/75">.ts.net</span> 或 <span className="font-mono text-foreground/75">100.64.0.0/10</span> 地址，未填写端口时默认使用 5176。</p>
+              </div>
+
+              <label className="block text-sm font-medium" htmlFor="quickforge-mobile-server">
+                服务器地址
+              </label>
+              <input
+                id="quickforge-mobile-server"
+                autoCapitalize="none"
+                autoCorrect="off"
+                inputMode="url"
+                spellCheck={false}
+                value={serverUrl}
+                onChange={(event) => {
+                  setServerUrl(event.target.value)
+                  setError('')
+                  setSaved(false)
+                }}
+                placeholder="devbox.example.ts.net"
+                className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/60 focus:border-foreground/30 focus:shadow-quickforge"
+              />
+              {normalizedPreview ? (
+                <p className="mt-2 break-all text-xs text-muted-foreground">
+                  将连接到 <span className="font-mono text-foreground/70">{normalizedPreview}</span>
+                </p>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">请确保手机与服务器已登录同一个 Tailnet。</p>
+              )}
+
+              <label className="mt-5 block text-sm font-medium" htmlFor="quickforge-mobile-server-alias">
+                服务器别名 <span className="font-normal text-muted-foreground">（可选）</span>
+              </label>
+              <input
+                id="quickforge-mobile-server-alias"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                value={aliasInput}
+                onChange={(event) => {
+                  setAliasInput(event.target.value)
+                  setError('')
+                  setSaved(false)
+                }}
+                placeholder="例如：公司开发机"
+                className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/60 focus:border-foreground/30 focus:shadow-quickforge"
+              />
+
+              {error ? <p className="mt-3 text-sm text-destructive" role="alert">{error}</p> : null}
+
+              <button
+                type="submit"
+                className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-92 active:opacity-85"
+              >
+                保存并连接
+                <ArrowRight className="size-4" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="mt-2 inline-flex h-10 w-full items-center justify-center rounded-xl text-sm text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground active:bg-muted/65"
+                onClick={() => addServer(false)}
+              >
+                仅保存，稍后连接
+              </button>
+            </form>
+          </section>
         ) : null}
       </section>
+
+      {deletingUrl ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/35 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center" role="presentation">
+          <section className="w-full max-w-sm rounded-2xl border border-border bg-background p-5 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="quickforge-mobile-delete-title">
+            <h2 id="quickforge-mobile-delete-title" className="text-base font-semibold">删除这台服务器？</h2>
+            <p className="mt-2 break-all text-sm leading-6 text-muted-foreground">
+              “{deletingLabel}”将从已保存列表中移除，之后仍可重新添加。
+            </p>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                className="inline-flex h-11 items-center justify-center rounded-xl border border-border text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/45"
+                onClick={() => setDeletingUrl(null)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-destructive text-sm font-medium text-destructive-foreground transition-opacity hover:opacity-92 active:opacity-85"
+                onClick={() => deleteServer(deletingUrl)}
+              >
+                删除
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   )
 }

@@ -443,6 +443,7 @@ function MainApp() {
     sessions: allLoadedSessions,
     refreshSessions,
     updateSessionTitle,
+    loadCloudModels: cloudModels.loadCloudModels,
     onTaskComplete: handleTaskComplete,
   })
 

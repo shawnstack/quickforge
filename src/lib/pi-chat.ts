@@ -12,10 +12,12 @@ import {
 } from '@earendil-works/pi-web-ui'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { clearModelListCache } from '@/lib/model-list-cache'
-import { mergeModelGroups, sameAvailableModel } from '@/lib/model-aggregation'
+import { mergeModelGroups } from '@/lib/model-aggregation'
 import { filterSelectableModels } from '@/lib/model-visibility'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
+import { chooseNewSessionModel, chooseStartupModel } from '@/lib/startup-model'
+import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import type { AgentAccessMode } from '@/lib/types'
 import { agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
 
@@ -25,6 +27,8 @@ const AGENT_ACCESS_MODE_PROJECT_PREFIX = 'agent-access-mode-project:'
 const YOLO_MODE_SETTING_KEY = 'yolo-mode'
 const YOLO_MODE_PROJECT_PREFIX = 'yolo-mode-project:'
 const DEFAULT_OPTIONS_SETTING_KEY = 'default-options'
+
+export { isModelSelectable } from '@/lib/model-visibility'
 
 export type ConfiguredModel<TApi extends Api = Api> = Model<TApi> & {
   /** QuickForge-only visibility flag. Missing values remain visible for backward compatibility. */
@@ -273,10 +277,6 @@ function sameBaseUrl(a?: string, b?: string) {
   return (a ?? '').trim().replace(/\/$/, '') === (b ?? '').trim().replace(/\/$/, '')
 }
 
-function sameConfiguredModel(a: Model<Api>, b: Model<Api>) {
-  return sameAvailableModel(a, b)
-}
-
 function isUsableModel(model: unknown): model is Model<Api> {
   const candidate = model as Partial<Model<Api>> | undefined
   return Boolean(candidate?.id && candidate.provider && candidate.api && candidate.baseUrl)
@@ -310,17 +310,13 @@ export function mergeAvailableModels(...groups: ReadonlyArray<ReadonlyArray<Mode
 export async function loadInitialConfiguredModel(
   storage: AppStorage,
   additionalModels: Model<Api>[] = [],
+  preferredModel?: Model<Api>,
 ): Promise<Model<Api> | null> {
-  const configuredModels = mergeAvailableModels(await getConfiguredModels(storage), additionalModels)
+  const configuredModels = mergeAvailableModels(await getSelectableConfiguredModels(storage), additionalModels)
   if (configuredModels.length === 0) return null
 
   const savedModel = await loadActiveModel(storage)
-  if (savedModel) {
-    const matched = configuredModels.find((model) => sameConfiguredModel(model, savedModel))
-    if (matched) return matched
-  }
-
-  return configuredModels[0]
+  return chooseStartupModel(configuredModels, preferredModel, savedModel)
 }
 
 function findConfiguredModel(storage: AppStorage, model: Model<Api>) {
@@ -360,6 +356,29 @@ export async function resolveConfiguredModel(storage: AppStorage, model: Model<A
   }
 
   return normalizeModelForProvider(model)
+}
+
+export async function resolveNewSessionModel(
+  storage: AppStorage | null,
+  model: Model<Api>,
+  loadCloudModels: () => Promise<Model<Api>[]>,
+): Promise<Model<Api>> {
+  if (!isManagedQuickForgeCloudModel(model)) {
+    return storage ? resolveConfiguredModel(storage, model) : normalizeModelForProvider(model)
+  }
+
+  let cloudModels: Model<Api>[] = []
+  try {
+    cloudModels = await loadCloudModels()
+  } catch (error) {
+    logger.warn('Failed to load QuickForge Cloud models for new session:', error)
+  }
+
+  const configuredModels = storage ? await getSelectableConfiguredModels(storage) : []
+  const resolvedModel = chooseNewSessionModel(model, configuredModels, cloudModels)
+  if (resolvedModel) return resolvedModel
+
+  throw new Error('No available model can be used to create a new session.')
 }
 
 export async function saveAgentAccessMode(storage: AppStorage, mode: AgentAccessMode, projectId?: string) {

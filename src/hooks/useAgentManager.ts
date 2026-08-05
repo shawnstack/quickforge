@@ -7,8 +7,7 @@ import { DeferredSessionAgent } from '@/lib/deferred-session-agent'
 import {
   defaultThinkingLevelForModel,
   loadDefaultOptions,
-  normalizeModelForProvider,
-  resolveConfiguredModel,
+  resolveNewSessionModel,
 } from '@/lib/pi-chat'
 import {
   generateTitle,
@@ -39,6 +38,7 @@ export interface AgentManagerDeps {
   sessions: QuickForgeSessionMetadata[]
   refreshSessions: (opts?: { broadcast?: boolean }) => Promise<void>
   updateSessionTitle: (sessionId: string, title: string) => void
+  loadCloudModels: () => Promise<Model<Api>[]>
   onTaskComplete?: (sessionId: string, title: string, status: BackgroundTaskStatus) => void
 }
 
@@ -90,6 +90,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     switchActiveProject,
     refreshSessions,
     updateSessionTitle,
+    loadCloudModels,
   } = deps
 
   // --- Refs (stable) ---
@@ -222,9 +223,11 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       const storage = storageRef.current
       const defaultOptions = storage ? await loadDefaultOptions(storage) : {}
       const requestedOrDefaultModel = requestedModel ?? defaultOptions.model ?? activeModelRef.current
-      const resolvedModel = storage
-        ? await resolveConfiguredModel(storage, requestedOrDefaultModel as Model<Api>)
-        : normalizeModelForProvider(requestedOrDefaultModel as Model<Api>)
+      const resolvedModel = await resolveNewSessionModel(
+        storage,
+        requestedOrDefaultModel as Model<Api>,
+        loadCloudModels,
+      )
       const resolvedThinkingLevel = requestedThinkingLevel ?? defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(resolvedModel)
       activeModelRef.current = resolvedModel
       const resolvedAccessMode = normalizeAgentAccessMode(options?.accessMode, options?.yoloMode ?? agentAccessModeRef.current)
@@ -349,16 +352,18 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       }
       return nextAgent
     },
-    [attachTaskToView, disposeDetachedAgent, pruneIdleTasks, refreshSessions, syncSessionUI, updateSessionTitle, storageRef, activeModelRef, agentAccessModeRef, activeProjectRef, defaultWorkspaceRef, setAgentAccessMode],
+    [attachTaskToView, disposeDetachedAgent, pruneIdleTasks, refreshSessions, syncSessionUI, updateSessionTitle, loadCloudModels, storageRef, activeModelRef, agentAccessModeRef, activeProjectRef, defaultWorkspaceRef, setAgentAccessMode],
   )
 
   const startDeferredSession = useCallback(async (options: { scope: ChatScope; project?: ProjectInfo }) => {
     const storage = storageRef.current
     const defaultOptions = storage ? await loadDefaultOptions(storage) : {}
     const requestedOrDefaultModel = defaultOptions.model ?? activeModelRef.current
-    const resolvedModel = storage
-      ? await resolveConfiguredModel(storage, requestedOrDefaultModel as Model<Api>)
-      : normalizeModelForProvider(requestedOrDefaultModel as Model<Api>)
+    const resolvedModel = await resolveNewSessionModel(
+      storage,
+      requestedOrDefaultModel as Model<Api>,
+      loadCloudModels,
+    )
     const resolvedThinkingLevel = defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(resolvedModel)
     activeModelRef.current = resolvedModel
 
@@ -396,7 +401,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     url.searchParams.delete('session')
     window.history.replaceState({}, '', url)
     return deferredAgent
-  }, [activeModelRef, createAgent, defaultWorkspaceRef, disposeDetachedAgent, storageRef, agentAccessModeRef])
+  }, [activeModelRef, createAgent, defaultWorkspaceRef, disposeDetachedAgent, loadCloudModels, storageRef, agentAccessModeRef])
 
   // --- Load a persisted session ---
   const loadSession = useCallback(

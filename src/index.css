@@ -2726,15 +2726,15 @@ assistant-message :is(thinking-block, tool-message, markdown-block)[data-quickfo
   color: rgb(139 92 246);
 }
 
-.quickforge-capability-suggestion-item[data-quickforge-plugin-name="openai-documents"] .quickforge-capability-suggestion-icon {
+.quickforge-capability-suggestion-item[data-quickforge-plugin-name="documents"] .quickforge-capability-suggestion-icon {
   color: rgb(37 99 235);
 }
 
-.quickforge-capability-suggestion-item[data-quickforge-plugin-name="openai-spreadsheets"] .quickforge-capability-suggestion-icon {
+.quickforge-capability-suggestion-item[data-quickforge-plugin-name="spreadsheets"] .quickforge-capability-suggestion-icon {
   color: rgb(34 197 94);
 }
 
-.quickforge-capability-suggestion-item[data-quickforge-plugin-name="openai-presentations"] .quickforge-capability-suggestion-icon {
+.quickforge-capability-suggestion-item[data-quickforge-plugin-name="presentations"] .quickforge-capability-suggestion-icon {
   color: rgb(245 158 11);
 }
 
@@ -2868,15 +2868,15 @@ assistant-message :is(thinking-block, tool-message, markdown-block)[data-quickfo
   color: color-mix(in oklab, var(--foreground) 78%, transparent);
 }
 
-.quickforge-plus-popover-item[data-quickforge-plugin-name="openai-documents"] .quickforge-plus-popover-item-icon {
+.quickforge-plus-popover-item[data-quickforge-plugin-name="documents"] .quickforge-plus-popover-item-icon {
   color: rgb(37 99 235);
 }
 
-.quickforge-plus-popover-item[data-quickforge-plugin-name="openai-spreadsheets"] .quickforge-plus-popover-item-icon {
+.quickforge-plus-popover-item[data-quickforge-plugin-name="spreadsheets"] .quickforge-plus-popover-item-icon {
   color: rgb(34 197 94);
 }
 
-.quickforge-plus-popover-item[data-quickforge-plugin-name="openai-presentations"] .quickforge-plus-popover-item-icon {
+.quickforge-plus-popover-item[data-quickforge-plugin-name="presentations"] .quickforge-plus-popover-item-icon {
   color: rgb(245 158 11);
 }
 

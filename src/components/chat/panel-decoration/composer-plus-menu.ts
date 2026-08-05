@@ -26,14 +26,14 @@ export type ComposerPlusMenuDeps = {
 
 const builtinPluginChoices: Array<{
   mention: BuiltinPluginMention
-  nameKey: 'pluginOpenaiDocumentsName' | 'pluginOpenaiSpreadsheetsName' | 'pluginOpenaiPresentationsName'
-  descriptionKey: 'pluginOpenaiDocumentsDescription' | 'pluginOpenaiSpreadsheetsDescription' | 'pluginOpenaiPresentationsDescription'
+  nameKey: 'pluginDocumentsName' | 'pluginSpreadsheetsName' | 'pluginPresentationsName'
+  descriptionKey: 'pluginDocumentsDescription' | 'pluginSpreadsheetsDescription' | 'pluginPresentationsDescription'
   pluginName: string
   icon: string
 }> = [
-  { mention: 'Documents', nameKey: 'pluginOpenaiDocumentsName', descriptionKey: 'pluginOpenaiDocumentsDescription', pluginName: 'openai-documents', icon: documentPluginIcon },
-  { mention: 'Spreadsheets', nameKey: 'pluginOpenaiSpreadsheetsName', descriptionKey: 'pluginOpenaiSpreadsheetsDescription', pluginName: 'openai-spreadsheets', icon: spreadsheetPluginIcon },
-  { mention: 'Presentations', nameKey: 'pluginOpenaiPresentationsName', descriptionKey: 'pluginOpenaiPresentationsDescription', pluginName: 'openai-presentations', icon: presentationPluginIcon },
+  { mention: 'Documents', nameKey: 'pluginDocumentsName', descriptionKey: 'pluginDocumentsDescription', pluginName: 'documents', icon: documentPluginIcon },
+  { mention: 'Spreadsheets', nameKey: 'pluginSpreadsheetsName', descriptionKey: 'pluginSpreadsheetsDescription', pluginName: 'spreadsheets', icon: spreadsheetPluginIcon },
+  { mention: 'Presentations', nameKey: 'pluginPresentationsName', descriptionKey: 'pluginPresentationsDescription', pluginName: 'presentations', icon: presentationPluginIcon },
 ]
 
 export function removeComposerPlusPopover(panel: HTMLElement) {

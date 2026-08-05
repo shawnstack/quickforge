@@ -471,7 +471,7 @@ permissions
 
 待补：
 
-- openai documents/presentations/spreadsheets 作为内置插件包接入，第一阶段只启用 skills/commands。
+- documents / presentations / spreadsheets 作为内置插件包接入，第一阶段只启用 skills/commands。
 
 ### V1.5：Hooks + Policy
 
@@ -554,17 +554,17 @@ spreadsheets
 当前 QuickForge 已内置三个静态 Agent 能力插件包：
 
 ```txt
-plugins/openai-documents/
+plugins/documents/
   plugin.json
   skills/documents/SKILL.md
   commands/document.md
 
-plugins/openai-presentations/
+plugins/presentations/
   plugin.json
   skills/presentations/SKILL.md
   commands/presentation.md
 
-plugins/openai-spreadsheets/
+plugins/spreadsheets/
   plugin.json
   skills/spreadsheets/SKILL.md
   commands/spreadsheet.md

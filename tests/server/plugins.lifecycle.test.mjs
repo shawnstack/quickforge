@@ -142,6 +142,52 @@ afterEach(async () => {
 })
 
 describe('plugin lifecycle', () => {
+  it('uses prefix-free names for bundled plugins and migrates legacy settings', async () => {
+    await writePlugin('v1')
+    const storage = await import('../../server/storage.mjs')
+    await storage.writeStore('plugins', {
+      enabled: {
+        'openai-documents': false,
+        'openai-presentations': false,
+        presentations: true,
+      },
+      config: {
+        'openai-documents': { format: 'docx' },
+        'openai-spreadsheets': { locale: 'zh-CN' },
+        spreadsheets: { locale: 'en-US' },
+      },
+    })
+    const { registry } = await importModules()
+
+    const status = await registry.getPluginStatus({ workspaceRoot })
+    const bundledNames = status.plugins
+      .filter((plugin) => plugin.sourceRoot.endsWith(`${path.sep}plugins`))
+      .map((plugin) => plugin.name)
+
+    expect(bundledNames).toEqual(expect.arrayContaining(['documents', 'presentations', 'spreadsheets']))
+    expect(bundledNames).not.toEqual(expect.arrayContaining(['openai-documents', 'openai-presentations', 'openai-spreadsheets']))
+    expect(status.plugins.find((plugin) => plugin.name === 'documents')).toMatchObject({
+      enabled: false,
+      config: { format: 'docx' },
+    })
+    expect(status.plugins.find((plugin) => plugin.name === 'presentations')).toMatchObject({ enabled: true })
+    expect(status.plugins.find((plugin) => plugin.name === 'spreadsheets')).toMatchObject({
+      config: { locale: 'en-US' },
+    })
+
+    expect(await storage.readStore('plugins')).toEqual({
+      schemaVersion: 2,
+      enabled: {
+        documents: false,
+        presentations: true,
+      },
+      config: {
+        documents: { format: 'docx' },
+        spreadsheets: { locale: 'en-US' },
+      },
+    })
+  })
+
   it('does not recreate plugin instances for repeated status GET requests', async () => {
     await writePlugin('v1')
     const { routes } = await importModules()

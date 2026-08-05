@@ -16,6 +16,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const bundledPluginDir = path.resolve(__dirname, '..', '..', 'plugins')
 const globalPluginDir = path.join(dataDir, 'plugins')
 const legacyGlobalPluginDir = path.join(os.homedir(), '.agents', 'plugins')
+const PLUGIN_STORE_SCHEMA_VERSION = 2
+const LEGACY_BUNDLED_PLUGIN_NAMES = {
+  'openai-documents': 'documents',
+  'openai-presentations': 'presentations',
+  'openai-spreadsheets': 'spreadsheets',
+}
 export const DEFAULT_PLUGIN_TOOL_TIMEOUT_MS = 2 * 60 * 1000
 let cachedCatalog = null
 let cachedCatalogKey = null
@@ -108,13 +114,31 @@ async function listPluginDirs(root) {
 function normalizePluginStore(store) {
   const source = isPlainObject(store) ? store : {}
   return {
-    enabled: isPlainObject(source.enabled) ? source.enabled : {},
-    config: isPlainObject(source.config) ? source.config : {},
+    schemaVersion: Number.isInteger(source.schemaVersion) ? source.schemaVersion : 1,
+    enabled: isPlainObject(source.enabled) ? { ...source.enabled } : {},
+    config: isPlainObject(source.config) ? { ...source.config } : {},
   }
 }
 
+function migratePluginStore(store) {
+  const next = normalizePluginStore(store)
+  if (next.schemaVersion >= PLUGIN_STORE_SCHEMA_VERSION) return { store: next, changed: false }
+
+  for (const [legacyName, name] of Object.entries(LEGACY_BUNDLED_PLUGIN_NAMES)) {
+    if (!(name in next.enabled) && legacyName in next.enabled) next.enabled[name] = next.enabled[legacyName]
+    if (!(name in next.config) && legacyName in next.config) next.config[name] = next.config[legacyName]
+    delete next.enabled[legacyName]
+    delete next.config[legacyName]
+  }
+  next.schemaVersion = PLUGIN_STORE_SCHEMA_VERSION
+  return { store: next, changed: true }
+}
+
 async function readPluginStore() {
-  return normalizePluginStore(await readStore('plugins'))
+  const current = await readStore('plugins')
+  const migration = migratePluginStore(current)
+  if (!migration.changed) return migration.store
+  return atomicUpdate('plugins', (store) => migratePluginStore(store).store)
 }
 
 function contributionSummary(contribution) {
@@ -292,7 +316,7 @@ export async function getPluginStatus(projectContext = null) {
 
 export async function setPluginEnabled(name, enabled) {
   await atomicUpdate('plugins', (store) => {
-    const next = normalizePluginStore(store)
+    const next = migratePluginStore(store).store
     next.enabled[name] = enabled === true
     return next
   })
@@ -301,7 +325,7 @@ export async function setPluginEnabled(name, enabled) {
 
 export async function setPluginConfig(name, config) {
   await atomicUpdate('plugins', (store) => {
-    const next = normalizePluginStore(store)
+    const next = migratePluginStore(store).store
     next.config[name] = isPlainObject(config) ? config : {}
     return next
   })

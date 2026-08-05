@@ -28,12 +28,12 @@ type BuiltinPluginCopy = {
 
 function builtinPluginCopy(pluginName: string): BuiltinPluginCopy | null {
   switch (pluginName) {
-    case 'openai-documents':
-      return { label: t('pluginOpenaiDocumentsName'), description: t('pluginOpenaiDocumentsDescription') }
-    case 'openai-spreadsheets':
-      return { label: t('pluginOpenaiSpreadsheetsName'), description: t('pluginOpenaiSpreadsheetsDescription') }
-    case 'openai-presentations':
-      return { label: t('pluginOpenaiPresentationsName'), description: t('pluginOpenaiPresentationsDescription') }
+    case 'documents':
+      return { label: t('pluginDocumentsName'), description: t('pluginDocumentsDescription') }
+    case 'spreadsheets':
+      return { label: t('pluginSpreadsheetsName'), description: t('pluginSpreadsheetsDescription') }
+    case 'presentations':
+      return { label: t('pluginPresentationsName'), description: t('pluginPresentationsDescription') }
     default:
       return null
   }

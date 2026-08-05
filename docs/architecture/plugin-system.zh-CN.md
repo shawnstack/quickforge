@@ -195,6 +195,8 @@ export async function createPlugin(context) {
 - `PUT /api/plugins/:name/enabled`：启用或禁用插件。
 - `PUT /api/plugins/:name/config`：保存插件配置。
 
+内置插件标识已统一为 `documents`、`presentations`、`spreadsheets`。Registry 会将旧的 `openai-*` 启用状态和配置一次性迁移到新名称；若新旧键同时存在，以新名称配置为准。
+
 ## Composer `@` 触发
 
 聊天输入框支持用 `@` 触发已启用插件列表。前端从 `/api/plugins` 读取 `enabled && status === 'loaded'` 的插件，并以插件维度展示；例如内置插件只显示：
@@ -239,7 +241,7 @@ export async function createPlugin(context) {
 - `contributes.commands`
 - 基础权限展示
 - 基础 capability index
-- 内置 openai documents / presentations / spreadsheets 插件包，当前只接入 skills/commands
+- 内置 documents / presentations / spreadsheets 插件包，当前只接入 skills/commands
 
 ### V1.5：Hooks + Policy
 

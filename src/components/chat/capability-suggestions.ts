@@ -85,12 +85,12 @@ function titleCase(value: string) {
 
 function builtinPluginDisplay(plugin: QuickForgePlugin) {
   switch (plugin.name) {
-    case 'openai-documents':
-      return { label: t('pluginOpenaiDocumentsName'), description: t('pluginOpenaiDocumentsDescription'), mention: 'Documents', iconKind: 'document' as const }
-    case 'openai-spreadsheets':
-      return { label: t('pluginOpenaiSpreadsheetsName'), description: t('pluginOpenaiSpreadsheetsDescription'), mention: 'Spreadsheets', iconKind: 'spreadsheet' as const }
-    case 'openai-presentations':
-      return { label: t('pluginOpenaiPresentationsName'), description: t('pluginOpenaiPresentationsDescription'), mention: 'Presentations', iconKind: 'presentation' as const }
+    case 'documents':
+      return { label: t('pluginDocumentsName'), description: t('pluginDocumentsDescription'), mention: 'Documents', iconKind: 'document' as const }
+    case 'spreadsheets':
+      return { label: t('pluginSpreadsheetsName'), description: t('pluginSpreadsheetsDescription'), mention: 'Spreadsheets', iconKind: 'spreadsheet' as const }
+    case 'presentations':
+      return { label: t('pluginPresentationsName'), description: t('pluginPresentationsDescription'), mention: 'Presentations', iconKind: 'presentation' as const }
     default:
       return null
   }

@@ -4,6 +4,10 @@ All notable changes to QuickForge will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Renamed the bundled plugin identifiers from `openai-documents`, `openai-presentations`, and `openai-spreadsheets` to `documents`, `presentations`, and `spreadsheets`, while migrating existing enabled states and configuration.
+
 ## [1.7.4] - 2026-08-04
 
 ### Added

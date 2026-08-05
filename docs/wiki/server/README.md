@@ -236,7 +236,7 @@ server/
 **核心文件**:
 - `plugins/manifest.mjs` — `plugin.json` 解析、校验、工具命名规范和静态 skills/commands 路径贡献规范；后续扩展更多 capability。
 - `plugins/loader.mjs` — 动态加载插件入口 `index.mjs` / `main` 并调用 `createPlugin(context)`；入口内容哈希作为 ESM reload token，插件可选实现 `dispose()` 参与实例替换清理。
-- `plugins/registry.mjs` — 插件搜索、启用状态、配置、缓存、事务式实例替换、工具定义和工具调用转发；普通状态查询复用缓存，显式 reload 或配置/启停变更才刷新，刷新失败时保留上一健康实例。
+- `plugins/registry.mjs` — 插件搜索、启用状态、配置、缓存、事务式实例替换、工具定义和工具调用转发；普通状态查询复用缓存，显式 reload 或配置/启停变更才刷新，刷新失败时保留上一健康实例。内置插件规范名称为 `documents`、`presentations`、`spreadsheets`，旧 `openai-*` 配置会一次性迁移，且新名称配置优先。
 - `routes/plugins.mjs` — `/api/plugins`、启用/禁用、配置和 reload API。
 
 **行为约束**:

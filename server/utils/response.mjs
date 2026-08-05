@@ -15,7 +15,9 @@ export function sendError(res, error) {
     return
   }
   const status = error?.statusCode || 500
-  sendJson(res, status, { error: error?.message || 'Internal server error' })
+  const payload = { error: error?.message || 'Internal server error' }
+  if (typeof error?.errorCode === 'string' && error.errorCode) payload.code = error.errorCode
+  sendJson(res, status, payload)
 }
 
 export async function readJsonBody(req, maxBodyBytes = DEFAULT_MAX_BODY_BYTES) {

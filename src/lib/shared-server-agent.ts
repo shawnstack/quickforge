@@ -3,6 +3,7 @@ import type { Api, Model } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai/compat'
 import type { ServerAgentContextCompaction, ServerAgentContextUsage } from '@/lib/server-agent'
 import type { SharePermission } from '@/lib/share-client'
+import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
 import { toolStartEventWithPartialResult, upsertMessage, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
 
@@ -91,8 +92,13 @@ async function readJson<T>(url: string, init?: RequestInit): Promise<T> {
       ...init?.headers,
     },
   })
-  const payload = await response.json().catch(() => null) as (T & { error?: string }) | null
-  if (!response.ok) throw new Error(payload?.error || `Request failed: ${response.status}`)
+  const payload = await response.json().catch(() => null) as (T & { error?: string; code?: string }) | null
+  if (!response.ok) {
+    const message = payload?.code === 'GENERATION_ALREADY_RUNNING'
+      ? t('generationAlreadyRunning')
+      : payload?.error || `Request failed: ${response.status}`
+    throw new Error(message)
+  }
   return payload as T
 }
 

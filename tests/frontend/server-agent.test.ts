@@ -1,6 +1,8 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+const i18nState = vi.hoisted(() => ({ language: 'en' as 'en' | 'zh' }))
+
 class MockEventSource {
   static instances: MockEventSource[] = []
 
@@ -36,6 +38,22 @@ vi.mock('@/lib/types', () => ({
   agentAccessModeFromYoloMode: (yoloMode?: boolean) => yoloMode ? 'full-access' : 'default',
   agentAccessModeToYoloMode: (accessMode: string) => accessMode === 'full-access',
   normalizeAgentAccessMode: (accessMode?: string, fallback = 'default') => accessMode ?? fallback,
+}), { virtual: true })
+
+vi.mock('@/lib/i18n', () => ({
+  t: (key: string) => {
+    const messages = {
+      en: {
+        generationAlreadyRunning: 'Generation is still running. Stop it or wait until it finishes.',
+        generationStillRunning: 'Generation is still running. Stop it or wait until it finishes before rolling back.',
+      },
+      zh: {
+        generationAlreadyRunning: '生成仍在进行中。请停止生成或等待完成。',
+        generationStillRunning: '生成仍在进行中。请停止生成或等待完成后再回滚。',
+      },
+    }
+    return messages[i18nState.language][key as keyof typeof messages.en] ?? key
+  },
 }), { virtual: true })
 
 vi.mock('@/lib/logger', () => ({
@@ -79,6 +97,7 @@ function deferred<T>() {
 describe('ServerAgent', () => {
   beforeEach(() => {
     vi.resetModules()
+    i18nState.language = 'en'
     MockEventSource.instances = []
     vi.stubGlobal('EventSource', MockEventSource)
   })
@@ -126,8 +145,36 @@ describe('ServerAgent', () => {
     }
   })
 
+  it('localizes a generation conflict from its stable error code', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        error: 'Generation is still running. Stop it or wait until it finishes.',
+        code: 'GENERATION_ALREADY_RUNNING',
+      }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    i18nState.language = 'zh'
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: { messages: [{ role: 'user', content: 'hello' }] as AgentMessage[] },
+    })
+
+    try {
+      await expect(agent.continue()).rejects.toThrow('生成仍在进行中。请停止生成或等待完成。')
+    } finally {
+      agent.dispose()
+    }
+  })
+
   it('rolls back the optimistic user message when sending fails', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 409 })
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => null,
+    })
     vi.stubGlobal('fetch', fetchMock)
 
     const agent = await createServerAgent({
@@ -142,9 +189,10 @@ describe('ServerAgent', () => {
         expect.objectContaining({ role: 'user', content: 'hello' }),
       ])
 
-      await flushPromises()
+      await vi.waitFor(() => {
+        expect(agent.state.messages).toEqual([{ role: 'assistant', content: 'ready' }])
+      })
 
-      expect(agent.state.messages).toEqual([{ role: 'assistant', content: 'ready' }])
       expect(agent.state.isStreaming).toBe(false)
       expect(agent.state.errorMessage).toBe('Failed to send prompt: HTTP 409')
     } finally {

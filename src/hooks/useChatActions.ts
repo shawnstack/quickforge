@@ -223,7 +223,7 @@ export function useChatActions({
     if (!currentAgent) return
 
     if (currentAgent.state.isStreaming) {
-      void showAlert(t('generationStillRunning'))
+      void showAlert(t('generationAlreadyRunning'))
       return
     }
 
@@ -263,7 +263,7 @@ export function useChatActions({
     if (!currentAgent) return
 
     if (currentAgent.state.isStreaming) {
-      void showAlert(t('generationStillRunning'))
+      void showAlert(t('generationAlreadyRunning'))
       return
     }
 

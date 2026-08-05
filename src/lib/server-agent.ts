@@ -3,6 +3,7 @@ import type { Api, Model } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai/compat'
 import type { AgentAccessMode } from '@/lib/types'
 import { agentAccessModeFromYoloMode, agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
+import { t, type AppTextKey } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
 import { toolStartEventWithPartialResult, upsertMessage, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
 
@@ -31,6 +32,21 @@ const SSE_WATCHDOG_INTERVAL_MS = 5000
 const SSE_SILENCE_RECOVERY_MS = 15000
 const STATUS_REQUEST_TIMEOUT_MS = 10000
 const STATE_REQUEST_TIMEOUT_MS = 30000
+
+const SERVER_ERROR_TRANSLATIONS: Partial<Record<string, AppTextKey>> = {
+  GENERATION_ALREADY_RUNNING: 'generationAlreadyRunning',
+  GENERATION_STILL_RUNNING_BEFORE_ROLLBACK: 'generationStillRunning',
+}
+
+type ServerErrorPayload = {
+  error?: string
+  code?: string
+}
+
+function serverErrorMessage(payload: ServerErrorPayload | null, fallback: string): string {
+  const translationKey = payload?.code ? SERVER_ERROR_TRANSLATIONS[payload.code] : undefined
+  return translationKey ? t(translationKey) : payload?.error || fallback
+}
 
 async function fetchJsonWithTimeout<T>(url: string, timeoutMs: number, init: RequestInit = {}): Promise<{ response: Response; body?: T }> {
   const controller = new AbortController()
@@ -536,9 +552,12 @@ export class ServerAgent {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ message: agentMessage, selectedCapabilities, command: selectedCommand }),
       signal: controller.signal,
-    }).then((response) => {
+    }).then(async (response) => {
       clearTimeout(timeoutId)
-      if (!response.ok) throw new Error(`Failed to send prompt: HTTP ${response.status}`)
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as ServerErrorPayload | null
+        throw new Error(serverErrorMessage(payload, `Failed to send prompt: HTTP ${response.status}`))
+      }
     }).catch((err) => {
       clearTimeout(timeoutId)
       const message = err instanceof Error ? err.message : String(err)
@@ -663,8 +682,8 @@ export class ServerAgent {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ messageIndex }),
     })
-    const payload = await res.json().catch(() => null) as (ServerRollbackResult & { error?: string }) | null
-    if (!res.ok) throw new Error(payload?.error || `Failed to roll back: HTTP ${res.status}`)
+    const payload = await res.json().catch(() => null) as (ServerRollbackResult & ServerErrorPayload) | null
+    if (!res.ok) throw new Error(serverErrorMessage(payload, `Failed to roll back: HTTP ${res.status}`))
     return payload as ServerRollbackResult
   }
 
@@ -676,8 +695,8 @@ export class ServerAgent {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/continue`
     const res = await fetch(url, { method: 'POST' })
     if (!res.ok) {
-      const payload = await res.json().catch(() => null) as { error?: string } | null
-      throw new Error(payload?.error || `Failed to continue: HTTP ${res.status}`)
+      const payload = await res.json().catch(() => null) as ServerErrorPayload | null
+      throw new Error(serverErrorMessage(payload, `Failed to continue: HTTP ${res.status}`))
     }
     this.state.isStreaming = true
     this.state.errorMessage = undefined

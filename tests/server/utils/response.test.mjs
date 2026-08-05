@@ -77,6 +77,19 @@ describe('response', () => {
       expect(res._status).toBe(404)
     })
 
+    it('includes a stable error code when available', () => {
+      const res = mockRes()
+      const error = new Error('generation conflict')
+      error.statusCode = 409
+      error.errorCode = 'GENERATION_ALREADY_RUNNING'
+      sendError(res, error)
+
+      expect(JSON.parse(res._body)).toEqual({
+        error: 'generation conflict',
+        code: 'GENERATION_ALREADY_RUNNING',
+      })
+    })
+
     it('uses default message when error has none', () => {
       const res = mockRes()
       sendError(res, {})

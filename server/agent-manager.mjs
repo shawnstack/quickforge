@@ -2063,7 +2063,10 @@ export async function rollbackSessionMessages(sessionId, rollbackMessageIndex) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
   }
   if (session.agent.state.isStreaming) {
-    throw Object.assign(new Error('Generation is still running. Stop it or wait until it finishes before rolling back.'), { statusCode: 409 })
+    throw Object.assign(new Error('Generation is still running. Stop it or wait until it finishes before rolling back.'), {
+      statusCode: 409,
+      errorCode: 'GENERATION_STILL_RUNNING_BEFORE_ROLLBACK',
+    })
   }
 
   const messages = Array.isArray(session.agent.state.messages) ? session.agent.state.messages : []
@@ -2138,7 +2141,10 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
   }
 
   if (session.agent.state.isStreaming || session.abortPending) {
-    throw Object.assign(new Error('Generation is still running. Stop it or wait until it finishes.'), { statusCode: 409 })
+    throw Object.assign(new Error('Generation is still running. Stop it or wait until it finishes.'), {
+      statusCode: 409,
+      errorCode: 'GENERATION_ALREADY_RUNNING',
+    })
   }
 
   await refreshMemoryState(session)
@@ -2227,7 +2233,10 @@ export async function continueSession(sessionId) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
   }
   if (session.agent.state.isStreaming) {
-    throw Object.assign(new Error('Generation is still running. Stop it or wait until it finishes.'), { statusCode: 409 })
+    throw Object.assign(new Error('Generation is still running. Stop it or wait until it finishes.'), {
+      statusCode: 409,
+      errorCode: 'GENERATION_ALREADY_RUNNING',
+    })
   }
 
   const messages = Array.isArray(session.agent.state.messages) ? session.agent.state.messages : []

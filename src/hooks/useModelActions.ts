@@ -3,13 +3,13 @@ import type { Api, Model } from '@earendil-works/pi-ai'
 import type { AgentManager } from '@/hooks/useAgentManager'
 import {
   buildConnectionModel,
-  configuredModelsFromProviders,
   DEFAULT_CONNECTION,
   initializePiStorage,
   loadInitialConfiguredModel,
   mergeAvailableModels,
   saveActiveModel,
   saveConnectionProfile,
+  selectableModelsFromProviders,
 } from '@/lib/pi-chat'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
 import {
@@ -202,7 +202,7 @@ export function useModelActions({
     if (!customModels) {
       try {
         const customProviders = await storage.customProviders.getAll()
-        customModels = configuredModelsFromProviders(customProviders)
+        customModels = selectableModelsFromProviders(customProviders)
         writeCachedModelList(customModels)
       } catch (error) {
         logger.error('Failed to load custom models, falling back to cache:', error)

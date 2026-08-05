@@ -4,7 +4,7 @@ import { getAppStorage, SettingsTab } from '@earendil-works/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
 import {
   defaultThinkingLevelForModel,
-  getConfiguredModels,
+  getSelectableConfiguredModels,
   loadDefaultOptions,
   saveDefaultOptions,
 } from '@/lib/pi-chat'
@@ -201,7 +201,7 @@ class DefaultOptionsSettingsTab extends SettingsTab {
     try {
       const storage = getAppStorage()
       const [models, defaults, toolDisplaySettings, autoCompactSettings, autoArchiveSettings] = await Promise.all([
-        getConfiguredModels(storage),
+        getSelectableConfiguredModels(storage),
         loadDefaultOptions(storage),
         loadToolDisplaySettings(storage),
         loadAutoCompactSettings(storage),

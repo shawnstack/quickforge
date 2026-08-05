@@ -10,6 +10,7 @@ import { InfoTip } from '@/components/ui/info-tip'
 import { showConfirm } from '@/components/ui/confirm-dialog'
 import { openModelSheet } from '@/lib/custom-model-selector'
 import { defaultThinkingLevelForModel, getConfiguredModels, initializePiStorage, loadDefaultOptions, loadInitialConfiguredModel } from '@/lib/pi-chat'
+import { isModelSelectable } from '@/lib/model-visibility'
 
 type RiskLevel = 'safe' | 'dangerous'
 
@@ -271,6 +272,17 @@ export function AgentProfilesPage() {
     () => configuredModels.find((model) => modelOptionValue(model) === agentForm.fixedModelValue),
     [agentForm.fixedModelValue, configuredModels],
   )
+
+  const selectableModels = useMemo(
+    () => configuredModels.filter(isModelSelectable),
+    [configuredModels],
+  )
+  const fixedModelOptions = useMemo(
+    () => selectedFixedModel && !selectableModels.some((model) => modelOptionValue(model) === modelOptionValue(selectedFixedModel))
+      ? [selectedFixedModel, ...selectableModels]
+      : selectableModels,
+    [selectableModels, selectedFixedModel],
+  )
   const fixedModelDisablesThinking = agentForm.modelMode === 'fixed'
     && Boolean(selectedFixedModel)
     && selectedFixedModel?.reasoning !== true
@@ -305,7 +317,7 @@ export function AgentProfilesPage() {
   function openFixedModelSheet(event: ReactMouseEvent<HTMLButtonElement>) {
     openModelSheet(
       selectedFixedModel ?? null,
-      configuredModels,
+      fixedModelOptions,
       (model) => updateAgentForm('fixedModelValue', model ? modelOptionValue(model) : ''),
       { anchor: event.currentTarget, noneLabel: t('agentModelInherit') },
     )
@@ -522,7 +534,7 @@ export function AgentProfilesPage() {
                   {t('agentFixedModel')}
                   <select className="quickforge-model-select-desktop mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.fixedModelValue} disabled={modelReadonly || agentForm.modelMode !== 'fixed'} onChange={(event) => updateAgentForm('fixedModelValue', event.target.value)}>
                     <option value="">{t('agentModelInherit')}</option>
-                    {configuredModels.map((model) => (
+                    {fixedModelOptions.map((model) => (
                       <option key={modelOptionValue(model)} value={modelOptionValue(model)}>{modelLabel(model)}</option>
                     ))}
                   </select>

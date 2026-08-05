@@ -479,6 +479,10 @@ async function readConfiguredModels() {
     .filter(isUsableModel)
 }
 
+async function readSelectableConfiguredModels() {
+  return (await readConfiguredModels()).filter((model) => model.quickforgeHidden !== true)
+}
+
 async function readActiveModel() {
   const settings = await readStore('settings').catch(() => ({}))
   const model = parseStoredJson(settings?.['active-model'])
@@ -486,8 +490,8 @@ async function readActiveModel() {
 }
 
 async function resolveInitialModel() {
-  const [configuredModels, activeModel] = await Promise.all([readConfiguredModels(), readActiveModel()])
-  if (activeModel) {
+  const [configuredModels, activeModel] = await Promise.all([readSelectableConfiguredModels(), readActiveModel()])
+  if (activeModel && activeModel.quickforgeHidden !== true) {
     return configuredModels.find((model) => sameModel(model, activeModel)) || activeModel
   }
   return configuredModels[0] || null
@@ -505,7 +509,7 @@ async function resolveInitialThinkingLevel(model) {
 }
 
 async function sessionConfigOptions(currentModel = null, currentThinkingLevel = 'off') {
-  const configuredModels = await readConfiguredModels()
+  const configuredModels = await readSelectableConfiguredModels()
   const models = [...configuredModels]
   const options = []
   if (currentModel && !models.some((model) => sameModel(model, currentModel))) models.unshift(currentModel)
@@ -552,7 +556,7 @@ async function sessionConfigOptionsForSession(sessionId) {
 async function selectSessionModel(sessionId, value) {
   const state = getSessionState(sessionId)
   if (!state) throw new Error('Session not found')
-  const models = await readConfiguredModels()
+  const models = await readSelectableConfiguredModels()
   if (state.model && !models.some((model) => sameModel(model, state.model))) models.unshift(state.model)
   const model = models.find((candidate) => modelValueId(candidate) === value)
   if (!model) throw new Error('Selected model is not configured in QuickForge.')

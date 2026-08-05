@@ -156,13 +156,15 @@ You can:
 
 - Add a new provider.
 - Add multiple models under one provider.
+- Turn off **Show in model selectors** to keep a model configured while hiding it from selection lists.
 - Edit provider name, Base URL, protocol, and API key.
 - Delete unused providers.
 - Switch models from the model selector near the chat input.
 
 Model selection rules:
 
-- QuickForge only shows custom models that you configured.
+- QuickForge only shows configured custom models that are not hidden.
+- Existing conversations, agents, and scheduled tasks can continue using a model after it is hidden.
 - If a previously selected model still exists, QuickForge restores it on startup.
 - If the saved model no longer exists, QuickForge selects the first configured model.
 - If no model is configured, QuickForge shows the first-run model setup guide.

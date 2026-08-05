@@ -66,7 +66,7 @@
 
 模型/供应商配置操作:
 - `openModelSetup()` — 打开设置对话框
-- `selectModel(model)` — 切换当前模型
+- `selectModel(model)` — 切换当前模型；聊天模型选择器只合并未隐藏的自定义模型与 Cloud 模型
 - 初始化/切换活动模型
 - Agent 访问模式与 workspace 工具的启用/禁用同步
 

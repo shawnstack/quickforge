@@ -15,7 +15,7 @@ import { clearModelListCache } from '@/lib/model-list-cache'
 import './info-tip'
 
 type ProviderProtocol = Extract<CustomProviderType, 'openai-completions' | 'anthropic-messages'>
-type AnyModel = Model<Api>
+type AnyModel = Model<Api> & { quickforgeHidden?: boolean }
 
 type ModelForm = {
   modelId: string
@@ -23,6 +23,7 @@ type ModelForm = {
   maxTokens: number
   reasoning: boolean
   supportsImages: boolean
+  visibleInSelectors: boolean
   open?: boolean
 }
 
@@ -72,6 +73,7 @@ const emptyModelForm = (): ModelForm => ({
   maxTokens: DEFAULT_CONNECTION.maxTokens,
   reasoning: true,
   supportsImages: false,
+  visibleInSelectors: true,
   open: false,
 })
 
@@ -161,6 +163,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
             maxTokens: model.maxTokens ?? DEFAULT_CONNECTION.maxTokens,
             reasoning: model.reasoning === true,
             supportsImages: model.input?.includes('image') === true,
+            visibleInSelectors: (model as AnyModel).quickforgeHidden !== true,
             open: false,
           }))
         : [emptyModelForm()]
@@ -319,6 +322,7 @@ export class CustomProvidersOnlyTab extends SettingsTab {
       baseUrl: baseUrl.replace(/\/$/, ''),
       reasoning: isReasoningModel,
       input,
+      quickforgeHidden: modelForm.visibleInSelectors ? undefined : true,
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: Number(modelForm.contextWindow) || DEFAULT_CONNECTION.contextWindow,
       maxTokens: Number(modelForm.maxTokens) || DEFAULT_CONNECTION.maxTokens,
@@ -623,6 +627,18 @@ export class CustomProvidersOnlyTab extends SettingsTab {
                     <quickforge-info-tip .label=${t('imageInputModelHelp')}></quickforge-info-tip>
                   </span>
                 </label>
+                <div class="mt-3 flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
+                  <span class="text-sm text-muted-foreground">${t('showModelInSelectors')}</span>
+                  <label class="quickforge-settings-switch" title=${t('showModelInSelectorsHelp')}>
+                    <input
+                      type="checkbox"
+                      .checked=${model.visibleInSelectors}
+                      @change=${(event: Event) =>
+                        this.updateModelField(index, 'visibleInSelectors', (event.target as HTMLInputElement).checked)}
+                    />
+                    <span aria-hidden="true"></span>
+                  </label>
+                </div>
               `
             : null}
         </div>

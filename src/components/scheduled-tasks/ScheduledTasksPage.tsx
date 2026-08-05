@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, Bot, Brain, CheckCircle2, Clock3, Edit3, Eye, Folder, MoreHorizontal, Search, Sparkles, Trash2, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { defaultThinkingLevelForModel, getConfiguredModels, initializePiStorage, loadDefaultOptions, loadInitialConfiguredModel } from '@/lib/pi-chat'
+import { defaultThinkingLevelForModel, getSelectableConfiguredModels, initializePiStorage, loadDefaultOptions } from '@/lib/pi-chat'
 import { t } from '@/lib/i18n'
 import { InfoTip } from '@/components/ui/info-tip'
 import { showConfirm } from '@/components/ui/confirm-dialog'
@@ -336,9 +336,11 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
     async function loadModelSettings() {
       try {
         const storage = await initializePiStorage()
-        const configuredModels = await getConfiguredModels(storage)
+        const configuredModels = await getSelectableConfiguredModels(storage)
         const defaultOptions = await loadDefaultOptions(storage)
-        const activeModel = defaultOptions.model ?? await loadInitialConfiguredModel(storage) ?? configuredModels[0]
+        const activeModel = defaultOptions.model
+          ? configuredModels.find((model) => modelsEqual(model, defaultOptions.model)) ?? configuredModels[0]
+          : configuredModels[0]
         if (cancelled) return
         setModels(configuredModels)
         setSelectedModel(activeModel)
@@ -389,6 +391,13 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
   }, [])
 
   const editingTask = useMemo(() => tasks.find((task) => task.id === editingTaskId), [editingTaskId, tasks])
+
+  const modelOptions = useMemo(
+    () => selectedModel && !models.some((model) => modelsEqual(model, selectedModel))
+      ? [selectedModel, ...models]
+      : models,
+    [models, selectedModel],
+  )
   const detailTask = useMemo(() => tasks.find((task) => task.id === detailTaskId) ?? null, [detailTaskId, tasks])
   const enabledCount = useMemo(() => tasks.filter((task) => task.status === 'enabled').length, [tasks])
   const totalHistoryPages = Math.max(1, Math.ceil(historyPayload.total / historyPayload.pageSize))
@@ -704,14 +713,14 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                       className="h-8 max-w-[240px] rounded-md border border-transparent bg-transparent pl-7 pr-2 text-xs text-muted-foreground outline-none hover:bg-background focus:border-ring"
                       value={selectedModel ? `${selectedModel.provider}\u0000${selectedModel.id}` : ''}
                       onChange={(event) => {
-                        const nextModel = models.find((model) => `${model.provider}\u0000${model.id}` === event.target.value)
+                        const nextModel = modelOptions.find((model) => `${model.provider}\u0000${model.id}` === event.target.value)
                         setSelectedModel(nextModel)
                         setThinkingLevel(defaultThinkingLevelForModel(nextModel))
                       }}
                       title={t('taskModel')}
                     >
-                      {models.length === 0 ? <option value="">{t('noModelAvailable')}</option> : null}
-                      {models.map((model) => (
+                      {modelOptions.length === 0 ? <option value="">{t('noModelAvailable')}</option> : null}
+                      {modelOptions.map((model) => (
                         <option key={`${model.provider}:${model.id}`} value={`${model.provider}\u0000${model.id}`}>
                           {modelLabel(model)}{modelsEqual(model, selectedModel) ? ' ✓' : ''}
                         </option>

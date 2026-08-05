@@ -13,6 +13,7 @@ import {
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { clearModelListCache } from '@/lib/model-list-cache'
 import { mergeModelGroups, sameAvailableModel } from '@/lib/model-aggregation'
+import { filterSelectableModels } from '@/lib/model-visibility'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
 import type { AgentAccessMode } from '@/lib/types'
@@ -24,6 +25,11 @@ const AGENT_ACCESS_MODE_PROJECT_PREFIX = 'agent-access-mode-project:'
 const YOLO_MODE_SETTING_KEY = 'yolo-mode'
 const YOLO_MODE_PROJECT_PREFIX = 'yolo-mode-project:'
 const DEFAULT_OPTIONS_SETTING_KEY = 'default-options'
+
+export type ConfiguredModel<TApi extends Api = Api> = Model<TApi> & {
+  /** QuickForge-only visibility flag. Missing values remain visible for backward compatibility. */
+  quickforgeHidden?: boolean
+}
 
 export type ConnectionForm = {
   id?: string
@@ -283,9 +289,18 @@ export function configuredModelsFromProviders(providers: CustomProvider[]): Mode
     .map((model) => normalizeModelForProvider(model))
 }
 
+export function selectableModelsFromProviders(providers: CustomProvider[]): Model<Api>[] {
+  return filterSelectableModels(configuredModelsFromProviders(providers))
+}
+
 export async function getConfiguredModels(storage: AppStorage): Promise<Model<Api>[]> {
   const providers = await storage.customProviders.getAll()
   return configuredModelsFromProviders(providers)
+}
+
+export async function getSelectableConfiguredModels(storage: AppStorage): Promise<Model<Api>[]> {
+  const providers = await storage.customProviders.getAll()
+  return selectableModelsFromProviders(providers)
 }
 
 export function mergeAvailableModels(...groups: ReadonlyArray<ReadonlyArray<Model<Api>>>): Model<Api>[] {

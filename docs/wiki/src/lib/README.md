@@ -54,7 +54,7 @@
 **功能**:
 - `initializePiStorage()` — 初始化存储后端
 - `loadDefaultOptions()` / `saveDefaultOptions()` — 默认选项管理
-- `getConfiguredModels()` — 获取已配置的模型列表
+- `getConfiguredModels()` — 获取全部已配置的自定义模型；`getSelectableConfiguredModels()` / `selectableModelsFromProviders()` 仅返回未设置 `quickforgeHidden: true` 的可选择模型，旧配置默认可见
 - DeepSeek V4 推理兼容性处理
 
 ### cloud-client.ts

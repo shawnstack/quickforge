@@ -1560,6 +1560,141 @@ pi-chat-panel agent-interface > .flex.flex-col.h-full > .shrink-0 > .max-w-3xl {
   max-width: min(var(--quickforge-chat-content-max-width), calc(100% - 2rem)) !important;
 }
 
+.quickforge-chat-panel-host {
+  position: relative;
+}
+
+.quickforge-turn-navigation {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3rem;
+  pointer-events: none;
+}
+
+.quickforge-turn-navigation[hidden] {
+  display: none;
+}
+
+.quickforge-turn-navigation-track {
+  position: absolute;
+  top: 0.75rem;
+  bottom: 8.5rem;
+  left: 0;
+  display: flex;
+  width: 2.5rem;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+  overflow: hidden;
+}
+
+.quickforge-turn-navigation-node {
+  position: relative;
+  width: 2.5rem;
+  height: 0.75rem;
+  flex: 0 0 0.75rem;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.quickforge-turn-navigation-node::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 1.05rem;
+  width: 0.5rem;
+  height: 2px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--muted-foreground) 32%, transparent);
+  transition: width 140ms ease, height 140ms ease, background-color 140ms ease;
+}
+
+.quickforge-turn-navigation-node:hover::before,
+.quickforge-turn-navigation-node:focus-visible::before {
+  width: 0.9rem;
+  background: color-mix(in oklab, var(--foreground) 60%, transparent);
+}
+
+.quickforge-turn-navigation-node.is-nearby-secondary::before {
+  width: 0.75rem;
+  background: color-mix(in oklab, var(--muted-foreground) 40%, transparent);
+}
+
+.quickforge-turn-navigation-node.is-nearby::before {
+  width: 1.05rem;
+  background: color-mix(in oklab, var(--muted-foreground) 48%, transparent);
+}
+
+.quickforge-turn-navigation-node.is-active::before {
+  width: 1.75rem;
+  height: 3px;
+  background: var(--foreground);
+}
+
+.quickforge-turn-navigation-node:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 70%, transparent);
+  outline-offset: -2px;
+  border-radius: 0.35rem;
+}
+
+.quickforge-turn-navigation-tooltip {
+  position: fixed;
+  z-index: 100;
+  display: grid;
+  width: min(21rem, calc(100vw - 1.5rem));
+  gap: 0.75rem;
+  border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+  border-radius: 0.875rem;
+  background: color-mix(in oklab, var(--popover) 98%, transparent);
+  color: var(--popover-foreground);
+  box-shadow: var(--shadow-quickforge);
+  padding: 0.875rem;
+  pointer-events: auto;
+}
+
+.quickforge-turn-navigation-tooltip section + section {
+  border-top: 1px solid color-mix(in oklab, var(--border) 58%, transparent);
+  padding-top: 0.75rem;
+}
+
+.quickforge-turn-navigation-tooltip-label {
+  margin-bottom: 0.25rem;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1rem;
+}
+
+.quickforge-turn-navigation-tooltip-text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+  font-size: 0.8125rem;
+  line-height: 1.35rem;
+}
+
+.quickforge-turn-navigation-tooltip-user {
+  -webkit-line-clamp: 2;
+}
+
+.quickforge-turn-navigation-tooltip-answer {
+  -webkit-line-clamp: 3;
+}
+
+@media (max-width: 767px) {
+  .quickforge-turn-navigation {
+    display: none;
+  }
+}
+
 /* Hide pi-web-ui token/cost usage lines, e.g. "↑3.6k ↓246 R...".
  * Keep message.usage data intact for context usage, metadata, and debugging.
  */

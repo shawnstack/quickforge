@@ -281,6 +281,7 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
         restoredDraft={restoredDraft}
         onRestoredDraftConsumed={consumeRestoredDraft}
         bypassClientApiKeyCheck
+        showTurnNavigation={false}
       />
     </div>
   )

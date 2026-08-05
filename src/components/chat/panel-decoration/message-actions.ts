@@ -195,6 +195,13 @@ function createRollbackAction(options: {
 export type MessageDecorationDeps = {
   panel: HTMLElement
   getMessages: () => MessageWithUsage[]
+  /**
+   * When the conversation is windowed (see windowed-messages.ts), `getMessages`
+   * returns only the visible window. This offset (the full-array index of the
+   * first windowed message) is added back so rollback / retry / fork still
+   * receive full-array indices.
+   */
+  messageIndexOffset?: number
   isStreaming: () => boolean
   onCopyAnswer: (text: string) => Promise<void> | void
   onRollbackFromMessage: (messageIndex: number) => Promise<void> | void
@@ -234,6 +241,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
   const {
     panel,
     getMessages,
+    messageIndexOffset = 0,
     isStreaming,
     onCopyAnswer,
     onRollbackFromMessage,
@@ -248,7 +256,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
   } = deps
 
   const displayEntries = getMessages()
-    .map((message, index) => ({ message, index }))
+    .map((message, index) => ({ message, index: index + messageIndexOffset }))
     .filter(({ message }) => {
       return message.role === 'user' || message.role === 'user-with-attachments' || message.role === 'assistant'
     })

@@ -11,7 +11,8 @@ components/
 │   ├── command-suggestions.ts      # 聊天输入框命令建议下拉菜单 (174 行)
 │   ├── context-usage.ts            # 上下文用量环状指示器 (78 行)
 │   ├── panel-decoration.ts         # 聊天面板 DOM 装饰兼容入口 / editor 编排 facade (175 行)
-│   └── scroll-sync.ts              # 自动滚动同步 (174 行)
+│   ├── scroll-sync.ts              # 自动滚动同步 + 触顶加载回调 (174 行)
+│   └── windowed-messages.ts        # 超长会话窗口化渲染（只渲染最近 3 轮，向上滚动逐页加载更早轮次）
 ├── cloud/
 │   └── CloudAccountSettingsPage.tsx # 云身份、额度、设备和退出管理
 ├── git/
@@ -69,6 +70,8 @@ components/
 - 分享页使用 `/api/shared/:shareId/assets/:assetId` 加载已授权会话的生成图片
 - 工具审批卡片会展示 subagent 来源，避免 General 子任务请求写文件/跑命令时与主 Agent 混淆
 - 消息回滚、分叉、复制功能
+- 超长会话窗口化：通过包装第三方 `message-list` 元素的 `messages` setter（`windowed-messages.ts`），消息数据仍全量进入内存，但只渲染最近 3 轮（一轮 = 一次用户提问到回复完成，含中间工具调用）；向上滚动到顶时经 `scroll-sync` 的触顶回调逐页（3 轮）加载更早内容，并用锚点修正滚动位置。仅当会话超过 6 轮时启用，短会话行为完全不变；子代理 process 消息列表（`data-quickforge-subagent-process`）不参与窗口化。`decorateMessages` 通过 `messageIndexOffset` 对齐窗口与全量索引，保证回滚/重试/复制仍使用全量索引。
+- 主对话页提供左侧用户轮次导航（`turn-navigation.ts`）：每条用户消息对应一个节点，当前轮次随滚动高亮；悬停或键盘聚焦节点时显示截断的用户消息与该轮最后一条 assistant 消息（Final Answer），点击可切换超长会话窗口并定位到对应用户消息。分享页默认不显示该导航，移动端隐藏。
 - 草稿恢复支持；Composer 草稿持久化由 `src/lib/composer-drafts.ts` 直接使用浏览器 `localStorage`，不再经过 `AppStorage/settings` 或后端存储；回滚、模型切换等外部恢复草稿按一次性事件消费，发送、编辑或 Session 切换会取消旧的延迟恢复任务；已消费恢复草稿 ID 使用有界 Set，发送或明确清空会立即删除运行时与持久化草稿。
 
 ### ChatSidebar.tsx

@@ -10,9 +10,13 @@ import type { AgentInterfaceElement } from './chat-utils'
 
 type ScrollSyncOptions = {
   panel: HTMLElement
+  /** Fired when the user scrolls the conversation all the way to the top (from a lower position). */
+  onReachTop?: () => void
+  /** Fired when auto-scroll is re-enabled after the user returns to the bottom. */
+  onAutoScrollEnabled?: () => void
 }
 
-export function createScrollSync({ panel }: ScrollSyncOptions) {
+export function createScrollSync({ panel, onReachTop, onAutoScrollEnabled }: ScrollSyncOptions) {
   let autoScrollEnabled = true
   let autoScrollFrame: number | undefined
   let lastScrollTop = 0
@@ -20,6 +24,7 @@ export function createScrollSync({ panel }: ScrollSyncOptions) {
   let lastUserScrollUpAt = Number.NEGATIVE_INFINITY
   let lastPossibleUserScrollAt = Number.NEGATIVE_INFINITY
   let scrollResizeObserver: ResizeObserver | undefined
+  let programmaticScrollDepth = 0
 
   const userScrollIntentMs = 500
 
@@ -84,6 +89,7 @@ export function createScrollSync({ panel }: ScrollSyncOptions) {
   const enableAutoScroll = () => {
     autoScrollEnabled = true
     setPanelAutoScroll(true)
+    onAutoScrollEnabled?.()
     scheduleScrollToBottom()
   }
 
@@ -94,6 +100,16 @@ export function createScrollSync({ panel }: ScrollSyncOptions) {
     if (!scrollContainer) return
     const currentScrollTop = scrollContainer.scrollTop
     const scrollingUp = currentScrollTop < lastScrollTop - 1
+    if (programmaticScrollDepth > 0) {
+      lastScrollTop = currentScrollTop
+      return
+    }
+    // Scrolled all the way to the top from a lower position → load earlier messages.
+    // Guarded by `lastScrollTop > 0` so it only fires once per traversal, not on
+    // every remaining scroll event while pinned at the top.
+    if (currentScrollTop <= 0 && lastScrollTop > 0) {
+      onReachTop?.()
+    }
     const userInitiatedScrollUp = scrollingUp && recentlyUserScrolled()
     if (scrollingUp && autoScrollEnabled && !userInitiatedScrollUp && !isNearBottom(scrollContainer)) {
       lastScrollTop = currentScrollTop
@@ -134,6 +150,16 @@ export function createScrollSync({ panel }: ScrollSyncOptions) {
 
   // --- Public API ---
 
+  const beginProgrammaticScroll = () => {
+    programmaticScrollDepth += 1
+    disableAutoScroll()
+    return () => {
+      programmaticScrollDepth = Math.max(0, programmaticScrollDepth - 1)
+      const scrollContainer = findScrollContainer()
+      if (scrollContainer) lastScrollTop = scrollContainer.scrollTop
+    }
+  }
+
   const setup = () => {
     const scrollContainer = findScrollContainer()
     if (!scrollContainer || scrollResizeObserver) return
@@ -173,6 +199,7 @@ export function createScrollSync({ panel }: ScrollSyncOptions) {
 
   return {
     get isEnabled() { return autoScrollEnabled },
+    beginProgrammaticScroll,
     enable: enableAutoScroll,
     disable: disableAutoScroll,
     scheduleScrollToBottom,

@@ -11,9 +11,15 @@ import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import type { AgentInterfaceElement, ComposerDraft, CustomCommandSummary, MessageWithUsage } from './chat-utils'
 import { emptyDraft, hasDraft } from './chat-utils'
 import { createScrollSync } from './scroll-sync'
+import {
+  createMessageWindow,
+  installMessageListWindow,
+  uninstallMessageListWindow,
+} from './windowed-messages'
 import { createCommandSuggestions } from './command-suggestions'
 import { createCapabilitySuggestions } from './capability-suggestions'
 import { createContextUsageIndicator, type ContextUsageDisplayInfo } from './context-usage'
+import { createTurnNavigation } from './turn-navigation'
 import {
   decorateMessages,
   decorateEditor,
@@ -45,6 +51,11 @@ import {
 } from '@/lib/composer-drafts'
 
 type AgentLike = ServerAgent | SharedServerAgent | DeferredSessionAgent
+
+type MessageListElement = HTMLElement & {
+  messages: unknown[]
+  updateComplete?: Promise<unknown>
+}
 
 type AgentWithContextCompaction = AgentLike & {
   state: AgentLike['state'] & {
@@ -118,6 +129,7 @@ type ChatPanelHostProps = {
   bypassClientApiKeyCheck?: boolean
   allowModelControls?: boolean
   newChatEmptyState?: boolean
+  showTurnNavigation?: boolean
   rollbackConfirmTitle?: string
   rollbackConfirmDescription?: string
 }
@@ -185,6 +197,7 @@ export function ChatPanelHost({
   bypassClientApiKeyCheck = false,
   allowModelControls = true,
   newChatEmptyState = false,
+  showTurnNavigation = true,
   rollbackConfirmTitle,
   rollbackConfirmDescription,
 }: ChatPanelHostProps) {
@@ -467,9 +480,72 @@ export function ChatPanelHost({
     let toolUpdateScheduled = false
     let processHandoffGeneration = 0
 
+    // --- Windowed rendering for very long conversations ---
+    const windowLayer = createMessageWindow()
+    installMessageListWindow(() => windowLayer)
+
     // --- Scroll sync subsystem ---
-    const scrollSync = createScrollSync({ panel })
+    let loadMoreInFlight = false
+    const loadMoreMessages = () => {
+      if (disposed || loadMoreInFlight) return
+      if (!windowLayer.hasMore()) return
+      const list = panel.querySelector<MessageListElement>('message-list')
+      const scrollContainer = panel.querySelector<HTMLElement>('agent-interface .overflow-y-auto')
+      if (!list || !scrollContainer) return
+
+      // Anchor: the first user/assistant message at or above the viewport top.
+      // After the window shifts, the same ordinal element is used to restore
+      // the scroll position so the user's reading spot does not jump.
+      const items = Array.from(list.querySelectorAll<HTMLElement>('user-message, assistant-message'))
+        .filter((element) => element.closest('message-list') === list)
+      const containerTop = scrollContainer.getBoundingClientRect().top
+      let anchorIndex = -1
+      let anchorTop = 0
+      for (let i = 0; i < items.length; i++) {
+        const rect = items[i].getBoundingClientRect()
+        if (rect.bottom > containerTop) {
+          anchorIndex = i
+          anchorTop = rect.top
+          break
+        }
+      }
+
+      const scrollTopBefore = scrollContainer.scrollTop
+      const nextWindow = windowLayer.loadMore()
+      if (!nextWindow) return
+      loadMoreInFlight = true
+      list.messages = nextWindow
+
+      const restoreScroll = () => {
+        window.requestAnimationFrame(() => {
+          loadMoreInFlight = false
+          if (disposed) return
+          if (anchorIndex >= 0) {
+            const newItems = Array.from(list.querySelectorAll<HTMLElement>('user-message, assistant-message'))
+            const anchor = newItems[anchorIndex]
+            if (anchor) {
+              scrollContainer.scrollTop = scrollTopBefore + (anchor.getBoundingClientRect().top - anchorTop)
+            }
+          }
+          scheduleDecorateRef.current?.()
+        })
+      }
+      void (list.updateComplete ?? Promise.resolve()).then(restoreScroll, restoreScroll)
+    }
+
+    const scrollSync = createScrollSync({
+      panel,
+      onReachTop: () => {
+        loadMoreMessages()
+      },
+      onAutoScrollEnabled: () => {
+        // Back at the bottom → the window should follow the tail again.
+        windowLayer.resetToTail()
+      },
+    })
     scrollSyncRef.current = scrollSync
+
+    let turnNavigation: ReturnType<typeof createTurnNavigation> | null = null
 
     // --- Command suggestions subsystem ---
     const cmdSuggestions = createCommandSuggestions({
@@ -574,6 +650,17 @@ export function ChatPanelHost({
 
       syncProcessStreamingState()
 
+      // Windowed view of the conversation for decoration alignment: when the
+      // message list renders only a tail window, the decoration must align
+      // against the same window (full-array indices are restored via offset).
+      const displayMessages = (): MessageWithUsage[] => {
+        if (windowLayer.isEnabled()) {
+          return windowLayer.getWindowMessages() as unknown as MessageWithUsage[]
+        }
+        return agent.state.messages as MessageWithUsage[]
+      }
+      const messageIndexOffset = windowLayer.isEnabled() ? windowLayer.getWindowStart() : 0
+
       const props = propsRef.current
       const inputKey = artifactsInputKey(agent.state.messages as MessageWithUsage[])
       if (inputKey !== artifactsInputKeyRef.current) {
@@ -592,7 +679,8 @@ export function ChatPanelHost({
       try {
         decorateMessages({
           panel,
-          getMessages: () => agent.state.messages as import('./chat-utils').MessageWithUsage[],
+          getMessages: displayMessages,
+          messageIndexOffset,
           isStreaming: () => agent.state.isStreaming,
           onCopyAnswer: props.onCopyAnswer,
           onRollbackFromMessage: props.onRollbackFromMessage,
@@ -607,12 +695,12 @@ export function ChatPanelHost({
         })
         syncContextCompactionNotice({
           panel,
-          getMessages: () => agent.state.messages as MessageWithUsage[],
+          getMessages: displayMessages,
           getContextCompaction: () => (agent as AgentWithContextCompaction).state.contextCompaction ?? null,
         })
         syncAssistantWaitingBubble({
           panel,
-          getMessages: () => agent.state.messages as MessageWithUsage[],
+          getMessages: displayMessages,
           isStreaming: () => agent.state.isStreaming,
           isActive: assistantWaitingActive,
         })
@@ -702,8 +790,13 @@ export function ChatPanelHost({
       }
 
       contextUsage.update()
+      turnNavigation?.update()
       scrollSync.setup()
-      if (scrollSync.isEnabled) scrollSync.scheduleScrollToBottom()
+      if (scrollSync.isEnabled) {
+        // Auto-scroll is active → the window should follow the tail again.
+        windowLayer.resetToTail()
+        scrollSync.scheduleScrollToBottom()
+      }
     }
 
     // --- Schedule decoration once per frame to coalesce mutation bursts in long chats ---
@@ -863,6 +956,17 @@ export function ChatPanelHost({
     })
 
     hostRef.current.replaceChildren(panel)
+    if (showTurnNavigation) {
+      turnNavigation = createTurnNavigation({
+        host: hostRef.current,
+        panel,
+        getMessages: () => agent.state.messages as import('@earendil-works/pi-agent-core').AgentMessage[],
+        isStreaming: () => agent.state.isStreaming,
+        windowLayer,
+        beginProgrammaticScroll: scrollSync.beginProgrammaticScroll,
+        onWindowChanged: () => scheduleDecorateRef.current?.(),
+      })
+    }
 
     // --- Subscribe to agent events for auto-scroll and tool approvals ---
     const unsubscribeScrollEvents = agent.subscribe((event) => {
@@ -969,8 +1073,10 @@ export function ChatPanelHost({
       capabilitySuggestions.remove()
       capabilitySuggestions.cleanupTextareaHandler()
       contextUsage.cleanup()
+      turnNavigation?.cleanup()
       scrollSync.cleanup()
       scrollSyncRef.current = null
+      uninstallMessageListWindow(windowLayer)
       unsubscribeScrollEvents()
       observer?.disconnect()
       if (decorateFrame !== undefined) {
@@ -982,7 +1088,7 @@ export function ChatPanelHost({
       decorateFnRef.current = null
       panel.remove()
     }
-  }, [agent, cancelPendingDraftSave, cancelRestoredDraftRestore, consumeRestoredDraft, persistCurrentComposerDraft, restoreDraftForSession, schedulePersistDraft]) // ← ONLY agent triggers panel recreation; callback deps are stable
+  }, [agent, showTurnNavigation, cancelPendingDraftSave, cancelRestoredDraftRestore, consumeRestoredDraft, persistCurrentComposerDraft, restoreDraftForSession, schedulePersistDraft]) // Recreate only when the agent or host-level navigation mode changes; callback deps are stable
 
   useEffect(() => {
     const host = hostRef.current
@@ -1016,5 +1122,5 @@ export function ChatPanelHost({
     restoreDraftForSession(panel as HTMLElement, draft, sessionId, draftKeyRef.current)
   }, [restoredDraft, agent, restoreDraftForSession])
 
-  return <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden" />
+  return <div ref={hostRef} className="quickforge-chat-panel-host min-h-0 flex-1 overflow-hidden" />
 }

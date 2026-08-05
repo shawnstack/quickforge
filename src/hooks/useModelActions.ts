@@ -98,7 +98,7 @@ export function useModelActions({
 
     const cloudModels = await startGuestCloud()
     const model = cloudModels[0]
-    if (!model) throw new Error('QuickForge Cloud 没有可用模型。')
+    if (!model) throw new Error(t('cloudNoModels'))
 
     activeModelRef.current = model
     setNeedsModelSetup(false)

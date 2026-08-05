@@ -27,6 +27,7 @@ import {
   DEFAULT_CONNECTION,
   initializePiStorage,
 } from '@/lib/pi-chat'
+import { cloudErrorMessage } from '@/lib/cloud-error-message'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import type {
@@ -1862,16 +1863,16 @@ function MainApp() {
             <ModelSetupEmptyState
               onUseGuest={cloudModels.configured ? () => {
                 void showConfirm({
-                  title: '使用 QuickForge Cloud',
-                  description: '使用云模型时，你的消息、必要的文件片段和工具结果会发送到云端完成推理。不会自动上传整个项目、模型 API Key 或开启会话同步。',
-                  confirmLabel: '同意并开始',
+                  title: t('cloudStartGuestTitle'),
+                  description: t('cloudDataConsentDescription'),
+                  confirmLabel: t('cloudAgreeAndStart'),
                   cancelLabel: t('cancel'),
                 }).then((confirmed) => {
                   if (!confirmed) return
                   return activateGuestCloudModel()
                 }).catch((error) => {
                   logger.error('Failed to start QuickForge Cloud guest:', error)
-                  void showAlert(error instanceof Error ? error.message : 'QuickForge Cloud 连接失败')
+                  void showAlert(cloudErrorMessage(error, 'cloudConnectionFailed'))
                 })
               } : undefined}
               guestStarting={cloudModels.guestStarting}

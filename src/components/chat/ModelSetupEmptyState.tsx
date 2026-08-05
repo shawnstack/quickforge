@@ -34,7 +34,7 @@ export function ModelSetupEmptyState({ onAddModel, onUseExample, onUseGuest, gue
           {onUseGuest ? (
             <Button onClick={onUseGuest} disabled={guestStarting} className="gap-2">
               <Cloud className="size-4" />
-              {guestStarting ? '正在连接…' : '立即体验云模型'}
+              {guestStarting ? t('cloudConnecting') : t('cloudTryModels')}
             </Button>
           ) : null}
           <Button variant={onUseGuest ? 'outline' : 'default'} onClick={onAddModel} className="gap-2">

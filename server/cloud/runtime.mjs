@@ -40,6 +40,16 @@ export async function resolveManagedCloudProvider(model, signal) {
       api: 'openai-completions',
       baseUrl: cloudEndpoint(runtime.config.baseUrl, 'v1/').href.replace(/\/$/, ''),
       headers: undefined,
+      // The Cloud gateway implements the conservative OpenAI-compatible request
+      // shape. Disable newer OpenAI-only fields that strict gateways may reject.
+      compat: {
+        supportsStore: false,
+        supportsDeveloperRole: false,
+        supportsReasoningEffort: false,
+        supportsUsageInStreaming: false,
+        supportsStrictMode: false,
+        maxTokensField: 'max_tokens',
+      },
     },
     apiKey: accessToken,
   }

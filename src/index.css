@@ -1698,7 +1698,7 @@ pi-chat-panel agent-interface > .flex.flex-col.h-full > .shrink-0 > .max-w-3xl {
   z-index: 100;
   display: grid;
   width: min(21rem, calc(100vw - 1.5rem));
-  gap: 0.75rem;
+  gap: 0.5rem;
   border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
   border-radius: 0.875rem;
   background: color-mix(in oklab, var(--popover) 98%, transparent);
@@ -1706,19 +1706,6 @@ pi-chat-panel agent-interface > .flex.flex-col.h-full > .shrink-0 > .max-w-3xl {
   box-shadow: var(--shadow-quickforge);
   padding: 0.875rem;
   pointer-events: auto;
-}
-
-.quickforge-turn-navigation-tooltip section + section {
-  border-top: 1px solid color-mix(in oklab, var(--border) 58%, transparent);
-  padding-top: 0.75rem;
-}
-
-.quickforge-turn-navigation-tooltip-label {
-  margin-bottom: 0.25rem;
-  color: var(--muted-foreground);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  line-height: 1rem;
 }
 
 .quickforge-turn-navigation-tooltip-text {
@@ -1731,10 +1718,13 @@ pi-chat-panel agent-interface > .flex.flex-col.h-full > .shrink-0 > .max-w-3xl {
 }
 
 .quickforge-turn-navigation-tooltip-user {
+  color: var(--popover-foreground);
+  font-weight: 600;
   -webkit-line-clamp: 2;
 }
 
 .quickforge-turn-navigation-tooltip-answer {
+  color: var(--muted-foreground);
   -webkit-line-clamp: 3;
 }
 

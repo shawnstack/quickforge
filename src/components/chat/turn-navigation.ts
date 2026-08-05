@@ -1,7 +1,7 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { t } from '../../lib/i18n'
 import type { MessageWindowController } from './windowed-messages'
-import { buildConversationTurns, isTurnUserMessage, type ConversationTurn } from './turn-navigation-data'
+import { buildConversationTurns, isTurnUserMessage, shouldShowTurnNavigation, type ConversationTurn } from './turn-navigation-data'
 
 export { buildConversationTurns } from './turn-navigation-data'
 
@@ -110,27 +110,18 @@ export function createTurnNavigation({
     popover.className = 'quickforge-turn-navigation-tooltip'
     popover.setAttribute('role', 'tooltip')
 
-    const userSection = document.createElement('section')
-    const userLabel = document.createElement('div')
-    userLabel.className = 'quickforge-turn-navigation-tooltip-label'
-    userLabel.textContent = t('turnNavigationUserMessage')
     const userText = document.createElement('div')
     userText.className = 'quickforge-turn-navigation-tooltip-text quickforge-turn-navigation-tooltip-user'
     userText.textContent = textPreview(turn.userText, t('turnNavigationAttachmentOnly'))
-    userSection.append(userLabel, userText)
+    popover.append(userText)
 
-    const answerSection = document.createElement('section')
-    const answerLabel = document.createElement('div')
-    answerLabel.className = 'quickforge-turn-navigation-tooltip-label'
-    answerLabel.textContent = t('turnNavigationFinalAnswer')
-    const answerText = document.createElement('div')
-    answerText.className = 'quickforge-turn-navigation-tooltip-text quickforge-turn-navigation-tooltip-answer'
-    answerText.textContent = turn.isGenerating
-      ? t('turnNavigationGenerating')
-      : textPreview(turn.finalAnswerText, t('turnNavigationNoAnswer'))
-    answerSection.append(answerLabel, answerText)
-
-    popover.append(userSection, answerSection)
+    const answer = turn.isGenerating ? t('turnNavigationGenerating') : turn.finalAnswerText.trim()
+    if (answer) {
+      const answerText = document.createElement('div')
+      answerText.className = 'quickforge-turn-navigation-tooltip-text quickforge-turn-navigation-tooltip-answer'
+      answerText.textContent = answer
+      popover.append(answerText)
+    }
     popover.addEventListener('pointerenter', clearHideTimer)
     popover.addEventListener('pointerleave', () => {
       hideTimer = window.setTimeout(hideTooltip, 100)
@@ -273,7 +264,7 @@ export function createTurnNavigation({
 
   const renderNodes = () => {
     track.replaceChildren()
-    if (turns.length === 0) {
+    if (!shouldShowTurnNavigation(turns.length)) {
       rail.hidden = true
       return
     }

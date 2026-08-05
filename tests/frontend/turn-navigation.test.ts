@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildConversationTurns } from '../../src/components/chat/turn-navigation-data'
+import { buildConversationTurns, shouldShowTurnNavigation, TURN_NAVIGATION_MIN_TURNS } from '../../src/components/chat/turn-navigation-data'
 
 function user(content: unknown, role = 'user') {
   return { role, content, timestamp: 0 }
@@ -10,6 +10,12 @@ function assistant(text: string) {
 }
 
 describe('conversation turn navigation', () => {
+  it('only shows the rail from the fifth turn', () => {
+    expect(TURN_NAVIGATION_MIN_TURNS).toBe(5)
+    expect(shouldShowTurnNavigation(4)).toBe(false)
+    expect(shouldShowTurnNavigation(5)).toBe(true)
+  })
+
   it('pairs each user message with the final assistant message before the next turn', () => {
     const turns = buildConversationTurns([
       user('first question'),

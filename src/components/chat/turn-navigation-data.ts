@@ -1,5 +1,11 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 
+export const TURN_NAVIGATION_MIN_TURNS = 5
+
+export function shouldShowTurnNavigation(turnCount: number) {
+  return turnCount >= TURN_NAVIGATION_MIN_TURNS
+}
+
 export type ConversationTurn = {
   messageIndex: number
   userText: string

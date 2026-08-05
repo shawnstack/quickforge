@@ -344,6 +344,11 @@ html.quickforge-mobile-native :where(button, input, textarea, select, [role="but
   -webkit-backdrop-filter: blur(14px) saturate(108%);
 }
 
+.quickforge-conversation-loading ~ * .quickforge-turn-navigation,
+body:has(.quickforge-conversation-loading) .quickforge-turn-navigation-tooltip {
+  display: none;
+}
+
 .quickforge-session-loading-indicator {
   display: flex;
   align-items: center;

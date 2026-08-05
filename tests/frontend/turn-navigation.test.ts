@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { buildConversationTurns, shouldShowTurnNavigation, TURN_NAVIGATION_MIN_TURNS } from '../../src/components/chat/turn-navigation-data'
 
@@ -10,6 +11,13 @@ function assistant(text: string) {
 }
 
 describe('conversation turn navigation', () => {
+  it('hides the rail and its tooltip while another session is loading', () => {
+    const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+
+    expect(css).toContain('.quickforge-conversation-loading ~ * .quickforge-turn-navigation')
+    expect(css).toContain('body:has(.quickforge-conversation-loading) .quickforge-turn-navigation-tooltip')
+  })
+
   it('only shows the rail from the fifth turn', () => {
     expect(TURN_NAVIGATION_MIN_TURNS).toBe(5)
     expect(shouldShowTurnNavigation(4)).toBe(false)

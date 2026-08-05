@@ -138,7 +138,10 @@ const dayMs = 24 * hourMs
 const weekMs = 7 * dayMs
 const yearMs = 365 * dayMs
 const deleteSessionFadeMs = 360
-const sessionHoverTipDelayMs = 300
+const sessionHoverTipDelayMs = 400
+const sessionTitleScrollDelayMs = 400
+const sessionTitleScrollSpeedPxPerSecond = 35
+const sessionTitleEndPauseMs = 1000
 const projectMenuWidth = 192
 const projectMenuHeight = 120
 const viewSortMenuWidth = 224
@@ -184,6 +187,87 @@ function LoadMoreSentinel({ onLoadMore, enabled }: { onLoadMore: () => void; ena
     <div ref={ref} className="flex items-center justify-center py-1">
       <Loader2 className="size-3 animate-spin text-muted-foreground/45" />
     </div>
+  )
+}
+
+function SessionTitleMarquee({ title, className }: { title: string; className?: string }) {
+  const staticTextRef = useRef<HTMLSpanElement | null>(null)
+  const movingTextRef = useRef<HTMLSpanElement | null>(null)
+  const delayTimerRef = useRef<number | null>(null)
+  const animationRef = useRef<Animation | null>(null)
+
+  const stopAnimation = useCallback(() => {
+    if (delayTimerRef.current !== null) {
+      window.clearTimeout(delayTimerRef.current)
+      delayTimerRef.current = null
+    }
+    animationRef.current?.cancel()
+    animationRef.current = null
+    if (staticTextRef.current) staticTextRef.current.style.visibility = ''
+    if (movingTextRef.current) {
+      movingTextRef.current.style.display = ''
+      movingTextRef.current.style.transform = 'translateX(0)'
+    }
+  }, [])
+
+  const startAnimation = useCallback((event: React.MouseEvent<HTMLSpanElement>) => {
+    stopAnimation()
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+
+    const container = event.currentTarget
+    const movingText = movingTextRef.current
+    if (!movingText) return
+    movingText.style.display = 'inline-block'
+    const distance = movingText.scrollWidth - container.clientWidth
+    movingText.style.display = ''
+    if (distance <= 1) return
+
+    delayTimerRef.current = window.setTimeout(() => {
+      delayTimerRef.current = null
+      const currentStaticText = staticTextRef.current
+      const currentMovingText = movingTextRef.current
+      if (!currentStaticText || !currentMovingText) return
+      currentStaticText.style.visibility = 'hidden'
+      currentMovingText.style.display = 'inline-block'
+      const scrollDurationMs = distance / sessionTitleScrollSpeedPxPerSecond * 1000
+      const returnDurationMs = Math.min(500, Math.max(240, scrollDurationMs * 0.25))
+      const totalDurationMs = scrollDurationMs + sessionTitleEndPauseMs + returnDurationMs
+      const endOffset = scrollDurationMs / totalDurationMs
+      const returnOffset = (scrollDurationMs + sessionTitleEndPauseMs) / totalDurationMs
+      const animation = currentMovingText.animate([
+        { transform: 'translateX(0)', offset: 0, easing: 'linear' },
+        { transform: `translateX(-${distance}px)`, offset: endOffset, easing: 'linear' },
+        { transform: `translateX(-${distance}px)`, offset: returnOffset, easing: 'ease-out' },
+        { transform: 'translateX(0)', offset: 1 },
+      ], {
+        duration: totalDurationMs,
+        fill: 'forwards',
+      })
+      animationRef.current = animation
+      void animation.finished.then(() => {
+        if (animationRef.current !== animation) return
+        animation.cancel()
+        animationRef.current = null
+        currentStaticText.style.visibility = ''
+        currentMovingText.style.display = ''
+        currentMovingText.style.transform = 'translateX(0)'
+      }).catch(() => undefined)
+    }, sessionTitleScrollDelayMs)
+  }, [stopAnimation])
+
+  useEffect(() => stopAnimation, [stopAnimation])
+
+  return (
+    <span
+      className={cn('relative min-w-0 flex-1 overflow-hidden whitespace-nowrap', className)}
+      onMouseEnter={startAnimation}
+      onMouseLeave={stopAnimation}
+    >
+      <span ref={staticTextRef} className="block truncate">{title}</span>
+      <span ref={movingTextRef} className="pointer-events-none absolute left-0 top-0 hidden whitespace-nowrap will-change-transform" aria-hidden="true">
+        {title}
+      </span>
+    </span>
   )
 }
 
@@ -700,7 +784,10 @@ export const ChatSidebar = memo(function ChatSidebar({
                 <div className={sessionTitleRowClass}>
                   {sessionLoadingIndicator(session.id)}
                   {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
-                  <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title, session.channelName)}</span>
+                  <SessionTitleMarquee
+                    className={cn(sessionTitleClass, selected && activeSessionTitleClass)}
+                    title={sessionTitle(session.title, session.channelName)}
+                  />
                 </div>
               </div>
               <button
@@ -1016,7 +1103,10 @@ export const ChatSidebar = memo(function ChatSidebar({
                                           <div className={sessionTitleRowClass}>
                                             {sessionLoadingIndicator(session.id)}
                                             {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
-                                            <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title, session.channelName)}</span>
+                                            <SessionTitleMarquee
+                                              className={cn(sessionTitleClass, selected && activeSessionTitleClass)}
+                                              title={sessionTitle(session.title, session.channelName)}
+                                            />
                                           </div>
                                         </div>
                                         {session.pinnedAt ? (
@@ -1210,7 +1300,10 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                 <div className={sessionTitleRowClass}>
                                                   {sessionLoadingIndicator(session.id)}
                                                   {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
-                                                  <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title, session.channelName)}</span>
+                                                  <SessionTitleMarquee
+                                                    className={cn(sessionTitleClass, selected && activeSessionTitleClass)}
+                                                    title={sessionTitle(session.title, session.channelName)}
+                                                  />
                                                 </div>
                                                 {session.pinnedAt ? (
                                                   <button
@@ -1349,7 +1442,10 @@ export const ChatSidebar = memo(function ChatSidebar({
                               <div className={sessionTitleRowClass}>
                                 {sessionLoadingIndicator(session.id)}
                                 {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
-                                <span className={cn(sessionTitleClass, selected && activeSessionTitleClass)}>{sessionTitle(session.title, session.channelName)}</span>
+                                <SessionTitleMarquee
+                                  className={cn(sessionTitleClass, selected && activeSessionTitleClass)}
+                                  title={sessionTitle(session.title, session.channelName)}
+                                />
                               </div>
                               {session.pinnedAt ? (
                                 <button

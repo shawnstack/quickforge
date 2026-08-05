@@ -58,7 +58,6 @@ const startedAt = new Date().toISOString()
 
 const isDev = process.argv.includes('--dev')
 const shareLanEnabled = process.env.QUICKFORGE_SHARE_LAN !== '0'
-const cloudAllowTailscale = process.env.QUICKFORGE_CLOUD_ALLOW_TAILSCALE === '1'
 const host = process.env.QUICKFORGE_HOST || '0.0.0.0'
 if (!['127.0.0.1', 'localhost'].includes(host) && process.env.QUICKFORGE_ALLOW_REMOTE !== '1' && !shareLanEnabled) {
   throw new Error('Remote binding is disabled by default. Set QUICKFORGE_ALLOW_REMOTE=1 or keep QUICKFORGE_SHARE_LAN enabled to allow it.')
@@ -342,13 +341,12 @@ async function handleApi(req, res, url, requestContext = {}) {
     return
   }
 
-  // Optional QuickForge Cloud account and managed models (local requests only).
+  // QuickForge Cloud account and managed models (local or authenticated Tailscale requests).
   if (pathname === '/api/cloud' || pathname.startsWith('/api/cloud/')) {
     await handleCloudApi(req, res, url, {
       isLocalRequest: requestContext.isLocalRequest === true,
       remoteAddress: requestContext.remoteAddress,
       remoteAuthorized: requestContext.remoteAuthorized === true,
-      allowTailscale: cloudAllowTailscale,
     })
     return
   }

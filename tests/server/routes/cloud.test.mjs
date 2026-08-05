@@ -29,19 +29,18 @@ function runtime() {
 }
 
 describe('cloud routes', () => {
-  it('rejects remote requests before initializing the cloud runtime', async () => {
+  it('rejects ordinary LAN requests before initializing the cloud runtime', async () => {
     const runtimeFactory = vi.fn(runtime)
     const handler = createCloudRouteHandler({ runtimeFactory })
     await expect(handler(request(), response(), new URL('http://localhost/api/cloud/status'), {
       isLocalRequest: false,
       remoteAddress: '192.168.1.20',
       remoteAuthorized: true,
-      allowTailscale: true,
     })).rejects.toMatchObject({ statusCode: 403, code: 'cloud_local_only' })
     expect(runtimeFactory).not.toHaveBeenCalled()
   })
 
-  it('allows an authenticated Tailscale client only with the explicit switch', async () => {
+  it('allows an authenticated Tailscale client', async () => {
     const current = runtime()
     const handler = createCloudRouteHandler({ runtimeFactory: () => current })
     const res = response()
@@ -49,17 +48,15 @@ describe('cloud routes', () => {
       isLocalRequest: false,
       remoteAddress: '::ffff:100.96.93.16',
       remoteAuthorized: true,
-      allowTailscale: true,
     })
     expect(res.status).toBe(200)
     expect(JSON.parse(res.body)).toMatchObject({ configured: true, mode: 'guest' })
   })
 
   it.each([
-    ['switch disabled', { remoteAddress: '100.96.93.16', remoteAuthorized: true, allowTailscale: false }],
-    ['LAN authentication missing', { remoteAddress: '100.96.93.16', remoteAuthorized: false, allowTailscale: true }],
-    ['ordinary LAN address', { remoteAddress: '192.168.1.20', remoteAuthorized: true, allowTailscale: true }],
-    ['public address', { remoteAddress: '8.8.8.8', remoteAuthorized: true, allowTailscale: true }],
+    ['LAN authentication missing', { remoteAddress: '100.96.93.16', remoteAuthorized: false }],
+    ['ordinary LAN address', { remoteAddress: '192.168.1.20', remoteAuthorized: true }],
+    ['public address', { remoteAddress: '8.8.8.8', remoteAuthorized: true }],
   ])('rejects %s', async (_name, options) => {
     const runtimeFactory = vi.fn(runtime)
     const handler = createCloudRouteHandler({ runtimeFactory })

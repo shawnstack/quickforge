@@ -39,7 +39,7 @@
 
 ### cloud.mjs
 
-本地 Cloud BFF 默认只允许本机；显式启用 Tailscale 例外时仍要求来源属于 `100.64.0.0/10` 且已通过 LAN 密码认证。
+来源属于 Tailscale `100.64.0.0/10` 且已通过 LAN 密码认证的客户端可以使用本地 Cloud BFF；普通 LAN、公网来源和未认证请求仍拒绝。远程客户端使用的是宿主机 Cloud 身份与额度。
 
 - `GET /api/cloud/status` — 返回本地安全摘要，不自动创建游客。
 - `POST /api/cloud/guest/start` — 用户明确确认后创建游客；退出后的下一次注册会先轮换安装密钥并创建新游客。

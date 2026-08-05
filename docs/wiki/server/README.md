@@ -43,7 +43,7 @@ server/
 
 **启动参数**:
 - `--dev`: 开发模式
-- 环境变量: `QUICKFORGE_PORT`, `QUICKFORGE_HOST`, `QUICKFORGE_DATA_DIR`, `QUICKFORGE_WORKSPACE_DIR`, `QUICKFORGE_SHARE_LAN`, `QUICKFORGE_ALLOW_REMOTE`, `QUICKFORGE_CLOUD_ALLOW_TAILSCALE`
+- 环境变量: `QUICKFORGE_PORT`, `QUICKFORGE_HOST`, `QUICKFORGE_DATA_DIR`, `QUICKFORGE_WORKSPACE_DIR`, `QUICKFORGE_SHARE_LAN`, `QUICKFORGE_ALLOW_REMOTE`
 
 **主要功能**:
 - HTTP 路由分发（基于 `url.pathname` 匹配）
@@ -53,7 +53,7 @@ server/
 - SSE（`/api/agents/events`, `/api/agents/:sessionId/stream`）
 - WebSocket 交互式终端（`/api/terminal/sessions/:id/ws`，仅 localhost）
 - 启动时重置僵死任务状态
-- 支持 LAN 共享（显示局域网 URL）；远程完整访问需在本机配置密码。已认证远端仍不能使用终端、重启服务、弹出目录选择器或打开资源管理器/IDE，Tailscale/VPN 是推荐的远程接入方式。默认远端不能消费主机 Cloud 额度；仅显式设置 `QUICKFORGE_CLOUD_ALLOW_TAILSCALE=1` 后，来源属于 `100.64.0.0/10` 且已通过 LAN 密码认证的 Tailscale 客户端可访问 `/api/cloud/*`，普通 LAN 仍拒绝
+- 支持 LAN 共享（显示局域网 URL）；远程完整访问需在本机配置密码。已认证远端仍不能使用终端、重启服务、弹出目录选择器或打开资源管理器/IDE，Tailscale/VPN 是推荐的远程接入方式。来源属于 `100.64.0.0/10` 且已通过 LAN 密码认证的 Tailscale 客户端可访问 `/api/cloud/*` 并使用宿主机 Cloud 身份与额度；普通 LAN、公网来源和未认证请求仍拒绝
 - 启动后初始化 `network-proxy.mjs`：读取 `settings['network-proxy']`，为外部 Fetch 请求应用直连、操作系统真实代理、手动 HTTP(S) 代理或 PAC 地址；localhost 始终直连。Desktop inline 由 Electron/Chromium Session 处理系统 PAC/WPAD 和自定义 PAC 地址；CLI/SDK 由 `@vscode/os-proxy-resolver` 调用 Windows、macOS 和 Linux 的原生系统代理来源，当前不支持自定义 PAC 地址，且不会静默降级为直连
 
 ### cloud/ — QuickForge Cloud 本地代理

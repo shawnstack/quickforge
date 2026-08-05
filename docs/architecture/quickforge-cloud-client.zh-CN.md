@@ -14,7 +14,7 @@ QuickForge 保持本地优先和匿名可用：
 - 游客身份只能由用户主动操作创建，应用启动不能自动注册。
 - 浏览器 UI 不持有 Access Token、Refresh Token、安装私钥或官方上游模型密钥。
 - 云账户不能绕过 LAN 访问认证，也不能自动获得 Agent 完全访问权限。
-- 第一阶段 LAN/Tailscale 客户端默认不能消费主机云账户额度；仅显式开发联调开关配合 Tailscale 来源校验和 LAN 密码认证时例外。
+- 已通过 LAN 密码认证且来源属于 Tailscale `100.64.0.0/10` 的客户端可以使用宿主机云账户身份与额度；普通 LAN、公网来源和未认证请求仍拒绝。
 
 ## 配置
 
@@ -68,19 +68,7 @@ Access Token 只保存在 Node 进程内存中。需要刷新时使用 Refresh T
 
 ## 本地 API
 
-第一阶段 `/api/cloud/*` 默认仅允许回环本机请求。开发联调可以显式设置：
-
-```text
-QUICKFORGE_CLOUD_ALLOW_TAILSCALE=1
-```
-
-开启后仅允许同时满足以下条件的 Tailscale 客户端访问云路由：
-
-- socket 来源地址属于 `100.64.0.0/10`；
-- 已通过 QuickForge LAN 密码认证并持有有效 Cookie；
-- 显式开关为 `1`。
-
-普通 LAN、公网来源以及未认证的 Tailscale 请求仍被拒绝。该开关不会把 Tailscale 请求视为本机请求，因此终端、重启、打开本机路径等能力不会因此开放。
+来源属于 `100.64.0.0/10` 且已通过 LAN 密码认证的 Tailscale 客户端可访问 `/api/cloud/*`，因此 Android 远程客户端可以使用宿主机的 QuickForge Cloud 身份、模型与额度。普通 LAN、公网来源和未认证 Tailscale 请求仍拒绝。该规则不会把 Tailscale 请求视为本机请求，因此终端、重启、打开本机路径等能力不会因此开放。
 
 本地云 API 包括：
 

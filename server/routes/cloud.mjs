@@ -36,13 +36,11 @@ export function createCloudRouteHandler({ runtimeFactory = createDefaultRuntime 
     isLocalRequest = false,
     remoteAddress,
     remoteAuthorized = false,
-    allowTailscale = false,
   } = {}) {
-    const tailscaleAllowed = allowTailscale === true
-      && remoteAuthorized === true
+    const tailscaleAllowed = remoteAuthorized === true
       && isTailscaleAddress(remoteAddress)
     if (!isLocalRequest && !tailscaleAllowed) {
-      throw routeError('QuickForge Cloud settings are available only on this computer or an authorized Tailscale client.', 403, 'cloud_local_only')
+      throw routeError('QuickForge Cloud is available only on this computer or an authorized Tailscale client.', 403, 'cloud_local_only')
     }
 
     const current = getRuntime()

@@ -6,6 +6,7 @@ All notable changes to QuickForge will be documented in this file.
 
 ### Changed
 
+- Allowed authenticated Tailscale mobile clients to use the host QuickForge Cloud connection, models, and quota while continuing to reject ordinary LAN, public, and unauthenticated requests.
 - Renamed the bundled plugin identifiers from `openai-documents`, `openai-presentations`, and `openai-spreadsheets` to `documents`, `presentations`, and `spreadsheets`, while migrating existing enabled states and configuration.
 
 ## [1.7.4] - 2026-08-04

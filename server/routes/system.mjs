@@ -22,6 +22,7 @@ export async function handleSystemApi(req, res, url, context) {
     if (!isAuthenticatedAppClient(context)) {
       const error = new Error('Update requires a local or authenticated remote client')
       error.statusCode = 403
+      error.errorCode = 'system_update_requires_auth'
       throw error
     }
 
@@ -40,6 +41,7 @@ export async function handleSystemApi(req, res, url, context) {
     if (!isAuthenticatedAppClient(context)) {
       const error = new Error('Restart requires a local or authenticated remote client')
       error.statusCode = 403
+      error.errorCode = 'system_restart_requires_auth'
       throw error
     }
 

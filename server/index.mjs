@@ -451,6 +451,7 @@ async function handleApi(req, res, url, requestContext = {}) {
       checkDesktopRelease: () => checkDesktopRelease(projectRoot),
       updateQuickForge,
       isLocalRequest: requestContext.isLocalRequest === true,
+      remoteAuthorized: requestContext.remoteAuthorized === true,
       getTerminalShellSetting: readTerminalShellSetting,
       updateTerminalShellSetting,
       getTerminalShellConfig: readTerminalShellConfig,

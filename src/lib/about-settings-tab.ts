@@ -56,6 +56,12 @@ function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
+function translateSystemError(payload: { error?: string; code?: string } | null, fallback: string) {
+  if (payload?.code === 'system_restart_requires_auth') return t('systemRestartRequiresAuth')
+  if (payload?.code === 'system_update_requires_auth') return t('systemUpdateRequiresAuth')
+  return payload?.error || fallback
+}
+
 const FREQUENCY_OPTIONS: { value: UpdateCheckFrequency; label: () => string }[] = [
   { value: 'startup', label: () => t('frequencyStartup') },
   { value: 'daily', label: () => t('frequencyDaily') },
@@ -231,7 +237,7 @@ class AboutSettingsTab extends SettingsTab {
         headers: { 'x-quickforge-action': 'restart' },
       })
       const payload = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(payload?.error || t('backendRestartFailed'))
+      if (!response.ok) throw new Error(translateSystemError(payload, t('backendRestartFailed')))
       await this.pollUntilRestarted(previousBootId)
     } catch (error) {
       this.error = error instanceof Error ? error.message : t('backendRestartFailed')
@@ -270,7 +276,7 @@ class AboutSettingsTab extends SettingsTab {
         headers: { 'x-quickforge-action': 'update' },
       })
       const payload = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(payload?.error || t('updateFailed'))
+      if (!response.ok) throw new Error(translateSystemError(payload, t('updateFailed')))
       this.updateInfo = payload as UpdateInfo
       if (payload?.updateStarted) {
         const logHint = payload.logFile ? ` ${t('updateLogFile', { path: payload.logFile })}` : ''

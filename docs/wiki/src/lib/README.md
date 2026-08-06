@@ -54,7 +54,9 @@
 **功能**:
 - `initializePiStorage()` — 初始化存储后端
 - `loadDefaultOptions()` / `saveDefaultOptions()` — 默认选项管理
-- `getConfiguredModels()` — 获取全部已配置的自定义模型；`getSelectableConfiguredModels()` / `selectableModelsFromProviders()` 仅返回未设置 `quickforgeHidden: true` 的可选择模型，旧配置默认可见
+- `getConfiguredModels()` — 获取全部已配置的自定义模型；`getSelectableConfiguredModels()` / `selectableModelsFromProviders()` 仅返回未设置 `quickforgeHidden: true` 的可选择模型，旧配置默认可见。
+- `loadInitialConfiguredModel()` / `resolveNewSessionModel()` — 新会话只从当前可选择目录解析默认、active 或请求模型；已隐藏、已删除或失效的模型不会成为新会话候选。
+- `resolveConfiguredModel()` — 已有会话、分支等持久化绑定按完整模型身份恢复，可继续使用后来被隐藏的模型。
 - DeepSeek V4 推理兼容性处理
 
 ### cloud-client.ts
@@ -91,6 +93,16 @@
 - SSE 事件订阅
 
 ## 工具模块
+
+### model-visibility.ts / model-identity.ts / model-display-label.ts
+
+**用途**: 收口模型选择与展示规则。
+
+- `isModelSelectable()` / `filterSelectableModels()` 仅排除明确设置 `quickforgeHidden: true` 的模型，并保持 `Model<Api>[]` 泛型返回值；缺少字段的旧配置继续可见。
+- `modelIdentityKey()` / `sameModelIdentity()` 使用 Provider、Model ID、API 和规范化 Base URL 区分模型；`modelMatchesReference()` 兼容旧 Agent 引用缺少可选字段。
+- `includeCurrentModel()` 只为编辑或恢复入口重新加入当前已绑定的隐藏模型，不把它变成其他新选择候选。
+- `modelDisplayLabel()` 统一输出 `Provider / Model ID`，不使用 Provider 内部模型名称、API 或 Base URL 作为选择标签。
+- `custom-model-selector.ts` 是展示层，调用方必须传入已过滤的新选择目录；主聊天、默认模型、Agent Profile、定时任务和共享会话均按上述规则准备列表。
 
 ### local-tools.ts (247 行)
 

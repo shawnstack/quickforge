@@ -39,9 +39,14 @@
 
 ### cloud.mjs
 
-来源属于 Tailscale `100.64.0.0/10` 且已通过 LAN 密码认证的客户端可以使用本地 Cloud BFF；普通 LAN、公网来源和未认证请求仍拒绝。远程客户端使用的是宿主机 Cloud 身份与额度。
+来源属于 Tailscale IPv4 `100.64.0.0/10` 且已通过 LAN 密码认证的客户端可以使用本地 Cloud BFF；普通 LAN、公网来源、未认证请求和 Tailscale IPv6 当前均拒绝。远程客户端使用的是宿主机 Cloud 身份与额度。未认证远端请求可能先由全局 LAN 层返回 HTTP 401；请求到达 Cloud 路由但不满足边界时返回 HTTP 403 / `cloud_local_only`。
 
-- `GET /api/cloud/status` — 返回本地安全摘要，不自动创建游客。
+- `GET /api/cloud/config` — 返回规范化 Cloud URL、来源与配置错误，不返回凭据。
+- `PUT /api/cloud/config` — 保存 URL 并使 Cloud runtime 失效；活动 Session 必须与凭据中绑定的 `sessionCloudUrl` 一致，旧版未绑定 Session 也会以 HTTP 409 / `cloud_session_active` 安全拒绝。
+- `POST /api/cloud/test-connection` — 使用一次性 Client 检查 health/ready，不创建身份、初始化 runtime 或发送 Token。
+- `POST /api/cloud/identity/reset` — 需显式确认；仅清本地 Session、轮换 installation 并使 runtime 失效，不联系旧/新服务。
+- `GET /api/cloud/status` — 返回本地安全摘要，不自动创建游客；Session URL 不匹配或旧 Session 缺失绑定时带 `sessionServiceMismatch` 供 UI 提示重建身份。
+- Refresh、Logout、模型、额度和设备等 Token 操作发现 Session URL 不匹配或缺失时返回 HTTP 409 / `cloud_session_service_mismatch`，并在发送旧 Refresh Token 前拒绝。
 - `POST /api/cloud/guest/start` — 用户明确确认后创建游客；退出后的下一次注册会先轮换安装密钥并创建新游客。
 - `GET /api/cloud/models|usage|installations` — 返回公开模型、额度和设备列表。
 - `DELETE /api/cloud/installations/:id` — 撤销指定设备。

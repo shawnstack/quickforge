@@ -53,13 +53,15 @@ server/
 - SSE（`/api/agents/events`, `/api/agents/:sessionId/stream`）
 - WebSocket 交互式终端（`/api/terminal/sessions/:id/ws`，仅 localhost）
 - 启动时重置僵死任务状态
-- 支持 LAN 共享（显示局域网 URL）；远程完整访问需在本机配置密码。已认证远端仍不能使用终端、重启服务、弹出目录选择器或打开资源管理器/IDE，Tailscale/VPN 是推荐的远程接入方式。来源属于 `100.64.0.0/10` 且已通过 LAN 密码认证的 Tailscale 客户端可访问 `/api/cloud/*` 并使用宿主机 Cloud 身份与额度；普通 LAN、公网来源和未认证请求仍拒绝
+- 支持 LAN 共享（显示局域网 URL）；远程完整访问需在本机配置密码。已认证远端仍不能使用终端、重启服务、弹出目录选择器或打开资源管理器/IDE，Tailscale/VPN 是推荐的远程接入方式。`/api/cloud/*` 仅允许本机，或已通过 LAN 密码认证且 socket 来源属于 Tailscale IPv4 `100.64.0.0/10` 的客户端；普通 LAN、公网来源、未认证请求和 Tailscale IPv6 当前均不在允许范围。
 - 启动后初始化 `network-proxy.mjs`：读取 `settings['network-proxy']`，为外部 Fetch 请求应用直连、操作系统真实代理、手动 HTTP(S) 代理或 PAC 地址；localhost 始终直连。Desktop inline 由 Electron/Chromium Session 处理系统 PAC/WPAD 和自定义 PAC 地址；CLI/SDK 由 `@vscode/os-proxy-resolver` 调用 Windows、macOS 和 Linux 的原生系统代理来源，当前不支持自定义 PAC 地址，且不会静默降级为直连
 
 ### cloud/ — QuickForge Cloud 本地代理
 
+- `cloud/` 提供独立受管 QuickForge Cloud BFF：`service-config.mjs` 从 `settings['quickforge-cloud-service']`、环境变量和产品默认值解析安全 Cloud URL；`runtime.mjs` 按当前配置热构建/失效运行时；配置不会进入 `customProviders` / `providerKeys`。
 - `credential-store.mjs` 将安装密钥和 Refresh Token 原子保存在 `~/.quickforge/storage/security/cloud-identity.json`，公开状态不返回 Token、私钥或路径。
 - `identity.mjs` 管理显式游客注册、Access Token 内存缓存、Refresh Token 轮换、额度/设备读取和注销。
+- `routes/cloud.mjs` 暴露同源 `/api/cloud/*`：包括 `GET/PUT /api/cloud/config`、`POST /api/cloud/test-connection`、`POST /api/cloud/identity/reset`、`GET /api/cloud/status`，以及游客、目录、额度、设备和退出；跨 URL 保存且存在 Session 时返回 `409 cloud_session_active`。Refresh/Logout/模型/额度等 Token 操作发现 Session 绑定到其他 URL 或旧 Session 缺少绑定时，以 `409 cloud_session_service_mismatch` 拒绝并且不会把旧 Refresh Token 发往当前服务；reset 只清本地 Session、轮换 installation，不联系 Cloud。
 - 退出当前设备时先调用云端 installation revoke，成功后才清理本地 Session；失败时保留凭据供重试。
 - 退出后再次创建游客会轮换 Ed25519 安装密钥，避免旧公钥指纹唯一约束冲突；该行为创建新游客，不恢复旧额度。
 - `models.mjs` 只向浏览器返回无密钥模型描述，真实 Cloud Token 和上游地址仅在 Node 请求期间注入。

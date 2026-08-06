@@ -12,7 +12,8 @@
 | `shared-server-agent.ts` | 429 | 共享会话 Agent 客户端 |
 | `local-tools.ts` | 247 | 前端本地工具渲染器注册 |
 | `share-client.ts` | 148 | 分享功能客户端 API |
-| `cloud-client.ts` | QuickForge Cloud 本地 BFF 客户端和公开状态/额度/设备类型 |
+| `startup-model.ts` | 主聊天启动模型的当前目录精确匹配与安全回退 |
+| `cloud-client.ts` | QuickForge Cloud 本地 BFF 客户端和公开配置/状态/额度/设备类型 |
 | `http-storage-backend.ts` | 200 | HTTP Storage Backend 实现 |
 | `types.ts` | 82 | 类型定义 |
 | `utils.ts` | 6 | 通用工具函数（cn） |
@@ -54,15 +55,17 @@
 **功能**:
 - `initializePiStorage()` — 初始化存储后端
 - `loadDefaultOptions()` / `saveDefaultOptions()` — 默认选项管理
-- `getConfiguredModels()` — 获取全部已配置的自定义模型；`getSelectableConfiguredModels()` / `selectableModelsFromProviders()` 仅返回未设置 `quickforgeHidden: true` 的可选择模型，旧配置默认可见。
+- `getConfiguredModels()` — 获取全部已配置的自定义模型；`getSelectableConfiguredModels()` / `selectableModelsFromProviders()` 仅返回未设置 `quickforgeHidden: true` 的可选择模型，旧配置默认可见；Cloud 模型由内存目录额外合并，不写入 Provider store。
 - `loadInitialConfiguredModel()` / `resolveNewSessionModel()` — 新会话只从当前可选择目录解析默认、active 或请求模型；已隐藏、已删除或失效的模型不会成为新会话候选。
 - `resolveConfiguredModel()` — 已有会话、分支等持久化绑定按完整模型身份恢复，可继续使用后来被隐藏的模型。
 - DeepSeek V4 推理兼容性处理
 
 ### cloud-client.ts
 
-**用途**: 封装同源 `/api/cloud/*` 本地 BFF，只处理公开状态、模型、额度和设备数据，不在浏览器持有 Cloud Token。
+**用途**: 封装同源 `/api/cloud/*` 本地 BFF，只处理公开配置、连接测试、状态、模型、额度和设备数据，不在浏览器持有 Cloud Token。
 
+- `getCloudConfig()` / `updateCloudConfig()` 管理独立受管服务 URL；`testCloudConnection()` 仅请求 Node BFF 做 health/ready 检查。
+- `resetCloudIdentity()` 发送固定危险确认值，由 Node 清本地 Session 并轮换 installation；错误通过 `CloudClientError.code` 保留（包括保存配置时的 `cloud_session_active`，以及 Token 操作时的 `cloud_session_service_mismatch`）。
 - `getCloudStatus()` 只读取本地安全摘要，不触发游客注册。
 - `startCloudGuest()` 是显式游客入口。
 - `getCloudUsage()` / `getCloudInstallations()` 读取额度与设备。

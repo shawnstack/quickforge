@@ -55,8 +55,11 @@ components/
 
 ### CloudAccountSettingsPage.tsx
 
-- 位于「设置 → 账户与云服务」，展示可选云身份、剩余额度、重置/到期时间和连接设备。
+- 位于「设置 → 账户与云服务」，顶部配置独立受管 QuickForge Cloud 服务连接（只读服务类型、Cloud URL、来源、health/ready 测试和保存），不展示 Provider Key，也不写入自定义 Provider。
+- 同页展示可选云身份、剩余额度、重置/到期时间、公开模型目录和连接设备；一次刷新同步请求 config/status/usage/installations/models，其中 usage/installations/models 独立提交结果：单项失败会清除该项旧数据并在对应区块提供重试，其余成功内容继续展示。
+- 页面明确区分未配置、本地无 Session、Session 可用、Session URL 不匹配、Cloud 不可达和详情单项失败；旧 Session URL 不匹配时不请求详情、不自动创建游客，只展示显式重建入口。
 - 用户仍需明确确认数据发送说明后才创建游客，页面挂载和刷新不会自动注册。
+- 有活动 Session 时跨 URL 保存会显示先退出或“重建身份并切换”的明确引导；后者要求危险确认，先本地 reset 再保存，不自动重试，也不把旧 Refresh Token 发给新服务；旧 Session 缺少 URL 绑定时同样按不匹配处理。若 reset 成功但 URL 保存失败，页面保留目标 URL 草稿，并明确显示“身份已重建、URL 保存失败”，用户可直接重试保存而无需再次 reset。
 - 可撤销其他设备；当前设备退出由本地 BFF 先完成云端撤销，失败时保留本地凭据供重试。
 - 退出后再次体验会创建新游客身份和额度，不宣称恢复旧游客。
 - 成功启用或退出后派发 `quickforge:cloud-state-changed`，清空 `useCloudModels` 的内存云模型缓存。

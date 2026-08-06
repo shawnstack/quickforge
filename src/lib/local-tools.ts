@@ -761,29 +761,31 @@ class LocalWorkspaceToolRenderer {
       // before the DOM decoration pass moves the tool into the Process group.
       isCustom: true,
       content: html`
-        <details class="group/tool quickforge-local-tool" ?open=${detailsOpen} @toggle=${(event: Event) => {
-          if (event.isTrusted) rememberToolDetailsOpen(detailsKey, (event.currentTarget as HTMLDetailsElement).open)
-        }}>
-          <summary class="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
-            ${renderToolIcon(this.toolName)}
-            <span class="quickforge-tool-title min-w-0">
-              <span class="quickforge-tool-label">${t(this.labelKey)}${summary ? html`<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${summary}</span>` : ''}</span>
-              <svg class="quickforge-tool-chevron shrink-0 group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
-              ${renderInlineDiffStats(this.toolName, diff)}
-              ${renderStatus(status, timing)}
-            </span>
-            <span class="quickforge-tool-actions ml-auto inline-flex shrink-0 items-center gap-1">
-              ${renderPreviewButton(this.toolName, params)}
-              ${renderTerminateCommandButton(this.toolName, status, result?.details)}
-            </span>
-          </summary>
-          <div class="mt-3 space-y-3">
-            ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : ''}
-            ${output ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('output')}</div>${this.toolName === 'run_command' ? html`<console-block .content=${output} .variant=${variant}></console-block>` : html`<code-block .code=${output} language="text"></code-block>`}</div>` : ''}
-            ${diff ? renderDiff(diff) : ''}
-            ${details ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('details')}</div><code-block .code=${details} language="json"></code-block></div>` : ''}
-          </div>
-        </details>
+        <div class="quickforge-local-tool-shell">
+          <details class="group/tool quickforge-local-tool" ?open=${detailsOpen} @toggle=${(event: Event) => {
+            if (event.isTrusted) rememberToolDetailsOpen(detailsKey, (event.currentTarget as HTMLDetailsElement).open)
+          }}>
+            <summary class="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
+              ${renderToolIcon(this.toolName)}
+              <span class="quickforge-tool-title min-w-0">
+                <span class="quickforge-tool-label">${t(this.labelKey)}${summary ? html`<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${summary}</span>` : ''}</span>
+                <svg class="quickforge-tool-chevron shrink-0 group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                ${renderInlineDiffStats(this.toolName, diff)}
+                ${renderStatus(status, timing)}
+              </span>
+            </summary>
+            <div class="mt-3 space-y-3">
+              ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : ''}
+              ${output ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('output')}</div>${this.toolName === 'run_command' ? html`<console-block .content=${output} .variant=${variant}></console-block>` : html`<code-block .code=${output} language="text"></code-block>`}</div>` : ''}
+              ${diff ? renderDiff(diff) : ''}
+              ${details ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('details')}</div><code-block .code=${details} language="json"></code-block></div>` : ''}
+            </div>
+          </details>
+          <span class="quickforge-tool-actions inline-flex shrink-0 items-center gap-1">
+            ${renderPreviewButton(this.toolName, params)}
+            ${renderTerminateCommandButton(this.toolName, status, result?.details)}
+          </span>
+        </div>
       `,
     }
   }

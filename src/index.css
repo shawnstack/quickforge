@@ -2595,6 +2595,21 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
 /* Keep ordinary Tool and Subagent rows on the same typographic rhythm as
    the Process timeline. Technical summaries retain a monospace voice without
    changing the typography of labels, controls, Diff, or code output. */
+.quickforge-local-tool-shell {
+  position: relative;
+}
+
+.quickforge-local-tool-shell > .quickforge-tool-actions {
+  position: absolute;
+  z-index: 1;
+  top: 0.0625rem;
+  right: 0;
+}
+
+.quickforge-local-tool-shell:has(> .quickforge-tool-actions > button) > .quickforge-local-tool > .quickforge-tool-summary {
+  padding-right: 1.75rem;
+}
+
 .quickforge-local-tool > .quickforge-tool-summary,
 .quickforge-mcp-tool > .quickforge-tool-summary,
 .quickforge-subagent-tool > .quickforge-tool-summary {

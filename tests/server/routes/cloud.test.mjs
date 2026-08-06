@@ -1,8 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createCloudRouteHandler } from '../../../server/routes/cloud.mjs'
 
-function request(method = 'GET') {
-  return { method, headers: {} }
+const CLOUD_ACTION_HEADERS = { 'x-quickforge-action': 'cloud-action' }
+const CLOUD_JSON_HEADERS = { ...CLOUD_ACTION_HEADERS, 'content-type': 'application/json' }
+
+function request(method = 'GET', body, headers = {}) {
+  async function* chunks() {
+    if (body !== undefined) yield Buffer.from(JSON.stringify(body))
+  }
+  return { method, headers, [Symbol.asyncIterator]: chunks }
+}
+
+function cloudRequest(method, body) {
+  return request(method, body, body === undefined ? CLOUD_ACTION_HEADERS : CLOUD_JSON_HEADERS)
 }
 
 function response() {
@@ -67,6 +77,53 @@ describe('cloud routes', () => {
     expect(runtimeFactory).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['PUT', '/api/cloud/config', { cloudUrl: 'http://127.0.0.1:8082' }],
+    ['POST', '/api/cloud/test-connection', { cloudUrl: 'http://127.0.0.1:8082' }],
+    ['POST', '/api/cloud/identity/reset', { confirm: 'reset-cloud-identity' }],
+    ['POST', '/api/cloud/guest/start'],
+    ['POST', '/api/cloud/logout'],
+    ['DELETE', '/api/cloud/installations/i-2'],
+  ])('rejects %s %s without the Cloud action header', async (method, pathname, body) => {
+    const runtimeFactory = vi.fn(runtime)
+    const handler = createCloudRouteHandler({ runtimeFactory })
+    const headers = body === undefined ? {} : { 'content-type': 'application/json' }
+    await expect(handler(request(method, body, headers), response(), new URL(`http://localhost${pathname}`), { isLocalRequest: true }))
+      .rejects.toMatchObject({ statusCode: 403, code: 'cloud_action_header_required' })
+    expect(runtimeFactory).not.toHaveBeenCalled()
+  })
+
+  it('rejects Cloud JSON writes sent as text/plain', async () => {
+    const runtimeFactory = vi.fn(runtime)
+    const handler = createCloudRouteHandler({ runtimeFactory })
+    await expect(handler(request('POST', { cloudUrl: 'http://127.0.0.1:8082' }, {
+      ...CLOUD_ACTION_HEADERS,
+      'content-type': 'text/plain',
+    }), response(), new URL('http://localhost/api/cloud/test-connection'), { isLocalRequest: true }))
+      .rejects.toMatchObject({ statusCode: 415, code: 'cloud_json_content_type_required' })
+    expect(runtimeFactory).not.toHaveBeenCalled()
+  })
+
+  it('lets a valid action header and JSON Content-Type pass the request guards', async () => {
+    const runtimeFactory = vi.fn(runtime)
+    const handler = createCloudRouteHandler({ runtimeFactory })
+    await expect(handler(cloudRequest('POST', { cloudUrl: 'http://127.0.0.1:8082' }), response(), new URL('http://localhost/api/cloud/test-connection'), { isLocalRequest: true }))
+      .rejects.toMatchObject({ statusCode: 404, code: 'route_not_found' })
+    expect(runtimeFactory).toHaveBeenCalledTimes(1)
+  })
+
+  it('allows an authenticated Tailscale client to perform a protected write', async () => {
+    const current = runtime()
+    const handler = createCloudRouteHandler({ runtimeFactory: () => current })
+    const res = response()
+    await handler(cloudRequest('POST'), res, new URL('http://localhost/api/cloud/guest/start'), {
+      isLocalRequest: false,
+      remoteAddress: '100.96.93.16',
+      remoteAuthorized: true,
+    })
+    expect(res.status).toBe(201)
+    expect(current.identity.startGuest).toHaveBeenCalledTimes(1)
+  })
 
   it('returns local mode without creating a cloud session when disabled', async () => {
     const handler = createCloudRouteHandler({ runtimeFactory: () => ({ enabled: false }) })
@@ -94,7 +151,7 @@ describe('cloud routes', () => {
     expect(current.identity.startGuest).not.toHaveBeenCalled()
 
     const res = response()
-    await handler(request('POST'), res, new URL('http://localhost/api/cloud/guest/start'), { isLocalRequest: true })
+    await handler(cloudRequest('POST'), res, new URL('http://localhost/api/cloud/guest/start'), { isLocalRequest: true })
     expect(res.status).toBe(201)
     expect(current.identity.startGuest).toHaveBeenCalledTimes(1)
   })
@@ -106,9 +163,9 @@ describe('cloud routes', () => {
     await handler(request(), models, new URL('http://localhost/api/cloud/models'), { isLocalRequest: true })
     expect(JSON.parse(models.body).items).toEqual([{ id: 'qf-fast', provider: 'quickforge-cloud' }])
 
-    await handler(request('DELETE'), response(), new URL('http://localhost/api/cloud/installations/i-2'), { isLocalRequest: true })
+    await handler(cloudRequest('DELETE'), response(), new URL('http://localhost/api/cloud/installations/i-2'), { isLocalRequest: true })
     expect(current.identity.revokeInstallation).toHaveBeenCalledWith('i-2')
-    await handler(request('POST'), response(), new URL('http://localhost/api/cloud/logout'), { isLocalRequest: true })
+    await handler(cloudRequest('POST'), response(), new URL('http://localhost/api/cloud/logout'), { isLocalRequest: true })
     expect(current.identity.logout).toHaveBeenCalledTimes(1)
   })
 
@@ -116,7 +173,7 @@ describe('cloud routes', () => {
     const current = runtime()
     current.identity.logout.mockRejectedValue(new Error('offline'))
     const handler = createCloudRouteHandler({ runtimeFactory: () => current })
-    await expect(handler(request('POST'), response(), new URL('http://localhost/api/cloud/logout'), { isLocalRequest: true }))
+    await expect(handler(cloudRequest('POST'), response(), new URL('http://localhost/api/cloud/logout'), { isLocalRequest: true }))
       .rejects.toThrow('offline')
   })
 })

@@ -5,6 +5,7 @@ import {
   getCloudStatus,
   getCloudUsage,
   logoutCloud,
+  requestCloudJson,
   revokeCloudInstallation,
   startCloudGuest,
 } from '../../src/lib/cloud-client'
@@ -20,7 +21,9 @@ describe('cloud client', () => {
     await expect(getCloudStatus()).resolves.toMatchObject({ configured: true, mode: 'local' })
     expect(fetchMock).toHaveBeenCalledWith('/api/cloud/status', expect.objectContaining({ cache: 'no-store' }))
     const init = fetchMock.mock.calls[0][1]
-    expect(init?.headers).not.toHaveProperty('Authorization')
+    const headers = new Headers(init?.headers)
+    expect(headers.get('authorization')).toBeNull()
+    expect(headers.get('x-quickforge-action')).toBeNull()
   })
 
   it('starts a guest explicitly and parses public models', async () => {
@@ -32,6 +35,17 @@ describe('cloud client', () => {
     await expect(startCloudGuest()).resolves.toMatchObject({ mode: 'guest' })
     await expect(getCloudModels()).resolves.toEqual([{ id: 'qf-fast', provider: 'quickforge-cloud' }])
     expect(fetchMock.mock.calls[0][1]?.method).toBe('POST')
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('x-quickforge-action')).toBe('cloud-action')
+    expect(new Headers(fetchMock.mock.calls[1][1]?.headers).get('x-quickforge-action')).toBeNull()
+  })
+
+  it('automatically protects Cloud JSON writes', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(requestCloudJson('/api/cloud/config', { method: 'PUT', body: '{}' })).resolves.toEqual({ ok: true })
+    const headers = new Headers(fetchMock.mock.calls[0][1]?.headers)
+    expect(headers.get('x-quickforge-action')).toBe('cloud-action')
+    expect(headers.get('content-type')).toBe('application/json')
   })
 
   it('uses the local service error message', async () => {
@@ -54,5 +68,9 @@ describe('cloud client', () => {
 
     expect(fetchMock).toHaveBeenCalledWith('/api/cloud/installations/i%2F2', expect.objectContaining({ method: 'DELETE' }))
     expect(fetchMock).toHaveBeenCalledWith('/api/cloud/logout', expect.objectContaining({ method: 'POST' }))
+    for (const [path, init] of fetchMock.mock.calls) {
+      const header = new Headers(init?.headers).get('x-quickforge-action')
+      expect(header).toBe(path.endsWith('/usage') || path.endsWith('/installations') ? null : 'cloud-action')
+    }
   })
 })

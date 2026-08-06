@@ -3,9 +3,19 @@ import { getCloudRuntime } from '../cloud/runtime.mjs'
 import { isTailscaleAddress } from '../utils/network.mjs'
 import { sendJson } from '../utils/response.mjs'
 
+const CLOUD_ACTION_HEADER = 'x-quickforge-action'
+const CLOUD_ACTION_VALUE = 'cloud-action'
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
+const JSON_WRITE_ROUTES = new Set([
+  'POST /api/cloud/test-connection',
+  'PUT /api/cloud/config',
+  'POST /api/cloud/identity/reset',
+])
+
 function routeError(message, statusCode, code) {
   const error = new Error(message)
   error.statusCode = statusCode
+  error.errorCode = code
   error.code = code
   return error
 }
@@ -20,6 +30,21 @@ function mapCloudError(error) {
 
 function createDefaultRuntime() {
   return getCloudRuntime()
+}
+
+function requireProtectedCloudWrite(req, pathname) {
+  const method = String(req.method || 'GET').toUpperCase()
+  if (SAFE_METHODS.has(method)) return
+
+  if (req.headers[CLOUD_ACTION_HEADER] !== CLOUD_ACTION_VALUE) {
+    throw routeError('QuickForge Cloud action header is required.', 403, 'cloud_action_header_required')
+  }
+
+  if (!JSON_WRITE_ROUTES.has(`${method} ${pathname}`)) return
+  const mediaType = String(req.headers['content-type'] || '').split(';', 1)[0].trim().toLowerCase()
+  if (mediaType !== 'application/json') {
+    throw routeError('QuickForge Cloud JSON requests require Content-Type: application/json.', 415, 'cloud_json_content_type_required')
+  }
 }
 
 export function createCloudRouteHandler({ runtimeFactory = createDefaultRuntime } = {}) {
@@ -42,6 +67,8 @@ export function createCloudRouteHandler({ runtimeFactory = createDefaultRuntime 
     if (!isLocalRequest && !tailscaleAllowed) {
       throw routeError('QuickForge Cloud is available only on this computer or an authorized Tailscale client.', 403, 'cloud_local_only')
     }
+
+    requireProtectedCloudWrite(req, url.pathname)
 
     const current = getRuntime()
     if (req.method === 'GET' && url.pathname === '/api/cloud/status') {

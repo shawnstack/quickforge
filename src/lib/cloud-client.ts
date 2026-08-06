@@ -2,6 +2,10 @@ import type { Api, Model } from '@earendil-works/pi-ai'
 
 export type CloudMode = 'local' | 'guest' | 'account'
 
+const CLOUD_ACTION_HEADER = 'x-quickforge-action'
+const CLOUD_ACTION_VALUE = 'cloud-action'
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
+
 export type CloudStatus = {
   configured: boolean
   mode: CloudMode
@@ -49,12 +53,15 @@ export type CloudInstallation = {
 }
 
 async function requestCloudJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const method = String(init.method || 'GET').toUpperCase()
   const response = await fetch(path, {
     ...init,
     cache: 'no-store',
     headers: {
       Accept: 'application/json',
       ...(init.headers || {}),
+      ...(SAFE_METHODS.has(method) ? {} : { [CLOUD_ACTION_HEADER]: CLOUD_ACTION_VALUE }),
+      ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }),
     },
   })
   if (!response.ok) {

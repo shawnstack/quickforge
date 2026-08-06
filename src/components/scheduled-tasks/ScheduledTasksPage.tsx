@@ -4,8 +4,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, Bot, Brain, CheckCircle2, Clock3, Edit3, Eye, Folder, MoreHorizontal, Search, Sparkles, Trash2, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { defaultThinkingLevelForModel, getSelectableConfiguredModels, initializePiStorage, loadDefaultOptions } from '@/lib/pi-chat'
+import { modelDisplayLabel as modelLabel } from '@/lib/model-display-label'
+import { includeCurrentModel, modelIdentityKey, sameModelIdentity } from '@/lib/model-identity'
+import { defaultThinkingLevelForModel, getConfiguredModels, initializePiStorage, loadDefaultOptions } from '@/lib/pi-chat'
+import { isModelSelectable } from '@/lib/model-visibility'
 import { t } from '@/lib/i18n'
+import { loadModelCatalog, modelReferenceFromModel } from '@/lib/model-reference'
+import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import { InfoTip } from '@/components/ui/info-tip'
 import { showConfirm } from '@/components/ui/confirm-dialog'
 
@@ -111,12 +116,8 @@ const THINKING_OPTIONS: { value: ThinkingLevel; label: () => string }[] = [
   { value: 'xhigh', label: () => t('thinkingXHigh') },
 ]
 
-function modelLabel(model: AnyModel) {
-  return `${model.provider} / ${model.id}`
-}
-
 function modelsEqual(left?: AnyModel, right?: AnyModel) {
-  return Boolean(left && right && left.api === right.api && left.provider === right.provider && left.id === right.id)
+  return sameModelIdentity(left, right)
 }
 
 function pad(value: number) {
@@ -336,13 +337,22 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
     async function loadModelSettings() {
       try {
         const storage = await initializePiStorage()
-        const configuredModels = await getSelectableConfiguredModels(storage)
+        const [configuredModels, catalogModels] = await Promise.all([
+          getConfiguredModels(storage),
+          loadModelCatalog().catch(() => []),
+        ])
+        const availableModels = catalogModels.length ? catalogModels : configuredModels
+        const selectableModels = availableModels.filter(isModelSelectable)
         const defaultOptions = await loadDefaultOptions(storage)
-        const activeModel = defaultOptions.model
-          ? configuredModels.find((model) => modelsEqual(model, defaultOptions.model)) ?? configuredModels[0]
-          : configuredModels[0]
+        const savedDefault = defaultOptions.model && isModelSelectable(defaultOptions.model)
+          ? selectableModels.find((model) => modelsEqual(model, defaultOptions.model))
+            || (isManagedQuickForgeCloudModel(defaultOptions.model)
+              ? selectableModels.find((model) => (model as AnyModel & { quickforgeCatalogId?: string }).quickforgeCatalogId === (defaultOptions.model as AnyModel & { quickforgeCatalogId?: string }).quickforgeCatalogId)
+              : undefined)
+          : undefined
+        const activeModel = savedDefault ?? selectableModels[0]
         if (cancelled) return
-        setModels(configuredModels)
+        setModels(availableModels)
         setSelectedModel(activeModel)
         setThinkingLevel(defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(activeModel))
       } catch (err) {
@@ -391,12 +401,10 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
   }, [])
 
   const editingTask = useMemo(() => tasks.find((task) => task.id === editingTaskId), [editingTaskId, tasks])
-
+  const selectableModels = useMemo(() => models.filter(isModelSelectable), [models])
   const modelOptions = useMemo(
-    () => selectedModel && !models.some((model) => modelsEqual(model, selectedModel))
-      ? [selectedModel, ...models]
-      : models,
-    [models, selectedModel],
+    () => includeCurrentModel(selectableModels, selectedModel),
+    [selectableModels, selectedModel],
   )
   const detailTask = useMemo(() => tasks.find((task) => task.id === detailTaskId) ?? null, [detailTaskId, tasks])
   const enabledCount = useMemo(() => tasks.filter((task) => task.status === 'enabled').length, [tasks])
@@ -416,8 +424,11 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
   }
 
   function resetEditor() {
+    const defaultModel = models.find(isModelSelectable)
     setEditingTaskId(null)
     setSelectedProjectId(defaultProjectId)
+    setSelectedModel(defaultModel)
+    setThinkingLevel(defaultThinkingLevelForModel(defaultModel))
     setForm(defaultForm())
     setParsedTask(null)
     setQuestion('')
@@ -472,7 +483,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
     try {
       const result = await requestJson<{ needMoreInfo: boolean; question?: string; task?: ParsedTask }>('/api/scheduled-tasks/parse', {
         method: 'POST',
-        body: JSON.stringify({ instruction: scheduleText, model: selectedModel, thinkingLevel }),
+        body: JSON.stringify({ instruction: scheduleText, modelRef: selectedModel ? modelReferenceFromModel(selectedModel) : undefined, model: selectedModel, thinkingLevel }),
       })
       if (result.needMoreInfo || !result.task) {
         setQuestion(result.question || '请补充任务信息。')
@@ -498,6 +509,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
       const selectedProject = projects.find((project) => project.id === selectedProjectId)
       const payload = {
         task: buildTaskPayload(form),
+        modelRef: selectedModel ? modelReferenceFromModel(selectedModel) : undefined,
         model: selectedModel,
         thinkingLevel,
         projectId: selectedProject?.id,
@@ -711,9 +723,9 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                     <Sparkles className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground/70" />
                     <select
                       className="h-8 max-w-[240px] rounded-md border border-transparent bg-transparent pl-7 pr-2 text-xs text-muted-foreground outline-none hover:bg-background focus:border-ring"
-                      value={selectedModel ? `${selectedModel.provider}\u0000${selectedModel.id}` : ''}
+                      value={selectedModel ? modelIdentityKey(selectedModel) : ''}
                       onChange={(event) => {
-                        const nextModel = modelOptions.find((model) => `${model.provider}\u0000${model.id}` === event.target.value)
+                        const nextModel = modelOptions.find((model) => modelIdentityKey(model) === event.target.value)
                         setSelectedModel(nextModel)
                         setThinkingLevel(defaultThinkingLevelForModel(nextModel))
                       }}
@@ -721,7 +733,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                     >
                       {modelOptions.length === 0 ? <option value="">{t('noModelAvailable')}</option> : null}
                       {modelOptions.map((model) => (
-                        <option key={`${model.provider}:${model.id}`} value={`${model.provider}\u0000${model.id}`}>
+                        <option key={modelIdentityKey(model)} value={modelIdentityKey(model)}>
                           {modelLabel(model)}{modelsEqual(model, selectedModel) ? ' ✓' : ''}
                         </option>
                       ))}

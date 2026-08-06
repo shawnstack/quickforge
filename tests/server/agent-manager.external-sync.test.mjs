@@ -135,6 +135,11 @@ describe('agent manager external session synchronization', () => {
 
     expect(logicalMessageId).toMatch(/^qfcm_[0-9a-f-]{36}$/)
     await destroyAgent(sessionId)
+    const { setCloudRuntimeForTests } = await import('../../server/cloud/runtime.mjs')
+    setCloudRuntimeForTests({
+      enabled: true,
+      models: { resolve: vi.fn(async () => ({ publicModel: model })) },
+    })
     const restored = await restoreAgent(sessionId)
 
     try {

@@ -94,7 +94,7 @@ async function readIndexedValues(store, indexName, direction, scope, projectId, 
   return values
 }
 
-export async function handleStorageApi(req, res, url) {
+export async function handleStorageApi(req, res, url, context = {}) {
   const parts = url.pathname.split('/').filter(Boolean)
 
   if (req.method === 'GET' && url.pathname === '/api/storage/quota') {
@@ -116,6 +116,29 @@ export async function handleStorageApi(req, res, url) {
   }
 
   const store = decodeSegment(parts[2])
+  const remotelySensitiveStores = new Set([
+    'provider-keys',
+    'custom-providers',
+    'mcp',
+    'plugins',
+    'scheduled-tasks',
+    'agent-profile-overrides',
+    'custom-agents',
+  ])
+  if (context.isLocalRequest === false && remotelySensitiveStores.has(store)) {
+    const error = new Error('This storage area is available only on this computer.')
+    error.statusCode = 403
+    error.errorCode = 'storage_local_only'
+    throw error
+  }
+
+  const remotelyReadOnlyStores = new Set(['sessions', 'sessions-metadata'])
+  if (context.isLocalRequest === false && remotelyReadOnlyStores.has(store) && req.method !== 'GET') {
+    const error = new Error('Remote clients must modify conversations through the Agent API.')
+    error.statusCode = 403
+    error.errorCode = 'storage_remote_read_only'
+    throw error
+  }
 
   if (req.method === 'GET' && parts[3] === 'keys') {
     const prefix = url.searchParams.get('prefix') || ''

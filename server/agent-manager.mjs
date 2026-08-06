@@ -13,6 +13,7 @@ import {
   formatSubagentTask,
 } from './subagents.mjs'
 import { agentProfileSnapshot, getAgentProfile } from './agent-profiles.mjs'
+import { modelBindingFromModel, resolveImplicitModelPreference, resolveModelBinding } from './model-catalog.mjs'
 import { agentProfileFromMarkdown } from './agent-profile-files.mjs'
 import {
   applyCapabilityPolicy,
@@ -658,6 +659,9 @@ async function summarySession(session, initialUserMessage, summaryOptions) {
       accessMode: session.accessMode,
       yoloMode: session.yoloMode,
       model: session.model,
+      modelRef: session.modelRef,
+      modelAccessContext: session.modelAccessContext,
+      resolvePersistedModel: true,
       thinkingLevel: session.thinkingLevel,
       messages: compactedMessages,
       title: compactedTitle,
@@ -1169,7 +1173,12 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
   const timeoutMs = Math.max(1000, Math.min(Number(definition.maxRuntimeMs || SUBAGENT_DEFAULT_TIMEOUT_MS), 60 * 60 * 1000))
   definition.capabilityPolicy ||= inferCapabilityPolicy(definition.allowedTools || [])
   definition.allowedTools = applyCapabilityPolicy(definition.allowedTools || [], definition.capabilityPolicy)
-  const { model: subagentModel, info: subagentModelInfo } = await resolveAgentProfileModel(definition, parentSession.model, readStore)
+  const { model: subagentModel, info: subagentModelInfo } = await resolveAgentProfileModel(
+    definition,
+    parentSession.model,
+    readStore,
+    parentSession.modelAccessContext || {},
+  )
   const subagentThinkingLevel = resolveAgentProfileThinkingLevel(definition, parentSession.thinkingLevel, subagentModel)
   const subagentSessionId = `${parentSession.sessionId}:subagent:${definition.name}:${randomUUID()}`
   const startedAt = Date.now()
@@ -1542,6 +1551,9 @@ export async function createAgent(sessionId, config = {}) {
     accessMode: rawAccessMode,
     yoloMode = false,
     model = null,
+    modelRef = null,
+    modelAccessContext = null,
+    resolvePersistedModel = false,
     thinkingLevel = 'off',
     messages = [],
     systemPrompt = null,
@@ -1586,24 +1598,36 @@ export async function createAgent(sessionId, config = {}) {
 
   // Resolve model
   let resolvedModel = model
+  let resolvedModelRef = modelRef
   if (!resolvedModel) {
-    // Try to load from storage
+    // Try to load the active preference from storage. A stale/hidden implicit
+    // preference may fall back, while an explicit session binding never does.
     try {
       const settings = await readStore('settings')
       const raw = settings?.['active-model']
-      if (raw) resolvedModel = typeof raw === 'string' ? JSON.parse(raw) : raw
+      resolvedModel = await resolveImplicitModelPreference(raw, modelAccessContext || {})
     } catch {
       // ignore
     }
   }
   if (agentProfile?.model?.mode === 'fixed') {
-    resolvedModel = (await resolveAgentProfileModel(agentProfile, resolvedModel, readStore)).model
+    const profileBinding = await resolveAgentProfileModel(agentProfile, resolvedModel, readStore, modelAccessContext || {})
+    resolvedModel = profileBinding.model
+    resolvedModelRef = profileBinding.modelRef || null
     resolvedAgentProfile = {
       ...agentProfile,
       model: modelReferenceSnapshot(agentProfile.model),
     }
   }
   if (resolvedAgentProfile && !resolvedModel) throw new Error('No active model is configured for the agent session.')
+  const resolvedBinding = resolvedModel
+    ? (resolvedModelRef
+        ? { model: resolvedModel, modelRef: resolvedModelRef }
+        : model
+          ? { model: resolvedModel, modelRef: null }
+          : await modelBindingFromModel(resolvedModel))
+    : { model: resolvedModel, modelRef: null }
+  resolvedModel = resolvedBinding.model
   const resolvedThinkingLevel = agentProfile
     ? resolveAgentProfileThinkingLevel(agentProfile, thinkingLevel, resolvedModel)
     : thinkingLevel
@@ -1713,6 +1737,9 @@ export async function createAgent(sessionId, config = {}) {
     accessMode,
     yoloMode: resolvedYoloMode,
     model: resolvedModel,
+    modelRef: resolvedBinding.modelRef,
+    modelAccessContext: modelAccessContext || null,
+    resolvePersistedModel: resolvePersistedModel === true || Boolean(resolvedBinding.modelRef),
     thinkingLevel: resolvedThinkingLevel,
     scope,
     title,
@@ -1880,7 +1907,7 @@ function sessionLastModifiedFromMessages(messages, fallback) {
  * Persist session data to storage.
  */
 async function persistSessionUnlocked(session) {
-  const { sessionId, agent, scope, projectId, source, channelId, channelName, title, titleSource, createdAt, lastModified: storedLastModified, status, startedAt, finishedAt, model, thinkingLevel, accessMode, yoloMode, contextCompaction } = session
+  const { sessionId, agent, scope, projectId, source, channelId, channelName, title, titleSource, createdAt, lastModified: storedLastModified, status, startedAt, finishedAt, model, modelRef, thinkingLevel, accessMode, yoloMode, contextCompaction } = session
   const messages = agent.state.messages
 
   if (messages.length === 0) {
@@ -1903,6 +1930,7 @@ async function persistSessionUnlocked(session) {
     title,
     titleSource,
     model,
+    modelRef: modelRef || undefined,
     thinkingLevel,
     accessMode,
     yoloMode,
@@ -2162,15 +2190,36 @@ function scheduleSessionTitleGeneration(session, userMessage) {
   session.titleGenerationPromiseId = generationId
 }
 
+async function refreshSessionModelBinding(session) {
+  if (!session?.model || (!session.modelRef && session.resolvePersistedModel !== true)) return session
+  const binding = await resolveModelBinding(
+    session.modelRef ? { modelRef: session.modelRef } : { model: session.model },
+    {
+      context: session.modelAccessContext || {},
+      currentModel: session.model,
+      allowCurrentHidden: true,
+      forExecution: true,
+      legacySnapshot: session.model,
+    },
+  )
+  session.model = binding.model
+  session.modelRef = binding.modelRef
+  session.resolvePersistedModel = true
+  session.agent.state.model = binding.model
+  return session
+}
+
 /**
  * Send a user message to the agent and start the agent loop.
  * Returns immediately; events are streamed via the event bus.
  */
-export async function runPrompt(sessionId, message, selectedCapabilities = [], promptCommand = null, transientContextPrompt = null) {
+export async function runPrompt(sessionId, message, selectedCapabilities = [], promptCommand = null, transientContextPrompt = null, modelAccessContext = null) {
   let session = await syncSessionFromStorage(sessionId)
   if (!session) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
   }
+  if (modelAccessContext) session.modelAccessContext = modelAccessContext
+  await refreshSessionModelBinding(session)
 
   if (session.agent.state.isStreaming || session.abortPending) {
     throw Object.assign(new Error('Generation is still running. Stop it or wait until it finishes.'), {
@@ -2261,7 +2310,7 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
  * Trims messages to keep up to and including the last user message,
  * removing the assistant response that follows it.
  */
-export async function continueSession(sessionId) {
+export async function continueSession(sessionId, modelAccessContext = null) {
   const session = agentSessions.get(sessionId)
   if (!session) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
@@ -2272,6 +2321,8 @@ export async function continueSession(sessionId) {
       errorCode: 'GENERATION_ALREADY_RUNNING',
     })
   }
+  if (modelAccessContext) session.modelAccessContext = modelAccessContext
+  await refreshSessionModelBinding(session)
 
   const messages = Array.isArray(session.agent.state.messages) ? session.agent.state.messages : []
 
@@ -2489,6 +2540,7 @@ export function getSessionState(sessionId) {
     yoloMode: session.yoloMode,
     systemPrompt: session.agent.state.systemPrompt,
     model: session.model,
+    modelRef: session.modelRef || undefined,
     thinkingLevel: session.thinkingLevel,
     title: session.title,
     titleSource: session.titleSource,
@@ -2643,6 +2695,8 @@ export async function restoreAgent(sessionId) {
       accessMode: normalizeAccessMode(sessionData.accessMode, sessionData.yoloMode),
       yoloMode: sessionData.yoloMode || false,
       model: sessionData.model,
+      modelRef: sessionData.modelRef || null,
+      resolvePersistedModel: true,
       thinkingLevel: sessionData.thinkingLevel || 'off',
       messages: sessionData.messages || [],
       title: sessionData.title || 'New chat',
@@ -2798,7 +2852,7 @@ export async function updateSessionYoloMode(sessionId, yoloMode) {
  * Does NOT force persistence — normal lifecycle events (message_end, agent_end) will persist
  * the updated model.
  */
-export function updateSessionModel(sessionId, model) {
+export function updateSessionModel(sessionId, model, modelRef = null) {
   const session = agentSessions.get(sessionId)
   if (!session) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
@@ -2808,9 +2862,11 @@ export function updateSessionModel(sessionId, model) {
   }
 
   session.model = model
+  session.modelRef = modelRef
+  session.resolvePersistedModel = true
   session.agent.state.model = model
 
-  return { sessionId, model }
+  return { sessionId, model, modelRef: modelRef || undefined }
 }
 
 /**

@@ -431,6 +431,36 @@ const gitBranchIcon = renderToStaticMarkup(createElement(GitBranch, {
 export function createContextUsageIndicator({ panel, getSystemPrompt, getMessages, getContextWindow, getTools, getMaxTokens, getEffectiveMessages, getServerContextUsage, getIsCompacted, getGitBranch, onGitBranchClick, renderInline = true, renderModelRing = false, onDisplayChange }: ContextUsageOptions) {
   const tipController = createContextUsageTipController()
   let previousDisplayInfo: ContextUsageDisplayInfo | undefined
+
+  // --- Local estimate caching -------------------------------------------------
+  // The token estimate walks every message (regex over full text), which is
+  // expensive for very long conversations. `decorate()` calls `update()` on
+  // every animation frame, so without a cache a huge session would be
+  // re-estimated 60×/s. The signature only changes when the estimate would
+  // materially change: new/changed messages (length + toolResult fingerprint)
+  // or a new context window / system prompt. Streaming growth of the trailing
+  // assistant message does not change it, so the ring keeps the last estimate
+  // until the turn completes — exactly like the artifacts input key pattern.
+  let cachedEstimateSignature = ''
+  let cachedEstimateUsage: ContextUsageInfo | null = null
+  const estimateSignature = (messages: MessageWithUsage[], contextWindow: number) => {
+    let key = `${contextWindow}|${getSystemPrompt().length}|${messages.length}`
+    for (const message of messages) {
+      if (message.role !== 'toolResult') continue
+      key += `|${message.toolCallId ?? ''}:${message.toolName ?? ''}`
+    }
+    return key
+  }
+  const getCachedContextUsage = (effectiveMessages: MessageWithUsage[], contextWindow: number): ContextUsageInfo => {
+    const signature = estimateSignature(effectiveMessages, contextWindow)
+    if (signature === cachedEstimateSignature && cachedEstimateUsage) {
+      return cachedEstimateUsage
+    }
+    cachedEstimateSignature = signature
+    cachedEstimateUsage = getContextUsage(getSystemPrompt(), effectiveMessages, contextWindow, getTools?.() ?? [], getMaxTokens?.())
+    return cachedEstimateUsage
+  }
+
   const notifyDisplayChange = (displayInfo: ContextUsageDisplayInfo) => {
     if (isSameContextUsageDisplayInfo(previousDisplayInfo, displayInfo)) return
     previousDisplayInfo = displayInfo
@@ -508,7 +538,7 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
     const usage = serverUsage
       ? normalizeServerContextUsage(serverUsage, contextWindow)
       : hasEffectiveMessages
-        ? getContextUsage(getSystemPrompt(), effectiveMessages, contextWindow, getTools?.() ?? [], getMaxTokens?.())
+        ? getCachedContextUsage(effectiveMessages, contextWindow)
         : {
           contextWindow,
           usedTokens: 0,

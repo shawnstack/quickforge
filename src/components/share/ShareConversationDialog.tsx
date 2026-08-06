@@ -29,6 +29,7 @@ export function ShareConversationDialog({
   const [password, setPassword] = useState('')
   const [expiresIn, setExpiresIn] = useState('24h')
   const [riskAccepted, setRiskAccepted] = useState(false)
+  const [allowCloudUsage, setAllowCloudUsage] = useState(false)
   const [generatedText, setGeneratedText] = useState('')
   const [shares, setShares] = useState<ConversationShare[]>([])
   const [loading, setLoading] = useState(false)
@@ -62,7 +63,7 @@ export function ShareConversationDialog({
     setLoading(true)
     setError(undefined)
     try {
-      const result = await createConversationShare({ sessionId, permission, password: password.trim(), expiresAt })
+      const result = await createConversationShare({ sessionId, permission, password: password.trim(), expiresAt, allowCloudUsage: permission === 'operate' && allowCloudUsage })
       setGeneratedText(result.url)
       await copyTextToClipboard(result.url)
       setRiskAccepted(false)
@@ -122,6 +123,10 @@ export function ShareConversationDialog({
                   <input type="checkbox" checked={riskAccepted} onChange={(event) => setRiskAccepted(event.target.checked)} />
                   我已了解风险，仍然允许可操作权限。
                 </label>
+                <label className="mt-3 flex items-start gap-2 text-xs font-medium">
+                  <input type="checkbox" checked={allowCloudUsage} onChange={(event) => setAllowCloudUsage(event.target.checked)} />
+                  <span>允许该分享使用我的 QuickForge Cloud 模型和额度。默认关闭。</span>
+                </label>
               </div>
             ) : null}
 
@@ -165,7 +170,7 @@ export function ShareConversationDialog({
                     <div key={share.id} className="flex items-center gap-2 rounded-lg border border-border p-2 text-xs">
                       <div className="min-w-0 flex-1">
                         <div className="truncate font-mono">{share.id}</div>
-                        <div className="text-muted-foreground">{share.permission === 'operate' ? '可操作' : '只读'} · {share.hasPassword ? '有密码' : '无密码'} · {share.revokedAt ? '已撤销' : share.expiresAt ? `到期 ${new Date(share.expiresAt).toLocaleString()}` : '永久'}</div>
+                        <div className="text-muted-foreground">{share.permission === 'operate' ? '可操作' : '只读'} · {share.hasPassword ? '有密码' : '无密码'} · {share.allowCloudUsage ? '允许 Cloud' : '不允许 Cloud'} · {share.revokedAt ? '已撤销' : share.expiresAt ? `到期 ${new Date(share.expiresAt).toLocaleString()}` : '永久'}</div>
                       </div>
                       {!share.revokedAt ? (
                         <>

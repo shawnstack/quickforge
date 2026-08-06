@@ -22,6 +22,7 @@ import {
 import { getActiveProject, getDefaultWorkspaceRoot, readProjectConfig, setActiveProjectPath, setDefaultWorkspaceRoot, sameProjectPath } from '../project-config.mjs'
 import { dataDir, readSessionValue, readStore } from '../storage.mjs'
 import { logger } from '../utils/logger.mjs'
+import { listModelCatalog, resolveImplicitModelPreference, resolveModelBinding } from '../model-catalog.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -424,10 +425,6 @@ function parseStoredJson(value) {
   try { return JSON.parse(value) } catch { return null }
 }
 
-function isUsableModel(model) {
-  return Boolean(model?.id && model?.provider && model?.api && model?.baseUrl)
-}
-
 function sameBaseUrl(a, b) {
   return String(a || '').trim().replace(/\/$/, '') === String(b || '').trim().replace(/\/$/, '')
 }
@@ -447,7 +444,7 @@ function modelValueId(model) {
 }
 
 function modelDisplayName(model) {
-  return model.name || `${model.provider}/${model.id}`
+  return `${model.provider} / ${model.id}`
 }
 
 function isThinkingLevel(value) {
@@ -472,29 +469,20 @@ function thinkingLevelConfigOption(currentModel = null, currentThinkingLevel = '
 }
 
 async function readConfiguredModels() {
-  const store = await readStore('custom-providers').catch(() => [])
-  const providers = Array.isArray(store) ? store : Object.values(store || {})
-  return providers
-    .flatMap((provider) => Array.isArray(provider?.models) ? provider.models : [])
-    .filter(isUsableModel)
+  return listModelCatalog({ context: { source: 'acp', allowCloud: true } })
 }
 
 async function readSelectableConfiguredModels() {
-  return (await readConfiguredModels()).filter((model) => model.quickforgeHidden !== true)
+  return readConfiguredModels()
 }
 
 async function readActiveModel() {
   const settings = await readStore('settings').catch(() => ({}))
-  const model = parseStoredJson(settings?.['active-model'])
-  return isUsableModel(model) ? model : null
+  return resolveImplicitModelPreference(settings?.['active-model'], { source: 'acp', allowCloud: true })
 }
 
 async function resolveInitialModel() {
-  const [configuredModels, activeModel] = await Promise.all([readSelectableConfiguredModels(), readActiveModel()])
-  if (activeModel && activeModel.quickforgeHidden !== true) {
-    return configuredModels.find((model) => sameModel(model, activeModel)) || activeModel
-  }
-  return configuredModels[0] || null
+  return readActiveModel()
 }
 
 // Resolve the initial thinking level for a new ACP session, mirroring the web UI
@@ -527,7 +515,7 @@ async function sessionConfigOptions(currentModel = null, currentThinkingLevel = 
       group.options.push({
         value: modelValueId(model),
         name: modelDisplayName(model),
-        description: `${model.provider} · ${model.api} · ${model.baseUrl}`,
+        description: modelDisplayName(model),
         _meta: { quickforgeModel: model },
       })
     }
@@ -558,9 +546,19 @@ async function selectSessionModel(sessionId, value) {
   if (!state) throw new Error('Session not found')
   const models = await readSelectableConfiguredModels()
   if (state.model && !models.some((model) => sameModel(model, state.model))) models.unshift(state.model)
-  const model = models.find((candidate) => modelValueId(candidate) === value)
-  if (!model) throw new Error('Selected model is not configured in QuickForge.')
-  updateSessionModel(sessionId, model)
+  const selected = models.find((candidate) => modelValueId(candidate) === value)
+  if (!selected) throw new Error('Selected model is not configured in QuickForge.')
+  const binding = await resolveModelBinding(
+    { modelRef: selected.quickforgeModelRef, model: selected },
+    {
+      context: { source: 'acp', allowCloud: true },
+      currentModel: state.model,
+      allowCurrentHidden: true,
+      legacySnapshot: selected,
+    },
+  )
+  const model = binding.model
+  updateSessionModel(sessionId, model, binding.modelRef)
   const thinkingLevel = model.reasoning === true ? state.thinkingLevel : 'off'
   if (thinkingLevel !== state.thinkingLevel) updateSessionThinkingLevel(sessionId, thinkingLevel)
   return { configOptions: await sessionConfigOptions(model, thinkingLevel) }
@@ -635,7 +633,13 @@ async function createQuickForgeSession(params = {}) {
   const project = await resolveProjectForCwd(cwd)
   const sessionId = params._meta?.quickforgeSessionId || randomUUID()
   const model = await resolveInitialModel()
-  const thinkingLevel = await resolveInitialThinkingLevel(model)
+  const binding = model
+    ? await resolveModelBinding(
+        { modelRef: model.quickforgeModelRef, model },
+        { context: { source: 'acp', allowCloud: true }, legacySnapshot: model },
+      )
+    : null
+  const thinkingLevel = await resolveInitialThinkingLevel(binding?.model || model)
   await createAgent(sessionId, {
     scope: project?.id ? 'project' : 'global',
     projectId: project?.id || null,
@@ -644,13 +648,15 @@ async function createQuickForgeSession(params = {}) {
     channelName: process.env.QUICKFORGE_ACP_CHANNEL_NAME,
     accessMode: 'default',
     yoloMode: false,
-    model,
+    model: binding?.model || model,
+    modelRef: binding?.modelRef || null,
+    modelAccessContext: { source: 'acp', allowCloud: true },
     thinkingLevel,
     title: 'ACP session',
     idleRetention: 'always',
   })
   acpSessions.set(sessionId, { cwd, additionalDirectories, projectId: project?.id || null })
-  return { sessionId, modes: sessionModes(), configOptions: await sessionConfigOptions(model, thinkingLevel) }
+  return { sessionId, modes: sessionModes(), configOptions: await sessionConfigOptions(binding?.model || model, thinkingLevel) }
 }
 
 function waitForPromptEnd(sessionId, conn, signal) {

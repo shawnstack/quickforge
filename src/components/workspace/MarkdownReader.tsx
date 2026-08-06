@@ -1,9 +1,13 @@
-import { useMemo, type ReactNode } from 'react'
+import { isValidElement, useMemo, type ReactNode } from 'react'
+import ReactMarkdown, { type Components } from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { isMermaidLanguage } from '@/lib/mermaid-renderer'
 import { MermaidDiagram } from './MermaidDiagram'
 import { MonacoCodeViewer } from './MonacoCodeViewer'
+import { resolveMarkdownImageSource } from './markdown-resource'
 
 type MarkdownReaderProps = {
+  projectId?: string
   path: string
   content: string
   language: string
@@ -13,223 +17,88 @@ type MarkdownReaderProps = {
 
 type MarkdownMode = 'preview' | 'source'
 
-function safeHref(value: string) {
-  const href = value.trim()
-  if (!href) return undefined
-  if (/^(javascript|data|vbscript):/i.test(href)) return undefined
-  if (/^(https?:|mailto:|#|\/|\.\.?\/)/i.test(href)) return href
-  return undefined
+type CodeElementProps = {
+  className?: string
+  children?: ReactNode
 }
 
-function renderInline(text: string, keyPrefix: string): ReactNode[] {
-  const nodes: ReactNode[] = []
-  const pattern = /`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*\n]+)\*|_([^_\n]+)_/g
-  let lastIndex = 0
-  let index = 0
-  let match: RegExpExecArray | null
-
-  while ((match = pattern.exec(text))) {
-    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index))
-
-    const key = `${keyPrefix}-inline-${index++}`
-    if (match[1]) {
-      nodes.push(<code key={key} className="rounded bg-muted/35 px-1 py-0.5 font-mono text-[0.85em] text-foreground/90">{match[1]}</code>)
-    } else if (match[2] && match[3]) {
-      const href = safeHref(match[3])
-      nodes.push(href ? (
-        <a key={key} className="text-primary underline-offset-4 hover:underline" href={href} target={href.startsWith('http') ? '_blank' : undefined} rel="noreferrer">
-          {match[2]}
-        </a>
-      ) : `[${match[2]}](${match[3]})`)
-    } else if (match[4] || match[5]) {
-      nodes.push(<strong key={key} className="font-semibold text-foreground/95">{match[4] || match[5]}</strong>)
-    } else if (match[6] || match[7]) {
-      nodes.push(<em key={key} className="italic">{match[6] || match[7]}</em>)
-    }
-
-    lastIndex = pattern.lastIndex
-  }
-
-  if (lastIndex < text.length) nodes.push(text.slice(lastIndex))
-  return nodes.length ? nodes : [text]
+function codeLanguage(className: string | undefined) {
+  return className?.match(/(?:^|\s)language-([^\s]+)/)?.[1]
 }
 
-function renderInlineLines(text: string, keyPrefix: string): ReactNode[] {
-  return text.split('\n').flatMap((line, index) => {
-    const nodes = renderInline(line, `${keyPrefix}-line-${index}`)
-    return index === 0 ? nodes : [<br key={`${keyPrefix}-br-${index}`} />, ...nodes]
-  })
-}
-
-function isFence(line: string) {
-  return /^\s*(```|~~~)/.test(line)
-}
-
-function isTableSeparator(line: string) {
-  return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line)
-}
-
-function looksLikeTable(lines: string[], index: number) {
-  return Boolean(lines[index]?.includes('|') && lines[index + 1] && isTableSeparator(lines[index + 1]))
-}
-
-function isBlockStart(lines: string[], index: number) {
-  const line = lines[index] ?? ''
-  return (
-    isFence(line) ||
-    looksLikeTable(lines, index) ||
-    /^\s{0,3}#{1,6}\s+/.test(line) ||
-    /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/.test(line) ||
-    /^\s{0,3}>\s?/.test(line) ||
-    /^\s{0,3}[-*+]\s+/.test(line) ||
-    /^\s{0,3}\d+[.)]\s+/.test(line)
-  )
-}
-
-function tableCells(line: string) {
-  const trimmed = line.trim().replace(/^\|/, '').replace(/\|$/, '')
-  return trimmed.split('|').map((cell) => cell.trim())
-}
-
-function renderMarkdown(content: string) {
-  const lines = content.replace(/\r\n?/g, '\n').split('\n')
-  const blocks: ReactNode[] = []
-  let index = 0
-  let blockIndex = 0
-
-  while (index < lines.length) {
-    const line = lines[index]
-    const key = `markdown-block-${blockIndex++}`
-
-    if (!line.trim()) {
-      index += 1
-      continue
-    }
-
-    if (isFence(line)) {
-      const fenceMatch = line.match(/^\s*(```|~~~)\s*([^`]*)$/)
-      const fence = fenceMatch?.[1] ?? '```'
-      const language = fenceMatch?.[2]?.trim()
-      const codeLines: string[] = []
-      index += 1
-      while (index < lines.length && !lines[index].trimStart().startsWith(fence)) {
-        codeLines.push(lines[index])
-        index += 1
-      }
-      if (index < lines.length) index += 1
-      const source = codeLines.join('\n')
-      if (isMermaidLanguage(language)) {
-        blocks.push(<MermaidDiagram key={key} source={source} />)
-      } else {
-        blocks.push(
-          <figure key={key} className="my-5 overflow-hidden rounded-xl border border-border bg-muted/20">
-            {language ? <figcaption className="border-b border-border px-3 py-1.5 font-mono text-[11px] text-muted-foreground/65">{language}</figcaption> : null}
-            <pre className="overflow-auto p-4 text-[12px] leading-5"><code>{source}</code></pre>
-          </figure>,
-        )
-      }
-      continue
-    }
-
-    const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/)
-    if (heading) {
-      const level = heading[1].length
-      const text = heading[2]
-      const className = [
-        'mt-8 mb-3 border-border text-foreground/95',
-        level === 1 ? 'border-b pb-3 text-3xl font-semibold tracking-tight' : '',
-        level === 2 ? 'border-b pb-2 text-2xl font-semibold tracking-tight' : '',
-        level === 3 ? 'text-xl font-semibold' : '',
-        level === 4 ? 'text-lg font-semibold' : '',
-        level >= 5 ? 'text-base font-semibold' : '',
-      ].filter(Boolean).join(' ')
-      const children = renderInline(text, `${key}-heading`)
-      if (level === 1) blocks.push(<h1 key={key} className={className}>{children}</h1>)
-      else if (level === 2) blocks.push(<h2 key={key} className={className}>{children}</h2>)
-      else if (level === 3) blocks.push(<h3 key={key} className={className}>{children}</h3>)
-      else if (level === 4) blocks.push(<h4 key={key} className={className}>{children}</h4>)
-      else if (level === 5) blocks.push(<h5 key={key} className={className}>{children}</h5>)
-      else blocks.push(<h6 key={key} className={className}>{children}</h6>)
-      index += 1
-      continue
-    }
-
-    if (/^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/.test(line)) {
-      blocks.push(<hr key={key} className="my-6 border-border" />)
-      index += 1
-      continue
-    }
-
-    if (looksLikeTable(lines, index)) {
-      const headers = tableCells(lines[index])
-      index += 2
-      const rows: string[][] = []
-      while (index < lines.length && lines[index].includes('|') && lines[index].trim()) {
-        rows.push(tableCells(lines[index]))
-        index += 1
-      }
-      blocks.push(
-        <div key={key} className="my-5 overflow-auto rounded-xl border border-border">
-          <table className="w-full border-collapse text-left text-sm">
-            <thead className="bg-muted/25 text-foreground/90">
-              <tr>{headers.map((cell, cellIndex) => <th key={`${key}-th-${cellIndex}`} className="border-b border-border px-3 py-2 font-semibold">{renderInline(cell, `${key}-th-${cellIndex}`)}</th>)}</tr>
-            </thead>
-            <tbody>
-              {rows.map((row, rowIndex) => (
-                <tr key={`${key}-row-${rowIndex}`} className="border-t border-border/70">
-                  {headers.map((_, cellIndex) => <td key={`${key}-td-${rowIndex}-${cellIndex}`} className="px-3 py-2 align-top text-foreground/85">{renderInline(row[cellIndex] ?? '', `${key}-td-${rowIndex}-${cellIndex}`)}</td>)}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>,
+function createMarkdownComponents(projectId: string | undefined, path: string): Components {
+  return {
+    h1: ({ children }) => <h1 className="mt-8 mb-3 border-b border-border pb-3 text-3xl font-semibold tracking-tight text-foreground/95">{children}</h1>,
+    h2: ({ children }) => <h2 className="mt-8 mb-3 border-b border-border pb-2 text-2xl font-semibold tracking-tight text-foreground/95">{children}</h2>,
+    h3: ({ children }) => <h3 className="mt-8 mb-3 text-xl font-semibold text-foreground/95">{children}</h3>,
+    h4: ({ children }) => <h4 className="mt-8 mb-3 text-lg font-semibold text-foreground/95">{children}</h4>,
+    h5: ({ children }) => <h5 className="mt-8 mb-3 text-base font-semibold text-foreground/95">{children}</h5>,
+    h6: ({ children }) => <h6 className="mt-8 mb-3 text-base font-semibold text-foreground/95">{children}</h6>,
+    p: ({ children }) => <p className="my-4 text-foreground/86">{children}</p>,
+    a: ({ href, children }) => (
+      <a
+        className="text-primary underline-offset-4 hover:underline"
+        href={href}
+        target={href?.startsWith('http') || href?.startsWith('//') ? '_blank' : undefined}
+        rel="noreferrer"
+      >
+        {children}
+      </a>
+    ),
+    img: ({ src, alt, title }) => {
+      const resolvedSource = resolveMarkdownImageSource(projectId, path, src)
+      if (!resolvedSource) return alt ? <span className="text-muted-foreground">{alt}</span> : null
+      return (
+        <img
+          className="my-5 h-auto max-w-full rounded-xl border border-border object-contain"
+          src={resolvedSource}
+          alt={alt ?? ''}
+          title={title}
+          loading="lazy"
+        />
       )
-      continue
-    }
+    },
+    blockquote: ({ children }) => <blockquote className="my-4 border-l-2 border-border pl-4 text-muted-foreground/85">{children}</blockquote>,
+    ul: ({ children, className }) => <ul className={`my-4 list-disc space-y-1 pl-6 ${className ?? ''}`}>{children}</ul>,
+    ol: ({ children, className }) => <ol className={`my-4 list-decimal space-y-1 pl-6 ${className ?? ''}`}>{children}</ol>,
+    li: ({ children, className }) => <li className={className}>{children}</li>,
+    hr: () => <hr className="my-6 border-border" />,
+    table: ({ children }) => (
+      <div className="my-5 overflow-auto rounded-xl border border-border">
+        <table className="w-full border-collapse text-left text-sm">{children}</table>
+      </div>
+    ),
+    thead: ({ children }) => <thead className="bg-muted/25 text-foreground/90">{children}</thead>,
+    tbody: ({ children }) => <tbody>{children}</tbody>,
+    tr: ({ children }) => <tr className="border-t border-border/70 first:border-t-0">{children}</tr>,
+    th: ({ children }) => <th className="border-b border-border px-3 py-2 font-semibold">{children}</th>,
+    td: ({ children }) => <td className="px-3 py-2 align-top text-foreground/85">{children}</td>,
+    pre: ({ children }) => {
+      const codeElement = isValidElement<CodeElementProps>(children) ? children : undefined
+      const language = codeLanguage(codeElement?.props.className)
+      const source = String(codeElement?.props.children ?? '').replace(/\n$/, '')
+      if (isMermaidLanguage(language)) return <MermaidDiagram source={source} />
 
-    if (/^\s{0,3}>\s?/.test(line)) {
-      const quoteLines: string[] = []
-      while (index < lines.length && /^\s{0,3}>\s?/.test(lines[index])) {
-        quoteLines.push(lines[index].replace(/^\s{0,3}>\s?/, ''))
-        index += 1
-      }
-      blocks.push(<blockquote key={key} className="my-4 border-l-2 border-border pl-4 text-muted-foreground/85">{renderInlineLines(quoteLines.join('\n'), `${key}-quote`)}</blockquote>)
-      continue
-    }
-
-    if (/^\s{0,3}[-*+]\s+/.test(line)) {
-      const items: string[] = []
-      while (index < lines.length && /^\s{0,3}[-*+]\s+/.test(lines[index])) {
-        items.push(lines[index].replace(/^\s{0,3}[-*+]\s+/, ''))
-        index += 1
-      }
-      blocks.push(<ul key={key} className="my-4 list-disc space-y-1 pl-6">{items.map((item, itemIndex) => <li key={`${key}-li-${itemIndex}`}>{renderInline(item, `${key}-li-${itemIndex}`)}</li>)}</ul>)
-      continue
-    }
-
-    if (/^\s{0,3}\d+[.)]\s+/.test(line)) {
-      const items: string[] = []
-      while (index < lines.length && /^\s{0,3}\d+[.)]\s+/.test(lines[index])) {
-        items.push(lines[index].replace(/^\s{0,3}\d+[.)]\s+/, ''))
-        index += 1
-      }
-      blocks.push(<ol key={key} className="my-4 list-decimal space-y-1 pl-6">{items.map((item, itemIndex) => <li key={`${key}-li-${itemIndex}`}>{renderInline(item, `${key}-li-${itemIndex}`)}</li>)}</ol>)
-      continue
-    }
-
-    const paragraphLines: string[] = []
-    while (index < lines.length && lines[index].trim() && !isBlockStart(lines, index)) {
-      paragraphLines.push(lines[index].trim())
-      index += 1
-    }
-    blocks.push(<p key={key} className="my-4 text-foreground/86">{renderInline(paragraphLines.join(' '), `${key}-p`)}</p>)
+      return (
+        <figure className="my-5 overflow-hidden rounded-xl border border-border bg-muted/20">
+          {language ? <figcaption className="border-b border-border px-3 py-1.5 font-mono text-[11px] text-muted-foreground/65">{language}</figcaption> : null}
+          <pre className="overflow-auto p-4 text-[12px] leading-5 [&_code]:rounded-none [&_code]:bg-transparent [&_code]:p-0">{children}</pre>
+        </figure>
+      )
+    },
+    code: ({ className, children }) => (
+      <code className={`${className ?? ''} rounded bg-muted/35 px-1 py-0.5 font-mono text-[0.85em] text-foreground/90`}>
+        {children}
+      </code>
+    ),
+    input: ({ type, checked, disabled }) => type === 'checkbox' ? (
+      <input className="mr-2 align-middle accent-primary" type="checkbox" checked={checked} disabled={disabled ?? true} readOnly />
+    ) : null,
   }
-
-  return blocks
 }
 
-export function MarkdownReader({ path, content, language, mode, wordWrap = false }: MarkdownReaderProps) {
-  const renderedContent = useMemo(() => renderMarkdown(content), [content])
+export function MarkdownReader({ projectId, path, content, language, mode, wordWrap = false }: MarkdownReaderProps) {
+  const components = useMemo(() => createMarkdownComponents(projectId, path), [projectId, path])
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
@@ -239,7 +108,11 @@ export function MarkdownReader({ path, content, language, mode, wordWrap = false
         ) : (
           <div className="h-full overflow-auto bg-background">
             <article className="quickforge-markdown-reader mx-auto max-w-3xl px-8 py-7 text-sm leading-7 text-foreground/88">
-              {renderedContent.length ? renderedContent : <p className="text-muted-foreground/70">This Markdown file is empty.</p>}
+              {content.trim() ? (
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} skipHtml>
+                  {content}
+                </ReactMarkdown>
+              ) : <p className="text-muted-foreground/70">This Markdown file is empty.</p>}
             </article>
           </div>
         )}

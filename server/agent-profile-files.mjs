@@ -66,14 +66,18 @@ function quoteFrontmatter(value) {
 
 function formatModelFrontmatter(model) {
   if (!model || model.mode !== 'fixed') return 'model:\n  mode: inherit'
-  return [
+  const result = [
     'model:',
     '  mode: fixed',
-    `  provider: ${quoteFrontmatter(model.provider)}`,
-    `  modelId: ${quoteFrontmatter(model.modelId)}`,
+    model.source && model.source !== 'legacy-custom' ? `  source: ${quoteFrontmatter(model.source)}` : '',
+    model.providerId ? `  providerId: ${quoteFrontmatter(model.providerId)}` : '',
+    model.catalogId ? `  catalogId: ${quoteFrontmatter(model.catalogId)}` : '',
+    model.provider ? `  provider: ${quoteFrontmatter(model.provider)}` : '',
+    model.modelId ? `  modelId: ${quoteFrontmatter(model.modelId)}` : '',
     model.api ? `  api: ${quoteFrontmatter(model.api)}` : '',
     model.baseUrl ? `  baseUrl: ${quoteFrontmatter(model.baseUrl)}` : '',
   ].filter(Boolean).join('\n')
+  return result
 }
 
 export function userAgentProfileFilePath(name) {

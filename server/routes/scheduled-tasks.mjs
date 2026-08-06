@@ -6,6 +6,7 @@ import { createAgent, getSessionEventBus, agentEvents, persistSessionState, abor
 import { agentProfileSnapshot, getAgentProfile } from '../agent-profiles.mjs'
 import { projectContextFromId, readProjectConfig } from '../project-config.mjs'
 import { logger } from '../utils/logger.mjs'
+import { resolveModelBinding } from '../model-catalog.mjs'
 import {
   dayMs,
   formatLocalDateTime,
@@ -133,10 +134,14 @@ async function getApiKey(provider) {
   }
 }
 
-async function parseScheduledTaskInstructionWithAi(instruction, model, thinkingLevel = 'off') {
+async function parseScheduledTaskInstructionWithAi(instruction, modelInput, thinkingLevel = 'off', context = {}) {
   const text = String(instruction || '').trim()
   if (!text) return { needMoreInfo: true, question: '请输入要创建的定时任务。' }
-  if (!model) return { needMoreInfo: true, question: '请先选择用于解析任务的大模型。' }
+  if (!modelInput) return { needMoreInfo: true, question: '请先选择用于解析任务的大模型。' }
+  const { model } = await resolveModelBinding(
+    modelInput?.modelRef || modelInput?.model ? modelInput : { model: modelInput },
+    { context, legacySnapshot: modelInput?.model || modelInput },
+  )
 
   const now = new Date()
   const systemPrompt = `你是定时任务解析器。把用户的中文自然语言定时任务解析为 JSON。
@@ -529,6 +534,18 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
 
   try {
     const executionProject = await resolveExecutionProject(task)
+    const binding = task.modelRef || task.model
+      ? await resolveModelBinding(
+          task.modelRef ? { modelRef: task.modelRef } : { model: task.model },
+          {
+            context: { source: 'scheduled', allowCloud: true },
+            currentModel: task.model,
+            allowCurrentHidden: true,
+            forExecution: true,
+            legacySnapshot: task.model,
+          },
+        )
+      : null
     if (task.agentId) {
       executionAgent = await getAgentProfile(task.agentId, { projectId: executionProject?.id || null, workspaceRoot: executionProject?.path })
       if (!executionAgent) agentWarning = `Configured agent not found: ${task.agentId}`
@@ -541,7 +558,9 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
       scope: executionProject ? 'project' : 'global',
       projectId: executionProject?.id || null,
       yoloMode,
-      model: task.model,
+      model: binding?.model || task.model,
+      modelRef: binding?.modelRef || task.modelRef || null,
+      modelAccessContext: { source: 'scheduled', allowCloud: true },
       thinkingLevel: task.thinkingLevel,
       title: `[定时任务] ${task.title}`,
       agentProfile: executionAgent,
@@ -770,12 +789,12 @@ export function stopScheduledTaskRunner() {
   runningTaskRunIds.clear()
 }
 
-export async function handleScheduledTasksApi(req, res, url) {
+export async function handleScheduledTasksApi(req, res, url, context = {}) {
   const parts = url.pathname.split('/').filter(Boolean)
 
   if (req.method === 'POST' && url.pathname === '/api/scheduled-tasks/parse') {
     const body = await readJsonBody(req)
-    sendJson(res, 200, await parseScheduledTaskInstructionWithAi(body?.instruction, body?.model, body?.thinkingLevel))
+    sendJson(res, 200, await parseScheduledTaskInstructionWithAi(body?.instruction, body?.modelRef ? body : body?.model, body?.thinkingLevel, context))
     return
   }
 
@@ -796,12 +815,14 @@ export async function handleScheduledTasksApi(req, res, url) {
     const now = new Date().toISOString()
     const normalized = normalizeTaskInput(parsed)
     const enabled = parsed.enabled !== false && parsed.status !== 'paused'
+    const binding = await resolveModelBinding(body, { context, legacySnapshot: body?.model })
     const task = {
       id: createId(),
       ...normalized,
       scheduleRule: normalized.scheduleRule || scheduleRuleFor(normalized),
       executionMode: normalized.executionMode || 'serial',
-      model: body?.model,
+      model: binding.model,
+      modelRef: binding.modelRef,
       thinkingLevel: body?.thinkingLevel || (body?.model?.reasoning ? 'medium' : 'off'),
       projectId: body?.projectId || null,
       projectName: body?.projectName || null,
@@ -830,6 +851,14 @@ export async function handleScheduledTasksApi(req, res, url) {
       const parsed = body?.task
       if (!parsed) throw requestError('Missing task')
       const normalized = normalizeTaskInput(parsed, existing)
+      const binding = body?.modelRef || body?.model
+        ? await resolveModelBinding(body, {
+            context,
+            currentModel: existing.model,
+            allowCurrentHidden: true,
+            legacySnapshot: body?.model,
+          })
+        : null
       const now = new Date().toISOString()
       const hasProject = Object.prototype.hasOwnProperty.call(body, 'projectId')
       const task = await updateTask(taskId, (current) => ({
@@ -837,7 +866,8 @@ export async function handleScheduledTasksApi(req, res, url) {
         ...normalized,
         scheduleRule: normalized.scheduleRule || scheduleRuleFor(normalized),
         executionMode: normalized.executionMode || 'serial',
-        model: body?.model ?? current.model,
+        model: binding?.model ?? current.model,
+        modelRef: binding?.modelRef ?? current.modelRef,
         thinkingLevel: body?.thinkingLevel ?? current.thinkingLevel,
         projectId: hasProject ? (body.projectId || null) : current.projectId,
         projectName: hasProject ? (body.projectName || null) : current.projectName,

@@ -1,3 +1,5 @@
+import type { Api, Model } from '@earendil-works/pi-ai'
+
 export type SharePermission = 'read' | 'operate'
 
 export type ConversationShare = {
@@ -14,6 +16,7 @@ export type ConversationShare = {
   accessCount?: number
   lastAccessedAt?: string
   hasPassword?: boolean
+  allowCloudUsage?: boolean
   url?: string
 }
 
@@ -59,6 +62,7 @@ export async function createConversationShare(input: {
   permission: SharePermission
   password?: string
   expiresAt?: string
+  allowCloudUsage?: boolean
 }) {
   return request<{
     ok: boolean
@@ -108,6 +112,7 @@ export async function updateConversationShare(shareId: string, input: {
   permission?: SharePermission
   password?: string
   expiresAt?: string
+  allowCloudUsage?: boolean
 }) {
   return request<{ ok: boolean; share: ConversationShare }>(`/api/shares/${encodeURIComponent(shareId)}/update`, {
     method: 'POST',
@@ -149,7 +154,7 @@ export type SharedModelProvider = {
   name: string
   type?: string
   baseUrl?: string
-  models?: unknown[]
+  models?: Model<Api>[]
 }
 
 export async function loadSharedModelProviders(shareId: string) {

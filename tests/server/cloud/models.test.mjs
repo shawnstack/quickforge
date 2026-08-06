@@ -45,6 +45,21 @@ describe('managed cloud models', () => {
     )
   })
 
+  it('filters unavailable entries and force-refreshes once when a catalog id misses', async () => {
+    const identity = {
+      models: vi.fn()
+        .mockResolvedValueOnce([...catalog, { id: 'disabled', available: false }])
+        .mockResolvedValueOnce(catalog)
+        .mockResolvedValueOnce([...catalog, { id: 'later', name: 'Later', available: true }]),
+    }
+    const managed = new ManagedCloudModels({ identity })
+    await expect(managed.list()).resolves.toHaveLength(1)
+    await expect(managed.resolve({
+      provider: 'quickforge-cloud', quickforgeModelSource: 'cloud', quickforgeCatalogId: 'later',
+    })).resolves.toMatchObject({ catalogId: 'later' })
+    expect(identity.models).toHaveBeenLastCalledWith(undefined, { refresh: true, allowStale: false })
+  })
+
   it('rejects unavailable catalog ids even if the public model shape is forged', async () => {
     const managed = new ManagedCloudModels({ identity: { models: async () => catalog } })
     await expect(managed.resolve({

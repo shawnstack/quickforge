@@ -1,3 +1,5 @@
+import { resolveModelBinding } from './model-catalog.mjs'
+
 export const AGENT_PROFILE_TOOL_NAMES = ['read_file', 'grep_files', 'write_file', 'edit_file', 'run_command']
 export const AGENT_PROFILE_MODEL_INHERIT = { mode: 'inherit' }
 export const AGENT_PROFILE_THINKING_LEVELS = ['inherit', 'off', 'low', 'medium', 'high', 'xhigh']
@@ -39,10 +41,6 @@ function requestError(message, statusCode = 400) {
 
 function normalizeString(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
-}
-
-function sameBaseUrl(a, b) {
-  return String(a || '').trim().replace(/\/$/, '') === String(b || '').trim().replace(/\/$/, '')
 }
 
 function readModelField(value, ...keys) {
@@ -90,10 +88,16 @@ export function normalizeModelReference(input, metadata = {}) {
   const flatModelId = normalizeString(metadata['model-id'] ?? metadata.model_id ?? metadata.modelId)
   const flatApi = normalizeString(metadata['model-api'] ?? metadata.modelApi ?? metadata.api)
   const flatBaseUrl = normalizeString(metadata['model-base-url'] ?? metadata.modelBaseUrl ?? metadata.baseUrl)
+  const flatSource = normalizeString(metadata['model-source'] ?? metadata.modelSource)?.toLowerCase()
+  const flatProviderId = normalizeString(metadata['model-provider-id'] ?? metadata.modelProviderId ?? metadata.providerId)
+  const flatCatalogId = normalizeString(metadata['model-catalog-id'] ?? metadata.modelCatalogId ?? metadata.catalogId)
 
-  if (flatMode === 'fixed' || flatProvider || flatModelId) {
+  if (flatMode === 'fixed' || flatSource || flatProvider || flatModelId || flatProviderId || flatCatalogId) {
     return {
       mode: 'fixed',
+      source: flatSource,
+      providerId: flatProviderId,
+      catalogId: flatCatalogId,
       provider: flatProvider,
       modelId: flatModelId,
       api: flatApi,
@@ -123,6 +127,9 @@ export function normalizeModelReference(input, metadata = {}) {
 
   return {
     mode: 'fixed',
+    source: readModelField(modelValue, 'source'),
+    providerId: readModelField(modelValue, 'providerId', 'provider-id', 'provider_id'),
+    catalogId: readModelField(modelValue, 'catalogId', 'catalog-id', 'catalog_id', 'quickforgeCatalogId'),
     provider: readModelField(modelValue, 'provider'),
     modelId: readModelField(modelValue, 'modelId', 'model-id', 'model_id', 'id', 'model'),
     api: readModelField(modelValue, 'api'),
@@ -133,9 +140,19 @@ export function normalizeModelReference(input, metadata = {}) {
 export function validateModelReference(modelRef) {
   const ref = modelRef || AGENT_PROFILE_MODEL_INHERIT
   if (ref.mode !== 'fixed') return { ...AGENT_PROFILE_MODEL_INHERIT }
+  if (ref.source === 'cloud') {
+    const catalogId = ref.catalogId || ref.modelId
+    if (!catalogId) throw requestError('Fixed Cloud agent model requires catalogId')
+    return { mode: 'fixed', source: 'cloud', catalogId }
+  }
+  if (ref.source === 'custom') {
+    if (!ref.providerId || !ref.modelId) throw requestError('Fixed custom agent model requires providerId and modelId')
+    return { mode: 'fixed', source: 'custom', providerId: ref.providerId, modelId: ref.modelId }
+  }
   if (!ref.provider || !ref.modelId) throw requestError('Fixed agent model requires provider and modelId')
   return {
     mode: 'fixed',
+    source: 'legacy-custom',
     provider: ref.provider,
     modelId: ref.modelId,
     api: ref.api,
@@ -164,14 +181,17 @@ export function modelReferenceSnapshot(modelRef) {
   if (ref.mode !== 'fixed') return { ...AGENT_PROFILE_MODEL_INHERIT }
   return {
     mode: 'fixed',
-    provider: ref.provider,
-    modelId: ref.modelId,
+    ...(ref.source && ref.source !== 'legacy-custom' ? { source: ref.source } : {}),
+    ...(ref.providerId ? { providerId: ref.providerId } : {}),
+    ...(ref.catalogId ? { catalogId: ref.catalogId } : {}),
+    ...(ref.provider ? { provider: ref.provider } : {}),
+    ...(ref.modelId ? { modelId: ref.modelId } : {}),
     ...(ref.api ? { api: ref.api } : {}),
     ...(ref.baseUrl ? { baseUrl: ref.baseUrl } : {}),
   }
 }
 
-export async function resolveAgentProfileModel(profile, parentModel, readStore) {
+export async function resolveAgentProfileModel(profile, parentModel, _readStore, context = {}) {
   const ref = profile?.model || AGENT_PROFILE_MODEL_INHERIT
   if (!ref || ref.mode !== 'fixed') {
     if (!parentModel) throw requestError('No active model is configured for the parent session.')
@@ -179,19 +199,23 @@ export async function resolveAgentProfileModel(profile, parentModel, readStore) 
   }
 
   const validRef = validateModelReference(ref)
-  const store = await readStore('custom-providers').catch(() => ({}))
-  const providers = Array.isArray(store) ? store : Object.values(store || {})
-  const configuredModels = providers
-    .flatMap((provider) => Array.isArray(provider?.models) ? provider.models : [])
-    .filter((model) => model && typeof model === 'object')
-  const model = configuredModels.find((candidate) => (
-    candidate.provider === validRef.provider &&
-    candidate.id === validRef.modelId &&
-    (!validRef.api || candidate.api === validRef.api) &&
-    (!validRef.baseUrl || sameBaseUrl(candidate.baseUrl, validRef.baseUrl))
-  ))
-  if (!model) {
-    throw requestError(`Agent profile ${profile?.name || ''} requested model ${validRef.provider}/${validRef.modelId}, but it is not configured.`)
-  }
-  return { model, info: { ...modelReferenceSnapshot(validRef), inherited: false } }
+  const modelRef = validRef.source === 'cloud'
+    ? { version: 1, source: 'cloud', catalogId: validRef.catalogId }
+    : validRef.source === 'custom'
+      ? { version: 1, source: 'custom', providerId: validRef.providerId, modelId: validRef.modelId }
+      : {
+          version: 1,
+          source: 'legacy-custom',
+          provider: validRef.provider,
+          modelId: validRef.modelId,
+          ...(validRef.api ? { api: validRef.api } : {}),
+          ...(validRef.baseUrl ? { baseUrl: validRef.baseUrl } : {}),
+        }
+  const binding = await resolveModelBinding({ modelRef }, {
+    context,
+    currentModel: parentModel,
+    allowCurrentHidden: true,
+    forExecution: true,
+  })
+  return { model: binding.model, modelRef: binding.modelRef, info: { ...modelReferenceSnapshot(validRef), inherited: false } }
 }

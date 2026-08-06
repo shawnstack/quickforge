@@ -181,10 +181,10 @@ function mockRes() {
   return res
 }
 
-async function callRoute(route, segPath, method, body) {
+async function callRoute(route, segPath, method, body, context) {
   const url = new URL(`http://localhost/api/storage/${segPath.map(encodeURIComponent).join('/')}`)
   const res = mockRes()
-  await route.handleStorageApi(mockReq(method, body), res, url)
+  await route.handleStorageApi(mockReq(method, body), res, url, context)
   return { status: res._status, json: JSON.parse(res._body || '{}') }
 }
 
@@ -204,6 +204,18 @@ describe('providers.json shared store', () => {
       const providers = JSON.parse(await fs.readFile(path.join(tmpDir, 'config', 'providers.json'), 'utf8'))
       expect(providers.providerKeys).toEqual({ anthropic: 'sk-2' })
       expect(providers.customProviders).toEqual({ mine: { baseUrl: 'http://x' } })
+    })
+  })
+
+  it('rejects remote access to sensitive and executable configuration stores', async () => {
+    await withTempStorage(async () => {
+      const route = await import('../../server/routes/storage.mjs')
+      for (const store of ['provider-keys', 'custom-providers', 'mcp', 'plugins', 'scheduled-tasks', 'agent-profile-overrides']) {
+        await expect(callRoute(route, [store, 'keys'], 'GET', undefined, { isLocalRequest: false }))
+          .rejects.toMatchObject({ statusCode: 403, errorCode: 'storage_local_only' })
+      }
+      await expect(callRoute(route, ['sessions', 'key', 'session-1'], 'PUT', { value: {} }, { isLocalRequest: false }))
+        .rejects.toMatchObject({ statusCode: 403, errorCode: 'storage_remote_read_only' })
     })
   })
 

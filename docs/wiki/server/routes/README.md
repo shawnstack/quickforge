@@ -24,7 +24,7 @@
 | `system.mjs` | 107 | 系统状态、网络代理、重启、关于信息、Runtime 更新和 Desktop 发布页检查 |
 | `workspace.mjs` | 828 | 工作区文件浏览、产物预览静态读取、Git 变更检查、单文件/批量暂存与还原、分支操作、AI 提交信息生成、提交/推送和提交图谱（`server/index.mjs` 通过 `/api/git/*` 统一分发） |
 | `channels.mjs` | 外部渠道管理、SSE 状态/会话变更事件、仅 localhost + `x-quickforge-action: channel-event` 可调用的内部事件 relay，以及仅 localhost + `x-quickforge-action: channel-action` 可打开已注册渠道日志目录的 `POST /api/channels/:id/open-logs` |
-| `cloud.mjs` | QuickForge Cloud 本地 BFF：状态、显式游客创建、模型、额度、设备撤销和安全退出 |
+| `cloud.mjs` | QuickForge Cloud 本地 BFF：状态、显式游客、正式账户 Device Flow、模型、额度、设备撤销和安全退出 |
 | `static.mjs` | 89 | 静态文件服务；`index.html` 与可替换的 APK 下载使用 `no-cache`，其余构建资产长期缓存 |
 
 ### system.mjs
@@ -39,7 +39,7 @@
 
 ### cloud.mjs
 
-来源属于 Tailscale IPv4 `100.64.0.0/10` 且已通过 LAN 密码认证的客户端可以使用本地 Cloud BFF；普通 LAN、公网来源、未认证请求和 Tailscale IPv6 当前均拒绝。远程客户端使用的是宿主机 Cloud 身份与额度。未认证远端请求可能先由全局 LAN 层返回 HTTP 401；请求到达 Cloud 路由但不满足边界时返回 HTTP 403 / `cloud_local_only`。
+来源属于 Tailscale IPv4 `100.64.0.0/10` 且已通过 LAN 密码认证的客户端可以使用本地 Cloud BFF；普通 LAN、公网来源、未认证请求和 Tailscale IPv6 当前均拒绝。远程客户端使用的是宿主机 Cloud 身份与额度。未认证远端请求可能先由全局 LAN 层返回 HTTP 401；请求到达 Cloud 路由但不满足边界时返回 HTTP 403 / `cloud_local_only`。所有非安全写方法还要求 `x-quickforge-action: cloud-action`，带 JSON body 的写接口要求 `Content-Type: application/json`，以阻止浏览器跨站简单请求绕过预检。
 
 - `GET /api/cloud/config` — 返回规范化 Cloud URL、来源与配置错误，不返回凭据。
 - `PUT /api/cloud/config` — 保存 URL 并使 Cloud runtime 失效；活动 Session 必须与凭据中绑定的 `sessionCloudUrl` 一致，旧版未绑定 Session 也会以 HTTP 409 / `cloud_session_active` 安全拒绝。
@@ -48,6 +48,7 @@
 - `GET /api/cloud/status` — 返回本地安全摘要，不自动创建游客；Session URL 不匹配或旧 Session 缺失绑定时带 `sessionServiceMismatch` 供 UI 提示重建身份。
 - Refresh、Logout、模型、额度和设备等 Token 操作发现 Session URL 不匹配或缺失时返回 HTTP 409 / `cloud_session_service_mismatch`，并在发送旧 Refresh Token 前拒绝。
 - `POST /api/cloud/guest/start` — 用户明确确认后创建游客；退出后的下一次注册会先轮换安装密钥并创建新游客。
+- `POST /api/cloud/device/start|poll|cancel` — 正式账户 Device Flow；local 的 start 会先创建临时 guest，guest 直接升级。`deviceCode` 仅保存在 Node 私有凭据文件；页面刷新/本地重启后由 status 恢复公开 pending 摘要。pending/slow_down/network 保留流程，denied/expired/cancel 清 pending 并保留 guest，成功原子替换账户 Token、保留 installation 并清模型缓存。
 - `GET /api/cloud/models|usage|installations` — 返回公开模型、额度和设备列表。
 - `DELETE /api/cloud/installations/:id` — 撤销指定设备。
 - `POST /api/cloud/logout` — 先撤销云端当前 installation，再清理本地 Session；远端失败时请求失败且本地凭据保留。
@@ -74,18 +75,22 @@ Agent 会话管理核心路由。
 - `DELETE /api/agents/:sessionId` — 销毁 Agent
 - `POST /api/agents/:sessionId/access-mode` — 切换 Agent 权限模式（`default` / `full-access`）
 - `POST /api/agents/:sessionId/yolo-mode` — 旧客户端兼容入口
-- `POST /api/agents/:sessionId/model` — 更新模型
+- `POST /api/agents/:sessionId/model` — 接收版本化 `modelRef`（旧完整 `model` 仅作兼容识别），从当前统一目录解析权威模型；prompt/continue 执行前会再次解析，失效显式绑定直接拒绝
 - `POST /api/agents/:sessionId/thinking-level` — 更新思考级别
 
 ## storage.mjs (151 行)
 
-通用存储 CRUD 路由。
+通用存储 CRUD 路由。本机保持旧 KV 兼容；远程请求统一拒绝 `provider-keys`、`custom-providers`、MCP、插件、定时任务、Agent Profile 覆盖等敏感或可执行 store，模型读取必须走公开 Catalog API。
 
 **主要端点**:
 - `GET /api/storage/quota` — 存储配额和用量
 - `GET|POST|DELETE /api/storage/:store/keys/:key` — 键值操作
 - `GET /api/storage/:store/index/:indexName` — 索引查询（支持排序、分页、作用域过滤）；会话元数据默认排除归档记录，`archived=only` 仅返回归档，`archived=include` 返回全部
 - 写入 `settings/auto-archive-settings` 并开启时，会立即执行一次超过 30 天未更新对话的自动归档扫描
+
+## backup.mjs
+
+备份导出、检查和导入接口仅允许本机请求，避免远程绕过 Storage 限制导出 Provider Key 或覆盖 Provider、任务等敏感配置。
 
 ## project.mjs (192 行)
 
@@ -151,9 +156,10 @@ Agent Profile 管理路由。
 
 ## models.mjs (68 行)
 
-自定义模型连接测试路由。
+统一模型目录与自定义模型连接测试路由。
 
 **主要端点**:
+- `GET /api/models/catalog` — 返回当前请求上下文可使用的公开模型目录。每个条目携带版本化 `quickforgeModelRef`；不返回 API Key、Cloud Token 或请求 Header，普通 LAN 请求不包含 Cloud。
 - `POST /api/models/test-connection` — 用当前配置（Base URL、API Key、模型 ID）发送最小请求验证连通性。请求体 `{ model, apiKey? }`（`model` 为完整模型对象，`apiKey` 可选，用于测试尚未保存的配置）；成功返回 `{ ok: true }`，失败返回 `{ ok: false, error }`。错误统一以 HTTP 200 返回，便于前端统一解析。
 
 ## scheduled-tasks.mjs (949 行)
@@ -171,7 +177,7 @@ Agent Profile 管理路由。
 - `POST /api/scheduled-tasks/:id/resume` — 恢复任务
 - `POST /api/scheduled-tasks/:id/run` — 手动触发任务
 
-**调度引擎**: 内置调度器（`startScheduledTaskRunner`），支持 Cron 表达式和间隔调度。任务可通过 `agentId` 绑定 Agent Profile；执行时会追加 profile 系统提示词、限制工具白名单，并在运行历史中记录 `agentId`、`agentLabel` 和 `agentSnapshot`。每个任务可配置 `executionMode`：默认 `serial`，同一任务已有运行实例时跳过新的到期执行；`parallel` 允许同一任务重叠执行。不同任务之间始终并行触发。达到 Agent Profile 运行时限后会调用 `abortRun()`，并以有界等待清理 timeout、Agent 事件监听器、内存/持久化运行 ID；循环任务超时后暂停，已保存的任务会话仍保留供查看。
+**调度引擎**: 内置调度器（`startScheduledTaskRunner`），支持 Cron 表达式和间隔调度。任务新建/更新保存 `modelRef + model` 展示快照；执行时以后台授权上下文从当前统一目录重新解析，Cloud 失效或自定义 Provider 已删除时拒绝运行，永不使用旧 transport 快照。任务可通过 `agentId` 绑定 Agent Profile；执行时会追加 profile 系统提示词、限制工具白名单，并在运行历史中记录 `agentId`、`agentLabel` 和 `agentSnapshot`。每个任务可配置 `executionMode`：默认 `serial`，同一任务已有运行实例时跳过新的到期执行；`parallel` 允许同一任务重叠执行。不同任务之间始终并行触发。达到 Agent Profile 运行时限后会调用 `abortRun()`，并以有界等待清理 timeout、Agent 事件监听器、内存/持久化运行 ID；循环任务超时后暂停，已保存的任务会话仍保留供查看。
 
 ## shares.mjs (90 行)
 
@@ -184,7 +190,7 @@ Agent Profile 管理路由。
 - `POST /api/shares/:shareId/disable` — 停用分享，立即清除认证令牌并关闭已有共享 SSE
 - `POST /api/shares/:shareId/restore` — 按请求中的 `expiresAt` 恢复分享；恢复前验证原会话仍存在
 - `POST /api/shares/:shareId/expiration` — 修改仍有效分享的有效期，并关闭旧 SSE 使客户端按新配置重连
-- `POST /api/shares/:shareId/update` — 编辑仍有效分享的权限、密码和有效期；修改密码或取消密码后旧密码与已解锁状态失效，可操作分享必须保留非空密码
+- `POST /api/shares/:shareId/update` — 编辑仍有效分享的权限、密码、有效期和 `allowCloudUsage`；Cloud 默认关闭，只能由本机或已认证 Tailscale 管理端显式开启，修改会使旧共享状态失效
 - `DELETE /api/shares/:shareId/permanent` — 永久删除分享记录并关闭已有共享 SSE
 
 ## shared-conversation.mjs (428 行)
@@ -195,7 +201,7 @@ Agent Profile 管理路由。
 - `GET /api/shared/:shareId/meta` — 获取分享元数据
 - `POST /api/shared/:shareId/unlock` — 密码解锁并写入分享 Cookie
 - `GET /api/shared/:shareId/session` — 获取共享会话快照
-- `GET /api/shared/:shareId/models` — 获取可操作分享可用的模型供应商
+- `GET /api/shared/:shareId/models` — 从统一 Model Catalog 获取可操作分享可用的公开模型；Cloud 仅在分享记录显式 `allowCloudUsage: true` 时出现
 - `GET /api/shared/:shareId/events` — 订阅共享会话 SSE
 - `POST /api/shared/:shareId/message` — 发送消息
 - `POST /api/shared/:shareId/model` — 更新模型

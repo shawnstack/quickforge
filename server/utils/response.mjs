@@ -16,7 +16,12 @@ export function sendError(res, error) {
   }
   const status = error?.statusCode || 500
   const payload = { error: error?.message || 'Internal server error' }
-  if (typeof error?.errorCode === 'string' && error.errorCode) payload.code = error.errorCode
+  const code = typeof error?.errorCode === 'string' && error.errorCode
+    ? error.errorCode
+    : typeof error?.code === 'string' && error.code
+      ? error.code
+      : undefined
+  if (code) payload.code = code
   sendJson(res, status, payload)
 }
 

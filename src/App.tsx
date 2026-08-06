@@ -66,7 +66,12 @@ import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { ServerAgent } from '@/lib/server-agent'
 import { logger } from '@/lib/logger'
 import { scheduleAfterPaint } from '@/lib/schedule-after-paint'
-import { loadSidebarSessionSortMode, saveSidebarSessionSortMode } from '@/lib/sidebar-session-sort-mode'
+import {
+  loadSidebarSessionSortMode,
+  loadSidebarSessionViewMode,
+  saveSidebarSessionSortMode,
+  saveSidebarSessionViewMode,
+} from '@/lib/sidebar-session-sort-mode'
 import { getDeletedProjectRecoveryDecision } from '@/lib/deleted-project-recovery'
 import { isCurrentProjectRequest } from '@/lib/project-request-guard'
 import { shouldRefreshTitleGitStatusOnToolEnd } from '@/lib/title-git-status-refresh'
@@ -308,7 +313,9 @@ function MainApp() {
     sessionId?: string
     artifacts: AiTurnArtifact[]
   }>({ artifacts: [] })
-  const [sidebarSessionViewMode, setSidebarSessionViewMode] = useState<SidebarSessionViewMode>('project')
+  const [sidebarSessionViewMode, setSidebarSessionViewMode] = useState<SidebarSessionViewMode>(
+    loadSidebarSessionViewMode,
+  )
   const [sidebarSessionSortMode, setSidebarSessionSortMode] = useState<SidebarSessionSortMode>(
     loadSidebarSessionSortMode,
   )
@@ -357,6 +364,10 @@ function MainApp() {
     setDesktopTitlebarMenuOpen(false)
     window.open('quickforge://exit', '_blank', 'noopener,noreferrer')
   }, [])
+
+  useEffect(() => {
+    saveSidebarSessionViewMode(sidebarSessionViewMode)
+  }, [sidebarSessionViewMode])
 
   useEffect(() => {
     saveSidebarSessionSortMode(sidebarSessionSortMode)

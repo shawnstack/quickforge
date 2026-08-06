@@ -6,17 +6,24 @@ import type { Api, Model } from '@earendil-works/pi-ai'
 import { ArrowLeft, Bot, ChevronDown, MoreHorizontal, Edit3, Sparkles, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
+import { loadModelCatalog, modelReferenceFromModel, type ModelReference } from '@/lib/model-reference'
 import { InfoTip } from '@/components/ui/info-tip'
 import { showConfirm } from '@/components/ui/confirm-dialog'
 import { openModelSheet } from '@/lib/custom-model-selector'
-import { defaultThinkingLevelForModel, getConfiguredModels, initializePiStorage, loadDefaultOptions, loadInitialConfiguredModel } from '@/lib/pi-chat'
+import { modelDisplayLabel as modelLabel } from '@/lib/model-display-label'
+import { includeCurrentModel, modelMatchesReference, sameModelIdentity } from '@/lib/model-identity'
+import { defaultThinkingLevelForModel, getConfiguredModels, initializePiStorage, loadDefaultOptions } from '@/lib/pi-chat'
 import { isModelSelectable } from '@/lib/model-visibility'
 
 type RiskLevel = 'safe' | 'dangerous'
 
 type AgentModelRef =
   | { mode: 'inherit' }
-  | { mode: 'fixed'; provider: string; modelId: string; api?: string; baseUrl?: string }
+  | ({ mode: 'fixed' } & (
+      | { source: 'cloud'; catalogId: string }
+      | { source: 'custom'; providerId: string; modelId: string }
+      | { source?: 'legacy-custom'; provider: string; modelId: string; api?: string; baseUrl?: string }
+    ))
 
 type AgentThinkingLevel = 'inherit' | ThinkingLevel
 
@@ -71,25 +78,14 @@ const agentMenuGap = 4
 const agentMenuMargin = 8
 
 function modelOptionValue(model: AnyModel) {
-  return JSON.stringify({
-    provider: model.provider,
-    modelId: model.id,
-    api: model.api,
-    baseUrl: model.baseUrl,
-  })
+  return JSON.stringify(modelReferenceFromModel(model))
 }
 
 function modelRefFromOption(value: string): AgentModelRef {
   if (!value) return { mode: 'inherit' }
   try {
-    const parsed = JSON.parse(value)
-    return {
-      mode: 'fixed',
-      provider: String(parsed.provider || ''),
-      modelId: String(parsed.modelId || ''),
-      api: parsed.api ? String(parsed.api) : undefined,
-      baseUrl: parsed.baseUrl ? String(parsed.baseUrl) : undefined,
-    }
+    const parsed = JSON.parse(value) as ModelReference
+    return { mode: 'fixed', ...parsed } as AgentModelRef
   } catch {
     return { mode: 'inherit' }
   }
@@ -97,16 +93,16 @@ function modelRefFromOption(value: string): AgentModelRef {
 
 function modelRefToOption(model?: AgentModelRef) {
   if (!model || model.mode !== 'fixed') return ''
+  if (model.source === 'cloud') return JSON.stringify({ version: 1, source: 'cloud', catalogId: model.catalogId })
+  if (model.source === 'custom') return JSON.stringify({ version: 1, source: 'custom', providerId: model.providerId, modelId: model.modelId })
   return JSON.stringify({
+    version: 1,
+    source: 'legacy-custom',
     provider: model.provider,
     modelId: model.modelId,
-    api: model.api,
-    baseUrl: model.baseUrl,
+    ...(model.api ? { api: model.api } : {}),
+    ...(model.baseUrl ? { baseUrl: model.baseUrl } : {}),
   })
-}
-
-function modelLabel(model: AnyModel) {
-  return model.name || `${model.provider}/${model.id}`
 }
 
 function defaultAgentForm(): AgentFormState {
@@ -224,10 +220,18 @@ export function AgentProfilesPage() {
     async function loadDefaultModel() {
       try {
         const storage = await initializePiStorage()
-        const configuredModels = await getConfiguredModels(storage)
-        setConfiguredModels(configuredModels)
+        const [configuredModels, catalogModels] = await Promise.all([
+          getConfiguredModels(storage),
+          loadModelCatalog().catch(() => []),
+        ])
+        const mergedModels = catalogModels.length ? catalogModels : configuredModels
+        setConfiguredModels(mergedModels)
+        const selectableModels = mergedModels.filter(isModelSelectable)
         const defaultOptions = await loadDefaultOptions(storage)
-        const activeModel = defaultOptions.model ?? await loadInitialConfiguredModel(storage) ?? configuredModels[0]
+        const savedDefault = defaultOptions.model && isModelSelectable(defaultOptions.model)
+          ? selectableModels.find((model) => sameModelIdentity(model, defaultOptions.model!))
+          : undefined
+        const activeModel = savedDefault ?? selectableModels[0]
         if (cancelled) return
         setSelectedModel(activeModel)
         setThinkingLevel(defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(activeModel))
@@ -268,21 +272,24 @@ export function AgentProfilesPage() {
   const openMenuAgent = useMemo(() => agentProfiles.find((agent) => agent.id === openMenuProfileId) ?? null, [agentProfiles, openMenuProfileId])
   const definitionReadonly = Boolean(editingAgent?.readonly)
   const modelReadonly = Boolean(editingAgent?.readonly && !editingAgent?.builtin)
-  const selectedFixedModel = useMemo(
-    () => configuredModels.find((model) => modelOptionValue(model) === agentForm.fixedModelValue),
-    [agentForm.fixedModelValue, configuredModels],
-  )
-
+  const selectedFixedModel = useMemo(() => {
+    const reference = modelRefFromOption(agentForm.fixedModelValue)
+    if (reference.mode !== 'fixed') return undefined
+    const serialized = modelRefToOption(reference)
+    return configuredModels.find((model) => modelOptionValue(model) === serialized)
+      ?? ('provider' in reference
+        ? configuredModels.find((model) => modelMatchesReference(model, reference))
+        : undefined)
+  }, [agentForm.fixedModelValue, configuredModels])
   const selectableModels = useMemo(
     () => configuredModels.filter(isModelSelectable),
     [configuredModels],
   )
   const fixedModelOptions = useMemo(
-    () => selectedFixedModel && !selectableModels.some((model) => modelOptionValue(model) === modelOptionValue(selectedFixedModel))
-      ? [selectedFixedModel, ...selectableModels]
-      : selectableModels,
+    () => includeCurrentModel(selectableModels, selectedFixedModel),
     [selectableModels, selectedFixedModel],
   )
+  const fixedModelSelectValue = selectedFixedModel ? modelOptionValue(selectedFixedModel) : agentForm.fixedModelValue
   const fixedModelDisablesThinking = agentForm.modelMode === 'fixed'
     && Boolean(selectedFixedModel)
     && selectedFixedModel?.reasoning !== true
@@ -371,7 +378,7 @@ export function AgentProfilesPage() {
     try {
       const payload = await requestJson<{ agent: GeneratedAgentFields }>('/api/agent-profiles/ai-fill', {
         method: 'POST',
-        body: JSON.stringify({ instruction, model: selectedModel, thinkingLevel }),
+        body: JSON.stringify({ instruction, modelRef: modelReferenceFromModel(selectedModel), model: selectedModel, thinkingLevel }),
       })
       setAgentForm((current) => ({
         ...current,
@@ -532,7 +539,7 @@ export function AgentProfilesPage() {
                 </label>
                 <label className="block text-sm font-medium text-foreground">
                   {t('agentFixedModel')}
-                  <select className="quickforge-model-select-desktop mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.fixedModelValue} disabled={modelReadonly || agentForm.modelMode !== 'fixed'} onChange={(event) => updateAgentForm('fixedModelValue', event.target.value)}>
+                  <select className="quickforge-model-select-desktop mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={fixedModelSelectValue} disabled={modelReadonly || agentForm.modelMode !== 'fixed'} onChange={(event) => updateAgentForm('fixedModelValue', event.target.value)}>
                     <option value="">{t('agentModelInherit')}</option>
                     {fixedModelOptions.map((model) => (
                       <option key={modelOptionValue(model)} value={modelOptionValue(model)}>{modelLabel(model)}</option>

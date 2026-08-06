@@ -9,7 +9,7 @@ import {
   mergeAvailableModels,
   saveActiveModel,
   saveConnectionProfile,
-  selectableModelsFromProviders,
+  getSelectableConfiguredModels,
 } from '@/lib/pi-chat'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
 import {
@@ -201,8 +201,7 @@ export function useModelActions({
     let customModels = readCachedModelList()
     if (!customModels) {
       try {
-        const customProviders = await storage.customProviders.getAll()
-        customModels = selectableModelsFromProviders(customProviders)
+        customModels = await getSelectableConfiguredModels(storage)
         writeCachedModelList(customModels)
       } catch (error) {
         logger.error('Failed to load custom models, falling back to cache:', error)

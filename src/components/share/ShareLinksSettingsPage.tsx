@@ -65,6 +65,7 @@ function ShareEditDialog({
   const [permission, setPermission] = useState<SharePermission>(share.permission)
   const [passwordInput, setPasswordInput] = useState('')
   const [removePassword, setRemovePassword] = useState(false)
+  const [allowCloudUsage, setAllowCloudUsage] = useState(share.allowCloudUsage === true)
   const [expirationChoice, setExpirationChoice] = useState<'keep' | '1h' | '24h' | '7d' | 'never'>('keep')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -82,7 +83,7 @@ function ShareEditDialog({
     try {
       const password = removePassword ? '' : passwordInput ? passwordInput.trim() : undefined
       const expiresAt = expirationChoice === 'keep' ? undefined : expirationFromOption(expirationChoice)
-      const result = await updateConversationShare(share.id, { permission, password, expiresAt })
+      const result = await updateConversationShare(share.id, { permission, password, expiresAt, allowCloudUsage: permission === 'operate' && allowCloudUsage })
       onSaved(result.share)
       onClose()
     } catch (saveError) {
@@ -113,6 +114,13 @@ function ShareEditDialog({
               </button>
             </div>
           </div>
+
+          {permission === 'operate' ? (
+            <label className="flex items-start gap-2 rounded-xl border border-border bg-muted/20 p-3 text-xs font-medium">
+              <input type="checkbox" checked={allowCloudUsage} onChange={(event) => setAllowCloudUsage(event.target.checked)} />
+              <span>允许该分享使用宿主机的 QuickForge Cloud 模型和额度。默认关闭。</span>
+            </label>
+          ) : null}
 
           <div className="space-y-2">
             <label className="block text-sm font-medium">{t('sharePasswordTitle')}</label>

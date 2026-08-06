@@ -163,10 +163,12 @@ You can:
 
 Model selection rules:
 
-- QuickForge only shows configured custom models that are not hidden.
-- Existing conversations, agents, and scheduled tasks can continue using a model after it is hidden.
-- If a previously selected model still exists, QuickForge restores it on startup.
-- If the saved model no longer exists, QuickForge selects the first configured model.
+- QuickForge uses one server-side model catalog for selectable custom models and QuickForge Cloud models. Selectors consistently use public labels and never expose API keys, tokens, or request headers.
+- Main chat, default model settings, Agent Profiles (including AI Fill), scheduled tasks, ACP, and editable shared conversations use the same catalog. New bindings persist a model reference; execution resolves the current Provider or Cloud configuration on the server, so a client-submitted Base URL cannot override the transport.
+- New selection lists exclude hidden models and Cloud entries marked `available:false`. Hidden models are also excluded from new-session and new-task default candidates.
+- Existing conversations, profiles, scheduled tasks, and ACP sessions keep their current hidden-model binding. Editors still show the current value, but after switching away the hidden model cannot be selected again.
+- Invalid saved active/default preferences may fall back when starting a new conversation. Explicit Profile, task, or historical conversation bindings fail instead of silently switching models.
+- Editable shares cannot use the owner's QuickForge Cloud models or quota unless the owner explicitly enables Cloud usage. Read-only shares never execute a model.
 - If no model is configured, QuickForge shows the first-run model setup guide.
 
 #### Reasoning / Thinking models
@@ -304,6 +306,18 @@ Do not modify files yet. Read the relevant code first, explain your plan, and wa
 ```
 
 ---
+
+### Sign in or register an account
+
+In **Settings → QuickForge Cloud**:
+
+1. From local mode, choose **Sign in or register**. QuickForge creates a temporary guest only as part of that explicit action, then starts sign-in.
+2. From guest mode, choose **Upgrade to an account**; the current installation is retained.
+3. Open the Cloud verification page and register or sign in there. Email and password go only to the Cloud page; QuickForge never reads or stores them.
+4. QuickForge shows the device code and countdown and polls automatically. Refreshing the page or restarting the local service resumes the pending flow.
+5. Cancel, denial, expiration, or temporary network failure keeps the guest session. The account token replaces it only after success, then the account email and plan are shown.
+
+Do not change the Cloud URL while sign-in is pending. The flow is bound to the service URL where it was created.
 
 ## P3: Troubleshooting and Maintenance
 

@@ -107,8 +107,17 @@ export function getGitLog(projectId: string) {
   return fetchJson<GitLogResponse>(`/api/git/log?${projectQuery(projectId)}`)
 }
 
+import type { Api, Model } from '@earendil-works/pi-ai'
+import { modelReferenceFromModel } from '@/lib/model-reference'
+
 export function generateGitCommitMessage(projectId: string, model: unknown, thinkingLevel: unknown, includeUnstaged: boolean) {
-  return postJson<{ message: string }>('/api/git/generate-commit-message', { projectId, model, thinkingLevel, includeUnstaged })
+  return postJson<{ message: string }>('/api/git/generate-commit-message', {
+    projectId,
+    modelRef: model && typeof model === 'object' ? modelReferenceFromModel(model as Model<Api>) : undefined,
+    model,
+    thinkingLevel,
+    includeUnstaged,
+  })
 }
 
 export function commitGitChanges(projectId: string, message: string, includeUnstaged: boolean) {

@@ -1,4 +1,5 @@
 import { streamSimpleWithAiHttpLogging } from '../ai-http-logger.mjs'
+import { listModelCatalog } from '../model-catalog.mjs'
 import { sendJson, readJsonBody } from '../utils/response.mjs'
 import { readStore } from '../storage.mjs'
 import { logger } from '../utils/logger.mjs'
@@ -46,7 +47,12 @@ async function probeModelConnection(model, apiKeyOverride) {
   return { ok: true }
 }
 
-export async function handleModelsApi(req, res, url) {
+export async function handleModelsApi(req, res, url, context = {}) {
+  if (req.method === 'GET' && url.pathname === '/api/models/catalog') {
+    sendJson(res, 200, { models: await listModelCatalog({ context, refreshCloud: url.searchParams.get('refresh') === 'true' }) })
+    return
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/models/test-connection') {
     const body = await readJsonBody(req)
     const model = body?.model

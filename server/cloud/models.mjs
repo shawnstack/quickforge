@@ -38,14 +38,20 @@ export class ManagedCloudModels {
   }
 
   async list(signal, options) {
-    return (await this.identity.models(signal, options)).map(toPublicCloudModel)
+    return (await this.identity.models(signal, options))
+      .filter((model) => model?.available !== false)
+      .map(toPublicCloudModel)
   }
 
   async resolve(model, signal) {
     if (!isManagedCloudModel(model)) return undefined
     const catalogId = model.quickforgeCatalogId
-    const available = await this.identity.models(signal)
-    const entry = available.find((item) => item?.id === catalogId && item?.available !== false)
+    let available = await this.identity.models(signal)
+    let entry = available.find((item) => item?.id === catalogId && item?.available !== false)
+    if (!entry) {
+      available = await this.identity.models(signal, { refresh: true, allowStale: false })
+      entry = available.find((item) => item?.id === catalogId && item?.available !== false)
+    }
     if (!entry) {
       const error = new Error(`QuickForge Cloud model is unavailable: ${catalogId}`)
       error.code = 'cloud_model_unavailable'

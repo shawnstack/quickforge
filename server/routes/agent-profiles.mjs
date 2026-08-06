@@ -3,6 +3,36 @@ import { DEFAULT_AI_MAX_RETRIES } from '../ai-provider-options.mjs'
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { readStore } from '../storage.mjs'
 import { logger } from '../utils/logger.mjs'
+import { resolveModelBinding } from '../model-catalog.mjs'
+
+function profileModelReference(model) {
+  if (!model || model.mode !== 'fixed') return null
+  if (model.source === 'cloud') return { version: 1, source: 'cloud', catalogId: model.catalogId || model.modelId }
+  if (model.source === 'custom') return { version: 1, source: 'custom', providerId: model.providerId, modelId: model.modelId }
+  return {
+    version: 1,
+    source: 'legacy-custom',
+    provider: model.provider,
+    modelId: model.modelId,
+    ...(model.api ? { api: model.api } : {}),
+    ...(model.baseUrl ? { baseUrl: model.baseUrl } : {}),
+  }
+}
+
+async function canonicalizeProfileModel(body, current, context) {
+  if (!body || !Object.prototype.hasOwnProperty.call(body, 'model')) return body
+  const model = body.model
+  if (!model || model.mode !== 'fixed') return body
+  if (current?.model && JSON.stringify(current.model) === JSON.stringify(model)) return body
+  const binding = await resolveModelBinding({ modelRef: profileModelReference(model) }, { context })
+  const ref = binding.modelRef
+  return {
+    ...body,
+    model: ref.source === 'cloud'
+      ? { mode: 'fixed', source: 'cloud', catalogId: ref.catalogId }
+      : { mode: 'fixed', source: 'custom', providerId: ref.providerId, modelId: ref.modelId },
+  }
+}
 import {
   agentProfileSnapshot,
   createCustomAgentProfile,
@@ -65,10 +95,14 @@ function normalizeGeneratedAgentProfile(value) {
   return { name, label, description, systemPrompt }
 }
 
-async function generateAgentProfileWithAi(instruction, model, thinkingLevel = 'off') {
+async function generateAgentProfileWithAi(instruction, modelInput, thinkingLevel = 'off', context = {}) {
   const text = String(instruction || '').trim()
   if (!text) throw requestError('Please describe the agent you want to create')
-  if (!model) throw requestError('Please configure a default model first')
+  if (!modelInput) throw requestError('Please configure a default model first')
+  const { model } = await resolveModelBinding(
+    modelInput?.modelRef || modelInput?.model ? modelInput : { model: modelInput },
+    { context, legacySnapshot: modelInput?.model || modelInput },
+  )
 
   const systemPrompt = `You are a QuickForge Agent Profile generator.
 Generate only the basic definition fields for a custom Agent Profile from the user's request.
@@ -120,7 +154,7 @@ Rules:
   }
 }
 
-export async function handleAgentProfilesApi(req, res, url) {
+export async function handleAgentProfilesApi(req, res, url, context = {}) {
   const parts = url.pathname.split('/').filter(Boolean)
 
   if (req.method === 'GET' && url.pathname === '/api/agent-profiles') {
@@ -136,13 +170,13 @@ export async function handleAgentProfilesApi(req, res, url) {
 
   if (req.method === 'POST' && url.pathname === '/api/agent-profiles/ai-fill') {
     const body = await readJsonBody(req)
-    sendJson(res, 200, { agent: await generateAgentProfileWithAi(body?.instruction, body?.model, body?.thinkingLevel) })
+    sendJson(res, 200, { agent: await generateAgentProfileWithAi(body?.instruction, body?.modelRef ? body : body?.model, body?.thinkingLevel, context) })
     return
   }
 
   if (req.method === 'POST' && url.pathname === '/api/agent-profiles') {
     const body = await readJsonBody(req)
-    sendJson(res, 200, { agent: await createCustomAgentProfile(body || {}) })
+    sendJson(res, 200, { agent: await createCustomAgentProfile(await canonicalizeProfileModel(body || {}, null, context)) })
     return
   }
 
@@ -162,11 +196,11 @@ export async function handleAgentProfilesApi(req, res, url) {
       if (current?.builtin) {
         const keys = Object.keys(body || {})
         if (keys.length !== 1 || keys[0] !== 'model') throw requestError('Built-in agents only allow model updates', 403)
-        sendJson(res, 200, { agent: agentProfileSnapshot(await updateBuiltinAgentModelOverride(id, body.model)) })
+        sendJson(res, 200, { agent: agentProfileSnapshot(await updateBuiltinAgentModelOverride(id, (await canonicalizeProfileModel(body, current, context)).model)) })
         return
       }
       if (current?.readonly) throw requestError('Read-only agents cannot be modified from the API', 403)
-      sendJson(res, 200, { agent: await updateCustomAgentProfile(id, body || {}) })
+      sendJson(res, 200, { agent: await updateCustomAgentProfile(id, await canonicalizeProfileModel(body || {}, current, context)) })
       return
     }
 

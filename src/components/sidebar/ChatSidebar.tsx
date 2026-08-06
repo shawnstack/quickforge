@@ -760,6 +760,7 @@ export const ChatSidebar = memo(function ChatSidebar({
               deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
             )}
             onMouseEnter={(event) => showSessionHoverTip(event, session.id)}
+            onClickCapture={() => hideSessionHoverTip(session.id)}
             onMouseLeave={() => {
               setSuppressedSessionActionsId((current) => current === session.id ? null : current)
               if (!deleting) {
@@ -1090,6 +1091,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                         deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
                                       )}
                                       onMouseEnter={(event) => showSessionHoverTip(event, session.id)}
+                                      onClickCapture={() => hideSessionHoverTip(session.id)}
                                       onMouseLeave={() => {
                                         setSuppressedSessionActionsId((current) => current === session.id ? null : current)
                                         if (!deleting) {
@@ -1288,6 +1290,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                     deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
                                                   )}
                                                   onMouseEnter={(event) => showSessionHoverTip(event, session.id)}
+                                                  onClickCapture={() => hideSessionHoverTip(session.id)}
                                                   onMouseLeave={() => {
                                                     setSuppressedSessionActionsId((current) => current === session.id ? null : current)
                                                     if (!deleting) {
@@ -1430,6 +1433,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                   deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
                                 )}
                                 onMouseEnter={(event) => showSessionHoverTip(event, session.id)}
+                                onClickCapture={() => hideSessionHoverTip(session.id)}
                                 onMouseLeave={() => {
                                   setSuppressedSessionActionsId((current) => current === session.id ? null : current)
                                   if (!deleting) {
@@ -1609,12 +1613,12 @@ export const ChatSidebar = memo(function ChatSidebar({
         const session = searchableSessions.find((item) => item.session.id === hoveredSessionTip.sessionId)?.session
         if (!session) return null
         const showRuntimeInfo = currentSessionHoverInfo?.sessionId === session.id
-        return (
+        return createPortal(
           <div
             className={sessionHoverTipClass}
             style={{ left: hoveredSessionTip.x, top: hoveredSessionTip.y, transform: 'translateY(-50%)' }}
           >
-            <div className="truncate text-sm font-medium leading-5 text-foreground/92">{sessionTitle(session.title, session.channelName)}</div>
+            <div className="whitespace-normal break-words text-sm font-medium leading-5 text-foreground/92">{sessionTitle(session.title, session.channelName)}</div>
             {showRuntimeInfo && currentSessionHoverInfo?.gitBranch ? (
               <div className={sessionHoverTipMetaClass}>
                 <GitBranch className="size-4 shrink-0 text-muted-foreground/60" />
@@ -1628,7 +1632,8 @@ export const ChatSidebar = memo(function ChatSidebar({
                 <span className="truncate">{currentSessionHoverInfo.context.label}</span>
               </div>
             ) : null}
-          </div>
+          </div>,
+          document.body,
         )
       })() : null}
 

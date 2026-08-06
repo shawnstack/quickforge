@@ -291,12 +291,12 @@ async function handleApi(req, res, url, requestContext = {}) {
 
   // Conversation share routes (management + public LAN access)
   if (pathname === '/api/shares' || pathname.startsWith('/api/shares/')) {
-    await handleSharesApi(req, res, url, { port })
+    await handleSharesApi(req, res, url, { ...requestContext, port })
     return
   }
 
   if (pathname.startsWith('/api/shared/')) {
-    await handleSharedConversationApi(req, res, url)
+    await handleSharedConversationApi(req, res, url, requestContext)
     return
   }
 
@@ -338,7 +338,7 @@ async function handleApi(req, res, url, requestContext = {}) {
 
   // Agent profiles
   if (pathname === '/api/agent-profiles' || pathname.startsWith('/api/agent-profiles/')) {
-    await handleAgentProfilesApi(req, res, url)
+    await handleAgentProfilesApi(req, res, url, requestContext)
     return
   }
 
@@ -353,8 +353,8 @@ async function handleApi(req, res, url, requestContext = {}) {
   }
 
   // Custom model management (connection test)
-  if (pathname === '/api/models/test-connection') {
-    await handleModelsApi(req, res, url)
+  if (pathname === '/api/models/catalog' || pathname === '/api/models/test-connection') {
+    await handleModelsApi(req, res, url, requestContext)
     return
   }
 
@@ -399,7 +399,7 @@ async function handleApi(req, res, url, requestContext = {}) {
   }
 
   if (pathname.startsWith('/api/git/')) {
-    await handleGitApi(req, res, url)
+    await handleGitApi(req, res, url, requestContext)
     return
   }
 
@@ -423,19 +423,19 @@ async function handleApi(req, res, url, requestContext = {}) {
 
   // Agent routes
   if (parts[0] === 'api' && parts[1] === 'agents') {
-    await handleAgentApi(req, res, url)
+    await handleAgentApi(req, res, url, requestContext)
     return
   }
 
   // Scheduled task routes
   if (pathname === '/api/scheduled-tasks' || pathname.startsWith('/api/scheduled-tasks/')) {
-    await handleScheduledTasksApi(req, res, url)
+    await handleScheduledTasksApi(req, res, url, requestContext)
     return
   }
 
   // Backup / import-export routes
   if (pathname === '/api/backup/export' || pathname === '/api/backup/import' || pathname === '/api/backup/inspect' || pathname === '/api/backup/inspect-file') {
-    await handleBackupApi(req, res, url)
+    await handleBackupApi(req, res, url, requestContext)
     return
   }
 
@@ -473,7 +473,7 @@ async function handleApi(req, res, url, requestContext = {}) {
 
   // Storage routes (catch-all)
   if (parts[0] === 'api' && parts[1] === 'storage') {
-    await handleStorageApi(req, res, url)
+    await handleStorageApi(req, res, url, requestContext)
     return
   }
 

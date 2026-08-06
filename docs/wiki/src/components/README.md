@@ -81,7 +81,7 @@ components/
 
 - 左侧聊天列表面板
 - 支持全局会话 / 项目会话切换
-- 支持按更新时间或创建时间排序；排序偏好保存在浏览器 `localStorage`，刷新后恢复，不参与后端备份或跨设备同步
+- 支持“按项目 / 时间线”视图切换，以及按更新时间或创建时间排序；两项偏好均保存在浏览器 `localStorage`，刷新后恢复，不参与后端备份或跨设备同步
 - 搜索、置顶、归档会话；归档内容可在设置页的“已归档对话”中恢复或永久删除
 - 折叠/展开项目分组
 - 无限滚动加载会话 (Intersection Observer)
@@ -157,7 +157,7 @@ components/
 
 - 右侧专业工作区检查器入口为 `WorkspaceInspector.tsx`，采用类浏览器顶部 Tab 工作区；`+` 菜单提供 Files / Review / Terminal / Browser 入口。Tab 列表、活动 `activePanelTabId` 和 Review 的 Overview/Changes 子视图按 `projectId` 写入浏览器 `localStorage`，活动 Tab 是恢复事实源；项目切换通过 React `key` 重建 Inspector，从而加载新项目各自的 Tab 状态。
 - 标题栏 Git、聊天文件链接、文件 Reader 和产物 Browser 等外部入口通过携带 `projectId` 的一次性请求打开对应 Tab；Inspector 仅在请求项目与当前项目一致时消费并清除请求，普通折叠后重新展开不会重放已处理请求。
-- Files tab 通过后端 `/api/workspace/tree` 浏览当前项目文件，顶部支持路径筛选和手动刷新；Files、Review、Reader Tab 与产物文件标题统一使用 Material Icon Theme 官方文件类型图标，搜索、刷新、预览等操作图标继续使用 Lucide。从 Files 中打开普通文件时，会提升为独立顶部 reader tab，Tab 标题显示文件名，内容区左侧使用 Monaco Editor / Markdown Reader 只读展示，右侧保留可显隐、可拖拽调宽的工作目录树；Reader 顶部左侧显示“项目名 > 工作区相对路径”的分段面包屑，当前文件名增强显示，长路径自动截断并通过悬停展示完整路径；复制路径、复制文件内容和自动换行收拢到更多菜单，提供当前文件的资源管理器 / VS Code / IntelliJ IDEA 外部打开入口。Markdown Reader 默认展示预览，并在右侧操作区通过“查看源代码 / 返回预览”切换；更多操作始终保留，自动换行仅在源码视图可用。普通代码文件默认关闭自动换行并常驻横向滚动条，用户可按文件临时启用自动换行；文件 reader tab 按项目保存路径，恢复时重新加载最新内容。Markdown 和代码产物进入 reader，HTML、SVG 和图片产物进入 Browser。
+- Files tab 通过后端 `/api/workspace/tree` 浏览当前项目文件，顶部支持路径筛选和手动刷新；Files、Review、Reader Tab 与产物文件标题统一使用 Material Icon Theme 官方文件类型图标，搜索、刷新、预览等操作图标继续使用 Lucide。从 Files 中打开普通文件时，会提升为独立顶部 reader tab，Tab 标题显示文件名，内容区左侧使用 Monaco Editor / Markdown Reader 只读展示，右侧保留可显隐、可拖拽调宽的工作目录树；Reader 顶部左侧显示“项目名 > 工作区相对路径”的分段面包屑，当前文件名增强显示，长路径自动截断并通过悬停展示完整路径；复制路径、复制文件内容和自动换行收拢到更多菜单，提供当前文件的资源管理器 / VS Code / IntelliJ IDEA 外部打开入口。Markdown Reader 基于 `react-markdown` 与 `remark-gfm` 渲染标准 Markdown/GFM，保留 Mermaid 代码块预览，并将本地图片相对路径按当前 Markdown 文件目录转换到工作区预览接口；默认展示预览，并在右侧操作区通过“查看源代码 / 返回预览”切换，原始 HTML 不直接渲染。更多操作始终保留，自动换行仅在源码视图可用。普通代码文件默认关闭自动换行并常驻横向滚动条，用户可按文件临时启用自动换行；文件 reader tab 按项目保存路径，恢复时重新加载最新内容。Markdown 和代码产物进入 reader，HTML、SVG 和图片产物进入 Browser。
 - Review tab 通过 `/api/git/status` 展示 Git 工作区变更，并在同一个 Review/Changes tab 内通过 `/api/git/file-diff` 展示单文件差异；Changes 顶部刷新按钮右侧提供提交入口并打开 `GitCommitPushDialog`，提交入口左侧常驻项目打开方式菜单：未选择变更文件时在资源管理器、VS Code 或 IntelliJ IDEA 中打开项目，选择文件后则在资源管理器中打开其所在目录或在编辑器中直接打开该文件；Changes 列表提供单文件还原、暂存、退回未暂存、在新标签中打开文件，以及底部批量还原/暂存/退回操作，分别调用 `/api/git/restore`、`/api/git/stage`、`/api/git/unstage`、`/api/git/restore-all`、`/api/git/stage-all`、`/api/git/unstage-all`；标题栏 Git 更改入口会聚焦该 Review/Changes 工作区。
 - 标题栏 Git 分支 chip 通过 `/api/git/branches`、`/api/git/checkout`、`/api/git/create-branch` 和 `/api/git/log` 提供分支切换、创建并检出新分支和 Git 图谱弹窗；Workspace Inspector 仍聚焦文件浏览、产物预览和 diff review
 - AI 产物展示统一进入 Workspace Inspector：`present_files` 可用于 HTML、SVG/图片、Markdown、代码、配置、报告和其他可读文本；Markdown/代码/文本打开项目级 Reader Tab，HTML/SVG/图片打开项目级 Browser Tab，不支持直接展示的文件仍保留在产物列表。工具卡片的预览按钮使用相同分流规则，可在关闭后重新打开对应 Reader 或 Browser Tab；Tab 恢复由项目级持久化状态负责。Browser 在加载工作区文件前通过预检接口统一识别文件不存在、不支持类型、文件过大、路径受限和服务异常等状态，以轻量空状态展示友好说明，并在可展开的“错误详情”中保留状态码、错误代码、文件路径和后端原始报错。

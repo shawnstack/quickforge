@@ -5,6 +5,7 @@ import type { ServerAgentContextCompaction, ServerAgentContextUsage } from '@/li
 import type { SharePermission } from '@/lib/share-client'
 import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
+import { modelReferenceFromModel } from './model-reference'
 import { toolStartEventWithPartialResult, upsertMessage, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
 
 export type SharedSessionState = {
@@ -214,14 +215,16 @@ export class SharedServerAgent {
 
   async updateModel(model: Model<Api>): Promise<void> {
     if (this.disposed || this.permission !== 'operate') return
+    const previousModel = this.state.model
     this.state.model = model
     try {
       const result = await readJson<{ sessionId: string; model: Model<Api> }>(`/api/shared/${encodeURIComponent(this.shareId)}/model`, {
         method: 'POST',
-        body: JSON.stringify({ model }),
+        body: JSON.stringify({ modelRef: modelReferenceFromModel(model), model }),
       })
       if (result.model) this.state.model = result.model
     } catch (err) {
+      this.state.model = previousModel
       const errorMessage = err instanceof Error ? err.message : String(err)
       this.state.errorMessage = errorMessage
       this.emit({ type: 'error', error: errorMessage } as unknown as AgentEvent)

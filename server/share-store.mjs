@@ -84,6 +84,7 @@ function publicShareRecord(record) {
     accessCount: record.accessCount || 0,
     lastAccessedAt: record.lastAccessedAt,
     hasPassword: Boolean(record.passwordHash),
+    allowCloudUsage: record.allowCloudUsage === true,
   }
 }
 
@@ -215,6 +216,7 @@ export async function createConversationShare({
   permission,
   password,
   expiresAt,
+  allowCloudUsage = false,
   titleSnapshot,
   scope,
   projectId,
@@ -270,6 +272,7 @@ export async function createConversationShare({
         updatedAt: now,
         supersededAt: undefined,
         expiresAt: expiresAt || undefined,
+        allowCloudUsage: permission === 'operate' && allowCloudUsage === true,
         revokedAt: undefined,
         titleSnapshot: titleSnapshot || existing.titleSnapshot || 'New chat',
         scope: scope === 'project' ? 'project' : 'global',
@@ -292,6 +295,7 @@ export async function createConversationShare({
       }
       const lifecycleChanged = Boolean(existing.revokedAt)
         || String(existing.expiresAt || '') !== String(record.expiresAt || '')
+        || existing.allowCloudUsage === true !== (record.allowCloudUsage === true)
         || (passwordProvided && existing.authVersion !== record.authVersion)
       data[record.id] = record
       await writeShareStoreFile(data)
@@ -311,6 +315,7 @@ export async function createConversationShare({
       updatedAt: now,
       supersededAt: undefined,
       expiresAt: expiresAt || undefined,
+      allowCloudUsage: permission === 'operate' && allowCloudUsage === true,
       revokedAt: undefined,
       titleSnapshot: titleSnapshot || 'New chat',
       scope: scope === 'project' ? 'project' : 'global',
@@ -425,7 +430,7 @@ export async function updateConversationShareExpiration(shareId, expiresAt) {
   })
 }
 
-export async function updateConversationShare(shareId, { permission, password, expiresAt } = {}) {
+export async function updateConversationShare(shareId, { permission, password, expiresAt, allowCloudUsage } = {}) {
   assertSafeShareId(shareId)
   const passwordProvided = typeof password === 'string'
   const normalizedPassword = passwordProvided ? password.trim() : undefined
@@ -457,7 +462,10 @@ export async function updateConversationShare(shareId, { permission, password, e
       error.statusCode = 400
       throw error
     }
+    const nextAllowCloudUsage = nextPermission === 'operate'
+      && (allowCloudUsage === undefined ? record.allowCloudUsage === true : allowCloudUsage === true)
     const lifecycleChanged = nextPermission !== record.permission
+      || nextAllowCloudUsage !== (record.allowCloudUsage === true)
       || (expiresAt !== undefined && String(record.expiresAt || '') !== String(expiresAt || ''))
       || passwordProvided
     if (passwordProvided) {
@@ -467,6 +475,7 @@ export async function updateConversationShare(shareId, { permission, password, e
       clearShareTokens(record)
     }
     record.permission = nextPermission
+    record.allowCloudUsage = nextAllowCloudUsage
     if (expiresAt !== undefined) record.expiresAt = expiresAt || undefined
     record.updatedAt = new Date().toISOString()
     data[shareId] = record

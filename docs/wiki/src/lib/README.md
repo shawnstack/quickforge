@@ -56,10 +56,19 @@
 **功能**:
 - `initializePiStorage()` — 初始化存储后端
 - `loadDefaultOptions()` / `saveDefaultOptions()` — 默认选项管理
-- `getConfiguredModels()` — 获取全部已配置的自定义模型；`getSelectableConfiguredModels()` / `selectableModelsFromProviders()` 仅返回未设置 `quickforgeHidden: true` 的可选择模型，旧配置默认可见；Cloud 模型由内存目录额外合并，不写入 Provider store。
+- `getConfiguredModels()` — 通过同源 `GET /api/models/catalog` 获取统一公开目录，包含当前可用的自定义模型和 QuickForge Cloud 模型；失败时仅为本机旧环境回退 Provider store。`getSelectableConfiguredModels()` 统一排除 `quickforgeHidden: true`。
+- `saveActiveModel()` / `saveDefaultOptions()` — 写入展示快照并附带版本化 `quickforgeModelRef`，执行 transport 仍由服务端解析。
 - `loadInitialConfiguredModel()` / `resolveNewSessionModel()` — 新会话只从当前可选择目录解析默认、active 或请求模型；已隐藏、已删除或失效的模型不会成为新会话候选。
 - `resolveConfiguredModel()` — 已有会话、分支等持久化绑定按完整模型身份恢复，可继续使用后来被隐藏的模型。
 - DeepSeek V4 推理兼容性处理
+
+### model-reference.ts
+
+**用途**: 前端版本化 ModelRef 与统一目录客户端。
+
+- `ModelReference` 区分 `custom(providerId + modelId)`、`cloud(catalogId)` 和旧自定义快照兼容引用。
+- `modelReferenceFromModel()` 为 Agent、Profile、任务和共享切换生成持久化引用。
+- `loadModelCatalog()` 读取同源 `/api/models/catalog`，不读取 Provider Key 或 Cloud Token。
 
 ### cloud-client.ts
 
@@ -67,8 +76,8 @@
 
 - `getCloudConfig()` / `updateCloudConfig()` 管理独立受管服务 URL；`testCloudConnection()` 仅请求 Node BFF 做 health/ready 检查。
 - `resetCloudIdentity()` 发送固定危险确认值，由 Node 清本地 Session 并轮换 installation；错误通过 `CloudClientError.code` 保留（包括保存配置时的 `cloud_session_active`，以及 Token 操作时的 `cloud_session_service_mismatch`）。
-- `getCloudStatus()` 只读取本地安全摘要，不触发游客注册。
-- `startCloudGuest()` 是显式游客入口。
+- `getCloudStatus()` 只读取本地安全摘要，不触发游客注册；可恢复公开的 pending Device Flow，但不包含 `deviceCode`。
+- `startCloudGuest()` 是显式游客入口；`startCloudDeviceFlow()` / `pollCloudDeviceFlow()` / `cancelCloudDeviceFlow()` 使用受保护 JSON 写接口完成正式账户状态机，浏览器不提交邮箱、密码或 deviceCode。
 - `getCloudUsage()` / `getCloudInstallations()` 读取额度与设备。
 - `revokeCloudInstallation()` / `logoutCloud()` 管理设备生命周期；当前设备退出的远端撤销顺序由 Node 保证。
 

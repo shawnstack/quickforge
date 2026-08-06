@@ -84,6 +84,17 @@ async function callExport(backup, urlText = 'http://localhost/api/backup/export'
 }
 
 describe('backup export — settings sections', () => {
+  it('rejects all backup operations from remote clients', async () => {
+    await withTempBackup(async (backup) => {
+      await expect(backup.handleBackupApi(
+        { method: 'GET' },
+        mockRes(),
+        new URL('http://localhost/api/backup/export?sections=providerKeys&includeSecrets=true'),
+        { isLocalRequest: false },
+      )).rejects.toMatchObject({ statusCode: 403, errorCode: 'backup_local_only' })
+    })
+  })
+
   it('defaults to core config and excludes conversations', async () => {
     await withTempBackup(async (backup, storage) => {
       await storage.writeStore('settings', { theme: 'dark' })

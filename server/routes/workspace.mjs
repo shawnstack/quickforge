@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { streamSimpleWithAiHttpLogging } from '../ai-http-logger.mjs'
+import { resolveModelBinding } from '../model-catalog.mjs'
 import { DEFAULT_AI_MAX_RETRIES } from '../ai-provider-options.mjs'
 import { sendJson, readJsonBody } from '../utils/response.mjs'
 import { projectContextFromId } from '../project-config.mjs'
@@ -1080,9 +1081,10 @@ async function contextFromGitBody(req) {
   return { context: await projectContextFromId(projectId), body }
 }
 
-async function handleGitGenerateCommitMessage(req, res) {
+async function handleGitGenerateCommitMessage(req, res, requestContext = {}) {
   const { context, body } = await contextFromGitBody(req)
-  const message = await generateGitCommitMessage(context, body?.model, body?.thinkingLevel, Boolean(body?.includeUnstaged))
+  const binding = await resolveModelBinding(body, { context: requestContext, legacySnapshot: body?.model })
+  const message = await generateGitCommitMessage(context, binding.model, body?.thinkingLevel, Boolean(body?.includeUnstaged))
   sendJson(res, 200, { message })
 }
 
@@ -1178,7 +1180,7 @@ export async function handleWorkspaceApi(req, res, url, requestContext = {}) {
   throw error
 }
 
-export async function handleGitApi(req, res, url) {
+export async function handleGitApi(req, res, url, requestContext = {}) {
   if (req.method === 'GET' && url.pathname === '/api/git/status') {
     await handleGitStatus(req, res, url)
     return
@@ -1204,7 +1206,7 @@ export async function handleGitApi(req, res, url) {
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/git/generate-commit-message') {
-    await handleGitGenerateCommitMessage(req, res)
+    await handleGitGenerateCommitMessage(req, res, requestContext)
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/git/stage') {

@@ -32,6 +32,8 @@ import {
 } from '@/lib/system-notifications'
 import { showConfirm } from '@/components/ui/confirm-dialog'
 import { openModelSheet } from '@/lib/custom-model-selector'
+import { modelDisplayLabel as modelLabel } from '@/lib/model-display-label'
+import { loadModelCatalog } from '@/lib/model-reference'
 import './info-tip'
 
 type AnyModel = Model<Api>
@@ -98,10 +100,6 @@ function modelKey(model: AnyModel) {
     model.api,
     normalizeBaseUrl(model.baseUrl),
   ])
-}
-
-function modelLabel(model: AnyModel) {
-  return `${model.provider} / ${model.id}`
 }
 
 function customProfileId() {
@@ -200,16 +198,18 @@ class DefaultOptionsSettingsTab extends SettingsTab {
 
     try {
       const storage = getAppStorage()
-      const [models, defaults, toolDisplaySettings, autoCompactSettings, autoArchiveSettings] = await Promise.all([
+      const [localModels, catalogModels, defaults, toolDisplaySettings, autoCompactSettings, autoArchiveSettings] = await Promise.all([
         getSelectableConfiguredModels(storage),
+        loadModelCatalog().catch(() => []),
         loadDefaultOptions(storage),
         loadToolDisplaySettings(storage),
         loadAutoCompactSettings(storage),
         loadAutoArchiveSettings(storage),
       ])
+      const models = catalogModels.length ? catalogModels : localModels
       this.models = models
       this.selectedModel = defaults.model
-        ? models.find((model) => modelKey(model) === modelKey(defaults.model!)) ?? defaults.model
+        ? models.find((model) => modelKey(model) === modelKey(defaults.model!)) ?? models[0]
         : models[0]
       this.thinkingLevel = defaults.thinkingLevel ?? defaultThinkingLevelForModel(this.selectedModel)
       this.toolDisplayMode = toolDisplaySettings.toolDisplayMode
@@ -812,11 +812,7 @@ class DefaultOptionsSettingsTab extends SettingsTab {
   }
 
   private modelOptions() {
-    if (!this.selectedModel) return this.models
-
-    const selectedKey = modelKey(this.selectedModel)
-    const exists = this.models.some((model) => modelKey(model) === selectedKey)
-    return exists ? this.models : [this.selectedModel, ...this.models]
+    return this.models
   }
 
   private terminalShellSettings() {

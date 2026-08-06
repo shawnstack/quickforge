@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { assistantActionDisplayIndexes } from '../../src/components/chat/panel-decoration/message-action-visibility'
 
@@ -40,5 +41,13 @@ describe('assistant message actions', () => {
   it('does not create assistant action targets before an assistant response exists', () => {
     expect([...assistantActionDisplayIndexes([], false)]).toEqual([])
     expect([...assistantActionDisplayIndexes([{ role: 'user' }], true)]).toEqual([])
+  })
+
+  it('does not apply content visibility to message hosts containing rollback popovers', () => {
+    const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+
+    expect(css).not.toMatch(
+      /message-list\s+(?:user-message|assistant-message)[^{}]*\{[^{}]*content-visibility\s*:/s,
+    )
   })
 })

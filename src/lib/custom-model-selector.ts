@@ -1,6 +1,7 @@
 import { type Api, type Model, modelsAreEqual } from '@earendil-works/pi-ai'
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
 import { t } from '@/lib/i18n'
+import { modelDisplayLabel as modelLabel } from '@/lib/model-display-label'
 
 type AnyModel = Model<Api>
 
@@ -28,10 +29,6 @@ function thinkingLevelLabel(level: ThinkingLevel) {
     case 'xhigh': return t('thinkingXHigh')
     default: return t('thinkingOff')
   }
-}
-
-function modelLabel(model: AnyModel) {
-  return model.id
 }
 
 function createButton(className: string, text = '') {

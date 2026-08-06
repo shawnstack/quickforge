@@ -1,6 +1,6 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { readSessionValue } from '../storage.mjs'
-import { getLanUrls } from '../utils/network.mjs'
+import { getLanUrls, isTailscaleAddress } from '../utils/network.mjs'
 import {
   createConversationShare,
   deleteConversationShare,
@@ -50,6 +50,13 @@ export async function handleSharesApi(req, res, url, context = {}) {
     const passwordProvided = typeof body?.password === 'string'
     const password = passwordProvided ? body.password.trim() : undefined
     const expiresAt = typeof body?.expiresAt === 'string' && body.expiresAt ? body.expiresAt : undefined
+    const allowCloudUsage = permission === 'operate' && body?.allowCloudUsage === true
+    if (allowCloudUsage && context.isLocalRequest === false
+      && !(context.remoteAuthorized === true && isTailscaleAddress(context.remoteAddress))) {
+      const error = new Error('QuickForge Cloud sharing can only be enabled locally or from an authorized Tailscale client.')
+      error.statusCode = 403
+      throw error
+    }
 
     const session = sessionId ? await readSessionValue(sessionId) : null
     if (!session) {
@@ -63,6 +70,7 @@ export async function handleSharesApi(req, res, url, context = {}) {
       permission,
       password: passwordProvided ? password : undefined,
       expiresAt,
+      allowCloudUsage,
       titleSnapshot: session.title,
       scope: session.scope,
       projectId: session.projectId,
@@ -125,7 +133,14 @@ export async function handleSharesApi(req, res, url, context = {}) {
       const permission = body?.permission
       const password = typeof body?.password === 'string' ? body.password : undefined
       const expiresAt = typeof body?.expiresAt === 'string' && body.expiresAt ? body.expiresAt : undefined
-      const share = await updateConversationShare(shareId, { permission, password, expiresAt })
+      const allowCloudUsage = body?.allowCloudUsage
+      if (allowCloudUsage === true && context.isLocalRequest === false
+        && !(context.remoteAuthorized === true && isTailscaleAddress(context.remoteAddress))) {
+        const error = new Error('QuickForge Cloud sharing can only be enabled locally or from an authorized Tailscale client.')
+        error.statusCode = 403
+        throw error
+      }
+      const share = await updateConversationShare(shareId, { permission, password, expiresAt, allowCloudUsage })
       sendJson(res, 200, { ok: true, share })
       return
     }

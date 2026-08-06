@@ -580,7 +580,13 @@ async function restoreValidatedBackup(backup, mode = 'replace') {
   return summary
 }
 
-export async function handleBackupApi(req, res, url) {
+export async function handleBackupApi(req, res, url, context = {}) {
+  if (context.isLocalRequest === false) {
+    const error = new Error('Backup import and export are available only on this computer.')
+    error.statusCode = 403
+    error.errorCode = 'backup_local_only'
+    throw error
+  }
   if (req.method === 'GET' && url.pathname === '/api/backup/export') {
     await ensureStorage()
     sendJson(res, 200, await buildBackup(url.searchParams.get('scope'), {

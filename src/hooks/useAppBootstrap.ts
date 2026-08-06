@@ -114,9 +114,9 @@ export function useAppBootstrap({
         } catch (error) {
           logger.warn('Failed to restore QuickForge Cloud models:', error)
         }
-        const initialModel = await loadInitialConfiguredModel(storage, cloudModels)
         const defaultOptions = await loadDefaultOptions(storage)
-        if (initialModel) activeModelRef.current = defaultOptions.model ?? initialModel
+        const initialModel = await loadInitialConfiguredModel(storage, cloudModels, defaultOptions.model)
+        if (initialModel) activeModelRef.current = initialModel
 
         const sessionId = new URLSearchParams(window.location.search).get('session')
         if (sessionId) {
@@ -124,7 +124,7 @@ export function useAppBootstrap({
           if (!restored) {
             if (initialModel) {
               await create(
-                { model: defaultOptions.model ?? initialModel, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },
+                { model: initialModel, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },
                 randomId(),
                 { scope: 'global', attachToView: true },
               )
@@ -134,7 +134,7 @@ export function useAppBootstrap({
           }
         } else if (initialModel) {
           await create(
-            { model: defaultOptions.model ?? initialModel, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },
+            { model: initialModel, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },
             randomId(),
             { scope: 'global', attachToView: true },
           )

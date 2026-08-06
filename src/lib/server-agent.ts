@@ -5,6 +5,7 @@ import type { AgentAccessMode } from '@/lib/types'
 import { agentAccessModeFromYoloMode, agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
 import { t, type AppTextKey } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
+import { modelReferenceFromModel } from './model-reference'
 import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import { randomId } from '@/lib/random-id'
 import { toolStartEventWithPartialResult, upsertMessage, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
@@ -662,16 +663,24 @@ export class ServerAgent {
    * Sync a model change to the server so the session persists the correct model.
    */
   async updateModel(model: Model<Api>): Promise<void> {
+    const previousModel = this.state.model
     this.state.model = model
     this.state.contextUsage = null
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/model`
-    fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ model }),
-    }).catch((err) => {
-      logger.error('Failed to sync model update to server:', err)
-    })
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ modelRef: modelReferenceFromModel(model), model }),
+      })
+      const payload = await response.json().catch(() => null) as { model?: Model<Api>; error?: string } | null
+      if (!response.ok) throw new Error(payload?.error || `Failed to sync model update: HTTP ${response.status}`)
+      if (payload?.model) this.state.model = payload.model
+    } catch (error) {
+      this.state.model = previousModel
+      logger.error('Failed to sync model update to server:', error)
+      throw error
+    }
   }
 
   /**
@@ -1380,6 +1389,7 @@ export class ServerAgent {
         channelName: config.channelName,
         accessMode: config.accessMode,
         yoloMode: config.yoloMode ?? agentAccessModeToYoloMode(normalizeAgentAccessMode(config.accessMode)),
+        modelRef: config.model ? modelReferenceFromModel(config.model) : undefined,
         model: config.model,
         thinkingLevel: config.thinkingLevel ?? 'off',
         messages: config.messages ?? [],

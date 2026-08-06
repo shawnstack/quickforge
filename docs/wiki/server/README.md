@@ -58,13 +58,14 @@ server/
 
 ### cloud/ — QuickForge Cloud 本地代理
 
+- `model-catalog.mjs` 是所有正式模型入口的服务端权威目录与 resolver：自定义模型按稳定 Provider ID + 模型 ID 引用，Cloud 按 catalog ID 引用；新绑定保存版本化 `ModelRef`，执行时重读当前配置，客户端模型对象和 transport 不具有权威性。`quickforgeHidden` 仅阻止新选择，已有绑定仍可执行。Cloud 使用权限按本机、已认证 Tailscale、ACP、后台任务和分享显式授权上下文统一判断。
 - `cloud/` 提供独立受管 QuickForge Cloud BFF：`service-config.mjs` 从 `settings['quickforge-cloud-service']`、环境变量和产品默认值解析安全 Cloud URL；`runtime.mjs` 按当前配置热构建/失效运行时；配置不会进入 `customProviders` / `providerKeys`。
-- `credential-store.mjs` 将安装密钥和 Refresh Token 原子保存在 `~/.quickforge/storage/security/cloud-identity.json`，公开状态不返回 Token、私钥或路径。
-- `identity.mjs` 管理显式游客注册、Access Token 内存缓存、Refresh Token 轮换、额度/设备读取和注销。
-- `routes/cloud.mjs` 暴露同源 `/api/cloud/*`：包括 `GET/PUT /api/cloud/config`、`POST /api/cloud/test-connection`、`POST /api/cloud/identity/reset`、`GET /api/cloud/status`，以及游客、目录、额度、设备和退出；跨 URL 保存且存在 Session 时返回 `409 cloud_session_active`。Refresh/Logout/模型/额度等 Token 操作发现 Session 绑定到其他 URL 或旧 Session 缺少绑定时，以 `409 cloud_session_service_mismatch` 拒绝并且不会把旧 Refresh Token 发往当前服务；reset 只清本地 Session、轮换 installation，不联系 Cloud。
+- `credential-store.mjs` 将安装密钥、Refresh Token 和待处理 Device Flow 原子保存在 `~/.quickforge/storage/security/cloud-identity.json`；公开状态不返回 Token、私钥、路径或 `deviceCode`，账户摘要严格白名单为 `id/email/plan`。
+- `identity.mjs` 管理显式游客注册、正式账户 OAuth Device Flow、Access Token 内存缓存、Refresh Token 轮换、额度/设备读取和注销；local 的登录动作先在同一显式流程中创建临时 guest，guest 直接升级。pending/slow_down/network 可恢复，denied/expired/cancel 保留 guest；仅网络异常、HTTP 5xx 和可重试服务错误映射为 network，协议/无效响应直接抛错；并发 poll 合并为一次远端 exchange。成功原子替换账户 Token、保留 installation 并清模型缓存。
+- `routes/cloud.mjs` 暴露同源 `/api/cloud/*`：包括配置、连接测试、身份 reset/status、游客、Device Flow start/poll/cancel、目录、额度、设备和退出；所有 Device Flow 写操作使用既有 action header + JSON 防护，响应不返回 `deviceCode`。跨 URL 保存且存在 Session 或 pending flow 时返回 `409 cloud_session_active`。
 - 退出当前设备时先调用云端 installation revoke，成功后才清理本地 Session；失败时保留凭据供重试。
 - 退出后再次创建游客会轮换 Ed25519 安装密钥，避免旧公钥指纹唯一约束冲突；该行为创建新游客，不恢复旧额度。
-- `models.mjs` 只向浏览器返回无密钥模型描述，真实 Cloud Token 和上游地址仅在 Node 请求期间注入。
+- `models.mjs` 只向浏览器返回无密钥模型描述，过滤 `available:false`，指定 catalog ID 未命中时强制刷新一次；真实 Cloud Token 和上游地址仅在 Node 请求期间注入。
 - 主聊天消息使用公开的 `metadata.quickforgeClientMessageId` 标识逻辑消息；真正的 Cloud Chat `Idempotency-Key` 以 `sessionId + messageId` 绑定在 `~/.quickforge/storage/security/cloud-chat-idempotency/` 私有 sidecar 中，不进入 Session JSON、浏览器状态或通用备份。同消息的 Provider 网络重试、`/continue` 和重启恢复后重新生成复用同一 UUID，不同消息使用不同 UUID；AI HTTP 调试日志会脱敏该 Header。
 
 ### agent-manager.mjs (1350 行)
@@ -74,6 +75,7 @@ server/
 **功能**:
 - Agent 创建（`createAgent`）：初始化 Agent 实例，配置工具和系统提示词
 - Provider 请求重试：主 Agent、Subagent、对话压缩和辅助模型生成默认设置 `maxRetries: 3`，即首次请求失败后最多再重试 3 次（最多共 4 次请求）；是否可重试及退避由各 Provider 实现决定，模型连通性探测显式保持不重试，`maxRetryDelayMs` 只限制服务端要求的单次等待上限
+- Git 提交信息 AI 生成同样接收 `modelRef` 并通过统一 resolver；客户端提交的完整模型仅作兼容识别，不能覆盖 Provider Base URL 或绕过 Cloud 来源权限。
 - 默认工作目录：全局会话（无 `projectId`）会合成默认 workspace 上下文（`defaultGlobalWorkspaceContext`，根目录 `~/.quickforge/workspace`，合成 project id 为 `default`），使「对话」与「项目」享有相同的文件工具（读/写/编辑/grep/命令）、工作区面板、终端和 Git 能力；文件操作受该目录沙箱约束，默认权限下读类工具放行、写入/命令/MCP/Plugin 等可能影响系统的工具走审批，完全访问权限则在既有沙箱与敏感文件限制内自动执行；`projectContextFromId` 找不到项目时同样回落到该默认 workspace
 - 消息运行（`runPrompt`）：执行 AI 对话，管理消息历史
 - SSE 事件流管理：向连接的客户端广播 Agent 事件
@@ -102,7 +104,7 @@ server/
 - `session/list` 会合并 QuickForge 持久化 `sessions-metadata` 与当前内存 active sessions；`session/load` 恢复会话后会通过 ACP `session/update` 回放历史 user/assistant 消息。
 - ACP document 事件会维护当前打开/聚焦文档缓存，并在当前轮模型上下文中临时注入 `<acp_context>`，使“当前文件/打开文件”类请求能获得 IDE buffer 上下文；该内部上下文不会写入可见用户消息、持久化会话或历史回放。
 - ACP prompt 启动失败、取消、删除或关闭会话时会统一移除 pending prompt、Agent EventEmitter 和 AbortSignal 监听器；同一会话的并发 prompt 会只拒绝后发请求，不中断已运行请求。
-- `session/new` / `session/load` 会返回 ACP `configOptions` 模型和 Thinking Level 下拉选项，模型来源于 QuickForge 已配置且未隐藏的自定义模型；当前 ACP 会话已经使用的隐藏模型会保留在该会话的选项中，但不能由其他会话重新选择。客户端调用 `session/set_config_option` 后会通过 `updateSessionModel` / `updateSessionThinkingLevel` 切换当前 ACP 会话配置。切换到不支持 reasoning 的模型时会自动将 Thinking Level 置为 `off`。新建会话时初始 Thinking Level 与 Web UI 保持一致：优先读取用户在设置中保存的默认思考级别（`settings['default-options'].thinkingLevel`），否则推理模型默认 `medium`、非推理模型默认 `off`（见 `resolveInitialThinkingLevel`）。
+- `session/new` / `session/load` 会返回 ACP `configOptions` 模型和 Thinking Level 下拉选项，模型来源于统一 Model Catalog，包含当前允许的自定义与 Cloud 模型；当前 ACP 会话已经使用的隐藏模型会保留在该会话的选项中，但不能由其他会话重新选择。客户端调用 `session/set_config_option` 后会通过统一 resolver 校验并切换当前 ACP 会话配置。切换到不支持 reasoning 的模型时会自动将 Thinking Level 置为 `off`。新建会话时初始 Thinking Level 与 Web UI 保持一致：优先读取用户在设置中保存的默认思考级别（`settings['default-options'].thinkingLevel`），否则推理模型默认 `medium`、非推理模型默认 `off`（见 `resolveInitialThinkingLevel`）。
 - 工具审批事件会转成 ACP `session/request_permission`，客户端选择 allow/reject 后调用现有 `approveToolCall` / `rejectToolCall`。
 
 ### storage.mjs (707 行)

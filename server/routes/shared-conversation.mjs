@@ -1,5 +1,6 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
-import { readSessionValue, readStore } from '../storage.mjs'
+import { readSessionValue } from '../storage.mjs'
+import { listModelCatalog, resolveModelBinding } from '../model-catalog.mjs'
 import { sendSessionAsset } from './session-assets.mjs'
 import { abortRun, restoreAgent, runPrompt, getSessionState, getSessionEventBus, updateSessionModel, updateSessionThinkingLevel } from '../agent-manager.mjs'
 import {
@@ -50,6 +51,7 @@ function publicSharePayload(record) {
     scope: record.scope,
     projectId: record.projectId,
     hasPassword: Boolean(record.passwordHash),
+    allowCloudUsage: record.allowCloudUsage === true,
   }
 }
 
@@ -100,13 +102,6 @@ function sanitizeModel(model) {
     key: undefined,
     headers: undefined,
   }
-}
-
-function sanitizeIncomingModel(model) {
-  if (!model || typeof model !== 'object') return null
-  const sanitized = sanitizeModel(model)
-  if (!sanitized.id || !sanitized.provider) return null
-  return sanitized
 }
 
 function sanitizeEvent(event) {
@@ -292,42 +287,7 @@ async function sharedSessionPayload(record) {
   return sanitizeSession(session, record)
 }
 
-function sanitizeProvider(provider) {
-  if (!provider || typeof provider !== 'object') return null
-  const models = Array.isArray(provider.models)
-    ? provider.models.map(sanitizeModel).filter((model) => model?.id && model?.provider && model?.api)
-    : []
-  if (!models.length) return null
-  return {
-    id: provider.id || provider.name || models[0].provider,
-    name: provider.name || models[0].provider,
-    type: provider.type || models[0].api,
-    baseUrl: provider.baseUrl,
-    models,
-  }
-}
-
-async function listSharedModelProviders() {
-  const providers = await readStore('custom-providers')
-  return Object.values(providers || {}).map(sanitizeProvider).filter(Boolean)
-}
-
-async function readConfiguredModel(model) {
-  if (!model || typeof model !== 'object') return null
-  const providers = await readStore('custom-providers')
-  for (const provider of Object.values(providers || {})) {
-    if (!provider || typeof provider !== 'object') continue
-    const matched = Array.isArray(provider.models)
-      ? provider.models.find((candidate) => {
-          return candidate?.id === model.id && candidate?.provider === model.provider && candidate?.api === model.api
-        })
-      : undefined
-    if (matched) return matched
-  }
-  return null
-}
-
-export async function handleSharedConversationApi(req, res, url) {
+export async function handleSharedConversationApi(req, res, url, context = {}) {
   const parts = url.pathname.split('/').filter(Boolean)
   const shareId = decodeSegment(parts[2])
   const action = parts[3]
@@ -383,7 +343,21 @@ export async function handleSharedConversationApi(req, res, url) {
 
   if (req.method === 'GET' && action === 'models') {
     assertOperate(record)
-    sendJson(res, 200, { providers: await listSharedModelProviders() })
+    const session = await sharedSessionPayload(record)
+    const models = await listModelCatalog({
+      context: { ...context, allowCloud: record.allowCloudUsage === true },
+      currentModel: session.model,
+    })
+    const providers = []
+    for (const model of models) {
+      let provider = providers.find((item) => item.id === model.provider)
+      if (!provider) {
+        provider = { id: model.provider, name: model.provider, type: model.api, baseUrl: model.baseUrl, models: [] }
+        providers.push(provider)
+      }
+      provider.models.push(sanitizeModel(model))
+    }
+    sendJson(res, 200, { providers })
     return
   }
 
@@ -396,7 +370,14 @@ export async function handleSharedConversationApi(req, res, url) {
     assertOperate(record)
     const body = await readJsonBody(req)
     await restoreAgent(record.sessionId)
-    const result = await runPrompt(record.sessionId, messageFromBody(body, record, req), [], body?.command)
+    const result = await runPrompt(
+      record.sessionId,
+      messageFromBody(body, record, req),
+      [],
+      body?.command,
+      null,
+      { ...context, allowCloud: record.allowCloudUsage === true, source: 'shared' },
+    )
     sendJson(res, 200, result)
     return
   }
@@ -404,15 +385,15 @@ export async function handleSharedConversationApi(req, res, url) {
   if (req.method === 'POST' && action === 'model') {
     assertOperate(record)
     const body = await readJsonBody(req)
-    const model = sanitizeIncomingModel(body?.model)
-    if (!model) {
-      const error = new Error('Missing model in request body')
-      error.statusCode = 400
-      throw error
-    }
     await restoreAgent(record.sessionId)
-    const configured = await readConfiguredModel(model)
-    sendJson(res, 200, updateSessionModel(record.sessionId, configured ? sanitizeModel(configured) : model))
+    const currentModel = getSessionState(record.sessionId)?.model
+    const binding = await resolveModelBinding(body, {
+      context: { ...context, allowCloud: record.allowCloudUsage === true, source: 'shared' },
+      currentModel,
+      allowCurrentHidden: true,
+      legacySnapshot: body?.model,
+    })
+    sendJson(res, 200, updateSessionModel(record.sessionId, sanitizeModel(binding.model), binding.modelRef))
     return
   }
 

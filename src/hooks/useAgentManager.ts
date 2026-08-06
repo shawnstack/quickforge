@@ -7,6 +7,8 @@ import { DeferredSessionAgent } from '@/lib/deferred-session-agent'
 import {
   defaultThinkingLevelForModel,
   loadDefaultOptions,
+  normalizeModelForProvider,
+  resolveConfiguredModel,
   resolveNewSessionModel,
 } from '@/lib/pi-chat'
 import {
@@ -223,11 +225,16 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       const storage = storageRef.current
       const defaultOptions = storage ? await loadDefaultOptions(storage) : {}
       const requestedOrDefaultModel = requestedModel ?? defaultOptions.model ?? activeModelRef.current
-      const resolvedModel = await resolveNewSessionModel(
-        storage,
-        requestedOrDefaultModel as Model<Api>,
-        loadCloudModels,
-      )
+      const preservesBoundModel = requestedModel !== undefined && Boolean(restInitialState.messages?.length)
+      const resolvedModel = preservesBoundModel
+        ? storage
+          ? await resolveConfiguredModel(storage, requestedOrDefaultModel as Model<Api>)
+          : normalizeModelForProvider(requestedOrDefaultModel as Model<Api>)
+        : await resolveNewSessionModel(
+            storage,
+            requestedOrDefaultModel as Model<Api>,
+            loadCloudModels,
+          )
       const resolvedThinkingLevel = requestedThinkingLevel ?? defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(resolvedModel)
       activeModelRef.current = resolvedModel
       const resolvedAccessMode = normalizeAgentAccessMode(options?.accessMode, options?.yoloMode ?? agentAccessModeRef.current)

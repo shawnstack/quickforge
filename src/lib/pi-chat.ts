@@ -18,6 +18,8 @@ import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
 import { chooseNewSessionModel, chooseStartupModel } from '@/lib/startup-model'
 import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
+import { loadModelCatalog, type ModelReference } from '@/lib/model-reference'
+import { modelFromStoredPreference, storedModelPreference } from '@/lib/model-preference'
 import type { AgentAccessMode } from '@/lib/types'
 import { agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
 
@@ -237,8 +239,16 @@ export async function initializePiStorage(options: { blockedStores?: Iterable<st
   return storage
 }
 
+type StoredDefaultOptions = {
+  modelRef?: ModelReference
+  modelSnapshot?: Model<Api>
+  model?: Model<Api>
+  thinkingLevel?: ThinkingLevel
+}
+
 export async function saveActiveModel(storage: AppStorage, model: Model<Api>) {
-  await storage.settings.set(ACTIVE_MODEL_SETTING_KEY, normalizeModelForProvider(model))
+  const preference = storedModelPreference(normalizeModelForProvider(model))
+  await storage.settings.set(ACTIVE_MODEL_SETTING_KEY, preference)
 }
 
 export function defaultThinkingLevelForModel(model?: Model<Api>): ThinkingLevel {
@@ -250,27 +260,34 @@ function isThinkingLevel(value: unknown): value is ThinkingLevel {
 }
 
 export async function saveDefaultOptions(storage: AppStorage, options: DefaultOptions) {
+  const preference = options.model
+    ? storedModelPreference(normalizeModelForProvider(options.model))
+    : {}
   await storage.settings.set(DEFAULT_OPTIONS_SETTING_KEY, {
-    model: options.model ? normalizeModelForProvider(options.model) : undefined,
+    ...preference,
     thinkingLevel: isThinkingLevel(options.thinkingLevel) ? options.thinkingLevel : undefined,
   })
 }
 
 export async function loadDefaultOptions(storage: AppStorage): Promise<DefaultOptions> {
-  const options = await storage.settings.get<DefaultOptions>(DEFAULT_OPTIONS_SETTING_KEY)
+  const options = await storage.settings.get<StoredDefaultOptions>(DEFAULT_OPTIONS_SETTING_KEY)
   if (!options || typeof options !== 'object') return {}
 
+  const model = options.modelSnapshot
+    ? normalizeModelForProvider(modelFromStoredPreference(options)!)
+    : options.model
+      ? normalizeModelForProvider(options.model)
+      : undefined
   return {
-    model: options.model ? normalizeModelForProvider(options.model) : undefined,
+    model,
     thinkingLevel: isThinkingLevel(options.thinkingLevel) ? options.thinkingLevel : undefined,
   }
 }
 
 export async function loadActiveModel(storage: AppStorage): Promise<Model<Api> | null> {
-  const model = await storage.settings.get<Model<Api>>(ACTIVE_MODEL_SETTING_KEY)
-  if (!model || typeof model !== 'object') return null
-  if (!model.id || !model.provider || !model.api || !model.baseUrl) return null
-  return normalizeModelForProvider(model)
+  const stored = await storage.settings.get<unknown>(ACTIVE_MODEL_SETTING_KEY)
+  const model = modelFromStoredPreference(stored)
+  return model ? normalizeModelForProvider(model) : null
 }
 
 function sameBaseUrl(a?: string, b?: string) {
@@ -294,13 +311,18 @@ export function selectableModelsFromProviders(providers: CustomProvider[]): Mode
 }
 
 export async function getConfiguredModels(storage: AppStorage): Promise<Model<Api>[]> {
+  try {
+    const catalog = await loadModelCatalog()
+    if (catalog.length) return catalog
+  } catch (error) {
+    logger.warn('Failed to load model catalog, falling back to local provider store:', error)
+  }
   const providers = await storage.customProviders.getAll()
   return configuredModelsFromProviders(providers)
 }
 
 export async function getSelectableConfiguredModels(storage: AppStorage): Promise<Model<Api>[]> {
-  const providers = await storage.customProviders.getAll()
-  return selectableModelsFromProviders(providers)
+  return filterSelectableModels(await getConfiguredModels(storage))
 }
 
 export function mergeAvailableModels(...groups: ReadonlyArray<ReadonlyArray<Model<Api>>>): Model<Api>[] {
@@ -320,20 +342,12 @@ export async function loadInitialConfiguredModel(
 }
 
 function findConfiguredModel(storage: AppStorage, model: Model<Api>) {
-  return storage.customProviders.getAll().then((providers) => {
-    for (const provider of providers) {
-      const matched = (provider.models ?? []).find((candidate) => {
-        return (
-          candidate.id === model.id &&
-          candidate.api === model.api &&
-          candidate.provider === model.provider &&
-          sameBaseUrl(candidate.baseUrl, model.baseUrl)
-        )
-      })
-      if (matched) return matched as Model<Api>
-    }
-    return undefined
-  })
+  return getConfiguredModels(storage).then((models) => models.find((candidate) => (
+    candidate.id === model.id
+    && candidate.api === model.api
+    && candidate.provider === model.provider
+    && sameBaseUrl(candidate.baseUrl, model.baseUrl)
+  )))
 }
 
 /**
@@ -363,15 +377,15 @@ export async function resolveNewSessionModel(
   model: Model<Api>,
   loadCloudModels: () => Promise<Model<Api>[]>,
 ): Promise<Model<Api>> {
-  if (!isManagedQuickForgeCloudModel(model)) {
-    return storage ? resolveConfiguredModel(storage, model) : normalizeModelForProvider(model)
-  }
+  if (!storage && !isManagedQuickForgeCloudModel(model)) return normalizeModelForProvider(model)
 
   let cloudModels: Model<Api>[] = []
-  try {
-    cloudModels = await loadCloudModels()
-  } catch (error) {
-    logger.warn('Failed to load QuickForge Cloud models for new session:', error)
+  if (isManagedQuickForgeCloudModel(model)) {
+    try {
+      cloudModels = await loadCloudModels()
+    } catch (error) {
+      logger.warn('Failed to load QuickForge Cloud models for new session:', error)
+    }
   }
 
   const configuredModels = storage ? await getSelectableConfiguredModels(storage) : []

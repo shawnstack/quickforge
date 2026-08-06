@@ -10,6 +10,8 @@ import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { copyTextToClipboard, draftTextFromUserMessage, rollbackStartIndexFromMessage } from '@/lib/message-utils'
 import { unlockSharedConversation, loadSharedConversationMeta, loadSharedModelProviders } from '@/lib/share-client'
 import { defaultThinkingLevelForModel } from '@/lib/pi-chat'
+import { filterSelectableModels } from '@/lib/model-visibility'
+import { includeCurrentModel } from '@/lib/model-identity'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
 import { logger } from '@/lib/logger'
 import { SharedServerAgent } from '@/lib/shared-server-agent'
@@ -142,7 +144,10 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
     if (!agent || agent.permission !== 'operate') return
     try {
       const providers = await sharedModelProviders(shareId, agent.state.model)
-      const models = providers.flatMap((provider) => provider.models ?? []) as Model<Api>[]
+      const models = includeCurrentModel(
+        filterSelectableModels(providers.flatMap((provider) => provider.models ?? [])),
+        agent.state.model,
+      )
       if (!models.length) return
       openCustomOnlyModelSelector(
         agent.state.model,

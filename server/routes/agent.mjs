@@ -1,5 +1,6 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { logger } from '../utils/logger.mjs'
+import { resolveModelBinding } from '../model-catalog.mjs'
 import {
   createAgent,
   runPrompt,
@@ -31,7 +32,7 @@ import {
   agentEvents,
 } from '../agent-manager.mjs'
 
-export async function handleAgentApi(req, res, url) {
+export async function handleAgentApi(req, res, url, context = {}) {
   const pathname = url.pathname
   const parts = pathname.split('/').filter(Boolean)
 
@@ -85,7 +86,7 @@ export async function handleAgentApi(req, res, url) {
       error.statusCode = 400
       throw error
     }
-    const result = await runPrompt(sessionId, message, body?.selectedCapabilities, body?.command)
+    const result = await runPrompt(sessionId, message, body?.selectedCapabilities, body?.command, null, context)
     sendJson(res, 200, result)
     return
   }
@@ -160,7 +161,14 @@ export async function handleAgentApi(req, res, url) {
   // POST /api/agents/:sessionId — create/ensure agent
   if (req.method === 'POST' && parts.length === 3) {
     const body = await readJsonBody(req)
-    const session = await createAgent(sessionId, body)
+    let config
+    if (body?.modelRef || body?.model) {
+      const binding = await resolveModelBinding(body, { context, legacySnapshot: body?.model })
+      config = { ...body, model: binding.model, modelRef: binding.modelRef, modelAccessContext: context, resolvePersistedModel: true }
+    } else {
+      config = { ...body, modelAccessContext: context, resolvePersistedModel: true }
+    }
+    const session = await createAgent(sessionId, config)
     sendJson(res, 200, {
       sessionId: session.sessionId,
       status: session.status,
@@ -209,13 +217,14 @@ export async function handleAgentApi(req, res, url) {
   // POST /api/agents/:sessionId/model — update session model
   if (req.method === 'POST' && subPath === 'model') {
     const body = await readJsonBody(req)
-    const model = body?.model
-    if (!model) {
-      const error = new Error('Missing model in request body')
-      error.statusCode = 400
-      throw error
-    }
-    const result = updateSessionModel(sessionId, model)
+    const currentModel = getSessionState(sessionId)?.model
+    const binding = await resolveModelBinding(body, {
+      context,
+      currentModel,
+      allowCurrentHidden: true,
+      legacySnapshot: body?.model,
+    })
+    const result = updateSessionModel(sessionId, binding.model, binding.modelRef)
     sendJson(res, 200, result)
     return
   }
@@ -244,7 +253,7 @@ export async function handleAgentApi(req, res, url) {
 
   // POST /api/agents/:sessionId/continue — continue generation from last message (retry)
   if (req.method === 'POST' && subPath === 'continue') {
-    const result = await continueSession(sessionId)
+    const result = await continueSession(sessionId, context)
     sendJson(res, 200, result)
     return
   }

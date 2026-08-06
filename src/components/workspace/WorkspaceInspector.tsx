@@ -428,7 +428,7 @@ function InlineReader({ project, path, mode, file, diff, loading, error, navigat
         {!loading && error ? <div className="p-4 text-sm text-destructive">{error}</div> : null}
         {!loading && !error && mode === 'file' && file ? (
           isMarkdown ? (
-            <MarkdownReader key={file.path} path={file.path} content={file.content} language={file.language} mode={markdownMode} wordWrap={wordWrap} />
+            <MarkdownReader key={file.path} projectId={project?.id} path={file.path} content={file.content} language={file.language} mode={markdownMode} wordWrap={wordWrap} />
           ) : (
             <MonacoCodeViewer path={file.path} content={file.content} language={file.language} wordWrap={wordWrap} />
           )

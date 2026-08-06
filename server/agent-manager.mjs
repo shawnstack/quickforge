@@ -377,6 +377,15 @@ function userTextMessage(text, details) {
   }
 }
 
+function assistantErrorMessage(text, model) {
+  return {
+    ...assistantTextMessage('', model),
+    stopReason: 'error',
+    errorMessage: text,
+    timestamp: Date.now(),
+  }
+}
+
 function compactedSessionTitle(title) {
   const base = typeof title === 'string' && title.trim() ? title.trim() : 'New chat'
   if (base === 'New chat') return 'Compacted chat'
@@ -1801,6 +1810,24 @@ export async function createAgent(sessionId, config = {}) {
       : undefined
     if (timedEvent.type === 'agent_end') {
       markLatestAssistantProcessFinished(agent.state.messages)
+      // Ensure a failed run is visible in the conversation. Most failures emit
+      // an assistant error message through the agent loop (handleRunFailure),
+      // but a few paths (e.g. concurrent-run rejection) only set
+      // `state.errorMessage`. Append an error message so the user sees the
+      // reason at the end of the transcript instead of only a toast.
+      const runError = session.agent.state.errorMessage
+      if (runError) {
+        const lastMessage = agent.state.messages[agent.state.messages.length - 1]
+        const errorAlreadyShown = lastMessage?.role === 'assistant'
+          && lastMessage?.stopReason === 'error'
+          && lastMessage?.errorMessage
+        if (!errorAlreadyShown) {
+          agent.state.messages = [
+            ...agent.state.messages,
+            assistantErrorMessage(runError, session.model),
+          ]
+        }
+      }
     }
     const forwardEvent = timedEvent.type === 'agent_end'
       ? {
@@ -2286,11 +2313,30 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
   // Fire and forget — events come through eventBus
   session.agent.prompt(userMessage).catch((err) => {
     logger.error(`Agent prompt error for session ${sessionId}:`, err, { sessionId })
-    const event = {
-      type: 'error',
-      error: err.message || 'Unknown error',
+    const errorMessage = err.message || 'Unknown error'
+    // Surface the failure at the end of the conversation itself so the user
+    // sees the reason in the transcript, not only via toast/notification.
+    const lastMessage = session.agent.state.messages[session.agent.state.messages.length - 1]
+    const errorAlreadyShown = lastMessage?.role === 'assistant'
+      && lastMessage?.stopReason === 'error'
+      && lastMessage?.errorMessage
+    if (!errorAlreadyShown) {
+      session.agent.state.messages = [
+        ...session.agent.state.messages,
+        assistantErrorMessage(errorMessage, session.model),
+      ]
     }
-    emitSessionEvent(session, event)
+    session.agent.state.errorMessage = errorMessage
+    session.agent.state.isStreaming = false
+    session.status = 'error'
+    session.finishedAt = new Date().toISOString()
+    const messages = session.agent.state.messages
+    emitSessionEvent(session, { type: 'message_end', messages })
+    emitSessionEvent(session, { type: 'error', error: errorMessage })
+    emitSessionEvent(session, { type: 'agent_end', messages, errorMessage, status: 'error' })
+    flushSessionPersist(session).catch((persistErr) =>
+      logger.error(`Failed to persist session ${sessionId} after prompt error:`, persistErr, { sessionId }),
+    )
   }).finally(() => {
     session.activeCommandName = null
     session.activeCommandPermissions = null

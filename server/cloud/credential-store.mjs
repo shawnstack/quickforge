@@ -8,6 +8,31 @@ import { ensureStorage, storageDir } from '../storage.mjs'
 
 const generateKeyPairAsync = promisify(generateKeyPair)
 const SCHEMA_VERSION = 1
+const ACCOUNT_FIELDS = ['id', 'email', 'plan']
+
+function publicAccount(value) {
+  if (!value || typeof value !== 'object') return undefined
+  const account = {}
+  for (const field of ACCOUNT_FIELDS) {
+    const candidate = value[field]
+    if (typeof candidate === 'string' && candidate) account[field] = candidate
+  }
+  return Object.keys(account).length ? account : undefined
+}
+
+function publicPendingDeviceFlow(value) {
+  if (!value || typeof value !== 'object') return undefined
+  const expiresAt = Number(value.expiresAt)
+  if (!Number.isFinite(expiresAt)) return undefined
+  return {
+    userCode: String(value.userCode || ''),
+    verificationUri: String(value.verificationUri || ''),
+    verificationUriComplete: String(value.verificationUriComplete || ''),
+    expiresAt,
+    interval: Math.max(1, Number(value.interval) || 5),
+    status: String(value.status || 'pending'),
+  }
+}
 
 function platformName(platform = process.platform) {
   if (platform === 'win32') return 'windows'
@@ -50,7 +75,8 @@ function publicRecord(record) {
     clientVersion: record.clientVersion,
     hasInstallationKey: Boolean(record.publicKey && record.privateKeyPkcs8),
     hasSession: Boolean(record.refreshToken),
-    account: record.account,
+    account: publicAccount(record.account),
+    pendingDeviceFlow: publicPendingDeviceFlow(record.pendingDeviceFlow),
     updatedAt: record.updatedAt,
   }
 }
@@ -131,8 +157,10 @@ export function createCloudCredentialStore({
       mode: 'local',
       installationId: undefined,
       refreshToken: undefined,
+      sessionCloudUrl: undefined,
       pendingRegistrationKey: undefined,
       pendingRegistrationHash: undefined,
+      pendingDeviceFlow: undefined,
       account: undefined,
       rotateInstallationBeforeRegistration: undefined,
     }))
@@ -151,8 +179,10 @@ export function createCloudCredentialStore({
         mode: 'local',
         installationId: undefined,
         refreshToken: undefined,
+        sessionCloudUrl: undefined,
         pendingRegistrationKey: undefined,
         pendingRegistrationHash: undefined,
+        pendingDeviceFlow: undefined,
         account: undefined,
         rotateInstallationBeforeRegistration: rotateInstallationBeforeRegistration || undefined,
       }))

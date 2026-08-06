@@ -11,7 +11,7 @@ function isLoopbackHost(hostname) {
   return false
 }
 
-export function parseCloudBaseUrl(value, { allowInsecure = false } = {}) {
+export function parseCloudBaseUrl(value, _options = {}) {
   const raw = typeof value === 'string' ? value.trim() : ''
   if (!raw) return undefined
 
@@ -26,8 +26,8 @@ export function parseCloudBaseUrl(value, { allowInsecure = false } = {}) {
     throw new Error('QUICKFORGE_CLOUD_URL must not contain credentials, query parameters, or fragments.')
   }
   if (url.protocol !== 'https:') {
-    if (!(allowInsecure && url.protocol === 'http:' && isLoopbackHost(url.hostname))) {
-      throw new Error('QUICKFORGE_CLOUD_URL must use HTTPS. Insecure HTTP is allowed only for loopback development.')
+    if (!(url.protocol === 'http:' && isLoopbackHost(url.hostname))) {
+      throw new Error('QUICKFORGE_CLOUD_URL must use HTTPS. HTTP is allowed only for loopback addresses.')
     }
   }
   if (url.pathname.includes('..')) throw new Error('QUICKFORGE_CLOUD_URL contains an unsafe path.')
@@ -43,13 +43,11 @@ export function cloudEndpoint(baseUrl, pathname) {
 }
 
 export function readCloudConfig(env = process.env) {
-  const allowInsecure = env.QUICKFORGE_CLOUD_ALLOW_INSECURE === '1'
-  const baseUrl = parseCloudBaseUrl(env.QUICKFORGE_CLOUD_URL, { allowInsecure })
+  const baseUrl = parseCloudBaseUrl(env.QUICKFORGE_CLOUD_URL)
   const timeoutValue = Number(env.QUICKFORGE_CLOUD_TIMEOUT_MS || DEFAULT_TIMEOUT_MS)
   return {
     enabled: Boolean(baseUrl),
     baseUrl,
-    allowInsecure,
     timeoutMs: Number.isFinite(timeoutValue) ? Math.min(60_000, Math.max(1_000, timeoutValue)) : DEFAULT_TIMEOUT_MS,
   }
 }

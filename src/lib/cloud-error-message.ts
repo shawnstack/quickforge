@@ -9,6 +9,8 @@ export function cloudErrorMessage(error: unknown, fallback: CloudErrorFallback =
   if (error.code === 'cloud_local_only') return t('cloudLocalOnlyError')
   if (error.code === 'cloud_configuration_error' || error.code === 'cloud_not_configured') return t('cloudConfigurationError')
   if (error.code === 'cloud_session_service_mismatch') return t('cloudSessionServiceMismatch')
+  if (['expired_token', 'device_code_expired', 'expired'].includes(error.code)) return t('cloudDeviceFlowExpiredError')
+  if (['access_denied', 'authorization_declined', 'denied'].includes(error.code)) return t('cloudDeviceFlowDeniedError')
   if (['refresh_token_reused', 'installation_revoked', 'invalid_refresh_token', 'cloud_not_connected'].includes(error.code)) {
     return t('cloudSessionExpired')
   }

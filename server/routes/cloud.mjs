@@ -1,8 +1,16 @@
-import { CloudApiError } from '../cloud/client.mjs'
-import { getCloudRuntime } from '../cloud/runtime.mjs'
+import { CloudClient, CloudApiError } from '../cloud/client.mjs'
+import { parseCloudBaseUrl } from '../cloud/config.mjs'
+import { createCloudCredentialStore } from '../cloud/credential-store.mjs'
+import { getCloudRuntime, invalidateCloudRuntime } from '../cloud/runtime.mjs'
+import {
+  publicCloudServiceConfig,
+  readCloudServiceConfig,
+  saveCloudServiceConfig,
+} from '../cloud/service-config.mjs'
 import { isTailscaleAddress } from '../utils/network.mjs'
-import { sendJson } from '../utils/response.mjs'
+import { readJsonBody, sendJson } from '../utils/response.mjs'
 
+const CLOUD_CONFIG_BODY_MAX_BYTES = 16 * 1024
 const CLOUD_ACTION_HEADER = 'x-quickforge-action'
 const CLOUD_ACTION_VALUE = 'cloud-action'
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
@@ -10,6 +18,9 @@ const JSON_WRITE_ROUTES = new Set([
   'POST /api/cloud/test-connection',
   'PUT /api/cloud/config',
   'POST /api/cloud/identity/reset',
+  'POST /api/cloud/device/start',
+  'POST /api/cloud/device/poll',
+  'POST /api/cloud/device/cancel',
 ])
 
 function routeError(message, statusCode, code) {
@@ -32,6 +43,20 @@ function createDefaultRuntime() {
   return getCloudRuntime()
 }
 
+function sameCloudUrl(left, right) {
+  try {
+    return parseCloudBaseUrl(left).href === parseCloudBaseUrl(right).href
+  } catch {
+    return false
+  }
+}
+
+function requireDangerousConfirmation(body) {
+  if (body?.confirm !== 'reset-cloud-identity') {
+    throw routeError('Explicit confirmation is required to rebuild the QuickForge Cloud identity.', 400, 'cloud_reset_confirmation_required')
+  }
+}
+
 function requireProtectedCloudWrite(req, pathname) {
   const method = String(req.method || 'GET').toUpperCase()
   if (SAFE_METHODS.has(method)) return
@@ -47,14 +72,20 @@ function requireProtectedCloudWrite(req, pathname) {
   }
 }
 
-export function createCloudRouteHandler({ runtimeFactory = createDefaultRuntime } = {}) {
-  let runtime
-  let configurationError
-
-  function getRuntime() {
-    if (runtime || configurationError) return runtime
-    try { runtime = runtimeFactory() } catch (error) { configurationError = error }
-    return runtime
+export function createCloudRouteHandler({
+  runtimeFactory = createDefaultRuntime,
+  readServiceConfig = readCloudServiceConfig,
+  saveServiceConfig = saveCloudServiceConfig,
+  credentialStoreFactory = createCloudCredentialStore,
+  invalidateRuntime = invalidateCloudRuntime,
+  cloudClientFactory = (config) => new CloudClient(config),
+} = {}) {
+  async function runtimeOrError() {
+    try {
+      return { runtime: await runtimeFactory() }
+    } catch (error) {
+      return { configurationError: error }
+    }
   }
 
   return async function handleCloudApi(req, res, url, {
@@ -70,7 +101,61 @@ export function createCloudRouteHandler({ runtimeFactory = createDefaultRuntime 
 
     requireProtectedCloudWrite(req, url.pathname)
 
-    const current = getRuntime()
+    if (req.method === 'GET' && url.pathname === '/api/cloud/config') {
+      sendJson(res, 200, publicCloudServiceConfig(await readServiceConfig({ strict: false })))
+      return
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/cloud/test-connection') {
+      const body = await readJsonBody(req, CLOUD_CONFIG_BODY_MAX_BYTES)
+      const baseUrl = parseCloudBaseUrl(body?.cloudUrl)
+      const timeoutValue = Number(process.env.QUICKFORGE_CLOUD_TIMEOUT_MS || 10_000)
+      const client = cloudClientFactory({
+        baseUrl,
+        timeoutMs: Number.isFinite(timeoutValue) ? Math.min(60_000, Math.max(1_000, timeoutValue)) : 10_000,
+      })
+      try {
+        const [health, ready] = await Promise.all([client.health(), client.ready()])
+        sendJson(res, 200, { ok: true, cloudUrl: baseUrl.href, health, ready })
+      } catch (error) {
+        throw mapCloudError(error)
+      }
+      return
+    }
+
+    if (req.method === 'PUT' && url.pathname === '/api/cloud/config') {
+      const body = await readJsonBody(req, CLOUD_CONFIG_BODY_MAX_BYTES)
+      const nextUrl = parseCloudBaseUrl(body?.cloudUrl).href
+      const credentialStore = credentialStoreFactory()
+      const identityRecord = await credentialStore.read()
+      if (identityRecord.refreshToken || identityRecord.pendingDeviceFlow) {
+        const boundUrl = String(identityRecord.pendingDeviceFlow?.sessionCloudUrl || identityRecord.sessionCloudUrl || '').trim()
+        const sameUrl = boundUrl ? sameCloudUrl(boundUrl, nextUrl) : false
+        if (!sameUrl) {
+          throw routeError('A QuickForge Cloud session is active. Sign out first, or explicitly rebuild the identity before switching services.', 409, 'cloud_session_active')
+        }
+      }
+      await saveServiceConfig(nextUrl)
+      invalidateRuntime()
+      sendJson(res, 200, publicCloudServiceConfig(await readServiceConfig({ strict: false })))
+      return
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/cloud/identity/reset') {
+      const body = await readJsonBody(req, CLOUD_CONFIG_BODY_MAX_BYTES)
+      requireDangerousConfirmation(body)
+      const { runtime } = await runtimeOrError()
+      if (runtime?.enabled) await runtime.identity.resetIdentity()
+      else {
+        const store = credentialStoreFactory()
+        await store.rotateInstallation()
+      }
+      invalidateRuntime()
+      sendJson(res, 200, { ok: true, mode: 'local' })
+      return
+    }
+
+    const { runtime: current, configurationError } = await runtimeOrError()
     if (req.method === 'GET' && url.pathname === '/api/cloud/status') {
       if (configurationError) {
         sendJson(res, 200, { configured: false, mode: 'local', configurationError: configurationError.message })
@@ -92,6 +177,21 @@ export function createCloudRouteHandler({ runtimeFactory = createDefaultRuntime 
         sendJson(res, 201, await current.identity.startGuest())
         return
       }
+      if (req.method === 'POST' && url.pathname === '/api/cloud/device/start') {
+        await readJsonBody(req, CLOUD_CONFIG_BODY_MAX_BYTES)
+        sendJson(res, 201, await current.identity.startDeviceFlow())
+        return
+      }
+      if (req.method === 'POST' && url.pathname === '/api/cloud/device/poll') {
+        await readJsonBody(req, CLOUD_CONFIG_BODY_MAX_BYTES)
+        sendJson(res, 200, await current.identity.pollDeviceFlow())
+        return
+      }
+      if (req.method === 'POST' && url.pathname === '/api/cloud/device/cancel') {
+        await readJsonBody(req, CLOUD_CONFIG_BODY_MAX_BYTES)
+        sendJson(res, 200, await current.identity.cancelDeviceFlow())
+        return
+      }
       if (req.method === 'GET' && url.pathname === '/api/cloud/models') {
         sendJson(res, 200, { items: await current.models.list(undefined, { refresh: true }) })
         return
@@ -106,6 +206,7 @@ export function createCloudRouteHandler({ runtimeFactory = createDefaultRuntime 
       }
       if (req.method === 'POST' && url.pathname === '/api/cloud/logout') {
         await current.identity.logout()
+        invalidateRuntime()
         sendJson(res, 200, { ok: true, mode: 'local' })
         return
       }

@@ -15,8 +15,9 @@ describe('cloud config', () => {
     expect(() => parseCloudBaseUrl('http://cloud.example.com')).toThrow()
   })
 
-  it('allows HTTP only for explicit loopback development', () => {
-    expect(parseCloudBaseUrl('http://127.0.0.1:8080', { allowInsecure: true }).origin).toBe('http://127.0.0.1:8080')
-    expect(() => parseCloudBaseUrl('http://192.168.1.2:8080', { allowInsecure: true })).toThrow()
+  it('allows HTTP only for loopback addresses without an environment switch', () => {
+    expect(parseCloudBaseUrl('http://127.0.0.1:8080').origin).toBe('http://127.0.0.1:8080')
+    expect(parseCloudBaseUrl('http://localhost:8082').href).toBe('http://localhost:8082/')
+    expect(() => parseCloudBaseUrl('http://192.168.1.2:8080')).toThrow()
   })
 })

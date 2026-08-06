@@ -587,6 +587,24 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
   border-bottom: 0;
 }
 
+.quickforge-settings-list-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem 0.875rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+}
+
+.quickforge-settings-list-header > div {
+  min-width: 0;
+}
+
+.quickforge-settings-list-header .quickforge-settings-row-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
 .quickforge-settings-row:hover {
   background: color-mix(in oklab, var(--muted) 26%, transparent);
 }
@@ -1654,6 +1672,36 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
   .quickforge-settings-mobile-list-chevron {
     flex: none;
     color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+  }
+
+  .quickforge-settings-heading {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.875rem;
+  }
+
+  .quickforge-settings-heading-action {
+    align-self: flex-start;
+  }
+
+  .quickforge-settings-list-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .quickforge-settings-cloud-actions,
+  .quickforge-settings-cloud-force-switch {
+    align-items: stretch;
+  }
+
+  .quickforge-settings-cloud-actions > button,
+  .quickforge-settings-cloud-force-switch > button {
+    min-height: 2.5rem;
+    flex: 1 1 0;
+  }
+
+  .quickforge-settings-cloud-logout {
+    width: 100%;
   }
 }
 

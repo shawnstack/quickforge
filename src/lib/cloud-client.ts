@@ -1,10 +1,53 @@
 import type { Api, Model } from '@earendil-works/pi-ai'
 
 export type CloudMode = 'local' | 'guest' | 'account'
+export type CloudConfigSource = 'saved' | 'env' | 'default'
 
 const CLOUD_ACTION_HEADER = 'x-quickforge-action'
 const CLOUD_ACTION_VALUE = 'cloud-action'
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
+
+export class CloudClientError extends Error {
+  status: number
+  code: string
+  details?: unknown
+
+  constructor(message: string, { status = 0, code = 'cloud_request_failed', details }: { status?: number; code?: string; details?: unknown } = {}) {
+    super(message)
+    this.name = 'CloudClientError'
+    this.status = status
+    this.code = code
+    this.details = details
+  }
+}
+
+export type CloudServiceConfig = {
+  schemaVersion: 1
+  serviceType: 'quickforge-cloud'
+  cloudUrl: string
+  source: CloudConfigSource
+  saved?: boolean
+  valid?: boolean
+  configurationError?: string
+}
+
+export type CloudConnectionTest = {
+  ok: boolean
+  cloudUrl: string
+  health?: unknown
+  ready?: unknown
+}
+
+export type CloudDeviceFlowResult = 'pending' | 'slow_down' | 'denied' | 'expired' | 'network' | 'success'
+
+export type CloudPendingDeviceFlow = {
+  userCode: string
+  verificationUri: string
+  verificationUriComplete?: string
+  expiresAt: number
+  interval: number
+  status?: string
+}
 
 export type CloudStatus = {
   configured: boolean
@@ -16,17 +59,19 @@ export type CloudStatus = {
   clientVersion?: string
   hasInstallationKey?: boolean
   account?: CloudAccount
+  pendingDeviceFlow?: CloudPendingDeviceFlow
+  deviceFlowResult?: CloudDeviceFlowResult
   updatedAt?: string
   cloudAvailable?: boolean
   cloudError?: string
+  sessionServiceMismatch?: boolean
   configurationError?: string
 }
 
 export type CloudAccount = {
   id?: string
-  mode?: CloudMode
+  email?: string
   plan?: string
-  [key: string]: unknown
 }
 
 export type CloudUsage = {
@@ -41,6 +86,7 @@ export type CloudUsage = {
 
 export type CloudInstallation = {
   id: string
+  installationId?: string
   name?: string
   installationName?: string
   platform?: string
@@ -66,16 +112,49 @@ async function requestCloudJson<T>(path: string, init: RequestInit = {}): Promis
   })
   if (!response.ok) {
     let message = `QuickForge Cloud request failed (${response.status})`
+    let code = 'cloud_request_failed'
+    let details: unknown
     try {
-      const payload = await response.json() as { error?: string | { message?: string } }
+      const payload = await response.json() as { error?: string | { message?: string; code?: string; details?: unknown }; code?: string }
       if (typeof payload.error === 'string') message = payload.error
       else if (payload.error?.message) message = payload.error.message
+      if (typeof payload.code === 'string') code = payload.code
+      else if (typeof payload.error === 'object' && typeof payload.error?.code === 'string') code = payload.error.code
+      if (typeof payload.error === 'object') details = payload.error?.details
     } catch {
       // Keep the status-based fallback.
     }
-    throw new Error(message)
+    throw new CloudClientError(message, { status: response.status, code, details })
   }
   return response.json() as Promise<T>
+}
+
+export function getCloudConfig(signal?: AbortSignal) {
+  return requestCloudJson<CloudServiceConfig>('/api/cloud/config', { signal })
+}
+
+export function updateCloudConfig(cloudUrl: string, signal?: AbortSignal) {
+  return requestCloudJson<CloudServiceConfig>('/api/cloud/config', {
+    method: 'PUT',
+    body: JSON.stringify({ cloudUrl }),
+    signal,
+  })
+}
+
+export function testCloudConnection(cloudUrl: string, signal?: AbortSignal) {
+  return requestCloudJson<CloudConnectionTest>('/api/cloud/test-connection', {
+    method: 'POST',
+    body: JSON.stringify({ cloudUrl }),
+    signal,
+  })
+}
+
+export function resetCloudIdentity(signal?: AbortSignal) {
+  return requestCloudJson<{ ok: boolean; mode: CloudMode }>('/api/cloud/identity/reset', {
+    method: 'POST',
+    body: JSON.stringify({ confirm: 'reset-cloud-identity' }),
+    signal,
+  })
 }
 
 export function getCloudStatus(signal?: AbortSignal) {
@@ -84,6 +163,18 @@ export function getCloudStatus(signal?: AbortSignal) {
 
 export function startCloudGuest(signal?: AbortSignal) {
   return requestCloudJson<CloudStatus>('/api/cloud/guest/start', { method: 'POST', signal })
+}
+
+export function startCloudDeviceFlow(signal?: AbortSignal) {
+  return requestCloudJson<CloudStatus>('/api/cloud/device/start', { method: 'POST', body: '{}', signal })
+}
+
+export function pollCloudDeviceFlow(signal?: AbortSignal) {
+  return requestCloudJson<CloudStatus>('/api/cloud/device/poll', { method: 'POST', body: '{}', signal })
+}
+
+export function cancelCloudDeviceFlow(signal?: AbortSignal) {
+  return requestCloudJson<CloudStatus>('/api/cloud/device/cancel', { method: 'POST', body: '{}', signal })
 }
 
 export async function getCloudModels(signal?: AbortSignal): Promise<Model<Api>[]> {

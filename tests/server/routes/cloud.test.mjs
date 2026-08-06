@@ -26,15 +26,40 @@ function response() {
 function runtime() {
   return {
     enabled: true,
+    config: { baseUrl: new URL('https://old.example/') },
     identity: {
       status: vi.fn(async () => ({ mode: 'guest', hasSession: true, installationId: 'i-1' })),
       startGuest: vi.fn(async () => ({ mode: 'guest', usage: { remaining: 100 } })),
+      startDeviceFlow: vi.fn(async () => ({ mode: 'guest', pendingDeviceFlow: { userCode: 'ABCD-EFGH' } })),
+      pollDeviceFlow: vi.fn(async () => ({ mode: 'account', deviceFlowResult: 'success' })),
+      cancelDeviceFlow: vi.fn(async () => ({ mode: 'guest' })),
       usage: vi.fn(async () => ({ remaining: 100 })),
       installations: vi.fn(async () => ({ items: [] })),
       revokeInstallation: vi.fn(async () => undefined),
       logout: vi.fn(async () => undefined),
+      resetIdentity: vi.fn(async () => undefined),
     },
     models: { list: vi.fn(async () => [{ id: 'qf-fast', provider: 'quickforge-cloud' }]) },
+  }
+}
+
+const savedConfig = {
+  schemaVersion: 1,
+  serviceType: 'quickforge-cloud',
+  cloudUrl: 'https://old.example/',
+  baseUrl: new URL('https://old.example/'),
+  source: 'saved',
+  saved: true,
+  valid: true,
+}
+
+function handlerOptions(overrides = {}) {
+  return {
+    readServiceConfig: vi.fn(async () => savedConfig),
+    saveServiceConfig: vi.fn(async () => undefined),
+    credentialStoreFactory: () => ({ read: vi.fn(async () => ({ refreshToken: 'refresh-secret', sessionCloudUrl: 'https://old.example/' })), rotateInstallation: vi.fn() }),
+    invalidateRuntime: vi.fn(),
+    ...overrides,
   }
 }
 
@@ -82,6 +107,9 @@ describe('cloud routes', () => {
     ['POST', '/api/cloud/test-connection', { cloudUrl: 'http://127.0.0.1:8082' }],
     ['POST', '/api/cloud/identity/reset', { confirm: 'reset-cloud-identity' }],
     ['POST', '/api/cloud/guest/start'],
+    ['POST', '/api/cloud/device/start', {}],
+    ['POST', '/api/cloud/device/poll', {}],
+    ['POST', '/api/cloud/device/cancel', {}],
     ['POST', '/api/cloud/logout'],
     ['DELETE', '/api/cloud/installations/i-2'],
   ])('rejects %s %s without the Cloud action header', async (method, pathname, body) => {
@@ -93,23 +121,15 @@ describe('cloud routes', () => {
     expect(runtimeFactory).not.toHaveBeenCalled()
   })
 
-  it('rejects Cloud JSON writes sent as text/plain', async () => {
-    const runtimeFactory = vi.fn(runtime)
-    const handler = createCloudRouteHandler({ runtimeFactory })
+  it('rejects JSON write bodies sent as text/plain', async () => {
+    const cloudClientFactory = vi.fn()
+    const handler = createCloudRouteHandler({ cloudClientFactory })
     await expect(handler(request('POST', { cloudUrl: 'http://127.0.0.1:8082' }, {
       ...CLOUD_ACTION_HEADERS,
       'content-type': 'text/plain',
     }), response(), new URL('http://localhost/api/cloud/test-connection'), { isLocalRequest: true }))
       .rejects.toMatchObject({ statusCode: 415, code: 'cloud_json_content_type_required' })
-    expect(runtimeFactory).not.toHaveBeenCalled()
-  })
-
-  it('lets a valid action header and JSON Content-Type pass the request guards', async () => {
-    const runtimeFactory = vi.fn(runtime)
-    const handler = createCloudRouteHandler({ runtimeFactory })
-    await expect(handler(cloudRequest('POST', { cloudUrl: 'http://127.0.0.1:8082' }), response(), new URL('http://localhost/api/cloud/test-connection'), { isLocalRequest: true }))
-      .rejects.toMatchObject({ statusCode: 404, code: 'route_not_found' })
-    expect(runtimeFactory).toHaveBeenCalledTimes(1)
+    expect(cloudClientFactory).not.toHaveBeenCalled()
   })
 
   it('allows an authenticated Tailscale client to perform a protected write', async () => {
@@ -125,40 +145,92 @@ describe('cloud routes', () => {
     expect(current.identity.startGuest).toHaveBeenCalledTimes(1)
   })
 
-  it('returns local mode without creating a cloud session when disabled', async () => {
-    const handler = createCloudRouteHandler({ runtimeFactory: () => ({ enabled: false }) })
-    const res = response()
-    await handler(request(), res, new URL('http://localhost/api/cloud/status'), { isLocalRequest: true })
-    expect(res.status).toBe(200)
-    expect(JSON.parse(res.body)).toEqual({ configured: false, mode: 'local' })
+  it('returns and updates the safe managed-service config', async () => {
+    const options = handlerOptions({ credentialStoreFactory: () => ({ read: async () => ({}), rotateInstallation: vi.fn() }) })
+    const handler = createCloudRouteHandler(options)
+    const get = response()
+    await handler(request(), get, new URL('http://localhost/api/cloud/config'), { isLocalRequest: true })
+    expect(JSON.parse(get.body)).toMatchObject({ serviceType: 'quickforge-cloud', cloudUrl: 'https://old.example/', source: 'saved' })
+
+    const put = response()
+    await handler(cloudRequest('PUT', { cloudUrl: 'http://127.0.0.1:8082' }), put, new URL('http://localhost/api/cloud/config'), { isLocalRequest: true })
+    expect(options.saveServiceConfig).toHaveBeenCalledWith('http://127.0.0.1:8082/')
+    expect(options.invalidateRuntime).toHaveBeenCalledTimes(1)
   })
 
-  it('returns only the safe local status summary', async () => {
+  it('blocks cross-URL save with an active session but allows the same URL', async () => {
+    const options = handlerOptions()
+    const handler = createCloudRouteHandler(options)
+    await expect(handler(cloudRequest('PUT', { cloudUrl: 'https://new.example' }), response(), new URL('http://localhost/api/cloud/config'), { isLocalRequest: true }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'cloud_session_active' })
+    expect(options.saveServiceConfig).not.toHaveBeenCalled()
+
+    await handler(cloudRequest('PUT', { cloudUrl: 'https://old.example' }), response(), new URL('http://localhost/api/cloud/config'), { isLocalRequest: true })
+    expect(options.saveServiceConfig).toHaveBeenCalledWith('https://old.example/')
+
+    const legacyOptions = handlerOptions({
+      credentialStoreFactory: () => ({ read: vi.fn(async () => ({ refreshToken: 'legacy-refresh' })), rotateInstallation: vi.fn() }),
+    })
+    const legacyHandler = createCloudRouteHandler(legacyOptions)
+    await expect(legacyHandler(cloudRequest('PUT', { cloudUrl: 'https://old.example' }), response(), new URL('http://localhost/api/cloud/config'), { isLocalRequest: true }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'cloud_session_active' })
+
+    const invalidOptions = handlerOptions({
+      readServiceConfig: vi.fn(async () => ({ ...savedConfig, valid: false, cloudUrl: 'http://192.168.1.2:8082', baseUrl: undefined })),
+      credentialStoreFactory: () => ({ read: vi.fn(async () => ({ refreshToken: 'refresh-secret', sessionCloudUrl: 'http://192.168.1.2:8082/' })), rotateInstallation: vi.fn() }),
+    })
+    const invalidHandler = createCloudRouteHandler(invalidOptions)
+    await expect(invalidHandler(cloudRequest('PUT', { cloudUrl: 'https://repair.example' }), response(), new URL('http://localhost/api/cloud/config'), { isLocalRequest: true }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'cloud_session_active' })
+  })
+
+  it('tests health and readiness with a one-time client only', async () => {
+    const health = vi.fn(async () => ({ ok: true }))
+    const ready = vi.fn(async () => ({ ready: true }))
+    const runtimeFactory = vi.fn(runtime)
+    const handler = createCloudRouteHandler({
+      runtimeFactory,
+      cloudClientFactory: vi.fn(({ baseUrl }) => ({ baseUrl, health, ready })),
+    })
+    const res = response()
+    await handler(cloudRequest('POST', { cloudUrl: 'http://localhost:8082' }), res, new URL('http://localhost/api/cloud/test-connection'), { isLocalRequest: true })
+    expect(JSON.parse(res.body)).toMatchObject({ ok: true, cloudUrl: 'http://localhost:8082/' })
+    expect(health).toHaveBeenCalledTimes(1)
+    expect(ready).toHaveBeenCalledTimes(1)
+    expect(runtimeFactory).not.toHaveBeenCalled()
+  })
+
+  it('requires explicit reset confirmation and does not perform remote logout', async () => {
+    const current = runtime()
+    const options = handlerOptions({ runtimeFactory: () => current })
+    const handler = createCloudRouteHandler(options)
+    await expect(handler(cloudRequest('POST', {}), response(), new URL('http://localhost/api/cloud/identity/reset'), { isLocalRequest: true }))
+      .rejects.toMatchObject({ statusCode: 400, code: 'cloud_reset_confirmation_required' })
+    await handler(cloudRequest('POST', { confirm: 'reset-cloud-identity' }), response(), new URL('http://localhost/api/cloud/identity/reset'), { isLocalRequest: true })
+    expect(current.identity.resetIdentity).toHaveBeenCalledTimes(1)
+    expect(current.identity.logout).not.toHaveBeenCalled()
+    expect(current.identity.revokeInstallation).not.toHaveBeenCalled()
+    expect(options.invalidateRuntime).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns only the safe local status summary and never starts a guest implicitly', async () => {
     const current = runtime()
     const handler = createCloudRouteHandler({ runtimeFactory: () => current })
     const res = response()
     await handler(request(), res, new URL('http://localhost/api/cloud/status'), { isLocalRequest: true })
     expect(JSON.parse(res.body)).toEqual({ configured: true, mode: 'guest', hasSession: true, installationId: 'i-1' })
     expect(res.body).not.toContain('token')
-    expect(res.body).not.toContain('private')
-  })
-
-  it('starts a guest only after an explicit local POST', async () => {
-    const current = runtime()
-    const handler = createCloudRouteHandler({ runtimeFactory: () => current })
-    const status = response()
-    await handler(request(), status, new URL('http://localhost/api/cloud/status'), { isLocalRequest: true })
     expect(current.identity.startGuest).not.toHaveBeenCalled()
-
-    const res = response()
-    await handler(cloudRequest('POST'), res, new URL('http://localhost/api/cloud/guest/start'), { isLocalRequest: true })
-    expect(res.status).toBe(201)
-    expect(current.identity.startGuest).toHaveBeenCalledTimes(1)
   })
 
-  it('returns public cloud models and handles revoke/logout locally', async () => {
+  it('starts guest explicitly, returns models, and preserves remote-first logout semantics', async () => {
     const current = runtime()
-    const handler = createCloudRouteHandler({ runtimeFactory: () => current })
+    const invalidateRuntime = vi.fn()
+    const handler = createCloudRouteHandler({ runtimeFactory: () => current, invalidateRuntime })
+    const guest = response()
+    await handler(cloudRequest('POST'), guest, new URL('http://localhost/api/cloud/guest/start'), { isLocalRequest: true })
+    expect(guest.status).toBe(201)
+
     const models = response()
     await handler(request(), models, new URL('http://localhost/api/cloud/models'), { isLocalRequest: true })
     expect(JSON.parse(models.body).items).toEqual([{ id: 'qf-fast', provider: 'quickforge-cloud' }])
@@ -167,6 +239,23 @@ describe('cloud routes', () => {
     expect(current.identity.revokeInstallation).toHaveBeenCalledWith('i-2')
     await handler(cloudRequest('POST'), response(), new URL('http://localhost/api/cloud/logout'), { isLocalRequest: true })
     expect(current.identity.logout).toHaveBeenCalledTimes(1)
+    expect(invalidateRuntime).toHaveBeenCalledTimes(1)
+  })
+
+  it('proxies device flow start, poll, and cancel without exposing a device code', async () => {
+    const current = runtime()
+    const handler = createCloudRouteHandler({ runtimeFactory: () => current })
+    for (const [pathname, method] of [
+      ['/api/cloud/device/start', 'startDeviceFlow'],
+      ['/api/cloud/device/poll', 'pollDeviceFlow'],
+      ['/api/cloud/device/cancel', 'cancelDeviceFlow'],
+    ]) {
+      const res = response()
+      await handler(cloudRequest('POST', {}), res, new URL(`http://localhost${pathname}`), { isLocalRequest: true })
+      expect(res.status).toBe(pathname.endsWith('/start') ? 201 : 200)
+      expect(current.identity[method]).toHaveBeenCalledTimes(1)
+      expect(res.body).not.toContain('deviceCode')
+    }
   })
 
   it('does not report logout success when remote revocation fails', async () => {

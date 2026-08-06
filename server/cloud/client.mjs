@@ -15,12 +15,17 @@ async function parseError(response) {
   let payload
   try { payload = await response.json() } catch { payload = undefined }
   const error = payload?.error
-  return new CloudApiError(error?.message || `QuickForge Cloud request failed (${response.status}).`, {
-    status: response.status,
-    code: error?.code || 'cloud_request_failed',
-    retryable: Boolean(error?.retryable),
-    details: error?.details,
-  })
+  const structured = error && typeof error === 'object' ? error : undefined
+  const oauthCode = typeof error === 'string' ? error : undefined
+  return new CloudApiError(
+    structured?.message || payload?.error_description || `QuickForge Cloud request failed (${response.status}).`,
+    {
+      status: response.status,
+      code: structured?.code || payload?.code || oauthCode || 'cloud_request_failed',
+      retryable: Boolean(structured?.retryable || payload?.retryable),
+      details: structured?.details || payload?.details,
+    },
+  )
 }
 
 function timeoutSignal(timeoutMs, outerSignal) {
@@ -63,6 +68,22 @@ export class CloudClient {
   refresh(refreshToken, signal) {
     return this.request('oauth/token', {
       method: 'POST', body: { grantType: 'refresh_token', refreshToken }, signal,
+    })
+  }
+  authorizeDevice(token, installationId, clientId = 'quickforge-desktop', signal) {
+    return this.request('oauth/device_authorization', {
+      method: 'POST', token, body: { installationId, clientId }, signal,
+    })
+  }
+  exchangeDeviceCode(deviceCode, clientId = 'quickforge-desktop', signal) {
+    return this.request('oauth/token', {
+      method: 'POST',
+      body: {
+        grantType: 'urn:ietf:params:oauth:grant-type:device_code',
+        deviceCode,
+        clientId,
+      },
+      signal,
     })
   }
   me(token, signal) { return this.request('v1/me', { token, signal }) }

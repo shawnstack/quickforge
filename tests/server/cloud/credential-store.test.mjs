@@ -43,6 +43,38 @@ describe('cloud credential store', () => {
     if (process.platform !== 'win32') expect((await stat(filePath)).mode & 0o777).toBe(0o600)
   })
 
+  it('keeps the device code private while exposing the resumable public flow summary', async () => {
+    const store = createCloudCredentialStore({ filePath, ensureBaseStorage: async () => {} })
+    await store.update((record) => ({
+      ...record,
+      mode: 'guest',
+      refreshToken: 'guest-refresh',
+      pendingDeviceFlow: {
+        deviceCode: 'device-secret',
+        userCode: 'ABCD-EFGH',
+        verificationUri: 'https://cloud.test/device',
+        verificationUriComplete: 'https://cloud.test/device?user_code=ABCD-EFGH',
+        expiresAt: Date.now() + 60_000,
+        interval: 5,
+        sessionCloudUrl: 'https://cloud.test/',
+      },
+      account: { id: 'a-1', email: 'user@example.test', plan: 'pro', role: 'admin', passwordHash: 'secret' },
+    }))
+    const publicStatus = await store.readPublic()
+    expect(publicStatus.pendingDeviceFlow).toMatchObject({ userCode: 'ABCD-EFGH', interval: 5 })
+    expect(publicStatus.pendingDeviceFlow).not.toHaveProperty('deviceCode')
+    expect(publicStatus.pendingDeviceFlow).not.toHaveProperty('sessionCloudUrl')
+    expect(publicStatus.account).toEqual({ id: 'a-1', email: 'user@example.test', plan: 'pro' })
+    const disk = JSON.parse(await readFile(filePath, 'utf8'))
+    expect(disk.pendingDeviceFlow.deviceCode).toBe('device-secret')
+    expect(disk.refreshToken).toBe('guest-refresh')
+
+    await store.clearSession()
+    const cleared = JSON.parse(await readFile(filePath, 'utf8'))
+    expect(cleared.pendingDeviceFlow).toBeUndefined()
+    expect(cleared.refreshToken).toBeUndefined()
+  })
+
   it('clears the cloud session but keeps the installation keypair', async () => {
     const store = createCloudCredentialStore({ filePath, ensureBaseStorage: async () => {} })
     const initial = await store.ensureInstallation()
@@ -52,6 +84,21 @@ describe('cloud credential store', () => {
     expect(cleared.refreshToken).toBeUndefined()
     expect(cleared.publicKey).toBe(initial.publicKey)
     expect(cleared.privateKeyPkcs8).toBe(initial.privateKeyPkcs8)
+  })
+
+  it('clears the cloud session binding together with the refresh token', async () => {
+    const store = createCloudCredentialStore({ filePath, ensureBaseStorage: async () => {} })
+    await store.ensureInstallation()
+    await store.update((record) => ({
+      ...record,
+      mode: 'guest',
+      installationId: 'i-1',
+      refreshToken: 'secret',
+      sessionCloudUrl: 'https://cloud.test/',
+    }))
+    const cleared = await store.clearSession()
+    expect(cleared.refreshToken).toBeUndefined()
+    expect(cleared.sessionCloudUrl).toBeUndefined()
   })
 
   it('rotates the installation keypair before a new guest registration', async () => {

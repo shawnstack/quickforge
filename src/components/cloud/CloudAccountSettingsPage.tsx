@@ -1,18 +1,21 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Cloud, Database, Laptop, LogOut, RefreshCw, RotateCcw, Save, Server, ShieldCheck, Sparkles, TestTube2 } from 'lucide-react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { Cloud, Copy, Database, ExternalLink, Laptop, LogIn, LogOut, RefreshCw, RotateCcw, Save, Server, ShieldCheck, Sparkles, TestTube2, UserRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { showConfirm } from '@/components/ui/confirm-dialog'
 import { CLOUD_STATE_CHANGED_EVENT } from '@/hooks/useCloudModels'
 import {
+  cancelCloudDeviceFlow,
   getCloudConfig,
   getCloudInstallations,
   getCloudModels,
   getCloudStatus,
   getCloudUsage,
   logoutCloud,
+  pollCloudDeviceFlow,
   resetCloudIdentity,
   revokeCloudInstallation,
+  startCloudDeviceFlow,
   startCloudGuest,
   testCloudConnection,
   updateCloudConfig,
@@ -20,12 +23,21 @@ import {
   type CloudInstallation,
   type CloudServiceConfig,
   type CloudStatus,
-  type CloudUsage,
 } from '@/lib/cloud-client'
 import { cloudErrorMessage } from '@/lib/cloud-error-message'
 import { getDateLocale, t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import type { Api, Model } from '@earendil-works/pi-ai'
+import {
+  canRebuildCloudIdentity,
+  cloudDetailsReducer,
+  emptyCloudDetailsState,
+  getCloudAccountContentVisibility,
+  getCloudAccountViewState,
+  loadCloudAccountDetails,
+  rebuildCloudIdentityAndSaveUrl,
+  type CloudDetailError,
+} from './cloud-account-settings-state'
 
 function formatDate(value?: string) {
   if (!value) return t('cloudNotAvailable')
@@ -89,52 +101,135 @@ function modelCapabilities(model: Model<Api>) {
   ].filter(Boolean).join(' · ') || t('cloudCapabilityText')
 }
 
+function detailError(kind: 'usage' | 'installations' | 'models', error: unknown): CloudDetailError {
+  const fallback = kind === 'usage'
+    ? 'cloudUsageLoadFailed'
+    : kind === 'installations'
+      ? 'cloudDevicesLoadFailed'
+      : 'cloudModelsLoadFailed'
+  const message = cloudErrorMessage(error)
+  return {
+    message: message === t('cloudRequestFailed') ? t(fallback) : message,
+    unavailable: !('code' in Object(error)) || ['cloud_request_failed', 'cloud_unavailable'].includes(String((error as { code?: unknown })?.code || '')),
+  }
+}
+
+function DetailFailure({ error, onRetry, disabled }: { error: CloudDetailError; onRetry: () => void; disabled: boolean }) {
+  return (
+    <div className="p-4 text-sm">
+      <div className="quickforge-settings-error">{error.message}</div>
+      <Button type="button" variant="outline" size="sm" className="mt-3" onClick={onRetry} disabled={disabled}>
+        <RefreshCw className="mr-2 size-4" />{t('retry')}
+      </Button>
+    </div>
+  )
+}
+
 export function CloudAccountSettingsPage() {
   const [config, setConfig] = useState<CloudServiceConfig>()
   const [cloudUrl, setCloudUrl] = useState('')
   const [connectionTest, setConnectionTest] = useState<CloudConnectionTest>()
   const [status, setStatus] = useState<CloudStatus>()
-  const [usage, setUsage] = useState<CloudUsage>()
-  const [installations, setInstallations] = useState<CloudInstallation[]>([])
-  const [models, setModels] = useState<Model<Api>[]>([])
+  const [details, dispatchDetails] = useReducer(cloudDetailsReducer, emptyCloudDetailsState)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [switchWarning, setSwitchWarning] = useState('')
+  const [now, setNow] = useState(0)
+  const loadGenerationRef = useRef(0)
+  const pendingDeviceFlow = status?.pendingDeviceFlow
+  const deviceFlowSecondsLeft = pendingDeviceFlow ? Math.max(0, Math.ceil((pendingDeviceFlow.expiresAt - now) / 1_000)) : 0
 
-  const load = useCallback(async (showLoading = true) => {
+  const clearDetails = useCallback(() => dispatchDetails({ type: 'clear' }), [])
+
+  const load = useCallback(async (showLoading = true, preserveDraftUrl = false) => {
+    const generation = ++loadGenerationRef.current
     if (showLoading) setLoading(true)
     setError('')
+    dispatchDetails({ type: 'begin' })
     try {
       const [nextConfig, nextStatus] = await Promise.all([getCloudConfig(), getCloudStatus()])
+      if (generation !== loadGenerationRef.current) return
       setConfig(nextConfig)
-      setCloudUrl(nextConfig.cloudUrl)
+      if (!preserveDraftUrl) setCloudUrl(nextConfig.cloudUrl)
       setStatus(nextStatus)
-      if (nextStatus.configured && nextStatus.hasSession) {
-        const [nextUsage, nextInstallations, nextModels] = await Promise.all([
-          getCloudUsage(),
-          getCloudInstallations(),
-          getCloudModels(),
-        ])
-        setUsage(nextUsage)
-        setInstallations(nextInstallations)
-        setModels(nextModels)
-      } else {
-        setUsage(undefined)
-        setInstallations([])
-        setModels([])
+
+      if (!nextStatus.configured || !nextStatus.hasSession || nextStatus.sessionServiceMismatch) {
+        clearDetails()
+        return
       }
+
+      const nextDetails = await loadCloudAccountDetails({
+        usage: getCloudUsage,
+        installations: getCloudInstallations,
+        models: getCloudModels,
+      }, detailError)
+      if (generation !== loadGenerationRef.current) return
+      dispatchDetails({ type: 'replace', state: nextDetails })
     } catch (loadError) {
+      if (generation !== loadGenerationRef.current) return
+      setConfig(undefined)
+      setStatus(undefined)
+      clearDetails()
       setError(cloudErrorMessage(loadError, 'cloudLoadFailed'))
     } finally {
-      if (showLoading) setLoading(false)
+      if (generation === loadGenerationRef.current) setLoading(false)
     }
-  }, [])
+  }, [clearDetails])
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void load() }, 0)
-    return () => window.clearTimeout(timer)
+    return () => {
+      window.clearTimeout(timer)
+      loadGenerationRef.current += 1
+    }
   }, [load])
+
+  useEffect(() => {
+    if (!status?.pendingDeviceFlow) return
+    const updateNow = () => setNow(Date.now())
+    const initialTimer = window.setTimeout(updateNow, 0)
+    const timer = window.setInterval(updateNow, 1_000)
+    return () => {
+      window.clearTimeout(initialTimer)
+      window.clearInterval(timer)
+    }
+  }, [status?.pendingDeviceFlow])
+
+  useEffect(() => {
+    const pending = status?.pendingDeviceFlow
+    if (!pending || deviceFlowSecondsLeft > 0) return
+    const timer = window.setTimeout(() => { void load(false) }, 0)
+    return () => window.clearTimeout(timer)
+  }, [deviceFlowSecondsLeft, load, status?.pendingDeviceFlow])
+
+  useEffect(() => {
+    const pending = status?.pendingDeviceFlow
+    if (!pending || busy === 'device-start' || busy === 'device-cancel') return
+    const delay = Math.max(1, Number(pending.interval) || 5) * 1_000
+    const timer = window.setTimeout(async () => {
+      try {
+        const nextStatus = await pollCloudDeviceFlow()
+        setStatus(nextStatus)
+        if (nextStatus.deviceFlowResult === 'success') {
+          window.dispatchEvent(new Event(CLOUD_STATE_CHANGED_EVENT))
+          setError('')
+          setMessage(t('cloudDeviceFlowSucceeded'))
+          await load(false)
+        } else if (nextStatus.deviceFlowResult === 'denied') {
+          setError(t('cloudDeviceFlowDenied'))
+        } else if (nextStatus.deviceFlowResult === 'expired') {
+          setError(t('cloudDeviceFlowExpired'))
+        } else if (nextStatus.deviceFlowResult === 'network') {
+          setError(t('cloudDeviceFlowNetwork'))
+        }
+      } catch (pollError) {
+        setError(cloudErrorMessage(pollError))
+      }
+    }, delay)
+    return () => window.clearTimeout(timer)
+  }, [busy, load, status?.pendingDeviceFlow])
 
   const dispatchCloudChanged = () => window.dispatchEvent(new Event(CLOUD_STATE_CHANGED_EVENT))
 
@@ -166,6 +261,7 @@ export function CloudAccountSettingsPage() {
       setConfig(nextConfig)
       setCloudUrl(nextConfig.cloudUrl)
       setConnectionTest(undefined)
+      setSwitchWarning('')
       dispatchCloudChanged()
       setMessage(t('cloudConnectionSaved'))
       await load(false)
@@ -189,19 +285,34 @@ export function CloudAccountSettingsPage() {
     setBusy('force-switch')
     setMessage('')
     setError('')
+    setSwitchWarning('')
     try {
-      await resetCloudIdentity()
-      dispatchCloudChanged()
-      const nextConfig = await updateCloudConfig(targetCloudUrl)
-      setConfig(nextConfig)
-      setCloudUrl(nextConfig.cloudUrl)
+      const result = await rebuildCloudIdentityAndSaveUrl(targetCloudUrl, {
+        reset: resetCloudIdentity,
+        save: updateCloudConfig,
+        onIdentityReset: () => {
+          loadGenerationRef.current += 1
+          setStatus((current) => current ? { ...current, mode: 'local', hasSession: false, sessionServiceMismatch: false } : current)
+          clearDetails()
+          dispatchCloudChanged()
+        },
+      })
+      if (result.status === 'url-save-failed') {
+        const saveErrorMessage = cloudErrorMessage(result.error)
+        setSwitchWarning(t('cloudIdentityRebuiltUrlSaveFailed'))
+        await load(false, true)
+        setError(saveErrorMessage)
+        return
+      }
+
+      setConfig(result.config)
+      setCloudUrl(result.config.cloudUrl)
       setConnectionTest(undefined)
       dispatchCloudChanged()
       setMessage(t('cloudForceSwitchSucceeded'))
       await load(false)
     } catch (switchError) {
       setError(cloudErrorMessage(switchError))
-      await load(false)
     } finally {
       setBusy('')
     }
@@ -218,6 +329,7 @@ export function CloudAccountSettingsPage() {
     setBusy('start')
     setMessage('')
     setError('')
+    setSwitchWarning('')
     try {
       await startCloudGuest()
       dispatchCloudChanged()
@@ -227,6 +339,50 @@ export function CloudAccountSettingsPage() {
       setError(cloudErrorMessage(startError))
     } finally {
       setBusy('')
+    }
+  }
+
+  const startDeviceFlow = async () => {
+    if (busy) return
+    setBusy('device-start')
+    setMessage('')
+    setError('')
+    setSwitchWarning('')
+    try {
+      const nextStatus = await startCloudDeviceFlow()
+      setStatus(nextStatus)
+      dispatchCloudChanged()
+    } catch (startError) {
+      setError(cloudErrorMessage(startError))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const cancelDeviceFlow = async () => {
+    if (busy) return
+    setBusy('device-cancel')
+    setMessage('')
+    setError('')
+    try {
+      const nextStatus = await cancelCloudDeviceFlow()
+      setStatus(nextStatus)
+      setMessage(t('cloudDeviceFlowCancelled'))
+    } catch (cancelError) {
+      setError(cloudErrorMessage(cancelError))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const copyUserCode = async () => {
+    const code = status?.pendingDeviceFlow?.userCode
+    if (!code) return
+    try {
+      await navigator.clipboard.writeText(code)
+      setMessage(t('cloudDeviceCodeCopied'))
+    } catch {
+      setError(t('copyFailed'))
     }
   }
 
@@ -242,8 +398,12 @@ export function CloudAccountSettingsPage() {
     setBusy('logout')
     setMessage('')
     setError('')
+    setSwitchWarning('')
     try {
       await logoutCloud()
+      loadGenerationRef.current += 1
+      clearDetails()
+      setStatus((current) => current ? { ...current, mode: 'local', hasSession: false, sessionServiceMismatch: false } : current)
       dispatchCloudChanged()
       setMessage(t('cloudLoggedOut'))
       await load(false)
@@ -269,7 +429,7 @@ export function CloudAccountSettingsPage() {
     setError('')
     try {
       await revokeCloudInstallation(id)
-      setInstallations((current) => current.filter((candidate) => installationId(candidate) !== id))
+      dispatchDetails({ type: 'replace', state: { ...details, installations: details.installations.filter((candidate) => installationId(candidate) !== id) } })
       setMessage(t('cloudDeviceRevoked'))
     } catch (revokeError) {
       setError(cloudErrorMessage(revokeError))
@@ -278,14 +438,31 @@ export function CloudAccountSettingsPage() {
     }
   }
 
-  const connected = Boolean(status?.configured && status.hasSession)
+  const hasSession = Boolean(status?.configured && status.hasSession)
   const needsIdentityRebuild = status?.sessionServiceMismatch === true
+  const connected = hasSession && !needsIdentityRebuild
   const changedUrl = Boolean(config?.cloudUrl && cloudUrl.trim() && config.cloudUrl !== cloudUrl.trim())
-  const modeLabel = status?.mode === 'account'
-    ? t('cloudFormalAccount')
-    : status?.mode === 'guest'
-      ? t('cloudGuestAccount')
-      : t('cloudNotConnected')
+  const viewState = getCloudAccountViewState({ loading, loadError: error, status, details })
+  const contentVisibility = getCloudAccountContentVisibility(status)
+  const cloudUnavailable = viewState === 'cloud-unavailable'
+  const modeLabel = needsIdentityRebuild
+    ? t('cloudSessionMismatchLabel')
+    : status?.mode === 'account'
+      ? t('cloudFormalAccount')
+      : status?.mode === 'guest'
+        ? t('cloudGuestAccount')
+        : t('cloudNotConnected')
+
+  const identityDescription = !status?.configured
+    ? t('cloudNotConfiguredDescription')
+    : needsIdentityRebuild
+      ? t('cloudSessionServiceMismatch')
+      : connected
+        ? cloudUnavailable ? t('cloudUnavailableDescription') : t('cloudConnectedDescription')
+        : t('cloudLocalOnlyDescription')
+
+  const retryDetails = () => { void load() }
+  const detailLoading = loading || details.loading
 
   return (
     <div className="quickforge-settings-stack">
@@ -298,7 +475,8 @@ export function CloudAccountSettingsPage() {
         </Button>
       </div>
 
-      {message ? <div className="quickforge-settings-note">{message}</div> : null}
+      {message ? <div className="quickforge-settings-message">{message}</div> : null}
+      {switchWarning ? <div className="quickforge-settings-warning">{switchWarning}</div> : null}
       {error ? <div className="quickforge-settings-error">{error}</div> : null}
 
       <div className="quickforge-settings-section">
@@ -340,7 +518,7 @@ export function CloudAccountSettingsPage() {
                 {t('saveChanges')}
               </Button>
             </div>
-            {connected && (changedUrl || needsIdentityRebuild) ? (
+            {canRebuildCloudIdentity(status, changedUrl) ? (
               <div className="quickforge-settings-cloud-force-switch flex justify-end">
                 <Button variant="destructive" size="sm" onClick={() => void forceResetAndSwitch()} disabled={Boolean(busy)} title={t('cloudForceSwitchDescription')}><RotateCcw className="mr-2 size-4" />{t('cloudForceSwitch')}</Button>
               </div>
@@ -366,24 +544,42 @@ export function CloudAccountSettingsPage() {
         <div className="quickforge-settings-row">
           <div className="quickforge-settings-row-main">
             <div className="quickforge-settings-row-title"><ShieldCheck className="size-4" />{t('cloudIdentityStatus')}</div>
-            <div className="quickforge-settings-row-description">
-              {!status?.configured ? t('cloudNotConfiguredDescription') : connected ? t('cloudConnectedDescription') : t('cloudLocalOnlyDescription')}
-            </div>
+            <div className="quickforge-settings-row-description">{identityDescription}</div>
           </div>
           <div className="quickforge-settings-row-control">
-            <span className={`quickforge-settings-badge ${connected ? 'quickforge-settings-badge-success' : 'quickforge-settings-badge-muted'}`}>{modeLabel}</span>
+            <span className={`quickforge-settings-badge ${connected && !cloudUnavailable ? 'quickforge-settings-badge-success' : needsIdentityRebuild || cloudUnavailable ? 'quickforge-settings-badge-warning' : 'quickforge-settings-badge-muted'}`}>{modeLabel}</span>
           </div>
         </div>
+        {cloudUnavailable ? <div className="quickforge-settings-warning quickforge-settings-warning-attached">{t('cloudUnavailableDescription')}</div> : null}
+        {needsIdentityRebuild ? <div className="quickforge-settings-warning quickforge-settings-warning-attached">{t('cloudSessionServiceMismatch')}</div> : null}
         {connected ? (
           <>
-            <div className="quickforge-settings-row">
-              <div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title">{t('cloudRemainingQuota')}</div></div>
-              <div className="quickforge-settings-row-control text-sm font-medium">{usageValue(usage?.remaining)}</div>
-            </div>
-            <div className="quickforge-settings-row">
-              <div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title">{t('cloudQuotaExpiresAt')}</div></div>
-              <div className="quickforge-settings-row-control text-sm text-muted-foreground">{formatDate(usage?.resetsAt || usage?.expiresAt)}</div>
-            </div>
+            {status?.mode === 'account' ? (
+              <>
+                <div className="quickforge-settings-row">
+                  <div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title">{t('cloudAccountEmail')}</div></div>
+                  <div className="quickforge-settings-row-control text-sm font-medium">{status.account?.email || t('cloudNotAvailable')}</div>
+                </div>
+                <div className="quickforge-settings-row">
+                  <div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title">{t('cloudAccountPlan')}</div></div>
+                  <div className="quickforge-settings-row-control text-sm font-medium">{status.account?.plan || t('cloudNotAvailable')}</div>
+                </div>
+              </>
+            ) : null}
+            {details.errors.usage ? (
+              <DetailFailure error={details.errors.usage} onRetry={retryDetails} disabled={detailLoading || Boolean(busy)} />
+            ) : (
+              <>
+                <div className="quickforge-settings-row">
+                  <div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title">{t('cloudRemainingQuota')}</div></div>
+                  <div className="quickforge-settings-row-control text-sm font-medium">{usageValue(details.usage?.remaining)}</div>
+                </div>
+                <div className="quickforge-settings-row">
+                  <div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title">{t('cloudQuotaExpiresAt')}</div></div>
+                  <div className="quickforge-settings-row-control text-sm text-muted-foreground">{formatDate(details.usage?.resetsAt || details.usage?.expiresAt)}</div>
+                </div>
+              </>
+            )}
             <div className="quickforge-settings-row">
               <div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title">{t('cloudLogout')}</div><div className="quickforge-settings-row-description">{t('cloudLogoutRowDescription')}</div></div>
               <div className="quickforge-settings-row-control"><Button variant="destructive" className="quickforge-settings-cloud-logout" onClick={() => void logout()} disabled={Boolean(busy)}><LogOut className="mr-2 size-4" />{t('cloudLogout')}</Button></div>
@@ -392,18 +588,52 @@ export function CloudAccountSettingsPage() {
         ) : null}
       </div>
 
-      {!status?.configured ? null : !connected ? (
+      {!status?.configured ? null : contentVisibility.showDeviceFlow && pendingDeviceFlow ? (
+        <div className="quickforge-settings-section">
+          <div className="quickforge-settings-list-header">
+            <div className="quickforge-settings-row-main">
+              <div className="quickforge-settings-row-title"><UserRound className="size-4" />{t('cloudDeviceFlowTitle')}</div>
+              <div className="quickforge-settings-row-description">{t('cloudDeviceFlowDescription')}</div>
+            </div>
+            <span className="quickforge-settings-badge quickforge-settings-badge-info">{t('cloudDeviceFlowCountdown', { seconds: deviceFlowSecondsLeft })}</span>
+          </div>
+          <div className="quickforge-settings-row items-start">
+            <div className="quickforge-settings-row-main">
+              <div className="quickforge-settings-row-description">{t('cloudDeviceCode')}</div>
+              <div className="mt-1 font-mono text-2xl font-semibold tracking-[0.18em] text-foreground">{pendingDeviceFlow.userCode}</div>
+            </div>
+            <div className="quickforge-settings-row-control flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={() => void copyUserCode()}><Copy className="mr-2 size-4" />{t('copy')}</Button>
+              <Button size="sm" onClick={() => window.open(pendingDeviceFlow.verificationUriComplete || pendingDeviceFlow.verificationUri, '_blank', 'noopener,noreferrer')}><ExternalLink className="mr-2 size-4" />{t('cloudOpenVerificationPage')}</Button>
+              <Button variant="outline" size="sm" onClick={() => void cancelDeviceFlow()} disabled={Boolean(busy)}>{t('cancel')}</Button>
+            </div>
+          </div>
+          {status.deviceFlowResult === 'slow_down' ? <div className="quickforge-settings-warning quickforge-settings-warning-attached">{t('cloudDeviceFlowSlowDown')}</div> : null}
+        </div>
+      ) : contentVisibility.showDisconnectedActions ? (
         <div className="quickforge-settings-section">
           <div className="quickforge-settings-row">
+            <div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title"><UserRound className="size-4" />{t('cloudLoginOrRegister')}</div><div className="quickforge-settings-row-description">{t('cloudLoginOrRegisterDescription')}</div></div>
+            <div className="quickforge-settings-row-control"><Button onClick={() => void startDeviceFlow()} disabled={loading || Boolean(busy)}><LogIn className="mr-2 size-4" />{t('cloudLoginOrRegister')}</Button></div>
+          </div>
+          <div className="quickforge-settings-row">
             <div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title"><Sparkles className="size-4" />{t('cloudTryModels')}</div></div>
-            <div className="quickforge-settings-row-control"><Button onClick={() => void startGuest()} disabled={loading || Boolean(busy)}><Sparkles className="mr-2 size-4" />{t('cloudStartGuest')}</Button></div>
+            <div className="quickforge-settings-row-control"><Button variant="outline" onClick={() => void startGuest()} disabled={loading || Boolean(busy)}><Sparkles className="mr-2 size-4" />{t('cloudStartGuest')}</Button></div>
           </div>
         </div>
-      ) : (
+      ) : contentVisibility.showDetails ? (
         <>
+          {contentVisibility.showGuestUpgrade ? (
+            <div className="quickforge-settings-section">
+              <div className="quickforge-settings-row">
+                <div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title"><UserRound className="size-4" />{t('cloudUpgradeAccount')}</div><div className="quickforge-settings-row-description">{t('cloudUpgradeAccountDescription')}</div></div>
+                <div className="quickforge-settings-row-control"><Button onClick={() => void startDeviceFlow()} disabled={loading || Boolean(busy)}><LogIn className="mr-2 size-4" />{t('cloudUpgradeAccount')}</Button></div>
+              </div>
+            </div>
+          ) : null}
           <div className="quickforge-settings-section">
             <div className="quickforge-settings-list-header"><div className="quickforge-settings-row-title"><Database className="size-4" />{t('cloudModels')}</div></div>
-            {models.length === 0 ? <div className="p-6 text-center text-sm text-muted-foreground">{loading ? t('loading') : t('cloudNoModels')}</div> : models.map((model) => (
+            {details.errors.models ? <DetailFailure error={details.errors.models} onRetry={retryDetails} disabled={detailLoading || Boolean(busy)} /> : details.models.length === 0 ? <div className="p-6 text-center text-sm text-muted-foreground">{detailLoading ? t('loading') : t('cloudNoModels')}</div> : details.models.map((model) => (
               <div key={`${model.provider}:${model.id}`} className="quickforge-settings-list-item">
                 <div className="quickforge-settings-list-item-main"><div className="text-sm font-medium">{model.name || model.id}</div><div className="quickforge-settings-row-description">{model.id} · {modelCapabilities(model)}</div></div>
               </div>
@@ -412,7 +642,7 @@ export function CloudAccountSettingsPage() {
 
           <div className="quickforge-settings-section">
             <div className="quickforge-settings-list-header"><div className="quickforge-settings-row-title"><Laptop className="size-4" />{t('cloudDevices')}</div></div>
-            {installations.length === 0 ? <div className="p-6 text-center text-sm text-muted-foreground">{loading ? t('loading') : t('cloudNoDevices')}</div> : installations.map((item) => {
+            {details.errors.installations ? <DetailFailure error={details.errors.installations} onRetry={retryDetails} disabled={detailLoading || Boolean(busy)} /> : details.installations.length === 0 ? <div className="p-6 text-center text-sm text-muted-foreground">{detailLoading ? t('loading') : t('cloudNoDevices')}</div> : details.installations.map((item) => {
               const id = installationId(item)
               const current = item.current === true || id === status?.installationId
               return (
@@ -424,7 +654,7 @@ export function CloudAccountSettingsPage() {
             })}
           </div>
         </>
-      )}
+      ) : null}
     </div>
   )
 }

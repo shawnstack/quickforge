@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('../../server/storage.mjs', () => ({
+  storageDir: path.join(os.tmpdir(), 'quickforge-scheduled-tasks-test-storage'),
   ensureStorage: vi.fn(async () => {}),
   readStore: vi.fn(async (name) => structuredClone(mocks.stores.get(name) || {})),
   atomicUpdate: vi.fn(async (name, updater) => {

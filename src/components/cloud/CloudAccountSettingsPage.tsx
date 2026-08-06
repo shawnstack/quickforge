@@ -64,6 +64,28 @@ function configSourceLabel(source?: CloudServiceConfig['source']) {
   return t('cloudConfigSourceDefault')
 }
 
+function isLoopbackHost(hostname: string) {
+  const host = String(hostname || '').toLowerCase()
+  if (host === 'localhost' || host.endsWith('.localhost')) return true
+  if (host.startsWith('127.')) return true
+  return host === '::1'
+}
+
+function validateCloudUrl(value: string) {
+  const raw = value.trim()
+  if (!raw) return ''
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    return t('cloudUrlInvalid')
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return t('cloudUrlInvalidProtocol')
+  if (url.protocol === 'http:' && !isLoopbackHost(url.hostname)) return t('cloudUrlHttpRestricted')
+  if (isLoopbackHost(url.hostname) && url.port === '8081') return t('cloudUrlAdminPort')
+  return ''
+}
+
 function testState(value: unknown) {
   if (!value || typeof value !== 'object') return t('cloudConnectionUnknown')
   const record = value as Record<string, unknown>
@@ -127,6 +149,7 @@ function DetailFailure({ error, onRetry, disabled }: { error: CloudDetailError; 
 export function CloudAccountSettingsPage() {
   const [config, setConfig] = useState<CloudServiceConfig>()
   const [cloudUrl, setCloudUrl] = useState('')
+  const [urlTouched, setUrlTouched] = useState(false)
   const [connectionTest, setConnectionTest] = useState<CloudConnectionTest>()
   const [status, setStatus] = useState<CloudStatus>()
   const [details, dispatchDetails] = useReducer(cloudDetailsReducer, emptyCloudDetailsState)
@@ -234,6 +257,10 @@ export function CloudAccountSettingsPage() {
 
   const testConnection = async () => {
     if (busy) return
+    if (validateCloudUrl(cloudUrl)) {
+      setUrlTouched(true)
+      return
+    }
     setBusy('test')
     setMessage('')
     setError('')
@@ -252,6 +279,10 @@ export function CloudAccountSettingsPage() {
 
   const saveConnection = async () => {
     if (busy) return
+    if (validateCloudUrl(cloudUrl)) {
+      setUrlTouched(true)
+      return
+    }
     setBusy('save')
     setMessage('')
     setError('')
@@ -273,6 +304,10 @@ export function CloudAccountSettingsPage() {
 
   const forceResetAndSwitch = async () => {
     const targetCloudUrl = cloudUrl.trim() || config?.cloudUrl || ''
+    if (validateCloudUrl(targetCloudUrl)) {
+      setUrlTouched(true)
+      return
+    }
     const confirmed = await showConfirm({
       title: t('cloudForceSwitchTitle'),
       description: t('cloudForceSwitchDescription'),
@@ -417,6 +452,8 @@ export function CloudAccountSettingsPage() {
   const needsIdentityRebuild = status?.sessionServiceMismatch === true
   const connected = hasSession && !needsIdentityRebuild
   const changedUrl = Boolean(config?.cloudUrl && cloudUrl.trim() && config.cloudUrl !== cloudUrl.trim())
+  const urlError = validateCloudUrl(cloudUrl)
+  const showUrlError = Boolean(urlError && urlTouched)
   const viewState = getCloudAccountViewState({ loading, loadError: error, status, details })
   const contentVisibility = getCloudAccountContentVisibility(status)
   const cloudUnavailable = viewState === 'cloud-unavailable'
@@ -459,39 +496,44 @@ export function CloudAccountSettingsPage() {
         </div>
         <div className="quickforge-settings-row items-start">
           <div className="quickforge-settings-row-main">
-            <label className="quickforge-settings-row-title" htmlFor="quickforge-cloud-url">{t('cloudUrl')}</label>
-            <div className="quickforge-settings-row-description">{t('cloudUrlDescription')}</div>
+            <label className="quickforge-settings-row-title h-9 whitespace-nowrap" htmlFor="quickforge-cloud-url">{t('cloudUrl')}</label>
           </div>
           <div className="quickforge-settings-row-control w-full max-w-xl flex-col items-stretch gap-2">
-            <Input
-              id="quickforge-cloud-url"
-              value={cloudUrl}
-              onChange={(event) => setCloudUrl(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && cloudUrl.trim() && changedUrl && !busy) {
-                  event.preventDefault()
-                  void saveConnection()
-                }
-              }}
-              placeholder={t('cloudUrlPlaceholder')}
-              inputMode="url"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              disabled={Boolean(busy)}
-            />
-            <div className="text-xs text-muted-foreground">{t('cloudConfigSource')}: {configSourceLabel(config?.source)}</div>
-            <div className="quickforge-settings-cloud-actions flex flex-wrap justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => void testConnection()} disabled={!cloudUrl.trim() || Boolean(busy)}>
-                {busy === 'test' ? <RefreshCw className="mr-2 size-4 animate-spin" /> : <TestTube2 className="mr-2 size-4" />}
-                {t('cloudTestConnection')}
-              </Button>
-              <Button size="sm" onClick={() => void saveConnection()} disabled={!cloudUrl.trim() || !changedUrl || Boolean(busy)}>
-                {busy === 'save' ? <RefreshCw className="mr-2 size-4 animate-spin" /> : <Save className="mr-2 size-4" />}
-                {t('saveChanges')}
-              </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                id="quickforge-cloud-url"
+                value={cloudUrl}
+                onChange={(event) => setCloudUrl(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && cloudUrl.trim() && changedUrl && !busy) {
+                    event.preventDefault()
+                    void saveConnection()
+                  }
+                }}
+                placeholder={t('cloudUrlPlaceholder')}
+                inputMode="url"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                onBlur={() => setUrlTouched(true)}
+                aria-invalid={showUrlError}
+                className={cn('min-w-0 flex-1', showUrlError ? 'border-destructive' : undefined)}
+                disabled={Boolean(busy)}
+              />
+              <div className="flex shrink-0 items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => void testConnection()} disabled={!cloudUrl.trim() || Boolean(urlError) || Boolean(busy)}>
+                  {busy === 'test' ? <RefreshCw className="mr-2 size-4 animate-spin" /> : <TestTube2 className="mr-2 size-4" />}
+                  {t('cloudTestConnection')}
+                </Button>
+                <Button size="sm" onClick={() => void saveConnection()} disabled={!cloudUrl.trim() || !changedUrl || Boolean(urlError) || Boolean(busy)}>
+                  {busy === 'save' ? <RefreshCw className="mr-2 size-4 animate-spin" /> : <Save className="mr-2 size-4" />}
+                  {t('saveChanges')}
+                </Button>
+              </div>
             </div>
-            {canRebuildCloudIdentity(status, changedUrl) ? (
+            {showUrlError ? <div className="text-xs text-destructive">{urlError}</div> : null}
+            <div className="text-xs text-muted-foreground">{t('cloudConfigSource')}: {configSourceLabel(config?.source)}</div>
+            {canRebuildCloudIdentity(status, changedUrl) && !urlError ? (
               <div className="quickforge-settings-cloud-force-switch flex justify-end">
                 <Button variant="destructive" size="sm" onClick={() => void forceResetAndSwitch()} disabled={Boolean(busy)} title={t('cloudForceSwitchDescription')}><RotateCcw className="mr-2 size-4" />{t('cloudForceSwitch')}</Button>
               </div>

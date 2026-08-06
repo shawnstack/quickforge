@@ -32,6 +32,11 @@ class MockAgent {
     for (const listener of this.listeners) await listener({ type: 'agent_end', messages: this.state.messages })
   }
 
+  async continue() {
+    this.lastTransformedMessages = await this.options.transformContext(this.state.messages, this.signal)
+    for (const listener of this.listeners) await listener({ type: 'agent_end', messages: this.state.messages })
+  }
+
   abort() {}
 }
 
@@ -99,6 +104,99 @@ describe('agent manager external session synchronization', () => {
       expect((await readSessionValue(sessionId))?.messages[0].content).toBe('Hi')
       expect(MockAgent.instances[0].lastTransformedMessages[0].content).toContain('<acp_context>')
       expect(MockAgent.instances[0].lastTransformedMessages[0].content).toContain('User request:\nHi')
+    } finally {
+      await destroyAgent(sessionId)
+    }
+  })
+
+  it('persists a stable logical message ID for Cloud prompts and reuses it after restore', async () => {
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(path.join(tmpDir, 'workspace'))
+    const { continueSession, createAgent, destroyAgent, getSessionState, restoreAgent, runPrompt } = await import('../../server/agent-manager.mjs')
+    const { readSessionValue } = await import('../../server/storage.mjs')
+    const sessionId = 'cloud-idempotency-session'
+    const model = {
+      provider: 'quickforge-cloud',
+      id: 'qf-fast',
+      quickforgeModelSource: 'cloud',
+      quickforgeCatalogId: 'qf-fast',
+    }
+    await createAgent(sessionId, {
+      scope: 'global',
+      model,
+      systemPrompt: '',
+      idleRetention: 'always',
+    })
+
+    await runPrompt(sessionId, 'Hi', [])
+    await vi.waitFor(async () => expect((await readSessionValue(sessionId))?.messages).toHaveLength(1))
+    const storedMessage = (await readSessionValue(sessionId)).messages[0]
+    const logicalMessageId = storedMessage.metadata?.quickforgeClientMessageId
+
+    expect(logicalMessageId).toMatch(/^qfcm_[0-9a-f-]{36}$/)
+    await destroyAgent(sessionId)
+    const restored = await restoreAgent(sessionId)
+
+    try {
+      expect(getSessionState(sessionId)?.messages[0].metadata?.quickforgeClientMessageId).toBe(logicalMessageId)
+      await continueSession(sessionId)
+      await vi.waitFor(() => expect(restored.agent.lastTransformedMessages).not.toBeNull())
+      expect(restored.agent.lastTransformedMessages[0].metadata?.quickforgeClientMessageId).toBe(logicalMessageId)
+    } finally {
+      await destroyAgent(sessionId)
+    }
+  })
+
+  it('persists each Cloud user message before continuing to the provider loop', async () => {
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(path.join(tmpDir, 'workspace'))
+    const { createAgent, destroyAgent, runPrompt } = await import('../../server/agent-manager.mjs')
+    const { readSessionValue } = await import('../../server/storage.mjs')
+    const sessionId = 'cloud-second-message-session'
+    await createAgent(sessionId, {
+      scope: 'global',
+      model: {
+        provider: 'quickforge-cloud',
+        id: 'qf-fast',
+        quickforgeModelSource: 'cloud',
+        quickforgeCatalogId: 'qf-fast',
+      },
+      systemPrompt: '',
+      messages: [
+        { role: 'user', content: 'first', timestamp: '2025-01-01T00:00:00.000Z' },
+        { role: 'assistant', content: 'reply', timestamp: '2025-01-01T00:00:01.000Z' },
+      ],
+      idleRetention: 'always',
+    })
+
+    try {
+      await runPrompt(sessionId, 'second', [])
+      await vi.waitFor(() => expect(MockAgent.instances[0].lastTransformedMessages).not.toBeNull())
+      const stored = await readSessionValue(sessionId)
+      expect(stored.messages.at(-1).metadata?.quickforgeClientMessageId).toMatch(/^qfcm_[0-9a-f-]{36}$/)
+    } finally {
+      await destroyAgent(sessionId)
+    }
+  })
+
+  it('does not add logical Cloud metadata to non-Cloud prompts', async () => {
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(path.join(tmpDir, 'workspace'))
+    const { createAgent, destroyAgent, getSessionState, runPrompt } = await import('../../server/agent-manager.mjs')
+    const { readSessionValue } = await import('../../server/storage.mjs')
+    const sessionId = 'non-cloud-idempotency-session'
+    await createAgent(sessionId, {
+      scope: 'global',
+      model: { provider: 'mock', id: 'mock-model' },
+      systemPrompt: '',
+      idleRetention: 'always',
+    })
+
+    try {
+      await runPrompt(sessionId, 'Hi', [])
+      await vi.waitFor(() => expect(getSessionState(sessionId)?.messages).toHaveLength(1))
+      expect(getSessionState(sessionId)?.messages[0].metadata?.quickforgeClientMessageId).toBeUndefined()
+      await vi.waitFor(async () => expect(await readSessionValue(sessionId)).toBeTruthy())
     } finally {
       await destroyAgent(sessionId)
     }

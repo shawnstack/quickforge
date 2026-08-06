@@ -145,7 +145,9 @@ Agent 云模型调用已经接入统一推理路径，不需要在 `server/agent
 
 这样可以防止攻击者把官方云 Token 诱导发送到自定义地址。
 
-当前缺口：Chat Idempotency-Key 只在单次请求创建时生成，尚未绑定并持久化到逻辑消息，因此进程重启或断线后不能可靠复用同一 Key 完成应用层恢复。
+主聊天用户消息携带公开的稳定逻辑 ID `metadata.quickforgeClientMessageId`。Cloud stream 创建时，Node 以 `sessionId + 逻辑消息 ID` 在 `~/.quickforge/storage/security/cloud-chat-idempotency/` 私有 sidecar 中原子创建或读取 UUID，并作为 `Idempotency-Key`；真正的 Key 不进入会话 JSON、浏览器 Agent state、共享会话或通用备份。相同逻辑消息的 Provider 内部网络重试、`/continue` 重新生成以及服务重启后恢复再试会复用同一 UUID；不同逻辑消息使用不同 UUID。辅助模型调用或缺少逻辑消息 ID 的兼容路径仍使用单次随机 UUID。HTTP 调试日志会脱敏该 Header。
+
+服务重启不会恢复已经断开的上游流本身；恢复会话后通过重新生成或继续路径发起的新 Cloud stream 会复用原逻辑消息的 Idempotency-Key。
 
 ## HTTP 调试日志
 

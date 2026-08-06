@@ -63,6 +63,7 @@ server/
 - 退出当前设备时先调用云端 installation revoke，成功后才清理本地 Session；失败时保留凭据供重试。
 - 退出后再次创建游客会轮换 Ed25519 安装密钥，避免旧公钥指纹唯一约束冲突；该行为创建新游客，不恢复旧额度。
 - `models.mjs` 只向浏览器返回无密钥模型描述，真实 Cloud Token 和上游地址仅在 Node 请求期间注入。
+- 主聊天消息使用公开的 `metadata.quickforgeClientMessageId` 标识逻辑消息；真正的 Cloud Chat `Idempotency-Key` 以 `sessionId + messageId` 绑定在 `~/.quickforge/storage/security/cloud-chat-idempotency/` 私有 sidecar 中，不进入 Session JSON、浏览器状态或通用备份。同消息的 Provider 网络重试、`/continue` 和重启恢复后重新生成复用同一 UUID，不同消息使用不同 UUID；AI HTTP 调试日志会脱敏该 Header。
 
 ### agent-manager.mjs (1350 行)
 

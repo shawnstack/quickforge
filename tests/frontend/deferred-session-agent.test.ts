@@ -12,6 +12,10 @@ vi.mock('@/lib/random-id', () => ({
   randomId: () => 'test-id',
 }), { virtual: true })
 
+vi.mock('@/lib/managed-cloud-model', () => ({
+  isManagedQuickForgeCloudModel: (model: { provider?: string; quickforgeModelSource?: string }) => model?.provider === 'quickforge-cloud' && model?.quickforgeModelSource === 'cloud',
+}), { virtual: true })
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (error: unknown) => void
@@ -30,7 +34,12 @@ async function createDeferredAgent(
   return new DeferredSessionAgent({
     scope: options?.scope ?? 'global',
     project: options?.project,
-    model: { provider: 'test', id: 'test-model' } as Model<Api>,
+    model: {
+      provider: 'quickforge-cloud',
+      id: 'test-model',
+      quickforgeModelSource: 'cloud',
+      quickforgeCatalogId: 'test-model',
+    } as Model<Api>,
     thinkingLevel: 'off',
     accessMode: 'default',
     yoloMode: false,
@@ -82,6 +91,7 @@ describe('DeferredSessionAgent', () => {
 
     expect(realAgent.prompt).toHaveBeenCalledWith(optimisticMessage)
     expect(realAgent.state.messages).toEqual([optimisticMessage])
+    expect((optimisticMessage as AgentMessage & { metadata?: Record<string, unknown> }).metadata?.quickforgeClientMessageId).toMatch(/^qfcm_test-id$/)
     expect(createAgent.mock.calls[0]?.[0]).not.toHaveProperty('messages')
   })
 

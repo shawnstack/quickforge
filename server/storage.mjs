@@ -618,10 +618,16 @@ export async function atomicSessionValueUpdate(sessionId, updateFn) {
 export async function deleteSessionValue(sessionId) {
   return enqueueWrite('sessions', async () => {
     const bucket = await findSessionBucket(sessionId)
-    if (!bucket) return
+    if (!bucket) {
+      const { deleteCloudChatIdempotencySession } = await import('./cloud/chat-idempotency-store.mjs')
+      await deleteCloudChatIdempotencySession(sessionId)
+      return
+    }
     await fs.rm(sessionDataFile(sessionId, bucket), { force: true })
     const { deleteSessionAssets } = await import('./session-assets.mjs')
     await deleteSessionAssets(bucket, sessionId)
+    const { deleteCloudChatIdempotencySession } = await import('./cloud/chat-idempotency-store.mjs')
+    await deleteCloudChatIdempotencySession(sessionId)
     sessionBucketIndex.delete(sessionId)
   })
 }

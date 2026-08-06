@@ -5,6 +5,8 @@ import type { AgentAccessMode } from '@/lib/types'
 import { agentAccessModeFromYoloMode, agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
 import { t, type AppTextKey } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
+import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
+import { randomId } from '@/lib/random-id'
 import { toolStartEventWithPartialResult, upsertMessage, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
 
 // ---------------------------------------------------------------------------
@@ -516,6 +518,20 @@ export class ServerAgent {
       message = (lastUser ?? input[input.length - 1]) as unknown as Record<string, unknown>
     } else {
       message = input as unknown as Record<string, unknown>
+    }
+
+    const metadata = message.metadata && typeof message.metadata === 'object' && !Array.isArray(message.metadata)
+      ? message.metadata as Record<string, unknown>
+      : {}
+    if (isManagedQuickForgeCloudModel(this.state.model)
+      && (typeof metadata.quickforgeClientMessageId !== 'string' || !metadata.quickforgeClientMessageId)) {
+      message = {
+        ...message,
+        metadata: {
+          ...metadata,
+          quickforgeClientMessageId: `qfcm_${randomId()}`,
+        },
+      }
     }
 
     const selectedCapabilities = this.nextPromptCapabilities

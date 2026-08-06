@@ -65,6 +65,14 @@ vi.mock('@/lib/logger', () => ({
   },
 }), { virtual: true })
 
+vi.mock('@/lib/random-id', () => ({
+  randomId: () => '11111111-1111-4111-8111-111111111111',
+}), { virtual: true })
+
+vi.mock('@/lib/managed-cloud-model', () => ({
+  isManagedQuickForgeCloudModel: (model: { provider?: string; quickforgeModelSource?: string }) => model?.provider === 'quickforge-cloud' && model?.quickforgeModelSource === 'cloud',
+}), { virtual: true })
+
 vi.mock('@/lib/tool-execution-events', async () => {
   const actual = await vi.importActual<typeof import('../../src/lib/tool-execution-events')>('../../src/lib/tool-execution-events')
   return actual
@@ -140,6 +148,51 @@ describe('ServerAgent', () => {
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       )
       expect(agent.state.messages.map((message) => message.content)).toEqual(['first', 'reply', 'second'])
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('adds and submits a stable logical message ID with the optimistic Cloud prompt', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: {
+        model: {
+          provider: 'quickforge-cloud',
+          id: 'qf-fast',
+          quickforgeModelSource: 'cloud',
+          quickforgeCatalogId: 'qf-fast',
+        },
+        messages: [],
+      },
+    })
+
+    try {
+      await agent.prompt('hello')
+      const promptCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/prompt')) as [string, RequestInit] | undefined
+      const body = JSON.parse(String(promptCall?.[1]?.body))
+      const messageId = body.message.metadata.quickforgeClientMessageId
+
+      expect(messageId).toMatch(/^qfcm_[0-9a-f-]{36}$/)
+      expect(agent.state.messages[0]).toMatchObject({ metadata: { quickforgeClientMessageId: messageId } })
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('keeps non-Cloud optimistic prompts unchanged', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: { model: { provider: 'mock', id: 'mock-model' }, messages: [] },
+    })
+
+    try {
+      await agent.prompt('hello')
+      expect(agent.state.messages[0]).not.toHaveProperty('metadata.quickforgeClientMessageId')
     } finally {
       agent.dispose()
     }

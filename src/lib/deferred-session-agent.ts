@@ -4,6 +4,7 @@ import { streamSimple } from '@earendil-works/pi-ai/compat'
 import type { ServerAgent, ServerAgentContextCompaction, ServerAgentContextUsage, PromptCapabilitySelection } from '@/lib/server-agent'
 import type { AgentAccessMode, ChatScope, ProjectInfo } from '@/lib/types'
 import { agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
+import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import { randomId } from '@/lib/random-id'
 
 type DeferredSessionAgentOptions = {
@@ -205,16 +206,28 @@ export class DeferredSessionAgent {
   }
 
   private normalizePromptInput(input: string | AgentMessage | AgentMessage[]): AgentMessage {
+    let message: AgentMessage
     if (typeof input === 'string') {
-      return { role: 'user', content: input, timestamp: Date.now() } as AgentMessage
-    }
-    if (Array.isArray(input)) {
+      message = { role: 'user', content: input, timestamp: Date.now() } as AgentMessage
+    } else if (Array.isArray(input)) {
       const lastUser = [...input].reverse().find(
-        (message) => message.role === 'user' || message.role === 'user-with-attachments',
+        (candidate) => candidate.role === 'user' || candidate.role === 'user-with-attachments',
       )
-      return (lastUser ?? input[input.length - 1]) as AgentMessage
+      message = (lastUser ?? input[input.length - 1]) as AgentMessage
+    } else {
+      message = input
     }
-    return input
+
+    const metadata = (message as AgentMessage & { metadata?: Record<string, unknown> }).metadata
+    if (!isManagedQuickForgeCloudModel(this.state.model)
+      || (metadata && typeof metadata.quickforgeClientMessageId === 'string' && metadata.quickforgeClientMessageId)) return message
+    return {
+      ...message,
+      metadata: {
+        ...(metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : {}),
+        quickforgeClientMessageId: `qfcm_${randomId()}`,
+      },
+    } as unknown as AgentMessage
   }
 
   private emitToListeners(event: AgentEvent): void {

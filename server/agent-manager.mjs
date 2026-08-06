@@ -515,6 +515,37 @@ function updateSessionMessages(session, messages) {
   session.agent.state.messages = messages
 }
 
+const CLIENT_MESSAGE_ID_FIELD = 'quickforgeClientMessageId'
+
+function isManagedCloudModel(model) {
+  return model?.provider === 'quickforge-cloud' && model?.quickforgeModelSource === 'cloud'
+}
+
+function objectMetadata(message) {
+  const metadata = message?.metadata
+  return metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : {}
+}
+
+function logicalMessageId(message) {
+  const value = objectMetadata(message)[CLIENT_MESSAGE_ID_FIELD]
+  return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value) ? value : undefined
+}
+
+function messageWithLogicalId(message) {
+  if (!message || typeof message !== 'object' || logicalMessageId(message)) return message
+  return {
+    ...message,
+    metadata: {
+      ...objectMetadata(message),
+      [CLIENT_MESSAGE_ID_FIELD]: `qfcm_${randomUUID()}`,
+    },
+  }
+}
+
+function prepareCloudUserMessage(session, message) {
+  return isManagedCloudModel(session?.model) ? messageWithLogicalId(message) : message
+}
+
 function resetSessionCompaction(session) {
   session.contextCompaction = null
   session.lastAutoCompactAt = null
@@ -1789,14 +1820,15 @@ export async function createAgent(sessionId, config = {}) {
     }
 
     if (event.type === 'message_end') {
-      const isInitialUserMessage = (event.message?.role === 'user' || event.message?.role === 'user-with-attachments')
-        && session.agent.state.messages.length === 1
-      if (isInitialUserMessage) {
-        // Persist the first user message before announcing the session or
-        // starting the asynchronous AI title request.
+      const isUserMessage = event.message?.role === 'user' || event.message?.role === 'user-with-attachments'
+      const isInitialUserMessage = isUserMessage && session.agent.state.messages.length === 1
+      const requiresDurableCloudMessage = isUserMessage && isManagedCloudModel(session.model) && Boolean(logicalMessageId(event.message))
+      if (isInitialUserMessage || requiresDurableCloudMessage) {
+        // Persist every managed Cloud user message before the provider stream starts,
+        // so its logical ID survives a process restart and resolves to the same private key.
         try {
           const metadata = await flushSessionPersist(session)
-          if (metadata) {
+          if (metadata && isInitialUserMessage) {
             if (!session.sessionCreatedEmitted) {
               session.sessionCreatedEmitted = true
               emitSessionEvent(session, { type: 'session_created', metadata })
@@ -1804,7 +1836,7 @@ export async function createAgent(sessionId, config = {}) {
             scheduleSessionTitleGeneration(session, event.message)
           }
         } catch (err) {
-          logger.error(`Failed to persist initial user message for session ${sessionId}:`, err, { sessionId })
+          logger.error(`Failed to persist user message for session ${sessionId}:`, err, { sessionId })
         }
       } else {
         // Debounced persist for crash recovery; coalesces the many message_end
@@ -2155,7 +2187,7 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
     ? { role: 'user', content: message, timestamp: new Date().toISOString() }
     : message
   const commandState = await resolveCommandState(session, initialUserMessage, promptCommand)
-  const userMessage = commandState.userMessage ?? initialUserMessage
+  const resolvedUserMessage = commandState.userMessage ?? initialUserMessage
 
   if (commandState.textResponse) {
     session.agent.state.messages = [
@@ -2181,6 +2213,8 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
   if (commandState.compact) {
     return compactSession(session, initialUserMessage, commandState.compact)
   }
+
+  const userMessage = prepareCloudUserMessage(session, resolvedUserMessage)
 
   // Set a meaningful fallback immediately. The AI title request starts only
   // after the first user message has been persisted by the message_end handler.
@@ -2255,10 +2289,13 @@ export async function continueSession(sessionId) {
 
   const lastUserMessage = messages[lastUserIndex]
   const commandState = await resolveCommandState(session, lastUserMessage)
-  const continuedUserMessage = commandState.userMessage ?? lastUserMessage
+  const continuedUserMessage = prepareCloudUserMessage(session, commandState.userMessage ?? lastUserMessage)
   const trimmedMessages = messages.slice(0, lastUserIndex).concat(continuedUserMessage)
   updateSessionMessages(session, trimmedMessages)
   resetSessionCompaction(session)
+  if (isManagedCloudModel(session.model) && logicalMessageId(continuedUserMessage)) {
+    await flushSessionPersist(session)
+  }
 
   resetIdleTimer(session)
   session.activeCommandName = commandState.commandName ?? null
@@ -2343,9 +2380,9 @@ export function steerAgent(sessionId, message) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
   }
 
-  const agentMessage = typeof message === 'string'
+  const agentMessage = prepareCloudUserMessage(session, typeof message === 'string'
     ? { role: 'user', content: message, timestamp: Date.now() }
-    : message
+    : message)
 
   session.agent.steer(agentMessage)
   return { sessionId, steered: true }
@@ -2360,9 +2397,9 @@ export function followUpAgent(sessionId, message) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
   }
 
-  const agentMessage = typeof message === 'string'
+  const agentMessage = prepareCloudUserMessage(session, typeof message === 'string'
     ? { role: 'user', content: message, timestamp: Date.now() }
-    : message
+    : message)
 
   session.agent.followUp(agentMessage)
   return { sessionId, followUp: true }

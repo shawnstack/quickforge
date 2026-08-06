@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 import { streamSimple } from '@earendil-works/pi-ai/compat'
 import { resolveManagedCloudProvider } from './cloud/runtime.mjs'
+import { ensureCloudChatIdempotencyKey } from './cloud/chat-idempotency-store.mjs'
 import {
   DEFAULT_AI_STREAM_DEADLINE_MS,
   withDefaultAiProviderOptions,
@@ -51,6 +52,7 @@ const SENSITIVE_HEADER_NAMES = new Set([
   'proxy-authorization',
   'x-api-key',
   'api-key',
+  'idempotency-key',
   'cookie',
   'set-cookie',
 ])
@@ -304,6 +306,29 @@ function createProviderStream(model, context, options) {
     : streamSimple(model, context, options)
 }
 
+const CLIENT_MESSAGE_ID_FIELD = 'quickforgeClientMessageId'
+
+function logicalMessageIdFromContext(context) {
+  const messages = Array.isArray(context?.messages) ? context.messages : []
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]
+    if (message?.role !== 'user' && message?.role !== 'user-with-attachments') continue
+    const metadata = message.metadata
+    const messageId = metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+      ? metadata[CLIENT_MESSAGE_ID_FIELD]
+      : undefined
+    return typeof messageId === 'string' && messageId ? messageId : undefined
+  }
+  return undefined
+}
+
+async function managedCloudIdempotencyKey(context, options) {
+  const messageId = logicalMessageIdFromContext(context)
+  return options.sessionId && messageId
+    ? ensureCloudChatIdempotencyKey(options.sessionId, messageId)
+    : randomUUID()
+}
+
 export function streamSimpleWithAiHttpLogging(model, context, options = {}) {
   const providerOptions = withDefaultAiProviderOptions(options)
   const deadlineMs = Number.isFinite(providerOptions.deadlineMs)
@@ -318,12 +343,15 @@ export function streamSimpleWithAiHttpLogging(model, context, options = {}) {
 
   const managedCloud = model?.provider === 'quickforge-cloud' && model?.quickforgeModelSource === 'cloud'
   const stream = managedCloud
-    ? lazyStream(resolveManagedCloudProvider(model, effectiveOptions.signal).then((resolved) => createProviderStream(
+    ? lazyStream(Promise.all([
+        resolveManagedCloudProvider(model, effectiveOptions.signal),
+        managedCloudIdempotencyKey(context, effectiveOptions),
+      ]).then(([resolved, idempotencyKey]) => createProviderStream(
         {
           ...resolved.model,
           headers: {
             ...(resolved.model.headers || {}),
-            'Idempotency-Key': randomUUID(),
+            'Idempotency-Key': idempotencyKey,
           },
         },
         context,

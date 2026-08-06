@@ -4,10 +4,36 @@ All notable changes to QuickForge will be documented in this file.
 
 ## [Unreleased]
 
+## [1.7.5] - 2026-08-06
+
+### Added
+
+- Added QuickForge Cloud account Device Flow, managed cloud models, service configuration, secure credential storage, and idempotent chat requests.
+- Added conversation turn navigation and windowed message rendering for large chat sessions.
+- Added share-link management with editable permissions and passwords, model visibility controls, and persistent conversation sorting preferences.
+- Bundled the Skill Creator skill by default.
+
 ### Changed
 
-- Allowed authenticated Tailscale mobile clients to use the host QuickForge Cloud connection, models, and quota while continuing to reject ordinary LAN, public, and unauthenticated requests.
+- Redesigned the Android server picker, added server profile aliases, and refined mobile server management.
+- Improved model selection, sharing, Markdown resource handling, cloud localization, and default agent execution timeouts.
 - Renamed the bundled plugin identifiers from `openai-documents`, `openai-presentations`, and `openai-spreadsheets` to `documents`, `presentations`, and `spreadsheets`, while migrating existing enabled states and configuration.
+
+### Fixed
+
+- Allowed authenticated Tailscale mobile clients to use the host QuickForge Cloud connection, models, and quota while continuing to reject ordinary LAN, public, and unauthenticated requests.
+- Hardened Cloud request validation, cache writes, idempotency persistence, runtime generation, and state-changing request protection.
+- Stabilized large-session loading, localized generation-conflict errors, corrected sidebar interactions, blocked encoded Markdown traversal paths, and improved tool-action accessibility.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.7.5` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.7.5.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.7.5.tgz
+  ```
 
 ## [1.7.4] - 2026-08-04
 

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { isAuthenticatedAppClient } from '../access-policy.mjs'
 import { sendJson, readJsonBody } from '../utils/response.mjs'
 import {
   ensureStorage,
@@ -580,11 +581,11 @@ async function restoreValidatedBackup(backup, mode = 'replace') {
   return summary
 }
 
-export async function handleBackupApi(req, res, url, context = {}) {
-  if (context.isLocalRequest === false) {
-    const error = new Error('Backup import and export are available only on this computer.')
+export async function handleBackupApi(req, res, url, context = { isLocalRequest: true }) {
+  if (!isAuthenticatedAppClient(context)) {
+    const error = new Error('Backup import and export require a local or authenticated remote client.')
     error.statusCode = 403
-    error.errorCode = 'backup_local_only'
+    error.errorCode = 'backup_auth_required'
     throw error
   }
   if (req.method === 'GET' && url.pathname === '/api/backup/export') {

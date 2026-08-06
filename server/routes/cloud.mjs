@@ -1,3 +1,4 @@
+import { isAuthenticatedAppClient } from '../access-policy.mjs'
 import { CloudClient, CloudApiError } from '../cloud/client.mjs'
 import { parseCloudBaseUrl } from '../cloud/config.mjs'
 import { createCloudCredentialStore } from '../cloud/credential-store.mjs'
@@ -7,7 +8,6 @@ import {
   readCloudServiceConfig,
   saveCloudServiceConfig,
 } from '../cloud/service-config.mjs'
-import { isTailscaleAddress } from '../utils/network.mjs'
 import { readJsonBody, sendJson } from '../utils/response.mjs'
 
 const CLOUD_CONFIG_BODY_MAX_BYTES = 16 * 1024
@@ -88,15 +88,9 @@ export function createCloudRouteHandler({
     }
   }
 
-  return async function handleCloudApi(req, res, url, {
-    isLocalRequest = false,
-    remoteAddress,
-    remoteAuthorized = false,
-  } = {}) {
-    const tailscaleAllowed = remoteAuthorized === true
-      && isTailscaleAddress(remoteAddress)
-    if (!isLocalRequest && !tailscaleAllowed) {
-      throw routeError('QuickForge Cloud is available only on this computer or an authorized Tailscale client.', 403, 'cloud_local_only')
+  return async function handleCloudApi(req, res, url, context = {}) {
+    if (!isAuthenticatedAppClient(context)) {
+      throw routeError('QuickForge Cloud is available only on this computer or an authenticated remote client.', 403, 'cloud_local_only')
     }
 
     requireProtectedCloudWrite(req, url.pathname)

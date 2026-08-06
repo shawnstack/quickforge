@@ -64,24 +64,21 @@ function handlerOptions(overrides = {}) {
 }
 
 describe('cloud routes', () => {
-  it('rejects ordinary LAN requests before initializing the cloud runtime', async () => {
+  it('rejects requests without an explicit trusted client context', async () => {
     const runtimeFactory = vi.fn(runtime)
     const handler = createCloudRouteHandler({ runtimeFactory })
-    await expect(handler(request(), response(), new URL('http://localhost/api/cloud/status'), {
-      isLocalRequest: false,
-      remoteAddress: '192.168.1.20',
-      remoteAuthorized: true,
-    })).rejects.toMatchObject({ statusCode: 403, code: 'cloud_local_only' })
+    await expect(handler(request(), response(), new URL('http://localhost/api/cloud/status')))
+      .rejects.toMatchObject({ statusCode: 403, code: 'cloud_local_only' })
     expect(runtimeFactory).not.toHaveBeenCalled()
   })
 
-  it('allows an authenticated Tailscale client', async () => {
+  it('allows an authenticated remote client on any network', async () => {
     const current = runtime()
     const handler = createCloudRouteHandler({ runtimeFactory: () => current })
     const res = response()
     await handler(request(), res, new URL('http://localhost/api/cloud/status'), {
       isLocalRequest: false,
-      remoteAddress: '::ffff:100.96.93.16',
+      remoteAddress: '192.168.1.20',
       remoteAuthorized: true,
     })
     expect(res.status).toBe(200)
@@ -90,8 +87,7 @@ describe('cloud routes', () => {
 
   it.each([
     ['LAN authentication missing', { remoteAddress: '100.96.93.16', remoteAuthorized: false }],
-    ['ordinary LAN address', { remoteAddress: '192.168.1.20', remoteAuthorized: true }],
-    ['public address', { remoteAddress: '8.8.8.8', remoteAuthorized: true }],
+    ['public client authentication missing', { remoteAddress: '8.8.8.8', remoteAuthorized: false }],
   ])('rejects %s', async (_name, options) => {
     const runtimeFactory = vi.fn(runtime)
     const handler = createCloudRouteHandler({ runtimeFactory })
@@ -132,7 +128,7 @@ describe('cloud routes', () => {
     expect(cloudClientFactory).not.toHaveBeenCalled()
   })
 
-  it('allows an authenticated Tailscale client to perform a protected write', async () => {
+  it('allows an authenticated remote client to perform a protected write', async () => {
     const current = runtime()
     const handler = createCloudRouteHandler({ runtimeFactory: () => current })
     const res = response()

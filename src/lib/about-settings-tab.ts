@@ -480,7 +480,7 @@ class AboutSettingsTab extends SettingsTab {
           </div>
         </section>
 
-        ${this.serviceStatus?.isLocalRequest === false ? null : this.restartSection()}
+        ${this.restartSection()}
 
         ${this.message ? html`<div class="quickforge-settings-message">${this.message}</div>` : null}
         ${this.error ? html`<div class="quickforge-settings-alert">${this.error}</div>` : null}

@@ -60,11 +60,14 @@ describe('model catalog', () => {
     }, { context: { isLocalRequest: true }, currentModel: current, allowCurrentHidden: true })).resolves.toMatchObject({ model: current })
   })
 
-  it('denies Cloud for LAN and explicitly untrusted share contexts', async () => {
+  it('allows Cloud for authenticated remote clients and denies untrusted share contexts', async () => {
     const { resolveModelBinding } = await import('../../server/model-catalog.mjs')
     const input = { modelRef: { version: 1, source: 'cloud', catalogId: 'cloud-fast' } }
     await expect(resolveModelBinding(input, {
       context: { isLocalRequest: false, remoteAddress: '192.168.1.10', remoteAuthorized: true },
+    })).resolves.toMatchObject({ model: cloudModel })
+    await expect(resolveModelBinding(input, {
+      context: { isLocalRequest: false, remoteAuthorized: false },
     })).rejects.toMatchObject({ statusCode: 403, code: 'cloud_access_denied' })
     await expect(resolveModelBinding(input, {
       context: { isLocalRequest: true, source: 'shared', allowCloud: false },

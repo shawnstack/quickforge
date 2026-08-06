@@ -1,6 +1,7 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { readSessionValue } from '../storage.mjs'
-import { getLanUrls, isTailscaleAddress } from '../utils/network.mjs'
+import { getLanUrls } from '../utils/network.mjs'
+import { isAuthenticatedAppClient } from '../access-policy.mjs'
 import {
   createConversationShare,
   deleteConversationShare,
@@ -28,7 +29,7 @@ function shareUrlForRequest(req, shareId, port) {
   return `${baseUrl}/share/${encodeURIComponent(shareId)}`
 }
 
-export async function handleSharesApi(req, res, url, context = {}) {
+export async function handleSharesApi(req, res, url, context = { isLocalRequest: true }) {
   const parts = url.pathname.split('/').filter(Boolean)
 
   if (req.method === 'GET' && url.pathname === '/api/shares') {
@@ -51,9 +52,8 @@ export async function handleSharesApi(req, res, url, context = {}) {
     const password = passwordProvided ? body.password.trim() : undefined
     const expiresAt = typeof body?.expiresAt === 'string' && body.expiresAt ? body.expiresAt : undefined
     const allowCloudUsage = permission === 'operate' && body?.allowCloudUsage === true
-    if (allowCloudUsage && context.isLocalRequest === false
-      && !(context.remoteAuthorized === true && isTailscaleAddress(context.remoteAddress))) {
-      const error = new Error('QuickForge Cloud sharing can only be enabled locally or from an authorized Tailscale client.')
+    if (allowCloudUsage && !isAuthenticatedAppClient(context)) {
+      const error = new Error('QuickForge Cloud sharing can only be enabled locally or from an authenticated remote client.')
       error.statusCode = 403
       throw error
     }
@@ -134,9 +134,8 @@ export async function handleSharesApi(req, res, url, context = {}) {
       const password = typeof body?.password === 'string' ? body.password : undefined
       const expiresAt = typeof body?.expiresAt === 'string' && body.expiresAt ? body.expiresAt : undefined
       const allowCloudUsage = body?.allowCloudUsage
-      if (allowCloudUsage === true && context.isLocalRequest === false
-        && !(context.remoteAuthorized === true && isTailscaleAddress(context.remoteAddress))) {
-        const error = new Error('QuickForge Cloud sharing can only be enabled locally or from an authorized Tailscale client.')
+      if (allowCloudUsage === true && !isAuthenticatedAppClient(context)) {
+        const error = new Error('QuickForge Cloud sharing can only be enabled locally or from an authenticated remote client.')
         error.statusCode = 403
         throw error
       }

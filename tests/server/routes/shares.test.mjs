@@ -94,11 +94,20 @@ describe('share management routes', () => {
     )
     expect(JSON.parse(cloudUpdateRes.body).share.allowCloudUsage).toBe(true)
 
+    const authenticatedRemoteRes = response()
+    await handleSharesApi(
+      request('POST', { permission: 'operate', allowCloudUsage: true }),
+      authenticatedRemoteRes,
+      new URL(`http://localhost/api/shares/${created.id}/update`),
+      { port: 5176, isLocalRequest: false, remoteAddress: '192.168.1.5', remoteAuthorized: true },
+    )
+    expect(JSON.parse(authenticatedRemoteRes.body).share.allowCloudUsage).toBe(true)
+
     await expect(handleSharesApi(
       request('POST', { permission: 'operate', allowCloudUsage: true }),
       response(),
       new URL(`http://localhost/api/shares/${created.id}/update`),
-      { port: 5176, isLocalRequest: false, remoteAddress: '192.168.1.5', remoteAuthorized: true },
+      { port: 5176, isLocalRequest: false, remoteAuthorized: false },
     )).rejects.toMatchObject({ statusCode: 403 })
 
     await expect(handleSharesApi(

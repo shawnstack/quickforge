@@ -144,7 +144,7 @@ describe('agent manager external session synchronization', () => {
 
     try {
       expect(getSessionState(sessionId)?.messages[0].metadata?.quickforgeClientMessageId).toBe(logicalMessageId)
-      await continueSession(sessionId)
+      await continueSession(sessionId, { isLocalRequest: true })
       await vi.waitFor(() => expect(restored.agent.lastTransformedMessages).not.toBeNull())
       expect(restored.agent.lastTransformedMessages[0].metadata?.quickforgeClientMessageId).toBe(logicalMessageId)
     } finally {

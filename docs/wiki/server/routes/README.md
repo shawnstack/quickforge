@@ -39,7 +39,7 @@
 
 ### cloud.mjs
 
-来源属于 Tailscale IPv4 `100.64.0.0/10` 且已通过 LAN 密码认证的客户端可以使用本地 Cloud BFF；普通 LAN、公网来源、未认证请求和 Tailscale IPv6 当前均拒绝。远程客户端使用的是宿主机 Cloud 身份与额度。未认证远端请求可能先由全局 LAN 层返回 HTTP 401；请求到达 Cloud 路由但不满足边界时返回 HTTP 403 / `cloud_local_only`。所有非安全写方法还要求 `x-quickforge-action: cloud-action`，带 JSON body 的写接口要求 `Content-Type: application/json`，以阻止浏览器跨站简单请求绕过预检。
+已通过 LAN 密码认证的客户端可以使用本地 Cloud BFF，不再按 Tailscale IPv4、IPv6、普通 LAN 或公网地址分类。远程客户端使用的是宿主机 Cloud 身份与额度。未认证远端请求会先由全局 LAN 层返回 HTTP 401；请求到达 Cloud 路由但不满足认证边界时返回 HTTP 403 / `cloud_local_only`。所有非安全写方法还要求 `x-quickforge-action: cloud-action`，带 JSON body 的写接口要求 `Content-Type: application/json`，以阻止浏览器跨站简单请求绕过预检。
 
 - `GET /api/cloud/config` — 返回规范化 Cloud URL、来源与配置错误，不返回凭据。
 - `PUT /api/cloud/config` — 保存 URL 并使 Cloud runtime 失效；活动 Session 必须与凭据中绑定的 `sessionCloudUrl` 一致，旧版未绑定 Session 也会以 HTTP 409 / `cloud_session_active` 安全拒绝。
@@ -80,7 +80,7 @@ Agent 会话管理核心路由。
 
 ## storage.mjs (151 行)
 
-通用存储 CRUD 路由。本机保持旧 KV 兼容；远程请求统一拒绝 `provider-keys`、`custom-providers`、MCP、插件、定时任务、Agent Profile 覆盖等敏感或可执行 store，模型读取必须走公开 Catalog API。
+通用存储 CRUD 路由。本机与已通过 LAN 密码认证的远程客户端具有相同 KV 读写能力，包括 Provider Key、自定义 Provider、MCP、插件、任务、Agent Profile 覆盖与会话数据；未认证远程请求由全局认证层和路由守卫拒绝。
 
 **主要端点**:
 - `GET /api/storage/quota` — 存储配额和用量
@@ -90,7 +90,7 @@ Agent 会话管理核心路由。
 
 ## backup.mjs
 
-备份导出、检查和导入接口仅允许本机请求，避免远程绕过 Storage 限制导出 Provider Key 或覆盖 Provider、任务等敏感配置。
+备份导出、检查和导入接口允许本机及已通过 LAN 密码认证的远程客户端调用；未认证远程请求禁止访问。
 
 ## project.mjs (192 行)
 

@@ -50,7 +50,7 @@ Access Token 只存在 Node 内存中。Device Flow 的 `deviceCode` 与待处�
 
 ## 本地 API
 
-所有 `/api/cloud/*` 仅允许本机请求，或“已通过 LAN 密码认证且 socket 来源属于 Tailscale IPv4 `100.64.0.0/10`”的远端请求；普通 LAN、公网来源和未认证 Tailscale 请求拒绝。未认证远端请求可能先被全局 LAN 认证层以 HTTP 401 拒绝；到达 Cloud 路由但不满足边界时返回 HTTP 403 / `cloud_local_only`。当前未实现 Tailscale IPv6 判定。配置类 JSON body 限制为 16 KiB。所有非安全写方法还必须携带 `x-quickforge-action: cloud-action`；带 JSON body 的写接口必须使用 `Content-Type: application/json`，以阻止浏览器跨站简单请求绕过预检。
+所有 `/api/cloud/*` 仅允许本机请求，或已通过 LAN 密码认证的远端请求；不再按 Tailscale IPv4、IPv6、普通 LAN 或公网地址分类。未认证远端请求会先被全局 LAN 认证层以 HTTP 401 拒绝；到达 Cloud 路由但不满足认证边界时返回 HTTP 403 / `cloud_local_only`。配置类 JSON body 限制为 16 KiB。所有非安全写方法还必须携带 `x-quickforge-action: cloud-action`；带 JSON body 的写接口必须使用 `Content-Type: application/json`，以阻止浏览器跨站简单请求绕过预检。
 
 - `GET /api/cloud/config`：返回规范化 URL、来源与配置错误；不返回凭据。
 - `PUT /api/cloud/config`：保存 URL 并使运行时失效；存在 Refresh Token 时，仅允许保存与 `sessionCloudUrl` 相同的规范化 URL，否则返回 HTTP 409 / `cloud_session_active`。
@@ -111,9 +111,9 @@ Cloud 模型目录采用有界缓存：60 秒软 TTL、5 分钟硬过期。软 T
 
 ## 远程访问边界
 
-来源属于 Tailscale IPv4 `100.64.0.0/10` 且已通过 LAN 密码认证的客户端可访问 `/api/cloud/*`，并可在统一模型目录和 Agent API 中使用 Cloud。普通 LAN、公网来源和未认证 Tailscale 请求不能选择或执行 Cloud。可操作共享默认不允许消耗分享者 Cloud 额度；只有分享者从本机或已认证 Tailscale 客户端显式启用 `allowCloudUsage` 后才允许。只读共享永不执行模型。后台定时任务在创建时完成模型授权和引用固化，执行时仍从当前 Cloud 目录解析，不使用旧 transport 快照。
+已通过 LAN 密码认证的远程客户端可访问 `/api/cloud/*`，并可在统一模型目录和 Agent API 中使用 Cloud；访问权不再依赖客户端 IP 网段。未认证远程请求不能选择或执行 Cloud。可操作共享默认不允许消耗分享者 Cloud 额度；只有分享者从本机或已认证远程客户端显式启用 `allowCloudUsage` 后才允许。只读共享永不执行模型。后台定时任务在创建时完成模型授权和引用固化，执行时仍从当前 Cloud 目录解析，不使用旧 transport 快照。
 
-通用 Storage 与 Backup API 不再向远程客户端开放 Provider Key、自定义 Provider、MCP、插件、定时任务和 Agent Profile 覆盖等敏感/可执行配置；Session 与 Session metadata 对远程保持只读，修改必须走 Agent API。上述数据必须通过本机 UI 或经过业务校验的专用 API 管理。
+通用 Storage 与 Backup API 对本机和已认证远程客户端提供相同能力，包括 Provider Key、自定义 Provider、MCP、插件、定时任务、Agent Profile 覆盖以及 Session 数据的读取和修改。更新与重启同样允许已认证远程客户端调用，但继续要求各自的 `x-quickforge-action` 确认头。交互式终端、系统代理、终端 Shell、打开本机应用或文件管理器、LAN 认证管理等主机级能力仍保持本机限制。
 
 ## 已知限制
 
@@ -121,5 +121,5 @@ Cloud 模型目录采用有界缓存：60 秒软 TTL、5 分钟硬过期。软 T
 - 服务重启不会恢复已经断开的上游流本身；恢复会话后通过重新生成/继续路径发起的新 Cloud stream 会复用原逻辑消息的 Idempotency-Key。
 - 所有正式模型入口已统一接入 Model Catalog 与版本化 ModelRef；后续新增入口必须复用同一目录和服务端 resolver，不能自行读取 Provider store 或信任客户端 transport。
 - 本地身份文件依赖操作系统账户与文件权限，尚未接入系统 Keychain。
-- 当前服务端只识别 Tailscale IPv4 `100.64.0.0/10`，未实现或验证 Tailscale IPv6。
+- 远程完整访问统一依赖 LAN 密码认证，不再依据 Tailscale IPv4/IPv6 或其他客户端 IP 网段决定 Cloud、Storage、Backup、更新与重启权限。
 - 本次未验证外部 Cloud 仓库、真实 Provider、支付、生产部署、真实 Tailnet/ACL 或 Android WebView 端到端链路；这些内容不能据本文标记为已完成。

@@ -2,6 +2,7 @@ import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { readStore, writeStore, atomicUpdate, getComparable, getStoreRevision, readSessionStoreScoped, readSessionValue, writeSessionValue, deleteSessionValue, ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir } from '../storage.mjs'
 import { AUTO_ARCHIVE_SETTINGS_KEY, archiveInactiveSessions, normalizeAutoArchiveSettings } from '../auto-archive.mjs'
 import { directorySize } from '../utils/workspace.mjs'
+import { isAuthenticatedAppClient } from '../access-policy.mjs'
 
 const metadataIndexCache = new Map()
 const MAX_METADATA_INDEX_CACHE_ENTRIES = 50
@@ -94,7 +95,14 @@ async function readIndexedValues(store, indexName, direction, scope, projectId, 
   return values
 }
 
-export async function handleStorageApi(req, res, url, context = {}) {
+export async function handleStorageApi(req, res, url, context = { isLocalRequest: true }) {
+  if (!isAuthenticatedAppClient(context)) {
+    const error = new Error('Storage access requires a local or authenticated remote client.')
+    error.statusCode = 403
+    error.errorCode = 'storage_auth_required'
+    throw error
+  }
+
   const parts = url.pathname.split('/').filter(Boolean)
 
   if (req.method === 'GET' && url.pathname === '/api/storage/quota') {
@@ -116,29 +124,6 @@ export async function handleStorageApi(req, res, url, context = {}) {
   }
 
   const store = decodeSegment(parts[2])
-  const remotelySensitiveStores = new Set([
-    'provider-keys',
-    'custom-providers',
-    'mcp',
-    'plugins',
-    'scheduled-tasks',
-    'agent-profile-overrides',
-    'custom-agents',
-  ])
-  if (context.isLocalRequest === false && remotelySensitiveStores.has(store)) {
-    const error = new Error('This storage area is available only on this computer.')
-    error.statusCode = 403
-    error.errorCode = 'storage_local_only'
-    throw error
-  }
-
-  const remotelyReadOnlyStores = new Set(['sessions', 'sessions-metadata'])
-  if (context.isLocalRequest === false && remotelyReadOnlyStores.has(store) && req.method !== 'GET') {
-    const error = new Error('Remote clients must modify conversations through the Agent API.')
-    error.statusCode = 403
-    error.errorCode = 'storage_remote_read_only'
-    throw error
-  }
 
   if (req.method === 'GET' && parts[3] === 'keys') {
     const prefix = url.searchParams.get('prefix') || ''

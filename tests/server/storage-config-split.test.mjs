@@ -207,15 +207,16 @@ describe('providers.json shared store', () => {
     })
   })
 
-  it('rejects remote access to sensitive and executable configuration stores', async () => {
+  it('allows authenticated remote access to all stores and rejects unauthenticated clients', async () => {
     await withTempStorage(async () => {
       const route = await import('../../server/routes/storage.mjs')
-      for (const store of ['provider-keys', 'custom-providers', 'mcp', 'plugins', 'scheduled-tasks', 'agent-profile-overrides']) {
-        await expect(callRoute(route, [store, 'keys'], 'GET', undefined, { isLocalRequest: false }))
-          .rejects.toMatchObject({ statusCode: 403, errorCode: 'storage_local_only' })
-      }
-      await expect(callRoute(route, ['sessions', 'key', 'session-1'], 'PUT', { value: {} }, { isLocalRequest: false }))
-        .rejects.toMatchObject({ statusCode: 403, errorCode: 'storage_remote_read_only' })
+      const remoteContext = { isLocalRequest: false, remoteAuthorized: true }
+      expect((await callRoute(route, ['provider-keys', 'key', 'openai'], 'PUT', { value: 'sk-remote' }, remoteContext)).status).toBe(200)
+      expect((await callRoute(route, ['provider-keys', 'key', 'openai'], 'GET', undefined, remoteContext)).json).toEqual({ value: 'sk-remote' })
+      expect((await callRoute(route, ['sessions', 'key', 'session-1'], 'PUT', { value: { id: 'session-1' } }, remoteContext)).status).toBe(200)
+
+      await expect(callRoute(route, ['provider-keys', 'keys'], 'GET', undefined, { isLocalRequest: false, remoteAuthorized: false }))
+        .rejects.toMatchObject({ statusCode: 403, errorCode: 'storage_auth_required' })
     })
   })
 

@@ -1,7 +1,7 @@
+import { isAuthenticatedAppClient } from './access-policy.mjs'
 import { getCloudRuntime } from './cloud/runtime.mjs'
 import { isManagedCloudModel } from './cloud/models.mjs'
 import { readStore } from './storage.mjs'
-import { isTailscaleAddress } from './utils/network.mjs'
 
 export const MODEL_REFERENCE_VERSION = 1
 
@@ -57,10 +57,10 @@ function configuredEntries(providers) {
 }
 
 export function cloudAllowedForContext(context = {}) {
+  if (context.source === 'shared') return context.allowCloud === true
   if (context.allowCloud === false) return false
   if (context.allowCloud === true || context.source === 'acp' || context.source === 'scheduled') return true
-  if (context.isLocalRequest !== false) return true
-  return context.remoteAuthorized === true && isTailscaleAddress(context.remoteAddress)
+  return isAuthenticatedAppClient(context)
 }
 
 export function modelReferenceFromSnapshot(model, providers = []) {

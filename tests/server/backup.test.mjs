@@ -84,14 +84,23 @@ async function callExport(backup, urlText = 'http://localhost/api/backup/export'
 }
 
 describe('backup export — settings sections', () => {
-  it('rejects all backup operations from remote clients', async () => {
+  it('allows authenticated remote backup access and rejects unauthenticated clients', async () => {
     await withTempBackup(async (backup) => {
+      const authorizedRes = mockRes()
+      await backup.handleBackupApi(
+        { method: 'GET' },
+        authorizedRes,
+        new URL('http://localhost/api/backup/export?sections=providerKeys&includeSecrets=true'),
+        { isLocalRequest: false, remoteAuthorized: true },
+      )
+      expect(authorizedRes._status).toBe(200)
+
       await expect(backup.handleBackupApi(
         { method: 'GET' },
         mockRes(),
-        new URL('http://localhost/api/backup/export?sections=providerKeys&includeSecrets=true'),
-        { isLocalRequest: false },
-      )).rejects.toMatchObject({ statusCode: 403, errorCode: 'backup_local_only' })
+        new URL('http://localhost/api/backup/export'),
+        { isLocalRequest: false, remoteAuthorized: false },
+      )).rejects.toMatchObject({ statusCode: 403, errorCode: 'backup_auth_required' })
     })
   })
 

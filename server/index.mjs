@@ -47,6 +47,7 @@ import { initializeChannels, shutdownChannels } from './channels/registry.mjs'
 import { shutdownMcpConnections } from './mcp/registry.mjs'
 import { shutdownTerminalSessions } from './terminal/terminal-manager.mjs'
 import { createNodeProcessEnv } from './utils/process-env.mjs'
+import { isAuthenticatedAppClient } from './access-policy.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -74,11 +75,12 @@ function getRestartSupport() {
   return { supported: true, reason: null }
 }
 
-async function getSystemStatus({ isLocalRequest = true } = {}) {
+async function getSystemStatus({ isLocalRequest = true, remoteAuthorized = false } = {}) {
   const config = await readProjectConfig()
   const restartSupport = getRestartSupport()
   const packageInfo = await getPackageInfo(projectRoot)
-  const restartSupported = isLocalRequest && restartSupport.supported
+  const restartAllowed = isAuthenticatedAppClient({ isLocalRequest, remoteAuthorized })
+  const restartSupported = restartAllowed && restartSupport.supported
   return {
     ok: true,
     mode: isDev ? 'development' : 'production',
@@ -94,7 +96,7 @@ async function getSystemStatus({ isLocalRequest = true } = {}) {
       terminal: isLocalRequest,
     },
     restartSupported,
-    restartUnsupportedReason: isLocalRequest ? restartSupport.reason : 'Restart is only allowed from this computer',
+    restartUnsupportedReason: restartAllowed ? restartSupport.reason : 'Restart requires an authenticated client',
     dataDir,
     configDir,
     storageDir,
@@ -609,7 +611,7 @@ const server = createServer(async (req, res) => {
     const isRemoteRequest = !isLoopbackAddress(remoteAddress)
     const remoteAuthorized = isRemoteRequest ? await isAuthorizedRemoteRequest(req) : true
 
-    if (isRemoteRequest && shareLanEnabled && !remoteAuthorized && !isLanAccessBootstrapPath(url.pathname) && !isSharePath(url.pathname) && !isStaticAssetPath(url.pathname)) {
+    if (isRemoteRequest && !remoteAuthorized && !isLanAccessBootstrapPath(url.pathname) && !isSharePath(url.pathname) && !isStaticAssetPath(url.pathname)) {
       if (url.pathname.startsWith('/api/')) {
         sendLanAuthRequired(res)
       } else {
@@ -621,7 +623,6 @@ const server = createServer(async (req, res) => {
     if (
       url.pathname.startsWith('/api/') &&
       isRemoteRequest &&
-      shareLanEnabled &&
       !remoteAuthorized &&
       !(url.pathname.startsWith('/api/shared/') || url.pathname === '/api/health' || url.pathname.startsWith('/api/lan-access/'))
     ) {
@@ -649,7 +650,7 @@ const server = createServer(async (req, res) => {
       return
     }
 
-    if (isRemoteRequest && shareLanEnabled && !remoteAuthorized) {
+    if (isRemoteRequest && !remoteAuthorized) {
       res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
       res.end(JSON.stringify({ error: 'Remote access is limited to shared conversation links.' }))
       return

@@ -1,5 +1,6 @@
 import { sendJson, readJsonBody } from '../utils/response.mjs'
 import { getLanUrls } from '../utils/network.mjs'
+import { isAuthenticatedAppClient } from '../access-policy.mjs'
 
 export async function handleSystemApi(req, res, url, context) {
   if (req.method === 'GET' && url.pathname === '/api/system/about') {
@@ -18,8 +19,8 @@ export async function handleSystemApi(req, res, url, context) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/system/update') {
-    if (!context.isLocalRequest) {
-      const error = new Error('Update is only allowed from this computer')
+    if (!isAuthenticatedAppClient(context)) {
+      const error = new Error('Update requires a local or authenticated remote client')
       error.statusCode = 403
       throw error
     }
@@ -36,8 +37,8 @@ export async function handleSystemApi(req, res, url, context) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/system/restart') {
-    if (!context.isLocalRequest) {
-      const error = new Error('Restart is only allowed from this computer')
+    if (!isAuthenticatedAppClient(context)) {
+      const error = new Error('Restart requires a local or authenticated remote client')
       error.statusCode = 403
       throw error
     }

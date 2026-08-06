@@ -53,7 +53,7 @@ server/
 - SSE（`/api/agents/events`, `/api/agents/:sessionId/stream`）
 - WebSocket 交互式终端（`/api/terminal/sessions/:id/ws`，仅 localhost）
 - 启动时重置僵死任务状态
-- 支持 LAN 共享（显示局域网 URL）；远程完整访问需在本机配置密码。已认证远端仍不能使用终端、重启服务、弹出目录选择器或打开资源管理器/IDE，Tailscale/VPN 是推荐的远程接入方式。`/api/cloud/*` 仅允许本机，或已通过 LAN 密码认证且 socket 来源属于 Tailscale IPv4 `100.64.0.0/10` 的客户端；普通 LAN、公网来源、未认证请求和 Tailscale IPv6 当前均不在允许范围。
+- 支持 LAN 共享（显示局域网 URL）；远程完整访问需在本机配置密码。已认证远端可使用 Cloud、Storage、Backup、更新与重启，不再依据客户端 IP 网段区分；终端、系统代理、终端 Shell、目录选择器和打开服务端电脑上的资源管理器/IDE 仍仅限本机。
 - 启动后初始化 `network-proxy.mjs`：读取 `settings['network-proxy']`，为外部 Fetch 请求应用直连、操作系统真实代理、手动 HTTP(S) 代理或 PAC 地址；localhost 始终直连。Desktop inline 由 Electron/Chromium Session 处理系统 PAC/WPAD 和自定义 PAC 地址；CLI/SDK 由 `@vscode/os-proxy-resolver` 调用 Windows、macOS 和 Linux 的原生系统代理来源，当前不支持自定义 PAC 地址，且不会静默降级为直连
 
 ### cloud/ — QuickForge Cloud 本地代理

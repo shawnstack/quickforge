@@ -6,7 +6,7 @@
 ## 0. 接手速览（30 秒版）
 
 - **目标**：为 QuickForge Cloud 建设运营管理后台（企业级），让运营/管理员通过 Web 界面管理安装实例、额度、模型目录、审计，而不是直接改数据库。
-- **当前 `quickforge` 仓库已实现并验证**：本地 Node BFF 的 Cloud 配置、health/ready 连接测试、身份重建、Session URL 绑定、状态读取，以及本机/Tailscale IPv4 访问边界；详见 `docs/architecture/quickforge-cloud-client.zh-CN.md`。
+- **当前 `quickforge` 仓库已实现并验证**：本地 Node BFF 的 Cloud 配置、health/ready 连接测试、身份重建、Session URL 绑定、状态读取，以及本机/已认证远程客户端访问边界；详见 `docs/architecture/quickforge-cloud-client.zh-CN.md`。
 - **外部仓库文档声明、未验证**：后文历史记录声称社区版管理端点、OpenAPI 管理契约和 private 管理 UI 已完成；本次没有读取、构建、测试或部署这些仓库，因此只能保留为外部声明，不能写成已由本任务验证。
 - **Planned**：P1 用量报表、目录编辑、告警和正式账户管理等后续功能。
 - **Not in current scope**：本任务不验证或实现 Cloud 服务端、Provider、支付、生产部署、基础设施、真实 Tailnet 或 Android E2E。
@@ -31,7 +31,7 @@
   - `GET /api/cloud/status`
 - 新 Session 会绑定规范化 `sessionCloudUrl`。存在 Refresh Token 时，跨 URL 保存配置返回 HTTP 409 / `cloud_session_active`；Token 操作遇到 URL 不匹配或旧 Session 缺失 URL 绑定时返回 HTTP 409 / `cloud_session_service_mismatch`，并在发送旧 Refresh Token 前拒绝。
 - Identity reset 只清理本地 Session、内存 Access Token/模型缓存并轮换 installation，不联系旧或新 Cloud 服务。
-- `/api/cloud/*` 仅允许本机，或“已通过 LAN 密码认证且 socket 来源属于 Tailscale IPv4 `100.64.0.0/10`”的客户端。普通 LAN、公网来源、未认证请求和 Tailscale IPv6 当前均拒绝；未认证远端请求可能先由全局 LAN 层返回 401，到达 Cloud 路由但不满足边界时返回 403 / `cloud_local_only`。
+- `/api/cloud/*` 仅允许本机或已通过 LAN 密码认证的远程客户端，不再按 Tailscale IPv4、IPv6、普通 LAN 或公网地址分类；未认证远端请求由全局 LAN 层返回 401，到达 Cloud 路由但不满足边界时返回 403 / `cloud_local_only`。
 - 本次执行的相关测试：9 个文件、61 个测试通过；覆盖配置、路由、身份、Session URL 绑定、旧 Session 拒绝、身份 reset、远程边界、Chat 幂等 sidecar 和前端同源客户端。该结论只适用于当前工作区快照，不代表已提交或已发布版本。
 
 ### 1.2 外部仓库文档声明——本次未验证
@@ -375,7 +375,7 @@ MVP 暂时只有单一 `superadmin`，但接口和审计模型必须预留 `acto
 
 - [x] **quickforge 本地 BFF 已核对**：配置读取/保存、连接测试、状态、身份 reset 与 runtime 失效行为均有当前源码和相关测试支撑。
 - [x] **Session URL 安全语义已核对**：新 Session 持久化 `sessionCloudUrl`；跨 URL 保存使用 `cloud_session_active`；Token 操作遇到不匹配或旧 Session 使用 `cloud_session_service_mismatch`，并在发送旧 Refresh Token 前拒绝。
-- [x] **本机/Tailscale 边界已核对**：允许本机，或已通过 LAN 密码认证且来源为 Tailscale IPv4 `100.64.0.0/10` 的客户端；其他来源拒绝。真实 Tailnet/ACL/IPv6/Android E2E 未验证。
+- [x] **本机/已认证远程边界已核对**：允许本机或已通过 LAN 密码认证的远程客户端，不再按客户端 IP 网段分类；未认证请求拒绝。真实 Tailnet/ACL/Android E2E 未验证。
 - [x] **当前仓库相关测试已执行**：9 个测试文件、61 个测试通过。
 - [x] **指定架构文档与代码 Wiki 已同步**：统一使用“当前仓库已验证 / 外部声明未验证 / Planned / Not in current scope / Blocked/NO-GO”口径。
 - [ ] **外部社区版管理端点、OpenAPI 契约和 private 后台复验**：Not in current scope；不能因历史记录中的 `[x]` 或“通过”字样视为本次已验证。

@@ -19,15 +19,39 @@ function response() {
 }
 
 describe('system remote access policy', () => {
-  it('rejects restart requests from remote clients before side effects', async () => {
+  it('rejects unauthenticated remote restart requests before side effects', async () => {
     const requestRestart = vi.fn()
     await expect(handleSystemApi(
       request({ 'x-quickforge-action': 'restart' }),
       response(),
       new URL('http://localhost/api/system/restart'),
-      { isLocalRequest: false, requestRestart },
+      { isLocalRequest: false, remoteAuthorized: false, requestRestart },
     )).rejects.toMatchObject({ statusCode: 403 })
     expect(requestRestart).not.toHaveBeenCalled()
+  })
+
+  it('allows authenticated remote update and restart requests', async () => {
+    const updateQuickForge = vi.fn(async () => ({ ok: true, updateStarted: false }))
+    const updateRes = response()
+    await handleSystemApi(
+      request({ 'x-quickforge-action': 'update' }),
+      updateRes,
+      new URL('http://localhost/api/system/update'),
+      { isLocalRequest: false, remoteAuthorized: true, updateQuickForge },
+    )
+    expect(updateQuickForge).toHaveBeenCalledOnce()
+    expect(updateRes.status).toBe(200)
+
+    const requestRestart = vi.fn(async () => ({ ok: true }))
+    const restartRes = response()
+    await handleSystemApi(
+      request({ 'x-quickforge-action': 'restart' }),
+      restartRes,
+      new URL('http://localhost/api/system/restart'),
+      { isLocalRequest: false, remoteAuthorized: true, requestRestart },
+    )
+    expect(requestRestart).toHaveBeenCalledOnce()
+    expect(restartRes.status).toBe(202)
   })
 
   it('rejects remote terminal shell updates', async () => {

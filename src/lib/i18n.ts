@@ -1469,7 +1469,7 @@ export const appTranslations = {
     archivedSessionsDeleted: '已归档对话已删除。',
     shareLinks: '分享链接',
     shareLinksDescription: '统一管理此 QuickForge 实例的全部对话分享链接，包括有效期、停用、恢复和永久删除。',
-    cloudAccount: 'QuickForge Cloud',
+    cloudAccount: '云服务',
     cloudAccountDescription: '配置 QuickForge Cloud 连接、云身份、额度、模型目录和已连接设备；无需账户也可继续使用本地功能。',
     cloudServiceConnection: 'QuickForge Cloud 连接',
     cloudServiceConnectionDescription: '浏览器只访问当前 QuickForge 实例，由本机 Node 服务连接 QuickForge Cloud。',

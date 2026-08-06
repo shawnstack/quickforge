@@ -977,6 +977,7 @@ export const ChatSidebar = memo(function ChatSidebar({
 
       {sidebarOpen ? (
         <>
+          <div className="flex min-h-0 flex-1 flex-col">
           {(pinnedSessionItems.length > 0 || pinnedLoading) ? (
             <div className="px-3 pb-1 max-h-[28%] flex flex-col min-h-0 overflow-hidden">
               <div className={sectionHeaderClass}>
@@ -1516,6 +1517,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                 </div>
               </div>
             </div>
+          </div>
           </div>
         </>
       ) : null}

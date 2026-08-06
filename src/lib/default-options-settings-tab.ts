@@ -6,8 +6,12 @@ import {
   defaultThinkingLevelForModel,
   getSelectableConfiguredModels,
   loadDefaultOptions,
+  mergeAvailableModels,
   saveDefaultOptions,
 } from '@/lib/pi-chat'
+import { getCloudModels, getCloudStatus } from '@/lib/cloud-client'
+import { CLOUD_STATE_CHANGED_EVENT } from '@/hooks/useCloudModels'
+import { logger } from '@/lib/logger'
 import {
   loadToolDisplaySettings,
   saveToolDisplaySettings,
@@ -158,9 +162,32 @@ class DefaultOptionsSettingsTab extends SettingsTab {
     return t('defaultOptions')
   }
 
-  override async connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback()
-    await this.loadSettings()
+    void this.loadSettings()
+    window.addEventListener(CLOUD_STATE_CHANGED_EVENT, this.handleCloudStateChanged)
+  }
+
+  override disconnectedCallback() {
+    window.removeEventListener(CLOUD_STATE_CHANGED_EVENT, this.handleCloudStateChanged)
+    super.disconnectedCallback?.()
+  }
+
+  private handleCloudStateChanged = () => {
+    // QuickForge Cloud models become visible after login and disappear after
+    // logout, so reload the default-options form when the cloud state changes.
+    void this.loadSettings()
+  }
+
+  private async loadCloudModels(): Promise<Model<Api>[]> {
+    try {
+      const status = await getCloudStatus()
+      if (!status.configured || status.mode === 'local' || !status.hasSession) return []
+      return await getCloudModels()
+    } catch (error) {
+      logger.warn('Failed to load QuickForge Cloud models for default options:', error)
+      return []
+    }
   }
 
   override updated() {
@@ -198,15 +225,17 @@ class DefaultOptionsSettingsTab extends SettingsTab {
 
     try {
       const storage = getAppStorage()
-      const [localModels, catalogModels, defaults, toolDisplaySettings, autoCompactSettings, autoArchiveSettings] = await Promise.all([
+      const [localModels, catalogModels, cloudModels, defaults, toolDisplaySettings, autoCompactSettings, autoArchiveSettings] = await Promise.all([
         getSelectableConfiguredModels(storage),
         loadModelCatalog().catch(() => []),
+        this.loadCloudModels(),
         loadDefaultOptions(storage),
         loadToolDisplaySettings(storage),
         loadAutoCompactSettings(storage),
         loadAutoArchiveSettings(storage),
       ])
-      const models = catalogModels.length ? catalogModels : localModels
+      const baseModels = catalogModels.length ? catalogModels : localModels
+      const models = mergeAvailableModels(baseModels, cloudModels)
       this.models = models
       this.selectedModel = defaults.model
         ? models.find((model) => modelKey(model) === modelKey(defaults.model!)) ?? models[0]

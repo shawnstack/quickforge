@@ -1,5 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto'
-import { CloudApiError } from './client.mjs'
+﻿import { CloudApiError } from './client.mjs'
 
 const SESSION_INVALID_CODES = new Set(['refresh_token_reused', 'installation_revoked', 'invalid_refresh_token'])
 const DEVICE_PENDING_CODES = new Set(['authorization_pending', 'pending'])
@@ -11,7 +10,6 @@ const DEVICE_NETWORK_CAUSE_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENETD
 const DEVICE_CLIENT_ID = 'quickforge-desktop'
 const MODEL_CACHE_TTL_MS = 60_000
 const MODEL_CACHE_HARD_TTL_MS = 5 * 60_000
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function tokenExpiry(expiresIn) {
   const seconds = Number(expiresIn)
@@ -38,15 +36,6 @@ function isDeviceFlowNetworkError(error) {
   return error instanceof TypeError || DEVICE_NETWORK_CAUSE_CODES.has(causeCode)
 }
 
-function registrationHash(record, serviceUrl) {
-  return createHash('sha256').update(JSON.stringify({
-    installationName: record.installationName,
-    platform: record.platform,
-    clientVersion: record.clientVersion,
-    publicKey: record.publicKey,
-    serviceUrl,
-  })).digest('base64url')
-}
 
 export class CloudIdentityManager {
   constructor({ client, store, serviceUrl } = {}) {
@@ -92,45 +81,6 @@ export class CloudIdentityManager {
     }
   }
 
-  async startGuest({ signal } = {}) {
-    let record = await this.store.read()
-    this.assertSessionService(record)
-    if (record.rotateInstallationBeforeRegistration) {
-      record = await this.store.rotateInstallation()
-    } else {
-      record = await this.store.ensureInstallation()
-    }
-    const requestHash = registrationHash(record, this.serviceUrl)
-    let idempotencyKey = record.pendingRegistrationKey
-    if (!UUID_PATTERN.test(idempotencyKey || '') || record.pendingRegistrationHash !== requestHash) {
-      idempotencyKey = randomUUID()
-      await this.store.update((current) => ({
-        ...current,
-        pendingRegistrationKey: idempotencyKey,
-        pendingRegistrationHash: requestHash,
-      }))
-    }
-
-    const tokens = await this.client.registerGuest({
-      installationName: record.installationName,
-      platform: record.platform,
-      clientVersion: record.clientVersion,
-      publicKey: record.publicKey,
-    }, idempotencyKey, signal)
-
-    this.setAccess(tokens)
-    await this.store.update((current) => ({
-      ...current,
-      mode: tokens.identityMode || 'guest',
-      installationId: tokens.installationId,
-      refreshToken: tokens.refreshToken,
-      sessionCloudUrl: this.serviceUrl,
-      pendingRegistrationKey: undefined,
-      pendingRegistrationHash: undefined,
-      pendingDeviceFlow: undefined,
-    }))
-    return this.getStatusWithRemoteSummary(signal)
-  }
 
   async startDeviceFlow({ signal } = {}) {
     let record = await this.store.read()
@@ -138,16 +88,24 @@ export class CloudIdentityManager {
     if (record.mode === 'account' && record.refreshToken) {
       throw new CloudApiError('QuickForge Cloud is already connected to an account.', { status: 409, code: 'cloud_account_already_connected' })
     }
-    if (record.mode === 'local') {
-      await this.startGuest({ signal })
-      record = await this.store.read()
+    if (record.rotateInstallationBeforeRegistration) {
+      record = await this.store.rotateInstallation()
+    } else {
+      record = await this.store.ensureInstallation()
     }
-    if (!record.refreshToken || !record.installationId) {
-      throw new CloudApiError('QuickForge Cloud guest session is required before account sign-in.', { status: 409, code: 'cloud_not_connected' })
+    if (!record.installationId || !record.publicKey) {
+      throw new CloudApiError('QuickForge Cloud installation identity is incomplete.', { status: 409, code: 'cloud_installation_missing' })
     }
     this.assertSessionService(record)
-    const accessToken = await this.access({ signal })
-    const authorization = await this.client.authorizeDevice(accessToken, record.installationId, DEVICE_CLIENT_ID, signal)
+    const authorization = await this.client.authorizeDevice({
+      installationId: record.installationId,
+      clientId: DEVICE_CLIENT_ID,
+      publicKey: record.publicKey,
+      installationName: record.installationName,
+      platform: record.platform,
+      clientVersion: record.clientVersion,
+      signal,
+    })
     const expiresIn = Math.max(1, Number(authorization?.expiresIn) || 600)
     const interval = Math.max(1, Number(authorization?.interval) || 5)
     const pendingDeviceFlow = {
@@ -270,7 +228,7 @@ export class CloudIdentityManager {
         this.setAccess(tokens)
         await this.store.update((current) => ({
           ...current,
-          mode: tokens.identityMode || current.mode || 'guest',
+          mode: tokens.identityMode || current.mode || 'account',
           installationId: tokens.installationId || current.installationId,
           refreshToken: tokens.refreshToken,
           sessionCloudUrl: this.serviceUrl,

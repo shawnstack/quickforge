@@ -60,19 +60,16 @@ export class CloudClient {
 
   health(signal) { return this.request('healthz', { signal }) }
   ready(signal) { return this.request('readyz', { signal }) }
-  registerGuest(input, idempotencyKey, signal) {
-    return this.request('v1/guest/installations', {
-      method: 'POST', body: input, headers: { 'Idempotency-Key': idempotencyKey }, signal,
-    })
-  }
   refresh(refreshToken, signal) {
     return this.request('oauth/token', {
       method: 'POST', body: { grantType: 'refresh_token', refreshToken }, signal,
     })
   }
-  authorizeDevice(token, installationId, clientId = 'quickforge-desktop', signal) {
+  authorizeDevice({ installationId, clientId = 'quickforge-desktop', publicKey, installationName, platform, clientVersion, signal } = {}) {
     return this.request('oauth/device_authorization', {
-      method: 'POST', token, body: { installationId, clientId }, signal,
+      method: 'POST',
+      body: { installationId, clientId, publicKey, installationName, platform, clientVersion },
+      signal,
     })
   }
   exchangeDeviceCode(deviceCode, clientId = 'quickforge-desktop', signal) {

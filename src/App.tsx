@@ -27,7 +27,6 @@ import {
   DEFAULT_CONNECTION,
   initializePiStorage,
 } from '@/lib/pi-chat'
-import { cloudErrorMessage } from '@/lib/cloud-error-message'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import type {
@@ -1058,7 +1057,6 @@ function MainApp() {
 
   const {
     activateConfiguredModel,
-    activateGuestCloudModel,
     openModelSettings,
     openDefaultOptionsSettings,
     openAboutSettings,
@@ -1076,7 +1074,6 @@ function MainApp() {
     notifySettingsChanged: crossTab.notifySettingsChanged,
     openSettingsPage,
     loadCloudModels: cloudModels.loadCloudModels,
-    startGuestCloud: cloudModels.startGuestCloud,
   })
 
   const closeSettingsPage = useCallback(() => {
@@ -1880,21 +1877,6 @@ function MainApp() {
           ) : null}
           {needsModelSetup ? (
             <ModelSetupEmptyState
-              onUseGuest={cloudModels.configured ? () => {
-                void showConfirm({
-                  title: t('cloudStartGuestTitle'),
-                  description: t('cloudDataConsentDescription'),
-                  confirmLabel: t('cloudAgreeAndStart'),
-                  cancelLabel: t('cancel'),
-                }).then((confirmed) => {
-                  if (!confirmed) return
-                  return activateGuestCloudModel()
-                }).catch((error) => {
-                  logger.error('Failed to start QuickForge Cloud guest:', error)
-                  void showAlert(cloudErrorMessage(error, 'cloudConnectionFailed'))
-                })
-              } : undefined}
-              guestStarting={cloudModels.guestStarting}
               onAddModel={openModelSettings}
               onUseExample={() => {
                 void activateLiteLlmExampleModel().catch((error) => logger.error('Failed to use LiteLLM example:', error))

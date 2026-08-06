@@ -167,10 +167,6 @@ export function createCloudRouteHandler({
     if (!current?.enabled) throw routeError('QuickForge Cloud is not configured.', 503, 'cloud_not_configured')
 
     try {
-      if (req.method === 'POST' && url.pathname === '/api/cloud/guest/start') {
-        sendJson(res, 201, await current.identity.startGuest())
-        return
-      }
       if (req.method === 'POST' && url.pathname === '/api/cloud/device/start') {
         await readJsonBody(req, CLOUD_CONFIG_BODY_MAX_BYTES)
         sendJson(res, 201, await current.identity.startDeviceFlow())

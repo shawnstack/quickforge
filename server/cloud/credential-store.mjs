@@ -1,4 +1,4 @@
-import { generateKeyPair } from 'node:crypto'
+import { generateKeyPair, randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -145,8 +145,15 @@ export function createCloudCredentialStore({
 
   async function ensureInstallation() {
     const current = await read()
-    if (current.publicKey && current.privateKeyPkcs8) return current
-    return update(async (record) => ({ ...record, ...(await generateInstallationKeyPair()) }))
+    if (current.publicKey && current.privateKeyPkcs8 && current.installationId) return current
+    return update(async (record) => {
+      const keyPair = (record.publicKey && record.privateKeyPkcs8) ? {} : await generateInstallationKeyPair()
+      return {
+        ...record,
+        ...keyPair,
+        installationId: record.installationId || randomUUID(),
+      }
+    })
   }
 
   async function rotateInstallation() {

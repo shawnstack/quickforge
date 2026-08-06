@@ -1,15 +1,13 @@
-import { Bot, Cloud, Database, Plus, Sparkles } from 'lucide-react'
+import { Bot, Database, Plus, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
 
 type ModelSetupEmptyStateProps = {
   onAddModel: () => void
   onUseExample: () => void
-  onUseGuest?: () => void
-  guestStarting?: boolean
 }
 
-export function ModelSetupEmptyState({ onAddModel, onUseExample, onUseGuest, guestStarting }: ModelSetupEmptyStateProps) {
+export function ModelSetupEmptyState({ onAddModel, onUseExample }: ModelSetupEmptyStateProps) {
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center p-6">
       <div className="w-full max-w-xl rounded-xl border border-border bg-background p-6 text-center">
@@ -31,13 +29,7 @@ export function ModelSetupEmptyState({ onAddModel, onUseExample, onUseGuest, gue
         </div>
 
         <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
-          {onUseGuest ? (
-            <Button onClick={onUseGuest} disabled={guestStarting} className="gap-2">
-              <Cloud className="size-4" />
-              {guestStarting ? t('cloudConnecting') : t('cloudTryModels')}
-            </Button>
-          ) : null}
-          <Button variant={onUseGuest ? 'outline' : 'default'} onClick={onAddModel} className="gap-2">
+          <Button onClick={onAddModel} className="gap-2">
             <Plus className="size-4" />
             {t('modelSetupAddModel')}
           </Button>

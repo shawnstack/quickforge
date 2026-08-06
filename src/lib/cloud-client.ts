@@ -1,6 +1,6 @@
 import type { Api, Model } from '@earendil-works/pi-ai'
 
-export type CloudMode = 'local' | 'guest' | 'account'
+export type CloudMode = 'local' | 'guest' | 'account' // 'guest' retained only for legacy stored sessions
 export type CloudConfigSource = 'saved' | 'env' | 'default'
 
 const CLOUD_ACTION_HEADER = 'x-quickforge-action'
@@ -159,10 +159,6 @@ export function resetCloudIdentity(signal?: AbortSignal) {
 
 export function getCloudStatus(signal?: AbortSignal) {
   return requestCloudJson<CloudStatus>('/api/cloud/status', { signal })
-}
-
-export function startCloudGuest(signal?: AbortSignal) {
-  return requestCloudJson<CloudStatus>('/api/cloud/guest/start', { method: 'POST', signal })
 }
 
 export function startCloudDeviceFlow(signal?: AbortSignal) {

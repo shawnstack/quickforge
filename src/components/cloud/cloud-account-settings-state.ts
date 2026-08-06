@@ -107,7 +107,6 @@ export function getCloudAccountViewState({
 export type CloudAccountContentVisibility = {
   showDeviceFlow: boolean
   showDisconnectedActions: boolean
-  showGuestUpgrade: boolean
   showDetails: boolean
 }
 
@@ -118,7 +117,6 @@ export function getCloudAccountContentVisibility(status?: CloudStatus): CloudAcc
   return {
     showDeviceFlow: configured && Boolean(status.pendingDeviceFlow),
     showDisconnectedActions: configured && !status.pendingDeviceFlow && !hasSession,
-    showGuestUpgrade: usableSession && !status.pendingDeviceFlow && status.mode === 'guest',
     showDetails: usableSession,
   }
 }

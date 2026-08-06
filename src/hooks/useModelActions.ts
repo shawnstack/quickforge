@@ -36,7 +36,6 @@ type UseModelActionsOptions = {
   notifySettingsChanged: () => void
   openSettingsPage: (initialTab: SettingsInitialTab, customProvider?: string) => void
   loadCloudModels: () => Promise<Model<Api>[]>
-  startGuestCloud: () => Promise<Model<Api>[]>
 }
 
 export function useModelActions({
@@ -51,7 +50,6 @@ export function useModelActions({
   notifySettingsChanged,
   openSettingsPage,
   loadCloudModels,
-  startGuestCloud,
 }: UseModelActionsOptions) {
   const activateConfiguredModel = useCallback(async () => {
     const storage = storageRef.current
@@ -92,41 +90,6 @@ export function useModelActions({
     notifySettingsChanged,
   ])
 
-  const activateGuestCloudModel = useCallback(async () => {
-    const storage = storageRef.current
-    if (!storage) return false
-
-    const cloudModels = await startGuestCloud()
-    const model = cloudModels[0]
-    if (!model) throw new Error(t('cloudNoModels'))
-
-    activeModelRef.current = model
-    setNeedsModelSetup(false)
-    await saveActiveModel(storage, model)
-
-    if (agentRef.current) {
-      updateCurrentAgentModel(model)
-      setChatPanelRevision((value) => value + 1)
-    } else {
-      await createAgent(
-        { model, tools: [] },
-        randomId(),
-        { scope: 'global', attachToView: true },
-      )
-    }
-    notifySettingsChanged()
-    return true
-  }, [
-    storageRef,
-    startGuestCloud,
-    activeModelRef,
-    setNeedsModelSetup,
-    agentRef,
-    updateCurrentAgentModel,
-    setChatPanelRevision,
-    createAgent,
-    notifySettingsChanged,
-  ])
 
   const openSettingsDialog = useCallback((initialTab: SettingsInitialTab, customProvider?: string) => {
     openSettingsPage(initialTab, customProvider)
@@ -287,7 +250,6 @@ export function useModelActions({
 
   return {
     activateConfiguredModel,
-    activateGuestCloudModel,
     openModelSettings,
     openDefaultOptionsSettings,
     openAboutSettings,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
-import { Cloud, Copy, Database, ExternalLink, Laptop, LogIn, LogOut, RefreshCw, RotateCcw, Save, Server, ShieldCheck, Sparkles, TestTube2, UserRound } from 'lucide-react'
+import { Cloud, Copy, Database, ExternalLink, Laptop, LogIn, LogOut, RefreshCw, RotateCcw, Save, Server, ShieldCheck, TestTube2, UserRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { showConfirm } from '@/components/ui/confirm-dialog'
@@ -16,7 +16,6 @@ import {
   resetCloudIdentity,
   revokeCloudInstallation,
   startCloudDeviceFlow,
-  startCloudGuest,
   testCloudConnection,
   updateCloudConfig,
   type CloudConnectionTest,
@@ -318,30 +317,6 @@ export function CloudAccountSettingsPage() {
     }
   }
 
-  const startGuest = async () => {
-    const confirmed = await showConfirm({
-      title: t('cloudStartGuestTitle'),
-      description: t('cloudDataConsentDescription'),
-      confirmLabel: t('cloudAgreeAndStart'),
-      cancelLabel: t('cancel'),
-    })
-    if (!confirmed || busy) return
-    setBusy('start')
-    setMessage('')
-    setError('')
-    setSwitchWarning('')
-    try {
-      await startCloudGuest()
-      dispatchCloudChanged()
-      setMessage(t('cloudGuestStarted'))
-      await load(false)
-    } catch (startError) {
-      setError(cloudErrorMessage(startError))
-    } finally {
-      setBusy('')
-    }
-  }
-
   const startDeviceFlow = async () => {
     if (busy) return
     setBusy('device-start')
@@ -449,9 +424,7 @@ export function CloudAccountSettingsPage() {
     ? t('cloudSessionMismatchLabel')
     : status?.mode === 'account'
       ? t('cloudFormalAccount')
-      : status?.mode === 'guest'
-        ? t('cloudGuestAccount')
-        : t('cloudNotConnected')
+      : t('cloudNotConnected')
 
   const identityDescription = !status?.configured
     ? t('cloudNotConfiguredDescription')
@@ -616,21 +589,9 @@ export function CloudAccountSettingsPage() {
             <div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title"><UserRound className="size-4" />{t('cloudLoginOrRegister')}</div><div className="quickforge-settings-row-description">{t('cloudLoginOrRegisterDescription')}</div></div>
             <div className="quickforge-settings-row-control"><Button onClick={() => void startDeviceFlow()} disabled={loading || Boolean(busy)}><LogIn className="mr-2 size-4" />{t('cloudLoginOrRegister')}</Button></div>
           </div>
-          <div className="quickforge-settings-row">
-            <div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title"><Sparkles className="size-4" />{t('cloudTryModels')}</div></div>
-            <div className="quickforge-settings-row-control"><Button variant="outline" onClick={() => void startGuest()} disabled={loading || Boolean(busy)}><Sparkles className="mr-2 size-4" />{t('cloudStartGuest')}</Button></div>
-          </div>
         </div>
       ) : contentVisibility.showDetails ? (
         <>
-          {contentVisibility.showGuestUpgrade ? (
-            <div className="quickforge-settings-section">
-              <div className="quickforge-settings-row">
-                <div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title"><UserRound className="size-4" />{t('cloudUpgradeAccount')}</div><div className="quickforge-settings-row-description">{t('cloudUpgradeAccountDescription')}</div></div>
-                <div className="quickforge-settings-row-control"><Button onClick={() => void startDeviceFlow()} disabled={loading || Boolean(busy)}><LogIn className="mr-2 size-4" />{t('cloudUpgradeAccount')}</Button></div>
-              </div>
-            </div>
-          ) : null}
           <div className="quickforge-settings-section">
             <div className="quickforge-settings-list-header"><div className="quickforge-settings-row-title"><Database className="size-4" />{t('cloudModels')}</div></div>
             {details.errors.models ? <DetailFailure error={details.errors.models} onRetry={retryDetails} disabled={detailLoading || Boolean(busy)} /> : details.models.length === 0 ? <div className="p-6 text-center text-sm text-muted-foreground">{detailLoading ? t('loading') : t('cloudNoModels')}</div> : details.models.map((model) => (

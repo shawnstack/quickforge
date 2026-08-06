@@ -13,6 +13,11 @@ describe('resolveMarkdownImageSource', () => {
     expect(resolveMarkdownImageSource('project', 'guide.md', '../secret.svg')).toBeUndefined()
   })
 
+  it('rejects paths that escape the workspace after decoding', () => {
+    expect(resolveMarkdownImageSource('project', 'guide.md', '%2e%2e/secret.svg')).toBeUndefined()
+    expect(resolveMarkdownImageSource('project', 'guide.md', '..%5csecret.svg')).toBeUndefined()
+  })
+
   it('supports workspace-root paths and preserves query or fragment suffixes', () => {
     expect(resolveMarkdownImageSource('project', 'docs/guide.md', '/assets/flow.svg#diagram'))
       .toBe('/api/workspace/preview/project/assets/flow.svg#diagram')

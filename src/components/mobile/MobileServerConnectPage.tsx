@@ -8,10 +8,17 @@ import {
   type MobileServerSettings,
 } from '@/lib/mobile-server'
 
+/** 跳转前连接动画的最小展示时长，避免“点击即跳转”让用户感知不到正在建立连接。 */
+const CONNECT_ANIMATION_MS = 800
+
 export function MobileServerConnectPage() {
   const initialSettings = useMemo(() => readMobileServerSettings(), [])
   const manualSelection = new URLSearchParams(window.location.search).get('connect') === '1'
   const [settings, setSettings] = useState<MobileServerSettings>(initialSettings)
+  // 自动进入（非手动选择且有上次使用的服务器）与手动选择服务器共用同一个连接动画。
+  const [connectingUrl, setConnectingUrl] = useState<string | null>(() =>
+    !manualSelection && initialSettings.lastUsedUrl ? initialSettings.lastUsedUrl : null,
+  )
   const [showAddForm, setShowAddForm] = useState(initialSettings.urls.length === 0)
   const [serverUrl, setServerUrl] = useState('')
   const [aliasInput, setAliasInput] = useState('')
@@ -22,11 +29,14 @@ export function MobileServerConnectPage() {
   const [editingAlias, setEditingAlias] = useState('')
   const [deletingUrl, setDeletingUrl] = useState<string | null>(null)
 
+  // 连接动画展示完成后跳转到目标服务器；组件卸载（如用户按返回键）时取消跳转。
   useEffect(() => {
-    if (!manualSelection && initialSettings.lastUsedUrl) {
-      window.location.replace(buildMobileServerAppUrl(initialSettings.lastUsedUrl))
-    }
-  }, [initialSettings, manualSelection])
+    if (!connectingUrl) return
+    const timer = window.setTimeout(() => {
+      window.location.assign(buildMobileServerAppUrl(connectingUrl))
+    }, CONNECT_ANIMATION_MS)
+    return () => window.clearTimeout(timer)
+  }, [connectingUrl])
 
   const normalizedPreview = useMemo(() => {
     if (!serverUrl.trim()) return ''
@@ -72,7 +82,7 @@ export function MobileServerConnectPage() {
       resetAddForm()
       setSaved(true)
       if (connectAfterSave) {
-        window.location.assign(buildMobileServerAppUrl(normalized))
+        setConnectingUrl(normalized)
       } else {
         setShowAddForm(false)
       }
@@ -90,7 +100,7 @@ export function MobileServerConnectPage() {
   const connectServer = (url: string) => {
     try {
       persistSettings({ ...settings, lastUsedUrl: url })
-      window.location.assign(buildMobileServerAppUrl(url))
+      setConnectingUrl(url)
     } catch (connectError) {
       setError(connectError instanceof Error ? connectError.message : '无法连接到 QuickForge 服务')
     }
@@ -141,6 +151,27 @@ export function MobileServerConnectPage() {
   const deletingLabel = deletingUrl
     ? settings.aliases?.[deletingUrl]?.trim() || deletingUrl
     : ''
+
+  if (connectingUrl) {
+    const connectingLabel = settings.aliases?.[connectingUrl]?.trim() || connectingUrl
+    return (
+      <main
+        className="flex min-h-dvh flex-col items-center justify-center bg-background px-8 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[max(2rem,env(safe-area-inset-top))] text-foreground"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="relative flex size-24 items-center justify-center" aria-hidden="true">
+          <span className="absolute inset-0 animate-ping rounded-full bg-primary/15" />
+          <span className="absolute inset-0 animate-ping rounded-full bg-primary/10 [animation-delay:0.45s]" />
+          <div className="relative flex size-14 items-center justify-center rounded-2xl border border-border bg-background shadow-quickforge">
+            <Server className="size-6 text-foreground/75" />
+          </div>
+        </div>
+        <p className="mt-9 text-sm font-medium text-foreground/85">正在建立连接…</p>
+        <p className="mt-2 w-full max-w-xs truncate text-center font-mono text-xs text-muted-foreground">{connectingLabel}</p>
+      </main>
+    )
+  }
 
   return (
     <main className="min-h-dvh bg-background px-5 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[max(2rem,env(safe-area-inset-top))] text-foreground">

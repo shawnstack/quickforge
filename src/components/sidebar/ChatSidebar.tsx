@@ -1585,10 +1585,7 @@ export const ChatSidebar = memo(function ChatSidebar({
             </span>
             {sidebarOpen ? (
               currentServerAlias ? (
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className={cn(sessionTitleClass, 'text-foreground/80')}>{currentServerAlias}</span>
-                  <span className="truncate font-mono text-[11px] leading-4 text-muted-foreground/70">{currentServerUrl}</span>
-                </span>
+                <span className={cn(sessionTitleClass, 'min-w-0 flex-1')}>{currentServerAlias}</span>
               ) : (
                 <span className={cn(sessionTitleClass, 'min-w-0 flex-1')}>{currentServerUrl}</span>
               )

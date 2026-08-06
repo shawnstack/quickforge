@@ -1,16 +1,21 @@
 import { existsSync, promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { dataDir } from './storage.mjs'
+import { fileURLToPath } from 'node:url'
+import { atomicProjectConfigUpdate, configDir, dataDir } from './storage.mjs'
 import { getEnabledPluginSkillSources } from './plugins/registry.mjs'
 import { logger } from './utils/logger.mjs'
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const bundledSkillsDir = path.resolve(__dirname, '..', 'skills')
 const userSkillsDir = path.join(dataDir, 'skills')
 const sharedUserSkillsDir = path.join(os.homedir(), '.agents', 'skills')
 const claudeUserSkillsDir = path.join(os.homedir(), '.claude', 'skills')
 const opencodeUserSkillsDir = path.join(os.homedir(), '.opencode', 'skills')
+const defaultSkillsMarkerFile = path.join(configDir, '.default-skills-v1')
+const defaultGlobalSkillNames = ['skill-creator']
 const defaultEntry = 'SKILL.md'
-const resourceDirs = ['scripts', 'references', 'assets']
+const resourceDirs = ['scripts', 'references', 'assets', 'agents', 'eval-viewer']
 const maxResourceFiles = 200
 
 function isValidSkillName(value) {
@@ -421,7 +426,7 @@ export function mergeSkills(...skillLists) {
 }
 
 export const skillSearchPaths = {
-  global: searchDirsForList([claudeUserSkillsDir, opencodeUserSkillsDir, sharedUserSkillsDir, userSkillsDir]),
+  global: searchDirsForList([bundledSkillsDir, claudeUserSkillsDir, opencodeUserSkillsDir, sharedUserSkillsDir, userSkillsDir]),
   project: ['<project>/.claude/skills', '<project>/.opencode/skills', '<project>/.agents/skills', '<project>/.quickforge/skills'],
 }
 
@@ -444,11 +449,33 @@ async function loadPluginSkills(workspaceRoot) {
 
 export async function loadGlobalSkills() {
   return loadSkillsFromSources([
+    { dir: bundledSkillsDir, name: 'builtin' },
     { dir: claudeUserSkillsDir, name: 'user-claude' },
     { dir: opencodeUserSkillsDir, name: 'user-opencode' },
     { dir: sharedUserSkillsDir, name: 'user-shared' },
     { dir: userSkillsDir, name: 'user' },
   ])
+}
+
+export async function ensureDefaultGlobalSkills() {
+  if (existsSync(defaultSkillsMarkerFile)) return false
+
+  const known = new Set((await loadGlobalSkills()).map((skill) => skill.name))
+  const defaults = defaultGlobalSkillNames.filter((name) => known.has(name))
+  if (defaults.length === 0) return false
+
+  await atomicProjectConfigUpdate((config) => {
+    config.globalSkills = normalizeSkillNames([
+      ...(Array.isArray(config.globalSkills) ? config.globalSkills : []),
+      ...defaults,
+    ])
+    return config
+  })
+  await fs.mkdir(configDir, { recursive: true })
+  await fs.writeFile(defaultSkillsMarkerFile, `${new Date().toISOString()}\n`, { flag: 'wx' }).catch((error) => {
+    if (error?.code !== 'EEXIST') throw error
+  })
+  return true
 }
 
 export async function loadProjectSkills(workspaceRoot) {

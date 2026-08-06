@@ -184,15 +184,18 @@ server/
 **用途**: Agent Skills 的发现、加载和管理。
 
 **搜索路径**:
-1. `~/.claude/skills/` — Claude 用户级 skills
-2. `~/.opencode/skills/` — opencode 用户级 skills
-3. `~/.agents/skills/` — 用户级共享 skills
-4. `~/.quickforge/skills/` — 用户级全局 skills
-5. `<workspace>/.claude/skills/` — Claude 项目级 skills
-6. `<workspace>/.opencode/skills/` — opencode 项目级 skills
-7. `<workspace>/.agents/skills/` — 项目级共享 skills
-8. `<workspace>/.quickforge/skills/` — 项目级 QuickForge skills
-9. 启用插件贡献的 `contributes.skills` — 插件打包 skills
+1. `<quickforge>/skills/` — 随 Runtime 分发的内置全局 skills；当前包含 Anthropic `skill-creator`
+2. `~/.claude/skills/` — Claude 用户级 skills
+3. `~/.opencode/skills/` — opencode 用户级 skills
+4. `~/.agents/skills/` — 用户级共享 skills
+5. `~/.quickforge/skills/` — 用户级全局 skills
+6. `<workspace>/.claude/skills/` — Claude 项目级 skills
+7. `<workspace>/.opencode/skills/` — opencode 项目级 skills
+8. `<workspace>/.agents/skills/` — 项目级共享 skills
+9. `<workspace>/.quickforge/skills/` — 项目级 QuickForge skills
+10. 启用插件贡献的 `contributes.skills` — 插件打包 skills
+
+内置 `skill-creator` 会在首次运行新版本时自动加入全局已选 Skills；迁移标记写入 `~/.quickforge/config/.default-skills-v1`，因此用户后续取消后不会在重启时被重新启用。用户级目录按上述顺序覆盖同名内置 Skill，其中 `~/.quickforge/skills` 优先级最高；Runtime 更新只替换内置副本，不覆盖用户文件。上游来源、固定 commit 和许可证记录在 `skills/skill-creator/UPSTREAM.md`。
 
 **功能**:
 - `listGlobalSkillSummaries()` / `listProjectSkillSummaries()` — 技能列表

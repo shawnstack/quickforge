@@ -17,6 +17,7 @@ import { handleToolApi, handleGetTools } from './routes/tools.mjs'
 import { handleInstructionsApi } from './routes/instructions.mjs'
 import { handleMemoryApi } from './routes/memory.mjs'
 import { handleSkillsApi } from './routes/skills.mjs'
+import { ensureDefaultGlobalSkills } from './skills.mjs'
 import { handleAgentApi } from './routes/agent.mjs'
 import { handleAgentProfilesApi } from './routes/agent-profiles.mjs'
 import { handleScheduledTasksApi, startScheduledTaskRunner, stopScheduledTaskRunner } from './routes/scheduled-tasks.mjs'
@@ -696,6 +697,7 @@ server.on('upgrade', (req, socket, head) => {
 })
 
 await ensureStorage()
+await ensureDefaultGlobalSkills()
 await initializeNetworkProxy()
 installAiHttpLogger()
 initializeChannels({

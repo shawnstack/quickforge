@@ -127,9 +127,12 @@ Agent 会话管理核心路由。
 Skills 管理路由。
 
 **主要端点**:
-- `GET /api/skills?scope=global|project` — 获取技能列表
-- `PUT /api/skills` — 更新已选技能
-- 支持项目级技能发现
+- `GET /api/skills?scope=global|project` — 获取技能列表、已选项和搜索路径
+- `GET /api/skills/content?scope=global|project&name=...` — 获取 Skill 正文与元数据
+- `GET /api/skills/global` / `GET /api/skills/project` — 获取对应作用域的已选 Skills
+- `PUT /api/skills/global` — 更新全局已选 Skills
+- `PUT /api/skills/project` — 更新指定项目的已选 Skills
+- 支持项目级技能发现；内置 `skill-creator` 首次运行时默认加入全局已选项
 
 ## agent-profiles.mjs (64 行)
 

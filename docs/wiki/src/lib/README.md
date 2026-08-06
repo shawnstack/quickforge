@@ -30,6 +30,7 @@
 | `random-id.ts` | 19 | UUID 生成 |
 | `tool-display-settings.ts` | 40 | Tool 与上下文用量展示设置 |
 | `tool-execution-events.ts` | 120 | 工具执行事件处理 |
+| `sidebar-session-sort-mode.ts` | 左侧会话时间线排序偏好的 `localStorage` 安全读写，刷新后恢复且不参与后端同步 |
 | `system-notifications.ts` | 浏览器 Notification API 与 Capacitor Android 本地通知统一适配；管理当前设备权限、开关、后台展示、点击打开会话和短时去重 |
 | `info-tip.ts` | 134 | 统一问号说明浮层 Web Component |
 

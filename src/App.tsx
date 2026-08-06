@@ -66,6 +66,7 @@ import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { ServerAgent } from '@/lib/server-agent'
 import { logger } from '@/lib/logger'
 import { scheduleAfterPaint } from '@/lib/schedule-after-paint'
+import { loadSidebarSessionSortMode, saveSidebarSessionSortMode } from '@/lib/sidebar-session-sort-mode'
 import { getDeletedProjectRecoveryDecision } from '@/lib/deleted-project-recovery'
 import { isCurrentProjectRequest } from '@/lib/project-request-guard'
 import { shouldRefreshTitleGitStatusOnToolEnd } from '@/lib/title-git-status-refresh'
@@ -308,7 +309,9 @@ function MainApp() {
     artifacts: AiTurnArtifact[]
   }>({ artifacts: [] })
   const [sidebarSessionViewMode, setSidebarSessionViewMode] = useState<SidebarSessionViewMode>('project')
-  const [sidebarSessionSortMode, setSidebarSessionSortMode] = useState<SidebarSessionSortMode>('updatedAt')
+  const [sidebarSessionSortMode, setSidebarSessionSortMode] = useState<SidebarSessionSortMode>(
+    loadSidebarSessionSortMode,
+  )
   // 用户在新对话空状态主动清除项目预选后，本次空状态内不再默认预选上次激活的项目。
   const [emptyStateProjectDismissed, setEmptyStateProjectDismissed] = useState(false)
   const wasNewChatEmptyStateRef = useRef(false)
@@ -354,6 +357,10 @@ function MainApp() {
     setDesktopTitlebarMenuOpen(false)
     window.open('quickforge://exit', '_blank', 'noopener,noreferrer')
   }, [])
+
+  useEffect(() => {
+    saveSidebarSessionSortMode(sidebarSessionSortMode)
+  }, [sidebarSessionSortMode])
 
   // --- Session list + cross-tab sync ---
   const crossTabRef = useRef<ReturnType<typeof useCrossTabSync> | null>(null)

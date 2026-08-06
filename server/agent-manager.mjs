@@ -2164,7 +2164,14 @@ export async function rollbackSessionMessages(sessionId, rollbackMessageIndex) {
 
   const nextMessages = messages.slice(0, rollbackIndex)
   updateSessionMessages(session, nextMessages)
-  resetSessionCompaction(session)
+  const compactedUpToIndex = Number(session.contextCompaction?.compactedUpToIndex) || 0
+  if (rollbackIndex < compactedUpToIndex) {
+    // 撤回越过压缩点，摘要覆盖的历史被截断，压缩失效
+    resetSessionCompaction(session)
+  } else {
+    // 撤回发生在压缩点之后，摘要仍然有效，保留压缩上下文
+    session.lastTransformedContextMessages = null
+  }
   session.status = 'idle'
   session.finishedAt = new Date().toISOString()
   await persistSession(session)
@@ -2389,7 +2396,14 @@ export async function continueSession(sessionId, modelAccessContext = null) {
   const continuedUserMessage = prepareCloudUserMessage(session, commandState.userMessage ?? lastUserMessage)
   const trimmedMessages = messages.slice(0, lastUserIndex).concat(continuedUserMessage)
   updateSessionMessages(session, trimmedMessages)
-  resetSessionCompaction(session)
+  const compactedUpToIndex = Number(session.contextCompaction?.compactedUpToIndex) || 0
+  if (lastUserIndex < compactedUpToIndex) {
+    // 重试点越过压缩点，摘要覆盖的历史被截断，压缩失效
+    resetSessionCompaction(session)
+  } else {
+    // 重试点位于压缩点之后，摘要仍然有效，保留压缩上下文
+    session.lastTransformedContextMessages = null
+  }
   if (isManagedCloudModel(session.model) && logicalMessageId(continuedUserMessage)) {
     await flushSessionPersist(session)
   }

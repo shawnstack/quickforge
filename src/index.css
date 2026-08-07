@@ -1892,6 +1892,16 @@ user-message .user-message-container,
   margin-left: auto;
 }
 
+.quickforge-message-time {
+  color: color-mix(in oklab, var(--muted-foreground) 55%, transparent) !important;
+  font-size: 12px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding: 0 4px;
+  align-self: center;
+}
+
 .quickforge-svg-code-toolbar {
   position: relative;
   display: inline-flex;

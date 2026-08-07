@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>消息时间显示 · 设计稿</title>
+<style>
+  :root {
+    --background: #ffffff;
+    --card: #ffffff;
+    --border: #e5e7eb;
+    --primary: #4f6ef7;
+    --foreground: #23262b;
+    --muted-foreground: #6b7280;
+    --sidebar-bg: #f3f4f6;
+    --radius: 1.125rem;
+    --font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+             "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  }
+  html.dark {
+    --background: #0f1115;
+    --card: #16181d;
+    --border: #2a2d34;
+    --primary: #6d8cff;
+    --foreground: #eceef1;
+    --muted-foreground: #9aa1ab;
+    --sidebar-bg: #14161b;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font);
+    background: var(--background);
+    color: var(--foreground);
+    transition: background .25s, color .25s;
+    line-height: 1.6;
+  }
+
+  /* ---------- 页头 ---------- */
+  .page-head {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 40px 24px 8px;
+  }
+  .page-head h1 { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
+  .page-head .sub { color: var(--muted-foreground); font-size: 13px; margin-top: 6px; }
+  .rule-cards {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px; margin-top: 20px;
+  }
+  .rule-card {
+    border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px;
+    background: var(--card);
+  }
+  .rule-card .tag {
+    font-size: 11px; font-weight: 600; color: var(--primary);
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .rule-card p { font-size: 13px; color: var(--muted-foreground); margin-top: 6px; }
+  .rule-card p b { color: var(--foreground); font-weight: 550; }
+
+  /* ---------- 工具栏 ---------- */
+  .toolbar {
+    max-width: 960px; margin: 20px auto 0; padding: 0 24px;
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  }
+  .btn {
+    font: inherit; font-size: 13px; cursor: pointer;
+    border: 1px solid var(--border); border-radius: 999px;
+    background: var(--card); color: var(--foreground);
+    padding: 6px 14px;
+  }
+  .btn.active { border-color: var(--primary); color: var(--primary); background: color-mix(in oklab, var(--primary) 8%, var(--card)); }
+  .toolbar .hint { font-size: 12px; color: var(--muted-foreground); margin-left: auto; }
+
+  /* ---------- 聊天面板 ---------- */
+  .panel-wrap { max-width: 960px; margin: 16px auto 0; padding: 0 24px 40px; }
+  .panel {
+    border: 1px solid var(--border); border-radius: 16px;
+    background: var(--background); overflow: hidden;
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.05);
+  }
+  .panel-titlebar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+    font-size: 13px; color: var(--muted-foreground); background: var(--sidebar-bg);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: color-mix(in oklab, var(--muted-foreground) 45%, transparent); }
+  .chat-body { padding: 24px 20px 16px; display: flex; flex-direction: column; gap: 22px; }
+
+  /* 消息公共 */
+  .msg { display: flex; flex-direction: column; }
+  .msg-body { max-width: min(78%, 45rem); }
+  .msg-actions {
+    display: flex; align-items: center; gap: 2px;
+    margin-top: 2px; font-size: 12px;
+  }
+  /* AI 消息：左对齐 */
+  .msg.assistant { align-items: flex-start; }
+  .msg.assistant .msg-body { border-radius: var(--radius) var(--radius) var(--radius) 0.375rem; }
+  .msg.assistant .msg-actions { justify-content: flex-start; }
+  /* 用户消息：右对齐 */
+  .msg.user { align-items: flex-end; }
+  .msg.user .msg-body {
+    border-radius: var(--radius) var(--radius) 0.375rem var(--radius);
+    border: 1px solid color-mix(in oklab, var(--primary) 18%, var(--border));
+    background: color-mix(in oklab, var(--primary) 10%, var(--card));
+    box-shadow: 0 10px 28px -24px color-mix(in oklab, var(--primary) 55%, black);
+  }
+  .msg.user .msg-actions { justify-content: flex-end; }
+
+  .bubble { padding: 10px 14px; font-size: 14px; line-height: 1.7; }
+  .bubble p { margin: 0 0 8px; }
+  .bubble p:last-child { margin-bottom: 0; }
+  .bubble ul { margin: 0 0 8px; padding-left: 20px; }
+  .bubble code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang SC", monospace;
+    font-size: 12.5px; background: color-mix(in oklab, var(--muted-foreground) 12%, transparent);
+    border-radius: 4px; padding: 1px 5px;
+  }
+
+  /* ---------- 时间 ---------- */
+  .msg-time {
+    font-size: 12px; line-height: 1;
+    color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+    font-variant-numeric: tabular-nums;
+    padding: 0 6px;
+    white-space: nowrap;
+  }
+
+  /* ---------- 图标 ---------- */
+  .icon-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border: none; border-radius: 6px;
+    background: transparent; color: var(--muted-foreground); cursor: pointer;
+  }
+  .icon-btn:hover { background: color-mix(in oklab, var(--muted-foreground) 14%, transparent); color: var(--foreground); }
+  .icon-btn svg { width: 15px; height: 15px; }
+
+  /* 方案 A：图标行整体 hover 出现（现状交互，时间随图标）
+     方案 B：时间常显，图标 hover 出现（推荐） */
+  .panel.mode-a .icon-btn, .panel.mode-a .msg-time { opacity: 0; transition: opacity .15s; }
+  .panel.mode-a .msg:hover .icon-btn, .panel.mode-a .msg:hover .msg-time { opacity: 1; }
+  .panel.mode-b .icon-btn { opacity: 0; transition: opacity .15s; }
+  .panel.mode-b .msg:hover .icon-btn { opacity: 1; }
+
+  /* ---------- 规格说明 ---------- */
+  .spec {
+    max-width: 960px; margin: 0 auto; padding: 0 24px 56px;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px;
+  }
+  .spec h3 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+  .spec table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .spec th, .spec td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .spec th { color: var(--muted-foreground); font-weight: 500; width: 38%; }
+  .spec .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; border: 1px solid rgb(0 0 0 / 0.1); }
+</style>
+</head>
+<body>
+
+  <div class="page-head">
+    <h1>消息时间显示 · 设计稿</h1>
+    <p class="sub">在现有消息底部图标行内加入时间：用户消息时间在最前（左端），AI 回复时间在最后（右端）。格式为「月-日 时:分」（如 08-07 10:32），静态显示、无 hover 提示。</p>
+    <div class="rule-cards">
+      <div class="rule-card">
+        <div class="tag">用户消息</div>
+        <p><b>时间在图标行最前面</b>：气泡右下方的图标行中，时间作为第一个元素，复制 / 回滚 / 重试图标依次排在后面。</p>
+      </div>
+      <div class="rule-card">
+        <div class="tag">AI 回复</div>
+        <p><b>时间在图标行最后面</b>：内容左下方的图标行中，复制 / fork 图标在前，时间作为最后一个元素收尾。</p>
+      </div>
+      <div class="rule-card">
+        <div class="tag">规格</div>
+        <p><b>弱化小字</b>：12px，颜色为 muted-foreground 55% 透明度混合（与侧边栏会话时间一致）；格式「月-日 时:分」，静态显示。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn active" data-mode="a">方案 A · 时间随图标行 hover 出现（当前实现）</button>
+    <button class="btn" data-mode="b">方案 B · 时间常显（备选）</button>
+    <button class="btn" data-theme="toggle">切换深色 / 浅色</button>
+    <span class="hint">💡 把鼠标移到消息上查看图标与时间出现效果</span>
+  </div>
+
+  <div class="panel-wrap">
+    <div class="panel mode-a" id="panel">
+      <div class="panel-titlebar">
+        <span class="dot"></span>
+        <span>快速开始：quickforge 入门指南</span>
+      </div>
+      <div class="chat-body">
+
+        <!-- AI 回复 -->
+        <div class="msg assistant">
+          <div class="msg-body bubble">
+            <p>可以，我先帮你把项目跑起来。下面是推荐的步骤：</p>
+            <ul>
+              <li>安装依赖：<code>npm install</code></li>
+              <li>启动开发服务：<code>npm run dev</code></li>
+              <li>打开 <code>localhost:5173</code> 验证界面</li>
+            </ul>
+            <p>有问题随时问我。</p>
+          </div>
+          <div class="msg-actions">
+            <button class="icon-btn" title="复制">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+            </button>
+            <button class="icon-btn" title="Fork">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7M8.3 6h6.2a3.5 3.5 0 0 1 3.5 3.5v.5"/></svg>
+            </button>
+            <!-- AI 时间：图标行最后，短格式 月-日 时:分 -->
+            <span class="msg-time">08-07 10:32</span>
+          </div>
+        </div>
+
+        <!-- 用户消息 -->
+        <div class="msg user">
+          <div class="msg-body bubble">
+            <p>好的，那就按这个顺序来，跑通后把验证结果发我。</p>
+          </div>
+          <div class="msg-actions">
+            <!-- 用户时间：图标行最前，短格式 月-日 时:分 -->
+            <span class="msg-time">08-07 10:35</span>
+            <button class="icon-btn" title="复制">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+            </button>
+            <button class="icon-btn" title="回滚">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5h10a6 6 0 0 1 0 12H9.5"/><path d="M7 4.5 3 8.5l4 4"/></svg>
+            </button>
+            <button class="icon-btn" title="重试">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 2.6-6.3"/><path d="M3 4v5h5"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- AI 回复（streaming 中：不显示时间） -->
+        <div class="msg assistant">
+          <div class="msg-body bubble">
+            <p>正在生成回复<span style="color: var(--muted-foreground)">…</span></p>
+          </div>
+          <div class="msg-actions">
+            <button class="icon-btn" title="复制">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+            </button>
+            <button class="icon-btn" title="Fork">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7M8.3 6h6.2a3.5 3.5 0 0 1 3.5 3.5v.5"/></svg>
+            </button>
+            <!-- streaming 中暂无时间，留空占位 -->
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="spec">
+    <div>
+      <h3>时间样式规格</h3>
+      <table>
+        <tr><th>字号 / 行高</th><td>12px / 1（比正文 14px 更弱）</td></tr>
+        <tr><th>颜色</th><td><span class="swatch" style="background: color-mix(in oklab, var(--muted-foreground) 55%, transparent)"></span>muted-foreground × 55%（同侧边栏会话时间）</td></tr>
+        <tr><th>数字</th><td>tabular-nums，避免数字宽度跳动</td></tr>
+        <tr><th>格式</th><td>「月-日 时:分」（08-07 10:32），静态显示，无 hover 提示</td></tr>
+        <tr><th>间距</th><td>左右 padding 6px，与图标保持 2px 间隙</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3>放置规则</h3>
+      <table>
+        <tr><th>用户消息</th><td>时间 = 图标行第一个元素（最前）</td></tr>
+        <tr><th>AI 回复</th><td>时间 = 图标行最后一个元素（最后）</td></tr>
+        <tr><th>streaming 中</th><td>AI 消息无时间戳，不显示时间</td></tr>
+        <tr><th>readOnly 分享页</th><td>用户消息无操作图标时，时间仍独立显示</td></tr>
+        <tr><th>数据来源</th><td>消息自带 timestamp 字段，无需新增数据结构</td></tr>
+      </table>
+    </div>
+  </div>
+
+<script>
+  const panel = document.getElementById('panel');
+  const modeBtns = document.querySelectorAll('[data-mode]');
+  modeBtns.forEach(b => b.addEventListener('click', () => {
+    modeBtns.forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    panel.classList.toggle('mode-a', b.dataset.mode === 'a');
+    panel.classList.toggle('mode-b', b.dataset.mode === 'b');
+  }));
+  document.querySelector('[data-theme]').addEventListener('click', () => {
+    document.documentElement.classList.toggle('dark');
+  });
+</script>
+</body>
+</html>

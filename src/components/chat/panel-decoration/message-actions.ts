@@ -1,5 +1,5 @@
 import type { MessageWithUsage } from '../chat-utils'
-import { replaceSvg } from '../chat-utils'
+import { formatMessageTime, messageTimestamp, replaceSvg } from '../chat-utils'
 import { assistantText, draftTextFromUserMessage } from '@/lib/message-utils'
 import { t } from '@/lib/i18n'
 import {
@@ -57,6 +57,14 @@ function createIconActionButton(
     void onClick(button)
   }
   return button
+}
+
+function createMessageTime(timestamp: number): HTMLElement | null {
+  if (!timestamp) return null
+  const time = document.createElement('span')
+  time.className = 'quickforge-message-time'
+  time.textContent = formatMessageTime(timestamp)
+  return time
 }
 
 type RollbackPopoverElement = HTMLElement & {
@@ -294,6 +302,23 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     element.classList.toggle('quickforge-assistant-message', entry.message.role === 'assistant')
     element.classList.toggle('quickforge-user-message', entry.message.role !== 'assistant')
 
+    const messageTimeValue = messageTimestamp(entry.message)
+    const ensureMessageTime = (actionsContainer: HTMLElement) => {
+      const existingTime = actionsContainer.querySelector<HTMLElement>('.quickforge-message-time')
+      if (messageTimeValue > 0) {
+        if (existingTime) {
+          existingTime.textContent = formatMessageTime(messageTimeValue)
+          return
+        }
+        const time = createMessageTime(messageTimeValue)
+        if (!time) return
+        if (entry.message.role === 'assistant') actionsContainer.append(time)
+        else actionsContainer.prepend(time)
+      } else {
+        existingTime?.remove()
+      }
+    }
+
     if (entry.message.role === 'assistant' && onOpenLocalFilePath) {
       decorateLocalFilePathLinks(element, entry.message, onOpenLocalFilePath)
     }
@@ -335,6 +360,8 @@ export function decorateMessages(deps: MessageDecorationDeps) {
         retryButton.disabled = isStreaming()
         existingActions.append(retryButton)
       }
+
+      ensureMessageTime(existingActions)
 
       return
     }
@@ -391,6 +418,8 @@ export function decorateMessages(deps: MessageDecorationDeps) {
         actions.append(retryButton)
       }
     }
+
+    ensureMessageTime(actions)
 
     element.append(actions)
   })

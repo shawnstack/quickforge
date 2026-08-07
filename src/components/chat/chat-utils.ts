@@ -197,6 +197,12 @@ export function messageTimestamp(message: MessageWithUsage) {
   return 0
 }
 
+export function formatMessageTime(timestamp: number) {
+  const date = new Date(timestamp)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
 export function hasCompactSummary(message: MessageWithUsage) {
   return message.role === 'user' && textFromUnknown(message.content).includes('<compact_summary>')
 }

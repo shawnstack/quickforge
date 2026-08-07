@@ -21,30 +21,51 @@ export function omitDetailsForLlm(message) {
  * Handles "user-with-attachments" → "user" with multi-modal content blocks.
  * Without this the default pi-agent-core convertToLlm silently drops
  * user-with-attachments messages, so the LLM never sees attachments.
+ *
+ * Also guards against orphaned toolResult messages (a tool result without a
+ * preceding assistant tool_call): OpenAI-compatible APIs reject such sequences
+ * with 400 "Messages with role 'tool' must be a response to a preceding
+ * message with 'tool_calls'". Assistant messages that pi-ai would skip
+ * (stopReason error/aborted) are not counted as valid tool_call ancestors,
+ * matching the upstream skip logic so their results are dropped too.
  */
 export function serverConvertToLlm(messages) {
-  return messages
-    .filter(m => m.role !== 'artifact')
-    .map(m => {
-      if (m.role === 'user-with-attachments') {
-        const textContent = typeof m.content === 'string'
-          ? [{ type: 'text', text: m.content }]
-          : [...m.content]
-        if (Array.isArray(m.attachments)) {
-          for (const att of m.attachments) {
-            if (att.type === 'image' && att.content) {
-              textContent.push({ type: 'image', data: att.content, mimeType: att.mimeType })
-            } else if (att.type === 'document' && att.extractedText) {
-              textContent.push({ type: 'text', text: `\n\n[Document: ${att.fileName}]\n${att.extractedText}` })
-            }
+  const pendingToolCallIds = new Set()
+  const converted = []
+  for (const m of messages) {
+    if (!m || typeof m !== 'object') continue
+    if (m.role === 'artifact') continue
+    if (m.role === 'user-with-attachments') {
+      const textContent = typeof m.content === 'string'
+        ? [{ type: 'text', text: m.content }]
+        : [...m.content]
+      if (Array.isArray(m.attachments)) {
+        for (const att of m.attachments) {
+          if (att.type === 'image' && att.content) {
+            textContent.push({ type: 'image', data: att.content, mimeType: att.mimeType })
+          } else if (att.type === 'document' && att.extractedText) {
+            textContent.push({ type: 'text', text: `\n\n[Document: ${att.fileName}]\n${att.extractedText}` })
           }
         }
-        return omitDetailsForLlm({ ...m, role: 'user', content: textContent })
       }
-      if (m.role === 'user' || m.role === 'assistant' || m.role === 'toolResult') return omitDetailsForLlm(m)
-      return null
-    })
-    .filter(Boolean)
+      converted.push(omitDetailsForLlm({ ...m, role: 'user', content: textContent }))
+    } else if (m.role === 'user') {
+      converted.push(omitDetailsForLlm(m))
+    } else if (m.role === 'assistant') {
+      if (m.stopReason !== 'error' && m.stopReason !== 'aborted' && Array.isArray(m.content)) {
+        for (const block of m.content) {
+          if (block?.type === 'toolCall' && block.id) pendingToolCallIds.add(block.id)
+        }
+      }
+      converted.push(omitDetailsForLlm(m))
+    } else if (m.role === 'toolResult') {
+      // 孤儿 toolResult（无前导 assistant tool_calls）直接丢弃，避免上游 400
+      if (!m.toolCallId || !pendingToolCallIds.has(m.toolCallId)) continue
+      pendingToolCallIds.delete(m.toolCallId)
+      converted.push(omitDetailsForLlm(m))
+    }
+  }
+  return converted
 }
 
 /**

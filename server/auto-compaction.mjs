@@ -18,6 +18,14 @@ export const DEFAULT_AUTO_COMPACT_SETTINGS = {
   requireConfirmation: true,
 }
 
+/**
+ * 保留尾部（最近回合）的字符预算上限。当会话以工具消息为主、user 回合
+ * 稀疏时，按 keepRecentTurns 从尾部回溯会跨越大量工具消息，导致压缩
+ * 范围过小甚至为空（tailStart 与 compactedUpToIndex 重合）。达到该预算
+ * 即截断，将更早的工具链历史并入压缩范围。
+ */
+export const DEFAULT_MAX_TAIL_CHARS = 40000
+
 const AUTO_COMPACT_MIN_INTERVAL_MS = 30_000
 const AUTO_COMPACT_REJECTION_SUPPRESS_MS = 10 * 60_000
 
@@ -64,11 +72,13 @@ function contentToText(content) {
   }).filter(Boolean).join('\n')
 }
 
+function messageChars(message) {
+  if (!message || typeof message !== 'object') return 0
+  return [message.role || '', contentToText(message.content), safeJson(message.attachments)].join('\n').length
+}
+
 function estimateMessagesChars(messages) {
-  return (Array.isArray(messages) ? messages : []).reduce((total, message) => {
-    if (!message || typeof message !== 'object') return total
-    return total + [message.role || '', contentToText(message.content), safeJson(message.attachments)].join('\n').length
-  }, 0)
+  return (Array.isArray(messages) ? messages : []).reduce((total, message) => total + messageChars(message), 0)
 }
 
 function isUserMessage(message) {
@@ -76,13 +86,26 @@ function isUserMessage(message) {
     && !isCompactSummaryMessage(message)
 }
 
-function tailStartForRecentTurns(messages, keepRecentTurns) {
+function isToolResultMessage(message) {
+  return message?.role === 'toolResult'
+}
+
+export function tailStartForRecentTurns(messages, keepRecentTurns, maxTailChars = DEFAULT_MAX_TAIL_CHARS) {
   const source = Array.isArray(messages) ? messages : []
   let seenUserTurns = 0
+  let tailChars = 0
   for (let index = source.length - 1; index >= 0; index--) {
-    if (!isUserMessage(source[index])) continue
-    seenUserTurns += 1
+    if (isUserMessage(source[index])) seenUserTurns += 1
+    tailChars += messageChars(source[index])
     if (seenUserTurns >= keepRecentTurns) return index
+    // 保留的尾部超过预算：将当前消息并入压缩范围，避免 tailStart 回溯过远
+    if (tailChars >= maxTailChars) {
+      // 预算截断点可能落在 toolResult 上：若保留尾部以 toolResult 开头，后续
+      // LLM 请求会出现孤立 tool 消息（OpenAI 400）。向前跳过连续的 toolResult。
+      let tailStart = index + 1
+      while (tailStart < source.length && isToolResultMessage(source[tailStart])) tailStart += 1
+      return tailStart
+    }
   }
   return 0
 }
@@ -145,7 +168,11 @@ export function buildAutoCompactLoopMessages(session, messages) {
   if (!summaryMessage) return messages
   const source = Array.isArray(messages) ? messages : []
   const compactedUpToIndex = Math.min(source.length, Math.max(0, Number(session.contextCompaction?.compactedUpToIndex) || 0))
-  return [summaryMessage, ...source.slice(compactedUpToIndex)]
+  // 防御旧持久化数据：compactedUpToIndex 可能指向 toolResult，跳过开头的孤儿，
+  // 避免压缩后的消息序列以 tool 消息开头（LLM API 会拒绝孤立 tool 消息）
+  let tailStart = compactedUpToIndex
+  while (tailStart < source.length && isToolResultMessage(source[tailStart])) tailStart += 1
+  return [summaryMessage, ...source.slice(tailStart)]
 }
 
 export async function compactSessionInPlace({

@@ -1574,8 +1574,14 @@ function MainApp() {
           onBack={closeSettingsPage}
         />
       </Suspense>
-    ) : (
-    <div className="flex h-screen min-h-0 supports-[height:100dvh]:h-dvh bg-[var(--quickforge-sidebar-bg)] text-foreground">
+    ) : null}
+    <div
+      className={cn(
+        'flex h-screen min-h-0 supports-[height:100dvh]:h-dvh bg-[var(--quickforge-sidebar-bg)] text-foreground',
+        ui.settingsDialogOpen && 'hidden',
+      )}
+      aria-hidden={ui.settingsDialogOpen || undefined}
+    >
       <ChatSidebar
         sidebarOpen={ui.sidebarOpen}
         projectsCollapsed={ui.projectsCollapsed}
@@ -2017,7 +2023,6 @@ function MainApp() {
         />
       ) : null}
     </div>
-    )}
     {!startupSplashExited ? <StartupSplash exiting /> : null}
     <ProjectDirectoryPicker
       open={projectPickerOpen}

@@ -68,7 +68,7 @@ function createVersionMismatchError(health, options = {}) {
   return error
 }
 
-function buildEnv(options = {}) {
+export function buildEnv(options = {}) {
   const host = normalizeHost(options.host)
   const port = getPort(options.port)
   const shareLan = options.shareLan === true
@@ -84,6 +84,10 @@ function buildEnv(options = {}) {
   if (options.workspaceDir) env.QUICKFORGE_WORKSPACE_DIR = path.resolve(options.workspaceDir)
   if (options.vitePort) env.QUICKFORGE_VITE_PORT = String(options.vitePort)
   if (options.terminal === false) env.QUICKFORGE_TERMINAL = '0'
+  if (options.qfAgentPath) env.QUICKFORGE_QF_AGENT_PATH = path.resolve(options.qfAgentPath)
+  if (options.qfAgentIdentityDir) env.QUICKFORGE_QF_AGENT_IDENTITY_DIR = path.resolve(options.qfAgentIdentityDir)
+  if (options.qfAgentEnabled !== undefined) env.QUICKFORGE_QF_AGENT_ENABLED = options.qfAgentEnabled === false ? '0' : '1'
+  if (options.runtimeKind) env.QUICKFORGE_RUNTIME_KIND = String(options.runtimeKind)
   if (options.allowRemote || shareLan) env.QUICKFORGE_ALLOW_REMOTE = '1'
   delete env.ELECTRON_RUN_AS_NODE
   delete env.ATOM_SHELL_INTERNAL_RUN_AS_NODE
@@ -172,7 +176,7 @@ export async function startQuickForge(options = {}) {
 
   if (options.inline === true) {
     prepareQuickForgeEnv(options)
-    await import(serverScriptUrl)
+    const serverModule = await import(serverScriptUrl)
     const health = await waitForQuickForge(options)
     if (!health) throw new Error('QuickForge failed to start: health check timed out')
     return {
@@ -184,7 +188,8 @@ export async function startQuickForge(options = {}) {
       reused: false,
       inline: true,
       async stop() {
-        return false
+        await serverModule.stopQuickForgeServer()
+        return true
       },
     }
   }
@@ -242,8 +247,9 @@ export async function startQuickForge(options = {}) {
 }
 
 export async function stopQuickForge(instance) {
-  if (!instance?.child || instance.reused) return false
-  if (instance.child.killed) return false
+  if (!instance || instance.reused) return false
+  if (typeof instance.stop === 'function') return instance.stop()
+  if (!instance.child || instance.child.killed) return false
   instance.child.kill('SIGTERM')
   return true
 }

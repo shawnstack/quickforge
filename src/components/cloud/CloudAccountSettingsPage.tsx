@@ -9,6 +9,7 @@ import {
   getCloudConfig,
   getCloudInstallations,
   getCloudModels,
+  getCloudRemoteStatus,
   getCloudStatus,
   getCloudUsage,
   logoutCloud,
@@ -20,6 +21,7 @@ import {
   updateCloudConfig,
   type CloudConnectionTest,
   type CloudInstallation,
+  type CloudRemoteStatus,
   type CloudServiceConfig,
   type CloudStatus,
 } from '@/lib/cloud-client'
@@ -122,6 +124,18 @@ function modelCapabilities(model: Model<Api>) {
   ].filter(Boolean).join(' · ') || t('cloudCapabilityText')
 }
 
+function remoteStatusLabel(status?: CloudRemoteStatus['status']) {
+  if (!status) return t('cloudRemoteStatusLoading')
+  if (status === 'disabled') return t('cloudRemoteStatusDisabled')
+  if (status === 'unavailable') return t('cloudRemoteStatusUnavailable')
+  if (status === 'stopped') return t('cloudRemoteStatusStopped')
+  if (status === 'starting') return t('cloudRemoteStatusStarting')
+  if (status === 'authorizing') return t('cloudRemoteStatusAuthorizing')
+  if (status === 'running') return t('cloudRemoteStatusRunning')
+  if (status === 'conflict') return t('cloudRemoteStatusConflict')
+  return t('cloudRemoteStatusError')
+}
+
 function detailError(kind: 'usage' | 'installations' | 'models', error: unknown): CloudDetailError {
   const fallback = kind === 'usage'
     ? 'cloudUsageLoadFailed'
@@ -152,6 +166,7 @@ export function CloudAccountSettingsPage() {
   const [urlTouched, setUrlTouched] = useState(false)
   const [connectionTest, setConnectionTest] = useState<CloudConnectionTest>()
   const [status, setStatus] = useState<CloudStatus>()
+  const [remoteStatus, setRemoteStatus] = useState<CloudRemoteStatus>()
   const [details, dispatchDetails] = useReducer(cloudDetailsReducer, emptyCloudDetailsState)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState('')
@@ -170,6 +185,11 @@ export function CloudAccountSettingsPage() {
     if (showLoading) setLoading(true)
     setError('')
     dispatchDetails({ type: 'begin' })
+    void getCloudRemoteStatus().then((nextRemoteStatus) => {
+      if (generation === loadGenerationRef.current) setRemoteStatus(nextRemoteStatus)
+    }).catch(() => {
+      // Remote agent status must not block the Cloud account page.
+    })
     try {
       const [nextConfig, nextStatus] = await Promise.all([getCloudConfig(), getCloudStatus()])
       if (generation !== loadGenerationRef.current) return
@@ -462,6 +482,14 @@ export function CloudAccountSettingsPage() {
     : status?.mode === 'account'
       ? t('cloudFormalAccount')
       : t('cloudNotConnected')
+  const remoteStatusText = remoteStatusLabel(remoteStatus?.status)
+  const remoteStatusTone = remoteStatus?.status === 'running'
+    ? 'quickforge-settings-badge-success'
+    : remoteStatus?.status === 'authorizing' || remoteStatus?.status === 'starting'
+      ? 'quickforge-settings-badge-info'
+      : remoteStatus?.status === 'error' || remoteStatus?.status === 'conflict'
+        ? 'quickforge-settings-badge-warning'
+        : 'quickforge-settings-badge-muted'
 
   const identityDescription = !status?.configured
     ? t('cloudNotConfiguredDescription')
@@ -553,6 +581,22 @@ export function CloudAccountSettingsPage() {
             </div>
           </div>
         ) : null}
+      </div>
+
+      <div className="quickforge-settings-section">
+        <div className="quickforge-settings-row">
+          <div className="quickforge-settings-row-main">
+            <div className="quickforge-settings-row-title"><Laptop className="size-4" />{t('cloudRemoteAccess')}</div>
+            <div className="quickforge-settings-row-description">{t('cloudRemoteAccessDescription')}</div>
+          </div>
+          <div className="quickforge-settings-row-control">
+            <span className={`quickforge-settings-badge ${remoteStatusTone}`}>{remoteStatusText}</span>
+          </div>
+        </div>
+        {remoteStatus?.serverUrl ? <div className="quickforge-settings-row"><div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title">{t('cloudRemoteServerUrl')}</div></div><div className="quickforge-settings-row-control break-all text-sm text-muted-foreground">{remoteStatus.serverUrl}</div></div> : null}
+        {remoteStatus?.pid ? <div className="quickforge-settings-row"><div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title">{t('cloudRemotePid')}</div></div><div className="quickforge-settings-row-control text-sm font-medium">{remoteStatus.pid}</div></div> : null}
+        {remoteStatus?.status === 'authorizing' && remoteStatus.verificationUriComplete ? <div className="quickforge-settings-row"><div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title">{t('cloudRemoteAuthorization')}</div></div><div className="quickforge-settings-row-control"><a className="inline-flex items-center gap-1 text-sm text-primary hover:underline" href={remoteStatus.verificationUriComplete} target="_blank" rel="noreferrer">{t('cloudRemoteOpenAuthorization')}<ExternalLink className="size-3.5" /></a></div></div> : null}
+        {remoteStatus?.error ? <div className="quickforge-settings-warning quickforge-settings-warning-attached">{remoteStatus.error}</div> : null}
       </div>
 
       <div className="quickforge-settings-section">

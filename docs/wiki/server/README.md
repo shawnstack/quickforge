@@ -63,6 +63,7 @@ server/
 - `credential-store.mjs` 将安装密钥、Refresh Token 和待处理 Device Flow 原子保存在 `~/.quickforge/storage/security/cloud-identity.json`；公开状态不返回 Token、私钥、路径或 `deviceCode`，账户摘要严格白名单为 `id/email/plan`。
 - `identity.mjs` 管理显式游客注册、正式账户 OAuth Device Flow、Access Token 内存缓存、Refresh Token 轮换、额度/设备读取和注销；local 的登录动作先在同一显式流程中创建临时 guest，guest 直接升级。pending/slow_down/network 可恢复，denied/expired/cancel 保留 guest；仅网络异常、HTTP 5xx 和可重试服务错误映射为 network，协议/无效响应直接抛错；并发 poll 合并为一次远端 exchange。成功原子替换账户 Token、保留 installation 并清模型缓存。
 - `routes/cloud.mjs` 暴露同源 `/api/cloud/*`：包括配置、连接测试、身份 reset/status、游客、Device Flow start/poll/cancel、目录、额度、设备和退出；所有 Device Flow 写操作使用既有 action header + JSON 防护，响应不返回 `deviceCode`。跨 URL 保存且存在 Session 或 pending flow 时返回 `409 cloud_session_active`。
+- `cloud/qf-agent-process.mjs` 在 HTTP 监听成功后托管独立 `qf-agent` 进程，并使用实际绑定端口生成回环 Server URL；默认身份目录按 `<runtimeKind>-<port>` 隔离 Server 与 Desktop。二进制缺失、版本校验失败、身份锁冲突或远程连接失败仅反映到 `GET /api/cloud/remote/status`，不会阻塞本地 Server 启动；公开状态不包含可执行路径、身份路径或令牌。
 - 退出当前设备时先调用云端 installation revoke，成功后才清理本地 Session；失败时保留凭据供重试。
 - 退出后再次创建游客会轮换 Ed25519 安装密钥，避免旧公钥指纹唯一约束冲突；该行为创建新游客，不恢复旧额度。
 - `models.mjs` 只向浏览器返回无密钥模型描述，过滤 `available:false`，指定 catalog ID 未命中时强制刷新一次；真实 Cloud Token 和上游地址仅在 Node 请求期间注入。

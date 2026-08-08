@@ -48,6 +48,14 @@ URL 安全规则：
 
 Access Token 只存在 Node 内存中。Device Flow 的 `deviceCode` 与待处理状态保存在同一私有凭据文件中，浏览器只获得 `userCode`、验证地址、过期时间、轮询间隔和公开状态；页面刷新或本地服务重启后可继续恢复。创建 Session 或 pending flow 时会把规范化 Cloud URL 写入 `sessionCloudUrl`；Refresh Token 与 deviceCode 只会发送给该绑定 URL。运行时 URL 与绑定 URL 不一致，或检测到旧版本未绑定 URL 的 Session 时，所有 Token/Device 操作都会以 `cloud_session_service_mismatch` 拒绝，用户需在账户页取消/退出或执行“重建身份并切换”。
 
+## Server 托管远程 Agent
+
+QuickForge Server 在 HTTP `listen` 成功后读取当前 Cloud 服务配置，并使用实际绑定端口对应的回环地址启动随运行时分发的 `qf-agent`。Agent 由 Server/Desktop 生命周期托管：Server 关闭、重启或更新前会先停止 Agent，再按原有顺序清理本地运行时与 HTTP 服务。
+
+每个运行实例使用独立身份目录，默认位于 `<dataDir>/remote-agent/<runtimeKind>-<port>`；CLI/Server 的 `runtimeKind` 默认为 `server`，Desktop 使用 `desktop`，因此动态端口和并行运行实例不会共享远程身份。可通过 `QUICKFORGE_QF_AGENT_IDENTITY_DIR` 显式覆盖，或用 `QUICKFORGE_QF_AGENT_ENABLED=0` 禁用托管。
+
+`GET /api/cloud/remote/status` 仅返回运行状态、绑定的回环 Server URL、Agent PID、需要授权时的公开验证链接和脱敏错误，不返回可执行文件路径、身份目录或令牌。Agent 二进制缺失、版本不兼容、锁冲突或连接失败都不会阻塞 QuickForge 本地 Server 启动；本地功能保持可用。
+
 ## 本地 API
 
 所有 `/api/cloud/*` 仅允许本机请求，或已通过 LAN 密码认证的远端请求；不再按 Tailscale IPv4、IPv6、普通 LAN 或公网地址分类。未认证远端请求会先被全局 LAN 认证层以 HTTP 401 拒绝；到达 Cloud 路由但不满足认证边界时返回 HTTP 403 / `cloud_local_only`。配置类 JSON body 限制为 16 KiB。所有非安全写方法还必须携带 `x-quickforge-action: cloud-action`；带 JSON body 的写接口必须使用 `Content-Type: application/json`，以阻止浏览器跨站简单请求绕过预检。

@@ -9,6 +9,9 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const projectRoot = path.resolve(__dirname, '..')
 const appName = 'QuickForge'
+const desktopAgentPath = app.isPackaged
+  ? path.join(process.resourcesPath, 'agent', `${process.platform}-${process.arch}`, process.platform === 'win32' ? 'qf-agent.exe' : 'qf-agent')
+  : undefined
 const desktopTitleBarThemes = {
   light: {
     color: '#f3f4f6',
@@ -434,6 +437,8 @@ async function boot() {
       inline,
       networkRuntime: inline ? createDesktopNetworkRuntime() : undefined,
       terminal: process.env.QUICKFORGE_DESKTOP_TERMINAL === '1',
+      runtimeKind: 'desktop',
+      qfAgentPath: process.env.QUICKFORGE_QF_AGENT_PATH ? undefined : desktopAgentPath,
       detached: false,
     })
 
@@ -478,7 +483,10 @@ if (!gotSingleInstanceLock) {
     isStopping = true
     const instance = quickForgeInstance
     quickForgeInstance = null
-    await stopQuickForge(instance)
-    app.exit(0)
+    try {
+      await stopQuickForge(instance)
+    } finally {
+      app.exit(0)
+    }
   })
 }

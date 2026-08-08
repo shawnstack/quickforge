@@ -5,6 +5,7 @@ import {
   getCloudConfig,
   getCloudInstallations,
   getCloudModels,
+  getCloudRemoteStatus,
   getCloudStatus,
   getCloudUsage,
   logoutCloud,
@@ -31,6 +32,14 @@ describe('cloud client', () => {
     const headers = new Headers(init?.headers)
     expect(headers.get('authorization')).toBeNull()
     expect(headers.get('x-quickforge-action')).toBeNull()
+  })
+
+  it('loads the managed remote agent status with a same-origin GET', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ enabled: true, status: 'authorizing', serverUrl: 'http://127.0.0.1:5177/', pid: 42 }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(getCloudRemoteStatus()).resolves.toMatchObject({ status: 'authorizing', pid: 42 })
+    expect(fetchMock).toHaveBeenCalledWith('/api/cloud/remote/status', expect.objectContaining({ cache: 'no-store' }))
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('x-quickforge-action')).toBeNull()
   })
 
   it('uses same-origin typed config, test, update, and reset APIs', async () => {

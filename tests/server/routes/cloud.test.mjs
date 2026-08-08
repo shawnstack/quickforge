@@ -141,6 +141,16 @@ describe('cloud routes', () => {
     expect(current.identity.startGuest).toHaveBeenCalledTimes(1)
   })
 
+  it('returns remote agent status before initializing the Cloud runtime', async () => {
+    const runtimeFactory = vi.fn(runtime)
+    const qfAgentStatus = vi.fn(() => ({ enabled: true, status: 'running', serverUrl: 'http://127.0.0.1:5176/', pid: 321 }))
+    const handler = createCloudRouteHandler({ runtimeFactory, qfAgentStatus })
+    const res = response()
+    await handler(request(), res, new URL('http://localhost/api/cloud/remote/status'), { isLocalRequest: true })
+    expect(JSON.parse(res.body)).toEqual({ enabled: true, status: 'running', serverUrl: 'http://127.0.0.1:5176/', pid: 321 })
+    expect(runtimeFactory).not.toHaveBeenCalled()
+  })
+
   it('returns and updates the safe managed-service config', async () => {
     const options = handlerOptions({ credentialStoreFactory: () => ({ read: async () => ({}), rotateInstallation: vi.fn() }) })
     const handler = createCloudRouteHandler(options)

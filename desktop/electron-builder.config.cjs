@@ -1,3 +1,20 @@
+const path = require('path')
+
+function normalizePlatform(value) {
+  if (value === 'windows') return 'win32'
+  if (value === 'mac') return 'darwin'
+  return value
+}
+
+function normalizeArch(value) {
+  if (value === 'amd64') return 'x64'
+  return value
+}
+
+const buildPlatform = normalizePlatform(process.env.QUICKFORGE_DESKTOP_BUILD_PLATFORM || process.platform)
+const buildArch = normalizeArch(process.env.QUICKFORGE_DESKTOP_BUILD_ARCH || process.arch)
+const agentTarget = `${buildPlatform}-${buildArch}`
+
 module.exports = {
   appId: 'com.shawnstack.quickforge',
   productName: 'QuickForge',
@@ -13,6 +30,13 @@ module.exports = {
     'package.json',
     'LICENSE',
     'README.md',
+  ],
+  extraResources: [
+    {
+      from: path.join('runtime-assets', 'agent', agentTarget),
+      to: path.join('agent', agentTarget),
+      filter: ['**/*'],
+    },
   ],
   npmRebuild: false,
   asarUnpack: [

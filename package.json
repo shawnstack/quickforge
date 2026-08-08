@@ -41,6 +41,7 @@
     "server",
     "skills",
     "plugins",
+    "runtime-assets",
     "dist",
     "README.md",
     "LICENSE",

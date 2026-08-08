@@ -35,6 +35,8 @@ import { handleTerminalApi, handleTerminalUpgrade } from './routes/terminal.mjs'
 import { handleChannelsApi } from './routes/channels.mjs'
 import { handleModelsApi } from './routes/models.mjs'
 import { handleCloudApi } from './routes/cloud.mjs'
+import { readCloudServiceConfig } from './cloud/service-config.mjs'
+import { startQfAgent, stopQfAgent } from './cloud/qf-agent-process.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { logger, flushLogger } from './utils/logger.mjs'
 import { getPackageInfo, checkForUpdates, checkDesktopRelease } from './utils/package-update.mjs'
@@ -68,6 +70,9 @@ const port = Number(process.env.QUICKFORGE_PORT || (isDev ? 32176 : 5176))
 const vitePort = Number(process.env.QUICKFORGE_VITE_PORT || 5176)
 let restartInProgress = false
 let updateInProgress = false
+let shutdownPromise = null
+let shutdownStarted = false
+let qfAgentStartPromise = null
 
 setDefaultWorkspaceRoot(process.env.QUICKFORGE_WORKSPACE_DIR || path.join(dataDir, 'workspace'))
 
@@ -153,11 +158,9 @@ function closeHttpServer() {
   })
 }
 
-async function performRestart() {
-  logger.info('Restart requested from settings UI.')
-  const supervisorPid = await spawnRestartSupervisor()
-  logger.info(`Restart supervisor started (PID ${supervisorPid}).`)
-
+async function shutdownRuntime() {
+  shutdownStarted = true
+  await stopQfAgent()
   stopScheduledTaskRunner()
   stopAutoArchiveRunner()
   stopVite()
@@ -166,6 +169,19 @@ async function performRestart() {
   await shutdownChannels()
   shutdownTerminalSessions()
   await closeHttpServer()
+}
+
+export function stopQuickForgeServer() {
+  if (!shutdownPromise) shutdownPromise = shutdownRuntime()
+  return shutdownPromise
+}
+
+async function performRestart() {
+  logger.info('Restart requested from settings UI.')
+  const supervisorPid = await spawnRestartSupervisor()
+  logger.info(`Restart supervisor started (PID ${supervisorPid}).`)
+
+  await stopQuickForgeServer()
   process.exit(0)
 }
 
@@ -232,14 +248,7 @@ function spawnUpdateSupervisor(update) {
 
 async function shutdownForUpdate() {
   logger.info('Shutting down QuickForge for external updater.')
-  stopScheduledTaskRunner()
-  stopAutoArchiveRunner()
-  stopVite()
-  await shutdownAgentManager()
-  await shutdownMcpConnections()
-  await shutdownChannels()
-  shutdownTerminalSessions()
-  await closeHttpServer()
+  await stopQuickForgeServer()
   flushLogger()
   process.exit(0)
 }
@@ -547,6 +556,24 @@ function isAllowedHostHeader(value) {
   return allowedHosts.has(parsed.hostname) && hostPort === expectedPort
 }
 
+const trustedTunnelSocket = Symbol('trustedTunnelSocket')
+
+function isTunnelClientRequest(req) {
+  if (
+    isLoopbackAddress(req.socket.remoteAddress)
+    && req.headers['x-quickforge-tunnel'] === '1'
+    && req.headers.host === '127.0.0.1:18080'
+  ) {
+    req.socket[trustedTunnelSocket] = true
+  }
+  return req.socket[trustedTunnelSocket] === true
+}
+
+function isAllowedRequestHost(req, isTunnelClient) {
+  return isAllowedHostHeader(req.headers.host)
+    || (isTunnelClient && req.headers.host === '127.0.0.1:18080')
+}
+
 function isLanAccessBootstrapPath(pathname) {
   return pathname === '/api/health'
     || pathname === '/api/lan-access/status'
@@ -586,7 +613,11 @@ const server = createServer(async (req, res) => {
     reqLogger.info(`${req.method} ${req.url} ${res.statusCode}`, { method: req.method, url: req.url, status: res.statusCode, durationMs })
   })
 
-  if (!isAllowedHostHeader(req.headers.host)) {
+  const remoteAddress = req.socket.remoteAddress
+  // 云远程访问（RemoteTunnel）：agent 与 qf 同机时流量经 127.0.0.1 回环进入并携带
+  // X-QuickForge-Tunnel: 1。仅该可信隧道允许手机本地入口 127.0.0.1:18080 作为 Host。
+  const isTunnelClient = isTunnelClientRequest(req)
+  if (!isAllowedRequestHost(req, isTunnelClient)) {
     res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
     res.end(JSON.stringify({ error: 'Forbidden host' }))
     return
@@ -608,9 +639,9 @@ const server = createServer(async (req, res) => {
   }
   try {
     const url = new URL(req.url || '/', `http://${req.headers.host || `${host}:${port}`}`)
-    const remoteAddress = req.socket.remoteAddress
-    const isRemoteRequest = !isLoopbackAddress(remoteAddress)
-    const remoteAuthorized = isRemoteRequest ? await isAuthorizedRemoteRequest(req) : true
+    // 隧道请求视为“已认证远程客户端”：认证通过，但本地能力按远程请求裁剪。
+    const isRemoteRequest = isTunnelClient || !isLoopbackAddress(remoteAddress)
+    const remoteAuthorized = isRemoteRequest ? (isTunnelClient ? true : await isAuthorizedRemoteRequest(req)) : true
 
     if (isRemoteRequest && !remoteAuthorized && !isLanAccessBootstrapPath(url.pathname) && !isSharePath(url.pathname) && !isStaticAssetPath(url.pathname)) {
       if (url.pathname.startsWith('/api/')) {
@@ -637,6 +668,7 @@ const server = createServer(async (req, res) => {
         isLocalRequest: !isRemoteRequest,
         remoteAddress,
         remoteAuthorized,
+        tunnelClient: isTunnelClient,
       })
       return
     }
@@ -679,7 +711,8 @@ function writeAndDestroySocket(socket, statusLine) {
 }
 
 server.on('upgrade', (req, socket, head) => {
-  if (!isAllowedHostHeader(req.headers.host)) {
+  const isTunnelClient = isTunnelClientRequest(req)
+  if (!isAllowedRequestHost(req, isTunnelClient)) {
     writeAndDestroySocket(socket, 'HTTP/1.1 403 Forbidden')
     return
   }
@@ -688,7 +721,8 @@ server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url || '/', `http://${req.headers.host || `${host}:${port}`}`)
     if (url.pathname.startsWith('/api/terminal/sessions/')) {
       handleTerminalUpgrade(req, socket, head, url, {
-        isLocalRequest: isLoopbackAddress(req.socket.remoteAddress),
+        // 隧道流量同样是远程客户端：终端 WebSocket 保持禁止。
+        isLocalRequest: isLoopbackAddress(req.socket.remoteAddress) && !isTunnelClient,
       })
       return
     }
@@ -727,35 +761,51 @@ server.on('error', (error) => {
 })
 
 server.listen(port, host, () => {
-  logger.info(`QuickForge local API: http://${host}:${port}`)
+  const address = server.address()
+  const boundPort = typeof address === 'object' && address ? address.port : port
+  logger.info(`QuickForge local API: http://${host}:${boundPort}`)
   if (shareLanEnabled) {
-    const lanUrls = getLanUrls(port)
-    logger.info(`QuickForge LAN sharing is enabled. Share pages are available at: ${lanUrls.length ? lanUrls.join(', ') : `http://<your-lan-ip>:${port}`}`)
+    const lanUrls = getLanUrls(boundPort)
+    logger.info(`QuickForge LAN sharing is enabled. Share pages are available at: ${lanUrls.length ? lanUrls.join(', ') : `http://<your-lan-ip>:${boundPort}`}`)
     logger.info('Remote non-share API routes are restricted while QUICKFORGE_SHARE_LAN=1.')
   }
   logger.info(`QuickForge data dir: ${dataDir}`)
   logger.info(`QuickForge project: ${getWorkspaceRoot()}`)
 
+  const pending = readCloudServiceConfig({ strict: false }).then((cloudConfig) => {
+    if (shutdownStarted) return null
+    if (!cloudConfig.valid) {
+      logger.warn(`QuickForge remote agent was not started: ${cloudConfig.configurationError || 'invalid Cloud configuration'}`)
+      return null
+    }
+    if (shutdownStarted) return null
+    return startQfAgent({
+      serverUrl: `http://127.0.0.1:${boundPort}/`,
+      ownerPid: process.pid,
+      cloudUrl: cloudConfig.cloudUrl,
+    })
+  }).catch((error) => {
+    if (!shutdownStarted) logger.warn(`QuickForge remote agent failed to start: ${error?.message || error}`)
+    return null
+  }).finally(() => {
+    if (qfAgentStartPromise === pending) qfAgentStartPromise = null
+  })
+  qfAgentStartPromise = pending
+
   if (isDev) {
     startVite()
     setTimeout(() => openBrowser(`http://localhost:${vitePort}`), 1000)
   } else if (shareLanEnabled) {
-    openBrowser(`http://localhost:${port}`)
+    openBrowser(`http://localhost:${boundPort}`)
   } else {
-    openBrowser(`http://localhost:${port}`)
+    openBrowser(`http://localhost:${boundPort}`)
   }
 })
 
 // Graceful shutdown
 async function gracefulShutdown(signal) {
   logger.info(`Received ${signal}, shutting down gracefully...`)
-  stopScheduledTaskRunner()
-  stopAutoArchiveRunner()
-  stopVite()
-  await shutdownAgentManager()
-  await shutdownMcpConnections()
-  await shutdownChannels()
-  shutdownTerminalSessions()
+  await stopQuickForgeServer()
   flushLogger()
   process.exit(0)
 }

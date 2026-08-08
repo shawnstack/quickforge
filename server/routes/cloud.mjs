@@ -1,3 +1,4 @@
+import { getQfAgentStatus } from '../cloud/qf-agent-process.mjs'
 import { isAuthenticatedAppClient } from '../access-policy.mjs'
 import { CloudClient, CloudApiError } from '../cloud/client.mjs'
 import { parseCloudBaseUrl } from '../cloud/config.mjs'
@@ -79,6 +80,7 @@ export function createCloudRouteHandler({
   credentialStoreFactory = createCloudCredentialStore,
   invalidateRuntime = invalidateCloudRuntime,
   cloudClientFactory = (config) => new CloudClient(config),
+  qfAgentStatus = getQfAgentStatus,
 } = {}) {
   async function runtimeOrError() {
     try {
@@ -94,6 +96,11 @@ export function createCloudRouteHandler({
     }
 
     requireProtectedCloudWrite(req, url.pathname)
+
+    if (req.method === 'GET' && url.pathname === '/api/cloud/remote/status') {
+      sendJson(res, 200, qfAgentStatus())
+      return
+    }
 
     if (req.method === 'GET' && url.pathname === '/api/cloud/config') {
       sendJson(res, 200, publicCloudServiceConfig(await readServiceConfig({ strict: false })))

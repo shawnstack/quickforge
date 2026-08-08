@@ -31,6 +31,18 @@ export type CloudServiceConfig = {
   configurationError?: string
 }
 
+export type CloudRemoteStatusValue = 'disabled' | 'unavailable' | 'stopped' | 'starting' | 'authorizing' | 'running' | 'conflict' | 'error'
+
+export type CloudRemoteStatus = {
+  enabled: boolean
+  status: CloudRemoteStatusValue
+  serverUrl?: string | null
+  pid?: number | null
+  verificationUriComplete?: string | null
+  error?: string | null
+  updatedAt?: string
+}
+
 export type CloudConnectionTest = {
   ok: boolean
   cloudUrl: string
@@ -159,6 +171,10 @@ export function resetCloudIdentity(signal?: AbortSignal) {
 
 export function getCloudStatus(signal?: AbortSignal) {
   return requestCloudJson<CloudStatus>('/api/cloud/status', { signal })
+}
+
+export function getCloudRemoteStatus(signal?: AbortSignal) {
+  return requestCloudJson<CloudRemoteStatus>('/api/cloud/remote/status', { signal })
 }
 
 export function startCloudDeviceFlow(signal?: AbortSignal) {

@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { getQuickForgeHealthVersion, isQuickForgeHealthCompatible, prepareQuickForgeEnv } from '../../server/public-api.mjs'
+import path from 'node:path'
+import { describe, it, expect, vi } from 'vitest'
+import { getQuickForgeHealthVersion, isQuickForgeHealthCompatible, prepareQuickForgeEnv, buildEnv, stopQuickForge } from '../../server/public-api.mjs'
 
 describe('QuickForge public startup API', () => {
   it('reads health versions from current and legacy payload shapes', () => {
@@ -29,6 +30,27 @@ describe('QuickForge public startup API', () => {
       { ok: true, pid: 123, version: '1.5.5' },
       { reuseExisting: false, expectedVersion: '1.5.5' },
     )).toBe(false)
+  })
+
+  it('maps remote agent options into the child and inline environment', () => {
+    const env = buildEnv({
+      qfAgentPath: 'C:\\runtime\\qf-agent.exe',
+      qfAgentIdentityDir: 'C:\\identity',
+      qfAgentEnabled: false,
+      runtimeKind: 'desktop',
+    })
+    expect(env.QUICKFORGE_QF_AGENT_PATH).toBe(path.resolve('C:\\runtime\\qf-agent.exe'))
+    expect(env.QUICKFORGE_QF_AGENT_IDENTITY_DIR).toBe(path.resolve('C:\\identity'))
+    expect(env.QUICKFORGE_QF_AGENT_ENABLED).toBe('0')
+    expect(env.QUICKFORGE_RUNTIME_KIND).toBe('desktop')
+  })
+
+  it('prefers an instance stop method and never stops reused services', async () => {
+    const stop = vi.fn(async () => true)
+    await expect(stopQuickForge({ reused: false, stop })).resolves.toBe(true)
+    expect(stop).toHaveBeenCalledTimes(1)
+    await expect(stopQuickForge({ reused: true, stop })).resolves.toBe(false)
+    expect(stop).toHaveBeenCalledTimes(1)
   })
 
   it('prepares inline runtime environment without requiring system node/npm/qf', () => {

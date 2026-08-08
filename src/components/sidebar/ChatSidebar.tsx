@@ -977,9 +977,8 @@ export const ChatSidebar = memo(function ChatSidebar({
 
       {sidebarOpen ? (
         <>
-          <div className="flex min-h-0 flex-1 flex-col">
           {(pinnedSessionItems.length > 0 || pinnedLoading) ? (
-            <div className="px-3 pb-1 max-h-[28%] flex flex-col min-h-0 overflow-hidden">
+            <div className="md:shrink-0 px-3 pb-1 max-h-[28%] flex flex-col min-h-0 overflow-hidden">
               <div className={sectionHeaderClass}>
                 <button type="button" className={sectionToggleClass} onClick={onTogglePinnedCollapsed} aria-expanded={!pinnedCollapsed}>
                   <span className="truncate">{t('pinnedConversations')}</span>
@@ -1007,7 +1006,7 @@ export const ChatSidebar = memo(function ChatSidebar({
               </div>
             </div>
           ) : null}
-          <div className="px-3 max-h-[55%] flex flex-col min-h-0 overflow-hidden">
+          <div className="md:shrink-0 px-3 max-h-[55%] flex flex-col min-h-0 overflow-hidden">
             <div className="mb-0.5 flex min-h-0 flex-1 flex-col">
               <div className={sectionHeaderClass}>
                 <button type="button" className={sectionToggleClass} onClick={onToggleProjectsCollapsed} aria-expanded={!projectsCollapsed}>
@@ -1517,7 +1516,6 @@ export const ChatSidebar = memo(function ChatSidebar({
                 </div>
               </div>
             </div>
-          </div>
           </div>
         </>
       ) : null}

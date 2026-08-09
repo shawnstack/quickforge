@@ -13,23 +13,23 @@ let runtimeGeneration = 0
 let runtimeFactory = createCloudRuntime
 
 function runtimeKey(config, generation = runtimeGeneration) {
-  return `${generation}:${config?.baseUrl?.href || ''}:${config?.timeoutMs || ''}`
+  return `${generation}:${config?.enabled === true}:${config?.baseUrl?.href || ''}:${config?.timeoutMs || ''}`
 }
 
 export function createCloudRuntime({ config = readCloudConfig(), store, client } = {}) {
-  if (!config?.enabled) return { enabled: false, config }
   const credentialStore = store || createCloudCredentialStore({ clientVersion: process.env.npm_package_version || 'unknown' })
+  if (!config?.baseUrl) return { enabled: false, config, store: credentialStore }
   const cloudClient = client || new CloudClient(config)
   const identity = new CloudIdentityManager({ client: cloudClient, store: credentialStore, serviceUrl: config.baseUrl.href })
   const models = new ManagedCloudModels({ identity })
-  return { enabled: true, config, store: credentialStore, client: cloudClient, identity, models }
+  return { enabled: config.enabled === true, config, store: credentialStore, client: cloudClient, identity, models }
 }
 
 async function resolvedRuntimeConfig() {
   const service = await readCloudServiceConfig()
   const timeoutValue = Number(process.env.QUICKFORGE_CLOUD_TIMEOUT_MS || 10_000)
   return {
-    enabled: Boolean(service.baseUrl),
+    enabled: service.enabled === true && Boolean(service.baseUrl),
     baseUrl: service.baseUrl,
     cloudUrl: service.cloudUrl,
     source: service.source,
@@ -76,7 +76,13 @@ export function invalidateCloudRuntime() {
 export async function resolveManagedCloudProvider(model, signal) {
   if (!isManagedCloudModel(model)) return undefined
   const runtime = await getCloudRuntime()
-  if (!runtime.enabled) throw new Error('QuickForge Cloud is not configured.')
+  if (!runtime.enabled) {
+    const error = new Error(runtime?.config?.baseUrl && runtime?.config?.enabled !== true
+      ? 'QuickForge Cloud is disabled.'
+      : 'QuickForge Cloud is not configured.')
+    error.code = runtime?.config?.baseUrl && runtime?.config?.enabled !== true ? 'cloud_disabled' : 'cloud_not_configured'
+    throw error
+  }
   const resolved = await runtime.models.resolve(model, signal)
   const accessToken = await runtime.identity.access({ signal })
   return {

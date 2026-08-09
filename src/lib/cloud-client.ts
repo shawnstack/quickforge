@@ -24,6 +24,7 @@ export class CloudClientError extends Error {
 export type CloudServiceConfig = {
   schemaVersion: 1
   serviceType: 'quickforge-cloud'
+  enabled: boolean
   cloudUrl: string
   source: CloudConfigSource
   saved?: boolean
@@ -63,6 +64,7 @@ export type CloudPendingDeviceFlow = {
 
 export type CloudStatus = {
   configured: boolean
+  enabled?: boolean
   mode: CloudMode
   hasSession?: boolean
   installationId?: string
@@ -145,10 +147,10 @@ export function getCloudConfig(signal?: AbortSignal) {
   return requestCloudJson<CloudServiceConfig>('/api/cloud/config', { signal })
 }
 
-export function updateCloudConfig(cloudUrl: string, signal?: AbortSignal) {
+export function updateCloudConfig(config: { cloudUrl?: string; enabled?: boolean }, signal?: AbortSignal) {
   return requestCloudJson<CloudServiceConfig>('/api/cloud/config', {
     method: 'PUT',
-    body: JSON.stringify({ cloudUrl }),
+    body: JSON.stringify(config),
     signal,
   })
 }

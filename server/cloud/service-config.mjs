@@ -14,12 +14,12 @@ function savedServiceRecord(settings) {
 function candidateFrom(settings, env) {
   const saved = savedServiceRecord(settings)
   if (saved && typeof saved.cloudUrl === 'string' && saved.cloudUrl.trim()) {
-    return { value: saved.cloudUrl, source: 'saved', saved: true }
+    return { value: saved.cloudUrl, source: 'saved', saved: true, enabled: saved.enabled === true }
   }
   if (typeof env?.QUICKFORGE_CLOUD_URL === 'string' && env.QUICKFORGE_CLOUD_URL.trim()) {
-    return { value: env.QUICKFORGE_CLOUD_URL, source: 'env', saved: false }
+    return { value: env.QUICKFORGE_CLOUD_URL, source: 'env', saved: false, enabled: false }
   }
-  return { value: DEFAULT_CLOUD_URL, source: 'default', saved: false }
+  return { value: DEFAULT_CLOUD_URL, source: 'default', saved: false, enabled: false }
 }
 
 export async function readCloudServiceConfig({ readSettings = readStore, env = process.env, strict = true } = {}) {
@@ -30,6 +30,7 @@ export async function readCloudServiceConfig({ readSettings = readStore, env = p
     return {
       schemaVersion: CLOUD_SERVICE_SCHEMA_VERSION,
       serviceType: CLOUD_SERVICE_TYPE,
+      enabled: candidate.enabled,
       cloudUrl: baseUrl.href,
       baseUrl,
       source: candidate.source,
@@ -41,6 +42,7 @@ export async function readCloudServiceConfig({ readSettings = readStore, env = p
     return {
       schemaVersion: CLOUD_SERVICE_SCHEMA_VERSION,
       serviceType: CLOUD_SERVICE_TYPE,
+      enabled: candidate.enabled,
       cloudUrl: String(candidate.value || '').trim(),
       source: candidate.source,
       saved: candidate.saved,
@@ -50,12 +52,19 @@ export async function readCloudServiceConfig({ readSettings = readStore, env = p
   }
 }
 
-export async function saveCloudServiceConfig(cloudUrl, { updateSettings = atomicUpdate } = {}) {
-  const baseUrl = parseCloudBaseUrl(cloudUrl)
+export async function saveCloudServiceConfig({ cloudUrl, enabled, allowInvalidUrl = false }, { updateSettings = atomicUpdate } = {}) {
+  let normalizedCloudUrl
+  try {
+    normalizedCloudUrl = parseCloudBaseUrl(cloudUrl).href
+  } catch (error) {
+    if (!allowInvalidUrl) throw error
+    normalizedCloudUrl = String(cloudUrl || '').trim()
+  }
   const record = {
     schemaVersion: CLOUD_SERVICE_SCHEMA_VERSION,
     serviceType: CLOUD_SERVICE_TYPE,
-    cloudUrl: baseUrl.href,
+    enabled: enabled === true,
+    cloudUrl: normalizedCloudUrl,
   }
   await updateSettings('settings', (settings) => ({
     ...settings,
@@ -68,6 +77,7 @@ export function publicCloudServiceConfig(config) {
   return {
     schemaVersion: CLOUD_SERVICE_SCHEMA_VERSION,
     serviceType: CLOUD_SERVICE_TYPE,
+    enabled: config.enabled === true,
     cloudUrl: config.cloudUrl,
     source: config.source,
     saved: config.saved,

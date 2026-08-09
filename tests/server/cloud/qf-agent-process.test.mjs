@@ -112,6 +112,12 @@ describe('qf-agent process manager', () => {
     expect(JSON.stringify(status)).not.toContain('token')
   })
 
+  it('marks the agent disabled when Cloud turns off', async () => {
+    const status = await stopQfAgent({ disabled: true })
+    expect(status).toMatchObject({ enabled: false, status: 'disabled', serverUrl: null, pid: null })
+    expect(mocks.spawn).not.toHaveBeenCalled()
+  })
+
   it('reports unavailable without starting a real agent when no binary exists', async () => {
     process.env.QUICKFORGE_QF_AGENT_PATH = path.join(tempDir, 'missing-agent.exe')
     process.env.NODE_ENV = 'production'
@@ -239,6 +245,16 @@ describe('qf-agent process manager', () => {
     await vi.advanceTimersByTimeAsync(1_000)
 
     expect(runtimeChildren).toHaveLength(2)
+  })
+
+  it('restarts with the new Cloud URL after an explicit stop', async () => {
+    const { runtimeChildren } = useSuccessfulAgentSpawn()
+    await startQfAgent(startOptions())
+    await stopQfAgent()
+    await startQfAgent({ ...startOptions(), cloudUrl: 'https://new-cloud.example/' })
+
+    expect(runtimeChildren).toHaveLength(2)
+    expect(mocks.spawn.mock.calls.at(-1)?.[2]?.env?.QF_CLOUD_URL).toBe('https://new-cloud.example/')
   })
 
   it('parses authorization and signaling JSON logs without exposing extra fields', () => {

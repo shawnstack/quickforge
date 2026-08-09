@@ -26,7 +26,7 @@ function response() {
 function runtime() {
   return {
     enabled: true,
-    config: { baseUrl: new URL('https://old.example/') },
+    config: { enabled: true, baseUrl: new URL('https://old.example/') },
     identity: {
       status: vi.fn(async () => ({ mode: 'guest', hasSession: true, installationId: 'i-1' })),
       startGuest: vi.fn(async () => ({ mode: 'guest', usage: { remaining: 100 } })),
@@ -46,6 +46,7 @@ function runtime() {
 const savedConfig = {
   schemaVersion: 1,
   serviceType: 'quickforge-cloud',
+  enabled: true,
   cloudUrl: 'https://old.example/',
   baseUrl: new URL('https://old.example/'),
   source: 'saved',
@@ -82,7 +83,7 @@ describe('cloud routes', () => {
       remoteAuthorized: true,
     })
     expect(res.status).toBe(200)
-    expect(JSON.parse(res.body)).toMatchObject({ configured: true, mode: 'guest' })
+    expect(JSON.parse(res.body)).toMatchObject({ configured: true, enabled: true, mode: 'guest' })
   })
 
   it.each([
@@ -144,10 +145,20 @@ describe('cloud routes', () => {
   it('returns remote agent status before initializing the Cloud runtime', async () => {
     const runtimeFactory = vi.fn(runtime)
     const qfAgentStatus = vi.fn(() => ({ enabled: true, status: 'running', serverUrl: 'http://127.0.0.1:5176/', pid: 321 }))
-    const handler = createCloudRouteHandler({ runtimeFactory, qfAgentStatus })
+    const handler = createCloudRouteHandler({ runtimeFactory, qfAgentStatus, readServiceConfig: vi.fn(async () => savedConfig) })
     const res = response()
     await handler(request(), res, new URL('http://localhost/api/cloud/remote/status'), { isLocalRequest: true })
     expect(JSON.parse(res.body)).toEqual({ enabled: true, status: 'running', serverUrl: 'http://127.0.0.1:5176/', pid: 321 })
+    expect(runtimeFactory).not.toHaveBeenCalled()
+  })
+
+  it('returns disabled remote status without initializing the Cloud runtime', async () => {
+    const runtimeFactory = vi.fn(runtime)
+    const qfAgentStatus = vi.fn(() => ({ enabled: false, status: 'disabled', serverUrl: null, pid: null }))
+    const handler = createCloudRouteHandler({ runtimeFactory, qfAgentStatus })
+    const res = response()
+    await handler(request(), res, new URL('http://localhost/api/cloud/remote/status'), { isLocalRequest: true })
+    expect(JSON.parse(res.body)).toMatchObject({ enabled: false, status: 'disabled', serverUrl: null, pid: null })
     expect(runtimeFactory).not.toHaveBeenCalled()
   })
 
@@ -156,12 +167,73 @@ describe('cloud routes', () => {
     const handler = createCloudRouteHandler(options)
     const get = response()
     await handler(request(), get, new URL('http://localhost/api/cloud/config'), { isLocalRequest: true })
-    expect(JSON.parse(get.body)).toMatchObject({ serviceType: 'quickforge-cloud', cloudUrl: 'https://old.example/', source: 'saved' })
+    expect(JSON.parse(get.body)).toMatchObject({ serviceType: 'quickforge-cloud', enabled: true, cloudUrl: 'https://old.example/', source: 'saved' })
 
     const put = response()
     await handler(cloudRequest('PUT', { cloudUrl: 'http://127.0.0.1:8082' }), put, new URL('http://localhost/api/cloud/config'), { isLocalRequest: true })
-    expect(options.saveServiceConfig).toHaveBeenCalledWith('http://127.0.0.1:8082/')
+    expect(options.saveServiceConfig).toHaveBeenCalledWith({ cloudUrl: 'http://127.0.0.1:8082/', enabled: true, allowInvalidUrl: false })
     expect(options.invalidateRuntime).toHaveBeenCalledTimes(1)
+  })
+
+  it('updates only enabled, preserves the URL, and does not read credentials', async () => {
+    const credentialStore = { read: vi.fn(), rotateInstallation: vi.fn() }
+    const onCloudServiceConfigChanged = vi.fn()
+    const options = handlerOptions({
+      readServiceConfig: vi.fn()
+        .mockResolvedValueOnce(savedConfig)
+        .mockResolvedValueOnce({ ...savedConfig, enabled: false }),
+      credentialStoreFactory: () => credentialStore,
+    })
+    const handler = createCloudRouteHandler(options)
+    const res = response()
+    await handler(cloudRequest('PUT', { enabled: false }), res, new URL('http://localhost/api/cloud/config'), {
+      isLocalRequest: true,
+      onCloudServiceConfigChanged,
+    })
+
+    expect(credentialStore.read).not.toHaveBeenCalled()
+    expect(options.saveServiceConfig).toHaveBeenCalledWith({ cloudUrl: 'https://old.example/', enabled: false, allowInvalidUrl: true })
+    expect(onCloudServiceConfigChanged).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }), { urlChanged: false })
+    expect(JSON.parse(res.body)).toMatchObject({ enabled: false, cloudUrl: 'https://old.example/' })
+  })
+
+  it('can turn off an invalid saved URL without trying to parse it or read credentials', async () => {
+    const credentialStore = { read: vi.fn(), rotateInstallation: vi.fn() }
+    const invalidConfig = { ...savedConfig, enabled: true, valid: false, baseUrl: undefined, cloudUrl: 'ftp://invalid.example', configurationError: 'invalid' }
+    const options = handlerOptions({
+      readServiceConfig: vi.fn()
+        .mockResolvedValueOnce(invalidConfig)
+        .mockResolvedValueOnce({ ...invalidConfig, enabled: false, source: 'saved' }),
+      credentialStoreFactory: () => credentialStore,
+    })
+    const handler = createCloudRouteHandler(options)
+    const res = response()
+
+    await handler(cloudRequest('PUT', { enabled: false }), res, new URL('http://localhost/api/cloud/config'), { isLocalRequest: true })
+
+    expect(credentialStore.read).not.toHaveBeenCalled()
+    expect(options.saveServiceConfig).toHaveBeenCalledWith({ cloudUrl: 'ftp://invalid.example', enabled: false, allowInvalidUrl: true })
+    expect(JSON.parse(res.body)).toMatchObject({ enabled: false, valid: false, cloudUrl: 'ftp://invalid.example' })
+  })
+
+  it('keeps local status and logout available for a disabled invalid configuration', async () => {
+    const store = {
+      readPublic: vi.fn(async () => ({ mode: 'account', hasSession: true, account: { email: 'user@example.test' } })),
+      clearSession: vi.fn(async () => undefined),
+    }
+    const invalidConfig = { ...savedConfig, enabled: false, valid: false, baseUrl: undefined, cloudUrl: 'ftp://invalid.example', configurationError: 'invalid' }
+    const handler = createCloudRouteHandler({
+      runtimeFactory: vi.fn(async () => { throw new Error('invalid') }),
+      readServiceConfig: vi.fn(async () => invalidConfig),
+      credentialStoreFactory: () => store,
+    })
+
+    const status = response()
+    await handler(request(), status, new URL('http://localhost/api/cloud/status'), { isLocalRequest: true })
+    expect(JSON.parse(status.body)).toMatchObject({ configured: true, enabled: false, mode: 'account', hasSession: true, configurationError: 'invalid' })
+
+    await handler(cloudRequest('POST'), response(), new URL('http://localhost/api/cloud/logout'), { isLocalRequest: true })
+    expect(store.clearSession).toHaveBeenCalledTimes(1)
   })
 
   it('blocks cross-URL save with an active session but allows the same URL', async () => {
@@ -172,7 +244,7 @@ describe('cloud routes', () => {
     expect(options.saveServiceConfig).not.toHaveBeenCalled()
 
     await handler(cloudRequest('PUT', { cloudUrl: 'https://old.example' }), response(), new URL('http://localhost/api/cloud/config'), { isLocalRequest: true })
-    expect(options.saveServiceConfig).toHaveBeenCalledWith('https://old.example/')
+    expect(options.saveServiceConfig).toHaveBeenCalledWith({ cloudUrl: 'https://old.example/', enabled: true, allowInvalidUrl: false })
 
     const legacyOptions = handlerOptions({
       credentialStoreFactory: () => ({ read: vi.fn(async () => ({ refreshToken: 'legacy-refresh' })), rotateInstallation: vi.fn() }),
@@ -224,9 +296,46 @@ describe('cloud routes', () => {
     const handler = createCloudRouteHandler({ runtimeFactory: () => current })
     const res = response()
     await handler(request(), res, new URL('http://localhost/api/cloud/status'), { isLocalRequest: true })
-    expect(JSON.parse(res.body)).toEqual({ configured: true, mode: 'guest', hasSession: true, installationId: 'i-1' })
+    expect(JSON.parse(res.body)).toEqual({ configured: true, enabled: true, mode: 'guest', hasSession: true, installationId: 'i-1' })
     expect(res.body).not.toContain('token')
     expect(current.identity.startGuest).not.toHaveBeenCalled()
+  })
+
+  it('blocks remote Cloud operations while disabled but keeps local status and logout available', async () => {
+    const current = runtime()
+    current.enabled = false
+    current.config = { enabled: false, baseUrl: new URL('https://old.example/') }
+    current.identity.status.mockResolvedValue({ mode: 'account', hasSession: true, account: { email: 'person@example.com', plan: 'pro' }, installationId: 'i-1' })
+    const handler = createCloudRouteHandler({ runtimeFactory: () => current })
+
+    const status = response()
+    await handler(request(), status, new URL('http://localhost/api/cloud/status'), { isLocalRequest: true })
+    expect(JSON.parse(status.body)).toEqual({
+      configured: true,
+      enabled: false,
+      mode: 'account',
+      hasSession: true,
+      account: { email: 'person@example.com', plan: 'pro' },
+      installationId: 'i-1',
+    })
+
+    for (const pathname of ['/api/cloud/models', '/api/cloud/usage', '/api/cloud/installations']) {
+      await expect(handler(request(), response(), new URL(`http://localhost${pathname}`), { isLocalRequest: true }))
+        .rejects.toMatchObject({ statusCode: 503, code: 'cloud_disabled' })
+    }
+    for (const pathname of ['/api/cloud/device/start', '/api/cloud/device/poll', '/api/cloud/device/cancel']) {
+      await expect(handler(cloudRequest('POST', {}), response(), new URL(`http://localhost${pathname}`), { isLocalRequest: true }))
+        .rejects.toMatchObject({ statusCode: 503, code: 'cloud_disabled' })
+    }
+    await expect(handler(cloudRequest('DELETE'), response(), new URL('http://localhost/api/cloud/installations/i-2'), { isLocalRequest: true }))
+      .rejects.toMatchObject({ statusCode: 503, code: 'cloud_disabled' })
+
+    await handler(cloudRequest('POST'), response(), new URL('http://localhost/api/cloud/logout'), { isLocalRequest: true })
+    expect(current.identity.logout).toHaveBeenCalledTimes(1)
+    expect(current.identity.usage).not.toHaveBeenCalled()
+    expect(current.identity.installations).not.toHaveBeenCalled()
+    expect(current.identity.revokeInstallation).not.toHaveBeenCalled()
+    expect(current.models.list).not.toHaveBeenCalled()
   })
 
   it('starts guest explicitly, returns models, and preserves remote-first logout semantics', async () => {

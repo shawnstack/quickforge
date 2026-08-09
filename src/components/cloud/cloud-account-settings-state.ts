@@ -112,11 +112,12 @@ export type CloudAccountContentVisibility = {
 
 export function getCloudAccountContentVisibility(status?: CloudStatus): CloudAccountContentVisibility {
   const configured = status?.configured === true
-  const hasSession = configured && status.hasSession === true
-  const usableSession = hasSession && status.sessionServiceMismatch !== true
+  const enabled = status?.enabled !== false
+  const hasSession = configured && status?.hasSession === true
+  const usableSession = hasSession && status?.sessionServiceMismatch !== true
   return {
-    showDeviceFlow: configured && Boolean(status.pendingDeviceFlow),
-    showDisconnectedActions: configured && !status.pendingDeviceFlow && !hasSession,
+    showDeviceFlow: enabled && configured && Boolean(status?.pendingDeviceFlow),
+    showDisconnectedActions: enabled && configured && !status?.pendingDeviceFlow && !hasSession,
     showDetails: usableSession,
   }
 }

@@ -46,7 +46,7 @@ export function readCloudConfig(env = process.env) {
   const baseUrl = parseCloudBaseUrl(env.QUICKFORGE_CLOUD_URL)
   const timeoutValue = Number(env.QUICKFORGE_CLOUD_TIMEOUT_MS || DEFAULT_TIMEOUT_MS)
   return {
-    enabled: Boolean(baseUrl),
+    enabled: false,
     baseUrl,
     timeoutMs: Number.isFinite(timeoutValue) ? Math.min(60_000, Math.max(1_000, timeoutValue)) : DEFAULT_TIMEOUT_MS,
   }

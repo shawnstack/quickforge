@@ -65,7 +65,7 @@
 
 ### useCloudModels.ts (139 行)
 
-- `loadCloudModels()` 先读取 `GET /api/cloud/status`，只有已配置且存在 Session 时才加载公开模型目录；不会自动创建游客。
+- `loadCloudModels()` 先读取 `GET /api/cloud/status`，只有总开关已启用、已配置且存在 Session 时才加载公开模型目录；关闭时不会请求 `/api/cloud/models`，也不会自动创建游客。
 - `startGuestCloud()` 是前端显式游客入口，注册成功后加载模型目录。
 - 监听 `quickforge:cloud-state-changed`，中止旧请求并清空内存模型缓存；配置切换、身份 reset 或退出后不会继续复用旧目录。
 

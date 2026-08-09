@@ -17,6 +17,7 @@ const models = [{ id: 'cloud-model', name: 'Cloud Model', provider: 'quickforge-
 const config: CloudServiceConfig = {
   schemaVersion: 1,
   serviceType: 'quickforge-cloud',
+  enabled: true,
   cloudUrl: 'https://new.example.test/',
   source: 'saved',
 }
@@ -98,6 +99,15 @@ describe('Cloud account settings state', () => {
       showDeviceFlow: true,
       showDisconnectedActions: false,
       showGuestUpgrade: false,
+      showDetails: true,
+    })
+  })
+
+  it('keeps identity details available while the cloud service is disabled', () => {
+    const status = { configured: true, enabled: false, mode: 'account' as const, hasSession: true }
+    expect(getCloudAccountContentVisibility(status)).toEqual({
+      showDeviceFlow: false,
+      showDisconnectedActions: false,
       showDetails: true,
     })
   })

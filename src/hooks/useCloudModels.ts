@@ -36,8 +36,8 @@ export function useCloudModels(enabled = true) {
       try {
         const status = await getCloudStatus(controller.signal)
         if (!mountedRef.current || generation !== generationRef.current || controller.signal.aborted) return []
-        setConfigured(Boolean(status.configured))
-        if (!status.configured || status.mode === 'local' || !status.hasSession) {
+        setConfigured(Boolean(status.enabled !== false && status.configured))
+        if (status.enabled === false || !status.configured || status.mode === 'local' || !status.hasSession) {
           modelsRef.current = []
           return []
         }
@@ -68,7 +68,7 @@ export function useCloudModels(enabled = true) {
       void getCloudStatus(controller.signal)
         .then((status) => {
           if (mountedRef.current && generation === generationRef.current && !controller.signal.aborted) {
-            setConfigured(Boolean(status.configured))
+            setConfigured(Boolean(status.enabled !== false && status.configured))
           }
         })
         .catch(() => undefined)

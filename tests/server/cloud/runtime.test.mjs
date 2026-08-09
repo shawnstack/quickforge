@@ -51,9 +51,9 @@ function deferred() {
   return { promise, resolve, reject }
 }
 
-function serviceConfig(url) {
+function serviceConfig(url, enabled = true) {
   const baseUrl = new URL(url)
-  return { baseUrl, cloudUrl: baseUrl.href, source: 'saved', saved: true }
+  return { baseUrl, cloudUrl: baseUrl.href, enabled, source: 'saved', saved: true }
 }
 
 function runtime(url) {
@@ -69,6 +69,27 @@ describe('cloud runtime singleton', () => {
   afterEach(() => {
     resetCloudRuntimeForTests()
     readCloudServiceConfig.mockReset()
+  })
+
+  it('builds local identity and store while the service is disabled', () => {
+    const store = fakeStore()
+    const current = createCloudRuntime({
+      config: { enabled: false, baseUrl: new URL('https://cloud.test') },
+      store,
+      client: fakeClient(),
+    })
+    expect(current.enabled).toBe(false)
+    expect(current.store).toBe(store)
+    expect(current.identity).toBeDefined()
+    expect(current.models).toBeDefined()
+  })
+
+  it('keeps the service disabled when only an env-backed URL is available', async () => {
+    readCloudServiceConfig.mockResolvedValue(serviceConfig('https://env.test/', false))
+    const factory = vi.fn(({ config }) => ({ enabled: config.enabled, config }))
+    setCloudRuntimeFactoryForTests(factory)
+    await expect(getCloudRuntime()).resolves.toMatchObject({ enabled: false })
+    expect(factory).toHaveBeenCalledWith(expect.objectContaining({ config: expect.objectContaining({ enabled: false }) }))
   })
 
   it('deduplicates concurrent requests for the same config and generation', async () => {
@@ -229,6 +250,19 @@ describe('managed cloud provider resolution', () => {
     // The resolved provider model must never carry client-controlled credentials.
     expect(resolved.model.apiKey).toBeUndefined()
     expect(resolved.model.headers).toBeUndefined()
+  })
+
+  it('returns cloud_disabled for a configured managed model while the service switch is off', async () => {
+    setCloudRuntimeForTests(createCloudRuntime({
+      config: { enabled: false, baseUrl: new URL('https://cloud.test') },
+      store: fakeStore(),
+      client: fakeClient(),
+    }))
+    await expect(resolveManagedCloudProvider({
+      provider: 'quickforge-cloud',
+      quickforgeModelSource: 'cloud',
+      quickforgeCatalogId: 'm1',
+    })).rejects.toMatchObject({ code: 'cloud_disabled' })
   })
 
   it('returns undefined for non-managed models', async () => {

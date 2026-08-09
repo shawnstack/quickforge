@@ -52,11 +52,13 @@ describe('cloud client', () => {
 
     await expect(getCloudConfig()).resolves.toMatchObject({ serviceType: 'quickforge-cloud' })
     await expect(testCloudConnection('http://localhost:8082')).resolves.toMatchObject({ ok: true })
-    await expect(updateCloudConfig('http://localhost:8082')).resolves.toMatchObject({ source: 'saved' })
+    await expect(updateCloudConfig({ cloudUrl: 'http://localhost:8082' })).resolves.toMatchObject({ source: 'saved' })
+    await expect(updateCloudConfig({ enabled: false })).resolves.toMatchObject({ source: 'saved' })
     await expect(resetCloudIdentity()).resolves.toMatchObject({ ok: true })
 
     expect(fetchMock).toHaveBeenCalledWith('/api/cloud/test-connection', expect.objectContaining({ method: 'POST', body: JSON.stringify({ cloudUrl: 'http://localhost:8082' }) }))
-    expect(fetchMock).toHaveBeenCalledWith('/api/cloud/config', expect.objectContaining({ method: 'PUT' }))
+    expect(fetchMock).toHaveBeenCalledWith('/api/cloud/config', expect.objectContaining({ method: 'PUT', body: JSON.stringify({ cloudUrl: 'http://localhost:8082' }) }))
+    expect(fetchMock).toHaveBeenCalledWith('/api/cloud/config', expect.objectContaining({ method: 'PUT', body: JSON.stringify({ enabled: false }) }))
     expect(fetchMock).toHaveBeenCalledWith('/api/cloud/identity/reset', expect.objectContaining({ body: JSON.stringify({ confirm: 'reset-cloud-identity' }) }))
     for (const [path, init] of fetchMock.mock.calls) {
       const headers = new Headers(init?.headers)
@@ -109,7 +111,7 @@ describe('cloud client', () => {
 
   it('preserves local service error codes', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'Sign out first', code: 'cloud_session_active' }), { status: 409 })))
-    const error = await updateCloudConfig('https://new.example').catch((value) => value)
+    const error = await updateCloudConfig({ cloudUrl: 'https://new.example' }).catch((value) => value)
     expect(error).toBeInstanceOf(CloudClientError)
     expect(error).toMatchObject({ message: 'Sign out first', status: 409, code: 'cloud_session_active' })
   })

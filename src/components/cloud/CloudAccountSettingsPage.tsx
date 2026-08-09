@@ -83,7 +83,6 @@ function validateCloudUrl(value: string) {
     return t('cloudUrlInvalid')
   }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') return t('cloudUrlInvalidProtocol')
-  if (url.protocol === 'http:' && !isLoopbackHost(url.hostname)) return t('cloudUrlHttpRestricted')
   if (isLoopbackHost(url.hostname) && url.port === '8081') return t('cloudUrlAdminPort')
   return ''
 }
@@ -197,7 +196,7 @@ export function CloudAccountSettingsPage() {
       if (!preserveDraftUrl) setCloudUrl(nextConfig.cloudUrl)
       setStatus(nextStatus)
 
-      if (!nextStatus.configured || !nextStatus.hasSession || nextStatus.sessionServiceMismatch) {
+      if (!nextConfig.enabled || !nextStatus.configured || !nextStatus.hasSession || nextStatus.sessionServiceMismatch) {
         clearDetails()
         return
       }
@@ -229,7 +228,7 @@ export function CloudAccountSettingsPage() {
   }, [load])
 
   useEffect(() => {
-    if (!status?.pendingDeviceFlow) return
+    if (!config?.enabled || !status?.pendingDeviceFlow) return
     const updateNow = () => setNow(Date.now())
     const initialTimer = window.setTimeout(updateNow, 0)
     const timer = window.setInterval(updateNow, 1_000)
@@ -237,18 +236,18 @@ export function CloudAccountSettingsPage() {
       window.clearTimeout(initialTimer)
       window.clearInterval(timer)
     }
-  }, [status?.pendingDeviceFlow])
+  }, [config?.enabled, status?.pendingDeviceFlow])
 
   useEffect(() => {
     const pending = status?.pendingDeviceFlow
-    if (!pending || deviceFlowSecondsLeft > 0) return
+    if (!config?.enabled || !pending || deviceFlowSecondsLeft > 0) return
     const timer = window.setTimeout(() => { void load(false) }, 0)
     return () => window.clearTimeout(timer)
-  }, [deviceFlowSecondsLeft, load, status?.pendingDeviceFlow])
+  }, [config?.enabled, deviceFlowSecondsLeft, load, status?.pendingDeviceFlow])
 
   useEffect(() => {
     const pending = status?.pendingDeviceFlow
-    if (!pending || busy === 'device-start' || busy === 'device-cancel') return
+    if (!config?.enabled || !pending || busy === 'device-start' || busy === 'device-cancel') return
     const delay = Math.max(1, Number(pending.interval) || 5) * 1_000
     const timer = window.setTimeout(async () => {
       try {
@@ -271,7 +270,7 @@ export function CloudAccountSettingsPage() {
       }
     }, delay)
     return () => window.clearTimeout(timer)
-  }, [busy, load, status?.pendingDeviceFlow])
+  }, [busy, config?.enabled, load, status?.pendingDeviceFlow])
 
   const dispatchCloudChanged = () => window.dispatchEvent(new Event(CLOUD_STATE_CHANGED_EVENT))
 
@@ -307,7 +306,7 @@ export function CloudAccountSettingsPage() {
     setMessage('')
     setError('')
     try {
-      const nextConfig = await updateCloudConfig(cloudUrl)
+      const nextConfig = await updateCloudConfig({ cloudUrl })
       setConfig(nextConfig)
       setCloudUrl(nextConfig.cloudUrl)
       setConnectionTest(undefined)
@@ -317,6 +316,28 @@ export function CloudAccountSettingsPage() {
       await load(false)
     } catch (saveError) {
       setError(cloudErrorMessage(saveError))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const setCloudServiceEnabled = async (enabled: boolean) => {
+    if (busy || !config || config.enabled === enabled) return
+    setBusy('cloud-toggle')
+    setMessage('')
+    setError('')
+    setSwitchWarning('')
+    try {
+      const nextConfig = await updateCloudConfig({ enabled })
+      setConfig(nextConfig)
+      setCloudUrl(nextConfig.cloudUrl)
+      setConnectionTest(undefined)
+      if (!nextConfig.enabled) clearDetails()
+      dispatchCloudChanged()
+      setMessage(t(nextConfig.enabled ? 'cloudServiceEnabledSaved' : 'cloudServiceDisabledSaved'))
+      await load(false)
+    } catch (toggleError) {
+      setError(cloudErrorMessage(toggleError))
     } finally {
       setBusy('')
     }
@@ -343,7 +364,7 @@ export function CloudAccountSettingsPage() {
     try {
       const result = await rebuildCloudIdentityAndSaveUrl(targetCloudUrl, {
         reset: resetCloudIdentity,
-        save: updateCloudConfig,
+        save: (nextCloudUrl) => updateCloudConfig({ cloudUrl: nextCloudUrl }),
         onIdentityReset: () => {
           loadGenerationRef.current += 1
           setStatus((current) => current ? { ...current, mode: 'local', hasSession: false, sessionServiceMismatch: false } : current)
@@ -468,6 +489,7 @@ export function CloudAccountSettingsPage() {
     }
   }
 
+  const cloudEnabled = config?.enabled === true
   const hasSession = Boolean(status?.configured && status.hasSession)
   const needsIdentityRebuild = status?.sessionServiceMismatch === true
   const connected = hasSession && !needsIdentityRebuild
@@ -491,13 +513,15 @@ export function CloudAccountSettingsPage() {
         ? 'quickforge-settings-badge-warning'
         : 'quickforge-settings-badge-muted'
 
-  const identityDescription = !status?.configured
-    ? t('cloudNotConfiguredDescription')
-    : needsIdentityRebuild
-      ? t('cloudSessionServiceMismatch')
-      : connected
-        ? cloudUnavailable ? t('cloudUnavailableDescription') : t('cloudConnectedDescription')
-        : t('cloudLocalOnlyDescription')
+  const identityDescription = !cloudEnabled
+    ? t('cloudServiceDisabledDescription')
+    : !status?.configured
+      ? t('cloudNotConfiguredDescription')
+      : needsIdentityRebuild
+        ? t('cloudSessionServiceMismatch')
+        : connected
+          ? cloudUnavailable ? t('cloudUnavailableDescription') : t('cloudConnectedDescription')
+          : t('cloudLocalOnlyDescription')
 
   const retryDetails = () => { void load() }
   const detailLoading = loading || details.loading
@@ -521,6 +545,23 @@ export function CloudAccountSettingsPage() {
         <div className="quickforge-settings-list-header">
           <div className="quickforge-settings-row-title"><Server className="size-4" />{t('cloudServiceConnection')}</div>
           <span className="quickforge-settings-badge quickforge-settings-badge-info shrink-0">QuickForge Cloud</span>
+        </div>
+        <div className="quickforge-settings-row">
+          <div className="quickforge-settings-row-main">
+            <div className="quickforge-settings-row-title">{t('cloudServiceEnabled')}</div>
+            <div className="quickforge-settings-row-description">{t('cloudServiceEnabledDescription')}</div>
+          </div>
+          <div className="quickforge-settings-row-control">
+            <label className="quickforge-settings-switch" aria-label={t('cloudServiceEnabled')}>
+              <input
+                type="checkbox"
+                checked={cloudEnabled}
+                disabled={!config || Boolean(busy)}
+                onChange={(event) => { void setCloudServiceEnabled(event.target.checked) }}
+              />
+              <span aria-hidden="true" />
+            </label>
+          </div>
         </div>
         <div className="quickforge-settings-row items-start">
           <div className="quickforge-settings-row-main">
@@ -583,21 +624,23 @@ export function CloudAccountSettingsPage() {
         ) : null}
       </div>
 
-      <div className="quickforge-settings-section">
-        <div className="quickforge-settings-row">
-          <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title"><Laptop className="size-4" />{t('cloudRemoteAccess')}</div>
-            <div className="quickforge-settings-row-description">{t('cloudRemoteAccessDescription')}</div>
+      {cloudEnabled ? (
+        <div className="quickforge-settings-section">
+          <div className="quickforge-settings-row">
+            <div className="quickforge-settings-row-main">
+              <div className="quickforge-settings-row-title"><Laptop className="size-4" />{t('cloudRemoteAccess')}</div>
+              <div className="quickforge-settings-row-description">{t('cloudRemoteAccessDescription')}</div>
+            </div>
+            <div className="quickforge-settings-row-control">
+              <span className={`quickforge-settings-badge ${remoteStatusTone}`}>{remoteStatusText}</span>
+            </div>
           </div>
-          <div className="quickforge-settings-row-control">
-            <span className={`quickforge-settings-badge ${remoteStatusTone}`}>{remoteStatusText}</span>
-          </div>
+          {remoteStatus?.serverUrl ? <div className="quickforge-settings-row"><div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title">{t('cloudRemoteServerUrl')}</div></div><div className="quickforge-settings-row-control break-all text-sm text-muted-foreground">{remoteStatus.serverUrl}</div></div> : null}
+          {remoteStatus?.pid ? <div className="quickforge-settings-row"><div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title">{t('cloudRemotePid')}</div></div><div className="quickforge-settings-row-control text-sm font-medium">{remoteStatus.pid}</div></div> : null}
+          {remoteStatus?.status === 'authorizing' && remoteStatus.verificationUriComplete ? <div className="quickforge-settings-row"><div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title">{t('cloudRemoteAuthorization')}</div></div><div className="quickforge-settings-row-control"><a className="inline-flex items-center gap-1 text-sm text-primary hover:underline" href={remoteStatus.verificationUriComplete} target="_blank" rel="noreferrer">{t('cloudRemoteOpenAuthorization')}<ExternalLink className="size-3.5" /></a></div></div> : null}
+          {remoteStatus?.error ? <div className="quickforge-settings-warning quickforge-settings-warning-attached">{remoteStatus.error}</div> : null}
         </div>
-        {remoteStatus?.serverUrl ? <div className="quickforge-settings-row"><div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title">{t('cloudRemoteServerUrl')}</div></div><div className="quickforge-settings-row-control break-all text-sm text-muted-foreground">{remoteStatus.serverUrl}</div></div> : null}
-        {remoteStatus?.pid ? <div className="quickforge-settings-row"><div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title">{t('cloudRemotePid')}</div></div><div className="quickforge-settings-row-control text-sm font-medium">{remoteStatus.pid}</div></div> : null}
-        {remoteStatus?.status === 'authorizing' && remoteStatus.verificationUriComplete ? <div className="quickforge-settings-row"><div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title">{t('cloudRemoteAuthorization')}</div></div><div className="quickforge-settings-row-control"><a className="inline-flex items-center gap-1 text-sm text-primary hover:underline" href={remoteStatus.verificationUriComplete} target="_blank" rel="noreferrer">{t('cloudRemoteOpenAuthorization')}<ExternalLink className="size-3.5" /></a></div></div> : null}
-        {remoteStatus?.error ? <div className="quickforge-settings-warning quickforge-settings-warning-attached">{remoteStatus.error}</div> : null}
-      </div>
+      ) : null}
 
       <div className="quickforge-settings-section">
         <div className="quickforge-settings-row">
@@ -625,7 +668,7 @@ export function CloudAccountSettingsPage() {
                 </div>
               </>
             ) : null}
-            {details.errors.usage ? (
+            {cloudEnabled ? details.errors.usage ? (
               <DetailFailure error={details.errors.usage} onRetry={retryDetails} disabled={detailLoading || Boolean(busy)} />
             ) : (
               <>
@@ -638,7 +681,7 @@ export function CloudAccountSettingsPage() {
                   <div className="quickforge-settings-row-control text-sm text-muted-foreground">{formatDate(details.usage?.resetsAt || details.usage?.expiresAt)}</div>
                 </div>
               </>
-            )}
+            ) : null}
             <div className="quickforge-settings-row">
               <div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title">{t('cloudLogout')}</div><div className="quickforge-settings-row-description">{t('cloudLogoutRowDescription')}</div></div>
               <div className="quickforge-settings-row-control"><Button variant="destructive" className="quickforge-settings-cloud-logout" onClick={() => void logout()} disabled={Boolean(busy)}><LogOut className="mr-2 size-4" />{t('cloudLogout')}</Button></div>
@@ -647,7 +690,7 @@ export function CloudAccountSettingsPage() {
         ) : null}
       </div>
 
-      {!status?.configured ? null : contentVisibility.showDeviceFlow && pendingDeviceFlow ? (
+      {!cloudEnabled || !status?.configured ? null : contentVisibility.showDeviceFlow && pendingDeviceFlow ? (
         <div className="quickforge-settings-section">
           <div className="quickforge-settings-list-header">
             <div className="quickforge-settings-row-main">
@@ -676,7 +719,7 @@ export function CloudAccountSettingsPage() {
             <div className="quickforge-settings-row-control"><Button onClick={() => void startDeviceFlow()} disabled={loading || Boolean(busy)}><LogIn className="mr-2 size-4" />{t('cloudLoginOrRegister')}</Button></div>
           </div>
         </div>
-      ) : contentVisibility.showDetails ? (
+      ) : cloudEnabled && contentVisibility.showDetails ? (
         <>
           <div className="quickforge-settings-section">
             <div className="quickforge-settings-list-header"><div className="quickforge-settings-row-title"><Database className="size-4" />{t('cloudModels')}</div></div>

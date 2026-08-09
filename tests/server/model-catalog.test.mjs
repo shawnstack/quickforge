@@ -20,6 +20,7 @@ const cloudModel = {
 
 const cloudRuntime = {
   enabled: true,
+  config: { enabled: true, baseUrl: new URL('https://cloud.test/') },
   models: {
     list: vi.fn(async () => [cloudModel]),
     resolve: vi.fn(async () => ({ publicModel: cloudModel })),
@@ -72,6 +73,26 @@ describe('model catalog', () => {
     await expect(resolveModelBinding(input, {
       context: { isLocalRequest: true, source: 'shared', allowCloud: false },
     })).rejects.toMatchObject({ statusCode: 403, code: 'cloud_access_denied' })
+  })
+
+  it('hides and rejects Cloud models while the service switch is off', async () => {
+    const { listModelCatalog, resolveModelBinding } = await import('../../server/model-catalog.mjs')
+    cloudRuntime.enabled = false
+    cloudRuntime.config.enabled = false
+    try {
+      const models = await listModelCatalog({ context: { isLocalRequest: true } })
+      expect(models.every((model) => model.id !== 'cloud-fast')).toBe(true)
+      const modelsWithCurrent = await listModelCatalog({ context: { isLocalRequest: true }, currentModel: cloudModel })
+      expect(modelsWithCurrent.every((model) => model.id !== 'cloud-fast')).toBe(true)
+      expect(cloudRuntime.models.list).not.toHaveBeenCalled()
+      await expect(resolveModelBinding({
+        modelRef: { version: 1, source: 'cloud', catalogId: 'cloud-fast' },
+      }, { context: { isLocalRequest: true } })).rejects.toMatchObject({ statusCode: 503, code: 'cloud_disabled' })
+      expect(cloudRuntime.models.resolve).not.toHaveBeenCalled()
+    } finally {
+      cloudRuntime.enabled = true
+      cloudRuntime.config.enabled = true
+    }
   })
 
   it('does not trust custom transport submitted with a canonical reference', async () => {

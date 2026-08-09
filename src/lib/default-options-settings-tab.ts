@@ -182,7 +182,7 @@ class DefaultOptionsSettingsTab extends SettingsTab {
   private async loadCloudModels(): Promise<Model<Api>[]> {
     try {
       const status = await getCloudStatus()
-      if (!status.configured || status.mode === 'local' || !status.hasSession) return []
+      if (!status.configured || status.enabled === false || status.mode === 'local' || !status.hasSession) return []
       return await getCloudModels()
     } catch (error) {
       logger.warn('Failed to load QuickForge Cloud models for default options:', error)

@@ -74,9 +74,9 @@
 
 **用途**: 封装同源 `/api/cloud/*` 本地 BFF，只处理公开配置、连接测试、状态、模型、额度和设备数据，不在浏览器持有 Cloud Token。
 
-- `getCloudConfig()` / `updateCloudConfig()` 管理独立受管服务 URL；`testCloudConnection()` 仅请求 Node BFF 做 health/ready 检查。
+- `getCloudConfig()` / `updateCloudConfig()` 管理独立受管服务 URL 与 `enabled` 总开关；更新参数可只包含其中一项。`testCloudConnection()` 仅请求 Node BFF 做 health/ready 检查，不改变开关。
 - `resetCloudIdentity()` 发送固定危险确认值，由 Node 清本地 Session 并轮换 installation；错误通过 `CloudClientError.code` 保留（包括保存配置时的 `cloud_session_active`，以及 Token 操作时的 `cloud_session_service_mismatch`）。
-- `getCloudStatus()` 只读取本地安全摘要，不触发游客注册；可恢复公开的 pending Device Flow，但不包含 `deviceCode`。
+- `getCloudStatus()` 只读取包含 `enabled` 的本地安全摘要，不触发游客注册；关闭时仍可读取本地身份/账户摘要和退出，但受管模型、额度、设备与 Device Flow API 会返回 `cloud_disabled`。
 - `startCloudGuest()` 是显式游客入口；`startCloudDeviceFlow()` / `pollCloudDeviceFlow()` / `cancelCloudDeviceFlow()` 使用受保护 JSON 写接口完成正式账户状态机，浏览器不提交邮箱、密码或 deviceCode。
 - `getCloudUsage()` / `getCloudInstallations()` 读取额度与设备。
 - `revokeCloudInstallation()` / `logoutCloud()` 管理设备生命周期；当前设备退出的远端撤销顺序由 Node 保证。

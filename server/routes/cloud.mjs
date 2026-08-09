@@ -81,6 +81,7 @@ export function createCloudRouteHandler({
   invalidateRuntime = invalidateCloudRuntime,
   cloudClientFactory = (config) => new CloudClient(config),
   qfAgentStatus = getQfAgentStatus,
+  onCloudServiceConfigChanged,
 } = {}) {
   async function runtimeOrError() {
     try {
@@ -126,19 +127,31 @@ export function createCloudRouteHandler({
 
     if (req.method === 'PUT' && url.pathname === '/api/cloud/config') {
       const body = await readJsonBody(req, CLOUD_CONFIG_BODY_MAX_BYTES)
-      const nextUrl = parseCloudBaseUrl(body?.cloudUrl).href
-      const credentialStore = credentialStoreFactory()
-      const identityRecord = await credentialStore.read()
-      if (identityRecord.refreshToken || identityRecord.pendingDeviceFlow) {
-        const boundUrl = String(identityRecord.pendingDeviceFlow?.sessionCloudUrl || identityRecord.sessionCloudUrl || '').trim()
-        const sameUrl = boundUrl ? sameCloudUrl(boundUrl, nextUrl) : false
-        if (!sameUrl) {
-          throw routeError('A QuickForge Cloud session is active. Sign out first, or explicitly rebuild the identity before switching services.', 409, 'cloud_session_active')
+      if (body?.enabled !== undefined && typeof body.enabled !== 'boolean') {
+        throw routeError('QuickForge Cloud enabled must be a boolean.', 400, 'cloud_enabled_invalid')
+      }
+      const currentConfig = await readServiceConfig({ strict: false })
+      const explicitCloudUrl = body?.cloudUrl !== undefined
+      const nextUrl = explicitCloudUrl ? parseCloudBaseUrl(body.cloudUrl).href : currentConfig.cloudUrl
+      const nextEnabled = body?.enabled === undefined ? currentConfig.enabled === true : body.enabled
+      const urlChanged = explicitCloudUrl && !sameCloudUrl(currentConfig.cloudUrl, nextUrl)
+      if (explicitCloudUrl) {
+        const credentialStore = credentialStoreFactory()
+        const identityRecord = await credentialStore.read()
+        if (identityRecord.refreshToken || identityRecord.pendingDeviceFlow) {
+          const boundUrl = String(identityRecord.pendingDeviceFlow?.sessionCloudUrl || identityRecord.sessionCloudUrl || '').trim()
+          const sameUrl = boundUrl ? sameCloudUrl(boundUrl, nextUrl) : false
+          if (!sameUrl) {
+            throw routeError('A QuickForge Cloud session is active. Sign out first, or explicitly rebuild the identity before switching services.', 409, 'cloud_session_active')
+          }
         }
       }
-      await saveServiceConfig(nextUrl)
+      await saveServiceConfig({ cloudUrl: nextUrl, enabled: nextEnabled, allowInvalidUrl: !explicitCloudUrl })
       invalidateRuntime()
-      sendJson(res, 200, publicCloudServiceConfig(await readServiceConfig({ strict: false })))
+      const saved = await readServiceConfig({ strict: false })
+      const notify = context.onCloudServiceConfigChanged || onCloudServiceConfigChanged
+      if (typeof notify === 'function') await notify(saved, { urlChanged })
+      sendJson(res, 200, publicCloudServiceConfig(saved))
       return
     }
 
@@ -146,7 +159,7 @@ export function createCloudRouteHandler({
       const body = await readJsonBody(req, CLOUD_CONFIG_BODY_MAX_BYTES)
       requireDangerousConfirmation(body)
       const { runtime } = await runtimeOrError()
-      if (runtime?.enabled) await runtime.identity.resetIdentity()
+      if (runtime?.identity) await runtime.identity.resetIdentity()
       else {
         const store = credentialStoreFactory()
         await store.rotateInstallation()
@@ -159,19 +172,45 @@ export function createCloudRouteHandler({
     const { runtime: current, configurationError } = await runtimeOrError()
     if (req.method === 'GET' && url.pathname === '/api/cloud/status') {
       if (configurationError) {
-        sendJson(res, 200, { configured: false, mode: 'local', configurationError: configurationError.message })
+        const service = await readServiceConfig({ strict: false })
+        if (!service.enabled) {
+          const store = credentialStoreFactory()
+          sendJson(res, 200, { ...(await store.readPublic()), configured: Boolean(service.cloudUrl), enabled: false, configurationError: service.configurationError || configurationError.message })
+          return
+        }
+        sendJson(res, 200, { configured: false, enabled: true, mode: 'local', configurationError: configurationError.message })
         return
       }
       if (!current?.enabled) {
-        sendJson(res, 200, { configured: false, mode: 'local' })
+        const localStatus = current?.identity ? await current.identity.status() : current?.store ? await current.store.readPublic() : { mode: 'local' }
+        sendJson(res, 200, { ...localStatus, configured: Boolean(current?.config?.baseUrl), enabled: false })
         return
       }
-      sendJson(res, 200, { configured: true, ...(await current.identity.status()) })
+      sendJson(res, 200, { configured: true, enabled: true, ...(await current.identity.status()) })
       return
     }
 
-    if (configurationError) throw routeError(configurationError.message, 503, 'cloud_configuration_error')
-    if (!current?.enabled) throw routeError('QuickForge Cloud is not configured.', 503, 'cloud_not_configured')
+    if (configurationError) {
+      const service = await readServiceConfig({ strict: false })
+      if (req.method === 'POST' && url.pathname === '/api/cloud/logout' && !service.enabled) {
+        await credentialStoreFactory().clearSession({ rotateInstallationBeforeRegistration: true })
+        invalidateRuntime()
+        sendJson(res, 200, { ok: true, mode: 'local' })
+        return
+      }
+      throw routeError(configurationError.message, 503, 'cloud_configuration_error')
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/cloud/logout') {
+      if (current?.identity) await current.identity.logout()
+      else if (current?.store) await current.store.clearSession({ rotateInstallationBeforeRegistration: true })
+      else await credentialStoreFactory().clearSession({ rotateInstallationBeforeRegistration: true })
+      invalidateRuntime()
+      sendJson(res, 200, { ok: true, mode: 'local' })
+      return
+    }
+
+    if (!current?.enabled) throw routeError('QuickForge Cloud is disabled.', 503, 'cloud_disabled')
 
     try {
       if (req.method === 'POST' && url.pathname === '/api/cloud/device/start') {
@@ -199,12 +238,6 @@ export function createCloudRouteHandler({
       }
       if (req.method === 'GET' && url.pathname === '/api/cloud/installations') {
         sendJson(res, 200, await current.identity.installations())
-        return
-      }
-      if (req.method === 'POST' && url.pathname === '/api/cloud/logout') {
-        await current.identity.logout()
-        invalidateRuntime()
-        sendJson(res, 200, { ok: true, mode: 'local' })
         return
       }
       const revokeMatch = url.pathname.match(/^\/api\/cloud\/installations\/([^/]+)$/)

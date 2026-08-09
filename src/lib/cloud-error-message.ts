@@ -6,6 +6,7 @@ export type CloudErrorFallback = 'cloudLoadFailed' | 'cloudConnectionFailed' | '
 export function cloudErrorMessage(error: unknown, fallback: CloudErrorFallback = 'cloudRequestFailed') {
   if (!(error instanceof CloudClientError)) return t(fallback)
   if (error.code === 'cloud_session_active') return t('cloudSessionActiveGuidance')
+  if (error.code === 'cloud_disabled') return t('cloudDisabledError')
   if (error.code === 'cloud_local_only') return t('cloudLocalOnlyError')
   if (error.code === 'cloud_configuration_error' || error.code === 'cloud_not_configured') return t('cloudConfigurationError')
   if (error.code === 'cloud_session_service_mismatch') return t('cloudSessionServiceMismatch')

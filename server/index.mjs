@@ -36,7 +36,7 @@ import { handleChannelsApi } from './routes/channels.mjs'
 import { handleModelsApi } from './routes/models.mjs'
 import { handleCloudApi } from './routes/cloud.mjs'
 import { readCloudServiceConfig } from './cloud/service-config.mjs'
-import { startQfAgent, stopQfAgent } from './cloud/qf-agent-process.mjs'
+import { startQfAgent, stopQfAgent, getQfAgentStatus } from './cloud/qf-agent-process.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { logger, flushLogger } from './utils/logger.mjs'
 import { getPackageInfo, checkForUpdates, checkDesktopRelease } from './utils/package-update.mjs'
@@ -73,6 +73,8 @@ let updateInProgress = false
 let shutdownPromise = null
 let shutdownStarted = false
 let qfAgentStartPromise = null
+let boundServerPort = null
+let cloudServiceConfigGeneration = 0
 
 setDefaultWorkspaceRoot(process.env.QUICKFORGE_WORKSPACE_DIR || path.join(dataDir, 'workspace'))
 
@@ -295,6 +297,24 @@ async function updateQuickForge() {
   }
 }
 
+async function applyCloudServiceConfig(cloudConfig, { urlChanged = false } = {}) {
+  const generation = ++cloudServiceConfigGeneration
+  if (shutdownStarted) return null
+  if (!cloudConfig.enabled || !cloudConfig.valid) {
+    if (!cloudConfig.valid) logger.warn(`QuickForge remote agent was not started: ${cloudConfig.configurationError || 'invalid Cloud configuration'}`)
+    return stopQfAgent({ disabled: true })
+  }
+  if (!boundServerPort) return null
+  const agentStatus = getQfAgentStatus()
+  if (urlChanged || agentStatus.status === 'disabled' || agentStatus.enabled === false) await stopQfAgent()
+  if (shutdownStarted || generation !== cloudServiceConfigGeneration) return null
+  return startQfAgent({
+    serverUrl: `http://127.0.0.1:${boundServerPort}/`,
+    ownerPid: process.pid,
+    cloudUrl: cloudConfig.cloudUrl,
+  })
+}
+
 // --- Route dispatching ---
 async function handleApi(req, res, url, requestContext = {}) {
   const pathname = url.pathname
@@ -359,6 +379,7 @@ async function handleApi(req, res, url, requestContext = {}) {
       isLocalRequest: requestContext.isLocalRequest === true,
       remoteAddress: requestContext.remoteAddress,
       remoteAuthorized: requestContext.remoteAuthorized === true,
+      onCloudServiceConfigChanged: applyCloudServiceConfig,
     })
     return
   }
@@ -763,6 +784,7 @@ server.on('error', (error) => {
 server.listen(port, host, () => {
   const address = server.address()
   const boundPort = typeof address === 'object' && address ? address.port : port
+  boundServerPort = boundPort
   logger.info(`QuickForge local API: http://${host}:${boundPort}`)
   if (shareLanEnabled) {
     const lanUrls = getLanUrls(boundPort)
@@ -772,19 +794,7 @@ server.listen(port, host, () => {
   logger.info(`QuickForge data dir: ${dataDir}`)
   logger.info(`QuickForge project: ${getWorkspaceRoot()}`)
 
-  const pending = readCloudServiceConfig({ strict: false }).then((cloudConfig) => {
-    if (shutdownStarted) return null
-    if (!cloudConfig.valid) {
-      logger.warn(`QuickForge remote agent was not started: ${cloudConfig.configurationError || 'invalid Cloud configuration'}`)
-      return null
-    }
-    if (shutdownStarted) return null
-    return startQfAgent({
-      serverUrl: `http://127.0.0.1:${boundPort}/`,
-      ownerPid: process.pid,
-      cloudUrl: cloudConfig.cloudUrl,
-    })
-  }).catch((error) => {
+  const pending = readCloudServiceConfig({ strict: false }).then((cloudConfig) => applyCloudServiceConfig(cloudConfig)).catch((error) => {
     if (!shutdownStarted) logger.warn(`QuickForge remote agent failed to start: ${error?.message || error}`)
     return null
   }).finally(() => {

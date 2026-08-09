@@ -146,6 +146,14 @@ describe('useCloudModels', () => {
     await expect(Promise.all([requestB, joinedRequest])).resolves.toEqual([expected, expected])
   })
 
+  it('does not request the Cloud catalog while the service switch is off', async () => {
+    cloudMocks.getCloudStatus.mockResolvedValue({ configured: true, enabled: false, mode: 'account', hasSession: true })
+    const hook = useCloudModels()
+
+    await expect(hook.loadCloudModels()).resolves.toEqual([])
+    expect(cloudMocks.getCloudModels).not.toHaveBeenCalled()
+  })
+
   it('aborts in-flight work and avoids state updates after unmount', async () => {
     const catalog = deferred<Model<Api>[]>()
     cloudMocks.getCloudStatus.mockResolvedValue({ configured: true, mode: 'account', hasSession: true })

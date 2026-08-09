@@ -14,25 +14,30 @@ function settingsReader(value) {
 }
 
 describe('cloud service config', () => {
-  it('uses saved over env over product default', async () => {
+  it('uses saved over env over product default without implicitly enabling Cloud', async () => {
     await expect(readCloudServiceConfig({
-      readSettings: settingsReader({ [CLOUD_SERVICE_SETTINGS_KEY]: { cloudUrl: 'https://saved.example/base' } }),
+      readSettings: settingsReader({ [CLOUD_SERVICE_SETTINGS_KEY]: { enabled: true, cloudUrl: 'https://saved.example/base' } }),
       env: { QUICKFORGE_CLOUD_URL: 'https://env.example' },
-    })).resolves.toMatchObject({ source: 'saved', cloudUrl: 'https://saved.example/base/' })
+    })).resolves.toMatchObject({ source: 'saved', enabled: true, cloudUrl: 'https://saved.example/base/' })
 
     await expect(readCloudServiceConfig({
       readSettings: settingsReader({}),
       env: { QUICKFORGE_CLOUD_URL: 'https://env.example' },
-    })).resolves.toMatchObject({ source: 'env', cloudUrl: 'https://env.example/' })
+    })).resolves.toMatchObject({ source: 'env', enabled: false, cloudUrl: 'https://env.example/' })
 
     await expect(readCloudServiceConfig({ readSettings: settingsReader({}), env: {} })).resolves.toMatchObject({
-      source: 'default', cloudUrl: DEFAULT_CLOUD_URL,
+      source: 'default', enabled: false, cloudUrl: DEFAULT_CLOUD_URL,
     })
+
+    await expect(readCloudServiceConfig({
+      readSettings: settingsReader({ [CLOUD_SERVICE_SETTINGS_KEY]: { cloudUrl: 'https://legacy.example' } }),
+      env: {},
+    })).resolves.toMatchObject({ source: 'saved', enabled: false, cloudUrl: 'https://legacy.example/' })
   })
 
   it('persists only the managed service record in settings', async () => {
     let updated
-    await saveCloudServiceConfig('http://localhost:8082', {
+    await saveCloudServiceConfig({ cloudUrl: 'http://localhost:8082', enabled: true }, {
       updateSettings: async (name, updater) => {
         expect(name).toBe('settings')
         updated = updater({ theme: 'dark' })
@@ -44,6 +49,7 @@ describe('cloud service config', () => {
       [CLOUD_SERVICE_SETTINGS_KEY]: {
         schemaVersion: 1,
         serviceType: 'quickforge-cloud',
+        enabled: true,
         cloudUrl: 'http://localhost:8082/',
       },
     })
@@ -51,11 +57,22 @@ describe('cloud service config', () => {
     expect(JSON.stringify(updated)).not.toContain('customProviders')
   })
 
+  it('persists an invalid legacy URL only when explicitly allowed for switch-only repair', async () => {
+    let updated
+    await saveCloudServiceConfig({ cloudUrl: 'ftp://invalid.example', enabled: false, allowInvalidUrl: true }, {
+      updateSettings: async (_name, updater) => { updated = updater({}) },
+    })
+    expect(updated[CLOUD_SERVICE_SETTINGS_KEY]).toMatchObject({ enabled: false, cloudUrl: 'ftp://invalid.example' })
+    await expect(saveCloudServiceConfig({ cloudUrl: 'ftp://invalid.example', enabled: true }, {
+      updateSettings: async () => undefined,
+    })).rejects.toThrow()
+  })
+
   it('surfaces invalid saved configuration without blocking repair reads', async () => {
     await expect(readCloudServiceConfig({
-      readSettings: settingsReader({ [CLOUD_SERVICE_SETTINGS_KEY]: { cloudUrl: 'http://192.168.1.2:8082' } }),
+      readSettings: settingsReader({ [CLOUD_SERVICE_SETTINGS_KEY]: { enabled: true, cloudUrl: 'ftp://invalid.example' } }),
       env: {},
       strict: false,
-    })).resolves.toMatchObject({ source: 'saved', valid: false, cloudUrl: 'http://192.168.1.2:8082' })
+    })).resolves.toMatchObject({ source: 'saved', enabled: true, valid: false, cloudUrl: 'ftp://invalid.example' })
   })
 })

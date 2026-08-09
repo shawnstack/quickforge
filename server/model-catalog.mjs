@@ -166,6 +166,15 @@ export async function listModelCatalog({
 
   if (currentModel && ![...custom, ...cloud].some((model) => sameModel(model, currentModel))) {
     const ref = modelReferenceFromSnapshot(currentModel, providers)
+    if (ref?.source === 'cloud') {
+      if (!cloudAllowedForContext(context)) return [...custom, ...cloud]
+      try {
+        const runtime = await getCloudRuntime()
+        if (!runtime?.enabled) return [...custom, ...cloud]
+      } catch {
+        return [...custom, ...cloud]
+      }
+    }
     if (ref) return [publicModel(currentModel, ref), ...custom, ...cloud]
   }
   return [...custom, ...cloud]
@@ -176,7 +185,14 @@ async function resolveCloud(ref, context) {
     throw requestError('QuickForge Cloud is not available from this client.', 403, 'cloud_access_denied')
   }
   const runtime = await getCloudRuntime()
-  if (!runtime?.enabled) throw requestError('QuickForge Cloud is not configured.', 503, 'cloud_not_configured')
+  if (!runtime?.enabled) {
+    const disabled = runtime?.config?.baseUrl && runtime?.config?.enabled !== true
+    throw requestError(
+      disabled ? 'QuickForge Cloud is disabled.' : 'QuickForge Cloud is not configured.',
+      503,
+      disabled ? 'cloud_disabled' : 'cloud_not_configured',
+    )
+  }
   return (await runtime.models.resolve({
     provider: 'quickforge-cloud',
     quickforgeModelSource: 'cloud',

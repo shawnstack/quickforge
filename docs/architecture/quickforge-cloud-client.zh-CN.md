@@ -50,7 +50,9 @@ Access Token 只存在 Node 内存中。Device Flow 的 `deviceCode` 与待处�
 
 ## Server 托管远程 Agent
 
-QuickForge Server 在 HTTP `listen` 成功后读取当前 Cloud 服务配置，并使用实际绑定端口对应的回环地址启动随运行时分发的 `qf-agent`。Agent 由 Server/Desktop 生命周期托管：Server 关闭、重启或更新前会先停止 Agent，再按原有顺序清理本地运行时与 HTTP 服务。
+QuickForge Server 在 HTTP `listen` 成功后读取当前 Cloud 服务配置。Cloud 服务使用独立、默认关闭的 `enabled` 总开关；仅当配置有效且开关开启时，才使用实际绑定端口对应的回环地址启动随运行时分发的 `qf-agent`。关闭开关或 Server 关闭、重启、更新前会先停止 Agent，再按原有顺序清理本地运行时与 HTTP 服务。
+
+关闭 Cloud 服务不会清除已保存 URL、本地安装身份、Session 或账户摘要，也不影响测试/修改 URL 和退出；但会暂停云模型、额度、设备、Device Flow 轮询与远程 Agent。已配置但关闭时，模型解析稳定返回 `cloud_disabled`，不会误报为未配置。
 
 每个运行实例使用独立身份目录，默认位于 `<dataDir>/remote-agent/<runtimeKind>-<port>`；CLI/Server 的 `runtimeKind` 默认为 `server`，Desktop 使用 `desktop`，因此动态端口和并行运行实例不会共享远程身份。可通过 `QUICKFORGE_QF_AGENT_IDENTITY_DIR` 显式覆盖，或用 `QUICKFORGE_QF_AGENT_ENABLED=0` 禁用托管。
 
@@ -60,11 +62,13 @@ QuickForge Server 在 HTTP `listen` 成功后读取当前 Cloud 服务配置，�
 
 所有 `/api/cloud/*` 仅允许本机请求，或已通过 LAN 密码认证的远端请求；不再按 Tailscale IPv4、IPv6、普通 LAN 或公网地址分类。未认证远端请求会先被全局 LAN 认证层以 HTTP 401 拒绝；到达 Cloud 路由但不满足认证边界时返回 HTTP 403 / `cloud_local_only`。配置类 JSON body 限制为 16 KiB。所有非安全写方法还必须携带 `x-quickforge-action: cloud-action`；带 JSON body 的写接口必须使用 `Content-Type: application/json`，以阻止浏览器跨站简单请求绕过预检。
 
-- `GET /api/cloud/config`：返回规范化 URL、来源与配置错误；不返回凭据。
-- `PUT /api/cloud/config`：保存 URL 并使运行时失效；存在 Refresh Token 时，仅允许保存与 `sessionCloudUrl` 相同的规范化 URL，否则返回 HTTP 409 / `cloud_session_active`。
+- `GET /api/cloud/config`：返回 `enabled`、规范化 URL、来源与配置错误；不返回凭据。历史配置、环境 URL 和产品默认 URL 均默认关闭。
+- `PUT /api/cloud/config`：可仅更新 `enabled` 或 URL 并使运行时失效；仅更新开关不读取凭据。显式保存 URL 时，存在 Refresh Token 或 pending Device Flow 仍只允许保存与 `sessionCloudUrl` 相同的规范化 URL，否则返回 HTTP 409 / `cloud_session_active`。
 - `POST /api/cloud/test-connection`：一次性检查 health/ready。
 - `POST /api/cloud/identity/reset`：要求 body `{"confirm":"reset-cloud-identity"}`；清内存 Access Token/模型缓存，轮换 installation 并清本地 Session，不向旧或新 Cloud 发送 Token。
-- `GET /api/cloud/status`：返回本地安全摘要且不自动注册游客；旧 Session 缺失 URL 绑定或绑定到其他服务时返回 `sessionServiceMismatch: true`。
+- `GET /api/cloud/status`：始终返回 `enabled`；关闭时仍返回本地安全身份与账户摘要且不自动注册游客或发起远端请求。旧 Session 缺失 URL 绑定或绑定到其他服务时返回 `sessionServiceMismatch: true`。
+- `GET /api/cloud/remote/status`：不初始化 Cloud runtime；关闭时返回 disabled 进程状态。
+- `enabled=false` 时，模型、额度、设备、Device Flow start/poll/cancel 和 installation DELETE 统一返回 HTTP 503 / `cloud_disabled`；`POST /api/cloud/logout` 仍可使用。
 - `POST /api/cloud/guest/start`
 - `POST /api/cloud/device/start`：若当前是本地模式，先建立游客 Session，再向绑定的 Cloud 服务申请设备授权；返回用户码、验证地址、过期时间与轮询间隔，不返回 `deviceCode`。
 - `POST /api/cloud/device/poll`：Node 使用私有 `deviceCode` 轮询；结果为 `pending`、`slow_down`、`success`、`denied`、`expired` 或 `network`。仅网络异常、HTTP 5xx 与可重试服务错误映射为 `network`；协议错误和无效响应直接抛错。并发 poll 在单进程内合并为一次远端 exchange。

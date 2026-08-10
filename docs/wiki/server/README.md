@@ -59,13 +59,13 @@ server/
 ### cloud/ — QuickForge Cloud 本地代理
 
 - `model-catalog.mjs` 是所有正式模型入口的服务端权威目录与 resolver：自定义模型按稳定 Provider ID + 模型 ID 引用，Cloud 按 catalog ID 引用；新绑定保存版本化 `ModelRef`，执行时重读当前配置，客户端模型对象和 transport 不具有权威性。`quickforgeHidden` 仅阻止新选择，已有绑定仍可执行。Cloud 使用权限按本机、已认证 Tailscale、ACP、后台任务和分享显式授权上下文统一判断。
-- `cloud/` 提供独立受管 QuickForge Cloud BFF：`service-config.mjs` 从 `settings['quickforge-cloud-service']`、环境变量和产品默认值解析安全 Cloud URL，并单独保存默认关闭的 `enabled` 总开关；仅提供 URL（含环境变量）不会自动启用。`runtime.mjs` 按当前配置热构建/失效运行时；配置不会进入 `customProviders` / `providerKeys`。
+- `cloud/` 提供独立受管 QuickForge Cloud BFF：`service-config.mjs` 从 `settings['quickforge-cloud-service']`、环境变量和产品默认值解析安全 Cloud URL 与独立 `enabled` 总开关（默认关闭）；`runtime.mjs` 按当前配置热构建/失效运行时。关闭时保留 URL、本地身份、Session、账户摘要和退出能力，暂停云模型、额度、设备、Device Flow 轮询及托管 `qf-agent`；已配置但关闭的模型解析返回 `cloud_disabled`。配置不会进入 `customProviders` / `providerKeys`。
 - `credential-store.mjs` 将安装密钥、Refresh Token 和待处理 Device Flow 原子保存在 `~/.quickforge/storage/security/cloud-identity.json`；公开状态不返回 Token、私钥、路径或 `deviceCode`，账户摘要严格白名单为 `id/email/plan`。
-- `identity.mjs` 管理显式游客注册、正式账户 OAuth Device Flow、Access Token 内存缓存、Refresh Token 轮换、额度/设备读取和注销；local 的登录动作先在同一显式流程中创建临时 guest，guest 直接升级。pending/slow_down/network 可恢复，denied/expired/cancel 保留 guest；仅网络异常、HTTP 5xx 和可重试服务错误映射为 network，协议/无效响应直接抛错；并发 poll 合并为一次远端 exchange。成功原子替换账户 Token、保留 installation 并清模型缓存。
-- `routes/cloud.mjs` 暴露同源 `/api/cloud/*`：包括配置、连接测试、身份 reset/status、游客、Device Flow start/poll/cancel、目录、额度、设备和退出；所有 Device Flow 写操作使用既有 action header + JSON 防护，响应不返回 `deviceCode`。`enabled=false` 时 status 仍返回本地身份/账户摘要且 logout 可用，模型、额度、设备、Device Flow 与设备撤销统一返回 `503 cloud_disabled`，不发远端请求；`remote/status` 不初始化 Cloud runtime。跨 URL 保存且存在 Session 或 pending flow 时返回 `409 cloud_session_active`，仅切换 enabled 不读取凭据。
-- `cloud/qf-agent-process.mjs` 在 HTTP 监听成功后按 Cloud 总开关托管独立 `qf-agent` 进程，并使用实际绑定端口生成回环 Server URL；关闭开关会停止并标记 disabled，重新开启且配置有效时启动，Cloud URL 变化时先停后启。默认身份目录按 `<runtimeKind>-<port>` 隔离 Server 与 Desktop。二进制缺失、版本校验失败、身份锁冲突或远程连接失败仅反映到 `GET /api/cloud/remote/status`，不会阻塞本地 Server 启动；公开状态不包含可执行路径、身份路径或令牌。
+- `identity.mjs` 管理正式账户 OAuth Device Flow、Access Token 内存缓存、Refresh Token 轮换、额度/设备读取和注销；local 登录直接 ensure installation 并 authorizeDevice，`mode:guest` 仅兼容遗留本地凭据。pending/slow_down/network 可恢复，denied/expired/cancel 清 pending 并保留原 local/遗留 guest 状态；仅网络异常、HTTP 5xx 和可重试服务错误映射为 network，协议/无效响应直接抛错；并发 poll 合并为一次远端 exchange。成功原子写入账户 Token、保留 installation 并清模型缓存。
+- `routes/cloud.mjs` 暴露同源 `/api/cloud/*`：包括配置、连接测试、身份 reset/status、Device Flow start/poll/cancel、目录、额度、设备和退出；所有 Device Flow 写操作使用既有 action header + JSON 防护，响应不返回 `deviceCode`。跨 URL 保存且存在 Session 或 pending flow 时返回 `409 cloud_session_active`。
+- `cloud/qf-agent-process.mjs` 在 HTTP 监听成功后托管独立 `qf-agent` 进程，并使用实际绑定端口生成回环 Server URL；默认身份目录按 `<runtimeKind>-<port>` 隔离 Server 与 Desktop。二进制缺失、版本校验失败、身份锁冲突或远程连接失败仅反映到 `GET /api/cloud/remote/status`，不会阻塞本地 Server 启动；公开状态不包含可执行路径、身份路径或令牌。
 - 退出当前设备时先调用云端 installation revoke，成功后才清理本地 Session；失败时保留凭据供重试。
-- 退出后再次创建游客会轮换 Ed25519 安装密钥，避免旧公钥指纹唯一约束冲突；该行为创建新游客，不恢复旧额度。
+- 退出后再次登录会按 `rotateInstallationBeforeRegistration` 轮换 Ed25519 安装密钥，避免旧公钥指纹唯一约束冲突。
 - `models.mjs` 只向浏览器返回无密钥模型描述，过滤 `available:false`，指定 catalog ID 未命中时强制刷新一次；真实 Cloud Token 和上游地址仅在 Node 请求期间注入。
 - 主聊天消息使用公开的 `metadata.quickforgeClientMessageId` 标识逻辑消息；真正的 Cloud Chat `Idempotency-Key` 以 `sessionId + messageId` 绑定在 `~/.quickforge/storage/security/cloud-chat-idempotency/` 私有 sidecar 中，不进入 Session JSON、浏览器状态或通用备份。同消息的 Provider 网络重试、`/continue` 和重启恢复后重新生成复用同一 UUID，不同消息使用不同 UUID；AI HTTP 调试日志会脱敏该 Header。
 
@@ -265,7 +265,7 @@ server/
 - `routes/system.mjs` — 系统状态、服务重启、关于信息和 QuickForge Runtime 更新 API；`GET /api/system/update/check` 检查 npm 分发的 Runtime 版本，`POST /api/system/update` 仅允许 localhost 请求并要求 `x-quickforge-action: update`，会启动外部 `update-supervisor.mjs`，让当前服务退出后再执行全局 npm 更新并自动重启；Desktop 客户端更新不走该 npm 更新入口，而是通过 GitHub Releases / 桌面包分发。
 
 **安全边界**:
-- 终端接口强制仅允许 localhost 访问；LAN 分享和共享会话页面不能访问。
+- 终端接口强制仅允许 localhost 访问；LAN 分享和共享会话页面不能访问。Windows Desktop 默认启用本地终端。
 - 终端运行在本机用户权限下，不是沙箱；默认 cwd 为当前项目目录。
 - `QUICKFORGE_TERMINAL=0` 可关闭终端，`QUICKFORGE_MAX_TERMINALS` 可调整最大会话数；`QUICKFORGE_TERMINAL_RECONNECT_MS` 可调整最后一个客户端断开后的 PTY 保留时间，默认 30 分钟。
 - 终端 Shell 配置保存在 `settings` store 中：系统会按平台和可执行文件可用性自动识别常见内置 profiles（Windows: cmd/PowerShell/pwsh；macOS/Linux: zsh/bash/fish/sh/pwsh），`terminalShellProfiles` 仅存放自定义 profiles，`defaultTerminalShellProfileId` 存放默认 profile；兼容旧的 `terminalShell` 字段。

@@ -9,6 +9,7 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const projectRoot = path.resolve(__dirname, '..')
 const appName = 'QuickForge'
+const quitForUpdateArgument = '--quit-for-update'
 const desktopAgentPath = app.isPackaged
   ? path.join(process.resourcesPath, 'agent', `${process.platform}-${process.arch}`, process.platform === 'win32' ? 'qf-agent.exe' : 'qf-agent')
   : undefined
@@ -146,6 +147,19 @@ function toggleMainWindow() {
 function quitApp() {
   isQuitting = true
   app.quit()
+}
+
+function shouldQuitForUpdate(commandLine = process.argv) {
+  return commandLine.includes(quitForUpdateArgument)
+}
+
+function handleSecondInstance(_event, commandLine) {
+  if (shouldQuitForUpdate(commandLine)) {
+    quitApp()
+    return
+  }
+
+  showMainWindow()
 }
 
 function showRendererContextMenu(params) {
@@ -436,7 +450,8 @@ async function boot() {
       expectedVersion: desktopRuntimeVersion,
       inline,
       networkRuntime: inline ? createDesktopNetworkRuntime() : undefined,
-      terminal: process.env.QUICKFORGE_DESKTOP_TERMINAL === '1',
+      terminal: process.platform === 'win32'
+        || process.env.QUICKFORGE_DESKTOP_TERMINAL === '1',
       runtimeKind: 'desktop',
       qfAgentPath: process.env.QUICKFORGE_QF_AGENT_PATH ? undefined : desktopAgentPath,
       detached: false,
@@ -461,8 +476,10 @@ async function boot() {
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
 if (!gotSingleInstanceLock) {
   app.quit()
+} else if (shouldQuitForUpdate()) {
+  app.quit()
 } else {
-  app.on('second-instance', showMainWindow)
+  app.on('second-instance', handleSecondInstance)
 
   app.whenReady().then(boot)
 

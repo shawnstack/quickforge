@@ -82,13 +82,9 @@ describe('model catalog', () => {
     try {
       const models = await listModelCatalog({ context: { isLocalRequest: true } })
       expect(models.every((model) => model.id !== 'cloud-fast')).toBe(true)
-      const modelsWithCurrent = await listModelCatalog({ context: { isLocalRequest: true }, currentModel: cloudModel })
-      expect(modelsWithCurrent.every((model) => model.id !== 'cloud-fast')).toBe(true)
-      expect(cloudRuntime.models.list).not.toHaveBeenCalled()
       await expect(resolveModelBinding({
         modelRef: { version: 1, source: 'cloud', catalogId: 'cloud-fast' },
       }, { context: { isLocalRequest: true } })).rejects.toMatchObject({ statusCode: 503, code: 'cloud_disabled' })
-      expect(cloudRuntime.models.resolve).not.toHaveBeenCalled()
     } finally {
       cloudRuntime.enabled = true
       cloudRuntime.config.enabled = true

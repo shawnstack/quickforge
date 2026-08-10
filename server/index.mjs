@@ -74,7 +74,6 @@ let shutdownPromise = null
 let shutdownStarted = false
 let qfAgentStartPromise = null
 let boundServerPort = null
-let cloudServiceConfigGeneration = 0
 
 setDefaultWorkspaceRoot(process.env.QUICKFORGE_WORKSPACE_DIR || path.join(dataDir, 'workspace'))
 
@@ -298,7 +297,6 @@ async function updateQuickForge() {
 }
 
 async function applyCloudServiceConfig(cloudConfig, { urlChanged = false } = {}) {
-  const generation = ++cloudServiceConfigGeneration
   if (shutdownStarted) return null
   if (!cloudConfig.enabled || !cloudConfig.valid) {
     if (!cloudConfig.valid) logger.warn(`QuickForge remote agent was not started: ${cloudConfig.configurationError || 'invalid Cloud configuration'}`)
@@ -307,7 +305,6 @@ async function applyCloudServiceConfig(cloudConfig, { urlChanged = false } = {})
   if (!boundServerPort) return null
   const agentStatus = getQfAgentStatus()
   if (urlChanged || agentStatus.status === 'disabled' || agentStatus.enabled === false) await stopQfAgent()
-  if (shutdownStarted || generation !== cloudServiceConfigGeneration) return null
   return startQfAgent({
     serverUrl: `http://127.0.0.1:${boundServerPort}/`,
     ownerPid: process.pid,

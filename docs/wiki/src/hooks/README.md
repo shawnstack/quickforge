@@ -9,7 +9,7 @@
 | [useAppBootstrap.ts](../../src/hooks/useAppBootstrap.ts) | 227 | 应用启动引导：初始化 Storage、加载项目、恢复会话 |
 | [useAgentManager.ts](../../src/hooks/useAgentManager.ts) | 537 | Agent 生命周期管理：创建、加载、切换会话 |
 | [useChatActions.ts](../../src/hooks/useChatActions.ts) | 311 | 聊天操作：发送消息、回滚、分叉、复制 |
-| [useCloudModels.ts](../../src/hooks/useCloudModels.ts) | 139 | Cloud 状态、显式游客创建、模型目录缓存与失效 |
+| [useCloudModels.ts](../../src/hooks/useCloudModels.ts) | 139 | Cloud 状态、模型目录缓存与失效 |
 | [useModelActions.ts](../../src/hooks/useModelActions.ts) | 232 | 模型操作：选择模型、切换访问模式、管理工具 |
 | [useSessionActions.ts](../../src/hooks/useSessionActions.ts) | 105 | 会话操作：归档、置顶、重命名、刷新 |
 | [useSessionPagination.ts](../../src/hooks/useSessionPagination.ts) | 312 | 会话分页加载 |
@@ -65,8 +65,7 @@
 
 ### useCloudModels.ts (139 行)
 
-- `loadCloudModels()` 先读取 `GET /api/cloud/status`，只有总开关已启用、已配置且存在 Session 时才加载公开模型目录；关闭时不会请求 `/api/cloud/models`，也不会自动创建游客。
-- `startGuestCloud()` 是前端显式游客入口，注册成功后加载模型目录。
+- `loadCloudModels()` 先读取 `GET /api/cloud/status`，只有已配置且存在 Session 时才加载公开模型目录；不会自动注册。
 - 监听 `quickforge:cloud-state-changed`，中止旧请求并清空内存模型缓存；配置切换、身份 reset 或退出后不会继续复用旧目录。
 
 ### useModelActions.ts (232 行)

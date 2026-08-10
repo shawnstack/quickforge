@@ -10,6 +10,11 @@ const config: CapacitorConfig = {
     androidScheme: 'https',
     cleartext: true,
     allowNavigation: [
+      // 云远程访问（RemoteTunnel）：原生层在 127.0.0.1:18080 提供本地隧道 HTTP 服务；
+      // 云账户登录页/云 API 域名（占位，正式域名确定后替换 *.quickforge.app）。
+      '*',
+      '42.194.187.88',
+      '*.quickforge.app',
       '*.ts.net',
       '*.*.ts.net',
       ...tailscaleIpv4Navigation,

@@ -166,15 +166,6 @@ export async function listModelCatalog({
 
   if (currentModel && ![...custom, ...cloud].some((model) => sameModel(model, currentModel))) {
     const ref = modelReferenceFromSnapshot(currentModel, providers)
-    if (ref?.source === 'cloud') {
-      if (!cloudAllowedForContext(context)) return [...custom, ...cloud]
-      try {
-        const runtime = await getCloudRuntime()
-        if (!runtime?.enabled) return [...custom, ...cloud]
-      } catch {
-        return [...custom, ...cloud]
-      }
-    }
     if (ref) return [publicModel(currentModel, ref), ...custom, ...cloud]
   }
   return [...custom, ...cloud]

@@ -11,7 +11,6 @@ const reactHarness = vi.hoisted(() => ({
 const cloudMocks = vi.hoisted(() => ({
   getCloudModels: vi.fn(),
   getCloudStatus: vi.fn(),
-  startCloudGuest: vi.fn(),
 }))
 
 vi.mock('react', () => ({
@@ -90,7 +89,6 @@ describe('useCloudModels', () => {
     reactHarness.states = []
     cloudMocks.getCloudModels.mockReset()
     cloudMocks.getCloudStatus.mockReset()
-    cloudMocks.startCloudGuest.mockReset()
     vi.stubGlobal('window', createWindowHarness())
   })
 

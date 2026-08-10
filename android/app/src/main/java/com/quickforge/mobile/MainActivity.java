@@ -8,9 +8,12 @@ import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Message;
 import android.util.Log;
+import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebViewClient;
 
 import androidx.core.content.ContextCompat;
@@ -46,6 +49,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     protected void load() {
+        registerPlugin(com.quickforge.mobile.remote.RemoteTunnel.class);
         super.load();
 
         WebView webView = bridge.getWebView();
@@ -178,6 +182,22 @@ public class MainActivity extends BridgeActivity {
             super.onPageFinished(view, url);
             if (pendingSessionId != null) injectOpenSession(view);
             injectCapacitorBridgeForRemotePage(bridge, view, url);
+        }
+
+        @Override
+        public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+            boolean didCrash = detail != null && detail.didCrash();
+            Log.w(TAG, "WebView render process gone; didCrash=" + didCrash);
+            Activity activity = bridge.getActivity();
+            activity.runOnUiThread(() -> {
+                ViewParent parent = view.getParent();
+                if (parent instanceof ViewGroup) {
+                    ((ViewGroup) parent).removeView(view);
+                }
+                view.destroy();
+                activity.recreate();
+            });
+            return true;
         }
     }
 

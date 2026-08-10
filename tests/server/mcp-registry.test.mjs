@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   clients: [],
   transports: [],
   connectBehavior: 'success',
+  connectControls: new Map(),
   listToolsBehavior: 'success',
   callToolBehavior: 'success',
 }))
@@ -24,6 +25,11 @@ class MockClient {
     this.connect = vi.fn((transport) => {
       this.transport = transport
       if (mocks.connectBehavior === 'pending') return new Promise(() => {})
+      if (mocks.connectBehavior === 'controlled') {
+        return new Promise((resolve, reject) => {
+          mocks.connectControls.set(transport.options.command, { resolve, reject })
+        })
+      }
       return Promise.resolve()
     })
     this.listTools = vi.fn((_params, options) => {
@@ -77,7 +83,7 @@ function enabledServer(name = 'demo') {
     name,
     enabled: true,
     transport: 'stdio',
-    command: 'mock-mcp',
+    command: `mock-mcp-${name}`,
     args: [],
     cwd: '',
     env: {},
@@ -90,6 +96,7 @@ beforeEach(() => {
   mocks.clients.length = 0
   mocks.transports.length = 0
   mocks.connectBehavior = 'success'
+  mocks.connectControls.clear()
   mocks.listToolsBehavior = 'success'
   mocks.callToolBehavior = 'success'
   MockTransport.closeDelayMs = 0
@@ -134,6 +141,34 @@ describe('MCP registry lifecycle', () => {
     expect(mocks.clients[0].connect).toHaveBeenCalledOnce()
     expect(mocks.clients[0].listTools).toHaveBeenCalledOnce()
     expect(mocks.transports[0].close).toHaveBeenCalledOnce()
+  })
+
+  it('starts enabled server connections in parallel, isolates failures, and keeps definition order', async () => {
+    mocks.servers = [enabledServer('first'), enabledServer('failing'), enabledServer('second')]
+    mocks.connectBehavior = 'controlled'
+    const registry = await import('../../server/mcp/registry.mjs')
+
+    const definitionsPromise = registry.createMcpToolDefinitions()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect([...mocks.connectControls.keys()]).toEqual([
+      'mock-mcp-first',
+      'mock-mcp-failing',
+      'mock-mcp-second',
+    ])
+    expect(mocks.clients).toHaveLength(3)
+
+    mocks.connectControls.get('mock-mcp-second').resolve()
+    mocks.connectControls.get('mock-mcp-failing').reject(new Error('connection failed'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mocks.clients[2].listTools).toHaveBeenCalledOnce()
+    expect(mocks.clients[0].listTools).not.toHaveBeenCalled()
+
+    mocks.connectControls.get('mock-mcp-first').resolve()
+    await expect(definitionsPromise).resolves.toEqual([
+      expect.objectContaining({ name: 'mcp__first__echo' }),
+      expect.objectContaining({ name: 'mcp__second__echo' }),
+    ])
   })
 
   it('keeps successful tool discovery and call results unchanged', async () => {

@@ -1,132 +1,195 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
-  <title id="title">QuickForge Cloud 管理后台桌面端低保真设计</title>
-  <desc id="desc">左侧轻量导航，右侧顶部状态栏与仪表盘内容，包含核心指标、用量趋势、异常列表和审计日志。</desc>
+  <title id="title">QuickForge Cloud 管理后台桌面端低保真设计（v2 · 对齐 QF 客户端设计语言）</title>
+  <desc id="desc">左侧轻量导航，右侧顶栏与概览内容：指标行、用量趋势、需要关注、最近操作。弱边框、无卡片墙、zinc 配色。</desc>
   <defs>
     <style>
       .ui { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
-      .title { font-size: 18px; font-weight: 600; fill: #1f2937; }
-      .h2 { font-size: 14px; font-weight: 600; fill: #374151; }
-      .body { font-size: 13px; fill: #4b5563; }
-      .muted { font-size: 12px; fill: #8a94a3; }
-      .metric { font-size: 26px; font-weight: 600; fill: #111827; }
-      .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; fill: #667085; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+      .title { font-size: 16px; font-weight: 600; fill: #18181b; }
+      .h3 { font-size: 14px; font-weight: 600; fill: #18181b; }
+      .body { font-size: 13px; fill: #3f3f46; }
+      .muted { font-size: 12px; fill: #71717a; }
+      .faint { font-size: 11.5px; fill: #a1a1aa; }
+      .metric { font-size: 26px; font-weight: 650; fill: #18181b; }
+      .nav-item { font-size: 13px; fill: #52525b; }
+      .nav-active { font-size: 13px; font-weight: 550; fill: #18181b; }
+      .th { font-size: 11.5px; font-weight: 550; fill: #a1a1aa; }
+      .cell { font-size: 13px; fill: #3f3f46; }
+      .mono-cell { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; fill: #3f3f46; }
     </style>
   </defs>
 
   <rect width="1440" height="900" fill="#ffffff"/>
 
-  <!-- Sidebar -->
-  <rect x="0" y="0" width="236" height="900" fill="#f3f4f6"/>
-  <line x1="235.5" y1="0" x2="235.5" y2="900" stroke="#e5e7eb"/>
+  <!-- ===== 侧栏：轻量导航 #f4f4f5 ===== -->
+  <rect x="0" y="0" width="216" height="900" fill="#f4f4f5"/>
+  <line x1="215.5" y1="0" x2="215.5" y2="900" stroke="#e4e4e7"/>
   <g class="ui">
-    <circle cx="28" cy="30" r="12" fill="#111827"/>
-    <path d="M22 30h12M28 24v12" stroke="#ffffff" stroke-width="1.7" stroke-linecap="round"/>
-    <text x="48" y="34" class="h2">QuickForge Cloud</text>
-    <text x="20" y="72" class="muted">运营管理</text>
+    <!-- 品牌 -->
+    <g transform="translate(16,20)">
+      <polygon points="12,0 19.5,4.5 19.5,13.5 12,18 4.5,13.5 4.5,4.5" fill="none" stroke="#9ca3af" stroke-width="1.6" stroke-linejoin="round"/>
+      <path d="M14.2 3 L8 12.5 L11.6 12.5 L10 17 L16.5 9.5 L12.9 9.5 Z" fill="#374151"/>
+    </g>
+    <text x="42" y="33" class="body" font-weight="600" fill="#18181b">QuickForge Cloud</text>
+    <text x="16" y="66" class="faint" letter-spacing="0.5">运营管理</text>
 
-    <rect x="12" y="84" width="212" height="36" rx="8" fill="#d9dee7"/>
-    <text x="28" y="107" class="body" font-weight="600">概览</text>
-    <text x="28" y="148" class="body">安装实例</text>
-    <text x="28" y="188" class="body">额度管理</text>
-    <text x="28" y="228" class="body">模型目录</text>
-    <text x="28" y="268" class="body">审计日志</text>
+    <!-- 导航 -->
+    <rect x="12" y="76" width="192" height="34" rx="6" fill="#d9d9de"/>
+    <text x="24" y="97" class="nav-active">概览</text>
+    <text x="24" y="135" class="nav-item">安装实例</text>
+    <text x="24" y="173" class="nav-item">额度管理</text>
+    <text x="24" y="211" class="nav-item">模型目录</text>
+    <text x="24" y="249" class="nav-item">审计日志</text>
 
-    <line x1="20" y1="304" x2="216" y2="304" stroke="#dde1e7"/>
-    <text x="20" y="336" class="muted">环境</text>
-    <rect x="20" y="348" width="196" height="44" rx="8" fill="#ffffff" stroke="#e5e7eb"/>
-    <circle cx="38" cy="370" r="4" fill="#22c55e"/>
-    <text x="50" y="367" class="body">Production</text>
-    <text x="50" y="382" class="muted">cloud.quickforge.io</text>
-
-    <text x="20" y="850" class="muted">superadmin</text>
-    <text x="20" y="870" class="mono">session expires in 43m</text>
+    <!-- 底部环境 -->
+    <line x1="16" y1="820" x2="200" y2="820" stroke="#e4e4e7"/>
+    <circle cx="24" cy="840" r="3.5" fill="#22a45d"/>
+    <text x="34" y="844" class="body" fill="#3f3f46">Production</text>
+    <text x="16" y="866" class="mono faint">cloud.quickforge.io</text>
+    <text x="16" y="884" class="faint">会话 43 分钟后过期</text>
   </g>
 
-  <!-- Top bar -->
-  <rect x="236" y="0" width="1204" height="60" fill="#ffffff"/>
-  <line x1="236" y1="59.5" x2="1440" y2="59.5" stroke="#e5e7eb"/>
+  <!-- ===== 顶栏 ===== -->
+  <rect x="216" y="0" width="1224" height="56" fill="#ffffff"/>
+  <line x1="216" y1="55.5" x2="1440" y2="55.5" stroke="#e4e4e7"/>
   <g class="ui">
-    <text x="268" y="36" class="title">概览</text>
-    <rect x="1118" y="17" width="92" height="28" rx="14" fill="#ecfdf3" stroke="#c6f0d5"/>
-    <circle cx="1136" cy="31" r="4" fill="#22c55e"/>
-    <text x="1147" y="35" class="muted" fill="#157347">服务正常</text>
-    <rect x="1224" y="17" width="78" height="28" rx="8" fill="#ffffff" stroke="#e5e7eb"/>
-    <text x="1244" y="35" class="body">刷新</text>
-    <circle cx="1334" cy="31" r="14" fill="#eef0f3"/>
-    <text x="1329" y="36" class="body" font-weight="600">A</text>
+    <text x="244" y="35" class="title">概览</text>
+    <!-- 服务正常徽标 -->
+    <rect x="1176" y="15" width="84" height="26" rx="13" fill="#f0fdf4"/>
+    <circle cx="1194" cy="28" r="3.5" fill="#22a45d"/>
+    <text x="1202" y="32" font-size="12" fill="#15803d">服务正常</text>
+    <!-- 刷新 + 退出 -->
+    <rect x="1274" y="15" width="30" height="26" rx="7" fill="#ffffff" stroke="#e4e4e7"/>
+    <path d="M1285 22a7 7 0 1 0 2 5M1285 19v4h4" fill="none" stroke="#71717a" stroke-width="1.5" stroke-linecap="round"/>
+    <rect x="1314" y="15" width="62" height="26" rx="6" fill="#ffffff" stroke="#e4e4e7"/>
+    <text x="1330" y="32" font-size="12" fill="#3f3f46">退出</text>
   </g>
 
-  <!-- Content -->
+  <!-- ===== 内容区 ===== -->
   <g class="ui">
-    <text x="268" y="104" class="body" font-weight="600">系统运行概况</text>
-    <text x="268" y="124" class="muted">最后更新：刚刚 · 数据按 UTC+8 展示</text>
+    <text x="244" y="90" class="muted">系统运行概况 · 数据每 60 秒刷新</text>
 
-    <!-- Metric strip -->
-    <rect x="268" y="146" width="1140" height="118" rx="14" fill="#ffffff" stroke="#e5e7eb"/>
-    <line x1="553" y1="166" x2="553" y2="244" stroke="#e5e7eb"/>
-    <line x1="838" y1="166" x2="838" y2="244" stroke="#e5e7eb"/>
-    <line x1="1123" y1="166" x2="1123" y2="244" stroke="#e5e7eb"/>
+    <!-- 指标行：竖线分隔，无卡片 -->
+    <g>
+      <text x="244" y="128" class="muted">今日模型用量</text>
+      <text x="244" y="162" class="metric">1.28M</text>
+      <text x="244" y="182" class="faint">tokens · 较昨日 +8.4%</text>
+      <line x1="548" y1="108" x2="548" y2="190" stroke="#e4e4e7"/>
 
-    <text x="292" y="178" class="muted">今日模型用量</text>
-    <text x="292" y="216" class="metric">1.28M</text>
-    <text x="292" y="238" class="muted">tokens · 较昨日 +8.4%</text>
+      <text x="572" y="128" class="muted">活跃安装实例</text>
+      <text x="572" y="162" class="metric">2,416</text>
+      <text x="572" y="182" class="faint">24 小时活跃率 78%</text>
+      <line x1="876" y1="108" x2="876" y2="190" stroke="#e4e4e7"/>
 
-    <text x="577" y="178" class="muted">活跃安装实例</text>
-    <text x="577" y="216" class="metric">2,416</text>
-    <text x="577" y="238" class="muted">24 小时内 318 活跃</text>
+      <text x="900" y="128" class="muted">剩余额度</text>
+      <text x="900" y="162" class="metric">74.2%</text>
+      <text x="900" y="182" class="faint">18 个 entitlement 7 天内到期</text>
+      <line x1="1204" y1="108" x2="1204" y2="190" stroke="#e4e4e7"/>
 
-    <text x="862" y="178" class="muted">剩余额度</text>
-    <text x="862" y="216" class="metric">74.2%</text>
-    <text x="862" y="238" class="muted">待过期 18 个 entitlement</text>
+      <text x="1228" y="128" class="muted">需要关注</text>
+      <text x="1228" y="162" class="metric">7</text>
+      <text x="1228" y="182" class="faint">3 stale reservation · 4 replay</text>
+      <line x1="216" y1="202" x2="1440" y2="202" stroke="#e4e4e7"/>
+    </g>
 
-    <text x="1147" y="178" class="muted">待处理异常</text>
-    <text x="1147" y="216" class="metric" fill="#b45309">7</text>
-    <text x="1147" y="238" class="muted">3 个 stale reservation</text>
+    <!-- 用量趋势（左） -->
+    <text x="244" y="240" class="h3">用量趋势</text>
+    <text x="244" y="258" class="muted">最近 7 天 · input + output tokens</text>
 
-    <!-- Usage chart -->
-    <rect x="268" y="288" width="740" height="300" rx="14" fill="#ffffff" stroke="#e5e7eb"/>
-    <text x="292" y="322" class="h2">用量趋势</text>
-    <text x="292" y="343" class="muted">最近 7 天 · input + output tokens</text>
-    <rect x="880" y="306" width="104" height="28" rx="8" fill="#f7f8fa" stroke="#e5e7eb"/>
-    <text x="904" y="324" class="muted">最近 7 天</text>
-    <line x1="312" y1="526" x2="974" y2="526" stroke="#e5e7eb"/>
-    <line x1="312" y1="472" x2="974" y2="472" stroke="#eef0f3"/>
-    <line x1="312" y1="418" x2="974" y2="418" stroke="#eef0f3"/>
-    <line x1="312" y1="364" x2="974" y2="364" stroke="#eef0f3"/>
-    <polyline points="312,486 420,454 528,468 636,410 744,426 852,382 974,396" fill="none" stroke="#667085" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-    <polyline points="312,486 420,454 528,468 636,410 744,426 852,382 974,396 974,526 312,526" fill="#f3f4f6" opacity="0.65"/>
-    <text x="306" y="554" class="muted">周一</text><text x="414" y="554" class="muted">周二</text><text x="522" y="554" class="muted">周三</text><text x="630" y="554" class="muted">周四</text><text x="738" y="554" class="muted">周五</text><text x="846" y="554" class="muted">周六</text><text x="954" y="554" class="muted">周日</text>
+    <g>
+      <line x1="244" y1="292" x2="840" y2="292" stroke="#f1f1f3"/>
+      <line x1="244" y1="330" x2="840" y2="330" stroke="#f1f1f3"/>
+      <line x1="244" y1="368" x2="840" y2="368" stroke="#f1f1f3"/>
+      <line x1="244" y1="406" x2="840" y2="406" stroke="#e4e4e7"/>
+      <polyline points="244,352 335,318 426,336 517,284 608,300 699,264 840,282" fill="none" stroke="#52525b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <polyline points="244,352 335,318 426,336 517,284 608,300 699,264 840,282 840,406 244,406" fill="#f4f4f5"/>
+      <polyline points="244,372 335,352 426,362 517,326 608,338 699,310 840,322" fill="none" stroke="#a1a1aa" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <g font-size="11" fill="#a1a1aa">
+        <text x="244" y="428" text-anchor="middle">周一</text><text x="335" y="428" text-anchor="middle">周二</text>
+        <text x="426" y="428" text-anchor="middle">周三</text><text x="517" y="428" text-anchor="middle">周四</text>
+        <text x="608" y="428" text-anchor="middle">周五</text><text x="699" y="428" text-anchor="middle">周六</text>
+        <text x="840" y="428" text-anchor="middle">周日</text>
+      </g>
+      <line x1="244" y1="452" x2="268" y2="452" stroke="#52525b" stroke-width="2"/>
+      <text x="276" y="456" class="muted">Input</text>
+      <line x1="330" y1="452" x2="354" y2="452" stroke="#a1a1aa" stroke-width="1.5"/>
+      <text x="362" y="456" class="muted">Output</text>
+    </g>
 
-    <!-- Exceptions -->
-    <rect x="1032" y="288" width="376" height="300" rx="14" fill="#ffffff" stroke="#e5e7eb"/>
-    <text x="1056" y="322" class="h2">需要关注</text>
-    <text x="1360" y="322" class="muted" text-anchor="end">查看全部</text>
+    <!-- 需要关注（右） -->
+    <text x="908" y="240" class="h3">需要关注</text>
+    <text x="908" y="258" class="muted">异常与待处理事项</text>
+    <g>
+      <circle cx="914" cy="286" r="4" fill="#f59e0b"/>
+      <text x="928" y="289" class="body" fill="#3f3f46">3 个 reservation 超过 15 分钟</text>
+      <text x="928" y="306" class="faint">reconcile worker · 2 分钟前扫描</text>
+      <line x1="908" y1="322" x2="1416" y2="322" stroke="#f1f1f3"/>
 
-    <circle cx="1064" cy="368" r="5" fill="#f59e0b"/>
-    <text x="1080" y="366" class="body">3 个 reservation 超过 15 分钟</text>
-    <text x="1080" y="384" class="muted">reconcile worker · 2 分钟前</text>
-    <line x1="1056" y1="405" x2="1384" y2="405" stroke="#eef0f3"/>
+      <circle cx="914" cy="344" r="4" fill="#ef4444"/>
+      <text x="928" y="347" class="body" fill="#3f3f46">Refresh replay 检测新增 4 例</text>
+      <text x="928" y="364" class="faint">过去 1 小时 · 来自 2 个安装</text>
+      <line x1="908" y1="380" x2="1416" y2="380" stroke="#f1f1f3"/>
 
-    <circle cx="1064" cy="438" r="5" fill="#ef4444"/>
-    <text x="1080" y="436" class="body">Refresh replay 检测增加</text>
-    <text x="1080" y="454" class="muted">过去 1 小时共 4 次</text>
-    <line x1="1056" y1="475" x2="1384" y2="475" stroke="#eef0f3"/>
+      <circle cx="914" cy="402" r="4" fill="#a1a1aa"/>
+      <text x="928" y="405" class="body" fill="#3f3f46">18 个额度将在 7 天内到期</text>
+      <text x="928" y="422" class="faint">需要确认续期策略</text>
+    </g>
 
-    <circle cx="1064" cy="508" r="5" fill="#94a3b8"/>
-    <text x="1080" y="506" class="body">18 个额度将在 7 天内到期</text>
-    <text x="1080" y="524" class="muted">需要确认续期策略</text>
+    <!-- 最近操作（全宽表格） -->
+    <line x1="216" y1="478" x2="1440" y2="478" stroke="#e4e4e7"/>
+    <text x="244" y="506" class="h3">最近操作</text>
+    <text x="244" y="524" class="muted">最近 5 条管理写操作</text>
+    <text x="1416" y="516" text-anchor="end" font-size="12" fill="#71717a">查看审计日志</text>
 
-    <!-- Recent audit -->
-    <rect x="268" y="612" width="1140" height="244" rx="14" fill="#ffffff" stroke="#e5e7eb"/>
-    <text x="292" y="648" class="h2">最近操作</text>
-    <text x="1384" y="648" class="muted" text-anchor="end">查看审计日志</text>
-    <rect x="292" y="670" width="1092" height="34" rx="6" fill="#f7f8fa"/>
-    <text x="308" y="691" class="muted">时间</text><text x="450" y="691" class="muted">操作者</text><text x="620" y="691" class="muted">操作</text><text x="825" y="691" class="muted">目标</text><text x="1205" y="691" class="muted">结果</text>
+    <g>
+      <text x="244" y="556" class="th">时间</text><text x="420" y="556" class="th">操作者</text>
+      <text x="620" y="556" class="th">操作</text><text x="820" y="556" class="th">目标</text>
+      <text x="1340" y="556" class="th" text-anchor="end">结果</text>
+      <line x1="244" y1="566" x2="1416" y2="566" stroke="#f1f1f3"/>
 
-    <text x="308" y="730" class="body">12:38:22</text><text x="450" y="730" class="body">admin@quickforge</text><text x="620" y="730" class="body">entitlement.grant</text><text x="825" y="730" class="mono">acc_7f3…</text><text x="1205" y="730" class="body" fill="#15803d">成功</text>
-    <line x1="292" y1="746" x2="1384" y2="746" stroke="#eef0f3"/>
-    <text x="308" y="776" class="body">12:16:04</text><text x="450" y="776" class="body">admin@quickforge</text><text x="620" y="776" class="body">installation.revoke</text><text x="825" y="776" class="mono">ins_9ab…</text><text x="1205" y="776" class="body" fill="#15803d">成功</text>
-    <line x1="292" y1="792" x2="1384" y2="792" stroke="#eef0f3"/>
-    <text x="308" y="822" class="body">11:49:37</text><text x="450" y="822" class="body">ops@quickforge</text><text x="620" y="822" class="body">model.toggle</text><text x="825" y="822" class="mono">qf-cloud-sonnet</text><text x="1205" y="822" class="body" fill="#15803d">成功</text>
+      <text x="244" y="594" class="mono-cell">12:38:22</text>
+      <text x="420" y="594" class="mono-cell">key:9f3ab2c1</text>
+      <text x="620" y="594" class="mono-cell">entitlement.grant</text>
+      <text x="820" y="594" class="mono-cell">ent_3f1a88</text>
+      <rect x="1296" y="582" width="120" height="24" rx="12" fill="#f0fdf4"/>
+      <circle cx="1310" cy="594" r="3" fill="#22a45d"/>
+      <text x="1318" y="598" font-size="12" fill="#15803d">成功</text>
+      <line x1="244" y1="610" x2="1416" y2="610" stroke="#f1f1f3"/>
+
+      <text x="244" y="638" class="mono-cell">12:16:04</text>
+      <text x="420" y="638" class="mono-cell">key:9f3ab2c1</text>
+      <text x="620" y="638" class="mono-cell">installation.revoke</text>
+      <text x="820" y="638" class="mono-cell">ins_8b4f12c9</text>
+      <rect x="1296" y="626" width="120" height="24" rx="12" fill="#f0fdf4"/>
+      <circle cx="1310" cy="638" r="3" fill="#22a45d"/>
+      <text x="1318" y="642" font-size="12" fill="#15803d">成功</text>
+      <line x1="244" y1="654" x2="1416" y2="654" stroke="#f1f1f3"/>
+
+      <text x="244" y="682" class="mono-cell">11:49:37</text>
+      <text x="420" y="682" class="mono-cell">key:7a1c0d9e</text>
+      <text x="620" y="682" class="mono-cell">model.toggle</text>
+      <text x="820" y="682" class="mono-cell">qf-cloud-opus</text>
+      <rect x="1296" y="670" width="120" height="24" rx="12" fill="#f0fdf4"/>
+      <circle cx="1310" cy="682" r="3" fill="#22a45d"/>
+      <text x="1318" y="686" font-size="12" fill="#15803d">成功</text>
+      <line x1="244" y1="698" x2="1416" y2="698" stroke="#f1f1f3"/>
+
+      <text x="244" y="726" class="mono-cell">11:02:51</text>
+      <text x="420" y="726" class="mono-cell">key:7a1c0d9e</text>
+      <text x="620" y="726" class="mono-cell">catalog.sync</text>
+      <text x="820" y="726" class="mono-cell">catalog.json</text>
+      <rect x="1296" y="714" width="120" height="24" rx="12" fill="#f0fdf4"/>
+      <circle cx="1310" cy="726" r="3" fill="#22a45d"/>
+      <text x="1318" y="730" font-size="12" fill="#15803d">成功</text>
+      <line x1="244" y1="742" x2="1416" y2="742" stroke="#f1f1f3"/>
+
+      <text x="244" y="770" class="mono-cell">10:27:33</text>
+      <text x="420" y="770" class="mono-cell">key:9f3ab2c1</text>
+      <text x="620" y="770" class="mono-cell">entitlement.revoke</text>
+      <text x="820" y="770" class="mono-cell">ent_9e0d12</text>
+      <rect x="1296" y="758" width="120" height="24" rx="12" fill="#f0fdf4"/>
+      <circle cx="1310" cy="770" r="3" fill="#22a45d"/>
+      <text x="1318" y="774" font-size="12" fill="#15803d">成功</text>
+    </g>
   </g>
 </svg>

@@ -2,11 +2,11 @@
 
 ## 状态
 
-**当前 quickforge 仓库：Implemented and verified**（可配置服务连接、游客身份、正式账户 Device Flow、本地凭据、云模型目录、本机 API、Agent 云调用、Session URL 绑定与本地身份重建）。
+**当前 quickforge 仓库：Implemented and verified**（可配置服务连接、正式账户 Device Flow、本地凭据、云模型目录、本机 API、Agent 云调用、Session URL 绑定与本地身份重建；`mode:guest` 仅兼容遗留本地凭据）。
 
 状态口径：
 
-- **当前 quickforge 仓库已实现并验证**：可配置服务连接、游客身份、正式账户 OAuth Device Flow、本地凭据、云模型目录、本机 API、Agent 云调用、Session URL 绑定与本地身份重建。
+- **当前 quickforge 仓库已实现并验证**：可配置服务连接、正式账户 OAuth Device Flow、本地凭据、云模型目录、本机 API、Agent 云调用、Session URL 绑定与本地身份重建；guest mode 仅兼容遗留本地凭据。
 - **外部仓库声明、未验证**：Cloud 服务端、管理后台、Provider、部署与生产环境状态不属于本次验证结论。
 - **Planned**：仅限“已知限制”中明确列出的后续项。
 - **Not in current scope**：支付、同步、团队与组织能力。
@@ -50,7 +50,7 @@ Access Token 只存在 Node 内存中。Device Flow 的 `deviceCode` 与待处�
 
 ## Server 托管远程 Agent
 
-QuickForge Server 在 HTTP `listen` 成功后读取当前 Cloud 服务配置。Cloud 服务使用独立、默认关闭的 `enabled` 总开关；仅当配置有效且开关开启时，才使用实际绑定端口对应的回环地址启动随运行时分发的 `qf-agent`。关闭开关或 Server 关闭、重启、更新前会先停止 Agent，再按原有顺序清理本地运行时与 HTTP 服务。
+QuickForge Server 在 HTTP `listen` 成功后读取当前 Cloud 服务配置。Cloud 服务通过独立 `enabled` 总开关控制，默认关闭；仅当配置有效且开关开启时，才使用实际绑定端口对应的回环地址启动随运行时分发的 `qf-agent`。Agent 由 Server/Desktop 生命周期托管：关闭 Cloud 服务或 Server 关闭、重启、更新前会先停止 Agent，再按原有顺序清理本地运行时与 HTTP 服务。
 
 关闭 Cloud 服务不会清除已保存 URL、本地安装身份、Session 或账户摘要，也不影响测试/修改 URL 和退出；但会暂停云模型、额度、设备、Device Flow 轮询与远程 Agent。已配置但关闭时，模型解析稳定返回 `cloud_disabled`，不会误报为未配置。
 
@@ -62,17 +62,14 @@ QuickForge Server 在 HTTP `listen` 成功后读取当前 Cloud 服务配置。C
 
 所有 `/api/cloud/*` 仅允许本机请求，或已通过 LAN 密码认证的远端请求；不再按 Tailscale IPv4、IPv6、普通 LAN 或公网地址分类。未认证远端请求会先被全局 LAN 认证层以 HTTP 401 拒绝；到达 Cloud 路由但不满足认证边界时返回 HTTP 403 / `cloud_local_only`。配置类 JSON body 限制为 16 KiB。所有非安全写方法还必须携带 `x-quickforge-action: cloud-action`；带 JSON body 的写接口必须使用 `Content-Type: application/json`，以阻止浏览器跨站简单请求绕过预检。
 
-- `GET /api/cloud/config`：返回 `enabled`、规范化 URL、来源与配置错误；不返回凭据。历史配置、环境 URL 和产品默认 URL 均默认关闭。
-- `PUT /api/cloud/config`：可仅更新 `enabled` 或 URL 并使运行时失效；仅更新开关不读取凭据。显式保存 URL 时，存在 Refresh Token 或 pending Device Flow 仍只允许保存与 `sessionCloudUrl` 相同的规范化 URL，否则返回 HTTP 409 / `cloud_session_active`。
+- `GET /api/cloud/config`：返回规范化 URL、来源与配置错误；不返回凭据。
+- `PUT /api/cloud/config`：保存 URL 并使运行时失效；存在 Refresh Token 时，仅允许保存与 `sessionCloudUrl` 相同的规范化 URL，否则返回 HTTP 409 / `cloud_session_active`。
 - `POST /api/cloud/test-connection`：一次性检查 health/ready。
 - `POST /api/cloud/identity/reset`：要求 body `{"confirm":"reset-cloud-identity"}`；清内存 Access Token/模型缓存，轮换 installation 并清本地 Session，不向旧或新 Cloud 发送 Token。
-- `GET /api/cloud/status`：始终返回 `enabled`；关闭时仍返回本地安全身份与账户摘要且不自动注册游客或发起远端请求。旧 Session 缺失 URL 绑定或绑定到其他服务时返回 `sessionServiceMismatch: true`。
-- `GET /api/cloud/remote/status`：不初始化 Cloud runtime；关闭时返回 disabled 进程状态。
-- `enabled=false` 时，模型、额度、设备、Device Flow start/poll/cancel 和 installation DELETE 统一返回 HTTP 503 / `cloud_disabled`；`POST /api/cloud/logout` 仍可使用。
-- `POST /api/cloud/guest/start`
-- `POST /api/cloud/device/start`：若当前是本地模式，先建立游客 Session，再向绑定的 Cloud 服务申请设备授权；返回用户码、验证地址、过期时间与轮询间隔，不返回 `deviceCode`。
+- `GET /api/cloud/status`：返回本地安全摘要且不自动注册；旧 Session 缺失 URL 绑定或绑定到其他服务时返回 `sessionServiceMismatch: true`。
+- `POST /api/cloud/device/start`：local 直接 `ensureInstallation` 后向绑定的 Cloud 服务申请设备授权；返回用户码、验证地址、过期时间与轮询间隔，不返回 `deviceCode`。
 - `POST /api/cloud/device/poll`：Node 使用私有 `deviceCode` 轮询；结果为 `pending`、`slow_down`、`success`、`denied`、`expired` 或 `network`。仅网络异常、HTTP 5xx 与可重试服务错误映射为 `network`；协议错误和无效响应直接抛错。并发 poll 在单进程内合并为一次远端 exchange。
-- `POST /api/cloud/device/cancel`：清理待处理授权，保留原游客 Session、目录、额度和设备信息。
+- `POST /api/cloud/device/cancel`：清理待处理授权，保留原 local 或遗留 guest 状态。
 - 以上三个 Device Flow 端点均要求 action header 与 JSON Content-Type，响应绝不包含 `deviceCode`。
 - `GET /api/cloud/models`
 - `GET /api/cloud/usage`
@@ -107,9 +104,9 @@ Node 推理时忽略前端模型快照中的真实 transport 字段，固定使�
 
 ## 游客与正式账户
 
-应用启动和页面刷新不会自动注册游客。`POST /api/cloud/guest/start` 仍是显式游客创建入口。用户点击“登录或注册”时，如果当前为 local，Node 会在该显式动作内先创建临时 guest，再启动 Device Flow；如果已是 guest，则直接升级。
+无自动或显式游客注册入口。正式账户仅通过 Device Flow 登录/注册；`mode:guest` 仅用于兼容本地遗留凭据。
 
-Device Flow 使用 Cloud 承载的 `/device` 页面与账户登录/注册流程，QuickForge 不接触邮箱或密码。UI 展示设备码、验证页、复制、倒计时、取消并按服务端 interval 自动轮询；刷新页面后从公开状态恢复 pending。`authorization_pending` 继续等待，`slow_down` 增加轮询间隔，拒绝/过期清 pending，网络或服务不可用错误保留 pending 供重试；协议错误和无效响应直接报错。取消或失败始终保留原 guest Session。成功时 Node 在凭据写队列中用正式账户 Refresh Token 原子替换 guest Token，保留 installation，清 pending、账户旧摘要和模型缓存，再以严格白名单 `{id,email,plan}` 返回账户摘要。游客状态下，升级区域作为附加操作展示，不替换模型目录和设备列表。
+Device Flow 使用 Cloud 承载的 `/device` 页面与账户登录/注册流程，QuickForge 不接触邮箱或密码。local 模式点击“登录或注册”时，Node 直接 ensure installation 并向 Cloud 申请设备授权。UI 展示设备码、验证页、复制、倒计时、取消并按服务端 interval 自动轮询；刷新页面后从公开状态恢复 pending。`authorization_pending` 继续等待，`slow_down` 增加轮询间隔，拒绝/过期清 pending，网络或服务不可用错误保留 pending 供重试；协议错误和无效响应直接报错。取消或失败保留原 local 或遗留 guest 状态。成功时 Node 在凭据写队列中写入正式账户 Refresh Token，保留 installation，清 pending、账户旧摘要和模型缓存，再以严格白名单 `{id,email,plan}` 返回账户摘要。
 
 ## 统一模型目录与引用
 

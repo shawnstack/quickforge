@@ -803,6 +803,8 @@ export function ChatPanelHost({
           injectApprovalCard(
             {
               panel,
+              getMessages: displayMessages,
+              keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 3,
               onApprove: async () => { await propsRef.current.onApproveAutoCompact?.(capturedApprovalId); pendingAutoCompactApprovalRef.current = null; (agent as AgentWithContextCompaction).state.pendingAutoCompactApproval = null; removeApprovalCard(panel) },
               onReject: async () => { await propsRef.current.onRejectAutoCompact?.(capturedApprovalId); pendingAutoCompactApprovalRef.current = null; (agent as AgentWithContextCompaction).state.pendingAutoCompactApproval = null; removeApprovalCard(panel) },
             },

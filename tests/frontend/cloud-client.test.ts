@@ -13,7 +13,6 @@ import {
   resetCloudIdentity,
   revokeCloudInstallation,
   startCloudDeviceFlow,
-  startCloudGuest,
   testCloudConnection,
   updateCloudConfig,
 } from '../../src/lib/cloud-client'
@@ -52,13 +51,11 @@ describe('cloud client', () => {
 
     await expect(getCloudConfig()).resolves.toMatchObject({ serviceType: 'quickforge-cloud' })
     await expect(testCloudConnection('http://localhost:8082')).resolves.toMatchObject({ ok: true })
-    await expect(updateCloudConfig({ cloudUrl: 'http://localhost:8082' })).resolves.toMatchObject({ source: 'saved' })
-    await expect(updateCloudConfig({ enabled: false })).resolves.toMatchObject({ source: 'saved' })
+    await expect(updateCloudConfig({ cloudUrl: 'http://localhost:8082', enabled: true })).resolves.toMatchObject({ source: 'saved' })
     await expect(resetCloudIdentity()).resolves.toMatchObject({ ok: true })
 
     expect(fetchMock).toHaveBeenCalledWith('/api/cloud/test-connection', expect.objectContaining({ method: 'POST', body: JSON.stringify({ cloudUrl: 'http://localhost:8082' }) }))
-    expect(fetchMock).toHaveBeenCalledWith('/api/cloud/config', expect.objectContaining({ method: 'PUT', body: JSON.stringify({ cloudUrl: 'http://localhost:8082' }) }))
-    expect(fetchMock).toHaveBeenCalledWith('/api/cloud/config', expect.objectContaining({ method: 'PUT', body: JSON.stringify({ enabled: false }) }))
+    expect(fetchMock).toHaveBeenCalledWith('/api/cloud/config', expect.objectContaining({ method: 'PUT', body: JSON.stringify({ cloudUrl: 'http://localhost:8082', enabled: true }) }))
     expect(fetchMock).toHaveBeenCalledWith('/api/cloud/identity/reset', expect.objectContaining({ body: JSON.stringify({ confirm: 'reset-cloud-identity' }) }))
     for (const [path, init] of fetchMock.mock.calls) {
       const headers = new Headers(init?.headers)
@@ -73,17 +70,12 @@ describe('cloud client', () => {
     }
   })
 
-  it('starts a guest explicitly and parses public models', async () => {
-    const fetchMock = vi.fn(async (path: string) => {
-      if (path.endsWith('/guest/start')) return new Response(JSON.stringify({ configured: true, mode: 'guest' }), { status: 200 })
-      return new Response(JSON.stringify({ items: [{ id: 'qf-fast', provider: 'quickforge-cloud' }] }), { status: 200 })
-    })
+  it('parses public models without an action header', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ items: [{ id: 'qf-fast', provider: 'quickforge-cloud' }] }), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
-    await expect(startCloudGuest()).resolves.toMatchObject({ mode: 'guest' })
     await expect(getCloudModels()).resolves.toEqual([{ id: 'qf-fast', provider: 'quickforge-cloud' }])
-    expect(fetchMock.mock.calls[0][1]?.method).toBe('POST')
-    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('x-quickforge-action')).toBe('cloud-action')
-    expect(new Headers(fetchMock.mock.calls[1][1]?.headers).get('x-quickforge-action')).toBeNull()
+    expect(fetchMock).toHaveBeenCalledWith('/api/cloud/models', expect.objectContaining({ cache: 'no-store' }))
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('x-quickforge-action')).toBeNull()
   })
 
   it('uses protected JSON requests for device flow and never sends a device code from the browser', async () => {

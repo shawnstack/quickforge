@@ -172,9 +172,20 @@ export function isMobileShell(): boolean {
 }
 
 export function isRemoteQuickForgeClient(): boolean {
+  // 云远程访问隧道：原生层把 WebView 导航到 http://127.0.0.1:18080/?quickforgeRemote=1。
+  // 隧道模式下 hostname 是 127.0.0.1，必须用显式标记识别远程客户端，否则会误判为本机。
+  if (isCloudTunnelClient()) return true
   return !['localhost', '127.0.0.1', '::1'].includes(location.hostname)
 }
 
-export function openMobileServerPicker(): void {
-  window.location.href = 'https://localhost/?connect=1'
+/** 云账户 P2P 隧道客户端：仅安卓壳导航到本地隧道（quickforgeRemote=1）时为 true。 */
+export function isCloudTunnelClient(): boolean {
+  return new URLSearchParams(location.search).get('quickforgeRemote') === '1'
+}
+
+/** 跳回原生壳的连接页（https://localhost）；[tab] 指定初始选中项（servers=局域网设备 / cloud=云账户设备）。 */
+export function openMobileServerPicker(tab?: 'servers' | 'cloud'): void {
+  const params = new URLSearchParams({ connect: '1' })
+  if (tab) params.set('tab', tab)
+  window.location.href = `https://localhost/?${params.toString()}`
 }

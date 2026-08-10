@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cloudEndpoint, parseCloudBaseUrl, readCloudConfig } from '../../../server/cloud/config.mjs'
+import { cloudEndpoint, parseCloudBaseUrl } from '../../../server/cloud/config.mjs'
 
 describe('cloud config', () => {
   it('accepts HTTPS and normalizes its trailing slash', () => {
@@ -13,13 +13,6 @@ describe('cloud config', () => {
     expect(() => parseCloudBaseUrl('https://cloud.example.com?q=1')).toThrow()
     expect(() => parseCloudBaseUrl('https://cloud.example.com/#x')).toThrow()
     expect(() => parseCloudBaseUrl('http://cloud.example.com')).toThrow()
-  })
-
-  it('keeps an environment URL disabled until the saved service switch is enabled', () => {
-    expect(readCloudConfig({ QUICKFORGE_CLOUD_URL: 'https://env.example' })).toMatchObject({
-      enabled: false,
-      baseUrl: new URL('https://env.example/'),
-    })
   })
 
   it('allows HTTP only for loopback addresses without an environment switch', () => {

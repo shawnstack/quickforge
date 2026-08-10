@@ -44,7 +44,7 @@
 - 类型: `module` (ESM)
 - npm import 入口: `server/public-api.mjs` (`main` 字段)
 - 注册 CLI: `quickforge` / `qf` → `bin/quickforge.mjs`
-- Desktop 脚本: `desktop:dev`、`desktop:build`、`desktop:build:win/mac/linux`、`desktop:build:all`；桌面包通过 Electron 自带 Node 能力启动打包内置 runtime，不依赖用户系统 Node/npm/qf；如本地已有 QuickForge 服务，仅同版本才复用。Desktop 客户端更新通过 GitHub Releases / 桌面安装包分发；npm 的 `qf update` 和设置页 Runtime 更新只更新 npm 分发的 runtime。
+- Desktop 脚本: `desktop:dev`、`desktop:build`、`desktop:build:win/mac/linux`、`desktop:build:all`；桌面包通过 Electron 自带 Node 能力启动打包内置 runtime，不依赖用户系统 Node/npm/qf；如本地已有 QuickForge 服务，仅同版本才复用。Windows Desktop 默认启用打包内置的 `node-pty` 本地终端。Windows NSIS 安装器通过 `desktop/installer.nsh` 在安装或升级前请求 QuickForge 正常退出，并在超时后清理安装目录内残留的 QuickForge/qf-agent 进程。Desktop 客户端更新通过 GitHub Releases / 桌面安装包分发；npm 的 `qf update` 和设置页 Runtime 更新只更新 npm 分发的 runtime。
 - 核心依赖: `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, `@agentclientprotocol/sdk`
 - 发布包含: `bin/`, `server/`, `skills/`, `plugins/`, `dist/`, `README.md`, `LICENSE`；不包含 `desktop/` 和 Electron 构建产物
 

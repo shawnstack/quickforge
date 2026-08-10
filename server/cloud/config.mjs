@@ -25,10 +25,8 @@ export function parseCloudBaseUrl(value, _options = {}) {
   if (url.username || url.password || url.search || url.hash) {
     throw new Error('QUICKFORGE_CLOUD_URL must not contain credentials, query parameters, or fragments.')
   }
-  if (url.protocol !== 'https:') {
-    if (!(url.protocol === 'http:' && isLoopbackHost(url.hostname))) {
-      throw new Error('QUICKFORGE_CLOUD_URL must use HTTPS. HTTP is allowed only for loopback addresses.')
-    }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new Error('QUICKFORGE_CLOUD_URL must use http or https.')
   }
   if (url.pathname.includes('..')) throw new Error('QUICKFORGE_CLOUD_URL contains an unsafe path.')
   url.pathname = `${url.pathname.replace(/\/+$/, '')}/`
@@ -46,7 +44,7 @@ export function readCloudConfig(env = process.env) {
   const baseUrl = parseCloudBaseUrl(env.QUICKFORGE_CLOUD_URL)
   const timeoutValue = Number(env.QUICKFORGE_CLOUD_TIMEOUT_MS || DEFAULT_TIMEOUT_MS)
   return {
-    enabled: false,
+    enabled: Boolean(baseUrl),
     baseUrl,
     timeoutMs: Number.isFinite(timeoutValue) ? Math.min(60_000, Math.max(1_000, timeoutValue)) : DEFAULT_TIMEOUT_MS,
   }

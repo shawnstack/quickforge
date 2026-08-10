@@ -9,6 +9,7 @@ import {
   getCloudAccountViewState,
   loadCloudAccountDetails,
   rebuildCloudIdentityAndSaveUrl,
+  shouldPollCloudRemoteStatus,
 } from '../../src/components/cloud/cloud-account-settings-state'
 
 const usage: CloudUsage = { remaining: 42, resetsAt: '2026-03-01T00:00:00.000Z' }
@@ -27,6 +28,14 @@ function describeError(kind: 'usage' | 'installations' | 'models') {
 }
 
 describe('Cloud account settings state', () => {
+  it('polls remote status only while starting or authorizing', () => {
+    expect(shouldPollCloudRemoteStatus('starting')).toBe(true)
+    expect(shouldPollCloudRemoteStatus('authorizing')).toBe(true)
+    expect(shouldPollCloudRemoteStatus('running')).toBe(false)
+    expect(shouldPollCloudRemoteStatus('disabled')).toBe(false)
+    expect(shouldPollCloudRemoteStatus(undefined)).toBe(false)
+  })
+
   it('keeps usage and devices when models fail', async () => {
     const state = await loadCloudAccountDetails({
       usage: async () => usage,
@@ -77,12 +86,11 @@ describe('Cloud account settings state', () => {
     expect(getCloudAccountViewState({ loading: false, loadError: '', status, details: emptyCloudDetailsState })).toBe('connected')
   })
 
-  it('keeps guest details visible while adding the account upgrade action', () => {
+  it('keeps guest details visible for a usable guest session', () => {
     const visibility = getCloudAccountContentVisibility({ configured: true, mode: 'guest', hasSession: true })
     expect(visibility).toEqual({
       showDeviceFlow: false,
       showDisconnectedActions: false,
-      showGuestUpgrade: true,
       showDetails: true,
     })
   })
@@ -97,16 +105,6 @@ describe('Cloud account settings state', () => {
     expect(getCloudAccountViewState({ loading: false, loadError: '', status, details: { ...emptyCloudDetailsState, installations, models } })).toBe('connected')
     expect(getCloudAccountContentVisibility(status)).toEqual({
       showDeviceFlow: true,
-      showDisconnectedActions: false,
-      showGuestUpgrade: false,
-      showDetails: true,
-    })
-  })
-
-  it('keeps identity details available while the cloud service is disabled', () => {
-    const status = { configured: true, enabled: false, mode: 'account' as const, hasSession: true }
-    expect(getCloudAccountContentVisibility(status)).toEqual({
-      showDeviceFlow: false,
       showDisconnectedActions: false,
       showDetails: true,
     })

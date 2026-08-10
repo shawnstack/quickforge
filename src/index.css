@@ -3686,8 +3686,13 @@ assistant-message :is(thinking-block, tool-message, markdown-block)[data-quickfo
 }
 
 .quickforge-composer .quickforge-stop-button {
-  background: color-mix(in oklab, var(--muted) 48%, transparent) !important;
-  color: var(--foreground) !important;
+  background: var(--foreground) !important;
+  color: var(--background) !important;
+  box-shadow: 0 10px 24px -12px color-mix(in oklab, var(--foreground) 72%, black) !important;
+}
+
+.quickforge-composer .quickforge-stop-button:hover {
+  background: color-mix(in oklab, var(--foreground) 88%, var(--background)) !important;
 }
 
 .quickforge-composer attachment-tile + attachment-tile {

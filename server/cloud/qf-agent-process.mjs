@@ -512,10 +512,12 @@ export async function startQfAgent({ serverUrl, ownerPid, cloudUrl }) {
 
 export async function stopQfAgent({ disabled = false } = {}) {
   if (stopPromise) {
-    const stopped = await stopPromise
-    if (!disabled) return stopped
-    setStatus({ enabled: false, status: 'disabled', serverUrl: null, pid: null, verificationUriComplete: null, error: null })
-    return getQfAgentStatus()
+    const result = await stopPromise
+    if (disabled && result.status !== 'disabled') {
+      setStatus({ enabled: false, status: 'disabled', serverUrl: null, pid: null, verificationUriComplete: null, error: null })
+      return getQfAgentStatus()
+    }
+    return result
   }
   stopRequested = true
   lifecycleGeneration += 1
@@ -538,14 +540,7 @@ export async function stopQfAgent({ disabled = false } = {}) {
       await terminateChild(activeChild)
     }
     await clearOwnLock().catch(() => {})
-    setStatus({
-      enabled: disabled ? false : process.env.QUICKFORGE_QF_AGENT_ENABLED !== '0',
-      status: disabled ? 'disabled' : 'stopped',
-      serverUrl: null,
-      pid: null,
-      verificationUriComplete: null,
-      error: null,
-    })
+    setStatus({ enabled: disabled ? false : status.enabled, status: disabled ? 'disabled' : 'stopped', serverUrl: null, pid: null, verificationUriComplete: null, error: null })
     return getQfAgentStatus()
   })()
   return stopPromise

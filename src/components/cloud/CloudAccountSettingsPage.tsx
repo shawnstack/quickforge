@@ -37,6 +37,7 @@ import {
   getCloudAccountViewState,
   loadCloudAccountDetails,
   rebuildCloudIdentityAndSaveUrl,
+  shouldPollCloudRemoteStatus,
   type CloudDetailError,
 } from './cloud-account-settings-state'
 
@@ -174,21 +175,28 @@ export function CloudAccountSettingsPage() {
   const [switchWarning, setSwitchWarning] = useState('')
   const [now, setNow] = useState(0)
   const loadGenerationRef = useRef(0)
+  const remoteStatusGenerationRef = useRef(0)
   const pendingDeviceFlow = status?.pendingDeviceFlow
   const deviceFlowSecondsLeft = pendingDeviceFlow ? Math.max(0, Math.ceil((pendingDeviceFlow.expiresAt - now) / 1_000)) : 0
 
   const clearDetails = useCallback(() => dispatchDetails({ type: 'clear' }), [])
 
-  const load = useCallback(async (showLoading = true, preserveDraftUrl = false) => {
+  const refreshRemoteStatus = useCallback(async () => {
+    const generation = ++remoteStatusGenerationRef.current
+    try {
+      const nextRemoteStatus = await getCloudRemoteStatus()
+      if (generation === remoteStatusGenerationRef.current) setRemoteStatus(nextRemoteStatus)
+    } catch {
+      // Remote agent status must not block the Cloud account page.
+    }
+  }, [])
+
+  const load = useCallback(async (showLoading = true, preserveDraftUrl = false, includeRemoteStatus = true) => {
     const generation = ++loadGenerationRef.current
     if (showLoading) setLoading(true)
     setError('')
     dispatchDetails({ type: 'begin' })
-    void getCloudRemoteStatus().then((nextRemoteStatus) => {
-      if (generation === loadGenerationRef.current) setRemoteStatus(nextRemoteStatus)
-    }).catch(() => {
-      // Remote agent status must not block the Cloud account page.
-    })
+    if (includeRemoteStatus) void refreshRemoteStatus()
     try {
       const [nextConfig, nextStatus] = await Promise.all([getCloudConfig(), getCloudStatus()])
       if (generation !== loadGenerationRef.current) return
@@ -217,15 +225,30 @@ export function CloudAccountSettingsPage() {
     } finally {
       if (generation === loadGenerationRef.current) setLoading(false)
     }
-  }, [clearDetails])
+  }, [clearDetails, refreshRemoteStatus])
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void load() }, 0)
     return () => {
       window.clearTimeout(timer)
       loadGenerationRef.current += 1
+      remoteStatusGenerationRef.current += 1
     }
   }, [load])
+
+  useEffect(() => {
+    if (!config?.enabled || !shouldPollCloudRemoteStatus(remoteStatus?.status)) return
+    const timer = window.setInterval(() => { void refreshRemoteStatus() }, 1_750)
+    return () => window.clearInterval(timer)
+  }, [config?.enabled, refreshRemoteStatus, remoteStatus?.status])
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void refreshRemoteStatus()
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [refreshRemoteStatus])
 
   useEffect(() => {
     if (!config?.enabled || !status?.pendingDeviceFlow) return
@@ -257,7 +280,10 @@ export function CloudAccountSettingsPage() {
           window.dispatchEvent(new Event(CLOUD_STATE_CHANGED_EVENT))
           setError('')
           setMessage(t('cloudDeviceFlowSucceeded'))
-          await load(false)
+          await Promise.all([
+            load(false, false, false),
+            refreshRemoteStatus(),
+          ])
         } else if (nextStatus.deviceFlowResult === 'denied') {
           setError(t('cloudDeviceFlowDenied'))
         } else if (nextStatus.deviceFlowResult === 'expired') {
@@ -270,7 +296,7 @@ export function CloudAccountSettingsPage() {
       }
     }, delay)
     return () => window.clearTimeout(timer)
-  }, [busy, config?.enabled, load, status?.pendingDeviceFlow])
+  }, [busy, config?.enabled, load, refreshRemoteStatus, status?.pendingDeviceFlow])
 
   const dispatchCloudChanged = () => window.dispatchEvent(new Event(CLOUD_STATE_CHANGED_EVENT))
 
@@ -526,6 +552,14 @@ export function CloudAccountSettingsPage() {
   const retryDetails = () => { void load() }
   const detailLoading = loading || details.loading
 
+  const deviceNameCounts = new Map<string, number>()
+  for (const item of details.installations) {
+    const name = installationName(item)
+    deviceNameCounts.set(name, (deviceNameCounts.get(name) ?? 0) + 1)
+  }
+  const duplicateDeviceNames = [...deviceNameCounts.entries()].filter(([, count]) => count > 1)
+  const duplicateDeviceTotal = duplicateDeviceNames.reduce((sum, [, count]) => sum + count, 0)
+
   return (
     <div className="quickforge-settings-stack">
       <div className="quickforge-settings-heading">
@@ -719,7 +753,7 @@ export function CloudAccountSettingsPage() {
             <div className="quickforge-settings-row-control"><Button onClick={() => void startDeviceFlow()} disabled={loading || Boolean(busy)}><LogIn className="mr-2 size-4" />{t('cloudLoginOrRegister')}</Button></div>
           </div>
         </div>
-      ) : cloudEnabled && contentVisibility.showDetails ? (
+      ) : contentVisibility.showDetails ? (
         <>
           <div className="quickforge-settings-section">
             <div className="quickforge-settings-list-header"><div className="quickforge-settings-row-title"><Database className="size-4" />{t('cloudModels')}</div></div>
@@ -732,12 +766,13 @@ export function CloudAccountSettingsPage() {
 
           <div className="quickforge-settings-section">
             <div className="quickforge-settings-list-header"><div className="quickforge-settings-row-title"><Laptop className="size-4" />{t('cloudDevices')}</div></div>
+            {duplicateDeviceTotal > 1 ? <div className="quickforge-settings-warning quickforge-settings-warning-attached">{t('cloudDuplicateDevicesHint', { count: duplicateDeviceTotal, name: duplicateDeviceNames[0][0] })}</div> : null}
             {details.errors.installations ? <DetailFailure error={details.errors.installations} onRetry={retryDetails} disabled={detailLoading || Boolean(busy)} /> : details.installations.length === 0 ? <div className="p-6 text-center text-sm text-muted-foreground">{detailLoading ? t('loading') : t('cloudNoDevices')}</div> : details.installations.map((item) => {
               const id = installationId(item)
               const current = item.current === true || id === status?.installationId
               return (
                 <div key={id || installationName(item)} className="quickforge-settings-list-item">
-                  <div className="quickforge-settings-list-item-main"><div className="flex min-w-0 flex-wrap items-center gap-2"><div className="truncate text-sm font-medium">{installationName(item)}</div>{current ? <span className="quickforge-settings-badge quickforge-settings-badge-info">{t('cloudCurrentDevice')}</span> : null}</div><div className="quickforge-settings-row-description">{[item.platform, item.clientVersion, item.lastSeenAt ? formatDate(item.lastSeenAt) : undefined].filter(Boolean).join(' · ') || t('cloudNotAvailable')}</div></div>
+                  <div className="quickforge-settings-list-item-main"><div className="flex min-w-0 flex-wrap items-center gap-2"><div className="truncate text-sm font-medium">{installationName(item)}</div>{current ? <span className="quickforge-settings-badge quickforge-settings-badge-info">{t('cloudCurrentDevice')}</span> : null}</div><div className="quickforge-settings-row-description">{[item.platform, item.createdAt ? `${t('cloudRegisteredAt')} ${formatDate(item.createdAt)}` : undefined, item.lastSeenAt ? `${t('cloudLastSeenAt')} ${formatDate(item.lastSeenAt)}` : undefined, id ? `#${id.slice(0, 8)}` : undefined].filter(Boolean).join(' · ') || t('cloudNotAvailable')}</div></div>
                   <div className="quickforge-settings-list-item-actions"><Button variant="outline" size="sm" onClick={() => void revoke(item)} disabled={current || Boolean(busy)}>{t('cloudRevokeDevice')}</Button></div>
                 </div>
               )

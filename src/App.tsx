@@ -88,7 +88,8 @@ import { subscribeToAgentEvents } from '@/lib/server-agent'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
 import { artifactPreviewMode, findBestPreviewableArtifact, workspaceArtifactDiskPath } from '@/components/workspace/artifact-preview-utils'
 import { MobileServerConnectPage } from '@/components/mobile/MobileServerConnectPage'
-import { isMobileShell, isNativeMobileEntry, isRemoteQuickForgeClient, openMobileServerPicker, readMobileServerAliasFromUrl } from '@/lib/mobile-server'
+import { RemoteTunnelOverlay } from '@/components/mobile/RemoteTunnelOverlay'
+import { isCloudTunnelClient, isMobileShell, isNativeMobileEntry, isRemoteQuickForgeClient, openMobileServerPicker, readMobileServerAliasFromUrl } from '@/lib/mobile-server'
 import { initializeSystemNotifications, showTaskSystemNotification } from '@/lib/system-notifications'
 
 // --- Code-split secondary views (only loaded when first opened) ---
@@ -257,10 +258,13 @@ function channelEventProjectId(event: ChannelRefreshEvent) {
 
 function MainApp() {
   const remoteClient = isRemoteQuickForgeClient()
+  const cloudTunnelClient = isCloudTunnelClient()
   const mobileShell = isMobileShell()
   const cloudModels = useCloudModels(true)
   const mobileServerUrl = mobileShell ? window.location.origin : undefined
   const mobileServerAlias = mobileShell ? readMobileServerAliasFromUrl() : undefined
+  // 远程客户端（云隧道 / 局域网直连）侧边栏“返回连接页”入口：云隧道回云账户设备，直连回局域网服务器。
+  const openServerPicker = () => openMobileServerPicker(cloudTunnelClient ? 'cloud' : 'servers')
   // --- Top-level refs (owned by App) ---
   const storageRef = useRef<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
   const activeModelRef = useRef<Model<Api>>(buildConnectionModel(DEFAULT_CONNECTION))
@@ -1634,9 +1638,9 @@ function MainApp() {
         onDeleteSession={archiveSession}
         onStartNewGlobalChat={startNewDefaultSession}
         onOpenSettings={openDefaultOptionsSettings}
-        currentServerUrl={mobileServerUrl}
+        currentServerUrl={cloudTunnelClient ? '云账户远程访问' : mobileServerUrl}
         currentServerAlias={mobileServerAlias}
-        onOpenServer={mobileShell ? openMobileServerPicker : undefined}
+        onOpenServer={mobileShell || cloudTunnelClient ? openServerPicker : undefined}
         updateAvailable={updateCheck.result.updateAvailable}
         latestVersion={updateCheck.result.latestVersion}
         currentVersion={updateCheck.result.currentVersion}
@@ -1720,11 +1724,11 @@ function MainApp() {
                 closeMobileSidebar()
                 openDefaultOptionsSettings()
               }}
-              currentServerUrl={mobileServerUrl}
+              currentServerUrl={cloudTunnelClient ? '云账户远程访问' : mobileServerUrl}
               currentServerAlias={mobileServerAlias}
-              onOpenServer={mobileShell ? () => {
+              onOpenServer={mobileShell || cloudTunnelClient ? () => {
                 closeMobileSidebar()
-                openMobileServerPicker()
+                openServerPicker()
               } : undefined}
               updateAvailable={updateCheck.result.updateAvailable}
               latestVersion={updateCheck.result.latestVersion}
@@ -2051,6 +2055,8 @@ function MainApp() {
       onDismiss={dismissToast}
       onClick={handleToastClick}
     />
+    {/* 远程客户端断线覆盖层：组件内部自行判断远程模式，桌面端/壳页面不渲染。 */}
+    <RemoteTunnelOverlay />
     </>
   )
 }

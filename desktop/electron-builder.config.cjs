@@ -61,6 +61,7 @@ module.exports = {
     runAfterFinish: true,
     installerIcon: 'desktop/assets/icon.ico',
     uninstallerIcon: 'desktop/assets/icon.ico',
+    include: 'desktop/installer.nsh',
   },
   mac: {
     target: 'dmg',

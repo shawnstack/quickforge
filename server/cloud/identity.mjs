@@ -90,9 +90,8 @@ export class CloudIdentityManager {
     }
     if (record.rotateInstallationBeforeRegistration) {
       record = await this.store.rotateInstallation()
-    } else {
-      record = await this.store.ensureInstallation()
     }
+    record = await this.store.ensureInstallation()
     if (!record.installationId || !record.publicKey) {
       throw new CloudApiError('QuickForge Cloud installation identity is incomplete.', { status: 409, code: 'cloud_installation_missing' })
     }
@@ -296,7 +295,7 @@ export class CloudIdentityManager {
     if (this.modelsPromise) return this.modelsPromise
     this.modelsPromise = this.withAccessToken((token) => this.client.models(token, signal), { signal })
       .then((response) => {
-        this.modelsCache = Array.isArray(response?.items) ? response.items : []
+        this.modelsCache = Array.isArray(response?.data) ? response.data : (Array.isArray(response?.items) ? response.items : [])
         this.modelsCachedAt = Date.now()
         return this.modelsCache
       })

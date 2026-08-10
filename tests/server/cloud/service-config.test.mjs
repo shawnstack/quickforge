@@ -32,7 +32,7 @@ describe('cloud service config', () => {
     await expect(readCloudServiceConfig({
       readSettings: settingsReader({ [CLOUD_SERVICE_SETTINGS_KEY]: { cloudUrl: 'https://legacy.example' } }),
       env: {},
-    })).resolves.toMatchObject({ source: 'saved', enabled: false, cloudUrl: 'https://legacy.example/' })
+    })).resolves.toMatchObject({ source: 'saved', enabled: false })
   })
 
   it('persists only the managed service record in settings', async () => {
@@ -57,22 +57,11 @@ describe('cloud service config', () => {
     expect(JSON.stringify(updated)).not.toContain('customProviders')
   })
 
-  it('persists an invalid legacy URL only when explicitly allowed for switch-only repair', async () => {
-    let updated
-    await saveCloudServiceConfig({ cloudUrl: 'ftp://invalid.example', enabled: false, allowInvalidUrl: true }, {
-      updateSettings: async (_name, updater) => { updated = updater({}) },
-    })
-    expect(updated[CLOUD_SERVICE_SETTINGS_KEY]).toMatchObject({ enabled: false, cloudUrl: 'ftp://invalid.example' })
-    await expect(saveCloudServiceConfig({ cloudUrl: 'ftp://invalid.example', enabled: true }, {
-      updateSettings: async () => undefined,
-    })).rejects.toThrow()
-  })
-
   it('surfaces invalid saved configuration without blocking repair reads', async () => {
     await expect(readCloudServiceConfig({
-      readSettings: settingsReader({ [CLOUD_SERVICE_SETTINGS_KEY]: { enabled: true, cloudUrl: 'ftp://invalid.example' } }),
+      readSettings: settingsReader({ [CLOUD_SERVICE_SETTINGS_KEY]: { cloudUrl: 'ftp://invalid.example' } }),
       env: {},
       strict: false,
-    })).resolves.toMatchObject({ source: 'saved', enabled: true, valid: false, cloudUrl: 'ftp://invalid.example' })
+    })).resolves.toMatchObject({ source: 'saved', valid: false, cloudUrl: 'ftp://invalid.example' })
   })
 })

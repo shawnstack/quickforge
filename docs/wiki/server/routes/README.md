@@ -24,7 +24,7 @@
 | `system.mjs` | 107 | 系统状态、网络代理、重启、关于信息、Runtime 更新和 Desktop 发布页检查 |
 | `workspace.mjs` | 828 | 工作区文件浏览、产物预览静态读取、Git 变更检查、单文件/批量暂存与还原、分支操作、AI 提交信息生成、提交/推送和提交图谱（`server/index.mjs` 通过 `/api/git/*` 统一分发） |
 | `channels.mjs` | 外部渠道管理、SSE 状态/会话变更事件、仅 localhost + `x-quickforge-action: channel-event` 可调用的内部事件 relay，以及仅 localhost + `x-quickforge-action: channel-action` 可打开已注册渠道日志目录的 `POST /api/channels/:id/open-logs` |
-| `cloud.mjs` | QuickForge Cloud 本地 BFF：状态、显式游客、正式账户 Device Flow、模型、额度、设备撤销和安全退出 |
+| `cloud.mjs` | QuickForge Cloud 本地 BFF：状态、正式账户 Device Flow、模型、额度、设备撤销和安全退出 |
 | `static.mjs` | 89 | 静态文件服务；`index.html` 与可替换的 APK 下载使用 `no-cache`，其余构建资产长期缓存 |
 
 ### system.mjs
@@ -41,16 +41,13 @@
 
 已通过 LAN 密码认证的客户端可以使用本地 Cloud BFF，不再按 Tailscale IPv4、IPv6、普通 LAN 或公网地址分类。远程客户端使用的是宿主机 Cloud 身份与额度。未认证远端请求会先由全局 LAN 层返回 HTTP 401；请求到达 Cloud 路由但不满足认证边界时返回 HTTP 403 / `cloud_local_only`。所有非安全写方法还要求 `x-quickforge-action: cloud-action`，带 JSON body 的写接口要求 `Content-Type: application/json`，以阻止浏览器跨站简单请求绕过预检。
 
-- `GET /api/cloud/config` — 返回 `enabled`、规范化 Cloud URL、来源与配置错误，不返回凭据；历史配置、环境 URL 和产品默认 URL 均默认关闭。
-- `PUT /api/cloud/config` — 可仅更新 `enabled` 或 `cloudUrl` 并使 Cloud runtime 失效；仅更新开关不读取凭据，显式保存 URL 时仍执行 Session 跨 URL 保护。
+- `GET /api/cloud/config` — 返回规范化 Cloud URL、来源与配置错误，不返回凭据。
+- `PUT /api/cloud/config` — 保存 URL 并使 Cloud runtime 失效；活动 Session 必须与凭据中绑定的 `sessionCloudUrl` 一致，旧版未绑定 Session 也会以 HTTP 409 / `cloud_session_active` 安全拒绝。
 - `POST /api/cloud/test-connection` — 使用一次性 Client 检查 health/ready，不创建身份、初始化 runtime 或发送 Token。
 - `POST /api/cloud/identity/reset` — 需显式确认；仅清本地 Session、轮换 installation 并使 runtime 失效，不联系旧/新服务。
-- `GET /api/cloud/status` — 始终返回 `enabled`；关闭时仍返回本地安全身份与账户摘要，不自动创建游客或发远端请求。Session URL 不匹配或旧 Session 缺失绑定时带 `sessionServiceMismatch` 供 UI 提示重建身份。
-- `GET /api/cloud/remote/status` — 返回总开关与 qf-agent 本地进程状态，不初始化 Cloud runtime；关闭时固定为 disabled。
-- `enabled=false` 时，`models`、`usage`、`installations`、Device Flow start/poll/cancel 和 installation DELETE 统一返回 HTTP 503 / `cloud_disabled`；logout 仍可执行。
+- `GET /api/cloud/status` — 返回本地安全摘要，不自动注册；Session URL 不匹配或旧 Session 缺失绑定时带 `sessionServiceMismatch` 供 UI 提示重建身份。
 - Refresh、Logout、模型、额度和设备等 Token 操作发现 Session URL 不匹配或缺失时返回 HTTP 409 / `cloud_session_service_mismatch`，并在发送旧 Refresh Token 前拒绝。
-- `POST /api/cloud/guest/start` — 用户明确确认后创建游客；退出后的下一次注册会先轮换安装密钥并创建新游客。
-- `POST /api/cloud/device/start|poll|cancel` — 正式账户 Device Flow；local 的 start 会先创建临时 guest，guest 直接升级。`deviceCode` 仅保存在 Node 私有凭据文件；页面刷新/本地重启后由 status 恢复公开 pending 摘要。pending/slow_down/network 保留流程，denied/expired/cancel 清 pending 并保留 guest，成功原子替换账户 Token、保留 installation 并清模型缓存。
+- `POST /api/cloud/device/start|poll|cancel` — 正式账户 Device Flow；local 的 start 直接 ensure installation 并 authorizeDevice。`deviceCode` 仅保存在 Node 私有凭据文件；页面刷新/本地重启后由 status 恢复公开 pending 摘要。pending/slow_down/network 保留流程，denied/expired/cancel 清 pending 并保留原 local/遗留 guest 状态，成功原子写入账户 Token、保留 installation 并清模型缓存。
 - `GET /api/cloud/models|usage|installations` — 返回公开模型、额度和设备列表。
 - `DELETE /api/cloud/installations/:id` — 撤销指定设备。
 - `POST /api/cloud/logout` — 先撤销云端当前 installation，再清理本地 Session；远端失败时请求失败且本地凭据保留。

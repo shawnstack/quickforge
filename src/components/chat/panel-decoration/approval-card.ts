@@ -1,11 +1,22 @@
 import { t } from '@/lib/i18n'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
+import type { MessageWithUsage } from '../chat-utils'
 import { buildInlineDiff, buildInlinePreview, escapeHtml } from './html'
 
 export type ApprovalCardDeps = {
   panel: HTMLElement
   onApprove: () => Promise<void> | void
   onReject: () => Promise<void> | void
+  /**
+   * Messages aligned with the rendered DOM (the windowed view when windowing
+   * is active). Only needed for auto-compact approvals.
+   */
+  getMessages?: () => MessageWithUsage[]
+  /**
+   * Number of recent turns the compaction would keep. When set, the card is
+   * inserted at the boundary of the kept turns instead of the list bottom.
+   */
+  keepRecentTurns?: number
 }
 
 export type ToolApprovalSource = {
@@ -45,6 +56,48 @@ function hiddenToolArgsPreview(toolName: string, args: Record<string, unknown>) 
     ${summary ? `<div class="text-xs text-muted-foreground mb-1">${escapeHtml(t('toolArgsSummary'))}: ${escapeHtml(summary)}</div>` : ''}
     <div class="text-xs bg-background border rounded p-2 text-muted-foreground">${escapeHtml(t('toolDetailsHidden'))}</div>
   `
+}
+
+function isDisplayMessage(message: MessageWithUsage) {
+  return message.role === 'user' || message.role === 'user-with-attachments' || message.role === 'assistant'
+}
+
+function isUserMessage(message: MessageWithUsage) {
+  return message.role === 'user' || message.role === 'user-with-attachments'
+}
+
+/**
+ * Locate the DOM element before which the auto-compact approval card should
+ * be inserted: the first message of the last `keepRecentTurns` user turns —
+ * the boundary between context that would be compacted away and the recent
+ * turns that are kept. `messages` must be aligned with the rendered DOM
+ * (i.e. the windowed view when windowing is active). Returns null when no
+ * sensible boundary exists.
+ */
+function findKeepBoundaryTarget(panel: HTMLElement, messages: MessageWithUsage[], keepRecentTurns: number) {
+  if (keepRecentTurns <= 0 || messages.length === 0) return null
+
+  const userTurnStarts: number[] = []
+  for (let i = 0; i < messages.length; i++) {
+    if (isUserMessage(messages[i])) userTurnStarts.push(i)
+  }
+  if (userTurnStarts.length === 0) return null
+
+  const keep = Math.min(keepRecentTurns, userTurnStarts.length)
+  const boundaryIndex = userTurnStarts[userTurnStarts.length - keep]
+
+  const messageList = panel.querySelector('message-list')
+  if (!messageList) return null
+  const elements = Array.from(messageList.querySelectorAll<HTMLElement>('user-message, assistant-message'))
+    .filter((element) => element.closest('message-list') === messageList)
+
+  let displayIndex = 0
+  for (let i = 0; i <= boundaryIndex; i++) {
+    if (!isDisplayMessage(messages[i])) continue
+    if (i === boundaryIndex) return elements[displayIndex] ?? null
+    displayIndex += 1
+  }
+  return null
 }
 
 export function injectApprovalCard(
@@ -185,9 +238,18 @@ export function injectApprovalCard(
   actions.append(acceptBtn, rejectBtn)
   card.append(actions)
 
-  // Insert at the bottom of the message list
+  // Auto-compact approvals are inserted at the boundary of the kept recent
+  // turns (the first message of the last `keepRecentTurns` user turns), so the
+  // card appears where the old context would be compacted away. Regular tool
+  // approvals keep the bottom-of-list placement.
+  const keepBoundaryTarget = deps.keepRecentTurns
+    ? findKeepBoundaryTarget(panel, deps.getMessages?.() ?? [], deps.keepRecentTurns)
+    : null
+
   const messageList = panel.querySelector('message-list')
-  if (messageList) {
+  if (keepBoundaryTarget) {
+    keepBoundaryTarget.before(card)
+  } else if (messageList) {
     messageList.append(card)
   } else {
     // Fallback: append to agent-interface
@@ -195,8 +257,11 @@ export function injectApprovalCard(
     agentInterface?.append(card)
   }
 
-  // Scroll into view
-  card.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  // Scroll into view for bottom-of-list placement only; a boundary-inserted
+  // card must not yank the viewport away from the streaming tail.
+  if (!keepBoundaryTarget) {
+    card.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }
 }
 
 export function removeApprovalCard(panel: HTMLElement) {

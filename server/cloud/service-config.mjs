@@ -52,19 +52,13 @@ export async function readCloudServiceConfig({ readSettings = readStore, env = p
   }
 }
 
-export async function saveCloudServiceConfig({ cloudUrl, enabled, allowInvalidUrl = false }, { updateSettings = atomicUpdate } = {}) {
-  let normalizedCloudUrl
-  try {
-    normalizedCloudUrl = parseCloudBaseUrl(cloudUrl).href
-  } catch (error) {
-    if (!allowInvalidUrl) throw error
-    normalizedCloudUrl = String(cloudUrl || '').trim()
-  }
+export async function saveCloudServiceConfig({ cloudUrl, enabled }, { updateSettings = atomicUpdate } = {}) {
+  const baseUrl = parseCloudBaseUrl(cloudUrl)
   const record = {
     schemaVersion: CLOUD_SERVICE_SCHEMA_VERSION,
     serviceType: CLOUD_SERVICE_TYPE,
     enabled: enabled === true,
-    cloudUrl: normalizedCloudUrl,
+    cloudUrl: baseUrl.href,
   }
   await updateSettings('settings', (settings) => ({
     ...settings,

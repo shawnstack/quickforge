@@ -215,22 +215,21 @@ async function refreshConnections() {
     }
   }
 
-  for (const config of enabled.values()) {
+  const refreshed = await Promise.all([...enabled.values()].map(async (config) => {
     const existing = connections.get(config.name)
     if (existing) {
       if (existing.status === 'error' && Date.now() - (existing.lastAttemptAt || 0) >= RETRY_ERROR_AFTER_MS) {
         connections.delete(config.name)
         await closeConnection(existing)
       } else {
-        continue
+        return [config.name, existing]
       }
     }
     try {
-      const connection = await connectServer(config)
-      connections.set(config.name, connection)
+      return [config.name, await connectServer(config)]
     } catch (error) {
       logger.error(`Failed to connect MCP server ${config.name}:`, error)
-      connections.set(config.name, {
+      return [config.name, {
         config,
         client: null,
         transport: null,
@@ -240,10 +239,12 @@ async function refreshConnections() {
         connectedAt: null,
         stderr: '',
         lastAttemptAt: Date.now(),
-      })
+      }]
     }
-  }
+  }))
 
+  connections.clear()
+  for (const [name, connection] of refreshed) connections.set(name, connection)
   return connections
 }
 

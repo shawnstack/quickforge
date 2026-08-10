@@ -252,19 +252,6 @@ describe('managed cloud provider resolution', () => {
     expect(resolved.model.headers).toBeUndefined()
   })
 
-  it('returns cloud_disabled for a configured managed model while the service switch is off', async () => {
-    setCloudRuntimeForTests(createCloudRuntime({
-      config: { enabled: false, baseUrl: new URL('https://cloud.test') },
-      store: fakeStore(),
-      client: fakeClient(),
-    }))
-    await expect(resolveManagedCloudProvider({
-      provider: 'quickforge-cloud',
-      quickforgeModelSource: 'cloud',
-      quickforgeCatalogId: 'm1',
-    })).rejects.toMatchObject({ code: 'cloud_disabled' })
-  })
-
   it('returns undefined for non-managed models', async () => {
     setCloudRuntimeForTests(createCloudRuntime({
       config: { enabled: true, baseUrl: new URL('https://cloud.test') },

@@ -311,11 +311,10 @@ Do not modify files yet. Read the relevant code first, explain your plan, and wa
 
 In **Settings → QuickForge Cloud**:
 
-1. From local mode, choose **Sign in or register**. QuickForge creates a temporary guest only as part of that explicit action, then starts sign-in.
-2. From guest mode, choose **Upgrade to an account**; the current installation is retained.
-3. Open the Cloud verification page and register or sign in there. Email and password go only to the Cloud page; QuickForge never reads or stores them.
-4. QuickForge shows the device code and countdown and polls automatically. Refreshing the page or restarting the local service resumes the pending flow.
-5. Cancel, denial, expiration, or temporary network failure keeps the guest session. The account token replaces it only after success, then the account email and plan are shown.
+1. From local mode, choose **Sign in or register** to start Device Flow directly. No temporary guest is created.
+2. Open the Cloud verification page and register or sign in there. Email and password go only to the Cloud page; QuickForge never reads or stores them.
+3. QuickForge shows the device code and countdown and polls automatically. Refreshing the page or restarting the local service resumes the pending flow.
+4. Cancel, denial, expiration, or temporary network failure keeps the local/unsigned-in state. After success, the account email and plan are shown.
 
 Do not change the Cloud URL while sign-in is pending. The flow is bound to the service URL where it was created.
 

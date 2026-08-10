@@ -81,7 +81,7 @@ export function createCloudRouteHandler({
   invalidateRuntime = invalidateCloudRuntime,
   cloudClientFactory = (config) => new CloudClient(config),
   qfAgentStatus = getQfAgentStatus,
-  onCloudServiceConfigChanged,
+  onServiceConfigChanged,
 } = {}) {
   async function runtimeOrError() {
     try {
@@ -99,6 +99,11 @@ export function createCloudRouteHandler({
     requireProtectedCloudWrite(req, url.pathname)
 
     if (req.method === 'GET' && url.pathname === '/api/cloud/remote/status') {
+      const service = await readServiceConfig({ strict: false })
+      if (!service.enabled) {
+        sendJson(res, 200, { ...qfAgentStatus(), enabled: false, status: 'disabled', serverUrl: null, pid: null, verificationUriComplete: null, error: null })
+        return
+      }
       sendJson(res, 200, qfAgentStatus())
       return
     }
@@ -131,11 +136,10 @@ export function createCloudRouteHandler({
         throw routeError('QuickForge Cloud enabled must be a boolean.', 400, 'cloud_enabled_invalid')
       }
       const currentConfig = await readServiceConfig({ strict: false })
-      const explicitCloudUrl = body?.cloudUrl !== undefined
-      const nextUrl = explicitCloudUrl ? parseCloudBaseUrl(body.cloudUrl).href : currentConfig.cloudUrl
+      const nextUrl = parseCloudBaseUrl(body?.cloudUrl === undefined ? currentConfig.cloudUrl : body.cloudUrl).href
       const nextEnabled = body?.enabled === undefined ? currentConfig.enabled === true : body.enabled
-      const urlChanged = explicitCloudUrl && !sameCloudUrl(currentConfig.cloudUrl, nextUrl)
-      if (explicitCloudUrl) {
+      const urlChanged = !sameCloudUrl(currentConfig.cloudUrl, nextUrl)
+      if (body?.cloudUrl !== undefined) {
         const credentialStore = credentialStoreFactory()
         const identityRecord = await credentialStore.read()
         if (identityRecord.refreshToken || identityRecord.pendingDeviceFlow) {
@@ -146,10 +150,10 @@ export function createCloudRouteHandler({
           }
         }
       }
-      await saveServiceConfig({ cloudUrl: nextUrl, enabled: nextEnabled, allowInvalidUrl: !explicitCloudUrl })
+      await saveServiceConfig({ cloudUrl: nextUrl, enabled: nextEnabled })
       invalidateRuntime()
       const saved = await readServiceConfig({ strict: false })
-      const notify = context.onCloudServiceConfigChanged || onCloudServiceConfigChanged
+      const notify = context.onCloudServiceConfigChanged || onServiceConfigChanged
       if (typeof notify === 'function') await notify(saved, { urlChanged })
       sendJson(res, 200, publicCloudServiceConfig(saved))
       return
@@ -172,13 +176,7 @@ export function createCloudRouteHandler({
     const { runtime: current, configurationError } = await runtimeOrError()
     if (req.method === 'GET' && url.pathname === '/api/cloud/status') {
       if (configurationError) {
-        const service = await readServiceConfig({ strict: false })
-        if (!service.enabled) {
-          const store = credentialStoreFactory()
-          sendJson(res, 200, { ...(await store.readPublic()), configured: Boolean(service.cloudUrl), enabled: false, configurationError: service.configurationError || configurationError.message })
-          return
-        }
-        sendJson(res, 200, { configured: false, enabled: true, mode: 'local', configurationError: configurationError.message })
+        sendJson(res, 200, { configured: false, enabled: false, mode: 'local', configurationError: configurationError.message })
         return
       }
       if (!current?.enabled) {
@@ -190,16 +188,7 @@ export function createCloudRouteHandler({
       return
     }
 
-    if (configurationError) {
-      const service = await readServiceConfig({ strict: false })
-      if (req.method === 'POST' && url.pathname === '/api/cloud/logout' && !service.enabled) {
-        await credentialStoreFactory().clearSession({ rotateInstallationBeforeRegistration: true })
-        invalidateRuntime()
-        sendJson(res, 200, { ok: true, mode: 'local' })
-        return
-      }
-      throw routeError(configurationError.message, 503, 'cloud_configuration_error')
-    }
+    if (configurationError) throw routeError(configurationError.message, 503, 'cloud_configuration_error')
 
     if (req.method === 'POST' && url.pathname === '/api/cloud/logout') {
       if (current?.identity) await current.identity.logout()

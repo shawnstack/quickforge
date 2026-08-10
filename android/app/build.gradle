@@ -1,4 +1,5 @@
 apply plugin: 'com.android.application'
+apply plugin: 'kotlin-android'
 
 android {
     namespace = "com.quickforge.mobile"
@@ -22,6 +23,16 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+    }
 }
 
 repositories {
@@ -40,6 +51,12 @@ dependencies {
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
+
+    // 远程隧道原生层：WebRTC（io.github.webrtc-sdk:android 为 org.webrtc 官方 API 的
+    // Maven Central 构建；org.webrtc:google-webrtc 已从 Maven Central/Google Maven 下线，
+    // 详见 remote-access-p2p 原生层报告）+ okhttp（信令 WS 与云 API）
+    implementation 'io.github.webrtc-sdk:android:144.7559.09'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
 }
 
 apply from: 'capacitor.build.gradle'

@@ -9,7 +9,12 @@ function createMemoryStore(seed = {}) {
   }
   return {
     read: async () => ({ ...record }),
-    ensureInstallation: async () => ({ ...record }),
+    ensureInstallation: async () => {
+      if (!record.installationId) {
+        record = { ...record, installationId: 'install-local' }
+      }
+      return { ...record }
+    },
     rotateInstallation: async () => {
       record = {
         ...record,
@@ -62,18 +67,6 @@ function createManager(client, store, serviceUrl = 'https://cloud.test/') {
 }
 
 describe('cloud identity manager', () => {
-  it('binds a new guest session to the current Cloud service URL', async () => {
-    const store = createMemoryStore()
-    const client = {
-      registerGuest: vi.fn(async () => ({ accessToken: 'access', refreshToken: 'refresh', expiresIn: 300, installationId: 'install-1', identityMode: 'guest' })),
-      me: vi.fn(async () => ({ id: 'account-1', mode: 'guest', plan: 'guest' })),
-      usage: vi.fn(async () => ({ remaining: 10 })),
-    }
-    const manager = createManager(client, store)
-    await manager.startGuest()
-    expect(store.value().sessionCloudUrl).toBe('https://cloud.test/')
-  })
-
   it('refuses to send a refresh token to a different or unknown Cloud service', async () => {
     const client = { refresh: vi.fn() }
     const mismatched = createManager(client, createMemoryStore({
@@ -89,55 +82,9 @@ describe('cloud identity manager', () => {
     await expect(legacy.status()).resolves.toMatchObject({ hasSession: true, sessionServiceMismatch: true })
   })
 
-  it('persists a pending registration key and reuses it after a failed attempt', async () => {
-    const store = createMemoryStore()
-    const calls = []
-    const client = {
-      registerGuest: vi.fn(async (_body, key) => {
-        calls.push(key)
-        if (calls.length === 1) throw new CloudApiError('offline', { code: 'cloud_unavailable' })
-        return { accessToken: 'access', refreshToken: 'refresh', expiresIn: 300, installationId: 'install-1', identityMode: 'guest' }
-      }),
-      me: vi.fn(async () => ({ id: 'account-1', mode: 'guest', plan: 'guest' })),
-      usage: vi.fn(async () => ({ remaining: 10 })),
-    }
-    const manager = createManager(client, store)
-
-    await expect(manager.startGuest()).rejects.toThrow('offline')
-    const pending = store.value().pendingRegistrationKey
-    expect(pending).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
-    await manager.startGuest()
-    expect(calls).toEqual([pending, pending])
-    expect(store.value()).toMatchObject({ mode: 'guest', installationId: 'install-1', refreshToken: 'refresh', sessionCloudUrl: 'https://cloud.test/' })
-    expect(store.value().pendingRegistrationKey).toBeUndefined()
-  })
-
-  it('replaces a persisted legacy registration key even when the request is unchanged', async () => {
+  it('starts device authorization from local with complete installation and persists only the pending server-side secret', async () => {
     const store = createMemoryStore()
     const client = {
-      registerGuest: vi.fn(async () => {
-        if (client.registerGuest.mock.calls.length === 1) throw new CloudApiError('offline', { code: 'cloud_unavailable' })
-        return { accessToken: 'access', refreshToken: 'refresh', expiresIn: 300, installationId: 'install-1', identityMode: 'guest' }
-      }),
-      me: vi.fn(async () => ({ id: 'account-1', mode: 'guest', plan: 'guest' })),
-      usage: vi.fn(async () => ({ remaining: 10 })),
-    }
-    const manager = createManager(client, store)
-
-    await expect(manager.startGuest()).rejects.toThrow('offline')
-    await store.update((current) => ({ ...current, pendingRegistrationKey: 'legacy-base64url-registration-key' }))
-    await manager.startGuest()
-    const idempotencyKey = client.registerGuest.mock.calls[1][1]
-    expect(idempotencyKey).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
-    expect(idempotencyKey).not.toBe('legacy-base64url-registration-key')
-  })
-
-  it('starts device authorization from local by creating a guest and persists only the pending server-side secret', async () => {
-    const store = createMemoryStore()
-    const client = {
-      registerGuest: vi.fn(async () => ({ accessToken: 'guest-access', refreshToken: 'guest-refresh', expiresIn: 300, installationId: 'install-1', identityMode: 'guest' })),
-      me: vi.fn(async () => ({ id: 'guest-1', mode: 'guest', plan: 'guest' })),
-      usage: vi.fn(async () => ({ remaining: 10 })),
       authorizeDevice: vi.fn(async () => ({
         deviceCode: 'device-secret', userCode: 'ABCD-EFGH', verificationUri: 'https://cloud.test/device',
         verificationUriComplete: 'https://cloud.test/device?user_code=ABCD-EFGH', expiresIn: 600, interval: 5,
@@ -145,8 +92,16 @@ describe('cloud identity manager', () => {
     }
     const manager = createManager(client, store)
     const status = await manager.startDeviceFlow()
-    expect(client.registerGuest).toHaveBeenCalledTimes(1)
-    expect(client.authorizeDevice).toHaveBeenCalledWith('guest-access', 'install-1', 'quickforge-desktop', undefined)
+    expect(store.value().installationId).toBe('install-local')
+    expect(client.authorizeDevice).toHaveBeenCalledWith({
+      installationId: 'install-local',
+      clientId: 'quickforge-desktop',
+      publicKey: 'public-key',
+      installationName: 'Test',
+      platform: 'linux',
+      clientVersion: '1.0.0',
+      signal: undefined,
+    })
     expect(store.value().pendingDeviceFlow).toMatchObject({ deviceCode: 'device-secret', sessionCloudUrl: 'https://cloud.test/' })
     expect(status.pendingDeviceFlow).not.toHaveProperty('deviceCode')
   })
@@ -237,7 +192,15 @@ describe('cloud identity manager', () => {
     const manager = createManager(client, store)
 
     const started = await manager.startDeviceFlow()
-    expect(client.authorizeDevice).toHaveBeenCalledWith('guest-access', 'install-1', 'quickforge-desktop', undefined)
+    expect(client.authorizeDevice).toHaveBeenCalledWith({
+      installationId: 'install-1',
+      clientId: 'quickforge-desktop',
+      publicKey: 'public-key',
+      installationName: 'Test',
+      platform: 'linux',
+      clientVersion: '1.0.0',
+      signal: undefined,
+    })
     expect(started.pendingDeviceFlow).toMatchObject({ userCode: 'ABCD-EFGH', interval: 2 })
     expect(started.pendingDeviceFlow).not.toHaveProperty('deviceCode')
     expect(store.value().pendingDeviceFlow).toMatchObject({ deviceCode: 'device-secret', sessionCloudUrl: 'https://cloud.test/' })
@@ -421,12 +384,28 @@ describe('cloud identity manager', () => {
   it('rotates the installation identity before registering after logout', async () => {
     const store = createMemoryStore({ rotateInstallationBeforeRegistration: true })
     const client = {
-      registerGuest: vi.fn(async () => ({ accessToken: 'access', refreshToken: 'refresh', expiresIn: 300, installationId: 'install-2', identityMode: 'guest' })),
-      me: vi.fn(async () => ({ id: 'account-2', mode: 'guest', plan: 'guest' })),
-      usage: vi.fn(async () => ({ remaining: 10 })),
+      authorizeDevice: vi.fn(async () => ({
+        deviceCode: 'device-secret', userCode: 'ABCD-EFGH', verificationUri: 'https://cloud.test/device',
+        verificationUriComplete: 'https://cloud.test/device?user_code=ABCD-EFGH', expiresIn: 600, interval: 5,
+      })),
     }
     const manager = createManager(client, store)
-    await manager.startGuest()
-    expect(client.registerGuest).toHaveBeenCalledWith(expect.objectContaining({ publicKey: 'rotated-public-key' }), expect.any(String), undefined)
+    const status = await manager.startDeviceFlow()
+    expect(store.value()).toMatchObject({
+      publicKey: 'rotated-public-key',
+      privateKeyPkcs8: 'rotated-private-key',
+      installationId: 'install-local',
+    })
+    expect(store.value().rotateInstallationBeforeRegistration).toBeUndefined()
+    expect(client.authorizeDevice).toHaveBeenCalledWith({
+      installationId: 'install-local',
+      clientId: 'quickforge-desktop',
+      publicKey: 'rotated-public-key',
+      installationName: 'Test',
+      platform: 'linux',
+      clientVersion: '1.0.0',
+      signal: undefined,
+    })
+    expect(status.pendingDeviceFlow).toMatchObject({ userCode: 'ABCD-EFGH' })
   })
 })

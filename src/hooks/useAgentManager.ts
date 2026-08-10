@@ -105,6 +105,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   const loadSessionRef = useRef<AgentManager['loadSession'] | null>(null)
   const loadSessionRequestRef = useRef(0)
   const loadSessionAbortRef = useRef<AbortController | null>(null)
+  const loadSessionInflightRef = useRef<{ sessionId: string; promise: Promise<boolean> } | null>(null)
   const onTaskCompleteRef = useRef(deps.onTaskComplete)
 
   useEffect(() => {
@@ -411,7 +412,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   }, [activeModelRef, createAgent, defaultWorkspaceRef, disposeDetachedAgent, loadCloudModels, storageRef, agentAccessModeRef])
 
   // --- Load a persisted session ---
-  const loadSession = useCallback(
+  const performLoadSession = useCallback(
     async (
       sessionId: string,
       hints?: { title?: string; createdAt?: string; scope?: ChatScope; projectId?: string; source?: 'acp'; channelId?: string; channelName?: string },
@@ -570,6 +571,23 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     },
     [activeModelRef, activeProjectRef, agentAccessModeRef, attachTaskToView, defaultWorkspaceRef, pruneIdleTasks, refreshSessions, setAgentAccessMode, switchActiveProject, syncSessionUI, updateSessionTitle],
   )
+
+  const loadSession = useCallback<AgentManager['loadSession']>((sessionId, hints) => {
+    const inflight = loadSessionInflightRef.current
+    if (inflight?.sessionId === sessionId) return inflight.promise
+
+    const promise = performLoadSession(sessionId, hints)
+    loadSessionInflightRef.current = { sessionId, promise }
+    void promise.then(
+      () => {
+        if (loadSessionInflightRef.current?.promise === promise) loadSessionInflightRef.current = null
+      },
+      () => {
+        if (loadSessionInflightRef.current?.promise === promise) loadSessionInflightRef.current = null
+      },
+    )
+    return promise
+  }, [performLoadSession])
 
   useEffect(() => {
     loadSessionRef.current = loadSession

@@ -47,7 +47,7 @@
 
 核心 Agent 管理 Hook，封装了 Agent 的完整生命周期:
 - **创建/销毁 Agent**: `createAgent()`, `destroyAgent()`
-- **会话加载**: `loadSession(sessionId)` — 通过单次 `POST /api/agents/:sessionId/restore` 获取服务端权威快照，不再先下载 Session、再把完整 messages 上传回服务端、最后重复请求 state；切换会话时会取消旧恢复请求，仅最新请求可挂载到界面
+- **会话加载**: `loadSession(sessionId)` — 通过单次 `POST /api/agents/:sessionId/restore` 获取服务端权威快照，不再先下载 Session、再把完整 messages 上传回服务端、最后重复请求 state；切换会话时会取消旧恢复请求，仅最新请求可挂载到界面；同一 Session 的并发打开会复用正在进行的 Promise，避免连续点击取消后重新下载
 - **消息同步**: `syncSessionUI()` — 从 ServerAgent 同步消息到 UI
 - **会话列表**: `refreshSessions()` 负责完整刷新，`session_created` / `title_updated` SSE 分别用于局部插入会话和更新标题
 - **标题生成**: 服务端先持久化首条消息及 fallback 标题，再异步生成 AI 标题；用户手动重命名优先

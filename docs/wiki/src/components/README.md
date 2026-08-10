@@ -71,7 +71,8 @@ components/
 - 集成 Agent 权限模式选择器、Plan 模式输入态、工作区工具渲染、分享对话渲染
 - 支持本地工具渲染器 (`getLocalWorkspaceTools`)；`generate_image` 不并入普通工具汇总，仍独立显示图片、模型信息、打开原图与下载入口，但与中间 Markdown、Thinking 和其他工具过程一起归入当前回合唯一的“执行中/已执行”顶层折叠区域
 - 分享页使用 `/api/shared/:shareId/assets/:assetId` 加载已授权会话的生成图片
-- 工具审批卡片会展示 subagent 来源，避免 General 子任务请求写文件/跑命令时与主 Agent 混淆
+- 工具审批卡使用轻量语义容器和左侧 3px 状态线：普通工具为 warning，自动上下文压缩为 info；命令、路径、MCP/Plugin 服务与工具等关键参数始终可见，完整参数可展开查看；subagent 来源以徽标展示。提交期间禁用按钮，失败后保留卡片并允许重试；成功或拒绝后仍移除卡片，不保留持久历史。
+- `ChatPanelHost` 通过独立的 `approvalReadOnly` / `approvalReadOnlyMessage` 控制审批可操作性，不与消息发送 `readOnly` 混用。分享页即使具有 operate 权限也只读展示实时审批，并提示回到分享者原始对话处理；刷新无法恢复分享页既有 pending 审批是当前已知限制。
 - 消息回滚、分叉、复制功能
 - 超长会话窗口化：通过包装第三方 `message-list` 元素的 `messages` setter（`windowed-messages.ts`），消息数据仍全量进入内存，但只渲染最近 3 轮（一轮 = 一次用户提问到回复完成，含中间工具调用）；向上滚动到顶时经 `scroll-sync` 的触顶回调逐页（3 轮）加载更早内容，并用锚点修正滚动位置。仅当会话超过 6 轮时启用，短会话行为完全不变；子代理 process 消息列表（`data-quickforge-subagent-process`）不参与窗口化。`decorateMessages` 通过 `messageIndexOffset` 对齐窗口与全量索引，保证回滚/重试/复制仍使用全量索引。
 - 主对话页提供左侧用户轮次导航（`turn-navigation.ts`）：每条用户消息对应一个节点，当前轮次随滚动高亮；悬停或键盘聚焦节点时显示截断的用户消息与该轮最后一条 assistant 消息（Final Answer），点击可切换超长会话窗口并定位到对应用户消息。分享页默认不显示该导航，移动端隐藏。

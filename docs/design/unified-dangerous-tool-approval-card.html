@@ -1,0 +1,795 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QuickForge · 统一危险工具审批卡设计稿</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page: #f4f5f7;
+      --app: #ffffff;
+      --panel: #ffffff;
+      --soft: #f7f7f8;
+      --soft-hover: #f1f2f4;
+      --border: #e2e4e8;
+      --border-strong: #d4d7dd;
+      --text: #202124;
+      --muted: #70747c;
+      --muted-2: #989ca4;
+      --brand: #2563eb;
+      --brand-hover: #1d4ed8;
+      --brand-soft: #eff6ff;
+      --warning: #d97706;
+      --warning-soft: #fff8eb;
+      --danger: #dc2626;
+      --danger-soft: #fff1f2;
+      --success: #16864a;
+      --success-soft: #eefbf3;
+      --info: #3478d4;
+      --info-soft: #eff7ff;
+      --code: #f7f7f8;
+      --code-text: #2c3036;
+      --shadow: 0 18px 55px rgba(25, 30, 42, .12);
+      --focus: 0 0 0 3px rgba(37, 99, 235, .15);
+    }
+
+    [data-theme="dark"] {
+      color-scheme: dark;
+      --page: #111214;
+      --app: #18191c;
+      --panel: #1b1c20;
+      --soft: #222429;
+      --soft-hover: #292b31;
+      --border: #303239;
+      --border-strong: #3b3e46;
+      --text: #e7e8eb;
+      --muted: #a2a6ae;
+      --muted-2: #777c85;
+      --brand: #4f86f7;
+      --brand-hover: #6c9afa;
+      --brand-soft: #192849;
+      --warning: #e9a23b;
+      --warning-soft: #302719;
+      --danger: #f16a6a;
+      --danger-soft: #351d22;
+      --success: #59c788;
+      --success-soft: #193124;
+      --info: #69a5f4;
+      --info-soft: #192a41;
+      --code: #17181b;
+      --code-text: #d8dbe2;
+      --shadow: 0 22px 70px rgba(0, 0, 0, .34);
+      --focus: 0 0 0 3px rgba(79, 134, 247, .2);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { min-height: 100%; }
+
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 14px;
+      -webkit-font-smoothing: antialiased;
+      transition: background .2s ease, color .2s ease;
+    }
+
+    button { font: inherit; }
+
+    .prototype-bar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 62px;
+      padding: 10px 20px;
+      background: color-mix(in srgb, var(--page) 88%, transparent);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(14px);
+    }
+
+    .prototype-title { min-width: 0; }
+    .prototype-title strong { display: block; font-size: 14px; font-weight: 650; }
+    .prototype-title span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+
+    .prototype-actions { display: flex; align-items: center; gap: 8px; }
+
+    .segmented {
+      display: inline-flex;
+      padding: 3px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: var(--app);
+    }
+
+    .segmented button, .icon-button {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+    }
+
+    .segmented button {
+      min-width: 68px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+    }
+
+    .segmented button:hover, .icon-button:hover { background: var(--soft-hover); color: var(--text); }
+    .segmented button.active { background: var(--soft); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+
+    .icon-button {
+      display: inline-grid;
+      width: 34px;
+      height: 34px;
+      place-items: center;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+    }
+
+    .icon-button svg { width: 16px; height: 16px; }
+
+    .canvas {
+      padding: 28px;
+      display: grid;
+      place-items: start center;
+    }
+
+    .app-frame {
+      width: min(1180px, 100%);
+      height: min(780px, calc(100vh - 118px));
+      min-height: 620px;
+      display: grid;
+      grid-template-columns: 230px minmax(0, 1fr);
+      overflow: hidden;
+      background: var(--app);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      transition: width .25s ease, height .25s ease;
+    }
+
+    .app-frame.mobile {
+      width: 390px;
+      height: min(780px, calc(100vh - 110px));
+      min-height: 620px;
+      grid-template-columns: 1fr;
+      border-radius: 22px;
+    }
+
+    .sidebar {
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      border-right: 1px solid var(--border);
+      background: var(--app);
+    }
+
+    .app-frame.mobile .sidebar { display: none; }
+
+    .brand-row {
+      height: 52px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 15px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 650;
+    }
+
+    .logo {
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      border-radius: 7px;
+      background: #202226;
+      color: white;
+      font-size: 11px;
+      letter-spacing: -.5px;
+    }
+
+    .workspace-label {
+      padding: 16px 14px 7px;
+      color: var(--muted-2);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .nav-item {
+      margin: 2px 8px;
+      padding: 8px 9px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 7px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .nav-item.active { color: var(--text); background: var(--soft); }
+    .nav-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted-2); }
+    .nav-item.active .nav-dot { background: var(--brand); }
+    .sidebar-footer { margin-top: auto; padding: 12px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
+
+    .chat-shell { min-width: 0; display: flex; flex-direction: column; background: var(--panel); }
+
+    .chat-header {
+      height: 52px;
+      flex: 0 0 52px;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .chat-title { min-width: 0; display: flex; align-items: center; gap: 9px; }
+    .mobile-menu { display: none; color: var(--muted); }
+    .app-frame.mobile .mobile-menu { display: inline-flex; }
+    .chat-title-text { min-width: 0; }
+    .chat-title-text strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 620; }
+    .chat-title-text span { display: block; margin-top: 1px; color: var(--muted); font-size: 10px; }
+
+    .permission {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 8px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      color: var(--muted);
+      background: var(--app);
+      font-size: 10px;
+    }
+
+    .permission i { width: 6px; height: 6px; border-radius: 50%; background: var(--warning); }
+    .app-frame.mobile .permission span { display: none; }
+
+    .scenario-strip {
+      flex: 0 0 auto;
+      display: flex;
+      gap: 6px;
+      padding: 9px 14px;
+      overflow-x: auto;
+      border-bottom: 1px solid var(--border);
+      scrollbar-width: none;
+    }
+    .scenario-strip::-webkit-scrollbar { display: none; }
+
+    .scenario-chip {
+      flex: 0 0 auto;
+      padding: 5px 9px;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .scenario-chip:hover { background: var(--soft); color: var(--text); }
+    .scenario-chip.active { border-color: var(--border); background: var(--soft); color: var(--text); }
+
+    .messages {
+      min-height: 0;
+      flex: 1;
+      overflow: auto;
+      padding: 22px max(20px, calc((100% - 700px) / 2));
+      scrollbar-color: var(--border-strong) transparent;
+    }
+
+    .app-frame.mobile .messages { padding: 17px 13px 22px; }
+
+    .message { display: flex; margin: 0 0 20px; }
+    .message.user { justify-content: flex-end; }
+    .user-bubble {
+      max-width: 74%;
+      padding: 9px 12px;
+      border-radius: 13px 13px 4px 13px;
+      background: var(--soft);
+      line-height: 1.55;
+      font-size: 13px;
+    }
+
+    .assistant-block { width: 100%; font-size: 13px; line-height: 1.65; }
+    .assistant-label { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; color: var(--muted); font-size: 11px; }
+    .assistant-mark { width: 18px; height: 18px; display: grid; place-items: center; border-radius: 5px; background: #202226; color: #fff; font-size: 8px; }
+    .assistant-text { margin: 0 0 12px; color: var(--text); }
+
+    .tool-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 8px 0 11px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .tool-icon { width: 17px; height: 17px; display: grid; place-items: center; color: var(--muted-2); }
+    .tool-icon svg { width: 14px; height: 14px; }
+    .tool-row code { color: var(--text); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; }
+    .waiting-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warning); box-shadow: 0 0 0 3px var(--warning-soft); }
+
+    .approval-card {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--app) 94%, var(--soft));
+      box-shadow: 0 1px 2px rgba(18, 22, 31, .035);
+    }
+
+    .approval-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 3px;
+      background: var(--warning);
+    }
+
+    .approval-card.info::before { background: var(--info); }
+    .approval-card.success::before { background: var(--success); }
+    .approval-card.rejected::before, .approval-card.failed::before { background: var(--danger); }
+
+    .card-body { padding: 14px 15px 13px 17px; }
+
+    .status-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    .status-label { display: flex; align-items: center; gap: 7px; color: var(--warning); font-size: 11px; font-weight: 650; }
+    .info .status-label { color: var(--info); }
+    .success .status-label { color: var(--success); }
+    .rejected .status-label, .failed .status-label { color: var(--danger); }
+    .status-label svg { width: 15px; height: 15px; }
+
+    .badges { min-width: 0; display: flex; justify-content: flex-end; gap: 5px; }
+    .badge {
+      max-width: 120px;
+      overflow: hidden;
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: var(--soft);
+      color: var(--muted);
+      font-size: 9px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .action-title { margin: 0; font-size: 14px; font-weight: 650; line-height: 1.35; }
+    .risk-copy { margin: 4px 0 12px; color: var(--muted); font-size: 11px; line-height: 1.55; }
+
+    .impact {
+      padding: 10px 11px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: var(--code);
+    }
+
+    .impact-meta { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; color: var(--muted); font-size: 10px; }
+    .impact-meta:last-child { margin-bottom: 0; }
+    .impact-meta strong { color: var(--text); font-weight: 560; }
+    .impact-code {
+      margin: 0;
+      overflow-x: auto;
+      color: var(--code-text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .prompt-sign { color: var(--muted-2); user-select: none; }
+    .diff-add { color: var(--success); }
+    .diff-remove { color: var(--danger); }
+
+    .details { margin-top: 9px; border-top: 1px solid transparent; }
+    .details.open { border-top-color: var(--border); }
+    .details-toggle {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0;
+      padding: 7px 1px 0;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      text-align: left;
+      font-size: 10px;
+    }
+    .details-toggle:hover { color: var(--text); }
+    .chevron { width: 13px; height: 13px; transition: transform .18s ease; }
+    .details.open .chevron { transform: rotate(90deg); }
+    .details-content { display: none; padding-top: 9px; }
+    .details.open .details-content { display: block; }
+    .details-content pre { max-height: 135px; overflow: auto; }
+
+    .error-box {
+      display: flex;
+      align-items: flex-start;
+      gap: 7px;
+      margin-top: 10px;
+      padding: 8px 9px;
+      border-radius: 7px;
+      background: var(--danger-soft);
+      color: var(--danger);
+      font-size: 10px;
+      line-height: 1.5;
+    }
+
+    .card-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 13px; }
+
+    .btn {
+      min-height: 30px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 6px 11px;
+      border-radius: 7px;
+      border: 1px solid var(--border-strong);
+      background: var(--app);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 560;
+      transition: background .15s ease, border-color .15s ease, color .15s ease, opacity .15s ease;
+    }
+    .btn:hover { background: var(--soft-hover); }
+    .btn:focus-visible { outline: none; box-shadow: var(--focus); }
+    .btn.primary { border-color: var(--brand); background: var(--brand); color: white; }
+    .btn.primary:hover { border-color: var(--brand-hover); background: var(--brand-hover); }
+    .btn.reject:hover { border-color: color-mix(in srgb, var(--danger) 50%, var(--border)); background: var(--danger-soft); color: var(--danger); }
+    .btn:disabled { cursor: not-allowed; opacity: .58; }
+    .btn.link { border-color: transparent; background: transparent; color: var(--muted); }
+
+    .spinner { width: 12px; height: 12px; border: 1.5px solid rgba(255,255,255,.45); border-top-color: white; border-radius: 50%; animation: spin .75s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .resolved-copy { display: flex; align-items: flex-start; gap: 9px; padding: 2px 0 1px; }
+    .resolved-icon { width: 26px; height: 26px; flex: 0 0 26px; display: grid; place-items: center; border-radius: 50%; background: var(--success-soft); color: var(--success); }
+    .rejected .resolved-icon { background: var(--danger-soft); color: var(--danger); }
+    .resolved-icon svg { width: 14px; height: 14px; }
+    .resolved-copy strong { display: block; margin-bottom: 2px; font-size: 12px; }
+    .resolved-copy span { color: var(--muted); font-size: 10px; }
+
+    .input-zone { flex: 0 0 auto; padding: 10px max(16px, calc((100% - 700px) / 2)) 14px; background: var(--panel); }
+    .app-frame.mobile .input-zone { padding: 9px 11px 12px; }
+    .input-shell {
+      min-height: 48px;
+      display: flex;
+      align-items: flex-end;
+      gap: 9px;
+      padding: 9px 9px 9px 12px;
+      border: 1px solid var(--border-strong);
+      border-radius: 13px;
+      background: var(--app);
+      box-shadow: 0 2px 8px rgba(20, 24, 34, .05);
+    }
+    .input-placeholder { flex: 1; align-self: center; color: var(--muted-2); font-size: 11px; }
+    .send { width: 29px; height: 29px; display: grid; place-items: center; border: 0; border-radius: 8px; background: var(--soft); color: var(--muted-2); }
+
+    .design-note {
+      width: min(1180px, 100%);
+      margin: 18px auto 0;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+    .note-item { padding: 11px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--app); }
+    .note-item strong { display: block; margin-bottom: 3px; font-size: 11px; }
+    .note-item span { color: var(--muted); font-size: 10px; line-height: 1.45; }
+    .app-frame.mobile + .design-note { width: 390px; grid-template-columns: 1fr 1fr; }
+
+    @media (max-width: 720px) {
+      .prototype-bar { align-items: flex-start; padding: 10px 12px; }
+      .prototype-title span { display: none; }
+      .prototype-actions { gap: 5px; }
+      .segmented button { min-width: 54px; padding-inline: 7px; }
+      .canvas { padding: 14px 8px 22px; }
+      .app-frame:not(.mobile) { grid-template-columns: 180px minmax(0, 1fr); }
+      .design-note { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 430px) {
+      .prototype-title strong { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .canvas { padding-inline: 0; }
+      .app-frame.mobile { width: 100%; height: calc(100vh - 82px); min-height: 580px; border-left: 0; border-right: 0; border-radius: 0; }
+      .app-frame.mobile + .design-note { width: 100%; padding: 0 8px; }
+      .card-actions { display: grid; grid-template-columns: 1fr 1fr; }
+      .card-actions .btn:only-child { grid-column: 1 / -1; }
+    }
+  </style>
+</head>
+<body data-theme="light">
+  <header class="prototype-bar">
+    <div class="prototype-title">
+      <strong>危险工具审批卡 · 设计稿</strong>
+      <span>轻容器、局部风险强调、关键参数始终可见</span>
+    </div>
+    <div class="prototype-actions">
+      <div class="segmented" aria-label="预览尺寸">
+        <button id="desktopButton" class="active" type="button">桌面</button>
+        <button id="mobileButton" type="button">移动</button>
+      </div>
+      <button id="themeButton" class="icon-button" type="button" aria-label="切换深色模式" title="切换深色模式"></button>
+    </div>
+  </header>
+
+  <main class="canvas">
+    <section id="appFrame" class="app-frame" aria-label="QuickForge 对话界面设计预览">
+      <aside class="sidebar">
+        <div class="brand-row"><div class="logo">QF</div> QuickForge</div>
+        <div class="workspace-label">Projects</div>
+        <div class="nav-item active"><span class="nav-dot"></span> quickforge</div>
+        <div class="nav-item"><span class="nav-dot"></span> website-redesign</div>
+        <div class="workspace-label">Conversations</div>
+        <div class="nav-item active"><span class="nav-dot"></span> 优化工具审批卡</div>
+        <div class="nav-item"><span class="nav-dot"></span> 修复分享页状态</div>
+        <div class="sidebar-footer">默认权限 · 危险工具需确认</div>
+      </aside>
+
+      <section class="chat-shell">
+        <header class="chat-header">
+          <div class="chat-title">
+            <span class="mobile-menu" aria-hidden="true">☰</span>
+            <div class="chat-title-text">
+              <strong>优化工具审批卡</strong>
+              <span>quickforge · main</span>
+            </div>
+          </div>
+          <div class="permission"><i></i><span>默认权限</span></div>
+        </header>
+
+        <nav id="scenarioStrip" class="scenario-strip" aria-label="审批卡场景">
+          <button class="scenario-chip active" data-scenario="command" type="button">运行命令</button>
+          <button class="scenario-chip" data-scenario="edit" type="button">编辑文件</button>
+          <button class="scenario-chip" data-scenario="mcp" type="button">MCP 工具</button>
+          <button class="scenario-chip" data-scenario="compact" type="button">上下文压缩</button>
+          <button class="scenario-chip" data-scenario="approved" type="button">已允许</button>
+          <button class="scenario-chip" data-scenario="rejected" type="button">已拒绝</button>
+          <button class="scenario-chip" data-scenario="failed" type="button">提交失败</button>
+        </nav>
+
+        <div class="messages">
+          <div class="message user">
+            <div id="userBubble" class="user-bubble">优化一下统一的危险工具审批卡样式。</div>
+          </div>
+          <div class="message">
+            <div class="assistant-block">
+              <div class="assistant-label"><span class="assistant-mark">QF</span> QuickForge</div>
+              <p id="assistantText" class="assistant-text">我会先检查现有实现，再通过构建确认调整不会影响其他工具卡。</p>
+              <div id="toolRow" class="tool-row"></div>
+              <div id="approvalMount"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="input-zone">
+          <div class="input-shell">
+            <div class="input-placeholder">输入消息…</div>
+            <button class="send" type="button" aria-label="发送" disabled>↑</button>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section class="design-note" aria-label="设计要点">
+      <div class="note-item"><strong>轻容器</strong><span>复用工具卡的普通背景与弱边框，不铺满警告色。</span></div>
+      <div class="note-item"><strong>风险聚焦</strong><span>仅左侧 3px 状态线、图标和状态文案使用语义色。</span></div>
+      <div class="note-item"><strong>决策清晰</strong><span>中性“拒绝”与品牌色“仅本次允许”，不暗示长期授权。</span></div>
+      <div class="note-item"><strong>信息透明</strong><span>命令、路径、外部服务始终可见，完整参数按需展开。</span></div>
+    </section>
+  </main>
+
+  <script>
+    const icons = {
+      moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11Z"/></svg>',
+      sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3.5"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/></svg>',
+      warning: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 16H3L12 3Z"/><path d="M12 9v4M12 16.5h.01"/></svg>',
+      info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>',
+      check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"/></svg>',
+      close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m7 7 10 10M17 7 7 17"/></svg>',
+      tool: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5-5L12 3.6 8.4 7.2 6.1 4.9a4 4 0 0 0 5 5L4 17l3 3 7.1-7.1a4 4 0 0 0 5-5L16.8 10 13.2 6.4l1.5-.1Z"/></svg>',
+      chevron: '<svg class="chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m7.5 5 5 5-5 5"/></svg>'
+    };
+
+    const scenarios = {
+      command: {
+        user: '优化一下统一的危险工具审批卡样式。',
+        assistant: '我会先检查现有实现，再通过构建确认调整不会影响其他工具卡。',
+        toolLabel: '准备调用', toolCode: 'run_command',
+        tone: 'warning', status: '需要确认', icon: 'warning',
+        badges: ['命令', 'General'], title: '运行命令',
+        risk: '此操作将在当前工作区执行 Shell 命令。',
+        impact: '<div class="impact-meta"><span>工作目录</span><strong>D:\\quickforge</strong><span>·</span><span>超时 10 分钟</span></div><pre class="impact-code"><span class="prompt-sign">$</span> npm run lint &amp;&amp; npm run build</pre>',
+        details: '<pre class="impact impact-code">{\n  "command": "npm run lint &amp;&amp; npm run build",\n  "timeoutMs": 600000,\n  "description": "验证审批卡调整"\n}</pre>',
+        actions: 'approval'
+      },
+      edit: {
+        user: '把审批卡改轻一点，不要整张黄色。',
+        assistant: '我已定位到审批卡组件，准备统一结构和交互文案。',
+        toolLabel: '准备调用', toolCode: 'edit_file',
+        tone: 'warning', status: '需要确认', icon: 'warning',
+        badges: ['文件编辑'], title: '编辑文件',
+        risk: '此操作会修改当前工作区中的文件内容。',
+        impact: '<div class="impact-meta"><span>目标文件</span><strong>src/components/chat/panel-decoration/approval-card.ts</strong></div><pre class="impact-code"><span class="diff-remove">− bg-amber-50 border-amber-300</span>\n<span class="diff-add">+ bg-background/60 border-border</span>\n<span class="diff-add">+ 左侧 3px 警告状态线</span></pre>',
+        details: '<pre class="impact impact-code"><span class="diff-remove">− 按钮：允许</span>\n<span class="diff-add">+ 按钮：仅本次允许</span>\n<span class="diff-remove">− 独立来源说明块</span>\n<span class="diff-add">+ 请求方：General 徽标</span></pre>',
+        actions: 'approval'
+      },
+      mcp: {
+        user: '让 MCP 的审批也统一。',
+        assistant: 'MCP 会沿用相同审批骨架，并始终展示外部服务与关键参数。',
+        toolLabel: '准备调用', toolCode: 'mcp · github · create_issue',
+        tone: 'warning', status: '需要确认', icon: 'warning',
+        badges: ['外部工具', 'MCP'], title: '创建 GitHub Issue',
+        risk: '此操作会向外部服务发送数据，并在 quickforge 仓库中创建内容。',
+        impact: '<div class="impact-meta"><span>服务</span><strong>GitHub MCP</strong><span>·</span><span>quickforge/quickforge</span></div><pre class="impact-code">标题：统一危险工具审批卡样式\n标签：design, enhancement</pre>',
+        details: '<pre class="impact impact-code">{\n  "owner": "quickforge",\n  "repo": "quickforge",\n  "title": "统一危险工具审批卡样式",\n  "labels": ["design", "enhancement"]\n}</pre>',
+        actions: 'approval'
+      },
+      compact: {
+        user: '继续优化。',
+        assistant: '当前上下文即将达到模型上限，可以压缩较早的对话后继续。',
+        toolLabel: '系统建议', toolCode: 'context_compaction',
+        tone: 'info', status: '上下文接近上限', icon: 'info',
+        badges: ['上下文'], title: '压缩较早的对话内容',
+        risk: '压缩后将保留最近 6 轮对话和关键任务摘要，不会修改工作区文件。',
+        impact: '<div class="impact-meta"><span>预计释放</span><strong>约 42% 上下文</strong><span>·</span><span>保留最近 6 轮</span></div><pre class="impact-code">较早内容 → 结构化任务摘要\n最近对话 → 保持原文</pre>',
+        details: '<pre class="impact impact-code">将保留：\n• 当前目标与已确认设计原则\n• 已修改文件和验证结果\n• 最近 6 轮完整消息</pre>',
+        actions: 'compact'
+      },
+      approved: {
+        user: '运行一下构建。',
+        assistant: '命令已获得本次授权，正在继续执行。',
+        toolLabel: '工具调用', toolCode: 'run_command',
+        tone: 'success', status: '已允许', icon: 'check',
+        badges: ['命令'], title: '已允许本次运行',
+        risk: 'npm run build · D:\\quickforge',
+        resolved: '审批记录已保留在当前对话中，后续相同命令仍需重新确认。'
+      },
+      rejected: {
+        user: '先别改业务代码。',
+        assistant: '好的，本次文件修改已停止。',
+        toolLabel: '工具调用', toolCode: 'edit_file',
+        tone: 'rejected', status: '已拒绝', icon: 'close',
+        badges: ['文件编辑'], title: '已拒绝本次操作',
+        risk: 'src/components/chat/panel-decoration/approval-card.ts',
+        resolved: '未写入任何文件，Agent 将根据你的决定调整下一步计划。'
+      },
+      failed: {
+        user: '允许这次命令。',
+        assistant: '审批请求提交时出现网络问题，可以重试或拒绝本次操作。',
+        toolLabel: '准备调用', toolCode: 'run_command',
+        tone: 'failed', status: '提交失败', icon: 'warning',
+        badges: ['命令'], title: '运行命令',
+        risk: '此操作尚未获得授权，也没有开始执行。',
+        impact: '<div class="impact-meta"><span>工作目录</span><strong>D:\\quickforge</strong></div><pre class="impact-code"><span class="prompt-sign">$</span> npm run build</pre>',
+        error: '无法连接到审批服务。请检查连接后重试，当前工具仍处于暂停状态。',
+        actions: 'retry'
+      }
+    };
+
+    let currentScenario = 'command';
+    let submitting = false;
+
+    const appFrame = document.getElementById('appFrame');
+    const approvalMount = document.getElementById('approvalMount');
+    const toolRow = document.getElementById('toolRow');
+    const userBubble = document.getElementById('userBubble');
+    const assistantText = document.getElementById('assistantText');
+    const themeButton = document.getElementById('themeButton');
+    const desktopButton = document.getElementById('desktopButton');
+    const mobileButton = document.getElementById('mobileButton');
+
+    function toolRowHtml(data) {
+      return '<span class="tool-icon">' + icons.tool + '</span><span>' + data.toolLabel + '</span><code>' + data.toolCode + '</code><span class="waiting-dot"></span>';
+    }
+
+    function renderCard() {
+      const data = scenarios[currentScenario];
+      userBubble.textContent = data.user;
+      assistantText.textContent = data.assistant;
+      toolRow.innerHTML = toolRowHtml(data);
+
+      if (data.resolved) {
+        approvalMount.innerHTML = '<section class="approval-card ' + data.tone + '"><div class="card-body">' +
+          '<div class="status-row"><div class="status-label">' + icons[data.icon] + '<span>' + data.status + '</span></div><div class="badges">' + data.badges.map(b => '<span class="badge">' + b + '</span>').join('') + '</div></div>' +
+          '<div class="resolved-copy"><div class="resolved-icon">' + icons[data.icon] + '</div><div><strong>' + data.title + '</strong><span>' + data.risk + '</span></div></div>' +
+          '<div class="risk-copy" style="margin:9px 0 0 35px">' + data.resolved + '</div></div></section>';
+        return;
+      }
+
+      const details = data.details ? '<div class="details"><button class="details-toggle" type="button" aria-expanded="false">' + icons.chevron + '<span>查看完整参数</span></button><div class="details-content">' + data.details + '</div></div>' : '';
+      const error = data.error ? '<div class="error-box">' + icons.warning + '<span>' + data.error + '</span></div>' : '';
+      let actions = '';
+
+      if (data.actions === 'compact') {
+        actions = '<div class="card-actions"><button class="btn reject" type="button" data-action="reject">暂不压缩</button><button class="btn primary" type="button" data-action="approve">现在压缩</button></div>';
+      } else if (data.actions === 'retry') {
+        actions = '<div class="card-actions"><button class="btn reject" type="button" data-action="reject">拒绝</button><button class="btn primary" type="button" data-action="retry">重试提交</button></div>';
+      } else {
+        actions = '<div class="card-actions"><button class="btn reject" type="button" data-action="reject">拒绝</button><button class="btn primary" type="button" data-action="approve">仅本次允许</button></div>';
+      }
+
+      approvalMount.innerHTML = '<section class="approval-card ' + data.tone + '"><div class="card-body">' +
+        '<div class="status-row"><div class="status-label">' + icons[data.icon] + '<span>' + data.status + '</span></div><div class="badges">' + data.badges.map(b => '<span class="badge">' + b + '</span>').join('') + '</div></div>' +
+        '<h2 class="action-title">' + data.title + '</h2><p class="risk-copy">' + data.risk + '</p>' +
+        '<div class="impact">' + data.impact + '</div>' + details + error + actions + '</div></section>';
+
+      const detailToggle = approvalMount.querySelector('.details-toggle');
+      if (detailToggle) {
+        detailToggle.addEventListener('click', () => {
+          const wrapper = detailToggle.closest('.details');
+          const open = wrapper.classList.toggle('open');
+          detailToggle.setAttribute('aria-expanded', String(open));
+          detailToggle.querySelector('span').textContent = open ? '收起完整参数' : '查看完整参数';
+        });
+      }
+
+      approvalMount.querySelectorAll('[data-action]').forEach(button => button.addEventListener('click', () => simulateAction(button.dataset.action)));
+    }
+
+    function simulateAction(action) {
+      if (submitting) return;
+      submitting = true;
+      const buttons = [...approvalMount.querySelectorAll('.btn')];
+      buttons.forEach(button => button.disabled = true);
+      const primary = approvalMount.querySelector('.btn.primary');
+      if (primary) primary.innerHTML = '<span class="spinner"></span>正在提交…';
+
+      window.setTimeout(() => {
+        submitting = false;
+        if (action === 'reject') currentScenario = 'rejected';
+        else if (currentScenario === 'compact') currentScenario = 'approved';
+        else currentScenario = 'approved';
+        syncScenarioChips();
+        renderCard();
+      }, 900);
+    }
+
+    function syncScenarioChips() {
+      document.querySelectorAll('.scenario-chip').forEach(chip => chip.classList.toggle('active', chip.dataset.scenario === currentScenario));
+    }
+
+    document.querySelectorAll('.scenario-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        currentScenario = chip.dataset.scenario;
+        submitting = false;
+        syncScenarioChips();
+        renderCard();
+      });
+    });
+
+    desktopButton.addEventListener('click', () => {
+      appFrame.classList.remove('mobile');
+      desktopButton.classList.add('active');
+      mobileButton.classList.remove('active');
+    });
+
+    mobileButton.addEventListener('click', () => {
+      appFrame.classList.add('mobile');
+      mobileButton.classList.add('active');
+      desktopButton.classList.remove('active');
+    });
+
+    themeButton.addEventListener('click', () => {
+      const dark = document.body.dataset.theme === 'dark';
+      document.body.dataset.theme = dark ? 'light' : 'dark';
+      themeButton.innerHTML = dark ? icons.moon : icons.sun;
+      themeButton.setAttribute('aria-label', dark ? '切换深色模式' : '切换浅色模式');
+    });
+
+    themeButton.innerHTML = icons.moon;
+    renderCard();
+  </script>
+</body>
+</html>

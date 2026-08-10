@@ -329,6 +329,7 @@ export class SharedServerAgent {
       'state', 'agent_start', 'agent_end', 'message_start', 'message_end',
       'turn_start', 'turn_end', 'message_update',
       'tool_execution_start', 'tool_execution_update', 'tool_execution_end',
+      'tool_approval_required', 'auto_compact_approval_required', 'auto_compact_failed',
       'error', 'title_updated', 'messages_replaced', 'auto_compact_completed',
     ]
     const handleMessage = (eventType?: string) => (event: MessageEvent) => {

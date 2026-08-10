@@ -283,6 +283,8 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
         rollbackConfirmTitle={t('sharedRollbackConfirmTitle')}
         rollbackConfirmDescription={t('sharedRollbackConfirm')}
         readOnly={!operate}
+        approvalReadOnly
+        approvalReadOnlyMessage={t('sharedApprovalReadOnly')}
         restoredDraft={restoredDraft}
         onRestoredDraftConsumed={consumeRestoredDraft}
         bypassClientApiKeyCheck

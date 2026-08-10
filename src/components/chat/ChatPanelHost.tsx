@@ -129,6 +129,8 @@ type ChatPanelHostProps = {
   onRestoredDraftConsumed?: (id: number) => void
   disableFork?: boolean
   readOnly?: boolean
+  approvalReadOnly?: boolean
+  approvalReadOnlyMessage?: string
   bypassClientApiKeyCheck?: boolean
   allowModelControls?: boolean
   newChatEmptyState?: boolean
@@ -165,6 +167,8 @@ type PropsRef = {
   workspaceToolsEnabled: boolean
   disableFork: boolean
   readOnly: boolean
+  approvalReadOnly: boolean
+  approvalReadOnlyMessage?: string
   allowModelControls: boolean
   newChatEmptyState: boolean
   bypassClientApiKeyCheck: boolean
@@ -201,6 +205,8 @@ export function ChatPanelHost({
   onRestoredDraftConsumed,
   disableFork = false,
   readOnly = false,
+  approvalReadOnly = false,
+  approvalReadOnlyMessage,
   bypassClientApiKeyCheck = false,
   allowModelControls = true,
   newChatEmptyState = false,
@@ -325,6 +331,8 @@ export function ChatPanelHost({
     workspaceToolsEnabled,
     disableFork,
     readOnly,
+    approvalReadOnly,
+    approvalReadOnlyMessage,
     allowModelControls,
     newChatEmptyState,
     bypassClientApiKeyCheck,
@@ -359,6 +367,8 @@ export function ChatPanelHost({
       workspaceToolsEnabled,
       disableFork,
       readOnly,
+      approvalReadOnly,
+      approvalReadOnlyMessage,
       allowModelControls,
       newChatEmptyState,
       bypassClientApiKeyCheck,
@@ -732,6 +742,7 @@ export function ChatPanelHost({
           panel,
           getMessages: displayMessages,
           getContextCompaction: () => (agent as AgentWithContextCompaction).state.contextCompaction ?? null,
+          messageIndexOffset,
         })
         syncAssistantWaitingBubble({
           panel,
@@ -785,6 +796,9 @@ export function ChatPanelHost({
         injectApprovalCard(
           {
             panel,
+            tone: 'warning',
+            disabled: props.approvalReadOnly,
+            disabledReason: props.approvalReadOnlyMessage,
             onApprove: async () => { await propsRef.current.onApproveToolCall(capturedToolCallId); pendingApprovalRef.current = null; (agent as AgentWithContextCompaction).state.pendingToolApproval = null; removeApprovalCard(panel) },
             onReject: async () => { await propsRef.current.onRejectToolCall(capturedToolCallId); pendingApprovalRef.current = null; (agent as AgentWithContextCompaction).state.pendingToolApproval = null; removeApprovalCard(panel) },
           },
@@ -800,13 +814,44 @@ export function ChatPanelHost({
         })()
         if (pendingAutoCompact && pendingAutoCompact.sessionId === agent.sessionId) {
           const capturedApprovalId = pendingAutoCompact.approvalId
+          const autoCompactCallbacksMissing = !props.onApproveAutoCompact || !props.onRejectAutoCompact
+          const autoCompactDisabled = props.approvalReadOnly || autoCompactCallbacksMissing
+          const autoCompactDisabledReason = props.approvalReadOnly
+            ? props.approvalReadOnlyMessage
+            : autoCompactCallbacksMissing
+              ? t('autoCompactApprovalUnavailable')
+              : undefined
           injectApprovalCard(
             {
               panel,
+              tone: 'info',
+              copy: {
+                status: t('autoCompactApprovalStatus'),
+                title: t('autoCompactApprovalTitle'),
+                risk: t('autoCompactApprovalRisk', { keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 3 }),
+                approve: t('autoCompactApprovalAccept'),
+                reject: t('autoCompactApprovalReject'),
+              },
+              disabled: autoCompactDisabled,
+              disabledReason: autoCompactDisabledReason,
               getMessages: displayMessages,
               keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 3,
-              onApprove: async () => { await propsRef.current.onApproveAutoCompact?.(capturedApprovalId); pendingAutoCompactApprovalRef.current = null; (agent as AgentWithContextCompaction).state.pendingAutoCompactApproval = null; removeApprovalCard(panel) },
-              onReject: async () => { await propsRef.current.onRejectAutoCompact?.(capturedApprovalId); pendingAutoCompactApprovalRef.current = null; (agent as AgentWithContextCompaction).state.pendingAutoCompactApproval = null; removeApprovalCard(panel) },
+              onApprove: async () => {
+                const callback = propsRef.current.onApproveAutoCompact
+                if (!callback) throw new Error(t('autoCompactApprovalUnavailable'))
+                await callback(capturedApprovalId)
+                pendingAutoCompactApprovalRef.current = null
+                ;(agent as AgentWithContextCompaction).state.pendingAutoCompactApproval = null
+                removeApprovalCard(panel)
+              },
+              onReject: async () => {
+                const callback = propsRef.current.onRejectAutoCompact
+                if (!callback) throw new Error(t('autoCompactApprovalUnavailable'))
+                await callback(capturedApprovalId)
+                pendingAutoCompactApprovalRef.current = null
+                ;(agent as AgentWithContextCompaction).state.pendingAutoCompactApproval = null
+                removeApprovalCard(panel)
+              },
             },
             t('contextManagement'),
             capturedApprovalId,
@@ -1058,6 +1103,22 @@ export function ChatPanelHost({
         }
       }
       const eventType = (event as { type: string }).type
+      if (eventType === 'tool_execution_start') {
+        const toolEvent = event as unknown as { toolCallId?: string; sessionId?: string }
+        const pendingApproval = pendingApprovalRef.current
+        const eventSessionId = toolEvent.sessionId ?? agent.sessionId
+        if (pendingApproval
+          && pendingApproval.sessionId === agent.sessionId
+          && eventSessionId === agent.sessionId
+          && toolEvent.toolCallId === pendingApproval.toolCallId) {
+          pendingApprovalRef.current = null
+          const statePending = (agent as AgentWithContextCompaction).state.pendingToolApproval
+          if (statePending?.toolCallId === toolEvent.toolCallId) {
+            ;(agent as AgentWithContextCompaction).state.pendingToolApproval = null
+          }
+          scheduleDecorateRef.current?.()
+        }
+      }
       if (eventType === 'tool_execution_start' || eventType === 'tool_execution_update' || eventType === 'tool_execution_end') {
         scheduleToolInterfaceUpdate()
       }
@@ -1074,6 +1135,13 @@ export function ChatPanelHost({
           pendingAutoCompactApprovalRef.current = null
           scheduleDecorateRef.current?.()
         }
+      }
+      if (eventType === 'auto_compact_completed' || eventType === 'auto_compact_failed') {
+        if (pendingAutoCompactApprovalRef.current?.sessionId === agent.sessionId) {
+          pendingAutoCompactApprovalRef.current = null
+        }
+        ;(agent as AgentWithContextCompaction).state.pendingAutoCompactApproval = null
+        scheduleDecorateRef.current?.()
       }
       if (eventType === 'auto_compact_completed' || eventType === 'messages_replaced') {
         releaseStreamingProcessGroups(panel)
@@ -1159,7 +1227,7 @@ export function ChatPanelHost({
     // 外部对 state.model 的直接赋值，需要手动触发重渲染才能刷新模型名称等 UI。
     const ai = hostRef.current?.querySelector('agent-interface') as { requestUpdate?: () => void } | null
     ai?.requestUpdate?.()
-  }, [agentAccessMode, planMode, workspaceToolsEnabled, gitBranch, disableFork, readOnly, allowModelControls, revision])
+  }, [agentAccessMode, planMode, workspaceToolsEnabled, gitBranch, disableFork, readOnly, approvalReadOnly, approvalReadOnlyMessage, allowModelControls, revision])
 
   // Draft restoration trigger
   useEffect(() => {

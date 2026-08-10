@@ -4176,3 +4176,45 @@ assistant-message :is(thinking-block, tool-message, markdown-block)[data-quickfo
   outline-offset: 2px;
 }
 
+/* Tool approval card */
+.quickforge-approval-card { position: relative; overflow: hidden; margin: 0 1rem 1rem; border: 1px solid var(--border); border-radius: calc(var(--radius) + .125rem); background: color-mix(in oklab, var(--background) 96%, var(--muted)); box-shadow: 0 1px 2px rgb(15 23 42 / .04); pointer-events: auto; }
+.quickforge-approval-card::before { position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--quickforge-approval-tone, #d97706); content: ""; }
+.quickforge-approval-card--warning { --quickforge-approval-tone: #d97706; }
+.quickforge-approval-card--info { --quickforge-approval-tone: #3478d4; }
+.quickforge-approval-body { padding: .875rem .9375rem .8125rem 1.0625rem; }
+.quickforge-approval-status-row, .quickforge-approval-actions, .quickforge-approval-status, .quickforge-approval-badges, .quickforge-approval-impact-row, .quickforge-approval-details-toggle { display: flex; align-items: center; }
+.quickforge-approval-status-row { justify-content: space-between; gap: .75rem; margin-bottom: .75rem; }
+.quickforge-approval-status { gap: .4375rem; color: var(--quickforge-approval-tone); font-size: .75rem; font-weight: 650; }
+.quickforge-approval-status svg, .quickforge-approval-details-toggle svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
+.quickforge-approval-badges { min-width: 0; justify-content: flex-end; gap: .3125rem; }
+.quickforge-approval-badge { max-width: 8rem; overflow: hidden; padding: .1875rem .4375rem; border-radius: 999px; background: var(--muted); color: var(--muted-foreground); font-size: .6875rem; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }
+.quickforge-approval-title { margin: 0; color: var(--foreground); font-size: .9375rem; font-weight: 650; line-height: 1.35; }
+.quickforge-approval-risk { margin: .25rem 0 .75rem; color: var(--muted-foreground); font-size: .75rem; line-height: 1.55; }
+.quickforge-approval-impact { padding: .625rem .6875rem; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in oklab, var(--muted) 42%, var(--background)); }
+.quickforge-approval-impact-row { gap: .4375rem; margin-bottom: .375rem; color: var(--muted-foreground); font-size: .75rem; }
+.quickforge-approval-impact-row:last-child { margin-bottom: 0; }
+.quickforge-approval-impact-row strong { min-width: 0; overflow-wrap: anywhere; color: var(--foreground); font-weight: 560; }
+.quickforge-approval-code { max-height: 10rem; margin: 0; overflow: auto; color: var(--foreground); font-family: var(--font-mono); font-size: .75rem; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.quickforge-approval-impact-row + .quickforge-approval-code { margin-top: .375rem; }
+.quickforge-approval-prompt { color: var(--muted-foreground); user-select: none; }
+.quickforge-approval-details { margin-top: .5625rem; border-top: 1px solid transparent; }
+.quickforge-approval-details--open { border-top-color: var(--border); }
+.quickforge-approval-details-toggle { width: 100%; gap: .375rem; padding: .4375rem .0625rem 0; border: 0; background: transparent; color: var(--muted-foreground); cursor: pointer; font-size: .75rem; text-align: left; }
+.quickforge-approval-details-toggle:hover { color: var(--foreground); }
+.quickforge-approval-details-toggle svg { width: .875rem; height: .875rem; transition: transform 180ms ease; }
+.quickforge-approval-details--open .quickforge-approval-details-toggle svg { transform: rotate(90deg); }
+.quickforge-approval-details-content { display: none; padding-top: .5625rem; }
+.quickforge-approval-details--open .quickforge-approval-details-content { display: block; }
+.quickforge-approval-details-content .quickforge-approval-code { padding: .625rem; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in oklab, var(--muted) 42%, var(--background)); }
+.quickforge-approval-message { margin-top: .625rem; padding: .5rem .5625rem; border-radius: var(--radius); background: color-mix(in oklab, var(--destructive) 10%, var(--background)); color: var(--destructive); font-size: .75rem; line-height: 1.5; }
+.quickforge-approval-message--disabled { background: var(--muted); color: var(--muted-foreground); }
+.quickforge-approval-actions { justify-content: flex-end; gap: .5rem; margin-top: .8125rem; }
+.quickforge-approval-button { min-height: 2rem; padding: .375rem .75rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); color: var(--foreground); cursor: pointer; font-size: .75rem; font-weight: 560; transition: background 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease; }
+.quickforge-approval-button--primary { border-color: var(--primary); background: var(--primary); color: var(--primary-foreground); }
+.quickforge-approval-button--primary:hover:not(:disabled) { background: color-mix(in oklab, var(--primary) 88%, black); }
+.quickforge-approval-button--reject:hover:not(:disabled) { border-color: color-mix(in oklab, var(--destructive) 50%, var(--border)); background: color-mix(in oklab, var(--destructive) 10%, var(--background)); color: var(--destructive); }
+.quickforge-approval-button:disabled { cursor: not-allowed; opacity: .58; }
+.quickforge-approval-button--loading::before { display: inline-block; width: .75rem; height: .75rem; margin-right: .375rem; border: 1.5px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: quickforge-approval-spin 750ms linear infinite; content: ""; vertical-align: -.125rem; }
+@keyframes quickforge-approval-spin { to { transform: rotate(360deg); } }
+@media (max-width: 40rem) { .quickforge-approval-card { margin-right: .75rem; margin-left: .75rem; } .quickforge-approval-actions { align-items: stretch; } .quickforge-approval-button { flex: 1 1 0; } }
+@media (max-width: 24rem) { .quickforge-approval-actions { flex-direction: column; } }

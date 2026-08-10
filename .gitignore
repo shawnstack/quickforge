@@ -11,11 +11,17 @@ node_modules
 dist
 dist-ssr
 desktop-dist
+desktop-dist-*/
 package-dist
 package-offline
 .agentbridge
 *.tgz
 *.local
+$null
+_dump-*.txt
+_tmp_*.txt
+_layout-repro.html
+_repro-*.png
 nul
 .env
 .env.local

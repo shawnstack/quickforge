@@ -9,6 +9,7 @@ type ContextCompactionNoticeDeps = {
   panel: HTMLElement
   getMessages: () => MessageWithUsage[]
   getContextCompaction: () => { summaryMessage?: unknown; compactedUpToIndex?: number } | null | undefined
+  messageIndexOffset?: number
 }
 
 function showCopiedFeedback(button: HTMLButtonElement, defaultTitle: string, defaultIcon: string) {
@@ -107,7 +108,7 @@ function syncCompactionSummaryHandlers(notice: HTMLElement, summaryText: string,
 }
 
 export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
-  const { panel, getMessages, getContextCompaction } = deps
+  const { panel, getMessages, getContextCompaction, messageIndexOffset = 0 } = deps
   const compaction = getContextCompaction()
   const messages = getMessages()
   const existing = panel.querySelector<HTMLElement>('.quickforge-context-compaction-notice')
@@ -117,11 +118,13 @@ export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
     return
   }
 
-  const tailStart = Math.min(messages.length, Math.max(0, Number(compaction.compactedUpToIndex) || 0))
-  if (tailStart <= 0) {
+  const compactedUpToIndex = Math.max(0, Number(compaction.compactedUpToIndex) || 0)
+  const windowEnd = messageIndexOffset + messages.length
+  if (compactedUpToIndex <= 0 || compactedUpToIndex >= windowEnd) {
     existing?.remove()
     return
   }
+  const tailStart = Math.max(0, compactedUpToIndex - messageIndexOffset)
 
   const summaryText = compaction.summaryMessage ? compactSummaryText(compaction.summaryMessage) : ''
   const initialOpen = existing?.querySelector<HTMLDetailsElement>('.quickforge-context-compaction-details')?.open ?? false

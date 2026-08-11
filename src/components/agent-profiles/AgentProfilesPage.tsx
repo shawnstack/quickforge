@@ -398,10 +398,15 @@ export function AgentProfilesPage() {
     if (!agentFormIsValid(agentForm)) return
     setAgentLoading(true)
     setError('')
+    const savedThinkingLevel =
+      fixedModelDisablesThinking && agentForm.thinkingLevel !== 'inherit' ? 'off' : agentForm.thinkingLevel
     try {
       const payload = editingAgent?.builtin
-        ? { model: agentForm.modelMode === 'fixed' ? modelRefFromOption(agentForm.fixedModelValue) : { mode: 'inherit' } }
-        : buildAgentPayload({ ...agentForm, thinkingLevel: fixedModelDisablesThinking ? 'off' : agentForm.thinkingLevel })
+        ? {
+            model: agentForm.modelMode === 'fixed' ? modelRefFromOption(agentForm.fixedModelValue) : { mode: 'inherit' },
+            thinkingLevel: savedThinkingLevel,
+          }
+        : buildAgentPayload({ ...agentForm, thinkingLevel: savedThinkingLevel })
       if (editingAgentId) {
         await requestJson(`/api/agent-profiles/${encodeURIComponent(editingAgentId)}`, {
           method: 'PATCH',
@@ -561,7 +566,7 @@ export function AgentProfilesPage() {
                 <select
                   className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60"
                   value={fixedModelDisablesThinking && agentForm.thinkingLevel !== 'inherit' ? 'off' : agentForm.thinkingLevel}
-                  disabled={definitionReadonly || fixedModelDisablesThinking}
+                  disabled={modelReadonly || fixedModelDisablesThinking}
                   onChange={(event) => updateAgentForm('thinkingLevel', event.target.value as AgentThinkingLevel)}
                 >
                   <option value="inherit">{t('agentThinkingInherit')}</option>

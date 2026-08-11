@@ -75,7 +75,7 @@ function builtinProfileFromSubagent(definition, override = null) {
     allowedTools: [...definition.allowedTools],
     capabilityPolicy: definition.capabilityPolicy || inferCapabilityPolicy(definition.allowedTools),
     model: modelReferenceSnapshot(override?.model || definition.model),
-    thinkingLevel: 'inherit',
+    thinkingLevel: normalizeAgentProfileThinkingLevel(override?.thinkingLevel || 'inherit'),
     lifecycle: 'builtin',
     managed: true,
     maxRuntimeMs: definition.maxRuntimeMs || DEFAULT_MAX_RUNTIME_MS,
@@ -308,17 +308,36 @@ export async function updateCustomAgentProfile(id, patch) {
   return { ...next, filePath: file, relativePath: `~/.quickforge/agents/${next.name}.md` }
 }
 
-export async function updateBuiltinAgentModelOverride(id, modelInput) {
+export async function updateBuiltinAgentOverrides(id, patch = {}) {
   const current = await getAgentProfile(id)
   if (!current) throw requestError('Agent not found', 404)
-  if (!current.builtin) throw requestError('Only built-in agents support model overrides', 400)
-  const model = validateModelReference(normalizeModelReference(modelInput))
+  if (!current.builtin) throw requestError('Only built-in agents support overrides', 400)
   const overrides = await readStore(BUILTIN_OVERRIDES_STORE).catch(() => ({}))
-  const next = { ...(overrides && typeof overrides === 'object' ? overrides : {}) }
-  if (model.mode === 'fixed') next[current.name] = { model }
-  else delete next[current.name]
+  const base = overrides && typeof overrides === 'object' ? overrides : {}
+  const next = { ...base }
+  const entry = { ...(base[current.name] && typeof base[current.name] === 'object' ? base[current.name] : {}) }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'model')) {
+    const model = validateModelReference(normalizeModelReference(patch.model))
+    if (model.mode === 'fixed') entry.model = model
+    else delete entry.model
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'thinkingLevel')) {
+    const thinkingLevel = normalizeAgentProfileThinkingLevel(patch.thinkingLevel)
+    if (thinkingLevel === 'inherit') delete entry.thinkingLevel
+    else entry.thinkingLevel = thinkingLevel
+  }
+
+  if (Object.keys(entry).length === 0) delete next[current.name]
+  else next[current.name] = entry
   await writeStore(BUILTIN_OVERRIDES_STORE, next)
-  return { ...current, model: modelReferenceSnapshot(model) }
+
+  const definition = subagentDefinitions.find((item) => item.name === current.name)
+  return builtinProfileFromSubagent(definition, next[current.name] || null)
+}
+
+export async function updateBuiltinAgentModelOverride(id, modelInput) {
+  return updateBuiltinAgentOverrides(id, { model: modelInput })
 }
 
 export async function deleteCustomAgentProfile(id) {

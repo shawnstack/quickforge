@@ -211,6 +211,40 @@ describe('agent manager subagent execution', () => {
     }
   })
 
+  it('consumes builtin explore/general thinking level overrides in runSubagent', async () => {
+    const workspaceRoot = path.join(tmpDir, 'workspace')
+    const parentModel = { provider: 'mock', id: 'parent-model', api: 'mock-api', baseUrl: 'http://mock.local', reasoning: true }
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    const { writeStore } = await import('../../server/storage.mjs')
+    setDefaultWorkspaceRoot(workspaceRoot)
+    await writeStore('agent-profile-overrides', {
+      explore: { thinkingLevel: 'high' },
+      general: { thinkingLevel: 'inherit' },
+    })
+
+    const { createAgent, destroyAgent } = await import('../../server/agent-manager.mjs')
+    const session = await createAgent('builtin-thinking-overrides-workspace', {
+      scope: 'global',
+      model: parentModel,
+      thinkingLevel: 'medium',
+      systemPrompt: '',
+      idleRetention: 'always',
+    })
+
+    try {
+      const runSubagent = session.agent.state.tools.find((tool) => tool.name === 'run_subagent')
+      expect(runSubagent).toBeTruthy()
+
+      await runSubagent.execute('tool-call-builtin-explore', { subagent: 'explore', task: 'Inspect the workspace.' }, new AbortController().signal)
+      expect(MockAgent.instances.at(-1).state).toMatchObject({ model: parentModel, thinkingLevel: 'high' })
+
+      await runSubagent.execute('tool-call-builtin-general', { subagent: 'general', task: 'Implement the fix.' }, new AbortController().signal)
+      expect(MockAgent.instances.at(-1).state).toMatchObject({ model: parentModel, thinkingLevel: 'medium' })
+    } finally {
+      await destroyAgent(session.sessionId)
+    }
+  })
+
   it('exposes running subagent snapshots across refresh without duplicating the final tool result', async () => {
     const { createAgent, destroyAgent, getSessionState } = await import('../../server/agent-manager.mjs')
     const sessionId = 'running-subagent-snapshot'

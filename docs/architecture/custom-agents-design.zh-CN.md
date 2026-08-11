@@ -183,8 +183,8 @@ const builtinAgentProfiles = [
 
 - 现有 `run_subagent` 调用 `general` / `explore` 的行为不变。
 - 内置 Agent 不允许删除，提示词、工具和运行预算继续由系统管理。
-- 内置 Agent 允许通过独立覆盖配置修改模型；覆盖值保存在 `agent-profile-overrides`，不修改自动生成的 builtin Markdown。
-- 内置 Agent 的思考等级固定为继承调用方，并按最终模型能力自动降级。
+- 内置 Agent 允许通过独立覆盖配置修改模型和思考等级；覆盖值保存在 `agent-profile-overrides`，不修改自动生成的 builtin Markdown；将模型或思考等级设回 `inherit` 时清除对应覆盖字段，不影响其他覆盖。
+- 内置 Agent 的思考等级默认继承调用方，也可覆盖为 `off/low/medium/high/xhigh`，运行时先解析最终模型，再按模型能力自动降级。
 
 ## 7. 存储设计
 
@@ -730,6 +730,8 @@ Agent 配置变更后，定时任务后续执行行为会变化。
 - `run_subagent` 可以调用自定义 Agent。
 - `run_subagent` 不允许调用 disabled Agent。
 - 自定义 Agent 只能访问白名单工具。
+- 内置 Agent 模型/思考等级覆盖持久化，设回 `inherit` 时清除对应字段并保留其他覆盖。
+- 内置 Agent 思考等级覆盖在运行时快照中生效。
 - 定时任务绑定 Agent 后按 profile 执行。
 - 定时任务缺失 Agent 时降级或失败策略符合预期。
 

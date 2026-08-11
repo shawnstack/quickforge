@@ -140,6 +140,55 @@ describe('managed custom agent markdown profiles', () => {
     expect(await getAgentProfile('explore')).toMatchObject({ model: { mode: 'inherit' } })
   })
 
+  it('persists model and thinking-level overrides for built-in agents in one update', async () => {
+    const { getAgentProfile, updateBuiltinAgentOverrides } = await import('../../server/agent-profiles.mjs')
+    const { writeStore } = await import('../../server/storage.mjs')
+    const model = {
+      provider: 'mock',
+      id: 'reasoning-model',
+      api: 'mock-api',
+      baseUrl: 'http://mock.local',
+      reasoning: true,
+    }
+    await writeStore('custom-providers', { mock: { models: [model] } })
+
+    const updated = await updateBuiltinAgentOverrides('general', {
+      model: {
+        mode: 'fixed',
+        provider: 'mock',
+        modelId: 'reasoning-model',
+        api: 'mock-api',
+        baseUrl: 'http://mock.local',
+      },
+      thinkingLevel: 'high',
+    })
+
+    expect(updated).toMatchObject({ builtin: true, thinkingLevel: 'high', model: { mode: 'fixed', provider: 'mock', modelId: 'reasoning-model' } })
+    expect(await getAgentProfile('general')).toMatchObject({ builtin: true, thinkingLevel: 'high', model: { mode: 'fixed', provider: 'mock', modelId: 'reasoning-model' } })
+
+    await updateBuiltinAgentOverrides('general', { thinkingLevel: 'inherit' })
+    const restored = await getAgentProfile('general')
+    expect(restored.thinkingLevel).toBe('inherit')
+    expect(restored.model).toMatchObject({ mode: 'fixed', provider: 'mock', modelId: 'reasoning-model' })
+  })
+
+  it('reflects built-in thinking-level overrides in the API snapshot', async () => {
+    const { agentProfileSnapshot, getAgentProfile, updateBuiltinAgentOverrides } = await import('../../server/agent-profiles.mjs')
+
+    await updateBuiltinAgentOverrides('explore', { thinkingLevel: 'medium' })
+    const snapshot = agentProfileSnapshot(await getAgentProfile('explore'))
+    expect(snapshot).toMatchObject({ builtin: true, readonly: true, thinkingLevel: 'medium', model: { mode: 'inherit' } })
+
+    await updateBuiltinAgentOverrides('explore', { thinkingLevel: 'inherit' })
+    expect(agentProfileSnapshot(await getAgentProfile('explore'))).toMatchObject({ thinkingLevel: 'inherit' })
+  })
+
+  it('rejects unsupported thinking levels for built-in agents', async () => {
+    const { updateBuiltinAgentOverrides } = await import('../../server/agent-profiles.mjs')
+
+    await expect(updateBuiltinAgentOverrides('explore', { thinkingLevel: 'ultra' })).rejects.toThrow('Unsupported agent thinking level')
+  })
+
   it('does not load builtin subdirectory files as user profiles', async () => {
     const { userAgentsDir } = await import('../../server/storage.mjs')
     await mkdir(path.join(userAgentsDir, 'builtin'), { recursive: true })

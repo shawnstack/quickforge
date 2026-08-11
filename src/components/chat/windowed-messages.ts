@@ -35,6 +35,8 @@ export const WINDOW_TURNS = 3
 export const WINDOW_PAGE_TURNS = 3
 
 type MessageWindowOptions = {
+  /** Disable windowing and pass the complete message array through unchanged. */
+  enabled?: boolean
   enableTurns?: number
   enableMessages?: number
   enableContentChars?: number
@@ -148,6 +150,7 @@ function buildWindow(messages: AgentMessage[], start: number, end: number): Agen
 }
 
 export function createMessageWindow(options: MessageWindowOptions = {}): MessageWindowController {
+  const windowingEnabled = options.enabled ?? true
   const enableTurns = options.enableTurns ?? WINDOW_ENABLE_TURNS
   const enableMessages = options.enableMessages ?? WINDOW_ENABLE_MESSAGES
   const enableContentChars = options.enableContentChars ?? WINDOW_ENABLE_CONTENT_CHARS
@@ -183,7 +186,7 @@ export function createMessageWindow(options: MessageWindowOptions = {}): Message
       turnStarts = collectTurnStarts(messages)
       const turnCount = turnStarts.length
       activeWindowTurns = Math.min(windowTurns, Math.max(1, turnCount - 1))
-      enabled = turnCount > 1 && (turnCount > enableTurns
+      enabled = windowingEnabled && turnCount > 1 && (turnCount > enableTurns
         || messages.length > enableMessages
         || exceedsContentThreshold(messages, enableContentChars))
       if (!enabled) {

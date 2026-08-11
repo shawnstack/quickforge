@@ -149,6 +149,29 @@ describe('syncContextCompactionNotice window positioning', () => {
     expect(messageList.children.slice(1)).toEqual(messageElements)
   })
 
+  it('aligns a legacy non-user boundary to the containing user turn', () => {
+    const { panel, messageList, messageElements } = createPanel(5)
+    const messages = [
+      { role: 'user', content: 'first question' },
+      { role: 'assistant', content: 'first answer' },
+      { role: 'user', content: 'kept question' },
+      { role: 'assistant', content: 'tool call' },
+      { role: 'toolResult', content: 'tool result' },
+      { role: 'assistant', content: 'continued answer' },
+    ] as MessageWithUsage[]
+
+    sync(panel, messages, 4)
+
+    expect(messageList.children).toEqual([
+      messageElements[0],
+      messageElements[1],
+      expect.objectContaining({ className: 'quickforge-context-compaction-notice' }),
+      messageElements[2],
+      messageElements[3],
+      messageElements[4],
+    ])
+  })
+
   it('hides the notice when the boundary is after the rendered window', () => {
     const { panel, messageList } = createPanel(4)
 

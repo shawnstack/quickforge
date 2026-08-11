@@ -22,7 +22,7 @@ export const DEFAULT_AUTO_COMPACT_SETTINGS = {
  * 保留尾部（最近回合）的字符预算上限。当会话以工具消息为主、user 回合
  * 稀疏时，按 keepRecentTurns 从尾部回溯会跨越大量工具消息，导致压缩
  * 范围过小甚至为空（tailStart 与 compactedUpToIndex 重合）。达到该预算
- * 即截断，将更早的工具链历史并入压缩范围。
+ * 时按当前用户轮次起点截断，将更早的完整工具链历史并入压缩范围。
  */
 export const DEFAULT_MAX_TAIL_CHARS = 40000
 
@@ -98,13 +98,13 @@ export function tailStartForRecentTurns(messages, keepRecentTurns, maxTailChars 
     if (isUserMessage(source[index])) seenUserTurns += 1
     tailChars += messageChars(source[index])
     if (seenUserTurns >= keepRecentTurns) return index
-    // 保留的尾部超过预算：将当前消息并入压缩范围，避免 tailStart 回溯过远
+    // 保留的尾部超过预算：仍按完整用户轮次切分，避免把当前运行中的
+    // assistant/toolResult 链从中间截断，导致压缩线落在一轮对话内部。
     if (tailChars >= maxTailChars) {
-      // 预算截断点可能落在 toolResult 上：若保留尾部以 toolResult 开头，后续
-      // LLM 请求会出现孤立 tool 消息（OpenAI 400）。向前跳过连续的 toolResult。
-      let tailStart = index + 1
-      while (tailStart < source.length && isToolResultMessage(source[tailStart])) tailStart += 1
-      return tailStart
+      for (let turnStart = index; turnStart >= 0; turnStart--) {
+        if (isUserMessage(source[turnStart])) return turnStart
+      }
+      return 0
     }
   }
   return 0

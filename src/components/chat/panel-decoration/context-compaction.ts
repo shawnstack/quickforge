@@ -36,6 +36,17 @@ function isDisplayMessage(message: MessageWithUsage) {
   return message.role === 'user' || message.role === 'user-with-attachments' || message.role === 'assistant'
 }
 
+function isUserMessage(message: MessageWithUsage) {
+  return message.role === 'user' || message.role === 'user-with-attachments'
+}
+
+function alignBoundaryToUserTurn(messages: MessageWithUsage[], messageIndex: number) {
+  for (let index = Math.min(messageIndex, messages.length - 1); index >= 0; index--) {
+    if (isUserMessage(messages[index])) return index
+  }
+  return 0
+}
+
 function getPrimaryMessageElements(panel: HTMLElement) {
   const messageList = panel.querySelector<HTMLElement>('message-list')
   if (!messageList) return []
@@ -124,7 +135,8 @@ export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
     existing?.remove()
     return
   }
-  const tailStart = Math.max(0, compactedUpToIndex - messageIndexOffset)
+  const boundaryIndex = Math.max(0, compactedUpToIndex - messageIndexOffset)
+  const tailStart = alignBoundaryToUserTurn(messages, boundaryIndex)
 
   const summaryText = compaction.summaryMessage ? compactSummaryText(compaction.summaryMessage) : ''
   const initialOpen = existing?.querySelector<HTMLDetailsElement>('.quickforge-context-compaction-details')?.open ?? false

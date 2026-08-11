@@ -59,19 +59,18 @@ describe('tailStartForRecentTurns', () => {
     expect(tailStart).toBeLessThan(messages.length)
   })
 
-  it('never starts the kept tail on a toolResult even when the budget cut lands between tool messages', () => {
-    // 工具消息交替排列，预算截断点会落在 toolResult 或 assistant 上；
-    // 无论落在哪里，保留尾部（slice(tailStart)）的第一条都不能是 toolResult
+  it('aligns a tail char budget cut to the start of the containing user turn', () => {
+    // 预算会在 latest question 后面的工具链中命中，但边界必须回到该轮 user，
+    // 不能把 assistant/toolResult 链从中间切开。
     const messages = []
     messages.push(textMessage('user', 'start'))
     for (let i = 0; i < 100; i += 1) messages.push(toolMessage('assistant'), toolMessage('toolResult'))
+    const latestUserIndex = messages.length
     messages.push(textMessage('user', 'latest question'))
     for (let i = 0; i < 40; i += 1) messages.push(toolMessage('assistant'), toolMessage('toolResult'))
 
-    const tailStart = tailStartForRecentTurns(messages, 2, 8000)
-    const tail = messages.slice(tailStart)
-    expect(tail.length).toBeGreaterThan(0)
-    expect(tail[0].role).not.toBe('toolResult')
+    expect(tailStartForRecentTurns(messages, 2, 8000)).toBe(latestUserIndex)
+    expect(messages[latestUserIndex].role).toBe('user')
   })
 
   it('buildAutoCompactLoopMessages skips leading orphaned toolResults after compaction', () => {

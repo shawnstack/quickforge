@@ -46,6 +46,19 @@ function turns(count: number, opts: { withToolCalls?: boolean } = {}) {
 }
 
 describe('message windowing (by turns)', () => {
+  it('passes every message through when windowing is disabled', () => {
+    const window = createMessageWindow({ enabled: false })
+    const full = turns(50, { withToolCalls: true })
+
+    expect(window.setFullMessages(full)).toBe(full)
+    expect(window.getWindowMessages()).toBe(full)
+    expect(window.getWindowStart()).toBe(0)
+    expect(window.isEnabled()).toBe(false)
+    expect(window.hasMore()).toBe(false)
+    expect(window.loadMore()).toBeNull()
+    expect(window.showMessageIndex(0)).toBeNull()
+  })
+
   it('passes short conversations through untouched', () => {
     const window = createMessageWindow()
     // Exactly at the threshold → not more than it, so no windowing.

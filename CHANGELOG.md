@@ -4,6 +4,36 @@ All notable changes to QuickForge will be documented in this file.
 
 ## [Unreleased]
 
+## [1.7.6] - 2026-08-11
+
+### Added
+
+- Bundled the `qf-agent` remote agent for all five platforms (`win32-x64`, `darwin-x64`, `darwin-arm64`, `linux-x64`, `linux-arm64`) with macOS/Linux execute-bit fallback before launch.
+- Added the OpenCode ACP harness: default Harness selection in settings, config-option/mode menus, runtime usage badge, and whole-session conversation forking.
+- Added built-in Agent profile overrides for both model and thinking level, with per-field `inherit` reset and runtime subagent consumption.
+- Hardened the Android remote tunnel with signal reconnect backoff, network-change ICE restart, backpressure gating, and browser Service Worker notifications on Android remote clients.
+
+### Changed
+
+- Conversations render in full on restore instead of windowed pagination; new chats honor the selected default Harness.
+- Raised the default Cloud and connection `maxTokens` to 32768.
+- Simplified the plugin management page and refined default model options.
+
+### Fixed
+
+- Auto-compaction now aligns the tail budget cut to the containing user-turn boundary on both server and UI.
+- Stabilized plugin suggestions and the composer plus menu, deduplicated concurrent session loads, and corrected the compaction notice position.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.7.6` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.7.6.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.7.6.tgz
+  ```
+
 ## [1.7.5] - 2026-08-06
 
 ### Added

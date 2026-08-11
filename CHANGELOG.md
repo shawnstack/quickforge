@@ -23,6 +23,7 @@ All notable changes to QuickForge will be documented in this file.
 
 - Auto-compaction now aligns the tail budget cut to the containing user-turn boundary on both server and UI.
 - Stabilized plugin suggestions and the composer plus menu, deduplicated concurrent session loads, and corrected the compaction notice position.
+- Restored Cloud URL security restrictions (remote addresses must use HTTPS; only loopback allows HTTP) and synced the device-authorization client contract test.
 
 ### Released
 

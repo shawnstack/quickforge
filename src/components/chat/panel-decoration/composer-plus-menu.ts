@@ -1,4 +1,4 @@
-import type { BuiltinPluginMention } from '../capability-suggestions'
+import type { CapabilitySuggestion } from '../capability-suggestions'
 import type { MessageEditorElement } from '../chat-utils'
 import { patchContent } from '../chat-utils'
 import { t } from '@/lib/i18n'
@@ -19,22 +19,25 @@ export type ComposerPlusMenuDeps = {
   panel: HTMLElement
   editor: MessageEditorElement
   leftControls: HTMLElement
-  insertBuiltinPluginMention: (mention: BuiltinPluginMention) => void
+  insertBuiltinPluginMention: (mention: string) => void
   removeCommandSuggestions: () => void
   removeCapabilitySuggestions: () => void
+  availablePluginRows: () => CapabilitySuggestion[]
+  pluginsEnabled: boolean
 }
 
-const builtinPluginChoices: Array<{
-  mention: BuiltinPluginMention
-  nameKey: 'pluginDocumentsName' | 'pluginSpreadsheetsName' | 'pluginPresentationsName'
-  descriptionKey: 'pluginDocumentsDescription' | 'pluginSpreadsheetsDescription' | 'pluginPresentationsDescription'
-  pluginName: string
-  icon: string
-}> = [
-  { mention: 'Documents', nameKey: 'pluginDocumentsName', descriptionKey: 'pluginDocumentsDescription', pluginName: 'documents', icon: documentPluginIcon },
-  { mention: 'Spreadsheets', nameKey: 'pluginSpreadsheetsName', descriptionKey: 'pluginSpreadsheetsDescription', pluginName: 'spreadsheets', icon: spreadsheetPluginIcon },
-  { mention: 'Presentations', nameKey: 'pluginPresentationsName', descriptionKey: 'pluginPresentationsDescription', pluginName: 'presentations', icon: presentationPluginIcon },
-]
+// Icons for capability rows, mirroring the iconKind mapping used by @ mentions.
+// Rows produced for plugins only ever carry these kinds; the generic plugins
+// icon covers any plugin without a dedicated builtin icon.
+const pluginRowIcons: Record<CapabilitySuggestion['iconKind'], string> = {
+  plugin: pluginsIcon,
+  document: documentPluginIcon,
+  spreadsheet: spreadsheetPluginIcon,
+  presentation: presentationPluginIcon,
+  skill: pluginsIcon,
+  tool: pluginsIcon,
+  command: pluginsIcon,
+}
 
 export function removeComposerPlusPopover(panel: HTMLElement) {
   const popover = panel.querySelector<ComposerPlusPopoverElement>('.quickforge-plus-popover')
@@ -122,21 +125,21 @@ function renderComposerPlusPopover(deps: ComposerPlusMenuDeps, view: 'main' | 'p
   popover.append(header)
 
   if (view === 'main') {
-    popover.append(
-      createPlusMenuItem({
-        icon: attachmentIcon,
-        label: t('composerAddAttachment'),
-        onSelect: () => {
-          removeComposerPlusPopover(panel)
-          triggerAttachmentPicker(editor, leftControls)
-        },
-      }),
-      createPlusMenuItem({
+    popover.append(createPlusMenuItem({
+      icon: attachmentIcon,
+      label: t('composerAddAttachment'),
+      onSelect: () => {
+        removeComposerPlusPopover(panel)
+        triggerAttachmentPicker(editor, leftControls)
+      },
+    }))
+    if (deps.pluginsEnabled && deps.availablePluginRows().length > 0) {
+      popover.append(createPlusMenuItem({
         icon: pluginsIcon,
         label: t('composerAddPlugins'),
         onSelect: () => renderComposerPlusPopover(deps, 'plugins'),
-      }),
-    )
+      }))
+    }
   } else {
     const backButton = createPlusMenuItem({
       className: 'quickforge-plus-popover-back',
@@ -145,14 +148,14 @@ function renderComposerPlusPopover(deps: ComposerPlusMenuDeps, view: 'main' | 'p
       onSelect: () => renderComposerPlusPopover(deps, 'main'),
     })
     popover.append(backButton)
-    for (const choice of builtinPluginChoices) {
+    for (const row of deps.availablePluginRows()) {
       popover.append(createPlusMenuItem({
-        icon: choice.icon,
-        label: t(choice.nameKey),
-        description: t(choice.descriptionKey),
-        pluginName: choice.pluginName,
+        icon: pluginRowIcons[row.iconKind],
+        label: row.label,
+        description: row.description,
+        pluginName: row.pluginName,
         onSelect: () => {
-          insertBuiltinPluginMention(choice.mention)
+          insertBuiltinPluginMention(row.mention)
           removeComposerPlusPopover(panel)
         },
       }))

@@ -20,7 +20,7 @@ export type SelectedCapability = {
 
 type IconKind = SelectedCapability['type'] | 'document' | 'spreadsheet' | 'presentation'
 
-type CapabilitySuggestion = SelectedCapability & {
+export type CapabilitySuggestion = SelectedCapability & {
   insertText: string
   iconKind: IconKind
 }
@@ -29,6 +29,7 @@ type CapabilitySuggestionsOptions = {
   panel: HTMLElement
   restoreDraftIntoComposer: (draft: ComposerDraft) => void
   onSelectionChange?: (selected: SelectedCapability[]) => void
+  enabled?: boolean
 }
 
 const capabilityIcons: Record<IconKind, string> = {
@@ -140,15 +141,23 @@ export function createCapabilitySuggestions({
   panel,
   restoreDraftIntoComposer,
   onSelectionChange,
+  enabled = true,
 }: CapabilitySuggestionsOptions) {
   let plugins: QuickForgePlugin[] = []
   let loadPromise: Promise<void> | null = null
+  // Load state machine: only one fetch per @-token lifetime (retry allowed after the
+  // user clears the @ token). idle → loading → loaded; never auto-reload while loaded.
+  let loadState: 'idle' | 'loading' | 'loaded' = 'idle'
+  let hadToken = false
+  let pendingInsert = false
   let selected = new Map<string, SelectedCapability>()
 
   const emitSelection = () => onSelectionChange?.([...selected.values()])
 
   const refresh = () => {
     if (loadPromise) return loadPromise
+    if (loadState === 'loaded') return Promise.resolve()
+    loadState = 'loading'
     loadPromise = loadPlugins()
       .then((payload) => {
         plugins = (payload.plugins ?? []).filter((plugin) => plugin.enabled && plugin.status === 'loaded')
@@ -158,11 +167,12 @@ export function createCapabilitySuggestions({
       })
       .finally(() => {
         loadPromise = null
+        loadState = 'loaded'
       })
     return loadPromise
   }
 
-  void refresh()
+  if (enabled) void refresh()
 
   const rows = () => plugins.flatMap(capabilityRows)
 
@@ -207,16 +217,21 @@ export function createCapabilitySuggestions({
     remove()
   }
 
-  const insertBuiltinPluginMention = (mention: BuiltinPluginMention) => {
+  const insertBuiltinPluginMention = (mention: string) => {
     const insert = () => {
       const capability = rows().find((row) => row.insertText === mention)
       if (capability) insertCapabilityIntoComposer(capability)
     }
-    if (plugins.length === 0) {
-      void refresh().then(insert)
+    if (plugins.length > 0) {
+      insert()
       return
     }
-    insert()
+    if (pendingInsert) return
+    pendingInsert = true
+    void refresh().then(() => {
+      pendingInsert = false
+      insert()
+    })
   }
 
   const update = (value?: string) => {
@@ -228,12 +243,26 @@ export function createCapabilitySuggestions({
     const existing = panel.querySelector<CapabilitySuggestionElement>('.quickforge-capability-suggestions')
 
     if (!editor || !textarea || !token) {
+      if (hadToken) loadState = 'idle'
+      hadToken = false
       existing?.remove()
       return
     }
+    hadToken = true
 
     if (plugins.length === 0) {
-      void refresh().then(() => update(value))
+      const pending = refresh()
+      if (loadPromise !== null) {
+        // Re-render once the in-flight load settles; a second pass never re-arms
+        // because loadState is already 'loaded' by then.
+        void pending.then(() => {
+          const currentEditor = panel.querySelector<MessageEditorElement>('message-editor')
+          const currentTextarea = currentEditor?.querySelector<HTMLTextAreaElement>('textarea')
+          const currentText = currentEditor?.value ?? currentTextarea?.value ?? ''
+          const currentCaret = currentTextarea?.selectionStart ?? currentText.length
+          if (findMentionToken(currentText, currentCaret)) update(currentText)
+        })
+      }
     }
 
     const query = token.query.toLowerCase()
@@ -354,6 +383,10 @@ export function createCapabilitySuggestions({
     cleanupTextareaHandler,
     consumeSelectedCapabilities,
     insertBuiltinPluginMention,
+    // Currently available plugin rows (already filtered to enabled === true and
+    // status === 'loaded'), shared with the + menu so it never re-fetches or
+    // re-filters /api/plugins.
+    availablePluginRows: rows,
   }
 }
 

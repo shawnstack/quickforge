@@ -6,7 +6,7 @@
  * command bindings).
  */
 
-import type { BuiltinPluginMention } from './capability-suggestions'
+import type { CapabilitySuggestion } from './capability-suggestions'
 import type {
   AgentInterfaceElement,
   MessageEditorElement,
@@ -58,7 +58,8 @@ export type EditorDecorationDeps = {
   removeCapabilitySuggestions: () => void
   updateCapabilitySuggestions: (value?: string) => void
   setupCapabilityTextareaHandler: (editor: MessageEditorElement | null) => void
-  insertBuiltinPluginMention: (mention: BuiltinPluginMention) => void
+  insertBuiltinPluginMention: (mention: string) => void
+  availablePluginRows: () => CapabilitySuggestion[]
   onBeforeSend?: (input: string) => void
 }
 
@@ -83,6 +84,7 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     updateCapabilitySuggestions,
     setupCapabilityTextareaHandler,
     insertBuiltinPluginMention,
+    availablePluginRows,
     onBeforeSend,
   } = deps
 
@@ -149,8 +151,10 @@ export function decorateEditor(deps: EditorDecorationDeps) {
       editor,
       leftControls,
       insertBuiltinPluginMention,
+      availablePluginRows,
       removeCommandSuggestions,
       removeCapabilitySuggestions,
+      pluginsEnabled: true,
     })
   }
 

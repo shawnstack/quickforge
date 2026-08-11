@@ -775,6 +775,7 @@ export function ChatPanelHost({
           updateCapabilitySuggestions: capabilitySuggestions.update,
           setupCapabilityTextareaHandler: capabilitySuggestions.setupTextareaHandler,
           insertBuiltinPluginMention: capabilitySuggestions.insertBuiltinPluginMention,
+          availablePluginRows: capabilitySuggestions.availablePluginRows,
           onBeforeSend: (input) => {
             const capabilities = capabilitySuggestions.consumeSelectedCapabilities(input)
             const promptAgent = agent as AgentWithCapabilityPrompt

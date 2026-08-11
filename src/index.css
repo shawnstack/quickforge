@@ -3772,6 +3772,14 @@ assistant-message :is(thinking-block, tool-message, markdown-block)[data-quickfo
   pointer-events: auto;
 }
 
+.quickforge-chat-panel-empty-host .quickforge-composer-shell :is(
+  .quickforge-command-suggestions,
+  .quickforge-capability-suggestions,
+  .quickforge-plus-popover
+) {
+  pointer-events: auto;
+}
+
 .quickforge-chat-panel-empty-host .quickforge-composer textarea {
   min-height: 3.5rem !important;
   padding: 1rem 1rem 0.5rem !important;

@@ -16,7 +16,7 @@ export function toPublicCloudModel(model) {
     reasoning: Boolean(capabilities.reasoning),
     input: capabilities.vision ? ['text', 'image'] : ['text'],
     contextWindow: Number(model.contextWindow || 128_000),
-    maxTokens: Number(model.maxTokens || 8_192),
+    maxTokens: Number(model.maxTokens || 32_768),
     quickforgeModelSource: CLOUD_SOURCE,
     quickforgeCatalogId: id,
     quickforgeCapabilities: {

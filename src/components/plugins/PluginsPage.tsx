@@ -1,24 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, ChevronDown, Loader2, Puzzle, RefreshCw, Shield, Wrench } from 'lucide-react'
+import { AlertTriangle, Loader2, Puzzle, RefreshCw } from 'lucide-react'
 import { t } from '@/lib/i18n'
-import { cn } from '@/lib/utils'
-import { loadPlugins, reloadPlugins, setPluginEnabled, type PluginsResponse, type QuickForgePlugin, type PluginToolSummary } from './plugin-api'
+import { loadPlugins, reloadPlugins, setPluginEnabled, type PluginsResponse, type QuickForgePlugin } from './plugin-api'
 
 type PluginsPageProps = {
   onChanged?: () => void
-}
-
-function pluginStatusClass(status: string) {
-  if (status === 'loaded') return 'quickforge-settings-badge-success'
-  if (status === 'error') return 'quickforge-settings-badge-danger'
-  return 'quickforge-settings-badge-muted'
-}
-
-function pluginStatusLabel(status: string) {
-  if (status === 'loaded') return t('pluginStatusLoaded')
-  if (status === 'disabled') return t('pluginStatusDisabled')
-  if (status === 'error') return t('pluginStatusError')
-  return status
 }
 
 type BuiltinPluginCopy = {
@@ -47,15 +33,10 @@ function displayPluginDescription(plugin: QuickForgePlugin) {
   return builtinPluginCopy(plugin.name)?.description || plugin.description || t('noDescription')
 }
 
-function displayToolName(tool: PluginToolSummary) {
-  return (tool.label || tool.name || tool.quickForgeName).replace(/^OpenAI\s+/i, '')
-}
-
 export function PluginsPage({ onChanged }: PluginsPageProps) {
   const [data, setData] = useState<PluginsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [busyPlugin, setBusyPlugin] = useState<string | null>(null)
-  const [expandedPlugins, setExpandedPlugins] = useState<Set<string>>(() => new Set())
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async (mode: 'load' | 'reload' = 'load') => {
@@ -94,20 +75,10 @@ export function PluginsPage({ onChanged }: PluginsPageProps) {
     return {
       total: plugins.length,
       enabled: plugins.filter((plugin) => plugin.enabled).length,
-      tools: plugins.reduce((sum, plugin) => sum + plugin.tools.length, 0),
     }
   }, [data])
 
   const plugins = useMemo(() => data?.plugins || [], [data])
-
-  const toggleExpand = useCallback((name: string) => {
-    setExpandedPlugins((current) => {
-      const next = new Set(current)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
-      return next
-    })
-  }, [])
 
   const togglePlugin = async (name: string, enabled: boolean) => {
     setBusyPlugin(name)
@@ -135,7 +106,6 @@ export function PluginsPage({ onChanged }: PluginsPageProps) {
             <div className="quickforge-settings-row-description">{t('pluginsDescription')}</div>
             <div className="quickforge-settings-meta">
               <span className="quickforge-settings-badge quickforge-settings-badge-muted">{t('pluginsCount', counts)}</span>
-              <span className="quickforge-settings-badge quickforge-settings-badge-info">{t('pluginToolsCount', { count: counts.tools })}</span>
             </div>
           </div>
           <button
@@ -184,82 +154,30 @@ export function PluginsPage({ onChanged }: PluginsPageProps) {
           </div>
         ) : null}
 
-        {plugins.map((plugin) => {
-          const expanded = expandedPlugins.has(plugin.name)
-          return (
-            <article key={plugin.name} className="quickforge-settings-list-item quickforge-settings-list-item--column">
-              <div className="quickforge-settings-list-item-header">
-                <button
-                  type="button"
-                  className="quickforge-settings-expand-toggle"
-                  onClick={() => toggleExpand(plugin.name)}
-                  aria-expanded={expanded}
-                >
-                  <ChevronDown className={cn('quickforge-settings-expand-chevron size-4', expanded && 'rotate-90')} />
-                  <span className="min-w-0 flex-1">
-                    <span className="quickforge-settings-row-title">
-                      {displayPluginName(plugin)}
-                      <span className="quickforge-settings-badge quickforge-settings-badge-muted">v{plugin.version}</span>
-                      <span className={cn('quickforge-settings-badge', pluginStatusClass(plugin.status))}>{pluginStatusLabel(plugin.status)}</span>
-                    </span>
-                    <span className="quickforge-settings-row-description">{displayPluginDescription(plugin)}</span>
-                    {plugin.error ? <span className="quickforge-settings-alert mt-3 block">{plugin.error}</span> : null}
-                    <span className="quickforge-settings-meta">
-                      <span className="quickforge-settings-badge quickforge-settings-badge-muted"><Wrench className="size-3" />{t('pluginToolsCount', { count: plugin.tools.length })}</span>
-                      <span className="quickforge-settings-badge quickforge-settings-badge-muted"><Shield className="size-3" />{t('pluginPermissionsCount', { count: plugin.permissions.length })}</span>
-                      <span className={cn('quickforge-settings-badge', plugin.enabled ? 'quickforge-settings-badge-success' : 'quickforge-settings-badge-muted')}>{plugin.enabled ? t('enabled') : t('disabled')}</span>
-                    </span>
-                  </span>
-                </button>
-                <div className="quickforge-settings-list-item-actions" onClick={(event) => event.stopPropagation()}>
-                  <label className="quickforge-settings-switch" aria-disabled={busyPlugin === plugin.name ? 'true' : 'false'}>
-                    <input
-                      type="checkbox"
-                      checked={plugin.enabled}
-                      disabled={busyPlugin === plugin.name}
-                      onChange={(event) => void togglePlugin(plugin.name, event.target.checked)}
-                    />
-                    <span aria-hidden="true" />
-                  </label>
-                </div>
+        {plugins.map((plugin) => (
+          <article key={plugin.name} className="quickforge-settings-list-item quickforge-settings-list-item--column">
+            <div className="quickforge-settings-list-item-header">
+              <span className="min-w-0 flex-1">
+                <span className="quickforge-settings-row-title">
+                  {displayPluginName(plugin)}
+                </span>
+                <span className="quickforge-settings-row-description">{displayPluginDescription(plugin)}</span>
+                {plugin.error ? <span className="quickforge-settings-alert mt-3 block">{plugin.error}</span> : null}
+              </span>
+              <div className="quickforge-settings-list-item-actions">
+                <label className="quickforge-settings-switch" aria-disabled={busyPlugin === plugin.name ? 'true' : 'false'}>
+                  <input
+                    type="checkbox"
+                    checked={plugin.enabled}
+                    disabled={busyPlugin === plugin.name}
+                    onChange={(event) => void togglePlugin(plugin.name, event.target.checked)}
+                  />
+                  <span aria-hidden="true" />
+                </label>
               </div>
-
-              {expanded ? (
-                <div className="border-t border-border/60">
-                  <div className="quickforge-settings-row quickforge-settings-row-top">
-                    <div className="quickforge-settings-row-title"><Wrench className="size-4 text-muted-foreground" />{t('pluginTools')}</div>
-                  </div>
-                  <div className="quickforge-settings-nested-list">
-                    {plugin.tools.length ? plugin.tools.map((tool) => (
-                      <div key={tool.quickForgeName} className="quickforge-settings-subrow">
-                        <div className="quickforge-settings-row-main">
-                          <div className="quickforge-settings-row-title">{displayToolName(tool)}</div>
-                          {tool.description ? <div className="quickforge-settings-row-description">{tool.description}</div> : null}
-                        </div>
-                      </div>
-                    )) : <div className="quickforge-settings-empty-row">{t('pluginNoTools')}</div>}
-                  </div>
-
-                  <div className="quickforge-settings-row quickforge-settings-row-top">
-                    <div className="quickforge-settings-row-title"><Shield className="size-4 text-muted-foreground" />{t('pluginPermissions')}</div>
-                  </div>
-                  <div className="p-4">
-                    {plugin.permissions.length ? (
-                      <div className="quickforge-settings-meta">
-                        {plugin.permissions.map((permission) => (
-                          <code key={permission} className="quickforge-settings-command-name">{permission}</code>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="quickforge-settings-empty-row">{t('pluginNoPermissions')}</div>
-                    )}
-                    <div className="quickforge-settings-row-description mt-3">{t('pluginTrustedNotice')}</div>
-                  </div>
-                </div>
-              ) : null}
-            </article>
-          )
-        })}
+            </div>
+          </article>
+        ))}
       </section>
     </div>
   )

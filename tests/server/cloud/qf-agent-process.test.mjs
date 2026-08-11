@@ -269,4 +269,33 @@ describe('qf-agent process manager', () => {
     expect(validateQfAgentVersion({ protocolVersion: 1, target: 'windows-amd64' }, { platform: 'win32', arch: 'x64' })).toBe(true)
     expect(() => validateQfAgentVersion({ protocolVersion: 2, target: 'windows-amd64' }, { platform: 'win32', arch: 'x64' })).toThrow(/protocol/i)
   })
+
+  it('resolves darwin/linux agent assets and validates their Go targets', () => {
+    const cases = [
+      { platform: 'darwin', arch: 'x64', dir: 'darwin-x64', target: 'darwin-amd64' },
+      { platform: 'darwin', arch: 'arm64', dir: 'darwin-arm64', target: 'darwin-arm64' },
+      { platform: 'linux', arch: 'x64', dir: 'linux-x64', target: 'linux-amd64' },
+      { platform: 'linux', arch: 'arm64', dir: 'linux-arm64', target: 'linux-arm64' },
+    ]
+    for (const { platform, arch, dir, target } of cases) {
+      const expected = path.join('runtime-assets', 'agent', dir, 'qf-agent')
+      const seen = []
+      const resolved = resolveQfAgentExecutable({
+        env: {},
+        platform,
+        arch,
+        root: '/opt/quickforge',
+        development: false,
+        pathExists(candidate) {
+          seen.push(candidate)
+          return candidate.endsWith(expected)
+        },
+      })
+      expect(resolved).toBe(path.join('/opt/quickforge', expected))
+      expect(seen).toHaveLength(1)
+      expect(seen[0].endsWith(expected)).toBe(true)
+      expect(validateQfAgentVersion({ protocolVersion: 1, target }, { platform, arch })).toBe(true)
+    }
+    expect(() => validateQfAgentVersion({ protocolVersion: 1, target: 'windows-amd64' }, { platform: 'linux', arch: 'arm64' })).toThrow(/incompatible/i)
+  })
 })

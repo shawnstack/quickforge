@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { existsSync, promises as fs } from 'node:fs'
+import { chmodSync, existsSync, promises as fs, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dataDir } from '../storage.mjs'
@@ -83,6 +83,17 @@ export function resolveQfAgentExecutable({
     candidates.push(path.resolve(root, '..', 'quickforge-cloud', 'bin', 'agent.exe'))
   }
   return candidates.find((candidate) => pathExists(candidate)) || null
+}
+
+function ensureAgentExecutable(executable, platform = process.platform) {
+  if (platform === 'win32') return
+  try {
+    if (!(statSync(executable).mode & 0o111)) {
+      chmodSync(executable, 0o755)
+    }
+  } catch {
+    // Best effort: spawn will surface real permission errors through status.
+  }
 }
 
 function identityDirectory(serverUrl) {
@@ -368,6 +379,7 @@ async function launchQfAgent(generation) {
     }
     return getQfAgentStatus()
   }
+  ensureAgentExecutable(executable)
 
   setStatus({ status: 'starting', serverUrl, pid: null, verificationUriComplete: null })
   try {

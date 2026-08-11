@@ -58,6 +58,8 @@ QuickForge Server 在 HTTP `listen` 成功后读取当前 Cloud 服务配置。C
 
 `GET /api/cloud/remote/status` 仅返回运行状态、绑定的回环 Server URL、Agent PID、需要授权时的公开验证链接和脱敏错误，不返回可执行文件路径、身份目录或令牌。Agent 二进制缺失、版本不兼容、锁冲突或连接失败都不会阻塞 QuickForge 本地 Server 启动；本地功能保持可用。
 
+随 npm 包、runtime 包与 offline 离线包分发的 `qf-agent` 内置五个平台：`win32-x64`、`darwin-x64`、`darwin-arm64`、`linux-x64`、`linux-arm64`（对应 `runtime-assets/agent/<平台>/qf-agent[.exe]`）。支持矩阵的含义是：这些主机可注册为远程访问设备，供已认证的远端客户端通过云信令/隧道访问本机 QuickForge；**不代表跨主机远程执行 AI 工具**——模型推理（本地 Provider 或 Cloud）仍由被访问主机上的 QuickForge 本机执行，远端只是经隧道访问其 Web/API 界面。
+
 ## 本地 API
 
 所有 `/api/cloud/*` 仅允许本机请求，或已通过 LAN 密码认证的远端请求；不再按 Tailscale IPv4、IPv6、普通 LAN 或公网地址分类。未认证远端请求会先被全局 LAN 认证层以 HTTP 401 拒绝；到达 Cloud 路由但不满足认证边界时返回 HTTP 403 / `cloud_local_only`。配置类 JSON body 限制为 16 KiB。所有非安全写方法还必须携带 `x-quickforge-action: cloud-action`；带 JSON body 的写接口必须使用 `Content-Type: application/json`，以阻止浏览器跨站简单请求绕过预检。

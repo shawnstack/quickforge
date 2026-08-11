@@ -3,6 +3,7 @@ import { logger } from '../utils/logger.mjs'
 import { resolveModelBinding } from '../model-catalog.mjs'
 import {
   createAgent,
+  validateAgentHarness,
   runPrompt,
   abortRun,
   steerAgent,
@@ -22,6 +23,9 @@ import {
   updateSessionYoloMode,
   updateSessionModel,
   updateSessionThinkingLevel,
+  updateSessionHarnessConfigOption,
+  updateSessionHarnessMode,
+  forkSession,
   approveToolCall,
   rejectToolCall,
   approveAutoCompact,
@@ -161,12 +165,13 @@ export async function handleAgentApi(req, res, url, context = {}) {
   // POST /api/agents/:sessionId — create/ensure agent
   if (req.method === 'POST' && parts.length === 3) {
     const body = await readJsonBody(req)
+    const harness = validateAgentHarness(body?.harness)
     let config
-    if (body?.modelRef || body?.model) {
+    if (harness === 'quickforge' && (body?.modelRef || body?.model)) {
       const binding = await resolveModelBinding(body, { context, legacySnapshot: body?.model })
-      config = { ...body, model: binding.model, modelRef: binding.modelRef, modelAccessContext: context, resolvePersistedModel: true }
+      config = { ...body, harness, model: binding.model, modelRef: binding.modelRef, modelAccessContext: context, resolvePersistedModel: true }
     } else {
-      config = { ...body, modelAccessContext: context, resolvePersistedModel: true }
+      config = { ...body, harness, modelAccessContext: context, resolvePersistedModel: true }
     }
     const session = await createAgent(sessionId, config)
     sendJson(res, 200, {
@@ -175,6 +180,8 @@ export async function handleAgentApi(req, res, url, context = {}) {
       scope: session.scope,
       title: session.title,
       source: session.source || undefined,
+      harness: session.harness,
+      harnessSessionId: session.agent.harnessSessionId || session.harnessSessionId || undefined,
       channelId: session.channelId || undefined,
       channelName: session.channelName || undefined,
       accessMode: session.accessMode,
@@ -239,6 +246,39 @@ export async function handleAgentApi(req, res, url, context = {}) {
       throw error
     }
     const result = updateSessionThinkingLevel(sessionId, thinkingLevel)
+    sendJson(res, 200, result)
+    return
+  }
+
+  // POST /api/agents/:sessionId/harness/config-option — update an advertised Harness config option
+  if (req.method === 'POST' && subPath === 'harness/config-option') {
+    const body = await readJsonBody(req)
+    if (typeof body?.configId !== 'string' || !body.configId || body.value === undefined) {
+      const error = new Error('Missing configId or value in request body')
+      error.statusCode = 400
+      throw error
+    }
+    const result = await updateSessionHarnessConfigOption(sessionId, body.configId, body.value)
+    sendJson(res, 200, result)
+    return
+  }
+
+  // POST /api/agents/:sessionId/harness/mode — update an advertised Harness mode
+  if (req.method === 'POST' && subPath === 'harness/mode') {
+    const body = await readJsonBody(req)
+    if (typeof body?.modeId !== 'string' || !body.modeId) {
+      const error = new Error('Missing modeId in request body')
+      error.statusCode = 400
+      throw error
+    }
+    const result = await updateSessionHarnessMode(sessionId, body.modeId)
+    sendJson(res, 200, result)
+    return
+  }
+
+  // POST /api/agents/:sessionId/fork — fork the entire current OpenCode session
+  if (req.method === 'POST' && subPath === 'fork') {
+    const result = await forkSession(sessionId)
     sendJson(res, 200, result)
     return
   }

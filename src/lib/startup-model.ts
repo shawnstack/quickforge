@@ -1,6 +1,24 @@
 import type { Api, Model } from '@earendil-works/pi-ai'
 import { isManagedQuickForgeCloudModel } from './managed-cloud-model'
 
+const OPENCODE_PLACEHOLDER_MODEL: Model<'openai-completions'> = {
+  id: 'opencode-managed',
+  name: 'OpenCode managed model',
+  api: 'openai-completions',
+  provider: 'opencode',
+  baseUrl: 'opencode://managed',
+  reasoning: false,
+  input: ['text'],
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  contextWindow: 1,
+  maxTokens: 1,
+}
+
+/** Frontend-only state placeholder. OpenCode owns the real model and credentials. */
+export function openCodePlaceholderModel(): Model<Api> {
+  return OPENCODE_PLACEHOLDER_MODEL as Model<Api>
+}
+
 type ModelLike = Pick<Model<Api>, 'id' | 'provider' | 'api' | 'baseUrl'> & {
   quickforgeModelRef?: {
     source?: string

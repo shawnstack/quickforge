@@ -46,6 +46,7 @@ quickforge/
 - **四端入口**: CLI (`bin/quickforge.mjs`)、SDK (`server/public-api.mjs`)、Desktop (`desktop/electron-main.mjs`)、Android (`android/` + `capacitor.config.ts`)
 - **桌面运行时隔离**: Desktop 安装包包含自身的 `server/` 与 `dist/` runtime，启动时通过 Electron 自带 Node 能力调用 `server/public-api.mjs`，不要求用户安装 Node/npm/qf；内联服务不得向 Electron 主进程保留 `ELECTRON_RUN_AS_NODE`，该标志仅传给明确使用 Electron 执行 Node 脚本的子进程，避免 Renderer Helper 被误以 Node 模式启动；桌面端默认使用 `QUICKFORGE_DESKTOP_PORT` 或独立端口 `5177`，与 `qf` CLI 默认的 `5176` 分离；仅当已有本地 QuickForge 服务版本与桌面包版本一致时才复用，避免新版桌面壳加载旧 npm 服务的前端资源导致样式/API 错配。
 - **桌面托盘**: Desktop 端支持 Windows 系统托盘和 macOS 顶部菜单栏；关闭窗口隐藏到托盘，托盘菜单退出时停止桌面端启动的本地服务
+- **Agent Harness**: 新对话可在设置中选择 QuickForge 或 OpenCode runtime；选择会固定到会话，OpenCode 通过 ACP stdio 接入并持久化其 ACP session ID。详见 [Agent Harness 选择](../architecture/agent-harness-selection.zh-CN.md)。
 - **ACP Agent**: `quickforge acp` 通过 `@agentclientprotocol/sdk` 的 `AgentSideConnection` 暴露 stdio ACP Agent，桥接现有 `server/agent-manager.mjs` 会话和工具事件。
 - **数据存储**: 本地 `~/.quickforge/` 目录 (config / storage / cache / logs)
 - **Agent 权限模式**: 默认权限允许读取/搜索当前 workspace，并对写入、命令、MCP/Plugin 等可能影响系统的工具请求审批；完全访问权限等同开发者授权，在既有 workspace 沙箱和敏感文件限制内自动执行工具

@@ -17,6 +17,8 @@ export type MessageEditorElement = HTMLElement & {
   onFilesChange?: (files: unknown[]) => void
   __quickforgePlanBaseOnSend?: (input: string, attachments: unknown[]) => void
   __quickforgePlanWrappedOnSend?: (input: string, attachments: unknown[]) => void
+  __quickforgeAttachmentPasteGuard?: (event: ClipboardEvent) => void
+  __quickforgeAttachmentDropGuard?: (event: DragEvent) => void
 }
 
 export type CommandSuggestionElement = HTMLDivElement & {

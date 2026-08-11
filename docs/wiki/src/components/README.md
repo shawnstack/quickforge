@@ -10,7 +10,7 @@ components/
 │   ├── chat-utils.ts               # 共享类型、DOM 工具、token 估算 (267 行)
 │   ├── command-suggestions.ts      # 聊天输入框命令建议下拉菜单 (174 行)
 │   ├── context-usage.ts            # 上下文用量环状指示器 (78 行)
-│   ├── panel-decoration.ts         # 聊天面板 DOM 装饰兼容入口 / editor 编排 facade (175 行)
+│   ├── panel-decoration.ts         # 聊天面板 DOM 装饰兼容入口 / editor 编排 facade (264 行)
 │   ├── scroll-sync.ts              # 自动滚动同步 + 触顶加载回调 (174 行)
 │   └── windowed-messages.ts        # 超长会话窗口化渲染（只渲染最近 3 轮，向上滚动逐页加载更早轮次）
 ├── cloud/
@@ -74,8 +74,8 @@ components/
 - 工具审批卡使用轻量语义容器和左侧 3px 状态线：普通工具为 warning，自动上下文压缩为 info；命令、路径、MCP/Plugin 服务与工具等关键参数始终可见，完整参数可展开查看；subagent 来源以徽标展示。提交期间禁用按钮，失败后保留卡片并允许重试；成功或拒绝后仍移除卡片，不保留持久历史。
 - `ChatPanelHost` 通过独立的 `approvalReadOnly` / `approvalReadOnlyMessage` 控制审批可操作性，不与消息发送 `readOnly` 混用。分享页即使具有 operate 权限也只读展示实时审批，并提示回到分享者原始对话处理；刷新无法恢复分享页既有 pending 审批是当前已知限制。
 - 消息回滚、分叉、复制功能
-- 超长会话窗口化：通过包装第三方 `message-list` 元素的 `messages` setter（`windowed-messages.ts`），消息数据仍全量进入内存，但只渲染最近 3 轮（一轮 = 一次用户提问到回复完成，含中间工具调用）；向上滚动到顶时经 `scroll-sync` 的触顶回调逐页（3 轮）加载更早内容，并用锚点修正滚动位置。仅当会话超过 6 轮时启用，短会话行为完全不变；子代理 process 消息列表（`data-quickforge-subagent-process`）不参与窗口化。`decorateMessages` 通过 `messageIndexOffset` 对齐窗口与全量索引，保证回滚/重试/复制仍使用全量索引。
-- 主对话页提供左侧用户轮次导航（`turn-navigation.ts`）：每条用户消息对应一个节点，当前轮次随滚动高亮；悬停或键盘聚焦节点时显示截断的用户消息与该轮最后一条 assistant 消息（Final Answer），点击可切换超长会话窗口并定位到对应用户消息。分享页默认不显示该导航，移动端隐藏。
+- 对话消息在恢复后一次性完整渲染，不再按轮次窗口化或触顶分页；初始加载和 DOM 成本相应增加，但左侧轮次导航点击时目标消息节点已存在，可直接平滑定位。`windowed-messages.ts` 保留显式透传模式及原窗口控制能力，主聊天面板当前使用透传模式；子代理 process 消息列表不受影响。`decorateMessages` 使用全量消息且 `messageIndexOffset` 为 0，回滚、重试、复制继续使用全量索引。
+- 主对话页提供左侧用户轮次导航（`turn-navigation.ts`）：每条用户消息对应一个节点，当前轮次随滚动高亮；悬停或键盘聚焦节点时显示截断的用户消息与该轮最后一条 assistant 消息（Final Answer），点击直接平滑定位到已渲染的对应用户消息。分享页默认不显示该导航，移动端隐藏。
 - 草稿恢复支持；Composer 草稿持久化由 `src/lib/composer-drafts.ts` 直接使用浏览器 `localStorage`，不再经过 `AppStorage/settings` 或后端存储；回滚、模型切换等外部恢复草稿按一次性事件消费，发送、编辑或 Session 切换会取消旧的延迟恢复任务；已消费恢复草稿 ID 使用有界 Set，发送或明确清空会立即删除运行时与持久化草稿。
 
 ### ChatSidebar.tsx
@@ -135,11 +135,12 @@ components/
 - 上下文用量环状指示器，优先展示后端 session state 返回的权威 `contextUsage`（后端统计复用 `pi-agent-core` / `pi-ai`），缺失时回退到前端本地估算
 - 在现有模型选择按钮左侧单独显示中心镂空的彩色环，指示当前对话所占模型上下文窗口比例；悬停、聚焦或点击后显示结构化 Token 明细、统计来源与上下文范围；该圆环及详情可在“设置 → 常规”中开启，默认关闭
 
-**panel-decoration.ts** (175 行)
+**panel-decoration.ts** (264 行)
 - 聊天面板 DOM 装饰的兼容入口，继续向 `ChatPanelHost.tsx` re-export 消息装饰、草稿、审批卡、上下文压缩提示和等待气泡等能力
 - `decorateEditor` 仅保留 Composer/editor 编排：占位符、只读清理、model selector 开关、left/right controls 定位，以及调用各 focused helper
-- 细分实现位于 `panel-decoration/` 子目录：`message-actions.ts`（复制/回滚/重试/分叉）、`composer-plus-menu.ts`（附件和内置插件菜单）、`agent-access-menu.ts`、`plan-mode-controls.ts`、`send-stop-button.ts`、`model-controls.ts`、`editor-bindings.ts`、`code-blocks.ts`、`process-folding.ts`、`context-compaction.ts` 等；`process-folding.ts` 为每个用户回合维护唯一的“执行中/已执行 · 耗时”顶层状态与折叠入口，中间 Markdown、Thinking、工具和 Subagent 均位于该层级；每段中间 Markdown 后的过程片段继续显示内层阶段聚合标题（状态 + 工具调用数、命令数、编辑文件数），运行中和已完成阶段均默认收起并维护独立折叠状态，普通连续工具仍保留更内层的工具摘要，只有最终回答正文留在组外
+- 细分实现位于 `panel-decoration/` 子目录：`message-actions.ts`（复制/回滚/重试/分叉）、`composer-plus-menu.ts`（附件和内置插件菜单）、`agent-access-menu.ts`、`plan-mode-controls.ts`、`send-stop-button.ts`、`model-controls.ts`、`opencode-config-menu.ts`（OpenCode `configOptions` 配置菜单）、`opencode-mode-menu.ts`（OpenCode ACP modes 独立模式按钮/菜单）、`editor-bindings.ts`、`code-blocks.ts`、`process-folding.ts`、`context-compaction.ts` 等；`process-folding.ts` 为每个用户回合维护唯一的“执行中/已执行 · 耗时”顶层状态与折叠入口，中间 Markdown、Thinking、工具和 Subagent 均位于该层级；每段中间 Markdown 后的过程片段继续显示内层阶段聚合标题（状态 + 工具调用数、命令数、编辑文件数），运行中和已完成阶段均默认收起并维护独立折叠状态，普通连续工具仍保留更内层的工具摘要，只有最终回答正文留在组外
 - Plan 按钮和 Shift+Tab 切换前端 Plan 模式；发送时复用 `/plan <任务>` 的单轮计划逻辑
+- OpenCode 会话下原生模型选择器关闭，ACP modes（Build/Plan/...）以独立模式按钮显示在 composer 右侧（原模型选择器位置、发送按钮之前，保持发送按钮 `:last-child`），复用 model trigger/menu/menu-item 样式并右对齐；按钮 label 显示 currentModeId 对应 mode.name（无匹配回退 currentModeId），无 availableModes 时不渲染；左侧 OpenCode 配置菜单仅展示 `configOptions`。模式菜单与 config/agent-access/composer-plus/model 菜单打开时显式互斥
 - Assistant Markdown 中的 ```svg 和 ```mermaid 代码块会在流式输出结束后默认进入安全图片预览，可在代码块右上角切换预览/源码；Mermaid 按需加载并在失败时保留源码
 
 **scroll-sync.ts** (174 行)

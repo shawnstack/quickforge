@@ -3,6 +3,7 @@ import type { Api, Model } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai/compat'
 import type { ServerAgentContextCompaction, ServerAgentContextUsage } from '@/lib/server-agent'
 import type { SharePermission } from '@/lib/share-client'
+import type { AgentHarness } from '@/lib/types'
 import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
 import { modelReferenceFromModel } from './model-reference'
@@ -123,6 +124,8 @@ export class SharedServerAgent {
   sessionId: string
   readonly shareId: string
   readonly permission: SharePermission
+  /** Shared conversations always run on the QuickForge harness. */
+  readonly harness: AgentHarness = 'quickforge'
 
   private listeners = new Set<(event: AgentEvent) => void>()
   private eventSource: EventSource | null = null

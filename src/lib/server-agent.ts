@@ -1,7 +1,7 @@
 import type { AgentEvent, AgentMessage, ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai/compat'
-import type { AgentAccessMode } from '@/lib/types'
+import type { AgentAccessMode, AgentHarness } from '@/lib/types'
 import { agentAccessModeFromYoloMode, agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
 import { t, type AppTextKey } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
@@ -140,6 +140,7 @@ class GlobalAgentSseClient {
       'tool_execution_start', 'tool_execution_update', 'tool_execution_end',
       'error', 'session_created', 'title_updated', 'session_forked', 'scheduled_task_notification', 'scheduled_task_started',
       'tool_approval_required', 'auto_compact_threshold_reached', 'auto_compact_approval_required', 'auto_compact_completed', 'auto_compact_failed', 'messages_replaced',
+      'acp_session_usage_update', 'acp_session_update',
     ]
 
     const handleMessage = (eventType?: string) => (e: MessageEvent) => {
@@ -318,6 +319,43 @@ export type ServerAgentPendingAutoCompactApproval = {
   expiresAt?: number
 }
 
+export type OpenCodeAcpConfigSelectOption = {
+  value: string
+  name: string
+  description?: string
+}
+
+export type OpenCodeAcpConfigOption = {
+  id: string
+  name: string
+  description?: string
+  category?: string
+  type: 'boolean' | 'select'
+  currentValue: boolean | string
+  /** Select values; grouped entries keep `options` and a `group` label. */
+  options?: Array<OpenCodeAcpConfigSelectOption | { group: string; name: string; options: OpenCodeAcpConfigSelectOption[] }>
+}
+
+export type OpenCodeAcpMode = {
+  id: string
+  name: string
+  description?: string
+}
+
+export type OpenCodeAcpUsage = {
+  used: number
+  size: number
+  cost?: { amount: number; currency: string } | null
+}
+
+export type OpenCodeAcpSession = {
+  configOptions: OpenCodeAcpConfigOption[]
+  modes: { currentModeId: string; availableModes: OpenCodeAcpMode[] } | null
+  availableCommands: Array<{ name: string; description: string; input?: { hint?: string } }>
+  sessionInfo: Record<string, unknown>
+  usage: OpenCodeAcpUsage | null
+}
+
 // ---------------------------------------------------------------------------
 // ServerAgent - Agent-compatible proxy that delegates to the server
 // ---------------------------------------------------------------------------
@@ -332,6 +370,8 @@ export type ServerAgentConfig = {
     messages?: AgentMessage[]
     tools?: unknown[]
     accessMode?: AgentAccessMode
+    harness?: AgentHarness
+    harnessSessionId?: string
     yoloMode?: boolean
     isStreaming?: boolean
     pendingToolCalls?: string[]
@@ -340,6 +380,7 @@ export type ServerAgentConfig = {
     contextUsage?: ServerAgentContextUsage | null
     pendingToolApproval?: ServerAgentPendingToolApproval | null
     pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
+    acpSession?: OpenCodeAcpSession | null
     stateVersion?: number
   }
 }
@@ -388,6 +429,8 @@ export type ServerAgentStateSnapshot = {
   model?: Model<Api>
   thinkingLevel?: ThinkingLevel
   accessMode?: AgentAccessMode
+  harness?: AgentHarness
+  harnessSessionId?: string
   yoloMode?: boolean
   tools?: unknown[]
   contextCompaction?: ServerAgentContextCompaction | null
@@ -397,6 +440,7 @@ export type ServerAgentStateSnapshot = {
   pendingToolCalls?: string[]
   isStreaming?: boolean
   errorMessage?: string
+  acpSession?: OpenCodeAcpSession | null
 }
 
 export class ServerAgent {
@@ -408,6 +452,7 @@ export class ServerAgent {
     messages: AgentMessage[]
     tools: unknown[]
     accessMode: AgentAccessMode
+    harness: AgentHarness
     yoloMode: boolean
     isStreaming: boolean
     streamingMessage?: AgentMessage
@@ -417,6 +462,7 @@ export class ServerAgent {
     contextUsage?: ServerAgentContextUsage | null
     pendingToolApproval?: ServerAgentPendingToolApproval | null
     pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
+    acpSession?: OpenCodeAcpSession | null
   }
   streamFn = streamSimple
   getApiKey?: (provider: string) => Promise<string | undefined>
@@ -434,6 +480,8 @@ export class ServerAgent {
   private lastServerStateVersion = 0
   private nextPromptCapabilities: PromptCapabilitySelection[] = []
   private planMode = false
+  readonly harness: AgentHarness
+  readonly harnessSessionId?: string
   private onPlanModeConsumed?: () => void
 
   /**
@@ -448,6 +496,8 @@ export class ServerAgent {
     this.baseUrl = config.baseUrl ?? ''
 
     const init = config.initialState ?? {}
+    this.harness = init.harness ?? 'quickforge'
+    this.harnessSessionId = init.harnessSessionId
     this.lastServerStateVersion = typeof init.stateVersion === 'number' ? init.stateVersion : 0
 
     const rawState = {
@@ -457,6 +507,7 @@ export class ServerAgent {
       messages: init.messages?.slice() ?? [],
       tools: init.tools ?? [],
       accessMode: normalizeAgentAccessMode(init.accessMode, agentAccessModeFromYoloMode(init.yoloMode)),
+      harness: init.harness ?? 'quickforge',
       yoloMode: agentAccessModeToYoloMode(normalizeAgentAccessMode(init.accessMode, agentAccessModeFromYoloMode(init.yoloMode))),
       isStreaming: init.isStreaming ?? false,
       streamingMessage: undefined as AgentMessage | undefined,
@@ -466,6 +517,7 @@ export class ServerAgent {
       contextUsage: init.contextUsage ?? null,
       pendingToolApproval: init.pendingToolApproval ?? null,
       pendingAutoCompactApproval: init.pendingAutoCompactApproval ?? null,
+      acpSession: init.acpSession ?? null,
     }
 
     // Proxy that auto-syncs thinkingLevel changes to the server
@@ -729,6 +781,58 @@ export class ServerAgent {
   }
 
   /**
+   * Update an OpenCode harness config option (boolean toggle or select value).
+   * The server is authoritative for the advertised options; on success the
+   * response acpSession refreshes the local snapshot and listeners are notified
+   * so the composer config menu re-renders.
+   */
+  async setConfigOption(configId: string, value: boolean | string): Promise<void> {
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/harness/config-option`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ configId, value }),
+    })
+    const payload = await res.json().catch(() => null) as { acpSession?: OpenCodeAcpSession; error?: string } | null
+    if (!res.ok) throw new Error(payload?.error || `Failed to update OpenCode config option: HTTP ${res.status}`)
+    if (payload?.acpSession) {
+      this.state.acpSession = payload.acpSession
+      this.emitToListeners({ type: 'acp_session_update', acpSession: payload.acpSession } as unknown as AgentEvent)
+    }
+  }
+
+  /**
+   * Switch the OpenCode harness mode (ACP `modes` radios).
+   */
+  async setMode(modeId: string): Promise<void> {
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/harness/mode`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ modeId }),
+    })
+    const payload = await res.json().catch(() => null) as { acpSession?: OpenCodeAcpSession; error?: string } | null
+    if (!res.ok) throw new Error(payload?.error || `Failed to update OpenCode mode: HTTP ${res.status}`)
+    if (payload?.acpSession) {
+      this.state.acpSession = payload.acpSession
+      this.emitToListeners({ type: 'acp_session_update', acpSession: payload.acpSession } as unknown as AgentEvent)
+    }
+  }
+
+  /**
+   * Fork the entire current OpenCode session (ACP whole-session fork). The
+   * server persists the new session and announces it through the existing
+   * `session_forked` event, which the client uses to switch to the new session.
+   */
+  async forkSession(): Promise<{ sessionId: string; title?: string; createdAt?: string; scope?: string; projectId?: string | null }> {
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/fork`
+    const res = await fetch(url, { method: 'POST' })
+    const payload = await res.json().catch(() => null) as ({ sessionId?: string; error?: string } & ServerErrorPayload) | null
+    if (!res.ok) throw new Error(payload?.error || `Failed to fork conversation: HTTP ${res.status}`)
+    return payload as { sessionId: string; title?: string; createdAt?: string; scope?: string; projectId?: string | null }
+  }
+
+  /**
    * Approve a pending tool call so it can execute.
    */
   async approveToolCall(toolCallId: string): Promise<void> {
@@ -822,7 +926,7 @@ export class ServerAgent {
         // Guard against SSE reconnect overwriting client messages with a stale
         // server snapshot: only accept server messages if the client has none
         // (initial load) or if the server has at least as many messages.
-        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; accessMode?: AgentAccessMode; yoloMode?: boolean; isStreaming?: boolean; status?: string; pendingToolCalls?: string[]; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null; pendingToolApproval?: ServerAgentPendingToolApproval | null; pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null }
+        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; accessMode?: AgentAccessMode; yoloMode?: boolean; isStreaming?: boolean; status?: string; pendingToolCalls?: string[]; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null; pendingToolApproval?: ServerAgentPendingToolApproval | null; pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null; acpSession?: OpenCodeAcpSession | null }
         if (s.systemPrompt !== undefined) {
           this.state.systemPrompt = s.systemPrompt
         }
@@ -862,6 +966,9 @@ export class ServerAgent {
         }
         if (s.pendingToolCalls !== undefined) {
           this.state.pendingToolCalls = new Set(s.pendingToolCalls)
+        }
+        if (s.acpSession !== undefined) {
+          this.state.acpSession = s.acpSession
         }
         let wasStreaming = this.state.isStreaming
         if (s.isStreaming !== undefined) {
@@ -1005,6 +1112,25 @@ export class ServerAgent {
       }
 
       case 'session_forked': {
+        break
+      }
+
+      case 'acp_session_usage_update': {
+        const usageEvent = event as { usage?: OpenCodeAcpUsage | null }
+        if (usageEvent.usage !== undefined) {
+          const next = this.state.acpSession
+            ? { ...this.state.acpSession, usage: usageEvent.usage }
+            : { configOptions: [], modes: null, availableCommands: [], sessionInfo: {}, usage: usageEvent.usage }
+          this.state.acpSession = next
+        }
+        break
+      }
+
+      case 'acp_session_update': {
+        const acpEvent = event as { acpSession?: OpenCodeAcpSession | null }
+        if (acpEvent.acpSession) {
+          this.state.acpSession = acpEvent.acpSession
+        }
         break
       }
 
@@ -1274,6 +1400,9 @@ export class ServerAgent {
       if (state.pendingToolCalls !== undefined) {
         this.state.pendingToolCalls = new Set(state.pendingToolCalls)
       }
+      if (state.acpSession !== undefined) {
+        this.state.acpSession = state.acpSession
+      }
       if (state.isStreaming !== undefined) {
         const wasStreaming = this.state.isStreaming
         this.state.isStreaming = Boolean(state.isStreaming)
@@ -1337,6 +1466,8 @@ export class ServerAgent {
         messages: snapshot.messages ?? [],
         tools: snapshot.tools ?? [],
         accessMode: normalizeAgentAccessMode(snapshot.accessMode, snapshot.yoloMode),
+        harness: snapshot.harness ?? 'quickforge',
+        harnessSessionId: snapshot.harnessSessionId,
         yoloMode: Boolean(snapshot.yoloMode),
         isStreaming: Boolean(snapshot.isStreaming),
         pendingToolCalls: snapshot.pendingToolCalls ?? [],
@@ -1345,6 +1476,7 @@ export class ServerAgent {
         contextUsage: snapshot.contextUsage,
         pendingToolApproval: snapshot.pendingToolApproval,
         pendingAutoCompactApproval: snapshot.pendingAutoCompactApproval,
+        acpSession: snapshot.acpSession,
         stateVersion: snapshot.stateVersion,
       },
     })
@@ -1364,6 +1496,8 @@ export class ServerAgent {
       source?: 'acp'
       channelId?: string
       channelName?: string
+      harness?: AgentHarness
+      sourceHarnessSessionId?: string
       accessMode?: AgentAccessMode
       yoloMode?: boolean
       model?: Model<Api>
@@ -1377,7 +1511,9 @@ export class ServerAgent {
   ): Promise<ServerAgent> {
     const baseUrl = config.baseUrl ?? ''
 
-    // Create agent on server
+    // Create agent on server. OpenCode owns its real model and credentials, so
+    // the frontend-only placeholder must never cross this boundary.
+    const usesOpenCode = config.harness === 'opencode'
     const res = await fetch(`${baseUrl}/api/agents/${encodeURIComponent(sessionId)}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -1387,11 +1523,13 @@ export class ServerAgent {
         source: config.source,
         channelId: config.channelId,
         channelName: config.channelName,
+        harness: config.harness,
+        sourceHarnessSessionId: config.sourceHarnessSessionId,
         accessMode: config.accessMode,
         yoloMode: config.yoloMode ?? agentAccessModeToYoloMode(normalizeAgentAccessMode(config.accessMode)),
-        modelRef: config.model ? modelReferenceFromModel(config.model) : undefined,
-        model: config.model,
-        thinkingLevel: config.thinkingLevel ?? 'off',
+        modelRef: !usesOpenCode && config.model ? modelReferenceFromModel(config.model) : undefined,
+        model: !usesOpenCode ? config.model : undefined,
+        thinkingLevel: usesOpenCode ? undefined : config.thinkingLevel ?? 'off',
         messages: config.messages ?? [],
         title: config.title ?? 'New chat',
         contextCompaction: config.contextCompaction,
@@ -1423,6 +1561,8 @@ export class ServerAgent {
         messages: (serverState.messages ?? config.messages ?? []) as AgentMessage[],
         tools: (serverState.tools ?? []) as unknown[],
         accessMode: normalizeAgentAccessMode(serverState.accessMode, config.accessMode ?? serverState.yoloMode ?? config.yoloMode),
+        harness: (serverState.harness ?? config.harness ?? 'quickforge') as AgentHarness,
+        harnessSessionId: serverState.harnessSessionId as string | undefined,
         yoloMode: Boolean(serverState.yoloMode ?? config.yoloMode),
         isStreaming: Boolean(serverState.isStreaming),
         pendingToolCalls: (serverState.pendingToolCalls ?? []) as string[],
@@ -1431,6 +1571,7 @@ export class ServerAgent {
         contextUsage: serverState.contextUsage as ServerAgentContextUsage | null | undefined,
         pendingToolApproval: serverState.pendingToolApproval as ServerAgentPendingToolApproval | null | undefined,
         pendingAutoCompactApproval: serverState.pendingAutoCompactApproval as ServerAgentPendingAutoCompactApproval | null | undefined,
+        acpSession: serverState.acpSession as OpenCodeAcpSession | null | undefined,
         stateVersion: serverState.stateVersion as number | undefined,
       },
     })

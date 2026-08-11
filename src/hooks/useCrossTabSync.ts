@@ -1,5 +1,6 @@
+import type { AgentHarness } from '@/lib/types'
 import { useEffect, useRef, useCallback } from 'react'
-import { randomId } from '@/lib/random-id'
+import { getCrossTabSyncSourceId } from '@/lib/default-harness-events'
 
 const CHANNEL_NAME = 'quickforge-sync'
 
@@ -7,6 +8,9 @@ type SyncMessage = {
   type: 'sessions-changed' | 'projects-changed' | 'settings-changed'
   sourceTabId: string
   timestamp: number
+  settings?: {
+    defaultHarness?: AgentHarness
+  }
 }
 
 /**
@@ -20,7 +24,7 @@ type SyncMessage = {
 export function useCrossTabSync(callbacks: {
   onSessionsChanged: () => void
   onProjectsChanged: () => void
-  onSettingsChanged: () => void
+  onSettingsChanged: (settings?: SyncMessage['settings']) => void
 }) {
   const callbacksRef = useRef(callbacks)
 
@@ -29,7 +33,7 @@ export function useCrossTabSync(callbacks: {
     callbacksRef.current = callbacks
   })
 
-  const tabId = useRef(randomId())
+  const tabId = useRef(getCrossTabSyncSourceId())
 
   const channelRef = useRef<BroadcastChannel | null>(null)
 
@@ -52,7 +56,7 @@ export function useCrossTabSync(callbacks: {
               callbacksRef.current.onProjectsChanged()
               break
             case 'settings-changed':
-              callbacksRef.current.onSettingsChanged()
+              callbacksRef.current.onSettingsChanged(msg.settings)
               break
           }
         }
@@ -86,18 +90,19 @@ export function useCrossTabSync(callbacks: {
     }
   }, [])
 
-  const broadcast = useCallback((type: SyncMessage['type']) => {
+  const broadcast = useCallback((type: SyncMessage['type'], settings?: SyncMessage['settings']) => {
     const msg: SyncMessage = {
       type,
       sourceTabId: tabId.current,
       timestamp: Date.now(),
+      settings,
     }
     channelRef.current?.postMessage(msg)
   }, [])
 
   const notifySessionsChanged = useCallback(() => broadcast('sessions-changed'), [broadcast])
   const notifyProjectsChanged = useCallback(() => broadcast('projects-changed'), [broadcast])
-  const notifySettingsChanged = useCallback(() => broadcast('settings-changed'), [broadcast])
+  const notifySettingsChanged = useCallback((settings?: SyncMessage['settings']) => broadcast('settings-changed', settings), [broadcast])
 
   return { notifySessionsChanged, notifyProjectsChanged, notifySettingsChanged }
 }

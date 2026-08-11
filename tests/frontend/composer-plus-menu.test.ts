@@ -15,6 +15,12 @@ vi.mock('@/lib/i18n', () => ({
   t: (key: string) => key,
 }))
 
+// removeOpenCodeModeMenu touches document/window listeners; the plus menu only
+// calls it defensively, so a no-op keeps the fake DOM minimal.
+vi.mock('../../src/components/chat/panel-decoration/opencode-mode-menu', () => ({
+  removeOpenCodeModeMenu: vi.fn(),
+}))
+
 // ---------------------------------------------------------------------------
 // Minimal fake DOM (same style as capability-suggestions.test.ts): stubs just
 // enough of document/panel for the plus menu to render and be interacted with.
@@ -193,6 +199,7 @@ function createHarness(options: HarnessOptions = {}) {
     removeCommandSuggestions,
     removeCapabilitySuggestions,
     availablePluginRows: capabilitySuggestions.availablePluginRows,
+    attachmentsEnabled: false,
     pluginsEnabled: options.pluginsEnabled ?? true,
   })
 

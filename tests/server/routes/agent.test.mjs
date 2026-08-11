@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   restoreAgent: vi.fn(),
   getSessionState: vi.fn(),
+  updateSessionHarnessConfigOption: vi.fn(),
+  updateSessionHarnessMode: vi.fn(),
+  forkSession: vi.fn(),
 }))
 
 vi.mock('../../../server/agent-manager.mjs', () => ({
@@ -31,6 +34,9 @@ vi.mock('../../../server/agent-manager.mjs', () => ({
   touchSession: vi.fn(),
   tryAcquireSse: vi.fn(),
   updateSessionAccessMode: vi.fn(),
+  updateSessionHarnessConfigOption: mocks.updateSessionHarnessConfigOption,
+  updateSessionHarnessMode: mocks.updateSessionHarnessMode,
+  forkSession: mocks.forkSession,
   updateSessionModel: vi.fn(),
   updateSessionThinkingLevel: vi.fn(),
   updateSessionTitle: vi.fn(),
@@ -41,8 +47,8 @@ vi.mock('../../../server/utils/logger.mjs', () => ({
   logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }))
 
-function request() {
-  const req = Readable.from([])
+function request(body) {
+  const req = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))])
   req.method = 'POST'
   req.headers = {}
   return req
@@ -96,5 +102,51 @@ describe('agent restore route', () => {
 
     expect(mocks.restoreAgent).toHaveBeenCalledTimes(1)
     expect(mocks.getSessionState).not.toHaveBeenCalled()
+  })
+})
+
+describe('agent Harness configuration routes', () => {
+  beforeEach(() => {
+    mocks.updateSessionHarnessConfigOption.mockReset()
+    mocks.updateSessionHarnessMode.mockReset()
+    mocks.forkSession.mockReset()
+  })
+
+  it('calls the config option manager method', async () => {
+    const result = { sessionId: 'session-1', acpSession: { configOptions: [] } }
+    mocks.updateSessionHarnessConfigOption.mockResolvedValue(result)
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+
+    await handleAgentApi(request({ configId: 'model', value: 'gpt' }), res, new URL('http://localhost/api/agents/session-1/harness/config-option'))
+
+    expect(mocks.updateSessionHarnessConfigOption).toHaveBeenCalledWith('session-1', 'model', 'gpt')
+    expect(JSON.parse(res.body)).toEqual(result)
+  })
+
+  it('calls the mode manager method and validates required fields', async () => {
+    const result = { sessionId: 'session-1', acpSession: { modes: { currentModeId: 'plan' } } }
+    mocks.updateSessionHarnessMode.mockResolvedValue(result)
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+
+    await handleAgentApi(request({ modeId: 'plan' }), res, new URL('http://localhost/api/agents/session-1/harness/mode'))
+    expect(mocks.updateSessionHarnessMode).toHaveBeenCalledWith('session-1', 'plan')
+    expect(JSON.parse(res.body)).toEqual(result)
+
+    await expect(handleAgentApi(request({ configId: 'model' }), response(), new URL('http://localhost/api/agents/session-1/harness/config-option'))).rejects.toMatchObject({ statusCode: 400 })
+    await expect(handleAgentApi(request({}), response(), new URL('http://localhost/api/agents/session-1/harness/mode'))).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('calls the whole-session fork manager method', async () => {
+    const result = { sessionId: 'forked-1', title: 'Copy', scope: 'global', projectId: null }
+    mocks.forkSession.mockResolvedValue(result)
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+
+    await handleAgentApi(request(), res, new URL('http://localhost/api/agents/session-1/fork'))
+
+    expect(mocks.forkSession).toHaveBeenCalledWith('session-1')
+    expect(JSON.parse(res.body)).toEqual(result)
   })
 })

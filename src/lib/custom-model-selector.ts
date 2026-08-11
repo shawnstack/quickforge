@@ -43,7 +43,7 @@ type ComposerModelMenuElement = HTMLDivElement & {
   __quickforgeCleanup?: () => void
 }
 
-function closeComposerModelMenu(anchor?: HTMLElement | null) {
+export function closeComposerModelMenu(anchor?: HTMLElement | null) {
   document.querySelectorAll<ComposerModelMenuElement>('.quickforge-model-menu, .quickforge-model-submenu, .quickforge-model-sheet-backdrop').forEach((menu) => {
     menu.__quickforgeCleanup?.()
     menu.remove()

@@ -80,6 +80,27 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
 }
 
+function acpDisplayMetadata(params: Record<string, unknown> | undefined, details?: unknown) {
+  const fromParams = isRecord(params?.__quickforgeAcp) ? params.__quickforgeAcp : undefined
+  const detailRecord = isRecord(details) ? details : undefined
+  const fromDetails = isRecord(detailRecord?.__quickforgeAcp) ? detailRecord.__quickforgeAcp : undefined
+  return fromDetails ?? fromParams
+}
+
+function paramsWithoutInternalMetadata(params: Record<string, unknown> | undefined) {
+  if (!params || !('__quickforgeAcp' in params)) return params
+  const { __quickforgeAcp: _metadata, ...visible } = params
+  void _metadata
+  return visible
+}
+
+function detailsWithoutInternalMetadata(details: unknown) {
+  if (!isRecord(details) || !('__quickforgeAcp' in details)) return details
+  const { __quickforgeAcp: _metadata, ...visible } = details
+  void _metadata
+  return visible
+}
+
 function commandStatusFromDetails(details: Record<string, unknown>, isStreaming?: boolean) {
   if (details.running === true || isStreaming) return 'Status: running'
   const flags = [
@@ -744,14 +765,21 @@ class LocalWorkspaceToolRenderer {
   render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
     const status = toolStatus(result, isStreaming)
     const timing = extractQuickForgeTiming(result?.details)
-    const summary = summarizeParams(this.toolName, params, result)
+    const visibleParams = paramsWithoutInternalMetadata(params)
+    const visibleDetails = detailsWithoutInternalMetadata(result?.details)
+    const acpMetadata = acpDisplayMetadata(params, result?.details)
+    const acpTitle = typeof acpMetadata?.title === 'string' && acpMetadata.title
+      ? acpMetadata.title
+      : typeof acpMetadata?.kind === 'string' ? acpMetadata.kind : ''
+    const acpKind = typeof acpMetadata?.kind === 'string' && acpMetadata.kind !== acpTitle ? acpMetadata.kind : ''
+    const summary = summarizeParams(this.toolName, visibleParams, result)
     const toolDisplaySettings = getCachedToolDisplaySettings()
     const detailed = toolDisplaySettings.toolDisplayMode === 'detailed'
-    const input = detailed ? stringifyValue(params) : ''
-    const output = toolOutputText(this.toolName, params, result, isStreaming)
-    const diff = getDiffDetails(result?.details)
-    const details = detailed ? stringifyValue(diff ? detailsWithoutDiffText(result?.details) : result?.details) : ''
-    const detailsKey = toolDetailsStateKey(this.toolName, params, result?.details)
+    const input = detailed ? stringifyValue(visibleParams) : ''
+    const output = toolOutputText(this.toolName, visibleParams, result, isStreaming)
+    const diff = getDiffDetails(visibleDetails)
+    const details = detailed ? stringifyValue(diff ? detailsWithoutDiffText(visibleDetails) : visibleDetails) : ''
+    const detailsKey = toolDetailsStateKey(this.toolName, visibleParams, result?.details)
     const detailsOpen = toolDetailsOpen.get(detailsKey) ?? detailed
     const variant = result?.isError ? 'error' : 'default'
 
@@ -768,7 +796,7 @@ class LocalWorkspaceToolRenderer {
             <summary class="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
               ${renderToolIcon(this.toolName)}
               <span class="quickforge-tool-title min-w-0">
-                <span class="quickforge-tool-label">${t(this.labelKey)}${summary ? html`<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${summary}</span>` : ''}</span>
+                <span class="quickforge-tool-label">${acpTitle ? html`OpenCode<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${acpTitle}${acpKind ? `/${acpKind}` : ''}</span>` : t(this.labelKey)}${summary ? html`<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${summary}</span>` : ''}</span>
                 <svg class="quickforge-tool-chevron shrink-0 group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
                 ${renderInlineDiffStats(this.toolName, diff)}
                 ${renderStatus(status, timing)}
@@ -782,9 +810,59 @@ class LocalWorkspaceToolRenderer {
             </div>
           </details>
           <span class="quickforge-tool-actions inline-flex shrink-0 items-center gap-1">
-            ${renderPreviewButton(this.toolName, params)}
+            ${renderPreviewButton(this.toolName, visibleParams)}
             ${renderTerminateCommandButton(this.toolName, status, result?.details)}
           </span>
+        </div>
+      `,
+    }
+  }
+}
+
+class OpenCodeToolRenderer {
+  render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
+    const status = toolStatus(result, isStreaming)
+    const timing = extractQuickForgeTiming(result?.details)
+    const metadata = acpDisplayMetadata(params, result?.details)
+    const title = typeof metadata?.title === 'string' && metadata.title
+      ? metadata.title
+      : typeof metadata?.kind === 'string' && metadata.kind
+        ? metadata.kind
+        : 'tool'
+    const kind = typeof metadata?.kind === 'string' && metadata.kind && metadata.kind !== title ? metadata.kind : ''
+    const visibleParams = paramsWithoutInternalMetadata(params)
+    const visibleDetails = detailsWithoutInternalMetadata(result?.details)
+    const toolDisplaySettings = getCachedToolDisplaySettings()
+    const detailed = toolDisplaySettings.toolDisplayMode === 'detailed'
+    const input = detailed ? stringifyValue(visibleParams) : ''
+    const output = resultText(result)
+    const diff = getDiffDetails(visibleDetails)
+    const details = detailed ? stringifyValue(diff ? detailsWithoutDiffText(visibleDetails) : visibleDetails) : ''
+    const detailsKey = toolDetailsStateKey('opencode_tool', visibleParams, result?.details)
+    const detailsOpen = toolDetailsOpen.get(detailsKey) ?? detailed
+
+    return {
+      isCustom: true,
+      content: html`
+        <div class="quickforge-local-tool-shell quickforge-opencode-tool-shell">
+          <details class="group/tool quickforge-local-tool quickforge-opencode-tool" ?open=${detailsOpen} @toggle=${(event: Event) => {
+            if (event.isTrusted) rememberToolDetailsOpen(detailsKey, (event.currentTarget as HTMLDetailsElement).open)
+          }}>
+            <summary class="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
+              ${renderToolIcon('opencode_tool')}
+              <span class="quickforge-tool-title min-w-0">
+                <span class="quickforge-tool-label">OpenCode<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${title}${kind ? `/${kind}` : ''}</span></span>
+                <svg class="quickforge-tool-chevron shrink-0 group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                ${renderStatus(status, timing)}
+              </span>
+            </summary>
+            <div class="mt-3 space-y-3">
+              ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : nothing}
+              ${output ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('output')}</div><code-block .code=${output} language=${outputLanguageFromText(output)}></code-block></div>` : nothing}
+              ${diff ? renderDiff(diff) : nothing}
+              ${details ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('details')}</div><code-block .code=${details} language="json"></code-block></div>` : nothing}
+            </div>
+          </details>
         </div>
       `,
     }
@@ -911,6 +989,7 @@ for (const [name, label] of [
 
 registerToolRenderer('run_subagent', new SubagentToolRenderer())
 registerToolRenderer('generate_image', new GenerateImageToolRenderer())
+registerToolRenderer('opencode_tool', new OpenCodeToolRenderer())
 
 // Tool execution is entirely server-side. The ChatPanel never calls .execute()
 // on client-side tools — it only reads state.tools for display purposes.

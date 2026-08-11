@@ -116,6 +116,158 @@ describe('ServerAgent', () => {
     vi.restoreAllMocks()
   })
 
+  it('omits the frontend placeholder model from an OpenCode create request', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ harness: 'opencode', model: null, messages: [] }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    const { ServerAgent } = await import('../../src/lib/server-agent')
+
+    const agent = await ServerAgent.create('session-1', {
+      harness: 'opencode',
+      model: {
+        provider: 'opencode',
+        id: 'opencode-managed',
+        api: 'openai-completions',
+        baseUrl: 'opencode://managed',
+      },
+    })
+
+    try {
+      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+      expect(body).toMatchObject({ harness: 'opencode' })
+      expect(body).not.toHaveProperty('model')
+      expect(body).not.toHaveProperty('modelRef')
+      expect(body).not.toHaveProperty('thinkingLevel')
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('updates the OpenCode harness config option and refreshes the local acpSession snapshot', async () => {
+    const refreshedSession = {
+      configOptions: [{ id: 'enabled', name: 'Enabled', type: 'boolean', currentValue: false }],
+      modes: { currentModeId: 'build', availableModes: [{ id: 'build', name: 'Build' }] },
+      availableCommands: [],
+      sessionInfo: {},
+      usage: null,
+    }
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ sessionId: 'session-1', acpSession: refreshedSession }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: { harness: 'opencode', messages: [], acpSession: { configOptions: [], modes: null, availableCommands: [], sessionInfo: {}, usage: null } },
+    })
+    const events: Array<Record<string, unknown>> = []
+    agent.subscribe((event) => events.push(event as unknown as Record<string, unknown>))
+
+    try {
+      await agent.setConfigOption('enabled', false)
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/agents/session-1/harness/config-option',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ configId: 'enabled', value: false }),
+        }),
+      )
+      expect(agent.state.acpSession).toEqual(refreshedSession)
+      expect(events).toContainEqual(expect.objectContaining({ type: 'acp_session_update', acpSession: refreshedSession }))
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('switches the OpenCode harness mode and refreshes the local acpSession snapshot', async () => {
+    const refreshedSession = {
+      configOptions: [],
+      modes: { currentModeId: 'plan', availableModes: [{ id: 'build', name: 'Build' }, { id: 'plan', name: 'Plan' }] },
+      availableCommands: [],
+      sessionInfo: {},
+      usage: null,
+    }
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ sessionId: 'session-1', acpSession: refreshedSession }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: { harness: 'opencode', messages: [], acpSession: { configOptions: [], modes: null, availableCommands: [], sessionInfo: {}, usage: null } },
+    })
+    const events: Array<Record<string, unknown>> = []
+    agent.subscribe((event) => events.push(event as unknown as Record<string, unknown>))
+
+    try {
+      await agent.setMode('plan')
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/agents/session-1/harness/mode',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ modeId: 'plan' }),
+        }),
+      )
+      expect(agent.state.acpSession).toEqual(refreshedSession)
+      expect(events).toContainEqual(expect.objectContaining({ type: 'acp_session_update', acpSession: refreshedSession }))
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('forks the entire OpenCode session through the session fork API', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ sessionId: 'forked-1', title: 'Copy', scope: 'global', projectId: null }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: { harness: 'opencode', harnessSessionId: 'acp-session-1', messages: [] },
+    })
+
+    try {
+      const result = await agent.forkSession()
+      expect(fetchMock).toHaveBeenCalledWith('/api/agents/session-1/fork', expect.objectContaining({ method: 'POST' }))
+      expect(result).toMatchObject({ sessionId: 'forked-1', title: 'Copy' })
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('applies acp_session_usage_update events to the OpenCode usage snapshot', async () => {
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: {
+        harness: 'opencode',
+        messages: [],
+        acpSession: { configOptions: [], modes: null, availableCommands: [], sessionInfo: {}, usage: { used: 5, size: 100 } },
+      },
+    })
+
+    try {
+      latestEventSource().emit('acp_session_usage_update', {
+        sessionId: 'session-1',
+        usage: { used: 12, size: 100, cost: { amount: 1.5, currency: 'USD' } },
+      })
+      expect(agent.state.acpSession?.usage).toEqual({ used: 12, size: 100, cost: { amount: 1.5, currency: 'USD' } })
+      // The usage event never maps into the QuickForge contextUsage estimate.
+      expect(agent.state.contextUsage).toBeNull()
+    } finally {
+      agent.dispose()
+    }
+  })
+
   it('refreshes visible messages from the server on demand', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

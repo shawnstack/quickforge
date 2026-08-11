@@ -1,4 +1,5 @@
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
+import type { AgentHarness } from '@/lib/types'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import { getAppStorage, SettingsTab } from '@earendil-works/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
@@ -35,10 +36,11 @@ import {
   type SystemNotificationPermission,
 } from '@/lib/system-notifications'
 import { showConfirm } from '@/components/ui/confirm-dialog'
-import { openModelSheet } from '@/lib/custom-model-selector'
 import { modelDisplayLabel as modelLabel } from '@/lib/model-display-label'
 import { loadModelCatalog } from '@/lib/model-reference'
+import { notifyDefaultHarnessChanged } from '@/lib/default-harness-events'
 import './info-tip'
+import './quickforge-settings-select'
 
 type AnyModel = Model<Api>
 
@@ -131,6 +133,9 @@ const deleteIcon = html`
 class DefaultOptionsSettingsTab extends SettingsTab {
   private models: AnyModel[] = []
   private selectedModel?: AnyModel
+  private harness: AgentHarness = 'quickforge'
+  private savedHarness: AgentHarness = 'quickforge'
+  private defaultOptionsSavePromise: Promise<void> = Promise.resolve()
   private thinkingLevel: ThinkingLevel = 'off'
   private toolDisplayMode: ToolDisplayMode = 'compact'
   private showContextUsage = false
@@ -190,34 +195,6 @@ class DefaultOptionsSettingsTab extends SettingsTab {
     }
   }
 
-  override updated() {
-    this.syncSelectValues()
-  }
-
-  private syncSelectValues() {
-    const modelSelect = this.querySelector<HTMLSelectElement>('[data-default-model-select]')
-    if (modelSelect && this.selectedModel) {
-      modelSelect.value = modelKey(this.selectedModel)
-    }
-
-    const thinkingSelect = this.querySelector<HTMLSelectElement>('[data-default-thinking-select]')
-    if (thinkingSelect) {
-      thinkingSelect.value = this.thinkingLevel
-    }
-
-    const languageSelect = this.querySelector<HTMLSelectElement>('[data-language-select]')
-    if (languageSelect) {
-      languageSelect.value = this.selectedLanguage
-    }
-
-    const terminalShellSelect = this.querySelector<HTMLSelectElement>('[data-terminal-shell-select]')
-    if (terminalShellSelect) {
-      terminalShellSelect.value = this.customShellEditorOpen
-        ? CUSTOM_SHELL_OPTION
-        : this.selectedTerminalShellProfileId()
-    }
-  }
-
   private async loadSettings() {
     this.loading = true
     this.error = ''
@@ -241,6 +218,8 @@ class DefaultOptionsSettingsTab extends SettingsTab {
         ? models.find((model) => modelKey(model) === modelKey(defaults.model!)) ?? models[0]
         : models[0]
       this.thinkingLevel = defaults.thinkingLevel ?? defaultThinkingLevelForModel(this.selectedModel)
+      this.harness = defaults.harness ?? 'quickforge'
+      this.savedHarness = this.harness
       this.toolDisplayMode = toolDisplaySettings.toolDisplayMode
       this.showContextUsage = toolDisplaySettings.showContextUsage
       this.autoCompactEnabled = autoCompactSettings.enabled
@@ -276,13 +255,11 @@ class DefaultOptionsSettingsTab extends SettingsTab {
     void this.saveDefaultModelOptions()
   }
 
-  private openDefaultModelSheet(event: Event) {
-    openModelSheet(
-      this.selectedModel ?? null,
-      this.models,
-      (model) => { if (model) this.updateModel(modelKey(model)) },
-      { anchor: event.currentTarget as HTMLElement },
-    )
+  private updateHarness(value: string) {
+    this.harness = value === 'opencode' ? 'opencode' : 'quickforge'
+    this.saved = false
+    this.requestUpdate()
+    void this.saveDefaultModelOptions()
   }
 
   private updateThinkingLevel(value: string) {
@@ -775,17 +752,28 @@ class DefaultOptionsSettingsTab extends SettingsTab {
   }
 
   private async saveDefaultModelOptions() {
-    try {
-      const thinkingLevel = this.selectedModel?.reasoning ? this.thinkingLevel : 'off'
-      await saveDefaultOptions(getAppStorage(), {
-        model: this.selectedModel,
-        thinkingLevel,
-      })
-      this.markSaved()
-    } catch (error) {
-      this.error = error instanceof Error ? error.message : t('requestFailed')
-      this.requestUpdate()
+    const model = this.selectedModel
+    const thinkingLevel = model?.reasoning ? this.thinkingLevel : 'off'
+    const harness = this.harness
+    const save = async () => {
+      try {
+        await saveDefaultOptions(getAppStorage(), {
+          model,
+          thinkingLevel,
+          harness,
+        })
+        if (this.savedHarness !== harness) {
+          notifyDefaultHarnessChanged(harness)
+          this.savedHarness = harness
+        }
+        this.markSaved()
+      } catch (error) {
+        this.error = error instanceof Error ? error.message : t('requestFailed')
+        this.requestUpdate()
+      }
     }
+    this.defaultOptionsSavePromise = this.defaultOptionsSavePromise.then(save, save)
+    await this.defaultOptionsSavePromise
   }
 
   private async saveToolDisplayOptions() {
@@ -844,6 +832,36 @@ class DefaultOptionsSettingsTab extends SettingsTab {
     return this.models
   }
 
+  private languageOptions() {
+    return [
+      { value: 'zh', label: t('simplifiedChinese') },
+      { value: 'en', label: t('english') },
+    ]
+  }
+
+  private harnessOptions() {
+    return [
+      { value: 'quickforge', label: 'QuickForge' },
+      { value: 'claude-code', label: t('claudeCodeHarnessUnavailable'), disabled: true },
+      { value: 'opencode', label: 'OpenCode' },
+    ]
+  }
+
+  private modelSelectOptions() {
+    return this.modelOptions().map((model) => ({ value: modelKey(model), label: modelLabel(model) }))
+  }
+
+  private thinkingOptions() {
+    return THINKING_OPTIONS.map((option) => ({ value: option.value, label: option.label() }))
+  }
+
+  private terminalShellOptions() {
+    return [
+      ...this.terminalShellConfig.profiles.map((profile) => ({ value: profile.id, label: profile.name })),
+      { value: CUSTOM_SHELL_OPTION, label: t('terminalShellCustomOption') },
+    ]
+  }
+
   private terminalShellSettings() {
     const profiles = this.terminalShellConfig.profiles
     const selectedProfileId = this.selectedTerminalShellProfileId()
@@ -863,16 +881,12 @@ class DefaultOptionsSettingsTab extends SettingsTab {
             </div>
           </div>
           <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
-            <select
-              data-terminal-shell-select
-              class="quickforge-settings-select"
+            <quickforge-settings-select
               .value=${showCustomEditor ? CUSTOM_SHELL_OPTION : selectedProfileId}
-              aria-label=${t('terminalShellDefault')}
-              @change=${(event: Event) => this.updateTerminalShellSelection((event.target as HTMLSelectElement).value)}
-            >
-              ${profiles.map((profile) => html`<option value=${profile.id}>${profile.name}</option>`)}
-              <option value=${CUSTOM_SHELL_OPTION}>${t('terminalShellCustomOption')}</option>
-            </select>
+              .options=${this.terminalShellOptions()}
+              label=${t('terminalShellDefault')}
+              @change=${(event: CustomEvent<string>) => this.updateTerminalShellSelection(event.detail)}
+            ></quickforge-settings-select>
             ${selectedProfile && !selectedProfile.builtin && !showCustomEditor
               ? html`
                 <button
@@ -968,15 +982,27 @@ class DefaultOptionsSettingsTab extends SettingsTab {
               <div class="quickforge-settings-row-description">${t('displayLanguage')}</div>
             </div>
             <div class="quickforge-settings-row-control">
-              <select
-                data-language-select
-                class="quickforge-settings-select"
+              <quickforge-settings-select
                 .value=${this.selectedLanguage}
-                @change=${(event: Event) => this.updateLanguage((event.target as HTMLSelectElement).value)}
-              >
-                <option value="zh">${t('simplifiedChinese')}</option>
-                <option value="en">${t('english')}</option>
-              </select>
+                .options=${this.languageOptions()}
+                label=${t('language')}
+                @change=${(event: CustomEvent<string>) => this.updateLanguage(event.detail)}
+              ></quickforge-settings-select>
+            </div>
+          </div>
+
+          <div class="quickforge-settings-row">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">${t('defaultHarness')}</div>
+              <div class="quickforge-settings-row-description">${t('defaultHarnessDescription')}</div>
+            </div>
+            <div class="quickforge-settings-row-control">
+              <quickforge-settings-select
+                .value=${this.harness}
+                .options=${this.harnessOptions()}
+                label=${t('defaultHarness')}
+                @change=${(event: CustomEvent<string>) => this.updateHarness(event.detail)}
+              ></quickforge-settings-select>
             </div>
           </div>
 
@@ -986,27 +1012,17 @@ class DefaultOptionsSettingsTab extends SettingsTab {
               <div class="quickforge-settings-row-description">${t('defaultModelDescription')}</div>
             </div>
             <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
-              <select
-                data-default-model-select
-                class="quickforge-settings-select quickforge-model-select-desktop"
+              <quickforge-settings-select
                 .value=${this.selectedModel ? modelKey(this.selectedModel) : ''}
-                @change=${(event: Event) => this.updateModel((event.target as HTMLSelectElement).value)}
-              >
-                ${this.modelOptions().length === 0
-                  ? html`<option value="">${t('noModelAvailable')}</option>`
-                  : this.modelOptions().map((model) => html`
-                      <option .value=${modelKey(model)}>${modelLabel(model)}</option>
-                    `)}
-              </select>
-              <button
-                type="button"
-                class="quickforge-settings-select quickforge-settings-select-button quickforge-model-select-mobile"
-                ?disabled=${this.models.length === 0}
-                @click=${(event: Event) => this.openDefaultModelSheet(event)}
-              >
-                <span>${this.selectedModel ? modelLabel(this.selectedModel) : t('noModelAvailable')}</span>
-                <span class="quickforge-settings-select-chevron" aria-hidden="true">▾</span>
-              </button>
+                .options=${this.modelSelectOptions()}
+                .disabled=${this.models.length === 0}
+                searchable
+                searchPlaceholder=${t('search')}
+                noResultsLabel=${t('noMatchingOptions')}
+                placeholder=${t('noModelAvailable')}
+                label=${t('defaultModel')}
+                @change=${(event: CustomEvent<string>) => this.updateModel(event.detail)}
+              ></quickforge-settings-select>
             </div>
           </div>
 
@@ -1018,17 +1034,13 @@ class DefaultOptionsSettingsTab extends SettingsTab {
               </div>
             </div>
             <div class="quickforge-settings-row-control">
-              <select
-                data-default-thinking-select
-                class="quickforge-settings-select"
+              <quickforge-settings-select
                 .value=${this.thinkingLevel}
-                ?disabled=${!this.selectedModel?.reasoning}
-                @change=${(event: Event) => this.updateThinkingLevel((event.target as HTMLSelectElement).value)}
-              >
-                ${THINKING_OPTIONS.map((option) => html`
-                  <option .value=${option.value}>${option.label()}</option>
-                `)}
-              </select>
+                .options=${this.thinkingOptions()}
+                .disabled=${!this.selectedModel?.reasoning}
+                label=${t('defaultThinkingLevel')}
+                @change=${(event: CustomEvent<string>) => this.updateThinkingLevel(event.detail)}
+              ></quickforge-settings-select>
             </div>
           </div>
 

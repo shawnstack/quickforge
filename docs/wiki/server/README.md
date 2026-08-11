@@ -74,7 +74,11 @@ server/
 **用途**: Agent 生命周期管理。后端最复杂的模块。
 
 **功能**:
-- Agent 创建（`createAgent`）：初始化 Agent 实例，配置工具和系统提示词
+- Agent 创建（`createAgent`）：按会话固定的 `harness` 初始化 QuickForge Agent 或 OpenCode ACP facade；缺失/未知持久化值回落 QuickForge，OpenCode ACP session ID 单独持久化并在恢复时按 initialize capability 选择 load/resume。OpenCode 新会话不依赖 QuickForge 模型配置，前端占位模型不会进入 ACP/服务端模型参数。OpenCode adapter 按 ACP `messageId` 分段 assistant，保留 text/thinking 收包顺序，并将工具持久化为 assistant 文本 → assistant toolCall → toolResult → 后续 assistant 文本。
+- OpenCode 运行保护：initialize/session setup/prompt/close 均有有界 deadline；协议、session lifecycle capability 与 auth required 分别映射为明确的 incompatible/auth/timeout 错误。进程或 transport 崩溃只收口一次，流式 partial 先 flush；公开 stderr/错误会脱敏密钥、URL 和本机绝对路径。QuickForge 不读取 OpenCode 凭证。POSIX 以 process group 启动，销毁时与 Windows `taskkill /T` 一样两阶段终止进程树。
+- OpenCode ACP 附件与工具展示：图片转换为标准 `image` block，普通文件以内嵌 `resource` 的 text/blob 发送并使用安全 `quickforge-attachment://` URI；发送前严格校验 initialize 的 `promptCapabilities.image/embeddedContext`，非法或不支持时在消息持久化和 `agent_start` 前返回 `400`。工具名只按 ACP kind 将 read/edit/search/execute 映射为现有展示名，其余固定为 `opencode_tool`；title/kind/locations 仅做白名单来源 metadata，`_meta` 剥离，content/resource/diff/terminal/rawOutput 均转为有界展示，失败状态、审批与消息顺序保持不变。旧 OpenCode 历史加载时会仅在内存中归一旧工具名和配对结果以自愈展示，不主动改写持久化文件。
+- OpenCode 标准 ACP 动态配置：`agent.state.acpSession` 仅在内存中保存白名单化的 `configOptions`、`modes`、`availableCommands`、`sessionInfo`、`usage`，剥离 `_meta`/未知 metadata，不含凭证且不持久化；`session/load` / `resume` 是恢复时的权威刷新来源。Setup 只缓冲五类标准 metadata update，不回放消息/tool/plan 历史。`session_info` 不改 QuickForge title，`usage` 不映射为 QuickForge context/message usage。服务端 Harness config/mode API（`POST …/harness/config-option`、`…/harness/mode`）已接入前端 OpenCode 配置菜单，改动成功后广播 `state` SSE；运行期 `usage_update` 通过 `acp_session_usage_update` 轻量事件触发 debounce 持久化（仅持久化 `openCodeUsage` 快照），并即时刷新前端 usage badge。该 Client→OpenCode 方向与下方 `acp/server.mjs` 的 QuickForge→ACP Client 方向严格区分。
+- OpenCode 消息位置能力：ACP 仅提供整会话 fork，不支持按消息位置 fork、rollback 或 retry；Web UI 对 OpenCode 仍禁用这些操作，但当前会话操作菜单已开放“复制当前会话”整会话 fork 入口，新会话通过 `sourceHarnessSessionId` 触发 ACP `session/fork` 并立即持久化。
 - Provider 请求重试：主 Agent、Subagent、对话压缩和辅助模型生成默认设置 `maxRetries: 3`，即首次请求失败后最多再重试 3 次（最多共 4 次请求）；是否可重试及退避由各 Provider 实现决定，模型连通性探测显式保持不重试，`maxRetryDelayMs` 只限制服务端要求的单次等待上限
 - Git 提交信息 AI 生成同样接收 `modelRef` 并通过统一 resolver；客户端提交的完整模型仅作兼容识别，不能覆盖 Provider Base URL 或绕过 Cloud 来源权限。
 - 默认工作目录：全局会话（无 `projectId`）会合成默认 workspace 上下文（`defaultGlobalWorkspaceContext`，根目录 `~/.quickforge/workspace`，合成 project id 为 `default`），使「对话」与「项目」享有相同的文件工具（读/写/编辑/grep/命令）、工作区面板、终端和 Git 能力；文件操作受该目录沙箱约束，默认权限下读类工具放行、写入/命令/MCP/Plugin 等可能影响系统的工具走审批，完全访问权限则在既有沙箱与敏感文件限制内自动执行；`projectContextFromId` 找不到项目时同样回落到该默认 workspace
@@ -83,14 +87,15 @@ server/
 - 后台任务运行（`runTask` / `abortTask`）
 - Agent 恢复（`restoreAgent`）：从持久化状态恢复会话；Web 冷加载通过 `POST /api/agents/:sessionId/restore` 在一次请求中恢复并返回权威快照，`GET state` 仅在内存会话不存在时回落恢复，避免重复读取完整 Session
 - Subagent 工具：`run_subagent` 在父会话内创建短生命周期临时 Agent；运行条件是父会话已解析出有效 `projectContext.workspaceRoot`，因此项目对话和合成默认 workspace 的全局对话都可使用，不再要求必须存在真实 `projectId`。可调用启用的 Agent Profile。内置 `explore` 是只读仓库调研的首选，用于文件发现、源码搜索、调用链追踪、测试/文档/wiki 发现和影响面分析，可执行安全的检查/诊断命令但不能修改文件；内置 `general` 适合有边界的复杂多步骤实现或更广泛独立任务，可使用完整内置工作区工具但不含 MCP/Skills。自定义 Agent Profile 也可通过白名单工具执行。`run_subagent` 还支持 AI 按需传入一次性 `temporary` profile spec；服务端会校验名称、工具、`capabilityPolicy` 和模型引用，将该临时 subagent 写入 `~/.quickforge/cache/global/tmp/agents/<session>/<run>/*.md` 后再执行，并在结果 details 中返回 `profilePath`、`source`、`lifecycle`、`capabilityPolicy` 和实际模型信息。子 Agent 不作为普通会话持久化，默认不能递归调用 `run_subagent`。父会话会在内存中保留正在执行的工具快照，`getSessionState()` / SSE 初始 state 会将尚未进入权威消息历史的 `run_subagent` partial trace 和 `pendingToolCalls` 返回给刷新后的页面；该快照不写入持久化会话，也不进入 LLM 上下文，最终权威 `toolResult` 出现后自动去重清理。
-- Agent Profile 执行：`createAgent` 支持传入 `agentProfile`，在默认系统提示词后追加 profile 系统提示词，并按 `allowedTools` 限制 workspace 工具；定时任务可绑定 profile 执行。自定义 Profile 可将模型和思考等级设为继承或固定值；运行时先解析最终模型，再解析思考等级，非推理模型统一降级为 `off`。内置 Profile 的定义保持只读，仅模型可通过 `agent-profile-overrides` 覆盖。
+- Agent Profile 执行：`createAgent` 支持传入 `agentProfile`，在默认系统提示词后追加 profile 系统提示词，并按 `allowedTools` 限制 workspace 工具；定时任务可绑定 profile 执行。自定义 Profile 可将模型和思考等级设为继承或固定值；运行时先解析最终模型，再解析思考等级，非推理模型统一降级为 `off`。内置 Profile 的定义保持只读，模型和思考等级可通过 `agent-profile-overrides` 覆盖，设回 `inherit` 时清除对应覆盖字段。
 - 工具管理：基于 Skills 和 Agent 权限模式动态构建工具列表；工具上下文包含当前会话的 `sessionId/scope/projectId`，供 `generate_image` 将输出绑定到会话资产。默认权限下安全读取工具自动通过，写入、命令、图片生成、MCP/Plugin 等可能改变状态、产生费用或影响外部系统的工具需要审批；完全访问权限等同开发者授权，在 workspace 沙箱和命令级限制内跳过审批；`/init` 当前轮允许调研仓库、运行必要的只读命令、调用 subagent 并写入根目录 `AGENTS.md`，但仍受正常审批、工作区沙箱和敏感文件保护约束；`/plan` 当前轮使用只读白名单，仅允许读取/搜索、Skill 加载和继承同样只读边界的 subagent 辅助调研，阻止写文件、编辑文件、运行命令、图片生成以及未声明为允许的 MCP/Plugin/未知工具；Shift+Tab 计划模式通过结构化 command 元数据复用同一套 `/plan` 解析、prompt 和权限，并在 retry/continue 时恢复该权限；`/review` 当前轮允许读取和运行检查命令，但阻止编辑文件和 subagent 执行，用于提交前自检。
 - 对话压缩（`compactConversation`）：手动 `/summary` 会创建总结后的新会话并保留原会话；手动 `/compact` 与自动上下文压缩保持一致，会在当前会话内生成/更新滚动摘要，只影响 Agent loop 输入，完整历史仍保留用于 UI 展示和持久化。自动上下文压缩会在模型请求前按配置阈值触发同一套当前会话内压缩。
 - 上下文统计：`contextUsage` 由 `estimateSessionContextUsage()` 计算；存在 `contextCompaction` 时先构造 `summaryMessage + messages.slice(compactedUpToIndex)`，因此统计口径是压缩后的模型实际上下文，而不是完整可见聊天历史。底层 token 估算复用 `@earendil-works/pi-agent-core` 的 `estimateContextTokens()` / `estimateTokens()`，provider usage 与 `contextWindow` / `maxTokens` 来自 `@earendil-works/pi-ai` 的 assistant `usage` 和 model 元数据；自动压缩阈值判断通过百分比配置转换为 reserve tokens 后复用 `pi-agent-core.shouldCompact()`。返回值保留总量字段，并提供 `breakdown.systemPromptTokens`、`breakdown.toolsTokens`、`breakdown.messagesTokens`、`breakdown.providerUsageTokens`、`breakdown.trailingTokens`、`reservedOutputTokens`、`isCompacted`、`originalMessageCount` 和 `effectiveMessageCount`，用于前端解释固定成本、provider 基线、后续增量和压缩效果。
 - 自定义命令处理
 - 工具权限检查
 - 会话活动跟踪（`touchSession`）
-- Agent 销毁和资源清理
+- Agent 销毁和资源清理；OpenCode Harness 会关闭 ACP session/transport 并终止子进程
+- Harness 选择、恢复与派生约束见 [`docs/architecture/agent-harness-selection.zh-CN.md`](../../architecture/agent-harness-selection.zh-CN.md)
 
 ### acp/ — ACP Agent 适配层
 
@@ -123,7 +128,7 @@ server/
 │   ├── mcp-servers.json   # MCP 服务配置
 │   ├── providers.json     # 自定义服务商 + API 密钥
 │   ├── plugins.json       # 插件配置
-│   ├── agent-profile-overrides.json # 内置 Agent 的模型覆盖
+│   ├── agent-profile-overrides.json # 内置 Agent 的模型/思考等级覆盖
 │   └── projects.json      # 项目注册表
 ├── storage/               # 会话数据和索引
 │   └── conversations/

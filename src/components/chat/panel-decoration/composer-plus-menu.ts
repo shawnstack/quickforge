@@ -2,6 +2,7 @@ import type { CapabilitySuggestion } from '../capability-suggestions'
 import type { MessageEditorElement } from '../chat-utils'
 import { patchContent } from '../chat-utils'
 import { t } from '@/lib/i18n'
+import { removeOpenCodeModeMenu } from './opencode-mode-menu'
 import {
   attachmentIcon,
   documentPluginIcon,
@@ -23,6 +24,7 @@ export type ComposerPlusMenuDeps = {
   removeCommandSuggestions: () => void
   removeCapabilitySuggestions: () => void
   availablePluginRows: () => CapabilitySuggestion[]
+  attachmentsEnabled: boolean
   pluginsEnabled: boolean
 }
 
@@ -60,6 +62,13 @@ function findNativeAttachmentButton(leftControls: HTMLElement) {
   if (marked) return marked
   return Array.from(leftControls.querySelectorAll<HTMLButtonElement>('button'))
     .find((button) => !button.classList.contains('quickforge-plus-inline') && !button.classList.contains('quickforge-agent-access-inline') && !button.classList.contains('quickforge-yolo-inline') && !button.classList.contains('quickforge-plan-inline'))
+}
+
+export function hideNativeAttachmentControls(editor: MessageEditorElement, leftControls?: HTMLElement) {
+  editor.querySelectorAll<HTMLInputElement>('input[type="file"]').forEach((input) => { input.disabled = true })
+  if (!leftControls) return
+  clearMisplacedNativeAttachmentButtonMarks(editor, leftControls)
+  findNativeAttachmentButton(leftControls)?.classList.add('quickforge-native-attachment-hidden')
 }
 
 function triggerAttachmentPicker(editor: MessageEditorElement, leftControls: HTMLElement) {
@@ -111,6 +120,9 @@ function createPlusMenuItem({
 
 function renderComposerPlusPopover(deps: ComposerPlusMenuDeps, view: 'main' | 'plugins') {
   const { panel, editor, leftControls, insertBuiltinPluginMention, removeCommandSuggestions, removeCapabilitySuggestions } = deps
+  // Composer menus are mutually exclusive: opening the plus popover closes the
+  // OpenCode mode menu so the two can never overlap.
+  removeOpenCodeModeMenu(panel)
   removeCommandSuggestions()
   removeCapabilitySuggestions()
 
@@ -125,14 +137,16 @@ function renderComposerPlusPopover(deps: ComposerPlusMenuDeps, view: 'main' | 'p
   popover.append(header)
 
   if (view === 'main') {
-    popover.append(createPlusMenuItem({
-      icon: attachmentIcon,
-      label: t('composerAddAttachment'),
-      onSelect: () => {
-        removeComposerPlusPopover(panel)
-        triggerAttachmentPicker(editor, leftControls)
-      },
-    }))
+    if (deps.attachmentsEnabled) {
+      popover.append(createPlusMenuItem({
+        icon: attachmentIcon,
+        label: t('composerAddAttachment'),
+        onSelect: () => {
+          removeComposerPlusPopover(panel)
+          triggerAttachmentPicker(editor, leftControls)
+        },
+      }))
+    }
     if (deps.pluginsEnabled && deps.availablePluginRows().length > 0) {
       popover.append(createPlusMenuItem({
         icon: pluginsIcon,

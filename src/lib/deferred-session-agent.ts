@@ -2,7 +2,7 @@ import type { AgentEvent, AgentMessage, AgentState, ThinkingLevel } from '@earen
 import type { Api, Model } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai/compat'
 import type { ServerAgent, ServerAgentContextCompaction, ServerAgentContextUsage, PromptCapabilitySelection } from '@/lib/server-agent'
-import type { AgentAccessMode, ChatScope, ProjectInfo } from '@/lib/types'
+import type { AgentAccessMode, AgentHarness, ChatScope, ProjectInfo } from '@/lib/types'
 import { agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
 import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import { randomId } from '@/lib/random-id'
@@ -13,11 +13,12 @@ type DeferredSessionAgentOptions = {
   model: Model<Api>
   thinkingLevel: ThinkingLevel
   accessMode?: AgentAccessMode
+  harness: AgentHarness
   yoloMode: boolean
   createAgent: (
     initialState?: Partial<AgentState> & { contextCompaction?: ServerAgentContextCompaction | null },
     sessionId?: string,
-    options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string; accessMode?: AgentAccessMode; yoloMode?: boolean },
+    options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string; harness?: AgentHarness; accessMode?: AgentAccessMode; yoloMode?: boolean },
   ) => Promise<ServerAgent>
 }
 
@@ -27,6 +28,7 @@ export class DeferredSessionAgent {
   getApiKey?: (provider: string) => Promise<string | undefined>
   readonly scope: ChatScope
   readonly project?: ProjectInfo
+  readonly harness: AgentHarness
   private readonly createAgent: DeferredSessionAgentOptions['createAgent']
   private readonly listeners = new Set<(event: AgentEvent) => void>()
   private disposed = false
@@ -57,6 +59,7 @@ export class DeferredSessionAgent {
     this.sessionId = `pending-${randomId()}`
     this.scope = options.scope
     this.project = options.project
+    this.harness = options.harness
     this.createAgent = options.createAgent
     const accessMode = normalizeAgentAccessMode(options.accessMode, options.yoloMode ? 'full-access' : 'default')
     this.state = {
@@ -179,12 +182,14 @@ export class DeferredSessionAgent {
   }
 
   async updateModel(model: Model<Api>): Promise<void> {
+    if (this.harness === 'opencode') return
     this.state.model = model
     const realAgent = await this.realAgentPromise
     if (realAgent) await realAgent.updateModel(model)
   }
 
   async updateThinkingLevel(level: ThinkingLevel): Promise<void> {
+    if (this.harness === 'opencode') return
     this.state.thinkingLevel = level
     const realAgent = await this.realAgentPromise
     if (realAgent) await realAgent.updateThinkingLevel(level)
@@ -250,6 +255,7 @@ export class DeferredSessionAgent {
           scope: this.scope,
           project: this.project,
           attachToView: true,
+          harness: this.harness,
           accessMode: this.state.accessMode,
           yoloMode: this.state.yoloMode,
         },

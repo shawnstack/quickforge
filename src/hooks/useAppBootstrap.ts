@@ -5,6 +5,7 @@ import {
   initializePiStorage,
   loadDefaultOptions,
   loadInitialConfiguredModel,
+  openCodePlaceholderModel,
 } from '@/lib/pi-chat'
 import { initializeAppLanguage, t } from '@/lib/i18n'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
@@ -12,6 +13,7 @@ import { loadToolDisplaySettings } from '@/lib/tool-display-settings'
 import { loadAndApplyFontSizeSettings } from '@/lib/font-size-settings'
 import { loadAndApplyAppearanceSettings } from '@/lib/appearance-settings'
 import type { AgentAccessMode } from '@/lib/types'
+import { normalizeAgentHarness } from '@/lib/types'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
 import { disposeAllAgentTasks } from '@/lib/agent-task-retention'
@@ -115,31 +117,31 @@ export function useAppBootstrap({
           logger.warn('Failed to restore QuickForge Cloud models:', error)
         }
         const defaultOptions = await loadDefaultOptions(storage)
-        const initialModel = await loadInitialConfiguredModel(storage, cloudModels, defaultOptions.model)
+        const defaultHarness = normalizeAgentHarness(defaultOptions.harness)
+        const initialModel = defaultHarness === 'opencode'
+          ? null
+          : await loadInitialConfiguredModel(storage, cloudModels, defaultOptions.model)
+        const startupModel = initialModel ?? (defaultHarness === 'opencode' ? openCodePlaceholderModel() : null)
         if (initialModel) activeModelRef.current = initialModel
+
+        const createStartupSession = () => create(
+          { model: startupModel!, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },
+          randomId(),
+          { scope: 'global', attachToView: true, harness: defaultHarness },
+        )
 
         const sessionId = new URLSearchParams(window.location.search).get('session')
         if (sessionId) {
           const restored = await restoreSession(sessionId)
           if (!restored) {
-            if (initialModel) {
-              await create(
-                { model: initialModel, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },
-                randomId(),
-                { scope: 'global', attachToView: true },
-              )
-            } else {
-              setModelSetup(true)
-            }
+            setModelSetup(defaultHarness === 'quickforge' && !initialModel)
+            if (startupModel) await createStartupSession()
+          } else {
+            setModelSetup(false)
           }
-        } else if (initialModel) {
-          await create(
-            { model: initialModel, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },
-            randomId(),
-            { scope: 'global', attachToView: true },
-          )
         } else {
-          setModelSetup(true)
+          setModelSetup(defaultHarness === 'quickforge' && !initialModel)
+          if (startupModel) await createStartupSession()
         }
 
         setReady(true)

@@ -3,7 +3,7 @@ import {
   ApiKeyPromptDialog,
   ChatPanel,
 } from '@earendil-works/pi-web-ui'
-import type { ServerAgent, ServerAgentContextCompaction, ServerAgentContextUsage, ServerAgentPendingAutoCompactApproval, ServerAgentPendingToolApproval } from '@/lib/server-agent'
+import type { ServerAgent, ServerAgentContextCompaction, ServerAgentContextUsage, ServerAgentPendingAutoCompactApproval, ServerAgentPendingToolApproval, OpenCodeAcpSession } from '@/lib/server-agent'
 import type { SharedServerAgent } from '@/lib/shared-server-agent'
 import type { DeferredSessionAgent } from '@/lib/deferred-session-agent'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
@@ -19,6 +19,7 @@ import {
 import { createCommandSuggestions } from './command-suggestions'
 import { createCapabilitySuggestions } from './capability-suggestions'
 import { createContextUsageIndicator, type ContextUsageDisplayInfo } from './context-usage'
+import { createOpenCodeUsageIndicator } from './panel-decoration'
 import { createTurnNavigation } from './turn-navigation'
 import {
   decorateMessages,
@@ -40,6 +41,9 @@ import { scheduleAfterPaint } from '@/lib/schedule-after-paint'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import { extractSessionArtifacts, type AiTurnArtifact } from '@/lib/tool-artifacts'
 import { getGitStatus } from '../workspace/workspace-api'
+import { requestAndroidRemoteSystemNotificationPermissionOnce } from '@/lib/system-notifications'
+import type { ChatHarnessCapabilities } from '@/lib/chat-harness-capabilities'
+import { applyChatPagePolicy, QUICKFORGE_CHAT_HARNESS_CAPABILITIES } from '@/lib/chat-harness-capabilities'
 import type { ChatScope, ProjectInfo, RestoredDraft, AgentAccessMode } from '@/lib/types'
 import {
   buildComposerDraftKey,
@@ -64,6 +68,12 @@ type AgentWithContextCompaction = AgentLike & {
     contextUsage?: ServerAgentContextUsage | null
     pendingToolApproval?: ServerAgentPendingToolApproval | null
     pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
+  }
+}
+
+type AgentWithAcpSession = AgentLike & {
+  state: AgentLike['state'] & {
+    acpSession?: OpenCodeAcpSession | null
   }
 }
 
@@ -137,6 +147,7 @@ type ChatPanelHostProps = {
   showTurnNavigation?: boolean
   rollbackConfirmTitle?: string
   rollbackConfirmDescription?: string
+  capabilities?: ChatHarnessCapabilities
 }
 
 /**
@@ -174,6 +185,7 @@ type PropsRef = {
   bypassClientApiKeyCheck: boolean
   rollbackConfirmTitle?: string
   rollbackConfirmDescription?: string
+  capabilities: ChatHarnessCapabilities
   gitBranch?: string
 }
 
@@ -213,6 +225,7 @@ export function ChatPanelHost({
   showTurnNavigation = true,
   rollbackConfirmTitle,
   rollbackConfirmDescription,
+  capabilities = QUICKFORGE_CHAT_HARNESS_CAPABILITIES,
 }: ChatPanelHostProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const restoredDraftIdRef = useRef<number | undefined>(undefined)
@@ -230,6 +243,10 @@ export function ChatPanelHost({
   const draftRestoreGuardRef = useRef(createComposerDraftRestoreGuard())
   const [gitBranch, setGitBranch] = useState<string>()
   const [planMode, setPlanMode] = useState(false)
+  const effectiveCapabilities = useMemo(
+    () => applyChatPagePolicy(capabilities, { readOnly, disableFork }),
+    [capabilities, readOnly, disableFork],
+  )
   const togglePlanMode = useCallback(() => setPlanMode((mode) => !mode), [])
   const clearPlanMode = useCallback(() => setPlanMode(false), [])
 
@@ -240,8 +257,10 @@ export function ChatPanelHost({
   // where the bare editor onSend bypasses the decoration layer entirely.
   useEffect(() => {
     const promptAgent = agent as AgentWithCapabilityPrompt | null
-    promptAgent?.setPlanMode?.(planMode, planMode ? clearPlanMode : undefined)
-  }, [agent, planMode, clearPlanMode])
+    const enabled = effectiveCapabilities.planMode && planMode
+    promptAgent?.setPlanMode?.(enabled, enabled ? clearPlanMode : undefined)
+    if (!effectiveCapabilities.planMode && planMode) queueMicrotask(clearPlanMode)
+  }, [agent, planMode, clearPlanMode, effectiveCapabilities.planMode])
 
   const cancelPendingDraftSave = useCallback(() => {
     if (!saveDraftTimerRef.current) return
@@ -338,6 +357,7 @@ export function ChatPanelHost({
     bypassClientApiKeyCheck,
     rollbackConfirmTitle,
     rollbackConfirmDescription,
+    capabilities: effectiveCapabilities,
     gitBranch,
   })
   // Keep ref in sync with the latest props so closures always read fresh values.
@@ -374,6 +394,7 @@ export function ChatPanelHost({
       bypassClientApiKeyCheck,
       rollbackConfirmTitle,
       rollbackConfirmDescription,
+      capabilities: effectiveCapabilities,
       gitBranch,
     }
     restoredDraftRef.current = restoredDraft
@@ -417,7 +438,7 @@ export function ChatPanelHost({
   useEffect(() => {
     let disposed = false
 
-    if (!project?.id) {
+    if (!effectiveCapabilities.commands || !project?.id) {
       customCommandsRef.current = []
       return () => { disposed = true }
     }
@@ -437,7 +458,7 @@ export function ChatPanelHost({
       })
 
     return () => { disposed = true }
-  }, [project?.id, revision])
+  }, [project?.id, revision, effectiveCapabilities.commands])
 
   const restoreDraftForSession = useCallback((panel: HTMLElement, draft: RestoredDraft, sessionId: string, key: string) => {
     if (draft.sessionId && draft.sessionId !== sessionId) return
@@ -502,8 +523,9 @@ export function ChatPanelHost({
     let processHandoffGeneration = 0
     let cancelInitialRenderReady: (() => void) | undefined
 
-    // --- Windowed rendering for very long conversations ---
-    const windowLayer = createMessageWindow()
+    // Render the complete conversation up front so turn navigation can scroll
+    // directly to existing DOM nodes without replacing the message window.
+    const windowLayer = createMessageWindow({ enabled: false })
     installMessageListWindow(() => windowLayer)
 
     // --- Scroll sync subsystem ---
@@ -585,6 +607,7 @@ export function ChatPanelHost({
     // --- @ capability suggestions subsystem ---
     const capabilitySuggestions = createCapabilitySuggestions({
       panel,
+      enabled: effectiveCapabilities.capabilitySuggestions,
       restoreDraftIntoComposer: (draft) => {
         restoreComposerDraft(panel, draft, composerDraftsRef.current, currentDraftKey)
         schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
@@ -607,6 +630,12 @@ export function ChatPanelHost({
       renderInline: false,
       renderModelRing: getCachedToolDisplaySettings().showContextUsage,
       onDisplayChange: (info) => propsRef.current.onContextUsageDisplayChange?.(agent.sessionId, info),
+    })
+
+    // --- OpenCode harness usage badge (independent of QuickForge contextUsage) ---
+    const openCodeUsage = createOpenCodeUsageIndicator({
+      panel,
+      getAcpSession: () => (agent as AgentWithAcpSession).state.acpSession ?? null,
     })
 
     // --- Composer input/file-change handlers (update draft map) ---
@@ -732,7 +761,9 @@ export function ChatPanelHost({
           onRetryFromMessage: props.onRetryFromMessage,
           onForkFromMessage: props.onForkFromMessage,
           onOpenLocalFilePath: props.onOpenLocalFilePath,
-          disableFork: props.disableFork,
+          disableFork: !props.capabilities.forkFromMessage,
+          allowRollback: props.capabilities.rollback,
+          allowRetry: props.capabilities.retry,
           readOnly: props.readOnly,
           enableTerminalCommandActions: !props.readOnly,
           rollbackConfirmTitle: props.rollbackConfirmTitle,
@@ -741,7 +772,9 @@ export function ChatPanelHost({
         syncContextCompactionNotice({
           panel,
           getMessages: displayMessages,
-          getContextCompaction: () => (agent as AgentWithContextCompaction).state.contextCompaction ?? null,
+          getContextCompaction: () => props.capabilities.compaction
+            ? (agent as AgentWithContextCompaction).state.contextCompaction ?? null
+            : null,
           messageIndexOffset,
         })
         syncAssistantWaitingBubble({
@@ -760,10 +793,27 @@ export function ChatPanelHost({
           isStreaming: () => agent.state.isStreaming,
           abort: () => agent.abort(),
           agentAccessMode: props.agentAccessMode,
+          harness: agent.harness,
+          getAcpSession: () => (agent as AgentWithAcpSession).state.acpSession ?? null,
+          onOpenCodeConfigOptionChange: (configId, value) => {
+            void (agent as ServerAgent).setConfigOption(configId, value).catch((error) => {
+              logger.error('Failed to update OpenCode config option:', error)
+            })
+          },
+          onOpenCodeModeChange: (modeId) => {
+            void (agent as ServerAgent).setMode(modeId).catch((error) => {
+              logger.error('Failed to update OpenCode mode:', error)
+            })
+          },
           planMode: props.planMode,
           workspaceToolsEnabled: props.workspaceToolsEnabled,
           readOnly: props.readOnly,
-          allowModelControls: props.allowModelControls,
+          allowModelControls: props.allowModelControls && props.capabilities.modelSelection,
+          planModeEnabled: props.capabilities.planMode,
+          accessModeEnabled: props.capabilities.accessMode,
+          commandSuggestionsEnabled: props.capabilities.commands,
+          capabilitySuggestionsEnabled: props.capabilities.capabilitySuggestions,
+          attachmentsEnabled: props.capabilities.attachments,
           onAccessModeChange: props.onAccessModeChange,
           onTogglePlanMode: props.onTogglePlanMode,
           onInput: handleEditorInput,
@@ -777,7 +827,10 @@ export function ChatPanelHost({
           insertBuiltinPluginMention: capabilitySuggestions.insertBuiltinPluginMention,
           availablePluginRows: capabilitySuggestions.availablePluginRows,
           onBeforeSend: (input) => {
-            const capabilities = capabilitySuggestions.consumeSelectedCapabilities(input)
+            requestAndroidRemoteSystemNotificationPermissionOnce()
+            const capabilities = props.capabilities.capabilitySuggestions
+              ? capabilitySuggestions.consumeSelectedCapabilities(input)
+              : []
             const promptAgent = agent as AgentWithCapabilityPrompt
             promptAgent.setNextPromptCapabilities?.(capabilities)
           },
@@ -872,7 +925,9 @@ export function ChatPanelHost({
         }
       }
 
-      contextUsage.update()
+      if (props.capabilities.contextUsage) contextUsage.update()
+      else contextUsage.cleanup()
+      if (agent.harness === 'opencode') openCodeUsage.update()
       turnNavigation?.update()
       scrollSync.setup()
       if (scrollSync.isEnabled) {
@@ -953,7 +1008,7 @@ export function ChatPanelHost({
 
     // --- Initialize panel ---
     void panel.setAgent(agent as unknown as Parameters<typeof panel.setAgent>[0], {
-      onApiKeyRequired: propsRef.current.bypassClientApiKeyCheck
+      onApiKeyRequired: !propsRef.current.capabilities.clientApiKeyCheck || propsRef.current.bypassClientApiKeyCheck
         ? async () => true
         : (provider: string) => (
             isManagedQuickForgeCloudModel(agent.state.model)
@@ -1123,6 +1178,11 @@ export function ChatPanelHost({
       if (eventType === 'tool_execution_start' || eventType === 'tool_execution_update' || eventType === 'tool_execution_end') {
         scheduleToolInterfaceUpdate()
       }
+      if (eventType === 'acp_session_update' || eventType === 'acp_session_usage_update') {
+        // OpenCode runtime config/mode/usage changed — refresh composer controls
+        // and the usage badge without disturbing the conversation.
+        scheduleDecorateRef.current?.()
+      }
       if (event.type === 'agent_end') {
         assistantWaitingActive = false
         syncProcessStreamingState()
@@ -1193,6 +1253,7 @@ export function ChatPanelHost({
       capabilitySuggestions.remove()
       capabilitySuggestions.cleanupTextareaHandler()
       contextUsage.cleanup()
+      openCodeUsage.cleanup()
       turnNavigation?.cleanup()
       scrollSync.cleanup()
       scrollSyncRef.current = null
@@ -1208,7 +1269,7 @@ export function ChatPanelHost({
       decorateFnRef.current = null
       panel.remove()
     }
-  }, [agent, showTurnNavigation, cancelPendingDraftSave, cancelRestoredDraftRestore, consumeRestoredDraft, persistCurrentComposerDraft, restoreDraftForSession, schedulePersistDraft]) // Recreate only when the agent or host-level navigation mode changes; callback deps are stable
+  }, [agent, showTurnNavigation, effectiveCapabilities.capabilitySuggestions, cancelPendingDraftSave, cancelRestoredDraftRestore, consumeRestoredDraft, persistCurrentComposerDraft, restoreDraftForSession, schedulePersistDraft]) // Recreate only when the agent or host-level navigation mode changes; callback deps are stable
 
   useEffect(() => {
     const host = hostRef.current
@@ -1228,7 +1289,7 @@ export function ChatPanelHost({
     // 外部对 state.model 的直接赋值，需要手动触发重渲染才能刷新模型名称等 UI。
     const ai = hostRef.current?.querySelector('agent-interface') as { requestUpdate?: () => void } | null
     ai?.requestUpdate?.()
-  }, [agentAccessMode, planMode, workspaceToolsEnabled, gitBranch, disableFork, readOnly, approvalReadOnly, approvalReadOnlyMessage, allowModelControls, revision])
+  }, [agentAccessMode, planMode, workspaceToolsEnabled, gitBranch, disableFork, readOnly, approvalReadOnly, approvalReadOnlyMessage, allowModelControls, capabilities, revision])
 
   // Draft restoration trigger
   useEffect(() => {

@@ -4,6 +4,7 @@ import type { BackgroundTaskStatus } from '@/lib/types'
 import {
   Archive,
   ChevronDown,
+  Copy,
   Ellipsis,
   Folder,
   GitBranch,
@@ -31,6 +32,7 @@ import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import type {
   AgentAccessMode,
+  AgentHarness,
   ProjectInfo,
   QuickForgeSessionMetadata,
   RestoredDraft,
@@ -65,6 +67,7 @@ import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { ServerAgent } from '@/lib/server-agent'
 import { logger } from '@/lib/logger'
 import { scheduleAfterPaint } from '@/lib/schedule-after-paint'
+import { TUNNEL_RECOVERED_EVENT, type TunnelRecoveredEventDetail } from '@/lib/tunnel-recovery'
 import {
   loadSidebarSessionSortMode,
   loadSidebarSessionViewMode,
@@ -91,6 +94,7 @@ import { MobileServerConnectPage } from '@/components/mobile/MobileServerConnect
 import { RemoteTunnelOverlay } from '@/components/mobile/RemoteTunnelOverlay'
 import { isCloudTunnelClient, isMobileShell, isNativeMobileEntry, isRemoteQuickForgeClient, openMobileServerPicker, readMobileServerAliasFromUrl } from '@/lib/mobile-server'
 import { initializeSystemNotifications, showTaskSystemNotification } from '@/lib/system-notifications'
+import { resolveChatHarnessCapabilities } from '@/lib/chat-harness-capabilities'
 
 // --- Code-split secondary views (only loaded when first opened) ---
 // These are conditionally-mounted routes/panels; lazy loading keeps heavy
@@ -378,6 +382,7 @@ function MainApp() {
 
   // --- Session list + cross-tab sync ---
   const crossTabRef = useRef<ReturnType<typeof useCrossTabSync> | null>(null)
+  const applyDefaultHarnessRef = useRef<((harness?: AgentHarness) => Promise<boolean>) | null>(null)
 
   const backendRef = useRef<HttpStorageBackend | null>(null)
   const notifySessionsChanged = useCallback(() => crossTabRef.current?.notifySessionsChanged(), [])
@@ -418,7 +423,13 @@ function MainApp() {
   const crossTab = useCrossTabSync({
     onSessionsChanged: () => { refreshSessions() },
     onProjectsChanged: () => { loadProject(true) },
-    onSettingsChanged: () => { refreshSessions() },
+    onSettingsChanged: (settings) => {
+      refreshSessions()
+      if (!settings?.defaultHarness) return
+      void applyDefaultHarnessRef.current?.(settings.defaultHarness).catch((error) => {
+        logger.error('Failed to apply the cross-tab default Harness change:', error)
+      })
+    },
   })
 
   // --- Sync refs ---
@@ -499,6 +510,7 @@ function MainApp() {
   const {
     createAgent,
     startDeferredSession,
+    applyDefaultHarnessToBlankSession,
     loadSession: loadAgentSession,
     syncSessionUI,
     setCurrentAgentMessages,
@@ -511,6 +523,10 @@ function MainApp() {
     currentSessionIdRef,
     currentChatScopeRef,
   } = agentManager
+
+  useEffect(() => {
+    applyDefaultHarnessRef.current = applyDefaultHarnessToBlankSession
+  }, [applyDefaultHarnessToBlankSession])
 
   useEffect(() => {
     currentToolProjectIdRef.current = agentManager.currentToolProject?.id
@@ -802,6 +818,42 @@ function MainApp() {
     return () => window.removeEventListener('quickforge:preview-artifact', handler as EventListener)
   }, [agentManager.currentToolProject?.id, openArtifactPreview])
 
+  // 隧道恢复免刷新对账：监听 quickforge:tunnel-recovered，同步当前会话与后台任务的
+  // 真实服务端状态；全部成功才允许免刷新恢复，任一 syncState 失败会 reject waitUntil，
+  // 由协调器整页刷新兜底。
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<TunnelRecoveredEventDetail>).detail
+      if (!detail || typeof detail.waitUntil !== 'function') return
+      const reconcilePromise = (async () => {
+        const agents = new Set<ServerAgent>()
+        const currentAgent = agentRef.current
+        if (currentAgent instanceof ServerAgent) agents.add(currentAgent)
+        for (const task of taskMapRef.current.values()) {
+          if (task.agent instanceof ServerAgent) agents.add(task.agent)
+        }
+        await Promise.all(
+          [...agents].map(async (agent) => {
+            try {
+              // syncState 当前会把网络异常视为可恢复并在内部吞掉；先显式验证每个
+              // 活动会话状态端点，确保真正无法对账时 waitUntil 能 reject 并触发 reload。
+              const response = await fetch(`/api/agents/${encodeURIComponent(agent.sessionId)}/state`, { cache: 'no-store' })
+              if (!response.ok) throw new Error(`HTTP ${response.status}`)
+              await agent.syncState()
+            } catch (error) {
+              logger.error('Tunnel recovery failed to sync agent state:', error)
+              throw error
+            }
+          }),
+        )
+        await refreshSessions({ broadcast: true })
+      })()
+      detail.waitUntil(reconcilePromise)
+    }
+    window.addEventListener(TUNNEL_RECOVERED_EVENT, handler as EventListener)
+    return () => window.removeEventListener(TUNNEL_RECOVERED_EVENT, handler as EventListener)
+  }, [agentRef, taskMapRef, refreshSessions])
+
   useEffect(() => {
     const unsubscribe = subscribeToAgentEvents((event) => {
       if (isScheduledTaskStarted(event)) {
@@ -924,6 +976,7 @@ function MainApp() {
     retryFromMessage,
     copyAnswer,
     forkFromMessage,
+    forkCurrentSession,
   } = useChatActions({
     storageRef,
     activeModelRef,
@@ -939,6 +992,7 @@ function MainApp() {
     setChatPanelRevision,
     refreshSessions,
     needsModelSetup,
+    setNeedsModelSetup,
     switchActiveProject,
     closeWorkspacePage,
     setRestoredDraft,
@@ -1282,6 +1336,12 @@ function MainApp() {
     ui.setConversationMenuOpen(false)
     ui.setShareDialogOpen(true)
   }, [ui])
+
+  const currentSessionAgent = agentManager.agent
+  const canForkCurrentSession = currentSessionAgent?.harness === 'opencode'
+    && !currentSessionAgent.state.isStreaming
+    && currentSessionAgent instanceof ServerAgent
+    && Boolean(currentSessionAgent.harnessSessionId)
 
   const handleArchiveCurrentSession = useCallback(() => {
     const sessionId = agentManager.currentSessionId
@@ -1846,6 +1906,20 @@ function MainApp() {
                     <button
                       type="button"
                       role="menuitem"
+                      className="flex h-10 w-full items-center gap-2 whitespace-nowrap rounded-md px-2 text-left text-sm text-foreground/86 transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => {
+                        ui.setConversationMenuOpen(false)
+                        void forkCurrentSession()
+                      }}
+                      disabled={!canForkCurrentSession}
+                      title={t('forkCurrentSessionTitle')}
+                    >
+                      <Copy className="size-[18px]" />
+                      <span>{t('forkCurrentSession')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
                       className="flex h-10 w-full items-center gap-2 whitespace-nowrap rounded-md px-2 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
                       onClick={handleRenameCurrentSession}
                     >
@@ -1936,7 +2010,10 @@ function MainApp() {
                       onContextUsageDisplayChange={handleContextUsageDisplayChange}
                       onInitialRenderReady={handleSessionInitialRenderReady}
                       onInitialRenderError={handleSessionInitialRenderError}
-                      disableFork={false}
+                      capabilities={resolveChatHarnessCapabilities(agentManager.agent?.harness)}
+                      disableFork={agentManager.agent?.harness === 'opencode'}
+                      bypassClientApiKeyCheck={agentManager.agent?.harness === 'opencode'}
+                      allowModelControls={agentManager.agent?.harness !== 'opencode'}
                       restoredDraft={restoredDraft}
                       onRestoredDraftConsumed={consumeRestoredDraft}
                       newChatEmptyState={showNewChatEmptyState}

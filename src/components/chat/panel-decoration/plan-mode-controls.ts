@@ -3,6 +3,15 @@ import { patchContent } from '../chat-utils'
 import { t } from '@/lib/i18n'
 import { planIcon, removePlanIcon } from './icons'
 
+export function removePlanModeControls(editor: MessageEditorElement | null) {
+  const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea') as CommandTextareaElement | null
+  if (textarea?.__quickforgePlanModeHandler) {
+    textarea.removeEventListener('keydown', textarea.__quickforgePlanModeHandler, true)
+    textarea.__quickforgePlanModeHandler = undefined
+  }
+  if (editor) delete editor.dataset.quickforgePlanMode
+}
+
 export function setupPlanModeControls(
   editor: MessageEditorElement | null,
   planMode: boolean,

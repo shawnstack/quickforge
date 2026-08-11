@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Api, Model } from '@earendil-works/pi-ai'
-import { chooseNewSessionModel, chooseStartupModel } from '../../src/lib/startup-model'
+import { chooseNewSessionModel, chooseStartupModel, openCodePlaceholderModel } from '../../src/lib/startup-model'
 
 const custom = {
   id: 'local', name: 'Local', provider: 'custom', api: 'openai-completions', baseUrl: 'http://localhost:4000/v1',
@@ -21,6 +21,14 @@ const staleCloud = {
 } as Model<Api>
 
 describe('startup model fallback', () => {
+  it('provides a stable frontend-only OpenCode placeholder', () => {
+    expect(openCodePlaceholderModel()).toMatchObject({
+      id: 'opencode-managed',
+      provider: 'opencode',
+      baseUrl: 'opencode://managed',
+    })
+  })
+
   it('does not let an unavailable persisted Cloud model override the current catalog', () => {
     expect(chooseStartupModel([cloud], staleCloud, staleCloud)).toEqual(expect.objectContaining({ id: 'cloud-current' }))
   })

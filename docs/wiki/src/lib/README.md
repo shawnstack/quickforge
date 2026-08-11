@@ -31,7 +31,8 @@
 | `tool-display-settings.ts` | 40 | Tool 与上下文用量展示设置 |
 | `tool-execution-events.ts` | 120 | 工具执行事件处理 |
 | `sidebar-session-sort-mode.ts` | 左侧会话时间线排序偏好的 `localStorage` 安全读写，刷新后恢复且不参与后端同步 |
-| `system-notifications.ts` | 浏览器 Notification API 与 Capacitor Android 本地通知统一适配；管理当前设备权限、开关、后台展示、点击打开会话和短时去重 |
+| `chat-harness-capabilities.ts` | 主聊天 Harness capability 静态表与页面策略 resolver；QuickForge 默认全开，OpenCode P0 关闭模型/思考、Plan/Access、命令与 capability suggestions、上下文压缩、历史派生（按消息 fork/rollback/retry），P1 开放整会话 fork（`forkSession`）与 OpenCode 动态配置（`harnessConfig`） |
+| `system-notifications.ts` | 浏览器 Notification/Service Worker 与 Capacitor Android 本地通知统一适配；管理当前设备权限、安卓远程浏览器首次发送授权、后台展示、点击打开会话和短时去重 |
 | `info-tip.ts` | 134 | 统一问号说明浮层 Web Component |
 
 ---
@@ -58,7 +59,7 @@
 - `loadDefaultOptions()` / `saveDefaultOptions()` — 默认选项管理
 - `getConfiguredModels()` — 通过同源 `GET /api/models/catalog` 获取统一公开目录，包含当前可用的自定义模型和 QuickForge Cloud 模型；失败时仅为本机旧环境回退 Provider store。`getSelectableConfiguredModels()` 统一排除 `quickforgeHidden: true`。
 - `saveActiveModel()` / `saveDefaultOptions()` — 写入展示快照并附带版本化 `quickforgeModelRef`，执行 transport 仍由服务端解析。
-- `loadInitialConfiguredModel()` / `resolveNewSessionModel()` — 新会话只从当前可选择目录解析默认、active 或请求模型；已隐藏、已删除或失效的模型不会成为新会话候选。
+- `loadInitialConfiguredModel()` / `resolveNewSessionModel()` — QuickForge 新会话只从当前可选择目录解析默认、active 或请求模型；已隐藏、已删除或失效的模型不会成为新会话候选。OpenCode 新会话改用仅供前端 state/type 的本地占位模型，不要求 QuickForge Provider，且创建 POST 不发送该占位模型。
 - `resolveConfiguredModel()` — 已有会话、分支等持久化绑定按完整模型身份恢复，可继续使用后来被隐藏的模型。
 - DeepSeek V4 推理兼容性处理
 
@@ -89,6 +90,7 @@
 - SSE 事件流管理（`GlobalAgentSseClient`）
 - 消息发送/接收
 - Agent 状态管理（创建、单次恢复、销毁）；`ServerAgent.restore()` 支持 `AbortSignal`，从 `/api/agents/:sessionId/restore` 一次取得完整权威快照，取消的旧会话请求不会创建 SSE；页面刷新或 SSE 重连时会从服务端 state 恢复运行中工具的临时 `toolResult`（含 subagent `details.messages`）和 `pendingToolCalls`
+- OpenCode `acpSession` 快照（configOptions/modes/usage）随 state 事件与 refresh 同步；`setConfigOption`/`setMode` 调用 harness API 并以响应刷新本地；`forkSession` 触发整会话 ACP fork；`acp_session_usage_update` 轻量事件即时更新 usage
 - 系统提示词加载
 - Agent 权限模式切换
 - 自定义命令注入
@@ -183,11 +185,12 @@
 
 **用途**: 复用任务完成 SSE 事件，在 QuickForge 客户端仍运行时显示系统级通知。
 
-- Web 使用浏览器 `Notification` API；Android 使用 `@capacitor/local-notifications`。
-- 权限与启用开关按设备保存在 `localStorage`，设置页必须由用户操作发起授权。
-- 页面前台仍只显示 Toast，后台/失焦时才显示系统通知；通过任务 key 做短时跨标签去重。
-- 点击通知会聚焦应用，并派发已有会话打开事件；通知正文不包含完整 AI 输出。
-- 不提供浏览器关闭或 Android App 被杀死后的 Push/FCM 能力。
+- Web 优先通过 Service Worker registration 的 `showNotification()` 展示通知并携带会话 ID；非 Android 或无 SW 时才回退浏览器 `Notification` 构造器。Android 普通浏览器没有可用 SW registration 时不依赖构造器。
+- Capacitor Android 使用 `@capacitor/local-notifications`；设置页手动授权逻辑保持独立。
+- Android 普通远程浏览器仅在 HTTPS 安全上下文中，于首次有效发送（含仅附件）同步标记并自动申请一次权限；需要 `Notification` 和 Service Worker API 可用。
+- 权限与启用开关按设备保存在 `localStorage`；任务终态在前台也会显示系统通知，仅“运行中”通知在页面可见且有焦点时被抑制，并通过任务 key 做短时跨标签去重。
+- 浏览器通知点击由 Service Worker 聚焦同源窗口并发消息，页面监听消息后派发已有会话打开事件；原生通知点击也复用该会话打开逻辑。通知正文不包含完整 AI 输出。
+- 不提供 Web Push/FCM；普通浏览器页面或原生 App 无法继续接收现有 SSE 时，不保证任务完成通知。
 
 ### info-tip.ts (134 行)
 

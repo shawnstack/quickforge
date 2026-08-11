@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import type { AgentManager } from '@/hooks/useAgentManager'
-import { initializePiStorage } from '@/lib/pi-chat'
+import { initializePiStorage, loadDefaultOptions } from '@/lib/pi-chat'
 import { showAlert } from '@/components/ui/confirm-dialog'
 import { t } from '@/lib/i18n'
 import {
@@ -16,6 +16,9 @@ import type { ProjectInfo, RestoredDraft } from '@/lib/types'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
 import { disposeAgentTask } from '@/lib/agent-task-retention'
+import { DeferredSessionAgent } from '@/lib/deferred-session-agent'
+import { ServerAgent } from '@/lib/server-agent'
+import { resolveBlankDeferredSessionForNewChat } from '@/lib/deferred-session-harness'
 
 type UseChatActionsOptions = {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof initializePiStorage>> | null>
@@ -32,6 +35,7 @@ type UseChatActionsOptions = {
   setChatPanelRevision: AgentManager['setChatPanelRevision']
   refreshSessions: (opts?: { broadcast?: boolean }) => Promise<void>
   needsModelSetup: boolean
+  setNeedsModelSetup: React.Dispatch<React.SetStateAction<boolean>>
   switchActiveProject: (projectId: string) => Promise<ProjectInfo>
   closeWorkspacePage: () => void
   setRestoredDraft: React.Dispatch<React.SetStateAction<RestoredDraft | undefined>>
@@ -41,10 +45,6 @@ function clearSessionQueryParam() {
   const url = new URL(window.location.href)
   url.searchParams.delete('session')
   window.history.replaceState({}, '', url)
-}
-
-function isIdleEmptyAgent(agent: AgentManager['agentRef']['current']) {
-  return Boolean(agent && !agent.state.isStreaming && agent.state.messages.length === 0)
 }
 
 export function useChatActions({
@@ -62,30 +62,55 @@ export function useChatActions({
   setChatPanelRevision,
   refreshSessions,
   needsModelSetup,
+  setNeedsModelSetup,
   switchActiveProject,
   closeWorkspacePage,
   setRestoredDraft,
 }: UseChatActionsOptions) {
   const startNewGlobalChat = useCallback(async () => {
     if (needsModelSetup) {
-      void showAlert(t('modelSetupRequired'))
-      return
+      const defaultOptions = storageRef.current ? await loadDefaultOptions(storageRef.current) : {}
+      if ((defaultOptions.harness ?? 'quickforge') !== 'opencode') {
+        void showAlert(t('modelSetupRequired'))
+        return
+      }
+      setNeedsModelSetup(false)
     }
 
     closeWorkspacePage()
-    if (isIdleEmptyAgent(agentRef.current) && currentChatScopeRef.current === 'global') {
+    const currentAgent = agentRef.current
+    const blankSession = await resolveBlankDeferredSessionForNewChat({
+      isDeferredSession: currentAgent instanceof DeferredSessionAgent,
+      isStreaming: currentAgent?.state.isStreaming ?? false,
+      messageCount: currentAgent?.state.messages.length ?? 0,
+      currentScope: currentChatScopeRef.current,
+      targetScope: 'global',
+      currentHarness: currentAgent?.harness ?? 'quickforge',
+    }, async () => {
+      const defaultOptions = storageRef.current ? await loadDefaultOptions(storageRef.current) : {}
+      return defaultOptions.harness ?? 'quickforge'
+    })
+    if (blankSession.action === 'reuse') return
+    if (blankSession.action === 'replace') {
+      setRestoredDraft(undefined)
+      clearSessionQueryParam()
+      await startDeferredSession({ scope: 'global', harness: blankSession.defaultHarness })
       return
     }
     setRestoredDraft(undefined)
     clearSessionQueryParam()
 
     await startDeferredSession({ scope: 'global' })
-  }, [agentRef, currentChatScopeRef, needsModelSetup, setRestoredDraft, closeWorkspacePage, startDeferredSession])
+  }, [agentRef, currentChatScopeRef, needsModelSetup, setNeedsModelSetup, setRestoredDraft, closeWorkspacePage, startDeferredSession, storageRef])
 
   const startNewProjectChat = useCallback(async (targetProject?: ProjectInfo) => {
     if (needsModelSetup) {
-      void showAlert(t('modelSetupRequired'))
-      return
+      const defaultOptions = storageRef.current ? await loadDefaultOptions(storageRef.current) : {}
+      if ((defaultOptions.harness ?? 'quickforge') !== 'opencode') {
+        void showAlert(t('modelSetupRequired'))
+        return
+      }
+      setNeedsModelSetup(false)
     }
 
     closeWorkspacePage()
@@ -93,11 +118,28 @@ export function useChatActions({
     const nextProject = targetProject ?? activeProjectRef.current
     if (!nextProject) return
 
-    if (isIdleEmptyAgent(agentRef.current) && currentChatScopeRef.current === 'project' && activeProjectRef.current?.id === nextProject.id) {
+    const currentAgent = agentRef.current
+    const blankSession = await resolveBlankDeferredSessionForNewChat({
+      isDeferredSession: currentAgent instanceof DeferredSessionAgent,
+      isStreaming: currentAgent?.state.isStreaming ?? false,
+      messageCount: currentAgent?.state.messages.length ?? 0,
+      currentScope: currentChatScopeRef.current,
+      targetScope: 'project',
+      currentHarness: currentAgent?.harness ?? 'quickforge',
+    }, async () => {
+      const defaultOptions = storageRef.current ? await loadDefaultOptions(storageRef.current) : {}
+      return defaultOptions.harness ?? 'quickforge'
+    })
+    const matchesCurrentProject = activeProjectRef.current?.id === nextProject.id
+    if (matchesCurrentProject && blankSession.action === 'reuse') return
+    if (matchesCurrentProject && blankSession.action === 'replace') {
+      setRestoredDraft(undefined)
+      clearSessionQueryParam()
+      await startDeferredSession({ scope: 'project', project: nextProject, harness: blankSession.defaultHarness })
       return
     }
 
-    if (activeProjectRef.current?.id !== nextProject.id) {
+    if (!matchesCurrentProject) {
       await switchActiveProject(nextProject.id)
     }
 
@@ -105,11 +147,16 @@ export function useChatActions({
     clearSessionQueryParam()
 
     await startDeferredSession({ scope: 'project', project: nextProject })
-  }, [activeProjectRef, agentRef, currentChatScopeRef, needsModelSetup, setRestoredDraft, closeWorkspacePage, startDeferredSession, switchActiveProject])
+  }, [activeProjectRef, agentRef, currentChatScopeRef, needsModelSetup, setNeedsModelSetup, setRestoredDraft, closeWorkspacePage, startDeferredSession, storageRef, switchActiveProject])
 
   const rollbackFromMessage = useCallback(async (messageIndex: number) => {
     const currentAgent = agentRef.current
     if (!currentAgent) return
+
+    if (currentAgent.harness === 'opencode') {
+      void showAlert(t('openCodeMessageHistoryActionUnavailable'))
+      return
+    }
 
     if (currentAgent.state.isStreaming) {
       void showAlert(t('generationStillRunning'))
@@ -187,6 +234,8 @@ export function useChatActions({
         project,
         attachToView: true,
         title: 'New chat',
+        harness: currentAgent.harness,
+        sourceHarnessSessionId: undefined,
       },
     )
 
@@ -218,9 +267,47 @@ export function useChatActions({
     }
   }, [])
 
+  /**
+   * Fork the entire current OpenCode session (not per-message). The server
+   * performs the ACP whole-session fork, persists the new session and announces
+   * it through `session_forked`, which switches the view to the new session.
+   */
+  const forkCurrentSession = useCallback(async () => {
+    const currentAgent = agentRef.current
+    if (!currentAgent || !(currentAgent instanceof ServerAgent)) return
+    if (currentAgent.harness !== 'opencode') return
+
+    if (currentAgent.state.isStreaming) {
+      void showAlert(t('generationAlreadyRunning'))
+      return
+    }
+    if (!currentAgent.harnessSessionId) {
+      void showAlert(t('openCodeForkUnavailable'))
+      return
+    }
+
+    try {
+      await currentAgent.forkSession()
+    } catch (error) {
+      logger.error('Failed to fork current conversation:', error)
+      void showAlert(error instanceof Error ? error.message : t('openCodeForkFailed'))
+      return
+    }
+
+    const storage = storageRef.current
+    if (storage) {
+      refreshSessions({ broadcast: true }).catch((error) => logger.error('Failed to refresh sessions:', error))
+    }
+  }, [agentRef, refreshSessions, storageRef])
+
   const forkFromMessage = useCallback(async (messageIndex: number) => {
     const currentAgent = agentRef.current
     if (!currentAgent) return
+
+    if (currentAgent.harness === 'opencode') {
+      void showAlert(t('openCodeMessageHistoryActionUnavailable'))
+      return
+    }
 
     if (currentAgent.state.isStreaming) {
       void showAlert(t('generationAlreadyRunning'))
@@ -234,6 +321,7 @@ export function useChatActions({
     const project = scope === 'project' ? activeProjectRef.current : undefined
     const newSessionId = randomId()
     const title = generateTitle(messages)
+    const sourceHarnessSessionId = undefined
 
     const storage = storageRef.current
 
@@ -250,6 +338,8 @@ export function useChatActions({
         project,
         attachToView: true,
         title,
+        harness: currentAgent.harness,
+        sourceHarnessSessionId,
       },
     )
 
@@ -261,6 +351,11 @@ export function useChatActions({
   const retryFromMessage = useCallback(async (messageIndex: number) => {
     const currentAgent = agentRef.current
     if (!currentAgent) return
+
+    if (currentAgent.harness === 'opencode') {
+      void showAlert(t('openCodeMessageHistoryActionUnavailable'))
+      return
+    }
 
     if (currentAgent.state.isStreaming) {
       void showAlert(t('generationAlreadyRunning'))
@@ -304,5 +399,6 @@ export function useChatActions({
     retryFromMessage,
     copyAnswer,
     forkFromMessage,
+    forkCurrentSession,
   }
 }

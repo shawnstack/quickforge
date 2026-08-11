@@ -217,6 +217,8 @@ export type MessageDecorationDeps = {
   onForkFromMessage: (messageIndex: number) => void
   onOpenLocalFilePath?: (path: string) => void
   disableFork: boolean
+  allowRollback?: boolean
+  allowRetry?: boolean
   readOnly?: boolean
   enableTerminalCommandActions?: boolean
   rollbackConfirmTitle?: string
@@ -257,6 +259,8 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     onForkFromMessage,
     onOpenLocalFilePath,
     disableFork,
+    allowRollback = true,
+    allowRetry = true,
     readOnly = false,
     enableTerminalCommandActions = true,
     rollbackConfirmTitle = t('rollbackConfirmTitle'),
@@ -338,7 +342,8 @@ export function decorateMessages(deps: MessageDecorationDeps) {
       }
       if (readOnly) removeRollbackConfirmPopover(panel)
       existingActions.querySelectorAll<HTMLButtonElement>('button[data-quickforge-action="rollback"], button[data-quickforge-action="retry"], button[data-quickforge-action="fork"]').forEach((button) => {
-        if (readOnly) {
+        const action = button.dataset.quickforgeAction
+        if (readOnly || (action === 'rollback' && !allowRollback) || (action === 'retry' && !allowRetry) || (action === 'fork' && disableFork)) {
           button.closest('.quickforge-rollback-action')?.remove()
           button.remove()
           return
@@ -350,7 +355,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
 
       // Manage retry button visibility: only show on the last user message
       const existingRetry = existingActions.querySelector<HTMLButtonElement>('button[data-quickforge-action="retry"]')
-      const isLastUser = !readOnly && lastUserEntry && entry.index === lastUserEntry.index && entry.message.role !== 'assistant'
+      const isLastUser = !readOnly && allowRetry && lastUserEntry && entry.index === lastUserEntry.index && entry.message.role !== 'assistant'
       if (existingRetry && !isLastUser) {
         existingRetry.remove()
       } else if (!existingRetry && isLastUser) {
@@ -398,7 +403,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
         actions.append(copyBtn)
       }
 
-      if (!readOnly) {
+      if (!readOnly && allowRollback) {
         const rollbackAction = createRollbackAction({
           panel,
           messageIndex: entry.index,
@@ -410,7 +415,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
         actions.append(rollbackAction)
       }
 
-      if (!readOnly && lastUserEntry && entry.index === lastUserEntry.index) {
+      if (!readOnly && allowRetry && lastUserEntry && entry.index === lastUserEntry.index) {
         const retryButton = createIconActionButton('retry', t('retry'), retryIcon, () => {
           onRetryFromMessage(entry.index)
         })

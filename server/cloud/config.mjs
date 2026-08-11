@@ -3,7 +3,7 @@ import net from 'node:net'
 const DEFAULT_TIMEOUT_MS = 10_000
 
 function isLoopbackHost(hostname) {
-  const host = String(hostname || '').toLowerCase()
+  const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '')
   if (host === 'localhost' || host.endsWith('.localhost')) return true
   const ip = net.isIP(host)
   if (ip === 4) return host.startsWith('127.')
@@ -27,6 +27,9 @@ export function parseCloudBaseUrl(value, _options = {}) {
   }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
     throw new Error('QUICKFORGE_CLOUD_URL must use http or https.')
+  }
+  if (url.protocol === 'http:' && !isLoopbackHost(url.hostname)) {
+    throw new Error('QUICKFORGE_CLOUD_URL over HTTP is only allowed for loopback hosts.')
   }
   if (url.pathname.includes('..')) throw new Error('QUICKFORGE_CLOUD_URL contains an unsafe path.')
   url.pathname = `${url.pathname.replace(/\/+$/, '')}/`

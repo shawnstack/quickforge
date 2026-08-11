@@ -18,6 +18,8 @@ describe('cloud config', () => {
   it('allows HTTP only for loopback addresses without an environment switch', () => {
     expect(parseCloudBaseUrl('http://127.0.0.1:8080').origin).toBe('http://127.0.0.1:8080')
     expect(parseCloudBaseUrl('http://localhost:8082').href).toBe('http://localhost:8082/')
+    expect(parseCloudBaseUrl('http://[::1]:8081').href).toBe('http://[::1]:8081/')
+    expect(parseCloudBaseUrl('http://dev.localhost:8083').href).toBe('http://dev.localhost:8083/')
     expect(() => parseCloudBaseUrl('http://192.168.1.2:8080')).toThrow()
   })
 })

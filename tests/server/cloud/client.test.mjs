@@ -9,14 +9,14 @@ describe('cloud client device flow', () => {
     }))
     const client = new CloudClient({ baseUrl: new URL('https://cloud.test/base/'), fetchImpl })
 
-    await client.authorizeDevice('guest-access', 'install-1', 'quickforge-desktop')
+    await client.authorizeDevice({ installationId: 'install-1', clientId: 'quickforge-desktop' })
     await client.exchangeDeviceCode('device-secret', 'quickforge-desktop')
 
     expect(fetchImpl).toHaveBeenNthCalledWith(1, new URL('https://cloud.test/base/oauth/device_authorization'), expect.objectContaining({
       method: 'POST',
       body: JSON.stringify({ installationId: 'install-1', clientId: 'quickforge-desktop' }),
     }))
-    expect(new Headers(fetchImpl.mock.calls[0][1].headers).get('authorization')).toBe('Bearer guest-access')
+    expect(new Headers(fetchImpl.mock.calls[0][1].headers).get('authorization')).toBeNull()
     expect(fetchImpl).toHaveBeenNthCalledWith(2, new URL('https://cloud.test/base/oauth/token'), expect.objectContaining({
       method: 'POST',
       body: JSON.stringify({

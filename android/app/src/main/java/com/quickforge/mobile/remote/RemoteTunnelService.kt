@@ -35,7 +35,9 @@ import java.nio.ByteBuffer
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -61,12 +63,22 @@ class RemoteTunnelService : Service() {
         private const val WS_PING_INTERVAL_MS = 10_000L
         private const val CHUNK_SIZE = 16 * 1024
         private const val WS_CONNECT_TIMEOUT_S = 15L
+        /** 背压等待超时（毫秒）：防止丢失唤醒导致 socket 读线程长时间空等。 */
+        private const val BACKPRESSURE_POLL_MS = 50L
+        /** 待发送帧 Java executor 队列字节预算（4MB，按字节计 permit，Int 可容纳）。 */
+        private const val SEND_QUEUE_MAX_BYTES = 4 * 1024 * 1024
         /** 指数退避重连：单次延迟上限（秒）。 */
         private const val RECONNECT_MAX_DELAY_S = 30L
         /** 指数退避重连：附加随机抖动上限（毫秒）。 */
         private const val RECONNECT_JITTER_MS = 500L
-        /** ICE DISCONNECTED 后等待恢复的超时（毫秒）。 */
-        private const val ICE_RECOVERY_TIMEOUT_MS = 15_000L
+        /** ICE DISCONNECTED 后等待瞬时自愈，再发起 restart offer。 */
+        private const val ICE_RESTART_DELAY_MS = 2_000L
+        /** ICE restart 等待恢复的总超时。 */
+        private const val ICE_RESTART_TIMEOUT_MS = 10_000L
+        /** 默认网络切换事件去抖，避免系统连续回调触发多次协商。 */
+        private const val NETWORK_CHANGE_DEBOUNCE_MS = 800L
+        /** 信令短断保留数据面的最长恢复时间（需小于 agent ICE 断线宽限）。 */
+        private const val SIGNAL_RESUME_TIMEOUT_MS = 12_000L
         /** 持久化目标设备与自动重连标志（服务被系统重建后用于恢复）。 */
         private const val PREF_NAME = "qf_remote"
         private const val PREF_TARGET = "targetInstallation"
@@ -114,19 +126,36 @@ class RemoteTunnelService : Service() {
 
     private val engineLock = Any()
 
+    /** socket 读线程等待 DataChannel 缓冲排空的同步点（与 teardown/唤醒互斥）。 */
+    private val backpressureLock: java.lang.Object = java.lang.Object()
+    /** socket→DataChannel 背压水位门（共享，见 [awaitDrainForBackpressure]）。 */
+    private val backpressure = BackpressureGate()
+    /** 发送帧队列字节预算信号量：按字节计 permit，保证 dcWriter 队列待发字节有界。 */
+    private val sendQueueBudget = Semaphore(SEND_QUEUE_MAX_BYTES)
+
     private lateinit var store: CloudAccountStore
     private lateinit var cloudApi: CloudApi
 
     private var signal: SignalClient? = null
     private var peerConnection: PeerConnection? = null
+    /** @Volatile：背压等待循环在 engineLock 外读取，需跨线程可见 teardown 置空。 */
+    @Volatile
     private var dataChannel: DataChannel? = null
     private var serverSocket: ServerSocket? = null
     private var acceptThread: Thread? = null
     private var pingTask: ScheduledFuture<*>? = null
     /** 指数退避重连定时任务（control 线程 / engineLock 保护）。 */
     private var reconnectTask: ScheduledFuture<*>? = null
-    /** ICE DISCONNECTED 恢复超时定时任务（engineLock 保护）。 */
-    private var iceRecoveryTask: ScheduledFuture<*>? = null
+    /** ICE restart 延迟/超时任务（control 线程 / engineLock 保护）。 */
+    private var iceRestartDelayTask: ScheduledFuture<*>? = null
+    private var iceRestartTimeoutTask: ScheduledFuture<*>? = null
+    private var networkRestartTask: ScheduledFuture<*>? = null
+    private var restartInProgress = false
+    private var signalReconnectTask: ScheduledFuture<*>? = null
+    private var signalResumeTimeoutTask: ScheduledFuture<*>? = null
+    private var signalReconnectAttempt = 0
+    private var signalResumeReason = "信令连接中断"
+    private var lastDefaultNetwork: Network? = null
     /** 重连退避计数（1,2,4,8,16,30,30...），仅在 control 线程读写。 */
     private var reconnectAttempt = 0
     /** 是否允许自动重连；用户主动断开 / 退出登录时置 false。 */
@@ -320,7 +349,8 @@ class RemoteTunnelService : Service() {
         var openError: String? = null
         var openOk = false
 
-        val client = SignalClient(
+        lateinit var client: SignalClient
+        client = SignalClient(
             CloudHttp.client,
             SignalClient.wsUrl(cloudUrl),
             { SessionStore.accessToken },
@@ -345,9 +375,9 @@ class RemoteTunnelService : Service() {
                         return
                     }
                     control.execute {
-                        if (!isCurrentGeneration(generation)) return@execute
+                        if (!isCurrentGeneration(generation) || signal !== client) return@execute
                         if (openOk) {
-                            teardownTunnel(reason ?: "信号连接已关闭", STATE_IDLE, autoReconnect = true)
+                            handleSignalLoss(reason ?: "信号连接已关闭", generation)
                         } else {
                             opened.countDown()
                         }
@@ -360,12 +390,12 @@ class RemoteTunnelService : Service() {
                         return
                     }
                     control.execute {
-                        if (!isCurrentGeneration(generation)) return@execute
+                        if (!isCurrentGeneration(generation) || signal !== client) return@execute
                         if (!openOk) {
                             openError = error
                             opened.countDown()
                         } else {
-                            teardownTunnel(error, STATE_ERROR, autoReconnect = true)
+                            handleSignalLoss(error, generation)
                         }
                     }
                 }
@@ -374,7 +404,19 @@ class RemoteTunnelService : Service() {
         signal = client
         client.connect()
 
-        if (!opened.await(WS_CONNECT_TIMEOUT_S, TimeUnit.SECONDS)) {
+        val openedOk: Boolean = try {
+            opened.await(WS_CONNECT_TIMEOUT_S, TimeUnit.SECONDS)
+        } catch (e: InterruptedException) {
+            // 控制线程被中断（如服务销毁/快速重连）：恢复中断标志避免吞掉中断，
+            // 仅在代际仍有效时干净收尾（fail 触发 teardown 关闭信令连接），
+            // 防止控制线程意外死亡导致连接泄漏或误伤新一代连接。
+            Thread.currentThread().interrupt()
+            if (isCurrentGeneration(generation)) {
+                fail("信令连接被中断", generation)
+            }
+            return
+        }
+        if (!openedOk) {
             fail("信令连接超时", generation)
             return
         }
@@ -447,36 +489,21 @@ class RemoteTunnelService : Service() {
                             PeerConnection.IceConnectionState.FAILED ->
                                 control.execute {
                                     if (isCurrentGeneration(generation)) {
-                                        fail("ICE 连接失败", generation, autoReconnect = true)
+                                        beginIceRestart("ICE 连接失败", generation)
                                     }
                                 }
                             PeerConnection.IceConnectionState.DISCONNECTED -> {
                                 if (!isCurrentGeneration(generation)) return
-                                Log.d(TAG, "ICE disconnected, waiting for recovery")
-                                // 15 秒内未恢复则判为断线，走自动重连
-                                synchronized(engineLock) {
-                                    iceRecoveryTask?.cancel(false)
-                                    iceRecoveryTask = pingScheduler.schedule(
-                                        {
-                                            control.execute {
-                                                if (isCurrentGeneration(generation)) {
-                                                    teardownTunnel("ICE 连接中断", STATE_IDLE, autoReconnect = true)
-                                                }
-                                            }
-                                        },
-                                        ICE_RECOVERY_TIMEOUT_MS,
-                                        TimeUnit.MILLISECONDS,
-                                    )
-                                }
+                                Log.d(TAG, "ICE disconnected, scheduling restart")
+                                scheduleIceRestart("ICE 连接中断", generation)
                             }
-                            PeerConnection.IceConnectionState.CONNECTED -> {
-                                if (!isCurrentGeneration(generation)) return
-                                // ICE 已恢复，取消恢复超时定时器
-                                synchronized(engineLock) {
-                                    iceRecoveryTask?.cancel(false)
-                                    iceRecoveryTask = null
+                            PeerConnection.IceConnectionState.CONNECTED,
+                            PeerConnection.IceConnectionState.COMPLETED ->
+                                control.execute {
+                                    if (isCurrentGeneration(generation)) {
+                                        completeIceRestart()
+                                    }
                                 }
-                            }
                             else -> {}
                         }
                     }
@@ -525,7 +552,10 @@ class RemoteTunnelService : Service() {
         Log.i(TAG, "DataChannel created")
         dataChannel = dc
         dc.registerObserver(object : DataChannel.Observer {
-            override fun onBufferedAmountChange(previousAmount: Long) {}
+            override fun onBufferedAmountChange(previousAmount: Long) {
+                // 缓冲量变化（通常为下降）：唤醒可能因背压暂停的 socket 读线程重新评估水位
+                synchronized(backpressureLock) { backpressureLock.notifyAll() }
+            }
 
             override fun onStateChange() {
                 if (!isCurrentGeneration(generation)) return
@@ -558,7 +588,25 @@ class RemoteTunnelService : Service() {
             }
         })
 
-        val constraints = MediaConstraints()
+        createAndSendOffer(pc, sid, installationId, generation, isRestart = false)
+    }
+
+    private fun createAndSendOffer(
+        pc: PeerConnection,
+        sid: String,
+        installationId: String,
+        generation: Long,
+        isRestart: Boolean,
+    ) {
+        if (!isCurrentGeneration(generation)) return
+        if (isRestart) {
+            try {
+                pc.restartIce()
+            } catch (e: Exception) {
+                fallbackFullReconnect("ICE restart 启动失败: ${e.message}", generation)
+                return
+            }
+        }
         pc.createOffer(
             object : SdpObserver {
                 override fun onCreateSuccess(sdp: SessionDescription?) {
@@ -580,7 +628,11 @@ class RemoteTunnelService : Service() {
                                 )
                             }
                             override fun onSetFailure(error: String?) {
-                                fail("设置本地 SDP 失败: $error", generation)
+                                if (isRestart) {
+                                    control.execute { fallbackFullReconnect("设置 ICE restart SDP 失败: $error", generation) }
+                                } else {
+                                    fail("设置本地 SDP 失败: $error", generation)
+                                }
                             }
                         },
                         localSdp,
@@ -588,14 +640,94 @@ class RemoteTunnelService : Service() {
                 }
 
                 override fun onCreateFailure(error: String?) {
-                    fail("创建 offer 失败: $error", generation)
+                    if (isRestart) {
+                        control.execute { fallbackFullReconnect("创建 ICE restart offer 失败: $error", generation) }
+                    } else {
+                        fail("创建 offer 失败: $error", generation)
+                    }
                 }
 
                 override fun onSetSuccess() {}
                 override fun onSetFailure(error: String?) {}
             },
-            constraints,
+            MediaConstraints(),
         )
+    }
+
+    private fun scheduleIceRestart(reason: String, generation: Long) {
+        synchronized(engineLock) {
+            iceRestartDelayTask?.cancel(false)
+            iceRestartDelayTask = pingScheduler.schedule(
+                { control.execute { beginIceRestart(reason, generation) } },
+                ICE_RESTART_DELAY_MS,
+                TimeUnit.MILLISECONDS,
+            )
+        }
+    }
+
+    private fun beginIceRestart(reason: String, generation: Long) {
+        if (!isCurrentGeneration(generation) || restartInProgress) return
+        val pc = peerConnection
+        val sid = sessionId
+        val installationId = targetInstallation
+        if (currentState != STATE_CONNECTED || pc == null || sid == null || installationId == null) {
+            fallbackFullReconnect(reason, generation)
+            return
+        }
+        // 信令正在短断重挂时先保留 PeerConnection/DataChannel；新 WS onOpen 后会再次
+        // 调用 beginIceRestart。最终失败由 signalResumeTimeoutTask 统一回退全量重连。
+        if (signal == null) {
+            if (signalResumeTimeoutTask != null) return
+            fallbackFullReconnect(reason, generation)
+            return
+        }
+        val pendingLocalOffer = if (pc.signalingState() == PeerConnection.SignalingState.HAVE_LOCAL_OFFER) {
+            pc.localDescription
+        } else {
+            null
+        }
+        restartInProgress = true
+        synchronized(engineLock) {
+            iceRestartDelayTask?.cancel(false)
+            iceRestartDelayTask = null
+            iceRestartTimeoutTask?.cancel(false)
+            iceRestartTimeoutTask = pingScheduler.schedule(
+                { control.execute { fallbackFullReconnect("$reason，ICE restart 超时", generation) } },
+                ICE_RESTART_TIMEOUT_MS,
+                TimeUnit.MILLISECONDS,
+            )
+        }
+        if (pendingLocalOffer != null) {
+            Log.i(TAG, "resending pending ICE restart offer: $reason")
+            signal?.send(
+                SignalMessage(
+                    type = "offer",
+                    sessionId = sid,
+                    installationId = installationId,
+                    sdp = pendingLocalOffer.description,
+                )
+            )
+        } else {
+            Log.i(TAG, "starting ICE restart: $reason")
+            createAndSendOffer(pc, sid, installationId, generation, isRestart = true)
+        }
+    }
+
+    private fun completeIceRestart() {
+        synchronized(engineLock) {
+            iceRestartDelayTask?.cancel(false)
+            iceRestartDelayTask = null
+            iceRestartTimeoutTask?.cancel(false)
+            iceRestartTimeoutTask = null
+        }
+        if (restartInProgress) Log.i(TAG, "ICE restart completed")
+        restartInProgress = false
+    }
+
+    private fun fallbackFullReconnect(reason: String, generation: Long) {
+        if (!isCurrentGeneration(generation)) return
+        Log.w(TAG, "ICE restart fallback: $reason")
+        teardownTunnel(reason, STATE_IDLE, autoReconnect = true)
     }
 
     private fun handleSignal(message: SignalMessage, generation: Long) {
@@ -706,6 +838,9 @@ class RemoteTunnelService : Service() {
             val input = socket.getInputStream()
             val buffer = ByteArray(CHUNK_SIZE)
             while (true) {
+                // 应用层背压：DataChannel 缓冲超水位时暂停读取，等待排空后再投递；
+                // 等待期间通道关闭/置空或线程中断返回 false，立即退出读取循环
+                if (!awaitDrainForBackpressure()) break
                 val n = input.read(buffer)
                 if (n < 0) break
                 sendToChannel(TunnelFrames.encodeData(streamId, buffer.copyOf(n)))
@@ -718,23 +853,51 @@ class RemoteTunnelService : Service() {
         }
     }
 
-    /** 帧 -> socket 路由（DataChannel 消息串行到达；与 teardown 互斥）。 */
+    /**
+     * 依据 [BackpressureGate] 高/低水位暂停当前 socket 读线程：超过高水位时
+     * 等待直到降至低水位（迟滞）。返回 true 表示缓冲可继续投递；
+     * 返回 false 表示线程被中断或 [dataChannel] 已置空 / 未 OPEN，调用方应退出循环。
+     * teardown 会置空 [dataChannel] 并 notifyAll，等待线程据此尽快退出，
+     * 随后 socket 已被关闭，read 抛异常结束循环——不会无限空等。
+     */
+    private fun awaitDrainForBackpressure(): Boolean {
+        while (true) {
+            if (Thread.currentThread().isInterrupted) return false
+            val dc = dataChannel
+            if (dc == null || dc.state() != DataChannel.State.OPEN) return false
+            synchronized(backpressureLock) {
+                backpressure.update(dc.bufferedAmount())
+                if (!backpressure.paused) return true
+                try {
+                    // 超时兜底 + onBufferedAmountChange/teardown 的 notifyAll 唤醒
+                    backpressureLock.wait(BACKPRESSURE_POLL_MS)
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return false
+                }
+            }
+        }
+    }
+
+    /**
+     * 帧 -> socket 路由（DataChannel 消息串行到达；与 teardown 互斥）。
+     * 锁内仅解析帧并取出 socket 引用，socket write/flush 移到锁外执行：
+     * 本地 TCP 对端不读数据时 write 可能长时间阻塞，若持 engineLock 会阻断
+     * teardownTunnel 等全部需要该锁的路径；锁外写失败后安全 closeStream。
+     */
     private fun handleChannelBytes(bytes: ByteArray) {
+        data class Pending(val streamId: Int, val socket: Socket?, val payload: ByteArray?)
+        val pending = ArrayList<Pending>()
         synchronized(engineLock) {
             val frames = frameDecoder.push(bytes)
             for (frame in frames) {
                 when (frame.type) {
                     TunnelFrames.TYPE_DATA -> {
                         val socket = streams[frame.streamId] ?: continue
-                        try {
-                            val out = socket.getOutputStream()
-                            out.write(frame.payload)
-                            out.flush()
-                        } catch (_: Exception) {
-                            closeStream(frame.streamId)
-                        }
+                        pending.add(Pending(frame.streamId, socket, frame.payload))
                     }
-                    TunnelFrames.TYPE_CLOSE, TunnelFrames.TYPE_ERROR -> closeStream(frame.streamId)
+                    TunnelFrames.TYPE_CLOSE, TunnelFrames.TYPE_ERROR ->
+                        pending.add(Pending(frame.streamId, null, null))
                     TunnelFrames.TYPE_OPEN -> {
                         // agent 不会主动 OPEN，忽略
                     }
@@ -742,21 +905,66 @@ class RemoteTunnelService : Service() {
                 }
             }
         }
+        for (p in pending) {
+            val socket = p.socket
+            if (socket != null) {
+                try {
+                    val out = socket.getOutputStream()
+                    out.write(p.payload!!)
+                    out.flush()
+                } catch (_: Exception) {
+                    closeStream(p.streamId)
+                }
+            } else {
+                closeStream(p.streamId)
+            }
+        }
     }
 
-    /** 整帧原子入队发送（多路流复用单 DataChannel 的串行化点）。 */
+    /**
+     * 整帧原子入队发送（多路流复用单 DataChannel 的串行化点）。
+     * 提交前先按帧字节数从 [sendQueueBudget] 循环获取 permit（50ms 轮询），使
+     * Java executor 队列的待发字节真正有界；期间每轮核对当前 [dataChannel] 仍是
+     * 捕获的 dc 且 OPEN、线程未被中断，否则放弃投递直接 return。
+     * 任务执行后（无论成败）都会 release 对应 permit。
+     * 注意：native bufferedAmount 仅用于 [awaitDrainForBackpressure] 的水位判断，
+     * 并不单独限制发送队列，队列有界性由本预算信号量保证。
+     */
     private fun sendToChannel(frame: ByteArray) {
         val dc = dataChannel ?: return
-        dcWriter.execute {
-            synchronized(sendLock) {
+        val size = frame.size
+        while (true) {
+            if (Thread.currentThread().isInterrupted) return
+            // 每轮核对通道仍是捕获的实例且处于 OPEN：teardown/关闭后立即放弃
+            if (dataChannel !== dc || dc.state() != DataChannel.State.OPEN) return
+            val acquired = try {
+                sendQueueBudget.tryAcquire(size, BACKPRESSURE_POLL_MS, TimeUnit.MILLISECONDS)
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return
+            }
+            if (acquired) break
+        }
+        try {
+            dcWriter.execute {
                 try {
-                    if (dc.state() == DataChannel.State.OPEN) {
-                        dc.send(DataChannel.Buffer(ByteBuffer.wrap(frame), true))
+                    synchronized(sendLock) {
+                        if (dc.state() == DataChannel.State.OPEN) {
+                            dc.send(DataChannel.Buffer(ByteBuffer.wrap(frame), true))
+                        }
                     }
                 } catch (_: Exception) {
                     // send race after close: ignore
+                } finally {
+                    sendQueueBudget.release(size)
                 }
             }
+        } catch (e: RejectedExecutionException) {
+            // executor 已关闭（如服务销毁）：归还预算，避免泄漏
+            sendQueueBudget.release(size)
+        } catch (e: RuntimeException) {
+            // execute 阶段其它运行时异常同样归还预算
+            sendQueueBudget.release(size)
         }
     }
 
@@ -778,6 +986,101 @@ class RemoteTunnelService : Service() {
         }
     }
 
+    private fun handleSignalLoss(reason: String, generation: Long) {
+        if (!isCurrentGeneration(generation)) return
+        val dc = dataChannel
+        if (currentState != STATE_CONNECTED || dc == null || dc.state() != DataChannel.State.OPEN) {
+            teardownTunnel(reason, STATE_IDLE, autoReconnect = true)
+            return
+        }
+        signalResumeReason = reason
+        synchronized(engineLock) {
+            iceRestartDelayTask?.cancel(false)
+            iceRestartDelayTask = null
+            iceRestartTimeoutTask?.cancel(false)
+            iceRestartTimeoutTask = null
+            restartInProgress = false
+        }
+        pingTask?.cancel(true)
+        pingTask = null
+        signal?.close()
+        signal = null
+        if (signalResumeTimeoutTask == null) {
+            signalResumeTimeoutTask = pingScheduler.schedule(
+                { control.execute { fallbackFullReconnect("$signalResumeReason，信令恢复超时", generation) } },
+                SIGNAL_RESUME_TIMEOUT_MS,
+                TimeUnit.MILLISECONDS,
+            )
+        }
+        scheduleSignalReconnect(generation, immediate = signalReconnectAttempt == 0)
+    }
+
+    private fun scheduleSignalReconnect(generation: Long, immediate: Boolean = false) {
+        if (!isCurrentGeneration(generation) || signalReconnectTask != null) return
+        val attempt = signalReconnectAttempt++
+        val delayMs = signalReconnectDelayMs(attempt, immediate)
+        signalReconnectTask = pingScheduler.schedule(
+            { control.execute { reconnectSignal(generation) } },
+            delayMs,
+            TimeUnit.MILLISECONDS,
+        )
+    }
+
+    private fun reconnectSignal(generation: Long) {
+        signalReconnectTask = null
+        if (!isCurrentGeneration(generation) || signal != null) return
+        val cloudUrl = store.cloudUrl() ?: run {
+            fallbackFullReconnect("信令恢复失败：未登录", generation)
+            return
+        }
+        lateinit var client: SignalClient
+        client = SignalClient(
+            CloudHttp.client,
+            SignalClient.wsUrl(cloudUrl),
+            { SessionStore.accessToken },
+            object : SignalClient.Listener {
+                override fun onOpen() {
+                    control.execute {
+                        if (!isCurrentGeneration(generation) || signal !== client) return@execute
+                        lastPongAt = System.currentTimeMillis()
+                        signalReconnectAttempt = 0
+                        signalReconnectTask?.cancel(false)
+                        signalReconnectTask = null
+                        signalResumeTimeoutTask?.cancel(false)
+                        signalResumeTimeoutTask = null
+                        client.send(SignalMessage(type = "hello"))
+                        startPing(generation)
+                        beginIceRestart("信令连接已恢复", generation)
+                    }
+                }
+
+                override fun onMessage(message: SignalMessage) {
+                    if (isCurrentGeneration(generation)) handleSignal(message, generation)
+                }
+
+                override fun onClosed(code: Int, reason: String?) {
+                    control.execute {
+                        if (isCurrentGeneration(generation) && signal === client) {
+                            signal = null
+                            scheduleSignalReconnect(generation)
+                        }
+                    }
+                }
+
+                override fun onFailure(error: String) {
+                    control.execute {
+                        if (isCurrentGeneration(generation) && signal === client) {
+                            signal = null
+                            scheduleSignalReconnect(generation)
+                        }
+                    }
+                }
+            },
+        )
+        signal = client
+        client.connect()
+    }
+
     // ------------------------------------------------------------ heartbeat
 
     private fun startPing(generation: Long) {
@@ -787,10 +1090,10 @@ class RemoteTunnelService : Service() {
                 if (isCurrentGeneration(generation)) {
                     val now = System.currentTimeMillis()
                     if (now - lastPongAt > 2 * WS_PING_INTERVAL_MS) {
-                        // 心跳超时：判为断线，走自动重连（ping 任务线程，需投递 control）
+                        // 信令心跳超时：优先仅重挂 WebSocket，保留仍可用的数据面。
                         control.execute {
                             if (isCurrentGeneration(generation)) {
-                                teardownTunnel("心跳超时", STATE_IDLE, autoReconnect = true)
+                                handleSignalLoss("心跳超时", generation)
                             }
                         }
                     } else {
@@ -830,8 +1133,18 @@ class RemoteTunnelService : Service() {
             pingTask = null
             reconnectTask?.cancel(false)
             reconnectTask = null
-            iceRecoveryTask?.cancel(false)
-            iceRecoveryTask = null
+            iceRestartDelayTask?.cancel(false)
+            iceRestartDelayTask = null
+            iceRestartTimeoutTask?.cancel(false)
+            iceRestartTimeoutTask = null
+            networkRestartTask?.cancel(false)
+            networkRestartTask = null
+            signalReconnectTask?.cancel(false)
+            signalReconnectTask = null
+            signalResumeTimeoutTask?.cancel(false)
+            signalResumeTimeoutTask = null
+            signalReconnectAttempt = 0
+            restartInProgress = false
             lastPongAt = 0L
 
             acceptThread?.interrupt()
@@ -860,6 +1173,8 @@ class RemoteTunnelService : Service() {
             if (!keepTarget) {
                 targetInstallation = null
             }
+            // 唤醒因背压暂停的 socket 读线程：通道/代际已变，令其尽快退出等待
+            synchronized(backpressureLock) { backpressureLock.notifyAll() }
         }
         closedDataChannel?.close()
         closedPeerConnection?.close()
@@ -916,15 +1231,28 @@ class RemoteTunnelService : Service() {
 
     // ------------------------------------------------------------ network
 
-    /** 默认网络回调：网络恢复时若处于退避重连状态则立即重连（跳过退避等待）。 */
+    /** 默认网络回调：网络恢复时立即重连；已连接时默认网络变化触发去抖 ICE restart。 */
     private fun registerNetworkCallback() {
         val manager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 control.execute {
-                    if (reconnectEnabled && targetInstallation != null &&
-                        currentState != STATE_CONNECTING && currentState != STATE_CONNECTED
-                    ) {
+                    val previous = lastDefaultNetwork
+                    lastDefaultNetwork = network
+                    if (previous == null) return@execute
+                    if (currentState == STATE_CONNECTED && previous != network) {
+                        synchronized(engineLock) {
+                            networkRestartTask?.cancel(false)
+                            val generation = currentGeneration
+                            networkRestartTask = pingScheduler.schedule(
+                                { control.execute { beginIceRestart("默认网络已切换", generation) } },
+                                NETWORK_CHANGE_DEBOUNCE_MS,
+                                TimeUnit.MILLISECONDS,
+                            )
+                        }
+                        return@execute
+                    }
+                    if (reconnectEnabled && targetInstallation != null && currentState != STATE_CONNECTING && currentState != STATE_CONNECTED) {
                         Log.i(TAG, "network available, reconnecting immediately")
                         cancelReconnectTask()
                         reconnectAttempt = 0

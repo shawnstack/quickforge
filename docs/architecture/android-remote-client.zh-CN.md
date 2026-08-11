@@ -66,11 +66,19 @@ http://devbox.example.ts.net:5176
 
 ## 系统通知
 
-Android 薄壳通过 `@capacitor/local-notifications` 调用系统通知栏。用户必须在“设置 → 常规 → 系统通知”中主动授权；通知开关保存在当前设备，不会随 QuickForge 服务同步。任务完成事件仍来自现有 SSE，因此只有 App 仍在运行并能收到事件时才能通知；App 被系统结束后不会继续收到通知，也不等同于 FCM 推送。
+### Capacitor 原生壳
 
-任务终态（完成 `idle`、失败 `error`、中止 `aborted`）在 App 前台时也会弹出系统通知，只有“运行中”（`running`）的调度任务通知在页面可见且有焦点时被抑制，避免前台打扰。
+Android 薄壳通过 `@capacitor/local-notifications` 调用系统通知栏。用户在“设置 → 常规 → 系统通知”中主动授权；通知开关保存在当前设备，不会随 QuickForge 服务同步。任务完成事件仍来自现有 SSE，因此只有 App 仍在运行并能收到事件时才能通知；App 被系统结束后不会继续收到通知，也不等同于 FCM 推送。
 
-Android 13 及以上会在启用时请求运行时通知权限。通知正文只显示任务状态和打开详情提示，不直接暴露完整 AI 输出。
+任务终态（完成 `idle`、失败 `error`、中止 `aborted`）在 App 前台时也会弹出系统通知，只有“运行中”（`running`）的调度任务通知在页面可见且有焦点时被抑制，避免前台打扰。Android 13 及以上会在启用时请求运行时通知权限。通知正文只显示任务状态和打开详情提示，不直接暴露完整 AI 输出。
+
+### Android 普通浏览器
+
+通过 Chrome 等普通 Android 浏览器远程访问时，不使用 Capacitor 通知。首次有效发送消息（包括仅附件发送）会在用户手势内自动申请一次浏览器通知权限，之后不重复自动弹窗；设置页手动授权仍可独立使用。自动申请仅适用于远程 QuickForge、Android UA、安全上下文且浏览器同时支持 Notification 与 Service Worker 的情况。
+
+普通浏览器必须使用 HTTPS 才能获得安全上下文和可靠的 Service Worker 通知能力；Tailscale 内部 HTTP 地址不会触发自动申请。通知通过 Service Worker registration 展示，点击后可聚焦仍存在的同源 QuickForge 页面并打开对应会话。
+
+该方案不是 Web Push：任务完成通知仍依赖页面存活并持续接收现有 SSE。浏览器页面被彻底关闭、被系统冻结或回收后，不保证收到完成通知；若点击通知时没有现有窗口，Service Worker 只会尝试打开 QuickForge 首页。
 
 ## 文字选择与外部链接
 

@@ -29,6 +29,23 @@ self.addEventListener('activate', (event) => {
   )
 })
 
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const sessionId = event.notification.data?.sessionId
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then(async (windowClients) => {
+        const client = windowClients.find((candidate) => new URL(candidate.url).origin === self.location.origin)
+        if (client) {
+          await client.focus()
+          client.postMessage({ type: 'quickforge:open-session', sessionId })
+          return
+        }
+        await self.clients.openWindow('/')
+      }),
+  )
+})
+
 self.addEventListener('fetch', (event) => {
   const { request } = event
   const url = new URL(request.url)

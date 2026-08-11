@@ -56,7 +56,12 @@ function deviceLabel(device: RemoteTunnelDevice | CloudRemoteDevice): string {
   return device.name?.trim() || device.installationId
 }
 
-export function CloudRemotePage() {
+type CloudRemotePageProps = {
+  /** 会话状态变化（原生探测 / 登录成功 / 切换账号 / 退出登录）时通知父组件，用于同步顶部“云账户”tab 的邮箱展示。 */
+  onSessionChange?: (session: RemoteTunnelHasSession) => void
+}
+
+export function CloudRemotePage({ onSessionChange }: CloudRemotePageProps) {
   const [phase, setPhase] = useState<Phase>('checking')
   const [credentialMode, setCredentialMode] = useState<CredentialMode>('login')
   const [email, setEmail] = useState('')
@@ -143,6 +148,7 @@ export function CloudRemotePage() {
         const session = await RemoteTunnel.hasSession()
         if (!active) return
         setSessionInfo(session)
+        onSessionChange?.(session)
         const savedUrl = session.cloudUrl
         if (savedUrl) {
           setBaseUrl((current) => (current === CLOUD_API_DEFAULT_BASE_URL ? savedUrl : current))
@@ -155,7 +161,7 @@ export function CloudRemotePage() {
     return () => {
       active = false
     }
-  }, [])
+  }, [onSessionChange])
 
   const handleContinueSession = async () => {
     setSessionChoiceAction('continue')
@@ -180,6 +186,7 @@ export function CloudRemotePage() {
       setTunnelState(null)
       setPassword('')
       setPhase('sign-in')
+      onSessionChange?.({ signedIn: false })
     } catch (signOutError) {
       setError(errorMessage(signOutError))
     } finally {
@@ -214,6 +221,7 @@ export function CloudRemotePage() {
             email: trimmedEmail,
           })
           setSessionInfo({ signedIn: true, email: trimmedEmail, cloudUrl: client.cloudUrl })
+          onSessionChange?.({ signedIn: true, email: trimmedEmail, cloudUrl: client.cloudUrl })
           await loadDevices()
         } else {
           setNotice('已在电脑端完成设备授权；若电脑端 QuickForge 正在等待授权，请返回电脑端确认。')
@@ -233,6 +241,7 @@ export function CloudRemotePage() {
         email: trimmedEmail,
       })
       setSessionInfo({ signedIn: true, email: trimmedEmail, cloudUrl: client.cloudUrl })
+      onSessionChange?.({ signedIn: true, email: trimmedEmail, cloudUrl: client.cloudUrl })
       await loadDevices()
     } catch (submitError) {
       setError(signInErrorText(submitError))
@@ -275,6 +284,7 @@ export function CloudRemotePage() {
       setPassword('')
       setPhase('sign-in')
       setBusy(false)
+      onSessionChange?.({ signedIn: false })
     }
   }
 

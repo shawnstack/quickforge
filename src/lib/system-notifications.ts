@@ -2,9 +2,12 @@ import { Capacitor } from '@capacitor/core'
 import type { BackgroundTaskStatus } from './types'
 import { t } from './i18n'
 import { logger } from './logger'
+import { isRemoteQuickForgeClient } from './mobile-server'
 
 const ENABLED_STORAGE_KEY = 'quickforge:system-notifications-enabled'
+const ANDROID_REMOTE_PERMISSION_REQUESTED_STORAGE_KEY = 'quickforge:android-remote-notification-permission-requested:v1'
 const RECENT_STORAGE_KEY = 'quickforge:system-notifications-recent:v1'
+const SERVICE_WORKER_OPEN_SESSION_MESSAGE = 'quickforge:open-session'
 const RECENT_WINDOW_MS = 10_000
 const MAX_RECENT_ENTRIES = 100
 
@@ -25,6 +28,7 @@ type NotificationPayload = {
 type RecentNotifications = Record<string, number>
 
 let nativeListenerInitialized = false
+let serviceWorkerListenerInitialized = false
 
 function nativeNotificationBridge(): NativeNotificationBridge | undefined {
   if (typeof window === 'undefined' || !Capacitor.isNativePlatform()) return undefined
@@ -152,6 +156,22 @@ export function setSystemNotificationsEnabled(enabled: boolean): void {
   syncNativeNotificationService()
 }
 
+export function requestAndroidRemoteSystemNotificationPermissionOnce(): void {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return
+  if (Capacitor.isNativePlatform() || !/Android/i.test(navigator.userAgent)) return
+  if (!isRemoteQuickForgeClient() || !window.isSecureContext) return
+  if (typeof Notification === 'undefined' || !navigator.serviceWorker) return
+  if (Notification.permission !== 'default' || typeof localStorage === 'undefined') return
+
+  try {
+    if (localStorage.getItem(ANDROID_REMOTE_PERMISSION_REQUESTED_STORAGE_KEY)) return
+    localStorage.setItem(ANDROID_REMOTE_PERMISSION_REQUESTED_STORAGE_KEY, '1')
+  } catch {
+    return
+  }
+  void requestSystemNotificationPermission()
+}
+
 export async function getSystemNotificationPermission(): Promise<SystemNotificationPermission> {
   try {
     if (isNativeNotificationsAvailable()) {
@@ -199,6 +219,14 @@ export async function initializeSystemNotifications(): Promise<void> {
   // Restore the native polling service on startup so background notifications
   // survive page reloads and app restarts.
   syncNativeNotificationService()
+  if (!serviceWorkerListenerInitialized && typeof navigator !== 'undefined' && navigator.serviceWorker) {
+    serviceWorkerListenerInitialized = true
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      const data = event.data as { type?: unknown; sessionId?: unknown } | undefined
+      if (data?.type !== SERVICE_WORKER_OPEN_SESSION_MESSAGE) return
+      openSession(typeof data.sessionId === 'string' ? data.sessionId : undefined)
+    })
+  }
   if (!isNativeNotificationsAvailable() || nativeListenerInitialized) return
   nativeListenerInitialized = true
   try {
@@ -244,6 +272,25 @@ export async function showTaskSystemNotification(payload: NotificationPayload): 
     }
 
     if (typeof Notification === 'undefined') return false
+    const androidBrowser = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)
+    if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
+      try {
+        const registration = await navigator.serviceWorker.getRegistration()
+        if (registration?.showNotification) {
+          await registration.showNotification(payload.title, {
+            body,
+            icon: '/pwa-icon-192.png',
+            tag: payload.key,
+            data: { sessionId: payload.sessionId },
+          })
+          return true
+        }
+      } catch (error) {
+        logger.warn('Failed to show Service Worker notification:', error)
+      }
+    }
+    if (androidBrowser) return false
+
     const notification = new Notification(payload.title, {
       body,
       icon: '/pwa-icon-192.png',

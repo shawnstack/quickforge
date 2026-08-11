@@ -212,20 +212,20 @@ export function MobileServerConnectPage() {
             type="button"
             role="tab"
             aria-selected={activeTab === 'cloud'}
-            className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-medium transition-colors ${activeTab === 'cloud' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+            className={`flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1.5 py-1.5 text-sm font-medium transition-colors ${activeTab === 'cloud' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
             onClick={() => setActiveTab('cloud')}
           >
-            <Cloud className="size-4" aria-hidden="true" />
-            云账户
-            {cloudSession.signedIn ? (
-              <span className="max-w-24 truncate rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600">
-                {cloudSession.email || '已登录'}
-              </span>
+            <span className="flex items-center justify-center gap-1.5">
+              <Cloud className="size-4" aria-hidden="true" />
+              云账户
+            </span>
+            {cloudSession.signedIn && cloudSession.email ? (
+              <span className="block w-full max-w-full truncate text-center text-xs leading-tight text-muted-foreground/80">{cloudSession.email}</span>
             ) : null}
           </button>
         </div>
         {activeTab === 'cloud' ? (
-          <CloudRemotePage />
+          <CloudRemotePage onSessionChange={setCloudSession} />
         ) : (
         <section className="mx-auto w-full max-w-md">
         <header className="mb-8 flex items-start gap-3.5">

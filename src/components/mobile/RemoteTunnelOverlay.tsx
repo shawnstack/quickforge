@@ -3,6 +3,7 @@ import type { PluginListenerHandle } from '@capacitor/core'
 import { Loader2, RefreshCw, WifiOff } from 'lucide-react'
 import { isRemoteQuickForgeClient } from '@/lib/mobile-server'
 import { RemoteTunnel, type RemoteTunnelState } from '@/lib/remote-tunnel'
+import { recoverTunnelConnection } from '@/lib/tunnel-recovery'
 
 /** 返回设备列表的地址（与 openMobileServerPicker('cloud') 一致，即原生壳连接页的云账户 tab）。 */
 const DEVICE_LIST_URL = 'https://localhost/?connect=1&tab=cloud'
@@ -33,7 +34,8 @@ async function probeTunnel(): Promise<boolean> {
  * 生效，桌面端与壳连接页不渲染。
  *
  * 原生层断线后自动指数退避重连，本组件负责在断线期间提示用户（可立即重试或返回设备
- * 列表），并在隧道恢复（connected 事件 + 18080 端口可访问）后刷新页面恢复远程界面。
+ * 列表），并在隧道恢复（connected 事件 + 18080 端口可访问）后优先免刷新恢复远程界面
+ * （服务可用性/运行任务状态对账 + 派发恢复事件），仅在对账失败时整页刷新兜底。
  */
 export function RemoteTunnelOverlay() {
   const [unavailable, setUnavailable] = useState(false)
@@ -45,22 +47,20 @@ export function RemoteTunnelOverlay() {
   /** ref 镜像供事件回调/effect 读取最新值（不在 render 中使用）。 */
   const hadDisconnectRef = useRef(false)
   const reconnectCountRef = useRef(0)
-  /** 防重入：probe + reload 同时只能有一路在跑。 */
-  const recoveringRef = useRef(false)
 
-  /** Probe 成功后刷新页面恢复远程界面；失败则保持覆盖层等待下一次状态事件。 */
+  /**
+   * 隧道恢复：probe + 对账成功则免刷新（派发 online / quickforge:tunnel-recovered 事件
+   * 通知应用层刷新），对账失败由协调器最多重试一次后 reload 兜底。
+   * 防重入由协调器 module 级锁保证（重复触发返回 deferred，保持覆盖层等待）。
+   */
   const recoverFromDisconnect = useCallback(async () => {
-    if (recoveringRef.current) return
-    recoveringRef.current = true
-    try {
-      if (await probeTunnel()) {
-        hadDisconnectRef.current = false
-        setHadDisconnect(false)
-        setState(null)
-        window.location.reload()
-      }
-    } finally {
-      recoveringRef.current = false
+    const result = await recoverTunnelConnection({ probe: probeTunnel })
+    // 免刷新恢复成功：清除断线状态并隐藏覆盖层；reloaded（页面即将刷新）或
+    // deferred（probe 未就绪/已有恢复流程在跑）时保持覆盖层，等待下一次状态事件。
+    if (result.status === 'recovered') {
+      hadDisconnectRef.current = false
+      setHadDisconnect(false)
+      setState(null)
     }
   }, [])
 
@@ -157,7 +157,7 @@ export function RemoteTunnelOverlay() {
     message = `连接已断开，正在自动重连…（已重试 ${reconnectCount} 次）`
   } else if (isRecovering) {
     title = '正在恢复连接'
-    message = '连接已恢复，正在刷新页面…'
+    message = '连接已恢复，正在同步任务状态…'
   } else if (state.state === 'error') {
     title = '连接失败'
     message = state.error || '隧道连接失败，请重试'

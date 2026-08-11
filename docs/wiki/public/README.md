@@ -6,7 +6,7 @@
 |------|------|
 | [favicon.svg](../../public/favicon.svg) | 网站图标 (SVG 格式) |
 | [manifest.webmanifest](../../public/manifest.webmanifest) | PWA manifest，定义安装名称、主题色、启动路径和图标 |
-| [sw.js](../../public/sw.js) | 轻量 PWA Service Worker，缓存前端壳和静态资源，排除 `/api` 请求 |
+| [sw.js](../../public/sw.js) | 轻量 PWA Service Worker，缓存前端壳和静态资源，并处理系统通知点击后的窗口聚焦与会话打开消息 |
 | `pwa-icon-192.png` | PWA 192x192 PNG 图标，深色底 + QF 字母 |
 | `pwa-icon-512.png` | PWA 512x512 PNG 图标，深色底 + QF 字母 |
 | `pwa-maskable-512.png` | PWA maskable 512x512 PNG 图标，保留安全边距用于安装态裁切 |
@@ -30,3 +30,4 @@ PWA manifest 文件，安装名称使用 `QuickForge`，以 `standalone` 模式�
 - 对页面导航使用 network-first，服务不可用时回退到已缓存的前端壳。
 - 对 JS、CSS、图片、字体、manifest 使用 stale-while-revalidate。
 - 明确跳过非 GET、跨域和 `/api` 请求，避免缓存业务 API、SSE、agent、文件或 shell 操作。
+- 浏览器系统通知点击后关闭通知，优先聚焦已有同源 window client，并向页面发送包含 `sessionId` 的 `quickforge:open-session` 消息；没有可用窗口时打开 `/`。该机制不包含 Web Push，仍依赖页面存活接收任务 SSE。

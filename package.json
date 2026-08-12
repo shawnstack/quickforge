@@ -57,7 +57,7 @@
     "test:coverage": "vitest run --coverage",
     "desktop:dev": "electron desktop/electron-main.mjs",
     "desktop:build": "npm run build && electron-builder --config desktop/electron-builder.config.cjs --publish never",
-    "desktop:build:win": "npm run build && electron-builder --config desktop/electron-builder.config.cjs --win --publish never",
+    "desktop:build:win": "npm run build && node desktop/nsis-patch/apply.mjs && electron-builder --config desktop/electron-builder.config.cjs --win --publish never",
     "desktop:build:mac": "npm run build && electron-builder --config desktop/electron-builder.config.cjs --mac --publish never",
     "desktop:build:linux": "npm run build && electron-builder --config desktop/electron-builder.config.cjs --linux --publish never",
     "desktop:build:all": "npm run build && electron-builder --config desktop/electron-builder.config.cjs --win --mac --linux --publish never",

@@ -981,7 +981,7 @@ class DefaultOptionsSettingsTab extends SettingsTab {
               </div>
               <div class="quickforge-settings-row-description">${t('displayLanguage')}</div>
             </div>
-            <div class="quickforge-settings-row-control">
+            <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
               <quickforge-settings-select
                 .value=${this.selectedLanguage}
                 .options=${this.languageOptions()}
@@ -996,7 +996,7 @@ class DefaultOptionsSettingsTab extends SettingsTab {
               <div class="quickforge-settings-row-title">${t('defaultHarness')}</div>
               <div class="quickforge-settings-row-description">${t('defaultHarnessDescription')}</div>
             </div>
-            <div class="quickforge-settings-row-control">
+            <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
               <quickforge-settings-select
                 .value=${this.harness}
                 .options=${this.harnessOptions()}

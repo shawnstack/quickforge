@@ -822,6 +822,8 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 0.9rem;
+  line-height: 1.35;
 }
 
 .quickforge-settings-select-menu {

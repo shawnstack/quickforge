@@ -1,0 +1,30 @@
+{
+  "features": [
+    {
+      "id": "harness-baseline",
+      "name": "Agent Harness 基线",
+      "description": "Baseline agent harness: startup workflow, verification gates, definition of done, session handoff.",
+      "status": "done",
+      "dependencies": [],
+      "updated": "2026-08-12"
+    },
+    {
+      "id": "auto-compaction-trigger-and-usage-refresh",
+      "name": "自动压缩触发与上下文百分比刷新修复",
+      "description": "Fix repeated auto-compaction checks after new messages and refresh context usage immediately after compaction without stale provider usage.",
+      "status": "done",
+      "dependencies": [
+        "harness-baseline"
+      ],
+      "updated": "2026-08-12"
+    },
+    {
+      "id": "settings-tab-select-alignment",
+      "name": "设置页下拉框对齐修复",
+      "description": "设置页下拉框修复：为“语言/默认 Harness/默认模型”等行追加 quickforge-settings-row-control-wide 实现宽度左对齐；并在 trigger-label 上显式设置 font-size: 0.9rem / line-height: 1.35，使收起态已选值与菜单选项字号一致。",
+      "status": "done",
+      "dependencies": [],
+      "updated": "2026-08-12"
+    }
+  ]
+}

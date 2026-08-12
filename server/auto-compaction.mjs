@@ -175,6 +175,46 @@ export function buildAutoCompactLoopMessages(session, messages) {
   return [summaryMessage, ...source.slice(tailStart)]
 }
 
+function messageTimestampMs(message) {
+  const value = message?.timestamp
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return 0
+}
+
+function minimumProviderUsageIndex(session, messages) {
+  if (!session?.contextCompaction?.summaryMessage) return 0
+  const source = Array.isArray(messages) ? messages : []
+  const compactedUpToIndex = Math.min(source.length, Math.max(0, Number(session.contextCompaction.compactedUpToIndex) || 0))
+  let tailStart = compactedUpToIndex
+  while (tailStart < source.length && isToolResultMessage(source[tailStart])) tailStart += 1
+
+  const compactedAt = Date.parse(session.contextCompaction.compactedAt || '')
+  if (Number.isFinite(compactedAt)) {
+    const firstNewMessageIndex = source.findIndex((message) => messageTimestampMs(message) > compactedAt)
+    if (firstNewMessageIndex >= 0) return Math.max(1, firstNewMessageIndex - tailStart + 1)
+  }
+
+  const sourceMessageCount = Number(session.contextCompaction.sourceMessageCount)
+  if (Number.isFinite(sourceMessageCount) && sourceMessageCount > 0 && source.length >= sourceMessageCount) {
+    return Math.max(1, sourceMessageCount - tailStart + 1)
+  }
+  return source.length - tailStart + 1
+}
+
+export function hasNewMessagesSinceCompaction(session, messages) {
+  if (!session?.contextCompaction?.summaryMessage) return true
+  const source = Array.isArray(messages) ? messages : []
+  const sourceMessageCount = Number(session.contextCompaction.sourceMessageCount)
+  if (Number.isFinite(sourceMessageCount) && sourceMessageCount > 0 && source.length > sourceMessageCount) return true
+
+  const compactedAt = Date.parse(session.contextCompaction.compactedAt || '')
+  return Number.isFinite(compactedAt) && source.some((message) => messageTimestampMs(message) > compactedAt)
+}
+
 export async function compactSessionInPlace({
   session,
   messages,
@@ -308,6 +348,7 @@ export function estimateSessionContextUsage(session, messages = session?.agent?.
     messages: loopMessages,
     tools: session.agent.state.tools,
     model: session.model,
+    minimumProviderUsageIndex: minimumProviderUsageIndex(session, sourceMessages),
   })
   value.isCompacted = loopMessages !== sourceMessages
   value.originalMessageCount = sourceMessages.length
@@ -332,6 +373,7 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
     messages: loopMessages,
     tools: session.agent.state.tools,
     model: session.model,
+    minimumProviderUsageIndex: minimumProviderUsageIndex(session, messages),
   })
   if (!usage.contextWindow) return { compacted: false, usage, reason: 'missing_context_window' }
   if (!shouldCompactContextByPercent(usage, settings.thresholdPercent)) return { compacted: false, usage, reason: 'below_threshold' }
@@ -341,7 +383,7 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
   if (session.lastAutoCompactAt && now - session.lastAutoCompactAt < AUTO_COMPACT_MIN_INTERVAL_MS) {
     return { compacted: false, usage, reason: 'recently_compacted' }
   }
-  if (session.contextCompaction?.sourceMessageCount && messages.length <= session.contextCompaction.sourceMessageCount + 2) {
+  if (!hasNewMessagesSinceCompaction(session, messages)) {
     return { compacted: false, usage, reason: 'not_enough_new_messages' }
   }
 

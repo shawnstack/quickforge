@@ -48,7 +48,7 @@ function localMessagesTokens(messages) {
   return normalizeMessagesForTokenEstimate(messages).reduce((total, message) => total + estimateTokens(message), 0)
 }
 
-export function estimateContextUsage({ systemPrompt, messages, tools, model }) {
+export function estimateContextUsage({ systemPrompt, messages, tools, model, minimumProviderUsageIndex = 0 }) {
   const contextWindow = Number(model?.contextWindow) || 0
   const reservedOutputTokens = Math.max(0, Number(model?.maxTokens) || 4096)
   const normalizedMessages = normalizeMessagesForTokenEstimate(messages)
@@ -57,7 +57,12 @@ export function estimateContextUsage({ systemPrompt, messages, tools, model }) {
   const toolsTokens = textTokens(safeJson(tools))
   const messagesTokens = localMessagesTokens(normalizedMessages)
   const estimatedInputTokens = systemPromptTokens + messagesTokens + toolsTokens
-  const providerBasedContextTokens = Math.max(0, Number(coreEstimate.usageTokens) || 0) > 0
+  const normalizedMinimumProviderUsageIndex = Math.max(0, Number(minimumProviderUsageIndex) || 0)
+  const providerUsageIndex = Number.isInteger(coreEstimate.lastUsageIndex) ? coreEstimate.lastUsageIndex : -1
+  const providerUsageTokens = providerUsageIndex >= normalizedMinimumProviderUsageIndex
+    ? Math.max(0, Number(coreEstimate.usageTokens) || 0)
+    : 0
+  const providerBasedContextTokens = providerUsageTokens > 0
     ? Math.max(0, Number(coreEstimate.tokens) || 0)
     : 0
   const inputTokens = providerBasedContextTokens > 0
@@ -84,8 +89,10 @@ export function estimateContextUsage({ systemPrompt, messages, tools, model }) {
       messagesTokens,
       toolsTokens,
       reservedOutputTokens,
-      providerUsageTokens: Math.max(0, Number(coreEstimate.usageTokens) || 0),
-      trailingTokens: Math.max(0, Number(coreEstimate.trailingTokens) || 0),
+      providerUsageTokens,
+      trailingTokens: providerUsageTokens > 0
+        ? Math.max(0, Number(coreEstimate.trailingTokens) || 0)
+        : messagesTokens,
       lastUsageIndex: coreEstimate.lastUsageIndex,
       localEstimatedContextTokens: estimatedInputTokens,
     },

@@ -3,6 +3,8 @@ import {
   DEFAULT_AUTO_COMPACT_SETTINGS,
   DEFAULT_MAX_TAIL_CHARS,
   buildAutoCompactLoopMessages,
+  estimateSessionContextUsage,
+  hasNewMessagesSinceCompaction,
   normalizeAutoCompactSettings,
   tailStartForRecentTurns,
 } from '../../server/auto-compaction.mjs'
@@ -102,6 +104,141 @@ describe('tailStartForRecentTurns', () => {
   it('buildAutoCompactLoopMessages passes messages through unchanged without compaction', () => {
     const messages = [textMessage('user', 'u1'), textMessage('assistant', 'a1')]
     expect(buildAutoCompactLoopMessages({}, messages)).toBe(messages)
+  })
+
+  it('recomputes compacted usage without stale provider usage from the preserved tail', () => {
+    const messages = [
+      textMessage('user', 'old question '.repeat(1000)),
+      textMessage('assistant', 'old answer '.repeat(1000)),
+      textMessage('user', 'recent question'),
+      {
+        ...textMessage('assistant', 'recent answer'),
+        stopReason: 'stop',
+        usage: { input: 70_000, output: 2_000, cacheRead: 0, cacheWrite: 0, totalTokens: 72_000 },
+      },
+    ]
+    const session = {
+      model: { contextWindow: 100_000, maxTokens: 4_000 },
+      agent: { state: { systemPrompt: '', tools: [], messages } },
+      contextCompaction: {
+        summaryMessage: textMessage('user', 'short compact summary'),
+        compactedUpToIndex: 2,
+        sourceMessageCount: messages.length,
+        compactedAt: new Date().toISOString(),
+      },
+    }
+
+    const usage = estimateSessionContextUsage(session, messages)
+
+    expect(usage.inputTokenSource).toBe('estimated')
+    expect(usage.knownInputTokens).toBe(0)
+    expect(usage.breakdown.providerUsageTokens).toBe(0)
+    expect(usage.percent).toBeLessThan(10)
+  })
+
+  it('uses provider usage again after a new assistant response on the compacted context', () => {
+    const messages = [
+      textMessage('user', 'old question'),
+      textMessage('assistant', 'old answer'),
+      textMessage('user', 'recent question'),
+      {
+        ...textMessage('assistant', 'recent answer'),
+        stopReason: 'stop',
+        usage: { input: 70_000, output: 2_000, cacheRead: 0, cacheWrite: 0, totalTokens: 72_000 },
+      },
+      textMessage('user', 'next question'),
+      {
+        ...textMessage('assistant', 'next answer'),
+        stopReason: 'stop',
+        usage: { input: 8_000, output: 500, cacheRead: 0, cacheWrite: 0, totalTokens: 8_500 },
+      },
+    ]
+    const session = {
+      model: { contextWindow: 100_000, maxTokens: 4_000 },
+      agent: { state: { systemPrompt: '', tools: [], messages } },
+      contextCompaction: {
+        summaryMessage: textMessage('user', 'short compact summary'),
+        compactedUpToIndex: 2,
+        sourceMessageCount: 4,
+        compactedAt: new Date(Date.now() - 1000).toISOString(),
+      },
+    }
+
+    const usage = estimateSessionContextUsage(session, messages)
+
+    expect(usage.inputTokenSource).toBe('provider')
+    expect(usage.knownInputTokens).toBe(8_500)
+    expect(usage.breakdown.providerUsageTokens).toBe(8_500)
+    expect(usage.percent).toBe(12.5)
+  })
+
+  it('restores provider usage from a replayed assistant after rollback', () => {
+    const compactedAt = Date.now() - 1000
+    const messages = [
+      { ...textMessage('user', 'old question'), timestamp: compactedAt - 5000 },
+      { ...textMessage('assistant', 'old answer'), timestamp: compactedAt - 4000 },
+      { ...textMessage('user', 'recent question'), timestamp: compactedAt - 3000 },
+      {
+        ...textMessage('assistant', 'recent answer'),
+        timestamp: compactedAt - 2000,
+        stopReason: 'stop',
+        usage: { input: 70_000, output: 2_000, cacheRead: 0, cacheWrite: 0, totalTokens: 72_000 },
+      },
+      { ...textMessage('user', 'replayed question'), timestamp: compactedAt + 100 },
+      {
+        ...textMessage('assistant', 'replayed answer'),
+        timestamp: compactedAt + 200,
+        stopReason: 'stop',
+        usage: { input: 9_000, output: 500, cacheRead: 0, cacheWrite: 0, totalTokens: 9_500 },
+      },
+    ]
+    const session = {
+      model: { contextWindow: 100_000, maxTokens: 4_000 },
+      agent: { state: { systemPrompt: '', tools: [], messages } },
+      contextCompaction: {
+        summaryMessage: textMessage('user', 'short compact summary'),
+        compactedUpToIndex: 2,
+        sourceMessageCount: messages.length,
+        compactedAt: new Date(compactedAt).toISOString(),
+      },
+    }
+
+    const usage = estimateSessionContextUsage(session, messages)
+
+    expect(usage.inputTokenSource).toBe('provider')
+    expect(usage.knownInputTokens).toBe(9_500)
+  })
+
+  it('allows the next compaction check as soon as one new message exists', () => {
+    const session = {
+      contextCompaction: {
+        summaryMessage: textMessage('user', 'summary'),
+        sourceMessageCount: 4,
+        compactedAt: new Date(Date.now() - 1000).toISOString(),
+      },
+    }
+    const messages = [
+      textMessage('user', 'u1'),
+      textMessage('assistant', 'a1'),
+      textMessage('user', 'u2'),
+      textMessage('assistant', 'a2'),
+    ]
+
+    expect(hasNewMessagesSinceCompaction(session, messages)).toBe(false)
+    expect(hasNewMessagesSinceCompaction(session, [...messages, textMessage('user', 'u3')])).toBe(true)
+  })
+
+  it('falls back to message timestamps for legacy compaction metadata without sourceMessageCount', () => {
+    const compactedAt = Date.now() - 1000
+    const session = {
+      contextCompaction: {
+        summaryMessage: textMessage('user', 'summary'),
+        compactedAt: new Date(compactedAt).toISOString(),
+      },
+    }
+
+    expect(hasNewMessagesSinceCompaction(session, [{ ...textMessage('user', 'old'), timestamp: compactedAt - 1 }])).toBe(false)
+    expect(hasNewMessagesSinceCompaction(session, [{ ...textMessage('user', 'new'), timestamp: compactedAt + 1 }])).toBe(true)
   })
 
   it('falls back to the second user turn when the budget is effectively unlimited', () => {

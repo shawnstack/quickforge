@@ -23,6 +23,10 @@
 | [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md) | 行为守则 | — |
 | [LICENSE](../LICENSE) | MIT 许可证 | — |
 | [AGENTS.md](../AGENTS.md) | Agent 使用说明 | — |
+| [feature_list.json](../feature_list.json) | feature 状态清单 | — |
+| [progress.md](../progress.md) | 当前 feature 进度 | — |
+| [session-handoff.md](../session-handoff.md) | 会话交接记录 | — |
+| [init.sh](../init.sh) | 基线验证脚本（bash init.sh） | — |
 | [deploy.bat](../deploy.bat) | 部署脚本 (Windows) | — |
 | [dev-quickforge.bat](../dev-quickforge.bat) | 开发启动脚本 (Windows) | — |
 | [start-quickforge.bat](../start-quickforge.bat) | 快速启动脚本 (Windows) | — |
@@ -44,7 +48,7 @@
 - 类型: `module` (ESM)
 - npm import 入口: `server/public-api.mjs` (`main` 字段)
 - 注册 CLI: `quickforge` / `qf` → `bin/quickforge.mjs`
-- Desktop 脚本: `desktop:dev`、`desktop:build`、`desktop:build:win/mac/linux`、`desktop:build:all`；桌面包通过 Electron 自带 Node 能力启动打包内置 runtime，不依赖用户系统 Node/npm/qf；如本地已有 QuickForge 服务，仅同版本才复用。Windows Desktop 默认启用打包内置的 `node-pty` 本地终端。Windows NSIS 安装器通过 `desktop/installer.nsh` 在安装或升级前请求 QuickForge 正常退出，并在超时后清理安装目录内残留的 QuickForge/qf-agent 进程。Desktop 客户端更新通过 GitHub Releases / 桌面安装包分发；npm 的 `qf update` 和设置页 Runtime 更新只更新 npm 分发的 runtime。
+- Desktop 脚本: `desktop:dev`、`desktop:build`、`desktop:build:win/mac/linux`、`desktop:build:all`；桌面包通过 Electron 自带 Node 能力启动打包内置 runtime，不依赖用户系统 Node/npm/qf；如本地已有 QuickForge 服务，仅同版本才复用。Windows Desktop 默认启用打包内置的 `node-pty` 本地终端。Windows NSIS 安装器通过 `desktop/installer.nsh` 在安装、升级或卸载前请求 QuickForge 正常退出（`--quit-for-update`），并在超时后清理安装目录下残留的全部进程：按规范化安装目录前缀匹配可执行路径（大小写不敏感、避免误匹配相邻目录），涵盖主程序、agent、终端（node-pty）等子进程。安装器全程写诊断日志到 `%TEMP%\QuickForge-installer.log`（UTF-16LE，无 BOM；查看：`Get-Content "$env:TEMP\QuickForge-installer.log" -Encoding Unicode`）：文件头记录安装模式（per-user/per-machine）、是否 UAC 提权内层实例（`UAC_IsInnerInstance`，per-machine 升级时内层实例会跳过运行进程检查，这是排查“QuickForge 无法关闭”弹窗的首要判据）、安装器 PID、目标目录；运行进程检查阶段逐条记录每次探测/强杀到的 PID、进程名、可执行路径与结束结果，以及 `--quit-for-update` 的 ExecWait 卡点；旧版本卸载器结果通过 `customUnInstallCheck` / `customUnInstallCheckCurrentUser` 钩子记录最终退出码 $R0（非 0 即坐实弹窗来自旧卸载器 6 次失败链路 `installUtil.nsh`，而非进程检查）。Desktop 客户端更新通过 GitHub Releases / 桌面安装包分发；npm 的 `qf update` 和设置页 Runtime 更新只更新 npm 分发的 runtime。
 - 核心依赖: `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, `@agentclientprotocol/sdk`
 - 发布包含: `bin/`, `server/`, `skills/`, `plugins/`, `dist/`, `README.md`, `LICENSE`；不包含 `desktop/` 和 Electron 构建产物
 

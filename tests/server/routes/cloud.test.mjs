@@ -226,6 +226,17 @@ describe('cloud routes', () => {
     expect(runtimeFactory).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['POST', '/api/cloud/test-connection', { cloudUrl: 'not a url' }],
+    ['PUT', '/api/cloud/config', { cloudUrl: 'ftp://cloud.example.com' }],
+  ])('returns 400 for an invalid Cloud URL on %s %s', async (method, pathname, body) => {
+    const options = handlerOptions()
+    const handler = createCloudRouteHandler(options)
+    await expect(handler(cloudRequest(method, body), response(), new URL(`http://localhost${pathname}`), { isLocalRequest: true }))
+      .rejects.toMatchObject({ statusCode: 400 })
+    expect(options.saveServiceConfig).not.toHaveBeenCalled()
+  })
+
   it('requires explicit reset confirmation and does not perform remote logout', async () => {
     const current = runtime()
     const options = handlerOptions({ runtimeFactory: () => current })

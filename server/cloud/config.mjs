@@ -1,14 +1,9 @@
-import net from 'node:net'
-
 const DEFAULT_TIMEOUT_MS = 10_000
 
-function isLoopbackHost(hostname) {
-  const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '')
-  if (host === 'localhost' || host.endsWith('.localhost')) return true
-  const ip = net.isIP(host)
-  if (ip === 4) return host.startsWith('127.')
-  if (ip === 6) return host === '::1' || host === '0:0:0:0:0:0:0:1'
-  return false
+function invalidUrl(message) {
+  const error = new Error(message)
+  error.statusCode = 400
+  return error
 }
 
 export function parseCloudBaseUrl(value, _options = {}) {
@@ -19,19 +14,16 @@ export function parseCloudBaseUrl(value, _options = {}) {
   try {
     url = new URL(raw)
   } catch {
-    throw new Error('QUICKFORGE_CLOUD_URL must be a valid URL.')
+    throw invalidUrl('QuickForge Cloud URL must be a valid URL.')
   }
 
   if (url.username || url.password || url.search || url.hash) {
-    throw new Error('QUICKFORGE_CLOUD_URL must not contain credentials, query parameters, or fragments.')
+    throw invalidUrl('QuickForge Cloud URL must not contain credentials, query parameters, or fragments.')
   }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-    throw new Error('QUICKFORGE_CLOUD_URL must use http or https.')
+    throw invalidUrl('QuickForge Cloud URL must use http or https.')
   }
-  if (url.protocol === 'http:' && !isLoopbackHost(url.hostname)) {
-    throw new Error('QUICKFORGE_CLOUD_URL over HTTP is only allowed for loopback hosts.')
-  }
-  if (url.pathname.includes('..')) throw new Error('QUICKFORGE_CLOUD_URL contains an unsafe path.')
+  if (url.pathname.includes('..')) throw invalidUrl('QuickForge Cloud URL contains an unsafe path.')
   url.pathname = `${url.pathname.replace(/\/+$/, '')}/`
   return url
 }

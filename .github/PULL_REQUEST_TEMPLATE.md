@@ -16,6 +16,7 @@ Closes # (issue number)
 
 ## Checklist
 
+- [ ] `npm run test` passes
 - [ ] `npm run lint` passes
 - [ ] `npm run build` passes
 - [ ] I have updated the CHANGELOG if applicable

@@ -2,7 +2,27 @@
 
 All notable changes to QuickForge will be documented in this file.
 
-## [Unreleased]
+## [1.7.7] - 2026-08-12
+
+### Changed
+
+- Allowed the QuickForge Cloud service URL to use HTTP for any host (HTTPS remains supported); invalid user-entered URLs now fail with HTTP 400 instead of 500, and validation messages no longer reference the `QUICKFORGE_CLOUD_URL` environment variable. HTTP is intended only for trusted self-hosted services or intranet gateways, because Cloud credentials are sent as a Bearer token and would otherwise travel in plain text.
+
+### Fixed
+
+- Auto-compaction now re-checks the threshold whenever a new message arrives after a rolling compaction (no longer fixed to three new messages), and refreshes context usage immediately after compaction instead of showing stale pre-compaction provider usage; a fresh assistant usage entry restores provider-authoritative accounting, including rollback-redelivery scenarios.
+- Aligned settings select controls to the same width and set the trigger label font to match the option menu.
+- Reworked the Windows NSIS installer so an upgrade no longer shows a dialog when the old uninstaller fails; the installer self-heals by requesting a clean quit and, after a timeout, cleaning up leftover QuickForge processes in the install directory.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.7.7` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.7.7.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.7.7.tgz
+  ```
 
 ## [1.7.6] - 2026-08-11
 

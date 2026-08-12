@@ -2,12 +2,12 @@
 
 ## Current State
 
-- Feature: `auto-compaction-trigger-and-usage-refresh`
-- Status: `done`
-- Goal: 修复自动压缩偶发超过阈值仍未再次检查，以及压缩完成后上下文百分比仍沿用压缩前 provider usage 的问题。
-- Files: server/auto-compaction.mjs, server/context-usage.mjs, tests/server/auto-compaction.test.mjs, docs/wiki/server/README.md, feature_list.json, progress.md, session-handoff.md
-- Blockers: none
-- Next step: 等待用户验证真实长对话场景；如仍有未触发情况，再重点排查审批超时/拒绝抑制和 provider 不返回 usage 的场景。
+- Feature: `release-v1.7.7-prep`
+- Status: `blocked`（v1.7.7 完整 test/lint/build 与打包已通过，本地 release commit/tag 已创建；远端 push 因无法连接 github.com:443 失败待重试，npm publish 未执行）
+- Goal: 将本地三个 fix 与 Cloud URL 改动纳入 v1.7.7 发布：版本提升、CHANGELOG 更新、test/lint/build 门禁、离线包生成与核验。
+- Files: package.json, package-lock.json, CHANGELOG.md, server/cloud/config.mjs, tests/server/cloud/*, scripts/prepare-patch-release.cjs, AGENTS.md, .github/PULL_REQUEST_TEMPLATE.md, docs/architecture/patch-release-runbook.zh-CN.md, docs/wiki/*, init.sh（纳入发布范围，无需修改）, feature_list.json, progress.md, session-handoff.md
+- Blockers: git push origin master 连续 4 次因无法连接 github.com:443（网络）失败，待网络恢复后重试；push 完成前不得标记 done。
+- Next step: 网络恢复后 `git push origin master --tags` 完成远端发布；npm publish 待用户确认后执行（默认不执行，指令：`cd package-offline && npm publish --access public`）。
 - Last Updated: 2026-08-12
 
 ## Completed Work
@@ -29,7 +29,24 @@
 - settings-tab-select-alignment 验证：`npm run lint` exit code 0，仅 7 个既有 warning（desktop/nsis-patch/apply.mjs no-console、server/cloud/identity.mjs no-useless-assignment），无 error；`npm run build` exit code 0，仅既有 KaTeX 字体与大 chunk warning。
 - 独立 Explore 代码审查：两个修复无阻断问题；回滚后 provider usage 恢复边界已按建议修正并补测试。
 
+## v1.7.7 发布准备与验证（2026-08-12）
+
+- 版本：`npm version patch --no-git-tag-version`，package.json / package-lock.json（root 与 packages[""]）均为 1.7.7。
+- CHANGELOG.md：Unreleased 整理为 `[1.7.7] - 2026-08-12`，含 Cloud URL 改动（HTTP 建议仅用于可信自建服务/内网网关，注明 Bearer token 明文风险）、三个 fix（auto-compaction 触发与 usage 刷新、settings select 对齐、NSIS 升级自愈）、Released 小节与 1.7.7 离线包命令；格式与 1.7.6 一致。
+- README.md：核查无硬编码版本（无 1.7.x/v1.7/shawnstack-quickforge- 引用），未做改动。
+- 已纳入发布的既有改动（审查通过）：Cloud 配置/路由/测试、prepare-patch-release.cjs（test 门禁）、runbook（手动流程优先）、AGENTS.md（Startup/Verification/DoD）、PR 模板（test 勾选）、wiki（root-config、scripts）。init.sh 纳入发布范围但内容无需修改。
+- 排除项：`.qf_staging/`、`artifacts/`、空文件 `c` 未纳入，未删除任何用户文件。
+
 ## Notes
 
 - 工作区存在与本任务无关的并发改动和未跟踪项，已保留且未主动修改。
 - `dist/` 为 build 生成产物，未手工修改。
+
+## v1.7.7 门禁与打包结果（2026-08-12）
+
+- `npm run test`：exit code 0，141 个测试文件 / 1088 项测试全部通过（100%）。
+- `npm run lint`：exit code 0，0 error，1 个既有 warning（server/cloud/identity.mjs no-useless-assignment）。
+- `npm run build`：exit code 0，仅既有 KaTeX 字体未解析与大 chunk warning。
+- 打包：`node scripts/prepare-runtime-package.cjs`、`node scripts/prepare-offline-package.cjs`、`cd package-offline && npm pack` 均 exit 0。
+- tarball：`package-offline/shawnstack-quickforge-1.7.7.tgz`，25.1 MB，291 文件；核验无 .qf_staging、artifacts、`c`、临时/日志/.env/node_modules/.git 内容。
+- 未执行 commit/tag/push/publish；`dist/`、`package-dist/`、`package-offline/` 未手工修改。

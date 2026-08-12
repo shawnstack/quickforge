@@ -21,22 +21,24 @@ Options:
   --notes-file <path>      Read explicit CHANGELOG markdown from a UTF-8 file.
   --skip-version           Do not run npm version patch; use the current package.json version.
                            Useful when resuming after a failed release-prep command.
-  --no-build               Skip npm run build.
+  --no-test                Skip npm run test.
   --no-lint                Skip npm run lint.
+  --no-build               Skip npm run build.
   --no-pack                Skip runtime/offline package generation.
   --dry-run                Print the planned actions without changing files or running checks.
   -h, --help               Show this help.
 
 The script updates package.json/package-lock.json, README.md and CHANGELOG.md,
-runs build/lint, prepares package-dist and package-offline, and creates the
+runs test/lint/build, prepares package-dist and package-offline, and creates the
 offline tarball. It does not commit, tag, push, or publish to npm.
 `)
 }
 
 function parseArgs(argv) {
   const options = {
-    build: true,
+    test: true,
     lint: true,
+    build: true,
     pack: true,
     skipVersion: false,
     dryRun: false,
@@ -49,10 +51,12 @@ function parseArgs(argv) {
     const arg = argv[i]
     if (arg === '-h' || arg === '--help') {
       options.help = true
-    } else if (arg === '--no-build') {
-      options.build = false
+    } else if (arg === '--no-test') {
+      options.test = false
     } else if (arg === '--no-lint') {
       options.lint = false
+    } else if (arg === '--no-build') {
+      options.build = false
     } else if (arg === '--no-pack') {
       options.pack = false
     } else if (arg === '--skip-version') {
@@ -295,8 +299,9 @@ function main() {
   console.log(`  last tag: ${lastTag || '(none)'}`)
   console.log(`  current package version: ${packageJson.version}`)
   console.log(`  target version: ${plannedVersion}`)
-  console.log(`  build: ${options.build ? 'yes' : 'no'}`)
+  console.log(`  test: ${options.test ? 'yes' : 'no'}`)
   console.log(`  lint: ${options.lint ? 'yes' : 'no'}`)
+  console.log(`  build: ${options.build ? 'yes' : 'no'}`)
   console.log(`  package: ${options.pack ? 'yes' : 'no'}`)
   if (initialStatus) {
     console.log('\nCurrent working tree changes will be included in the release if you commit them:')
@@ -325,8 +330,9 @@ function main() {
   updateReadme(oldVersion, version)
   updateChangelog(version, today(), notes)
 
-  if (options.build) run(npmCmd, ['run', 'build'])
+  if (options.test) run(npmCmd, ['run', 'test'])
   if (options.lint) run(npmCmd, ['run', 'lint'])
+  if (options.build) run(npmCmd, ['run', 'build'])
 
   if (options.pack) {
     run(nodeCmd, ['scripts/prepare-runtime-package.cjs'])

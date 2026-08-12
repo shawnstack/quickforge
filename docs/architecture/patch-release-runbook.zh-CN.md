@@ -9,7 +9,7 @@
 - 当前分支已有待发布变更。
 - 需要将 `package.json` / `package-lock.json` 的 patch 版本号递增。
 - 需要更新 `CHANGELOG.md` 和 `README.md` 中的当前发布版本信息。
-- 需要执行构建、lint、运行时包、离线包生成。
+- 需要执行 test/lint/build 验证、运行时包、离线包生成。
 - 需要提交 Git、打 tag、推送远端。
 - npm 发布需要由用户在本地登录后手动执行，或用户明确授权且环境已登录 npm 后再执行。
 
@@ -53,7 +53,7 @@ npm run release:patch:prepare
 - 执行 `npm version patch --no-git-tag-version`。
 - 更新 `README.md` 中的版本徽章、npm 安装版本、离线包路径和 tag 文案。
 - 在 `CHANGELOG.md` 顶部新增版本章节；默认基于最近 tag 之后的 commit 摘要和当前工作区文件生成草稿，也可用 `--notes` 或 `--notes-file` 提供更精确的发布说明。
-- 执行 `npm run build` 和 `npm run lint`。
+- 执行 `npm run test`、`npm run lint` 和 `npm run build`（任一失败即停止）。
 - 生成 `package-dist/`、`package-offline/`，并在 `package-offline/` 中执行 `npm pack` 生成用于 npm 发布的 tarball。
 - 最后输出需要人工复核和执行的 Git / npm 命令。
 
@@ -71,8 +71,8 @@ npm run release:patch:prepare -- --notes-file release-notes.md
 # 从失败的发布准备中继续：当前 package.json 版本已 bump 时使用
 npm run release:patch:prepare -- --skip-version
 
-# 只更新版本和文档，不跑构建 / lint / 打包（仅用于调试，正式发布不要跳过）
-npm run release:patch:prepare -- --no-build --no-lint --no-pack
+# 只更新版本和文档，不跑 test / lint / 构建 / 打包（仅用于调试，正式发布不要跳过）
+npm run release:patch:prepare -- --no-test --no-lint --no-build --no-pack
 ```
 
 如果脚本被人工用于调试且失败：
@@ -120,9 +120,12 @@ git diff --stat <last-tag>..HEAD
 必须执行：
 
 ```bash
-npm run build
+npm run test
 npm run lint
+npm run build
 ```
+
+test 为发布硬门禁：正式发布任何 test 失败，不得创建 release commit、tag 或 push，不能以“历史失败”豁免；修复并重新通过后才可继续。
 
 如命令失败：
 
@@ -265,7 +268,7 @@ npm deprecate @shawnstack/quickforge@<version> "Deprecated release, please upgra
 默认执行：
 
 1. 检查工作区和分支。
-2. 优先运行 `npm run release:patch:prepare` 完成 patch 递增、发布文档更新、build/lint、运行时包和离线包生成。
+2. 默认按 3.3–3.6 手动流程执行：patch 递增、发布文档更新、test/lint/build 验证、运行时包和离线包生成；`npm run release:patch:prepare` 仅当人工明确要求调试该脚本时使用（见 3.2）。
 3. 复核脚本输出、`git diff` 和 `git status`。
 4. Git commit、tag、push。
 5. 不自动 npm publish；最终给用户完整 npm 发布指令。
@@ -275,7 +278,7 @@ npm deprecate @shawnstack/quickforge@<version> "Deprecated release, please upgra
 - 新版本号。
 - release commit。
 - tag。
-- 构建、lint、离线包生成结果。
+- test、lint、build、离线包生成结果。
 - 离线包路径。
 - npm 发布指令。
 - 发现的 warning / 风险。

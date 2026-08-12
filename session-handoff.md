@@ -1,13 +1,17 @@
 # Session Handoff
 
-- Feature: `auto-compaction-trigger-and-usage-refresh`
-- Status: `done`
-- Current Objective: 自动压缩触发与压缩后上下文百分比刷新问题已完成修复并通过完整验证。
-- Files touched: server/auto-compaction.mjs, server/context-usage.mjs, tests/server/auto-compaction.test.mjs, docs/wiki/server/README.md, feature_list.json, progress.md, session-handoff.md
-- Blockers: none
-- Recommended Next Step: 由用户在真实长对话中验证阈值触发和压缩后百分比即时下降；若仍偶发不触发，优先检查 pending approval、5 分钟审批超时和 10 分钟拒绝抑制日志。
+- Feature: `release-v1.7.7-prep`
+- Status: `blocked`（v1.7.7 完整 test/lint/build 与打包已通过，本地 release commit/tag 已创建；远端 push 因无法连接 github.com:443 失败待重试，npm publish 未执行）
+- Current Objective: 完成 v1.7.7 发布准备与验证：版本提升 1.7.6→1.7.7、CHANGELOG 更新、test/lint/build 门禁全通过、离线包生成并核验。
+- Files touched: package.json, package-lock.json, CHANGELOG.md, server/cloud/config.mjs, tests/server/cloud/config.test.mjs, tests/server/routes/cloud.test.mjs, scripts/prepare-patch-release.cjs, AGENTS.md, .github/PULL_REQUEST_TEMPLATE.md, docs/architecture/patch-release-runbook.zh-CN.md, docs/wiki/root-config.md, docs/wiki/scripts/README.md, init.sh（纳入发布，未改动）, feature_list.json, progress.md, session-handoff.md
+- Blockers: git push origin master 连续 4 次因无法连接 github.com:443（网络）失败，待网络恢复后重试；push 完成前不得标记 done。
+- Recommended Next Step: 网络恢复后 `git push origin master --tags` 完成远端发布；npm publish 待用户确认后执行（默认不执行，指令：`cd package-offline && npm publish --access public`）。本地 commit/tag 已创建但未推送。
 - Last Updated: 2026-08-12
-- Verification Evidence: 针对性压缩/回滚测试 14/14 通过；完整 `npm run test` 141 files / 1088 tests 全通过；`npm run lint` 无 error；`npm run build` 成功。
-- Notes: 压缩后会先使用摘要与尾部的本地估算刷新 UI，首个压缩后 assistant usage 到达后再恢复 provider 权威统计；已有压缩后出现一条新消息即可再次做阈值检查。工作区仍有本任务之外的并发改动和未跟踪项，均保留未触碰。
+- Verification Evidence: `npm run test` 141 文件/1088 测试 100% 通过；`npm run lint` 0 error（1 个既有 warning）；`npm run build` exit 0（仅既有 KaTeX/大 chunk warning）；tarball `package-offline/shawnstack-quickforge-1.7.7.tgz` 25.1 MB / 291 文件，内容核验干净。
+- Notes: 详见文末追加记录（release-v1.7.7-prep）。
 - 追加记录（settings-tab-select-alignment）：宽度对齐 + 已选值字号与菜单一致。改动文件：src/index.css（仅 `.quickforge-settings-select-trigger-label` 加 font-size: 0.9rem; line-height: 1.35;）、src/lib/default-options-settings-tab.ts（沿用此前两处 quickforge-settings-row-control-wide，未改动）、feature_list.json、progress.md、session-handoff.md。未新增依赖、未触碰生成目录、未改 wiki。
 - 追加验证（settings-tab-select-alignment）：`npm run lint` exit code 0，仅 7 个既有 warning（desktop/nsis-patch/apply.mjs no-console、server/cloud/identity.mjs no-useless-assignment），无 error；`npm run build` exit code 0，仅既有 KaTeX 字体与大 chunk warning。
+- 追加记录（release-v1.7.7-prep，2026-08-12）：v1.7.7 发布准备与验证完成。版本 1.7.6→1.7.7（package.json/package-lock.json 一致）；CHANGELOG 新增 1.7.7 章节（Cloud URL 改动 + 三个 fix + Released/离线包命令）；README.md 无硬编码版本未改。纳入已确认改动（Cloud、测试、release 脚本、runbook、AGENTS、PR 模板、wiki）；init.sh 纳入但无需修改。排除 .qf_staging/、artifacts/、空文件 c。
+- 追加验证（release-v1.7.7-prep）：`npm run test` 141 文件/1088 测试 100% 通过；`npm run lint` 0 error（1 个既有 warning：server/cloud/identity.mjs no-useless-assignment）；`npm run build` exit 0（仅既有 KaTeX/大 chunk warning）；tarball `package-offline/shawnstack-quickforge-1.7.7.tgz`（25.1 MB、291 文件）内容核验无排除项/临时/敏感文件。commit/tag/push/publish 未执行。
+- 下一步（待用户确认）：`git add` 建议清单见下方；`git commit -m "chore(release): v1.7.7"`；`git tag v1.7.7`；`git push origin master --tags`；npm publish 默认不执行，指令：`cd package-offline && npm publish --access public`（需先 `npm whoami`/`npm login`）。
+- 建议显式 git add 清单：package.json、package-lock.json、CHANGELOG.md、AGENTS.md、.github/PULL_REQUEST_TEMPLATE.md、docs/architecture/patch-release-runbook.zh-CN.md、docs/wiki/root-config.md、docs/wiki/scripts/README.md、scripts/prepare-patch-release.cjs、server/cloud/config.mjs、tests/server/cloud/config.test.mjs、tests/server/routes/cloud.test.mjs、init.sh；明确排除 .qf_staging/、artifacts/、c。

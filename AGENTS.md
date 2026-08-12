@@ -1,9 +1,9 @@
 ## 项目指令
 
 - 修改代码后，使用相关测试、构建、lint 或针对性命令进行验证。
-- 默认验证命令是 `npm run lint` 和 `npm run build`；小改动可优先使用针对性检查。
+- 默认验证命令是 `npm run test`、`npm run lint` 和 `npm run build`；小改动可优先使用针对性检查。
 - 除非用户明确要求，不要创建 Git commit、tag、push 到远端或发布 npm 包。
-- 当用户说“发布一个小版本” / “发一个小版本” / “小版本发布”时，遵循 `docs/architecture/patch-release-runbook.zh-CN.md`：提升 patch 版本，更新发布文档，运行 build/lint，生成 runtime/offline 包，创建 Git commit/tag/push，最后提供 npm publish 命令；默认不要直接发布 npm。
+- 当用户说“发布一个小版本” / “发一个小版本” / “小版本发布”时，遵循 `docs/architecture/patch-release-runbook.zh-CN.md`：提升 patch 版本，更新发布文档，运行 test/lint/build，生成 runtime/offline 包，创建 Git commit/tag/push，最后提供 npm publish 命令；默认不要直接发布 npm。
 
 ## Subagent 协作
 
@@ -25,3 +25,32 @@
 - 项目代码 Wiki 位于 `docs/wiki/README.md`。
 - 在理解模块、定位入口、进行较大变更或新人接手类任务时，优先读取 `docs/wiki/README.md`，再按需读取对应子目录文档。
 - Wiki 仅作为导航和背景资料，最终判断以源码、配置和测试结果为准。
+
+## Startup Workflow
+
+- 新会话开始先读取 `docs/wiki/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`，恢复上下文。
+- 从 `feature_list.json` 选择当前 feature（非 done 且依赖已满足的优先）；本次会话只推进该 feature。
+- 开始或恢复关键工作前，可用 `bash init.sh` 执行基线验证（`npm run test`、`npm run lint`、`npm run build`，不安装依赖）。
+
+## Verification Commands
+
+- 修改代码后先做针对性检查（相关测试、lint、类型检查等）；小改动无需跑全套。
+- 发布（release）前必须完整运行 `npm run test`、`npm run lint`、`npm run build`，全部通过才算完成；任何一项失败先修复，禁止在失败状态下继续发布流程。
+
+## One Feature at a Time / Stay in Scope
+
+- 一次只处理当前 feature，不要顺带重构无关代码或修复无关问题。
+- 发现与当前 feature 无关的问题，记入 `progress.md` 的 Notes，不扩大改动范围。
+- 每个改动保持最小、聚焦，改动后同步更新 `feature_list.json` / `progress.md`。
+
+## Definition of Done
+
+- 相关测试及与改动匹配的 lint/build/针对性检查通过；发布相关改动必须完整运行 `npm run test`、`npm run lint`、`npm run build`。
+- 文档/wiki 已按需同步；未触碰生成产物（`dist/`、`package-dist/`、`package-offline/`）。
+- `feature_list.json`、`progress.md`、`session-handoff.md` 已更新。
+
+## End of Session
+
+- 更新 `session-handoff.md`：当前目标、改动文件、blocker、下一步。
+- 同步更新 `progress.md` 与 `feature_list.json` 的状态；完成的 feature 标记为 done。
+- 未提交/未完成事项明确记录，方便下个会话恢复。

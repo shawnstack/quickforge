@@ -25,6 +25,17 @@
       "status": "done",
       "dependencies": [],
       "updated": "2026-08-12"
+    },
+    {
+      "id": "release-v1.7.7-prep",
+      "name": "v1.7.7 发布准备与验证",
+      "description": "将本地三个 fix（auto-compaction、settings select 对齐、NSIS 升级自愈）与 Cloud URL 改动纳入 v1.7.7：版本提升至 1.7.7（package.json/package-lock.json 一致）、CHANGELOG.md 新增 1.7.7 章节、test（141 文件/1088 测试 100% 通过）、lint（0 error）、build（exit 0）、离线包 package-offline/shawnstack-quickforge-1.7.7.tgz 已生成且内容核验通过。完整 test/lint/build 与打包已通过，本地 release commit/tag 已创建；远端 push 因无法连接 github.com:443 失败，待网络恢复后重试；npm publish 未执行。",
+      "status": "blocked",
+      "dependencies": [
+        "auto-compaction-trigger-and-usage-refresh",
+        "settings-tab-select-alignment"
+      ],
+      "updated": "2026-08-12"
     }
   ]
 }

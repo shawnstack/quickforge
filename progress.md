@@ -3,11 +3,11 @@
 ## Current State
 
 - Feature: `release-v1.7.7-prep`
-- Status: `blocked`（v1.7.7 完整 test/lint/build 与打包已通过，本地 release commit/tag 已创建；远端 push 因无法连接 github.com:443 失败待重试，npm publish 未执行）
-- Goal: 将本地三个 fix 与 Cloud URL 改动纳入 v1.7.7 发布：版本提升、CHANGELOG 更新、test/lint/build 门禁、离线包生成与核验。
+- Status: `done`（v1.7.7 完整 test/lint/build 与打包已通过；本地 release commit c3771444... / annotated tag v1.7.7 已创建；远端 master 与 v1.7.7 tag push 完成并经 ls-remote 核验，均指向 c3771444...；npm publish 未执行）
+- Goal: 将本地三个 fix 与 Cloud URL 改动纳入 v1.7.7 发布：版本提升、CHANGELOG 更新、test/lint/build 门禁、离线包生成与核验、远端 Git 发布。
 - Files: package.json, package-lock.json, CHANGELOG.md, server/cloud/config.mjs, tests/server/cloud/*, scripts/prepare-patch-release.cjs, AGENTS.md, .github/PULL_REQUEST_TEMPLATE.md, docs/architecture/patch-release-runbook.zh-CN.md, docs/wiki/*, init.sh（纳入发布范围，无需修改）, feature_list.json, progress.md, session-handoff.md
-- Blockers: git push origin master 连续 4 次因无法连接 github.com:443（网络）失败，待网络恢复后重试；push 完成前不得标记 done。
-- Next step: 网络恢复后 `git push origin master --tags` 完成远端发布；npm publish 待用户确认后执行（默认不执行，指令：`cd package-offline && npm publish --access public`）。
+- Blockers: 无。npm publish 未执行，仅待用户需要时手动执行。
+- Next step: 无待办；如用户需要发布 npm 包，手动执行 `cd package-offline && npm publish --access public`（默认不执行）。
 - Last Updated: 2026-08-12
 
 ## Completed Work
@@ -50,3 +50,12 @@
 - 打包：`node scripts/prepare-runtime-package.cjs`、`node scripts/prepare-offline-package.cjs`、`cd package-offline && npm pack` 均 exit 0。
 - tarball：`package-offline/shawnstack-quickforge-1.7.7.tgz`，25.1 MB，291 文件；核验无 .qf_staging、artifacts、`c`、临时/日志/.env/node_modules/.git 内容。
 - 未执行 commit/tag/push/publish；`dist/`、`package-dist/`、`package-offline/` 未手工修改。
+
+## v1.7.7 远端 Git 发布完成（2026-08-12）
+
+- GitHub 连接恢复：`git ls-remote --heads --tags origin` 成功（第 1 次尝试）。
+- `git push origin master`：`2f4ecbb..c377144 master -> master` 成功。
+- `git push origin v1.7.7`：`* [new tag] v1.7.7 -> v1.7.7` 成功（annotated tag，tag 对象 093904e...，peeled c3771444...）。
+- 远端核验（ls-remote）：refs/heads/master = `c3771444ad8da9bd1e2d870fcfe7de6562cb4a57`；refs/tags/v1.7.7^{} = `c3771444ad8da9bd1e2d870fcfe7de6562cb4a57`。
+- 状态提交 `docs(handoff): mark v1.7.7 git release complete` 已创建并推送至 origin master。
+- npm publish 未执行（默认不发布）。

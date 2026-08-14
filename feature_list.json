@@ -80,6 +80,16 @@
         "subagent-run-detail-hardening"
       ],
       "updated": "2026-08-14"
+    },
+    {
+      "id": "subagent-run-live-updates",
+      "name": "subagent 运行详情实时更新改造（store 订阅 + SSE 直发）",
+      "description": "将 subagent 运行详情的实时更新主通道从聊天渲染器的 window 事件改为共享 SubagentRunStore 订阅：1) ServerAgent 新增 SubagentRunEventPublisher（subagent-run-detail.ts 导出类），在 tool_execution_start/update/end SSE 分支每次 state upsert 后发布载荷到全局 subagentRunStore（start 用 toolStartEventWithPartialResult 规范化事件、按 toolCallId 缓存 args/toolName、end 清理、update/end 缺 args/toolName 回填缓存、previousTiming 取 store 同 runId 上一次载荷、工具显示模式走 getCachedToolDisplaySettings），dispose 清缓存，与 local-tools 渲染回填完全解耦；2) local-tools.ts 删除 UPDATE window 事件/指纹 Map/queueMicrotask，SubagentToolRenderer.render 构建载荷后直接 publish 到 store 作历史/恢复回填，摘要点击优先 store.get(runId) ?? payload，runId 稳定来源为 toolResult details.toolCallId；3) WorkspaceInspector 删除 window listener 改为 useEffect 订阅 subagentRunStore，仅更新已打开且同 runId 且指纹不同的 Tab（无匹配返回原数组），打开请求优先 store 最新载荷；4) runId 语义明确：新消息以 toolCallId 为主键、sessionId 仅历史兼容 fallback（注释与实现一致）；5) store 语义明确：publish 指纹去重/订阅者异常隔离/上限 100 按首次插入淘汰/clear 只清快照保留订阅；6) 测试：subagent-run-detail.test.ts 14→44 项（toolCallId 优先、sessionId 变化不影响、store 去重/订阅/取消/异常隔离/上限/插入顺序/clear、纯函数 start-update-end 状态与 args/timing 回填、Publisher 缓存生命周期/非 subagent 隔离/dispose），server-agent.test.ts 新增端到端 SSE 发布用例（20→21 项）。验证：npx tsc -b 通过；针对性 6 文件/89 项通过；npm run test 144 文件/1184 项 100% 通过；lint 0 error（仅 1 个并发 Cloud warning）；build 通过。未新增依赖、未提交 Git、未触碰 Cloud 并发改动。",
+      "status": "done",
+      "dependencies": [
+        "subagent-run-workspace-tabs"
+      ],
+      "updated": "2026-08-14"
     }
   ]
 }

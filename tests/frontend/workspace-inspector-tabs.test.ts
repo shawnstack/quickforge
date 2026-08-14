@@ -7,6 +7,7 @@ import {
   readPersistedPanelTabs,
   reorderPanelTabs,
   serializePanelTabs,
+  updateSubagentRunTab,
   upsertSubagentRunTab,
   workspaceInspectorTabsStorageKey,
   writePersistedPanelTabs,
@@ -194,6 +195,24 @@ describe('workspace inspector tabs persistence', () => {
     const separate = upsertSubagentRunTab(reused.tabs, second!, 'subagent-2')
     expect(separate.created).toBe(true)
     expect(separate.tabs.map((tab) => tab.id)).toEqual(['subagent-1', 'subagent-2'])
+  })
+
+  it('updates only an open matching subagent tab and preserves identity for ignored updates', () => {
+    const first = { runId: 'run-1', label: 'Explore', fingerprint: 'a' } as WorkspacePanelTab['subagentRun']
+    const second = { runId: 'run-2', label: 'General', fingerprint: 'b' } as WorkspacePanelTab['subagentRun']
+    const tabs: WorkspacePanelTab[] = [
+      { id: 'files-1', kind: 'files' },
+      { id: 'subagent-2', kind: 'subagent', subagentRun: first },
+    ]
+
+    expect(updateSubagentRunTab(tabs, first!)).toBe(tabs)
+    expect(updateSubagentRunTab(tabs, second!)).toBe(tabs)
+
+    const updated = { ...first, status: 'done', fingerprint: 'c' } as WorkspacePanelTab['subagentRun']
+    const next = updateSubagentRunTab(tabs, updated!)
+    expect(next).not.toBe(tabs)
+    expect(next[0]).toBe(tabs[0])
+    expect(next[1]?.subagentRun).toBe(updated)
   })
 
   it('reorders tabs by id without changing their contents', () => {

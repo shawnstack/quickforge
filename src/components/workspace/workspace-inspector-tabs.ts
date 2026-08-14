@@ -191,6 +191,15 @@ export function findSubagentRunTab(tabs: readonly WorkspacePanelTab[], runId: st
   return tabs.find((tab) => tab.kind === 'subagent' && tab.subagentRun?.runId === runId)
 }
 
+export function updateSubagentRunTab(
+  tabs: WorkspacePanelTab[],
+  payload: SubagentRunPayload,
+): WorkspacePanelTab[] {
+  const existing = findSubagentRunTab(tabs, payload.runId)
+  if (!existing || existing.subagentRun?.fingerprint === payload.fingerprint) return tabs
+  return tabs.map((tab) => tab.id === existing.id ? { ...tab, subagentRun: payload } : tab)
+}
+
 export function upsertSubagentRunTab(
   tabs: readonly WorkspacePanelTab[],
   payload: SubagentRunPayload,

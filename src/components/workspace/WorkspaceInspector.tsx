@@ -36,7 +36,7 @@ import { WorkspaceFileTree } from './WorkspaceFileTree'
 import { artifactFileName, isBrowserPreviewablePath, presentArtifacts } from './artifact-preview-utils'
 import { TerminalDock } from '@/components/terminal/TerminalDock'
 import { SubagentRunDetailContent } from './SubagentRunDetailContent'
-import { UPDATE_SUBAGENT_RUN_EVENT, type SubagentRunPayload } from '@/lib/subagent-run-detail'
+import { subagentRunStore, type SubagentRunPayload } from '@/lib/subagent-run-detail'
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import type { GitChangedFile, GitFileDiffResponse, WorkspaceFileResponse, WorkspaceInspectorOpenRequest, WorkspacePanelView, WorkspaceTreeNode } from './workspace-types'
 import { shouldHandleWorkspaceInspectorRequest } from './workspace-inspector-request'
@@ -45,6 +45,7 @@ import {
   nextPanelTabIndexFromTabs,
   readPersistedPanelTabs,
   reorderPanelTabs,
+  updateSubagentRunTab,
   upsertSubagentRunTab,
   writePersistedPanelTabs,
 } from './workspace-inspector-tabs'
@@ -888,7 +889,9 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
     } else if (request.kind === 'browser') {
       openPanelTabRef.current?.('browser', 'browser', { url: request.url })
     } else if (request.kind === 'subagent') {
-      openSubagentRunTabRef.current?.(request.payload)
+      // 优先取 store 中最新快照（SSE 实时路径可能已比请求 payload 更新），无则用请求 payload。
+      const latest = subagentRunStore.get(request.payload.runId) ?? request.payload
+      openSubagentRunTabRef.current?.(latest)
     } else {
       openPanelTabRef.current?.(request.kind, viewFromPanelKind(request.kind))
     }
@@ -958,19 +961,12 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
   }, [loadWorkspace, open, projectId])
 
   useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ runId?: string; payload?: SubagentRunPayload }>).detail
-      if (!detail || typeof detail.runId !== 'string' || !detail.payload) return
-      const runId = detail.runId
-      const payload = detail.payload
-      setPanelTabs((current) => {
-        const existing = current.find((tab) => tab.kind === 'subagent' && tab.subagentRun?.runId === runId)
-        if (!existing || existing.subagentRun?.fingerprint === payload.fingerprint) return current
-        return current.map((tab) => tab.id === existing.id ? { ...tab, subagentRun: payload } : tab)
-      })
-    }
-    window.addEventListener(UPDATE_SUBAGENT_RUN_EVENT, handler as EventListener)
-    return () => window.removeEventListener(UPDATE_SUBAGENT_RUN_EVENT, handler as EventListener)
+    // 实时更新订阅：ServerAgent 的 tool_execution_* SSE 与 local-tools 的渲染回填
+    // 都发布到 subagentRunStore。仅更新已打开且 runId 匹配、指纹不同的 Tab；
+    // 无匹配 Tab 时返回原数组，避免无意义的 setState。
+    return subagentRunStore.subscribe((payload) => {
+      setPanelTabs((current) => updateSubagentRunTab(current, payload))
+    })
   }, [])
 
   useEffect(() => {

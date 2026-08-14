@@ -10,9 +10,9 @@ import { formatManageGlobalMemoryOutput } from '@/lib/global-memory-tool-output'
 import { generatedImageAssetUrl, parseGeneratedImageDetails } from '@/lib/generated-image-assets'
 import {
   OPEN_SUBAGENT_RUN_EVENT,
-  UPDATE_SUBAGENT_RUN_EVENT,
   buildSubagentRunPayload,
   subagentRunBodyBlocks,
+  subagentRunStore,
   type SubagentRunPayload,
 } from '@/lib/subagent-run-detail'
 import { decorateSubagentProcessBlocks } from '@/components/chat/panel-decoration'
@@ -603,27 +603,11 @@ function toolDetailsStateKey(toolName: string, params: Record<string, unknown> |
 
 // ---------------------------------------------------------------------------
 // subagent 运行详情：聊天摘要点击后在 Workspace Inspector Tab 中打开。
-// 数据由 buildSubagentRunPayload 构建，运行详情 Tab 通过 subagent-run-detail-body
-// 复用 renderSubagentRunBody；聊天内不再展开重复展示完整过程。
+// 数据由 buildSubagentRunPayload 构建，并作为历史/恢复回填发布到 subagentRunStore
+// （实时更新主通道是 ServerAgent 的 tool_execution_* SSE 发布，二者经内容指纹去重）；
+// 运行详情 Tab 通过 subagent-run-detail-body 复用 renderSubagentRunBody；
+// 聊天内不再展开重复展示完整过程。
 // ---------------------------------------------------------------------------
-
-const subagentRunUpdateFingerprints = new Map<string, string>()
-const MAX_SUBAGENT_RUN_UPDATE_ENTRIES = 100
-
-function dispatchSubagentRunUpdate(payload: SubagentRunPayload) {
-  if (!payload.runId) return
-  if (subagentRunUpdateFingerprints.get(payload.runId) === payload.fingerprint) return
-  if (!subagentRunUpdateFingerprints.has(payload.runId) && subagentRunUpdateFingerprints.size >= MAX_SUBAGENT_RUN_UPDATE_ENTRIES) {
-    const oldestKey = subagentRunUpdateFingerprints.keys().next().value
-    if (oldestKey) subagentRunUpdateFingerprints.delete(oldestKey)
-  }
-  subagentRunUpdateFingerprints.set(payload.runId, payload.fingerprint)
-  // 避免在 Lit render 过程中同步 dispatch（可能触发 React setState 副作用/循环）：
-  // 推迟到微任务，由 Workspace Inspector 按 runId 更新已打开的运行 Tab。
-  queueMicrotask(() => {
-    window.dispatchEvent(new CustomEvent(UPDATE_SUBAGENT_RUN_EVENT, { detail: { runId: payload.runId, payload } }))
-  })
-}
 
 function renderSubagentRunSummary(payload: SubagentRunPayload) {
   return html`
@@ -634,7 +618,8 @@ function renderSubagentRunSummary(payload: SubagentRunPayload) {
         title=${t('viewSubagentRunDetails')}
         aria-label=${`${payload.statusLabel} · ${t('viewSubagentRunDetails')}`}
         @click=${() => {
-          window.dispatchEvent(new CustomEvent(OPEN_SUBAGENT_RUN_EVENT, { detail: { runId: payload.runId, payload } }))
+          // 优先取 store 中最新快照（SSE 实时路径可能已比本次渲染更新），无则用本次渲染载荷。
+          window.dispatchEvent(new CustomEvent(OPEN_SUBAGENT_RUN_EVENT, { detail: { runId: payload.runId, payload: subagentRunStore.get(payload.runId) ?? payload } }))
         }}
       >
         ${renderToolIcon('run_subagent')}
@@ -763,7 +748,9 @@ class SubagentToolRenderer {
   render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
     const toolDisplaySettings = getCachedToolDisplaySettings()
     const payload = buildSubagentRunPayload(params, result, isStreaming, toolDisplaySettings.toolDisplayMode, t)
-    dispatchSubagentRunUpdate(payload)
+    // 历史/恢复回填：只在 store 尚无同 runId 快照时发布，避免聊天渲染的旧快照
+    // 覆盖 ServerAgent 已经通过 SSE 发布的更新内容。
+    if (!subagentRunStore.get(payload.runId)) subagentRunStore.publish(payload)
 
     return {
       isCustom: false,

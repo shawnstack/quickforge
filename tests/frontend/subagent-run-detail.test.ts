@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import type { SubagentRunI18n, SubagentRunStatus } from '../../src/lib/subagent-run-detail'
+import type { SubagentRunI18n, SubagentRunPayload, SubagentRunStatus, SubagentToolDisplayMode } from '../../src/lib/subagent-run-detail'
 import {
+  MAX_SUBAGENT_RUN_SNAPSHOTS,
+  SubagentRunEventPublisher,
+  SubagentRunStore,
   buildSubagentRunPayload,
   normalizeOpenSubagentRunRequest,
   subagentRunBodyBlocks,
   subagentRunFingerprint,
   subagentRunId,
+  subagentRunPayloadFromToolEvent,
 } from '../../src/lib/subagent-run-detail'
 
 // i18n 由调用方注入：这里用与真实 t 相同形状的 stub（避免测试环境加载 i18n→pdfjs 链路）。
@@ -157,10 +161,31 @@ describe('subagent run detail payload', () => {
     expect(payload.input).toContain('"Find"')
     expect(payload.details).toContain('"toolCalls"')
   })
+
+  it('prefers an explicit toolCallId as the run id over details.sessionId', () => {
+    const payload = buildSubagentRunPayload(
+      { subagent: 'explore', task: 'Find' },
+      { details: { subagent: 'explore', sessionId: 'run-legacy' }, content: [] },
+      false,
+      'concise',
+      t,
+      'call-9',
+    )
+    expect(payload.runId).toBe('call-9')
+  })
 })
 
 describe('subagentRunId', () => {
-  it('prefers sessionId', () => {
+  it('prefers an explicit toolCallId over sessionId', () => {
+    expect(subagentRunId({ sessionId: 'run-1' }, 'explore', 'T', 'call-9')).toBe('call-9')
+  })
+
+  it('prefers details.toolCallId and stays stable across sessionId changes', () => {
+    expect(subagentRunId({ sessionId: 'parent:sub', toolCallId: 'call-9' }, 'explore', 'T')).toBe('call-9')
+    expect(subagentRunId({ sessionId: 'sub-agent-child', toolCallId: 'call-9' }, 'explore', 'T')).toBe('call-9')
+  })
+
+  it('uses sessionId only as the legacy fallback when no toolCallId exists', () => {
     expect(subagentRunId({ sessionId: 'run-1' }, 'explore', 'T')).toBe('run-1')
   })
 
@@ -305,5 +330,298 @@ describe('subagentRunBodyBlocks', () => {
 
   it('omits the task block when nothing is present', () => {
     expect(subagentRunBodyBlocks(payload({ task: '', context: '', expectedOutput: '' }))).toEqual([])
+  })
+})
+
+describe('SubagentRunStore', () => {
+  function storePayload(runId: string, status: SubagentRunStatus = 'running', overrides: Partial<SubagentRunPayload> = {}): SubagentRunPayload {
+    const merged = {
+      runId,
+      name: 'explore',
+      label: 'Explore',
+      task: 'T',
+      context: '',
+      expectedOutput: '',
+      status,
+      statusLabel: 'Explore running',
+      timing: { durationMs: 1 },
+      toolCalls: 1,
+      allowedTools: [] as string[],
+      traceMessages: [] as unknown[],
+      tools: [] as unknown[],
+      pendingToolCalls: [] as string[],
+      input: '',
+      details: '',
+      output: '',
+      detailed: false,
+      ...overrides,
+    }
+    return { ...merged, fingerprint: subagentRunFingerprint(merged) }
+  }
+
+  it('deduplicates identical fingerprints and notifies listeners only on change', () => {
+    const store = new SubagentRunStore()
+    const seen: string[] = []
+    store.subscribe((next) => seen.push(next.fingerprint))
+    expect(store.publish(storePayload('run-1'))).toBe(true)
+    expect(store.publish(storePayload('run-1'))).toBe(false)
+    expect(seen.length).toBe(1)
+    expect(store.publish(storePayload('run-1', 'done'))).toBe(true)
+    expect(seen.length).toBe(2)
+    expect(store.get('run-1')?.status).toBe('done')
+  })
+
+  it('rejects payloads without a run id', () => {
+    const store = new SubagentRunStore()
+    expect(store.publish({ ...storePayload('run-1'), runId: '' })).toBe(false)
+    expect(store.size).toBe(0)
+  })
+
+  it('unsubscribes without affecting other listeners', () => {
+    const store = new SubagentRunStore()
+    const a: string[] = []
+    const b: string[] = []
+    const unsubscribeA = store.subscribe((next) => a.push(next.runId))
+    store.subscribe((next) => b.push(next.runId))
+    unsubscribeA()
+    store.publish(storePayload('run-1'))
+    expect(a).toEqual([])
+    expect(b).toEqual(['run-1'])
+  })
+
+  it('isolates listener exceptions from the publish chain', () => {
+    const store = new SubagentRunStore()
+    const after: string[] = []
+    store.subscribe(() => { throw new Error('boom') })
+    store.subscribe((next) => after.push(next.runId))
+    expect(() => store.publish(storePayload('run-1'))).not.toThrow()
+    expect(after).toEqual(['run-1'])
+    store.publish(storePayload('run-2'))
+    expect(after).toEqual(['run-1', 'run-2'])
+  })
+
+  it('evicts the oldest snapshot beyond the capacity cap', () => {
+    const store = new SubagentRunStore()
+    for (let i = 0; i < MAX_SUBAGENT_RUN_SNAPSHOTS; i++) {
+      store.publish(storePayload(`run-${i}`))
+    }
+    expect(store.get('run-0')).toBeDefined()
+    store.publish(storePayload('overflow'))
+    expect(store.get('run-0')).toBeUndefined()
+    expect(store.get('run-1')).toBeDefined()
+    expect(store.get('overflow')).toBeDefined()
+    expect(store.size).toBe(MAX_SUBAGENT_RUN_SNAPSHOTS)
+  })
+
+  it('does not refresh insertion order when re-publishing an existing key', () => {
+    const store = new SubagentRunStore()
+    store.publish(storePayload('run-1'))
+    store.publish(storePayload('run-2'))
+    store.publish(storePayload('run-1', 'done'))
+    store.publish(storePayload('run-3'))
+    for (let i = 4; i <= MAX_SUBAGENT_RUN_SNAPSHOTS + 1; i++) {
+      store.publish(storePayload(`run-${i}`))
+    }
+    // run-1 首次插入最早，重复发布不刷新其淘汰顺序，超上限时应先被淘汰
+    expect(store.get('run-1')).toBeUndefined()
+    expect(store.get('run-2')).toBeDefined()
+  })
+
+  it('clear() drops snapshots but keeps subscriptions', () => {
+    const store = new SubagentRunStore()
+    const seen: string[] = []
+    store.subscribe((next) => seen.push(next.runId))
+    store.publish(storePayload('run-1'))
+    store.clear()
+    expect(store.get('run-1')).toBeUndefined()
+    expect(store.size).toBe(0)
+    store.publish(storePayload('run-2'))
+    expect(seen).toEqual(['run-1', 'run-2'])
+  })
+})
+
+describe('subagentRunPayloadFromToolEvent', () => {
+  const startEvent = {
+    toolCallId: 'call-9',
+    toolName: 'run_subagent',
+    sessionId: 'parent-session',
+    args: { subagent: 'explore', task: 'Find the entry' },
+    partialResult: {
+      content: [],
+      details: { subagent: 'explore', quickforgeTiming: { startedAt: 100 }, messages: [] },
+    },
+  }
+
+  it('builds a running payload from a start event with args and partialResult', () => {
+    const payload = subagentRunPayloadFromToolEvent(startEvent, true, undefined, 'detailed', t)
+    expect(payload?.runId).toBe('call-9')
+    expect(payload?.status).toBe('running')
+    expect(payload?.task).toBe('Find the entry')
+    expect(payload?.timing?.startedAt).toBe(100)
+  })
+
+  it('ignores non-run_subagent events', () => {
+    const payload = subagentRunPayloadFromToolEvent(
+      { toolCallId: 'c', toolName: 'run_command', args: { command: 'ls' } },
+      true,
+      undefined,
+      'concise',
+      t,
+    )
+    expect(payload).toBeUndefined()
+  })
+
+  it('backs up missing args with cachedArgs on update', () => {
+    const update = {
+      toolCallId: 'call-9',
+      toolName: 'run_subagent',
+      partialResult: { content: [], details: { messages: [] } },
+    }
+    const payload = subagentRunPayloadFromToolEvent(update, true, { subagent: 'explore', task: 'Find the entry' }, 'concise', t)
+    expect(payload?.status).toBe('running')
+    expect(payload?.task).toBe('Find the entry')
+  })
+
+  it('backs up timing from previousTiming when the event has none', () => {
+    const update = {
+      toolCallId: 'call-9',
+      toolName: 'run_subagent',
+      partialResult: { content: [], details: { messages: [] } },
+    }
+    const payload = subagentRunPayloadFromToolEvent(
+      update,
+      true,
+      { subagent: 'explore', task: 'T' },
+      'concise',
+      t,
+      { startedAt: 100, durationMs: 5 },
+    )
+    expect(payload?.timing?.startedAt).toBe(100)
+    expect(payload?.timing?.durationMs).toBe(5)
+  })
+
+  it('marks an end event with isError as error and without as done', () => {
+    const endEvent = {
+      toolCallId: 'call-9',
+      toolName: 'run_subagent',
+      result: {
+        content: [{ type: 'text', text: 'done' }],
+        details: { quickforgeTiming: { startedAt: 100, finishedAt: 200, durationMs: 100 } },
+      },
+    }
+    const done = subagentRunPayloadFromToolEvent(endEvent, false, { subagent: 'explore', task: 'T' }, 'concise', t)
+    expect(done?.status).toBe('done')
+    expect(done?.output).toBe('done')
+    const failed = subagentRunPayloadFromToolEvent({ ...endEvent, isError: true }, false, { subagent: 'explore', task: 'T' }, 'concise', t)
+    expect(failed?.status).toBe('error')
+  })
+})
+
+describe('SubagentRunEventPublisher', () => {
+  const tStub: SubagentRunI18n = (key, params) => {
+    if (key === 'subagentRunning') return `${params?.name ?? ''} running`
+    if (key === 'subagentCompleted') return `${params?.name ?? ''} completed`
+    if (key === 'subagentFailed') return `${params?.name ?? ''} failed`
+    return key
+  }
+
+  function createPublisher(store: SubagentRunStore, mode: SubagentToolDisplayMode = 'concise') {
+    return new SubagentRunEventPublisher({ store, t: tStub, getToolDisplayMode: () => mode })
+  }
+
+  const startEvent = {
+    toolCallId: 'call-9',
+    toolName: 'run_subagent',
+    args: { subagent: 'explore', task: 'Find' },
+  }
+
+  it('publishes start and follows with updates/ends that lack args and toolName', () => {
+    const store = new SubagentRunStore()
+    const publisher = createPublisher(store)
+    publisher.handleToolStart(startEvent)
+    expect(store.get('call-9')?.status).toBe('running')
+    expect(store.get('call-9')?.task).toBe('Find')
+
+    publisher.handleToolUpdate({ toolCallId: 'call-9', partialResult: { content: [], details: { messages: [] } } })
+    expect(store.get('call-9')?.status).toBe('running')
+    expect(store.get('call-9')?.task).toBe('Find')
+
+    publisher.handleToolEnd({
+      toolCallId: 'call-9',
+      result: {
+        content: [{ type: 'text', text: 'ok' }],
+        details: { quickforgeTiming: { startedAt: 100, finishedAt: 200, durationMs: 100 } },
+      },
+    })
+    expect(store.get('call-9')?.status).toBe('done')
+    expect(store.get('call-9')?.output).toBe('ok')
+  })
+
+  it('uses the canonical start event so the published payload is running with timing', () => {
+    const store = new SubagentRunStore()
+    const publisher = createPublisher(store)
+    publisher.handleToolStart(startEvent)
+    const start = store.get('call-9')
+    expect(start?.status).toBe('running')
+    expect(start?.details).toContain('quickforgeTiming')
+  })
+
+  it('backs up timing from the previous payload when updates carry none', () => {
+    const store = new SubagentRunStore()
+    const publisher = createPublisher(store)
+    publisher.handleToolStart(startEvent)
+    publisher.handleToolUpdate({ toolCallId: 'call-9', partialResult: { content: [], details: { messages: [] } } })
+    const update = store.get('call-9')
+    expect(update?.timing?.startedAt).toBeTypeOf('number')
+  })
+
+  it('clears the cache after end so later updates are ignored', () => {
+    const store = new SubagentRunStore()
+    const publisher = createPublisher(store)
+    publisher.handleToolStart(startEvent)
+    publisher.handleToolEnd({ toolCallId: 'call-9', result: { content: [], details: {} } })
+    const sizeAfterEnd = store.size
+    publisher.handleToolUpdate({ toolCallId: 'call-9', partialResult: { content: [], details: { messages: [] } } })
+    expect(store.size).toBe(sizeAfterEnd)
+  })
+
+  it('ignores non-run_subagent tools and never caches them', () => {
+    const store = new SubagentRunStore()
+    const publisher = createPublisher(store)
+    expect(publisher.handleToolStart({ toolCallId: 'c1', toolName: 'run_command', args: { command: 'ls' } })).toBeUndefined()
+    expect(publisher.handleToolUpdate({ toolCallId: 'c1', partialResult: { content: [], details: {} } })).toBeUndefined()
+    expect(publisher.handleToolEnd({ toolCallId: 'c1', result: { content: [], details: {} } })).toBeUndefined()
+    expect(store.size).toBe(0)
+  })
+
+  it('does not publish when the start event has no args', () => {
+    const store = new SubagentRunStore()
+    const publisher = createPublisher(store)
+    expect(publisher.handleToolStart({ toolCallId: 'call-9', toolName: 'run_subagent' })).toBeUndefined()
+    expect(store.size).toBe(0)
+  })
+
+  it('recovers when start lacks args but a later update provides them', () => {
+    const store = new SubagentRunStore()
+    const publisher = createPublisher(store)
+    expect(publisher.handleToolStart({ toolCallId: 'call-9', toolName: 'run_subagent' })).toBeUndefined()
+    const update = publisher.handleToolUpdate({
+      toolCallId: 'call-9',
+      toolName: 'run_subagent',
+      args: { subagent: 'explore', task: 'Recovered' },
+      partialResult: { content: [], details: { messages: [] } },
+    })
+    expect(update?.task).toBe('Recovered')
+    expect(store.get('call-9')?.status).toBe('running')
+  })
+
+  it('dispose clears cached args/toolName so later events are ignored', () => {
+    const store = new SubagentRunStore()
+    const publisher = createPublisher(store)
+    publisher.handleToolStart(startEvent)
+    publisher.dispose()
+    publisher.handleToolUpdate({ toolCallId: 'call-9', partialResult: { content: [], details: {} } })
+    publisher.handleToolEnd({ toolCallId: 'call-9', result: { content: [], details: {} } })
+    expect(store.size).toBe(1)
   })
 })

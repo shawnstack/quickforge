@@ -761,4 +761,55 @@ describe('ServerAgent', () => {
       vi.useRealTimers()
     }
   })
+
+  it('publishes subagent run updates from tool_execution SSE events without the local tool renderer', async () => {
+    const { subagentRunStore } = await import('../../src/lib/subagent-run-detail')
+    subagentRunStore.clear()
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ sessionId: 'session-1', harness: 'quickforge', model: null, messages: [] }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: { harness: 'quickforge', model: null as unknown as never, messages: [] },
+    })
+    const source = latestEventSource()
+
+    try {
+      source.emit('tool_execution_start', {
+        sessionId: 'session-1',
+        toolCallId: 'call-9',
+        toolName: 'run_subagent',
+        args: { subagent: 'explore', task: 'Find' },
+      })
+      expect(subagentRunStore.get('call-9')?.status).toBe('running')
+      expect(subagentRunStore.get('call-9')?.task).toBe('Find')
+
+      source.emit('tool_execution_update', {
+        sessionId: 'session-1',
+        toolCallId: 'call-9',
+        partialResult: { content: [], details: { messages: [] } },
+      })
+      expect(subagentRunStore.get('call-9')?.status).toBe('running')
+
+      source.emit('tool_execution_end', {
+        sessionId: 'session-1',
+        toolCallId: 'call-9',
+        toolName: 'run_subagent',
+        result: {
+          content: [{ type: 'text', text: 'ok' }],
+          details: { quickforgeTiming: { startedAt: 1, finishedAt: 2, durationMs: 1 } },
+        },
+      })
+      expect(subagentRunStore.get('call-9')?.status).toBe('done')
+      expect(subagentRunStore.get('call-9')?.output).toBe('ok')
+      expect(subagentRunStore.get('call-9')?.runId).toBe('call-9')
+    } finally {
+      agent.dispose()
+      subagentRunStore.clear()
+    }
+  })
 })

@@ -9,6 +9,8 @@ import { modelReferenceFromModel } from './model-reference'
 import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import { randomId } from '@/lib/random-id'
 import { toolStartEventWithPartialResult, upsertMessage, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
+import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
+import { SubagentRunEventPublisher } from '@/lib/subagent-run-detail'
 
 // ---------------------------------------------------------------------------
 // SSE client for receiving events from the server
@@ -485,6 +487,16 @@ export class ServerAgent {
   private onPlanModeConsumed?: () => void
 
   /**
+   * tool_execution_start/update/end SSE 事件 → subagentRunStore 的实时发布器：
+   * 按 toolCallId 缓存 run_subagent 的 args/toolName，start/update/end 每次发布最新
+   * 载荷到 subagentRunStore（与 local-tools 的聊天渲染回填解耦），end 后清理缓存。
+   */
+  private readonly subagentRunPublisher = new SubagentRunEventPublisher({
+    t,
+    getToolDisplayMode: () => getCachedToolDisplaySettings().toolDisplayMode,
+  })
+
+  /**
    * Monotonically increasing version counter for state writes.
    * Poll responses that carry an older version are discarded, preventing
    * stale data from overwriting fresher SSE-driven updates.
@@ -909,6 +921,7 @@ export class ServerAgent {
       this.pollTimer = null
     }
     this.statusPromise = null
+    this.subagentRunPublisher.dispose()
     this.unsubscribeSse?.()
     this.unsubscribeSse = undefined
     this.listeners.clear()
@@ -1140,6 +1153,7 @@ export class ServerAgent {
           this.state.messages = upsertToolResult(this.state.messages, toolStartEventWithPartialResult(toolEvent, this.sessionId), true)
           this.state.pendingToolCalls = new Set([...this.state.pendingToolCalls, toolEvent.toolCallId])
           this.stateVersion++
+          this.subagentRunPublisher.handleToolStart(toolEvent)
         }
         break
       }
@@ -1151,6 +1165,7 @@ export class ServerAgent {
           this.state.pendingToolCalls = new Set([...this.state.pendingToolCalls, toolEvent.toolCallId])
         }
         this.stateVersion++
+        this.subagentRunPublisher.handleToolUpdate(toolEvent)
         break
       }
 
@@ -1163,6 +1178,7 @@ export class ServerAgent {
           this.state.pendingToolCalls = pending
         }
         this.stateVersion++
+        this.subagentRunPublisher.handleToolEnd(toolEvent)
         break
       }
 

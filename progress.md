@@ -2,10 +2,10 @@
 
 ## Current State
 
-- Feature: `subagent-run-workspace-tabs`
-- Status: `done`（subagent 运行详情已接入 Workspace Inspector 运行时 Tab，并完成侧边详情与聊天展示的一致化：复用 Git 最终态内容层级、原始时间线顺序、process folding 装饰与交互；摘要入口具备 hover/focus-visible 和可访问语义。针对性 6 文件 / 92 项、全量 144 文件 / 1159 项测试通过）
-- Goal: 让 subagent 侧边运行详情在内容层级、过程折叠、视觉、实时更新和 Tab 行为上与既有展示一致。
-- Files: src/components/chat/panel-decoration/message-actions.ts, src/components/chat/panel-decoration.ts, src/lib/subagent-run-detail.ts, src/lib/local-tools.ts, src/index.css, src/components/workspace/SubagentRunDetailContent.tsx, tests/frontend/subagent-run-detail.test.ts, tests/frontend/decorate-subagent-process.test.ts, docs/wiki/src/components/README.md, docs/wiki/src/lib/README.md, feature_list.json, progress.md, session-handoff.md
+- Feature: `subagent-run-live-updates`
+- Status: `done`（subagent 运行详情实时更新改造完成：ServerAgent 在 tool_execution_start/update/end SSE 分支经 SubagentRunEventPublisher 直发 subagentRunStore，local-tools 渲染回填同一 store，Workspace Inspector 改为订阅 store 更新已打开 Tab；runId 以 toolCallId 为主键、sessionId 仅历史兼容 fallback。针对性 6 文件 / 89 项、全量 144 文件 / 1184 项测试通过，TypeScript / lint / build 通过）
+- Goal: 让 subagent 运行详情实时更新不依赖聊天渲染器（window 事件），改由 ServerAgent SSE 直发 + 共享 store 订阅，并补齐 runId/store/发布器测试与文档。
+- Files: src/lib/subagent-run-detail.ts, src/lib/server-agent.ts, src/lib/local-tools.ts, src/components/workspace/WorkspaceInspector.tsx, tests/frontend/subagent-run-detail.test.ts, tests/frontend/server-agent.test.ts, docs/wiki/src/lib/README.md, docs/wiki/src/components/README.md, feature_list.json, progress.md, session-handoff.md
 - Blockers: 无。
 - Next step: 无待办；如后续发布，遵循 patch-release-runbook（发布前必须完整 test/lint/build 通过）。
 - Last Updated: 2026-08-14
@@ -123,3 +123,20 @@
 - 测试：subagent-run-detail.test.ts 新增 `subagentRunBodyBlocks` 顺序（5 项）、trace 时间线保序（1 项）、`called` 状态（1 项），删除 `shouldApplySubagentRunUpdate` 用例；新增 `tests/frontend/decorate-subagent-process.test.ts`（4 项）：验证子代理 message-list 各自以子节点与 streaming 标志被装饰、未标记列表被忽略、跨作用域子节点被过滤、空 panel 为空操作。workspace-inspector-tabs/request 既有测试已覆盖重复打开复用、实时更新与无 projectId。
 - 改动文件：`src/components/chat/panel-decoration/message-actions.ts`、`src/components/chat/panel-decoration.ts`、`src/lib/subagent-run-detail.ts`、`src/lib/local-tools.ts`、`src/index.css`、`tests/frontend/subagent-run-detail.test.ts`、`tests/frontend/decorate-subagent-process.test.ts`（新增）、`docs/wiki/src/components/README.md`、`docs/wiki/src/lib/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
 - 验证：`npx tsc -b` 通过；针对性 vitest 6 文件 / 92 项全部通过；`npm run test` 144 文件 / 1159 项全部通过（100%）；`npm run lint` 0 error（仅 1 个并发 Cloud warning）；`npm run build` 通过（仅既有 KaTeX 字体解析与大 chunk warning）。未新增依赖、未提交 Git、未手工修改生成产物（dist/ 由 build 正常再生成）、未触碰 Cloud 并发改动。
+
+## subagent 运行详情实时更新改造（2026-08-14）
+
+- 需求：subagent 运行详情实时更新不再依赖聊天渲染器（local-tools 的 UPDATE window 事件），改由 ServerAgent 在 SSE 事件路径直发 + 共享 store 订阅，并在恢复会话/历史消息时回填同一 store。
+- 稳定 run id 语义修正：新消息以 `toolCallId`（显式参数或 `details.toolCallId`）为主键（start/update/end 全程不变，sessionId 在 update 后变为子代理会话导致失配），`details.sessionId` 仅作历史兼容 fallback（旧消息/旧服务器无 toolCallId 时），最后回退 `${name}:${task}`；修正注释与实现一致。
+- `subagent-run-detail.ts`：
+  - `SubagentRunStore`：有界内存快照 store（`MAX_SUBAGENT_RUN_SNAPSHOTS`=100），publish 指纹去重（同指纹返回 false 不通知）、订阅者异常隔离（单订阅者抛错不破坏发布链）、get/subscribe（返回取消函数）/clear（仅清快照、保留订阅关系）；已存在 key 的重复发布不刷新 Map 插入顺序（按首次插入淘汰）；全局单例 `subagentRunStore`。
+  - `subagentRunPayloadFromToolEvent(event, isStreaming, cachedArgs, toolDisplayMode, t, previousTiming)`：tool_execution_start/update/end → 载荷的纯转换（toolName 必须为 run_subagent、args 缺时用 cachedArgs 回填、isStreaming 区分 running/done、event.isError/result 合并归 error、previousTiming 回填 timing）。
+  - `SubagentRunEventPublisher`（导出类，ServerAgent 持有）：按 toolCallId 缓存 run_subagent 的 args/toolName；handleToolStart 缓存后经 `toolStartEventWithPartialResult` 规范化事件（带 partialResult）发布 running；handleToolUpdate 缺 args/toolName 回填缓存、previousTiming 取 store 同 runId 上一次载荷；handleToolEnd 发布终态后清理缓存；dispose 清空缓存；非 run_subagent/无 toolCallId/无 args 忽略，不影响其他工具。
+- `server-agent.ts`：`ServerAgent` 新增实例字段 `subagentRunPublisher = new SubagentRunEventPublisher({ t, getToolDisplayMode: () => getCachedToolDisplaySettings().toolDisplayMode })`；tool_execution_start（用规范化事件 upsert 后调 handleToolStart）、update、end 每次 state upsert 后调用对应 handler；dispose 调 publisher.dispose() 清理缓存。
+- `local-tools.ts`：删除 UPDATE_SUBAGENT_RUN_EVENT import、`subagentRunUpdateFingerprints` Map 与 `dispatchSubagentRunUpdate`（含 queueMicrotask）；`SubagentToolRenderer.render` 构建 payload 后直接 `subagentRunStore.publish(payload)` 作历史/恢复回填（store 内指纹去重，与 SSE 实时发布不重复）；摘要点击打开时优先 `subagentRunStore.get(payload.runId) ?? payload`；runId 稳定来源为 toolResult `details.toolCallId`（upsertToolResult 注入）。
+- `WorkspaceInspector.tsx`：删除 UPDATE_SUBAGENT_RUN_EVENT import 与 window listener，改为 `useEffect(() => subagentRunStore.subscribe(...))`（返回取消订阅函数）；收到 payload 仅更新已打开且同 runId、指纹不同的 Tab，无匹配时返回原数组避免无意义 setState；subagent 打开请求优先 `subagentRunStore.get(request.payload.runId) ?? request.payload` 再 upsert。
+- 测试：
+  - subagent-run-detail.test.ts 14→44 项：subagentRunId 新增显式/详情 toolCallId 优先、sessionId 变化不影响（原 "prefers sessionId" 更名）；buildSubagentRunPayload 显式 toolCallId 优先；SubagentRunStore 独立实例（不污染全局单例）覆盖去重/无 runId 拒绝/取消订阅/异常隔离/上限淘汰/重复发布不刷新插入顺序/clear 保留订阅；subagentRunPayloadFromToolEvent 覆盖 start 运行态、非 subagent 忽略、cachedArgs 回填、previousTiming 回填、end done/error；SubagentRunEventPublisher 覆盖 start→update→end 全生命周期（update/end 缺 args+toolName 仍发布）、规范事件带 timing、previousTiming 回填、end 后缓存清理、非 subagent 不缓存、无 args 不发布、dispose 后忽略。
+  - server-agent.test.ts 20→21 项：新增端到端用例——emit tool_execution_start/update/end SSE 后断言全局 subagentRunStore 出现 running→running→done 载荷（task/output/runId 正确），证明发布不依赖 local-tools render。
+- 改动文件：`src/lib/subagent-run-detail.ts`、`src/lib/server-agent.ts`、`src/lib/local-tools.ts`、`src/components/workspace/WorkspaceInspector.tsx`、`src/components/workspace/workspace-inspector-tabs.ts`、`tests/frontend/subagent-run-detail.test.ts`、`tests/frontend/server-agent.test.ts`、`tests/frontend/workspace-inspector-tabs.test.ts`、`docs/wiki/src/lib/README.md`、`docs/wiki/src/components/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：`npx tsc -b` 通过；针对性 vitest 6 文件 / 89 项全部通过；`npm run test` 144 文件 / 1184 项全部通过（100%）；`npm run lint` 0 error（仅 1 个并发 Cloud warning：server/cloud/identity.mjs）；`npm run build` 通过（仅既有 chunk size warning）。未新增依赖、未提交 Git、未手工修改生成产物（dist/ 由 build 正常再生成）、未触碰 Cloud 并发改动。

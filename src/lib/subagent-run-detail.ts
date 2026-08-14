@@ -1,18 +1,26 @@
 /**
- * subagent 运行详情侧栏的纯逻辑（不依赖 DOM/Lit/React/i18n 运行时，便于单元测试）。
+ * subagent 运行详情的纯逻辑与实时 store（不依赖 DOM/Lit/React/i18n 运行时，便于单元测试）。
  *
- * 数据流：run_subagent 工具的服务端 details（含稳定 run id `sessionId`、
- * messages/tools/pendingToolCalls/toolCalls/allowedTools/durationMs 等）经 SSE
- * 合并到 toolResult.details 后到达渲染器；本模块负责把 params + details 规范化为
- * 一份统一载荷（SubagentRunPayload），供聊天中的运行摘要与 Workspace Inspector
- * 运行详情 Tab 共用。旧消息没有 sessionId 时按 `${name}:${task}` 安全回退。
+ * 稳定 run id：新消息以 run_subagent 父工具调用的 `toolCallId` 为主键。
+ * tool_execution_start 的 partialResult.details 已带 toolCallId（此时 sessionId 是父
+ * 会话），后续 tool_execution_update/end 的 details.sessionId 变为子代理会话 id；若把
+ * sessionId 当主键，start 时打开的 Tab 会与后续更新失配。因此 runId 推导顺序为：
+ * 显式 toolCallId → details.toolCallId → details.sessionId（仅历史兼容 fallback：旧
+ * 消息/旧服务器没有 toolCallId 时才使用，不作为新消息主键）→ `${name}:${task}`
+ * （无任何 id 的历史消息安全回退）。
  *
- * i18n 通过 t 参数注入（由 local-tools.ts 传入真实 t 函数），保持本模块可测试。
+ * 实时数据流：ServerAgent 在 tool_execution_start/update/end SSE 路径主动构建载荷
+ * 并发布到 subagentRunStore；local-tools 的渲染器只在聊天重渲染（含恢复会话回填）时
+ * 发布到同一 store，由内容指纹去重，避免重复；Workspace Inspector 订阅 store 按 runId
+ * 更新已打开的 Tab。不依赖 ChatPanelHost rAF 或 ToolRenderer.render 作为主通道。
+ *
+ * i18n 通过 t 参数注入（由 local-tools.ts / server-agent.ts 传入真实 t 函数），
+ * 保持本模块可测试。
  */
 
 import type { AppTextKey } from '@/lib/i18n'
 import { subagentProcessTraceMessages } from '@/lib/subagent-process-trace'
-import { extractQuickForgeTiming, type QuickForgeToolTiming } from '@/lib/tool-execution-events'
+import { extractQuickForgeTiming, toolStartEventWithPartialResult, type QuickForgeToolTiming, type ToolExecutionEvent } from '@/lib/tool-execution-events'
 
 export type SubagentRunStatus = 'running' | 'done' | 'error' | 'called'
 
@@ -22,7 +30,7 @@ export type SubagentToolDisplayMode = 'concise' | 'compact' | 'detailed'
 export type SubagentRunI18n = (key: AppTextKey, params?: Record<string, string | number>) => string
 
 export type SubagentRunPayload = {
-  /** 稳定运行 id：优先 details.sessionId；旧消息回退为 `${name}:${task}`。 */
+  /** 稳定运行 id：新消息以显式 toolCallId / details.toolCallId 为主键；details.sessionId 仅历史兼容 fallback；旧消息回退 `${name}:${task}`。 */
   runId: string
   name: string
   label: string
@@ -55,7 +63,70 @@ export type SubagentRunOpenRequest = {
 }
 
 export const OPEN_SUBAGENT_RUN_EVENT = 'quickforge:open-subagent-run'
-export const UPDATE_SUBAGENT_RUN_EVENT = 'quickforge:update-subagent-run'
+
+/** subagent 运行载荷的实时订阅者。 */
+export type SubagentRunListener = (payload: SubagentRunPayload) => void
+
+/** 实时快照缓存上限：超过后按插入顺序淘汰最旧运行，避免长期会话内存泄漏。 */
+export const MAX_SUBAGENT_RUN_SNAPSHOTS = 100
+
+/**
+ * 轻量实时 store：发布 payload、按 runId 获取最新快照、订阅更新、指纹去重。
+ * 纯内存实现、不依赖 DOM/React，便于单元测试；不做轮询，事件到达即发布。
+ * 订阅方抛错不会中断发布链或影响其他订阅者。
+ */
+export class SubagentRunStore {
+  private readonly snapshots = new Map<string, SubagentRunPayload>()
+  private readonly listeners = new Set<SubagentRunListener>()
+
+  /** 发布最新快照；与现有快照指纹相同时去重返回 false。 */
+  publish(payload: SubagentRunPayload): boolean {
+    if (!payload.runId) return false
+    const existing = this.snapshots.get(payload.runId)
+    if (existing && existing.fingerprint === payload.fingerprint) return false
+    if (!existing && this.snapshots.size >= MAX_SUBAGENT_RUN_SNAPSHOTS) {
+      const oldestKey = this.snapshots.keys().next().value
+      if (oldestKey !== undefined) this.snapshots.delete(oldestKey)
+    }
+    // 已存在 key 的重复发布不改变 Map 插入顺序：淘汰顺序按首次插入有界即可。
+    this.snapshots.set(payload.runId, payload)
+    for (const listener of Array.from(this.listeners)) {
+      try {
+        listener(payload)
+      } catch {
+        // 订阅方异常不应破坏发布链，也不应阻止其他订阅者收到更新。
+      }
+    }
+    return true
+  }
+
+  get(runId: string): SubagentRunPayload | undefined {
+    return this.snapshots.get(runId)
+  }
+
+  /** 订阅全部更新，返回取消订阅函数。 */
+  subscribe(listener: SubagentRunListener): () => void {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
+
+  /** 仅清空快照缓存；订阅者集合保持不变（订阅关系与数据生命周期分离）。 */
+  clear(): void {
+    this.snapshots.clear()
+  }
+
+  get size(): number {
+    return this.snapshots.size
+  }
+}
+
+/**
+ * 全局单例：ServerAgent 的 SSE 事件路径与 local-tools 的聊天渲染回填路径共用，
+ * Workspace Inspector 订阅它实现实时更新。
+ */
+export const subagentRunStore = new SubagentRunStore()
 
 export type ToolResultLike = {
   isError?: boolean
@@ -114,12 +185,18 @@ export function subagentRunStatusLabel(status: SubagentRunStatus, label: string,
 }
 
 /**
- * 稳定运行 id：服务端每次 runSubagent 都会生成唯一 sessionId
- * （`<parent>:subagent:<name>:<uuid>`）；旧消息/历史会话没有 sessionId 时，
- * 安全回退为 `${name}:${task}`。
+ * 稳定运行 id：新消息优先显式 toolCallId / details.toolCallId（run_subagent 父工具
+ * 调用 id，start/update/end 全程不变，是主键）；details.sessionId 仅作历史兼容
+ * fallback（旧消息/旧服务器没有 toolCallId 时使用，start 时为父会话、update 后为
+ * 子代理会话，不作为新消息主键）；两者都没有时回退 `${name}:${task}`。
  */
-export function subagentRunId(details: unknown, name: string, task: string): string {
-  if (isRecord(details) && typeof details.sessionId === 'string' && details.sessionId) return details.sessionId
+export function subagentRunId(details: unknown, name: string, task: string, toolCallId?: string): string {
+  const explicitToolCallId = typeof toolCallId === 'string' && toolCallId ? toolCallId : ''
+  const detailsToolCallId = isRecord(details) && typeof details.toolCallId === 'string' && details.toolCallId ? details.toolCallId : ''
+  const sessionId = isRecord(details) && typeof details.sessionId === 'string' && details.sessionId ? details.sessionId : ''
+  if (explicitToolCallId) return explicitToolCallId
+  if (detailsToolCallId) return detailsToolCallId
+  if (sessionId) return sessionId
   const trimmedName = (name || '').trim()
   const trimmedTask = (task || '').trim()
   if (!trimmedName && !trimmedTask) return ''
@@ -223,6 +300,7 @@ export function subagentRunBodyBlocks(
 /**
  * 从 run_subagent 的 params/result.details 构建规范化载荷。
  * 聊天摘要与 Workspace Inspector 运行详情 Tab 共用此函数，保证状态和内容一致。
+ * toolCallId 为可选显式稳定 run id（SSE 事件路径传入父工具调用 id）。
  */
 export function buildSubagentRunPayload(
   params: Record<string, unknown> | undefined,
@@ -230,21 +308,25 @@ export function buildSubagentRunPayload(
   isStreaming: boolean | undefined,
   toolDisplayMode: SubagentToolDisplayMode,
   t: SubagentRunI18n,
+  toolCallId?: string,
 ): SubagentRunPayload {
   const details = isRecord(result?.details) ? result.details : undefined
   const name = typeof params?.subagent === 'string'
     ? params.subagent
-    : typeof details?.subagent === 'string'
-      ? details.subagent
-      : ''
+    : isRecord(params?.subagent) && typeof params.subagent.name === 'string'
+      ? params.subagent.name
+      : typeof details?.subagent === 'string'
+        ? details.subagent
+        : ''
   const task = typeof params?.task === 'string' ? params.task : ''
   const status = subagentRunStatus(result, isStreaming)
-  const label = subagentRunLabel(name, details, t)
+  const paramsLabel = isRecord(params?.subagent) && typeof params.subagent.label === 'string' ? params.subagent.label : ''
+  const label = paramsLabel || subagentRunLabel(name, details, t)
   const detailed = toolDisplayMode === 'detailed'
   const traceMessages = subagentProcessTraceMessages(arrayFromUnknown(details?.messages))
 
   const payload: Omit<SubagentRunPayload, 'fingerprint'> = {
-    runId: subagentRunId(details, name, task),
+    runId: subagentRunId(details, name, task, toolCallId),
     name,
     label,
     task,
@@ -273,4 +355,156 @@ export function normalizeOpenSubagentRunRequest(detail: unknown): SubagentRunOpe
   if (!runId) return undefined
   const payload = isRecord(detail.payload) ? detail.payload as unknown as SubagentRunPayload : undefined
   return { runId, payload }
+}
+
+/**
+ * 从 tool_execution_start/update/end 事件构建 subagent 运行载荷（纯函数，便于单测）。
+ * - 必须使用事件 args 作为 params、partialResult/result 作为结果；
+ * - isStreaming：start/update 传 true（running），end 传 false（done/error）；
+ * - update/end 缺 args 时由调用方按 toolCallId 恢复 start 的 args 传入 cachedArgs，
+ *   保证 task/context/expectedOutput 不丢；
+ * - end 的 isError 合并进 result，使 aborted/timedOut/error 正确归为 error；
+ * - previousTiming：事件本身没有 quickforgeTiming（update 阶段）时回填上一次载荷的
+ *   计时，避免运行中丢失 startedAt 展示（end 自带完整 quickforgeTiming 优先）。
+ * 非 run_subagent 或无法取得 args 时返回 undefined。
+ */
+export function subagentRunPayloadFromToolEvent(
+  event: ToolExecutionEvent,
+  isStreaming: boolean,
+  cachedArgs: Record<string, unknown> | undefined,
+  toolDisplayMode: SubagentToolDisplayMode,
+  t: SubagentRunI18n,
+  previousTiming?: QuickForgeToolTiming,
+): SubagentRunPayload | undefined {
+  if (event.toolName !== 'run_subagent') return undefined
+  const args = isRecord(event.args) ? event.args as Record<string, unknown> : cachedArgs
+  if (!args) return undefined
+  const rawResult = isStreaming ? event.partialResult : event.result
+  const rawIsError = isRecord(rawResult) && 'isError' in rawResult && typeof rawResult.isError === 'boolean'
+    ? rawResult.isError
+    : undefined
+  const result = rawResult
+    ? { ...rawResult, isError: event.isError ?? rawIsError }
+    : event.isError
+      ? { content: [], details: {}, isError: true }
+      : undefined
+  const build = (timing: QuickForgeToolTiming | undefined) => {
+    const resultForBuild = timing
+      ? {
+          ...result,
+          details: isRecord(result?.details)
+            ? { ...result.details, quickforgeTiming: timing }
+            : { quickforgeTiming: timing },
+        }
+      : result
+    return buildSubagentRunPayload(args, resultForBuild, isStreaming, toolDisplayMode, t, event.toolCallId)
+  }
+  const payload = build(undefined)
+  if (payload.timing === undefined && previousTiming) return build(previousTiming)
+  return payload
+}
+
+export type SubagentRunEventPublisherOptions = {
+  /** 数据 store；默认全局 subagentRunStore（测试可传入独立实例，避免污染全局单例）。 */
+  store?: SubagentRunStore
+  /** i18n；默认返回 key 本身，真实调用方（ServerAgent / local-tools）传入全局 t。 */
+  t?: SubagentRunI18n
+  /** 当前工具显示模式；默认 concise。 */
+  getToolDisplayMode?: () => SubagentToolDisplayMode
+}
+
+/**
+ * tool_execution_start/update/end SSE 事件 → subagentRunStore 的实时发布器。
+ * ServerAgent 持有它并在 tool_execution_* 分支调用，与 local-tools 的聊天渲染回填
+ * 完全解耦（发布不依赖 ToolRenderer.render 被调用）。
+ * - start：仅 run_subagent 参与；按 toolCallId 缓存 args 与 toolName，并用
+ *   toolStartEventWithPartialResult 生成带 partialResult 的规范事件再构建载荷；
+ * - update：事件缺 args/toolName 时回填缓存；previousTiming 取 store 中同 runId
+ *   的上一次载荷，避免运行中丢失 startedAt 展示；
+ * - end：发布终态后清理该 toolCallId 的缓存；
+ * - 非 run_subagent 或无法取得 toolCallId/args 的事件直接忽略，不影响其他工具。
+ */
+export class SubagentRunEventPublisher {
+  private readonly store: SubagentRunStore
+  private readonly t: SubagentRunI18n
+  private readonly getToolDisplayMode: () => SubagentToolDisplayMode
+  private readonly argsByToolCallId = new Map<string, Record<string, unknown>>()
+  private readonly toolNamesByToolCallId = new Map<string, string>()
+
+  constructor(options: SubagentRunEventPublisherOptions = {}) {
+    this.store = options.store ?? subagentRunStore
+    this.t = options.t ?? ((key) => key)
+    this.getToolDisplayMode = options.getToolDisplayMode ?? (() => 'concise')
+  }
+
+  /** tool_execution_start：缓存 args/toolName 后按规范化事件发布 running 载荷。 */
+  handleToolStart(event: ToolExecutionEvent): SubagentRunPayload | undefined {
+    const toolCallId = typeof event.toolCallId === 'string' ? event.toolCallId : ''
+    if (!toolCallId || event.toolName !== 'run_subagent') return undefined
+    const args = isRecord(event.args) ? event.args as Record<string, unknown> : undefined
+    if (!args) return undefined
+    this.argsByToolCallId.set(toolCallId, args)
+    this.toolNamesByToolCallId.set(toolCallId, event.toolName)
+    return this.publish(toolStartEventWithPartialResult(event), true, undefined, toolCallId)
+  }
+
+  /** tool_execution_update：事件缺 args/toolName 时从缓存回填，发布 running 载荷。 */
+  handleToolUpdate(event: ToolExecutionEvent): SubagentRunPayload | undefined {
+    const toolCallId = typeof event.toolCallId === 'string' ? event.toolCallId : ''
+    if (!toolCallId) return undefined
+    const eventArgs = isRecord(event.args) ? event.args as Record<string, unknown> : undefined
+    const args = eventArgs ?? this.argsByToolCallId.get(toolCallId)
+    const toolName = typeof event.toolName === 'string' && event.toolName
+      ? event.toolName
+      : this.toolNamesByToolCallId.get(toolCallId)
+    if (!args || toolName !== 'run_subagent') return undefined
+    if (eventArgs) this.argsByToolCallId.set(toolCallId, eventArgs)
+    this.toolNamesByToolCallId.set(toolCallId, toolName)
+    const effectiveEvent = toolName !== event.toolName ? { ...event, toolName } : event
+    return this.publish(effectiveEvent, true, args, toolCallId)
+  }
+
+  /** tool_execution_end：发布终态后清理该 toolCallId 的缓存。 */
+  handleToolEnd(event: ToolExecutionEvent): SubagentRunPayload | undefined {
+    const toolCallId = typeof event.toolCallId === 'string' ? event.toolCallId : ''
+    if (!toolCallId) return undefined
+    const eventArgs = isRecord(event.args) ? event.args as Record<string, unknown> : undefined
+    const args = eventArgs ?? this.argsByToolCallId.get(toolCallId)
+    const toolName = typeof event.toolName === 'string' && event.toolName
+      ? event.toolName
+      : this.toolNamesByToolCallId.get(toolCallId)
+    try {
+      if (!args || toolName !== 'run_subagent') return undefined
+      const effectiveEvent = toolName !== event.toolName ? { ...event, toolName } : event
+      return this.publish(effectiveEvent, false, args, toolCallId)
+    } finally {
+      this.argsByToolCallId.delete(toolCallId)
+      this.toolNamesByToolCallId.delete(toolCallId)
+    }
+  }
+
+  /** 清空按 toolCallId 的 args/toolName 缓存；在 ServerAgent.dispose 时调用。 */
+  dispose(): void {
+    this.argsByToolCallId.clear()
+    this.toolNamesByToolCallId.clear()
+  }
+
+  private publish(
+    event: ToolExecutionEvent,
+    isStreaming: boolean,
+    cachedArgs: Record<string, unknown> | undefined,
+    toolCallId: string,
+  ): SubagentRunPayload | undefined {
+    const previousTiming = this.store.get(toolCallId)?.timing
+    const payload = subagentRunPayloadFromToolEvent(
+      event,
+      isStreaming,
+      cachedArgs,
+      this.getToolDisplayMode(),
+      this.t,
+      previousTiming,
+    )
+    if (payload) this.store.publish(payload)
+    return payload
+  }
 }

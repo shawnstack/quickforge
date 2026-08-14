@@ -1,3 +1,5 @@
+import type { SubagentRunPayload } from '@/lib/subagent-run-detail'
+
 export type WorkspacePanelView = 'review' | 'files' | 'browser' | 'changes' | 'terminal'
 
 export type WorkspaceInspectorOpenRequest =
@@ -5,6 +7,7 @@ export type WorkspaceInspectorOpenRequest =
   | { id: number; projectId: string; kind: 'files' | 'terminal' }
   | { id: number; projectId: string; kind: 'reader'; path: string }
   | { id: number; projectId: string; kind: 'browser'; url: string }
+  | { id: number; projectId?: string; kind: 'subagent'; payload: SubagentRunPayload }
 
 export type WorkspaceInspectorOpenRequestInput =
   WorkspaceInspectorOpenRequest extends infer Request

@@ -2774,8 +2774,7 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
   font-weight: 400;
 }
 
-.quickforge-tool-chevron,
-.quickforge-subagent-chevron {
+.quickforge-tool-chevron {
   width: 0.875rem;
   height: 0.875rem;
   flex: 0 0 auto;
@@ -2786,9 +2785,29 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
     transform 160ms ease;
 }
 
-:is(.quickforge-local-tool, .quickforge-mcp-tool, .quickforge-subagent-tool) > .quickforge-tool-summary:hover :is(.quickforge-tool-chevron, .quickforge-subagent-chevron),
-:is(.quickforge-local-tool, .quickforge-mcp-tool, .quickforge-subagent-tool) > .quickforge-tool-summary:focus-visible :is(.quickforge-tool-chevron, .quickforge-subagent-chevron) {
+:is(.quickforge-local-tool, .quickforge-mcp-tool) > .quickforge-tool-summary:hover .quickforge-tool-chevron,
+:is(.quickforge-local-tool, .quickforge-mcp-tool) > .quickforge-tool-summary:focus-visible .quickforge-tool-chevron {
   opacity: 1;
+}
+
+/* subagent 运行摘要按钮：聊天内是打开 Workspace Inspector 运行详情 Tab 的入口，
+ * 需要明确的 hover / focus-visible 反馈与可访问焦点环（轻背景、不跳动）。 */
+.quickforge-subagent-tool > .quickforge-tool-summary {
+  border-radius: 0.5rem;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.quickforge-subagent-tool > .quickforge-tool-summary:hover,
+.quickforge-subagent-tool > .quickforge-tool-summary:focus-visible {
+  background-color: color-mix(in oklab, var(--muted) 42%, transparent);
+  color: color-mix(in oklab, var(--foreground) 90%, transparent);
+}
+
+.quickforge-subagent-tool > .quickforge-tool-summary:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent);
+  outline-offset: 2px;
 }
 
 pi-chat-panel thinking-block > .thinking-block > .thinking-header:not(.quickforge-process-thinking-header) {

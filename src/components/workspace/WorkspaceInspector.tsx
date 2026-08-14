@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronRight, Code2, Copy, CornerDownLeft, Eye, Folder, GitBranch, GitCommitHorizontal, Globe, Maximize, Minimize, MoreHorizontal, PanelRight, Plus, RefreshCw, Search, SquareTerminal, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Code2, Copy, CornerDownLeft, Eye, Folder, GitBranch, GitCommitHorizontal, Globe, Maximize, Minimize, MoreHorizontal, PanelRight, Plus, RefreshCw, Search, SquareActivity, SquareTerminal, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   DndContext,
@@ -35,6 +35,8 @@ import { WorkspaceChangesList } from './WorkspaceChangesList'
 import { WorkspaceFileTree } from './WorkspaceFileTree'
 import { artifactFileName, isBrowserPreviewablePath, presentArtifacts } from './artifact-preview-utils'
 import { TerminalDock } from '@/components/terminal/TerminalDock'
+import { SubagentRunDetailContent } from './SubagentRunDetailContent'
+import { UPDATE_SUBAGENT_RUN_EVENT, type SubagentRunPayload } from '@/lib/subagent-run-detail'
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import type { GitChangedFile, GitFileDiffResponse, WorkspaceFileResponse, WorkspaceInspectorOpenRequest, WorkspacePanelView, WorkspaceTreeNode } from './workspace-types'
 import { shouldHandleWorkspaceInspectorRequest } from './workspace-inspector-request'
@@ -43,6 +45,7 @@ import {
   nextPanelTabIndexFromTabs,
   readPersistedPanelTabs,
   reorderPanelTabs,
+  upsertSubagentRunTab,
   writePersistedPanelTabs,
 } from './workspace-inspector-tabs'
 import type {
@@ -129,7 +132,16 @@ function browserTabLabel(previewUrl: string) {
   }
 }
 
+function panelTabMeta(tab: WorkspacePanelTab) {
+  if (tab.kind === 'reader' || tab.kind === 'subagent') return undefined
+  return PANEL_TAB_BY_KIND[tab.kind]
+}
+
 function panelTabLabel(tab: WorkspacePanelTab, projectName: string | undefined) {
+  if (tab.kind === 'subagent') {
+    const label = tab.subagentRun?.label || t('subagentRunDetails')
+    return tab.subagentRun?.task ? `${label} · ${tab.subagentRun.task}` : label
+  }
   if (tab.kind === 'terminal') return projectName || t('rightPanelTerminal')
   if (tab.kind === 'browser') return browserTabLabel(tab.url || '')
   if (tab.kind === 'reader') {
@@ -140,6 +152,7 @@ function panelTabLabel(tab: WorkspacePanelTab, projectName: string | undefined) 
 }
 
 function panelTabTitle(tab: WorkspacePanelTab, fallbackLabel: string) {
+  if (tab.kind === 'subagent') return tab.subagentRun?.statusLabel || fallbackLabel
   if (tab.kind === 'browser') return tab.url || fallbackLabel
   if (tab.kind !== 'reader') return fallbackLabel
   const reader = tab.readerTabs?.find((item) => item.id === tab.activeReaderTabId) ?? tab.readerTabs?.[0]
@@ -642,6 +655,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
   const previousBodyStyleRef = useRef<{ cursor: string; userSelect: string } | null>(null)
   const nextPanelTabIndexRef = useRef(nextPanelTabIndexFromTabs(initialPanelTabStateRef.current?.tabs ?? []))
   const openPanelTabRef = useRef<((kind: WorkspacePanelPrimaryTabKind, nextView?: WorkspacePanelView, options?: { url?: string; readerTab?: ReaderTab }) => WorkspacePanelTab) | undefined>(undefined)
+  const openSubagentRunTabRef = useRef<((payload: SubagentRunPayload) => void) | undefined>(undefined)
   const openFileTabRef = useRef<((path: string) => void) | undefined>(undefined)
   const handledRequestIdRef = useRef<number | undefined>(undefined)
   const projectGuardRef = useRef(createWorkspaceInspectorProjectGuard())
@@ -873,6 +887,8 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
       openFileTabRef.current?.(request.path)
     } else if (request.kind === 'browser') {
       openPanelTabRef.current?.('browser', 'browser', { url: request.url })
+    } else if (request.kind === 'subagent') {
+      openSubagentRunTabRef.current?.(request.payload)
     } else {
       openPanelTabRef.current?.(request.kind, viewFromPanelKind(request.kind))
     }
@@ -891,10 +907,10 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
     setWidth((current) => (current < WORKSPACE_INSPECTOR_MAX_WIDTH ? WORKSPACE_INSPECTOR_MAX_WIDTH : current))
   }, [])
 
-  // 打开文件 / 网页预览时自动拉到当前允许的最宽范围（全屏模式不处理；已是最宽则保持不变）
+  // 打开文件、网页、终端或 subagent 运行详情时自动拉到当前允许的最宽范围。
   useEffect(() => {
     if (!visible || fullscreen) return
-    const viewingContent = activePanelTab?.kind === 'browser' || activePanelTab?.kind === 'terminal' || Boolean(activeReaderTabId)
+    const viewingContent = activePanelTab?.kind === 'browser' || activePanelTab?.kind === 'terminal' || activePanelTab?.kind === 'subagent' || Boolean(activeReaderTabId)
     if (!viewingContent) return
     expandInspectorToMax()
   }, [activePanelTab?.kind, activeReaderTabId, visible, fullscreen, expandInspectorToMax])
@@ -940,6 +956,22 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
     })
     return () => { disposed = true }
   }, [loadWorkspace, open, projectId])
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ runId?: string; payload?: SubagentRunPayload }>).detail
+      if (!detail || typeof detail.runId !== 'string' || !detail.payload) return
+      const runId = detail.runId
+      const payload = detail.payload
+      setPanelTabs((current) => {
+        const existing = current.find((tab) => tab.kind === 'subagent' && tab.subagentRun?.runId === runId)
+        if (!existing || existing.subagentRun?.fingerprint === payload.fingerprint) return current
+        return current.map((tab) => tab.id === existing.id ? { ...tab, subagentRun: payload } : tab)
+      })
+    }
+    window.addEventListener(UPDATE_SUBAGENT_RUN_EVENT, handler as EventListener)
+    return () => window.removeEventListener(UPDATE_SUBAGENT_RUN_EVENT, handler as EventListener)
+  }, [])
 
   useEffect(() => {
     if (!projectId) return
@@ -1024,6 +1056,16 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
     return targetTab
   }
   openPanelTabRef.current = openPanelTab
+
+  function openSubagentRunTab(payload: SubagentRunPayload) {
+    const nextId = `subagent-${nextPanelTabIndexRef.current}`
+    const result = upsertSubagentRunTab(panelTabs, payload, nextId)
+    if (result.created) nextPanelTabIndexRef.current += 1
+    setPanelTabs(result.tabs)
+    setActivePanelTabId(result.tabId)
+    setMenuOpen(false)
+  }
+  openSubagentRunTabRef.current = openSubagentRunTab
 
   function activatePanelTab(tab: WorkspacePanelTab) {
     setActivePanelTabId(tab.id)
@@ -1463,7 +1505,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
               {tabListOpen ? (
                 <div className="absolute left-0 top-12 z-40 w-72 max-w-[calc(100vw-2rem)] rounded-2xl border border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-popover p-2 shadow-quickforge" role="menu">
                   {panelTabs.map((tab) => {
-                    const item = tab.kind === 'reader' ? undefined : PANEL_TAB_BY_KIND[tab.kind]
+                    const item = panelTabMeta(tab)
                     const Icon = item?.icon
                     const filePath = panelTabFilePath(tab)
                     const active = tab.id === activePanelTabId
@@ -1488,7 +1530,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
                           role="menuitem"
                           title={title}
                         >
-                          {filePath ? <FileIcon path={filePath} className="size-4 shrink-0" /> : Icon ? <Icon className="size-4 shrink-0 text-muted-foreground/80" /> : <Code2 className="size-4 shrink-0 text-muted-foreground/80" />}
+                          {filePath ? <FileIcon path={filePath} className="size-4 shrink-0" /> : tab.kind === 'subagent' ? <SquareActivity className="size-4 shrink-0 text-muted-foreground/80" /> : Icon ? <Icon className="size-4 shrink-0 text-muted-foreground/80" /> : <Code2 className="size-4 shrink-0 text-muted-foreground/80" />}
                           <span className="min-w-0 flex-1 truncate">{label}</span>
                         </button>
                         <button
@@ -1539,7 +1581,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
             <SortableContext items={panelTabIds} strategy={horizontalListSortingStrategy}>
               <div className={cn('flex min-w-0 flex-1 items-center gap-1 overflow-x-auto', draggingPanelTabId && 'cursor-grabbing')}>
                 {panelTabs.map((tab, index) => {
-                  const item = tab.kind === 'reader' ? undefined : PANEL_TAB_BY_KIND[tab.kind]
+                  const item = panelTabMeta(tab)
                   const Icon = item?.icon
                   const filePath = panelTabFilePath(tab)
                   const active = tab.id === activePanelTabId
@@ -1568,6 +1610,8 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
                           >
                             {filePath ? (
                               <FileIcon path={filePath} className={cn('size-4 shrink-0 transition-opacity', active ? 'opacity-100' : 'opacity-55 group-hover:opacity-85')} />
+                            ) : tab.kind === 'subagent' ? (
+                              <SquareActivity className={cn('size-4 shrink-0', active ? 'text-foreground/74' : 'text-muted-foreground/45 group-hover:text-muted-foreground/72')} />
                             ) : Icon ? (
                               <Icon className={cn('size-4 shrink-0', active ? 'text-foreground/74' : 'text-muted-foreground/45 group-hover:text-muted-foreground/72')} />
                             ) : (
@@ -1692,7 +1736,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
         </div>
 
         <div className={cn('flex min-h-0 flex-1 transition-opacity duration-150', fullscreenAnimating ? 'opacity-0' : 'opacity-100')}>
-          {!project?.id ? (
+          {!project?.id && activePanelTab?.kind !== 'subagent' ? (
             <div className="p-4 text-sm text-muted-foreground/70">{t('workspaceSelectProject')}</div>
           ) : !activePanelTab ? (
             <div className="flex min-h-0 flex-1 items-center justify-center px-5">
@@ -1722,13 +1766,15 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
                 </div>
               </div>
             </div>
+          ) : activePanelTab.kind === 'subagent' ? (
+            <SubagentRunDetailContent payload={activePanelTab.subagentRun} />
           ) : activePanelTab.kind === 'browser' ? (
             <WebPreviewContent
               url={activePanelTab.url || ''}
               onUrlChange={(url) => {
                 updatePanelTab(activePanelTab.id, (tab) => ({ ...tab, url }))
               }}
-              projectId={project.id}
+              projectId={project?.id}
               externalReloadToken={activePanelTab.reloadNonce}
             />
           ) : activePanelTab.kind === 'terminal' ? (

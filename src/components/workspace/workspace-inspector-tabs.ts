@@ -1,4 +1,5 @@
 import type { GitFileDiffResponse, WorkspaceFileResponse } from './workspace-types'
+import type { SubagentRunPayload } from '@/lib/subagent-run-detail'
 
 export type ReaderMode = 'file' | 'diff' | 'browser'
 
@@ -13,7 +14,7 @@ export type ReaderTab = {
 }
 
 export type WorkspacePanelPrimaryTabKind = 'files' | 'review' | 'terminal' | 'browser'
-export type WorkspacePanelTabKind = WorkspacePanelPrimaryTabKind | 'reader'
+export type WorkspacePanelTabKind = WorkspacePanelPrimaryTabKind | 'reader' | 'subagent'
 
 export type WorkspacePanelTab = {
   id: string
@@ -23,6 +24,7 @@ export type WorkspacePanelTab = {
   readerTabs?: ReaderTab[]
   activeReaderTabId?: string
   terminalSessionId?: string
+  subagentRun?: SubagentRunPayload
   // 仅运行时使用、不持久化的刷新序号：同一 Browser tab 被重复预览时递增，触发 iframe 重新加载。
   reloadNonce?: number
 }
@@ -134,6 +136,7 @@ export function serializePanelTabs(
   activePanelTabId: string | undefined,
 ): PersistedWorkspaceInspectorTabs {
   const persistedTabs = tabs.flatMap((tab): PersistedWorkspacePanelTab[] => {
+    if (tab.kind === 'subagent') return []
     if (tab.kind === 'reader') {
       const reader = tab.readerTabs?.find((item) => item.id === tab.activeReaderTabId) ?? tab.readerTabs?.[0]
       if (!reader || reader.mode !== 'file') return []
@@ -182,6 +185,30 @@ export function reorderPanelTabs(tabs: WorkspacePanelTab[], activeId: string, ov
   const [activeTab] = reordered.splice(oldIndex, 1)
   reordered.splice(newIndex, 0, activeTab)
   return reordered
+}
+
+export function findSubagentRunTab(tabs: readonly WorkspacePanelTab[], runId: string) {
+  return tabs.find((tab) => tab.kind === 'subagent' && tab.subagentRun?.runId === runId)
+}
+
+export function upsertSubagentRunTab(
+  tabs: readonly WorkspacePanelTab[],
+  payload: SubagentRunPayload,
+  newTabId: string,
+): { tabs: WorkspacePanelTab[]; tabId: string; created: boolean } {
+  const existing = findSubagentRunTab(tabs, payload.runId)
+  if (existing) {
+    return {
+      tabs: tabs.map((tab) => tab.id === existing.id ? { ...tab, subagentRun: payload } : tab),
+      tabId: existing.id,
+      created: false,
+    }
+  }
+  return {
+    tabs: [...tabs, { id: newTabId, kind: 'subagent', subagentRun: payload }],
+    tabId: newTabId,
+    created: true,
+  }
 }
 
 export function nextPanelTabIndexFromTabs(tabs: WorkspacePanelTab[]) {

@@ -37,7 +37,7 @@ export { createOpenCodeUsageIndicator } from './panel-decoration/opencode-usage'
 export { releaseStreamingProcessGroups } from './panel-decoration/process-folding'
 
 export type { MessageDecorationDeps } from './panel-decoration/message-actions'
-export { decorateMessages } from './panel-decoration/message-actions'
+export { decorateMessages, decorateSubagentProcessBlocks } from './panel-decoration/message-actions'
 export { syncAssistantWaitingBubble } from './panel-decoration/assistant-waiting-bubble'
 
 // Inline local file path link decoration lives in ./panel-decoration/local-file-path-links.

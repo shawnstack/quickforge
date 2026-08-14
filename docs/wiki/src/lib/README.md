@@ -119,11 +119,15 @@
 - `modelDisplayLabel()` 统一输出 `Provider / Model ID`，不使用 Provider 内部模型名称、API 或 Base URL 作为选择标签。
 - `custom-model-selector.ts` 是展示层，调用方必须传入已过滤的新选择目录；主聊天、默认模型、Agent Profile、定时任务和共享会话均按上述规则准备列表。
 
-### local-tools.ts (247 行)
+### local-tools.ts
 
-**用途**: 在 `pi-web-ui` 中注册本地工具渲染器；`run_command` 运行中会显示图标按钮，通过 `/api/agents/:sessionId/abort-tool` 手动结束当前命令；`run_subagent` 以专属可折叠卡片展示 subagent 名称与状态，展开后在工具调用列表上方展示完整任务，并包含工具调用数、允许工具和结果摘要；`generate_image` 以独立结果块展示会话图片资产，并根据普通页或 `/share/:shareId` 自动构造同源资源 URL。
+**用途**: 在 `pi-web-ui` 中注册本地工具渲染器；`run_command` 运行中会显示图标按钮，通过 `/api/agents/:sessionId/abort-tool` 手动结束当前命令；`run_subagent` 在聊天中只展示名称、状态和耗时摘要，点击整个摘要通过 `window` CustomEvent（`OPEN_SUBAGENT_RUN_EVENT`，事件名 `quickforge:open-subagent-run`）在 `WorkspaceInspector` 中打开或激活该次运行的独立 Tab，不再内联展开完整过程；运行详情由 `renderSubagentRunBody` 渲染并通过 Lit 宿主元素 `subagent-run-detail-body` 嵌入工作区 Tab，沿用原详情视觉样式并遵循工具显示配置（`concise / compact` 简洁显示，`detailed` 额外展示工具统计、允许工具和 input/details）；宿主每次渲染后调度 `decorateSubagentProcessBlocks`（`panel-decoration/message-actions.ts`），对内部过程 message-list 应用与聊天一致的 process folding / 过程分组装饰与交互（幂等、不重复叠加、卸载随 DOM 回收）；渲染器每次收到更新经 `queueMicrotask` + 内容指纹去重后派发 `UPDATE_SUBAGENT_RUN_EVENT`（`quickforge:update-subagent-run`），Workspace Inspector 仅实时更新已打开且 `runId` 匹配的 Tab；聊天摘要按钮具备 hover / focus-visible 反馈与 `aria-label`/`title` 可访问语义；`generate_image` 以独立结果块展示会话图片资产，并根据普通页或 `/share/:shareId` 自动构造同源资源 URL。
 
 **支持的工具渲染**: `run_subagent`, `read_file`, `grep_files`, `write_file`, `edit_file`, `run_command`, `generate_image`, `present_files`, `activate_skill`, `read_skill_resource`
+
+### subagent-run-detail.ts
+
+**用途**: subagent 单次运行详情的纯逻辑（不依赖 DOM/Lit/React/i18n 运行时，`t` 由调用方注入）。`buildSubagentRunPayload()` 把 run_subagent 的 params/result.details 规范化为 Workspace Inspector 运行 Tab 使用的统一载荷（稳定 run id 优先 `details.sessionId`，旧消息回退 `${name}:${task}`；状态/状态文案/耗时/工具调用数/允许工具/过滤后的过程消息/input/details JSON/内容指纹）。`subagentRunFingerprint()` 用于实时更新去重，`normalizeOpenSubagentRunRequest()` 校验打开事件 detail；`subagentRunBodyBlocks()` 是运行详情内部块顺序（task/context/expectedOutput → 详细摘要 → trace → 无 trace 时 output → input/details）的单一事实来源，与 Git 历史最终态一致；同一 `runId` 的 Tab 复用逻辑位于 `workspace-inspector-tabs.ts`。
 
 ### generated-image-assets.ts
 

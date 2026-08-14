@@ -2,13 +2,13 @@
 
 ## Current State
 
-- Feature: `workspace-same-file-tab-reuse`
-- Status: `done`（工作区重复预览同一文件时复用已有 tab：Reader 复用分支激活并置 loading、清除 error，复用现有加载 effect 重新读取；Browser 按同一底层文件路径/精确 web URL 查找已有 tab，命中则激活并递增 reloadNonce 触发 iframe 重载，未命中才新建；仅同 kind 去重。针对性测试 22+12+3=37 项通过、lint 0 error、build 通过）
-- Goal: 重复预览同一文件时复用已有 tab、刷新内容并激活；不同文件仍新建 tab。
-- Files: src/components/workspace/WorkspaceInspector.tsx, src/components/workspace/workspace-inspector-tabs.ts, src/components/workspace/workspace-tab-file-path.ts, src/components/preview/WebPreviewContent.tsx, tests/frontend/workspace-tab-file-path.test.ts, docs/wiki/src/components/README.md, feature_list.json, progress.md, session-handoff.md
+- Feature: `subagent-run-workspace-tabs`
+- Status: `done`（subagent 运行详情已接入 Workspace Inspector 运行时 Tab，并完成侧边详情与聊天展示的一致化：复用 Git 最终态内容层级、原始时间线顺序、process folding 装饰与交互；摘要入口具备 hover/focus-visible 和可访问语义。针对性 6 文件 / 92 项、全量 144 文件 / 1159 项测试通过）
+- Goal: 让 subagent 侧边运行详情在内容层级、过程折叠、视觉、实时更新和 Tab 行为上与既有展示一致。
+- Files: src/components/chat/panel-decoration/message-actions.ts, src/components/chat/panel-decoration.ts, src/lib/subagent-run-detail.ts, src/lib/local-tools.ts, src/index.css, src/components/workspace/SubagentRunDetailContent.tsx, tests/frontend/subagent-run-detail.test.ts, tests/frontend/decorate-subagent-process.test.ts, docs/wiki/src/components/README.md, docs/wiki/src/lib/README.md, feature_list.json, progress.md, session-handoff.md
 - Blockers: 无。
 - Next step: 无待办；如后续发布，遵循 patch-release-runbook（发布前必须完整 test/lint/build 通过）。
-- Last Updated: 2026-08-13
+- Last Updated: 2026-08-14
 
 ## Completed Work
 
@@ -75,3 +75,51 @@
 - 改动：设置 → 智能体中，智能体操作菜单首项文案由 `openMenuAgent.builtin ? t('builtinAgentModelSettings') : t('editTask')` 统一为 `t('editTask')`，使内置/自定义智能体均显示“编辑”（t('editTask') 为 en 'Edit' / zh '编辑'）；仅改显示文案，onClick（openEditAgentDialog）等行为及其他逻辑不变。
 - 改动文件：src/components/agent-profiles/AgentProfilesPage.tsx（1 行）、feature_list.json、progress.md、session-handoff.md。
 - 验证：`npm run lint` exit code 0，0 error，仅 1 个既有 warning（server/cloud/identity.mjs no-useless-assignment）；`npm run build` exit code 0，仅既有 KaTeX 字体与大 chunk warning。无对应组件测试（纯 JSX 文案改动，无测试文件）。未新增依赖、未提交 Git、未手工修改生成目录（dist/ 由 build 正常再生成）。
+
+## subagent 运行详情侧栏（2026-08-14）
+
+- 需求：用户明确要求“点击聊天中的 subagent 卡片 → 右侧侧栏查看该次运行详情/执行过程”，不是 Agent Profile 配置。
+- 先撤回错误方向（仅本 feature）：删除 `src/lib/agent-profile-panel.ts`、`src/components/agent-profiles/AgentProfileSidePanel.tsx`、`tests/frontend/agent-profile-lookup.test.ts`；`src/lib/local-tools.ts` 移除 `OPEN_AGENT_PROFILE_EVENT`/`renderOpenAgentProfileButton`；`src/App.tsx`、`src/hooks/useUIState.ts`、`src/components/agent-profiles/AgentProfilesPage.tsx`、`docs/wiki/src/README.md`、`docs/wiki/src/lib/README.md` 经 diff 确认仅含错误 feature 后恢复 HEAD；`src/lib/i18n.ts` 只删 `openAgentProfile`/`agentProfileNotFound`（en/zh），并发 cloud 的 `cloudRemoteAutoApproval*` 全部保留；feature_list.json/progress.md/session-handoff.md 恢复 HEAD 历史后追加本记录，未再次覆盖历史。
+- 正确实现：
+  - 稳定 run id：`lib/subagent-run-detail.ts` 的 `buildSubagentRunPayload` 优先 `details.sessionId`，旧消息回退 `${name}:${task}`；并输出 status/statusLabel/timing/toolCalls/allowedTools/过滤后 traceMessages/tools/pendingToolCalls/input/details JSON/output/detailed/内容指纹。
+  - 交互：subagent 卡片摘要行新增带文字标签的“查看运行详情”按钮（`renderOpenSubagentRunButton`，派发 `quickforge:open-subagent-run`，detail 含 runId+payload 快照），`<details>`/`<summary>` 原生展开折叠不变；未采用“摘要点击即开侧栏”，避免破坏既有展开行为。
+  - 共享模板：内联卡片 body 抽为 `renderSubagentRunBody`（local-tools.ts 导出），侧栏通过 Lit 宿主元素 `subagent-run-detail-body`（light DOM）复用同一模板，panel 模式无条件展示摘要框/input/details，两视图零漂移。
+  - 实时更新：渲染器每次收到更新经 `queueMicrotask` + 内容指纹去重派发 `quickforge:update-subagent-run`；App 用 `shouldApplySubagentRunUpdate` 仅更新当前打开的 run。
+  - 互斥：打开运行详情时收起 WorkspaceInspector/Artifact 预览；打开 WorkspaceInspector 或自动/手动预览时收起运行详情；项目切换重置。
+  - 小屏：lg+ 右侧 split pane（与 WorkspaceInspector 相同模式），小屏降级为全宽右侧抽屉，避免“已打开但侧栏 hidden 不可见”。
+  - i18n：新增 `viewSubagentRunDetails`/`subagentRunDetails`/`subagentRunEmpty`（en/zh）。
+- 改动文件：src/lib/subagent-run-detail.ts（新增）、src/lib/local-tools.ts、src/components/chat/SubagentRunDetailPanel.tsx（新增）、src/hooks/useUIState.ts、src/App.tsx、src/lib/i18n.ts、tests/frontend/subagent-run-detail.test.ts（新增）、docs/wiki/src/README.md、docs/wiki/src/lib/README.md、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- 验证：`npm run test` exit code 0，143 个测试文件、1145 项测试全部通过（100%）；`npm run lint` exit code 0，0 error，仅 1 个既有 warning（server/cloud/identity.mjs no-useless-assignment，属并发 cloud 改动）；`npm run build` exit code 0，仅既有 KaTeX 字体与大 chunk warning。针对性测试 `tests/frontend/subagent-run-detail.test.ts`（13 项）+ `tests/frontend/subagent-process-trace.test.ts`（2 项）全部通过。未新增依赖、未提交 Git、未手工修改生成目录（dist/ 由 build 正常再生成）。
+- Notes：工作区存在并发 cloud 会话改动（server/cloud、src/components/cloud、src/lib/cloud-client.ts、cloud tests/docs、i18n 的 cloudRemoteAutoApproval* 等），本次全部保留；并发会话可能需自行补记其状态到 feature_list.json/progress.md/session-handoff.md。
+
+## subagent 运行详情最小修复（2026-08-14）
+
+- 独立审查确认的 3 个问题全部修复（最小改动，未触碰 Cloud 并发文件、未提交 Git）：
+  - HIGH：`renderSubagentRunBody` 的 `<message-list>` 由布尔属性绑定 `?data-quickforge-subagent-process=${!options.panel}` 修为静态精确值 `data-quickforge-subagent-process="true"`（内联与侧栏一致）。此前内联时属性值为空串、侧栏时属性被移除：精确 selector `message-list[data-quickforge-subagent-process="true"]`（index.css、message-actions.ts 的 decorateProcessBlocks）不匹配，且侧栏列表未满足 windowed-messages 的存在性退避（hasAttribute），会被窗口接管导致长 trace 截断。
+  - MEDIUM：App 互斥/收起时仅 `setSubagentRunPanelOpen(false)`，残留 runId/payload 仍使隐藏面板接收 UPDATE 事件。新增统一 `closeSubagentRunPanel` useCallback（同时清 open/runId/payload），复用于 requestWorkspaceInspector、工具栏手动展开 WorkspaceInspector、项目切换清理 effect、面板 onClose；自动预览经 requestWorkspaceInspector 已覆盖，未重复改。
+  - LOW：fingerprint 仅按长度/条数，同长度内容变化不改变指纹。新增 FNV-1a 32 位纯函数 stableHash（无依赖）+ jsonText，对 output/input/details 及 traceMessages JSON 做轻量稳定 hash（不拼入原始大内容），并保留原有长度字段。
+- 删除 SubagentRunDetailPanel 未使用的 runId prop 及 App 传参（App 的 runId 状态仍保留，用于 UPDATE 事件匹配）。
+- 测试：tests/frontend/subagent-run-detail.test.ts 新增“同长度文本内容变化（trace/details/output）指纹不同”用例（13→14 项）。message-list 属性精确值未补 DOM 用例：测试设施无 jsdom/Lit 渲染环境，按任务约定不为低成本不可达的情况引入 DOM 依赖。
+- 改动文件：src/lib/local-tools.ts、src/lib/subagent-run-detail.ts、src/App.tsx、src/components/chat/SubagentRunDetailPanel.tsx、tests/frontend/subagent-run-detail.test.ts、feature_list.json、progress.md、session-handoff.md。
+- 验证：`npm run test` exit code 0，143 文件 / 1146 项测试全部通过（100%）；`npm run lint` exit code 0，0 error，仅 1 个既有 warning（server/cloud/identity.mjs no-useless-assignment，属并发 cloud 改动）；`npm run build` exit code 0，仅既有 KaTeX 字体与大 chunk warning。针对性测试 subagent-run-detail（14 项）+ subagent-process-trace（2 项）+ windowed-messages（14 项）共 30 项通过。未新增依赖、未手工修改生成产物（dist/ 由 build 正常再生成）。
+
+## subagent 运行详情接入工作区 Tab（2026-08-14）
+
+- 根据用户反馈，将 subagent 运行详情从独立右侧侧栏改为 `WorkspaceInspector` 的运行时 Tab，与文件、审查、终端和浏览器 Tab 并存。
+- 点击聊天中的 subagent 摘要会直接打开或激活对应 `runId` 的 Tab；同一次运行复用已有 Tab，不同运行分别创建 Tab，可切换、排序和单独关闭。
+- 移除聊天内 `<details>` 展开与重复详情内容；聊天只显示名称、状态和耗时摘要，任务、工具调用、完整过程和结果统一在工作区 Tab 显示。
+- `quickforge:update-subagent-run` 由 Workspace Inspector 直接监听，只实时更新已打开且 `runId` 匹配的 Tab。subagent Tab 不写入项目持久化，刷新后不恢复；其他 Tab 的持久化规则不变。
+- 支持没有项目的全局对话打开 subagent Tab；独立 `SubagentRunDetailPanel` 与 `useUIState` 中对应状态已删除。
+- 改动文件：`src/App.tsx`、`src/lib/local-tools.ts`、`src/lib/subagent-run-detail.ts`、`src/components/workspace/WorkspaceInspector.tsx`、`src/components/workspace/SubagentRunDetailContent.tsx`、`src/components/workspace/workspace-inspector-tabs.ts`、`src/components/workspace/workspace-inspector-request.ts`、`src/components/workspace/workspace-types.ts`、相关测试和 Wiki/状态文件。
+- 验证：`npx tsc -b --pretty false` 通过；针对性测试 4 文件 / 33 项通过；`npm run test` 143 文件 / 1148 项全部通过（100%）；`npm run lint` 0 error，仅 1 个并发 Cloud warning；`npm run build` 通过，仅既有 KaTeX 字体与大 chunk warning。未提交 Git，未手工修改生成目录。
+- 后续样式/配置修正：Workspace Tab 不再强制 detailed 内容，直接沿用原 subagent 详情模板和工具显示配置；`concise / compact` 保持简洁，`detailed` 才显示工具调用统计、允许工具、input/details。验证：TypeScript 通过；针对性 3 文件 / 29 项通过；修改文件 lint 通过。
+## subagent 侧边详情与聊天内展示一致化（2026-08-14）
+- 目标：让 Workspace Inspector 中 subagent 运行详情 Tab 的层级、过程折叠装饰与交互、视觉与聊天内既有展示“一步到位一致”，并补齐可测试生命周期与测试。
+- 内部块顺序以 Git 历史最终态（1f40ead / 32be493，不恢复已废弃的 ad45fc7 分组重排）为规范：task/context/expectedOutput → detailed 摘要（工具统计/耗时/允许工具）→ trace（process message-list，保持原始时间线顺序）→ 无 trace 时 output → detailed 时 input/details。顺序抽为 `subagentRunBodyBlocks()`（`src/lib/subagent-run-detail.ts`）单一事实来源，`renderSubagentRunBody` 据此输出，避免模板与测试各写一份顺序。
+- 过程折叠一致化：把 `decorateMessages` 内联的 subagent message-list 装饰循环抽为导出的 `decorateSubagentProcessBlocks(panel)`（`panel-decoration/message-actions.ts`，经 `panel-decoration.ts` 再导出），聊天与侧边共用同一路径。`SubagentRunDetailBodyElement`（`local-tools.ts`）每次渲染后调度一次装饰：等 Lit `updateComplete` 与 message-list `updateComplete` 后再执行，覆盖首次挂载、payload 实时更新、运行状态变化（`data-quickforge-subagent-streaming` 随之变化，process folding 全量重建/释放 streaming 态）；调度用布尔标志防叠加，卸载置 `disposed` 标志并检查 `isConnected`，装饰幂等（process-folding 指纹跳过/重建），无外部监听器泄漏。
+- 视觉与可访问：侧边容器沿用 Inspector 内容区 `px-4 py-4`，body 模板与聊天内一致（同一 `renderSubagentRunBody`），不引入新视觉语言。聊天摘要按钮作为打开侧栏的入口：原生 button 语义 + `aria-label`/`title`，index.css 新增 `.quickforge-subagent-tool > .quickforge-tool-summary` 的 hover（浅背景）与 focus-visible（焦点环）反馈。
+- WorkspaceInspector subagent Tab 审查：upsert/激活/关闭/重复 runId（同 runId 复用并更新 payload）/无 projectId（请求放行、Tab 可渲染）行为均正确，未发现需修复的明确缺陷；未改动工作区 Tab 拖拽排序与 `reorderPanelTabs` 规则。
+- 死代码清理（确认无引用后删除）：`src/index.css` 移除已无渲染来源的 `.quickforge-subagent-chevron`（保留 `.quickforge-tool-chevron`）；`src/lib/subagent-run-detail.ts` 删除不再被 src 引用的 `shouldApplySubagentRunUpdate`（实时更新已由 WorkspaceInspector 直接按 runId 处理）。
+- 测试：subagent-run-detail.test.ts 新增 `subagentRunBodyBlocks` 顺序（5 项）、trace 时间线保序（1 项）、`called` 状态（1 项），删除 `shouldApplySubagentRunUpdate` 用例；新增 `tests/frontend/decorate-subagent-process.test.ts`（4 项）：验证子代理 message-list 各自以子节点与 streaming 标志被装饰、未标记列表被忽略、跨作用域子节点被过滤、空 panel 为空操作。workspace-inspector-tabs/request 既有测试已覆盖重复打开复用、实时更新与无 projectId。
+- 改动文件：`src/components/chat/panel-decoration/message-actions.ts`、`src/components/chat/panel-decoration.ts`、`src/lib/subagent-run-detail.ts`、`src/lib/local-tools.ts`、`src/index.css`、`tests/frontend/subagent-run-detail.test.ts`、`tests/frontend/decorate-subagent-process.test.ts`（新增）、`docs/wiki/src/components/README.md`、`docs/wiki/src/lib/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：`npx tsc -b` 通过；针对性 vitest 6 文件 / 92 项全部通过；`npm run test` 144 文件 / 1159 项全部通过（100%）；`npm run lint` 0 error（仅 1 个并发 Cloud warning）；`npm run build` 通过（仅既有 KaTeX 字体解析与大 chunk warning）。未新增依赖、未提交 Git、未手工修改生成产物（dist/ 由 build 正常再生成）、未触碰 Cloud 并发改动。

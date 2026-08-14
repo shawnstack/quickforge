@@ -1,5 +1,5 @@
 import { registerToolRenderer } from '@earendil-works/pi-web-ui'
-import { html, nothing } from 'lit'
+import { html, LitElement, nothing } from 'lit'
 import { styleMap } from 'lit/directives/style-map.js'
 import { t, type AppTextKey } from '@/lib/i18n'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
@@ -7,8 +7,15 @@ import type { AgentTool } from '@earendil-works/pi-agent-core'
 import { extractQuickForgeTiming, type QuickForgeToolTiming } from '@/lib/tool-execution-events'
 import { artifactPreviewMode, type ArtifactKind } from '@/components/workspace/artifact-preview-utils'
 import { formatManageGlobalMemoryOutput } from '@/lib/global-memory-tool-output'
-import { subagentProcessTraceMessages } from '@/lib/subagent-process-trace'
 import { generatedImageAssetUrl, parseGeneratedImageDetails } from '@/lib/generated-image-assets'
+import {
+  OPEN_SUBAGENT_RUN_EVENT,
+  UPDATE_SUBAGENT_RUN_EVENT,
+  buildSubagentRunPayload,
+  subagentRunBodyBlocks,
+  type SubagentRunPayload,
+} from '@/lib/subagent-run-detail'
+import { decorateSubagentProcessBlocks } from '@/components/chat/panel-decoration'
 
 type ToolResultLike = {
   isError?: boolean
@@ -577,21 +584,6 @@ function renderPreviewButton(toolName: string, params: Record<string, unknown> |
   `
 }
 
-function subagentLabel(name: string, details?: unknown) {
-  if (isRecord(details) && typeof details.label === 'string' && details.label) return details.label
-  if (name === 'general') return t('subagentGeneral')
-  if (name === 'explore') return t('subagentExplore')
-  return name || t('runSubagent')
-}
-
-function stringArrayFromUnknown(value: unknown) {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
-}
-
-function arrayFromUnknown(value: unknown) {
-  return Array.isArray(value) ? value : []
-}
-
 const toolDetailsOpen = new Map<string, boolean>()
 const MAX_TOOL_DETAILS_OPEN_ENTRIES = 200
 
@@ -609,90 +601,173 @@ function toolDetailsStateKey(toolName: string, params: Record<string, unknown> |
   return toolCallId || `${toolName}:${stringifyValue(params)}`
 }
 
-const subagentDetailsOpen = new Map<string, boolean>()
-const MAX_SUBAGENT_DETAILS_OPEN_ENTRIES = 100
+// ---------------------------------------------------------------------------
+// subagent 运行详情：聊天摘要点击后在 Workspace Inspector Tab 中打开。
+// 数据由 buildSubagentRunPayload 构建，运行详情 Tab 通过 subagent-run-detail-body
+// 复用 renderSubagentRunBody；聊天内不再展开重复展示完整过程。
+// ---------------------------------------------------------------------------
 
-function rememberSubagentDetailsOpen(key: string, open: boolean) {
-  if (!key) return
-  if (!subagentDetailsOpen.has(key) && subagentDetailsOpen.size >= MAX_SUBAGENT_DETAILS_OPEN_ENTRIES) {
-    const oldestKey = subagentDetailsOpen.keys().next().value
-    if (oldestKey) subagentDetailsOpen.delete(oldestKey)
+const subagentRunUpdateFingerprints = new Map<string, string>()
+const MAX_SUBAGENT_RUN_UPDATE_ENTRIES = 100
+
+function dispatchSubagentRunUpdate(payload: SubagentRunPayload) {
+  if (!payload.runId) return
+  if (subagentRunUpdateFingerprints.get(payload.runId) === payload.fingerprint) return
+  if (!subagentRunUpdateFingerprints.has(payload.runId) && subagentRunUpdateFingerprints.size >= MAX_SUBAGENT_RUN_UPDATE_ENTRIES) {
+    const oldestKey = subagentRunUpdateFingerprints.keys().next().value
+    if (oldestKey) subagentRunUpdateFingerprints.delete(oldestKey)
   }
-  subagentDetailsOpen.set(key, open)
+  subagentRunUpdateFingerprints.set(payload.runId, payload.fingerprint)
+  // 避免在 Lit render 过程中同步 dispatch（可能触发 React setState 副作用/循环）：
+  // 推迟到微任务，由 Workspace Inspector 按 runId 更新已打开的运行 Tab。
+  queueMicrotask(() => {
+    window.dispatchEvent(new CustomEvent(UPDATE_SUBAGENT_RUN_EVENT, { detail: { runId: payload.runId, payload } }))
+  })
+}
+
+function renderSubagentRunSummary(payload: SubagentRunPayload) {
+  return html`
+    <div class="quickforge-subagent-tool">
+      <button
+        type="button"
+        class="quickforge-tool-summary flex w-full cursor-pointer list-none items-center gap-2 text-left text-sm text-muted-foreground select-none"
+        title=${t('viewSubagentRunDetails')}
+        aria-label=${`${payload.statusLabel} · ${t('viewSubagentRunDetails')}`}
+        @click=${() => {
+          window.dispatchEvent(new CustomEvent(OPEN_SUBAGENT_RUN_EVENT, { detail: { runId: payload.runId, payload } }))
+        }}
+      >
+        ${renderToolIcon('run_subagent')}
+        <span class="quickforge-subagent-title min-w-0">
+          <span class="quickforge-subagent-label">${payload.statusLabel}</span>
+          ${renderStatus(payload.status, payload.timing)}
+        </span>
+      </button>
+    </div>
+  `
+}
+
+/**
+ * 唯一 subagent 运行详情模板，由 Workspace Inspector 的运行 Tab 使用。
+ * 展示层级与顺序遵循 subagentRunBodyBlocks（与 Git 历史最终态的聊天内展示一致）：
+ * task/context/expectedOutput → detailed 摘要 → trace → 无 trace 时 output → input/details。
+ */
+export function renderSubagentRunBody(payload: SubagentRunPayload) {
+  const bodyBlocks = new Set(subagentRunBodyBlocks(payload))
+  const pendingToolCalls = new Set(payload.pendingToolCalls)
+  return html`
+    <div class="mt-3 space-y-3">
+      ${bodyBlocks.has('task') ? html`<div class="quickforge-subagent-task space-y-1 rounded-lg border border-border bg-background/60 px-3 py-2 text-xs leading-relaxed text-muted-foreground/70">
+        ${payload.task ? html`<div><span class="font-medium text-foreground/75">${t('subagentTask')}:</span> ${payload.task}</div>` : nothing}
+        ${payload.context ? html`<div><span class="font-medium text-foreground/75">${t('subagentContext')}:</span> ${payload.context}</div>` : nothing}
+        ${payload.expectedOutput ? html`<div><span class="font-medium text-foreground/75">${t('subagentExpectedOutput')}:</span> ${payload.expectedOutput}</div>` : nothing}
+      </div>` : nothing}
+      ${bodyBlocks.has('summary') ? html`<div class="quickforge-subagent-summary rounded-lg border border-border/75 bg-muted/20 px-3 py-2.5 text-sm">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
+          <span class="font-medium text-foreground/85">${payload.label}</span>
+          ${payload.toolCalls !== undefined ? html`<span>${t('subagentToolCalls')}: ${payload.toolCalls}</span>` : nothing}
+          ${payload.timing ? html`<span>${renderTiming(payload.timing, payload.status)}</span>` : nothing}
+        </div>
+        ${payload.allowedTools.length > 0 ? html`<div class="mt-2 flex flex-wrap gap-1.5">${payload.allowedTools.map((tool) => html`<span class="rounded-full bg-background/80 px-2 py-0.5 text-[11px] text-muted-foreground/80">${tool}</span>`)}</div>` : nothing}
+      </div>` : nothing}
+      ${bodyBlocks.has('trace') ? html`<div class="quickforge-subagent-trace rounded-lg border border-border bg-background/60 p-2.5"><message-list data-quickforge-subagent-process="true" data-quickforge-subagent-streaming=${String(payload.status === 'running')} .messages=${payload.traceMessages} .tools=${payload.tools} .pendingToolCalls=${pendingToolCalls} .isStreaming=${false}></message-list></div>` : nothing}
+      ${bodyBlocks.has('output') ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('subagentResult')}</div><code-block .code=${payload.output} language="text"></code-block></div>` : nothing}
+      ${bodyBlocks.has('input') ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${payload.input} language="json"></code-block></div>` : nothing}
+      ${bodyBlocks.has('details') ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('details')}</div><code-block .code=${payload.details} language="json"></code-block></div>` : nothing}
+    </div>
+  `
+}
+
+/**
+ * Workspace Inspector 的 subagent Tab 通过它复用 renderSubagentRunBody。
+ * 渲染到 light DOM（createRenderRoot 返回 this），保证全局样式与内联卡片一致。
+ *
+ * 每次渲染后复用聊天的 decorateSubagentProcessBlocks，对内部
+ * message-list[data-quickforge-subagent-process] 应用与聊天内一致的
+ * process folding / 过程分组装饰与交互：首次挂载、payload 实时更新、
+ * 运行状态变化（streaming 标志变化）都会重新装饰；装饰幂等且基于
+ * 元素持有的处理器，卸载即随 DOM 一起回收，无需额外监听器清理。
+ */
+export class SubagentRunDetailBodyElement extends LitElement {
+  static properties = {
+    payload: { attribute: false },
+  }
+
+  payload?: SubagentRunPayload
+
+  /** 防止连续更新叠加多次装饰；更新期间若又渲染，则在当前轮结束后补跑一次。 */
+  private __processDecorationScheduled = false
+  private __processDecorationPending = false
+  private __processDecorationDisposed = false
+
+  createRenderRoot() {
+    return this
+  }
+
+  connectedCallback() {
+    super.connectedCallback?.()
+    this.__processDecorationDisposed = false
+  }
+
+  disconnectedCallback() {
+    this.__processDecorationDisposed = true
+    super.disconnectedCallback?.()
+  }
+
+  render() {
+    if (!this.payload) return html`<div class="rounded-lg border border-border bg-background/60 px-3 py-6 text-center text-sm text-muted-foreground/70">${t('subagentRunEmpty')}</div>`
+    return renderSubagentRunBody(this.payload)
+  }
+
+  updated() {
+    this.scheduleProcessDecoration()
+  }
+
+  /** 等 Lit 与 message-list 自身渲染完成后，对最新 DOM 执行一次过程装饰。 */
+  private scheduleProcessDecoration() {
+    if (this.__processDecorationDisposed) return
+    if (this.__processDecorationScheduled) {
+      this.__processDecorationPending = true
+      return
+    }
+    this.__processDecorationScheduled = true
+    void (async () => {
+      try {
+        await this.updateComplete
+        if (this.__processDecorationDisposed || !this.isConnected) return
+        const messageList = this.querySelector<HTMLElement & { updateComplete?: Promise<unknown> }>(
+          'message-list[data-quickforge-subagent-process="true"]',
+        )
+        const messageListUpdate = messageList?.updateComplete
+        if (messageListUpdate) await messageListUpdate
+        if (this.__processDecorationDisposed || !this.isConnected) return
+        decorateSubagentProcessBlocks(this)
+      } catch {
+        // 装饰失败不应影响详情展示（与聊天侧 decorateMessages 的容错一致）。
+      } finally {
+        this.__processDecorationScheduled = false
+        if (this.__processDecorationPending && !this.__processDecorationDisposed) {
+          this.__processDecorationPending = false
+          this.scheduleProcessDecoration()
+        }
+      }
+    })()
+  }
+}
+
+if (!customElements.get('subagent-run-detail-body')) {
+  customElements.define('subagent-run-detail-body', SubagentRunDetailBodyElement)
 }
 
 class SubagentToolRenderer {
   render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
-    const status = toolStatus(result, isStreaming)
-    const timing = extractQuickForgeTiming(result?.details)
-    const details = isRecord(result?.details) ? result.details : undefined
-    const name = typeof params?.subagent === 'string'
-      ? params.subagent
-      : typeof details?.subagent === 'string'
-        ? details.subagent
-        : ''
-    const label = subagentLabel(name, details)
-    const task = typeof params?.task === 'string' ? params.task : ''
-    const context = typeof params?.context === 'string' ? params.context : ''
-    const expectedOutput = typeof params?.expectedOutput === 'string' ? params.expectedOutput : ''
-    const toolCalls = typeof details?.toolCalls === 'number' ? details.toolCalls : undefined
-    const allowedTools = stringArrayFromUnknown(details?.allowedTools)
-    const traceMessages = arrayFromUnknown(details?.messages)
-    const traceTools = arrayFromUnknown(details?.tools)
-    const pendingToolCalls = new Set(stringArrayFromUnknown(details?.pendingToolCalls))
     const toolDisplaySettings = getCachedToolDisplaySettings()
-    const detailed = toolDisplaySettings.toolDisplayMode === 'detailed'
-    const visibleTraceMessages = subagentProcessTraceMessages(traceMessages)
-    const input = detailed ? stringifyValue(params) : ''
-    const detailJson = detailed ? stringifyValue(result?.details) : ''
-    const output = resultText(result)
-    const detailsKey = typeof details?.sessionId === 'string'
-      ? details.sessionId
-      : `${name}:${task}`
-    const detailsOpen = subagentDetailsOpen.get(detailsKey) ?? detailed
-    const statusLabel = status === 'running'
-      ? t('subagentRunning', { name: label })
-      : status === 'done'
-        ? t('subagentCompleted', { name: label })
-        : status === 'error'
-          ? t('subagentFailed', { name: label })
-          : t('runSubagent')
+    const payload = buildSubagentRunPayload(params, result, isStreaming, toolDisplaySettings.toolDisplayMode, t)
+    dispatchSubagentRunUpdate(payload)
 
     return {
       isCustom: false,
-      content: html`
-        <details class="group/tool quickforge-subagent-tool" ?open=${detailsOpen} @toggle=${(event: Event) => {
-          if (event.isTrusted) rememberSubagentDetailsOpen(detailsKey, (event.currentTarget as HTMLDetailsElement).open)
-        }}>
-          <summary class="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
-            ${renderToolIcon('run_subagent')}
-            <span class="quickforge-subagent-title min-w-0">
-              <span class="quickforge-subagent-label">${statusLabel}</span>
-              <svg class="quickforge-subagent-chevron shrink-0 group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
-              ${renderStatus(status, timing)}
-            </span>
-          </summary>
-          <div class="mt-3 space-y-3">
-            ${task || context || expectedOutput ? html`<div class="quickforge-subagent-task space-y-1 rounded-lg border border-border bg-background/60 px-3 py-2 text-xs leading-relaxed text-muted-foreground/70">
-              ${task ? html`<div><span class="font-medium text-foreground/75">${t('subagentTask')}:</span> ${task}</div>` : nothing}
-              ${context ? html`<div><span class="font-medium text-foreground/75">${t('subagentContext')}:</span> ${context}</div>` : nothing}
-              ${expectedOutput ? html`<div><span class="font-medium text-foreground/75">${t('subagentExpectedOutput')}:</span> ${expectedOutput}</div>` : nothing}
-            </div>` : nothing}
-            ${detailed ? html`<div class="quickforge-subagent-summary rounded-lg border border-border/75 bg-muted/20 px-3 py-2.5 text-sm">
-              <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
-                <span class="font-medium text-foreground/85">${label}</span>
-                ${toolCalls !== undefined ? html`<span>${t('subagentToolCalls')}: ${toolCalls}</span>` : nothing}
-                ${timing ? html`<span>${renderTiming(timing, status)}</span>` : nothing}
-              </div>
-              ${allowedTools.length > 0 ? html`<div class="mt-2 flex flex-wrap gap-1.5">${allowedTools.map((tool) => html`<span class="rounded-full bg-background/80 px-2 py-0.5 text-[11px] text-muted-foreground/80">${tool}</span>`)}</div>` : nothing}
-            </div>` : nothing}
-            ${visibleTraceMessages.length > 0 ? html`<div class="quickforge-subagent-trace rounded-lg border border-border bg-background/60 p-2.5"><message-list data-quickforge-subagent-process="true" data-quickforge-subagent-streaming=${String(status === 'running')} .messages=${visibleTraceMessages} .tools=${traceTools} .pendingToolCalls=${pendingToolCalls} .isStreaming=${false}></message-list></div>` : nothing}
-            ${output && visibleTraceMessages.length === 0 ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('subagentResult')}</div><code-block .code=${output} language="text"></code-block></div>` : nothing}
-            ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : nothing}
-            ${detailJson ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('details')}</div><code-block .code=${detailJson} language="json"></code-block></div>` : nothing}
-          </div>
-        </details>
-      `,
+      content: renderSubagentRunSummary(payload),
     }
   }
 }

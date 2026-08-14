@@ -7,6 +7,7 @@ import {
   readPersistedPanelTabs,
   reorderPanelTabs,
   serializePanelTabs,
+  upsertSubagentRunTab,
   workspaceInspectorTabsStorageKey,
   writePersistedPanelTabs,
 } from '../../src/components/workspace/workspace-inspector-tabs'
@@ -98,6 +99,7 @@ describe('workspace inspector tabs persistence', () => {
   it('serializes only restorable tab state and restores file readers as loading', () => {
     const tabs: WorkspacePanelTab[] = [
       { id: 'browser-1', kind: 'browser', url: 'http://localhost:5173' },
+      { id: 'subagent-9', kind: 'subagent', subagentRun: { runId: 'run-1' } as WorkspacePanelTab['subagentRun'] },
       { id: 'terminal-2', kind: 'terminal', terminalSessionId: 'terminal-session' },
       {
         id: 'reader-3',
@@ -172,6 +174,26 @@ describe('workspace inspector tabs persistence', () => {
       tabs: [],
       activePanelTabId: undefined,
     })
+  })
+
+  it('creates separate subagent run tabs and reuses the same run id', () => {
+    const first = { runId: 'run-1', label: 'Explore', fingerprint: 'a' } as WorkspacePanelTab['subagentRun']
+    const updated = { ...first, status: 'done', fingerprint: 'b' } as WorkspacePanelTab['subagentRun']
+    const second = { runId: 'run-2', label: 'General', fingerprint: 'c' } as WorkspacePanelTab['subagentRun']
+
+    const opened = upsertSubagentRunTab([], first!, 'subagent-1')
+    expect(opened.created).toBe(true)
+    expect(opened.tabId).toBe('subagent-1')
+
+    const reused = upsertSubagentRunTab(opened.tabs, updated!, 'subagent-2')
+    expect(reused.created).toBe(false)
+    expect(reused.tabId).toBe('subagent-1')
+    expect(reused.tabs).toHaveLength(1)
+    expect(reused.tabs[0]?.subagentRun?.fingerprint).toBe('b')
+
+    const separate = upsertSubagentRunTab(reused.tabs, second!, 'subagent-2')
+    expect(separate.created).toBe(true)
+    expect(separate.tabs.map((tab) => tab.id)).toEqual(['subagent-1', 'subagent-2'])
   })
 
   it('reorders tabs by id without changing their contents', () => {

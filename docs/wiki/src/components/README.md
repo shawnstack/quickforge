@@ -30,7 +30,8 @@ components/
 ├── sidebar/
 │   └── ChatSidebar.tsx             # 聊天侧边栏 (551 行)
 ├── workspace/
-│   ├── WorkspaceInspector.tsx      # 右侧统一工作区检查器，顶部 Tab 支持拖动排序并按项目持久化；Overview/Files/Browser/Changes；HTML/图片产物进入 Browser，Markdown/代码/文本产物进入 Reader
+│   ├── WorkspaceInspector.tsx      # 右侧统一工作区检查器，顶部 Tab 支持拖动排序；含文件/审查/终端/浏览器/subagent 运行详情
+│   ├── SubagentRunDetailContent.tsx # Workspace Inspector 中的 subagent 单次运行详情内容
 │   ├── WorkspaceFileTree.tsx       # 项目文件树
 │   ├── WorkspaceChangesList.tsx    # Git 工作区变更列表
 │   ├── MonacoCodeViewer.tsx        # Monaco 只读代码查看器
@@ -77,6 +78,16 @@ components/
 - 对话消息在恢复后一次性完整渲染，不再按轮次窗口化或触顶分页；初始加载和 DOM 成本相应增加，但左侧轮次导航点击时目标消息节点已存在，可直接平滑定位。`windowed-messages.ts` 保留显式透传模式及原窗口控制能力，主聊天面板当前使用透传模式；子代理 process 消息列表不受影响。`decorateMessages` 使用全量消息且 `messageIndexOffset` 为 0，回滚、重试、复制继续使用全量索引。
 - 主对话页提供左侧用户轮次导航（`turn-navigation.ts`）：每条用户消息对应一个节点，当前轮次随滚动高亮；悬停或键盘聚焦节点时显示截断的用户消息与该轮最后一条 assistant 消息（Final Answer），点击直接平滑定位到已渲染的对应用户消息。分享页默认不显示该导航，移动端隐藏。
 - 草稿恢复支持；Composer 草稿持久化由 `src/lib/composer-drafts.ts` 直接使用浏览器 `localStorage`，不再经过 `AppStorage/settings` 或后端存储；回滚、模型切换等外部恢复草稿按一次性事件消费，发送、编辑或 Session 切换会取消旧的延迟恢复任务；已消费恢复草稿 ID 使用有界 Set，发送或明确清空会立即删除运行时与持久化草稿。
+
+### WorkspaceInspector.tsx / SubagentRunDetailContent.tsx
+
+- subagent 单次运行详情是 Workspace Inspector 的一种运行时 Tab，与文件、审查、终端、浏览器 Tab 并存，可独立切换、排序和关闭。
+- 点击聊天中的 subagent 摘要会派发 `quickforge:open-subagent-run`；同一 `runId` 复用并激活已有 Tab，不同运行创建独立 Tab。无项目的全局会话也可打开 subagent Tab。
+- 聊天中不再使用 `<details>` 展开完整过程；任务、上下文、期望输出、过程 message-list 和结果统一在 Tab 中显示。Tab 继续遵循工具显示配置并复用原详情样式：`concise / compact` 保持简洁，`detailed` 才额外展示工具调用统计、允许工具以及 input/details JSON。
+- `SubagentRunDetailContent` 通过 Lit 宿主 `subagent-run-detail-body` 复用 `local-tools.ts` 的 `renderSubagentRunBody`；`quickforge:update-subagent-run` 仅更新已打开且 `runId` 匹配的 Tab。
+- 侧边详情内部的 process `message-list` 与聊天内共用同一装饰路径：宿主每次渲染（首次挂载、payload 实时更新、运行状态变化）后调度 `decorateSubagentProcessBlocks`（`panel-decoration/message-actions.ts`），对 `message-list[data-quickforge-subagent-process]` 应用与聊天一致的 process folding / 过程分组装饰与交互；装饰幂等、不重复叠加，卸载随 DOM 回收。
+- 聊天中的 subagent 摘要按钮是打开侧边详情的入口：原生 button 语义 + `aria-label`/`title`，并带轻量 hover / focus-visible 反馈（浅背景 + 焦点环）。
+- subagent Tab 不写入项目持久化，刷新后不恢复；其他工作区 Tab 的持久化规则不变。
 
 ### ChatSidebar.tsx
 

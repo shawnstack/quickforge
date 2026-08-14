@@ -30,6 +30,10 @@ import {
 } from '@/lib/pi-chat'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import {
+  OPEN_SUBAGENT_RUN_EVENT,
+  normalizeOpenSubagentRunRequest,
+} from '@/lib/subagent-run-detail'
 import type {
   AgentAccessMode,
   AgentHarness,
@@ -817,6 +821,18 @@ function MainApp() {
     window.addEventListener('quickforge:preview-artifact', handler as EventListener)
     return () => window.removeEventListener('quickforge:preview-artifact', handler as EventListener)
   }, [agentManager.currentToolProject?.id, openArtifactPreview])
+
+  // 点击 subagent 摘要时，在 Workspace Inspector 中打开或激活该次运行的独立 Tab。
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const request = normalizeOpenSubagentRunRequest((event as CustomEvent).detail)
+      if (!request?.payload) return
+      setArtifactPreviewOpen(false)
+      requestWorkspaceInspector({ projectId: agentManager.currentToolProject?.id, kind: 'subagent', payload: request.payload })
+    }
+    window.addEventListener(OPEN_SUBAGENT_RUN_EVENT, handler as EventListener)
+    return () => window.removeEventListener(OPEN_SUBAGENT_RUN_EVENT, handler as EventListener)
+  }, [agentManager.currentToolProject?.id, requestWorkspaceInspector, setArtifactPreviewOpen])
 
   // 隧道恢复免刷新对账：监听 quickforge:tunnel-recovered，同步当前会话与后台任务的
   // 真实服务端状态；全部成功才允许免刷新恢复，任一 syncState 失败会 reject waitUntil，
@@ -1616,7 +1632,11 @@ function MainApp() {
         size="icon"
         onClick={() => {
           setArtifactPreviewOpen(false)
-          ui.setWorkspaceInspectorOpen((value) => !value)
+          if (ui.workspaceInspectorOpen) {
+            ui.setWorkspaceInspectorOpen(false)
+          } else {
+            ui.setWorkspaceInspectorOpen(true)
+          }
         }}
         disabled={!agentManager.currentToolProject?.id || needsModelSetup}
         aria-label={ui.workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
@@ -2054,12 +2074,12 @@ function MainApp() {
           </Suspense>
         ) : null}
       </main>
-      {agentManager.currentToolProject?.id ? (
+      {agentManager.currentToolProject?.id || ui.workspaceInspectorOpen ? (
         <>
           {ui.workspaceInspectorOpen ? <div aria-hidden="true" className="hidden w-px shrink-0 bg-[color-mix(in_oklab,var(--border)_30%,var(--quickforge-sidebar-bg))] lg:block" /> : null}
           <Suspense fallback={<LazyOverlayFallback />}>
             <WorkspaceInspector
-              key={agentManager.currentToolProject.id}
+              key={agentManager.currentToolProject?.id ?? 'global-workspace'}
               project={agentManager.currentToolProject}
               open={ui.workspaceInspectorOpen}
               onOpenChange={ui.setWorkspaceInspectorOpen}
@@ -2070,7 +2090,7 @@ function MainApp() {
               onPreviewArtifact={openArtifactPreview}
               request={ui.workspaceInspectorRequest}
               onRequestHandled={handleWorkspaceInspectorRequest}
-              artifacts={currentSessionArtifactsState.projectId === agentManager.currentToolProject.id && currentSessionArtifactsState.sessionId === agentManager.currentSessionId
+              artifacts={agentManager.currentToolProject && currentSessionArtifactsState.projectId === agentManager.currentToolProject.id && currentSessionArtifactsState.sessionId === agentManager.currentSessionId
                 ? currentSessionArtifactsState.artifacts
                 : []}
               globalTerminalOpen={remoteClient ? false : terminalDockOpen}

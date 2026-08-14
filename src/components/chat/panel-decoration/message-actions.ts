@@ -247,6 +247,22 @@ function getStreamingAssistantMessage(panel: HTMLElement) {
   return streamingContainer?.querySelector<HTMLElement>(':scope > div > assistant-message') ?? null
 }
 
+/**
+ * 对 panel 内的 subagent 过程 message-list 应用与聊天主列表一致的
+ * process folding 装饰。聊天主流程由 decorateMessages 调用；Workspace
+ * Inspector 的 subagent 运行详情侧栏在每次渲染后复用本函数，保证两边
+ * 的过程分组/折叠交互与视觉完全一致（重复调用是幂等的）。
+ */
+export function decorateSubagentProcessBlocks(panel: HTMLElement) {
+  panel.querySelectorAll<HTMLElement>('message-list[data-quickforge-subagent-process="true"]').forEach((messageList) => {
+    decorateProcessBlocks(
+      messageList,
+      getMessageElements(messageList),
+      messageList.dataset.quickforgeSubagentStreaming === 'true',
+    )
+  })
+}
+
 export function decorateMessages(deps: MessageDecorationDeps) {
   const {
     panel,
@@ -439,13 +455,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     }
   }
   decorateProcessBlocks(panel, processMessageElements, streaming)
-  panel.querySelectorAll<HTMLElement>('message-list[data-quickforge-subagent-process="true"]').forEach((messageList) => {
-    decorateProcessBlocks(
-      messageList,
-      getMessageElements(messageList),
-      messageList.dataset.quickforgeSubagentStreaming === 'true',
-    )
-  })
+  decorateSubagentProcessBlocks(panel)
   decorateMarkdownSvgCodeBlocks(panel, isStreaming())
   decorateMarkdownMermaidCodeBlocks(panel, isStreaming())
   if (enableTerminalCommandActions) {

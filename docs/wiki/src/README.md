@@ -59,12 +59,12 @@ src/
 3. **空状态** (`ModelSetupEmptyState`) — 未配置模型时显示
 4. **分享对话框** (`ShareConversationDialog`)
 5. **共享会话页面** (`SharedConversationPage`)
-6. **右侧工作区面板** (`WorkspaceInspector`) — 右侧统一工作区入口，顶部采用标签页式工作区，可打开文件、审查、终端、浏览器四类标签；Tab、活动 `activePanelTabId` 和 Review 子视图按 `projectId` 本地持久化。项目切换时通过 `key` 重建 Inspector，加载目标项目自己的状态；标题栏 Git、聊天文件链接、Reader / Browser 产物入口通过携带 `projectId` 的一次性请求打开，消费后即清除，因此折叠后重新展开不会重放。Markdown 和代码走 reader，HTML、SVG 和图片走 Browser；Markdown Reader 会优先渲染文档中的 Mermaid fenced code block，并保留源码切换和失败回退。
+6. **右侧工作区面板** (`WorkspaceInspector`) — 右侧统一工作区入口，顶部采用标签页式工作区，可打开文件、审查、终端、浏览器和 subagent 单次运行详情。点击聊天中的 subagent 运行摘要会打开或激活对应 `runId` 的运行时 Tab；同一次运行复用原 Tab，不同运行独立并存并实时更新。subagent Tab 不写入项目持久化，刷新后不恢复；其余 Tab、活动 `activePanelTabId` 和 Review 子视图按 `projectId` 本地持久化。项目切换时通过 `key` 重建 Inspector，加载目标项目自己的状态；标题栏 Git、聊天文件链接、Reader / Browser 产物入口通过携带 `projectId` 的一次性请求打开，消费后即清除，因此折叠后重新展开不会重放。Markdown 和代码走 Reader，HTML、SVG 和图片走 Browser；Markdown Reader 会优先渲染文档中的 Mermaid fenced code block，并保留源码切换和失败回退。
 7. **项目目录选择器** (`ProjectDirectoryPicker`)
-9. **Skills 管理** (`SkillsManagerPanel` / `SkillsDialog`) — 全局 Skills 从设置页进入，项目 Skills 仍由项目菜单打开对话框
-10. **设置工作区页** (`SettingsWorkspacePage`) — 页面式设置界面，左侧设置导航复用侧边栏视觉，右侧设置内容复用主对话区域视觉，包含 Agent、Skills、MCP、插件、定时任务等管理页
-11. **Toast 容器** — 后台任务通知
-12. **错误边界** (`ErrorBoundary`) — 全局错误捕获
+8. **Skills 管理** (`SkillsManagerPanel` / `SkillsDialog`) — 全局 Skills 从设置页进入，项目 Skills 仍由项目菜单打开对话框
+9. **设置工作区页** (`SettingsWorkspacePage`) — 页面式设置界面，左侧设置导航复用侧边栏视觉，右侧设置内容复用主对话区域视觉，包含 Agent、Skills、MCP、插件、定时任务等管理页
+10. **Toast 容器** — 后台任务通知
+11. **错误边界** (`ErrorBoundary`) — 全局错误捕获
 
 **关键函数**:
 - `handleChatPanelEvent()` — 处理聊天面板事件

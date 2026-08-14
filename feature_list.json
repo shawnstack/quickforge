@@ -52,6 +52,34 @@
         "settings-tab-select-alignment"
       ],
       "updated": "2026-08-12"
+    },
+    {
+      "id": "subagent-run-detail-panel",
+      "name": "点击聊天 subagent 卡片在右侧侧栏查看该次运行详情",
+      "description": "用户明确要求点击聊天中的 subagent 卡片查看“该次运行详情/执行过程”（非 Agent Profile 配置）。正确实现：卡片摘要行带文字标签的“查看运行详情”按钮派发 quickforge:open-subagent-run（detail 含稳定 run id——details.sessionId，旧消息回退 name:task——与 payload 快照），App 打开右侧运行详情侧栏；body 数据由 lib/subagent-run-detail.ts 的 buildSubagentRunPayload 统一构建、模板复用内联卡片的 renderSubagentRunBody（Lit 宿主元素 subagent-run-detail-body），两视图零漂移；侧栏展示任务/上下文/期望输出、状态/耗时、工具调用数、允许工具、完整过程 message-list、最终结果/input/details；运行中渲染器每次收到更新经 queueMicrotask+指纹去重派发 quickforge:update-subagent-run，App 仅更新当前打开的 run；与 WorkspaceInspector/Artifact 预览互斥；小屏降级全宽抽屉避免不可见死状态。先撤回错误实现（删除 agent-profile-panel 相关文件/代码、恢复被覆盖的 App/useUIState/wiki/状态文件，i18n 仅删错误 key 保留并发 cloud 文案）。验证：npm run test（143 文件/1145 用例 100%）、lint（0 error）、build 通过；新增 subagent-run-detail.test.ts 13 项测试。",
+      "status": "done",
+      "dependencies": [],
+      "updated": "2026-08-14"
+    },
+    {
+      "id": "subagent-run-detail-hardening",
+      "name": "subagent 运行详情最小修复（process 属性精确值 / 关闭清空状态 / 指纹增强）",
+      "description": "独立审查确认的 3 个问题最小修复：1) local-tools.ts 的 renderSubagentRunBody 将 message-list 的布尔属性绑定修为静态精确值 data-quickforge-subagent-process=\"true\"（内联与侧栏一致），使 index.css/message-actions 的精确 selector 匹配、windowed-messages 的存在性退避生效，避免长 trace 截断与主消息窗口污染；2) App.tsx 新增统一 closeSubagentRunPanel useCallback（同时清 open/runId/payload），复用于 requestWorkspaceInspector、工具栏展开 WorkspaceInspector、项目切换清理、面板 onClose，避免隐藏面板按残留 runId 继续接收实时更新（自动预览经 requestWorkspaceInspector 已覆盖）；3) subagent-run-detail.ts 的 fingerprint 新增 FNV-1a 32 位纯函数 stableHash，对 output/input/details/traceMessages JSON 做轻量稳定 hash，同长度内容变化也会改变指纹（保留原长度字段，不拼入原始大内容）。另删除 SubagentRunDetailPanel 未使用的 runId prop。新增同长度文本变化指纹测试（13→14 项）。验证：npm run test（143 文件/1146 用例 100%）、lint（0 error，仅既有 cloud warning）、build 通过；未新增依赖、未提交 Git、未触碰 Cloud 并发文件。",
+      "status": "done",
+      "dependencies": [
+        "subagent-run-detail-panel"
+      ],
+      "updated": "2026-08-14"
+    },
+    {
+      "id": "subagent-run-workspace-tabs",
+      "name": "subagent 运行详情接入右侧工作区 Tab",
+      "description": "将 subagent 单次运行详情从独立侧栏改为 Workspace Inspector 运行时 Tab：点击聊天摘要直接打开或激活对应 runId 的 Tab，同一次运行复用、不同运行独立并存并实时更新；聊天中移除 details 内联展开，完整任务/工具调用/过程/结果只在工作区 Tab 展示；subagent Tab 不持久化，文件/审查/终端/浏览器 Tab 规则不变；支持无项目的全局会话。验证：TypeScript 通过；针对性 4 文件/33 项通过；npm run test 143 文件/1148 项 100% 通过；lint 0 error（1 个并发 Cloud warning）；build 通过。 后续修正：运行 Tab 沿用原 subagent 详情样式并遵循工具显示配置，concise/compact 保持简洁，detailed 才额外展示工具统计、允许工具和 input/details；TypeScript、针对性 29 项及修改文件 lint 通过。再后续一致化（2026-08-14）：侧边详情内部层级以 Git 历史最终态（1f40ead/32be493）为规范——task/context/expectedOutput → detailed 摘要 → trace → 无 trace 时 output → input/details，顺序由 subagentRunBodyBlocks 单一事实来源驱动并测试；侧边 message-list 复用聊天的 decorateSubagentProcessBlocks（自 message-actions.ts 抽出、panel-decoration.ts 导出）获得与聊天一致的 process folding/过程分组装饰与交互，SubagentRunDetailBodyElement 每次渲染后调度（等 Lit 与 message-list updateComplete，覆盖首次挂载/payload 实时更新/运行状态变化，卸载置 disposed 防泄漏，幂等不重复）；聊天摘要按钮为打开侧栏的可访问入口（原生 button + aria-label/title + hover/focus-visible 轻反馈）；清理迁移死代码（quickforge-subagent-chevron CSS、shouldApplySubagentRunUpdate）；新增 subagentRunBodyBlocks/过程保序/decorate-subagent-process 针对性测试。验证：TypeScript 通过；针对性 6 文件/91 项通过；lint 0 error（仅并发 Cloud warning）、build 通过（详见 progress.md）。 最终验证：npx tsc -b 通过；针对性 6 文件/92 项通过；npm run test 144 文件/1159 项 100% 通过；lint 0 error（仅 1 个并发 Cloud warning）；build 通过。",
+      "status": "done",
+      "dependencies": [
+        "subagent-run-detail-hardening"
+      ],
+      "updated": "2026-08-14"
     }
   ]
 }

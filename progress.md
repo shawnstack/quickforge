@@ -2,15 +2,21 @@
 
 ## Current State
 
-- Feature: `release-v1.7.7-prep`
-- Status: `done`（v1.7.7 完整 test/lint/build 与打包已通过；本地 release commit c3771444... / annotated tag v1.7.7 已创建；远端 master 与 v1.7.7 tag push 完成并经 ls-remote 核验，均指向 c3771444...；npm publish 未执行）
-- Goal: 将本地三个 fix 与 Cloud URL 改动纳入 v1.7.7 发布：版本提升、CHANGELOG 更新、test/lint/build 门禁、离线包生成与核验、远端 Git 发布。
-- Files: package.json, package-lock.json, CHANGELOG.md, server/cloud/config.mjs, tests/server/cloud/*, scripts/prepare-patch-release.cjs, AGENTS.md, .github/PULL_REQUEST_TEMPLATE.md, docs/architecture/patch-release-runbook.zh-CN.md, docs/wiki/*, init.sh（纳入发布范围，无需修改）, feature_list.json, progress.md, session-handoff.md
-- Blockers: 无。npm publish 未执行，仅待用户需要时手动执行。
-- Next step: 无待办；如用户需要发布 npm 包，手动执行 `cd package-offline && npm publish --access public`（默认不执行）。
-- Last Updated: 2026-08-12
+- Feature: `workspace-same-file-tab-reuse`
+- Status: `done`（工作区重复预览同一文件时复用已有 tab：Reader 复用分支激活并置 loading、清除 error，复用现有加载 effect 重新读取；Browser 按同一底层文件路径/精确 web URL 查找已有 tab，命中则激活并递增 reloadNonce 触发 iframe 重载，未命中才新建；仅同 kind 去重。针对性测试 22+12+3=37 项通过、lint 0 error、build 通过）
+- Goal: 重复预览同一文件时复用已有 tab、刷新内容并激活；不同文件仍新建 tab。
+- Files: src/components/workspace/WorkspaceInspector.tsx, src/components/workspace/workspace-inspector-tabs.ts, src/components/workspace/workspace-tab-file-path.ts, src/components/preview/WebPreviewContent.tsx, tests/frontend/workspace-tab-file-path.test.ts, docs/wiki/src/components/README.md, feature_list.json, progress.md, session-handoff.md
+- Blockers: 无。
+- Next step: 无待办；如后续发布，遵循 patch-release-runbook（发布前必须完整 test/lint/build 通过）。
+- Last Updated: 2026-08-13
 
 ## Completed Work
+
+- Reader 复用：`openFileTab` 命中已有 `file:${path}` reader tab 时，激活 panel/reader tab 的同时将该 reader tab 置为 `loading: true`、`error: undefined`，由既有的 reader 加载 effect（`loadingReaderKeysRef` 去重）重新读取最新内容；新建路径不变。
+- Browser 复用：`openPanelTab('browser', { url })` 改为先经新增纯函数 `findBrowserTabToReuse` 在 browser tab 中按 `browserPreviewReuseKey` 查找（本地文件路径归一化为 file key，兼容 `D:\` 与 `D:/` 分隔符；其余 URL 精确比较），命中则激活并递增 `WorkspacePanelTab.reloadNonce`（不持久化），未命中才新建 tab；`+` 菜单空 URL 打开仍每次新建（与既有行为一致）。
+- 外部 reload token：`WorkspacePanelTab` 增加可选 `reloadNonce`，仅运行时使用，`serializePanelTabs`/`normalizePersistedPanelTabs` 不变，localStorage 序列化格式无变化；`WebPreviewContent` 增加可选 `externalReloadToken` prop，纳入 previewCheckKey 与 iframe key，重复预览时强制 iframe 重载。
+- 纯函数与测试：`workspace-tab-file-path.ts` 新增 `browserPreviewReuseKey`、`findBrowserTabToReuse`；`tests/frontend/workspace-tab-file-path.test.ts` 新增 10 项（同文件复用、不同文件不复用、Windows 路径分隔符归一化、web URL 精确匹配、web/本地不互匹配、跨 kind 不去重、空 URL 不匹配等）。
+- 仅同 kind 去重，不做 reader/browser 跨类型合并；未新增依赖，未改生成产物（dist/ 由 build 正常再生成）。
 
 - 已有滚动压缩后，只要出现一条新消息即可再次执行阈值检查，不再固定等待三条新增消息。
 - 压缩完成后忽略保留尾部中代表压缩前完整上下文的陈旧 provider usage，立即按 compact summary + tail 重新估算百分比。
@@ -21,6 +27,10 @@
 
 ## Verification Evidence
 
+- `npm run test`（workspace-same-file-tab-reuse）：exit code 0，141 个测试文件、1109 项测试全部通过（100%）。
+- `npm run lint`：exit code 0，0 error，仅 1 个既有 warning（server/cloud/identity.mjs no-useless-assignment）。
+- `npm run build`：exit code 0，仅既有 KaTeX 字体解析与大 chunk warning。
+- `npx vitest run tests/frontend/workspace-tab-file-path.test.ts tests/frontend/workspace-inspector-tabs.test.ts tests/frontend/workspace-inspector-request.test.ts`（workspace-same-file-tab-reuse）：exit code 0，3 个测试文件、37 项测试全部通过（含新增 browserPreviewReuseKey / findBrowserTabToReuse 10 项测试）。
 - `npx vitest run tests/server/auto-compaction.test.mjs tests/server/agent-manager.rollback-compaction.test.mjs`：exit code 0，2 个测试文件、14 项测试通过。
 - `npx eslint server/context-usage.mjs server/auto-compaction.mjs tests/server/auto-compaction.test.mjs`：exit code 0。
 - `npm run test`：exit code 0，141 个测试文件、1088 项测试全部通过。

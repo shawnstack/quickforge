@@ -29,7 +29,7 @@ import { MonacoCodeViewer } from './MonacoCodeViewer'
 import { MonacoDiffViewer } from './MonacoDiffViewer'
 import { countDiffLines } from './diff-line-counts'
 import { FileIcon } from './file-icon'
-import { panelTabFilePath } from './workspace-tab-file-path'
+import { findBrowserTabToReuse, panelTabFilePath } from './workspace-tab-file-path'
 import { getGitFileDiff, getGitStatus, getWorkspaceFile, getWorkspaceTree, openWorkspaceExternal, restoreAllGitChanges, restoreGitFile, stageAllGitChanges, stageGitFile, unstageAllGitChanges, unstageGitFile } from './workspace-api'
 import { WorkspaceChangesList } from './WorkspaceChangesList'
 import { WorkspaceFileTree } from './WorkspaceFileTree'
@@ -1005,11 +1005,19 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
   }
 
   function openPanelTab(kind: WorkspacePanelPrimaryTabKind, nextView: WorkspacePanelView = viewFromPanelKind(kind), options?: { url?: string; readerTab?: ReaderTab }) {
-    const existing = kind === 'review' ? panelTabs.find((tab) => tab.kind === 'review') : undefined
+    const existing = kind === 'review'
+      ? panelTabs.find((tab) => tab.kind === 'review')
+      : kind === 'browser' && options?.url
+        ? findBrowserTabToReuse(panelTabs, options.url)
+        : undefined
     const targetTab = existing || createPanelTab(kind, { ...options, ...(kind === 'review' ? { reviewView: nextView === 'review' ? 'review' : 'changes' } : {}) })
     if (!existing) setPanelTabs((prev) => [...prev, targetTab])
     if (existing?.kind === 'review') {
       updatePanelTab(existing.id, (tab) => ({ ...tab, reviewView: nextView === 'review' ? 'review' : 'changes' }))
+    }
+    if (existing?.kind === 'browser') {
+      // 重复预览同一文件：复用已有 tab 并递增 reloadNonce，由 WebPreviewContent 触发 iframe 重载。
+      updatePanelTab(existing.id, (tab) => ({ ...tab, reloadNonce: (tab.reloadNonce ?? 0) + 1 }))
     }
     setActivePanelTabId(targetTab.id)
     setMenuOpen(false)
@@ -1086,8 +1094,13 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
     const id = readerTabId('file', path)
     const existingReaderTab = panelTabs.find((tab) => tab.kind === 'reader' && tab.readerTabs?.some((item) => item.id === id))
     if (existingReaderTab) {
+      // 重复预览同一文件：复用已有 tab，置为 loading 并清除 error，由下方加载 effect 重新读取。
       setActivePanelTabId(existingReaderTab.id)
-      updatePanelTab(existingReaderTab.id, (tab) => ({ ...tab, activeReaderTabId: id }))
+      updatePanelTab(existingReaderTab.id, (tab) => ({
+        ...tab,
+        activeReaderTabId: id,
+        readerTabs: (tab.readerTabs || []).map((item) => item.id === id ? { ...item, loading: true, error: undefined } : item),
+      }))
       return
     }
     const newTab: ReaderTab = { id, mode: 'file', path, loading: true }
@@ -1716,6 +1729,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
                 updatePanelTab(activePanelTab.id, (tab) => ({ ...tab, url }))
               }}
               projectId={project.id}
+              externalReloadToken={activePanelTab.reloadNonce}
             />
           ) : activePanelTab.kind === 'terminal' ? (
             <TerminalDock

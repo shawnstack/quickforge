@@ -1,14 +1,16 @@
 # Session Handoff
 
-- Feature: `release-v1.7.7-prep`
-- Status: `done`（v1.7.7 完整 test/lint/build 与打包已通过；本地 release commit c3771444... / annotated tag v1.7.7 已创建；远端 master 与 v1.7.7 tag push 完成并经 ls-remote 核验，均指向 c3771444...；npm publish 未执行）
-- Current Objective: 完成 v1.7.7 发布：版本提升 1.7.6→1.7.7、CHANGELOG 更新、test/lint/build 门禁全通过、离线包生成并核验、远端 master/tag 推送完成。
-- Files touched: package.json, package-lock.json, CHANGELOG.md, server/cloud/config.mjs, tests/server/cloud/config.test.mjs, tests/server/routes/cloud.test.mjs, scripts/prepare-patch-release.cjs, AGENTS.md, .github/PULL_REQUEST_TEMPLATE.md, docs/architecture/patch-release-runbook.zh-CN.md, docs/wiki/root-config.md, docs/wiki/scripts/README.md, init.sh（纳入发布，未改动）, feature_list.json, progress.md, session-handoff.md
-- Blockers: 无。npm publish 未执行，仅待用户需要时手动执行。
-- Recommended Next Step: 无待办；如用户需要发布 npm 包，手动执行 `cd package-offline && npm publish --access public`（默认不执行）。本地 release commit/tag 已推送至 origin。
-- Last Updated: 2026-08-12
-- Verification Evidence: `npm run test` 141 文件/1088 测试 100% 通过；`npm run lint` 0 error（1 个既有 warning）；`npm run build` exit 0（仅既有 KaTeX/大 chunk warning）；tarball `package-offline/shawnstack-quickforge-1.7.7.tgz` 25.1 MB / 291 文件，内容核验干净。
-- Notes: 详见文末追加记录（release-v1.7.7-prep）。
+- Feature: `workspace-same-file-tab-reuse`
+- Status: `done`（工作区重复预览同一文件时复用已有 tab：Reader 复用分支激活并置 loading、清除 error 后由既有加载 effect 重新读取；Browser 按同一底层文件路径/精确 web URL 复用已有 tab，激活并递增 reloadNonce 触发 iframe 重载，未命中才新建；仅同 kind 去重。针对性测试 3 文件 37 项通过、lint 0 error、build 通过）
+- Current Objective: 重复预览同一文件时复用已有 tab、刷新内容并激活；不同文件仍新建 tab。
+- Files touched: src/components/workspace/WorkspaceInspector.tsx、src/components/workspace/workspace-inspector-tabs.ts、src/components/workspace/workspace-tab-file-path.ts、src/components/preview/WebPreviewContent.tsx、tests/frontend/workspace-tab-file-path.test.ts、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md
+- Blockers: 无。
+- Recommended Next Step: 无待办；如后续发布，遵循 docs/architecture/patch-release-runbook.zh-CN.md（发布前完整 test/lint/build）。
+- Last Updated: 2026-08-13
+- Verification Evidence: `npm run test` 141 文件 / 1109 项测试全部通过（100%）；`npm run lint` 0 error（仅 1 个既有 warning：server/cloud/identity.mjs no-useless-assignment）；`npm run build` exit 0（仅既有 KaTeX/大 chunk warning）；针对性测试 3 文件 37 项全部通过。未提交 Git、未新增依赖、未手工修改生成产物。
+- Notes: 见下方追加记录。
+- 追加记录（workspace-same-file-tab-reuse，2026-08-13）：A) Reader 复用——`openFileTab` 命中已有 `file:${path}` reader tab 时激活 panel/reader tab，并将该 reader 置为 `loading: true`、`error: undefined`，由既有加载 effect（`loadingReaderKeysRef` 去重）重新读取最新内容。B) Browser 复用——`openPanelTab('browser', { url })` 经新增纯函数 `findBrowserTabToReuse`/`browserPreviewReuseKey`（workspace-tab-file-path.ts）查找：本地文件路径归一化为 `file:` key（兼容 Windows 反斜杠/正斜杠），其余 URL 精确 `url:` key 比较；命中则激活并递增 `WorkspacePanelTab.reloadNonce`，未命中才新建；`+` 菜单空 URL 打开行为不变。C) 外部 reload token——`WorkspacePanelTab` 新增可选 `reloadNonce`（仅运行时、不持久化，serialize/normalize 不变），`WebPreviewContent` 新增可选 `externalReloadToken` prop 并纳入 previewCheckKey 与 iframe key，重复预览强制 iframe 重载。D) 仅同 kind 去重，不做 reader/browser 跨类型合并。测试新增 10 项（同文件复用、不同文件不复用、路径分隔符归一化、web URL 精确匹配、web/本地不互匹配、跨 kind 不去重、空 URL 不匹配等）。未提交 Git、未新增依赖、未手工修改生成产物（dist/ 由 build 正常再生成）。
+
 - 追加记录（settings-tab-select-alignment）：宽度对齐 + 已选值字号与菜单一致。改动文件：src/index.css（仅 `.quickforge-settings-select-trigger-label` 加 font-size: 0.9rem; line-height: 1.35;）、src/lib/default-options-settings-tab.ts（沿用此前两处 quickforge-settings-row-control-wide，未改动）、feature_list.json、progress.md、session-handoff.md。未新增依赖、未触碰生成目录、未改 wiki。
 - 追加验证（settings-tab-select-alignment）：`npm run lint` exit code 0，仅 7 个既有 warning（desktop/nsis-patch/apply.mjs no-console、server/cloud/identity.mjs no-useless-assignment），无 error；`npm run build` exit code 0，仅既有 KaTeX 字体与大 chunk warning。
 - 追加记录（release-v1.7.7-prep，2026-08-12）：v1.7.7 发布准备与验证完成。版本 1.7.6→1.7.7（package.json/package-lock.json 一致）；CHANGELOG 新增 1.7.7 章节（Cloud URL 改动 + 三个 fix + Released/离线包命令）；README.md 无硬编码版本未改。纳入已确认改动（Cloud、测试、release 脚本、runbook、AGENTS、PR 模板、wiki）；init.sh 纳入但无需修改。排除 .qf_staging/、artifacts/、空文件 c。

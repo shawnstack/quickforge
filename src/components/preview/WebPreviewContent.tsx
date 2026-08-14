@@ -70,9 +70,11 @@ type WebPreviewContentProps = {
   url: string
   onUrlChange: (url: string) => void
   projectId?: string
+  /** 外部触发的 iframe 重载序号（如复用同一 Browser tab 时），纳入 iframe key 强制重载 */
+  externalReloadToken?: number
 }
 
-export function WebPreviewContent({ url, onUrlChange, projectId }: WebPreviewContentProps) {
+export function WebPreviewContent({ url, onUrlChange, projectId, externalReloadToken = 0 }: WebPreviewContentProps) {
   const normalized = useMemo(() => normalizePreviewUrl(url, projectId), [projectId, url])
   const [draftState, setDraftState] = useState({ sourceUrl: url, value: normalized.displayUrl })
   const [error, setError] = useState('')
@@ -95,7 +97,7 @@ export function WebPreviewContent({ url, onUrlChange, projectId }: WebPreviewCon
         })
       : null
   ), [workspacePreviewPath])
-  const previewCheckKey = isWorkspacePreview ? `${previewUrl}:${reloadToken}` : ''
+  const previewCheckKey = isWorkspacePreview ? `${previewUrl}:${reloadToken}:${externalReloadToken}` : ''
   const previewIssue = previewCheck?.key === previewCheckKey ? previewCheck.issue : null
   const activePreviewIssue = unsupportedPreviewIssue ?? previewIssue
   const checkingPreview = isWorkspacePreview && !unsupportedPreviewIssue && previewCheck?.key !== previewCheckKey
@@ -256,7 +258,7 @@ export function WebPreviewContent({ url, onUrlChange, projectId }: WebPreviewCon
           <div className="h-full w-full overflow-auto bg-background">
             <iframe
               ref={previewFrameRef}
-              key={`${previewUrl}:${reloadToken}`}
+              key={`${previewUrl}:${reloadToken}:${externalReloadToken}`}
               title={t('webPreview')}
               src={previewUrl}
               sandbox={iframeSandbox}

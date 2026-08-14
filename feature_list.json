@@ -1,6 +1,14 @@
 {
   "features": [
     {
+      "id": "workspace-same-file-tab-reuse",
+      "name": "工作区重复预览同一文件时复用 tab 并刷新",
+      "description": "Workspace Inspector 重复预览同一文件时复用已有 tab：Reader 命中已有 file reader tab 时激活并置 loading、清除 error，复用现有加载 effect 重新读取；Browser 按同一底层文件路径（复用 browserTabFilePath 归一化，兼容 Windows 路径分隔符）或精确 web URL 查找已有 browser tab，命中则激活并递增不持久化的 reloadNonce，经 WebPreviewContent 外部 reload token 强制 iframe 重载，未命中才新建 tab；仅同 kind 去重，不做 reader/browser 跨类型合并。新增 browserPreviewReuseKey / findBrowserTabToReuse 纯函数与测试，不改变 localStorage 序列化格式。",
+      "status": "done",
+      "dependencies": [],
+      "updated": "2026-08-13"
+    },
+    {
       "id": "harness-baseline",
       "name": "Agent Harness 基线",
       "description": "Baseline agent harness: startup workflow, verification gates, definition of done, session handoff.",

@@ -23,6 +23,8 @@ export type WorkspacePanelTab = {
   readerTabs?: ReaderTab[]
   activeReaderTabId?: string
   terminalSessionId?: string
+  // 仅运行时使用、不持久化的刷新序号：同一 Browser tab 被重复预览时递增，触发 iframe 重新加载。
+  reloadNonce?: number
 }
 
 export type PersistedWorkspacePanelTab = Pick<WorkspacePanelTab, 'id' | 'kind' | 'url' | 'reviewView' | 'terminalSessionId'> & {

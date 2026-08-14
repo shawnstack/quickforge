@@ -69,3 +69,9 @@
 - 远端核验（ls-remote）：refs/heads/master = `c3771444ad8da9bd1e2d870fcfe7de6562cb4a57`；refs/tags/v1.7.7^{} = `c3771444ad8da9bd1e2d870fcfe7de6562cb4a57`。
 - 状态提交 `docs(handoff): mark v1.7.7 git release complete` 已创建并推送至 origin master。
 - npm publish 未执行（默认不发布）。
+
+## 智能体操作菜单首项文案统一（2026-08-13）
+
+- 改动：设置 → 智能体中，智能体操作菜单首项文案由 `openMenuAgent.builtin ? t('builtinAgentModelSettings') : t('editTask')` 统一为 `t('editTask')`，使内置/自定义智能体均显示“编辑”（t('editTask') 为 en 'Edit' / zh '编辑'）；仅改显示文案，onClick（openEditAgentDialog）等行为及其他逻辑不变。
+- 改动文件：src/components/agent-profiles/AgentProfilesPage.tsx（1 行）、feature_list.json、progress.md、session-handoff.md。
+- 验证：`npm run lint` exit code 0，0 error，仅 1 个既有 warning（server/cloud/identity.mjs no-useless-assignment）；`npm run build` exit code 0，仅既有 KaTeX 字体与大 chunk warning。无对应组件测试（纯 JSX 文案改动，无测试文件）。未新增依赖、未提交 Git、未手工修改生成目录（dist/ 由 build 正常再生成）。

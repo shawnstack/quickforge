@@ -9,6 +9,14 @@
       "updated": "2026-08-13"
     },
     {
+      "id": "agent-profile-menu-edit-label",
+      "name": "智能体操作菜单首项文案统一为“编辑”",
+      "description": "设置 → 智能体中，内置智能体操作菜单首项文案由“内置智能体模型设置”统一为“编辑”（t('editTask')），仅改显示文案，不改变点击行为及其他逻辑。",
+      "status": "done",
+      "dependencies": [],
+      "updated": "2026-08-13"
+    },
+    {
       "id": "harness-baseline",
       "name": "Agent Harness 基线",
       "description": "Baseline agent harness: startup workflow, verification gates, definition of done, session handoff.",

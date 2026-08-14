@@ -707,7 +707,7 @@ export function AgentProfilesPage() {
               openEditAgentDialog(openMenuAgent)
             }}
           >
-            <Edit3 className="size-3.5" />{openMenuAgent.builtin ? t('builtinAgentModelSettings') : t('editTask')}
+            <Edit3 className="size-3.5" />{t('editTask')}
           </button>
           <button
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-destructive hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"

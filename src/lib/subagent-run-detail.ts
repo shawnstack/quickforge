@@ -5,7 +5,7 @@
  * tool_execution_start 的 partialResult.details 已带 toolCallId（此时 sessionId 是父
  * 会话），后续 tool_execution_update/end 的 details.sessionId 变为子代理会话 id；若把
  * sessionId 当主键，start 时打开的 Tab 会与后续更新失配。因此 runId 推导顺序为：
- * 显式 toolCallId → details.toolCallId → details.sessionId（仅历史兼容 fallback：旧
+ * 显式 toolCallId → toolResult 顶层 toolCallId → details.toolCallId → details.sessionId（仅历史兼容 fallback：旧
  * 消息/旧服务器没有 toolCallId 时才使用，不作为新消息主键）→ `${name}:${task}`
  * （无任何 id 的历史消息安全回退）。
  *
@@ -30,8 +30,10 @@ export type SubagentToolDisplayMode = 'concise' | 'compact' | 'detailed'
 export type SubagentRunI18n = (key: AppTextKey, params?: Record<string, string | number>) => string
 
 export type SubagentRunPayload = {
-  /** 稳定运行 id：新消息以显式 toolCallId / details.toolCallId 为主键；details.sessionId 仅历史兼容 fallback；旧消息回退 `${name}:${task}`。 */
+  /** 稳定运行 id：新消息以显式 toolCallId / toolResult 顶层 toolCallId / details.toolCallId 为主键；details.sessionId 仅历史兼容 fallback；旧消息回退 `${name}:${task}`。 */
   runId: string
+  /** canonical 父工具调用 id；新运行的实时更新和 Tab 主键必须使用它。 */
+  canonicalToolCallId?: string
   name: string
   label: string
   task: string
@@ -129,6 +131,7 @@ export class SubagentRunStore {
 export const subagentRunStore = new SubagentRunStore()
 
 export type ToolResultLike = {
+  toolCallId?: string
   isError?: boolean
   content?: Array<{ type: string; text?: string }>
   details?: unknown
@@ -185,7 +188,8 @@ export function subagentRunStatusLabel(status: SubagentRunStatus, label: string,
 }
 
 /**
- * 稳定运行 id：新消息优先显式 toolCallId / details.toolCallId（run_subagent 父工具
+ * 稳定运行 id：新消息优先显式 toolCallId / toolResult 顶层 toolCallId /
+ * details.toolCallId（run_subagent 父工具
  * 调用 id，start/update/end 全程不变，是主键）；details.sessionId 仅作历史兼容
  * fallback（旧消息/旧服务器没有 toolCallId 时使用，start 时为父会话、update 后为
  * 子代理会话，不作为新消息主键）；两者都没有时回退 `${name}:${task}`。
@@ -254,6 +258,7 @@ export function subagentRunFingerprint(payload: Omit<SubagentRunPayload, 'finger
       payload.task,
       payload.context,
       payload.expectedOutput,
+      payload.canonicalToolCallId,
       payload.statusLabel,
       payload.allowedTools,
       payload.tools,
@@ -297,6 +302,47 @@ export function subagentRunBodyBlocks(
   return blocks
 }
 
+function canonicalSubagentToolCallId(details: unknown, result: ToolResultLike | undefined, toolCallId?: string): string {
+  const explicitToolCallId = typeof toolCallId === 'string' && toolCallId ? toolCallId : ''
+  const resultToolCallId = typeof result?.toolCallId === 'string' && result.toolCallId ? result.toolCallId : ''
+  const detailsToolCallId = isRecord(details) && typeof details.toolCallId === 'string' && details.toolCallId ? details.toolCallId : ''
+  return explicitToolCallId || resultToolCallId || detailsToolCallId
+}
+
+/** 只有 canonical toolCallId 存在的载荷才可进入全局实时 store。 */
+export function canPublishSubagentRunPayload(payload: Pick<SubagentRunPayload, 'canonicalToolCallId'>): boolean {
+  return Boolean(payload.canonicalToolCallId)
+}
+
+/** canonical 任意状态可打开；无 canonical 时仅允许历史终态载荷直接打开。 */
+export function canOpenSubagentRunPayload(payload: Pick<SubagentRunPayload, 'canonicalToolCallId' | 'status'>): boolean {
+  return Boolean(payload.canonicalToolCallId) || (payload.status !== 'running' && payload.status !== 'called')
+}
+
+/**
+ * renderer 只补齐安全快照：首次 canonical 载荷可发布；已有非终态可被恢复出的终态修正；
+ * 其他已有快照不覆盖，保持 SSE 路径权威。
+ */
+export function shouldPublishSubagentRunPayload(
+  payload: Pick<SubagentRunPayload, 'canonicalToolCallId' | 'status'>,
+  existing?: Pick<SubagentRunPayload, 'status'>,
+): boolean {
+  if (!canPublishSubagentRunPayload(payload)) return false
+  if (!existing) return true
+  const existingIsRunning = existing.status === 'called' || existing.status === 'running'
+  const payloadIsTerminal = payload.status === 'done' || payload.status === 'error'
+  return existingIsRunning && payloadIsTerminal
+}
+
+/** canonical 点击取 store 最新同 ID 快照；历史 fallback 必须使用当前 renderer 载荷。 */
+export function resolveSubagentRunPayloadForOpen(
+  payload: SubagentRunPayload,
+  storePayload?: SubagentRunPayload,
+): SubagentRunPayload {
+  if (!payload.canonicalToolCallId) return payload
+  return storePayload?.canonicalToolCallId === payload.canonicalToolCallId ? storePayload : payload
+}
+
 /**
  * 从 run_subagent 的 params/result.details 构建规范化载荷。
  * 聊天摘要与 Workspace Inspector 运行详情 Tab 共用此函数，保证状态和内容一致。
@@ -319,19 +365,23 @@ export function buildSubagentRunPayload(
         ? details.subagent
         : ''
   const task = typeof params?.task === 'string' ? params.task : ''
+  const context = typeof params?.context === 'string' ? params.context : ''
+  const expectedOutput = typeof params?.expectedOutput === 'string' ? params.expectedOutput : ''
   const status = subagentRunStatus(result, isStreaming)
+  const canonicalToolCallId = canonicalSubagentToolCallId(details, result, toolCallId)
   const paramsLabel = isRecord(params?.subagent) && typeof params.subagent.label === 'string' ? params.subagent.label : ''
   const label = paramsLabel || subagentRunLabel(name, details, t)
   const detailed = toolDisplayMode === 'detailed'
   const traceMessages = subagentProcessTraceMessages(arrayFromUnknown(details?.messages))
 
   const payload: Omit<SubagentRunPayload, 'fingerprint'> = {
-    runId: subagentRunId(details, name, task, toolCallId),
+    runId: subagentRunId(details, name, task, canonicalToolCallId),
+    ...(canonicalToolCallId ? { canonicalToolCallId } : {}),
     name,
     label,
     task,
-    context: typeof params?.context === 'string' ? params.context : '',
-    expectedOutput: typeof params?.expectedOutput === 'string' ? params.expectedOutput : '',
+    context,
+    expectedOutput,
     status,
     statusLabel: subagentRunStatusLabel(status, label, t),
     timing: extractQuickForgeTiming(result?.details),

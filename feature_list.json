@@ -90,6 +90,16 @@
         "subagent-run-workspace-tabs"
       ],
       "updated": "2026-08-14"
+    },
+    {
+      "id": "subagent-run-canonical-id-live-updates",
+      "name": "subagent 运行详情 canonical ID 实时更新修复",
+      "description": "修复正在运行的 subagent 点击后 Workspace Inspector 详情无法持续实时更新：聊天 ToolRenderer 使用 toolResult 顶层 toolCallId 作为 canonical runId，与 ServerAgent tool_execution_start/update/end SSE 主键统一；canonical ID 尚未出现时禁用运行中摘要，避免 name:task fallback Tab 与 SSE 分叉；仅 canonical 快照进入共享 store，历史终态 fallback 可直接打开但不污染 store；恢复出的 done/error 可将残留 called/running 快照升级为终态，终态不会被旧运行快照覆盖。保持详情展示、trace 原始时间线、Workspace Tab 拖拽及持久化规则不变。验证：相关 6 文件/108 项、完整 144 文件/1203 项、TypeScript、lint、build 全部通过（lint 仅 Cloud 并行文件既有 warning）。",
+      "status": "done",
+      "dependencies": [
+        "subagent-run-live-updates"
+      ],
+      "updated": "2026-08-15"
     }
   ]
 }

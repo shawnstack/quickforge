@@ -5,7 +5,11 @@ import {
   SubagentRunEventPublisher,
   SubagentRunStore,
   buildSubagentRunPayload,
+  canOpenSubagentRunPayload,
+  canPublishSubagentRunPayload,
   normalizeOpenSubagentRunRequest,
+  resolveSubagentRunPayloadForOpen,
+  shouldPublishSubagentRunPayload,
   subagentRunBodyBlocks,
   subagentRunFingerprint,
   subagentRunId,
@@ -20,6 +24,33 @@ const t: SubagentRunI18n = (key, params) => {
   if (key === 'subagentGeneral') return 'General'
   if (key === 'subagentExplore') return 'Explore'
   return 'Run subagent'
+}
+
+function testPayload(
+  runId: string,
+  status: SubagentRunStatus,
+  overrides: Partial<SubagentRunPayload> = {},
+): SubagentRunPayload {
+  const payload: Omit<SubagentRunPayload, 'fingerprint'> = {
+    runId,
+    name: 'explore',
+    label: 'Explore',
+    task: 'Find',
+    context: '',
+    expectedOutput: '',
+    status,
+    statusLabel: `Explore ${status}`,
+    allowedTools: [],
+    traceMessages: [],
+    tools: [],
+    pendingToolCalls: [],
+    input: '',
+    details: '',
+    output: '',
+    detailed: false,
+    ...overrides,
+  }
+  return { ...payload, fingerprint: subagentRunFingerprint(payload) }
 }
 
 describe('subagent run detail payload', () => {
@@ -162,6 +193,77 @@ describe('subagent run detail payload', () => {
     expect(payload.details).toContain('"toolCalls"')
   })
 
+  it('prefers a top-level toolResult toolCallId over details.sessionId', () => {
+    const payload = buildSubagentRunPayload(
+      { subagent: 'explore', task: 'Find' },
+      {
+        toolCallId: 'call-top-level',
+        details: { subagent: 'explore', sessionId: 'child-session' },
+        content: [],
+      },
+      true,
+      'concise',
+      t,
+    )
+    expect(payload.runId).toBe('call-top-level')
+    expect(payload.canonicalToolCallId).toBe('call-top-level')
+  })
+
+  it('keeps the same top-level toolCallId when the final toolResult is rebuilt without details.toolCallId', () => {
+    const running = buildSubagentRunPayload(
+      { subagent: 'general', task: 'Implement' },
+      { toolCallId: 'call-stable', details: { sessionId: 'parent-session' }, content: [] },
+      true,
+      'concise',
+      t,
+    )
+    const completed = buildSubagentRunPayload(
+      { subagent: 'general', task: 'Implement' },
+      { toolCallId: 'call-stable', details: { sessionId: 'child-session' }, content: [{ type: 'text', text: 'done' }] },
+      false,
+      'concise',
+      t,
+    )
+    expect(running.runId).toBe('call-stable')
+    expect(completed.runId).toBe(running.runId)
+    expect(completed.status).toBe('done')
+  })
+
+  it.each([
+    ['canonical called', 'called', 'call-1', true, true],
+    ['canonical running', 'running', 'call-1', true, true],
+    ['canonical done', 'done', 'call-1', true, true],
+    ['canonical error', 'error', 'call-1', true, true],
+    ['name:task called', 'called', undefined, false, false],
+    ['name:task running', 'running', undefined, false, false],
+    ['name:task done', 'done', undefined, false, true],
+    ['name:task error', 'error', undefined, false, true],
+  ] as const)('applies publish/open policy for %s', (_label, status, canonicalToolCallId, publish, open) => {
+    const payload = buildSubagentRunPayload(
+      { subagent: 'explore', task: 'Find' },
+      status === 'called'
+        ? undefined
+        : { ...(canonicalToolCallId ? { toolCallId: canonicalToolCallId } : {}), isError: status === 'error', details: {}, content: [] },
+      status === 'running',
+      'concise',
+      t,
+      canonicalToolCallId,
+    )
+    expect(canPublishSubagentRunPayload(payload)).toBe(publish)
+    expect(canOpenSubagentRunPayload(payload)).toBe(open)
+  })
+
+  it.each([
+    ['called', false, false],
+    ['running', false, false],
+    ['done', false, true],
+    ['error', false, true],
+  ] as const)('applies publish/open policy to sessionId history in %s', (status, publish, open) => {
+    const payload = testPayload('historical-session', status)
+    expect(canPublishSubagentRunPayload(payload)).toBe(publish)
+    expect(canOpenSubagentRunPayload(payload)).toBe(open)
+  })
+
   it('prefers an explicit toolCallId as the run id over details.sessionId', () => {
     const payload = buildSubagentRunPayload(
       { subagent: 'explore', task: 'Find' },
@@ -256,6 +358,7 @@ describe('subagentRunFingerprint', () => {
   it('changes when visible metadata changes', () => {
     const baseline = subagentRunFingerprint(basePayload())
     const variants = [
+      { ...basePayload(), canonicalToolCallId: 'call-2' },
       { ...basePayload(), label: 'Updated Explore' },
       { ...basePayload(), task: 'Updated task' },
       { ...basePayload(), context: 'Updated context' },
@@ -285,6 +388,43 @@ describe('subagent run event normalization', () => {
     expect(normalizeOpenSubagentRunRequest('run-1')).toBeUndefined()
     expect(normalizeOpenSubagentRunRequest({ runId: '  ' })).toBeUndefined()
     expect(normalizeOpenSubagentRunRequest({})).toBeUndefined()
+  })
+})
+
+describe('subagent run open/publish resolution', () => {
+  it('uses the latest matching canonical store snapshot when opening', () => {
+    const renderer = testPayload('call-1', 'running', { canonicalToolCallId: 'call-1', output: 'renderer' })
+    const latest = testPayload('call-1', 'done', { canonicalToolCallId: 'call-1', output: 'latest' })
+    expect(resolveSubagentRunPayloadForOpen(renderer, latest)).toBe(latest)
+  })
+
+  it('keeps each same-name/task historical payload independent from the store', () => {
+    const first = testPayload('explore:Find', 'done', { output: 'first' })
+    const second = testPayload('explore:Find', 'done', { output: 'second' })
+    expect(resolveSubagentRunPayloadForOpen(first, second)).toBe(first)
+    expect(resolveSubagentRunPayloadForOpen(second, first)).toBe(second)
+  })
+
+  it('publishes canonical recovery terminal states over existing non-terminal snapshots', () => {
+    const done = testPayload('call-1', 'done', { canonicalToolCallId: 'call-1' })
+    const error = testPayload('call-1', 'error', { canonicalToolCallId: 'call-1' })
+    expect(shouldPublishSubagentRunPayload(done, testPayload('call-1', 'called', { canonicalToolCallId: 'call-1' }))).toBe(true)
+    expect(shouldPublishSubagentRunPayload(error, testPayload('call-1', 'running', { canonicalToolCallId: 'call-1' }))).toBe(true)
+  })
+
+  it('does not let renderer overwrite a terminal snapshot with older running data', () => {
+    const running = testPayload('call-1', 'running', { canonicalToolCallId: 'call-1' })
+    expect(shouldPublishSubagentRunPayload(running, testPayload('call-1', 'done', { canonicalToolCallId: 'call-1' }))).toBe(false)
+    expect(shouldPublishSubagentRunPayload(running, testPayload('call-1', 'error', { canonicalToolCallId: 'call-1' }))).toBe(false)
+  })
+
+  it('only publishes a first snapshot when it is canonical and otherwise leaves existing SSE snapshots authoritative', () => {
+    const running = testPayload('call-1', 'running', { canonicalToolCallId: 'call-1' })
+    const done = testPayload('call-1', 'done', { canonicalToolCallId: 'call-1' })
+    expect(shouldPublishSubagentRunPayload(running)).toBe(true)
+    expect(shouldPublishSubagentRunPayload(testPayload('explore:Find', 'done'))).toBe(false)
+    expect(shouldPublishSubagentRunPayload(running, running)).toBe(false)
+    expect(shouldPublishSubagentRunPayload(done, done)).toBe(false)
   })
 })
 

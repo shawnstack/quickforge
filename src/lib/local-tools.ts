@@ -11,6 +11,9 @@ import { generatedImageAssetUrl, parseGeneratedImageDetails } from '@/lib/genera
 import {
   OPEN_SUBAGENT_RUN_EVENT,
   buildSubagentRunPayload,
+  canOpenSubagentRunPayload,
+  resolveSubagentRunPayloadForOpen,
+  shouldPublishSubagentRunPayload,
   subagentRunBodyBlocks,
   subagentRunStore,
   type SubagentRunPayload,
@@ -18,6 +21,7 @@ import {
 import { decorateSubagentProcessBlocks } from '@/components/chat/panel-decoration'
 
 type ToolResultLike = {
+  toolCallId?: string
   isError?: boolean
   content?: Array<{ type: string; text?: string }>
   details?: unknown
@@ -603,23 +607,29 @@ function toolDetailsStateKey(toolName: string, params: Record<string, unknown> |
 
 // ---------------------------------------------------------------------------
 // subagent 运行详情：聊天摘要点击后在 Workspace Inspector Tab 中打开。
-// 数据由 buildSubagentRunPayload 构建，并作为历史/恢复回填发布到 subagentRunStore
-// （实时更新主通道是 ServerAgent 的 tool_execution_* SSE 发布，二者经内容指纹去重）；
+// 数据由 buildSubagentRunPayload 构建；ServerAgent 的 tool_execution_* SSE 是实时发布主通道，
+// renderer 仅回填 canonical 首次快照或以恢复终态修正已有非终态快照；
 // 运行详情 Tab 通过 subagent-run-detail-body 复用 renderSubagentRunBody；
 // 聊天内不再展开重复展示完整过程。
 // ---------------------------------------------------------------------------
 
 function renderSubagentRunSummary(payload: SubagentRunPayload) {
+  const canOpen = canOpenSubagentRunPayload(payload)
+  const title = canOpen ? t('viewSubagentRunDetails') : payload.statusLabel
   return html`
     <div class="quickforge-subagent-tool">
       <button
         type="button"
-        class="quickforge-tool-summary flex w-full cursor-pointer list-none items-center gap-2 text-left text-sm text-muted-foreground select-none"
-        title=${t('viewSubagentRunDetails')}
-        aria-label=${`${payload.statusLabel} · ${t('viewSubagentRunDetails')}`}
+        class="quickforge-tool-summary flex w-full cursor-pointer list-none items-center gap-2 text-left text-sm text-muted-foreground select-none disabled:cursor-not-allowed disabled:opacity-70"
+        title=${title}
+        aria-label=${`${payload.statusLabel} · ${title}`}
+        aria-disabled=${String(!canOpen)}
+        ?disabled=${!canOpen}
         @click=${() => {
-          // 优先取 store 中最新快照（SSE 实时路径可能已比本次渲染更新），无则用本次渲染载荷。
-          window.dispatchEvent(new CustomEvent(OPEN_SUBAGENT_RUN_EVENT, { detail: { runId: payload.runId, payload: subagentRunStore.get(payload.runId) ?? payload } }))
+          if (!canOpen) return
+          // canonical 运行可取 SSE store 的最新同 ID 快照；历史 fallback 必须使用当前消息载荷。
+          const payloadForOpen = resolveSubagentRunPayloadForOpen(payload, subagentRunStore.get(payload.runId))
+          window.dispatchEvent(new CustomEvent(OPEN_SUBAGENT_RUN_EVENT, { detail: { runId: payloadForOpen.runId, payload: payloadForOpen } }))
         }}
       >
         ${renderToolIcon('run_subagent')}
@@ -747,10 +757,11 @@ if (!customElements.get('subagent-run-detail-body')) {
 class SubagentToolRenderer {
   render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
     const toolDisplaySettings = getCachedToolDisplaySettings()
-    const payload = buildSubagentRunPayload(params, result, isStreaming, toolDisplaySettings.toolDisplayMode, t)
-    // 历史/恢复回填：只在 store 尚无同 runId 快照时发布，避免聊天渲染的旧快照
-    // 覆盖 ServerAgent 已经通过 SSE 发布的更新内容。
-    if (!subagentRunStore.get(payload.runId)) subagentRunStore.publish(payload)
+    const payload = buildSubagentRunPayload(params, result, isStreaming, toolDisplaySettings.toolDisplayMode, t, result?.toolCallId)
+    // renderer 仅发布 canonical 安全快照：首次可回填；若 SSE 快照仍是非终态，恢复出的
+    // done/error 可修正它；其余已有快照不覆盖，保持 SSE 实时路径权威。
+    const existing = subagentRunStore.get(payload.runId)
+    if (shouldPublishSubagentRunPayload(payload, existing)) subagentRunStore.publish(payload)
 
     return {
       isCustom: false,

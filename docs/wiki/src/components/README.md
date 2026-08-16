@@ -84,9 +84,9 @@ components/
 - subagent 单次运行详情是 Workspace Inspector 的一种运行时 Tab，与文件、审查、终端、浏览器 Tab 并存，可独立切换、排序和关闭。
 - 点击聊天中的 subagent 摘要会派发 `quickforge:open-subagent-run`；同一 `runId` 复用并激活已有 Tab，不同运行创建独立 Tab。无项目的全局会话也可打开 subagent Tab。
 - 聊天中不再使用 `<details>` 展开完整过程；任务、上下文、期望输出、过程 message-list 和结果统一在 Tab 中显示。Tab 继续遵循工具显示配置并复用原详情样式：`concise / compact` 保持简洁，`detailed` 才额外展示工具调用统计、允许工具以及 input/details JSON。
-- `SubagentRunDetailContent` 通过 Lit 宿主 `subagent-run-detail-body` 复用 `local-tools.ts` 的 `renderSubagentRunBody`；实时更新改为订阅 `subagentRunStore`（`ServerAgent` 的 `tool_execution_start/update/end` SSE 与 `local-tools` 的渲染回填都发布到该 store），仅更新已打开且 `runId` 匹配、内容指纹不同的 Tab，无匹配 Tab 时保持原数组不触发 setState；打开请求也会优先取 store 中最新的同 runId 载荷。
+- `SubagentRunDetailContent` 通过 Lit 宿主 `subagent-run-detail-body` 复用 `local-tools.ts` 的 `renderSubagentRunBody`；实时更新订阅 `subagentRunStore`（`ServerAgent` 的 `tool_execution_start/update/end` SSE 与 `local-tools` 的安全恢复回填发布到该 store），严格按 canonical `toolCallId` 更新已打开 Tab，不做 fallback→canonical 迁移。canonical 摘要打开时可取 store 中最新同 ID 快照；无 canonical 的历史终态摘要直接使用当前消息载荷，避免相同 `name:task` 历史记录串线。
 - 侧边详情内部的 process `message-list` 与聊天内共用同一装饰路径：宿主每次渲染（首次挂载、payload 实时更新、运行状态变化）后调度 `decorateSubagentProcessBlocks`（`panel-decoration/message-actions.ts`），对 `message-list[data-quickforge-subagent-process]` 应用与聊天一致的 process folding / 过程分组装饰与交互；装饰幂等、不重复叠加，卸载随 DOM 回收。
-- 聊天中的 subagent 摘要按钮是打开侧边详情的入口：原生 button 语义 + `aria-label`/`title`，并带轻量 hover / focus-visible 反馈（浅背景 + 焦点环）。
+- 聊天中的 subagent 摘要按钮是打开侧边详情的入口：原生 button 语义 + `aria-label`/`title`，并带轻量 hover / focus-visible 反馈（浅背景 + 焦点环）；新运行在尚未取得 canonical `toolCallId` 时按钮禁用，不会创建 `name:task` 错误 Tab，已完成历史消息仍可用兼容 fallback 打开。
 - subagent Tab 不写入项目持久化，刷新后不恢复；其他工作区 Tab 的持久化规则不变。
 
 ### ChatSidebar.tsx

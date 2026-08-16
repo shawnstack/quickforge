@@ -140,3 +140,10 @@
   - server-agent.test.ts 20→21 项：新增端到端用例——emit tool_execution_start/update/end SSE 后断言全局 subagentRunStore 出现 running→running→done 载荷（task/output/runId 正确），证明发布不依赖 local-tools render。
 - 改动文件：`src/lib/subagent-run-detail.ts`、`src/lib/server-agent.ts`、`src/lib/local-tools.ts`、`src/components/workspace/WorkspaceInspector.tsx`、`src/components/workspace/workspace-inspector-tabs.ts`、`tests/frontend/subagent-run-detail.test.ts`、`tests/frontend/server-agent.test.ts`、`tests/frontend/workspace-inspector-tabs.test.ts`、`docs/wiki/src/lib/README.md`、`docs/wiki/src/components/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
 - 验证：`npx tsc -b` 通过；针对性 vitest 6 文件 / 89 项全部通过；`npm run test` 144 文件 / 1184 项全部通过（100%）；`npm run lint` 0 error（仅 1 个并发 Cloud warning：server/cloud/identity.mjs）；`npm run build` 通过（仅既有 chunk size warning）。未新增依赖、未提交 Git、未手工修改生成产物（dist/ 由 build 正常再生成）、未触碰 Cloud 并发改动。
+
+## 追加记录（subagent-run-canonical-id-live-updates，2026-08-15）
+
+- 修复运行中 subagent 点击后 Inspector 详情因 runId 分叉无法持续实时更新：聊天 renderer 使用 toolResult 顶层 toolCallId，与 SSE canonical 主键统一；无 canonical ID 的 called/running 摘要禁用；仅 canonical payload 进入实时 store，历史终态 fallback 直接打开当前消息；恢复终态可单向修正残留 running 快照。
+- 保持详情展示顺序、trace 原始时间线、process folding、Workspace Tab 拖拽和持久化规则不变；未触碰 Cloud 并行源码。
+- 验证：相关测试 6 文件/108 项、TypeScript、完整测试 144 文件/1203 项、lint、build 全部通过；lint 仅 Cloud 并行文件既有 1 条 warning。
+- 本 feature 已完成，提交时仅纳入显式文件，不 push。

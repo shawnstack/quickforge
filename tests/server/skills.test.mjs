@@ -67,6 +67,32 @@ describe('bundled skills', () => {
     })
   })
 
+  it('discovers a standard skill by its canonical frontmatter name when the directory differs', async () => {
+    const userSkillDir = path.join(process.env.QUICKFORGE_DATA_DIR, 'skills', 'Descriptive Folder')
+    await fs.mkdir(path.join(userSkillDir, 'references'), { recursive: true })
+    await fs.writeFile(
+      path.join(userSkillDir, 'SKILL.md'),
+      '---\nname: Canonical-Skill\ndescription: Canonical frontmatter identifier test.\nmetadata:\n  displayName: Canonical Skill\n---\nUse canonical instructions.\n',
+      'utf8',
+    )
+    await fs.writeFile(path.join(userSkillDir, 'references', 'guide.md'), 'actual directory resource', 'utf8')
+
+    const skills = await import('../../server/skills.mjs')
+    const skill = await skills.findGlobalSkill('canonical-skill')
+
+    expect(skill).toMatchObject({
+      name: 'canonical-skill',
+      displayName: 'Canonical Skill',
+      source: 'user',
+      rootDir: userSkillDir,
+    })
+    await expect(skills.listSkillResourceFiles(skill)).resolves.toContain('references/guide.md')
+    await expect(skills.readSkillResource(skill, 'references/guide.md')).resolves.toMatchObject({
+      content: expect.stringContaining('actual directory resource'),
+      details: { skill: 'canonical-skill', path: 'references/guide.md' },
+    })
+  })
+
   it('lets a QuickForge user skill override the bundled copy', async () => {
     const userSkillDir = path.join(process.env.QUICKFORGE_DATA_DIR, 'skills', 'skill-creator')
     await fs.mkdir(userSkillDir, { recursive: true })

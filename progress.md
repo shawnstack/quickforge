@@ -183,3 +183,29 @@
 - `npx tsc -b`：通过。
 - 未运行完整 `npm run test/lint/build`；本次为局部修复，已完成针对性测试、修改文件 lint 和完整 TypeScript 构建检查。
 - 未 commit/tag/push；工作区其他并行修改保持不动。
+
+## Previous Current State
+
+- Feature: `standard-skill-frontmatter-name-id`
+- Status: done
+- Blockers: 无
+- Next step: 如需提交，仅显式暂存本 feature 文件；不需要修改前端或迁移既有 Skill 目录
+
+## Completed: `standard-skill-frontmatter-name-id`
+
+- 标准 Agent Skill 的唯一标识改为 `SKILL.md` frontmatter `name`；移除目录 basename 必须与 canonical name 一致的限制。
+- 保留 `SKILL.md` 固定入口、name 的 trim/lowercase/slug/长度校验、description 校验、legacy `skill.json` fallback 及按 canonical name 的同名覆盖语义。
+- 新增直接回归测试：目录名不同仍可按 canonical name 发现，并验证 `displayName` 与资源继续从实际目录读取。
+- 更新 `docs/wiki/server/README.md`，明确 frontmatter name 为权威 ID、目录名可不同、展示名使用 `metadata.displayName`。
+
+### Verification
+
+- `npx vitest run tests/server/skills.test.mjs tests/server/tools/index.test.mjs`：2 文件 / 39 项全部通过。
+- `npx eslint server/skills.mjs tests/server/skills.test.mjs`：通过。
+- `node --check server/skills.mjs && node --check tests/server/skills.test.mjs`：通过。
+- 未运行完整 build：变更仅涉及服务端单行校验、直接测试与 Wiki，无前端或构建链改动。
+
+### Notes
+
+- 未新增依赖，未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+- 未 commit/tag/push；工作区其他并行改动保持不动。

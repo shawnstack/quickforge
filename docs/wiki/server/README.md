@@ -210,7 +210,7 @@ server/
 - `loadSelectedGlobalSkills()` / `loadSelectedProjectSkills()` — 按选择加载
 - `mergeSkills()` — 合并全局和项目 skills
 - `readSkillResource()` — 读取技能资源文件
-- Skill 验证（名称格式、目录结构）：`name` 会按 `trim + lowercase` 归一化为内部 canonical slug，因此 `name: SDD`、配置中的 `SDD` 和工具调用 `activate_skill({ name: 'SDD' })` 都会匹配到内部 `sdd`；大写展示名应使用 `displayName`。
+- Skill 验证：标准 Skill 必须以目录内固定入口 `SKILL.md` 提供非空正文；其 frontmatter `name` 是唯一权威 ID，会按 `trim + lowercase` 归一化并继续执行 slug/长度校验，Skill 目录名可与该 ID 不同。同名发现与覆盖均按 canonical `name` 判断，资源仍从实际 Skill 目录读取；`description` 仍需非空且不超过 1024 字符。配置中的 `SDD` 和工具调用 `activate_skill({ name: 'SDD' })` 会匹配 frontmatter `name: SDD` 归一化后的内部 `sdd`；面向用户的名称应使用 `metadata.displayName`（兼容 `metadata.title`），而不是依赖目录名或改变 canonical ID。旧 `skill.json` fallback 规则保持不变。
 
 ### channels/ — 外部通信渠道
 

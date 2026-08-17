@@ -116,6 +116,14 @@
       "status": "done",
       "dependencies": [],
       "updated": "2026-08-17"
+    },
+    {
+      "id": "standard-skill-frontmatter-name-id",
+      "name": "标准 Agent Skill 以 frontmatter name 作为权威 ID",
+      "description": "标准 Skill 保持 SKILL.md 固定入口及既有 name/description 校验，但允许目录名与 frontmatter name 不同；发现、选择和同名覆盖继续使用归一化后的 canonical name，展示名使用 displayName，资源从实际目录读取。补充直接回归测试与 server Wiki 规则。",
+      "status": "done",
+      "dependencies": [],
+      "updated": "2026-08-17"
     }
   ]
 }

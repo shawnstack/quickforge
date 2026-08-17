@@ -256,7 +256,6 @@ function skillFromStandardMarkdown(rootDir, source, text) {
   const name = normalizeSkillName(rawManifest.name)
   const description = normalizeString(rawManifest.description)
   if (!name || !isValidSkillName(name)) return null
-  if (name !== normalizeSkillName(path.basename(rootDir))) return null
   if (!description || description.length > 1024) return null
 
   const metadata = normalizeMetadata(rawManifest.metadata)

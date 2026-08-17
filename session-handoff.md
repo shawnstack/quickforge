@@ -68,3 +68,20 @@
 - Docs: 未更新 Wiki；该变更为局部可见性缺陷修复，不改变模块入口、公共职责或架构。
 - Blockers: 无。建议人工验证三种错误：trace 有 errorMessage、trace errorMessage 为空但 output 有正文、完全无正文的兜底。
 - Git: 未 commit/tag/push；工作区其他并行改动保持不动。
+
+## Previous Session Handoffs
+
+- Feature: `standard-skill-frontmatter-name-id`
+- Status: done
+- Current Objective: 标准 Agent Skill 以 `SKILL.md` frontmatter `name` 作为唯一权威 ID，允许目录名不同。
+- Files touched:
+  - `server/skills.mjs`
+  - `tests/server/skills.test.mjs`
+  - `docs/wiki/server/README.md`
+  - `feature_list.json` / `progress.md` / `session-handoff.md`
+- Implementation: 仅删除 `skillFromStandardMarkdown()` 中 canonical name 与 `path.basename(rootDir)` 相等的拒绝条件；其他标准校验、legacy fallback、同名覆盖和实际 `rootDir` 资源读取保持不变。
+- Regression: 新测试在 `Descriptive Folder/SKILL.md` 声明 `name: Canonical-Skill`，确认按 `canonical-skill` 发现、返回 canonical name/displayName/实际 rootDir，并成功列出和读取该目录下资源。
+- Docs: server Wiki 已明确 frontmatter name 为权威 ID、目录名可不同、展示名使用 `metadata.displayName`（兼容 title）。
+- Verification: 针对性 Vitest 2 文件/39 项；修改文件 ESLint 通过；Node ESM 语法检查通过。未跑 build，因无前端/构建链变更。
+- Blockers/Risks: 无已知 blocker；如果不同目录声明相同 canonical name，仍按既有来源和遍历顺序后者覆盖，这是保留的既有语义。
+- Git: 未 commit/tag/push；未新增依赖，未手工修改生成产物，工作区其他并行改动保持不动。

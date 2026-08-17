@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   formatProcessDuration,
   isProcessToolsGroupMember,
+  assistantProcessSourceHasVisibleError,
   isTopLevelProcessDetail,
   processGroupAnchorIndex,
   processFinishedAtFromMessages,
@@ -30,6 +31,15 @@ vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }), { virtual: true })
 vi.mock('@/lib/tool-display-settings', () => ({
   getCachedToolDisplaySettings: () => ({ toolDisplayMode: 'compact', showContextUsage: false }),
 }), { virtual: true })
+
+describe('process folding source visibility', () => {
+  it('keeps an error-only assistant visible when it carries a concrete error message', () => {
+    expect(assistantProcessSourceHasVisibleError({ role: 'assistant', stopReason: 'error', errorMessage: 'Provider failed' })).toBe(true)
+    expect(assistantProcessSourceHasVisibleError({ role: 'assistant', stopReason: 'aborted', errorMessage: 'Request aborted' })).toBe(true)
+    expect(assistantProcessSourceHasVisibleError({ role: 'assistant', stopReason: 'error', errorMessage: '   ' })).toBe(false)
+    expect(assistantProcessSourceHasVisibleError({ role: 'assistant', stopReason: 'stop', errorMessage: 'ignored' })).toBe(false)
+  })
+})
 
 describe('process folding timing', () => {
   it('restores a persisted thinking-only completion time after the panel is rebuilt', () => {

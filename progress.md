@@ -167,3 +167,19 @@
 - `npm run build`：通过；仅既有 KaTeX 字体解析与大 chunk warning。
 - Windows 安装包 `desktop-dist/QuickForge Setup 1.7.7.exe` 已基于当前工作区构建成功并启动安装程序；真实系统通知展示、点击恢复聚焦和 session 跳转仍待人工实测。
 - 未 commit/tag/push；工作区其他并行修改及未跟踪项保持不动。
+
+## Completed: `subagent-error-details-visibility` (2026-08-17)
+
+- `process-folding.ts` 的空 source 判定将 `stopReason=error/aborted` 且带非空 `errorMessage` 的 assistant 视为可见内容，避免过程分组 CSS 隐藏原生错误块。
+- `subagent-run-detail.ts` 为 payload 增加独立错误原因与来源：状态同时识别过滤后 trace 中最后一个带 `stopReason` 的 assistant，最终 `error/aborted` 可覆盖不准确的外层 done/running，旧错误后有成功终态时不误判；错误正文优先取该最终错误 assistant 的非空 `errorMessage`，再回退 error output、details 常见错误字段，完全缺失时标记 fallback；错误状态有 trace 时保留非重复 output。
+- 运行详情使用独立、始终可见的错误块；trace 原生 assistant 错误与独立错误块相同时仅在展示副本中移除重复错误标记，不修改原始 trace/store。
+- `handleToolEnd` 对空/缺失终态 details 回填上一帧 details，从而保留 trace、tools、toolCalls、allowedTools 等元数据；错误终态缺正文时保留上一帧错误 output。
+- 新增中英文错误标签/兜底文案；未新增依赖、未修改 Wiki（局部缺陷修复，不改变模块入口或职责）、未手工修改生成产物。
+
+### Verification
+
+- `npx vitest run tests/frontend/subagent-run-detail.test.ts tests/frontend/process-folding.test.ts`：2 文件 / 123 项全部通过。
+- 修改文件 ESLint：通过。
+- `npx tsc -b`：通过。
+- 未运行完整 `npm run test/lint/build`；本次为局部修复，已完成针对性测试、修改文件 lint 和完整 TypeScript 构建检查。
+- 未 commit/tag/push；工作区其他并行修改保持不动。

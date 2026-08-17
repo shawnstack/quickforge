@@ -1021,9 +1021,18 @@ function createTurnProcessGroup(
   return populateProcessGroup(group, items) ? group : null
 }
 
+export function assistantProcessSourceHasVisibleError(
+  message: (MessageWithUsage & { stopReason?: string; errorMessage?: string }) | undefined,
+) {
+  const stopReason = message?.stopReason
+  return (stopReason === 'error' || stopReason === 'aborted')
+    && typeof message?.errorMessage === 'string'
+    && message.errorMessage.trim().length > 0
+}
+
 function updateEmptyProcessSources(assistants: AssistantMessageElement[]) {
   for (const assistant of assistants) {
-    const hasVisibleContent = Boolean(
+    const hasVisibleContent = assistantProcessSourceHasVisibleError(assistant.message) || Boolean(
       Array.from(assistant.querySelectorAll<HTMLElement>('markdown-block, thinking-block, tool-message, .quickforge-process-group, .quickforge-approval-card'))
         .some((node) => node.closest('message-list') === assistantMessageList(assistant)),
     )

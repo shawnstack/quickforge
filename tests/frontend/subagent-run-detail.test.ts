@@ -14,6 +14,7 @@ import {
   subagentRunFingerprint,
   subagentRunId,
   subagentRunPayloadFromToolEvent,
+  subagentRunTraceMessagesForDisplay,
 } from '../../src/lib/subagent-run-detail'
 
 // i18n 由调用方注入：这里用与真实 t 相同形状的 stub（避免测试环境加载 i18n→pdfjs 链路）。
@@ -47,6 +48,7 @@ function testPayload(
     input: '',
     details: '',
     output: '',
+    errorMessage: '',
     detailed: false,
     ...overrides,
   }
@@ -115,6 +117,137 @@ describe('subagent run detail payload', () => {
       t,
     )
     expect(payload.status).toBe('running')
+  })
+
+  it('uses the final assistant stopReason as the current terminal state', () => {
+    const terminalError = buildSubagentRunPayload(
+      { subagent: 'explore', task: 'T' },
+      {
+        isError: false,
+        content: [],
+        details: {
+          messages: [
+            { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Earlier response' }] },
+            { role: 'assistant', stopReason: 'error', content: [] },
+          ],
+        },
+      },
+      false,
+      'concise',
+      t,
+    )
+    expect(terminalError.status).toBe('error')
+    expect(terminalError.statusLabel).toBe('Explore failed')
+    expect(terminalError.errorMessage).toBe('')
+    expect(terminalError.errorSource).toBe('fallback')
+    expect(subagentRunBodyBlocks(terminalError)).toContain('error')
+
+    const recovered = buildSubagentRunPayload(
+      { subagent: 'explore', task: 'T' },
+      {
+        isError: false,
+        content: [],
+        details: {
+          messages: [
+            { role: 'assistant', stopReason: 'error', errorMessage: 'Old failure', content: [] },
+            { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Recovered' }] },
+          ],
+        },
+      },
+      false,
+      'concise',
+      t,
+    )
+    expect(recovered.status).toBe('done')
+    expect(recovered.errorMessage).toBe('')
+    expect(recovered.errorSource).toBeUndefined()
+  })
+
+  it('extracts the final assistant error when the outer result reports success', () => {
+    const payload = buildSubagentRunPayload(
+      { subagent: 'explore', task: 'T' },
+      {
+        isError: false,
+        content: [],
+        details: {
+          messages: [
+            { role: 'assistant', stopReason: 'error', errorMessage: '  Provider failed  ', content: [] },
+          ],
+        },
+      },
+      false,
+      'concise',
+      t,
+    )
+    expect(payload.status).toBe('error')
+    expect(payload.errorMessage).toBe('Provider failed')
+    expect(payload.errorSource).toBe('trace')
+  })
+
+  it('lets a final aborted assistant override an inaccurate streaming outer state', () => {
+    const payload = buildSubagentRunPayload(
+      { subagent: 'explore', task: 'T' },
+      {
+        isError: false,
+        content: [],
+        details: {
+          messages: [{ role: 'assistant', stopReason: 'aborted', errorMessage: 'Request aborted', content: [] }],
+        },
+      },
+      true,
+      'concise',
+      t,
+    )
+    expect(payload.status).toBe('error')
+    expect(payload.errorMessage).toBe('Request aborted')
+    expect(payload.errorSource).toBe('trace')
+  })
+
+  it('extracts the last concrete assistant error from the trace', () => {
+    const payload = buildSubagentRunPayload(
+      { subagent: 'explore', task: 'T' },
+      {
+        isError: true,
+        content: [],
+        details: {
+          messages: [
+            { role: 'assistant', stopReason: 'error', errorMessage: 'First failure', content: [] },
+            { role: 'assistant', stopReason: 'error', errorMessage: '  Final failure  ', content: [] },
+          ],
+        },
+      },
+      false,
+      'concise',
+      t,
+    )
+    expect(payload.errorMessage).toBe('Final failure')
+    expect(payload.errorSource).toBe('trace')
+  })
+
+  it('falls back from empty trace errors to error output, then to a localized fallback state', () => {
+    const withOutput = buildSubagentRunPayload(
+      { subagent: 'explore', task: 'T' },
+      {
+        isError: true,
+        content: [{ type: 'text', text: 'Tool execution failed' }],
+        details: { messages: [{ role: 'assistant', stopReason: 'error', errorMessage: '   ', content: [] }] },
+      },
+      false,
+      'concise',
+      t,
+    )
+    expect(withOutput.errorMessage).toBe('Tool execution failed')
+    expect(withOutput.errorSource).toBe('output')
+
+    const withoutDetails = buildSubagentRunPayload(
+      { subagent: 'explore', task: 'T' },
+      { isError: true, content: [], details: { messages: [] } },
+      false,
+      'concise',
+      t,
+    )
+    expect(withoutDetails.errorMessage).toBe('')
+    expect(withoutDetails.errorSource).toBe('fallback')
   })
 
   it('marks aborted or errored runs as error', () => {
@@ -443,6 +576,34 @@ describe('subagentRunBodyBlocks', () => {
     }
   }
 
+  it('removes the duplicated native assistant error from the trace display only', () => {
+    const traceMessages = [
+      { role: 'assistant', content: [{ type: 'text', text: 'Before' }] },
+      { role: 'assistant', stopReason: 'error', errorMessage: 'Provider failed', content: [] },
+    ]
+    const display = subagentRunTraceMessagesForDisplay({
+      status: 'error',
+      errorSource: 'trace',
+      errorMessage: 'Provider failed',
+      traceMessages,
+    })
+    expect(display).toEqual([
+      traceMessages[0],
+      { role: 'assistant', stopReason: undefined, errorMessage: undefined, content: [] },
+    ])
+    expect(traceMessages[1]).toMatchObject({ stopReason: 'error', errorMessage: 'Provider failed' })
+  })
+
+  it('keeps trace messages unchanged when the error comes from output', () => {
+    const traceMessages = [{ role: 'assistant', stopReason: 'error', errorMessage: 'Trace failure', content: [] }]
+    expect(subagentRunTraceMessagesForDisplay({
+      status: 'error',
+      errorSource: 'output',
+      errorMessage: 'Output failure',
+      traceMessages,
+    })).toBe(traceMessages)
+  })
+
   it('renders the canonical block order: task → summary → trace → input → details', () => {
     expect(subagentRunBodyBlocks(payload({
       detailed: true,
@@ -456,8 +617,29 @@ describe('subagentRunBodyBlocks', () => {
     expect(subagentRunBodyBlocks(payload({ output: 'Done' }))).toEqual(['task', 'output'])
   })
 
-  it('hides output when a trace is present', () => {
+  it('renders trace, a separate error block, and non-duplicate output for failed runs', () => {
     expect(subagentRunBodyBlocks(payload({
+      status: 'error',
+      traceMessages: [{ role: 'assistant', content: [] }],
+      errorMessage: 'Trace failure',
+      errorSource: 'trace',
+      output: 'Additional output',
+    }))).toEqual(['task', 'trace', 'error', 'output'])
+  })
+
+  it('does not repeat output that is already used as the error reason', () => {
+    expect(subagentRunBodyBlocks(payload({
+      status: 'error',
+      traceMessages: [{ role: 'assistant', content: [] }],
+      errorMessage: 'Failed',
+      errorSource: 'output',
+      output: 'Failed',
+    }))).toEqual(['task', 'trace', 'error'])
+  })
+
+  it('hides successful output when a trace is present', () => {
+    expect(subagentRunBodyBlocks(payload({
+      status: 'done',
       traceMessages: [{ role: 'assistant', content: [] }],
       output: 'Done',
     }))).toEqual(['task', 'trace'])
@@ -628,13 +810,14 @@ describe('subagentRunPayloadFromToolEvent', () => {
       toolName: 'run_subagent',
       partialResult: { content: [], details: { messages: [] } },
     }
+    const previous = testPayload('call-9', 'running', { timing: { startedAt: 100, durationMs: 5 } })
     const payload = subagentRunPayloadFromToolEvent(
       update,
       true,
       { subagent: 'explore', task: 'T' },
       'concise',
       t,
-      { startedAt: 100, durationMs: 5 },
+      previous,
     )
     expect(payload?.timing?.startedAt).toBe(100)
     expect(payload?.timing?.durationMs).toBe(5)
@@ -713,6 +896,57 @@ describe('SubagentRunEventPublisher', () => {
     publisher.handleToolUpdate({ toolCallId: 'call-9', partialResult: { content: [], details: { messages: [] } } })
     const update = store.get('call-9')
     expect(update?.timing?.startedAt).toBeTypeOf('number')
+  })
+
+  it('preserves the previous trace and metadata when terminal details are empty', () => {
+    const store = new SubagentRunStore()
+    const publisher = createPublisher(store)
+    publisher.handleToolStart(startEvent)
+    publisher.handleToolUpdate({
+      toolCallId: 'call-9',
+      partialResult: {
+        content: [],
+        details: {
+          label: 'Explore',
+          toolCalls: 2,
+          messages: [{ role: 'assistant', content: [{ type: 'text', text: 'Investigating' }] }],
+          allowedTools: ['read_file'],
+        },
+      },
+    })
+
+    publisher.handleToolEnd({
+      toolCallId: 'call-9',
+      result: { content: [{ type: 'text', text: 'done' }], details: {} },
+    })
+
+    const completed = store.get('call-9')
+    expect(completed?.status).toBe('done')
+    expect(completed?.traceMessages).toEqual([
+      { role: 'assistant', content: [{ type: 'text', text: 'Investigating' }] },
+    ])
+    expect(completed?.toolCalls).toBe(2)
+    expect(completed?.allowedTools).toEqual(['read_file'])
+  })
+
+  it('preserves previous error output when an error end event omits its final result body', () => {
+    const store = new SubagentRunStore()
+    const publisher = createPublisher(store)
+    publisher.handleToolStart(startEvent)
+    publisher.handleToolUpdate({
+      toolCallId: 'call-9',
+      partialResult: {
+        isError: true,
+        content: [{ type: 'text', text: 'Provider failed' }],
+        details: { messages: [] },
+      },
+    })
+
+    publisher.handleToolEnd({ toolCallId: 'call-9', isError: true })
+    const failed = store.get('call-9')
+    expect(failed?.status).toBe('error')
+    expect(failed?.errorMessage).toBe('Provider failed')
+    expect(failed?.errorSource).toBe('output')
   })
 
   it('clears the cache after end so later updates are ignored', () => {

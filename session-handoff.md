@@ -55,3 +55,16 @@
 - Verification: 针对性测试 22/22；修改文件 ESLint 通过；`npx tsc -b` 通过；Electron 文件语法检查通过；完整测试 149 文件/1231 项全部通过；完整 lint 0 error（仅 `server/cloud/identity.mjs` 的 1 条并行 Cloud warning）；`npm run build` 通过（仅既有 KaTeX/大 chunk warning）。
 - Manual verification: Windows 安装包 `desktop-dist/QuickForge Setup 1.7.7.exe` 已基于当前工作区构建成功并启动安装程序；真实系统通知展示、托盘隐藏/最小化后的点击恢复聚焦及 session 跳转仍待人工实测。
 - Blockers: 无。未做真实系统通知点击实测，未 commit/tag/push；并行工作区内容保持不动。
+
+## Subagent Error Details Visibility Handoff (2026-08-17)
+
+- Feature: `subagent-error-details-visibility`
+- Status: done，待界面人工验证
+- Objective: 修复 subagent 显示失败但具体错误正文不可见，并防止错误原因被过程折叠、trace/output 互斥或终态空 details 覆盖。
+- Files touched: `src/components/chat/panel-decoration/process-folding.ts`、`src/lib/subagent-run-detail.ts`、`src/lib/local-tools.ts`、`src/lib/i18n.ts`、`tests/frontend/process-folding.test.ts`、`tests/frontend/subagent-run-detail.test.ts`、状态文件。
+- Behavior: 状态以过滤后 trace 中最后一个带 `stopReason` 的 assistant 为内部终态：最终 `error/aborted` 可覆盖外层误报的 done/running，后续成功终态不会被旧错误污染；错误原因优先取该最终错误 assistant 的非空 `errorMessage`，再取错误 output/details，最后显示本地化兜底；详情中错误块独立常显，和 trace 原生错误/output 去重。
+- Event preservation: `handleToolEnd` 的 details 为空/缺失时保留 previous details 中的 trace 和元数据；错误终态缺正文时保留 previous error output。
+- Verification: 针对性 Vitest 2 文件/123 项；修改文件 ESLint 通过；`npx tsc -b` 通过。未跑完整 test/lint/build。
+- Docs: 未更新 Wiki；该变更为局部可见性缺陷修复，不改变模块入口、公共职责或架构。
+- Blockers: 无。建议人工验证三种错误：trace 有 errorMessage、trace errorMessage 为空但 output 有正文、完全无正文的兜底。
+- Git: 未 commit/tag/push；工作区其他并行改动保持不动。

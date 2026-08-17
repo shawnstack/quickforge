@@ -1,6 +1,14 @@
 {
   "features": [
     {
+      "id": "subagent-error-details-visibility",
+      "name": "subagent 错误详情可见性修复",
+      "description": "修复 subagent 显示处理出错但具体报错不可见：过程折叠不再隐藏带 errorMessage 的错误 assistant；运行详情从 trace 最后错误 assistant、错误 output/details 依次提取原因，缺失时显示本地化兜底；独立错误块去重展示，并在终态 details 为空时保留上一帧 trace/元数据。",
+      "status": "done",
+      "dependencies": [],
+      "updated": "2026-08-17"
+    },
+    {
       "id": "workspace-same-file-tab-reuse",
       "name": "工作区重复预览同一文件时复用 tab 并刷新",
       "description": "Workspace Inspector 重复预览同一文件时复用已有 tab：Reader 命中已有 file reader tab 时激活并置 loading、清除 error，复用现有加载 effect 重新读取；Browser 按同一底层文件路径（复用 browserTabFilePath 归一化，兼容 Windows 路径分隔符）或精确 web URL 查找已有 browser tab，命中则激活并递增不持久化的 reloadNonce，经 WebPreviewContent 外部 reload token 强制 iframe 重载，未命中才新建 tab；仅同 kind 去重，不做 reader/browser 跨类型合并。新增 browserPreviewReuseKey / findBrowserTabToReuse 纯函数与测试，不改变 localStorage 序列化格式。",

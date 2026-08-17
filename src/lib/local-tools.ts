@@ -15,6 +15,7 @@ import {
   resolveSubagentRunPayloadForOpen,
   shouldPublishSubagentRunPayload,
   subagentRunBodyBlocks,
+  subagentRunTraceMessagesForDisplay,
   subagentRunStore,
   type SubagentRunPayload,
 } from '@/lib/subagent-run-detail'
@@ -645,10 +646,11 @@ function renderSubagentRunSummary(payload: SubagentRunPayload) {
 /**
  * 唯一 subagent 运行详情模板，由 Workspace Inspector 的运行 Tab 使用。
  * 展示层级与顺序遵循 subagentRunBodyBlocks（与 Git 历史最终态的聊天内展示一致）：
- * task/context/expectedOutput → detailed 摘要 → trace → 无 trace 时 output → input/details。
+ * task/context/expectedOutput → detailed 摘要 → trace → 独立错误块 → 非重复 output → input/details。
  */
 export function renderSubagentRunBody(payload: SubagentRunPayload) {
   const bodyBlocks = new Set(subagentRunBodyBlocks(payload))
+  const traceMessages = subagentRunTraceMessagesForDisplay(payload)
   const pendingToolCalls = new Set(payload.pendingToolCalls)
   return html`
     <div class="mt-3 space-y-3">
@@ -665,7 +667,8 @@ export function renderSubagentRunBody(payload: SubagentRunPayload) {
         </div>
         ${payload.allowedTools.length > 0 ? html`<div class="mt-2 flex flex-wrap gap-1.5">${payload.allowedTools.map((tool) => html`<span class="rounded-full bg-background/80 px-2 py-0.5 text-[11px] text-muted-foreground/80">${tool}</span>`)}</div>` : nothing}
       </div>` : nothing}
-      ${bodyBlocks.has('trace') ? html`<div class="quickforge-subagent-trace rounded-lg border border-border bg-background/60 p-2.5"><message-list data-quickforge-subagent-process="true" data-quickforge-subagent-streaming=${String(payload.status === 'running')} .messages=${payload.traceMessages} .tools=${payload.tools} .pendingToolCalls=${pendingToolCalls} .isStreaming=${false}></message-list></div>` : nothing}
+      ${bodyBlocks.has('trace') ? html`<div class="quickforge-subagent-trace rounded-lg border border-border bg-background/60 p-2.5"><message-list data-quickforge-subagent-process="true" data-quickforge-subagent-streaming=${String(payload.status === 'running')} .messages=${traceMessages} .tools=${payload.tools} .pendingToolCalls=${pendingToolCalls} .isStreaming=${false}></message-list></div>` : nothing}
+      ${bodyBlocks.has('error') ? html`<div class="quickforge-subagent-error rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert"><span class="font-medium">${t('subagentErrorReason')}:</span> ${payload.errorMessage || t('subagentErrorUnavailable')}</div>` : nothing}
       ${bodyBlocks.has('output') ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('subagentResult')}</div><code-block .code=${payload.output} language="text"></code-block></div>` : nothing}
       ${bodyBlocks.has('input') ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${payload.input} language="json"></code-block></div>` : nothing}
       ${bodyBlocks.has('details') ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('details')}</div><code-block .code=${payload.details} language="json"></code-block></div>` : nothing}

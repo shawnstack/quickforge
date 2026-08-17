@@ -29,6 +29,8 @@ export type SubagentToolDisplayMode = 'concise' | 'compact' | 'detailed'
 
 export type SubagentRunI18n = (key: AppTextKey, params?: Record<string, string | number>) => string
 
+export type SubagentRunErrorSource = 'trace' | 'output' | 'details' | 'fallback'
+
 export type SubagentRunPayload = {
   /** 稳定运行 id：新消息以显式 toolCallId / toolResult 顶层 toolCallId / details.toolCallId 为主键；details.sessionId 仅历史兼容 fallback；旧消息回退 `${name}:${task}`。 */
   runId: string
@@ -52,6 +54,9 @@ export type SubagentRunPayload = {
   input: string
   details: string
   output: string
+  /** 失败原因；fallback 表示上游未提供可显示的具体错误正文，由渲染层本地化。 */
+  errorMessage: string
+  errorSource?: SubagentRunErrorSource
   /** 聊天工具显示模式，仅用于兼容统一载荷。 */
   detailed: boolean
   /** 内容指纹，用于去重实时更新事件。 */
@@ -164,10 +169,94 @@ function arrayFromUnknown(value: unknown) {
   return Array.isArray(value) ? value : []
 }
 
-/** 与 local-tools.ts 的 toolStatus 一致：从 result/流式状态推导运行状态。 */
-export function subagentRunStatus(result: ToolResultLike | undefined, isStreaming?: boolean): SubagentRunStatus {
+function nonEmptyText(value: unknown): string {
+  return typeof value === 'string' && value.trim() ? value.trim() : ''
+}
+
+type AssistantTerminalState = {
+  stopReason: string
+  errorMessage: string
+}
+
+/** 仅以最后一个带 stopReason 的 assistant 为当前终态，避免旧错误污染后续成功结果。 */
+function finalAssistantTerminalState(messages: unknown[]): AssistantTerminalState | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (!isRecord(message) || message.role !== 'assistant') continue
+    const stopReason = nonEmptyText(message.stopReason)
+    if (!stopReason) continue
+    return { stopReason, errorMessage: nonEmptyText(message.errorMessage) }
+  }
+  return undefined
+}
+
+function traceAssistantErrorMessage(messages: unknown[]): string {
+  const terminal = finalAssistantTerminalState(messages)
+  return terminal?.stopReason === 'error' || terminal?.stopReason === 'aborted' ? terminal.errorMessage : ''
+}
+
+function errorTextFromUnknown(value: unknown): string {
+  const direct = nonEmptyText(value)
+  if (direct) return direct
+  if (!isRecord(value)) return ''
+  for (const key of ['errorMessage', 'error', 'message', 'reason']) {
+    const nested = nonEmptyText(value[key])
+    if (nested) return nested
+  }
+  return ''
+}
+
+function subagentRunError(
+  status: SubagentRunStatus,
+  traceMessages: unknown[],
+  output: string,
+  details: unknown,
+): { errorMessage: string; errorSource?: SubagentRunErrorSource } {
+  if (status !== 'error') return { errorMessage: '' }
+  const traceError = traceAssistantErrorMessage(traceMessages)
+  if (traceError) return { errorMessage: traceError, errorSource: 'trace' }
+  const outputError = nonEmptyText(output)
+  if (outputError) return { errorMessage: outputError, errorSource: 'output' }
+  const detailsError = errorTextFromUnknown(details)
+  if (detailsError) return { errorMessage: detailsError, errorSource: 'details' }
+  return { errorMessage: '', errorSource: 'fallback' }
+}
+
+export function subagentRunTraceMessagesForDisplay(
+  payload: Pick<SubagentRunPayload, 'status' | 'errorSource' | 'errorMessage' | 'traceMessages'>,
+): unknown[] {
+  if (payload.status !== 'error' || payload.errorSource !== 'trace' || !payload.errorMessage) {
+    return payload.traceMessages
+  }
+  const duplicateIndex = payload.traceMessages.findLastIndex((message) => (
+    isRecord(message)
+    && message.role === 'assistant'
+    && (message.stopReason === 'error' || message.stopReason === 'aborted')
+    && nonEmptyText(message.errorMessage) === payload.errorMessage
+  ))
+  if (duplicateIndex < 0) return payload.traceMessages
+  return payload.traceMessages.map((message, index) => (
+    index === duplicateIndex && isRecord(message)
+      ? { ...message, stopReason: undefined, errorMessage: undefined }
+      : message
+  ))
+}
+
+/** 从外层 result 与 trace 最终 assistant 终态推导状态；内部错误/中止优先于不准确的 running/done。 */
+export function subagentRunStatus(
+  result: ToolResultLike | undefined,
+  isStreaming?: boolean,
+  traceMessages: unknown[] = [],
+): SubagentRunStatus {
   const details = isRecord(result?.details) ? result.details : undefined
-  if (result?.isError || details?.aborted === true || details?.timedOut === true) return 'error'
+  const assistantTerminal = finalAssistantTerminalState(traceMessages)
+  if (
+    result?.isError
+    || details?.aborted === true
+    || details?.timedOut === true
+    || assistantTerminal?.stopReason === 'error'
+    || assistantTerminal?.stopReason === 'aborted'
+  ) return 'error'
   if (isStreaming) return 'running'
   return result ? 'done' : 'called'
 }
@@ -241,7 +330,7 @@ function jsonText(value: unknown): string {
 
 /**
  * 内容指纹：任何会影响展示的变化（状态、工具调用数、消息条数/内容、
- * 输出/输入/详情文本、耗时、pending 工具）都会改变指纹，用于实时更新去重。
+ * 输出/错误/输入/详情文本、耗时、pending 工具）都会改变指纹，用于实时更新去重。
  * 对已生成的字符串/JSON 做轻量稳定 hash（而非拼入原始内容），保证
  * “相同长度但内容变化”也会改变指纹，同时避免指纹字符串被巨大内容撑大。
  */
@@ -260,6 +349,8 @@ export function subagentRunFingerprint(payload: Omit<SubagentRunPayload, 'finger
       payload.expectedOutput,
       payload.canonicalToolCallId,
       payload.statusLabel,
+      payload.errorMessage,
+      payload.errorSource,
       payload.allowedTools,
       payload.tools,
       payload.pendingToolCalls,
@@ -278,23 +369,24 @@ export function subagentRunFingerprint(payload: Omit<SubagentRunPayload, 'finger
 /**
  * 运行详情侧栏（SubagentRunDetailBody）内部块的展示顺序，单一事实来源。
  * 顺序与 Git 历史最终态（32be493 的聊天内 details）保持一致：
- * task/context/expectedOutput → 详细摘要 → trace → 无 trace 时 output → input → details。
+ * task/context/expectedOutput → 详细摘要 → trace → 错误正文 → 非重复 output → input → details。
  * 渲染器按此顺序输出；单元测试直接断言该顺序。
  */
-export type SubagentRunBodyBlock = 'task' | 'summary' | 'trace' | 'output' | 'input' | 'details'
+export type SubagentRunBodyBlock = 'task' | 'summary' | 'trace' | 'error' | 'output' | 'input' | 'details'
 
 export function subagentRunBodyBlocks(
   payload: Pick<
     SubagentRunPayload,
-    'task' | 'context' | 'expectedOutput' | 'detailed' | 'traceMessages' | 'output' | 'input' | 'details'
+    'task' | 'context' | 'expectedOutput' | 'status' | 'detailed' | 'traceMessages' | 'errorMessage' | 'errorSource' | 'output' | 'input' | 'details'
   >,
 ): SubagentRunBodyBlock[] {
   const blocks: SubagentRunBodyBlock[] = []
   if (payload.task || payload.context || payload.expectedOutput) blocks.push('task')
   if (payload.detailed) blocks.push('summary')
-  if (payload.traceMessages.length > 0) {
-    blocks.push('trace')
-  } else if (payload.output) {
+  if (payload.traceMessages.length > 0) blocks.push('trace')
+  if (payload.status === 'error') blocks.push('error')
+  const outputDuplicatesError = payload.errorSource === 'output' && payload.output.trim() === payload.errorMessage.trim()
+  if (payload.output && !outputDuplicatesError && (payload.traceMessages.length === 0 || payload.status === 'error')) {
     blocks.push('output')
   }
   if (payload.detailed && payload.input) blocks.push('input')
@@ -367,12 +459,14 @@ export function buildSubagentRunPayload(
   const task = typeof params?.task === 'string' ? params.task : ''
   const context = typeof params?.context === 'string' ? params.context : ''
   const expectedOutput = typeof params?.expectedOutput === 'string' ? params.expectedOutput : ''
-  const status = subagentRunStatus(result, isStreaming)
   const canonicalToolCallId = canonicalSubagentToolCallId(details, result, toolCallId)
   const paramsLabel = isRecord(params?.subagent) && typeof params.subagent.label === 'string' ? params.subagent.label : ''
   const label = paramsLabel || subagentRunLabel(name, details, t)
   const detailed = toolDisplayMode === 'detailed'
   const traceMessages = subagentProcessTraceMessages(arrayFromUnknown(details?.messages))
+  const status = subagentRunStatus(result, isStreaming, traceMessages)
+  const output = resultText(result)
+  const error = subagentRunError(status, traceMessages, output, result?.details)
 
   const payload: Omit<SubagentRunPayload, 'fingerprint'> = {
     runId: subagentRunId(details, name, task, canonicalToolCallId),
@@ -392,7 +486,8 @@ export function buildSubagentRunPayload(
     pendingToolCalls: stringArrayFromUnknown(details?.pendingToolCalls),
     input: stringifyValue(params),
     details: stringifyValue(result?.details),
-    output: resultText(result),
+    output,
+    ...error,
     detailed,
   }
   return { ...payload, fingerprint: subagentRunFingerprint(payload) }
@@ -414,8 +509,8 @@ export function normalizeOpenSubagentRunRequest(detail: unknown): SubagentRunOpe
  * - update/end 缺 args 时由调用方按 toolCallId 恢复 start 的 args 传入 cachedArgs，
  *   保证 task/context/expectedOutput 不丢；
  * - end 的 isError 合并进 result，使 aborted/timedOut/error 正确归为 error；
- * - previousTiming：事件本身没有 quickforgeTiming（update 阶段）时回填上一次载荷的
- *   计时，避免运行中丢失 startedAt 展示（end 自带完整 quickforgeTiming 优先）。
+ * - previousPayload：事件本身缺少终态 details/messages 时回填上一次载荷的 trace/元数据；
+ *   quickforgeTiming 仍以事件自带值优先。
  * 非 run_subagent 或无法取得 args 时返回 undefined。
  */
 export function subagentRunPayloadFromToolEvent(
@@ -424,12 +519,28 @@ export function subagentRunPayloadFromToolEvent(
   cachedArgs: Record<string, unknown> | undefined,
   toolDisplayMode: SubagentToolDisplayMode,
   t: SubagentRunI18n,
-  previousTiming?: QuickForgeToolTiming,
+  previousPayload?: SubagentRunPayload,
 ): SubagentRunPayload | undefined {
   if (event.toolName !== 'run_subagent') return undefined
   const args = isRecord(event.args) ? event.args as Record<string, unknown> : cachedArgs
   if (!args) return undefined
-  const rawResult = isStreaming ? event.partialResult : event.result
+  let rawResult = isStreaming ? event.partialResult : event.result
+  if (!isStreaming && previousPayload) {
+    let previousDetails: Record<string, unknown> | undefined
+    try {
+      const parsed = previousPayload.details ? JSON.parse(previousPayload.details) : undefined
+      if (isRecord(parsed)) previousDetails = parsed
+    } catch {
+      // 非 JSON details 无法安全合并，保留终态原值。
+    }
+    const terminalDetails = isRecord(rawResult) && isRecord(rawResult.details) ? rawResult.details : undefined
+    const hasTerminalMetadata = Boolean(terminalDetails && Object.keys(terminalDetails).length > 0)
+    if (previousDetails && !hasTerminalMetadata) {
+      rawResult = isRecord(rawResult)
+        ? { ...rawResult, details: previousDetails }
+        : { content: [], details: previousDetails }
+    }
+  }
   const rawIsError = isRecord(rawResult) && 'isError' in rawResult && typeof rawResult.isError === 'boolean'
     ? rawResult.isError
     : undefined
@@ -438,6 +549,9 @@ export function subagentRunPayloadFromToolEvent(
     : event.isError
       ? { content: [], details: {}, isError: true }
       : undefined
+  if (result?.isError && previousPayload?.output && !resultText(result).trim()) {
+    result.content = [{ type: 'text', text: previousPayload.output }]
+  }
   const build = (timing: QuickForgeToolTiming | undefined) => {
     const resultForBuild = timing
       ? {
@@ -450,7 +564,7 @@ export function subagentRunPayloadFromToolEvent(
     return buildSubagentRunPayload(args, resultForBuild, isStreaming, toolDisplayMode, t, event.toolCallId)
   }
   const payload = build(undefined)
-  if (payload.timing === undefined && previousTiming) return build(previousTiming)
+  if (payload.timing === undefined && previousPayload?.timing) return build(previousPayload.timing)
   return payload
 }
 
@@ -469,8 +583,8 @@ export type SubagentRunEventPublisherOptions = {
  * 完全解耦（发布不依赖 ToolRenderer.render 被调用）。
  * - start：仅 run_subagent 参与；按 toolCallId 缓存 args 与 toolName，并用
  *   toolStartEventWithPartialResult 生成带 partialResult 的规范事件再构建载荷；
- * - update：事件缺 args/toolName 时回填缓存；previousTiming 取 store 中同 runId
- *   的上一次载荷，避免运行中丢失 startedAt 展示；
+ * - update：事件缺 args/toolName 时回填缓存；previous payload 取 store 中同 runId
+ *   的上一次载荷，避免运行中丢失 startedAt，并在终态空 details 时保留 trace/元数据；
  * - end：发布终态后清理该 toolCallId 的缓存；
  * - 非 run_subagent 或无法取得 toolCallId/args 的事件直接忽略，不影响其他工具。
  */
@@ -545,14 +659,14 @@ export class SubagentRunEventPublisher {
     cachedArgs: Record<string, unknown> | undefined,
     toolCallId: string,
   ): SubagentRunPayload | undefined {
-    const previousTiming = this.store.get(toolCallId)?.timing
+    const previousPayload = this.store.get(toolCallId)
     const payload = subagentRunPayloadFromToolEvent(
       event,
       isStreaming,
       cachedArgs,
       this.getToolDisplayMode(),
       this.t,
-      previousTiming,
+      previousPayload,
     )
     if (payload) this.store.publish(payload)
     return payload

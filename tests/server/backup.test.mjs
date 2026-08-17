@@ -118,6 +118,8 @@ describe('backup export — settings sections', () => {
       expect(json.data.projects).toBeUndefined()
       expect(json.data.sessions).toBeUndefined()
       expect(json.data.sessionsMetadata).toBeUndefined()
+      expect(json.data.sessionIndex).toBeUndefined()
+      expect(json.data['session-index']).toBeUndefined()
     })
   })
 
@@ -267,6 +269,27 @@ describe('backup import — restore modes', () => {
       const result = await storage.readStore('settings')
       expect(result).toEqual({ new: 2 })
       expect(result.keep).toBeUndefined()
+    })
+  })
+
+  it('copies session stateVersion into generated or incomplete backup metadata', async () => {
+    await withTempBackup(async (backup, storage) => {
+      const bk = makeBackup({
+        sessions: {
+          generated: { id: 'generated', title: 'Generated', stateVersion: 7, messages: [] },
+          incomplete: { id: 'incomplete', title: 'Incomplete', stateVersion: 9, messages: [] },
+        },
+        sessionsMetadata: {
+          incomplete: { id: 'incomplete', title: 'Existing metadata' },
+        },
+      })
+      const { res } = await callImport(backup, storage, { backup: bk, sections: ['conversations'], mode: 'replace' })
+
+      expect(res._status).toBe(200)
+      const metadata = await storage.readStore('sessions-metadata')
+      expect(metadata.generated.stateVersion).toBe(7)
+      expect(metadata.incomplete.stateVersion).toBe(9)
+      expect(metadata.incomplete.title).toBe('Existing metadata')
     })
   })
 
@@ -463,6 +486,41 @@ describe('backup import — validation', () => {
         sections: ['settings'],
         mode: 'replace',
       })).rejects.toThrow('Import preview has expired')
+    })
+  })
+
+  it('keeps JSON scheduled task runs complete in backup and restores them without SQLite', async () => {
+    await withTempBackup(async (backup, storage) => {
+      const scheduledTasks = {
+        'task-with-runs': {
+          id: 'task-with-runs',
+          title: '备份任务',
+          status: 'enabled',
+          projectId: null,
+          runs: [{
+            id: 'run-json',
+            status: 'success',
+            trigger: 'manual',
+            inputContent: 'authoritative input',
+            result: 'authoritative result',
+            startedAt: '2026-01-01T00:00:00.000Z',
+          }],
+        },
+      }
+      await storage.writeStore('scheduled-tasks', scheduledTasks)
+
+      const { json: exported } = await callExport(backup, 'http://localhost/api/backup/export?sections=scheduledTasks')
+      expect(exported.data.scheduledTasks).toEqual(scheduledTasks)
+
+      await storage.writeStore('scheduled-tasks', {})
+      const { res } = await callImport(backup, storage, {
+        backup: exported,
+        sections: ['scheduledTasks'],
+        mode: 'replace',
+      })
+
+      expect(res._status).toBe(200)
+      expect(await storage.readStore('scheduled-tasks')).toEqual(scheduledTasks)
     })
   })
 

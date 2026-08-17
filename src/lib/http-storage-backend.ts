@@ -185,6 +185,40 @@ export class HttpStorageBackend implements StorageBackend {
       if (storeName === 'provider-keys' && this.fakeProviderKeys.size > 0) continue
       if (!this.storeOverrides[storeName]) this.assertStoreAccess(storeName)
     }
+
+    // Sessions are committed as a single server-side batch when the transaction
+    // only touches sessions/sessions-metadata (and none of the stores is
+    // overridden locally), so SessionsStore.save()/delete() never issue two
+    // independent commits. Any other store keeps the legacy per-operation path.
+    const sessionStores = new Set(['sessions', 'sessions-metadata'])
+    const batchable = storeNames.length > 0
+      && storeNames.every((storeName) => sessionStores.has(storeName))
+      && storeNames.every((storeName) => !this.storeOverrides[storeName])
+
+    if (batchable) {
+      type BatchOperation = { store: string; type: 'set' | 'delete'; key: string; value?: unknown }
+      const operations: BatchOperation[] = []
+      const tx: StorageTransaction = {
+        get: <Value = unknown>(storeName: string, key: string) => this.get<Value>(storeName, key),
+        set: <Value = unknown>(storeName: string, key: string, value: Value) => {
+          operations.push({ store: storeName, type: 'set', key, value })
+          return Promise.resolve()
+        },
+        delete: (storeName: string, key: string) => {
+          operations.push({ store: storeName, type: 'delete', key })
+          return Promise.resolve()
+        },
+      }
+      const result = await operation(tx)
+      if (operations.length > 0) {
+        await this.request<{ ok: boolean }>(this.path('batch'), {
+          method: 'POST',
+          body: JSON.stringify({ operations }),
+        })
+      }
+      return result
+    }
+
     const tx: StorageTransaction = {
       get: <Value = unknown>(storeName: string, key: string) => this.get<Value>(storeName, key),
       set: <Value = unknown>(storeName: string, key: string, value: Value) => this.set(storeName, key, value),

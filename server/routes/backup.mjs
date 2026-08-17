@@ -2,6 +2,19 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { isAuthenticatedAppClient } from '../access-policy.mjs'
+import { isScheduledRunsMaintenanceActive } from '../scheduled-runs-cutover.mjs'
+import { readScheduledTasksForBackup, restoreScheduledTasks } from '../scheduled-runs-backup.mjs'
+import { isSessionStateAuthoritative } from '../session-state-service.mjs'
+import { isSessionStateMaintenanceActive } from '../session-state-cutover.mjs'
+import { exportSessionStateForBackup, restoreSessionStateSnapshot } from '../session-state-backup.mjs'
+import { isShareStorageAuthoritative } from '../share-service.mjs'
+import { isShareMaintenanceActive } from '../share-cutover.mjs'
+import { exportShareStateForBackup, restoreShareStateSnapshot } from '../share-backup.mjs'
+import { readSharesJsonFile, writeSharesJsonFile } from '../share-json-file.mjs'
+import { isLanAccessStorageAuthoritative } from '../lan-access-service.mjs'
+import { isLanAccessMaintenanceActive } from '../lan-access-cutover.mjs'
+import { exportLanAccessStateForBackup, restoreLanAccessStateSnapshot } from '../lan-access-backup.mjs'
+import { readLanAccessJsonFile, writeLanAccessJsonFile } from '../lan-access-json-file.mjs'
 import { sendJson, readJsonBody } from '../utils/response.mjs'
 import {
   ensureStorage,
@@ -14,10 +27,10 @@ import {
 const BACKUP_VERSION = 1
 const BACKUP_APP = 'quickforge'
 const IMPORT_UPLOAD_MAX_BYTES = Number(process.env.QUICKFORGE_IMPORT_UPLOAD_MAX_BYTES || 1024 * 1024 * 1024)
-const backupScopes = new Set(['all', 'config', 'sessions'])
+const backupScopes = new Set(['all', 'config', 'sessions', 'shares', 'lan-access'])
 const settingsSectionIds = ['settings', 'mcp', 'providerKeys', 'customProviders', 'scheduledTasks']
 const exportSectionIds = new Set(settingsSectionIds)
-const restoreSectionIds = new Set([...settingsSectionIds, 'conversations'])
+const restoreSectionIds = new Set([...settingsSectionIds, 'conversations', 'shares', 'lanAccess'])
 const restoreModes = new Set(['replace', 'merge'])
 
 function normalizeMode(value) {
@@ -151,22 +164,30 @@ function normalizeSessionMetadata(sessions, metadata) {
   for (const [sessionId, session] of Object.entries(sessionsObject)) {
     if (!session || typeof session !== 'object' || Array.isArray(session)) continue
     const existing = metadataObject?.[sessionId]
-    nextMetadata[sessionId] = existing && typeof existing === 'object' && !Array.isArray(existing)
-      ? existing
-      : {
-          id: sessionId,
-          title: typeof session.title === 'string' ? session.title : 'New chat',
-          createdAt: typeof session.createdAt === 'string' ? session.createdAt : now,
-          lastModified: typeof session.lastModified === 'string' ? session.lastModified : now,
-          messageCount: Array.isArray(session.messages) ? session.messages.length : 0,
-          thinkingLevel: typeof session.thinkingLevel === 'string' ? session.thinkingLevel : 'off',
-          preview: '',
-          scope: session.scope === 'project' ? 'project' : 'global',
-          projectId: session.scope === 'project' && session.projectId ? String(session.projectId) : undefined,
-          taskStatus: session.taskStatus || 'idle',
-          taskStartedAt: session.taskStartedAt ?? null,
-          taskFinishedAt: session.taskFinishedAt ?? null,
-        }
+    if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
+      nextMetadata[sessionId] = {
+        ...existing,
+        ...(!Number.isInteger(existing.stateVersion) && Number.isInteger(session.stateVersion) && session.stateVersion >= 0
+          ? { stateVersion: session.stateVersion }
+          : {}),
+      }
+      continue
+    }
+    nextMetadata[sessionId] = {
+      id: sessionId,
+      title: typeof session.title === 'string' ? session.title : 'New chat',
+      createdAt: typeof session.createdAt === 'string' ? session.createdAt : now,
+      lastModified: typeof session.lastModified === 'string' ? session.lastModified : now,
+      messageCount: Array.isArray(session.messages) ? session.messages.length : 0,
+      stateVersion: Number.isInteger(session.stateVersion) && session.stateVersion >= 0 ? session.stateVersion : undefined,
+      thinkingLevel: typeof session.thinkingLevel === 'string' ? session.thinkingLevel : 'off',
+      preview: '',
+      scope: session.scope === 'project' ? 'project' : 'global',
+      projectId: session.scope === 'project' && session.projectId ? String(session.projectId) : undefined,
+      taskStatus: session.taskStatus || 'idle',
+      taskStartedAt: session.taskStartedAt ?? null,
+      taskFinishedAt: session.taskFinishedAt ?? null,
+    }
   }
 
   return nextMetadata
@@ -198,8 +219,13 @@ async function buildBackup(scope = 'all', options = {}) {
   const selected = normalizeExportSections(options.sections)
   const includeConfig = selected ? true : normalizedScope === 'all' || normalizedScope === 'config'
   const includeSessions = selected ? false : normalizedScope === 'all' || normalizedScope === 'sessions'
+  const includeShares = selected ? false : normalizedScope === 'all' || normalizedScope === 'shares'
+  const includeLanAccess = selected ? false : normalizedScope === 'all' || normalizedScope === 'lan-access'
   const includeSecrets = selected ? selected.has('providerKeys') : Boolean(options.includeSecrets && includeConfig)
   const data = {}
+  let sessionState = null
+  let shareState = null
+  let lanAccessState = null
 
   if (includeConfig) {
     const shouldInclude = (id) => !selected || selected.has(id)
@@ -208,7 +234,7 @@ async function buildBackup(scope = 'all', options = {}) {
       shouldInclude('mcp') ? readStore('mcp').then((value) => ['mcp', value]) : null,
       shouldInclude('providerKeys') ? readStore('provider-keys').then((value) => ['providerKeys', value]) : null,
       shouldInclude('customProviders') ? readStore('custom-providers').then((value) => ['customProviders', value]) : null,
-      shouldInclude('scheduledTasks') ? readStore('scheduled-tasks').then((value) => ['scheduledTasks', value]) : null,
+      shouldInclude('scheduledTasks') ? readScheduledTasksForBackup().then((value) => ['scheduledTasks', value]) : null,
       options.includeLocalProjects ? readProjectConfigData().then((value) => ['projects', value]) : null,
     ])
     for (const entry of entries) {
@@ -217,14 +243,54 @@ async function buildBackup(scope = 'all', options = {}) {
   }
 
   if (includeSessions) {
-    const [sessions, sessionsMetadata] = await Promise.all([
-      readStore('sessions'),
-      readStore('sessions-metadata'),
-    ])
-    Object.assign(data, {
-      sessions,
-      sessionsMetadata,
-    })
+    if (isSessionStateAuthoritative()) {
+      // Authoritative export: integrity verified under the session state
+      // maintenance lock; the envelope carries phase + count + digest so the
+      // restore path can verify the snapshot round-trips exactly.
+      const snapshot = await exportSessionStateForBackup()
+      Object.assign(data, {
+        sessions: snapshot.sessions,
+        sessionsMetadata: snapshot.sessionsMetadata,
+      })
+      sessionState = { phase: snapshot.phase, count: snapshot.count, digest: snapshot.digest }
+    } else {
+      const [sessions, sessionsMetadata] = await Promise.all([
+        readStore('sessions'),
+        readStore('sessions-metadata'),
+      ])
+      Object.assign(data, {
+        sessions,
+        sessionsMetadata,
+      })
+    }
+  }
+
+  if (includeShares) {
+    if (isShareStorageAuthoritative()) {
+      // Authoritative export: integrity verified under the share maintenance
+      // lock; the envelope carries phase + count + digest so the restore path
+      // can verify the snapshot round-trips exactly. Records include tokens
+      // (hashes only — the raw secrets never leave the issuer).
+      const snapshot = await exportShareStateForBackup()
+      Object.assign(data, { shares: snapshot.shares })
+      shareState = { phase: snapshot.phase, count: snapshot.count, digest: snapshot.digest }
+    } else {
+      data.shares = await readSharesJsonFile()
+    }
+  }
+
+  if (includeLanAccess) {
+    if (isLanAccessStorageAuthoritative()) {
+      // Authoritative export: integrity verified under the lan-access
+      // maintenance lock; the envelope carries phase + count + digest so the
+      // restore path can verify the snapshot round-trips exactly. The config
+      // keeps token hashes only and strips the repository-internal revision.
+      const snapshot = await exportLanAccessStateForBackup()
+      Object.assign(data, { lanAccess: snapshot.lanAccess })
+      lanAccessState = { phase: snapshot.phase, count: snapshot.count, digest: snapshot.digest }
+    } else {
+      data.lanAccess = await readLanAccessJsonFile()
+    }
   }
 
   return {
@@ -234,6 +300,9 @@ async function buildBackup(scope = 'all', options = {}) {
     scope: selected ? 'config' : normalizedScope,
     exportedSections: selected ? settingsSectionIds.filter((id) => selected.has(id)) : undefined,
     includeSecrets,
+    ...(sessionState ? { sessionState } : {}),
+    ...(shareState ? { shareState } : {}),
+    ...(lanAccessState ? { lanAccessState } : {}),
     data,
   }
 }
@@ -266,6 +335,8 @@ function normalizeBackupPayload(payload) {
     scheduledTasks: section(data, 'scheduledTasks', 'scheduled-tasks'),
     sessions: section(data, 'sessions'),
     sessionsMetadata: section(data, 'sessionsMetadata', 'sessions-metadata'),
+    shares: section(data, 'shares'),
+    lanAccess: section(data, 'lanAccess'),
   }
 
   // Backward compat: older backups stored MCP servers inside settings.mcpServers.
@@ -348,6 +419,8 @@ function validateBackupPayload(payload) {
     scheduledTasks: assertObjectSection(sections.scheduledTasks, 'scheduledTasks'),
     sessions,
     sessionsMetadata,
+    shares: assertObjectSection(sections.shares, 'shares'),
+    lanAccess: assertObjectSection(sections.lanAccess, 'lanAccess'),
   }
 
   if (Object.values(validatedSections).every((value) => value === undefined)) {
@@ -389,6 +462,8 @@ function normalizeRestoreSections(value, sections) {
 
   const unavailable = [...selected].filter((id) => {
     if (id === 'conversations') return sections.sessions === undefined && sections.sessionsMetadata === undefined
+    if (id === 'shares') return sections.shares === undefined
+    if (id === 'lanAccess') return sections.lanAccess === undefined
     return sections[id] === undefined
   })
   if (unavailable.length > 0) {
@@ -410,6 +485,8 @@ function filterRestoreSections(sections, selected) {
     scheduledTasks: selected.has('scheduledTasks') ? sections.scheduledTasks : undefined,
     sessions: selected.has('conversations') ? sections.sessions : undefined,
     sessionsMetadata: selected.has('conversations') ? sections.sessionsMetadata : undefined,
+    shares: selected.has('shares') ? sections.shares : undefined,
+    lanAccess: selected.has('lanAccess') ? sections.lanAccess : undefined,
   }
 }
 
@@ -478,6 +555,10 @@ function buildSummary(sections) {
   if (sections.scheduledTasks !== undefined) summary.scheduledTasks = countKeys(sections.scheduledTasks)
   if (sections.sessions !== undefined) summary.sessions = countKeys(filterSessionsByMetadata(sections.sessions, sections.sessionsMetadata))
   if (sections.sessionsMetadata !== undefined) summary.sessionsMetadata = countKeys(sections.sessionsMetadata)
+  if (sections.shares !== undefined) summary.shares = countKeys(sections.shares)
+  if (sections.lanAccess !== undefined) {
+    summary.lanAccess = sections.lanAccess && Array.isArray(sections.lanAccess.tokens) ? sections.lanAccess.tokens.length : 0
+  }
   return summary
 }
 
@@ -496,6 +577,12 @@ async function inspectBackup(payload) {
   if (ignoredProjects) warnings.push('Project lists and project-specific settings are local machine data and will not be imported.')
   if (backup.sections.sessions !== undefined || backup.sections.sessionsMetadata !== undefined) {
     warnings.push('Importing conversations will replace local conversation data.')
+  }
+  if (backup.sections.shares !== undefined) {
+    warnings.push('Importing shares will replace local share links (only hashes are exported, raw passwords and tokens stay local).')
+  }
+  if (backup.sections.lanAccess !== undefined) {
+    warnings.push('Importing LAN access configuration will replace the local LAN access config (将替换局域网访问配置，包括 enabled 开关). Only hashes are exported; raw passwords and tokens stay local.')
   }
   if (missingProjectTasks.length > 0) {
     warnings.push(`${missingProjectTasks.length} scheduled task(s) reference projects that are not registered locally and will be paused after import.`)
@@ -560,22 +647,90 @@ async function restoreValidatedBackup(backup, mode = 'replace') {
   if (sections.scheduledTasks !== undefined) {
     const projectIds = await localProjectIds()
     const safeTasks = pauseScheduledTasksWithMissingProjects(sections.scheduledTasks, projectIds)
-    const value = merge ? mergeRecordStore(await readStore('scheduled-tasks'), safeTasks) : safeTasks
-    await writeStore('scheduled-tasks', value)
+    const value = merge ? mergeRecordStore(await readScheduledTasksForBackup(), safeTasks) : safeTasks
+    await restoreScheduledTasks(value, { mode: 'replace' })
     summary.scheduledTasks = countKeys(value)
   }
 
-  if (sections.sessions !== undefined) {
-    const sessions = filterSessionsByMetadata(sections.sessions, sections.sessionsMetadata)
-    const value = merge ? mergeRecordStore(await readStore('sessions'), sessions) : sessions
-    await writeStore('sessions', value)
-    summary.sessions = countKeys(value)
+  if (sections.sessions !== undefined || sections.sessionsMetadata !== undefined) {
+    if (isSessionStateAuthoritative()) {
+      // Authoritative restore: a single maintenance-locked, compensated SQLite
+      // transaction that replaces/merges bodies and metadata together. It never
+      // touches scheduled_task_runs or JSON config stores.
+      if (sections.sessions === undefined) {
+        const error = new Error('Session metadata restore requires session bodies in authoritative mode')
+        error.statusCode = 400
+        throw error
+      }
+      try {
+        const restored = await restoreSessionStateSnapshot(
+          { sessions: sections.sessions, sessionsMetadata: sections.sessionsMetadata ?? {} },
+          { mode },
+        )
+        summary.sessions = restored.sessions
+        summary.sessionsMetadata = restored.sessionsMetadata
+      } catch (error) {
+        if (error instanceof TypeError) error.statusCode = 400
+        throw error
+      }
+    } else {
+      if (sections.sessions !== undefined) {
+        const sessions = filterSessionsByMetadata(sections.sessions, sections.sessionsMetadata)
+        const value = merge ? mergeRecordStore(await readStore('sessions'), sessions) : sessions
+        await writeStore('sessions', value)
+        summary.sessions = countKeys(value)
+      }
+
+      if (sections.sessionsMetadata !== undefined) {
+        const value = merge ? mergeRecordStore(await readStore('sessions-metadata'), sections.sessionsMetadata) : sections.sessionsMetadata
+        await writeStore('sessions-metadata', value)
+        summary.sessionsMetadata = countKeys(value)
+      }
+    }
   }
 
-  if (sections.sessionsMetadata !== undefined) {
-    const value = merge ? mergeRecordStore(await readStore('sessions-metadata'), sections.sessionsMetadata) : sections.sessionsMetadata
-    await writeStore('sessions-metadata', value)
-    summary.sessionsMetadata = countKeys(value)
+  if (sections.shares !== undefined) {
+    if (isShareStorageAuthoritative()) {
+      // Authoritative restore: a single maintenance-locked, compensated SQLite
+      // transaction via replaceAll. Merge keeps local-only records and lets the
+      // backup override same-key entries; replace wipes local shares first. The
+      // restore is scoped to the share tables only and never touches the
+      // scheduled-runs, session-index or message-storage data.
+      try {
+        const restored = await restoreShareStateSnapshot({ shares: sections.shares }, { mode })
+        summary.shares = restored.shares
+      } catch (error) {
+        if (error instanceof TypeError) error.statusCode = 400
+        throw error
+      }
+    } else {
+      const value = merge ? mergeRecordStore(await readSharesJsonFile(), sections.shares) : sections.shares
+      await writeSharesJsonFile(value)
+      summary.shares = countKeys(value)
+    }
+  }
+
+  if (sections.lanAccess !== undefined) {
+    if (isLanAccessStorageAuthoritative()) {
+      // Authoritative restore: a single maintenance-locked, compensated SQLite
+      // transaction via replaceAll. Merge keeps local config fields (including
+      // local tokens) while the backup overrides same-key fields; replace wipes
+      // the whole config first. The restore overwrites the `enabled` switch
+      // when the backup carries one (inspect warns), and is scoped to the
+      // lan-access tables only — never touching scheduled-runs, session-index,
+      // message-storage or share data.
+      try {
+        const restored = await restoreLanAccessStateSnapshot({ lanAccess: sections.lanAccess }, { mode })
+        summary.lanAccess = restored.lanAccess
+      } catch (error) {
+        if (error instanceof TypeError) error.statusCode = 400
+        throw error
+      }
+    } else {
+      const value = merge ? mergeRecordStore(await readLanAccessJsonFile(), sections.lanAccess) : sections.lanAccess
+      await writeLanAccessJsonFile(value)
+      summary.lanAccess = countKeys(value)
+    }
   }
 
   return summary
@@ -589,6 +744,12 @@ export async function handleBackupApi(req, res, url, context = { isLocalRequest:
     throw error
   }
   if (req.method === 'GET' && url.pathname === '/api/backup/export') {
+    if (isScheduledRunsMaintenanceActive()) {
+      const error = new Error('Scheduled task maintenance is in progress')
+      error.statusCode = 423
+      error.errorCode = 'scheduled_runs_maintenance'
+      throw error
+    }
     await ensureStorage()
     sendJson(res, 200, await buildBackup(url.searchParams.get('scope'), {
       sections: url.searchParams.get('sections'),
@@ -621,7 +782,28 @@ export async function handleBackupApi(req, res, url, context = { isLocalRequest:
     const body = await readJsonBody(req)
     const importBody = body?.importToken ? { ...body, backup: await readPendingImportBackup(body.importToken) } : body
     const { backup, mode } = parseImportPayload(importBody)
-    const safetyBackupPath = await writeSafetyBackup(backup.sections.sessions !== undefined || backup.sections.sessionsMetadata !== undefined ? 'all' : 'config')
+    const restoringSessions = backup.sections.sessions !== undefined || backup.sections.sessionsMetadata !== undefined
+    const restoringShares = backup.sections.shares !== undefined
+    const restoringLanAccess = backup.sections.lanAccess !== undefined
+    if (restoringSessions && isSessionStateAuthoritative() && isSessionStateMaintenanceActive()) {
+      const error = new Error('Session state maintenance is in progress')
+      error.statusCode = 423
+      error.errorCode = 'session_state_maintenance'
+      throw error
+    }
+    if (restoringShares && isShareStorageAuthoritative() && isShareMaintenanceActive()) {
+      const error = new Error('Share storage maintenance is in progress')
+      error.statusCode = 423
+      error.errorCode = 'share_maintenance'
+      throw error
+    }
+    if (restoringLanAccess && isLanAccessStorageAuthoritative() && isLanAccessMaintenanceActive()) {
+      const error = new Error('LAN access storage maintenance is in progress')
+      error.statusCode = 423
+      error.errorCode = 'lan_access_maintenance'
+      throw error
+    }
+    const safetyBackupPath = await writeSafetyBackup(restoringSessions || restoringShares || restoringLanAccess ? 'all' : 'config')
     const summary = await restoreValidatedBackup(backup, mode)
     if (body?.importToken) await deletePendingImportBackup(body.importToken)
     sendJson(res, 200, { ok: true, safetyBackupPath, summary })

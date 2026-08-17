@@ -1,8 +1,8 @@
-import { atomicSessionValueUpdate, atomicUpdate, readSessionValue, readStore } from './storage.mjs'
+import { atomicSessionValueUpdate, atomicUpdate, atomicSessionRecordUpdate, isSessionStateAuthoritative, readSessionValue, readStore } from './storage.mjs'
 import { logger } from './utils/logger.mjs'
 import { withSessionPersistenceLock } from './session-persistence-lock.mjs'
 
-const defaultStorage = { atomicSessionValueUpdate, atomicUpdate, readSessionValue, readStore }
+const defaultStorage = { atomicSessionValueUpdate, atomicUpdate, atomicSessionRecordUpdate, readSessionValue, readStore, isSessionStateAuthoritative }
 
 export const AUTO_ARCHIVE_SETTINGS_KEY = 'auto-archive-settings'
 export const AUTO_ARCHIVE_AFTER_MS = 30 * 24 * 60 * 60 * 1000
@@ -75,35 +75,48 @@ async function archiveInactiveSessionsUnlocked(options = {}) {
   }
 
   const archivedSessionIds = []
-  for (const sessionId of candidates) {
-    const updatedSession = await storage.atomicSessionValueUpdate(sessionId, (session) => {
-      const activityTime = sessionActivityTime(session)
-      if (session.archivedAt || activityTime === null || activityTime >= cutoff) return session
-      return { ...session, archivedAt }
-    })
-    if (!updatedSession || updatedSession.archivedAt !== archivedAt) continue
-
-    let metadataArchived = false
-    await storage.atomicUpdate('sessions-metadata', (current) => {
-      const metadata = current[sessionId]
-      const activityTime = sessionActivityTime(metadata, updatedSession)
-      if (!metadata || metadata.archivedAt || metadata.messageCount === 0 || metadata.taskStatus === 'running' || activityTime === null || activityTime >= cutoff) {
-        return current
-      }
-      current[sessionId] = { ...metadata, archivedAt }
-      metadataArchived = true
-      return current
-    })
-
-    if (metadataArchived) {
-      archivedSessionIds.push(sessionId)
-    } else {
-      await storage.atomicSessionValueUpdate(sessionId, (session) => {
-        if (session.archivedAt !== archivedAt) return session
-        const next = { ...session }
-        delete next.archivedAt
-        return next
+  if (typeof storage.atomicSessionRecordUpdate === 'function' && await storage.isSessionStateAuthoritative()) {
+    // Authoritative: archive body + metadata in one SQLite transaction (CAS
+    // retried on concurrent metadata-only changes), so no half-archived state.
+    for (const sessionId of candidates) {
+      const updated = await storage.atomicSessionRecordUpdate(sessionId, ({ state, metadata }) => {
+        const activityTime = sessionActivityTime(metadata, state)
+        if (state.archivedAt || metadata.archivedAt || metadata.messageCount === 0 || metadata.taskStatus === 'running' || activityTime === null || activityTime >= cutoff) return null
+        return { state: { ...state, archivedAt }, metadata: { ...metadata, archivedAt } }
       })
+      if (updated?.state?.archivedAt === archivedAt) archivedSessionIds.push(sessionId)
+    }
+  } else {
+    for (const sessionId of candidates) {
+      const updatedSession = await storage.atomicSessionValueUpdate(sessionId, (session) => {
+        const activityTime = sessionActivityTime(session)
+        if (session.archivedAt || activityTime === null || activityTime >= cutoff) return session
+        return { ...session, archivedAt }
+      })
+      if (!updatedSession || updatedSession.archivedAt !== archivedAt) continue
+
+      let metadataArchived = false
+      await storage.atomicUpdate('sessions-metadata', (current) => {
+        const metadata = current[sessionId]
+        const activityTime = sessionActivityTime(metadata, updatedSession)
+        if (!metadata || metadata.archivedAt || metadata.messageCount === 0 || metadata.taskStatus === 'running' || activityTime === null || activityTime >= cutoff) {
+          return current
+        }
+        current[sessionId] = { ...metadata, archivedAt }
+        metadataArchived = true
+        return current
+      })
+
+      if (metadataArchived) {
+        archivedSessionIds.push(sessionId)
+      } else {
+        await storage.atomicSessionValueUpdate(sessionId, (session) => {
+          if (session.archivedAt !== archivedAt) return session
+          const next = { ...session }
+          delete next.archivedAt
+          return next
+        })
+      }
     }
   }
 

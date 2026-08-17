@@ -29,6 +29,7 @@ import {
 } from './agent-profile-schema.mjs'
 import { projectContextFromId, defaultGlobalWorkspaceContext, readProjectConfig } from './project-config.mjs'
 import { ensureStorage, readStore, atomicUpdate, atomicSessionMetadataUpdate, readSessionValue, writeSessionValue, deleteSessionValue, tempAgentsDir } from './storage.mjs'
+import { isSessionStateAuthoritative, readSessionStateRecord, saveSessionStatePair, deleteSessionState, storedMessagesState, sessionMessagesTailDigest } from './session-state-service.mjs'
 import { logger } from './utils/logger.mjs'
 import { publishChannelSessionChanged } from './channels/event-relay.mjs'
 import { withSessionPersistenceLock } from './session-persistence-lock.mjs'
@@ -494,8 +495,61 @@ function emitSessionEvent(session, event) {
     && event.contextUsage === undefined
     ? { ...event, contextUsage: getSessionContextUsage(session), stateVersion }
     : { ...event, stateVersion }
-  session.eventBus.emit('agent_event', enrichedEvent)
-  agentEvents.emit('agent_event', { sessionId: session.sessionId, ...enrichedEvent })
+  session.eventBus.emit('agent_event', transformSplitSessionEvent(session, enrichedEvent))
+  agentEvents.emit('agent_event', { sessionId: session.sessionId, ...transformSplitSessionEvent(session, enrichedEvent) })
+}
+
+/**
+ * F9 split-message SSE frames: split sessions never ship the full `messages`
+ * array over SSE. `state` frames carry a lightweight `messagesSummary`
+ * ({ count }) instead; message_end/agent_end/messages_replaced frames carry
+ * only the tail that the client has not yet seen (`messagesAfter` +
+ * `messages` + `messagesIncremental`), with a `messagesSummary` for the total.
+ * Non-split sessions keep the legacy full-array payloads byte-for-byte, so
+ * older clients and non-split sessions are unaffected. `stateVersion` is
+ * never modified here.
+ */
+function transformSplitSessionEvent(session, event) {
+  if (session.persistedMessageStorage !== 'split' || !event || typeof event !== 'object') return event
+  if (event.type === 'state') {
+    if (!Array.isArray(event.messages)) return event
+    const next = { ...event }
+    const count = next.messages.length
+    delete next.messages
+    next.messagesSummary = { count }
+    return next
+  }
+  if (event.type === 'message_end' || event.type === 'agent_end' || event.type === 'messages_replaced') {
+    if (!Array.isArray(event.messages)) return event
+    const after = session.persistedMessageCount ?? 0
+    const tail = event.messages.slice(after)
+    const count = event.messages.length
+    const next = { ...event }
+    delete next.messages
+    if (tail.length > 0) {
+      next.messages = tail
+      next.messagesAfter = after
+      next.messagesIncremental = true
+    }
+    next.messagesSummary = { count }
+    return next
+  }
+  return event
+}
+
+/**
+ * Strip full messages from a session state snapshot destined for the wire
+ * (GET /state, POST /restore, SSE initial state frame) when the session is
+ * split. Internal consumers (shared conversations, ACP) keep the full state.
+ */
+export function stripSplitSessionState(state) {
+  if (!state || state.messageStorage !== 'split') return state
+  if (!Array.isArray(state.messages)) return state
+  const next = { ...state }
+  const count = next.messages.length
+  delete next.messages
+  next.messagesSummary = { count }
+  return next
 }
 
 function addToolTimingToEvent(session, event) {
@@ -1247,6 +1301,11 @@ async function resolveSubagentProfile(parentSession, requestedSubagent) {
   return getAgentProfile(requestedSubagent, { workspaceRoot: parentSession.projectContext?.workspaceRoot })
 }
 
+function formatTimeoutMinutes(timeoutMs) {
+  const minutes = Number((timeoutMs / (60 * 1000)).toFixed(2))
+  return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
+}
+
 async function runSubagent(parentSession, params, parentSignal, onUpdate) {
   const profile = await resolveSubagentProfile(parentSession, params?.subagent)
   if (!profile || !profile.enabledAsSubagent) {
@@ -1424,7 +1483,7 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
 
   try {
     await subagent.prompt(userMessage)
-    if (timedOut) throw new Error(`Subagent ${definition.name} timed out after ${timeoutMs}ms.`)
+    if (timedOut) throw new Error(`Subagent ${definition.name} timed out after ${formatTimeoutMinutes(timeoutMs)}.`)
     if (parentSignal?.aborted) throw new Error(`Subagent ${definition.name} aborted with parent run.`)
   } finally {
     clearTimeout(timeout)
@@ -1898,6 +1957,16 @@ export async function createAgent(sessionId, config = {}) {
     lastTransformedContextMessages: null,
     autoCompacting: false,
     stateVersion: Number.isFinite(stateVersion) ? Math.max(0, stateVersion) : 0,
+    persistedStateVersion: Number.isFinite(config.persistedStateVersion) ? Math.max(0, config.persistedStateVersion) : null,
+    persistedStorageRevision: Number.isFinite(config.persistedStorageRevision) ? Math.max(0, config.persistedStorageRevision) : null,
+    persistedStateJson: typeof config.persistedStateJson === 'string' ? config.persistedStateJson : null,
+    // F9 split-message bookkeeping: the count and tail-message digest of the
+    // last authoritative persist, plus the storage representation marker. Used
+    // for split-representation conflict detection and lightweight SSE frames.
+    persistedMessageStorage: config.persistedMessageStorage === 'split' ? 'split' : null,
+    persistedMessageCount: Number.isInteger(config.persistedMessageCount) && config.persistedMessageCount >= 0 ? config.persistedMessageCount : null,
+    persistedTailDigest: typeof config.persistedTailDigest === 'string' ? config.persistedTailDigest : null,
+    persistConflictCount: 0,
     lastAutoCompactAt: null,
     lastAutoCompactRejected: null,
     memoryEnabled: initialMemoryEnabled,
@@ -2044,6 +2113,123 @@ function sessionLastModifiedFromMessages(messages, fallback) {
   return Number.isNaN(fallbackMs) ? new Date().toISOString() : new Date(fallbackMs).toISOString()
 }
 
+// Fields the agent does not own; a concurrent sidebar pin/archive update is the
+// only legitimate way these change between the agent's read and its CAS save.
+const SESSION_STORAGE_OWNED_STATE_FIELDS = ['pinnedAt', 'archivedAt']
+
+function stripStorageOwnedStateFields(state) {
+  const next = { ...state }
+  for (const field of SESSION_STORAGE_OWNED_STATE_FIELDS) delete next[field]
+  return next
+}
+
+/**
+ * Split-representation conflict check: does the currently stored session match
+ * the message state this session last persisted? Non-split sessions carry
+ * messages inline in the body, which the caller already compares via
+ * persistedStateJson; split sessions need the row count + tail digest because
+ * their body excludes messages.
+ */
+function storedMessagesMatchLastPersist(session) {
+  if (session.persistedMessageStorage !== 'split') return true
+  if (session.persistedMessageCount === null) return true
+  const stored = storedMessagesState(session.sessionId)
+  if (!stored) return true
+  return stored.count === session.persistedMessageCount
+    && stored.tailDigest === session.persistedTailDigest
+}
+
+function canonicalStateJson(value) {
+  if (Array.isArray(value)) return JSON.stringify(value.map(canonicalStateJson))
+  if (value && typeof value === 'object') {
+    return JSON.stringify(
+      Object.fromEntries(
+        Object.keys(value).sort()
+          .filter((key) => value[key] !== undefined)
+          .map((key) => [key, canonicalStateJson(value[key])]),
+      ),
+    )
+  }
+  return JSON.stringify(value)
+}
+
+/**
+ * Persist a full session record in one authoritative SQLite transaction with
+ * revision CAS. When the CAS fails because a concurrent metadata-only change
+ * (pin/archive via the sidebar) bumped the revision, re-read the current row
+ * and verify the only difference from what this session last persisted is
+ * storage-owned fields; then merge and retry (bounded). If the storage row
+ * changed in agent-owned fields, record the conflict and refuse to overwrite
+ * the other writer — never fake success by clobbering it.
+ * @returns {{state: object, metadata: object, revision: number, stateVersion: number} | null}
+ */
+async function persistAuthoritativeSessionState(session, sessionData, metadata) {
+  const sessionId = session.sessionId
+  const maxAttempts = 3
+  let lastConflict = null
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const existing = readSessionStateRecord(sessionId)
+    const existingMetadata = existing?.metadata
+    const mergedMetadata = {
+      ...existingMetadata,
+      ...metadata,
+      ...(existingMetadata?.archivedAt ? { archivedAt: existingMetadata.archivedAt } : {}),
+      ...(existingMetadata?.pinnedAt ? { pinnedAt: existingMetadata.pinnedAt } : {}),
+    }
+    const persistedState = {
+      ...(existing?.state || {}),
+      ...sessionData,
+      ...(mergedMetadata.archivedAt ? { archivedAt: mergedMetadata.archivedAt } : {}),
+      ...(mergedMetadata.pinnedAt ? { pinnedAt: mergedMetadata.pinnedAt } : {}),
+    }
+    try {
+      const saved = saveSessionStatePair({
+        state: persistedState,
+        metadata: mergedMetadata,
+        expectedRevision: session.persistedStorageRevision ?? existing?.revision ?? 0,
+      })
+      session.persistedStateJson = canonicalStateJson(stripStorageOwnedStateFields(saved.state))
+      // F9 split bookkeeping: the savePair plan tells us exactly which
+      // representation was written, so the conflict-detection counters stay in
+      // sync with the stored rows (append/replace/body-only on split sessions,
+      // inline on small sessions).
+      if (saved.state?.messageStorage === 'split') {
+        session.persistedMessageStorage = 'split'
+        session.persistedMessageCount = saved.messageCount ?? sessionData.messages?.length ?? 0
+      } else {
+        session.persistedMessageStorage = null
+        session.persistedMessageCount = Array.isArray(sessionData.messages) ? sessionData.messages.length : 0
+      }
+      session.persistedTailDigest = sessionMessagesTailDigest(sessionData.messages)
+      return { ...saved, metadata: mergedMetadata }
+    } catch (error) {
+      if (error?.errorCode !== 'SESSION_STATE_CONFLICT') throw error
+      lastConflict = error
+      const current = readSessionStateRecord(sessionId)
+      if (!current) return null
+      const previous = session.persistedStateJson
+      const bodyUnchanged = previous !== null && canonicalStateJson(stripStorageOwnedStateFields(current.state)) === previous
+      // Split sessions keep messages out of the body, so the body comparison
+      // alone would miss concurrent message writes. Compare the stored rows
+      // (count + tail digest) against what this session last persisted.
+      const messagesUnchanged = storedMessagesMatchLastPersist(session)
+      if (bodyUnchanged && messagesUnchanged) {
+        // Only storage-owned fields changed — adopt the storage row as the new
+        // baseline and retry with the fresh revision.
+        session.persistedStorageRevision = current.revision
+        session.persistedStateVersion = current.stateVersion
+        continue
+      }
+      session.persistConflictCount += 1
+      logger.warn(`Session ${sessionId} persist conflict: storage changed agent-owned fields; skipping overwrite`, { sessionId })
+      return null
+    }
+  }
+  session.persistConflictCount += 1
+  logger.warn(`Session ${sessionId} persist still conflicting after ${maxAttempts} merge retries`, { sessionId, reason: lastConflict?.message })
+  return null
+}
+
 /**
  * Persist session data to storage.
  */
@@ -2053,11 +2239,20 @@ async function persistSessionUnlocked(session) {
 
   if (messages.length === 0) {
     try {
-      await deleteSessionValue(sessionId)
-      await atomicSessionMetadataUpdate(scope, projectId, (data) => {
-        delete data[sessionId]
-        return data
-      })
+      if (isSessionStateAuthoritative()) deleteSessionState(sessionId, { expectedRevision: session.persistedStorageRevision })
+      else {
+        await deleteSessionValue(sessionId)
+        await atomicSessionMetadataUpdate(scope, projectId, (data) => {
+          delete data[sessionId]
+          return data
+        })
+      }
+      session.persistedStorageRevision = null
+      session.persistedStateVersion = null
+      session.persistedStateJson = null
+      session.persistedMessageStorage = null
+      session.persistedMessageCount = null
+      session.persistedTailDigest = null
     } catch (err) {
       logger.error(`Failed to remove empty session ${sessionId}:`, err, { sessionId })
     }
@@ -2132,6 +2327,7 @@ async function persistSessionUnlocked(session) {
     createdAt: createdAt || now,
     lastModified,
     messageCount: messages.length,
+    stateVersion: session.stateVersion || 0,
     usage,
     thinkingLevel,
     harness,
@@ -2157,25 +2353,33 @@ async function persistSessionUnlocked(session) {
     idleRetention: session.idleRetention || undefined,
   }
 
-  // Write to storage atomically (read-modify-write within queue)
+  // Write body + metadata as one authoritative SQLite transaction after cutover.
   let persistedMetadata
   try {
-    await writeSessionValue(sessionId, sessionData)
-    await atomicSessionMetadataUpdate(scope, projectId, (data) => {
-      const existingMetadata = data[sessionId]
-      const archivedAt = existingMetadata?.archivedAt
-      // Merge onto the existing record so storage-only fields the in-memory
-      // session does not own (pinnedAt, archivedAt, …) survive the rebuild.
-      persistedMetadata = {
-        ...existingMetadata,
-        ...metadata,
-        ...(archivedAt ? { archivedAt } : {}),
+    if (isSessionStateAuthoritative()) {
+      const saved = await persistAuthoritativeSessionState(session, sessionData, metadata)
+      if (!saved) return null
+      session.persistedStorageRevision = saved.revision
+      session.persistedStateVersion = saved.stateVersion
+      persistedMetadata = saved.metadata
+    } else {
+      await writeSessionValue(sessionId, sessionData)
+      await atomicSessionMetadataUpdate(scope, projectId, (data) => {
+        const existingMetadata = data[sessionId]
+        const archivedAt = existingMetadata?.archivedAt
+        // Merge onto the existing record so storage-only fields the in-memory
+        // session does not own (pinnedAt, archivedAt, …) survive the rebuild.
+        persistedMetadata = {
+          ...existingMetadata,
+          ...metadata,
+          ...(archivedAt ? { archivedAt } : {}),
+        }
+        data[sessionId] = persistedMetadata
+        return data
+      })
+      if (persistedMetadata?.archivedAt) {
+        await writeSessionValue(sessionId, { ...sessionData, archivedAt: persistedMetadata.archivedAt })
       }
-      data[sessionId] = persistedMetadata
-      return data
-    })
-    if (persistedMetadata?.archivedAt) {
-      await writeSessionValue(sessionId, { ...sessionData, archivedAt: persistedMetadata.archivedAt })
     }
   } catch (err) {
     logger.error(`Failed to persist session ${sessionId}:`, err, { sessionId })
@@ -2738,6 +2942,7 @@ export function getSessionState(sessionId) {
     createdAt: session.createdAt,
     lastModified: session.lastModified,
     stateVersion: session.stateVersion || 0,
+    messageStorage: session.persistedMessageStorage === 'split' ? 'split' : undefined,
     status: session.status,
     startedAt: session.startedAt,
     finishedAt: session.finishedAt,
@@ -2881,6 +3086,14 @@ export async function restoreAgent(sessionId) {
 
     logger.info(`Restoring session ${sessionId} from storage (scope: ${sessionData.scope}, messages: ${sessionData.messages?.length ?? 0})`, { sessionId, scope: sessionData.scope, messageCount: sessionData.messages?.length ?? 0 })
 
+    // Read the authoritative storage record once: the body (split marker),
+    // revision for CAS, and the stored message rows (count + tail digest) used
+    // for split-representation conflict detection after restore.
+    const record = isSessionStateAuthoritative() ? readSessionStateRecord(sessionId) : null
+    const storedMessages = isSessionStateAuthoritative() && record?.state?.messageStorage === 'split'
+      ? storedMessagesState(sessionId)
+      : null
+
     return await createAgent(sessionId, {
       scope: sessionData.scope || 'global',
       projectId: sessionData.projectId || null,
@@ -2904,6 +3117,12 @@ export async function restoreAgent(sessionId) {
       openCodeUsage: sessionData.openCodeUsage || null,
       idleRetention: sessionData.idleRetention || null,
       stateVersion: sessionData.stateVersion,
+      persistedStateVersion: isSessionStateAuthoritative() ? sessionData.stateVersion : null,
+      persistedStorageRevision: isSessionStateAuthoritative() ? record?.revision ?? null : null,
+      persistedStateJson: isSessionStateAuthoritative() ? canonicalStateJson(stripStorageOwnedStateFields(record?.state || {})) : null,
+      persistedMessageStorage: record?.state?.messageStorage === 'split' ? 'split' : null,
+      persistedMessageCount: storedMessages?.count ?? (Array.isArray(sessionData.messages) ? sessionData.messages.length : 0),
+      persistedTailDigest: storedMessages?.tailDigest || sessionMessagesTailDigest(sessionData.messages),
     })
   } catch (err) {
     logger.error(`Failed to restore agent ${sessionId}:`, err, { sessionId })
@@ -3195,16 +3414,17 @@ export function updateSessionThinkingLevel(sessionId, thinkingLevel) {
  */
 export async function resetStaleTaskStatuses() {
   try {
-    const metadataStore = await readStore('sessions-metadata')
     let changed = false
-    for (const [id, meta] of Object.entries(metadataStore)) {
-      if (meta && meta.taskStatus === 'running') {
-        metadataStore[id] = { ...meta, taskStatus: 'idle', taskFinishedAt: meta.taskFinishedAt ?? new Date().toISOString() }
-        changed = true
+    await atomicUpdate('sessions-metadata', (metadataStore) => {
+      for (const [id, meta] of Object.entries(metadataStore)) {
+        if (meta && meta.taskStatus === 'running') {
+          metadataStore[id] = { ...meta, taskStatus: 'idle', taskFinishedAt: meta.taskFinishedAt ?? new Date().toISOString() }
+          changed = true
+        }
       }
-    }
+      return metadataStore
+    })
     if (changed) {
-      await atomicUpdate('sessions-metadata', () => metadataStore)
       logger.info('Reset stale task statuses in persisted metadata')
     }
   } catch (err) {

@@ -88,6 +88,13 @@ async function flushPromises(): Promise<void> {
   await Promise.resolve()
 }
 
+/** Flush the microtask AND macrotask queues so fire-and-forget SSE-driven
+ *  reconciliation chains (multiple awaits through fetch mocks) fully settle. */
+async function flushAllAsync(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  await new Promise((resolve) => setImmediate(resolve))
+}
+
 function latestEventSource(): MockEventSource {
   const eventSource = MockEventSource.instances.at(-1)
   if (!eventSource) throw new Error('Expected an EventSource instance')
@@ -810,6 +817,225 @@ describe('ServerAgent', () => {
     } finally {
       agent.dispose()
       subagentRunStore.clear()
+    }
+  })
+
+  it('merges incremental message tails positionally without duplication', async () => {
+    const { mergeIncrementalMessages } = await import('../../src/lib/server-agent')
+    const base = [
+      { role: 'user', content: 'a' },
+      { role: 'assistant', content: 'b' },
+    ] as AgentMessage[]
+
+    // Pure append: positions beyond the current length are pushed.
+    expect(mergeIncrementalMessages(base, 2, [{ role: 'user', content: 'c' }]).map((message) => message.content))
+      .toEqual(['a', 'b', 'c'])
+
+    // Overlapping tail (already applied via message_end upserts) is skipped.
+    expect(mergeIncrementalMessages(base, 1, [
+      { role: 'assistant', content: 'b' },
+      { role: 'user', content: 'c' },
+    ]).map((message) => message.content)).toEqual(['a', 'b', 'c'])
+
+    // Same-position content change replaces the local version.
+    expect(mergeIncrementalMessages(base, 1, [{ role: 'assistant', content: 'b-edited' }]).map((message) => message.content))
+      .toEqual(['a', 'b-edited'])
+
+    // Message-id equality wins over content comparison.
+    const withIds = [{ role: 'user', content: 'old', id: 'm1' }] as AgentMessage[]
+    expect(mergeIncrementalMessages(withIds, 0, [{ role: 'user', content: 'new-but-same-id', id: 'm1' }])).toEqual(withIds)
+  })
+
+  it('fills missing messages after a split-session reconnect through the messages channel', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith('/api/agents/session-1/messages')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            after: 2,
+            count: 4,
+            hasMore: false,
+            messages: [
+              { role: 'assistant', content: 'third' },
+              { role: 'user', content: 'fourth' },
+            ],
+          }),
+        }
+      }
+      return { ok: true, status: 200, json: async () => ({}) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: {
+        messages: [
+          { role: 'user', content: 'first' },
+          { role: 'assistant', content: 'second' },
+        ] as AgentMessage[],
+        stateVersion: 1,
+      },
+    })
+
+    try {
+      const source = latestEventSource()
+      source.emit('state', { sessionId: 'session-1', stateVersion: 2, messagesSummary: { count: 4 } })
+      await flushPromises()
+      await flushPromises()
+      expect(fetchMock).toHaveBeenCalledWith('/api/agents/session-1/messages?after=2', expect.objectContaining({ signal: expect.any(AbortSignal) }))
+      expect(agent.state.messages.map((message) => message.content)).toEqual(['first', 'second', 'third', 'fourth'])
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('refetches and replaces when a split-session state summary is shorter than local state', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith('/api/agents/session-1/messages')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            after: 0,
+            count: 1,
+            hasMore: false,
+            messages: [{ role: 'user', content: 'only' }],
+          }),
+        }
+      }
+      return { ok: true, status: 200, json: async () => ({}) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: {
+        messages: [
+          { role: 'user', content: 'first' },
+          { role: 'assistant', content: 'second' },
+          { role: 'user', content: 'third' },
+        ] as AgentMessage[],
+        stateVersion: 3,
+      },
+    })
+
+    try {
+      const source = latestEventSource()
+      source.emit('state', { sessionId: 'session-1', stateVersion: 4, messagesSummary: { count: 1 } })
+      await flushAllAsync()
+      expect(agent.state.messages.map((message) => message.content)).toEqual(['only'])
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('merges incremental message_end tails without fetching the full history', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }))
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: {
+        messages: [
+          { role: 'user', content: 'first' },
+          { role: 'assistant', content: 'second' },
+        ] as AgentMessage[],
+        stateVersion: 1,
+      },
+    })
+
+    try {
+      const source = latestEventSource()
+      source.emit('message_end', {
+        sessionId: 'session-1',
+        stateVersion: 2,
+        messagesAfter: 2,
+        messagesIncremental: true,
+        messages: [{ role: 'user', content: 'third' }],
+        messagesSummary: { count: 3 },
+      })
+      expect(agent.state.messages.map((message) => message.content)).toEqual(['first', 'second', 'third'])
+      // The incremental frame must not trigger a state refresh or message fetch.
+      expect(fetchMock).not.toHaveBeenCalled()
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('refetches everything when a split-session messages_replaced frame carries only a summary', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith('/api/agents/session-1/messages')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            after: 0,
+            count: 2,
+            hasMore: false,
+            messages: [
+              { role: 'user', content: 'rolled-a' },
+              { role: 'assistant', content: 'rolled-b' },
+            ],
+          }),
+        }
+      }
+      return { ok: true, status: 200, json: async () => ({}) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: {
+        messages: [
+          { role: 'user', content: 'first' },
+          { role: 'assistant', content: 'second' },
+          { role: 'user', content: 'third' },
+        ] as AgentMessage[],
+        stateVersion: 3,
+      },
+    })
+
+    try {
+      const source = latestEventSource()
+      source.emit('messages_replaced', { sessionId: 'session-1', stateVersion: 4, messagesSummary: { count: 2 } })
+      await flushAllAsync()
+      expect(agent.state.messages.map((message) => message.content)).toEqual(['rolled-a', 'rolled-b'])
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('materializes messages through the messages channel when /restore returns a summary', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/restore')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ sessionId: 'session-1', stateVersion: 1, messageStorage: 'split', messagesSummary: { count: 2 } }),
+        }
+      }
+      if (url.startsWith('/api/agents/session-1/messages')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            after: 0,
+            count: 2,
+            hasMore: false,
+            messages: [
+              { role: 'user', content: 'a' },
+              { role: 'assistant', content: 'b' },
+            ],
+          }),
+        }
+      }
+      return { ok: true, status: 200, json: async () => ({}) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { ServerAgent } = await import('../../src/lib/server-agent')
+    const { agent } = await ServerAgent.restore('session-1', { baseUrl: '' })
+    try {
+      expect(agent.state.messages.map((message) => message.content)).toEqual(['a', 'b'])
+      expect(fetchMock).toHaveBeenCalledWith('/api/agents/session-1/messages?after=0', expect.objectContaining({ signal: expect.any(AbortSignal) }))
+    } finally {
+      agent.dispose()
     }
   })
 })

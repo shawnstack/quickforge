@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   restoreAgent: vi.fn(),
   getSessionState: vi.fn(),
+  getSessionEventBus: vi.fn(),
+  tryAcquireSse: vi.fn(),
+  touchSession: vi.fn(),
   updateSessionHarnessConfigOption: vi.fn(),
   updateSessionHarnessMode: vi.fn(),
   forkSession: vi.fn(),
@@ -19,7 +22,7 @@ vi.mock('../../../server/agent-manager.mjs', () => ({
   createAgent: vi.fn(),
   destroyAgent: vi.fn(),
   followUpAgent: vi.fn(),
-  getSessionEventBus: vi.fn(),
+  getSessionEventBus: mocks.getSessionEventBus,
   getSessionState: mocks.getSessionState,
   getSessionStatus: vi.fn(),
   isSseConnected: vi.fn(),
@@ -31,8 +34,8 @@ vi.mock('../../../server/agent-manager.mjs', () => ({
   rollbackSessionMessages: vi.fn(),
   runPrompt: vi.fn(),
   steerAgent: vi.fn(),
-  touchSession: vi.fn(),
-  tryAcquireSse: vi.fn(),
+  touchSession: mocks.touchSession,
+  tryAcquireSse: mocks.tryAcquireSse,
   updateSessionAccessMode: vi.fn(),
   updateSessionHarnessConfigOption: mocks.updateSessionHarnessConfigOption,
   updateSessionHarnessMode: mocks.updateSessionHarnessMode,
@@ -41,6 +44,13 @@ vi.mock('../../../server/agent-manager.mjs', () => ({
   updateSessionThinkingLevel: vi.fn(),
   updateSessionTitle: vi.fn(),
   updateSessionYoloMode: vi.fn(),
+  stripSplitSessionState: (state) => {
+    if (!state || state.messageStorage !== 'split' || !Array.isArray(state.messages)) return state
+    const next = { ...state }
+    delete next.messages
+    next.messagesSummary = { count: state.messages.length }
+    return next
+  },
 }))
 
 vi.mock('../../../server/utils/logger.mjs', () => ({
@@ -102,6 +112,158 @@ describe('agent restore route', () => {
 
     expect(mocks.restoreAgent).toHaveBeenCalledTimes(1)
     expect(mocks.getSessionState).not.toHaveBeenCalled()
+  })
+})
+
+describe('agent split-session state and messages routes', () => {
+  beforeEach(() => {
+    mocks.restoreAgent.mockReset()
+    mocks.getSessionState.mockReset()
+    mocks.getSessionEventBus.mockReset()
+    mocks.tryAcquireSse.mockReset()
+    mocks.touchSession.mockReset()
+  })
+
+  function getRequest() {
+    const req = { method: 'GET', headers: {}, url: undefined }
+    return req
+  }
+
+  it('strips full messages from GET /state for split sessions and ships a summary', async () => {
+    const state = {
+      sessionId: 'session-1',
+      title: 'Big',
+      messageStorage: 'split',
+      messages: [{ role: 'user', content: 'a' }, { role: 'user', content: 'b' }],
+      stateVersion: 4,
+      isStreaming: false,
+    }
+    mocks.getSessionState.mockReturnValue(state)
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+
+    await handleAgentApi(getRequest(), res, new URL('http://localhost/api/agents/session-1/state'))
+
+    expect(res.status).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body).not.toHaveProperty('messages')
+    expect(body.messagesSummary).toEqual({ count: 2 })
+    expect(body.stateVersion).toBe(4)
+    expect(body.messageStorage).toBe('split')
+  })
+
+  it('keeps full messages in GET /state for non-split sessions', async () => {
+    const state = {
+      sessionId: 'session-1',
+      title: 'Small',
+      messages: [{ role: 'user', content: 'a' }],
+      stateVersion: 1,
+    }
+    mocks.getSessionState.mockReturnValue(state)
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+
+    await handleAgentApi(getRequest(), res, new URL('http://localhost/api/agents/session-1/state'))
+
+    expect(JSON.parse(res.body).messages).toEqual([{ role: 'user', content: 'a' }])
+    expect(JSON.parse(res.body)).not.toHaveProperty('messagesSummary')
+  })
+
+  it('strips messages from POST /restore for split sessions', async () => {
+    mocks.restoreAgent.mockResolvedValue({ sessionId: 'session-1' })
+    mocks.getSessionState.mockReturnValue({
+      sessionId: 'session-1',
+      messageStorage: 'split',
+      messages: [{ role: 'user', content: 'a' }],
+      stateVersion: 2,
+    })
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+
+    await handleAgentApi(request(), res, new URL('http://localhost/api/agents/session-1/restore'))
+
+    const body = JSON.parse(res.body)
+    expect(body).not.toHaveProperty('messages')
+    expect(body.messagesSummary).toEqual({ count: 1 })
+  })
+
+  it('serves incremental message pages from the in-memory state', async () => {
+    const messages = Array.from({ length: 5 }, (_, index) => ({ role: 'user', content: `m${index}` }))
+    mocks.getSessionState.mockReturnValue({ sessionId: 'session-1', messages, stateVersion: 3 })
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+
+    await handleAgentApi(getRequest(), res, new URL('http://localhost/api/agents/session-1/messages?after=2'))
+
+    expect(res.status).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.after).toBe(2)
+    expect(body.count).toBe(5)
+    expect(body.hasMore).toBe(false)
+    expect(body.messages.map((message) => message.content)).toEqual(['m2', 'm3', 'm4'])
+  })
+
+  it('paginates message fetches and reports hasMore', async () => {
+    const messages = Array.from({ length: 5 }, (_, index) => ({ role: 'user', content: `m${index}` }))
+    mocks.getSessionState.mockReturnValue({ sessionId: 'session-1', messages, stateVersion: 3 })
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+
+    await handleAgentApi(getRequest(), res, new URL('http://localhost/api/agents/session-1/messages?after=0&limit=2'))
+
+    const body = JSON.parse(res.body)
+    expect(body.after).toBe(0)
+    expect(body.hasMore).toBe(true)
+    expect(body.messages.map((message) => message.content)).toEqual(['m0', 'm1'])
+  })
+
+  it('restores an evicted session before answering a message fetch', async () => {
+    mocks.getSessionState.mockReturnValueOnce(null).mockReturnValueOnce({ sessionId: 'session-1', messages: [{ role: 'user', content: 'm0' }], stateVersion: 1 })
+    mocks.restoreAgent.mockResolvedValue({ sessionId: 'session-1' })
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+
+    await handleAgentApi(getRequest(), res, new URL('http://localhost/api/agents/session-1/messages?after=0'))
+
+    expect(mocks.restoreAgent).toHaveBeenCalledWith('session-1')
+    expect(JSON.parse(res.body).messages).toEqual([{ role: 'user', content: 'm0' }])
+  })
+
+  it('sends a lightweight initial state frame for split sessions on SSE connect', async () => {
+    const { EventEmitter } = await import('node:events')
+    const eventBus = new EventEmitter()
+    eventBus.setMaxListeners(100)
+    mocks.getSessionEventBus.mockReturnValue(eventBus)
+    mocks.tryAcquireSse.mockReturnValue(true)
+    mocks.touchSession.mockReturnValue(undefined)
+    mocks.getSessionState.mockReturnValue({
+      sessionId: 'session-1',
+      messageStorage: 'split',
+      messages: [{ role: 'user', content: 'a' }, { role: 'user', content: 'b' }],
+      stateVersion: 2,
+    })
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const chunks = []
+    const req = new EventEmitter()
+    req.method = 'GET'
+    req.headers = {}
+    const res = {
+      writableEnded: false,
+      writeHead() {},
+      write(chunk) { chunks.push(chunk) },
+      end() { this.writableEnded = true },
+      on() {},
+    }
+
+    await handleAgentApi(req, res, new URL('http://localhost/api/agents/session-1/stream'))
+    // Cleanup triggers on req close, clearing the keep-alive interval.
+    req.emit('close')
+
+    const frame = chunks.join('')
+    expect(frame).toContain('event: state')
+    expect(frame).not.toContain('"messages"')
+    expect(frame).toContain('"messagesSummary":{"count":2}')
+    expect(frame).toContain('"stateVersion":2')
   })
 })
 

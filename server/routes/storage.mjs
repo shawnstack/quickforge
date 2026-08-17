@@ -1,12 +1,82 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
-import { readStore, writeStore, atomicUpdate, getComparable, getStoreRevision, readSessionStoreScoped, readSessionValue, writeSessionValue, deleteSessionValue, ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir } from '../storage.mjs'
+import { readStore, writeStore, atomicUpdate, getComparable, getStoreRevision, readSessionStoreScoped, readSessionValue, writeSessionValueWithMetadata, deleteSessionWithMetadata, applySessionBatch, ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir } from '../storage.mjs'
 import { AUTO_ARCHIVE_SETTINGS_KEY, archiveInactiveSessions, normalizeAutoArchiveSettings } from '../auto-archive.mjs'
 import { directorySize } from '../utils/workspace.mjs'
 import { isAuthenticatedAppClient } from '../access-policy.mjs'
+import { getSessionIndexDiagnostics, markSessionIndexQueryFailure, querySessionIndexPage } from '../session-index-service.mjs'
+import { isSessionStateMaintenanceActive } from '../session-state-cutover.mjs'
 
 const metadataIndexCache = new Map()
 const MAX_METADATA_INDEX_CACHE_ENTRIES = 50
 const METADATA_INDEX_CACHE_TTL_MS = 1000
+const SESSION_QUERY_INDEXES = new Set(['createdAt', 'lastModified', 'pinnedAt'])
+const shadowGenerationByShape = new Map()
+let shadowSampler = () => Math.random() < 0.01
+
+export function configureSessionIndexQueryShadow({ sample } = {}) {
+  if (sample !== undefined && typeof sample !== 'function') throw new TypeError('sample must be a function')
+  shadowSampler = sample ?? (() => Math.random() < 0.01)
+  shadowGenerationByShape.clear()
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(Object.keys(value).sort().filter((key) => value[key] !== undefined).map((key) => [key, canonicalJson(value[key])]))
+}
+
+function sameShadowPage(sqlPage, jsonValues, limit, offset) {
+  const expected = jsonValues.slice(offset, offset + limit)
+  if (sqlPage.total !== jsonValues.length || sqlPage.values.length !== expected.length) return false
+  return JSON.stringify(sqlPage.values.map(canonicalJson)) === JSON.stringify(expected.map(canonicalJson))
+}
+
+function parseSqlPagination(limitParam, offsetParam) {
+  if (!limitParam || !/^[1-9]\d*$/.test(limitParam)) return null
+  if (offsetParam !== null && !/^(?:0|[1-9]\d*)$/.test(offsetParam)) return null
+  const limit = Number(limitParam)
+  const offset = offsetParam === null ? 0 : Number(offsetParam)
+  if (!Number.isSafeInteger(limit) || !Number.isSafeInteger(offset)) return null
+  return { limit, offset }
+}
+
+function sqlSessionQueryOptions({ store, indexName, directionParam, scope, projectId, archived, pinned, limitParam, offsetParam }) {
+  if (store !== 'sessions-metadata' || !SESSION_QUERY_INDEXES.has(indexName)) return null
+  if (directionParam !== null && directionParam !== 'asc' && directionParam !== 'desc') return null
+  if (archived !== null && archived !== 'only' && archived !== 'include') return null
+  if (pinned !== null && pinned !== 'only') return null
+  const pagination = parseSqlPagination(limitParam, offsetParam)
+  if (!pagination) return null
+
+  let scopeMode = 'all'
+  if (scope === 'global' && !projectId) scopeMode = 'global'
+  else if (scope === 'project' && typeof projectId === 'string' && projectId.length > 0) scopeMode = 'project'
+  else if ((scope === 'projects' || scope === 'project-all') && !projectId) scopeMode = 'projects'
+  else if (scope !== null || projectId !== null) return null
+
+  return {
+    ...pagination,
+    scopeMode,
+    projectId: scopeMode === 'project' ? projectId : null,
+    archive: archived === 'only' ? 'only' : archived === 'include' ? 'include' : 'exclude',
+    pinnedOnly: pinned === 'only',
+    sort: indexName,
+    direction: directionParam === 'desc' ? 'desc' : 'asc',
+  }
+}
+
+function shadowShape(options) {
+  return JSON.stringify({
+    scopeMode: options.scopeMode,
+    hasProjectId: options.scopeMode === 'project',
+    archive: options.archive,
+    pinnedOnly: options.pinnedOnly,
+    sort: options.sort,
+    direction: options.direction,
+    limit: options.limit,
+    offset: options.offset,
+  })
+}
 
 function metadataIndexCacheKey({ scope, projectId, indexName, direction, archived, pinned }) {
   return JSON.stringify({ scope: scope || '', projectId: projectId || '', indexName, direction, archived: archived || '', pinned: pinned || '' })
@@ -125,6 +195,41 @@ export async function handleStorageApi(req, res, url, context = { isLocalRequest
 
   const store = decodeSegment(parts[2])
 
+  // Session batch transaction endpoint: one request commits a set/delete mix
+  // across `sessions` and `sessions-metadata` as a single SQLite transaction
+  // (authoritative). expectedStateVersion is optional per operation.
+  if (req.method === 'POST' && parts.length === 3 && store === 'batch') {
+    if (isSessionStateMaintenanceActive()) {
+      const error = new Error('Session storage maintenance is in progress')
+      error.statusCode = 423
+      error.errorCode = 'SESSION_STORAGE_MAINTENANCE'
+      throw error
+    }
+    const body = await readJsonBody(req)
+    const operations = body?.operations
+    if (!Array.isArray(operations) || operations.length === 0) {
+      const error = new Error('Session batch operations are required')
+      error.statusCode = 400
+      throw error
+    }
+    try {
+      const result = await applySessionBatch(operations)
+      sendJson(res, 200, { ok: true, saved: result?.saved ?? 0, deleted: result?.deleted ?? 0 })
+    } catch (error) {
+      if (['SESSION_STATE_CONFLICT', 'SESSION_STATE_DUPLICATE_ID', 'SESSION_STATE_REQUIRED', 'SESSION_FULL_DELETE_REQUIRED'].includes(error?.errorCode)) {
+        error.statusCode = 409
+        throw error
+      }
+      if (error instanceof TypeError) {
+        const mapped = new Error(error.message)
+        mapped.statusCode = 400
+        throw mapped
+      }
+      throw error
+    }
+    return
+  }
+
   if (req.method === 'GET' && parts[3] === 'keys') {
     const prefix = url.searchParams.get('prefix') || ''
     const data = await readStore(store)
@@ -135,7 +240,8 @@ export async function handleStorageApi(req, res, url, context = { isLocalRequest
 
   if (req.method === 'GET' && parts[3] === 'index') {
     const indexName = decodeSegment(parts[4])
-    const direction = url.searchParams.get('direction') === 'desc' ? 'desc' : 'asc'
+    const directionParam = url.searchParams.get('direction')
+    const direction = directionParam === 'desc' ? 'desc' : 'asc'
     const scope = url.searchParams.get('scope')
     const projectId = url.searchParams.get('projectId')
     const limitParam = url.searchParams.get('limit')
@@ -144,6 +250,32 @@ export async function handleStorageApi(req, res, url, context = { isLocalRequest
     const pinned = url.searchParams.get('pinned')
 
     await ensureStorage()
+
+    const sqlOptions = sqlSessionQueryOptions({
+      store, indexName, directionParam, scope, projectId, archived, pinned, limitParam, offsetParam,
+    })
+    if (sqlOptions) {
+      const sqlResult = await querySessionIndexPage(sqlOptions)
+      if (sqlResult.ok) {
+        const diagnostics = getSessionIndexDiagnostics()
+        const shape = shadowShape(sqlOptions)
+        const lastGeneration = shadowGenerationByShape.get(shape)
+        const forced = lastGeneration !== diagnostics.rebuildGeneration
+        if (!forced && !shadowSampler({ shape, generation: diagnostics.rebuildGeneration })) {
+          sendJson(res, 200, { values: sqlResult.page.values, total: sqlResult.page.total })
+          return
+        }
+        const jsonValues = await readIndexedValues(store, indexName, direction, scope, projectId, archived, pinned)
+        shadowGenerationByShape.set(shape, diagnostics.rebuildGeneration)
+        if (sameShadowPage(sqlResult.page, jsonValues, sqlOptions.limit, sqlOptions.offset)) {
+          sendJson(res, 200, { values: sqlResult.page.values, total: sqlResult.page.total })
+          return
+        }
+        markSessionIndexQueryFailure('shadow_mismatch')
+        sendJson(res, 200, { values: jsonValues.slice(sqlOptions.offset, sqlOptions.offset + sqlOptions.limit), total: jsonValues.length })
+        return
+      }
+    }
 
     const values = await readIndexedValues(store, indexName, direction, scope, projectId, archived, pinned)
 
@@ -194,7 +326,9 @@ export async function handleStorageApi(req, res, url, context = { isLocalRequest
     if (req.method === 'PUT') {
       const body = await readJsonBody(req)
       if (store === 'sessions') {
-        await writeSessionValue(key, body?.value)
+        // Single-session PUT writes the body and derives/merges metadata so it
+        // never leaves a body orphaned (one SQLite transaction when authoritative).
+        await writeSessionValueWithMetadata(key, body?.value)
         sendJson(res, 200, { ok: true })
         return
       }
@@ -212,11 +346,7 @@ export async function handleStorageApi(req, res, url, context = { isLocalRequest
 
     if (req.method === 'DELETE') {
       if (store === 'sessions') {
-        await deleteSessionValue(key)
-        await atomicUpdate('sessions-metadata', (data) => {
-          delete data[key]
-          return data
-        })
+        await deleteSessionWithMetadata(key)
         sendJson(res, 200, { ok: true })
         return
       }

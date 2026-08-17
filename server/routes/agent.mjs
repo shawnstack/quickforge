@@ -33,6 +33,7 @@ import {
   abortToolCall,
   rollbackSessionMessages,
   continueSession,
+  stripSplitSessionState,
   agentEvents,
 } from '../agent-manager.mjs'
 
@@ -122,7 +123,7 @@ export async function handleAgentApi(req, res, url, context = {}) {
       messageCount: state.messages?.length ?? 0,
       durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
     })
-    sendJson(res, 200, state)
+    sendJson(res, 200, stripSplitSessionState(state))
     return
   }
 
@@ -140,7 +141,38 @@ export async function handleAgentApi(req, res, url, context = {}) {
       error.statusCode = 404
       throw error
     }
-    sendJson(res, 200, state)
+    sendJson(res, 200, stripSplitSessionState(state))
+    return
+  }
+
+  // GET /api/agents/:sessionId/messages?after=N — incremental message fetch.
+  // Split sessions never embed the full message list in state frames; clients
+  // materialize the conversation through this lightweight, paginated channel
+  // (after = message index; the response reports the server total count so
+  // clients can detect truncation/rollback and refetch from zero).
+  if (req.method === 'GET' && subPath === 'messages') {
+    let state = getSessionState(sessionId)
+    if (!state) {
+      await restoreAgent(sessionId)
+      state = getSessionState(sessionId)
+    }
+    if (!state) {
+      const error = new Error('Session not found')
+      error.statusCode = 404
+      throw error
+    }
+    const messages = Array.isArray(state.messages) ? state.messages : []
+    const afterParam = Number(new URLSearchParams(url.search).get('after'))
+    const after = Number.isInteger(afterParam) && afterParam >= 0 ? afterParam : 0
+    const limitParam = Number(new URLSearchParams(url.search).get('limit'))
+    const limit = Number.isInteger(limitParam) && limitParam >= 1 ? Math.min(limitParam, 5000) : 500
+    const page = messages.slice(after, after + limit)
+    sendJson(res, 200, {
+      after,
+      count: messages.length,
+      hasMore: after + page.length < messages.length,
+      messages: page,
+    })
     return
   }
 
@@ -463,10 +495,11 @@ async function handleStream(req, res, sessionId) {
     'x-accel-buffering': 'no',
   })
 
-  // Send initial state
+  // Send initial state (split sessions send a lightweight summary; clients
+  // fetch messages through GET /api/agents/:id/messages)
   const state = getSessionState(sessionId)
   if (state) {
-    writeSseEvent(res, 'state', state)
+    writeSseEvent(res, 'state', stripSplitSessionState(state))
   }
 
   // Keep-alive ping every 15 seconds — also resets idle timer

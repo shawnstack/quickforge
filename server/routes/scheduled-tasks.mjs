@@ -7,6 +7,14 @@ import { agentProfileSnapshot, getAgentProfile } from '../agent-profiles.mjs'
 import { projectContextFromId, readProjectConfig } from '../project-config.mjs'
 import { logger } from '../utils/logger.mjs'
 import { resolveModelBinding } from '../model-catalog.mjs'
+import { createScheduledTaskRunsService } from '../scheduled-task-runs-service.mjs'
+import {
+  assertScheduledRunsAvailable,
+  canStartScheduledRun,
+  configureScheduledRunsRuntimeHooks,
+  isScheduledRunsAuthoritative,
+  recordScheduledRunsDiagnostic,
+} from '../scheduled-runs-cutover.mjs'
 import {
   dayMs,
   formatLocalDateTime,
@@ -29,7 +37,9 @@ const editableScheduleTypes = new Set(['once', 'daily', 'weekly', 'monthly'])
 const weekDayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 
 let schedulerTimer = null
+let runnerDesired = false
 let running = false
+let tickPromise = null
 const runningTaskRunIds = new Map()
 
 function executionModeFor(task) {
@@ -385,61 +395,94 @@ function getTasks() {
   return readStore(STORE).then((data) => Object.values(data).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))))
 }
 
-function parsePositiveInteger(value, fallback, max) {
-  const parsed = Number(value)
-  if (!Number.isInteger(parsed) || parsed <= 0) return fallback
-  return Math.min(parsed, max)
+async function hydrateTaskRuns(task, limit = 5) {
+  if (!task || !isScheduledRunsAuthoritative()) return task
+  return { ...task, runs: await taskRunsService.recentRuns(task.id, limit) }
 }
 
-function runMatchesKeyword(run, keyword) {
-  if (!keyword) return true
-  const text = [run.taskTitle, run.inputContent, run.aiResult, run.result, run.errorMessage]
-    .filter(Boolean)
-    .join('\n')
-    .toLowerCase()
-  return text.includes(keyword.toLowerCase())
+async function hydrateTasksRuns(tasks, limit = 5) {
+  if (!isScheduledRunsAuthoritative()) return tasks
+  return Promise.all(tasks.map((task) => hydrateTaskRuns(task, limit)))
+}
+
+const taskRunsService = createScheduledTaskRunsService({
+  readTasks: getTasks,
+  logger,
+})
+
+function authoritativeRun(task, runId) {
+  return task?.runs?.find((run) => run.id === runId) || null
+}
+
+async function persistRun(taskId, run, phase) {
+  if (!run?.id) return null
+  try {
+    return await taskRunsService.syncRun(taskId, run, { phase })
+  } catch (error) {
+    logger.warn('Scheduled task run persistence rejected', {
+      taskId,
+      runId: run.id,
+      phase,
+      errorName: error?.name || 'Error',
+      errorCode: error?.code,
+    })
+    throw error
+  }
+}
+
+async function syncAuthoritativeRun(task, runId, phase) {
+  const run = authoritativeRun(task, runId)
+  if (!run) return null
+  try {
+    return await persistRun(task.id, run, phase)
+  } catch (error) {
+    if (isScheduledRunsAuthoritative()) throw error
+    return null
+  }
+}
+
+async function deleteAuthoritativeTaskRuns(taskId) {
+  try {
+    return await taskRunsService.deleteTaskRuns(taskId)
+  } catch (error) {
+    if (isScheduledRunsAuthoritative()) throw error
+    return false
+  }
 }
 
 async function getTaskRuns(url) {
   const params = url.searchParams
-  const page = parsePositiveInteger(params.get('page'), 1, 100000)
-  const pageSize = parsePositiveInteger(params.get('pageSize'), 10, 100)
-  const taskId = String(params.get('taskId') || '').trim()
-  const status = String(params.get('status') || '').trim()
-  const trigger = String(params.get('trigger') || '').trim()
-  const keyword = String(params.get('keyword') || '').trim()
-  const startedFrom = params.get('startedFrom') ? new Date(String(params.get('startedFrom'))).getTime() : null
-  const startedTo = params.get('startedTo') ? new Date(String(params.get('startedTo'))).getTime() : null
-
-  let runs = (await getTasks()).flatMap((task) => (task.runs || []).map((run) => ({
-    ...run,
-    taskId: task.id,
-    taskTitle: task.title,
-    scheduleRule: task.scheduleRule,
-    projectName: task.projectName,
-  })))
-
-  if (taskId) runs = runs.filter((run) => run.taskId === taskId)
-  if (status) runs = runs.filter((run) => run.status === status)
-  if (trigger) runs = runs.filter((run) => run.trigger === trigger)
-  if (startedFrom && !Number.isNaN(startedFrom)) runs = runs.filter((run) => new Date(run.startedAt).getTime() >= startedFrom)
-  if (startedTo && !Number.isNaN(startedTo)) runs = runs.filter((run) => new Date(run.startedAt).getTime() <= startedTo)
-  if (keyword) runs = runs.filter((run) => runMatchesKeyword(run, keyword))
-
-  runs.sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)))
-  const total = runs.length
-  const start = (page - 1) * pageSize
-  return { runs: runs.slice(start, start + pageSize), total, page, pageSize }
+  return taskRunsService.listRuns({
+    page: params.get('page'),
+    pageSize: params.get('pageSize'),
+    taskId: params.get('taskId'),
+    status: params.get('status'),
+    trigger: params.get('trigger'),
+    keyword: params.get('keyword'),
+    startedFrom: params.get('startedFrom'),
+    startedTo: params.get('startedTo'),
+  })
 }
 
 async function updateTask(taskId, updater) {
   let updated = null
-  await atomicUpdate(STORE, (data) => {
-    if (!data[taskId]) return data
-    updated = updater(data[taskId])
-    data[taskId] = updated
-    return data
-  })
+  try {
+    await atomicUpdate(STORE, (data) => {
+      if (!data[taskId]) return data
+      updated = updater(data[taskId])
+      if (isScheduledRunsAuthoritative() && updated) {
+        const { runs: _runs, ...metadata } = updated
+        updated = metadata
+      }
+      data[taskId] = updated
+      return data
+    })
+  } catch (error) {
+    if (isScheduledRunsAuthoritative()) {
+      try { recordScheduledRunsDiagnostic('task_metadata_update', error, { taskId }) } catch { /* Preserve metadata failure. */ }
+    }
+    throw error
+  }
   return updated
 }
 
@@ -495,40 +538,76 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
   let agentWarning = null
   let agentSnapshot = null
 
+  const createdRun = {
+    id: runId,
+    status: 'running',
+    trigger,
+    inputContent: task.instruction,
+    sessionId,
+    agentId: executionAgent?.id || task.agentId || null,
+    agentLabel: executionAgent?.label || null,
+    agentSnapshot,
+    warning: agentWarning || undefined,
+    scheduledAt,
+    startedAt,
+  }
+  let currentRun = createdRun
   let started = false
-  await updateTask(task.id, (current) => {
-    const otherRunIds = activeRunIdsFor(current).filter((id) => id !== runId)
-    if (mode === 'serial' && otherRunIds.length > 0) return current
-    started = true
-    const nextRunAt = advanceNextRunAtAtStart
-      ? calculateNextRun(current, new Date(startedAt))
-      : current.nextRunAt
-    const activeRunIds = appendCurrentRunId(current, runId)
-    return {
-      ...current,
-      currentRunId: activeRunIds[activeRunIds.length - 1] || null,
-      currentRunIds: activeRunIds,
-      lastSessionId: sessionId,
-      nextRunAt,
-      runs: [{
-        id: runId,
-        status: 'running',
-        trigger,
-        inputContent: current.instruction,
-        sessionId,
-        agentId: executionAgent?.id || task.agentId || null,
-        agentLabel: executionAgent?.label || null,
-        agentSnapshot,
-        warning: agentWarning || undefined,
-        scheduledAt,
-        startedAt,
-      }, ...(current.runs || [])].slice(0, MAX_RUN_HISTORY_PER_TASK),
+  let createdTask
+  if (isScheduledRunsAuthoritative()) {
+    await persistRun(task.id, createdRun, 'created')
+    try {
+      createdTask = await updateTask(task.id, (current) => {
+        const otherRunIds = activeRunIdsFor(current).filter((id) => id !== runId)
+        if (mode === 'serial' && otherRunIds.length > 0) return current
+        started = true
+        const nextRunAt = advanceNextRunAtAtStart
+          ? calculateNextRun(current, new Date(startedAt))
+          : current.nextRunAt
+        const activeRunIds = appendCurrentRunId(current, runId)
+        return {
+          ...current,
+          currentRunId: activeRunIds[activeRunIds.length - 1] || null,
+          currentRunIds: activeRunIds,
+          lastSessionId: sessionId,
+          nextRunAt,
+        }
+      })
+    } catch (error) {
+      try {
+        await taskRunsService.deleteRun(task.id, runId)
+      } catch (compensationError) {
+        throw new Error(`Scheduled run create metadata failed and SQLite compensation failed: ${compensationError?.message || compensationError}`, { cause: compensationError })
+      } finally {
+        removeActiveRun(task.id, runId)
+      }
+      throw error
     }
-  })
+    if (!started) await taskRunsService.deleteRun(task.id, runId)
+  } else {
+    createdTask = await updateTask(task.id, (current) => {
+      const otherRunIds = activeRunIdsFor(current).filter((id) => id !== runId)
+      if (mode === 'serial' && otherRunIds.length > 0) return current
+      started = true
+      const nextRunAt = advanceNextRunAtAtStart
+        ? calculateNextRun(current, new Date(startedAt))
+        : current.nextRunAt
+      const activeRunIds = appendCurrentRunId(current, runId)
+      return {
+        ...current,
+        currentRunId: activeRunIds[activeRunIds.length - 1] || null,
+        currentRunIds: activeRunIds,
+        lastSessionId: sessionId,
+        nextRunAt,
+        runs: [createdRun, ...(current.runs || [])].slice(0, MAX_RUN_HISTORY_PER_TASK),
+      }
+    })
+  }
   if (!started) {
     removeActiveRun(task.id, runId)
     return
   }
+  if (!isScheduledRunsAuthoritative()) await syncAuthoritativeRun(createdTask, runId, 'created')
 
   let settled = false
 
@@ -588,11 +667,23 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
       message: truncateText(task.instruction, 500),
     })
 
-    await updateTask(task.id, (current) => ({
+    currentRun = {
+      ...currentRun,
+      sessionId,
+      agentId: executionAgent?.id || task.agentId || null,
+      agentLabel: executionAgent?.label || null,
+      agentSnapshot,
+      warning: agentWarning || currentRun.warning,
+    }
+    const resolvedTask = await updateTask(task.id, (current) => ({
       ...current,
       lastSessionId: sessionId,
-      runs: (current.runs || []).map((run) => run.id === runId ? { ...run, sessionId, agentId: executionAgent?.id || task.agentId || null, agentLabel: executionAgent?.label || null, agentSnapshot, warning: agentWarning || run.warning } : run),
+      ...(!isScheduledRunsAuthoritative() ? {
+        runs: (current.runs || []).map((run) => run.id === runId ? { ...run, ...currentRun } : run),
+      } : {}),
     }))
+    if (isScheduledRunsAuthoritative()) await persistRun(task.id, currentRun, 'resolved')
+    else await syncAuthoritativeRun(resolvedTask, runId, 'resolved')
     onStarted?.({ taskId: task.id, runId, sessionId })
 
     const eventBus = getSessionEventBus(sessionId)
@@ -681,30 +772,49 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
             ? (nextRunAt ? 'enabled' : 'completed')
             : (recurring && nextRunAt ? 'enabled' : 'failed')
 
-    await updateTask(task.id, (current) => ({
-      ...current,
-      status: nextStatus,
-      currentRunId: stillRunning ? remainingRunIds[remainingRunIds.length - 1] : null,
-      currentRunIds: remainingRunIds,
-      lastRunAt: finishedAt,
-      nextRunAt: nextRunAt ?? current.nextRunAt,
-      lastSessionId: sessionId,
-      runs: (current.runs || []).map((run) => run.id === runId ? {
-        ...run,
-        status: result.aborted ? 'failed' : (result.ok ? 'success' : 'failed'),
-        inputContent: run.inputContent ?? latestTask.instruction,
-        aiResult: result.ok ? aiResult : undefined,
-        result: result.ok ? (aiResult || `已完成，结果保存在会话 ${sessionId}`) : undefined,
-        errorMessage: result.error,
-        sessionId,
-        agentId: executionAgent?.id || latestTask.agentId || null,
-        agentLabel: executionAgent?.label || null,
-        agentSnapshot,
-        warning: agentWarning || run.warning,
-        finishedAt,
-        durationMs,
-      } : run),
-    }))
+    const terminalRun = {
+      ...currentRun,
+      status: result.aborted ? 'failed' : (result.ok ? 'success' : 'failed'),
+      inputContent: currentRun.inputContent ?? latestTask.instruction,
+      aiResult: result.ok ? aiResult : undefined,
+      result: result.ok ? (aiResult || `已完成，结果保存在会话 ${sessionId}`) : undefined,
+      errorMessage: result.error,
+      sessionId,
+      agentId: executionAgent?.id || latestTask.agentId || null,
+      agentLabel: executionAgent?.label || null,
+      agentSnapshot,
+      warning: agentWarning || currentRun.warning,
+      finishedAt,
+      durationMs,
+    }
+    let terminalPersisted = false
+    if (isScheduledRunsAuthoritative()) {
+      await persistRun(task.id, terminalRun, 'terminal')
+      terminalPersisted = true
+    }
+    let terminalMetadataError = null
+    let terminalTask
+    try {
+      terminalTask = await updateTask(task.id, (current) => ({
+        ...current,
+        status: nextStatus,
+        currentRunId: stillRunning ? remainingRunIds[remainingRunIds.length - 1] : null,
+        currentRunIds: remainingRunIds,
+        lastRunAt: finishedAt,
+        nextRunAt: nextRunAt ?? current.nextRunAt,
+        lastSessionId: sessionId,
+        ...(!isScheduledRunsAuthoritative() ? {
+          runs: (current.runs || []).map((run) => run.id === runId ? terminalRun : run),
+        } : {}),
+      }))
+    } catch (error) {
+      if (!terminalPersisted) throw error
+      terminalMetadataError = error
+      try { recordScheduledRunsDiagnostic('terminal_metadata', error, { taskId: task.id, runId }) } catch { /* Preserve terminal success. */ }
+      logger.warn('Scheduled task terminal metadata persistence failed', { taskId: task.id, runId, errorName: error?.name || 'Error' })
+    }
+    if (!isScheduledRunsAuthoritative()) await syncAuthoritativeRun(terminalTask, runId, 'terminal')
+    if (terminalMetadataError) settled = true
 
     emitScheduledTaskNotification({
       task: latestTask,
@@ -718,7 +828,33 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
     const finishedAt = new Date().toISOString()
     const durationMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime()
     removeActiveRun(task.id, runId)
-    await updateTask(task.id, (current) => {
+    const failureMessage = error?.message || String(error)
+    const failedRun = {
+      ...currentRun,
+      status: 'failed',
+      errorMessage: failureMessage,
+      sessionId,
+      agentId: executionAgent?.id || task.agentId || null,
+      agentLabel: executionAgent?.label || null,
+      agentSnapshot,
+      warning: agentWarning || currentRun.warning,
+      finishedAt,
+      durationMs,
+    }
+    let persistenceError = null
+    if (isScheduledRunsAuthoritative()) {
+      try {
+        await persistRun(task.id, failedRun, 'exception-terminal')
+      } catch (terminalError) {
+        persistenceError = terminalError
+      }
+    }
+    if (persistenceError) {
+      try { recordScheduledRunsDiagnostic('exception_terminal', persistenceError, { taskId: task.id, runId }) } catch { /* Preserve the original failure. */ }
+      logger.error('Scheduled task terminal SQLite persistence failed', { taskId: task.id, runId, errorName: persistenceError?.name || 'Error' })
+      return
+    }
+    const failedTask = await updateTask(task.id, (current) => {
       const remainingRunIds = removeCurrentRunId(current, runId)
       const stillRunning = remainingRunIds.length > 0
       return {
@@ -729,20 +865,12 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
         lastRunAt: finishedAt,
         lastSessionId: sessionId,
         nextRunAt: stillRunning || advanceNextRunAtAtStart ? current.nextRunAt : (isRecurringTask(current) ? (calculateNextRun(current, new Date(finishedAt)) ?? current.nextRunAt) : current.nextRunAt),
-        runs: (current.runs || []).map((run) => run.id === runId ? {
-          ...run,
-          status: 'failed',
-          errorMessage: error?.message || String(error),
-          sessionId,
-          agentId: executionAgent?.id || current.agentId || null,
-          agentLabel: executionAgent?.label || null,
-          agentSnapshot,
-          warning: agentWarning || run.warning,
-          finishedAt,
-          durationMs,
-        } : run),
+        ...(!isScheduledRunsAuthoritative() ? {
+          runs: (current.runs || []).map((run) => run.id === runId ? { ...run, ...failedRun } : run),
+        } : {}),
       }
     })
+    if (!isScheduledRunsAuthoritative()) await syncAuthoritativeRun(failedTask, runId, 'exception-terminal')
     emitScheduledTaskNotification({
       task,
       runId,
@@ -756,14 +884,52 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
   }
 }
 
+export async function recoverStaleScheduledTaskRuns({ now = () => new Date() } = {}) {
+  const tasks = await getTasks()
+  const finishedAt = now().toISOString()
+  for (const task of tasks) {
+    const activeIds = currentRunIdsFor(task)
+    const sqliteRunning = isScheduledRunsAuthoritative()
+      ? (await taskRunsService.listRuns({ taskId: task.id, status: 'running', page: 1, pageSize: MAX_RUN_HISTORY_PER_TASK })).runs
+      : []
+    const jsonRunning = Array.isArray(task.runs) ? task.runs.filter((run) => run?.status === 'running') : []
+    const runningById = new Map([...sqliteRunning, ...jsonRunning].map((run) => [run.id, run]))
+    for (const runId of activeIds) {
+      if (!runningById.has(runId)) runningById.set(runId, { id: runId, status: 'running', trigger: 'schedule', startedAt: task.lastRunAt || task.updatedAt || finishedAt })
+    }
+    if (runningById.size === 0 && activeIds.length === 0) continue
+    const failedRuns = []
+    for (const run of runningById.values()) {
+      const startedMs = new Date(run.startedAt).getTime()
+      const durationMs = Number.isFinite(startedMs) ? Math.max(0, new Date(finishedAt).getTime() - startedMs) : 0
+      const failed = { ...run, status: 'failed', errorMessage: 'Interrupted by previous process shutdown', finishedAt, durationMs }
+      failedRuns.push(failed)
+      if (isScheduledRunsAuthoritative()) await persistRun(task.id, failed, 'startup-recovery')
+    }
+    await updateTask(task.id, (current) => ({
+      ...current,
+      currentRunId: null,
+      currentRunIds: [],
+      status: current.status === 'paused' ? 'paused' : (isRecurringTask(current) ? 'enabled' : 'failed'),
+      lastRunAt: finishedAt,
+      nextRunAt: isRecurringTask(current) ? (calculateNextRun(current, new Date(finishedAt)) ?? current.nextRunAt) : current.nextRunAt,
+      ...(!isScheduledRunsAuthoritative() ? {
+        runs: (current.runs || []).map((run) => failedRuns.find((failed) => failed.id === run.id) || run),
+      } : {}),
+    }))
+  }
+}
+
 async function schedulerTick() {
-  if (running) return
+  if (running || !canStartScheduledRun()) return
   running = true
   try {
+    if (!canStartScheduledRun()) return
     await repairRecurringTaskStatuses()
     const now = Date.now()
     const tasks = await getTasks()
     for (const task of tasks) {
+      if (!canStartScheduledRun()) break
       if (task.status !== 'enabled') continue
       if (!task.nextRunAt || new Date(task.nextRunAt).getTime() > now) continue
       if (executionModeFor(task) === 'serial' && hasActiveTaskRuns(task)) continue
@@ -774,23 +940,50 @@ async function schedulerTick() {
   }
 }
 
+function requestSchedulerTick() {
+  if (tickPromise) return tickPromise
+  tickPromise = schedulerTick()
+    .catch((error) => logger.error('Scheduled task tick failed:', error))
+    .finally(() => { tickPromise = null })
+  return tickPromise
+}
+
+async function pauseScheduledTaskRunner() {
+  if (schedulerTimer) {
+    clearInterval(schedulerTimer)
+    schedulerTimer = null
+  }
+  if (tickPromise) await tickPromise
+  const tasks = await getTasks()
+  if (runningTaskRunIds.size > 0 || tasks.some(hasActiveTaskRuns)) {
+    const error = requestError('Cannot restore scheduled tasks while a run is active', 409)
+    error.errorCode = 'scheduled_runs_active'
+    throw error
+  }
+}
+
+function resumeScheduledTaskRunner() {
+  if (runnerDesired) startScheduledTaskRunner()
+}
+
+configureScheduledRunsRuntimeHooks({ pause: pauseScheduledTaskRunner, resume: resumeScheduledTaskRunner })
+
 export function startScheduledTaskRunner() {
-  if (schedulerTimer) return
-  schedulerTimer = setInterval(() => {
-    schedulerTick().catch((error) => logger.error('Scheduled task tick failed:', error))
-  }, RUN_CHECK_INTERVAL_MS)
-  schedulerTick().catch((error) => logger.error('Scheduled task initial tick failed:', error))
+  runnerDesired = true
+  if (schedulerTimer || !canStartScheduledRun()) return
+  schedulerTimer = setInterval(requestSchedulerTick, RUN_CHECK_INTERVAL_MS)
+  requestSchedulerTick()
 }
 
 export function stopScheduledTaskRunner() {
-  if (!schedulerTimer) return
-  clearInterval(schedulerTimer)
+  runnerDesired = false
+  if (schedulerTimer) clearInterval(schedulerTimer)
   schedulerTimer = null
-  runningTaskRunIds.clear()
 }
 
 export async function handleScheduledTasksApi(req, res, url, context = {}) {
   const parts = url.pathname.split('/').filter(Boolean)
+  assertScheduledRunsAvailable()
 
   if (req.method === 'POST' && url.pathname === '/api/scheduled-tasks/parse') {
     const body = await readJsonBody(req)
@@ -799,7 +992,7 @@ export async function handleScheduledTasksApi(req, res, url, context = {}) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/scheduled-tasks') {
-    sendJson(res, 200, { tasks: await getTasks() })
+    sendJson(res, 200, { tasks: await hydrateTasksRuns(await getTasks()) })
     return
   }
 
@@ -829,13 +1022,13 @@ export async function handleScheduledTasksApi(req, res, url, context = {}) {
       status: enabled ? 'enabled' : 'paused',
       createdAt: now,
       updatedAt: now,
-      runs: [],
+      ...(isScheduledRunsAuthoritative() ? {} : { runs: [] }),
     }
     await atomicUpdate(STORE, (data) => {
       data[task.id] = task
       return data
     })
-    sendJson(res, 200, { task })
+    sendJson(res, 200, { task: await hydrateTaskRuns(task) })
     return
   }
 
@@ -874,15 +1067,34 @@ export async function handleScheduledTasksApi(req, res, url, context = {}) {
         status: parsed.enabled === false || parsed.status === 'paused' ? 'paused' : 'enabled',
         updatedAt: now,
       }))
-      sendJson(res, 200, { task })
+      sendJson(res, 200, { task: await hydrateTaskRuns(task) })
       return
     }
 
     if (req.method === 'DELETE' && !action) {
-      await atomicUpdate(STORE, (data) => {
-        delete data[taskId]
-        return data
-      })
+      const existingForDelete = (await readStore(STORE))[taskId]
+      const before = existingForDelete ? await hydrateTaskRuns(existingForDelete, MAX_RUN_HISTORY_PER_TASK) : null
+      if (isScheduledRunsAuthoritative()) {
+        await deleteAuthoritativeTaskRuns(taskId)
+        try {
+          await atomicUpdate(STORE, (data) => {
+            delete data[taskId]
+            return data
+          })
+        } catch (error) {
+          if (before) {
+            const restoredRuns = Array.isArray(before.runs) ? before.runs : []
+            for (const run of restoredRuns) await persistRun(taskId, run, 'delete-compensation')
+          }
+          throw error
+        }
+      } else {
+        await atomicUpdate(STORE, (data) => {
+          delete data[taskId]
+          return data
+        })
+        await deleteAuthoritativeTaskRuns(taskId)
+      }
       sendJson(res, 200, { ok: true })
       return
     }
@@ -891,7 +1103,7 @@ export async function handleScheduledTasksApi(req, res, url, context = {}) {
       const current = (await readStore(STORE))[taskId]
       if (!current) throw requestError('Task not found', 404)
       const task = await updateTask(taskId, (latest) => ({ ...latest, status: 'paused', updatedAt: new Date().toISOString() }))
-      sendJson(res, 200, { task })
+      sendJson(res, 200, { task: await hydrateTaskRuns(task) })
       return
     }
 
@@ -905,7 +1117,7 @@ export async function handleScheduledTasksApi(req, res, url, context = {}) {
         updatedAt: new Date().toISOString(),
       }))
       if (!task) throw requestError('Task not found', 404)
-      sendJson(res, 200, { task })
+      sendJson(res, 200, { task: await hydrateTaskRuns(task) })
       return
     }
 
@@ -914,14 +1126,15 @@ export async function handleScheduledTasksApi(req, res, url, context = {}) {
       const task = data[taskId]
       if (!task) throw requestError('Task not found', 404)
       if (executionModeFor(task) === 'serial' && hasActiveTaskRuns(task)) throw requestError('Task is already running', 409)
-      await new Promise((resolve) => {
+      await new Promise((resolve, reject) => {
         executeTask(task, 'manual', resolve).catch((error) => {
           logger.error(`Manual scheduled task ${task.id} failed:`, error)
-          resolve()
+          if (isScheduledRunsAuthoritative()) reject(error)
+          else resolve()
         })
       })
       const updatedTask = (await readStore(STORE))[taskId] ?? task
-      sendJson(res, 200, { ok: true, task: updatedTask })
+      sendJson(res, 200, { ok: true, task: await hydrateTaskRuns(updatedTask) })
       return
     }
   }

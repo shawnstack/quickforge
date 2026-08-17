@@ -18,7 +18,7 @@
 | `shares.mjs` | 90 | 分享管理 |
 | `shared-conversation.mjs` | 共享会话查看与共享图片资产读取 |
 | `session-assets.mjs` | 当前会话生成图片资产的同源二进制读取 |
-| `backup.mjs` | 460 | 数据备份和恢复 |
+| `backup.mjs` | 817 | 数据备份和恢复（权威会话/分享/LAN 访问导出与恢复、settings 导入） |
 | `lan-access.mjs` | 201 | LAN 共享访问管理 |
 | `instructions.mjs` | 20 | 系统提示词 |
 | `system.mjs` | 107 | 系统状态、网络代理、重启、关于信息、Runtime 更新和 Desktop 发布页检查 |
@@ -84,12 +84,17 @@ Agent 会话管理核心路由。
 **主要端点**:
 - `GET /api/storage/quota` — 存储配额和用量
 - `GET|POST|DELETE /api/storage/:store/keys/:key` — 键值操作
-- `GET /api/storage/:store/index/:indexName` — 索引查询（支持排序、分页、作用域过滤）；会话元数据默认排除归档记录，`archived=only` 仅返回归档，`archived=include` 返回全部
+- `POST /api/storage/batch` — F8 窄事务端点：单请求一次提交 sessions+sessions-metadata 的 set/delete（expectedStateVersion 可选）；`SESSION_STATE_CONFLICT`/`SESSION_STATE_DUPLICATE_ID`/`SESSION_STATE_REQUIRED`/`SESSION_FULL_DELETE_REQUIRED` 稳定映射 409，会话维护锁 active 返回 423；单 PUT sessions 走 `writeSessionValueWithMetadata`（自动派生/merge metadata，不制造 body orphan），DELETE 走 `deleteSessionWithMetadata` 幂等，GET/API shape 不变
+- `GET /api/storage/:store/index/:indexName` — 索引查询（支持排序、分页、作用域过滤）；会话元数据默认排除归档记录，`archived=only` 仅返回归档，`archived=include` 返回全部。F7 仅对严格合法、可证明与旧 JSON 等价的 sessions metadata 分页请求使用 SQLite `COUNT + LIMIT/OFFSET`；readiness/digest/source compatibility、duplicate/tie、repository/shadow mismatch 或 legacy 参数均保留原 JSON fallback
 - 写入 `settings/auto-archive-settings` 并开启时，会立即执行一次超过 30 天未更新对话的自动归档扫描
 
 ## backup.mjs
 
 备份导出、检查和导入接口允许本机及已通过 LAN 密码认证的远程客户端调用；未认证远程请求禁止访问。
+
+- `GET /api/backup/export` — 支持 `scope`（`all`/`config`/`sessions`/`shares`/`lan-access`）与 `sections` 细分；权威模式下会话导出在维护锁内做 `quick_check` + count/digest 校验，并新增顶层 `sessionState: { phase, count, digest }`；权威模式下 `all`/`shares` scope 同时纳入 share 权威导出（share 维护锁内 quick_check + verifyIntegrity + exportSnapshot，记录含 token 哈希），新增顶层 `shareState: { phase, count, digest }`（旧客户端忽略未知字段）；权威模式下 `all`/`lan-access` scope 同时纳入 lan-access 权威导出（lan-access 维护锁内 quick_check + verifyIntegrity + exportSnapshot，配置含 token 哈希非明文、剔除 revision），新增顶层 `lanAccessState: { phase, count, digest }`（count = token 数）
+- `POST /api/backup/import` — replace/merge 模式；含 conversations 的恢复在权威模式下走 `restoreSessionStateSnapshot`（维护锁 + 计划文件 + 失败补偿，只触碰会话表、不影响 `scheduled_task_runs`），维护锁占用时返回 423 `session_state_maintenance`；含 shares 的恢复在权威模式下走 `restoreShareStateSnapshot`（share 维护锁 + 计划文件 + 失败补偿，replace 全量 / merge 保留 local-only、backup 同 key 覆盖，不影响 F5/F7/F9），维护锁占用时返回 423 `share_maintenance`；v1 conversation-shares.json 形状归一化导入；空 `shares: {}` 语义：replace 清空、merge 保留；metadata-only 会话恢复在权威模式拒绝（400）；含 lanAccess 的恢复在权威模式下走 `restoreLanAccessStateSnapshot`（lan-access 维护锁 + `lan-access-restore-plan.json` 计划文件 + 失败补偿，replace 全量 / merge 保留本地配置字段与 tokens、backup 同 key 覆盖，恢复覆盖 enabled 开关，不影响 F5/F7/F9/F10），维护锁占用时返回 423 `lan_access_maintenance`；v1 lan-access.json 形状归一化导入
+- `POST /api/backup/inspect` / `inspect-file` — 检查备份内容与警告（含 shares 替换警告、lan-access「将替换局域网访问配置」警告），`inspect-file` 生成一次性 import token
 
 ## project.mjs (192 行)
 

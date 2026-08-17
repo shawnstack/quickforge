@@ -1,87 +1,27 @@
 # Session Handoff
 
-- Feature: `subagent-run-live-updates`
-- Status: `done`（subagent 运行详情实时更新改造完成：ServerAgent 在 tool_execution_start/update/end SSE 分支经 SubagentRunEventPublisher 直发 subagentRunStore，local-tools 渲染回填同一 store，Workspace Inspector 改为订阅 store 更新已打开 Tab；runId 以 toolCallId 为主键、sessionId 仅历史兼容 fallback；针对性 6 文件 / 89 项、全量 144 文件 / 1184 项测试通过，TypeScript / lint / build 通过）
-- Current Objective: 完成 subagent 运行详情实时更新的 store 订阅 + SSE 直发改造并验证。
-- Files touched: src/lib/subagent-run-detail.ts、src/lib/server-agent.ts、src/lib/local-tools.ts、src/components/workspace/WorkspaceInspector.tsx、src/components/workspace/workspace-inspector-tabs.ts、tests/frontend/subagent-run-detail.test.ts、tests/frontend/server-agent.test.ts、tests/frontend/workspace-inspector-tabs.test.ts、docs/wiki/src/lib/README.md、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md
-- Blockers: 无。
-- Recommended Next Step: 无待办；如后续发布，遵循 docs/architecture/patch-release-runbook.zh-CN.md（发布前完整 test/lint/build）。
-- Last Updated: 2026-08-14
-- Verification Evidence: `npx tsc -b` 通过；针对性 vitest 6 文件 / 89 项全部通过；`npm run test` 144 文件 / 1184 项全部通过（100%）；`npm run lint` 0 error（仅 1 个并发 Cloud warning：server/cloud/identity.mjs）；`npm run build` 通过（仅既有 chunk size warning）。未提交 Git、未新增依赖、未手工修改生成产物、未触碰 Cloud 并发改动。
-- Notes: 见下方追加记录。
-- 追加记录（workspace-same-file-tab-reuse，2026-08-13）：A) Reader 复用——`openFileTab` 命中已有 `file:${path}` reader tab 时激活 panel/reader tab，并将该 reader 置为 `loading: true`、`error: undefined`，由既有加载 effect（`loadingReaderKeysRef` 去重）重新读取最新内容。B) Browser 复用——`openPanelTab('browser', { url })` 经新增纯函数 `findBrowserTabToReuse`/`browserPreviewReuseKey`（workspace-tab-file-path.ts）查找：本地文件路径归一化为 `file:` key（兼容 Windows 反斜杠/正斜杠），其余 URL 精确 `url:` key 比较；命中则激活并递增 `WorkspacePanelTab.reloadNonce`，未命中才新建；`+` 菜单空 URL 打开行为不变。C) 外部 reload token——`WorkspacePanelTab` 新增可选 `reloadNonce`（仅运行时、不持久化，serialize/normalize 不变），`WebPreviewContent` 新增可选 `externalReloadToken` prop 并纳入 previewCheckKey 与 iframe key，重复预览强制 iframe 重载。D) 仅同 kind 去重，不做 reader/browser 跨类型合并。测试新增 10 项（同文件复用、不同文件不复用、路径分隔符归一化、web URL 精确匹配、web/本地不互匹配、跨 kind 不去重、空 URL 不匹配等）。未提交 Git、未新增依赖、未手工修改生成产物（dist/ 由 build 正常再生成）。
-
-- 追加记录（settings-tab-select-alignment）：宽度对齐 + 已选值字号与菜单一致。改动文件：src/index.css（仅 `.quickforge-settings-select-trigger-label` 加 font-size: 0.9rem; line-height: 1.35;）、src/lib/default-options-settings-tab.ts（沿用此前两处 quickforge-settings-row-control-wide，未改动）、feature_list.json、progress.md、session-handoff.md。未新增依赖、未触碰生成目录、未改 wiki。
-- 追加验证（settings-tab-select-alignment）：`npm run lint` exit code 0，仅 7 个既有 warning（desktop/nsis-patch/apply.mjs no-console、server/cloud/identity.mjs no-useless-assignment），无 error；`npm run build` exit code 0，仅既有 KaTeX 字体与大 chunk warning。
-- 追加记录（release-v1.7.7-prep，2026-08-12）：v1.7.7 发布准备与验证完成。版本 1.7.6→1.7.7（package.json/package-lock.json 一致）；CHANGELOG 新增 1.7.7 章节（Cloud URL 改动 + 三个 fix + Released/离线包命令）；README.md 无硬编码版本未改。纳入已确认改动（Cloud、测试、release 脚本、runbook、AGENTS、PR 模板、wiki）；init.sh 纳入但无需修改。排除 .qf_staging/、artifacts/、空文件 c。
-- 追加验证（release-v1.7.7-prep）：`npm run test` 141 文件/1088 测试 100% 通过；`npm run lint` 0 error（1 个既有 warning：server/cloud/identity.mjs no-useless-assignment）；`npm run build` exit 0（仅既有 KaTeX/大 chunk warning）；tarball `package-offline/shawnstack-quickforge-1.7.7.tgz`（25.1 MB、291 文件）内容核验无排除项/临时/敏感文件。commit/tag/push/publish 未执行。
-- 下一步（待用户确认）：`git add` 建议清单见下方；`git commit -m "chore(release): v1.7.7"`；`git tag v1.7.7`；`git push origin master --tags`；npm publish 默认不执行，指令：`cd package-offline && npm publish --access public`（需先 `npm whoami`/`npm login`）。
-- 建议显式 git add 清单：package.json、package-lock.json、CHANGELOG.md、AGENTS.md、.github/PULL_REQUEST_TEMPLATE.md、docs/architecture/patch-release-runbook.zh-CN.md、docs/wiki/root-config.md、docs/wiki/scripts/README.md、scripts/prepare-patch-release.cjs、server/cloud/config.mjs、tests/server/cloud/config.test.mjs、tests/server/routes/cloud.test.mjs、init.sh；明确排除 .qf_staging/、artifacts/、c。
-- 追加记录（v1.7.7 远端 Git 发布完成，2026-08-12）：GitHub 连接恢复（ls-remote 第 1 次成功）。`git push origin master`：`2f4ecbb..c377144`；`git push origin v1.7.7`：`[new tag]`（tag 对象 093904e...，peeled c3771444...）。ls-remote 核验远端 master 与 v1.7.7^{} 均指向 `c3771444ad8da9bd1e2d870fcfe7de6562cb4a57`。状态提交 `docs(handoff): mark v1.7.7 git release complete` 已创建并推送。npm publish 未执行。
-- 追加记录（agent-profile-menu-edit-label，2026-08-13）：设置 → 智能体中，智能体操作菜单首项文案由 `openMenuAgent.builtin ? t('builtinAgentModelSettings') : t('editTask')` 统一为 `t('editTask')`，内置/自定义智能体均显示“编辑”（en 'Edit' / zh '编辑'）；仅改显示文案，onClick（openEditAgentDialog）等行为及其他逻辑不变。改动文件：src/components/agent-profiles/AgentProfilesPage.tsx（1 行）、feature_list.json、progress.md、session-handoff.md。未新增依赖、未触碰生成目录、未提交 Git、未改 wiki。
-- 追加验证（agent-profile-menu-edit-label）：`npm run lint` exit code 0，0 error，仅 1 个既有 warning（server/cloud/identity.mjs no-useless-assignment）；`npm run build` exit code 0，仅既有 KaTeX 字体与大 chunk warning。无对应组件测试（纯 JSX 文案改动）。
-
-- 追加记录（subagent-run-detail-panel，2026-08-14）：点击聊天 subagent 卡片 → 右侧侧栏查看“该次运行详情/执行过程”（用户明确要求，非 Agent Profile 配置）。先安全撤回错误方向（仅本 feature）：删除未跟踪 `src/lib/agent-profile-panel.ts`、`src/components/agent-profiles/AgentProfileSidePanel.tsx`、`tests/frontend/agent-profile-lookup.test.ts`；`src/lib/local-tools.ts` 删 `OPEN_AGENT_PROFILE_EVENT`/`renderOpenAgentProfileButton`/summary 调用；`src/App.tsx`、`src/hooks/useUIState.ts`、`src/components/agent-profiles/AgentProfilesPage.tsx`、`docs/wiki/src/README.md`、`docs/wiki/src/lib/README.md` diff 确认仅含错误 feature 后恢复 HEAD；`src/lib/i18n.ts` 仅删 `openAgentProfile`/`agentProfileNotFound`（en/zh），保留并发 cloud 的 `cloudRemoteAutoApproval*`；feature_list.json/progress.md/session-handoff.md 恢复 HEAD 历史后追加，未覆盖历史。正确实现：`lib/subagent-run-detail.ts` 纯逻辑（`buildSubagentRunPayload` 以 `details.sessionId` 为稳定 run id、旧消息回退 `${name}:${task}`；`subagentRunFingerprint` 去重；`normalizeOpenSubagentRunRequest` 校验；`shouldApplySubagentRunUpdate` 仅更新当前打开的 run）；卡片摘要行带文字标签“查看运行详情”按钮派发 `quickforge:open-subagent-run`（detail 含 runId+payload 快照），`<details>` 原生展开折叠不变；body 抽为共享模板 `renderSubagentRunBody`，侧栏经 Lit 宿主 `subagent-run-detail-body`（light DOM）复用，panel 模式无条件展示摘要/input/details；实时更新经 `queueMicrotask`+指纹去重派发 `quickforge:update-subagent-run`；与 WorkspaceInspector/Artifact 预览互斥；小屏降级全宽抽屉避免“已打开但 hidden 不可见”。i18n 新增 `viewSubagentRunDetails`/`subagentRunDetails`/`subagentRunEmpty`（en/zh）。新增测试 `tests/frontend/subagent-run-detail.test.ts`（13 项）。
-- 追加验证（subagent-run-detail-panel，2026-08-14）：`npm run test` exit code 0，143 文件 / 1145 项测试全部通过（100%）；`npm run lint` exit code 0，0 error，仅 1 个既有 warning（server/cloud/identity.mjs no-useless-assignment）；`npm run build` exit code 0，仅既有 KaTeX 字体与大 chunk warning；针对性测试 `subagent-run-detail.test.ts`（13 项）+ `subagent-process-trace.test.ts`（2 项）通过。未新增依赖、未提交 Git、未手工修改生成产物。
-- 并发注意（2026-08-14）：工作区存在另一会话的 Cloud 并发改动（server/cloud/*、src/components/cloud/*、src/lib/cloud-client.ts、cloud tests/docs、i18n cloudRemoteAutoApproval* 等），本会话全部保留未动；并发 cloud 会话可能需自行补记其状态到 feature_list.json / progress.md / session-handoff.md（本会话已按 HEAD 恢复后仅追加本 feature 记录）。
-
-- 追加记录（subagent-run-detail-hardening，2026-08-14）：独立审查确认的 3 个问题最小修复——A) local-tools.ts：`renderSubagentRunBody` 中 `<message-list>` 的 `?data-quickforge-subagent-process=${!options.panel}` 修为静态 `data-quickforge-subagent-process="true"`，内联与侧栏一致；此前空串值不匹配 index.css/message-actions 的精确 selector，且侧栏列表未被 windowed-messages 退避（hasAttribute 存在性），会被接管截断长 trace。B) App.tsx：新增统一 `closeSubagentRunPanel` useCallback（同时清 subagentRunPanelOpen/runId/payload），复用于 requestWorkspaceInspector、工具栏手动展开 WorkspaceInspector、项目切换清理 effect、面板 onClose；修复仅 open=false 导致隐藏面板按残留 runId 继续接收 UPDATE。C) subagent-run-detail.ts：fingerprint 新增 FNV-1a 32 位纯函数 stableHash + jsonText，对 output/input/details/traceMessages JSON 做轻量稳定 hash，同长度内容变化也会改变指纹，保留原有长度字段。另删除 SubagentRunDetailPanel 未使用的 runId prop 及 App 传参（runId 状态保留用于 UPDATE 匹配）。测试 13→14 项。未新增依赖、未提交 Git、未手工修改生成产物。
-- 追加验证（subagent-run-detail-hardening，2026-08-14）：`npm run test` exit code 0，143 文件 / 1146 项测试全部通过（100%）；`npm run lint` exit code 0，0 error，仅 1 个既有 warning（server/cloud/identity.mjs no-useless-assignment，属并发 cloud 改动）；`npm run build` exit code 0，仅既有 KaTeX 字体与大 chunk warning；针对性测试 subagent-run-detail（14 项）+ subagent-process-trace（2 项）+ windowed-messages（14 项）共 30 项通过。
-- 追加记录（subagent-run-workspace-tabs，2026-08-14）：按用户反馈，将 subagent 详情从独立侧栏改为 Workspace Inspector 运行时 Tab；点击聊天摘要直接打开/激活对应 runId，同一运行复用、不同运行独立并存，可切换/排序/关闭且实时更新。聊天移除 `<details>` 内联展开，完整任务、工具调用、过程与结果只在 Tab 显示。subagent Tab 不持久化，其他工作区 Tab 规则不变；支持无项目的全局对话。删除独立 `SubagentRunDetailPanel` 和 useUIState 专属状态。改动集中于 App、local-tools、subagent-run-detail、WorkspaceInspector/Tab 类型与纯逻辑、测试和 Wiki；并发 Cloud 改动保持不动。
-- 追加验证（subagent-run-workspace-tabs，2026-08-14）：TypeScript 通过；针对性 4 文件 / 33 项通过；`npm run test` 143 文件 / 1148 项全部通过（100%）；`npm run lint` 0 error，仅 1 个并发 Cloud warning；`npm run build` 通过，仅既有 KaTeX 字体与大 chunk warning。未 commit/tag/push，未手工修改生成产物。
-- 追加修正（subagent-run-workspace-tabs-style-config，2026-08-14）：运行详情 Tab 恢复与原 subagent 详情一致的展示层级，并遵循工具显示配置；`concise / compact` 不显示工具统计、允许工具、input/details，`detailed` 才显示。TypeScript、针对性 3 文件 / 29 项及修改文件 lint 均通过。
-- 追加记录（subagent-run-workspace-tabs-process-folding，2026-08-14）：侧边详情与聊天内 subagent 展示“一步到位一致”。A) 内部块顺序以 Git 历史最终态（1f40ead/32be493，不恢复已废弃 ad45fc7 分组重排）为规范：task/context/expectedOutput → detailed 摘要 → trace（保原始时间线）→ 无 trace 时 output → detailed 时 input/details；顺序抽为 `subagentRunBodyBlocks()` 单一事实来源，`renderSubagentRunBody` 据此输出。B) 过程折叠：`decorateMessages` 内联的 subagent message-list 装饰循环抽为导出的 `decorateSubagentProcessBlocks(panel)`（message-actions.ts，经 panel-decoration.ts 导出），聊天与侧边共用；`SubagentRunDetailBodyElement` 每次渲染后调度装饰（等 Lit 与 message-list updateComplete），覆盖首次挂载/payload 实时更新/运行状态变化，卸载置 disposed 防泄漏，幂等不重复。C) 视觉与可访问：body 模板与聊天内一致；聊天摘要按钮加 hover/focus-visible 反馈（index.css）+ aria-label/title；侧边容器沿用 Inspector `px-4 py-4`。D) WorkspaceInspector subagent Tab 审查：upsert/激活/关闭/重复 runId/无 projectId 均正确，未发现需修复缺陷，未动拖拽排序。E) 死代码清理：删除 `.quickforge-subagent-chevron` CSS（无渲染来源）与 `shouldApplySubagentRunUpdate`（src 无引用，实时更新已由 WorkspaceInspector 直接按 runId 处理）。F) 测试：subagent-run-detail.test.ts 新增 subagentRunBodyBlocks 顺序 5 项、trace 保序 1 项、called 状态 1 项（删除 shouldApplySubagentRunUpdate 用例）；新增 decorate-subagent-process.test.ts 4 项（子代理列表各自以子节点+streaming 标志装饰、未标记忽略、跨作用域过滤、空 panel no-op）。验证：`npx tsc -b` 通过；针对性 6 文件 / 91 项通过；`npm run lint` / `npm run build` 结果见追加验证。未新增依赖、未提交 Git、未触碰 Cloud 并发改动、未手工修改生成产物。
-- 追加验证（subagent-run-workspace-tabs-process-folding，2026-08-14）：`npx tsc -b` 通过；针对性 vitest 6 文件 / 92 项全部通过；`npm run test` 144 文件 / 1159 项全部通过（100%）；`npm run lint` 0 error（仅 1 个并发 Cloud warning）；`npm run build` 通过（仅既有 KaTeX 字体与大 chunk warning）。本 feature 达到 DoD；未 commit/tag/push。
-
-- 追加记录（subagent-run-live-updates，2026-08-14）：subagent 运行详情实时更新改造完成。A) 新增 `SubagentRunStore`（有界 100、指纹去重、订阅者异常隔离、clear 仅清快照保留订阅、重复发布不刷新插入顺序）与全局单例 `subagentRunStore`；新增纯函数 `subagentRunPayloadFromToolEvent`（start/update/end 事件 → 载荷，args 缓存回填、previousTiming 回填、isError 归 error）；新增 `SubagentRunEventPublisher`（按 toolCallId 缓存 run_subagent 的 args/toolName，start 经 `toolStartEventWithPartialResult` 规范事件发布、end 清理、dispose 清空，非 subagent 忽略）。B) `ServerAgent` 持有 publisher 并在 tool_execution_start/update/end 每次 state upsert 后发布，dispose 清理缓存；SSE 实时发布与 local-tools 渲染完全解耦。C) `local-tools.ts` 删除 UPDATE window 事件/指纹 Map/queueMicrotask，渲染器构建 payload 后 publish 到 store 作历史/恢复回填，摘要点击优先 store.get(runId) ?? payload。D) `WorkspaceInspector` 改为 useEffect 订阅 subagentRunStore（返回取消函数），仅更新已打开且同 runId 且指纹不同的 Tab（无匹配返回原数组），打开请求优先 store 最新载荷。E) runId 语义统一：新消息以 toolCallId 为主键、sessionId 仅历史兼容 fallback（注释与实现一致）。F) 测试：subagent-run-detail.test.ts 14→44 项（toolCallId 优先、sessionId 变化不影响、store 去重/订阅/取消/异常隔离/上限/插入顺序/clear、纯函数 start-update-end、Publisher 缓存生命周期/非 subagent 隔离/dispose）；server-agent.test.ts 20→21 项（端到端 SSE 发布：start/update/end 后全局 store 出现 running→running→done）。改动文件：src/lib/subagent-run-detail.ts、src/lib/server-agent.ts、src/lib/local-tools.ts、src/components/workspace/WorkspaceInspector.tsx、tests/frontend/subagent-run-detail.test.ts、tests/frontend/server-agent.test.ts、docs/wiki/src/lib/README.md、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
-- 追加验证（subagent-run-live-updates，2026-08-14）：`npx tsc -b` 通过；针对性 vitest 6 文件 / 89 项全部通过；`npm run test` 144 文件 / 1184 项全部通过（100%）；`npm run lint` 0 error（仅 1 个并发 Cloud warning：server/cloud/identity.mjs）；`npm run build` 通过（仅既有 chunk size warning）。本 feature 达到 DoD；未 commit/tag/push、未新增依赖、未手工修改生成产物（dist/ 由 build 正常再生成）、未触碰 Cloud 并发改动（docs/architecture/quickforge-cloud-client.zh-CN.md、docs/wiki/server/README.md、server/cloud/*、src/components/cloud/*、src/lib/cloud-client.ts、src/lib/i18n.ts、cloud tests 等全部保留）。
-
-## 追加交接（subagent-run-canonical-id-live-updates，2026-08-15）
-
-- Status: done。
-- Files: src/lib/local-tools.ts、src/lib/subagent-run-detail.ts、tests/frontend/subagent-run-detail.test.ts、docs/wiki/src/lib/README.md、docs/wiki/src/components/README.md。
-- Result: 聊天摘要、SSE、最终 toolResult 使用 canonical toolCallId；无 ID 的运行中摘要不可打开错误 fallback Tab；历史 fallback 不进入实时 store；恢复终态可修正残留 running。
-- Verification: 相关测试 108/108；TypeScript 通过；完整测试 144 文件/1203 项；lint 0 error（仅 Cloud warning）；build 通过。
-- Next: 用户实测；如需推送，推送本次独立提交。
-
-## Desktop Native System Notifications Handoff (2026-08-17)
-
-- Feature: `desktop-native-system-notifications`
-- Status: done，待真实 Electron 桌面环境人工验证
-- Objective: 现有系统通知默认开启，并为 Electron Desktop 增加安全的主进程原生通知与点击打开会话能力。
-- Files touched: `desktop/electron-main.mjs`、`desktop/electron-preload.cjs`、`src/lib/system-notifications.ts`、`src/lib/default-options-settings-tab.ts`、`src/lib/i18n.ts`、`tests/frontend/system-notifications.test.ts`、`tests/frontend/electron-desktop-notifications-structure.test.ts`、`docs/wiki/README.md`、`docs/wiki/src/lib/README.md`、状态文件。
-- Security: preload 仅暴露 `isSupported/show/onOpenSession`；固定 channel，无通用 IPC；主进程仅接受当前主窗口 main frame，严格限制 request/payload keys 与 title/body/sessionId 长度；BrowserWindow 继续使用 context isolation、禁用 Node、启用 sandbox。
-- Behavior: 通知偏好缺省为开启，显式关闭/开启存 `0` / `1`；浏览器初始化不请求权限；设置页的 `prompt` 只影响当前展示，不持久化关闭；适配优先级 Capacitor → Desktop → Service Worker/Web；Desktop 点击恢复、显示、聚焦窗口并派发既有 session 打开事件。
-- Verification: 针对性测试 22/22；修改文件 ESLint 通过；`npx tsc -b` 通过；Electron 文件语法检查通过；完整测试 149 文件/1231 项全部通过；完整 lint 0 error（仅 `server/cloud/identity.mjs` 的 1 条并行 Cloud warning）；`npm run build` 通过（仅既有 KaTeX/大 chunk warning）。
-- Manual verification: Windows 安装包 `desktop-dist/QuickForge Setup 1.7.7.exe` 已基于当前工作区构建成功并启动安装程序；真实系统通知展示、托盘隐藏/最小化后的点击恢复聚焦及 session 跳转仍待人工实测。
-- Blockers: 无。未做真实系统通知点击实测，未 commit/tag/push；并行工作区内容保持不动。
-
-## Subagent Error Details Visibility Handoff (2026-08-17)
-
-- Feature: `subagent-error-details-visibility`
-- Status: done，待界面人工验证
-- Objective: 修复 subagent 显示失败但具体错误正文不可见，并防止错误原因被过程折叠、trace/output 互斥或终态空 details 覆盖。
-- Files touched: `src/components/chat/panel-decoration/process-folding.ts`、`src/lib/subagent-run-detail.ts`、`src/lib/local-tools.ts`、`src/lib/i18n.ts`、`tests/frontend/process-folding.test.ts`、`tests/frontend/subagent-run-detail.test.ts`、状态文件。
-- Behavior: 状态以过滤后 trace 中最后一个带 `stopReason` 的 assistant 为内部终态：最终 `error/aborted` 可覆盖外层误报的 done/running，后续成功终态不会被旧错误污染；错误原因优先取该最终错误 assistant 的非空 `errorMessage`，再取错误 output/details，最后显示本地化兜底；详情中错误块独立常显，和 trace 原生错误/output 去重。
-- Event preservation: `handleToolEnd` 的 details 为空/缺失时保留 previous details 中的 trace 和元数据；错误终态缺正文时保留 previous error output。
-- Verification: 针对性 Vitest 2 文件/123 项；修改文件 ESLint 通过；`npx tsc -b` 通过。未跑完整 test/lint/build。
-- Docs: 未更新 Wiki；该变更为局部可见性缺陷修复，不改变模块入口、公共职责或架构。
-- Blockers: 无。建议人工验证三种错误：trace 有 errorMessage、trace errorMessage 为空但 output 有正文、完全无正文的兜底。
-- Git: 未 commit/tag/push；工作区其他并行改动保持不动。
-
-## Previous Session Handoffs
-
-- Feature: `standard-skill-frontmatter-name-id`
-- Status: done
-- Current Objective: 标准 Agent Skill 以 `SKILL.md` frontmatter `name` 作为唯一权威 ID，允许目录名不同。
-- Files touched:
-  - `server/skills.mjs`
-  - `tests/server/skills.test.mjs`
-  - `docs/wiki/server/README.md`
-  - `feature_list.json` / `progress.md` / `session-handoff.md`
-- Implementation: 仅删除 `skillFromStandardMarkdown()` 中 canonical name 与 `path.basename(rootDir)` 相等的拒绝条件；其他标准校验、legacy fallback、同名覆盖和实际 `rootDir` 资源读取保持不变。
-- Regression: 新测试在 `Descriptive Folder/SKILL.md` 声明 `name: Canonical-Skill`，确认按 `canonical-skill` 发现、返回 canonical name/displayName/实际 rootDir，并成功列出和读取该目录下资源。
-- Docs: server Wiki 已明确 frontmatter name 为权威 ID、目录名可不同、展示名使用 `metadata.displayName`（兼容 title）。
-- Verification: 针对性 Vitest 2 文件/39 项；修改文件 ESLint 通过；Node ESM 语法检查通过。未跑 build，因无前端/构建链变更。
-- Blockers/Risks: 无已知 blocker；如果不同目录声明相同 canonical name，仍按既有来源和遍历顺序后者覆盖，这是保留的既有语义。
-- Git: 未 commit/tag/push；未新增依赖，未手工修改生成产物，工作区其他并行改动保持不动。
+- Feature: `lan-access-storage-migration`（F11）
+- Status: **done**（Phase 1 核心层 + Phase 2 store 接入/生命周期/routes + Phase 3 backup/restore/离线工具/全量门禁 全部闭环；全量 test/lint/build 100% 通过）
+- Current Objective: 已完成。F11 收尾交付——backup route 权威导出（`lanAccessState` envelope，维护锁内 quick_check+verifyIntegrity+exportSnapshot，count/digest fail closed，导出含 token 哈希非明文、剔除 revision）+ restore（replace/merge + `lan-access-restore-plan.json` 计划文件 + 失败补偿 + 维护锁 423 `lan_access_maintenance` + 恢复覆盖 enabled 开关→inspect 警告「将替换局域网访问配置」+ v1 归一化导入 + 不破坏 F5/F7/F9/F10 + `recoverLanAccessRestorePlan` 接入 index.mjs 启动链）+ 离线工具（`export-lan-access-v1.mjs` / `downgrade-lan-access-v1.mjs`）+ Electron full-chain smoke 全链覆盖 + 全量门禁。
+- Phase 3 deliverables:
+  - `server/lan-access-backup.mjs`（新）：`exportLanAccessStateForBackup`/`restoreLanAccessStateSnapshot`/`recoverLanAccessRestorePlan`/`computeLanAccessSnapshotDigest`（镜像 share-backup 模式，`lan-access-restore-plan.json` 计划文件、applying 类 roll-forward、compensating 类 rollback、`retainLanAccessMaintenance` 补偿失败语义）
+  - `server/maintenance/export-lan-access-v1.mjs`（新）：停机权威 v1 导出（`{ scope:'lan-access', lanAccessState, data:{lanAccess} }`，临时文件重读校验后 rename；cutover_running/json_authoritative 拒绝）
+  - `server/maintenance/downgrade-lan-access-v1.mjs`（新）：--dry-run 零写入 / 默认 drain 物化完整 JSON / --commit 校验后切回 json_authoritative（tokenCount/digest 精确对拍，失败不留部分输出）
+  - `server/routes/backup.mjs`：backupScopes + `lan-access`、restoreSectionIds + `lanAccess`、buildBackup 纳入 lanAccess 权威导出、restoreValidatedBackup lanAccess 分支、inspect 警告、423 门禁、safety backup scope all
+  - `server/index.mjs`：启动链插入 `recoverLanAccessRestorePlan()`（initializeLanAccessCutover → initializeLanAccessService → recoverLanAccessRestorePlan → drainLanAccessJsonMirror）
+  - 测试（新）：`tests/server/backup.authoritative-lan-access.test.mjs`（7 项）、`tests/server/lan-access-offline-export.test.mjs`（7 项）
+  - `tests/fixtures/session-state-full-chain-electron-smoke.mjs` + `tests/server/session-state-full-chain-electron-smoke.test.mjs`：lanAccess backup/restore/offline export/downgrade 全链断言
+  - 文档：架构文档 §8/§9/§10、wiki server/README、wiki routes/README、feature_list.json/progress.md/session-handoff.md
+- Key decisions:
+  - lanAccess 是单配置对象（非 keyed map）：`data.lanAccess` 直接为 v1 lan-access.json 形状；`lanAccessState.count` = token 数（inspect summary 与 import summary 一致）
+  - merge 语义 = 顶层字段合并（backup 同 key 覆盖、本地 tokens 保留当 backup 无 tokens 键）；replace 全量替换
+  - 离线工具与测试必须显式注入 `readJson`（`defaultLanAccessConfig()` 每次调用 updatedAt 不同会导致 cutover 双快照 digest 不一致；离线测试父进程 storageDir 指向真实 dataDir，必须用显式 mock 源隔离）
+  - verifyLanAccessToken 在 backup/restore/downgrade 后仍 fail-closed（route 测试覆盖）
+- Verification（Phase 3）:
+  - `node --check` 全部改动通过；目标 ESLint 0 error / 0 warning
+  - Vitest 针对性：新增 14 项（backup.authoritative-lan-access 7 + lan-access-offline-export 7）；lan-access 六文件回归 33 项；backup/share 四文件回归 43 项；`index.tunnel-host.integration` 4 项
+  - **全量门禁：`npm run test` 196 文件 / 1566 项 100% 通过；`npm run lint` 0 error（仅既有 server/cloud/identity.mjs 1 条 warning）；`npm run build` exit 0（仅既有 KaTeX/大 chunk warning）**
+  - Electron 39.8.10（Node 22.22.1 / SQLite 3.51.2）ELECTRON_RUN_AS_NODE=1：full-chain smoke 输出 `{"ok":true,"schemaVersion":9,...,"lanAccess":{"phase":"authoritative","count":1,"roundtripDigestOk":true,"mirrorOk":true,"revokeAllOk":true,"backupRestoreOk":true,"downgrade":{"dryRunOk":true,"materialized":1,"committed":true,"phaseAfterCommit":"json_authoritative"}},"runtime":{"electron":"39.8.10","node":"22.22.1","sqlite":"3.51.2"}}`；既有 4 个 Electron fixtures 复跑全部通过
+- Boundaries: 未触碰 `routes/lan-access.mjs`（零改动）、`dist/`/`package-dist/`/`package-offline/`；未 commit/tag/push；工作区仍有多智能体并行未提交改动，仅处理 F11 相关文件，禁止整体回滚
+- Notes: 测试隔离要点不变——依赖 storageDir 的模块须在设 `QUICKFORGE_DATA_DIR` 后 `vi.resetModules()` 动态导入；离线工具测试父进程用显式 `readJson` mock（stableDefaultLanAccessConfig 固定 updatedAt）隔离真实 dataDir；smoke fixture 中 lanAccess offline 工具段必须在 `closeSqliteStorage()` 之后 spawn（工具自行开库）；真实 `~/.quickforge/storage/security/lan-access.json` mtime 未被本次改动（测试只读临时目录）。F12 登记由并行会话完成（IndexedDB 性能分析→会话消息快照缓存，分析记录见 progress.md「F12 登记」小节），与本 F11 收尾改动无代码文件交集，状态文件已核对无冲突。
+- Next: F12 `session-message-indexeddb-cache` 已登记（pending，依赖 F9 done）：IndexedDB 会话消息只读快照缓存，三阶段方案（Phase 1 基准+设计 → Phase 2 核心缓存层 → Phase 3 stale-while-revalidate 集成）见 feature_list.json 描述；边界：服务器 SQLite 保持唯一权威，IndexedDB 仅浏览器只读缓存层。另：IndexedDB 分析中还有 P1 workspace 文件树/preview 缓存、P2 启动 settings 快照候选，暂未登记。

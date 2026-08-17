@@ -6,6 +6,7 @@ import {
   createConversationShare,
   deleteConversationShare,
   listConversationShares,
+  readConversationShare,
   restoreConversationShare,
   revokeConversationShare,
   updateConversationShare,
@@ -102,8 +103,9 @@ export async function handleSharesApi(req, res, url, context = { isLocalRequest:
     if (req.method === 'POST' && action === 'restore') {
       const body = await readJsonBody(req)
       const expiresAt = typeof body?.expiresAt === 'string' && body.expiresAt ? body.expiresAt : undefined
-      const currentShares = await listConversationShares()
-      const current = currentShares.find((share) => share.id === shareId)
+      // Restore operates on the share record itself (including revoked state);
+      // the default list excludes revoked shares, so resolve directly.
+      const current = await readConversationShare(shareId)
       if (!current) {
         const error = new Error('Share not found')
         error.statusCode = 404

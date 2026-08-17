@@ -426,7 +426,10 @@ export type ServerAgentStateSnapshot = {
   startedAt?: string | null
   finishedAt?: string | null
   stateVersion?: number
+  messageStorage?: 'split'
   messages?: AgentMessage[]
+  /** Lightweight summary replacing `messages` on split-session state frames. */
+  messagesSummary?: { count?: number }
   systemPrompt?: string
   model?: Model<Api>
   thinkingLevel?: ThinkingLevel
@@ -443,6 +446,63 @@ export type ServerAgentStateSnapshot = {
   isStreaming?: boolean
   errorMessage?: string
   acpSession?: OpenCodeAcpSession | null
+}
+
+// ---------------------------------------------------------------------------
+// Split-session message reconciliation
+// ---------------------------------------------------------------------------
+
+function sameMessageShape(left: AgentMessage | undefined, right: AgentMessage): boolean {
+  if (!left) return false
+  const leftId = (left as { id?: unknown }).id
+  const rightId = (right as { id?: unknown }).id
+  if (typeof leftId === 'string' && typeof rightId === 'string' && leftId === rightId) return true
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+/**
+ * Merge an incremental tail (`messages` starting at index `after`) into the
+ * local message list. Overlapping positions keep the server's version only
+ * when the content actually differs (same-position edits); identical messages
+ * (e.g. already applied via a message_end upsert) are skipped. This is the
+ * split-session counterpart of the legacy whole-array replacement.
+ */
+export function mergeIncrementalMessages(current: AgentMessage[], after: number, tail: AgentMessage[]): AgentMessage[] {
+  const result = current.slice()
+  const start = Math.max(0, Math.min(after, result.length))
+  for (let index = 0; index < tail.length; index += 1) {
+    const position = start + index
+    const message = tail[index]
+    if (position < result.length) {
+      if (sameMessageShape(result[position], message)) continue
+      result[position] = message
+    } else {
+      result.push(message)
+    }
+  }
+  return result
+}
+
+type SessionMessagesPage = { messages: AgentMessage[]; count: number; hasMore: boolean }
+
+async function fetchSessionMessagesPage(baseUrl: string, sessionId: string, after: number): Promise<SessionMessagesPage | null> {
+  const url = `${baseUrl}/api/agents/${encodeURIComponent(sessionId)}/messages?after=${after}`
+  const { response, body } = await fetchJsonWithTimeout<{ messages?: AgentMessage[]; count?: number; hasMore?: boolean }>(url, STATE_REQUEST_TIMEOUT_MS)
+  if (!response.ok) return null
+  return { messages: body?.messages ?? [], count: body?.count ?? after, hasMore: Boolean(body?.hasMore) }
+}
+
+async function fetchAllSessionMessages(baseUrl: string, sessionId: string): Promise<AgentMessage[]> {
+  const all: AgentMessage[] = []
+  let after = 0
+  for (let guard = 0; guard < 128; guard += 1) {
+    const page = await fetchSessionMessagesPage(baseUrl, sessionId, after)
+    if (!page) break
+    all.push(...page.messages)
+    if (!page.hasMore || page.messages.length === 0) break
+    after += page.messages.length
+  }
+  return all
 }
 
 export class ServerAgent {
@@ -939,13 +999,17 @@ export class ServerAgent {
         // Guard against SSE reconnect overwriting client messages with a stale
         // server snapshot: only accept server messages if the client has none
         // (initial load) or if the server has at least as many messages.
-        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; accessMode?: AgentAccessMode; yoloMode?: boolean; isStreaming?: boolean; status?: string; pendingToolCalls?: string[]; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null; pendingToolApproval?: ServerAgentPendingToolApproval | null; pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null; acpSession?: OpenCodeAcpSession | null }
+        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; messagesSummary?: { count?: number }; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; accessMode?: AgentAccessMode; yoloMode?: boolean; isStreaming?: boolean; status?: string; pendingToolCalls?: string[]; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null; pendingToolApproval?: ServerAgentPendingToolApproval | null; pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null; acpSession?: OpenCodeAcpSession | null }
         if (s.systemPrompt !== undefined) {
           this.state.systemPrompt = s.systemPrompt
         }
         if (s.messages && (s.messages.length > this.state.messages.length || (!this.state.isStreaming && s.messages.length === this.state.messages.length))) {
           this.state.messages = s.messages
           this.stateVersion++
+        } else if (!s.messages && s.messagesSummary) {
+          // Split session: state frames carry only a count summary; fetch and
+          // merge the missing tail asynchronously.
+          void this.reconcileMessagesFromSummary(s.messagesSummary)
         }
         if (s.model) {
           this.state.model = s.model
@@ -1015,13 +1079,41 @@ export class ServerAgent {
 
       case 'agent_end': {
         this.stopStateWatchdog()
-        const endEvent = event as { messages?: AgentMessage[]; errorMessage?: string; contextUsage?: ServerAgentContextUsage | null }
+        const endEvent = event as { messages?: AgentMessage[]; messagesAfter?: number; messagesIncremental?: boolean; messagesSummary?: { count?: number }; errorMessage?: string; contextUsage?: ServerAgentContextUsage | null }
 
         // The server normalizes pi-agent-core's agent_end payload to include
-        // the authoritative full session history. Prefer that SSE payload to
-        // avoid an extra /state request that would transfer the same long
-        // message list again. If the event is missing messages or looks older
-        // than local state, fall back to the full state fetch for safety.
+        // the authoritative full session history (non-split) or an incremental
+        // tail + summary (split). Prefer that SSE payload to avoid an extra
+        // /state request that would transfer the same long message list again.
+        // If the event is missing messages or looks older than local state,
+        // fall back to the full state fetch for safety.
+        if (endEvent.messagesIncremental) {
+          this.state.messages = mergeIncrementalMessages(
+            this.state.messages,
+            typeof endEvent.messagesAfter === 'number' ? endEvent.messagesAfter : this.state.messages.length,
+            endEvent.messages ?? [],
+          )
+          this.state.contextUsage = endEvent.contextUsage !== undefined ? endEvent.contextUsage : null
+          this.state.isStreaming = false
+          this.state.streamingMessage = undefined
+          this.state.pendingToolApproval = null
+          this.state.pendingAutoCompactApproval = null
+          if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
+          this.stateVersion++
+          this.emitToListeners(event as unknown as AgentEvent)
+          return
+        }
+        if (endEvent.messagesSummary && !Array.isArray(endEvent.messages)) {
+          void this.reconcileMessagesFromSummary(endEvent.messagesSummary).finally(() => {
+            this.state.isStreaming = false
+            this.state.streamingMessage = undefined
+            this.state.pendingToolApproval = null
+            this.state.pendingAutoCompactApproval = null
+            if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
+            this.emitToListeners(event as unknown as AgentEvent)
+          })
+          return
+        }
         if (endEvent.messages && endEvent.messages.length >= this.state.messages.length) {
           this.state.messages = endEvent.messages
           this.state.contextUsage = endEvent.contextUsage !== undefined ? endEvent.contextUsage : null
@@ -1052,9 +1144,20 @@ export class ServerAgent {
         // calls are executed after the assistant message_end event, so keeping
         // this message in local state lets pending run_command cards render
         // immediately instead of waiting for a full state refresh.
-        const msgEvent = event as { message?: AgentMessage; messages?: AgentMessage[]; contextUsage?: ServerAgentContextUsage | null }
+        const msgEvent = event as { message?: AgentMessage; messages?: AgentMessage[]; messagesAfter?: number; messagesIncremental?: boolean; messagesSummary?: { count?: number }; contextUsage?: ServerAgentContextUsage | null }
         if (msgEvent.message) {
           this.state.messages = upsertMessage(this.state.messages, msgEvent.message)
+          this.state.contextUsage = msgEvent.contextUsage !== undefined ? msgEvent.contextUsage : null
+          this.stateVersion++
+          this.emitToListeners(event as unknown as AgentEvent)
+          return
+        }
+        if (msgEvent.messagesIncremental) {
+          this.state.messages = mergeIncrementalMessages(
+            this.state.messages,
+            typeof msgEvent.messagesAfter === 'number' ? msgEvent.messagesAfter : this.state.messages.length,
+            msgEvent.messages ?? [],
+          )
           this.state.contextUsage = msgEvent.contextUsage !== undefined ? msgEvent.contextUsage : null
           this.stateVersion++
           this.emitToListeners(event as unknown as AgentEvent)
@@ -1065,6 +1168,12 @@ export class ServerAgent {
           this.state.contextUsage = msgEvent.contextUsage !== undefined ? msgEvent.contextUsage : null
           this.stateVersion++
           this.emitToListeners(event as unknown as AgentEvent)
+          return
+        }
+        if (msgEvent.messagesSummary) {
+          void this.reconcileMessagesFromSummary(msgEvent.messagesSummary).finally(() => {
+            this.emitToListeners(event as unknown as AgentEvent)
+          })
           return
         }
         // No messages in event — refresh from server as last resort
@@ -1094,8 +1203,23 @@ export class ServerAgent {
       }
 
       case 'messages_replaced': {
-        const replacedEvent = event as { messages?: AgentMessage[]; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null }
-        if (replacedEvent.messages) {
+        const replacedEvent = event as { messages?: AgentMessage[]; messagesAfter?: number; messagesIncremental?: boolean; messagesSummary?: { count?: number }; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null }
+        if (replacedEvent.messagesIncremental) {
+          // Split sessions normally emit a summary-only frame for replacements
+          // (rollback/clear produce an empty tail); keep this branch for
+          // forward compatibility with tail-carrying replacement frames.
+          this.state.messages = mergeIncrementalMessages(
+            this.state.messages,
+            typeof replacedEvent.messagesAfter === 'number' ? replacedEvent.messagesAfter : this.state.messages.length,
+            replacedEvent.messages ?? [],
+          )
+          this.state.streamingMessage = undefined
+          this.stateVersion++
+        } else if (replacedEvent.messagesSummary && !Array.isArray(replacedEvent.messages)) {
+          // Split-session rollback/clear: the server truncated the history, so
+          // refetch everything and replace the local list.
+          void this.reconcileMessagesFromSummary(replacedEvent.messagesSummary)
+        } else if (replacedEvent.messages) {
           this.state.messages = replacedEvent.messages
           this.state.streamingMessage = undefined
           this.stateVersion++
@@ -1105,7 +1229,7 @@ export class ServerAgent {
         }
         if (replacedEvent.contextUsage !== undefined) {
           this.state.contextUsage = replacedEvent.contextUsage
-        } else if (replacedEvent.messages) {
+        } else if (replacedEvent.messages || replacedEvent.messagesIncremental) {
           this.state.contextUsage = null
         }
         break
@@ -1336,6 +1460,58 @@ export class ServerAgent {
     return this.refreshPromise
   }
 
+  // --- Split-session message reconciliation ---
+
+  private async fetchMessagesFromServer(after: number): Promise<SessionMessagesPage | null> {
+    return fetchSessionMessagesPage(this.baseUrl, this.sessionId, after)
+  }
+
+  private async fetchAllMessagesFromServer(): Promise<AgentMessage[]> {
+    return fetchAllSessionMessages(this.baseUrl, this.sessionId)
+  }
+
+  /**
+   * Reconcile local messages against a `messagesSummary` (count) received in a
+   * state frame for a split session. Snapshot-based staleness guard: any state
+   * write that happens while the fetch is in flight (a concurrent SSE event
+   * that already advanced this.stateVersion) discards the result — the newer
+   * event is authoritative.
+   */
+  private async reconcileMessagesFromSummary(summary: { count?: number }): Promise<void> {
+    const versionBefore = this.stateVersion
+    const localCount = this.state.messages.length
+
+    if (typeof summary.count === 'number' && summary.count < localCount) {
+      // Server truncated below the local count (rollback/clear/compaction):
+      // the incremental tail does not apply — refetch everything and replace.
+      const all = await this.fetchAllMessagesFromServer()
+      if (versionBefore !== this.stateVersion || all.length === 0) return
+      this.state.messages = all
+      this.state.contextUsage = null
+      this.stateVersion++
+      return
+    }
+
+    const after = localCount
+    const page = await this.fetchMessagesFromServer(after)
+    if (versionBefore !== this.stateVersion || !page) return
+    if (page.count < after) {
+      // Server has fewer messages than the client assumed (rollback without a
+      // summary count update): full refetch replace.
+      const all = await this.fetchAllMessagesFromServer()
+      if (versionBefore !== this.stateVersion || all.length === 0) return
+      this.state.messages = all
+      this.state.contextUsage = null
+      this.stateVersion++
+      return
+    }
+    if (page.messages.length > 0) {
+      this.state.messages = mergeIncrementalMessages(this.state.messages, after, page.messages)
+      this.state.contextUsage = null
+      this.stateVersion++
+    }
+  }
+
   private async _doRefreshStateFromServer(options?: { notify?: boolean; forceMessages?: boolean }) {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/state`
     try {
@@ -1381,6 +1557,12 @@ export class ServerAgent {
         this.state.messages = state.messages
         this.state.contextUsage = state.contextUsage !== undefined ? state.contextUsage : null
         this.stateVersion++
+      } else if (!state.messages && state.messagesSummary) {
+        // Split session: the state frame only carries a count summary. Fetch
+        // and merge the missing tail (or refetch all when the server
+        // truncated). The reconcile itself snapshots stateVersion before the
+        // async gap, so concurrent SSE updates still win.
+        await this.reconcileMessagesFromSummary(state.messagesSummary)
       }
       if (state.systemPrompt !== undefined) {
         this.state.systemPrompt = state.systemPrompt
@@ -1472,6 +1654,12 @@ export class ServerAgent {
     if (config.signal?.aborted) throw config.signal.reason ?? new DOMException('Aborted', 'AbortError')
 
     const snapshot = body ?? {}
+    // Split sessions answer /restore with a lightweight summary instead of the
+    // full message list; materialize the conversation through the paginated
+    // messages channel so the restore frame itself stays small.
+    if (!Array.isArray(snapshot.messages) && snapshot.messagesSummary) {
+      snapshot.messages = await fetchAllSessionMessages(baseUrl, sessionId)
+    }
     const agent = new ServerAgent({
       sessionId,
       baseUrl,
@@ -1566,6 +1754,9 @@ export class ServerAgent {
       )
       if (stateRes.ok) serverState = body ?? {}
     } catch { /* ignore */ }
+    if (!Array.isArray(serverState.messages) && (serverState as { messagesSummary?: unknown }).messagesSummary) {
+      serverState.messages = await fetchAllSessionMessages(baseUrl, sessionId)
+    }
 
     return new ServerAgent({
       sessionId,

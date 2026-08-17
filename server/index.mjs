@@ -6,7 +6,16 @@ import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { sendJson, sendError } from './utils/response.mjs'
 import { openBrowser, openPathInFileManager } from './utils/platform.mjs'
-import { ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir } from './storage.mjs'
+import { ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir, readPhysicalSessionMetadataBuckets, registerSessionMetadataCommitHook } from './storage.mjs'
+import { initializeSessionStateCutover } from './session-state-cutover.mjs'
+import { initializeSessionStateService, drainSessionJsonMirror, stopSessionStateService } from './session-state-service.mjs'
+import { initializeShareCutover } from './share-cutover.mjs'
+import { drainShareJsonMirror, initializeShareService, stopShareService } from './share-service.mjs'
+import { initializeLanAccessCutover } from './lan-access-cutover.mjs'
+import { drainLanAccessJsonMirror, initializeLanAccessService, stopLanAccessService } from './lan-access-service.mjs'
+import { recoverSessionStateRestorePlan } from './session-state-backup.mjs'
+import { recoverShareRestorePlan } from './share-backup.mjs'
+import { recoverLanAccessRestorePlan } from './lan-access-backup.mjs'
 import { getNetworkProxyConfig, initializeNetworkProxy, refreshSystemProxy, updateNetworkProxyConfig } from './network-proxy.mjs'
 import { setDefaultWorkspaceRoot, initializeActiveProject, readProjectConfig, getActiveProject, readTerminalShellSetting, updateTerminalShellSetting, readTerminalShellConfig, updateTerminalShellConfig } from './project-config.mjs'
 import { getWorkspaceRoot } from './utils/workspace.mjs'
@@ -20,7 +29,7 @@ import { handleSkillsApi } from './routes/skills.mjs'
 import { ensureDefaultGlobalSkills } from './skills.mjs'
 import { handleAgentApi } from './routes/agent.mjs'
 import { handleAgentProfilesApi } from './routes/agent-profiles.mjs'
-import { handleScheduledTasksApi, startScheduledTaskRunner, stopScheduledTaskRunner } from './routes/scheduled-tasks.mjs'
+import { handleScheduledTasksApi, recoverStaleScheduledTaskRuns, startScheduledTaskRunner, stopScheduledTaskRunner } from './routes/scheduled-tasks.mjs'
 import { startAutoArchiveRunner, stopAutoArchiveRunner } from './auto-archive.mjs'
 import { handleBackupApi } from './routes/backup.mjs'
 import { handleSystemApi } from './routes/system.mjs'
@@ -48,6 +57,10 @@ import { shutdown as shutdownAgentManager, resetStaleTaskStatuses } from './agen
 import { initializeChannels, shutdownChannels } from './channels/registry.mjs'
 import { shutdownMcpConnections } from './mcp/registry.mjs'
 import { shutdownTerminalSessions } from './terminal/terminal-manager.mjs'
+import { closeSqliteStorage, getSqliteStorageSummary, initializeSqliteStorage } from './sqlite/database.mjs'
+import { initializeScheduledRunsCutover } from './scheduled-runs-cutover.mjs'
+import { recoverScheduledRunsRestorePlan } from './scheduled-runs-backup.mjs'
+import { configureSessionIndex, getSessionIndexDiagnostics, initializeSessionIndex, syncSessionMetadataCommit } from './session-index-service.mjs'
 import { createNodeProcessEnv } from './utils/process-env.mjs'
 import { isAuthenticatedAppClient } from './access-policy.mjs'
 
@@ -108,6 +121,8 @@ async function getSystemStatus({ isLocalRequest = true, remoteAuthorized = false
     storageDir,
     cacheDir,
     logsDir,
+    sqlite: getSqliteStorageSummary(),
+    sessionIndex: getSessionIndexDiagnostics(),
     workspaceRoot: getWorkspaceRoot(),
     host,
     port,
@@ -161,15 +176,22 @@ function closeHttpServer() {
 
 async function shutdownRuntime() {
   shutdownStarted = true
-  await stopQfAgent()
-  stopScheduledTaskRunner()
-  stopAutoArchiveRunner()
-  stopVite()
-  await shutdownAgentManager()
-  await shutdownMcpConnections()
-  await shutdownChannels()
-  shutdownTerminalSessions()
-  await closeHttpServer()
+  try {
+    await stopQfAgent()
+    stopScheduledTaskRunner()
+    stopAutoArchiveRunner()
+    stopVite()
+    await shutdownAgentManager()
+    await shutdownMcpConnections()
+    await shutdownChannels()
+    shutdownTerminalSessions()
+    await closeHttpServer()
+  } finally {
+    stopSessionStateService()
+    stopShareService()
+    stopLanAccessService()
+    await closeSqliteStorage()
+  }
 }
 
 export function stopQuickForgeServer() {
@@ -422,7 +444,7 @@ async function handleApi(req, res, url, requestContext = {}) {
   }
 
   // Project workspace inspector routes
-  if (pathname === '/api/workspace/tree' || pathname === '/api/workspace/file' || pathname === '/api/workspace/resolve-path' || pathname === '/api/workspace/open-external' || pathname.startsWith('/api/workspace/preview/')) {
+  if (pathname === '/api/workspace/tree' || pathname === '/api/workspace/children' || pathname === '/api/workspace/search' || pathname === '/api/workspace/file' || pathname === '/api/workspace/resolve-path' || pathname === '/api/workspace/open-external' || pathname.startsWith('/api/workspace/preview/')) {
     await handleWorkspaceApi(req, res, url, requestContext)
     return
   }
@@ -751,6 +773,34 @@ server.on('upgrade', (req, socket, head) => {
 })
 
 await ensureStorage()
+await initializeSqliteStorage({ dataDir })
+await initializeScheduledRunsCutover()
+await recoverScheduledRunsRestorePlan()
+await recoverStaleScheduledTaskRuns()
+// Session state cutover: authoritative integrity failures fail closed and
+// block startup; json_authoritative failures keep the legacy JSON path.
+await initializeSessionStateCutover()
+await initializeSessionStateService()
+await recoverSessionStateRestorePlan()
+await drainSessionJsonMirror()
+// Share storage cutover: share-store writes become SQLite-authoritative once
+// pending/authoritative; integrity failures fail closed and block startup,
+// json_authoritative failures keep the legacy JSON path. The JSON file stays
+// as the best-effort mirror drained through the share mirror queue.
+await initializeShareCutover()
+await initializeShareService()
+await recoverShareRestorePlan()
+await drainShareJsonMirror()
+// LAN access storage cutover: JSON → SQLite with the same phase machine as
+// share storage. Integrity failures while pending/authoritative fail closed
+// and block startup; json_authoritative failures keep the legacy JSON store
+// path. The JSON file stays as the best-effort mirror drained through the
+// lan-access mirror queue. Interrupted lan-access restore plans are recovered
+// (roll-forward/rollback) before the mirror drain.
+await initializeLanAccessCutover()
+await initializeLanAccessService()
+await recoverLanAccessRestorePlan()
+await drainLanAccessJsonMirror()
 await ensureDefaultGlobalSkills()
 await initializeNetworkProxy()
 installAiHttpLogger()
@@ -760,6 +810,9 @@ initializeChannels({
   logsDir,
 })
 await resetStaleTaskStatuses()
+configureSessionIndex({ readBuckets: readPhysicalSessionMetadataBuckets })
+registerSessionMetadataCommitHook(syncSessionMetadataCommit)
+await initializeSessionIndex()
 await initializeActiveProject()
 setActiveWorkspaceRootForFilesystem(getWorkspaceRoot())
 startScheduledTaskRunner()

@@ -67,6 +67,21 @@ let bucketIndexBuilt = false
 
 // Monotonic in-process revisions for cache invalidation in route-level indexes.
 const storeRevisions = new Map()
+let sessionMetadataCommitHook = null
+
+export function registerSessionMetadataCommitHook(hook) {
+  if (hook !== null && typeof hook !== 'function') throw new TypeError('Session metadata commit hook must be a function or null')
+  sessionMetadataCommitHook = hook
+}
+
+async function notifySessionMetadataCommit(change) {
+  if (!sessionMetadataCommitHook) return
+  try {
+    await sessionMetadataCommitHook(change)
+  } catch {
+    // JSON is authoritative. Index failures must never change commit semantics.
+  }
+}
 
 function bumpStoreRevision(storeName) {
   storeRevisions.set(storeName, (storeRevisions.get(storeName) || 0) + 1)
@@ -400,6 +415,59 @@ async function writeJsonAtomic(file, data) {
   await fs.rename(tmp, file)
 }
 
+export async function materializeSessionJsonMirrorEntry(entry) {
+  const bucket = entry.scope === 'project' ? { scope: 'project', projectId: entry.projectId } : { scope: 'global' }
+  if (entry.operation === 'upsert') {
+    await writeJsonAtomic(sessionDataFile(entry.sessionId, bucket), entry.state)
+    const file = sessionStoreFile('sessions-metadata', bucket)
+    const metadata = await readJsonFile(file, {})
+    metadata[entry.sessionId] = entry.metadata
+    await writeJsonAtomic(file, metadata)
+    sessionBucketIndex.set(entry.sessionId, bucket)
+    bumpStoreRevision('sessions-metadata')
+    return
+  }
+  const file = sessionStoreFile('sessions-metadata', bucket)
+  const metadata = await readJsonFile(file, {})
+  delete metadata[entry.sessionId]
+  await writeJsonAtomic(file, metadata)
+  await fs.rm(sessionDataFile(entry.sessionId, bucket), { force: true })
+  sessionBucketIndex.delete(entry.sessionId)
+  bumpStoreRevision('sessions-metadata')
+  try {
+    const { deleteSessionAssets } = await import('./session-assets.mjs')
+    await deleteSessionAssets(bucket, entry.sessionId)
+  } catch { /* Sidecars are best-effort after the authoritative commit. */ }
+  try {
+    const { deleteCloudChatIdempotencySession } = await import('./cloud/chat-idempotency-store.mjs')
+    await deleteCloudChatIdempotencySession(entry.sessionId)
+  } catch { /* Sidecars are best-effort after the authoritative commit. */ }
+}
+
+export async function readPhysicalSessionStateBuckets() {
+  await ensureStorage()
+  const buckets = [
+    { scope: 'global', projectId: null },
+    ...(await listProjectIds()).map((projectId) => ({ scope: 'project', projectId })),
+  ]
+  const result = []
+  for (const bucket of buckets) {
+    const metadata = await readJsonFile(sessionStoreFile('sessions-metadata', bucket), {})
+    const sessions = {}
+    for (const file of await listSessionDataFiles(bucket)) {
+      const fileSessionId = path.basename(file, '.json')
+      sessions[fileSessionId] = await readJsonFile(file, null)
+    }
+    result.push({ ...bucket, sessions, metadata })
+  }
+  return result
+}
+
+async function sessionStateFacade() {
+  const service = await import('./session-state-service.mjs')
+  return service.isSessionStateAuthoritative() ? service : null
+}
+
 async function readConfigFile() {
   return normalizeConfig(await readJsonFile(quickForgeConfigFile, defaultConfig()))
 }
@@ -588,6 +656,8 @@ export async function findSessionBucket(sessionId) {
 }
 
 export async function readSessionValue(sessionId) {
+  const facade = await sessionStateFacade()
+  if (facade) return facade.readSessionStateValue(sessionId)
   const bucket = await findSessionBucket(sessionId)
   if (bucket) return readJsonFile(sessionDataFile(sessionId, bucket), null)
 
@@ -598,6 +668,12 @@ export async function readSessionValue(sessionId) {
 }
 
 export async function writeSessionValue(sessionId, value) {
+  const facade = await sessionStateFacade()
+  if (facade) {
+    const saved = facade.saveSessionBody(sessionId, value)
+    void facade.drainSessionJsonMirror()
+    return saved.state
+  }
   return enqueueWrite('sessions', async () => {
     await ensureStorage()
     await writeSessionValueFile(sessionId, value)
@@ -605,6 +681,12 @@ export async function writeSessionValue(sessionId, value) {
 }
 
 export async function atomicSessionValueUpdate(sessionId, updateFn) {
+  const facade = await sessionStateFacade()
+  if (facade) {
+    const updated = await facade.atomicSessionStateUpdate(sessionId, updateFn)
+    void facade.drainSessionJsonMirror()
+    return updated
+  }
   return enqueueWrite('sessions', async () => {
     await ensureStorage()
     const current = await readSessionValue(sessionId)
@@ -616,6 +698,12 @@ export async function atomicSessionValueUpdate(sessionId, updateFn) {
 }
 
 export async function deleteSessionValue(sessionId) {
+  const facade = await sessionStateFacade()
+  if (facade) {
+    const deleted = facade.deleteSessionState(sessionId)
+    await facade.drainSessionJsonMirror()
+    return deleted
+  }
   return enqueueWrite('sessions', async () => {
     const bucket = await findSessionBucket(sessionId)
     if (!bucket) {
@@ -630,6 +718,174 @@ export async function deleteSessionValue(sessionId) {
     await deleteCloudChatIdempotencySession(sessionId)
     sessionBucketIndex.delete(sessionId)
   })
+}
+
+/**
+ * Whether the session state service is currently authoritative (SQLite-backed).
+ * Re-exported for callers that must branch write behavior before invoking the
+ * facade (e.g. auto-archive chooses a single atomic transaction vs the legacy
+ * two-step JSON compensation flow).
+ */
+export async function isSessionStateAuthoritative() {
+  const facade = await sessionStateFacade()
+  return Boolean(facade)
+}
+
+/**
+ * Write a session body and ensure its derived metadata exists so a single PUT
+ * never leaves a body orphaned. Authoritative: one SQLite transaction for
+ * body + derived/merged metadata. JSON: body file plus derived metadata merged
+ * onto the existing metadata record within the shared metadata write queue.
+ */
+export async function writeSessionValueWithMetadata(sessionId, value) {
+  const facade = await sessionStateFacade()
+  if (facade) {
+    const saved = facade.saveSessionBody(sessionId, value)
+    void facade.drainSessionJsonMirror()
+    return saved.state
+  }
+  const saved = await enqueueWrite('sessions', async () => {
+    await ensureStorage()
+    await writeSessionValueFile(sessionId, value)
+  })
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const bucket = sessionBucket(value)
+    const file = sessionStoreFile('sessions-metadata', bucket)
+    await enqueueWrite('sessions-metadata', async () => {
+      const previous = await readJsonFile(file, {})
+      const existing = previous[sessionId]
+      const derived = {
+        id: sessionId,
+        title: typeof value.title === 'string' ? value.title : (existing?.title ?? 'New chat'),
+        titleSource: value.titleSource ?? existing?.titleSource,
+        createdAt: value.createdAt ?? existing?.createdAt ?? new Date().toISOString(),
+        lastModified: value.lastModified ?? existing?.lastModified ?? value.createdAt ?? new Date().toISOString(),
+        messageCount: Array.isArray(value.messages) ? value.messages.length : (existing?.messageCount ?? 0),
+        stateVersion: Number.isInteger(value.stateVersion) && value.stateVersion >= 0 ? value.stateVersion : (existing?.stateVersion ?? 0),
+        scope: bucket.scope,
+        ...(bucket.scope === 'project' ? { projectId: bucket.projectId } : {}),
+      }
+      const next = { ...previous, [sessionId]: existing ? { ...existing, ...derived } : derived }
+      await writeJsonAtomic(file, next)
+      updateSessionMetadataBucketIndex(bucket, previous, next)
+      bumpStoreRevision('sessions-metadata')
+      await notifySessionMetadataCommit({ ...bucket, previous, next })
+    })
+  }
+  return saved
+}
+
+/**
+ * Delete an entire session (body + metadata). Authoritative: one SQLite
+ * transaction; JSON mirror materialization runs best-effort afterwards and
+ * failures never roll back the committed session delete.
+ */
+export async function deleteSessionWithMetadata(sessionId) {
+  const facade = await sessionStateFacade()
+  if (facade) {
+    const deleted = facade.deleteSessionState(sessionId)
+    await facade.drainSessionJsonMirror()
+    return deleted
+  }
+  await deleteSessionValue(sessionId)
+  await atomicUpdate('sessions-metadata', (data) => {
+    delete data[sessionId]
+    return data
+  })
+}
+
+/**
+ * Atomically update a session record (body + metadata together).
+ * Authoritative: single SQLite transaction with CAS retry on conflict.
+ * JSON: body write plus scoped metadata merge (legacy two-step).
+ */
+export async function atomicSessionRecordUpdate(sessionId, updateFn) {
+  const facade = await sessionStateFacade()
+  if (facade) {
+    const updated = await facade.atomicSessionRecordUpdate(sessionId, updateFn)
+    void facade.drainSessionJsonMirror()
+    return updated
+  }
+  return enqueueWrite('sessions', async () => {
+    const current = await readSessionValue(sessionId)
+    if (!current) return null
+    const bucket = sessionBucket(current)
+    const metadataFile = sessionStoreFile('sessions-metadata', bucket)
+    const metadata = (await readJsonFile(metadataFile, {}))[sessionId] || {}
+    const updated = await updateFn({
+      state: structuredClone(current),
+      metadata: structuredClone(metadata),
+      revision: null,
+      stateVersion: Number.isInteger(current.stateVersion) ? current.stateVersion : 0,
+    })
+    if (!updated) return null
+    await writeSessionValueFile(sessionId, updated.state)
+    await enqueueWrite('sessions-metadata', async () => {
+      const previousMetadata = await readJsonFile(metadataFile, {})
+      const nextMetadata = { ...previousMetadata, [sessionId]: { ...previousMetadata[sessionId], ...(updated.metadata || {}), id: sessionId } }
+      await writeJsonAtomic(metadataFile, nextMetadata)
+      updateSessionMetadataBucketIndex(bucket, previousMetadata, nextMetadata)
+      bumpStoreRevision('sessions-metadata')
+      await notifySessionMetadataCommit({ ...bucket, previous: previousMetadata, next: nextMetadata })
+    })
+    return { ...updated, state: updated.state }
+  })
+}
+
+/**
+ * Apply a multi-session batch of set/delete operations across
+ * `sessions`/`sessions-metadata` in a single authoritative SQLite transaction.
+ * The JSON fallback executes operations sequentially (legacy pre-cutover path).
+ */
+export async function applySessionBatch(operations) {
+  if (!Array.isArray(operations) || operations.length === 0) throw new TypeError('Session batch operations are required')
+  const facade = await sessionStateFacade()
+  if (facade) {
+    const result = facade.applySessionBatch(operations)
+    void facade.drainSessionJsonMirror()
+    return result
+  }
+  for (const operation of operations) {
+    if (!['sessions', 'sessions-metadata'].includes(operation?.store)) throw new TypeError('Session batch only accepts sessions and sessions-metadata')
+    if (!['set', 'delete'].includes(operation?.type)) throw new TypeError('Invalid session batch operation')
+    if (typeof operation.key !== 'string' || !operation.key) throw new TypeError('Session batch key is required')
+  }
+  const result = { saved: 0, deleted: 0 }
+  for (const operation of operations) {
+    if (operation.type === 'delete') {
+      if (operation.store === 'sessions') {
+        const before = await readSessionValue(operation.key)
+        await deleteSessionWithMetadata(operation.key)
+        if (before) result.deleted += 1
+      } else {
+        const error = new TypeError('Metadata-only delete is not allowed')
+        error.errorCode = 'SESSION_FULL_DELETE_REQUIRED'
+        error.statusCode = 409
+        throw error
+      }
+      continue
+    }
+    if (operation.store === 'sessions') {
+      if (!operation.value || typeof operation.value !== 'object' || Array.isArray(operation.value)) throw new TypeError(`Invalid session body: ${operation.key}`)
+      await writeSessionValueWithMetadata(operation.key, operation.value)
+      result.saved += 1
+    } else {
+      if (!operation.value || typeof operation.value !== 'object' || Array.isArray(operation.value)) throw new TypeError(`Invalid session metadata: ${operation.key}`)
+      const existing = await readSessionValue(operation.key)
+      if (!existing) {
+        const error = new TypeError(`Session body is required for a new session: ${operation.key}`)
+        error.errorCode = 'SESSION_STATE_REQUIRED'
+        error.statusCode = 409
+        throw error
+      }
+      await atomicUpdate('sessions-metadata', (data) => {
+        data[operation.key] = { ...(data[operation.key] || {}), ...operation.value }
+        return data
+      })
+      result.saved += 1
+    }
+  }
+  return result
 }
 
 async function listSessionStoreFiles(storeName) {
@@ -661,10 +917,33 @@ async function readSessionStore(storeName) {
 
 export async function readSessionStoreScoped(storeName, scope, projectId) {
   await ensureStorage()
+  const facade = await sessionStateFacade()
+  if (facade && (storeName === 'sessions' || storeName === 'sessions-metadata')) {
+    return facade.readSessionStateStore(storeName, { scope, projectId })
+  }
   if (storeName === 'sessions') return readSessionValuesScoped(scope, projectId)
 
   const file = sessionStoreFile(storeName, { scope, projectId })
   return readJsonFile(file, {})
+}
+
+export async function readPhysicalSessionMetadataBuckets() {
+  await ensureStorage()
+  const buckets = [
+    {
+      scope: 'global',
+      projectId: null,
+      metadata: await readJsonFile(sessionStoreFile('sessions-metadata', { scope: 'global' }), {}),
+    },
+  ]
+  for (const projectId of await listProjectIds()) {
+    buckets.push({
+      scope: 'project',
+      projectId,
+      metadata: await readJsonFile(sessionStoreFile('sessions-metadata', { scope: 'project', projectId }), {}),
+    })
+  }
+  return buckets
 }
 
 async function writeSessionStore(storeName, data) {
@@ -710,7 +989,10 @@ async function writeSessionStore(storeName, data) {
       const bucket = bucketEntry?.bucket ?? (file === sessionStoreFile(storeName, { scope: 'global' })
         ? { scope: 'global' }
         : { scope: 'project', projectId: path.basename(path.dirname(file)) })
-      updateSessionMetadataBucketIndex(bucket, previousByFile.get(file) ?? {}, bucketEntry?.data ?? {})
+      const previous = previousByFile.get(file) ?? {}
+      const next = bucketEntry?.data ?? {}
+      updateSessionMetadataBucketIndex(bucket, previous, next)
+      await notifySessionMetadataCommit({ ...bucket, previous, next })
     }
     bumpStoreRevision(storeName)
   }
@@ -855,6 +1137,22 @@ function enqueueWrite(queueName, operation) {
  */
 export async function atomicUpdate(storeName, updateFn) {
   assertStore(storeName)
+  const facade = await sessionStateFacade()
+  if (facade && storeName === 'sessions-metadata') {
+    const updated = facade.updateSessionMetadataBucket('global', null, (currentGlobal) => {
+      const current = { ...facade.readSessionStateStore('sessions-metadata'), ...currentGlobal }
+      return updateFn(current)
+    })
+    void facade.drainSessionJsonMirror()
+    return updated
+  }
+  if (facade && storeName === 'sessions') {
+    const current = facade.readSessionStateStore('sessions')
+    const updated = await updateFn(current)
+    facade.replaceSessionStateStore('sessions', updated)
+    void facade.drainSessionJsonMirror()
+    return updated
+  }
   const queueName = isConfigStore(storeName) ? configStoreLocations[storeName].queue : storeName
   return enqueueWrite(queueName, async () => {
     await ensureStorage()
@@ -880,6 +1178,12 @@ export async function atomicUpdate(storeName, updateFn) {
  * @returns {Promise<object>} the updated scoped metadata
  */
 export async function atomicSessionMetadataUpdate(scope, projectId, updateFn) {
+  const facade = await sessionStateFacade()
+  if (facade) {
+    const updated = await facade.atomicSessionMetadataStateUpdate(scope, projectId, updateFn)
+    void facade.drainSessionJsonMirror()
+    return updated
+  }
   const bucket = scope === 'project' ? { scope: 'project', projectId } : { scope: 'global' }
   const file = sessionStoreFile('sessions-metadata', bucket)
   // Scoped session-metadata writes MUST share the single 'sessions-metadata'
@@ -895,6 +1199,7 @@ export async function atomicSessionMetadataUpdate(scope, projectId, updateFn) {
     await writeJsonAtomic(file, updated)
     updateSessionMetadataBucketIndex(bucket, previousData, updated)
     bumpStoreRevision('sessions-metadata')
+    await notifySessionMetadataCommit({ ...bucket, previous: previousData, next: updated })
     return updated
   })
 }
@@ -983,6 +1288,11 @@ export async function readStore(storeName) {
   assertStore(storeName)
   await ensureStorage()
 
+  const facade = await sessionStateFacade()
+  if (facade && (storeName === 'sessions' || storeName === 'sessions-metadata')) {
+    return facade.readSessionStateStore(storeName)
+  }
+
   if (isConfigStore(storeName)) {
     return readConfigStore(storeName)
   }
@@ -992,6 +1302,12 @@ export async function readStore(storeName) {
 
 export async function writeStore(storeName, data) {
   assertStore(storeName)
+  const facade = await sessionStateFacade()
+  if (facade && (storeName === 'sessions' || storeName === 'sessions-metadata')) {
+    facade.replaceSessionStateStore(storeName, data)
+    void facade.drainSessionJsonMirror()
+    return
+  }
   const queueName = isConfigStore(storeName) ? configStoreLocations[storeName].queue : storeName
 
   return enqueueWrite(queueName, async () => {

@@ -4,6 +4,8 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { ensureStorage, storageDir } from './storage.mjs'
 import { hashPassword, safeHashEqual, sha256Base64Url, verifyPassword } from './utils/password-auth.mjs'
+import { getShareRepository, isShareStorageAuthoritative, requestShareJsonMirrorDrain } from './share-service.mjs'
+import { isShareMaintenanceActive } from './share-cutover.mjs'
 const SHARE_ID_PREFIX = 'qfs_'
 const SHARE_TOKEN_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 const MAX_SHARE_TOKENS = 50
@@ -21,6 +23,24 @@ export function onConversationShareInvalidated(listener) {
 
 function emitConversationShareInvalidated(shareId, reason) {
   shareLifecycleEvents.emit('invalidated', { shareId, reason })
+}
+
+// F10 Phase 2: share writes are SQLite-authoritative once the share storage is
+// pending/authoritative. The JSON file degrades to a best-effort mirror fed by
+// the share mirror queue; json_authoritative/cutover_running keep the legacy
+// JSON read/write path below.
+function repositoryActive() {
+  return isShareStorageAuthoritative()
+}
+
+function assertShareWritesAllowed() {
+  if (!repositoryActive()) return
+  if (isShareMaintenanceActive()) {
+    const error = new Error('Share storage is under maintenance')
+    error.statusCode = 423
+    error.errorCode = 'SHARE_MAINTENANCE_ACTIVE'
+    throw error
+  }
 }
 
 function clearShareTokens(record) {
@@ -137,7 +157,7 @@ export function createShareToken(shareId) {
   }
 }
 
-function pruneShareTokens(tokens, now = Date.now()) {
+function pruneTokenRecords(tokens, now = Date.now()) {
   return (Array.isArray(tokens) ? tokens : [])
     .filter((tokenRecord) => {
       if (!tokenRecord?.tokenHash) return false
@@ -149,11 +169,12 @@ function pruneShareTokens(tokens, now = Date.now()) {
 
 export function verifyShareToken(record, token) {
   if (!record || !token || typeof token !== 'string') return false
+  if (repositoryActive()) return getShareRepository().verifyToken(record, token)
   const [tokenShareId, secret] = token.split('.')
   if (tokenShareId !== record.id || !secret) return false
   const actualHash = sha256Base64Url(secret)
   const authVersion = record.authVersion || 1
-  const tokenRecords = pruneShareTokens(record.tokens)
+  const tokenRecords = pruneTokenRecords(record.tokens)
 
   if (record.tokenHash) {
     tokenRecords.push({ tokenHash: record.tokenHash, authVersion: record.authVersion || 1 })
@@ -238,6 +259,59 @@ export async function createConversationShare({
   const normalizedPassword = passwordProvided ? password.trim() : undefined
   const passwordInfo = passwordProvided ? await hashSharePassword(normalizedPassword) : {}
   return enqueueWrite(writeQueueName, async () => {
+    assertShareWritesAllowed()
+    if (repositoryActive()) {
+      const repository = getShareRepository()
+      const existingShares = repository.list({ sessionId, includeRevoked: true })
+      const current = existingShares.find((record) => !record.supersededAt)
+
+      if (permission === 'operate') {
+        const willHavePassword = passwordProvided ? Boolean(normalizedPassword) : Boolean(current?.passwordHash)
+        if (!willHavePassword) {
+          const error = new Error('Editable shares require a non-empty password')
+          error.statusCode = 400
+          throw error
+        }
+      }
+
+      const timestamp = new Date().toISOString()
+      // Preserve the existing password when the client did not send a new one
+      // (matching the legacy JSON create), and keep access counters intact.
+      const existingPassword = current?.passwordHash
+        ? { passwordHash: current.passwordHash, passwordSalt: current.passwordSalt, passwordVersion: current.passwordVersion }
+        : {}
+      const created = repository.create({
+        id: current?.id || generateShareId(),
+        sessionId,
+        permission,
+        titleSnapshot: titleSnapshot || current?.titleSnapshot || 'New chat',
+        scope: scope === 'project' ? 'project' : 'global',
+        projectId: scope === 'project' ? projectId : undefined,
+        allowCloudUsage: permission === 'operate' && allowCloudUsage === true,
+        expiresAt: expiresAt || undefined,
+        createdAt: current?.createdAt || timestamp,
+        updatedAt: timestamp,
+        accessCount: current?.accessCount ?? 0,
+        lastAccessedAt: current?.lastAccessedAt,
+        createdFromHost,
+        lastUpdatedFromHost: createdFromHost,
+        ...(passwordProvided ? passwordInfo : existingPassword),
+      })
+
+      for (const record of existingShares) {
+        if (record.id !== current?.id && !record.supersededAt) emitConversationShareInvalidated(record.id, 'superseded')
+      }
+      if (current) {
+        const lifecycleChanged = Boolean(current.revokedAt)
+          || String(current.expiresAt || '') !== String(created.expiresAt || '')
+          || current.allowCloudUsage === true !== (created.allowCloudUsage === true)
+          || (passwordProvided && (current.authVersion || 1) !== (created.authVersion || 1))
+        if (lifecycleChanged) emitConversationShareInvalidated(current.id, 'updated')
+      }
+      requestShareJsonMirrorDrain()
+      return publicShareRecord(created)
+    }
+
     const data = await readShareStoreFile()
     const now = new Date().toISOString()
     const existingRecords = Object.values(data)
@@ -336,11 +410,16 @@ export async function createConversationShare({
 
 export async function readConversationShare(shareId) {
   assertSafeShareId(shareId)
+  if (repositoryActive()) return getShareRepository().get(shareId)
   const data = await readShareStoreFile()
   return data[shareId] || null
 }
 
 export async function listConversationShares(sessionId) {
+  if (repositoryActive()) {
+    const records = getShareRepository().list({ sessionId: sessionId || undefined, includeRevoked: true })
+    return records.map(publicShareRecord)
+  }
   const data = await readShareStoreFile()
   return Object.values(data)
     .filter((record) => !sessionId || record.sessionId === sessionId)
@@ -352,6 +431,21 @@ export async function listConversationShares(sessionId) {
 export async function revokeConversationShare(shareId) {
   assertSafeShareId(shareId)
   return enqueueWrite(writeQueueName, async () => {
+    assertShareWritesAllowed()
+    if (repositoryActive()) {
+      const repository = getShareRepository()
+      const record = repository.get(shareId)
+      if (!record) {
+        const error = new Error('Share not found')
+        error.statusCode = 404
+        throw error
+      }
+      const wasActive = !record.revokedAt
+      const revoked = repository.revoke(shareId, {})
+      requestShareJsonMirrorDrain()
+      if (wasActive) emitConversationShareInvalidated(shareId, 'revoked')
+      return publicShareRecord(revoked)
+    }
     const data = await readShareStoreFile()
     const record = data[shareId]
     if (!record) {
@@ -378,6 +472,12 @@ export async function restoreConversationShare(shareId, expiresAt) {
     throw error
   }
   return enqueueWrite(writeQueueName, async () => {
+    assertShareWritesAllowed()
+    if (repositoryActive()) {
+      const restored = getShareRepository().restore(shareId, { expiresAt })
+      requestShareJsonMirrorDrain()
+      return publicShareRecord(restored)
+    }
     const data = await readShareStoreFile()
     const record = data[shareId]
     if (!record) {
@@ -408,6 +508,13 @@ export async function updateConversationShareExpiration(shareId, expiresAt) {
     throw error
   }
   return enqueueWrite(writeQueueName, async () => {
+    assertShareWritesAllowed()
+    if (repositoryActive()) {
+      const updated = getShareRepository().update(shareId, { expiresAt: expiresAt || null })
+      requestShareJsonMirrorDrain()
+      emitConversationShareInvalidated(shareId, 'updated')
+      return publicShareRecord(updated)
+    }
     const data = await readShareStoreFile()
     const record = data[shareId]
     if (!record) {
@@ -441,6 +548,29 @@ export async function updateConversationShare(shareId, { permission, password, e
   }
   const passwordInfo = passwordProvided ? await hashSharePassword(normalizedPassword) : {}
   return enqueueWrite(writeQueueName, async () => {
+    assertShareWritesAllowed()
+    if (repositoryActive()) {
+      const repository = getShareRepository()
+      const existing = repository.get(shareId)
+      if (!existing) {
+        const error = new Error('Share not found')
+        error.statusCode = 404
+        throw error
+      }
+      const updated = repository.update(shareId, {
+        permission,
+        allowCloudUsage,
+        ...(expiresAt !== undefined ? { expiresAt } : {}),
+        ...passwordInfo,
+      })
+      requestShareJsonMirrorDrain()
+      const lifecycleChanged = (permission !== undefined && permission !== existing.permission)
+        || (expiresAt !== undefined && String(existing.expiresAt || '') !== String(expiresAt || ''))
+        || (allowCloudUsage !== undefined && (existing.allowCloudUsage === true) !== (allowCloudUsage === true))
+        || passwordProvided
+      if (lifecycleChanged) emitConversationShareInvalidated(shareId, 'updated')
+      return publicShareRecord(updated)
+    }
     const data = await readShareStoreFile()
     const record = data[shareId]
     if (!record) {
@@ -488,6 +618,20 @@ export async function updateConversationShare(shareId, { permission, password, e
 export async function deleteConversationShare(shareId) {
   assertSafeShareId(shareId)
   return enqueueWrite(writeQueueName, async () => {
+    assertShareWritesAllowed()
+    if (repositoryActive()) {
+      const repository = getShareRepository()
+      const record = repository.get(shareId)
+      if (!record) {
+        const error = new Error('Share not found')
+        error.statusCode = 404
+        throw error
+      }
+      repository.delete(shareId, {})
+      requestShareJsonMirrorDrain()
+      emitConversationShareInvalidated(shareId, 'deleted')
+      return publicShareRecord(record)
+    }
     const data = await readShareStoreFile()
     const record = data[shareId]
     if (!record) {
@@ -505,13 +649,19 @@ export async function deleteConversationShare(shareId) {
 export async function issueConversationShareToken(shareId) {
   assertSafeShareId(shareId)
   return enqueueWrite(writeQueueName, async () => {
+    assertShareWritesAllowed()
+    if (repositoryActive()) {
+      const result = getShareRepository().issueToken(shareId, {})
+      requestShareJsonMirrorDrain()
+      return { token: result.token, share: publicShareRecord(result.share) }
+    }
     const data = await readShareStoreFile()
     const record = data[shareId]
     assertShareActive(record)
     const { token, tokenHash } = createShareToken(shareId)
     const issuedAt = new Date().toISOString()
     const expiresAt = new Date(Date.now() + SHARE_TOKEN_MAX_AGE_MS).toISOString()
-    record.tokens = pruneShareTokens(record.tokens)
+    record.tokens = pruneTokenRecords(record.tokens)
     record.tokens.push({ tokenHash, issuedAt, expiresAt, authVersion: record.authVersion || 1 })
     record.tokens = record.tokens.slice(-MAX_SHARE_TOKENS)
     record.tokenHash = undefined
@@ -522,6 +672,35 @@ export async function issueConversationShareToken(shareId) {
     data[shareId] = record
     await writeShareStoreFile(data)
     return { token, share: publicShareRecord(record) }
+  })
+}
+
+// Prune expired share tokens. Authoritative: a repository transaction that
+// deletes expired rows and bumps the share revision/mirror when anything was
+// removed. JSON: best-effort in-place prune of the legacy store.
+export async function pruneShareTokens(shareId) {
+  assertSafeShareId(shareId)
+  if (repositoryActive()) {
+    return enqueueWrite(writeQueueName, async () => {
+      assertShareWritesAllowed()
+      const removed = getShareRepository().pruneTokens(shareId, {})
+      requestShareJsonMirrorDrain()
+      return removed
+    })
+  }
+  return enqueueWrite(writeQueueName, async () => {
+    const data = await readShareStoreFile()
+    const record = data[shareId]
+    if (!record) return 0
+    const pruned = pruneTokenRecords(record.tokens)
+    const removed = (Array.isArray(record.tokens) ? record.tokens.length : 0) - pruned.length
+    if (removed > 0) {
+      record.tokens = pruned
+      record.updatedAt = new Date().toISOString()
+      data[shareId] = record
+      await writeShareStoreFile(data)
+    }
+    return removed
   })
 }
 
@@ -549,7 +728,7 @@ function lastModifiedFromMessages(messages, fallback) {
 }
 
 export async function rollbackSharedSessionMessages(record, rollbackMessageIndex) {
-  const { readSessionValue, writeSessionValue, atomicUpdate } = await import('./storage.mjs')
+  const { readSessionValue, atomicSessionRecordUpdate } = await import('./storage.mjs')
   const { rollbackSessionMessages, rollbackStartIndexFromMessage } = await import('./agent-manager.mjs')
   const session = await readSessionValue(record.sessionId)
   if (!session) {
@@ -573,23 +752,21 @@ export async function rollbackSharedSessionMessages(record, rollbackMessageIndex
 
   const nextMessages = messages.slice(0, rollbackIndex)
   const lastModified = lastModifiedFromMessages(nextMessages, session.createdAt || session.lastModified)
-  await writeSessionValue(record.sessionId, {
-    ...session,
-    messages: nextMessages,
-    lastModified,
-  })
-  await atomicUpdate('sessions-metadata', (metadata) => {
-    const existing = metadata[record.sessionId]
-    if (existing) {
-      metadata[record.sessionId] = {
-        ...existing,
-        messageCount: nextMessages.length,
-        lastModified,
-        preview: previewFromMessages(nextMessages),
-      }
+  // Body + metadata roll back as one atomic session record update (single
+  // SQLite transaction when authoritative), so the shared page never observes
+  // a body rolled back while metadata still counts the removed messages.
+  const updated = await atomicSessionRecordUpdate(record.sessionId, ({ state, metadata }) => {
+    if (state.archivedAt) return null
+    return {
+      state: { ...state, messages: nextMessages, lastModified },
+      metadata: { ...metadata, messageCount: nextMessages.length, lastModified, preview: previewFromMessages(nextMessages) },
     }
-    return metadata
   })
+  if (!updated) {
+    const error = new Error('Session not found')
+    error.statusCode = 404
+    throw error
+  }
   return { session: { ...session, messages: nextMessages, lastModified }, rollbackIndex }
 }
 

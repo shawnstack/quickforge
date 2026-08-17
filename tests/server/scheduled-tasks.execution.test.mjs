@@ -11,6 +11,33 @@ const mocks = vi.hoisted(() => ({
   nextAgentMode: 'timeout',
   abortRun: vi.fn(),
   agentEvents: null,
+  shadowSyncRun: vi.fn(async () => null),
+  shadowDeleteTaskRuns: vi.fn(async () => false),
+  shadowListRuns: vi.fn(async () => ({ runs: [], total: 0, page: 1, pageSize: 10 })),
+  recentRuns: vi.fn(async () => []),
+  deleteRun: vi.fn(async () => true),
+  runtimeHooks: null,
+  authoritative: false,
+}))
+
+vi.mock('../../server/scheduled-task-runs-service.mjs', () => ({
+  createScheduledTaskRunsService: vi.fn(() => ({
+    syncRun: mocks.shadowSyncRun,
+    deleteTaskRuns: mocks.shadowDeleteTaskRuns,
+    deleteRun: mocks.deleteRun,
+    listRuns: mocks.shadowListRuns,
+    recentRuns: mocks.recentRuns,
+    getDiagnostics: vi.fn(() => ({})),
+  })),
+}))
+
+vi.mock('../../server/scheduled-runs-cutover.mjs', () => ({
+  assertScheduledRunsAvailable: vi.fn(),
+  canStartScheduledRun: vi.fn(() => true),
+  configureScheduledRunsRuntimeHooks: vi.fn((hooks) => { mocks.runtimeHooks = hooks }),
+  isScheduledRunsAuthoritative: vi.fn(() => mocks.authoritative),
+  isScheduledRunsMaintenanceActive: vi.fn(() => false),
+  recordScheduledRunsDiagnostic: vi.fn(),
 }))
 
 vi.mock('../../server/storage.mjs', () => ({
@@ -165,7 +192,19 @@ beforeEach(async () => {
   mocks.eventBuses.clear()
   mocks.stores.clear()
   mocks.nextAgentMode = 'timeout'
+  mocks.authoritative = false
+  mocks.runtimeHooks = null
+  mocks.recentRuns.mockReset()
+  mocks.recentRuns.mockImplementation(async () => [])
+  mocks.deleteRun.mockReset()
+  mocks.deleteRun.mockImplementation(async () => true)
   mocks.abortRun.mockReset()
+  mocks.shadowSyncRun.mockReset()
+  mocks.shadowSyncRun.mockImplementation(async () => null)
+  mocks.shadowDeleteTaskRuns.mockReset()
+  mocks.shadowDeleteTaskRuns.mockImplementation(async () => false)
+  mocks.shadowListRuns.mockReset()
+  mocks.shadowListRuns.mockImplementation(async () => ({ runs: [], total: 0, page: 1, pageSize: 10 }))
   mocks.abortRun.mockImplementation(async (sessionId) => {
     const session = mocks.sessions.get(sessionId)
     session.agent.abort()
@@ -277,7 +316,67 @@ describe('scheduled task execution lifecycle', () => {
       aiResult: '正常完成结果',
       result: '正常完成结果',
     })
+    expect(mocks.shadowSyncRun.mock.calls.map(([taskId, authoritativeRun, options]) => ({
+      taskId,
+      status: authoritativeRun.status,
+      phase: options.phase,
+    }))).toEqual([
+      { taskId: 'task-success', status: 'running', phase: 'created' },
+      { taskId: 'task-success', status: 'running', phase: 'resolved' },
+      { taskId: 'task-success', status: 'success', phase: 'terminal' },
+    ])
     expect(mocks.eventBuses.get(task.lastSessionId).listenerCount('agent_event')).toBe(0)
+  })
+
+  it('does not change successful execution when every SQLite shadow write fails', async () => {
+    mocks.nextAgentMode = 'success'
+    mocks.shadowSyncRun.mockRejectedValue(new Error('shadow failure'))
+    const storage = await import('../../server/storage.mjs')
+    const routes = await import('../../server/routes/scheduled-tasks.mjs')
+    await storage.ensureStorage()
+    await createRecurringTask(storage, 'task-shadow-failure')
+
+    const response = await runTask(routes, 'task-shadow-failure')
+    expect(response.status).toBe(200)
+    const completed = await waitFor(async () => {
+      const current = (await storage.readStore('scheduled-tasks'))['task-shadow-failure']
+      return current?.runs?.[0]?.status === 'success' ? current : null
+    }, 'successful JSON task despite shadow failure')
+    expect(completed.runs[0].result).toBe('正常完成结果')
+  })
+
+  it('keeps DELETE successful when SQLite cleanup fails after JSON deletion', async () => {
+    mocks.shadowDeleteTaskRuns.mockRejectedValue(new Error('cleanup failed'))
+    const storage = await import('../../server/storage.mjs')
+    const routes = await import('../../server/routes/scheduled-tasks.mjs')
+    await storage.ensureStorage()
+    await createRecurringTask(storage, 'task-delete')
+    const response = mockResponse()
+
+    await expect(routes.handleScheduledTasksApi(
+      { method: 'DELETE' },
+      response,
+      new URL('http://localhost/api/scheduled-tasks/task-delete'),
+    )).resolves.toBeUndefined()
+
+    expect(response.status).toBe(200)
+    expect((await storage.readStore('scheduled-tasks'))['task-delete']).toBeUndefined()
+  })
+
+  it('does not clean SQLite when the authoritative JSON delete fails', async () => {
+    const storage = await import('../../server/storage.mjs')
+    const routes = await import('../../server/routes/scheduled-tasks.mjs')
+    await storage.ensureStorage()
+    await createRecurringTask(storage, 'task-delete-json-failure')
+    storage.atomicUpdate.mockRejectedValueOnce(new Error('JSON delete failed'))
+
+    await expect(routes.handleScheduledTasksApi(
+      { method: 'DELETE' },
+      mockResponse(),
+      new URL('http://localhost/api/scheduled-tasks/task-delete-json-failure'),
+    )).rejects.toThrow('JSON delete failed')
+
+    expect(mocks.shadowDeleteTaskRuns).not.toHaveBeenCalled()
   })
 
   it('does not rewrite the task store when recurring statuses need no repair', async () => {
@@ -291,6 +390,88 @@ describe('scheduled task execution lifecycle', () => {
     routes.stopScheduledTaskRunner()
 
     expect(storage.atomicUpdate).not.toHaveBeenCalled()
+  })
+
+  it('keeps authoritative JSON metadata-only and returns recent runs through the API', async () => {
+    mocks.authoritative = true
+    mocks.nextAgentMode = 'success'
+    mocks.shadowSyncRun.mockImplementation(async (_taskId, value) => value)
+    mocks.recentRuns.mockImplementation(async () => [{
+      id: 'recent',
+      status: 'success',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      result: 'SQLite result',
+    }])
+    const storage = await import('../../server/storage.mjs')
+    const routes = await import('../../server/routes/scheduled-tasks.mjs')
+    await storage.ensureStorage()
+    await createRecurringTask(storage, 'task-authoritative')
+    const original = mocks.stores.get('scheduled-tasks')['task-authoritative']
+    delete original.runs
+    mocks.stores.get('scheduled-tasks')['task-authoritative'] = original
+
+    const response = await runTask(routes, 'task-authoritative')
+    expect(response.status).toBe(200)
+    await waitFor(() => mocks.shadowSyncRun.mock.calls.some(([, value, options]) => value.status === 'success' && options.phase === 'terminal'), 'authoritative terminal persistence')
+    const persisted = (await storage.readStore('scheduled-tasks'))['task-authoritative']
+    expect(persisted).not.toHaveProperty('runs')
+    expect(response.body.task.runs).toEqual([expect.objectContaining({ id: 'recent' })])
+  })
+
+  it('compensates the created authoritative run when active metadata persistence fails', async () => {
+    mocks.authoritative = true
+    const storage = await import('../../server/storage.mjs')
+    const routes = await import('../../server/routes/scheduled-tasks.mjs')
+    await storage.ensureStorage()
+    await createRecurringTask(storage, 'task-created-compensation')
+    storage.atomicUpdate.mockRejectedValueOnce(new Error('metadata failed'))
+
+    await expect(runTask(routes, 'task-created-compensation')).rejects.toThrow('metadata failed')
+    expect(mocks.deleteRun).toHaveBeenCalledWith('task-created-compensation', expect.any(String))
+  })
+
+  it('does not report a successful authoritative execution when terminal SQLite persistence fails', async () => {
+    mocks.authoritative = true
+    mocks.nextAgentMode = 'success'
+    mocks.shadowSyncRun.mockImplementation(async (_taskId, value, options) => {
+      if (options.phase === 'terminal') throw new Error('terminal sqlite failed')
+      return value
+    })
+    const storage = await import('../../server/storage.mjs')
+    const routes = await import('../../server/routes/scheduled-tasks.mjs')
+    await storage.ensureStorage()
+    await createRecurringTask(storage, 'task-terminal-failure')
+    const task = mocks.stores.get('scheduled-tasks')['task-terminal-failure']
+    delete task.runs
+
+    const response = await runTask(routes, 'task-terminal-failure')
+    expect(response.status).toBe(200)
+    await waitFor(() => mocks.shadowSyncRun.mock.calls.some(([, value, options]) => value.status === 'failed' && options.phase === 'exception-terminal'), 'failed terminal persistence')
+  })
+
+  it('recovers stale authoritative running rows and clears serial active metadata', async () => {
+    mocks.authoritative = true
+    mocks.shadowListRuns.mockResolvedValue({
+      runs: [{ id: 'stale-run', taskId: 'task-stale', status: 'running', trigger: 'schedule', startedAt: '2025-12-31T23:59:00.000Z' }],
+      total: 1,
+      page: 1,
+      pageSize: 200,
+    })
+    mocks.stores.set('scheduled-tasks', {
+      'task-stale': {
+        id: 'task-stale', title: 'Stale', instruction: 'x', scheduleType: 'daily', executeTime: '01:00',
+        executionMode: 'serial', status: 'running', currentRunId: 'stale-run', currentRunIds: ['stale-run'],
+        nextRunAt: '2026-01-01T01:00:00.000Z', updatedAt: '2025-12-31T23:59:00.000Z',
+      },
+    })
+    const routes = await import('../../server/routes/scheduled-tasks.mjs')
+    await routes.recoverStaleScheduledTaskRuns({ now: () => new Date('2026-01-01T00:00:00.000Z') })
+    expect(mocks.shadowSyncRun).toHaveBeenCalledWith('task-stale', expect.objectContaining({
+      id: 'stale-run', status: 'failed', errorMessage: 'Interrupted by previous process shutdown', durationMs: 60_000,
+    }), { phase: 'startup-recovery' })
+    expect(mocks.stores.get('scheduled-tasks')['task-stale']).toMatchObject({
+      status: 'enabled', currentRunId: null, currentRunIds: [],
+    })
   })
 
   it('repairs a completed recurring task with a single store update', async () => {

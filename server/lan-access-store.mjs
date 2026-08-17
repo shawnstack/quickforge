@@ -2,6 +2,8 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { ensureStorage, storageDir } from './storage.mjs'
 import { createRandomToken, hashPassword, safeHashEqual, sha256Base64Url, verifyPassword } from './utils/password-auth.mjs'
+import { getLanAccessRepository, isLanAccessStorageAuthoritative, requestLanAccessJsonMirrorDrain } from './lan-access-service.mjs'
+import { isLanAccessMaintenanceActive } from './lan-access-cutover.mjs'
 
 const LAN_ACCESS_DIR = path.join(storageDir, 'security')
 const LAN_ACCESS_FILE = path.join(LAN_ACCESS_DIR, 'lan-access.json')
@@ -18,6 +20,40 @@ function enqueueWrite(queueName, operation) {
     .then(operation)
   writeQueues.set(queueName, next)
   return next
+}
+
+// F11 Phase 2: once the LAN access storage is SQLite-readable
+// (sqlite_authoritative_json_pending/authoritative) every read/write routes
+// through the repository and the JSON file degrades to a best-effort mirror.
+// json_authoritative/cutover_running keep the legacy JSON path below.
+function repositoryActive() {
+  return isLanAccessStorageAuthoritative()
+}
+
+// Maintenance writes are only blocked while the SQLite store is authoritative;
+// the legacy JSON path keeps working during cutover/maintenance.
+function assertLanAccessWritesAllowed() {
+  if (!repositoryActive()) return
+  if (isLanAccessMaintenanceActive()) {
+    const error = new Error('LAN access storage is under maintenance')
+    error.statusCode = 423
+    error.errorCode = 'LAN_ACCESS_MAINTENANCE_ACTIVE'
+    throw error
+  }
+}
+
+// Fail closed on a missing config record: pending/authoritative states are only
+// entered after cutover integrity verification, so a missing row means the
+// store is damaged and must not be silently treated as default-disabled.
+function requireLanAccessRepositoryConfig() {
+  const config = getLanAccessRepository().getConfig()
+  if (!config) {
+    const error = new Error('LAN access state is unavailable')
+    error.statusCode = 503
+    error.errorCode = 'LAN_ACCESS_STATE_UNAVAILABLE'
+    throw error
+  }
+  return config
 }
 
 function defaultLanAccessConfig() {
@@ -144,15 +180,30 @@ function assertPasswordAllowed(password) {
 }
 
 export async function readLanAccessStatus() {
+  if (repositoryActive()) return publicStatus(requireLanAccessRepositoryConfig())
   return publicStatus(await readLanAccessFile())
 }
 
 export async function readLanAccessConfig() {
+  if (repositoryActive()) return requireLanAccessRepositoryConfig()
   return readLanAccessFile()
 }
 
 export async function updateLanAccessSettings({ enabled, password, sessionTtlHours }) {
   return enqueueWrite(writeQueueName, async () => {
+    assertLanAccessWritesAllowed()
+    if (repositoryActive()) {
+      const passwordProvided = typeof password === 'string' && password.length > 0
+      if (passwordProvided) assertPasswordAllowed(password)
+      const passwordInfo = passwordProvided ? await hashPassword(password.trim()) : {}
+      const updated = getLanAccessRepository().updateSettings({
+        enabled,
+        sessionTtlHours,
+        ...passwordInfo,
+      })
+      requestLanAccessJsonMirrorDrain()
+      return publicStatus(updated.config)
+    }
     const current = await readLanAccessFile()
     const passwordProvided = typeof password === 'string' && password.length > 0
     const nextEnabled = Boolean(enabled)
@@ -184,6 +235,12 @@ export async function updateLanAccessSettings({ enabled, password, sessionTtlHou
 
 export async function revokeLanAccessTokens() {
   return enqueueWrite(writeQueueName, async () => {
+    assertLanAccessWritesAllowed()
+    if (repositoryActive()) {
+      const updated = getLanAccessRepository().revokeAll()
+      requestLanAccessJsonMirrorDrain()
+      return publicStatus(updated.config)
+    }
     const current = await readLanAccessFile()
     const next = normalizeConfig({
       ...current,
@@ -204,6 +261,12 @@ export async function revokeLanAccessTokenById(id) {
     throw error
   }
   return enqueueWrite(writeQueueName, async () => {
+    assertLanAccessWritesAllowed()
+    if (repositoryActive()) {
+      const updated = getLanAccessRepository().revokeTokenById(normalizedId)
+      requestLanAccessJsonMirrorDrain()
+      return publicStatus(updated.config)
+    }
     const current = await readLanAccessFile()
     const tokens = pruneTokens(current.tokens)
     const nextTokens = tokens.filter((tokenRecord) => tokenRecordId(tokenRecord) !== normalizedId)
@@ -228,6 +291,12 @@ export async function revokeLanAccessToken(token) {
   if (!secret) return false
   const actualHash = sha256Base64Url(secret)
   return enqueueWrite(writeQueueName, async () => {
+    assertLanAccessWritesAllowed()
+    if (repositoryActive()) {
+      const revoked = getLanAccessRepository().revokeToken(token)
+      requestLanAccessJsonMirrorDrain()
+      return revoked
+    }
     const current = await readLanAccessFile()
     if (Number(versionText) !== (current.authVersion || 1)) return false
     const tokens = pruneTokens(current.tokens)
@@ -249,6 +318,31 @@ export function lanAccessCookieName() {
 
 export async function issueLanAccessToken(password, metadata = {}) {
   return enqueueWrite(writeQueueName, async () => {
+    assertLanAccessWritesAllowed()
+    if (repositoryActive()) {
+      const repository = getLanAccessRepository()
+      const current = repository.getConfig()
+      if (!current?.enabled || !current.passwordHash) {
+        const error = new Error('LAN access is not enabled.')
+        error.statusCode = 403
+        throw error
+      }
+      if (!(await verifyPassword(current, typeof password === 'string' ? password.trim() : ''))) {
+        const error = new Error('Invalid LAN access password')
+        error.statusCode = 401
+        throw error
+      }
+      const result = repository.issueToken({
+        remoteAddress: metadata.remoteAddress,
+        userAgent: metadata.userAgent,
+      })
+      requestLanAccessJsonMirrorDrain()
+      return {
+        token: result.token,
+        expiresAt: result.expiresAt,
+        maxAge: result.maxAge,
+      }
+    }
     const current = await readLanAccessFile()
     if (!current.enabled || !current.passwordHash) {
       const error = new Error('LAN access is not enabled.')
@@ -293,13 +387,20 @@ export async function issueLanAccessToken(password, metadata = {}) {
 }
 
 export async function verifyLanAccessToken(token) {
-  const current = await readLanAccessFile()
-  if (!current.enabled || !current.passwordHash || !token || typeof token !== 'string') return false
-  const [versionText, secret] = token.split('.')
-  if (Number(versionText) !== (current.authVersion || 1) || !secret) return false
-  const actualHash = sha256Base64Url(secret)
-  return pruneTokens(current.tokens).some((tokenRecord) => {
-    if ((tokenRecord.authVersion || 1) !== (current.authVersion || 1)) return false
-    return safeHashEqual(tokenRecord.tokenHash, actualHash)
-  })
+  try {
+    if (repositoryActive()) return getLanAccessRepository().verifyToken(token)
+    const current = await readLanAccessFile()
+    if (!current.enabled || !current.passwordHash || !token || typeof token !== 'string') return false
+    const [versionText, secret] = token.split('.')
+    if (Number(versionText) !== (current.authVersion || 1) || !secret) return false
+    const actualHash = sha256Base64Url(secret)
+    return pruneTokens(current.tokens).some((tokenRecord) => {
+      if ((tokenRecord.authVersion || 1) !== (current.authVersion || 1)) return false
+      return safeHashEqual(tokenRecord.tokenHash, actualHash)
+    })
+  } catch {
+    // Fail closed on any storage error or malformed input: LAN access is
+    // denied rather than accidentally allowed.
+    return false
+  }
 }

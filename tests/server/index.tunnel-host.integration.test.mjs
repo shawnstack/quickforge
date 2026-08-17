@@ -129,6 +129,13 @@ describe('server tunnel Host exception', () => {
         capabilities: {
           terminal: false,
         },
+        sqlite: {
+          ok: true,
+          schemaVersion: 9,
+          migrationCount: 9,
+          journalMode: 'wal',
+          busyTimeout: 5_000,
+        },
       })
 
       const secondResponse = await request(port, '/api/health', {

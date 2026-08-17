@@ -1,9 +1,186 @@
 {
   "features": [
     {
+      "id": "session-message-indexeddb-cache",
+      "name": "会话消息 IndexedDB 只读快照缓存",
+      "description": "前端只读缓存层：解决页面刷新/切换会话/空闲 agent 驻留逐出（上限 5 个）后 ServerAgent.restore + fetchAllSessionMessages 全量重拉消息（前端最大重复数据流，长会话 MB 级）的问题。Phase 1（基准+设计）：实测刷新/重进会话时 /restore + /messages 全量重拉的耗时与字节量（证据不足则不实施）；确定缓存 key（移动壳多 origin 需带服务器标识，防切换服务器串数据）、失效戳（stateVersion / messagesSummary.count / digest，均来自服务端权威字段）、容量上限与 LRU 裁剪、写失败/配额异常静默降级。Phase 2（核心缓存层）：无新依赖的 IndexedDB 封装模块；快照 = messages 全量 + 校验戳，写入点覆盖 restore/create 全量物化与 SSE message_end/messages_replaced/messagesSummary 校准路径（与 F9 增量 SSE 通道互补，增量帧直接落快照）。Phase 3（集成 stale-while-revalidate）：刷新/重进先用本地快照即时渲染，后台经 /state summary 校准、差异经 /messages?after= 增量补齐，与既有 stateVersion 防旧覆盖守卫兼容；被逐出 agent 重建时优先读快照；补测试与文档。边界：服务器 SQLite 保持唯一权威，IndexedDB 仅为浏览器端只读缓存层（不复用 pi-web-ui IndexeddbStorageBackend 的权威后端语义）；不改变 API shape、SSE 帧与 stateVersion 语义；不触碰 F11 lan-access。",
+      "status": "pending",
+      "dependencies": [
+        "message-incremental-storage"
+      ],
+      "updated": "2026-08-17"
+    },
+    {
+      "id": "lan-access-storage-migration",
+      "name": "LAN 访问存储 SQLite 权威迁移（配置+token）",
+      "description": "将 LAN 访问配置与令牌从 security/lan-access.json 整体迁移到 SQLite 权威存储（配置+token 一起，直接权威切换+可靠性外壳，LAN token 可重建）：schema v9 lan_access_storage_migration（lan_access_state 单配置行 enabled/password_hash/salt/version/auth_version/session_ttl_hours/updated_at/revision/record_digest/extra_json、lan_access_tokens token_id PK+≤100 写入裁剪、lan_access_storage_state/lan_access_maintenance_lock/lan_access_json_mirror_queue 独立域表；v8→v9 失败全回滚、F5/F7/F9/F10 数据保留、新库 schemaVersion 9）+ lan-access repository（严格映射与白名单、settings 变更 authVersion+1 清 tokens 与配置更新同事务、unlock 签发+裁剪≤100 同事务、CAS revision、verifyToken 精确语义版本号+常数时间哈希 fail-closed、单条 revoke/logout revoke/revoke-all、replaceAll/exportSnapshot/verifyIntegrity/count/digest/mirror 队列、未知字段 roundtrip）+ service/cutover 核心层（独立域四相状态机+维护锁 PID/fencing/heartbeat/expiry、buildLanAccessJsonSnapshot 校验 enabled/passwordHash 成对/tokens 结构、双快照→备份→三读→replaceAll+pending 同事务→verifyIntegrity→drain→authoritative、pending 前失败回 json_authoritative、pending 后 fail-closed 可恢复、createDefaultLanAccessMirror 物化 lan-access.json 原子写 tmp+rename、JSON 损坏/缺文件 ENOENT 兜底默认配置语义保留）；Phase 1 不接 lan-access-store/routes/backup（Phase 2/3 待办）；鉴权 fail-closed 不回归。Phase 2（接入）完成：lan-access-store 全部读写路径按 phase 路由（repositoryActive 检查 service phase、维护锁 423 LAN_ACCESS_MAINTENANCE_ACTIVE 仅 authoritative 写、config 缺失 503 fail-closed；settings 单事务 authVersion+1 清 tokens、unlock 签发+≤100 裁剪、verifyToken 版本号+常数时间 fail-closed 整体 try/catch、revoke/logout/revoke-all 语义保持）；server/index.mjs 启动链 share 后接入 initializeLanAccessCutover→initializeLanAccessService→drainLanAccessJsonMirror、shutdown stopLanAccessService 在 closeSqliteStorage 前；routes/lan-access.mjs 零改动；CAS 409/423 经 sendError 稳定映射。Phase 3（收尾）完成：backup route 权威导出（lanAccess 维护锁内 quick_check+verifyIntegrity+exportSnapshot，count/digest fail closed，顶层 lanAccessState envelope，导出含 token 哈希非明文、剔除 revision，scope=all/lan-access）；restore 支持 lanAccess（replace 全量/merge 保留本地字段与 tokens、计划文件 lan-access-restore-plan.json+失败补偿、维护锁 423 lan_access_maintenance、恢复覆盖 enabled 开关→inspect 警告「将替换局域网访问配置」、v1 lan-access.json 归一化导入、不破坏 F5/F7/F9/F10，recoverLanAccessRestorePlan 接入启动链）；新增 export-lan-access-v1.mjs（停机权威导出，cutover_running/json_authoritative 拒绝）与 downgrade-lan-access-v1.mjs（--dry-run 零写入/默认物化完整 JSON/--commit 校验后切回 json_authoritative，digest 精确对拍）；新增 backup.authoritative-lan-access 7 项 + lan-access-offline-export 7 项测试；Electron 39.8.10 full-chain smoke 覆盖 lanAccess（schemaVersion 9：settings/issue/verify/revoke/backup/restore/mirror/downgrade 端到端）；全量 test 196 文件/1566 项 100%、lint 0 error（仅既有 identity warning）、build 通过；authoritative 下 LAN 写路径均经 repository/service（JSON 仅 mirror 物化与非权威 legacy 分支），verifyLanAccessToken 任何输入 fail-closed（含 backup/restore/downgrade 后状态异常）。",
+      "status": "done",
+      "dependencies": [
+        "share-token-storage-migration"
+      ],
+      "updated": "2026-08-17"
+    },
+    {
+      "id": "workspace-tree-on-demand",
+      "name": "Workspace 文件树按需加载与可靠刷新",
+      "description": "Workspace Inspector Files 使用 children/search 服务端按需加载；修复 clean Git Review 重复请求并为首次错误提供手动重试，Inspector 打开后独立加载根目录供 Reader/Browser 导航，搜索刷新/错误重试重新执行当前 query；保留根目录分页、多页刷新与递归删除、append cursor 重试、搜索状态隔离/truncated/目录不可展开、分页确定性排序及逐目录安全校验，并记录 offset/大目录/服务端扫描限制。",
+      "status": "done",
+      "dependencies": [],
+      "updated": "2026-08-17"
+    },
+    {
       "id": "subagent-error-details-visibility",
       "name": "subagent 错误详情可见性修复",
       "description": "修复 subagent 显示处理出错但具体报错不可见：过程折叠不再隐藏带 errorMessage 的错误 assistant；运行详情从 trace 最后错误 assistant、错误 output/details 依次提取原因，缺失时显示本地化兜底；独立错误块去重展示，并在终态 details 为空时保留上一帧 trace/元数据。",
+      "status": "done",
+      "dependencies": [],
+      "updated": "2026-08-17"
+    },
+    {
+      "id": "subagent-tab-lit-reactivity",
+      "name": "subagent Tab 切换与实时详情响应式修复",
+      "description": "修复 Workspace Inspector 中重复点击 subagent 看似未跳转、手动切换不同 subagent Tab 仍显示旧内容、实时 payload 到达后详情不刷新的问题。根因是 SubagentRunDetailBodyElement 的普通 payload class field 在 ES2023 输出中遮蔽 Lit reactive setter；改为 declare 类型字段，保留 Lit 原型响应式访问器。新增真实源码 ES2023 转译 AST 回归测试，防止再次生成实例 payload 字段。未修改既有 Tab 请求、复用、激活、拖拽和持久化逻辑。",
+      "status": "done",
+      "dependencies": [
+        "subagent-run-canonical-id-live-updates"
+      ],
+      "updated": "2026-08-16"
+    },
+    {
+      "id": "ai-stream-idle-total-timeouts",
+      "name": "AI 流空闲超时与总时长上限",
+      "description": "将统一 AI 流保护从单一 5 分钟绝对 deadline 改为每次事件重置的 5 分钟空闲超时与 20 分钟总时长硬上限；兼容 deadlineMs 作为空闲超时覆盖，保持 result/异步迭代竞争和中止语义，补充脱敏诊断日志、测试与文档。",
+      "status": "done",
+      "dependencies": [],
+      "updated": "2026-08-17"
+    },
+    {
+      "id": "workspace-inspector-tab-list-scroll",
+      "name": "Workspace Inspector Tab 下拉列表独立滚动",
+      "description": "Workspace Inspector 的 Tab 下拉菜单将条目区限制为最多 10 行并按视口高度兜底，超出后仅条目区纵向滚动；关闭其他与关闭全部操作保持在滚动区外。补充源码结构回归测试与组件 Wiki 说明。",
+      "status": "done",
+      "dependencies": [],
+      "updated": "2026-08-17"
+    },
+    {
+      "id": "desktop-native-system-notifications",
+      "name": "系统通知默认开启与 Electron 原生通知",
+      "description": "将现有系统通知设备偏好改为默认开启并保留浏览器用户手势授权约束；新增安全隔离的 Electron preload 窄桥接、主进程原生 Notification、严格 IPC 校验和点击恢复/聚焦并打开会话能力；补充通知行为及 Electron 打包安全结构测试与 Wiki。",
+      "status": "done",
+      "dependencies": [],
+      "updated": "2026-08-17"
+    },
+    {
+      "id": "sqlite-compatibility-spike",
+      "name": "内置 node:sqlite 跨运行时兼容性探针",
+      "description": "以独立开发脚本验证 Node 24 与 Electron 内置 Node 22 的 node:sqlite 共同 API，不接入正式 server/desktop/CLI、不迁移业务数据。完成标准：临时文件库自动清理，CRUD、显式 ROLLBACK、WAL、busy_timeout 与双进程 BEGIN IMMEDIATE 锁等待均通过；Node/Electron 实测、针对性 Vitest/ESLint 及完整 test/lint/build 全部通过；记录未测平台、最低 Node 与进入 F2 的前提。",
+      "status": "done",
+      "dependencies": [],
+      "updated": "2026-08-17"
+    },
+    {
+      "id": "sqlite-storage-foundation",
+      "name": "SQLite 存储基础层",
+      "description": "在不迁移 JSON 业务数据、不创建业务表的前提下，接入正式 node:sqlite 基础层：统一文件路径与 PRAGMA、append-only migration/user_version、一致性校验、同步事务与嵌套 SAVEPOINT、health、单进程初始化去重、多进程首次初始化及 Server/ACP 生命周期关闭；完成 Node/Electron 正式模块 smoke 和完整 test/lint/build 门禁。",
+      "status": "done",
+      "dependencies": [
+        "sqlite-compatibility-spike"
+      ],
+      "updated": "2026-08-17"
+    },
+    {
+      "id": "scheduled-runs-repository",
+      "name": "定时任务运行记录 SQLite Repository",
+      "description": "新增 migration v2 的 scheduled_task_runs 空表与查询索引，并提供注入式同步 repository：严格对象映射与更新白名单、组合过滤/分页/count、LIKE 特殊字符转义、稳定排序、每任务 200 条事务内裁剪及删除能力；不接入 scheduled task runtime/API/backup，不导入旧 task.runs，完成 Node/Electron 与完整 test/lint/build 门禁。",
+      "status": "done",
+      "dependencies": [
+        "sqlite-storage-foundation"
+      ],
+      "updated": "2026-08-17"
+    },
+    {
+      "id": "scheduled-runs-shadow-integration",
+      "name": "定时任务运行记录影子双写与完整性服务",
+      "description": "新增 scheduled task runs 服务层：JSON task.runs 始终先成功提交并保持唯一业务权威，SQLite create/update/delete 仅 best-effort 影子同步；GET 以复合键校验完整 JSON 集合，隐藏 SQLite-only/陈旧/孤立行，在完整合并后执行元数据、keyword、组合过滤、稳定排序、total 与分页。保留现有 JSON 备份格式和 restore 独立性，不迁移旧 runs，不完成 MED-9，不切换唯一权威；通过服务/执行/备份/repository/lifecycle、Electron smoke 及完整 test/lint/build 门禁。",
+      "status": "done",
+      "dependencies": [
+        "scheduled-runs-repository"
+      ],
+      "updated": "2026-08-17"
+    },
+    {
+      "id": "session-index-foundation",
+      "name": "会话索引基础层",
+      "description": "新增 SQLite schema v4 session_index 可重建派生索引、复合 bucket repository、count+digest 启动重建与 storage 中央 JSON-first best-effort 同步；JSON metadata 仍为唯一权威，现有 Storage/ACP 查询和 backup 格式不变。",
+      "status": "done",
+      "dependencies": [
+        "scheduled-runs-cutover"
+      ],
+      "updated": "2026-08-17"
+    },
+    {
+      "id": "session-index-query-migration",
+      "name": "会话索引查询迁移",
+      "description": "SQLite schema v5 增加最小查询索引；sessions metadata storage route 仅对完整性、source compatibility、duplicate/tie 和 shadow 对拍门禁通过的合法分页请求使用真实 SQL COUNT+LIMIT/OFFSET，其余保持原 JSON fallback。ACP、backup、auto-archive、stale reset 与 session 主体不切换；提供开发 benchmark、Electron smoke、文档与完整门禁。",
+      "status": "done",
+      "dependencies": [
+        "session-index-foundation"
+      ],
+      "updated": "2026-08-17"
+    },
+    {
+      "id": "session-state-transactional-storage",
+      "name": "会话状态 SQLite 事务权威存储",
+      "description": "将会话 body、metadata、session_index 与 JSON mirror outbox 收敛为 SQLite 单事务提交，提供严格校验、CAS、可恢复 cutover、镜像物化、backup/restore 与离线降级工具。第三阶段完成：backup route 权威导出（phase/digest/完整性校验）、restore merge/replace + 计划文件补偿 + 维护锁 423 + v1 兼容 + F5 scheduled_task_runs 隔离；新增 export-session-state-v1.mjs 与 downgrade-session-state-v1.mjs 离线工具（含 --dry-run）；Electron 39.8.10 full-chain smoke（cutover→authoritative/save/read/delete/CAS 409/backup-restore/mirror drain/scheduled runs 不回归）；架构文档与 wiki 更新；全量 test（180 文件/1447 项 100%）、lint（0 error）、build 通过；全仓 session 写路径权威下均经 facade/service，无 JSON 权威旁路，F9 边界未越界。",
+      "status": "done",
+      "dependencies": [
+        "session-index-query-migration"
+      ],
+      "updated": "2026-08-17"
+    },
+    {
+      "id": "message-incremental-storage",
+      "name": "会话消息增量存储（先基准后决策）",
+      "description": "先基准后决策：仅当实测数据证明全量 messages 读写/传输是用户可感知瓶颈才拆分；SSE stateVersion 语义不变；不越界 F5/F7；mirror/backup/restore/downgrade 保持兼容。第一阶段完成：feature_list 登记 + scripts/session-message-benchmark.mjs 性能基准（隔离 mkdtemp dataDir，默认 500/2000 条并可参数化，实测 authoritative saveSessionStatePair 单次提交耗时、readSessionStateValue 全量反序列化、GET/state 与 SSE 初始 state 字节量、非权威 JSON writeSessionValue 对比，输出 JSON Lines + 阈值判定 + 拆分占比估算）+ 针对性 Vitest（冒烟运行 + 输出格式 + 零残留）+ 基于实测数据的决策记录（证据不足则不实施拆分）。第二阶段（核心存储层）完成：schema v7 session_messages 按会话分片增量表（v6→v7 迁移全回滚、存量 state_json.messages 原地保留）；repository 新增 appendMessages/replaceMessages/readMessagesPage/messageCount，delete 级联、verifyIntegrity/exportSnapshot/digest 覆盖消息表且表示形式往返一致；service 拆分后写入（≥200 条自动拆分、增量保存只写新增行、未拆分会话从 body 读取兼容、deriveMetadata messageCount/preview 按消息源、mirror 物化重组完整 body）；digest 语义确定（body digest 覆盖存储表示、messages_digest 并入快照行）；cutover digest 行格式对齐；新增 13 项针对性 Vitest + 多进程 append CAS fixture + full-chain Electron smoke 覆盖拆分会话。第三阶段（集成+传输下降+全链）完成：agent-manager 权威保存按 messageStoragePlan 显式传 delta（append/replace）并维护 persistedMessageCount/persistedTailDigest 按拆分表示做冲突检测（并发消息写入不覆盖）；restoreAgent 组装语义与拆分计数恢复；route/SSE 对拆分会话不再下传全量 messages（GET /state、POST /restore、SSE 初始 state 帧与 state 事件改为 messagesSummary 轻量帧），新增增量 SSE 通道（message_end/agent_end/messages_replaced 只发尾部 + messagesIncremental）与 GET /api/agents/:id/messages 分页端点；实测 2000 条会话 SSE state 帧 1.19MB → 278B（-99.98%）；前端 server-agent.ts 增量合并（mergeIncrementalMessages）、断线重连/刷新按 summary 补齐缺失消息、截断时全量重取，stateVersion 语义不变、既有防旧覆盖保护不受影响；backup/restore 拆分会话端到端（导出重组 + restore 后 digest 精确对拍，修复 snapshotValues 对已组装记录清空 messages 的潜在 bug）；downgrade 拆分会话完整 v1 整包物化（--commit 后 JSON 完整可读、dry-run 零写入）；mirror 补端到端测试（append 后重组正确、pending=0）；Electron 39.8.10 full-chain smoke 覆盖 save→read→append→SSE 帧→backup/restore→downgrade；全量 test 183 文件/1483 项 100%、lint 0 error（仅既有 identity warning）、build 通过；文档/架构/wiki/feature/progress/handoff 更新。",
+      "status": "done",
+      "dependencies": [
+        "session-state-transactional-storage"
+      ],
+      "updated": "2026-08-17"
+    },
+    {
+      "id": "share-token-storage-migration",
+      "name": "分享令牌与分享记录 SQLite 权威存储迁移",
+      "description": "用户确认三项决策：①完整套路（影子双写→cutover→维护锁→backup/restore/离线工具）②share_tokens 独立表 ③纳入 backup/restore。Phase 1（核心层）完成：feature_list 登记 + schema v8 share_storage_migration（share_sessions 严格列映射 + extra_json 未知字段 + record_digest + deleted_at tombstone、share_tokens UNIQUE(share_id,token_hash) ≤50 条、share_storage_state/share_maintenance_lock/share_json_mirror_queue 独立存储域；v7→v8 失败全回滚、F5/F7/F9 数据保留、新库 schemaVersion 8）+ share repository + share cutover/service。Phase 2（接入）完成：share-store 全部读写路径按 phase 路由（pending/authoritative 走 repository 单事务+CAS 409；JSON 文件降级为 best-effort mirror）；server/index.mjs 启动链 initializeShareCutover→initializeShareService→drainShareJsonMirror + shutdown stopShareService；routes 适配（CAS 409/维护锁 423）。Phase 3（收尾）完成：backup route 权威导出（share 维护锁内 quick_check+verifyIntegrity+exportSnapshot，count/digest fail closed，顶层 shareState envelope，导出含 token 哈希）；restore 支持 shares（replace/merge、计划文件+失败补偿、维护锁 423、v1 conversation-shares.json 归一化导入、空 shares 语义明确、不破坏 F5/F7/F9，recoverShareRestorePlan 接入启动链）；新增 export-share-v1.mjs（停机权威导出，cutover_running/json_authoritative 拒绝）与 downgrade-share-v1.mjs（--dry-run 零写入/默认物化完整 JSON/--commit 校验后切回 json_authoritative，digest 精确对拍）；修复 create 新记录 created_at 与 digest 不一致、token issuedAt 哨兵归一化两处完整性缺陷；新增 backup.authoritative-share 6 项 + share-offline-export 7 项测试；Electron 39.8.10 full-chain smoke 覆盖 share（create/read/revoke/token/backup/restore/mirror/downgrade，schemaVersion 8）；全量 test 190 文件/1523 项 100%、lint 0 error（仅既有 identity warning）、build 通过；authoritative 下 share 写路径均经 repository/service，无 JSON 权威旁路，F11 边界未越界。",
+      "status": "done",
+      "dependencies": [
+        "session-state-transactional-storage",
+        "message-incremental-storage"
+      ],
+      "updated": "2026-08-17"
+    },
+    {
+      "id": "standard-skill-frontmatter-name-id",
+      "name": "标准 Agent Skill 以 frontmatter name 作为权威 ID",
+      "description": "标准 Skill 保持 SKILL.md 固定入口及既有 name/description 校验，但允许目录名与 frontmatter name 不同；发现、选择和同名覆盖继续使用归一化后的 canonical name，展示名使用 displayName，资源从实际目录读取。补充直接回归测试与 server Wiki 规则。",
+      "status": "done",
+      "dependencies": [],
+      "updated": "2026-08-17"
+    },
+    {
+      "id": "scheduled-runs-cutover",
+      "name": "定时任务运行记录 SQLite 权威切换",
+      "description": "完成 schema v3 复合键与状态/维护锁、JSON→SQLite 逻辑备份和 count/digest cutover、pending/authoritative 崩溃恢复、SQLite 权威 runtime/API 与真实 SQL 分页、backup v1 逻辑导出、restore 补偿/计划恢复、离线导出和降级文档；Node/Electron smoke 及完整 test/lint/build 门禁通过。",
+      "status": "done",
+      "dependencies": [
+        "scheduled-runs-shadow-integration"
+      ],
+      "updated": "2026-08-17"
+    },
+    {
+      "id": "agent-profile-runtime-minutes",
+      "name": "Agent Profile 最大运行时间按分钟配置",
+      "description": "Agent Profile 配置界面以分钟输入最大运行时间，默认 60、支持小数并限制至少 1 秒（1000/60000 分钟）且不超过 60；回填使用简洁且可逆到毫秒精度的分钟值，提交四舍五入为 maxRuntimeMs。后端 API/持久化/timeoutMs 继续使用毫秒，仅将 subagent 最终超时错误格式化为人类可读分钟；真实 run_subagent execution 测试覆盖 timeout 与 abort。",
       "status": "done",
       "dependencies": [],
       "updated": "2026-08-17"
@@ -108,22 +285,6 @@
         "subagent-run-live-updates"
       ],
       "updated": "2026-08-15"
-    },
-    {
-      "id": "desktop-native-system-notifications",
-      "name": "系统通知默认开启与 Electron 原生通知",
-      "description": "将现有系统通知设备偏好改为默认开启并保留浏览器用户手势授权约束；新增安全隔离的 Electron preload 窄桥接、主进程原生 Notification、严格 IPC 校验和点击恢复/聚焦并打开会话能力；补充通知行为及 Electron 打包安全结构测试与 Wiki。",
-      "status": "done",
-      "dependencies": [],
-      "updated": "2026-08-17"
-    },
-    {
-      "id": "standard-skill-frontmatter-name-id",
-      "name": "标准 Agent Skill 以 frontmatter name 作为权威 ID",
-      "description": "标准 Skill 保持 SKILL.md 固定入口及既有 name/description 校验，但允许目录名与 frontmatter name 不同；发现、选择和同名覆盖继续使用归一化后的 canonical name，展示名使用 displayName，资源从实际目录读取。补充直接回归测试与 server Wiki 规则。",
-      "status": "done",
-      "dependencies": [],
-      "updated": "2026-08-17"
     }
   ]
 }

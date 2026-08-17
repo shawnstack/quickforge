@@ -6,12 +6,13 @@
 
 ```
 server/
-├── index.mjs                 # 服务器入口 (486 行)
+├── index.mjs                 # 服务器入口 (883 行)
 ├── agent-manager.mjs         # Agent 生命周期管理 (含 Agent Profile / subagent 执行)
 ├── auto-archive.mjs          # 超过 30 天未更新对话的自动归档 runner
 ├── acp/                      # ACP AgentSideConnection stdio 适配层
 ├── agent-profiles.mjs        # Agent Profile 配置层，合并内置和自定义 Agent
 ├── storage.mjs               # 文件存储层 (707 行)
+├── sqlite/                   # node:sqlite 基础连接、事务、health 与 append-only migration
 ├── network-proxy.mjs         # 直连、真实系统代理与手动 HTTP(S) 代理运行时
 ├── skills.mjs                # Agent Skills 管理和加载 (553 行)
 ├── channels/                 # 通用渠道管理（外部应用 bridge 进程，如微信 weixin-acp）
@@ -26,7 +27,11 @@ server/
 ├── custom-commands.mjs       # 自定义命令系统 (539 行)
 ├── reasoning-cache.mjs       # 推理内容缓存 (51 行)
 ├── restart-supervisor.mjs    # 服务重启监控脚本 (38 行)
-├── lan-access-store.mjs      # LAN 共享访问令牌存储 (215 行)
+├── lan-access-store.mjs      # LAN 共享访问令牌存储 (407 行)
+├── lan-access-service.mjs    # F11 lan-access 域 phase 状态机 + mirror drain
+├── lan-access-cutover.mjs    # F11 lan-access JSON→SQLite cutover + 维护锁
+├── lan-access-backup.mjs     # F11 lan-access 权威导出 / restore 计划与补偿
+├── lan-access-json-file.mjs  # F11 lan-access mirror 文件读写（原子 tmp+rename）
 ├── terminal/                 # 本地交互式终端 PTY 会话管理
 ├── routes/                   # API 路由处理器
 ├── tools/                    # 工作区工具定义和实现
@@ -37,7 +42,7 @@ server/
 
 ## 核心模块
 
-### index.mjs (486 行)
+### index.mjs (883 行)
 
 **用途**: 服务器入口 / 主路由分发。启动 HTTP 服务器，注册所有 API 路由。
 
@@ -53,8 +58,10 @@ server/
 - SSE（`/api/agents/events`, `/api/agents/:sessionId/stream`）
 - WebSocket 交互式终端（`/api/terminal/sessions/:id/ws`，仅 localhost）
 - 启动时重置僵死任务状态
+- `ensureStorage()` 后、HTTP listen 前初始化 `<dataDir>/storage/quickforge.sqlite3`；统一 WAL/foreign keys/busy timeout/synchronous，migration 或一致性失败会阻止启动；scheduled runs 随后依次执行 cutover、restore-plan recovery 与 stale-running recovery，全部成功后才启动 runner。cutover/restore/权威 backup 共用带 PID/fencing/heartbeat 的 SQLite 维护锁；restore 遇 active run 返回 409，权威 backup repository/count/digest 异常 fail closed；restore plan 按 applying 类状态 roll-forward target、compensating 类状态 rollback before，digest 不符或补偿失败阻止 runner。`resetStaleTaskStatuses()` 后执行 F8 session state 启动链：`initializeSessionStateCutover()`（JSON→SQLite cutover、三读稳定性、v1 backup、pending 提交、integrity fail closed）→ `initializeSessionStateService()` → `recoverSessionStateRestorePlan()`（中断的 restore 计划 roll-forward/rollback）→ `drainSessionJsonMirror()`；pending/authoritative 下 session body+metadata+session_index 为 SQLite 单事务权威，`session_storage_state` 记录 phase/count/digest。F7 readiness 显式区分 uninitialized/ready/degraded，并以 source/index count+digest、source compatibility、TTL verify、single-flight rebuild 守护 storage route SQL 分页；异常、duplicate/tie 或 shadow mismatch 均回 JSON。`/api/health` 返回 SQLite 与非敏感 sessionIndex 摘要，shutdown 幂等关闭
 - 支持 LAN 共享（显示局域网 URL）；远程完整访问需在本机配置密码。已认证远端可使用 Cloud、Storage、Backup、更新与重启，不再依据客户端 IP 网段区分；终端、系统代理、终端 Shell、目录选择器和打开服务端电脑上的资源管理器/IDE 仍仅限本机。
 - 启动后初始化 `network-proxy.mjs`：读取 `settings['network-proxy']`，为外部 Fetch 请求应用直连、操作系统真实代理、手动 HTTP(S) 代理或 PAC 地址；localhost 始终直连。Desktop inline 由 Electron/Chromium Session 处理系统 PAC/WPAD 和自定义 PAC 地址；CLI/SDK 由 `@vscode/os-proxy-resolver` 调用 Windows、macOS 和 Linux 的原生系统代理来源，当前不支持自定义 PAC 地址，且不会静默降级为直连
+- F11 lan-access 启动链（share cutover 之后）：`initializeLanAccessCutover() → initializeLanAccessService() → recoverLanAccessRestorePlan() → drainLanAccessJsonMirror()`（fail-closed；pending/authoritative 完整性失败阻止启动，中断的 lan-access restore 计划 roll-forward/rollback）；authoritative 下 `security/lan-access.json` 为 best-effort mirror；`shutdownRuntime` finally 在 `closeSqliteStorage()` 前调用 `stopLanAccessService()`
 
 ### cloud/ — QuickForge Cloud 本地代理
 
@@ -63,7 +70,8 @@ server/
 - `credential-store.mjs` 将安装密钥、Refresh Token 和待处理 Device Flow 原子保存在 `~/.quickforge/storage/security/cloud-identity.json`；公开状态不返回 Token、私钥、路径或 `deviceCode`，账户摘要严格白名单为 `id/email/plan`。
 - `identity.mjs` 管理正式账户 OAuth Device Flow、Access Token 内存缓存、Refresh Token 轮换、额度/设备读取和注销；local 登录直接 ensure installation 并 authorizeDevice，`mode:guest` 仅兼容遗留本地凭据。pending/slow_down/network 可恢复，denied/expired/cancel 清 pending 并保留原 local/遗留 guest 状态；仅网络异常、HTTP 5xx 和可重试服务错误映射为 network，协议/无效响应直接抛错；并发 poll 合并为一次远端 exchange。成功原子写入账户 Token、保留 installation 并清模型缓存。
 - `routes/cloud.mjs` 暴露同源 `/api/cloud/*`：包括配置、连接测试、身份 reset/status、Device Flow start/poll/cancel、目录、额度、设备和退出；所有 Device Flow 写操作使用既有 action header + JSON 防护，响应不返回 `deviceCode`。跨 URL 保存且存在 Session 或 pending flow 时返回 `409 cloud_session_active`。
-- `cloud/qf-agent-process.mjs` 在 HTTP 监听成功后托管独立 `qf-agent` 进程，并使用实际绑定端口生成回环 Server URL；默认身份目录按 `<runtimeKind>-<port>` 隔离 Server 与 Desktop。二进制缺失、版本校验失败、身份锁冲突或远程连接失败仅反映到 `GET /api/cloud/remote/status`，不会阻塞本地 Server 启动；公开状态不包含可执行路径、身份路径或令牌。
+- `cloud/qf-agent-process.mjs` 在 HTTP 监听成功后托管独立 `qf-agent` 进程，并使用实际绑定端口生成回环 Server URL；默认身份目录按 `<runtimeKind>-<port>` 隔离 Server 与 Desktop。二进制缺失、版本校验失败、身份锁冲突或远程连接失败仅反映到 `GET /api/cloud/remote/status`，不会阻塞本地 Server 启动；公开状态不包含可执行路径、身份路径或令牌。代理透传：仅当 QuickForge 网络代理配置为 `manual` 且 proxyUrl 非空时，才向 qf-agent 子进程 env 注入 `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`，并构造 `NO_PROXY`（保留父进程已有 `NO_PROXY`/`no_proxy` 条目，至少加入 `localhost`、`127.0.0.1`、`::1` 与回环 Server URL 主机名）；`direct`/`system`/`pac` 模式不映射为子进程代理，也不清除父进程已有代理 env。失效身份自愈：检测到 qf-agent 结构化 warn/error/fatal/panic 日志中的 `invalid_refresh_token`、`refresh_token_reused`、`installation_revoked` 或既有“refresh token 已失效”提示时，每 lifecycle 至多一次终止子进程，并在子进程退出后仅对当前 runtime 专属 `identityDir/identity.json` 做安全隔离（rename 到同目录临时文件后删除，Windows EPERM fallback unlink，ENOENT 幂等，只处理普通文件不跟随 symlink），随后调度重启进入设备授权；隔离成功与否均不清零重启计数，连续失效由 `MAX_CONSECUTIVE_RESTARTS` 有界兜底（稳定运行 60s 为自然重置边界），避免新身份持续被拒绝时形成无界循环；不会触碰 `storage/security/cloud-identity.json`，stop/新 lifecycle 不会误清理。
+- `cloud/auto-approval.mjs` 管理短时、一次性的远程 Agent 自动批准意图（仅内存态，默认 TTL 10 分钟）：仅当本机用户在设置页显式将 Cloud 服务从 `disabled` 切换为 `enabled`（`PUT /api/cloud/config` 的 enabled false→true 转换）时创建；认证远程客户端、Server 启动恢复、URL 切换、agent 普通重启都不会创建新意图，因此不会静默批准新 agent。qf-agent 进入 `authorizing` 后，托管层从结构化日志的 `verificationUriComplete`（兼容 `userCode`/`user_code`/`code` query 参数）安全提取一次性 user_code，经 `CloudIdentityManager.withAccessToken` 用桌面 Access Token 调用云端固定接口 `POST /v1/remote/agents/authorize`（body `{userCode}`）；云端只接受 `kind=desktop` 且具备 `remote:write` 的身份，并只批准同账户、`pending`、未过期、`client_id=quickforge-agent` 的请求。意图一次性消费、并发去重，成功即消耗，失败保留脱敏错误，仅本机可通过 `POST /api/cloud/remote/authorize-retry` 重试。desktop Token 只在 Node 内存中经 `withAccessToken` 注入请求，user_code 不作为独立字段进入公开状态；意图绝不落盘，不写 agent identity，也不触碰 `storage/security/cloud-identity.json`。agent 仍走自己的 Device Flow 并保存独立身份；远程 Agent UI 不显示人工授权链接或 user code。
 - 退出当前设备时先调用云端 installation revoke，成功后才清理本地 Session；失败时保留凭据供重试。
 - 退出后再次登录会按 `rotateInstallationBeforeRegistration` 轮换 Ed25519 安装密钥，避免旧公钥指纹唯一约束冲突。
 - `models.mjs` 只向浏览器返回无密钥模型描述，过滤 `available:false`，指定 catalog ID 未命中时强制刷新一次；真实 Cloud Token 和上游地址仅在 Node 请求期间注入。
@@ -79,7 +87,7 @@ server/
 - OpenCode ACP 附件与工具展示：图片转换为标准 `image` block，普通文件以内嵌 `resource` 的 text/blob 发送并使用安全 `quickforge-attachment://` URI；发送前严格校验 initialize 的 `promptCapabilities.image/embeddedContext`，非法或不支持时在消息持久化和 `agent_start` 前返回 `400`。工具名只按 ACP kind 将 read/edit/search/execute 映射为现有展示名，其余固定为 `opencode_tool`；title/kind/locations 仅做白名单来源 metadata，`_meta` 剥离，content/resource/diff/terminal/rawOutput 均转为有界展示，失败状态、审批与消息顺序保持不变。旧 OpenCode 历史加载时会仅在内存中归一旧工具名和配对结果以自愈展示，不主动改写持久化文件。
 - OpenCode 标准 ACP 动态配置：`agent.state.acpSession` 仅在内存中保存白名单化的 `configOptions`、`modes`、`availableCommands`、`sessionInfo`、`usage`，剥离 `_meta`/未知 metadata，不含凭证且不持久化；`session/load` / `resume` 是恢复时的权威刷新来源。Setup 只缓冲五类标准 metadata update，不回放消息/tool/plan 历史。`session_info` 不改 QuickForge title，`usage` 不映射为 QuickForge context/message usage。服务端 Harness config/mode API（`POST …/harness/config-option`、`…/harness/mode`）已接入前端 OpenCode 配置菜单，改动成功后广播 `state` SSE；运行期 `usage_update` 通过 `acp_session_usage_update` 轻量事件触发 debounce 持久化（仅持久化 `openCodeUsage` 快照），并即时刷新前端 usage badge。该 Client→OpenCode 方向与下方 `acp/server.mjs` 的 QuickForge→ACP Client 方向严格区分。
 - OpenCode 消息位置能力：ACP 仅提供整会话 fork，不支持按消息位置 fork、rollback 或 retry；Web UI 对 OpenCode 仍禁用这些操作，但当前会话操作菜单已开放“复制当前会话”整会话 fork 入口，新会话通过 `sourceHarnessSessionId` 触发 ACP `session/fork` 并立即持久化。
-- Provider 请求重试：主 Agent、Subagent、对话压缩和辅助模型生成默认设置 `maxRetries: 3`，即首次请求失败后最多再重试 3 次（最多共 4 次请求）；是否可重试及退避由各 Provider 实现决定，模型连通性探测显式保持不重试，`maxRetryDelayMs` 只限制服务端要求的单次等待上限
+- Provider 请求重试与流超时：主 Agent、Subagent、对话压缩和辅助模型生成默认设置 `maxRetries: 3`，即首次请求失败后最多再重试 3 次（最多共 4 次请求）；是否可重试及退避由各 Provider 实现决定，模型连通性探测显式保持不重试，`maxRetryDelayMs` 只限制服务端要求的单次等待上限。统一 AI 流包装使用 5 分钟空闲超时（每个新流事件重置）与 20 分钟总时长硬上限，超时会中止 Provider signal；兼容内部 `deadlineMs` 覆盖并将其解释为空闲超时。
 - Git 提交信息 AI 生成同样接收 `modelRef` 并通过统一 resolver；客户端提交的完整模型仅作兼容识别，不能覆盖 Provider Base URL 或绕过 Cloud 来源权限。
 - 默认工作目录：全局会话（无 `projectId`）会合成默认 workspace 上下文（`defaultGlobalWorkspaceContext`，根目录 `~/.quickforge/workspace`，合成 project id 为 `default`），使「对话」与「项目」享有相同的文件工具（读/写/编辑/grep/命令）、工作区面板、终端和 Git 能力；文件操作受该目录沙箱约束，默认权限下读类工具放行、写入/命令/MCP/Plugin 等可能影响系统的工具走审批，完全访问权限则在既有沙箱与敏感文件限制内自动执行；`projectContextFromId` 找不到项目时同样回落到该默认 workspace
 - 消息运行（`runPrompt`）：执行 AI 对话，管理消息历史
@@ -105,6 +113,7 @@ server/
 - `acp/server.mjs` — 创建 stdio ACP 连接，处理 `initialize`、`session/new`、`session/load`、`session/set_config_option`、`session/prompt`、`session/cancel`、`session/list`、`session/delete`、`session/close` 和 `document/didOpen` / `didChange` / `didSave` / `didClose` / `didFocus`，并把 QuickForge Agent 事件转换为 ACP `session/update`。
 
 **行为约束**:
+- ACP stdio：`quickforge acp` 在创建 Agent 前先完成 JSON storage 与 SQLite 基础库初始化，连接关闭或启动失败时在 `finally` 幂等关闭 SQLite；动态导入避免 public-api 先设置 dataDir 的时序被顶层 import 固化。
 - stdout 保留给 ACP NDJSON 协议；日志走 QuickForge logger 的 stderr / 日志文件。
 - 新会话会校验 ACP `cwd` 并记录 `additionalDirectories`；当 `cwd` 等于全局默认工作区时，会话保持 `global` scope，不会把该目录注册成项目；其他 `cwd` 会注册/激活 QuickForge 项目。额外目录会作为 ACP 上下文注入 prompt，但不会在当前实现中直接放宽 QuickForge workspace 工具的写入边界。项目路径匹配采用规范化 + 大小写不敏感比较（`sameProjectPath`），确保同一目录在 Windows 等大小写不敏感文件系统上始终命中同一已注册项目，而非被重复注册成新的 projectId。渠道 bridge 可通过 `QUICKFORGE_ACP_CHANNEL_ID` / `QUICKFORGE_ACP_CHANNEL_NAME` 传入来源，ACP 会把 `source`、`channelId`、`channelName` 持久化到会话数据及 metadata，但不修改真实标题。
 - `session/list` 会合并 QuickForge 持久化 `sessions-metadata` 与当前内存 active sessions；`session/load` 恢复会话后会通过 ACP `session/update` 回放历史 user/assistant 消息。
@@ -144,10 +153,47 @@ server/
 - 存储布局迁移：早期 v1→v2 布局迁移 + 配置按 store 拆分（`migrateSplitConfig()`，单体 `config.json` → `settings`/`mcp`/`providers`/`plugins`/`projects` 多文件）
 - `readStore` / `writeStore` / `atomicUpdate` — 通用存储操作（各配置 store 独立文件与写入队列）
 - `atomicSessionValueUpdate` — 在会话数据写队列中原子更新单个会话，供自动归档等后台维护任务避免覆盖并发持久化
-- 会话分桶存储（按 scope 和 projectId）；会话图片资产位于同一 bucket 的 `assets/<sessionId>/`，永久删除会话时同步清理
+- 会话分桶存储（按 scope 和 projectId）：global metadata 为 `storage/conversations/global/sessions-metadata.json`，每个完整会话为 `storage/conversations/global/sessions/<sessionId>.json`；project 对应 `storage/conversations/projects/<projectId>/sessions-metadata.json` 与 `sessions/<sessionId>.json`。会话图片资产位于同一 bucket 的 `assets/<sessionId>/`，永久删除会话时同步清理
 - `readSessionStoreScoped` — 作用域会话查询
+- `readPhysicalSessionMetadataBuckets` — 按真实文件路径枚举所有 metadata bucket，路径决定 scope；供可重建索引使用，不读取敏感文件
+- `atomicSessionMetadataUpdate` 与 bulk `writeStore('sessions-metadata')` 在 JSON 原子提交后调用可注册 best-effort hook；hook 失败不改变 JSON 成功语义
 - 写操作的原子锁队列
 - 目录大小计算
+
+### sqlite/ — SQLite 存储基础层
+
+**用途**: 为后续业务表提供统一的 `node:sqlite` 文件连接、PRAGMA、append-only migration、同步事务与 health；详细设计见 [`docs/architecture/sqlite-storage-foundation.zh-CN.md`](../../architecture/sqlite-storage-foundation.zh-CN.md)。
+
+- 默认路径 `<QUICKFORGE_DATA_DIR 或 ~/.quickforge>/storage/quickforge.sqlite3`；内部支持 `dataDir` / `databasePath` 测试覆盖，不新增公开环境变量。
+- 当前 migration 1 创建 `schema_migrations`；migration 2 创建 F3 `scheduled_task_runs`；migration 3 原子重建为 `(task_id,id)` 复合主键，增加 unknown/legacy/source/updated 字段、全局稳定索引、cutover 状态和维护锁表。F5 权威切换设计见 [`docs/architecture/scheduled-task-runs-authoritative-cutover.zh-CN.md`](../../architecture/scheduled-task-runs-authoritative-cutover.zh-CN.md)。migration 4 创建 F6 `session_index` 可重建派生表与 bucket/partial indexes，设计见 [`docs/architecture/session-index-foundation.zh-CN.md`](../../architecture/session-index-foundation.zh-CN.md)。migration 5 增加 F7 查询索引；migration 6 创建 F8 `session_states`/tombstone/`session_storage_state`/mirror outbox/维护锁表；migration 7 创建 F9 `session_messages` 按会话分片增量消息表，设计见 [`docs/architecture/session-state-transactional-storage.zh-CN.md`](../../architecture/session-state-transactional-storage.zh-CN.md)。migration 8 创建 F10 `share_sessions`（严格列映射 + extra_json 不透明字段 + record_digest + deleted_at tombstone）、`share_tokens`（UNIQUE(share_id,token_hash)、≤50 条）、`share_storage_state`/`share_maintenance_lock`/`share_json_mirror_queue` 独立存储域表，设计见 [`docs/architecture/share-token-storage-migration.zh-CN.md`](../../architecture/share-token-storage-migration.zh-CN.md)。migration 9 创建 F11 `lan_access_state`（单配置行，enabled/password_hash/salt/version/auth_version/session_ttl_hours/updated_at/revision/record_digest/extra_json）、`lan_access_tokens`（token_id PK + seq 插入序，≤100 写入裁剪）、`lan_access_storage_state`/`lan_access_maintenance_lock`/`lan_access_json_mirror_queue` 独立存储域表，设计见 [`docs/architecture/lan-access-storage-migration.zh-CN.md`](../../architecture/lan-access-storage-migration.zh-CN.md)。
+- 统一校验 `busy_timeout=5000`、`foreign_keys=ON`、`journal_mode=WAL`、`synchronous=NORMAL`；migration 使用 `BEGIN IMMEDIATE`、`PRAGMA user_version` 和同事务记录。
+- `transaction()` 默认 immediate，支持 deferred/exclusive 和嵌套 SAVEPOINT；callback 必须同步，Promise/thenable 会回滚并拒绝。
+- `scheduled-task-runs-repository.mjs` 所有单行操作使用 `(taskId,runId)`；提供 idempotent full upsert、事务 `replaceAll`、unknown/legacy round-trip、复合键裁剪、当前 task IDs 与 task-title keyword IDs 过滤，以及 `started_at,id,task_id DESC` 的真实 SQL count/page。
+- `scheduled-runs-cutover.mjs` 在 SQLite 初始化后、runner/HTTP 前执行逻辑 backup、JSON 全量校验/digest、SQLite replace/验证、pending 提交与 JSON 瘦身；维护锁和 phase 支持多进程及崩溃恢复。
+- `scheduled-task-runs-service.mjs` 在 hybrid 保留 JSON-first best-effort 影子；pending/authoritative 下 SQLite 是唯一 runs 权威，task API 仅按需补最近 5 条，history 直接 SQL 分页且隐藏孤立行。
+- `scheduled-runs-backup.mjs` 保持 backup version 1：权威模式将 SQLite runs 逻辑挂回 scheduledTasks；restore 拆分 metadata/runs，使用维护 gate、补偿和持久化计划文件。
+- `session-index-repository.mjs` 提供 `(scope,projectId,sessionId)` CRUD、事务 apply/replace 与 count+digest verification；`session-index-service.mjs` 从 physical JSON buckets canonicalize/rebuild，并通过 storage 中央 hook best-effort 增量同步。F6 不切换 Storage route 或 ACP list 查询，backup 不含该索引。
+- `session-state-repository.mjs` 以复合 bucket key 写入，并在单个 immediate 事务内原子提交 body、metadata、session_index、mirror outbox；提供 CAS（revision/stateVersion）、delete tombstone、批量 set/delete、`replaceAll`/`exportSnapshot`/`verifyIntegrity`/`rebuildIndex`。F9 新增 `session_messages` 增量 API：`replaceMessages`/`appendMessages`（同事务 CAS + 行写入 + body/index/outbox）、`readMessagesPage`（seq 稳定排序，offset/afterSeq）、`messageCount`；delete 级联删消息行，`verifyIntegrity`/`exportSnapshot`/快照 digest 覆盖消息表（messages_digest 并入快照行）。
+- `session-state-service.mjs` 按 phase 严格路由 JSON adapter / SQLite repository；提供 facade 全写路径（save/delete/atomic update/batch/clear）、409 稳定错误码、exportSnapshot/replaceSnapshot 与 mirror drain 调度。F9 拆分后写入：消息 ≥ `MESSAGES_SPLIT_THRESHOLD`（200）的会话在权威保存时拆到 `session_messages`（body 带 `messageStorage:'split'` 标记），之后保存仅增量追加新行；读取按拆分状态从 body 或 body+messages 组装；mirror 物化前重组完整 body。Phase 3：`saveSessionStatePair` 返回 `messageStoragePlan`/`messageCount`，新增 `storedMessagesState`（行数 + 尾部行 digest）供 agent-manager 拆分冲突检测。
+- `agent-manager.mjs`（Phase 3）维护 `persistedMessageStorage`/`persistedMessageCount`/`persistedTailDigest`：权威保存显式按 plan 传 delta（append/replace），CAS 冲突按拆分表示（body 规范化 + 消息行 count/tail digest）判定 agent-owned 变更；`getSessionState` 增加 `messageStorage` 字段；拆分会话的 SSE `state`/`message_end`/`agent_end`/`messages_replaced` 帧只发 `messagesSummary` 与增量尾部（`messagesAfter`/`messagesIncremental`），不再携带全量 messages；路由新增 `GET /api/agents/:id/messages?after=N` 分页拉取，`GET /state`、`POST /restore` 与 SSE 初始 state 帧对拆分会话下发轻量 summary（stateVersion 语义不变）。
+- `session-state-cutover.mjs` 执行 JSON→SQLite cutover（双快照 + backup 后三读稳定性、pending 提交、pending/authoritative fail-closed 恢复）并管理带 fencing/heartbeat 的维护锁。
+- `share-store.mjs` 为分享记录/令牌的读写入口：`pending`/`authoritative` 下全部读写路径经 `share-repository`（单事务、CAS 409、supersede/revoke/update/delete 失效事件、7天/≤50/authVersion 语义），`json_authoritative`/`cutover_running` 保留旧 JSON 读写；authoritative 下 JSON 文件降级为 best-effort mirror（经 `share_json_mirror_queue` drain 物化，文件保持可读）；维护锁持有期间写路径返回 423。`share-repository.mjs` 提供 `share_sessions`/`share_tokens` 严格对象映射与白名单、单事务（create 时 superseded 多记录更新 + token 签发同事务）、CAS revision、幂等、read/list（按 sessionId 过滤排除 superseded/revoked）、update/revoke/restore/tombstone delete（防复活）、token issue/verify/prune（过期清理、≤50）、replaceAll/exportSnapshot/verifyIntegrity 与不透明字段 roundtrip。
+- `share-service.mjs` 提供 F10 独立 share 域 phase 状态机（`json_authoritative`/`cutover_running`/`sqlite_authoritative_json_pending`/`authoritative`，表 `share_storage_state`）与 `share_json_mirror_queue` 镜像 drain（默认镜像物化到 `shares/conversation-shares.json`，保留作为 mirror/backup）；提供 `getShareRepository()` 与 `requireShareJsonAdapter`（session-state-service 同款 jsonAdapter 扩展点）。`server/index.mjs` 启动链在 session state cutover 之后接入 `initializeShareCutover() → initializeShareService() → recoverShareRestorePlan() → drainShareJsonMirror()`（fail-closed），`shutdownRuntime` finally 调 `stopShareService()`。
+- `share-cutover.mjs` 执行 share JSON→SQLite cutover：`buildShareJsonSnapshot` 全量校验（shareId/sessionId 必填、tokens 数组结构、password 哈希字段一致、重复 shareId blocker），双快照 count/digest 校验、v1 backup 重读、pending 提交与失败保持 pending 恢复；使用独立 `share_maintenance_lock`（PID+expiry+fencing+heartbeat）。
+- `session-state-backup.mjs` 提供权威导出（维护锁内 quick_check + count/digest 校验）与带计划文件/补偿的 restore（merge/replace、startup roll-forward/rollback recovery）；Phase 3 修复 `snapshotValues` 对「已组装」拆分会话记录的 messages 清空问题，拆分会话 backup/restore 后 digest 精确往返。
+- `share-backup.mjs` 提供 share 独立域的权威导出（share 维护锁内 quick_check + verifyIntegrity + exportSnapshot，count/digest fail closed）与带计划文件/补偿的 restore（`share-restore-plan.json`，merge 保留 local-only / replace 全量替换，startup `recoverShareRestorePlan` roll-forward/rollback）；只触碰 share 三表，不破坏 F5/F7/F9；v1 conversation-shares.json 形状导入归一化。
+- `lan-access-store.mjs` 为 LAN 访问配置与令牌的读写入口；`pending`/`authoritative` 下读写路径经 `lan-access-repository`（单事务、CAS 409、settings authVersion+1 清 tokens 与配置更新同事务、unlock 签发+裁剪≤100 同事务、verifyToken 版本号+常数时间哈希 fail-closed），`json_authoritative`/`cutover_running` 保留旧 JSON 读写；authoritative 下 `security/lan-access.json` 降级为 best-effort mirror（经 `lan_access_json_mirror_queue` drain 原子物化）。`lan-access-repository.mjs` 提供 `lan_access_state` 单配置行严格列映射 + `extra_json` 未知字段 roundtrip、`lan_access_tokens`（token_id PK + seq 插入序、≤100 写入裁剪）、单事务 settings/issue、CAS revision、单条 revoke/logout revoke/revoke-all、`replaceAll`/`exportSnapshot`/`verifyIntegrity`/`count`/`digest` 与 mirror 队列。
+- `lan-access-service.mjs` 提供 F11 独立 lan-access 域 phase 状态机（`lan_access_storage_state`）与 `lan_access_json_mirror_queue` 镜像 drain（默认 mirror 物化到 `security/lan-access.json`，原子 tmp+rename 保留可读）；提供 `getLanAccessRepository()`。`server/index.mjs` 启动链在 share cutover 之后接入 `initializeLanAccessCutover() → initializeLanAccessService() → recoverLanAccessRestorePlan() → drainLanAccessJsonMirror()`（fail-closed），shutdown `stopLanAccessService()`。
+- `lan-access-cutover.mjs` 执行 LAN access JSON→SQLite cutover：`buildLanAccessJsonSnapshot` 整包校验（enabled/passwordHash 成对、tokens 数组结构、损坏/缺文件 ENOENT 兜底默认禁用配置），双快照 tokenCount/digest 校验、v1 backup 重读、`replaceAll`+pending 同事务与失败保持 pending 恢复；使用独立 `lan_access_maintenance_lock`（PID+expiry+fencing+heartbeat）。
+- `lan-access-backup.mjs` 提供 lan-access 独立域的权威导出（lan-access 维护锁内 quick_check + verifyIntegrity + exportSnapshot，count/digest fail closed，配置含 token 哈希非明文、剔除 revision）与带计划文件/补偿的 restore（`lan-access-restore-plan.json`，replace 全量 / merge 保留本地配置字段与 tokens、backup 同 key 覆盖，恢复覆盖 enabled 开关，startup `recoverLanAccessRestorePlan` roll-forward/rollback）；只触碰 lan-access 三表，不破坏 F5/F7/F9/F10；v1 lan-access.json 形状归一化导入。
+- `server/maintenance/export-scheduled-runs-v1.mjs` 提供停机离线 `quick_check` + 完整 runs v1 导出；不复制 live DB/WAL/SHM。
+- `server/maintenance/export-session-state-v1.mjs` 提供停机离线会话权威 v1 导出（`sessionState` phase/count/digest envelope，拆分会话导出时重组完整 body）。
+- `server/maintenance/downgrade-session-state-v1.mjs` 提供停机降级：物化 JSON mirror（`--dry-run` 只读、`--commit` 校验后切回 `json_authoritative`）；Phase 3 支持拆分会话完整 v1 整包物化（对拍改用 assembled 表示 digest）。
+- `server/maintenance/export-share-v1.mjs` 提供停机离线 share 权威 v1 导出（`shareState` phase/count/digest envelope，记录含 token 哈希，`cutover_running`/`json_authoritative` 拒绝）。
+- `server/maintenance/downgrade-share-v1.mjs` 提供停机 share 降级：`--dry-run` 只读、默认 drain 物化完整 `conversation-shares.json` 并对拍 SQLite 快照 digest、`--commit` 校验后切回 `json_authoritative`。
+- `server/maintenance/export-lan-access-v1.mjs` 提供停机离线 lan-access 权威 v1 导出（`lanAccessState` phase/count/digest envelope，配置含 token 哈希非明文、剔除 revision，`cutover_running`/`json_authoritative` 拒绝）。
+- `server/maintenance/downgrade-lan-access-v1.mjs` 提供停机 lan-access 降级：`--dry-run` 只读、默认 drain 物化完整 `security/lan-access.json` 并对拍 SQLite 快照 tokenCount/digest、`--commit` 校验后切回 `json_authoritative`。
+- 业务模块只能使用受控 handle，不得自行关闭连接或改基础 PRAGMA；生命周期由 Server/ACP runner 管理。MED-9 已解决：authoritative history 的 total/page/filter 在 SQLite 中完成。
 
 ### auto-archive.mjs
 
@@ -283,6 +329,8 @@ server/
 ### share-store.mjs (432 行)
 
 **用途**: 对话分享的持久化和访问控制。
+
+> F10 Phase 2：`pending`/`authoritative` 下全部读写经 `share-repository`（SQLite 单事务，JSON 文件降级为 best-effort mirror）；`json_authoritative`/`cutover_running` 保留旧 JSON 路径；维护锁持有期间写返回 423。API shape 不变。
 
 **功能**:
 - `createConversationShare()` — 创建或更新同一会话的固定分享链接

@@ -232,7 +232,6 @@ class DefaultOptionsSettingsTab extends SettingsTab {
       this.systemNotificationPermission = await getSystemNotificationPermission()
       if (this.systemNotificationsEnabled && this.systemNotificationPermission !== 'granted') {
         this.systemNotificationsEnabled = false
-        setSystemNotificationsEnabled(false)
       }
       await Promise.all([
         this.loadTerminalShell(),
@@ -328,6 +327,7 @@ class DefaultOptionsSettingsTab extends SettingsTab {
         return
       }
 
+      setSystemNotificationsEnabled(true)
       const permission = await requestSystemNotificationPermission()
       this.systemNotificationPermission = permission
       this.systemNotificationsEnabled = permission === 'granted'
@@ -340,7 +340,6 @@ class DefaultOptionsSettingsTab extends SettingsTab {
       }
     } catch (error) {
       this.systemNotificationsEnabled = false
-      setSystemNotificationsEnabled(false)
       this.error = error instanceof Error ? error.message : t('requestFailed')
     } finally {
       this.systemNotificationBusy = false

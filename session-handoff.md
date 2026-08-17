@@ -43,3 +43,15 @@
 - Result: 聊天摘要、SSE、最终 toolResult 使用 canonical toolCallId；无 ID 的运行中摘要不可打开错误 fallback Tab；历史 fallback 不进入实时 store；恢复终态可修正残留 running。
 - Verification: 相关测试 108/108；TypeScript 通过；完整测试 144 文件/1203 项；lint 0 error（仅 Cloud warning）；build 通过。
 - Next: 用户实测；如需推送，推送本次独立提交。
+
+## Desktop Native System Notifications Handoff (2026-08-17)
+
+- Feature: `desktop-native-system-notifications`
+- Status: done，待真实 Electron 桌面环境人工验证
+- Objective: 现有系统通知默认开启，并为 Electron Desktop 增加安全的主进程原生通知与点击打开会话能力。
+- Files touched: `desktop/electron-main.mjs`、`desktop/electron-preload.cjs`、`src/lib/system-notifications.ts`、`src/lib/default-options-settings-tab.ts`、`src/lib/i18n.ts`、`tests/frontend/system-notifications.test.ts`、`tests/frontend/electron-desktop-notifications-structure.test.ts`、`docs/wiki/README.md`、`docs/wiki/src/lib/README.md`、状态文件。
+- Security: preload 仅暴露 `isSupported/show/onOpenSession`；固定 channel，无通用 IPC；主进程仅接受当前主窗口 main frame，严格限制 request/payload keys 与 title/body/sessionId 长度；BrowserWindow 继续使用 context isolation、禁用 Node、启用 sandbox。
+- Behavior: 通知偏好缺省为开启，显式关闭/开启存 `0` / `1`；浏览器初始化不请求权限；设置页的 `prompt` 只影响当前展示，不持久化关闭；适配优先级 Capacitor → Desktop → Service Worker/Web；Desktop 点击恢复、显示、聚焦窗口并派发既有 session 打开事件。
+- Verification: 针对性测试 22/22；修改文件 ESLint 通过；`npx tsc -b` 通过；Electron 文件语法检查通过；完整测试 149 文件/1231 项全部通过；完整 lint 0 error（仅 `server/cloud/identity.mjs` 的 1 条并行 Cloud warning）；`npm run build` 通过（仅既有 KaTeX/大 chunk warning）。
+- Manual verification: Windows 安装包 `desktop-dist/QuickForge Setup 1.7.7.exe` 已基于当前工作区构建成功并启动安装程序；真实系统通知展示、托盘隐藏/最小化后的点击恢复聚焦及 session 跳转仍待人工实测。
+- Blockers: 无。未做真实系统通知点击实测，未 commit/tag/push；并行工作区内容保持不动。

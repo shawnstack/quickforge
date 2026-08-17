@@ -29,7 +29,7 @@ quickforge/
 |------|------|
 | `android/` | Capacitor Android 原生工程；内置服务器连接页，通过 Tailscale 加载远端 QuickForge 页面；`QuickForgeNotificationService` 前台服务在后台轮询 `/api/agents`，任务结束时发通知栏提醒（由 `window.QuickForgeBridge` 控制启停） |
 | [bin/](bin/) | CLI 入口脚本 (`quickforge.mjs`) |
-| `desktop/` | Electron 桌面端入口（Windows/macOS/Linux 构建），复用 `server/public-api.mjs`；桌面包内置 `server/` 与 `dist/` runtime，不依赖用户本机 Node/npm/qf，且只复用同版本的本地 QuickForge 服务 |
+| `desktop/` | Electron 桌面端入口（Windows/macOS/Linux 构建），复用 `server/public-api.mjs`；通过隔离 preload 暴露窄系统通知桥接，由主进程创建原生通知并在点击时恢复/聚焦窗口、打开对应会话；桌面包内置 `server/` 与 `dist/` runtime，不依赖用户本机 Node/npm/qf，且只复用同版本的本地 QuickForge 服务 |
 | [server/](server/) | 后端服务 (HTTP、Agent管理、存储、路由、工具) |
 | [src/](src/) | 前端 React 应用 (组件、Hooks、工具库) |
 | [scripts/](scripts/) | 打包辅助脚本 |

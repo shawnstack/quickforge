@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, dialog, nativeImage, shell } from 'electron'
+import { app, BrowserWindow, Menu, Notification, Tray, dialog, ipcMain, nativeImage, shell } from 'electron'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,6 +9,12 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const projectRoot = path.resolve(__dirname, '..')
 const appName = 'QuickForge'
+const appUserModelId = 'com.shawnstack.quickforge'
+const notificationRequestChannel = 'quickforge:desktop-notification-request'
+const notificationOpenSessionChannel = 'quickforge:desktop-notification-open-session'
+const maxNotificationTitleLength = 200
+const maxNotificationBodyLength = 2_000
+const maxNotificationSessionIdLength = 512
 const quitForUpdateArgument = '--quit-for-update'
 const desktopAgentPath = app.isPackaged
   ? path.join(process.resourcesPath, 'agent', `${process.platform}-${process.arch}`, process.platform === 'win32' ? 'qf-agent.exe' : 'qf-agent')
@@ -30,6 +36,8 @@ let quickForgeInstance = null
 let tray = null
 let trayLanguage = null
 let desktopTheme = 'light'
+let notificationHandlerInitialized = false
+const activeNotifications = new Set()
 let isQuitting = false
 let isStopping = false
 
@@ -129,6 +137,75 @@ function showMainWindow() {
   if (mainWindow.isMinimized()) mainWindow.restore()
   mainWindow.show()
   mainWindow.focus()
+}
+
+function isMainWindowMainFrame(senderFrame) {
+  return Boolean(
+    mainWindow
+    && !mainWindow.isDestroyed()
+    && senderFrame
+    && senderFrame === mainWindow.webContents.mainFrame
+    && senderFrame.top === senderFrame,
+  )
+}
+
+function validNotificationText(value, maxLength, { optional = false } = {}) {
+  if (value === undefined && optional) return true
+  return typeof value === 'string' && value.length > 0 && value.length <= maxLength
+}
+
+function parseNotificationRequest(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const keys = Object.keys(value)
+  if (value.type === 'is-supported') {
+    return keys.length === 1 ? { type: 'is-supported' } : null
+  }
+  if (value.type !== 'show' || keys.length !== 2 || !keys.includes('payload')) return null
+  const payload = value.payload
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null
+  const payloadKeys = Object.keys(payload)
+  if (payloadKeys.some((key) => !['title', 'body', 'sessionId'].includes(key))) return null
+  if (!validNotificationText(payload.title, maxNotificationTitleLength)) return null
+  if (!validNotificationText(payload.body, maxNotificationBodyLength)) return null
+  if (!validNotificationText(payload.sessionId, maxNotificationSessionIdLength, { optional: true })) return null
+  return {
+    type: 'show',
+    payload: {
+      title: payload.title,
+      body: payload.body,
+      sessionId: payload.sessionId,
+    },
+  }
+}
+
+function showDesktopNotification(payload) {
+  if (!Notification.isSupported()) return false
+  const notification = new Notification({ title: payload.title, body: payload.body })
+  activeNotifications.add(notification)
+  const release = () => activeNotifications.delete(notification)
+  notification.once('close', release)
+  notification.once('failed', release)
+  notification.once('click', () => {
+    release()
+    showMainWindow()
+    if (payload.sessionId && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(notificationOpenSessionChannel, payload.sessionId)
+    }
+  })
+  notification.show()
+  return true
+}
+
+function registerDesktopNotificationHandler() {
+  if (notificationHandlerInitialized) return
+  notificationHandlerInitialized = true
+  ipcMain.handle(notificationRequestChannel, (event, request) => {
+    if (!isMainWindowMainFrame(event.senderFrame)) return false
+    const parsed = parseNotificationRequest(request)
+    if (!parsed) return false
+    if (parsed.type === 'is-supported') return Notification.isSupported()
+    return showDesktopNotification(parsed.payload)
+  })
 }
 
 function hideMainWindow() {
@@ -320,6 +397,7 @@ function createWindow(url) {
     },
     autoHideMenuBar: true,
     webPreferences: {
+      preload: path.join(__dirname, 'electron-preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -437,6 +515,8 @@ function createWindow(url) {
 async function boot() {
   try {
     app.setName(appName)
+    if (process.platform === 'win32') app.setAppUserModelId(appUserModelId)
+    registerDesktopNotificationHandler()
 
     const desktopRuntimeVersion = await getDesktopRuntimeVersion()
     const inline = process.env.QUICKFORGE_DESKTOP_INLINE !== '0'

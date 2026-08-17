@@ -17,6 +17,12 @@ type NativeNotificationBridge = {
   setNotificationService?: (enabled: boolean, serverUrl: string) => void
 }
 
+type DesktopNotificationBridge = {
+  isSupported: () => boolean | Promise<boolean>
+  show: (payload: { title: string; body: string; sessionId?: string }) => boolean | Promise<boolean>
+  onOpenSession: (callback: (sessionId: string) => void) => () => void
+}
+
 type NotificationPayload = {
   key: string
   sessionId?: string
@@ -28,6 +34,7 @@ type NotificationPayload = {
 type RecentNotifications = Record<string, number>
 
 let nativeListenerInitialized = false
+let desktopListenerInitialized = false
 let serviceWorkerListenerInitialized = false
 
 function nativeNotificationBridge(): NativeNotificationBridge | undefined {
@@ -66,10 +73,18 @@ export function syncNativeNotificationService(): void {
 
 registerNativeSessionOpener()
 
+function desktopNotificationBridge(): DesktopNotificationBridge | undefined {
+  if (typeof window === 'undefined') return undefined
+  const desktopWindow = window as Window & { QuickForgeDesktopNotifications?: DesktopNotificationBridge }
+  const bridge = desktopWindow.QuickForgeDesktopNotifications
+  if (!bridge || typeof bridge.isSupported !== 'function' || typeof bridge.show !== 'function' || typeof bridge.onOpenSession !== 'function') {
+    return undefined
+  }
+  return bridge
+}
+
 function isDesktopApp(): boolean {
-  if (typeof document === 'undefined' || typeof window === 'undefined') return false
-  const desktopWindow = window as Window & { __quickforgeDesktopApp?: boolean }
-  return document.body?.classList.contains('quickforge-desktop-app') || desktopWindow.__quickforgeDesktopApp === true
+  return desktopNotificationBridge() !== undefined
 }
 
 function isNativeNotificationsAvailable(): boolean {
@@ -137,19 +152,18 @@ function markNotificationIfNew(key: string): boolean {
 }
 
 export function isSystemNotificationsEnabled(): boolean {
-  if (typeof localStorage === 'undefined') return false
+  if (typeof localStorage === 'undefined') return true
   try {
-    return localStorage.getItem(ENABLED_STORAGE_KEY) === '1'
+    return localStorage.getItem(ENABLED_STORAGE_KEY) !== '0'
   } catch {
-    return false
+    return true
   }
 }
 
 export function setSystemNotificationsEnabled(enabled: boolean): void {
   if (typeof localStorage === 'undefined') return
   try {
-    if (enabled) localStorage.setItem(ENABLED_STORAGE_KEY, '1')
-    else localStorage.removeItem(ENABLED_STORAGE_KEY)
+    localStorage.setItem(ENABLED_STORAGE_KEY, enabled ? '1' : '0')
   } catch {
     // Device-local settings are best-effort when storage is unavailable.
   }
@@ -182,7 +196,10 @@ export async function getSystemNotificationPermission(): Promise<SystemNotificat
       return 'denied'
     }
 
-    if (isDesktopApp() || typeof Notification === 'undefined') return 'unsupported'
+    if (isDesktopApp()) {
+      return await desktopNotificationBridge()!.isSupported() ? 'granted' : 'unsupported'
+    }
+    if (typeof Notification === 'undefined') return 'unsupported'
     if (Notification.permission === 'granted') return 'granted'
     if (Notification.permission === 'denied') return 'denied'
     return 'prompt'
@@ -200,17 +217,17 @@ export async function requestSystemNotificationPermission(): Promise<SystemNotif
       const result = await LocalNotifications.requestPermissions()
       permission = result.display === 'granted' ? 'granted' : 'denied'
       await initializeSystemNotifications()
-    } else if (!isDesktopApp() && typeof Notification !== 'undefined') {
+    } else if (isDesktopApp()) {
+      permission = await desktopNotificationBridge()!.isSupported() ? 'granted' : 'unsupported'
+    } else if (typeof Notification !== 'undefined') {
       const result = await Notification.requestPermission()
       permission = result === 'granted' ? 'granted' : result === 'denied' ? 'denied' : 'prompt'
     } else {
       permission = 'unsupported'
     }
-    setSystemNotificationsEnabled(permission === 'granted')
     return permission
   } catch (error) {
     logger.warn('Failed to request system notification permission:', error)
-    setSystemNotificationsEnabled(false)
     return 'denied'
   }
 }
@@ -219,6 +236,15 @@ export async function initializeSystemNotifications(): Promise<void> {
   // Restore the native polling service on startup so background notifications
   // survive page reloads and app restarts.
   syncNativeNotificationService()
+  const desktopBridge = desktopNotificationBridge()
+  if (!desktopListenerInitialized && desktopBridge) {
+    try {
+      desktopBridge.onOpenSession((sessionId) => openSession(sessionId))
+      desktopListenerInitialized = true
+    } catch (error) {
+      logger.warn('Failed to initialize desktop notification listener:', error)
+    }
+  }
   if (!serviceWorkerListenerInitialized && typeof navigator !== 'undefined' && navigator.serviceWorker) {
     serviceWorkerListenerInitialized = true
     navigator.serviceWorker.addEventListener('message', (event) => {
@@ -269,6 +295,16 @@ export async function showTaskSystemNotification(payload: NotificationPayload): 
         }],
       })
       return true
+    }
+
+    const desktopBridge = desktopNotificationBridge()
+    if (desktopBridge) {
+      await initializeSystemNotifications()
+      return await desktopBridge.show({
+        title: payload.title,
+        body,
+        ...(payload.sessionId === undefined ? {} : { sessionId: payload.sessionId }),
+      })
     }
 
     if (typeof Notification === 'undefined') return false

@@ -32,7 +32,7 @@
 | `tool-execution-events.ts` | 120 | 工具执行事件处理 |
 | `sidebar-session-sort-mode.ts` | 左侧会话时间线排序偏好的 `localStorage` 安全读写，刷新后恢复且不参与后端同步 |
 | `chat-harness-capabilities.ts` | 主聊天 Harness capability 静态表与页面策略 resolver；QuickForge 默认全开，OpenCode P0 关闭模型/思考、Plan/Access、命令与 capability suggestions、上下文压缩、历史派生（按消息 fork/rollback/retry），P1 开放整会话 fork（`forkSession`）与 OpenCode 动态配置（`harnessConfig`） |
-| `system-notifications.ts` | 浏览器 Notification/Service Worker 与 Capacitor Android 本地通知统一适配；管理当前设备权限、安卓远程浏览器首次发送授权、后台展示、点击打开会话和短时去重 |
+| `system-notifications.ts` | 浏览器 Notification/Service Worker、Electron Desktop 原生通知与 Capacitor Android 本地通知统一适配；管理默认开启的设备偏好、权限、安卓远程浏览器首次发送授权、后台展示、点击打开会话和短时去重 |
 | `info-tip.ts` | 134 | 统一问号说明浮层 Web Component |
 
 ---
@@ -190,9 +190,10 @@
 **用途**: 复用任务完成 SSE 事件，在 QuickForge 客户端仍运行时显示系统级通知。
 
 - Web 优先通过 Service Worker registration 的 `showNotification()` 展示通知并携带会话 ID；非 Android 或无 SW 时才回退浏览器 `Notification` 构造器。Android 普通浏览器没有可用 SW registration 时不依赖构造器。
+- Electron Desktop 通过 `contextIsolation + sandbox` preload 的窄桥接调用主进程 `Notification`；IPC 仅接受主窗口 main frame 的受限 payload，通知点击恢复、显示并聚焦窗口后复用会话打开事件。
 - Capacitor Android 使用 `@capacitor/local-notifications`；设置页手动授权逻辑保持独立。
 - Android 普通远程浏览器仅在 HTTPS 安全上下文中，于首次有效发送（含仅附件）同步标记并自动申请一次权限；需要 `Notification` 和 Service Worker API 可用。
-- 权限与启用开关按设备保存在 `localStorage`；任务终态在前台也会显示系统通知，仅“运行中”通知在页面可见且有焦点时被抑制，并通过任务 key 做短时跨标签去重。
+- 通知偏好默认开启，用户显式关闭/开启分别持久化为 `0` / `1`；浏览器启动时不会自动申请权限，无权限时发送自然返回失败。任务终态在前台也会显示系统通知，仅“运行中”通知在页面可见且有焦点时被抑制，并通过任务 key 做短时跨标签去重。
 - 浏览器通知点击由 Service Worker 聚焦同源窗口并发消息，页面监听消息后派发已有会话打开事件；原生通知点击也复用该会话打开逻辑。通知正文不包含完整 AI 输出。
 - 不提供 Web Push/FCM；普通浏览器页面或原生 App 无法继续接收现有 SSE 时，不保证任务完成通知。
 

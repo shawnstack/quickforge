@@ -100,6 +100,14 @@
         "subagent-run-live-updates"
       ],
       "updated": "2026-08-15"
+    },
+    {
+      "id": "desktop-native-system-notifications",
+      "name": "系统通知默认开启与 Electron 原生通知",
+      "description": "将现有系统通知设备偏好改为默认开启并保留浏览器用户手势授权约束；新增安全隔离的 Electron preload 窄桥接、主进程原生 Notification、严格 IPC 校验和点击恢复/聚焦并打开会话能力；补充通知行为及 Electron 打包安全结构测试与 Wiki。",
+      "status": "done",
+      "dependencies": [],
+      "updated": "2026-08-17"
     }
   ]
 }

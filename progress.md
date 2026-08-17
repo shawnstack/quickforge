@@ -147,3 +147,23 @@
 - 保持详情展示顺序、trace 原始时间线、process folding、Workspace Tab 拖拽和持久化规则不变；未触碰 Cloud 并行源码。
 - 验证：相关测试 6 文件/108 项、TypeScript、完整测试 144 文件/1203 项、lint、build 全部通过；lint 仅 Cloud 并行文件既有 1 条 warning。
 - 本 feature 已完成，提交时仅纳入显式文件，不 push。
+
+## Completed: `desktop-native-system-notifications` (2026-08-17)
+
+- 系统通知设备偏好改为默认开启；显式关闭/开启分别保存 `0` / `1`。浏览器启动初始化仍不请求权限，未授权时发送自然返回 `false`；设置页加载遇到 `prompt` 不再把默认偏好持久化关闭。
+- 新增 `desktop/electron-preload.cjs`，仅暴露 `QuickForgeDesktopNotifications.isSupported/show/onOpenSession`，固定 IPC channel 且监听返回清理函数。
+- Electron 主进程配置隔离 preload，保持 `contextIsolation: true`、`nodeIntegration: false`、`sandbox: true`；IPC handler 仅注册一次，只接受主窗口 main frame 与严格长度/字段 payload；原生通知保持引用，点击后复用 `showMainWindow()` 并打开对应 session；Windows AppUserModelId 与 builder appId 一致。
+- 前端通知适配顺序为 Capacitor → Desktop → Service Worker/Web；Desktop support 映射为 `granted/unsupported`，打开会话监听只初始化一次，既有去重和会话打开事件保持不变。
+- 局部更新中英文通知说明，以及 `docs/wiki/README.md`、`docs/wiki/src/lib/README.md`；未修改通知设计 SVG、依赖或手工修改生成目录。
+
+### Verification
+
+- 针对性 Vitest：2 文件 / 22 项全部通过。
+- 修改文件 ESLint：通过。
+- `npx tsc -b`：通过。
+- Electron 主进程/preload `node --check`：通过。
+- `npm run test`：149 文件 / 1231 项全部通过。
+- `npm run lint`：0 error；仅 `server/cloud/identity.mjs` 的 1 条并行 Cloud warning。
+- `npm run build`：通过；仅既有 KaTeX 字体解析与大 chunk warning。
+- Windows 安装包 `desktop-dist/QuickForge Setup 1.7.7.exe` 已基于当前工作区构建成功并启动安装程序；真实系统通知展示、点击恢复聚焦和 session 跳转仍待人工实测。
+- 未 commit/tag/push；工作区其他并行修改及未跟踪项保持不动。

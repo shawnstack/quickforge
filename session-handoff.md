@@ -2,9 +2,10 @@
 
 ## 当前状态
 
-- feature_list.json 已清理：42 个历史 feature 全部 done（最后一批遗留改动已按 feature 分别提交），列表归零，等待新需求登记。
-- progress.md 已同步精简：移除全部已完成 feature 的历史章节，仅保留 Current State 与 Notes（通用教训），历史详情走 git 提交记录与 docs/architecture。
-- 工作区 clean，无未提交改动、无 Blocker。
+- Feature `fix-sidebar-pagination-stall`（修复删除会话后历史列表分页死循环）已完成：方案 B（零进展终止），`src/hooks/useSessionPagination.ts` 四个分页 loader 在 offset>0 且合并零进展时将 total 收敛为 items.length；`tests/frontend/session-pagination-bootstrap.test.ts` 新增 global/project 两个收敛用例。
+- 验证：目标测试 5/5 通过、改动文件 eslint 干净、`npx tsc -b` 通过（未跑全套 test/lint/build，非发布场景）。
+- feature_list.json / progress.md / session-handoff.md 已同步；docs/wiki 无需更新（内部缺陷修复，不改变模块职责/公共入口/发布流程）。
+- 工作区有未提交改动（上述 2 个代码文件 + 3 个状态文件），按项目规则不做 git commit。
 
 ## 最近提交
 
@@ -17,5 +18,8 @@
 ## Next step
 
 - 无待办 feature。新需求先登记进 feature_list.json 再推进（One Feature at a Time）。
-- `server/cloud/identity.mjs:92` 有一条既有 no-useless-assignment lint warning，可择机修复。
+- 择机候选（范围外遗留，详见 progress.md Notes）：
+  1. 服务端删除会话不销毁 agentSessions 内存 → 会话“复活”+lastModified 漂移（server/routes/storage.mjs:365 / server/agent-manager.mjs）。
+  2. loadMoreGlobal/loadMoreProject 缺 loading 守卫（方案 A）。
+  3. `server/cloud/identity.mjs:92` 既有 no-useless-assignment lint warning。
 - 发布 patch 版本：说「发布一个小版本」，按 `docs/architecture/patch-release-runbook.zh-CN.md` 执行（发布前完整跑 test/lint/build）。

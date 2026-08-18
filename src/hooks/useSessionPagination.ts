@@ -84,11 +84,15 @@ export function useSessionPagination({
       )
       if (!isCurrentRequest(version)) return
       const pinnedValues = result.values.filter((session) => isValidPinnedAt(session.pinnedAt))
-      setPinnedPage((prev) => ({
-        items: sortSessions(offset === 0 ? pinnedValues : uniqueSessions([...prev.items, ...pinnedValues]), sortMode),
-        total: result.total,
-        loading: false,
-      }))
+      setPinnedPage((prev) => {
+        const merged = offset === 0 ? pinnedValues : uniqueSessions([...prev.items, ...pinnedValues])
+        const stalled = offset > 0 && pinnedValues.length > 0 && merged.length === prev.items.length
+        return {
+          items: sortSessions(merged, sortMode),
+          total: stalled ? merged.length : result.total,
+          loading: false,
+        }
+      })
     } catch {
       if (!isCurrentRequest(version)) return
       setPinnedPage((prev) => ({ ...prev, loading: false }))
@@ -106,11 +110,15 @@ export function useSessionPagination({
         { direction: 'desc', limit: PAGE_SIZE, offset, scope: 'global' },
       )
       if (!isCurrentRequest(version)) return
-      setGlobalPage((prev) => ({
-        items: sortSessions(offset === 0 ? result.values : uniqueSessions([...prev.items, ...result.values]), sortMode),
-        total: result.total,
-        loading: false,
-      }))
+      setGlobalPage((prev) => {
+        const merged = offset === 0 ? result.values : uniqueSessions([...prev.items, ...result.values])
+        const stalled = offset > 0 && result.values.length > 0 && merged.length === prev.items.length
+        return {
+          items: sortSessions(merged, sortMode),
+          total: stalled ? merged.length : result.total,
+          loading: false,
+        }
+      })
     } catch {
       if (!isCurrentRequest(version)) return
       setGlobalPage((prev) => ({ ...prev, loading: false }))
@@ -134,11 +142,13 @@ export function useSessionPagination({
       setProjectPages((prev) => {
         const page = prev[projectId]
         const prevItems = page?.items ?? []
+        const merged = offset === 0 ? result.values : uniqueSessions([...prevItems, ...result.values])
+        const stalled = offset > 0 && result.values.length > 0 && merged.length === prevItems.length
         return {
           ...prev,
           [projectId]: {
-            items: sortSessions(offset === 0 ? result.values : uniqueSessions([...prevItems, ...result.values]), sortMode),
-            total: result.total,
+            items: sortSessions(merged, sortMode),
+            total: stalled ? merged.length : result.total,
             loading: false,
           },
         }
@@ -163,11 +173,15 @@ export function useSessionPagination({
         { direction: 'desc', limit: PAGE_SIZE, offset, scope: 'projects' },
       )
       if (!isCurrentRequest(version)) return
-      setProjectTimelinePage((prev) => ({
-        items: sortSessions(offset === 0 ? result.values : uniqueSessions([...prev.items, ...result.values]), sortMode),
-        total: result.total,
-        loading: false,
-      }))
+      setProjectTimelinePage((prev) => {
+        const merged = offset === 0 ? result.values : uniqueSessions([...prev.items, ...result.values])
+        const stalled = offset > 0 && result.values.length > 0 && merged.length === prev.items.length
+        return {
+          items: sortSessions(merged, sortMode),
+          total: stalled ? merged.length : result.total,
+          loading: false,
+        }
+      })
     } catch {
       if (!isCurrentRequest(version)) return
       setProjectTimelinePage((prev) => ({ ...prev, loading: false }))

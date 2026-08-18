@@ -1,3 +1,14 @@
 {
-  "features": []
+  "features": [
+    {
+      "id": "fix-sidebar-pagination-stall",
+      "name": "修复删除会话后历史列表分页死循环",
+      "status": "done",
+      "approach": "方案 B：分页零进展时将 total 收敛为 items.length，终止 loadMore 循环（侧栏一直加载+内存暴涨）",
+      "files": [
+        "src/hooks/useSessionPagination.ts",
+        "tests/frontend/session-pagination-bootstrap.test.ts"
+      ]
+    }
+  ]
 }

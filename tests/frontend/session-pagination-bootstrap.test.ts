@@ -140,4 +140,105 @@ describe('session pagination bootstrap', () => {
       },
     })
   })
+
+  it('converges the global total to merged items when an offset page makes no progress', async () => {
+    const globalSessionA = {
+      id: 'session-a',
+      title: 'Global session A',
+      scope: 'global' as const,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      lastModified: '2026-01-02T00:00:00.000Z',
+      messageCount: 1,
+    }
+    const globalSessionB = {
+      id: 'session-b',
+      title: 'Global session B',
+      scope: 'global' as const,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      lastModified: '2026-01-03T00:00:00.000Z',
+      messageCount: 1,
+    }
+    const fetchPaginatedFromIndex = vi.fn(async (
+      _storeName: string,
+      _indexName: string,
+      options: { pinned?: string; scope?: string },
+    ) => {
+      if (options.pinned === 'only') return { values: [], total: 0 }
+      if (options.scope === 'global') return { values: [globalSessionA, globalSessionB], total: 5 }
+      return { values: [], total: 0 }
+    })
+    const backend = { fetchPaginatedFromIndex } as unknown as HttpStorageBackend
+
+    const pagination = useSessionPagination({
+      backendRef: { current: backend },
+      expandedProjectIds: new Set(),
+      viewMode: 'project',
+      sortMode: 'updatedAt',
+    })
+
+    await flushMicrotasks()
+
+    await pagination.loadGlobalSessions(2)
+    await flushMicrotasks()
+
+    expect(reactHarness.states[0]).toEqual({
+      items: [globalSessionA, globalSessionB],
+      total: 2,
+      loading: false,
+    })
+  })
+
+  it('converges the project total to merged items when an offset page makes no progress', async () => {
+    const projectSessionA = {
+      id: 'project-session-a',
+      title: 'Project session A',
+      scope: 'project' as const,
+      projectId: 'project-1',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      lastModified: '2026-01-02T00:00:00.000Z',
+      messageCount: 1,
+    }
+    const projectSessionB = {
+      id: 'project-session-b',
+      title: 'Project session B',
+      scope: 'project' as const,
+      projectId: 'project-1',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      lastModified: '2026-01-03T00:00:00.000Z',
+      messageCount: 1,
+    }
+    const fetchPaginatedFromIndex = vi.fn(async (
+      _storeName: string,
+      _indexName: string,
+      options: { pinned?: string; scope?: string; projectId?: string },
+    ) => {
+      if (options.pinned === 'only') return { values: [], total: 0 }
+      if (options.scope === 'global') return { values: [], total: 0 }
+      if (options.scope === 'project' && options.projectId === 'project-1') {
+        return { values: [projectSessionA, projectSessionB], total: 5 }
+      }
+      return { values: [], total: 0 }
+    })
+    const backend = { fetchPaginatedFromIndex } as unknown as HttpStorageBackend
+
+    const pagination = useSessionPagination({
+      backendRef: { current: backend },
+      expandedProjectIds: new Set(['project-1']),
+      viewMode: 'project',
+      sortMode: 'updatedAt',
+    })
+
+    await flushMicrotasks()
+
+    await pagination.loadProjectSessions('project-1', 2)
+    await flushMicrotasks()
+
+    expect(reactHarness.states[2]).toEqual({
+      'project-1': {
+        items: [projectSessionA, projectSessionB],
+        total: 2,
+        loading: false,
+      },
+    })
+  })
 })

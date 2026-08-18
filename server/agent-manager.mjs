@@ -2403,8 +2403,28 @@ async function persistSessionUnlocked(session) {
   return persistedMetadata || metadata
 }
 
+// Persist slower than this (queue wait + synchronous SQLite write) is worth a
+// warning: large sessions write big synchronous transactions that stall the
+// event loop and make every in-flight request (including /restore) wait.
+const SLOW_PERSIST_LOG_MS = 1_000
+
 async function persistSession(session) {
-  return withSessionPersistenceLock(() => persistSessionUnlocked(session))
+  const startedAt = performance.now()
+  // Serialize per session once SQLite state is authoritative (per-row revision
+  // CAS guarantees correctness); cross-session persists then run independently
+  // instead of piling onto one global chain that also gates destroyAgent.
+  // JSON-mirror mode keeps the global lock for bucket-level atomicity.
+  const lockKey = isSessionStateAuthoritative() ? `session:${session.sessionId}` : ''
+  const result = await withSessionPersistenceLock(() => persistSessionUnlocked(session), lockKey)
+  const durationMs = performance.now() - startedAt
+  if (durationMs >= SLOW_PERSIST_LOG_MS) {
+    logger.warn(`Session ${session.sessionId} persist took ${Math.round(durationMs)}ms (queue wait + write)`, {
+      sessionId: session.sessionId,
+      durationMs: Math.round(durationMs),
+      messageCount: session.agent?.state?.messages?.length ?? 0,
+    })
+  }
+  return result
 }
 
 export async function persistSessionState(session) {
@@ -3069,14 +3089,33 @@ export async function destroyAgent(sessionId) {
   agentSessions.delete(sessionId)
 }
 
+// In-flight restores keyed by sessionId. Concurrent route handlers
+// (POST /restore, GET /state, GET /messages, GET /status, SSE) all fall back
+// to restoreAgent; without dedupe each raced through createAgent and the last
+// agentSessions.set overwrote the others, leaking the overwritten sessions
+// (listeners, idle/persist timers, OpenCode child processes) forever.
+const pendingRestores = new Map()
+
 /**
  * Try to restore an agent session from persisted storage.
+ * Concurrent calls for the same session share one in-flight restore.
  * Returns the restored session, or null if not found.
  */
-export async function restoreAgent(sessionId) {
+export function restoreAgent(sessionId) {
   const existing = agentSessions.get(sessionId)
   if (existing) return existing
 
+  const inFlight = pendingRestores.get(sessionId)
+  if (inFlight) return inFlight
+
+  const restorePromise = restoreAgentUnlocked(sessionId).finally(() => {
+    pendingRestores.delete(sessionId)
+  })
+  pendingRestores.set(sessionId, restorePromise)
+  return restorePromise
+}
+
+async function restoreAgentUnlocked(sessionId) {
   try {
     const sessionData = await readSessionValue(sessionId)
     if (!sessionData) {

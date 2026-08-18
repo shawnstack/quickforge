@@ -41,6 +41,20 @@ describe('process tree termination', () => {
     ])
   })
 
+  it('times out a wedged taskkill.exe instead of hanging forever', async () => {
+    vi.useFakeTimers()
+    try {
+      const spawnImpl = vi.fn(() => new EventEmitter())
+      const child = fakeChild(99)
+
+      const result = signalProcessTree(child, 'SIGKILL', { platform: 'win32', spawnImpl })
+      await vi.advanceTimersByTimeAsync(10_000)
+      await expect(result).resolves.toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('escalates after the grace deadline without killing a real process', async () => {
     const child = fakeChild()
     const signals = []

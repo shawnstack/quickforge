@@ -22,6 +22,29 @@
         "src/App.tsx",
         "tests/frontend/session-pagination-updates.test.ts"
       ]
+    },
+    {
+      "id": "fix-concurrent-restore-session-leak",
+      "name": "修复并发 restore 竞态导致的会话泄漏与内存增长",
+      "status": "done",
+      "approach": "restoreAgent 按 sessionId 共享 in-flight Promise（pendingRestores Map + restoreAgentUnlocked），并发路由（restore/state/messages/status/SSE）只建一次 agent，消除被 agentSessions.set 覆盖的孤儿 session",
+      "files": [
+        "server/agent-manager.mjs",
+        "tests/server/agent-manager.persist-session-state.test.mjs"
+      ]
+    },
+    {
+      "id": "fix-persistence-lock-stall",
+      "name": "修复全局持久化锁串行链导致的请求挂起与会话滞留",
+      "status": "done",
+      "approach": "withSessionPersistenceLock 改 keyed 队列：SQLite 权威模式下 persistSession 用 session:<id> 分锁（正确性由 revision CAS 保证），JSON 镜像/auto-archive 保留全局 key；persist ≥1s 打 warn 观测；runTaskkill 加 10s 超时兜底防 destroyAgent 悬挂",
+      "files": [
+        "server/session-persistence-lock.mjs",
+        "server/agent-manager.mjs",
+        "server/utils/process-tree.mjs",
+        "tests/server/session-persistence-lock.test.mjs",
+        "tests/server/process-tree.test.mjs"
+      ]
     }
   ]
 }

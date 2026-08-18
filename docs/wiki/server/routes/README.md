@@ -62,7 +62,7 @@ Agent 会话管理核心路由。
 - `GET /api/agents` — 列出活跃会话
 - `GET /api/agents/events` — 全局 SSE 事件流
 - `GET /api/agents/:sessionId/stream` — 会话级 SSE 流
-- `POST /api/agents/:sessionId/restore` — 从内存复用或从持久化存储恢复 Agent，并在同一响应中返回完整权威快照，供历史会话冷加载使用
+- `POST /api/agents/:sessionId/restore` — 从内存复用或从持久化存储恢复 Agent，并在同一响应中返回完整权威快照，供历史会话冷加载使用；并发恢复（restore/state/messages/status/SSE 同时回落）按 sessionId 共享同一 in-flight Promise，只构建一个内存 Agent 实例，避免竞态覆盖泄漏
 - `GET /api/agents/:sessionId/state` — 获取完整会话快照，用于 SSE 异常恢复；仅在内存会话不存在时从磁盘恢复，不再每次无条件重读 Session
 - `GET /api/agents/:sessionId/status` — 获取轻量运行状态，用于 SSE 静默后的版本探测
 - `HEAD /api/agents/:sessionId/stream` — 检查 SSE 可用性

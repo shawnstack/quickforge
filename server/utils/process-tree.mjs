@@ -3,6 +3,7 @@ import { once } from 'node:events'
 
 const DEFAULT_GRACE_MS = 1000
 const DEFAULT_FORCE_WAIT_MS = 1000
+const TASKKILL_TIMEOUT_MS = 10_000
 
 function isRunning(child) {
   return Boolean(child?.pid) && child.exitCode == null && child.signalCode == null
@@ -36,8 +37,19 @@ function runTaskkill(pid, force, spawnImpl = spawn) {
       resolve(false)
       return
     }
-    command.once?.('error', () => resolve(false))
-    command.once?.('exit', (code) => resolve(code === 0))
+    let settled = false
+    const finish = (ok) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(ok)
+    }
+    // taskkill normally exits immediately, but a wedged taskkill.exe must not
+    // hang dispose()/destroyAgent forever on a dangling child process.
+    const timer = setTimeout(() => finish(false), TASKKILL_TIMEOUT_MS)
+    timer.unref?.()
+    command.once?.('error', () => finish(false))
+    command.once?.('exit', (code) => finish(code === 0))
   })
 }
 

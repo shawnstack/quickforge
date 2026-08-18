@@ -121,6 +121,44 @@ describe('agent persist in authoritative session state', () => {
     }
   })
 
+  it('dedupes concurrent restore calls into one shared agent instance', async () => {
+    const sessionId = 'agent-concurrent-restore'
+    const session = await agentManager.createAgent(sessionId, {
+      scope: 'global',
+      model: { provider: 'mock', id: 'mock-model' },
+      systemPrompt: '',
+      messages: firstMessage(),
+      title: 'Concurrent restore',
+    })
+    await agentManager.persistSessionState(session)
+    await agentManager.destroyAgent(sessionId)
+
+    // Concurrent route handlers (POST /restore, GET /state, GET /messages,
+    // SSE) restore the same session in parallel; they must share one
+    // in-flight restore instead of building racing agent instances.
+    const [a, b, c] = await Promise.all([
+      agentManager.restoreAgent(sessionId),
+      agentManager.restoreAgent(sessionId),
+      agentManager.restoreAgent(sessionId),
+    ])
+    try {
+      expect(a).toBe(b)
+      expect(b).toBe(c)
+      expect(a.sessionId).toBe(sessionId)
+      expect(await agentManager.restoreAgent(sessionId)).toBe(a)
+
+      // A failed restore must not leave a cached promise behind.
+      const missing = await Promise.all([
+        agentManager.restoreAgent('agent-not-persisted'),
+        agentManager.restoreAgent('agent-not-persisted'),
+      ])
+      expect(missing).toEqual([null, null])
+      expect(await agentManager.restoreAgent('agent-not-persisted')).toBeNull()
+    } finally {
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
+
   it('merges concurrent metadata-only (pin) changes with bounded CAS retries and keeps pinnedAt', async () => {
     const sessionId = 'agent-pin'
     const session = await agentManager.createAgent(sessionId, {

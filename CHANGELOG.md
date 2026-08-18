@@ -2,6 +2,30 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.7.10] - 2026-08-18
+
+### Added
+
+- Session model bindings now refresh automatically when custom provider models change: adding or editing custom providers propagates the updated model list to live agent sessions, so model picks stay valid without recreating the session.
+
+### Fixed
+
+- Context usage now reports pure input usage and drops the misleading reserved-output row; reserved output tokens are clamped to the real request budget instead of overstating context pressure.
+- Session-state SQLite cutover now streams end to end for large libraries and tolerates metadata-only orphan records (excluded with diagnostics instead of blocking migration).
+- Deleting or archiving sessions no longer triggers an infinite load-more loop in the sidebar history list: pagination loaders converge totals when an offset page makes zero progress after dedupe.
+- Archiving a conversation now removes it from the sidebar locally instead of forcing a full refresh, eliminating loading-placeholder flicker, sentinel remounts, and page shrink-refill above 20 items.
+- The sidebar conversations section scrolls internally with the footer divider kept visible; subagent run detail tabs follow the configured message font size.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.7.10` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.7.10.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.7.10.tgz
+  ```
+
 ## [1.7.9] - 2026-08-18
 
 ### Changed

@@ -2,6 +2,23 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.7.9] - 2026-08-18
+
+### Changed
+
+- Raised the default startup health-check window from 15 seconds to 5 minutes for `qf start` / `qf lan` / `qf restart` and the `startQuickForge` SDK / Desktop entry. Slow disks and antivirus-scanned first-run SQLite migrations no longer abort startup before the local API is ready.
+- Startup health polling now stops as soon as the spawned server process exits, so genuine crashes still fail within seconds with the real exit code instead of waiting out the full window.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.7.9` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.7.9.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.7.9.tgz
+  ```
+
 ## [1.7.8] - 2026-08-18
 
 ### Added

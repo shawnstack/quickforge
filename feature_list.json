@@ -1,6 +1,14 @@
 {
   "features": [
     {
+      "id": "sidebar-sections-footer-squeeze-fix",
+      "name": "侧栏展开项目挤压底部设置区修复",
+      "description": "ChatSidebar（桌面端）置顶会话区与项目区使用 md:shrink-0，其 max-h 百分比（28%+55%）与顶部固定区、底部设置区高度互不感知：展开多个项目后总需求超过视口，唯一可收缩的对话区先缩到 0，剩余溢出被 aside 的 overflow-hidden 从底部裁切，底部设置区被推出可视区。修复：移除两处 md:shrink-0（981/1009 行，保留 max-h、min-h-0、内部 overflow-y-auto 与折叠面板结构），空间不足时置顶/项目区按 flex 收缩并转为内部滚动，section header 因 min-height:auto 保持完整，底部设置区（shrink-0）始终可见；移动端行为不变（md: 断点以下本就不收缩锁定）。验证：改动文件 ESLint 0 问题、npx tsc --noEmit -p tsconfig.app.json 通过；无 sidebar 相关测试文件（UI 视觉验证待人工确认）。",
+      "status": "done",
+      "dependencies": [],
+      "updated": "2026-08-18"
+    },
+    {
       "id": "qf-agent-first-auth-auto-approval",
       "name": "qf-agent 首次设备授权自动批准（本机 desktop 会话）",
       "description": "电脑端存在有效云登录会话时，qf-agent 首次设备授权自动批准，无需手动“关闭再开启”开关。实现：auto-approval.mjs 新增 beginAgentAutoApprovalWithDesktopSession（begin 返回 none/expired 且 policy!=='manual' 且本机 desktop 会话有效时自动 arm+begin；会话检查走 getCloudRuntime().identity.status() 公开状态 hasSession 且无 sessionServiceMismatch，只读不发起网络请求）；qf-agent-process 在 authorizing 日志携带 userCode 时以 launchOptions.autoApprovalPolicy 调用该函数，TTL 10 分钟与一次性消费语义不变。安全边界：routes/cloud.mjs 对认证远程客户端（非本机请求）触发的云服务配置变更在 notify 中传递 autoApprovalPolicy:'manual'，经 server/index.mjs applyCloudServiceConfig 透传给 startQfAgent，该 agent 生命周期（含自动重启）不自动创建意图；本机生命周期事件（server 启动恢复、本机 URL 切换、agent 普通重启、身份失效隔离重启）默认允许自动 arm。另将产品默认云地址常量 DEFAULT_CLOUD_URL 与前端 cloudUrlPlaceholder 由 http://127.0.0.1:8082/ 改为 https://qf.shawnstack.com/（尾斜杠与 parseCloudBaseUrl 规范化一致）。测试：auto-approval +7（自动 arm/过期重 arm/无会话/manual/既有意图不重复 arm/经 runtime 公开状态检查/无 identity 或 sessionServiceMismatch 跳过）、qf-agent-process +3（有 desktop 会话自动 arm+代批且不泄露 userCode/token、manual 不自动 arm、无会话不自动 arm）、routes/cloud +2（远程变更传 manual、本机默认 auto），前端 cloud-account-settings-page 15 项回归通过；针对性 vitest 4 文件 95 项 + server/cloud 目录 93 项 + index 集成/前端 cloud 回归 16 项全部通过，改动文件 ESLint 0 error 0 warning。",

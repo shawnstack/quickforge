@@ -2,10 +2,17 @@
 
 ## Current State
 
-- Feature: qf-agent 首次设备授权自动批准（qf-agent-first-auth-auto-approval）
-- Status: **done**（本机有效 desktop 云会话时首次 authorizing 自动 arm+代批；认证远程客户端触发的生命周期保持 manual 不自动批准；默认云地址改为 https://qf.shawnstack.com/）
-- Blockers: 无
-- Next step: 无（本 feature 闭环；未创建 commit/tag/push）
+- Feature: 侧栏展开项目挤压底部设置区修复（sidebar-sections-footer-squeeze-fix）
+- Status: **done**（置顶/项目区改为可收缩+内部滚动，底部设置区不再被裁切；lint/tsc 通过）
+- Blockers: 无（UI 视觉效果建议人工展开多个项目确认）
+- Next step: 无
+
+## 侧栏展开项目挤压底部设置区 — 完成
+
+- 根因：`src/components/sidebar/ChatSidebar.tsx` 桌面端置顶会话区（981 行）与项目区（1009 行）带 `md:shrink-0` + `max-h-[28%]`/`max-h-[55%]`，与顶部固定区（~240px）和底部设置区高度互不感知；展开多个项目后总高度需求超过视口，唯一可收缩的对话区（`flex-1 min-h-0`）先缩到 0，剩余溢出被 aside 的 `overflow-hidden` 从底部裁切，设置区被推出可视区。
+- 修复（方案 A，2 行）：移除两处 `md:shrink-0`；保留 `max-h`、`min-h-0`、内部 `overflow-y-auto`。空间不足时置顶/项目区按 flex 收缩并转为内部滚动（section header 因 `min-height:auto` 保持完整），底部设置区（`shrink-0`）始终可见；`md:` 断点以下移动端行为不变。
+- 验证：`npx eslint src/components/sidebar/ChatSidebar.tsx` 0 error/0 warning；`npx tsc --noEmit -p tsconfig.app.json` 通过；仓库无 sidebar 相关测试文件。
+- 未新增依赖；未创建 commit/tag/push；未触碰 `dist/`、`package-dist/`、`package-offline/`。
 
 ## qf-agent 首次设备授权自动批准 — 完成
 

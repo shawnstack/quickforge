@@ -1,7 +1,7 @@
 # Session Handoff
 
 - Feature: 侧栏展开项目挤压底部设置区修复（sidebar-sections-footer-squeeze-fix）
-- Status: **done**（lint/tsc 通过；未创建 commit/tag/push）
+- Status: **done**（已随 v1.7.8 发布；fix commit 6cda102、release commit 5ee525b、tag v1.7.8 已推送远端；npm publish 未执行）
 
 ## 当前目标（已达成）
 
@@ -28,4 +28,4 @@
 
 ## Next step
 
-- 无必须事项。建议下个发布窗口按 runbook 跑全量 test/lint/build。
+- 无必须事项。v1.7.8 Git 发布已完成（release commit 5ee525b、tag v1.7.8 已推送并经 ls-remote 核验；`--tags` 同时推送了历史本地 tag v1.7.6）。npm publish 待用户手动执行：`cd package-offline && npm publish --access public`。

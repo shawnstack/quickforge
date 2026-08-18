@@ -47,7 +47,7 @@ CLI 启动脚本，注册为 `quickforge` 和 `qf` 命令。
 
 1. 解析命令行参数 (`start` / `stop` / `restart` / `status` / `logs` / `acp` / `version` / `check-update` / `update` / `help`)。
 2. `start` 时派生 `server/index.mjs` 子进程。
-3. 轮询 `http://127.0.0.1:<port>/api/health`，确认子进程 PID、`bootId` 和服务就绪。
+3. 轮询 `http://127.0.0.1:<port>/api/health`，确认子进程 PID、`bootId` 和服务就绪；默认最长等待 5 分钟（`STARTUP_HEALTH_TIMEOUT_MS = 300000`，覆盖 SQLite cutover 迁移等慢启动场景，`qf start` / `qf lan` / `qf restart` 共用）；若子进程提前退出则立即结束等待并报出退出码/信号，不会等满窗口。
 4. 就绪后写入 PID 到 `~/.quickforge/quickforge.pid`，并打印 URL、日志路径等信息。
 5. `restart` 时先记录旧 `pid`/`bootId`/`startedAt`，停止 `/api/health` 返回的真实服务（PID 文件仅作回退），再启动并校验新服务；若前后 `pid`/`bootId` 没变会给出警告。
 

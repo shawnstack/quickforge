@@ -305,7 +305,9 @@ async function fetchHealth(timeoutMs = 800) {
   }
 }
 
-async function waitForHealth({ expectedPid = null, previousBootId = null, requireChanged = false, timeoutMs = 15000 } = {}) {
+const STARTUP_HEALTH_TIMEOUT_MS = 300000
+
+async function waitForHealth({ expectedPid = null, previousBootId = null, requireChanged = false, timeoutMs = STARTUP_HEALTH_TIMEOUT_MS } = {}) {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     const health = await fetchHealth()
@@ -313,6 +315,13 @@ async function waitForHealth({ expectedPid = null, previousBootId = null, requir
       const pidMatches = !expectedPid || Number(health.pid) === Number(expectedPid)
       const bootChanged = !requireChanged || !previousBootId || health.bootId !== previousBootId
       if (pidMatches && bootChanged) return health
+    }
+    if (expectedPid && !isProcessRunning(expectedPid)) {
+      // The spawned server is gone. Give the async 'exit' event a moment to
+      // dispatch so the caller can report the real exit code/signal instead
+      // of a generic timeout.
+      await sleep(300)
+      return null
     }
     await sleep(300)
   }

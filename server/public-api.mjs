@@ -13,6 +13,17 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+const STARTUP_HEALTH_TIMEOUT_MS = 300000
+
+function isProcessRunning(pid) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
 function normalizeHost(host) {
   return host || '127.0.0.1'
 }
@@ -135,12 +146,20 @@ export async function checkQuickForgeHealth(options = {}) {
 }
 
 async function waitForQuickForge(options = {}) {
-  const timeoutMs = options.timeoutMs || 15000
+  const timeoutMs = options.timeoutMs || STARTUP_HEALTH_TIMEOUT_MS
   const deadline = Date.now() + timeoutMs
+  const expectedPid = options.expectedPid || null
 
   while (Date.now() < deadline) {
     const health = await checkQuickForgeHealth(options)
     if (health) return health
+    if (expectedPid && !isProcessRunning(expectedPid)) {
+      // The spawned server exited. Give the async 'exit' event a moment to
+      // dispatch so startQuickForge can report the real exit code/signal
+      // instead of a generic timeout.
+      await sleep(300)
+      return null
+    }
     await sleep(options.pollIntervalMs || 300)
   }
 
@@ -213,7 +232,7 @@ export async function startQuickForge(options = {}) {
     child.once('error', reject)
   })
 
-  const health = await waitForQuickForge(options)
+  const health = await waitForQuickForge({ ...options, expectedPid: child.pid })
   if (!health) {
     if (!child.killed && exitInfo === null) {
       try {

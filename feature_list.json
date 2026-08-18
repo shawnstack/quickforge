@@ -1,6 +1,14 @@
 {
   "features": [
     {
+      "id": "startup-health-timeout-5min",
+      "name": "启动 health 等待默认 15s→5min + 子进程死亡提前退出",
+      "description": "修复公司电脑升级后首次启动触发 SQLite cutover 迁移超过 15 秒 health check 窗口，导致 qf start/restart 报 'health check timed out' 并进入失败循环的问题。改动：bin/quickforge.mjs waitForHealth 默认 timeoutMs 由 15000 改为 STARTUP_HEALTH_TIMEOUT_MS=300000（start/lan/restart 共用）；server/public-api.mjs waitForQuickForge 默认 timeoutMs 同样改为 300000（desktop/SDK spawn 模式生效，inline 模式不变）。两处轮询循环增加子进程死亡提前退出：传入 expectedPid（spawn 子进程 PID）且 isProcessRunning(expectedPid) 为 false 时，先 sleep(300) 给 child 'exit' 事件派发机会再返回 null，调用方 exitInfo 已就绪则报 'process exited early (code/signal)'，崩溃场景秒级返回而非挂满 5 分钟；race 处理为错误措辞降级（极端时序下报 health check timed out），不影响正确性不产生 flaky。停止/复用逻辑不变。测试：新增 tests/server/startup-health-timeout.test.mjs（4 项源码断言：两处默认 300000、调用点不传 timeoutMs、提前退出分支、仅 spawn 模式带 expectedPid；1 项行为测试：blocker HTTP 占端口使 spawn 的真实 server EADDRINUSE exit(1)，startQuickForge 秒级 rejects 'process exited early'，elapsed<45s；mkdtemp 数据目录隔离）。验证：node --check 两文件通过、目标 ESLint 0/0、针对性 vitest 2 文件 12 项通过。",
+      "status": "done",
+      "dependencies": [],
+      "updated": "2026-08-18"
+    },
+    {
       "id": "sidebar-sections-footer-squeeze-fix",
       "name": "侧栏展开项目挤压底部设置区修复",
       "description": "ChatSidebar（桌面端）置顶会话区与项目区使用 md:shrink-0，其 max-h 百分比（28%+55%）与顶部固定区、底部设置区高度互不感知：展开多个项目后总需求超过视口，唯一可收缩的对话区先缩到 0，剩余溢出被 aside 的 overflow-hidden 从底部裁切，底部设置区被推出可视区。修复：移除两处 md:shrink-0（981/1009 行，保留 max-h、min-h-0、内部 overflow-y-auto 与折叠面板结构），空间不足时置顶/项目区按 flex 收缩并转为内部滚动，section header 因 min-height:auto 保持完整，底部设置区（shrink-0）始终可见；移动端行为不变（md: 断点以下本就不收缩锁定）。验证：改动文件 ESLint 0 问题、npx tsc --noEmit -p tsconfig.app.json 通过；无 sidebar 相关测试文件（UI 视觉验证待人工确认）。",

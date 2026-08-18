@@ -2,10 +2,21 @@
 
 ## Current State
 
-- Feature: 侧栏展开项目挤压底部设置区修复（sidebar-sections-footer-squeeze-fix）
-- Status: **done**（置顶/项目区改为可收缩+内部滚动，底部设置区不再被裁切；lint/tsc 通过）
-- Blockers: 无（UI 视觉效果建议人工展开多个项目确认）
-- Next step: 无
+- Feature: 启动 health 等待默认 15s→5min + 子进程死亡提前退出（startup-health-timeout-5min）
+- Status: **done**（两处默认超时改 300000ms 并增加子进程死亡提前退出；node --check/目标 ESLint/针对性 vitest 12 项通过）
+- Blockers: 无（全量 test/lint/build 与发布流程由主 Agent 统一执行）
+- Next step: 发布阶段走 patch release runbook（主 Agent 继续）
+
+## 启动 health 超时 5 分钟 + 子进程死亡提前退出 — 完成
+
+- 根因：升级后首次启动触发 SQLite cutover 迁移超过 15 秒 health check 窗口，`qf start`/`qf restart` 报 `health check timed out`；`startService` 超时后 terminate 子进程并清 PID，形成启动失败循环。
+- 改动：
+  - `bin/quickforge.mjs`：新增 `STARTUP_HEALTH_TIMEOUT_MS = 300000`；`waitForHealth` 默认 `timeoutMs` 使用该常量；轮询循环内当 `expectedPid && !isProcessRunning(expectedPid)`（spawn 子进程已死）时 `sleep(300)` 后返回 null——300ms 让 `child.once('exit')` 异步派发，`startService` 的 `exitInfo` 就绪即报 `process exited early (code/signal)`，未就绪则降级为 `health check timed out`（仅措辞差异，正确性不受影响）。
+  - `server/public-api.mjs`：同样新增 `STARTUP_HEALTH_TIMEOUT_MS = 300000` 与 `isProcessRunning()` 帮助函数；`waitForQuickForge` 默认超时改 300000 并支持 `expectedPid` 死亡提前退出（grace sleep 300ms 同上）；仅 spawn 模式调用点传 `{ ...options, expectedPid: child.pid }`，inline 模式（进程内启动）保持 `waitForQuickForge(options)` 不加子进程检查。
+- 测试：新增 `tests/server/startup-health-timeout.test.mjs` 5 项——源码断言（两处默认 300000 常量与默认参数、调用点不覆盖 timeoutMs、提前退出分支、仅 spawn 模式带 expectedPid）+ 行为测试（blocker HTTP 服务占住目标端口返回 404，`startQuickForge` spawn 的真实 server EADDRINUSE 后 `process.exit(1)`，秒级 rejects `process exited early (code`，elapsed < 45s；`mkdtemp` 数据目录隔离不污染 `~/.quickforge`，端口用 `listen(0)` 随机分配）。`bin/quickforge.mjs` 因 `main()` 在 import 时无条件执行无法安全导入做行为测试，采用源码断言（项目已有 source 测试先例）。
+- 验证：`node --check bin/quickforge.mjs server/public-api.mjs` 通过；`npx eslint bin/quickforge.mjs server/public-api.mjs tests/server/startup-health-timeout.test.mjs` 0 error/0 warning；`npx vitest run tests/server/startup-health-timeout.test.mjs tests/server/public-api.test.mjs` 2 文件 12 项通过（行为测试 1.6s）。
+- 文档：docs/wiki/bin/README.md 启动流程第 3 条补充默认最长 5 分钟与提前退出说明（start/lan/restart 共用）；docs/wiki/server/README.md 未改——该文件无 public-api/SDK 小节（public-api.mjs 未登记于 server wiki 目录），无启动超时描述可同步。
+- 未新增依赖；未创建 commit/tag/push；未触碰 `dist/`、`package-dist/`、`package-offline/`。
 
 ## 侧栏展开项目挤压底部设置区 — 完成
 

@@ -2,6 +2,33 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.7.8] - 2026-08-18
+
+### Added
+
+- Migrated scheduled task runs, session state, share links, and LAN access configuration to transactional SQLite authoritative storage (schema v9) with JSON mirroring, atomic backup/restore, a shadow-verified query index, and offline export/downgrade maintenance tools; authorization checks fail closed during any state anomaly.
+- Added IndexedDB read-only cache layers to cut repeated transfers: session message snapshots (restore and incremental SSE writes), workspace file tree and file content, stale-while-revalidate startup settings, and HTTP ETag (304) negotiation for workspace previews.
+- The `qf-agent` first device authorization is now auto-approved when a valid local desktop Cloud session exists; remote-client-triggered lifecycle changes keep manual approval, and the default Cloud URL is now `https://qf.shawnstack.com/`.
+- Desktop builds now raise native system notifications for finished background tasks, restoring the window and conversation on click.
+- Subagent runs open as live-updating Workspace Inspector tabs with full task, tool-call, and trace details shared with inline chat cards.
+
+### Fixed
+
+- The sidebar footer settings stay visible when expanding many projects; over-tall project/pinned sections now scroll internally instead of clipping the footer.
+- Subagent tool failures now surface error details instead of a generic summary.
+- Skill frontmatter `name` may differ from the skill directory name.
+- Duplicate file previews reuse the same inspector tab instead of opening a new one; unified the agent profile edit action label.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.7.8` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.7.8.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.7.8.tgz
+  ```
+
 ## [1.7.7] - 2026-08-12
 
 ### Changed

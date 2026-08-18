@@ -2,10 +2,26 @@
 
 ## Current State
 
-- Feature: 启动 health 等待默认 15s→5min + 子进程死亡提前退出（startup-health-timeout-5min）
-- Status: **done**（两处默认超时改 300000ms 并增加子进程死亡提前退出；node --check/目标 ESLint/针对性 vitest 12 项通过）
-- Blockers: 无（全量 test/lint/build 与发布流程由主 Agent 统一执行）
-- Next step: 发布阶段走 patch release runbook（主 Agent 继续）
+- Feature: 上下文统计预留输出按真实请求 clamp 收缩（context-usage-reserved-output-clamp）
+- Status: **done**（服务端+前端 reservedOutputTokens 均按 min(maxTokens, 窗口−输入−4096) 收缩；针对性 vitest 23 项 + 回归 17 项、ESLint 0/0、tsc 通过）
+- Blockers: 无
+- Next step: 由主 Agent 决定是否随下个 patch 发布（发布前需完整 test/lint/build）
+
+## 上下文统计预留输出 clamp — 完成
+
+- 根因：`estimateContextUsage`（server/context-usage.mjs）与 `getContextUsage`（src/components/chat/chat-utils.ts）的 `reservedOutputTokens = max(0, maxTokens || 4096)` 无上限封顶；真实请求链路中 pi-ai `clampMaxTokensToContext`（simple-options.js，CONTEXT_SAFETY_TOKENS=4096）每次请求都会将实际 maxTokens 收缩为 min(配置值, contextWindow − estimatedInput − 4096)，下限 1。统计用未收缩配置值导致 maxTokens ≥ contextWindow 时（内置目录 14% 模型、自定义连接可任意填写）percent 恒 ≥100%、自动压缩判定恒触发。
+- 改动：
+  - `server/context-usage.mjs`：新增 `OUTPUT_SAFETY_TOKENS = 4096`（注释对齐 pi-ai）与导出 `clampReservedOutputTokens(requestedMaxTokens, inputTokens, contextWindow)`；`estimateContextUsage` 中 `reservedOutputTokens` 移到 inputTokens（provider 与本地估算较大值）计算后取 `clampReservedOutputTokens(model?.maxTokens, inputTokens, contextWindow)`，返回值顶层与 breakdown 均自动使用新值。
+  - `src/components/chat/chat-utils.ts`：`getContextUsage` 上方新增同口径导出 `clampReservedOutputTokens`（TS 版）与 `OUTPUT_SAFETY_TOKENS`；函数内改 `clampReservedOutputTokens(maxTokens, usedTokens, contextWindow)`，保持单行 return 风格。
+  - 未改 `shouldCompactContextByPercent`（口径自动跟随）与空会话 reserved=0 路径（auto-compaction.mjs L292-311，确认不受影响）。
+- 测试：`tests/server/auto-compaction.test.mjs` +2——退化场景（cw 100_000/mt 120_000/最后 assistant usage totalTokens 31_000）断言 reserved 64_904（= 100_000−31_000−4_096，provider inputTokens 取 usage.totalTokens 口径）、totalTokens 95_904、percent<100；溢出场景（输入 97_000/mt 8_000）断言 reserved 0、percent<100。新增 `tests/frontend/context-usage-clamp.test.ts` 4 项（前端 provider 输入优先取 usage.input：退化 reserved 65_904/total 95_904；溢出 reserved 0；正常 mt 4_000 不受 clamp；helper 边界：无窗口返回原值/undefined 回退 4096/下限 0）。既有 percent 12.5 用例继续通过。
+- 验证：`npx vitest run tests/server/auto-compaction.test.mjs tests/frontend/context-usage.test.ts tests/frontend/context-usage-clamp.test.ts` 3 文件 23 项通过；回归（composer-draft-restoration/composer-plus-menu/context-compaction-notice/editor-bindings）4 文件 17 项通过；`npx eslint`（4 个改动文件）0 error/0 warning；`npx tsc --noEmit -p tsconfig.app.json` 通过。
+- 文档：docs/wiki/server/README.md 两处补 clamp 口径句（agent-manager「上下文统计」条目、auto-compaction.mjs 模块说明）；src/components wiki 仅列举函数名无口径描述，无需同步。
+- 未新增依赖；未创建 commit/tag/push；未触碰 `dist/`、`package-dist/`、`package-offline/`。
+
+## 启动 health 超时 5 分钟 + 子进程死亡提前退出 — 完成
+
+> 曾为 Current State：已随 v1.7.9 发布，全量 test/lint/build 与发布流程由主 Agent 执行。
 
 ## 启动 health 超时 5 分钟 + 子进程死亡提前退出 — 完成
 
@@ -358,6 +374,7 @@
 
 ## Notes
 
+- 无关问题（2026-08-18 全量 lint）：`server/cloud/identity.mjs:92` 存在既有 warning（no-useless-assignment，'record' 赋值后未使用），与 context-usage-reserved-output-clamp 无关，留待后续单独处理。
 - 未新增依赖，未 commit/tag/push。
 - 未手工修改 `dist/`、`package-dist/`、`package-offline/`；build 生成 `dist/` 由脚本完成。
 - 工作区仍有大量并行修改；后续提交必须显式限定本 feature 相关文件（F9 Phase 2：`server/sqlite/migrations.mjs`、`server/sqlite/session-state-repository.mjs`、`server/session-state-service.mjs`、`server/session-state-cutover.mjs`、`server/session-state-backup.mjs`、`server/maintenance/export-session-state-v1.mjs`、`tests/server/session-state-messages.test.mjs`、`tests/fixtures/session-state-messages-cas-worker.mjs`、schema v6→v7 断言更新的测试/夹具、`docs/architecture/session-state-transactional-storage.zh-CN.md`、`docs/wiki/server/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`），禁止整体暂存、回滚或清理未知文件。

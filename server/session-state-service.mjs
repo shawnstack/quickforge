@@ -13,6 +13,11 @@ export const SESSION_STORAGE_PHASES = Object.freeze({
 // marker). Sessions below the threshold stay inline for backward compatibility.
 export const MESSAGES_SPLIT_THRESHOLD = 200
 
+// Mirror drain page size: the queue rows carry full state_json payloads, so
+// the drain pulls a bounded batch at a time instead of loading the whole
+// outbox (large cutover imports can enqueue thousands of entries).
+const MIRROR_DRAIN_BATCH_LIMIT = 8
+
 let repositoryInstance = null
 let cachedPhase = SESSION_STORAGE_PHASES.JSON_AUTHORITATIVE
 let jsonAdapter = null
@@ -667,25 +672,37 @@ export function replaceSessionStateSnapshot({ sessions, sessionsMetadata }, { me
 export async function drainSessionJsonMirror() {
   if (drainPromise) return drainPromise
   drainPromise = (async () => {
-    if (!mirrorAdapter) return { drained: 0, pending: repository().listMirrorQueue().length }
+    if (!mirrorAdapter) return { drained: 0, pending: repository().countMirrorQueue() }
     let drained = 0
-    for (const entry of repository().listMirrorQueue()) {
-      try {
-        if (entry.operation === 'upsert') {
-          const state = entry.state?.messageStorage === MESSAGES_SPLIT_VALUE
-            ? { ...entry.state, messages: allMessages(entry) }
-            : entry.state
-          await mirrorAdapter.upsert({ ...entry, state })
-        } else {
-          await mirrorAdapter.delete(entry)
+    // Page through the outbox in small batches. A failed entry gets its
+    // updated_at bumped by failMirror, so it sorts behind the remaining
+    // entries and the next page drains others first; entries that keep
+    // failing are retried by the scheduled drain. A batch with zero
+    // acknowledgements stops the loop (no head-of-line livelock).
+    for (;;) {
+      const batch = repository().listMirrorQueue({ limit: MIRROR_DRAIN_BATCH_LIMIT })
+      if (batch.length === 0) break
+      let acknowledged = 0
+      for (const entry of batch) {
+        try {
+          if (entry.operation === 'upsert') {
+            const state = entry.state?.messageStorage === MESSAGES_SPLIT_VALUE
+              ? { ...entry.state, messages: allMessages(entry) }
+              : entry.state
+            await mirrorAdapter.upsert({ ...entry, state })
+          } else {
+            await mirrorAdapter.delete(entry)
+          }
+          repository().acknowledgeMirror(entry)
+          drained += 1
+          acknowledged += 1
+        } catch (error) {
+          repository().failMirror(entry, error)
         }
-        repository().acknowledgeMirror(entry)
-        drained += 1
-      } catch (error) {
-        repository().failMirror(entry, error)
       }
+      if (acknowledged === 0) break
     }
-    return { drained, pending: repository().listMirrorQueue().length }
+    return { drained, pending: repository().countMirrorQueue() }
   })().finally(() => { drainPromise = null })
   const result = await drainPromise
   if (result.pending > 0) scheduleSessionJsonMirrorDrain()
@@ -700,8 +717,12 @@ export function getSessionStateDiagnostics() {
   let integrity
   let mirrorPending = null
   try {
-    integrity = repository().verifyIntegrity()
-    mirrorPending = repository().listMirrorQueue().length
+    // Lightweight (SQL-level) integrity: startup diagnostics on large stores
+    // must not re-parse every stored body. The result carries
+    // `lightweight: true`; full per-row verification stays on maintenance
+    // entry points (backup export/restore, downgrade tooling).
+    integrity = repository().verifyIntegrity({ quickCheck: true })
+    mirrorPending = repository().countMirrorQueue()
   } catch (error) {
     integrity = { ok: false, error: error?.message || String(error) }
   }

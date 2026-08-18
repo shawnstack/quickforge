@@ -1,34 +1,42 @@
 # Session Handoff
 
-- Feature: 启动 health 等待默认 15s→5min + 子进程死亡提前退出（startup-health-timeout-5min）
-- Status: **done**（已随 v1.7.9 发布；release commit 与 tag 推送后补充；npm publish 待用户手动执行）
+- Feature: Session cutover 全链路流式化（session-cutover-streaming-migration，依赖并叠加 session-cutover-metadata-orphan-tolerance）
+- Status: **done**（实现、测试、文档、状态文件完成；未 commit）
 
 ## 当前目标（已达成）
 
-升级后首次启动的 SQLite cutover 迁移不再撞上 15 秒 health check 窗口：CLI（`qf start`/`lan`/`restart`）与 public-api（desktop/SDK spawn 模式）默认最长等待 5 分钟；子进程崩溃/端口占用导致提前退出时秒级失败并报出退出码/信号，不挂满 5 分钟。
+孤儿容忍修复后用户环境（2507 会话 JSON / 1.6GB，最大单会话 46MB）实测仍在迁移第一遍全量快照构建即 OOM（exit 134，phase 表时间戳停在迁移前，证明死在 readPhysicalSessionStateBuckets 全量加载）。本 feature 把迁移链路全流式化：内存上界 = 最大单会话 + 小累加器，不再随库规模线性增长。
 
 ## 改动文件
 
-- `bin/quickforge.mjs`：`waitForHealth` 默认 `timeoutMs` 15000→`STARTUP_HEALTH_TIMEOUT_MS`（300000）；轮询内 `expectedPid && !isProcessRunning(expectedPid)` 时 `sleep(300)` 后返回 null（给 exit 事件派发机会，调用方优先报 `process exited early`）。
-- `server/public-api.mjs`：新增 `STARTUP_HEALTH_TIMEOUT_MS` 与 `isProcessRunning()`；`waitForQuickForge` 默认 300000 + `expectedPid` 死亡提前退出（同样 300ms grace）；仅 spawn 调用点传 `{ ...options, expectedPid: child.pid }`，inline 模式不变。
-- `tests/server/startup-health-timeout.test.mjs`（新增）：4 项源码断言 + 1 项行为测试（blocker 占端口→spawn server EADDRINUSE exit(1)→秒级 rejects `process exited early`，elapsed<45s；mkdtemp 隔离）。
-- `docs/wiki/bin/README.md`：启动流程第 3 条补默认 5 分钟与提前退出（start/lan/restart 共用）。
-- 状态文件：`feature_list.json`（新条目 done）、`progress.md`、`session-handoff.md`。
-- 未改 `docs/wiki/server/README.md`：无 public-api/SDK 小节与启动超时描述，无需同步。
+- `server/sqlite/session-state-repository.mjs`：replaceAllStream（单事务流式导入，逐条 digest line 累加，expectedCount/Digest 事务内校验，失败整体回滚，mirrorDeletes 增量 key 冲突检测）；verifyIntegrity quickCheck:true 改纯 SQL（sqlIntegrityCounts 共享提取，lightweight:true、digest:null；完整校验不变）；listMirrorQueue({limit}) 分页 + countMirrorQueue()。
+- `server/session-state-service.mjs`：drainSessionJsonMirror 分页（MIRROR_DRAIN_BATCH_LIMIT=8，整批零确认即停防死循环，pending 走 COUNT）；getSessionStateDiagnostics 轻量化。
+- `server/session-state-cutover.mjs`：normalizeSessionEntry 单源逐会话规范化（buildSessionJsonSnapshot 复用，行为不变=parity 锚点）；createStreamingSessionSource(fsAdapter) 流式源工厂（每 pass 独立 {iterate,getSummary}）；createReadBucketsSessionSource 注入兼容；writeCutoverBackupStream 流式备份（v1 形状不变、写侧 sha256+分块重读复核+首尾字节校验）；主流程 4 pass + replaceAllStream + mirrorDeletes(orphanDeletes)；quickCheck 适配（digest 用持久化 current.digest）；verifyIntegrityWithIndexSelfHeal 保留。
+- `server/storage.mjs`：createPhysicalSessionStateFsAdapter()（包装 listProjectIds/listSessionDataFiles/sessionDataFile/sessionStoreFile/readJsonFile）。
+- `server/session-state-backup.mjs`、`server/maintenance/export-session-state-v1.mjs`、`downgrade-session-state-v1.mjs`：移除与轻量 digest(null) 的交叉比对（保留 ok+count 校验，digest 由 exportSnapshot 自算）。
+- 测试：repository +5、service +2、cutover +5（parity/流式 e2e/pass2 不稳定/备份损坏自检/孤儿流式），lifecycle/cutover fail-closed 用例改 active tombstone 损坏（quickCheck 不再逐行重算 digest 的语义调整）。
+- 文档：docs/architecture/session-state-transactional-storage.zh-CN.md（流式导入/quickCheck 轻量/mirror 分页/4 pass/备份字节哈希校验）、docs/wiki/server/README.md。
+- `feature_list.json` / `progress.md` / `session-handoff.md`：状态更新。
 
 ## 验证结果
 
-- `node --check bin/quickforge.mjs server/public-api.mjs`：通过。
-- `npx eslint bin/quickforge.mjs server/public-api.mjs tests/server/startup-health-timeout.test.mjs`：0 error / 0 warning。
-- `npx vitest run tests/server/startup-health-timeout.test.mjs tests/server/public-api.test.mjs`：2 文件 12 项通过（行为测试 1.6s，证明提前退出生效）。
-- 发布门禁：`npm run test` 204 文件 / 1646 项 100% 通过；`npm run lint` 0 error（仅既有 identity.mjs warning）；`npm run build` exit 0。
-- 打包：`package-offline/shawnstack-quickforge-1.7.9.tgz`（shasum 14895da046ac634bdde6d347b15b2c530f91f748）；已验证包内 bin/ 与 server/ 均含 5 分钟默认值与提前退出逻辑。
+- `npm run test`：**205 文件 / 1667 项 100% 通过**（发布硬门禁满足）。
+- `npm run lint`：通过。
+- `npm run build`：通过（仅既有 KaTeX 字体/大 chunk warning）。
+- node --check、目标 ESLint 0/0（subagent 批次内）。
+
+## 边界确认
+
+- 未触碰 `dist/`（build 生成）、`package-dist/`、`package-offline/`；未新增依赖；未 git commit。
+- 工作区还有其他会话的未提交改动（context-usage.mjs、chat-utils.ts、auto-compaction.test.mjs 等），提交时须限定文件。
 
 ## Blockers
 
-- 无。
+- 无代码 blocker。
 
 ## Next step
 
-- v1.7.9 Git 发布（release commit、tag v1.7.9、push）由主 Agent 执行；npm publish 待用户手动执行：`cd package-offline && npm publish --access public`。
-- 备注：desktop/electron-main.mjs 调 `startQuickForge` 未传 `timeoutMs`，自动继承新默认 5 分钟与提前退出，无需改动。
+- **用户环境实测**：`qf start`（工作区 D:\quickforge 新代码）首次迁移——多遍磁盘读 + SQLite 写入耗时较长属预期（health 等待已放宽 5 分钟）；成功后 `session_storage_state.phase=sqlite_authoritative`、session_states≈2426 行、21 孤儿条目从列表消失；二次启动应秒级且内存正常。桌面版仍带旧代码，需发布新版或继续用 qf。
+- 迁移成功后首次 drain 会重写全部会话 JSON 镜像（2507 文件，分批进行），属一次性。
+- 若实测仍有问题：查 server 日志 + `session_storage_state.diagnostic_json`。
+- 发布前重跑 test/lint/build（本次已全绿）。

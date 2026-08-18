@@ -1,6 +1,32 @@
 {
   "features": [
     {
+      "id": "session-cutover-streaming-migration",
+      "name": "Session cutover 全链路流式化（1.6GB 大库迁移不再 OOM）",
+      "description": "孤儿容忍修复后实测仍在迁移第一遍全量快照构建即 OOM（readPhysicalSessionStateBuckets 全量加载 2507 JSON/1.6GB，V8 对象放大 3-6 倍），且发现 6 个全量进内存放大点（三遍全量快照+双份同时存活、备份整体 stringify ~3GB 巨型字符串+整读再 parse、replaceAll 全 record 持有、verifyIntegrity quickCheck 名不副实每次启动全表逐行 parse、listMirrorQueue 全量加载）。修复分两步：① repository/service 层——replaceAllStream 流式导入（单事务逐条消费 async iterable、逐条 digest line 累加、expectedCount/Digest 事务内校验、失败整体回滚）；verifyIntegrity quickCheck:true 改纯 SQL 校验（PRAGMA+COUNT/join，lightweight:true、digest:null，完整校验语义不变）并适配全部调用点（digest 交叉比对改用持久化 digest）；listMirrorQueue({limit}) 分页 + countMirrorQueue()，drainSessionJsonMirror 批 8 循环 + 整批零确认防死循环，getSessionStateDiagnostics 轻量化。② cutover 层——提取 normalizeSessionEntry 单源逐会话规范化（buildSessionJsonSnapshot 行为逐字节不变为 parity 锚点）；createStreamingSessionSource(fsAdapter) 生产路径逐桶逐文件流式（峰值内存=最大单会话+单桶 metadata）；迁移主流程改 4 pass（双 summary 稳定性→流式备份写（v1 形状不变、逐会话写出、写侧 sha256+字节计数+分块重读复核+首尾字节校验替代整体回读再 parse）→replaceAllStream 第 4 遍导入含 mirrorDeletes）；readBuckets 注入路径保留（每 pass 调一次）；storage.mjs 新增 createPhysicalSessionStateFsAdapter。测试：repository 5 新用例（流式/回滚/一致性/quickCheck 轻量 vs 完整/分页）、service 2 新用例（分批排空/部分失败无死循环）、cutover 5 新用例（parity/流式 e2e/pass2 不稳定/备份损坏自检/孤儿流式）+ 既有用例全保持。验证：node --check、目标 ESLint 0/0、npm run test 全量 205 文件 1667 项 100% 通过、npm run lint 通过、npm run build 通过（仅既有 KaTeX/大 chunk warning）。",
+      "status": "done",
+      "dependencies": [
+        "session-cutover-metadata-orphan-tolerance"
+      ],
+      "updated": "2026-08-18"
+    },
+    {
+      "id": "session-cutover-metadata-orphan-tolerance",
+      "name": "Session cutover 容忍 metadata-only 孤儿会话（修复启动 OOM 循环）",
+      "description": "修复真实环境反复 'process exited early (code 134)'（V8 OOM）启动崩溃：sessions-metadata 索引存在 21 个仅有元数据无会话体 JSON 的孤儿（测试残留 test-1/http-test 等），cutover 一票否决抛 TypeError 使 phase 永久卡在 json_authoritative，每次启动重跑全量迁移（1.6GB 会话 JSON 三次全量读+clone+备份回读）导致启动内存暴涨。改动三部分：① buildSessionJsonSnapshot 删除 metadataOnly TypeError，孤儿剔除不进 records、diagnostics 新增 orphanDeletes（{scope,projectId,sessionId} 结构化，与 metadataOnly id 数组同源），metadataOnly 保留审计；② repository.replaceAll 新增 mirrorDeletes 选项（bucket 规范化+key 与 records 重复校验+事务内 enqueueMirror 'delete' revision 1），cutover 传 first.diagnostics.orphanDeletes，drain 经 materializeSessionJsonMirrorEntry 幂等物理清除 JSON 元数据残留，防止 initializeSessionIndex 从 JSON 源重建时孤儿回流 session_index 导致下次启动 orphanIndex>0 fail-closed；③ pending/authoritative 分支 verifyIntegrity 失败先 rebuildIndex() 从权威 states 无损重建投影再复验（自愈 index 漂移，如 drain 失败后残留回流的极端场景），复验仍失败才 fail closed（错误带首次失败摘要）。测试：cutover 单测 orphanDeletes 断言、e2e 孤儿剔除+mirror.delete 调用+二次启动 authoritative 通过、新增 index 污染自愈 e2e（drain 失败→index 回流→重启 rebuildIndex 自愈+drain 成功）、pending/authoritative fail-closed 用例改用 state_digest 污染（index 污染现可自愈）、repository mirrorDeletes 入队/重复 key/类型校验用例。验证：node --check 通过、目标 ESLint 0/0、vitest 13 文件 88 项 + 6 文件 44 项全部通过。附带：删除用户环境 ~/.quickforge/logs/ 旧 ai-http 日志释放 4.5GB（磁盘操作非代码）。",
+      "status": "done",
+      "dependencies": [],
+      "updated": "2026-08-18"
+    },
+    {
+      "id": "context-usage-reserved-output-clamp",
+      "name": "上下文统计预留输出按真实请求 clamp 收缩",
+      "description": "修复 contextUsage 百分比与自动压缩误判：server/context-usage.mjs estimateContextUsage 与前端 chat-utils getContextUsage 的 reservedOutputTokens 原为 max(0, maxTokens||4096) 无上限封顶，而真实请求链路中 pi-ai clampMaxTokensToContext 每次都会把实际 maxTokens 收缩为 min(配置值, contextWindow − estimatedInput − 4096 安全余量)，导致 maxTokens ≥ contextWindow（内置目录 14% 模型、自定义连接任意填写）时 percent 恒 ≥100%、压缩判定恒触发。改动：两处新增导出 clampReservedOutputTokens（对齐 pi-ai CONTEXT_SAFETY_TOKENS=4096）与 OUTPUT_SAFETY_TOKENS 常量，reservedOutputTokens 改为 min(模型 maxTokens, 窗口−输入−4096)，下限 0；前端在 inputTokens 计算后 clamp，服务端在 inputTokens（provider 与本地估算较大值）计算后 clamp，返回结构与空会话 reserved=0 路径不变，shouldCompactContextByPercent 口径自动跟随。测试：tests/server/auto-compaction.test.mjs +2（退化场景 mt 120_000/cw 100_000/provider totalTokens 31_000 → reserved 64_904、total 95_904、percent<100；溢出场景输入 97_000 → reserved 0、percent<100）；新增 tests/frontend/context-usage-clamp.test.ts 4 项（退化 clamp/溢出归零/正常不受影响/helper 边界）。验证：针对性 vitest 3 文件 23 项 + 回归 4 文件 17 项通过；改动文件 ESLint 0 error/0 warning；tsc --noEmit 通过。wiki server/README.md 两处（agent-manager 上下文统计、auto-compaction 模块说明）补 clamp 口径句。",
+      "status": "done",
+      "dependencies": [],
+      "updated": "2026-08-18"
+    },
+    {
       "id": "startup-health-timeout-5min",
       "name": "启动 health 等待默认 15s→5min + 子进程死亡提前退出",
       "description": "修复公司电脑升级后首次启动触发 SQLite cutover 迁移超过 15 秒 health check 窗口，导致 qf start/restart 报 'health check timed out' 并进入失败循环的问题。改动：bin/quickforge.mjs waitForHealth 默认 timeoutMs 由 15000 改为 STARTUP_HEALTH_TIMEOUT_MS=300000（start/lan/restart 共用）；server/public-api.mjs waitForQuickForge 默认 timeoutMs 同样改为 300000（desktop/SDK spawn 模式生效，inline 模式不变）。两处轮询循环增加子进程死亡提前退出：传入 expectedPid（spawn 子进程 PID）且 isProcessRunning(expectedPid) 为 false 时，先 sleep(300) 给 child 'exit' 事件派发机会再返回 null，调用方 exitInfo 已就绪则报 'process exited early (code/signal)'，崩溃场景秒级返回而非挂满 5 分钟；race 处理为错误措辞降级（极端时序下报 health check timed out），不影响正确性不产生 flaky。停止/复用逻辑不变。测试：新增 tests/server/startup-health-timeout.test.mjs（4 项源码断言：两处默认 300000、调用点不传 timeoutMs、提前退出分支、仅 spawn 模式带 expectedPid；1 项行为测试：blocker HTTP 占端口使 spawn 的真实 server EADDRINUSE exit(1)，startQuickForge 秒级 rejects 'process exited early'，elapsed<45s；mkdtemp 数据目录隔离）。验证：node --check 两文件通过、目标 ESLint 0/0、针对性 vitest 2 文件 12 项通过。",

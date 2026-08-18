@@ -226,6 +226,104 @@ describe('session state repository and schema v7', () => {
     expect(repository.verifyIntegrity().ok).toBe(true)
   })
 
+  it('replaceAll enqueues mirror deletes for orphan keys and rejects entries duplicating record keys', () => {
+    repository.save(record('existing'), { expectedRevision: 0 })
+    repository.replaceAll([record()], {
+      mirrorDeletes: [{ scope: 'global', sessionId: 'orphan' }, { scope: 'project', projectId: 'p2', sessionId: 'orphan-p' }],
+    })
+    expect(repository.listMirrorQueue()).toMatchObject([
+      { scope: 'global', projectId: null, sessionId: 'orphan', operation: 'delete', revision: 1, state: null, metadata: null },
+      { scope: 'global', projectId: null, sessionId: 'session-a', operation: 'upsert', revision: 1 },
+      { scope: 'project', projectId: 'p2', sessionId: 'orphan-p', operation: 'delete', revision: 1, state: null, metadata: null },
+    ])
+    expect(repository.verifyIntegrity()).toMatchObject({ ok: true, count: 1 })
+    expect(() => repository.replaceAll([record()], {
+      mirrorDeletes: [{ scope: 'global', sessionId: 'session-a' }],
+    })).toThrow(TypeError)
+    expect(() => repository.replaceAll([record()], { mirrorDeletes: 'bad' })).toThrow(/mirrorDeletes/)
+  })
+
+  it('replaceAllStream produces the exact replaceAll tables for the same records', async () => {
+    const records = [record('one'), record('two'), record('three', { scope: 'project', projectId: 'p1' })]
+    const mirrorDeletes = [{ scope: 'global', sessionId: 'orphan' }]
+    const dump = () => ({
+      states: database.prepare('SELECT * FROM session_states ORDER BY session_id').all(),
+      index: database.prepare('SELECT * FROM session_index ORDER BY session_id').all(),
+      mirror: database.prepare('SELECT * FROM session_json_mirror_queue ORDER BY session_id').all(),
+      tombstones: database.prepare('SELECT * FROM session_state_tombstones ORDER BY session_id').all(),
+      messages: database.prepare('SELECT * FROM session_messages ORDER BY session_id').all(),
+    })
+    const count = repository.replaceAll(records, { mirrorDeletes })
+    const expected = dump()
+    const source = (async function* generate() { for (const entry of records) yield entry })()
+    await expect(repository.replaceAllStream(source, {
+      expectedCount: count,
+      expectedDigest: repository.digest(),
+      mirrorDeletes,
+    })).resolves.toBe(count)
+    expect(dump()).toEqual(expected)
+    expect(repository.exportSnapshot()).toMatchObject({ count })
+    expect(repository.verifyIntegrity()).toMatchObject({ ok: true, count })
+  })
+
+  it('replaceAllStream rolls the whole transaction back on verification or iterator failure', async () => {
+    repository.save(record('existing'), { expectedRevision: 0 })
+    await expect(repository.replaceAllStream([record('fresh')], { expectedCount: 2 }))
+      .rejects.toThrow('Session state replace count verification failed')
+    await expect(repository.replaceAllStream([record('fresh')], { expectedDigest: 'f'.repeat(64) }))
+      .rejects.toThrow('Session state replace digest verification failed')
+    const exploding = (async function* generate() { yield record('fresh'); throw new Error('iterator exploded') })()
+    await expect(repository.replaceAllStream(exploding)).rejects.toThrow('iterator exploded')
+    // replaceAll semantics: the tables are wiped first, but a failed run rolls
+    // back to the exact pre-existing state (rows and mirror outbox).
+    expect(repository.count()).toBe(1)
+    expect(repository.findBySessionId('existing')).not.toBeNull()
+    expect(repository.listMirrorQueue()).toMatchObject([{ sessionId: 'existing', operation: 'upsert', revision: 1 }])
+  })
+
+  it('replaceAllStream validates inputs and imports a large async generator record-by-record', async () => {
+    await expect(repository.replaceAllStream(null)).rejects.toThrow(/iterable/)
+    await expect(repository.replaceAllStream([record()], { mirrorDeletes: 'bad' })).rejects.toThrow(/mirrorDeletes/)
+    await expect(repository.replaceAllStream([record(), record()])).rejects.toThrow(TypeError)
+    await expect(repository.replaceAllStream([record()], { mirrorDeletes: [{ scope: 'global', sessionId: 'session-a' }] }))
+      .rejects.toThrow(TypeError)
+
+    const records = Array.from({ length: 300 }, (_, index) => record(`bulk-${index}`))
+    const source = (async function* generate() { for (const entry of records) yield entry })()
+    await expect(repository.replaceAllStream(source)).resolves.toBe(300)
+    expect(repository.count()).toBe(300)
+    expect(repository.countMirrorQueue()).toBe(300)
+    expect(repository.listMirrorQueue({ limit: 5 })).toHaveLength(5)
+    expect(repository.verifyIntegrity({ quickCheck: true })).toMatchObject({ ok: true, count: 300 })
+  })
+
+  it('quickCheck stays SQL-level lightweight while full verification recomputes row digests', () => {
+    repository.replaceAll([record()])
+    // Row-level digest corruption is invisible to SQL-level checks...
+    database.prepare("UPDATE session_states SET state_digest = ? WHERE session_id = 'session-a'").run('f'.repeat(64))
+    expect(repository.verifyIntegrity({ quickCheck: true })).toMatchObject({ ok: true, lightweight: true, digest: null, count: 1, invalidDigests: 0 })
+    // ...but the full verification still fail-closes on it.
+    expect(repository.verifyIntegrity()).toMatchObject({ ok: false, invalidDigests: 1 })
+
+    // SQL-structural corruption (orphan index row) is caught by both modes.
+    repository.replaceAll([record()])
+    database.prepare(`INSERT INTO session_index (scope, project_id, session_id, is_pinned, is_archived, metadata_json, metadata_digest, indexed_at)
+      VALUES ('global', '', 'orphan', 0, 0, '{}', ?, '2026-01-01T00:00:00.000Z')`).run('a'.repeat(64))
+    expect(repository.verifyIntegrity({ quickCheck: true })).toMatchObject({ ok: false, lightweight: true, orphanIndex: 1 })
+    expect(repository.verifyIntegrity()).toMatchObject({ ok: false, orphanIndex: 1 })
+  })
+
+  it('paginates the mirror queue by updated_at order and counts it without loading rows', () => {
+    for (const id of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']) {
+      repository.save(record(id), { expectedRevision: 0 })
+    }
+    expect(repository.countMirrorQueue()).toBe(10)
+    // Identical updated_at falls back to the scope/project/session ordering.
+    expect(repository.listMirrorQueue({ limit: 3 }).map((entry) => entry.sessionId)).toEqual(['a', 'b', 'c'])
+    expect(repository.listMirrorQueue()).toHaveLength(10)
+    expect(() => repository.listMirrorQueue({ limit: 0 })).toThrow(/positive integer/)
+  })
+
   it('allows exactly one multi-process CAS writer with shell disabled and a hard timeout', async () => {
     repository.save(record('race'), { expectedRevision: 0 })
     database.close()

@@ -463,6 +463,34 @@ export async function readPhysicalSessionStateBuckets() {
   return result
 }
 
+// Streaming filesystem adapter for the session-state JSON cutover: unlike
+// readPhysicalSessionStateBuckets (which materializes every bucket into
+// memory at once), the cutover consumes sessions one file at a time so a
+// multi-GB library never needs to be fully resident. It reuses the same
+// physical helpers, so the layout and read semantics stay identical:
+// - listBuckets(): global bucket + one bucket per project directory
+// - listSessionFiles(bucket): session ids from sessions/<id>.json file names
+// - readSessionState(bucket, sessionId): parsed session body (null if absent)
+// - readMetadataBucket(bucket): parsed sessions-metadata bucket (default {})
+export function createPhysicalSessionStateFsAdapter() {
+  return {
+    async *listBuckets() {
+      await ensureStorage()
+      yield { scope: 'global', projectId: null }
+      for (const projectId of await listProjectIds()) yield { scope: 'project', projectId }
+    },
+    async *listSessionFiles(bucket) {
+      for (const file of await listSessionDataFiles(bucket)) yield path.basename(file, '.json')
+    },
+    readSessionState(bucket, sessionId) {
+      return readJsonFile(sessionDataFile(sessionId, bucket), null)
+    },
+    readMetadataBucket(bucket) {
+      return readJsonFile(sessionStoreFile('sessions-metadata', bucket), {})
+    },
+  }
+}
+
 async function sessionStateFacade() {
   const service = await import('./session-state-service.mjs')
   return service.isSessionStateAuthoritative() ? service : null

@@ -294,9 +294,12 @@ function digestRows(database) {
   }))
 }
 
+function digestFromLines(lines) {
+  return createHash('sha256').update([...lines].sort().join('\n')).digest('hex')
+}
+
 function verificationDigest(rows) {
-  const values = rows.map((row) => snapshotDigestLine(row.scope, row.project_id, row.session_id, row.state_digest, row.metadata_digest, row.messages_digest)).sort()
-  return createHash('sha256').update(values.join('\n')).digest('hex')
+  return digestFromLines(rows.map((row) => snapshotDigestLine(row.scope, row.project_id, row.session_id, row.state_digest, row.metadata_digest, row.messages_digest)))
 }
 
 export function sessionStateSnapshotDigest(records) {
@@ -582,8 +585,9 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     }, options).saved
   }
 
-  function replaceAll(inputs, { beforeCommit, storageState, expectedCount, expectedDigest } = {}) {
+  function replaceAll(inputs, { beforeCommit, storageState, expectedCount, expectedDigest, mirrorDeletes = [] } = {}) {
     if (!Array.isArray(inputs)) throw new TypeError('records must be an array')
+    if (!Array.isArray(mirrorDeletes)) throw new TypeError('mirrorDeletes must be an array')
     const timestamp = now()
     const records = inputs.map((input) => {
       let messages = input.messages
@@ -597,6 +601,13 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
       if (ids.has(record.sessionId)) throw new TypeError(`Duplicate session id: ${record.sessionId}`)
       ids.add(record.sessionId)
     }
+    const deletes = mirrorDeletes.map((input) => ({ ...bucket(input.scope, input.projectId), sessionId: nonEmptyString(input.sessionId, 'sessionId') }))
+    const recordKeys = new Set(records.map((record) => JSON.stringify([record.scope, record.projectId, record.sessionId])))
+    for (const entry of deletes) {
+      if (recordKeys.has(JSON.stringify([entry.scope, entry.projectId, entry.sessionId]))) {
+        throw new TypeError(`mirrorDeletes entry duplicates a record key: ${entry.sessionId}`)
+      }
+    }
     return storage.transaction((database) => {
       database.exec('DELETE FROM session_states; DELETE FROM session_state_tombstones; DELETE FROM session_index; DELETE FROM session_json_mirror_queue; DELETE FROM session_messages;')
       for (const record of records) {
@@ -606,6 +617,12 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
         upsertIndex(database, record)
         enqueueMirror(database, record, 'upsert', 1)
       }
+      // Orphan deletes intentionally have no session_states/session_index rows
+      // (they were dropped as stale residue); enqueue mirror deletes so the
+      // drain physically clears leftover JSON files (idempotent when absent).
+      for (const entry of deletes) {
+        enqueueMirror(database, { ...entry, stateJson: null, metadataJson: null, now: timestamp }, 'delete', 1)
+      }
       const digest = verificationDigest(digestRows(database))
       if (expectedCount !== undefined && records.length !== expectedCount) throw new Error('Session state replace count verification failed')
       if (expectedDigest !== undefined && digest !== expectedDigest) throw new Error('Session state replace digest verification failed')
@@ -613,6 +630,72 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
       beforeCommit?.(database)
       return records.length
     }, { mode: 'immediate' })
+  }
+
+  // Streaming equivalent of replaceAll for sources that cannot be materialized
+  // in memory (large JSON cutover imports). Consumes a sync or async iterable
+  // record-by-record inside one immediate transaction; only the per-record
+  // digest lines accumulate. `storage.transaction` requires a synchronous
+  // callback, so the transaction is managed manually: any error — including
+  // one thrown by the iterator mid-stream — rolls everything back, preserving
+  // replaceAll's all-or-nothing semantics. Callers must hold the session
+  // state maintenance lock (a concurrent writer hitting the open transaction
+  // fails loudly instead of interleaving).
+  async function replaceAllStream(recordIterable, { beforeCommit, storageState, expectedCount, expectedDigest, mirrorDeletes = [] } = {}) {
+    if (!recordIterable || (typeof recordIterable[Symbol.asyncIterator] !== 'function' && typeof recordIterable[Symbol.iterator] !== 'function')) {
+      throw new TypeError('records must be a sync or async iterable')
+    }
+    if (!Array.isArray(mirrorDeletes)) throw new TypeError('mirrorDeletes must be an array')
+    const timestamp = now()
+    const deletes = mirrorDeletes.map((input) => ({ ...bucket(input.scope, input.projectId), sessionId: nonEmptyString(input.sessionId, 'sessionId') }))
+    // Record keys arrive incrementally while streaming, so the mirrorDeletes
+    // conflict check runs per record against the precomputed delete keys (the
+    // mirror image of replaceAll's post-hoc set comparison).
+    const deleteKeys = new Set(deletes.map((entry) => JSON.stringify([entry.scope, entry.projectId, entry.sessionId])))
+    storage.exec('BEGIN IMMEDIATE')
+    let count = 0
+    const digestLines = []
+    try {
+      storage.exec('DELETE FROM session_states; DELETE FROM session_state_tombstones; DELETE FROM session_index; DELETE FROM session_json_mirror_queue; DELETE FROM session_messages;')
+      const insert = storage.prepare(`INSERT INTO session_states (${STATE_COLUMNS}) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`)
+      const ids = new Set()
+      for await (const input of recordIterable) {
+        let messages = input.messages
+        if (messages === undefined && input.state?.messageStorage === 'split') {
+          messages = Array.isArray(input.state.messages) ? input.state.messages : []
+        }
+        const record = normalizeRecord(messages === undefined ? input : { ...input, messages }, timestamp)
+        if (ids.has(record.sessionId)) throw new TypeError(`Duplicate session id: ${record.sessionId}`)
+        ids.add(record.sessionId)
+        if (deleteKeys.has(JSON.stringify([record.scope, record.projectId, record.sessionId]))) {
+          throw new TypeError(`mirrorDeletes entry duplicates a record key: ${record.sessionId}`)
+        }
+        insert.run(record.scope, record.projectId, record.sessionId, record.stateVersion, record.stateJson, record.stateDigest, record.metadataJson, record.metadataDigest, timestamp, timestamp)
+        if (record.messages !== undefined) writeMessages(storage, record, 'replace', timestamp)
+        upsertIndex(storage, record)
+        enqueueMirror(storage, record, 'upsert', 1)
+        // Streamed imports are non-split (messages inline, none in
+        // session_messages), so the empty messages digest matches what
+        // digestRows computes for freshly imported non-split rows.
+        digestLines.push(snapshotDigestLine(record.scope, record.projectId, record.sessionId, record.stateDigest, record.metadataDigest, ''))
+        count += 1
+      }
+      // Orphan deletes intentionally have no session_states/session_index rows;
+      // see replaceAll for the mirror-drain rationale.
+      for (const entry of deletes) {
+        enqueueMirror(storage, { ...entry, stateJson: null, metadataJson: null, now: timestamp }, 'delete', 1)
+      }
+      const digest = digestFromLines(digestLines)
+      if (expectedCount !== undefined && count !== expectedCount) throw new Error('Session state replace count verification failed')
+      if (expectedDigest !== undefined && digest !== expectedDigest) throw new Error('Session state replace digest verification failed')
+      updateStorageState(storage, storageState ? { ...storageState, stateCount: count, digest, updatedAt: timestamp } : null)
+      beforeCommit?.(storage)
+      storage.exec('COMMIT')
+      return count
+    } catch (error) {
+      try { storage.exec('ROLLBACK') } catch { /* transaction already closed */ }
+      throw error
+    }
   }
 
   function exportSnapshot() {
@@ -644,10 +727,55 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     return verificationDigest(digestRows(storage))
   }
 
+  // SQL-only integrity counts shared by both verification modes (no row
+  // bodies are loaded; joins and aggregates run inside SQLite).
+  function sqlIntegrityCounts() {
+    return {
+      missingIndex: Number(storage.prepare(`
+        SELECT COUNT(*) AS count FROM session_states s
+        LEFT JOIN session_index i ON i.scope = s.scope AND i.project_id = s.project_id AND i.session_id = s.session_id
+        WHERE i.session_id IS NULL OR i.metadata_digest <> s.metadata_digest OR i.state_version <> s.state_version
+      `).get().count),
+      orphanIndex: Number(storage.prepare(`
+        SELECT COUNT(*) AS count FROM session_index i
+        LEFT JOIN session_states s ON s.scope = i.scope AND s.project_id = i.project_id AND s.session_id = i.session_id
+        WHERE s.session_id IS NULL
+      `).get().count),
+      duplicateIds: Number(storage.prepare('SELECT COUNT(*) AS count FROM (SELECT session_id FROM session_states GROUP BY session_id HAVING COUNT(*) > 1)').get().count),
+      activeTombstones: Number(storage.prepare(`SELECT COUNT(*) AS count FROM session_state_tombstones t
+        JOIN session_states s ON s.scope = t.scope AND s.project_id = t.project_id AND s.session_id = t.session_id`).get().count),
+      staleTombstones: Number(storage.prepare(`SELECT COUNT(*) AS count FROM session_state_tombstones t
+        JOIN session_states s ON s.session_id = t.session_id AND NOT (s.scope = t.scope AND s.project_id = t.project_id)`).get().count),
+      orphanMessages: Number(storage.prepare(`
+        SELECT COUNT(*) AS count FROM session_messages m
+        LEFT JOIN session_states s ON s.scope = m.scope AND s.project_id = m.project_id AND s.session_id = m.session_id
+        WHERE s.session_id IS NULL
+      `).get().count),
+    }
+  }
+
   function verifyIntegrity({ quickCheck = false } = {}) {
+    const counts = sqlIntegrityCounts()
     if (quickCheck) {
       const result = storage.prepare('PRAGMA quick_check').all().map((row) => row.quick_check)
       if (result.length !== 1 || result[0] !== 'ok') throw new Error(`SQLite quick_check failed: ${result.join(', ')}`)
+      // Lightweight mode: SQL-level checks only. Per-row JSON.parse and digest
+      // recomputation (invalidRecords/invalidDigests/invalidIndexDigests/
+      // invalidMessageDigests/invalidMessageRepresentations) and the snapshot
+      // digest are left to a full verification (maintenance entry points).
+      return {
+        ok: counts.missingIndex === 0 && counts.orphanIndex === 0 && counts.duplicateIds === 0
+          && counts.activeTombstones === 0 && counts.staleTombstones === 0 && counts.orphanMessages === 0,
+        count: Number(storage.prepare('SELECT COUNT(*) AS count FROM session_states').get().count),
+        digest: null,
+        ...counts,
+        invalidRecords: 0,
+        invalidDigests: 0,
+        invalidIndexDigests: 0,
+        invalidMessageDigests: 0,
+        invalidMessageRepresentations: 0,
+        lightweight: true,
+      }
     }
     const rows = storage.prepare(`SELECT ${STATE_COLUMNS} FROM session_states`).all()
     let invalidRecords = 0
@@ -675,11 +803,6 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
         invalidMessageDigests += 1
       }
     }
-    const orphanMessages = Number(storage.prepare(`
-      SELECT COUNT(*) AS count FROM session_messages m
-      LEFT JOIN session_states s ON s.scope = m.scope AND s.project_id = m.project_id AND s.session_id = m.session_id
-      WHERE s.session_id IS NULL
-    `).get().count)
     const indexRows = storage.prepare('SELECT metadata_json, metadata_digest FROM session_index').all()
     let invalidIndexDigests = 0
     for (const row of indexRows) {
@@ -689,21 +812,7 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
         invalidIndexDigests += 1
       }
     }
-    const missingIndex = Number(storage.prepare(`
-      SELECT COUNT(*) AS count FROM session_states s
-      LEFT JOIN session_index i ON i.scope = s.scope AND i.project_id = s.project_id AND i.session_id = s.session_id
-      WHERE i.session_id IS NULL OR i.metadata_digest <> s.metadata_digest OR i.state_version <> s.state_version
-    `).get().count)
-    const orphanIndex = Number(storage.prepare(`
-      SELECT COUNT(*) AS count FROM session_index i
-      LEFT JOIN session_states s ON s.scope = i.scope AND s.project_id = i.project_id AND s.session_id = i.session_id
-      WHERE s.session_id IS NULL
-    `).get().count)
-    const duplicateIds = Number(storage.prepare('SELECT COUNT(*) AS count FROM (SELECT session_id FROM session_states GROUP BY session_id HAVING COUNT(*) > 1)').get().count)
-    const activeTombstones = Number(storage.prepare(`SELECT COUNT(*) AS count FROM session_state_tombstones t
-      JOIN session_states s ON s.scope = t.scope AND s.project_id = t.project_id AND s.session_id = t.session_id`).get().count)
-    const staleTombstones = Number(storage.prepare(`SELECT COUNT(*) AS count FROM session_state_tombstones t
-      JOIN session_states s ON s.session_id = t.session_id AND NOT (s.scope = t.scope AND s.project_id = t.project_id)`).get().count)
+    const { missingIndex, orphanIndex, duplicateIds, activeTombstones, staleTombstones, orphanMessages } = counts
     return {
       ok: missingIndex === 0 && orphanIndex === 0 && duplicateIds === 0 && activeTombstones === 0 && staleTombstones === 0
         && invalidRecords === 0 && invalidDigests === 0 && invalidIndexDigests === 0
@@ -735,8 +844,13 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     }, { mode: 'immediate' })
   }
 
-  function listMirrorQueue() {
-    return storage.prepare('SELECT * FROM session_json_mirror_queue ORDER BY updated_at, scope, project_id, session_id').all().map((row) => ({
+  function listMirrorQueue({ limit } = {}) {
+    if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) throw new TypeError('limit must be a positive integer')
+    // The queue rows carry full state_json payloads, so callers draining large
+    // queues page through with `limit` instead of loading every row at once.
+    const rows = storage.prepare(`SELECT * FROM session_json_mirror_queue ORDER BY updated_at, scope, project_id, session_id${limit !== undefined ? ' LIMIT ?' : ''}`)
+      .all(...(limit !== undefined ? [limit] : []))
+    return rows.map((row) => ({
       scope: row.scope,
       projectId: row.scope === 'project' ? row.project_id : null,
       sessionId: row.session_id,
@@ -748,6 +862,10 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
       lastError: row.last_error,
       updatedAt: row.updated_at,
     }))
+  }
+
+  function countMirrorQueue() {
+    return Number(storage.prepare('SELECT COUNT(*) AS count FROM session_json_mirror_queue').get().count)
   }
 
   function acknowledgeMirror(entry) {
@@ -774,12 +892,14 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     delete: deleteRecord,
     deleteBySessionId,
     replaceAll,
+    replaceAllStream,
     exportSnapshot,
     verifyIntegrity,
     count,
     digest,
     rebuildIndex,
     listMirrorQueue,
+    countMirrorQueue,
     acknowledgeMirror,
     failMirror,
   })

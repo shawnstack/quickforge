@@ -36,8 +36,13 @@ json_authoritative -> cutover_running -> sqlite_authoritative_json_pending -> au
 规则：
 
 - pending/authoritative 只走 SQLite，绝不回 JSON 权威；
-- cutover 三读（double snapshot + backup 后第三次）稳定性校验，任一不一致即中止回到 JSON；
-- 权威完整性（`quick_check` + digest + index 对账）失败时 fail closed 阻止启动；`json_authoritative` 下失败保留 JSON 路径；
+- cutover 稳定性校验改为流式 4 pass（双 summary、备份写 pass、`replaceAllStream` 导入 pass），任一不一致即中止回到 JSON（历史“三读整库物化”路径已移除）；
+- cutover 对 metadata-only 孤儿（sessions-metadata 有索引条目但无会话体文件）容忍：启动迁移持有维护锁、无并发写，孤儿视为已删除会话的索引残留，剔除后不进入 records/`replaceAll`/备份（backup 重读验证基于剔除后 records），记录进 diagnostics（`metadataOnly` 为 id 审计数组，`orphanDeletes` 携带 `{scope, projectId, sessionId}`）并随 phase 写入 `session_storage_state.diagnostic_json` 审计；孤儿经 `replaceAll({ mirrorDeletes })` 入 mirror delete 队列，drain 时物理清除 JSON 元数据残留（delete 物化幂等），防止 `initializeSessionIndex` 从 JSON 源重建时孤儿回流 `session_index` 导致下次启动完整性校验失败；restore/import 路径仍独立拒绝（400）；
+- 权威完整性（`quick_check` + digest + index 对账）失败时 fail closed 阻止启动；`json_authoritative` 下失败保留 JSON 路径；pending/authoritative 分支完整性失败时先尝试 `rebuildIndex()` 从权威 `session_states` 重建（`session_index` 是纯投影，JSON 源重建可能与之漂移，如 mirror drain 失败后孤儿回流），复验仍失败才 fail closed；
+- 大库流式安全（quickCheck 轻量校验）：`verifyIntegrity({ quickCheck: true })` 只做 `PRAGMA quick_check` + 纯 SQL COUNT/join 对账（missingIndex/orphanIndex/duplicateIds/activeTombstones/staleTombstones/orphanMessages），返回带 `lightweight: true` 标记且 `digest: null`，不做逐行 `JSON.parse`/digest 重算（invalidRecords/invalidDigests 等字段为 0）；启动 pending/authoritative 校验、cutover 提交后校验、启动 diagnostics 均用轻量模式，digest 以 `replaceAll`/`replaceAllStream` 事务内验证并持久化的值为准；完整逐行校验保留在 `quickCheck: false`（backup restore、离线导出/降级工具等维护入口）；
+- 大库流式导入：`repository.replaceAllStream(recordIterable, { expectedCount, expectedDigest, storageState, mirrorDeletes, beforeCommit })` 逐条消费 sync/async iterable（不把全部 records 物化进内存），在单个 immediate 事务内完成清表 + 逐条 INSERT/index upsert/mirror 入队 + mirrorDeletes delete 入队 + count/digest 验证（digest 逐条累加 `snapshotDigestLine`，JSON 导入恒为非 split，messages digest 槽为空，与 `digestRows` 对非 split 行等价）；任何错误（含迭代器中途抛错、digest/count 不匹配、mirrorDeletes 与 record key 冲突）整体回滚、原状保留；`storage.transaction` 回调要求同步，故事务由该方法自行 `BEGIN IMMEDIATE`/`COMMIT`/`ROLLBACK` 管理，调用方须持有 session state 维护锁；`replaceAll` 保持不变供既有调用方使用；
+- cutover 迁移路径流式化（第 2 步）：`json_authoritative` 分支不再 `buildSessionJsonSnapshot(readPhysicalSessionStateBuckets())×3` 整库物化，改为流式源 `createStreamingSessionSource(fsAdapter)` 逐桶逐会话 yield 规范化 record（逐会话规范化提取为 `normalizeSessionEntry`，与 `buildSessionJsonSnapshot` 共用同一实现，语义逐字节一致），4 个 pass 独立完整迭代源：pass1/pass2 双 summary（count/digest/diagnostics 序列化比对，不一致抛 `Session JSON source changed during cutover double read`）；pass3 备份写 pass（写入时逐条 digest 汇总复验 summary，不一致抛 `Session JSON source changed before cutover commit`；`backupFile` 已存在的恢复场景改为 summary-only 第三读，不重复写备份）；pass4 `replaceAllStream` 导入。跨 pass 仅保留小体积 summary（digest 行 + 诊断），内存上界 ≈ 最大单会话 parse/clone/stringify 峰值 + 单桶 metadata parse（+ 备份 pass 缓冲的 metadata JSON 小字符串），不再随库规模线性增长。`fsAdapter`（`listBuckets`/`listSessionFiles`/`readSessionState`/`readMetadataBucket`）可注入，生产默认 `createPhysicalSessionStateFsAdapter()` 包装 storage.mjs 物理 helper（`listProjectIds`/`listSessionDataFiles`/`sessionDataFile`/`sessionStoreFile('sessions-metadata')`/`readJsonFile`）；`options.readBuckets` 注入路径保留：每 pass 调用一次并物化一份全量快照后转等价 generator（仅限小数据测试场景，summary 结构与流式路径完全一致，每次完整 cutover 的调用次数由 3 次变为 4 次）；
+- cutover 备份流式写入与字节级校验：`fs.createWriteStream` 写 tmp 文件逐会话输出（`"sessionId": <state>` 与 metadata 同理，逗号前置、末条无尾逗号；metadata JSON 小字符串缓冲、state 永不整库缓冲），JSON 形状与旧整库写入完全一致（`{app, version, exportedAt, scope, includeSecrets, sessionState:{count,digest}, data:{sessions, sessionsMetadata}}`，可被 JSON.parse 与既有 restore 兼容）；写入中同步累计 sha256 与字节数，close 后用 `createReadStream` 分块重读复核 hash/字节数一致且首尾字节为 `{`/`}`（替代原“整读 + 再 parse + 再 snapshot”校验，不再把备份整文件载入内存），失败抛 `Session cutover backup verification failed`、清理 tmp 并回退 `json_authoritative`（diagnostic 记录错误）；
 - `server/index.mjs` 在 `recoverStaleScheduledTaskRuns` 之后、HTTP listen 之前执行 `initializeSessionStateCutover()` → `initializeSessionStateService()` → `recoverSessionStateRestorePlan()` → `drainSessionJsonMirror()`；shutdown 时 `stopSessionStateService()` 清理 mirror 定时器后关闭 SQLite。
 
 ## 3. CAS 与错误码
@@ -53,13 +58,14 @@ json_authoritative -> cutover_running -> sqlite_authoritative_json_pending -> au
 - upsert 物化：body 文件 + metadata 桶条目；delete 物化：删除 body 文件与 metadata 条目。
 - 拆分会话的 mirror 入队只存 body（`messageStorage: 'split'` 标记、不含 messages），保持 outbox 行小；drain 时 service 从 `session_messages` 重组完整 body（body + messages）再交给 mirror adapter 物化——JSON 文件始终是完整可降级形态。
 - 启动 drain + 写后 drain；`drainSessionJsonMirror()` 返回 `{ drained, pending }`，pending 大于 0 时继续调度。
+- drain 分页拉取 outbox：队列行携带完整 `state_json`，大库 cutover 可入队数千条目，drain 按 `listMirrorQueue({ limit })`（批大小 8）分页物化，不一次性载入全量队列；失败条目 `failMirror` 后 `updated_at` 后移、在后续批继续重试，整批零确认即停止本轮（防止死循环），1 秒定时重试不变；`pending` 为本轮结束后 `countMirrorQueue()`（COUNT 查询）的剩余队列长度。
 - 镜像不反向影响 SQLite 权威；删除/替换产生的“残留 JSON 文件”由后续显式 delete 物化清除，权威判断始终以 SQLite 为准。
 
 ## 5. Backup / Restore
 
 ### 导出（权威）
 
-- `GET /api/backup/export?scope=sessions`（以及 `scope=all`、safety backup）在权威模式下走 `exportSessionStateForBackup()`：维护锁内执行 `quick_check` + `verifyIntegrity()` + `exportSnapshot()`，count/digest 校验不一致即 fail closed。
+- `GET /api/backup/export?scope=sessions`（以及 `scope=all`、safety backup）在权威模式下走 `exportSessionStateForBackup()`：维护锁内执行 `quick_check` + 轻量 `verifyIntegrity({ quickCheck: true })` + `exportSnapshot()`，integrity 失败或 count 不一致即 fail closed（digest 由 `exportSnapshot` 自算返回，轻量校验不再重复比对）。
 - `exportSnapshot()` 对拆分会话同时返回 `messages` 数组与 `messagesDigest`；导出/快照值（`data.sessions`）组装为完整 body（标记 + messages），备份永不丢消息。
 - 导出包顶层 `sessionState: { phase, count, digest }`，`data.sessions`/`data.sessionsMetadata` 为权威快照；旧字段格式不变，旧客户端可继续读取。
 

@@ -7,6 +7,7 @@ import { createSessionStateRepository } from '../../server/sqlite/session-state-
 import {
   applySessionBatch,
   configureSessionStateService,
+  drainSessionJsonMirror,
   getSessionStateDiagnostics,
   initializeSessionStateService,
   readSessionStateStore,
@@ -14,6 +15,7 @@ import {
   saveSessionBody,
   saveSessionMetadata,
   setSessionStoragePhase,
+  stopSessionStateService,
   updateSessionMetadataBucket,
 } from '../../server/session-state-service.mjs'
 
@@ -161,8 +163,41 @@ describe('session state service facade', () => {
     expect(getSessionStateDiagnostics()).toMatchObject({
       phase: 'authoritative',
       authority: 'sqlite',
-      integrity: { ok: true, count: 2 },
+      integrity: { ok: true, count: 2, lightweight: true, digest: null },
       mirrorPending: 2,
     })
+  })
+
+  it('drains the mirror queue in bounded pages, skipping failed entries without looping', async () => {
+    for (const id of Array.from({ length: 10 }, (_, index) => `bulk-${index}`)) {
+      repository.save(initialRecord(id), { expectedRevision: 0 })
+    }
+    const failing = new Set(['bulk-3', 'bulk-8'])
+    const mirror = {
+      upsert: vi.fn(async (entry) => { if (failing.has(entry.sessionId)) throw new Error('mirror unavailable') }),
+      delete: vi.fn(),
+    }
+    configureSessionStateService({ repository, mirror, phase: 'authoritative' })
+    const result = await drainSessionJsonMirror()
+    expect(result).toMatchObject({ drained: 8, pending: 2 })
+    expect(repository.countMirrorQueue()).toBe(2)
+    expect(repository.listMirrorQueue().map((entry) => entry.sessionId).sort()).toEqual(['bulk-3', 'bulk-8'])
+    for (const entry of repository.listMirrorQueue()) {
+      expect(entry.attempts).toBeGreaterThanOrEqual(1)
+      expect(entry.lastError).toBe('mirror unavailable')
+    }
+    stopSessionStateService()
+  })
+
+  it('drains more than one page of healthy mirror entries to pending 0', async () => {
+    for (const id of Array.from({ length: 10 }, (_, index) => `ok-${index}`)) {
+      repository.save(initialRecord(id), { expectedRevision: 0 })
+    }
+    const mirror = { upsert: vi.fn(async () => {}), delete: vi.fn() }
+    configureSessionStateService({ repository, mirror, phase: 'authoritative' })
+    const result = await drainSessionJsonMirror()
+    expect(result).toMatchObject({ drained: 10, pending: 0 })
+    expect(repository.countMirrorQueue()).toBe(0)
+    stopSessionStateService()
   })
 })

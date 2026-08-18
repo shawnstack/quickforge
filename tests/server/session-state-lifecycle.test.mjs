@@ -114,8 +114,10 @@ describe('session state lifecycle (startup order, fail closed, shutdown)', () =>
   it('fails closed and blocks startup when authoritative integrity fails', async () => {
     repository.save(initialRecord(), { expectedRevision: 0 })
     setSessionStoragePhase('authoritative', {})
-    // Drop the F7 session_index row so integrity verification fails.
-    storage.prepare('DELETE FROM session_index').run()
+    // Startup verification is lightweight (SQL-level): corrupt with an active
+    // tombstone shadowing a live row — SQL-detectable and not healable by the
+    // index self-heal rebuild, so integrity verification fails closed.
+    storage.prepare("INSERT INTO session_state_tombstones (scope, project_id, session_id, revision, deleted_at) VALUES ('global', '', 'one', 9, '2026-01-01T00:00:00.000Z')").run()
     await expect(initializeSessionStateCutover({
       storage,
       repository,

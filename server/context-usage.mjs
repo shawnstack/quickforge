@@ -4,6 +4,17 @@ import {
   shouldCompact,
 } from '@earendil-works/pi-agent-core'
 
+// 与 pi-ai `clampMaxTokensToContext` 的 CONTEXT_SAFETY_TOKENS 对齐
+// (node_modules/@earendil-works/pi-ai/dist/api/simple-options.js)
+const OUTPUT_SAFETY_TOKENS = 4096
+
+export function clampReservedOutputTokens(requestedMaxTokens, inputTokens, contextWindow) {
+  const requested = Math.max(0, Number(requestedMaxTokens) || 4096)
+  if (contextWindow <= 0) return requested
+  const available = contextWindow - Math.max(0, inputTokens) - OUTPUT_SAFETY_TOKENS
+  return Math.min(requested, Math.max(0, available))
+}
+
 function safeJson(value) {
   try {
     return JSON.stringify(value)
@@ -50,7 +61,6 @@ function localMessagesTokens(messages) {
 
 export function estimateContextUsage({ systemPrompt, messages, tools, model, minimumProviderUsageIndex = 0 }) {
   const contextWindow = Number(model?.contextWindow) || 0
-  const reservedOutputTokens = Math.max(0, Number(model?.maxTokens) || 4096)
   const normalizedMessages = normalizeMessagesForTokenEstimate(messages)
   const coreEstimate = estimateContextTokens(normalizedMessages)
   const systemPromptTokens = textTokens(systemPrompt)
@@ -68,6 +78,7 @@ export function estimateContextUsage({ systemPrompt, messages, tools, model, min
   const inputTokens = providerBasedContextTokens > 0
     ? Math.max(estimatedInputTokens, providerBasedContextTokens)
     : estimatedInputTokens
+  const reservedOutputTokens = clampReservedOutputTokens(model?.maxTokens, inputTokens, contextWindow)
   const totalTokens = inputTokens + reservedOutputTokens
   const percent = contextWindow > 0 ? Math.round((totalTokens / contextWindow) * 1000) / 10 : 0
   const inputTokenSource = providerBasedContextTokens > 0

@@ -244,6 +244,17 @@ export type ContextUsageInfo = {
   }
 }
 
+// 与 pi-ai `clampMaxTokensToContext` 的 CONTEXT_SAFETY_TOKENS 对齐
+// (node_modules/@earendil-works/pi-ai/dist/api/simple-options.js)
+const OUTPUT_SAFETY_TOKENS = 4096
+
+export function clampReservedOutputTokens(requestedMaxTokens: number | undefined, inputTokens: number, contextWindow: number): number {
+  const requested = Math.max(0, Number(requestedMaxTokens) || 4096)
+  if (contextWindow <= 0) return requested
+  const available = contextWindow - Math.max(0, inputTokens) - OUTPUT_SAFETY_TOKENS
+  return Math.min(requested, Math.max(0, available))
+}
+
 export function getContextUsage(
   systemPrompt: string,
   messages: MessageWithUsage[],
@@ -264,7 +275,7 @@ export function getContextUsage(
   const inputTokens = hasProviderInputTokens ? Number(providerInputTokens) : estimatedInputTokens
   const usedTokens = inputTokens
   const inputTokenSource = hasProviderInputTokens ? 'provider' : 'estimated'
-  const reservedOutputTokens = Math.max(0, Number(maxTokens) || 4096)
+  const reservedOutputTokens = clampReservedOutputTokens(maxTokens, usedTokens, contextWindow)
   const totalTokens = usedTokens + reservedOutputTokens
   const percent = contextWindow > 0 ? Math.round((totalTokens / contextWindow) * 1000) / 10 : 0
   const colorPercent = Math.min(100, Math.max(0, percent))

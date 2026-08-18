@@ -209,6 +209,52 @@ describe('tailStartForRecentTurns', () => {
     expect(usage.knownInputTokens).toBe(9_500)
   })
 
+  it('clamps reserved output tokens when model maxTokens exceeds the remaining context window', () => {
+    // 退化场景：maxTokens(120_000) ≥ contextWindow(100_000)，真实请求会被 pi-ai
+    // clampMaxTokensToContext 收缩；统计口径同样按 min(maxTokens, 窗口-输入-4096) 收缩。
+    // inputTokens 取 provider usage 的 totalTokens（31_000），reserved = 100_000-31_000-4_096。
+    const messages = [
+      textMessage('user', 'question'),
+      {
+        ...textMessage('assistant', 'answer'),
+        stopReason: 'stop',
+        usage: { input: 30_000, output: 1_000, cacheRead: 0, cacheWrite: 0, totalTokens: 31_000 },
+      },
+    ]
+    const session = {
+      model: { contextWindow: 100_000, maxTokens: 120_000 },
+      agent: { state: { systemPrompt: '', tools: [], messages } },
+    }
+
+    const usage = estimateSessionContextUsage(session, messages)
+
+    expect(usage.reservedOutputTokens).toBe(64_904)
+    expect(usage.percent).toBeLessThan(100)
+    expect(usage.totalTokens).toBe(95_904)
+  })
+
+  it('drops reserved output tokens to zero when the input already fills the context window', () => {
+    // 溢出场景：输入(97_000) + 4_096 安全余量 ≥ 窗口(100_000)，可用输出空间为 0，
+    // reserved 收缩为 0，percent 保持在 100 以下而非恒 ≥100%。
+    const messages = [
+      textMessage('user', 'question'),
+      {
+        ...textMessage('assistant', 'answer'),
+        stopReason: 'stop',
+        usage: { input: 96_000, output: 1_000, cacheRead: 0, cacheWrite: 0, totalTokens: 97_000 },
+      },
+    ]
+    const session = {
+      model: { contextWindow: 100_000, maxTokens: 8_000 },
+      agent: { state: { systemPrompt: '', tools: [], messages } },
+    }
+
+    const usage = estimateSessionContextUsage(session, messages)
+
+    expect(usage.reservedOutputTokens).toBe(0)
+    expect(usage.percent).toBeLessThan(100)
+  })
+
   it('allows the next compaction check as soon as one new message exists', () => {
     const session = {
       contextCompaction: {

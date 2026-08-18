@@ -225,7 +225,6 @@ export type ContextUsageInfo = {
   estimatedInputTokens: number
   knownInputTokens?: number
   inputTokenSource: 'provider' | 'estimated' | 'mixed'
-  reservedOutputTokens: number
   percent: number
   color: string
   isCompacted?: boolean
@@ -236,7 +235,6 @@ export type ContextUsageInfo = {
     systemPromptTokens?: number
     messagesTokens?: number
     toolsTokens?: number
-    reservedOutputTokens?: number
     providerUsageTokens?: number
     trailingTokens?: number
     lastUsageIndex?: number | null
@@ -244,23 +242,11 @@ export type ContextUsageInfo = {
   }
 }
 
-// 与 pi-ai `clampMaxTokensToContext` 的 CONTEXT_SAFETY_TOKENS 对齐
-// (node_modules/@earendil-works/pi-ai/dist/api/simple-options.js)
-const OUTPUT_SAFETY_TOKENS = 4096
-
-export function clampReservedOutputTokens(requestedMaxTokens: number | undefined, inputTokens: number, contextWindow: number): number {
-  const requested = Math.max(0, Number(requestedMaxTokens) || 4096)
-  if (contextWindow <= 0) return requested
-  const available = contextWindow - Math.max(0, inputTokens) - OUTPUT_SAFETY_TOKENS
-  return Math.min(requested, Math.max(0, available))
-}
-
 export function getContextUsage(
   systemPrompt: string,
   messages: MessageWithUsage[],
   contextWindow: number,
   tools: unknown = [],
-  maxTokens?: number,
 ): ContextUsageInfo {
   const compactedAt = latestCompactTimestamp(messages)
   const usage = messages.reduce((latestUsage, message) => {
@@ -275,12 +261,14 @@ export function getContextUsage(
   const inputTokens = hasProviderInputTokens ? Number(providerInputTokens) : estimatedInputTokens
   const usedTokens = inputTokens
   const inputTokenSource = hasProviderInputTokens ? 'provider' : 'estimated'
-  const reservedOutputTokens = clampReservedOutputTokens(maxTokens, usedTokens, contextWindow)
-  const totalTokens = usedTokens + reservedOutputTokens
-  const percent = contextWindow > 0 ? Math.round((totalTokens / contextWindow) * 1000) / 10 : 0
+  // 上下文占用按纯输入口径统计：percent = inputTokens / contextWindow。
+  // 真实请求的 max_tokens 由 pi-ai `clampMaxTokensToContext` 按窗口收缩，
+  // 统计侧不再预留输出 token；totalTokens 字段仅为兼容保留，恒等于 inputTokens。
+  const totalTokens = inputTokens
+  const percent = contextWindow > 0 ? Math.round((inputTokens / contextWindow) * 1000) / 10 : 0
   const colorPercent = Math.min(100, Math.max(0, percent))
   const hue = Math.round(142 - (142 * colorPercent / 100))
-  return { contextWindow, usedTokens, totalTokens, inputTokens, estimatedInputTokens, knownInputTokens: hasProviderInputTokens ? Number(providerInputTokens) : 0, inputTokenSource, reservedOutputTokens, percent, color: `hsl(${hue} 72% 45%)` }
+  return { contextWindow, usedTokens, totalTokens, inputTokens, estimatedInputTokens, knownInputTokens: hasProviderInputTokens ? Number(providerInputTokens) : 0, inputTokenSource, percent, color: `hsl(${hue} 72% 45%)` }
 }
 
 export function formatTokens(value: number) {

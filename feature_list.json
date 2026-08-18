@@ -1,6 +1,16 @@
 {
   "features": [
     {
+      "id": "context-usage-input-only-metrics",
+      "name": "上下文统计纯输入口径 + 删除预留输出展示",
+      "description": "上下文占用统计从「输入 + 预留输出」混合口径改为纯输入口径：percent = inputTokens / contextWindow，自动压缩阈值同口径判据；真实请求的 max_tokens 本就由 pi-ai clampMaxTokensToContext 按窗口收缩，统计侧不再模拟预留输出，UI 彻底删除“预留输出”行。改动：server/context-usage.mjs 删除 OUTPUT_SAFETY_TOKENS 常量与 clampReservedOutputTokens 导出，estimateContextUsage 的 percent 改按 inputTokens 计算、返回对象删除 reservedOutputTokens（顶层与 breakdown）、totalTokens 对齐为 inputTokens（兼容保留字段），shouldCompactContextByPercent 判据改用 inputTokens；server/auto-compaction.mjs 空会话分支同步删除 reserved 字段；agent-manager.mjs 经 grep 确认仅透传 usage 对象无直接引用，零改动。前端：chat-utils.ts 删除 TS 版 clamp 与类型字段、getContextUsage 去掉 maxTokens 参数（tsconfig noUnusedParameters 强制）改纯输入口径；context-usage.ts 类型/normalize/tooltip/popover 删除 reserved 与冗余“总量”行（popover 保留“输入 / 上下文”行并展示 input / window），inline label 改用 inputTokens；getMaxTokens 管线（ContextUsageOptions/ChatPanelHost）一并移除；server-agent.ts 类型删 reserved 字段；i18n 删除 contextUsageReservedOutputLabel/contextUsageReservedOutput/contextUsageTotal 中英文 key。测试：删除 tests/frontend/context-usage-clamp.test.ts（clamp 行为已不存在，边界用例迁移），context-usage.test.ts 迁入 3 项纯输入用例（provider 输入驱动 percent 且 totalTokens==inputTokens、近满窗 percent<100、本地估算回退+零窗口 percent=0）并更新 serverUsage fixture；auto-compaction.test.mjs 两场景改断言新口径（31_000 输入→percent 31、97_000→percent 97、percent 12.5→8.5）。验证：针对性 vitest 2 文件 22 项通过；npm run test 全量 205 文件 1670 项 100%；npm run lint 0 error（仅既有 identity warning）；npm run build 通过（仅既有 KaTeX/大 chunk warning）。wiki server/README.md 两处公式描述同步为纯输入口径。",
+      "status": "done",
+      "dependencies": [
+        "context-usage-reserved-output-clamp"
+      ],
+      "updated": "2026-08-18"
+    },
+    {
       "id": "session-cutover-streaming-migration",
       "name": "Session cutover 全链路流式化（1.6GB 大库迁移不再 OOM）",
       "description": "孤儿容忍修复后实测仍在迁移第一遍全量快照构建即 OOM（readPhysicalSessionStateBuckets 全量加载 2507 JSON/1.6GB，V8 对象放大 3-6 倍），且发现 6 个全量进内存放大点（三遍全量快照+双份同时存活、备份整体 stringify ~3GB 巨型字符串+整读再 parse、replaceAll 全 record 持有、verifyIntegrity quickCheck 名不副实每次启动全表逐行 parse、listMirrorQueue 全量加载）。修复分两步：① repository/service 层——replaceAllStream 流式导入（单事务逐条消费 async iterable、逐条 digest line 累加、expectedCount/Digest 事务内校验、失败整体回滚）；verifyIntegrity quickCheck:true 改纯 SQL 校验（PRAGMA+COUNT/join，lightweight:true、digest:null，完整校验语义不变）并适配全部调用点（digest 交叉比对改用持久化 digest）；listMirrorQueue({limit}) 分页 + countMirrorQueue()，drainSessionJsonMirror 批 8 循环 + 整批零确认防死循环，getSessionStateDiagnostics 轻量化。② cutover 层——提取 normalizeSessionEntry 单源逐会话规范化（buildSessionJsonSnapshot 行为逐字节不变为 parity 锚点）；createStreamingSessionSource(fsAdapter) 生产路径逐桶逐文件流式（峰值内存=最大单会话+单桶 metadata）；迁移主流程改 4 pass（双 summary 稳定性→流式备份写（v1 形状不变、逐会话写出、写侧 sha256+字节计数+分块重读复核+首尾字节校验替代整体回读再 parse）→replaceAllStream 第 4 遍导入含 mirrorDeletes）；readBuckets 注入路径保留（每 pass 调一次）；storage.mjs 新增 createPhysicalSessionStateFsAdapter。测试：repository 5 新用例（流式/回滚/一致性/quickCheck 轻量 vs 完整/分页）、service 2 新用例（分批排空/部分失败无死循环）、cutover 5 新用例（parity/流式 e2e/pass2 不稳定/备份损坏自检/孤儿流式）+ 既有用例全保持。验证：node --check、目标 ESLint 0/0、npm run test 全量 205 文件 1667 项 100% 通过、npm run lint 通过、npm run build 通过（仅既有 KaTeX/大 chunk warning）。",

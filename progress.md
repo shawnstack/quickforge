@@ -2,10 +2,28 @@
 
 ## Current State
 
-- Feature: 上下文统计预留输出按真实请求 clamp 收缩（context-usage-reserved-output-clamp）
-- Status: **done**（服务端+前端 reservedOutputTokens 均按 min(maxTokens, 窗口−输入−4096) 收缩；针对性 vitest 23 项 + 回归 17 项、ESLint 0/0、tsc 通过）
+- Feature: 上下文统计纯输入口径 + 删除预留输出展示（context-usage-input-only-metrics）
+- Status: **done**（服务端+前端+测试+文档完成；针对性 vitest 2 文件 22 项、全量 test 205 文件 1670 项 100%、lint 0 error、build 通过；已提交，工作区其他遗留改动未提交）
 - Blockers: 无
-- Next step: 由主 Agent 决定是否随下个 patch 发布（发布前需完整 test/lint/build）
+- Next step: 人工 UI 验证（模型环 hover popover 不再出现“预留输出”行，“输入 / 上下文”行显示 input / window；百分比按纯输入口径下降）；随下个 patch 发布前完整跑 test/lint/build
+
+## 上下文统计纯输入口径 — 完成
+
+- 背景：上一 feature（context-usage-reserved-output-clamp）曾让 reservedOutputTokens 模拟 pi-ai 真实请求的 clamp 收缩，percent = (input + reserved) / window。经确认真实请求链路 pi-ai `clampMaxTokensToContext` 每次都会按窗口收缩 max_tokens，统计侧模拟预留输出既不增加安全性又让口径复杂，本次改为纯输入口径并删除 UI“预留输出”展示。
+- 改动：
+  - `server/context-usage.mjs`：删除 `OUTPUT_SAFETY_TOKENS` 常量与 `clampReservedOutputTokens` 导出；`estimateContextUsage` 的 percent 改按 `inputTokens / contextWindow`（保留 ×1000/10 round），返回对象删除 `reservedOutputTokens`（顶层与 breakdown），`totalTokens` 对齐为 `inputTokens`（兼容保留字段，注释说明）；`shouldCompactContextByPercent` 判据由 totalTokens 改为 inputTokens 并更新语义注释。
+  - `server/auto-compaction.mjs`：空会话分支删除顶层与 breakdown 的 `reservedOutputTokens: 0`；压缩策略本身未动。
+  - `server/agent-manager.mjs`：grep 确认 L495/L2511/L2852/L2953 均为 `getSessionContextUsage()` 结果透传，无 removed 字段直接引用，零改动。
+  - `src/components/chat/chat-utils.ts`：删除 TS 版 `clampReservedOutputTokens`/`OUTPUT_SAFETY_TOKENS`；`ContextUsageInfo` 与 breakdown 删 reserved 字段；`getContextUsage` 去掉 `maxTokens` 参数（tsconfig `noUnusedParameters` 强制），percent 纯输入、totalTokens 对齐 inputTokens。
+  - `src/components/chat/context-usage.ts`：类型与 `normalizeServerContextUsage` 删 reserved（totalTokens 恒等 inputTokens）；tooltip title 删“预留输出”行、`contextUsageUsed` 的 used 改 inputTokens；popover 删“预留输出”行与冗余独立“总量”行（取舍：保留带标签的“输入 / 上下文”行，值扩为 `input / window` 以保留窗口信息）；inline label 改 `inputTokens / window`；`getMaxTokens` 选项与调用管线移除。
+  - `src/components/chat/ChatPanelHost.tsx`：删除 `getMaxTokens: () => agent.state.model?.maxTokens` 传参。
+  - `src/lib/server-agent.ts`：`ServerAgentContextUsage`/`Breakdown` 类型删 reserved 字段（totalTokens 保留）。
+  - `src/lib/i18n.ts`：删除 `contextUsageReservedOutputLabel`、`contextUsageReservedOutput` 及随之失去消费者的 `contextUsageTotal`（popover 总量行已删）共 3 key × 中英双语。
+- 测试：删除 `tests/frontend/context-usage-clamp.test.ts`（vitest include 为 `tests/**/*.test.{mjs,ts}` glob，无文件级引用，删除安全）；`tests/frontend/context-usage.test.ts` 迁入 3 项纯输入用例（provider 输入驱动 percent=30 且 totalTokens==inputTokens 且无 reserved 键、近满窗 97%<100、本地估算回退+零窗口 percent=0）并更新 3 处 serverUsage fixture（去 reserved/total、percent 25→20）；`tests/server/auto-compaction.test.mjs` 两 clamp 场景改写为纯输入断言（31_000→percent 31、97_000→percent 97）+ provider 恢复场景 percent 12.5→8.5。
+- 验证：`npx vitest run tests/server/auto-compaction.test.mjs tests/frontend/context-usage.test.ts` 22/22；`node --test tests/server/auto-compaction.test.mjs` 不可用为既有情况（文件首行 import 'vitest'，本就只能 vitest 运行）；`npm run test` 205 文件 1670 项 100%；`npm run lint` 0 error（仅既有 cloud/identity.mjs warning）；`npm run build` 通过（仅既有 KaTeX 字体/大 chunk warning）。
+- 残留检查：git grep `reservedOutputTokens`/`ReservedOutput`/`clampReservedOutputTokens`/`OUTPUT_SAFETY_TOKENS`/`contextUsageTotal`——源码与测试无残留（测试中仅存 `'reservedOutputTokens' in usage === false` 刻意断言）；剩余匹配仅为 feature_list.json/progress.md 历史记录条目（如实记录上一 feature 的过往改动，保留不改写）。
+- 文档：docs/wiki/server/README.md 两处（L102 agent-manager 上下文统计、L355 auto-compaction.mjs 模块说明）公式改写为 `percent = inputTokens / contextWindow`，删除预留输出公式与字段列举中的 reservedOutputTokens；src/components wiki 仅列函数名无口径描述，无需同步。
+- 未新增依赖；未创建 commit/tag/push；未手工修改 `dist/`、`package-dist/`、`package-offline/`（dist 为 npm run build 验证产物）。
 
 ## 上下文统计预留输出 clamp — 完成
 

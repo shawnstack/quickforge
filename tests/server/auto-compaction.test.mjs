@@ -169,7 +169,7 @@ describe('tailStartForRecentTurns', () => {
     expect(usage.inputTokenSource).toBe('provider')
     expect(usage.knownInputTokens).toBe(8_500)
     expect(usage.breakdown.providerUsageTokens).toBe(8_500)
-    expect(usage.percent).toBe(12.5)
+    expect(usage.percent).toBe(8.5)
   })
 
   it('restores provider usage from a replayed assistant after rollback', () => {
@@ -209,10 +209,10 @@ describe('tailStartForRecentTurns', () => {
     expect(usage.knownInputTokens).toBe(9_500)
   })
 
-  it('clamps reserved output tokens when model maxTokens exceeds the remaining context window', () => {
-    // 退化场景：maxTokens(120_000) ≥ contextWindow(100_000)，真实请求会被 pi-ai
-    // clampMaxTokensToContext 收缩；统计口径同样按 min(maxTokens, 窗口-输入-4096) 收缩。
-    // inputTokens 取 provider usage 的 totalTokens（31_000），reserved = 100_000-31_000-4_096。
+  it('computes percent from input tokens only when model maxTokens exceeds the context window', () => {
+    // 退化场景：maxTokens(120_000) ≥ contextWindow(100_000)。纯输入口径下占用只看
+    // inputTokens（provider usage 的 totalTokens 口径，31_000），
+    // 不再叠加预留输出 token；totalTokens 恒等于 inputTokens。
     const messages = [
       textMessage('user', 'question'),
       {
@@ -228,14 +228,16 @@ describe('tailStartForRecentTurns', () => {
 
     const usage = estimateSessionContextUsage(session, messages)
 
-    expect(usage.reservedOutputTokens).toBe(64_904)
-    expect(usage.percent).toBeLessThan(100)
-    expect(usage.totalTokens).toBe(95_904)
+    expect(usage.inputTokens).toBe(31_000)
+    expect(usage.totalTokens).toBe(31_000)
+    expect(usage.percent).toBe(31)
+    expect('reservedOutputTokens' in usage).toBe(false)
+    expect('reservedOutputTokens' in usage.breakdown).toBe(false)
   })
 
-  it('drops reserved output tokens to zero when the input already fills the context window', () => {
-    // 溢出场景：输入(97_000) + 4_096 安全余量 ≥ 窗口(100_000)，可用输出空间为 0，
-    // reserved 收缩为 0，percent 保持在 100 以下而非恒 ≥100%。
+  it('keeps percent below 100 when the input nearly fills the context window', () => {
+    // 溢出场景：输入(97_000) 接近窗口(100_000)，纯输入口径 percent = 97，
+    // 不再因预留输出把百分比推到恒 ≥100%。
     const messages = [
       textMessage('user', 'question'),
       {
@@ -251,7 +253,8 @@ describe('tailStartForRecentTurns', () => {
 
     const usage = estimateSessionContextUsage(session, messages)
 
-    expect(usage.reservedOutputTokens).toBe(0)
+    expect(usage.inputTokens).toBe(97_000)
+    expect(usage.percent).toBe(97)
     expect(usage.percent).toBeLessThan(100)
   })
 

@@ -280,7 +280,6 @@ export type ServerAgentContextUsageBreakdown = {
   systemPromptTokens?: number
   messagesTokens?: number
   toolsTokens?: number
-  reservedOutputTokens?: number
   providerUsageTokens?: number
   trailingTokens?: number
   lastUsageIndex?: number | null
@@ -294,7 +293,6 @@ export type ServerAgentContextUsage = {
   knownInputTokens?: number
   providerContextTokens?: number
   inputTokenSource?: 'provider' | 'estimated' | 'mixed'
-  reservedOutputTokens: number
   totalTokens: number
   percent: number
   isCompacted?: boolean

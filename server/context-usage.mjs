@@ -4,17 +4,6 @@ import {
   shouldCompact,
 } from '@earendil-works/pi-agent-core'
 
-// 与 pi-ai `clampMaxTokensToContext` 的 CONTEXT_SAFETY_TOKENS 对齐
-// (node_modules/@earendil-works/pi-ai/dist/api/simple-options.js)
-const OUTPUT_SAFETY_TOKENS = 4096
-
-export function clampReservedOutputTokens(requestedMaxTokens, inputTokens, contextWindow) {
-  const requested = Math.max(0, Number(requestedMaxTokens) || 4096)
-  if (contextWindow <= 0) return requested
-  const available = contextWindow - Math.max(0, inputTokens) - OUTPUT_SAFETY_TOKENS
-  return Math.min(requested, Math.max(0, available))
-}
-
 function safeJson(value) {
   try {
     return JSON.stringify(value)
@@ -78,9 +67,11 @@ export function estimateContextUsage({ systemPrompt, messages, tools, model, min
   const inputTokens = providerBasedContextTokens > 0
     ? Math.max(estimatedInputTokens, providerBasedContextTokens)
     : estimatedInputTokens
-  const reservedOutputTokens = clampReservedOutputTokens(model?.maxTokens, inputTokens, contextWindow)
-  const totalTokens = inputTokens + reservedOutputTokens
-  const percent = contextWindow > 0 ? Math.round((totalTokens / contextWindow) * 1000) / 10 : 0
+  // 上下文占用按纯输入口径统计：percent = inputTokens / contextWindow。
+  // 真实请求的 max_tokens 由 pi-ai `clampMaxTokensToContext` 按窗口收缩，
+  // 统计侧不再预留输出 token；totalTokens 字段仅为兼容保留，恒等于 inputTokens。
+  const totalTokens = inputTokens
+  const percent = contextWindow > 0 ? Math.round((inputTokens / contextWindow) * 1000) / 10 : 0
   const inputTokenSource = providerBasedContextTokens > 0
     ? providerBasedContextTokens >= estimatedInputTokens ? 'provider' : 'mixed'
     : 'estimated'
@@ -91,7 +82,6 @@ export function estimateContextUsage({ systemPrompt, messages, tools, model, min
     knownInputTokens: providerBasedContextTokens,
     providerContextTokens: providerBasedContextTokens,
     inputTokenSource,
-    reservedOutputTokens,
     totalTokens,
     contextWindow,
     percent,
@@ -99,7 +89,6 @@ export function estimateContextUsage({ systemPrompt, messages, tools, model, min
       systemPromptTokens,
       messagesTokens,
       toolsTokens,
-      reservedOutputTokens,
       providerUsageTokens,
       trailingTokens: providerUsageTokens > 0
         ? Math.max(0, Number(coreEstimate.trailingTokens) || 0)
@@ -112,13 +101,15 @@ export function estimateContextUsage({ systemPrompt, messages, tools, model, min
 
 export function shouldCompactContextByPercent(usage, thresholdPercent) {
   const contextWindow = Number(usage?.contextWindow) || 0
-  const totalTokens = Math.max(0, Number(usage?.totalTokens) || 0)
+  // 阈值按纯输入占用判断：inputTokens / contextWindow ≥ thresholdPercent 即触发，
+  // 不包含预留输出 token（真实请求的 max_tokens 由 pi-ai 按窗口收缩）。
+  const inputTokens = Math.max(0, Number(usage?.inputTokens) || 0)
   const threshold = Math.min(100, Math.max(0, Number(thresholdPercent) || 0))
   if (!contextWindow) return false
 
   const thresholdTokens = Math.ceil(contextWindow * threshold / 100)
   const reserveTokens = Math.min(contextWindow, Math.max(0, contextWindow - thresholdTokens + 1))
-  return shouldCompact(totalTokens, contextWindow, {
+  return shouldCompact(inputTokens, contextWindow, {
     enabled: true,
     reserveTokens,
     keepRecentTokens: 0,

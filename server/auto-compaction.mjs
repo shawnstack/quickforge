@@ -295,7 +295,6 @@ export function estimateSessionContextUsage(session, messages = session?.agent?.
       estimatedInputTokens: 0,
       knownInputTokens: 0,
       inputTokenSource: 'estimated',
-      reservedOutputTokens: 0,
       totalTokens: 0,
       contextWindow,
       percent: 0,
@@ -306,7 +305,6 @@ export function estimateSessionContextUsage(session, messages = session?.agent?.
         systemPromptTokens: 0,
         messagesTokens: 0,
         toolsTokens: 0,
-        reservedOutputTokens: 0,
       },
     }
   }

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createContextUsageIndicator, isSameContextUsageDisplayInfo, type ContextUsageDisplayInfo } from '../../src/components/chat/context-usage'
-import type { MessageWithUsage } from '../../src/components/chat/chat-utils'
+import { getContextUsage, type MessageWithUsage } from '../../src/components/chat/chat-utils'
 
 vi.mock('@/lib/i18n', () => ({
   t: (key: string) => key,
@@ -68,11 +68,9 @@ describe('context usage indicator', () => {
       effectiveMessages: getEffectiveMessages,
       serverUsage: () => ({
         contextWindow: 100_000,
-        totalTokens: 25_000,
         inputTokens: 20_000,
         estimatedInputTokens: 20_000,
-        reservedOutputTokens: 5_000,
-        percent: 25,
+        percent: 20,
         color: 'hsl(100 72% 45%)',
       }),
       onDisplayChange,
@@ -82,7 +80,7 @@ describe('context usage indicator', () => {
 
     expect(getEffectiveMessages).not.toHaveBeenCalled()
     expect(onDisplayChange).toHaveBeenCalledWith(expect.objectContaining({
-      context: expect.objectContaining({ percent: 25 }),
+      context: expect.objectContaining({ percent: 20 }),
     }))
   })
 
@@ -110,11 +108,9 @@ describe('context usage indicator', () => {
       }),
       serverUsage: () => ({
         contextWindow: 100_000,
-        totalTokens: 25_000,
         inputTokens: 20_000,
         estimatedInputTokens: 20_000,
-        reservedOutputTokens: 5_000,
-        percent: 25,
+        percent: 20,
       }),
       isCompacted: () => true,
       onDisplayChange,
@@ -131,11 +127,9 @@ describe('context usage indicator', () => {
     const indicator = createIndicator({
       serverUsage: () => ({
         contextWindow: 100_000,
-        totalTokens: 25_000,
         inputTokens: 20_000,
         estimatedInputTokens: 20_000,
-        reservedOutputTokens: 5_000,
-        percent: 25,
+        percent: 20,
       }),
       onDisplayChange,
     })
@@ -154,5 +148,50 @@ describe('context usage indicator', () => {
     expect(isSameContextUsageDisplayInfo(info, { ...info, context: { ...info.context! } })).toBe(true)
     expect(isSameContextUsageDisplayInfo(info, { ...info, gitBranch: 'feature' })).toBe(false)
     expect(isSameContextUsageDisplayInfo(info, { ...info, context: { ...info.context!, percent: 26 } })).toBe(false)
+  })
+})
+
+describe('getContextUsage pure input metrics', () => {
+  function assistantMessageWithUsage(usage: { input?: number; output?: number; totalTokens?: number }): MessageWithUsage {
+    return { role: 'assistant', content: [{ type: 'text', text: 'answer' }], usage }
+  }
+
+  it('computes percent from provider input tokens only and aligns totalTokens with inputTokens', () => {
+    // 纯输入口径：占用 = inputTokens / contextWindow，不再叠加预留输出 token。
+    const messages: MessageWithUsage[] = [
+      { role: 'user', content: [{ type: 'text', text: 'question' }] },
+      assistantMessageWithUsage({ input: 30_000, output: 1_000, totalTokens: 31_000 }),
+    ]
+
+    const usage = getContextUsage('', messages, 100_000, [])
+
+    expect(usage.inputTokens).toBe(30_000)
+    expect(usage.totalTokens).toBe(30_000)
+    expect(usage.percent).toBe(30)
+    expect('reservedOutputTokens' in usage).toBe(false)
+  })
+
+  it('keeps percent below 100 when the input nearly fills the context window', () => {
+    const messages: MessageWithUsage[] = [
+      { role: 'user', content: [{ type: 'text', text: 'question' }] },
+      assistantMessageWithUsage({ input: 97_000, output: 500, totalTokens: 97_500 }),
+    ]
+
+    const usage = getContextUsage('', messages, 100_000, [])
+
+    expect(usage.percent).toBe(97)
+  })
+
+  it('falls back to the local estimate and returns zero percent without a positive window', () => {
+    const messages: MessageWithUsage[] = [
+      { role: 'user', content: [{ type: 'text', text: 'question '.repeat(2000) }] },
+    ]
+
+    const estimated = getContextUsage('system prompt', messages, 100_000, [])
+    expect(estimated.inputTokenSource).toBe('estimated')
+    expect(estimated.percent).toBeGreaterThan(0)
+    expect(estimated.totalTokens).toBe(estimated.inputTokens)
+
+    expect(getContextUsage('', messages, 0, []).percent).toBe(0)
   })
 })

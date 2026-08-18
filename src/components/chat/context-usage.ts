@@ -19,7 +19,6 @@ type ServerContextUsageBreakdown = {
   systemPromptTokens?: number
   messagesTokens?: number
   toolsTokens?: number
-  reservedOutputTokens?: number
   providerUsageTokens?: number
   trailingTokens?: number
   lastUsageIndex?: number | null
@@ -35,7 +34,6 @@ type ServerContextUsageInfo = {
   knownInputTokens?: number
   providerContextTokens?: number
   inputTokenSource?: 'provider' | 'estimated' | 'mixed'
-  reservedOutputTokens?: number
   percent?: number
   color?: string
   isCompacted?: boolean
@@ -58,7 +56,6 @@ type ContextUsageOptions = {
   getMessages: () => MessageWithUsage[]
   getContextWindow: () => number
   getTools?: () => unknown
-  getMaxTokens?: () => number | undefined
   getEffectiveMessages?: () => MessageWithUsage[]
   getServerContextUsage?: () => ServerContextUsageInfo | null | undefined
   getIsCompacted?: () => boolean
@@ -99,8 +96,8 @@ function normalizeServerContextUsage(usage: ServerContextUsageInfo, contextWindo
   const inputTokens = Number(usage.inputTokens) || 0
   const knownInputTokens = Math.max(0, Number(usage.knownInputTokens ?? usage.providerContextTokens) || 0)
   const estimatedInputTokens = Math.max(0, Number(usage.estimatedInputTokens) || 0)
-  const reservedOutputTokens = Math.max(0, Number(usage.reservedOutputTokens) || 0)
-  const totalTokens = Math.max(0, Number(usage.totalTokens) || inputTokens + reservedOutputTokens)
+  // 纯输入口径：totalTokens 恒等于 inputTokens（字段仅为兼容保留）。
+  const totalTokens = inputTokens
   const percent = Number.isFinite(Number(usage.percent)) ? Number(usage.percent) : 0
   const inputTokenSource = usage.inputTokenSource ?? (knownInputTokens > 0 ? 'provider' : 'estimated')
   return {
@@ -111,7 +108,6 @@ function normalizeServerContextUsage(usage: ServerContextUsageInfo, contextWindo
     estimatedInputTokens,
     knownInputTokens,
     inputTokenSource,
-    reservedOutputTokens,
     percent,
     color: usage.color || usageColor(percent),
     isCompacted: usage.isCompacted,
@@ -150,7 +146,7 @@ function buildContextUsageTitle({ usage, contextWindow, serverCalculated, compac
   const lines = [
     t('contextUsageUsed', {
       percent: usage.percent,
-      used: formatTokens(usage.totalTokens),
+      used: formatTokens(usage.inputTokens),
       limit: formatTokens(contextWindow),
     }),
     t('contextUsageInput', { tokens: formatTokens(usage.inputTokens), source: inputLabel }),
@@ -170,7 +166,6 @@ function buildContextUsageTitle({ usage, contextWindow, serverCalculated, compac
       )
     }
   }
-  lines.push(t('contextUsageReservedOutput', { tokens: formatTokens(usage.reservedOutputTokens) }))
   if (serverCalculated) lines.push(t('contextUsageServerCalculated'))
   lines.push(compacted ? t('contextUsageScopeCompacted') : t('contextUsageScopeFull'))
   if (compacted && usage.originalMessageCount !== undefined && usage.effectiveMessageCount !== undefined) {
@@ -278,19 +273,13 @@ function createContextUsageTipController() {
     percent.textContent = `${usage.percent}%`
     header.append(heading, percent)
 
-    const total = document.createElement('div')
-    total.className = 'quickforge-context-usage-tip-total'
-    total.textContent = t('contextUsageTotal', {
-      used: formatTokens(usage.totalTokens),
-      limit: formatTokens(contextWindow),
-    })
-
+    // 纯输入口径：占用 = inputTokens / contextWindow，不再展示预留输出，
+    // 也不再单独展示与输入数值重复的“总量”行。
     const coreRows = document.createElement('div')
     coreRows.className = 'quickforge-context-usage-tip-section'
-    addRow(coreRows, t('contextUsageInputLabel'), formatTokens(usage.inputTokens))
-    addRow(coreRows, t('contextUsageReservedOutputLabel'), formatTokens(usage.reservedOutputTokens))
+    addRow(coreRows, t('contextUsageInputLabel'), `${formatTokens(usage.inputTokens)} / ${formatTokens(contextWindow)}`)
 
-    popover.append(header, total, coreRows)
+    popover.append(header, coreRows)
 
     const breakdown = usage.breakdown
     const breakdownRows = [
@@ -428,7 +417,7 @@ const gitBranchIcon = renderToStaticMarkup(createElement(GitBranch, {
   style: { flex: '0 0 auto' },
 }))
 
-export function createContextUsageIndicator({ panel, getSystemPrompt, getMessages, getContextWindow, getTools, getMaxTokens, getEffectiveMessages, getServerContextUsage, getIsCompacted, getGitBranch, onGitBranchClick, renderInline = true, renderModelRing = false, onDisplayChange }: ContextUsageOptions) {
+export function createContextUsageIndicator({ panel, getSystemPrompt, getMessages, getContextWindow, getTools, getEffectiveMessages, getServerContextUsage, getIsCompacted, getGitBranch, onGitBranchClick, renderInline = true, renderModelRing = false, onDisplayChange }: ContextUsageOptions) {
   const tipController = createContextUsageTipController()
   let previousDisplayInfo: ContextUsageDisplayInfo | undefined
 
@@ -457,7 +446,7 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
       return cachedEstimateUsage
     }
     cachedEstimateSignature = signature
-    cachedEstimateUsage = getContextUsage(getSystemPrompt(), effectiveMessages, contextWindow, getTools?.() ?? [], getMaxTokens?.())
+    cachedEstimateUsage = getContextUsage(getSystemPrompt(), effectiveMessages, contextWindow, getTools?.() ?? [])
     return cachedEstimateUsage
   }
 
@@ -546,7 +535,6 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
           inputTokens: 0,
           estimatedInputTokens: 0,
           inputTokenSource: 'estimated' as const,
-          reservedOutputTokens: 0,
           percent: 0,
           color: 'hsl(142 72% 45%)',
         }
@@ -563,7 +551,7 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
     displayInfo.context = {
       percent: usage.percent,
       color: usage.color,
-      label: `${usage.percent}% · ${formatTokens(usage.totalTokens)} / ${formatTokens(displayContextWindow)} tokens`,
+      label: `${usage.percent}% · ${formatTokens(usage.inputTokens)} / ${formatTokens(displayContextWindow)} tokens`,
       title,
     }
     notifyDisplayChange(displayInfo)

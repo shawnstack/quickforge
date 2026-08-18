@@ -622,7 +622,6 @@ export function ChatPanelHost({
       getEffectiveMessages: () => effectiveContextMessages(agent),
       getContextWindow: () => agent.state.model?.contextWindow ?? 0,
       getTools: () => agent.state.tools,
-      getMaxTokens: () => agent.state.model?.maxTokens,
       getServerContextUsage: () => (agent as AgentWithContextCompaction).state.contextUsage ?? null,
       getIsCompacted: () => Boolean((agent as AgentWithContextCompaction).state.contextCompaction?.summaryMessage),
       getGitBranch: () => propsRef.current.gitBranch,

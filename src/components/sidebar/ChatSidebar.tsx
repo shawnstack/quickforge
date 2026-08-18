@@ -1389,7 +1389,7 @@ export const ChatSidebar = memo(function ChatSidebar({
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 flex flex-col px-3 pb-3">
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden px-3 pb-3">
             <div className={sectionHeaderClass}>
               <button type="button" className={sectionToggleClass} onClick={onToggleConversationsCollapsed} aria-expanded={!conversationsCollapsed}>
                 <span className="truncate">{t('conversations')}</span>
@@ -1408,7 +1408,7 @@ export const ChatSidebar = memo(function ChatSidebar({
 
             <div className={cn(collapsePanelClass, 'flex-1 min-h-0', conversationsCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
               <div className={collapseInnerClass}>
-                <div className="h-full overflow-y-auto">
+                <div className="h-full overflow-y-auto pb-2">
                   {globalSessions.length === 0 && !globalHasMore ? (
                     <div className="px-3 py-3 text-xs text-muted-foreground/55">{t('noSavedConversations')}</div>
                   ) : (

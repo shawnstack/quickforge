@@ -47,7 +47,7 @@
     {
       "id": "sidebar-sections-footer-squeeze-fix",
       "name": "侧栏展开项目挤压底部设置区修复",
-      "description": "ChatSidebar（桌面端）置顶会话区与项目区使用 md:shrink-0，其 max-h 百分比（28%+55%）与顶部固定区、底部设置区高度互不感知：展开多个项目后总需求超过视口，唯一可收缩的对话区先缩到 0，剩余溢出被 aside 的 overflow-hidden 从底部裁切，底部设置区被推出可视区。修复：移除两处 md:shrink-0（981/1009 行，保留 max-h、min-h-0、内部 overflow-y-auto 与折叠面板结构），空间不足时置顶/项目区按 flex 收缩并转为内部滚动，section header 因 min-height:auto 保持完整，底部设置区（shrink-0）始终可见；移动端行为不变（md: 断点以下本就不收缩锁定）。验证：改动文件 ESLint 0 问题、npx tsc --noEmit -p tsconfig.app.json 通过；无 sidebar 相关测试文件（UI 视觉验证待人工确认）。",
+      "description": "ChatSidebar（桌面端）置顶会话区与项目区使用 md:shrink-0，其 max-h 百分比（28%+55%）与顶部固定区、底部设置区高度互不感知：展开多个项目后总需求超过视口，唯一可收缩的对话区先缩到 0，剩余溢出被 aside 的 overflow-hidden 从底部裁切，底部设置区被推出可视区。修复：移除两处 md:shrink-0（981/1009 行，保留 max-h、min-h-0、内部 overflow-y-auto 与折叠面板结构），空间不足时置顶/项目区按 flex 收缩并转为内部滚动，section header 因 min-height:auto 保持完整，底部设置区（shrink-0）始终可见；移动端行为不变（md: 断点以下本就不收缩锁定）。视觉回归补充修复（人工确认发现）：移除 shrink-0 后对话区（flex-1，basis 0%）在收缩分配中权重≈0 不承担收缩，列表滚动到底时最后一项距分割线仅 12px，hover 背景与半透明 border-t 视觉融合成'对话遮住设置上方分割线'，且对话区容器无 overflow-hidden 存在溢出覆盖 footer 可能；1392 行补 overflow-hidden、1411 行滚动容器加 pb-2。验证：改动文件 ESLint 0 问题、npx tsc --noEmit -p tsconfig.app.json 通过；无 sidebar 相关测试文件（UI 视觉验证待人工确认）。",
       "status": "done",
       "dependencies": [],
       "updated": "2026-08-18"
@@ -373,6 +373,14 @@
         "subagent-run-live-updates"
       ],
       "updated": "2026-08-15"
+    },
+    {
+      "id": "model-config-instant-refresh",
+      "name": "模型配置（Max Tokens 等）变更后立即生效",
+      "description": "修复修改自定义模型配置（custom-providers，含 maxTokens/contextWindow 等）后活跃会话沿用旧快照、前端 UI 不更新的问题。根因：model 对象在会话创建时被快照到 session.model / agent.state.model / 持久化存储三处，无主动失效机制；服务端虽在下一条消息 runPrompt 时延迟刷新，但前端 ServerAgent.state.model 快照在配置变更后永不更新（SSE 只推消息事件），且 OpenCode/无 modelRef/streaming 路径完全覆盖不到。方案：server/agent-manager.mjs 新增导出 refreshAllSessionModels()——遍历内存活跃会话（跳过 OpenCode harness 与 streaming 中会话，后者由下次 runPrompt 的 refreshSessionModelBinding 刷新），重解析 model 绑定后 JSON diff，仅实际变化才 emitSessionEvent(state)；server/routes/storage.mjs 在 custom-providers 的 PUT key / DELETE key / DELETE 整 store 三条写入路径后触发（对齐 auto-archive 先例，try/catch 记日志不影响保存响应）；server/routes/backup.mjs 备份恢复 custom-providers 后同样触发；前端复用 ServerAgent 既有 case 'state' 自动更新 state.model（无需新事件类型），useAgentManager 两个 subscribe 回调新增 state 事件分支——当前活跃 agent 时同步 activeModelRef 并按 JSON diff bump chatPanelRevision 触发 Lit 组件重渲染。模型被删除导致解析失败只记日志，保留最后绑定，下一条消息复现原报错。测试：新增 tests/server/model-config-refresh.test.mjs 4 项（端到端路由 PUT 刷新+state 事件、无变化不广播、streaming/OpenCode 跳过、DELETE 后路由 200 容错）；storage-config-split 8 项回归通过。",
+      "status": "done",
+      "dependencies": [],
+      "updated": "2026-08-18"
     }
   ]
 }

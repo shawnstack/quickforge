@@ -25,6 +25,27 @@
 - 文档：docs/wiki/server/README.md 两处（L102 agent-manager 上下文统计、L355 auto-compaction.mjs 模块说明）公式改写为 `percent = inputTokens / contextWindow`，删除预留输出公式与字段列举中的 reservedOutputTokens；src/components wiki 仅列函数名无口径描述，无需同步。
 - 未新增依赖；未创建 commit/tag/push；未手工修改 `dist/`、`package-dist/`、`package-offline/`（dist 为 npm run build 验证产物）。
 
+## 模型配置即时生效 — 完成
+
+- 根因：model 对象（含 maxTokens）在会话创建时被快照到 `session.model` / `agent.state.model` / 持久化存储三处，配置变更无主动失效机制；服务端仅在下一条消息 `runPrompt → refreshSessionModelBinding`（agent-manager.mjs:2553-2582）延迟刷新，但前端 `ServerAgent.state.model` 快照永不更新（无事件推送），UI 上"看起来没生效"；OpenCode harness、streaming 中会话、subagent inherit 等路径完全覆盖不到。
+- 改动：
+  - `server/agent-manager.mjs`：新增导出 `refreshAllSessionModels()`（紧跟 `refreshAllSessionTools`，模式对齐）——遍历 `agentSessions`，跳过 OpenCode harness 与 streaming 中会话（后者由下次 runPrompt 刷新），`refreshSessionModelBinding` 重解析后 JSON diff，仅实际变化才 `emitSessionEvent(state)`；单会话失败（如模型被删，`model_not_configured`）仅 `logger.error` 记日志不中断其他会话。
+  - `server/routes/storage.mjs`：custom-providers 的 PUT key / DELETE key / DELETE 整 store 三条写入路径后触发刷新（位置对齐 auto-archive 先例，try/catch + logger.error，失败不影响保存成功响应）。
+  - `server/routes/backup.mjs`：`restoreValidatedBackup` 中 `writeStore('custom-providers')` 后同样触发（静态 import，已确认无循环依赖）。
+  - `src/hooks/useAgentManager.ts`：新建/恢复两个 subscribe 回调各新增 `state` 事件分支——`model` 存在且为当前活跃 agent（`agentRef.current === nextAgent/restoredAgent`）时同步 `activeModelRef.current`，JSON diff 有变化才 `setChatPanelRevision(+1)`；`ServerAgent` 本身未改（case 'state' 已自动更新 `state.model`，SSE 白名单已含 state）。
+- 测试：新增 `tests/server/model-config-refresh.test.mjs` 4 项——①端到端：storage 路由 PUT custom-providers 改 maxTokens 1000→2000 → `session.model`/`agent.state.model` 均为 2000，`agentEvents` 恰好收到 1 条带新 model 的 state 事件；②无变化不广播；③streaming 与 OpenCode harness 会话跳过；④DELETE 模型 key 后路由仍 200、会话保留最后绑定（容错）。模式：MockAgent + 4 个 vi.mock + `QUICKFORGE_DATA_DIR` 临时目录（参照 agent-manager.channel-source.test.mjs）+ storage-config-split 的 mockReq/mockRes。
+- 验证：`npx vitest run tests/server/model-config-refresh.test.mjs tests/server/storage-config-split.test.mjs` 12/12 通过；`npx vitest run tests/server/backup.test.mjs tests/server/backup.authoritative-session.test.mjs` 30/30 通过；`npx eslint`（5 个改动文件）0 问题；`npx tsc --noEmit -p tsconfig.app.json` 0 错误。
+- 文档：docs/wiki/server/README.md agent-manager 职责新增「模型配置即时刷新」条目。
+- 未覆盖：前端 useAgentManager 感知层无自动化测试（现有测试体系无该 hook 先例，tsc/eslint 已覆盖）；DELETE 整 store 与备份恢复路径由共用函数保证、未独立集成测试。
+- 未新增依赖；未创建 commit；未触碰 `dist/`、`package-dist/`、`package-offline/`。
+
+## Subagent 运行详情 Tab 字体跟随「消息字体大小」配置 — 完成
+
+- 根因：主对话消息正文经 decorateMessages 添加 `quickforge-assistant-message` 类后命中 `.quickforge-assistant-message markdown-block { font-size: var(--quickforge-message-font-size) }`；subagent 运行详情 Tab（`SubagentRunDetailBodyElement` → `renderSubagentRunBody`，src/lib/local-tools.ts）复用 `decorateSubagentProcessBlocks` 只做 process folding、不加该类，卡片/trace 全部是 rem 类或继承 root font-size，因此只跟随「界面字体大小」，与主对话的「消息字体大小」独立配置脱钩；两值被调成不同值即出现字号不一致。
+- 改动：`src/index.css` 在既有主对话消息字体规则（2352-2361）后追加两条——`subagent-run-detail-body markdown-block { font-size: var(--quickforge-message-font-size, 14px); overflow-wrap: anywhere; }` 及 `subagent-run-detail-body markdown-block :where(p, li) { line-height: var(--quickforge-message-line-height, 1.625); }`（与主对话同口径）。卡片元信息（text-sm/text-xs 等 rem 类）保持「界面字体大小」不变，与主对话元信息逻辑一致。
+- 验证：`npm run build` 通过（仅既有 KaTeX 字体/大 chunk warning）；产物 `dist/assets/index-*.css` 已确认包含 `subagent-run-detail-body markdown-block{font-size:var(--quickforge-message-font-size,14px)...}`。
+- 未新增依赖；未创建 commit/tag/push；未手工修改 `dist/`（构建产物）。
+
 ## 上下文统计预留输出 clamp — 完成
 
 - 根因：`estimateContextUsage`（server/context-usage.mjs）与 `getContextUsage`（src/components/chat/chat-utils.ts）的 `reservedOutputTokens = max(0, maxTokens || 4096)` 无上限封顶；真实请求链路中 pi-ai `clampMaxTokensToContext`（simple-options.js，CONTEXT_SAFETY_TOKENS=4096）每次请求都会将实际 maxTokens 收缩为 min(配置值, contextWindow − estimatedInput − 4096)，下限 1。统计用未收缩配置值导致 maxTokens ≥ contextWindow 时（内置目录 14% 模型、自定义连接可任意填写）percent 恒 ≥100%、自动压缩判定恒触发。
@@ -57,6 +78,7 @@
 - 根因：`src/components/sidebar/ChatSidebar.tsx` 桌面端置顶会话区（981 行）与项目区（1009 行）带 `md:shrink-0` + `max-h-[28%]`/`max-h-[55%]`，与顶部固定区（~240px）和底部设置区高度互不感知；展开多个项目后总高度需求超过视口，唯一可收缩的对话区（`flex-1 min-h-0`）先缩到 0，剩余溢出被 aside 的 `overflow-hidden` 从底部裁切，设置区被推出可视区。
 - 修复（方案 A，2 行）：移除两处 `md:shrink-0`；保留 `max-h`、`min-h-0`、内部 `overflow-y-auto`。空间不足时置顶/项目区按 flex 收缩并转为内部滚动（section header 因 `min-height:auto` 保持完整），底部设置区（`shrink-0`）始终可见；`md:` 断点以下移动端行为不变。
 - 验证：`npx eslint src/components/sidebar/ChatSidebar.tsx` 0 error/0 warning；`npx tsc --noEmit -p tsconfig.app.json` 通过；仓库无 sidebar 相关测试文件。
+- 视觉回归补充修复：移除 `md:shrink-0` 后对话区（`flex-1`，flex-basis 0%）在 flex 收缩分配中权重≈0、基本不承担收缩，空间不足时置顶/项目区先被压缩；对话列表滚动到底时最后一项距底部设置区分割线仅 `pb-3`（12px），不透明 hover 背景（`--quickforge-sidebar-hover-bg`）与 34% 半透明 `border-t` 视觉融合，表现为"对话遮住设置上方分割线"；且对话区容器（1392 行）无 `overflow-hidden`，内部 grid-rows-[1fr] + `h-full` 高度链在压缩边界存在内容溢出覆盖 footer 的可能。补充修复两处 class：1392 行对话区容器补 `overflow-hidden`；1411 行滚动容器加 `pb-2`（滚动到底保留间隙）。验证：ESLint 0/0、tsc 通过。
 - 未新增依赖；未创建 commit/tag/push；未触碰 `dist/`、`package-dist/`、`package-offline/`。
 
 ## qf-agent 首次设备授权自动批准 — 完成

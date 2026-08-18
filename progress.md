@@ -2,13 +2,15 @@
 
 ## Current State
 
-- Feature: fix-sidebar-pagination-stall（修复删除会话后侧栏历史列表分页死循环）
-- Status: done — 方案 B（零进展终止）已落地并通过验证
+- Feature: fix-sidebar-archive-flicker（修复删除会话后侧栏项目列表闪烁）
+- Status: done — 归档改乐观移除已落地并通过验证
 - Blockers: 无
 - Next step: 无待办 feature；发布 patch 版本前完整运行 `npm run test`、`npm run lint`、`npm run build`
 
 ## Notes
 
+- 归档闪烁根因：`archiveSession` 归档后调 `refreshSessions({ broadcast: true })`，其“先置 loading、page-0 整体替换”的全量重置模式导致侧栏项目列表 loading 占位闪现、LoadMoreSentinel 卸载重挂、超 20 条时先缩回 20 条再逐页补回。修复：归档成功后本地乐观移除（`useSessionPagination.removeSession` + `removeSessionFromPage`），跨 tab 广播保留（其他 tab 收到广播仍走各自全量刷新，属既有行为）。
+- 遗留（本次范围外，择机处理）：`ChatSidebar.confirmDeleteSession` 的 `deletingSessionId` 成功后不复位、`deleteAnimationTimeoutRef` 为共享单值 ref——360ms 内连续确认删除两个会话时第二次 `clearTimeout` 会取消第一个的归档调用，该行可能闪回；置顶区删空后整块条件卸载（无高度过渡）；设置页“已归档对话”永久删除仅 `notifySessionsChanged()` 广播，本 tab 列表不刷新。
 - 分页死循环根因：删除/归档会话改变服务端列表 total 与排序窗口后，前端 offset 分页（offset = items.length）+ uniqueSessions 去重合并可能整页全重复，items.length 不增长 → hasMore 恒 true → sentinel（enabled 翻转重建 IntersectionObserver）反复触发 loadMoreGlobal 无限请求+渲染（UI 一直加载、内存暴涨）。修复：四个分页 loader 在 offset>0 且本页有数据但合并后零进展时，将 total 收敛为 items.length 终止循环；refreshSessions（offset 0）自动恢复。
 - 已知取舍：若服务端确实还有更多数据但某页全为已加载项（去重误伤），hasMore 会提前置 false，需下次 refreshSessions 恢复；属方案 B 设计内行为。
 - 服务器端遗留问题（本次范围外，择机处理）：`DELETE /api/storage/sessions/key/:id`（server/routes/storage.mjs:365）只删持久化，不销毁 agentSessions 内存中的会话；内存中的 agent 后续 persistSession 会把会话写回存储（“复活”）并刷新 lastModified，加剧排序窗口漂移。另外 loadMoreGlobal/loadMoreProject 无 loading 守卫（方案 A 未实施，零进展收敛已可终止循环）。

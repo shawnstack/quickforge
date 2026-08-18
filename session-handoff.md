@@ -2,10 +2,10 @@
 
 ## 当前状态
 
-- Feature `fix-sidebar-pagination-stall`（修复删除会话后历史列表分页死循环）已完成：方案 B（零进展终止），`src/hooks/useSessionPagination.ts` 四个分页 loader 在 offset>0 且合并零进展时将 total 收敛为 items.length；`tests/frontend/session-pagination-bootstrap.test.ts` 新增 global/project 两个收敛用例。
-- 验证：目标测试 5/5 通过、改动文件 eslint 干净、`npx tsc -b` 通过（未跑全套 test/lint/build，非发布场景）。
-- feature_list.json / progress.md / session-handoff.md 已同步；docs/wiki 无需更新（内部缺陷修复，不改变模块职责/公共入口/发布流程）。
-- 工作区有未提交改动（上述 2 个代码文件 + 3 个状态文件），按项目规则不做 git commit。
+- Feature `fix-sidebar-archive-flicker`（修复删除会话后侧栏项目列表闪烁）已完成：`archiveSession` 归档写库后不再全量 `refreshSessions`，改为本地乐观移除（`useSessionPagination.removeSession` / `removeSessionFromPage`）+ `notifySessionsChanged()` 跨 tab 广播；涉及 `src/lib/session-list-updates.ts`、`src/hooks/useSessionPagination.ts`、`src/hooks/useSessionActions.ts`、`src/App.tsx`。
+- 验证：`tests/frontend/session-pagination-updates.test.ts` 4/4 通过、改动文件 eslint 干净、`npx tsc -b` 通过（未跑全套 test/lint/build，非发布场景）。
+- feature_list.json / progress.md / session-handoff.md 已同步；`docs/wiki/src/hooks/README.md` 会话列表行已补充归档乐观移除说明。
+- 工作区有未提交改动（上述 4 个代码文件 + 1 个测试 + wiki + 状态文件），按项目规则不做 git commit。
 
 ## 最近提交
 
@@ -22,4 +22,5 @@
   1. 服务端删除会话不销毁 agentSessions 内存 → 会话“复活”+lastModified 漂移（server/routes/storage.mjs:365 / server/agent-manager.mjs）。
   2. loadMoreGlobal/loadMoreProject 缺 loading 守卫（方案 A）。
   3. `server/cloud/identity.mjs:92` 既有 no-useless-assignment lint warning。
+  4. ChatSidebar `deletingSessionId` 成功后不复位 + 共享删除定时器（连续快速删除两个会话时第一个可能闪回）；置顶区删空后整块条件卸载；设置页永久删除不刷新本 tab 列表。
 - 发布 patch 版本：说「发布一个小版本」，按 `docs/architecture/patch-release-runbook.zh-CN.md` 执行（发布前完整跑 test/lint/build）。

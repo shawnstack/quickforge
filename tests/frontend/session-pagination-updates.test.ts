@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { QuickForgeSessionMetadata } from '../../src/lib/types'
-import { patchSessionTitleInPage, upsertSessionPage } from '../../src/lib/session-list-updates'
+import { patchSessionTitleInPage, removeSessionFromPage, upsertSessionPage } from '../../src/lib/session-list-updates'
 
 const baseSession: QuickForgeSessionMetadata = {
   id: 'session-1',
@@ -39,5 +39,29 @@ describe('session pagination local updates', () => {
     expect(patched.items.map((session) => session.id)).toEqual(['session-1', 'session-2'])
     expect(patched.items[0]).toEqual({ ...baseSession, title: 'AI title' })
     expect(patched.items[1]).toBe(page.items[1])
+  })
+
+  it('removes an existing session and decrements the total', () => {
+    const page = {
+      items: [baseSession, { ...baseSession, id: 'session-2', title: 'Second' }],
+      total: 2,
+      loading: false,
+    }
+
+    const removed = removeSessionFromPage(page, 'session-1')
+
+    expect(removed.items.map((session) => session.id)).toEqual(['session-2'])
+    expect(removed.total).toBe(1)
+    expect(removed.items[0]).toBe(page.items[1])
+  })
+
+  it('returns the same page reference when removing a missing session', () => {
+    const page = {
+      items: [baseSession],
+      total: 1,
+      loading: false,
+    }
+
+    expect(removeSessionFromPage(page, 'missing-session')).toBe(page)
   })
 })

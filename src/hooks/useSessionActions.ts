@@ -13,6 +13,8 @@ type UseSessionActionsOptions = {
   loadAgentSession: AgentManager['loadSession']
   setCurrentTitleRef: AgentManager['setCurrentTitleRef']
   refreshSessions: (opts?: { broadcast?: boolean }) => Promise<void>
+  removeSession: (sessionId: string) => void
+  notifySessionsChanged: () => void
   updateSessionTitle: (sessionId: string, title: string) => void
   closeWorkspacePage: () => void
   startNewGlobalChat: () => Promise<void>
@@ -25,6 +27,8 @@ export function useSessionActions({
   loadAgentSession,
   setCurrentTitleRef,
   refreshSessions,
+  removeSession,
+  notifySessionsChanged,
   updateSessionTitle,
   closeWorkspacePage,
   startNewGlobalChat,
@@ -83,12 +87,13 @@ export function useSessionActions({
     const nextSession: QuickForgeSessionData = { ...session, archivedAt }
     const nextMetadata: QuickForgeSessionMetadata = { ...metadata, archivedAt }
     await storage.sessions.save(nextSession, nextMetadata)
-    await refreshSessions({ broadcast: true })
+    removeSession(sessionId)
+    notifySessionsChanged()
     if (currentSessionIdRef.current === sessionId) {
       closeWorkspacePage()
       await startNewGlobalChat()
     }
-  }, [currentSessionIdRef, refreshSessions, closeWorkspacePage, startNewGlobalChat, storageRef, taskMapRef])
+  }, [currentSessionIdRef, removeSession, notifySessionsChanged, closeWorkspacePage, startNewGlobalChat, storageRef, taskMapRef])
 
   const startNewGlobalSession = useCallback(() => {
     closeWorkspacePage()

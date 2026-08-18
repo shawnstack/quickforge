@@ -3,6 +3,7 @@ import type { HttpStorageBackend } from '@/lib/http-storage-backend'
 import type { QuickForgeSessionMetadata, SidebarSessionSortMode, SidebarSessionViewMode } from '@/lib/types'
 import {
   patchSessionTitleInPage,
+  removeSessionFromPage,
   sortSessions,
   uniqueSessions,
   upsertSessionPage,
@@ -260,6 +261,21 @@ export function useSessionPagination({
     })
   }, [])
 
+  const removeSession = useCallback((sessionId: string) => {
+    setPinnedPage((page) => removeSessionFromPage(page, sessionId))
+    setGlobalPage((page) => removeSessionFromPage(page, sessionId))
+    setProjectTimelinePage((page) => removeSessionFromPage(page, sessionId))
+    setProjectPages((pages) => {
+      let changed = false
+      const next = Object.fromEntries(Object.entries(pages).map(([projectId, page]) => {
+        const removed = removeSessionFromPage(page, sessionId)
+        if (removed !== page) changed = true
+        return [projectId, removed]
+      }))
+      return changed ? next : pages
+    })
+  }, [])
+
   const sessionsForProject = useCallback((projectId: string) => {
     return projectPages[projectId]?.items ?? []
   }, [projectPages])
@@ -323,6 +339,7 @@ export function useSessionPagination({
     refreshSessions,
     upsertSessionMetadata,
     updateSessionTitle,
+    removeSession,
     loadMorePinned,
     loadMoreGlobal,
     loadMoreProject,

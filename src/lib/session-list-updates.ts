@@ -52,3 +52,12 @@ export function patchSessionTitleInPage(page: SessionPage, sessionId: string, ti
     items: page.items.map((session) => session.id === sessionId ? { ...session, title } : session),
   }
 }
+
+export function removeSessionFromPage(page: SessionPage, sessionId: string): SessionPage {
+  if (!page.items.some((session) => session.id === sessionId)) return page
+  return {
+    ...page,
+    items: page.items.filter((session) => session.id !== sessionId),
+    total: Math.max(0, page.total - 1),
+  }
+}

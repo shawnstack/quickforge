@@ -9,6 +9,19 @@
         "src/hooks/useSessionPagination.ts",
         "tests/frontend/session-pagination-bootstrap.test.ts"
       ]
+    },
+    {
+      "id": "fix-sidebar-archive-flicker",
+      "name": "修复删除会话后侧栏项目列表闪烁",
+      "status": "done",
+      "approach": "归档成功后本地乐观移除（removeSessionFromPage/removeSession）+ 跨 tab 广播，替代 refreshSessions 全量重置刷新",
+      "files": [
+        "src/lib/session-list-updates.ts",
+        "src/hooks/useSessionPagination.ts",
+        "src/hooks/useSessionActions.ts",
+        "src/App.tsx",
+        "tests/frontend/session-pagination-updates.test.ts"
+      ]
     }
   ]
 }

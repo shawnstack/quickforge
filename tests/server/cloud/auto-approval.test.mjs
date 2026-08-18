@@ -14,6 +14,7 @@ import {
   AGENT_AUTO_APPROVAL_TTL_MS,
   armAgentAutoApproval,
   beginAgentAutoApproval,
+  beginAgentAutoApprovalWithDesktopSession,
   clearAgentAutoApproval,
   getAgentAutoApprovalState,
   resetAgentAutoApprovalForTests,
@@ -157,5 +158,78 @@ describe('agent auto-approval intent', () => {
     const result = await beginAgentAutoApproval('ABCD-EFGH', { now: NOW })
     expect(result.status).toBe('failed')
     expect(result.error).toMatch(/not connected/i)
+  })
+})
+
+describe('auto arm from a valid desktop session', () => {
+  it('auto-arms and consumes the first device authorization when no intent exists', async () => {
+    const authorize = vi.fn(async () => ({ ok: true }))
+    const hasDesktopSession = vi.fn(async () => true)
+    const result = await beginAgentAutoApprovalWithDesktopSession('ABCD-EFGH', { now: NOW, authorize, hasDesktopSession })
+    expect(result).toEqual({ status: 'consumed' })
+    expect(authorize).toHaveBeenCalledTimes(1)
+    expect(authorize).toHaveBeenCalledWith('ABCD-EFGH')
+    expect(hasDesktopSession).toHaveBeenCalledTimes(1)
+    expect(getAgentAutoApprovalState({ now: NOW })).toEqual({ status: 'consumed' })
+  })
+
+  it('re-arms automatically after an intent expired', async () => {
+    armAgentAutoApproval({ now: NOW, ttlMs: 1_000 })
+    const authorize = vi.fn(async () => ({ ok: true }))
+    const result = await beginAgentAutoApprovalWithDesktopSession('NEW-CODE', {
+      now: NOW + 2_000,
+      authorize,
+      hasDesktopSession: async () => true,
+    })
+    expect(result).toEqual({ status: 'consumed' })
+    expect(authorize).toHaveBeenCalledWith('NEW-CODE')
+  })
+
+  it('does not auto-arm without a valid desktop session', async () => {
+    const authorize = vi.fn(async () => ({ ok: true }))
+    const result = await beginAgentAutoApprovalWithDesktopSession('ABCD-EFGH', { now: NOW, authorize, hasDesktopSession: async () => false })
+    expect(result).toEqual({ status: 'none' })
+    expect(authorize).not.toHaveBeenCalled()
+    expect(getAgentAutoApprovalState({ now: NOW })).toEqual({ status: 'none' })
+  })
+
+  it('never auto-arms under the manual policy used by remote-initiated lifecycles', async () => {
+    const authorize = vi.fn(async () => ({ ok: true }))
+    const hasDesktopSession = vi.fn(async () => true)
+    const result = await beginAgentAutoApprovalWithDesktopSession('ABCD-EFGH', { now: NOW, policy: 'manual', authorize, hasDesktopSession })
+    expect(result).toEqual({ status: 'none' })
+    expect(hasDesktopSession).not.toHaveBeenCalled()
+    expect(authorize).not.toHaveBeenCalled()
+  })
+
+  it('keeps an existing armed intent untouched without re-arming', async () => {
+    armAgentAutoApproval({ now: NOW })
+    const authorize = vi.fn(async () => ({ ok: true }))
+    const hasDesktopSession = vi.fn(async () => true)
+    const result = await beginAgentAutoApprovalWithDesktopSession('ABCD-EFGH', { now: NOW, authorize, hasDesktopSession })
+    expect(result).toEqual({ status: 'consumed' })
+    expect(hasDesktopSession).not.toHaveBeenCalled()
+    expect(authorize).toHaveBeenCalledTimes(1)
+  })
+
+  it('checks the desktop identity through the cloud runtime public status', async () => {
+    const identity = { status: vi.fn(async () => ({ mode: 'account', hasSession: true })) }
+    mocks.getCloudRuntime.mockResolvedValue({ identity })
+    const authorize = vi.fn(async () => ({ ok: true }))
+    expect(await beginAgentAutoApprovalWithDesktopSession('ABCD-EFGH', { now: NOW, authorize })).toEqual({ status: 'consumed' })
+    expect(identity.status).toHaveBeenCalledTimes(1)
+    expect(authorize).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips auto-arm when the runtime has no identity or the session is bound to another service', async () => {
+    mocks.getCloudRuntime.mockResolvedValue({})
+    const authorize = vi.fn(async () => ({ ok: true }))
+    expect(await beginAgentAutoApprovalWithDesktopSession('ABCD-EFGH', { now: NOW, authorize })).toEqual({ status: 'none' })
+    expect(authorize).not.toHaveBeenCalled()
+
+    const mismatched = { status: vi.fn(async () => ({ mode: 'account', hasSession: true, sessionServiceMismatch: true })) }
+    mocks.getCloudRuntime.mockResolvedValue({ identity: mismatched })
+    expect(await beginAgentAutoApprovalWithDesktopSession('ABCD-EFGH', { now: NOW, authorize })).toEqual({ status: 'none' })
+    expect(authorize).not.toHaveBeenCalled()
   })
 })

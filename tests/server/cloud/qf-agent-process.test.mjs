@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   existsSync: vi.fn(),
   spawn: vi.fn(),
   getNetworkProxyConfig: vi.fn(),
+  getCloudRuntime: vi.fn(),
 }))
 
 vi.mock('node:child_process', async () => {
@@ -25,6 +26,10 @@ vi.mock('../../../server/network-proxy.mjs', () => ({
   getNetworkProxyConfig: mocks.getNetworkProxyConfig,
 }))
 
+vi.mock('../../../server/cloud/runtime.mjs', () => ({
+  getCloudRuntime: mocks.getCloudRuntime,
+}))
+
 import {
   buildQfAgentProxyEnv,
   extractUserCodeFromVerification,
@@ -36,6 +41,7 @@ import {
   stopQfAgent,
   validateQfAgentVersion,
 } from '../../../server/cloud/qf-agent-process.mjs'
+import { resetAgentAutoApprovalForTests } from '../../../server/cloud/auto-approval.mjs'
 
 let tempDir
 let nextPid = 41_000
@@ -101,6 +107,8 @@ beforeEach(async () => {
   mocks.spawn.mockReset()
   mocks.getNetworkProxyConfig.mockReset()
   mocks.getNetworkProxyConfig.mockResolvedValue({ config: { mode: 'direct', proxyUrl: '' } })
+  mocks.getCloudRuntime.mockReset()
+  resetAgentAutoApprovalForTests()
 })
 
 afterEach(async () => {
@@ -112,6 +120,7 @@ afterEach(async () => {
   delete process.env.NO_PROXY
   delete process.env.http_proxy
   delete process.env.no_proxy
+  resetAgentAutoApprovalForTests()
   await stopQfAgent()
   await fs.rm(tempDir, { recursive: true, force: true })
   vi.restoreAllMocks()
@@ -528,5 +537,63 @@ describe('qf-agent identity invalidation recovery', () => {
     expect(getQfAgentStatus().status).toBe('error')
     await vi.advanceTimersByTimeAsync(10_000)
     expect(runtimeChildren).toHaveLength(6)
+  })
+})
+
+describe('qf-agent first-authorization auto approval', () => {
+  function useDesktopCloudSession() {
+    const authorizeRemoteAgent = vi.fn(async () => ({ ok: true }))
+    const withAccessToken = vi.fn(async (operation) => operation('desktop-secret-token'))
+    const identity = {
+      status: vi.fn(async () => ({ mode: 'account', hasSession: true })),
+      withAccessToken,
+    }
+    mocks.getCloudRuntime.mockResolvedValue({ identity, client: { authorizeRemoteAgent } })
+    return { authorizeRemoteAgent }
+  }
+
+  function authorizingLine(code) {
+    return `${JSON.stringify({ msg: '等待设备授权', verificationUriComplete: `https://cloud.example/device?user_code=${code}` })}\n`
+  }
+
+  it('auto-arms and approves the first device authorization when a desktop session exists', async () => {
+    const { runtimeChildren } = useSuccessfulAgentSpawn()
+    const { authorizeRemoteAgent } = useDesktopCloudSession()
+    await startQfAgent(startOptions())
+
+    runtimeChildren[0].stderr.write(authorizingLine('FIRST-CODE'))
+    await vi.waitFor(() => expect(getQfAgentStatus().autoApproval).toEqual({ status: 'consumed' }))
+    expect(authorizeRemoteAgent).toHaveBeenCalledWith('desktop-secret-token', 'FIRST-CODE', undefined)
+
+    const serialized = JSON.stringify(getQfAgentStatus())
+    // userCode 不作为独立字段暴露；desktop token 永不出现在公开状态
+    // （verificationUriComplete 是既有的人工授权链接，含自动填充码，属预期保留）
+    expect(serialized).not.toContain('"userCode"')
+    expect(serialized).not.toContain('desktop-secret-token')
+  })
+
+  it('does not auto-arm a lifecycle started by an authenticated remote client', async () => {
+    const { runtimeChildren } = useSuccessfulAgentSpawn()
+    const { authorizeRemoteAgent } = useDesktopCloudSession()
+    await startQfAgent({ ...startOptions(), autoApprovalPolicy: 'manual' })
+
+    runtimeChildren[0].stderr.write(authorizingLine('REMOTE-CODE'))
+    await vi.waitFor(() => expect(getQfAgentStatus().status).toBe('authorizing'))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(getQfAgentStatus().autoApproval).toEqual({ status: 'none' })
+    expect(authorizeRemoteAgent).not.toHaveBeenCalled()
+  })
+
+  it('does not auto-arm without a valid desktop session on this computer', async () => {
+    const { runtimeChildren } = useSuccessfulAgentSpawn()
+    mocks.getCloudRuntime.mockResolvedValue({})
+    await startQfAgent(startOptions())
+
+    runtimeChildren[0].stderr.write(authorizingLine('NO-SESSION'))
+    await vi.waitFor(() => expect(getQfAgentStatus().status).toBe('authorizing'))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(getQfAgentStatus().autoApproval).toEqual({ status: 'none' })
   })
 })

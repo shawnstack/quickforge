@@ -318,7 +318,7 @@ async function updateQuickForge() {
   }
 }
 
-async function applyCloudServiceConfig(cloudConfig, { urlChanged = false } = {}) {
+async function applyCloudServiceConfig(cloudConfig, { urlChanged = false, autoApprovalPolicy } = {}) {
   if (shutdownStarted) return null
   if (!cloudConfig.enabled || !cloudConfig.valid) {
     if (!cloudConfig.valid) logger.warn(`QuickForge remote agent was not started: ${cloudConfig.configurationError || 'invalid Cloud configuration'}`)
@@ -331,6 +331,9 @@ async function applyCloudServiceConfig(cloudConfig, { urlChanged = false } = {})
     serverUrl: `http://127.0.0.1:${boundServerPort}/`,
     ownerPid: process.pid,
     cloudUrl: cloudConfig.cloudUrl,
+    // undefined → 'auto'：server 启动恢复等本机生命周期允许自动 arm；
+    // 'manual'：认证远程客户端触发的配置变更不自动批准。
+    autoApprovalPolicy,
   })
 }
 

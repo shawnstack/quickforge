@@ -154,8 +154,9 @@ export function createCloudRouteHandler({
       const currentConfig = await readServiceConfig({ strict: false })
       const nextUrl = parseCloudBaseUrl(body?.cloudUrl === undefined ? currentConfig.cloudUrl : body.cloudUrl).href
       const nextEnabled = body?.enabled === undefined ? currentConfig.enabled === true : body.enabled
-      // 仅在本机用户显式将 Cloud 服务从 disabled 切换为 enabled 时创建短时、一次性的
-      // agent 自动批准意图；认证远程客户端、启动恢复、URL 切换和 agent 普通重启都不会静默批准新 agent。
+      // 仅在本机用户显式将 Cloud 服务从 disabled 切换为 enabled 时立即创建短时、一次性的
+      // agent 自动批准意图；其余场景由 qf-agent 在首次 authorizing 时依据本机 desktop 会话
+      // 自动 arm（认证远程客户端触发的变更以 'manual' 策略排除，见下方 notify）。
       const enabledTransition = context.isLocalRequest === true && currentConfig.enabled !== true && nextEnabled === true
       const urlChanged = !sameCloudUrl(currentConfig.cloudUrl, nextUrl)
       if (body?.cloudUrl !== undefined) {
@@ -175,7 +176,12 @@ export function createCloudRouteHandler({
       else if (!nextEnabled) clearAutoApproval()
       const saved = await readServiceConfig({ strict: false })
       const notify = context.onCloudServiceConfigChanged || onServiceConfigChanged
-      if (typeof notify === 'function') await notify(saved, { urlChanged })
+      // 认证远程客户端触发的配置变更以 manual 策略通知生命周期：由此启动的 agent
+      // 生命周期（含其自动重启）不自动创建批准意图；本机请求保持默认（允许自动 arm）。
+      const remoteInitiated = context.isLocalRequest !== true
+      if (typeof notify === 'function') {
+        await notify(saved, remoteInitiated ? { urlChanged, autoApprovalPolicy: 'manual' } : { urlChanged })
+      }
       sendJson(res, 200, publicCloudServiceConfig(saved))
       return
     }

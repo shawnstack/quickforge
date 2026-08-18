@@ -1,9 +1,14 @@
 // 短时、一次性的远程 Agent 自动批准意图（仅内存态）。
 //
 // 安全边界：
-// - 仅当本机用户在 Cloud 设置页显式将服务从 disabled 切换为 enabled 时由
-//   routes/cloud.mjs 创建（arm）；server 启动恢复、URL 切换、agent 普通重启
-//   不会创建新意图，因此不会静默批准新 agent。
+// - 意图（arm）仅在两种情况下创建：① 本机用户在 Cloud 设置页显式将服务从
+//   disabled 切换为 enabled 时由 routes/cloud.mjs 创建；② qf-agent 首次进入
+//   authorizing 且当前无有效意图（none/expired）时，由 qf-agent-process 在
+//   “本机生命周期启动 + 本机存在有效 desktop 云会话”时自动创建
+//   （见 beginAgentAutoApprovalWithDesktopSession）。
+// - 认证远程客户端（非本机请求）触发的云服务开关切换/配置变更以
+//   autoApprovalPolicy: 'manual' 启动 agent，该生命周期内（含其自动重启）
+//   不会自动创建意图，也不会自动批准，仍需本机操作。
 // - 意图绝不落盘：不写 agent identity，也不触碰 storage/security/cloud-identity.json。
 // - user_code 只在 Node 内存中流转，用于调用云端 authorize API，不进入公开状态；
 //   desktop Access Token 仅由 CloudIdentityManager 内存持有并注入请求，不复制、不暴露。
@@ -104,6 +109,44 @@ export function retryAgentAutoApproval({ now = Date.now(), authorize = defaultAu
   }
   intent.status = 'pending'
   return beginAgentAutoApproval(intent.userCode, { now, authorize })
+}
+
+// 默认 desktop 会话检查：runtime 已配置 identity，且本地凭据公开状态含有效
+// Session（hasSession）并未绑定到其他 Cloud URL（无 sessionServiceMismatch）。
+// 只读公开状态，不触发 refresh，也不发起网络请求。
+async function defaultHasDesktopSession() {
+  try {
+    const runtime = await getCloudRuntime()
+    if (!runtime?.identity) return false
+    const status = await runtime.identity.status()
+    return Boolean(status?.hasSession) && status?.sessionServiceMismatch !== true
+  } catch {
+    return false
+  }
+}
+
+// qf-agent 首次进入 authorizing 且无有效意图（begin 返回 none/expired）时调用：
+// 由本机生命周期启动（policy !== 'manual'）且存在有效 desktop 云会话时，自动
+// 创建同样短时、一次性的意图并立即尝试批准；否则保持原有状态。已有
+// armed/pending/consumed/failed 意图时直接返回现有结果，不重复 arm。
+export async function beginAgentAutoApprovalWithDesktopSession(userCode, {
+  policy = 'auto',
+  now = Date.now(),
+  authorize = defaultAuthorizeAgent,
+  hasDesktopSession = defaultHasDesktopSession,
+} = {}) {
+  const first = await beginAgentAutoApproval(userCode, { now, authorize })
+  if (first.status !== 'none' && first.status !== 'expired') return first
+  if (policy === 'manual') return first
+  let eligible = false
+  try {
+    eligible = (await hasDesktopSession()) === true
+  } catch {
+    // 会话检查失败视为无有效 desktop 会话，不自动 arm
+  }
+  if (!eligible) return first
+  armAgentAutoApproval({ now })
+  return beginAgentAutoApproval(userCode, { now, authorize })
 }
 
 export function resetAgentAutoApprovalForTests() {

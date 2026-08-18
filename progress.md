@@ -2,10 +2,20 @@
 
 ## Current State
 
-- Feature: IndexedDB 应用规划 F12-F15
-- Status: **全部 done**（F12 会话消息快照 / F13 workspace 缓存 / F14 settings SWR / F15 preview ETag——按约定 F15 以 HTTP 方案闭环未写 IndexedDB）
+- Feature: qf-agent 首次设备授权自动批准（qf-agent-first-auth-auto-approval）
+- Status: **done**（本机有效 desktop 云会话时首次 authorizing 自动 arm+代批；认证远程客户端触发的生命周期保持 manual 不自动批准；默认云地址改为 https://qf.shawnstack.com/）
 - Blockers: 无
-- Next step: 无（本规划闭环；最终门禁 203 文件/1629 项 100%、lint 0 error、build exit 0）
+- Next step: 无（本 feature 闭环；未创建 commit/tag/push）
+
+## qf-agent 首次设备授权自动批准 — 完成
+
+- server/cloud/auto-approval.mjs：新增 `beginAgentAutoApprovalWithDesktopSession(userCode, { policy, now, authorize, hasDesktopSession })`——先 `beginAgentAutoApproval`，仅当返回 `none`/`expired`、`policy !== 'manual'` 且 desktop 会话有效时 `armAgentAutoApproval()` 再 `beginAgentAutoApproval(userCode)`；已有 armed/pending/consumed/failed 意图直接返回现有结果，不重复 arm。默认会话检查 `defaultHasDesktopSession()` 走 `getCloudRuntime().identity.status()` 公开状态（`hasSession === true` 且无 `sessionServiceMismatch`），只读不发起网络请求。文件头安全边界注释同步改写。
+- server/cloud/qf-agent-process.mjs：`startQfAgent` 新增 `autoApprovalPolicy` 选项（归一化为 'manual'/'auto'，默认 'auto'）并记入 launchOptions；authorizing 日志携带 userCode 时改调 `beginAgentAutoApprovalWithDesktopSession(userCode, { policy: launchOptions?.autoApprovalPolicy })`。TTL 10 分钟、一次性消费、失败保留脱敏错误等语义不变。
+- server/routes/cloud.mjs + server/index.mjs：`PUT /api/cloud/config` 对认证远程客户端（`isLocalRequest !== true`）触发的变更在 notify 传 `{ urlChanged, autoApprovalPolicy: 'manual' }`（本机请求仍传 `{ urlChanged }`）；`applyCloudServiceConfig` 透传该选项至 `startQfAgent`。本机 disabled→enabled 立即 arm 的既有路径不变。
+- 默认云地址：`server/cloud/service-config.mjs` `DEFAULT_CLOUD_URL` 与 `src/lib/i18n.ts` 两处 `cloudUrlPlaceholder` 由 `http://127.0.0.1:8082/` 改为 `https://qf.shawnstack.com/`（尾斜杠与 parseCloudBaseUrl 规范化一致）；service-config 测试用常量符号断言，无需改动。
+- 文档：docs/architecture/quickforge-cloud-client.zh-CN.md 更新“自动批准远程 Agent”安全声明段落（两个意图来源、manual 边界、无有效意图时引导本机登录并重新启用）与产品默认 URL 两处。
+- 测试：auto-approval.test.mjs +7；qf-agent-process.test.mjs +3（新增 runtime.mjs mock 与意图重置）；routes/cloud.test.mjs +2；前端 cloud-account-settings-page.test.ts 15 项回归无改动通过。
+- 验证：vitest 目标 4 文件 95 项、tests/server/cloud 目录 10 文件 93 项、index.tunnel-host 集成 + 前端 cloud-client/cloud-i18n 16 项全部通过；改动文件 ESLint 0 error / 0 warning。
 
 ## F15 Workspace Preview Cache — 完成（HTTP ETag 方案闭环）
 

@@ -4,7 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dataDir } from '../storage.mjs'
 import { getNetworkProxyConfig } from '../network-proxy.mjs'
-import { beginAgentAutoApproval, clearAgentAutoApproval, getAgentAutoApprovalState } from './auto-approval.mjs'
+import { beginAgentAutoApprovalWithDesktopSession, clearAgentAutoApproval, getAgentAutoApprovalState } from './auto-approval.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -601,8 +601,10 @@ async function launchQfAgent(generation) {
       const { identityInvalidated, userCode, ...statusUpdate } = update
       if (Object.keys(statusUpdate).length > 0) setStatus(statusUpdate)
       if (identityInvalidated) handleIdentityInvalidation(spawned, generation, identityDir)
-      // userCode 仅供服务端自动批准使用，绝不进入公开状态。
-      if (userCode) void beginAgentAutoApproval(userCode).catch(() => {})
+      // userCode 仅供服务端自动批准使用，绝不进入公开状态。无有效意图（none/expired）
+      // 时由本机 desktop 云会话自动 arm+代批；'manual'（认证远程客户端触发的生命周期）
+      // 不自动批准。
+      if (userCode) void beginAgentAutoApprovalWithDesktopSession(userCode, { policy: launchOptions?.autoApprovalPolicy }).catch(() => {})
     }
   }
   consumeLines(spawned.stdout, onLine)
@@ -637,7 +639,7 @@ function beginLaunch(generation) {
   return pending
 }
 
-export async function startQfAgent({ serverUrl, ownerPid, cloudUrl }) {
+export async function startQfAgent({ serverUrl, ownerPid, cloudUrl, autoApprovalPolicy }) {
   if (process.env.QUICKFORGE_QF_AGENT_ENABLED === '0') {
     setStatus({ enabled: false, status: 'disabled', serverUrl: null, pid: null, verificationUriComplete: null, error: null })
     return getQfAgentStatus()
@@ -650,6 +652,10 @@ export async function startQfAgent({ serverUrl, ownerPid, cloudUrl }) {
     serverUrl: new URL(serverUrl).href,
     ownerPid: Number(ownerPid),
     cloudUrl: new URL(cloudUrl).href,
+    // 'manual'：由认证远程客户端触发的配置变更启动，禁止自动创建批准意图；
+    // 默认 'auto'：本机生命周期事件（启动恢复、本机 URL 切换、普通/隔离重启）
+    // 允许在首次 authorizing 时依据本机 desktop 会话自动 arm。
+    autoApprovalPolicy: autoApprovalPolicy === 'manual' ? 'manual' : 'auto',
   }
   if (!Number.isInteger(options.ownerPid) || options.ownerPid <= 0) {
     setStatus({ status: 'error', error: 'qf-agent owner PID is invalid.' })

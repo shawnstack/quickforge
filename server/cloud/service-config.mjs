@@ -4,7 +4,7 @@ import { parseCloudBaseUrl } from './config.mjs'
 export const CLOUD_SERVICE_SETTINGS_KEY = 'quickforge-cloud-service'
 export const CLOUD_SERVICE_SCHEMA_VERSION = 1
 export const CLOUD_SERVICE_TYPE = 'quickforge-cloud'
-export const DEFAULT_CLOUD_URL = 'http://127.0.0.1:8082/'
+export const DEFAULT_CLOUD_URL = 'https://qf.shawnstack.com/'
 
 function savedServiceRecord(settings) {
   const value = settings?.[CLOUD_SERVICE_SETTINGS_KEY]

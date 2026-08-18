@@ -221,6 +221,40 @@ describe('cloud routes', () => {
     expect(armAutoApproval).not.toHaveBeenCalled()
   })
 
+  it('starts a remote-initiated agent lifecycle with the manual auto-approval policy', async () => {
+    const onCloudServiceConfigChanged = vi.fn()
+    const options = handlerOptions({
+      readServiceConfig: vi.fn()
+        .mockResolvedValueOnce({ ...savedConfig, enabled: false })
+        .mockResolvedValueOnce({ ...savedConfig, enabled: true }),
+    })
+    const handler = createCloudRouteHandler(options)
+    await handler(cloudRequest('PUT', { enabled: true }), response(), new URL('http://localhost/api/cloud/config'), {
+      isLocalRequest: false,
+      remoteAddress: '100.96.93.16',
+      remoteAuthorized: true,
+      onCloudServiceConfigChanged,
+    })
+    expect(onCloudServiceConfigChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ enabled: true }),
+      { urlChanged: false, autoApprovalPolicy: 'manual' },
+    )
+  })
+
+  it('keeps the default (auto) approval policy for local config changes', async () => {
+    const onCloudServiceConfigChanged = vi.fn()
+    const options = handlerOptions()
+    const handler = createCloudRouteHandler(options)
+    await handler(cloudRequest('PUT', { enabled: true }), response(), new URL('http://localhost/api/cloud/config'), {
+      isLocalRequest: true,
+      onCloudServiceConfigChanged,
+    })
+    expect(onCloudServiceConfigChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ enabled: true }),
+      { urlChanged: false },
+    )
+  })
+
   it('does not arm auto-approval on same-state saves or restarts and clears it when disabled', async () => {
     const armAutoApproval = vi.fn()
     const clearAutoApproval = vi.fn()

@@ -2360,6 +2360,17 @@ user-message .user-message-container,
   line-height: var(--quickforge-message-line-height, 1.625);
 }
 
+/* Subagent 运行详情 Tab 的过程消息不经 decorateMessages 的 quickforge-* 类装饰，
+   这里显式应用与主对话一致的消息字体配置，避免与主对话字号不一致。 */
+subagent-run-detail-body markdown-block {
+  font-size: var(--quickforge-message-font-size, 14px);
+  overflow-wrap: anywhere;
+}
+
+subagent-run-detail-body markdown-block :where(p, li) {
+  line-height: var(--quickforge-message-line-height, 1.625);
+}
+
 .quickforge-file-path-link {
   display: inline;
   border: 0;

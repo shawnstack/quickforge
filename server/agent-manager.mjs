@@ -3223,6 +3223,33 @@ export async function refreshAllSessionTools() {
   return result
 }
 
+/**
+ * Refresh the model binding of every active QuickForge session after model
+ * configuration changes (custom providers, maxTokens, ...). OpenCode owns its
+ * model selection and streaming sessions are skipped (runPrompt re-resolves
+ * the binding on the next message). Only sessions whose model actually
+ * changed get a state event.
+ */
+export async function refreshAllSessionModels() {
+  for (const [sessionId, session] of agentSessions) {
+    if (session.harness !== AGENT_HARNESS_QUICKFORGE) continue
+    if (session.agent?.state?.isStreaming) continue
+    try {
+      const before = JSON.stringify(session.model ?? null)
+      await refreshSessionModelBinding(session)
+      const after = JSON.stringify(session.model ?? null)
+      if (before === after) continue
+      const state = getSessionState(sessionId)
+      emitSessionEvent(session, { type: 'state', ...state })
+    } catch (error) {
+      // The model may have been deleted (model_not_configured); runPrompt will
+      // surface the same error on the next message. Log and keep other
+      // sessions refreshing.
+      logger.error(`Failed to refresh model for session ${sessionId}:`, error, { sessionId })
+    }
+  }
+}
+
 export async function updateSessionTitle(sessionId, title) {
   let session = agentSessions.get(sessionId)
   if (!session) session = await restoreAgent(sessionId)

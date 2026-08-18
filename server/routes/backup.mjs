@@ -15,6 +15,8 @@ import { isLanAccessStorageAuthoritative } from '../lan-access-service.mjs'
 import { isLanAccessMaintenanceActive } from '../lan-access-cutover.mjs'
 import { exportLanAccessStateForBackup, restoreLanAccessStateSnapshot } from '../lan-access-backup.mjs'
 import { readLanAccessJsonFile, writeLanAccessJsonFile } from '../lan-access-json-file.mjs'
+import { refreshAllSessionModels } from '../agent-manager.mjs'
+import { logger } from '../utils/logger.mjs'
 import { sendJson, readJsonBody } from '../utils/response.mjs'
 import {
   ensureStorage,
@@ -641,6 +643,11 @@ async function restoreValidatedBackup(backup, mode = 'replace') {
   if (sections.customProviders !== undefined) {
     const value = merge ? mergeRecordStore(await readStore('custom-providers'), sections.customProviders) : sections.customProviders
     await writeStore('custom-providers', value)
+    try {
+      await refreshAllSessionModels()
+    } catch (error) {
+      logger.error('Failed to refresh session models after restoring custom providers:', error)
+    }
     summary.customProviders = countKeys(value)
   }
 

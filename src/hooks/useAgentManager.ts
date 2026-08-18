@@ -355,6 +355,15 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
             projectId: forkEvent.projectId ?? undefined,
           })
         }
+
+        if ((event as { type: string }).type === 'state') {
+          const stateEvent = event as unknown as { type: 'state'; model?: Model<Api> | null }
+          if (stateEvent.model && agentRef.current === nextAgent) {
+            const changed = JSON.stringify(activeModelRef.current ?? null) !== JSON.stringify(stateEvent.model)
+            activeModelRef.current = stateEvent.model
+            if (changed) setChatPanelRevision((current) => current + 1)
+          }
+        }
       })
 
       taskMapRef.current.set(sessionId, task)
@@ -626,6 +635,15 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
               scope: forkEvent.scope,
               projectId: forkEvent.projectId ?? undefined,
             })
+          }
+
+          if ((event as { type: string }).type === 'state') {
+            const stateEvent = event as unknown as { type: 'state'; model?: Model<Api> | null }
+            if (stateEvent.model && agentRef.current === restoredAgent) {
+              const changed = JSON.stringify(activeModelRef.current ?? null) !== JSON.stringify(stateEvent.model)
+              activeModelRef.current = stateEvent.model
+              if (changed) setChatPanelRevision((current) => current + 1)
+            }
           }
         })
 

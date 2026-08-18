@@ -1,6 +1,8 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { readStore, writeStore, atomicUpdate, getComparable, getStoreRevision, readSessionStoreScoped, readSessionValue, writeSessionValueWithMetadata, deleteSessionWithMetadata, applySessionBatch, ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir } from '../storage.mjs'
 import { AUTO_ARCHIVE_SETTINGS_KEY, archiveInactiveSessions, normalizeAutoArchiveSettings } from '../auto-archive.mjs'
+import { refreshAllSessionModels } from '../agent-manager.mjs'
+import { logger } from '../utils/logger.mjs'
 import { directorySize } from '../utils/workspace.mjs'
 import { isAuthenticatedAppClient } from '../access-policy.mjs'
 import { getSessionIndexDiagnostics, markSessionIndexQueryFailure, querySessionIndexPage } from '../session-index-service.mjs'
@@ -293,6 +295,13 @@ export async function handleStorageApi(req, res, url, context = { isLocalRequest
 
   if (req.method === 'DELETE' && parts.length === 3) {
     await writeStore(store, {})
+    if (store === 'custom-providers') {
+      try {
+        await refreshAllSessionModels()
+      } catch (error) {
+        logger.error('Failed to refresh session models after clearing custom-providers:', error)
+      }
+    }
     sendJson(res, 200, { ok: true })
     return
   }
@@ -340,6 +349,13 @@ export async function handleStorageApi(req, res, url, context = { isLocalRequest
       if (store === 'settings' && key === AUTO_ARCHIVE_SETTINGS_KEY && normalizeAutoArchiveSettings(body?.value).enabled) {
         await archiveInactiveSessions()
       }
+      if (store === 'custom-providers') {
+        try {
+          await refreshAllSessionModels()
+        } catch (error) {
+          logger.error('Failed to refresh session models after custom-providers update:', error)
+        }
+      }
       sendJson(res, 200, { ok: true })
       return
     }
@@ -355,6 +371,13 @@ export async function handleStorageApi(req, res, url, context = { isLocalRequest
         delete data[key]
         return data
       })
+      if (store === 'custom-providers') {
+        try {
+          await refreshAllSessionModels()
+        } catch (error) {
+          logger.error('Failed to refresh session models after custom-providers key deletion:', error)
+        }
+      }
       sendJson(res, 200, { ok: true })
       return
     }

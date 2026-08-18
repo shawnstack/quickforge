@@ -5,6 +5,24 @@ import os from 'node:os'
 
 class MockAgent {
   static instances = []
+  static hangPrompts = false
+  static promptStarted = null
+  static resolvePromptStarted = null
+
+  static reset() {
+    for (const instance of MockAgent.instances) instance.resolvePrompt?.()
+    MockAgent.instances = []
+    MockAgent.hangPrompts = false
+    MockAgent.promptStarted = null
+    MockAgent.resolvePromptStarted = null
+  }
+
+  static configureHangingPrompts() {
+    MockAgent.hangPrompts = true
+    MockAgent.promptStarted = new Promise((resolve) => {
+      MockAgent.resolvePromptStarted = resolve
+    })
+  }
 
   constructor(options = {}) {
     MockAgent.instances.push(this)
@@ -17,6 +35,8 @@ class MockAgent {
     }
     this.signal = new AbortController().signal
     this.listeners = new Set()
+    this.abortCount = 0
+    this.resolvePrompt = null
   }
 
   subscribe(listener) {
@@ -29,6 +49,13 @@ class MockAgent {
   }
 
   async prompt() {
+    if (MockAgent.hangPrompts) {
+      MockAgent.resolvePromptStarted?.(this)
+      return new Promise((resolve) => {
+        this.resolvePrompt = resolve
+      })
+    }
+
     const message = {
       role: 'assistant',
       content: [{ type: 'text', text: 'mock subagent completed' }],
@@ -39,7 +66,12 @@ class MockAgent {
     for (const listener of this.listeners) listener({ type: 'agent_end', messages: this.state.messages })
   }
 
-  abort() {}
+  abort() {
+    this.abortCount += 1
+    const resolvePrompt = this.resolvePrompt
+    this.resolvePrompt = null
+    resolvePrompt?.()
+  }
 }
 
 vi.mock('@earendil-works/pi-agent-core', () => ({
@@ -70,10 +102,12 @@ describe('agent manager subagent execution', () => {
     tmpDir = await mkdtemp(path.join(os.tmpdir(), 'quickforge-agent-manager-'))
     process.env.QUICKFORGE_DATA_DIR = path.join(tmpDir, 'data')
     vi.resetModules()
-    MockAgent.instances = []
+    MockAgent.reset()
   })
 
   afterEach(async () => {
+    vi.useRealTimers()
+    MockAgent.reset()
     if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
     else process.env.QUICKFORGE_DATA_DIR = previousDataDir
     if (tmpDir) await rm(tmpDir, { recursive: true, force: true })
@@ -108,6 +142,130 @@ describe('agent manager subagent execution', () => {
 
       expect(result.content[0].text).toBe('mock subagent completed')
       expect(result.details.subagent).toBe('explore')
+    } finally {
+      await destroyAgent(session.sessionId)
+    }
+  })
+
+  it('aborts a hanging subagent and reports the real 60-minute timeout', async () => {
+    vi.useFakeTimers()
+    MockAgent.configureHangingPrompts()
+    const workspaceRoot = path.join(tmpDir, 'workspace')
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(workspaceRoot)
+
+    const { createAgent, destroyAgent } = await import('../../server/agent-manager.mjs')
+    const session = await createAgent('subagent-timeout-workspace', {
+      scope: 'global',
+      model: { provider: 'mock', model: 'mock-model' },
+      systemPrompt: '',
+      idleRetention: 'always',
+    })
+
+    try {
+      const runSubagent = session.agent.state.tools.find((tool) => tool.name === 'run_subagent')
+      const resultPromise = runSubagent.execute(
+        'tool-call-timeout',
+        { subagent: 'explore', task: 'Keep inspecting.' },
+        new AbortController().signal,
+      )
+      const timeoutExpectation = expect(resultPromise).rejects.toThrow('Subagent explore timed out after 60 minutes.')
+      const subagent = await MockAgent.promptStarted
+
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+
+      await timeoutExpectation
+      expect(subagent.abortCount).toBe(1)
+    } finally {
+      await destroyAgent(session.sessionId)
+    }
+  })
+
+  it('formats singular and fractional timeout minutes through real subagent execution', async () => {
+    vi.useFakeTimers()
+    const workspaceRoot = path.join(tmpDir, 'workspace')
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    const { createCustomAgentProfile } = await import('../../server/agent-profiles.mjs')
+    setDefaultWorkspaceRoot(workspaceRoot)
+    await createCustomAgentProfile({
+      name: 'one-minute-timeout',
+      label: 'One Minute Timeout',
+      systemPrompt: 'Wait.',
+      allowedTools: ['read_file'],
+      maxRuntimeMs: 60_000,
+      enabledAsSubagent: true,
+    })
+    await createCustomAgentProfile({
+      name: 'fractional-timeout',
+      label: 'Fractional Timeout',
+      systemPrompt: 'Wait.',
+      allowedTools: ['read_file'],
+      maxRuntimeMs: 90_000,
+      enabledAsSubagent: true,
+    })
+
+    const { createAgent, destroyAgent } = await import('../../server/agent-manager.mjs')
+    const session = await createAgent('subagent-readable-timeouts-workspace', {
+      scope: 'global',
+      model: { provider: 'mock', model: 'mock-model' },
+      systemPrompt: '',
+      idleRetention: 'always',
+    })
+
+    try {
+      const runSubagent = session.agent.state.tools.find((tool) => tool.name === 'run_subagent')
+      for (const [subagentName, timeoutMs, expectedMessage] of [
+        ['one-minute-timeout', 60_000, 'Subagent one-minute-timeout timed out after 1 minute.'],
+        ['fractional-timeout', 90_000, 'Subagent fractional-timeout timed out after 1.5 minutes.'],
+      ]) {
+        MockAgent.configureHangingPrompts()
+        const resultPromise = runSubagent.execute(
+          `tool-call-${subagentName}`,
+          { subagent: subagentName, task: 'Wait for timeout.' },
+          new AbortController().signal,
+        )
+        const timeoutExpectation = expect(resultPromise).rejects.toThrow(expectedMessage)
+        const subagent = await MockAgent.promptStarted
+
+        await vi.advanceTimersByTimeAsync(timeoutMs)
+
+        await timeoutExpectation
+        expect(subagent.abortCount).toBe(1)
+      }
+    } finally {
+      await destroyAgent(session.sessionId)
+    }
+  })
+
+  it('aborts a hanging subagent with its parent run', async () => {
+    MockAgent.configureHangingPrompts()
+    const workspaceRoot = path.join(tmpDir, 'workspace')
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(workspaceRoot)
+
+    const { createAgent, destroyAgent } = await import('../../server/agent-manager.mjs')
+    const session = await createAgent('subagent-parent-abort-workspace', {
+      scope: 'global',
+      model: { provider: 'mock', model: 'mock-model' },
+      systemPrompt: '',
+      idleRetention: 'always',
+    })
+    const parentController = new AbortController()
+
+    try {
+      const runSubagent = session.agent.state.tools.find((tool) => tool.name === 'run_subagent')
+      const resultPromise = runSubagent.execute(
+        'tool-call-parent-abort',
+        { subagent: 'explore', task: 'Keep inspecting.' },
+        parentController.signal,
+      )
+      const abortExpectation = expect(resultPromise).rejects.toThrow('Subagent explore aborted with parent run.')
+      const subagent = await MockAgent.promptStarted
+
+      parentController.abort()
+
+      await abortExpectation
+      expect(subagent.abortCount).toBe(1)
     } finally {
       await destroyAgent(session.sessionId)
     }

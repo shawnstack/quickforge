@@ -11,6 +11,7 @@ import {
   logoutCloud,
   pollCloudDeviceFlow,
   resetCloudIdentity,
+  retryCloudRemoteAuthorization,
   revokeCloudInstallation,
   startCloudDeviceFlow,
   testCloudConnection,
@@ -39,6 +40,21 @@ describe('cloud client', () => {
     await expect(getCloudRemoteStatus()).resolves.toMatchObject({ status: 'authorizing', pid: 42 })
     expect(fetchMock).toHaveBeenCalledWith('/api/cloud/remote/status', expect.objectContaining({ cache: 'no-store' }))
     expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('x-quickforge-action')).toBeNull()
+  })
+
+  it('retries a failed agent auto-approval without sending a user code from the browser', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ status: 'consumed' }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(retryCloudRemoteAuthorization()).resolves.toMatchObject({ status: 'consumed' })
+    expect(fetchMock).toHaveBeenCalledWith('/api/cloud/remote/authorize-retry', expect.objectContaining({ method: 'POST' }))
+    const [path, init] = fetchMock.mock.calls[0]
+    expect(init?.body).toBe('{}')
+    expect(init?.body).not.toContain('userCode')
+    const headers = new Headers(init?.headers)
+    expect(headers.get('x-quickforge-action')).toBe('cloud-action')
+    expect(headers.get('content-type')).toBe('application/json')
+    expect(path).toBe('/api/cloud/remote/authorize-retry')
   })
 
   it('uses same-origin typed config, test, update, and reset APIs', async () => {

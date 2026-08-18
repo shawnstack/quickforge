@@ -6,7 +6,7 @@
 
 | Hook 文件 | 行数 | 用途 |
 |-----------|------|------|
-| [useAppBootstrap.ts](../../src/hooks/useAppBootstrap.ts) | 227 | 应用启动引导：初始化 Storage、加载项目、恢复会话 |
+| [useAppBootstrap.ts](../../src/hooks/useAppBootstrap.ts) | 257 | 应用启动引导：Settings 快照预应用（SWR）+ Storage 初始化 + 设置校准 + 会话恢复 |
 | [useAgentManager.ts](../../src/hooks/useAgentManager.ts) | 537 | Agent 生命周期管理：创建、加载、切换会话 |
 | [useChatActions.ts](../../src/hooks/useChatActions.ts) | 311 | 聊天操作：发送消息、回滚、分叉、复制 |
 | [useCloudModels.ts](../../src/hooks/useCloudModels.ts) | 139 | Cloud 状态、模型目录缓存与失效 |
@@ -30,18 +30,16 @@
 
 ## 核心 Hooks 说明
 
-### useAppBootstrap.ts (227 行)
+### useAppBootstrap.ts (257 行)
 
-应用启动时执行的一次性初始化:
-1. 初始化 `HttpStorageBackend` 作为存储后端绑定
-2. 加载语言设置 (`initializeAppLanguage`)
-3. 初始化 PI 存储 (`initializePiStorage`)
-4. 加载上次使用的模型 (`loadInitialConfiguredModel`)
-5. 加载 Agent 访问模式状态
-6. 加载项目列表和活跃项目
-7. Storage backend 就绪后，并行刷新置顶与全局会话首屏，同时加载已恢复的展开项目或时间线
-8. URL 携带 `?session=` 时统一委托 `useAgentManager.loadSession()` 走可取消的单次服务端恢复链路
-9. 标记模型是否已配置 (`needsModelSetup`)
+应用启动时执行的一次性初始化（含 Settings 快照 stale-while-revalidate 加速）:
+1. 发起本地 IndexedDB 设置快照读取（语言/外观/字号/工具展示，`app-settings-cache` store），命中即预应用；异步读取不阻塞后续序列
+2. `initializePiStorage()` 完成 health 检查并构造 Storage 后端；随后 fire-and-forget 刷新会话列表
+3. 串行服务器校准并覆盖预应用值：`initializeAppLanguage` → `loadToolDisplaySettings` → `loadAndApplyAppearanceSettings` → `loadAndApplyFontSizeSettings`
+4. 加载项目列表与活跃项目、Agent 访问模式与默认选项
+5. 按需提前预取 QuickForge Cloud 模型目录（非 opencode harness 时启动一次，通常不 await）
+6. 模型目录/active-model 决策后创建启动会话；URL 携带 `?session=` 时统一委托 `useAgentManager.loadSession()` 走可取消的单次服务端恢复链路
+7. 校准后的 4 个设置值回写本地快照（成功路径 best-effort），随后标记 `ready`；标记模型是否已配置（`needsModelSetup`）
 
 ### useAgentManager.ts (537 行)
 

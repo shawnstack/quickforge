@@ -94,6 +94,8 @@ logger.info(`Agent prompt error`, err, { sessionId })
 
 该功能用于本地诊断，默认关闭。开启后日志可能包含 API Key、系统提示词、用户输入、项目源码片段、工具结果和模型返回内容，请勿分享或上传这些日志。
 
+AI 流超时诊断始终写入服务端结构化日志：默认 5 分钟无新事件触发 `idle` timeout，20 分钟触发 `total` timeout。记录仅包含 provider/model/purpose、timeout 类型与阈值、elapsed、事件数、最后事件时间/距今和等待阶段，不记录 prompt、响应正文、token、authorization 或其他凭据。
+
 ## 3. 前端日志 (`src/lib/logger.ts`)
 
 ```typescript

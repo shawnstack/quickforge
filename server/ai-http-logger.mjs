@@ -6,10 +6,12 @@ import { streamSimple } from '@earendil-works/pi-ai/compat'
 import { resolveManagedCloudProvider } from './cloud/runtime.mjs'
 import { ensureCloudChatIdempotencyKey } from './cloud/chat-idempotency-store.mjs'
 import {
-  DEFAULT_AI_STREAM_DEADLINE_MS,
+  DEFAULT_AI_STREAM_IDLE_TIMEOUT_MS,
+  DEFAULT_AI_STREAM_TOTAL_TIMEOUT_MS,
   withDefaultAiProviderOptions,
 } from './ai-provider-options.mjs'
 import { logsDir } from './storage.mjs'
+import { logger } from './utils/logger.mjs'
 
 const PATCH_MARKER = Symbol.for('quickforge.aiHttpLogger.fetchPatched')
 const ORIGINAL_FETCH = Symbol.for('quickforge.aiHttpLogger.originalFetch')
@@ -243,27 +245,154 @@ function combineAbortSignals(parentSignal, deadlineSignal) {
   return controller.signal
 }
 
-function wrapStreamWithDeadline(stream, deadlineController, deadlineMs) {
-  let timer
-  const deadlinePromise = new Promise((_, reject) => {
-    timer = setTimeout(() => {
-      deadlineController.abort()
-      reject(new Error(`AI stream timed out after ${deadlineMs}ms`))
-    }, deadlineMs)
-    timer.unref?.()
+function wrapStreamWithTimeouts(stream, timeoutController, {
+  idleTimeoutMs,
+  totalTimeoutMs,
+  provider,
+  model,
+  purpose,
+}) {
+  const startedAt = Date.now()
+  const iterator = stream[Symbol.asyncIterator]()
+  const queue = []
+  const waiting = []
+  let lastEventAt = null
+  let eventCount = 0
+  let idleTimer
+  let totalTimer
+  let settled = false
+  let iterationClosed = false
+  let iterationStopRequested = false
+  let iterationError
+  let rejectTimeout
+
+  const timeoutPromise = new Promise((_, reject) => {
+    rejectTimeout = reject
   })
-  const resultPromise = Promise.race([stream.result(), deadlinePromise])
-    .finally(() => clearTimeout(timer))
+  // The timeout may win async iteration before result() is observed.
+  timeoutPromise.catch(() => {})
+
+  const clearTimers = () => {
+    clearTimeout(idleTimer)
+    clearTimeout(totalTimer)
+    idleTimer = undefined
+    totalTimer = undefined
+  }
+
+  const closeIteration = (error) => {
+    if (iterationClosed) return
+    iterationClosed = true
+    iterationError = error
+    while (waiting.length > 0) {
+      const waiter = waiting.shift()
+      if (error) waiter.reject(error)
+      else waiter.resolve({ value: undefined, done: true })
+    }
+  }
+
+  const finish = (iterationFailure) => {
+    if (settled) return false
+    settled = true
+    clearTimers()
+    closeIteration(iterationFailure)
+    return true
+  }
+
+  const failTimeout = (timeoutType, timeoutMs) => {
+    if (settled) return
+    const now = Date.now()
+    const elapsedMs = now - startedAt
+    const lastEventAgoMs = lastEventAt === null ? null : now - lastEventAt
+    const phase = eventCount === 0 ? 'waiting_for_first_event' : 'waiting_for_next_event'
+    const error = new Error(`AI stream ${timeoutType} timeout after ${timeoutMs}ms`)
+    if (!finish(error)) return
+    logger.warn(error.message, {
+      provider,
+      model,
+      purpose,
+      timeoutType,
+      timeoutMs,
+      elapsedMs,
+      eventCount,
+      lastEventAgoMs,
+      lastEventAt: lastEventAt === null ? undefined : new Date(lastEventAt).toISOString(),
+      phase,
+    })
+    timeoutController.abort()
+    iterationStopRequested = true
+    if (typeof iterator.return === 'function') {
+      Promise.resolve(iterator.return()).catch(() => {})
+    }
+    rejectTimeout(error)
+  }
+
+  const resetIdleTimer = () => {
+    if (settled) return
+    clearTimeout(idleTimer)
+    idleTimer = setTimeout(() => failTimeout('idle', idleTimeoutMs), idleTimeoutMs)
+    idleTimer.unref?.()
+  }
+
+  const publish = (value) => {
+    eventCount += 1
+    lastEventAt = Date.now()
+    resetIdleTimer()
+    const waiter = waiting.shift()
+    if (waiter) waiter.resolve({ value, done: false })
+    else queue.push(value)
+  }
+
+  resetIdleTimer()
+  totalTimer = setTimeout(() => failTimeout('total', totalTimeoutMs), totalTimeoutMs)
+  totalTimer.unref?.()
+
+  const resultPromise = Promise.race([stream.result(), timeoutPromise])
+    .then(
+      (result) => {
+        settled = true
+        clearTimers()
+        return result
+      },
+      (error) => {
+        finish(error)
+        throw error
+      },
+    )
   resultPromise.catch(() => {})
+
+  const pumpPromise = (async () => {
+    try {
+      while (!iterationStopRequested) {
+        const iteration = await iterator.next()
+        if (iterationStopRequested) return
+        if (iteration.done) {
+          closeIteration()
+          return
+        }
+        publish(iteration.value)
+      }
+    } catch (error) {
+      closeIteration(error)
+    }
+  })()
+  pumpPromise.catch(() => {})
 
   return {
     result: () => resultPromise,
     [Symbol.asyncIterator]() {
-      const iterator = stream[Symbol.asyncIterator]()
       return {
-        next: () => Promise.race([iterator.next(), deadlinePromise]),
+        next: () => {
+          if (queue.length > 0) return Promise.resolve({ value: queue.shift(), done: false })
+          if (iterationClosed) {
+            return iterationError
+              ? Promise.reject(iterationError)
+              : Promise.resolve({ value: undefined, done: true })
+          }
+          return new Promise((resolve, reject) => waiting.push({ resolve, reject }))
+        },
         return: async () => {
-          clearTimeout(timer)
+          iterationStopRequested = true
+          closeIteration()
           if (typeof iterator.return === 'function') return iterator.return()
           return { value: undefined, done: true }
         },
@@ -331,15 +460,23 @@ async function managedCloudIdempotencyKey(context, options) {
 
 export function streamSimpleWithAiHttpLogging(model, context, options = {}) {
   const providerOptions = withDefaultAiProviderOptions(options)
-  const deadlineMs = Number.isFinite(providerOptions.deadlineMs)
+  const legacyDeadlineMs = Number.isFinite(providerOptions.deadlineMs)
     ? Math.max(1, providerOptions.deadlineMs)
-    : DEFAULT_AI_STREAM_DEADLINE_MS
-  const deadlineController = new AbortController()
+    : undefined
+  const idleTimeoutMs = Number.isFinite(providerOptions.idleTimeoutMs)
+    ? Math.max(1, providerOptions.idleTimeoutMs)
+    : legacyDeadlineMs ?? DEFAULT_AI_STREAM_IDLE_TIMEOUT_MS
+  const totalTimeoutMs = Number.isFinite(providerOptions.totalTimeoutMs)
+    ? Math.max(1, providerOptions.totalTimeoutMs)
+    : DEFAULT_AI_STREAM_TOTAL_TIMEOUT_MS
+  const timeoutController = new AbortController()
   const effectiveOptions = {
     ...providerOptions,
-    signal: combineAbortSignals(providerOptions.signal, deadlineController.signal),
+    signal: combineAbortSignals(providerOptions.signal, timeoutController.signal),
   }
   delete effectiveOptions.deadlineMs
+  delete effectiveOptions.idleTimeoutMs
+  delete effectiveOptions.totalTimeoutMs
 
   const managedCloud = model?.provider === 'quickforge-cloud' && model?.quickforgeModelSource === 'cloud'
   const stream = managedCloud
@@ -362,5 +499,11 @@ export function streamSimpleWithAiHttpLogging(model, context, options = {}) {
       )))
     : createProviderStream(model, context, effectiveOptions)
 
-  return wrapStreamWithDeadline(stream, deadlineController, deadlineMs)
+  return wrapStreamWithTimeouts(stream, timeoutController, {
+    idleTimeoutMs,
+    totalTimeoutMs,
+    provider: model?.provider,
+    model: model?.id,
+    purpose: providerOptions.metadata?.quickforgePurpose || 'chat',
+  })
 }

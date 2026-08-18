@@ -924,6 +924,8 @@ function MainApp() {
     createAgent,
     loadSession: loadAgentSession,
     loadCloudModels: cloudModels.loadCloudModels,
+    readCachedCloudModels: cloudModels.readCachedCloudModels,
+    isCloudModelsLoaded: cloudModels.isCloudModelsLoaded,
     setNeedsModelSetup,
     onStorageReady: setStorage,
   })
@@ -1148,6 +1150,8 @@ function MainApp() {
     notifySettingsChanged: crossTab.notifySettingsChanged,
     openSettingsPage,
     loadCloudModels: cloudModels.loadCloudModels,
+    readCachedCloudModels: cloudModels.readCachedCloudModels,
+    isCloudModelsLoaded: cloudModels.isCloudModelsLoaded,
   })
 
   const closeSettingsPage = useCallback(() => {

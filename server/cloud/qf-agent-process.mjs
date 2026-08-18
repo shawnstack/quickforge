@@ -3,6 +3,8 @@ import { chmodSync, existsSync, promises as fs, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dataDir } from '../storage.mjs'
+import { getNetworkProxyConfig } from '../network-proxy.mjs'
+import { beginAgentAutoApproval, clearAgentAutoApproval, getAgentAutoApprovalState } from './auto-approval.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -26,6 +28,7 @@ let stopPromise = null
 let lifecycleGeneration = 0
 let versionCheckChild = null
 let launchOptions = null
+let identityInvalidation = null
 let status = createStatus()
 
 function createStatus(overrides = {}) {
@@ -239,6 +242,27 @@ function safeVerificationUrl(value) {
   }
 }
 
+// 从 qf-agent 结构化日志安全提取一次性授权 user_code：优先 record.userCode/user_code，
+// 否则从 verificationUriComplete（兼容 verificationUri）的 query 参数提取。
+// 仅用于服务端自动批准流程，绝不进入公开 qf-agent 状态。
+export function extractUserCodeFromVerification(record) {
+  if (!record || typeof record !== 'object') return null
+  const direct = record.userCode ?? record.user_code
+  if (typeof direct === 'string' && direct.trim()) return direct.trim().slice(0, 64)
+  const raw = record.verificationUriComplete ?? record.verificationUri
+  if (typeof raw !== 'string' || !raw.trim()) return null
+  try {
+    const url = new URL(raw)
+    for (const key of ['user_code', 'userCode', 'code']) {
+      const value = url.searchParams.get(key)
+      if (typeof value === 'string' && value.trim()) return value.trim().slice(0, 64)
+    }
+  } catch {
+    // 非 URL 视为无效，不自动批准
+  }
+  return null
+}
+
 export function parseQfAgentLogLine(line) {
   const text = String(line || '').trim()
   if (!text) return null
@@ -255,6 +279,8 @@ export function parseQfAgentLogLine(line) {
   if (message.includes('等待设备授权')) {
     result.status = 'authorizing'
     result.verificationUriComplete = safeVerificationUrl(record.verificationUriComplete)
+    const userCode = extractUserCodeFromVerification(record)
+    if (userCode) result.userCode = userCode
   } else if (message.includes('信令已连接')) {
     result.status = 'running'
     result.verificationUriComplete = null
@@ -264,7 +290,110 @@ export function parseQfAgentLogLine(line) {
 
   const level = String(record.level || record.severity || '').toLowerCase()
   if (['error', 'fatal', 'panic'].includes(level)) result.error = safeErrorMessage(message) || 'qf-agent reported an error.'
+  if (isIdentityInvalidationRecord(record)) result.identityInvalidated = true
   return Object.keys(result).length ? result : null
+}
+
+const IDENTITY_INVALIDATION_MARKERS = [
+  'invalid_refresh_token',
+  'refresh_token_reused',
+  'installation_revoked',
+  'refresh token 已失效',
+]
+
+// 仅在结构化 warn/error/fatal/panic 日志中识别身份失效错误码与既有终态提示；
+// 普通文本、info 日志或无关 warning/error 不会触发。
+export function isIdentityInvalidationRecord(record) {
+  if (!record || typeof record !== 'object') return false
+  const level = String(record.level || record.severity || '').toLowerCase()
+  if (!['warn', 'error', 'fatal', 'panic'].includes(level)) return false
+  const fields = [record.msg, record.message, record.error, record.err]
+  if (!fields.some((value) => typeof value === 'string')) return false
+  const haystack = fields.filter((value) => typeof value === 'string').join('\n')
+  return IDENTITY_INVALIDATION_MARKERS.some((marker) => haystack.includes(marker))
+}
+
+// 仅当 QuickForge 配置为 manual 且 proxyUrl 非空时返回注入给 qf-agent 的代理 env；
+// NO_PROXY 保留父进程已有条目并至少加入回环地址与 serverUrl 主机名。
+export function buildQfAgentProxyEnv(serverUrl, config, env = process.env) {
+  if (!config || config.mode !== 'manual' || !config.proxyUrl) return null
+  let hostname = null
+  try {
+    hostname = new URL(serverUrl).hostname
+  } catch {
+    // serverUrl 非法时保持 null，不向 NO_PROXY 追加主机名
+  }
+  const existing = new Set()
+  for (const key of ['NO_PROXY', 'no_proxy']) {
+    const value = typeof env?.[key] === 'string' ? env[key] : ''
+    for (const item of value.split(',')) {
+      const trimmed = item.trim()
+      if (trimmed) existing.add(trimmed)
+    }
+  }
+  const parts = ['localhost', '127.0.0.1', '::1']
+  if (hostname) parts.push(hostname)
+  for (const item of existing) {
+    if (!parts.includes(item)) parts.push(item)
+  }
+  return {
+    HTTP_PROXY: config.proxyUrl,
+    HTTPS_PROXY: config.proxyUrl,
+    ALL_PROXY: config.proxyUrl,
+    NO_PROXY: parts.join(','),
+  }
+}
+
+async function resolveProxyEnvironment(serverUrl) {
+  try {
+    const { config } = await getNetworkProxyConfig()
+    return buildQfAgentProxyEnv(serverUrl, config, process.env)
+  } catch {
+    return null
+  }
+}
+
+// 仅清理当前 runtime 专属 identityDir/identity.json，绝不触碰
+// storage/security/cloud-identity.json。优先 rename 到同目录临时 invalid 文件并尽快删除；
+// Windows EPERM 安全 fallback unlink；ENOENT 幂等；只处理普通文件，不跟随 symlink。
+async function isolateInvalidIdentity(identityDir) {
+  const file = path.join(identityDir, 'identity.json')
+  let stat
+  try {
+    stat = await fs.lstat(file)
+  } catch (error) {
+    if (error?.code === 'ENOENT') return
+    throw error
+  }
+  if (!stat.isFile()) return
+  const invalidFile = `${file}.invalid-${process.pid}-${Date.now()}`
+  try {
+    await fs.rename(file, invalidFile)
+  } catch (error) {
+    if (error?.code === 'ENOENT') return
+    if (error?.code !== 'EPERM') throw error
+    try {
+      await fs.unlink(file)
+    } catch (unlinkError) {
+      if (unlinkError?.code !== 'ENOENT') throw unlinkError
+    }
+    return
+  }
+  try {
+    await fs.unlink(invalidFile)
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+}
+
+// 命中身份失效后每 lifecycle 至多一次：标记身份重置、设置可操作状态并主动终止子进程。
+function handleIdentityInvalidation(activeChild, generation, identityDir) {
+  if (!isCurrentLifecycle(generation) || identityInvalidation?.generation === generation) return
+  identityInvalidation = { generation, identityDir }
+  setStatus({ status: 'authorizing', verificationUriComplete: null, error: null })
+  if (activeChild && child === activeChild) {
+    void terminateChild(activeChild).catch(() => {})
+  }
 }
 
 function consumeLines(stream, onLine) {
@@ -410,6 +539,7 @@ async function launchQfAgent(generation) {
 
   let spawned
   try {
+    const proxyEnv = await resolveProxyEnvironment(serverUrl)
     spawned = spawn(executable, [], {
       windowsHide: true,
       shell: false,
@@ -420,6 +550,7 @@ async function launchQfAgent(generation) {
         QF_CLOUD_AGENT_DATA_DIR: identityDir,
         QF_CLOUD_AGENT_QF_URL: serverUrl,
         QF_CLOUD_AGENT_OWNER_PID: String(ownerPid),
+        ...(proxyEnv || {}),
       },
     })
     await new Promise((resolve, reject) => {
@@ -439,10 +570,23 @@ async function launchQfAgent(generation) {
     child = null
     childStartedAt = 0
     if (stableRun) restartCount = 0
-    void clearOwnLock().then(() => {
+    const invalid = identityInvalidation?.generation === generation ? identityInvalidation : null
+    if (invalid) identityInvalidation = null
+    void clearOwnLock().then(async () => {
       if (!isCurrentLifecycle(generation)) {
         setStatus({ status: 'stopped', pid: null, verificationUriComplete: null })
         return
+      }
+      if (invalid) {
+        try {
+          await isolateInvalidIdentity(invalid.identityDir)
+        } catch {
+          // 隔离失败：保留重启计数，由 MAX_CONSECUTIVE_RESTARTS 兜底约束重试
+        }
+        if (!isCurrentLifecycle(generation)) return
+        // 无论隔离是否成功都不重置 restartCount：若新身份仍被云端拒绝，
+        // 重启预算逐次消耗至 MAX_CONSECUTIVE_RESTARTS 停止，避免隔离清零导致无界循环；
+        // 稳定运行（STABLE_RUN_MS）仍是唯一自然重置边界。
       }
       scheduleRestart(generation)
     }).catch(() => {
@@ -453,7 +597,13 @@ async function launchQfAgent(generation) {
   const onLine = (line) => {
     if (!isCurrentLifecycle(generation) || child !== spawned) return
     const update = parseQfAgentLogLine(line)
-    if (update) setStatus(update)
+    if (update) {
+      const { identityInvalidated, userCode, ...statusUpdate } = update
+      if (Object.keys(statusUpdate).length > 0) setStatus(statusUpdate)
+      if (identityInvalidated) handleIdentityInvalidation(spawned, generation, identityDir)
+      // userCode 仅供服务端自动批准使用，绝不进入公开状态。
+      if (userCode) void beginAgentAutoApproval(userCode).catch(() => {})
+    }
   }
   consumeLines(spawned.stdout, onLine)
   consumeLines(spawned.stderr, onLine)
@@ -511,6 +661,7 @@ export async function startQfAgent({ serverUrl, ownerPid, cloudUrl }) {
   stopRequested = false
   stopPromise = null
   restartCount = 0
+  identityInvalidation = null
   setStatus({ enabled: true, error: null })
   try {
     return await beginLaunch(generation)
@@ -523,6 +674,7 @@ export async function startQfAgent({ serverUrl, ownerPid, cloudUrl }) {
 }
 
 export async function stopQfAgent({ disabled = false } = {}) {
+  if (disabled) clearAgentAutoApproval()
   if (stopPromise) {
     const result = await stopPromise
     if (disabled && result.status !== 'disabled') {
@@ -534,6 +686,7 @@ export async function stopQfAgent({ disabled = false } = {}) {
   stopRequested = true
   lifecycleGeneration += 1
   launchOptions = null
+  identityInvalidation = null
   if (restartTimer) {
     clearTimeout(restartTimer)
     restartTimer = null
@@ -566,6 +719,7 @@ export function getQfAgentStatus() {
     pid: status.pid,
     verificationUriComplete: status.verificationUriComplete,
     error: status.error,
+    autoApproval: getAgentAutoApprovalState(),
     updatedAt: status.updatedAt,
   }
 }

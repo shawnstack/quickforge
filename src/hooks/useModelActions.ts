@@ -12,6 +12,7 @@ import {
   getSelectableConfiguredModels,
 } from '@/lib/pi-chat'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
+import type { ModelSelectorHandle } from '@/lib/custom-model-selector'
 import {
   readCachedModelList,
   readCachedModelListStale,
@@ -36,6 +37,8 @@ type UseModelActionsOptions = {
   notifySettingsChanged: () => void
   openSettingsPage: (initialTab: SettingsInitialTab, customProvider?: string) => void
   loadCloudModels: () => Promise<Model<Api>[]>
+  readCachedCloudModels: () => readonly Model<Api>[]
+  isCloudModelsLoaded: () => boolean
 }
 
 export function useModelActions({
@@ -50,6 +53,8 @@ export function useModelActions({
   notifySettingsChanged,
   openSettingsPage,
   loadCloudModels,
+  readCachedCloudModels,
+  isCloudModelsLoaded,
 }: UseModelActionsOptions) {
   const activateConfiguredModel = useCallback(async () => {
     const storage = storageRef.current
@@ -139,7 +144,7 @@ export function useModelActions({
     notifySettingsChanged,
   ])
 
-  const openCustomModelSelector = useCallback(async (event?: Event | HTMLElement) => {
+  const openCustomModelSelector = useCallback((event?: Event | HTMLElement) => {
     const storage = storageRef.current
     const currentAgent = agentRef.current
     if (!storage || !currentAgent) return
@@ -159,83 +164,122 @@ export function useModelActions({
     const currentInput = textarea?.value ?? ''
     const currentAttachments = messageEditor?.attachments ? [...messageEditor.attachments] : []
 
-    // 缓存优先：TTL 内直接用缓存打开选择器，避免每次请求后端；
-    // 无有效缓存时拉取后端并写入缓存；请求失败用过期缓存兜底。
-    let customModels = readCachedModelList()
-    if (!customModels) {
-      try {
-        customModels = await getSelectableConfiguredModels(storage)
-        writeCachedModelList(customModels)
-      } catch (error) {
-        logger.error('Failed to load custom models, falling back to cache:', error)
-        customModels = readCachedModelListStale()
-      }
-      if (!customModels) return
-    }
-
-    const cloudModels = await loadCloudModels().catch((error) => {
-      logger.warn('Failed to load QuickForge Cloud models:', error)
-      return []
-    })
-    const availableModels = mergeAvailableModels(customModels, cloudModels)
-
-    if (availableModels.length === 0) {
-      const confirmed = await showConfirm({
+    const showEmptyModelConfirmation = () => {
+      void showConfirm({
         description: t('addCustomModelFirst'),
         confirmLabel: t('modelSetupAddModel'),
         cancelLabel: t('cancel'),
+      }).then((confirmed) => {
+        if (confirmed) openModelSettings()
       })
-      if (confirmed) {
-        openModelSettings()
+    }
+
+    const openSelector = (customModels: Model<Api>[]) => {
+      const availableModels = mergeAvailableModels(customModels, readCachedCloudModels())
+
+      if (availableModels.length === 0) {
+        if (isCloudModelsLoaded()) {
+          showEmptyModelConfirmation()
+          return
+        }
+
+        void loadCloudModels()
+          .then((loadedCloudModels) => {
+            const loadedModels = mergeAvailableModels(customModels, loadedCloudModels)
+            if (loadedModels.length === 0) {
+              if (isCloudModelsLoaded()) showEmptyModelConfirmation()
+              return
+            }
+            openSelectorWithModels(customModels, loadedModels, false)
+          })
+          .catch((error) => {
+            logger.warn('Failed to load QuickForge Cloud models:', error)
+          })
+        return
       }
+
+      openSelectorWithModels(customModels, availableModels, true)
+    }
+
+    const openSelectorWithModels = (
+      customModels: Model<Api>[],
+      availableModels: Model<Api>[],
+      refreshCloudModels: boolean,
+    ) => {
+      const selector: ModelSelectorHandle | null = openCustomOnlyModelSelector(
+        currentAgent.state.model ?? activeModelRef.current,
+        availableModels,
+        (model) => {
+          const nextModel = model as Model<Api>
+          const nextThinkingLevel = nextModel.reasoning ? currentAgent.state.thinkingLevel : 'off'
+          if (currentAgent.state.thinkingLevel !== nextThinkingLevel) {
+            currentAgent.state.thinkingLevel = nextThinkingLevel
+            void currentAgent.updateThinkingLevel(nextThinkingLevel).catch((error) => {
+              logger.error('Failed to sync thinking level to server:', error)
+            })
+          }
+          activeModelRef.current = nextModel
+          updateCurrentAgentModel(nextModel)
+
+          if (currentInput || currentAttachments.length > 0) {
+            setRestoredDraft({
+              id: Date.now(),
+              sessionId: currentAgent.sessionId,
+              text: currentInput,
+              attachments: currentAttachments,
+            })
+          }
+
+          setChatPanelRevision((value) => value + 1)
+          void saveActiveModel(storage, nextModel).catch((error) => {
+            logger.error('Failed to save active model:', error)
+          })
+        },
+        async (model) => {
+          if (model.provider === 'quickforge-cloud') return
+          openSettingsDialog('customModels', model.provider)
+        },
+        {
+          thinkingLevel: currentAgent.state.thinkingLevel,
+          anchor,
+          onThinkingLevelSelect: (level) => {
+            currentAgent.state.thinkingLevel = level
+            void currentAgent.updateThinkingLevel(level).catch((error) => {
+              logger.error('Failed to sync thinking level to server:', error)
+            })
+            setChatPanelRevision((value) => value + 1)
+          },
+        },
+      )
+
+      if (!refreshCloudModels) return
+      void loadCloudModels()
+        .then((loadedCloudModels) => {
+          if (!selector?.isOpen()) return
+          selector.updateModels(mergeAvailableModels(customModels, loadedCloudModels))
+        })
+        .catch((error) => {
+          logger.warn('Failed to load QuickForge Cloud models:', error)
+        })
+    }
+
+    // 有本地缓存时同步打开；否则本地目录完成后打开，不等待 Cloud 请求。
+    const cachedCustomModels = readCachedModelList()
+    if (cachedCustomModels) {
+      openSelector(cachedCustomModels)
       return
     }
 
-    openCustomOnlyModelSelector(
-      currentAgent.state.model ?? activeModelRef.current,
-      availableModels,
-      (model) => {
-        const nextModel = model as Model<Api>
-        const nextThinkingLevel = nextModel.reasoning ? currentAgent.state.thinkingLevel : 'off'
-        if (currentAgent.state.thinkingLevel !== nextThinkingLevel) {
-          currentAgent.state.thinkingLevel = nextThinkingLevel
-          void currentAgent.updateThinkingLevel(nextThinkingLevel).catch((error) => {
-            logger.error('Failed to sync thinking level to server:', error)
-          })
-        }
-        activeModelRef.current = nextModel
-        updateCurrentAgentModel(nextModel)
-
-        if (currentInput || currentAttachments.length > 0) {
-          setRestoredDraft({
-            id: Date.now(),
-            sessionId: currentAgent.sessionId,
-            text: currentInput,
-            attachments: currentAttachments,
-          })
-        }
-
-        setChatPanelRevision((value) => value + 1)
-        void saveActiveModel(storage, nextModel).catch((error) => {
-          logger.error('Failed to save active model:', error)
-        })
-      },
-      async (model) => {
-        if (model.provider === 'quickforge-cloud') return
-        openSettingsDialog('customModels', model.provider)
-      },
-      {
-        thinkingLevel: currentAgent.state.thinkingLevel,
-        anchor,
-        onThinkingLevelSelect: (level) => {
-          currentAgent.state.thinkingLevel = level
-          void currentAgent.updateThinkingLevel(level).catch((error) => {
-            logger.error('Failed to sync thinking level to server:', error)
-          })
-          setChatPanelRevision((value) => value + 1)
-        },
-      },
-    )
+    void getSelectableConfiguredModels(storage)
+      .then((customModels) => {
+        writeCachedModelList(customModels)
+        openSelector(customModels)
+      })
+      .catch((error) => {
+        logger.error('Failed to load custom models, falling back to cache:', error)
+        const staleCustomModels = readCachedModelListStale()
+        if (staleCustomModels) openSelector(staleCustomModels)
+      })
   }, [
     storageRef,
     activeModelRef,
@@ -246,6 +290,8 @@ export function useModelActions({
     openModelSettings,
     openSettingsDialog,
     loadCloudModels,
+    readCachedCloudModels,
+    isCloudModelsLoaded,
   ])
 
   return {

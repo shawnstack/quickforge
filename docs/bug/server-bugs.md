@@ -102,13 +102,13 @@
 
 ---
 
-### MED-9: scheduled-tasks run history 内存分页
+### MED-9: scheduled-tasks run history 内存分页（已解决）
 
-**文件:** `server/routes/scheduled-tasks.mjs`
+**文件:** `server/routes/scheduled-tasks.mjs`, `server/scheduled-task-runs-service.mjs`, `server/sqlite/scheduled-task-runs-repository.mjs`
 
-大量运行记录下有性能和内存风险。
+F5 authoritative/pending 模式下，history endpoint 将当前 task IDs、taskTitle 命中的 keyword task IDs、run 文本 keyword 及其他过滤条件一次传给 repository；SQLite 在同一 deferred transaction 内执行 `COUNT(*)` 与当前页 `LIMIT/OFFSET`，排序为 `started_at DESC, id DESC, task_id DESC`。孤立行通过当前 task IDs 过滤，不计入 total。
 
-**建议:** 调度任务性能专项中处理，优先从存储层支持分页/索引。
+F4 hybrid 仍保留 JSON 内存完整性路径，仅用于权威切换前或切换前失败回退；正常完成 F5 后不再承担历史分页。
 
 ---
 

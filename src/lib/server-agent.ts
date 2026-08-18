@@ -11,6 +11,12 @@ import { randomId } from '@/lib/random-id'
 import { toolStartEventWithPartialResult, upsertMessage, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import { SubagentRunEventPublisher } from '@/lib/subagent-run-detail'
+import {
+  readSessionMessageSnapshot,
+  resolveServerCacheKey,
+  writeSessionMessageSnapshot,
+  type SessionMessageSnapshotEntry,
+} from '@/lib/session-message-cache'
 
 // ---------------------------------------------------------------------------
 // SSE client for receiving events from the server
@@ -449,6 +455,70 @@ export type ServerAgentStateSnapshot = {
 }
 
 // ---------------------------------------------------------------------------
+// Session message cache helpers (read-only IndexedDB snapshot, F12)
+// ---------------------------------------------------------------------------
+
+/** SSE 事件类型：处理后需要调度一次会话消息快照缓存写入。 */
+const MESSAGE_CACHE_EVENT_TYPES = new Set([
+  'state', 'agent_end', 'message_end', 'turn_end', 'messages_replaced',
+  'tool_execution_start', 'tool_execution_update', 'tool_execution_end',
+])
+
+type SessionMessageCacheSource = {
+  stateVersion: number
+  messages: AgentMessage[]
+  /** 去掉 messages/messagesSummary 的快照（messages 由缓存条目单独承载）。 */
+  snapshot: Record<string, unknown>
+}
+
+function snapshotForCache(source: Record<string, unknown>): SessionMessageCacheSource {
+  const snapshot: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(source)) {
+    if (key === 'messages' || key === 'messagesSummary') continue
+    snapshot[key] = value
+  }
+  return {
+    stateVersion: typeof snapshot.stateVersion === 'number' && Number.isFinite(snapshot.stateVersion)
+      ? snapshot.stateVersion
+      : 0,
+    messages: Array.isArray(source.messages) ? source.messages as AgentMessage[] : [],
+    snapshot,
+  }
+}
+
+function initialStateFromSnapshot(snapshot: ServerAgentStateSnapshot): NonNullable<ServerAgentConfig['initialState']> {
+  return {
+    systemPrompt: snapshot.systemPrompt ?? '',
+    model: snapshot.model ?? null as unknown as Model<Api>,
+    thinkingLevel: snapshot.thinkingLevel ?? 'off',
+    messages: snapshot.messages ?? [],
+    tools: snapshot.tools ?? [],
+    accessMode: normalizeAgentAccessMode(snapshot.accessMode, snapshot.yoloMode),
+    harness: snapshot.harness ?? 'quickforge',
+    harnessSessionId: snapshot.harnessSessionId,
+    yoloMode: Boolean(snapshot.yoloMode),
+    isStreaming: Boolean(snapshot.isStreaming),
+    pendingToolCalls: snapshot.pendingToolCalls ?? [],
+    errorMessage: snapshot.errorMessage,
+    contextCompaction: snapshot.contextCompaction,
+    contextUsage: snapshot.contextUsage,
+    pendingToolApproval: snapshot.pendingToolApproval,
+    pendingAutoCompactApproval: snapshot.pendingAutoCompactApproval,
+    acpSession: snapshot.acpSession,
+    stateVersion: snapshot.stateVersion,
+  }
+}
+
+/** 缓存命中时优先用本地快照水合，再由 GET /state 后台校准。 */
+function cachedSnapshotToStateSnapshot(cached: SessionMessageSnapshotEntry): ServerAgentStateSnapshot {
+  return {
+    ...cached.snapshot,
+    messages: cached.messages as AgentMessage[],
+    stateVersion: cached.stateVersion,
+  } as ServerAgentStateSnapshot
+}
+
+// ---------------------------------------------------------------------------
 // Split-session message reconciliation
 // ---------------------------------------------------------------------------
 
@@ -545,6 +615,8 @@ export class ServerAgent {
   readonly harness: AgentHarness
   readonly harnessSessionId?: string
   private onPlanModeConsumed?: () => void
+  /** 最近一次已知会话元数据（title/scope/…），供缓存快照重建时保留。 */
+  private sessionCacheMetadata: Record<string, unknown> = {}
 
   /**
    * tool_execution_start/update/end SSE 事件 → subagentRunStore 的实时发布器：
@@ -604,7 +676,12 @@ export class ServerAgent {
       },
     })
 
-    this.unsubscribeSse = globalAgentSseClient.subscribe(this.sessionId, this.baseUrl, (event) => this.handleSseEvent(event))
+    this.unsubscribeSse = globalAgentSseClient.subscribe(this.sessionId, this.baseUrl, (event) => {
+      this.handleSseEvent(event)
+      if (MESSAGE_CACHE_EVENT_TYPES.has(String(event.type))) {
+        this.scheduleSessionMessageCacheWrite()
+      }
+    })
     if (this.state.isStreaming) this.startStateWatchdog()
   }
 
@@ -985,6 +1062,49 @@ export class ServerAgent {
     this.unsubscribeSse?.()
     this.unsubscribeSse = undefined
     this.listeners.clear()
+  }
+
+  // --- Session message snapshot cache (read-only acceleration layer) ---
+
+  /**
+   * 以当前实例状态重建缓存写入 payload。builder 在 flush 时读取 state，
+   * dispose 后 state 对象仍可安全读取；缺失字段宁可不写，保证 hydration
+   * 侧构造器安全。
+   */
+  private buildSessionMessageCachePayload(): SessionMessageCacheSource {
+    const state = this.state
+    return {
+      stateVersion: this.lastServerStateVersion,
+      messages: state.messages,
+      snapshot: {
+        ...this.sessionCacheMetadata,
+        systemPrompt: state.systemPrompt,
+        model: state.model,
+        thinkingLevel: state.thinkingLevel,
+        tools: state.tools,
+        accessMode: state.accessMode,
+        harness: this.harness,
+        harnessSessionId: this.harnessSessionId,
+        yoloMode: state.yoloMode,
+        isStreaming: state.isStreaming,
+        pendingToolCalls: [...state.pendingToolCalls],
+        errorMessage: state.errorMessage,
+        contextCompaction: state.contextCompaction,
+        contextUsage: state.contextUsage,
+        pendingToolApproval: state.pendingToolApproval,
+        pendingAutoCompactApproval: state.pendingAutoCompactApproval,
+        acpSession: state.acpSession,
+        stateVersion: this.lastServerStateVersion,
+      },
+    }
+  }
+
+  private scheduleSessionMessageCacheWrite(): void {
+    writeSessionMessageSnapshot(
+      resolveServerCacheKey(this.baseUrl),
+      this.sessionId,
+      () => this.buildSessionMessageCachePayload(),
+    )
   }
 
   // --- SSE event handling ---
@@ -1536,11 +1656,15 @@ export class ServerAgent {
         return
       }
 
-      // Discard stale responses: if state was updated by an SSE event while
-      // this fetch was in flight, the poll response is obsolete.
+      // Snapshot-based staleness guard: any state write that happens while
+      // this fetch was in flight (a concurrent SSE event that already advanced
+      // this.stateVersion) discards the result — the newer event wins.
       if (versionBeforeFetch !== this.stateVersion) {
         return
       }
+      // Capture whether the server reports the same version we already
+      // applied (cache-hit calibration) before advancing the watermark.
+      const versionMatchesLocal = serverStateVersion !== undefined && serverStateVersion === this.lastServerStateVersion
       if (serverStateVersion !== undefined) {
         this.lastServerStateVersion = serverStateVersion
       }
@@ -1562,7 +1686,16 @@ export class ServerAgent {
         // and merge the missing tail (or refetch all when the server
         // truncated). The reconcile itself snapshots stateVersion before the
         // async gap, so concurrent SSE updates still win.
-        await this.reconcileMessagesFromSummary(state.messagesSummary)
+        const summaryCount = state.messagesSummary.count
+        if (!options?.forceMessages && versionMatchesLocal
+          && typeof summaryCount === 'number' && summaryCount === this.state.messages.length) {
+          // Unchanged server version + matching summary count: the local
+          // message list (e.g. hydrated from the snapshot cache) is already
+          // in sync — skip the /messages fetch. forceMessages keeps the
+          // explicit syncState behaviour unchanged.
+        } else {
+          await this.reconcileMessagesFromSummary(state.messagesSummary)
+        }
       }
       if (state.systemPrompt !== undefined) {
         this.state.systemPrompt = state.systemPrompt
@@ -1642,6 +1775,29 @@ export class ServerAgent {
     config: { baseUrl?: string; signal?: AbortSignal } = {},
   ): Promise<{ agent: ServerAgent; snapshot: ServerAgentStateSnapshot }> {
     const baseUrl = config.baseUrl ?? ''
+    const serverKey = resolveServerCacheKey(baseUrl)
+
+    // Cache hit fast path: hydrate from the local IndexedDB snapshot and
+    // calibrate in the background through a lightweight GET /state (never a
+    // second POST /restore). The server remains authoritative — any cache
+    // miss / empty snapshot falls through to the original restore flow.
+    if (!config.signal?.aborted) {
+      const cached = await readSessionMessageSnapshot(serverKey, sessionId)
+      if (cached && cached.messages.length > 0) {
+        const stateSnapshot = cachedSnapshotToStateSnapshot(cached)
+        const agent = new ServerAgent({
+          sessionId,
+          baseUrl,
+          initialState: initialStateFromSnapshot(stateSnapshot),
+        })
+        agent.sessionCacheMetadata = cached.snapshot
+        void agent.refreshStateFromServer({ notify: true, forceMessages: false })
+          .catch(() => {})
+          .then(() => agent.scheduleSessionMessageCacheWrite())
+        return { agent, snapshot: stateSnapshot }
+      }
+    }
+
     const startedAt = performance.now()
     const { response, body } = await fetchJsonWithTimeout<ServerAgentStateSnapshot & { error?: string }>(
       `${baseUrl}/api/agents/${encodeURIComponent(sessionId)}/restore`,
@@ -1663,27 +1819,10 @@ export class ServerAgent {
     const agent = new ServerAgent({
       sessionId,
       baseUrl,
-      initialState: {
-        systemPrompt: snapshot.systemPrompt ?? '',
-        model: snapshot.model ?? null as unknown as Model<Api>,
-        thinkingLevel: snapshot.thinkingLevel ?? 'off',
-        messages: snapshot.messages ?? [],
-        tools: snapshot.tools ?? [],
-        accessMode: normalizeAgentAccessMode(snapshot.accessMode, snapshot.yoloMode),
-        harness: snapshot.harness ?? 'quickforge',
-        harnessSessionId: snapshot.harnessSessionId,
-        yoloMode: Boolean(snapshot.yoloMode),
-        isStreaming: Boolean(snapshot.isStreaming),
-        pendingToolCalls: snapshot.pendingToolCalls ?? [],
-        errorMessage: snapshot.errorMessage,
-        contextCompaction: snapshot.contextCompaction,
-        contextUsage: snapshot.contextUsage,
-        pendingToolApproval: snapshot.pendingToolApproval,
-        pendingAutoCompactApproval: snapshot.pendingAutoCompactApproval,
-        acpSession: snapshot.acpSession,
-        stateVersion: snapshot.stateVersion,
-      },
+      initialState: initialStateFromSnapshot(snapshot),
     })
+    agent.sessionCacheMetadata = snapshotForCache(snapshot as Record<string, unknown>).snapshot
+    agent.scheduleSessionMessageCacheWrite()
     logger.debug('Restored ServerAgent', {
       sessionId,
       messageCount: snapshot.messages?.length ?? 0,
@@ -1758,7 +1897,7 @@ export class ServerAgent {
       serverState.messages = await fetchAllSessionMessages(baseUrl, sessionId)
     }
 
-    return new ServerAgent({
+    const agent = new ServerAgent({
       sessionId,
       baseUrl,
       initialState: {
@@ -1782,5 +1921,8 @@ export class ServerAgent {
         stateVersion: serverState.stateVersion as number | undefined,
       },
     })
+    agent.sessionCacheMetadata = snapshotForCache(serverState).snapshot
+    agent.scheduleSessionMessageCacheWrite()
+    return agent
   }
 }

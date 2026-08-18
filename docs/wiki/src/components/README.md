@@ -117,7 +117,7 @@ components/
 ### AgentProfilesPage.tsx
 
 - 与定时任务平级的 Agent Profiles 独立管理页面
-- 创建自定义 Agent，配置系统提示词、模型、思考等级、工具白名单、运行时间、工具调用次数和是否启用为 sub agent
+- 创建自定义 Agent，配置系统提示词、模型、思考等级、工具白名单、运行时间、工具调用次数和是否启用为 sub agent；最大运行时间在界面按分钟填写（至少 1 秒，即 `1000/60000` 分钟，且不超过 60，支持小数），API 与配置文件仍使用毫秒字段
 - 创建/编辑弹窗支持用默认模型 AI 填充 Agent 名称、显示名称、描述和系统提示词，不自动修改工具白名单或运行限制
 - 展示内置 Agent Profiles；内置项的定义只读，但允许设置继承模型或固定模型
 
@@ -168,9 +168,13 @@ components/
 
 ### Workspace Inspector (`workspace/`)
 
-- 右侧专业工作区检查器入口为 `WorkspaceInspector.tsx`，采用类浏览器顶部 Tab 工作区；`+` 菜单提供 Files / Review / Terminal / Browser 入口。Tab 列表、活动 `activePanelTabId` 和 Review 的 Overview/Changes 子视图按 `projectId` 写入浏览器 `localStorage`，活动 Tab 是恢复事实源；项目切换通过 React `key` 重建 Inspector，从而加载新项目各自的 Tab 状态。
+- 右侧专业工作区检查器入口为 `WorkspaceInspector.tsx`，采用类浏览器顶部 Tab 工作区；`+` 菜单提供 Files / Review / Terminal / Browser 入口。Tab 下拉列表的条目区最多显示 10 行并在超出时独立纵向滚动，同时按视口高度兜底；“关闭其他 / 关闭全部”操作区固定在滚动区外。Tab 列表、活动 `activePanelTabId` 和 Review 的 Overview/Changes 子视图按 `projectId` 写入浏览器 `localStorage`，活动 Tab 是恢复事实源；项目切换通过 React `key` 重建 Inspector，从而加载新项目各自的 Tab 状态。
 - 标题栏 Git、聊天文件链接、文件 Reader 和产物 Browser 等外部入口通过携带 `projectId` 的一次性请求打开对应 Tab；Inspector 仅在请求项目与当前项目一致时消费并清除请求，普通折叠后重新展开不会重放已处理请求。
-- Files tab 通过后端 `/api/workspace/tree` 浏览当前项目文件，顶部支持路径筛选和手动刷新；Files、Review、Reader Tab 与产物文件标题统一使用 Material Icon Theme 官方文件类型图标，搜索、刷新、预览等操作图标继续使用 Lucide。从 Files 中打开普通文件时，会提升为独立顶部 reader tab，Tab 标题显示文件名，内容区左侧使用 Monaco Editor / Markdown Reader 只读展示，右侧保留可显隐、可拖拽调宽的工作目录树；Reader 顶部左侧显示“项目名 > 工作区相对路径”的分段面包屑，当前文件名增强显示，长路径自动截断并通过悬停展示完整路径；复制路径、复制文件内容和自动换行收拢到更多菜单，提供当前文件的资源管理器 / VS Code / IntelliJ IDEA 外部打开入口。Markdown Reader 基于 `react-markdown` 与 `remark-gfm` 渲染标准 Markdown/GFM，保留 Mermaid 代码块预览，并将本地图片相对路径按当前 Markdown 文件目录转换到工作区预览接口；默认展示预览，并在右侧操作区通过“查看源代码 / 返回预览”切换，原始 HTML 不直接渲染。更多操作始终保留，自动换行仅在源码视图可用。普通代码文件默认关闭自动换行并常驻横向滚动条，用户可按文件临时启用自动换行；文件 reader tab 按项目保存路径，恢复时重新加载最新内容。Markdown 和代码产物进入 reader，HTML、SVG 和图片产物进入 Browser。
+- Files tab 使用 `/api/workspace/children` 按需加载：首次激活只读根目录，首次展开目录才请求下一层；目录状态按归一化相对路径管理，已加载目录折叠重开不重复请求，根目录和子目录都提供 loading/error/retry 与分页“加载更多”。服务端 cursor 是 offset 而非快照；Inspector 会话内保留各目录已加载页和展开状态。刷新时旧 entries 保持可见，并按父到子重抓根目录及已展开目录：至少恢复刷新前覆盖量；若旧目录尚未在已抓页中出现则继续读到确认存在或目录完整，之后才递归清理真正消失目录的后代状态与展开路径。append 失败重试复用原 cursor，不清空前页；刷新按钮覆盖整个树刷新过程。
+- Files 搜索在输入至少 2 个字符后约 300ms 调用 `/api/workspace/search`，会立即隐藏上一 query 结果、取消旧请求并搜索整个项目，而非只过滤已加载节点；搜索状态下点击刷新或错误重试会立即重新执行当前 query，不刷新隐藏的普通树。loading/empty/error/truncated 采用单一状态展示。搜索结果中的目录明确按不可展开结果显示，不写入普通树的 expandedPaths；文件结果仍可打开。空搜索恢复普通按需树。Files、Review、Reader 三类加载相互解耦：Inspector 打开后会独立异步加载树根，因此直接通过 Reader、Browser 或外部请求进入时侧边 Files 导航仍可用，但 Reader/Browser 内容不等待该请求，且不会因此触发 Git；Review 使用显式 idle/loading/loaded/error，clean Git 仓库的空数组也算 loaded，不会重复请求，首次错误不会自动循环但会显示手动重试入口；局部目录错误不会遮挡 Reader/Review。
+- 已知限制：单个超大目录的 `children` 仍需在服务端读取并排序整层后再切分页；offset cursor 不是目录快照，分页间目录变化可能导致重复或跳过；浏览器端 AbortController 取消请求后，不保证服务端已经开始的文件系统扫描立即停止。
+- IndexedDB 只读缓存（F13，`lib/workspace-cache.ts`）：目录条目按 `serverKey::projectId::path` 缓存（仅完整未截断目录），Inspector 重开时 TTL 30s 内直接 seed 零网络、过期先 seed 再后台校准（SWR）；展开路径随缓存持久化，重开后整树即时恢复；Reader 文件内容按 `size+mtimeMs` 失效戳缓存（>1MB 不缓存），重开同文件先渲染缓存再经 `?meta=1` 轻量校验，mtime/size 一致即零内容传输；刷新按钮/强制刷新绕过缓存读并覆写缓存（"刷新=权威"）；错误与 truncated 不写缓存，IndexedDB 不可用全程回退网络路径。
+- 从 Files 中打开普通文件时，会提升为独立顶部 reader tab，Tab 标题显示文件名，内容区左侧使用 Monaco Editor / Markdown Reader 只读展示，右侧保留可显隐、可拖拽调宽的工作目录树；Reader 顶部左侧显示“项目名 > 工作区相对路径”的分段面包屑，当前文件名增强显示，长路径自动截断并通过悬停展示完整路径；复制路径、复制文件内容和自动换行收拢到更多菜单，提供当前文件的资源管理器 / VS Code / IntelliJ IDEA 外部打开入口。Markdown Reader 基于 `react-markdown` 与 `remark-gfm` 渲染标准 Markdown/GFM，保留 Mermaid 代码块预览，并将本地图片相对路径按当前 Markdown 文件目录转换到工作区预览接口；默认展示预览，并在右侧操作区通过“查看源代码 / 返回预览”切换，原始 HTML 不直接渲染。更多操作始终保留，自动换行仅在源码视图可用。普通代码文件默认关闭自动换行并常驻横向滚动条，用户可按文件临时启用自动换行；文件 reader tab 按项目保存路径，恢复时重新加载最新内容。Markdown 和代码产物进入 reader，HTML、SVG 和图片产物进入 Browser。
 - Review tab 通过 `/api/git/status` 展示 Git 工作区变更，并在同一个 Review/Changes tab 内通过 `/api/git/file-diff` 展示单文件差异；Changes 顶部刷新按钮右侧提供提交入口并打开 `GitCommitPushDialog`，提交入口左侧常驻项目打开方式菜单：未选择变更文件时在资源管理器、VS Code 或 IntelliJ IDEA 中打开项目，选择文件后则在资源管理器中打开其所在目录或在编辑器中直接打开该文件；Changes 列表提供单文件还原、暂存、退回未暂存、在新标签中打开文件，以及底部批量还原/暂存/退回操作，分别调用 `/api/git/restore`、`/api/git/stage`、`/api/git/unstage`、`/api/git/restore-all`、`/api/git/stage-all`、`/api/git/unstage-all`；标题栏 Git 更改入口会聚焦该 Review/Changes 工作区。
 - 标题栏 Git 分支 chip 通过 `/api/git/branches`、`/api/git/checkout`、`/api/git/create-branch` 和 `/api/git/log` 提供分支切换、创建并检出新分支和 Git 图谱弹窗；Workspace Inspector 仍聚焦文件浏览、产物预览和 diff review
 - AI 产物展示统一进入 Workspace Inspector：`present_files` 可用于 HTML、SVG/图片、Markdown、代码、配置、报告和其他可读文本；Markdown/代码/文本打开项目级 Reader Tab，HTML/SVG/图片打开项目级 Browser Tab，不支持直接展示的文件仍保留在产物列表。工具卡片的预览按钮使用相同分流规则，可在关闭后重新打开对应 Reader 或 Browser Tab；Tab 恢复由项目级持久化状态负责。Browser 在加载工作区文件前通过预检接口统一识别文件不存在、不支持类型、文件过大、路径受限和服务异常等状态，以轻量空状态展示友好说明，并在可展开的“错误详情”中保留状态码、错误代码、文件路径和后端原始报错。

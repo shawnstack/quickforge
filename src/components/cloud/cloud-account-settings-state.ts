@@ -1,5 +1,5 @@
 import type { Api, Model } from '@earendil-works/pi-ai'
-import type { CloudInstallation, CloudRemoteStatusValue, CloudServiceConfig, CloudStatus, CloudUsage } from '@/lib/cloud-client'
+import type { CloudInstallation, CloudRemoteStatus, CloudRemoteStatusValue, CloudServiceConfig, CloudStatus, CloudUsage } from '@/lib/cloud-client'
 
 export type CloudDetailError = {
   message: string
@@ -123,6 +123,26 @@ export function getCloudAccountContentVisibility(status?: CloudStatus): CloudAcc
 
 export function shouldPollCloudRemoteStatus(status: CloudRemoteStatusValue | undefined): boolean {
   return status === 'starting' || status === 'authorizing'
+}
+
+export type CloudRemoteAuthorizationUi = {
+  pending: boolean
+  failed: boolean
+  failedError?: string
+  needsLocalEnable: boolean
+}
+
+// 远程 Agent 授权始终由本机显式启用动作自动完成，UI 不暴露人工授权链接或 user code。
+export function getCloudRemoteAuthorizationUi(status: CloudRemoteStatus | undefined): CloudRemoteAuthorizationUi {
+  if (status?.status !== 'authorizing') return { pending: false, failed: false, needsLocalEnable: false }
+  const auto = status.autoApproval
+  if (auto?.status === 'armed' || auto?.status === 'pending' || auto?.status === 'consumed') {
+    return { pending: true, failed: false, needsLocalEnable: false }
+  }
+  if (auto?.status === 'failed') {
+    return { pending: false, failed: true, failedError: auto.error || undefined, needsLocalEnable: false }
+  }
+  return { pending: false, failed: false, needsLocalEnable: true }
 }
 
 export function canRebuildCloudIdentity(status: CloudStatus | undefined, changedUrl: boolean) {

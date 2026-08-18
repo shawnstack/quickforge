@@ -90,6 +90,11 @@ export class CloudClient {
   revokeInstallation(token, installationId, signal) {
     return this.request(`v1/installations/${encodeURIComponent(installationId)}`, { method: 'DELETE', token, signal })
   }
+  authorizeRemoteAgent(token, userCode, signal) {
+    return this.request('v1/remote/agents/authorize', {
+      method: 'POST', token, body: { userCode }, signal,
+    })
+  }
   chat(token, payload, idempotencyKey, signal) {
     return this.request('v1/chat/completions', {
       method: 'POST', token, body: payload,

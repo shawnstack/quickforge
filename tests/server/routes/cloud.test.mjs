@@ -105,6 +105,7 @@ describe('cloud routes', () => {
     ['POST', '/api/cloud/device/start', {}],
     ['POST', '/api/cloud/device/poll', {}],
     ['POST', '/api/cloud/device/cancel', {}],
+    ['POST', '/api/cloud/remote/authorize-retry', {}],
     ['POST', '/api/cloud/logout'],
     ['DELETE', '/api/cloud/installations/i-2'],
   ])('rejects %s %s without the Cloud action header', async (method, pathname, body) => {
@@ -182,6 +183,82 @@ describe('cloud routes', () => {
     expect(options.saveServiceConfig).toHaveBeenCalledWith({ cloudUrl: 'https://old.example/', enabled: false })
     expect(onCloudServiceConfigChanged).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }), { urlChanged: false })
     expect(JSON.parse(res.body)).toMatchObject({ enabled: false, cloudUrl: 'https://old.example/' })
+  })
+
+  it('arms a one-time auto-approval intent only when enabling the service from disabled', async () => {
+    const armAutoApproval = vi.fn()
+    const clearAutoApproval = vi.fn()
+    const options = handlerOptions({
+      readServiceConfig: vi.fn()
+        .mockResolvedValueOnce({ ...savedConfig, enabled: false })
+        .mockResolvedValueOnce({ ...savedConfig, enabled: true }),
+      armAutoApproval,
+      clearAutoApproval,
+    })
+    const handler = createCloudRouteHandler(options)
+    const res = response()
+    await handler(cloudRequest('PUT', { enabled: true }), res, new URL('http://localhost/api/cloud/config'), { isLocalRequest: true })
+    expect(options.saveServiceConfig).toHaveBeenCalledWith({ cloudUrl: 'https://old.example/', enabled: true })
+    expect(armAutoApproval).toHaveBeenCalledTimes(1)
+    expect(clearAutoApproval).not.toHaveBeenCalled()
+  })
+
+  it('does not arm auto-approval when an authenticated remote client enables the service', async () => {
+    const armAutoApproval = vi.fn()
+    const options = handlerOptions({
+      readServiceConfig: vi.fn()
+        .mockResolvedValueOnce({ ...savedConfig, enabled: false })
+        .mockResolvedValueOnce({ ...savedConfig, enabled: true }),
+      armAutoApproval,
+    })
+    const handler = createCloudRouteHandler(options)
+    await handler(cloudRequest('PUT', { enabled: true }), response(), new URL('http://localhost/api/cloud/config'), {
+      isLocalRequest: false,
+      remoteAddress: '100.96.93.16',
+      remoteAuthorized: true,
+    })
+    expect(options.saveServiceConfig).toHaveBeenCalledWith({ cloudUrl: 'https://old.example/', enabled: true })
+    expect(armAutoApproval).not.toHaveBeenCalled()
+  })
+
+  it('does not arm auto-approval on same-state saves or restarts and clears it when disabled', async () => {
+    const armAutoApproval = vi.fn()
+    const clearAutoApproval = vi.fn()
+    const options = handlerOptions({
+      readServiceConfig: vi.fn()
+        .mockResolvedValueOnce(savedConfig)
+        .mockResolvedValueOnce(savedConfig)
+        .mockResolvedValueOnce({ ...savedConfig, enabled: false })
+        .mockResolvedValueOnce({ ...savedConfig, enabled: false }),
+      armAutoApproval,
+      clearAutoApproval,
+    })
+    const handler = createCloudRouteHandler(options)
+    await handler(cloudRequest('PUT', { enabled: true }), response(), new URL('http://localhost/api/cloud/config'), { isLocalRequest: true })
+    expect(armAutoApproval).not.toHaveBeenCalled()
+    expect(clearAutoApproval).not.toHaveBeenCalled()
+    await handler(cloudRequest('PUT', { enabled: false }), response(), new URL('http://localhost/api/cloud/config'), { isLocalRequest: true })
+    expect(armAutoApproval).not.toHaveBeenCalled()
+    expect(clearAutoApproval).toHaveBeenCalledTimes(1)
+  })
+
+  it('exposes the local-only auto-approval retry endpoint without initializing the runtime', async () => {
+    const retryAutoApproval = vi.fn(async () => ({ status: 'consumed' }))
+    const runtimeFactory = vi.fn(runtime)
+    const handler = createCloudRouteHandler({ runtimeFactory, retryAutoApproval })
+    const res = response()
+    await handler(cloudRequest('POST', {}), res, new URL('http://localhost/api/cloud/remote/authorize-retry'), { isLocalRequest: true })
+    expect(res.status).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ status: 'consumed' })
+    expect(retryAutoApproval).toHaveBeenCalledTimes(1)
+    expect(runtimeFactory).not.toHaveBeenCalled()
+
+    await expect(handler(cloudRequest('POST', {}), response(), new URL('http://localhost/api/cloud/remote/authorize-retry'), {
+      isLocalRequest: false,
+      remoteAddress: '100.96.93.16',
+      remoteAuthorized: true,
+    })).rejects.toMatchObject({ statusCode: 403, code: 'cloud_local_only' })
+    expect(retryAutoApproval).toHaveBeenCalledTimes(1)
   })
 
   it('blocks cross-URL save with an active session but allows the same URL', async () => {

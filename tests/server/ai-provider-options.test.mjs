@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_AI_HTTP_TIMEOUT_MS,
   DEFAULT_AI_MAX_RETRIES,
+  DEFAULT_AI_STREAM_DEADLINE_MS,
+  DEFAULT_AI_STREAM_IDLE_TIMEOUT_MS,
+  DEFAULT_AI_STREAM_TOTAL_TIMEOUT_MS,
   withDefaultAiProviderOptions,
 } from '../../server/ai-provider-options.mjs'
 
@@ -14,6 +17,12 @@ describe('AI provider options', () => {
       timeoutMs: DEFAULT_AI_HTTP_TIMEOUT_MS,
       maxTokens: 100,
     })
+  })
+
+  it('defines five-minute idle and twenty-minute total stream timeouts', () => {
+    expect(DEFAULT_AI_STREAM_IDLE_TIMEOUT_MS).toBe(5 * 60 * 1000)
+    expect(DEFAULT_AI_STREAM_TOTAL_TIMEOUT_MS).toBe(20 * 60 * 1000)
+    expect(DEFAULT_AI_STREAM_DEADLINE_MS).toBe(DEFAULT_AI_STREAM_IDLE_TIMEOUT_MS)
   })
 
   it('preserves explicit retry and timeout values', () => {

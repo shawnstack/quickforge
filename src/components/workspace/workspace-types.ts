@@ -43,6 +43,21 @@ export type WorkspaceTreeResponse = {
   tree: WorkspaceTreeNode[]
 }
 
+export type WorkspaceChildrenResponse = {
+  root: string
+  path: string
+  entries: WorkspaceTreeNode[]
+  nextCursor: string | null
+  truncated: boolean
+}
+
+export type WorkspaceSearchResponse = {
+  root: string
+  query: string
+  entries: WorkspaceTreeNode[]
+  truncated: boolean
+}
+
 export type WorkspaceResolvedPathResponse = {
   relativePath: string
   exists: true
@@ -53,6 +68,16 @@ export type WorkspaceFileResponse = {
   path: string
   content: string
   size: number
+  mtimeMs: number
+  language: string
+  readonly: true
+}
+
+/** GET /api/workspace/file?meta=1 的轻量响应：仅元信息、不含内容，用于校验本地文件缓存快照。 */
+export type WorkspaceFileMetaResponse = {
+  path: string
+  size: number
+  mtimeMs: number
   language: string
   readonly: true
 }

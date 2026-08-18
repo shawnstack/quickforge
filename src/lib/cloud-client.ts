@@ -34,6 +34,13 @@ export type CloudServiceConfig = {
 
 export type CloudRemoteStatusValue = 'disabled' | 'unavailable' | 'stopped' | 'starting' | 'authorizing' | 'running' | 'conflict' | 'error'
 
+export type CloudAutoApprovalStatus = 'none' | 'armed' | 'pending' | 'consumed' | 'failed' | 'expired'
+
+export type CloudRemoteAutoApproval = {
+  status: CloudAutoApprovalStatus
+  error?: string | null
+}
+
 export type CloudRemoteStatus = {
   enabled: boolean
   status: CloudRemoteStatusValue
@@ -41,6 +48,7 @@ export type CloudRemoteStatus = {
   pid?: number | null
   verificationUriComplete?: string | null
   error?: string | null
+  autoApproval?: CloudRemoteAutoApproval
   updatedAt?: string
 }
 
@@ -177,6 +185,10 @@ export function getCloudStatus(signal?: AbortSignal) {
 
 export function getCloudRemoteStatus(signal?: AbortSignal) {
   return requestCloudJson<CloudRemoteStatus>('/api/cloud/remote/status', { signal })
+}
+
+export function retryCloudRemoteAuthorization(signal?: AbortSignal) {
+  return requestCloudJson<CloudRemoteAutoApproval>('/api/cloud/remote/authorize-retry', { method: 'POST', body: '{}', signal })
 }
 
 export function startCloudDeviceFlow(signal?: AbortSignal) {

@@ -263,22 +263,26 @@ LAN 共享访问管理路由。
 Workspace Inspector 后端 API。
 
 **主要端点**:
-- `GET /api/workspace/tree?projectId=...` — 返回项目文件树，排除 `.git`、`node_modules`、构建产物和敏感文件
-- `GET /api/workspace/file?projectId=...&path=...` — 安全读取 1MB 以内文本文件，返回 Monaco 语言标识
-- `GET /api/workspace/preview/:projectId/*` — 安全读取项目内静态产物文件，供右侧 Artifact Preview iframe/img 加载 HTML、CSS、JS、图片等资源；附加 `?__quickforge_check=1` 时仅执行预检并返回文件元数据，错误响应包含稳定错误代码、原始报错和请求路径，供前端统一展示 404/403/413/415/500 等状态
+- `GET /api/workspace/tree?projectId=...` — 兼容旧客户端的递归文件树；仍只跳过 `.git`、`node_modules`，节点总量有上限
+- `GET /api/workspace/children?projectId=...&path=.&limit=&cursor=` — 按需列出一个目录的直接子节点，目录优先并使用大小写不敏感主排序及确定性次级排序；相对路径统一使用 `/`。`cursor` 是当前排序结果中的 offset 编码，不是目录快照，目录在分页间变化时可能出现重复或跳过；响应必含 `root/path/entries/nextCursor/truncated`。单个超大目录仍需读取并排序整层后才能分页
+- `GET /api/workspace/search?projectId=...&query=&limit=` — 独立遍历整个项目并按名称/相对路径搜索，不依赖前端已加载节点；至少 2 个字符，结果与遍历均有上限。结果上限通过多找 1 个匹配后截断，因此 `truncated: true` 表示还有额外匹配，或遍历先达到安全上限。每个从遍历队列取出的目录都会在 `readdir` 前重新经过现有 workspace 真实路径 validator；不安全、已替换为外部链接或不可访问的目录会跳过。该检查用于缩小竞态窗口，不宣称消除文件系统不可避免的 TOCTOU
+- `GET /api/workspace/file?projectId=...&path=...` — 安全读取 1MB 以内文本文件，返回 Monaco 语言标识；响应含 `size` 与 `mtimeMs`（F13 缓存失效戳）；`&meta=1` 轻量模式走同一安全校验与 stat，仅返回 `{path,size,mtimeMs,language,readonly}` 不读内容（供前端缓存 meta 校验）
+- `GET /api/workspace/preview/:projectId/*` — 安全读取项目内静态产物文件，供右侧 Artifact Preview iframe/img 加载 HTML、CSS、JS、图片等资源；采用 ETag 协商缓存：响应带 `cache-control: private, no-cache` 与强 ETag `"<mtimeMs>-<size>"`（源自 `fs.stat`，零额外 IO），请求带匹配的 `If-None-Match` 时返回 304 且不再读取文件体，文件 mtime/size 变化即生成新 ETag 立即生效；附加 `?__quickforge_check=1` 时仅执行预检并返回文件元数据（含 `mtimeMs`），错误响应包含稳定错误代码、原始报错和请求路径，供前端统一展示 404/403/413/415/500 等状态
 - `GET /api/git/status?projectId=...` — 基于 `git status --porcelain=v1 -z --untracked-files=all` 返回扁平的工作区文件变更列表（未跟踪目录展开为具体文件，不返回目录分组项），并附加 `git diff HEAD --numstat` 的每个文件增删行数（`additions`/`deletions`）；未跟踪/新增文件按工作区文件行数估算，最多统计排序后的 100 个文件，单文件上限 1MB、单次总量上限 10MB、并发数 6，超限文件仍返回状态但省略增删行数
 - `GET /api/git/file-diff?projectId=...&path=...` — 返回单文件 `oldContent/newContent`，供 Monaco DiffEditor 展示
 
-**安全约束**: 所有路径必须位于项目 workspace 内，阻止敏感文件、二进制文件和超大文件预览。
+**路径边界**: 工作区文件读取、静态预览和外部打开分别使用各自的路径校验及文件类型/大小限制；目录 children/search 会限制在 workspace 内并跳过 `.git`、`node_modules` 及不安全的符号链接。search 对每个待遍历目录在读取前重新校验真实路径，但文件系统检查与后续读取之间仍存在不可完全消除的 TOCTOU；客户端取消请求也不保证已经开始的服务端扫描立即停止。
 
 ## workspace.mjs
 
 工作区文件与 Git 能力路由。
 
 **主要端点**:
-- `GET /api/workspace/tree` — 读取当前项目文件树。
+- `GET /api/workspace/tree` — 兼容旧客户端的递归工作区树。
+- `GET /api/workspace/children` — 按目录路径分页读取直接子节点，供 Files 树按需展开；offset cursor 只定位当前排序结果，不承诺目录快照。
+- `GET /api/workspace/search` — 独立遍历项目进行路径/名称搜索，不依赖前端已经展开的目录；`truncated` 表示存在额外匹配或遍历达到安全上限。上述 JSON 接口均返回 `Cache-Control: no-store`，但前端会在当前 Inspector 会话内保留各目录已加载页、展开和错误状态。
 - `GET /api/workspace/file?projectId=...&path=...` — 安全读取工作区文本文件。
-- `GET /api/workspace/preview/:projectId/:path` — 为 HTML/SVG/图片/Markdown 等允许类型提供静态预览。
+- `GET /api/workspace/preview/:projectId/:path` — 为 HTML/SVG/图片/Markdown 等允许类型提供静态预览；ETag 协商缓存（`private, no-cache` + `"<mtimeMs>-<size>"`），未变化请求返回 304 零重传。
 - `POST /api/workspace/resolve-path` — 将绝对路径解析为当前项目内的相对路径。
 - `POST /api/workspace/open-external` — 在资源管理器中打开选中变更文件所在目录，或在 VS Code / IntelliJ IDEA 中直接打开工作区内的选中文件；路径经过工作区边界校验。
 - `GET /api/git/status` — 获取 Git 仓库状态、当前分支、变更计数和文件列表。

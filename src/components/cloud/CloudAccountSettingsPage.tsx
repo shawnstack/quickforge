@@ -15,6 +15,7 @@ import {
   logoutCloud,
   pollCloudDeviceFlow,
   resetCloudIdentity,
+  retryCloudRemoteAuthorization,
   revokeCloudInstallation,
   startCloudDeviceFlow,
   testCloudConnection,
@@ -35,6 +36,7 @@ import {
   emptyCloudDetailsState,
   getCloudAccountContentVisibility,
   getCloudAccountViewState,
+  getCloudRemoteAuthorizationUi,
   loadCloudAccountDetails,
   rebuildCloudIdentityAndSaveUrl,
   shouldPollCloudRemoteStatus,
@@ -452,6 +454,26 @@ export function CloudAccountSettingsPage() {
     }
   }
 
+  const retryRemoteAuthorization = async () => {
+    if (busy) return
+    setBusy('remote-authorize-retry')
+    setMessage('')
+    setError('')
+    try {
+      const result = await retryCloudRemoteAuthorization()
+      void refreshRemoteStatus()
+      if (result.status === 'failed') {
+        setError(result.error || t('cloudRemoteAutoApprovalFailed'))
+      } else {
+        setMessage(t('cloudRemoteAutoApprovalRetried'))
+      }
+    } catch (retryError) {
+      setError(cloudErrorMessage(retryError))
+    } finally {
+      setBusy('')
+    }
+  }
+
   const copyUserCode = async () => {
     const code = status?.pendingDeviceFlow?.userCode
     if (!code) return
@@ -538,6 +560,7 @@ export function CloudAccountSettingsPage() {
       : remoteStatus?.status === 'error' || remoteStatus?.status === 'conflict'
         ? 'quickforge-settings-badge-warning'
         : 'quickforge-settings-badge-muted'
+  const remoteAuthorizationUi = getCloudRemoteAuthorizationUi(remoteStatus)
 
   const identityDescription = !cloudEnabled
     ? t('cloudServiceDisabledDescription')
@@ -671,7 +694,26 @@ export function CloudAccountSettingsPage() {
           </div>
           {remoteStatus?.serverUrl ? <div className="quickforge-settings-row"><div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title">{t('cloudRemoteServerUrl')}</div></div><div className="quickforge-settings-row-control break-all text-sm text-muted-foreground">{remoteStatus.serverUrl}</div></div> : null}
           {remoteStatus?.pid ? <div className="quickforge-settings-row"><div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title">{t('cloudRemotePid')}</div></div><div className="quickforge-settings-row-control text-sm font-medium">{remoteStatus.pid}</div></div> : null}
-          {remoteStatus?.status === 'authorizing' && remoteStatus.verificationUriComplete ? <div className="quickforge-settings-row"><div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title">{t('cloudRemoteAuthorization')}</div></div><div className="quickforge-settings-row-control"><a className="inline-flex items-center gap-1 text-sm text-primary hover:underline" href={remoteStatus.verificationUriComplete} target="_blank" rel="noreferrer">{t('cloudRemoteOpenAuthorization')}<ExternalLink className="size-3.5" /></a></div></div> : null}
+          {remoteStatus?.status === 'authorizing' ? <div className="quickforge-settings-row items-start">
+            <div className="quickforge-settings-row-main">
+              <div className="quickforge-settings-row-title">{t('cloudRemoteAuthorization')}</div>
+              <div className="quickforge-settings-row-description">
+                {remoteAuthorizationUi.pending
+                  ? t('cloudRemoteAutoApprovalPending')
+                  : remoteAuthorizationUi.failed
+                    ? t('cloudRemoteAutoApprovalFailed')
+                    : t('cloudRemoteAutoApprovalNeedsLocalEnable')}
+              </div>
+              {remoteAuthorizationUi.failed && remoteAuthorizationUi.failedError ? <div className="quickforge-settings-warning quickforge-settings-warning-attached mt-1">{remoteAuthorizationUi.failedError}</div> : null}
+            </div>
+            <div className="quickforge-settings-row-control flex-wrap gap-1.5">
+              {remoteAuthorizationUi.pending
+                ? <span className="text-sm text-muted-foreground">{t('cloudRemoteAutoApprovalWaiting')}</span>
+                : remoteAuthorizationUi.failed
+                  ? <Button variant="outline" size="sm" onClick={() => void retryRemoteAuthorization()} disabled={Boolean(busy)}><RefreshCw className="mr-2 size-3.5" />{t('cloudRemoteAutoApprovalRetry')}</Button>
+                  : null}
+            </div>
+          </div> : null}
           {remoteStatus?.error ? <div className="quickforge-settings-warning quickforge-settings-warning-attached">{remoteStatus.error}</div> : null}
         </div>
       ) : null}

@@ -6,15 +6,19 @@
 
 | 文件 | 行数 | 用途 |
 |------|------|------|
-| `i18n.ts` | 2171 | 国际化（中/英）翻译和语言管理 |
+| `i18n.ts` | 3216 | 国际化（中/英）翻译和语言管理；`applyAppLanguageFromSnapshot` 供启动快照预应用（不写库不 reload） |
 | `pi-chat.ts` | 365 | Pi Chat 初始化和模型管理 |
 | `server-agent.ts` | 832 | Server Agent — 服务端 Agent 客户端 |
+| `indexeddb-cache.ts` | 通用 IndexedDB 只读缓存封装：惰性单例 open、条目级 schemaVersion、LRU+字节双预算淘汰、全部异常静默降级（供会话消息/工作区/设置快照等缓存层复用） |
+| `session-message-cache.ts` | 会话消息只读快照 store（F12）：`resolveServerCacheKey`（baseUrl→直连后端→origin）、结构校验读取、per-key debounce 写入 + stateVersion 高水位守卫、IndexedDB 不可用全程 no-op |
+| `workspace-cache.ts` | Workspace 只读缓存 store（F13）：目录条目（SWR+30s TTL 新鲜判定）、展开路径、文件内容（size+mtimeMs 失效戳、>1MB 跳写）；复用 `IndexedDbCache` 与 `resolveServerCacheKey`，坏条目删除、不可用全程 no-op |
+| `app-settings-cache.ts` | 启动 Settings 快照 store（F14）：追踪键白名单（language/外观/字号/工具展示）、结构校验读取（坏条目删除）、>4KB 跳写；`HttpStorageBackend.set` 经 `updateAppSettingSnapshotFromStorageSet` 写通，IndexedDB 不可用全程 no-op |
 | `shared-server-agent.ts` | 429 | 共享会话 Agent 客户端 |
 | `local-tools.ts` | 247 | 前端本地工具渲染器注册 |
 | `share-client.ts` | 148 | 分享功能客户端 API |
 | `startup-model.ts` | 主聊天启动模型的当前目录精确匹配与安全回退 |
 | `cloud-client.ts` | QuickForge Cloud 本地 BFF 客户端和公开配置/状态/额度/设备类型 |
-| `http-storage-backend.ts` | 200 | HTTP Storage Backend 实现 |
+| `http-storage-backend.ts` | 245 | HTTP Storage Backend 实现；`set` 成功后 fire-and-forget 写通启动设置快照（`app-settings-cache`） |
 | `types.ts` | 82 | 类型定义 |
 | `utils.ts` | 6 | 通用工具函数（cn） |
 | `message-utils.ts` | 95 | 消息处理工具 |
@@ -95,6 +99,7 @@
 - Agent 权限模式切换
 - 自定义命令注入
 - 支持直接后端连接（绕过 Vite 代理）
+- **会话消息 IndexedDB 快照缓存（F12，只读加速层）**：`ServerAgent.restore()` 先读 `session-message-cache`，命中则用本地快照立即构造 Agent（不 POST /restore），后台经 `GET /state` 轻量校准——服务器 `stateVersion` 与缓存一致且 split `messagesSummary.count` 等于本地条数时跳过 `/messages` 补拉，不一致走既有 reconcile（尾部增量/全量重取，`versionBefore` 守卫不变）；restore/create 物化与 SSE 消息写事件（state/agent_end/message_end/turn_end/messages_replaced/tool_execution_*）经模块级 debounce（1.5s trailing）写回快照，写入前做 stateVersion 高水位守卫。服务器 SQLite 唯一权威，缓存任何失败（不可用/损坏/配额）均静默回源路径。
 
 ### shared-server-agent.ts (429 行)
 

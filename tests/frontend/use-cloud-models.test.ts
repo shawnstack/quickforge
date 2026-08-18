@@ -152,6 +152,38 @@ describe('useCloudModels', () => {
     expect(cloudMocks.getCloudModels).not.toHaveBeenCalled()
   })
 
+  it('caches a loaded empty catalog without requesting it again', async () => {
+    cloudMocks.getCloudStatus.mockResolvedValue({ configured: true, mode: 'account', hasSession: true })
+    cloudMocks.getCloudModels.mockResolvedValue([])
+
+    const hook = useCloudModels()
+    expect(hook.isCloudModelsLoaded()).toBe(false)
+    expect(hook.readCachedCloudModels()).toEqual([])
+
+    await expect(hook.loadCloudModels()).resolves.toEqual([])
+    expect(hook.isCloudModelsLoaded()).toBe(true)
+    expect(hook.readCachedCloudModels()).toEqual([])
+
+    await expect(hook.loadCloudModels()).resolves.toEqual([])
+    expect(cloudMocks.getCloudStatus).toHaveBeenCalledTimes(1)
+    expect(cloudMocks.getCloudModels).toHaveBeenCalledTimes(1)
+  })
+
+  it('invalidates the loaded marker and cached catalog when Cloud state changes', async () => {
+    const catalog = [model('cached-model')]
+    cloudMocks.getCloudStatus.mockResolvedValue({ configured: true, mode: 'account', hasSession: true })
+    cloudMocks.getCloudModels.mockResolvedValue(catalog)
+
+    const hook = useCloudModels()
+    await expect(hook.loadCloudModels()).resolves.toEqual(catalog)
+    expect(hook.isCloudModelsLoaded()).toBe(true)
+    expect(hook.readCachedCloudModels()).toEqual(catalog)
+
+    window.dispatchEvent(new Event(CLOUD_STATE_CHANGED_EVENT))
+    expect(hook.isCloudModelsLoaded()).toBe(false)
+    expect(hook.readCachedCloudModels()).toEqual([])
+  })
+
   it('aborts in-flight work and avoids state updates after unmount', async () => {
     const catalog = deferred<Model<Api>[]>()
     cloudMocks.getCloudStatus.mockResolvedValue({ configured: true, mode: 'account', hasSession: true })

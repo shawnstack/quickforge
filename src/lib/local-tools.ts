@@ -691,7 +691,7 @@ export class SubagentRunDetailBodyElement extends LitElement {
     payload: { attribute: false },
   }
 
-  payload?: SubagentRunPayload
+  declare payload?: SubagentRunPayload
 
   /** 防止连续更新叠加多次装饰；更新期间若又渲染，则在当前轮结束后补跑一次。 */
   private __processDecorationScheduled = false

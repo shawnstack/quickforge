@@ -43,6 +43,11 @@ type ComposerModelMenuElement = HTMLDivElement & {
   __quickforgeCleanup?: () => void
 }
 
+export type ModelSelectorHandle = {
+  isOpen: () => boolean
+  updateModels: (models: readonly AnyModel[]) => void
+}
+
 export function closeComposerModelMenu(anchor?: HTMLElement | null) {
   document.querySelectorAll<ComposerModelMenuElement>('.quickforge-model-menu, .quickforge-model-submenu, .quickforge-model-sheet-backdrop').forEach((menu) => {
     menu.__quickforgeCleanup?.()
@@ -124,11 +129,12 @@ function createMenuItem(options: {
 
 function openMobileModelSelector(
   currentModel: AnyModel | null,
-  models: AnyModel[],
+  initialModels: AnyModel[],
   onSelect: (model: AnyModel) => void,
   options: ModelSelectorOptions,
   anchor?: HTMLElement | null,
-) {
+): ModelSelectorHandle {
+  let models = initialModels
   let selectedThinkingLevel = options.thinkingLevel ?? 'off'
   let selectedModel = currentModel
 
@@ -220,13 +226,49 @@ function openMobileModelSelector(
   modelList.setAttribute('role', 'menu')
   modelList.setAttribute('aria-label', t('model'))
 
-  // 滚动期间忽略模型行点击，避免滚动误触选中模型
+  const modelItems = new Map<HTMLButtonElement, AnyModel>()
   let lastScrollAt = 0
+
+  const renderModelList = () => {
+    modelItems.clear()
+    modelList.replaceChildren()
+
+    if (options.noneLabel) {
+      const noneItem = createMenuItem({
+        label: options.noneLabel,
+        selected: selectedModel === null,
+      })
+      noneItem.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        if (Date.now() - lastScrollAt < 300) return
+        options.onNoneSelect?.()
+        closeComposerModelMenu(anchor)
+      })
+      modelList.append(noneItem)
+    }
+
+    const sortedModels = [...models].sort((a, b) => modelLabel(a).localeCompare(modelLabel(b)))
+    for (const model of sortedModels) {
+      const item = createMenuItem({
+        label: options.modelLabelOverride ? options.modelLabelOverride(model) : modelLabel(model),
+        selected: modelsAreEqual(selectedModel, model),
+        onClick: (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          if (Date.now() - lastScrollAt < 300) return
+          selectModel(model)
+        },
+      })
+      modelItems.set(item, model)
+      modelList.append(item)
+    }
+  }
+
+  // 滚动期间忽略模型行点击，避免滚动误触选中模型
   modelList.addEventListener('scroll', () => {
     lastScrollAt = Date.now()
   })
-
-  const modelItems = new Map<HTMLButtonElement, AnyModel>()
 
   // 选中模型：立即生效，但保持抽屉打开，仅高亮当前项
   const selectModel = (model: AnyModel) => {
@@ -245,36 +287,7 @@ function openMobileModelSelector(
     onSelect(model)
   }
 
-  if (options.noneLabel) {
-    const noneItem = createMenuItem({
-      label: options.noneLabel,
-      selected: currentModel === null,
-    })
-    noneItem.addEventListener('click', (event) => {
-      event.preventDefault()
-      event.stopPropagation()
-      if (Date.now() - lastScrollAt < 300) return
-      options.onNoneSelect?.()
-      closeComposerModelMenu(anchor)
-    })
-    modelList.append(noneItem)
-  }
-
-  const sortedModels = [...models].sort((a, b) => modelLabel(a).localeCompare(modelLabel(b)))
-  for (const model of sortedModels) {
-    const item = createMenuItem({
-      label: options.modelLabelOverride ? options.modelLabelOverride(model) : modelLabel(model),
-      selected: modelsAreEqual(selectedModel, model),
-      onClick: (event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        if (Date.now() - lastScrollAt < 300) return
-        selectModel(model)
-      },
-    })
-    modelItems.set(item, model)
-    modelList.append(item)
-  }
+  renderModelList()
 
   sheet.append(dragZone, header, ...(thinkingSection ? [thinkingSection] : []), modelSectionLabel, modelList)
   sheet.addEventListener('pointerdown', (event) => event.stopPropagation())
@@ -346,6 +359,15 @@ function openMobileModelSelector(
   anchor?.setAttribute('aria-expanded', 'true')
   document.addEventListener('keydown', dismiss, true)
   window.addEventListener('resize', dismiss, true)
+
+  return {
+    isOpen: () => document.body.contains(backdrop),
+    updateModels: (nextModels) => {
+      if (!document.body.contains(backdrop)) return
+      models = [...nextModels]
+      renderModelList()
+    },
+  }
 }
 
 /**
@@ -380,21 +402,21 @@ export function openModelSheet(
 
 export function openCustomOnlyModelSelector(
   currentModel: AnyModel | null,
-  models: AnyModel[],
+  initialModels: AnyModel[],
   onSelect: (model: AnyModel) => void,
   _onEditModel?: (model: AnyModel) => void,
   options: ModelSelectorOptions = {},
-) {
+): ModelSelectorHandle | null {
   const anchor = getAnchor(options.anchor)
   if (document.querySelector('.quickforge-model-menu, .quickforge-model-sheet-backdrop')) {
     closeComposerModelMenu(anchor)
-    return
+    return null
   }
   if (window.innerWidth <= 768) {
-    openMobileModelSelector(currentModel, models, onSelect, options, anchor)
-    return
+    return openMobileModelSelector(currentModel, initialModels, onSelect, options, anchor)
   }
 
+  let models = initialModels
   let selectedThinkingLevel = options.thinkingLevel ?? 'off'
   let selectedModel = currentModel
   let submenu: ComposerModelMenuElement | null = null
@@ -520,4 +542,15 @@ export function openCustomOnlyModelSelector(
   document.addEventListener('keydown', dismiss, true)
   window.addEventListener('resize', dismiss, true)
   window.addEventListener('scroll', dismiss, true)
+
+  return {
+    isOpen: () => document.body.contains(menu),
+    updateModels: (nextModels) => {
+      if (!document.body.contains(menu)) return
+      models = [...nextModels]
+      if (submenu) renderModelSubmenu()
+      renderMainMenu()
+      positionMainMenu(menu, anchor)
+    },
+  }
 }

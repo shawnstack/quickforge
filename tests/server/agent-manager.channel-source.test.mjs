@@ -88,6 +88,7 @@ describe('agent manager channel source persistence', () => {
         source: 'acp',
         channelId: 'wechat',
         channelName: '微信',
+        stateVersion: session.stateVersion,
       })
     } finally {
       await destroyAgent(sessionId)

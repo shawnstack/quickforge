@@ -58,6 +58,12 @@ QuickForge Server 在 HTTP `listen` 成功后读取当前 Cloud 服务配置。C
 
 `GET /api/cloud/remote/status` 仅返回运行状态、绑定的回环 Server URL、Agent PID、需要授权时的公开验证链接和脱敏错误，不返回可执行文件路径、身份目录或令牌。Agent 二进制缺失、版本不兼容、锁冲突或连接失败都不会阻塞 QuickForge 本地 Server 启动；本地功能保持可用。
 
+代理透传：仅当 QuickForge 网络代理配置为 `manual` 且 proxyUrl 非空时，托管层才向 `qf-agent` 子进程 env 注入 `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`，并构造 `NO_PROXY`（保留父进程已有 `NO_PROXY`/`no_proxy` 条目，至少加入 `localhost`、`127.0.0.1`、`::1` 与回环 Server URL 主机名，保证 agent 与本地 QuickForge 的通信不被代理）；`direct`/`system`/`pac` 模式不映射为子进程代理，也不清除父进程已有代理 env。代理 URL 不会出现在任何公开状态或日志中。
+
+失效身份自动重新授权：托管层检测 `qf-agent` 结构化 warn/error/fatal/panic 日志中的 `invalid_refresh_token`、`refresh_token_reused`、`installation_revoked` 错误码，以及既有“refresh token 已失效”终态提示；每 lifecycle 至多一次标记身份重置、将状态置为可操作的 `authorizing` 并终止子进程。仅在子进程退出后对当前 runtime 专属 `identityDir/identity.json` 做安全隔离/删除（优先 rename 到同目录临时文件并尽快清理，Windows EPERM 安全 fallback unlink，ENOENT 幂等，只处理普通文件、不跟随 symlink），随后调度重启使 agent 重新进入设备授权；隔离成功与否均不清零重启计数，若新身份仍被云端拒绝，重启预算逐次消耗至 `MAX_CONSECUTIVE_RESTARTS` 后停止（稳定运行 60s 为自然重置边界），避免隔离清零形成无界循环。清理严格限定在 `remote-agent/<runtimeKind>-<port>` 身份目录，绝不触碰 `storage/security/cloud-identity.json`；stop 或新 lifecycle 不会触发误清理。
+
+自动批准远程 Agent（一次性、短时）：当本机用户在设置页显式把 Cloud 服务从 `disabled` 切换为 `enabled` 时，服务端在内存中创建一个默认 10 分钟有效期的自动批准意图；**认证远程客户端、Server 启动恢复、URL 切换、agent 普通重启都不会创建意图**，因此不会静默批准新 agent。qf-agent 进入 `authorizing` 后，托管层从结构化日志的 `verificationUriComplete`（兼容 `userCode`/`user_code`/`code` query 参数）提取一次性 user_code，经桌面 `CloudIdentityManager.withAccessToken` 调用云端固定接口 `POST /v1/remote/agents/authorize`（Bearer desktop Access Token，body `{userCode}`，200 `{ok:true}`）。云端要求调用身份 `kind=desktop` 且具备 `remote:write`，并只批准同账户、`pending`、未过期、`client_id=quickforge-agent` 的独立 Agent installation；mobile/agent 身份即使具有同 scope 也会被拒绝。意图一次性消费并在进程内合并并发调用；成功后 agent 自己的 Device Flow 完成轮询并保存独立身份，失败则保留脱敏错误，UI 提示“重新登录或重试”，用户无需打开授权页或输入码。`POST /api/cloud/remote/authorize-retry` 仅本机可调用；`GET /api/cloud/remote/status` 返回 `autoApproval` 状态（`none/armed/pending/consumed/failed/expired`）。远程 Agent UI 不提供人工授权入口；无有效意图时引导用户在本机关闭后重新启用远程访问。desktop Token 只在 Node 内存中经 `withAccessToken` 注入，user_code 不作为独立字段进入公开状态；意图绝不落盘（不写 agent identity、不触碰 `storage/security/cloud-identity.json`），关闭服务或服务退出后自动失效。
+
 随 npm 包、runtime 包与 offline 离线包分发的 `qf-agent` 内置五个平台：`win32-x64`、`darwin-x64`、`darwin-arm64`、`linux-x64`、`linux-arm64`（对应 `runtime-assets/agent/<平台>/qf-agent[.exe]`）。支持矩阵的含义是：这些主机可注册为远程访问设备，供已认证的远端客户端通过云信令/隧道访问本机 QuickForge；**不代表跨主机远程执行 AI 工具**——模型推理（本地 Provider 或 Cloud）仍由被访问主机上的 QuickForge 本机执行，远端只是经隧道访问其 Web/API 界面。
 
 ## 本地 API
@@ -73,6 +79,8 @@ QuickForge Server 在 HTTP `listen` 成功后读取当前 Cloud 服务配置。C
 - `POST /api/cloud/device/poll`：Node 使用私有 `deviceCode` 轮询；结果为 `pending`、`slow_down`、`success`、`denied`、`expired` 或 `network`。仅网络异常、HTTP 5xx 与可重试服务错误映射为 `network`；协议错误和无效响应直接抛错。并发 poll 在单进程内合并为一次远端 exchange。
 - `POST /api/cloud/device/cancel`：清理待处理授权，保留原 local 或遗留 guest 状态。
 - 以上三个 Device Flow 端点均要求 action header 与 JSON Content-Type，响应绝不包含 `deviceCode`。
+- `POST /api/cloud/remote/authorize-retry`：仅本机可调用，且仅当自动批准意图处于 `failed` 时由 UI 显式发起重试；服务端复用内存中保留的 user_code 重新调用 `POST /v1/remote/agents/authorize`，返回新的意图状态（`pending/consumed/failed` 等）。不要求用户打开授权页或输入码，也不把 user_code 发送给浏览器。
+- `GET /api/cloud/remote/status`：返回 `autoApproval` 字段（`{status, error?}`，status ∈ `none/armed/pending/consumed/failed/expired`），供 UI 在 `authorizing` 期间区分自动批准进行中、失败或需要在本机重新启用；远程 Agent UI 不提供人工授权链接。
 - `GET /api/cloud/models`
 - `GET /api/cloud/usage`
 - `GET /api/cloud/installations`

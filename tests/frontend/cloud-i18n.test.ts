@@ -36,6 +36,14 @@ describe('QuickForge Cloud internationalization', () => {
     expect(i18nSource).toContain("cloudServiceEnabled: '启用云服务'")
     expect(i18nSource).toContain("cloudDisabledError: 'QuickForge Cloud is turned off. Enable it in Cloud settings to continue.'")
     expect(i18nSource).toContain("cloudDisabledError: 'QuickForge Cloud 已关闭，请先在云服务设置中启用。'")
+    expect(i18nSource).toContain("cloudRemoteAutoApprovalPending: 'Authorizing the remote agent automatically…'")
+    expect(i18nSource).toContain("cloudRemoteAutoApprovalPending: '正在自动授权远程 Agent…'")
+    expect(i18nSource).toContain("cloudRemoteAutoApprovalFailed: 'Automatic authorization failed. Sign in to QuickForge Cloud or retry.'")
+    expect(i18nSource).toContain("cloudRemoteAutoApprovalFailed: '自动授权失败，请登录 QuickForge Cloud 后重试。'")
+    expect(i18nSource).toContain("cloudRemoteAutoApprovalNeedsLocalEnable: 'Turn remote access off and on again on this computer to authorize the agent automatically.'")
+    expect(i18nSource).toContain("cloudRemoteAutoApprovalNeedsLocalEnable: '请在本机关闭后重新启用远程访问，系统将自动完成 Agent 授权。'")
+    expect(i18nSource).toContain("cloudRemoteAutoApprovalRetry: 'Retry authorization'")
+    expect(i18nSource).toContain("cloudRemoteAutoApprovalRetry: '重试授权'")
   })
 
   it('uses translation keys for the model setup empty state', () => {

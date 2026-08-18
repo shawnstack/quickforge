@@ -5,6 +5,12 @@ import { HttpStorageBackend } from '../../src/lib/http-storage-backend'
 // @ts-expect-error package subpath is not in the exports map
 import { SessionsStore } from '../../node_modules/@earendil-works/pi-web-ui/dist/storage/stores/sessions-store.js'
 
+const settingsSnapshotMocks = vi.hoisted(() => ({
+  updateAppSettingSnapshotFromStorageSet: vi.fn(async () => undefined),
+}))
+
+vi.mock('@/lib/app-settings-cache', () => settingsSnapshotMocks)
+
 type FetchCall = { url: string; init?: RequestInit }
 
 function jsonResponse(payload: unknown, status = 200): Response {
@@ -97,5 +103,79 @@ describe('HttpStorageBackend transaction batching', () => {
     backend = new HttpStorageBackend('http://127.0.0.1:3456')
     await backend.transaction(['sessions'], 'readonly', async () => 42)
     expect(calls).toHaveLength(0)
+  })
+})
+
+describe('HttpStorageBackend settings snapshot write-through', () => {
+  const calls: FetchCall[] = []
+
+  beforeEach(() => {
+    settingsSnapshotMocks.updateAppSettingSnapshotFromStorageSet.mockClear()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    calls.length = 0
+    settingsSnapshotMocks.updateAppSettingSnapshotFromStorageSet.mockClear()
+  })
+
+  function installFetchMock() {
+    vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), init })
+      return jsonResponse({ ok: true })
+    }))
+  }
+
+  it('updates the startup snapshot after a successful settings PUT', async () => {
+    installFetchMock()
+    const backend = new HttpStorageBackend()
+    await backend.set('settings', 'appearance-settings', { theme: 'dark' })
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].init?.method).toBe('PUT')
+    expect(settingsSnapshotMocks.updateAppSettingSnapshotFromStorageSet).toHaveBeenCalledTimes(1)
+    expect(settingsSnapshotMocks.updateAppSettingSnapshotFromStorageSet).toHaveBeenCalledWith(
+      'settings',
+      'appearance-settings',
+      { theme: 'dark' },
+    )
+  })
+
+  it('normalizes undefined values to null for parity with GET semantics', async () => {
+    installFetchMock()
+    const backend = new HttpStorageBackend()
+    await backend.set('settings', 'language', undefined as never)
+
+    expect(settingsSnapshotMocks.updateAppSettingSnapshotFromStorageSet).toHaveBeenCalledWith(
+      'settings',
+      'language',
+      null,
+    )
+  })
+
+  it('still delegates non-settings stores to the write-through (cache module filters them)', async () => {
+    installFetchMock()
+    const backend = new HttpStorageBackend()
+    await backend.set('sessions', 's1', { id: 's1' })
+
+    expect(calls).toHaveLength(1)
+    // storeName / 白名单键过滤在 updateAppSettingSnapshotFromStorageSet
+    // 内完成（由 app-settings-cache.test.ts 覆盖）。
+    expect(settingsSnapshotMocks.updateAppSettingSnapshotFromStorageSet).toHaveBeenCalledTimes(1)
+    expect(settingsSnapshotMocks.updateAppSettingSnapshotFromStorageSet).toHaveBeenCalledWith(
+      'sessions',
+      's1',
+      { id: 's1' },
+    )
+  })
+
+  it('keeps the PUT result when the snapshot write-through rejects', async () => {
+    installFetchMock()
+    settingsSnapshotMocks.updateAppSettingSnapshotFromStorageSet.mockRejectedValueOnce(
+      new Error('IndexedDB unavailable'),
+    )
+    const backend = new HttpStorageBackend()
+    await expect(backend.set('settings', 'language', 'zh')).resolves.toBeUndefined()
+    expect(calls).toHaveLength(1)
   })
 })

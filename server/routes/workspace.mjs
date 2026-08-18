@@ -25,6 +25,11 @@ const MAX_GIT_LINE_COUNT_TOTAL_BYTES = 10 * 1024 * 1024
 const GIT_LINE_COUNT_CONCURRENCY = 6
 const PREVIEW_ALLOWED_EXTENSIONS = new Set(['.html', '.htm', '.css', '.js', '.mjs', '.json', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.ico', '.txt', '.md'])
 const MAX_TREE_NODES = 50000
+const DEFAULT_CHILDREN_LIMIT = 200
+const MAX_CHILDREN_LIMIT = 500
+const DEFAULT_SEARCH_LIMIT = 100
+const MAX_SEARCH_LIMIT = 200
+const MAX_SEARCH_VISITED_ENTRIES = 50000
 const SKIP_DIRS = new Set(['.git', 'node_modules'])
 
 const extensionLanguageMap = new Map([
@@ -701,7 +706,9 @@ async function readGitFile(workspaceRoot, ref, relativePath) {
   return result.code === 0 ? result.stdout.toString('utf8') : ''
 }
 
-async function readWorkspaceTextFile(context, relativePath) {
+// 安全校验 + stat（不读内容）：普通读取与 meta 轻量探测共用，保证两条路径
+// 的 400/413/ENOENT 错误语义完全一致。
+async function statWorkspaceTextFile(context, relativePath) {
   const file = resolveWorkspacePath(relativePath, context)
   await assertSafeWorkspacePath(file, context, { allowSensitive: true })
   const stat = await fs.stat(file)
@@ -715,8 +722,13 @@ async function readWorkspaceTextFile(context, relativePath) {
     error.statusCode = 413
     throw error
   }
-  const buffer = await fs.readFile(file)
-  return { content: buffer.toString('utf8'), size: stat.size, path: toWorkspaceRelative(file, context) }
+  return { file, size: stat.size, mtimeMs: stat.mtimeMs, path: toWorkspaceRelative(file, context) }
+}
+
+async function readWorkspaceTextFile(context, relativePath) {
+  const info = await statWorkspaceTextFile(context, relativePath)
+  const buffer = await fs.readFile(info.file)
+  return { content: buffer.toString('utf8'), size: info.size, mtimeMs: info.mtimeMs, path: info.path }
 }
 
 async function buildTreeForDirectory(dir, context, counter, validateWorkspacePath) {
@@ -765,6 +777,202 @@ async function handleWorkspaceTree(req, res, url) {
   sendJson(res, 200, { root: context.project.name, tree })
 }
 
+function parseBoundedLimit(rawValue, defaultValue, maxValue) {
+  if (rawValue === null || rawValue === '') return defaultValue
+  const value = Number(rawValue)
+  if (!Number.isInteger(value) || value < 1) {
+    const error = new Error('limit must be a positive integer')
+    error.statusCode = 400
+    throw error
+  }
+  return Math.min(value, maxValue)
+}
+
+function encodeWorkspaceCursor(offset) {
+  return Buffer.from(String(offset), 'utf8').toString('base64url')
+}
+
+function decodeWorkspaceCursor(rawCursor) {
+  if (!rawCursor) return 0
+  let decoded
+  try {
+    decoded = Buffer.from(rawCursor, 'base64url').toString('utf8')
+  } catch {
+    const error = new Error('cursor is invalid')
+    error.statusCode = 400
+    throw error
+  }
+  if (!/^\d+$/.test(decoded)) {
+    const error = new Error('cursor is invalid')
+    error.statusCode = 400
+    throw error
+  }
+  const value = Number(decoded)
+  if (!Number.isSafeInteger(value) || value < 0) {
+    const error = new Error('cursor is invalid')
+    error.statusCode = 400
+    throw error
+  }
+  return value
+}
+
+export function compareWorkspaceEntries(left, right) {
+  if (left.type !== right.type) return left.type === 'directory' ? -1 : 1
+  return left.name.localeCompare(right.name, undefined, { sensitivity: 'base' })
+    || left.name.localeCompare(right.name, undefined, { sensitivity: 'variant' })
+    || (left.path < right.path ? -1 : left.path > right.path ? 1 : 0)
+}
+
+async function workspaceEntryFromDirent(dir, entry, context, validateWorkspacePath) {
+  if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) return null
+  const fullPath = path.join(dir, entry.name)
+  const relativePath = toWorkspaceRelative(fullPath, context)
+  if (entry.isDirectory()) return { name: entry.name, path: relativePath, type: 'directory' }
+  if (entry.isFile()) return { name: entry.name, path: relativePath, type: 'file' }
+  if (!entry.isSymbolicLink()) return null
+
+  try {
+    await validateWorkspacePath(fullPath, { allowSensitive: true })
+    const stat = await fs.stat(fullPath)
+    if (stat.isDirectory()) {
+      if (SKIP_DIRS.has(entry.name)) return null
+      return { name: entry.name, path: relativePath, type: 'directory' }
+    }
+    if (stat.isFile()) return { name: entry.name, path: relativePath, type: 'file' }
+  } catch {
+    // External, broken, or inaccessible symbolic links are omitted.
+  }
+  return null
+}
+
+async function readWorkspaceDirectory(context, relativePath) {
+  const requestedPath = relativePath?.trim() || '.'
+  const directory = resolveWorkspacePath(requestedPath, context)
+  const validateWorkspacePath = await createWorkspacePathValidator(context)
+  await validateWorkspacePath(directory, { allowSensitive: true })
+  const stat = await fs.stat(directory)
+  if (!stat.isDirectory()) {
+    const error = new Error('Path is not a directory')
+    error.statusCode = 400
+    throw error
+  }
+  return { directory, requestedPath: toWorkspaceRelative(directory, context), validateWorkspacePath }
+}
+
+export async function listWorkspaceChildren(context, relativePath = '.', options = {}) {
+  const limit = parseBoundedLimit(options.limit ?? null, DEFAULT_CHILDREN_LIMIT, MAX_CHILDREN_LIMIT)
+  const offset = decodeWorkspaceCursor(options.cursor || '')
+  const { directory, requestedPath, validateWorkspacePath } = await readWorkspaceDirectory(context, relativePath)
+  const dirents = await fs.readdir(directory, { withFileTypes: true })
+  const entries = []
+  for (const dirent of dirents) {
+    const entry = await workspaceEntryFromDirent(directory, dirent, context, validateWorkspacePath)
+    if (entry) entries.push(entry)
+  }
+  entries.sort(compareWorkspaceEntries)
+  if (offset > entries.length) {
+    const error = new Error('cursor is out of range')
+    error.statusCode = 400
+    throw error
+  }
+  const page = entries.slice(offset, offset + limit)
+  const nextOffset = offset + page.length
+  return {
+    root: context.project.name,
+    path: requestedPath,
+    entries: page,
+    nextCursor: nextOffset < entries.length ? encodeWorkspaceCursor(nextOffset) : null,
+    truncated: nextOffset < entries.length,
+  }
+}
+
+async function handleWorkspaceChildren(req, res, url) {
+  const context = await projectContextFromUrl(url)
+  sendJson(res, 200, await listWorkspaceChildren(context, url.searchParams.get('path') || '.', {
+    limit: url.searchParams.get('limit'),
+    cursor: url.searchParams.get('cursor') || '',
+  }))
+}
+
+export async function readValidatedWorkspaceSearchDirectory(directory, validateWorkspacePath, visitedDirectories, io = {}) {
+  const realpath = io.realpath || fs.realpath
+  const readdir = io.readdir || fs.readdir
+  await validateWorkspacePath(directory, { allowSensitive: true })
+  const directoryReal = await realpath(directory)
+  const directoryKey = process.platform === 'win32' ? directoryReal.toLocaleLowerCase() : directoryReal
+  if (visitedDirectories.has(directoryKey)) return null
+  visitedDirectories.add(directoryKey)
+  const dirents = await readdir(directory, { withFileTypes: true })
+  return { directoryReal, dirents }
+}
+
+export async function searchWorkspace(context, rawQuery, options = {}) {
+  const query = typeof rawQuery === 'string' ? rawQuery.trim() : ''
+  if (query.length < 2) {
+    const error = new Error('query must contain at least 2 characters')
+    error.statusCode = 400
+    throw error
+  }
+  const limit = parseBoundedLimit(options.limit ?? null, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT)
+  const validateWorkspacePath = await createWorkspacePathValidator(context)
+  await validateWorkspacePath(context.workspaceRoot, { allowSensitive: true })
+  const normalizedQuery = query.toLocaleLowerCase()
+  const results = []
+  const pending = [context.workspaceRoot]
+  const visitedDirectories = new Set()
+  let visited = 0
+  let traversalTruncated = false
+  let hasAdditionalMatch = false
+
+  while (pending.length > 0 && !traversalTruncated && !hasAdditionalMatch) {
+    const directory = pending.pop()
+    let validated
+    try {
+      validated = await readValidatedWorkspaceSearchDirectory(directory, validateWorkspacePath, visitedDirectories)
+    } catch {
+      continue
+    }
+    if (!validated) continue
+    const { dirents } = validated
+    dirents.sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: 'base' })
+      || left.name.localeCompare(right.name, undefined, { sensitivity: 'variant' })
+      || (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
+    const childDirectories = []
+    for (const dirent of dirents) {
+      if (visited >= MAX_SEARCH_VISITED_ENTRIES) {
+        traversalTruncated = true
+        break
+      }
+      visited += 1
+      const entry = await workspaceEntryFromDirent(directory, dirent, context, validateWorkspacePath)
+      if (!entry) continue
+      if (entry.path.toLocaleLowerCase().includes(normalizedQuery) || entry.name.toLocaleLowerCase().includes(normalizedQuery)) {
+        results.push(entry)
+        if (results.length > limit) {
+          hasAdditionalMatch = true
+          break
+        }
+      }
+      if (entry.type === 'directory') childDirectories.push(path.join(directory, dirent.name))
+    }
+    for (let index = childDirectories.length - 1; index >= 0; index -= 1) pending.push(childDirectories[index])
+  }
+
+  results.sort(compareWorkspaceEntries)
+  return {
+    root: context.project.name,
+    query,
+    entries: results.slice(0, limit),
+    truncated: traversalTruncated || hasAdditionalMatch,
+  }}
+
+async function handleWorkspaceSearch(req, res, url) {
+  const context = await projectContextFromUrl(url)
+  sendJson(res, 200, await searchWorkspace(context, url.searchParams.get('query') || '', {
+    limit: url.searchParams.get('limit'),
+  }))
+}
+
 async function handleWorkspaceFile(req, res, url) {
   const context = await projectContextFromUrl(url)
   const relativePath = url.searchParams.get('path') || ''
@@ -772,6 +980,19 @@ async function handleWorkspaceFile(req, res, url) {
     const error = new Error('path is required')
     error.statusCode = 400
     throw error
+  }
+  // meta=1：轻量元信息探测（与 preview 路由的 `__quickforge_check=1` 探测风格一致）。
+  // 走同一安全校验与 stat，但绝不读取文件内容，供客户端校验本地文件缓存快照。
+  if (url.searchParams.get('meta') === '1') {
+    const info = await statWorkspaceTextFile(context, relativePath)
+    sendJson(res, 200, {
+      path: info.path,
+      size: info.size,
+      mtimeMs: info.mtimeMs,
+      language: languageFromPath(info.path),
+      readonly: true,
+    })
+    return
   }
   const file = await readWorkspaceTextFile(context, relativePath)
   sendJson(res, 200, {
@@ -840,6 +1061,21 @@ export async function inspectWorkspacePreviewFile(context, relativePath) {
   }
 }
 
+// ETag 源=stat（零额外 IO）：mtimeMs+size 足以标识本地文件版本
+export function buildPreviewEtag(stat) {
+  return `"${stat.mtimeMs}-${stat.size}"`
+}
+
+// If-None-Match 支持精确值、`*` 与逗号分隔列表（每项 trim 后比较）
+function ifNoneMatchSatisfied(headerValue, etag) {
+  return String(headerValue)
+    .split(',')
+    .some((candidate) => {
+      const value = candidate.trim()
+      return value === etag || value === '*'
+    })
+}
+
 async function handleWorkspacePreview(req, res, url) {
   let relativePath = ''
   try {
@@ -858,19 +1094,36 @@ async function handleWorkspacePreview(req, res, url) {
 
     const context = await projectContextFromId(projectId)
     const preview = await inspectWorkspacePreviewFile(context, relativePath)
+    const etag = buildPreviewEtag(preview.stat)
     if (url.searchParams.get('__quickforge_check') === '1') {
       sendJson(res, 200, {
         ok: true,
         path: relativePath,
         size: preview.stat.size,
+        mtimeMs: preview.stat.mtimeMs,
         contentType: preview.contentType,
       })
       return
     }
 
+    const ifNoneMatch = req.headers?.['if-none-match']
+    if (typeof ifNoneMatch === 'string' && ifNoneMatchSatisfied(ifNoneMatch, etag)) {
+      // 304=未变化零传输：命中协商缓存，不读文件体直接结束
+      res.writeHead(304, {
+        etag,
+        'cache-control': 'private, no-cache',
+        'x-content-type-options': 'nosniff',
+      })
+      res.end()
+      return
+    }
+
+    // no-cache=每次协商：浏览器每次回源校验，文件变化立即生效
     res.writeHead(200, {
       'content-type': preview.contentType,
-      'cache-control': 'no-store',
+      'content-length': String(preview.stat.size),
+      'cache-control': 'private, no-cache',
+      etag,
       'x-content-type-options': 'nosniff',
     })
     const buffer = await fs.readFile(preview.file)
@@ -1151,6 +1404,14 @@ async function handleGitCommitAndPush(req, res) {
 export async function handleWorkspaceApi(req, res, url, requestContext = {}) {
   if (req.method === 'GET' && url.pathname === '/api/workspace/tree') {
     await handleWorkspaceTree(req, res, url)
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/workspace/children') {
+    await handleWorkspaceChildren(req, res, url)
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/workspace/search') {
+    await handleWorkspaceSearch(req, res, url)
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/workspace/file') {

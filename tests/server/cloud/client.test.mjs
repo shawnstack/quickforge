@@ -11,6 +11,7 @@ describe('cloud client device flow', () => {
 
     await client.authorizeDevice({ installationId: 'install-1', clientId: 'quickforge-desktop' })
     await client.exchangeDeviceCode('device-secret', 'quickforge-desktop')
+    await client.authorizeRemoteAgent('desktop-access-token', 'ABCD-EFGH')
 
     expect(fetchImpl).toHaveBeenNthCalledWith(1, new URL('https://cloud.test/base/oauth/device_authorization'), expect.objectContaining({
       method: 'POST',
@@ -26,6 +27,11 @@ describe('cloud client device flow', () => {
       }),
     }))
     expect(new Headers(fetchImpl.mock.calls[1][1].headers).get('authorization')).toBeNull()
+    expect(fetchImpl).toHaveBeenNthCalledWith(3, new URL('https://cloud.test/base/v1/remote/agents/authorize'), expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ userCode: 'ABCD-EFGH' }),
+    }))
+    expect(new Headers(fetchImpl.mock.calls[2][1].headers).get('authorization')).toBe('Bearer desktop-access-token')
   })
 
   it('preserves OAuth error code, description, retryability, and status', async () => {

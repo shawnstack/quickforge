@@ -2,6 +2,7 @@ import { getQfAgentStatus } from '../cloud/qf-agent-process.mjs'
 import { isAuthenticatedAppClient } from '../access-policy.mjs'
 import { CloudClient, CloudApiError } from '../cloud/client.mjs'
 import { parseCloudBaseUrl } from '../cloud/config.mjs'
+import { armAgentAutoApproval, clearAgentAutoApproval, retryAgentAutoApproval } from '../cloud/auto-approval.mjs'
 import { createCloudCredentialStore } from '../cloud/credential-store.mjs'
 import { getCloudRuntime, invalidateCloudRuntime } from '../cloud/runtime.mjs'
 import {
@@ -22,6 +23,7 @@ const JSON_WRITE_ROUTES = new Set([
   'POST /api/cloud/device/start',
   'POST /api/cloud/device/poll',
   'POST /api/cloud/device/cancel',
+  'POST /api/cloud/remote/authorize-retry',
 ])
 
 function routeError(message, statusCode, code) {
@@ -81,6 +83,9 @@ export function createCloudRouteHandler({
   invalidateRuntime = invalidateCloudRuntime,
   cloudClientFactory = (config) => new CloudClient(config),
   qfAgentStatus = getQfAgentStatus,
+  armAutoApproval = armAgentAutoApproval,
+  clearAutoApproval = clearAgentAutoApproval,
+  retryAutoApproval = retryAgentAutoApproval,
   onServiceConfigChanged,
 } = {}) {
   async function runtimeOrError() {
@@ -105,6 +110,17 @@ export function createCloudRouteHandler({
         return
       }
       sendJson(res, 200, qfAgentStatus())
+      return
+    }
+
+    // 自动批准失败后由 UI 发起的重试：仍使用服务端内存中保留的 user_code，
+    // 不要求用户打开授权页或输入码。
+    if (req.method === 'POST' && url.pathname === '/api/cloud/remote/authorize-retry') {
+      if (context.isLocalRequest !== true) {
+        throw routeError('Remote agent authorization can be retried only on this computer.', 403, 'cloud_local_only')
+      }
+      await readJsonBody(req, CLOUD_CONFIG_BODY_MAX_BYTES)
+      sendJson(res, 200, await retryAutoApproval())
       return
     }
 
@@ -138,6 +154,9 @@ export function createCloudRouteHandler({
       const currentConfig = await readServiceConfig({ strict: false })
       const nextUrl = parseCloudBaseUrl(body?.cloudUrl === undefined ? currentConfig.cloudUrl : body.cloudUrl).href
       const nextEnabled = body?.enabled === undefined ? currentConfig.enabled === true : body.enabled
+      // 仅在本机用户显式将 Cloud 服务从 disabled 切换为 enabled 时创建短时、一次性的
+      // agent 自动批准意图；认证远程客户端、启动恢复、URL 切换和 agent 普通重启都不会静默批准新 agent。
+      const enabledTransition = context.isLocalRequest === true && currentConfig.enabled !== true && nextEnabled === true
       const urlChanged = !sameCloudUrl(currentConfig.cloudUrl, nextUrl)
       if (body?.cloudUrl !== undefined) {
         const credentialStore = credentialStoreFactory()
@@ -152,6 +171,8 @@ export function createCloudRouteHandler({
       }
       await saveServiceConfig({ cloudUrl: nextUrl, enabled: nextEnabled })
       invalidateRuntime()
+      if (enabledTransition) armAutoApproval()
+      else if (!nextEnabled) clearAutoApproval()
       const saved = await readServiceConfig({ strict: false })
       const notify = context.onCloudServiceConfigChanged || onServiceConfigChanged
       if (typeof notify === 'function') await notify(saved, { urlChanged })

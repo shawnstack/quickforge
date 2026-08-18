@@ -7,6 +7,7 @@ import {
   emptyCloudDetailsState,
   getCloudAccountContentVisibility,
   getCloudAccountViewState,
+  getCloudRemoteAuthorizationUi,
   loadCloudAccountDetails,
   rebuildCloudIdentityAndSaveUrl,
   shouldPollCloudRemoteStatus,
@@ -34,6 +35,37 @@ describe('Cloud account settings state', () => {
     expect(shouldPollCloudRemoteStatus('running')).toBe(false)
     expect(shouldPollCloudRemoteStatus('disabled')).toBe(false)
     expect(shouldPollCloudRemoteStatus(undefined)).toBe(false)
+  })
+
+  it('keeps remote agent authorization fully automatic while approval is pending', () => {
+    expect(getCloudRemoteAuthorizationUi({
+      enabled: true,
+      status: 'authorizing',
+      verificationUriComplete: 'https://cloud.test/device?user_code=ABCD',
+      autoApproval: { status: 'pending' },
+    })).toEqual({ pending: true, failed: false, needsLocalEnable: false })
+  })
+
+  it('shows a retry hint after auto-approval fails without exposing manual authorization', () => {
+    expect(getCloudRemoteAuthorizationUi({
+      enabled: true,
+      status: 'authorizing',
+      verificationUriComplete: 'https://cloud.test/device?user_code=ABCD',
+      autoApproval: { status: 'failed', error: 'cloud unavailable' },
+    })).toEqual({ pending: false, failed: true, failedError: 'cloud unavailable', needsLocalEnable: false })
+  })
+
+  it('asks for a local off-on cycle when authorizing has no automatic approval intent', () => {
+    expect(getCloudRemoteAuthorizationUi({
+      enabled: true,
+      status: 'authorizing',
+      verificationUriComplete: 'https://cloud.test/device?user_code=ABCD',
+    })).toEqual({ pending: false, failed: false, needsLocalEnable: true })
+  })
+
+  it('returns an idle UI outside the authorizing state', () => {
+    expect(getCloudRemoteAuthorizationUi({ enabled: true, status: 'running' })).toEqual({ pending: false, failed: false, needsLocalEnable: false })
+    expect(getCloudRemoteAuthorizationUi(undefined)).toEqual({ pending: false, failed: false, needsLocalEnable: false })
   })
 
   it('keeps usage and devices when models fail', async () => {

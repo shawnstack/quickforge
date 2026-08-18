@@ -1,27 +1,14 @@
 # Session Handoff
 
-- Feature: `lan-access-storage-migration`（F11）
-- Status: **done**（Phase 1 核心层 + Phase 2 store 接入/生命周期/routes + Phase 3 backup/restore/离线工具/全量门禁 全部闭环；全量 test/lint/build 100% 通过）
-- Current Objective: 已完成。F11 收尾交付——backup route 权威导出（`lanAccessState` envelope，维护锁内 quick_check+verifyIntegrity+exportSnapshot，count/digest fail closed，导出含 token 哈希非明文、剔除 revision）+ restore（replace/merge + `lan-access-restore-plan.json` 计划文件 + 失败补偿 + 维护锁 423 `lan_access_maintenance` + 恢复覆盖 enabled 开关→inspect 警告「将替换局域网访问配置」+ v1 归一化导入 + 不破坏 F5/F7/F9/F10 + `recoverLanAccessRestorePlan` 接入 index.mjs 启动链）+ 离线工具（`export-lan-access-v1.mjs` / `downgrade-lan-access-v1.mjs`）+ Electron full-chain smoke 全链覆盖 + 全量门禁。
-- Phase 3 deliverables:
-  - `server/lan-access-backup.mjs`（新）：`exportLanAccessStateForBackup`/`restoreLanAccessStateSnapshot`/`recoverLanAccessRestorePlan`/`computeLanAccessSnapshotDigest`（镜像 share-backup 模式，`lan-access-restore-plan.json` 计划文件、applying 类 roll-forward、compensating 类 rollback、`retainLanAccessMaintenance` 补偿失败语义）
-  - `server/maintenance/export-lan-access-v1.mjs`（新）：停机权威 v1 导出（`{ scope:'lan-access', lanAccessState, data:{lanAccess} }`，临时文件重读校验后 rename；cutover_running/json_authoritative 拒绝）
-  - `server/maintenance/downgrade-lan-access-v1.mjs`（新）：--dry-run 零写入 / 默认 drain 物化完整 JSON / --commit 校验后切回 json_authoritative（tokenCount/digest 精确对拍，失败不留部分输出）
-  - `server/routes/backup.mjs`：backupScopes + `lan-access`、restoreSectionIds + `lanAccess`、buildBackup 纳入 lanAccess 权威导出、restoreValidatedBackup lanAccess 分支、inspect 警告、423 门禁、safety backup scope all
-  - `server/index.mjs`：启动链插入 `recoverLanAccessRestorePlan()`（initializeLanAccessCutover → initializeLanAccessService → recoverLanAccessRestorePlan → drainLanAccessJsonMirror）
-  - 测试（新）：`tests/server/backup.authoritative-lan-access.test.mjs`（7 项）、`tests/server/lan-access-offline-export.test.mjs`（7 项）
-  - `tests/fixtures/session-state-full-chain-electron-smoke.mjs` + `tests/server/session-state-full-chain-electron-smoke.test.mjs`：lanAccess backup/restore/offline export/downgrade 全链断言
-  - 文档：架构文档 §8/§9/§10、wiki server/README、wiki routes/README、feature_list.json/progress.md/session-handoff.md
-- Key decisions:
-  - lanAccess 是单配置对象（非 keyed map）：`data.lanAccess` 直接为 v1 lan-access.json 形状；`lanAccessState.count` = token 数（inspect summary 与 import summary 一致）
-  - merge 语义 = 顶层字段合并（backup 同 key 覆盖、本地 tokens 保留当 backup 无 tokens 键）；replace 全量替换
-  - 离线工具与测试必须显式注入 `readJson`（`defaultLanAccessConfig()` 每次调用 updatedAt 不同会导致 cutover 双快照 digest 不一致；离线测试父进程 storageDir 指向真实 dataDir，必须用显式 mock 源隔离）
-  - verifyLanAccessToken 在 backup/restore/downgrade 后仍 fail-closed（route 测试覆盖）
-- Verification（Phase 3）:
-  - `node --check` 全部改动通过；目标 ESLint 0 error / 0 warning
-  - Vitest 针对性：新增 14 项（backup.authoritative-lan-access 7 + lan-access-offline-export 7）；lan-access 六文件回归 33 项；backup/share 四文件回归 43 项；`index.tunnel-host.integration` 4 项
-  - **全量门禁：`npm run test` 196 文件 / 1566 项 100% 通过；`npm run lint` 0 error（仅既有 server/cloud/identity.mjs 1 条 warning）；`npm run build` exit 0（仅既有 KaTeX/大 chunk warning）**
-  - Electron 39.8.10（Node 22.22.1 / SQLite 3.51.2）ELECTRON_RUN_AS_NODE=1：full-chain smoke 输出 `{"ok":true,"schemaVersion":9,...,"lanAccess":{"phase":"authoritative","count":1,"roundtripDigestOk":true,"mirrorOk":true,"revokeAllOk":true,"backupRestoreOk":true,"downgrade":{"dryRunOk":true,"materialized":1,"committed":true,"phaseAfterCommit":"json_authoritative"}},"runtime":{"electron":"39.8.10","node":"22.22.1","sqlite":"3.51.2"}}`；既有 4 个 Electron fixtures 复跑全部通过
-- Boundaries: 未触碰 `routes/lan-access.mjs`（零改动）、`dist/`/`package-dist/`/`package-offline/`；未 commit/tag/push；工作区仍有多智能体并行未提交改动，仅处理 F11 相关文件，禁止整体回滚
-- Notes: 测试隔离要点不变——依赖 storageDir 的模块须在设 `QUICKFORGE_DATA_DIR` 后 `vi.resetModules()` 动态导入；离线工具测试父进程用显式 `readJson` mock（stableDefaultLanAccessConfig 固定 updatedAt）隔离真实 dataDir；smoke fixture 中 lanAccess offline 工具段必须在 `closeSqliteStorage()` 之后 spawn（工具自行开库）；真实 `~/.quickforge/storage/security/lan-access.json` mtime 未被本次改动（测试只读临时目录）。F12 登记由并行会话完成（IndexedDB 性能分析→会话消息快照缓存，分析记录见 progress.md「F12 登记」小节），与本 F11 收尾改动无代码文件交集，状态文件已核对无冲突。
-- Next: F12 `session-message-indexeddb-cache` 已登记（pending，依赖 F9 done）：IndexedDB 会话消息只读快照缓存，三阶段方案（Phase 1 基准+设计 → Phase 2 核心缓存层 → Phase 3 stale-while-revalidate 集成）见 feature_list.json 描述；边界：服务器 SQLite 保持唯一权威，IndexedDB 仅浏览器只读缓存层。另：IndexedDB 分析中还有 P1 workspace 文件树/preview 缓存、P2 启动 settings 快照候选，暂未登记。
+- Feature: IndexedDB 应用规划 F12-F15
+- Status: **全部 done**（用户指令"直到所有任务完成"已达成；最终全量门禁 `npm run test` 203 文件/1629 项 100%、`npm run lint` 0 error、`npm run build` exit 0）
+- 交付总览：
+  - **F12 `session-message-indexeddb-cache`**：`src/lib/indexeddb-cache.ts`（通用只读封装，LRU+字节双预算）+ `src/lib/session-message-cache.ts`（serverKey 回退/结构校验/1.5s debounce 写入+stateVersion 高水位守卫）+ `server-agent.ts` restore 缓存命中快路径与 SSE 写回；刷新/重进会话先渲染本地快照（2000 条会话省 ~1.19MB 重拉），版本一致时零 /messages 请求。
+  - **F13 `workspace-inspector-cache`**：服务端 file 端点补 `mtimeMs`+`?meta=1` 轻量模式；`src/lib/workspace-cache.ts`（目录 TTL 30s SWR+展开路径持久化+文件 size+mtimeMs 失效戳、>1MB 跳写）；WorkspaceInspector 接线（重开 Inspector 整树即时恢复、TTL 内零网络、同文件重开零内容传输、force 刷新绕过缓存）。
+  - **F14 `app-settings-swr-cache`**：`src/lib/app-settings-cache.ts`（白名单 4 键：language/appearance/font-size/tool-display）+ boot 开头快照预应用（任何 await 前、与 health 并行）+ 既有 await 序列即校准 + 成功路径回写 + `HttpStorageBackend.set` 写通（覆盖迁移写/默认写全部写点）；access-mode 不缓存。
+  - **F15 `workspace-preview-cache`**：前置评估确认 HTTP 方案可行（URL 稳定、重载在 React key 不在 URL、cookie 同源兼容），**按约定不以 IndexedDB 闭环**——preview 路由 ETag（stat mtimeMs+size）+ If-None-Match→304 + `private, no-cache`，同文件重复预览零 body 重传，零前端改动。
+- 共同边界（全程遵守）：服务器唯一权威，IndexedDB 仅浏览器只读缓存层，任何缓存失败静默回源路径；无新依赖；未 commit/tag/push；未手工修改 dist/。
+- 新增文件：src/lib/{indexeddb-cache,session-message-cache,workspace-cache,app-settings-cache}.ts + tests/frontend/{indexeddb-cache,session-message-cache,workspace-cache,app-settings-cache,use-app-bootstrap-snapshot,i18n-language-snapshot}.test.ts + tests/server/routes/workspace-file-meta.test.mjs；测试净增约 63 项（13+8+6 / 7+3+3 / 6+4+2+4 / 7）。
+- 文档同步：docs/wiki/src/lib、src/hooks、src/components、server/routes、docs/architecture/browser-cache-strategy.zh-CN.md。
+- Notes: 工作区存在其他智能体并行改动（cloud/scheduled-tasks/workspace-tree-on-demand 等），全部门禁在并行改动共存下通过；只碰了 F12-F15 相关文件。
+- Next: 无（规划闭环）。遗留观察（不阻塞）：F13 目录 TTL 30s 内树变更不自动出现（手动刷新即权威）；F14 过期快照预应用后可能一次静默切换（写通保证通常最新）；F15 stat→readFile TOCTOU 最多多传一次（改动前已存在）。

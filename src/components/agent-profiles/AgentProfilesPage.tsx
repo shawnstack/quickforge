@@ -14,6 +14,14 @@ import { modelDisplayLabel as modelLabel } from '@/lib/model-display-label'
 import { includeCurrentModel, modelMatchesReference, sameModelIdentity } from '@/lib/model-identity'
 import { defaultThinkingLevelForModel, getConfiguredModels, initializePiStorage, loadDefaultOptions } from '@/lib/pi-chat'
 import { isModelSelectable } from '@/lib/model-visibility'
+import {
+  DEFAULT_MAX_RUNTIME_MINUTES,
+  MAX_RUNTIME_MINUTES,
+  MIN_RUNTIME_MINUTES,
+  isMaxRuntimeMinutesValid,
+  maxRuntimeMinutesToMs,
+  maxRuntimeMsToMinutes,
+} from './agent-runtime'
 
 type RiskLevel = 'safe' | 'dangerous'
 
@@ -60,7 +68,7 @@ type AgentFormState = {
   description: string
   systemPrompt: string
   allowedTools: string[]
-  maxRuntimeMs: string
+  maxRuntimeMinutes: string
   maxToolCalls: string
   enabledAsSubagent: boolean
   modelMode: 'inherit' | 'fixed'
@@ -112,7 +120,7 @@ function defaultAgentForm(): AgentFormState {
     description: '',
     systemPrompt: '',
     allowedTools: ['read_file', 'grep_files'],
-    maxRuntimeMs: '3600000',
+    maxRuntimeMinutes: String(DEFAULT_MAX_RUNTIME_MINUTES),
     maxToolCalls: '300',
     enabledAsSubagent: true,
     modelMode: 'inherit',
@@ -128,7 +136,7 @@ function agentFormFromProfile(agent: AgentProfile): AgentFormState {
     description: agent.description ?? '',
     systemPrompt: agent.systemPrompt ?? '',
     allowedTools: agent.allowedTools ?? [],
-    maxRuntimeMs: String(agent.maxRuntimeMs ?? 3600000),
+    maxRuntimeMinutes: maxRuntimeMsToMinutes(agent.maxRuntimeMs),
     maxToolCalls: String(agent.maxToolCalls ?? 300),
     enabledAsSubagent: agent.enabledAsSubagent,
     modelMode: agent.model?.mode === 'fixed' ? 'fixed' : 'inherit',
@@ -144,7 +152,7 @@ function buildAgentPayload(form: AgentFormState) {
     description: form.description.trim(),
     systemPrompt: form.systemPrompt.trim(),
     allowedTools: form.allowedTools,
-    maxRuntimeMs: Number(form.maxRuntimeMs || 3600000),
+    maxRuntimeMs: maxRuntimeMinutesToMs(form.maxRuntimeMinutes),
     maxToolCalls: Number(form.maxToolCalls || 300),
     enabledAsSubagent: form.enabledAsSubagent,
     model: form.modelMode === 'fixed' ? modelRefFromOption(form.fixedModelValue) : { mode: 'inherit' },
@@ -153,7 +161,12 @@ function buildAgentPayload(form: AgentFormState) {
 }
 
 function agentFormIsValid(form: AgentFormState) {
-  return Boolean(form.name.trim() && form.label.trim() && form.allowedTools.length > 0)
+  return Boolean(
+    form.name.trim()
+    && form.label.trim()
+    && form.allowedTools.length > 0
+    && isMaxRuntimeMinutesValid(form.maxRuntimeMinutes),
+  )
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -598,8 +611,18 @@ export function AgentProfilesPage() {
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block text-sm font-medium text-foreground">
-                  {t('maxRuntimeMs')}
-                  <input type="number" className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.maxRuntimeMs} disabled={definitionReadonly} onChange={(event) => updateAgentForm('maxRuntimeMs', event.target.value)} />
+                  {t('maxRuntimeMinutes')}
+                  <input
+                    type="number"
+                    min={MIN_RUNTIME_MINUTES}
+                    max={MAX_RUNTIME_MINUTES}
+                    step="any"
+                    className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60"
+                    value={agentForm.maxRuntimeMinutes}
+                    disabled={definitionReadonly}
+                    onChange={(event) => updateAgentForm('maxRuntimeMinutes', event.target.value)}
+                  />
+                  <span className="mt-1 block text-xs text-muted-foreground">{t('maxRuntimeMinutesHelp')}</span>
                 </label>
                 <label className="block text-sm font-medium text-foreground">
                   {t('maxToolCalls')}

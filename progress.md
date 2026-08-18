@@ -2,10 +2,45 @@
 
 ## Current State
 
-- Feature: `lan-access-storage-migration`（F11）
-- Status: **done**（Phase 1 核心层 + Phase 2 store 接入/生命周期/routes + Phase 3 backup/restore/离线工具/全量门禁 全部完成；全量 test/lint/build 100% 通过）
+- Feature: IndexedDB 应用规划 F12-F15
+- Status: **全部 done**（F12 会话消息快照 / F13 workspace 缓存 / F14 settings SWR / F15 preview ETag——按约定 F15 以 HTTP 方案闭环未写 IndexedDB）
 - Blockers: 无
-- Next step: F12 `session-message-indexeddb-cache`（pending，IndexedDB 会话消息只读快照缓存）已登记，依赖 F9 done、阻塞已清；下一会话可从 Phase 1（基准+设计）启动
+- Next step: 无（本规划闭环；最终门禁 203 文件/1629 项 100%、lint 0 error、build exit 0）
+
+## F15 Workspace Preview Cache — 完成（HTTP ETag 方案闭环）
+
+- 前置评估结论（explore 核实）：HTTP 方案完全可行无阻碍——preview URL 稳定（`workspacePreviewUrl` 纯函数、`?r=` reloadToken 为死代码无人传参、markdown 图片后缀来自静态源文件）；WebPreviewContent 重载机制在 React key（remount iframe 导航同 URL）不在 URL；iframe/img 走浏览器原生 HTTP 缓存；LAN cookie 鉴权与同源 iframe/img 加载兼容；Android WebView 无 SW 也有原生 HTTP 缓存。按 feature 约定**不以 IndexedDB 闭环**，零前端改动。
+- 服务端（server/routes/workspace.mjs）：新增导出 `buildPreviewEtag(stat)`（强 ETag `"\"<mtimeMs>-<size>\""`，源=inspect 已有 stat 零额外 IO）与 `ifNoneMatchSatisfied`（精确/`*`/逗号列表 trim）；handleWorkspacePreview：If-None-Match 命中 → 304（etag + `private, no-cache` + nosniff，不读文件体零传输）；未命中 → 200 增加 etag 与 content-length（stat.size），cache-control 由 no-store 改为 `private, no-cache`（每次协商、文件变化立即生效）；`?__quickforge_check=1` 响应补 mtimeMs；错误分支零改动。
+- 测试：tests/server/routes/workspace-preview.test.mjs 扩展 7 项（buildPreviewEtag 直测 + mockReq/mockRes 经真实 handleWorkspaceApi 分发器：首请求 200 头与 fs.stat 精确一致/304 精确匹配/`*` 与逗号列表/陈旧 ETag 200 新值/__quickforge_check mtimeMs/403・404・415 no-store 回归），mkdtemp 零残留。
+- 验证：node --check 通过；目标 ESLint 0/0；针对性 4 文件 43 项；**全量 test 203 文件/1629 项 100%、lint 0 error、build exit 0**。
+- 文档：docs/architecture/browser-cache-strategy.zh-CN.md（preview 从"禁止缓存"移入新增"协商缓存"分级+第 6 节说明）、docs/wiki/server/routes/README.md 两处 preview 端点补 etag/304/no-cache/mtimeMs。
+- 效果：同文件重复预览（iframe remount/img 重新加载/文件树缩略图/Markdown 图片）由每次全量重传变为 304 零 body 重传；文件被修改（mtimeMs/size 变化）立即返回新内容。
+
+## F14 App Settings SWR Cache — 完成
+
+- 调研：启动序列 boot()（useAppBootstrap.ts）约 11 次串行 await（health + 8 settings GET + project + catalog）；语言/外观/字号/工具显示均在 hook 内以副作用 apply（不依赖返回值契约）；i18n 缺"只应用不写库"导出；settings 写全部收敛于 HttpStorageBackend.set（含 font 迁移直写/启动默认写）。
+- 实现：
+  - 新增 `src/lib/app-settings-cache.ts`（store 'app-settings'，白名单 4 键 language/appearance-settings/font-size-settings/tool-display-settings；null 哨兵=无快照；结构校验坏条目删除；单值 >4KB 跳写；`updateAppSettingSnapshotFromStorageSet` storeName+白名单过滤；全静默降级）。
+  - i18n.ts 新增导出 `applyAppLanguageFromSnapshot`（复用 isAppLanguage+setCurrentLanguage，不 PUT 不 reload）；tool-display-settings.ts 新增 `applyToolDisplaySettingsValue`。
+  - useAppBootstrap.ts：boot 开头（任何 await 前）`void Promise.all(4 reads).then(preapply)`（逐键 try/catch 静默、与 health 并行不阻塞）；既有 await 序列即校准（各 load* 自然重 apply）；`setReady(true)` 前 fire-and-forget 回写 4 键（仅成功路径）；access-mode/default-options/active-model/cloud 完全不动。load* 本就返回值，未改签名。
+  - http-storage-backend.ts：`set()` 成功后 `void updateAppSettingSnapshotFromStorageSet(...)` 写通（返回语义不变），覆盖全部 settings 写点。
+- 测试：新增 tests/frontend/app-settings-cache.test.ts 6 项 + use-app-bootstrap-snapshot.test.ts 4 项（预应用时序/miss 零调用/校准回写/预应用抛错不阻断）+ i18n-language-snapshot.test.ts 2 项 + http-storage-backend.test.ts 扩展 4 项写通；共新增 16 项。
+- 验证：tsc 0 错；目标 ESLint 0/0；针对性 9 文件 63/63；**全量 test 203 文件/1622 项 100%、lint 0 error、build exit 0**。
+- 有意取舍：过期快照预应用后服务器校准可能一次静默切换（SWR 固有，写通保证快照通常最新）；backend 显式 baseUrl 场景写通用当前后端 serverKey（生产恒 ''，无偏差）。
+- 文档：wiki src/hooks（启动序列按现状重写，补 cloud prefetch + 快照 SWR）与 src/lib（app-settings-cache.ts）已由实现同步。
+- 边界遵守：未改 settings API/服务端校验；未缓存 access-mode；无 SW 拦截；无新依赖；未 commit。
+
+## F13 Workspace Inspector Cache — 完成
+
+- 调研关键事实：children 条目无 mtime/size、file 响应有 size 无 mtime——失效戳需服务端最小增量提供。
+- 服务端（server/routes/workspace.mjs）：抽出 `statWorkspaceTextFile`（resolve+安全校验+stat+isFile/413，不读内容）；`readWorkspaceTextFile` 返回增加 `mtimeMs`（零额外 IO）；`handleWorkspaceFile` 支持 `?meta=1` 轻量模式（同一安全校验/stat，仅返回 {path,size,mtimeMs,language,readonly} 不读内容）。50MB/错误语义/其余路由不动。
+- 前端：新增 `src/lib/workspace-cache.ts`（复用 IndexedDbCache store 'workspace-cache' maxEntries 240/32MB + resolveServerCacheKey；目录条目（完整未截断才写）+ 展开路径 + 文件条目（size+mtimeMs 失效戳、>1MB 跳写）；`isWorkspaceDirectoryCacheFresh` TTL 30s（0≤age≤ttl 新鲜）、`workspaceFileMatchesMeta`（字段齐全且相等才 true）纯函数；坏条目删除、不可用 no-op）；workspace-api.ts 新增 `getWorkspaceFileMeta`。
+- WorkspaceInspector.tsx 接线（最小侵入，seed 复用现有 reducer success action）：`loadTreeDirectory` 非 force/append 且 idle 时读目录缓存——TTL 内 dispatch seed 即返回（零网络），过期 seed 后继续原 fetch（SWR）；fetch success 仅"非 append 且 nextCursor===null 且未 truncated"时写缓存；`toggleTreeDirectory` 同步持久化展开路径，恢复 effect（项目 id ref 防重复）重开 Inspector 时恢复 expandedPaths 并逐目录 loadTreeDirectory；Reader 统一 helper `loadReaderFileFromCacheOrServer`（命中→立即写回 tab+后台 meta 校验→一致即结束/不一致全量重拉覆写；未命中→原流程+成功写缓存；校准失败静默保留缓存）；`refreshWorkspace` 经 `refreshedReaderIdsRef` 标记 bypass 缓存读（刷新=权威），openFileTab 新 tab 分支注册 loading key 消除既有双请求。
+- 测试：新增 tests/frontend/workspace-cache.test.ts 7 项 + tests/server/routes/workspace-file-meta.test.mjs 3 项（mtimeMs 与 fs.stat 精确一致/meta=1 无 content/ENOENT+413 不回归）+ workspace-inspector-on-demand-source.test.ts 扩展 3 项接线断言。
+- 验证：tsc 0 错；目标 ESLint 0 error/0 warning；针对性 6 文件 44 项 + 回归 6 文件 62 项；**全量 test 200 文件/1606 项 100%、lint 0 error、build exit 0**。
+- 有意取舍：TTL 30s 内目录变更不自动出现（手动刷新/force 即权威）；stale seed 与 fetch 间短暂 loading；stat→read TOCTOU 最多多拉一次全量（无害）。
+- 文档：wiki server/routes（file mtimeMs+meta）、src/lib（workspace-cache.ts）、src/components（Inspector 缓存行为）同步。无新依赖；未 commit。
+- Next step: F12 `session-message-indexeddb-cache`（pending，IndexedDB 会话消息只读快照缓存）已登记，依赖 F9 done、阻塞已清；下一会话可从 Phase 1（基准+设计）启动。IndexedDB 应用规划已全部登记：F12（消息快照+共享模块）→ F13 `workspace-inspector-cache`（文件树+文件内容，依赖 F12）→ F14 `app-settings-swr-cache`（启动 settings SWR，依赖 F12）→ F15 `workspace-preview-cache`（前置评估 HTTP 缓存替代，无依赖可提前评估）；P3 项（模型目录/composer 附件/subagent 详情）按需暂缓不登记
 
 ## F11 LAN Access Storage Migration — Phase 3（backup/restore 纳入 + 离线工具 + 全量门禁）
 
@@ -22,12 +57,34 @@
 - **最终审计**：authoritative 下 LAN 写路径均经 repository/service（`writeLanAccessFile` 5 处调用全部位于非权威 JSON 分支；`writeLanAccessJsonFile` 仅 mirror 物化 / cutover 源兜底 / 非权威 route restore 使用），无 JSON 权威旁路；verifyLanAccessToken 任何输入 fail-closed（store 整体 try/catch + repository 版本号/常数时间哈希，含 backup/restore/downgrade 后状态异常）；F1-F11 链最终一致性：schema 最新 v9、scheduled/session/share/lan 四域权威闭环（启动链依次 cutover，full-chain smoke 端到端覆盖）；未 commit；未手工修改 `dist/`/`package-dist/`/`package-offline/`（build 生成的 `dist/` 由脚本完成）。
 - 文档：`docs/architecture/lan-access-storage-migration.zh-CN.md` §8/§9/§10 更新为完成状态（backup/restore 语义、离线工具、已知限制：restore 覆盖 enabled、token 可重建故 cutover 失败最坏损失重登、mirror 含哈希非明文）；`docs/wiki/server/README.md`（lan-access-backup 模块 + 两个离线工具 + 启动链 + 行数）、`docs/wiki/server/routes/README.md`（backup 端点 lan-access scope/section/423）同步。
 
-## F12 Session Message IndexedDB Cache — 登记（pending）
+## F12 Session Message IndexedDB Cache — Phase 2+3（实现+集成，完成）
 
-- 需求来源：用户要求分析"当前项目有哪些可以用 IndexedDB 改善性能"。explore 调研结论：src/ 目前零 IndexedDB 使用，localStorage 健康（无大对象、均有上限/降级）；最有价值候选点为会话消息快照缓存 > workspace 文件树/preview 缓存 > 启动 settings 快照 > 模型目录（已有 TTL 缓存，边际收益小）；`/api/agents` 列表要求实时、明确不缓存。
-- 已登记 `session-message-indexeddb-cache`（status pending，dependencies: message-incremental-storage done），实施方案（三阶段：基准+设计 → 核心缓存层 → stale-while-revalidate 集成）与边界已写入 feature_list.json 描述。
-- 边界：服务器 SQLite 唯一权威，IndexedDB 仅浏览器只读缓存层；移动壳多 origin 的缓存 key 需带服务器标识；F11 完成标记 done 后再启动本 feature。
-- 本阶段仅分析与登记，未改代码、未跑测试（无代码改动）；F11 已由并行会话完成闭环（done），F12 成为下一个可启动 feature。
+- 实现（general subagent，主 Agent 审查 diff 后接受）：
+  - `src/lib/indexeddb-cache.ts`（新）：通用只读封装。`computeCacheKey`/`selectEvictionKeys` 纯函数（LRU+字节双预算，永不淘汰最后一条）；`IndexedDbCache` 惰性单例 open（onupgradeneeded 建库、versionchange/blocked 静默失败）、条目级 schemaVersion、get 命中更新 lastUsed、put 后按策略淘汰；所有异常降级 null/false；import 期零副作用。
+  - `src/lib/session-message-cache.ts`（新）：`resolveServerCacheKey`（baseUrl 归一化→getDirectBackendBaseUrl→location.origin→'unknown'）；`readSessionMessageSnapshot` 结构校验（schemaVersion=1/messages Array/stateVersion、messageCount 非负 number/snapshot object），坏条目删除返回 null；`writeSessionMessageSnapshot` per-key 1.5s trailing debounce（覆盖式 pending builder）、flush 时 stateVersion 高水位守卫（新≤旧跳写）、build null 跳写；`flushPending`/`cancelPending`；`getSessionMessageCache` 惰性单例（store 'session-messages'，maxEntries 40，默认 64MB 预算）。
+  - `src/lib/server-agent.ts`：restore 缓存命中快路径——读缓存（signal aborted 跳过）→ `cachedSnapshotToStateSnapshot` 水合 → `initialStateFromSnapshot` 构造 agent → 后台 `refreshStateFromServer({notify:true, forceMessages:false})` 校准（不 POST /restore）→ 校准后调度一次写快照；`_doRefreshStateFromServer` skip 优化：非 forceMessages 且 `serverStateVersion === lastServerStateVersion`（在水位赋值前捕获）且 split `summary.count === state.messages.length` → 跳过 reconcile（不请求 /messages）；`MESSAGE_CACHE_EVENT_TYPES` 8 类 SSE 事件（state/agent_end/message_end/turn_end/messages_replaced/tool_execution_start/update/end）订阅回调后统一 debounce 写快照；`sessionCacheMetadata` 私有字段在 restore/create/缓存水合三处设置（全部 `new ServerAgent` 调用点均在类内）保留 title/scope 等元数据；dispose 不取消 pending 写（模块级 timer 落盘最后状态是安全上界）。
+  - 关键偏离（合理）：restore/create 写入改为统一 builder 读 agent 实时状态（语义等价且更保鲜）；server-agent 测试 mock 完全替换 debounce（调度次数+显式 flush 断言），debounce 计时语义由 session-message-cache 独立 fake timers 用例覆盖。
+- 测试：新增 `tests/frontend/indexeddb-cache.test.ts` 13 项（文件内 fake IDBFactory/DB/Tx/Store/Request ~100 行，queueMicrotask 回调模型）+ `tests/frontend/session-message-cache.test.ts` 8 项 + `server-agent.test.ts` 扩展 6 项（27→33，vi.mock session-message-cache 内存 Map fake）：缓存命中即时渲染且 /state 版本一致时不请求 /messages、版本前进走 after= 补拉、未命中原路径+物化后写快照、create 写快照、SSE message_end 增量帧写快照、校准 /state 抛错 agent 不崩且保持缓存消息。
+- 已知限制（可接受）：同版本不同内容场景高水位守卫会阻塞回写（既有 reconcile 在该场景同为 no-op，无新回归面）；isStreaming=true 缓存水合会提前启动 watchdog 轮询（期望行为）；页面关闭 debounce 窗口（≤1.5s）内更新丢失（缓存上界语义）；超大会话快照可能被字节预算挤出。
+- 验证：`npx tsc -b` 0 错；目标 ESLint 0 error/0 warning（6 文件）；针对性 54/54 + deferred-session-agent 回归 6/6；**全量门禁：`npm run test` 198 文件/1593 项 100% 通过、`npm run lint` 0 error（仅既有 identity.mjs 1 warning）、`npm run build` exit 0（仅既有 KaTeX/大 chunk warning）**。
+- 文档：`docs/wiki/src/lib/README.md` 表格新增两模块 + server-agent 小节新增缓存行为说明。
+- 边界遵守：服务器 SQLite 唯一权威；SSE 帧语义/noteSseEvent/versionBefore 守卫/syncState 公共行为/API shape 全部不变；无新依赖；未触碰 dist/；未 commit。
+- 备注：工作区存在其他智能体并行改动（cloud/workspace 等），全量门禁在并行改动共存下通过。
+
+## F12 Session Message IndexedDB Cache — Phase 1（基准+设计，完成）
+
+- **基准证据**（`node scripts/session-message-benchmark.mjs 500 2000 --runs 3 --reads 5`，本机 Windows / Node 24 / SQLite 3.50.4 / schema v9）：
+  - 500 条（≈64k tokens）：messagesBytes 297,251 B；2000 条（≈256k tokens）：messagesBytes 1,189,001 B（decision `transport: true`，超 1MB 用户可感知阈值；F9 Phase 3 已实测拆分后 state 帧 278B）。
+  - 前端行为（explore 核实）：页面刷新 / `?session=` 进入 / 空闲 agent 被 LRU 逐出（`agent-task-retention.ts` MAX_IDLE_AGENT_TASKS=5）后重进 → `ServerAgent.restore` POST /restore（split 会话仅 278B summary）+ `fetchAllSessionMessages` 分页全量重拉（500/页，前端不传 limit）≈ messagesBytes 量级；内存驻留之外无任何持久缓存。
+- **决策**：证据充分，实施 F12。刷新/重进每次重传 0.3~1.2MB（更大会话线性放大），是用户可感知瓶颈；save/read 服务端均远低于阈值，纯前端缓存层即可。
+- **设计**（Phase 2/3 规格）：
+  - 缓存 key：`${serverKey}::${sessionId}`，serverKey = `getDirectBackendBaseUrl() || location.origin`（移动壳天然同源加载服务器页；无现成"服务器标识" API，backend-url.ts 即权威来源）。
+  - 快照：`{ schemaVersion:1, serverKey, sessionId, stateVersion, messageCount, messages, snapshot(完整 restore 响应形状), savedAt }`；失效戳只用服务端权威字段 stateVersion（SSE noteSseEvent 单调高水位，消息必随版本单调应用）。
+  - SWR：restore 命中缓存 → 用缓存的 snapshot 立即构造 agent（instant render）→ 后台 `refreshStateFromServer({notify:true, forceMessages:false})` 校准；`/state` 的 stateVersion === 缓存 stateVersion 且 split summary.count === 本地条数 → 跳过 /messages 补拉（版本相等=自缓存后无任何状态变更，安全）；不等 → 走既有 reconcile（尾部增量 or 全量重取，versionBefore 守卫不变）。
+  - 写入：restore 全量物化、create 物化后写快照；SSE 事件驱动写走模块级 debounce（~1500ms trailing，flush 时读 builder 快照）；写时 stateVersion 高水位守卫（低于既有条目则跳写）；全部 best-effort 静默降级。
+  - 容量：单 key LRU（lastUsed）+ 条数上限（40）+ 字节预算（64MB）裁剪；读侧 schemaVersion/结构校验，坏条目按 miss 处理。
+  - 测试策略：无 jsdom、禁新依赖 → IndexedDbCache 的 IDB 边界用测试内 ~100 行 fake IDBFactory 验证；策略函数（LRU 选择、key、守卫）纯函数直测；server-agent 集成用例 vi.mock('@/lib/session-message-cache')（内存 Map 实现）。
+- 验证：基准脚本运行成功（scratchDir 自动清理）；本阶段未改代码。
 
 ## F11 LAN Access Storage Migration — Phase 2（lan-access-store 接入 + 生命周期 + routes）
 

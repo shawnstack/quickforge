@@ -125,6 +125,12 @@ export const appTranslations = {
     cloudRemotePid: 'Agent PID',
     cloudRemoteAuthorization: 'Device authorization',
     cloudRemoteOpenAuthorization: 'Open authorization page',
+    cloudRemoteAutoApprovalPending: 'Authorizing the remote agent automatically…',
+    cloudRemoteAutoApprovalWaiting: 'Automatic authorization in progress',
+    cloudRemoteAutoApprovalFailed: 'Automatic authorization failed. Sign in to QuickForge Cloud or retry.',
+    cloudRemoteAutoApprovalNeedsLocalEnable: 'Turn remote access off and on again on this computer to authorize the agent automatically.',
+    cloudRemoteAutoApprovalRetry: 'Retry authorization',
+    cloudRemoteAutoApprovalRetried: 'Automatic authorization was retried.',
     cloudRemoteStatusLoading: 'Loading',
     cloudRemoteStatusDisabled: 'Disabled',
     cloudRemoteStatusUnavailable: 'Agent unavailable',
@@ -753,7 +759,8 @@ export const appTranslations = {
     enableAsSubagent: 'Enable as subagent',
     disableAsSubagent: 'Disable as subagent',
     noDescription: 'No description.',
-    maxRuntimeMs: 'Max runtime: ',
+    maxRuntimeMinutes: 'Max runtime (minutes)',
+    maxRuntimeMinutesHelp: 'Enter at least 0.016667 and up to 60 minutes. Decimals are allowed.',
     maxToolCalls: 'Max tool calls: ',
     defaultAgent: 'Default Agent',
     executionAgent: 'Execution Agent: ',
@@ -1217,6 +1224,12 @@ export const appTranslations = {
     terminalReconnecting: 'Reconnecting to terminal ({attempt}/{max})...',
     terminalCloseSession: 'Close {name}',
     workspaceNoFilesToDisplay: 'No files to display.',
+    workspaceEmptyDirectory: 'Empty directory',
+    workspaceLoadMore: 'Load more',
+    workspaceSearching: 'Searching project files...',
+    workspaceSearchMinChars: 'Enter at least 2 characters to search the project.',
+    workspaceSearchTruncated: 'Showing the first 100 matches. Refine your search to see more.',
+    workspaceNoSearchResults: 'No matching project files found.',
     workspaceNoWorkingTreeChanges: 'No working tree changes.',
     workspaceNoStagedChanges: 'No staged changes.',
     workspaceNoLastRunChanges: 'No changed files matched the last run artifacts.',
@@ -1245,7 +1258,7 @@ export const appTranslations = {
     workspaceSelectProject: 'Select a project to inspect its workspace.',
     workspaceLoading: 'Loading workspace...',
     workspaceLoadFailed: 'Failed to load workspace.',
-    workspaceFilterFiles: 'Filter files by name or path',
+    workspaceFilterFiles: 'Search project files by name or path',
     workspaceOpenFileTitle: 'Open a file',
     workspaceOpenFileDescription: 'Open a file from the workspace directory.',
     workspaceOpenFileFailed: 'Failed to open file.',
@@ -1543,6 +1556,12 @@ export const appTranslations = {
     cloudRemotePid: 'Agent PID',
     cloudRemoteAuthorization: '设备授权',
     cloudRemoteOpenAuthorization: '打开授权页面',
+    cloudRemoteAutoApprovalPending: '正在自动授权远程 Agent…',
+    cloudRemoteAutoApprovalWaiting: '自动授权进行中',
+    cloudRemoteAutoApprovalFailed: '自动授权失败，请登录 QuickForge Cloud 后重试。',
+    cloudRemoteAutoApprovalNeedsLocalEnable: '请在本机关闭后重新启用远程访问，系统将自动完成 Agent 授权。',
+    cloudRemoteAutoApprovalRetry: '重试授权',
+    cloudRemoteAutoApprovalRetried: '已重新尝试自动授权。',
     cloudRemoteStatusLoading: '加载中',
     cloudRemoteStatusDisabled: '已禁用',
     cloudRemoteStatusUnavailable: 'Agent 不可用',
@@ -2174,7 +2193,8 @@ export const appTranslations = {
     enableAsSubagent: '启用作为 sub agent',
     disableAsSubagent: '禁用作为 sub agent',
     noDescription: '暂无描述。',
-    maxRuntimeMs: '最大运行时间：',
+    maxRuntimeMinutes: '最大运行时间（分钟）',
+    maxRuntimeMinutesHelp: '请输入至少 0.016667 且不超过 60 分钟的数值，可填写小数。',
     maxToolCalls: '最大工具调用：',
     defaultAgent: '默认智能体',
     executionAgent: '执行智能体：',
@@ -2638,6 +2658,12 @@ export const appTranslations = {
     terminalReconnecting: '正在重新连接终端（{attempt}/{max}）…',
     terminalCloseSession: '关闭 {name}',
     workspaceNoFilesToDisplay: '没有可显示的文件。',
+    workspaceEmptyDirectory: '空目录',
+    workspaceLoadMore: '加载更多',
+    workspaceSearching: '正在搜索项目文件…',
+    workspaceSearchMinChars: '输入至少 2 个字符以搜索整个项目。',
+    workspaceSearchTruncated: '仅显示前 100 个匹配项，请缩小搜索范围以查看更多。',
+    workspaceNoSearchResults: '没有匹配的项目文件。',
     workspaceNoWorkingTreeChanges: '工作区没有变更。',
     workspaceNoStagedChanges: '没有已暂存变更。',
     workspaceNoLastRunChanges: '上一轮产物没有命中 Git 变更文件。',
@@ -2666,7 +2692,7 @@ export const appTranslations = {
     workspaceSelectProject: '请选择一个项目来查看工作空间。',
     workspaceLoading: '正在加载工作空间...',
     workspaceLoadFailed: '加载工作空间失败。',
-    workspaceFilterFiles: '筛选文件',
+    workspaceFilterFiles: '按名称或路径搜索项目文件',
     workspaceOpenFileTitle: '打开文件',
     workspaceOpenFileDescription: '从工作区目录打开文件',
     workspaceOpenFileFailed: '打开文件失败。',
@@ -3167,6 +3193,17 @@ export async function initializeAppLanguage(storage: AppStorage) {
 
   setCurrentLanguage(language)
   return language
+}
+
+/**
+ * 预应用启动快照中的语言（stale-while-revalidate）：走与
+ * initializeAppLanguage 相同的合法性校验后本地生效（同步翻译 + document
+ * 语言），不写回存储、不整页 reload；非法值 no-op。服务器校准仍由
+ * initializeAppLanguage 完成。
+ */
+export function applyAppLanguageFromSnapshot(raw: unknown): void {
+  if (!isAppLanguage(raw)) return
+  setCurrentLanguage(raw)
 }
 
 export async function applyAppLanguage(storage: AppStorage, language: AppLanguage) {

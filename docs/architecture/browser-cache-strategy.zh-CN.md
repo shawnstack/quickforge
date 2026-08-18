@@ -17,7 +17,8 @@
 | A 强缓存 | 数据几乎不变，有明确失效信号 | `/api/system/about`、`/api/system/network`、`/api/terminal/capabilities`、`/api/agent-profiles/available-tools`、`/api/filesystem/roots`、`/api/mcp/config`、`/api/plugins`、`/api/tools`、`/api/instructions` |
 | B 短 TTL | 低频变化，可接受短暂陈旧 | `/api/project`、`/api/project/commands`、`/api/system/status`、`/api/system/terminal-shell`、`/api/skills/*`、`/api/scheduled-tasks*`、`/api/storage/index`、`/api/system/update/check` |
 | C 不缓存 | 易变/个性化/轮询 | `/api/agents`、`/api/agents/:id/{state,status}`、`/api/git/*`、`/api/workspace/*`、`/api/storage/key/:key`、`/api/storage/quota`、`/api/health` |
-| D 禁止缓存 | 写操作/SSE/文件流/鉴权 | 所有 POST/PUT/PATCH/DELETE、`/api/agents/events`、`/share/*/events`、`/api/workspace/preview`、`/api/backup/export`、LAN 鉴权 |
+| D 禁止缓存 | 写操作/SSE/文件流/鉴权 | 所有 POST/PUT/PATCH/DELETE、`/api/agents/events`、`/share/*/events`、`/api/backup/export`、LAN 鉴权 |
+| E 协商缓存 | 可按文件版本精确判定变化，须每次回源校验 | `/api/workspace/preview` |
 
 ## 已实施内容（v1）
 
@@ -54,6 +55,14 @@
 
 - `sendJson(res, status, value, cacheControl?)`：第 4 个参数可选，未传保持 `no-store`（行为不变）。
 - 已启用：`GET /api/terminal/capabilities` → `private, max-age=300`，并同步移除前端 `terminal-api.ts` 该调用的 `cache: 'no-store'`。
+
+### 6. `/api/workspace/preview` ETag 协商缓存（F15）
+
+预览静态资源从「禁止缓存」调整为协商缓存：
+
+- 响应头 `cache-control: private, no-cache` + 强 ETag `"\"<mtimeMs>-<size>\""`，ETag 源 = `fs.stat` 的 `mtimeMs` + `size`，零额外 IO。
+- `no-cache` 语义 = 每次协商：浏览器每次回源带 `If-None-Match` 校验，命中返回 304 零重传，文件变化（mtime/size 变）立即生效，不存在陈旧窗口。
+- 200 响应附 `content-length`；304 不读文件体；错误响应仍走 `sendJson` 的 `no-store`，不受影响。
 
 ## 明确不做
 

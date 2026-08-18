@@ -78,6 +78,41 @@ vi.mock('@/lib/tool-execution-events', async () => {
   return actual
 }, { virtual: true })
 
+// In-memory fake for the session message snapshot cache (F12). The mock
+// replaces the debounce entirely: writeSessionMessageSnapshot only records a
+// pending builder; tests flush explicitly and inspect the built payloads.
+const sessionCacheMock = vi.hoisted(() => ({
+  read: null as unknown,
+  writes: [] as Array<{ key: string; payload: unknown }>,
+  scheduled: 0,
+  pending: new Map<string, () => unknown>(),
+  reset() {
+    this.read = null
+    this.writes = []
+    this.scheduled = 0
+    this.pending.clear()
+  },
+}))
+
+vi.mock('@/lib/session-message-cache', () => ({
+  resolveServerCacheKey: (baseUrl = '') => baseUrl || 'unknown',
+  readSessionMessageSnapshot: async () => sessionCacheMock.read ?? null,
+  writeSessionMessageSnapshot: (serverKey: string, sessionId: string, build: () => unknown) => {
+    sessionCacheMock.scheduled += 1
+    sessionCacheMock.pending.set(`${serverKey}::${sessionId}`, build)
+  },
+  flushPendingSessionMessageWrites: async () => {
+    for (const [key, build] of [...sessionCacheMock.pending]) {
+      sessionCacheMock.pending.delete(key)
+      const payload = build()
+      if (payload !== null && payload !== undefined) sessionCacheMock.writes.push({ key, payload })
+    }
+  },
+  cancelPendingSessionMessageWrites: () => {
+    sessionCacheMock.pending.clear()
+  },
+}))
+
 async function createServerAgent(config: ConstructorParameters<typeof import('../../src/lib/server-agent').ServerAgent>[0]) {
   const { ServerAgent } = await import('../../src/lib/server-agent')
   return new ServerAgent(config)
@@ -114,6 +149,7 @@ describe('ServerAgent', () => {
     vi.resetModules()
     i18nState.language = 'en'
     MockEventSource.instances = []
+    sessionCacheMock.reset()
     vi.stubGlobal('EventSource', MockEventSource)
   })
 
@@ -1034,6 +1070,235 @@ describe('ServerAgent', () => {
     try {
       expect(agent.state.messages.map((message) => message.content)).toEqual(['a', 'b'])
       expect(fetchMock).toHaveBeenCalledWith('/api/agents/session-1/messages?after=0', expect.objectContaining({ signal: expect.any(AbortSignal) }))
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  // --- Session message snapshot cache (F12 Phase 2+3) -----------------------
+
+  function cachedEntry(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+      schemaVersion: 1,
+      serverKey: 'unknown',
+      sessionId: 'cached-session',
+      stateVersion: 5,
+      messageCount: 2,
+      messages: [
+        { role: 'user', content: 'cached q' },
+        { role: 'assistant', content: 'cached a' },
+      ],
+      snapshot: { stateVersion: 5, title: 'Cached chat', systemPrompt: 'sys', isStreaming: false },
+      savedAt: 1,
+      ...overrides,
+    }
+  }
+
+  it('hydrates from the snapshot cache and calibrates without POST /restore', async () => {
+    sessionCacheMock.read = cachedEntry()
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ stateVersion: 5, messagesSummary: { count: 2 }, isStreaming: false }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { ServerAgent } = await import('../../src/lib/server-agent')
+
+    const { agent, snapshot } = await ServerAgent.restore('cached-session')
+
+    try {
+      expect(agent.state.messages).toEqual([
+        { role: 'user', content: 'cached q' },
+        { role: 'assistant', content: 'cached a' },
+      ])
+      expect(snapshot.title).toBe('Cached chat')
+
+      await flushAllAsync()
+      const urls = fetchMock.mock.calls.map(([url]) => String(url))
+      expect(urls.some((url) => url.endsWith('/restore'))).toBe(false)
+      expect(urls.some((url) => url.includes('/messages'))).toBe(false)
+      expect(urls.some((url) => url.endsWith('/state'))).toBe(true)
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('fills the missing tail through the messages channel when the cached snapshot is behind', async () => {
+    sessionCacheMock.read = cachedEntry()
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith('/state')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ stateVersion: 6, messagesSummary: { count: 3 }, isStreaming: false }),
+        }
+      }
+      if (url.startsWith('/api/agents/cached-session/messages')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            after: 2,
+            count: 3,
+            hasMore: false,
+            messages: [{ role: 'user', content: 'third' }],
+          }),
+        }
+      }
+      return { ok: true, status: 200, json: async () => ({}) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { ServerAgent } = await import('../../src/lib/server-agent')
+
+    const { agent } = await ServerAgent.restore('cached-session')
+
+    try {
+      await flushAllAsync()
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/agents/cached-session/messages?after=2',
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      )
+      expect(agent.state.messages.map((message) => message.content)).toEqual(['cached q', 'cached a', 'third'])
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('schedules a snapshot write after a full restore materialization', async () => {
+    sessionCacheMock.read = null
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/restore')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ sessionId: 'session-1', stateVersion: 4, messageStorage: 'split', messagesSummary: { count: 2 } }),
+        }
+      }
+      if (url.startsWith('/api/agents/session-1/messages')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            after: 0,
+            count: 2,
+            hasMore: false,
+            messages: [
+              { role: 'user', content: 'a' },
+              { role: 'assistant', content: 'b' },
+            ],
+          }),
+        }
+      }
+      return { ok: true, status: 200, json: async () => ({}) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { ServerAgent } = await import('../../src/lib/server-agent')
+
+    const { agent } = await ServerAgent.restore('session-1', { baseUrl: '' })
+
+    try {
+      expect(agent.state.messages.map((message) => message.content)).toEqual(['a', 'b'])
+      expect(sessionCacheMock.scheduled).toBeGreaterThanOrEqual(1)
+
+      const cacheModule = await import('../../src/lib/session-message-cache')
+      await cacheModule.flushPendingSessionMessageWrites()
+      expect(sessionCacheMock.writes).toHaveLength(1)
+
+      const write = sessionCacheMock.writes[0]
+      expect(write.key).toBe('unknown::session-1')
+      const payload = write.payload as { stateVersion: number; messages: Array<{ content: string }>; snapshot: Record<string, unknown> }
+      expect(payload.stateVersion).toBe(4)
+      expect(payload.messages.map((message) => message.content)).toEqual(['a', 'b'])
+      expect(payload.snapshot.messages).toBeUndefined()
+      expect(payload.snapshot.messagesSummary).toBeUndefined()
+      expect(payload.snapshot.stateVersion).toBe(4)
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('schedules a snapshot write after create materializes the state', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith('/agents/create-1')) {
+        return { ok: true, status: 200, json: async () => ({}) }
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ stateVersion: 2, messages: [{ role: 'user', content: 'seed' }] }),
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { ServerAgent } = await import('../../src/lib/server-agent')
+
+    const agent = await ServerAgent.create('create-1')
+
+    try {
+      expect(agent.state.messages).toEqual([{ role: 'user', content: 'seed' }])
+      expect(sessionCacheMock.scheduled).toBeGreaterThanOrEqual(1)
+
+      const cacheModule = await import('../../src/lib/session-message-cache')
+      await cacheModule.flushPendingSessionMessageWrites()
+      expect(sessionCacheMock.writes).toHaveLength(1)
+      const payload = sessionCacheMock.writes[0].payload as { stateVersion: number; messages: Array<{ content: string }> }
+      expect(payload.stateVersion).toBe(2)
+      expect(payload.messages.map((message) => message.content)).toEqual(['seed'])
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('schedules a snapshot write after SSE message_end incremental frames', async () => {
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: {
+        messages: [
+          { role: 'user', content: 'first' },
+          { role: 'assistant', content: 'second' },
+        ] as AgentMessage[],
+        stateVersion: 1,
+      },
+    })
+
+    try {
+      expect(sessionCacheMock.scheduled).toBe(0)
+      latestEventSource().emit('message_end', {
+        sessionId: 'session-1',
+        stateVersion: 2,
+        messagesAfter: 2,
+        messagesIncremental: true,
+        messages: [{ role: 'user', content: 'third' }],
+        messagesSummary: { count: 3 },
+      })
+      expect(sessionCacheMock.scheduled).toBe(1)
+
+      const cacheModule = await import('../../src/lib/session-message-cache')
+      await cacheModule.flushPendingSessionMessageWrites()
+      const payload = sessionCacheMock.writes[0].payload as { stateVersion: number; messages: Array<{ content: string }> }
+      expect(payload.stateVersion).toBe(2)
+      expect(payload.messages.map((message) => message.content)).toEqual(['first', 'second', 'third'])
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('keeps cached messages when the post-hydration calibration request fails', async () => {
+    sessionCacheMock.read = cachedEntry()
+    const fetchMock = vi.fn(async () => {
+      throw new Error('network down')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { ServerAgent } = await import('../../src/lib/server-agent')
+
+    const { agent } = await ServerAgent.restore('cached-session')
+
+    try {
+      await flushAllAsync()
+      expect(agent.state.messages).toEqual([
+        { role: 'user', content: 'cached q' },
+        { role: 'assistant', content: 'cached a' },
+      ])
+      expect(agent.state.isStreaming).toBe(false)
     } finally {
       agent.dispose()
     }

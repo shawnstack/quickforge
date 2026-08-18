@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtemp, mkdir, rm, truncate, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, stat, truncate, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { inspectWorkspacePreviewFile, workspacePreviewIssueFromError } from '../../../server/routes/workspace.mjs'
+import { buildPreviewEtag, handleWorkspaceApi, inspectWorkspacePreviewFile, workspacePreviewIssueFromError } from '../../../server/routes/workspace.mjs'
+import { getDefaultWorkspaceRoot, setDefaultWorkspaceRoot } from '../../../server/project-config.mjs'
 
 const tempDirs = []
+const originalDefaultWorkspaceRoot = getDefaultWorkspaceRoot()
 
 async function createWorkspace() {
   const workspaceRoot = await mkdtemp(path.join(tmpdir(), 'quickforge-preview-'))
@@ -12,7 +14,36 @@ async function createWorkspace() {
   return { workspaceRoot }
 }
 
+function mockRes() {
+  return {
+    headersSent: false,
+    status: undefined,
+    headers: {},
+    body: '',
+    writeHead(status, headers) {
+      this.status = status
+      this.headers = headers
+      this.headersSent = true
+    },
+    end(body = '') {
+      this.body = body
+    },
+  }
+}
+
+async function requestPreview(relativePath, headers = {}, search = '') {
+  const res = mockRes()
+  const encoded = relativePath.split('/').map(encodeURIComponent).join('/')
+  await handleWorkspaceApi(
+    { method: 'GET', headers },
+    res,
+    new URL(`http://localhost/api/workspace/preview/unknown/${encoded}${search}`),
+  )
+  return res
+}
+
 afterEach(async () => {
+  setDefaultWorkspaceRoot(originalDefaultWorkspaceRoot)
   await Promise.all(tempDirs.splice(0).map((directory) => rm(directory, { recursive: true, force: true })))
 })
 
@@ -97,5 +128,121 @@ describe('workspace preview inspection', () => {
       status: 400,
       payload: { code: 'PREVIEW_INVALID_PATH', error: 'URI malformed' },
     })
+  })
+})
+
+describe('buildPreviewEtag', () => {
+  it('builds a strong etag from stat mtimeMs and size', () => {
+    expect(buildPreviewEtag({ mtimeMs: 1717171717171.123, size: 42 })).toBe('"1717171717171.123-42"')
+    expect(buildPreviewEtag({ mtimeMs: 0, size: 0 })).toBe('"0-0"')
+  })
+})
+
+describe('workspace preview HTTP caching', () => {
+  it('serves a fresh 200 with an etag derived from the real stat', async () => {
+    const context = await createWorkspace()
+    setDefaultWorkspaceRoot(context.workspaceRoot)
+    const content = '<h1>QuickForge</h1>'
+    await writeFile(path.join(context.workspaceRoot, 'index.html'), content)
+    const stats = await stat(path.join(context.workspaceRoot, 'index.html'))
+
+    const res = await requestPreview('index.html')
+
+    expect(res.status).toBe(200)
+    expect(res.headers.etag).toBe(`"${stats.mtimeMs}-${stats.size}"`)
+    expect(res.headers.etag).toBe(buildPreviewEtag(stats))
+    expect(res.headers['content-length']).toBe(String(stats.size))
+    expect(res.headers['cache-control']).toBe('private, no-cache')
+    expect(res.headers['x-content-type-options']).toBe('nosniff')
+    expect(String(res.body)).toBe(content)
+  })
+
+  it('answers 304 with the same etag and an empty body on an exact match', async () => {
+    const context = await createWorkspace()
+    setDefaultWorkspaceRoot(context.workspaceRoot)
+    await writeFile(path.join(context.workspaceRoot, 'index.html'), '<h1>v1</h1>')
+
+    const first = await requestPreview('index.html')
+    const second = await requestPreview('index.html', { 'if-none-match': first.headers.etag })
+
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(304)
+    expect(second.headers.etag).toBe(first.headers.etag)
+    expect(second.headers['cache-control']).toBe('private, no-cache')
+    expect(second.headers['x-content-type-options']).toBe('nosniff')
+    expect(second.body).toBe('')
+  })
+
+  it('answers 304 for `*` and for a comma-separated etag list containing the current value', async () => {
+    const context = await createWorkspace()
+    setDefaultWorkspaceRoot(context.workspaceRoot)
+    await writeFile(path.join(context.workspaceRoot, 'index.html'), '<h1>v1</h1>')
+
+    const star = await requestPreview('index.html', { 'if-none-match': '*' })
+    expect(star.status).toBe(304)
+    expect(star.body).toBe('')
+
+    const first = await requestPreview('index.html')
+    const listed = await requestPreview('index.html', {
+      'if-none-match': `"stale-etag", ${first.headers.etag}`,
+    })
+    expect(listed.status).toBe(304)
+  })
+
+  it('serves a new 200 with a new etag and body when the etag is stale', async () => {
+    const context = await createWorkspace()
+    setDefaultWorkspaceRoot(context.workspaceRoot)
+    const filePath = path.join(context.workspaceRoot, 'index.html')
+    await writeFile(filePath, 'v1')
+
+    const first = await requestPreview('index.html')
+    await writeFile(filePath, 'version-two-content')
+
+    const second = await requestPreview('index.html', { 'if-none-match': first.headers.etag })
+    const stats = await stat(filePath)
+
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(second.headers.etag).toBe(`"${stats.mtimeMs}-${stats.size}"`)
+    expect(second.headers.etag).not.toBe(first.headers.etag)
+    expect(String(second.body)).toBe('version-two-content')
+  })
+
+  it('reports mtimeMs from the real stat in the preflight check payload', async () => {
+    const context = await createWorkspace()
+    setDefaultWorkspaceRoot(context.workspaceRoot)
+    const filePath = path.join(context.workspaceRoot, 'index.html')
+    await writeFile(filePath, 'preflight')
+
+    const res = await requestPreview('index.html', {}, '?__quickforge_check=1')
+    const stats = await stat(filePath)
+
+    expect(res.status).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({
+      ok: true,
+      path: 'index.html',
+      size: stats.size,
+      mtimeMs: stats.mtimeMs,
+      contentType: 'text/html; charset=utf-8',
+    })
+  })
+
+  it('keeps error responses on no-store with stable statuses', async () => {
+    const context = await createWorkspace()
+    setDefaultWorkspaceRoot(context.workspaceRoot)
+    await writeFile(path.join(context.workspaceRoot, '.env'), 'SECRET=hidden')
+    await writeFile(path.join(context.workspaceRoot, 'document.pdf'), 'pdf')
+
+    const forbidden = await requestPreview('.env')
+    expect(forbidden.status).toBe(403)
+    expect(forbidden.headers['cache-control']).toBe('no-store')
+
+    const missing = await requestPreview('missing.html')
+    expect(missing.status).toBe(404)
+    expect(missing.headers['cache-control']).toBe('no-store')
+
+    const unsupported = await requestPreview('document.pdf')
+    expect(unsupported.status).toBe(415)
+    expect(unsupported.headers['cache-control']).toBe('no-store')
   })
 })

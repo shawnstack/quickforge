@@ -7,11 +7,15 @@ export const CLOUD_STATE_CHANGED_EVENT = 'quickforge:cloud-state-changed'
 export function useCloudModels(enabled = true) {
   const [configured, setConfigured] = useState(false)
   const modelsRef = useRef<Model<Api>[]>([])
+  const loadedRef = useRef(false)
   const loadPromiseRef = useRef<Promise<Model<Api>[]> | null>(null)
   const loadAbortRef = useRef<AbortController | null>(null)
   const statusAbortRef = useRef<AbortController | null>(null)
   const generationRef = useRef(0)
   const mountedRef = useRef(true)
+
+  const readCachedCloudModels = useCallback((): readonly Model<Api>[] => modelsRef.current, [])
+  const isCloudModelsLoaded = useCallback(() => loadedRef.current, [])
 
   const invalidateCloudState = useCallback(() => {
     generationRef.current += 1
@@ -21,12 +25,16 @@ export function useCloudModels(enabled = true) {
     statusAbortRef.current = null
     loadPromiseRef.current = null
     modelsRef.current = []
+    loadedRef.current = false
   }, [])
 
   const loadCloudModels = useCallback(async (refresh = false): Promise<Model<Api>[]> => {
     if (!enabled || !mountedRef.current) return []
-    if (refresh) modelsRef.current = []
-    if (!refresh && modelsRef.current.length > 0) return modelsRef.current
+    if (refresh) {
+      modelsRef.current = []
+      loadedRef.current = false
+    }
+    if (!refresh && loadedRef.current) return modelsRef.current
     if (loadPromiseRef.current) return loadPromiseRef.current
 
     const generation = generationRef.current
@@ -39,11 +47,13 @@ export function useCloudModels(enabled = true) {
         setConfigured(Boolean(status.enabled !== false && status.configured))
         if (status.enabled === false || !status.configured || status.mode === 'local' || !status.hasSession) {
           modelsRef.current = []
+          loadedRef.current = true
           return []
         }
         const models = await getCloudModels(controller.signal)
         if (!mountedRef.current || generation !== generationRef.current || controller.signal.aborted) return []
         modelsRef.current = models
+        loadedRef.current = true
         return models
       } catch (error) {
         if (!mountedRef.current || generation !== generationRef.current || controller.signal.aborted) return []
@@ -93,5 +103,7 @@ export function useCloudModels(enabled = true) {
   return {
     configured,
     loadCloudModels,
+    readCachedCloudModels,
+    isCloudModelsLoaded,
   }
 }

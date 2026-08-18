@@ -7,13 +7,16 @@ import type {
   GitLogResponse,
   GitOperationResponse,
   GitStatusResponse,
+  WorkspaceChildrenResponse,
+  WorkspaceFileMetaResponse,
   WorkspaceFileResponse,
   WorkspaceResolvedPathResponse,
+  WorkspaceSearchResponse,
   WorkspaceTreeResponse,
 } from './workspace-types'
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { cache: 'no-store' })
+async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(url, { cache: 'no-store', signal })
   const payload = await response.json().catch(() => null)
   if (!response.ok) {
     throw new Error(payload?.error || `Request failed: ${response.status}`)
@@ -38,12 +41,30 @@ function projectQuery(projectId: string) {
   return `projectId=${encodeURIComponent(projectId)}`
 }
 
-export function getWorkspaceTree(projectId: string) {
-  return fetchJson<WorkspaceTreeResponse>(`/api/workspace/tree?${projectQuery(projectId)}`)
+export function getWorkspaceTree(projectId: string, signal?: AbortSignal) {
+  return fetchJson<WorkspaceTreeResponse>(`/api/workspace/tree?${projectQuery(projectId)}`, signal)
 }
 
-export function getWorkspaceFile(projectId: string, path: string) {
-  return fetchJson<WorkspaceFileResponse>(`/api/workspace/file?${projectQuery(projectId)}&path=${encodeURIComponent(path)}`)
+export function getWorkspaceChildren(projectId: string, path = '.', options: { limit?: number; cursor?: string; signal?: AbortSignal } = {}) {
+  const params = new URLSearchParams({ projectId, path })
+  if (options.limit) params.set('limit', String(options.limit))
+  if (options.cursor) params.set('cursor', options.cursor)
+  return fetchJson<WorkspaceChildrenResponse>(`/api/workspace/children?${params}`, options.signal)
+}
+
+export function searchWorkspace(projectId: string, query: string, options: { limit?: number; signal?: AbortSignal } = {}) {
+  const params = new URLSearchParams({ projectId, query })
+  if (options.limit) params.set('limit', String(options.limit))
+  return fetchJson<WorkspaceSearchResponse>(`/api/workspace/search?${params}`, options.signal)
+}
+
+export function getWorkspaceFile(projectId: string, path: string, signal?: AbortSignal) {
+  return fetchJson<WorkspaceFileResponse>(`/api/workspace/file?${projectQuery(projectId)}&path=${encodeURIComponent(path)}`, signal)
+}
+
+/** 轻量元信息探测（不读文件内容），用于校验本地文件缓存快照。 */
+export function getWorkspaceFileMeta(projectId: string, path: string, signal?: AbortSignal) {
+  return fetchJson<WorkspaceFileMetaResponse>(`/api/workspace/file?${projectQuery(projectId)}&path=${encodeURIComponent(path)}&meta=1`, signal)
 }
 
 export function resolveWorkspacePath(projectId: string, path: string) {
@@ -59,8 +80,8 @@ export function openWorkspaceExternal(projectId: string, path: string, target: W
   )
 }
 
-export function getGitStatus(projectId: string) {
-  return fetchJson<GitStatusResponse>(`/api/git/status?${projectQuery(projectId)}`)
+export function getGitStatus(projectId: string, signal?: AbortSignal) {
+  return fetchJson<GitStatusResponse>(`/api/git/status?${projectQuery(projectId)}`, signal)
 }
 
 export function getGitFileDiff(projectId: string, path: string) {

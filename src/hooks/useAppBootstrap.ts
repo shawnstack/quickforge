@@ -2,18 +2,28 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import type { AgentManager } from '@/hooks/useAgentManager'
 import {
+  getSelectableConfiguredModels,
   initializePiStorage,
+  loadActiveModel,
   loadDefaultOptions,
-  loadInitialConfiguredModel,
+  mergeAvailableModels,
   openCodePlaceholderModel,
 } from '@/lib/pi-chat'
-import { initializeAppLanguage, t } from '@/lib/i18n'
+import { initializeAppLanguage, applyAppLanguageFromSnapshot, t } from '@/lib/i18n'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
-import { loadToolDisplaySettings } from '@/lib/tool-display-settings'
-import { loadAndApplyFontSizeSettings } from '@/lib/font-size-settings'
-import { loadAndApplyAppearanceSettings } from '@/lib/appearance-settings'
+import { applyToolDisplaySettingsValue, loadToolDisplaySettings } from '@/lib/tool-display-settings'
+import { applyFontSizeSettings, loadAndApplyFontSizeSettings, normalizeFontSizeSettings } from '@/lib/font-size-settings'
+import {
+  applyAppearanceSettings,
+  loadAndApplyAppearanceSettings,
+  normalizeAppearanceSettings,
+} from '@/lib/appearance-settings'
+import { readAppSettingSnapshotValue, writeAppSettingSnapshotValue } from '@/lib/app-settings-cache'
+import { resolveServerCacheKey } from '@/lib/session-message-cache'
 import type { AgentAccessMode } from '@/lib/types'
 import { normalizeAgentHarness } from '@/lib/types'
+import { chooseStartupModel } from '@/lib/startup-model'
+import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
 import { disposeAllAgentTasks } from '@/lib/agent-task-retention'
@@ -30,6 +40,8 @@ type UseAppBootstrapOptions = {
   createAgent: AgentManager['createAgent']
   loadSession: AgentManager['loadSession']
   loadCloudModels: () => Promise<Model<Api>[]>
+  readCachedCloudModels: () => readonly Model<Api>[]
+  isCloudModelsLoaded: () => boolean
   setNeedsModelSetup: React.Dispatch<React.SetStateAction<boolean>>
   onStorageReady?: (storage: Awaited<ReturnType<typeof initializePiStorage>>) => void
 }
@@ -46,6 +58,8 @@ export function useAppBootstrap({
   createAgent,
   loadSession,
   loadCloudModels,
+  readCachedCloudModels,
+  isCloudModelsLoaded,
   setNeedsModelSetup,
   onStorageReady,
 }: UseAppBootstrapOptions) {
@@ -61,6 +75,8 @@ export function useAppBootstrap({
     createAgent,
     loadSession,
     loadCloudModels,
+    readCachedCloudModels,
+    isCloudModelsLoaded,
     setNeedsModelSetup,
     onStorageReady,
   })
@@ -72,6 +88,8 @@ export function useAppBootstrap({
       createAgent,
       loadSession,
       loadCloudModels,
+      readCachedCloudModels,
+      isCloudModelsLoaded,
       setNeedsModelSetup,
       onStorageReady,
     }
@@ -88,6 +106,8 @@ export function useAppBootstrap({
         createAgent: create,
         loadSession: restoreSession,
         loadCloudModels: loadCloud,
+        readCachedCloudModels: readCachedCloud,
+        isCloudModelsLoaded: isCloudLoaded,
         setNeedsModelSetup: setModelSetup,
         onStorageReady: onReady,
       } = depsRef.current
@@ -95,32 +115,84 @@ export function useAppBootstrap({
       try {
         setReady(false)
         setStartupError(undefined)
+
+        // Stale-while-revalidate：启动第一步（任何 await 之前）发起本地快照
+        // 读取，命中即预应用语言/外观/字号/工具展示；异步 IndexedDB 读取不
+        // 阻塞下方校准序列，服务器值到达后由 initializeAppLanguage / load*
+        // 自然覆盖。预应用逐键 best-effort，任何失败不影响启动。
+        const settingsServerKey = resolveServerCacheKey()
+        void Promise.all([
+          readAppSettingSnapshotValue(settingsServerKey, 'language'),
+          readAppSettingSnapshotValue(settingsServerKey, 'appearance-settings'),
+          readAppSettingSnapshotValue(settingsServerKey, 'font-size-settings'),
+          readAppSettingSnapshotValue(settingsServerKey, 'tool-display-settings'),
+        ])
+          .then(([language, appearance, fontSize, toolDisplay]) => {
+            // null = 无可用快照（miss/白名单外/坏条目/IndexedDB 不可用）。
+            const preapply = (value: unknown, apply: (input: unknown) => void) => {
+              if (value === null) return
+              try {
+                apply(value)
+              } catch {
+                // 快照预应用失败静默，交给服务器校准兜底
+              }
+            }
+            preapply(language, applyAppLanguageFromSnapshot)
+            preapply(appearance, (input) => applyAppearanceSettings(normalizeAppearanceSettings(input)))
+            preapply(fontSize, (input) => applyFontSizeSettings(normalizeFontSizeSettings(input)))
+            preapply(toolDisplay, applyToolDisplaySettingsValue)
+          })
+          .catch(() => {
+            // 快照读取失败静默（IndexedDB 不可用等）
+          })
+
         const storage = await initializePiStorage()
         if (cancelled) return
 
         storageRef.current = storage
         onReady?.(storage)
         backendRef.current = storage.backend as HttpStorageBackend
-        await initializeAppLanguage(storage)
-        await loadToolDisplaySettings(storage)
-        await loadAndApplyAppearanceSettings(storage)
-        await loadAndApplyFontSizeSettings(storage)
-        await Promise.all([refreshSessionList(), loadProj()])
+        void refreshSessionList().catch((error) => {
+          logger.warn('Failed to refresh startup session list:', error)
+        })
+        const language = await initializeAppLanguage(storage)
+        const toolDisplaySettings = await loadToolDisplaySettings(storage)
+        const appearanceSettings = await loadAndApplyAppearanceSettings(storage)
+        const fontSizeSettings = await loadAndApplyFontSizeSettings(storage)
+        await loadProj()
 
         const savedAccessMode = await initAccessMode(storage)
         agentAccessModeRef.current = savedAccessMode
 
-        let cloudModels: Model<Api>[] = []
-        try {
-          cloudModels = await loadCloud()
-        } catch (error) {
-          logger.warn('Failed to restore QuickForge Cloud models:', error)
-        }
         const defaultOptions = await loadDefaultOptions(storage)
         const defaultHarness = normalizeAgentHarness(defaultOptions.harness)
-        const initialModel = defaultHarness === 'opencode'
-          ? null
-          : await loadInitialConfiguredModel(storage, cloudModels, defaultOptions.model)
+        let initialModel: Model<Api> | null = null
+        if (defaultHarness !== 'opencode') {
+          const cloudModelsPromise = loadCloud().catch((error) => {
+            logger.warn('Failed to restore QuickForge Cloud models:', error)
+            return []
+          })
+          const configuredModels = await getSelectableConfiguredModels(storage)
+          const savedModel = await loadActiveModel(storage)
+          const persistedCloudModel = isManagedQuickForgeCloudModel(defaultOptions.model)
+            || isManagedQuickForgeCloudModel(savedModel)
+          let cloudModels = readCachedCloud()
+          if (persistedCloudModel) {
+            // Leave StartupSplash before the remote catalog resolves, but do not create an
+            // Agent until the persisted Cloud snapshot has been checked against that catalog.
+            if (!isCloudLoaded()) {
+              setModelSetup(true)
+              setReady(true)
+            }
+            cloudModels = await cloudModelsPromise
+            if (cancelled) return
+          }
+          initialModel = chooseStartupModel(
+            mergeAvailableModels(configuredModels, cloudModels),
+            defaultOptions.model,
+            savedModel,
+          )
+        }
         const startupModel = initialModel ?? (defaultHarness === 'opencode' ? openCodePlaceholderModel() : null)
         if (initialModel) activeModelRef.current = initialModel
 
@@ -143,6 +215,14 @@ export function useAppBootstrap({
           setModelSetup(defaultHarness === 'quickforge' && !initialModel)
           if (startupModel) await createStartupSession()
         }
+
+        // Revalidate 侧：把服务器校准后的值写回本地快照（best-effort、
+        // fire-and-forget，不阻塞 ready），供下次启动预应用。只在成功路径
+        // 写入；启动整体失败走总 catch，不落盘。
+        void writeAppSettingSnapshotValue(settingsServerKey, 'language', language)
+        void writeAppSettingSnapshotValue(settingsServerKey, 'appearance-settings', appearanceSettings)
+        void writeAppSettingSnapshotValue(settingsServerKey, 'font-size-settings', fontSizeSettings)
+        void writeAppSettingSnapshotValue(settingsServerKey, 'tool-display-settings', toolDisplaySettings)
 
         setReady(true)
       } catch (error) {

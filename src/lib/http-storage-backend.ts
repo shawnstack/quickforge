@@ -1,4 +1,5 @@
 import type { StorageBackend, StorageTransaction } from '@earendil-works/pi-web-ui'
+import { updateAppSettingSnapshotFromStorageSet } from '@/lib/app-settings-cache'
 
 const DEFAULT_BLOCKED_STORES = new Set<string>()
 
@@ -104,6 +105,11 @@ export class HttpStorageBackend implements StorageBackend {
     await this.request<{ ok: boolean }>(this.path(storeName, 'key', key), {
       method: 'PUT',
       body: JSON.stringify({ value }),
+    })
+    // 启动设置快照写通（fire-and-forget）：undefined/null 归一为 null，与
+    // GET 的读取语义一致；非 settings store / 白名单外键由缓存模块过滤。
+    void updateAppSettingSnapshotFromStorageSet(storeName, key, value ?? null).catch(() => {
+      // 快照写通 best-effort，绝不影响 set 的返回语义与错误处理
     })
   }
 

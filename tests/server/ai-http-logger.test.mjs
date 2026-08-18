@@ -16,13 +16,43 @@ vi.mock('@earendil-works/pi-ai/compat', () => ({
   streamSimple: mocks.streamSimple,
 }))
 
-function hangingStream() {
+function controlledStream() {
+  const queue = []
+  const waiting = []
+  let complete = false
+  let finalResult
+  let resolveResult
+  const resultPromise = new Promise((resolve) => {
+    resolveResult = resolve
+  })
+
+  const publish = (value) => {
+    const waiter = waiting.shift()
+    if (waiter) waiter({ value, done: false })
+    else queue.push(value)
+  }
+
+  const finish = (result = { stopReason: 'stop' }) => {
+    complete = true
+    finalResult = result
+    resolveResult(result)
+    while (waiting.length > 0) waiting.shift()({ value: undefined, done: true })
+  }
+
   return {
-    result: () => new Promise(() => {}),
-    [Symbol.asyncIterator]() {
-      return {
-        next: () => new Promise(() => {}),
-      }
+    publish,
+    finish,
+    stream: {
+      result: () => resultPromise,
+      [Symbol.asyncIterator]() {
+        return {
+          next: () => {
+            if (queue.length > 0) return Promise.resolve({ value: queue.shift(), done: false })
+            if (complete) return Promise.resolve({ value: finalResult, done: true })
+            return new Promise((resolve) => waiting.push(resolve))
+          },
+        }
+      },
     },
   }
 }
@@ -58,7 +88,7 @@ describe('AI stream deadline', () => {
     vi.useFakeTimers()
     mocks.streamSimple.mockReset()
     mocks.resolveManagedCloudProvider.mockReset()
-    mocks.streamSimple.mockReturnValue(hangingStream())
+    mocks.streamSimple.mockReturnValue(controlledStream().stream)
   })
 
   afterEach(async () => {
@@ -159,33 +189,140 @@ describe('AI stream deadline', () => {
     expect(mocks.streamSimple.mock.calls[0][0].headers).toEqual({ 'X-Test': 'yes' })
   })
 
-  it('rejects result and aborts the provider signal at the deadline', async () => {
+  it('rejects a completely idle result and aborts the provider signal', async () => {
     const { streamSimpleWithAiHttpLogging } = await import('../../server/ai-http-logger.mjs')
     const stream = streamSimpleWithAiHttpLogging(
       { provider: 'mock', api: 'mock', id: 'mock-model' },
       { systemPrompt: '', messages: [], tools: [] },
-      { deadlineMs: 1000 },
+      { deadlineMs: 1000, totalTimeoutMs: 10000 },
     )
     const result = stream.result()
     const providerSignal = mocks.streamSimple.mock.calls[0][2].signal
 
-    const rejection = expect(result).rejects.toThrow('AI stream timed out after 1000ms')
+    const rejection = expect(result).rejects.toThrow('AI stream idle timeout after 1000ms')
     await vi.advanceTimersByTimeAsync(1000)
 
     await rejection
     expect(providerSignal.aborted).toBe(true)
   })
 
-  it('rejects async iteration at the deadline', async () => {
+  it('resets the idle timeout after each event and then times out when output stalls', async () => {
+    const controlled = controlledStream()
+    mocks.streamSimple.mockReturnValue(controlled.stream)
     const { streamSimpleWithAiHttpLogging } = await import('../../server/ai-http-logger.mjs')
     const stream = streamSimpleWithAiHttpLogging(
       { provider: 'mock', api: 'mock', id: 'mock-model' },
       { systemPrompt: '', messages: [], tools: [] },
-      { deadlineMs: 1000 },
+      { idleTimeoutMs: 1000, totalTimeoutMs: 10000 },
+    )
+    const result = stream.result()
+    const iterator = stream[Symbol.asyncIterator]()
+
+    await vi.advanceTimersByTimeAsync(900)
+    controlled.publish({ type: 'text_delta', delta: 'safe test event' })
+    await expect(iterator.next()).resolves.toMatchObject({ done: false })
+    await vi.advanceTimersByTimeAsync(900)
+    expect(mocks.streamSimple.mock.calls[0][2].signal.aborted).toBe(false)
+
+    const rejection = expect(result).rejects.toThrow('AI stream idle timeout after 1000ms')
+    await vi.advanceTimersByTimeAsync(100)
+    await rejection
+  })
+
+  it('allows continuous output beyond the legacy five-minute deadline', async () => {
+    const controlled = controlledStream()
+    mocks.streamSimple.mockReturnValue(controlled.stream)
+    const { streamSimpleWithAiHttpLogging } = await import('../../server/ai-http-logger.mjs')
+    const stream = streamSimpleWithAiHttpLogging(
+      { provider: 'mock', api: 'mock', id: 'mock-model' },
+      { systemPrompt: '', messages: [], tools: [] },
+      { idleTimeoutMs: 5 * 60 * 1000, totalTimeoutMs: 20 * 60 * 1000 },
+    )
+    const result = stream.result()
+
+    for (let elapsed = 0; elapsed < 6 * 60 * 1000; elapsed += 60 * 1000) {
+      await vi.advanceTimersByTimeAsync(60 * 1000)
+      controlled.publish({ type: 'text_delta', sequence: elapsed })
+      await vi.advanceTimersByTimeAsync(0)
+    }
+    expect(mocks.streamSimple.mock.calls[0][2].signal.aborted).toBe(false)
+    controlled.finish({ stopReason: 'stop' })
+    await expect(result).resolves.toMatchObject({ stopReason: 'stop' })
+  })
+
+  it('enforces the total timeout even while events keep resetting the idle timer', async () => {
+    const controlled = controlledStream()
+    mocks.streamSimple.mockReturnValue(controlled.stream)
+    const { streamSimpleWithAiHttpLogging } = await import('../../server/ai-http-logger.mjs')
+    const stream = streamSimpleWithAiHttpLogging(
+      { provider: 'mock', api: 'mock', id: 'mock-model' },
+      { systemPrompt: '', messages: [], tools: [] },
+      { idleTimeoutMs: 1000, totalTimeoutMs: 2500 },
+    )
+    const result = stream.result()
+    const iterator = stream[Symbol.asyncIterator]()
+
+    await vi.advanceTimersByTimeAsync(800)
+    controlled.publish({ type: 'text_delta', sequence: 1 })
+    await expect(iterator.next()).resolves.toMatchObject({ done: false })
+    await vi.advanceTimersByTimeAsync(800)
+    controlled.publish({ type: 'text_delta', sequence: 2 })
+    await expect(iterator.next()).resolves.toMatchObject({ done: false })
+    await vi.advanceTimersByTimeAsync(800)
+    controlled.publish({ type: 'text_delta', sequence: 3 })
+    await expect(iterator.next()).resolves.toMatchObject({ done: false })
+
+    const rejection = expect(result).rejects.toThrow('AI stream total timeout after 2500ms')
+    await vi.advanceTimersByTimeAsync(100)
+    await rejection
+  })
+
+  it('cleans up timeout timers after normal completion', async () => {
+    const controlled = controlledStream()
+    mocks.streamSimple.mockReturnValue(controlled.stream)
+    const { streamSimpleWithAiHttpLogging } = await import('../../server/ai-http-logger.mjs')
+    const stream = streamSimpleWithAiHttpLogging(
+      { provider: 'mock', api: 'mock', id: 'mock-model' },
+      { systemPrompt: '', messages: [], tools: [] },
+      { idleTimeoutMs: 1000, totalTimeoutMs: 2500 },
+    )
+
+    controlled.finish({ stopReason: 'stop' })
+    await expect(stream.result()).resolves.toMatchObject({ stopReason: 'stop' })
+    await expect(stream[Symbol.asyncIterator]().next()).resolves.toMatchObject({ done: true })
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(mocks.streamSimple.mock.calls[0][2].signal.aborted).toBe(false)
+  })
+
+  it('lets iterator return stop iteration without canceling result or leaking timers', async () => {
+    const controlled = controlledStream()
+    mocks.streamSimple.mockReturnValue(controlled.stream)
+    const { streamSimpleWithAiHttpLogging } = await import('../../server/ai-http-logger.mjs')
+    const stream = streamSimpleWithAiHttpLogging(
+      { provider: 'mock', api: 'mock', id: 'mock-model' },
+      { systemPrompt: '', messages: [], tools: [] },
+      { idleTimeoutMs: 1000, totalTimeoutMs: 2500 },
+    )
+    const result = stream.result()
+    const iterator = stream[Symbol.asyncIterator]()
+
+    await expect(iterator.return()).resolves.toMatchObject({ done: true })
+    controlled.finish({ stopReason: 'stop' })
+    await expect(result).resolves.toMatchObject({ stopReason: 'stop' })
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('rejects async iteration on idle timeout without requiring result()', async () => {
+    const { streamSimpleWithAiHttpLogging } = await import('../../server/ai-http-logger.mjs')
+    const stream = streamSimpleWithAiHttpLogging(
+      { provider: 'mock', api: 'mock', id: 'mock-model' },
+      { systemPrompt: '', messages: [], tools: [] },
+      { deadlineMs: 1000, totalTimeoutMs: 10000 },
     )
     const next = stream[Symbol.asyncIterator]().next()
 
-    const rejection = expect(next).rejects.toThrow('AI stream timed out after 1000ms')
+    const rejection = expect(next).rejects.toThrow('AI stream idle timeout after 1000ms')
     await vi.advanceTimersByTimeAsync(1000)
 
     await rejection

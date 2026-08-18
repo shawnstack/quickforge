@@ -22,14 +22,17 @@
 ├── config/
 │   └── config.json
 ├── storage/
+│   ├── quickforge.sqlite3      # F5 scheduled runs 权威数据 + F6/F7 可重建 session index/query indexes
 │   └── conversations/
 │       ├── global/
-│       │   ├── sessions.json
-│       │   └── sessions-metadata.json
+│       │   ├── sessions-metadata.json
+│       │   └── sessions/
+│       │       └── <sessionId>.json
 │       └── projects/
 │           └── <projectId>/
-│               ├── sessions.json
-│               └── sessions-metadata.json
+│               ├── sessions-metadata.json
+│               └── sessions/
+│                   └── <sessionId>.json
 ├── cache/
 │   ├── global/
 │   │   ├── llm/
@@ -52,12 +55,15 @@
 | 目录/文件 | 职责 | 是否可删除 |
 |---|---|---|
 | `config/config.json` | 统一配置：设置、Provider、API Key、项目列表 | 否 |
+| `storage/quickforge.sqlite3` | F5 在 `sqlite_authoritative_json_pending` / `authoritative` 阶段作为 scheduled runs 唯一权威；F6/F7 `session_index` 与查询索引仅为 JSON metadata 的可重建派生数据 | 否；不能为重建 session index 删除整个库。备份必须通过逻辑导出挂回完整 runs，禁止直接复制 live DB/WAL/SHM |
 | `storage/conversations/` | 全局与项目会话数据 | 否 |
 | `cache/` | 可重建缓存 | 是 |
 | `logs/` | 本地日志 | 可按策略清理 |
 | `quickforge.pid` | 后台服务 PID | 由程序管理 |
 
 > 安全提示：`config/config.json` 包含 `credentials.providerKeys`，整个文件都应视为敏感文件，不应分享或提交到代码仓库。
+>
+> SQLite 边界：`storage/quickforge.sqlite3` 的 F2 基础层创建 `schema_migrations`，F3 增加 `scheduled_task_runs`，F4 为 JSON 权威影子双写；F5 使用状态机 `hybrid -> cutover_running -> sqlite_authoritative_json_pending -> authoritative` 完成权威切换。只有 pending/authoritative 才以 SQLite 为唯一 runs 权威；hybrid/cutover 失败必须保留完整 JSON runs。权威备份读取 repository 失败、分页/count/digest 不一致时 fail closed，禁止退化成 metadata-only。restore 与 cutover/backup 共用带 owner PID、fencing、heartbeat 的 SQLite 跨进程维护锁；存在 active run 时 restore 返回 409，补偿失败保留锁/gate 并阻止 runner。startup 对 prepared/applying/target_applied 计划 roll-forward target，对 compensating/compensation_failed rollback before；计划缺失字段或 digest 不符阻止启动，并将历史 running 记录标为 `Interrupted by previous process shutdown` 后清理 task active metadata。F6 在同一库增加 `session_index`，F7 v5 只增加查询索引并对严格 eligible 的 storage route 分页使用 SQL；会话 metadata JSON 仍是权威，索引不进入 backup、可按 count+digest 重建，任一兼容性/完整性/duplicate/tie/shadow 门禁失败都回 JSON。不能通过删除整个 SQLite 文件重建索引，因为会丢失 F5 权威 scheduled runs。详见 [`scheduled-task-runs-authoritative-cutover.zh-CN.md`](./scheduled-task-runs-authoritative-cutover.zh-CN.md)、[`session-index-foundation.zh-CN.md`](./session-index-foundation.zh-CN.md) 与 [`session-index-query-migration.zh-CN.md`](./session-index-query-migration.zh-CN.md)。
 
 ## 3. `config/config.json` 设计
 
@@ -214,8 +220,9 @@ type ProjectsConfig = {
 
 ```text
 storage/conversations/global/
-├── sessions.json
-└── sessions-metadata.json
+├── sessions-metadata.json
+└── sessions/
+    └── <sessionId>.json
 ```
 
 语义：
@@ -234,8 +241,9 @@ scope: 'global'
 
 ```text
 storage/conversations/projects/<projectId>/
-├── sessions.json
-└── sessions-metadata.json
+├── sessions-metadata.json
+└── sessions/
+    └── <sessionId>.json
 ```
 
 语义：
@@ -251,11 +259,11 @@ projectId: '<projectId>'
 - 备份、导出、归档单个项目会话更容易。
 - 项目缓存和项目会话都可按同一个 `projectId` 对齐。
 
-### 4.3 `sessions.json`
+### 4.3 `sessions/<sessionId>.json`
+
+每个会话独立保存为一个 JSON 文件，不再使用聚合 `sessions.json`：
 
 ```ts
-type SessionsFile = Record<string, QuickForgeSessionData>
-
 type QuickForgeSessionData = {
   id: string
   title: string
@@ -284,6 +292,7 @@ type QuickForgeSessionMetadata = {
   title: string
   createdAt: string
   lastModified: string
+  stateVersion?: number
   messageCount: number
   usage?: unknown
   thinkingLevel?: string

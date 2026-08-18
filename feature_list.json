@@ -3,11 +3,39 @@
     {
       "id": "session-message-indexeddb-cache",
       "name": "会话消息 IndexedDB 只读快照缓存",
-      "description": "前端只读缓存层：解决页面刷新/切换会话/空闲 agent 驻留逐出（上限 5 个）后 ServerAgent.restore + fetchAllSessionMessages 全量重拉消息（前端最大重复数据流，长会话 MB 级）的问题。Phase 1（基准+设计）：实测刷新/重进会话时 /restore + /messages 全量重拉的耗时与字节量（证据不足则不实施）；确定缓存 key（移动壳多 origin 需带服务器标识，防切换服务器串数据）、失效戳（stateVersion / messagesSummary.count / digest，均来自服务端权威字段）、容量上限与 LRU 裁剪、写失败/配额异常静默降级。Phase 2（核心缓存层）：无新依赖的 IndexedDB 封装模块；快照 = messages 全量 + 校验戳，写入点覆盖 restore/create 全量物化与 SSE message_end/messages_replaced/messagesSummary 校准路径（与 F9 增量 SSE 通道互补，增量帧直接落快照）。Phase 3（集成 stale-while-revalidate）：刷新/重进先用本地快照即时渲染，后台经 /state summary 校准、差异经 /messages?after= 增量补齐，与既有 stateVersion 防旧覆盖守卫兼容；被逐出 agent 重建时优先读快照；补测试与文档。边界：服务器 SQLite 保持唯一权威，IndexedDB 仅为浏览器端只读缓存层（不复用 pi-web-ui IndexeddbStorageBackend 的权威后端语义）；不改变 API shape、SSE 帧与 stateVersion 语义；不触碰 F11 lan-access。",
-      "status": "pending",
+      "description": "前端只读缓存层：解决页面刷新/切换会话/空闲 agent 驻留逐出（上限 5 个）后 ServerAgent.restore + fetchAllSessionMessages 全量重拉消息（前端最大重复数据流，长会话 MB 级）的问题。Phase 1（基准+设计）完成：复跑 session-message-benchmark（500 条 messagesBytes 297KB / 2000 条 1.19MB，transport 超 1MB 可感知阈值）确认证据充分；设计定稿缓存 key（serverKey=baseUrl→直连后端→origin，防多 origin 串数据）、失效戳（服务端 stateVersion 单调高水位 + split summary.count）、LRU 40 条/64MB 预算、写失败静默降级。Phase 2+3 完成：新增 src/lib/indexeddb-cache.ts（通用只读封装：惰性单例 open、条目级 schemaVersion、selectEvictionKeys 纯函数 LRU+字节双预算且永不淘汰最后一条、get/put/delete/keys/clear 全异常降级 null/false）与 src/lib/session-message-cache.ts（快照条目结构校验+坏条目删除、resolveServerCacheKey 四级回退、per-key 1.5s trailing debounce 写入覆盖式 pending builder、stateVersion 高水位守卫、flush/cancel、IndexedDB 不可用全程 no-op）；server-agent.ts 最小接线：restore 缓存命中快路径（本地快照水合立即构造 agent、不 POST /restore、后台 GET /state 校准，_doRefreshStateFromServer 增加非 forceMessages 且版本一致+summary.count 相等时跳过 /messages 补拉的优化，syncState 公共行为不变）、restore/create 物化与 8 类 SSE 消息写事件经模块级 debounce 写快照（builder flush 时读实时 state，sessionCacheMetadata 保留 title/scope 等元数据）；SSE 帧语义/noteSseEvent/versionBefore 守卫/API shape 全部不变。测试：新增 tests/frontend/indexeddb-cache.test.ts（13 项，文件内 ~100 行 fake IDBFactory）+ session-message-cache.test.ts（8 项，fake timers 覆盖 debounce 合并/高水位守卫/坏条目/不可用降级）+ server-agent.test.ts 扩展 6 项（27→33：缓存命中即时渲染且不请求 /messages、版本前进走 after= 补拉、未命中原路径+写快照、create 写快照、SSE 增量帧写快照、校准失败不崩）。验证：tsc 0 错、目标 ESLint 0 error/0 warning、针对性 54/54 + deferred-session-agent 回归 6/6、全量 test 198 文件/1593 项 100%、lint 0 error（仅既有 identity warning）、build exit 0。边界遵守：服务器 SQLite 唯一权威（IndexedDB 仅浏览器只读缓存层）；未复用 pi-web-ui IndexeddbStorageBackend；无新依赖；wiki src/lib 同步。",
+      "status": "done",
       "dependencies": [
         "message-incremental-storage"
       ],
+      "updated": "2026-08-17"
+    },
+    {
+      "id": "workspace-inspector-cache",
+      "name": "Workspace 文件树与文件内容 IndexedDB 缓存",
+      "description": "复用 F12 共享 IndexedDB 封装模块（serverOrigin 前缀 key + LRU + 配额静默降级）解决 Workspace Inspector 两个刷新丢失问题：①treeState/expandedPaths（WorkspaceInspector.tsx useReducer）刷新即丢，Inspector 重开后需逐目录重拉 /api/workspace/children（no-store）；②Reader Tab 每次打开全量重拉 /api/workspace/file 文本。方案：目录条目按 projectId+path 缓存、文件内容按 projectId+path+mtime 缓存（失效戳用服务端返回的 mtime/size 等权威字段），重开 Inspector 先渲染缓存目录结构再后台刷新差异，同文件（mtime 未变）重开零网络。边界：只读缓存层，服务器数据唯一权威；不改变 children/file API shape 与服务端扫描/分页/安全校验语义；缓存条目须与服务端 truncated/错误语义兼容（错误响应不缓存）；不与 F9/F12 的会话缓存耦合。完成标准：Inspector 重开与 Reader 重开的网络请求实测下降、缓存命中路径与失效路径有针对性测试、共享模块复用无重复实现。",
+      "status": "done",
+      "dependencies": [
+        "session-message-indexeddb-cache"
+      ],
+      "updated": "2026-08-17"
+    },
+    {
+      "id": "app-settings-swr-cache",
+      "name": "启动 Settings 快照 stale-while-revalidate 首屏提速",
+      "description": "复用 F12 共享 IndexedDB 封装模块：useAppBootstrap 启动序列每次刷新串行 6-10 个 /api/storage/settings/key/* 往返（语言/工具显示/外观/字号/project/access-mode/默认选项/custom providers/活跃模型，全部 no-store），是首屏延迟的串行项而非带宽项。方案：启动时先用 IndexedDB 上次快照立即应用语言与外观类设置（用户感知最强），后台并发校准全部键；校准值与快照不一致时静默更新 UI 并落新快照；服务器数据保持唯一权威，快照仅作首屏初值，任何校准失败回退网络路径不影响正确性。边界：不改 settings API shape 与服务端校验；不缓存 access-mode 之类即时安全语义敏感项（该项跟随网络结果）；不引入 SW 拦截。完成标准：本地快照命中时首屏设置应用提前（实测启动序列网络等待下降）、快照校准/失效/降级路径有针对性测试。",
+      "status": "done",
+      "dependencies": [
+        "session-message-indexeddb-cache"
+      ],
+      "updated": "2026-08-17"
+    },
+    {
+      "id": "workspace-preview-cache",
+      "name": "Workspace Preview 二进制缓存（先评估 HTTP 缓存替代）",
+      "description": "现状：/api/workspace/preview/* 由服务端强制 cache-control: no-store（server/routes/workspace.mjs），文件未变的图片/HTML preview 每次重传二进制。本 feature 前置评估阶段必须先验证更简方案——服务端改为可协商缓存（ETag/Last-Modified 基于 stat mtime+size，对比 session-assets 已是 immutable 一年）：若 HTTP 缓存方案能消除重复传输（304 命中），本 feature 以 HTTP 方案闭环，IndexedDB Blob 缓存（key=projectId+path+mtime，复用 F12 共享模块）仅在 HTTP 方案不可行（如 server 响应头改造受路由语义约束）时实施。边界：preview 与 session-assets 的安全语义不同（workspace 文件可变），不得直接照搬 immutable；不改变 preview 路由的鉴权与路径校验；Android 原生壳无 SW，HTTP 缓存方案在 WebView 中同样生效。完成标准：前置评估有数据支撑的决策记录；所选方案实测重开 preview 无重复传输；不新增依赖。",
+      "status": "done",
+      "dependencies": [],
       "updated": "2026-08-17"
     },
     {

@@ -840,7 +840,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                       <div className="mb-2 font-medium text-foreground">{t('recentExecutions')}</div>
                       <div className="space-y-2">
                         {detailTask.runs.slice(0, 5).map((run) => (
-                          <details key={run.id} className="rounded-lg border border-border bg-muted/20 p-2 text-xs text-muted-foreground">
+                          <details key={`${detailTask.id}:${run.id}`} className="rounded-lg border border-border bg-muted/20 p-2 text-xs text-muted-foreground">
                             <summary className="cursor-pointer text-foreground">
                               {formatDateTime(run.startedAt)} · {run.trigger === 'manual' ? t('manualRun') : t('autoRun')} · {statusLabel(run.status)}
                             </summary>
@@ -1009,14 +1009,14 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                       <div className="p-8 text-center text-sm text-muted-foreground">{t('noExecutionHistory')}</div>
                     ) : historyPayload.runs.map((run) => (
                       <div key={`${run.taskId}:${run.id}`} className="border-b border-border last:border-b-0">
-                        <button type="button" className="grid w-full min-w-[600px] grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.7fr] gap-3 px-4 py-3 text-left text-sm hover:bg-muted/40" onClick={() => setExpandedRunId(expandedRunId === run.id ? null : run.id)}>
+                        <button type="button" className="grid w-full min-w-[600px] grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.7fr] gap-3 px-4 py-3 text-left text-sm hover:bg-muted/40" onClick={() => { const key = `${run.taskId}:${run.id}`; setExpandedRunId(expandedRunId === key ? null : key) }}>
                           <span className="min-w-0 truncate text-foreground">{run.taskTitle}</span>
                           <span><span className={cn('rounded-full px-2 py-0.5 text-xs', statusClass(run.status))}>{statusLabel(run.status)}</span></span>
                           <span className="text-muted-foreground">{run.trigger === 'manual' ? t('manualRun') : t('autoRun')}</span>
                           <span className="text-muted-foreground">{formatDateTime(run.startedAt)}</span>
                           <span className="text-muted-foreground">{run.durationMs ? `${run.durationMs}ms` : '-'}</span>
                         </button>
-                        {expandedRunId === run.id ? <div className="border-t border-border bg-muted/20 px-4 py-3">{renderRunDetails(run)}</div> : null}
+                        {expandedRunId === `${run.taskId}:${run.id}` ? <div className="border-t border-border bg-muted/20 px-4 py-3">{renderRunDetails(run)}</div> : null}
                       </div>
                     ))}
                     <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm text-muted-foreground">

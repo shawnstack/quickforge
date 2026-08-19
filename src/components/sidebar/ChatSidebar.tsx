@@ -987,7 +987,7 @@ export const ChatSidebar = memo(function ChatSidebar({
               </div>
               <div className={cn(collapsePanelClass, 'flex-1 min-h-0', pinnedCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
                 <div className={collapseInnerClass}>
-                  <div className="h-full overflow-y-auto">
+                  <div className="max-h-[10.5rem] overflow-y-auto">
                     <div className="space-y-0.5">
                       {pinnedSessionItems.length === 0 ? (
                         <div className="flex items-center px-3 py-3 text-xs text-muted-foreground/55">
@@ -1254,7 +1254,7 @@ export const ChatSidebar = memo(function ChatSidebar({
 
                               <div className={cn(collapsePanelClass, isProjectDragging && 'transition-none', expanded ? collapsePanelOpenClass : collapsePanelClosedClass)}>
                                 <div className={collapseInnerClass}>
-                                  <div className="mt-0.5 space-y-0.5 pl-8 max-h-[35vh] overflow-y-auto">
+                                  <div className="mt-0.5 space-y-0.5 pl-8 max-h-[10.5rem] overflow-y-auto">
                                     {projectSessions.length === 0 && !loaded ? (
                                       <div className="flex items-center px-2 py-1.5 text-xs text-muted-foreground/55">
                                         <Loader2 className="mr-1.5 size-3 animate-spin" />

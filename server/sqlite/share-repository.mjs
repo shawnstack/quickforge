@@ -301,7 +301,36 @@ function attachTokens(records, tokenRows) {
   }))
 }
 
-function insertShareRow(database, record, revision, createdAt, updatedAt) {
+const SHARE_SESSION_UPSERT_SQL = `
+  INSERT INTO share_sessions (${SHARE_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(share_id) DO UPDATE SET
+    session_id = excluded.session_id,
+    permission = excluded.permission,
+    title_snapshot = excluded.title_snapshot,
+    scope = excluded.scope,
+    project_id = excluded.project_id,
+    password_hash = excluded.password_hash,
+    password_salt = excluded.password_salt,
+    password_version = excluded.password_version,
+    auth_version = excluded.auth_version,
+    allow_cloud_usage = excluded.allow_cloud_usage,
+    created_at = excluded.created_at,
+    updated_at = excluded.updated_at,
+    expires_at = excluded.expires_at,
+    revoked_at = excluded.revoked_at,
+    superseded_at = excluded.superseded_at,
+    access_count = excluded.access_count,
+    last_accessed_at = excluded.last_accessed_at,
+    created_from_host = excluded.created_from_host,
+    last_updated_from_host = excluded.last_updated_from_host,
+    revision = excluded.revision,
+    record_digest = excluded.record_digest,
+    deleted_at = excluded.deleted_at,
+    extra_json = excluded.extra_json
+`
+
+// The optional statement lets the cutover replaceAll reuse one precompiled upsert.
+function insertShareRow(database, record, revision, createdAt, updatedAt, statement = null) {
   const extra = {}
   for (const [key, value] of Object.entries(record)) {
     if (!KNOWN_FIELDS.has(key) && !['revision', 'deletedAt'].includes(key)) extra[key] = value
@@ -317,33 +346,8 @@ function insertShareRow(database, record, revision, createdAt, updatedAt) {
     record.createdFromHost ?? null, record.lastUpdatedFromHost ?? null,
     revision, shareRecordDigest(record), record.deletedAt ?? null, JSON.stringify(extra),
   ]
-  database.prepare(`
-    INSERT INTO share_sessions (${SHARE_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(share_id) DO UPDATE SET
-      session_id = excluded.session_id,
-      permission = excluded.permission,
-      title_snapshot = excluded.title_snapshot,
-      scope = excluded.scope,
-      project_id = excluded.project_id,
-      password_hash = excluded.password_hash,
-      password_salt = excluded.password_salt,
-      password_version = excluded.password_version,
-      auth_version = excluded.auth_version,
-      allow_cloud_usage = excluded.allow_cloud_usage,
-      created_at = excluded.created_at,
-      updated_at = excluded.updated_at,
-      expires_at = excluded.expires_at,
-      revoked_at = excluded.revoked_at,
-      superseded_at = excluded.superseded_at,
-      access_count = excluded.access_count,
-      last_accessed_at = excluded.last_accessed_at,
-      created_from_host = excluded.created_from_host,
-      last_updated_from_host = excluded.last_updated_from_host,
-      revision = excluded.revision,
-      record_digest = excluded.record_digest,
-      deleted_at = excluded.deleted_at,
-      extra_json = excluded.extra_json
-  `).run(...values)
+  const insert = statement ?? database.prepare(SHARE_SESSION_UPSERT_SQL)
+  insert.run(...values)
 }
 
 function replaceTokens(database, shareId, tokens) {
@@ -354,18 +358,21 @@ function replaceTokens(database, shareId, tokens) {
   }
 }
 
-function enqueueShareMirror(database, record, operation, updatedAt) {
+const ENQUEUE_SHARE_MIRROR_SQL = `
+  INSERT INTO share_json_mirror_queue (share_id, operation, share_json, attempts, last_error, updated_at)
+  VALUES (?, ?, ?, 0, NULL, ?)
+  ON CONFLICT(share_id) DO UPDATE SET
+    operation = excluded.operation,
+    share_json = excluded.share_json,
+    attempts = 0,
+    last_error = NULL,
+    updated_at = excluded.updated_at
+`
+
+function enqueueShareMirror(database, record, operation, updatedAt, statement = null) {
   const stored = record ? { ...record, revision: undefined, deletedAt: undefined } : null
-  database.prepare(`
-    INSERT INTO share_json_mirror_queue (share_id, operation, share_json, attempts, last_error, updated_at)
-    VALUES (?, ?, ?, 0, NULL, ?)
-    ON CONFLICT(share_id) DO UPDATE SET
-      operation = excluded.operation,
-      share_json = excluded.share_json,
-      attempts = 0,
-      last_error = NULL,
-      updated_at = excluded.updated_at
-  `).run(
+  const insert = statement ?? database.prepare(ENQUEUE_SHARE_MIRROR_SQL)
+  insert.run(
     record?.id || record,
     operation,
     operation === 'upsert' ? (stored ? recordJson(stored) : null) : null,
@@ -716,10 +723,12 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
     const timestamp = now()
     return storage.transaction((database) => {
       database.exec('DELETE FROM share_sessions; DELETE FROM share_tokens; DELETE FROM share_json_mirror_queue;')
+      const insertSession = database.prepare(SHARE_SESSION_UPSERT_SQL)
+      const insertMirror = database.prepare(ENQUEUE_SHARE_MIRROR_SQL)
       for (const record of records) {
-        insertShareRow(database, { ...record, updatedAt: record.updatedAt || timestamp }, 1, record.createdAt || timestamp, record.updatedAt || timestamp)
+        insertShareRow(database, { ...record, updatedAt: record.updatedAt || timestamp }, 1, record.createdAt || timestamp, record.updatedAt || timestamp, insertSession)
         replaceTokens(database, record.id, record.tokens)
-        enqueueShareMirror(database, { ...record, revision: 1 }, 'upsert', timestamp)
+        enqueueShareMirror(database, { ...record, revision: 1 }, 'upsert', timestamp, insertMirror)
       }
       const digest = shareSnapshotDigest(records)
       if (expectedCount !== undefined && records.length !== expectedCount) throw new Error('Share replace count verification failed')

@@ -314,8 +314,10 @@ export function createScheduledTaskRunsRepository(storageHandle, options = {}) {
     return database.prepare('SELECT * FROM scheduled_task_runs WHERE task_id = ? AND id = ?').get(taskId, runId)
   }
 
-  function insert(database, value) {
-    database.prepare(`INSERT INTO scheduled_task_runs (${INSERT_COLUMNS}) VALUES (${INSERT_PLACEHOLDERS})`).run(...insertParameters(value))
+  // The optional statement lets the cutover replaceAll reuse one precompiled insert.
+  function insert(database, value, statement = null) {
+    const insertStatement = statement ?? database.prepare(`INSERT INTO scheduled_task_runs (${INSERT_COLUMNS}) VALUES (${INSERT_PLACEHOLDERS})`)
+    insertStatement.run(...insertParameters(value))
   }
 
   function upsert(database, value) {
@@ -392,7 +394,8 @@ export function createScheduledTaskRunsRepository(storageHandle, options = {}) {
       }
       return storage.transaction((database) => {
         database.prepare('DELETE FROM scheduled_task_runs').run()
-        for (const value of values) insert(database, value)
+        const insertStatement = database.prepare(`INSERT INTO scheduled_task_runs (${INSERT_COLUMNS}) VALUES (${INSERT_PLACEHOLDERS})`)
+        for (const value of values) insert(database, value, insertStatement)
         return values.length
       })
     },

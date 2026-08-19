@@ -227,27 +227,46 @@ function nullableInteger(value) {
   return Number.isInteger(value) && value >= 0 ? value : null
 }
 
-function upsertIndex(database, record) {
+// Cutover importers precompile these once per batch and pass the statement in;
+// runtime paths omit `statement` and prepare per call exactly as before.
+const UPSERT_SESSION_INDEX_SQL = `
+  INSERT INTO session_index (
+    scope, project_id, session_id, created_at, last_modified, message_count,
+    pinned_at, archived_at, is_pinned, is_archived, state_version,
+    metadata_json, metadata_digest, indexed_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(scope, project_id, session_id) DO UPDATE SET
+    created_at = excluded.created_at,
+    last_modified = excluded.last_modified,
+    message_count = excluded.message_count,
+    pinned_at = excluded.pinned_at,
+    archived_at = excluded.archived_at,
+    is_pinned = excluded.is_pinned,
+    is_archived = excluded.is_archived,
+    state_version = excluded.state_version,
+    metadata_json = excluded.metadata_json,
+    metadata_digest = excluded.metadata_digest,
+    indexed_at = excluded.indexed_at
+`
+
+const ENQUEUE_SESSION_MIRROR_SQL = `
+  INSERT INTO session_json_mirror_queue (
+    scope, project_id, session_id, operation, revision, state_json, metadata_json, attempts, last_error, updated_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, ?)
+  ON CONFLICT(scope, project_id, session_id) DO UPDATE SET
+    operation = excluded.operation,
+    revision = excluded.revision,
+    state_json = excluded.state_json,
+    metadata_json = excluded.metadata_json,
+    attempts = 0,
+    last_error = NULL,
+    updated_at = excluded.updated_at
+`
+
+function upsertIndex(database, record, statement = null) {
   const metadata = record.metadata
-  database.prepare(`
-    INSERT INTO session_index (
-      scope, project_id, session_id, created_at, last_modified, message_count,
-      pinned_at, archived_at, is_pinned, is_archived, state_version,
-      metadata_json, metadata_digest, indexed_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(scope, project_id, session_id) DO UPDATE SET
-      created_at = excluded.created_at,
-      last_modified = excluded.last_modified,
-      message_count = excluded.message_count,
-      pinned_at = excluded.pinned_at,
-      archived_at = excluded.archived_at,
-      is_pinned = excluded.is_pinned,
-      is_archived = excluded.is_archived,
-      state_version = excluded.state_version,
-      metadata_json = excluded.metadata_json,
-      metadata_digest = excluded.metadata_digest,
-      indexed_at = excluded.indexed_at
-  `).run(
+  const insert = statement ?? database.prepare(UPSERT_SESSION_INDEX_SQL)
+  insert.run(
     record.scope, record.projectId, record.sessionId,
     nullableString(metadata.createdAt), nullableString(metadata.lastModified), nullableInteger(metadata.messageCount),
     nullableString(metadata.pinnedAt), nullableString(metadata.archivedAt), metadata.pinnedAt ? 1 : 0, metadata.archivedAt ? 1 : 0,
@@ -255,20 +274,9 @@ function upsertIndex(database, record) {
   )
 }
 
-function enqueueMirror(database, record, operation, revision) {
-  database.prepare(`
-    INSERT INTO session_json_mirror_queue (
-      scope, project_id, session_id, operation, revision, state_json, metadata_json, attempts, last_error, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, ?)
-    ON CONFLICT(scope, project_id, session_id) DO UPDATE SET
-      operation = excluded.operation,
-      revision = excluded.revision,
-      state_json = excluded.state_json,
-      metadata_json = excluded.metadata_json,
-      attempts = 0,
-      last_error = NULL,
-      updated_at = excluded.updated_at
-  `).run(
+function enqueueMirror(database, record, operation, revision, statement = null) {
+  const insert = statement ?? database.prepare(ENQUEUE_SESSION_MIRROR_SQL)
+  insert.run(
     record.scope, record.projectId, record.sessionId, operation, revision,
     operation === 'upsert' ? record.stateJson : null,
     operation === 'upsert' ? record.metadataJson : null,
@@ -610,18 +618,20 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     }
     return storage.transaction((database) => {
       database.exec('DELETE FROM session_states; DELETE FROM session_state_tombstones; DELETE FROM session_index; DELETE FROM session_json_mirror_queue; DELETE FROM session_messages;')
+      const insert = database.prepare(`INSERT INTO session_states (${STATE_COLUMNS}) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`)
+      const insertIndex = database.prepare(UPSERT_SESSION_INDEX_SQL)
+      const insertMirror = database.prepare(ENQUEUE_SESSION_MIRROR_SQL)
       for (const record of records) {
-        database.prepare(`INSERT INTO session_states (${STATE_COLUMNS}) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`)
-          .run(record.scope, record.projectId, record.sessionId, record.stateVersion, record.stateJson, record.stateDigest, record.metadataJson, record.metadataDigest, timestamp, timestamp)
+        insert.run(record.scope, record.projectId, record.sessionId, record.stateVersion, record.stateJson, record.stateDigest, record.metadataJson, record.metadataDigest, timestamp, timestamp)
         if (record.messages !== undefined) writeMessages(database, record, 'replace', timestamp)
-        upsertIndex(database, record)
-        enqueueMirror(database, record, 'upsert', 1)
+        upsertIndex(database, record, insertIndex)
+        enqueueMirror(database, record, 'upsert', 1, insertMirror)
       }
       // Orphan deletes intentionally have no session_states/session_index rows
       // (they were dropped as stale residue); enqueue mirror deletes so the
       // drain physically clears leftover JSON files (idempotent when absent).
       for (const entry of deletes) {
-        enqueueMirror(database, { ...entry, stateJson: null, metadataJson: null, now: timestamp }, 'delete', 1)
+        enqueueMirror(database, { ...entry, stateJson: null, metadataJson: null, now: timestamp }, 'delete', 1, insertMirror)
       }
       const digest = verificationDigest(digestRows(database))
       if (expectedCount !== undefined && records.length !== expectedCount) throw new Error('Session state replace count verification failed')
@@ -658,6 +668,8 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     try {
       storage.exec('DELETE FROM session_states; DELETE FROM session_state_tombstones; DELETE FROM session_index; DELETE FROM session_json_mirror_queue; DELETE FROM session_messages;')
       const insert = storage.prepare(`INSERT INTO session_states (${STATE_COLUMNS}) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`)
+      const insertIndex = storage.prepare(UPSERT_SESSION_INDEX_SQL)
+      const insertMirror = storage.prepare(ENQUEUE_SESSION_MIRROR_SQL)
       const ids = new Set()
       for await (const input of recordIterable) {
         let messages = input.messages
@@ -672,8 +684,8 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
         }
         insert.run(record.scope, record.projectId, record.sessionId, record.stateVersion, record.stateJson, record.stateDigest, record.metadataJson, record.metadataDigest, timestamp, timestamp)
         if (record.messages !== undefined) writeMessages(storage, record, 'replace', timestamp)
-        upsertIndex(storage, record)
-        enqueueMirror(storage, record, 'upsert', 1)
+        upsertIndex(storage, record, insertIndex)
+        enqueueMirror(storage, record, 'upsert', 1, insertMirror)
         // Streamed imports are non-split (messages inline, none in
         // session_messages), so the empty messages digest matches what
         // digestRows computes for freshly imported non-split rows.
@@ -683,7 +695,7 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
       // Orphan deletes intentionally have no session_states/session_index rows;
       // see replaceAll for the mirror-drain rationale.
       for (const entry of deletes) {
-        enqueueMirror(storage, { ...entry, stateJson: null, metadataJson: null, now: timestamp }, 'delete', 1)
+        enqueueMirror(storage, { ...entry, stateJson: null, metadataJson: null, now: timestamp }, 'delete', 1, insertMirror)
       }
       const digest = digestFromLines(digestLines)
       if (expectedCount !== undefined && count !== expectedCount) throw new Error('Session state replace count verification failed')

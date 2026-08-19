@@ -4,7 +4,7 @@ import { getSqliteStorage } from './sqlite/database.mjs'
 import { logger } from './utils/logger.mjs'
 
 const DEFAULT_MAX_REBUILD_ATTEMPTS = 3
-const DEFAULT_VERIFY_TTL_MS = 5_000
+const DEFAULT_VERIFY_TTL_MS = 60_000
 
 let defaultReader = null
 let defaultRepository = null
@@ -185,6 +185,9 @@ export function createSessionIndexService({
   if (typeof readBuckets !== 'function') throw new TypeError('Session index service requires a bucket reader')
 
   let rebuildPromise = null
+  let verifyInFlight = null
+  let analysisEpoch = 0
+  const analysisCache = new Map()
   const emptyDigest = sessionIndexAggregateDigest([])
   const diagnostics = {
     status: 'uninitialized',
@@ -255,6 +258,8 @@ export function createSessionIndexService({
     for (let attempt = 1; attempt <= maxRebuildAttempts; attempt += 1) {
       snapshot ||= await readSnapshot()
       repository.replaceAll(snapshot.rows)
+      analysisEpoch += 1
+      analysisCache.clear()
       const afterSource = await readSnapshot()
       if (afterSource.count !== snapshot.count || afterSource.digest !== snapshot.digest) {
         snapshot = afterSource
@@ -325,25 +330,33 @@ export function createSessionIndexService({
     if (!force && Number.isFinite(lastVerifiedMs) && nowMs() - lastVerifiedMs < verifyTtlMs) {
       return { ready: !diagnostics.dirty && !diagnostics.degraded && diagnostics.queryCompatible, ...getDiagnostics() }
     }
-    try {
-      const snapshot = await readSnapshot()
-      const verification = indexedVerification()
-      const projectionValid = projectionIntegrity()
-      const matches = verification.count === snapshot.count && verification.digest === snapshot.digest && projectionValid
-      setVerification(snapshot, verification, { dirty: !matches })
-      if (!matches) scheduleRebuild()
-      return {
-        ready: matches && snapshot.queryCompatible,
-        reason: !projectionValid ? 'projection_mismatch' : !matches ? 'digest_mismatch' : snapshot.queryCompatible ? null : 'source_incompatible',
-        ...getDiagnostics(),
+    if (verifyInFlight) return verifyInFlight
+    verifyInFlight = (async () => {
+      try {
+        const snapshot = await readSnapshot()
+        const verification = indexedVerification()
+        const projectionValid = projectionIntegrity()
+        const matches = verification.count === snapshot.count && verification.digest === snapshot.digest && projectionValid
+        setVerification(snapshot, verification, { dirty: !matches })
+        if (!matches) scheduleRebuild()
+        return {
+          ready: matches && snapshot.queryCompatible,
+          reason: !projectionValid ? 'projection_mismatch' : !matches ? 'digest_mismatch' : snapshot.queryCompatible ? null : 'source_incompatible',
+          ...getDiagnostics(),
+        }
+      } catch (error) {
+        diagnostics.dirty = true
+        diagnostics.degraded = true
+        diagnostics.status = 'degraded'
+        diagnostics.lastFailure = safeError(error)
+        scheduleRebuild()
+        return { ready: false, reason: 'verify_failed', ...getDiagnostics() }
       }
-    } catch (error) {
-      diagnostics.dirty = true
-      diagnostics.degraded = true
-      diagnostics.status = 'degraded'
-      diagnostics.lastFailure = safeError(error)
-      scheduleRebuild()
-      return { ready: false, reason: 'verify_failed', ...getDiagnostics() }
+    })()
+    try {
+      return await verifyInFlight
+    } finally {
+      verifyInFlight = null
     }
   }
 
@@ -351,7 +364,6 @@ export function createSessionIndexService({
     const bucket = normalizeBucket({ scope, projectId })
     if (!isPlainObject(previous) || !isPlainObject(next)) throw new TypeError('previous and next metadata buckets must be plain objects')
     if (!diagnostics.initialized) return { ok: true, skipped: true }
-    diagnostics.lastVerifiedAt = null
     try {
       const indexedAt = now()
       const upserts = []
@@ -372,6 +384,8 @@ export function createSessionIndexService({
         upserts.push(nextRow)
       }
       repository.applyChanges({ upserts, deletes })
+      analysisEpoch += 1
+      analysisCache.clear()
       const verification = indexedVerification()
       diagnostics.indexCount = verification.count
       diagnostics.indexDigest = verification.digest
@@ -379,6 +393,7 @@ export function createSessionIndexService({
       diagnostics.digest = verification.digest
       diagnostics.sourceCount = verification.count
       diagnostics.sourceDigest = verification.digest
+      diagnostics.lastVerifiedAt = now()
       if (!diagnostics.dirty) diagnostics.lastFailure = null
       return { ok: true, upserted: upserts.length, deleted: deletes.length, dirty: diagnostics.dirty }
     } catch (error) {
@@ -410,6 +425,26 @@ export function createSessionIndexService({
     scheduleRebuild()
   }
 
+  function analysisCacheKey(options) {
+    return JSON.stringify({
+      scopeMode: options.scopeMode,
+      projectId: options.scopeMode === 'project' ? options.projectId : null,
+      archive: options.archive,
+      pinnedOnly: options.pinnedOnly === true,
+      sort: options.sort,
+      direction: options.direction,
+    })
+  }
+
+  function analyzeQueryCached(options) {
+    const key = analysisCacheKey(options)
+    const cached = analysisCache.get(key)
+    if (cached && cached.epoch === analysisEpoch) return cached.analysis
+    const analysis = repository.analyzeQuery(options)
+    analysisCache.set(key, { epoch: analysisEpoch, analysis })
+    return analysis
+  }
+
   async function queryPage(options) {
     const readiness = await verifyIntegrity()
     if (!readiness.ready) {
@@ -420,7 +455,7 @@ export function createSessionIndexService({
       }
     }
     try {
-      const analysis = repository.analyzeQuery(options)
+      const analysis = analyzeQueryCached(options)
       if (analysis.duplicateSessionIdCount > 0) return { ok: false, reason: 'duplicate_session_id', analysis, readiness }
       if (analysis.fullSortKeyTieCount > 0) return { ok: false, reason: 'sort_key_tie', analysis, readiness }
       return { ok: true, page: repository.listPage(options), analysis, readiness }

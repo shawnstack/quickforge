@@ -2,30 +2,38 @@
 
 ## 当前状态
 
-- 本会话目标：将 JSON→SQLite 迁移后台化（用户无感、启动不备份阻塞）：先设计，用户确认后"全部执行"设计 §9 的 6 个 feature。
-- 最终状态：设计 + 6 个实施 feature 全部 done，全量验证通过：`npm run test` 215 文件 1780 测试全过、`npm run lint` 通过、`npm run build` 通过。**所有改动未 commit。**
+- 本会话目标：定位"当前查询 session 的分页接口查询变慢"的根因，并优化 SQLite 侧查询热路径。
+- 最终状态：根因定位 + O1/O2/O3 优化落地，全量验证通过：`npm run test` 216 文件 1803 测试全过、`npm run lint` 通过（仅既有 `server/cloud/identity.mjs:92` warning）。**所有改动未 commit。**
 
-## 本会话产出（未 commit）
+## 根因结论（只读诊断证据）
 
-- 设计（上一阶段）：`docs/architecture/session-storage-background-migration-design.zh-CN.md`（现状态"已实施（待真实大库验证）"，§11 实施偏差记录）+ `docs/architecture/assets/session-storage-background-migration-flow.svg`。
-- 实施（本阶段，6 feature）：①`server/sqlite/session-state-repository.mjs`：alignBucketStream/deleteBucketRows/promoteAlignedSessionState/listBucketKeys；②`server/storage.mjs`：acquireSessionJsonWriteBarrier/readLastSessionWriteFinishedAt + parked 写执行时 facade 复检重路由（*ViaFacade，修数据丢失缺陷）；③`server/session-state-background-migration.mjs`（新）：编排状态机 + 全程日志 + cutover_running 锁内复位 + resolveSessionStateStartupRoute；④`server/index.mjs`/`server/startup-state.mjs`：启动链按 phase 路由、migration-status background 域；⑤`server/agent-manager.mjs`：countActiveSseStreams；`server/session-state-cutover.mjs`：共享函数补 export + 抽 createSessionBucketRecordStream；⑥文档 7 处同步（单一事实源/runbook/wiki/phase-machine SVG 等）。
-- 测试：新增 4 文件 32 测试（align-bucket 9、write-barrier 5、orchestrator 单测 11、集成 5）+ 扩展 startup-maintenance-gate。
-- 状态文件：feature_list.json（+design +6 impl 条目）、progress.md、session-handoff.md。
+- 本机默认库（`~/.quickforge`）：24 会话、authoritative 相位、9 个查询索引齐全；纯 SQL 亚毫秒（COUNT 0.3ms、页查询 0.1ms），线上接口实测 2~92ms——本机不慢。
+- 基准脚本（隔离临时库）：1k 行 0.8ms / 10k 行 16ms / 50k 行 93ms（OFFSET 翻页线性，EXPLAIN 均命中 v5 查询索引）。
+- 变慢代价模型命中大库（另一台机器 2.93GB / 2415 会话 / GB 级 state_json）：瓶颈是**每请求固定全量开销**——verifyIntegrity TTL 5s 即做 session_states 全表扫 + 逐行 JSON.parse/SHA-256 + session_index 两遍全表（且无并发去重，前端一次刷新并发 4 类分页请求各做一遍）；syncMetadataCommit 置空 lastVerifiedAt；analyzeQuery 每请求 2 条 GROUP BY 全表聚合。node:sqlite 全同步单连接，这些开销会阻塞所有并发请求。
 
-## 已知取舍与范围外遗留
+## 本会话产出（未 commit，3 文件）
 
-- 集成测试修复 2 真实缺陷：parked 写重放丢写（严重，已修）、converging 状态缺失（已修）；理论风险已记录——parked 旧写覆盖新写窗口被微任务级联+空 mirror 队列封闭，引入窗口内宏任务间隙需复查 release 顺序。
-- 未做：大库内存上界断言与真实库实测（设计 §10.3，收敛轮耗时/切换窗口时长/备份磁盘竞争待回填）；writeSessionValues/restore 写无重放路由（维护锁内无 parked 场景）。
-- 极端持续写入不收敛的循环上限与告警阈值待实测后定（设计 §10.4）。
-- 前序遗留不变：⑤门禁豁免不一致、⑥backupFile 复用旧快照、P2 减 pass 快照方案、"彻底不碰 JSON"三处架构依赖、前端 dispose 通知、agentSessions LRU、SQLite 大事务拆分等范围外候选。
+- `server/session-index-service.mjs`：①`DEFAULT_VERIFY_TTL_MS` 5s→60s + `verifyIntegrity` in-flight 共享（并发等待者拿同一结果）；②`syncMetadataCommit` 不再置空 `lastVerifiedAt`，成功路径 digest 重算后保留校验时间戳（失败仍 dirty/degraded + rebuild）；③`analyzeQuery` 按索引内容代际缓存（`replaceAll`/`applyChanges` 后失效；limit/offset 不参与缓存键）。
+- `tests/server/session-index-query-service.test.mjs`：新增 5 用例（并发去重、TTL 跳过、同步成功后免重校验、同步失败仍降级、分析缓存与代际失效）。
+- `docs/architecture/session-index-query-migration.zh-CN.md`：「F8 之后的定位」追加性能注记（2026-08）。
+- 状态文件：feature_list.json（+`optimize-session-index-query-hot-path` done）、progress.md、session-handoff.md。
+
+## 测试观察（记录不处理）
+
+- `session-state-background-migration.integration.test.mjs` 用例 a) 出现过 EPERM rename（`%TEMP%` 下 .tmp → 目标，Windows 文件锁/AV 嫌疑）。取样：带改动 4 跑 1 挂、stash 本次改动后通过、恢复后连跑 3 次全过——判定环境级 flaky 候选，与本次改动无关（未触碰 `writeJsonAtomic` 路径）。
+
+## 已知取舍与后续候选（SQLite 中期项，未实施）
+
+- O6 可见性列进索引：`(message_count IS NULL OR message_count <> 0)` 残余条件使 `COUNT(*)` 与深 OFFSET 翻页回表读整行；写入时维护 `visible` 列并纳入查询索引可让计数/翻页索引覆盖（需迁移 v10）。
+- O7 keyset（游标）分页替代 OFFSET；O8 COUNT 缓存/估算（可与前端 hasMore 判断配合）。
+- shadow 采样与 F7 readiness/TTL 机制的退役按文档既定观察期推进（本优化已把 TTL 降频到 60s，属退役前的安全调参）。
 
 ## 最近提交
 
-- 本会话（设计 + 6 feature 实施）与之前两轮（评审实施 11 feature、digest 修复三连）改动均未 commit。
-- 此前：rebase 后包含远端 3 个修复提交（sidebar/font/metadata-delete）+ 语句复用 / 维护窗口 2 个提交，详见 `git log --oneline -6`。
+- 本会话改动未 commit；之前批次（后台迁移设计+实施、quick-check gate 等）的提交状态见 `git log --oneline` 与 progress.md。
 
 ## Next step
 
-- 真实大库（~1.4GB、约 2415 会话、`session_storage_state` 仍为 `json_authoritative`）验证新链路：启动秒级 READY、后台迁移收敛与切换实测数据回填设计文档 §10.3；成功后 WAL 应被 checkpointWal 截断；择机手动清理 `conversations` 下 1045 个 `.tmp` 残留（2.75GB，非代码）。
-- 择机 commit：可分主题（digest 修复 / 评审实施 / 后台迁移设计+实施）。
-- 发布 patch 版本前完整运行 `npm run test`、`npm run lint`、`npm run build`，按 `docs/architecture/patch-release-runbook.zh-CN.md` 执行。
+- 择机 commit（本会话 3 文件 + 状态文件）。
+- 大库机器部署新版后实测分页接口收益（预期：闲置后首发卡顿从"每 5 秒一次"降为"每 60 秒一次"，并发刷新不再叠加校验；如仍慢则优先做 O6）。
+- 发布 patch 版本前按 runbook 完整运行 test/lint/build。

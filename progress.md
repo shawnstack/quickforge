@@ -2,14 +2,16 @@
 
 ## Current State
 
-- Feature: 后台迁移实施（design-session-background-migration 的 §9 全部 6 个 feature，design + 6 个 impl-* 全部 done）
-- Status: 全部实施完成并全量验证通过 — `npm run test` 215 文件 1780 测试全过（基线 211/1748，+4 文件 32 测试）、`npm run lint` 通过、`npm run build` 通过；所有改动未 commit
+- Feature: optimize-session-index-query-hot-path（session 分页查询热路径性能优化）
+- Status: done — 根因定位 + 优化落地，全量验证通过：`npm run test` 216 文件 1803 测试全过（本次新增 5 测试于 session-index-query-service.test.mjs）、`npm run lint` 通过（仅既有 identity.mjs warning）；所有改动未 commit
 - Blockers: 无
-- Next step: 真实大库（~1.4GB、json_authoritative）首次启动走新后台链路验证收敛与切换实测数据并回填设计文档 §10.3；择机分主题 commit；发布前按 runbook 重新完整验证
+- Next step: 择机分主题 commit；大库机器（2.93GB/2415 会话）部署新版后实测分页收益；SQLite 中期候选（visible 列进索引 / keyset 分页 / COUNT 缓存）留档见 Notes 与 session-handoff
 
 ## Notes
 
-- 后台迁移全部落地（本轮）：启动秒级 READY（会话域退出维护窗口，窗口仅剩 scheduled-runs/share/lan 三小域秒级）；三机制实现见 feature_list 的 6 个 impl-bg-migration-* 条目。核心链路：index.mjs 按 phase 路由（resolveSessionStateStartupRoute）→ startSessionStateBackgroundMigration（维护锁全程持有）→ 逐桶 alignBucketStream（不 enqueue mirror）→ 收敛循环（逐桶只读 digest 对拍内存 Map）→ idle 信号（SSE 流计数+写静默）→ 切换窗口（全局 persist 锁→barrier→最终对拍→promoteAlignedSessionState→drain）。备份在 idle 期异步（复验已登记可复用、有界重试、与切换解耦）。
+- session 分页查询热路径优化（本轮）：根因=每请求固定全量开销而非分页 SQL（本机库 24 会话 authoritative 纯 SQL 亚毫秒；大库 2415 会话时线性放大且同步阻塞事件循环）：verifyIntegrity TTL 5s 即做 session_states 全表扫+逐行 JSON.parse/SHA-256+session_index 两遍全表且无并发去重；syncMetadataCommit 置空 lastVerifiedAt 使下次分页必触发全量校验；analyzeQuery 每请求 2 条 GROUP BY 全表聚合。修复（session-index-service.mjs，不改导出/降级语义）：TTL 5s→60s + in-flight 共享去重；增量同步成功后保留校验时间戳（成功路径已全量重算 index digest）；analyzeQuery 按索引内容代际缓存（rebuild/增量同步失效，limit/offset 不参与键）。新增 5 测试；文档性能注记入 session-index-query-migration F8 节。基准留档：1k 行 0.8ms / 50k 行 93ms（OFFSET 翻页线性 → keyset/可见性列进索引为中期候选）。
+- 测试观察（记录不处理）：session-state-background-migration.integration.test.mjs 用例 a) 出现过 EPERM rename %TEMP% .tmp→目标文件（Windows 文件锁/AV 嫌疑）；取样：带改动 4 跑 1 挂、stash 本次改动后通过、恢复后连跑 3 次全过——判定环境级 flaky 候选，与本次改动无关（未触碰 writeJsonAtomic 路径）。
+- 后台迁移全部落地（前一轮）：启动秒级 READY（会话域退出维护窗口，窗口仅剩 scheduled-runs/share/lan 三小域秒级）；三机制实现见 feature_list 的 6 个 impl-bg-migration-* 条目。核心链路：index.mjs 按 phase 路由（resolveSessionStateStartupRoute）→ startSessionStateBackgroundMigration（维护锁全程持有）→ 逐桶 alignBucketStream（不 enqueue mirror）→ 收敛循环（逐桶只读 digest 对拍内存 Map）→ idle 信号（SSE 流计数+写静默）→ 切换窗口（全局 persist 锁→barrier→最终对拍→promoteAlignedSessionState→drain）。备份在 idle 期异步（复验已登记可复用、有界重试、与切换解耦）。
 - boot 竞态修复（本轮追加，commit 1e959d4 已推送）：用户另一台机器部署新版后 UI 无法启动只显示错误卡——根因是 boot 阶段（initializePiStorage/设置校准）在迁移门之前发业务请求，撞上 migrating 窗口 503 落进通用错误卡。修复：catch 探测 migrating 转入迁移门（进度视图）+ ready 后自动重试 boot；waitForMigrationSettled 容忍单次轮询失败（连续 3 次才抛）。
 - 启动 quick_check 检查税优化（本轮，commit 待记）：四域启动检查各自对同一 2.93GB 库文件全量 PRAGMA quick_check 3~4 遍（用户机器实测 session 16s+share 7s+lan 6.6s≈30s）。runSharedSqliteQuickCheck（database.mjs）：进程内按库路径去重 + marker 文件 7 天降频 + 维护端点/env force 逃生口；预期用户机器启动检查税 30s→秒级（更新后首启仍真扫一遍写 marker，之后 7 天内跳过）。已知取舍：备份导出/离线工具的 quick_check 也走 7 天门（内容级 count/digest fail-closed 校验不受影响，bit-rot 影响内容会被 digest 检出）；marker 不绑定库文件 mtime/size，外部替换库文件盲区最长 7 天（force 或删 marker 消除）。
 - 启动 OOM 生产事故与修复（本轮，重要）：用户真实大库（2.93GB SQLite、authoritative 相位、今日两次全量 cutover 后首次进入 authoritative）每次启动 38 秒后 4GB 堆 OOM 崩溃，进程死掉→端口无监听→界面"无法启动"。取证链：四域 check 全过（authoritative）→ lan-access 之后 8 秒内崩 → sw.js 被同步阻塞 6.6s → 堆 4095MB Mark-Compact 全失败。根因：启动链 resetStaleTaskStatuses→atomicUpdate('sessions-metadata')→atomicSessionMetadataBucketUpdateViaFacade→readSessionStateStore('sessions-metadata')→repository().exportSnapshot() 全库（state_json+session_messages 重组）载入。修复三处同病灶：①readSessionStateStore('sessions-metadata') 复用 readSessionMetadataBuckets 只读 metadata_json（JSON 时代该 store 本就 metadata-only）；②metadataBucketChanges（updateSessionMetadataBucket 底层）current 构建弃用 exportSnapshot（不改则逐桶调用仍 OOM）；③atomicSessionMetadataBucketUpdateViaFacade 逐桶 RMW（顺带修掉全 scope 合并写 global 桶的跨桶混写错误，project 会话元数据不再错挂 global）。附带收益：readStore('sessions-metadata')（acp 列表/backup/auto-archive 路径）权威相位也变 metadata-only。教训：小测试库测不出 GB 级库的内存放大路径；exportSnapshot 全库快照类 API 只允许出现在维护锁内低频路径（restore/import），任何启动链/业务链路禁用。

@@ -128,3 +128,159 @@ describe('session index query readiness and compatibility', () => {
     expect(failing.getDiagnostics()).toMatchObject({ dirty: true, degraded: true, lastFailure: { code: 'SQLITE_IOERR' } })
   })
 })
+
+describe('session index query hot path', () => {
+  let directory
+  let database
+  let repository
+  let nowValue
+  let log
+
+  beforeEach(async () => {
+    directory = await mkdtemp(path.join(os.tmpdir(), 'quickforge-session-hotpath-'))
+    database = new DatabaseSync(path.join(directory, 'hotpath.sqlite3'))
+    applySqliteMigrations(database)
+    repository = createSessionIndexRepository(createHandle(database))
+    nowValue = Date.parse('2026-01-03T00:00:00.000Z')
+    log = { warn: vi.fn() }
+  })
+
+  afterEach(async () => {
+    database.close()
+    await rm(directory, { recursive: true, force: true })
+  })
+
+  it('shares one in-flight verification across concurrent callers after TTL expiry', async () => {
+    const source = buckets({ one: metadata('one') })
+    let reads = 0
+    let gate = Promise.resolve()
+    const readBuckets = async () => {
+      reads += 1
+      await gate
+      return source
+    }
+    const service = createSessionIndexService({
+      repository, readBuckets,
+      now: () => new Date(nowValue).toISOString(), nowMs: () => nowValue,
+      verifyTtlMs: 100, log,
+    })
+    await service.initialize()
+    expect(reads).toBe(2)
+
+    reads = 0
+    let releaseGate
+    gate = new Promise((resolve) => { releaseGate = resolve })
+    nowValue += 101
+    const pending = [
+      service.verifyIntegrity(),
+      service.verifyIntegrity(),
+      service.queryPage({ scopeMode: 'all', archive: 'exclude', sort: 'lastModified', direction: 'desc', limit: 20, offset: 0 }),
+    ]
+    expect(reads).toBe(1)
+    releaseGate()
+    const [first, second, page] = await Promise.all(pending)
+    expect(first).toMatchObject({ ready: true })
+    expect(second).toEqual(first)
+    expect(page).toMatchObject({ ok: true, readiness: { ready: true } })
+    expect(reads).toBe(1)
+  })
+
+  it('skips re-reading the source for queries within the verification TTL', async () => {
+    const source = buckets({ one: metadata('one') })
+    let reads = 0
+    const readBuckets = async () => {
+      reads += 1
+      return source
+    }
+    const service = createSessionIndexService({
+      repository, readBuckets,
+      now: () => new Date(nowValue).toISOString(), nowMs: () => nowValue,
+      verifyTtlMs: 60_000, log,
+    })
+    await service.initialize()
+    expect(reads).toBe(2)
+    const base = { archive: 'exclude', sort: 'lastModified', direction: 'desc', limit: 20, offset: 0 }
+    expect(await service.queryPage({ ...base, scopeMode: 'all' })).toMatchObject({ ok: true })
+    expect(await service.queryPage({ ...base, scopeMode: 'all' })).toMatchObject({ ok: true })
+    expect(reads).toBe(2)
+  })
+
+  it('keeps the verification timestamp after a successful incremental sync so the next page skips re-verification', async () => {
+    const source = buckets({ one: metadata('one') })
+    let reads = 0
+    const readBuckets = async () => {
+      reads += 1
+      return source
+    }
+    const service = createSessionIndexService({
+      repository, readBuckets,
+      now: () => new Date(nowValue).toISOString(), nowMs: () => nowValue,
+      verifyTtlMs: 60_000, log,
+    })
+    await service.initialize()
+    expect(reads).toBe(2)
+    expect(await service.syncMetadataCommit({
+      scope: 'global',
+      projectId: null,
+      previous: source[0].metadata,
+      next: { one: metadata('one', { stateVersion: 2 }) },
+    })).toMatchObject({ ok: true, upserted: 1 })
+    expect(await service.queryPage({ scopeMode: 'all', archive: 'exclude', sort: 'lastModified', direction: 'desc', limit: 20, offset: 0 }))
+      .toMatchObject({ ok: true })
+    expect(reads).toBe(2)
+  })
+
+  it('still degrades the next query when the incremental sync fails', async () => {
+    const failingRepository = {
+      ...repository,
+      applyChanges() { throw Object.assign(new Error('disk unavailable'), { code: 'SQLITE_IOERR' }) },
+    }
+    const service = createSessionIndexService({
+      repository: failingRepository,
+      readBuckets: async () => buckets({ one: metadata('one') }),
+      now: () => new Date(nowValue).toISOString(), nowMs: () => nowValue,
+      log,
+    })
+    await service.initialize()
+    expect(await service.syncMetadataCommit({
+      scope: 'global', projectId: null, previous: {}, next: { two: metadata('two') },
+    })).toMatchObject({ ok: false, degraded: true })
+    expect(service.getDiagnostics()).toMatchObject({ dirty: true, degraded: true })
+    expect(await service.queryPage({ scopeMode: 'all', archive: 'exclude', sort: 'lastModified', direction: 'desc', limit: 20, offset: 0 }))
+      .toMatchObject({ ok: false, readiness: { ready: false } })
+  })
+
+  it('caches analyzeQuery per query shape and invalidates the cache after an incremental sync', async () => {
+    const source = buckets({ one: metadata('one') })
+    let analyzeCalls = 0
+    const spyRepository = {
+      ...repository,
+      analyzeQuery(options) {
+        analyzeCalls += 1
+        return repository.analyzeQuery(options)
+      },
+    }
+    const service = createSessionIndexService({
+      repository: spyRepository, readBuckets: async () => source,
+      now: () => new Date(nowValue).toISOString(), nowMs: () => nowValue,
+      verifyTtlMs: 60_000, log,
+    })
+    await service.initialize()
+    expect(analyzeCalls).toBe(0)
+    const base = { archive: 'exclude', sort: 'lastModified', direction: 'desc', limit: 20, offset: 0 }
+    expect(await service.queryPage({ ...base, scopeMode: 'all' })).toMatchObject({ ok: true })
+    expect(analyzeCalls).toBe(1)
+    expect(await service.queryPage({ ...base, scopeMode: 'all' })).toMatchObject({ ok: true })
+    expect(await service.queryPage({ ...base, scopeMode: 'all', limit: 5, offset: 10 })).toMatchObject({ ok: true })
+    expect(analyzeCalls).toBe(1)
+    expect(await service.queryPage({ ...base, scopeMode: 'global' })).toMatchObject({ ok: true })
+    expect(await service.queryPage({ ...base, scopeMode: 'all', archive: 'include' })).toMatchObject({ ok: true })
+    expect(analyzeCalls).toBe(3)
+    await service.syncMetadataCommit({
+      scope: 'global', projectId: null, previous: source[0].metadata,
+      next: { one: metadata('one', { stateVersion: 2 }) },
+    })
+    expect(await service.queryPage({ ...base, scopeMode: 'all' })).toMatchObject({ ok: true })
+    expect(analyzeCalls).toBe(4)
+  })
+})

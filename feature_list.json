@@ -377,6 +377,17 @@
         "docs/architecture/session-storage-current-architecture.zh-CN.md",
         "docs/wiki/server/README.md"
       ]
+    },
+    {
+      "id": "optimize-session-index-query-hot-path",
+      "name": "session 分页查询热路径性能优化（校验降频/并发去重/分析缓存）",
+      "status": "done",
+      "approach": "根因：分页 SQL 本身亚毫秒（本机 24 会话库实测 COUNT 0.3ms/页查询 0.1ms；基准 1k=0.8ms/50k=93ms），变慢来自每请求固定全量开销在大库（2415 会话/GB 级 state_json）线性放大并同步阻塞事件循环：①verifyIntegrity TTL 5s 即全量校验（session_states 全表扫+逐行 JSON.parse/SHA-256+session_index 两遍全表）且无并发去重；②syncMetadataCommit 置空 lastVerifiedAt 使下次分页必触发全量校验；③analyzeQuery 每请求 2 条 GROUP BY 全表聚合。修复（server/session-index-service.mjs，导出与降级语义不变）：TTL 5s→60s + verifyIntegrity in-flight 共享；增量同步成功后保留校验时间戳（成功路径已用 indexedVerification() 重算 digest）；analyzeQuery 按索引内容代际缓存（rebuild/增量同步失效，limit/offset 不参与键）。新增 5 测试；架构文档 F8 节性能注记",
+      "files": [
+        "server/session-index-service.mjs",
+        "tests/server/session-index-query-service.test.mjs",
+        "docs/architecture/session-index-query-migration.zh-CN.md"
+      ]
     }
   ]
 }

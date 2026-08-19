@@ -334,6 +334,18 @@
         "docs/wiki/server/README.md",
         "docs/wiki/server/routes/README.md"
       ]
+    },
+    {
+      "id": "fix-boot-race-maintenance-window",
+      "name": "修复前端 boot 与启动维护窗口竞态导致的无法启动错误卡",
+      "status": "done",
+      "approach": "boot 阶段（initializePiStorage/设置校准）发生在迁移门之前，撞上 migrating 窗口 503 时落进通用'服务不可用'错误卡需手动刷新；修复：catch 探测到 migrating 转入迁移门（进度视图）窗口关闭后自动重试 boot；waitForMigrationSettled 容忍单次轮询失败（连续 3 次才抛错）",
+      "files": [
+        "src/lib/migration-status.ts",
+        "src/hooks/useAppBootstrap.ts",
+        "tests/frontend/migration-status.test.ts",
+        "tests/frontend/use-app-bootstrap-migration.test.ts"
+      ]
     }
   ]
 }

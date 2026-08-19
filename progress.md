@@ -10,6 +10,8 @@
 ## Notes
 
 - 后台迁移全部落地（本轮）：启动秒级 READY（会话域退出维护窗口，窗口仅剩 scheduled-runs/share/lan 三小域秒级）；三机制实现见 feature_list 的 6 个 impl-bg-migration-* 条目。核心链路：index.mjs 按 phase 路由（resolveSessionStateStartupRoute）→ startSessionStateBackgroundMigration（维护锁全程持有）→ 逐桶 alignBucketStream（不 enqueue mirror）→ 收敛循环（逐桶只读 digest 对拍内存 Map）→ idle 信号（SSE 流计数+写静默）→ 切换窗口（全局 persist 锁→barrier→最终对拍→promoteAlignedSessionState→drain）。备份在 idle 期异步（复验已登记可复用、有界重试、与切换解耦）。
+- boot 竞态修复（本轮追加，commit 1e959d4 已推送）：用户另一台机器部署新版后 UI 无法启动只显示错误卡——根因是 boot 阶段（initializePiStorage/设置校准）在迁移门之前发业务请求，撞上 migrating 窗口 503 落进通用错误卡。修复：catch 探测 migrating 转入迁移门（进度视图）+ ready 后自动重试 boot；waitForMigrationSettled 容忍单次轮询失败（连续 3 次才抛）。注意：若用户机器复现仍失败，需其提供 /api/health、/api/migration-status 输出与日志（可能是旧进程未停/DB 被锁/stuck migrating 等环境因素）。
+- 测试观察（记录不处理）：agent-manager.external-sync.test.mjs 的 "keeps transient ACP context..." 用例在全量并发下出现过一次失败（单跑与全量复跑均绿），疑似 flaky 候选，后续择机排查。
 - 集成测试发现 2 个真实缺陷并已修复：①严重——barrier-parked 业务写在 promote 后重放仍走 JSON 路径导致权威源丢写，storage.mjs 全部会话写入口补"执行时 facade 复检重路由"（*ViaFacade 助手，嵌套 metadata 写同覆盖）；②background.state 缺 converging（补 setState）。另理论风险已记录：parked 旧写覆盖 promote 后新写的窗口被"微任务级联+promote 要求空 mirror 队列"封闭，若后续引入窗口内宏任务间隙需复查 runSwitchWindow 的 release 顺序。
 - 设计→实施主要偏差（已记入设计文档 §11）：promote 走 repository 内部 updateStorageState（避免循环依赖）；barrier park 从 drain 完成后生效（防嵌套入队自锁死锁）；backup.verify 无 sha256（避免 1.4GB 双读）；"写时间戳未变跳过重读"优化未实现（正确性优先）；cutover 模块 cutover_running 恢复分支保留（新链不再到达，维护工具可直调）。
 - cutover_running 存量残留清退与双进程 status 可见性（设计 §10.1/§10.2）已落地：残留由后台任务锁内复位（backupFile 保留、phase.reset 日志）；锁忙 aborted 快照携带 lockOwner/lockOwnerPid/lockFencing，第二进程经 migration-status 可见。

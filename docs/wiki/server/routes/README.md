@@ -5,9 +5,9 @@
 `server/index.mjs` 内置两个启动相关端点（不经 routes/ 文件）：
 
 - `GET /api/health` — 健康检查；启动维护窗口内返回 `{ok:true, maintenance:true, ...}`，启动失败返回 `{ok:false, startupError}`（进程保持存活、业务 API 持续 503），就绪后返回完整系统状态。
-- `GET /api/migration-status` — 返回 `{ok:true, state:'migrating'|'ready'|'failed', startupError?, domains:{scheduledRuns,sessionState,share,lanAccess}}`（各域 phase/count/updatedAt，域不可读时为 `{phase:'unknown', error}`），供前端迁移进度 UI 轮询。
+- `GET /api/migration-status` — 返回 `{ok:true, state:'migrating'|'ready'|'failed', startupError?, domains:{scheduledRuns,sessionState,share,lanAccess}}`（各域 phase/count/updatedAt，域不可读时为 `{phase:'unknown', error}`），供前端迁移进度 UI 轮询；`sessionState` 域在后台迁移任务启动后额外携带 `background` 内存态快照（`state`：importing/idle-waiting/switching/done/failed/aborted，含 `taskId`、`buckets`、`convergeRound`、`diffBuckets`、`backup`、`lastEventAt` 及 `failure`/`reason`/`lockOwner*` 失败诊断），任务启动前该键缺省。
 
-启动维护窗口（后台初始化链未完成或失败）内，除上述白名单外的所有 `/api/*` 请求统一返回 503 `{ok:false, maintenance:true, state}` + `Retry-After: 5`；非 `/api` 路径（静态资源、`/share/`）不受限，前端页面可先加载。
+启动维护窗口（后台初始化链未完成或失败）内，除上述白名单外的所有 `/api/*` 请求统一返回 503 `{ok:false, maintenance:true, state}` + `Retry-After: 5`；非 `/api` 路径（静态资源、`/share/`）不受限，前端页面可先加载。会话域已后台迁移化：维护窗口通常仅剩 scheduled-runs/share/lan-access 三小域秒级切换，进度页可能一闪而过或不出现；READY 后仍可轮询 `sessionState.background` 观察会话域后台迁移进度。
 
 ---
 

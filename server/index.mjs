@@ -8,7 +8,8 @@ import { sendJson, sendError } from './utils/response.mjs'
 import { openBrowser, openPathInFileManager } from './utils/platform.mjs'
 import { ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir, readAuthoritativeSessionMetadataBuckets, registerSessionMetadataCommitHook } from './storage.mjs'
 import { initializeSessionStateCutover } from './session-state-cutover.mjs'
-import { initializeSessionStateService, drainSessionJsonMirror, stopSessionStateService } from './session-state-service.mjs'
+import { initializeSessionStateService, drainSessionJsonMirror, readSessionStorageState, stopSessionStateService } from './session-state-service.mjs'
+import { resolveSessionStateStartupRoute, startSessionStateBackgroundMigration } from './session-state-background-migration.mjs'
 import { initializeShareCutover } from './share-cutover.mjs'
 import { drainShareJsonMirror, initializeShareService, stopShareService } from './share-service.mjs'
 import { initializeLanAccessCutover } from './lan-access-cutover.mjs'
@@ -843,12 +844,39 @@ async function runStartupInitialization() {
   await initializeScheduledRunsCutover()
   await recoverScheduledRunsRestorePlan()
   await recoverStaleScheduledTaskRuns()
-  // Session state cutover: authoritative integrity failures fail closed and
-  // block startup; json_authoritative failures keep the legacy JSON path.
-  await initializeSessionStateCutover()
-  await initializeSessionStateService()
-  await recoverSessionStateRestorePlan()
-  await drainSessionJsonMirror()
+  // Session state startup routing (background-migration design §6): a store
+  // still on json_authoritative — or carrying the legacy cutover_running
+  // residue (§10.1, reset by the task itself) — skips the synchronous cutover
+  // so the session domain never extends the maintenance window: business
+  // keeps the JSON path and startSessionStateBackgroundMigration runs
+  // fire-and-forget. The pending/authoritative phases keep the legacy
+  // four-step chain: integrity failures fail closed and block startup,
+  // json_authoritative failures keep the legacy JSON path.
+  const sessionStartupRoute = resolveSessionStateStartupRoute(readSessionStorageState().phase)
+  if (sessionStartupRoute === 'background') {
+    await initializeSessionStateService()
+    await recoverSessionStateRestorePlan()
+    // No-op in this phase (the mirror queue is empty by construction), kept
+    // for parity with the legacy chain.
+    await drainSessionJsonMirror()
+    // Fire-and-forget (§3.4): never blocks READY. The task resolves — never
+    // rejects — with a terminal outcome and keeps json_authoritative on
+    // failure; the catch is a belt-and-braces guard so an unexpected
+    // rejection cannot surface as an unhandled one.
+    void startSessionStateBackgroundMigration({ logger }).catch((error) => {
+      logger.error('Session background migration task failed', {
+        domain: 'session-state',
+        event: 'session.background_migration.task.failed',
+        errorName: error?.name || 'Error',
+        errorMessage: error?.message,
+      })
+    })
+  } else {
+    await initializeSessionStateCutover()
+    await initializeSessionStateService()
+    await recoverSessionStateRestorePlan()
+    await drainSessionJsonMirror()
+  }
   // Share storage cutover: share-store writes become SQLite-authoritative once
   // pending/authoritative; integrity failures fail closed and block startup,
   // json_authoritative failures keep the legacy JSON path. The JSON file stays

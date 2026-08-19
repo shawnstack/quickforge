@@ -1,6 +1,6 @@
 # 会话存储当前架构（单一事实文档）
 
-> 基准：F9（Phase 2 核心存储层 + Phase 3 接线）完成态，2026-08，SQLite schema v9（会话域表为 migration v6/v7）。
+> 基准：F9（Phase 2 核心存储层 + Phase 3 接线）完成态 + 会话域后台迁移（feature 1-5）已实施，最后更新 2026-08-19；SQLite schema v9（会话域表为 migration v6/v7）。
 > 定位：本文档是会话（conversation / session state）存储的**当前事实源**。`sqlite-compatibility-spike.zh-CN.md`（F1）、`sqlite-storage-foundation.zh-CN.md`（F2）、`session-index-foundation.zh-CN.md`（F6）、`session-index-query-migration.zh-CN.md`（F7）、`session-state-transactional-storage.zh-CN.md`（F8/F9）保留为**历史决策记录**——设计动机、取舍与过程数据以原文为准；凡旧文与本文冲突的叙述（如启动链执行时机），以本文为准。
 > 评审背景：`session-sqlite-migration-design-review.zh-CN.md`（设计评审报告，含缺陷清单与改进建议）。
 
@@ -31,6 +31,7 @@
 ![会话存储 phase 状态机](assets/session-storage-phase-machine.svg)
 
 ```text
+同步 cutover 链（pending/authoritative 恢复与维护工具直调；新启动链正常不再进入）：
 json_authoritative -> cutover_running -> sqlite_authoritative_json_pending -> authoritative
    ^    ^                 |                            |    ^                     |
    |    |                 +-- 崩溃/校验失败：整体回滚    +----+ 重启时重试 drain     |
@@ -39,9 +40,17 @@ json_authoritative -> cutover_running -> sqlite_authoritative_json_pending -> au
         （唯一回到 JSON 权威的合法边：物化镜像 + count/digest 对拍通过后的有意回退）
 ```
 
-- `json_authoritative`：JSON 文件是唯一权威；service 全部走注入的 JSON adapter。
-- `cutover_running`：仅存在于 cutover 事务窗口；崩溃后下次启动回到 `json_authoritative` 重新 cutover（导入整体回滚，不会重复导入或半状态）。
-- `sqlite_authoritative_json_pending`：SQLite 已提交、JSON mirror 尚未排空；此 phase 下 SQLite 已可读（`isSessionStateAuthoritative()` 为 true）；重启时先完整性自检再重试 drain，排空后 promote。
+后台迁移链（json_authoritative / cutover_running 时的正常路径，2026-08-19 起）：
+
+```text
+json_authoritative --（后台任务 promote：全局 persist 锁 + 写队列 barrier 内单事务，
+                      经 pending 瞬时中间写直达 authoritative；队列必空，无需 drain）--> authoritative
+cutover_running（存量残留）--（后台任务取得维护锁后复位）--> json_authoritative
+```
+
+- `json_authoritative`：JSON 文件是唯一权威；service 全部走注入的 JSON adapter。此相位下启动链把迁移交给后台任务（见 §6），业务照常读写 JSON、不受迁移影响。
+- `cutover_running`：仅存在于同步 cutover 事务窗口；崩溃后下次启动回到 `json_authoritative` 重新 cutover（导入整体回滚，不会重复导入或半状态）。**新启动链不再进入该状态**——json_authoritative/cutover_running 一律路由到后台迁移任务，存量 `cutover_running` 残留由任务在维护锁内复位回 `json_authoritative`（日志 `session.background_migration.phase.reset`，已登记的 `backup_file` 原样保留）；cutover 模块自身的该恢复分支保留，供维护工具直调。
+- `sqlite_authoritative_json_pending`：SQLite 已提交、JSON mirror 尚未排空；此 phase 下 SQLite 已可读（`isSessionStateAuthoritative()` 为 true）；重启时先完整性自检再重试 drain，排空后 promote。后台迁移链下该值仅作为 promote 单事务内的瞬时中间写，不会以该值持久残留。
 - `authoritative`：mirror 排空完成，正常运行态。
 - `downgrade --commit`（离线工具，见 §7）是图中唯一的有意回退边：drain 物化全部镜像、count/digest 对拍通过后把 phase 置回 `json_authoritative`，之后写入直连 JSON。
 
@@ -67,12 +76,14 @@ json_authoritative -> cutover_running -> sqlite_authoritative_json_pending -> au
 
 ## 6. 启动链现状
 
-> 注意：F8 文档最初叙述的"HTTP listen 之前执行 cutover 链"已过时。现状（P1 启动维护窗口）如下。
+> 注意：F8 文档最初叙述的"HTTP listen 之前执行 cutover 链"已过时；其后"会话域同步 cutover 位于启动维护窗口"的状态也已被后台迁移取代（设计与实施偏差记录见 `session-storage-background-migration-design.zh-CN.md`）。现状（2026-08-19）如下。
 
 - **listen 前**只做 `ensureStorage()` + `initializeSqliteStorage()`——维护门与 `/api/migration-status` 依赖数据库句柄。
-- **HTTP listen 后**，其余启动链在后台维护窗口中 fire-and-forget 执行，会话域顺序为：`initializeSessionStateCutover()` → `initializeSessionStateService()` → `recoverSessionStateRestorePlan()` → `drainSessionJsonMirror()`（前后另有 scheduled runs / share / lan-access 三个域的同构链路与 session index 初始化等）。
-- **维护窗口机制**（`server/startup-state.mjs`）：进程级状态 `migrating`/`ready`/`failed`；窗口内非白名单 `/api/*` 一律 503，白名单仅 `GET /api/health` 与 `GET /api/migration-status`；前端轮询 migration-status 展示四个存储域的进度页（`MigrationProgressView`）。
-- **fail-closed 语义**：权威完整性校验失败不再终止进程，而是置 `failed`——`/api/health` 返回 `ok:false` 与 `startupError`，业务 API 持续 503，等待人工介入（修复数据/重启/离线工具）。
+- **HTTP listen 后**，其余启动链在后台维护窗口中 fire-and-forget 执行。**会话域按 phase 路由**（`resolveSessionStateStartupRoute`，`server/session-state-background-migration.mjs`）：
+  - `json_authoritative` / `cutover_running` → **后台迁移**：同步链只做 `initializeSessionStateService()` → `recoverSessionStateRestorePlan()` → `drainSessionJsonMirror()`（该相位下为空队列确认），随后 fire-and-forget 启动后台迁移任务（`startSessionStateBackgroundMigration`）——**不挡 READY**，业务照常读写 JSON；`cutover_running` 残留在任务取得维护锁后复位回 `json_authoritative`；
+  - `pending` / `authoritative`（及未知 phase，作为 fail-closed 兜底）→ 保留同步链：`initializeSessionStateCutover()`（完整性自检 + drain + promote 恢复语义）→ `initializeSessionStateService()` → `recoverSessionStateRestorePlan()` → `drainSessionJsonMirror()`。
+- **维护窗口现状**：会话域已退出维护窗口，窗口内只剩 scheduled-task-runs / share / lan-access 三小域的同构 cutover 链与 session index 初始化等，秒级完成。窗口机制不变（`server/startup-state.mjs`）：进程级状态 `migrating`/`ready`/`failed`；窗口内非白名单 `/api/*` 一律 503，白名单仅 `GET /api/health` 与 `GET /api/migration-status`；迁移进度页（`MigrationProgressView`）仅在三小域切换的短暂窗口可见、可能不再出现；会话域后台迁移进度经 migration-status 的 `sessionState.background` 域暴露（内存态快照，READY 后仍可轮询，字段见设计文档 §6.2）。
+- **fail-closed 语义**：权威完整性校验失败不再终止进程，而是置 `failed`——`/api/health` 返回 `ok:false` 与 `startupError`，业务 API 持续 503，等待人工介入（修复数据/重启/离线工具）。后台迁移任务自身的失败**不**触发 fail-closed：phase 保持 `json_authoritative`，业务不受影响，重启即整任务幂等重试（见恢复 runbook「后台迁移失败」）。
 - **shutdown**：`stopSessionStateService()` 清理 mirror 定时器后关闭 SQLite。
 
 ## 7. 备份 / 恢复 / 降级工具清单
@@ -84,6 +95,8 @@ json_authoritative -> cutover_running -> sqlite_authoritative_json_pending -> au
 | `storage/session-state-restore-plan.json` | 恢复计划文件：启动时 `prepared/applying/target_applied` roll-forward、`compensating/compensation_failed` rollback；缺失或不符阻止启动 |
 | `node server/maintenance/export-session-state-v1.mjs <输出.json>` | 离线导出（须停所有进程）：要求 phase 为 pending/authoritative，校验通过后写 v1 备份，tmp + 重读验证 + rename |
 | `node server/maintenance/downgrade-session-state-v1.mjs [--dry-run] [--commit]` | 离线降级：`--dry-run` 只读报告；默认物化 JSON 镜像 + `buildSessionJsonSnapshot` 对拍（拆分会话按 assembled 表示 digest 对拍）；`--commit` 校验通过后切回 `json_authoritative` |
+
+cutover 备份定位：同步 cutover 链中 v1 备份是导入前置条件（F8 文档）；**后台迁移模式下**备份在收敛达成后的 idle 等待期异步生成（流式写 + 分块重读校验；复验通过的已登记 `backup_file` 直接复用不重写），完成后登记 `session_storage_state.backup_file`——失败有界重试、不阻断切换，备份登记若撞上已完成的切换则放弃（详见后台迁移设计文档 §4 与 §11 偏差记录）。
 
 彻底回到旧版（导出 → 移走 SQLite 三件套 → 启动旧版 → 导入 v1）的完整步骤见 F5 文档第 5 节。
 

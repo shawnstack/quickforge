@@ -496,6 +496,63 @@ async function sessionStateFacade() {
   return service.isSessionStateAuthoritative() ? service : null
 }
 
+// --- Barrier-parked write replay routing (background migration §3.3) ---
+// A session-domain write enqueued while JSON was authoritative can be parked
+// by the switch-window barrier (acquireSessionJsonWriteBarrier) and only
+// start executing after the window's promote already flipped the store to
+// SQLite-authoritative. Running the captured JSON write then would update the
+// mirror file directly and lose the write from the authoritative read path,
+// so parked ops re-check the facade at execution time and re-route through
+// it. Unparked writes keep the call-time facade check above; the re-check
+// costs one resolved dynamic import and only ever routes when the phase
+// actually flipped while the op sat parked.
+function saveSessionBodyViaFacade(facade, sessionId, value) {
+  const saved = facade.saveSessionBody(sessionId, value)
+  void facade.drainSessionJsonMirror()
+  return saved.state
+}
+
+async function atomicSessionStateUpdateViaFacade(facade, sessionId, updateFn) {
+  const updated = await facade.atomicSessionStateUpdate(sessionId, updateFn)
+  void facade.drainSessionJsonMirror()
+  return updated
+}
+
+async function deleteSessionStateViaFacade(facade, sessionId) {
+  const deleted = facade.deleteSessionState(sessionId)
+  await facade.drainSessionJsonMirror()
+  return deleted
+}
+
+async function atomicSessionMetadataUpdateViaFacade(facade, scope, projectId, updateFn) {
+  const updated = await facade.atomicSessionMetadataStateUpdate(scope, projectId, updateFn)
+  void facade.drainSessionJsonMirror()
+  return updated
+}
+
+async function atomicSessionRecordUpdateViaFacade(facade, sessionId, updateFn) {
+  const updated = await facade.atomicSessionRecordUpdate(sessionId, updateFn)
+  void facade.drainSessionJsonMirror()
+  return updated
+}
+
+function atomicSessionMetadataBucketUpdateViaFacade(facade, updateFn) {
+  const updated = facade.updateSessionMetadataBucket('global', null, (currentGlobal) => {
+    const current = { ...facade.readSessionStateStore('sessions-metadata'), ...currentGlobal }
+    return updateFn(current)
+  })
+  void facade.drainSessionJsonMirror()
+  return updated
+}
+
+async function atomicSessionStoreReplaceViaFacade(facade, updateFn) {
+  const current = facade.readSessionStateStore('sessions')
+  const updated = await updateFn(current)
+  facade.replaceSessionStateStore('sessions', updated)
+  void facade.drainSessionJsonMirror()
+  return updated
+}
+
 async function readConfigFile() {
   return normalizeConfig(await readJsonFile(quickForgeConfigFile, defaultConfig()))
 }
@@ -697,12 +754,10 @@ export async function readSessionValue(sessionId) {
 
 export async function writeSessionValue(sessionId, value) {
   const facade = await sessionStateFacade()
-  if (facade) {
-    const saved = facade.saveSessionBody(sessionId, value)
-    void facade.drainSessionJsonMirror()
-    return saved.state
-  }
+  if (facade) return saveSessionBodyViaFacade(facade, sessionId, value)
   return enqueueWrite('sessions', async () => {
+    const replayed = await sessionStateFacade()
+    if (replayed) return saveSessionBodyViaFacade(replayed, sessionId, value)
     await ensureStorage()
     await writeSessionValueFile(sessionId, value)
   })
@@ -710,12 +765,10 @@ export async function writeSessionValue(sessionId, value) {
 
 export async function atomicSessionValueUpdate(sessionId, updateFn) {
   const facade = await sessionStateFacade()
-  if (facade) {
-    const updated = await facade.atomicSessionStateUpdate(sessionId, updateFn)
-    void facade.drainSessionJsonMirror()
-    return updated
-  }
+  if (facade) return atomicSessionStateUpdateViaFacade(facade, sessionId, updateFn)
   return enqueueWrite('sessions', async () => {
+    const replayed = await sessionStateFacade()
+    if (replayed) return atomicSessionStateUpdateViaFacade(replayed, sessionId, updateFn)
     await ensureStorage()
     const current = await readSessionValue(sessionId)
     if (!current) return null
@@ -727,12 +780,10 @@ export async function atomicSessionValueUpdate(sessionId, updateFn) {
 
 export async function deleteSessionValue(sessionId) {
   const facade = await sessionStateFacade()
-  if (facade) {
-    const deleted = facade.deleteSessionState(sessionId)
-    await facade.drainSessionJsonMirror()
-    return deleted
-  }
+  if (facade) return deleteSessionStateViaFacade(facade, sessionId)
   return enqueueWrite('sessions', async () => {
+    const replayed = await sessionStateFacade()
+    if (replayed) return deleteSessionStateViaFacade(replayed, sessionId)
     const bucket = await findSessionBucket(sessionId)
     if (!bucket) {
       const { deleteCloudChatIdempotencySession } = await import('./cloud/chat-idempotency-store.mjs')
@@ -767,15 +818,21 @@ export async function isSessionStateAuthoritative() {
  */
 export async function writeSessionValueWithMetadata(sessionId, value) {
   const facade = await sessionStateFacade()
-  if (facade) {
-    const saved = facade.saveSessionBody(sessionId, value)
-    void facade.drainSessionJsonMirror()
-    return saved.state
-  }
+  if (facade) return saveSessionBodyViaFacade(facade, sessionId, value)
+  let replayedViaFacade = false
   const saved = await enqueueWrite('sessions', async () => {
+    const replayed = await sessionStateFacade()
+    if (replayed) {
+      // Parked across the switch window's promote: saveSessionBody already
+      // derives and persists the metadata in the authoritative store, so the
+      // JSON metadata merge below must be skipped.
+      replayedViaFacade = true
+      return saveSessionBodyViaFacade(replayed, sessionId, value)
+    }
     await ensureStorage()
     await writeSessionValueFile(sessionId, value)
   })
+  if (replayedViaFacade) return saved
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const bucket = sessionBucket(value)
     const file = sessionStoreFile('sessions-metadata', bucket)
@@ -829,12 +886,10 @@ export async function deleteSessionWithMetadata(sessionId) {
  */
 export async function atomicSessionRecordUpdate(sessionId, updateFn) {
   const facade = await sessionStateFacade()
-  if (facade) {
-    const updated = await facade.atomicSessionRecordUpdate(sessionId, updateFn)
-    void facade.drainSessionJsonMirror()
-    return updated
-  }
+  if (facade) return atomicSessionRecordUpdateViaFacade(facade, sessionId, updateFn)
   return enqueueWrite('sessions', async () => {
+    const replayed = await sessionStateFacade()
+    if (replayed) return atomicSessionRecordUpdateViaFacade(replayed, sessionId, updateFn)
     const current = await readSessionValue(sessionId)
     if (!current) return null
     const bucket = sessionBucket(current)
@@ -849,6 +904,13 @@ export async function atomicSessionRecordUpdate(sessionId, updateFn) {
     if (!updated) return null
     await writeSessionValueFile(sessionId, updated.state)
     await enqueueWrite('sessions-metadata', async () => {
+      const replayedMetadata = await sessionStateFacade()
+      if (replayedMetadata) {
+        // Same parked-replay routing as the body write above; the facade
+        // update already persists the metadata this closure would merge.
+        await atomicSessionRecordUpdateViaFacade(replayedMetadata, sessionId, () => updated)
+        return
+      }
       const previousMetadata = await readJsonFile(metadataFile, {})
       const nextMetadata = { ...previousMetadata, [sessionId]: { ...previousMetadata[sessionId], ...(updated.metadata || {}), id: sessionId } }
       await writeJsonAtomic(metadataFile, nextMetadata)
@@ -1168,12 +1230,120 @@ async function migrateSplitConfig() {
 
 const writeQueues = new Map()
 
+// --- Session-domain write barrier (background migration §3.3 / §9 feature 3) ---
+// In the json_authoritative phase the session domain persists JSON through two
+// FIFO write queues: 'sessions' (session body files) and 'sessions-metadata'
+// (per-bucket metadata files, shared by atomicUpdate('sessions-metadata'),
+// atomicSessionMetadataUpdate, writeSessionValueWithMetadata and the nested
+// metadata write inside atomicSessionRecordUpdate — see the comment above
+// atomicSessionMetadataUpdate for why both paths must share one queue). These
+// are the writes a switch window must freeze via the barrier below.
+const sessionDomainWriteQueues = new Set(['sessions', 'sessions-metadata'])
+
+// Timestamp (ms, Date.now()) of the most recently settled session-domain write
+// task; 0 until the first one completes. Consumed by background-migration
+// idle detection ("no persist within the last N seconds").
+let lastSessionWriteFinishedAt = 0
+
+function markSessionWriteFinished() {
+  lastSessionWriteFinishedAt = Date.now()
+}
+
+export function readLastSessionWriteFinishedAt() {
+  return lastSessionWriteFinishedAt
+}
+
+function noop() {}
+
+// Barrier state. `sessionWriteGateClosed` is true only while a barrier is
+// HELD (achieved and not yet released): session-domain writes enqueued in
+// that window park on `sessionWriteGate` — they stay queued in FIFO order
+// without executing and without rejecting. With no barrier in play
+// enqueueWrite chains exactly as before (no extra awaits, no reordering).
+let sessionWriteGate = Promise.resolve()
+let sessionWriteGateClosed = false
+
+// Serializes barrier holders: a second acquireSessionJsonWriteBarrier() only
+// starts draining after the previous holder called release().
+let sessionWriteBarrierChain = Promise.resolve()
+
+/**
+ * Acquire the session-domain JSON write barrier for the background-migration
+ * switch window.
+ *
+ * Lock-ordering contract with the global persist lock: a switch window MUST
+ * take `withSessionPersistenceLock` (global key `''`, see
+ * server/session-persistence-lock.mjs) FIRST and only then acquire this
+ * barrier. Reverse order is forbidden: the barrier drain waits for in-flight
+ * session writes to settle, while a persist-lock holder may itself be waiting
+ * on writes the barrier would park, deadlocking the window.
+ *
+ * Semantics:
+ * - Resolves to a `release()` function once every in-flight session-domain
+ *   write task ('sessions' and 'sessions-metadata' queues) has settled. The
+ *   drain re-checks the queue tails until they stop moving, so writes
+ *   enqueued while draining are also waited for — at achievement no
+ *   session-domain write is executing or pending. (Nested enqueues from an
+ *   in-flight operation, e.g. atomicSessionRecordUpdate chaining a metadata
+ *   write inside its body write, therefore complete during the drain instead
+ *   of being parked; parking them would deadlock the drain.)
+ * - The barrier never occupies a write-queue execution slot — it only
+ *   observes queue tails — so it cannot deadlock against the queues.
+ * - While held, newly enqueued session-domain writes park (FIFO order
+ *   preserved, no execution, no error) and run in order after release().
+ * - Only one holder at a time; a second acquire queues until the previous
+ *   release().
+ *
+ * @returns {Promise<() => void>} resolves with the release function.
+ */
+export function acquireSessionJsonWriteBarrier() {
+  let notifyReleased
+  const released = new Promise((resolve) => { notifyReleased = resolve })
+  const acquired = sessionWriteBarrierChain.then(async () => {
+    // Drain: wait for the current tails of both session-domain queues, then
+    // re-check — the tails move whenever new writes chain on during the wait.
+    for (;;) {
+      const sessionsTail = writeQueues.get('sessions')
+      const metadataTail = writeQueues.get('sessions-metadata')
+      await Promise.all([
+        sessionsTail ? sessionsTail.then(noop, noop) : undefined,
+        metadataTail ? metadataTail.then(noop, noop) : undefined,
+      ])
+      if (writeQueues.get('sessions') === sessionsTail && writeQueues.get('sessions-metadata') === metadataTail) break
+    }
+    // Hold: close the gate. New session-domain writes park until release().
+    let openGate
+    sessionWriteGate = new Promise((resolve) => { openGate = resolve })
+    sessionWriteGateClosed = true
+    let releaseCalled = false
+    return () => {
+      if (releaseCalled) return
+      releaseCalled = true
+      sessionWriteGateClosed = false
+      openGate()
+      notifyReleased()
+    }
+  })
+  sessionWriteBarrierChain = acquired.then(() => released, () => released)
+  return acquired
+}
+
 function enqueueWrite(queueName, operation) {
+  const sessionDomain = sessionDomainWriteQueues.has(queueName)
   const previous = writeQueues.get(queueName) || Promise.resolve()
-  const next = previous
+  // While a barrier is held, park session-domain writes on the gate (FIFO is
+  // preserved: each parked write chains on the queue tail captured at enqueue
+  // time). Everything else — including the no-barrier case — chains directly.
+  const chained = sessionDomain && sessionWriteGateClosed
+    ? sessionWriteGate.then(() => previous)
+    : previous
+  const next = chained
     .catch(() => undefined)
     .then(operation)
   writeQueues.set(queueName, next)
+  if (sessionDomain) {
+    next.then(markSessionWriteFinished, markSessionWriteFinished)
+  }
   return next
 }
 
@@ -1189,23 +1359,18 @@ function enqueueWrite(queueName, operation) {
 export async function atomicUpdate(storeName, updateFn) {
   assertStore(storeName)
   const facade = await sessionStateFacade()
-  if (facade && storeName === 'sessions-metadata') {
-    const updated = facade.updateSessionMetadataBucket('global', null, (currentGlobal) => {
-      const current = { ...facade.readSessionStateStore('sessions-metadata'), ...currentGlobal }
-      return updateFn(current)
-    })
-    void facade.drainSessionJsonMirror()
-    return updated
-  }
-  if (facade && storeName === 'sessions') {
-    const current = facade.readSessionStateStore('sessions')
-    const updated = await updateFn(current)
-    facade.replaceSessionStateStore('sessions', updated)
-    void facade.drainSessionJsonMirror()
-    return updated
-  }
+  if (facade && storeName === 'sessions-metadata') return atomicSessionMetadataBucketUpdateViaFacade(facade, updateFn)
+  if (facade && storeName === 'sessions') return atomicSessionStoreReplaceViaFacade(facade, updateFn)
   const queueName = isConfigStore(storeName) ? configStoreLocations[storeName].queue : storeName
   return enqueueWrite(queueName, async () => {
+    if (storeName === 'sessions-metadata' || storeName === 'sessions') {
+      const replayed = await sessionStateFacade()
+      if (replayed) {
+        return storeName === 'sessions-metadata'
+          ? atomicSessionMetadataBucketUpdateViaFacade(replayed, updateFn)
+          : atomicSessionStoreReplaceViaFacade(replayed, updateFn)
+      }
+    }
     await ensureStorage()
     if (isConfigStore(storeName)) {
       const data = await readConfigStore(storeName)
@@ -1230,11 +1395,7 @@ export async function atomicUpdate(storeName, updateFn) {
  */
 export async function atomicSessionMetadataUpdate(scope, projectId, updateFn) {
   const facade = await sessionStateFacade()
-  if (facade) {
-    const updated = await facade.atomicSessionMetadataStateUpdate(scope, projectId, updateFn)
-    void facade.drainSessionJsonMirror()
-    return updated
-  }
+  if (facade) return atomicSessionMetadataUpdateViaFacade(facade, scope, projectId, updateFn)
   const bucket = scope === 'project' ? { scope: 'project', projectId } : { scope: 'global' }
   const file = sessionStoreFile('sessions-metadata', bucket)
   // Scoped session-metadata writes MUST share the single 'sessions-metadata'
@@ -1243,6 +1404,8 @@ export async function atomicSessionMetadataUpdate(scope, projectId, updateFn) {
   // concurrently and clobber each other — e.g. persistSession (which rebuilds
   // metadata without pinnedAt) racing with a pin update and dropping pinnedAt.
   return enqueueWrite('sessions-metadata', async () => {
+    const replayed = await sessionStateFacade()
+    if (replayed) return atomicSessionMetadataUpdateViaFacade(replayed, scope, projectId, updateFn)
     await ensureStorage()
     const data = await readJsonFile(file, {})
     const previousData = { ...data }

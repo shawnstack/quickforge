@@ -3069,6 +3069,21 @@ export function releaseSse(sessionId) {
 }
 
 /**
+ * Count sessions with a live SSE connection — the background-migration idle
+ * signal's "no active stream" input
+ * (docs/architecture/session-storage-background-migration-design.zh-CN.md
+ * §3.3). Derived from the per-session sseConnected flags the SSE route
+ * already maintains, so no extra bookkeeping is required.
+ */
+export function countActiveSseStreams() {
+  let count = 0
+  for (const session of agentSessions.values()) {
+    if (session.sseConnected) count += 1
+  }
+  return count
+}
+
+/**
  * Get the event bus for a session (for SSE connections).
  */
 export function getSessionEventBus(sessionId) {

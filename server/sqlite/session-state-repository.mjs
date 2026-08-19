@@ -292,6 +292,36 @@ const ENQUEUE_SESSION_MIRROR_SQL = `
     updated_at = excluded.updated_at
 `
 
+// Background migration bucket align (design §3.1): upsert twin of
+// replaceAllStream's fresh single-table insert — same STATE_COLUMNS shape,
+// plus the conflict clause that keeps other buckets' rows untouched.
+const ALIGN_UPSERT_SESSION_STATE_SQL = `
+  INSERT INTO session_states (${STATE_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(scope, project_id, session_id) DO UPDATE SET
+    revision = excluded.revision,
+    state_version = excluded.state_version,
+    state_json = excluded.state_json,
+    state_digest = excluded.state_digest,
+    metadata_json = excluded.metadata_json,
+    metadata_digest = excluded.metadata_digest,
+    created_at = excluded.created_at,
+    updated_at = excluded.updated_at
+`
+
+// Every session id the bucket currently owns across its four tables (a
+// tombstone-only or index-only key is still bucket residue the align
+// orphan cleanup must sweep).
+const BUCKET_SESSION_IDS_SQL = `
+  SELECT session_id FROM session_states WHERE scope = ? AND project_id = ?
+  UNION
+  SELECT session_id FROM session_messages WHERE scope = ? AND project_id = ?
+  UNION
+  SELECT session_id FROM session_index WHERE scope = ? AND project_id = ?
+  UNION
+  SELECT session_id FROM session_state_tombstones WHERE scope = ? AND project_id = ?
+`
+
+
 function upsertIndex(database, record, statement = null) {
   const metadata = record.metadata
   const insert = statement ?? cachedStatement(database, UPSERT_SESSION_INDEX_SQL)
@@ -794,6 +824,174 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     }
   }
 
+  // Background migration (docs/architecture/session-storage-background-migration-design.zh-CN.md
+  // §3.1): align ONE bucket with a JSON-side record stream inside a single
+  // BEGIN IMMEDIATE transaction. Unlike replaceAllStream it never clears the
+  // other buckets, never enqueues mirror entries and never writes the storage
+  // phase — while JSON stays authoritative SQLite is the follower, so the
+  // mirror outbox must remain empty and phase transitions belong to the
+  // orchestrator's switch window. Each record goes through the same
+  // normalization and statement shapes as replaceAllStream (upserted instead
+  // of freshly inserted, revision following the CAS chain like a save);
+  // non-split JSON states clear stale split message rows so the stored
+  // representation matches replaceAllStream's outcome; session ids the bucket
+  // owns in SQLite but the stream no longer carries are removed as orphans
+  // across session_states / session_messages / session_index /
+  // session_state_tombstones. The bucket digest accumulates canonical digest
+  // lines (digestFromLines口径) so a converged bucket compares equal to the
+  // JSON-side summary and to the repository digest. Callers must hold the
+  // session state maintenance lock (or the switch window's equivalent
+  // serialization): the transaction is restartable per bucket — a failure
+  // rolls the bucket back whole and it can simply be aligned again.
+  async function alignBucketStream(bucketInput, recordIterable, { expectedCount, expectedDigest } = {}) {
+    const normalizedBucket = bucket(bucketInput?.scope, bucketInput?.projectId)
+    if (!recordIterable || (typeof recordIterable[Symbol.asyncIterator] !== 'function' && typeof recordIterable[Symbol.iterator] !== 'function')) {
+      throw new TypeError('records must be a sync or async iterable')
+    }
+    const timestamp = now()
+    storage.exec('BEGIN IMMEDIATE')
+    let count = 0
+    const digestLines = []
+    const seenIds = new Set()
+    try {
+      const upsertState = storage.prepare(ALIGN_UPSERT_SESSION_STATE_SQL)
+      const bucketParams = [normalizedBucket.scope, normalizedBucket.projectId]
+      for await (const input of recordIterable) {
+        let messages = input.messages
+        if (messages === undefined && input.state?.messageStorage === 'split') {
+          messages = Array.isArray(input.state.messages) ? input.state.messages : []
+        }
+        const record = normalizeRecord(messages === undefined ? input : { ...input, messages }, timestamp)
+        if (record.scope !== normalizedBucket.scope || record.projectId !== normalizedBucket.projectId) {
+          throw new TypeError(`Record bucket mismatch in ${normalizedBucket.scope} align: ${record.sessionId}`)
+        }
+        if (seenIds.has(record.sessionId)) throw new TypeError(`Duplicate session id: ${record.sessionId}`)
+        seenIds.add(record.sessionId)
+        assertNoCrossBucketDuplicate(storage, record)
+        const current = actualRevision(storage, record)
+        // Same-key tombstones are collected exactly like a regular save so a
+        // post-align quick check never sees active/stale tombstone joins.
+        cachedStatement(storage, 'DELETE FROM session_state_tombstones WHERE scope = ? AND project_id = ? AND session_id = ?')
+          .run(record.scope, record.projectId, record.sessionId)
+        if (record.messages !== undefined) {
+          writeMessages(storage, record, 'replace', timestamp)
+        } else {
+          // JSON-side states carry inline messages: clear any stale split rows
+          // so non-split imports land in the same representation
+          // replaceAllStream produces.
+          cachedStatement(storage, 'DELETE FROM session_messages WHERE scope = ? AND project_id = ? AND session_id = ?')
+            .run(record.scope, record.projectId, record.sessionId)
+        }
+        upsertState.run(
+          record.scope, record.projectId, record.sessionId, current.revision + 1, record.stateVersion,
+          record.stateJson, record.stateDigest, record.metadataJson, record.metadataDigest,
+          current.createdAt || timestamp, timestamp,
+        )
+        upsertIndex(storage, record)
+        // Split imports contribute their stored message digest so the bucket
+        // digest stays comparable to the repository digest; JSON sources are
+        // never split, where this matches replaceAllStream's empty digest.
+        digestLines.push(snapshotDigestLine(
+          record.scope, record.projectId, record.sessionId, record.stateDigest, record.metadataDigest,
+          record.messages !== undefined ? messagesDigest(record.messages.map((message, seq) => ({ seq, message_digest: message.messageDigest }))) : '',
+        ))
+        count += 1
+      }
+      // Orphan cleanup: ids the bucket owns in any table but the stream no
+      // longer carries are stale residue — JSON is authoritative, so their
+      // rows go across all four tables (no tombstone, no mirror delete).
+      for (const row of cachedStatement(storage, BUCKET_SESSION_IDS_SQL).all(...bucketParams, ...bucketParams, ...bucketParams, ...bucketParams)) {
+        if (seenIds.has(row.session_id)) continue
+        for (const sql of [
+          'DELETE FROM session_states WHERE scope = ? AND project_id = ? AND session_id = ?',
+          'DELETE FROM session_messages WHERE scope = ? AND project_id = ? AND session_id = ?',
+          'DELETE FROM session_index WHERE scope = ? AND project_id = ? AND session_id = ?',
+          'DELETE FROM session_state_tombstones WHERE scope = ? AND project_id = ? AND session_id = ?',
+        ]) {
+          cachedStatement(storage, sql).run(...bucketParams, row.session_id)
+        }
+      }
+      const digest = digestFromLines(digestLines)
+      if (expectedCount !== undefined && count !== expectedCount) throw new Error('Session state align count verification failed')
+      if (expectedDigest !== undefined && digest !== expectedDigest) throw new Error('Session state align digest verification failed')
+      storage.exec('COMMIT')
+      return { bucket: { scope: normalizedBucket.scope, projectId: normalizedBucket.projectId || null }, count, digest }
+    } catch (error) {
+      try { storage.exec('ROLLBACK') } catch { /* transaction already closed */ }
+      throw error
+    }
+  }
+
+  // Background migration (§3.1): clear every row of a bucket that no longer
+  // exists in the JSON tree (e.g. a project directory removed while the store
+  // was JSON-authoritative). Covers the same four tables as the align orphan
+  // cleanup; mirror enqueue and phase writes stay out by design. Callers must
+  // hold the session state maintenance lock.
+  function deleteBucketRows(bucketInput) {
+    const normalizedBucket = bucket(bucketInput?.scope, bucketInput?.projectId)
+    return storage.transaction((database) => {
+      const removedStates = Number(database.prepare('DELETE FROM session_states WHERE scope = ? AND project_id = ?')
+        .run(normalizedBucket.scope, normalizedBucket.projectId).changes)
+      for (const sql of [
+        'DELETE FROM session_messages WHERE scope = ? AND project_id = ?',
+        'DELETE FROM session_index WHERE scope = ? AND project_id = ?',
+        'DELETE FROM session_state_tombstones WHERE scope = ? AND project_id = ?',
+      ]) {
+        database.prepare(sql).run(normalizedBucket.scope, normalizedBucket.projectId)
+      }
+      return { bucket: { scope: normalizedBucket.scope, projectId: normalizedBucket.projectId || null }, removedStates }
+    }, { mode: 'immediate' })
+  }
+
+  // Background migration (§3.1): read-only enumeration of bucket keys that
+  // own rows in any of the four session tables, so the orchestrator can clear
+  // buckets that vanished from the JSON tree (e.g. a removed project
+  // directory) via deleteBucketRows. SELECT DISTINCT only — no schema change,
+  // no writes; callers should hold the session state maintenance lock for a
+  // stable snapshot.
+  function listBucketKeys() {
+    const rows = cachedStatement(storage, `SELECT scope, project_id FROM session_states
+      UNION SELECT scope, project_id FROM session_messages
+      UNION SELECT scope, project_id FROM session_index
+      UNION SELECT scope, project_id FROM session_state_tombstones`).all()
+    return rows.map((row) => ({ scope: row.scope, projectId: row.scope === 'project' ? row.project_id : null }))
+  }
+
+  // Background migration (§6.3): promote an aligned SQLite store to
+  // authoritative. Phase goes json_authoritative →
+  // sqlite_authoritative_json_pending → authoritative through the same
+  // session_storage_state write path replaceAllStream uses, both writes inside
+  // one immediate transaction — a crash before COMMIT simply leaves JSON
+  // authoritative (the whole background task reruns); there is no
+  // pending-only residue from this path. The aligned import never enqueues
+  // mirror entries, so the queue must be empty here (no drain needed); a
+  // non-empty queue fails closed instead of risking stale materializations
+  // after the switch. Phase literals are spelled out because
+  // SESSION_STORAGE_PHASES lives in the service module and importing it here
+  // would create a module cycle. Callers must hold the session state
+  // maintenance lock / switch window lock and have verified JSON/SQLite
+  // digest convergence before calling.
+  function promoteAlignedSessionState({ digest = null, backupFile = null, diagnostic = null, expectedCount } = {}) {
+    const phaseRow = cachedStatement(storage, 'SELECT phase FROM session_storage_state WHERE singleton = 1').get()
+    if (!phaseRow || phaseRow.phase !== 'json_authoritative') {
+      throw new Error(`Aligned session state promote requires json_authoritative phase (current: ${phaseRow ? phaseRow.phase : 'missing'})`)
+    }
+    const integrity = verifyIntegrity({ quickCheck: true })
+    if (!integrity.ok) throw new Error('Session state aligned promote integrity verification failed')
+    if (expectedCount !== undefined && integrity.count !== expectedCount) throw new Error('Session state aligned promote count verification failed')
+    const queued = Number(cachedStatement(storage, 'SELECT COUNT(*) AS count FROM session_json_mirror_queue').get().count)
+    if (queued > 0) throw new Error(`Session state aligned promote requires an empty mirror queue (${queued} queued)`)
+    const timestamp = now()
+    storage.transaction((database) => {
+      updateStorageState(database, { phase: 'sqlite_authoritative_json_pending', stateCount: integrity.count, digest, backupFile, diagnostic, updatedAt: timestamp })
+      updateStorageState(database, { phase: 'authoritative', stateCount: integrity.count, digest, backupFile, diagnostic, updatedAt: timestamp })
+    }, { mode: 'immediate' })
+    // Best-effort WAL truncate after the promote (same semantics as the
+    // cutover path); a failed or busy checkpoint must never block it.
+    try { checkpointWal() } catch { /* best-effort */ }
+    return { phase: 'authoritative', stateCount: integrity.count, digest }
+  }
+
   function exportSnapshot() {
     return storage.transaction((database) => {
       const rows = database.prepare(`SELECT ${STATE_COLUMNS} FROM session_states ORDER BY scope, project_id, session_id`).all()
@@ -1021,6 +1219,10 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     deleteBySessionId,
     replaceAll,
     replaceAllStream,
+    alignBucketStream,
+    deleteBucketRows,
+    listBucketKeys,
+    promoteAlignedSessionState,
     exportSnapshot,
     verifyIntegrity,
     count,

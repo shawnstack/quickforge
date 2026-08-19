@@ -163,31 +163,59 @@ export function buildSessionJsonSnapshot(buckets) {
 // iteration order is sorted session ids; duplicate/orphan detection is
 // order-independent. Returns a factory: each call produces one independent
 // { iterate, getSummary } pass over the source.
+// Shared per-bucket iteration state: a full-source pass accumulates
+// count/digest lines/diagnostics across every bucket, while the bucket-scoped
+// stream below starts fresh per call.
+function freshSessionSourceState() {
+  return {
+    seen: new Set(),
+    count: 0,
+    lines: [],
+    diagnostics: { bodyOnly: [], metadataOnly: [], orphanDeletes: [], duplicateSessionIds: [] },
+  }
+}
+
+// Iterate ONE bucket's normalized records (validation, orphan handling and
+// digest lines identical to the full-source pass below and to
+// buildSessionJsonSnapshot). Shared by createStreamingSessionSource and the
+// exported bucket-scoped stream so the background migration aligns buckets
+// with exactly the cutover source's normalization semantics.
+async function* iterateSessionBucketRecords(fsAdapter, rawBucket, state) {
+  const bucket = normalizeBucket(rawBucket)
+  const metadata = await fsAdapter.readMetadataBucket(rawBucket)
+  if (!isPlainObject(metadata)) throw new TypeError('Session bucket stores must be objects')
+  const fileIds = new Set()
+  for await (const sessionId of fsAdapter.listSessionFiles(rawBucket)) fileIds.add(sessionId)
+  const ids = [...new Set([...fileIds, ...Object.keys(metadata)])].sort((left, right) => left.localeCompare(right))
+  for (const sessionId of ids) {
+    if (state.seen.has(sessionId)) state.diagnostics.duplicateSessionIds.push(sessionId)
+    state.seen.add(sessionId)
+    const rawState = fileIds.has(sessionId) ? await fsAdapter.readSessionState(rawBucket, sessionId) : undefined
+    const record = normalizeSessionEntry(bucket, sessionId, rawState, metadata[sessionId], state.diagnostics)
+    if (!record) continue
+    state.count += 1
+    state.lines.push(snapshotDigestLine(record.scope, record.projectId, record.sessionId, record.stateDigest, record.metadataDigest, ''))
+    yield record
+  }
+}
+
+// Background migration (docs/architecture/
+// session-storage-background-migration-design.zh-CN.md §3.1/§3.2): a
+// bucket-scoped record stream. Each call returns one fresh one-shot async
+// generator over a single JSON bucket; records share the cutover source's
+// normalization, so a bucket aligned from this stream compares equal
+// (digestFromLines口径) to a read-only JSON-side digest of the same bucket.
+export function createSessionBucketRecordStream(fsAdapter) {
+  return (rawBucket) => iterateSessionBucketRecords(fsAdapter, rawBucket, freshSessionSourceState())
+}
+
 export function createStreamingSessionSource(fsAdapter) {
   return () => {
-    const digestEntries = []
-    const diagnostics = { bodyOnly: [], metadataOnly: [], orphanDeletes: [], duplicateSessionIds: [] }
-    const seen = new Set()
-    let count = 0
+    const state = freshSessionSourceState()
     let completed = false
     const iterate = async function* streamSessionRecords() {
       for await (const rawBucket of fsAdapter.listBuckets()) {
-        const bucket = normalizeBucket(rawBucket)
-        const metadata = await fsAdapter.readMetadataBucket(rawBucket)
-        if (!isPlainObject(metadata)) throw new TypeError('Session bucket stores must be objects')
-        const fileIds = new Set()
-        for await (const sessionId of fsAdapter.listSessionFiles(rawBucket)) fileIds.add(sessionId)
-        const ids = [...new Set([...fileIds, ...Object.keys(metadata)])].sort((left, right) => left.localeCompare(right))
-        for (const sessionId of ids) {
-          if (seen.has(sessionId)) diagnostics.duplicateSessionIds.push(sessionId)
-          seen.add(sessionId)
-          const rawState = fileIds.has(sessionId) ? await fsAdapter.readSessionState(rawBucket, sessionId) : undefined
-          const record = normalizeSessionEntry(bucket, sessionId, rawState, metadata[sessionId], diagnostics)
-          if (!record) continue
-          count += 1
-          digestEntries.push({ sessionId, line: snapshotDigestLine(record.scope, record.projectId, record.sessionId, record.stateDigest, record.metadataDigest, '') })
-          yield record
-        }
+        yield* iterateSessionBucketRecords(fsAdapter, rawBucket, state)
       }
       completed = true
     }
@@ -195,9 +223,9 @@ export function createStreamingSessionSource(fsAdapter) {
       iterate,
       getSummary() {
         if (!completed) throw new Error('Session source summary is not ready before the iteration completes')
-        if (diagnostics.duplicateSessionIds.length > 0) throw new TypeError(`Duplicate session ids across buckets: ${[...new Set(diagnostics.duplicateSessionIds)].join(', ')}`)
-        const digest = digestFromLines(digestEntries.map((entry) => entry.line))
-        return { count, digest, diagnostics }
+        if (state.diagnostics.duplicateSessionIds.length > 0) throw new TypeError(`Duplicate session ids across buckets: ${[...new Set(state.diagnostics.duplicateSessionIds)].join(', ')}`)
+        const digest = digestFromLines(state.lines)
+        return { count: state.count, digest, diagnostics: state.diagnostics }
       },
     }
   }
@@ -225,7 +253,7 @@ function createReadBucketsSessionSource(readBuckets) {
   }
 }
 
-async function summarizeSessionSource(source) {
+export async function summarizeSessionSource(source) {
   let consumed = 0
   for await (const _record of source.iterate()) consumed += 1
   const summary = source.getSummary()
@@ -250,7 +278,7 @@ function sameSessionSourceSummary(left, right) {
 // old "read whole file + re-parse + re-snapshot" verification. The streamed
 // records' digest is also re-accumulated and compared against `summary`, so a
 // source that changed since the double read fails closed here.
-async function writeCutoverBackupStream(createIteration, summary, options = {}) {
+export async function writeCutoverBackupStream(createIteration, summary, options = {}) {
   const directory = options.directory || path.join(storageDir, 'backups')
   await fs.mkdir(directory, { recursive: true })
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
@@ -345,7 +373,7 @@ async function writeCutoverBackupStream(createIteration, summary, options = {}) 
 // path.
 const BACKUP_ENVELOPE_PATTERN = /"sessionState": \{\s*"count": (\d+),\s*"digest": "([0-9a-f]{64})"/
 
-async function verifyRegisteredCutoverBackup(backupFile, summary) {
+export async function verifyRegisteredCutoverBackup(backupFile, summary) {
   let handle
   try {
     handle = await fs.open(backupFile, 'r')
@@ -474,7 +502,11 @@ export function currentSessionStateMaintenanceContext() {
   return maintenanceContext.getStore() || null
 }
 
-function mirrorAdapter() {
+// Mirror adapter shared by the cutover and the background migration: the
+// JSON-authoritative follower materializes every queued upsert/delete into
+// the physical JSON layout. Exported so the background-migration orchestrator
+// wires the exact same mirror construction into configureSessionStateService.
+export function createSessionJsonMirrorAdapter() {
   async function materialize(entry) {
     await materializeSessionJsonMirrorEntry(entry)
   }
@@ -519,7 +551,7 @@ function checkpointWalAfterPromote(repository, log) {
 export async function initializeSessionStateCutover(options = {}) {
   const storage = options.storage || getSqliteStorage()
   const repository = options.repository || createSessionStateRepository(storage)
-  configureSessionStateService({ repository, mirror: options.mirror || mirrorAdapter() })
+  configureSessionStateService({ repository, mirror: options.mirror || createSessionJsonMirrorAdapter() })
   const log = options.logger || logger
   const migrate = async () => {
     const current = readSessionStorageState()

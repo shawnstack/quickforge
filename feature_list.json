@@ -253,6 +253,87 @@
         "server/sqlite/session-state-repository.mjs",
         "server/session-state-service.mjs"
       ]
+    },
+    {
+      "id": "design-session-background-migration",
+      "name": "会话存储后台迁移设计（无感切换/备份异步化/全程关键日志）",
+      "status": "done",
+      "approach": "纯文档产出（未改代码）：把会话域 cutover 从启动维护窗口改为后台迁移。三机制：①桶级对齐导入（单遍流式、桶级事务、upsert+orphan、不 enqueue mirror）②digest 追赶收敛循环（JSON↔SQLite 桶 digest 对拍，一轮零差异收敛）③秒级切换窗口（idle 信号触发，全局 persist 锁+metadata 写队列 barrier 内最终对拍→promote，业务写排队不报错，超时/差异 fail-open 回追赶）。用户确认两项修订：备份不砍改异步（收敛后 idle 期流式存档，与切换解耦、失败仅重试）；§5 专章 22 个日志事件（options.logger 注入模式，info=里程碑/warn=可恢复/error=失败，桶级采样）。phase 不加新持久态，进度经 migration-status background 域（importing/converging/idle-waiting/switching/done/failed）。scheduled-runs/share/lan 三小域保留启动链现状。待实施：§9 拆 6 个 feature",
+      "files": [
+        "docs/architecture/session-storage-background-migration-design.zh-CN.md",
+        "docs/architecture/assets/session-storage-background-migration-flow.svg"
+      ]
+    },
+    {
+      "id": "impl-bg-migration-align-bucket",
+      "name": "后台迁移 feature 1：repository 桶级对齐导入原语",
+      "status": "done",
+      "approach": "alignBucketStream（桶级 immediate 事务 upsert+orphan 清理，不 enqueue mirror 不写 phase，digestFromLines 口径桶 digest）、deleteBucketRows、promoteAlignedSessionState（quickCheck+队列必空+phase 必须 json_authoritative，事务内连写三相位+checkpointWal）、listBucketKeys；promote 走 repository 内部 updateStorageState 避免循环依赖（调用方事后刷新 service 缓存）",
+      "files": [
+        "server/sqlite/session-state-repository.mjs",
+        "tests/server/session-state-align-bucket.test.mjs"
+      ]
+    },
+    {
+      "id": "impl-bg-migration-write-barrier",
+      "name": "后台迁移 feature 3：storage 写队列 barrier + 会话写活动时间戳",
+      "status": "done",
+      "approach": "acquireSessionJsonWriteBarrier（排空 sessions/sessions-metadata 两队列后 park 新写，FIFO 保序、单持有者、release 幂等；park 从 drain 完成后生效，防嵌套入队自锁）+ readLastSessionWriteFinishedAt（含失败写，供 idle 检测）；锁序契约：先全局 persist 锁后 barrier",
+      "files": [
+        "server/storage.mjs",
+        "tests/server/storage-write-barrier.test.mjs"
+      ]
+    },
+    {
+      "id": "impl-bg-migration-orchestrator",
+      "name": "后台迁移 feature 2：编排模块（importing→converging→idle→switching 状态机）",
+      "status": "done",
+      "approach": "startSessionStateBackgroundMigration/readSessionStateBackgroundMigrationStatus；全程 runSessionStateMaintenance 持锁（锁忙→aborted 含 owner 诊断）；收敛循环逐桶只读 digest 对拍（内存 Map）；idle 信号=活动 SSE 流计数（agent-manager countActiveSseStreams）+写静默阈值；备份 idle 期异步（复验已登记可复用、有界重试、与切换解耦）；切换窗口锁序 lock→barrier→最终对拍→promote→刷新缓存→drain；§5.2 全事件日志 options.logger 注入；cutover 模块抽出 createSessionBucketRecordStream 等共享导出无逻辑改动",
+      "files": [
+        "server/session-state-background-migration.mjs",
+        "server/session-state-cutover.mjs",
+        "server/agent-manager.mjs",
+        "tests/server/session-state-background-migration.test.mjs"
+      ]
+    },
+    {
+      "id": "impl-bg-migration-startup-integration",
+      "name": "后台迁移 feature 4：启动链接入 + migration-status background 域 + cutover_running 残留清退",
+      "status": "done",
+      "approach": "resolveSessionStateStartupRoute 纯函数路由（json_authoritative/cutover_running→后台任务 fire-and-forget，pending/authoritative/未知→保留同步 cutover fail-closed）；cutover_running 残留在任务锁内复位为 json_authoritative（backupFile 原样保留）；migration-status 增加 sessionState.background 域（null 时省略，前端解析天然兼容）；三小域与 gate 语义不动",
+      "files": [
+        "server/index.mjs",
+        "server/startup-state.mjs",
+        "server/session-state-background-migration.mjs",
+        "tests/server/startup-maintenance-gate.test.mjs",
+        "tests/server/session-state-background-migration.test.mjs"
+      ]
+    },
+    {
+      "id": "impl-bg-migration-integration-tests",
+      "name": "后台迁移 feature 5：集成级测试矩阵 + 2 个真实缺陷修复",
+      "status": "done",
+      "approach": "真实组件（临时 dataDir+真实 fs adapter+repository+storage 写路径）覆盖：并发写收敛、切换窗口排队（边界写/ parked 写两路径）、importing/converging 两阶段崩溃重启幂等、陈旧维护锁接管（真实死 pid）。发现并最小修复：①严重数据丢失——barrier-parked 业务写在 promote 后重放仍走 JSON 路径（storage.mjs 全部会话写入口补执行时 facade 复检重路由，*ViaFacade 助手）；②background.state 从不进入 converging（补 setState）",
+      "files": [
+        "tests/server/session-state-background-migration.integration.test.mjs",
+        "server/storage.mjs",
+        "server/session-state-background-migration.mjs"
+      ]
+    },
+    {
+      "id": "impl-bg-migration-docs-sync",
+      "name": "后台迁移 feature 6：文档同步",
+      "status": "done",
+      "approach": "单一事实源（启动链路由/相位三链图/备份定位/fail-closed 边界）+ 设计文档（状态改已实施待真实库验证、§9 全勾、§11 实施偏差记录 7 项、§10 已解决项标注）+ recovery runbook（后台迁移失败小节：failed 重启重试/lock-busy owner 诊断）+ wiki server 与 routes 两页 + F8 历史文档标注 + phase-machine SVG 补后台边；grep 全 docs 修正旧叙述",
+      "files": [
+        "docs/architecture/session-storage-current-architecture.zh-CN.md",
+        "docs/architecture/session-storage-background-migration-design.zh-CN.md",
+        "docs/architecture/session-storage-recovery-runbook.zh-CN.md",
+        "docs/architecture/session-state-transactional-storage.zh-CN.md",
+        "docs/architecture/assets/session-storage-phase-machine.svg",
+        "docs/wiki/server/README.md",
+        "docs/wiki/server/routes/README.md"
+      ]
     }
   ]
 }

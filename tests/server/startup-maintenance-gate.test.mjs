@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite/database.mjs'
 import { createScheduledTaskRunsRepository } from '../../server/sqlite/scheduled-task-runs-repository.mjs'
 import { initializeScheduledRunsCutover } from '../../server/scheduled-runs-cutover.mjs'
+import { acquireSessionStateMaintenanceLock, releaseSessionStateMaintenanceLock } from '../../server/session-state-cutover.mjs'
+import { startSessionStateBackgroundMigration } from '../../server/session-state-background-migration.mjs'
 import {
   MAINTENANCE_API_WHITELIST,
   STARTUP_RECOVERY_GUIDANCE,
@@ -174,5 +176,44 @@ describe('readMigrationStatus', () => {
     expect(status.state).toBe(STARTUP_STATES.FAILED)
     expect(status.startupError).toBe('integrity failure')
     expect(status.ok).toBe(true)
+  })
+
+  it('omits the sessionState background domain before any background task ran', () => {
+    const status = readMigrationStatus(storage)
+
+    expect(status.domains.sessionState.phase).toBe('json_authoritative')
+    expect(status.domains.sessionState).not.toHaveProperty('background')
+  })
+
+  it('exposes the background-migration snapshot with lock owner diagnostics in the sessionState domain (design §10.2)', async () => {
+    // Second-process scenario: another process holds the session maintenance
+    // lock, so the background migration aborts lock-busy and its snapshot —
+    // including the owner diagnostics — must surface via migration-status
+    // instead of a blank background domain.
+    const lease = acquireSessionStateMaintenanceLock(storage, {
+      owner: { id: '999:other', pid: 999 },
+      pidAlive: () => true,
+      operation: 'other-maintenance',
+    })
+    expect(lease).toBeTruthy()
+    const result = await startSessionStateBackgroundMigration({
+      storage,
+      owner: { id: '701:bg', pid: 701 },
+      pidAlive: () => false,
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+    })
+    expect(result).toMatchObject({ outcome: 'aborted', reason: 'lock-busy' })
+
+    const status = readMigrationStatus(storage)
+    expect(status.ok).toBe(true)
+    expect(status.domains.sessionState.phase).toBe('json_authoritative')
+    expect(status.domains.sessionState.background).toMatchObject({
+      state: 'aborted',
+      reason: 'lock-busy',
+      lockOwner: '999:other',
+      lockOwnerPid: 999,
+      lockFencing: expect.any(Number),
+    })
+    expect(releaseSessionStateMaintenanceLock(storage, lease)).toBe(true)
   })
 })

@@ -2,10 +2,19 @@
 
 ## Current State
 
-- Feature: 评审报告 §7 全部 10 条建议的实施（10 个 review-* feature + review-switch-sqlite-synchronous-full，全部 done）
-- Status: 全部实施完成并全量验证通过 — `npm run test` 211 文件 1748 测试全过、`npm run lint` 0 错误（1 个预存 warning）、`npm run build` 通过；所有改动未 commit
+- Feature: 后台迁移实施（design-session-background-migration 的 §9 全部 6 个 feature，design + 6 个 impl-* 全部 done）
+- Status: 全部实施完成并全量验证通过 — `npm run test` 215 文件 1780 测试全过（基线 211/1748，+4 文件 32 测试）、`npm run lint` 通过、`npm run build` 通过；所有改动未 commit
 - Blockers: 无
-- Next step: 真实库下次启动验证 cutover 成功晋升 authoritative + WAL 回收；择机 commit 本轮全部改动；发布 patch 版本前按 runbook 重新完整验证
+- Next step: 真实大库（~1.4GB、json_authoritative）首次启动走新后台链路验证收敛与切换实测数据并回填设计文档 §10.3；择机分主题 commit；发布前按 runbook 重新完整验证
+
+## Notes
+
+- 后台迁移全部落地（本轮）：启动秒级 READY（会话域退出维护窗口，窗口仅剩 scheduled-runs/share/lan 三小域秒级）；三机制实现见 feature_list 的 6 个 impl-bg-migration-* 条目。核心链路：index.mjs 按 phase 路由（resolveSessionStateStartupRoute）→ startSessionStateBackgroundMigration（维护锁全程持有）→ 逐桶 alignBucketStream（不 enqueue mirror）→ 收敛循环（逐桶只读 digest 对拍内存 Map）→ idle 信号（SSE 流计数+写静默）→ 切换窗口（全局 persist 锁→barrier→最终对拍→promoteAlignedSessionState→drain）。备份在 idle 期异步（复验已登记可复用、有界重试、与切换解耦）。
+- 集成测试发现 2 个真实缺陷并已修复：①严重——barrier-parked 业务写在 promote 后重放仍走 JSON 路径导致权威源丢写，storage.mjs 全部会话写入口补"执行时 facade 复检重路由"（*ViaFacade 助手，嵌套 metadata 写同覆盖）；②background.state 缺 converging（补 setState）。另理论风险已记录：parked 旧写覆盖 promote 后新写的窗口被"微任务级联+promote 要求空 mirror 队列"封闭，若后续引入窗口内宏任务间隙需复查 runSwitchWindow 的 release 顺序。
+- 设计→实施主要偏差（已记入设计文档 §11）：promote 走 repository 内部 updateStorageState（避免循环依赖）；barrier park 从 drain 完成后生效（防嵌套入队自锁死锁）；backup.verify 无 sha256（避免 1.4GB 双读）；"写时间戳未变跳过重读"优化未实现（正确性优先）；cutover 模块 cutover_running 恢复分支保留（新链不再到达，维护工具可直调）。
+- cutover_running 存量残留清退与双进程 status 可见性（设计 §10.1/§10.2）已落地：残留由后台任务锁内复位（backupFile 保留、phase.reset 日志）；锁忙 aborted 快照携带 lockOwner/lockOwnerPid/lockFencing，第二进程经 migration-status 可见。
+- 未做（记录在案）：慢盘/大库内存上界断言（需大库装置，归 §10.3 真实库实测待办）；writeSessionValues/restore 类写在维护锁内运行无 parked 场景未加重放路由（如需防御性覆盖后续单独评估）。
+- 前一轮设计阶段的产出与决策详见 git 历史中 feature_list.json 该轮提交；评审实施（review-* 11 feature）遗留事项不变：⑤门禁豁免不一致、⑥backupFile 复用旧快照、P2 减 pass 快照方案、"彻底不碰 JSON"三处架构依赖、前端 dispose 通知、agentSessions LRU、SQLite 大事务拆分等范围外候选。
 
 ## Notes
 

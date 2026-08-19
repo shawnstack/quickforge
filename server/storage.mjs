@@ -412,7 +412,22 @@ async function writeJsonAtomic(file, data) {
   await fs.mkdir(path.dirname(file), { recursive: true })
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
   await fs.writeFile(tmp, `${JSON.stringify(data, null, 2)}\n`, 'utf8')
-  await fs.rename(tmp, file)
+  // Windows AV (e.g. Defender real-time scan) can briefly hold the freshly
+  // written tmp file between writeFile and rename, surfacing as EPERM/EBUSY.
+  // A bounded retry closes that window; the rename stays atomic either way.
+  const delays = [25, 50, 100]
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await fs.rename(tmp, file)
+      return
+    } catch (error) {
+      if (attempt >= delays.length || !['EPERM', 'EBUSY', 'EACCES'].includes(error?.code)) {
+        try { await fs.unlink(tmp).catch(() => {}) } catch { /* best effort cleanup */ }
+        throw error
+      }
+      await new Promise((resolve) => { setTimeout(resolve, delays[attempt]) })
+    }
+  }
 }
 
 export async function materializeSessionJsonMirrorEntry(entry) {

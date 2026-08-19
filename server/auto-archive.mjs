@@ -7,9 +7,19 @@ const defaultStorage = { atomicSessionValueUpdate, atomicUpdate, atomicSessionRe
 export const AUTO_ARCHIVE_SETTINGS_KEY = 'auto-archive-settings'
 export const AUTO_ARCHIVE_AFTER_MS = 30 * 24 * 60 * 60 * 1000
 const AUTO_ARCHIVE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000
+export const AUTO_ARCHIVE_INITIAL_DELAY_MS = 30_000
 
 let autoArchiveTimer = null
+let autoArchiveInitialTimer = null
 let autoArchiveRunning = false
+
+// Yield one macrotask turn between heavy archive commits: each archive is a
+// synchronous SQLite transaction (or JSON read-modify-write) that blocks the
+// thread while it runs, and without yields a large batch of back-to-back
+// archives starves every pending HTTP request for the whole batch.
+function yieldToEventLoop() {
+  return new Promise((resolve) => setImmediate(resolve))
+}
 
 export function normalizeAutoArchiveSettings(value) {
   if (!value || typeof value !== 'object') return { enabled: false }
@@ -65,8 +75,25 @@ async function archiveInactiveSessionsUnlocked(options = {}) {
   const metadataStore = await storage.readStore('sessions-metadata')
   const candidates = []
 
+  // Metadata-first scan: metadata alone decides activeness whenever it carries
+  // any timestamp, so the common case never loads the session body (loading and
+  // JSON.parsing every 2.9GB-library body is what stalled the event loop for
+  // ~minutes on startup). The body is only read when metadata has no usable
+  // timestamp at all. The scan is therefore deliberately conservative — a body
+  // newer than its (stale) metadata is treated as a candidate — which is safe:
+  // a wrongly suspected candidate is rejected by the full-state re-check inside
+  // the archive transactions below, and a missed candidate is simply picked up
+  // by the next scan. persistSession refreshes metadata timestamps on every
+  // save, so active sessions always stay fresh in metadata.
   for (const [sessionId, metadata] of Object.entries(metadataStore)) {
     if (!metadata || metadata.archivedAt || metadata.messageCount === 0 || metadata.taskStatus === 'running') continue
+    const metadataActivityTime = sessionActivityTime(metadata)
+    if (metadataActivityTime !== null) {
+      if (metadataActivityTime >= cutoff) continue
+      candidates.push(sessionId)
+      continue
+    }
+    // Metadata carries no timestamp at all: fall back to the body.
     const session = await storage.readSessionValue(sessionId)
     if (!session || session.archivedAt) continue
     const activityTime = sessionActivityTime(metadata, session)
@@ -78,7 +105,10 @@ async function archiveInactiveSessionsUnlocked(options = {}) {
   if (typeof storage.atomicSessionRecordUpdate === 'function' && await storage.isSessionStateAuthoritative()) {
     // Authoritative: archive body + metadata in one SQLite transaction (CAS
     // retried on concurrent metadata-only changes), so no half-archived state.
-    for (const sessionId of candidates) {
+    for (const [index, sessionId] of candidates.entries()) {
+      // Let pending requests run between archive transactions (not before the
+      // first candidate — nothing to yield from yet).
+      if (index > 0) await yieldToEventLoop()
       const updated = await storage.atomicSessionRecordUpdate(sessionId, ({ state, metadata }) => {
         const activityTime = sessionActivityTime(metadata, state)
         if (state.archivedAt || metadata.archivedAt || metadata.messageCount === 0 || metadata.taskStatus === 'running' || activityTime === null || activityTime >= cutoff) return null
@@ -87,7 +117,10 @@ async function archiveInactiveSessionsUnlocked(options = {}) {
       if (updated?.state?.archivedAt === archivedAt) archivedSessionIds.push(sessionId)
     }
   } else {
-    for (const sessionId of candidates) {
+    for (const [index, sessionId] of candidates.entries()) {
+      // Let pending requests run between archive transactions (not before the
+      // first candidate — nothing to yield from yet).
+      if (index > 0) await yieldToEventLoop()
       const updatedSession = await storage.atomicSessionValueUpdate(sessionId, (session) => {
         const activityTime = sessionActivityTime(session)
         if (session.archivedAt || activityTime === null || activityTime >= cutoff) return session
@@ -134,16 +167,30 @@ export async function archiveInactiveSessions(options = {}) {
   }
 }
 
-export function startAutoArchiveRunner() {
+// `options` exists for tests (inject storage/now like archiveInactiveSessions);
+// production callers pass nothing and get defaultStorage + Date.now().
+export function startAutoArchiveRunner(options = {}) {
   if (autoArchiveTimer) return
   autoArchiveTimer = setInterval(() => {
-    archiveInactiveSessions().catch((error) => logger.error('Automatic conversation archive failed:', error))
+    archiveInactiveSessions(options).catch((error) => logger.error('Automatic conversation archive failed:', error))
   }, AUTO_ARCHIVE_CHECK_INTERVAL_MS)
   autoArchiveTimer.unref?.()
-  archiveInactiveSessions().catch((error) => logger.error('Initial automatic conversation archive failed:', error))
+  // Delay the first pass off the startup path: right after listen() the server
+  // is absorbing the browser's initial request burst, and the scan + archive
+  // transactions on a large library can block the event loop for a long
+  // stretch. The timer is unref'd so it never keeps the process alive.
+  autoArchiveInitialTimer = setTimeout(() => {
+    autoArchiveInitialTimer = null
+    archiveInactiveSessions(options).catch((error) => logger.error('Initial automatic conversation archive failed:', error))
+  }, AUTO_ARCHIVE_INITIAL_DELAY_MS)
+  autoArchiveInitialTimer.unref?.()
 }
 
 export function stopAutoArchiveRunner() {
+  if (autoArchiveInitialTimer) {
+    clearTimeout(autoArchiveInitialTimer)
+    autoArchiveInitialTimer = null
+  }
   if (!autoArchiveTimer) return
   clearInterval(autoArchiveTimer)
   autoArchiveTimer = null

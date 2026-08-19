@@ -388,6 +388,17 @@
         "tests/server/session-index-query-service.test.mjs",
         "docs/architecture/session-index-query-migration.zh-CN.md"
       ]
+    },
+    {
+      "id": "optimize-auto-archive-startup-scan",
+      "name": "auto-archive 启动 49s 阻塞优化（元数据优先扫描+让出循环+首跑延迟）+ writeJsonAtomic AV 竞态加固",
+      "status": "done",
+      "approach": "真实库二次实测定位：quick_check 修复后仍剩 49s 启动空洞，根因是 startAutoArchiveRunner 启动链末尾立即首次归档且扫描阶段对每个候选会话 readSessionValue 全量加载正文（~2400 会话/2.9GB 同步 SQLite+JSON.parse 阻塞事件循环，请求全部堆积）。修复：扫描元数据优先（lastModified 可判定则零正文读，无时间戳才回退读正文，归档正确性由事务内全量复核既有保证不变）；归档循环间 setImmediate 让出；首跑延迟 30s（stop 清理 timer）。顺带根治 writeJsonAtomic 的 Windows Defender rename EPERM 竞态（有界重试 25/50/100ms + 失败清理 tmp），该竞态是本机测试 flake 与历史 1045 个 tmp 残留的共同成因",
+      "files": [
+        "server/auto-archive.mjs",
+        "server/storage.mjs",
+        "tests/server/auto-archive.test.mjs"
+      ]
     }
   ]
 }

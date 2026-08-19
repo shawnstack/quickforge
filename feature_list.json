@@ -359,6 +359,24 @@
         "tests/server/storage.session-state-facade.test.mjs",
         "tests/server/agent-manager.persist-session-state.test.mjs"
       ]
+    },
+    {
+      "id": "optimize-startup-quick-check-gate",
+      "name": "启动 quick_check 检查税优化（进程内去重 + 7 天 marker 降频）",
+      "status": "done",
+      "approach": "四域启动检查各自 PRAGMA quick_check 全库扫描同一 2.93GB 文件 3~4 遍（实测 ~30s 检查税）。database.mjs 新增 runSharedSqliteQuickCheck：进程内按 database_list 解析的库路径缓存去重 + 库同目录 marker 文件（默认 7 天新鲜即跳过，原子写，失败不写不缓存）；三仓储 verifyIntegrity 与 publicHealth 接线（forceQuickCheck 透传），维护端点 verify-session-integrity 强制真扫；QUICKFORGE_SQLITE_QUICK_CHECK=force 逃生口；:memory: 每次真扫。安全性：WAL+synchronous=FULL 无 torn-write，quick_check 防 bit-rot，SQL 级 counts 对账照常",
+      "files": [
+        "server/sqlite/database.mjs",
+        "server/sqlite/session-state-repository.mjs",
+        "server/sqlite/share-repository.mjs",
+        "server/sqlite/lan-access-repository.mjs",
+        "server/routes/storage.mjs",
+        "server/session-state-backup.mjs",
+        "tests/server/sqlite-quick-check-gate.test.mjs",
+        "docs/architecture/sqlite-storage-foundation.zh-CN.md",
+        "docs/architecture/session-storage-current-architecture.zh-CN.md",
+        "docs/wiki/server/README.md"
+      ]
     }
   ]
 }

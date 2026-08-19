@@ -1,3 +1,4 @@
+import { readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -9,8 +10,26 @@ export const SQLITE_BUSY_TIMEOUT_MS = 5_000
 export const SQLITE_JOURNAL_MODE = 'wal'
 export const SQLITE_SYNCHRONOUS = 2
 
+// Startup quick_check tax optimization. All four storage domains share one
+// quickforge.sqlite3 file, and `PRAGMA quick_check` scans the whole file, so
+// four per-domain startup checks used to pay the full-scan cost four times
+// (~30s on a 3GB production library). One gated scan per database per process
+// (sharedQuickCheckCache) plus a cross-restart marker file reduce it to at
+// most one real scan per database per 7 days.
+//
+// Safety argument: WAL + synchronous=FULL make committed transactions immune
+// to torn writes (a crash either replays or rolls back the WAL). quick_check
+// therefore only guards against bit-rot / filesystem-level corruption, which
+// evolves on disk timescales, not per startup; the 7-day cadence plus the
+// manual force entry points (maintenance verify-session-integrity endpoint,
+// QUICKFORGE_SQLITE_QUICK_CHECK=force) keep the blind window bounded. When a
+// quick_check is skipped, all other SQL-level count/join checks still run.
+export const SQLITE_QUICK_CHECK_MARKER_FILENAME = 'quickforge-quick-check.marker.json'
+export const SQLITE_QUICK_CHECK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+
 const sqliteLogger = logger.child({ component: 'sqlite' })
 const TRANSACTION_MODES = new Set(['deferred', 'immediate', 'exclusive'])
+const sharedQuickCheckCache = new Map()
 let initializationPromise = null
 let openState = null
 let savepointCounter = 0
@@ -74,16 +93,118 @@ function configurePragmas(database) {
   return verifyPragmas(database)
 }
 
+function quickCheckMarkerPath(databasePath) {
+  return path.join(path.dirname(databasePath), SQLITE_QUICK_CHECK_MARKER_FILENAME)
+}
+
+// Resolve the main database file path from any storage surface (raw
+// DatabaseSync, the controlled handle, or test duck-typed handles). Returns
+// null for in-memory databases, where no marker is possible and every call
+// runs a real scan.
+function resolveQuickCheckDatabasePath(database) {
+  try {
+    const rows = database.prepare('PRAGMA database_list').all()
+    const main = Array.isArray(rows) ? rows.find((row) => row && row.name === 'main') : null
+    const file = typeof main?.file === 'string' ? main.file.trim() : ''
+    return file ? path.resolve(file) : null
+  } catch {
+    return null
+  }
+}
+
+// Marker read failures (missing, unreadable, malformed) are treated as "no
+// marker": the caller falls through to a real scan.
+function readQuickCheckMarker(databasePath) {
+  try {
+    const marker = JSON.parse(readFileSync(quickCheckMarkerPath(databasePath), 'utf8'))
+    const lastOkAt = Number(marker?.lastOkAt)
+    return Number.isFinite(lastOkAt) ? { ...marker, lastOkAt } : null
+  } catch {
+    return null
+  }
+}
+
+// Best-effort atomic marker write: failures only warn, never affect the
+// quick_check verdict.
+function writeQuickCheckMarker(databasePath, okAt, database) {
+  try {
+    const markerPath = quickCheckMarkerPath(databasePath)
+    const temporaryPath = `${markerPath}.${process.pid}.tmp`
+    let sqliteVersion = null
+    try {
+      sqliteVersion = String(database.prepare('SELECT sqlite_version() AS version').get().version)
+    } catch { /* Optional diagnostic field. */ }
+    let databaseBytes = null
+    try {
+      databaseBytes = statSync(databasePath).size
+    } catch { /* Optional diagnostic field. */ }
+    writeFileSync(temporaryPath, `${JSON.stringify({ app: 'quickforge', lastOkAt: okAt, sqliteVersion, databaseBytes })}\n`, 'utf8')
+    renameSync(temporaryPath, markerPath)
+  } catch (error) {
+    sqliteLogger.warn('SQLite quick_check marker write failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+/**
+ * Shared startup `PRAGMA quick_check` gate (see the block comment above for
+ * the rationale and safety argument). Semantics:
+ * - In-process: one successful scan per database file path is reused for the
+ *   process lifetime (unless `maxAgeMs` elapses or `resetSharedQuickCheckCache`
+ *   is called); `force` skips this reuse but still refreshes it after success.
+ * - Cross-restart: a marker file next to the database (`lastOkAt`) skips the
+ *   real scan while younger than `maxAgeMs` (default 7 days). Missing or
+ *   unreadable markers are treated as absent.
+ * - On a real scan success the marker is rewritten (atomic, best-effort).
+ * - On failure the quick_check error is re-thrown as-is: no marker is written
+ *   and the process cache never caches failures, so the next call scans again.
+ * - QUICKFORGE_SQLITE_QUICK_CHECK=force forces a real scan every call.
+ * Returns `{ ok: true, skipped: null | 'process' | 'marker', lastOkAt? }`.
+ */
+export function runSharedSqliteQuickCheck(database, {
+  force = false, maxAgeMs = SQLITE_QUICK_CHECK_MAX_AGE_MS, now = Date.now, writeMarker = true, databasePath = null,
+} = {}) {
+  const forced = force === true || process.env.QUICKFORGE_SQLITE_QUICK_CHECK === 'force'
+  const resolvedPath = databasePath ? path.resolve(databasePath) : resolveQuickCheckDatabasePath(database)
+  if (!forced && resolvedPath) {
+    const cached = sharedQuickCheckCache.get(resolvedPath)
+    if (cached && now() - cached.okAt < maxAgeMs) {
+      return { ok: true, skipped: 'process', lastOkAt: cached.okAt }
+    }
+    const marker = readQuickCheckMarker(resolvedPath)
+    if (marker && now() - marker.lastOkAt < maxAgeMs) {
+      sharedQuickCheckCache.set(resolvedPath, { okAt: marker.lastOkAt })
+      return { ok: true, skipped: 'marker', lastOkAt: marker.lastOkAt }
+    }
+  }
+  const result = database.prepare('PRAGMA quick_check').all().map((row) => row.quick_check)
+  if (result.length !== 1 || result[0] !== 'ok') {
+    throw new Error(`SQLite quick_check failed: ${result.join(', ')}`)
+  }
+  const okAt = now()
+  if (resolvedPath) sharedQuickCheckCache.set(resolvedPath, { okAt })
+  if (writeMarker !== false && resolvedPath) {
+    writeQuickCheckMarker(resolvedPath, okAt, database)
+  }
+  return { ok: true, skipped: null, lastOkAt: okAt }
+}
+
+/** Test helper: clears the in-process quick_check cache, marker files stay. */
+export function resetSharedQuickCheckCache() {
+  sharedQuickCheckCache.clear()
+}
+
 function publicHealth(state, { quickCheck = false } = {}) {
   const alive = Number(state.database.prepare('SELECT 1 AS ok').get().ok) === 1
   const pragmas = verifyPragmas(state.database)
   const migration = inspectSqliteMigrationState(state.database, { migrations: state.migrations })
   let quickCheckResult = null
   if (quickCheck) {
-    quickCheckResult = state.database.prepare('PRAGMA quick_check').all().map((row) => row.quick_check)
-    if (quickCheckResult.length !== 1 || quickCheckResult[0] !== 'ok') {
-      throw new Error(`SQLite quick_check failed: ${quickCheckResult.join(', ')}`)
-    }
+    // Shared gate: process-level dedupe + marker-based cadence; throws on
+    // failure exactly like the previous inline PRAGMA quick_check did.
+    runSharedSqliteQuickCheck(state.database, { databasePath: state.databasePath })
+    quickCheckResult = ['ok']
   }
   return {
     ok: alive && migration.consistent,

@@ -54,7 +54,7 @@ cutover_running（存量残留）--（后台任务取得维护锁后复位）-->
 - `authoritative`：mirror 排空完成，正常运行态。
 - `downgrade --commit`（离线工具，见 §7）是图中唯一的有意回退边：drain 物化全部镜像、count/digest 对拍通过后把 phase 置回 `json_authoritative`，之后写入直连 JSON。
 
-规则：pending/authoritative 只走 SQLite，**绝不回 JSON 权威**；`json_authoritative`/`cutover_running` 只走 JSON adapter。权威完整性（`quick_check` + 轻量对账）失败时先尝试从权威 `session_states` 重建 `session_index`，复验仍失败则 fail closed。
+规则：pending/authoritative 只走 SQLite，**绝不回 JSON 权威**；`json_authoritative`/`cutover_running` 只走 JSON adapter。权威完整性（`quick_check` + 轻量对账）失败时先尝试从权威 `session_states` 重建 `session_index`，复验仍失败则 fail closed。启动 `quick_check` 有检查税优化（进程内去重 + 7 天 marker 降频，见 `sqlite-storage-foundation.zh-CN.md` §6）：四域共用一个库文件时每次启动至多真扫一次，轻量 SQL 对账不受影响；手动维护端点始终真扫。
 
 ## 4. 写路径（CAS + outbox + drain）
 

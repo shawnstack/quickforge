@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { getSqliteStorage } from './database.mjs'
+import { getSqliteStorage, runSharedSqliteQuickCheck } from './database.mjs'
 import { createRandomToken, safeHashEqual, sha256Base64Url } from '../utils/password-auth.mjs'
 
 // F11 LAN access storage: `lan_access_state` (single config row with a fixed
@@ -544,10 +544,12 @@ export function createLanAccessRepository(storageHandle, { now = () => new Date(
     return exportSnapshot().digest
   }
 
-  function verifyIntegrity({ quickCheck = false } = {}) {
+  function verifyIntegrity({ quickCheck = false, forceQuickCheck = false } = {}) {
     if (quickCheck) {
-      const result = storage.prepare('PRAGMA quick_check').all().map((row) => row.quick_check)
-      if (result.length !== 1 || result[0] !== 'ok') throw new Error(`SQLite quick_check failed: ${result.join(', ')}`)
+      // Shared quick_check gate (process cache + marker cadence) — see
+      // runSharedSqliteQuickCheck in database.mjs; `forceQuickCheck` is the
+      // manual-maintenance escape hatch that always runs a real scan.
+      runSharedSqliteQuickCheck(storage, { force: forceQuickCheck === true })
     }
     const row = currentConfigRow(storage)
     let invalidRecords = 0

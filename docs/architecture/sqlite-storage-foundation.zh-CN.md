@@ -111,6 +111,16 @@ health 执行轻量 `SELECT 1`、SQLite 版本、PRAGMA、`user_version` 与 mig
 
 摘要不包含绝对数据库路径、SQL、参数或业务数据。
 
+### 6.1 启动 quick_check 策略（进程内去重 + 7 天 marker）
+
+四个存储域（session/share/lan-access/scheduled-runs）共用同一个 `quickforge.sqlite3`，而 `PRAGMA quick_check` 扫描的是整个库文件、不分域——authoritative 相位每次启动的 4 个域级启动检查等于对同一文件全量扫描 4 次（2.93GB 生产库实测约 30s 启动检查税）。`server/sqlite/database.mjs` 的 `runSharedSqliteQuickCheck()` 统一了所有调用点（三个 repository 的 `verifyIntegrity({quickCheck:true})` 与 `storage.health({quickCheck:true})`）：
+
+- **进程内去重**：同一数据库文件路径的一次成功 `quick_check` 在本进程内复用（按 `PRAGMA database_list` 解析主库路径作为缓存键；`:memory:` 无路径，始终真扫）。
+- **跨启动降频**：成功扫描后在数据库同目录原子写 marker 文件 `quickforge-quick-check.marker.json`（记 `lastOkAt`/`sqliteVersion`/`databaseBytes`）；7 天内（`SQLITE_QUICK_CHECK_MAX_AGE_MS`）跳过真扫。marker 缺失/损坏/不可读一律视为不存在，退回真扫；marker 写失败仅 warn，不影响判定。
+- **失败语义不变**：quick_check 失败照旧抛错且 fail closed；失败不写 marker、不进进程缓存，下次调用重新真扫。
+- **逃生口**：`verifyIntegrity({quickCheck:true, forceQuickCheck:true})` 强制真扫（手动维护端点 `POST /api/storage/maintenance/verify-session-integrity` 已接线）；环境变量 `QUICKFORGE_SQLITE_QUICK_CHECK=force` 使所有调用每次真扫。
+- **安全性论证**：WAL + `synchronous=FULL` 下已提交事务不存在 torn-write（崩溃时 WAL 重放或回滚），`quick_check` 防的是磁盘 bit-rot / 文件系统级损坏——这类损坏按磁盘时间尺度演化而非按启动次数，7 天周期 + 手动 force 入口足够把盲区变成有界窗口；跳过 quick_check 时其余 SQL 级 counts/join 对账照常执行，逻辑层损坏不受影响。
+
 ## 7. 备份与数据边界
 
 F2 不迁移现有 JSON 配置、会话或其他业务数据。当时的 JSON 备份/恢复流程也**不包含** `quickforge.sqlite3`、`-wal` 或 `-shm` 文件；migration 1 只有可由代码重建的 schema metadata。F3 后续增加 `scheduled_task_runs`；F4 再将其用于非权威、best-effort 影子双写，但不迁移旧历史。JSON `task.runs` 仍是完整业务权威并继续由现有备份格式导出/恢复，restore 不依赖 SQLite。

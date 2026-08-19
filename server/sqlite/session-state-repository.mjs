@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { getSqliteStorage } from './database.mjs'
+import { getSqliteStorage, runSharedSqliteQuickCheck } from './database.mjs'
 
 const STATE_COLUMNS = `
   scope, project_id, session_id, revision, state_version, state_json, state_digest,
@@ -1048,11 +1048,13 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     }
   }
 
-  function verifyIntegrity({ quickCheck = false } = {}) {
+  function verifyIntegrity({ quickCheck = false, forceQuickCheck = false } = {}) {
     const counts = sqlIntegrityCounts()
     if (quickCheck) {
-      const result = storage.prepare('PRAGMA quick_check').all().map((row) => row.quick_check)
-      if (result.length !== 1 || result[0] !== 'ok') throw new Error(`SQLite quick_check failed: ${result.join(', ')}`)
+      // Shared quick_check gate (process cache + marker cadence) — see
+      // runSharedSqliteQuickCheck in database.mjs; `forceQuickCheck` is the
+      // manual-maintenance escape hatch that always runs a real scan.
+      runSharedSqliteQuickCheck(storage, { force: forceQuickCheck === true })
       // Lightweight mode: SQL-level checks only. Per-row JSON.parse and digest
       // recomputation (invalidRecords/invalidDigests/invalidIndexDigests/
       // invalidMessageDigests/invalidMessageRepresentations) and the snapshot

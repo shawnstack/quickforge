@@ -276,7 +276,9 @@ export async function handleStorageApi(req, res, url, context = { isLocalRequest
       throw error
     }
     const body = await readJsonBody(req)
-    const result = await verifySessionStateIntegrityForMaintenance({ full: body?.full === true, maintenance: true })
+    // forceQuickCheck: the manual endpoint always runs a real quick_check scan
+    // (never the startup process-cache/marker shortcut).
+    const result = await verifySessionStateIntegrityForMaintenance({ full: body?.full === true, forceQuickCheck: true, maintenance: true })
     sendJson(res, 200, result)
     return
   }

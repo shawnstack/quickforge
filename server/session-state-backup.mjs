@@ -117,7 +117,9 @@ export async function verifySessionStateIntegrityForMaintenance(options = {}) {
   const operation = async () => {
     const repository = options.repository || repositoryRequired()
     const startedAt = Date.now()
-    const integrity = repository.verifyIntegrity({ quickCheck: options.full !== true })
+    // forceQuickCheck: a manual maintenance trigger must run a real quick_check
+    // scan, never the process-cache/marker shortcut.
+    const integrity = repository.verifyIntegrity({ quickCheck: options.full !== true, forceQuickCheck: options.forceQuickCheck === true })
     return { ...integrity, full: options.full === true, durationMs: Date.now() - startedAt }
   }
   if (!options.maintenance || currentSessionStateMaintenanceContext()) return operation()

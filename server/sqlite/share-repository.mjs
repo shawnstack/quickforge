@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { getSqliteStorage } from './database.mjs'
+import { getSqliteStorage, runSharedSqliteQuickCheck } from './database.mjs'
 
 // F10 share storage: `share_sessions` (strictly mapped columns + `extra_json`
 // for opaque/unknown fields) and `share_tokens` (independent token table with
@@ -759,10 +759,12 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
     ))
   }
 
-  function verifyIntegrity({ quickCheck = false } = {}) {
+  function verifyIntegrity({ quickCheck = false, forceQuickCheck = false } = {}) {
     if (quickCheck) {
-      const result = storage.prepare('PRAGMA quick_check').all().map((row) => row.quick_check)
-      if (result.length !== 1 || result[0] !== 'ok') throw new Error(`SQLite quick_check failed: ${result.join(', ')}`)
+      // Shared quick_check gate (process cache + marker cadence) — see
+      // runSharedSqliteQuickCheck in database.mjs; `forceQuickCheck` is the
+      // manual-maintenance escape hatch that always runs a real scan.
+      runSharedSqliteQuickCheck(storage, { force: forceQuickCheck === true })
     }
     const rows = storage.prepare(`SELECT ${SHARE_COLUMNS} FROM share_sessions`).all()
     let invalidRecords = 0

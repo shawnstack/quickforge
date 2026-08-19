@@ -2,7 +2,7 @@
 
 All notable changes to QuickForge will be documented in this file.
 
-## [1.7.10] - 2026-08-18
+## [1.7.10] - 2026-08-19
 
 ### Added
 
@@ -15,6 +15,7 @@ All notable changes to QuickForge will be documented in this file.
 - Deleting or archiving sessions no longer triggers an infinite load-more loop in the sidebar history list: pagination loaders converge totals when an offset page makes zero progress after dedupe.
 - Archiving a conversation now removes it from the sidebar locally instead of forcing a full refresh, eliminating loading-placeholder flicker, sentinel remounts, and page shrink-refill above 20 items.
 - The sidebar conversations section scrolls internally with the footer divider kept visible; subagent run detail tabs follow the configured message font size.
+- Concurrent restores for the same session are deduplicated and key-persistence locks are tracked per session, so racing restore and persist cycles no longer double-spawn agents or interleave state writes.
 
 ### Released
 

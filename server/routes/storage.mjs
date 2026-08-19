@@ -1,7 +1,7 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { readStore, writeStore, atomicUpdate, getComparable, getStoreRevision, readSessionStoreScoped, readSessionValue, writeSessionValueWithMetadata, deleteSessionWithMetadata, applySessionBatch, ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir } from '../storage.mjs'
 import { AUTO_ARCHIVE_SETTINGS_KEY, archiveInactiveSessions, normalizeAutoArchiveSettings } from '../auto-archive.mjs'
-import { refreshAllSessionModels } from '../agent-manager.mjs'
+import { refreshAllSessionModels, destroyAgent } from '../agent-manager.mjs'
 import { logger } from '../utils/logger.mjs'
 import { directorySize } from '../utils/workspace.mjs'
 import { isAuthenticatedAppClient } from '../access-policy.mjs'
@@ -19,6 +19,16 @@ export function configureSessionIndexQueryShadow({ sample } = {}) {
   if (sample !== undefined && typeof sample !== 'function') throw new TypeError('sample must be a function')
   shadowSampler = sample ?? (() => Math.random() < 0.01)
   shadowGenerationByShape.clear()
+}
+
+// In-memory agent disposal used when sessions are deleted from storage.
+// destroyAgent performs a final persist, so deletions must destroy the agent
+// BEFORE removing persisted state — otherwise the final persist resurrects
+// the deleted row. Tests inject a spy through configureStorageSessionAgentDisposal.
+let destroyAgentForSession = destroyAgent
+
+export function configureStorageSessionAgentDisposal({ destroy } = {}) {
+  destroyAgentForSession = destroy ?? destroyAgent
 }
 
 function canonicalJson(value) {
@@ -215,6 +225,17 @@ export async function handleStorageApi(req, res, url, context = { isLocalRequest
       throw error
     }
     try {
+      // Destroy in-memory agents for deleted sessions BEFORE removing the
+      // persisted state: destroyAgent's final persist would otherwise
+      // resurrect the deleted row right after the batch commit.
+      for (const operation of operations) {
+        if (operation?.type !== 'delete' || operation?.store !== 'sessions') continue
+        try {
+          await destroyAgentForSession(operation.key)
+        } catch (error) {
+          logger.warn(`Failed to destroy in-memory agent for deleted session ${operation.key}:`, error?.message || error)
+        }
+      }
       const result = await applySessionBatch(operations)
       sendJson(res, 200, { ok: true, saved: result?.saved ?? 0, deleted: result?.deleted ?? 0 })
     } catch (error) {
@@ -362,6 +383,13 @@ export async function handleStorageApi(req, res, url, context = { isLocalRequest
 
     if (req.method === 'DELETE') {
       if (store === 'sessions') {
+        // Destroy the in-memory agent first: its final persist would
+        // otherwise resurrect the row right after the delete.
+        try {
+          await destroyAgentForSession(key)
+        } catch (error) {
+          logger.warn(`Failed to destroy in-memory agent for deleted session ${key}:`, error?.message || error)
+        }
         await deleteSessionWithMetadata(key)
         sendJson(res, 200, { ok: true })
         return

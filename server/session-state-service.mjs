@@ -566,6 +566,15 @@ export async function atomicSessionMetadataStateUpdate(scope, projectId, updateF
 export function applySessionBatch(operations) {
   if (!Array.isArray(operations) || operations.length === 0) throw new TypeError('Session batch operations are required')
   if (!sqliteReadable()) return requireJsonAdapter('applyBatch')(operations)
+  // pi-web-ui's SessionsStore.delete() emits a `sessions` delete AND a
+  // `sessions-metadata` delete for the same key in one transaction. The
+  // metadata delete is subsumed by the grouped full delete (idempotent no-op);
+  // only a metadata delete without a paired body delete stays rejected.
+  const fullDeleteKeys = new Set(
+    operations
+      .filter((operation) => operation?.type === 'delete' && operation?.store === 'sessions')
+      .map((operation) => operation.key),
+  )
   const grouped = new Map()
   for (const operation of operations) {
     if (!['sessions', 'sessions-metadata'].includes(operation?.store)) throw new TypeError('Session batch only accepts sessions and sessions-metadata')
@@ -573,8 +582,11 @@ export function applySessionBatch(operations) {
     if (typeof operation.key !== 'string' || !operation.key) throw new TypeError('Session batch key is required')
     const entry = grouped.get(operation.key) || { sessionId: operation.key }
     if (operation.type === 'delete') {
-      if (operation.store === 'sessions-metadata') throw new TypeError('Metadata-only delete is not allowed')
-      entry.delete = true
+      if (operation.store === 'sessions-metadata') {
+        if (!fullDeleteKeys.has(operation.key)) throw new TypeError('Metadata-only delete is not allowed')
+      } else {
+        entry.delete = true
+      }
     } else if (operation.store === 'sessions') entry.state = operation.value
     else entry.metadata = operation.value
     if (operation.expectedRevision !== undefined) entry.expectedRevision = operation.expectedRevision

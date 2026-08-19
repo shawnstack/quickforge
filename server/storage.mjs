@@ -879,12 +879,23 @@ export async function applySessionBatch(operations) {
     if (typeof operation.key !== 'string' || !operation.key) throw new TypeError('Session batch key is required')
   }
   const result = { saved: 0, deleted: 0 }
+  // Same paired-delete shape as the facade branch: a `sessions-metadata`
+  // delete that travels with a same-key `sessions` delete is already covered
+  // by deleteSessionWithMetadata (idempotent no-op); metadata-only deletes
+  // stay rejected.
+  const fullDeleteKeys = new Set(
+    operations
+      .filter((operation) => operation.type === 'delete' && operation.store === 'sessions')
+      .map((operation) => operation.key),
+  )
   for (const operation of operations) {
     if (operation.type === 'delete') {
       if (operation.store === 'sessions') {
         const before = await readSessionValue(operation.key)
         await deleteSessionWithMetadata(operation.key)
         if (before) result.deleted += 1
+      } else if (fullDeleteKeys.has(operation.key)) {
+        continue
       } else {
         const error = new TypeError('Metadata-only delete is not allowed')
         error.errorCode = 'SESSION_FULL_DELETE_REQUIRED'

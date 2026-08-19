@@ -46,5 +46,48 @@
         "tests/server/process-tree.test.mjs"
       ]
     }
+    , {
+      "id": "tune-sidebar-project-session-list-height",
+      "name": "侧栏置顶/项目展开列表高度调整为最多显示5条",
+      "status": "done",
+      "approach": "ChatSidebar 项目分组展开列表 max-h-[35vh]→[10.5rem]；置顶区滚动容器 h-full→max-h-[10.5rem]（单行 2rem × 5 + 4×0.125rem 间距），超出滚动，无限滚动加载机制不变",
+      "files": [
+        "src/components/sidebar/ChatSidebar.tsx"
+      ]
+    },
+    {
+      "id": "fix-archived-session-delete-batch",
+      "name": "修复已归档对话无法永久删除（batch 两操作 delete 被拒 + 删除后内存会话复活）",
+      "status": "done",
+      "approach": "① applySessionBatch（SQLite facade + JSON 回退两分支）允许与同 key sessions delete 配对的 sessions-metadata delete（pi-web-ui SessionsStore.delete 的真实事务形状），metadata-only delete 仍拒绝；② storage 删除路由（POST batch / DELETE sessions）在删持久化前先 destroyAgent 内存会话，消除 final persist 写回复活路径；configureStorageSessionAgentDisposal 注入点供测试",
+      "files": [
+        "server/session-state-service.mjs",
+        "server/storage.mjs",
+        "server/routes/storage.mjs",
+        "tests/server/storage.session-state-facade.test.mjs"
+      ]
+    },
+    {
+      "id": "fix-startup-cutover-replay",
+      "name": "修复会话存储 cutover 迁移反复重放导致启动 30s~167s",
+      "status": "done",
+      "approach": "统一源侧与仓储侧 snapshot digest 排序为 canonical 全行字节序（导出 digestFromLines 供 cutover 三处使用），修掉混合 global+project 桶必炸的校验失败；成功 promote 后 TRUNCATE WAL 回收 GB 级残留",
+      "files": [
+        "server/sqlite/session-state-repository.mjs",
+        "server/session-state-cutover.mjs",
+        "tests/server/session-state-cutover.test.mjs"
+      ]
+    },
+    {
+      "id": "fix-font-size-slider-flicker",
+      "name": "修复外观设置字体滑块拖动闪烁",
+      "status": "done",
+      "approach": "滑块 @input 预览改 scheduleFontSizePreview（RAF 每帧合并，避免每步同步全页 reflow）；applyFontSizeSettings 加 dirty-check（相同值不重写样式）；FONT_SIZE_SETTINGS_CHANGED_EVENT 仅在 interface 字号实际变化时派发（监听方 metrics 只依赖 interfaceFontSizePx，message 字号靠 CSS 变量直接生效）",
+      "files": [
+        "src/lib/font-size-settings.ts",
+        "src/lib/appearance-settings-tab.ts",
+        "tests/frontend/font-size-settings-apply.test.ts"
+      ]
+    }
   ]
 }

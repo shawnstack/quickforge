@@ -277,6 +277,69 @@ describe('batch route endpoint (POST /api/storage/batch)', () => {
     })
   })
 
+  // pi-web-ui's SessionsStore.delete() commits a `sessions` delete plus a
+  // `sessions-metadata` delete for the same key in one transaction. The
+  // settings page "archived conversations" permanent delete (and the empty
+  // session rollback in useChatActions) both send this exact shape.
+  it('accepts the pi-web-ui two-operation delete as one transaction', async () => {
+    await withAuthoritativeFacade(async ({ routeModule, storageModule, repository }) => {
+      await storageModule.writeSessionValue('del', sessionBody('del'))
+      expect(repository.findBySessionId('del')).not.toBeNull()
+
+      const response = await callRoute(routeModule, 'POST', '/api/storage/batch', {
+        operations: [
+          { store: 'sessions', type: 'delete', key: 'del' },
+          { store: 'sessions-metadata', type: 'delete', key: 'del' },
+        ],
+      })
+
+      expect(response).toMatchObject({ ok: true, status: 200, payload: { deleted: 1 } })
+      expect(repository.findBySessionId('del')).toBeNull()
+      expect(await storageModule.readSessionValue('del')).toBeNull()
+      expect((await storageModule.readStore('sessions-metadata')).del).toBeUndefined()
+    })
+  })
+
+  it('still rejects a metadata-only delete without a paired sessions delete', async () => {
+    await withAuthoritativeFacade(async ({ routeModule, storageModule }) => {
+      await storageModule.writeSessionValue('keep', sessionBody('keep'))
+      const response = await callRoute(routeModule, 'POST', '/api/storage/batch', {
+        operations: [{ store: 'sessions-metadata', type: 'delete', key: 'keep' }],
+      })
+      expect(response).toMatchObject({ ok: false, status: 400, message: 'Metadata-only delete is not allowed' })
+      expect(await storageModule.readSessionValue('keep')).not.toBeNull()
+    })
+  })
+
+  it('destroys the in-memory agent before the batch delete commits', async () => {
+    await withAuthoritativeFacade(async ({ routeModule, storageModule }) => {
+      await storageModule.writeSessionValue('gone', sessionBody('gone'))
+      const destroyed = []
+      routeModule.configureStorageSessionAgentDisposal({ destroy: async (id) => { destroyed.push(id) } })
+      const response = await callRoute(routeModule, 'POST', '/api/storage/batch', {
+        operations: [
+          { store: 'sessions', type: 'delete', key: 'gone' },
+          { store: 'sessions-metadata', type: 'delete', key: 'gone' },
+        ],
+      })
+      expect(response).toMatchObject({ ok: true, status: 200 })
+      expect(destroyed).toEqual(['gone'])
+      expect(await storageModule.readSessionValue('gone')).toBeNull()
+    })
+  })
+
+  it('destroys the in-memory agent before the single-key sessions DELETE', async () => {
+    await withAuthoritativeFacade(async ({ routeModule, storageModule }) => {
+      await storageModule.writeSessionValue('one', sessionBody('one'))
+      const destroyed = []
+      routeModule.configureStorageSessionAgentDisposal({ destroy: async (id) => { destroyed.push(id) } })
+      const response = await callRoute(routeModule, 'DELETE', '/api/storage/sessions/key/one')
+      expect(response).toMatchObject({ ok: true, status: 200 })
+      expect(destroyed).toEqual(['one'])
+      expect(await storageModule.readSessionValue('one')).toBeNull()
+    })
+  })
+
   it('is gated while session state maintenance is active (423)', async () => {
     await withAuthoritativeFacade(async ({ routeModule, database }) => {
       const now = new Date().toISOString()
@@ -392,6 +455,54 @@ describe('auto-archive in authoritative mode (single atomic transaction)', () =>
       expect(counts.save - before).toBe(0)
       expect(repository.findBySessionId('recent').state.archivedAt).toBeUndefined()
       expect(repository.findBySessionId('recent').metadata.archivedAt).toBeUndefined()
+    })
+  })
+})
+
+describe('session batch delete in JSON fallback mode', () => {
+  // storage.mjs resolves its dataDir at module evaluation time, so the env
+  // must point at the temp dir BEFORE the dynamic import below.
+  async function withJsonFallback(testFn) {
+    const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'qf-session-batch-json-'))
+    const previous = process.env.QUICKFORGE_DATA_DIR
+    process.env.QUICKFORGE_DATA_DIR = tmpDir
+    try {
+      await closeSqliteStorage()
+      configureSessionStateService({ repository: null, json: null, mirror: null, phase: 'json_authoritative' })
+      const testId = `${Date.now()}-${Math.random()}`
+      const storageModule = await import(/* @vite-ignore */ new URL(`../../server/storage.mjs?test=${testId}`, import.meta.url).href)
+      await testFn({ storageModule })
+    } finally {
+      configureSessionStateService({ repository: null, json: null, mirror: null, phase: 'json_authoritative' })
+      await closeSqliteStorage()
+      if (previous === undefined) delete process.env.QUICKFORGE_DATA_DIR
+      else process.env.QUICKFORGE_DATA_DIR = previous
+      await rm(tmpDir, { recursive: true, force: true })
+    }
+  }
+
+  it('accepts the pi-web-ui two-operation delete', async () => {
+    await withJsonFallback(async ({ storageModule }) => {
+      await storageModule.ensureStorage()
+      await storageModule.writeSessionValue('j1', sessionBody('j1'))
+      const result = await storageModule.applySessionBatch([
+        { store: 'sessions', type: 'delete', key: 'j1' },
+        { store: 'sessions-metadata', type: 'delete', key: 'j1' },
+      ])
+      expect(result).toMatchObject({ deleted: 1 })
+      expect(await storageModule.readSessionValue('j1')).toBeNull()
+      expect((await storageModule.readStore('sessions-metadata')).j1).toBeUndefined()
+    })
+  })
+
+  it('still rejects a metadata-only delete with SESSION_FULL_DELETE_REQUIRED', async () => {
+    await withJsonFallback(async ({ storageModule }) => {
+      await storageModule.ensureStorage()
+      await storageModule.writeSessionValue('j2', sessionBody('j2'))
+      await expect(storageModule.applySessionBatch([
+        { store: 'sessions-metadata', type: 'delete', key: 'j2' },
+      ])).rejects.toMatchObject({ errorCode: 'SESSION_FULL_DELETE_REQUIRED' })
+      expect(await storageModule.readSessionValue('j2')).not.toBeNull()
     })
   })
 })

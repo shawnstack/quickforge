@@ -34,7 +34,7 @@ try {
     scopeMode: 'global', archive: 'exclude', pinnedOnly: false,
     sort: 'lastModified', direction: 'desc', limit: 10, offset: 0,
   })
-  if (storage.health().schemaVersion !== 9 || !initialized.ok || row?.stateVersion !== 1 || query.page?.values?.[0]?.id !== 'smoke') {
+  if (storage.health().schemaVersion !== 10 || !initialized.ok || row?.stateVersion !== 1 || query.page?.values?.[0]?.id !== 'smoke') {
     throw new Error('Session index Electron smoke verification failed')
   }
   process.stdout.write(`${JSON.stringify({

@@ -460,6 +460,27 @@ export const SQLITE_MIGRATIONS = Object.freeze([
       `)
     },
   }),
+  Object.freeze({
+    // Root cause: session_states is WITHOUT ROWID, so the PK b-tree IS the
+    // table and stores the multi-MB state_json payload inline. metadata_json /
+    // metadata_digest sit AFTER state_json in the record, so every metadata
+    // read must walk the preceding state_json overflow-page chain — an
+    // implicit full-database read (2.93GB cold DB: ~45s for a metadata-only
+    // projection). This covering index carries the metadata columns next to
+    // the PK prefix, making metadata reads index-only (KB-sized entries); the
+    // planner picks it up automatically with zero query changes.
+    // Note: CREATE INDEX scans the table once — on first upgrade of a large
+    // existing database this migration is a one-time cost paid inside
+    // initializeSqliteStorage, before the server starts listening.
+    version: 10,
+    name: 'session_states_metadata_covering_index',
+    up(database) {
+      database.exec(`
+        CREATE INDEX session_states_metadata_cover_idx
+          ON session_states (scope, project_id, session_id, metadata_json, metadata_digest);
+      `)
+    },
+  }),
 ])
 
 function readUserVersion(database) {

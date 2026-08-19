@@ -79,9 +79,9 @@ describe('session index migration v4 and repository', () => {
   })
 
   it('creates constrained schema and stable bucket/partial indexes on a new database', () => {
-    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(9)
+    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(10)
     expect(database.prepare('SELECT version, name FROM schema_migrations ORDER BY version').all().at(-1))
-      .toEqual({ version: 9, name: 'lan_access_storage_migration' })
+      .toEqual({ version: 10, name: 'session_states_metadata_covering_index' })
     const columns = database.prepare('PRAGMA table_info(session_index)').all()
     expect(columns.find((column) => column.name === 'scope')).toMatchObject({ pk: 1, notnull: 1 })
     expect(columns.find((column) => column.name === 'project_id')).toMatchObject({ pk: 2, notnull: 1 })

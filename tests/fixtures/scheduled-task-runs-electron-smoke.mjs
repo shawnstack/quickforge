@@ -18,7 +18,7 @@ try {
     agentSnapshot: { unknown: 'preserved' },
   })
   const listed = repository.list({ taskId: 'smoke-task' })
-  if (storage.health().schemaVersion !== 9 || created.id !== 'smoke-run' || listed.total !== 1) {
+  if (storage.health().schemaVersion !== 10 || created.id !== 'smoke-run' || listed.total !== 1) {
     throw new Error('Scheduled task runs Electron smoke verification failed')
   }
   process.stdout.write(`${JSON.stringify({

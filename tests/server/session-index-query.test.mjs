@@ -80,7 +80,7 @@ describe('session index query migration v5', () => {
   })
 
   it('adds only the five query indexes and rolls v4 to v5 failure back without touching F5 data', () => {
-    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(9)
+    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(10)
     const names = database.prepare("SELECT name FROM sqlite_schema WHERE type='index' AND name LIKE 'session_index_%_query_idx' ORDER BY name").all().map((row) => row.name)
     expect(names).toEqual([
       'session_index_aggregate_modified_query_idx',

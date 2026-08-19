@@ -38,7 +38,7 @@ describe('session state full chain smoke', () => {
     expect(result.code).toBe(0)
     const output = JSON.parse(result.stdout.trim())
     expect(output.ok).toBe(true)
-    expect(output.schemaVersion).toBe(9)
+    expect(output.schemaVersion).toBe(10)
     expect(output.phase).toBe('authoritative')
     expect(output.count).toBe(2)
     expect(output.mirrorPending).toBe(0)

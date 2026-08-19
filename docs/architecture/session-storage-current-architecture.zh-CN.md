@@ -12,11 +12,11 @@
 
 ## 2. 表结构概览
 
-会话域表由 migration v6（`session_state_transactional_storage`）与 v7（`session_messages_incremental_storage`）创建。当前库总 schema 为 v9（v8 为 share 域、v9 为 lan-access 域，各自独立）。
+会话域表由 migration v6（`session_state_transactional_storage`）与 v7（`session_messages_incremental_storage`）创建。当前库总 schema 为 v10（v8 为 share 域、v9 为 lan-access 域，各自独立；v10 为 `session_states` 元数据覆盖索引）。
 
 | 表 | 来源 | 作用 |
 |---|---|---|
-| `session_states` | v6 | 复合主键 `(scope, project_id, session_id)`；`state_json`/`state_digest`、`metadata_json`/`metadata_digest`、`revision`（单调递增 CAS 版本）、`state_version`（业务版本）、`created_at`/`updated_at` |
+| `session_states` | v6 | 复合主键 `(scope, project_id, session_id)`；`state_json`/`state_digest`、`metadata_json`/`metadata_digest`、`revision`（单调递增 CAS 版本）、`state_version`（业务版本）、`created_at`/`updated_at`。v10 追加覆盖索引 `session_states_metadata_cover_idx (scope, project_id, session_id, metadata_json, metadata_digest)`：WITHOUT ROWID 记录中 `state_json` 巨列在元数据列之前，读元数据须穿其溢出页链（隐式读全库）；元数据读取（`readSessionMetadataBuckets` 等）经该覆盖索引 index-only 命中，不再触 state 溢出链 |
 | `session_state_tombstones` | v6 | 删除墓碑，阻止 stale writer 在删除后以旧 revision 复活会话 |
 | `session_storage_state` | v6 | singleton phase 状态机；记录 `state_count`、canonical `digest`、`backup_file`、`diagnostic_json` |
 | `session_json_mirror_queue` | v6 | JSON mirror outbox，按 `(scope, project_id, session_id)` 去重，记录 upsert/delete、revision、attempts、last_error |

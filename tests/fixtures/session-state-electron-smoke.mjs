@@ -22,10 +22,10 @@ try {
   configureSessionStateService({ repository, phase: 'authoritative' })
   saveSessionBody('smoke', { messages: [{ role: 'user', content: 'hello' }] })
   const state = readSessionStateValue('smoke')
-  if (storage.health().schemaVersion !== 9 || state?.opaque?.electron !== true || state?.messages?.length !== 1) {
+  if (storage.health().schemaVersion !== 10 || state?.opaque?.electron !== true || state?.messages?.length !== 1) {
     throw new Error('Session state Electron smoke verification failed')
   }
-  process.stdout.write(`${JSON.stringify({ ok: true, schemaVersion: 9, revision: repository.findBySessionId('smoke').revision })}\n`)
+  process.stdout.write(`${JSON.stringify({ ok: true, schemaVersion: 10, revision: repository.findBySessionId('smoke').revision })}\n`)
 } finally {
   await closeSqliteStorage()
   await rm(directory, { recursive: true, force: true })

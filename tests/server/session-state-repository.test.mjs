@@ -104,10 +104,10 @@ describe('session state repository and schema v7', () => {
   })
 
   it('creates schema v8 and rolls a failing v5 to v6 migration back without losing F5/F7 data', () => {
-    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(9)
+    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(10)
     expect(database.prepare('SELECT version, name FROM schema_migrations ORDER BY version').all().at(-1)).toEqual({
-      version: 9,
-      name: 'lan_access_storage_migration',
+      version: 10,
+      name: 'session_states_metadata_covering_index',
     })
     expect(database.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name LIKE 'session_state%' ORDER BY name").all().map((row) => row.name)).toEqual([
       'session_state_maintenance_lock',

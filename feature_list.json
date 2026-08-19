@@ -399,6 +399,18 @@
         "server/storage.mjs",
         "tests/server/auto-archive.test.mjs"
       ]
+    },
+    {
+      "id": "fix-session-states-metadata-covering-index",
+      "name": "session_states 元数据覆盖索引：根治元数据读取的隐式全库扫描（启动 45s 终局修复）",
+      "status": "done",
+      "approach": "启动分段计时实测定位：reset-stale-task-statuses 零写入仍 45.2s（冷）、session-index 同扫描 1.5s（热）——根因是 session_states（WITHOUT ROWID）行内 state_json（GB 级）排在 metadata_json/metadata_digest 之前，SQLite 读靠后列必须穿前面大列的溢出页链，SELECT metadata_json 隐式读全库 2.9GB，每进程首次冷读必付一次。修复：migration v10 覆盖索引 session_states_metadata_cover_idx(scope,project_id,session_id,metadata_json,metadata_digest)，元数据读取变 index-only scan（索引条目仅 KB 级），EXPLAIN 四种查询形态全部命中覆盖索引，查询零改动权威源语义不变；代价为升级后首次启动建索引一次性全表扫描（listen 前）。纠正记录：此前 49s/50s 启动空洞曾误归因 auto-archive（其全量正文扫描是真实但次要的问题），真正大头一直是本条",
+      "files": [
+        "server/sqlite/migrations.mjs",
+        "tests/server/sqlite-storage-foundation.test.mjs",
+        "docs/architecture/sqlite-storage-foundation.zh-CN.md",
+        "docs/architecture/session-storage-current-architecture.zh-CN.md"
+      ]
     }
   ]
 }

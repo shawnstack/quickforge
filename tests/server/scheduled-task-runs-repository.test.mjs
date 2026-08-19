@@ -58,7 +58,7 @@ describe('scheduled task runs repository schema v3', () => {
   })
 
   it('creates the composite-key table, state/lock tables, and global stable indexes', () => {
-    expect(storage.health()).toMatchObject({ schemaVersion: 9, latestSchemaVersion: 9, migrationCount: 9 })
+    expect(storage.health()).toMatchObject({ schemaVersion: 10, latestSchemaVersion: 10, migrationCount: 10 })
     expect(storage.prepare('SELECT version, name FROM schema_migrations ORDER BY version').all()).toEqual([
       { version: 1, name: 'create_schema_migrations' },
       { version: 2, name: 'create_scheduled_task_runs' },
@@ -69,6 +69,7 @@ describe('scheduled task runs repository schema v3', () => {
       { version: 7, name: 'session_messages_incremental_storage' },
       { version: 8, name: 'share_storage_migration' },
       { version: 9, name: 'lan_access_storage_migration' },
+      { version: 10, name: 'session_states_metadata_covering_index' },
     ])
     const columns = storage.prepare('PRAGMA table_info(scheduled_task_runs)').all()
     expect(columns.find((column) => column.name === 'task_id')).toMatchObject({ pk: 1, notnull: 1 })
@@ -215,11 +216,11 @@ describe('scheduled task runs repository schema v3', () => {
       spawnInitializationWorker(concurrentPath),
       spawnInitializationWorker(concurrentPath),
     ])
-    expect(summaries.every((summary) => summary.ok && summary.schemaVersion === 9 && summary.migrationCount === 9)).toBe(true)
+    expect(summaries.every((summary) => summary.ok && summary.schemaVersion === 10 && summary.migrationCount === 10)).toBe(true)
     const raw = new DatabaseSync(concurrentPath)
     try {
-      expect(raw.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count).toBe(9)
-      expect(raw.prepare('PRAGMA user_version').get().user_version).toBe(9)
+      expect(raw.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count).toBe(10)
+      expect(raw.prepare('PRAGMA user_version').get().user_version).toBe(10)
     } finally {
       raw.close()
     }

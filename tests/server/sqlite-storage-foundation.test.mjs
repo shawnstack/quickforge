@@ -75,7 +75,7 @@ describe('SQLite storage foundation', () => {
     const storage = await initializeSqliteStorage({ dataDir })
 
     expect(existsSync(expectedPath)).toBe(true)
-    expect(storage.health()).toMatchObject({ ok: true, schemaVersion: 9, migrationCount: 9 })
+    expect(storage.health()).toMatchObject({ ok: true, schemaVersion: 10, migrationCount: 10 })
   })
 
   it('applies and verifies the required PRAGMAs', async () => {
@@ -131,6 +131,7 @@ describe('SQLite storage foundation', () => {
       { version: 7, name: 'session_messages_incremental_storage' },
       { version: 8, name: 'share_storage_migration' },
       { version: 9, name: 'lan_access_storage_migration' },
+      { version: 10, name: 'session_states_metadata_covering_index' },
     ])
     expect(tables).toEqual([
       { name: 'lan_access_json_mirror_queue' },
@@ -155,6 +156,65 @@ describe('SQLite storage foundation', () => {
       { name: 'share_storage_state' },
       { name: 'share_tokens' },
     ])
+  })
+
+  it('creates the session_states metadata covering index and keeps metadata reads index-only with identical data', () => {
+    const database = new DatabaseSync(path.join(temporaryDirectory, 'metadata-covering.sqlite3'))
+    try {
+      const applied = applySqliteMigrations(database)
+      expect(applied.userVersion).toBe(10)
+      expect(applied.applied.at(-1)).toMatchObject({ version: 10, name: 'session_states_metadata_covering_index' })
+      expect(database.prepare("SELECT name FROM sqlite_schema WHERE type = 'index' AND name = 'session_states_metadata_cover_idx'").get())
+        .toEqual({ name: 'session_states_metadata_cover_idx' })
+
+      // Rows shaped like production: multi-KB state_json sits between the PK
+      // prefix and the metadata columns inside the WITHOUT ROWID record.
+      const insert = database.prepare(`
+        INSERT INTO session_states (
+          scope, project_id, session_id, revision, state_version,
+          state_json, state_digest, metadata_json, metadata_digest, created_at, updated_at
+        ) VALUES (?, ?, ?, 1, 0, ?, ?, ?, ?, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')
+      `)
+      const digest = 'a'.repeat(64)
+      const expected = []
+      for (const [scope, projectId, sessionId] of [
+        ['global', '', 'global-1'],
+        ['project', 'p1', 'project-1'],
+        ['project', 'p1', 'project-2'],
+        ['project', 'p2', 'project-3'],
+      ]) {
+        const metadataJson = JSON.stringify({ id: sessionId, title: `Title ${sessionId}`, taskStatus: 'idle' })
+        const stateJson = JSON.stringify({ id: sessionId, blob: 'x'.repeat(20_000) })
+        insert.run(scope, projectId, sessionId, stateJson, digest, metadataJson, 'b'.repeat(64))
+        expected.push({ scope, project_id: projectId, session_id: sessionId, metadata_json: metadataJson })
+      }
+
+      // Real SQL from server/session-state-service.mjs readSessionMetadataBuckets —
+      // the single projection behind it, metadataBucketChanges,
+      // readSessionStateStore('sessions-metadata'), auto-archive and the
+      // session-index bucket source. The scoped WHERE variants match the
+      // scope / scope+projectId filters readSessionStateStore applies (in JS
+      // today); they guard that any future SQL pushdown stays index-only too.
+      const queryPlans = database.prepare('EXPLAIN QUERY PLAN SELECT scope, project_id, session_id, metadata_json FROM session_states ORDER BY scope, project_id, session_id').all()
+      expect(queryPlans.map((row) => row.detail).join(' | ')).toContain('USING COVERING INDEX session_states_metadata_cover_idx')
+      expect(database.prepare("EXPLAIN QUERY PLAN SELECT scope, project_id, session_id, metadata_json FROM session_states WHERE scope = 'project'").all().map((row) => row.detail).join(' | '))
+        .toContain('USING COVERING INDEX session_states_metadata_cover_idx')
+      expect(database.prepare("EXPLAIN QUERY PLAN SELECT scope, project_id, session_id, metadata_json FROM session_states WHERE scope = 'project' AND project_id = 'p1'").all().map((row) => row.detail).join(' | '))
+        .toContain('USING COVERING INDEX session_states_metadata_cover_idx')
+
+      // Data equivalence: the index-only projection (verified above) must
+      // return exactly the metadata_json stored in the table records. The
+      // revision >= 1 filter cannot be served by the covering index (revision
+      // is not an index column), forcing a plain table scan as ground truth.
+      const tableScanPlan = database.prepare('EXPLAIN QUERY PLAN SELECT scope, project_id, session_id, metadata_json FROM session_states WHERE revision >= 1 ORDER BY scope, project_id, session_id').all()
+      expect(tableScanPlan.map((row) => row.detail).join(' | ')).not.toContain('session_states_metadata_cover_idx')
+      const viaCoveringIndex = database.prepare('SELECT scope, project_id, session_id, metadata_json FROM session_states ORDER BY scope, project_id, session_id').all()
+      const viaTableRecords = database.prepare('SELECT scope, project_id, session_id, metadata_json FROM session_states WHERE revision >= 1 ORDER BY scope, project_id, session_id').all()
+      expect(viaCoveringIndex).toEqual(expected)
+      expect(viaCoveringIndex).toEqual(viaTableRecords)
+    } finally {
+      closeDatabase(database)
+    }
   })
 
   it('commits, rolls back, and supports nested savepoints', async () => {
@@ -208,7 +268,7 @@ describe('SQLite storage foundation', () => {
     const migrations = [
       ...SQLITE_MIGRATIONS,
       {
-        version: 10,
+        version: 11,
         name: 'failing_migration',
         up(db) {
           db.exec('CREATE TABLE must_rollback (id INTEGER PRIMARY KEY)')
@@ -218,7 +278,7 @@ describe('SQLite storage foundation', () => {
     ]
 
     try {
-      expect(() => applySqliteMigrations(database, { migrations })).toThrow(/migration 10.*deliberate failure/)
+      expect(() => applySqliteMigrations(database, { migrations })).toThrow(/migration 11.*deliberate failure/)
       expect(database.prepare('PRAGMA user_version').get().user_version).toBe(0)
       expect(database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name IN ('schema_migrations', 'must_rollback')").all()).toEqual([])
     } finally {
@@ -231,7 +291,7 @@ describe('SQLite storage foundation', () => {
     const missingTable = new DatabaseSync(path.join(temporaryDirectory, 'missing-table.sqlite3'))
     const mismatchedRows = new DatabaseSync(path.join(temporaryDirectory, 'mismatched-rows.sqlite3'))
     try {
-      tooNew.exec('PRAGMA user_version = 10')
+      tooNew.exec('PRAGMA user_version = 11')
       expect(() => inspectSqliteMigrationState(tooNew)).toThrow(/newer than supported/)
 
       missingTable.exec('PRAGMA user_version = 1')
@@ -254,9 +314,9 @@ describe('SQLite storage foundation', () => {
     const health = storage.health({ quickCheck: true })
     expect(health).toMatchObject({
       ok: true,
-      schemaVersion: 9,
-      latestSchemaVersion: 9,
-      migrationCount: 9,
+      schemaVersion: 10,
+      latestSchemaVersion: 10,
+      migrationCount: 10,
       journalMode: 'wal',
       busyTimeout: 5_000,
       foreignKeys: true,
@@ -274,11 +334,11 @@ describe('SQLite storage foundation', () => {
       spawnInitializationWorker(databasePath),
     ])
 
-    expect(summaries.every((summary) => summary.ok && summary.schemaVersion === 9)).toBe(true)
+    expect(summaries.every((summary) => summary.ok && summary.schemaVersion === 10)).toBe(true)
     const database = new DatabaseSync(databasePath)
     try {
-      expect(database.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count).toBe(9)
-      expect(database.prepare('PRAGMA user_version').get().user_version).toBe(9)
+      expect(database.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count).toBe(10)
+      expect(database.prepare('PRAGMA user_version').get().user_version).toBe(10)
     } finally {
       closeDatabase(database)
     }

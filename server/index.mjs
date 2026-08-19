@@ -840,10 +840,27 @@ try {
   setStartupState(STARTUP_STATES.FAILED, withStartupRecoveryGuidance(error?.message))
 }
 
+// Startup-chain step timing: logs any single initialization step that takes
+// >= 500ms with its duration, so slow steps on real machines (AV scanning,
+// large libraries, network calls) surface directly in server logs instead of
+// hiding inside the listen→complete gap.
+const STARTUP_STEP_SLOW_MS = 500
+async function timedStartupStep(label, fn) {
+  const start = Date.now()
+  try {
+    return await fn()
+  } finally {
+    const durationMs = Date.now() - start
+    if (durationMs >= STARTUP_STEP_SLOW_MS) {
+      logger.info('Startup step slow', { startupStep: label, durationMs })
+    }
+  }
+}
+
 async function runStartupInitialization() {
-  await initializeScheduledRunsCutover()
-  await recoverScheduledRunsRestorePlan()
-  await recoverStaleScheduledTaskRuns()
+  await timedStartupStep('scheduled-runs-cutover', () => initializeScheduledRunsCutover())
+  await timedStartupStep('scheduled-runs-restore-plan', () => recoverScheduledRunsRestorePlan())
+  await timedStartupStep('stale-scheduled-task-runs', () => recoverStaleScheduledTaskRuns())
   // Session state startup routing (background-migration design §6): a store
   // still on json_authoritative — or carrying the legacy cutover_running
   // residue (§10.1, reset by the task itself) — skips the synchronous cutover
@@ -854,11 +871,11 @@ async function runStartupInitialization() {
   // json_authoritative failures keep the legacy JSON path.
   const sessionStartupRoute = resolveSessionStateStartupRoute(readSessionStorageState().phase)
   if (sessionStartupRoute === 'background') {
-    await initializeSessionStateService()
-    await recoverSessionStateRestorePlan()
+    await timedStartupStep('session-state-service', () => initializeSessionStateService())
+    await timedStartupStep('session-state-restore-plan', () => recoverSessionStateRestorePlan())
     // No-op in this phase (the mirror queue is empty by construction), kept
     // for parity with the legacy chain.
-    await drainSessionJsonMirror()
+    await timedStartupStep('session-json-mirror-drain', () => drainSessionJsonMirror())
     // Fire-and-forget (§3.4): never blocks READY. The task resolves — never
     // rejects — with a terminal outcome and keeps json_authoritative on
     // failure; the catch is a belt-and-braces guard so an unexpected
@@ -872,42 +889,42 @@ async function runStartupInitialization() {
       })
     })
   } else {
-    await initializeSessionStateCutover()
-    await initializeSessionStateService()
-    await recoverSessionStateRestorePlan()
-    await drainSessionJsonMirror()
+    await timedStartupStep('session-state-cutover', () => initializeSessionStateCutover())
+    await timedStartupStep('session-state-service', () => initializeSessionStateService())
+    await timedStartupStep('session-state-restore-plan', () => recoverSessionStateRestorePlan())
+    await timedStartupStep('session-json-mirror-drain', () => drainSessionJsonMirror())
   }
   // Share storage cutover: share-store writes become SQLite-authoritative once
   // pending/authoritative; integrity failures fail closed and block startup,
   // json_authoritative failures keep the legacy JSON path. The JSON file stays
   // as the best-effort mirror drained through the share mirror queue.
-  await initializeShareCutover()
-  await initializeShareService()
-  await recoverShareRestorePlan()
-  await drainShareJsonMirror()
+  await timedStartupStep('share-cutover', () => initializeShareCutover())
+  await timedStartupStep('share-service', () => initializeShareService())
+  await timedStartupStep('share-restore-plan', () => recoverShareRestorePlan())
+  await timedStartupStep('share-json-mirror-drain', () => drainShareJsonMirror())
   // LAN access storage cutover: JSON → SQLite with the same phase machine as
   // share storage. Integrity failures while pending/authoritative fail closed
   // and block startup; json_authoritative failures keep the legacy JSON store
   // path. The JSON file stays as the best-effort mirror drained through the
   // lan-access mirror queue. Interrupted lan-access restore plans are recovered
   // (roll-forward/rollback) before the mirror drain.
-  await initializeLanAccessCutover()
-  await initializeLanAccessService()
-  await recoverLanAccessRestorePlan()
-  await drainLanAccessJsonMirror()
-  await ensureDefaultGlobalSkills()
-  await initializeNetworkProxy()
+  await timedStartupStep('lan-access-cutover', () => initializeLanAccessCutover())
+  await timedStartupStep('lan-access-service', () => initializeLanAccessService())
+  await timedStartupStep('lan-access-restore-plan', () => recoverLanAccessRestorePlan())
+  await timedStartupStep('lan-access-json-mirror-drain', () => drainLanAccessJsonMirror())
+  await timedStartupStep('default-global-skills', () => ensureDefaultGlobalSkills())
+  await timedStartupStep('network-proxy', () => initializeNetworkProxy())
   installAiHttpLogger()
   initializeChannels({
     projectRoot,
     channelEventsUrl: `http://127.0.0.1:${port}/api/channels/events`,
     logsDir,
   })
-  await resetStaleTaskStatuses()
+  await timedStartupStep('reset-stale-task-statuses', () => resetStaleTaskStatuses())
   configureSessionIndex({ readBuckets: readAuthoritativeSessionMetadataBuckets })
   registerSessionMetadataCommitHook(syncSessionMetadataCommit)
-  await initializeSessionIndex()
-  await initializeActiveProject()
+  await timedStartupStep('session-index', () => initializeSessionIndex())
+  await timedStartupStep('active-project', () => initializeActiveProject())
   setActiveWorkspaceRootForFilesystem(getWorkspaceRoot())
   startScheduledTaskRunner()
   startAutoArchiveRunner()

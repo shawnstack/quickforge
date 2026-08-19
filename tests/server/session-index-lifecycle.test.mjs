@@ -11,10 +11,12 @@ const autoArchiveSourceUrl = new URL('../../server/auto-archive.mjs', import.met
 describe('session index F7 lifecycle and query boundary', () => {
   it('initializes after stale task reset and before runners/listen on Server', async () => {
     const source = await readFile(serverSourceUrl, 'utf8')
-    const staleReset = source.indexOf('await resetStaleTaskStatuses()')
+    // Startup steps are wrapped in timedStartupStep('<label>', ...) for slow-step
+    // logging; assert on the stable label literals instead of the raw call text.
+    const staleReset = source.indexOf("timedStartupStep('reset-stale-task-statuses'")
     const configure = source.indexOf('configureSessionIndex({ readBuckets: readAuthoritativeSessionMetadataBuckets })')
     const register = source.indexOf('registerSessionMetadataCommitHook(syncSessionMetadataCommit)')
-    const initialize = source.indexOf('await initializeSessionIndex()')
+    const initialize = source.indexOf("timedStartupStep('session-index'")
     const runner = source.indexOf('startScheduledTaskRunner()')
     const listen = source.indexOf('server.listen(')
 

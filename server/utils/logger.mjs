@@ -13,14 +13,25 @@ function enabled(level) {
 }
 
 // --- Timestamp ---
+// Local-time "YYYY-MM-DD HH:mm:ss.SSS" keeps logs intuitive to read against
+// the local clock (the previous ISO-UTC form was off by the UTC offset and
+// swapped AM/PM readers to a different day around midnight).
 function timestamp() {
-  return new Date().toISOString()
+  const now = new Date()
+  const pad = (value, width = 2) => String(value).padStart(width, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} `
+    + `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}.${pad(now.getMilliseconds(), 3)}`
+}
+
+function localDateKey() {
+  const now = new Date()
+  const pad = (value) => String(value).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
 }
 
 // --- Log file (daily rotation) ---
 function logFile() {
-  const date = new Date().toISOString().slice(0, 10)
-  return path.join(logsDir, `server-${date}.log`)
+  return path.join(logsDir, `server-${localDateKey()}.log`)
 }
 
 // --- File write stream (async, buffered) ---
@@ -31,7 +42,7 @@ const FLUSH_INTERVAL_MS = 5000
 const pendingLines = []
 
 function getStream() {
-  const date = new Date().toISOString().slice(0, 10)
+  const date = localDateKey()
   if (stream && streamDate === date) return stream
 
   // Rotate: close old stream

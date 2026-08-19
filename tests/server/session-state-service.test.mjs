@@ -168,6 +168,31 @@ describe('session state service facade', () => {
     })
   })
 
+  it('reads sessions-metadata as a metadata-only store without full repository snapshots', () => {
+    const exportSnapshot = vi.fn(() => repository.exportSnapshot())
+    configureSessionStateService({ repository: { ...repository, exportSnapshot }, phase: 'authoritative' })
+    saveSessionBody('global-one', { title: 'Global', messages: [{ role: 'user', content: 'hi' }] })
+    saveSessionBody('project-one', { title: 'Project', scope: 'project', projectId: 'p1', messages: [{ role: 'user', content: 'yo' }] })
+    const globalMetadata = repository.findBySessionId('global-one').metadata
+    const projectMetadata = repository.findBySessionId('project-one').metadata
+
+    const all = readSessionStateStore('sessions-metadata')
+    expect(Object.keys(all).sort()).toEqual(['global-one', 'project-one'])
+    expect(all['global-one']).toEqual(globalMetadata)
+    expect(all['project-one']).toEqual(projectMetadata)
+    expect(all['project-one']).not.toHaveProperty('messages')
+
+    expect(readSessionStateStore('sessions-metadata', { scope: 'global' })).toEqual({ 'global-one': globalMetadata })
+    expect(readSessionStateStore('sessions-metadata', { scope: 'project', projectId: 'p1' })).toEqual({ 'project-one': projectMetadata })
+    expect(readSessionStateStore('sessions-metadata', { scope: 'project', projectId: 'other' })).toEqual({})
+
+    // Metadata reads and bucket updates stay metadata-only: no exportSnapshot
+    // (full state bodies + message rows) on either path, even with a filter.
+    updateSessionMetadataBucket('project', 'p1', (current) => ({ ...current, 'project-one': { ...current['project-one'], taskStatus: 'idle' } }))
+    expect(exportSnapshot).not.toHaveBeenCalled()
+    expect(repository.findBySessionId('project-one').metadata).toMatchObject({ taskStatus: 'idle' })
+  })
+
   it('drains the mirror queue in bounded pages, skipping failed entries without looping', async () => {
     for (const id of Array.from({ length: 10 }, (_, index) => `bulk-${index}`)) {
       repository.save(initialRecord(id), { expectedRevision: 0 })

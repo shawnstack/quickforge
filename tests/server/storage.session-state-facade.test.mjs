@@ -6,6 +6,7 @@ import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite
 import { createSessionStateRepository } from '../../server/sqlite/session-state-repository.mjs'
 import {
   configureSessionStateService,
+  readSessionMetadataBuckets,
   readSessionStateValue,
 } from '../../server/session-state-service.mjs'
 
@@ -213,6 +214,39 @@ describe('storage facade delegation in authoritative mode', () => {
         return data
       }).catch((e) => e)
       expect(error).toMatchObject({ statusCode: 409, errorCode: 'SESSION_STATE_REQUIRED' })
+    })
+  })
+
+  it('applies sessions-metadata updates per bucket and never merges project entries into global', async () => {
+    await withAuthoritativeFacade(async ({ storageModule, repository }) => {
+      await storageModule.writeSessionValue('g1', sessionBody('g1'))
+      await storageModule.writeSessionValue('p1', sessionBody('p1', { scope: 'project', projectId: 'proj' }))
+
+      const seenBuckets = []
+      const result = await storageModule.atomicUpdate('sessions-metadata', (data) => {
+        seenBuckets.push(Object.keys(data))
+        for (const [id, meta] of Object.entries(data)) data[id] = { ...meta, taskStatus: 'idle', marker: id }
+        return data
+      })
+
+      // updateFn runs once per bucket (global first), each time seeing only
+      // that bucket's sessions — never a merged cross-scope map.
+      expect(seenBuckets).toEqual([['g1'], ['p1']])
+      expect(result).toMatchObject({ p1: { marker: 'p1' } })
+
+      const buckets = readSessionMetadataBuckets()
+      expect(buckets.map((bucket) => bucket.scope)).toEqual(['global', 'project'])
+      expect(Object.keys(buckets[0].metadata)).toEqual(['g1'])
+      expect(Object.keys(buckets[1].metadata)).toEqual(['p1'])
+      expect(buckets[0].metadata.g1).toMatchObject({ marker: 'g1' })
+      expect(buckets[1].metadata.p1).toMatchObject({ marker: 'p1', projectId: 'proj' })
+      // Cross-bucket mixing regression: project entries never land in global.
+      expect(buckets[0].metadata.p1).toBeUndefined()
+
+      expect(repository.get('global', null, 'g1').metadata).toMatchObject({ marker: 'g1' })
+      expect(repository.get('project', 'proj', 'p1').metadata).toMatchObject({ marker: 'p1' })
+      // The merged read view still exposes every session to callers.
+      expect(await storageModule.readStore('sessions-metadata')).toMatchObject({ g1: { marker: 'g1' }, p1: { marker: 'p1' } })
     })
   })
 })

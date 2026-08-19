@@ -385,8 +385,16 @@ function applyMetadataToState(existing, metadata) {
 }
 
 function metadataBucketChanges(scope, projectId, updateFn) {
-  const snapshot = repository().exportSnapshot().records.filter((record) => !scope || (record.scope === scope && (scope !== 'project' || record.projectId === projectId)) )
-  const current = Object.fromEntries(snapshot.map((record) => [record.sessionId, structuredClone(record.metadata)]))
+  // Metadata-only projection (readSessionMetadataBuckets shape): building the
+  // bucket's current map must never materialize state bodies or message rows.
+  // The exportSnapshot() call that used to live here loaded the entire
+  // database on every metadata bucket update — the authoritative-phase
+  // startup OOM on large stores.
+  const current = {}
+  for (const bucket of readSessionMetadataBuckets()) {
+    if (scope && (bucket.scope !== scope || (scope === 'project' && bucket.projectId !== projectId))) continue
+    Object.assign(current, bucket.metadata)
+  }
   const updated = updateFn(structuredClone(current))
   if (!isPlainObject(updated)) throw new TypeError('Updated metadata bucket must be a plain object')
   const upserts = []
@@ -430,6 +438,21 @@ export function updateSessionMetadataBucket(scope, projectId, updateFn) {
 
 export function readSessionStateStore(storeName, { scope, projectId } = {}) {
   if (!sqliteReadable()) return requireJsonAdapter('readStore')(storeName, { scope, projectId })
+  // JSON-era provenance: 'sessions-metadata' has always been a metadata-only
+  // bucket store ({sessionId: metadata}). Loading it must never materialize
+  // state bodies or message rows — the exportSnapshot() call that used to
+  // live here pulled the whole database into memory (startup OOM on large
+  // stores). Read the same metadata_json-only projection as
+  // readSessionMetadataBuckets; without a filter this returns every bucket's
+  // map merged, matching the JSON-era merged-store read contract.
+  if (storeName === 'sessions-metadata') {
+    const merged = {}
+    for (const bucket of readSessionMetadataBuckets()) {
+      if (scope && (bucket.scope !== scope || (scope === 'project' && bucket.projectId !== projectId))) continue
+      Object.assign(merged, bucket.metadata)
+    }
+    return merged
+  }
   const records = repository().exportSnapshot().records.filter((record) => {
     if (!scope) return true
     if (record.scope !== scope) return false

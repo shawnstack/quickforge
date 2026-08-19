@@ -536,11 +536,25 @@ async function atomicSessionRecordUpdateViaFacade(facade, sessionId, updateFn) {
   return updated
 }
 
+// JSON-era semantics: 'sessions-metadata' is a set of per-bucket files
+// (sessions-metadata.json per scope/project), each an independent
+// read-modify-write unit. The authoritative equivalent applies updateFn to
+// each bucket's metadata map and writes every bucket back through
+// updateSessionMetadataBucket — never merging all scopes into one global map
+// (the old merge both re-loaded the full store via readSessionStateStore and
+// attributed project sessions to the global bucket). Session ids are unique
+// across buckets, so the per-bucket maps partition the legacy merged-store
+// view and per-entry updateFns see exactly the same sessions, one bucket at
+// a time. Empty store: the legacy global store file still exists as an empty
+// object, so updateFn still runs once against the (empty) global bucket.
 function atomicSessionMetadataBucketUpdateViaFacade(facade, updateFn) {
-  const updated = facade.updateSessionMetadataBucket('global', null, (currentGlobal) => {
-    const current = { ...facade.readSessionStateStore('sessions-metadata'), ...currentGlobal }
-    return updateFn(current)
-  })
+  const buckets = facade.readSessionMetadataBuckets()
+  const targets = buckets.length > 0 ? buckets : [{ scope: 'global', projectId: null, metadata: {} }]
+  let updated = {}
+  for (const bucket of targets) {
+    const updatedBucket = updateFn({ ...bucket.metadata })
+    updated = facade.updateSessionMetadataBucket(bucket.scope, bucket.projectId, () => updatedBucket)
+  }
   void facade.drainSessionJsonMirror()
   return updated
 }

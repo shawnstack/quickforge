@@ -45,20 +45,39 @@ vi.mock('../../server/plugins/registry.mjs', () => ({
 // throws a SESSION_STATE_CONFLICT so the CAS merge-retry loop in agent-manager
 // can be driven to exhaustion deterministically.
 const saveConflictFault = vi.hoisted(() => ({ remaining: 0 }))
+// vi.resetModules() clears the module registry but NOT factory mocks: a plain
+// `{ ...actual }` spread captured on first load would keep binding the first
+// test's (already closed) SQLite storage handle for every later test. The
+// production session-state paths that read buckets via storage() would then
+// see a closed handle, so delegate every property lookup to the CURRENT
+// actual instance, refreshed by each beforeEach below.
+const sessionStateActual = vi.hoisted(() => ({ module: null }))
 vi.mock('../../server/session-state-service.mjs', async (importActual) => {
   const actual = await importActual()
-  return {
-    ...actual,
-    saveSessionStatePair: (...args) => {
-      if (saveConflictFault.remaining > 0) {
-        saveConflictFault.remaining -= 1
-        const error = new Error('injected CAS conflict')
-        error.errorCode = 'SESSION_STATE_CONFLICT'
-        throw error
-      }
-      return actual.saveSessionStatePair(...args)
-    },
+  sessionStateActual.module = actual
+  const faultingSavePair = (...args) => {
+    if (saveConflictFault.remaining > 0) {
+      saveConflictFault.remaining -= 1
+      const error = new Error('injected CAS conflict')
+      error.errorCode = 'SESSION_STATE_CONFLICT'
+      throw error
+    }
+    return sessionStateActual.module.saveSessionStatePair(...args)
   }
+  // Own enumerable getters (one per actual export) keep named imports valid
+  // while delegating every access to the CURRENT actual instance.
+  const delegated = {}
+  for (const key of Object.keys(actual)) {
+    Object.defineProperty(delegated, key, {
+      enumerable: true,
+      get() {
+        if (key === 'saveSessionStatePair') return faultingSavePair
+        const value = sessionStateActual.module?.[key]
+        return typeof value === 'function' ? value.bind(sessionStateActual.module) : value
+      },
+    })
+  }
+  return delegated
 })
 
 const PINNED_AT = '2026-01-01T00:00:00.000Z'
@@ -82,6 +101,9 @@ describe('agent persist in authoritative session state', () => {
     process.env.QUICKFORGE_DATA_DIR = path.join(tmpDir, 'data')
     await mkdir(path.join(tmpDir, 'workspace'))
     vi.resetModules()
+    // Rebind the mocked session-state-service to this test's fresh module
+    // instance (see the comment above the vi.mock factory).
+    sessionStateActual.module = await vi.importActual('../../server/session-state-service.mjs')
 
     const { initializeSqliteStorage } = await import('../../server/sqlite/database.mjs')
     const { createSessionStateRepository } = await import('../../server/sqlite/session-state-repository.mjs')
@@ -481,5 +503,29 @@ describe('agent persist in authoritative session state', () => {
     } finally {
       await agentManager.destroyAgent(sessionId)
     }
+  })
+
+  it('resetStaleTaskStatuses flips stale running metadata to idle across global and project buckets', async () => {
+    const staleBody = (id, overrides = {}) => ({
+      id,
+      scope: 'global',
+      stateVersion: 1,
+      title: `Stale ${id}`,
+      messages: [{ role: 'user', content: 'hi' }],
+      taskStatus: 'running',
+      ...overrides,
+    })
+    await storageModule.writeSessionValue('stale-global', staleBody('stale-global'))
+    await storageModule.writeSessionValue('stale-project', staleBody('stale-project', { scope: 'project', projectId: 'p1' }))
+    await storageModule.writeSessionValue('fresh', staleBody('fresh', { taskStatus: 'idle' }))
+
+    await agentManager.resetStaleTaskStatuses()
+
+    expect(repository.findBySessionId('stale-global').metadata).toMatchObject({ taskStatus: 'idle' })
+    const projectRecord = repository.findBySessionId('stale-project')
+    expect(projectRecord.scope).toBe('project')
+    expect(projectRecord.metadata).toMatchObject({ taskStatus: 'idle', projectId: 'p1' })
+    expect(typeof projectRecord.metadata.taskFinishedAt).toBe('string')
+    expect(repository.findBySessionId('fresh').metadata).toMatchObject({ taskStatus: 'idle' })
   })
 })

@@ -346,6 +346,19 @@
         "tests/frontend/migration-status.test.ts",
         "tests/frontend/use-app-bootstrap-migration.test.ts"
       ]
+    },
+    {
+      "id": "fix-authoritative-startup-oom-metadata-store",
+      "name": "修复 authoritative 相位启动 OOM 崩溃（sessions-metadata 全库快照加载）",
+      "status": "done",
+      "approach": "生产事故：用户真实库（2.93GB、authoritative）每次启动在 resetStaleTaskStatuses→atomicUpdate('sessions-metadata') 链路把全库（全部 state_json+session_messages 重组）载入内存，4GB 堆 OOM 进程崩溃→端口无监听→界面无法启动。修复三处同病灶：readSessionStateStore('sessions-metadata') 改为 metadata_json 同口径只读（复用 readSessionMetadataBuckets）；metadataBucketChanges 的 current 构建弃用 exportSnapshot；atomicSessionMetadataBucketUpdateViaFacade 改逐桶 read-modify-write（同时修掉全 scope 合并写回 global 桶的跨桶混写错误）",
+      "files": [
+        "server/session-state-service.mjs",
+        "server/storage.mjs",
+        "tests/server/session-state-service.test.mjs",
+        "tests/server/storage.session-state-facade.test.mjs",
+        "tests/server/agent-manager.persist-session-state.test.mjs"
+      ]
     }
   ]
 }

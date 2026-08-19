@@ -55,6 +55,10 @@ vi.mock('@/lib/i18n', () => ({
   t: (key: string) => key,
 }))
 vi.mock('@/lib/http-storage-backend', () => ({ HttpStorageBackend: class {} }))
+vi.mock('@/lib/migration-status', () => ({
+  fetchMigrationStatus: vi.fn(async () => ({ ok: true, state: 'ready' })),
+  waitForMigrationSettled: vi.fn(async () => ({ state: 'ready' })),
+}))
 vi.mock('@/lib/tool-display-settings', () => ({
   applyToolDisplaySettingsValue: vi.fn(),
   loadToolDisplaySettings: vi.fn(async () => undefined),

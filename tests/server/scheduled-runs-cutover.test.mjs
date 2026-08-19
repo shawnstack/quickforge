@@ -8,8 +8,10 @@ import {
   acquireScheduledRunsMaintenanceLock,
   getScheduledRunsPhase,
   initializeScheduledRunsCutover,
+  isScheduledRunsMaintenanceActive,
   releaseScheduledRunsMaintenanceLock,
   renewScheduledRunsMaintenanceLock,
+  runScheduledRunsMaintenance,
   scheduledRunsDigest,
   splitScheduledTasksRuns,
 } from '../../server/scheduled-runs-cutover.mjs'
@@ -122,16 +124,40 @@ describe('scheduled runs cutover coordinator', () => {
     expect(result.diagnostic).toMatchObject({ operation: 'cutover' })
   })
 
-  it('fails closed in authoritative startup when JSON validation or slimming fails', async () => {
+  it('degrades without blocking authoritative startup when the JSON mirror is corrupt', async () => {
     const pending = await initializeScheduledRunsCutover(options({ writeTasks: vi.fn(async () => { throw new Error('json failed') }) }))
     expect(pending.phase).toBe('sqlite_authoritative_json_pending')
-    currentTasks = { bad: { id: 'bad', runs: [run('x'), run('x')] } }
-    const retried = await initializeScheduledRunsCutover(options())
-    expect(retried.phase).toBe('sqlite_authoritative_json_pending')
-
     storage.prepare("UPDATE scheduled_runs_state SET phase = 'authoritative' WHERE singleton = 1").run()
-    await expect(initializeScheduledRunsCutover(options())).rejects.toThrow(/authoritative startup validation failed/)
+    currentTasks = { bad: { id: 'bad', runs: [run('x'), run('x')] } }
+    const opts = options()
+    const result = await initializeScheduledRunsCutover(opts)
+    expect(result.phase).toBe('authoritative')
+    expect(result.diagnostic).toMatchObject({ operation: 'authoritative_validation' })
+    expect(opts.logger.warn).toHaveBeenCalledWith('Scheduled runs authoritative JSON mirror is invalid; continuing startup', { errorName: 'TypeError' })
     expect(getScheduledRunsPhase()).toBe('authoritative')
+  })
+
+  it('fails closed in authoritative startup when the SQLite health check fails', async () => {
+    await initializeScheduledRunsCutover(options())
+    const failingHealth = vi.fn(() => { throw new Error('sqlite health failed') })
+    const failingStorage = { ...storage, health: failingHealth }
+    await expect(initializeScheduledRunsCutover(options({ storage: failingStorage })))
+      .rejects.toThrow(/authoritative startup validation failed/)
+    expect(failingHealth).toHaveBeenCalledWith({ quickCheck: true })
+    expect(getScheduledRunsPhase()).toBe('authoritative')
+  })
+
+  it('resets the retained maintenance state after a later maintenance run releases its lock', async () => {
+    const retainError = new Error('restore retained the lock')
+    retainError.retainScheduledRunsMaintenance = true
+    await expect(runScheduledRunsMaintenance(async () => { throw retainError }, { storage, operation: 'test-retain' }))
+      .rejects.toThrow('restore retained the lock')
+    expect(isScheduledRunsMaintenanceActive(storage)).toBe(true)
+
+    // Simulate the retained lease being recovered externally (e.g. next boot).
+    storage.prepare('DELETE FROM scheduled_runs_maintenance_lock').run()
+    await runScheduledRunsMaintenance(async () => 'done', { storage, operation: 'test-followup' })
+    expect(isScheduledRunsMaintenanceActive(storage)).toBe(false)
   })
 
   it('fences lock ownership, renews leases, and only takes expired locks from a confirmed dead PID', () => {
@@ -145,6 +171,12 @@ describe('scheduled runs cutover coordinator', () => {
     now += 20
     expect(acquireScheduledRunsMaintenanceLock(storage, {
       owner: { id: '222:second', pid: 222 }, operation: 'second', now: () => now, ttlMs: 30, pidAlive: () => true,
+    })).toBeNull()
+    // A dead PID alone is not enough while the lease is still unexpired —
+    // stealing requires expiry AND a confirmed dead owner, like the session
+    // and share lock domains.
+    expect(acquireScheduledRunsMaintenanceLock(storage, {
+      owner: { id: '222:second', pid: 222 }, operation: 'second', now: () => now, ttlMs: 30, pidAlive: () => false,
     })).toBeNull()
     now += 20
     const second = acquireScheduledRunsMaintenanceLock(storage, {

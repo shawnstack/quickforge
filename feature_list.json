@@ -45,6 +45,53 @@
         "tests/server/session-persistence-lock.test.mjs",
         "tests/server/process-tree.test.mjs"
       ]
+    },
+    {
+      "id": "optimize-cutover-statement-reuse",
+      "name": "SQLite cutover 导入循环内语句复用优化",
+      "status": "done",
+      "approach": "消除 replaceAll/replaceAllStream 导入循环内每行重复 db.prepare()：SQL 提取为模块级常量 + 函数追加可选 statement 参数（现有调用方不传参走原路径），replaceAll 循环前 prepare 一次复用。覆盖 session-state（主 INSERT/upsertIndex/enqueueMirror）、scheduled-task-runs（insert）、share（insertShareRow/enqueueShareMirror）；事务语义与行为完全不变。调研结论：迁移瓶颈在 CPU 侧重复 JSON parse（4-pass），磁盘已被单事务+WAL 规避；本优化为插入侧性价比最高的局部改动",
+      "files": [
+        "server/sqlite/session-state-repository.mjs",
+        "server/sqlite/scheduled-task-runs-repository.mjs",
+        "server/sqlite/share-repository.mjs"
+      ]
+    },
+    {
+      "id": "fix-cutover-startup-bugs",
+      "name": "修复 cutover 启动链 4 项缺陷（锁 TTL/retained 泄漏/fail-closed 扩大化/可观测性）",
+      "status": "done",
+      "approach": "① scheduled-runs 维护锁偷锁补 expires_at 双条件（对齐 session 域）；② retainedMaintenance 在锁正常释放分支复位（retain 语义保留，DB 锁行兜底）；③ authoritative 分支细分：JSON mirror 损坏降级不阻止启动、SQLite health 失败保持 fail-closed；④ 3 个 cutover 模块补关键日志（开始/完成/回退/fail-closed/fallback），启动链失败 logger.error + flushLogger 落盘",
+      "files": [
+        "server/scheduled-runs-cutover.mjs",
+        "server/session-state-cutover.mjs",
+        "server/share-cutover.mjs",
+        "server/lan-access-cutover.mjs",
+        "server/index.mjs",
+        "tests/server/scheduled-runs-cutover.test.mjs"
+      ]
+    },
+    {
+      "id": "startup-maintenance-window",
+      "name": "启动维护窗口：listen 提前 + 迁移进度 UI",
+      "status": "done",
+      "approach": "服务端：listen 前仅保留 ensureStorage+SQLite 初始化，其余启动链移入后台 runStartupInitialization（顺序不变）；维护窗口 gate（白名单 /api/health + /api/migration-status，其余 /api/* 503+Retry-After，静态资源放行）；fail-closed 从进程退出改为服务存活拒绝业务 API（health 返回 {ok:false, startupError}）。新模块 server/startup-state.mjs（状态机+gate 纯函数+4 域 phase 汇总）。前端：src/lib/migration-status.ts（fetch+phase 映射+轮询门）、useAppBootstrap 插入迁移等待（migrating 轮询 2s→ready 继续原 boot；failed→带 startupError 的错误页）、MigrationProgressView（复用 splash 视觉，4 域进度列表）、i18n 中英 15 键。CLI/Desktop 的 waitForQuickForge 迁移中提前返回 → 先开界面看进度",
+      "files": [
+        "server/startup-state.mjs",
+        "server/index.mjs",
+        "src/lib/migration-status.ts",
+        "src/hooks/useAppBootstrap.ts",
+        "src/components/migration-progress-view.tsx",
+        "src/components/startup-splash-icon.tsx",
+        "src/App.tsx",
+        "src/index.css",
+        "src/lib/i18n.ts",
+        "tests/server/startup-maintenance-gate.test.mjs",
+        "tests/frontend/migration-status.test.ts",
+        "tests/frontend/use-app-bootstrap-migration.test.ts",
+        "docs/wiki/server/README.md",
+        "docs/wiki/server/routes/README.md"
+      ]
     }
     , {
       "id": "tune-sidebar-project-session-list-height",

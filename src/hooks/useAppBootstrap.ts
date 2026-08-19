@@ -11,6 +11,7 @@ import {
 } from '@/lib/pi-chat'
 import { initializeAppLanguage, applyAppLanguageFromSnapshot, t } from '@/lib/i18n'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
+import { fetchMigrationStatus, waitForMigrationSettled, type MigrationStatus } from '@/lib/migration-status'
 import { applyToolDisplaySettingsValue, loadToolDisplaySettings } from '@/lib/tool-display-settings'
 import { applyFontSizeSettings, loadAndApplyFontSizeSettings, normalizeFontSizeSettings } from '@/lib/font-size-settings'
 import {
@@ -46,6 +47,16 @@ type UseAppBootstrapOptions = {
   onStorageReady?: (storage: Awaited<ReturnType<typeof initializePiStorage>>) => void
 }
 
+// Startup failure shown by the error card. `kind` picks the copy:
+// 'service' keeps the generic local-service-unavailable wording, 'migration'
+// means the server's startup maintenance window (storage migration) failed
+// and `detail` carries the server-side startupError verbatim.
+export type StartupError = {
+  message: string
+  kind: 'service' | 'migration'
+  detail?: string
+}
+
 export function useAppBootstrap({
   storageRef,
   backendRef,
@@ -64,8 +75,11 @@ export function useAppBootstrap({
   onStorageReady,
 }: UseAppBootstrapOptions) {
   const [ready, setReady] = useState(false)
-  const [startupError, setStartupError] = useState<string>()
+  const [startupError, setStartupError] = useState<StartupError>()
   const [retryNonce, setRetryNonce] = useState(0)
+  // Latest /api/migration-status snapshot while the server is inside the
+  // startup maintenance window; undefined once the window closed (or failed).
+  const [migrationStatus, setMigrationStatus] = useState<MigrationStatus>()
 
   // Keep callbacks in refs so the bootstrap effect runs exactly once
   const depsRef = useRef({
@@ -115,6 +129,7 @@ export function useAppBootstrap({
       try {
         setReady(false)
         setStartupError(undefined)
+        setMigrationStatus(undefined)
 
         // Stale-while-revalidate：启动第一步（任何 await 之前）发起本地快照
         // 读取，命中即预应用语言/外观/字号/工具展示；异步 IndexedDB 读取不
@@ -148,6 +163,28 @@ export function useAppBootstrap({
 
         const storage = await initializePiStorage()
         if (cancelled) return
+
+        // P1 startup maintenance window: /api/health still reports ok while
+        // the server migrates storage to SQLite in the background, but every
+        // other /api/* route answers 503. Park the boot here (UI shows the
+        // migration progress view) until the window closes; storage refs stay
+        // unset so nothing issues gated requests in the meantime.
+        const migrationGate = await waitForMigrationSettled({
+          onStatus: (status) => {
+            if (!cancelled) setMigrationStatus(status)
+          },
+          isCancelled: () => cancelled,
+        })
+        if (cancelled || migrationGate.state === 'cancelled') return
+        if (migrationGate.state === 'failed') {
+          setStartupError({
+            message: t('migration.failedDescription'),
+            kind: 'migration',
+            detail: migrationGate.startupError,
+          })
+          return
+        }
+        setMigrationStatus(undefined)
 
         storageRef.current = storage
         onReady?.(storage)
@@ -227,7 +264,22 @@ export function useAppBootstrap({
         setReady(true)
       } catch (error) {
         logger.error('Failed to bootstrap QuickForge:', error)
-        if (!cancelled) setStartupError(t('localServiceUnavailableDescription'))
+        if (cancelled) return
+        // A failed startup window keeps /api/health at ok:false, so storage
+        // initialization throws before the migration gate above runs. Probe
+        // the migration status once so the error card can explain a migration
+        // failure instead of the generic service-unavailable wording.
+        const status = await fetchMigrationStatus()
+        if (cancelled) return
+        if (status.ok && status.state === 'failed') {
+          setStartupError({
+            message: t('migration.failedDescription'),
+            kind: 'migration',
+            detail: status.startupError,
+          })
+          return
+        }
+        setStartupError({ message: t('localServiceUnavailableDescription'), kind: 'service' })
       }
     }
 
@@ -249,8 +301,9 @@ export function useAppBootstrap({
   const retryBootstrap = useCallback(() => {
     setReady(false)
     setStartupError(undefined)
+    setMigrationStatus(undefined)
     setRetryNonce((value) => value + 1)
   }, [])
 
-  return { ready, startupError, retryBootstrap }
+  return { ready, startupError, migrationStatus, retryBootstrap }
 }

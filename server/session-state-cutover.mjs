@@ -16,6 +16,7 @@ import {
   materializeSessionJsonMirrorEntry,
   storageDir,
 } from './storage.mjs'
+import { logger } from './utils/logger.mjs'
 
 const DEFAULT_LOCK_TTL_MS = 60_000
 const DEFAULT_WAIT_TIMEOUT_MS = 65_000
@@ -470,7 +471,8 @@ export async function initializeSessionStateCutover(options = {}) {
   const storage = options.storage || getSqliteStorage()
   const repository = options.repository || createSessionStateRepository(storage)
   configureSessionStateService({ repository, mirror: options.mirror || mirrorAdapter() })
-  return runSessionStateMaintenance(async () => {
+  const log = options.logger || logger
+  const migrate = async () => {
     const current = readSessionStorageState()
     if (current.phase === SESSION_STORAGE_PHASES.JSON_PENDING) {
       const integrity = verifyIntegrityWithIndexSelfHeal(repository, 'pending')
@@ -478,16 +480,21 @@ export async function initializeSessionStateCutover(options = {}) {
       // integrity is the lightweight (SQL-level) check — its digest is null.
       // The verified digest persisted by replaceAll's storageState stays
       // authoritative when promoting to authoritative.
-      if (drained.pending === 0) setSessionStoragePhase(SESSION_STORAGE_PHASES.AUTHORITATIVE, { stateCount: integrity.count, digest: current.digest, backupFile: current.backupFile })
+      if (drained.pending === 0) {
+        setSessionStoragePhase(SESSION_STORAGE_PHASES.AUTHORITATIVE, { stateCount: integrity.count, digest: current.digest, backupFile: current.backupFile })
+        log.info('Session state cutover promoted to authoritative', { domain: 'session-state', phase: 'authoritative', count: integrity.count })
+      }
       return readSessionStorageState()
     }
     if (current.phase === SESSION_STORAGE_PHASES.AUTHORITATIVE) {
       verifyIntegrityWithIndexSelfHeal(repository, 'authoritative')
       await drainSessionJsonMirror()
+      log.info('Session state cutover startup check passed', { domain: 'session-state', phase: 'authoritative' })
       return readSessionStorageState()
     }
 
     if (current.phase === SESSION_STORAGE_PHASES.CUTOVER_RUNNING && current.backupFile) {
+      log.warn('Session state cutover recovery: rerunning the JSON migration', { domain: 'session-state', phase: 'cutover_running', backupFile: current.backupFile })
       setSessionStoragePhase(SESSION_STORAGE_PHASES.JSON_AUTHORITATIVE, {
         backupFile: current.backupFile,
         diagnostic: { operation: 'cutover_recovery', recoveredFrom: SESSION_STORAGE_PHASES.CUTOVER_RUNNING },
@@ -511,6 +518,7 @@ export async function initializeSessionStateCutover(options = {}) {
       const first = await summarizeSessionSource(createSource())
       const second = await summarizeSessionSource(createSource())
       if (!sameSessionSourceSummary(first, second)) throw new Error('Session JSON source changed during cutover double read')
+      log.info('Session state cutover migration started', { domain: 'session-state', count: first.count })
       if (!backupFile) {
         backupFile = await writeCutoverBackupStream(() => createSource().iterate(), first, {
           directory: options.backupDirectory,
@@ -547,7 +555,9 @@ export async function initializeSessionStateCutover(options = {}) {
       readSessionStorageState()
       const drained = await drainSessionJsonMirror()
       if (drained.pending === 0) setSessionStoragePhase(SESSION_STORAGE_PHASES.AUTHORITATIVE, { stateCount: integrity.count, digest: first.digest, backupFile, diagnostic: first.diagnostics })
-      return readSessionStorageState()
+      const result = readSessionStorageState()
+      log.info('Session state cutover migration complete', { domain: 'session-state', phase: result.phase, count: first.count })
+      return result
     } catch (error) {
       const state = readSessionStorageState()
       if (![SESSION_STORAGE_PHASES.JSON_PENDING, SESSION_STORAGE_PHASES.AUTHORITATIVE].includes(state.phase)) {
@@ -555,9 +565,16 @@ export async function initializeSessionStateCutover(options = {}) {
           backupFile,
           diagnostic: { operation: 'cutover', errorName: error?.name || 'Error', error: error?.message || String(error) },
         })
+        log.warn('Session state cutover failed; keeping the JSON store path', { domain: 'session-state', phase: 'json_authoritative', errorName: error?.name || 'Error', errorMessage: error?.message })
         return readSessionStorageState()
       }
       throw error
     }
-  }, { ...options, storage, operation: 'session-state-cutover' })
+  }
+  try {
+    return await runSessionStateMaintenance(migrate, { ...options, storage, operation: 'session-state-cutover' })
+  } catch (error) {
+    log.error('Session state cutover failed and blocked startup', { domain: 'session-state', errorName: error?.name || 'Error', errorMessage: error?.message })
+    throw error
+  }
 }

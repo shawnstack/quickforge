@@ -241,8 +241,9 @@ export function acquireScheduledRunsMaintenanceLock(storage, {
       return { owner: identity.id, ownerPid: identity.pid, fencing, expiresAt }
     }
     if (current) {
+      const expired = Date.parse(current.expires_at) <= nowMs
       const stalePid = ownerPidFromRow(current)
-      if (stalePid === null || pidAlive(stalePid)) return null
+      if (!expired || stalePid === null || pidAlive(stalePid)) return null
     }
     const fencing = Number(current?.fencing || 0) + 1
     database.prepare(`
@@ -341,6 +342,10 @@ export async function runScheduledRunsMaintenance(operation, options = {}) {
     throw error
   } finally {
     if (retainedMaintenance?.lease !== lease) {
+      // Reset any stale retained flag from an earlier retain: this branch
+      // releases the lock normally, so retainedMaintenance must only stay set
+      // while a retained lease is genuinely still held.
+      retainedMaintenance = null
       clearInterval(timer)
       releaseScheduledRunsMaintenanceLock(storage, lease)
       localMaintenanceCount = Math.max(0, localMaintenanceCount - 1)
@@ -424,9 +429,18 @@ export async function initializeScheduledRunsCutover(options = {}) {
     }
 
     if (state.phase === SCHEDULED_RUNS_PHASES.AUTHORITATIVE) {
+      // The JSON file is only a non-authoritative mirror in this phase: a
+      // corrupt or unslimmable mirror degrades (diagnostic + warn) without
+      // blocking startup, while the authoritative SQLite health check stays
+      // fail-closed.
       try {
         const snapshot = splitScheduledTasksRuns(await readTasks())
         if (snapshot.count > 0) await slimJson(readTasks, writeTasks, snapshot.metadata)
+      } catch (error) {
+        recordScheduledRunsDiagnostic('authoritative_validation', error, {}, storage)
+        log.warn('Scheduled runs authoritative JSON mirror is invalid; continuing startup', { errorName: error?.name || 'Error' })
+      }
+      try {
         storage.health({ quickCheck: true })
       } catch (error) {
         recordScheduledRunsDiagnostic('authoritative_validation', error, {}, storage)

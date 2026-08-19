@@ -19,6 +19,7 @@ import {
   writeLanAccessJsonFile,
 } from './lan-access-json-file.mjs'
 import { storageDir } from './storage.mjs'
+import { logger } from './utils/logger.mjs'
 
 const DEFAULT_LOCK_TTL_MS = 60_000
 const DEFAULT_WAIT_TIMEOUT_MS = 65_000
@@ -223,23 +224,29 @@ export async function initializeLanAccessCutover(options = {}) {
   const storage = options.storage || getSqliteStorage()
   const repository = options.repository || createLanAccessRepository(storage)
   configureLanAccessService({ repository, mirror: options.mirror || createDefaultLanAccessMirror() })
-  return runLanAccessMaintenance(async () => {
+  const log = options.logger || logger
+  const migrate = async () => {
     const current = readLanAccessStorageState()
     if (current.phase === LAN_ACCESS_STORAGE_PHASES.JSON_PENDING) {
       const integrity = repository.verifyIntegrity({ quickCheck: true })
       if (!integrity.ok) throw new Error('LAN access state pending integrity verification failed')
       const drained = await drainLanAccessJsonMirror()
-      if (drained.pending === 0) setLanAccessStoragePhase(LAN_ACCESS_STORAGE_PHASES.AUTHORITATIVE, { lanTokenCount: integrity.count, digest: integrity.digest, backupFile: current.backupFile })
+      if (drained.pending === 0) {
+        setLanAccessStoragePhase(LAN_ACCESS_STORAGE_PHASES.AUTHORITATIVE, { lanTokenCount: integrity.count, digest: integrity.digest, backupFile: current.backupFile })
+        log.info('LAN access cutover promoted to authoritative', { domain: 'lan-access', phase: 'authoritative', tokenCount: integrity.count })
+      }
       return readLanAccessStorageState()
     }
     if (current.phase === LAN_ACCESS_STORAGE_PHASES.AUTHORITATIVE) {
       const integrity = repository.verifyIntegrity({ quickCheck: true })
       if (!integrity.ok) throw new Error('LAN access state authoritative integrity verification failed')
       await drainLanAccessJsonMirror()
+      log.info('LAN access cutover startup check passed', { domain: 'lan-access', phase: 'authoritative' })
       return readLanAccessStorageState()
     }
 
     if (current.phase === LAN_ACCESS_STORAGE_PHASES.CUTOVER_RUNNING && current.backupFile) {
+      log.warn('LAN access cutover recovery: rerunning the JSON migration', { domain: 'lan-access', phase: 'cutover_running', backupFile: current.backupFile })
       setLanAccessStoragePhase(LAN_ACCESS_STORAGE_PHASES.JSON_AUTHORITATIVE, {
         backupFile: current.backupFile,
         diagnostic: { operation: 'cutover_recovery', recoveredFrom: LAN_ACCESS_STORAGE_PHASES.CUTOVER_RUNNING },
@@ -254,6 +261,7 @@ export async function initializeLanAccessCutover(options = {}) {
       if (first.tokenCount !== second.tokenCount || first.digest !== second.digest) {
         throw new Error('LAN access JSON source changed during cutover double read')
       }
+      log.info('LAN access cutover migration started', { domain: 'lan-access', tokenCount: first.tokenCount })
       if (!backupFile) backupFile = await writeLanAccessCutoverBackup(first, options.backupDirectory)
       const third = buildLanAccessJsonSnapshot(await readJson())
       if (first.tokenCount !== third.tokenCount || first.digest !== third.digest) {
@@ -290,7 +298,9 @@ export async function initializeLanAccessCutover(options = {}) {
           diagnostic: first.diagnostics,
         })
       }
-      return readLanAccessStorageState()
+      const result = readLanAccessStorageState()
+      log.info('LAN access cutover migration complete', { domain: 'lan-access', phase: result.phase, tokenCount: first.tokenCount })
+      return result
     } catch (error) {
       const state = readLanAccessStorageState()
       if (![LAN_ACCESS_STORAGE_PHASES.JSON_PENDING, LAN_ACCESS_STORAGE_PHASES.AUTHORITATIVE].includes(state.phase)) {
@@ -298,9 +308,16 @@ export async function initializeLanAccessCutover(options = {}) {
           backupFile,
           diagnostic: { operation: 'cutover', errorName: error?.name || 'Error', error: error?.message || String(error) },
         })
+        log.warn('LAN access cutover failed; keeping the JSON store path', { domain: 'lan-access', phase: 'json_authoritative', errorName: error?.name || 'Error', errorMessage: error?.message })
         return readLanAccessStorageState()
       }
       throw error
     }
-  }, { ...options, storage, operation: 'lan-access-cutover' })
+  }
+  try {
+    return await runLanAccessMaintenance(migrate, { ...options, storage, operation: 'lan-access-cutover' })
+  } catch (error) {
+    log.error('LAN access cutover failed and blocked startup', { domain: 'lan-access', errorName: error?.name || 'Error', errorMessage: error?.message })
+    throw error
+  }
 }

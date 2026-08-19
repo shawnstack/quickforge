@@ -189,6 +189,22 @@ html.quickforge-mobile-native :where(button, input, textarea, select, [role="but
   animation: quickforge-startup-highlight 720ms ease-out 320ms both;
 }
 
+/* Migration progress view (startup maintenance window) */
+.quickforge-migration-dot-active {
+  animation: quickforge-migration-dot-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes quickforge-migration-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.35;
+  }
+}
+
 @keyframes quickforge-startup-icon-settle {
   0% {
     transform: scale(0.9);

@@ -63,6 +63,7 @@ import { recoverScheduledRunsRestorePlan } from './scheduled-runs-backup.mjs'
 import { configureSessionIndex, getSessionIndexDiagnostics, initializeSessionIndex, syncSessionMetadataCommit } from './session-index-service.mjs'
 import { createNodeProcessEnv } from './utils/process-env.mjs'
 import { isAuthenticatedAppClient } from './access-policy.mjs'
+import { STARTUP_STATES, getStartupError, getStartupState, readMigrationStatus, resolveMaintenanceGate, setStartupState } from './startup-state.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -87,6 +88,7 @@ let shutdownPromise = null
 let shutdownStarted = false
 let qfAgentStartPromise = null
 let boundServerPort = null
+let startupInitializationPromise = null
 
 setDefaultWorkspaceRoot(process.env.QUICKFORGE_WORKSPACE_DIR || path.join(dataDir, 'workspace'))
 
@@ -368,7 +370,33 @@ async function handleApi(req, res, url, requestContext = {}) {
 
   // Health check
   if (req.method === 'GET' && pathname === '/api/health') {
+    const startupState = getStartupState()
+    if (startupState === STARTUP_STATES.FAILED) {
+      // Startup failed but the process stays alive: waitForQuickForge keeps
+      // polling (payload.ok is false) until its timeout, preserving the
+      // "startup failed" semantics for CLI/Desktop.
+      sendJson(res, 200, { ok: false, startupError: getStartupError() })
+      return
+    }
+    if (startupState === STARTUP_STATES.MIGRATING) {
+      // Maintenance window: keep the existing fields (pid, sqlite summary,
+      // ...) so clients can bind early, plus maintenance:true for the UI.
+      // Fall back to the minimal shape if the full status is not readable.
+      try {
+        sendJson(res, 200, { maintenance: true, ...(await getSystemStatus(requestContext)) })
+        return
+      } catch {
+        sendJson(res, 200, { ok: true, maintenance: true })
+        return
+      }
+    }
     sendJson(res, 200, await getSystemStatus(requestContext))
+    return
+  }
+
+  // Migration progress during the startup maintenance window
+  if (req.method === 'GET' && pathname === '/api/migration-status') {
+    sendJson(res, 200, readMigrationStatus())
     return
   }
 
@@ -707,6 +735,20 @@ const server = createServer(async (req, res) => {
     }
 
     if (url.pathname.startsWith('/api/')) {
+      // Startup maintenance gate: while the background startup chain runs (or
+      // failed), refuse every business API except the whitelisted readiness
+      // endpoints. Non-/api paths (static assets, /share/) stay ungated so the
+      // frontend can load and show migration progress.
+      const gate = resolveMaintenanceGate(req.method, url.pathname)
+      if (gate) {
+        res.writeHead(gate.status, {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store',
+          'retry-after': '5',
+        })
+        res.end(JSON.stringify({ ok: false, maintenance: true, state: gate.state }))
+        return
+      }
       await handleApi(req, res, url, {
         isLocalRequest: !isRemoteRequest,
         remoteAddress,
@@ -775,51 +817,86 @@ server.on('upgrade', (req, socket, head) => {
   }
 })
 
-await ensureStorage()
-await initializeSqliteStorage({ dataDir })
-await initializeScheduledRunsCutover()
-await recoverScheduledRunsRestorePlan()
-await recoverStaleScheduledTaskRuns()
-// Session state cutover: authoritative integrity failures fail closed and
-// block startup; json_authoritative failures keep the legacy JSON path.
-await initializeSessionStateCutover()
-await initializeSessionStateService()
-await recoverSessionStateRestorePlan()
-await drainSessionJsonMirror()
-// Share storage cutover: share-store writes become SQLite-authoritative once
-// pending/authoritative; integrity failures fail closed and block startup,
-// json_authoritative failures keep the legacy JSON path. The JSON file stays
-// as the best-effort mirror drained through the share mirror queue.
-await initializeShareCutover()
-await initializeShareService()
-await recoverShareRestorePlan()
-await drainShareJsonMirror()
-// LAN access storage cutover: JSON → SQLite with the same phase machine as
-// share storage. Integrity failures while pending/authoritative fail closed
-// and block startup; json_authoritative failures keep the legacy JSON store
-// path. The JSON file stays as the best-effort mirror drained through the
-// lan-access mirror queue. Interrupted lan-access restore plans are recovered
-// (roll-forward/rollback) before the mirror drain.
-await initializeLanAccessCutover()
-await initializeLanAccessService()
-await recoverLanAccessRestorePlan()
-await drainLanAccessJsonMirror()
-await ensureDefaultGlobalSkills()
-await initializeNetworkProxy()
-installAiHttpLogger()
-initializeChannels({
-  projectRoot,
-  channelEventsUrl: `http://127.0.0.1:${port}/api/channels/events`,
-  logsDir,
-})
-await resetStaleTaskStatuses()
-configureSessionIndex({ readBuckets: readPhysicalSessionMetadataBuckets })
-registerSessionMetadataCommitHook(syncSessionMetadataCommit)
-await initializeSessionIndex()
-await initializeActiveProject()
-setActiveWorkspaceRootForFilesystem(getWorkspaceRoot())
-startScheduledTaskRunner()
-startAutoArchiveRunner()
+// --- Startup chain (P1: listen early + maintenance window) ---
+// Storage + SQLite initialization stay in front of listen (the maintenance
+// gate and /api/migration-status rely on the database). The remaining
+// migration/initialization chain runs in the background behind the gate
+// while /api/health and /api/migration-status already answer and the
+// frontend page is served, so the UI can display migration progress.
+//
+// Fail-closed semantics changed from "abort the process" to "stay alive and
+// refuse business APIs": on failure the startup state becomes 'failed',
+// /api/health answers {ok:false, startupError} (waitForQuickForge keeps
+// polling until its timeout, preserving the "startup failed" result) and
+// every non-whitelisted /api/* route keeps answering 503 maintenance until
+// the operator intervenes (fix data / restart).
+try {
+  await ensureStorage()
+  await initializeSqliteStorage({ dataDir })
+} catch (error) {
+  logger.error('QuickForge startup failed', { errorName: error?.name || 'Error', errorMessage: error?.message, stack: error?.stack })
+  flushLogger()
+  setStartupState(STARTUP_STATES.FAILED, error?.message)
+}
+
+async function runStartupInitialization() {
+  await initializeScheduledRunsCutover()
+  await recoverScheduledRunsRestorePlan()
+  await recoverStaleScheduledTaskRuns()
+  // Session state cutover: authoritative integrity failures fail closed and
+  // block startup; json_authoritative failures keep the legacy JSON path.
+  await initializeSessionStateCutover()
+  await initializeSessionStateService()
+  await recoverSessionStateRestorePlan()
+  await drainSessionJsonMirror()
+  // Share storage cutover: share-store writes become SQLite-authoritative once
+  // pending/authoritative; integrity failures fail closed and block startup,
+  // json_authoritative failures keep the legacy JSON path. The JSON file stays
+  // as the best-effort mirror drained through the share mirror queue.
+  await initializeShareCutover()
+  await initializeShareService()
+  await recoverShareRestorePlan()
+  await drainShareJsonMirror()
+  // LAN access storage cutover: JSON → SQLite with the same phase machine as
+  // share storage. Integrity failures while pending/authoritative fail closed
+  // and block startup; json_authoritative failures keep the legacy JSON store
+  // path. The JSON file stays as the best-effort mirror drained through the
+  // lan-access mirror queue. Interrupted lan-access restore plans are recovered
+  // (roll-forward/rollback) before the mirror drain.
+  await initializeLanAccessCutover()
+  await initializeLanAccessService()
+  await recoverLanAccessRestorePlan()
+  await drainLanAccessJsonMirror()
+  await ensureDefaultGlobalSkills()
+  await initializeNetworkProxy()
+  installAiHttpLogger()
+  initializeChannels({
+    projectRoot,
+    channelEventsUrl: `http://127.0.0.1:${port}/api/channels/events`,
+    logsDir,
+  })
+  await resetStaleTaskStatuses()
+  configureSessionIndex({ readBuckets: readPhysicalSessionMetadataBuckets })
+  registerSessionMetadataCommitHook(syncSessionMetadataCommit)
+  await initializeSessionIndex()
+  await initializeActiveProject()
+  setActiveWorkspaceRootForFilesystem(getWorkspaceRoot())
+  startScheduledTaskRunner()
+  startAutoArchiveRunner()
+}
+
+if (getStartupState() !== STARTUP_STATES.FAILED) {
+  // Fire-and-forget: never blocks listen; the promise always settles and the
+  // handlers below flip the startup state for the gate and health endpoint.
+  startupInitializationPromise = runStartupInitialization().then(() => {
+    setStartupState(STARTUP_STATES.READY)
+    logger.info('QuickForge startup initialization complete.')
+  }).catch((error) => {
+    logger.error('QuickForge startup failed', { errorName: error?.name || 'Error', errorMessage: error?.message, stack: error?.stack })
+    flushLogger()
+    setStartupState(STARTUP_STATES.FAILED, error?.message)
+  })
+}
 
 server.on('error', (error) => {
   // Handle listen errors (most commonly EADDRINUSE). Without this, Node would
@@ -847,7 +924,13 @@ server.listen(port, host, () => {
   logger.info(`QuickForge data dir: ${dataDir}`)
   logger.info(`QuickForge project: ${getWorkspaceRoot()}`)
 
-  const pending = readCloudServiceConfig({ strict: false }).then((cloudConfig) => applyCloudServiceConfig(cloudConfig)).catch((error) => {
+  const pending = (async () => {
+    // The remote agent talks to the local business API: hold it back until the
+    // background startup chain settles so it never races the maintenance gate.
+    if (startupInitializationPromise) await startupInitializationPromise
+    if (getStartupState() === STARTUP_STATES.FAILED) return null
+    return applyCloudServiceConfig(await readCloudServiceConfig({ strict: false }))
+  })().catch((error) => {
     if (!shutdownStarted) logger.warn(`QuickForge remote agent failed to start: ${error?.message || error}`)
     return null
   }).finally(() => {

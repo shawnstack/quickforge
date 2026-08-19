@@ -23,6 +23,8 @@ import { Button } from '@/components/ui/button'
 import { ProjectDirectoryPicker } from '@/components/project-directory-picker'
 import { ProjectOpenMenu } from '@/components/project/ProjectOpenMenu'
 import { SkillsDialog } from '@/components/skills-dialog'
+import { MigrationProgressView } from '@/components/migration-progress-view'
+import { StartupSplashIcon } from '@/components/startup-splash-icon'
 import {
   buildConnectionModel,
   DEFAULT_CONNECTION,
@@ -165,23 +167,7 @@ function StartupSplash({ exiting = false }: { exiting?: boolean }) {
 
   return (
     <div className={cn('quickforge-startup-splash', exiting && 'quickforge-startup-splash-exit')} role="status" aria-label={label}>
-      <svg className="quickforge-startup-splash-icon" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-        <defs>
-          <linearGradient id="startupIconStroke" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor="#9ca3af" />
-            <stop offset="1" stopColor="#4b5563" />
-          </linearGradient>
-          <linearGradient id="startupIconBolt" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor="#374151" />
-            <stop offset="1" stopColor="#0f172a" />
-          </linearGradient>
-        </defs>
-        <polygon className="quickforge-startup-splash-outline" points="32,6 52.78,18 52.78,42 32,54 11.22,42 11.22,18" fill="none" stroke="url(#startupIconStroke)" strokeWidth="4.5" strokeLinejoin="round" />
-        <polygon className="quickforge-startup-splash-outline-final" points="32,6 52.78,18 52.78,42 32,54 11.22,42 11.22,18" fill="none" stroke="url(#startupIconStroke)" strokeWidth="4.5" strokeLinejoin="round" />
-        <path className="quickforge-startup-splash-bolt" d="M37.2 13 L22 34 L30.6 34 L26.8 50 L42.8 26 L33.8 26 Z" fill="url(#startupIconBolt)" />
-        <path className="quickforge-startup-splash-bolt-trace" d="M37.2 13 L22 34 L30.6 34 L26.8 50 L42.8 26 L33.8 26 Z" fill="none" stroke="#f8fafc" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-        <path className="quickforge-startup-splash-bolt-highlight" d="M37.2 13 L22 34 L30.6 34 L33.8 26 Z" fill="#e5e7eb" />
-      </svg>
+      <StartupSplashIcon />
       <span className="sr-only">{label}</span>
     </div>
   )
@@ -913,7 +899,7 @@ function MainApp() {
     return unsubscribe
   }, [addToast, loadProjectSessions, refreshSessions, setExpandedProjectIds, updateSessionTitle, upsertSessionMetadata])
 
-  const { ready, startupError, retryBootstrap } = useAppBootstrap({
+  const { ready, startupError, migrationStatus, retryBootstrap } = useAppBootstrap({
     storageRef,
     backendRef,
     activeModelRef,
@@ -1503,11 +1489,17 @@ function MainApp() {
 
   // --- Loading state ---
   if (startupError) {
+    const migrationFailed = startupError.kind === 'migration'
     return (
       <div className="flex h-screen items-center justify-center bg-background p-6 text-foreground">
         <div className="max-w-md rounded-lg border border-border bg-background p-5 text-center">
-          <h1 className="text-base font-semibold">{t('localServiceUnavailableTitle')}</h1>
-          <p className="mt-2 text-sm text-muted-foreground">{startupError}</p>
+          <h1 className="text-base font-semibold">
+            {migrationFailed ? t('migration.failedTitle') : t('localServiceUnavailableTitle')}
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">{startupError.message}</p>
+          {migrationFailed && startupError.detail ? (
+            <p className="mt-2 break-all text-xs text-muted-foreground">{startupError.detail}</p>
+          ) : null}
           <div className="mt-4 flex justify-center gap-2">
             <Button variant="outline" size="sm" onClick={retryBootstrap}>
               {t('retry')}
@@ -1522,7 +1514,7 @@ function MainApp() {
   }
 
   if (!startupReady) {
-    return <StartupSplash />
+    return migrationStatus?.state === 'migrating' ? <MigrationProgressView status={migrationStatus} /> : <StartupSplash />
   }
 
   return (

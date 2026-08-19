@@ -14,6 +14,7 @@ import {
 import { readSharesJsonFile } from './share-json-file.mjs'
 import { createDefaultShareMirror } from './share-service.mjs'
 import { storageDir } from './storage.mjs'
+import { logger } from './utils/logger.mjs'
 
 const DEFAULT_LOCK_TTL_MS = 60_000
 const DEFAULT_WAIT_TIMEOUT_MS = 65_000
@@ -213,23 +214,29 @@ export async function initializeShareCutover(options = {}) {
   const storage = options.storage || getSqliteStorage()
   const repository = options.repository || createShareRepository(storage)
   configureShareService({ repository, mirror: options.mirror || createDefaultShareMirror() })
-  return runShareMaintenance(async () => {
+  const log = options.logger || logger
+  const migrate = async () => {
     const current = readShareStorageState()
     if (current.phase === SHARE_STORAGE_PHASES.JSON_PENDING) {
       const integrity = repository.verifyIntegrity({ quickCheck: true })
       if (!integrity.ok) throw new Error('Share state pending integrity verification failed')
       const drained = await drainShareJsonMirror()
-      if (drained.pending === 0) setShareStoragePhase(SHARE_STORAGE_PHASES.AUTHORITATIVE, { shareCount: integrity.count, digest: integrity.digest, backupFile: current.backupFile })
+      if (drained.pending === 0) {
+        setShareStoragePhase(SHARE_STORAGE_PHASES.AUTHORITATIVE, { shareCount: integrity.count, digest: integrity.digest, backupFile: current.backupFile })
+        log.info('Share storage cutover promoted to authoritative', { domain: 'share', phase: 'authoritative', count: integrity.count })
+      }
       return readShareStorageState()
     }
     if (current.phase === SHARE_STORAGE_PHASES.AUTHORITATIVE) {
       const integrity = repository.verifyIntegrity({ quickCheck: true })
       if (!integrity.ok) throw new Error('Share state authoritative integrity verification failed')
       await drainShareJsonMirror()
+      log.info('Share storage cutover startup check passed', { domain: 'share', phase: 'authoritative' })
       return readShareStorageState()
     }
 
     if (current.phase === SHARE_STORAGE_PHASES.CUTOVER_RUNNING && current.backupFile) {
+      log.warn('Share storage cutover recovery: rerunning the JSON migration', { domain: 'share', phase: 'cutover_running', backupFile: current.backupFile })
       setShareStoragePhase(SHARE_STORAGE_PHASES.JSON_AUTHORITATIVE, {
         backupFile: current.backupFile,
         diagnostic: { operation: 'cutover_recovery', recoveredFrom: SHARE_STORAGE_PHASES.CUTOVER_RUNNING },
@@ -244,6 +251,7 @@ export async function initializeShareCutover(options = {}) {
       if (first.count !== second.count || first.digest !== second.digest) {
         throw new Error('Share JSON source changed during cutover double read')
       }
+      log.info('Share storage cutover migration started', { domain: 'share', count: first.count })
       if (!backupFile) backupFile = await writeShareCutoverBackup(first, options.backupDirectory)
       const third = buildShareJsonSnapshot(await readJson())
       if (first.count !== third.count || first.digest !== third.digest) {
@@ -280,7 +288,9 @@ export async function initializeShareCutover(options = {}) {
           diagnostic: first.diagnostics,
         })
       }
-      return readShareStorageState()
+      const result = readShareStorageState()
+      log.info('Share storage cutover migration complete', { domain: 'share', phase: result.phase, count: first.count })
+      return result
     } catch (error) {
       const state = readShareStorageState()
       if (![SHARE_STORAGE_PHASES.JSON_PENDING, SHARE_STORAGE_PHASES.AUTHORITATIVE].includes(state.phase)) {
@@ -288,9 +298,16 @@ export async function initializeShareCutover(options = {}) {
           backupFile,
           diagnostic: { operation: 'cutover', errorName: error?.name || 'Error', error: error?.message || String(error) },
         })
+        log.warn('Share storage cutover failed; keeping the JSON store path', { domain: 'share', phase: 'json_authoritative', errorName: error?.name || 'Error', errorMessage: error?.message })
         return readShareStorageState()
       }
       throw error
     }
-  }, { ...options, storage, operation: 'share-cutover' })
+  }
+  try {
+    return await runShareMaintenance(migrate, { ...options, storage, operation: 'share-cutover' })
+  } catch (error) {
+    log.error('Share storage cutover failed and blocked startup', { domain: 'share', errorName: error?.name || 'Error', errorMessage: error?.message })
+    throw error
+  }
 }

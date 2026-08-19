@@ -2,6 +2,13 @@
 
 每个文件处理一组相关 API 端点。路由在 `server/index.mjs` 中分发。
 
+`server/index.mjs` 内置两个启动相关端点（不经 routes/ 文件）：
+
+- `GET /api/health` — 健康检查；启动维护窗口内返回 `{ok:true, maintenance:true, ...}`，启动失败返回 `{ok:false, startupError}`（进程保持存活、业务 API 持续 503），就绪后返回完整系统状态。
+- `GET /api/migration-status` — 返回 `{ok:true, state:'migrating'|'ready'|'failed', startupError?, domains:{scheduledRuns,sessionState,share,lanAccess}}`（各域 phase/count/updatedAt，域不可读时为 `{phase:'unknown', error}`），供前端迁移进度 UI 轮询。
+
+启动维护窗口（后台初始化链未完成或失败）内，除上述白名单外的所有 `/api/*` 请求统一返回 503 `{ok:false, maintenance:true, state}` + `Retry-After: 5`；非 `/api` 路径（静态资源、`/share/`）不受限，前端页面可先加载。
+
 ---
 
 | 文件 | 行数 | 用途 |

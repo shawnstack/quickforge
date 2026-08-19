@@ -2,32 +2,25 @@
 
 ## 当前状态
 
-- Feature `fix-startup-cutover-replay`（启动 30s~167s：cutover digest 排序 bug 导致迁移永久失败反复重放）已完成，改动三个文件：
-  - `server/sqlite/session-state-repository.mjs`：导出 `digestFromLines` 作为 canonical 全行字节序排序实现（附排序契约注释）。
-  - `server/session-state-cutover.mjs`：`buildSessionJsonSnapshot` / `createStreamingSessionSource` / `writeCutoverBackupStream` 三处源侧 digest 全部改用 `digestFromLines`（此前按 sessionId localeCompare 排序，混合 global+project 桶时与仓储侧整行排序不一致，`replaceAllStream` 校验必炸）；成功 promote 后 `checkpointSessionStorageWal` 执行 `PRAGMA wal_checkpoint(TRUNCATE)` 回收反复失败积累的 GB 级 WAL。
-  - `tests/server/session-state-cutover.test.mjs`：新增回归测试（global zulu + project alpha，sessionId 序与行序交叉，断言 cutover 进 authoritative 且 digest 一致）。
-- 根因链：8-18 起 cutover 每次在 `replaceAllStream` 末尾 digest 校验失败回滚 → `session_storage_state` 永卡 `json_authoritative` → 每次启动重放 4 遍 1.6GB JSON 流读 + 备份写 + SQLite 全量导入再回滚（实测真实数据两种排序 digest `76eadc82…` vs `a40c7ee7…`；一遍流读 23s）。既有测试数据恰好两种排序同序故从未暴露。
-- 验证：session-state 相关 6 个测试文件 52/52 通过（含新回归用例）；3 个改动文件 eslint 干净。
-- 事故与回滚（重要）：验证期间一次 `QUICKFORGE_DATA_DIR` 未设成功的脚本误在真实库执行 cutover（digest 修复实证生效、首次成功 commit），但违反独占前提；手动补救中途被叫停。已回退 `session_storage_state` 为 `json_authoritative`（JSON 权威未动、quick_check ok、5176 存活），残留 SQLite 条目会被下次 cutover 清空重写。临时脚本/数据已清理。
-- 用户数据遗留（范围外，择机）：1045 个 `.tmp` 残留共 2.75GB 可手动删除；WAL 2.8GB 待新代码 cutover 成功后自动回收；npm 全局包发布新版前仍是旧代码慢启动；新版首次启动会一次性完成迁移（预计 1-2 分钟）。
-- feature_list.json / progress.md / session-handoff.md 已同步；docs/wiki 未描述 digest 排序细节，无需更新。
-- 工作区未提交改动：本轮三个文件 + 状态文件，以及此前会话遗留改动（storage/字体/侧栏修复等，见 git status）；按项目规则不做 git commit。
+- 本会话（已 rebase 整合远端并行会话改动后推送）完成 3 个 feature，与远端并行会话的 `fix-startup-cutover-replay`（digest 排序修复）在同一批 cutover 文件上自动合并成功：
+  1. `optimize-cutover-statement-reuse`：4 域 cutover 导入循环内语句复用（SQL 提取为常量 + 可选 statement 参数，行为/事务语义不变）。
+  2. `fix-cutover-startup-bugs`（P0 四项）：scheduled-runs 偷锁补 expires_at 双条件；retainedMaintenance 正常释放分支复位；authoritative 分支 JSON mirror 损坏降级不阻止启动 / SQLite health 失败保持 fail-closed；3 个 cutover 模块补关键日志 + 启动链失败 flushLogger。
+  3. `startup-maintenance-window`（P1）：listen 提前（listen 前仅 ensureStorage+SQLite），其余启动链后台执行；维护 gate（白名单 /api/health、/api/migration-status，其余 /api/* 503+Retry-After，静态放行）；新模块 `server/startup-state.mjs`；fail-closed 从"进程退出"改为"服务存活拒绝业务 API"；前端 migration-status.ts + useAppBootstrap 迁移门 + MigrationProgressView + i18n。新版首次启动 1-2 分钟迁移期间用户看到进度页而非静默。
+- 远端并行会话（rebase 带入）：字体滑块 RAF 合并、归档删除 batch 修复 + 删除前 destroyAgent 堵复活、侧栏列表高度，共 3 个提交；其状态文件还描述了 `fix-startup-cutover-replay`（digest 排序修复），但**该修复代码未推送**（不在库中），待该会话提交后整合。
+- 验证：本会话全量 `npm run test` 209 文件/1709 用例、`npm run lint`、`npm run build` 通过；rebase 整合远端 3 个提交（sidebar/font/metadata-delete 修复）后重跑全量验证再推送。
+- wiki 已同步：`docs/wiki/server/README.md`、`docs/wiki/server/routes/README.md`。
+- feature_list.json / progress.md / session-handoff.md 已同步。
 
 ## 最近提交
 
-- `2f0e01e` chore(status): record completed leftover features and update handoff
-- `65c95d8` fix(ui): follow message font size in subagent run detail tabs
-- `50a88e0` fix(sidebar): clip conversations section and keep footer divider visible
-- `dbc0ca9` feat(agent): refresh session model bindings when custom providers change
-- `73be13d` fix(context-usage): report pure input usage and drop reserved output row
+- 见 `git log --oneline -6`：rebase 后包含远端 3 个修复提交 + 本会话 2 个提交（perf(sqlite) statement reuse / feat(startup) maintenance window）。
 
 ## Next step
 
-- `fix-startup-cutover-replay` 仍为 in_progress（会话存储 cutover 迁移反复重放导致启动 30s~167s），恢复时先读 progress.md 对应 Notes。
-- restore/内存问题剩余候选（范围外，按性价比排序）：
-  1. 前端 `ServerAgent.dispose()` 只关本地 SSE，不通知服务端；可在 dispose 时触发服务端提前回收（或缩短 idle 超时 / agentSessions 加 LRU 上限）。
-  2. SQLite 大事务本身的事件循环阻塞是 node:sqlite 固有行为，分锁只消除排队放大；超大 session 可评估拆事务/更激进的 split 阈值。
-  3. `server/mcp/registry.mjs` / `server/plugins/registry.mjs` 的 `withTimeout` 超时后 `new Promise(() => {})` 吞错，底层操作永不 settle（慢性泄漏）。
-  4. 复现验证：观察新加的 `persist took ...ms (queue wait + write)` warn 日志是否出现在原问题场景。
-- 其他范围外遗留（详见 progress.md Notes）：loadMore 无 loading 守卫、`server/cloud/identity.mjs:92` lint warning、ChatSidebar 删除定时器共享 ref 等前端问题。（storage 删除"复活"路径已由本轮 fix-archived-session-delete-batch 堵住。）
-- 发布 patch 版本：说「发布一个小版本」，按 `docs/architecture/patch-release-runbook.zh-CN.md` 执行（发布前完整跑 test/lint/build）。
+- 无待办 feature。新需求先登记进 feature_list.json 再推进（One Feature at a Time）。
+- 发布 patch 版本（用户数据侧高价值）：新版包含 digest 排序修复 + 维护窗口进度 UI，首次启动会一次性完成 cutover（预计 1-2 分钟，期间显示进度页），之后启动恢复秒级；发布前完整跑 test/lint/build，按 `docs/architecture/patch-release-runbook.zh-CN.md` 执行。
+- 用户数据遗留（择机清理，非代码）：`conversations` 下 1045 个 `.tmp` 残留共 2.75GB 可手动删除；WAL 2.8GB 待新版 cutover 成功后自动 TRUNCATE 回收。
+- P1 已知取舍（择机迭代，详见 progress.md）：迁移轮询网络抖动落错误卡片需手动 Retry；WebSocket upgrade 未 gate；failed 时 CLI spawn 5 分钟超时表现；MigrationProgressView 无渲染测试（仓库无先例）。
+- cutover 遗留候选：⑤门禁豁免不一致、⑥backupFile 复用旧快照；P2 减 pass 快照方案（数量级提速，独立立项）；"彻底不碰 JSON"（session_index 权威源/metadata 驻留/mirror outbox，独立 feature）；桌面端首屏 6.5MB modulepreload 计入可见时间（独立遗留项）。
+- restore/内存问题剩余候选：前端 dispose 通知服务端提前回收、agentSessions LRU、SQLite 大事务拆分、mcp/plugins registry withTimeout 吞错泄漏。
+- 其他范围外遗留（详见 progress.md）：loadMore 无 loading 守卫、`server/cloud/identity.mjs:92` lint warning、ChatSidebar 删除定时器共享 ref、删除-restore 竞态需 tombstone。

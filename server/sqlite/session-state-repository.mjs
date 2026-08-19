@@ -302,7 +302,11 @@ function digestRows(database) {
   }))
 }
 
-function digestFromLines(lines) {
+// Canonical digest over digest lines: lines are sorted in UTF-16 code unit
+// (byte) order before hashing. Source-side cutover digests MUST be computed
+// through this function so replaceAllStream's verification (which uses it
+// directly) never diverges on collation-sensitive session ids.
+export function digestFromLines(lines) {
   return createHash('sha256').update([...lines].sort().join('\n')).digest('hex')
 }
 
@@ -856,6 +860,15 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     }, { mode: 'immediate' })
   }
 
+  // Truncates the WAL back into the main database file. A cutover import (or
+  // repeated failed migration attempts) can leave the WAL far larger than the
+  // database itself; TRUNCATE resets it to zero bytes once the checkpoint
+  // completes. The returned pragma row carries `busy` (nonzero when another
+  // reader held the WAL and some frames were skipped — non-fatal).
+  function checkpointWal() {
+    return storage.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get()
+  }
+
   function listMirrorQueue({ limit } = {}) {
     if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) throw new TypeError('limit must be a positive integer')
     // The queue rows carry full state_json payloads, so callers draining large
@@ -910,6 +923,7 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     count,
     digest,
     rebuildIndex,
+    checkpointWal,
     listMirrorQueue,
     countMirrorQueue,
     acknowledgeMirror,

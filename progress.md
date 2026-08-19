@@ -2,10 +2,10 @@
 
 ## Current State
 
-- Feature: cutover 启动链三连（optimize-cutover-statement-reuse → fix-cutover-startup-bugs → startup-maintenance-window），用户要求同会话连续推进
-- Status: 全部 done — 语句复用、P0 四项修复、P1 listen 提前+维护窗口+迁移进度 UI 均落地；全量 `npm run test`、`npm run lint`、`npm run build` 通过；rebase 整合远端 3 个提交（sidebar/font/metadata-delete）后重跑全量验证再推送
+- Feature: fix-startup-cutover-replay 重建（上一会话 cutover 启动链三连已全部 done；远端会话的 digest 排序修复代码未推送，本会话在本仓库重建）
+- Status: 重建完成并验证通过 — digestFromLines canonical 导出、cutover 源侧三处统一、promote 后 WAL TRUNCATE、新增混合桶大小写测试（改前失败精确复现原 bug、改后通过）；cutover 测试 13/13、startup-maintenance-gate 回归 10/10、eslint 干净；改动未 commit
 - Blockers: 无
-- Next step: 无待办 feature；发布 patch 版本前完整运行 `npm run test`、`npm run lint`、`npm run build`
+- Next step: 真实库下次启动验证 cutover 成功晋升 authoritative + WAL 回收；发布 patch 版本前完整运行 `npm run test`、`npm run lint`、`npm run build`
 
 ## Notes
 
@@ -20,7 +20,7 @@
 
 ## 并行会话记录（rebase 整合）
 
-- ⚠️ 启动慢根因（远端会话 fix-startup-cutover-replay，**代码未推送**——远端仅提交了状态文件描述，`digestFromLines` 导出/三处源侧改用/WAL checkpoint 均不在当前库中，待该会话提交推送后整合，届时注意与本轮语句复用/日志改动在同一批文件上可能再次冲突）：`session_storage_state` 卡在 `json_authoritative`（8-18 起 `Session state replace digest verification failed`），每次启动重放完整迁移（4 遍 1.6GB JSON 全量流读 + 1.4GB 备份写 + SQLite 全量导入再回滚）。排序不一致是核心 bug：JSON 源侧 summary digest 按 sessionId `localeCompare` 排序（`buildSessionJsonSnapshot`/`createStreamingSessionSource`/`writeCutoverBackupStream`），而仓储侧 `digestFromLines`/`verificationDigest` 按**整行字节序**排序。global+project 混合桶时两种排序必然交错不同（实测真实数据：`76eadc82…` vs `a40c7ee7…`），`replaceAllStream` 末尾 digest 校验必炸。现有测试数据集恰好两种排序同序，从未暴露。已验证修复方向：`digestFromLines` 导出为唯一 canonical 实现，cutover 源侧三处全部改用；cutover 成功 promote 后 `PRAGMA wal_checkpoint(TRUNCATE)` 回收反复失败积累的 GB 级 WAL。与维护窗口互补：新版首次启动一次性完成迁移（预计 1-2 分钟）期间用户看到进度页。
+- ✅ 启动慢根因（远端会话 fix-startup-cutover-replay，修复代码未推送，**已在本仓库按其状态文件描述重建并验证通过**）：`session_storage_state` 卡在 `json_authoritative`（8-18 起 `Session state replace digest verification failed`），每次启动重放完整迁移（4 遍 1.6GB JSON 全量流读 + 1.4GB 备份写 + SQLite 全量导入再回滚）。排序不一致是核心 bug：JSON 源侧 summary digest 按 sessionId `localeCompare` 排序（`buildSessionJsonSnapshot`/`createStreamingSessionSource`/`writeCutoverBackupStream`），而仓储侧 `digestFromLines`/`verificationDigest` 按**整行字节序**排序。global+project 混合桶时两种排序必然交错不同（实测真实数据：`76eadc82…` vs `a40c7ee7…`），`replaceAllStream` 末尾 digest 校验必炸。现有测试数据集恰好两种排序同序，从未暴露。修复已在本仓库重建落地：`digestFromLines` 导出为唯一 canonical 实现，cutover 源侧三处（`buildSessionJsonSnapshot` / `createStreamingSessionSource` 的 `getSummary` / `writeCutoverBackupStream` 双 summary 校验）全部改用（records 迭代顺序与流式 bucket 内排序保持原行为，仅 digest 统一）；repository 新增 `checkpointWal()`（`PRAGMA wal_checkpoint(TRUNCATE)`，返回含 busy 的 pragma 行），两个 promote 成功点晋升 authoritative 后经 `checkpointWalAfterPromote` 调用（try/catch，失败仅 log.warn 不阻断）。新增混合桶测试（global 'Zeta' + project 'alpha'，localeCompare 与字节序不同序）：改源码前精确复现 `Session state replace digest verification failed` 回退 json_authoritative，改后端到端晋升 authoritative。与维护窗口互补：新版首次启动一次性完成迁移（预计 1-2 分钟）期间用户看到进度页。
 - 事故记录（远端会话，已回滚）：验证时一次 `QUICKFORGE_DATA_DIR` 未设成功的 node 脚本误在真实库执行了 cutover——digest 修复实证生效（首次成功 commit，2415 会话入库），但违反独占前提（旧服务还在 JSON 模式写数据），随后手动补救被用户叫停。已将 `session_storage_state` 回退为 `json_authoritative`（JSON 权威未动，quick_check ok，5176 服务存活）；SQLite 残留条目会在下次 cutover 的 replaceAllStream 中整体清空重写。教训：对真实数据目录执行任何写路径前必须显式断言 dataDir 非默认值。
 - 用户数据现状（远端会话记录，择机清理）：`conversations` 4.36GB 中 2.75GB 是 1045 个原子写 `.tmp` 残留（JSON 模式高频全量重写的副作用）；WAL 2.8GB 待新代码 cutover 成功后自动 TRUNCATE。npm 全局包（旧代码）在发布新版前仍是慢启动。
 - 桌面端与 `qf` 共用 `server/index.mjs` 初始化链，同根因同修复；桌面端 `ready-to-show` 策略使首屏 6.5MB modulepreload（pi-web-ui 3.75MB + pi-ai 1.6MB）也计入可见时间（独立遗留项，未处理）。

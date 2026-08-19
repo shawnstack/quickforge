@@ -2,25 +2,21 @@
 
 ## 当前状态
 
-- 本会话（已 rebase 整合远端并行会话改动后推送）完成 3 个 feature，与远端并行会话的 `fix-startup-cutover-replay`（digest 排序修复）在同一批 cutover 文件上自动合并成功：
-  1. `optimize-cutover-statement-reuse`：4 域 cutover 导入循环内语句复用（SQL 提取为常量 + 可选 statement 参数，行为/事务语义不变）。
-  2. `fix-cutover-startup-bugs`（P0 四项）：scheduled-runs 偷锁补 expires_at 双条件；retainedMaintenance 正常释放分支复位；authoritative 分支 JSON mirror 损坏降级不阻止启动 / SQLite health 失败保持 fail-closed；3 个 cutover 模块补关键日志 + 启动链失败 flushLogger。
-  3. `startup-maintenance-window`（P1）：listen 提前（listen 前仅 ensureStorage+SQLite），其余启动链后台执行；维护 gate（白名单 /api/health、/api/migration-status，其余 /api/* 503+Retry-After，静态放行）；新模块 `server/startup-state.mjs`；fail-closed 从"进程退出"改为"服务存活拒绝业务 API"；前端 migration-status.ts + useAppBootstrap 迁移门 + MigrationProgressView + i18n。新版首次启动 1-2 分钟迁移期间用户看到进度页而非静默。
-- 远端并行会话（rebase 带入）：字体滑块 RAF 合并、归档删除 batch 修复 + 删除前 destroyAgent 堵复活、侧栏列表高度，共 3 个提交；其状态文件还描述了 `fix-startup-cutover-replay`（digest 排序修复），但**该修复代码未推送**（不在库中），待该会话提交后整合。
-- 验证：本会话全量 `npm run test` 209 文件/1709 用例、`npm run lint`、`npm run build` 通过；rebase 整合远端 3 个提交（sidebar/font/metadata-delete 修复）后重跑全量验证再推送。
-- wiki 已同步：`docs/wiki/server/README.md`、`docs/wiki/server/routes/README.md`。
-- feature_list.json / progress.md / session-handoff.md 已同步。
+- 本会话目标：重建远端会话 `fix-startup-cutover-replay` 的 digest 排序修复（该修复代码从未推送、仅状态文件描述留存；上一会话已完成并推送 cutover 启动链三连：语句复用、P0 四项修复、P1 维护窗口，工作区在 master 干净起点上操作）。
+- 改动文件（未 commit）：
+  - `server/sqlite/session-state-repository.mjs`：`digestFromLines` 加 `export` 成为唯一 canonical digest（整行字节序排序，附说明注释）；repository 新增 `checkpointWal()`（`PRAGMA wal_checkpoint(TRUNCATE)`，复用 `storage.prepare` pragma 模式，返回含 busy/log/checkpointed 的 pragma 行）。
+  - `server/session-state-cutover.mjs`：三处源侧 digest（`buildSessionJsonSnapshot`、`createStreamingSessionSource` 的 `getSummary`、`writeCutoverBackupStream` 双 summary 稳定性校验）全部改用 canonical `digestFromLines`，删除 localeCompare 排序对 digest 的影响（records 数组迭代顺序与流式 bucket 内排序保持原行为不变）；两个 promote 成功点（json_pending 恢复路径 + 迁移完成路径）晋升 authoritative 后调用 `checkpointWalAfterPromote`（try/catch，失败仅 `log.warn` 不阻断 promote，"migration complete" 日志保持完整）。
+  - `tests/server/session-state-cutover.test.mjs`：新增混合桶大小写测试。
+- 验证：新测试在改源码前精确复现原 bug（`Session state replace digest verification failed` → 回退 `json_authoritative`），改后通过；`npx vitest run tests/server/session-state-cutover.test.mjs` 13/13；`npx vitest run tests/server/startup-maintenance-gate.test.mjs` 回归 10/10；`npx eslint`（三个改动文件）干净。
+- feature_list.json：`fix-startup-cutover-replay` 已标 done，files/approach 与本次交付一致，无需改动；progress.md 已将"代码未推送"表述更新为已重建。
 
 ## 最近提交
 
-- 见 `git log --oneline -6`：rebase 后包含远端 3 个修复提交 + 本会话 2 个提交（perf(sqlite) statement reuse / feat(startup) maintenance window）。
+- 本会话改动尚未 commit（3 个源/测试文件 + progress.md / session-handoff.md）。
+- 此前：rebase 后包含远端 3 个修复提交（sidebar/font/metadata-delete）+ 语句复用 / 维护窗口 2 个提交，详见 `git log --oneline -6`。
 
 ## Next step
 
-- 无待办 feature。新需求先登记进 feature_list.json 再推进（One Feature at a Time）。
-- 发布 patch 版本（用户数据侧高价值）：新版包含 digest 排序修复 + 维护窗口进度 UI，首次启动会一次性完成 cutover（预计 1-2 分钟，期间显示进度页），之后启动恢复秒级；发布前完整跑 test/lint/build，按 `docs/architecture/patch-release-runbook.zh-CN.md` 执行。
-- 用户数据遗留（择机清理，非代码）：`conversations` 下 1045 个 `.tmp` 残留共 2.75GB 可手动删除；WAL 2.8GB 待新版 cutover 成功后自动 TRUNCATE 回收。
-- P1 已知取舍（择机迭代，详见 progress.md）：迁移轮询网络抖动落错误卡片需手动 Retry；WebSocket upgrade 未 gate；failed 时 CLI spawn 5 分钟超时表现；MigrationProgressView 无渲染测试（仓库无先例）。
-- cutover 遗留候选：⑤门禁豁免不一致、⑥backupFile 复用旧快照；P2 减 pass 快照方案（数量级提速，独立立项）；"彻底不碰 JSON"（session_index 权威源/metadata 驻留/mirror outbox，独立 feature）；桌面端首屏 6.5MB modulepreload 计入可见时间（独立遗留项）。
-- restore/内存问题剩余候选：前端 dispose 通知服务端提前回收、agentSessions LRU、SQLite 大事务拆分、mcp/plugins registry withTimeout 吞错泄漏。
-- 其他范围外遗留（详见 progress.md）：loadMore 无 loading 守卫、`server/cloud/identity.mjs:92` lint warning、ChatSidebar 删除定时器共享 ref、删除-restore 竞态需 tombstone。
+- 真实库（2.8GB WAL、约 2415 会话、`session_storage_state` 仍为 `json_authoritative`）下次启动验证：cutover 一次性成功晋升 sqlite authoritative（进度页约 1-2 分钟）且 WAL 被 TRUNCATE 回收；成功后择机手动清理 `conversations` 下 1045 个 `.tmp` 残留（2.75GB，非代码）。
+- 发布 patch 版本前完整运行 `npm run test`、`npm run lint`、`npm run build`，按 `docs/architecture/patch-release-runbook.zh-CN.md` 执行。
+- 其余遗留同前（详见 progress.md）：⑤门禁豁免不一致、⑥backupFile 复用旧快照、P2 减 pass 快照方案、"彻底不碰 JSON"、前端 dispose 通知、agentSessions LRU、SQLite 大事务拆分等范围外候选。

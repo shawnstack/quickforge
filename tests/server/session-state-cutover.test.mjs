@@ -141,6 +141,41 @@ describe('session state cutover', () => {
     expect(backup.data.sessionsMetadata).toEqual({ one: repository.findBySessionId('one').metadata })
   })
 
+  it('promotes to authoritative when mixed-scope ids sort differently under localeCompare and byte order', async () => {
+    // 'Zeta' < 'alpha' in UTF-16 byte order ('Z' = 0x5A < 'a' = 0x61), while
+    // localeCompare puts 'alpha' first. A locale-sorted source digest diverged
+    // from the repository's canonical byte-order digest on mixed-scope
+    // libraries, failed replaceAllStream's verification and left every
+    // startup re-running the JSON migration.
+    const dataset = [
+      bucket('Zeta'),
+      bucket('alpha', { scope: 'project', projectId: 'demo' }),
+    ]
+    const snapshot = buildSessionJsonSnapshot(structuredClone(dataset))
+    const source = createStreamingSessionSource(fakeFsAdapter(structuredClone(dataset)))()
+    const streamed = []
+    for await (const record of source.iterate()) streamed.push(record)
+    const summary = source.getSummary()
+    expect(streamed).toHaveLength(2)
+    expect(summary.digest).toBe(snapshot.digest)
+
+    const state = await initializeSessionStateCutover({
+      storage,
+      repository,
+      backupDirectory,
+      fsAdapter: fakeFsAdapter(structuredClone(dataset)),
+      mirror: { upsert: vi.fn(), delete: vi.fn() },
+      owner: { id: '116:test', pid: 116 },
+      pidAlive: () => false,
+    })
+    expect(state.phase).toBe('authoritative')
+    expect(state.digest).toBe(snapshot.digest)
+    expect(repository.count()).toBe(2)
+    expect(repository.findBySessionId('Zeta')).not.toBeNull()
+    expect(repository.findBySessionId('alpha')).not.toBeNull()
+    expect(repository.checkpointWal()).toMatchObject({ busy: 0 })
+  })
+
   it('fails closed when the streaming source changes between the double reads', async () => {
     const dataset = [bucket('one')]
     const adapter = fakeFsAdapter(dataset)

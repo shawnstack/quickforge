@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream, createWriteStream, promises as fs } from 'node:fs'
 import path from 'node:path'
 import { getSqliteStorage } from './sqlite/database.mjs'
-import { createSessionStateRepository, snapshotDigestLine } from './sqlite/session-state-repository.mjs'
+import { createSessionStateRepository, digestFromLines, snapshotDigestLine } from './sqlite/session-state-repository.mjs'
 import {
   SESSION_STORAGE_PHASES,
   configureSessionStateService,
@@ -145,8 +145,10 @@ export function buildSessionJsonSnapshot(buckets) {
   // F9 v7: the canonical snapshot digest line now includes a `messagesDigest`
   // slot. JSON imports are always non-split (messages inline in the body), so
   // they contribute an empty messages digest — matching the repository digest
-  // of freshly imported (non-split) SQLite rows.
-  const digest = createHash('sha256').update(records.map((record) => snapshotDigestLine(record.scope, record.projectId, record.sessionId, record.stateDigest, record.metadataDigest, '')).join('\n')).digest('hex')
+  // of freshly imported (non-split) SQLite rows. The digest goes through the
+  // repository's canonical digestFromLines (byte-order line sort) so it
+  // matches replaceAllStream's verification regardless of record order.
+  const digest = digestFromLines(records.map((record) => snapshotDigestLine(record.scope, record.projectId, record.sessionId, record.stateDigest, record.metadataDigest, '')))
   return { records, count: records.length, digest, diagnostics }
 }
 
@@ -155,8 +157,9 @@ export function buildSessionJsonSnapshot(buckets) {
 // time — so a multi-GB library never needs to be fully resident. Only the
 // small per-pass summary (digest lines + diagnostics) survives a full
 // iteration. Records are normalized by the shared normalizeSessionEntry, and
-// the summary digest is computed from digest lines sorted by sessionId, which
-// matches buildSessionJsonSnapshot's snapshot digest exactly. Bucket-local
+// the summary digest is computed by the canonical repository digestFromLines
+// (byte-order line sort), matching buildSessionJsonSnapshot's snapshot digest
+// and replaceAllStream's verification exactly. Bucket-local
 // iteration order is sorted session ids; duplicate/orphan detection is
 // order-independent. Returns a factory: each call produces one independent
 // { iterate, getSummary } pass over the source.
@@ -193,8 +196,7 @@ export function createStreamingSessionSource(fsAdapter) {
       getSummary() {
         if (!completed) throw new Error('Session source summary is not ready before the iteration completes')
         if (diagnostics.duplicateSessionIds.length > 0) throw new TypeError(`Duplicate session ids across buckets: ${[...new Set(diagnostics.duplicateSessionIds)].join(', ')}`)
-        digestEntries.sort((left, right) => left.sessionId.localeCompare(right.sessionId))
-        const digest = createHash('sha256').update(digestEntries.map((entry) => entry.line).join('\n')).digest('hex')
+        const digest = digestFromLines(digestEntries.map((entry) => entry.line))
         return { count, digest, diagnostics }
       },
     }
@@ -301,8 +303,7 @@ async function writeCutoverBackupStream(createIteration, summary, options = {}) 
       stream.end(() => { cleanup(); resolve() })
     })
     if (count !== summary.count) throw new Error('Session JSON source changed before cutover commit')
-    digestEntries.sort((left, right) => left.sessionId.localeCompare(right.sessionId))
-    const digest = createHash('sha256').update(digestEntries.map((entry) => entry.line).join('\n')).digest('hex')
+    const digest = digestFromLines(digestEntries.map((entry) => entry.line))
     if (digest !== summary.digest) throw new Error('Session JSON source changed before cutover commit')
     const reread = createHash('sha256')
     let rereadBytes = 0
@@ -467,6 +468,18 @@ function verifyIntegrityWithIndexSelfHeal(repository, phase) {
   return second
 }
 
+// Once the migration promotes to authoritative the cutover import has fully
+// settled; truncating the WAL reclaims the space repeated migration replays
+// left behind. Best-effort: a failed or busy checkpoint leaves the WAL for a
+// later auto-checkpoint and must never block the promote.
+function checkpointWalAfterPromote(repository, log) {
+  try {
+    repository.checkpointWal()
+  } catch (error) {
+    log.warn('Session state cutover WAL checkpoint failed after promote', { domain: 'session-state', phase: 'authoritative', errorName: error?.name || 'Error', errorMessage: error?.message })
+  }
+}
+
 export async function initializeSessionStateCutover(options = {}) {
   const storage = options.storage || getSqliteStorage()
   const repository = options.repository || createSessionStateRepository(storage)
@@ -483,6 +496,7 @@ export async function initializeSessionStateCutover(options = {}) {
       if (drained.pending === 0) {
         setSessionStoragePhase(SESSION_STORAGE_PHASES.AUTHORITATIVE, { stateCount: integrity.count, digest: current.digest, backupFile: current.backupFile })
         log.info('Session state cutover promoted to authoritative', { domain: 'session-state', phase: 'authoritative', count: integrity.count })
+        checkpointWalAfterPromote(repository, log)
       }
       return readSessionStorageState()
     }
@@ -554,7 +568,10 @@ export async function initializeSessionStateCutover(options = {}) {
       if (!integrity.ok || integrity.count !== first.count) throw new Error('Session SQLite replace verification failed')
       readSessionStorageState()
       const drained = await drainSessionJsonMirror()
-      if (drained.pending === 0) setSessionStoragePhase(SESSION_STORAGE_PHASES.AUTHORITATIVE, { stateCount: integrity.count, digest: first.digest, backupFile, diagnostic: first.diagnostics })
+      if (drained.pending === 0) {
+        setSessionStoragePhase(SESSION_STORAGE_PHASES.AUTHORITATIVE, { stateCount: integrity.count, digest: first.digest, backupFile, diagnostic: first.diagnostics })
+        checkpointWalAfterPromote(repository, log)
+      }
       const result = readSessionStorageState()
       log.info('Session state cutover migration complete', { domain: 'session-state', phase: result.phase, count: first.count })
       return result

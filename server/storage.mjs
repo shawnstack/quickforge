@@ -985,6 +985,18 @@ export async function readPhysicalSessionMetadataBuckets() {
   return buckets
 }
 
+// Phase-aware session_index bucket source: while the session state service is
+// authoritative (SQLite), bucket summaries come from the authoritative store
+// itself — the same source that maintains session_index transactionally — so
+// a lagging JSON mirror (sqlite_authoritative_json_pending) no longer flaps
+// index readiness into digest-mismatch rebuilds. In JSON-authoritative and
+// cutover phases the physical JSON files stay the source of truth.
+export async function readAuthoritativeSessionMetadataBuckets() {
+  const facade = await sessionStateFacade()
+  if (facade) return facade.readSessionMetadataBuckets()
+  return readPhysicalSessionMetadataBuckets()
+}
+
 async function writeSessionStore(storeName, data) {
   if (storeName === 'sessions') {
     await writeSessionValues(data)

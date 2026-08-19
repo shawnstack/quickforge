@@ -225,8 +225,16 @@ function messageStoragePlan(state, existing) {
     const tail = incoming.slice(storedCount)
     if (tail.length === 0) {
       if (storedCount > 0) {
-        const last = repository().readMessagesPage({ scope: existing.scope, projectId: existing.projectId, sessionId: existing.sessionId, limit: 1, offset: storedCount - 1 })
-        if (last.messages.length > 0 && last.messages[0].digest !== messageDigest(incoming[storedCount - 1])) {
+        const last = repository().readLastMessage({ scope: existing.scope, projectId: existing.projectId, sessionId: existing.sessionId })
+        if (last && last.digest !== messageDigest(incoming[storedCount - 1])) {
+          return { mode: 'replace', messages: incoming }
+        }
+        // Same-length in-place edits in the middle keep count and tail digest
+        // identical; probe one deterministic middle row so the edit is not
+        // silently dropped. A missing row also forces the full rewrite.
+        const midSeq = Math.floor(storedCount / 2)
+        if (midSeq !== storedCount - 1
+          && repository().readMessageDigestAt({ scope: existing.scope, projectId: existing.projectId, sessionId: existing.sessionId, seq: midSeq }) !== messageDigest(incoming[midSeq])) {
           return { mode: 'replace', messages: incoming }
         }
       }
@@ -324,8 +332,7 @@ export function storedMessagesState(sessionId) {
   const count = repository().messageCount({ scope: record.scope, projectId: record.projectId, sessionId })
   let tailDigest = ''
   if (count > 0) {
-    const last = repository().readMessagesPage({ scope: record.scope, projectId: record.projectId, sessionId, limit: 1, offset: count - 1 })
-    tailDigest = last.messages[0]?.digest ?? ''
+    tailDigest = repository().readLastMessage({ scope: record.scope, projectId: record.projectId, sessionId })?.digest ?? ''
   }
   return { split: true, count, tailDigest }
 }
@@ -429,6 +436,24 @@ export function readSessionStateStore(storeName, { scope, projectId } = {}) {
     return scope !== 'project' || record.projectId === projectId
   })
   return Object.fromEntries(records.map((record) => [record.sessionId, storeName === 'sessions' ? assembleState(record) : record.metadata]))
+}
+
+// session_index readiness source in SQLite-readable phases: bucket-shaped
+// metadata read straight from the authoritative store — the same store whose
+// repository maintains session_index transactionally — so a lagging JSON
+// mirror (pending drain) never flaps index readiness. Only metadata_json is
+// loaded; state bodies and message rows stay untouched.
+export function readSessionMetadataBuckets() {
+  if (!sqliteReadable()) throw new Error('Session metadata buckets require a SQLite-readable phase')
+  const rows = storage().prepare('SELECT scope, project_id, session_id, metadata_json FROM session_states ORDER BY scope, project_id, session_id').all()
+  const buckets = new Map()
+  for (const row of rows) {
+    const projectId = row.scope === 'project' ? row.project_id : null
+    const key = `${row.scope}\0${projectId || ''}`
+    if (!buckets.has(key)) buckets.set(key, { scope: row.scope, projectId, metadata: {} })
+    buckets.get(key).metadata[row.session_id] = JSON.parse(row.metadata_json)
+  }
+  return [...buckets.values()]
 }
 
 export function saveSessionStatePair({ state, metadata, expectedRevision = null, expectedStateVersion = null } = {}) {
@@ -684,19 +709,33 @@ export function replaceSessionStateSnapshot({ sessions, sessionsMetadata }, { me
 export async function drainSessionJsonMirror() {
   if (drainPromise) return drainPromise
   drainPromise = (async () => {
-    if (!mirrorAdapter) return { drained: 0, pending: repository().countMirrorQueue() }
+    if (!mirrorAdapter) return { drained: 0, pending: repository().countMirrorQueue(), deadLetters: repository().countMirrorDeadLetters() }
     let drained = 0
     // Page through the outbox in small batches. A failed entry gets its
     // updated_at bumped by failMirror, so it sorts behind the remaining
     // entries and the next page drains others first; entries that keep
-    // failing are retried by the scheduled drain. A batch with zero
-    // acknowledgements stops the loop (no head-of-line livelock).
+    // failing are retried by the scheduled drain until attempts are exhausted
+    // (MIRROR_MAX_ATTEMPTS), after which they stay queued as dead letters and
+    // no longer block pending. A batch with zero acknowledgements stops the
+    // loop (no head-of-line livelock).
     for (;;) {
       const batch = repository().listMirrorQueue({ limit: MIRROR_DRAIN_BATCH_LIMIT })
       if (batch.length === 0) break
-      let acknowledged = 0
+      // Coalesce by session key: only the newest queued operation per key is
+      // worth materializing (a delete landing after an upsert wins by sort
+      // order). The queue is keyed per session, so this mainly guards the
+      // snapshot against saves landing mid-drain.
+      const latestByKey = new Map()
       for (const entry of batch) {
+        latestByKey.set(`${entry.scope}${entry.projectId || ''}${entry.sessionId}`, entry)
+      }
+      let acknowledged = 0
+      for (const entry of latestByKey.values()) {
         try {
+          // A save that landed after the batch snapshot supersedes this entry;
+          // skip the (potentially expensive) materialization — the newer
+          // payload drains in a later round.
+          if (repository().mirrorQueueRevision(entry) !== entry.revision) continue
           if (entry.operation === 'upsert') {
             const state = entry.state?.messageStorage === MESSAGES_SPLIT_VALUE
               ? { ...entry.state, messages: allMessages(entry) }
@@ -705,16 +744,20 @@ export async function drainSessionJsonMirror() {
           } else {
             await mirrorAdapter.delete(entry)
           }
-          repository().acknowledgeMirror(entry)
-          drained += 1
-          acknowledged += 1
+          // acknowledgeMirror deletes by (key, revision): a false result means
+          // a newer save replaced the row mid-materialization; leave it queued
+          // so the newer payload is drained instead of counting stale work.
+          if (repository().acknowledgeMirror(entry)) {
+            drained += 1
+            acknowledged += 1
+          }
         } catch (error) {
           repository().failMirror(entry, error)
         }
       }
       if (acknowledged === 0) break
     }
-    return { drained, pending: repository().countMirrorQueue() }
+    return { drained, pending: repository().countMirrorQueue(), deadLetters: repository().countMirrorDeadLetters() }
   })().finally(() => { drainPromise = null })
   const result = await drainPromise
   if (result.pending > 0) scheduleSessionJsonMirrorDrain()
@@ -725,9 +768,10 @@ export function getSessionStateDiagnostics() {
   const state = (() => {
     try { return readSessionStorageState() } catch { return { phase: cachedPhase } }
   })()
-  if (!sqliteReadable()) return { ...state, authority: 'json', integrity: null, mirrorPending: null }
+  if (!sqliteReadable()) return { ...state, authority: 'json', integrity: null, mirrorPending: null, mirrorDeadLetters: null }
   let integrity
   let mirrorPending = null
+  let mirrorDeadLetters = null
   try {
     // Lightweight (SQL-level) integrity: startup diagnostics on large stores
     // must not re-parse every stored body. The result carries
@@ -735,8 +779,9 @@ export function getSessionStateDiagnostics() {
     // entry points (backup export/restore, downgrade tooling).
     integrity = repository().verifyIntegrity({ quickCheck: true })
     mirrorPending = repository().countMirrorQueue()
+    mirrorDeadLetters = repository().countMirrorDeadLetters()
   } catch (error) {
     integrity = { ok: false, error: error?.message || String(error) }
   }
-  return { ...state, authority: 'sqlite', integrity, mirrorPending }
+  return { ...state, authority: 'sqlite', integrity, mirrorPending, mirrorDeadLetters }
 }

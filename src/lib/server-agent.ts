@@ -148,7 +148,7 @@ class GlobalAgentSseClient {
       'tool_execution_start', 'tool_execution_update', 'tool_execution_end',
       'error', 'session_created', 'title_updated', 'session_forked', 'scheduled_task_notification', 'scheduled_task_started',
       'tool_approval_required', 'auto_compact_threshold_reached', 'auto_compact_approval_required', 'auto_compact_completed', 'auto_compact_failed', 'messages_replaced',
-      'acp_session_usage_update', 'acp_session_update',
+      'acp_session_usage_update', 'acp_session_update', 'persist_degraded',
     ]
 
     const handleMessage = (eventType?: string) => (e: MessageEvent) => {
@@ -387,6 +387,7 @@ export type ServerAgentConfig = {
     pendingToolApproval?: ServerAgentPendingToolApproval | null
     pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
     acpSession?: OpenCodeAcpSession | null
+    persistDegraded?: boolean
     stateVersion?: number
   }
 }
@@ -450,6 +451,8 @@ export type ServerAgentStateSnapshot = {
   isStreaming?: boolean
   errorMessage?: string
   acpSession?: OpenCodeAcpSession | null
+  /** Server failed to persist recent messages after CAS conflicts. */
+  persistDegraded?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -503,6 +506,7 @@ function initialStateFromSnapshot(snapshot: ServerAgentStateSnapshot): NonNullab
     pendingToolApproval: snapshot.pendingToolApproval,
     pendingAutoCompactApproval: snapshot.pendingAutoCompactApproval,
     acpSession: snapshot.acpSession,
+    persistDegraded: snapshot.persistDegraded === true ? true : undefined,
     stateVersion: snapshot.stateVersion,
   }
 }
@@ -593,6 +597,7 @@ export class ServerAgent {
     pendingToolApproval?: ServerAgentPendingToolApproval | null
     pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
     acpSession?: OpenCodeAcpSession | null
+    persistDegraded?: boolean
   }
   streamFn = streamSimple
   getApiKey?: (provider: string) => Promise<string | undefined>
@@ -660,6 +665,7 @@ export class ServerAgent {
       pendingToolApproval: init.pendingToolApproval ?? null,
       pendingAutoCompactApproval: init.pendingAutoCompactApproval ?? null,
       acpSession: init.acpSession ?? null,
+      persistDegraded: init.persistDegraded === true ? true : undefined,
     }
 
     // Proxy that auto-syncs thinkingLevel changes to the server
@@ -1117,7 +1123,7 @@ export class ServerAgent {
         // Guard against SSE reconnect overwriting client messages with a stale
         // server snapshot: only accept server messages if the client has none
         // (initial load) or if the server has at least as many messages.
-        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; messagesSummary?: { count?: number }; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; accessMode?: AgentAccessMode; yoloMode?: boolean; isStreaming?: boolean; status?: string; pendingToolCalls?: string[]; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null; pendingToolApproval?: ServerAgentPendingToolApproval | null; pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null; acpSession?: OpenCodeAcpSession | null }
+        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; messagesSummary?: { count?: number }; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; accessMode?: AgentAccessMode; yoloMode?: boolean; isStreaming?: boolean; status?: string; pendingToolCalls?: string[]; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null; pendingToolApproval?: ServerAgentPendingToolApproval | null; pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null; acpSession?: OpenCodeAcpSession | null; persistDegraded?: boolean }
         if (s.systemPrompt !== undefined) {
           this.state.systemPrompt = s.systemPrompt
         }
@@ -1165,6 +1171,8 @@ export class ServerAgent {
         if (s.acpSession !== undefined) {
           this.state.acpSession = s.acpSession
         }
+        // State frames are full snapshots: absence of the flag means healthy.
+        this.state.persistDegraded = s.persistDegraded === true ? true : undefined
         let wasStreaming = this.state.isStreaming
         if (s.isStreaming !== undefined) {
           wasStreaming = this.state.isStreaming
@@ -1443,6 +1451,14 @@ export class ServerAgent {
         // Forward as-is
         break
 
+      case 'persist_degraded': {
+        // Authoritative persist was skipped after CAS conflicts (or recovered).
+        // Update the flag and forward so the panel can show/hide the warning.
+        const degradedEvent = event as { persistDegraded?: unknown }
+        this.state.persistDegraded = degradedEvent.persistDegraded === true ? true : undefined
+        break
+      }
+
       case 'tool_approval_required': {
         const approvalEvent = event as unknown as ServerAgentPendingToolApproval
         if (typeof approvalEvent.toolCallId === 'string' && typeof approvalEvent.toolName === 'string') {
@@ -1518,6 +1534,7 @@ export class ServerAgent {
         isStreaming?: boolean
         status?: string
         errorMessage?: string
+        persistDegraded?: boolean
       }>(url, STATUS_REQUEST_TIMEOUT_MS)
       if (!res.ok) {
         if (res.status === 404 && this.state.isStreaming) {
@@ -1530,6 +1547,9 @@ export class ServerAgent {
 
       const typedStatus = status ?? {}
       this.lastSseEventAt = Date.now()
+      if (typedStatus.persistDegraded !== undefined) {
+        this.state.persistDegraded = typedStatus.persistDegraded === true ? true : undefined
+      }
 
       const serverStateVersion = typeof typedStatus.stateVersion === 'number' && Number.isFinite(typedStatus.stateVersion)
         ? typedStatus.stateVersion
@@ -1732,6 +1752,8 @@ export class ServerAgent {
       if (state.acpSession !== undefined) {
         this.state.acpSession = state.acpSession
       }
+      // /state is a full snapshot: absence of the flag means healthy.
+      this.state.persistDegraded = state.persistDegraded === true ? true : undefined
       if (state.isStreaming !== undefined) {
         const wasStreaming = this.state.isStreaming
         this.state.isStreaming = Boolean(state.isStreaming)
@@ -1916,6 +1938,7 @@ export class ServerAgent {
         pendingToolApproval: serverState.pendingToolApproval as ServerAgentPendingToolApproval | null | undefined,
         pendingAutoCompactApproval: serverState.pendingAutoCompactApproval as ServerAgentPendingAutoCompactApproval | null | undefined,
         acpSession: serverState.acpSession as OpenCodeAcpSession | null | undefined,
+        persistDegraded: serverState.persistDegraded === true ? true : undefined,
         stateVersion: serverState.stateVersion as number | undefined,
       },
     })

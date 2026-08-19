@@ -7,6 +7,7 @@ import { createScheduledTaskRunsRepository } from '../../server/sqlite/scheduled
 import { initializeScheduledRunsCutover } from '../../server/scheduled-runs-cutover.mjs'
 import {
   MAINTENANCE_API_WHITELIST,
+  STARTUP_RECOVERY_GUIDANCE,
   STARTUP_STATES,
   getStartupError,
   getStartupState,
@@ -14,6 +15,7 @@ import {
   resetStartupState,
   resolveMaintenanceGate,
   setStartupState,
+  withStartupRecoveryGuidance,
 } from '../../server/startup-state.mjs'
 
 describe('startup maintenance state machine', () => {
@@ -44,6 +46,23 @@ describe('startup maintenance state machine', () => {
     setStartupState(STARTUP_STATES.FAILED, 'boom')
     setStartupState(STARTUP_STATES.MIGRATING)
     expect(getStartupError()).toBeNull()
+  })
+})
+
+describe('startup recovery guidance', () => {
+  it('keeps the original error text and appends actionable recovery steps', () => {
+    const message = withStartupRecoveryGuidance('cutover integrity failure')
+    expect(message.startsWith('cutover integrity failure')).toBe(true)
+    expect(message).toContain('node server/maintenance/downgrade-session-state-v1.mjs --dry-run')
+    expect(message).toContain('node server/maintenance/export-session-state-v1.mjs')
+    expect(message).toContain('docs/architecture/session-storage-recovery-runbook.zh-CN.md')
+    // Multi-line: the original message and the guidance stay separate paragraphs.
+    expect(message.split('\n').length).toBeGreaterThan(3)
+  })
+
+  it('falls back to a generic prefix when the error message is missing', () => {
+    expect(withStartupRecoveryGuidance(null).startsWith('Startup failed')).toBe(true)
+    expect(withStartupRecoveryGuidance(undefined)).toContain(STARTUP_RECOVERY_GUIDANCE)
   })
 })
 

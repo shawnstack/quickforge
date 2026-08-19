@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 330" font-family="sans-serif" font-size="12">
+  <defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#555"/></marker></defs>
+  <text x="10" y="20" font-size="14" font-weight="bold">单次 save 的写放大链路（全程同步阻塞 event loop）</text>
+
+  <rect x="10" y="40" width="150" height="44" rx="6" fill="#e8f0fe" stroke="#4285f4"/>
+  <text x="85" y="58" text-anchor="middle">agent 保存点</text>
+  <text x="85" y="74" text-anchor="middle" font-size="10">message_end / agent_end</text>
+
+  <rect x="200" y="40" width="240" height="44" rx="6" fill="#fef7e0" stroke="#f9ab00"/>
+  <text x="320" y="52" text-anchor="middle">读旧行 + JSON.parse ×2</text>
+  <text x="320" y="66" text-anchor="middle">structuredClone + 序列化 ×2~3</text>
+  <text x="320" y="79" text-anchor="middle">canonicalize + sha256（重复 2~3 次）</text>
+
+  <rect x="480" y="40" width="270" height="44" rx="6" fill="#fce8e6" stroke="#ea4335"/>
+  <text x="615" y="52" text-anchor="middle">一个事务内写入：</text>
+  <text x="615" y="66" text-anchor="middle">session_states + session_messages + 索引</text>
+  <text x="615" y="79" text-anchor="middle">+ mirror outbox 行（又一份完整 state_json）</text>
+
+  <rect x="480" y="120" width="270" height="44" rx="6" fill="#fce8e6" stroke="#ea4335"/>
+  <text x="615" y="138" text-anchor="middle">drain：split 会话全量读回 + JSON.parse</text>
+  <text x="615" y="152" text-anchor="middle">整体重写会话 JSON 文件（抵消增量收益）</text>
+
+  <rect x="10" y="120" width="240" height="44" rx="6" fill="#e6f4ea" stroke="#34a853"/>
+  <text x="130" y="138" text-anchor="middle">append 去重：加载全部 message_id</text>
+  <text x="130" y="152" text-anchor="middle">O(存量) 而非 O(增量)，随会话变长线性恶化</text>
+
+  <line x1="160" y1="62" x2="200" y2="62" stroke="#555" marker-end="url(#a)"/>
+  <line x1="440" y1="62" x2="480" y2="62" stroke="#555" marker-end="url(#a)"/>
+  <line x1="615" y1="84" x2="615" y2="120" stroke="#555" marker-end="url(#a)"/>
+  <line x1="250" y1="84" x2="130" y2="120" stroke="#555" stroke-dasharray="4" marker-end="url(#a)"/>
+
+  <text x="10" y="200" font-size="13" font-weight="bold">写量 ≈ 纯 JSON 方案的 3~4 倍（SQLite 行 + outbox 完整副本 + WAL + JSON 物化）</text>
+
+  <rect x="10" y="220" width="740" height="95" rx="6" fill="#f8f9fa" stroke="#dadce0"/>
+  <text x="24" y="244" font-weight="bold">代价对应的设计收益：</text>
+  <text x="24" y="264">• mirror 保证 JSON 始终是"完整可降级形态" → 旧版本/外部工具可无损回退</text>
+  <text x="24" y="282">• outbox 与业务提交同事务 → 镜像失败不影响业务正确性</text>
+  <text x="24" y="300">• 但这是"过渡设施的成本 + 永久设施的存在感"，文档未定义其生命周期终点</text>
+</svg>

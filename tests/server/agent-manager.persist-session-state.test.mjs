@@ -41,6 +41,26 @@ vi.mock('../../server/plugins/registry.mjs', () => ({
   isPluginToolName: vi.fn(() => false),
 }))
 
+// Fault injection for saveSessionStatePair: while `remaining` > 0 every save
+// throws a SESSION_STATE_CONFLICT so the CAS merge-retry loop in agent-manager
+// can be driven to exhaustion deterministically.
+const saveConflictFault = vi.hoisted(() => ({ remaining: 0 }))
+vi.mock('../../server/session-state-service.mjs', async (importActual) => {
+  const actual = await importActual()
+  return {
+    ...actual,
+    saveSessionStatePair: (...args) => {
+      if (saveConflictFault.remaining > 0) {
+        saveConflictFault.remaining -= 1
+        const error = new Error('injected CAS conflict')
+        error.errorCode = 'SESSION_STATE_CONFLICT'
+        throw error
+      }
+      return actual.saveSessionStatePair(...args)
+    },
+  }
+})
+
 const PINNED_AT = '2026-01-01T00:00:00.000Z'
 
 function firstMessage() {
@@ -56,6 +76,7 @@ describe('agent persist in authoritative session state', () => {
   let storageModule
 
   beforeEach(async () => {
+    saveConflictFault.remaining = 0
     previousDataDir = process.env.QUICKFORGE_DATA_DIR
     tmpDir = await mkdtemp(path.join(os.tmpdir(), 'quickforge-agent-persist-'))
     process.env.QUICKFORGE_DATA_DIR = path.join(tmpDir, 'data')
@@ -349,6 +370,77 @@ describe('agent persist in authoritative session state', () => {
       expect(restored.persistedTailDigest).toMatch(/^[0-9a-f]{64}$/)
       expect(restored.persistedStorageRevision).toBe(repository.findBySessionId(sessionId).revision)
       expect(restored.agent.state.messages).toHaveLength(205)
+    } finally {
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
+
+  it('surfaces persist degradation after CAS retries are exhausted and clears it on recovery', async () => {
+    const sessionId = 'agent-degraded'
+    const session = await agentManager.createAgent(sessionId, {
+      scope: 'global',
+      model: { provider: 'mock', id: 'mock-model' },
+      systemPrompt: '',
+      messages: firstMessage(),
+      title: 'Degraded session',
+    })
+
+    try {
+      await agentManager.persistSessionState(session)
+      expect(session.persistDegraded).toBeNull()
+      expect(agentManager.getSessionState(sessionId).persistDegraded).toBeUndefined()
+
+      // Every save conflicts with an unchanged body, so the merge-retry loop
+      // adopts the fresh baseline and retries until the attempt budget runs out.
+      saveConflictFault.remaining = 10
+      session.agent.state.messages.push({ role: 'assistant', content: 'at risk', timestamp: '2026-01-05T00:00:00.000Z' })
+      await agentManager.persistSessionState(session)
+
+      expect(session.persistConflictCount).toBe(1)
+      expect(session.persistDegraded).toMatchObject({ attempts: 3 })
+      expect(agentManager.getSessionState(sessionId).persistDegraded).toBe(true)
+      expect(agentManager.getSessionStatus(sessionId).persistDegraded).toBe(true)
+
+      // A later successful persist clears the degradation marker everywhere.
+      saveConflictFault.remaining = 0
+      session.agent.state.messages.push({ role: 'user', content: 'recovered', timestamp: '2026-01-06T00:00:00.000Z' })
+      await agentManager.persistSessionState(session)
+
+      expect(session.persistDegraded).toBeNull()
+      expect(agentManager.getSessionState(sessionId).persistDegraded).toBeUndefined()
+      expect(agentManager.getSessionStatus(sessionId).persistDegraded).toBeUndefined()
+      expect(repository.findBySessionId(sessionId).state.messages.at(-1).content).toBe('recovered')
+    } finally {
+      saveConflictFault.remaining = 0
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
+
+  it('marks persist degradation when the other writer changed agent-owned fields', async () => {
+    const sessionId = 'agent-degraded-conflict'
+    const session = await agentManager.createAgent(sessionId, {
+      scope: 'global',
+      model: { provider: 'mock', id: 'mock-model' },
+      systemPrompt: '',
+      messages: firstMessage(),
+      title: 'Degraded conflict',
+    })
+
+    try {
+      await agentManager.persistSessionState(session)
+      const first = repository.findBySessionId(sessionId)
+      repository.save({
+        ...first,
+        state: { ...first.state, messages: [{ role: 'user', content: 'external write' }] },
+        metadata: { ...first.metadata, messageCount: 1 },
+      }, { expectedRevision: first.revision })
+
+      session.agent.state.messages.push({ role: 'assistant', content: 'agent loses', timestamp: '2026-01-07T00:00:00.000Z' })
+      await agentManager.persistSessionState(session)
+
+      expect(session.persistConflictCount).toBe(1)
+      expect(session.persistDegraded).toMatchObject({ attempts: 1 })
+      expect(agentManager.getSessionState(sessionId).persistDegraded).toBe(true)
     } finally {
       await agentManager.destroyAgent(sessionId)
     }

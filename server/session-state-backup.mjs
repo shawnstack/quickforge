@@ -14,6 +14,7 @@ import {
   replaceSessionStateSnapshot,
 } from './session-state-service.mjs'
 import { storageDir } from './storage.mjs'
+import { logger } from './utils/logger.mjs'
 
 const RESTORE_PLAN_FILE = path.join(storageDir, 'session-state-restore-plan.json')
 const ROLL_FORWARD_STATUSES = new Set(['prepared', 'applying', 'target_applied'])
@@ -100,6 +101,40 @@ export async function exportSessionStateForBackup(options = {}) {
   }
   if (!options.maintenance || currentSessionStateMaintenanceContext()) return operation()
   return runSessionStateMaintenance(operation, { storage: options.storage, operation: 'session-state-backup-export' })
+}
+
+/**
+ * Manual integrity verification entry point for the maintenance route
+ * (design review suggestion 9): the startup chain only runs the lightweight
+ * SQL-level check, so silent per-row digest rot would stay invisible until
+ * an offline full verification. `{ full: true }` recomputes every stored
+ * digest (quickCheck: false); the default is the lightweight check. Runs
+ * under the session state maintenance lock (same pattern as the backup
+ * export above) so the scan serializes with cutover/restore, and returns
+ * only summary counters plus the elapsed time — never row payloads.
+ */
+export async function verifySessionStateIntegrityForMaintenance(options = {}) {
+  const operation = async () => {
+    const repository = options.repository || repositoryRequired()
+    const startedAt = Date.now()
+    const integrity = repository.verifyIntegrity({ quickCheck: options.full !== true })
+    return { ...integrity, full: options.full === true, durationMs: Date.now() - startedAt }
+  }
+  if (!options.maintenance || currentSessionStateMaintenanceContext()) return operation()
+  return runSessionStateMaintenance(operation, { storage: options.storage, operation: 'session-state-verify-integrity' })
+}
+
+// A restore rewrites every session row inside one transaction, so the WAL
+// grows by roughly the library size before converging; truncating right
+// after success reclaims that space (same rationale as the post-promote
+// checkpoint in the cutover). Best-effort: a busy or failed checkpoint
+// leaves the WAL to a later auto-checkpoint and must never fail the restore.
+function checkpointWalAfterRestore(repository, operation) {
+  try {
+    repository.checkpointWal()
+  } catch (error) {
+    logger.warn('Session state WAL checkpoint failed after restore', { domain: 'session-state', operation, errorName: error?.name || 'Error', errorMessage: error?.message })
+  }
 }
 
 async function writePlan(plan, planFile = RESTORE_PLAN_FILE) {
@@ -214,6 +249,7 @@ export async function restoreSessionStateSnapshot(values, options = {}) {
       plan = { ...plan, status: 'target_applied' }
       await writePlan(plan, planFile)
       await fs.rm(planFile, { force: true })
+      checkpointWalAfterRestore(repository, 'session-state-restore')
       return { sessions: targetCount, sessionsMetadata: targetCount }
     } catch (error) {
       try {
@@ -274,6 +310,7 @@ export async function recoverSessionStateRestorePlan({
     const integrity = repository.verifyIntegrity()
     if (!integrity.ok) throw new Error('Session state restore plan recovery integrity verification failed')
     await fs.rm(planFile, { force: true })
+    checkpointWalAfterRestore(repository, 'session-state-restore-recovery')
     return true
   }, { storage, operation: 'session-state-restore-recovery' })
 }

@@ -92,8 +92,8 @@
         "docs/wiki/server/README.md",
         "docs/wiki/server/routes/README.md"
       ]
-    }
-    , {
+    },
+    {
       "id": "tune-sidebar-project-session-list-height",
       "name": "侧栏置顶/项目展开列表高度调整为最多显示5条",
       "status": "done",
@@ -134,6 +134,124 @@
         "src/lib/font-size-settings.ts",
         "src/lib/appearance-settings-tab.ts",
         "tests/frontend/font-size-settings-apply.test.ts"
+      ]
+    },
+    {
+      "id": "review-fix-split-mid-edit-detection",
+      "name": "修复 split 会话中部原位编辑被静默丢弃",
+      "status": "done",
+      "approach": "messageStoragePlan 的 body-only 判定在计数+尾 digest 之外增加中部采样 digest 校验（确定性选取中间消息比对），不一致则降级为 replace；保留纯追加零额外成本",
+      "files": [
+        "server/session-state-service.mjs",
+        "tests/server/session-state-messages.test.mjs"
+      ]
+    },
+    {
+      "id": "review-surface-persist-conflict",
+      "name": "持久化冲突耗尽后向用户表面化",
+      "status": "done",
+      "approach": "persist 冲突重试耗尽后会话标记 degraded 并随状态端点/SSE 暴露，前端提示用户重试/刷新，替代仅 warn 日志的静默放弃",
+      "files": [
+        "server/agent-manager.mjs",
+        "server/routes/agent.mjs",
+        "src/lib/server-agent.ts",
+        "src/lib/i18n.ts"
+      ]
+    },
+    {
+      "id": "review-benchmark-sqlite-synchronous",
+      "name": "synchronous=NORMAL vs FULL 实测并定案",
+      "status": "done",
+      "approach": "新增基准脚本模拟保存热路径分别实测 NORMAL/FULL 耗时，按数据决策并在 sqlite-storage-foundation 文档显式记录取舍与丢失窗口",
+      "files": [
+        "scripts/sqlite-synchronous-benchmark.mjs",
+        "docs/architecture/sqlite-storage-foundation.zh-CN.md"
+      ]
+    },
+    {
+      "id": "review-switch-sqlite-synchronous-full",
+      "name": "server PRAGMA synchronous 切换为 FULL",
+      "status": "done",
+      "approach": "按 sqlite-storage-foundation §3.1 定案将 SQLITE_SYNCHRONOUS 1→2、PRAGMA synchronous=NORMAL→FULL（附定案注释），health 摘要 normal→full，同步测试断言与 wiki/架构文档现状描述",
+      "files": [
+        "server/sqlite/database.mjs",
+        "tests/server/sqlite-storage-foundation.test.mjs",
+        "docs/architecture/sqlite-storage-foundation.zh-CN.md",
+        "docs/architecture/session-storage-current-architecture.zh-CN.md",
+        "docs/wiki/server/README.md"
+      ]
+    },
+    {
+      "id": "review-failclosed-recovery-guidance",
+      "name": "fail-closed 启动给出可操作恢复指引",
+      "status": "done",
+      "approach": "启动失败错误信息附带具体恢复命令/文档指引；新增一页式变砖自救 runbook；Desktop/前端错误页展示恢复建议",
+      "files": [
+        "server/index.mjs",
+        "docs/architecture/session-storage-recovery-runbook.zh-CN.md"
+      ]
+    },
+    {
+      "id": "review-optimize-save-hot-path",
+      "name": "保存热路径性能优化（去重 IN 查询/尾行 DESC/语句缓存）",
+      "status": "done",
+      "approach": "append 去重从加载全部 message_id 改为对 incoming id 的 IN 查询（O(增量)）；取尾行从深 OFFSET 改为 ORDER BY seq DESC LIMIT 1；热路径常用语句 prepare 缓存复用",
+      "files": [
+        "server/sqlite/session-state-repository.mjs",
+        "server/session-state-service.mjs",
+        "server/sqlite/database.mjs"
+      ]
+    },
+    {
+      "id": "review-mirror-lifecycle-and-drain",
+      "name": "JSON mirror 终态决策 + drain 优化",
+      "status": "done",
+      "approach": "文档明确 mirror 为一等永久设施或给出退役条件；drain 对未变化条目跳过物化（digest 比对），降低大会话镜像 I/O",
+      "files": [
+        "server/session-state-service.mjs",
+        "docs/architecture/session-state-transactional-storage.zh-CN.md"
+      ]
+    },
+    {
+      "id": "review-index-authoritative-readiness",
+      "name": "权威态 index 就绪判定改用 SQLite 源 + F7 机制退役计划",
+      "status": "done",
+      "approach": "pending/authoritative 相位下 session_index 就绪判定的 readBuckets 改用 SQLite 快照源，消除镜像滞后导致的降级窗口；文档声明 F7 shadow/TTL 机制退役计划",
+      "files": [
+        "server/index.mjs",
+        "server/session-index-service.mjs",
+        "docs/architecture/session-index-query-migration.zh-CN.md"
+      ]
+    },
+    {
+      "id": "review-docs-current-architecture",
+      "name": "会话存储当前架构单一事实文档 + 文档修正",
+      "status": "done",
+      "approach": "以 F9 完成态为基准写当前架构单一事实文档（旧文档标注为历史决策记录）；补全 phase 状态机图（含 downgrade 回退边）；修正 cutover 启动链 listen 前/后描述",
+      "files": [
+        "docs/architecture/session-storage-current-architecture.zh-CN.md",
+        "docs/architecture/session-state-transactional-storage.zh-CN.md"
+      ]
+    },
+    {
+      "id": "review-integrity-check-and-hardening",
+      "name": "完整 digest 校验触发入口 + 恢复路径备份复核",
+      "status": "done",
+      "approach": "提供手动触发完整逐行 digest 校验的维护端点；文档标注 digest 是表示指纹非内容指纹；cutover 恢复场景对已登记备份做 hash/size 复核，损坏则重写",
+      "files": [
+        "server/session-state-cutover.mjs",
+        "server/routes/storage.mjs",
+        "docs/architecture/session-state-transactional-storage.zh-CN.md"
+      ]
+    },
+    {
+      "id": "review-storage-maintenance-hardening",
+      "name": "存储维护加固（墓碑 GC/mirror 死信/无 id 消息去重）",
+      "status": "done",
+      "approach": "墓碑增加 GC 策略（数量上限或随 replaceAll 清理）；mirror 失败条目最大重试次数后死信标记并表面化诊断；append 对无 message_id 消息用内容 digest 去重防重试重复行",
+      "files": [
+        "server/sqlite/session-state-repository.mjs",
+        "server/session-state-service.mjs"
       ]
     }
   ]

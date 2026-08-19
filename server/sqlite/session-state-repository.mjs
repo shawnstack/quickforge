@@ -10,6 +10,30 @@ const STATE_COLUMNS = `
 // `session_messages` stores a body without the `messages` key plus this marker.
 export const MESSAGES_SPLIT_VALUE = 'split'
 export const MESSAGES_PAGE_LIMIT_MAX = 5000
+// Mirror entries failing this many materialization attempts become dead
+// letters: they stop being drained/retried and surface via diagnostics until a
+// fresh save re-enqueues the key (which resets attempts to 0).
+export const MIRROR_MAX_ATTEMPTS = 12
+
+// Runtime hot-path statement cache (review P4): save/append used to re-prepare
+// the same handful of statements on every call. Statements are cached per
+// storage handle; the WeakMap releases the whole cache when the handle is
+// dropped, so a closed DatabaseSync never leaks stale statements.
+const statementCache = new WeakMap()
+
+function cachedStatement(database, sql) {
+  let statements = statementCache.get(database)
+  if (!statements) {
+    statements = new Map()
+    statementCache.set(database, statements)
+  }
+  let statement = statements.get(sql)
+  if (!statement) {
+    statement = database.prepare(sql)
+    statements.set(sql, statement)
+  }
+  return statement
+}
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype
@@ -158,6 +182,11 @@ function normalizeRecord(input, timestamp) {
   if (messages !== undefined) {
     delete state.messages
     state.messageStorage = MESSAGES_SPLIT_VALUE
+  } else if (state.messageStorage === MESSAGES_SPLIT_VALUE && Array.isArray(state.messages)) {
+    // A split body must never carry the messages array (double representation
+    // fails full integrity verification); the session_messages rows are
+    // authoritative, so body-only saves drop the redundant inline copy.
+    delete state.messages
   }
 
   const stateEncoded = jsonAndDigest(state, 'state')
@@ -228,7 +257,7 @@ function nullableInteger(value) {
 }
 
 // Cutover importers precompile these once per batch and pass the statement in;
-// runtime paths omit `statement` and prepare per call exactly as before.
+// runtime paths omit `statement` and reuse the per-handle statement cache.
 const UPSERT_SESSION_INDEX_SQL = `
   INSERT INTO session_index (
     scope, project_id, session_id, created_at, last_modified, message_count,
@@ -265,7 +294,7 @@ const ENQUEUE_SESSION_MIRROR_SQL = `
 
 function upsertIndex(database, record, statement = null) {
   const metadata = record.metadata
-  const insert = statement ?? database.prepare(UPSERT_SESSION_INDEX_SQL)
+  const insert = statement ?? cachedStatement(database, UPSERT_SESSION_INDEX_SQL)
   insert.run(
     record.scope, record.projectId, record.sessionId,
     nullableString(metadata.createdAt), nullableString(metadata.lastModified), nullableInteger(metadata.messageCount),
@@ -275,7 +304,7 @@ function upsertIndex(database, record, statement = null) {
 }
 
 function enqueueMirror(database, record, operation, revision, statement = null) {
-  const insert = statement ?? database.prepare(ENQUEUE_SESSION_MIRROR_SQL)
+  const insert = statement ?? cachedStatement(database, ENQUEUE_SESSION_MIRROR_SQL)
   insert.run(
     record.scope, record.projectId, record.sessionId, operation, revision,
     operation === 'upsert' ? record.stateJson : null,
@@ -328,42 +357,67 @@ export function sessionStateSnapshotDigest(records) {
 }
 
 function actualRevision(database, record) {
-  const active = database.prepare('SELECT revision, state_version, created_at FROM session_states WHERE scope = ? AND project_id = ? AND session_id = ?')
+  const active = cachedStatement(database, 'SELECT revision, state_version, created_at FROM session_states WHERE scope = ? AND project_id = ? AND session_id = ?')
     .get(record.scope, record.projectId, record.sessionId)
   if (active) return { revision: Number(active.revision), stateVersion: Number(active.state_version), createdAt: active.created_at, active: true }
-  const tombstone = database.prepare('SELECT revision FROM session_state_tombstones WHERE scope = ? AND project_id = ? AND session_id = ?')
+  const tombstone = cachedStatement(database, 'SELECT revision FROM session_state_tombstones WHERE scope = ? AND project_id = ? AND session_id = ?')
     .get(record.scope, record.projectId, record.sessionId)
   return { revision: Number(tombstone?.revision || 0), stateVersion: null, createdAt: null, active: false }
 }
 
 function assertNoCrossBucketDuplicate(database, record) {
-  const other = database.prepare(`SELECT scope, project_id FROM session_states
+  const other = cachedStatement(database, `SELECT scope, project_id FROM session_states
     WHERE session_id = ? AND NOT (scope = ? AND project_id = ?) LIMIT 1`)
     .get(record.sessionId, record.scope, record.projectId)
   if (other) throw duplicate(record.sessionId)
 }
+
+const INSERT_MESSAGE_SQL = `
+  INSERT INTO session_messages (scope, project_id, session_id, seq, message_id, message_json, message_digest, created, updated)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+const MESSAGE_COUNT_SQL = 'SELECT COUNT(*) AS count FROM session_messages WHERE scope = ? AND project_id = ? AND session_id = ?'
+// Append dedup probes stored ids in bounded IN(...) chunks (review P1).
+const MESSAGE_ID_DEDUP_BATCH_SIZE = 500
 
 function writeMessages(database, record, mode, timestamp) {
   if (record.messages === undefined) return
   if (mode !== 'replace' && mode !== 'append') throw new TypeError('messagesMode must be replace or append')
   const params = [record.scope, record.projectId, record.sessionId]
   if (mode === 'replace') {
-    database.prepare('DELETE FROM session_messages WHERE scope = ? AND project_id = ? AND session_id = ?').run(...params)
-    const insert = database.prepare(`
-      INSERT INTO session_messages (scope, project_id, session_id, seq, message_id, message_json, message_digest, created, updated)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
+    cachedStatement(database, 'DELETE FROM session_messages WHERE scope = ? AND project_id = ? AND session_id = ?').run(...params)
+    const insert = cachedStatement(database, INSERT_MESSAGE_SQL)
     record.messages.forEach((message, seq) => {
       insert.run(record.scope, record.projectId, record.sessionId, seq, message.messageId, message.messageJson, message.messageDigest, timestamp, timestamp)
     })
     return
   }
-  const maxSeq = Number(database.prepare('SELECT COALESCE(MAX(seq), -1) AS max_seq FROM session_messages WHERE scope = ? AND project_id = ? AND session_id = ?').get(...params).max_seq)
-  const existingIds = new Set(database.prepare('SELECT message_id FROM session_messages WHERE scope = ? AND project_id = ? AND session_id = ? AND message_id IS NOT NULL').all(...params).map((row) => row.message_id))
-  const insert = database.prepare(`
-    INSERT INTO session_messages (scope, project_id, session_id, seq, message_id, message_json, message_digest, created, updated)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `)
+  // Conservative retry dedup for id-less batches: when every incoming message
+  // lacks an id AND the batch digest sequence exactly equals the stored tail
+  // (same length, same order), the batch is a retry of an append that already
+  // persisted and is skipped wholesale. Partial overlaps and mixed id/no-id
+  // batches are appended as usual, so a genuinely new message whose content
+  // repeats is only skipped when the ENTIRE batch replays the tail.
+  if (record.messages.length > 0 && record.messages.every((message) => message.messageId === null)) {
+    const tailRows = cachedStatement(database, `SELECT message_digest FROM session_messages
+      WHERE scope = ? AND project_id = ? AND session_id = ? ORDER BY seq DESC LIMIT ?`).all(...params, record.messages.length)
+    if (tailRows.length === record.messages.length
+      && tailRows.every((row, index) => row.message_digest === record.messages[record.messages.length - 1 - index].messageDigest)) {
+      return
+    }
+  }
+  const maxSeq = Number(cachedStatement(database, 'SELECT COALESCE(MAX(seq), -1) AS max_seq FROM session_messages WHERE scope = ? AND project_id = ? AND session_id = ?').get(...params).max_seq)
+  // Id dedup costs O(incoming) instead of O(stored): only the ids this batch
+  // carries are probed against the stored rows.
+  const existingIds = new Set()
+  const incomingIds = [...new Set(record.messages.map((message) => message.messageId).filter((messageId) => messageId !== null))]
+  for (let start = 0; start < incomingIds.length; start += MESSAGE_ID_DEDUP_BATCH_SIZE) {
+    const chunk = incomingIds.slice(start, start + MESSAGE_ID_DEDUP_BATCH_SIZE)
+    const probe = cachedStatement(database, `SELECT message_id FROM session_messages
+      WHERE scope = ? AND project_id = ? AND session_id = ? AND message_id IN (${chunk.map(() => '?').join(', ')})`)
+    for (const row of probe.all(...params, ...chunk)) existingIds.add(row.message_id)
+  }
+  const insert = cachedStatement(database, INSERT_MESSAGE_SQL)
   let seq = maxSeq + 1
   for (const message of record.messages) {
     if (message.messageId !== null && existingIds.has(message.messageId)) continue
@@ -379,10 +433,13 @@ function saveInTransaction(database, record, expectedRevision, expectedStateVers
   if (expectedRevision !== null && current.revision !== expectedRevision) throw conflict(record.sessionId, expectedRevision, current.revision)
   if (expectedStateVersion !== null && current.stateVersion !== expectedStateVersion) throw stateVersionConflict(record.sessionId, expectedStateVersion, current.stateVersion)
   const revision = current.revision + 1
-  database.prepare('DELETE FROM session_state_tombstones WHERE scope = ? AND project_id = ? AND session_id = ?')
+  // A same-key tombstone whose deletion revision is below the live revision
+  // is collected here: the CAS chain has taken over resurrection protection
+  // (tombstones of never-recreated sessions are kept by design).
+  cachedStatement(database, 'DELETE FROM session_state_tombstones WHERE scope = ? AND project_id = ? AND session_id = ?')
     .run(record.scope, record.projectId, record.sessionId)
   if (record.messages !== undefined) writeMessages(database, record, messagesMode ?? 'replace', record.now)
-  database.prepare(`
+  cachedStatement(database, `
     INSERT INTO session_states (${STATE_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(scope, project_id, session_id) DO UPDATE SET
       revision = excluded.revision,
@@ -445,13 +502,13 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
   function get(scope, projectId, sessionId) {
     const normalizedBucket = bucket(scope, projectId)
     nonEmptyString(sessionId, 'sessionId')
-    return mapRow(storage.prepare(`SELECT ${STATE_COLUMNS} FROM session_states WHERE scope = ? AND project_id = ? AND session_id = ?`)
+    return mapRow(cachedStatement(storage, `SELECT ${STATE_COLUMNS} FROM session_states WHERE scope = ? AND project_id = ? AND session_id = ?`)
       .get(normalizedBucket.scope, normalizedBucket.projectId, sessionId))
   }
 
   function findBySessionId(sessionId) {
     nonEmptyString(sessionId, 'sessionId')
-    const rows = storage.prepare(`SELECT ${STATE_COLUMNS} FROM session_states WHERE session_id = ? ORDER BY scope, project_id`).all(sessionId)
+    const rows = cachedStatement(storage, `SELECT ${STATE_COLUMNS} FROM session_states WHERE session_id = ? ORDER BY scope, project_id`).all(sessionId)
     if (rows.length > 1) throw duplicate(sessionId)
     return mapRow(rows[0])
   }
@@ -511,10 +568,10 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     } else if (offset > 0) {
       limitParams = [limit, offset]
     }
-    const rows = storage.prepare(`SELECT seq, message_id, message_json, message_digest FROM session_messages
+    const rows = cachedStatement(storage, `SELECT seq, message_id, message_json, message_digest FROM session_messages
       WHERE ${where.join(' AND ')} ORDER BY seq ASC LIMIT ?${offset > 0 && afterSeq === null ? ' OFFSET ?' : ''}`)
       .all(...params, ...limitParams)
-    const total = Number(storage.prepare('SELECT COUNT(*) AS count FROM session_messages WHERE scope = ? AND project_id = ? AND session_id = ?')
+    const total = Number(cachedStatement(storage, MESSAGE_COUNT_SQL)
       .get(normalizedBucket.scope, normalizedBucket.projectId, sessionId).count)
     const lastSeq = rows.length > 0 ? Number(rows[rows.length - 1].seq) : null
     return {
@@ -531,8 +588,31 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
   function messageCount({ scope, projectId, sessionId }) {
     const normalizedBucket = bucket(scope, projectId)
     nonEmptyString(sessionId, 'sessionId')
-    return Number(storage.prepare('SELECT COUNT(*) AS count FROM session_messages WHERE scope = ? AND project_id = ? AND session_id = ?')
+    return Number(cachedStatement(storage, MESSAGE_COUNT_SQL)
       .get(normalizedBucket.scope, normalizedBucket.projectId, sessionId).count)
+  }
+
+  // O(log n) tail probe: the WITHOUT ROWID primary key ends with `seq`, so
+  // DESC LIMIT 1 rides the index instead of scanning a deep OFFSET.
+  function readLastMessage({ scope, projectId, sessionId }) {
+    const normalizedBucket = bucket(scope, projectId)
+    nonEmptyString(sessionId, 'sessionId')
+    const row = cachedStatement(storage, `SELECT seq, message_id, message_json, message_digest FROM session_messages
+      WHERE scope = ? AND project_id = ? AND session_id = ? ORDER BY seq DESC LIMIT 1`)
+      .get(normalizedBucket.scope, normalizedBucket.projectId, sessionId)
+    if (!row) return null
+    return { seq: Number(row.seq), message: JSON.parse(row.message_json), digest: row.message_digest }
+  }
+
+  // Single-row digest probe used by the service's body-only plan check.
+  function readMessageDigestAt({ scope, projectId, sessionId, seq }) {
+    const normalizedBucket = bucket(scope, projectId)
+    nonEmptyString(sessionId, 'sessionId')
+    if (!Number.isInteger(seq) || seq < 0) throw new TypeError('seq must be a non-negative integer')
+    const row = cachedStatement(storage, `SELECT message_digest FROM session_messages
+      WHERE scope = ? AND project_id = ? AND session_id = ? AND seq = ?`)
+      .get(normalizedBucket.scope, normalizedBucket.projectId, sessionId, seq)
+    return row ? row.message_digest : null
   }
 
   function deleteRecord({ scope, projectId, sessionId, expectedRevision = null, beforeCommit } = {}) {
@@ -869,12 +949,15 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     return storage.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get()
   }
 
-  function listMirrorQueue({ limit } = {}) {
+  function listMirrorQueue({ limit, includeDeadLetters = false } = {}) {
     if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) throw new TypeError('limit must be a positive integer')
     // The queue rows carry full state_json payloads, so callers draining large
     // queues page through with `limit` instead of loading every row at once.
-    const rows = storage.prepare(`SELECT * FROM session_json_mirror_queue ORDER BY updated_at, scope, project_id, session_id${limit !== undefined ? ' LIMIT ?' : ''}`)
-      .all(...(limit !== undefined ? [limit] : []))
+    // Dead letters (attempts exhausted) stay in the table for diagnostics but
+    // are not drained again unless a fresh save re-enqueues the key.
+    const where = includeDeadLetters ? '' : 'WHERE attempts < ?'
+    const rows = cachedStatement(storage, `SELECT * FROM session_json_mirror_queue ${where} ORDER BY updated_at, scope, project_id, session_id${limit !== undefined ? ' LIMIT ?' : ''}`)
+      .all(...(includeDeadLetters ? [] : [MIRROR_MAX_ATTEMPTS]), ...(limit !== undefined ? [limit] : []))
     return rows.map((row) => ({
       scope: row.scope,
       projectId: row.scope === 'project' ? row.project_id : null,
@@ -889,17 +972,35 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     }))
   }
 
-  function countMirrorQueue() {
-    return Number(storage.prepare('SELECT COUNT(*) AS count FROM session_json_mirror_queue').get().count)
+  // Live (still retryable) entries by default; dead letters are excluded so a
+  // permanently failing entry neither blocks cutover promotion nor keeps the
+  // scheduled drain looping forever.
+  function countMirrorQueue({ includeDeadLetters = false } = {}) {
+    if (includeDeadLetters) return Number(cachedStatement(storage, 'SELECT COUNT(*) AS count FROM session_json_mirror_queue').get().count)
+    return Number(cachedStatement(storage, 'SELECT COUNT(*) AS count FROM session_json_mirror_queue WHERE attempts < ?').get(MIRROR_MAX_ATTEMPTS).count)
+  }
+
+  function countMirrorDeadLetters() {
+    return Number(cachedStatement(storage, 'SELECT COUNT(*) AS count FROM session_json_mirror_queue WHERE attempts >= ?').get(MIRROR_MAX_ATTEMPTS).count)
+  }
+
+  // Current queued revision for a key (null when absent). The drain compares
+  // it against its batch snapshot to skip entries superseded by a newer save.
+  function mirrorQueueRevision({ scope, projectId, sessionId }) {
+    const normalizedBucket = bucket(scope, projectId)
+    nonEmptyString(sessionId, 'sessionId')
+    const row = cachedStatement(storage, 'SELECT revision FROM session_json_mirror_queue WHERE scope = ? AND project_id = ? AND session_id = ?')
+      .get(normalizedBucket.scope, normalizedBucket.projectId, sessionId)
+    return row ? Number(row.revision) : null
   }
 
   function acknowledgeMirror(entry) {
-    return Number(storage.prepare('DELETE FROM session_json_mirror_queue WHERE scope = ? AND project_id = ? AND session_id = ? AND revision = ?')
+    return Number(cachedStatement(storage, 'DELETE FROM session_json_mirror_queue WHERE scope = ? AND project_id = ? AND session_id = ? AND revision = ?')
       .run(entry.scope, entry.scope === 'project' ? entry.projectId : '', entry.sessionId, entry.revision).changes) === 1
   }
 
   function failMirror(entry, error) {
-    storage.prepare(`UPDATE session_json_mirror_queue SET attempts = attempts + 1, last_error = ?, updated_at = ?
+    cachedStatement(storage, `UPDATE session_json_mirror_queue SET attempts = attempts + 1, last_error = ?, updated_at = ?
       WHERE scope = ? AND project_id = ? AND session_id = ? AND revision = ?`)
       .run(String(error?.message || error).slice(0, 1000), now(), entry.scope, entry.scope === 'project' ? entry.projectId : '', entry.sessionId, entry.revision)
   }
@@ -912,6 +1013,8 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     appendMessages,
     readMessagesPage,
     messageCount,
+    readLastMessage,
+    readMessageDigestAt,
     saveMany,
     applyBatch,
     delete: deleteRecord,
@@ -926,6 +1029,8 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     checkpointWal,
     listMirrorQueue,
     countMirrorQueue,
+    countMirrorDeadLetters,
+    mirrorQueueRevision,
     acknowledgeMirror,
     failMirror,
   })

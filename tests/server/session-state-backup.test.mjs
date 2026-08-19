@@ -269,4 +269,58 @@ describe('authoritative session state backup/restore', () => {
     expect(Object.keys(snapshot.sessions)).toEqual(['only'])
     expect(readSessionStorageState().phase).toBe('authoritative')
   })
+
+  it('checkpoints the WAL after a successful restore, without failing the restore when the checkpoint fails', async () => {
+    const target = {
+      sessions: { 'fresh': { id: 'fresh', scope: 'global', stateVersion: 1, messages: [], title: 'Fresh' } },
+      sessionsMetadata: {},
+    }
+    const spied = { ...repository, checkpointWal: vi.fn(() => repository.checkpointWal()) }
+    await restoreSessionStateSnapshot(target, { mode: 'replace', repository: spied })
+    expect(spied.checkpointWal).toHaveBeenCalledTimes(1)
+    expect(repository.findBySessionId('fresh')).not.toBeNull()
+
+    // A busy/failed checkpoint is best-effort: the restore still succeeds.
+    const failing = { ...repository, checkpointWal: vi.fn(() => { throw new Error('checkpoint busy') }) }
+    const second = await restoreSessionStateSnapshot(target, { mode: 'replace', repository: failing })
+    expect(second).toEqual({ sessions: 1, sessionsMetadata: 1 })
+    expect(failing.checkpointWal).toHaveBeenCalledTimes(1)
+    expect(repository.findBySessionId('fresh')).not.toBeNull()
+  })
+
+  it('checkpoints the WAL after a successful restore plan roll-forward', async () => {
+    const planFile = path.join(directory, 'session-state-restore-plan.json')
+    const before = repository.exportSnapshot()
+    const target = {
+      sessions: { 'forward': { id: 'forward', scope: 'global', stateVersion: 1, messages: [], title: 'Forward' } },
+      sessionsMetadata: {},
+    }
+    const targetRecords = normalizeSessionSnapshotValues(target)
+    const targetValues = {
+      sessions: Object.fromEntries(targetRecords.map((record) => [record.sessionId, record.state])),
+      sessionsMetadata: Object.fromEntries(targetRecords.map((record) => [record.sessionId, record.metadata])),
+    }
+    const plan = {
+      version: 1,
+      operation: 'session_state_restore',
+      status: 'applying',
+      createdAt: new Date().toISOString(),
+      before: {
+        sessions: Object.fromEntries(before.records.map((record) => [record.sessionId, record.state])),
+        sessionsMetadata: Object.fromEntries(before.records.map((record) => [record.sessionId, record.metadata])),
+      },
+      target: targetValues,
+      beforeCount: before.count,
+      beforeDigest: before.digest,
+      targetCount: targetRecords.length,
+      targetDigest: computeSessionSnapshotDigest(targetValues),
+    }
+    await writeFile(planFile, `${JSON.stringify(plan, null, 2)}\n`, 'utf8')
+    const spied = { ...repository, checkpointWal: vi.fn(() => repository.checkpointWal()) }
+    const recovered = await recoverSessionStateRestorePlan({ repository: spied, planFile })
+    expect(recovered).toBe(true)
+    expect(spied.checkpointWal).toHaveBeenCalledTimes(1)
+    expect(repository.findBySessionId('forward')).not.toBeNull()
+    await expect(access(planFile)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
 })

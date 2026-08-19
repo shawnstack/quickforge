@@ -506,3 +506,42 @@ describe('session batch delete in JSON fallback mode', () => {
     })
   })
 })
+
+describe('POST /api/storage/maintenance/verify-session-integrity', () => {
+  it('runs the lightweight check by default and the full per-row digest check with full: true', async () => {
+    await withAuthoritativeFacade(async ({ storageModule, routeModule, repository }) => {
+      await storageModule.writeSessionValue('one', sessionBody('one'))
+
+      const quick = await callRoute(routeModule, 'POST', '/api/storage/maintenance/verify-session-integrity')
+      expect(quick.status).toBe(200)
+      expect(quick.payload).toMatchObject({ ok: true, count: 1, full: false, lightweight: true, digest: null })
+      expect(quick.payload.durationMs).toBeGreaterThanOrEqual(0)
+
+      const full = await callRoute(routeModule, 'POST', '/api/storage/maintenance/verify-session-integrity', { full: true })
+      expect(full.status).toBe(200)
+      expect(full.payload).toMatchObject({ ok: true, count: 1, full: true, invalidRecords: 0, invalidDigests: 0 })
+      expect(full.payload.digest).toBe(repository.digest())
+      expect(full.payload.durationMs).toBeGreaterThanOrEqual(0)
+    })
+  })
+
+  it('full verification surfaces silent digest rot that the lightweight check misses', async () => {
+    await withAuthoritativeFacade(async ({ storageModule, routeModule, database }) => {
+      await storageModule.writeSessionValue('one', sessionBody('one'))
+      // Simulate bit-rot: the stored state_digest no longer matches the body.
+      database.prepare("UPDATE session_states SET state_digest = ? WHERE session_id = 'one'").run('f'.repeat(64))
+      const quick = await callRoute(routeModule, 'POST', '/api/storage/maintenance/verify-session-integrity')
+      expect(quick.payload).toMatchObject({ ok: true, lightweight: true })
+      const full = await callRoute(routeModule, 'POST', '/api/storage/maintenance/verify-session-integrity', { full: true })
+      expect(full.payload).toMatchObject({ ok: false, invalidDigests: 1 })
+    })
+  })
+
+  it('rejects with 409 outside authoritative mode', async () => {
+    await withAuthoritativeFacade(async ({ routeModule }) => {
+      configureSessionStateService({ phase: 'json_authoritative' })
+      const result = await callRoute(routeModule, 'POST', '/api/storage/maintenance/verify-session-integrity', { full: true })
+      expect(result).toMatchObject({ ok: false, status: 409, code: 'SESSION_STATE_NOT_AUTHORITATIVE' })
+    })
+  })
+})

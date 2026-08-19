@@ -1,5 +1,5 @@
 import { createWriteStream } from 'node:fs'
-import { readFile, readdir, mkdtemp, rm } from 'node:fs/promises'
+import { readFile, readdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -440,6 +440,13 @@ describe('session state cutover', () => {
     })
     expect(result.phase).toBe('authoritative')
     expect(repository.findBySessionId('one')).not.toBeNull()
+    // The registered backup no longer exists, so the recovery re-check
+    // rewrites it through the normal streaming backup path.
+    const files = await readdir(backupDirectory)
+    expect(files).toHaveLength(1)
+    expect(result.backupFile).toBe(path.join(backupDirectory, files[0]))
+    const rewritten = JSON.parse(await readFile(result.backupFile, 'utf8'))
+    expect(rewritten.sessionState).toMatchObject({ count: 1, digest: result.digest })
     repository.save({ ...repository.findBySessionId('one'), state: { ...repository.findBySessionId('one').state, runtime: true } }, { expectedRevision: 1 })
     const repeated = await initializeSessionStateCutover({
       storage,
@@ -450,6 +457,69 @@ describe('session state cutover', () => {
     })
     expect(repeated.phase).toBe('authoritative')
     expect(repository.findBySessionId('one').state.runtime).toBe(true)
+  })
+
+  // Drives a cutover into sqlite_authoritative_json_pending (real registered
+  // backup on disk), then flips the phase back to json_authoritative so the
+  // next run exercises the recovery path with an existing backupFile.
+  async function pendingWithRegisteredBackup() {
+    const mirror = {
+      upsert: vi.fn(async () => { throw new Error('mirror failed') }),
+      delete: vi.fn(),
+    }
+    const pending = await initializeSessionStateCutover({
+      storage,
+      repository,
+      backupDirectory,
+      readBuckets: vi.fn(async () => [bucket()]),
+      mirror,
+      owner: { id: '120:test', pid: 120 },
+      pidAlive: () => false,
+    })
+    expect(pending.phase).toBe('sqlite_authoritative_json_pending')
+    expect(path.dirname(pending.backupFile)).toBe(backupDirectory)
+    storage.prepare("UPDATE session_storage_state SET phase = 'json_authoritative' WHERE singleton = 1").run()
+    return pending.backupFile
+  }
+
+  it('keeps a valid registered backup on the recovery path without rewriting it', async () => {
+    const registeredBackup = await pendingWithRegisteredBackup()
+    const contentBefore = await readFile(registeredBackup, 'utf8')
+    const state = await initializeSessionStateCutover({
+      storage,
+      repository,
+      backupDirectory,
+      readBuckets: vi.fn(async () => [bucket()]),
+      mirror: { upsert: vi.fn(async () => {}), delete: vi.fn() },
+      owner: { id: '121:test', pid: 121 },
+      pidAlive: () => false,
+    })
+    expect(state.phase).toBe('authoritative')
+    expect(state.backupFile).toBe(registeredBackup)
+    expect(await readdir(backupDirectory)).toEqual([path.basename(registeredBackup)])
+    expect(await readFile(registeredBackup, 'utf8')).toBe(contentBefore)
+  })
+
+  it('rewrites a corrupted registered backup on the recovery path and completes the cutover', async () => {
+    const registeredBackup = await pendingWithRegisteredBackup()
+    await writeFile(registeredBackup, '{corrupted', 'utf8')
+    const state = await initializeSessionStateCutover({
+      storage,
+      repository,
+      backupDirectory,
+      readBuckets: vi.fn(async () => [bucket()]),
+      mirror: { upsert: vi.fn(async () => {}), delete: vi.fn() },
+      owner: { id: '122:test', pid: 122 },
+      pidAlive: () => false,
+    })
+    expect(state.phase).toBe('authoritative')
+    // The corrupt file was replaced by a freshly written, verified backup.
+    const files = await readdir(backupDirectory)
+    expect(files).toHaveLength(1)
+    expect(state.backupFile).toBe(path.join(backupDirectory, files[0]))
+    const rewritten = JSON.parse(await readFile(state.backupFile, 'utf8'))
+    expect(rewritten.sessionState).toMatchObject({ count: 1, digest: state.digest })
+    expect(repository.findBySessionId('one')).not.toBeNull()
   })
 
   it('fences maintenance locks, heartbeats leases, and steals only expired leases with confirmed dead PIDs', () => {

@@ -60,3 +60,13 @@ route 的 sampler 可注入。生产默认低比例采样；每种 query shape �
 `scripts/session-index-query-benchmark.mjs` 默认运行 1k/10k，可传 `50000`。输出 JSON Lines，包括 JSON 耗时、warm SQL 耗时、结果等价性和 EXPLAIN；不进入 runtime，也不使用绝对时间 CI 阈值。
 
 F8 若继续推进，应只在积累实际 fallback/影子诊断后扩大 eligibility；不得直接切 ACP 或删除 JSON fallback。
+
+## F8 之后的定位（2026-08 补充）
+
+F8 把 `session_index` 维护收敛进与 `session_states` 相同的 immediate 事务后，本文的前提已经发生根本变化：
+
+- **保护对象基本消失**：readiness/TTL/dirty/shadow sampler/single-flight rebuild 整套机制是为"JSON 唯一权威 + SQLite 派生索引可能漂移"设计的。权威态下索引与 body/metadata 同事务提交，漂移源不复存在；残余的漂移窗口只剩 pending 相位 mirror drain 前（物理 JSON 镜像滞后于 SQLite）。
+- **fallback 语义已变**：权威态下"fallback 回 JSON"这一表述过时。源码实证（设计评审报告附录 A.3）：fallback 路径（`routes/storage.mjs` → `readIndexedValues` → `readStore`）经 facade 路由到 SQLite `exportSnapshot()`（`sqliteReadable()` 门控），读到的是权威新数据而非过期 JSON——fallback 仍是预期正确路径，但数据源已是 SQLite。
+- **已知残余问题（性能，非正确性）**：index 就绪判定仍以物理 JSON 镜像为源（`readPhysicalSessionMetadataBuckets`），pending 相位 drain 前 digest 不匹配会频繁降级到"全量导出 + 内存排序分页"路径，大库下有可见开销；fallback 路径 `metadataIndexCache` 另有最长 ~1s 的旧值窗口（低优先）。
+- **退役计划**：shadow 对拍 sampler 保留 1–2 个版本作为观察期（积累 fallback/影子诊断）后移除；fallback 机制保留（仍是 degraded 时的正确路径），但其数据源固定为 SQLite 权威快照；readiness/TTL/dirty 机制的简化视观察期诊断另行决策。移除前不得把 shadow 机制的日志/诊断管道一并删除，以免影响可观测性。
+- 当前架构的单一事实描述见 [`session-storage-current-architecture.zh-CN.md`](./session-storage-current-architecture.zh-CN.md)；本文其余章节保留为 F7 时期的历史决策记录。

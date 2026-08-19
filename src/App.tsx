@@ -1498,7 +1498,7 @@ function MainApp() {
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">{startupError.message}</p>
           {migrationFailed && startupError.detail ? (
-            <p className="mt-2 break-all text-xs text-muted-foreground">{startupError.detail}</p>
+            <p className="mt-2 whitespace-pre-wrap break-all text-left text-xs text-muted-foreground">{startupError.detail}</p>
           ) : null}
           <div className="mt-4 flex justify-center gap-2">
             <Button variant="outline" size="sm" onClick={retryBootstrap}>

@@ -7,7 +7,7 @@ import { applySqliteMigrations, inspectSqliteMigrationState, SQLITE_MIGRATIONS }
 
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000
 export const SQLITE_JOURNAL_MODE = 'wal'
-export const SQLITE_SYNCHRONOUS = 1
+export const SQLITE_SYNCHRONOUS = 2
 
 const sqliteLogger = logger.child({ component: 'sqlite' })
 const TRANSACTION_MODES = new Set(['deferred', 'immediate', 'exclusive'])
@@ -67,7 +67,10 @@ function configurePragmas(database) {
   database.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`)
   database.exec('PRAGMA foreign_keys = ON')
   database.exec('PRAGMA journal_mode = WAL')
-  database.exec('PRAGMA synchronous = NORMAL')
+  // FULL (not NORMAL): decision finalized in docs/architecture/sqlite-storage-foundation.zh-CN.md §3.1
+  // — measured cost is ~0.46 ms/op on the save hot path, in exchange for zero committed-transaction
+  // loss on OS crash/power loss.
+  database.exec('PRAGMA synchronous = FULL')
   return verifyPragmas(database)
 }
 
@@ -91,7 +94,7 @@ function publicHealth(state, { quickCheck = false } = {}) {
     journalMode: pragmas.journalMode,
     busyTimeout: pragmas.busyTimeout,
     foreignKeys: pragmas.foreignKeys,
-    synchronous: 'normal',
+    synchronous: 'full',
     ...(quickCheck ? { quickCheck: quickCheckResult[0] } : {}),
   }
 }

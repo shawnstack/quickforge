@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { sendJson, sendError } from './utils/response.mjs'
 import { openBrowser, openPathInFileManager } from './utils/platform.mjs'
-import { ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir, readPhysicalSessionMetadataBuckets, registerSessionMetadataCommitHook } from './storage.mjs'
+import { ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir, readAuthoritativeSessionMetadataBuckets, registerSessionMetadataCommitHook } from './storage.mjs'
 import { initializeSessionStateCutover } from './session-state-cutover.mjs'
 import { initializeSessionStateService, drainSessionJsonMirror, stopSessionStateService } from './session-state-service.mjs'
 import { initializeShareCutover } from './share-cutover.mjs'
@@ -63,7 +63,7 @@ import { recoverScheduledRunsRestorePlan } from './scheduled-runs-backup.mjs'
 import { configureSessionIndex, getSessionIndexDiagnostics, initializeSessionIndex, syncSessionMetadataCommit } from './session-index-service.mjs'
 import { createNodeProcessEnv } from './utils/process-env.mjs'
 import { isAuthenticatedAppClient } from './access-policy.mjs'
-import { STARTUP_STATES, getStartupError, getStartupState, readMigrationStatus, resolveMaintenanceGate, setStartupState } from './startup-state.mjs'
+import { STARTUP_STATES, getStartupError, getStartupState, readMigrationStatus, resolveMaintenanceGate, setStartupState, withStartupRecoveryGuidance } from './startup-state.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -836,7 +836,7 @@ try {
 } catch (error) {
   logger.error('QuickForge startup failed', { errorName: error?.name || 'Error', errorMessage: error?.message, stack: error?.stack })
   flushLogger()
-  setStartupState(STARTUP_STATES.FAILED, error?.message)
+  setStartupState(STARTUP_STATES.FAILED, withStartupRecoveryGuidance(error?.message))
 }
 
 async function runStartupInitialization() {
@@ -876,7 +876,7 @@ async function runStartupInitialization() {
     logsDir,
   })
   await resetStaleTaskStatuses()
-  configureSessionIndex({ readBuckets: readPhysicalSessionMetadataBuckets })
+  configureSessionIndex({ readBuckets: readAuthoritativeSessionMetadataBuckets })
   registerSessionMetadataCommitHook(syncSessionMetadataCommit)
   await initializeSessionIndex()
   await initializeActiveProject()
@@ -894,7 +894,7 @@ if (getStartupState() !== STARTUP_STATES.FAILED) {
   }).catch((error) => {
     logger.error('QuickForge startup failed', { errorName: error?.name || 'Error', errorMessage: error?.message, stack: error?.stack })
     flushLogger()
-    setStartupState(STARTUP_STATES.FAILED, error?.message)
+    setStartupState(STARTUP_STATES.FAILED, withStartupRecoveryGuidance(error?.message))
   })
 }
 

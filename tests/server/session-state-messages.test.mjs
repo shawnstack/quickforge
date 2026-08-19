@@ -240,6 +240,60 @@ describe('F9 schema v7 message incremental storage', () => {
     expect(readSessionStateValue('big').messages.at(-1).content).toBe('edited')
   })
 
+  it('keeps unchanged split saves body-only and detects same-length middle in-place edits', () => {
+    saveSessionBody('big', { messages: messages(MESSAGES_SPLIT_THRESHOLD) })
+    // Identical count + tail + mid digests: nothing about the messages changed.
+    const unchanged = saveSessionBody('big', { messages: messages(MESSAGES_SPLIT_THRESHOLD) })
+    expect(unchanged.messageStoragePlan).toBe('body-only')
+    // body-only persistence never re-inlines messages into the split body.
+    expect(repository.findBySessionId('big').state).not.toHaveProperty('messages')
+    expect(repository.verifyIntegrity()).toMatchObject({ ok: true, invalidMessageRepresentations: 0 })
+
+    // A same-length, same-tail edit in the middle must not be silently dropped.
+    const edited = [...messages(MESSAGES_SPLIT_THRESHOLD)]
+    const midIndex = Math.floor(MESSAGES_SPLIT_THRESHOLD / 2)
+    edited[midIndex] = { ...edited[midIndex], content: 'mid edited' }
+    const replaced = saveSessionBody('big', { messages: edited })
+    expect(replaced.messageStoragePlan).toBe('replace')
+    expect(repository.messageCount({ scope: 'global', sessionId: 'big' })).toBe(MESSAGES_SPLIT_THRESHOLD)
+    expect(readSessionStateValue('big').messages[midIndex].content).toBe('mid edited')
+    expect(repository.verifyIntegrity()).toMatchObject({ ok: true })
+  })
+
+  it('reads the tail row and single-seq digests through the dedicated probes', () => {
+    repository.replaceMessages(record('one'), messages(3), { expectedRevision: 0 })
+    const last = repository.readLastMessage({ scope: 'global', sessionId: 'one' })
+    expect(last.message.content).toBe('m2')
+    expect(last.seq).toBe(2)
+    expect(last.digest).toBe(repository.readMessageDigestAt({ scope: 'global', sessionId: 'one', seq: 2 }))
+    expect(repository.readMessageDigestAt({ scope: 'global', sessionId: 'one', seq: 0 })).toMatch(/^[0-9a-f]{64}$/)
+    expect(repository.readMessageDigestAt({ scope: 'global', sessionId: 'one', seq: 9 })).toBeNull()
+    expect(repository.readLastMessage({ scope: 'global', sessionId: 'missing' })).toBeNull()
+  })
+
+  it('skips an exact id-less tail batch retry but appends new or partial id-less batches', () => {
+    repository.replaceMessages(record('one'), messages(3), { expectedRevision: 0 })
+    // Retry of an append whose payload exactly equals the stored tail: the
+    // rows already persisted, so the batch is skipped wholesale.
+    repository.appendMessages(repository.findBySessionId('one'), messages(2, 1), { expectedRevision: 1 })
+    expect(repository.messageCount({ scope: 'global', sessionId: 'one' })).toBe(3)
+    expect(repository.readMessagesPage({ scope: 'global', sessionId: 'one', limit: 10 }).messages.map((row) => row.message.content)).toEqual(['m0', 'm1', 'm2'])
+
+    // Only a partial overlap with the tail: not a retry, appended as usual.
+    const fresh = { role: 'user', content: 'fresh', timestamp: '2026-01-01T00:00:01.000Z' }
+    repository.appendMessages(repository.findBySessionId('one'), [messages(1, 2)[0], fresh], { expectedRevision: 2 })
+    expect(repository.messageCount({ scope: 'global', sessionId: 'one' })).toBe(5)
+
+    // Documented conservative edge: a single id-less message identical to the
+    // current tail is indistinguishable from a retry and is skipped...
+    repository.appendMessages(repository.findBySessionId('one'), [fresh], { expectedRevision: 3 })
+    expect(repository.messageCount({ scope: 'global', sessionId: 'one' })).toBe(5)
+    // ...while any newer id-less content still appends.
+    repository.appendMessages(repository.findBySessionId('one'), [{ role: 'assistant', content: 'newer', timestamp: '2026-01-01T00:00:02.000Z' }], { expectedRevision: 4 })
+    expect(repository.messageCount({ scope: 'global', sessionId: 'one' })).toBe(6)
+    expect(repository.verifyIntegrity()).toMatchObject({ ok: true })
+  })
+
   it('applies message-heavy batch writes as a single split transaction', () => {
     const result = applySessionBatch([
       { store: 'sessions', type: 'set', key: 'batch', value: { id: 'batch', scope: 'global', stateVersion: 1, messages: messages(MESSAGES_SPLIT_THRESHOLD) } },

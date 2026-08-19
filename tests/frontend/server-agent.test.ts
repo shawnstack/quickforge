@@ -1303,4 +1303,78 @@ describe('ServerAgent', () => {
       agent.dispose()
     }
   })
+
+  it('tracks the persist-degraded flag from dedicated SSE events and notifies listeners', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }))
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: { messages: [{ role: 'user', content: 'first' }] as AgentMessage[], stateVersion: 1 },
+    })
+
+    try {
+      const events: string[] = []
+      agent.subscribe((event) => { events.push(String((event as { type?: unknown }).type)) })
+
+      const source = latestEventSource()
+      source.emit('persist_degraded', { sessionId: 'session-1', stateVersion: 2, persistDegraded: true })
+      expect(agent.state.persistDegraded).toBe(true)
+      expect(events).toContain('persist_degraded')
+
+      source.emit('persist_degraded', { sessionId: 'session-1', stateVersion: 3, persistDegraded: false })
+      expect(agent.state.persistDegraded).toBeUndefined()
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('applies persistDegraded from full state frames, clearing it when absent', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }))
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: { messages: [{ role: 'user', content: 'first' }] as AgentMessage[], stateVersion: 1 },
+    })
+
+    try {
+      const source = latestEventSource()
+      source.emit('state', { sessionId: 'session-1', stateVersion: 2, persistDegraded: true })
+      expect(agent.state.persistDegraded).toBe(true)
+
+      // Full state snapshots are authoritative: no flag means healthy again.
+      source.emit('state', { sessionId: 'session-1', stateVersion: 3 })
+      expect(agent.state.persistDegraded).toBeUndefined()
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('picks up persistDegraded through a /state refresh', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === '/api/agents/session-1/state') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            stateVersion: 2,
+            messages: [{ role: 'user', content: 'first' }],
+            persistDegraded: true,
+          }),
+        }
+      }
+      return { ok: true, status: 200, json: async () => ({}) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: { messages: [{ role: 'user', content: 'first' }] as AgentMessage[], stateVersion: 1 },
+    })
+
+    try {
+      await agent.syncState()
+      expect(agent.state.persistDegraded).toBe(true)
+    } finally {
+      agent.dispose()
+    }
+  })
 })

@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applySqliteMigrations, SQLITE_MIGRATIONS } from '../../server/sqlite/migrations.mjs'
-import { createSessionStateRepository } from '../../server/sqlite/session-state-repository.mjs'
+import { createSessionStateRepository, MIRROR_MAX_ATTEMPTS } from '../../server/sqlite/session-state-repository.mjs'
 
 const projectRoot = path.resolve(import.meta.dirname, '../..')
 const workerScript = path.join(projectRoot, 'tests', 'fixtures', 'session-state-cas-worker.mjs')
@@ -336,4 +336,98 @@ describe('session state repository and schema v7', () => {
     database = new DatabaseSync(databasePath)
     expect(database.prepare('SELECT revision FROM session_states WHERE session_id = ?').get('race').revision).toBe(2)
   }, 20_000)
+
+  // Handle variant that logs every prepare() call; the transaction callback
+  // receives the handle itself, so in-transaction prepares are logged too.
+  function createLoggingHandle(sqlLog) {
+    return {
+      exec: (sql) => database.exec(sql),
+      prepare(sql) { sqlLog.push(sql); return database.prepare(sql) },
+      transaction(callback, { mode = 'immediate' } = {}) {
+        database.exec(`BEGIN ${mode.toUpperCase()}`)
+        try {
+          const result = callback(this)
+          database.exec('COMMIT')
+          return result
+        } catch (error) {
+          database.exec('ROLLBACK')
+          throw error
+        }
+      },
+    }
+  }
+
+  it('dedups appended message ids against only the incoming ids in bounded IN chunks', () => {
+    const sqlLog = []
+    const loggingRepository = createSessionStateRepository(createLoggingHandle(sqlLog), { now: () => '2026-01-01T00:00:03.000Z' })
+    loggingRepository.replaceMessages(record('one'), [
+      { role: 'user', content: 's0', id: 's0' },
+      { role: 'user', content: 's1', id: 's1' },
+    ], { expectedRevision: 0 })
+    sqlLog.length = 0
+    const incoming = [
+      { role: 'user', content: 's0-duplicate', id: 's0' },
+      ...Array.from({ length: 600 }, (_, index) => ({ role: 'user', content: `n${index}`, id: `n${index}` })),
+    ]
+    loggingRepository.appendMessages(loggingRepository.findBySessionId('one'), incoming, { expectedRevision: 1 })
+    // The stored-id duplicate is skipped; everything else lands exactly once.
+    expect(loggingRepository.messageCount({ scope: 'global', sessionId: 'one' })).toBe(602)
+    // The dedup probe targets only the incoming ids (601 unique ids -> two
+    // chunks of <=500) instead of scanning the whole stored id set.
+    expect(sqlLog.filter((sql) => sql.includes('message_id IN'))).toHaveLength(2)
+    expect(sqlLog.some((sql) => sql.includes('message_id IS NOT NULL'))).toBe(false)
+    expect(loggingRepository.verifyIntegrity()).toMatchObject({ ok: true })
+  })
+
+  it('prepares each runtime hot-path statement once per storage handle', () => {
+    const sqlLog = []
+    const loggingRepository = createSessionStateRepository(createLoggingHandle(sqlLog), { now: () => '2026-01-01T00:00:03.000Z' })
+    loggingRepository.save(record(), { expectedRevision: 0 })
+    loggingRepository.save(record(), { expectedRevision: 1 })
+    loggingRepository.findBySessionId('session-a')
+    loggingRepository.findBySessionId('session-a')
+    const prepares = (needle) => sqlLog.filter((sql) => sql.includes(needle)).length
+    expect(prepares('FROM session_states WHERE session_id = ?')).toBe(1)
+    expect(prepares('INSERT INTO session_states')).toBe(1)
+    expect(prepares('SELECT revision, state_version, created_at FROM session_states')).toBe(1)
+    expect(prepares('DELETE FROM session_state_tombstones')).toBe(1)
+  })
+
+  it('collects a same-key tombstone on the next successful save while keeping tombstones of deleted sessions', () => {
+    repository.save(record('one'), { expectedRevision: 0 })
+    repository.save(record('two'), { expectedRevision: 0 })
+    expect(repository.delete({ scope: 'global', sessionId: 'one', expectedRevision: 1 })).toBe(true)
+    expect(repository.delete({ scope: 'global', sessionId: 'two', expectedRevision: 1 })).toBe(true)
+    const tombstones = () => database.prepare('SELECT session_id FROM session_state_tombstones ORDER BY session_id').all().map((row) => row.session_id)
+    expect(tombstones()).toEqual(['one', 'two'])
+
+    // Recreating 'one' collects its tombstone: the live row's CAS revision
+    // chain has taken over resurrection protection. 'two' stays protected.
+    repository.save(record('one'), { expectedRevision: 2 })
+    expect(tombstones()).toEqual(['two'])
+
+    // A shadowed tombstone below the live revision is collected on the next
+    // successful save of the same key as well.
+    database.prepare("INSERT INTO session_state_tombstones (scope, project_id, session_id, revision, deleted_at) VALUES ('global', '', 'one', 1, '2026-01-01T00:00:00.000Z')").run()
+    repository.save(record('one'), { expectedRevision: 3 })
+    expect(tombstones()).toEqual(['two'])
+    expect(repository.verifyIntegrity()).toMatchObject({ ok: true, activeTombstones: 0 })
+  })
+
+  it('stops listing mirror entries after MIRROR_MAX_ATTEMPTS failures and revives them on re-enqueue', () => {
+    repository.save(record(), { expectedRevision: 0 })
+    for (let attempt = 0; attempt < MIRROR_MAX_ATTEMPTS; attempt += 1) {
+      repository.failMirror(repository.listMirrorQueue()[0], new Error('mirror down'))
+    }
+    expect(repository.listMirrorQueue({ includeDeadLetters: true })).toMatchObject([{ sessionId: 'session-a', attempts: MIRROR_MAX_ATTEMPTS }])
+    // Dead letter: no longer drained and no longer counted as pending...
+    expect(repository.listMirrorQueue()).toEqual([])
+    expect(repository.countMirrorQueue()).toBe(0)
+    expect(repository.countMirrorQueue({ includeDeadLetters: true })).toBe(1)
+    expect(repository.countMirrorDeadLetters()).toBe(1)
+    // ...but a fresh save re-enqueues the key with attempts reset.
+    repository.save(record(), { expectedRevision: 1 })
+    expect(repository.listMirrorQueue()).toMatchObject([{ sessionId: 'session-a', attempts: 0 }])
+    expect(repository.countMirrorDeadLetters()).toBe(0)
+  })
 })

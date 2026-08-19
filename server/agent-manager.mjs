@@ -1967,6 +1967,10 @@ export async function createAgent(sessionId, config = {}) {
     persistedMessageCount: Number.isInteger(config.persistedMessageCount) && config.persistedMessageCount >= 0 ? config.persistedMessageCount : null,
     persistedTailDigest: typeof config.persistedTailDigest === 'string' ? config.persistedTailDigest : null,
     persistConflictCount: 0,
+    // Set when an authoritative persist is skipped after CAS conflicts; cleared
+    // on the next successful persist. Surfaced via getSessionState/getSessionStatus
+    // so the UI can warn the user instead of silently losing messages.
+    persistDegraded: null,
     lastAutoCompactAt: null,
     lastAutoCompactRejected: null,
     memoryEnabled: initialMemoryEnabled,
@@ -2154,6 +2158,26 @@ function canonicalStateJson(value) {
 }
 
 /**
+ * Mark the session as persist-degraded (an authoritative persist was skipped
+ * after CAS conflicts) and notify connected clients so the UI can surface a
+ * non-blocking warning instead of silently losing messages.
+ */
+function markPersistDegraded(session, attempts) {
+  session.persistDegraded = { at: new Date().toISOString(), attempts }
+  emitSessionEvent(session, { type: 'persist_degraded', persistDegraded: true })
+}
+
+/**
+ * Clear the degraded marker after a successful persist and notify clients so
+ * the UI warning disappears.
+ */
+function clearPersistDegraded(session) {
+  if (!session.persistDegraded) return
+  session.persistDegraded = null
+  emitSessionEvent(session, { type: 'persist_degraded', persistDegraded: false })
+}
+
+/**
  * Persist a full session record in one authoritative SQLite transaction with
  * revision CAS. When the CAS fails because a concurrent metadata-only change
  * (pin/archive via the sidebar) bumped the revision, re-read the current row
@@ -2201,6 +2225,7 @@ async function persistAuthoritativeSessionState(session, sessionData, metadata) 
         session.persistedMessageCount = Array.isArray(sessionData.messages) ? sessionData.messages.length : 0
       }
       session.persistedTailDigest = sessionMessagesTailDigest(sessionData.messages)
+      clearPersistDegraded(session)
       return { ...saved, metadata: mergedMetadata }
     } catch (error) {
       if (error?.errorCode !== 'SESSION_STATE_CONFLICT') throw error
@@ -2222,11 +2247,13 @@ async function persistAuthoritativeSessionState(session, sessionData, metadata) 
       }
       session.persistConflictCount += 1
       logger.warn(`Session ${sessionId} persist conflict: storage changed agent-owned fields; skipping overwrite`, { sessionId })
+      markPersistDegraded(session, attempt)
       return null
     }
   }
   session.persistConflictCount += 1
   logger.warn(`Session ${sessionId} persist still conflicting after ${maxAttempts} merge retries`, { sessionId, reason: lastConflict?.message })
+  markPersistDegraded(session, maxAttempts)
   return null
 }
 
@@ -2976,6 +3003,7 @@ export function getSessionState(sessionId) {
     acpSession: session.harness === AGENT_HARNESS_OPENCODE ? session.agent.state.acpSession : undefined,
     isStreaming: session.abortPending ? false : session.agent.state.isStreaming,
     errorMessage: session.agent.state.errorMessage,
+    persistDegraded: session.persistDegraded ? true : undefined,
   }
 }
 
@@ -3008,6 +3036,7 @@ export function getSessionStatus(sessionId) {
     errorMessage: session.agent.state.errorMessage,
     messageCount: messages.length,
     lastMessageTimestamp: lastMessage?.timestamp ?? null,
+    persistDegraded: session.persistDegraded ? true : undefined,
   }
 }
 

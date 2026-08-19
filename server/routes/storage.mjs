@@ -7,6 +7,8 @@ import { directorySize } from '../utils/workspace.mjs'
 import { isAuthenticatedAppClient } from '../access-policy.mjs'
 import { getSessionIndexDiagnostics, markSessionIndexQueryFailure, querySessionIndexPage } from '../session-index-service.mjs'
 import { isSessionStateMaintenanceActive } from '../session-state-cutover.mjs'
+import { isSessionStateAuthoritative } from '../session-state-service.mjs'
+import { verifySessionStateIntegrityForMaintenance } from '../session-state-backup.mjs'
 
 const metadataIndexCache = new Map()
 const MAX_METADATA_INDEX_CACHE_ENTRIES = 50
@@ -250,6 +252,32 @@ export async function handleStorageApi(req, res, url, context = { isLocalRequest
       }
       throw error
     }
+    return
+  }
+
+  // Manual session state integrity verification (design review suggestion
+  // 9): startup only runs the lightweight SQL-level check, so per-row digest
+  // rot would stay invisible until an offline full verification. POST with
+  // { full: true } runs the complete per-row digest recomputation under the
+  // session state maintenance lock (same pattern as the authoritative backup
+  // export); the response carries only summary counters and the elapsed
+  // time, never row payloads.
+  if (req.method === 'POST' && parts.length === 4 && store === 'maintenance' && parts[3] === 'verify-session-integrity') {
+    if (!isSessionStateAuthoritative()) {
+      const error = new Error('Session state integrity verification requires authoritative SQLite storage')
+      error.statusCode = 409
+      error.errorCode = 'SESSION_STATE_NOT_AUTHORITATIVE'
+      throw error
+    }
+    if (isSessionStateMaintenanceActive()) {
+      const error = new Error('Session storage maintenance is in progress')
+      error.statusCode = 423
+      error.errorCode = 'SESSION_STORAGE_MAINTENANCE'
+      throw error
+    }
+    const body = await readJsonBody(req)
+    const result = await verifySessionStateIntegrityForMaintenance({ full: body?.full === true, maintenance: true })
+    sendJson(res, 200, result)
     return
   }
 

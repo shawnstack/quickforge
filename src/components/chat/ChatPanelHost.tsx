@@ -33,6 +33,7 @@ import {
   releaseStreamingProcessGroups,
   syncAssistantWaitingBubble,
   syncContextCompactionNotice,
+  syncPersistDegradedNotice,
   type ComposerDraftRestoreHandle,
 } from './panel-decoration'
 import { t } from '@/lib/i18n'
@@ -74,6 +75,12 @@ type AgentWithContextCompaction = AgentLike & {
 type AgentWithAcpSession = AgentLike & {
   state: AgentLike['state'] & {
     acpSession?: OpenCodeAcpSession | null
+  }
+}
+
+type AgentWithPersistDegraded = AgentLike & {
+  state: AgentLike['state'] & {
+    persistDegraded?: boolean
   }
 }
 
@@ -776,6 +783,10 @@ export function ChatPanelHost({
             : null,
           messageIndexOffset,
         })
+        syncPersistDegradedNotice({
+          panel,
+          isDegraded: () => (agent as AgentWithPersistDegraded).state.persistDegraded === true,
+        })
         syncAssistantWaitingBubble({
           panel,
           getMessages: displayMessages,
@@ -1180,6 +1191,10 @@ export function ChatPanelHost({
       if (eventType === 'acp_session_update' || eventType === 'acp_session_usage_update') {
         // OpenCode runtime config/mode/usage changed — refresh composer controls
         // and the usage badge without disturbing the conversation.
+        scheduleDecorateRef.current?.()
+      }
+      if (eventType === 'persist_degraded') {
+        // Persist degradation flag changed — show/hide the warning banner.
         scheduleDecorateRef.current?.()
       }
       if (event.type === 'agent_end') {

@@ -331,6 +331,42 @@ async function writeCutoverBackupStream(createIteration, summary, options = {}) 
   }
 }
 
+// Recovery-path re-check for an already-registered cutover backup (design
+// review 3.5/A.2 residual risk): registration only happens after the
+// streamed write passed its byte verification, but the file can still be
+// damaged externally afterwards (disk failure, manual edits) and the
+// summary-only third read would never notice. Registration never persisted
+// the write-time file hash, so instead of a sha256 recompute this check is
+// bounded and O(1) regardless of backup size: the file must exist, be
+// non-empty, start with '{', end with '}' and carry a parseable
+// sessionState envelope whose count/digest match the current source
+// summary. The normal (no registered backup) path pays nothing; a failed
+// check rewrites the backup through the normal writeCutoverBackupStream
+// path.
+const BACKUP_ENVELOPE_PATTERN = /"sessionState": \{\s*"count": (\d+),\s*"digest": "([0-9a-f]{64})"/
+
+async function verifyRegisteredCutoverBackup(backupFile, summary) {
+  let handle
+  try {
+    handle = await fs.open(backupFile, 'r')
+    const stats = await handle.stat()
+    if (!stats.isFile() || stats.size === 0) return { ok: false, reason: 'empty' }
+    const head = Buffer.alloc(Math.min(4096, stats.size))
+    await handle.read(head, 0, head.length, 0)
+    const tail = Buffer.alloc(1)
+    await handle.read(tail, 0, 1, stats.size - 1)
+    if (head[0] !== 0x7b || tail[0] !== 0x7d) return { ok: false, reason: 'truncated' }
+    const envelope = BACKUP_ENVELOPE_PATTERN.exec(head.toString('utf8'))
+    if (!envelope) return { ok: false, reason: 'unparseable' }
+    if (Number(envelope[1]) !== summary.count || envelope[2] !== summary.digest) return { ok: false, reason: 'digest_mismatch' }
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, reason: error?.code === 'ENOENT' ? 'missing' : 'unreadable' }
+  } finally {
+    await handle?.close().catch(() => {})
+  }
+}
+
 function ownerPid(row) {
   const value = Number(row?.owner_pid)
   return Number.isInteger(value) && value > 0 ? value : null
@@ -519,8 +555,10 @@ export async function initializeSessionStateCutover(options = {}) {
     try {
       // Streaming cutover (step 2): the json_authoritative migration path runs
       // FOUR independent full iterations of the JSON source — (1) summary,
-      // (2) summary re-read, (3) streaming backup write (or summary-only when
-      // a backup already exists) and (4) replaceAllStream import. Only the
+      // (2) summary re-read, (3) streaming backup write (or, when a backup is
+      // already registered, an O(1) re-check of that file plus a summary-only
+      // third read; a failed re-check deletes and rewrites the backup) and
+      // (4) replaceAllStream import. Only the
       // small summaries (digest lines + diagnostics) survive between passes,
       // so peak memory is bounded by the largest single session instead of
       // the whole library. options.readBuckets keeps the materialized
@@ -539,8 +577,23 @@ export async function initializeSessionStateCutover(options = {}) {
           createWriteStream: options.createBackupWriteStream,
         })
       } else {
-        const third = await summarizeSessionSource(createSource())
-        if (!sameSessionSourceSummary(first, third)) throw new Error('Session JSON source changed before cutover commit')
+        const registered = await verifyRegisteredCutoverBackup(backupFile, first)
+        if (registered.ok) {
+          const third = await summarizeSessionSource(createSource())
+          if (!sameSessionSourceSummary(first, third)) throw new Error('Session JSON source changed before cutover commit')
+        } else {
+          // The registered backup no longer passes the re-check: rewrite a
+          // fresh one first (the write pass re-verifies count/digest against
+          // `first`, standing in for the summary-only third read), then drop
+          // the stale file. A same-name rewrite already replaced it.
+          log.warn('Session state cutover registered backup failed verification; rewriting it', { domain: 'session-state', phase: 'json_authoritative', backupFile, reason: registered.reason })
+          const rewritten = await writeCutoverBackupStream(() => createSource().iterate(), first, {
+            directory: options.backupDirectory,
+            createWriteStream: options.createBackupWriteStream,
+          })
+          if (rewritten !== backupFile) await fs.rm(backupFile, { force: true }).catch(() => {})
+          backupFile = rewritten
+        }
       }
       setSessionStoragePhase(SESSION_STORAGE_PHASES.CUTOVER_RUNNING, {
         stateCount: first.count,

@@ -41,6 +41,22 @@ export function setStartupState(state, errorMessage = null) {
     : null
 }
 
+// Actionable recovery guidance appended to startup errors (fail-closed
+// startup, review §5.1). The original exception text stays intact; the
+// guidance is an additional multi-line paragraph shown verbatim by the
+// frontend failed page (whitespace-pre-wrap).
+export const STARTUP_RECOVERY_GUIDANCE = [
+  'Recovery guidance:',
+  '1. Stop all QuickForge processes so the data files are not locked.',
+  '2. Diagnose offline: node server/maintenance/downgrade-session-state-v1.mjs --dry-run',
+  '3. Export a backup: node server/maintenance/export-session-state-v1.mjs <output-path>',
+  '4. Follow the recovery runbook: docs/architecture/session-storage-recovery-runbook.zh-CN.md',
+].join('\n')
+
+export function withStartupRecoveryGuidance(errorMessage) {
+  return `${errorMessage || 'Startup failed'}\n\n${STARTUP_RECOVERY_GUIDANCE}`
+}
+
 // Test helper: restore the module-evaluation defaults.
 export function resetStartupState() {
   startupState = STARTUP_STATES.MIGRATING

@@ -24,8 +24,10 @@ migration v7（`session_messages_incremental_storage`，v6→v7 失败整体回�
 
 ```text
 json_authoritative -> cutover_running -> sqlite_authoritative_json_pending -> authoritative
-   ^                      |                            |
-   +----------------------+                            +-- 恢复时重试 drain
+   ^    ^                 |                            |    ^                     |
+   |    |                 +-- 崩溃后整体回滚，重启重跑   +----+ 恢复时重试 drain     |
+   +----+----------------------------- downgrade --commit ------------------------+
+        （有意回退边：物化 JSON 镜像 + count/digest 对拍通过后切回，见 §6）
 ```
 
 - `json_authoritative`：JSON 文件是唯一权威；service 全部走注入的 JSON adapter。
@@ -43,7 +45,7 @@ json_authoritative -> cutover_running -> sqlite_authoritative_json_pending -> au
 - 大库流式导入：`repository.replaceAllStream(recordIterable, { expectedCount, expectedDigest, storageState, mirrorDeletes, beforeCommit })` 逐条消费 sync/async iterable（不把全部 records 物化进内存），在单个 immediate 事务内完成清表 + 逐条 INSERT/index upsert/mirror 入队 + mirrorDeletes delete 入队 + count/digest 验证（digest 逐条累加 `snapshotDigestLine`，JSON 导入恒为非 split，messages digest 槽为空，与 `digestRows` 对非 split 行等价）；任何错误（含迭代器中途抛错、digest/count 不匹配、mirrorDeletes 与 record key 冲突）整体回滚、原状保留；`storage.transaction` 回调要求同步，故事务由该方法自行 `BEGIN IMMEDIATE`/`COMMIT`/`ROLLBACK` 管理，调用方须持有 session state 维护锁；`replaceAll` 保持不变供既有调用方使用；
 - cutover 迁移路径流式化（第 2 步）：`json_authoritative` 分支不再 `buildSessionJsonSnapshot(readPhysicalSessionStateBuckets())×3` 整库物化，改为流式源 `createStreamingSessionSource(fsAdapter)` 逐桶逐会话 yield 规范化 record（逐会话规范化提取为 `normalizeSessionEntry`，与 `buildSessionJsonSnapshot` 共用同一实现，语义逐字节一致），4 个 pass 独立完整迭代源：pass1/pass2 双 summary（count/digest/diagnostics 序列化比对，不一致抛 `Session JSON source changed during cutover double read`）；pass3 备份写 pass（写入时逐条 digest 汇总复验 summary，不一致抛 `Session JSON source changed before cutover commit`；`backupFile` 已存在的恢复场景改为 summary-only 第三读，不重复写备份）；pass4 `replaceAllStream` 导入。跨 pass 仅保留小体积 summary（digest 行 + 诊断），内存上界 ≈ 最大单会话 parse/clone/stringify 峰值 + 单桶 metadata parse（+ 备份 pass 缓冲的 metadata JSON 小字符串），不再随库规模线性增长。`fsAdapter`（`listBuckets`/`listSessionFiles`/`readSessionState`/`readMetadataBucket`）可注入，生产默认 `createPhysicalSessionStateFsAdapter()` 包装 storage.mjs 物理 helper（`listProjectIds`/`listSessionDataFiles`/`sessionDataFile`/`sessionStoreFile('sessions-metadata')`/`readJsonFile`）；`options.readBuckets` 注入路径保留：每 pass 调用一次并物化一份全量快照后转等价 generator（仅限小数据测试场景，summary 结构与流式路径完全一致，每次完整 cutover 的调用次数由 3 次变为 4 次）；
 - cutover 备份流式写入与字节级校验：`fs.createWriteStream` 写 tmp 文件逐会话输出（`"sessionId": <state>` 与 metadata 同理，逗号前置、末条无尾逗号；metadata JSON 小字符串缓冲、state 永不整库缓冲），JSON 形状与旧整库写入完全一致（`{app, version, exportedAt, scope, includeSecrets, sessionState:{count,digest}, data:{sessions, sessionsMetadata}}`，可被 JSON.parse 与既有 restore 兼容）；写入中同步累计 sha256 与字节数，close 后用 `createReadStream` 分块重读复核 hash/字节数一致且首尾字节为 `{`/`}`（替代原“整读 + 再 parse + 再 snapshot”校验，不再把备份整文件载入内存），失败抛 `Session cutover backup verification failed`、清理 tmp 并回退 `json_authoritative`（diagnostic 记录错误）；
-- `server/index.mjs` 在 `recoverStaleScheduledTaskRuns` 之后、HTTP listen 之前执行 `initializeSessionStateCutover()` → `initializeSessionStateService()` → `recoverSessionStateRestorePlan()` → `drainSessionJsonMirror()`；shutdown 时 `stopSessionStateService()` 清理 mirror 定时器后关闭 SQLite。
+- 启动链（现状，2026-08 修正——此前本节"HTTP listen 之前执行"的描述已过时）：`server/index.mjs` 在 listen 前仅执行 `ensureStorage()` + `initializeSqliteStorage()`；HTTP listen 之后，启动链在后台维护窗口中执行——`recoverStaleScheduledTaskRuns` 之后依次 `initializeSessionStateCutover()` → `initializeSessionStateService()` → `recoverSessionStateRestorePlan()` → `drainSessionJsonMirror()`。维护窗口由 `server/startup-state.mjs` 管理（`migrating`/`ready`/`failed`）：窗口内非白名单 `/api/*` 返回 503，`/api/health` 与 `/api/migration-status` 保持可用，前端展示迁移进度页；fail-closed 语义为"进程保活 + 业务 API 拒绝"而非终止进程。shutdown 时 `stopSessionStateService()` 清理 mirror 定时器后关闭 SQLite。完整现状见 [`session-storage-current-architecture.zh-CN.md`](./session-storage-current-architecture.zh-CN.md) §6。
 
 ## 3. CAS 与错误码
 
@@ -60,6 +62,22 @@ json_authoritative -> cutover_running -> sqlite_authoritative_json_pending -> au
 - 启动 drain + 写后 drain；`drainSessionJsonMirror()` 返回 `{ drained, pending }`，pending 大于 0 时继续调度。
 - drain 分页拉取 outbox：队列行携带完整 `state_json`，大库 cutover 可入队数千条目，drain 按 `listMirrorQueue({ limit })`（批大小 8）分页物化，不一次性载入全量队列；失败条目 `failMirror` 后 `updated_at` 后移、在后续批继续重试，整批零确认即停止本轮（防止死循环），1 秒定时重试不变；`pending` 为本轮结束后 `countMirrorQueue()`（COUNT 查询）的剩余队列长度。
 - 镜像不反向影响 SQLite 权威；删除/替换产生的“残留 JSON 文件”由后续显式 delete 物化清除，权威判断始终以 SQLite 为准。
+
+### 4.1 JSON mirror 的生命周期定位（决策，2026-08）
+
+**决策：mirror 作为一等永久设施保留，不再是"过渡设施"。** 依据设计评审报告 §6.1 的讨论定案：
+
+- **保留理由**：
+  1. **降级路径**：`downgrade --commit` 要求磁盘 JSON 与 SQLite 快照 count/digest 对拍一致，镜像残缺即拒绝降级——mirror 是降级能力的前提；
+  2. **外部工具读取**：脚本/备份巡检等直接读 JSON 文件，无需 SQLite 客户端；
+  3. **旧版兼容**：回退旧版 QuickForge 时 JSON 是唯一可导入形态。
+- **成本（已接受的永久税）**：同一份数据 2x 磁盘占用；单次 save 约 3~4x 写放大（state_json + outbox 完整副本 + 索引行 + WAL + JSON 物化）；outbox/drain/失败重试一整个子系统的维护成本；"JSON 永远是完整形态"对拆分设计的反向约束（drain 必须对拆分会话全量重组，见 §4 与评审报告 P3）。
+- **退役条件**（如未来要移除 mirror，须同时满足）：
+  1. 旧版支持窗口结束，不再有回退旧版的诉求；
+  2. 提供按需导出替代路径供外部工具读取（`server/maintenance/export-session-state-v1.mjs` 已具备雏形，需评估其作为常态替代是否足够）；
+  3. 降级工具改造为"按需物化"（drain 子系统移除后 downgrade 自行从 SQLite 全量导出 JSON）。
+
+在上述条件满足之前，mirror 及其 drain 子系统的维护为必选项，相关性能问题（如 drain 对拆分会话的增量物化）只能优化、不能以"砍掉 mirror"方式解决。
 
 ## 5. Backup / Restore
 
@@ -138,6 +156,8 @@ node server/maintenance/downgrade-session-state-v1.mjs --commit   # 物化并切
 - **message_id 语义**：消息对象带非空字符串 `id` 时写入 `message_id` 列并受 `UNIQUE` 约束（`appendMessages` 对同 id 幂等跳过）；无 id 的消息仅由 seq 标识（不做内容去重，允许完全相同消息重复出现）。
 
 ### 9.2 Digest / 版本定义（v7）
+
+> **⚠️ 警示：digest 是"当前存储表示"的指纹，不是"内容指纹"。** 同一逻辑会话在拆分前后 digest 不同（拆分会话 body digest 不含 messages；未拆分会话含内联 messages）。外部系统不得把 `state_digest` / `sessionState.digest` / 备份包顶层 digest 当作内容指纹使用（如判重、缓存键、变更检测）——只有同一表示形式下的 digest 才可比较；跨表示比较须先统一到同一表示（如导出组装后的完整 body）再计算。
 
 - **body digest（`state_digest`）**：覆盖 `session_states.state_json` 的规范化 SHA-256。拆分会话的 `state_json` 不含 messages 且带 `messageStorage: 'split'`，因此 body digest **不含** messages；未拆分会话 body digest **含** 内联 messages。digest 即“当前存储表示”的摘要。
 - **行级 digest（`message_digest`）**：每条消息规范化 JSON 的 SHA-256，随行写入。

@@ -84,7 +84,7 @@ describe('SQLite storage foundation', () => {
     expect(storage.prepare('PRAGMA busy_timeout').get().timeout).toBe(5_000)
     expect(storage.prepare('PRAGMA foreign_keys').get().foreign_keys).toBe(1)
     expect(storage.prepare('PRAGMA journal_mode').get().journal_mode).toBe('wal')
-    expect(storage.prepare('PRAGMA synchronous').get().synchronous).toBe(1)
+    expect(storage.prepare('PRAGMA synchronous').get().synchronous).toBe(2)
   })
 
   it('deduplicates initialization, rejects path conflicts, retries failures, and reinitializes after close', async () => {
@@ -260,7 +260,7 @@ describe('SQLite storage foundation', () => {
       journalMode: 'wal',
       busyTimeout: 5_000,
       foreignKeys: true,
-      synchronous: 'normal',
+      synchronous: 'full',
       quickCheck: 'ok',
     })
     expect(JSON.stringify(health)).not.toContain(databasePath)

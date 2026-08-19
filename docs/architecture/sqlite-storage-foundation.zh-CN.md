@@ -43,9 +43,29 @@ node:sqlite DatabaseSync
 | `busy_timeout` | `5000` ms |
 | `foreign_keys` | `ON` |
 | `journal_mode` | `WAL` |
-| `synchronous` | `NORMAL` |
+| `synchronous` | `FULL`（定案依据见下文 §3.1 实测与决策） |
 
-初始化或 health 校验不一致时明确报错。日志只记录 `component=sqlite`、schema/migration 版本、journal mode、timeout 与错误摘要；禁止记录未来业务 SQL、参数或数据内容。
+初始化或 health 校验不一致时明确报错。
+
+### 3.1 synchronous 耐久性分析与定案
+
+WAL 模式下两种取值的崩溃语义：
+
+- `WAL + synchronous=NORMAL`：进程崩溃（含机器重启但 OS 正常刷盘）安全，已提交事务不丢；但 OS 崩溃/断电时可能丢失最后一次 checkpoint 以来已提交的事务。丢失窗口有界，约等于 checkpoint 间隔（默认 `wal_autocheckpoint=1000` 页）。
+- `WAL + synchronous=FULL`：每次 COMMIT 都 fsync WAL，OS 崩溃/断电后已提交事务也不丢。
+
+实测（`scripts/sqlite-synchronous-benchmark.mjs`，模拟会话保存热路径：2000 次单条 upsert 独立事务（state_json ≈ 50KB）与 1 个事务内 upsert 2000 条，各 3 轮取中位数；本机 Windows 11 / Node v24.15.0 / SQLite 3.51.3 / NVMe SSD）：
+
+| 负载 | synchronous | 总耗时 | 均次耗时 | 相对 NORMAL 倍率 |
+|---|---|---|---|---|
+| 高频小事务（每条消息一次保存） | NORMAL | 1061.4 ms | 0.531 ms | 1.00x |
+| 高频小事务（每条消息一次保存） | FULL | 1977.8 ms | 0.989 ms | 1.86x |
+| 批量导入（cutover，单事务） | NORMAL | 1250.6 ms | 0.625 ms | 1.00x |
+| 批量导入（cutover，单事务） | FULL | 1196.4 ms | 0.598 ms | 0.96x |
+
+**定案结论：切换为 `FULL`。** 高频小事务负载下 FULL 的均次增量约 0.46 ms（远低于 2 ms 的可接受阈值），对每条消息一次保存的热路径不可感知；批量导入为单事务，fsync 成本被摊薄，倍率约 1.0。倍率 1.86x 看似偏高，但绝对成本极小，且换来断电/OS 崩溃场景下已提交事务零丢失，消除了 NORMAL 的 checkpoint 窗口丢数风险（该窗口内 mirror JSON 虽可兜底，但恢复链路复杂，不值得为 0.46 ms 保留）。
+
+本任务只定案与记录，server 代码中的 PRAGMA 切换在后续独立小 feature 落地（含 health 摘要与测试同步）。若在 fsync 昂贵的环境（机械盘、部分网络盘）实测均次增量 ≥ 2 ms，应回退本决策并显式记录"接受 NORMAL 的丢失窗口"：丢失窗口有界（≈ checkpoint 间隔）、对话记录有 mirror JSON 兜底。日志只记录 `component=sqlite`、schema/migration 版本、journal mode、timeout 与错误摘要；禁止记录未来业务 SQL、参数或数据内容。
 
 ## 4. Migration 协议
 

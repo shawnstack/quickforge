@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite/database.mjs'
-import { createSessionStateRepository } from '../../server/sqlite/session-state-repository.mjs'
+import { createSessionStateRepository, MIRROR_MAX_ATTEMPTS } from '../../server/sqlite/session-state-repository.mjs'
 import {
   applySessionBatch,
   configureSessionStateService,
@@ -198,6 +198,45 @@ describe('session state service facade', () => {
     const result = await drainSessionJsonMirror()
     expect(result).toMatchObject({ drained: 10, pending: 0 })
     expect(repository.countMirrorQueue()).toBe(0)
+    stopSessionStateService()
+  })
+
+  it('skips mirror entries superseded by a mid-drain save and materializes only the newest payload', async () => {
+    repository.save(initialRecord('one'), { expectedRevision: 0 })
+    repository.save(initialRecord('two'), { expectedRevision: 0 })
+    const mirror = {
+      upsert: vi.fn(async (entry) => {
+        if (entry.sessionId === 'one') {
+          // A save landing mid-drain supersedes the queued snapshot of 'two'.
+          repository.save({ ...initialRecord('two'), state: { ...initialRecord('two').state, title: 'two v2' } }, { expectedRevision: 1 })
+        }
+      }),
+      delete: vi.fn(),
+    }
+    configureSessionStateService({ repository, mirror, phase: 'authoritative' })
+    const result = await drainSessionJsonMirror()
+    expect(result).toMatchObject({ pending: 0 })
+    // The stale 'two' snapshot was never materialized; only the newest payload.
+    const twoTitles = mirror.upsert.mock.calls.map(([entry]) => entry).filter((entry) => entry.sessionId === 'two').map((entry) => entry.state.title)
+    expect(twoTitles).toEqual(['two v2'])
+    expect(repository.countMirrorQueue()).toBe(0)
+    stopSessionStateService()
+  })
+
+  it('surfaces mirror dead letters in diagnostics once attempts are exhausted', async () => {
+    repository.save(initialRecord('one'), { expectedRevision: 0 })
+    const mirror = { upsert: vi.fn(async () => { throw new Error('mirror down') }), delete: vi.fn() }
+    configureSessionStateService({ repository, mirror, phase: 'authoritative' })
+    for (let round = 0; round < MIRROR_MAX_ATTEMPTS; round += 1) {
+      await drainSessionJsonMirror()
+    }
+    expect(mirror.upsert).toHaveBeenCalledTimes(MIRROR_MAX_ATTEMPTS)
+    // Dead letter: no more retries, no longer pending, but visible.
+    const result = await drainSessionJsonMirror()
+    expect(result).toMatchObject({ drained: 0, pending: 0, deadLetters: 1 })
+    expect(mirror.upsert).toHaveBeenCalledTimes(MIRROR_MAX_ATTEMPTS)
+    setSessionStoragePhase('authoritative', { stateCount: 1, digest: repository.digest() })
+    expect(getSessionStateDiagnostics()).toMatchObject({ mirrorPending: 0, mirrorDeadLetters: 1 })
     stopSessionStateService()
   })
 })

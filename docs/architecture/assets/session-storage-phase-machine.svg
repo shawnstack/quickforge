@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 260" font-family="sans-serif" font-size="12">
+  <defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#555"/></marker></defs>
+  <text x="10" y="20" font-size="14" font-weight="bold">会话存储 phase 状态机（含 downgrade --commit 有意回退边）</text>
+
+  <rect x="10" y="70" width="170" height="44" rx="6" fill="#e6f4ea" stroke="#34a853"/>
+  <text x="95" y="88" text-anchor="middle">json_authoritative</text>
+  <text x="95" y="104" text-anchor="middle" font-size="10">JSON 文件是唯一权威</text>
+
+  <rect x="250" y="70" width="150" height="44" rx="6" fill="#fef7e0" stroke="#f9ab00"/>
+  <text x="325" y="88" text-anchor="middle">cutover_running</text>
+  <text x="325" y="104" text-anchor="middle" font-size="10">仅存在于 cutover 事务窗口</text>
+
+  <rect x="470" y="70" width="210" height="44" rx="6" fill="#e8f0fe" stroke="#4285f4"/>
+  <text x="575" y="88" text-anchor="middle">sqlite_authoritative_json_pending</text>
+  <text x="575" y="104" text-anchor="middle" font-size="10">SQLite 已可读，mirror 未排空</text>
+
+  <rect x="740" y="70" width="110" height="44" rx="6" fill="#d2e3fc" stroke="#4285f4"/>
+  <text x="795" y="88" text-anchor="middle">authoritative</text>
+  <text x="795" y="104" text-anchor="middle" font-size="10">正常运行态</text>
+
+  <line x1="180" y1="92" x2="250" y2="92" stroke="#555" marker-end="url(#a)"/>
+  <text x="215" y="62" text-anchor="middle" font-size="10">cutover 启动</text>
+  <line x1="400" y1="92" x2="470" y2="92" stroke="#555" marker-end="url(#a)"/>
+  <text x="435" y="62" text-anchor="middle" font-size="10">导入提交</text>
+  <line x1="680" y1="92" x2="740" y2="92" stroke="#555" marker-end="url(#a)"/>
+  <text x="710" y="62" text-anchor="middle" font-size="10">drain 排空</text>
+
+  <path d="M530,70 C530,34 620,34 620,70" fill="none" stroke="#555" stroke-dasharray="4" marker-end="url(#a)"/>
+  <text x="575" y="30" text-anchor="middle" font-size="10">重启时 drain 未排空则重试</text>
+
+  <path d="M325,114 C325,180 80,180 80,114" fill="none" stroke="#555" stroke-dasharray="4" marker-end="url(#a)"/>
+  <text x="200" y="172" text-anchor="middle" font-size="10">崩溃/校验失败：整体回滚，重启重跑 cutover</text>
+
+  <path d="M795,114 C795,235 110,235 110,114" fill="none" stroke="#555" marker-end="url(#a)"/>
+  <text x="450" y="232" text-anchor="middle" font-size="10">downgrade --commit：物化 JSON 镜像 + count/digest 对拍通过后的有意回退（唯一回到 JSON 权威的合法边）</text>
+</svg>

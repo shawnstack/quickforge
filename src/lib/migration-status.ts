@@ -23,6 +23,10 @@
 
 export const MIGRATION_POLL_INTERVAL_MS = 2000
 
+// How many consecutive unreachable polls waitForMigrationSettled tolerates
+// before giving up (a single transient failure keeps the loop polling).
+export const MIGRATION_POLL_FAILURE_LIMIT = 3
+
 export type MigrationWindowState = 'migrating' | 'ready' | 'failed'
 
 export type MigrationDomainStatus = {
@@ -131,8 +135,12 @@ export type MigrationGateOutcome =
 // Poll the migration status until the maintenance window closes. Resolves
 // 'ready' when the server finished migrating, 'failed' with the server error
 // detail when the startup chain failed, or 'cancelled' when isCancelled()
-// reported true (effect cleanup / retry). Throws when the endpoint itself
-// becomes unreachable — e.g. the service died mid-migration — so the caller's
+// reported true (effect cleanup / retry). Unreachable polls ({ ok: false } —
+// network error, non-200, malformed payload) are tolerated: fewer than
+// MIGRATION_POLL_FAILURE_LIMIT consecutive failures keep retrying on the same
+// interval, and any successful poll resets the failure streak. Only once the
+// endpoint stays unreachable for MIGRATION_POLL_FAILURE_LIMIT polls in a row —
+// e.g. the service died mid-migration — does this throw, so the caller's
 // existing error handling takes over.
 export async function waitForMigrationSettled(options: {
   fetchStatus?: () => Promise<MigrationStatusResult>
@@ -145,10 +153,19 @@ export async function waitForMigrationSettled(options: {
   const intervalMs = options.intervalMs ?? MIGRATION_POLL_INTERVAL_MS
   const delay = options.delay ?? ((ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms) }))
 
+  let consecutiveFailures = 0
   for (;;) {
     if (options.isCancelled?.()) return { state: 'cancelled' }
     const status = await fetchStatus()
-    if (!status.ok) throw new Error('QuickForge migration status is unavailable.')
+    if (!status.ok) {
+      consecutiveFailures += 1
+      if (consecutiveFailures >= MIGRATION_POLL_FAILURE_LIMIT) {
+        throw new Error('QuickForge migration status is unavailable.')
+      }
+      await delay(intervalMs)
+      continue
+    }
+    consecutiveFailures = 0
     options.onStatus?.(status)
     if (status.state !== 'migrating') {
       if (status.state === 'failed') return { state: 'failed', startupError: status.startupError }

@@ -268,6 +268,73 @@ describe('useAppBootstrap startup maintenance window', () => {
     expect(createAgent).not.toHaveBeenCalled()
   })
 
+  it('recovers when boot races into the maintenance window and auto-retries once ready', async () => {
+    piMocks.initializePiStorage.mockRejectedValue(new Error('QuickForge local service is unavailable.'))
+    migrationMocks.fetchMigrationStatus.mockResolvedValue(MIGRATING_STATUS)
+    let resolveGate!: (outcome: unknown) => void
+    const gate = new Promise<unknown>((resolve) => { resolveGate = resolve })
+    migrationMocks.waitForMigrationSettled.mockImplementation(async (gateOptions: GateOptions = {}) => {
+      gateOptions.onStatus?.(MIGRATING_STATUS)
+      return gate
+    })
+    const storageRef = { current: null }
+    const { createAgent } = useBootstrapHarness({ storageRef })
+
+    await flushMicrotasks()
+
+    // The catch path probed a migrating window, so the generic error card is
+    // skipped and the UI parks on the migration progress view instead.
+    expect(reactHarness.states[STARTUP_ERROR_STATE]).toBeUndefined()
+    expect(reactHarness.states[MIGRATION_STATUS_STATE]).toEqual(MIGRATING_STATUS)
+    expect(reactHarness.states[READY_STATE]).toBe(false)
+    expect(storageRef.current).toBe(null)
+    expect(createAgent).not.toHaveBeenCalled()
+    expect(migrationMocks.waitForMigrationSettled).toHaveBeenCalledWith(
+      expect.objectContaining({ onStatus: expect.any(Function), isCancelled: expect.any(Function) }),
+    )
+
+    resolveGate({ state: 'ready' })
+    await flushMicrotasks()
+
+    // Window closed: progress view cleared, no error card, boot auto-retries.
+    expect(reactHarness.states[MIGRATION_STATUS_STATE]).toBeUndefined()
+    expect(reactHarness.states[STARTUP_ERROR_STATE]).toBeUndefined()
+    expect(reactHarness.states[RETRY_NONCE_STATE]).toBe(1)
+    expect(reactHarness.states[READY_STATE]).toBe(false)
+
+    // The retryNonce change re-runs the boot effect; the window is closed now,
+    // so the second boot goes straight through.
+    piMocks.initializePiStorage.mockResolvedValue({ backend: {} })
+    migrationMocks.fetchMigrationStatus.mockResolvedValue({ ok: true, state: 'ready' })
+    migrationMocks.waitForMigrationSettled.mockResolvedValue({ state: 'ready' })
+    const secondReadyState = reactHarness.stateCursor
+    const second = useBootstrapHarness()
+    await flushMicrotasks()
+    expect(migrationMocks.waitForMigrationSettled).toHaveBeenCalledTimes(2)
+    expect(second.createAgent).toHaveBeenCalledTimes(1)
+    expect(reactHarness.states[secondReadyState]).toBe(true)
+  })
+
+  it('shows the migration error card when the race recovery gate fails', async () => {
+    piMocks.initializePiStorage.mockRejectedValue(new Error('QuickForge local service is unavailable.'))
+    migrationMocks.fetchMigrationStatus.mockResolvedValue(MIGRATING_STATUS)
+    migrationMocks.waitForMigrationSettled.mockImplementation(async (gateOptions: GateOptions = {}) => {
+      gateOptions.onStatus?.(MIGRATING_STATUS)
+      return { state: 'failed', startupError: 'session cutover crashed mid-window' }
+    })
+    const { createAgent } = useBootstrapHarness()
+
+    await flushMicrotasks()
+
+    expect(reactHarness.states[STARTUP_ERROR_STATE]).toEqual({
+      message: 'migration.failedDescription',
+      kind: 'migration',
+      detail: 'session cutover crashed mid-window',
+    })
+    expect(reactHarness.states[RETRY_NONCE_STATE]).toBe(0)
+    expect(createAgent).not.toHaveBeenCalled()
+  })
+
   it('retry clears the failure and re-runs the full boot including the gate', async () => {
     migrationMocks.waitForMigrationSettled.mockResolvedValue({ state: 'failed', startupError: 'boom' })
     const { retryBootstrap } = useBootstrapHarness()

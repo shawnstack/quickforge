@@ -279,6 +279,33 @@ export function useAppBootstrap({
           })
           return
         }
+        if (status.ok && status.state === 'migrating') {
+          // Boot raced into the startup maintenance window: the requests above
+          // hit the business /api/* 503s before the migration gate could run.
+          // Recover by parking the UI on the migration progress view instead
+          // of the generic error card, then auto-retry the full boot once the
+          // window closes.
+          const migrationGate = await waitForMigrationSettled({
+            onStatus: (windowStatus) => {
+              if (!cancelled) setMigrationStatus(windowStatus)
+            },
+            isCancelled: () => cancelled,
+          })
+          if (cancelled || migrationGate.state === 'cancelled') return
+          if (migrationGate.state === 'failed') {
+            setStartupError({
+              message: t('migration.failedDescription'),
+              kind: 'migration',
+              detail: migrationGate.startupError,
+            })
+            return
+          }
+          setMigrationStatus(undefined)
+          // The retryNonce bump re-runs this effect (deps include it), giving
+          // the post-window boot a clean state instead of resuming mid-failure.
+          setRetryNonce((value) => value + 1)
+          return
+        }
         setStartupError({ message: t('localServiceUnavailableDescription'), kind: 'service' })
       }
     }

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  MIGRATION_POLL_FAILURE_LIMIT,
   MIGRATION_POLL_INTERVAL_MS,
   fetchMigrationStatus,
   migrationPhaseStage,
@@ -155,11 +156,55 @@ describe('waitForMigrationSettled', () => {
     expect(outcome).toEqual({ state: 'failed', startupError: 'cutover failed' })
   })
 
-  it('throws when the endpoint becomes unreachable', async () => {
+  it(`throws after ${MIGRATION_POLL_FAILURE_LIMIT} consecutive unreachable polls`, async () => {
     const fetchStatus = vi.fn(async () => ({ ok: false as const }))
+    const delay = vi.fn(async () => undefined)
 
-    await expect(waitForMigrationSettled({ fetchStatus, delay: vi.fn(async () => undefined) }))
+    await expect(waitForMigrationSettled({ fetchStatus, delay }))
       .rejects.toThrow('QuickForge migration status is unavailable.')
+    expect(fetchStatus).toHaveBeenCalledTimes(MIGRATION_POLL_FAILURE_LIMIT)
+    expect(delay).toHaveBeenCalledTimes(MIGRATION_POLL_FAILURE_LIMIT - 1)
+  })
+
+  it('tolerates an isolated failed poll and keeps waiting', async () => {
+    const statuses: MigrationStatusResult[] = [
+      { ok: false },
+      statusResult(),
+      statusResult({ state: 'ready' }),
+    ]
+    const fetchStatus = vi.fn(async () => statuses.shift()!)
+    const delay = vi.fn(async () => undefined)
+    const onStatus = vi.fn()
+
+    const outcome = await waitForMigrationSettled({ fetchStatus, delay, onStatus })
+
+    expect(outcome).toEqual({ state: 'ready' })
+    expect(fetchStatus).toHaveBeenCalledTimes(3)
+    // The failed poll retries on the same interval and never reaches onStatus.
+    expect(delay).toHaveBeenCalledTimes(2)
+    expect(delay).toHaveBeenCalledWith(MIGRATION_POLL_INTERVAL_MS)
+    expect(onStatus).toHaveBeenCalledTimes(2)
+    expect(onStatus).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'ready' }))
+  })
+
+  it('resets the failure streak after any successful poll', async () => {
+    const statuses: MigrationStatusResult[] = [
+      { ok: false },
+      { ok: false },
+      statusResult(),
+      { ok: false },
+      statusResult({ state: 'ready' }),
+    ]
+    const fetchStatus = vi.fn(async () => statuses.shift()!)
+    const delay = vi.fn(async () => undefined)
+
+    const outcome = await waitForMigrationSettled({ fetchStatus, delay })
+
+    // Two failures, a migrating snapshot resets the streak, one more failure,
+    // then ready — never three in a row, so the loop survives and resolves.
+    expect(outcome).toEqual({ state: 'ready' })
+    expect(fetchStatus).toHaveBeenCalledTimes(5)
+    expect(delay).toHaveBeenCalledTimes(4)
   })
 
   it('stops without fetching once cancelled', async () => {

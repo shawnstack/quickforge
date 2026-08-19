@@ -80,12 +80,40 @@ export function applyFontSizeSettings(settings: FontSizeSettings) {
   if (typeof document === 'undefined') return
   const normalized = normalizeFontSizeSettings(settings)
   const root = document.documentElement
+  const interfaceValue = `${normalized.interfaceFontSizePx}px`
+  const messageValue = `${normalized.messageFontSizePx}px`
+  const interfaceUnchanged = root.style.fontSize === interfaceValue
+  const messageUnchanged =
+    root.style.getPropertyValue('--quickforge-message-font-size').trim() === messageValue
+  if (interfaceUnchanged && messageUnchanged) return
   // The interface font size drives the root font-size, so every rem-based token
   // (including `--text-sm: 1rem`) scales automatically — no per-token overrides needed.
-  root.style.fontSize = `${normalized.interfaceFontSizePx}px`
-  root.style.setProperty('--quickforge-message-font-size', `${normalized.messageFontSizePx}px`)
+  root.style.fontSize = interfaceValue
+  root.style.setProperty('--quickforge-message-font-size', messageValue)
   root.style.setProperty('--quickforge-message-line-height', '1.625')
-  window.dispatchEvent(new CustomEvent(FONT_SIZE_SETTINGS_CHANGED_EVENT, { detail: normalized }))
+  // Event consumers (useCodeFontMetrics / TerminalPane) only derive metrics from the
+  // interface font size — the message size flows through CSS variables without an event.
+  if (!interfaceUnchanged) {
+    window.dispatchEvent(new CustomEvent(FONT_SIZE_SETTINGS_CHANGED_EVENT, { detail: normalized }))
+  }
+}
+
+let pendingPreviewSettings: FontSizeSettings | null = null
+let pendingPreviewFrameId: number | null = null
+
+// Slider drags fire an `input` event per step; applying synchronously would rewrite the
+// root font-size (full-page rem reflow) on every step within a single frame. Coalescing
+// onto one animation frame keeps the preview to at most one application per frame.
+export function scheduleFontSizePreview(settings: FontSizeSettings): void {
+  if (typeof document === 'undefined') return
+  pendingPreviewSettings = normalizeFontSizeSettings(settings)
+  if (pendingPreviewFrameId !== null) return
+  pendingPreviewFrameId = window.requestAnimationFrame(() => {
+    pendingPreviewFrameId = null
+    const pending = pendingPreviewSettings
+    pendingPreviewSettings = null
+    if (pending) applyFontSizeSettings(pending)
+  })
 }
 
 export async function loadFontSizeSettings(storage: AppStorage): Promise<FontSizeSettings> {

@@ -9,10 +9,10 @@ import {
 import {
   DEFAULT_FONT_SIZE_SETTINGS,
   FONT_SIZE_RANGE,
-  applyFontSizeSettings,
   loadFontSizeSettings,
   normalizeFontSizeSettings,
   saveFontSizeSettings,
+  scheduleFontSizePreview,
   type FontSizeSettings,
 } from '@/lib/font-size-settings'
 import { t } from '@/lib/i18n'
@@ -87,7 +87,7 @@ class AppearanceSettingsTab extends SettingsTab {
     const normalized = normalizeFontSizeSettings(settings)
     this.interfaceFontSizePx = normalized.interfaceFontSizePx
     this.messageFontSizePx = normalized.messageFontSizePx
-    applyFontSizeSettings(normalized)
+    scheduleFontSizePreview(normalized)
     this.requestUpdate()
   }
 

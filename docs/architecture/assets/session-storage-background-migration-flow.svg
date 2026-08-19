@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 650" font-family="sans-serif" font-size="12">
+  <defs>
+    <marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#555"/></marker>
+    <marker id="r" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#ea4335"/></marker>
+  </defs>
+  <text x="10" y="20" font-size="14" font-weight="bold">会话存储后台迁移总流程：业务无感切换（泳道）</text>
+
+  <!-- 泳道：用户 / 业务 -->
+  <rect x="10" y="44" width="1220" height="200" rx="8" fill="#f8f9fa" stroke="#dadce0"/>
+  <text x="24" y="66" font-weight="bold">用户 / 业务</text>
+
+  <rect x="30" y="84" width="100" height="52" rx="6" fill="#ffffff" stroke="#9aa0a6"/>
+  <text x="80" y="102" text-anchor="middle">进程启动</text>
+  <text x="80" y="118" text-anchor="middle" font-size="10">数秒初始化存储</text>
+
+  <rect x="150" y="84" width="140" height="52" rx="6" fill="#e6f4ea" stroke="#34a853"/>
+  <text x="220" y="102" text-anchor="middle">READY（秒级）</text>
+  <text x="220" y="118" text-anchor="middle" font-size="10">小域 cutover 秒级完成</text>
+  <text x="220" y="130" text-anchor="middle" font-size="10">会话域不挡启动</text>
+
+  <rect x="310" y="84" width="535" height="52" rx="6" fill="#e6f4ea" stroke="#34a853"/>
+  <text x="577" y="102" text-anchor="middle">业务正常读写 JSON（json_authoritative）</text>
+  <text x="577" y="118" text-anchor="middle" font-size="10">会话读写全走 JSON adapter · 迁移全程无感（分钟级并行）</text>
+  <text x="577" y="130" text-anchor="middle" font-size="10">后台对拍读 writeJsonAtomic 快照，读到即完整版本</text>
+
+  <rect x="865" y="84" width="170" height="52" rx="6" fill="#fce8e6" stroke="#ea4335"/>
+  <text x="950" y="102" text-anchor="middle">业务写排队（几秒）</text>
+  <text x="950" y="118" text-anchor="middle" font-size="10">锁内排队不报错、不丢写</text>
+
+  <rect x="615" y="176" width="355" height="52" rx="6" fill="#e6f4ea" stroke="#34a853"/>
+  <text x="792" y="194" text-anchor="middle">业务正常读写 SQLite（authoritative）</text>
+  <text x="792" y="210" text-anchor="middle" font-size="10">facade 切到 SQLite · mirror 反转异步写 JSON</text>
+  <text x="792" y="224" text-anchor="middle" font-size="10">promote 提交后立即生效</text>
+
+  <line x1="130" y1="110" x2="150" y2="110" stroke="#555" marker-end="url(#a)"/>
+  <line x1="290" y1="110" x2="310" y2="110" stroke="#555" marker-end="url(#a)"/>
+  <line x1="845" y1="110" x2="865" y2="110" stroke="#555" marker-end="url(#a)"/>
+  <line x1="950" y1="136" x2="950" y2="176" stroke="#555" marker-end="url(#a)"/>
+
+  <!-- 泳道：后台迁移任务 -->
+  <rect x="10" y="264" width="1220" height="250" rx="8" fill="#ffffff" stroke="#dadce0"/>
+  <text x="24" y="286" font-weight="bold">后台迁移任务（session-state 域 · fire-and-forget）</text>
+
+  <rect x="30" y="320" width="95" height="56" rx="6" fill="#e8f0fe" stroke="#4285f4"/>
+  <text x="77" y="338" text-anchor="middle">任务启动</text>
+  <text x="77" y="354" text-anchor="middle" font-size="10">持维护锁</text>
+  <text x="77" y="368" text-anchor="middle" font-size="10">TTL + 心跳续租</text>
+
+  <rect x="145" y="320" width="225" height="56" rx="6" fill="#e8f0fe" stroke="#4285f4"/>
+  <text x="257" y="338" text-anchor="middle">① 对齐导入</text>
+  <text x="257" y="354" text-anchor="middle" font-size="10">逐桶单遍流式导入 · 桶级事务</text>
+  <text x="257" y="368" text-anchor="middle" font-size="10">upsert + orphan 清理 · 不入 mirror 队列</text>
+
+  <rect x="390" y="320" width="230" height="56" rx="6" fill="#e8f0fe" stroke="#4285f4"/>
+  <text x="505" y="338" text-anchor="middle">② 追赶收敛</text>
+  <text x="505" y="354" text-anchor="middle" font-size="10">JSON digest ↔ SQLite 桶 digest 对拍</text>
+  <text x="505" y="368" text-anchor="middle" font-size="10">差异桶重导 · 一轮零差异 = 收敛</text>
+
+  <rect x="640" y="320" width="185" height="56" rx="6" fill="#fef7e0" stroke="#f9ab00"/>
+  <text x="732" y="338" text-anchor="middle">备份异步存档</text>
+  <text x="732" y="354" text-anchor="middle" font-size="10">收敛后 idle 期全量 JSON 存档</text>
+  <text x="732" y="368" text-anchor="middle" font-size="10">流式写 + sha256 · 不挡业务</text>
+
+  <rect x="845" y="320" width="120" height="56" rx="6" fill="#f8f9fa" stroke="#9aa0a6"/>
+  <text x="905" y="338" text-anchor="middle">idle 等待</text>
+  <text x="905" y="354" text-anchor="middle" font-size="10">无流式输出 +</text>
+  <text x="905" y="368" text-anchor="middle" font-size="10">近期无 persist</text>
+
+  <rect x="985" y="320" width="235" height="56" rx="6" fill="#fce8e6" stroke="#ea4335"/>
+  <text x="1102" y="338" text-anchor="middle">③ 切换窗口（秒级）</text>
+  <text x="1102" y="354" text-anchor="middle" font-size="10">全局 persist 锁 + metadata 队列 barrier</text>
+  <text x="1102" y="368" text-anchor="middle" font-size="10">最终对拍零差异 → promote 提交</text>
+
+  <line x1="125" y1="348" x2="145" y2="348" stroke="#555" marker-end="url(#a)"/>
+  <line x1="370" y1="348" x2="390" y2="348" stroke="#555" marker-end="url(#a)"/>
+  <line x1="620" y1="348" x2="640" y2="348" stroke="#555" marker-end="url(#a)"/>
+  <line x1="825" y1="348" x2="845" y2="348" stroke="#555" marker-end="url(#a)"/>
+  <line x1="965" y1="348" x2="985" y2="348" stroke="#555" marker-end="url(#a)"/>
+
+  <rect x="985" y="440" width="235" height="60" rx="6" fill="#e6f4ea" stroke="#34a853"/>
+  <text x="1102" y="458" text-anchor="middle">promote（复用现有 phase 边）</text>
+  <text x="1102" y="474" text-anchor="middle" font-size="9">json_authoritative → pending → authoritative</text>
+  <text x="1102" y="489" text-anchor="middle" font-size="10">mirror 队列为空 · 无需 drain</text>
+
+  <line x1="1102" y1="376" x2="1102" y2="440" stroke="#555" marker-end="url(#a)"/>
+
+  <!-- 唯一独占点：切换窗口 → 业务写排队（因果） -->
+  <line x1="1010" y1="320" x2="1010" y2="136" stroke="#ea4335" stroke-dasharray="4" marker-end="url(#r)"/>
+  <text x="1022" y="254" font-size="9" fill="#ea4335">锁 + barrier 生效期间</text>
+
+  <!-- 差异桶重导自环 -->
+  <path d="M445,376 C445,394 452,398 465,398 L540,398 C553,398 560,394 560,381" fill="none" stroke="#555" stroke-dasharray="4" marker-end="url(#a)"/>
+  <text x="502" y="392" text-anchor="middle" font-size="9" fill="#555">差异桶重导（逐轮）</text>
+
+  <!-- idle 超时回追赶 -->
+  <path d="M890,376 C890,402 876,410 858,410 L640,410 C622,410 608,402 606,377" fill="none" stroke="#555" stroke-dasharray="4" marker-end="url(#a)"/>
+  <text x="755" y="424" text-anchor="middle" font-size="9" fill="#555">超时 5 min：放弃 idle，回追赶收敛（fail-open）</text>
+
+  <!-- 日志埋点标注 -->
+  <text x="77" y="308" text-anchor="middle" font-size="9" fill="#ea4335">★ started</text>
+  <text x="257" y="308" text-anchor="middle" font-size="9" fill="#ea4335">★ bucket.import.started / bucket.imported</text>
+  <text x="505" y="308" text-anchor="middle" font-size="9" fill="#ea4335">★ converge.round / converge.converged</text>
+  <text x="732" y="308" text-anchor="middle" font-size="9" fill="#ea4335">★ backup.*（进度 / 校验 / 完成）</text>
+  <text x="905" y="308" text-anchor="middle" font-size="9" fill="#ea4335">★ idle.enter / idle.abandon</text>
+  <text x="1102" y="308" text-anchor="middle" font-size="9" fill="#ea4335">★ switch.lock.acquire / switch.promoted</text>
+  <text x="1092" y="416" text-anchor="end" font-size="9" fill="#ea4335">★ switch.done / task.done</text>
+
+  <!-- 图例 -->
+  <rect x="10" y="530" width="1220" height="104" rx="6" fill="#f8f9fa" stroke="#dadce0"/>
+  <text x="24" y="552" font-weight="bold">图例</text>
+  <rect x="24" y="566" width="14" height="14" fill="#e6f4ea" stroke="#34a853"/>
+  <text x="44" y="577" font-size="11">业务正常读写（权威存储）</text>
+  <rect x="270" y="566" width="14" height="14" fill="#e8f0fe" stroke="#4285f4"/>
+  <text x="290" y="577" font-size="11">后台迁移阶段（与业务并行）</text>
+  <rect x="540" y="566" width="14" height="14" fill="#fef7e0" stroke="#f9ab00"/>
+  <text x="560" y="577" font-size="11">异步备份（不挡任何路径）</text>
+  <rect x="790" y="566" width="14" height="14" fill="#f8f9fa" stroke="#9aa0a6"/>
+  <text x="810" y="577" font-size="11">等待（idle）/ 常规节点</text>
+  <rect x="24" y="592" width="14" height="14" fill="#fce8e6" stroke="#ea4335"/>
+  <text x="44" y="603" font-size="11">唯一独占点：切换窗口内全局 persist 锁 + metadata 写队列 barrier——业务写排队几秒，不报错</text>
+  <text x="24" y="625" font-size="12" fill="#ea4335">★</text>
+  <text x="44" y="626" font-size="11">= 关键日志埋点（事件清单见设计文档 §5）</text>
+  <line x1="560" y1="622" x2="606" y2="622" stroke="#555" stroke-dasharray="4"/>
+  <text x="614" y="626" font-size="11">虚线 = 超时 / 回退路径</text>
+</svg>

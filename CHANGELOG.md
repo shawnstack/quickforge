@@ -2,6 +2,36 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.7.11] - 2026-08-20
+
+### Added
+
+- Session storage v2 (schema v11): every conversation is now stored exactly once — small session rows plus append-only per-message rows and tiny tombstones — replacing the old multi-copy layout that bloated real libraries to gigabytes. Deleting sessions reclaims disk space immediately via incremental vacuum, and an empty database with existing JSON session files performs a one-shot idempotent import on startup.
+- Startup maintenance window: the server listens immediately and serves a migration progress page while background initialization runs; the UI recovers automatically when boot races the maintenance window instead of showing a dead error card.
+- Server logs now use local-time timestamps with local-date rotation and record slow initialization steps (>=500ms) to surface startup blockers.
+
+### Changed
+
+- Large-library startup and runtime performance: metadata reads no longer load full session snapshots (fixes a 4GB-heap OOM crash on multi-gigabyte libraries), startup `quick_check` is gated behind a process cache and 7-day marker, auto-archive no longer blocks startup with full-body scans, and session pagination dropped per-request full verification.
+- Session cutover digests are unified on byte-order sorting, and the WAL is truncated after promotion; a mixed-bucket digest mismatch that forced full migration replays (30-167s startups) on every launch is fixed.
+
+### Fixed
+
+- Archived conversations can be permanently deleted again: paired metadata deletes are accepted and in-memory agents are destroyed before persisted state removal, closing the revival path.
+- The appearance font-size slider no longer flickers while dragging; previews coalesce per animation frame with dirty-check applies.
+- Sidebar pinned and per-project conversation lists are capped at five rows with internal scrolling.
+- Prepared statements are reused in cutover import loops for large libraries.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.7.11` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.7.11.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.7.11.tgz
+  ```
+
 ## [1.7.10] - 2026-08-19
 
 ### Added

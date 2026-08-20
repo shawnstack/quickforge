@@ -61,13 +61,13 @@ describe('definitions', () => {
       expect(names).toContain('write_file')
       expect(names).toContain('edit_file')
       expect(names).toContain('run_command')
-      expect(names).toContain('generate_image')
+      expect(names).not.toContain('generate_image')
       expect(names).toContain('present_files')
       expect(names).toContain('ask_user')
     })
 
-    it('has exactly 9 tools', () => {
-      expect(workspaceTools).toHaveLength(9)
+    it('has exactly 8 tools', () => {
+      expect(workspaceTools).toHaveLength(8)
     })
 
     it('ask_user takes 1-4 questions with bounded options', () => {
@@ -100,11 +100,8 @@ describe('definitions', () => {
       expect(tool.parameters.properties.files.items.anyOf[1].properties.preview.description).toContain('list it without opening')
     })
 
-    it('generate_image has prompt and optional model parameters', () => {
-      const tool = workspaceTools.find((t) => t.name === 'generate_image')
-      expect(tool.parameters.properties).toHaveProperty('prompt')
-      expect(tool.parameters.properties).toHaveProperty('model')
-      expect(tool.executionMode).toBe('sequential')
+    it('does not expose generate_image', () => {
+      expect(workspaceTools.find((t) => t.name === 'generate_image')).toBeUndefined()
     })
 
     it('write_file has executionMode sequential', () => {

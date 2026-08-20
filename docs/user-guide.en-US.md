@@ -193,11 +193,7 @@ Recommendations:
 
 #### Image generation
 
-QuickForge can call the built-in `generate_image` tool with a configured OpenRouter Images model and display the result directly in the conversation. Generated files are stored as conversation assets instead of embedding large base64 payloads in message history.
-
-Configure an OpenRouter provider and API key under custom models first. The default image model is `google/gemini-2.5-flash-image`; the Agent may also use another supported built-in OpenRouter image model when requested. Under default access, image generation requires approval because it calls an external service and may incur charges.
-
-Current limitations: OpenRouter Images only; supported output formats are PNG, JPEG, WebP, and GIF; settings backups do not include generated image assets.
+The current version temporarily does not expose the `generate_image` tool to the Agent, so image generation cannot be invoked in new conversations. The server handler, conversation assets, and frontend rendering remain in place for historical-session compatibility; images already generated in existing conversations can still be viewed and downloaded.
 
 ### 5. Conversation Management
 

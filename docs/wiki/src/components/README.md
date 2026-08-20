@@ -70,7 +70,7 @@ components/
 - 核心聊天面板宿主
 - 封装 `@earendil-works/pi-web-ui` 的 `ChatPanel` 组件
 - 集成 Agent 权限模式选择器、Plan 模式输入态、工作区工具渲染、分享对话渲染
-- 支持本地工具渲染器 (`getLocalWorkspaceTools`)；`generate_image` 不并入普通工具汇总，仍独立显示图片、模型信息、打开原图与下载入口，但与中间 Markdown、Thinking 和其他工具过程一起归入当前回合唯一的“执行中/已执行”顶层折叠区域
+- 支持本地工具渲染器 (`getLocalWorkspaceTools`)；为兼容历史会话，既有 `generate_image` 结果仍不并入普通工具汇总，而是独立显示图片、模型信息、打开原图与下载入口，并与中间 Markdown、Thinking 和其他工具过程一起归入当前回合唯一的“执行中/已执行”顶层折叠区域；当前 Agent 不再暴露该工具。
 - 分享页使用 `/api/shared/:shareId/assets/:assetId` 加载已授权会话的生成图片
 - 工具审批卡使用轻量语义容器和左侧 3px 状态线：普通工具为 warning，自动上下文压缩为 info；命令、路径、MCP/Plugin 服务与工具等关键参数始终可见，完整参数可展开查看；subagent 来源以徽标展示。提交期间禁用按钮，失败后保留卡片并允许重试；成功或拒绝后仍移除卡片，不保留持久历史。
 - `ChatPanelHost` 通过独立的 `approvalReadOnly` / `approvalReadOnlyMessage` 控制审批可操作性，不与消息发送 `readOnly` 混用。分享页即使具有 operate 权限也只读展示实时审批，并提示回到分享者原始对话处理；刷新无法恢复分享页既有 pending 审批是当前已知限制。

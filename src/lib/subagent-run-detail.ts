@@ -21,6 +21,7 @@
 import type { AppTextKey } from '@/lib/i18n'
 import { subagentProcessTraceMessages } from '@/lib/subagent-process-trace'
 import { extractQuickForgeTiming, toolStartEventWithPartialResult, type QuickForgeToolTiming, type ToolExecutionEvent } from '@/lib/tool-execution-events'
+import { normalizeToolArguments, summarizeParams, truncateSummary } from '@/lib/tool-param-summary'
 
 export type SubagentRunStatus = 'running' | 'done' | 'error' | 'called'
 
@@ -433,6 +434,36 @@ export function resolveSubagentRunPayloadForOpen(
 ): SubagentRunPayload {
   if (!payload.canonicalToolCallId) return payload
   return storePayload?.canonicalToolCallId === payload.canonicalToolCallId ? storePayload : payload
+}
+
+/** 跑马灯单项摘要的最大长度（半角字符计），超出截断加 …。 */
+export const SUBAGENT_TOOL_SUMMARY_MAX_LENGTH = 80
+
+/**
+ * 子代理当前正在执行的工具摘要列表（纯函数，供聊天摘要卡跑马灯使用）。
+ * pendingToolCalls（toolCall id）× traceMessages（assistant content 的 toolCall chunk）
+ * 求交集，按 trace 出现顺序返回 `工具名 · 参数摘要`；无 pending 或找不到 chunk 时为空。
+ */
+export function currentSubagentToolSummaries(payload: SubagentRunPayload): string[] {
+  const pending = new Set(payload.pendingToolCalls)
+  if (pending.size === 0) return []
+  const summaries: string[] = []
+  for (const message of payload.traceMessages) {
+    if (!isRecord(message) || message.role !== 'assistant' || !Array.isArray(message.content)) continue
+    for (const chunk of message.content) {
+      if (!isRecord(chunk) || chunk.type !== 'toolCall') continue
+      const id = typeof chunk.id === 'string' ? chunk.id : ''
+      if (!id || !pending.has(id) || typeof chunk.name !== 'string' || !chunk.name) continue
+      pending.delete(id)
+      const summary = truncateSummary(
+        summarizeParams(chunk.name, normalizeToolArguments(chunk.arguments)),
+        SUBAGENT_TOOL_SUMMARY_MAX_LENGTH,
+      )
+      summaries.push(summary ? `${chunk.name} · ${summary}` : chunk.name)
+    }
+    if (pending.size === 0) break
+  }
+  return summaries
 }
 
 /**

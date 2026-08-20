@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subagent 工具跑马灯 · 实现验证（真实构建样式）</title>
+<link rel="stylesheet" href="../dist/assets/index-ohnriCZX.css">
+<style>
+  body { margin: 0; padding: 24px; background: var(--background); font-family: var(--font-sans); }
+  .impl-wrap { display: flex; flex-direction: column; gap: 20px; align-items: flex-start; }
+  .impl-col { border: 1px solid var(--border); border-radius: 10px; padding: 12px 10px; display: flex; flex-direction: column; gap: 6px; }
+  .impl-caption { font-size: 11px; color: var(--muted-foreground); padding-left: 4px; }
+  .impl-toolbar { display: flex; gap: 16px; font-size: 13px; color: var(--muted-foreground); align-items: center; }
+  .impl-toolbar label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+  #implReport { font: 12px/1.7 var(--font-mono); color: var(--muted-foreground); white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div class="impl-toolbar">
+  <strong style="color:var(--foreground);font-size:14px">实现验证页 · 加载真实构建 CSS（dist/assets）</strong>
+  <label><input type="checkbox" id="implDark"> 深色</label>
+  <label>宽度
+    <input type="range" id="implWidth" min="340" max="860" value="640" step="10">
+    <span id="implWidthLabel" style="font-family:var(--font-mono)">640px</span>
+  </label>
+  <button type="button" id="implCheck" style="border:1px solid var(--border);background:var(--background);color:var(--foreground);border-radius:6px;padding:4px 10px;cursor:pointer">检测遮挡</button>
+</div>
+
+<div class="impl-wrap">
+  <div class="impl-col" id="implCol" style="width:640px;max-width:100%">
+    <div class="impl-caption">与 renderSubagentRunSummary 相同的 DOM/类名：label + marquee + status</div>
+    <div class="quickforge-subagent-tool">
+      <button type="button" class="quickforge-tool-summary flex w-full cursor-pointer list-none items-center gap-2 text-left text-sm text-muted-foreground select-none disabled:cursor-not-allowed disabled:opacity-70" title="查看运行详情">
+        <svg class="quickforge-tool-type-icon shrink-0 text-muted-foreground/60" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+        <span class="quickforge-subagent-title min-w-0">
+          <span class="quickforge-subagent-label">General-purpose 运行中</span>
+          <quickforge-tool-marquee class="quickforge-subagent-marquee" text="run_command · npm run test -- tests/frontend/subagent-run-detail.test.ts tests/frontend/process-folding.test.ts" running="true" aria-label="正在执行的工具"></quickforge-tool-marquee>
+          <span class="quickforge-tool-meta-important shrink-0 inline-flex items-center gap-1.5" title="运行中">
+            <svg class="quickforge-tool-status-icon shrink-0 text-primary animate-spin" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" role="img" aria-label="运行中"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg>
+            <span class="quickforge-tool-meta-hover text-xs text-muted-foreground/70" id="implElapsed">12s</span>
+          </span>
+        </span>
+      </button>
+    </div>
+
+    <div class="impl-caption">短文本（不溢出 → 静态）</div>
+    <div class="quickforge-subagent-tool">
+      <button type="button" class="quickforge-tool-summary flex w-full cursor-pointer list-none items-center gap-2 text-left text-sm text-muted-foreground select-none disabled:cursor-not-allowed disabled:opacity-70" title="查看运行详情">
+        <svg class="quickforge-tool-type-icon shrink-0 text-muted-foreground/60" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+        <span class="quickforge-subagent-title min-w-0">
+          <span class="quickforge-subagent-label">Explore 运行中</span>
+          <quickforge-tool-marquee class="quickforge-subagent-marquee" text="read_file · src/lib/a.ts" running="true" aria-label="正在执行的工具"></quickforge-tool-marquee>
+          <span class="quickforge-tool-meta-important shrink-0 inline-flex items-center gap-1.5" title="运行中">
+            <svg class="quickforge-tool-status-icon shrink-0 text-primary animate-spin" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" role="img" aria-label="运行中"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg>
+            <span class="quickforge-tool-meta-hover text-xs text-muted-foreground/70">8s</span>
+          </span>
+        </span>
+      </button>
+    </div>
+  </div>
+  <div id="implReport">点击「检测遮挡」验证任意宽度下 label 与 status 不被跑马灯覆盖。</div>
+</div>
+
+<script>
+'use strict'
+/* 与 src/lib/tool-marquee.ts + local-tools.ts 的 QuickForgeToolMarquee 保持同步的内联移植
+   （逻辑等价性由 tests/frontend/tool-marquee.test.ts 覆盖）。 */
+const SPEED = 35, START_DELAY = 400, END_PAUSE = 1000, RESTART_PAUSE = 1000
+class ToolMarquee extends HTMLElement {
+  static get observedAttributes() { return ['text', 'running'] }
+  connectedCallback() {
+    const staticSpan = document.createElement('span')
+    staticSpan.className = 'quickforge-marquee-static'
+    const movingSpan = document.createElement('span')
+    movingSpan.className = 'quickforge-marquee-moving'
+    movingSpan.setAttribute('aria-hidden', 'true')
+    this.append(staticSpan, movingSpan)
+    this.spans = { staticSpan, movingSpan }
+    this.generation = 0
+    if (typeof ResizeObserver === 'function') {
+      this.ro = new ResizeObserver(() => requestAnimationFrame(() => this.sync(true)))
+      this.ro.observe(this)
+    }
+    this.sync()
+  }
+  disconnectedCallback() {
+    this.generation++
+    if (this.ro) this.ro.disconnect()
+    this.cleanup()
+  }
+  attributeChangedCallback() { if (this.spans) this.sync() }
+  cleanup() {
+    if (this.anim) { this.anim.cancel(); this.anim = null }
+    if (!this.spans) return
+    this.spans.staticSpan.style.visibility = ''
+    this.spans.movingSpan.style.display = ''
+    this.spans.movingSpan.style.transform = ''
+    this.animatedText = null
+  }
+  sync(restart) {
+    if (this.timer) { clearTimeout(this.timer); this.timer = null }
+    const text = this.getAttribute('text') || ''
+    const running = this.getAttribute('running') === 'true'
+    const { staticSpan, movingSpan } = this.spans
+    staticSpan.textContent = text
+    movingSpan.textContent = text
+    if (!running || !text || matchMedia('(prefers-reduced-motion: reduce)').matches) return this.cleanup()
+    movingSpan.style.display = 'inline-block'
+    const distance = movingSpan.scrollWidth - this.clientWidth
+    movingSpan.style.display = ''
+    if (distance <= 1 || this.clientWidth <= 0) return this.cleanup()
+    if (!restart && this.anim && this.animatedText === text) return
+    this.cleanup()
+    const generation = ++this.generation
+    this.timer = setTimeout(() => { this.timer = null; if (generation === this.generation) this.cycle(generation, text, distance) }, START_DELAY)
+  }
+  cycle(generation, text, distance) {
+    if (generation !== this.generation) return
+    const { staticSpan, movingSpan } = this.spans
+    staticSpan.style.visibility = 'hidden'
+    movingSpan.style.display = 'inline-block'
+    const scrollMs = distance / SPEED * 1000
+    const returnMs = Math.min(500, Math.max(240, scrollMs * 0.25))
+    const total = scrollMs + END_PAUSE + returnMs
+    const anim = movingSpan.animate([
+      { transform: 'translateX(0)', offset: 0, easing: 'linear' },
+      { transform: `translateX(-${distance}px)`, offset: scrollMs / total, easing: 'linear' },
+      { transform: `translateX(-${distance}px)`, offset: (scrollMs + END_PAUSE) / total, easing: 'ease-out' },
+      { transform: 'translateX(0)', offset: 1, easing: 'linear' },
+    ], { duration: total, fill: 'forwards' })
+    this.anim = anim
+    this.animatedText = text
+    anim.finished.then(() => {
+      if (this.anim !== anim || generation !== this.generation) return
+      anim.cancel(); this.anim = null
+      staticSpan.style.visibility = ''
+      movingSpan.style.display = ''
+      movingSpan.style.transform = ''
+      this.timer = setTimeout(() => { this.timer = null; if (generation === this.generation) this.cycle(generation, text, distance) }, RESTART_PAUSE)
+    }).catch(() => undefined)
+  }
+}
+if (!customElements.get('quickforge-tool-marquee')) customElements.define('quickforge-tool-marquee', ToolMarquee)
+
+/* 工具栏 */
+document.getElementById('implDark').addEventListener('change', (e) => {
+  document.documentElement.classList.toggle('dark', e.target.checked)
+})
+const col = document.getElementById('implCol')
+document.getElementById('implWidth').addEventListener('input', (e) => {
+  col.style.width = `${e.target.value}px`
+  document.getElementById('implWidthLabel').textContent = `${e.target.value}px`
+})
+let elapsed = 12
+setInterval(() => { elapsed += 1; document.getElementById('implElapsed').textContent = `${elapsed}s` }, 1000)
+
+/* 遮挡检测：label / status 与 marquee 的包围盒不得相交，且二者宽度 > 0。 */
+document.getElementById('implCheck').addEventListener('click', () => {
+  const report = []
+  let ok = true
+  document.querySelectorAll('.quickforge-subagent-tool').forEach((card, i) => {
+    const label = card.querySelector('.quickforge-subagent-label')
+    const marquee = card.querySelector('quickforge-tool-marquee')
+    const status = card.querySelector('.quickforge-tool-meta-important')
+    const l = label.getBoundingClientRect(), m = marquee.getBoundingClientRect(), s = status.getBoundingClientRect()
+    const overlapLM = l.right > m.left + 0.5 && m.right > l.left + 0.5
+    const overlapMS = m.right > s.left + 0.5 && s.right > m.left + 0.5
+    const visible = l.width > 10 && s.width > 10
+    const pass = !overlapLM && !overlapMS && visible
+    ok = ok && pass
+    report.push(`卡片${i + 1}: label=${Math.round(l.width)}px marquee=${Math.round(m.width)}px status=${Math.round(s.width)}px | 压label=${overlapLM} 压status=${overlapMS} 可见=${visible} → ${pass ? 'PASS' : 'FAIL'}`)
+  })
+  const out = document.getElementById('implReport')
+  out.textContent = `${ok ? '✅ 全部通过' : '❌ 存在遮挡'}（宽度 ${col.style.width}）\n` + report.join('\n')
+  out.style.color = ok ? 'var(--foreground)' : 'var(--destructive)'
+})
+</script>
+</body>
+</html>

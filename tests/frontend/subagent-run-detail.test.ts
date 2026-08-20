@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest'
 import type { SubagentRunI18n, SubagentRunPayload, SubagentRunStatus, SubagentToolDisplayMode } from '../../src/lib/subagent-run-detail'
 import {
   MAX_SUBAGENT_RUN_SNAPSHOTS,
+  SUBAGENT_TOOL_SUMMARY_MAX_LENGTH,
   SubagentRunEventPublisher,
   SubagentRunStore,
   buildSubagentRunPayload,
   canOpenSubagentRunPayload,
   canPublishSubagentRunPayload,
+  currentSubagentToolSummaries,
   normalizeOpenSubagentRunRequest,
   resolveSubagentRunPayloadForOpen,
   shouldPublishSubagentRunPayload,
@@ -997,5 +999,67 @@ describe('SubagentRunEventPublisher', () => {
     publisher.handleToolUpdate({ toolCallId: 'call-9', partialResult: { content: [], details: {} } })
     publisher.handleToolEnd({ toolCallId: 'call-9', result: { content: [], details: {} } })
     expect(store.size).toBe(1)
+  })
+})
+
+describe('currentSubagentToolSummaries', () => {
+  const traceWithToolCall = (id: string, name: string, args: unknown) => ({
+    role: 'assistant',
+    content: [
+      { type: 'text', text: 'thinking' },
+      { type: 'toolCall', id, name, arguments: args },
+    ],
+  })
+
+  it('derives running tool summaries from pending ids in trace order', () => {
+    const payload = testPayload('run-1', 'running', {
+      pendingToolCalls: ['t-2', 't-1'],
+      traceMessages: [
+        traceWithToolCall('t-1', 'read_file', { path: 'src/lib/a.ts' }),
+        { role: 'toolResult', toolCallId: 't-1', content: [] },
+        traceWithToolCall('t-2', 'run_command', { command: 'npm run test' }),
+      ],
+    })
+    expect(currentSubagentToolSummaries(payload)).toEqual([
+      'read_file · src/lib/a.ts',
+      'run_command · npm run test',
+    ])
+  })
+
+  it('normalizes JSON string arguments', () => {
+    const payload = testPayload('run-1', 'running', {
+      pendingToolCalls: ['t-1'],
+      traceMessages: [traceWithToolCall('t-1', 'run_command', '{"command":"npm test"}')],
+    })
+    expect(currentSubagentToolSummaries(payload)).toEqual(['run_command · npm test'])
+  })
+
+  it('falls back to the bare tool name when no summary is derivable', () => {
+    const payload = testPayload('run-1', 'running', {
+      pendingToolCalls: ['t-1'],
+      traceMessages: [traceWithToolCall('t-1', 'custom_tool', { mystery: true })],
+    })
+    expect(currentSubagentToolSummaries(payload)).toEqual(['custom_tool'])
+  })
+
+  it('truncates long summaries to the configured maximum', () => {
+    const payload = testPayload('run-1', 'running', {
+      pendingToolCalls: ['t-1'],
+      traceMessages: [traceWithToolCall('t-1', 'run_command', { command: 'a'.repeat(200) })],
+    })
+    const [summary] = currentSubagentToolSummaries(payload)
+    expect(summary).toBe(`run_command · ${'a'.repeat(SUBAGENT_TOOL_SUMMARY_MAX_LENGTH)}…`)
+  })
+
+  it('returns an empty list without pending calls or matching chunks', () => {
+    expect(currentSubagentToolSummaries(testPayload('run-1', 'running'))).toEqual([])
+    expect(currentSubagentToolSummaries(testPayload('run-1', 'running', {
+      pendingToolCalls: ['missing'],
+      traceMessages: [traceWithToolCall('t-1', 'read_file', { path: 'a.ts' })],
+    }))).toEqual([])
+    expect(currentSubagentToolSummaries(testPayload('run-1', 'running', {
+      pendingToolCalls: ['t-1'],
+      traceMessages: [{ role: 'assistant', content: [{ type: 'toolCall', id: 't-1' }] }],
+    }))).toEqual([])
   })
 })

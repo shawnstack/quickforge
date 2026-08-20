@@ -133,6 +133,26 @@ describe('OdometerDiffCounterController', () => {
     controller.dispose()
     expect(allCleared(timers)).toBe(true)
   })
+
+  it('does not duplicate sides when a fresh controller attaches to a root that already has children (DOM move / clone scenario)', () => {
+    const { root, controller } = createHarness()
+    controller.sync(21, 4, true)
+
+    // 模拟装饰层搬移或 cloneNode(true)：根上带着旧子树重新挂载一个新 controller。
+    const reattached = new OdometerDiffCounterController(root, {
+      prefersReducedMotion: () => false,
+      createElement: (tag) => createElement(tag),
+      setTimeout: () => undefined,
+      clearTimeout: () => undefined,
+    })
+    reattached.sync(21, 4, false)
+
+    const sides = (root.children as Array<OdometerElementLike & { className: string }>)
+      .filter((child) => child.className.startsWith('quickforge-odometer-side'))
+    expect(sides.map((side) => side.className)).toEqual(['quickforge-odometer-side add', 'quickforge-odometer-side del'])
+    expect(sideDigits(root, 'add')).toHaveLength(2)
+    expect(sideDigits(root, 'del')).toHaveLength(1)
+  })
 })
 
 function allCleared(timers: FakeTimer[]) {

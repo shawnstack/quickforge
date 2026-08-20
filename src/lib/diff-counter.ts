@@ -47,6 +47,11 @@ export class OdometerDiffCounterController {
   constructor(root: OdometerElementLike, env: OdometerEnv) {
     this.root = root
     this.env = env
+    // 元素可能被装饰层搬移（disconnect→connect）或整棵 cloneNode 后重挂，
+    // 每次新建 controller 前清掉既有子节点，避免 +/− 列叠加重复。
+    while (root.children.length > 0) {
+      root.removeChild(root.children[0])
+    }
   }
 
   /** 元素断开时调用：清理未触发的入场标记定时器。 */

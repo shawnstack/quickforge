@@ -1,6 +1,43 @@
 # Session Handoff
 
-## 当前状态：release-v1.7.12（已完成，发布记录）
+## 当前状态：fix-sidebar-project-drag-bottom-boundary（已完成）
+
+- 本会话目标：限制左侧 Projects 排序拖拽的顶部/底部边界，并让 dnd-kit 自动滚动只作用于 Projects 自身滚动视口。
+- 最终状态：**已完成并验证**。`ChatSidebar.tsx` 为 Projects 的 `h-full overflow-y-auto` 容器增加 ref；`project-drag-boundary.ts` 纯函数按 `draggingNodeRect`、实时视口矩形和拖拽开始后的 `scrollTop` 增量锁定 `x=0` 并夹紧 `y`。滚动增量用于抵消 dnd-kit 非 DragOverlay 路径在 modifier 后追加的 scroll adjustment，确保预览在自动滚动后仍停于真实视口边界。
+- 自动滚动：`DndContext autoScroll.canScroll` 仅接受 Projects 容器，拒绝 document 与所有外层滚动祖先；该容器到真实顶部/底部时由 dnd-kit 6.3.1 的 scroll-position 判断停止。
+- 保留契约：`closestCenter`、`verticalListSortingStrategy`、`MeasuringStrategy.Always`、拖动期间折叠项目会话、`onReorderProjects` 排序持久化、现有拖拽视觉样式均未改变。
+- 类型核对：实际安装 `@dnd-kit/core@6.3.1`；`Modifier` 由 core 导出，参数包含 `draggingNodeRect`；`autoScroll.canScroll` 类型是 `(element: Element) => boolean`。
+- 改动文件：`src/components/sidebar/ChatSidebar.tsx`、`src/lib/project-drag-boundary.ts`、`tests/frontend/project-drag-boundary.test.ts`、`docs/wiki/src/components/README.md`，以及增量更新的 `feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 vitest 1 文件 / 7 用例全通过；改动文件 eslint 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；`git diff --check` 通过。
+- 遗留：未做手工浏览器验证。建议准备超过 Projects 视口高度的项目列表，分别拖到最顶部/最底部，确认预览不越界、只有 Projects 区滚动、到真实边界停止且放下后排序持久化。
+- 并发保护：开始时 Wiki 与三份状态文件已有 generate_image / system-prompt 等其他任务未提交改动；本轮只在现有内容上增量追加，未覆盖或回退。未新增依赖，未创建 commit/tag/push，未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
+## 前轮状态：temporarily-disable-generate-image-tool（已完成）
+
+- 本会话目标：暂时下线 `generate_image` 工具，同时完整保留历史会话兼容链路。
+- 最终状态：**已完成并验证**。`server/tools/definitions.mjs` 的 `workspaceTools` 已移除 `generate_image`，因此 Agent 与 `GET /api/tools` 不再暴露该能力；`server/tools/index.mjs` handler、`server/image-generation.mjs`、`server/routes/tools.mjs` 的 `directRouteDisabledTools`、会话资产路由、前端 renderer/i18n/process-folding 等均未删除。
+- 改动文件：`server/tools/definitions.mjs`、`tests/server/tools/definitions.test.mjs`、中英文用户指南、`docs/wiki/server/{README.md,tools/README.md}`、`docs/wiki/src/{lib,components}/README.md`，以及簿记文件 `feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：definitions 定向测试 1 文件 / 20 用例全通过；图片生成历史兼容测试 4 文件 / 63 用例全通过；`npm run lint` 为 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX 字体解析和 chunk size warning）；`git diff --check` 通过。
+- 文档：当前能力文档已明确图片生成暂时不可调用；源码/组件 Wiki 的 handler、资产和 renderer 描述改为仅历史会话兼容；未修改 CHANGELOG。
+- Blocker：无。未新增依赖，未创建 commit/tag/push，未手工修改 `dist/`、`package-dist/`、`package-offline/`；`npm run build` 生成的 `dist/` 仍为被忽略产物。
+- 并发保护：任务开始时 `feature_list.json`、`progress.md`、`session-handoff.md` 及系统提示词文件已有其他任务修改，本轮均在现有内容基础上增量追加，未覆盖。
+
+---
+
+## 前轮状态：remove-base-prompt-minimalism-rules（已完成）
+
+- 本会话目标：按用户要求删除基础系统提示词中的“选择最简单的实现”和“只做最小、局部修改”规则。
+- 最终状态：**已完成并验证**。`server/system-prompt.mjs` 的 `BASE_SYSTEM_PROMPT` 删除了 `Prefer the simplest solution that satisfies the request.`、`Make surgical changes only.`，并一并删除同义重复的 `Make minimal, focused changes.`；保留 `Do not refactor unrelated code.` 及其他规则。
+- 改动文件：`server/system-prompt.mjs`、`tests/server/system-prompt.test.mjs`，以及簿记文件 `feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：`npm run test -- --run tests/server/system-prompt.test.mjs` → 1 file / 5 tests 全通过；grep 确认三条规则在基础提示词中无匹配。
+- 文档：未修改 Wiki，因为这只是基础提示词措辞调整，不改变模块职责、公共入口或配置方式。
+- 注意：`progress.md` 在本会话开始前已有其他智能体写入的“中止双消息根因”笔记，本次保留未覆盖；未创建 commit/tag/push。
+
+---
+
+## 前轮状态：release-v1.7.12（已完成，发布记录）
 
 - 本会话目标：完成 v1.7.12 打包与发布状态收尾，记录 release commit、tag/push 与用户执行 npm publish 的发布顺序。
 - 前置与版本：起始工作区干净、当前分支 `master`，发布准备阶段已确认目标 tag `v1.7.12` 尚未创建；`package.json` / `package-lock.json` 已由 1.7.11 更新为 1.7.12，CHANGELOG 1.7.12 已按 `v1.7.11..HEAD` 的 12 个提交准备；README 无固定版本引用，未修改。

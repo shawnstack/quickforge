@@ -2,6 +2,18 @@
 
 ## Current State
 
+- Feature: 限制侧栏项目排序拖拽的顶部/底部边界（fix-sidebar-project-drag-bottom-boundary，**已完成**）
+- Status: done — Projects 的实际 `overflow-y-auto` 容器成为拖拽预览边界和唯一自动滚动容器；纯函数按拖拽矩形、视口矩形及拖拽期间 `scrollTop` 增量锁定横向并夹紧纵向，覆盖 dnd-kit modifier 后滚动补偿。保留 closestCenter、verticalListSortingStrategy、MeasuringStrategy.Always、拖动折叠会话、排序持久化与视觉样式。定向测试 7/7、改动文件 eslint、tsc、build、diff check 均通过。
+- Next step: 无代码 blocker；需手工浏览器验证长项目列表拖到顶部/底部时预览不越界、仅 Projects 滚动且真实边界停止。
+
+- Feature: 暂时下线 generate_image 工具（temporarily-disable-generate-image-tool，**已完成**）
+- Status: done — 已从 `workspaceTools` 移除 `generate_image`，Agent 与 `GET /api/tools` 不再暴露；handler、图片生成模块、`directRouteDisabledTools`、会话资产与前端历史结果渲染全部保留。definitions 定向测试 20/20、历史兼容测试 63/63、lint（0 errors / 1 existing warning）与 build 均通过；用户指南和 server/src wiki 已同步为“仅历史会话兼容”。
+- Next step: 无 blocker；未创建 commit/tag/push。
+
+- Feature: 删除基础系统提示词中的最简实现与最小局部修改规则（remove-base-prompt-minimalism-rules，**已完成**）
+- Status: done — `BASE_SYSTEM_PROMPT` 已删除 “Prefer the simplest solution that satisfies the request.”、“Make surgical changes only.” 和语义重复的 “Make minimal, focused changes.”；保留 “Do not refactor unrelated code.” 等其他规则。新增反向契约测试。验证：系统提示词定向 vitest 1 文件 / 5 用例全通过；未改 Wiki（仅提示词措辞调整，不改变模块职责、公共入口或配置方式）。
+- Next step: 无。
+
 - Feature: 准备 v1.7.12 patch release（release-v1.7.12，**已完成**）
 - Status: done — 版本与 CHANGELOG 已准备；完整 `npm run test`（219 files / 1865 tests）全通过，`npm run lint` 为 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`），`npm run build` 成功；runtime/offline 包及 `package-offline/shawnstack-quickforge-1.7.12.tgz` 已生成并完成元数据、依赖处理与清单校验。生成目录均被 Git 忽略，release commit 范围为 6 个预期发布文件。
 - Release sequence: 本变更用于 release commit，随后创建并推送 tag `v1.7.12`；npm publish 由用户执行：`npm publish ./package-offline/shawnstack-quickforge-1.7.12.tgz --access public`。
@@ -23,6 +35,10 @@
 - Next step: 无阻塞；真机目视确认（长用户消息与 subagent 详情任务块的收起/展开、深浅两主题气泡浓度观感）。
 
 ## Notes
+
+- 侧栏项目拖拽边界（本轮）：实际依赖为 `@dnd-kit/core@6.3.1`；其 `Modifier` 参数含 `draggingNodeRect`，`autoScroll.canScroll` 签名为 `(element: Element) => boolean`。非 DragOverlay 路径会在 modifier 后把滚动增量加回活动项 transform，因此边界纯函数显式接收拖拽开始后的 Projects `scrollTop` 增量进行抵消，避免自动滚动后预览突破底部。未新增依赖，未修改样式或生成产物。
+
+- generate_image 暂时下线（本轮）：单一暴露源 `server/tools/definitions.mjs` 已移除定义，未删除 `server/tools/index.mjs` handler、`server/image-generation.mjs`、`server/routes/tools.mjs` 的 `directRouteDisabledTools`、session assets、前端 renderer/i18n/process-folding 等兼容代码；历史会话中的既有图片仍可查看/下载。未修改 CHANGELOG、依赖或生成产物。
 
 - v1.7.12 release 收尾完成：`test` 219 files / 1865 tests 全通过，`lint` 0 errors / 1 existing warning，`build` 成功；runtime/offline 目录与 offline tarball 已生成并校验。生成产物被 `.gitignore` 排除，不进入 release commit；release commit 范围为 6 个预期发布文件。发布顺序为：本变更纳入 release commit，随后创建并推送 tag `v1.7.12`，最后由用户执行 `npm publish ./package-offline/shawnstack-quickforge-1.7.12.tgz --access public`。
 
@@ -96,6 +112,8 @@
 - 桌面端与 `qf` 共用 `server/index.mjs` 初始化链，同根因同修复；桌面端 `ready-to-show` 策略使首屏 6.5MB modulepreload（pi-web-ui 3.75MB + pi-ai 1.6MB）也计入可见时间（独立遗留项，未处理）。
 - 字体滑块闪烁（远端会话）：滑块 @input 每步同步 `applyFontSizeSettings` 改 root font-size 造成整页 reflow；修复为 RAF 合并 + dirty-check + 仅 interface 字号变化时派发事件。
 - 归档删除（远端会话）：设置页永久删除走 batch 两操作事务，旧 `applySessionBatch` 对 metadata delete 无条件拒绝；修复为配对 metadata delete 视为 no-op 放行。删除后复活路径已堵（路由删持久化前先 destroyAgent）。遗留竞态（范围外）：删除请求处理期间另一请求恰好 restore 同一 session 仍可能复活，彻底堵住需 tombstone 机制。
+
+- 中止双消息根因（本轮，只读分析未改码）：用户点停止后同时出现「请求已中止」+「错误： Request was aborted」。链路：pi-ai 把中止定稿为 stopReason="aborted" 且塞 errorMessage="Request was aborted"（anthropic-messages.js catch 分支）→ pi-agent-core turn_end 无差别写入 state.errorMessage → agent-manager agent_end 订阅（agent-manager.mjs:2111）见 state.errorMessage 即 appendAssistantErrorMessageOnce 补一条 stopReason="error" 消息，而其去重只认末条 stopReason==="error"，对 aborted 末条失效 → 两条消息分别渲染成斜体中止行与红框错误行。修复方向（待定夺）：agent_end 补条前判 eventEndStatus==='aborted' 跳过 + 去重放宽到 aborted 末条同 errorMessage；i18n 补 'Request was aborted' key（现 key 是 'Request aborted' 少了 was，原文翻译不到）。
 
 ## 历史笔记
 

@@ -1,6 +1,56 @@
 {
   "features": [
     {
+      "id": "fix-sidebar-project-drag-bottom-boundary",
+      "name": "限制侧栏项目排序拖拽的顶部/底部边界",
+      "status": "done",
+      "approach": "为 ChatSidebar 的 Projects overflow-y-auto 容器增加专用 ref；新增纯函数 clampProjectDragTransform，按 draggingNodeRect、Projects 视口矩形和拖拽开始后的 scrollTop 增量锁定 x=0 并夹紧 y，抵消 dnd-kit 非 DragOverlay 模式在 modifier 后追加的滚动补偿。DndContext autoScroll.canScroll 仅允许该 Projects 容器，使其到真实顶部/底部后不再尝试 document 或外层滚动容器。保留 closestCenter、verticalListSortingStrategy、MeasuringStrategy.Always、拖动时会话折叠、排序持久化与既有视觉样式。已核对实际安装 @dnd-kit/core 6.3.1：Modifier 从 core 导出且包含 draggingNodeRect，autoScroll.canScroll 类型为 (element: Element) => boolean。",
+      "files": [
+        "src/components/sidebar/ChatSidebar.tsx",
+        "src/lib/project-drag-boundary.ts",
+        "tests/frontend/project-drag-boundary.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npm run test -- --run tests/frontend/project-drag-boundary.test.ts → 1 file / 7 tests 全通过；npx eslint src/components/sidebar/ChatSidebar.tsx src/lib/project-drag-boundary.ts tests/frontend/project-drag-boundary.test.ts → 0 error；npx tsc -b --pretty false → exit 0；npm run build → 成功（仅既有 KaTeX 字体解析与 chunk size warning）；git diff --check → 通过。"
+    },
+    {
+      "id": "temporarily-disable-generate-image-tool",
+      "name": "暂时下线 generate_image 工具",
+      "status": "done",
+      "approach": "从 server/tools/definitions.mjs 的 workspaceTools 移除 generate_image 定义，使 Agent 与 GET /api/tools 不再暴露；保留 server/tools/index.mjs handler、server/image-generation.mjs、directRouteDisabledTools、会话资产、前端 renderer/i18n/process-folding 等历史兼容链路。更新 definitions 契约测试与中英文用户指南、server/tools/server wiki，并将源码/组件 wiki 的相关描述收敛为仅历史会话兼容。",
+      "files": [
+        "server/tools/definitions.mjs",
+        "tests/server/tools/definitions.test.mjs",
+        "docs/user-guide.zh-CN.md",
+        "docs/user-guide.en-US.md",
+        "docs/wiki/server/tools/README.md",
+        "docs/wiki/server/README.md",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npm run test -- --run tests/server/tools/definitions.test.mjs → 1 file / 20 tests 全通过；npm run test -- --run tests/server/image-generation.test.mjs tests/frontend/generated-image-assets.test.ts tests/frontend/process-folding.test.ts tests/frontend/approval-card.test.ts → 4 files / 63 tests 全通过；npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92 no-useless-assignment）；npm run build → 成功（仅既有 KaTeX 字体解析与 chunk size warning）；git diff --check → 通过。"
+    },
+    {
+      "id": "remove-base-prompt-minimalism-rules",
+      "name": "删除基础系统提示词中的最简实现与最小局部修改规则",
+      "status": "done",
+      "approach": "按用户要求局部修改 server/system-prompt.mjs：从 BASE_SYSTEM_PROMPT 删除“Prefer the simplest solution that satisfies the request.”、“Make surgical changes only.”和语义重复的“Make minimal, focused changes.”，保留“不重构无关代码”等其他规则。新增系统提示词契约测试，防止三条规则被重新注入。",
+      "files": [
+        "server/system-prompt.mjs",
+        "tests/server/system-prompt.test.mjs",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npm run test -- --run tests/server/system-prompt.test.mjs → 1 file / 5 tests 全通过；grep 确认三条已删除规则在 server/system-prompt.mjs 中无匹配。"
+    },
+    {
       "id": "release-v1.7.12",
       "name": "准备 v1.7.12 patch release",
       "status": "done",

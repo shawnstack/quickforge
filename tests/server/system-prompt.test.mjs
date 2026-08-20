@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { composeSystemPrompt } from '../../server/system-prompt.mjs'
 
 describe('system prompt', () => {
+  it('omits the removed implementation-minimalism instructions', () => {
+    const prompt = composeSystemPrompt()
+
+    expect(prompt).not.toContain('Prefer the simplest solution that satisfies the request')
+    expect(prompt).not.toContain('Make surgical changes only')
+    expect(prompt).not.toContain('Make minimal, focused changes')
+  })
+
   it('prioritizes Explore for repository discovery in base instructions and subagent catalog', () => {
     const prompt = composeSystemPrompt({
       subagents: [

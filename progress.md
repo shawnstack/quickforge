@@ -2,6 +2,10 @@
 
 ## Current State
 
+- Feature: 移除 Workspace Inspector subagent 执行区域最外层卡片外框（fix-workspace-inspector-subagent-trace-outer-card，**已完成**）
+- Status: done — `.quickforge-subagent-trace` 根容器仅保留 `quickforge-subagent-trace p-2.5`，移除 `rounded-lg border border-border bg-background/60`，完整执行区域融入 Inspector 消息流；内部 `message-list` 及状态/耗时、process summary 分隔线、思考正文、工具统计、折叠交互和聊天摘要均未改。新增按 class token 提取的最小模板契约测试，避免大段字符串断言。验证：定向 vitest 1 文件 2 用例全过；改动文件 eslint 0 error；`npx tsc -b --pretty false`、`npm run build`、`git diff --check` 通过（build 仅既有 KaTeX 字体解析与 chunk size warning）。未改 wiki（纯视觉外框 bugfix，不改变行为契约、模块职责或公共入口）。
+- Next step: 可选真机打开 Workspace Inspector 的 subagent 运行详情，目视确认执行区域无最外层圆角边框且内部过程分组/折叠视觉不变。
+
 - Feature: 修复 subagent 跑马灯剩余宽度与重连重复视图（fix-subagent-marquee-width-reconnect，**已完成**）
 - Status: done — `.quickforge-tool-title` 保持 `flex: 0 1 auto`，仅 `.quickforge-subagent-title` 改为 `flex: 1 1 auto`，使跑马灯获得摘要行剩余宽度；`QuickForgeToolMarquee` 重连时复用现有两组完整 view，异常结构才清理并重建，避免 connect-disconnect-reconnect 累计双视图，同时保留 attribute 驱动、动画时序与 ResizeObserver 策略。新增 CSS flex 契约和自定义元素重连行为回归测试。验证：定向 vitest 2 文件 16 用例全过；改动 TS/测试 eslint 0 error；`npx tsc -b --pretty false` 与 `git diff --check` 通过。未改 wiki（局部 bugfix 未改变模块职责、公共入口或既有行为契约）。
 - Next step: 可选真机触发多工具 subagent，目视确认窄列宽下跑马灯占满剩余区域、过程分组搬移后仍仅两组视图。
@@ -15,6 +19,8 @@
 - Next step: 无阻塞；真机目视确认（长用户消息与 subagent 详情任务块的收起/展开、深浅两主题气泡浓度观感）。
 
 ## Notes
+
+- Workspace Inspector subagent trace 外框修复（本轮）：仅删除 trace 根容器的卡片视觉 utility，`message-list` 节点、数据属性与全部内部装饰链路保持逐字不变；契约测试只提取命中 `.quickforge-subagent-trace` 的 class 属性并比较 token，既锁定 `p-2.5` 又避免绑定整段 Lit 模板。
 
 - ask-user-history-review-style 实现定案（本轮）：「所见即所提交」——ask_user 历史工具消息非 detailed 展开体复用回执样式而非原始问题清单+output 文本。数据依据：服务端 resolve 即把 {askId, questions(规范化), answers, skipped, skipReason} 随 toolResult.details 持久化（agent-manager.mjs finish()），旧渲染器只用了 timing。要点：纯函数 askUserReviewRowsFromDetails 自包含无外部依赖（可被测试经 ts.transpileModule 提取函数体单测，规避 local-tools 模块级 registerToolRenderer 副作用与 pi-web-ui 重依赖——同 local-tools-lit-reactivity.test.ts 惯例）；skipReason 实际取值仅 timeout/aborted/无 reason（用户跳过），'no-questions' 路径服务端 details 不含 questions（解析返回 null 走兜底原视图），映射 key 仍保留以对齐服务端 reason 枚举；跳过原因行复用 .quickforge-ask-review-answer 样式（视觉贴回执）而非 .quickforge-ask-note（后者 margin-left:auto 右对齐，属 actions 行）。
 - diff-display-optimization 实现定案（本轮，并行会话）：用户在对比设计稿（design-mockups/diff-display-optimization.html：现状复刻/方案 A 基础改良/方案 B 字符级高亮三卡 + 亮暗主题切换 + edit 局部修改与 write 新文件双示例，页面内 JS 即 unified→结构化解析原型）中选定方案 B 落地。实现：新模块 src/lib/diff-view.ts（parseDiffRows 行号双侧/剥离前缀/hunk 间隙省略/配对删加行 token LCS 字符级变化段、parseDiffFileInfo 路径上提+新文件判定、乘积>40000 回退整行变化）；local-tools.ts renderDiff 改结构化行渲染并删除内联样式双保险（DIFF_* 常量/diffLineClass/diffLineStyle/styleMap），OpenCodeToolRenderer 复用自动受益；index.css 行号/gap/mark/path 样式 + html.dark 亮绿/亮红文字覆盖（含 diff 徽章与里程计 side——修复暗色下固定深绿/深红文字对比度不足这一现状缺陷）；i18n 新增 diffOmittedLines/diffNewFile 双语；服务端零改动。验证：定向 vitest 4 文件 35 用例全过（diff-view 新增 16）、eslint 0 error、tsc -b 过。真机目视（触发 edit/write 观察新 diff 块、亮暗两主题）留待用户；本会话改动未提交 git。追加修复（用户反馈）：长行横向滚动后行背景不覆盖滚动区——根因是行背景画在 code 单元格盒宽内（列宽=容器宽），溢出文本无背景；修复为整块单一 grid（`3.1rem 3.1rem minmax(max-content,1fr)`）+ 行 display:contents + gap 跨全列，第三列取 max(剩余宽,最宽行) 使全部行背景铺满横向滚动区，设计稿同步修复并加长行示例；验证：npm run build 过 + 无头 Edge 截图像素级确认（绿/红行背景延伸至块右缘）。

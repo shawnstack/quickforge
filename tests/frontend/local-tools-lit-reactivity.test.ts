@@ -28,6 +28,12 @@ function transpiledSubagentDetailClass() {
   return detailClass
 }
 
+function subagentTraceClassNames() {
+  const classValue = localToolsSource.match(/class="([^"]*\bquickforge-subagent-trace\b[^"]*)"/)?.[1]
+  if (!classValue) throw new Error('Subagent trace class attribute not found')
+  return classValue.trim().split(/\s+/)
+}
+
 describe('SubagentRunDetailBodyElement reactive payload declaration', () => {
   it('preserves the Lit reactive payload setter in ES2023 output', () => {
     const detailClass = transpiledSubagentDetailClass()
@@ -51,5 +57,19 @@ describe('SubagentRunDetailBodyElement reactive payload declaration', () => {
     expect(reactiveProperties.some(
       (property) => ts.isPropertyAssignment(property) && propertyNameText(property.name) === 'payload',
     )).toBe(true)
+  })
+})
+
+describe('subagent trace container template contract', () => {
+  it('keeps padding without the outer card utilities', () => {
+    const classNames = subagentTraceClassNames()
+
+    expect(classNames).toContain('p-2.5')
+    expect(classNames).not.toEqual(expect.arrayContaining([
+      'rounded-lg',
+      'border',
+      'border-border',
+      'bg-background/60',
+    ]))
   })
 })

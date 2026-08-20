@@ -1,6 +1,17 @@
 {
   "features": [
     {
+      "id": "fix-workspace-inspector-subagent-trace-outer-card",
+      "name": "移除 Workspace Inspector subagent 执行区域最外层卡片外框",
+      "status": "done",
+      "approach": "局部模板修复：src/lib/local-tools.ts 的 .quickforge-subagent-trace 根容器仅保留 quickforge-subagent-trace 与 p-2.5，移除 rounded-lg、border、border-border、bg-background/60，使完整执行区域融入 Inspector 消息流；内部 message-list、状态/耗时、process summary 分隔线、思考正文、工具统计、折叠交互和聊天摘要均未改。local-tools-lit-reactivity.test.ts 新增最小 class token 契约测试，按 trace class 属性提取 utility token，断言保留 p-2.5 且四个外框 utility 不存在，避免脆弱的大段模板字符串断言。",
+      "files": [
+        "src/lib/local-tools.ts",
+        "tests/frontend/local-tools-lit-reactivity.test.ts"
+      ],
+      "verification": "npx vitest run tests/frontend/local-tools-lit-reactivity.test.ts → 1 file / 2 passed；npx eslint src/lib/local-tools.ts tests/frontend/local-tools-lit-reactivity.test.ts → 0 error；npx tsc -b --pretty false → exit 0；npm run build → exit 0（仅既有 KaTeX 字体解析与 chunk size warning）；git diff --check → exit 0"
+    },
+    {
       "id": "fix-subagent-marquee-width-reconnect",
       "name": "修复 subagent 跑马灯剩余宽度与重连重复视图",
       "status": "done",

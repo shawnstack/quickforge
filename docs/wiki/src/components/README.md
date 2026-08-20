@@ -149,15 +149,17 @@ components/
 **panel-decoration.ts** (264 行)
 - 聊天面板 DOM 装饰的兼容入口，继续向 `ChatPanelHost.tsx` re-export 消息装饰、草稿、审批卡、上下文压缩提示和等待气泡等能力
 - `decorateEditor` 仅保留 Composer/editor 编排：占位符、只读清理、model selector 开关、left/right controls 定位，以及调用各 focused helper
-- 细分实现位于 `panel-decoration/` 子目录：`message-actions.ts`（复制/回滚/重试/分叉）、`composer-plus-menu.ts`（附件和内置插件菜单）、`agent-access-menu.ts`、`plan-mode-controls.ts`、`send-stop-button.ts`、`model-controls.ts`、`opencode-config-menu.ts`（OpenCode `configOptions` 配置菜单）、`opencode-mode-menu.ts`（OpenCode ACP modes 独立模式按钮/菜单）、`editor-bindings.ts`、`code-blocks.ts`、`process-folding.ts`、`context-compaction.ts` 等；`process-folding.ts` 为每个用户回合维护唯一的“执行中/已执行 · 耗时”顶层状态与折叠入口，中间 Markdown、Thinking、工具和 Subagent 均位于该层级；每段中间 Markdown 后的过程片段继续显示内层阶段聚合标题（状态 + 工具调用数、命令数、编辑文件数），运行中和已完成阶段均默认收起并维护独立折叠状态，普通连续工具仍保留更内层的工具摘要，只有最终回答正文留在组外
+- 细分实现位于 `panel-decoration/` 子目录：`message-actions.ts`（复制/回滚/重试/分叉）、`composer-plus-menu.ts`（附件和内置插件菜单）、`agent-access-menu.ts`、`plan-mode-controls.ts`、`send-stop-button.ts`、`model-controls.ts`、`opencode-config-menu.ts`（OpenCode `configOptions` 配置菜单）、`opencode-mode-menu.ts`（OpenCode ACP modes 独立模式按钮/菜单）、`editor-bindings.ts`、`code-blocks.ts`、`process-folding.ts`、`context-compaction.ts`、`scroll-to-bottom-button.ts`（对话区上翻较深时居中悬浮于输入框上方的“回到底部”按钮：280px/120px 滞回显隐、未读徽标、点击平滑回底并恢复自动跟随；readOnly 会话无 composer dock 时自动移除）等；`process-folding.ts` 为每个用户回合维护唯一的“执行中/已执行 · 耗时”顶层状态与折叠入口，中间 Markdown、Thinking、工具和 Subagent 均位于该层级；每段中间 Markdown 后的过程片段继续显示内层阶段聚合标题（状态 + 工具调用数、命令数、编辑文件数），运行中和已完成阶段均默认收起并维护独立折叠状态，普通连续工具仍保留更内层的工具摘要，只有最终回答正文留在组外
 - Plan 按钮和 Shift+Tab 切换前端 Plan 模式；发送时复用 `/plan <任务>` 的单轮计划逻辑
 - OpenCode 会话下原生模型选择器关闭，ACP modes（Build/Plan/...）以独立模式按钮显示在 composer 右侧（原模型选择器位置、发送按钮之前，保持发送按钮 `:last-child`），复用 model trigger/menu/menu-item 样式并右对齐；按钮 label 显示 currentModeId 对应 mode.name（无匹配回退 currentModeId），无 availableModes 时不渲染；左侧 OpenCode 配置菜单仅展示 `configOptions`。模式菜单与 config/agent-access/composer-plus/model 菜单打开时显式互斥
 - Assistant Markdown 中的 ```svg 和 ```mermaid 代码块会在流式输出结束后默认进入安全图片预览，可在代码块右上角切换预览/源码；Mermaid 按需加载并在失败时保留源码
+- `panel-decoration/ask-user-card.ts` 是 ask_user 工具的交互卡（与审批卡同族的注入式卡片，`data-ask-id` + displaySignature 去重）：向导式多问题（单选点选自动进下一问、多选/自由输入显式前进、末步回执摘要统一提交、可整卡跳过）；提交/跳过经 `onAnswerAsk` 回调（App → server-agent `answerAsk` → `POST /api/agents/:id/answer-ask`）放行服务端 pending Promise；回答后卡片移除，ask_user 调用作为普通工具消息留在消息流由既有折叠机制收纳；readOnly/share 视图禁用并提示
 
 **scroll-sync.ts** (174 行)
 - 自动滚动同步管理
 - 新消息时自动滚到底部；用户主动上滚时暂停自动滚动
 - 用户滚回底部时重新启用自动滚动
+- 上翻较深时的“回到底部”悬浮按钮（`panel-decoration/scroll-to-bottom-button.ts`）复用同一滚动容器的 scroll 监听独立判定显隐，点击后经 `scrollSync.enable()` 恢复尾部跟随；显隐阈值（280px 出 / 120px 消）与 scroll-sync 的 `isNearBottom`（80px）体系对齐但各自独立
 
 ### 标题栏 Git 组件 (`git/`)
 

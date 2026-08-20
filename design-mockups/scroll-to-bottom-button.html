@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>回到底部按钮 · 设计稿</title>
+<style>
+  :root {
+    --background: #ffffff;
+    --foreground: #18181b;
+    --card: #fafafa;
+    --muted: #f4f4f5;
+    --muted-foreground: #71717a;
+    --border: #e4e4e7;
+    --primary: #18181b;
+    --emerald: #059669;
+    --emerald-fg: #ffffff;
+    --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Courier New", monospace;
+  }
+  body.dark {
+    --background: #101012;
+    --foreground: #f4f4f5;
+    --card: #17171a;
+    --muted: #1d1d21;
+    --muted-foreground: #a1a1aa;
+    --border: #2a2a30;
+    --primary: #fafafa;
+    --emerald: #34d399;
+    --emerald-fg: #052e1f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 28px 20px 64px;
+    gap: 16px;
+  }
+
+  /* ---------- 工具栏 ---------- */
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+    font-size: 13px;
+    color: var(--muted-foreground);
+  }
+  .toolbar h1 { font-size: 15px; font-weight: 600; color: var(--foreground); margin: 0; }
+  .toolbar .sep { width: 1px; height: 16px; background: var(--border); }
+
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--muted-foreground);
+    font: inherit;
+    font-size: 12.5px;
+    padding: 5px 10px;
+    cursor: pointer;
+  }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button.active { background: var(--muted); color: var(--foreground); }
+
+  .ghost-btn {
+    appearance: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--foreground);
+    font: inherit;
+    font-size: 12.5px;
+    padding: 5px 10px;
+    cursor: pointer;
+  }
+  .ghost-btn:hover { background: var(--muted); }
+
+  .readout {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--muted-foreground);
+    min-width: 168px;
+  }
+
+  /* ---------- 模拟对话面板 ---------- */
+  .chat-col {
+    width: 720px;
+    max-width: 100%;
+    height: 620px;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .scroll-area {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+  .messages {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 22px 18px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .msg-user {
+    align-self: flex-end;
+    max-width: 82%;
+    background: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 8px 12px;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .msg-assistant {
+    align-self: flex-start;
+    max-width: 92%;
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--foreground);
+  }
+  .msg-assistant ol { margin: 6px 0; padding-left: 20px; }
+  .msg-assistant li { margin: 2px 0; }
+  .msg-assistant li::marker { color: var(--muted-foreground); }
+
+  .code-block {
+    margin: 8px 0 2px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: color-mix(in oklab, var(--muted) 60%, transparent);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    color: color-mix(in oklab, var(--foreground) 88%, transparent);
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  /* 工具调用卡:复用邻近工具卡片的稳定强度 */
+  .tool-card {
+    align-self: stretch;
+    border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+    border-radius: 10px;
+    background: color-mix(in oklab, var(--card) 88%, transparent);
+    overflow: hidden;
+  }
+  .tool-card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted-foreground);
+  }
+  .tool-dot {
+    width: 7px; height: 7px; border-radius: 999px;
+    background: var(--emerald);
+    flex: none;
+  }
+  .tool-cmd { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: color-mix(in oklab, var(--foreground) 80%, transparent); }
+  .tool-meta { flex: none; font-size: 11px; }
+  .tool-card-body {
+    padding: 8px 10px 9px;
+    border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    line-height: 1.65;
+    color: var(--muted-foreground);
+  }
+
+  /* ---------- 输入停靠区(对应 .quickforge-composer-dock) ---------- */
+  .composer-dock {
+    flex: none;
+    position: relative;
+    /* 负 margin 让渐变盖在滚动内容上,模拟真实 dock 的淡出效果 */
+    margin-top: -84px;
+    padding: 88px 14px 14px;
+    background: linear-gradient(to top, var(--background) 72%, transparent);
+    pointer-events: none;
+  }
+  .dock-inner {
+    max-width: 640px;
+    margin: 0 auto;
+    position: relative;
+    pointer-events: none;
+  }
+  .composer-pill {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 52px;
+    padding: 8px 8px 8px 18px;
+    border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+    border-radius: 1.5rem;
+    background: color-mix(in oklab, var(--card) 86%, transparent);
+    box-shadow:
+      0 22px 70px -34px rgb(15 23 42 / 0.45),
+      0 10px 28px -22px color-mix(in oklab, var(--foreground) 45%, transparent);
+    backdrop-filter: blur(18px) saturate(1.1);
+  }
+  .composer-ph {
+    flex: 1 1 auto;
+    font-size: 14px;
+    color: var(--muted-foreground);
+  }
+  .composer-send {
+    flex: none;
+    width: 32px; height: 32px;
+    border-radius: 999px;
+    background: var(--primary);
+    color: var(--background);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* ---------- 回到底部按钮(本稿主角) ---------- */
+  .jump-slot {
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 0; right: 0;
+    display: flex;
+    justify-content: flex-end;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .jump-slot[data-variant="icon-center"],
+  .jump-slot[data-variant="pill"] { justify-content: center; }
+
+  .jump-btn {
+    pointer-events: auto;
+    position: relative;
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border-radius: 9999px;
+    border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+    background: color-mix(in oklab, var(--card) 92%, transparent);
+    color: var(--muted-foreground);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    box-shadow:
+      0 14px 36px -20px rgb(15 23 42 / 0.42),
+      0 2px 8px -4px rgb(15 23 42 / 0.14);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    transition:
+      opacity 180ms ease,
+      transform 180ms cubic-bezier(0.2, 0.8, 0.3, 1),
+      color 150ms ease,
+      border-color 150ms ease,
+      background-color 150ms ease;
+    opacity: 0;
+    transform: translateY(8px) scale(0.92);
+  }
+  .jump-btn.is-visible {
+    opacity: 1;
+    transform: none;
+  }
+  .jump-btn:hover {
+    color: var(--foreground);
+    border-color: var(--border);
+    background: var(--card);
+  }
+  .jump-btn:active { transform: translateY(0) scale(0.96); }
+  .jump-btn:focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--primary) 46%, transparent);
+    outline-offset: 2px;
+  }
+  .jump-btn svg { flex: none; }
+
+  /* 胶囊形态:图标 + 文案 */
+  .jump-slot[data-variant="pill"] .jump-btn {
+    width: auto;
+    height: 34px;
+    padding: 0 14px;
+  }
+  .jump-text { display: none; white-space: nowrap; }
+  .jump-slot[data-variant="pill"] .jump-text { display: inline; }
+
+  /* 未读徽标:不在底部期间收到的新消息数 */
+  .jump-badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    border-radius: 9999px;
+    background: var(--emerald);
+    color: var(--emerald-fg);
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid var(--background);
+  }
+  .jump-badge.is-empty { display: none; }
+
+  /* ---------- 设计说明 ---------- */
+  .notes {
+    width: 720px;
+    max-width: 100%;
+    font-size: 13px;
+    line-height: 1.8;
+    color: var(--muted-foreground);
+  }
+  .notes h2 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--foreground);
+    margin: 0 0 6px;
+  }
+  .notes ul { margin: 0; padding-left: 18px; }
+  .notes li { margin: 2px 0; }
+  .notes code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: var(--muted);
+    border-radius: 4px;
+    padding: 1px 4px;
+    color: color-mix(in oklab, var(--foreground) 85%, transparent);
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="toolbar">
+    <h1>回到底部按钮 · 设计稿</h1>
+    <span class="sep"></span>
+    <div class="seg" role="group" aria-label="按钮形态">
+      <button type="button" data-v="icon-center" class="active">图标 · 居中(推荐)</button>
+      <button type="button" data-v="icon-right">图标 · 右侧</button>
+      <button type="button" data-v="pill">胶囊带文字</button>
+    </div>
+    <button type="button" class="ghost-btn" id="append-msg">模拟收到新消息</button>
+    <button type="button" class="ghost-btn" id="theme-toggle">切换深色</button>
+    <span class="readout" id="readout">距底部 0px · 隐藏</span>
+  </div>
+
+  <div class="chat-col">
+    <div class="scroll-area" id="scroll-area">
+      <div class="messages" id="messages">
+        <div class="msg-user">会话区流式输出的时候,滚动偶尔就不跟随了,帮我看看是哪里的问题。</div>
+        <div class="msg-assistant">我先把滚动同步的调用链梳理一遍,重点看 <code>ChatPanelHost</code> 里 <code>createScrollSync</code> 的接入方式。</div>
+        <div class="tool-card">
+          <div class="tool-card-head">
+            <span class="tool-dot"></span>
+            <span class="tool-cmd">grep -rn "scheduleScrollToBottom" src/components/chat</span>
+            <span class="tool-meta">3 处 · 0.4s</span>
+          </div>
+          <div class="tool-card-body">scroll-sync.ts:84<br>ChatPanelHost.tsx:947<br>ChatPanelHost.tsx:996</div>
+        </div>
+        <div class="msg-assistant">
+          结论:<code>handleScroll</code> 用 <code>isNearBottom</code>(80px)判断是否贴底,用户一旦向上滚就停用自动跟随,必须手动滚回底部才恢复。两个建议:
+          <ol>
+            <li>把 80px 阈值提取成常量,供多处共用;</li>
+            <li>加一个"回到底部"悬浮按钮,翻得比较深时出现,一键回底并恢复跟随。</li>
+          </ol>
+        </div>
+        <div class="msg-user">可以,按钮就放在输入框上面。先出一版 HTML 效果稿确认视觉。</div>
+        <div class="msg-assistant">
+          好,交互上这几点比较关键:
+          <ol>
+            <li>出现 / 消失用滞回阈值(距底部 &gt;280px 淡入,&lt;120px 淡出),避免临界位置来回抖动;</li>
+            <li>点击后平滑滚到底部,并恢复自动跟随;</li>
+            <li>不在底部期间新到的消息累计成徽标,回底后清零。</li>
+          </ol>
+          下面这份稿子可以直接滚起来试。
+        </div>
+        <div class="msg-user">深色模式也看一眼,别比浅色重。</div>
+        <div class="msg-assistant">深色下按钮背景换成 card 的透明混合,边框沿用输入框的 78% border 混合,阴影降一档——保持浮层感,但不抢消息内容的视觉焦点。</div>
+        <div class="msg-assistant">另外两个边界:输入框聚焦展开建议浮层时,按钮让位上移;窗口很窄(&lt;560px)时右侧图标形态改为居中,避免和滚动条贴在一起。</div>
+        <div class="msg-user">这些边界先记下来,实现的时候一起处理。</div>
+        <div class="msg-assistant">已记入 feature 清单。视觉定稿后,实现落点是挂在 <code>.quickforge-composer-dock</code> 上,滚动状态直接复用 <code>scroll-sync</code> 的判定,不另起一套监听。</div>
+        <div class="msg-user">继续往上翻几屏,看看按钮出现的时机和动画手感。</div>
+        <div class="msg-assistant">这里再放几条较长的消息,方便把对话区撑出足够的滚动距离,验证滞回阈值和徽标累计的表现。流式输出的场景下,按钮出现的同时自动跟随已经停用,新内容只在徽标上计数,不会把视口拽下去。</div>
+        <div class="msg-assistant">点击按钮后的滚动用 <code>behavior: smooth</code>,长对话里如果平滑滚动耗时过久,实现时可以换成带缓动的短动画或直接跳底,以实际手感为准。</div>
+      </div>
+    </div>
+
+    <div class="composer-dock">
+      <div class="dock-inner">
+        <div class="jump-slot" id="jump-slot" data-variant="icon-center">
+          <button type="button" class="jump-btn" id="jump-btn" aria-label="回到底部" title="回到底部">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/>
+            </svg>
+            <span class="jump-text">回到底部</span>
+            <span class="jump-badge is-empty" id="jump-badge" aria-hidden="true"></span>
+          </button>
+        </div>
+        <div class="composer-pill">
+          <span class="composer-ph">给 QuickForge 发消息…</span>
+          <span class="composer-send" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h2>设计说明</h2>
+    <ul>
+      <li><strong>出现时机</strong>:距底部 &gt;280px 淡入(上移 + 缩放,180ms);回到距底部 &lt;120px 淡出。两档阈值形成滞回区间,避免临界位置闪烁。数值为预览值,实现时与 <code>scroll-sync</code> 的贴底阈值体系对齐。</li>
+      <li><strong>位置</strong>:居中悬浮于输入框上方 10px,与内容列中轴对齐,两侧不遮挡正文阅读动线;工具栏可切换右侧对齐 / 胶囊带文字形态对比。</li>
+      <li><strong>交互</strong>:点击平滑滚到底部并恢复自动跟随;不在底部期间收到的新消息累计为右上角徽标,回底清零。icon-only,提供 <code>aria-label</code>「回到底部」与 tooltip。</li>
+      <li><strong>视觉</strong>:复用输入框卡片的 token——78% border 混合边框、card 透明混合背景、backdrop blur、降一档的浮层阴影;图标默认弱化,hover 提亮。无渐变、无重装饰。</li>
+      <li><strong>实现落点</strong>(定稿后):按钮挂在 <code>.quickforge-composer-dock</code> 内、输入框上方;显示状态复用 <code>scroll-sync</code> 的滚动监听,点击调用 <code>enable()</code> + <code>scheduleScrollToBottom()</code>。</li>
+    </ul>
+  </div>
+
+</div>
+
+<script>
+  const area = document.getElementById('scroll-area');
+  const btn = document.getElementById('jump-btn');
+  const slot = document.getElementById('jump-slot');
+  const badge = document.getElementById('jump-badge');
+  const readout = document.getElementById('readout');
+
+  const SHOW_THRESHOLD = 280; // 距底部超过该值 → 显示
+  const HIDE_THRESHOLD = 120; // 回到该值以内 → 隐藏(滞回防抖)
+  let unread = 0;
+
+  const distanceFromBottom = () => area.scrollHeight - area.scrollTop - area.clientHeight;
+
+  function renderUnread() {
+    badge.textContent = unread;
+    badge.classList.toggle('is-empty', unread === 0);
+    const label = btn.querySelector('.jump-text');
+    label.textContent = unread > 0 ? `${unread} 条新消息` : '回到底部';
+  }
+
+  function update() {
+    const d = distanceFromBottom();
+    const showing = btn.classList.contains('is-visible');
+    const visible = showing ? d > HIDE_THRESHOLD : d > SHOW_THRESHOLD;
+    btn.classList.toggle('is-visible', visible);
+    if (d <= HIDE_THRESHOLD && unread > 0) { unread = 0; renderUnread(); }
+    readout.textContent = `距底部 ${Math.round(d)}px · ${visible ? '显示' : '隐藏'}`;
+  }
+
+  area.addEventListener('scroll', update, { passive: true });
+  window.addEventListener('resize', update);
+
+  btn.addEventListener('click', () => {
+    unread = 0;
+    renderUnread();
+    btn.classList.remove('is-visible'); // 立即消失,滚动随后到位
+    area.scrollTo({ top: area.scrollHeight, behavior: 'smooth' });
+  });
+
+  document.getElementById('append-msg').addEventListener('click', () => {
+    const el = document.createElement('div');
+    el.className = 'msg-assistant';
+    el.textContent = '收到,这条是模拟新到的消息:不在底部时只累计徽标,不拽动视口;在底部时保持自动跟随。';
+    document.getElementById('messages').appendChild(el);
+    if (distanceFromBottom() > HIDE_THRESHOLD) {
+      unread += 1;
+      renderUnread();
+      btn.classList.add('is-visible');
+    } else {
+      area.scrollTo({ top: area.scrollHeight, behavior: 'smooth' });
+    }
+    update();
+  });
+
+  document.querySelectorAll('.seg button').forEach((b) => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.seg button').forEach((x) => x.classList.toggle('active', x === b));
+      slot.dataset.variant = b.dataset.v;
+    });
+  });
+
+  const themeToggle = document.getElementById('theme-toggle');
+  themeToggle.addEventListener('click', () => {
+    const dark = document.body.classList.toggle('dark');
+    themeToggle.textContent = dark ? '切换浅色' : '切换深色';
+  });
+
+  // 会话打开时默认位于底部(与真实应用一致);load 后再校正一次,兜底布局晚就绪的情况
+  area.scrollTop = area.scrollHeight;
+  update();
+  window.addEventListener('load', () => {
+    area.scrollTop = area.scrollHeight;
+    update();
+  });
+</script>
+</body>
+</html>

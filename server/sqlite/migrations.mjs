@@ -481,6 +481,94 @@ export const SQLITE_MIGRATIONS = Object.freeze([
       `)
     },
   }),
+  Object.freeze({
+    // v11 session-domain rebuild (session storage v2): one small `sessions`
+    // row per session (no giant state_json column — the multi-GB bloat root
+    // cause), messages always stored row-per-message in `session_messages`
+    // (append-only, no inline/split dual mode), deletes tombstone into
+    // `session_tombstones` and space is reclaimed through incremental_vacuum
+    // (auto_vacuum=INCREMENTAL, set in database.mjs). The JSON mirror outbox
+    // chain, the session_index derived table and the session_storage_state
+    // phase machine are retired with this schema. Old session-domain tables
+    // are RENAMED (not dropped) as a rollback safety net; the maintenance
+    // lock and the share/lan-access/scheduled-runs domains are untouched.
+    // A fresh database runs v1..v11 sequentially, so every renamed table
+    // necessarily exists by the time v11 executes. Renamed tables keep their
+    // old index names (index names are schema-global), so the new tables use
+    // the idx_* naming convention to avoid collisions.
+    version: 11,
+    name: 'session_state_v2_storage',
+    up(database) {
+      database.exec(`
+        ALTER TABLE session_states RENAME TO session_states_v10_backup;
+        ALTER TABLE session_messages RENAME TO session_messages_v10_backup;
+        ALTER TABLE session_index RENAME TO session_index_v10_backup;
+        ALTER TABLE session_state_tombstones RENAME TO session_state_tombstones_v10_backup;
+        ALTER TABLE session_json_mirror_queue RENAME TO session_json_mirror_queue_v10_backup;
+        ALTER TABLE session_storage_state RENAME TO session_storage_state_v10_backup;
+
+        CREATE TABLE sessions (
+          scope TEXT NOT NULL CHECK (scope IN ('global', 'project')),
+          project_id TEXT NOT NULL,
+          session_id TEXT NOT NULL CHECK (length(trim(session_id)) > 0),
+          title TEXT NOT NULL DEFAULT '',
+          title_source TEXT,
+          created_at TEXT NOT NULL CHECK (length(trim(created_at)) > 0),
+          updated_at TEXT NOT NULL CHECK (length(trim(updated_at)) > 0),
+          message_count INTEGER NOT NULL DEFAULT 0 CHECK (typeof(message_count) = 'integer' AND message_count >= 0),
+          state_version INTEGER NOT NULL DEFAULT 0 CHECK (typeof(state_version) = 'integer' AND state_version >= 0),
+          harness TEXT,
+          task_status TEXT,
+          archived_at TEXT,
+          pinned_at TEXT,
+          body_json TEXT NOT NULL CHECK (json_valid(body_json) AND json_type(body_json) = 'object'),
+          meta_json TEXT NOT NULL CHECK (json_valid(meta_json) AND json_type(meta_json) = 'object'),
+          revision INTEGER NOT NULL CHECK (typeof(revision) = 'integer' AND revision > 0),
+          updated_at_ms INTEGER NOT NULL CHECK (typeof(updated_at_ms) = 'integer' AND updated_at_ms >= 0),
+          PRIMARY KEY (scope, project_id, session_id),
+          CHECK (
+            (scope = 'global' AND project_id = '') OR
+            (scope = 'project' AND length(trim(project_id)) > 0)
+          )
+        );
+
+        CREATE INDEX idx_sessions_list ON sessions (scope, project_id, archived_at, updated_at DESC);
+        CREATE INDEX idx_sessions_pinned ON sessions (scope, project_id, updated_at DESC) WHERE pinned_at IS NOT NULL;
+        CREATE INDEX idx_sessions_session_id ON sessions (session_id);
+
+        CREATE TABLE session_messages (
+          scope TEXT NOT NULL CHECK (scope IN ('global', 'project')),
+          project_id TEXT NOT NULL,
+          session_id TEXT NOT NULL CHECK (length(trim(session_id)) > 0),
+          seq INTEGER NOT NULL CHECK (typeof(seq) = 'integer' AND seq >= 0),
+          message_id TEXT CHECK (message_id IS NULL OR length(trim(message_id)) > 0),
+          message_json TEXT NOT NULL CHECK (json_valid(message_json) AND json_type(message_json) = 'object'),
+          message_digest TEXT NOT NULL CHECK (length(message_digest) = 64 AND message_digest NOT GLOB '*[^0-9a-f]*'),
+          PRIMARY KEY (scope, project_id, session_id, seq),
+          UNIQUE (scope, project_id, session_id, message_id),
+          FOREIGN KEY (scope, project_id, session_id) REFERENCES sessions (scope, project_id, session_id) ON DELETE CASCADE,
+          CHECK (
+            (scope = 'global' AND project_id = '') OR
+            (scope = 'project' AND length(trim(project_id)) > 0)
+          )
+        );
+
+        CREATE INDEX idx_session_messages_session_id ON session_messages (session_id);
+
+        CREATE TABLE session_tombstones (
+          scope TEXT NOT NULL CHECK (scope IN ('global', 'project')),
+          project_id TEXT NOT NULL,
+          session_id TEXT NOT NULL CHECK (length(trim(session_id)) > 0),
+          deleted_at INTEGER NOT NULL CHECK (typeof(deleted_at) = 'integer' AND deleted_at >= 0),
+          PRIMARY KEY (scope, project_id, session_id),
+          CHECK (
+            (scope = 'global' AND project_id = '') OR
+            (scope = 'project' AND length(trim(project_id)) > 0)
+          )
+        ) WITHOUT ROWID;
+      `)
+    },
+  }),
 ])
 
 function readUserVersion(database) {

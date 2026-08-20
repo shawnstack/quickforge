@@ -3,21 +3,9 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { applySqliteMigrations, SQLITE_MIGRATIONS } from '../../server/sqlite/migrations.mjs'
-import { createSessionStateRepository } from '../../server/sqlite/session-state-repository.mjs'
-import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite/database.mjs'
-import {
-  MESSAGES_SPLIT_THRESHOLD,
-  applySessionBatch,
-  atomicSessionStateUpdate,
-  configureSessionStateService,
-  deleteSessionState,
-  drainSessionJsonMirror,
-  readSessionStateValue,
-  saveSessionBody,
-  saveSessionStatePair,
-} from '../../server/session-state-service.mjs'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { applySqliteMigrations } from '../../server/sqlite/migrations.mjs'
+import { createSessionStateRepository, messageDigest } from '../../server/sqlite/session-state-repository.mjs'
 
 const projectRoot = path.resolve(import.meta.dirname, '../..')
 const workerScript = path.join(projectRoot, 'tests', 'fixtures', 'session-state-messages-cas-worker.mjs')
@@ -102,34 +90,56 @@ function spawnWorker(databasePath, sessionId, expectedRevision, marker) {
   })
 }
 
-describe('F9 schema v7 message incremental storage', () => {
+describe('schema v11 message row storage', () => {
   let directory
   let databasePath
-  let storage
+  let database
   let repository
 
   beforeEach(async () => {
     directory = await mkdtemp(path.join(os.tmpdir(), 'qf-session-messages-'))
     databasePath = path.join(directory, 'state.sqlite3')
-    await closeSqliteStorage()
-    storage = await initializeSqliteStorage({ databasePath })
-    repository = createSessionStateRepository(storage)
-    configureSessionStateService({ repository, mirror: { upsert: vi.fn(async () => {}), delete: vi.fn(async () => {}) }, phase: 'authoritative' })
+    database = new DatabaseSync(databasePath)
+    database.exec('PRAGMA busy_timeout = 5000')
+    database.exec('PRAGMA foreign_keys = ON')
+    applySqliteMigrations(database)
+    repository = createSessionStateRepository(createHandle(database))
   })
 
   afterEach(async () => {
-    configureSessionStateService({ repository: null, json: null, mirror: null, phase: 'json_authoritative' })
-    await closeSqliteStorage()
+    try { database.close() } catch { /* already closed */ }
     await rm(directory, { recursive: true, force: true })
   })
 
-  it('splits via replaceMessages, appends incrementally, and pages with stable ordering', () => {
-    const saved = repository.replaceMessages(record('one'), messages(3), { expectedRevision: 0 })
-    expect(saved.revision).toBe(1)
-    expect(repository.findBySessionId('one').state.messageStorage).toBe('split')
-    expect(repository.findBySessionId('one').state).not.toHaveProperty('messages')
-    expect(repository.messageCount({ scope: 'global', sessionId: 'one' })).toBe(3)
+  it('stores every session row-per-message regardless of how the messages arrived', () => {
+    // Inline save (legacy "inline" plan), replaceMessages (legacy "replace"
+    // plan) and split-marked bodies all land in session_messages now.
+    repository.save(record('inline', 2), { expectedRevision: 0 })
+    repository.replaceMessages(record('split', 2), messages(2), { expectedRevision: 0 })
+    const legacy = record('legacy-split', 2)
+    legacy.state.messageStorage = 'split'
+    repository.save(legacy, { expectedRevision: 0 })
+    for (const sessionId of ['inline', 'split', 'legacy-split']) {
+      expect(repository.messageCount({ scope: 'global', sessionId })).toBe(2)
+      expect(repository.findBySessionId(sessionId).state).not.toHaveProperty('messages')
+      expect(repository.findBySessionId(sessionId).state.messageStorage).toBe('split')
+    }
+    // Unified representation: re-saving the same messages through the replace
+    // path (body rebuilt from the stored marker body) reproduces the exact
+    // same body digest — inline vs split no longer changes the stored shape.
+    const viaInline = repository.save(record('one', 2), { expectedRevision: 0 })
+    const viaReplace = repository.replaceMessages(repository.findBySessionId('one'), messages(2), { expectedRevision: 1 })
+    expect(viaReplace.stateDigest).toBe(viaInline.stateDigest)
+    expect(repository.messageCount({ scope: 'global', sessionId: 'one' })).toBe(2)
 
+    // An empty message array clears the rows and keeps the session.
+    repository.replaceMessages(repository.findBySessionId('inline'), [], { expectedRevision: 1 })
+    expect(repository.messageCount({ scope: 'global', sessionId: 'inline' })).toBe(0)
+    expect(repository.findBySessionId('inline')).not.toBeNull()
+  })
+
+  it('appends incrementally, pages with stable ordering, and keeps the count column in sync', () => {
+    repository.replaceMessages(record('one'), messages(3), { expectedRevision: 0 })
     const page = repository.readMessagesPage({ scope: 'global', sessionId: 'one', limit: 2 })
     expect(page.total).toBe(3)
     expect(page.messages.map((row) => row.message.content)).toEqual(['m0', 'm1'])
@@ -141,134 +151,16 @@ describe('F9 schema v7 message incremental storage', () => {
     expect(appended.revision).toBe(2)
     expect(repository.messageCount({ scope: 'global', sessionId: 'one' })).toBe(5)
     expect(repository.readMessagesPage({ scope: 'global', sessionId: 'one', limit: 10 }).messages.map((row) => row.message.content)).toEqual(['m0', 'm1', 'm2', 'm3', 'm4'])
+    expect(Number(database.prepare('SELECT message_count FROM sessions WHERE session_id = ?').get('one').message_count)).toBe(5)
     expect(repository.verifyIntegrity()).toMatchObject({ ok: true, count: 1 })
   })
 
-  it('deduplicates appended messages carrying the same message id and rejects append on non-split sessions', () => {
+  it('deduplicates appended messages carrying the same message id', () => {
     const duplicate = { role: 'user', content: 'dup', id: 'dup-1' }
     repository.replaceMessages(record('one'), [duplicate], { expectedRevision: 0 })
-    repository.appendMessages(repository.findBySessionId('one'), [duplicate], { expectedRevision: 1 })
-    expect(repository.messageCount({ scope: 'global', sessionId: 'one' })).toBe(1)
-
-    repository.save(record('inline', 1), { expectedRevision: 0 })
-    expect(() => repository.appendMessages(repository.findBySessionId('inline'), [{ role: 'user', content: 'x' }], { expectedRevision: 1 }))
-      .toThrow(/not split/)
-  })
-
-  it('defines split digest semantics and roundtrips exportSnapshot through replaceAll', () => {
-    const inline = repository.save(record('inline', 2), { expectedRevision: 0 })
-    const splitRecord = repository.replaceMessages(record('split', 2), messages(2), { expectedRevision: 0 })
-    expect(inline.stateDigest).not.toBe(splitRecord.stateDigest)
-    expect(splitRecord.state).not.toHaveProperty('messages')
-
-    const snapshot = repository.exportSnapshot()
-    const splitRow = snapshot.records.find((entry) => entry.sessionId === 'split')
-    const inlineRow = snapshot.records.find((entry) => entry.sessionId === 'inline')
-    expect(splitRow.messages).toHaveLength(2)
-    expect(splitRow.messagesDigest).toMatch(/^[0-9a-f]{64}$/)
-    expect(inlineRow.messages).toBeUndefined()
-    expect(inlineRow.messagesDigest).toBe('')
-
-    repository.replaceAll(snapshot.records)
-    expect(repository.digest()).toBe(snapshot.digest)
-    expect(repository.verifyIntegrity()).toMatchObject({ ok: true, count: 2 })
-    expect(repository.readMessagesPage({ scope: 'global', sessionId: 'split', limit: 10 }).messages.map((row) => row.message.content)).toEqual(['m0', 'm1'])
-  })
-
-  it('reads v6-migrated inline sessions compatibly and splits only on rewrite', () => {
-    const v6Path = path.join(directory, 'v6.sqlite3')
-    const v6 = new DatabaseSync(v6Path)
-    applySqliteMigrations(v6, { migrations: SQLITE_MIGRATIONS.slice(0, 6) })
-    const v6Repository = createSessionStateRepository(createHandle(v6))
-    v6Repository.save(record('legacy', 3), { expectedRevision: 0 })
-    v6.close()
-
-    // Reopen and migrate v6 -> v7; the inline session must stay readable.
-    const migrated = new DatabaseSync(v6Path)
-    applySqliteMigrations(migrated)
-    const repo = createSessionStateRepository(createHandle(migrated))
-    expect(repo.verifyIntegrity()).toMatchObject({ ok: true, count: 1 })
-    const recordRow = repo.findBySessionId('legacy')
-    expect(recordRow.state.messages).toHaveLength(3)
-    expect(recordRow.state.messageStorage).toBeUndefined()
-    migrated.close()
-  })
-
-  it('splits message-heavy sessions on write, appends incrementally, and derives metadata', () => {
-    const initial = messages(MESSAGES_SPLIT_THRESHOLD)
-    const saved = saveSessionStatePair({
-      state: { id: 'big', scope: 'global', stateVersion: 1, title: 'Big', messages: initial },
-      metadata: {},
-    })
-    expect(saved.state.messageStorage).toBe('split')
-    expect(saved.state).not.toHaveProperty('messages')
-    expect(repository.messageCount({ scope: 'global', sessionId: 'big' })).toBe(MESSAGES_SPLIT_THRESHOLD)
-    expect(saved.metadata.messageCount).toBe(MESSAGES_SPLIT_THRESHOLD)
-
-    const assembled = readSessionStateValue('big')
-    expect(assembled.messages).toHaveLength(MESSAGES_SPLIT_THRESHOLD)
-
-    const appended = saveSessionBody('big', { messages: [...initial, { role: 'user', content: 'tail', timestamp: '2026-01-01T00:00:00.500Z' }] })
-    expect(repository.messageCount({ scope: 'global', sessionId: 'big' })).toBe(MESSAGES_SPLIT_THRESHOLD + 1)
-    expect(appended.metadata.messageCount).toBe(MESSAGES_SPLIT_THRESHOLD + 1)
-    expect(readSessionStateValue('big').messages.at(-1).content).toBe('tail')
-  })
-
-  it('keeps small sessions inline and clears message rows when a split session empties', () => {
-    const small = saveSessionStatePair({
-      state: { id: 'small', scope: 'global', stateVersion: 1, messages: [{ role: 'user', content: 'hi' }] },
-      metadata: {},
-    })
-    expect(small.state.messages).toHaveLength(1)
-    expect(small.state.messageStorage).toBeUndefined()
-    expect(repository.messageCount({ scope: 'global', sessionId: 'small' })).toBe(0)
-
-    saveSessionBody('big', { messages: messages(MESSAGES_SPLIT_THRESHOLD) })
-    expect(repository.messageCount({ scope: 'global', sessionId: 'big' })).toBe(MESSAGES_SPLIT_THRESHOLD)
-    saveSessionBody('big', { messages: [] })
-    expect(repository.messageCount({ scope: 'global', sessionId: 'big' })).toBe(0)
-    expect(readSessionStateValue('big').messages).toEqual([])
-    expect(repository.findBySessionId('big').state.messageStorage).toBe('split')
-  })
-
-  it('falls back to a full replace when the boundary message changed in place', () => {
-    saveSessionBody('big', { messages: messages(MESSAGES_SPLIT_THRESHOLD) })
-    const edited = [...messages(MESSAGES_SPLIT_THRESHOLD)]
-    edited[edited.length - 1] = { ...edited[edited.length - 1], content: 'edited' }
-    saveSessionBody('big', { messages: edited })
-    expect(repository.messageCount({ scope: 'global', sessionId: 'big' })).toBe(MESSAGES_SPLIT_THRESHOLD)
-    expect(readSessionStateValue('big').messages.at(-1).content).toBe('edited')
-  })
-
-  it('keeps unchanged split saves body-only and detects same-length middle in-place edits', () => {
-    saveSessionBody('big', { messages: messages(MESSAGES_SPLIT_THRESHOLD) })
-    // Identical count + tail + mid digests: nothing about the messages changed.
-    const unchanged = saveSessionBody('big', { messages: messages(MESSAGES_SPLIT_THRESHOLD) })
-    expect(unchanged.messageStoragePlan).toBe('body-only')
-    // body-only persistence never re-inlines messages into the split body.
-    expect(repository.findBySessionId('big').state).not.toHaveProperty('messages')
-    expect(repository.verifyIntegrity()).toMatchObject({ ok: true, invalidMessageRepresentations: 0 })
-
-    // A same-length, same-tail edit in the middle must not be silently dropped.
-    const edited = [...messages(MESSAGES_SPLIT_THRESHOLD)]
-    const midIndex = Math.floor(MESSAGES_SPLIT_THRESHOLD / 2)
-    edited[midIndex] = { ...edited[midIndex], content: 'mid edited' }
-    const replaced = saveSessionBody('big', { messages: edited })
-    expect(replaced.messageStoragePlan).toBe('replace')
-    expect(repository.messageCount({ scope: 'global', sessionId: 'big' })).toBe(MESSAGES_SPLIT_THRESHOLD)
-    expect(readSessionStateValue('big').messages[midIndex].content).toBe('mid edited')
-    expect(repository.verifyIntegrity()).toMatchObject({ ok: true })
-  })
-
-  it('reads the tail row and single-seq digests through the dedicated probes', () => {
-    repository.replaceMessages(record('one'), messages(3), { expectedRevision: 0 })
-    const last = repository.readLastMessage({ scope: 'global', sessionId: 'one' })
-    expect(last.message.content).toBe('m2')
-    expect(last.seq).toBe(2)
-    expect(last.digest).toBe(repository.readMessageDigestAt({ scope: 'global', sessionId: 'one', seq: 2 }))
-    expect(repository.readMessageDigestAt({ scope: 'global', sessionId: 'one', seq: 0 })).toMatch(/^[0-9a-f]{64}$/)
-    expect(repository.readMessageDigestAt({ scope: 'global', sessionId: 'one', seq: 9 })).toBeNull()
-    expect(repository.readLastMessage({ scope: 'global', sessionId: 'missing' })).toBeNull()
+    repository.appendMessages(repository.findBySessionId('one'), [duplicate, { role: 'user', content: 'fresh', id: 'fresh-1' }], { expectedRevision: 1 })
+    expect(repository.messageCount({ scope: 'global', sessionId: 'one' })).toBe(2)
+    expect(repository.readMessagesPage({ scope: 'global', sessionId: 'one', limit: 10 }).messages.map((row) => row.message.id)).toEqual(['dup-1', 'fresh-1'])
   })
 
   it('skips an exact id-less tail batch retry but appends new or partial id-less batches', () => {
@@ -294,63 +186,88 @@ describe('F9 schema v7 message incremental storage', () => {
     expect(repository.verifyIntegrity()).toMatchObject({ ok: true })
   })
 
-  it('applies message-heavy batch writes as a single split transaction', () => {
-    const result = applySessionBatch([
-      { store: 'sessions', type: 'set', key: 'batch', value: { id: 'batch', scope: 'global', stateVersion: 1, messages: messages(MESSAGES_SPLIT_THRESHOLD) } },
-    ])
-    expect(result.saved).toBe(1)
-    expect(repository.findBySessionId('batch').state.messageStorage).toBe('split')
-    expect(repository.messageCount({ scope: 'global', sessionId: 'batch' })).toBe(MESSAGES_SPLIT_THRESHOLD)
+  it('reads the tail row and single-seq digests through the dedicated probes', () => {
+    repository.replaceMessages(record('one'), messages(3), { expectedRevision: 0 })
+    const last = repository.readLastMessage({ scope: 'global', sessionId: 'one' })
+    expect(last.message.content).toBe('m2')
+    expect(last.seq).toBe(2)
+    expect(last.digest).toBe(messageDigest(messages(3)[2]))
+    expect(last.digest).toBe(repository.readMessageDigestAt({ scope: 'global', sessionId: 'one', seq: 2 }))
+    expect(repository.readMessageDigestAt({ scope: 'global', sessionId: 'one', seq: 0 })).toMatch(/^[0-9a-f]{64}$/)
+    expect(repository.readMessageDigestAt({ scope: 'global', sessionId: 'one', seq: 9 })).toBeNull()
+    expect(repository.readLastMessage({ scope: 'global', sessionId: 'missing' })).toBeNull()
   })
 
-  it('passes assembled messages to atomic state updates on split sessions', async () => {
-    saveSessionBody('big', { messages: messages(MESSAGES_SPLIT_THRESHOLD) })
-    const updated = await atomicSessionStateUpdate('big', (state) => ({
-      ...state,
-      messages: [...state.messages, { role: 'user', content: 'atomic', timestamp: '2026-01-01T00:00:00.600Z' }],
-    }))
-    expect(repository.messageCount({ scope: 'global', sessionId: 'big' })).toBe(MESSAGES_SPLIT_THRESHOLD + 1)
-    expect(readSessionStateValue('big').messages.at(-1).content).toBe('atomic')
-    expect(updated).not.toBeNull()
+  it('roundtrips exportSnapshot through replaceAll with reassembled messages', () => {
+    repository.save(record('inline', 2), { expectedRevision: 0 })
+    repository.replaceMessages(record('split', 2), messages(2), { expectedRevision: 0 })
+    const snapshot = repository.exportSnapshot()
+    for (const entry of snapshot.records) {
+      expect(entry.state.messages).toHaveLength(2)
+      expect(entry.messages).toHaveLength(2)
+      expect(entry.messagesDigest).toMatch(/^[0-9a-f]{64}$/)
+    }
+    repository.replaceAll(snapshot.records)
+    expect(repository.digest()).toBe(snapshot.digest)
+    expect(repository.verifyIntegrity()).toMatchObject({ ok: true, count: 2 })
+    expect(repository.readMessagesPage({ scope: 'global', sessionId: 'split', limit: 10 }).messages.map((row) => row.message.content)).toEqual(['m0', 'm1'])
   })
 
-  it('cascades message rows on delete and keeps integrity clean', () => {
-    saveSessionBody('big', { messages: messages(MESSAGES_SPLIT_THRESHOLD) })
-    expect(deleteSessionState('big')).toBe(true)
-    expect(repository.messageCount({ scope: 'global', sessionId: 'big' })).toBe(0)
-    expect(repository.verifyIntegrity()).toMatchObject({ ok: true, count: 0 })
+  it('applies message-heavy batch writes as a single transaction', () => {
+    const bulk = messages(300)
+    const result = repository.applyBatch({
+      upserts: [{ record: record('batch'), messages: bulk, messagesMode: 'append' }],
+    })
+    expect(result.saved).toHaveLength(1)
+    expect(repository.messageCount({ scope: 'global', sessionId: 'batch' })).toBe(300)
+    expect(Number(database.prepare('SELECT message_count FROM sessions WHERE session_id = ?').get('batch').message_count)).toBe(300)
   })
 
-  it('reassembles split messages when materializing the JSON mirror', async () => {
-    const mirror = { upsert: vi.fn(async () => {}), delete: vi.fn(async () => {}) }
-    configureSessionStateService({ repository, mirror, phase: 'authoritative' })
-    saveSessionBody('big', { messages: messages(MESSAGES_SPLIT_THRESHOLD) })
-    await drainSessionJsonMirror()
-    expect(mirror.upsert).toHaveBeenCalled()
-    const entry = mirror.upsert.mock.calls.at(-1)[0]
-    expect(entry.state.messageStorage).toBe('split')
-    expect(entry.state.messages).toHaveLength(MESSAGES_SPLIT_THRESHOLD)
-  })
+  // Handle variant that logs every prepare() call; the transaction callback
+  // receives the handle itself, so in-transaction prepares are logged too.
+  function createLoggingHandle(sqlLog) {
+    return {
+      exec: (sql) => database.exec(sql),
+      prepare(sql) { sqlLog.push(sql); return database.prepare(sql) },
+      transaction(callback, { mode = 'immediate' } = {}) {
+        database.exec(`BEGIN ${mode.toUpperCase()}`)
+        try {
+          const result = callback(this)
+          database.exec('COMMIT')
+          return result
+        } catch (error) {
+          database.exec('ROLLBACK')
+          throw error
+        }
+      },
+    }
+  }
 
-  it('detects corrupt message digests, orphaned message rows, and double representations', () => {
-    saveSessionBody('big', { messages: messages(MESSAGES_SPLIT_THRESHOLD) })
-    expect(repository.verifyIntegrity()).toMatchObject({ ok: true })
-    storage.prepare('UPDATE session_messages SET message_digest = ? WHERE seq = 0').run('f'.repeat(64))
-    expect(repository.verifyIntegrity()).toMatchObject({ ok: false, invalidMessageDigests: 1 })
-    storage.prepare('UPDATE session_messages SET message_digest = ? WHERE seq = 0').run(repository.readMessagesPage({ scope: 'global', sessionId: 'big', limit: 1 }).messages[0].digest)
-
-    storage.prepare(`INSERT INTO session_messages (scope, project_id, session_id, seq, message_json, message_digest, created, updated)
-      VALUES ('global', '', 'ghost', 0, '{"role":"user"}', ?, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`).run('a'.repeat(64))
-    expect(repository.verifyIntegrity()).toMatchObject({ ok: false, orphanMessages: 1 })
-    storage.prepare('DELETE FROM session_messages WHERE session_id = ?').run('ghost')
-
-    storage.prepare('UPDATE session_states SET state_json = json_set(state_json, ?, json_array()) WHERE session_id = ?').run('$.messages', 'big')
-    expect(repository.verifyIntegrity()).toMatchObject({ ok: false, invalidMessageRepresentations: 1 })
+  it('dedups appended message ids against only the incoming ids in bounded IN chunks', () => {
+    const sqlLog = []
+    const loggingRepository = createSessionStateRepository(createLoggingHandle(sqlLog), { now: () => '2026-01-01T00:00:03.000Z' })
+    loggingRepository.replaceMessages(record('one'), [
+      { role: 'user', content: 's0', id: 's0' },
+      { role: 'user', content: 's1', id: 's1' },
+    ], { expectedRevision: 0 })
+    sqlLog.length = 0
+    const incoming = [
+      { role: 'user', content: 's0-duplicate', id: 's0' },
+      ...Array.from({ length: 600 }, (_, index) => ({ role: 'user', content: `n${index}`, id: `n${index}` })),
+    ]
+    loggingRepository.appendMessages(loggingRepository.findBySessionId('one'), incoming, { expectedRevision: 1 })
+    // The stored-id duplicate is skipped; everything else lands exactly once.
+    expect(loggingRepository.messageCount({ scope: 'global', sessionId: 'one' })).toBe(602)
+    // The dedup probe targets only the incoming ids (601 unique ids -> two
+    // chunks of <=500) instead of scanning the whole stored id set.
+    expect(sqlLog.filter((sql) => sql.includes('message_id IN'))).toHaveLength(2)
+    expect(sqlLog.some((sql) => sql.includes('message_id IS NOT NULL'))).toBe(false)
+    expect(loggingRepository.verifyIntegrity()).toMatchObject({ ok: true })
   })
 
   it('allows exactly one multi-process append CAS winner with a hard timeout', async () => {
     repository.replaceMessages(record('race'), [{ role: 'user', content: 'base', id: 'base' }], { expectedRevision: 0 })
-    await closeSqliteStorage()
+    database.close()
     const results = await Promise.all([
       spawnWorker(databasePath, 'race', 1, 'first'),
       spawnWorker(databasePath, 'race', 1, 'second'),
@@ -359,7 +276,7 @@ describe('F9 schema v7 message incremental storage', () => {
     expect(results.filter((result) => !result.ok)).toMatchObject([{ errorCode: 'SESSION_STATE_CONFLICT', actualRevision: 2 }])
     const raw = new DatabaseSync(databasePath)
     raw.exec('PRAGMA busy_timeout = 5000')
-    expect(raw.prepare('SELECT revision FROM session_states WHERE session_id = ?').get('race').revision).toBe(2)
+    expect(raw.prepare('SELECT revision FROM sessions WHERE session_id = ?').get('race').revision).toBe(2)
     const repo = createSessionStateRepository(createHandle(raw))
     expect(repo.messageCount({ scope: 'global', sessionId: 'race' })).toBe(2)
     expect(repo.readMessagesPage({ scope: 'global', sessionId: 'race', limit: 10 }).messages.some((row) => row.message.id === 'base')).toBe(true)

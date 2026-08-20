@@ -7,12 +7,17 @@ async function withTempStorage(testFn) {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-auto-archive-test-'))
   const previous = process.env.QUICKFORGE_DATA_DIR
   process.env.QUICKFORGE_DATA_DIR = tmpDir
+  const database = await import('../../server/sqlite/database.mjs')
   try {
+    await database.closeSqliteStorage().catch(() => {})
+    await database.initializeSqliteStorage()
     const testId = `${Date.now()}-${Math.random()}`
     const storage = await import(/* @vite-ignore */ new URL(`../../server/storage.mjs?test=${testId}`, import.meta.url).href)
     const autoArchive = await import(/* @vite-ignore */ new URL(`../../server/auto-archive.mjs?test=${testId}`, import.meta.url).href)
-    await testFn(storage, autoArchive)
+    const service = await import('../../server/session-state-service.mjs')
+    await testFn(storage, autoArchive, service)
   } finally {
+    await database.closeSqliteStorage().catch(() => {})
     if (previous === undefined) delete process.env.QUICKFORGE_DATA_DIR
     else process.env.QUICKFORGE_DATA_DIR = previous
     await fs.rm(tmpDir, { recursive: true, force: true })
@@ -160,8 +165,11 @@ describe('automatic conversation archive', () => {
         id: 'recent-session',
         scope: 'global',
         createdAt: daysAgo(now, 60),
-        lastModified: daysAgo(now, 5),
-        messages: [],
+        lastModified: daysAgo(now, 40),
+        // Storage v2: metadata owns the lastModified projection onto the body,
+        // so a fresher body timestamp cannot survive a stale metadata write.
+        // A recent message timestamp is the body-owned freshness signal.
+        messages: [{ role: 'user', timestamp: now - 5 * 24 * 60 * 60 * 1000 }],
       })
       await seedSession(storage, {
         id: 'recent-message',
@@ -222,14 +230,16 @@ describe('automatic conversation archive', () => {
       let metadataUpdates = 0
       const wrappedStorage = {
         ...storage,
-        atomicUpdate: async (storeName, updateFn) => {
-          if (storeName === 'sessions-metadata' && metadataUpdates++ === 0) {
-            await storage.atomicUpdate(storeName, (data) => {
-              data.race = { ...data.race, lastModified: daysAgo(now, 1) }
-              return data
-            })
-          }
-          return storage.atomicUpdate(storeName, updateFn)
+        // The archive's in-transaction re-check: bump the metadata to fresh
+        // before the authoritative record update reads it, so the re-check
+        // rejects the candidate.
+        atomicSessionRecordUpdate: async (sessionId, updateFn, ...rest) => {
+          metadataUpdates += 1
+          await storage.atomicUpdate('sessions-metadata', (data) => {
+            data.race = { ...data.race, lastModified: daysAgo(now, 1) }
+            return data
+          })
+          return storage.atomicSessionRecordUpdate(sessionId, updateFn, ...rest)
         },
       }
 
@@ -331,30 +341,20 @@ describe('automatic conversation archive', () => {
   })
 
   it('falls back to the session body only when metadata has no timestamps', async () => {
-    await withTempStorage(async (storage, { archiveInactiveSessions }) => {
+    await withTempStorage(async (storage, { archiveInactiveSessions }, service) => {
       const now = Date.UTC(2026, 0, 31)
       await enableAutoArchive(storage)
-      // No createdAt/lastModified on metadata: the scan must load the body.
-      await seedSession(storage, {
-        id: 'no-timestamps-stale-body',
-        scope: 'global',
-        messageCount: 1,
-      }, {
-        id: 'no-timestamps-stale-body',
-        scope: 'global',
-        createdAt: daysAgo(now, 40),
-        messages: [],
+      // No createdAt/lastModified on metadata: the storage facade always
+      // derives them, so timestamp-less metadata is only reachable through a
+      // direct repository-shaped save (legacy imports); the scan must then
+      // load the body.
+      service.saveSessionStatePair({
+        state: { id: 'no-timestamps-stale-body', scope: 'global', createdAt: daysAgo(now, 40), messages: [{ role: 'user', content: 'stale' }] },
+        metadata: { id: 'no-timestamps-stale-body', scope: 'global', messageCount: 1 },
       })
-      await seedSession(storage, {
-        id: 'no-timestamps-fresh-body',
-        scope: 'global',
-        messageCount: 1,
-      }, {
-        id: 'no-timestamps-fresh-body',
-        scope: 'global',
-        createdAt: daysAgo(now, 60),
-        lastModified: daysAgo(now, 5),
-        messages: [],
+      service.saveSessionStatePair({
+        state: { id: 'no-timestamps-fresh-body', scope: 'global', createdAt: daysAgo(now, 60), lastModified: daysAgo(now, 5), messages: [{ role: 'user', content: 'fresh' }] },
+        metadata: { id: 'no-timestamps-fresh-body', scope: 'global', messageCount: 1 },
       })
 
       const { storage: wrapped, getReadSessionValueCalls } = withReadSessionValueCounter(storage)
@@ -383,8 +383,11 @@ describe('automatic conversation archive', () => {
         id: 'stale-metadata-fresh-body',
         scope: 'global',
         createdAt: daysAgo(now, 60),
-        lastModified: daysAgo(now, 5),
-        messages: [],
+        lastModified: daysAgo(now, 40),
+        // Metadata owns the lastModified projection onto the body in storage
+        // v2, so body freshness that must survive a stale metadata write is
+        // expressed through message timestamps.
+        messages: [{ role: 'user', timestamp: now - 5 * 24 * 60 * 60 * 1000 }],
       })
 
       const { storage: wrapped, getReadSessionValueCalls } = withReadSessionValueCounter(storage)
@@ -451,6 +454,13 @@ describe('automatic conversation archive', () => {
         atomicUpdate: (storeName, ...rest) => {
           const result = storage.atomicUpdate(storeName, ...rest)
           if (storeName === 'sessions-metadata') archiveMetadataWrite = result
+          return result
+        },
+        // Storage v2 archives through the atomic record update; track it the
+        // same way the legacy metadata write was tracked.
+        atomicSessionRecordUpdate: (sessionId, ...rest) => {
+          const result = storage.atomicSessionRecordUpdate(sessionId, ...rest)
+          archiveMetadataWrite = result
           return result
         },
       }

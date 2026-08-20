@@ -9,8 +9,8 @@ import { promises as fs } from 'node:fs'
  * verifyIntegrity + exportSnapshot, count/digest fail closed, token hashes
  * only), with replace/merge semantics, plan-file compensation, a 423 gate and
  * v1 lan-access.json normalization. The restore is scoped to the lan-access
- * tables and must never disturb F5 scheduled_task_runs, F7 session_index,
- * F9 session_messages or F10 share_sessions.
+ * tables and must never disturb F5 scheduled_task_runs, the storage-v2
+ * session domain (sessions/session_messages) or F10 share_sessions.
  */
 
 function lanConfig(overrides = {}) {
@@ -156,16 +156,24 @@ describe('backup route — authoritative lan-access state', () => {
     })
   })
 
-  it('imports lanAccess in replace mode and leaves F5/F7/F9/F10 untouched', async () => {
+  it('imports lanAccess in replace mode and leaves F5/session/share domains untouched', async () => {
     await withAuthoritativeLanAccessBackup(async (backup, storage, service, repository, sqliteStorage) => {
       // Seed the other storage domains before the restore.
       const runsModule = await import('../../server/sqlite/scheduled-task-runs-repository.mjs')
       const runsRepository = runsModule.createScheduledTaskRunsRepository(sqliteStorage)
       runsRepository.create('task-a', { id: 'run-1', status: 'success', startedAt: '2026-01-01T00:00:00.000Z' })
-      sqliteStorage.prepare(`INSERT INTO session_index (scope, project_id, session_id, is_pinned, is_archived, metadata_json, metadata_digest, indexed_at)
-        VALUES ('global', '', 'sess-idx', 0, 0, '{"id":"sess-idx"}', ?, ?)`).run('a'.repeat(64), '2026-01-01T00:00:00.000Z')
-      sqliteStorage.prepare(`INSERT INTO session_messages (scope, project_id, session_id, seq, message_id, message_json, message_digest, created, updated)
-        VALUES ('global', '', 'sess-msg', 0, 'm1', '{"role":"user","content":"hi"}', ?, ?, ?)`).run('b'.repeat(64), '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')
+      // Storage v2: the session-domain anchor lives in the authoritative
+      // sessions/session_messages tables (session_index is retired). Saving one
+      // session with one message covers both rows.
+      const sessionRepoModule = await import('../../server/sqlite/session-state-repository.mjs')
+      const sessionRepository = sessionRepoModule.createSessionStateRepository(sqliteStorage)
+      sessionRepository.save({
+        scope: 'global',
+        projectId: null,
+        sessionId: 'sess-anchor',
+        state: { id: 'sess-anchor', scope: 'global', stateVersion: 1, title: 'Anchor', messages: [{ role: 'user', content: 'hi' }] },
+        metadata: { id: 'sess-anchor', scope: 'global', stateVersion: 1, title: 'Anchor', messageCount: 1 },
+      })
       sqliteStorage.prepare(`INSERT INTO share_sessions (share_id, session_id, permission, scope, auth_version, allow_cloud_usage, created_at, updated_at, access_count, revision, record_digest, extra_json)
         VALUES (?, ?, 'read', 'global', 1, 0, ?, ?, 0, 1, ?, '{}')`)
         .run('qfs_test000000000000001', 'share-sess', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'c'.repeat(64))
@@ -207,8 +215,9 @@ describe('backup route — authoritative lan-access state', () => {
 
       // F5 scheduled_task_runs must not be touched by a lan-access restore.
       expect(runsRepository.list({ taskIds: ['task-a'], page: 1, pageSize: 10 }).total).toBe(1)
-      // F7 session_index, F9 session_messages and F10 share_sessions untouched.
-      expect(sqliteStorage.prepare('SELECT COUNT(*) AS c FROM session_index').get().c).toBe(1)
+      // Storage v2 session domain (sessions + session_messages) and F10
+      // share_sessions untouched.
+      expect(sqliteStorage.prepare('SELECT COUNT(*) AS c FROM sessions').get().c).toBe(1)
       expect(sqliteStorage.prepare('SELECT COUNT(*) AS c FROM session_messages').get().c).toBe(1)
       expect(sqliteStorage.prepare('SELECT COUNT(*) AS c FROM share_sessions').get().c).toBe(1)
     })

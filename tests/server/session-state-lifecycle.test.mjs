@@ -4,57 +4,38 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite/database.mjs'
 import { createSessionStateRepository } from '../../server/sqlite/session-state-repository.mjs'
-import {
-  initializeSessionStateCutover,
-  isSessionStateMaintenanceActive,
-} from '../../server/session-state-cutover.mjs'
+import { importSessionStateFromJson } from '../../server/session-state-import.mjs'
 import {
   configureSessionStateService,
-  drainSessionJsonMirror,
   initializeSessionStateService,
   readSessionStorageState,
-  setSessionStoragePhase,
   stopSessionStateService,
 } from '../../server/session-state-service.mjs'
+import { isSessionStateMaintenanceActive } from '../../server/session-state-maintenance.mjs'
 
-function bucket(sessionId = 'one', overrides = {}) {
+function seedJsonSession(dataDir, sessionId, overrides = {}) {
   const scope = overrides.scope || 'global'
-  const projectId = scope === 'project' ? overrides.projectId || 'project-a' : null
+  const dir = scope === 'project'
+    ? path.join(dataDir, 'storage', 'conversations', 'projects', overrides.projectId, 'sessions')
+    : path.join(dataDir, 'storage', 'conversations', 'global', 'sessions')
   const state = {
     id: sessionId,
     scope,
-    ...(scope === 'project' ? { projectId } : {}),
+    ...(scope === 'project' ? { projectId: overrides.projectId } : {}),
     stateVersion: 1,
-    title: 'Session',
+    title: `Session ${sessionId}`,
     messages: [{ role: 'user', content: 'hello' }],
     ...overrides.state,
   }
-  const metadata = overrides.metadata === undefined ? {
-    id: sessionId,
-    scope,
-    ...(scope === 'project' ? { projectId } : {}),
-    stateVersion: 1,
-    messageCount: 1,
-  } : overrides.metadata
-  return { scope, projectId, sessions: { [sessionId]: state }, metadata: metadata === null ? {} : { [sessionId]: metadata } }
+  return { dir, state }
 }
 
-function initialRecord(id = 'one') {
-  return {
-    scope: 'global',
-    sessionId: id,
-    stateVersion: 1,
-    state: { id, scope: 'global', stateVersion: 1, title: 'Original', messages: [{ role: 'user', content: 'hi' }] },
-    metadata: { id, scope: 'global', stateVersion: 1, title: 'Original', messageCount: 1 },
-  }
-}
-
-// The startup order exercised by server/index.mjs:
-//   initializeSqliteStorage → initializeSessionStateCutover →
-//   initializeSessionStateService → drainSessionJsonMirror
-describe('session state lifecycle (startup order, fail closed, shutdown)', () => {
+// The startup order exercised by server/index.mjs (storage v2):
+//   initializeSqliteStorage → initializeSessionStateService →
+//   (empty store + JSON files present?) importSessionStateFromJson →
+//   recoverSessionStateRestorePlan
+describe('session state lifecycle (startup order, import, shutdown)', () => {
   let directory
-  let backupDirectory
   let previousDataDir
   let storage
   let repository
@@ -65,16 +46,15 @@ describe('session state lifecycle (startup order, fail closed, shutdown)', () =>
     previousDataDir = process.env.QUICKFORGE_DATA_DIR
     directory = await mkdtemp(path.join(os.tmpdir(), 'qf-session-lifecycle-'))
     process.env.QUICKFORGE_DATA_DIR = directory
-    backupDirectory = path.join(directory, 'backups')
-    storage = await initializeSqliteStorage({ databasePath: path.join(directory, 'state.sqlite3') })
+    storage = await initializeSqliteStorage({ dataDir: directory })
     repository = createSessionStateRepository(storage)
-    configureSessionStateService({ repository, mirror: null, phase: 'json_authoritative' })
+    configureSessionStateService({ repository })
     const testId = `${Date.now()}-${Math.random()}`
     storageModule = await import(/* @vite-ignore */ new URL(`../../server/storage.mjs?test=${testId}`, import.meta.url).href)
   })
 
   afterEach(async () => {
-    configureSessionStateService({ repository: null, json: null, mirror: null, phase: 'json_authoritative' })
+    configureSessionStateService({ repository: null })
     stopSessionStateService()
     await closeSqliteStorage()
     if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
@@ -82,117 +62,75 @@ describe('session state lifecycle (startup order, fail closed, shutdown)', () =>
     await rm(directory, { recursive: true, force: true })
   })
 
-  it('wires the startup chain: cutover → service init → mirror drain activates the authoritative facade', async () => {
-    const mirror = { upsert: vi.fn(async () => {}), delete: vi.fn(async () => {}) }
-    const state = await initializeSessionStateCutover({
-      storage,
-      repository,
-      backupDirectory,
-      readBuckets: vi.fn(async () => [bucket('one')]),
-      mirror,
-      owner: { id: '201:test', pid: 201 },
-      pidAlive: () => false,
-    })
-    expect(state.phase).toBe('authoritative')
+  it('wires the startup chain: service init → empty-store JSON import activates the facade', async () => {
+    await storageModule.ensureStorage()
+    const { dir, state } = seedJsonSession(directory, 'one')
+    const { writeFile, mkdir } = await import('node:fs/promises')
+    await mkdir(dir, { recursive: true })
+    await writeFile(path.join(dir, 'one.json'), `${JSON.stringify(state)}\n`, 'utf8')
+    const globalDir = path.join(directory, 'storage', 'conversations', 'global')
+    await writeFile(path.join(globalDir, 'sessions-metadata.json'), `${JSON.stringify({
+      one: { id: 'one', scope: 'global', stateVersion: 1, title: 'Session one', createdAt: '2026-01-01T00:00:00.000Z', lastModified: '2026-01-01T00:00:00.000Z', messageCount: 1 },
+    })}\n`, 'utf8')
 
     const serviceState = initializeSessionStateService()
-    expect(serviceState.phase).toBe('authoritative')
+    expect(serviceState).toMatchObject({ phase: 'authoritative', stateCount: 0 })
+    const logger = { info: vi.fn(), warn: vi.fn() }
+    const result = await importSessionStateFromJson({ storage: storageModule, logger })
+    expect(result).toMatchObject({ imported: 1, skipped: 0 })
+    expect(logger.info).toHaveBeenCalled()
 
-    const drained = await drainSessionJsonMirror()
-    expect(drained.pending).toBe(0)
-    expect(mirror.upsert).toHaveBeenCalledTimes(1)
-
-    // The storage facade is now active: reads come from SQLite, not JSON files.
+    // The storage facade reads the imported session from SQLite, not JSON.
     expect(await storageModule.isSessionStateAuthoritative()).toBe(true)
     const sessions = await storageModule.readStore('sessions')
-    expect(sessions.one).toMatchObject({ id: 'one', title: 'Session' })
+    expect(sessions.one).toMatchObject({ id: 'one', title: 'Session one' })
     expect((await storageModule.readStore('sessions-metadata')).one).toMatchObject({ messageCount: 1 })
-    // Maintenance is no longer active after startup cutover completes.
+    expect(readSessionStorageState().stateCount).toBe(1)
     expect(isSessionStateMaintenanceActive(storage)).toBe(false)
   })
 
-  it('fails closed and blocks startup when authoritative integrity fails', async () => {
-    repository.save(initialRecord(), { expectedRevision: 0 })
-    setSessionStoragePhase('authoritative', {})
-    // Startup verification is lightweight (SQL-level): corrupt with an active
-    // tombstone shadowing a live row — SQL-detectable and not healable by the
-    // index self-heal rebuild, so integrity verification fails closed.
-    storage.prepare("INSERT INTO session_state_tombstones (scope, project_id, session_id, revision, deleted_at) VALUES ('global', '', 'one', 9, '2026-01-01T00:00:00.000Z')").run()
-    await expect(initializeSessionStateCutover({
-      storage,
-      repository,
-      mirror: { upsert: vi.fn(), delete: vi.fn() },
-      owner: { id: '202:test', pid: 202 },
-      pidAlive: () => false,
-    })).rejects.toThrow(/authoritative integrity verification failed/)
-    expect(readSessionStorageState().phase).toBe('authoritative')
-  })
-
-  it('keeps the legacy JSON path when cutover fails back to json_authoritative', async () => {
+  it('re-import is a no-op for live SQLite data that has no JSON counterpart', async () => {
     await storageModule.ensureStorage()
-    await storageModule.writeStore('sessions', { json: { id: 'json', title: 'JSON', scope: 'global', messages: [] } })
+    repository.save({
+      scope: 'global',
+      sessionId: 'live',
+      stateVersion: 1,
+      state: { id: 'live', scope: 'global', stateVersion: 1, title: 'Live', messages: [] },
+      metadata: { id: 'live', scope: 'global', stateVersion: 1, title: 'Live', messageCount: 0 },
+    }, { expectedRevision: 0 })
 
-    let reads = 0
-    const unstable = await initializeSessionStateCutover({
-      storage,
-      repository,
-      backupDirectory,
-      readBuckets: vi.fn(async () => {
-        reads += 1
-        return [bucket(reads === 1 ? 'one' : 'two')]
-      }),
-      mirror: { upsert: vi.fn(), delete: vi.fn() },
-      owner: { id: '203:test', pid: 203 },
-      pidAlive: () => false,
-    })
-    expect(unstable.phase).toBe('json_authoritative')
-    expect(await storageModule.isSessionStateAuthoritative()).toBe(false)
-    const sessions = await storageModule.readStore('sessions')
-    expect(sessions.json).toMatchObject({ id: 'json', title: 'JSON' })
+    // No JSON session files exist: the importer walks the (empty) physical
+    // tree and changes nothing. This is the same predicate server/index.mjs
+    // uses on the populated-store fast path (count > 0 → never import).
+    const result = await importSessionStateFromJson({ storage: storageModule, logger: { info: () => {}, warn: () => {} } })
+    expect(result.imported).toBe(0)
+    expect(repository.findBySessionId('live').state.title).toBe('Live')
+    expect(repository.count()).toBe(1)
   })
 
-  it('keeps the mirror queue on failure and drains on a later startup', async () => {
-    const failMirror = { upsert: vi.fn(async () => { throw new Error('mirror unavailable') }), delete: vi.fn() }
-    const pending = await initializeSessionStateCutover({
-      storage,
-      repository,
-      backupDirectory,
-      readBuckets: vi.fn(async () => [bucket('one')]),
-      mirror: failMirror,
-      owner: { id: '204:test', pid: 204 },
-      pidAlive: () => false,
-    })
-    expect(pending.phase).toBe('sqlite_authoritative_json_pending')
-    expect(repository.listMirrorQueue()).toHaveLength(1)
+  it('is idempotent and can be re-run after any interruption', async () => {
+    await storageModule.ensureStorage()
+    const { dir, state } = seedJsonSession(directory, 'one')
+    const { writeFile, mkdir } = await import('node:fs/promises')
+    await mkdir(dir, { recursive: true })
+    await writeFile(path.join(dir, 'one.json'), `${JSON.stringify(state)}\n`, 'utf8')
 
-    // Restart with a working mirror: the queue drains and the phase promotes.
-    const okMirror = { upsert: vi.fn(async () => {}), delete: vi.fn() }
-    const recovered = await initializeSessionStateCutover({
-      storage,
-      repository,
-      mirror: okMirror,
-      owner: { id: '205:test', pid: 205 },
-      pidAlive: () => false,
-    })
-    expect(recovered.phase).toBe('authoritative')
-    expect(repository.listMirrorQueue()).toEqual([])
-    expect(okMirror.upsert).toHaveBeenCalledTimes(1)
+    const first = await importSessionStateFromJson({ storage: storageModule, logger: { info: () => {}, warn: () => {} } })
+    expect(first.imported).toBe(1)
+    const second = await importSessionStateFromJson({ storage: storageModule, logger: { info: () => {}, warn: () => {} } })
+    expect(second.imported).toBe(1)
+    expect(repository.count()).toBe(1)
+    expect(repository.messageCount({ scope: 'global', sessionId: 'one' })).toBe(1)
   })
 
-  it('releases the service on shutdown so the database can close cleanly', async () => {
-    repository.save(initialRecord(), { expectedRevision: 0 })
-    configureSessionStateService({ repository, mirror: { upsert: vi.fn(async () => { throw new Error('mirror down') }), delete: vi.fn() }, phase: 'authoritative' })
-    const drained = await drainSessionJsonMirror()
-    expect(drained.pending).toBe(1)
-    // stopSessionStateService clears the scheduled retry timer; the queue is
-    // preserved so a future drain can still recover it.
+  it('reports the authoritative phase throughout and shuts down cleanly', async () => {
+    initializeSessionStateService()
+    expect(readSessionStorageState()).toMatchObject({ phase: 'authoritative' })
     stopSessionStateService()
-    expect(repository.listMirrorQueue()).toHaveLength(1)
-    const afterStop = await drainSessionJsonMirror()
-    expect(afterStop.pending).toBe(1)
     await closeSqliteStorage()
-    storage = await initializeSqliteStorage({ databasePath: path.join(directory, 'state.sqlite3') })
+    storage = await initializeSqliteStorage({ dataDir: directory })
     repository = createSessionStateRepository(storage)
-    expect(repository.listMirrorQueue()).toHaveLength(1)
+    configureSessionStateService({ repository })
+    expect(repository.count()).toBe(0)
   })
 })

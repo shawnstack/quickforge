@@ -7,9 +7,9 @@ import { createSessionStateRepository } from '../../server/sqlite/session-state-
 import { createScheduledTaskRunsRepository } from '../../server/sqlite/scheduled-task-runs-repository.mjs'
 import {
   acquireSessionStateMaintenanceLock,
-  initializeSessionStateCutover,
+  isSessionStateMaintenanceActive,
   releaseSessionStateMaintenanceLock,
-} from '../../server/session-state-cutover.mjs'
+} from '../../server/session-state-maintenance.mjs'
 import {
   configureSessionStateService,
   exportSessionStateSnapshot,
@@ -23,27 +23,31 @@ import {
   restoreSessionStateSnapshot,
 } from '../../server/session-state-backup.mjs'
 
-function bucket(sessionId, overrides = {}) {
+function seedRecord(sessionId, overrides = {}) {
   const scope = overrides.scope || 'global'
   const projectId = scope === 'project' ? overrides.projectId || 'project-a' : null
-  const state = {
-    id: sessionId,
+  return {
     scope,
-    ...(scope === 'project' ? { projectId } : {}),
+    projectId,
+    sessionId,
     stateVersion: 1,
-    title: 'Session',
-    messages: [{ role: 'user', content: 'hello', unknown: true }],
-    ...overrides.state,
+    state: {
+      id: sessionId,
+      scope,
+      ...(scope === 'project' ? { projectId } : {}),
+      stateVersion: 1,
+      title: 'Session',
+      messages: [{ role: 'user', content: 'hello', unknown: true }],
+    },
+    metadata: {
+      id: sessionId,
+      scope,
+      ...(scope === 'project' ? { projectId } : {}),
+      stateVersion: 1,
+      messageCount: 1,
+      metadataUnknown: { keep: true },
+    },
   }
-  const metadata = overrides.metadata === undefined ? {
-    id: sessionId,
-    scope,
-    ...(scope === 'project' ? { projectId } : {}),
-    stateVersion: 1,
-    messageCount: 1,
-    metadataUnknown: { keep: true },
-  } : overrides.metadata
-  return { scope, projectId, sessions: { [sessionId]: state }, metadata: metadata === null ? {} : { [sessionId]: metadata } }
 }
 
 function flakyRepository(repository, { failTimes = 1 } = {}) {
@@ -80,20 +84,13 @@ describe('authoritative session state backup/restore', () => {
     directory = await mkdtemp(path.join(os.tmpdir(), 'qf-session-backup-'))
     storage = await initializeSqliteStorage({ databasePath: path.join(directory, 'state.sqlite3') })
     repository = createSessionStateRepository(storage)
-    configureSessionStateService({ repository, mirror: { upsert: vi.fn(async () => {}), delete: vi.fn(async () => {}) }, phase: 'json_authoritative' })
-    await initializeSessionStateCutover({
-      storage,
-      repository,
-      backupDirectory: path.join(directory, 'backups'),
-      readBuckets: vi.fn(async () => [bucket('one'), bucket('two', { scope: 'project', projectId: 'p1' })]),
-      mirror: { upsert: vi.fn(async () => {}), delete: vi.fn(async () => {}) },
-      owner: { id: '201:test', pid: 201 },
-      pidAlive: () => false,
-    })
+    configureSessionStateService({ repository })
+    repository.save(seedRecord('one'), { expectedRevision: 0 })
+    repository.save(seedRecord('two', { scope: 'project', projectId: 'p1' }), { expectedRevision: 0 })
   })
 
   afterEach(async () => {
-    configureSessionStateService({ repository: null, json: null, mirror: null, phase: 'json_authoritative' })
+    configureSessionStateService({ repository: null })
     await closeSqliteStorage()
     await rm(directory, { recursive: true, force: true })
   })
@@ -162,7 +159,7 @@ describe('authoritative session state backup/restore', () => {
   it('compensates back to the exact before-state when the apply fails', async () => {
     const before = snapshotValuesFromRepository(repository)
     const fake = flakyRepository(repository, { failTimes: 1 })
-    configureSessionStateService({ repository: fake, mirror: { upsert: vi.fn(async () => {}), delete: vi.fn(async () => {}) }, phase: 'authoritative' })
+    configureSessionStateService({ repository: fake })
     const target = {
       sessions: { 'boom': { id: 'boom', scope: 'global', stateVersion: 1, messages: [], title: 'Boom' } },
       sessionsMetadata: {},
@@ -178,7 +175,7 @@ describe('authoritative session state backup/restore', () => {
     const planFile = path.join(directory, 'session-state-restore-plan.json')
     const before = snapshotValuesFromRepository(repository)
     const fake = flakyRepository(repository, { failTimes: 2 })
-    configureSessionStateService({ repository: fake, mirror: { upsert: vi.fn(async () => {}), delete: vi.fn(async () => {}) }, phase: 'authoritative' })
+    configureSessionStateService({ repository: fake })
     const target = {
       sessions: { 'boom': { id: 'boom', scope: 'global', stateVersion: 1, messages: [], title: 'Boom' } },
       sessionsMetadata: {},
@@ -189,7 +186,7 @@ describe('authoritative session state backup/restore', () => {
     expect(plan.status).toBe('compensation_failed')
 
     // Recovery must roll back to the before state and clean the plan.
-    configureSessionStateService({ repository, mirror: { upsert: vi.fn(async () => {}), delete: vi.fn(async () => {}) }, phase: 'authoritative' })
+    configureSessionStateService({ repository })
     const recovered = await recoverSessionStateRestorePlan({ repository, planFile })
     expect(recovered).toBe(true)
     await expect(access(planFile)).rejects.toMatchObject({ code: 'ENOENT' })
@@ -248,13 +245,19 @@ describe('authoritative session state backup/restore', () => {
   })
 
   it('holds the maintenance lock during restore and releases it afterwards', async () => {
-    const { isSessionStateMaintenanceActive } = await import('../../server/session-state-cutover.mjs')
     expect(isSessionStateMaintenanceActive(storage)).toBe(false)
-    const target = {
+    const lease = acquireSessionStateMaintenanceLock(storage, {
+      owner: { id: '999:other', pid: 999 },
+      pidAlive: () => true,
+      operation: 'other-maintenance',
+    })
+    expect(lease).toBeTruthy()
+    // A held foreign lock blocks a restore (lock acquisition timeout).
+    await expect(restoreSessionStateSnapshot({
       sessions: { 'fresh': { id: 'fresh', scope: 'global', stateVersion: 1, messages: [], title: 'Fresh' } },
       sessionsMetadata: {},
-    }
-    await restoreSessionStateSnapshot(target, { mode: 'replace' })
+    }, { mode: 'replace', waitTimeoutMs: 150, pollIntervalMs: 25 })).rejects.toThrow(/maintenance lock/)
+    expect(releaseSessionStateMaintenanceLock(storage, lease)).toBe(true)
     expect(isSessionStateMaintenanceActive(storage)).toBe(false)
   })
 

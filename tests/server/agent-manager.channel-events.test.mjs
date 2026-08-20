@@ -54,6 +54,7 @@ vi.mock('../../server/channels/event-relay.mjs', () => ({
 describe('agent manager channel session events', () => {
   let tmpDir
   let previousDataDir
+  let databaseModule
 
   beforeEach(async () => {
     previousDataDir = process.env.QUICKFORGE_DATA_DIR
@@ -61,9 +62,12 @@ describe('agent manager channel session events', () => {
     process.env.QUICKFORGE_DATA_DIR = path.join(tmpDir, 'data')
     await mkdir(path.join(tmpDir, 'workspace'))
     vi.resetModules()
+    databaseModule = await import('../../server/sqlite/database.mjs')
+    await databaseModule.initializeSqliteStorage()
   })
 
   afterEach(async () => {
+    await databaseModule?.closeSqliteStorage().catch(() => {})
     if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
     else process.env.QUICKFORGE_DATA_DIR = previousDataDir
     await rm(tmpDir, { recursive: true, force: true })

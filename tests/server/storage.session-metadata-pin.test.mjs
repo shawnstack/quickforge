@@ -7,11 +7,15 @@ async function withTempStorage(testFn) {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-pin-test-'))
   const previous = process.env.QUICKFORGE_DATA_DIR
   process.env.QUICKFORGE_DATA_DIR = tmpDir
+  const database = await import('../../server/sqlite/database.mjs')
   try {
+    await database.closeSqliteStorage().catch(() => {})
+    await database.initializeSqliteStorage()
     const storageUrl = new URL(`../../server/storage.mjs?test=${Date.now()}-${Math.random()}`, import.meta.url)
     const storage = await import(/* @vite-ignore */ storageUrl.href)
     await testFn(storage)
   } finally {
+    await database.closeSqliteStorage().catch(() => {})
     if (previous === undefined) delete process.env.QUICKFORGE_DATA_DIR
     else process.env.QUICKFORGE_DATA_DIR = previous
     await fs.rm(tmpDir, { recursive: true, force: true })
@@ -27,15 +31,12 @@ const PINNED_AT = '2024-01-01T00:00:00.000Z'
 // metadata without pinnedAt, so when it won the race it dropped pinnedAt.
 describe('sessions-metadata write serialization (pin vs persist)', () => {
   it('keeps pinnedAt when a persist rebuild follows a pin (sequential)', async () => {
-    await withTempStorage(async ({ ensureStorage, atomicUpdate, atomicSessionMetadataUpdate, readStore }) => {
+    await withTempStorage(async ({ ensureStorage, writeSessionValue, atomicUpdate, atomicSessionMetadataUpdate, readStore }) => {
       await ensureStorage()
       const sessionId = 's1'
 
-      // Existing session record on disk.
-      await atomicUpdate('sessions-metadata', (data) => {
-        data[sessionId] = { id: sessionId, title: 't', messageCount: 5 }
-        return data
-      })
+      // Existing session record (storage v2: metadata writes require a body).
+      await writeSessionValue(sessionId, { id: sessionId, scope: 'global', title: 't', messages: [{ role: 'user', content: 'hi' }] })
       // User pins the session (client -> full-store read-modify-write).
       await atomicUpdate('sessions-metadata', (data) => {
         data[sessionId] = { ...data[sessionId], pinnedAt: PINNED_AT }
@@ -59,14 +60,11 @@ describe('sessions-metadata write serialization (pin vs persist)', () => {
   // land after the pin write, erasing pinnedAt. With a shared queue the writes
   // are serialized, so pinnedAt always survives.
   it('does not drop pinnedAt when pin and persist race (concurrent)', async () => {
-    await withTempStorage(async ({ ensureStorage, atomicUpdate, atomicSessionMetadataUpdate, readStore }) => {
+    await withTempStorage(async ({ ensureStorage, writeSessionValue, atomicUpdate, atomicSessionMetadataUpdate, readStore }) => {
       await ensureStorage()
       const sessionId = 's1'
 
-      await atomicUpdate('sessions-metadata', (data) => {
-        data[sessionId] = { id: sessionId, title: 't', messageCount: 1 }
-        return data
-      })
+      await writeSessionValue(sessionId, { id: sessionId, scope: 'global', title: 't', messages: [{ role: 'user', content: 'hi' }] })
 
       for (let i = 0; i < 30; i += 1) {
         await Promise.all([

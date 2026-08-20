@@ -102,9 +102,9 @@ async function archiveInactiveSessionsUnlocked(options = {}) {
   }
 
   const archivedSessionIds = []
-  if (typeof storage.atomicSessionRecordUpdate === 'function' && await storage.isSessionStateAuthoritative()) {
-    // Authoritative: archive body + metadata in one SQLite transaction (CAS
-    // retried on concurrent metadata-only changes), so no half-archived state.
+  // Authoritative: archive body + metadata in one SQLite transaction (CAS
+  // retried on concurrent metadata-only changes), so no half-archived state.
+  if (typeof storage.atomicSessionRecordUpdate === 'function') {
     for (const [index, sessionId] of candidates.entries()) {
       // Let pending requests run between archive transactions (not before the
       // first candidate — nothing to yield from yet).

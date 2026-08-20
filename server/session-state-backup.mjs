@@ -6,11 +6,11 @@ import { createSessionStateRepository, messagesDigestFromValues, snapshotDigestL
 import {
   currentSessionStateMaintenanceContext,
   runSessionStateMaintenance,
-} from './session-state-cutover.mjs'
+} from './session-state-maintenance.mjs'
 import {
-  getSessionStoragePhase,
   isSessionStateAuthoritative,
   normalizeSessionSnapshotValues,
+  readSessionStorageState,
   replaceSessionStateSnapshot,
 } from './session-state-service.mjs'
 import { storageDir } from './storage.mjs'
@@ -96,7 +96,7 @@ export async function exportSessionStateForBackup(options = {}) {
       ...snapshotValues(snapshot),
       count: snapshot.count,
       digest: snapshot.digest,
-      phase: getSessionStoragePhase(),
+      phase: readSessionStorageState().phase,
     }
   }
   if (!options.maintenance || currentSessionStateMaintenanceContext()) return operation()
@@ -277,7 +277,12 @@ export async function restoreSessionStateSnapshot(values, options = {}) {
       }
       throw error
     }
-  }, { storage: options.storage, operation: 'session-state-restore' })
+  }, {
+    storage: options.storage,
+    operation: 'session-state-restore',
+    waitTimeoutMs: options.waitTimeoutMs,
+    pollIntervalMs: options.pollIntervalMs,
+  })
 }
 
 /**
@@ -289,6 +294,8 @@ export async function recoverSessionStateRestorePlan({
   repository: repositoryOverride,
   planFile = RESTORE_PLAN_FILE,
   storage,
+  waitTimeoutMs,
+  pollIntervalMs,
 } = {}) {
   let plan
   try {
@@ -314,5 +321,10 @@ export async function recoverSessionStateRestorePlan({
     await fs.rm(planFile, { force: true })
     checkpointWalAfterRestore(repository, 'session-state-restore-recovery')
     return true
-  }, { storage, operation: 'session-state-restore-recovery' })
+  }, {
+    storage,
+    operation: 'session-state-restore-recovery',
+    waitTimeoutMs,
+    pollIntervalMs,
+  })
 }

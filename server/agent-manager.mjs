@@ -28,8 +28,8 @@ import {
   validateModelReference,
 } from './agent-profile-schema.mjs'
 import { projectContextFromId, defaultGlobalWorkspaceContext, readProjectConfig } from './project-config.mjs'
-import { ensureStorage, readStore, atomicUpdate, atomicSessionMetadataUpdate, readSessionValue, writeSessionValue, deleteSessionValue, tempAgentsDir } from './storage.mjs'
-import { isSessionStateAuthoritative, readSessionStateRecord, saveSessionStatePair, deleteSessionState, storedMessagesState, sessionMessagesTailDigest } from './session-state-service.mjs'
+import { ensureStorage, readStore, atomicUpdate, readSessionValue, tempAgentsDir } from './storage.mjs'
+import { readSessionStateRecord, saveSessionStatePair, deleteSessionState, storedMessagesState, sessionMessagesTailDigest } from './session-state-service.mjs'
 import { logger } from './utils/logger.mjs'
 import { publishChannelSessionChanged } from './channels/event-relay.mjs'
 import { withSessionPersistenceLock } from './session-persistence-lock.mjs'
@@ -2266,14 +2266,7 @@ async function persistSessionUnlocked(session) {
 
   if (messages.length === 0) {
     try {
-      if (isSessionStateAuthoritative()) deleteSessionState(sessionId, { expectedRevision: session.persistedStorageRevision })
-      else {
-        await deleteSessionValue(sessionId)
-        await atomicSessionMetadataUpdate(scope, projectId, (data) => {
-          delete data[sessionId]
-          return data
-        })
-      }
+      deleteSessionState(sessionId, { expectedRevision: session.persistedStorageRevision })
       session.persistedStorageRevision = null
       session.persistedStateVersion = null
       session.persistedStateJson = null
@@ -2380,34 +2373,14 @@ async function persistSessionUnlocked(session) {
     idleRetention: session.idleRetention || undefined,
   }
 
-  // Write body + metadata as one authoritative SQLite transaction after cutover.
+  // Write body + metadata as one authoritative SQLite transaction.
   let persistedMetadata
   try {
-    if (isSessionStateAuthoritative()) {
-      const saved = await persistAuthoritativeSessionState(session, sessionData, metadata)
-      if (!saved) return null
-      session.persistedStorageRevision = saved.revision
-      session.persistedStateVersion = saved.stateVersion
-      persistedMetadata = saved.metadata
-    } else {
-      await writeSessionValue(sessionId, sessionData)
-      await atomicSessionMetadataUpdate(scope, projectId, (data) => {
-        const existingMetadata = data[sessionId]
-        const archivedAt = existingMetadata?.archivedAt
-        // Merge onto the existing record so storage-only fields the in-memory
-        // session does not own (pinnedAt, archivedAt, …) survive the rebuild.
-        persistedMetadata = {
-          ...existingMetadata,
-          ...metadata,
-          ...(archivedAt ? { archivedAt } : {}),
-        }
-        data[sessionId] = persistedMetadata
-        return data
-      })
-      if (persistedMetadata?.archivedAt) {
-        await writeSessionValue(sessionId, { ...sessionData, archivedAt: persistedMetadata.archivedAt })
-      }
-    }
+    const saved = await persistAuthoritativeSessionState(session, sessionData, metadata)
+    if (!saved) return null
+    session.persistedStorageRevision = saved.revision
+    session.persistedStateVersion = saved.stateVersion
+    persistedMetadata = saved.metadata
   } catch (err) {
     logger.error(`Failed to persist session ${sessionId}:`, err, { sessionId })
     return null
@@ -2437,11 +2410,10 @@ const SLOW_PERSIST_LOG_MS = 1_000
 
 async function persistSession(session) {
   const startedAt = performance.now()
-  // Serialize per session once SQLite state is authoritative (per-row revision
-  // CAS guarantees correctness); cross-session persists then run independently
-  // instead of piling onto one global chain that also gates destroyAgent.
-  // JSON-mirror mode keeps the global lock for bucket-level atomicity.
-  const lockKey = isSessionStateAuthoritative() ? `session:${session.sessionId}` : ''
+  // Serialize per session (per-row revision CAS guarantees correctness);
+  // cross-session persists run independently instead of piling onto one
+  // global chain that also gates destroyAgent.
+  const lockKey = `session:${session.sessionId}`
   const result = await withSessionPersistenceLock(() => persistSessionUnlocked(session), lockKey)
   const durationMs = performance.now() - startedAt
   if (durationMs >= SLOW_PERSIST_LOG_MS) {
@@ -3172,8 +3144,8 @@ async function restoreAgentUnlocked(sessionId) {
     // Read the authoritative storage record once: the body (split marker),
     // revision for CAS, and the stored message rows (count + tail digest) used
     // for split-representation conflict detection after restore.
-    const record = isSessionStateAuthoritative() ? readSessionStateRecord(sessionId) : null
-    const storedMessages = isSessionStateAuthoritative() && record?.state?.messageStorage === 'split'
+    const record = readSessionStateRecord(sessionId)
+    const storedMessages = record?.state?.messageStorage === 'split'
       ? storedMessagesState(sessionId)
       : null
 
@@ -3200,9 +3172,9 @@ async function restoreAgentUnlocked(sessionId) {
       openCodeUsage: sessionData.openCodeUsage || null,
       idleRetention: sessionData.idleRetention || null,
       stateVersion: sessionData.stateVersion,
-      persistedStateVersion: isSessionStateAuthoritative() ? sessionData.stateVersion : null,
-      persistedStorageRevision: isSessionStateAuthoritative() ? record?.revision ?? null : null,
-      persistedStateJson: isSessionStateAuthoritative() ? canonicalStateJson(stripStorageOwnedStateFields(record?.state || {})) : null,
+      persistedStateVersion: sessionData.stateVersion,
+      persistedStorageRevision: record?.revision ?? null,
+      persistedStateJson: canonicalStateJson(stripStorageOwnedStateFields(record?.state || {})),
       persistedMessageStorage: record?.state?.messageStorage === 'split' ? 'split' : null,
       persistedMessageCount: storedMessages?.count ?? (Array.isArray(sessionData.messages) ? sessionData.messages.length : 0),
       persistedTailDigest: storedMessages?.tailDigest || sessionMessagesTailDigest(sessionData.messages),

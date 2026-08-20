@@ -922,16 +922,13 @@ export async function runQuickForgeAcpStdio() {
   console.log = (...args) => console.error(...args)
   let sqliteStorage
   try {
-    const [{ ensureStorage, readAuthoritativeSessionMetadataBuckets, registerSessionMetadataCommitHook }, sqliteModule, sessionIndexModule] = await Promise.all([
+    const [storageModule, sqliteModule, sessionIndexModule] = await Promise.all([
       import('../storage.mjs'),
       import('../sqlite/database.mjs'),
       import('../session-index-service.mjs'),
     ])
-    sqliteStorage = sqliteModule
-    await ensureStorage()
-    await sqliteModule.initializeSqliteStorage()
-    sessionIndexModule.configureSessionIndex({ readBuckets: readAuthoritativeSessionMetadataBuckets })
-    registerSessionMetadataCommitHook(sessionIndexModule.syncSessionMetadataCommit)
+    await storageModule.ensureStorage()
+    sqliteStorage = await sqliteModule.initializeSqliteStorage()
     await sessionIndexModule.initializeSessionIndex()
     const quickForgeAgent = await createQuickForgeAcpAgent()
     const stream = ndJsonStream(

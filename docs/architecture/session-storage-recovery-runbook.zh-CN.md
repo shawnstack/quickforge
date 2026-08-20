@@ -1,5 +1,7 @@
 # 会话存储故障自救 Runbook（一页式）
 
+> **⚠ 存储 v2 修订（2026-08-19）**：会话域已完成存储 v2 重构，mirror/phase/cutover 链路已移除，会话域**恒为 SQLite authoritative**——本文的 phase fail-closed 路径已变：不再存在"降级回 JSON 权威"。SQLite 会话库损坏时的恢复路径为：① 用第 2 步导出的备份走 restore 流程；或 ② 删除库文件 `~/.quickforge/storage/quickforge.sqlite3`（连同 `-wal`/`-shm`）后重启——空库 + JSON 会话文件存在时启动链自动一次性重导（前提：重导前先按本文第 1/2 步确认备份在手）。`downgrade-session-state-v1.mjs` 现为纯导出工具（不再切相位）。现状见 [`session-storage-v2.zh-CN.md`](./session-storage-v2.zh-CN.md)。
+
 > 适用场景：QuickForge 启动失败，错误页/日志中出现 startupError（完整性校验失败、恢复计划异常、cutover 反复失败等 fail-closed 场景），以及会话域后台迁移任务失败的判读（见「后台迁移失败」一节——该场景不阻塞业务，通常无需停机）。
 > 原则：**先诊断、先备份，再修复；任何步骤都不要手动删除 `~/.quickforge/storage/` 下的文件。**
 

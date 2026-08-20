@@ -96,16 +96,20 @@ vi.mock('../../server/plugins/registry.mjs', () => ({
 describe('agent manager subagent execution', () => {
   let tmpDir
   let previousDataDir
+  let databaseModule
 
   beforeEach(async () => {
     previousDataDir = process.env.QUICKFORGE_DATA_DIR
     tmpDir = await mkdtemp(path.join(os.tmpdir(), 'quickforge-agent-manager-'))
     process.env.QUICKFORGE_DATA_DIR = path.join(tmpDir, 'data')
     vi.resetModules()
+    databaseModule = await import('../../server/sqlite/database.mjs')
+    await databaseModule.initializeSqliteStorage()
     MockAgent.reset()
   })
 
   afterEach(async () => {
+    await databaseModule?.closeSqliteStorage().catch(() => {})
     vi.useRealTimers()
     MockAgent.reset()
     if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR

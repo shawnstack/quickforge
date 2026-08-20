@@ -110,11 +110,9 @@ describe('agent persist in authoritative session state', () => {
     const { configureSessionStateService } = await import('../../server/session-state-service.mjs')
     database = await initializeSqliteStorage({ databasePath: path.join(tmpDir, 'state.sqlite3') })
     repository = createSessionStateRepository(database)
-    configureSessionStateService({
-      repository,
-      mirror: { upsert: vi.fn(async () => {}), delete: vi.fn(async () => {}) },
-      phase: 'authoritative',
-    })
+    // Storage v2: SQLite is authoritative by construction; only the
+    // repository override remains testable (json/mirror/phase are ignored).
+    configureSessionStateService({ repository })
 
     const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
     setDefaultWorkspaceRoot(path.join(tmpDir, 'workspace'))
@@ -124,7 +122,7 @@ describe('agent persist in authoritative session state', () => {
 
   afterEach(async () => {
     const { configureSessionStateService } = await import('../../server/session-state-service.mjs')
-    configureSessionStateService({ repository: null, json: null, mirror: null, phase: 'json_authoritative' })
+    configureSessionStateService({ repository: null })
     const { closeSqliteStorage } = await import('../../server/sqlite/database.mjs')
     await closeSqliteStorage()
     if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
@@ -148,7 +146,17 @@ describe('agent persist in authoritative session state', () => {
       await agentManager.persistSessionState(session)
       const record = repository.findBySessionId(sessionId)
       expect(record).not.toBeNull()
-      expect(record.state).toMatchObject({ id: sessionId, title: 'Agent title', messages: [{ role: 'user', content: 'hello' }] })
+      // Storage v2: bodies never store the messages array inline (rows are
+      // authoritative in session_messages); the reassembled read view keeps
+      // the full body shape callers expect.
+      expect(record.state).toMatchObject({ id: sessionId, title: 'Agent title' })
+      expect(record.state).not.toHaveProperty('messages')
+      const { readSessionStateValue } = await import('../../server/session-state-service.mjs')
+      expect(readSessionStateValue(sessionId)).toMatchObject({
+        id: sessionId,
+        title: 'Agent title',
+        messages: [{ role: 'user', content: 'hello' }],
+      })
       expect(record.metadata).toMatchObject({ id: sessionId, title: 'Agent title', messageCount: 1 })
       expect(session.persistedStorageRevision).toBe(record.revision)
       expect(session.persistedStateVersion).toBe(3)
@@ -227,7 +235,12 @@ describe('agent persist in authoritative session state', () => {
       const after = repository.findBySessionId(sessionId)
       expect(after.revision).toBe(first.revision + 2)
       expect(after.metadata).toMatchObject({ pinnedAt: PINNED_AT })
-      expect(after.state).toMatchObject({ pinnedAt: PINNED_AT, messages: [{ role: 'user', content: 'hello' }, { role: 'assistant', content: 'done' }] })
+      expect(after.state).toMatchObject({ pinnedAt: PINNED_AT })
+      const { readSessionStateValue } = await import('../../server/session-state-service.mjs')
+      expect(readSessionStateValue(sessionId).messages).toMatchObject([
+        { role: 'user', content: 'hello' },
+        { role: 'assistant', content: 'done' },
+      ])
       expect(session.persistConflictCount).toBe(0)
       expect(session.persistedStorageRevision).toBe(after.revision)
     } finally {
@@ -262,7 +275,8 @@ describe('agent persist in authoritative session state', () => {
 
       const after = repository.findBySessionId(sessionId)
       expect(after.revision).toBe(first.revision + 1)
-      expect(after.state.messages).toEqual([{ role: 'user', content: 'external write' }])
+      const { readSessionStateValue } = await import('../../server/session-state-service.mjs')
+      expect(readSessionStateValue(sessionId).messages).toEqual([{ role: 'user', content: 'external write' }])
       expect(session.persistConflictCount).toBe(1)
     } finally {
       await agentManager.destroyAgent(sessionId)
@@ -316,6 +330,11 @@ describe('agent persist in authoritative session state', () => {
 
       const record = repository.findBySessionId(sessionId)
       expect(record.state).toMatchObject({
+        storageUnknown: { keep: true },
+        archivedAt: '2026-02-01T00:00:00.000Z',
+      })
+      const { readSessionStateValue } = await import('../../server/session-state-service.mjs')
+      expect(readSessionStateValue(sessionId)).toMatchObject({
         storageUnknown: { keep: true },
         archivedAt: '2026-02-01T00:00:00.000Z',
         messages: [{ role: 'user', content: 'hello' }, { role: 'assistant', content: 'second' }],
@@ -431,7 +450,8 @@ describe('agent persist in authoritative session state', () => {
       expect(session.persistDegraded).toBeNull()
       expect(agentManager.getSessionState(sessionId).persistDegraded).toBeUndefined()
       expect(agentManager.getSessionStatus(sessionId).persistDegraded).toBeUndefined()
-      expect(repository.findBySessionId(sessionId).state.messages.at(-1).content).toBe('recovered')
+      const { readSessionStateValue } = await import('../../server/session-state-service.mjs')
+      expect(readSessionStateValue(sessionId).messages.at(-1).content).toBe('recovered')
     } finally {
       saveConflictFault.remaining = 0
       await agentManager.destroyAgent(sessionId)

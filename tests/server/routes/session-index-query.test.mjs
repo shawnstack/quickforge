@@ -1,29 +1,8 @@
-import { DatabaseSync } from 'node:sqlite'
 import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { applySqliteMigrations } from '../../../server/sqlite/migrations.mjs'
-import { createSessionIndexRepository } from '../../../server/sqlite/session-index-repository.mjs'
 import { initializeSessionIndex } from '../../../server/session-index-service.mjs'
-
-function createHandle(database) {
-  return {
-    prepare: (sql) => database.prepare(sql),
-    exec: (sql) => database.exec(sql),
-    transaction(callback, { mode = 'immediate' } = {}) {
-      database.exec(`BEGIN ${mode.toUpperCase()}`)
-      try {
-        const result = callback(this)
-        database.exec('COMMIT')
-        return result
-      } catch (error) {
-        database.exec('ROLLBACK')
-        throw error
-      }
-    },
-  }
-}
 
 function req() { return { method: 'GET' } }
 function res() {
@@ -53,53 +32,59 @@ async function call(route, query) {
 describe('storage session index query route', () => {
   let directory
   let previousDataDir
-  let database
+  let databaseModule
   let route
   let storage
+  let stateRepository
+  let indexRepository
 
   beforeEach(async () => {
     directory = await mkdtemp(path.join(os.tmpdir(), 'quickforge-session-route-'))
     previousDataDir = process.env.QUICKFORGE_DATA_DIR
     process.env.QUICKFORGE_DATA_DIR = directory
     vi.resetModules()
-    database = new DatabaseSync(path.join(directory, 'index.sqlite3'))
-    applySqliteMigrations(database)
+    databaseModule = await import('../../../server/sqlite/database.mjs')
+    const database = await databaseModule.initializeSqliteStorage({ databasePath: path.join(directory, 'index.sqlite3') })
+    const stateRepositoryModule = await import('../../../server/sqlite/session-state-repository.mjs')
+    const indexRepositoryModule = await import('../../../server/sqlite/session-index-repository.mjs')
+    stateRepository = stateRepositoryModule.createSessionStateRepository(database)
+    indexRepository = indexRepositoryModule.createSessionIndexRepository(database)
     storage = await import('../../../server/storage.mjs')
     route = await import('../../../server/routes/storage.mjs')
   })
 
   afterEach(async () => {
-    database.close()
+    await databaseModule?.closeSqliteStorage().catch(() => {})
     if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
     else process.env.QUICKFORGE_DATA_DIR = previousDataDir
     vi.resetModules()
     await rm(directory, { recursive: true, force: true })
   })
 
-  async function seed(values, sampler = () => false) {
+  async function seed(values) {
     await storage.ensureStorage()
-    await storage.writeStore('sessions-metadata', Object.fromEntries(values.map((value) => [value.id, value])))
-    const baseRepository = createSessionIndexRepository(createHandle(database))
-    const repository = { ...baseRepository, listPage: vi.fn((options) => baseRepository.listPage(options)) }
+    for (const value of values) {
+      await stateRepository.save({
+        scope: 'global',
+        sessionId: value.id,
+        stateVersion: 1,
+        state: { id: value.id, scope: 'global', stateVersion: 1, title: value.title, createdAt: value.createdAt, lastModified: value.lastModified, messages: [{ role: 'user', content: 'hi' }] },
+        metadata: { ...value, messageCount: 1 },
+      }, { expectedRevision: 0 })
+    }
     const serviceModule = await import('../../../server/session-index-service.mjs')
-    await serviceModule.initializeSessionIndex({
-      repository,
-      readBuckets: async () => [{ scope: 'global', projectId: null, metadata: Object.fromEntries(values.map((value) => [value.id, value])) }],
-      log: { warn: vi.fn() },
-    })
-    route.configureSessionIndexQueryShadow({ sample: sampler })
-    return { repository, serviceModule }
+    await serviceModule.initializeSessionIndex({ repository: indexRepository })
   }
 
-  it('serves eligible SQL LIMIT/OFFSET with the exact JSON shape and forces first-shape shadow', async () => {
+  it('serves eligible SQL LIMIT/OFFSET with the exact legacy response shape', async () => {
     const values = [
       metadata('old', { lastModified: '2026-01-01T00:00:00.000Z' }),
       metadata('new', { lastModified: '2026-01-03T00:00:00.000Z' }),
     ]
-    const { repository } = await seed(values)
+    await seed(values)
     const payload = await call(route, 'direction=desc&limit=1&offset=0&scope=global')
-    expect(payload).toEqual({ values: [values[1]], total: 2 })
-    expect(repository.listPage).toHaveBeenCalledTimes(1)
+    expect(payload.total).toBe(2)
+    expect(payload.values).toEqual([expect.objectContaining({ id: 'new', lastModified: '2026-01-03T00:00:00.000Z' })])
   })
 
   it.each([
@@ -109,26 +94,24 @@ describe('storage session index query route', () => {
     'direction=desc&limit=1&offset=Infinity&scope=global',
     'direction=sideways&limit=1&offset=0&scope=global',
     'direction=desc&limit=1&offset=0&scope=global&projectId=unexpected',
-  ])('keeps invalid/legacy pagination and scope on JSON: %s', async (query) => {
-    const { repository } = await seed([metadata('one')])
-    await call(route, query)
-    expect(repository.listPage).not.toHaveBeenCalled()
+  ])('keeps invalid/legacy pagination and scope on the sorted-read fallback: %s', async (query) => {
+    await seed([metadata('one')])
+    const payload = await call(route, query)
+    // Not SQL-eligible: served by the legacy sorted read (total preserved;
+    // exotic offsets keep their legacy slice semantics).
+    expect(payload.total).toBe(1)
+    expect(Array.isArray(payload.values)).toBe(true)
   })
 
-  it('falls back for incompatible source metadata, aggregate duplicates and complete sort ties', async () => {
-    const incompatible = metadata('bad', { pinnedAt: 'invalid' })
-    const first = await seed([incompatible])
-    expect(await call(route, 'direction=desc&limit=20&offset=0&scope=global')).toEqual({ values: [incompatible], total: 1 })
-    expect(first.repository.listPage).not.toHaveBeenCalled()
-  })
-
-  it('returns JSON and degrades on a deterministic shadow mismatch', async () => {
-    const values = [metadata('one')]
-    const { repository, serviceModule } = await seed(values, () => true)
-    const original = repository.listPage.getMockImplementation()
-    repository.listPage.mockImplementation((options) => ({ ...original(options), values: [{ ...values[0], title: 'wrong' }] }))
-    const payload = await call(route, 'direction=desc&limit=20&offset=0&scope=global')
-    expect(payload).toEqual({ values, total: 1 })
-    expect(serviceModule.getSessionIndexDiagnostics()).toMatchObject({ dirty: true, degraded: true })
+  it('fallback reads also come from the authoritative store', async () => {
+    const values = [
+      metadata('a', { lastModified: '2026-01-01T00:00:00.000Z' }),
+      metadata('b', { lastModified: '2026-01-05T00:00:00.000Z' }),
+    ]
+    await seed(values)
+    // No limit: not SQL-eligible, served by the sorted-read path.
+    const payload = await call(route, 'direction=desc&scope=global')
+    expect(payload.total).toBe(2)
+    expect(payload.values.map((value) => value.id)).toEqual(['b', 'a'])
   })
 })

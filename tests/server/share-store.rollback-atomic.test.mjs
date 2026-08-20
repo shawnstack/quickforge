@@ -4,7 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite/database.mjs'
 import { createSessionStateRepository } from '../../server/sqlite/session-state-repository.mjs'
-import { configureSessionStateService } from '../../server/session-state-service.mjs'
+import { configureSessionStateService, readSessionStateValue } from '../../server/session-state-service.mjs'
 
 // share-store falls back to direct storage writes only when the session is not
 // loaded in the agent manager; simulate that path without pulling the full
@@ -32,10 +32,14 @@ vi.mock('../../server/agent-manager.mjs', () => ({
 
 // The repository is Object.freeze()d (no vi.spyOn and no Proxy overrides), so
 // counting calls requires a spread wrapper the service is configured with.
+// Storage v2 routes message-truncating saves through replaceMessages, so the
+// "one atomic write" assertion counts every mutating entry point together.
 function trackedRepository(repository, counts) {
   return {
     ...repository,
     save: (...args) => { counts.save += 1; return repository.save(...args) },
+    replaceMessages: (...args) => { counts.replaceMessages += 1; return repository.replaceMessages(...args) },
+    appendMessages: (...args) => { counts.appendMessages += 1; return repository.appendMessages(...args) },
     applyBatch: (...args) => { counts.applyBatch += 1; return repository.applyBatch(...args) },
   }
 }
@@ -49,6 +53,10 @@ describe('shared conversation rollback in authoritative mode', () => {
   let shareStore
   let counts
 
+  function atomicWrites() {
+    return counts.save + counts.replaceMessages + counts.appendMessages + counts.applyBatch
+  }
+
   beforeEach(async () => {
     previousDataDir = process.env.QUICKFORGE_DATA_DIR
     tmpDir = await mkdtemp(path.join(os.tmpdir(), 'qf-share-rollback-'))
@@ -56,19 +64,17 @@ describe('shared conversation rollback in authoritative mode', () => {
     await closeSqliteStorage()
     database = await initializeSqliteStorage({ databasePath: path.join(tmpDir, 'state.sqlite3') })
     repository = createSessionStateRepository(database)
-    counts = { save: 0, applyBatch: 0 }
-    configureSessionStateService({
-      repository: trackedRepository(repository, counts),
-      mirror: { upsert: vi.fn(async () => {}), delete: vi.fn(async () => {}) },
-      phase: 'authoritative',
-    })
+    counts = { save: 0, replaceMessages: 0, appendMessages: 0, applyBatch: 0 }
+    // Storage v2: SQLite is authoritative by construction; only the
+    // repository override remains testable (mirror/phase are ignored).
+    configureSessionStateService({ repository: trackedRepository(repository, counts) })
     const testId = `${Date.now()}-${Math.random()}`
     storageModule = await import(/* @vite-ignore */ new URL(`../../server/storage.mjs?test=${testId}`, import.meta.url).href)
     shareStore = await import('../../server/share-store.mjs')
   })
 
   afterEach(async () => {
-    configureSessionStateService({ repository: null, json: null, mirror: null, phase: 'json_authoritative' })
+    configureSessionStateService({ repository: null })
     await closeSqliteStorage()
     if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
     else process.env.QUICKFORGE_DATA_DIR = previousDataDir
@@ -87,15 +93,19 @@ describe('shared conversation rollback in authoritative mode', () => {
       id: sessionId, scope: 'global', stateVersion: 1, title: 'shared', messages,
     })
 
-    const saveBefore = counts.save
+    const saveBefore = atomicWrites()
     const result = await shareStore.rollbackSharedSessionMessages({ sessionId }, 3)
 
     expect(result.rollbackIndex).toBe(2)
     expect(result.session.messages).toHaveLength(2)
-    // One atomic record save keeps body + metadata consistent (no half state).
-    expect(counts.save - saveBefore).toBe(1)
+    // One atomic record write (replaceMessages under storage v2) keeps body +
+    // metadata consistent (no half state).
+    expect(atomicWrites() - saveBefore).toBe(1)
     const record = repository.findBySessionId(sessionId)
-    expect(record.state.messages).toEqual(messages.slice(0, 2))
+    // Storage v2: bodies never store messages inline; the reassembled read
+    // view carries the truncated message list.
+    expect(record.state).not.toHaveProperty('messages')
+    expect(readSessionStateValue(sessionId).messages).toEqual(messages.slice(0, 2))
     expect(record.metadata).toMatchObject({ messageCount: 2, preview: 'reply a1' })
   })
 
@@ -113,7 +123,7 @@ describe('shared conversation rollback in authoritative mode', () => {
     const result = await shareStore.rollbackSharedSessionMessages({ sessionId }, 2)
     expect(result.rollbackIndex).toBe(2)
     const record = repository.findBySessionId(sessionId)
-    expect(record.state.messages).toEqual([{ role: 'user', content: 'm0' }, { role: 'assistant', content: 'reply a1' }])
+    expect(readSessionStateValue(sessionId).messages).toEqual([{ role: 'user', content: 'm0' }, { role: 'assistant', content: 'reply a1' }])
     expect(record.metadata).toMatchObject({ messageCount: 2, pinnedAt: '2026-01-01T00:00:00.000Z' })
 
     await expect(shareStore.rollbackSharedSessionMessages({ sessionId: 'missing' }, 0)).rejects.toThrow(/Session not found/)

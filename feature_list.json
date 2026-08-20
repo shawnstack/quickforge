@@ -411,6 +411,42 @@
         "docs/architecture/sqlite-storage-foundation.zh-CN.md",
         "docs/architecture/session-storage-current-architecture.zh-CN.md"
       ]
+    },
+    {
+      "id": "session-storage-v2",
+      "name": "会话存储 v2 重构：SQLite 三表单一权威 + 空间回收 + 删除 mirror/phase/cutover 全链",
+      "status": "done",
+      "approach": "schema v11 三表重构消除旧设计同一数据写 5 份（state_json 巨列全量重写/session_index 派生表/mirror outbox 完整副本/JSON 物化 + 自由页永不回收，实测库膨胀 2~3GB）：sessions 小行（提升列 + body_json/meta_json，无巨列）、session_messages 逐行 append-only（UNIQUE message_id 去重 + FK ON DELETE CASCADE + 行级 message_digest）、极小 session_tombstones；旧 6 表 RENAME *_v10_backup 保留。repository 重写（save 统一抽取 messages、service 增量计划 body-only/replace/append + 尾 digest/中部采样校验、单事务 CAS、message_count 同事务重算）；删除走 FK 级联 + 墓碑 + 事务外 incremental_vacuum(512)（auto_vacuum=INCREMENTAL，仅新库生效）；启动链改为空库 + JSON 存在时 importSessionStateFromJson 一次性幂等导入（每会话一事务、JSON 只读、失败条目跳过不中断）；删除 JSON mirror 全链、session_index 派生表、phase 状态机、cutover 与 background-migration 两模块、写屏障（维护锁迁出为 session-state-maintenance.mjs）；session-index 重写为 sessions 表直查层（lastModified 用 json_extract 排序）；storage facade 恒走 SQLite；downgrade 工具重写为纯导出逃生通道；备份信封/restore 补偿链不变",
+      "files": [
+        "server/sqlite/migrations.mjs",
+        "server/sqlite/database.mjs",
+        "server/sqlite/session-state-repository.mjs",
+        "server/sqlite/session-index-repository.mjs",
+        "server/session-state-service.mjs",
+        "server/session-state-import.mjs",
+        "server/session-state-maintenance.mjs",
+        "server/session-index-service.mjs",
+        "server/storage.mjs",
+        "server/agent-manager.mjs",
+        "server/index.mjs",
+        "server/startup-state.mjs",
+        "server/session-state-backup.mjs",
+        "server/routes/storage.mjs",
+        "server/routes/backup.mjs",
+        "server/auto-archive.mjs",
+        "server/acp/server.mjs",
+        "server/maintenance/downgrade-session-state-v1.mjs",
+        "server/maintenance/export-session-state-v1.mjs",
+        "scripts/session-message-benchmark.mjs",
+        "server/session-state-cutover.mjs（删除）",
+        "server/session-state-background-migration.mjs（删除）",
+        "tests/server/*（约 40 文件：session-state-repository/service/messages/lifecycle/phase3/backup、session-index-repository/service/lifecycle、storage.session-state-facade/recovery/metadata-pin、agent-manager.persist、startup-maintenance-gate、sqlite-storage-foundation/lifecycle、backup.*、routes/* 等重写；新增 session-state-import.test.mjs；删除 cutover/background-migration/align-bucket/write-barrier/session-index-query* 测试与 fixtures）",
+        "docs/architecture/session-storage-v2.zh-CN.md",
+        "docs/architecture/session-storage-current-architecture.zh-CN.md",
+        "docs/architecture/session-storage-recovery-runbook.zh-CN.md",
+        "docs/architecture/sqlite-storage-foundation.zh-CN.md",
+        "docs/wiki/server/README.md"
+      ]
     }
   ]
 }

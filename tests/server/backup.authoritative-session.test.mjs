@@ -5,8 +5,9 @@ import { promises as fs } from 'node:fs'
 
 /**
  * Set up a real authoritative session state environment (temp data dir +
- * SQLite schema v6 + cutover to authoritative) and freshly import the route so
- * dataDir/storageDir/sqlite paths all resolve inside the temp dir.
+ * SQLite schema v11 + JSON seed imported via importSessionStateFromJson) and
+ * freshly import the route so dataDir/storageDir/sqlite paths all resolve
+ * inside the temp dir.
  */
 async function withAuthoritativeBackup(testFn) {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-backup-auth-'))
@@ -20,11 +21,9 @@ async function withAuthoritativeBackup(testFn) {
     database = await import('../../server/sqlite/database.mjs')
     const repoModule = await import('../../server/sqlite/session-state-repository.mjs')
     const service = await import('../../server/session-state-service.mjs')
-    const cutover = await import('../../server/session-state-cutover.mjs')
+    const importer = await import('../../server/session-state-import.mjs')
+    const maintenance = await import('../../server/session-state-maintenance.mjs')
     await storage.ensureStorage()
-    const sqliteStorage = await database.initializeSqliteStorage({ dataDir: tmpDir })
-    const repository = repoModule.createSessionStateRepository(sqliteStorage)
-    service.configureSessionStateService({ repository, mirror: null, phase: 'json_authoritative' })
     const globalDir = path.join(tmpDir, 'storage', 'conversations', 'global')
     await fs.mkdir(path.join(globalDir, 'sessions'), { recursive: true })
     await fs.writeFile(
@@ -37,13 +36,12 @@ async function withAuthoritativeBackup(testFn) {
       `${JSON.stringify({ seed: { id: 'seed', scope: 'global', stateVersion: 1, title: 'Seed', createdAt: '2026-01-01T00:00:00.000Z', lastModified: '2026-01-01T00:00:00.000Z', messageCount: 1 } })}\n`,
       'utf8',
     )
-    const state = await cutover.initializeSessionStateCutover({
-      storage: sqliteStorage,
-      repository,
-      backupDirectory: path.join(tmpDir, 'storage', 'backups'),
-    })
-    if (state.phase !== 'authoritative') throw new Error(`expected authoritative, got ${state.phase}`)
-    await testFn(backup, storage, service, repository, sqliteStorage, cutover)
+    const sqliteStorage = await database.initializeSqliteStorage({ dataDir: tmpDir })
+    const repository = repoModule.createSessionStateRepository(sqliteStorage)
+    service.configureSessionStateService({ repository })
+    const imported = await importer.importSessionStateFromJson({ storage })
+    if (imported.imported !== 1) throw new Error(`expected 1 imported session, got ${imported.imported}`)
+    await testFn(backup, storage, service, repository, sqliteStorage, maintenance)
   } finally {
     await database.closeSqliteStorage().catch(() => {})
     if (previous === undefined) delete process.env.QUICKFORGE_DATA_DIR
@@ -178,8 +176,8 @@ describe('backup route — authoritative session state', () => {
   })
 
   it('rejects import with 423 while session state maintenance is active', async () => {
-    await withAuthoritativeBackup(async (backup, storage, service, repository, sqliteStorage, cutover) => {
-      const lease = cutover.acquireSessionStateMaintenanceLock(sqliteStorage, {
+    await withAuthoritativeBackup(async (backup, storage, service, repository, sqliteStorage, maintenance) => {
+      const lease = maintenance.acquireSessionStateMaintenanceLock(sqliteStorage, {
         owner: { id: '999:test', pid: 999 },
         pidAlive: () => true,
         operation: 'other-maintenance',
@@ -199,7 +197,7 @@ describe('backup route — authoritative session state', () => {
       await expect(backup.handleBackupApi({ method: 'POST', ...mockReq(payload) }, mockRes(), url))
         .rejects.toMatchObject({ statusCode: 423, errorCode: 'session_state_maintenance' })
       expect(repository.count()).toBe(1)
-      cutover.releaseSessionStateMaintenanceLock(sqliteStorage, lease)
+      maintenance.releaseSessionStateMaintenanceLock(sqliteStorage, lease)
     })
   })
 

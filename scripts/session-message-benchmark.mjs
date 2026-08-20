@@ -11,17 +11,17 @@
  * Metrics per scale (message count):
  *  - saveMs:      authoritative saveSessionStatePair single commit
  *                 (synchronize + canonical JSON serialize + SHA-256 digest +
- *                  BEGIN IMMEDIATE INSERT INTO session_states +
- *                  session_index upsert + mirror queue enqueue)
+ *                  BEGIN IMMEDIATE INSERT INTO sessions +
+ *                  session_messages row extraction — storage v2)
  *  - encodeMs:    canonical JSON + digest portion alone (replicates the
  *                 repository jsonAndDigest algorithm for decomposition)
  *  - readMs:      readSessionStateValue full-state deserialization
- *                 (SQL SELECT + JSON.parse of state_json)
+ *                 (SQL SELECT + JSON.parse of body_json + message rows)
  *  - stateBytes / sseStateBytes: GET /state wire bytes and the SSE initial
  *                 `event: state` frame bytes (transport amplification)
- *  - jsonWriteMs: legacy non-authoritative JSON write via the real
- *                 storage.writeSessionValue JSON path (pretty JSON,
- *                 tmp + rename atomic write)
+ *  - jsonWriteMs: v1 JSON layout write via the offline escape-hatch writer
+ *                 writeSessionStateJsonBody (pretty JSON, tmp + rename
+ *                 atomic write) — storage v2 keeps SQLite authoritative
  *  - messagesShare / split elimination estimates: share of bytes that
  *                 incremental message storage would remove from the body
  *
@@ -40,7 +40,6 @@ import { createHash } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
 
 const SAVE_MS_THRESHOLD = 100
 const READ_MS_THRESHOLD = 100
@@ -75,23 +74,10 @@ function parseArgs() {
   return { counts, contentChars, runs, reads }
 }
 
-function handle(database) {
-  return {
-    exec: (sql) => database.exec(sql),
-    prepare: (sql) => database.prepare(sql),
-    transaction(callback, { mode = 'immediate' } = {}) {
-      database.exec(`BEGIN ${mode.toUpperCase()}`)
-      try {
-        const result = callback(this)
-        database.exec('COMMIT')
-        return result
-      } catch (error) {
-        database.exec('ROLLBACK')
-        throw error
-      }
-    },
-  }
-}
+// Storage v2 note: the benchmark initializes SQLite through the process-wide
+// initializeSqliteStorage (see main below) because session-state-service
+// resolves its repository through getSqliteStorage() internally — a bare
+// DatabaseSync handle is no longer enough even with an injected repository.
 
 function elapsedMs(start) {
   return Number(process.hrtime.bigint() - start) / 1_000_000
@@ -215,14 +201,15 @@ async function main() {
   const { counts, contentChars, runs, reads } = parseArgs()
 
   const directory = await mkdtemp(path.join(os.tmpdir(), 'quickforge-session-message-benchmark-'))
-  // Route the legacy JSON write path (storage.mjs dataDir) into the isolated
-  // scratch dir BEFORE any project module loads. All project imports are
-  // dynamic for this reason: server/utils/logger.mjs statically imports
-  // storage.mjs, so a static import would evaluate storage.mjs with the
-  // parent environment's QUICKFORGE_DATA_DIR (potentially the real data dir).
+  // Route every storage path (storage.mjs dataDir AND the process-wide SQLite
+  // handle) into the isolated scratch dir BEFORE any project module loads.
+  // All project imports are dynamic for this reason: server/utils/logger.mjs
+  // statically imports storage.mjs, so a static import would evaluate
+  // storage.mjs with the parent environment's QUICKFORGE_DATA_DIR
+  // (potentially the real data dir).
   process.env.QUICKFORGE_DATA_DIR = directory
-  const [{ applySqliteMigrations }, { createSessionStateRepository }, { configureSessionStateService, readSessionStateValue, saveSessionStatePair, MESSAGES_SPLIT_THRESHOLD }, { writeSessionValue }] = await Promise.all([
-    import('../server/sqlite/migrations.mjs'),
+  const [{ initializeSqliteStorage, closeSqliteStorage }, { createSessionStateRepository }, { configureSessionStateService, readSessionStateValue, saveSessionStatePair }, { writeSessionStateJsonBody }] = await Promise.all([
+    import('../server/sqlite/database.mjs'),
     import('../server/sqlite/session-state-repository.mjs'),
     import('../server/session-state-service.mjs'),
     import('../server/storage.mjs'),
@@ -232,13 +219,16 @@ async function main() {
   let schemaVersion = null
   try {
     for (const count of counts) {
-      const database = new DatabaseSync(path.join(directory, `bench-${count}.sqlite3`))
+      // Storage v2: session-state-service resolves its repository through the
+      // process-wide getSqliteStorage(), so the benchmark must initialize (and
+      // close) SQLite through initializeSqliteStorage per scale — a bare
+      // DatabaseSync handle is no longer enough even with an injected
+      // repository.
+      const storage = await initializeSqliteStorage({ databasePath: path.join(directory, `bench-${count}.sqlite3`) })
       try {
-        applySqliteMigrations(database)
-        const migration = database.prepare('PRAGMA user_version').get().user_version
-        schemaVersion = Number(migration)
-        const repository = createSessionStateRepository(handle(database))
-        configureSessionStateService({ repository, json: null, mirror: null, phase: 'authoritative' })
+        schemaVersion = storage.health().schemaVersion
+        const repository = createSessionStateRepository(storage)
+        configureSessionStateService({ repository })
 
         const sessionId = `bench-${count}`
         const startTime = Date.UTC(2026, 0, 1)
@@ -264,10 +254,13 @@ async function main() {
         const canonicalJsonBytes = Buffer.byteLength(encoded.json, 'utf8')
         const messagesShare = stateBytes === 0 ? 0 : messagesBytes / stateBytes
 
-        // Legacy non-authoritative JSON write — switch service phase off
-        // SQLite so storage.writeSessionValue takes the real JSON path.
-        configureSessionStateService({ repository, json: null, mirror: null, phase: 'json_authoritative' })
-        const jsonWriteTimings = await measureJsonWrites(writeSessionValue, sessionId, state, runs)
+        // v1 JSON layout write — storage v2 keeps SQLite authoritative, so the
+        // JSON write under measurement is the offline escape-hatch writer
+        // (per-session body file, pretty JSON, tmp + rename atomic write).
+        const bucket = { scope: 'global', projectId: null }
+        const jsonWriteTimings = await measureJsonWrites(async (writeSessionId, writeState) => {
+          await writeSessionStateJsonBody(bucket, writeSessionId, writeState)
+        }, sessionId, state, runs)
         const jsonWriteMs = median(jsonWriteTimings)
 
         const row = {
@@ -307,11 +300,11 @@ async function main() {
         }
         // F9 Phase 3: measure the lightweight state frame a split session
         // ships after the messages move into session_messages (summary instead
-        // of the full list) and the incremental message_end frame. The first
-        // split save forces the repository to write ≥ threshold rows.
-        configureSessionStateService({ repository, json: null, mirror: null, phase: 'authoritative' })
+        // of the full list) and the incremental message_end frame. Storage v2
+        // splits EVERY session, so a fresh save of any size exercises the
+        // message-row path.
         {
-          const splitCount = Math.max(count, MESSAGES_SPLIT_THRESHOLD)
+          const splitCount = Math.max(count, 2)
           const splitMessages = buildMessages(splitCount, contentChars, startTime)
           const splitId = `bench-split-${count}`
           saveSessionStatePair({
@@ -336,8 +329,8 @@ async function main() {
         rows.push(row)
         process.stdout.write(`${JSON.stringify(row)}\n`)
       } finally {
-        database.close()
-        configureSessionStateService({ repository: null, json: null, mirror: null, phase: 'json_authoritative' })
+        await closeSqliteStorage().catch(() => {})
+        configureSessionStateService({ repository: null })
       }
     }
 
@@ -355,7 +348,8 @@ async function main() {
     process.stdout.write(`${JSON.stringify(decision)}\n`)
     writeSummary(rows, decision)
   } finally {
-    configureSessionStateService({ repository: null, json: null, mirror: null, phase: 'json_authoritative' })
+    configureSessionStateService({ repository: null })
+    await closeSqliteStorage().catch(() => {})
     await rm(directory, { recursive: true, force: true })
   }
 }

@@ -83,6 +83,8 @@ F2 当时不创建任何业务表，应用版本使用 `PRAGMA user_version`。F
 
 后续 migration 沿同一 append-only 协议追加至 v10。其中 migration 10（`session_states_metadata_covering_index`）在 `session_states` 上创建覆盖索引 `(scope, project_id, session_id, metadata_json, metadata_digest)`：该表 WITHOUT ROWID 且 GB 级 `state_json` 内联在记录前部，读靠后的元数据列必须遍历前者的溢出页链（隐式读全库，2.93GB 冷库实测一次元数据投影 ≈45s）；覆盖索引使元数据读取 index-only（EXPLAIN QUERY PLAN 显示 `USING COVERING INDEX session_states_metadata_cover_idx`），查询零改动由规划器自动命中。代价是首次升级时 `CREATE INDEX` 一次性全表扫描，发生在 `initializeSqliteStorage` 的 migration 事务内、listen 之前。
 
+会话域存储 v2（migration 11，`session_state_v2_storage`）以上文新三表（`sessions`/`session_messages`/`session_tombstones`）取代了旧会话域表——包括 migration 10 覆盖索引所服务的 `session_states`（连同其余 5 张旧表 RENAME 为 `*_v10_backup` 保留）；连接 PRAGMA 追加 `auto_vacuum = INCREMENTAL`（仅新库生效）。现状与取舍见 [`session-storage-v2.zh-CN.md`](./session-storage-v2.zh-CN.md)。
+
 初始化执行 `BEGIN IMMEDIATE` 获取写锁后重新读取并验证数据库状态。每个 migration 的 schema 变更、`schema_migrations` 记录与 `user_version` 更新都在同一事务内。以下情况会明确失败并回滚：
 
 - 数据库版本高于当前代码支持版本；

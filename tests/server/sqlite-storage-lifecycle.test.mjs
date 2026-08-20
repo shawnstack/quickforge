@@ -25,7 +25,7 @@ describe('SQLite storage lifecycle integration', () => {
     const source = await readFile(acpSourceUrl, 'utf8')
     const runnerStart = source.indexOf('export async function runQuickForgeAcpStdio()')
     const dynamicImport = source.indexOf("import('../sqlite/database.mjs')", runnerStart)
-    const ensureStorage = source.indexOf('await ensureStorage()', runnerStart)
+    const ensureStorage = source.indexOf('await storageModule.ensureStorage()', runnerStart)
     const initializeSqlite = source.indexOf('await sqliteModule.initializeSqliteStorage()', runnerStart)
     const createAgent = source.indexOf('const quickForgeAgent = await createQuickForgeAcpAgent()', runnerStart)
     const closeSqlite = source.indexOf('await sqliteStorage?.closeSqliteStorage()', runnerStart)

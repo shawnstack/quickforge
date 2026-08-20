@@ -84,6 +84,17 @@ function verifyPragmas(database) {
 
 function configurePragmas(database) {
   database.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`)
+  // Session-domain deletes reclaim disk pages through incremental_vacuum (see
+  // the session-state repository), which requires auto_vacuum = INCREMENTAL.
+  // The flag only takes effect on a freshly created (empty) database; an
+  // existing library keeps its current layout until a full VACUUM rebuilds
+  // it, so applying it here is best-effort for old databases. PRAGMA cannot
+  // run inside a transaction — this executes before applySqliteMigrations
+  // opens its BEGIN IMMEDIATE — and it must come AFTER busy_timeout: during
+  // a multi-process first initialization another worker can already hold the
+  // fresh database inside its migration transaction, and without the busy
+  // timeout this pragma would fail immediately with SQLITE_BUSY.
+  database.exec('PRAGMA auto_vacuum = INCREMENTAL')
   database.exec('PRAGMA foreign_keys = ON')
   database.exec('PRAGMA journal_mode = WAL')
   // FULL (not NORMAL): decision finalized in docs/architecture/sqlite-storage-foundation.zh-CN.md §3.1

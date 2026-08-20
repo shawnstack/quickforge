@@ -3,74 +3,89 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { applySqliteMigrations, SQLITE_MIGRATIONS } from '../../server/sqlite/migrations.mjs'
+import { applySqliteMigrations } from '../../server/sqlite/migrations.mjs'
+import { createSessionStateRepository } from '../../server/sqlite/session-state-repository.mjs'
 import { createSessionIndexRepository } from '../../server/sqlite/session-index-repository.mjs'
 
 function createHandle(database) {
-  let depth = 0
-  const handle = {
+  return {
     exec: (sql) => database.exec(sql),
     prepare: (sql) => database.prepare(sql),
-    transaction(callback) {
-      const savepoint = `test_sp_${depth}`
-      if (depth === 0) database.exec('BEGIN IMMEDIATE')
-      else database.exec(`SAVEPOINT ${savepoint}`)
-      depth += 1
+    transaction(callback, { mode = 'immediate' } = {}) {
+      database.exec(`BEGIN ${mode.toUpperCase()}`)
       try {
-        const result = callback(handle)
-        depth -= 1
-        if (depth === 0) database.exec('COMMIT')
-        else database.exec(`RELEASE SAVEPOINT ${savepoint}`)
+        const result = callback(this)
+        database.exec('COMMIT')
         return result
       } catch (error) {
-        depth -= 1
-        if (depth === 0) database.exec('ROLLBACK')
-        else database.exec(`ROLLBACK TO SAVEPOINT ${savepoint}; RELEASE SAVEPOINT ${savepoint}`)
+        database.exec('ROLLBACK')
         throw error
       }
     },
   }
-  return handle
 }
 
-function row(scope, projectId, sessionId, overrides = {}) {
-  const metadata = {
-    id: sessionId,
-    title: `Session ${sessionId}`,
-    scope,
-    ...(scope === 'project' ? { projectId } : {}),
-    ...overrides.metadata,
-  }
-  return {
+// Seed a session row through the authoritative repository so the promoted
+// list columns (created_at, message_count, pinned_at, archived_at, meta_json)
+// carry exactly what production writes.
+function seed(stateRepository, sessionId, overrides = {}) {
+  const scope = overrides.scope ?? 'global'
+  const projectId = scope === 'project' ? (overrides.projectId ?? 'p1') : null
+  const lastModified = overrides.lastModified ?? `2026-08-1${overrides.slot ?? 0}T00:00:00.000Z`
+  return stateRepository.save({
     scope,
     projectId,
     sessionId,
-    createdAt: null,
-    lastModified: '2026-08-17T00:00:00.000Z',
-    messageCount: 1,
-    pinnedAt: null,
-    archivedAt: null,
-    stateVersion: null,
-    metadata,
-    metadataDigest: overrides.metadataDigest ?? 'a'.repeat(64),
-    indexedAt: '2026-08-17T01:00:00.000Z',
+    stateVersion: 1,
+    state: {
+      id: sessionId,
+      scope,
+      ...(scope === 'project' ? { projectId } : {}),
+      stateVersion: 1,
+      title: `Session ${sessionId}`,
+      createdAt: overrides.createdAt ?? '2026-08-01T00:00:00.000Z',
+      lastModified,
+      messages: overrides.messages ?? [{ role: 'user', content: 'hello' }],
+      ...(overrides.pinnedAt ? { pinnedAt: overrides.pinnedAt } : {}),
+      ...(overrides.archivedAt ? { archivedAt: overrides.archivedAt } : {}),
+    },
+    metadata: {
+      id: sessionId,
+      scope,
+      ...(scope === 'project' ? { projectId } : {}),
+      stateVersion: 1,
+      title: `Session ${sessionId}`,
+      createdAt: overrides.createdAt ?? '2026-08-01T00:00:00.000Z',
+      lastModified,
+      messageCount: overrides.messages?.length ?? 1,
+      ...(overrides.pinnedAt ? { pinnedAt: overrides.pinnedAt } : {}),
+      ...(overrides.archivedAt ? { archivedAt: overrides.archivedAt } : {}),
+      ...overrides.metadata,
+    },
+  }, { expectedRevision: overrides.expectedRevision ?? 0 })
+}
+
+function query(overrides = {}) {
+  return {
+    scopeMode: 'all', archive: 'exclude', pinnedOnly: false,
+    sort: 'lastModified', direction: 'desc', limit: 20, offset: 0,
     ...overrides,
-    metadata,
   }
 }
 
-describe('session index migration v4 and repository', () => {
+describe('session index repository (read-only query layer over sessions)', () => {
   let directory
   let database
-  let storage
+  let stateRepository
   let repository
 
   beforeEach(async () => {
     directory = await mkdtemp(path.join(os.tmpdir(), 'quickforge-session-index-repo-'))
     database = new DatabaseSync(path.join(directory, 'index.sqlite3'))
     applySqliteMigrations(database)
-    storage = createHandle(database)
-    repository = createSessionIndexRepository(storage)
+    const handle = createHandle(database)
+    stateRepository = createSessionStateRepository(handle)
+    repository = createSessionIndexRepository(handle)
   })
 
   afterEach(async () => {
@@ -78,73 +93,85 @@ describe('session index migration v4 and repository', () => {
     await rm(directory, { recursive: true, force: true })
   })
 
-  it('creates constrained schema and stable bucket/partial indexes on a new database', () => {
-    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(10)
-    expect(database.prepare('SELECT version, name FROM schema_migrations ORDER BY version').all().at(-1))
-      .toEqual({ version: 10, name: 'session_states_metadata_covering_index' })
-    const columns = database.prepare('PRAGMA table_info(session_index)').all()
-    expect(columns.find((column) => column.name === 'scope')).toMatchObject({ pk: 1, notnull: 1 })
-    expect(columns.find((column) => column.name === 'project_id')).toMatchObject({ pk: 2, notnull: 1 })
-    expect(columns.find((column) => column.name === 'session_id')).toMatchObject({ pk: 3, notnull: 1 })
-    const indexes = database.prepare("SELECT name, sql FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'session_index' AND sql IS NOT NULL ORDER BY name").all()
-    expect(indexes.map((entry) => entry.name)).toEqual(expect.arrayContaining([
-      'session_index_archived_idx',
-      'session_index_created_idx',
-      'session_index_modified_idx',
-      'session_index_pinned_idx',
-    ]))
-    expect(indexes.find((entry) => entry.name === 'session_index_pinned_idx').sql).toContain('WHERE is_pinned = 1')
-    expect(() => database.prepare(`INSERT INTO session_index (
-      scope, project_id, session_id, is_pinned, is_archived, metadata_json, metadata_digest, indexed_at
-    ) VALUES ('global', 'not-empty', 'bad', 0, 0, '{}', ?, 'now')`).run('a'.repeat(64))).toThrow()
+  it('is read-only: no write surface is exposed', () => {
+    expect(Object.keys(repository).sort()).toEqual(['analyzeQuery', 'count', 'explainQueryPlan', 'listPage'])
   })
 
-  it('rolls back v3 to v4 failure without changing the scheduled-runs schema or data', () => {
-    database.close()
-    const rollbackPath = path.join(directory, 'rollback.sqlite3')
-    database = new DatabaseSync(rollbackPath)
-    applySqliteMigrations(database, { migrations: SQLITE_MIGRATIONS.slice(0, 3) })
-    database.prepare(`INSERT INTO scheduled_task_runs (
-      task_id, id, status, started_at, extra_json, source, updated_at
-    ) VALUES (?, ?, ?, ?, '{}', ?, ?)`).run('task', 'run', 'success', '2026-01-01T00:00:00.000Z', 'test', '2026-01-01T00:00:00.000Z')
-    const failing = SQLITE_MIGRATIONS.map((migration) => migration.version === 4
-      ? { ...migration, up(db) { migration.up(db); throw new Error('after session index') } }
-      : migration)
+  it('filters scopes/archive/pinned/message_count and preserves legacy sorting/NULL placement', () => {
+    seed(stateRepository, 'global-null', { lastModified: undefined, messages: [{ role: 'user', content: 'x' }] })
+    // A session whose metadata carries no lastModified: json_extract yields
+    // NULL, which sorts last under DESC (matching the retired index column).
+    database.prepare("UPDATE sessions SET meta_json = json_remove(meta_json, '$.lastModified'), updated_at_ms = updated_at_ms + 1, revision = revision WHERE session_id = 'global-null'").run()
+    seed(stateRepository, 'global-zero', { slot: 1, messages: [] })
+    seed(stateRepository, 'global-normal', { slot: 2, lastModified: '2026-08-04T00:00:00.000Z' })
+    seed(stateRepository, 'global-pinned', { slot: 3, lastModified: '2025-01-01T00:00:00.000Z', pinnedAt: '2026-02-01T00:00:00.000Z' })
+    seed(stateRepository, 'archived', { slot: 4, archivedAt: '2026-01-01T00:00:00.000Z' })
+    seed(stateRepository, 'project-a', { slot: 5, scope: 'project', projectId: 'p1' })
 
-    expect(() => applySqliteMigrations(database, { migrations: failing })).toThrow(/migration 4.*after session index/)
-    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(3)
-    expect(database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'session_index'").get()).toBeUndefined()
-    expect(database.prepare('SELECT task_id, id FROM scheduled_task_runs').all()).toEqual([{ task_id: 'task', id: 'run' }])
+    expect(repository.listPage(query({ scopeMode: 'global' })).values.map((value) => value.id)).toEqual(['global-pinned', 'global-normal', 'global-null'])
+    expect(repository.listPage(query({ scopeMode: 'project', projectId: 'p1' })).values.map((value) => value.id)).toEqual(['project-a'])
+    expect(repository.listPage(query({ scopeMode: 'projects' })).total).toBe(1)
+    expect(repository.listPage(query({ archive: 'only' })).values.map((value) => value.id)).toEqual(['archived'])
+    expect(repository.listPage(query({ archive: 'include' })).total).toBe(5)
+    expect(repository.listPage(query({ pinnedOnly: true, sort: 'pinnedAt' })).values.map((value) => value.id)).toEqual(['global-pinned'])
+    expect(repository.listPage(query({ direction: 'asc', sort: 'createdAt' })).values.at(0).id).toBe('global-pinned')
   })
 
-  it('supports composite-key CRUD, atomic changes, bucket replace, full replace, count and verification', () => {
-    repository.upsert(row('global', null, 'same'))
-    repository.upsert(row('project', 'project-a', 'same', { metadataDigest: 'b'.repeat(64) }))
-    expect(repository.count()).toBe(2)
-    expect(repository.get('global', null, 'same').metadata.title).toBe('Session same')
-    expect(repository.get('project', 'project-a', 'same').metadataDigest).toBe('b'.repeat(64))
-
-    repository.applyChanges({
-      deletes: [{ scope: 'global', projectId: null, sessionId: 'same' }],
-      upserts: [row('project', 'project-a', 'next', { pinnedAt: '2026-08-17T02:00:00.000Z', metadataDigest: 'c'.repeat(64) })],
+  it('serves LIMIT/OFFSET pages with counts and rows in the legacy shape', () => {
+    seed(stateRepository, 'one', { slot: 1 })
+    seed(stateRepository, 'two', { slot: 2 })
+    seed(stateRepository, 'three', { slot: 3 })
+    const page = repository.listPage(query({ limit: 1, offset: 1 }))
+    expect(page).toMatchObject({ total: 3, values: [expect.any(Object)] })
+    expect(page.values[0].id).toBe('two')
+    expect(page.rows[0]).toMatchObject({
+      scope: 'global',
+      projectId: null,
+      sessionId: 'two',
+      isPinned: false,
+      isArchived: false,
+      stateVersion: 1,
     })
-    expect(repository.get('global', null, 'same')).toBeNull()
-    expect(repository.get('project', 'project-a', 'next')).toMatchObject({ isPinned: true })
+    expect(page.rows[0].metadata).toEqual(expect.objectContaining({ id: 'two', title: 'Session two' }))
+    expect(page.rows[0].metadataDigest).toMatch(/^[0-9a-f]{64}$/)
+  })
 
-    repository.replaceBucket('project', 'project-a', [row('project', 'project-a', 'only', { archivedAt: '2026-08-17T03:00:00.000Z' })])
+  it('detects aggregate duplicates and complete sort ties, scoped duplicates stay eligible', () => {
+    seed(stateRepository, 'same', { slot: 1 })
+    // Cross-bucket duplicate ids are blocked by the service write path, but
+    // historical rows (or direct SQL) can still carry them; the analysis
+    // guards pagination against them.
+    const row = database.prepare("SELECT body_json, meta_json, created_at, updated_at, message_count, state_version, revision, updated_at_ms FROM sessions WHERE session_id = 'same'").get()
+    database.prepare(`INSERT INTO sessions (
+      scope, project_id, session_id, title, created_at, updated_at, message_count, state_version,
+      archived_at, pinned_at, body_json, meta_json, revision, updated_at_ms
+    ) VALUES ('project', 'p1', 'same', 'Session same', ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)`)
+      .run(row.created_at, row.updated_at, row.message_count, row.state_version, row.body_json, row.meta_json, row.revision, row.updated_at_ms)
+    seed(stateRepository, 'other', { slot: 2, lastModified: '2026-08-03T00:00:00.000Z' })
+    expect(repository.analyzeQuery(query())).toMatchObject({ duplicateSessionIdCount: 1, fullSortKeyTieCount: 1 })
+    expect(repository.analyzeQuery(query({ scopeMode: 'global' })).duplicateSessionIdCount).toBe(0)
+    expect(repository.listPage(query({ scopeMode: 'project', projectId: 'p1' })).total).toBe(1)
+  })
+
+  it('sorts by metadata lastModified (not the wall-clock updated_at)', () => {
+    // Backdated session: metadata.lastModified is old while updated_at is now.
+    seed(stateRepository, 'backdated', { lastModified: '2020-01-01T00:00:00.000Z' })
+    seed(stateRepository, 'fresh', { lastModified: '2026-08-05T00:00:00.000Z' })
+    expect(repository.listPage(query({ scopeMode: 'global' })).values.map((value) => value.id)).toEqual(['fresh', 'backdated'])
+  })
+
+  it('rejects user-controlled query fields outside the allowlist', () => {
+    expect(() => repository.listPage(query({ sort: 'title; DROP TABLE sessions' }))).toThrow(/sort/)
+    expect(() => repository.listPage(query({ direction: 'sideways' }))).toThrow(/direction/)
+    expect(() => repository.listPage(query({ scopeMode: 'project', projectId: '' }))).toThrow(/projectId/)
+    expect(() => repository.listPage(query({ limit: Number.POSITIVE_INFINITY }))).toThrow(/limit/)
+    expect(() => repository.listPage(query({ archive: 'sometimes' }))).toThrow(/archive/)
+  })
+
+  it('counts sessions and exposes an EXPLAIN QUERY PLAN for debugging', () => {
+    seed(stateRepository, 'one', { slot: 1 })
     expect(repository.count()).toBe(1)
-    expect(repository.get('project', 'project-a', 'only')).toMatchObject({ isArchived: true })
-
-    repository.replaceAll([
-      row('global', null, 'shared'),
-      row('project', 'project-b', 'shared', { metadataDigest: 'd'.repeat(64) }),
-    ])
-    expect(repository.listVerification()).toEqual([
-      { scope: 'global', projectId: null, sessionId: 'shared', metadataDigest: 'a'.repeat(64) },
-      { scope: 'project', projectId: 'project-b', sessionId: 'shared', metadataDigest: 'd'.repeat(64) },
-    ])
-    expect(() => repository.replaceAll([row('global', null, 'duplicate'), row('global', null, 'duplicate')])).toThrow(/Duplicate/)
-    expect(repository.count()).toBe(2)
-    expect(repository.delete('project', 'project-b', 'shared')).toBe(true)
+    const plan = repository.explainQueryPlan(query({ scopeMode: 'global' })).map((row) => row.detail).join('\n')
+    expect(plan).toContain('sessions')
   })
 })

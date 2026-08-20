@@ -4,10 +4,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { closeSqliteStorage, initializeSqliteStorage } from '../sqlite/database.mjs'
 import { createSessionStateRepository } from '../sqlite/session-state-repository.mjs'
-import { readSessionStorageState } from '../session-state-service.mjs'
 import { dataDir } from '../storage.mjs'
-
-const AUTHORITATIVE_PHASES = new Set(['sqlite_authoritative_json_pending', 'authoritative'])
 
 function outputPath() {
   const argument = process.argv[2]
@@ -23,13 +20,6 @@ try {
   const storage = await initializeSqliteStorage({ dataDir })
   storage.health({ quickCheck: true })
   const repository = createSessionStateRepository(storage)
-  const state = readSessionStorageState()
-  if (state.phase === 'cutover_running') {
-    throw new Error('Session state cutover is still running; stop all QuickForge processes and retry')
-  }
-  if (!AUTHORITATIVE_PHASES.has(state.phase)) {
-    throw new Error(`Session state is ${state.phase}; authoritative export requires the SQLite cutover to be complete`)
-  }
   const integrity = repository.verifyIntegrity({ quickCheck: true })
   if (!integrity.ok) throw new Error('Session state integrity verification failed')
   const snapshot = repository.exportSnapshot()
@@ -44,7 +34,7 @@ try {
     exportedAt: new Date().toISOString(),
     scope: 'sessions',
     includeSecrets: false,
-    sessionState: { phase: state.phase, count: snapshot.count, digest: snapshot.digest },
+    sessionState: { phase: 'authoritative', count: snapshot.count, digest: snapshot.digest },
     data: {
       sessions: Object.fromEntries(snapshot.records.map((record) => [record.sessionId, record.state?.messageStorage === 'split'
         ? { ...record.state, messages: record.messages ?? [] }

@@ -58,7 +58,7 @@ describe('scheduled task runs repository schema v3', () => {
   })
 
   it('creates the composite-key table, state/lock tables, and global stable indexes', () => {
-    expect(storage.health()).toMatchObject({ schemaVersion: 10, latestSchemaVersion: 10, migrationCount: 10 })
+    expect(storage.health()).toMatchObject({ schemaVersion: 11, latestSchemaVersion: 11, migrationCount: 11 })
     expect(storage.prepare('SELECT version, name FROM schema_migrations ORDER BY version').all()).toEqual([
       { version: 1, name: 'create_schema_migrations' },
       { version: 2, name: 'create_scheduled_task_runs' },
@@ -70,6 +70,7 @@ describe('scheduled task runs repository schema v3', () => {
       { version: 8, name: 'share_storage_migration' },
       { version: 9, name: 'lan_access_storage_migration' },
       { version: 10, name: 'session_states_metadata_covering_index' },
+      { version: 11, name: 'session_state_v2_storage' },
     ])
     const columns = storage.prepare('PRAGMA table_info(scheduled_task_runs)').all()
     expect(columns.find((column) => column.name === 'task_id')).toMatchObject({ pk: 1, notnull: 1 })
@@ -84,26 +85,34 @@ describe('scheduled task runs repository schema v3', () => {
     await closeSqliteStorage()
     const raw = new DatabaseSync(databasePath)
     raw.exec(`
-      DROP TABLE session_state_maintenance_lock;
-      DROP TABLE session_json_mirror_queue;
-      DROP TABLE session_storage_state;
-      DROP TABLE session_state_tombstones;
-      DROP TABLE session_states;
-      DROP TABLE session_messages;
-      DROP TABLE session_index;
-      DROP TABLE scheduled_runs_maintenance_lock;
-      DROP TABLE scheduled_runs_state;
-      DROP TABLE scheduled_task_runs;
-      DROP TABLE share_json_mirror_queue;
-      DROP TABLE share_maintenance_lock;
-      DROP TABLE share_sessions;
-      DROP TABLE share_storage_state;
-      DROP TABLE share_tokens;
-      DROP TABLE lan_access_json_mirror_queue;
-      DROP TABLE lan_access_maintenance_lock;
-      DROP TABLE lan_access_state;
-      DROP TABLE lan_access_storage_state;
-      DROP TABLE lan_access_tokens;
+      DROP TABLE IF EXISTS sessions;
+      DROP TABLE IF EXISTS session_messages;
+      DROP TABLE IF EXISTS session_tombstones;
+      DROP TABLE IF EXISTS session_state_maintenance_lock;
+      DROP TABLE IF EXISTS session_index;
+      DROP TABLE IF EXISTS session_json_mirror_queue;
+      DROP TABLE IF EXISTS session_storage_state;
+      DROP TABLE IF EXISTS session_state_tombstones;
+      DROP TABLE IF EXISTS session_states;
+      DROP TABLE IF EXISTS session_index_v10_backup;
+      DROP TABLE IF EXISTS session_json_mirror_queue_v10_backup;
+      DROP TABLE IF EXISTS session_messages_v10_backup;
+      DROP TABLE IF EXISTS session_state_tombstones_v10_backup;
+      DROP TABLE IF EXISTS session_states_v10_backup;
+      DROP TABLE IF EXISTS session_storage_state_v10_backup;
+      DROP TABLE IF EXISTS scheduled_runs_maintenance_lock;
+      DROP TABLE IF EXISTS scheduled_runs_state;
+      DROP TABLE IF EXISTS scheduled_task_runs;
+      DROP TABLE IF EXISTS share_json_mirror_queue;
+      DROP TABLE IF EXISTS share_maintenance_lock;
+      DROP TABLE IF EXISTS share_sessions;
+      DROP TABLE IF EXISTS share_storage_state;
+      DROP TABLE IF EXISTS share_tokens;
+      DROP TABLE IF EXISTS lan_access_json_mirror_queue;
+      DROP TABLE IF EXISTS lan_access_maintenance_lock;
+      DROP TABLE IF EXISTS lan_access_state;
+      DROP TABLE IF EXISTS lan_access_storage_state;
+      DROP TABLE IF EXISTS lan_access_tokens;
       DELETE FROM schema_migrations WHERE version >= 3;
       PRAGMA user_version = 2;
     `)
@@ -216,11 +225,11 @@ describe('scheduled task runs repository schema v3', () => {
       spawnInitializationWorker(concurrentPath),
       spawnInitializationWorker(concurrentPath),
     ])
-    expect(summaries.every((summary) => summary.ok && summary.schemaVersion === 10 && summary.migrationCount === 10)).toBe(true)
+    expect(summaries.every((summary) => summary.ok && summary.schemaVersion === 11 && summary.migrationCount === 11)).toBe(true)
     const raw = new DatabaseSync(concurrentPath)
     try {
-      expect(raw.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count).toBe(10)
-      expect(raw.prepare('PRAGMA user_version').get().user_version).toBe(10)
+      expect(raw.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count).toBe(11)
+      expect(raw.prepare('PRAGMA user_version').get().user_version).toBe(11)
     } finally {
       raw.close()
     }

@@ -75,7 +75,7 @@ describe('SQLite storage foundation', () => {
     const storage = await initializeSqliteStorage({ dataDir })
 
     expect(existsSync(expectedPath)).toBe(true)
-    expect(storage.health()).toMatchObject({ ok: true, schemaVersion: 10, migrationCount: 10 })
+    expect(storage.health()).toMatchObject({ ok: true, schemaVersion: 11, migrationCount: 11 })
   })
 
   it('applies and verifies the required PRAGMAs', async () => {
@@ -132,6 +132,7 @@ describe('SQLite storage foundation', () => {
       { version: 8, name: 'share_storage_migration' },
       { version: 9, name: 'lan_access_storage_migration' },
       { version: 10, name: 'session_states_metadata_covering_index' },
+      { version: 11, name: 'session_state_v2_storage' },
     ])
     expect(tables).toEqual([
       { name: 'lan_access_json_mirror_queue' },
@@ -143,13 +144,16 @@ describe('SQLite storage foundation', () => {
       { name: 'scheduled_runs_state' },
       { name: 'scheduled_task_runs' },
       { name: 'schema_migrations' },
-      { name: 'session_index' },
-      { name: 'session_json_mirror_queue' },
+      { name: 'session_index_v10_backup' },
+      { name: 'session_json_mirror_queue_v10_backup' },
       { name: 'session_messages' },
+      { name: 'session_messages_v10_backup' },
       { name: 'session_state_maintenance_lock' },
-      { name: 'session_state_tombstones' },
-      { name: 'session_states' },
-      { name: 'session_storage_state' },
+      { name: 'session_state_tombstones_v10_backup' },
+      { name: 'session_states_v10_backup' },
+      { name: 'session_storage_state_v10_backup' },
+      { name: 'session_tombstones' },
+      { name: 'sessions' },
       { name: 'share_json_mirror_queue' },
       { name: 'share_maintenance_lock' },
       { name: 'share_sessions' },
@@ -161,7 +165,10 @@ describe('SQLite storage foundation', () => {
   it('creates the session_states metadata covering index and keeps metadata reads index-only with identical data', () => {
     const database = new DatabaseSync(path.join(temporaryDirectory, 'metadata-covering.sqlite3'))
     try {
-      const applied = applySqliteMigrations(database)
+      // Historical v10 schema: v11 renames session_states to
+      // session_states_v10_backup, so this regression test pins the v10-era
+      // migration output (and its covering-index behavior) explicitly.
+      const applied = applySqliteMigrations(database, { migrations: SQLITE_MIGRATIONS.slice(0, 10) })
       expect(applied.userVersion).toBe(10)
       expect(applied.applied.at(-1)).toMatchObject({ version: 10, name: 'session_states_metadata_covering_index' })
       expect(database.prepare("SELECT name FROM sqlite_schema WHERE type = 'index' AND name = 'session_states_metadata_cover_idx'").get())
@@ -268,7 +275,7 @@ describe('SQLite storage foundation', () => {
     const migrations = [
       ...SQLITE_MIGRATIONS,
       {
-        version: 11,
+        version: 12,
         name: 'failing_migration',
         up(db) {
           db.exec('CREATE TABLE must_rollback (id INTEGER PRIMARY KEY)')
@@ -278,7 +285,7 @@ describe('SQLite storage foundation', () => {
     ]
 
     try {
-      expect(() => applySqliteMigrations(database, { migrations })).toThrow(/migration 11.*deliberate failure/)
+      expect(() => applySqliteMigrations(database, { migrations })).toThrow(/migration 12.*deliberate failure/)
       expect(database.prepare('PRAGMA user_version').get().user_version).toBe(0)
       expect(database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name IN ('schema_migrations', 'must_rollback')").all()).toEqual([])
     } finally {
@@ -291,7 +298,7 @@ describe('SQLite storage foundation', () => {
     const missingTable = new DatabaseSync(path.join(temporaryDirectory, 'missing-table.sqlite3'))
     const mismatchedRows = new DatabaseSync(path.join(temporaryDirectory, 'mismatched-rows.sqlite3'))
     try {
-      tooNew.exec('PRAGMA user_version = 11')
+      tooNew.exec('PRAGMA user_version = 12')
       expect(() => inspectSqliteMigrationState(tooNew)).toThrow(/newer than supported/)
 
       missingTable.exec('PRAGMA user_version = 1')
@@ -314,9 +321,9 @@ describe('SQLite storage foundation', () => {
     const health = storage.health({ quickCheck: true })
     expect(health).toMatchObject({
       ok: true,
-      schemaVersion: 10,
-      latestSchemaVersion: 10,
-      migrationCount: 10,
+      schemaVersion: 11,
+      latestSchemaVersion: 11,
+      migrationCount: 11,
       journalMode: 'wal',
       busyTimeout: 5_000,
       foreignKeys: true,
@@ -334,11 +341,11 @@ describe('SQLite storage foundation', () => {
       spawnInitializationWorker(databasePath),
     ])
 
-    expect(summaries.every((summary) => summary.ok && summary.schemaVersion === 10)).toBe(true)
+    expect(summaries.every((summary) => summary.ok && summary.schemaVersion === 11)).toBe(true)
     const database = new DatabaseSync(databasePath)
     try {
-      expect(database.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count).toBe(10)
-      expect(database.prepare('PRAGMA user_version').get().user_version).toBe(10)
+      expect(database.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count).toBe(11)
+      expect(database.prepare('PRAGMA user_version').get().user_version).toBe(11)
     } finally {
       closeDatabase(database)
     }

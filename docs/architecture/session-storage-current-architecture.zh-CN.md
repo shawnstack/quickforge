@@ -1,4 +1,6 @@
-# 会话存储当前架构（单一事实文档）
+# 会话存储 v1 架构（历史参考）
+
+> **⚠ 已被存储 v2 取代（2026-08-19）**：会话域已完成存储 v2 重构（SQLite schema v11，`sessions`/`session_messages`/`session_tombstones` 三表单一权威）。本文描述的 JSON mirror、phase 状态机、`session_index` 派生表、cutover 与后台迁移（background-migration）机制**均已移除**，下文整体保留为历史参考。当前事实见 [`session-storage-v2.zh-CN.md`](./session-storage-v2.zh-CN.md)。
 
 > 基准：F9（Phase 2 核心存储层 + Phase 3 接线）完成态 + 会话域后台迁移（feature 1-5）已实施，最后更新 2026-08-19；SQLite schema v9（会话域表为 migration v6/v7）。
 > 定位：本文档是会话（conversation / session state）存储的**当前事实源**。`sqlite-compatibility-spike.zh-CN.md`（F1）、`sqlite-storage-foundation.zh-CN.md`（F2）、`session-index-foundation.zh-CN.md`（F6）、`session-index-query-migration.zh-CN.md`（F7）、`session-state-transactional-storage.zh-CN.md`（F8/F9）保留为**历史决策记录**——设计动机、取舍与过程数据以原文为准；凡旧文与本文冲突的叙述（如启动链执行时机），以本文为准。

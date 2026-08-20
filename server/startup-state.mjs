@@ -1,5 +1,4 @@
 import { readScheduledRunsState } from './scheduled-runs-cutover.mjs'
-import { readSessionStateBackgroundMigrationStatus } from './session-state-background-migration.mjs'
 import { readSessionStorageState } from './session-state-service.mjs'
 import { readShareStorageState } from './share-service.mjs'
 import { readLanAccessStorageState } from './lan-access-service.mjs'
@@ -95,15 +94,10 @@ export function readMigrationStatus(storage) {
     state,
     domains: {
       scheduledRuns: readDomain(() => readScheduledRunsState(storage)),
-      // The sessionState domain carries the in-memory background-migration
-      // snapshot alongside the persisted phase (design §6.2); the key is
-      // omitted entirely before the first task (the frontend parser only
-      // reads known fields, so unknown shapes stay compatible).
-      sessionState: readDomain(() => {
-        const background = readSessionStateBackgroundMigrationStatus()
-        const sessionState = readSessionStorageState()
-        return background ? { ...sessionState, background } : sessionState
-      }),
+      // Storage v2: the session domain is SQLite-authoritative by
+      // construction; readSessionStorageState reports the constant
+      // authoritative phase with a live session count.
+      sessionState: readDomain(() => readSessionStorageState()),
       share: readDomain(() => readShareStorageState()),
       lanAccess: readDomain(() => readLanAccessStorageState()),
     },

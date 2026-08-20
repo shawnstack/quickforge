@@ -1,25 +1,20 @@
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// storage.mjs resolves dataDir at module evaluation (and is pulled into the
-// module graph transitively via utils/logger.mjs), so the data dir env must be
-// set before a resetModules + dynamic import cycle. All server modules under
-// test are imported dynamically to share one fresh registry. Vitest isolates
-// test files in separate workers, so mutating process.env cannot leak.
+// Storage v2: the session index reads the authoritative sessions table
+// directly — readSessionMetadataBuckets (meta_json-only projection) is the
+// single bucket source for both the service wiring and the storage facade's
+// per-bucket metadata updates. This file pins that contract.
+
 let dataRoot
 let previousDataDir
 let databaseModule
 let stateService
 let storageModule
-let createSessionIndexRepository
 let createSessionStateRepository
-let createSessionIndexService
-
-function globalMetadataFile() {
-  return path.join(dataRoot, 'storage', 'conversations', 'global', 'sessions-metadata.json')
-}
+let createSessionIndexRepository
 
 function canonicalMetadata(id, overrides = {}) {
   return {
@@ -34,14 +29,25 @@ function canonicalMetadata(id, overrides = {}) {
   }
 }
 
+function sessionRecord(id, metadata) {
+  return {
+    scope: 'global',
+    sessionId: id,
+    stateVersion: 1,
+    state: { id, scope: 'global', stateVersion: 1, title: metadata.title, messages: [{ role: 'user', content: 'hi' }] },
+    metadata,
+  }
+}
+
 async function writePhysicalGlobalMetadata(values) {
-  await mkdir(path.dirname(globalMetadataFile()), { recursive: true })
-  await writeFile(globalMetadataFile(), `${JSON.stringify(values, null, 2)}\n`, 'utf8')
+  const file = path.join(dataRoot, 'storage', 'conversations', 'global', 'sessions-metadata.json')
+  await mkdir(path.dirname(file), { recursive: true })
+  await writeFile(file, `${JSON.stringify(values, null, 2)}\n`, 'utf8')
 }
 
 const PAGE_OPTIONS = { scopeMode: 'all', archive: 'exclude', sort: 'lastModified', direction: 'desc', limit: 20, offset: 0 }
 
-describe('session index phase-aware bucket source', () => {
+describe('session index bucket source (authoritative sessions table)', () => {
   let directory
   let database
   let stateRepository
@@ -56,9 +62,8 @@ describe('session index phase-aware bucket source', () => {
     databaseModule = await import('../../server/sqlite/database.mjs')
     stateService = await import('../../server/session-state-service.mjs')
     storageModule = await import('../../server/storage.mjs')
-    ;({ createSessionIndexRepository } = await import('../../server/sqlite/session-index-repository.mjs'))
     ;({ createSessionStateRepository } = await import('../../server/sqlite/session-state-repository.mjs'))
-    ;({ createSessionIndexService } = await import('../../server/session-index-service.mjs'))
+    ;({ createSessionIndexRepository } = await import('../../server/sqlite/session-index-repository.mjs'))
   })
 
   afterAll(async () => {
@@ -73,96 +78,61 @@ describe('session index phase-aware bucket source', () => {
     database = await databaseModule.initializeSqliteStorage({ databasePath: path.join(directory, 'state.sqlite3') })
     stateRepository = createSessionStateRepository(database)
     indexRepository = createSessionIndexRepository(database)
+    stateService.configureSessionStateService({ repository: stateRepository })
     log = { warn: vi.fn() }
   })
 
   afterEach(async () => {
-    stateService.stopSessionStateService()
-    stateService.configureSessionStateService({ repository: null, json: null, mirror: null, phase: 'json_authoritative' })
+    stateService.configureSessionStateService({ repository: null })
     await databaseModule.closeSqliteStorage()
     await rm(directory, { recursive: true, force: true })
   })
 
-  function createService() {
-    // Same wiring as server/index.mjs: configureSessionIndex({ readBuckets: readAuthoritativeSessionMetadataBuckets })
-    return createSessionIndexService({ repository: indexRepository, readBuckets: storageModule.readAuthoritativeSessionMetadataBuckets, log })
-  }
-
-  it('keeps the index ready and serves SQL pages in the pending phase while the JSON mirror lags', async () => {
-    stateService.configureSessionStateService({ repository: stateRepository, phase: 'sqlite_authoritative_json_pending' })
+  it('serves SQL pages from the sessions table through the service wiring', async () => {
     stateService.saveSessionBody('alpha', { title: 'Alpha', messages: [{ role: 'user', content: 'hello alpha' }] })
     stateService.saveSessionBody('beta', { scope: 'project', projectId: 'p1', title: 'Beta', messages: [{ role: 'user', content: 'hello beta' }] })
 
-    // The mirror is deliberately not drained: the physical JSON metadata is
-    // absent/stale while SQLite (and the transactionally maintained
-    // session_index) is authoritative.
-    expect(stateRepository.countMirrorQueue()).toBeGreaterThan(0)
+    const buckets = await storageModule.readAuthoritativeSessionMetadataBuckets()
+    expect(buckets.map((bucket) => bucket.scope).sort()).toEqual(['global', 'project'])
+    expect(buckets.find((bucket) => bucket.scope === 'global').metadata.alpha).toMatchObject({ title: 'Alpha' })
+    expect(buckets.find((bucket) => bucket.scope === 'project').metadata.beta).toMatchObject({ title: 'Beta', projectId: 'p1' })
 
-    const service = createService()
-    expect(await service.initialize()).toMatchObject({ ok: true, degraded: false, dirty: false, count: 2 })
-    expect(await service.verifyIntegrity({ force: true })).toMatchObject({ ready: true, dirty: false, degraded: false })
-
+    const { createSessionIndexService } = await import('../../server/session-index-service.mjs')
+    const service = createSessionIndexService({ repository: indexRepository, log })
+    expect(await service.initialize()).toMatchObject({ ok: true, count: 2 })
     const page = await service.queryPage(PAGE_OPTIONS)
     expect(page.ok).toBe(true)
     expect(page.page.total).toBe(2)
     expect(page.page.values.map((value) => value.title).sort()).toEqual(['Alpha', 'Beta'])
   })
 
-  it('still detects real index drift in the authoritative phase and self-heals from SQLite', async () => {
-    stateService.configureSessionStateService({ repository: stateRepository, phase: 'authoritative' })
-    stateService.saveSessionBody('one', { title: 'One', messages: [{ role: 'user', content: 'hi' }] })
-
-    const service = createService()
+  it('sees writes immediately — the store and the index are the same rows', async () => {
+    stateRepository.save(sessionRecord('one', canonicalMetadata('one')), { expectedRevision: 0 })
+    const { createSessionIndexService } = await import('../../server/session-index-service.mjs')
+    const service = createSessionIndexService({ repository: indexRepository, log })
     await service.initialize()
+    expect((await service.queryPage(PAGE_OPTIONS)).page.total).toBe(1)
 
-    database.prepare("DELETE FROM session_index WHERE session_id = 'one'").run()
-    const drifted = await service.verifyIntegrity({ force: true })
-    expect(drifted).toMatchObject({ ready: false, reason: 'digest_mismatch', dirty: true, degraded: true })
-
-    // verifyIntegrity schedules a rebuild; the rebuild source is the same
-    // phase-aware reader, so the projection is rebuilt from SQLite.
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    expect(await service.verifyIntegrity({ force: true })).toMatchObject({ ready: true, dirty: false, degraded: false })
-    expect(indexRepository.get('global', null, 'one')).not.toBeNull()
+    stateRepository.save(sessionRecord('two', canonicalMetadata('two', { lastModified: '2026-01-05T00:00:00.000Z' })), { expectedRevision: 0 })
+    const updated = await service.queryPage(PAGE_OPTIONS)
+    expect(updated.page.total).toBe(2)
+    expect(updated.page.values.map((value) => value.id)).toEqual(['two', 'one'])
   })
 
-  it('keeps JSON-authoritative and cutover phases on the physical JSON source', async () => {
-    stateService.configureSessionStateService({ repository: stateRepository, phase: 'json_authoritative' })
+  it('metadata buckets never materialize state bodies or message rows', async () => {
+    stateRepository.save(sessionRecord('one', canonicalMetadata('one')), { expectedRevision: 0 })
+    const buckets = stateService.readSessionMetadataBuckets()
+    expect(buckets).toHaveLength(1)
+    expect(buckets[0].metadata.one).toEqual(canonicalMetadata('one'))
+    expect(buckets[0].metadata.one).not.toHaveProperty('messages')
+  })
+
+  it('legacy physical JSON metadata stays untouched by the authoritative source', async () => {
     await writePhysicalGlobalMetadata({ gamma: canonicalMetadata('gamma') })
-
     const buckets = await storageModule.readAuthoritativeSessionMetadataBuckets()
-    expect(buckets).toEqual([{ scope: 'global', projectId: null, metadata: { gamma: canonicalMetadata('gamma') } }])
-    expect(() => stateService.readSessionMetadataBuckets()).toThrow(/SQLite-readable phase/)
-
-    const service = createService()
-    expect(await service.initialize()).toMatchObject({ ok: true, rebuilt: true, count: 1 })
-
-    stateService.configureSessionStateService({ phase: 'cutover_running' })
-    expect(() => stateService.readSessionMetadataBuckets()).toThrow(/SQLite-readable phase/)
-    expect(await storageModule.readAuthoritativeSessionMetadataBuckets()).toEqual(buckets)
-    expect(await service.verifyIntegrity({ force: true })).toMatchObject({ ready: true, dirty: false })
-  })
-
-  it('computes identical digests from SQLite buckets and equivalent JSON buckets across the phase boundary', async () => {
-    const metadata = canonicalMetadata('one')
-    stateRepository.save({
-      scope: 'global',
-      sessionId: 'one',
-      stateVersion: 1,
-      state: { id: 'one', scope: 'global', stateVersion: 1, title: metadata.title, messages: [{ role: 'user', content: 'hi' }] },
-      metadata,
-    }, { expectedRevision: 0 })
-    await writePhysicalGlobalMetadata({ one: metadata })
-
-    stateService.configureSessionStateService({ repository: stateRepository, phase: 'authoritative' })
-    const service = createService()
-    expect(await service.initialize()).toMatchObject({ ok: true, degraded: false })
-
-    // Switching phases (and therefore the readiness source) must not flap the
-    // index when both sources carry the same logical metadata.
-    stateService.configureSessionStateService({ phase: 'json_authoritative' })
-    expect(await service.verifyIntegrity({ force: true })).toMatchObject({ ready: true, dirty: false })
-    stateService.configureSessionStateService({ phase: 'sqlite_authoritative_json_pending' })
-    expect(await service.verifyIntegrity({ force: true })).toMatchObject({ ready: true, dirty: false })
+    expect(buckets).toEqual([])
+    // The physical reader is still available for the offline downgrade tool.
+    const physical = await storageModule.readPhysicalSessionMetadataBuckets()
+    expect(physical[0].metadata.gamma).toMatchObject({ title: 'Title gamma' })
   })
 })

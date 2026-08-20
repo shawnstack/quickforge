@@ -63,10 +63,14 @@ async function callRoute(route, method, pathname, body) {
 
 // The repository is Object.freeze()d (no vi.spyOn and no Proxy overrides), so
 // counting calls requires a spread wrapper the service is configured with.
+// Storage v2 splits the mutating entry points (save / replaceMessages /
+// appendMessages / applyBatch) by message-storage plan.
 function trackedRepository(repository, counts) {
   return {
     ...repository,
     save: (...args) => { counts.save += 1; return repository.save(...args) },
+    replaceMessages: (...args) => { counts.replaceMessages += 1; return repository.replaceMessages(...args) },
+    appendMessages: (...args) => { counts.appendMessages += 1; return repository.appendMessages(...args) },
     applyBatch: (...args) => { counts.applyBatch += 1; return repository.applyBatch(...args) },
   }
 }
@@ -79,16 +83,17 @@ async function withAuthoritativeFacade(testFn) {
     await closeSqliteStorage()
     const database = await initializeSqliteStorage({ databasePath: path.join(tmpDir, 'state.sqlite3') })
     const repository = createSessionStateRepository(database)
-    const counts = { save: 0, applyBatch: 0 }
+    const counts = { save: 0, replaceMessages: 0, appendMessages: 0, applyBatch: 0 }
     const tracked = trackedRepository(repository, counts)
-    const mirror = { upsert: vi.fn(async () => {}), delete: vi.fn(async () => {}) }
-    configureSessionStateService({ repository: tracked, mirror, phase: 'authoritative' })
+    // Storage v2: SQLite is authoritative by construction; only the
+    // repository override remains testable (mirror/phase are ignored).
+    configureSessionStateService({ repository: tracked })
     const testId = `${Date.now()}-${Math.random()}`
     const storageModule = await import(/* @vite-ignore */ new URL(`../../server/storage.mjs?test=${testId}`, import.meta.url).href)
     const routeModule = await import(/* @vite-ignore */ new URL(`../../server/routes/storage.mjs?test=${testId}`, import.meta.url).href)
-    await testFn({ storageModule, routeModule, repository, mirror, database, counts })
+    await testFn({ storageModule, routeModule, repository, database, counts })
   } finally {
-    configureSessionStateService({ repository: null, json: null, mirror: null, phase: 'json_authoritative' })
+    configureSessionStateService({ repository: null })
     await closeSqliteStorage()
     if (previous === undefined) delete process.env.QUICKFORGE_DATA_DIR
     else process.env.QUICKFORGE_DATA_DIR = previous
@@ -99,13 +104,15 @@ async function withAuthoritativeFacade(testFn) {
 describe('storage facade delegation in authoritative mode', () => {
   it('single body PUT derives metadata in one transaction and never leaves an orphan', async () => {
     await withAuthoritativeFacade(async ({ storageModule, repository, counts }) => {
-      const before = counts.save
+      const before = counts.replaceMessages
       await storageModule.writeSessionValue('one', sessionBody('one'))
       const record = repository.findBySessionId('one')
       expect(record).not.toBeNull()
       expect(record.state).toMatchObject({ id: 'one', title: 'Title one' })
       expect(record.metadata).toMatchObject({ id: 'one', messageCount: 1, title: 'Title one' })
-      expect(counts.save - before).toBe(1)
+      // First save of a session routes through the replace plan (storage v2
+      // always extracts the messages array into session_messages).
+      expect(counts.replaceMessages - before).toBe(1)
       expect(await storageModule.readStore('sessions-metadata')).toMatchObject({ one: { messageCount: 1 } })
     })
   })
@@ -124,16 +131,17 @@ describe('storage facade delegation in authoritative mode', () => {
     })
   })
 
-  it('delete is idempotent and commits before best-effort mirror materialization', async () => {
-    await withAuthoritativeFacade(async ({ storageModule, repository, mirror }) => {
+  it('delete is idempotent and never leaves orphan rows', async () => {
+    await withAuthoritativeFacade(async ({ storageModule, repository, database }) => {
       await storageModule.writeSessionValue('one', sessionBody('one'))
       expect(await storageModule.deleteSessionWithMetadata('one')).toBe(true)
       expect(repository.findBySessionId('one')).toBeNull()
+      // The session row AND its message rows are gone in one transaction;
+      // the sidecar cleanup that follows can never resurrect them.
+      expect(database.prepare('SELECT COUNT(*) AS c FROM sessions').get().c).toBe(0)
+      expect(database.prepare('SELECT COUNT(*) AS c FROM session_messages').get().c).toBe(0)
       // Second delete is a no-op but stays successful.
       expect(await storageModule.deleteSessionWithMetadata('one')).toBe(false)
-      // The JSON mirror materialization ran (delete entries) but never blocks or
-      // rolls back the committed SQLite deletion.
-      expect(mirror.delete).toHaveBeenCalled()
     })
   })
 
@@ -196,13 +204,17 @@ describe('storage facade delegation in authoritative mode', () => {
   it('atomic session record update keeps body + metadata consistent', async () => {
     await withAuthoritativeFacade(async ({ storageModule, repository, counts }) => {
       await storageModule.writeSessionValue('one', sessionBody('one', { messages: [1, 2, 3].map((i) => ({ role: 'user', content: `m${i}` })) }))
-      const before = counts.save
+      const before = counts.replaceMessages
       const updated = await storageModule.atomicSessionRecordUpdate('one', ({ state, metadata }) => ({
         state: { ...state, messages: state.messages.slice(0, 2) },
         metadata: { ...metadata, messageCount: 2, preview: 'preview' },
       }))
-      expect(updated.state.messages).toHaveLength(2)
-      expect(counts.save - before).toBe(1)
+      // Message-truncating updates route through the replace plan; the
+      // persisted message count follows the stored rows.
+      expect(updated.messageCount).toBe(2)
+      expect(updated.messageStoragePlan).toBe('replace')
+      expect(counts.replaceMessages - before).toBe(1)
+      expect(repository.messageCount({ scope: 'global', sessionId: 'one' })).toBe(2)
       expect(repository.findBySessionId('one').metadata).toMatchObject({ messageCount: 2, preview: 'preview' })
     })
   })
@@ -493,54 +505,6 @@ describe('auto-archive in authoritative mode (single atomic transaction)', () =>
   })
 })
 
-describe('session batch delete in JSON fallback mode', () => {
-  // storage.mjs resolves its dataDir at module evaluation time, so the env
-  // must point at the temp dir BEFORE the dynamic import below.
-  async function withJsonFallback(testFn) {
-    const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'qf-session-batch-json-'))
-    const previous = process.env.QUICKFORGE_DATA_DIR
-    process.env.QUICKFORGE_DATA_DIR = tmpDir
-    try {
-      await closeSqliteStorage()
-      configureSessionStateService({ repository: null, json: null, mirror: null, phase: 'json_authoritative' })
-      const testId = `${Date.now()}-${Math.random()}`
-      const storageModule = await import(/* @vite-ignore */ new URL(`../../server/storage.mjs?test=${testId}`, import.meta.url).href)
-      await testFn({ storageModule })
-    } finally {
-      configureSessionStateService({ repository: null, json: null, mirror: null, phase: 'json_authoritative' })
-      await closeSqliteStorage()
-      if (previous === undefined) delete process.env.QUICKFORGE_DATA_DIR
-      else process.env.QUICKFORGE_DATA_DIR = previous
-      await rm(tmpDir, { recursive: true, force: true })
-    }
-  }
-
-  it('accepts the pi-web-ui two-operation delete', async () => {
-    await withJsonFallback(async ({ storageModule }) => {
-      await storageModule.ensureStorage()
-      await storageModule.writeSessionValue('j1', sessionBody('j1'))
-      const result = await storageModule.applySessionBatch([
-        { store: 'sessions', type: 'delete', key: 'j1' },
-        { store: 'sessions-metadata', type: 'delete', key: 'j1' },
-      ])
-      expect(result).toMatchObject({ deleted: 1 })
-      expect(await storageModule.readSessionValue('j1')).toBeNull()
-      expect((await storageModule.readStore('sessions-metadata')).j1).toBeUndefined()
-    })
-  })
-
-  it('still rejects a metadata-only delete with SESSION_FULL_DELETE_REQUIRED', async () => {
-    await withJsonFallback(async ({ storageModule }) => {
-      await storageModule.ensureStorage()
-      await storageModule.writeSessionValue('j2', sessionBody('j2'))
-      await expect(storageModule.applySessionBatch([
-        { store: 'sessions-metadata', type: 'delete', key: 'j2' },
-      ])).rejects.toMatchObject({ errorCode: 'SESSION_FULL_DELETE_REQUIRED' })
-      expect(await storageModule.readSessionValue('j2')).not.toBeNull()
-    })
-  })
-})
-
 describe('POST /api/storage/maintenance/verify-session-integrity', () => {
   it('runs the lightweight check by default and the full per-row digest check with full: true', async () => {
     await withAuthoritativeFacade(async ({ storageModule, routeModule, repository }) => {
@@ -553,29 +517,22 @@ describe('POST /api/storage/maintenance/verify-session-integrity', () => {
 
       const full = await callRoute(routeModule, 'POST', '/api/storage/maintenance/verify-session-integrity', { full: true })
       expect(full.status).toBe(200)
-      expect(full.payload).toMatchObject({ ok: true, count: 1, full: true, invalidRecords: 0, invalidDigests: 0 })
+      expect(full.payload).toMatchObject({ ok: true, count: 1, full: true, invalidRecords: 0, invalidMessageDigests: 0, invalidMessageRepresentations: 0 })
       expect(full.payload.digest).toBe(repository.digest())
       expect(full.payload.durationMs).toBeGreaterThanOrEqual(0)
     })
   })
 
-  it('full verification surfaces silent digest rot that the lightweight check misses', async () => {
+  it('full verification surfaces silent message-row digest rot that the lightweight check misses', async () => {
     await withAuthoritativeFacade(async ({ storageModule, routeModule, database }) => {
       await storageModule.writeSessionValue('one', sessionBody('one'))
-      // Simulate bit-rot: the stored state_digest no longer matches the body.
-      database.prepare("UPDATE session_states SET state_digest = ? WHERE session_id = 'one'").run('f'.repeat(64))
+      // Simulate bit-rot in the storage-v2 anchor: the stored
+      // session_messages.message_digest no longer matches the message body.
+      database.prepare("UPDATE session_messages SET message_digest = ? WHERE session_id = 'one'").run('f'.repeat(64))
       const quick = await callRoute(routeModule, 'POST', '/api/storage/maintenance/verify-session-integrity')
       expect(quick.payload).toMatchObject({ ok: true, lightweight: true })
       const full = await callRoute(routeModule, 'POST', '/api/storage/maintenance/verify-session-integrity', { full: true })
-      expect(full.payload).toMatchObject({ ok: false, invalidDigests: 1 })
-    })
-  })
-
-  it('rejects with 409 outside authoritative mode', async () => {
-    await withAuthoritativeFacade(async ({ routeModule }) => {
-      configureSessionStateService({ phase: 'json_authoritative' })
-      const result = await callRoute(routeModule, 'POST', '/api/storage/maintenance/verify-session-integrity', { full: true })
-      expect(result).toMatchObject({ ok: false, status: 409, code: 'SESSION_STATE_NOT_AUTHORITATIVE' })
+      expect(full.payload).toMatchObject({ ok: false, invalidMessageDigests: 1 })
     })
   })
 })

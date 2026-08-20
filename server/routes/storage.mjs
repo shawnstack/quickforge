@@ -5,8 +5,8 @@ import { refreshAllSessionModels, destroyAgent } from '../agent-manager.mjs'
 import { logger } from '../utils/logger.mjs'
 import { directorySize } from '../utils/workspace.mjs'
 import { isAuthenticatedAppClient } from '../access-policy.mjs'
-import { getSessionIndexDiagnostics, markSessionIndexQueryFailure, querySessionIndexPage } from '../session-index-service.mjs'
-import { isSessionStateMaintenanceActive } from '../session-state-cutover.mjs'
+import { querySessionIndexPage } from '../session-index-service.mjs'
+import { isSessionStateMaintenanceActive } from '../session-state-maintenance.mjs'
 import { isSessionStateAuthoritative } from '../session-state-service.mjs'
 import { verifySessionStateIntegrityForMaintenance } from '../session-state-backup.mjs'
 
@@ -14,14 +14,6 @@ const metadataIndexCache = new Map()
 const MAX_METADATA_INDEX_CACHE_ENTRIES = 50
 const METADATA_INDEX_CACHE_TTL_MS = 1000
 const SESSION_QUERY_INDEXES = new Set(['createdAt', 'lastModified', 'pinnedAt'])
-const shadowGenerationByShape = new Map()
-let shadowSampler = () => Math.random() < 0.01
-
-export function configureSessionIndexQueryShadow({ sample } = {}) {
-  if (sample !== undefined && typeof sample !== 'function') throw new TypeError('sample must be a function')
-  shadowSampler = sample ?? (() => Math.random() < 0.01)
-  shadowGenerationByShape.clear()
-}
 
 // In-memory agent disposal used when sessions are deleted from storage.
 // destroyAgent performs a final persist, so deletions must destroy the agent
@@ -31,18 +23,6 @@ let destroyAgentForSession = destroyAgent
 
 export function configureStorageSessionAgentDisposal({ destroy } = {}) {
   destroyAgentForSession = destroy ?? destroyAgent
-}
-
-function canonicalJson(value) {
-  if (Array.isArray(value)) return value.map(canonicalJson)
-  if (!value || typeof value !== 'object') return value
-  return Object.fromEntries(Object.keys(value).sort().filter((key) => value[key] !== undefined).map((key) => [key, canonicalJson(value[key])]))
-}
-
-function sameShadowPage(sqlPage, jsonValues, limit, offset) {
-  const expected = jsonValues.slice(offset, offset + limit)
-  if (sqlPage.total !== jsonValues.length || sqlPage.values.length !== expected.length) return false
-  return JSON.stringify(sqlPage.values.map(canonicalJson)) === JSON.stringify(expected.map(canonicalJson))
 }
 
 function parseSqlPagination(limitParam, offsetParam) {
@@ -77,19 +57,6 @@ function sqlSessionQueryOptions({ store, indexName, directionParam, scope, proje
     sort: indexName,
     direction: directionParam === 'desc' ? 'desc' : 'asc',
   }
-}
-
-function shadowShape(options) {
-  return JSON.stringify({
-    scopeMode: options.scopeMode,
-    hasProjectId: options.scopeMode === 'project',
-    archive: options.archive,
-    pinnedOnly: options.pinnedOnly,
-    sort: options.sort,
-    direction: options.direction,
-    limit: options.limit,
-    offset: options.offset,
-  })
 }
 
 function metadataIndexCacheKey({ scope, projectId, indexName, direction, archived, pinned }) {
@@ -307,25 +274,14 @@ export async function handleStorageApi(req, res, url, context = { isLocalRequest
     const sqlOptions = sqlSessionQueryOptions({
       store, indexName, directionParam, scope, projectId, archived, pinned, limitParam, offsetParam,
     })
+    // Storage v2: sessions-metadata queries eligible for SQL LIMIT/OFFSET are
+    // served straight from the authoritative sessions table (no JSON shadow —
+    // the SQLite projection IS the store). Everything else keeps the legacy
+    // read+sort path (which also reads from SQLite through the facade).
     if (sqlOptions) {
       const sqlResult = await querySessionIndexPage(sqlOptions)
       if (sqlResult.ok) {
-        const diagnostics = getSessionIndexDiagnostics()
-        const shape = shadowShape(sqlOptions)
-        const lastGeneration = shadowGenerationByShape.get(shape)
-        const forced = lastGeneration !== diagnostics.rebuildGeneration
-        if (!forced && !shadowSampler({ shape, generation: diagnostics.rebuildGeneration })) {
-          sendJson(res, 200, { values: sqlResult.page.values, total: sqlResult.page.total })
-          return
-        }
-        const jsonValues = await readIndexedValues(store, indexName, direction, scope, projectId, archived, pinned)
-        shadowGenerationByShape.set(shape, diagnostics.rebuildGeneration)
-        if (sameShadowPage(sqlResult.page, jsonValues, sqlOptions.limit, sqlOptions.offset)) {
-          sendJson(res, 200, { values: sqlResult.page.values, total: sqlResult.page.total })
-          return
-        }
-        markSessionIndexQueryFailure('shadow_mismatch')
-        sendJson(res, 200, { values: jsonValues.slice(sqlOptions.offset, sqlOptions.offset + sqlOptions.limit), total: jsonValues.length })
+        sendJson(res, 200, { values: sqlResult.page.values, total: sqlResult.page.total })
         return
       }
     }

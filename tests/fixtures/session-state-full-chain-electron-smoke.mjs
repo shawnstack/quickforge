@@ -5,11 +5,10 @@ import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite
 import { createSessionStateRepository } from '../../server/sqlite/session-state-repository.mjs'
 import { createScheduledTaskRunsRepository } from '../../server/sqlite/scheduled-task-runs-repository.mjs'
 import { createShareRepository } from '../../server/sqlite/share-repository.mjs'
-import { initializeSessionStateCutover } from '../../server/session-state-cutover.mjs'
+import { importSessionStateFromJson } from '../../server/session-state-import.mjs'
 import {
   configureSessionStateService,
   deleteSessionState,
-  drainSessionJsonMirror,
   readSessionStateValue,
   readSessionStorageState,
   saveSessionBody,
@@ -109,17 +108,18 @@ try {
   await writeFile(path.join(globalDir, 'sessions-metadata.json'), `${JSON.stringify({ seed: seedMetadata })}\n`, 'utf8')
 
   const storage = await initializeSqliteStorage({ dataDir: directory })
-  if (storage.health().schemaVersion !== 10) throw new Error(`unexpected schema version ${storage.health().schemaVersion}`)
+  if (storage.health().schemaVersion !== 11) throw new Error(`unexpected schema version ${storage.health().schemaVersion}`)
   const repository = createSessionStateRepository(storage)
-  configureSessionStateService({ repository, mirror: null, phase: 'json_authoritative' })
+  // Storage v2: SQLite is authoritative by construction; only the repository
+  // override remains testable (mirror/phase are ignored).
+  configureSessionStateService({ repository })
 
-  // Startup cutover: JSON → authoritative.
-  const state = await initializeSessionStateCutover({
-    storage,
-    repository,
-    backupDirectory: path.join(directory, 'storage', 'backups'),
-  })
-  if (state.phase !== 'authoritative') throw new Error(`expected authoritative after cutover, got ${state.phase}`)
+  // Startup import: JSON tree → authoritative SQLite store (idempotent,
+  // read-only over the JSON files, WAL checkpoint at the end).
+  const imported = await importSessionStateFromJson()
+  if (imported.imported !== 1 || imported.skipped !== 0) {
+    throw new Error(`unexpected import result: ${JSON.stringify(imported)}`)
+  }
 
   // Session save / read / delete.
   saveSessionBody('smoke', { messages: [{ role: 'user', content: 'hello' }], title: 'Smoke' })
@@ -136,29 +136,21 @@ try {
   if (!conflicted) throw new Error('CAS conflict was not raised as SESSION_STATE_CONFLICT')
 
   // F9 split path: a message-heavy session is stored incrementally in
-  // session_messages; reads reassemble body + messages and the mirror
-  // materializes the full body. The state frame the routes would ship is
-  // asserted to be lightweight (summary instead of the full message list).
+  // session_messages; reads reassemble body + messages. The state frame the
+  // routes would ship is asserted to be lightweight (summary instead of the
+  // full message list).
   saveSessionBody('big', { messages: bigMessages(210), title: 'Big' })
   const readBig = readSessionStateValue('big')
   if (!readBig || readBig.messages.length !== 210 || readBig.title !== 'Big') throw new Error('split session read/assembly failed')
   if (repository.messageCount({ scope: 'global', sessionId: 'big' }) !== 210) throw new Error('split session message count mismatch')
   saveSessionBody('big', { messages: [...bigMessages(210), { role: 'user', content: 'appended', timestamp: '2026-01-01T00:00:03.000Z' }] })
   if (repository.messageCount({ scope: 'global', sessionId: 'big' }) !== 211) throw new Error('incremental append failed')
-  await drainSessionJsonMirror()
-  const mirroredBig = JSON.parse(await readFile(path.join(sessionsDir, 'big.json'), 'utf8'))
-  if (!Array.isArray(mirroredBig.messages) || mirroredBig.messages.length !== 211) throw new Error('mirror did not reassemble split messages')
-  if (mirroredBig.messageStorage !== 'split') throw new Error('mirror lost the split marker')
   const splitStateFrame = JSON.stringify({ ...readBig, messages: undefined, messagesSummary: { count: readBig.messages.length } })
   if (Buffer.byteLength(splitStateFrame, 'utf8') > 2048) throw new Error(`split state frame unexpectedly large: ${Buffer.byteLength(splitStateFrame, 'utf8')} bytes`)
   if (!deleteSessionState('big')) throw new Error('split session delete failed')
 
   const deleted = deleteSessionState('smoke')
   if (!deleted || readSessionStateValue('smoke') !== null) throw new Error('session delete failed')
-  // Drain the deletes before the restore below: replaceAll wipes the mirror
-  // queue, so any pending delete entries would otherwise leave stale JSON files
-  // that break the downgrade mirror/digest verification.
-  await drainSessionJsonMirror()
 
   // Authoritative backup/restore with a split session present: the exported
   // snapshot must reassemble messages; restoring the exported values must
@@ -176,15 +168,6 @@ try {
   if (afterRestore.count !== 2 || afterRestore.digest !== exported.digest) throw new Error('split-session restore digest roundtrip failed')
   const readBig2 = readSessionStateValue('big2')
   if (!readBig2 || readBig2.messages.length !== 210) throw new Error('split session restore reassembly failed')
-
-  // Mirror drain: JSON mirror files are materialized and readable.
-  await drainSessionJsonMirror()
-  const mirrored = JSON.parse(await readFile(path.join(sessionsDir, 'big2.json'), 'utf8'))
-  if (!Array.isArray(mirrored.messages) || mirrored.messages.length !== 210) throw new Error('mirror did not materialize the restored split body')
-  const restoredFile = path.join(sessionsDir, 'restored.json')
-  let restoredWritten = true
-  try { await readFile(restoredFile, 'utf8') } catch { restoredWritten = false }
-  if (restoredWritten) throw new Error('restore created an unexpected session file')
 
   // Scheduled runs must not regress while session state is authoritative.
   const runsRepository = createScheduledTaskRunsRepository(storage)
@@ -337,22 +320,22 @@ try {
 
   const phaseBeforeDowngrade = readSessionStorageState().phase
 
-  // F9 Phase 3 offline downgrade: split sessions must materialize a complete
-  // v1 JSON body (marker + messages), dry-run must write nothing, and --commit
-  // must flip authority back to JSON with a fully readable mirror. big3 is
-  // saved with a PENDING mirror entry so the dry-run probe can verify the
-  // child tool does not drain/write anything until the materialize run.
+  // Storage v2 offline escape hatch: the downgrade tool materializes the
+  // authoritative SQLite store back into the v1 JSON layout without ever
+  // flipping authority. Split sessions must materialize a complete v1 body
+  // (marker + messages inline); --dry-run must write nothing. Runtime saves
+  // never touch the JSON tree, so big3.json cannot exist before the tool runs.
   saveSessionBody('big3', { messages: bigMessages(210), title: 'Big 3' })
   const big3Json = path.join(sessionsDir, 'big3.json')
   let big3Written = true
   try { await readFile(big3Json, 'utf8') } catch { big3Written = false }
-  if (big3Written) throw new Error('pending mirror entry leaked to JSON before downgrade')
+  if (big3Written) throw new Error('runtime save leaked a session body to JSON')
   await closeSqliteStorage()
 
   const dryRun = await spawnDowngrade(['--dry-run'])
   if (dryRun.code !== 0) throw new Error(`downgrade --dry-run failed: ${dryRun.stderr}`)
   const dryReport = JSON.parse(dryRun.stdout.trim())
-  if (dryReport.phase !== 'authoritative' || dryReport.dryRun !== true) throw new Error('downgrade dry-run changed the phase')
+  if (dryReport.dryRun !== true || dryReport.count !== 3) throw new Error('downgrade dry-run report is malformed')
   big3Written = true
   try { await readFile(big3Json, 'utf8') } catch { big3Written = false }
   if (big3Written) throw new Error('downgrade dry-run wrote JSON')
@@ -361,11 +344,6 @@ try {
   if (materialized.code !== 0) throw new Error(`downgrade materialization failed: ${materialized.stderr}`)
   const materializedBig = JSON.parse(await readFile(big3Json, 'utf8'))
   if (!Array.isArray(materializedBig.messages) || materializedBig.messages.length !== 210) throw new Error('downgrade did not materialize the full split body')
-
-  const committed = await spawnDowngrade(['--commit'])
-  if (committed.code !== 0) throw new Error(`downgrade --commit failed: ${committed.stderr}`)
-  const commitReport = JSON.parse(committed.stdout.trim())
-  if (commitReport.phase !== 'json_authoritative' || commitReport.phaseChanged !== true) throw new Error('downgrade --commit did not flip authority')
 
   // Offline share downgrade (share storage is still authoritative; the fixture
   // closed SQLite before the session downgrade section, so the tools can open
@@ -415,11 +393,10 @@ try {
 
   process.stdout.write(`${JSON.stringify({
     ok: true,
-    schemaVersion: 10,
+    schemaVersion: 11,
     phase: phaseBeforeDowngrade,
     count: exported.count,
-    mirrorPending: 0,
-    downgrade: { dryRunOk: true, materialized: 210, committed: true, phaseAfterCommit: commitReport.phase },
+    downgrade: { dryRunOk: true, materialized: 210 },
     share: {
       phase: phaseBeforeShareDowngrade,
       count: shareExport.count,

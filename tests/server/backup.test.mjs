@@ -12,12 +12,15 @@ async function withTempBackup(testFn) {
   const previous = process.env.QUICKFORGE_DATA_DIR
   process.env.QUICKFORGE_DATA_DIR = tmpDir
   vi.resetModules()
+  const database = await import('../../server/sqlite/database.mjs')
   try {
+    await database.initializeSqliteStorage()
     const backup = await import('../../server/routes/backup.mjs')
     const storage = await import('../../server/storage.mjs')
     await storage.ensureStorage()
     await testFn(backup, storage)
   } finally {
+    await database.closeSqliteStorage().catch(() => {})
     if (previous === undefined) delete process.env.QUICKFORGE_DATA_DIR
     else process.env.QUICKFORGE_DATA_DIR = previous
     vi.resetModules()

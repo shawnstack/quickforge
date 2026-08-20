@@ -5,8 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite/database.mjs'
 import { createScheduledTaskRunsRepository } from '../../server/sqlite/scheduled-task-runs-repository.mjs'
 import { initializeScheduledRunsCutover } from '../../server/scheduled-runs-cutover.mjs'
-import { acquireSessionStateMaintenanceLock, releaseSessionStateMaintenanceLock } from '../../server/session-state-cutover.mjs'
-import { startSessionStateBackgroundMigration } from '../../server/session-state-background-migration.mjs'
 import {
   MAINTENANCE_API_WHITELIST,
   STARTUP_RECOVERY_GUIDANCE,
@@ -128,11 +126,16 @@ describe('readMigrationStatus', () => {
     expect(status.state).toBe(STARTUP_STATES.MIGRATING)
     expect(Object.keys(status.domains).sort()).toEqual(['lanAccess', 'scheduledRuns', 'sessionState', 'share'])
     expect(status.domains.scheduledRuns.phase).toBe('hybrid')
-    expect(status.domains.sessionState.phase).toBe('json_authoritative')
+    // Storage v2: the session domain is authoritative by construction; the
+    // live session count comes straight from the store.
+    expect(status.domains.sessionState).toMatchObject({ phase: 'authoritative', stateCount: 0 })
     expect(status.domains.share.phase).toBe('json_authoritative')
     expect(status.domains.lanAccess.phase).toBe('json_authoritative')
-    for (const domain of Object.values(status.domains)) {
-      expect(domain.updatedAt).toBeTruthy()
+    for (const [name, domain] of Object.entries(status.domains)) {
+      // The session domain's updatedAt comes from the service initialization
+      // timestamp (null before initializeSessionStateService runs).
+      if (name === 'sessionState') expect(domain.updatedAt).toBeNull()
+      else expect(domain.updatedAt).toBeTruthy()
     }
   })
 
@@ -143,7 +146,11 @@ describe('readMigrationStatus', () => {
 
     expect(status.ok).toBe(true)
     expect(Object.keys(status.domains).sort()).toEqual(['lanAccess', 'scheduledRuns', 'sessionState', 'share'])
-    for (const domain of Object.values(status.domains)) {
+    // The session domain stays authoritative (phase is constant in storage
+    // v2); only its live count degrades to null while SQLite is closed.
+    expect(status.domains.sessionState).toMatchObject({ phase: 'authoritative', stateCount: null })
+    for (const [name, domain] of Object.entries(status.domains)) {
+      if (name === 'sessionState') continue
       expect(domain.phase).toBe('unknown')
       expect(typeof domain.error).toBe('string')
     }
@@ -176,44 +183,5 @@ describe('readMigrationStatus', () => {
     expect(status.state).toBe(STARTUP_STATES.FAILED)
     expect(status.startupError).toBe('integrity failure')
     expect(status.ok).toBe(true)
-  })
-
-  it('omits the sessionState background domain before any background task ran', () => {
-    const status = readMigrationStatus(storage)
-
-    expect(status.domains.sessionState.phase).toBe('json_authoritative')
-    expect(status.domains.sessionState).not.toHaveProperty('background')
-  })
-
-  it('exposes the background-migration snapshot with lock owner diagnostics in the sessionState domain (design §10.2)', async () => {
-    // Second-process scenario: another process holds the session maintenance
-    // lock, so the background migration aborts lock-busy and its snapshot —
-    // including the owner diagnostics — must surface via migration-status
-    // instead of a blank background domain.
-    const lease = acquireSessionStateMaintenanceLock(storage, {
-      owner: { id: '999:other', pid: 999 },
-      pidAlive: () => true,
-      operation: 'other-maintenance',
-    })
-    expect(lease).toBeTruthy()
-    const result = await startSessionStateBackgroundMigration({
-      storage,
-      owner: { id: '701:bg', pid: 701 },
-      pidAlive: () => false,
-      logger: { info: () => {}, warn: () => {}, error: () => {} },
-    })
-    expect(result).toMatchObject({ outcome: 'aborted', reason: 'lock-busy' })
-
-    const status = readMigrationStatus(storage)
-    expect(status.ok).toBe(true)
-    expect(status.domains.sessionState.phase).toBe('json_authoritative')
-    expect(status.domains.sessionState.background).toMatchObject({
-      state: 'aborted',
-      reason: 'lock-busy',
-      lockOwner: '999:other',
-      lockOwnerPid: 999,
-      lockFencing: expect.any(Number),
-    })
-    expect(releaseSessionStateMaintenanceLock(storage, lease)).toBe(true)
   })
 })

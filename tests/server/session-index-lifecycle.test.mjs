@@ -14,15 +14,11 @@ describe('session index F7 lifecycle and query boundary', () => {
     // Startup steps are wrapped in timedStartupStep('<label>', ...) for slow-step
     // logging; assert on the stable label literals instead of the raw call text.
     const staleReset = source.indexOf("timedStartupStep('reset-stale-task-statuses'")
-    const configure = source.indexOf('configureSessionIndex({ readBuckets: readAuthoritativeSessionMetadataBuckets })')
-    const register = source.indexOf('registerSessionMetadataCommitHook(syncSessionMetadataCommit)')
     const initialize = source.indexOf("timedStartupStep('session-index'")
     const runner = source.indexOf('startScheduledTaskRunner()')
     const listen = source.indexOf('server.listen(')
 
-    expect(configure).toBeGreaterThan(staleReset)
-    expect(register).toBeGreaterThan(configure)
-    expect(initialize).toBeGreaterThan(register)
+    expect(initialize).toBeGreaterThan(staleReset)
     expect(runner).toBeGreaterThan(initialize)
     expect(listen).toBeGreaterThan(runner)
   })

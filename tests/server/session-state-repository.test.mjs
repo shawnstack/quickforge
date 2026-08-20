@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applySqliteMigrations, SQLITE_MIGRATIONS } from '../../server/sqlite/migrations.mjs'
-import { createSessionStateRepository, MIRROR_MAX_ATTEMPTS } from '../../server/sqlite/session-state-repository.mjs'
+import { createSessionStateRepository, messageDigest } from '../../server/sqlite/session-state-repository.mjs'
 
 const projectRoot = path.resolve(import.meta.dirname, '../..')
 const workerScript = path.join(projectRoot, 'tests', 'fixtures', 'session-state-cas-worker.mjs')
@@ -83,7 +83,7 @@ function spawnWorker(databasePath, sessionId, expectedRevision, marker) {
   })
 }
 
-describe('session state repository and schema v7', () => {
+describe('session state repository and schema v11', () => {
   let directory
   let databasePath
   let database
@@ -94,6 +94,7 @@ describe('session state repository and schema v7', () => {
     databasePath = path.join(directory, 'state.sqlite3')
     database = new DatabaseSync(databasePath)
     database.exec('PRAGMA busy_timeout = 5000')
+    database.exec('PRAGMA foreign_keys = ON')
     applySqliteMigrations(database)
     repository = createSessionStateRepository(createHandle(database), { now: () => '2026-01-01T00:00:02.000Z' })
   })
@@ -103,108 +104,143 @@ describe('session state repository and schema v7', () => {
     await rm(directory, { recursive: true, force: true })
   })
 
-  it('creates schema v8 and rolls a failing v5 to v6 migration back without losing F5/F7 data', () => {
-    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(10)
+  const tableNames = (db) => db.prepare("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name").all().map((row) => row.name)
+
+  it('creates the v11 schema: new session tables live, old session tables renamed to *_v10_backup', () => {
+    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(11)
     expect(database.prepare('SELECT version, name FROM schema_migrations ORDER BY version').all().at(-1)).toEqual({
-      version: 10,
-      name: 'session_states_metadata_covering_index',
+      version: 11,
+      name: 'session_state_v2_storage',
     })
-    expect(database.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name LIKE 'session_state%' ORDER BY name").all().map((row) => row.name)).toEqual([
-      'session_state_maintenance_lock',
-      'session_state_tombstones',
-      'session_states',
-    ])
-    expect(database.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name='session_messages'").get()).toBeDefined()
-
-    database.close()
-    database = new DatabaseSync(path.join(directory, 'rollback.sqlite3'))
-    applySqliteMigrations(database, { migrations: SQLITE_MIGRATIONS.slice(0, 5) })
-    database.prepare(`INSERT INTO scheduled_task_runs (task_id, id, status, started_at, extra_json, source, updated_at)
-      VALUES ('task', 'run', 'success', '2026-01-01T00:00:00.000Z', '{}', 'test', '2026-01-01T00:00:00.000Z')`).run()
-    database.prepare(`INSERT INTO session_index (scope, project_id, session_id, is_pinned, is_archived, metadata_json, metadata_digest, indexed_at)
-      VALUES ('global', '', 'legacy', 0, 0, '{}', ?, '2026-01-01T00:00:00.000Z')`).run('a'.repeat(64))
-    const failing = SQLITE_MIGRATIONS.map((migration) => migration.version === 6
-      ? { ...migration, up(db) { migration.up(db); throw new Error('after-v6') } }
-      : migration)
-    expect(() => applySqliteMigrations(database, { migrations: failing })).toThrow(/migration 6.*after-v6/)
-    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(5)
-    expect(database.prepare('SELECT task_id, id FROM scheduled_task_runs').all()).toEqual([{ task_id: 'task', id: 'run' }])
-    expect(database.prepare('SELECT session_id FROM session_index').all()).toEqual([{ session_id: 'legacy' }])
-    expect(database.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name='session_states'").get()).toBeUndefined()
+    const tables = tableNames(database)
+    for (const name of ['sessions', 'session_messages', 'session_tombstones', 'session_state_maintenance_lock']) {
+      expect(tables).toContain(name)
+    }
+    for (const name of [
+      'session_states_v10_backup',
+      'session_messages_v10_backup',
+      'session_index_v10_backup',
+      'session_state_tombstones_v10_backup',
+      'session_json_mirror_queue_v10_backup',
+      'session_storage_state_v10_backup',
+    ]) {
+      expect(tables).toContain(name)
+    }
+    for (const gone of ['session_states', 'session_index', 'session_json_mirror_queue', 'session_state_tombstones', 'session_storage_state']) {
+      expect(tables).not.toContain(gone)
+    }
+    expect(database.prepare("SELECT name FROM sqlite_schema WHERE type='index' AND name LIKE 'idx_sessions%' ORDER BY name").all().map((row) => row.name))
+      .toEqual(['idx_sessions_list', 'idx_sessions_pinned', 'idx_sessions_session_id'])
   })
 
-  it('rolls a failing v6 to v7 migration back without losing v6 session data', () => {
+  it('renames v10 session tables on upgrade and keeps their rows as a safety net', () => {
     database.close()
-    database = new DatabaseSync(path.join(directory, 'v7-rollback.sqlite3'))
-    applySqliteMigrations(database, { migrations: SQLITE_MIGRATIONS.slice(0, 6) })
-    const v6Repository = createSessionStateRepository(createHandle(database), { now: () => '2026-01-01T00:00:02.000Z' })
-    const saved = v6Repository.save(record('v6-session'), { expectedRevision: 0 })
-    expect(saved.revision).toBe(1)
-
-    const failing = SQLITE_MIGRATIONS.map((migration) => migration.version === 7
-      ? { ...migration, up(db) { migration.up(db); throw new Error('after-v7') } }
-      : migration)
-    expect(() => applySqliteMigrations(database, { migrations: failing })).toThrow(/migration 7.*after-v7/)
-    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(6)
-    expect(database.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name='session_messages'").get()).toBeUndefined()
-    expect(database.prepare('SELECT session_id, revision FROM session_states').all()).toEqual([{ session_id: 'v6-session', revision: 1 }])
-    expect(database.prepare('SELECT session_id FROM session_index').all()).toEqual([{ session_id: 'v6-session' }])
+    database = new DatabaseSync(path.join(directory, 'v10.sqlite3'))
+    database.exec('PRAGMA foreign_keys = ON')
+    applySqliteMigrations(database, { migrations: SQLITE_MIGRATIONS.slice(0, 10) })
+    database.prepare(`INSERT INTO session_states
+      (scope, project_id, session_id, revision, state_version, state_json, state_digest, metadata_json, metadata_digest, created_at, updated_at)
+      VALUES ('global', '', 'legacy', 1, 0, '{}', '${'a'.repeat(64)}', '{}', '${'b'.repeat(64)}', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`).run()
+    applySqliteMigrations(database)
+    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(11)
+    expect(database.prepare('SELECT session_id FROM session_states_v10_backup').all()).toEqual([{ session_id: 'legacy' }])
+    expect(database.prepare('SELECT COUNT(*) AS count FROM sessions').get().count).toBe(0)
+    const v10Repository = createSessionStateRepository(createHandle(database), { now: () => '2026-01-01T00:00:02.000Z' })
+    expect(v10Repository.save(record(), { expectedRevision: 0 }).revision).toBe(1)
   })
 
-  it('atomically writes body, index and outbox, preserves opaque fields, and rolls all back on index/outbox failure', () => {
+  it('saves with message extraction, opaque fields preserved, and never stores messages in body_json', () => {
     const saved = repository.save(record(), { expectedRevision: 0 })
     expect(saved.revision).toBe(1)
-    expect(repository.get('global', null, 'session-a')).toMatchObject({
-      state: { unknownStateField: { nested: ['kept'] }, messages: [{ unknownMessageField: { keep: true } }] },
-      metadata: { unknownMetadataField: { kept: 1 } },
-    })
+    const stored = repository.get('global', null, 'session-a')
+    expect(stored.state).toMatchObject({ unknownStateField: { nested: ['kept'] }, messageStorage: 'split' })
+    expect(stored.state).not.toHaveProperty('messages')
+    expect(stored.metadata).toMatchObject({ unknownMetadataField: { kept: 1 } })
     expect(saved.stateDigest).toMatch(/^[0-9a-f]{64}$/)
-    expect(database.prepare('SELECT metadata_digest FROM session_index WHERE session_id = ?').get('session-a').metadata_digest).toBe(saved.metadataDigest)
-    expect(repository.listMirrorQueue()).toMatchObject([{ sessionId: 'session-a', operation: 'upsert', revision: 1 }])
+    expect(saved.stateDigest).toBe(stored.stateDigest)
+    expect(repository.messageCount({ scope: 'global', sessionId: 'session-a' })).toBe(1)
+    const row = database.prepare('SELECT body_json, message_count, updated_at_ms, revision FROM sessions WHERE session_id = ?').get('session-a')
+    expect(row.body_json).not.toContain('"messages"')
+    expect(row.message_count).toBe(1)
+    expect(row.updated_at_ms).toBe(Date.parse('2026-01-01T00:00:02.000Z'))
+    expect(row.revision).toBe(1)
 
-    expect(() => repository.save(record('index-fail'), {
-      expectedRevision: 0,
-      beforeCommit(db) { db.prepare('DELETE FROM session_index WHERE session_id = ?').run('index-fail'); throw new Error('index failure') },
-    })).toThrow('index failure')
-    expect(repository.findBySessionId('index-fail')).toBeNull()
-    expect(repository.listMirrorQueue().some((entry) => entry.sessionId === 'index-fail')).toBe(false)
-
-    expect(() => repository.save(record('outbox-fail'), {
-      expectedRevision: 0,
-      beforeCommit(db) { db.prepare('DELETE FROM session_json_mirror_queue WHERE session_id = ?').run('outbox-fail'); throw new Error('outbox failure') },
-    })).toThrow('outbox failure')
-    expect(repository.findBySessionId('outbox-fail')).toBeNull()
+    // Body-only save (no messages key) leaves the message rows untouched.
+    const bodyOnly = { ...record(), state: { ...record().state }, metadata: record().metadata }
+    delete bodyOnly.state.messages
+    repository.save(bodyOnly, { expectedRevision: 1 })
+    expect(repository.messageCount({ scope: 'global', sessionId: 'session-a' })).toBe(1)
+    expect(repository.readMessagesPage({ scope: 'global', sessionId: 'session-a', limit: 10 }).messages[0].message).toEqual({
+      role: 'user', content: 'hello', unknownMessageField: { keep: true },
+    })
   })
 
-  it('uses composite keys, detects cross-bucket duplicate IDs, and enforces stable CAS including delete tombstones', () => {
+  it('extracts messages from legacy split-marked bodies and honors explicit input.messages', () => {
+    const legacy = record('legacy-split')
+    legacy.state.messageStorage = 'split'
+    repository.save(legacy, { expectedRevision: 0 })
+    expect(repository.messageCount({ scope: 'global', sessionId: 'legacy-split' })).toBe(1)
+    expect(repository.findBySessionId('legacy-split').state).not.toHaveProperty('messages')
+
+    const override = record('override')
+    repository.save({ ...override, messages: [{ role: 'user', content: 'explicit' }] }, { expectedRevision: 0 })
+    expect(repository.readMessagesPage({ scope: 'global', sessionId: 'override', limit: 10 }).messages.map((row) => row.message.content)).toEqual(['explicit'])
+  })
+
+  it('enforces CAS with 409 SESSION_STATE_CONFLICT and stable revisions across tombstones', () => {
     const first = repository.save(record(), { expectedRevision: 0 })
     try {
+      repository.save(record(), { expectedRevision: 0 })
+      throw new Error('expected stale save conflict')
+    } catch (error) {
+      expect(error).toMatchObject({ statusCode: 409, errorCode: 'SESSION_STATE_CONFLICT', actualRevision: 1 })
+    }
+    expect(repository.save(record(), { expectedRevision: 1 }).revision).toBe(2)
+    expect(first.revision).toBe(1)
+
+    expect(repository.delete({ scope: 'global', sessionId: 'session-a', expectedRevision: 2 })).toBe(true)
+    const tombstone = database.prepare('SELECT deleted_at FROM session_tombstones WHERE session_id = ?').get('session-a')
+    expect(Number(tombstone.deleted_at)).toBe(Date.parse('2026-01-01T00:00:02.000Z'))
+    try {
+      repository.save(record(), { expectedRevision: 2 })
+      throw new Error('expected post-delete conflict')
+    } catch (error) {
+      expect(error).toMatchObject({ statusCode: 409, errorCode: 'SESSION_STATE_CONFLICT' })
+    }
+    // A save (any) collects the same-key tombstone; tombstones of untouched
+    // sessions stay behind by design.
+    expect(repository.save(record(), { expectedRevision: 0 }).revision).toBe(1)
+    expect(database.prepare('SELECT COUNT(*) AS count FROM session_tombstones').get().count).toBe(0)
+  })
+
+  it('detects cross-bucket duplicate session ids on write and read', () => {
+    repository.save(record(), { expectedRevision: 0 })
+    try {
       repository.save(record('session-a', { scope: 'project', projectId: 'project-a' }), { expectedRevision: 0 })
+      throw new Error('expected duplicate id rejection')
     } catch (error) {
       expect(error).toMatchObject({ statusCode: 409, errorCode: 'SESSION_STATE_DUPLICATE_ID' })
     }
-    expect(() => repository.save(record(), { expectedRevision: 0 })).toThrow(/conflict/i)
-    expect(repository.delete({ scope: 'global', sessionId: 'session-a', expectedRevision: first.revision })).toBe(true)
-    expect(database.prepare('SELECT revision FROM session_state_tombstones WHERE session_id = ?').get('session-a').revision).toBe(2)
-    try {
-      repository.save(record(), { expectedRevision: 1 })
-      throw new Error('expected stale save conflict')
-    } catch (error) {
-      expect(error).toMatchObject({ statusCode: 409, errorCode: 'SESSION_STATE_CONFLICT', actualRevision: 2 })
-    }
-    expect(repository.save(record(), { expectedRevision: 2 }).revision).toBe(3)
-
-    database.exec('DROP INDEX session_states_session_id_idx')
-    database.prepare(`INSERT INTO session_states
-      (scope, project_id, session_id, revision, state_version, state_json, state_digest, metadata_json, metadata_digest, created_at, updated_at)
-      SELECT 'project', 'project-b', session_id, revision, state_version,
-        json_set(state_json, '$.scope', 'project', '$.projectId', 'project-b'), state_digest,
-        json_set(metadata_json, '$.scope', 'project', '$.projectId', 'project-b'), metadata_digest, created_at, updated_at
-      FROM session_states WHERE session_id = 'session-a'`).run()
+    database.prepare(`INSERT INTO sessions (scope, project_id, session_id, created_at, updated_at, body_json, meta_json, revision, updated_at_ms)
+      VALUES ('project', 'project-b', 'session-a', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '{}', '{}', 1, 0)`).run()
     expect(() => repository.findBySessionId('session-a')).toThrow(/Duplicate authoritative session id/)
   })
 
-  it('supports atomic multi-record batches, replace/export/integrity/rebuild, and full rollback on batch conflict', () => {
+  it('cascades message rows on delete and reclaims space best-effort', () => {
+    repository.save(record('gone'), { expectedRevision: 0 })
+    expect(repository.messageCount({ scope: 'global', sessionId: 'gone' })).toBe(1)
+    expect(repository.delete({ scope: 'global', sessionId: 'gone', expectedRevision: 1 })).toBe(true)
+    expect(database.prepare('SELECT COUNT(*) AS count FROM sessions WHERE session_id = ?').get('gone').count).toBe(0)
+    expect(database.prepare('SELECT COUNT(*) AS count FROM session_messages WHERE session_id = ?').get('gone').count).toBe(0)
+    expect(database.prepare('SELECT COUNT(*) AS count FROM session_tombstones WHERE session_id = ?').get('gone').count).toBe(1)
+    // FK cascade also holds for raw session-row deletions.
+    repository.save(record('raw-delete'), { expectedRevision: 0 })
+    database.prepare('DELETE FROM sessions WHERE session_id = ?').run('raw-delete')
+    expect(database.prepare('SELECT COUNT(*) AS count FROM session_messages WHERE session_id = ?').get('raw-delete').count).toBe(0)
+    expect(repository.verifyIntegrity()).toMatchObject({ ok: true, count: 0 })
+  })
+
+  it('supports atomic multi-record batches with full rollback on conflict', () => {
     repository.save(record('one'), { expectedRevision: 0 })
     repository.save(record('two'), { expectedRevision: 0 })
     expect(() => repository.applyBatch({
@@ -215,127 +251,77 @@ describe('session state repository and schema v7', () => {
     })).toThrow(/conflict/i)
     expect(repository.findBySessionId('one').revision).toBe(1)
 
-    repository.replaceAll([record('global'), record('project', { scope: 'project', projectId: 'p' })])
+    const batch = repository.applyBatch({
+      upserts: [{ record: record('three'), messages: [{ role: 'user', content: 'batch' }] }],
+      deletes: [{ scope: 'global', sessionId: 'two', expectedRevision: 1 }],
+    })
+    expect(batch.saved).toHaveLength(1)
+    expect(batch.deleted).toEqual([true])
+    expect(repository.messageCount({ scope: 'global', sessionId: 'three' })).toBe(1)
+    expect(database.prepare('SELECT COUNT(*) AS count FROM session_tombstones WHERE session_id = ?').get('two').count).toBe(1)
+  })
+
+  it('roundtrips replaceAll and exportSnapshot with reassembled messages and digest verification', () => {
+    const records = [record('global'), record('project', { scope: 'project', projectId: 'p' })]
+    expect(repository.replaceAll(records)).toBe(2)
     const snapshot = repository.exportSnapshot()
     expect(snapshot.count).toBe(2)
     expect(snapshot.digest).toBe(repository.digest())
+    const globalRow = snapshot.records.find((entry) => entry.sessionId === 'global')
+    expect(globalRow.state.messages).toEqual(record('global').state.messages)
+    expect(globalRow.messages).toEqual(record('global').state.messages)
+    expect(globalRow.messagesDigest).toMatch(/^[0-9a-f]{64}$/)
+    expect(repository.messageCount({ scope: 'global', sessionId: 'global' })).toBe(1)
+
+    // exportSnapshot records re-enter through replaceAll with count + digest
+    // verification against the snapshot they came from (same extraction path).
+    expect(repository.replaceAll(snapshot.records, { expectedCount: snapshot.count, expectedDigest: snapshot.digest })).toBe(2)
+    expect(repository.digest()).toBe(snapshot.digest)
     expect(repository.verifyIntegrity()).toMatchObject({ ok: true, count: 2 })
-    database.prepare('DELETE FROM session_index WHERE session_id = ?').run('project')
-    expect(repository.verifyIntegrity()).toMatchObject({ ok: false, missingIndex: 1 })
-    expect(repository.rebuildIndex()).toBe(2)
-    expect(repository.verifyIntegrity().ok).toBe(true)
+
+    // Verification failures roll the wipe back to the previous state.
+    expect(() => repository.replaceAll([record('fresh')], { expectedCount: 5 })).toThrow('Session state replace count verification failed')
+    expect(repository.count()).toBe(2)
+    expect(repository.findBySessionId('global')).not.toBeNull()
+    expect(() => repository.replaceAll([record('fresh')], { expectedDigest: 'f'.repeat(64) })).toThrow('Session state replace digest verification failed')
+    expect(repository.count()).toBe(2)
   })
 
-  it('replaceAll enqueues mirror deletes for orphan keys and rejects entries duplicating record keys', () => {
-    repository.save(record('existing'), { expectedRevision: 0 })
-    repository.replaceAll([record()], {
-      mirrorDeletes: [{ scope: 'global', sessionId: 'orphan' }, { scope: 'project', projectId: 'p2', sessionId: 'orphan-p' }],
-    })
-    expect(repository.listMirrorQueue()).toMatchObject([
-      { scope: 'global', projectId: null, sessionId: 'orphan', operation: 'delete', revision: 1, state: null, metadata: null },
-      { scope: 'global', projectId: null, sessionId: 'session-a', operation: 'upsert', revision: 1 },
-      { scope: 'project', projectId: 'p2', sessionId: 'orphan-p', operation: 'delete', revision: 1, state: null, metadata: null },
-    ])
-    expect(repository.verifyIntegrity()).toMatchObject({ ok: true, count: 1 })
-    expect(() => repository.replaceAll([record()], {
-      mirrorDeletes: [{ scope: 'global', sessionId: 'session-a' }],
-    })).toThrow(TypeError)
-    expect(() => repository.replaceAll([record()], { mirrorDeletes: 'bad' })).toThrow(/mirrorDeletes/)
-  })
-
-  it('replaceAllStream produces the exact replaceAll tables for the same records', async () => {
-    const records = [record('one'), record('two'), record('three', { scope: 'project', projectId: 'p1' })]
-    const mirrorDeletes = [{ scope: 'global', sessionId: 'orphan' }]
-    const dump = () => ({
-      states: database.prepare('SELECT * FROM session_states ORDER BY session_id').all(),
-      index: database.prepare('SELECT * FROM session_index ORDER BY session_id').all(),
-      mirror: database.prepare('SELECT * FROM session_json_mirror_queue ORDER BY session_id').all(),
-      tombstones: database.prepare('SELECT * FROM session_state_tombstones ORDER BY session_id').all(),
-      messages: database.prepare('SELECT * FROM session_messages ORDER BY session_id').all(),
-    })
-    const count = repository.replaceAll(records, { mirrorDeletes })
-    const expected = dump()
-    const source = (async function* generate() { for (const entry of records) yield entry })()
-    await expect(repository.replaceAllStream(source, {
-      expectedCount: count,
-      expectedDigest: repository.digest(),
-      mirrorDeletes,
-    })).resolves.toBe(count)
-    expect(dump()).toEqual(expected)
-    expect(repository.exportSnapshot()).toMatchObject({ count })
-    expect(repository.verifyIntegrity()).toMatchObject({ ok: true, count })
-  })
-
-  it('replaceAllStream rolls the whole transaction back on verification or iterator failure', async () => {
-    repository.save(record('existing'), { expectedRevision: 0 })
-    await expect(repository.replaceAllStream([record('fresh')], { expectedCount: 2 }))
-      .rejects.toThrow('Session state replace count verification failed')
-    await expect(repository.replaceAllStream([record('fresh')], { expectedDigest: 'f'.repeat(64) }))
-      .rejects.toThrow('Session state replace digest verification failed')
-    const exploding = (async function* generate() { yield record('fresh'); throw new Error('iterator exploded') })()
-    await expect(repository.replaceAllStream(exploding)).rejects.toThrow('iterator exploded')
-    // replaceAll semantics: the tables are wiped first, but a failed run rolls
-    // back to the exact pre-existing state (rows and mirror outbox).
-    expect(repository.count()).toBe(1)
-    expect(repository.findBySessionId('existing')).not.toBeNull()
-    expect(repository.listMirrorQueue()).toMatchObject([{ sessionId: 'existing', operation: 'upsert', revision: 1 }])
-  })
-
-  it('replaceAllStream validates inputs and imports a large async generator record-by-record', async () => {
-    await expect(repository.replaceAllStream(null)).rejects.toThrow(/iterable/)
-    await expect(repository.replaceAllStream([record()], { mirrorDeletes: 'bad' })).rejects.toThrow(/mirrorDeletes/)
-    await expect(repository.replaceAllStream([record(), record()])).rejects.toThrow(TypeError)
-    await expect(repository.replaceAllStream([record()], { mirrorDeletes: [{ scope: 'global', sessionId: 'session-a' }] }))
-      .rejects.toThrow(TypeError)
-
-    const records = Array.from({ length: 300 }, (_, index) => record(`bulk-${index}`))
-    const source = (async function* generate() { for (const entry of records) yield entry })()
-    await expect(repository.replaceAllStream(source)).resolves.toBe(300)
-    expect(repository.count()).toBe(300)
-    expect(repository.countMirrorQueue()).toBe(300)
-    expect(repository.listMirrorQueue({ limit: 5 })).toHaveLength(5)
-    expect(repository.verifyIntegrity({ quickCheck: true })).toMatchObject({ ok: true, count: 300 })
-  })
-
-  it('quickCheck stays SQL-level lightweight while full verification recomputes row digests', () => {
+  it('verifies integrity: lightweight counts and message_count checks, full row digest recomputation', () => {
     repository.replaceAll([record()])
-    // Row-level digest corruption is invisible to SQL-level checks...
-    database.prepare("UPDATE session_states SET state_digest = ? WHERE session_id = 'session-a'").run('f'.repeat(64))
-    expect(repository.verifyIntegrity({ quickCheck: true })).toMatchObject({ ok: true, lightweight: true, digest: null, count: 1, invalidDigests: 0 })
-    // ...but the full verification still fail-closes on it.
-    expect(repository.verifyIntegrity()).toMatchObject({ ok: false, invalidDigests: 1 })
+    expect(repository.verifyIntegrity({ quickCheck: true })).toMatchObject({ ok: true, lightweight: true, digest: null, count: 1 })
+    expect(repository.verifyIntegrity()).toMatchObject({ ok: true, count: 1, digest: expect.any(String) })
 
-    // SQL-structural corruption (orphan index row) is caught by both modes.
+    // Derived message_count drift is caught by BOTH modes.
+    database.prepare('UPDATE sessions SET message_count = message_count + 1').run()
+    expect(repository.verifyIntegrity({ quickCheck: true })).toMatchObject({ ok: false, messageCountMismatches: 1 })
+    expect(repository.verifyIntegrity()).toMatchObject({ ok: false, messageCountMismatches: 1 })
+    expect(() => repository.save(record(), { expectedRevision: 1 })).not.toThrow()
+    expect(repository.verifyIntegrity({ quickCheck: true })).toMatchObject({ ok: true })
+
+    // Row-level corruption is invisible to the lightweight mode...
+    database.prepare('UPDATE session_messages SET message_digest = ? WHERE seq = 0').run('f'.repeat(64))
+    expect(repository.verifyIntegrity({ quickCheck: true })).toMatchObject({ ok: true })
+    // ...but fail-closes in the full mode.
+    expect(repository.verifyIntegrity()).toMatchObject({ ok: false, invalidMessageDigests: 1 })
+
+    // A body carrying a messages array is a double representation.
     repository.replaceAll([record()])
-    database.prepare(`INSERT INTO session_index (scope, project_id, session_id, is_pinned, is_archived, metadata_json, metadata_digest, indexed_at)
-      VALUES ('global', '', 'orphan', 0, 0, '{}', ?, '2026-01-01T00:00:00.000Z')`).run('a'.repeat(64))
-    expect(repository.verifyIntegrity({ quickCheck: true })).toMatchObject({ ok: false, lightweight: true, orphanIndex: 1 })
-    expect(repository.verifyIntegrity()).toMatchObject({ ok: false, orphanIndex: 1 })
-  })
+    database.prepare("UPDATE sessions SET body_json = json_set(body_json, '$.messages', json_array()) WHERE session_id = 'session-a'").run()
+    expect(repository.verifyIntegrity()).toMatchObject({ ok: false, invalidMessageRepresentations: 1 })
 
-  it('paginates the mirror queue by updated_at order and counts it without loading rows', () => {
-    for (const id of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']) {
-      repository.save(record(id), { expectedRevision: 0 })
-    }
-    expect(repository.countMirrorQueue()).toBe(10)
-    // Identical updated_at falls back to the scope/project/session ordering.
-    expect(repository.listMirrorQueue({ limit: 3 }).map((entry) => entry.sessionId)).toEqual(['a', 'b', 'c'])
-    expect(repository.listMirrorQueue()).toHaveLength(10)
-    expect(() => repository.listMirrorQueue({ limit: 0 })).toThrow(/positive integer/)
+    // Structural corruption: orphan message rows (FK bypassed) and duplicate ids.
+    repository.replaceAll([record()])
+    database.exec('PRAGMA foreign_keys = OFF')
+    database.prepare(`INSERT INTO session_messages (scope, project_id, session_id, seq, message_json, message_digest)
+      VALUES ('global', '', 'ghost', 0, '{}', '${'a'.repeat(64)}')`).run()
+    database.exec('PRAGMA foreign_keys = ON')
+    expect(repository.verifyIntegrity({ quickCheck: true })).toMatchObject({ ok: false, orphanMessages: 1 })
+    database.prepare('DELETE FROM session_messages WHERE session_id = ?').run('ghost')
+    database.prepare(`INSERT INTO sessions (scope, project_id, session_id, created_at, updated_at, body_json, meta_json, revision, updated_at_ms)
+      VALUES ('project', 'p2', 'session-a', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '{}', '{}', 1, 0)`).run()
+    expect(repository.verifyIntegrity({ quickCheck: true })).toMatchObject({ ok: false, duplicateIds: 1 })
   })
-
-  it('allows exactly one multi-process CAS writer with shell disabled and a hard timeout', async () => {
-    repository.save(record('race'), { expectedRevision: 0 })
-    database.close()
-    const results = await Promise.all([
-      spawnWorker(databasePath, 'race', 1, 'first'),
-      spawnWorker(databasePath, 'race', 1, 'second'),
-    ])
-    expect(results.filter((result) => result.ok)).toHaveLength(1)
-    expect(results.filter((result) => !result.ok)).toMatchObject([{ errorCode: 'SESSION_STATE_CONFLICT', actualRevision: 2 }])
-    database = new DatabaseSync(databasePath)
-    expect(database.prepare('SELECT revision FROM session_states WHERE session_id = ?').get('race').revision).toBe(2)
-  }, 20_000)
 
   // Handle variant that logs every prepare() call; the transaction callback
   // receives the handle itself, so in-transaction prepares are logged too.
@@ -357,28 +343,6 @@ describe('session state repository and schema v7', () => {
     }
   }
 
-  it('dedups appended message ids against only the incoming ids in bounded IN chunks', () => {
-    const sqlLog = []
-    const loggingRepository = createSessionStateRepository(createLoggingHandle(sqlLog), { now: () => '2026-01-01T00:00:03.000Z' })
-    loggingRepository.replaceMessages(record('one'), [
-      { role: 'user', content: 's0', id: 's0' },
-      { role: 'user', content: 's1', id: 's1' },
-    ], { expectedRevision: 0 })
-    sqlLog.length = 0
-    const incoming = [
-      { role: 'user', content: 's0-duplicate', id: 's0' },
-      ...Array.from({ length: 600 }, (_, index) => ({ role: 'user', content: `n${index}`, id: `n${index}` })),
-    ]
-    loggingRepository.appendMessages(loggingRepository.findBySessionId('one'), incoming, { expectedRevision: 1 })
-    // The stored-id duplicate is skipped; everything else lands exactly once.
-    expect(loggingRepository.messageCount({ scope: 'global', sessionId: 'one' })).toBe(602)
-    // The dedup probe targets only the incoming ids (601 unique ids -> two
-    // chunks of <=500) instead of scanning the whole stored id set.
-    expect(sqlLog.filter((sql) => sql.includes('message_id IN'))).toHaveLength(2)
-    expect(sqlLog.some((sql) => sql.includes('message_id IS NOT NULL'))).toBe(false)
-    expect(loggingRepository.verifyIntegrity()).toMatchObject({ ok: true })
-  })
-
   it('prepares each runtime hot-path statement once per storage handle', () => {
     const sqlLog = []
     const loggingRepository = createSessionStateRepository(createLoggingHandle(sqlLog), { now: () => '2026-01-01T00:00:03.000Z' })
@@ -387,47 +351,32 @@ describe('session state repository and schema v7', () => {
     loggingRepository.findBySessionId('session-a')
     loggingRepository.findBySessionId('session-a')
     const prepares = (needle) => sqlLog.filter((sql) => sql.includes(needle)).length
-    expect(prepares('FROM session_states WHERE session_id = ?')).toBe(1)
-    expect(prepares('INSERT INTO session_states')).toBe(1)
-    expect(prepares('SELECT revision, state_version, created_at FROM session_states')).toBe(1)
-    expect(prepares('DELETE FROM session_state_tombstones')).toBe(1)
+    expect(prepares('FROM sessions WHERE session_id = ?')).toBe(1)
+    expect(prepares('INSERT INTO sessions')).toBe(1)
+    expect(prepares('SELECT revision, state_version, created_at, message_count FROM sessions')).toBe(1)
+    expect(prepares('DELETE FROM session_tombstones')).toBe(1)
+    expect(prepares('INSERT INTO session_messages')).toBe(1)
   })
 
-  it('collects a same-key tombstone on the next successful save while keeping tombstones of deleted sessions', () => {
-    repository.save(record('one'), { expectedRevision: 0 })
-    repository.save(record('two'), { expectedRevision: 0 })
-    expect(repository.delete({ scope: 'global', sessionId: 'one', expectedRevision: 1 })).toBe(true)
-    expect(repository.delete({ scope: 'global', sessionId: 'two', expectedRevision: 1 })).toBe(true)
-    const tombstones = () => database.prepare('SELECT session_id FROM session_state_tombstones ORDER BY session_id').all().map((row) => row.session_id)
-    expect(tombstones()).toEqual(['one', 'two'])
+  it('allows exactly one multi-process CAS writer with shell disabled and a hard timeout', async () => {
+    repository.save(record('race'), { expectedRevision: 0 })
+    database.close()
+    const results = await Promise.all([
+      spawnWorker(databasePath, 'race', 1, 'first'),
+      spawnWorker(databasePath, 'race', 1, 'second'),
+    ])
+    expect(results.filter((result) => result.ok)).toHaveLength(1)
+    expect(results.filter((result) => !result.ok)).toMatchObject([{ errorCode: 'SESSION_STATE_CONFLICT', actualRevision: 2 }])
+    database = new DatabaseSync(databasePath)
+    expect(database.prepare('SELECT revision FROM sessions WHERE session_id = ?').get('race').revision).toBe(2)
+  }, 20_000)
 
-    // Recreating 'one' collects its tombstone: the live row's CAS revision
-    // chain has taken over resurrection protection. 'two' stays protected.
-    repository.save(record('one'), { expectedRevision: 2 })
-    expect(tombstones()).toEqual(['two'])
-
-    // A shadowed tombstone below the live revision is collected on the next
-    // successful save of the same key as well.
-    database.prepare("INSERT INTO session_state_tombstones (scope, project_id, session_id, revision, deleted_at) VALUES ('global', '', 'one', 1, '2026-01-01T00:00:00.000Z')").run()
-    repository.save(record('one'), { expectedRevision: 3 })
-    expect(tombstones()).toEqual(['two'])
-    expect(repository.verifyIntegrity()).toMatchObject({ ok: true, activeTombstones: 0 })
-  })
-
-  it('stops listing mirror entries after MIRROR_MAX_ATTEMPTS failures and revives them on re-enqueue', () => {
-    repository.save(record(), { expectedRevision: 0 })
-    for (let attempt = 0; attempt < MIRROR_MAX_ATTEMPTS; attempt += 1) {
-      repository.failMirror(repository.listMirrorQueue()[0], new Error('mirror down'))
-    }
-    expect(repository.listMirrorQueue({ includeDeadLetters: true })).toMatchObject([{ sessionId: 'session-a', attempts: MIRROR_MAX_ATTEMPTS }])
-    // Dead letter: no longer drained and no longer counted as pending...
-    expect(repository.listMirrorQueue()).toEqual([])
-    expect(repository.countMirrorQueue()).toBe(0)
-    expect(repository.countMirrorQueue({ includeDeadLetters: true })).toBe(1)
-    expect(repository.countMirrorDeadLetters()).toBe(1)
-    // ...but a fresh save re-enqueues the key with attempts reset.
-    repository.save(record(), { expectedRevision: 1 })
-    expect(repository.listMirrorQueue()).toMatchObject([{ sessionId: 'session-a', attempts: 0 }])
-    expect(repository.countMirrorDeadLetters()).toBe(0)
+  it('digest helpers keep their canonical semantics', () => {
+    const messages = [{ id: 'a', content: 'x' }, { content: 'y' }]
+    expect(messageDigest(messages[0])).toMatch(/^[0-9a-f]{64}$/)
+    const saved = repository.save(record('digest-check'), { expectedRevision: 0 })
+    const page = repository.readMessagesPage({ scope: 'global', sessionId: 'digest-check', limit: 10 })
+    expect(page.messages.map((row) => row.digest)).toEqual([messageDigest(record('digest-check').state.messages[0])])
+    expect(saved.stateDigest).toBe(repository.findBySessionId('digest-check').stateDigest)
   })
 })

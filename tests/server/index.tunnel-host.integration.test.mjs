@@ -131,8 +131,8 @@ describe('server tunnel Host exception', () => {
         },
         sqlite: {
           ok: true,
-          schemaVersion: 10,
-          migrationCount: 10,
+          schemaVersion: 11,
+          migrationCount: 11,
           journalMode: 'wal',
           busyTimeout: 5_000,
         },

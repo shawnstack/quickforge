@@ -2,15 +2,11 @@ import { spawn } from 'node:child_process'
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite/database.mjs'
 import { createSessionStateRepository } from '../../server/sqlite/session-state-repository.mjs'
-import {
-  configureSessionStateService,
-  readSessionStorageState,
-  saveSessionBody,
-} from '../../server/session-state-service.mjs'
-import { initializeSessionStateCutover } from '../../server/session-state-cutover.mjs'
+import { configureSessionStateService } from '../../server/session-state-service.mjs'
+import { importSessionStateFromJson } from '../../server/session-state-import.mjs'
 import { restoreSessionStateSnapshot } from '../../server/session-state-backup.mjs'
 
 const projectRoot = path.resolve(import.meta.dirname, '../..')
@@ -36,82 +32,76 @@ async function exists(file) {
   try { await access(file); return true } catch { return false }
 }
 
-// Mirror adapter that materializes into the temp data dir, so the authoritative
-// setup never touches the real ~/.quickforge JSON files.
-function tempMirror(directory) {
-  const globalDir = path.join(directory, 'storage', 'conversations', 'global')
+function sessionJson(id, overrides = {}) {
   return {
-    async upsert(entry) {
-      if (entry.operation !== 'upsert') return
-      await mkdir(path.join(globalDir, 'sessions'), { recursive: true })
-      await writeFile(path.join(globalDir, 'sessions', `${entry.sessionId}.json`), `${JSON.stringify(entry.state)}\n`, 'utf8')
-      const file = path.join(globalDir, 'sessions-metadata.json')
-      const metadata = JSON.parse(await readFile(file, 'utf8').catch(() => '{}'))
-      metadata[entry.sessionId] = entry.metadata
-      await writeFile(file, `${JSON.stringify(metadata)}\n`, 'utf8')
-    },
-    async delete(entry) {
-      await rm(path.join(globalDir, 'sessions', `${entry.sessionId}.json`), { force: true })
-      const file = path.join(globalDir, 'sessions-metadata.json')
-      const metadata = JSON.parse(await readFile(file, 'utf8').catch(() => '{}'))
-      delete metadata[entry.sessionId]
-      await writeFile(file, `${JSON.stringify(metadata)}\n`, 'utf8')
-    },
+    id,
+    scope: 'global',
+    stateVersion: overrides.stateVersion ?? 1,
+    title: overrides.title ?? `Session ${id}`,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    lastModified: overrides.lastModified ?? '2026-01-01T00:00:00.000Z',
+    messages: overrides.messages ?? [{ role: 'user', content: 'hello' }],
   }
 }
 
-function seedBuckets(sessions) {
-  return [{
+function metadataJson(session) {
+  return {
+    id: session.id,
     scope: 'global',
-    projectId: null,
-    sessions: Object.fromEntries(Object.entries(sessions).map(([id, state]) => [id, state])),
-    metadata: Object.fromEntries(Object.entries(sessions).map(([id, state]) => [id, {
-      id,
-      scope: 'global',
-      stateVersion: state.stateVersion ?? 1,
-      title: state.title || 'Session',
-      createdAt: state.createdAt || '2026-01-01T00:00:00.000Z',
-      lastModified: state.lastModified || '2026-01-01T00:00:00.000Z',
-      messageCount: Array.isArray(state.messages) ? state.messages.length : 0,
-      thinkingLevel: 'off',
-      taskStatus: 'idle',
-      taskStartedAt: null,
-      taskFinishedAt: null,
-    }])),
-  }]
+    stateVersion: session.stateVersion,
+    title: session.title,
+    createdAt: session.createdAt,
+    lastModified: session.lastModified,
+    messageCount: session.messages.length,
+  }
 }
 
-async function buildAuthoritativeDataDir(sessions = {
-  'one': { id: 'one', scope: 'global', stateVersion: 1, title: 'One', messages: [{ role: 'user', content: 'hello' }] },
-  'two': { id: 'two', scope: 'global', stateVersion: 2, title: 'Two', messages: [] },
-}) {
+// Build a v2-authoritative data dir by running the real startup import over
+// physical JSON session files (the same path server/index.mjs uses).
+async function buildAuthoritativeDataDir(sessions) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'qf-session-offline-'))
-  const storage = await initializeSqliteStorage({ dataDir: directory })
-  const repository = createSessionStateRepository(storage)
-  configureSessionStateService({ repository, mirror: null, phase: 'json_authoritative' })
-  const state = await initializeSessionStateCutover({
-    storage,
-    repository,
-    backupDirectory: path.join(directory, 'storage', 'backups'),
-    readBuckets: vi.fn(async () => seedBuckets(sessions)),
-    mirror: tempMirror(directory),
-    owner: { id: '301:test', pid: 301 },
-    pidAlive: () => false,
-  })
-  await closeSqliteStorage()
-  if (state.phase !== 'authoritative') throw new Error(`expected authoritative, got ${state.phase}`)
+  const globalDir = path.join(directory, 'storage', 'conversations', 'global')
+  await mkdir(path.join(globalDir, 'sessions'), { recursive: true })
+  await writeFile(path.join(globalDir, 'sessions-metadata.json'), `${JSON.stringify(
+    Object.fromEntries(sessions.map((session) => [session.id, metadataJson(session)])),
+  )}\n`, 'utf8')
+  for (const session of sessions) {
+    await writeFile(path.join(globalDir, 'sessions', `${session.id}.json`), `${JSON.stringify(session)}\n`, 'utf8')
+  }
+  const previous = process.env.QUICKFORGE_DATA_DIR
+  process.env.QUICKFORGE_DATA_DIR = directory
+  try {
+    const storage = await initializeSqliteStorage({ dataDir: directory })
+    const repository = createSessionStateRepository(storage)
+    configureSessionStateService({ repository })
+    // A query-string storage instance resolves dataDir from the env at ITS
+    // evaluation, so the importer walks the temp dir's JSON tree — never any
+    // other data dir.
+    const testId = `${Date.now()}-${Math.random()}`
+    const storageModule = await import(/* @vite-ignore */ new URL(`../../server/storage.mjs?test=${testId}`, import.meta.url).href)
+    const { imported } = await importSessionStateFromJson({ storage: storageModule })
+    if (imported !== sessions.length) throw new Error(`expected ${sessions.length} imported, got ${imported}`)
+    await closeSqliteStorage()
+  } finally {
+    if (previous === undefined) delete process.env.QUICKFORGE_DATA_DIR
+    else process.env.QUICKFORGE_DATA_DIR = previous
+  }
   return directory
 }
 
-describe('offline session state v1 export and downgrade', () => {
+describe('offline session state v1 export and downgrade (escape hatch)', () => {
   const directories = []
   afterEach(async () => {
+    configureSessionStateService({ repository: null })
     await closeSqliteStorage()
     await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })))
   })
 
   it('exports a complete authoritative backup without starting the server', async () => {
-    const directory = await buildAuthoritativeDataDir()
+    const directory = await buildAuthoritativeDataDir([
+      sessionJson('one'),
+      sessionJson('two', { stateVersion: 2 }),
+    ])
     directories.push(directory)
     const output = path.join(directory, 'export.json')
     const result = await spawnTool(exportScript, directory, [output])
@@ -124,7 +114,10 @@ describe('offline session state v1 export and downgrade', () => {
   })
 
   it('restores the exported backup into a fresh authoritative data dir (roundtrip)', async () => {
-    const sourceDir = await buildAuthoritativeDataDir()
+    const sourceDir = await buildAuthoritativeDataDir([
+      sessionJson('one'),
+      sessionJson('two', { stateVersion: 2 }),
+    ])
     directories.push(sourceDir)
     const output = path.join(sourceDir, 'export.json')
     const exported = await spawnTool(exportScript, sourceDir, [output])
@@ -135,17 +128,7 @@ describe('offline session state v1 export and downgrade', () => {
     directories.push(targetDir)
     const storage = await initializeSqliteStorage({ dataDir: targetDir })
     const repository = createSessionStateRepository(storage)
-    configureSessionStateService({ repository, mirror: null, phase: 'json_authoritative' })
-    const state = await initializeSessionStateCutover({
-      storage,
-      repository,
-      backupDirectory: path.join(targetDir, 'storage', 'backups'),
-      readBuckets: vi.fn(async () => seedBuckets({})),
-      mirror: tempMirror(targetDir),
-      owner: { id: '302:test', pid: 302 },
-      pidAlive: () => false,
-    })
-    expect(state.phase).toBe('authoritative')
+    configureSessionStateService({ repository })
     expect(repository.count()).toBe(0)
 
     const restored = await restoreSessionStateSnapshot(
@@ -158,116 +141,69 @@ describe('offline session state v1 export and downgrade', () => {
     await closeSqliteStorage()
   })
 
-  it('reports a dry-run downgrade without writing JSON or changing the phase', async () => {
-    const directory = await buildAuthoritativeDataDir()
+  it('reports a dry-run downgrade without writing any JSON', async () => {
+    const directory = await buildAuthoritativeDataDir([sessionJson('one'), sessionJson('two')])
     directories.push(directory)
-    // Remove the on-disk JSON mirror for session "two" so a write would be visible.
-    await rm(path.join(directory, 'storage', 'conversations', 'global', 'sessions', 'two.json'), { force: true })
+    // No JSON mirror files exist yet (the import does not write back); a
+    // dry-run must leave it that way.
+    const sessionsDir = path.join(directory, 'storage', 'conversations', 'global', 'sessions')
+    await rm(sessionsDir, { recursive: true, force: true })
 
     const result = await spawnTool(downgradeScript, directory, ['--dry-run'])
     expect(result.code).toBe(0)
     const report = JSON.parse(result.stdout.trim())
-    expect(report).toMatchObject({ ok: true, dryRun: true, count: 2, phase: 'authoritative' })
-    expect(await exists(path.join(directory, 'storage', 'conversations', 'global', 'sessions', 'two.json'))).toBe(false)
-
-    const storage = await initializeSqliteStorage({ dataDir: directory })
-    expect(readSessionStorageState().phase).toBe('authoritative')
-    await closeSqliteStorage()
+    expect(report).toMatchObject({ ok: true, dryRun: true, count: 2 })
+    expect(report.message).toContain('escape hatch')
+    expect(await exists(path.join(sessionsDir, 'one.json'))).toBe(false)
   })
 
-  it('materializes the JSON mirror and --commit flips authority back to JSON', async () => {
-    const directory = await buildAuthoritativeDataDir()
+  it('materializes the v1 JSON layout from the authoritative snapshot', async () => {
+    const directory = await buildAuthoritativeDataDir([sessionJson('one'), sessionJson('two', { stateVersion: 2 })])
     directories.push(directory)
-    // Create a pending mirror entry by writing through the repository without draining.
-    const storage = await initializeSqliteStorage({ dataDir: directory })
-    const repository = createSessionStateRepository(storage)
-    configureSessionStateService({ repository, mirror: null, phase: 'authoritative' })
-    repository.save({
-      scope: 'global',
-      sessionId: 'three',
-      state: { id: 'three', scope: 'global', stateVersion: 1, messages: [], title: 'Three' },
-      metadata: { id: 'three', scope: 'global', stateVersion: 1, title: 'Three' },
-    }, { expectedRevision: 0 })
-    expect(repository.listMirrorQueue().length).toBeGreaterThan(0)
-    await closeSqliteStorage()
+    const sessionsDir = path.join(directory, 'storage', 'conversations', 'global', 'sessions')
+    await rm(sessionsDir, { recursive: true, force: true })
+    // A stale body file that no longer exists in the store must be removed.
+    await mkdir(sessionsDir, { recursive: true })
+    await writeFile(path.join(sessionsDir, 'stale.json'), '{}\n', 'utf8')
 
     const materialized = await spawnTool(downgradeScript, directory)
     expect(materialized.code).toBe(0)
     const report = JSON.parse(materialized.stdout.trim())
-    expect(report).toMatchObject({ ok: true, dryRun: false, commit: false, count: 3, phase: 'authoritative' })
-    // After materialization the JSON mirror is readable and matches SQLite.
-    const json = JSON.parse(await readFile(path.join(directory, 'storage', 'conversations', 'global', 'sessions', 'three.json'), 'utf8'))
-    expect(json.title).toBe('Three')
+    expect(report).toMatchObject({ ok: true, dryRun: false, count: 2, materialized: 2 })
 
-    const committed = await spawnTool(downgradeScript, directory, ['--commit'])
-    expect(committed.code).toBe(0)
-    const committedReport = JSON.parse(committed.stdout.trim())
-    expect(committedReport).toMatchObject({ ok: true, phase: 'json_authoritative', phaseChanged: true })
+    const one = JSON.parse(await readFile(path.join(sessionsDir, 'one.json'), 'utf8'))
+    expect(one).toMatchObject({ id: 'one', title: 'Session one' })
+    expect(one.messages).toHaveLength(1)
+    const metadata = JSON.parse(await readFile(path.join(directory, 'storage', 'conversations', 'global', 'sessions-metadata.json'), 'utf8'))
+    expect(metadata.two).toMatchObject({ id: 'two', messageCount: 1 })
+    expect(await exists(path.join(sessionsDir, 'stale.json'))).toBe(false)
 
-    const reopened = await initializeSqliteStorage({ dataDir: directory })
-    expect(readSessionStorageState().phase).toBe('json_authoritative')
-    await closeSqliteStorage()
-  })
-
-  it('refuses downgrade when the JSON mirror does not match the authoritative snapshot', async () => {
-    const directory = await buildAuthoritativeDataDir()
-    directories.push(directory)
-    // Stale JSON with no pending mirror entry must be rejected, not silently
-    // downgraded into a diverged state.
-    await writeFile(
-      path.join(directory, 'storage', 'conversations', 'global', 'sessions', 'one.json'),
-      `${JSON.stringify({ id: 'one', scope: 'global', stateVersion: 1, title: 'Corrupted', messages: [] })}\n`,
-      'utf8',
-    )
-    const result = await spawnTool(downgradeScript, directory, ['--commit'])
-    expect(result.code).not.toBe(0)
-    expect(result.stderr).toMatch(/JSON mirror verification failed/)
-    const storage = await initializeSqliteStorage({ dataDir: directory })
-    expect(readSessionStorageState().phase).toBe('authoritative')
-    await closeSqliteStorage()
-  })
-
-  it('materializes a split session into a complete v1 JSON body on downgrade (dry-run writes nothing)', async () => {
-    const directory = await buildAuthoritativeDataDir({})
-    directories.push(directory)
-
-    // Create a split session (≥ MESSAGES_SPLIT_THRESHOLD messages) after the
-    // cutover; its mirror entry stays PENDING so the downgrade dry-run probe can
-    // verify zero writes.
+    // SQLite stays authoritative: reopening the store keeps the data intact.
     const storage = await initializeSqliteStorage({ dataDir: directory })
     const repository = createSessionStateRepository(storage)
-    configureSessionStateService({ repository, mirror: tempMirror(directory), phase: 'authoritative' })
+    expect(repository.count()).toBe(2)
+    await closeSqliteStorage()
+  })
+
+  it('materializes a split session into a complete v1 JSON body', async () => {
     const bigMessages = []
     for (let index = 0; index < 205; index += 1) {
       bigMessages.push({ role: index % 2 === 0 ? 'user' : 'assistant', content: `m${index}`, timestamp: `2026-01-01T00:00:00.${String(index).padStart(3, '0')}Z` })
     }
-    saveSessionBody('big', { messages: bigMessages, title: 'Big' })
-    expect(repository.messageCount({ scope: 'global', sessionId: 'big' })).toBe(205)
-    await closeSqliteStorage()
-
+    const directory = await buildAuthoritativeDataDir([sessionJson('big', { title: 'Big', messages: bigMessages })])
+    directories.push(directory)
     const bigJson = path.join(directory, 'storage', 'conversations', 'global', 'sessions', 'big.json')
-    // dry-run: no drain, no phase change, no JSON written.
+    await rm(bigJson, { force: true })
+
     const dryRun = await spawnTool(downgradeScript, directory, ['--dry-run'])
     expect(dryRun.code).toBe(0)
-    const dryReport = JSON.parse(dryRun.stdout.trim())
-    expect(dryReport).toMatchObject({ ok: true, dryRun: true, count: 1, phase: 'authoritative' })
     expect(await exists(bigJson)).toBe(false)
 
-    // Materialize: the split session's full body (marker + messages) is written.
     const materialized = await spawnTool(downgradeScript, directory)
     expect(materialized.code).toBe(0)
     const materializedJson = JSON.parse(await readFile(bigJson, 'utf8'))
     expect(materializedJson.messageStorage).toBe('split')
     expect(Array.isArray(materializedJson.messages) && materializedJson.messages).toHaveLength(205)
-
-    // --commit: authority flips back to JSON and the mirror is fully readable.
-    const committed = await spawnTool(downgradeScript, directory, ['--commit'])
-    expect(committed.code).toBe(0)
-    const commitReport = JSON.parse(committed.stdout.trim())
-    expect(commitReport).toMatchObject({ ok: true, phase: 'json_authoritative', phaseChanged: true })
-    const reopened = await initializeSqliteStorage({ dataDir: directory })
-    expect(readSessionStorageState().phase).toBe('json_authoritative')
-    await closeSqliteStorage()
   })
 
   it('fails cleanly without partial output when quick_check/open fails', async () => {

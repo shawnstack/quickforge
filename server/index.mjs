@@ -6,10 +6,9 @@ import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { sendJson, sendError } from './utils/response.mjs'
 import { openBrowser, openPathInFileManager } from './utils/platform.mjs'
-import { ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir, readAuthoritativeSessionMetadataBuckets, registerSessionMetadataCommitHook } from './storage.mjs'
-import { initializeSessionStateCutover } from './session-state-cutover.mjs'
-import { initializeSessionStateService, drainSessionJsonMirror, readSessionStorageState, stopSessionStateService } from './session-state-service.mjs'
-import { resolveSessionStateStartupRoute, startSessionStateBackgroundMigration } from './session-state-background-migration.mjs'
+import { ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir, createPhysicalSessionStateFsAdapter } from './storage.mjs'
+import { initializeSessionStateService, stopSessionStateService } from './session-state-service.mjs'
+import { importSessionStateFromJson } from './session-state-import.mjs'
 import { initializeShareCutover } from './share-cutover.mjs'
 import { drainShareJsonMirror, initializeShareService, stopShareService } from './share-service.mjs'
 import { initializeLanAccessCutover } from './lan-access-cutover.mjs'
@@ -58,10 +57,10 @@ import { shutdown as shutdownAgentManager, resetStaleTaskStatuses } from './agen
 import { initializeChannels, shutdownChannels } from './channels/registry.mjs'
 import { shutdownMcpConnections } from './mcp/registry.mjs'
 import { shutdownTerminalSessions } from './terminal/terminal-manager.mjs'
-import { closeSqliteStorage, getSqliteStorageSummary, initializeSqliteStorage } from './sqlite/database.mjs'
+import { closeSqliteStorage, getSqliteStorage, getSqliteStorageSummary, initializeSqliteStorage } from './sqlite/database.mjs'
 import { initializeScheduledRunsCutover } from './scheduled-runs-cutover.mjs'
 import { recoverScheduledRunsRestorePlan } from './scheduled-runs-backup.mjs'
-import { configureSessionIndex, getSessionIndexDiagnostics, initializeSessionIndex, syncSessionMetadataCommit } from './session-index-service.mjs'
+import { getSessionIndexDiagnostics, initializeSessionIndex } from './session-index-service.mjs'
 import { createNodeProcessEnv } from './utils/process-env.mjs'
 import { isAuthenticatedAppClient } from './access-policy.mjs'
 import { STARTUP_STATES, getStartupError, getStartupState, readMigrationStatus, resolveMaintenanceGate, setStartupState, withStartupRecoveryGuidance } from './startup-state.mjs'
@@ -861,39 +860,35 @@ async function runStartupInitialization() {
   await timedStartupStep('scheduled-runs-cutover', () => initializeScheduledRunsCutover())
   await timedStartupStep('scheduled-runs-restore-plan', () => recoverScheduledRunsRestorePlan())
   await timedStartupStep('stale-scheduled-task-runs', () => recoverStaleScheduledTaskRuns())
-  // Session state startup routing (background-migration design §6): a store
-  // still on json_authoritative — or carrying the legacy cutover_running
-  // residue (§10.1, reset by the task itself) — skips the synchronous cutover
-  // so the session domain never extends the maintenance window: business
-  // keeps the JSON path and startSessionStateBackgroundMigration runs
-  // fire-and-forget. The pending/authoritative phases keep the legacy
-  // four-step chain: integrity failures fail closed and block startup,
-  // json_authoritative failures keep the legacy JSON path.
-  const sessionStartupRoute = resolveSessionStateStartupRoute(readSessionStorageState().phase)
-  if (sessionStartupRoute === 'background') {
-    await timedStartupStep('session-state-service', () => initializeSessionStateService())
-    await timedStartupStep('session-state-restore-plan', () => recoverSessionStateRestorePlan())
-    // No-op in this phase (the mirror queue is empty by construction), kept
-    // for parity with the legacy chain.
-    await timedStartupStep('session-json-mirror-drain', () => drainSessionJsonMirror())
-    // Fire-and-forget (§3.4): never blocks READY. The task resolves — never
-    // rejects — with a terminal outcome and keeps json_authoritative on
-    // failure; the catch is a belt-and-braces guard so an unexpected
-    // rejection cannot surface as an unhandled one.
-    void startSessionStateBackgroundMigration({ logger }).catch((error) => {
-      logger.error('Session background migration task failed', {
-        domain: 'session-state',
-        event: 'session.background_migration.task.failed',
-        errorName: error?.name || 'Error',
-        errorMessage: error?.message,
-      })
-    })
-  } else {
-    await timedStartupStep('session-state-cutover', () => initializeSessionStateCutover())
-    await timedStartupStep('session-state-service', () => initializeSessionStateService())
-    await timedStartupStep('session-state-restore-plan', () => recoverSessionStateRestorePlan())
-    await timedStartupStep('session-json-mirror-drain', () => drainSessionJsonMirror())
-  }
+  // Session state (storage v2): SQLite is authoritative by construction. The
+  // only startup work is the one-shot JSON import — when the v2 store is empty
+  // and legacy JSON session files exist, importSessionStateFromJson re-imports
+  // them (idempotent, per-session transactions, WAL checkpoint at the end);
+  // otherwise the store is ready as-is. The import runs inside the maintenance
+  // window, so /api/* stays gated (process state 'migrating') until it
+  // completes; the sessionState domain reports 'authoritative' throughout.
+  await timedStartupStep('session-state-service', () => initializeSessionStateService())
+  await timedStartupStep('session-state-import', async () => {
+    const { createSessionStateRepository } = await import('./sqlite/session-state-repository.mjs')
+    const repository = createSessionStateRepository(getSqliteStorage())
+    if (repository.count() > 0) return
+    const adapter = createPhysicalSessionStateFsAdapter()
+    let hasJsonSessions = false
+    for await (const bucket of adapter.listBuckets()) {
+      for await (const sessionId of adapter.listSessionFiles(bucket)) {
+        if (sessionId) {
+          hasJsonSessions = true
+          break
+        }
+      }
+      if (hasJsonSessions) break
+    }
+    if (!hasJsonSessions) return
+    logger.info('Session state JSON import starting (empty SQLite store, legacy files detected)', { domain: 'session-state' })
+    const { imported, skipped } = await importSessionStateFromJson({ logger })
+    logger.info('Session state JSON import finished', { domain: 'session-state', imported, skipped })
+  })
+  await timedStartupStep('session-state-restore-plan', () => recoverSessionStateRestorePlan())
   // Share storage cutover: share-store writes become SQLite-authoritative once
   // pending/authoritative; integrity failures fail closed and block startup,
   // json_authoritative failures keep the legacy JSON path. The JSON file stays
@@ -921,8 +916,6 @@ async function runStartupInitialization() {
     logsDir,
   })
   await timedStartupStep('reset-stale-task-statuses', () => resetStaleTaskStatuses())
-  configureSessionIndex({ readBuckets: readAuthoritativeSessionMetadataBuckets })
-  registerSessionMetadataCommitHook(syncSessionMetadataCommit)
   await timedStartupStep('session-index', () => initializeSessionIndex())
   await timedStartupStep('active-project', () => initializeActiveProject())
   setActiveWorkspaceRootForFilesystem(getWorkspaceRoot())

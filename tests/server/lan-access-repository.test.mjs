@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applySqliteMigrations, SQLITE_MIGRATIONS } from '../../server/sqlite/migrations.mjs'
 import { createLanAccessRepository, LAN_TOKEN_MAX_COUNT, lanAccessConfigDigest, normalizeLanAccessConfig } from '../../server/sqlite/lan-access-repository.mjs'
 import { createShareRepository } from '../../server/sqlite/share-repository.mjs'
-import { createSessionStateRepository } from '../../server/sqlite/session-state-repository.mjs'
 
 function createHandle(database) {
   return {
@@ -75,10 +74,10 @@ describe('lan-access repository and schema v9', () => {
   })
 
   it('creates schema v9 lan-access tables and rolls a failing v8→v9 migration back without losing F5/F7/F9/F10 data', () => {
-    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(10)
+    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(11)
     expect(database.prepare('SELECT version, name FROM schema_migrations ORDER BY version').all().at(-1)).toEqual({
-      version: 10,
-      name: 'session_states_metadata_covering_index',
+      version: 11,
+      name: 'session_state_v2_storage',
     })
     for (const table of ['lan_access_state', 'lan_access_tokens', 'lan_access_storage_state', 'lan_access_maintenance_lock', 'lan_access_json_mirror_queue']) {
       expect(database.prepare(`SELECT name FROM sqlite_schema WHERE type='table' AND name=?`).get(table)).toBeDefined()
@@ -96,14 +95,20 @@ describe('lan-access repository and schema v9', () => {
       VALUES ('task', 'run', 'success', '2026-01-01T00:00:00.000Z', '{}', 'test', '2026-01-01T00:00:00.000Z')`).run()
     database.prepare(`INSERT INTO session_index (scope, project_id, session_id, is_pinned, is_archived, metadata_json, metadata_digest, indexed_at)
       VALUES ('global', '', 'legacy', 0, 0, '{}', ?, '2026-01-01T00:00:00.000Z')`).run('a'.repeat(64))
-    const sessionRepository = createSessionStateRepository(createHandle(database), { now })
-    sessionRepository.save({
-      scope: 'global',
-      sessionId: 'legacy-session',
-      stateVersion: 1,
-      state: { id: 'legacy-session', scope: 'global', stateVersion: 1, messages: [] },
-      metadata: { id: 'legacy-session', scope: 'global', stateVersion: 1, messageCount: 0 },
-    }, { expectedRevision: 0 })
+    // Seed the v8-era session domain directly (the v2 session repository
+    // speaks schema v11 only); a failing v9 must roll back without touching
+    // any of these rows.
+    database.prepare(`INSERT INTO session_states
+      (scope, project_id, session_id, revision, state_version, state_json, state_digest, metadata_json, metadata_digest, created_at, updated_at)
+      VALUES ('global', '', 'legacy-session', 1, 1, ?, ?, ?, ?, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`)
+      .run(
+        JSON.stringify({ id: 'legacy-session', scope: 'global', stateVersion: 1 }),
+        'a'.repeat(64),
+        JSON.stringify({ id: 'legacy-session', scope: 'global', stateVersion: 1, messageCount: 0 }),
+        'b'.repeat(64),
+      )
+    database.prepare(`INSERT INTO session_index (scope, project_id, session_id, is_pinned, is_archived, metadata_json, metadata_digest, indexed_at)
+      VALUES ('global', '', 'legacy-session', 0, 0, '{}', ?, '2026-01-01T00:00:00.000Z')`).run('c'.repeat(64))
     const shareRepository = createShareRepository(createHandle(database), { now })
     shareRepository.create(share(), { expectedRevision: 0 })
 

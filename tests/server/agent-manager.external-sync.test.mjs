@@ -65,6 +65,7 @@ vi.mock('../../server/channels/event-relay.mjs', () => ({
 describe('agent manager external session synchronization', () => {
   let tmpDir
   let previousDataDir
+  let databaseModule
 
   beforeEach(async () => {
     previousDataDir = process.env.QUICKFORGE_DATA_DIR
@@ -73,9 +74,12 @@ describe('agent manager external session synchronization', () => {
     await mkdir(path.join(tmpDir, 'workspace'))
     MockAgent.instances = []
     vi.resetModules()
+    databaseModule = await import('../../server/sqlite/database.mjs')
+    await databaseModule.initializeSqliteStorage()
   })
 
   afterEach(async () => {
+    await databaseModule?.closeSqliteStorage().catch(() => {})
     if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
     else process.env.QUICKFORGE_DATA_DIR = previousDataDir
     await rm(tmpDir, { recursive: true, force: true })

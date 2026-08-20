@@ -2,38 +2,56 @@
 
 ## 当前状态
 
-- 本会话目标：定位"当前查询 session 的分页接口查询变慢"的根因，并优化 SQLite 侧查询热路径。
-- 最终状态：根因定位 + O1/O2/O3 优化落地，全量验证通过：`npm run test` 216 文件 1803 测试全过、`npm run lint` 通过（仅既有 `server/cloud/identity.mjs:92` warning）。**所有改动未 commit。**
+- 本会话目标：存储 v2 改造收尾——文档同步 + 项目簿记 + 完整验证门（重构主体由前序会话完成）。
+- 最终状态：**会话存储 v2 全部完成，全绿**：`npm run test` 210 文件 1729 测试全过、`npm run lint` 通过（仅既有 `server/cloud/identity.mjs:92` warning）、`npm run build`（tsc -b + vite build）通过。**所有改动未 commit。**
 
-## 根因结论（只读诊断证据）
+## 存储改造要点（速览）
 
-- 本机默认库（`~/.quickforge`）：24 会话、authoritative 相位、9 个查询索引齐全；纯 SQL 亚毫秒（COUNT 0.3ms、页查询 0.1ms），线上接口实测 2~92ms——本机不慢。
-- 基准脚本（隔离临时库）：1k 行 0.8ms / 10k 行 16ms / 50k 行 93ms（OFFSET 翻页线性，EXPLAIN 均命中 v5 查询索引）。
-- 变慢代价模型命中大库（另一台机器 2.93GB / 2415 会话 / GB 级 state_json）：瓶颈是**每请求固定全量开销**——verifyIntegrity TTL 5s 即做 session_states 全表扫 + 逐行 JSON.parse/SHA-256 + session_index 两遍全表（且无并发去重，前端一次刷新并发 4 类分页请求各做一遍）；syncMetadataCommit 置空 lastVerifiedAt；analyzeQuery 每请求 2 条 GROUP BY 全表聚合。node:sqlite 全同步单连接，这些开销会阻塞所有并发请求。
+- schema v11 三表：`sessions`（小行：提升列 + body_json/meta_json，无巨列）、`session_messages`（逐行 append-only，`UNIQUE(…, message_id)` + FK CASCADE + 行级 digest）、`session_tombstones`（极小墓碑）；旧 6 表 RENAME `*_v10_backup` 保留。
+- 写入：save 统一抽取 messages；service 增量计划（body-only/replace/append，尾 digest + 中部采样校验）；单事务 CAS。旧设计同一数据写 ≈5 份（巨列全量重写 + session_index + mirror outbox + JSON 物化 + 自由页不回收，实测库 2~3GB）→ v2 每条数据 1 份。
+- 删除：FK 级联 + 墓碑 + `incremental_vacuum(512)`（`auto_vacuum=INCREMENTAL`，仅新库生效）。
+- 启动：会话域恒 SQLite authoritative；空库 + JSON 文件存在 → `importSessionStateFromJson` 一次性幂等导入（每会话一事务、JSON 只读）。
+- 删除的机制：JSON mirror 全链、phase 状态机、`session_index` 派生表、cutover 与 background-migration 两模块、写屏障；维护锁迁出为 `server/session-state-maintenance.mjs`；`downgrade` 工具重写为纯导出。
+- 单一事实文档：`docs/architecture/session-storage-v2.zh-CN.md`。
 
-## 本会话产出（未 commit，3 文件）
+## 本会话改动文件（收尾部分）
 
-- `server/session-index-service.mjs`：①`DEFAULT_VERIFY_TTL_MS` 5s→60s + `verifyIntegrity` in-flight 共享（并发等待者拿同一结果）；②`syncMetadataCommit` 不再置空 `lastVerifiedAt`，成功路径 digest 重算后保留校验时间戳（失败仍 dirty/degraded + rebuild）；③`analyzeQuery` 按索引内容代际缓存（`replaceAll`/`applyChanges` 后失效；limit/offset 不参与缓存键）。
-- `tests/server/session-index-query-service.test.mjs`：新增 5 用例（并发去重、TTL 跳过、同步成功后免重校验、同步失败仍降级、分析缓存与代际失效）。
-- `docs/architecture/session-index-query-migration.zh-CN.md`：「F8 之后的定位」追加性能注记（2026-08）。
-- 状态文件：feature_list.json（+`optimize-session-index-query-hot-path` done）、progress.md、session-handoff.md。
+- 新增 `docs/architecture/session-storage-v2.zh-CN.md`（v2 单一事实文档）。
+- 更新 `docs/architecture/session-storage-current-architecture.zh-CN.md`（标注为 v1 历史参考 + 指向 v2）、`docs/architecture/session-storage-recovery-runbook.zh-CN.md`（顶部 v2 修订提示：恢复=备份 restore 或删库重导，无"降级回 JSON 权威"）、`docs/architecture/sqlite-storage-foundation.zh-CN.md`（§4 补 v11 一段）、`docs/wiki/server/README.md`（存储层/repository 契约段全面更新为 v2 现状）。
+- 簿记：`feature_list.json`（+`session-storage-v2` done）、`progress.md`、`session-handoff.md`（本文件）。
+- （重构主体的代码/测试改动见 `git status`，约 70 文件：migrations/database/session-state-repository/session-state-import(新增)/session-state-service/session-state-maintenance(新增)/session-index-*/storage/agent-manager/index/startup-state/session-state-backup/routes/维护工具 + 删除 cutover、background-migration 两模块 + 约 40 个测试文件重写/删除。）
 
-## 测试观察（记录不处理）
+## 用户下一步操作（测试机）
 
-- `session-state-background-migration.integration.test.mjs` 用例 a) 出现过 EPERM rename（`%TEMP%` 下 .tmp → 目标，Windows 文件锁/AV 嫌疑）。取样：带改动 4 跑 1 挂、stash 本次改动后通过、恢复后连跑 3 次全过——判定环境级 flaky 候选，与本次改动无关（未触碰 `writeJsonAtomic` 路径）。
+1. 部署新版后，关闭所有 QuickForge 进程；
+2. 删除 `~/.quickforge/storage/quickforge.sqlite3`（连同 `-wal`/`-shm` 三件套一起删）；
+3. 重启——空库 + JSON 会话文件存在时启动链自动一次性重导（维护窗口内，`/api/*` 短暂 503 后 READY）；
+4. 观察新库体积（旧 JSON 布局的巨列放大消失）与启动耗时；后续删除会话应能看到库文件缩小。
 
-## 已知取舍与后续候选（SQLite 中期项，未实施）
+注意：不删库文件也能跑（v11 直接在旧库上 RENAME 建新表），但旧库没有 `auto_vacuum` 增量回收、`*_v10_backup` 旧体积也仍在文件里——要验证空间回收必须走删库重导路径。
 
-- O6 可见性列进索引：`(message_count IS NULL OR message_count <> 0)` 残余条件使 `COUNT(*)` 与深 OFFSET 翻页回表读整行；写入时维护 `visible` 列并纳入查询索引可让计数/翻页索引覆盖（需迁移 v10）。
-- O7 keyset（游标）分页替代 OFFSET；O8 COUNT 缓存/估算（可与前端 hasMore 判断配合）。
-- shadow 采样与 F7 readiness/TTL 机制的退役按文档既定观察期推进（本优化已把 TTL 降频到 60s，属退役前的安全调参）。
+## 已知取舍（详见 v2 文档 §8）
+
+- `listPage` 的 `lastModified` 排序走 `json_extract(meta_json)`（temp b-tree 排序；EXPLAIN 已验证 scope 过滤走 `idx_sessions_list`）。
+- 删除后同 key CAS 的 `actualRevision` 报 0（墓碑无 revision；stale 写仍 409、fresh 重建仍成功）。
+- `repository()` 先求值 `getSqliteStorage()`：注入 repository 的测试仍需 SQLite 已初始化（S2b 疑点，未构成实际问题）。
+- `auto_vacuum` 仅新库生效；升级用户需删库重导才获得空间回收。
+- 备份信封 `sessionState { phase, count, digest }` 不变（phase 恒 `authoritative`），旧 v1 备份可正常恢复。
+
+## 下一步候选
+
+- `*_v10_backup` 六表清理：v2 稳定运行观察期（真实大库验证 + 至少一个 patch 发布）后，以独立 migration DROP 回收空间。
+- `lastModified` 表达式索引（`json_extract(meta_json, '$.lastModified')`）消除列表排序 temp b-tree。
+- `repository()` 注入疑点拆分（见上，供纯内存 repository 测试）。
+- share / lan-access 域 mirror/cutover 链的同类 v2 化候选（本次明确不动）。
+- 工作区清理：根目录遗留 `.vitest-*.txt`（13 个未跟踪的测试输出残留），建议删除或加入 `.gitignore`。
 
 ## 最近提交
 
-- 本会话改动未 commit；之前批次（后台迁移设计+实施、quick-check gate 等）的提交状态见 `git log --oneline` 与 progress.md。
+- 本会话改动未 commit；之前批次提交状态见 `git log --oneline` 与 progress.md。
 
 ## Next step
 
-- 择机 commit（本会话 3 文件 + 状态文件）。
-- 大库机器部署新版后实测分页接口收益（预期：闲置后首发卡顿从"每 5 秒一次"降为"每 60 秒一次"，并发刷新不再叠加校验；如仍慢则优先做 O6）。
-- 发布 patch 版本前按 runbook 完整运行 test/lint/build。
+- 择机 commit（重构主体 + 收尾文档/簿记可分两个 commit 或合一）。
+- 测试机删库重导验证（见上「用户下一步操作」）。
+- 发布 patch 版本前按 `docs/architecture/patch-release-runbook.zh-CN.md` 完整运行 test/lint/build。

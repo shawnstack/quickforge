@@ -6,6 +6,7 @@ import path from 'node:path'
 
 let tmpDir
 let previousDataDir
+let databaseModule
 
 function request(method, body) {
   const req = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))])
@@ -34,9 +35,12 @@ beforeEach(async () => {
   tmpDir = await mkdtemp(path.join(os.tmpdir(), 'quickforge-shares-route-'))
   process.env.QUICKFORGE_DATA_DIR = path.join(tmpDir, 'data')
   vi.resetModules()
+  databaseModule = await import('../../../server/sqlite/database.mjs')
+  await databaseModule.initializeSqliteStorage()
 })
 
 afterEach(async () => {
+  await databaseModule?.closeSqliteStorage().catch(() => {})
   if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
   else process.env.QUICKFORGE_DATA_DIR = previousDataDir
   await rm(tmpDir, { recursive: true, force: true })

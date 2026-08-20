@@ -109,6 +109,7 @@ session-state-service  →  session-state-import  →  session-state-restore-pla
 - 逐桶合并 body 文件 id ∪ metadata 桶 key 排序遍历；**每会话一个事务**（`repository.save` 幂等 upsert），任意中断后重跑安全；
 - 校验语义沿用 cutover 的 `normalizeSessionEntry`（id/scope/projectId 三方一致；body-only 文件推导 metadata；metadata-only 孤儿 dropped 并记 diagnostics）；
 - 单条目失败（文件不可读、校验不符）**不中断整体**：计入 `skipped` + `diagnostics`，修复源文件后重跑即可；
+- 桶级 `sessions-metadata.json` 损坏/不可读同样**不中断启动**：该桶降级为空 metadata 继续（正文文件照常导入，走 body-only 推导；仅 metadata-only 条目丢失——它们本就不含消息、按设计 dropped），记 `diagnostics`（`metadata-bucket-error`）+ warn 日志；
 - 结束后 WAL checkpoint。
 
 导入在启动维护窗口内执行：`/api/*` 维持 503 门控（进程状态 `migrating`）直到完成，避免导入期间读到半量数据。

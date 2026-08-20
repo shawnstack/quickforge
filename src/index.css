@@ -2015,18 +2015,115 @@ message-list[data-quickforge-subagent-process="true"]
 
 user-message .user-message-container,
 .quickforge-user-message .user-message-container {
+  /* 气泡背景（渐隐遮罩/展开按钮复用同色）：浓度比原 10% 调浅，浅色主题见下方 3% 覆盖 */
+  --quickforge-input-clamp-bg: color-mix(in oklab, var(--primary) 6%, var(--card));
   max-width: min(78%, 45rem) !important;
   border: 1px solid color-mix(in oklab, var(--primary) 18%, var(--border)) !important;
   border-radius: 1.125rem 1.125rem 0.375rem 1.125rem !important;
-  background: color-mix(in oklab, var(--primary) 10%, var(--card)) !important;
+  background: var(--quickforge-input-clamp-bg) !important;
   color: var(--foreground) !important;
   box-shadow:
     0 10px 28px -24px color-mix(in oklab, var(--primary) 55%, black),
     inset 0 1px 0 rgb(255 255 255 / 0.08) !important;
 }
 
+/* 浅色主题：纯白底上混灰极易显脏，浓度降到 3% */
+html:not(.dark) user-message .user-message-container,
+html:not(.dark) .quickforge-user-message .user-message-container {
+  --quickforge-input-clamp-bg: color-mix(in oklab, var(--primary) 3%, var(--card));
+}
+
 .quickforge-user-message .quickforge-message-actions {
   margin-left: auto;
+}
+
+/* --- 长输入定高收起（聊天用户消息气泡 + subagent 任务块，设计稿 design-mockups/input-clamp-expand.html） ---
+   状态由 src/lib/input-clamp.ts 写 data 属性：clamped=收起中（定高裁切）、
+   expanded=已展开、fits=内容不足定高（遮罩与按钮不占位）。
+   过渡时长与 INPUT_CLAMP_TRANSITION_MS 保持一致（.22s）。 */
+.quickforge-input-clamp {
+  position: relative;
+  transition: max-height .22s cubic-bezier(.22, 1, .36, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-input-clamp,
+  .quickforge-input-clamp-toggle svg { transition: none; }
+}
+.quickforge-input-clamp[data-quickforge-clamped='true'] {
+  max-height: var(--quickforge-input-clamp-h, 11.25rem);
+  overflow: hidden;
+}
+.quickforge-input-clamp[data-quickforge-clamped='false'] {
+  max-height: none;
+}
+.quickforge-input-clamp[data-quickforge-fits='true'] .quickforge-input-clamp-fade,
+.quickforge-input-clamp[data-quickforge-fits='true'] .quickforge-input-clamp-toggle,
+.quickforge-input-clamp[data-quickforge-clamped='false'] .quickforge-input-clamp-fade {
+  display: none;
+}
+
+.quickforge-input-clamp-fade {
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  bottom: 1px;
+  height: 52px;
+  background: linear-gradient(to bottom, transparent, var(--quickforge-input-clamp-bg, transparent) 76%);
+  pointer-events: none;
+  border-radius: 17px 17px 5px 17px;
+}
+
+.quickforge-input-clamp-toggle {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--muted-foreground);
+  background: var(--quickforge-input-clamp-bg, var(--card));
+  border: 1px solid color-mix(in oklab, var(--primary) 18%, var(--border));
+  border-radius: 999px;
+  padding: 3px 11px;
+  cursor: pointer;
+  box-shadow: 0 6px 16px -12px color-mix(in oklab, var(--primary) 55%, black);
+}
+.quickforge-input-clamp-toggle:hover {
+  color: var(--foreground);
+  border-color: color-mix(in oklab, var(--primary) 34%, var(--border));
+}
+.quickforge-input-clamp-toggle:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--primary) 45%, transparent);
+  outline-offset: 1px;
+}
+.quickforge-input-clamp-toggle svg {
+  transition: transform .18s ease;
+}
+.quickforge-input-clamp[data-quickforge-clamped='false'] .quickforge-input-clamp-toggle svg {
+  transform: rotate(180deg);
+}
+
+/* subagent 任务说明块复用用户消息气泡视觉（同边框/圆角/阴影/文字规格） */
+.quickforge-subagent-task.quickforge-input-clamp {
+  --quickforge-input-clamp-bg: color-mix(in oklab, var(--primary) 6%, var(--card));
+  border: 1px solid color-mix(in oklab, var(--primary) 18%, var(--border));
+  border-radius: 1.125rem 1.125rem 0.375rem 1.125rem;
+  background: var(--quickforge-input-clamp-bg);
+  color: var(--foreground);
+  box-shadow:
+    0 10px 28px -24px color-mix(in oklab, var(--primary) 55%, black),
+    inset 0 1px 0 rgb(255 255 255 / 0.08);
+  padding: 12px 16px;
+  font-size: var(--quickforge-message-font-size, 14px);
+  line-height: var(--quickforge-message-line-height, 1.625);
+  overflow-wrap: anywhere;
+}
+html:not(.dark) .quickforge-subagent-task.quickforge-input-clamp {
+  --quickforge-input-clamp-bg: color-mix(in oklab, var(--primary) 3%, var(--card));
 }
 
 .quickforge-message-time {
@@ -2822,7 +2919,8 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
 }
 
 /* subagent 摘要卡「当前工具」跑马灯：只占用标签与状态之间的剩余弹性空间；
-   min-width: 0 保证对话列变窄时先自行收缩退让，不遮挡状态标签与 spinner/耗时。 */
+   min-width: 0 保证对话列变窄时先自行收缩退让，不遮挡状态标签与 spinner/耗时。
+   定高一行（0.75rem × line-height 1.5）是双视图纵向滚动切换的度量前提。 */
 .quickforge-subagent-marquee {
   display: inline-flex;
   flex: 1 1 auto;
@@ -2833,7 +2931,16 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
   font-family: var(--font-mono);
   font-size: 0.75rem;
   line-height: 1.5;
+  height: 1.125rem;
   color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+}
+
+/* 两个等价视图绝对铺满容器：text 切换时对视图做 translateY(±100%) 纵向滚动（旧文滚出、
+   新文滚入），非当前视图由控制器置 visibility:hidden。 */
+.quickforge-subagent-marquee .quickforge-marquee-view {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
 }
 
 .quickforge-subagent-marquee .quickforge-marquee-static {
@@ -3060,6 +3167,10 @@ assistant-message :is(thinking-block, tool-message, markdown-block)[data-quickfo
 .quickforge-diff-block {
   max-height: 28rem;
   overflow: auto;
+  /* 整块单一 grid：第三列取 max(剩余宽度, 最宽行)，所有行共享列宽，
+     行背景因此铺满整个横向滚动区域，滚动条右滑不露底。 */
+  display: grid;
+  grid-template-columns: 3.1rem 3.1rem minmax(max-content, 1fr);
   border: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
   border-radius: 0.75rem;
   background: color-mix(in oklab, var(--muted) 28%, transparent);
@@ -3068,34 +3179,109 @@ assistant-message :is(thinking-block, tool-message, markdown-block)[data-quickfo
   line-height: 1.45;
 }
 
-.quickforge-diff-block > div {
+/* 结构化 diff 行：old/new 双行号列 + 代码列；+/- 前缀已剥离，变更语义由底色承载。
+   行盒让渡给块级 grid（display:contents），三个单元格直接参与共享列。 */
+.quickforge-diff-row {
+  display: contents;
+}
+
+.quickforge-diff-ln {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
   min-height: 1.35em;
-  padding: 0 0.75rem;
+  padding: 0 0.55rem 0 0.25rem;
+  color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.quickforge-diff-code {
+  min-height: 1.35em;
+  padding: 0 0.75rem 0 0.25rem;
   white-space: pre;
+  color: var(--foreground);
 }
 
-.quickforge-diff-file {
-  background: color-mix(in oklab, var(--muted) 48%, transparent);
-  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
-}
-
-.quickforge-diff-hunk {
-  background: color-mix(in oklab, rgb(37 99 235) 10%, transparent);
-  color: rgb(37 99 235);
-}
-
-.quickforge-diff-add {
+.quickforge-diff-row-add .quickforge-diff-code {
   background: color-mix(in oklab, rgb(34 197 94) 16%, transparent);
   color: rgb(22 101 52);
 }
 
-.quickforge-diff-del {
+.quickforge-diff-row-del .quickforge-diff-code {
   background: color-mix(in oklab, rgb(239 68 68) 14%, transparent);
   color: rgb(153 27 27);
 }
 
-.quickforge-diff-context {
-  color: var(--foreground);
+/* 字符级高亮：配对删/加行经 token 对比，真正变化的字符段加重底色。 */
+.quickforge-diff-code mark {
+  background: transparent;
+  color: inherit;
+  border-radius: 2px;
+}
+
+.quickforge-diff-row-add .quickforge-diff-code mark {
+  background: color-mix(in oklab, rgb(34 197 94) 34%, transparent);
+}
+
+.quickforge-diff-row-del .quickforge-diff-code mark {
+  background: color-mix(in oklab, rgb(239 68 68) 28%, transparent);
+}
+
+/* hunk 间隙省略行：数量由相邻 hunk 头行号差计算。 */
+.quickforge-diff-gap {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.1875rem 0.75rem 0.1875rem 0.9rem;
+  font-size: 0.72rem;
+  color: var(--muted-foreground);
+  border-block: 1px dashed color-mix(in oklab, var(--border) 70%, transparent);
+  background: color-mix(in oklab, var(--muted) 35%, transparent);
+  user-select: none;
+}
+
+.quickforge-diff-gap-first {
+  border-top: none;
+}
+
+.quickforge-diff-gap-dots {
+  letter-spacing: 2px;
+}
+
+/* 标题行：文件路径上提（替代 ---/+++ 两行文件头），新文件标记。 */
+.quickforge-diff-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.quickforge-diff-newfile {
+  flex: none;
+  border: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
+  border-radius: 999px;
+  padding: 0 0.4rem;
+  font-size: 0.68rem;
+  color: var(--muted-foreground);
+}
+
+/* 暗色主题切换亮文字色：修复固定深绿/深红文字在深背景下的对比度问题（含徽章与里程计）。 */
+html.dark .quickforge-diff-row-add .quickforge-diff-code,
+html.dark .quickforge-diff-badge-add,
+html.dark .quickforge-odometer-side.add {
+  color: rgb(134 239 172);
+}
+
+html.dark .quickforge-diff-row-del .quickforge-diff-code,
+html.dark .quickforge-diff-badge-del,
+html.dark .quickforge-odometer-side.del {
+  color: rgb(252 165 165);
 }
 
 .quickforge-diff-badge {
@@ -4807,7 +4993,6 @@ html.dark .quickforge-scroll-bottom-badge {
 .quickforge-ask-option-label { font-weight: 560; overflow-wrap: anywhere; }
 .quickforge-ask-option-desc { color: var(--muted-foreground); font-size: .75rem; }
 .quickforge-ask-option-arrow { margin-left: auto; align-self: center; color: var(--muted-foreground); font-size: .6875rem; user-select: none; }
-.quickforge-ask-next { align-self: flex-start; }
 .quickforge-ask-custom-toggle { align-self: flex-start; padding: .125rem .25rem; border: 0; border-radius: calc(var(--radius) - .125rem); background: transparent; color: var(--muted-foreground); cursor: pointer; font-size: .75rem; }
 .quickforge-ask-custom-toggle:hover { color: var(--foreground); background: var(--muted); }
 .quickforge-ask-custom { display: flex; flex-direction: column; gap: .375rem; }
@@ -4815,11 +5000,14 @@ html.dark .quickforge-scroll-bottom-badge {
 .quickforge-ask-custom-input { width: 100%; min-height: 3.5rem; padding: .5rem .625rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); color: var(--foreground); font: inherit; font-size: .8125rem; line-height: 1.6; resize: vertical; outline: none; }
 .quickforge-ask-custom-input:focus { border-color: var(--muted-foreground); }
 .quickforge-ask-review { display: flex; flex-direction: column; gap: .4375rem; }
-.quickforge-ask-review-row { display: flex; flex-direction: column; gap: .0625rem; padding: .3125rem 0 .3125rem .625rem; border-left: 2px solid var(--primary); }
+.quickforge-ask-review-row { display: flex; align-items: flex-start; gap: .5rem; padding: .3125rem 0 .3125rem .625rem; border-left: 2px solid var(--primary); }
+.quickforge-ask-review-content { display: flex; flex-direction: column; gap: .0625rem; min-width: 0; }
 .quickforge-ask-review-question { color: var(--foreground); font-size: .8125rem; font-weight: 560; }
 .quickforge-ask-review-answer { color: var(--muted-foreground); font-size: .75rem; }
+.quickforge-ask-review-edit { flex: none; margin-left: auto; padding: .125rem .4375rem; border: 0; border-radius: calc(var(--radius) - .125rem); background: transparent; color: var(--muted-foreground); cursor: pointer; font: inherit; font-size: .75rem; font-weight: 560; transition: color 150ms ease, background-color 150ms ease; }
+.quickforge-ask-review-edit:hover:not(:disabled) { color: var(--foreground); background: var(--muted); }
 .quickforge-ask-message { padding: .5rem .5625rem; border-radius: var(--radius); background: color-mix(in oklab, var(--destructive) 10%, var(--background)); color: var(--destructive); font-size: .75rem; line-height: 1.5; }
-.quickforge-ask-actions { display: flex; align-items: center; gap: .5rem; margin-top: .1875rem; }
+.quickforge-ask-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-top: .1875rem; }
 .quickforge-ask-note { margin-left: auto; color: var(--muted-foreground); font-size: .6875rem; text-align: right; }
 .quickforge-ask-button { min-height: 2rem; padding: .375rem .75rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); color: var(--foreground); cursor: pointer; font-size: .75rem; font-weight: 560; transition: background 150ms ease, border-color 150ms ease, opacity 150ms ease; }
 .quickforge-ask-button--primary { border-color: var(--primary); background: var(--primary); color: var(--primary-foreground); }

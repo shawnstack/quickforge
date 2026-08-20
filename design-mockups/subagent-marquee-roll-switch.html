@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subagent 跑马灯 · 工具切换上下滚动过渡样稿</title>
+<style>
+  :root {
+    --ink: #d6d9de;
+    --ink-dim: #8b919b;
+    --ink-faint: #6a7078;
+    --card: #1c1e22;
+    --card-edge: #2a2d33;
+    --page: #141518;
+    --accent: #9aa3b0;
+    --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+    --sans: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  body.light {
+    --ink: #2b313a;
+    --ink-dim: #6b7280;
+    --ink-faint: #9aa1ab;
+    --card: #ffffff;
+    --card-edge: #e3e6ea;
+    --page: #f2f4f7;
+    --accent: #5b6470;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink);
+    font: 13px/1.6 var(--sans);
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+    padding: 36px 16px 60px;
+  }
+  h1 { font-size: 15px; font-weight: 600; color: var(--ink-dim); margin: 0; }
+  .hint { color: var(--ink-faint); font-size: 12px; max-width: 720px; text-align: center; }
+
+  /* ---- 工具栏 ---- */
+  .toolbar {
+    display: flex; flex-wrap: wrap; gap: 14px 20px; align-items: center; justify-content: center;
+    font-size: 12.5px; color: var(--ink-dim);
+    background: var(--card); border: 1px solid var(--card-edge); border-radius: 10px;
+    padding: 10px 16px;
+  }
+  .toolbar label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+  .toolbar button {
+    border: 1px solid var(--card-edge); background: var(--card); color: var(--ink);
+    border-radius: 6px; padding: 4px 12px; cursor: pointer; font: inherit;
+  }
+  .toolbar button:hover { border-color: var(--accent); }
+
+  /* ---- 三张对比卡（模拟 quickforge 工具摘要卡布局：icon + label + 跑马灯 + 状态） ---- */
+  .stack { display: flex; flex-direction: column; gap: 22px; align-items: center; }
+  .demo-group { display: flex; flex-direction: column; gap: 6px; width: var(--card-w, 640px); max-width: 100%; }
+  .demo-caption { font-size: 11.5px; color: var(--ink-faint); padding-left: 2px; }
+  .demo-caption strong { color: var(--ink-dim); font-weight: 600; }
+  .tool-card {
+    background: var(--card); border: 1px solid var(--card-edge); border-radius: 8px;
+    padding: 10px 12px; display: flex; align-items: center; gap: 10px;
+  }
+  .tool-icon { width: 15px; height: 15px; flex: none; color: var(--ink-faint); }
+  .title { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 8px; }
+  .subagent-label { white-space: nowrap; font-size: 13px; color: var(--ink-dim); }
+  .status { flex: none; display: inline-flex; align-items: center; gap: 6px; font: 11px/1 var(--mono); color: var(--ink-faint); }
+  .spinner {
+    width: 13px; height: 13px; border-radius: 50%;
+    border: 2px solid var(--card-edge); border-top-color: var(--accent);
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---- 跑马灯（结构/度量与 .quickforge-subagent-marquee 一致；实现时容器需定高一行） ---- */
+  roll-marquee {
+    display: inline-flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    position: relative;
+    overflow: hidden;
+    white-space: nowrap;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.5;
+    height: 18px; /* = 12px × 1.5：实现时改为 1.125rem 定高，两视图均绝对定位 */
+    color: color-mix(in srgb, var(--ink-dim) 72%, transparent);
+  }
+  .roll-view { position: absolute; inset: 0; will-change: transform; }
+  .roll-view.is-next { visibility: hidden; }
+  .mv-static {
+    display: block; min-width: 0; height: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .mv-moving {
+    position: absolute; left: 0; top: 0;
+    display: none; white-space: nowrap;
+    will-change: transform; pointer-events: none;
+  }
+
+  .notes {
+    width: min(720px, 100%); font-size: 12px; color: var(--ink-faint); line-height: 1.8;
+    border-top: 1px dashed var(--card-edge); padding-top: 14px;
+  }
+  .notes b { color: var(--ink-dim); font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>跑马灯工具切换 · 上下滚动过渡对比样稿</h1>
+<p class="hint">
+  同一工具序列驱动三张卡：切换时旧摘要滚出、新摘要滚入（横向滚动照旧）。
+  长文本步骤（run_command）会在横向滚动进行中被切换打断，用于观察两轴动画的衔接。
+  工具间隙保持上一摘要不闪空（上一轮已实现），终态整体消失照旧，均不在本稿重复演示。
+</p>
+
+<div class="toolbar">
+  <label><input type="checkbox" id="autoChk" checked> 自动轮播</label>
+  <button type="button" id="replayBtn">重播</button>
+  <button type="button" id="stepBtn">手动步进</button>
+  <label>滚动时长
+    <select id="durationSel">
+      <option value="180">180ms（利落）</option>
+      <option value="260" selected>260ms（推荐）</option>
+      <option value="340">340ms（舒展）</option>
+    </select>
+  </label>
+  <label><input type="checkbox" id="reducedChk"> 模拟 prefers-reduced-motion（退化为直切）</label>
+  <label><input type="checkbox" id="lightChk"> 浅色</label>
+  <label>宽度
+    <input type="range" id="widthRange" min="340" max="860" value="640" step="10">
+    <span id="widthLabel" style="font-family:var(--mono)">640px</span>
+  </label>
+</div>
+
+<div class="stack">
+
+  <div class="demo-group">
+    <div class="demo-caption"><strong>现状</strong>：文字直接替换（无过渡）——对照组</div>
+    <div class="tool-card">
+      <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+      <span class="title">
+        <span class="subagent-label">General-purpose 运行中</span>
+        <roll-marquee roll="none"></roll-marquee>
+        <span class="status"><span class="spinner"></span><span class="elapsed">0s</span></span>
+      </span>
+    </div>
+  </div>
+
+  <div class="demo-group">
+    <div class="demo-caption"><strong>方案 A（推荐）</strong>：旧摘要向上滚出，新摘要自下方滚入 —— 新闻条方向，与列表新增动效一致</div>
+    <div class="tool-card">
+      <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+      <span class="title">
+        <span class="subagent-label">General-purpose 运行中</span>
+        <roll-marquee roll="up"></roll-marquee>
+        <span class="status"><span class="spinner"></span><span class="elapsed">0s</span></span>
+      </span>
+    </div>
+  </div>
+
+  <div class="demo-group">
+    <div class="demo-caption"><strong>方案 B</strong>：旧摘要向下滚出，新摘要自上方滚入 —— 反向（"倒带"感）</div>
+    <div class="tool-card">
+      <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+      <span class="title">
+        <span class="subagent-label">General-purpose 运行中</span>
+        <roll-marquee roll="down"></roll-marquee>
+        <span class="status"><span class="spinner"></span><span class="elapsed">0s</span></span>
+      </span>
+    </div>
+  </div>
+
+</div>
+
+<div class="notes">
+  <b>实现要点（定稿后落地到 tool-marquee.ts / local-tools.ts）：</b><br>
+  · 结构：跑马灯容器内改为两个 <b>roll-view</b>（各含 static + moving span，横向逻辑不变），容器定高一行，两视图绝对定位，切换时对视图做 translateY(±100%) 双向动画；<br>
+  · 衔接：滚动期间旧视图的横向滚动<b>不中断</b>（两轴独立），滚动结束后新文本按既有 400ms 起始延迟重建横向循环；同值刷新/工具间隙保持（text 不变）完全不打断，逻辑与现状一致；<br>
+  · 降级：prefers-reduced-motion、首次出现（无旧文本）、终态消失（元素卸载）均不滚动，与现状行为一致；<br>
+  · 缓动：cubic-bezier(.22, 1, .36, 1)（与 diff 里程计同族），时长默认 260ms。
+</div>
+
+<script>
+'use strict'
+/* 横向滚动常量与 src/lib/tool-marquee.ts 保持一致；roll 为本稿新增的纵向切换过渡。 */
+const SPEED = 35, START_DELAY = 400, END_PAUSE = 1000, RESTART_PAUSE = 1000
+const ROLL_EASING = 'cubic-bezier(.22, 1, .36, 1)'
+let rollDurationMs = 260
+let reducedMotion = false
+
+function makeView() {
+  const el = document.createElement('div')
+  el.className = 'roll-view'
+  const staticSpan = document.createElement('span')
+  staticSpan.className = 'mv-static'
+  const movingSpan = document.createElement('span')
+  movingSpan.className = 'mv-moving'
+  movingSpan.setAttribute('aria-hidden', 'true')
+  el.append(staticSpan, movingSpan)
+  return { el, staticSpan, movingSpan, anim: null, animatedText: null, timer: null }
+}
+
+class RollMarquee extends HTMLElement {
+  static get observedAttributes() { return ['text', 'running'] }
+
+  connectedCallback() {
+    this.rollMode = this.getAttribute('roll') || 'up'
+    this.generation = 0
+    this.text = ''
+    this.roll = null /* 进行中的纵向切换：{ gen, anims: [a1, a2] } */
+    this.views = [makeView(), makeView()]
+    this.views[0].el.classList.add('is-current')
+    this.views[1].el.classList.add('is-next')
+    this.append(this.views[0].el, this.views[1].el)
+    this.current = 0
+    if (typeof ResizeObserver === 'function') {
+      this.ro = new ResizeObserver(() => requestAnimationFrame(() => {
+        /* 宽度变化：重测并重建当前视图横向动画（纵向过渡进行中则等其结束后自然重建） */
+        if (!this.roll) this.startHorizontal(this.views[this.current], this.text, true)
+      }))
+      this.ro.observe(this)
+    }
+    this.apply(this.getAttribute('text') || '', this.getAttribute('running') === 'true')
+  }
+
+  disconnectedCallback() {
+    this.generation++
+    if (this.ro) this.ro.disconnect()
+    this.views.forEach((v) => this.stopView(v))
+    this.roll = null
+  }
+
+  attributeChangedCallback() {
+    if (this.views) this.apply(this.getAttribute('text') || '', this.getAttribute('running') === 'true')
+  }
+
+  /* ---- 视图级横向滚动（逻辑等价 ToolMarqueeController，作用于单个视图） ---- */
+  stopView(view) {
+    if (view.anim) { view.anim.cancel(); view.anim = null }
+    if (view.timer) { clearTimeout(view.timer); view.timer = null }
+    view.staticSpan.style.visibility = ''
+    view.movingSpan.style.display = ''
+    view.movingSpan.style.transform = ''
+    view.animatedText = null
+  }
+
+  measureOverflow(view) {
+    view.movingSpan.style.display = 'inline-block'
+    const distance = view.movingSpan.scrollWidth - this.clientWidth
+    view.movingSpan.style.display = ''
+    return distance
+  }
+
+  startHorizontal(view, text, restart) {
+    if (view.timer) { clearTimeout(view.timer); view.timer = null }
+    if (!text || this.getAttribute('running') !== 'true' || reducedMotion) { this.stopView(view); return }
+    const distance = this.measureOverflow(view)
+    if (distance <= 1 || this.clientWidth <= 0) { this.stopView(view); return }
+    if (!restart && view.anim && view.animatedText === text) return
+    this.stopView(view)
+    const generation = ++this.generation
+    view.timer = setTimeout(() => {
+      view.timer = null
+      if (generation === this.generation) this.cycle(view, generation, text, distance)
+    }, START_DELAY)
+  }
+
+  cycle(view, generation, text, distance) {
+    if (generation !== this.generation) return
+    view.staticSpan.style.visibility = 'hidden'
+    view.movingSpan.style.display = 'inline-block'
+    const scrollMs = distance / SPEED * 1000
+    const returnMs = Math.min(500, Math.max(240, scrollMs * 0.25))
+    const total = scrollMs + END_PAUSE + returnMs
+    const anim = view.movingSpan.animate([
+      { transform: 'translateX(0)', offset: 0, easing: 'linear' },
+      { transform: `translateX(-${distance}px)`, offset: scrollMs / total, easing: 'linear' },
+      { transform: `translateX(-${distance}px)`, offset: (scrollMs + END_PAUSE) / total, easing: 'ease-out' },
+      { transform: 'translateX(0)', offset: 1, easing: 'linear' },
+    ], { duration: total, fill: 'forwards' })
+    view.anim = anim
+    view.animatedText = text
+    anim.finished.then(() => {
+      if (view.anim !== anim || generation !== this.generation) return
+      anim.cancel(); view.anim = null
+      view.staticSpan.style.visibility = ''
+      view.movingSpan.style.display = ''
+      view.movingSpan.style.transform = ''
+      view.timer = setTimeout(() => {
+        view.timer = null
+        if (generation === this.generation) this.cycle(view, generation, text, distance)
+      }, RESTART_PAUSE)
+    }).catch(() => undefined)
+  }
+
+  /* ---- 纵向切换 ---- */
+  finishRoll() {
+    if (!this.roll) return
+    this.roll.anims.forEach((a) => a.cancel())
+    const { outgoing, incoming, text } = this.roll
+    this.roll = null
+    this.stopView(outgoing)
+    outgoing.el.style.transform = ''
+    incoming.el.style.transform = ''
+    incoming.el.classList.remove('is-next')
+    outgoing.el.classList.add('is-next')
+    this.current = this.views.indexOf(incoming)
+    this.startHorizontal(incoming, text, true)
+  }
+
+  apply(text, running) {
+    if (!this.views) return
+    const current = this.views[this.current]
+    /* 同值刷新（含工具间隙保持）：完全不打断进行中的动画 */
+    if (text === this.text && !this.roll) return
+    const previous = this.text
+    this.text = text
+    const wantRoll = this.rollMode !== 'none'
+      && running && previous && text
+      && !reducedMotion
+      && current.el.isConnected
+    if (!wantRoll) {
+      this.finishRoll()
+      const next = this.views[this.current]
+      next.staticSpan.textContent = text
+      next.movingSpan.textContent = text
+      if (!text || !running) { this.stopView(next); return }
+      this.startHorizontal(next, text, false)
+      return
+    }
+    /* 上一次滚动尚未结束又收到新文本：先就地结算，再从新文本开始下一次滚动 */
+    this.finishRoll()
+    const outgoing = this.views[this.current]
+    const incoming = this.views[1 - this.current]
+    incoming.staticSpan.textContent = text
+    incoming.movingSpan.textContent = text
+    this.stopView(incoming)
+    const generation = ++this.generation
+    const outY = this.rollMode === 'up' ? '-100%' : '100%'
+    const inY = this.rollMode === 'up' ? '100%' : '-100%'
+    incoming.el.classList.remove('is-next')
+    incoming.el.style.transform = `translateY(${inY})`
+    outgoing.el.style.transform = 'translateY(0)'
+    const anims = [
+      outgoing.el.animate(
+        [{ transform: 'translateY(0)' }, { transform: `translateY(${outY})` }],
+        { duration: rollDurationMs, easing: ROLL_EASING, fill: 'forwards' },
+      ),
+      incoming.el.animate(
+        [{ transform: `translateY(${inY})` }, { transform: 'translateY(0)' }],
+        { duration: rollDurationMs, easing: ROLL_EASING, fill: 'forwards' },
+      ),
+    ]
+    this.roll = { gen: generation, anims, outgoing, incoming, text }
+    Promise.all(anims.map((a) => a.finished)).then(() => {
+      if (!this.roll || this.roll.gen !== generation) return
+      this.finishRoll()
+    }).catch(() => undefined)
+  }
+}
+if (!customElements.get('roll-marquee')) customElements.define('roll-marquee', RollMarquee)
+
+/* ---- 演示序列：长文本步骤 dwell 拉长，保证切换打断横向滚动进行中的状态 ---- */
+const SEQUENCE = [
+  { text: 'grep_files · pattern "tool-marquee" src/lib', dwell: 3500 },
+  { text: 'read_file · src/lib/subagent-run-detail.ts', dwell: 3000 },
+  { text: 'run_command · npm run test -- tests/frontend/tool-marquee.test.ts tests/frontend/subagent-run-detail.test.ts tests/frontend/local-tools.test.ts', dwell: 7000 },
+  { text: 'edit_file · src/lib/tool-marquee.ts', dwell: 3200 },
+  { text: 'write_file · design-mockups/subagent-marquee-roll-switch.html', dwell: 3800 },
+]
+const marquees = Array.from(document.querySelectorAll('roll-marquee'))
+let seqIndex = 0
+let autoTimer = null
+
+function pushText(instant) {
+  const { text } = SEQUENCE[seqIndex]
+  marquees.forEach((m) => {
+    if (instant) m.text = null /* 强制视为变化，直切回第一个工具 */
+    m.setAttribute('text', text)
+    m.setAttribute('running', 'true')
+  })
+}
+
+function scheduleAuto() {
+  if (autoTimer) { clearTimeout(autoTimer); autoTimer = null }
+  if (!document.getElementById('autoChk').checked) return
+  autoTimer = setTimeout(() => {
+    seqIndex = (seqIndex + 1) % SEQUENCE.length
+    pushText(false)
+    scheduleAuto()
+  }, SEQUENCE[seqIndex].dwell)
+}
+
+document.getElementById('replayBtn').addEventListener('click', () => {
+  seqIndex = 0
+  pushText(true)
+  scheduleAuto()
+})
+document.getElementById('stepBtn').addEventListener('click', () => {
+  seqIndex = (seqIndex + 1) % SEQUENCE.length
+  pushText(false)
+  scheduleAuto()
+})
+document.getElementById('autoChk').addEventListener('change', scheduleAuto)
+document.getElementById('durationSel').addEventListener('change', (e) => {
+  rollDurationMs = Number(e.target.value)
+})
+document.getElementById('reducedChk').addEventListener('change', (e) => {
+  reducedMotion = e.target.checked
+  /* 切换降级模式时，将当前横向动画按新模式重建，便于对比 */
+  marquees.forEach((m) => m.views.forEach((v) => m.stopView(v)))
+  marquees.forEach((m) => m.startHorizontal(m.views[m.current], m.text, true))
+})
+document.getElementById('lightChk').addEventListener('change', (e) => {
+  document.body.classList.toggle('light', e.target.checked)
+})
+document.getElementById('widthRange').addEventListener('input', (e) => {
+  document.documentElement.style.setProperty('--card-w', `${e.target.value}px`)
+  document.getElementById('widthLabel').textContent = `${e.target.value}px`
+})
+
+/* 计时器 */
+let elapsed = 0
+setInterval(() => {
+  elapsed += 1
+  document.querySelectorAll('.elapsed').forEach((el) => { el.textContent = `${elapsed}s` })
+}, 1000)
+
+pushText(true)
+scheduleAuto()
+</script>
+</body>
+</html>

@@ -63,8 +63,9 @@
 
 <script>
 'use strict'
-/* 与 src/lib/tool-marquee.ts + local-tools.ts 的 QuickForgeToolMarquee 保持同步的内联移植
-   （逻辑等价性由 tests/frontend/tool-marquee.test.ts 覆盖）。 */
+/* 双视图纵向滚动切换（v2）之前的 v1 内联移植，仅保留作单视图横向滚动的实现验证参考；
+   v2 的切换滚动过渡见同目录 subagent-marquee-roll-switch.html（逻辑以
+   src/lib/tool-marquee.ts + tests/frontend/tool-marquee.test.ts 为准）。 */
 const SPEED = 35, START_DELAY = 400, END_PAUSE = 1000, RESTART_PAUSE = 1000
 class ToolMarquee extends HTMLElement {
   static get observedAttributes() { return ['text', 'running'] }

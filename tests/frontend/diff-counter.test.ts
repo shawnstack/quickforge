@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 import {
   ODOMETER_ENTER_MS,
@@ -8,12 +9,22 @@ import {
 
 type FakeTimer = { handler: () => void; ms: number; cleared: boolean }
 
-function createElement(tag: string): OdometerElementLike & { tag: string } {
+function createElement(tag: string): OdometerElementLike & { tag: string; classes: Set<string> } {
+  const classes = new Set<string>()
   const element = {
     tag,
     className: '',
     textContent: '',
     style: { transform: '' },
+    classes,
+    classList: {
+      toggle(token: string, force?: boolean) {
+        const enabled = force ?? !classes.has(token)
+        if (enabled) classes.add(token)
+        else classes.delete(token)
+        return enabled
+      },
+    },
     children: [] as Array<OdometerElementLike & { tag: string }>,
     appendChild(child: OdometerElementLike) {
       element.children.push(child as OdometerElementLike & { tag: string })
@@ -71,7 +82,7 @@ describe('OdometerDiffCounterController', () => {
     const { root, controller } = createHarness()
     controller.sync(12, 3, true)
 
-    expect(root.className).toContain('quickforge-diff-counter-running')
+    expect(root.classes.has('quickforge-diff-counter-running')).toBe(true)
     expect(sideDigits(root, 'add')).toEqual([
       { enter: true, transform: 'translateY(-1em)' },
       { enter: true, transform: 'translateY(-2em)' },
@@ -101,7 +112,7 @@ describe('OdometerDiffCounterController', () => {
     expect(digits).toHaveLength(2)
     expect(digits[0]).toEqual({ enter: true, transform: 'translateY(-4em)' })
     expect(digits[1]).toEqual({ enter: false, transform: 'translateY(-2em)' })
-    expect(root.className).not.toContain('quickforge-diff-counter-running')
+    expect(root.classes.has('quickforge-diff-counter-running')).toBe(false)
 
     const enterTimer = timers.at(-1)
     expect(enterTimer?.ms).toBe(ODOMETER_ENTER_MS)
@@ -123,8 +134,8 @@ describe('OdometerDiffCounterController', () => {
   it('marks reduced motion and disables running breathing class', () => {
     const { root, controller } = createHarness({ reducedMotion: true })
     controller.sync(1, 1, true)
-    expect(root.className).toContain('quickforge-odometer-reduced')
-    expect(root.className).toContain('quickforge-diff-counter-running')
+    expect(root.classes.has('quickforge-odometer-reduced')).toBe(true)
+    expect(root.classes.has('quickforge-diff-counter-running')).toBe(true)
   })
 
   it('dispose clears pending enter timers', () => {
@@ -152,6 +163,49 @@ describe('OdometerDiffCounterController', () => {
     expect(sides.map((side) => side.className)).toEqual(['quickforge-odometer-side add', 'quickforge-odometer-side del'])
     expect(sideDigits(root, 'add')).toHaveLength(2)
     expect(sideDigits(root, 'del')).toHaveLength(1)
+  })
+
+  it('preserves foreign classes on the root (Lit-assigned layout classes) across syncs', () => {
+    const { root, controller } = createHarness()
+    root.classes.add('quickforge-tool-meta-hover')
+    root.classes.add('shrink-0')
+
+    controller.sync(12, 3, true)
+    controller.sync(87, 9, false)
+
+    expect(root.classes.has('shrink-0')).toBe(true)
+    expect(root.classes.has('quickforge-tool-meta-hover')).toBe(true)
+    expect(root.classes.has('quickforge-diff-counter')).toBe(true)
+    expect(root.classes.has('quickforge-diff-counter-running')).toBe(false)
+  })
+
+  it('dispose then sync reuses the existing side DOM instead of rebuilding (DOM move reuse)', () => {
+    const { root, timers, controller } = createHarness()
+    controller.sync(12, 3, true)
+    timers.splice(0).forEach((timer) => timer.handler())
+    const addGroupBefore = root.children.find((child) => child.className === 'quickforge-odometer-side add')
+
+    controller.dispose()
+    controller.sync(12, 3, false)
+
+    expect(root.children.find((child) => child.className === 'quickforge-odometer-side add')).toBe(addGroupBefore)
+    expect(sideDigits(root, 'add')).toHaveLength(2)
+  })
+})
+
+describe('QuickForgeDiffCounter element lifecycle source contract', () => {
+  // 元素类未导出且依赖真实 DOM，这里对源码做结构性断言：
+  // 搬移（disconnect→connect）必须复用 controller，否则过程分组重装饰时
+  // 所有计数器会清空重建、数字列重播入场动画（整屏抖动回归）。
+  const source = readFileSync(new URL('../../src/lib/local-tools.ts', import.meta.url), 'utf8')
+  const elementSource = source.slice(
+    source.indexOf('class QuickForgeDiffCounter'),
+    source.indexOf("customElements.get('quickforge-diff-counter')"),
+  )
+
+  it('reuses the controller across DOM moves instead of recreating it', () => {
+    expect(elementSource).toContain('if (!this.controller)')
+    expect(elementSource).not.toContain('this.controller = undefined')
   })
 })
 

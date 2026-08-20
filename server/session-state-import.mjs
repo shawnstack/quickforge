@@ -98,7 +98,12 @@ function normalizeSessionEntry(bucket, sessionId, rawState, rawMetadata, diagnos
 // Resilience: a failing entry (unreadable file, validation mismatch,
 // cross-bucket duplicate) never aborts the run — it is counted in `skipped`
 // and described in `diagnostics` so the operator can inspect and fix the
-// source tree, then simply re-run.
+// source tree, then simply re-run. The same holds one level up: an unreadable
+// or malformed sessions-metadata.json (the physical adapter only swallows
+// ENOENT — corrupt JSON, EACCES/EBUSY rethrow) degrades that bucket to empty
+// metadata instead of failing the import, and with it startup: body files
+// still import through deriveMetadata, only metadata-only entries are lost
+// (they carry no messages and are dropped by design anyway).
 export async function importSessionStateFromJson({ storage = null, logger = defaultLogger } = {}) {
   const storageModule = storage ?? await import('./storage.mjs')
   const fsAdapter = storageModule.createPhysicalSessionStateFsAdapter()
@@ -109,8 +114,20 @@ export async function importSessionStateFromJson({ storage = null, logger = defa
 
   for await (const rawBucket of fsAdapter.listBuckets()) {
     const bucket = normalizeBucket(rawBucket)
-    const metadata = await fsAdapter.readMetadataBucket(rawBucket)
-    if (!isPlainObject(metadata)) throw new TypeError('Session bucket stores must be objects')
+    let metadata = {}
+    try {
+      const rawMetadata = await fsAdapter.readMetadataBucket(rawBucket)
+      if (!isPlainObject(rawMetadata)) throw new TypeError('Session bucket stores must be objects')
+      metadata = rawMetadata
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      diagnostics.push({ kind: 'metadata-bucket-error', scope: bucket.scope, projectId: bucket.projectId, message })
+      logger.warn('Session metadata bucket unreadable; importing with body-derived metadata', {
+        scope: bucket.scope,
+        projectId: bucket.projectId,
+        message,
+      })
+    }
     const fileIds = new Set()
     for await (const sessionId of fsAdapter.listSessionFiles(rawBucket)) fileIds.add(sessionId)
     const ids = [...new Set([...fileIds, ...Object.keys(metadata)])].sort((left, right) => left.localeCompare(right))

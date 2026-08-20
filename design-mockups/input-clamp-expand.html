@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>输入内容定高收起 · 用户消息气泡统一样式样稿</title>
+<style>
+  /* 与应用主题 token 对齐（pi-web-ui 深浅两套） */
+  :root {
+    --background: oklch(14.5% 0 0);
+    --foreground: oklch(98.5% 0 0);
+    --card: oklch(20.5% 0 0);
+    --primary: oklch(92.2% 0 0);
+    --border: oklch(27.5% 0 0);
+    --muted-foreground: oklch(70.8% 0 0);
+    --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+    --clamp-h: 137px;
+    /* 气泡背景浓度：primary 混入 card 的比例。现状应用为 10%，本稿默认降到 6% 更浅 */
+    --bubble-tint: 6%;
+    --bubble-bg: color-mix(in oklab, var(--primary) var(--bubble-tint), var(--card));
+    --bubble-border: color-mix(in oklab, var(--primary) 18%, var(--border));
+  }
+  body.light {
+    --background: oklch(100% 0 0);
+    --foreground: oklch(14.5% 0 0);
+    --card: oklch(100% 0 0);
+    --primary: oklch(20.5% 0 0);
+    --border: oklch(92.2% 0 0);
+    --muted-foreground: oklch(55.6% 0 0);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--background); color: var(--foreground);
+    font: 13px/1.6 var(--sans);
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+    padding: 36px 16px 60px;
+  }
+  h1 { font-size: 15px; font-weight: 600; color: var(--muted-foreground); margin: 0; }
+  .hint { color: color-mix(in oklab, var(--muted-foreground) 80%, transparent); font-size: 12px; max-width: 780px; text-align: center; }
+
+  /* ---- 工具栏 ---- */
+  .toolbar {
+    display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center; justify-content: center;
+    font-size: 12.5px; color: var(--muted-foreground);
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 16px;
+  }
+  .toolbar label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+  .toolbar select, .toolbar button {
+    border: 1px solid var(--border); background: var(--card); color: var(--foreground);
+    border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit;
+  }
+  .toolbar select:hover, .toolbar button:hover { border-color: color-mix(in oklab, var(--primary) 40%, var(--border)); }
+
+  .stack { display: flex; flex-direction: column; gap: 24px; align-items: center; }
+  .demo-group { display: flex; flex-direction: column; gap: 6px; width: var(--card-w, 660px); max-width: 100%; }
+  .demo-caption { font-size: 11.5px; color: color-mix(in oklab, var(--muted-foreground) 75%, transparent); padding-left: 2px; }
+  .demo-caption strong { color: var(--muted-foreground); font-weight: 600; }
+
+  /* ---- 对话列（模拟聊天区背景与消息排布） ---- */
+  .chat-col {
+    background: var(--background); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 14px; display: flex; flex-direction: column; gap: 14px;
+  }
+  .chat-row { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  .assistant-line { align-self: flex-start; font-size: 14px; line-height: 1.625; color: var(--foreground); max-width: 92%; }
+  .assistant-line .dim { color: var(--muted-foreground); }
+
+  /* ---- 用户消息气泡（对齐 index.css user-message-container 公式，浓度默认 6%） ---- */
+  .user-bubble, .task-bubble {
+    position: relative;
+    max-width: min(78%, 45rem);
+    border: 1px solid var(--bubble-border);
+    border-radius: 1.125rem 1.125rem 0.375rem 1.125rem;
+    background: var(--bubble-bg);
+    color: var(--foreground);
+    box-shadow:
+      0 10px 28px -24px color-mix(in oklab, var(--primary) 55%, black),
+      inset 0 1px 0 rgb(255 255 255 / 0.08);
+    padding: 12px 16px;
+    font-size: 14px; line-height: 1.625;
+  }
+  .task-bubble { max-width: none; width: 100%; }
+
+  .clamp-content { transition: max-height .22s cubic-bezier(.22,1,.36,1); }
+  @media (prefers-reduced-motion: reduce) { .clamp-content { transition: none; } }
+
+  /* 定高收起：超出固定高度直接裁掉，不出现滚动条 */
+  .clamp-box[data-clamp] .clamp-content { max-height: var(--clamp-h); overflow: hidden; }
+  .clamp-box[data-clamp].expanded .clamp-content,
+  .clamp-box[data-clamp].fits .clamp-content { max-height: none; }
+
+  /* 内容放不满定高 → 自然高度，无渐隐无按钮 */
+  .clamp-box.fits .clamp-fade, .clamp-box.fits .clamp-toggle { display: none; }
+  .clamp-box.expanded .clamp-fade { display: none; }
+
+  /* 底部渐隐：从透明过渡到气泡自身背景色 */
+  .clamp-fade {
+    position: absolute; left: 1px; right: 1px; bottom: 1px; height: 52px;
+    background: linear-gradient(to bottom, transparent, var(--bubble-bg) 76%);
+    pointer-events: none; border-radius: 17px 17px 5px 17px;
+  }
+
+  /* 框底居中的展开按钮：用气泡同款背景与边框，hover 才强化 */
+  .clamp-toggle {
+    position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%);
+    display: inline-flex; align-items: center; gap: 5px;
+    font: 500 11px/1 var(--sans); color: var(--muted-foreground);
+    background: var(--bubble-bg); border: 1px solid var(--bubble-border);
+    border-radius: 999px; padding: 3px 11px; cursor: pointer;
+    box-shadow: 0 6px 16px -12px color-mix(in oklab, var(--primary) 55%, black);
+  }
+  .clamp-toggle:hover { color: var(--foreground); border-color: color-mix(in oklab, var(--primary) 34%, var(--border)); }
+  .clamp-toggle:focus-visible { outline: 2px solid color-mix(in oklab, var(--primary) 45%, transparent); outline-offset: 1px; }
+  .clamp-toggle svg { transition: transform .18s ease; }
+  .clamp-box.expanded .clamp-toggle svg { transform: rotate(180deg); }
+
+  /* 气泡内 markdown 渲染 */
+  .clamp-content p { margin: 0 0 8px; white-space: pre-wrap; }
+  .clamp-content p:last-child { margin-bottom: 0; }
+  .clamp-content h5 { font-size: 14px; font-weight: 600; margin: 10px 0 4px; }
+  .clamp-content ul { margin: 4px 0 8px; padding-left: 20px; }
+  .clamp-content li { margin: 2px 0; }
+  .clamp-content strong { font-weight: 600; }
+  .clamp-content code {
+    font-family: var(--mono); font-size: 12.5px;
+    background: color-mix(in oklab, var(--primary) 7%, transparent);
+    border: 1px solid color-mix(in oklab, var(--primary) 12%, var(--border));
+    border-radius: 5px; padding: 0 4px;
+  }
+  .field { margin: 0 0 6px; }
+  .field:last-child { margin-bottom: 0; }
+  .field-label { font-weight: 600; }
+
+  /* ---- subagent 摘要卡与过程行（示意，视觉沿用工具摘要卡强度） ---- */
+  .subagent-row {
+    align-self: flex-start; display: inline-flex; align-items: center; gap: 8px;
+    border: 1px solid var(--border); border-radius: 8px; background: color-mix(in oklab, var(--card) 60%, var(--background));
+    padding: 7px 11px; font-size: 13px; color: var(--muted-foreground); cursor: pointer;
+  }
+  .subagent-row:hover { color: var(--foreground); }
+  .subagent-row svg { flex: none; opacity: .55; }
+  .spinner {
+    width: 12px; height: 12px; border-radius: 50%; flex: none;
+    border: 2px solid var(--border); border-top-color: var(--muted-foreground);
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .detail-card {
+    background: var(--background); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 14px; display: flex; flex-direction: column; gap: 12px;
+  }
+  .run-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 12.5px; color: var(--muted-foreground); }
+  .run-summary .run-label { color: var(--foreground); font-weight: 500; }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chips span { font: 11px/1 var(--mono); color: var(--muted-foreground); border: 1px solid var(--border); border-radius: 999px; padding: 2.5px 8px; }
+  .trace-box {
+    border: 1px solid var(--border); border-radius: 10px; background: color-mix(in oklab, var(--card) 45%, var(--background));
+    padding: 8px 10px; display: flex; flex-direction: column; gap: 5px;
+    font: 11.5px/1.5 var(--mono); color: color-mix(in oklab, var(--muted-foreground) 80%, transparent);
+  }
+  .trace-row::before { content: "›"; margin-right: 7px; }
+  .trace-row.running { color: var(--muted-foreground); }
+  .trace-row.running::before { content: "●"; font-size: 8px; vertical-align: 2px; }
+</style>
+</head>
+<body>
+<h1>输入内容定高收起 · 统一用户消息气泡样式样稿</h1>
+<div class="hint">
+  聊天里的长用户消息与 subagent 运行详情顶部的任务说明块，统一复用「用户消息气泡」视觉（同边框 / 圆角 / 阴影 / 文字规格）；内容超出固定高度时直接裁掉不滚动，框底部渐隐 + 居中「展开」按钮。气泡背景浓度按主题给默认：浅色 3%（近白，纯白底上混灰易显脏）、深色 6%（比应用现状 10% 浅），均可在工具栏切换对比。
+</div>
+
+<div class="toolbar">
+  <label><input type="checkbox" id="themeLight"> 浅色</label>
+  <label>宽度
+    <input type="range" id="widthRange" min="380" max="960" value="660" step="10">
+    <span id="widthLabel" style="font-family:var(--mono)">660px</span>
+  </label>
+  <label>收起高度
+    <select id="clampSelect">
+      <option value="68">约 3 行</option>
+      <option value="137" selected>约 6 行</option>
+      <option value="228">约 10 行</option>
+    </select>
+  </label>
+  <label>气泡背景浓度
+    <select id="tintSelect">
+      <option value="2%">2%（近白）</option>
+      <option value="3%">3%（浅色默认）</option>
+      <option value="6%">6%（深色默认）</option>
+      <option value="8%">8%</option>
+      <option value="10%">10%（应用现状）</option>
+    </select>
+  </label>
+</div>
+
+<div class="stack" id="stack">
+
+  <div class="demo-group">
+    <div class="demo-caption"><strong>场景 1</strong> · 聊天 · 短用户消息 → 自然高度，无渐隐、无按钮（与现状一致）</div>
+    <div class="chat-col">
+      <div class="chat-row">
+        <div class="user-bubble clamp-box" data-clamp>
+          <div class="clamp-content">
+            <p>帮我跑一下前端测试，然后把 subagent 详情的截图发我。</p>
+          </div>
+          <div class="clamp-fade"></div>
+          <button type="button" class="clamp-toggle" aria-expanded="false">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            <span>展开</span>
+          </button>
+        </div>
+      </div>
+      <div class="subagent-row" title="查看运行详情">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+        <span>General-purpose 运行中</span>
+        <span class="spinner" aria-hidden="true"></span>
+        <span style="font-family:var(--mono);font-size:11px">12s</span>
+      </div>
+      <div class="assistant-line"><span class="dim">已收到，正在执行：</span>先跑 vitest，完成后把详情链接发给你。</div>
+    </div>
+  </div>
+
+  <div class="demo-group">
+    <div class="demo-caption"><strong>场景 2</strong> · 聊天 · 长用户消息收起态 → 定高不滚动，气泡底部渐隐 + 「展开」（点击可交互）</div>
+    <div class="chat-col">
+      <div class="chat-row">
+        <div class="user-bubble clamp-box" data-clamp>
+          <div class="clamp-content">
+            <p>调研一下 subagent 运行详情顶部任务说明块的<strong>收起与展开</strong>方案，需求如下：</p>
+            <h5>背景</h5>
+            <p>长任务（常见 30–80 行 markdown）把过程 trace 挤出首屏，每次都要滚过一大段任务说明才能看到子代理正在做什么；聊天里我发的长消息也有同样问题。</p>
+            <h5>要求</h5>
+            <ul>
+              <li>消息气泡收起时占用<strong>固定高度</strong>（约 6 行），超出直接裁掉，<strong>不出现滚动条</strong>，滚轮不劫持；</li>
+              <li>气泡底部居中一枚「展开」按钮，叠加在向上渐隐的遮罩上，渐隐色与气泡背景一致；</li>
+              <li>展开后完整显示，按钮变为「收起」；过渡 220ms，<code>prefers-reduced-motion</code> 直切；</li>
+              <li>内容不足定高时按钮与渐隐整体不渲染。</li>
+            </ul>
+            <h5>约束</h5>
+            <p>视觉完全复用用户消息气泡的边框、圆角、阴影与文字规格（<code>index.css</code> 的 <code>user-message-container</code>），背景浓度从 primary 10% 降到约 6%，不要更深。</p>
+          </div>
+          <div class="clamp-fade"></div>
+          <button type="button" class="clamp-toggle" aria-expanded="false">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            <span>展开</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-group">
+    <div class="demo-caption"><strong>场景 3</strong> · 聊天 · 长用户消息展开态 → 完整内容 + 「收起」按钮在气泡底部（初始即展开，点击可收起）</div>
+    <div class="chat-col">
+      <div class="chat-row">
+        <div class="user-bubble clamp-box" data-clamp data-initially-expanded>
+          <div class="clamp-content">
+            <p>调研一下 subagent 运行详情顶部任务说明块的<strong>收起与展开</strong>方案，需求如下：</p>
+            <h5>背景</h5>
+            <p>长任务（常见 30–80 行 markdown）把过程 trace 挤出首屏，每次都要滚过一大段任务说明才能看到子代理正在做什么；聊天里我发的长消息也有同样问题。</p>
+            <h5>要求</h5>
+            <ul>
+              <li>消息气泡收起时占用<strong>固定高度</strong>（约 6 行），超出直接裁掉，<strong>不出现滚动条</strong>，滚轮不劫持；</li>
+              <li>气泡底部居中一枚「展开」按钮，叠加在向上渐隐的遮罩上，渐隐色与气泡背景一致；</li>
+              <li>展开后完整显示，按钮变为「收起」；过渡 220ms，<code>prefers-reduced-motion</code> 直切；</li>
+              <li>内容不足定高时按钮与渐隐整体不渲染。</li>
+            </ul>
+            <h5>约束</h5>
+            <p>视觉完全复用用户消息气泡的边框、圆角、阴影与文字规格（<code>index.css</code> 的 <code>user-message-container</code>），背景浓度从 primary 10% 降到约 6%，不要更深。</p>
+          </div>
+          <div class="clamp-fade"></div>
+          <button type="button" class="clamp-toggle" aria-expanded="false">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            <span>展开</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-group">
+    <div class="demo-caption"><strong>场景 4</strong> · subagent 运行详情 · 顶部任务说明块 → 同款气泡视觉（全宽）+ 定高展开，下方摘要与过程保持在可视区</div>
+    <div class="detail-card">
+      <div class="task-bubble clamp-box" data-clamp>
+        <div class="clamp-content">
+          <div class="field"><span class="field-label">任务：</span>调研 subagent 运行详情顶部任务说明块的收起与展开方案，产出设计稿并验证交互。</div>
+          <div class="field"><span class="field-label">上下文：</span>相关实现位于 <code>src/lib/local-tools.ts</code> 的 <code>renderSubagentRunBody</code> 与 <code>src/lib/subagent-run-detail.ts</code> 的 <code>subagentRunBodyBlocks</code>；用户消息气泡样式见 <code>src/index.css</code> 的 <code>user-message-container</code> 段（primary 10% 混 card 背景、primary 18% 混 border 边框、1.125rem 圆角右下 0.375rem、同款轻阴影）；设计语言约束见 <code>DESIGN_LANGUAGE.md</code>。</div>
+          <div class="field"><span class="field-label">期望输出：</span>一份可交互的 HTML 设计稿，覆盖聊天长用户消息与详情任务块两种场景，主题 / 列宽 / 定高 / 背景浓度可调，用户确认后再实现。</div>
+        </div>
+        <div class="clamp-fade"></div>
+        <button type="button" class="clamp-toggle" aria-expanded="false">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          <span>展开</span>
+        </button>
+      </div>
+      <div class="run-summary">
+        <span class="run-label">General-purpose</span>
+        <span>工具调用: 12</span><span>18.4s</span>
+        <div class="chips"><span>read_file</span><span>grep</span><span>run_command</span></div>
+      </div>
+      <div class="trace-box">
+        <div class="trace-row">read_file · src/lib/subagent-run-detail.ts</div>
+        <div class="trace-row">grep · user-message-container</div>
+        <div class="trace-row running">run_command · npx vitest run tests/frontend/subagent-run-detail.test.ts</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="hint" style="margin-top:4px">
+  实现说明：收起用 max-height 裁切（overflow hidden，无滚动条、滚轮不劫持）；渐隐遮罩与按钮绝对定位在气泡底部，展开动画结束后 max-height 置 none；气泡背景公式与现状一致（primary 混 card），浓度按主题取默认——浅色 3%、深色 6%（现状统一 10%），聊天用户消息与详情任务块共用同一套收起组件；浅色主题背景为纯白（oklch 100%），与 pi-web-ui 浅色 token 对齐。
+</div>
+
+<script>
+'use strict'
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches
+const clampPx = () => parseFloat(document.getElementById('clampSelect').value)
+const boxes = Array.from(document.querySelectorAll('.clamp-box[data-clamp]'))
+
+function applyExpanded(box, expanded) {
+  const content = box.querySelector('.clamp-content')
+  const toggle = box.querySelector('.clamp-toggle')
+  const label = toggle.querySelector('span')
+  box.classList.toggle('expanded', expanded)
+  toggle.setAttribute('aria-expanded', String(expanded))
+  label.textContent = expanded ? '收起' : '展开'
+  if (expanded) {
+    box.classList.remove('fits')
+    const target = content.scrollHeight
+    if (reducedMotion()) { content.style.maxHeight = 'none'; return }
+    content.style.maxHeight = target + 'px'
+    const onEnd = (event) => {
+      if (event.target !== content || event.propertyName !== 'max-height') return
+      content.removeEventListener('transitionend', onEnd)
+      if (box.classList.contains('expanded')) content.style.maxHeight = 'none'
+    }
+    content.addEventListener('transitionend', onEnd)
+    // 过渡被中断（如动画结束前元素已卸载）的兜底
+    setTimeout(() => { if (box.classList.contains('expanded')) content.style.maxHeight = 'none' }, 400)
+  } else {
+    if (reducedMotion()) { content.style.maxHeight = ''; refreshFit(box); return }
+    content.style.maxHeight = content.scrollHeight + 'px'
+    void content.offsetHeight // 强制 reflow，让下一帧从当前高度过渡到定高
+    content.style.maxHeight = clampPx() + 'px'
+    const onEnd = (event) => {
+      if (event.target !== content || event.propertyName !== 'max-height') return
+      content.removeEventListener('transitionend', onEnd)
+      if (!box.classList.contains('expanded')) { content.style.maxHeight = ''; refreshFit(box) }
+    }
+    content.addEventListener('transitionend', onEnd)
+  }
+}
+
+/* 内容自然高度不超过定高时，整块自然展示，不渲染按钮与渐隐 */
+function refreshFit(box) {
+  if (box.classList.contains('expanded')) return
+  const content = box.querySelector('.clamp-content')
+  const prev = content.style.maxHeight
+  content.style.maxHeight = 'none'
+  const natural = content.scrollHeight
+  content.style.maxHeight = prev
+  box.classList.toggle('fits', natural <= clampPx())
+}
+
+boxes.forEach((box) => {
+  box.querySelector('.clamp-toggle').addEventListener('click', () => {
+    applyExpanded(box, !box.classList.contains('expanded'))
+  })
+  if (box.hasAttribute('data-initially-expanded')) applyExpanded(box, true)
+  else refreshFit(box)
+})
+
+document.getElementById('clampSelect').addEventListener('change', () => {
+  boxes.forEach((box) => {
+    if (box.classList.contains('expanded')) return
+    box.querySelector('.clamp-content').style.maxHeight = ''
+    refreshFit(box)
+  })
+})
+
+document.getElementById('tintSelect').addEventListener('change', (event) => {
+  document.documentElement.style.setProperty('--bubble-tint', event.target.value)
+})
+
+document.getElementById('themeLight').addEventListener('change', (event) => {
+  document.body.classList.toggle('light', event.target.checked)
+  applyTintDefaults(event.target.checked)
+})
+/* URL hash 直达主题（#light / #dark），便于分享与验证 */
+if (location.hash === '#light' || location.hash === '#dark') {
+  const light = location.hash === '#light'
+  document.body.classList.toggle('light', light)
+  document.getElementById('themeLight').checked = light
+}
+/* 气泡浓度按主题给默认：浅色往纯白里混灰极易显脏，默认 3%（近白，靠边框+阴影成形）；深色默认 6% */
+const TINT_DEFAULTS = { dark: '6%', light: '3%' }
+function applyTintDefaults(light) {
+  const value = light ? TINT_DEFAULTS.light : TINT_DEFAULTS.dark
+  document.documentElement.style.setProperty('--bubble-tint', value)
+  document.getElementById('tintSelect').value = value
+}
+applyTintDefaults(document.body.classList.contains('light'))
+const widthLabel = document.getElementById('widthLabel')
+document.getElementById('widthRange').addEventListener('input', (event) => {
+  const value = event.target.value + 'px'
+  document.getElementById('stack').style.setProperty('--card-w', value)
+  widthLabel.textContent = value
+})
+</script>
+</body>
+</html>

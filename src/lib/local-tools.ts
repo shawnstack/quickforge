@@ -1,6 +1,5 @@
 import { registerToolRenderer } from '@earendil-works/pi-web-ui'
 import { html, LitElement, nothing } from 'lit'
-import { styleMap } from 'lit/directives/style-map.js'
 import { t, type AppTextKey } from '@/lib/i18n'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import type { AgentTool } from '@earendil-works/pi-agent-core'
@@ -10,20 +9,26 @@ import { formatManageGlobalMemoryOutput } from '@/lib/global-memory-tool-output'
 import { generatedImageAssetUrl, parseGeneratedImageDetails } from '@/lib/generated-image-assets'
 import { summarizeParams } from '@/lib/tool-param-summary'
 import { ToolMarqueeController, type ToolMarqueeEnv } from '@/lib/tool-marquee'
+import { syncInputClampBoxes, type InputClampLabels } from '@/lib/input-clamp'
+
+const subagentInputClampLabels: InputClampLabels = { collapsed: () => t('expand'), expanded: () => t('collapse') }
 import { OdometerDiffCounterController, type OdometerElementLike, type OdometerEnv } from '@/lib/diff-counter'
+import { parseDiffFileInfo, parseDiffRows, type DiffLineRow, type DiffRow } from '@/lib/diff-view'
 import {
   OPEN_SUBAGENT_RUN_EVENT,
   buildSubagentRunPayload,
   canOpenSubagentRunPayload,
-  currentSubagentToolSummaries,
+  currentSubagentToolSummariesWithMemory,
   resolveSubagentRunPayloadForOpen,
   shouldPublishSubagentRunPayload,
   subagentRunBodyBlocks,
   subagentRunTraceMessagesForDisplay,
   subagentRunStore,
   type SubagentRunPayload,
+  SubagentToolSummaryMemory,
 } from '@/lib/subagent-run-detail'
 import { decorateSubagentProcessBlocks } from '@/components/chat/panel-decoration'
+import { buildAskAnswerText } from '@/components/chat/panel-decoration/ask-user-card'
 
 type ToolResultLike = {
   toolCallId?: string
@@ -43,31 +48,6 @@ type ToolDiffDetails = {
   newLineCount?: number
   truncated?: boolean
   text?: string
-}
-
-const DIFF_BLOCK_STYLE = {
-  maxHeight: '28rem',
-  overflow: 'auto',
-  border: '1px solid color-mix(in oklab, var(--border) 75%, transparent)',
-  borderRadius: '0.75rem',
-  background: 'color-mix(in oklab, var(--muted) 28%, transparent)',
-  fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace)',
-  fontSize: '0.78rem',
-  lineHeight: '1.45',
-}
-const DIFF_LINE_BASE_STYLE = {
-  minHeight: '1.35em',
-  padding: '0 0.75rem',
-  whiteSpace: 'pre',
-}
-const DIFF_BADGE_BASE_STYLE = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  borderRadius: '999px',
-  padding: '0.05rem 0.45rem',
-  fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace)',
-  fontSize: '0.72rem',
-  fontWeight: '650',
 }
 
 function toolStatus(result: ToolResultLike | undefined, isStreaming?: boolean): ToolStatusKey {
@@ -229,49 +209,6 @@ async function terminateCommand(sessionId: string, toolCallId: string, button: H
   }
 }
 
-function diffLineClass(line: string) {
-  if (line.startsWith('+++') || line.startsWith('---')) return 'quickforge-diff-file'
-  if (line.startsWith('@@')) return 'quickforge-diff-hunk'
-  if (line.startsWith('+')) return 'quickforge-diff-add'
-  if (line.startsWith('-')) return 'quickforge-diff-del'
-  return 'quickforge-diff-context'
-}
-
-function diffLineStyle(line: string) {
-  if (line.startsWith('+++') || line.startsWith('---')) {
-    return {
-      ...DIFF_LINE_BASE_STYLE,
-      background: 'color-mix(in oklab, var(--muted) 48%, transparent)',
-      color: 'color-mix(in oklab, var(--muted-foreground) 88%, transparent)',
-    }
-  }
-  if (line.startsWith('@@')) {
-    return {
-      ...DIFF_LINE_BASE_STYLE,
-      background: 'color-mix(in oklab, rgb(37 99 235) 10%, transparent)',
-      color: 'rgb(37 99 235)',
-    }
-  }
-  if (line.startsWith('+')) {
-    return {
-      ...DIFF_LINE_BASE_STYLE,
-      background: 'color-mix(in oklab, rgb(34 197 94) 16%, transparent)',
-      color: 'rgb(22 101 52)',
-    }
-  }
-  if (line.startsWith('-')) {
-    return {
-      ...DIFF_LINE_BASE_STYLE,
-      background: 'color-mix(in oklab, rgb(239 68 68) 14%, transparent)',
-      color: 'rgb(153 27 27)',
-    }
-  }
-  return {
-    ...DIFF_LINE_BASE_STYLE,
-    color: 'var(--foreground)',
-  }
-}
-
 function renderInlineDiffStats(toolName: string, diff: ToolDiffDetails | undefined, running = false) {
   if ((toolName !== 'write_file' && toolName !== 'edit_file') || !diff) return nothing
 
@@ -290,36 +227,47 @@ function renderInlineDiffStats(toolName: string, diff: ToolDiffDetails | undefin
   `
 }
 
+function renderDiffCode(row: DiffLineRow) {
+  if (!row.segments || row.segments.length === 0) return row.text || ' '
+  return row.segments.map((segment) => (segment.changed ? html`<mark>${segment.text}</mark>` : segment.text))
+}
+
+function renderDiffRow(row: DiffRow) {
+  if (row.kind === 'gap') {
+    return html`
+      <div class="quickforge-diff-gap${row.first ? ' quickforge-diff-gap-first' : ''}" aria-hidden="true">
+        <span class="quickforge-diff-gap-dots">⋯⋯</span>
+        <span>${t('diffOmittedLines', { count: row.count })}</span>
+      </div>
+    `
+  }
+  return html`
+    <div class="quickforge-diff-row quickforge-diff-row-${row.kind}">
+      <span class="quickforge-diff-ln">${row.oldNo ?? ''}</span>
+      <span class="quickforge-diff-ln">${row.newNo ?? ''}</span>
+      <span class="quickforge-diff-code">${renderDiffCode(row)}</span>
+    </div>
+  `
+}
+
 function renderDiff(diff: ToolDiffDetails) {
-  const lines = diff.text?.split('\n') ?? []
   const addedLines = Number(diff.addedLines ?? 0)
   const removedLines = Number(diff.removedLines ?? 0)
+  const diffText = diff.text ?? ''
+  const rows = parseDiffRows(diffText)
+  const fileInfo = parseDiffFileInfo(diffText)
 
   return html`
     <div>
       <div class="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground">
         <span>Diff</span>
-        <span
-          class="quickforge-diff-badge quickforge-diff-badge-add"
-          style=${styleMap({
-            ...DIFF_BADGE_BASE_STYLE,
-            background: 'color-mix(in oklab, rgb(34 197 94) 16%, transparent)',
-            color: 'rgb(22 101 52)',
-          })}
-        >+${addedLines}</span>
-        <span
-          class="quickforge-diff-badge quickforge-diff-badge-del"
-          style=${styleMap({
-            ...DIFF_BADGE_BASE_STYLE,
-            background: 'color-mix(in oklab, rgb(239 68 68) 14%, transparent)',
-            color: 'rgb(153 27 27)',
-          })}
-        >-${removedLines}</span>
+        <span class="quickforge-diff-badge quickforge-diff-badge-add">+${addedLines}</span>
+        <span class="quickforge-diff-badge quickforge-diff-badge-del">-${removedLines}</span>
         ${diff.truncated ? html`<span class="text-muted-foreground/80">truncated</span>` : nothing}
+        ${fileInfo?.isNewFile ? html`<span class="quickforge-diff-newfile">${t('diffNewFile')}</span>` : nothing}
+        ${fileInfo ? html`<span class="quickforge-diff-path" title=${fileInfo.path}>${fileInfo.path}</span>` : nothing}
       </div>
-      <div class="quickforge-diff-block" style=${styleMap(DIFF_BLOCK_STYLE)}>${lines.map((line) => html`
-        <div class=${diffLineClass(line)} style=${styleMap(diffLineStyle(line))}>${line || ' '}</div>
-      `)}</div>
+      <div class="quickforge-diff-block">${rows.map(renderDiffRow)}</div>
     </div>
   `
 }
@@ -404,7 +352,7 @@ if (!customElements.get('quickforge-elapsed-time')) {
 
 const marqueeEnv: ToolMarqueeEnv = {
   prefersReducedMotion: () => Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches),
-  animate: (span, keyframes, options) => (span as unknown as Animatable).animate(keyframes as Keyframe[], options as KeyframeAnimationOptions),
+  animate: (target, keyframes, options) => (target as unknown as Animatable).animate(keyframes as Keyframe[], options as KeyframeAnimationOptions),
   setTimeout: (handler, ms) => setTimeout(handler, ms),
   clearTimeout: (token) => clearTimeout(token as ReturnType<typeof setTimeout>),
 }
@@ -412,7 +360,8 @@ const marqueeEnv: ToolMarqueeEnv = {
 /**
  * subagent 摘要卡的「当前工具」跑马灯（仿 quickforge-elapsed-time 的 attribute 驱动模式，
  * 保证 Lit 高频重渲染下元素实例与动画生命周期稳定）。动画时序由 ToolMarqueeController
- * 承担（纯逻辑可单测）：仅溢出且非 reduced-motion 时滚动，text 变化才重建。
+ * 承担（纯逻辑可单测）：仅溢出且非 reduced-motion 时滚动，同值刷新不打断；text 切换时
+ * 双视图纵向滚动（旧文上滚出、新文自下滚入），容器定高一行（见 .quickforge-subagent-marquee）。
  */
 class QuickForgeToolMarquee extends HTMLElement {
   private controller: ToolMarqueeController | undefined
@@ -424,16 +373,23 @@ class QuickForgeToolMarquee extends HTMLElement {
   }
 
   connectedCallback() {
-    const staticSpan = document.createElement('span')
-    staticSpan.className = 'quickforge-marquee-static'
-    const movingSpan = document.createElement('span')
-    movingSpan.className = 'quickforge-marquee-moving'
-    movingSpan.setAttribute('aria-hidden', 'true')
-    this.appendChild(staticSpan)
-    this.appendChild(movingSpan)
+    const views = [0, 1].map(() => {
+      const el = document.createElement('span')
+      el.className = 'quickforge-marquee-view'
+      const staticSpan = document.createElement('span')
+      staticSpan.className = 'quickforge-marquee-static'
+      const movingSpan = document.createElement('span')
+      movingSpan.className = 'quickforge-marquee-moving'
+      movingSpan.setAttribute('aria-hidden', 'true')
+      el.appendChild(staticSpan)
+      el.appendChild(movingSpan)
+      return { el, staticSpan, movingSpan }
+    })
+    // 非当前视图整体对辅助技术隐藏（瞬态滚入内容不重复播报）。
+    views[1].el.setAttribute('aria-hidden', 'true')
+    views.forEach((view) => this.appendChild(view.el))
     this.controller = new ToolMarqueeController({
-      staticSpan,
-      movingSpan,
+      views: [views[0], views[1]],
       getClientWidth: () => this.clientWidth,
     }, marqueeEnv)
     this.ready = true
@@ -485,6 +441,9 @@ const odometerEnv: OdometerEnv = {
 /**
  * 工具卡片 ±行数里程计（attribute 驱动，保证 Lit 高频重渲染下元素实例稳定，
  * 数字列的滚动/入场动画由 CSS transition/animation 与 OdometerDiffCounterController 完成）。
+ * 过程分组重装饰会整体搬移工具节点（disconnect→connect）：搬移保留子树，
+ * controller 仍在时直接复用（动画不打断）；只有全新元素 / cloneNode 克隆体
+ * （元素状态不随克隆复制）才走 controller 构造里的清空重建，避免重复叠加。
  */
 class QuickForgeDiffCounter extends HTMLElement {
   private controller: OdometerDiffCounterController | undefined
@@ -495,15 +454,17 @@ class QuickForgeDiffCounter extends HTMLElement {
   }
 
   connectedCallback() {
-    this.controller = new OdometerDiffCounterController(this as unknown as OdometerElementLike, odometerEnv)
+    if (!this.controller) {
+      this.controller = new OdometerDiffCounterController(this as unknown as OdometerElementLike, odometerEnv)
+    }
     this.ready = true
     this.sync()
   }
 
   disconnectedCallback() {
     this.ready = false
+    // 只清待触发的入场标记定时器；controller 与 DOM 保留，重挂（搬移）后继续复用。
     this.controller?.dispose()
-    this.controller = undefined
   }
 
   attributeChangedCallback() {
@@ -697,12 +658,16 @@ function toolDetailsStateKey(toolName: string, params: Record<string, unknown> |
 // 聊天内不再展开重复展示完整过程。
 // ---------------------------------------------------------------------------
 
+/** 跑马灯「上一个工具」记忆：工具间隙回放最近非空摘要，运行卡不闪空（模块级，与渲染同生命周期）。 */
+const subagentToolSummaryMemory = new SubagentToolSummaryMemory()
+
 function renderSubagentRunSummary(payload: SubagentRunPayload) {
   const canOpen = canOpenSubagentRunPayload(payload)
   const title = canOpen ? t('viewSubagentRunDetails') : payload.statusLabel
-  // 当前工具跑马灯：仅运行中且有 pending 工具时渲染；放在标签与状态之间，
+  // 当前工具跑马灯：运行期间持续展示——pending 间隙（上一个工具已结束、下一个
+  // 尚未开始）回放最近一次非空摘要，避免工作过程显示闪空消失；放在标签与状态之间，
   // 只占用剩余弹性空间（见 .quickforge-subagent-marquee），不遮挡标签与耗时。
-  const currentTools = payload.status === 'running' ? currentSubagentToolSummaries(payload) : []
+  const currentTools = currentSubagentToolSummariesWithMemory(payload, subagentToolSummaryMemory)
   return html`
     <div class="quickforge-subagent-tool">
       <button
@@ -748,10 +713,12 @@ export function renderSubagentRunBody(payload: SubagentRunPayload) {
   const pendingToolCalls = new Set(payload.pendingToolCalls)
   return html`
     <div class="mt-3 space-y-3">
-      ${bodyBlocks.has('task') ? html`<div class="quickforge-subagent-task space-y-1 rounded-lg border border-border bg-background/60 px-3 py-2 text-xs leading-relaxed text-muted-foreground/70">
-        ${payload.task ? html`<div><span class="font-medium text-foreground/75">${t('subagentTask')}:</span> ${payload.task}</div>` : nothing}
-        ${payload.context ? html`<div><span class="font-medium text-foreground/75">${t('subagentContext')}:</span> ${payload.context}</div>` : nothing}
-        ${payload.expectedOutput ? html`<div><span class="font-medium text-foreground/75">${t('subagentExpectedOutput')}:</span> ${payload.expectedOutput}</div>` : nothing}
+      ${bodyBlocks.has('task') ? html`<div class="quickforge-subagent-task quickforge-input-clamp" data-quickforge-input-clamp="true">
+        <div class="space-y-1">
+          ${payload.task ? html`<div><span class="font-medium">${t('subagentTask')}:</span> ${payload.task}</div>` : nothing}
+          ${payload.context ? html`<div><span class="font-medium">${t('subagentContext')}:</span> ${payload.context}</div>` : nothing}
+          ${payload.expectedOutput ? html`<div><span class="font-medium">${t('subagentExpectedOutput')}:</span> ${payload.expectedOutput}</div>` : nothing}
+        </div>
       </div>` : nothing}
       ${bodyBlocks.has('summary') ? html`<div class="quickforge-subagent-summary rounded-lg border border-border/75 bg-muted/20 px-3 py-2.5 text-sm">
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
@@ -827,6 +794,8 @@ export class SubagentRunDetailBodyElement extends LitElement {
       try {
         await this.updateComplete
         if (this.__processDecorationDisposed || !this.isConnected) return
+        // 任务说明块定高收起：渲染完成后度量并应用收起态（幂等，状态经 data 属性存活于重渲染）。
+        syncInputClampBoxes(this, subagentInputClampLabels)
         const messageList = this.querySelector<HTMLElement & { updateComplete?: Promise<unknown> }>(
           'message-list[data-quickforge-subagent-process="true"]',
         )
@@ -997,6 +966,64 @@ function askUserQuestionsFromParams(params: Record<string, unknown> | undefined)
   return typeof params?.question === 'string' && params.question.trim() ? [params.question] : []
 }
 
+export type AskUserReviewRows = {
+  questions: { question: string }[]
+  answers: ({ choices?: string[]; custom?: string } | undefined)[]
+  skipped: boolean
+  skipReason?: string
+}
+
+/**
+ * Structured ask_user answer data from the persisted toolResult.details
+ * ({askId, questions, answers, skipped, skipReason?}); null when the shape is
+ * missing or malformed (pending call, legacy message). Self-contained by
+ * design — tests lift the transpiled function out of this module, which
+ * executes renderer registration at import time.
+ */
+export function askUserReviewRowsFromDetails(details: unknown): AskUserReviewRows | null {
+  if (!details || typeof details !== 'object' || Array.isArray(details)) return null
+  const record = details as Record<string, unknown>
+  const rawQuestions = record.questions
+  const rawAnswers = record.answers
+  if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) return null
+  if (!Array.isArray(rawAnswers)) return null
+  const questions: Array<{ question: string }> = []
+  for (const question of rawQuestions) {
+    if (!question || typeof question !== 'object' || Array.isArray(question)) return null
+    const text = (question as Record<string, unknown>).question
+    if (typeof text !== 'string' || !text) return null
+    questions.push({ question: text })
+  }
+  // Answers align with questions: trailing unanswered slots stay undefined.
+  const answers = questions.map((_, index) => {
+    const answer = rawAnswers[index]
+    if (!answer || typeof answer !== 'object' || Array.isArray(answer)) return undefined
+    const entry = answer as Record<string, unknown>
+    return {
+      choices: Array.isArray(entry.choices)
+        ? entry.choices.filter((choice): choice is string => typeof choice === 'string')
+        : undefined,
+      custom: typeof entry.custom === 'string' ? entry.custom : undefined,
+    }
+  })
+  return {
+    questions,
+    answers,
+    skipped: record.skipped === true,
+    skipReason: typeof record.skipReason === 'string' && record.skipReason ? record.skipReason : undefined,
+  }
+}
+
+const ASK_USER_SKIP_REASON_KEYS: Record<string, AppTextKey> = {
+  timeout: 'askUserSkipReasonTimeout',
+  aborted: 'askUserSkipReasonAborted',
+  'no-questions': 'askUserSkipReasonNoQuestions',
+}
+
+function askUserSkipReasonText(skipReason: string | undefined): string {
+  return t(skipReason && ASK_USER_SKIP_REASON_KEYS[skipReason] ? ASK_USER_SKIP_REASON_KEYS[skipReason] : 'askUserSkipReasonUser')
+}
+
 class AskUserToolRenderer {
   render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
     const status = toolStatus(result, isStreaming)
@@ -1006,7 +1033,20 @@ class AskUserToolRenderer {
     const toolDisplaySettings = getCachedToolDisplaySettings()
     const detailed = toolDisplaySettings.toolDisplayMode === 'detailed'
     const input = detailed ? stringifyValue(visibleParams) : ''
-    const output = resultText(result)
+    // A resolved ask_user persists its answers in details — the expanded
+    // history then reuses the read-only review receipt layout (what you saw
+    // is what was submitted) instead of the raw question list + output text.
+    // Detailed mode always keeps the raw input/output view.
+    const review = askUserReviewRowsFromDetails(result?.details)
+    const reviewActive = review !== null && !detailed
+    const output = reviewActive ? '' : resultText(result)
+    const reviewRows = review && reviewActive
+      ? review.questions.map((question, index) => ({
+        question: `${index + 1}. ${question.question}`,
+        answer: review.skipped ? t('askUserUnanswered') : buildAskAnswerText(review.answers[index]) || t('askUserUnanswered'),
+      }))
+      : []
+    const reviewSkipNote = review && reviewActive && review.skipped ? askUserSkipReasonText(review.skipReason) : ''
     const detailsKey = toolDetailsStateKey('ask_user', visibleParams, result?.details)
     const detailsOpen = toolDetailsOpen.get(detailsKey) ?? detailed
     const summary = questions.length
@@ -1029,7 +1069,20 @@ class AskUserToolRenderer {
               </span>
             </summary>
             <div class="mt-3 space-y-3">
-              ${questions.length && !detailed ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><div class="quickforge-ask-tool-questions">${questions.map((question) => html`<div>${question}</div>`)}</div></div>` : nothing}
+              ${reviewRows.length ? html`
+                <div class="quickforge-ask-review">
+                  ${reviewSkipNote ? html`<div class="quickforge-ask-review-answer">${reviewSkipNote}</div>` : nothing}
+                  ${reviewRows.map((row) => html`
+                    <div class="quickforge-ask-review-row">
+                      <div class="quickforge-ask-review-content">
+                        <span class="quickforge-ask-review-question">${row.question}</span>
+                        <span class="quickforge-ask-review-answer">${row.answer}</span>
+                      </div>
+                    </div>
+                  `)}
+                </div>
+              ` : nothing}
+              ${questions.length && !detailed && review === null ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><div class="quickforge-ask-tool-questions">${questions.map((question) => html`<div>${question}</div>`)}</div></div>` : nothing}
               ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : nothing}
               ${output ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('output')}</div><code-block .code=${output} language="text"></code-block></div>` : nothing}
             </div>

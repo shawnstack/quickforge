@@ -160,6 +160,35 @@ describe('session state JSON import (schema v11)', () => {
     expect(repository.verifyIntegrity()).toMatchObject({ ok: true, count: 4 })
   })
 
+  it('degrades to body-derived metadata when a sessions-metadata.json is unreadable', async () => {
+    const globalSessions = path.join(bucketDir({ scope: 'global' }), 'sessions')
+    const demoSessions = path.join(bucketDir({ scope: 'project', projectId: 'demo' }), 'sessions')
+    await writeJson(path.join(globalSessions, 'g1.json'), body('g1', { messages: [{ role: 'user', content: 'm0' }] }))
+    // Corrupt JSON in the global bucket: readJsonFile rethrows (only ENOENT is swallowed).
+    await writeFile(path.join(bucketDir({ scope: 'global' }), 'sessions-metadata.json'), '{ not json', 'utf8')
+    await writeJson(path.join(demoSessions, 'p1.json'), body('p1', {
+      scope: 'project', projectId: 'demo',
+      messages: [{ role: 'user', content: 'pm0' }],
+    }))
+    // Valid JSON but not an object in the project bucket.
+    await writeFile(path.join(bucketDir({ scope: 'project', projectId: 'demo' }), 'sessions-metadata.json'), '[]\n', 'utf8')
+
+    const { repository } = await setup()
+    const result = await modules.importer.importSessionStateFromJson({ storage: modules.storage })
+    expect(result.imported).toBe(2)
+    expect(result.skipped).toBe(0)
+    // 2 bucket errors + 2 body-only derivations (one per imported session).
+    expect(result.diagnostics).toHaveLength(4)
+    const bucketErrors = result.diagnostics.filter((entry) => entry.kind === 'metadata-bucket-error')
+    expect(bucketErrors[0]).toMatchObject({ scope: 'global', projectId: null })
+    expect(bucketErrors[1]).toMatchObject({ scope: 'project', projectId: 'demo' })
+    // Bodies still import with metadata derived from the body files.
+    expect(repository.count()).toBe(2)
+    expect(repository.findBySessionId('g1').metadata).toMatchObject({ title: 'Title g1', messageCount: 1 })
+    expect(repository.findBySessionId('p1').metadata).toMatchObject({ title: 'Title p1', projectId: 'demo' })
+    expect(repository.verifyIntegrity()).toMatchObject({ ok: true, count: 2 })
+  })
+
   it('is idempotent on re-run and never modifies the JSON tree', async () => {
     await seedJsonTree()
     const { repository } = await setup()

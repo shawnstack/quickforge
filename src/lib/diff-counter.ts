@@ -3,10 +3,12 @@
  *
  * 行为约定：
  * - 每位数字一列，列内 0-9 垂直堆叠，通过 strip 的 translateY 滚动（过渡由 CSS transition 完成）；
- * - 位数增长时新列出现在左侧并标记 enter（入场动画），动画结束后移除标记避免重放；
+ * - 位数增长时新列出现在左侧并标记 enter（入场动画），动画结束后移除标记；
  * - 位数减少时从左侧移除多余列；
  * - running 时根元素标记 running（呼吸动画），结束定格；
- * - prefers-reduced-motion 时标记 reduced，CSS 关闭所有动画。
+ * - prefers-reduced-motion 时标记 reduced，CSS 关闭所有动画；
+ * - dispose 只清理待触发的入场标记定时器，保留 DOM 与状态——宿主元素被搬移
+ *   （disconnect→connect，过程分组重装饰的常规操作）后可继续 sync 复用，动画不打断。
  */
 
 export const ODOMETER_ENTER_MS = 380
@@ -15,6 +17,7 @@ export type OdometerElementLike = {
   className: string
   textContent: string
   style: { transform: string }
+  classList: { toggle(token: string, force?: boolean): unknown }
   children: OdometerElementLike[]
   appendChild(child: OdometerElementLike): unknown
   insertBefore(child: OdometerElementLike, ref: OdometerElementLike | null): unknown
@@ -47,14 +50,15 @@ export class OdometerDiffCounterController {
   constructor(root: OdometerElementLike, env: OdometerEnv) {
     this.root = root
     this.env = env
-    // 元素可能被装饰层搬移（disconnect→connect）或整棵 cloneNode 后重挂，
-    // 每次新建 controller 前清掉既有子节点，避免 +/− 列叠加重复。
+    // 全新 controller 只在宿主首次挂载或 cloneNode 克隆体（元素状态不随克隆复制，
+    // 子树却是旧 DOM）时创建：此时清掉既有子节点，避免 +/− 列叠加重复。
+    // DOM 搬移（disconnect→connect）不新建 controller，子树原样复用。
     while (root.children.length > 0) {
       root.removeChild(root.children[0])
     }
   }
 
-  /** 元素断开时调用：清理未触发的入场标记定时器。 */
+  /** 宿主断开时调用：只清待触发的入场标记定时器，保留 DOM 与状态供重挂复用。 */
   dispose() {
     for (const side of [this.addSide, this.delSide]) {
       for (const digit of side?.digits ?? []) {
@@ -66,11 +70,10 @@ export class OdometerDiffCounterController {
   /** 同步 ±行数与运行状态；计数变化时对应数字列滚动到位。 */
   sync(added: number, removed: number, running: boolean) {
     const reduced = this.env.prefersReducedMotion()
-    this.root.className = [
-      'quickforge-diff-counter',
-      running ? 'quickforge-diff-counter-running' : '',
-      reduced ? 'quickforge-odometer-reduced' : '',
-    ].filter(Boolean).join(' ')
+    // classList 增删而非整体覆写 className，保留 Lit 模板赋的布局类（shrink-0 等）。
+    this.root.classList.toggle('quickforge-diff-counter', true)
+    this.root.classList.toggle('quickforge-diff-counter-running', running)
+    this.root.classList.toggle('quickforge-odometer-reduced', reduced)
 
     this.syncSide(this.addSide ??= this.createSide('add', '+'), normalizeCount(added))
     this.syncSide(this.delSide ??= this.createSide('del', '−'), normalizeCount(removed))

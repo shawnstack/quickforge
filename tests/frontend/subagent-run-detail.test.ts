@@ -2,13 +2,16 @@ import { describe, expect, it } from 'vitest'
 import type { SubagentRunI18n, SubagentRunPayload, SubagentRunStatus, SubagentToolDisplayMode } from '../../src/lib/subagent-run-detail'
 import {
   MAX_SUBAGENT_RUN_SNAPSHOTS,
+  MAX_SUBAGENT_TOOL_SUMMARY_RUNS,
   SUBAGENT_TOOL_SUMMARY_MAX_LENGTH,
   SubagentRunEventPublisher,
   SubagentRunStore,
+  SubagentToolSummaryMemory,
   buildSubagentRunPayload,
   canOpenSubagentRunPayload,
   canPublishSubagentRunPayload,
   currentSubagentToolSummaries,
+  currentSubagentToolSummariesWithMemory,
   normalizeOpenSubagentRunRequest,
   resolveSubagentRunPayloadForOpen,
   shouldPublishSubagentRunPayload,
@@ -1061,5 +1064,79 @@ describe('currentSubagentToolSummaries', () => {
       pendingToolCalls: ['t-1'],
       traceMessages: [{ role: 'assistant', content: [{ type: 'toolCall', id: 't-1' }] }],
     }))).toEqual([])
+  })
+})
+
+describe('currentSubagentToolSummariesWithMemory', () => {
+  const traceWithToolCall = (id: string, name: string, args: unknown) => ({
+    role: 'assistant',
+    content: [{ type: 'toolCall', id, name, arguments: args }],
+  })
+
+  it('recalls the last non-empty summaries during running gaps until the next tool appears', () => {
+    const memory = new SubagentToolSummaryMemory()
+    // 第一个工具运行中：fresh 非空，正常返回并被记忆。
+    const runningTool = testPayload('run-1', 'running', {
+      pendingToolCalls: ['t-1'],
+      traceMessages: [traceWithToolCall('t-1', 'read_file', { path: 'src/a.ts' })],
+    })
+    expect(currentSubagentToolSummariesWithMemory(runningTool, memory)).toEqual(['read_file · src/a.ts'])
+    // 工具间隙：上一个已结束、下一个未开始（pending 为空、fresh 为空），回放最近非空摘要。
+    const gap = testPayload('run-1', 'running')
+    expect(currentSubagentToolSummariesWithMemory(gap, memory)).toEqual(['read_file · src/a.ts'])
+    // 下一个工具出现：切换为新 fresh 并更新记忆。
+    const nextTool = testPayload('run-1', 'running', {
+      pendingToolCalls: ['t-2'],
+      traceMessages: [
+        traceWithToolCall('t-1', 'read_file', { path: 'src/a.ts' }),
+        traceWithToolCall('t-2', 'run_command', { command: 'npm test' }),
+      ],
+    })
+    expect(currentSubagentToolSummariesWithMemory(nextTool, memory)).toEqual(['run_command · npm test'])
+    expect(currentSubagentToolSummariesWithMemory(gap, memory)).toEqual(['run_command · npm test'])
+  })
+
+  it('returns an empty list for terminal payloads regardless of memory', () => {
+    const memory = new SubagentToolSummaryMemory()
+    memory.remember('run-1', ['read_file · a.ts'])
+    expect(currentSubagentToolSummariesWithMemory(testPayload('run-1', 'done'), memory)).toEqual([])
+    expect(currentSubagentToolSummariesWithMemory(testPayload('run-1', 'error'), memory)).toEqual([])
+    // 终态不消费也不污染记忆：同 run 恢复 running 间隙仍可回放。
+    expect(currentSubagentToolSummariesWithMemory(testPayload('run-1', 'running'), memory)).toEqual(['read_file · a.ts'])
+  })
+
+  it('isolates memories per run id', () => {
+    const memory = new SubagentToolSummaryMemory()
+    memory.remember('run-1', ['read_file · a.ts'])
+    expect(currentSubagentToolSummariesWithMemory(testPayload('run-2', 'running'), memory)).toEqual([])
+    expect(currentSubagentToolSummariesWithMemory(testPayload('run-1', 'running'), memory)).toEqual(['read_file · a.ts'])
+  })
+
+  it('remember ignores empty run ids or summaries and clear empties the memory', () => {
+    const memory = new SubagentToolSummaryMemory()
+    memory.remember('', ['read_file · a.ts'])
+    memory.remember('run-1', [])
+    expect(memory.recall('')).toEqual([])
+    expect(memory.recall('run-1')).toEqual([])
+    memory.remember('run-1', ['read_file · a.ts'])
+    memory.clear()
+    expect(memory.recall('run-1')).toEqual([])
+  })
+
+  it('evicts the oldest run when exceeding the bounded size', () => {
+    const memory = new SubagentToolSummaryMemory()
+    for (let index = 0; index < MAX_SUBAGENT_TOOL_SUMMARY_RUNS; index += 1) {
+      memory.remember(`run-${index}`, [`tool-${index}`])
+    }
+    memory.remember('run-new', ['tool-new'])
+    expect(memory.recall('run-0')).toEqual([])
+    expect(memory.recall('run-1')).toEqual(['tool-1'])
+    expect(memory.recall('run-new')).toEqual(['tool-new'])
+    // 已存在 key 的重复 remember 不改变淘汰顺序（与 SubagentRunStore 语义一致）：
+    // run-1 仍是最旧条目，下一次插入淘汰它，而非淘汰 run-2。
+    memory.remember('run-1', ['tool-1-updated'])
+    memory.remember('run-extra', ['tool-extra'])
+    expect(memory.recall('run-1')).toEqual([])
+    expect(memory.recall('run-2')).toEqual(['tool-2'])
   })
 })

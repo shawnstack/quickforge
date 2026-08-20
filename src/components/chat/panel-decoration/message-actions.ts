@@ -17,6 +17,9 @@ import {
   rollbackIcon,
 } from './icons'
 import { decorateLocalFilePathLinks } from './local-file-path-links'
+import { decorateUserMessageInputClamp, type InputClampLabels } from '@/lib/input-clamp'
+
+const inputClampLabels: InputClampLabels = { collapsed: () => t('expand'), expanded: () => t('collapse') }
 import { assistantActionDisplayIndexes } from './message-action-visibility'
 
 function showCopiedFeedback(button: HTMLButtonElement, defaultTitle: string, defaultIcon: string) {
@@ -321,6 +324,8 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     element.classList.add('group', 'relative')
     element.classList.toggle('quickforge-assistant-message', entry.message.role === 'assistant')
     element.classList.toggle('quickforge-user-message', entry.message.role !== 'assistant')
+    // 纯文本用户消息的长内容定高收起（user-with-attachments 的附件区不参与）。
+    if (entry.message.role === 'user') decorateUserMessageInputClamp(element, inputClampLabels)
 
     const messageTimeValue = messageTimestamp(entry.message)
     const ensureMessageTime = (actionsContainer: HTMLElement) => {

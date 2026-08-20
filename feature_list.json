@@ -1,6 +1,127 @@
 {
   "features": [
     {
+      "id": "ask-user-history-review-style",
+      "name": "ask_user 历史工具消息展开复用回执样式",
+      "status": "done",
+      "approach": "已定案的「所见即所提交」：ask_user 提交/跳过后，历史工具消息非 detailed 展开体复用提问卡回执确认步样式。服务端 resolve 时已把 {askId, questions(规范化), answers[{choices,custom}], skipped, skipReason} 持久化进 toolResult.details（重载会话仍可用），前端此前只读 timing。实现：local-tools.ts 新增导出纯函数 askUserReviewRowsFromDetails(details)（自包含防御解析：details 非对象 / questions 非数组或空 / answers 非数组 / question 项非对象或 question 非 string → null；answers 按 questions 长度对齐补 undefined，choices 只收 string、custom 只收 string）；AskUserToolRenderer 非 detailed 且 review 非 null 时渲染 .quickforge-ask-review 只读行（行结构 -row>-content>-question+-answer 同回执、question 带「N. 」序号、answer=buildAskAnswerText(answers[i])||askUserUnanswered，跳过态全部显示未回答并复用 -answer 样式在行区顶部加跳过原因行，无修改按钮），此态省略 input 问题清单与 output 文本块（output=reviewActive?'':resultText）；detailed 一律维持 input JSON+output 原文，review null（pending/旧消息）维持原问题清单视图。buildAskAnswerText 自 ask-user-card.ts 导入（不反向依赖 local-tools，无循环）。i18n 新增 askUserSkipReasonTimeout/Aborted/NoQuestions/User 双语，skipReason 经 ASK_USER_SKIP_REASON_KEYS 映射（timeout/aborted/no-questions，默认 User）",
+      "files": [
+        "src/lib/local-tools.ts",
+        "src/lib/i18n.ts",
+        "tests/frontend/ask-user-card.test.ts",
+        "docs/wiki/src/lib/README.md"
+      ],
+      "verification": "npx vitest run tests/frontend/ask-user-card.test.ts tests/frontend/local-tools-lit-reactivity.test.ts → 23 passed（ask-user-card 22，新增 7：纯函数 4 + 渲染器源码断言 3）；npx eslint src/lib/local-tools.ts src/lib/i18n.ts tests/frontend/ask-user-card.test.ts → 0 error；npx tsc -b exit 0"
+    },
+    {
+      "id": "diff-display-optimization",
+      "name": "对话区 write/edit 工具 diff 结构化显示（行号/去前缀/文件头上提/省略分隔/暗色对比度/字符级高亮）",
+      "status": "done",
+      "approach": "设计稿 design-mockups/diff-display-optimization.html（现状复刻/方案 A/方案 B 三卡对比 + 亮暗主题切换 + edit/write 双示例，页面内 JS 即解析原型，用户选定方案 B 推荐）定稿后实现：新模块 src/lib/diff-view.ts 纯函数解析 unified diff——parseDiffRows（行号 old/new 双侧、剥离 +/- 前缀、hunk 头行号差计算间隙省略行、配对删/加行字符级变化段）、parseDiffFileInfo（路径上提 + /dev/null 判新文件）、tokenizeDiffLine/markTokenChanges（单词/空白/单符号三分段 token LCS，乘积超 40000 回退整行变化）；local-tools.ts renderDiff 由逐行分色 + 固定 RGB 内联样式改为结构化行渲染（quickforge-diff-row 双行号 grid、配对行 mark 加重底色、标题行路径 + 新文件 chip、i18n 省略 N 行/新文件双语），删除 DIFF_BLOCK_STYLE 等内联样式双保险与 diffLineClass/diffLineStyle/styleMap 依赖，OpenCodeToolRenderer 复用同渲染自动受益；index.css 新增行号/gap/mark/path/newfile 样式 + html.dark 亮绿/亮红文字覆盖（含 diff 徽章与里程计 side，修复暗色下固定深色文字对比度不足）；服务端与协议零改动（text-diff.mjs 输出不变，全部为前端解析）",
+      "files": [
+        "src/lib/diff-view.ts",
+        "src/lib/local-tools.ts",
+        "src/index.css",
+        "src/lib/i18n.ts",
+        "tests/frontend/diff-view.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "design-mockups/diff-display-optimization.html"
+      ],
+      "verification": "npx vitest run tests/frontend/diff-view.test.ts tests/frontend/local-tools-lit-reactivity.test.ts tests/frontend/tool-artifacts-and-events.test.ts tests/frontend/diff-counter.test.ts → 35 passed（含 diff-view 新增 16 用例）；npx eslint 四个改动文件 0 error；npx tsc -b exit 0"
+    },
+    {
+      "id": "input-clamp-expand",
+      "name": "长输入内容定高收起：聊天用户消息与 subagent 详情任务块统一气泡样式",
+      "status": "done",
+      "approach": "用户需求（两轮反馈收敛+浅色修正）落地：①视觉统一——subagent 详情顶部任务说明块复用用户消息气泡公式（背景 primary 混 card、边框 primary 18% 混 border、圆角 1.125rem 右下 0.375rem、同款轻阴影、消息字号/行高），任务块模板改 quickforge-subagent-task quickforge-input-clamp + data 标记；②定高收起共用 src/lib/input-clamp.ts——InputClampController 状态机（DOM 能力注入可单测）：定高按 computed line-height × 6 行 + 纵向 padding/border 计算（随字号设置缩放），超出入收起态（max-height + overflow hidden 无滚动条），底部渐隐遮罩（渐隐到气泡自身背景色 --quickforge-input-clamp-bg）+ 居中「展开」pill 按钮（hover 才强化，expanded 变「收起」+ chevron 旋转、aria-expanded），220ms max-height 过渡、展开结束后定时器置 none、reduced-motion 直切、内容不足定高遮罩与按钮 display:none 不占位；状态走 data 属性（clamped/expanded/fits）+ WeakMap 控制器缓存，跨 Lit 重渲染与实时 SSE 更新存活；i18n 标签由调用方注入（模块不 import i18n，避免 pi-web-ui 运行时依赖阻断 node 单测）；③背景调浅——user-message-container 浓度从 primary 10% 改为深色 6% / html:not(.dark) 浅色 3%（浅色纯白底混灰易显脏），渐隐遮罩与按钮复用同色变量；④接入：message-actions decorateMessages 对 role==user（不含附件消息）调 decorateUserMessageInputClamp，SubagentRunDetailBodyElement updated 后 syncInputClampBoxes 幂等度量。设计稿 design-mockups/input-clamp-expand.html（#light/#dark hash 直达，浓度 2/3/6/8/10% 可切对比）。测试 tests/frontend/input-clamp.test.ts 19 用例（纯函数/控制器假对象/源码断言：CSS 深浅双浓度与过渡同步、模板结构、装饰仅纯 user 消息、i18n 双语）",
+      "files": [
+        "src/lib/input-clamp.ts",
+        "src/lib/local-tools.ts",
+        "src/lib/i18n.ts",
+        "src/index.css",
+        "src/components/chat/panel-decoration/message-actions.ts",
+        "tests/frontend/input-clamp.test.ts",
+        "design-mockups/input-clamp-expand.html",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/components/README.md"
+      ]
+    },
+    {
+      "id": "fix-ask-user-nav-row-and-enter-confirm",
+      "name": "修复 ask_user 导航按钮分行与自由输入无确认入口",
+      "status": "done",
+      "approach": "真机反馈两问题：①「上一问」常驻卡片底部操作行而「下一问」由 renderStep 在 body 内选项区与自由输入 toggle 之间渲染，两个导航按钮不同行且「下一问」位于 textarea 上方，违背输入后向下确认的直觉；②自由输入展开后无就近确认入口。修复（协议与服务端不动）：nextBtn 提升为注入时创建、与 backBtn/submitBtn/skipBtn 同级常驻底部 .quickforge-ask-actions 行（append 顺序 backBtn,nextBtn,submitBtn,skipBtn,note；一次性绑定 isAskAnswered 校验+未答提示 askUserNeedAnswer+advance，闭包天然读最新 step/answers；renderStep 内按 !isReview && (multiSelect||allowCustom) 控制显隐——回执步隐藏、单选且 allowCustom=false 隐藏（点选自动前进不变）；setSubmitting 补 nextBtn.disabled=submitting||disabled 与其余按钮一致），body 模板删除内联 next 按钮与 renderStep 内逐次 querySelector/绑定；customInput 增 keydown：Enter 且 !shiftKey 时 preventDefault，isAskAnswered 通过则 advance 否则提示 askUserNeedAnswer，Shift+Enter 保持默认换行。CSS：删除 .quickforge-ask-next { align-self:flex-start }（body 布局遗留，actions 行内有害）并去类名，.quickforge-ask-actions 补 flex-wrap:wrap 防 4 按钮+note 窄屏溢出。测试按新实现重写 Next 用例（append 顺序、显隐条件、一次性绑定断言+反向断言模板/CSS 不含 quickforge-ask-next）并新增 keydown Enter 用例（!e.shiftKey+preventDefault）",
+      "files": [
+        "src/components/chat/panel-decoration/ask-user-card.ts",
+        "src/index.css",
+        "tests/frontend/ask-user-card.test.ts",
+        "docs/wiki/src/components/README.md"
+      ]
+    },
+    {
+      "id": "fix-ask-user-custom-mix-and-review-edit",
+      "name": "修复 ask_user 自由输入与选项互斥及回执直达修改",
+      "status": "done",
+      "approach": "ask_user 交互评审遗留 ③④ 修复（协议与服务端不动）：③展开自由输入清空 choices 与 buildAskAnswerText「选项 + 补充」数据模型矛盾——删除 customToggle 展开分支的 answers[step].choices=[] 与移除全部勾选样式两行，自由输入与选项勾选可共存（isAskAnswered 校验天然兼容），文案对齐补充语义（askUserCustomToggle en『Add a note (optional)』/zh『补充说明（可选）』，askUserCustomPlaceholder en『Type a note or extra context…』/zh『输入补充说明或额外要求…』）；④回执步仅 backBtn 逐题回退成本高——review 每行末尾新增「修改」按钮（quickforge-ask-review-edit + data-review-index），点击与 backBtn 同构（message 复位 + disarmSkip + step=index + renderStep，不引入额外动画状态；body.innerHTML 重建后在 isReview 分支内重新绑定），新增 i18n askUserEdit（en『Edit』/zh『修改』）；CSS 复用 ghost 视觉模式（透明底/hover muted）紧凑排布，review-row 改 content 列 + 右侧按钮行布局（flex none/shrink 免挤压）。测试新增 3 组源码断言（choices 清空模式不存在、review-edit 绑定与样式、i18n 双语文案）",
+      "files": [
+        "src/components/chat/panel-decoration/ask-user-card.ts",
+        "src/index.css",
+        "src/lib/i18n.ts",
+        "tests/frontend/ask-user-card.test.ts",
+        "docs/wiki/src/components/README.md"
+      ]
+    },
+    {
+      "id": "subagent-marquee-roll-switch",
+      "name": "subagent 跑马灯工具切换上下滚动过渡（方案 A）",
+      "status": "done",
+      "approach": "设计稿 design-mockups/subagent-marquee-roll-switch.html（三卡对比：现状直切/A 上滚/B 下滚，用户手动验证后定稿执行）。实现：tool-marquee.ts 控制器改为双视图结构——宿主提供两个等价视图（各含 static+moving span），容器 CSS 定高一行（1.125rem）、视图绝对定位铺满；text 切换且旧新文本均非空、running、非 reduced-motion 时旧视图 translateY 0→-100% 滚出、新视图自 +100% 滚入（MARQUEE_ROLL_DURATION_MS=260ms，cubic-bezier(.22,1,.36,1) 里程计同族缓动），滚动期间旧视图横向动画不中断（两轴独立），结束后新视图按既有 400ms 起始延迟重建横向循环；滚动中再遇新文本先就地结算当前滚动再从新当前视图重滚；同值刷新（含间隙保持）完全不打断；同值+running=false 停动画保持旧契约；当前视图完全静止时同值 sync 自愈排程（dispose 后恢复场景）。降级路径不变：reduced-motion/首次出现（无旧文本）/终态（元素卸载）均直切。local-tools.ts QuickForgeToolMarquee 构建双视图（非当前视图整体 aria-hidden），index.css 容器定高+新增 .quickforge-marquee-view 规则；旧实现验证页标注为 v1 参考并指向新设计稿。测试重写 tool-marquee.test.ts 13 用例（新增滚动创建/结算换位/直切降级/中途换文结算/滚动中同值不打断/dispose 滚动取消等）。验证：tool-marquee 13/13、前端全量 85 文件 778 用例全过、eslint 改动文件 0 error、tsc -b 通过",
+      "files": [
+        "src/lib/tool-marquee.ts",
+        "src/lib/local-tools.ts",
+        "src/index.css",
+        "tests/frontend/tool-marquee.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "design-mockups/subagent-marquee-roll-switch.html",
+        "design-mockups/subagent-tool-marquee-impl.html"
+      ]
+    },
+    {
+      "id": "subagent-marquee-hold-between-tools",
+      "name": "subagent 跑马灯工具间隙保持上一个工作过程不闪空",
+      "status": "done",
+      "approach": "用户反馈：上一个工具结束到下一个工具开始（或运行收尾文本生成）之间存在 pendingToolCalls 为空的间隙，currentSubagentToolSummaries 返回空列表使摘要卡跑马灯整个卸载，工作过程显示闪空消失、布局跳动。修复为带记忆的数据源：subagent-run-detail.ts 新增 SubagentToolSummaryMemory（按 runId 的有界 Map，MAX_SUBAGENT_TOOL_SUMMARY_RUNS=100，插入序 FIFO 淘汰、重复 remember 不改变淘汰顺序、忽略空 runId/空列表）与 currentSubagentToolSummariesWithMemory（非 running 一律空；fresh 非空时记住并返回；running 且 fresh 为空时回放该 run 最近一次非空摘要）；local-tools.ts renderSubagentRunSummary 改用带记忆版本（模块级单例）。效果：工具间隙跑马灯元素保持挂载、text 不变动画不重建不中断，下一个工具摘要出现即切换，运行结束照常消失；首个工具出现前（无记忆）行为与旧版一致不渲染。测试新增 5 用例（间隙回放与切换、终态恒空且不污染记忆、runId 隔离、空入参/clear、有界淘汰语义）",
+      "files": [
+        "src/lib/subagent-run-detail.ts",
+        "src/lib/local-tools.ts",
+        "tests/frontend/subagent-run-detail.test.ts",
+        "docs/wiki/src/lib/README.md"
+      ]
+    },
+    {
+      "id": "fix-ask-user-skip-and-custom-forward",
+      "name": "修复 ask_user 卡片跳过语义与单选自由输入无前进路径",
+      "status": "done",
+      "approach": "ask_user 交互评审定案的两缺陷修复（协议与服务端不动）：①跳过语义失真——「跳过」实际是 onSkip→服务端 skipped:true→全部问题按未回答回传（已答内容静默丢弃），且 zh『跳过此问』/en『Skip questions』与实际语义不符；askUserSkip 改为 en『Skip all questions』/zh『跳过全部提问』并新增 askUserSkipConfirm（en『Click again to skip all questions』/zh『再次点击确认跳过』），skipBtn 改两步确认：首击仅切换为确认文案（armed）+5s 超时自动复位，back/submit/单选自动前进（advance）均经 disarmSkip() 复位，armed 下再击才执行原 onSkip 流程，防误触丢答案。②单选 + allowCustom 展开自由输入后无前进手段——Next 按钮渲染条件由 multi 扩为 multi || allowCustom（复用既有 nextBtn 监听的 isAskAnswered 校验与 askUserNeedAnswer 提示；单选点选项自动前进不变）。测试补三组源码断言（Next 条件、两步跳过 armed/disarm 路径、i18n 双语文案）",
+      "files": [
+        "src/components/chat/panel-decoration/ask-user-card.ts",
+        "src/lib/i18n.ts",
+        "tests/frontend/ask-user-card.test.ts",
+        "docs/wiki/src/components/README.md"
+      ]
+    },
+    {
+      "id": "fix-session-import-metadata-bucket-resilience",
+      "name": "修复单个损坏 sessions-metadata.json 阻断启动",
+      "status": "done",
+      "approach": "存储 v2 风险审查发现的 M1：importSessionStateFromJson 的桶级 readMetadataBucket 读取与 isPlainObject 校验不在任何防护内，损坏 JSON（readJsonFile 仅吞 ENOENT，SyntaxError/EACCES/EBUSY rethrow）会沿启动链置 STARTUP_FAILED。修复为与单条目一致的韧性语义：桶级读取失败或非对象时降级为空 metadata 继续导入（正文文件照常走 body-only deriveMetadata 推导，仅 metadata-only 条目丢失——本就不含消息、按设计 dropped），记 diagnostics（kind=metadata-bucket-error）+ warn 日志；新增双桶用例（global 损坏 JSON + project 合法 JSON 但为数组）验证降级导入、diagnostics 与 body 推导 metadata 均正确",
+      "files": [
+        "server/session-state-import.mjs",
+        "tests/server/session-state-import.test.mjs",
+        "docs/architecture/session-storage-v2.zh-CN.md"
+      ]
+    },
+    {
       "id": "subagent-current-tool-marquee",
       "name": "subagent 运行卡右侧跑马灯显示当前执行工具",
       "status": "done",

@@ -87,6 +87,10 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
   backBtn.type = 'button'
   backBtn.className = 'quickforge-ask-button quickforge-ask-button--ghost'
   backBtn.textContent = t('askUserBack')
+  const nextBtn = document.createElement('button')
+  nextBtn.type = 'button'
+  nextBtn.className = 'quickforge-ask-button quickforge-ask-button--ghost'
+  nextBtn.textContent = t('askUserNext')
   const submitBtn = document.createElement('button')
   submitBtn.type = 'button'
   submitBtn.className = 'quickforge-ask-button quickforge-ask-button--primary'
@@ -97,7 +101,7 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
   skipBtn.textContent = t('askUserSkip')
   const note = document.createElement('span')
   note.className = 'quickforge-ask-note'
-  actions.append(backBtn, submitBtn, skipBtn, note)
+  actions.append(backBtn, nextBtn, submitBtn, skipBtn, note)
   card.append(head, dots, body, message, actions)
 
   const renderStep = () => {
@@ -112,6 +116,7 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
         + (index === step ? ' quickforge-ask-step--current' : '')
     })
     backBtn.style.visibility = step > 0 && !isReview ? 'visible' : (isReview ? 'visible' : 'hidden')
+    nextBtn.style.display = (!isReview && (question.multiSelect === true || question.allowCustom !== false)) ? '' : 'none'
     submitBtn.style.display = isReview ? '' : 'none'
     skipBtn.style.display = isReview ? 'none' : ''
 
@@ -121,12 +126,27 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
         <div class="quickforge-ask-review">
           ${questions.map((q, index) => `
             <div class="quickforge-ask-review-row">
-              <span class="quickforge-ask-review-question">${escapeHtml(`${index + 1}. ${q.question}`)}</span>
-              <span class="quickforge-ask-review-answer">${escapeHtml(buildAskAnswerText(answers[index]) || t('askUserUnanswered'))}</span>
+              <div class="quickforge-ask-review-content">
+                <span class="quickforge-ask-review-question">${escapeHtml(`${index + 1}. ${q.question}`)}</span>
+                <span class="quickforge-ask-review-answer">${escapeHtml(buildAskAnswerText(answers[index]) || t('askUserUnanswered'))}</span>
+              </div>
+              <button type="button" class="quickforge-ask-review-edit" data-review-index="${index}">${escapeHtml(t('askUserEdit'))}</button>
             </div>
           `).join('')}
         </div>
       `
+      // The review summary re-enters any question directly — same renderStep
+      // path as the back button, no extra animation state.
+      body.querySelectorAll<HTMLButtonElement>('.quickforge-ask-review-edit').forEach((editBtn) => {
+        editBtn.addEventListener('click', () => {
+          const index = Number(editBtn.dataset.reviewIndex)
+          if (index < 0 || index >= questions.length) return
+          message.hidden = true
+          disarmSkip()
+          step = index
+          renderStep()
+        })
+      })
       body.classList.remove('quickforge-ask-body--enter')
       return
     }
@@ -151,7 +171,6 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
           </button>
         `).join('')}
       </div>
-      ${multi ? `<button type="button" class="quickforge-ask-next quickforge-ask-button quickforge-ask-button--ghost">${escapeHtml(t('askUserNext'))}</button>` : ''}
       ${allowCustom ? `<button type="button" class="quickforge-ask-custom-toggle">${escapeHtml(t('askUserCustomToggle'))}</button>
       <div class="quickforge-ask-custom" hidden>
         <textarea class="quickforge-ask-custom-input" rows="3" placeholder="${escapeHtml(t('askUserCustomPlaceholder'))}"></textarea>
@@ -179,15 +198,6 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
       })
     })
 
-    const nextBtn = body.querySelector<HTMLButtonElement>('.quickforge-ask-next')
-    nextBtn?.addEventListener('click', () => {
-      if (!isAskAnswered(answers[step])) {
-        showMessage(t('askUserNeedAnswer'))
-        return
-      }
-      advance()
-    })
-
     const customToggle = body.querySelector<HTMLButtonElement>('.quickforge-ask-custom-toggle')
     const customBox = body.querySelector<HTMLElement>('.quickforge-ask-custom')
     const customInput = body.querySelector<HTMLTextAreaElement>('.quickforge-ask-custom-input')
@@ -199,18 +209,41 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
         customInput.value = customInput.value || answers[step].custom || ''
         customInput.disabled = disabled
         customInput.focus()
-        answers[step].choices = []
-        body.querySelectorAll('.quickforge-ask-option').forEach((o) => o.classList.remove('quickforge-ask-option--picked'))
       }
     })
     customInput?.addEventListener('input', () => {
       answers[step].custom = customInput.value
     })
+    // Enter confirms and advances like the bottom-row Next button; Shift+Enter
+    // keeps the default newline.
+    customInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        if (!isAskAnswered(answers[step])) {
+          showMessage(t('askUserNeedAnswer'))
+          return
+        }
+        advance()
+      }
+    })
+  }
+
+  // Skipping discards every answer, so it needs a two-step confirm: the first
+  // click only arms the button (confirm label), reverting after 5s; any other
+  // wizard interaction disarms it.
+  let skipArmed = false
+  let skipArmTimer: number | undefined
+  const disarmSkip = () => {
+    if (skipArmTimer !== undefined) window.clearTimeout(skipArmTimer)
+    skipArmTimer = undefined
+    skipArmed = false
+    skipBtn.textContent = t('askUserSkip')
   }
 
   let advancing = false
   const advance = () => {
     if (advancing) return
+    disarmSkip()
     advancing = true
     body.classList.add('quickforge-ask-body--leaving')
     window.setTimeout(() => {
@@ -228,8 +261,19 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
     message.hidden = false
   }
 
+  // Bound once at injection — the closure reads the current step/answers; the
+  // button lives in the bottom actions row, one row with Back.
+  nextBtn.addEventListener('click', () => {
+    if (!isAskAnswered(answers[step])) {
+      showMessage(t('askUserNeedAnswer'))
+      return
+    }
+    advance()
+  })
+
   backBtn.addEventListener('click', () => {
     message.hidden = true
+    disarmSkip()
     step = Math.max(0, step - 1)
     renderStep()
   })
@@ -237,6 +281,7 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
   const setSubmitting = (submitting: boolean) => {
     submitBtn.disabled = submitting || disabled
     skipBtn.disabled = submitting || disabled
+    nextBtn.disabled = submitting || disabled
     backBtn.disabled = submitting
     if (submitting) submitBtn.textContent = t('askUserSubmitting')
     else submitBtn.textContent = t('askUserSubmit')
@@ -246,6 +291,7 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
     event.stopPropagation()
     event.preventDefault()
     message.hidden = true
+    disarmSkip()
     setSubmitting(true)
     void Promise.resolve(deps.onSubmit(answers.map((answer) => ({ ...answer }))))
       .catch(() => {
@@ -258,6 +304,13 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
     event.stopPropagation()
     event.preventDefault()
     message.hidden = true
+    if (!skipArmed) {
+      skipArmed = true
+      skipBtn.textContent = t('askUserSkipConfirm')
+      skipArmTimer = window.setTimeout(disarmSkip, 5000)
+      return
+    }
+    disarmSkip()
     setSubmitting(true)
     void Promise.resolve(deps.onSkip()).catch(() => {
       showMessage(t('askUserFailed'))

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import ts from 'typescript'
 import { describe, expect, it, vi } from 'vitest'
 import {
   MARQUEE_END_PAUSE_MS,
@@ -363,5 +365,157 @@ describe('ToolMarqueeController', () => {
       expect(view.staticSpan.style.visibility).toBe('')
       expect(view.movingSpan.style.display).toBe('')
     }
+  })
+})
+
+const cssSource = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+const localToolsSource = readFileSync(new URL('../../src/lib/local-tools.ts', import.meta.url), 'utf8')
+
+function cssRule(selector: string) {
+  const pattern = `\n${selector} {`
+  const selectorIndex = cssSource.lastIndexOf(pattern)
+  if (selectorIndex < 0) throw new Error(`CSS rule not found: ${selector}`)
+  const bodyStart = cssSource.indexOf('{', selectorIndex) + 1
+  const bodyEnd = cssSource.indexOf('}', bodyStart)
+  return cssSource.slice(bodyStart, bodyEnd)
+}
+
+type FakeMarqueeElement = {
+  className: string
+  classList: { contains(name: string): boolean }
+  children: FakeMarqueeElement[]
+  style: Record<string, string>
+  textContent: string
+  scrollWidth: number
+  clientWidth: number
+  attributes: Map<string, string>
+  appendChild(child: FakeMarqueeElement): FakeMarqueeElement
+  replaceChildren(...children: FakeMarqueeElement[]): void
+  querySelector(selector: string): FakeMarqueeElement | null
+  setAttribute(name: string, value: string): void
+  getAttribute(name: string): string | null
+}
+
+class FakeHTMLElement implements FakeMarqueeElement {
+  private classes = new Set<string>()
+  children: FakeMarqueeElement[] = []
+  style: Record<string, string> = {}
+  textContent = ''
+  scrollWidth = 500
+  clientWidth = 200
+  attributes = new Map<string, string>()
+
+  get className() { return [...this.classes].join(' ') }
+  set className(value: string) { this.classes = new Set(value.split(/\s+/).filter(Boolean)) }
+  get classList() { return { contains: (name: string) => this.classes.has(name) } }
+
+  appendChild(child: FakeMarqueeElement) {
+    this.children.push(child)
+    return child
+  }
+
+  replaceChildren(...children: FakeMarqueeElement[]) {
+    this.children = [...children]
+  }
+
+  querySelector(selector: string): FakeMarqueeElement | null {
+    const className = selector.startsWith('.') ? selector.slice(1) : ''
+    for (const child of this.children) {
+      if (className && child.classList.contains(className)) return child
+      const nested = child.querySelector(selector)
+      if (nested) return nested
+    }
+    return null
+  }
+
+  setAttribute(name: string, value: string) { this.attributes.set(name, value) }
+  getAttribute(name: string) { return this.attributes.get(name) ?? null }
+}
+
+function quickForgeToolMarqueeClass() {
+  const output = ts.transpileModule(localToolsSource, {
+    fileName: 'local-tools.ts',
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2023 },
+  }).outputText
+  const sourceFile = ts.createSourceFile('local-tools.js', output, ts.ScriptTarget.ES2023, true, ts.ScriptKind.JS)
+  const declaration = sourceFile.statements.find(
+    (statement): statement is ts.ClassDeclaration => ts.isClassDeclaration(statement)
+      && statement.name?.text === 'QuickForgeToolMarquee',
+  )
+  if (!declaration) throw new Error('Transpiled QuickForgeToolMarquee not found')
+
+  const controllerInstances: Array<{ host: { views: Array<{ el: FakeMarqueeElement }> }; sync: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }> = []
+  class FakeController {
+    host: { views: Array<{ el: FakeMarqueeElement }> }
+    sync = vi.fn()
+    dispose = vi.fn()
+    constructor(host: { views: Array<{ el: FakeMarqueeElement }> }) {
+      this.host = host
+      host.views[1].el.style.visibility = 'hidden'
+      controllerInstances.push(this)
+    }
+  }
+  class FakeResizeObserver {
+    observe = vi.fn()
+    disconnect = vi.fn()
+  }
+  const factory = new Function(
+    'HTMLElement',
+    'document',
+    'ResizeObserver',
+    'ToolMarqueeController',
+    'marqueeEnv',
+    'requestAnimationFrame',
+    `${declaration.getText(sourceFile)}; return QuickForgeToolMarquee`,
+  )
+  const Marquee = factory(
+    FakeHTMLElement,
+    { createElement: () => new FakeHTMLElement() },
+    FakeResizeObserver,
+    FakeController,
+    {},
+    (callback: () => void) => callback(),
+  ) as new () => FakeHTMLElement & {
+    connectedCallback(): void
+    disconnectedCallback(): void
+    attributeChangedCallback(): void
+  }
+  return { Marquee, controllerInstances }
+}
+
+describe('QuickForgeToolMarquee wiring regressions', () => {
+  it('lets only the subagent title consume the remaining summary width', () => {
+    expect(cssRule('.quickforge-tool-title')).toMatch(/flex:\s*0 1 auto/)
+    expect(cssRule('.quickforge-subagent-title')).toMatch(/flex:\s*1 1 auto/)
+    expect(cssRule('.quickforge-subagent-title')).not.toMatch(/flex:\s*0 1 auto/)
+  })
+
+  it('reuses exactly two controlled views after disconnect and reconnect', () => {
+    const { Marquee, controllerInstances } = quickForgeToolMarqueeClass()
+    const element = new Marquee()
+    element.setAttribute('text', 'run_command · npm test')
+    element.setAttribute('running', 'true')
+
+    element.connectedCallback()
+    expect(element.children).toHaveLength(2)
+    const originalViews = [...element.children]
+    expect(controllerInstances).toHaveLength(1)
+    expect(controllerInstances[0].sync).toHaveBeenLastCalledWith('run_command · npm test', true)
+
+    element.disconnectedCallback()
+    expect(controllerInstances[0].dispose).toHaveBeenCalledOnce()
+    element.connectedCallback()
+
+    expect(element.children).toHaveLength(2)
+    expect(element.children).toEqual(originalViews)
+    expect(controllerInstances).toHaveLength(2)
+    expect(controllerInstances[1].host.views.map((view) => view.el)).toEqual(originalViews)
+    expect(originalViews[0].style.visibility).toBe('')
+    expect(originalViews[1].style.visibility).toBe('hidden')
+    expect(controllerInstances[1].sync).toHaveBeenLastCalledWith('run_command · npm test', true)
+
+    element.setAttribute('text', 'read_file · src/index.css')
+    element.attributeChangedCallback()
+    expect(controllerInstances[1].sync).toHaveBeenLastCalledWith('read_file · src/index.css', true)
   })
 })

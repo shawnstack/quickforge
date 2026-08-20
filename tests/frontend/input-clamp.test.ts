@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
+  INPUT_CLAMP_CONTROL_SAFE_AREA_PX,
   INPUT_CLAMP_SETTLE_TIMEOUT_MS,
   INPUT_CLAMP_TRANSITION_MS,
   InputClampController,
+  inputClampContentHeight,
   inputClampHeight,
   inputClampPhase,
   type InputClampBox,
@@ -48,6 +50,8 @@ function createFakeBox(): FakeBox {
 function createController(options: {
   natural: number
   clamp: number
+  collapsed?: number
+  layout?: number
   reduced?: boolean
   states?: Array<{ expanded: boolean; phase: InputClampPhase }>
 }) {
@@ -57,23 +61,29 @@ function createController(options: {
     box: fakeBox.box,
     env: fakeEnv.env,
     getClampHeightPx: () => options.clamp,
+    ...(options.collapsed !== undefined ? { getCollapsedHeightPx: () => options.collapsed! } : {}),
     getNaturalHeightPx: () => options.natural,
+    ...(options.layout !== undefined ? { getLayoutHeightPx: () => options.layout! } : {}),
     ...(options.states ? { onStateApplied: (expanded: boolean, phase: InputClampPhase) => options.states!.push({ expanded, phase }) } : {}),
   })
   return { controller, ...fakeBox, ...fakeEnv }
 }
 
 describe('inputClampHeight', () => {
-  it('computes lines times line height plus vertical chrome, rounded up', () => {
-    expect(inputClampHeight(22.75, 26)).toBe(Math.ceil(6 * 22.75 + 26))
-    expect(inputClampHeight(20, 0)).toBe(120)
+  it('keeps a six-line text budget and adds one deterministic control safe area', () => {
+    const contentHeight = inputClampContentHeight(22.75, 26)
+    expect(contentHeight).toBe(Math.ceil(6 * 22.75 + 26))
+    expect(inputClampHeight(22.75, 26)).toBe(contentHeight + INPUT_CLAMP_CONTROL_SAFE_AREA_PX)
+    expect(inputClampHeight(20, 0)).toBe(150)
   })
 
   it('supports custom line counts and clamps invalid inputs', () => {
-    expect(inputClampHeight(20, 10, 3)).toBe(70)
+    expect(inputClampContentHeight(20, 10, 3)).toBe(70)
+    expect(inputClampHeight(20, 10, 3)).toBe(100)
+    expect(inputClampHeight(20, 10, 3, 0)).toBe(70)
     expect(inputClampHeight(0, 10)).toBe(0)
     expect(inputClampHeight(Number.NaN, 10)).toBe(0)
-    expect(inputClampHeight(20, -5)).toBe(120)
+    expect(inputClampHeight(20, -5)).toBe(150)
   })
 })
 
@@ -91,7 +101,7 @@ describe('inputClampPhase', () => {
 })
 
 describe('InputClampController', () => {
-  it('sync applies the collapsed state with data attributes and no inline max-height', () => {
+  it('sync applies the collapsed state with data attributes and no stale inline max-height', () => {
     const { controller, attrs, style } = createController({ natural: 500, clamp: 163 })
     controller.sync()
     expect(attrs.get('data-quickforge-fits')).toBe('false')
@@ -100,8 +110,9 @@ describe('InputClampController', () => {
     expect(style.maxHeight).toBe('')
   })
 
-  it('sync keeps fitting content natural and unclamped', () => {
-    const { controller, attrs, style } = createController({ natural: 100, clamp: 163 })
+  it('sync keeps fitting content natural and unclamped without applying a collapsed height', () => {
+    const { controller, attrs, style } = createController({ natural: 100, clamp: 163, collapsed: 193 })
+    controller.sync()
     controller.sync()
     expect(attrs.get('data-quickforge-fits')).toBe('true')
     expect(attrs.get('data-quickforge-clamped')).toBe('false')
@@ -118,17 +129,18 @@ describe('InputClampController', () => {
     expect(style.maxHeight).toBe('none')
   })
 
-  it('collapsing transitions through the natural height back to the CSS clamp', () => {
-    const { controller, style, flushTimers, reflowReads, attrs } = createController({ natural: 500, clamp: 163 })
+  it('collapsing transitions through the layout height to the safe-area clamp', () => {
+    const { controller, style, flushTimers, reflowReads, attrs } = createController({ natural: 500, layout: 530, clamp: 163, collapsed: 193 })
     controller.sync()
     controller.setExpanded(true)
+    expect(style.maxHeight).toBe('530px')
     flushTimers()
     expect(style.maxHeight).toBe('none')
 
     controller.setExpanded(false)
-    // 收起路径：先回到自然高度 px，读一次 offsetHeight 强制 reflow，再清空回落到 CSS 定高。
+    // 收起路径：先回到含安全区的布局自然高度，读一次 offsetHeight 强制 reflow，再落到含安全区的 CSS 定高。
     expect(reflowReads()).toBeGreaterThanOrEqual(1)
-    expect(style.maxHeight).toBe('')
+    expect(style.maxHeight).toBe('193px')
     expect(attrs.get('data-quickforge-clamped')).toBe('true')
     expect(attrs.get('data-quickforge-expanded')).toBe('false')
   })
@@ -194,14 +206,31 @@ describe('input clamp wiring sources', () => {
     expect(inputClampSource).toMatch(/INPUT_CLAMP_TRANSITION_MS = 220/)
   })
 
+  it('applies one shared flow safe area without changing the six-line fit threshold or mutating padding', () => {
+    expect(inputClampSource).toMatch(/INPUT_CLAMP_CONTROL_SAFE_AREA_PX = 30/)
+    expect(inputClampSource).toMatch(/getClampHeightPx: \(\) => inputClampMeasurements\(box\)\.contentHeight/)
+    expect(inputClampSource).toMatch(/getCollapsedHeightPx: \(\) => applyClampHeightVar\(box\)/)
+    expect(inputClampSource).toMatch(/quickforge-input-clamp-safe-area/)
+    expect(inputClampSource).toMatch(/box\.scrollHeight - safeAreaHeightPx\(box\) \+ borderY/)
+    expect(inputClampSource).not.toMatch(/quickforgeInputClampBasePaddingBottom/)
+    expect(inputClampSource).not.toMatch(/style\.paddingBottom\s*=/)
+    expect(css).toMatch(/--quickforge-input-clamp-control-safe-area:\s*30px/)
+    expect(css).toMatch(/\.quickforge-input-clamp-safe-area\s*\{[\s\S]*?height:\s*var\(--quickforge-input-clamp-control-safe-area, 30px\)/)
+    expect(css).toMatch(/data-quickforge-fits='false'\] > \.quickforge-input-clamp-safe-area\s*\{\s*display:\s*block/)
+    expect(css).toMatch(/height:\s*calc\(22px \+ var\(--quickforge-input-clamp-control-safe-area, 30px\)\)/)
+  })
+
   it('styles the clamp box, fade, and toggle with fits state hiding both affordances', () => {
     expect(css).toMatch(/\.quickforge-input-clamp\[data-quickforge-clamped='true'\]\s*\{[\s\S]*?overflow:\s*hidden/)
     expect(css).toMatch(/\.quickforge-input-clamp\[data-quickforge-fits='true'\] \.quickforge-input-clamp-fade,[\s\S]*?display:\s*none/)
     expect(css).toMatch(/\.quickforge-input-clamp-toggle\s*\{[\s\S]*?border-radius:\s*999px/)
   })
 
-  it('restyles the subagent task block as a user-message bubble with the shared clamp', () => {
+  it('preserves line breaks only on explicit subagent field values, not the Lit container whitespace', () => {
     expect(css).toMatch(/\.quickforge-subagent-task\.quickforge-input-clamp\s*\{[\s\S]*?border-radius:\s*1\.125rem 1\.125rem 0\.375rem 1\.125rem/)
+    expect(css).not.toMatch(/\.quickforge-subagent-task\.quickforge-input-clamp\s*\{[^{}]*white-space:\s*pre-wrap/s)
+    expect(css).toMatch(/\.quickforge-subagent-task-value\s*\{\s*white-space:\s*pre-wrap/)
+    expect(localToolsSource.match(/class="quickforge-subagent-task-value"/g)).toHaveLength(3)
     expect(localToolsSource).toMatch(/quickforge-subagent-task quickforge-input-clamp" data-quickforge-input-clamp="true"/)
     expect(localToolsSource).toMatch(/syncInputClampBoxes\(this, subagentInputClampLabels\)/)
   })

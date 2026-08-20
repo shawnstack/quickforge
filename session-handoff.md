@@ -1,10 +1,24 @@
 # Session Handoff
 
+## 当前状态：fix-subagent-marquee-width-reconnect（已完成）
+
+- 本会话目标：实施 subagent 跑马灯最小修复——摘要标题占据剩余宽度；custom element 断开再连接不重复追加双视图。
+- 最终状态：**已完成并验证**。普通 `.quickforge-tool-title` 行为保持 `flex: 0 1 auto`，仅 `.quickforge-subagent-title` 使用 `flex: 1 1 auto`；`QuickForgeToolMarquee` 重连优先复用现有两组完整 view，仅异常 DOM 才清理重建，attribute 同步和现有动画/ResizeObserver 行为不变。
+- 改动文件：`src/index.css`、`src/lib/local-tools.ts`、`tests/frontend/tool-marquee.test.ts`；增量更新 `feature_list.json`、`progress.md`、`session-handoff.md`。保留了工作区既有 `src/index.css`、input-clamp、wiki 与簿记改动，未覆盖或改写其他 active/done feature 状态。
+- 测试覆盖：① CSS 源码契约断言普通 title 仍 `flex: 0 1 auto`、subagent title 为 `flex: 1 1 auto`；②执行转译后的 custom element 生命周期，覆盖 connect→disconnect→reconnect 后仍恰好两组原 view、控制器重建复用节点，并继续响应 `text`/`running` 属性。
+- 验证：`npx vitest run tests/frontend/tool-marquee.test.ts tests/frontend/local-tools-lit-reactivity.test.ts` → 2 files / 16 passed；`npx eslint src/lib/local-tools.ts tests/frontend/tool-marquee.test.ts` → 0 error；`npx tsc -b --pretty false` → exit 0；`git diff --check` → exit 0。
+- 文档：未修改 `docs/wiki`，因为本次仅修复布局与生命周期幂等缺陷，没有改变模块职责、公共入口、动画语义或用户可配置行为。
+- 遗留：可选真机目视；本会话未创建 commit/tag/push，生成目录未修改。
+
+---
+
+## 前轮会话：input-clamp-expand（已完成，要点归档）
+
 ## 当前状态：input-clamp-expand（已完成）
 
 - 本会话目标：长输入内容定高收起——聊天用户消息与 subagent 详情任务块统一用户消息气泡视觉并定高收起（设计稿两轮迭代获用户确认后实现：`好的先执行吧`）。
-- 最终状态：**已完成并验证**（input-clamp 19/19、相关面 174、前端全量 87 文件 821 用例全过、eslint 0 error、tsc -b 与 npm run build 通过）。
-- 改动文件：`src/lib/input-clamp.ts`（新增：`inputClampHeight`/`inputClampPhase` 纯函数、`InputClampController` 状态机——定高按 computed line-height×6 行+纵向 chrome、data 属性（clamped/expanded/fits）、220ms max-height 过渡/展开后定时器置 none/reduced-motion 直切；DOM 装饰入口 `decorateUserMessageInputClamp`/`syncInputClampBoxes`/`toggleInputClampBox`，渐隐遮罩与「展开」pill 按钮注入式、WeakMap 控制器缓存；i18n 标签由调用方注入（模块零 i18n 依赖，规避 pi-web-ui 运行时依赖阻断 node 单测））、`src/index.css`（user-message-container 背景浓度 primary 10%→深色 6%/`html:not(.dark)` 浅色 3%，新变量 `--quickforge-input-clamp-bg` 供气泡/渐隐/按钮三处同色；quickforge-input-clamp 组件样式（定高裁切/渐隐/展开按钮/fits 不占位）；quickforge-subagent-task 气泡化（同边框/圆角/阴影/消息字号））、`src/lib/local-tools.ts`（任务块模板改 `quickforge-subagent-task quickforge-input-clamp`+data 标记、字段升 14px foreground；`SubagentRunDetailBodyElement` updated 后 `syncInputClampBoxes(this, subagentInputClampLabels)` 幂等度量）、`src/components/chat/panel-decoration/message-actions.ts`（decorateMessages 对 `role === 'user'`（不含附件消息）调 `decorateUserMessageInputClamp`）、`src/lib/i18n.ts`（expand/collapse 双语）、`tests/frontend/input-clamp.test.ts`（新增 19 用例）、`docs/wiki/src/lib/README.md`（input-clamp 模块行 + local-tools 段同步）、`docs/wiki/src/components/README.md`（message-actions 段同步）、`design-mockups/input-clamp-expand.html`（设计稿，#light/#dark hash 直达）；簿记三件套（feature_list.json → done）。
+- 最终状态：**已完成并验证**。追加真机反馈修复：① `white-space: pre-wrap` 仅作用于 task/context/expectedOutput 三个值节点，保留原始换行且不再把 Lit 模板缩进渲染成字段间大空白；②共享收起盒增加 30px 流内按钮安全区，仅 overflowing 内容显示，收起/展开态均不覆盖正文，fits 内容不留额外空白。`npx vitest run tests/frontend/input-clamp.test.ts` → 20/20 通过。
+- 改动文件：本次追加 `src/lib/input-clamp.ts`（六行正文阈值与含按钮安全区的收起高度分离，注入流内 safe-area 节点）、`src/lib/local-tools.ts`（三字段值级 wrapper）、`src/index.css`（值级 pre-wrap、安全区/fade 样式）、`tests/frontend/input-clamp.test.ts`（20 用例，覆盖高度口径、字段值换行作用域与安全区接线）、`docs/wiki/src/lib/README.md`（行为说明）及簿记三件套。
 - 关键决策：状态走 data 属性而非 class（Lit 重渲染重写 class，data 属性与注入节点可跨 SSE 实时更新存活，无需按 runId 持久化展开态，重开 Tab 回落收起）；浅色浓度 3%（浅色 token --background 纯白，混灰易显脏）、深色 6%；边框浓度用户反馈后再调淡——`primary 18%→12% 混 border`（气泡/任务块/展开按钮三处同步，按钮 hover 34%→26%，设计稿同步），测试与 feature 记录已验证/更新。
 - 遗留：真机目视确认（长用户消息与详情任务块收起/展开、深浅主题气泡浓度观感；设计稿可对照）留待用户。本会话改动未提交 git。预览服务 `python -m http.server 8791 --bind 127.0.0.1 --directory D:/quickforge` 仍在后台（IAB 内核点击通道本会话中后期失效属环境问题，渲染正常）。
 

@@ -8,7 +8,7 @@ import { artifactPreviewMode, type ArtifactKind } from '@/components/workspace/a
 import { formatManageGlobalMemoryOutput } from '@/lib/global-memory-tool-output'
 import { generatedImageAssetUrl, parseGeneratedImageDetails } from '@/lib/generated-image-assets'
 import { summarizeParams } from '@/lib/tool-param-summary'
-import { ToolMarqueeController, type ToolMarqueeEnv } from '@/lib/tool-marquee'
+import { ToolMarqueeController, type ToolMarqueeEnv, type ToolMarqueeView } from '@/lib/tool-marquee'
 import { syncInputClampBoxes, type InputClampLabels } from '@/lib/input-clamp'
 
 const subagentInputClampLabels: InputClampLabels = { collapsed: () => t('expand'), expanded: () => t('collapse') }
@@ -373,23 +373,13 @@ class QuickForgeToolMarquee extends HTMLElement {
   }
 
   connectedCallback() {
-    const views = [0, 1].map(() => {
-      const el = document.createElement('span')
-      el.className = 'quickforge-marquee-view'
-      const staticSpan = document.createElement('span')
-      staticSpan.className = 'quickforge-marquee-static'
-      const movingSpan = document.createElement('span')
-      movingSpan.className = 'quickforge-marquee-moving'
-      movingSpan.setAttribute('aria-hidden', 'true')
-      el.appendChild(staticSpan)
-      el.appendChild(movingSpan)
-      return { el, staticSpan, movingSpan }
-    })
+    const views = this.marqueeViews()
+    // 新控制器始终从第一组视图接管；重连前可能停在第二组，先归一化可见位。
+    views[0].el.style.visibility = ''
     // 非当前视图整体对辅助技术隐藏（瞬态滚入内容不重复播报）。
-    views[1].el.setAttribute('aria-hidden', 'true')
-    views.forEach((view) => this.appendChild(view.el))
+    ;(views[1].el as HTMLElement).setAttribute('aria-hidden', 'true')
     this.controller = new ToolMarqueeController({
-      views: [views[0], views[1]],
+      views,
       getClientWidth: () => this.clientWidth,
     }, marqueeEnv)
     this.ready = true
@@ -414,6 +404,36 @@ class QuickForgeToolMarquee extends HTMLElement {
   attributeChangedCallback() {
     if (!this.ready) return
     this.sync()
+  }
+
+  private marqueeViews(): [ToolMarqueeView, ToolMarqueeView] {
+    const existing = Array.from(this.children).filter(
+      (child): child is HTMLElement => child instanceof HTMLElement && child.classList.contains('quickforge-marquee-view'),
+    )
+    if (existing.length === 2) {
+      const views = existing.map((el) => {
+        const staticSpan = el.querySelector<HTMLElement>('.quickforge-marquee-static')
+        const movingSpan = el.querySelector<HTMLElement>('.quickforge-marquee-moving')
+        return staticSpan && movingSpan ? { el, staticSpan, movingSpan } : undefined
+      })
+      if (views[0] && views[1]) return [views[0], views[1]]
+    }
+
+    this.replaceChildren()
+    const views = [0, 1].map(() => {
+      const el = document.createElement('span')
+      el.className = 'quickforge-marquee-view'
+      const staticSpan = document.createElement('span')
+      staticSpan.className = 'quickforge-marquee-static'
+      const movingSpan = document.createElement('span')
+      movingSpan.className = 'quickforge-marquee-moving'
+      movingSpan.setAttribute('aria-hidden', 'true')
+      el.appendChild(staticSpan)
+      el.appendChild(movingSpan)
+      this.appendChild(el)
+      return { el, staticSpan, movingSpan }
+    })
+    return [views[0], views[1]]
   }
 
   private sync() {
@@ -715,9 +735,9 @@ export function renderSubagentRunBody(payload: SubagentRunPayload) {
     <div class="mt-3 space-y-3">
       ${bodyBlocks.has('task') ? html`<div class="quickforge-subagent-task quickforge-input-clamp" data-quickforge-input-clamp="true">
         <div class="space-y-1">
-          ${payload.task ? html`<div><span class="font-medium">${t('subagentTask')}:</span> ${payload.task}</div>` : nothing}
-          ${payload.context ? html`<div><span class="font-medium">${t('subagentContext')}:</span> ${payload.context}</div>` : nothing}
-          ${payload.expectedOutput ? html`<div><span class="font-medium">${t('subagentExpectedOutput')}:</span> ${payload.expectedOutput}</div>` : nothing}
+          ${payload.task ? html`<div><span class="font-medium">${t('subagentTask')}:</span> <span class="quickforge-subagent-task-value">${payload.task}</span></div>` : nothing}
+          ${payload.context ? html`<div><span class="font-medium">${t('subagentContext')}:</span> <span class="quickforge-subagent-task-value">${payload.context}</span></div>` : nothing}
+          ${payload.expectedOutput ? html`<div><span class="font-medium">${t('subagentExpectedOutput')}:</span> <span class="quickforge-subagent-task-value">${payload.expectedOutput}</span></div>` : nothing}
         </div>
       </div>` : nothing}
       ${bodyBlocks.has('summary') ? html`<div class="quickforge-subagent-summary rounded-lg border border-border/75 bg-muted/20 px-3 py-2.5 text-sm">

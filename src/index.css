@@ -2042,6 +2042,7 @@ html:not(.dark) .quickforge-user-message .user-message-container {
    expanded=已展开、fits=内容不足定高（遮罩与按钮不占位）。
    过渡时长与 INPUT_CLAMP_TRANSITION_MS 保持一致（.22s）。 */
 .quickforge-input-clamp {
+  --quickforge-input-clamp-control-safe-area: 30px;
   position: relative;
   transition: max-height .22s cubic-bezier(.22, 1, .36, 1);
 }
@@ -2056,10 +2057,20 @@ html:not(.dark) .quickforge-user-message .user-message-container {
 .quickforge-input-clamp[data-quickforge-clamped='false'] {
   max-height: none;
 }
+.quickforge-input-clamp[data-quickforge-fits='true'] .quickforge-input-clamp-safe-area,
 .quickforge-input-clamp[data-quickforge-fits='true'] .quickforge-input-clamp-fade,
 .quickforge-input-clamp[data-quickforge-fits='true'] .quickforge-input-clamp-toggle,
 .quickforge-input-clamp[data-quickforge-clamped='false'] .quickforge-input-clamp-fade {
   display: none;
+}
+
+.quickforge-input-clamp-safe-area {
+  display: none;
+  height: var(--quickforge-input-clamp-control-safe-area, 30px);
+  pointer-events: none;
+}
+.quickforge-input-clamp[data-quickforge-fits='false'] > .quickforge-input-clamp-safe-area {
+  display: block;
 }
 
 .quickforge-input-clamp-fade {
@@ -2067,7 +2078,7 @@ html:not(.dark) .quickforge-user-message .user-message-container {
   left: 1px;
   right: 1px;
   bottom: 1px;
-  height: 52px;
+  height: calc(22px + var(--quickforge-input-clamp-control-safe-area, 30px));
   background: linear-gradient(to bottom, transparent, var(--quickforge-input-clamp-bg, transparent) 76%);
   pointer-events: none;
   border-radius: 17px 17px 5px 17px;
@@ -2121,6 +2132,9 @@ html:not(.dark) .quickforge-user-message .user-message-container {
   font-size: var(--quickforge-message-font-size, 14px);
   line-height: var(--quickforge-message-line-height, 1.625);
   overflow-wrap: anywhere;
+}
+.quickforge-subagent-task-value {
+  white-space: pre-wrap;
 }
 html:not(.dark) .quickforge-subagent-task.quickforge-input-clamp {
   --quickforge-input-clamp-bg: color-mix(in oklab, var(--primary) 3%, var(--card));
@@ -2904,9 +2918,18 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
 .quickforge-subagent-title {
   display: inline-flex;
   min-width: 0;
-  flex: 0 1 auto;
   align-items: center;
   gap: 0.25rem;
+}
+
+/* 普通工具标题保持按内容收缩；subagent 标题占满摘要行剩余宽度，
+   让内部绝对定位的跑马灯获得可测量的弹性空间。 */
+.quickforge-tool-title {
+  flex: 0 1 auto;
+}
+
+.quickforge-subagent-title {
+  flex: 1 1 auto;
 }
 
 .quickforge-tool-label,

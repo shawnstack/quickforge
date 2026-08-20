@@ -1,6 +1,18 @@
 {
   "features": [
     {
+      "id": "fix-subagent-marquee-width-reconnect",
+      "name": "修复 subagent 跑马灯剩余宽度与重连重复视图",
+      "status": "done",
+      "approach": "最小修复：CSS 将普通 .quickforge-tool-title 保持 flex:0 1 auto，仅 .quickforge-subagent-title 改为 flex:1 1 auto，使其占据摘要行剩余宽度并给内部绝对定位跑马灯稳定可测宽度；QuickForgeToolMarquee connectedCallback 优先复用已存在且结构完整的两组 view，只有缺失/异常时才 replaceChildren 后重建两组，disconnect 仍只清 ResizeObserver 与 controller，attribute 驱动、双视图滚动动画与速度语义不变。tool-marquee 回归测试新增 CSS 独立 flex 契约，以及 connect→disconnect→reconnect 后子节点始终为原两组、控制器重新绑定并继续响应 text/running 属性。",
+      "files": [
+        "src/index.css",
+        "src/lib/local-tools.ts",
+        "tests/frontend/tool-marquee.test.ts"
+      ],
+      "verification": "npx vitest run tests/frontend/tool-marquee.test.ts tests/frontend/local-tools-lit-reactivity.test.ts → 2 files / 16 passed；npx eslint src/lib/local-tools.ts tests/frontend/tool-marquee.test.ts → 0 error；npx tsc -b --pretty false → exit 0；git diff --check → exit 0"
+    },
+    {
       "id": "ask-user-history-review-style",
       "name": "ask_user 历史工具消息展开复用回执样式",
       "status": "done",
@@ -33,7 +45,7 @@
       "id": "input-clamp-expand",
       "name": "长输入内容定高收起：聊天用户消息与 subagent 详情任务块统一气泡样式",
       "status": "done",
-      "approach": "用户需求（两轮反馈收敛+浅色修正）落地：①视觉统一——subagent 详情顶部任务说明块复用用户消息气泡公式（背景 primary 混 card、边框 primary 12% 混 border（后续用户反馈由 18% 再调淡）、圆角 1.125rem 右下 0.375rem、同款轻阴影、消息字号/行高），任务块模板改 quickforge-subagent-task quickforge-input-clamp + data 标记；②定高收起共用 src/lib/input-clamp.ts——InputClampController 状态机（DOM 能力注入可单测）：定高按 computed line-height × 6 行 + 纵向 padding/border 计算（随字号设置缩放），超出入收起态（max-height + overflow hidden 无滚动条），底部渐隐遮罩（渐隐到气泡自身背景色 --quickforge-input-clamp-bg）+ 居中「展开」pill 按钮（hover 才强化，expanded 变「收起」+ chevron 旋转、aria-expanded），220ms max-height 过渡、展开结束后定时器置 none、reduced-motion 直切、内容不足定高遮罩与按钮 display:none 不占位；状态走 data 属性（clamped/expanded/fits）+ WeakMap 控制器缓存，跨 Lit 重渲染与实时 SSE 更新存活；i18n 标签由调用方注入（模块不 import i18n，避免 pi-web-ui 运行时依赖阻断 node 单测）；③背景调浅——user-message-container 浓度从 primary 10% 改为深色 6% / html:not(.dark) 浅色 3%（浅色纯白底混灰易显脏），渐隐遮罩与按钮复用同色变量；④接入：message-actions decorateMessages 对 role==user（不含附件消息）调 decorateUserMessageInputClamp，SubagentRunDetailBodyElement updated 后 syncInputClampBoxes 幂等度量。设计稿 design-mockups/input-clamp-expand.html（#light/#dark hash 直达，浓度 2/3/6/8/10% 可切对比）。测试 tests/frontend/input-clamp.test.ts 19 用例（纯函数/控制器假对象/源码断言：CSS 深浅双浓度与过渡同步、模板结构、装饰仅纯 user 消息、i18n 双语）",
+      "approach": "用户需求（两轮反馈收敛+浅色修正）落地：①视觉统一——subagent 详情顶部任务说明块复用用户消息气泡公式（背景 primary 混 card、边框 primary 12% 混 border（后续用户反馈由 18% 再调淡）、圆角 1.125rem 右下 0.375rem、同款轻阴影、消息字号/行高），任务块模板改 quickforge-subagent-task quickforge-input-clamp + data 标记；②定高收起共用 src/lib/input-clamp.ts——InputClampController 状态机（DOM 能力注入可单测）：定高按 computed line-height × 6 行 + 纵向 padding/border 计算（随字号设置缩放），超出入收起态（max-height + overflow hidden 无滚动条），底部渐隐遮罩（渐隐到气泡自身背景色 --quickforge-input-clamp-bg）+ 居中「展开」pill 按钮（hover 才强化，expanded 变「收起」+ chevron 旋转、aria-expanded），220ms max-height 过渡、展开结束后定时器置 none、reduced-motion 直切、内容不足定高遮罩与按钮 display:none 不占位；状态走 data 属性（clamped/expanded/fits）+ WeakMap 控制器缓存，跨 Lit 重渲染与实时 SSE 更新存活；i18n 标签由调用方注入（模块不 import i18n，避免 pi-web-ui 运行时依赖阻断 node 单测）；③背景调浅——user-message-container 浓度从 primary 10% 改为深色 6% / html:not(.dark) 浅色 3%（浅色纯白底混灰易显脏），渐隐遮罩与按钮复用同色变量；④接入：message-actions decorateMessages 对 role==user（不含附件消息）调 decorateUserMessageInputClamp，SubagentRunDetailBodyElement updated 后 syncInputClampBoxes 幂等度量。设计稿 design-mockups/input-clamp-expand.html（#light/#dark hash 直达，浓度 2/3/6/8/10% 可切对比）。测试 tests/frontend/input-clamp.test.ts 19 用例（纯函数/控制器假对象/源码断言：CSS 深浅双浓度与过渡同步、模板结构、装饰仅纯 user 消息、i18n 双语）；追加真机反馈修复：换行保留范围收窄到 task/context/expectedOutput 三个值节点，避免 Lit 模板缩进被 `pre-wrap` 放大成字段间巨量空白；共享收起盒为底部按钮注入 30px 流内安全区，仅 overflowing 内容显示，收起和展开态均不再覆盖正文，fits 内容不留空白。验证：npx vitest run tests/frontend/input-clamp.test.ts → 20 passed",
       "files": [
         "src/lib/input-clamp.ts",
         "src/lib/local-tools.ts",

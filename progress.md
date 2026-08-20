@@ -2,12 +2,16 @@
 
 ## Current State
 
+- Feature: 修复 subagent 跑马灯剩余宽度与重连重复视图（fix-subagent-marquee-width-reconnect，**已完成**）
+- Status: done — `.quickforge-tool-title` 保持 `flex: 0 1 auto`，仅 `.quickforge-subagent-title` 改为 `flex: 1 1 auto`，使跑马灯获得摘要行剩余宽度；`QuickForgeToolMarquee` 重连时复用现有两组完整 view，异常结构才清理并重建，避免 connect-disconnect-reconnect 累计双视图，同时保留 attribute 驱动、动画时序与 ResizeObserver 策略。新增 CSS flex 契约和自定义元素重连行为回归测试。验证：定向 vitest 2 文件 16 用例全过；改动 TS/测试 eslint 0 error；`npx tsc -b --pretty false` 与 `git diff --check` 通过。未改 wiki（局部 bugfix 未改变模块职责、公共入口或既有行为契约）。
+- Next step: 可选真机触发多工具 subagent，目视确认窄列宽下跑马灯占满剩余区域、过程分组搬移后仍仅两组视图。
+
 - Feature: ask_user 历史工具消息展开复用回执样式（ask-user-history-review-style，**已完成**）
 - Status: done — 非 detailed 展开体复用回执确认步样式：askUserReviewRowsFromDetails 解析持久化 toolResult.details（questions/answers/skipped/skipReason），已回答/跳过渲染只读回执行（复用 buildAskAnswerText 与 .quickforge-ask-review 样式，跳过态带原因行）并省略 output 文本块；detailed / pending / 旧消息维持原视图。验证：定向 vitest 2 文件 23 用例全过、eslint 改动文件 0 error、tsc -b 通过；真机目视留待用户；未提交 git。
 - Next step: 真机目视确认（触发一次 ask_user 提交与跳过、重载会话展开历史工具消息观察回执样式/跳过原因行/detailed 对照）。
 
 - Feature: 长输入内容定高收起——聊天用户消息与 subagent 详情任务块统一气泡样式（input-clamp-expand，**已完成**）
-- Status: done — 新增 `src/lib/input-clamp.ts`（InputClampController 状态机：定高=computed line-height×6 行+纵向 chrome、data 属性状态、220ms max-height 过渡/展开后置 none/reduced-motion 直切；DOM 装饰入口 decorateUserMessageInputClamp / syncInputClampBoxes，i18n 标签注入式）；任务块模板改气泡视觉+收起结构，详情宿主 updated 后幂等度量；聊天装饰对纯文本 user 消息接入（附件消息不参与）；user-message-container 背景浓度 primary 10%→深色 6%/浅色（html:not(.dark)）3%，渐隐遮罩与展开按钮复用同色变量；新增 i18n expand/collapse 双语。验证：input-clamp 19/19、相关面 174 用例、前端全量 87 文件 821 用例全过；eslint 改动文件 0 error；tsc -b 与 npm run build 通过。真机目视确认留待用户（设计稿 design-mockups/input-clamp-expand.html 可对照，支持 #light/#dark hash 与浓度切换）。
+- Status: done — 新增 `src/lib/input-clamp.ts`（InputClampController 状态机：定高=computed line-height×6 行+纵向 chrome、data 属性状态、220ms max-height 过渡/展开后置 none/reduced-motion 直切；DOM 装饰入口 decorateUserMessageInputClamp / syncInputClampBoxes，i18n 标签注入式）；任务块模板改气泡视觉+收起结构，详情宿主 updated 后幂等度量；聊天装饰对纯文本 user 消息接入（附件消息不参与）；user-message-container 背景浓度 primary 10%→深色 6%/浅色（html:not(.dark)）3%，渐隐遮罩与展开按钮复用同色变量；新增 i18n expand/collapse 双语。追加真机反馈修复：`white-space: pre-wrap` 收窄到 task/context/expectedOutput 三个值节点，保留输入换行但不再放大 Lit 模板缩进；为共享收起盒注入 30px 流内按钮安全区，仅 overflowing 内容显示，展开/收起均不覆盖正文，fits 内容不留空白。验证：input-clamp 20/20；此前相关面 174、前端全量 87 文件 821 用例、eslint、tsc/build 均通过。真机目视确认留待用户（设计稿 design-mockups/input-clamp-expand.html 可对照，支持 #light/#dark hash 与浓度切换）。
 - Next step: 无阻塞；真机目视确认（长用户消息与 subagent 详情任务块的收起/展开、深浅两主题气泡浓度观感）。
 
 ## Notes

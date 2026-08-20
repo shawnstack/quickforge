@@ -2,14 +2,16 @@
 
 ## Current State
 
-- Feature: composer-stop-button-waiting-spinner（已完成）；此前 session-storage-v2 与 v1.7.11 发布均已完成
-- Status: done — 发送按钮等待态环形 spinner 已实现并验证：syncSendStopButton 新增 isWaiting（与等待气泡同源 assistantWaitingActive）切 quickforge-stop-button--waiting 类，CSS 复用 quickforge-approval-spin（750ms linear 同拍）渲染 1rem 环形、隐藏停止方块，prefers-reduced-motion 降级静止半透明。验证：新增 tests/frontend/send-stop-button.test.ts 5 用例全过；tests/frontend 全量 80 文件 711 用例全过；eslint 改动文件零输出；npm run build 通过；构建产物 CSS 注入真实 DOM 验证环形动画生效（quickforge-approval-spin 0.75s linear）。UI 局部视觉装饰不涉及架构/模块职责/公共入口，无需更新 wiki。
+- Feature: thinking-block-height-cap（已完成）；此前 composer-stop-button-waiting-spinner、session-storage-v2 与 v1.7.11 发布均已完成
+- Status: done — 思考过程内容高度封顶已实现并验证：.quickforge-process-body 内 thinking-block 展开的 markdown-block 增加 max-height: min(60vh, 20rem) + overflow-y: auto + overscroll-behavior: contain，超长思考内部滚动不再撑大聊天页面，短内容保持自然高度；流式期间保持阅读位置（用户确认，纯 CSS 不加 JS 跟随）。验证：npm run lint（仅既有无关 warning）+ npm run build 通过；构建产物 CSS 注入真实 DOM 验证（长内容封顶 260px@769px 视口、scrollTop 可滚、overscroll contain 生效、短内容自然高度 19px 无滚动条）。UI 局部样式约束不涉及架构/模块职责/公共入口，无需更新 wiki。
 - Blockers: 无
 - Next step: 无（本 feature 关闭；存储 v2 观察期事项见 handoff）
 
 ## Notes
 
-- 发送按钮等待态设计定案（本轮）：分析确认按钮原为发送↑/停止■两态、无旋转态——prompt() 乐观同步置 isStreaming 使点击后下一帧即翻 Stop，无可感知空档；等待期反馈原仅由三点气泡承担。用户在小样（三方案：A2 方块步进/A1 方块平滑/B 环形）中选定 B 环形——与审批按钮 loading 完全同构、全应用单一旋转节奏。实现要点：::before 环形用 margin 居中而非 transform（transform 归 spin 动画所有，若用 translate 居中每圈末尾会跳位）；等待与生成的区分依赖 assistantWaitingActive（首个 assistant 文字增量即复位），agentic 循环后段工具阶段保持静止■（保守设计，避免图标反复起停）；等待期点击仍为 abort、aria-label 保持 Stop。附带补上了 send-stop-button 的首个单测（此前该模块零测试覆盖）。
+- 思考块高度封顶设计定案（本轮）：根因——thinking-block（pi-web-ui Lit 组件）展开后 markdown-block 全量渲染且无任何高度约束，装饰层折叠只是 display:none 开关，展开时全部高度进入消息列表文档流撑高 agent-interface 滚动容器；流式期间外层过程组默认展开，长思考边生成边撑长页面并触发自动滚底跳动。方案为纯 CSS 单点改动（复用 diff 块 28rem/code-block 24rem/压缩文本 18rem 的 max-height+overflow 先例）；用户确认两项参数：上限 min(60vh, 20rem)（小屏按视口收缩，兼顾 Capacitor Android）、流式期间保持阅读位置不做终端式跟随。交互细节：overscroll-behavior: contain 使思考块内滚到头不连锁滚动外层聊天；标题行在滚动容器外，折叠按钮始终可见；markdown-block 自带 display:block（connectedCallback），max-height 天然生效。
+- 验证环境教训：临时 http 服务器给 .css 返回 text/html 会被浏览器 MIME 严格检查拒绝解析（styleSheets 规则数为 0 且 computed style 全默认），排查选择器匹配前先确认样式表实际解析条数。
+- 发送按钮等待态设计定案（前轮）：分析确认按钮原为发送↑/停止■两态、无旋转态——prompt() 乐观同步置 isStreaming 使点击后下一帧即翻 Stop，无可感知空档；等待期反馈原仅由三点气泡承担。用户在小样（三方案：A2 方块步进/A1 方块平滑/B 环形）中选定 B 环形——与审批按钮 loading 完全同构、全应用单一旋转节奏。实现要点：::before 环形用 margin 居中而非 transform（transform 归 spin 动画所有，若用 translate 居中每圈末尾会跳位）；等待与生成的区分依赖 assistantWaitingActive（首个 assistant 文字增量即复位），agentic 循环后段工具阶段保持静止■（保守设计，避免图标反复起停）；等待期点击仍为 abort、aria-label 保持 Stop。附带补上了 send-stop-button 的首个单测（此前该模块零测试覆盖）。
 - 遗留（记录不处理）：根目录空目录 design-preview/ 因句柄占用未能删除（内含文件已清空，重启后可删）；既有 lint warning server/cloud/identity.mjs:92 不变。
 
 - 存储 v2 收尾（本轮）：重构主体（schema v11 三表/repository/service/importer/mirror+phase+cutover 链删除/auto_vacuum 回收）已在前序会话完成并全量测试通过，本轮补齐文档与簿记：新增单一事实文档 `docs/architecture/session-storage-v2.zh-CN.md`（背景写放大 5 份、三表布局、写入/删除/启动导入路径、删除机制清单、逃生通道、已知取舍、新旧对比表）；v1"当前架构"文档标注为历史参考；recovery runbook 顶部加 v2 修订提示（恢复路径=备份 restore 或删库重导，不再有"降级回 JSON 权威"）；sqlite-storage-foundation §4 补 v11 一段；wiki server README 存储层描述段全面更新为 v2 现状。后续候选（记录在案）：①S2b 发现 `repository()` 先求值 `getSqliteStorage()`——通过 configureSessionStateService 注入 repository 的测试仍需 SQLite 已初始化，若要纯内存 repository 测试需拆开两步（当前测试均先初始化 storage，未构成实际问题）；②`*_v10_backup` 六表稳定观察期后以独立 migration DROP 回收空间；③listPage lastModified 的 json_extract 表达式索引；④share/lan mirror 链后续同类清理候选。

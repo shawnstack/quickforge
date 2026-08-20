@@ -460,6 +460,15 @@
         "src/index.css",
         "tests/frontend/send-stop-button.test.ts"
       ]
+    },
+    {
+      "id": "thinking-block-height-cap",
+      "name": "思考过程内容高度封顶（超出内部滚动，避免撑大聊天页面）",
+      "status": "done",
+      "approach": "纯 CSS 单点改动：.quickforge-process-body 内 thinking-block 展开的 markdown-block 加 max-height: min(60vh, 20rem) + overflow-y: auto + overscroll-behavior: contain（滚到头不连锁滚动外层聊天）；短内容保持自然高度；流式期间保持阅读位置不做跟随（用户确认两项参数）。复用 diff/code-block/压缩文本的 max-height+overflow 视觉先例，所有 thinking-block 均被装饰层折叠进 process group 故一条规则全覆盖",
+      "files": [
+        "src/index.css"
+      ]
     }
   ]
 }

@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ask User 工具卡 · 设计稿</title>
+<style>
+  :root {
+    --background: #ffffff;
+    --foreground: #18181b;
+    --card: #fafafa;
+    --muted: #f4f4f5;
+    --muted-foreground: #71717a;
+    --border: #e4e4e7;
+    --primary: #18181b;
+    --emerald: #059669;
+    --emerald-fg: #ffffff;
+    --emerald-weak: rgba(5, 150, 105, 0.10);
+    --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Courier New", monospace;
+  }
+  body.dark {
+    --background: #101012;
+    --foreground: #f4f4f5;
+    --card: #17171a;
+    --muted: #1d1d21;
+    --muted-foreground: #a1a1aa;
+    --border: #2a2a30;
+    --primary: #fafafa;
+    --emerald: #34d399;
+    --emerald-fg: #052e1f;
+    --emerald-weak: rgba(52, 211, 153, 0.14);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--background); color: var(--foreground);
+    font: 13px/1.65 var(--font-sans);
+    display: flex; flex-direction: column; align-items: center; gap: 28px;
+    padding: 40px 16px 80px;
+  }
+  h1 { font-size: 15px; font-weight: 600; margin: 0; }
+  .hint { color: var(--muted-foreground); font-size: 12px; text-align: center; max-width: 560px; }
+  .toolbar { display: flex; gap: 8px; }
+  .toolbar button {
+    font: 12px var(--font-sans); color: var(--foreground);
+    background: var(--card); border: 1px solid var(--border); border-radius: 6px;
+    padding: 5px 12px; cursor: pointer;
+  }
+  .toolbar button:hover { background: var(--muted); }
+
+  .stage {
+    width: 560px; max-width: 100%;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .stage-label {
+    font-size: 11px; color: var(--muted-foreground); letter-spacing: .04em;
+    text-transform: uppercase; margin: 12px 0 -4px;
+  }
+
+  /* 模拟对话气泡（非本稿重点，弱化处理） */
+  .bubble {
+    max-width: 86%; padding: 8px 12px; border-radius: 10px;
+    background: var(--muted); color: var(--foreground);
+  }
+  .bubble.assistant { align-self: flex-start; }
+  .bubble .dim { color: var(--muted-foreground); font-size: 12px; }
+
+  /* ============ Ask User 提问卡 ============ */
+  .ask-card {
+    border: 1px solid var(--border); border-radius: 10px;
+    background: color-mix(in srgb, var(--card) 88%, transparent);
+    padding: 12px 14px 14px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .ask-head { display: flex; align-items: center; gap: 8px; }
+  .ask-head svg { width: 15px; height: 15px; color: var(--muted-foreground); flex: none; }
+  .ask-head .who { font-size: 12px; font-weight: 600; color: var(--muted-foreground); }
+  .ask-head .waiting {
+    margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; color: var(--muted-foreground);
+  }
+  .ask-head .waiting .dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--emerald);
+    animation: breathe 1.6s ease-in-out infinite;
+  }
+  @keyframes breathe { 50% { opacity: .35; } }
+  .ask-question { font-size: 13.5px; line-height: 1.6; white-space: pre-wrap; }
+
+  /* 选项按钮：普通 → hover → 选中 渐进 */
+  .ask-options { display: flex; flex-direction: column; gap: 6px; }
+  .ask-option {
+    display: flex; align-items: flex-start; gap: 10px; text-align: left;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--background); color: var(--foreground);
+    padding: 8px 12px; cursor: pointer; font: 13px/1.5 var(--font-sans);
+    transition: background-color .12s ease, border-color .12s ease;
+  }
+  .ask-option:hover { background: var(--muted); border-color: color-mix(in srgb, var(--foreground) 22%, var(--border)); }
+  .ask-option.selected {
+    background: var(--emerald-weak); border-color: var(--emerald);
+    box-shadow: 0 1px 2px rgba(0,0,0,.05);
+  }
+  .ask-option .check {
+    flex: none; width: 15px; height: 15px; margin-top: 1px; border-radius: 50%;
+    border: 1.5px solid var(--border); display: inline-flex;
+    align-items: center; justify-content: center;
+    transition: border-color .12s ease;
+  }
+  .ask-option:hover .check { border-color: var(--muted-foreground); }
+  .ask-option.selected .check { border-color: var(--emerald); background: var(--emerald); }
+  .ask-option.selected .check::after {
+    content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--emerald-fg);
+  }
+  .ask-option .opt-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .ask-option .opt-label { font-weight: 500; }
+  .ask-option .opt-desc { font-size: 12px; color: var(--muted-foreground); }
+
+  /* 「其他想法」自定义输入：与选项同级但弱化为文字入口 */
+  .ask-custom-toggle {
+    border: none; background: none; cursor: pointer;
+    font: 12px var(--font-sans); color: var(--muted-foreground);
+    padding: 2px 4px; align-self: flex-start; border-radius: 4px;
+  }
+  .ask-custom-toggle:hover { color: var(--foreground); background: var(--muted); }
+  .ask-custom {
+    display: none; flex-direction: column; gap: 6px;
+  }
+  .ask-custom.open { display: flex; }
+  .ask-custom textarea {
+    width: 100%; min-height: 60px; resize: vertical;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--background); color: var(--foreground);
+    font: 13px/1.6 var(--font-sans); padding: 8px 10px; outline: none;
+  }
+  .ask-custom textarea:focus { border-color: var(--muted-foreground); }
+
+  .ask-actions { display: flex; align-items: center; gap: 8px; }
+  .btn {
+    font: 12.5px/1 var(--font-sans); border-radius: 7px; padding: 7px 14px;
+    cursor: pointer; border: 1px solid var(--border);
+  }
+  .btn-primary { background: var(--primary); color: var(--background); border-color: var(--primary); }
+  .btn-primary:disabled { opacity: .45; cursor: default; }
+  .btn-ghost { background: transparent; color: var(--muted-foreground); }
+  .btn-ghost:hover { color: var(--foreground); background: var(--muted); }
+  .ask-actions .note { margin-left: auto; font-size: 11px; color: var(--muted-foreground); }
+
+  /* ============ 已回答态（历史消息里的定格卡） ============ */
+  .ask-card.answered { opacity: .92; }
+  .ask-card.answered .ask-answer {
+    border-left: 2px solid var(--emerald);
+    padding: 2px 0 2px 10px; margin-top: 2px;
+    font-size: 12.5px; color: var(--muted-foreground);
+  }
+  .ask-card.answered .ask-answer b { color: var(--foreground); font-weight: 600; }
+  .ask-card.cancelled .ask-answer { border-left-color: var(--muted-foreground); }
+
+  /* 选项在已回答卡里的定格展示 */
+  .ask-card.answered .ask-option { cursor: default; }
+  .ask-card.answered .ask-option:hover { background: var(--background); border-color: var(--border); }
+
+  /* ============ 多问题卡 ============ */
+  .ask-questions { display: flex; flex-direction: column; gap: 14px; }
+  .ask-q { display: flex; flex-direction: column; gap: 7px; }
+  .ask-q + .ask-q { border-top: 1px solid var(--border); padding-top: 12px; }
+  .ask-q .q-title { font-size: 13px; font-weight: 600; }
+  .ask-q .q-title .q-index {
+    font-size: 11px; font-weight: 500; color: var(--muted-foreground); margin-right: 6px;
+  }
+  .ask-q .q-title .q-chip {
+    margin-left: 6px; font-size: 10px; font-weight: 500; color: var(--muted-foreground);
+    border: 1px solid var(--border); border-radius: 99px; padding: 1px 7px; vertical-align: 1px;
+  }
+  .ask-q.answered-q .ask-option { cursor: default; }
+  .ask-q.answered-q .ask-option:hover { background: var(--background); border-color: var(--border); }
+  .ask-q .q-answer {
+    border-left: 2px solid var(--emerald); padding: 1px 0 1px 9px;
+    font-size: 12.5px; color: var(--muted-foreground);
+  }
+  .ask-q .q-answer b { color: var(--foreground); font-weight: 600; }
+
+  /* ============ 向导式多问题卡 ============ */
+  .wiz-dots { display: flex; gap: 6px; }
+  .wiz-dots .step {
+    width: 8px; height: 8px; border-radius: 50%;
+    border: 1.5px solid var(--border); transition: all .15s ease;
+  }
+  .wiz-dots .step.current { border-color: var(--foreground); }
+  .wiz-dots .step.done { border-color: transparent; background: var(--emerald); opacity: .55; }
+  .wiz-body { display: flex; flex-direction: column; gap: 8px; }
+  .wiz-q-title { font-size: 13.5px; font-weight: 600; }
+  .wiz-q-title .q-chip {
+    margin-left: 6px; font-size: 10px; font-weight: 500; color: var(--muted-foreground);
+    border: 1px solid var(--border); border-radius: 99px; padding: 1px 7px; vertical-align: 1px;
+  }
+  /* 点选后自动前进：当前问题淡出、下一问淡入 */
+  .wiz-body.leaving { animation: wiz-leave 160ms ease; }
+  .wiz-body.entering { animation: wiz-enter 200ms ease; }
+  @keyframes wiz-leave { to { opacity: 0; transform: translateX(-6px); } }
+  @keyframes wiz-enter { from { opacity: 0; transform: translateX(6px); } }
+  /* 已答过的问题回看时选项定格 */
+  .ask-option.picked .check { border-color: var(--emerald); background: var(--emerald); }
+  .ask-option.picked .check::after {
+    content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--emerald-fg);
+  }
+  /* 末问答完：回执摘要 + 提交按钮 */
+  .wiz-summary { display: flex; flex-direction: column; gap: 5px; }
+  .wiz-summary .row { font-size: 12.5px; color: var(--muted-foreground); }
+  .wiz-summary .row b { color: var(--foreground); font-weight: 600; }
+
+  /* ============ 工具式折叠态（有新消息后收成一行） ============ */
+  .ask-collapsed {
+    display: flex; align-items: center; gap: 8px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: color-mix(in srgb, var(--card) 88%, transparent);
+    padding: 6px 10px; cursor: pointer; user-select: none;
+    color: var(--muted-foreground); font-size: 12px;
+  }
+  .ask-collapsed:hover { background: var(--muted); }
+  .ask-collapsed svg { width: 13px; height: 13px; flex: none; }
+  .ask-collapsed .summary {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .ask-collapsed .summary b { color: var(--foreground); font-weight: 600; }
+  .ask-collapsed .chevron { flex: none; transition: transform .15s ease; }
+  .ask-collapsed.open .chevron { transform: rotate(90deg); }
+  .ask-collapsed + .ask-detail { display: none; }
+  .ask-collapsed.open + .ask-detail { display: flex; }
+</style>
+</head>
+<body>
+  <h1>Ask User 工具卡 · 设计稿</h1>
+  <div class="hint">模型调用 ask_user 后在消息流注入提问卡：问题正文 + 选项（可带说明）+「其他想法」自由输入。等待中呼吸点；提交后定格为已回答态，回答作为工具结果回传给模型。</div>
+  <div class="toolbar">
+    <button onclick="document.body.classList.toggle('dark')">切换深/浅色</button>
+    <button onclick="toggleCustom()">展开/收起「其他想法」</button>
+  </div>
+
+  <!-- ===== 状态一：等待回答（注入在 message-list 底部） ===== -->
+  <div class="stage">
+    <div class="stage-label">状态一 · 等待用户回答</div>
+    <div class="bubble assistant">我需要确认下一步的方向再继续实现：</div>
+
+    <section class="ask-card" id="pending-card">
+      <div class="ask-head">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span class="who">助手提问</span>
+        <span class="waiting"><span class="dot"></span>等待你的选择</span>
+      </div>
+      <div class="ask-question">这个向用户提问的工具，选项交互用哪种形态？</div>
+      <div class="ask-options">
+        <button class="ask-option" onclick="select(this)">
+          <span class="check"></span>
+          <span class="opt-body">
+            <span class="opt-label">按钮单选，点选即提交</span>
+            <span class="opt-desc">最快一步完成，适合选项互斥、低风险决策</span>
+          </span>
+        </button>
+        <button class="ask-option" onclick="select(this)">
+          <span class="check"></span>
+          <span class="opt-body">
+            <span class="opt-label">先选中，再点「提交回答」</span>
+            <span class="opt-desc">可反悔改选，支持多选与自定义补充</span>
+          </span>
+        </button>
+        <button class="ask-option" onclick="select(this)">
+          <span class="check"></span>
+          <span class="opt-body">
+            <span class="opt-label">命令面板式弹层</span>
+            <span class="opt-desc">类似 AskUserQuestion 的侧栏选择，视觉更重</span>
+          </span>
+        </button>
+      </div>
+      <button class="ask-custom-toggle" onclick="toggleCustom()" id="custom-toggle">✛ 其他想法（自由输入）</button>
+      <div class="ask-custom" id="custom-input">
+        <textarea placeholder="直接输入你的想法或补充说明…（选中后点「提交回答」）"></textarea>
+      </div>
+      <div class="ask-actions">
+        <button class="btn btn-primary" id="submit-btn" disabled>提交回答</button>
+        <button class="btn btn-ghost">跳过此问</button>
+        <span class="note">提交后助手继续执行</span>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===== 状态二：已回答（历史消息定格） ===== -->
+  <div class="stage">
+    <div class="stage-label">状态二 · 已回答（定格在消息流中）</div>
+    <section class="ask-card answered">
+      <div class="ask-head">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span class="who">助手提问</span>
+      </div>
+      <div class="ask-question">这个向用户提问的工具，选项交互用哪种形态？</div>
+      <div class="ask-options">
+        <button class="ask-option selected" tabindex="-1">
+          <span class="check"></span>
+          <span class="opt-body">
+            <span class="opt-label">先选中，再点「提交回答」</span>
+            <span class="opt-desc">可反悔改选，支持多选与自定义补充</span>
+          </span>
+        </button>
+      </div>
+      <div class="ask-answer">回答：<b>先选中，再点「提交回答」</b>　补充：多选场景记得限制最多 4 项</div>
+    </section>
+  </div>
+
+  <!-- ===== 状态三：跳过/超时 ===== -->
+  <div class="stage">
+    <div class="stage-label">状态三 · 跳过 / 超时（弱化定格）</div>
+    <section class="ask-card answered cancelled">
+      <div class="ask-head">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span class="who">助手提问</span>
+      </div>
+      <div class="ask-question">是否需要同时生成配套的单元测试？</div>
+      <div class="ask-answer">用户跳过了此问题 · 助手将按默认方案继续</div>
+    </section>
+  </div>
+
+  <!-- ===== 状态四：向导式多问题（点选自动进入下一问，统一提交） ===== -->
+  <div class="stage">
+    <div class="stage-label">状态四 · 多问题向导（点选即进入下一问，最后统一提交）</div>
+    <section class="ask-card" id="wizard-card">
+      <div class="ask-head">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span class="who">助手提问</span>
+        <span class="waiting"><span class="dot"></span><span id="wiz-progress">1 / 2</span></span>
+      </div>
+
+      <!-- 步骤指示：圆点梯（border → 实心），已答弱化 emerald -->
+      <div class="wiz-dots" id="wiz-dots"></div>
+
+      <div class="wiz-body" id="wiz-body">
+        <!-- JS 渲染当前问题 -->
+      </div>
+
+      <div class="ask-actions">
+        <button class="btn btn-ghost" id="wiz-back">上一问</button>
+        <button class="btn btn-primary" id="wiz-submit" style="display:none" onclick="wizSubmit()">提交回答</button>
+        <span class="note" id="wiz-note">选择后将自动进入下一问</span>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===== 状态五：多问题已回答（刚答完的精简定格） ===== -->
+  <div class="stage">
+    <div class="stage-label">状态五 · 刚答完（精简定格：逐问一行答案，不再展示选项）</div>
+    <section class="ask-card answered">
+      <div class="ask-head">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span class="who">助手提问</span>
+      </div>
+      <div class="ask-questions">
+        <div class="ask-q answered-q">
+          <div class="q-title"><span class="q-index">1</span>发布流程遇到测试失败时怎么处理？</div>
+          <div class="q-answer">回答：<b>先修复再发布</b></div>
+        </div>
+        <div class="ask-q answered-q">
+          <div class="q-title"><span class="q-index">2</span>需要覆盖哪些端？</div>
+          <div class="q-answer">回答：<b>npm · Android</b>　补充：桌面包这个版本先不发</div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===== 状态六：工具式折叠（有新消息后收成一行，可展开回看） ===== -->
+  <div class="stage">
+    <div class="stage-label">状态六 · 有新消息后 · 工具式折叠（点击行展开回看）</div>
+    <div class="ask-collapsed" onclick="this.classList.toggle('open')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <span class="summary">提问 2 问 · <b>先修复再发布</b> / <b>npm · Android</b></span>
+      <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>
+    <section class="ask-card answered ask-detail">
+      <div class="ask-head">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span class="who">助手提问</span>
+      </div>
+      <div class="ask-questions">
+        <div class="ask-q answered-q">
+          <div class="q-title"><span class="q-index">1</span>发布流程遇到测试失败时怎么处理？</div>
+          <div class="q-answer">回答：<b>先修复再发布</b></div>
+        </div>
+        <div class="ask-q answered-q">
+          <div class="q-title"><span class="q-index">2</span>需要覆盖哪些端？</div>
+          <div class="q-answer">回答：<b>npm · Android</b>　补充：桌面包这个版本先不发</div>
+        </div>
+      </div>
+    </section>
+    <div class="bubble assistant" style="margin-top:10px">好的，按「先修复再发布」的口径继续，我先跑一遍全量测试…</div>
+  </div>
+
+<script>
+  function select(btn, multi) {
+    const card = btn.closest('.ask-card');
+    card.querySelectorAll('.ask-option').forEach(o => { if (!multi) o.classList.remove('selected'); });
+    btn.classList.toggle('selected');
+    document.getElementById('submit-btn').disabled = false;
+  }
+  function toggleCustom() {
+    const box = document.getElementById('custom-input');
+    const open = box.classList.toggle('open');
+    if (open) {
+      // 展开自定义输入即视为放弃选项选中
+      document.querySelectorAll('#pending-card .ask-option').forEach(o => o.classList.remove('selected'));
+      document.getElementById('submit-btn').disabled = false;
+      box.querySelector('textarea').focus();
+    }
+  }
+
+  /* ============ 向导式多问题演示 ============ */
+  const wizQuestions = [
+    {
+      title: '发布流程遇到测试失败时怎么处理？', chip: '单选',
+      options: [
+        { label: '先修复再发布', desc: '阻塞发布，符合现有 runbook 约束' },
+        { label: '跳过失败用例继续', desc: '需在发布文档中记录跳过原因' },
+      ],
+      multi: false,
+    },
+    {
+      title: '需要覆盖哪些端？', chip: '多选 · 最多 3 项',
+      options: [
+        { label: 'npm（CLI）' },
+        { label: 'Desktop（Electron）' },
+        { label: 'Android（Capacitor）' },
+      ],
+      multi: true,
+    },
+  ];
+  let wizStep = 0;
+  const wizAnswers = wizQuestions.map(() => []);
+
+  function wizRender() {
+    const body = document.getElementById('wiz-body');
+    const dots = document.getElementById('wiz-dots');
+    const back = document.getElementById('wiz-back');
+    const submit = document.getElementById('wiz-submit');
+    const note = document.getElementById('wiz-note');
+    document.getElementById('wiz-progress').textContent = `${wizStep + 1} / ${wizQuestions.length}`;
+    dots.innerHTML = wizQuestions.map((_, i) =>
+      `<span class="step ${i < wizStep ? 'done' : i === wizStep ? 'current' : ''}"></span>`).join('');
+    back.style.visibility = wizStep > 0 ? 'visible' : 'hidden';
+
+    if (wizStep < wizQuestions.length) {
+      const q = wizQuestions[wizStep];
+      submit.style.display = 'none';
+      note.textContent = q.multi ? '勾选完成后点「下一问」' : '选择后将自动进入下一问';
+      const opts = q.options.map((o, i) => `
+        <button class="ask-option ${wizAnswers[wizStep].includes(i) ? 'picked' : ''}" onclick="wizPick(${i}, ${q.multi})">
+          <span class="check"></span>
+          <span class="opt-body">
+            <span class="opt-label">${o.label}</span>
+            ${o.desc ? `<span class="opt-desc">${o.desc}</span>` : ''}
+          </span>
+          ${q.multi ? '' : '<span style="margin-left:auto;color:var(--muted-foreground);font-size:11px;align-self:center">→</span>'}
+        </button>`).join('');
+      body.innerHTML = `
+        <div class="wiz-q-title">${wizStep + 1}. ${q.title}<span class="q-chip">${q.chip}</span></div>
+        <div class="ask-options">${opts}</div>
+        ${q.multi ? `<button class="btn btn-ghost" style="align-self:flex-start" onclick="wizAdvance()">下一问 →</button>` : ''}
+      `;
+    } else {
+      // 全部答完：回执摘要 + 统一提交
+      note.textContent = '';
+      const rows = wizQuestions.map((q, i) =>
+        `<div class="row"><b>${i + 1}. ${q.title}</b><br>→ ${wizAnswers[i].map(j => q.options[j].label).join('、')}</div>`).join('');
+      body.innerHTML = `<div class="wiz-summary">${rows}</div>`;
+      submit.style.display = '';
+    }
+  }
+
+  function wizPick(i, multi) {
+    const arr = wizAnswers[wizStep];
+    if (multi) {
+      const at = arr.indexOf(i);
+      at >= 0 ? arr.splice(at, 1) : arr.push(i);
+    } else {
+      wizAnswers[wizStep] = [i];
+    }
+    if (!multi) { wizAdvance(); return; }  // 单选：点完自动进入下一问
+    wizRender();
+  }
+
+  function wizAdvance() {
+    const body = document.getElementById('wiz-body');
+    if (wizStep < wizQuestions.length && wizAnswers[wizStep].length === 0) return; // 未答不前进
+    body.classList.remove('entering'); body.classList.add('leaving');
+    setTimeout(() => {
+      wizStep = Math.min(wizStep + 1, wizQuestions.length);
+      body.classList.remove('leaving'); body.classList.add('entering');
+      wizRender();
+    }, 160);
+  }
+
+  function wizSubmit() {
+    const card = document.getElementById('wizard-card');
+    card.classList.add('answered');
+    card.querySelector('.ask-head .waiting').remove();
+    document.getElementById('wiz-body').innerHTML =
+      wizQuestions.map((q, i) =>
+        `<div class="ask-q answered-q" style="${i ? 'border-top:1px solid var(--border);padding-top:10px;' : ''}">
+           <div class="q-title"><span class="q-index">${i + 1}</span>${q.title}</div>
+           <div class="q-answer">回答：<b>${wizAnswers[i].map(j => q.options[j].label).join('、')}</b></div>
+         </div>`).join('');
+    document.querySelector('#wizard-card .ask-actions').remove();
+  }
+
+  document.getElementById('wiz-back').onclick = () => {
+    if (wizStep === 0) return;
+    wizStep--;
+    wizRender();
+  };
+  wizRender();
+</script>
+</body>
+</html>

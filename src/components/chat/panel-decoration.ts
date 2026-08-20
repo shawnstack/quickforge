@@ -32,6 +32,8 @@ export {
 export type { ComposerDraftRestoreHandle } from './panel-decoration/drafts'
 export type { ApprovalCardDeps, ToolApprovalSource } from './panel-decoration/approval-card'
 export { injectApprovalCard, removeApprovalCard } from './panel-decoration/approval-card'
+export type { AskUserCardDeps } from './panel-decoration/ask-user-card'
+export { injectAskUserCard, removeAskUserCard } from './panel-decoration/ask-user-card'
 export { syncContextCompactionNotice } from './panel-decoration/context-compaction'
 export { syncPersistDegradedNotice } from './panel-decoration/persist-degraded-notice'
 export { createOpenCodeUsageIndicator } from './panel-decoration/opencode-usage'
@@ -40,6 +42,7 @@ export { releaseStreamingProcessGroups } from './panel-decoration/process-foldin
 export type { MessageDecorationDeps } from './panel-decoration/message-actions'
 export { decorateMessages, decorateSubagentProcessBlocks } from './panel-decoration/message-actions'
 export { syncAssistantWaitingBubble } from './panel-decoration/assistant-waiting-bubble'
+export { createScrollToBottomButton } from './panel-decoration/scroll-to-bottom-button'
 
 // Inline local file path link decoration lives in ./panel-decoration/local-file-path-links.
 

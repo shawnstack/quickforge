@@ -147,7 +147,7 @@ class GlobalAgentSseClient {
       'turn_start', 'turn_end', 'message_update',
       'tool_execution_start', 'tool_execution_update', 'tool_execution_end',
       'error', 'session_created', 'title_updated', 'session_forked', 'scheduled_task_notification', 'scheduled_task_started',
-      'tool_approval_required', 'auto_compact_threshold_reached', 'auto_compact_approval_required', 'auto_compact_completed', 'auto_compact_failed', 'messages_replaced',
+      'tool_approval_required', 'ask_user_required', 'ask_user_answered', 'auto_compact_threshold_reached', 'auto_compact_approval_required', 'auto_compact_completed', 'auto_compact_failed', 'messages_replaced',
       'acp_session_usage_update', 'acp_session_update', 'persist_degraded',
     ]
 
@@ -325,6 +325,24 @@ export type ServerAgentPendingAutoCompactApproval = {
   expiresAt?: number
 }
 
+export type ServerAgentPendingAsk = {
+  askId: string
+  toolCallId?: string
+  questions: Array<{
+    question: string
+    multiSelect?: boolean
+    allowCustom?: boolean
+    options?: Array<{ label: string; description?: string }>
+  }>
+  requestedAt?: number
+  expiresAt?: number
+}
+
+export type ServerAgentAskAnswer = {
+  choices?: string[]
+  custom?: string
+}
+
 export type OpenCodeAcpConfigSelectOption = {
   value: string
   name: string
@@ -386,6 +404,7 @@ export type ServerAgentConfig = {
     contextUsage?: ServerAgentContextUsage | null
     pendingToolApproval?: ServerAgentPendingToolApproval | null
     pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
+    pendingAsk?: ServerAgentPendingAsk | null
     acpSession?: OpenCodeAcpSession | null
     persistDegraded?: boolean
     stateVersion?: number
@@ -447,6 +466,7 @@ export type ServerAgentStateSnapshot = {
   contextUsage?: ServerAgentContextUsage | null
   pendingToolApproval?: ServerAgentPendingToolApproval | null
   pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
+  pendingAsk?: ServerAgentPendingAsk | null
   pendingToolCalls?: string[]
   isStreaming?: boolean
   errorMessage?: string
@@ -505,6 +525,7 @@ function initialStateFromSnapshot(snapshot: ServerAgentStateSnapshot): NonNullab
     contextUsage: snapshot.contextUsage,
     pendingToolApproval: snapshot.pendingToolApproval,
     pendingAutoCompactApproval: snapshot.pendingAutoCompactApproval,
+    pendingAsk: snapshot.pendingAsk,
     acpSession: snapshot.acpSession,
     persistDegraded: snapshot.persistDegraded === true ? true : undefined,
     stateVersion: snapshot.stateVersion,
@@ -596,6 +617,7 @@ export class ServerAgent {
     contextUsage?: ServerAgentContextUsage | null
     pendingToolApproval?: ServerAgentPendingToolApproval | null
     pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
+    pendingAsk?: ServerAgentPendingAsk | null
     acpSession?: OpenCodeAcpSession | null
     persistDegraded?: boolean
   }
@@ -664,6 +686,7 @@ export class ServerAgent {
       contextUsage: init.contextUsage ?? null,
       pendingToolApproval: init.pendingToolApproval ?? null,
       pendingAutoCompactApproval: init.pendingAutoCompactApproval ?? null,
+      pendingAsk: init.pendingAsk ?? null,
       acpSession: init.acpSession ?? null,
       persistDegraded: init.persistDegraded === true ? true : undefined,
     }
@@ -1023,6 +1046,25 @@ export class ServerAgent {
     }
   }
 
+  /**
+   * Answer or skip a pending ask_user call.
+   */
+  async answerAsk(askId: string, payload: { answers?: ServerAgentAskAnswer[]; skipped?: boolean } = {}): Promise<void> {
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/answer-ask`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ askId, answers: payload.answers, skipped: payload.skipped === true }),
+    })
+    if (!res.ok) {
+      const errorPayload = await res.json().catch(() => null) as { error?: string } | null
+      throw new Error(errorPayload?.error || `Failed to answer ask: HTTP ${res.status}`)
+    }
+    if (this.state.pendingAsk?.askId === askId) {
+      this.state.pendingAsk = null
+    }
+  }
+
   async approveAutoCompact(approvalId: string): Promise<void> {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/approve-auto-compact`
     const res = await fetch(url, {
@@ -1097,6 +1139,7 @@ export class ServerAgent {
         contextUsage: state.contextUsage,
         pendingToolApproval: state.pendingToolApproval,
         pendingAutoCompactApproval: state.pendingAutoCompactApproval,
+        pendingAsk: state.pendingAsk,
         acpSession: state.acpSession,
         stateVersion: this.lastServerStateVersion,
       },
@@ -1123,7 +1166,7 @@ export class ServerAgent {
         // Guard against SSE reconnect overwriting client messages with a stale
         // server snapshot: only accept server messages if the client has none
         // (initial load) or if the server has at least as many messages.
-        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; messagesSummary?: { count?: number }; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; accessMode?: AgentAccessMode; yoloMode?: boolean; isStreaming?: boolean; status?: string; pendingToolCalls?: string[]; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null; pendingToolApproval?: ServerAgentPendingToolApproval | null; pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null; acpSession?: OpenCodeAcpSession | null; persistDegraded?: boolean }
+        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; messagesSummary?: { count?: number }; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; accessMode?: AgentAccessMode; yoloMode?: boolean; isStreaming?: boolean; status?: string; pendingToolCalls?: string[]; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null; pendingToolApproval?: ServerAgentPendingToolApproval | null; pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null; pendingAsk?: ServerAgentPendingAsk | null; acpSession?: OpenCodeAcpSession | null; persistDegraded?: boolean }
         if (s.systemPrompt !== undefined) {
           this.state.systemPrompt = s.systemPrompt
         }
@@ -1165,6 +1208,9 @@ export class ServerAgent {
         if (s.pendingAutoCompactApproval !== undefined) {
           this.state.pendingAutoCompactApproval = s.pendingAutoCompactApproval
         }
+        if (s.pendingAsk !== undefined) {
+          this.state.pendingAsk = s.pendingAsk
+        }
         if (s.pendingToolCalls !== undefined) {
           this.state.pendingToolCalls = new Set(s.pendingToolCalls)
         }
@@ -1199,6 +1245,7 @@ export class ServerAgent {
         this.state.errorMessage = undefined
         this.state.pendingToolApproval = null
         this.state.pendingAutoCompactApproval = null
+        this.state.pendingAsk = null
         this.startStateWatchdog()
         break
       }
@@ -1224,6 +1271,7 @@ export class ServerAgent {
           this.state.streamingMessage = undefined
           this.state.pendingToolApproval = null
           this.state.pendingAutoCompactApproval = null
+          this.state.pendingAsk = null
           if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
           this.stateVersion++
           this.emitToListeners(event as unknown as AgentEvent)
@@ -1247,6 +1295,7 @@ export class ServerAgent {
           this.state.streamingMessage = undefined
           this.state.pendingToolApproval = null
           this.state.pendingAutoCompactApproval = null
+          this.state.pendingAsk = null
           if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
           this.stateVersion++
           this.emitToListeners(event as unknown as AgentEvent)
@@ -1259,6 +1308,7 @@ export class ServerAgent {
           this.state.streamingMessage = undefined
           this.state.pendingToolApproval = null
           this.state.pendingAutoCompactApproval = null
+          this.state.pendingAsk = null
           if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
           this.emitToListeners(event as unknown as AgentEvent)
         })
@@ -1468,6 +1518,22 @@ export class ServerAgent {
         break
       }
 
+      case 'ask_user_required': {
+        const askEvent = event as unknown as ServerAgentPendingAsk
+        if (typeof askEvent.askId === 'string' && Array.isArray(askEvent.questions)) {
+          this.state.pendingAsk = askEvent
+        }
+        break
+      }
+
+      case 'ask_user_answered': {
+        // The answered ask lives on as a normal ask_user tool message in the
+        // history (auto-collapsed by the tool message UI), so the interactive
+        // card is simply removed.
+        this.state.pendingAsk = null
+        break
+      }
+
       case 'auto_compact_approval_required': {
         const approvalEvent = event as unknown as ServerAgentPendingAutoCompactApproval
         if (typeof approvalEvent.approvalId === 'string') {
@@ -1567,6 +1633,7 @@ export class ServerAgent {
           this.state.streamingMessage = undefined
           this.state.pendingToolApproval = null
           this.state.pendingAutoCompactApproval = null
+          this.state.pendingAsk = null
           this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
         }
         return
@@ -1766,6 +1833,7 @@ export class ServerAgent {
           this.stopStateWatchdog()
           this.state.pendingToolApproval = null
           this.state.pendingAutoCompactApproval = null
+          this.state.pendingAsk = null
         }
         if (options?.notify && wasStreaming && !state.isStreaming) {
           this.stateVersion++

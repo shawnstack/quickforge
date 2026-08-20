@@ -1077,6 +1077,17 @@ function MainApp() {
     }
   }, [agentRef])
 
+  const handleAnswerAsk = useCallback(async (askId: string, answers: Array<{ choices?: string[]; custom?: string }>, skipped: boolean) => {
+    const currentAgent = agentRef.current as (typeof agentRef.current & { answerAsk?: (askId: string, payload: { answers?: Array<{ choices?: string[]; custom?: string }>; skipped?: boolean }) => Promise<void> })
+    if (!currentAgent?.answerAsk) throw new Error(t('askUserFailed'))
+    try {
+      await currentAgent.answerAsk(askId, { answers, skipped })
+    } catch (err) {
+      logger.error('Failed to answer ask:', err)
+      throw err instanceof Error ? err : new Error(t('askUserFailed'))
+    }
+  }, [agentRef])
+
   const handleApproveAutoCompact = useCallback(async (approvalId: string) => {
     const currentAgent = agentRef.current as (typeof agentRef.current & { approveAutoCompact?: (approvalId: string) => Promise<void> })
     if (!currentAgent?.approveAutoCompact) throw new Error(t('toolApprovalFailed'))
@@ -2015,6 +2026,7 @@ function MainApp() {
                       onForkFromMessage={forkFromMessage}
                       onApproveToolCall={handleApproveToolCall}
                       onRejectToolCall={handleRejectToolCall}
+                      onAnswerAsk={handleAnswerAsk}
                       onApproveAutoCompact={handleApproveAutoCompact}
                       onRejectAutoCompact={handleRejectAutoCompact}
                       onOpenWorkspaceGitChanges={openWorkspaceGitChanges}

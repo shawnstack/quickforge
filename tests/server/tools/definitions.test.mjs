@@ -63,10 +63,19 @@ describe('definitions', () => {
       expect(names).toContain('run_command')
       expect(names).toContain('generate_image')
       expect(names).toContain('present_files')
+      expect(names).toContain('ask_user')
     })
 
-    it('has exactly 8 tools', () => {
-      expect(workspaceTools).toHaveLength(8)
+    it('has exactly 9 tools', () => {
+      expect(workspaceTools).toHaveLength(9)
+    })
+
+    it('ask_user takes 1-4 questions with bounded options', () => {
+      const askUser = workspaceTools.find((t) => t.name === 'ask_user')
+      expect(askUser).toBeTruthy()
+      expect(JSON.stringify(askUser.parameters)).toContain('"questions"')
+      expect(JSON.stringify(askUser.parameters)).toContain('"multiSelect"')
+      expect(JSON.stringify(askUser.parameters)).toContain('"allowCustom"')
     })
 
     it('each tool has name, label, description, and parameters', () => {

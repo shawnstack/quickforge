@@ -31,6 +31,7 @@ export const planAllowedTools = new Set([
   'activate_skill',
   'read_skill_resource',
   'run_subagent',
+  'ask_user',
 ])
 
 export const safeReadTools = new Set([

@@ -29,6 +29,7 @@
 | `present_files` | 仅在用户适合直接检查实际交付物时展示少量相关文件，例如视觉产物、报告、文档、生成资源，或用户明确要求查看/审阅的文件；普通实现改动、测试和辅助代码不应仅因被修改就批量展示。HTML/SVG/图片进入 Browser，Markdown、代码、配置与普通文本进入 Reader |
 | `activate_skill` | 加载 Agent Skill 指令 |
 | `read_skill_resource` | 读取 Skill 资源文件 |
+| `ask_user` | 向用户提出 1-4 个问题并等待回答：execute 阻塞在 `server/ask-store.mjs` 的 pendingAsks Promise 上，SSE `ask_user_required` 通知前端注入向导式提问卡，用户提交/跳过后经 `POST /api/agents/:id/answer-ask` resolve，回答以纯文本回给模型；30 分钟超时、跳过、abort 均按"用户未回答"继续而非中断；免审批（beforeToolCall 直接放行），`/plan` 白名单包含它；无 toolHandlers 入口，由 agent-manager 的 `wrapAskUserToolDefinition` 拦截并绑定会话 |
 
 `activate_skill`、`read_skill_resource` 和 `run_subagent` 对所有运行中的 Agent 可用；文件/命令工作区工具需要绑定项目。`write_file`、`edit_file` 和 `run_command` 标记为 `executionMode: 'sequential'` 以确保执行顺序。
 

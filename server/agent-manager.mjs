@@ -68,6 +68,15 @@ import {
   commandToolPermissionError,
   createCommandToolPermissions,
 } from './approval-store.mjs'
+import {
+  ASK_TIMEOUT_MS,
+  pendingAsks,
+  getPendingAskForSession,
+  normalizeAskQuestions,
+  formatAskResult,
+} from './ask-store.mjs'
+
+export { getPendingAskForSession, normalizeAskQuestions } from './ask-store.mjs'
 
 // ---------------------------------------------------------------------------
 // Tool definitions (server-side, no REST roundtrip)
@@ -88,8 +97,25 @@ function wrapSubagentToolDefinition(definition, parentSessionId) {
   }
 }
 
+function wrapAskUserToolDefinition(definition, parentSessionId) {
+  return {
+    ...definition,
+    execute: async (toolCallId, params) => {
+      const session = agentSessions.get(parentSessionId)
+      if (!session) {
+        return {
+          content: [{ type: 'text', text: 'No active session for ask_user.' }],
+          details: { askId: null, skipped: true },
+        }
+      }
+      return createAskUserPromise(session, toolCallId, params || {})
+    },
+  }
+}
+
 function wrapWorkspaceToolDefinition(definition, context, toolPermissions, options = {}) {
   if (definition.name === 'run_subagent') return wrapSubagentToolDefinition(definition, options.parentSessionId)
+  if (definition.name === 'ask_user') return wrapAskUserToolDefinition(definition, options.parentSessionId)
   return wrapToolDefinition(definition, context, toolPermissions)
 }
 
@@ -304,8 +330,83 @@ function createApprovalPromise(session, toolCallId, toolName, args, source) {
   })
 }
 
-function createAcpApprovalPromise(session, request) {
-  return new Promise((resolve, reject) => {
+/**
+ * Create a Promise that resolves when the user answers (or skips) an ask_user
+ * tool call. The tool's execute blocks on this promise, pausing the agent loop
+ * until the user responds.
+ */
+function createAskUserPromise(session, toolCallId, params) {
+  const questions = normalizeAskQuestions(params)
+  if (!questions.length) {
+    return Promise.resolve({
+      content: [{ type: 'text', text: formatAskResult(questions, null, true, 'no-questions') }],
+      details: { askId: null, skipped: true },
+    })
+  }
+  const askId = randomUUID()
+  return new Promise((resolve) => {
+    let settled = false
+    const requestedAt = Date.now()
+    const expiresAt = requestedAt + ASK_TIMEOUT_MS
+
+    const timeout = setTimeout(() => {
+      if (settled) return
+      finish({ skipped: true, reason: 'timeout' })
+    }, ASK_TIMEOUT_MS)
+
+    let onAbort = null
+
+    const finish = (payload) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      if (onAbort && session.agent.signal) session.agent.signal.removeEventListener('abort', onAbort)
+      pendingAsks.delete(askId)
+      const answers = payload.skipped ? null : payload.answers
+      resolve({
+        content: [{ type: 'text', text: formatAskResult(questions, answers, payload.skipped, payload.reason) }],
+        details: { askId, questions, answers, skipped: !!payload.skipped, ...(payload.reason ? { skipReason: payload.reason } : {}) },
+      })
+      emitSessionEvent(session, {
+        type: 'ask_user_answered',
+        sessionId: session.sessionId,
+        askId,
+        toolCallId,
+        skipped: !!payload.skipped,
+        answers: answers || [],
+      })
+    }
+
+    const signal = session.agent.signal
+    if (signal) {
+      if (signal.aborted) {
+        finish({ skipped: true, reason: 'aborted' })
+        return
+      }
+      onAbort = () => finish({ skipped: true, reason: 'aborted' })
+      signal.addEventListener('abort', onAbort, { once: true })
+    }
+
+    pendingAsks.set(askId, {
+      finish: (payload) => finish(payload),
+      sessionId: session.sessionId,
+      toolCallId,
+      questions,
+      requestedAt,
+      expiresAt,
+    })
+
+    emitSessionEvent(session, {
+      type: 'ask_user_required',
+      sessionId: session.sessionId,
+      askId,
+      toolCallId,
+      questions,
+    })
+  })
+}
+
+function createAcpApprovalPromise(session, request) {  return new Promise((resolve, reject) => {
     let settled = false
     const requestedAt = Date.now()
     const expiresAt = requestedAt + APPROVAL_TIMEOUT_MS
@@ -1880,6 +1981,8 @@ export async function createAgent(sessionId, config = {}) {
       if (commandPermissionError) return { block: true, reason: commandPermissionError }
       const isSkillTool = toolName === 'activate_skill' || toolName === 'read_skill_resource'
       if (isSkillTool) return undefined
+      // ask_user only waits for the user's answer; it changes nothing and needs no approval.
+      if (toolName === 'ask_user') return undefined
       if (profileToolNames && !profileToolNames.includes(toolName)) return { block: true, reason: `Agent profile ${agentProfile.name} is not allowed to use ${toolName}.` }
       if (toolName === 'manage_global_memory') return undefined
       if (toolName === 'run_subagent') {
@@ -2972,6 +3075,7 @@ export function getSessionState(sessionId) {
     contextUsage: getSessionContextUsage(session),
     pendingToolApproval: getPendingApprovalForSession(session.sessionId),
     pendingAutoCompactApproval: getPendingAutoCompactApprovalForSession(session.sessionId),
+    pendingAsk: getPendingAskForSession(session.sessionId),
     acpSession: session.harness === AGENT_HARNESS_OPENCODE ? session.agent.state.acpSession : undefined,
     isStreaming: session.abortPending ? false : session.agent.state.isStreaming,
     errorMessage: session.agent.state.errorMessage,
@@ -3226,6 +3330,30 @@ export function rejectAutoCompact(sessionId, approvalId) {
   }
   approval.resolve(false)
   return { rejected: true, approvalId }
+}
+
+/**
+ * Resolve a pending ask_user call with the user's answers (or a skip).
+ * `answers` is an array aligned with the ask's questions:
+ * `[{ choices: string[], custom?: string }]`.
+ */
+export function answerAsk(sessionId, askId, { answers, skipped = false } = {}) {
+  const ask = pendingAsks.get(askId)
+  if (!ask || ask.sessionId !== sessionId) {
+    throw Object.assign(new Error('No pending ask for this session'), { statusCode: 404 })
+  }
+  const normalizedAnswers = (Array.isArray(answers) ? answers : []).slice(0, ask.questions.length).map((answer) => ({
+    choices: (Array.isArray(answer?.choices) ? answer.choices : [])
+      .filter((choice) => typeof choice === 'string')
+      .map((choice) => choice.slice(0, 500))
+      .slice(0, 8),
+    ...(typeof answer?.custom === 'string' && answer.custom.trim()
+      ? { custom: answer.custom.slice(0, 4000) }
+      : {}),
+  }))
+  if (skipped) ask.finish({ skipped: true })
+  else ask.finish({ answers: normalizedAnswers })
+  return { answered: true, askId, skipped: !!skipped }
 }
 
 export function abortToolCall(sessionId, toolCallId) {

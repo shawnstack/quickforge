@@ -54,8 +54,26 @@ export const globalMemoryTool = {
   executionMode: 'sequential',
 }
 
+export const askUserTool = {
+  name: 'ask_user',
+  label: 'Ask user',
+  description: 'Ask the user one or more questions (up to 4) and wait for their answers before continuing. Use this when you need the user to choose between approaches, confirm a direction, or supply information you cannot infer. Questions should be self-contained; each question offers 2-4 options and the user may answer with free-form text instead. All questions are answered together, then the run resumes.',
+  parameters: Type.Object({
+    questions: Type.Array(Type.Object({
+      question: Type.String({ description: 'Complete, self-contained question text.' }),
+      options: Type.Optional(Type.Array(Type.Object({
+        label: Type.String({ description: 'Concise option label.' }),
+        description: Type.Optional(Type.String({ description: 'Optional one-line explanation of the trade-off.' })),
+      }), { maxItems: 4, description: '2-4 mutually exclusive options.' })),
+      multiSelect: Type.Optional(Type.Boolean({ description: 'Allow selecting multiple options.', default: false })),
+      allowCustom: Type.Optional(Type.Boolean({ description: 'Allow a free-form answer instead of the options.', default: true })),
+    }), { minItems: 1, maxItems: 4, description: 'Questions asked together in one card; the user answers all of them in one pass.' }),
+  }),
+}
+
 export const workspaceTools = [
   subagentTool,
+  askUserTool,
   {
     name: 'read_file',
     label: 'Read file',

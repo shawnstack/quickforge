@@ -3,7 +3,7 @@ import {
   ApiKeyPromptDialog,
   ChatPanel,
 } from '@earendil-works/pi-web-ui'
-import type { ServerAgent, ServerAgentContextCompaction, ServerAgentContextUsage, ServerAgentPendingAutoCompactApproval, ServerAgentPendingToolApproval, OpenCodeAcpSession } from '@/lib/server-agent'
+import type { ServerAgent, ServerAgentAskAnswer, ServerAgentContextCompaction, ServerAgentContextUsage, ServerAgentPendingAsk, ServerAgentPendingAutoCompactApproval, ServerAgentPendingToolApproval, OpenCodeAcpSession } from '@/lib/server-agent'
 import type { SharedServerAgent } from '@/lib/shared-server-agent'
 import type { DeferredSessionAgent } from '@/lib/deferred-session-agent'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
@@ -30,10 +30,13 @@ import {
   scheduleComposerDraftRestore,
   injectApprovalCard,
   removeApprovalCard,
+  injectAskUserCard,
+  removeAskUserCard,
   releaseStreamingProcessGroups,
   syncAssistantWaitingBubble,
   syncContextCompactionNotice,
   syncPersistDegradedNotice,
+  createScrollToBottomButton,
   type ComposerDraftRestoreHandle,
 } from './panel-decoration'
 import { t } from '@/lib/i18n'
@@ -134,6 +137,7 @@ type ChatPanelHostProps = {
   onForkFromMessage: (messageIndex: number) => void
   onApproveToolCall: (toolCallId: string) => Promise<void> | void
   onRejectToolCall: (toolCallId: string) => Promise<void> | void
+  onAnswerAsk?: (askId: string, answers: ServerAgentAskAnswer[], skipped: boolean) => Promise<void> | void
   onApproveAutoCompact?: (approvalId: string) => Promise<void> | void
   onRejectAutoCompact?: (approvalId: string) => Promise<void> | void
   onOpenWorkspaceGitChanges?: () => void
@@ -171,6 +175,7 @@ type PropsRef = {
   onTogglePlanMode: () => void
   onApproveToolCall: (toolCallId: string) => Promise<void> | void
   onRejectToolCall: (toolCallId: string) => Promise<void> | void
+  onAnswerAsk?: (askId: string, answers: ServerAgentAskAnswer[], skipped: boolean) => Promise<void> | void
   onApproveAutoCompact?: (approvalId: string) => Promise<void> | void
   onRejectAutoCompact?: (approvalId: string) => Promise<void> | void
   onOpenWorkspaceGitChanges?: () => void
@@ -212,6 +217,7 @@ export function ChatPanelHost({
   onForkFromMessage,
   onApproveToolCall,
   onRejectToolCall,
+  onAnswerAsk,
   onApproveAutoCompact,
   onRejectAutoCompact,
   onOpenWorkspaceGitChanges,
@@ -343,6 +349,7 @@ export function ChatPanelHost({
     onTogglePlanMode: togglePlanMode,
     onApproveToolCall,
     onRejectToolCall,
+    onAnswerAsk,
     onApproveAutoCompact,
     onRejectAutoCompact,
     onOpenWorkspaceGitChanges,
@@ -380,6 +387,7 @@ export function ChatPanelHost({
       onTogglePlanMode: togglePlanMode,
       onApproveToolCall,
       onRejectToolCall,
+      onAnswerAsk,
       onApproveAutoCompact,
       onRejectAutoCompact,
       onOpenWorkspaceGitChanges,
@@ -440,6 +448,7 @@ export function ChatPanelHost({
   const scheduleDecorateRef = useRef<(() => void) | null>(null)
   const pendingApprovalRef = useRef<{ toolCallId: string; toolName: string; args: Record<string, unknown>; sessionId: string; source?: import('./panel-decoration').ToolApprovalSource } | null>(null)
   const pendingAutoCompactApprovalRef = useRef<{ approvalId: string; usage?: { percent?: number }; thresholdPercent?: number; keepRecentTurns?: number; sessionId: string } | null>(null)
+  const pendingAskRef = useRef<(ServerAgentPendingAsk & { sessionId: string }) | null>(null)
 
   // --- Load custom commands for the current project ---
   useEffect(() => {
@@ -595,6 +604,18 @@ export function ChatPanelHost({
       },
     })
     scrollSyncRef.current = scrollSync
+
+    const scrollBottomButton = createScrollToBottomButton({
+      panel,
+      onJumpSettled: () => {
+        // Only resume tail-following when the jump actually landed near the
+        // bottom; anything else means the user redirected the scroll.
+        const container = panel.querySelector<HTMLElement>('agent-interface .overflow-y-auto')
+        if (!container) return
+        const distance = container.scrollHeight - container.scrollTop - container.clientHeight
+        if (distance <= 120) scrollSync.enable()
+      },
+    })
 
     let turnNavigation: ReturnType<typeof createTurnNavigation> | null = null
 
@@ -936,11 +957,43 @@ export function ChatPanelHost({
         }
       }
 
+      // Render or remove the ask-user card based on pending state. Same
+      // session guard as the approval card.
+      const pendingAsk = pendingAskRef.current ?? (() => {
+        const statePending = (agent as AgentWithContextCompaction & { state: { pendingAsk?: ServerAgentPendingAsk | null } }).state.pendingAsk
+        return statePending ? { ...statePending, sessionId: agent.sessionId } : null
+      })()
+      if (pendingAsk && pendingAsk.sessionId === agent.sessionId && typeof pendingAsk.askId === 'string' && Array.isArray(pendingAsk.questions) && pendingAsk.questions.length > 0) {
+        const capturedAskId = pendingAsk.askId
+        const askDisabled = props.approvalReadOnly || !propsRef.current.onAnswerAsk
+        injectAskUserCard(
+          {
+            panel,
+            disabled: askDisabled,
+            disabledReason: props.approvalReadOnly ? props.approvalReadOnlyMessage : undefined,
+            onSubmit: async (answers) => {
+              await propsRef.current.onAnswerAsk?.(capturedAskId, answers, false)
+              pendingAskRef.current = null
+              removeAskUserCard(panel)
+            },
+            onSkip: async () => {
+              await propsRef.current.onAnswerAsk?.(capturedAskId, [], true)
+              pendingAskRef.current = null
+              removeAskUserCard(panel)
+            },
+          },
+          pendingAsk,
+        )
+      } else {
+        removeAskUserCard(panel)
+      }
+
       if (props.capabilities.contextUsage) contextUsage.update()
       else contextUsage.cleanup()
       if (agent.harness === 'opencode') openCodeUsage.update()
       turnNavigation?.update()
       scrollSync.setup()
+      scrollBottomButton.setup()
       if (scrollSync.isEnabled) {
         // Auto-scroll is active → the window should follow the tail again.
         windowLayer.resetToTail()
@@ -1153,6 +1206,8 @@ export function ChatPanelHost({
         if (event.type === 'message_start' && eventMessage?.role === 'assistant') {
           processHandoffGeneration += 1
           delete panel.dataset.quickforgeProcessHandoff
+          // Away from the tail → surface the arrival on the back-to-bottom badge.
+          scrollBottomButton.notifyNewAssistantMessage()
         }
         if (event.type === 'message_update' || eventMessage?.role === 'assistant') {
           assistantWaitingActive = false
@@ -1207,6 +1262,10 @@ export function ChatPanelHost({
           pendingApprovalRef.current = null
           scheduleDecorateRef.current?.()
         }
+        if (pendingAskRef.current?.sessionId === agent.sessionId) {
+          pendingAskRef.current = null
+          scheduleDecorateRef.current?.()
+        }
         if (pendingAutoCompactApprovalRef.current?.sessionId === agent.sessionId) {
           pendingAutoCompactApprovalRef.current = null
           scheduleDecorateRef.current?.()
@@ -1236,6 +1295,20 @@ export function ChatPanelHost({
         const approvalEvent = event as unknown as { toolCallId: string; toolName: string; args: Record<string, unknown>; sessionId: string; source?: import('./panel-decoration').ToolApprovalSource }
         pendingApprovalRef.current = { toolCallId: approvalEvent.toolCallId, toolName: approvalEvent.toolName, args: approvalEvent.args, sessionId: approvalEvent.sessionId, source: approvalEvent.source }
         scheduleDecorateRef.current?.()
+      }
+      if ((event as Record<string, unknown>).type === 'ask_user_required') {
+        const askEvent = event as unknown as ServerAgentPendingAsk & { sessionId: string }
+        if (typeof askEvent.askId === 'string' && Array.isArray(askEvent.questions)) {
+          pendingAskRef.current = { ...askEvent, sessionId: askEvent.sessionId ?? agent.sessionId }
+          scheduleDecorateRef.current?.()
+        }
+      }
+      if ((event as Record<string, unknown>).type === 'ask_user_answered') {
+        const answeredEvent = event as unknown as { askId?: string }
+        if (!answeredEvent.askId || pendingAskRef.current?.askId === answeredEvent.askId) {
+          pendingAskRef.current = null
+          scheduleDecorateRef.current?.()
+        }
       }
       if ((event as Record<string, unknown>).type === 'auto_compact_approval_required') {
         const approvalEvent = event as unknown as { approvalId: string; usage?: { percent?: number }; thresholdPercent?: number; keepRecentTurns?: number; sessionId: string }
@@ -1272,6 +1345,7 @@ export function ChatPanelHost({
       turnNavigation?.cleanup()
       scrollSync.cleanup()
       scrollSyncRef.current = null
+      scrollBottomButton.cleanup()
       uninstallMessageListWindow(windowLayer)
       unsubscribeScrollEvents()
       observer?.disconnect()

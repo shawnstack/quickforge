@@ -1,6 +1,39 @@
 {
   "features": [
     {
+      "id": "subagent-current-tool-marquee",
+      "name": "subagent 运行卡右侧跑马灯显示当前执行工具",
+      "status": "done",
+      "approach": "聊天内 run_subagent 摘要卡运行期间在状态标签与 spinner/耗时之间渲染 quickforge-tool-marquee 自定义元素，滚动显示『工具名 · 参数摘要』（多个 pending 用 · 连接）；数据源 currentSubagentToolSummaries（pendingToolCalls × traceMessages toolCall chunk，参数摘要复用自 local-tools 提取的 summarizeParams，80 字符截断）；动画为 ToolMarqueeController（DOM 注入可单测）+ WAAPI 循环（35px/s 滚动→端部停顿 1s→回弹，起始延迟 400ms），text 变化才重建、SSE 同值刷新不打断，reduced-motion/不溢出退化为省略号静态；跑马灯 flex:1 1 auto + min-width:0 只占剩余弹性空间，任意列宽下不遮挡标签与状态（340–860px 实测）；点击整卡打开 Inspector 详情保持不变",
+      "files": [
+        "src/lib/tool-marquee.ts",
+        "src/lib/tool-param-summary.ts",
+        "src/lib/subagent-run-detail.ts",
+        "src/lib/local-tools.ts",
+        "src/lib/i18n.ts",
+        "src/index.css",
+        "tests/frontend/tool-marquee.test.ts",
+        "tests/frontend/tool-param-summary.test.ts",
+        "tests/frontend/subagent-run-detail.test.ts",
+        "design-mockups/subagent-tool-marquee-impl.html"
+      ]
+    },
+    {
+      "id": "chat-scroll-to-bottom-button",
+      "name": "对话区上翻较深时显示一键回底按钮",
+      "status": "done",
+      "approach": "设计稿（design-mockups/scroll-to-bottom-button.html，用户选定居中形态）定稿后实现：新装饰模块 panel-decoration/scroll-to-bottom-button.ts，controller 模式（setup 自愈/cleanup），挂 .quickforge-composer-shell 上方居中悬浮；280px 出 / 120px 消滞回显隐，assistant message_start 时若按钮可见累计未读徽标（回底或点击清零），点击平滑回底（scrollend+900ms 兜底，wheel-up 中断取消恢复，prefers-reduced-motion 直接跳底），落底后经 onJumpSettled→scrollSync.enable() 恢复尾部跟随；readOnly 无 dock 自动移除，空会话态 CSS 隐藏；i18n en/zh 双 label（含未读数变体）；ChatPanelHost 在 decorate 尾部 setup、agent 订阅中 notify、effect cleanup 中 cleanup",
+      "files": [
+        "src/components/chat/panel-decoration/scroll-to-bottom-button.ts",
+        "src/components/chat/panel-decoration.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/index.css",
+        "src/lib/i18n.ts",
+        "tests/frontend/scroll-to-bottom-button.test.ts",
+        "docs/wiki/src/components/README.md"
+      ]
+    },
+    {
       "id": "fix-sidebar-pagination-stall",
       "name": "修复删除会话后历史列表分页死循环",
       "status": "done",
@@ -469,6 +502,48 @@
       "files": [
         "src/index.css"
       ]
+    },
+    {
+      "id": "diff-odometer-counter",
+      "name": "工具卡片实时 ±行数里程计（write/edit 执行中滚动显示 +N/-M）",
+      "status": "done",
+      "approach": "write_file/edit_file 在写盘前先通过 runtime.onUpdate 发 partial update（details.running=true + diff.addedLines/removedLines，不带 diff.text 控制事件体积），前端工具卡片的静态 +N/-M 徽章替换为 quickforge-diff-counter 自定义元素（attribute 驱动，仿 quickforge-elapsed-time/marquee 模式）：每位数字一列、列内 0-9 垂直堆叠靠 translateY+CSS transition 滚动，进位新列从左侧入场（380ms 后清除 enter 标记），位数减少移除最左列；running 期间整组呼吸动画、结束定格；prefers-reduced-motion 关闭全部动画；动画逻辑在 src/lib/diff-counter.ts 的 OdometerDiffCounterController（DOM/定时器注入可单测）",
+      "files": [
+        "server/tools/index.mjs",
+        "src/lib/diff-counter.ts",
+        "src/lib/local-tools.ts",
+        "src/index.css",
+        "tests/frontend/diff-counter.test.ts",
+        "tests/server/tools/index.test.mjs",
+        "design-mockups/diff-odometer-counter.html",
+        "design-mockups/diff-odometer-counter-design.md"
+      ],
+      "verification": "npx vitest run tests/frontend/diff-counter.test.ts tests/server/tools/index.test.mjs tests/frontend/local-tools-lit-reactivity.test.ts tests/frontend/tool-artifacts-and-events.test.ts 全过（+8 用例）；npm run lint 0 error；tsc --noEmit 通过"
+    },
+    {
+      "id": "ask-user-tool",
+      "name": "ask_user 工具：模型向用户提问（向导式多问题选项卡 + 自由输入，统一提交）",
+      "status": "done",
+      "approach": "复刻工具审批链路：ask_user 工具 execute 阻塞在 pendingAsks 的 Promise 上（server/ask-store.mjs，30 分钟超时/跳过/abort 均 resolve 为“用户未回答”文本让模型按默认方案继续，不 reject）；SSE 事件 ask_user_required/ask_user_answered + POST /api/agents/:id/answer-ask 回传 answers[{choices,custom}]；ask_user 免审批（beforeToolCall 放行）且 plan 模式可用、subagent/工具 profile 默认不可用。前端 panel-decoration/ask-user-card.ts 注入向导式卡片（单选点选自动进下一问、多选/自由输入显式前进、末步回执摘要统一提交、可跳过），回答后卡片移除、ask_user 作为普通工具消息留在消息流（由既有工具折叠机制收纳）；server-agent state 增加 pendingAsk（含 state 快照/SSE state 帧恢复）；readOnly/share 视图卡片禁用。设计稿 design-mockups/ask-user-tool.html",
+      "files": [
+        "server/ask-store.mjs",
+        "server/tools/definitions.mjs",
+        "server/agent-manager.mjs",
+        "server/approval-store.mjs",
+        "server/routes/agent.mjs",
+        "src/lib/server-agent.ts",
+        "src/components/chat/panel-decoration/ask-user-card.ts",
+        "src/components/chat/panel-decoration.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/App.tsx",
+        "src/lib/i18n.ts",
+        "src/index.css",
+        "tests/server/ask-user-tool.test.mjs",
+        "tests/frontend/ask-user-card.test.ts",
+        "tests/server/tools/definitions.test.mjs",
+        "design-mockups/ask-user-tool.html"
+      ],
+      "verification": "npx vitest run 新增/更新测试全过（+26 用例）；npm run test 217 文件 1795 用例全过；npm run lint 0 error（仅既有 identity.mjs warning）；npm run build 通过"
     }
   ]
 }

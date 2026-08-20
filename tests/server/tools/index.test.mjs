@@ -174,6 +174,22 @@ describe('toolWriteFile', () => {
     expect(result.details.diff).toBeDefined()
     expect(result.details.diff.addedLines).toBeGreaterThanOrEqual(0)
   })
+
+  it('emits a partial update with diff counts while running', async () => {
+    await fs.writeFile(path.join(tmpDir, 'partial.txt'), 'old\n', 'utf8')
+    const updates = []
+    const result = await toolHandlers.write_file(
+      { path: 'partial.txt', content: 'new\nline\n' },
+      context,
+      { onUpdate: (update) => updates.push(update) },
+    )
+    expect(updates).toHaveLength(1)
+    expect(updates[0].details.running).toBe(true)
+    expect(updates[0].details.diff).toEqual({
+      addedLines: result.details.diff.addedLines,
+      removedLines: result.details.diff.removedLines,
+    })
+  })
 })
 
 describe('toolEditFile', () => {
@@ -251,6 +267,20 @@ describe('toolEditFile', () => {
         context,
       ),
     ).rejects.toThrow()
+  })
+
+  it('emits a partial update with diff counts while running', async () => {
+    await fs.writeFile(path.join(tmpDir, 'edit-partial.txt'), 'hello world\nfoo bar\nbaz\n', 'utf8')
+    const updates = []
+    const result = await toolHandlers.edit_file(
+      { path: 'edit-partial.txt', oldText: 'foo bar', newText: 'FOO BAR\nextra' },
+      context,
+      { onUpdate: (update) => updates.push(update) },
+    )
+    expect(updates).toHaveLength(1)
+    expect(updates[0].details.running).toBe(true)
+    expect(updates[0].details.diff.addedLines).toBe(result.details.diff.addedLines)
+    expect(updates[0].details.diff.removedLines).toBe(result.details.diff.removedLines)
   })
 })
 

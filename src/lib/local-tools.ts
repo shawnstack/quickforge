@@ -8,10 +8,14 @@ import { extractQuickForgeTiming, type QuickForgeToolTiming } from '@/lib/tool-e
 import { artifactPreviewMode, type ArtifactKind } from '@/components/workspace/artifact-preview-utils'
 import { formatManageGlobalMemoryOutput } from '@/lib/global-memory-tool-output'
 import { generatedImageAssetUrl, parseGeneratedImageDetails } from '@/lib/generated-image-assets'
+import { summarizeParams } from '@/lib/tool-param-summary'
+import { ToolMarqueeController, type ToolMarqueeEnv } from '@/lib/tool-marquee'
+import { OdometerDiffCounterController, type OdometerElementLike, type OdometerEnv } from '@/lib/diff-counter'
 import {
   OPEN_SUBAGENT_RUN_EVENT,
   buildSubagentRunPayload,
   canOpenSubagentRunPayload,
+  currentSubagentToolSummaries,
   resolveSubagentRunPayloadForOpen,
   shouldPublishSubagentRunPayload,
   subagentRunBodyBlocks,
@@ -174,41 +178,7 @@ function toolOutputText(toolName: string, params: Record<string, unknown> | unde
   return ''
 }
 
-function detailString(details: unknown, key: string) {
-  return isRecord(details) && typeof details[key] === 'string' ? details[key] : ''
-}
-
-function summarizeParams(toolName: string, params: Record<string, unknown> | undefined, result?: ToolResultLike) {
-  if (!params && !result?.details) return ''
-  if (toolName === 'run_command' && typeof params?.command === 'string') return params.command
-  if (toolName === 'generate_image') {
-    const prompt = typeof params?.prompt === 'string' ? params.prompt.trim() : ''
-    return prompt.length > 100 ? `${prompt.slice(0, 100)}…` : prompt
-  }
-  if (toolName === 'present_files') {
-    const files = Array.isArray(params?.files) ? params.files : Array.isArray(result?.details && (result.details as Record<string, unknown>).files) ? (result?.details as Record<string, unknown>).files as unknown[] : []
-    const paths = files.map((item) => typeof item === 'string' ? item : isRecord(item) && typeof item.path === 'string' ? item.path : '').filter(Boolean)
-    return paths.length ? paths.slice(0, 3).join(', ') + (paths.length > 3 ? ` +${paths.length - 3}` : '') : ''
-  }
-  if (toolName === 'grep_files') {
-    const query = typeof params?.query === 'string' && params.query
-      ? params.query
-      : detailString(result?.details, 'query')
-    const path = typeof params?.path === 'string' && params.path
-      ? params.path
-      : detailString(result?.details, 'path') || '.'
-    const regex = Boolean(params?.regex || (isRecord(result?.details) && isRecord(result.details.searchOptions) && result.details.searchOptions.regex))
-    const mode = regex ? 'regex' : 'text'
-    const scope = path && path !== '.' ? ` in ${path}` : ' in current workspace'
-    return query ? `${mode}: ${query}${scope}` : `searching${scope}`
-  }
-  if (toolName === 'activate_skill' && typeof params?.name === 'string') return params.name
-  if (toolName === 'read_skill_resource' && typeof params?.path === 'string') return params.path
-  if (params && 'path' in params && typeof params.path === 'string') return params.path
-  if (params && 'query' in params && typeof params.query === 'string') return params.query
-  if (params && 'search_query' in params && typeof params.search_query === 'string') return params.search_query
-  return ''
-}
+// summarizeParams 已提取到 tool-param-summary.ts，与 subagent 当前工具跑马灯共用摘要规则。
 
 function getDiffDetails(details: unknown): ToolDiffDetails | undefined {
   if (!details || typeof details !== 'object') return undefined
@@ -302,31 +272,21 @@ function diffLineStyle(line: string) {
   }
 }
 
-function renderInlineDiffStats(toolName: string, diff: ToolDiffDetails | undefined) {
+function renderInlineDiffStats(toolName: string, diff: ToolDiffDetails | undefined, running = false) {
   if ((toolName !== 'write_file' && toolName !== 'edit_file') || !diff) return nothing
 
   const addedLines = Number(diff.addedLines ?? 0)
   const removedLines = Number(diff.removedLines ?? 0)
 
+  // 里程计计数器：partial diff 到达时数字逐位滚动，结束定格。
   return html`
-    <span class="quickforge-tool-meta-hover shrink-0 inline-flex items-center gap-1" title="+${addedLines} -${removedLines}">
-      <span
-        class="quickforge-diff-badge quickforge-diff-badge-add"
-        style=${styleMap({
-          ...DIFF_BADGE_BASE_STYLE,
-          background: 'color-mix(in oklab, rgb(34 197 94) 16%, transparent)',
-          color: 'rgb(22 101 52)',
-        })}
-      >+${addedLines}</span>
-      <span
-        class="quickforge-diff-badge quickforge-diff-badge-del"
-        style=${styleMap({
-          ...DIFF_BADGE_BASE_STYLE,
-          background: 'color-mix(in oklab, rgb(239 68 68) 14%, transparent)',
-          color: 'rgb(153 27 27)',
-        })}
-      >-${removedLines}</span>
-    </span>
+    <quickforge-diff-counter
+      class="quickforge-tool-meta-hover shrink-0"
+      added=${addedLines}
+      removed=${removedLines}
+      ?running=${running}
+      title="+${addedLines} -${removedLines}"
+    ></quickforge-diff-counter>
   `
 }
 
@@ -442,6 +402,128 @@ if (!customElements.get('quickforge-elapsed-time')) {
   customElements.define('quickforge-elapsed-time', QuickForgeElapsedTime)
 }
 
+const marqueeEnv: ToolMarqueeEnv = {
+  prefersReducedMotion: () => Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches),
+  animate: (span, keyframes, options) => (span as unknown as Animatable).animate(keyframes as Keyframe[], options as KeyframeAnimationOptions),
+  setTimeout: (handler, ms) => setTimeout(handler, ms),
+  clearTimeout: (token) => clearTimeout(token as ReturnType<typeof setTimeout>),
+}
+
+/**
+ * subagent 摘要卡的「当前工具」跑马灯（仿 quickforge-elapsed-time 的 attribute 驱动模式，
+ * 保证 Lit 高频重渲染下元素实例与动画生命周期稳定）。动画时序由 ToolMarqueeController
+ * 承担（纯逻辑可单测）：仅溢出且非 reduced-motion 时滚动，text 变化才重建。
+ */
+class QuickForgeToolMarquee extends HTMLElement {
+  private controller: ToolMarqueeController | undefined
+  private resizeObserver: ResizeObserver | undefined
+  private ready = false
+
+  static get observedAttributes() {
+    return ['text', 'running']
+  }
+
+  connectedCallback() {
+    const staticSpan = document.createElement('span')
+    staticSpan.className = 'quickforge-marquee-static'
+    const movingSpan = document.createElement('span')
+    movingSpan.className = 'quickforge-marquee-moving'
+    movingSpan.setAttribute('aria-hidden', 'true')
+    this.appendChild(staticSpan)
+    this.appendChild(movingSpan)
+    this.controller = new ToolMarqueeController({
+      staticSpan,
+      movingSpan,
+      getClientWidth: () => this.clientWidth,
+    }, marqueeEnv)
+    this.ready = true
+    if (typeof ResizeObserver === 'function') {
+      // 对话列宽变化时在下一帧重新测量并重建动画。
+      this.resizeObserver = new ResizeObserver(() => this.scheduleRestart())
+      this.resizeObserver.observe(this)
+    }
+    this.sync()
+  }
+
+  disconnectedCallback() {
+    this.ready = false
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect()
+      this.resizeObserver = undefined
+    }
+    this.controller?.dispose()
+    this.controller = undefined
+  }
+
+  attributeChangedCallback() {
+    if (!this.ready) return
+    this.sync()
+  }
+
+  private sync() {
+    this.controller?.sync(this.getAttribute('text') || '', this.getAttribute('running') === 'true')
+  }
+
+  private scheduleRestart() {
+    requestAnimationFrame(() => {
+      if (this.ready) this.controller?.sync(this.getAttribute('text') || '', this.getAttribute('running') === 'true', true)
+    })
+  }
+}
+
+if (!customElements.get('quickforge-tool-marquee')) {
+  customElements.define('quickforge-tool-marquee', QuickForgeToolMarquee)
+}
+
+const odometerEnv: OdometerEnv = {
+  prefersReducedMotion: () => Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches),
+  createElement: (tag) => document.createElement(tag) as unknown as OdometerElementLike,
+  setTimeout: (handler, ms) => setTimeout(handler, ms),
+  clearTimeout: (token) => clearTimeout(token as ReturnType<typeof setTimeout>),
+}
+
+/**
+ * 工具卡片 ±行数里程计（attribute 驱动，保证 Lit 高频重渲染下元素实例稳定，
+ * 数字列的滚动/入场动画由 CSS transition/animation 与 OdometerDiffCounterController 完成）。
+ */
+class QuickForgeDiffCounter extends HTMLElement {
+  private controller: OdometerDiffCounterController | undefined
+  private ready = false
+
+  static get observedAttributes() {
+    return ['added', 'removed', 'running']
+  }
+
+  connectedCallback() {
+    this.controller = new OdometerDiffCounterController(this as unknown as OdometerElementLike, odometerEnv)
+    this.ready = true
+    this.sync()
+  }
+
+  disconnectedCallback() {
+    this.ready = false
+    this.controller?.dispose()
+    this.controller = undefined
+  }
+
+  attributeChangedCallback() {
+    if (!this.ready) return
+    this.sync()
+  }
+
+  private sync() {
+    this.controller?.sync(
+      Number(this.getAttribute('added') ?? 0) || 0,
+      Number(this.getAttribute('removed') ?? 0) || 0,
+      this.getAttribute('running') === 'true',
+    )
+  }
+}
+
+if (!customElements.get('quickforge-diff-counter')) {
+  customElements.define('quickforge-diff-counter', QuickForgeDiffCounter)
+}
+
 function renderTiming(timing: QuickForgeToolTiming | undefined, status: ToolStatusKey) {
   const elapsedMs = elapsedMsFromTiming(timing)
   if (elapsedMs === undefined) return nothing
@@ -472,6 +554,7 @@ function renderToolIcon(toolName: string) {
   if (toolName === 'read_skill_resource') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3Z"/></svg>`
   if (toolName === 'run_command') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>`
   if (toolName === 'run_subagent') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>`
+  if (toolName === 'ask_user') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" x2="12.01" y1="17" y2="17"/></svg>`
   if (toolName === 'activate_skill') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.9 2.1 8.5 8.5 2.1 9.9l6.4 1.4 1.4 6.4 1.4-6.4 6.4-1.4-6.4-1.4Z"/><path d="M19 15v4"/><path d="M21 17h-4"/></svg>`
   return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9Z"/></svg>`
 }
@@ -617,6 +700,9 @@ function toolDetailsStateKey(toolName: string, params: Record<string, unknown> |
 function renderSubagentRunSummary(payload: SubagentRunPayload) {
   const canOpen = canOpenSubagentRunPayload(payload)
   const title = canOpen ? t('viewSubagentRunDetails') : payload.statusLabel
+  // 当前工具跑马灯：仅运行中且有 pending 工具时渲染；放在标签与状态之间，
+  // 只占用剩余弹性空间（见 .quickforge-subagent-marquee），不遮挡标签与耗时。
+  const currentTools = payload.status === 'running' ? currentSubagentToolSummaries(payload) : []
   return html`
     <div class="quickforge-subagent-tool">
       <button
@@ -636,6 +722,14 @@ function renderSubagentRunSummary(payload: SubagentRunPayload) {
         ${renderToolIcon('run_subagent')}
         <span class="quickforge-subagent-title min-w-0">
           <span class="quickforge-subagent-label">${payload.statusLabel}</span>
+          ${currentTools.length > 0 ? html`
+            <quickforge-tool-marquee
+              class="quickforge-subagent-marquee"
+              text=${currentTools.join(' · ')}
+              running="true"
+              aria-label=${t('subagentRunningTools')}
+            ></quickforge-tool-marquee>
+          ` : nothing}
           ${renderStatus(payload.status, payload.timing)}
         </span>
       </button>
@@ -874,7 +968,7 @@ class LocalWorkspaceToolRenderer {
               <span class="quickforge-tool-title min-w-0">
                 <span class="quickforge-tool-label">${acpTitle ? html`OpenCode<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${acpTitle}${acpKind ? `/${acpKind}` : ''}</span>` : t(this.labelKey)}${summary ? html`<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${summary}</span>` : ''}</span>
                 <svg class="quickforge-tool-chevron shrink-0 group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
-                ${renderInlineDiffStats(this.toolName, diff)}
+                ${renderInlineDiffStats(this.toolName, diff, status === 'running')}
                 ${renderStatus(status, timing)}
               </span>
             </summary>
@@ -889,6 +983,57 @@ class LocalWorkspaceToolRenderer {
             ${renderPreviewButton(this.toolName, visibleParams)}
             ${renderTerminateCommandButton(this.toolName, status, result?.details)}
           </span>
+        </div>
+      `,
+    }
+  }
+}
+
+function askUserQuestionsFromParams(params: Record<string, unknown> | undefined): string[] {
+  const fromList = Array.isArray(params?.questions)
+    ? params.questions.filter((q): q is Record<string, unknown> => isRecord(q) && typeof q.question === 'string' && Boolean((q.question as string).trim()))
+    : []
+  if (fromList.length) return fromList.map((q) => String(q.question))
+  return typeof params?.question === 'string' && params.question.trim() ? [params.question] : []
+}
+
+class AskUserToolRenderer {
+  render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
+    const status = toolStatus(result, isStreaming)
+    const timing = extractQuickForgeTiming(result?.details)
+    const visibleParams = paramsWithoutInternalMetadata(params)
+    const questions = askUserQuestionsFromParams(visibleParams)
+    const toolDisplaySettings = getCachedToolDisplaySettings()
+    const detailed = toolDisplaySettings.toolDisplayMode === 'detailed'
+    const input = detailed ? stringifyValue(visibleParams) : ''
+    const output = resultText(result)
+    const detailsKey = toolDetailsStateKey('ask_user', visibleParams, result?.details)
+    const detailsOpen = toolDetailsOpen.get(detailsKey) ?? detailed
+    const summary = questions.length
+      ? `${t('askUserSummaryCount', { count: String(questions.length) })}${questions[0] ? ` · ${questions[0]}` : ''}`
+      : ''
+
+    return {
+      isCustom: true,
+      content: html`
+        <div class="quickforge-local-tool-shell">
+          <details class="group/tool quickforge-local-tool" ?open=${detailsOpen} @toggle=${(event: Event) => {
+            if (event.isTrusted) rememberToolDetailsOpen(detailsKey, (event.currentTarget as HTMLDetailsElement).open)
+          }}>
+            <summary class="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
+              ${renderToolIcon('ask_user')}
+              <span class="quickforge-tool-title min-w-0">
+                <span class="quickforge-tool-label">${t('askUserTitle')}${summary ? html`<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${summary}</span>` : ''}</span>
+                <svg class="quickforge-tool-chevron shrink-0 group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                ${renderStatus(status, timing)}
+              </span>
+            </summary>
+            <div class="mt-3 space-y-3">
+              ${questions.length && !detailed ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><div class="quickforge-ask-tool-questions">${questions.map((question) => html`<div>${question}</div>`)}</div></div>` : nothing}
+              ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : nothing}
+              ${output ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('output')}</div><code-block .code=${output} language="text"></code-block></div>` : nothing}
+            </div>
+          </details>
         </div>
       `,
     }
@@ -1066,6 +1211,7 @@ for (const [name, label] of [
 registerToolRenderer('run_subagent', new SubagentToolRenderer())
 registerToolRenderer('generate_image', new GenerateImageToolRenderer())
 registerToolRenderer('opencode_tool', new OpenCodeToolRenderer())
+registerToolRenderer('ask_user', new AskUserToolRenderer())
 
 // Tool execution is entirely server-side. The ChatPanel never calls .execute()
 // on client-side tools — it only reads state.tools for display purposes.

@@ -2,40 +2,42 @@
 
 ## 当前状态
 
-- 本会话目标：调整「思考过程」展示的高度——超出后内部滚动查看，避免撑大整个聊天页面；先调研再与用户过设计。
-- 最终状态：**已完成并验证**。用户确认两项参数：高度上限 `min(60vh, 20rem)`（小屏按视口收缩，兼顾 Capacitor Android 端）；流式生成期间保持阅读位置、不做终端式跟随（纯 CSS，不加 JS）。
+- 本会话目标：ask_user 工具——模型向用户提问（多问题、选项+自由输入），经三轮设计稿对齐（单问题卡 → 多问题向导"点完自动进下一问、末步统一提交" → 已答后像工具一样折叠）后落地。
+- 最终状态：**已完成并验证**（全量 test 217 文件 1795 用例 / lint 0 error / build 通过；真实会话内目视确认留待用户）。
 
 ## 实现要点（速览）
 
-- 根因：`thinking-block`（pi-web-ui Lit 组件）展开后 `<markdown-block>` 全量 markdown 渲染且无高度约束；quickforge 装饰层（process-folding）的折叠只是 `display:none` 开关，展开时思考内容全部高度直接进入消息列表文档流，撑高 `agent-interface` 的 `.flex-1.overflow-y-auto` 滚动容器；流式期间外层过程组默认展开，长思考边生成边撑长页面并触发自动滚底跳动。
-- 改动仅一处 CSS：`src/index.css:2985` 的 `.quickforge-process-body thinking-block > .thinking-block > markdown-block` 规则追加 `max-height: min(60vh, 20rem); overflow-y: auto; overscroll-behavior: contain`。
-- 交互细节：`overscroll-behavior: contain` 使思考块内滚到头/底不连锁滚动外层聊天；标题行（折叠按钮）在滚动容器外始终可见；短内容保持自然高度不留空白；`markdown-block` 自带 `display: block`（组件 connectedCallback 设置），max-height 天然生效。
-- 覆盖面：所有 thinking-block 都会被装饰层折叠进 `.quickforge-process-body`（`PROCESS_NODE_SELECTOR = 'thinking-block, tool-message'`），一条规则全覆盖，无需碰 pi-chat-panel 级兜底选择器。
-- 视觉一致性：与仓库既有 `max-height + overflow: auto` 先例同模式（diff 块 28rem、code-block 24rem、上下文压缩文本 18rem），思考块为次级内容取偏小上限。
+- 服务端：
+  - `server/tools/definitions.mjs`：新增 `askUserTool`（questions 1-4，每问 options≤4 / multiSelect / allowCustom），加入 workspaceTools。
+  - `server/ask-store.mjs`（新）：`pendingAsks` Map、`getPendingAskForSession`、`ASK_TIMEOUT_MS=30min`、纯函数 `normalizeAskQuestions`（兼容 `{question,options}` 单问简写）/`formatAskResult`（回答→纯文本回给模型；超时/跳过/abort→"用户没有回答…请按默认方案继续"）。
+  - `server/agent-manager.mjs`：`wrapAskUserToolDefinition` 拦截（仿 run_subagent，无 toolHandlers 入口）；`createAskUserPromise`（execute 阻塞 + SSE `ask_user_required` / 回答后 `ask_user_answered`）；`answerAsk(sessionId, askId, {answers, skipped})`；state 快照增加 `pendingAsk`；beforeToolCall 对 ask_user 直接放行（免审批）。
+  - `server/approval-store.mjs`：planAllowedTools 加入 ask_user；`server/routes/agent.mjs`：`POST /api/agents/:id/answer-ask`。
+- 前端：
+  - `src/lib/server-agent.ts`：事件 `ask_user_required`/`ask_user_answered`、`state.pendingAsk`（构造/快照/恢复/state 帧全套）、`answerAsk()`。
+  - `src/components/chat/panel-decoration/ask-user-card.ts`（新）：向导式卡（单选点选自动前进 150ms 淡出/200ms 淡入、多选/自由输入显式"下一问"、末步回执摘要统一提交、整卡跳过、上一步可回改）；`data-ask-id`+displaySignature 去重，向导内部 DOM 变更不重建。
+  - 接线：`panel-decoration.ts` re-export、`ChatPanelHost.tsx`（pendingAskRef + SSE 事件 + decorate 注入/移除 + readOnly 禁用）、`App.tsx`（`handleAnswerAsk` → `onAnswerAsk` prop）、`src/lib/i18n.ts`（en/zh 各 18 键）、`src/index.css`（.quickforge-ask-* 全套，复用审批卡 token）。
+- 已答折叠语义：提交/跳过后交互卡直接移除，ask_user 调用+结果作为普通工具消息留在消息流，由既有工具折叠机制收纳——不引入独立折叠状态机。
 
 ## 本会话改动文件
 
-- `src/index.css`（2985 行规则追加 3 个属性，共 3 行）
-- 簿记：`feature_list.json`（+thinking-block-height-cap done）、`progress.md`（Current State + Notes）、`session-handoff.md`
+- 新增：`server/ask-store.mjs`、`src/components/chat/panel-decoration/ask-user-card.ts`、`tests/server/ask-user-tool.test.mjs`、`tests/frontend/ask-user-card.test.ts`、`design-mockups/ask-user-tool.html`（此前会话产出）
+- 修改：`server/tools/definitions.mjs`、`server/agent-manager.mjs`、`server/approval-store.mjs`、`server/routes/agent.mjs`、`src/lib/server-agent.ts`、`src/components/chat/panel-decoration.ts`、`src/components/chat/ChatPanelHost.tsx`、`src/App.tsx`、`src/lib/i18n.ts`、`src/index.css`、`tests/server/tools/definitions.test.mjs`（工具数 8→9 + ask_user 断言）
+- 簿记：`docs/wiki/server/tools/README.md`、`docs/wiki/src/lib/README.md`、`docs/wiki/src/components/README.md`、`feature_list.json`（done）、`progress.md`、`session-handoff.md`
+- 前轮未提交改动（diff-odometer-counter / scroll-to-bottom-button / marquee / thinking-cap 等）仍保持未提交状态。
 
 ## 验证记录
 
-- `npm run lint`：0 error，仅既有无关 warning（server/cloud/identity.mjs:92，多会话前已存在，CSS 不在 eslint 范围）。
-- `npm run build`：通过（chunk 大小 warning 为既有现象）。
-- 构建产物端到端：dist CSS（含 `max-height:min(60vh,20rem)`）+ 模拟真实 DOM 结构（`.quickforge-process-body > thinking-block > .thinking-block > markdown-block`）经 Playwright 验证——长内容封顶（769px 视口下 computed max-height 260px，即 20rem@13px root）、`scrollTop` 可滚（内部滚动生效）、`overscroll-behavior: contain` 生效、短内容自然高度（19px）无滚动条。
-- CSS-only 改动无对应单测（仓库无 CSS 渲染断言先例，逻辑为零）；非发布无需全量三件套。
-- 排障插曲（已记入 progress Notes）：临时验证服务器曾对 .css 返回 text/html，被浏览器 MIME 严格检查拒绝解析导致首测误判规则未命中；修正 content-type 后确认规则生效。
-
-## 文档说明
-
-- UI 局部样式约束，不影响架构/模块职责/公共入口/发布流程，且复用既有视觉模式，按约定无需更新 docs/wiki（原因在此记录）。
+- 定向：vitest ask-user-tool(10) + ask-user-card(7) + definitions(20) + agent-manager 相关 + routes/tools 全过。
+- `npm run lint` 0 error（仅既有无关 warning server/cloud/identity.mjs:92）；`tsc --noEmit` 通过。
+- 全量 `npm run test`（217/1795 全过）+ `npm run build`：通过。
 
 ## 遗留与下一步
 
-- 本会话改动未提交 git（遵循约定，用户未要求提交）。
-- 前序会话遗留（不变）：根目录空目录 `design-preview/` 重启后可删；v1.7.11 npm publish 待用户 `npm login` 后在 `package-offline/` 执行；测试机删库重导验证；`*_v10_backup` 六表观察期后 DROP；工作区未跟踪杂项（`.workbuddy/`、乱码文件名等）。
-- 可选后续（未实施）：流式期间若用户反馈想跟随最新思考，可在装饰层加少量 JS 让内层容器滚到底（本次按用户决定保持阅读位置）。
+- 本会话改动未提交 git（遵循约定）。
+- 真实会话内 ask_user 交互目视确认留待用户（模型需自发调用；可在对话中要求"用 ask_user 问我一个问题"触发）。
 
-## Next step
+## 真机反馈修复（同会话追加）
 
-- 无阻塞事项；建议用户在真实会话展开一段长思考目视确认（应看到思考内容出滚动条、页面总高度不再被撑长、标题行固定可见）。
+- 缺陷①卡片误显"当前视图无法作答"：`ChatPanelHost` 的 propsRef 同步 effect（每渲染整体重建 ref）漏了 `onAnswerAsk`，首帧后被覆写为 undefined 触发禁用；已补字段，并加回归测试（断言 effect 块内含 onAnswerAsk）。
+- 缺陷②ask_user 工具消息不受设置的工具显示模式控制：新增 `src/lib/local-tools.ts` `AskUserToolRenderer` 并 `registerToolRenderer('ask_user', …)`——与其他内置渲染器同构（`toolDisplayMode==='detailed'` 才显示 input JSON；summary「N 问 · 首问」；非 detailed 展开直接列问题；output 显示回答文本；detailsOpen 记忆），加 ask_user 问号图标、i18n `askUserSummaryCount`、`.quickforge-ask-tool-questions` 样式。
+- 验证：定向 + 前端全量 760 用例、lint 0 error、build 通过。

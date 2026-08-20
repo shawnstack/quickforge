@@ -2,13 +2,25 @@
 
 ## Current State
 
-- Feature: thinking-block-height-cap（已完成）；此前 composer-stop-button-waiting-spinner、session-storage-v2 与 v1.7.11 发布均已完成
-- Status: done — 思考过程内容高度封顶已实现并验证：.quickforge-process-body 内 thinking-block 展开的 markdown-block 增加 max-height: min(60vh, 20rem) + overflow-y: auto + overscroll-behavior: contain，超长思考内部滚动不再撑大聊天页面，短内容保持自然高度；流式期间保持阅读位置（用户确认，纯 CSS 不加 JS 跟随）。验证：npm run lint（仅既有无关 warning）+ npm run build 通过；构建产物 CSS 注入真实 DOM 验证（长内容封顶 260px@769px 视口、scrollTop 可滚、overscroll contain 生效、短内容自然高度 19px 无滚动条）。UI 局部样式约束不涉及架构/模块职责/公共入口，无需更新 wiki。
+- Feature: ask-user-tool（已完成）；此前 diff-odometer-counter、chat-scroll-to-bottom-button、subagent-current-tool-marquee 亦已完成
+- Status: done — ask_user 工具全链路落地：服务端（definitions + 新 server/ask-store.mjs pendingAsks/纯函数 + agent-manager createAskUserPromise/answerAsk + POST /api/agents/:id/answer-ask 路由 + plan 白名单/免审批 + state 快照 pendingAsk 字段）；前端（server-agent ask 事件/answerAsk API + 新 panel-decoration/ask-user-card.ts 向导式卡：单选点选自动进下一问、多选/自由输入显式前进、末步回执统一提交、可整卡跳过 + ChatPanelHost 接线 + App onAnswerAsk + i18n en/zh + index.css）。回答后交互卡移除、ask_user 调用作为普通工具消息留在消息流由既有折叠机制收纳（即用户要的"像工具一样被折叠"）。30 分钟超时/跳过/abort 均按"用户未回答"resolve 让模型按默认方案继续，不 reject。验证：npm run test 217 文件 1795 用例全过（新增 tests/server/ask-user-tool.test.mjs 10 例 + tests/frontend/ask-user-card.test.ts 7 例；definitions.test 工具数 8→9）；lint 0 error（仅既有 identity.mjs warning）；build 通过。设计稿 design-mockups/ask-user-tool.html（六状态含向导交互演示）。
 - Blockers: 无
-- Next step: 无（本 feature 关闭；存储 v2 观察期事项见 handoff）
+- Next step: 无阻塞；建议用户真实会话中让模型调一次 ask_user 目视确认交互手感（自动前进动画、多选、自由输入、跳过）。
 
 ## Notes
 
+- ask-user-tool 真机两缺陷修复（本轮，用户反馈）：①卡片误显"当前视图无法作答"——propsRef 每渲染整体重建的同步 effect 漏了 onAnswerAsk，首帧后被覆写为 undefined 触发禁用判定；已补字段并加回归源断言（定位 propsRef effect 块内必须含 onAnswerAsk）。②ask_user 工具消息不走设置的工具显示模式——此前未注册渲染器落进 pi-web-ui 默认工具卡；新增 local-tools.ts AskUserToolRenderer（结构与 LocalWorkspaceToolRenderer 同构：toolDisplayMode==='detailed' 才出 input JSON，summary=「N 问 · 首问」，非 detailed 展开时直接列问题清单，output=回答文本，detailsOpen 记忆、isCustom 防默认卡壳）+ ask_user 问号图标 + i18n askUserSummaryCount + .quickforge-ask-tool-questions 样式。验证：定向 ask-user-card(9)+local-tools-lit-reactivity 全过、前端全量 760 用例过、lint 0 error、build 过。
+- ask-user-tool 实现定案（前轮）：复刻审批链路但 resolve payload 扩展为 answers[{choices,custom}]；ask_user 无 toolHandlers 入口（agent-manager wrapAskUserToolDefinition 拦截绑定会话，仿 run_subagent）；单问题 schema 兼容（normalizeAskQuestions 接受 {question,options} 简写）；纯函数 normalizeAskQuestions/formatAskResult 放 ask-store.mjs（零依赖可单测）。前端卡片与审批卡同族注入（data-ask-id + displaySignature 去重，向导内部 DOM 变更不触发重建）。
+
+- diff-odometer-counter 实现定案（本轮）：「实时」的落点是工具开始执行即算 diff 并立即发 partial（本仓 edit_file 是单次 oldText→newText 替换、write_file 单次写入，无更细中间态，不伪造数据）；partial 与 end 几乎同帧到达，实际观感=计数器从 0 逐位滚动到最终值的里程计动画。计数器列右对齐保 DOM 稳定（transition 不被打断），位数增长 unshift 新列到符号之后、380ms 后清 enter 标记防重放。设计稿 design-mockups/diff-odometer-counter.html（可重播演示）。
+
+- subagent 跑马灯实现定案（本轮）：内容=「工具名 · 参数摘要」（用户选定，复用 summarizeParams，80 字符截断）；滚动=运行中自动循环（用户选定，非 hover）：35px/s 线性滚动→端部停顿 1s→ease-out 回弹（240–500ms 按时长比例）→起始停顿 1s→重复，起始延迟 400ms；text 变化才重建动画（SSE 150ms 节流同值刷新不打断）；结构=QuickForgeToolMarquee 自定义元素（attribute 驱动，仿 quickforge-elapsed-time，Lit 重渲染保实例）+ ToolMarqueeController 纯逻辑（DOM/定时器/动画注入，node 环境可单测）。「不遮挡」落实：跑马灯 flex:1 1 auto + min-width:0 只占标签与状态间的剩余弹性空间，列宽收缩时先自行退让（实测 340px 下标签仍完整可见带省略号）。
+- 模块拆分（本轮）：summarizeParams 从 local-tools.ts 提取为 tool-param-summary.ts（纯函数化，附带 normalizeToolArguments/truncateSummary），local-tools 改 import 行为不变；subagent-run-detail.ts 新增 currentSubagentToolSummaries（pendingToolCalls × traceMessages toolCall chunk 交集，JSON 字符串 arguments 兼容）。
+- 验证环境教训（本轮两条）：①本机 8931/8932 端口已有既有 http-server 占用（服务 dist/），python http.server 指定端口前必须 netstat 确认空闲，否则响应错位极难排查；②验证页连续快速拖宽度后动画计数为空是 RO 重启与 400ms 起始延迟的测试竞态（每次 RO 触发 sync(true) 会清掉未触发的起始 timer），干净加载后动画正常——宽度突变后不要立即断言动画状态，等 ≥500ms。
+- 既有 lint warning（不变，待择机修复）：server/cloud/identity.mjs:92 no-useless-assignment。
+
+- 回到底部按钮实现定案（本轮，设计稿经用户选定居中形态后落地）：交互——距底部>280px 淡入、<120px 淡出（滞回区间防临界抖动）；点击平滑回底（scrollend + 900ms 兜底，途中 wheel-up 视为用户打断、不恢复自动跟随，prefers-reduced-motion 直接跳底）并经 onJumpSettled→scrollSync.enable() 恢复尾部跟随（回调内再校验距底 ≤120px 才恢复，防打断后误拉回）；不在底部期间 assistant message_start 累计未读徽标，回底或点击清零，aria-label 随未读数切换（i18n en/zh 双 key）。视觉——复用 composer 卡片 token（78% border 混合、card 92% 透明混合、backdrop blur 12px、降一档浮层阴影），icon-only（arrow-down-to-line）居中悬浮于 .quickforge-composer-shell 上方 10px（shell 补 position:relative 作锚点，left/right:0+margin auto 居中，transform 留给出入场动画）；空会话态与 readOnly（dock 被移除）自动不渲染；html.dark 下徽标用亮 emerald。接入点——decorate() 尾部 setup()（与 scrollSync.setup() 同帧，幂等）；显隐独立监听滚动容器 scroll 事件，不侵入 scroll-sync 内部状态。
+- 单测抓到实现 bug 一枚（记录）：createButton 内 renderBadge() 在模块级 button 赋值前调用导致初始 aria-label/title 缺失——构造函数内先赋值再渲染即可；测试驱动发现的顺序依赖问题值得保留该用例。
 - 思考块高度封顶设计定案（本轮）：根因——thinking-block（pi-web-ui Lit 组件）展开后 markdown-block 全量渲染且无任何高度约束，装饰层折叠只是 display:none 开关，展开时全部高度进入消息列表文档流撑高 agent-interface 滚动容器；流式期间外层过程组默认展开，长思考边生成边撑长页面并触发自动滚底跳动。方案为纯 CSS 单点改动（复用 diff 块 28rem/code-block 24rem/压缩文本 18rem 的 max-height+overflow 先例）；用户确认两项参数：上限 min(60vh, 20rem)（小屏按视口收缩，兼顾 Capacitor Android）、流式期间保持阅读位置不做终端式跟随。交互细节：overscroll-behavior: contain 使思考块内滚到头不连锁滚动外层聊天；标题行在滚动容器外，折叠按钮始终可见；markdown-block 自带 display:block（connectedCallback），max-height 天然生效。
 - 验证环境教训：临时 http 服务器给 .css 返回 text/html 会被浏览器 MIME 严格检查拒绝解析（styleSheets 规则数为 0 且 computed style 全默认），排查选择器匹配前先确认样式表实际解析条数。
 - 发送按钮等待态设计定案（前轮）：分析确认按钮原为发送↑/停止■两态、无旋转态——prompt() 乐观同步置 isStreaming 使点击后下一帧即翻 Stop，无可感知空档；等待期反馈原仅由三点气泡承担。用户在小样（三方案：A2 方块步进/A1 方块平滑/B 环形）中选定 B 环形——与审批按钮 loading 完全同构、全应用单一旋转节奏。实现要点：::before 环形用 margin 居中而非 transform（transform 归 spin 动画所有，若用 translate 居中每圈末尾会跳位）；等待与生成的区分依赖 assistantWaitingActive（首个 assistant 文字增量即复位），agentic 循环后段工具阶段保持静止■（保守设计，避免图标反复起停）；等待期点击仍为 abort、aria-label 保持 Stop。附带补上了 send-stop-button 的首个单测（此前该模块零测试覆盖）。

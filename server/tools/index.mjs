@@ -486,7 +486,7 @@ export async function toolGrepFiles(params, context, runtime = {}) {
 }
 
 // --- write_file ---
-export async function toolWriteFile(params, context) {
+export async function toolWriteFile(params, context, runtime = {}) {
   const file = resolveWorkspacePath(params?.path, context)
   await assertSafeWorkspacePath(file, context, { forWrite: true })
 
@@ -501,6 +501,12 @@ export async function toolWriteFile(params, context) {
     existed = false
   }
   const diff = createTextDiff(oldText, content, relativePath, { oldExists: existed })
+
+  // 写盘前先发一次 partial update，让前端在 running 阶段就能滚动显示 ±行数。
+  runtime.onUpdate?.({
+    content: [{ type: 'text', text: `${existed ? 'Writing' : 'Creating'} ${relativePath} (+${diff.addedLines} -${diff.removedLines})` }],
+    details: { running: true, path: relativePath, project: context?.project, diff: { addedLines: diff.addedLines, removedLines: diff.removedLines } },
+  })
 
   await fs.mkdir(path.dirname(file), { recursive: true })
   await fs.writeFile(file, content, 'utf8')
@@ -536,7 +542,7 @@ function convertToLineEnding(text, ending) {
   return ending === '\r\n' ? normalized.replaceAll('\n', '\r\n') : normalized
 }
 
-export async function toolEditFile(params, context) {
+export async function toolEditFile(params, context, runtime = {}) {
   const file = resolveWorkspacePath(params?.path, context)
   await assertSafeWorkspacePath(file, context)
 
@@ -559,6 +565,12 @@ export async function toolEditFile(params, context) {
   const nextText = text.replace(oldText, newText)
   const relativePath = toWorkspaceRelative(file, context)
   const diff = createTextDiff(text, nextText, relativePath)
+
+  // 写盘前先发一次 partial update，让前端在 running 阶段就能滚动显示 ±行数。
+  runtime.onUpdate?.({
+    content: [{ type: 'text', text: `Editing ${relativePath} (+${diff.addedLines} -${diff.removedLines})` }],
+    details: { running: true, path: relativePath, project: context?.project, diff: { addedLines: diff.addedLines, removedLines: diff.removedLines } },
+  })
 
   await fs.writeFile(file, nextText, 'utf8')
 

@@ -2,6 +2,39 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.7.12] - 2026-08-20
+
+### Added
+
+- Added the `ask_user` tool with in-chat question cards, persistent answer details, skip and timeout handling, review/edit flows, mixed choices plus notes, unified navigation, and Enter-to-confirm custom input.
+- Added live write/edit diff feedback: odometer-style `+/-` line counters plus structured unified-diff rendering with line numbers, file headers, omitted-range separators, dark-theme contrast, and character-level change highlighting.
+- Added subagent current-tool marquee summaries with parameter previews, horizontal overflow animation, rolling tool transitions, gap memory, reconnect-safe views, and responsive remaining-width layout.
+- Added a centered scroll-to-bottom control with unread counts, interrupted smooth-scroll handling, reduced-motion support, and automatic tail-follow recovery.
+- Added shared six-line input clamping for long user messages and subagent task details, with accessible expand/collapse controls and unified message-bubble styling.
+- Added a waiting ring on the composer stop button before the first assistant output arrives.
+
+### Changed
+
+- Expanded thinking blocks are capped at `min(60vh, 20rem)` with contained inner scrolling, preventing long reasoning output from stretching the chat page.
+- Refined chat and Inspector presentation: input bubble borders are softer, long-input spacing no longer amplifies template whitespace or overlaps controls, and the outer subagent trace card frame was removed while preserving internal grouping.
+- Added and refreshed design mockups for `ask_user`, diff counters and views, input clamping, subagent marquee transitions, and the scroll-to-bottom control.
+
+### Fixed
+
+- Diff odometer counters no longer duplicate after their DOM roots move, and running counters retain their intended template classes and animation state.
+- Subagent marquees no longer duplicate views after reconnecting and continue to use the full remaining summary-row width.
+- A damaged or non-object `sessions-metadata.json` bucket no longer blocks startup import; valid session bodies continue importing with derived metadata and diagnostics.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.7.12` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.7.12.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.7.12.tgz
+  ```
+
 ## [1.7.11] - 2026-08-20
 
 ### Added

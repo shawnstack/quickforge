@@ -1,5 +1,20 @@
 # Session Handoff
 
+## 当前状态：release-v1.7.12（已完成，发布记录）
+
+- 本会话目标：完成 v1.7.12 打包与发布状态收尾，记录 release commit、tag/push 与用户执行 npm publish 的发布顺序。
+- 前置与版本：起始工作区干净、当前分支 `master`，发布准备阶段已确认目标 tag `v1.7.12` 尚未创建；`package.json` / `package-lock.json` 已由 1.7.11 更新为 1.7.12，CHANGELOG 1.7.12 已按 `v1.7.11..HEAD` 的 12 个提交准备；README 无固定版本引用，未修改。
+- 发布门禁：`npm run test` → 219 files / 1865 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` → 成功。
+- 打包结果：`node scripts/prepare-runtime-package.cjs` 成功；`node scripts/prepare-offline-package.cjs` 成功；在 `package-offline` 目录运行 `npm pack` 成功。
+- tarball：`package-offline/shawnstack-quickforge-1.7.12.tgz` 存在，大小 25,255,113 bytes（24.09 MiB）；清单 324 files，包含 `bin/`、`server/`、`skills/`、`plugins/`、`runtime-assets/`、`dist/`、`README.md`、`LICENSE`、`package.json`。
+- 元数据：`package-dist/package.json` 与 `package-offline/package.json` 均为 `@shawnstack/quickforge@1.7.12`，均无 `devDependencies` / `scripts`；offline 包按脚本将 `@vscode/ripgrep` 从 `dependencies` 移至 `optionalDependencies`，并保留 `node-pty` optional dependency。
+- Git：`dist/`、`package-dist/`、`package-offline/` 均由 `.gitignore` 排除；生成产物不进入版本控制，release commit 范围为 6 个发布文件：`CHANGELOG.md`、`package.json`、`package-lock.json`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 发布顺序：本变更用于 release commit，随后创建并推送 tag `v1.7.12`；npm publish 由用户执行：`npm publish ./package-offline/shawnstack-quickforge-1.7.12.tgz --access public`。
+
+---
+
+## 前轮会话：fix-workspace-inspector-subagent-trace-outer-card（已完成，要点归档）
+
 ## 当前状态：fix-workspace-inspector-subagent-trace-outer-card（已完成）
 
 - 本会话目标：移除 Workspace Inspector 中完整 subagent 执行区域的最外层圆角边框与弱背景，使其融入消息流。
@@ -141,7 +156,7 @@
 
 - 本会话改动未提交 git（遵循约定）。
 - 风险审查其余发现（本轮 progress.md Notes 已记）：H1 存储 v2 就地升级 backup 表零读取者/零告警、M2 导入 count>0 永不重跑、benchmark 脚本悬空 import、前端 diff-counter `?running` 布尔绑定失效 + className 覆写——均未处理，待用户定夺。
-- 前轮遗留（不变）：v1.7.11 npm publish 待用户执行；根目录空目录 design-preview/ 重启后可删；既有 lint warning server/cloud/identity.mjs:92。
+- 前轮遗留（更新）：v1.7.11 npm publish 待办已由当前 v1.7.12 release 流程取代；根目录空目录 design-preview/ 重启后可删；既有 lint warning server/cloud/identity.mjs:92。
 
 ---
 

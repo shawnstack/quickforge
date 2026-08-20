@@ -1,6 +1,21 @@
 {
   "features": [
     {
+      "id": "release-v1.7.12",
+      "name": "准备 v1.7.12 patch release",
+      "status": "done",
+      "approach": "已完成 v1.7.12 patch release 收尾：确认工作区起始干净、当前分支 master、发布准备阶段确认目标 tag v1.7.12 尚未创建；通过 npm version patch --no-git-tag-version 将 package.json/package-lock.json 从 1.7.11 更新为 1.7.12，并按 v1.7.11..HEAD 的 12 个提交补充 CHANGELOG 1.7.12；完整 test/lint/build 门禁通过，runtime/offline 包及 offline tarball 已生成并校验。本变更用于 release commit，随后创建并推送 v1.7.12 tag；npm publish 由用户执行。",
+      "files": [
+        "package.json",
+        "package-lock.json",
+        "CHANGELOG.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npm run test → 219 files / 1865 tests 全通过；npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92 no-useless-assignment）；npm run build → 成功；node scripts/prepare-runtime-package.cjs 与 node scripts/prepare-offline-package.cjs → 成功；package-offline/shawnstack-quickforge-1.7.12.tgz 已生成（25,255,113 bytes，324 files），runtime/offline package.json 均为 @shawnstack/quickforge@1.7.12 且无 devDependencies/scripts，offline 按脚本将 @vscode/ripgrep 从 dependencies 移至 optionalDependencies；git status 仅包含 6 个预期发布文件，生成产物均被忽略；git diff --check → 通过。本变更用于 release commit，随后创建并推送 v1.7.12 tag；npm publish 由用户执行：npm publish ./package-offline/shawnstack-quickforge-1.7.12.tgz --access public。"
+    },
+    {
       "id": "fix-workspace-inspector-subagent-trace-outer-card",
       "name": "移除 Workspace Inspector subagent 执行区域最外层卡片外框",
       "status": "done",

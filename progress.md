@@ -2,6 +2,10 @@
 
 ## Current State
 
+- Feature: 准备 v1.7.12 patch release（release-v1.7.12，**已完成**）
+- Status: done — 版本与 CHANGELOG 已准备；完整 `npm run test`（219 files / 1865 tests）全通过，`npm run lint` 为 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`），`npm run build` 成功；runtime/offline 包及 `package-offline/shawnstack-quickforge-1.7.12.tgz` 已生成并完成元数据、依赖处理与清单校验。生成目录均被 Git 忽略，release commit 范围为 6 个预期发布文件。
+- Release sequence: 本变更用于 release commit，随后创建并推送 tag `v1.7.12`；npm publish 由用户执行：`npm publish ./package-offline/shawnstack-quickforge-1.7.12.tgz --access public`。
+
 - Feature: 移除 Workspace Inspector subagent 执行区域最外层卡片外框（fix-workspace-inspector-subagent-trace-outer-card，**已完成**）
 - Status: done — `.quickforge-subagent-trace` 根容器仅保留 `quickforge-subagent-trace p-2.5`，移除 `rounded-lg border border-border bg-background/60`，完整执行区域融入 Inspector 消息流；内部 `message-list` 及状态/耗时、process summary 分隔线、思考正文、工具统计、折叠交互和聊天摘要均未改。新增按 class token 提取的最小模板契约测试，避免大段字符串断言。验证：定向 vitest 1 文件 2 用例全过；改动文件 eslint 0 error；`npx tsc -b --pretty false`、`npm run build`、`git diff --check` 通过（build 仅既有 KaTeX 字体解析与 chunk size warning）。未改 wiki（纯视觉外框 bugfix，不改变行为契约、模块职责或公共入口）。
 - Next step: 可选真机打开 Workspace Inspector 的 subagent 运行详情，目视确认执行区域无最外层圆角边框且内部过程分组/折叠视觉不变。
@@ -19,6 +23,8 @@
 - Next step: 无阻塞；真机目视确认（长用户消息与 subagent 详情任务块的收起/展开、深浅两主题气泡浓度观感）。
 
 ## Notes
+
+- v1.7.12 release 收尾完成：`test` 219 files / 1865 tests 全通过，`lint` 0 errors / 1 existing warning，`build` 成功；runtime/offline 目录与 offline tarball 已生成并校验。生成产物被 `.gitignore` 排除，不进入 release commit；release commit 范围为 6 个预期发布文件。发布顺序为：本变更纳入 release commit，随后创建并推送 tag `v1.7.12`，最后由用户执行 `npm publish ./package-offline/shawnstack-quickforge-1.7.12.tgz --access public`。
 
 - Workspace Inspector subagent trace 外框修复（本轮）：仅删除 trace 根容器的卡片视觉 utility，`message-list` 节点、数据属性与全部内部装饰链路保持逐字不变；契约测试只提取命中 `.quickforge-subagent-trace` 的 class 属性并比较 token，既锁定 `p-2.5` 又避免绑定整段 Lit 模板。
 

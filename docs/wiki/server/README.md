@@ -24,7 +24,8 @@ server/
 ├── system-prompt.mjs         # 系统提示词合成 (91 行)
 ├── project-config.mjs        # 项目配置管理 (162 行)
 ├── conversation-compaction.mjs # 对话历史压缩 (302 行)
-├── custom-commands.mjs       # 自定义命令系统 (539 行)
+├── context-references.mjs      # @ 文件引用请求校验、canonical details 与本轮路径提示
+├── custom-commands.mjs       # 自定义命令系统 (614 行)
 ├── reasoning-cache.mjs       # 推理内容缓存 (51 行)
 ├── restart-supervisor.mjs    # 服务重启监控脚本 (38 行)
 ├── lan-access-store.mjs      # LAN 共享访问令牌存储 (407 行)
@@ -42,7 +43,7 @@ server/
 
 ## 核心模块
 
-### index.mjs (883 行)
+### index.mjs (1006 行)
 
 **用途**: 服务器入口 / 主路由分发。启动 HTTP 服务器，注册所有 API 路由。
 
@@ -77,7 +78,7 @@ server/
 - `models.mjs` 只向浏览器返回无密钥模型描述，过滤 `available:false`，指定 catalog ID 未命中时强制刷新一次；真实 Cloud Token 和上游地址仅在 Node 请求期间注入。
 - 主聊天消息使用公开的 `metadata.quickforgeClientMessageId` 标识逻辑消息；真正的 Cloud Chat `Idempotency-Key` 以 `sessionId + messageId` 绑定在 `~/.quickforge/storage/security/cloud-chat-idempotency/` 私有 sidecar 中，不进入 Session JSON、浏览器状态或通用备份。同消息的 Provider 网络重试、`/continue` 和重启恢复后重新生成复用同一 UUID，不同消息使用不同 UUID；AI HTTP 调试日志会脱敏该 Header。
 
-### agent-manager.mjs (1350 行)
+### agent-manager.mjs (3763 行)
 
 **用途**: Agent 生命周期管理。后端最复杂的模块。
 
@@ -89,8 +90,9 @@ server/
 - OpenCode 消息位置能力：ACP 仅提供整会话 fork，不支持按消息位置 fork、rollback 或 retry；Web UI 对 OpenCode 仍禁用这些操作，但当前会话操作菜单已开放“复制当前会话”整会话 fork 入口，新会话通过 `sourceHarnessSessionId` 触发 ACP `session/fork` 并立即持久化。
 - Provider 请求重试与流超时：主 Agent、Subagent、对话压缩和辅助模型生成默认设置 `maxRetries: 3`，即首次请求失败后最多再重试 3 次（最多共 4 次请求）；是否可重试及退避由各 Provider 实现决定，模型连通性探测显式保持不重试，`maxRetryDelayMs` 只限制服务端要求的单次等待上限。统一 AI 流包装使用 5 分钟空闲超时（每个新流事件重置）与 20 分钟总时长硬上限，超时会中止 Provider signal；兼容内部 `deadlineMs` 覆盖并将其解释为空闲超时。
 - Git 提交信息 AI 生成同样接收 `modelRef` 并通过统一 resolver；客户端提交的完整模型仅作兼容识别，不能覆盖 Provider Base URL 或绕过 Cloud 来源权限。
-- 默认工作目录：全局会话（无 `projectId`）会合成默认 workspace 上下文（`defaultGlobalWorkspaceContext`，根目录 `~/.quickforge/workspace`，合成 project id 为 `default`），使「对话」与「项目」享有相同的文件工具（读/写/编辑/grep/命令）、工作区面板、终端和 Git 能力；文件操作受该目录沙箱约束，默认权限下读类工具放行、写入/命令/MCP/Plugin 等可能影响系统的工具走审批，完全访问权限则在既有沙箱与敏感文件限制内自动执行；`projectContextFromId` 找不到项目时同样回落到该默认 workspace
-- 消息运行（`runPrompt`）：执行 AI 对话，管理消息历史
+- 默认工作目录：全局会话（无 `projectId`）会合成默认 workspace 上下文（`defaultGlobalWorkspaceContext`，根目录 `~/.quickforge/workspace`，合成 project id 为 `default`），使「对话」与「项目」享有相同的文件工具（读/写/编辑/grep/命令）、工作区面板、终端和 Git 能力；文件操作受该目录沙箱约束，默认权限下读类工具放行、写入/命令/MCP/Plugin 等可能影响系统的工具走审批，完全访问权限则在既有沙箱与敏感文件限制内自动执行；`projectContextFromId` 找不到项目时同样回落到该默认 workspace。`@` 文件引用是更窄的项目会话契约，不支持合成默认 workspace/global 会话
+- 工作区敏感路径保护：默认（`allowSensitive` 未开启）按大小写不敏感规则拦截 `.git`、`.env*`、密钥/证书、token、credentials/secrets 等；完成 realpath 与 workspace 边界检查后还会对真实目标再检查一次，防止内部符号链接伪装指向敏感文件。显式 `allowSensitive:true` 的既有 Workspace Inspector search/children/Reader 行为保持不变
+- 消息运行（`runPrompt`）：执行 AI 对话，管理消息历史。可选 `contextReferences` 仅接受最多 8 个项目文件引用；`server/context-references.mjs` 以已恢复 session 的 `projectId/projectContext.workspaceRoot` 为权威，校验 POSIX 项目相对路径、普通文件、非敏感、realpath 不逃逸并去重，绝不读取正文。canonical `{type:'file',projectId,path,name}` 覆盖客户端伪造 details 后持久化到用户消息；本轮 transient prompt 只列相对路径并要求相关时用 `read_file` 精确读取，可与 selectedCapabilities prompt 共存，finally 清理。retry/continue 从最后 user message details 重新校验后重放，失效时在截断历史前失败。OpenCode 与 Shared 非空引用明确拒绝，共享输出同时剥离 `details.contextReferences`
 - SSE 事件流管理：向连接的客户端广播 Agent 事件
 - 后台任务运行（`runTask` / `abortTask`）
 - Agent 恢复（`restoreAgent`）：从持久化状态恢复会话；Web 冷加载通过 `POST /api/agents/:sessionId/restore` 在一次请求中恢复并返回权威快照，`GET state` 仅在内存会话不存在时回落恢复，避免重复读取完整 Session
@@ -101,6 +103,7 @@ server/
 - 对话压缩（`compactConversation`）：手动 `/summary` 会创建总结后的新会话并保留原会话；手动 `/compact` 与自动上下文压缩保持一致，会在当前会话内生成/更新滚动摘要，只影响 Agent loop 输入，完整历史仍保留用于 UI 展示和持久化。自动上下文压缩会在模型请求前按配置阈值触发同一套当前会话内压缩。
 - 上下文统计：`contextUsage` 由 `estimateSessionContextUsage()` 计算；存在 `contextCompaction` 时先构造 `summaryMessage + messages.slice(compactedUpToIndex)`，因此统计口径是压缩后的模型实际上下文，而不是完整可见聊天历史。底层 token 估算复用 `@earendil-works/pi-agent-core` 的 `estimateContextTokens()` / `estimateTokens()`，provider usage 与 `contextWindow` 来自 `@earendil-works/pi-ai` 的 assistant `usage` 和 model 元数据；上下文占用按纯输入口径统计——`percent = inputTokens / contextWindow`，真实请求的 max_tokens 由 pi-ai `clampMaxTokensToContext` 按窗口收缩，统计侧不再预留输出 token；压缩完成后会忽略保留尾部中仍代表压缩前完整上下文的旧 provider usage，先按摘要与尾部重新估算，并在压缩后产生新 assistant usage 时恢复 provider 权威口径，确保完成事件和 UI 百分比立即反映压缩效果。自动压缩阈值判断同样按纯输入占用，通过百分比配置转换为 reserve tokens 后复用 `pi-agent-core.shouldCompact()`。返回值保留 `totalTokens` 字段（恒等于 `inputTokens`，兼容消费者），并提供 `breakdown.systemPromptTokens`、`breakdown.toolsTokens`、`breakdown.messagesTokens`、`breakdown.providerUsageTokens`、`breakdown.trailingTokens`、`isCompacted`、`originalMessageCount` 和 `effectiveMessageCount`，用于前端解释固定成本、provider 基线、后续增量和压缩效果。
 - 自定义命令处理
+- 内部命令 `/skill` / `/agent`：`resolveCommandState` 在 `handleInternalCommand` 之前拦截（两者需要会话上下文）。`/skill` 校验名称属于会话已启用技能（与 `activate_skill` 工具同一来源：`loadSkillToolContext` 的全局 + 项目已选技能，含插件技能，项目覆盖全局同名），任务可省略（提示词让模型激活技能后询问用户）；`/agent` 要求名称和任务都存在，名称按会话 workspaceRoot 解析为已启用 subagent 的 Agent Profile（含项目级 `.claude/agents`、`.quickforge/agents`）。校验失败以文本消息返回用法与可用列表（已启用技能 / 可用 subagent）；通过则注入对应 commandPrompt 且不附加 permissions（保持会话默认权限）。内部命令优先于同名自定义命令
 - 工具权限检查
 - 会话活动跟踪（`touchSession`）
 - Agent 销毁和资源清理；OpenCode Harness 会关闭 ACP session/transport 并终止子进程
@@ -236,7 +239,7 @@ server/
 - 为 `run_subagent`、定时任务和前端 Agents 页面提供统一列表。
 - 提供 AI 填充能力，生成 Agent 名称、显示名称、描述和系统提示词，工具权限仍由用户手动配置。
 
-### skills.mjs (553 行)
+### skills.mjs (654 行)
 
 **用途**: Agent Skills 的发现、加载和管理。
 
@@ -259,6 +262,7 @@ server/
 - `loadSelectedGlobalSkills()` / `loadSelectedProjectSkills()` — 按选择加载
 - `mergeSkills()` — 合并全局和项目 skills
 - `readSkillResource()` — 读取技能资源文件
+- `summarizeSkills()` — 导出的摘要函数（剥离 instructions/rootDir/location），`/api/skills?available=true` 合并视图与 `loadSkillToolContext` 共用同一口径
 - Skill 验证：标准 Skill 必须以目录内固定入口 `SKILL.md` 提供非空正文；其 frontmatter `name` 是唯一权威 ID，会按 `trim + lowercase` 归一化并继续执行 slug/长度校验，Skill 目录名可与该 ID 不同。同名发现与覆盖均按 canonical `name` 判断，资源仍从实际 Skill 目录读取；`description` 仍需非空且不超过 1024 字符。配置中的 `SDD` 和工具调用 `activate_skill({ name: 'SDD' })` 会匹配 frontmatter `name: SDD` 归一化后的内部 `sdd`；面向用户的名称应使用 `metadata.displayName`（兼容 `metadata.title`），而不是依赖目录名或改变 canonical ID。旧 `skill.json` fallback 规则保持不变。
 
 ### channels/ — 外部通信渠道
@@ -356,7 +360,18 @@ server/
 
 **用途**: 自动上下文压缩。读取 `settings['auto-compact-settings']`，在 Agent 每次请求模型前按压缩后的有效上下文估算占当前模型 `contextWindow` 的比例；token 统计复用 `@earendil-works/pi-agent-core.estimateContextTokens()` / `estimateTokens()`，模型 `contextWindow` 和 assistant `usage` 来自 `@earendil-works/pi-ai`，占用按纯输入口径（`inputTokens / contextWindow`）计算，真实请求的 max_tokens 由 pi-ai `clampMaxTokensToContext` 按窗口收缩，统计不再预留输出 token；阈值判断通过 QuickForge 百分比配置转换为 reserve tokens 后复用 `pi-agent-core.shouldCompact()`；超过阈值时生成滚动摘要。后端同时在 session state 中返回同一口径的权威 `contextUsage`，聊天底部上下文百分比优先展示该值；压缩完成后立即丢弃摘要前旧请求留下的 provider usage 基线，待压缩后新 assistant usage 到达再恢复 provider 统计，因此百分比会马上下降并保持后续准确。触发只发生在下一次模型请求前，并会受最小历史长度、最近拒绝、压缩间隔等保护条件限制；已有压缩后只要出现新消息即可再次检查，不再固定等待三条新增消息。自动压缩采用“双轨”模式：完整 `messages` 继续持久化并展示在 UI 中，后续 Agent loop 只使用最新 compact summary 与最近若干用户回合。
 
-### custom-commands.mjs (556 行)
+### context-references.mjs
+
+**用途**: `@` 文件引用（`contextReferences`）的服务端校验与提示合成，被 `agent-manager.mjs` 的 `runPrompt` 与 `routes/agent.mjs` 复用。
+
+**导出**:
+- `MAX_CONTEXT_REFERENCES`（=8）/ `CONTEXT_REFERENCES_DETAILS_KEY`（=`'contextReferences'`）— 引用上限与用户消息 `details` 持久化键
+- `validatePromptContextReferences()` / `validateContextReferences()` — 以已恢复 session 的 `projectId` / `projectContext.workspaceRoot` 为权威校验引用：必须是 POSIX 项目相对路径（拒绝反斜杠、绝对路径、盘符、控制字符、空/`.`/`..` 段，长度 ≤1024）、普通文件、非敏感（复用 `assertSafeWorkspacePath`，含 realpath 后复查）、去重；全程 **不读取文件正文**。workspace 层错误经 `mappedWorkspaceError()` 映射为稳定错误码：`CONTEXT_REFERENCE_SENSITIVE` / `CONTEXT_REFERENCE_OUTSIDE_PROJECT` / `CONTEXT_REFERENCE_NOT_FOUND` / `CONTEXT_REFERENCE_FORBIDDEN` / `CONTEXT_REFERENCE_VALIDATION_FAILED`；形状/数量错误为 400 `CONTEXT_REFERENCES_INVALID` / `CONTEXT_REFERENCES_LIMIT`
+- `contextReferencesFromMessage()` — 从用户消息 `details.contextReferences` 提取引用（retry/continue 重放路径）
+- `withCanonicalContextReferences()` — 以服务端 canonical `{type:'file',projectId,path,name}` 覆盖客户端伪造的 details 后返回新消息
+- `contextReferencesPrompt()` — 生成本轮 transient 提示（只列相对路径，要求相关时用 `read_file` 精确读取），可与 selectedCapabilities prompt 共存
+
+### custom-commands.mjs (614 行)
 
 **用途**: 自定义命令系统。从用户级 `~/.quickforge/commands/`（所有项目共享）和项目级 `<workspace>/.claude/commands/`、`<workspace>/.opencode/commands/`、`<workspace>/.ai/commands/` 及项目配置 `commandDir` 指向的目录读取命令定义；同名命令优先级由高到低：项目配置目录 > `.ai` > `.opencode` > `.claude` > 用户级目录 > 插件命令。内置命令元数据集中在 `builtinCommandCatalog` 常量表（单一事实源），`/help` 和前端建议均据此派生。
 
@@ -366,6 +381,8 @@ server/
 - `findProjectCommand()` — 查找单个命令
 - `resolveCustomCommandInvocation()` — 解析命令调用
 - `handleInternalCommand()` — 处理内置命令，包括 `/help`（显示全部命令参考）、`/init`（调研当前仓库并生成或更新根目录 `AGENTS.md` 贡献者指南，不接受参数）、`/plan`（只生成计划，本轮禁止写入/命令执行，可调用受同样只读边界约束的 subagent）、`/review`（提交前自检，本轮禁止编辑文件）、`/summary`（创建总结后的新会话）、`/compact`（当前会话内滚动压缩上下文）、`/clear`、`/commands`、`/command new` 等
+- `parseInternalCommandInvocation()` 还解析 `/skill <name> [task]` 与 `/agent <name> <task>`（大小写不敏感；复数形式 `/skills`、`/agents` 不匹配）。两者需要会话上下文（已启用技能、workspace 级 Agent Profile），不在 `handleInternalCommand` 中执行，而是由 agent-manager 在 `resolveCommandState` 里拦截处理；内部命令优先于同名自定义命令
+- `formatSkillCommandPrompt()` / `formatAgentCommandPrompt()` — 生成 `/skill`（引导本轮先调用 `activate_skill` 再按技能指示执行，无任务时先激活再询问用户）与 `/agent`（引导调用 `run_subagent` 委派执行并汇总结果）的当前轮提示词；XML 属性复用 `escapeXml` 转义
 - `formatHelpText()` — 生成 `/help` 输出（内置命令区 + 自定义命令区）
 - `createCommandFile()` — 在项目 `.ai/commands/` 下新建命令文件（带 frontmatter 模板，`flag:'wx'` 防覆盖），供 REST 路由和 `/command new` 复用
 

@@ -16,9 +16,9 @@ src/
 │   ├── terminal/         # xterm.js 多终端 Dock
 │   ├── ui/              # 基础 UI 组件
 ├── hooks/               # 自定义 React Hooks (19 个)
-├── lib/                 # 前端工具库 (28 个模块)
+├── lib/                 # 前端工具库 (86 个模块)
 ├── App.tsx              # 主应用组件 (625 行)
-├── index.css            # 全局样式 (293 行)
+├── index.css            # 全局样式 (5345 行)
 └── main.tsx             # 入口文件，初始化补丁并注册生产环境 PWA Service Worker
 ```
 
@@ -28,7 +28,7 @@ src/
 |------|------|------|
 | [main.tsx](../src/main.tsx) | React 入口，挂载 App，生产环境注册 PWA Service Worker | 24 |
 | [App.tsx](../src/App.tsx) | 主组件，管理全局状态、Agent、路由、调度 | 684 |
-| [index.css](../src/index.css) | 全局样式 (Tailwind + pi-web-ui + 自定义) | 346 |
+| [index.css](../src/index.css) | 全局样式 (Tailwind + pi-web-ui + 自定义) | 5345 |
 
 ### main.tsx (24 行)
 

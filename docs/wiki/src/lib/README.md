@@ -6,16 +6,19 @@
 
 | 文件 | 行数 | 用途 |
 |------|------|------|
-| `i18n.ts` | 3216 | 国际化（中/英）翻译和语言管理；`applyAppLanguageFromSnapshot` 供启动快照预应用（不写库不 reload） |
+| `i18n.ts` | 3337 | 国际化（中/英）翻译和语言管理；`applyAppLanguageFromSnapshot` 供启动快照预应用（不写库不 reload） |
 | `pi-chat.ts` | 365 | Pi Chat 初始化和模型管理 |
-| `server-agent.ts` | 832 | Server Agent — 服务端 Agent 客户端 |
+| `server-agent.ts` | 2047 | Server Agent — 服务端 Agent 客户端 |
+| `deferred-session-agent.ts` | 296 | 新会话首条消息前的延迟 Agent 代理：本地先渲染乐观消息，`prompt()` 时才创建真实 `ServerAgent`，并把暂存的 capabilities / contextReferences / promptMode 转发给真实 Agent |
 | `indexeddb-cache.ts` | 通用 IndexedDB 只读缓存封装：惰性单例 open、条目级 schemaVersion、LRU+字节双预算淘汰、全部异常静默降级（供会话消息/工作区/设置快照等缓存层复用） |
 | `session-message-cache.ts` | 会话消息只读快照 store（F12）：`resolveServerCacheKey`（baseUrl→直连后端→origin）、结构校验读取、per-key debounce 写入 + stateVersion 高水位守卫、IndexedDB 不可用全程 no-op |
 | `workspace-cache.ts` | Workspace 只读缓存 store（F13）：目录条目（SWR+30s TTL 新鲜判定）、展开路径、文件内容（size+mtimeMs 失效戳、>1MB 跳写）；复用 `IndexedDbCache` 与 `resolveServerCacheKey`，坏条目删除、不可用全程 no-op |
 | `app-settings-cache.ts` | 启动 Settings 快照 store（F14）：追踪键白名单（language/外观/字号/工具展示）、结构校验读取（坏条目删除）、>4KB 跳写；`HttpStorageBackend.set` 经 `updateAppSettingSnapshotFromStorageSet` 写通，IndexedDB 不可用全程 no-op |
-| `shared-server-agent.ts` | 429 | 共享会话 Agent 客户端 |
+| `shared-server-agent.ts` | 488 | 共享会话 Agent 客户端 |
 | `local-tools.ts` | 247 | 前端本地工具渲染器注册 |
 | `share-client.ts` | 148 | 分享功能客户端 API |
+| `slash-catalog.ts` | 102 | 斜杠菜单目录客户端：并行拉取 `/api/skills?available=true`（可带 projectId）与 `/api/agent-profiles`（可带 projectId），agents 过滤 `enabledAsSubagent === true`；任一失败/非 200/形状异常整体返回 null 静默降级；按 projectId 模块级缓存成功结果 |
+| `composer-drafts.ts` | Composer 本地草稿：正文、结构化文件 `contextReferences` 与结构化能力 `selectedCapabilities` 按 session/project key 写入 localStorage；能力选择防御规范化、按 `type+pluginName+name` 去重且最多 4 个；正文为空但有 refs/capabilities 仍保留草稿，附件不持久化 |
 | `startup-model.ts` | 主聊天启动模型的当前目录精确匹配与安全回退 |
 | `cloud-client.ts` | QuickForge Cloud 本地 BFF 客户端和公开配置/状态/额度/设备类型 |
 | `http-storage-backend.ts` | 245 | HTTP Storage Backend 实现；`set` 成功后 fire-and-forget 写通启动设置快照（`app-settings-cache`） |
@@ -48,7 +51,7 @@
 
 ## 核心模块
 
-### i18n.ts (1072 行)
+### i18n.ts (3337 行)
 
 **用途**: 国际化支持。包含中英文翻译字典和应用语言管理。
 
@@ -91,7 +94,7 @@
 - `getCloudUsage()` / `getCloudInstallations()` 读取额度与设备。
 - `revokeCloudInstallation()` / `logoutCloud()` 管理设备生命周期；当前设备退出的远端撤销顺序由 Node 保证。
 
-### server-agent.ts (832 行)
+### server-agent.ts (2047 行)
 
 **用途**: `ServerAgent` 类 — 与服务端 Agent 通信的客户端。
 
@@ -104,10 +107,11 @@
 - 系统提示词加载
 - Agent 权限模式切换
 - 自定义命令注入
+- 下一次 prompt 的结构化选择：`setNextPromptCapabilities()` 发送显式 `selectedCapabilities`；`setNextPromptContextReferences()` 发送最多 8 个 `{type:'file',projectId,path}`，随 prompt body 的 `contextReferences` 字段上送、乐观 user message 同步写入 `details.contextReferences` 供历史 chip 即时渲染，两者均发送一次后清空，失败沿用既有 optimistic 回滚；`setPromptMode('plan' | 'ask' | null)` 把 `setPlanMode` 泛化为单轮模式选择（当前仅 `'plan'` 映射到既有 `{type:'plan'}` command，`'ask'` 为预留值尚无发送方；`setPlanMode` 保留为兼容包装）
 - 支持直接后端连接（绕过 Vite 代理）
 - **会话消息 IndexedDB 快照缓存（F12，只读加速层）**：`ServerAgent.restore()` 先读 `session-message-cache`，命中则用本地快照立即构造 Agent（不 POST /restore），后台经 `GET /state` 轻量校准——服务器 `stateVersion` 与缓存一致且 split `messagesSummary.count` 等于本地条数时跳过 `/messages` 补拉，不一致走既有 reconcile（尾部增量/全量重取，`versionBefore` 守卫不变）；restore/create 物化与 SSE 消息写事件（state/agent_end/message_end/turn_end/messages_replaced/tool_execution_*）经模块级 debounce（1.5s trailing）写回快照，写入前做 stateVersion 高水位守卫。服务器 SQLite 唯一权威，缓存任何失败（不可用/损坏/配额）均静默回源路径。
 
-### shared-server-agent.ts (429 行)
+### shared-server-agent.ts (488 行)
 
 **用途**: `SharedServerAgent` 类 — 共享会话的 Agent 客户端。
 
@@ -117,6 +121,16 @@
 - 消息发送
 - 回滚支持
 - SSE 事件订阅
+- 结构化选择在共享会话为 no-op：`setNextPromptCapabilities()` / `setNextPromptContextReferences()` 为空实现（对应服务端对非空 `contextReferences` 的 `CONTEXT_REFERENCES_UNSUPPORTED_SHARED` 显式拒绝）；`setPromptMode('plan' | 'ask' | null)` 与 `setPlanMode` 兼容包装同 `ServerAgent`
+
+### deferred-session-agent.ts (296 行)
+
+**用途**: `DeferredSessionAgent` 类 — 新会话首条消息发出前的本地延迟代理，让用户无需等待服务端会话创建即可开始输入。
+
+**功能**:
+- 本地维护乐观 state（消息、streaming 标志等），`prompt()` 时才 promote 创建真实 `ServerAgent` 并转发首条消息；已有真实 Agent 后全部调用直通
+- 暂存并在 promote 时转发下一次 prompt 的结构化选择：`setNextPromptCapabilities()`（≤4）、`setNextPromptContextReferences()`（≤8，引用同时写入乐观 user message 的 `details.contextReferences`）、`setPromptMode('plan' | 'ask' | null)`（`setPlanMode` 兼容包装）
+- 真实 Agent 不支持的可选方法（如 `setNextPromptContextReferences`）以 `?.` 安全调用，消费回调（onConsumed）随转发传递
 
 ## 工具模块
 

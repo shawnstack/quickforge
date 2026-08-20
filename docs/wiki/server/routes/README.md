@@ -13,13 +13,13 @@
 
 | 文件 | 行数 | 用途 |
 |------|------|------|
-| `agent.mjs` | 374 | Agent 会话管理、消息流式处理 |
+| `agent.mjs` | 558 | Agent 会话管理、消息流式处理 |
 | `storage.mjs` | 151 | 存储 CRUD 操作 |
 | `project.mjs` | 106 | 项目管理 |
 | `filesystem.mjs` | 87 | 文件系统浏览 |
 | `tools.mjs` | 82 | 工具定义和执行 |
-| `skills.mjs` | 191 | Skills 管理 |
-| `agent-profiles.mjs` | 173 | Agent Profile 管理 API，支持 AI 填充基础定义 |
+| `skills.mjs` | 213 | Skills 管理 |
+| `agent-profiles.mjs` | 236 | Agent Profile 管理 API，支持 AI 填充基础定义 |
 | `models.mjs` | 68 | 自定义模型连接测试 |
 | `scheduled-tasks.mjs` | 949 | 定时任务管理，支持绑定 Agent Profile 与配置单任务执行模式 |
 | `shares.mjs` | 90 | 分享管理 |
@@ -29,7 +29,7 @@
 | `lan-access.mjs` | 201 | LAN 共享访问管理 |
 | `instructions.mjs` | 20 | 系统提示词 |
 | `system.mjs` | 107 | 系统状态、网络代理、重启、关于信息、Runtime 更新和 Desktop 发布页检查 |
-| `workspace.mjs` | 828 | 工作区文件浏览、产物预览静态读取、Git 变更检查、单文件/批量暂存与还原、分支操作、AI 提交信息生成、提交/推送和提交图谱（`server/index.mjs` 通过 `/api/git/*` 统一分发） |
+| `workspace.mjs` | 1614 | 工作区文件浏览、产物预览静态读取、Git 变更检查、单文件/批量暂存与还原、分支操作、AI 提交信息生成、提交/推送和提交图谱（`server/index.mjs` 通过 `/api/git/*` 统一分发） |
 | `channels.mjs` | 外部渠道管理、SSE 状态/会话变更事件、仅 localhost + `x-quickforge-action: channel-event` 可调用的内部事件 relay，以及仅 localhost + `x-quickforge-action: channel-action` 可打开已注册渠道日志目录的 `POST /api/channels/:id/open-logs` |
 | `cloud.mjs` | QuickForge Cloud 本地 BFF：状态、正式账户 Device Flow、模型、额度、设备撤销和安全退出 |
 | `static.mjs` | 89 | 静态文件服务；`index.html` 与可替换的 APK 下载使用 `no-cache`，其余构建资产长期缓存 |
@@ -61,7 +61,7 @@
 
 ---
 
-## agent.mjs (374 行)
+## agent.mjs (558 行)
 
 Agent 会话管理核心路由。
 
@@ -73,7 +73,7 @@ Agent 会话管理核心路由。
 - `GET /api/agents/:sessionId/state` — 获取完整会话快照，用于 SSE 异常恢复；仅在内存会话不存在时从磁盘恢复，不再每次无条件重读 Session
 - `GET /api/agents/:sessionId/status` — 获取轻量运行状态，用于 SSE 静默后的版本探测
 - `HEAD /api/agents/:sessionId/stream` — 检查 SSE 可用性
-- `POST /api/agents/:sessionId/prompt` — 发送消息；`/summary` 与 `/compact` 作为内置 slash command 通过此端点触发，不存在独立压缩 REST 路由
+- `POST /api/agents/:sessionId/prompt` — 发送消息；`/summary` 与 `/compact` 作为内置 slash command 通过此端点触发，不存在独立压缩 REST 路由。可选 `contextReferences: [{type:'file',projectId,path}]` 最多 8 条；仅项目 QuickForge 会话支持，服务端用已恢复会话的 projectId/workspaceRoot 重新校验并持久化 canonical `{type,projectId,path,name}` 到用户消息 `details.contextReferences`，只向本轮模型注入已验证相对路径提示，不读取正文。OpenCode 与 Shared 非空引用显式拒绝
 - `POST /api/agents/:sessionId/title` — 手动重命名会话；同步更新服务端活跃状态与持久化数据，优先于待完成的 AI 标题
 - `POST /api/agents/:sessionId/abort` — 中止运行
 - `POST /api/agents/:sessionId/steer` — 引导 Agent
@@ -138,24 +138,25 @@ Agent 会话管理核心路由。
 - `POST /api/projects/:projectId/tools/:name` — 在项目上下文中执行工具
 - 按 Agent 权限模式执行审批检查
 
-## skills.mjs (191 行)
+## skills.mjs (213 行)
 
 Skills 管理路由。
 
 **主要端点**:
 - `GET /api/skills?scope=global|project` — 获取技能列表、已选项和搜索路径
+- `GET /api/skills?available=true[&projectId=...]` — 返回当前会话可用的已启用技能合并视图（全局已启用 + 项目已启用，含插件技能；按名称去重、项目覆盖全局，与 `loadSkillToolContext` 口径一致；无 projectId 时仅全局已启用，projectId 无效时项目侧为空）。响应 `{ available: true, skills }`，摘要不含 instructions，不影响既有 scope 响应
 - `GET /api/skills/content?scope=global|project&name=...` — 获取 Skill 正文与元数据
 - `GET /api/skills/global` / `GET /api/skills/project` — 获取对应作用域的已选 Skills
 - `PUT /api/skills/global` — 更新全局已选 Skills
 - `PUT /api/skills/project` — 更新指定项目的已选 Skills
 - 支持项目级技能发现；内置 `skill-creator` 首次运行时默认加入全局已选项
 
-## agent-profiles.mjs (64 行)
+## agent-profiles.mjs (236 行)
 
 Agent Profile 管理路由。
 
 **主要端点**:
-- `GET /api/agent-profiles` — 列出内置和自定义 Agent Profile。
+- `GET /api/agent-profiles[?projectId=...]` — 列出内置和自定义 Agent Profile；传入有效 `projectId` 时按对应 workspaceRoot 合并项目级 `.claude/agents`、`.quickforge/agents` 文件 profile，省略或无效时保持默认行为（响应形状不变，仍含 disabled，由前端过滤）。
 - `POST /api/agent-profiles` — 创建自定义 Agent。
 - `GET /api/agent-profiles/available-tools` — 获取第一阶段可配置的 workspace 工具列表。
 - `POST /api/agent-profiles/ai-fill` — 使用默认模型生成 Agent 名称、显示名称、描述和系统提示词。
@@ -204,7 +205,7 @@ Agent Profile 管理路由。
 - `POST /api/shares/:shareId/update` — 编辑仍有效分享的权限、密码、有效期和 `allowCloudUsage`；Cloud 默认关闭，只能由本机或已认证 Tailscale 管理端显式开启，修改会使旧共享状态失效
 - `DELETE /api/shares/:shareId/permanent` — 永久删除分享记录并关闭已有共享 SSE
 
-## shared-conversation.mjs (428 行)
+## shared-conversation.mjs (444 行)
 
 共享会话查看和交互路由。每次请求都会校验停用和过期状态；SSE 在停用、永久删除、链接被替代时立即关闭，并在到期时按时关闭。
 
@@ -214,7 +215,7 @@ Agent Profile 管理路由。
 - `GET /api/shared/:shareId/session` — 获取共享会话快照
 - `GET /api/shared/:shareId/models` — 从统一 Model Catalog 获取可操作分享可用的公开模型；Cloud 仅在分享记录显式 `allowCloudUsage: true` 时出现
 - `GET /api/shared/:shareId/events` — 订阅共享会话 SSE
-- `POST /api/shared/:shareId/message` — 发送消息
+- `POST /api/shared/:shareId/message` — 发送消息；非空 `contextReferences` 返回稳定错误 `CONTEXT_REFERENCES_UNSUPPORTED_SHARED`，共享 session/state/SSE 清洗会剥离历史消息 `details.contextReferences`，防止 owner 项目相对路径泄露
 - `POST /api/shared/:shareId/model` — 更新模型
 - `POST /api/shared/:shareId/thinking-level` — 更新思考等级
 - `POST /api/shared/:shareId/abort` — 停止生成
@@ -273,6 +274,7 @@ Workspace Inspector 后端 API。
 - `GET /api/workspace/tree?projectId=...` — 兼容旧客户端的递归文件树；仍只跳过 `.git`、`node_modules`，节点总量有上限
 - `GET /api/workspace/children?projectId=...&path=.&limit=&cursor=` — 按需列出一个目录的直接子节点，目录优先并使用大小写不敏感主排序及确定性次级排序；相对路径统一使用 `/`。`cursor` 是当前排序结果中的 offset 编码，不是目录快照，目录在分页间变化时可能出现重复或跳过；响应必含 `root/path/entries/nextCursor/truncated`。单个超大目录仍需读取并排序整层后才能分页
 - `GET /api/workspace/search?projectId=...&query=&limit=` — 独立遍历整个项目并按名称/相对路径搜索，不依赖前端已加载节点；至少 2 个字符，结果与遍历均有上限。结果上限通过多找 1 个匹配后截断，因此 `truncated: true` 表示还有额外匹配，或遍历先达到安全上限。每个从遍历队列取出的目录都会在 `readdir` 前重新经过现有 workspace 真实路径 validator；不安全、已替换为外部链接或不可访问的目录会跳过。该检查用于缩小竞态窗口，不宣称消除文件系统不可避免的 TOCTOU
+- `GET /api/workspace/mention-search?projectId=...&query=&limit=` — `@` 文件引用专用搜索；至少 2 个字符，仅返回普通文件，默认 20、最大 50 条，保留与普通 search 相同的 visited 上限和 `truncated`。始终启用敏感路径保护（大小写不敏感，并在 realpath 后复查真实目标），排除 `.env*`、密钥/证书、credentials/secrets 与 `.git`，不返回绝对路径；排序依次为 basename 精确、前缀、包含，再按相对路径。`projectId` 必须对应仍存在的已注册项目，未知或已删除项目返回 HTTP 404 / `PROJECT_NOT_FOUND`，不会回退默认 workspace；普通 `/api/workspace/search`、children 等端点继续保留兼容回退。该端点不改变现有 `/api/workspace/search`、children 与 Reader 的 `allowSensitive:true` 兼容行为
 - `GET /api/workspace/file?projectId=...&path=...` — 安全读取 1MB 以内文本文件，返回 Monaco 语言标识；响应含 `size` 与 `mtimeMs`（F13 缓存失效戳）；`&meta=1` 轻量模式走同一安全校验与 stat，仅返回 `{path,size,mtimeMs,language,readonly}` 不读内容（供前端缓存 meta 校验）
 - `GET /api/workspace/preview/:projectId/*` — 安全读取项目内静态产物文件，供右侧 Artifact Preview iframe/img 加载 HTML、CSS、JS、图片等资源；采用 ETag 协商缓存：响应带 `cache-control: private, no-cache` 与强 ETag `"<mtimeMs>-<size>"`（源自 `fs.stat`，零额外 IO），请求带匹配的 `If-None-Match` 时返回 304 且不再读取文件体，文件 mtime/size 变化即生成新 ETag 立即生效；附加 `?__quickforge_check=1` 时仅执行预检并返回文件元数据（含 `mtimeMs`），错误响应包含稳定错误代码、原始报错和请求路径，供前端统一展示 404/403/413/415/500 等状态
 - `GET /api/git/status?projectId=...` — 基于 `git status --porcelain=v1 -z --untracked-files=all` 返回扁平的工作区文件变更列表（未跟踪目录展开为具体文件，不返回目录分组项），并附加 `git diff HEAD --numstat` 的每个文件增删行数（`additions`/`deletions`）；未跟踪/新增文件按工作区文件行数估算，最多统计排序后的 100 个文件，单文件上限 1MB、单次总量上限 10MB、并发数 6，超限文件仍返回状态但省略增删行数
@@ -288,6 +290,7 @@ Workspace Inspector 后端 API。
 - `GET /api/workspace/tree` — 兼容旧客户端的递归工作区树。
 - `GET /api/workspace/children` — 按目录路径分页读取直接子节点，供 Files 树按需展开；offset cursor 只定位当前排序结果，不承诺目录快照。
 - `GET /api/workspace/search` — 独立遍历项目进行路径/名称搜索，不依赖前端已经展开的目录；`truncated` 表示存在额外匹配或遍历达到安全上限。上述 JSON 接口均返回 `Cache-Control: no-store`，但前端会在当前 Inspector 会话内保留各目录已加载页、展开和错误状态。
+- `GET /api/workspace/mention-search` — `@` 文件引用的 files-only 安全搜索；至少 2 字符，默认 20/最大 50，响应只包含项目相对 `path/name/type:file`，敏感文件及指向敏感/外部目标的符号链接不会出现；未知或已删除 `projectId` 严格返回 404 / `PROJECT_NOT_FOUND`，不回退默认 workspace。
 - `GET /api/workspace/file?projectId=...&path=...` — 安全读取工作区文本文件。
 - `GET /api/workspace/preview/:projectId/:path` — 为 HTML/SVG/图片/Markdown 等允许类型提供静态预览；ETag 协商缓存（`private, no-cache` + `"<mtimeMs>-<size>"`），未变化请求返回 304 零重传。
 - `POST /api/workspace/resolve-path` — 将绝对路径解析为当前项目内的相对路径。

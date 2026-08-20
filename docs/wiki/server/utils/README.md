@@ -9,7 +9,7 @@
 | [platform.mjs](../../server/utils/platform.mjs) | 平台工具 (跨平台) | 161 |
 | [response.mjs](../../server/utils/response.mjs) | HTTP 响应工具 | 42 |
 | [text-diff.mjs](../../server/utils/text-diff.mjs) | 文本差异对比 | 215 |
-| [workspace.mjs](../../server/utils/workspace.mjs) | 工作区路径工具 | 182 |
+| [workspace.mjs](../../server/utils/workspace.mjs) | 工作区路径工具 | 232 |
 | [password-auth.mjs](../../server/utils/password-auth.mjs) | 密码哈希和令牌生成 | 44 |
 
 ---
@@ -51,13 +51,15 @@
 - 大文件保护：超过 200 万 cells 时回退到全删全插
 - 上下文行支持（默认 3 行）
 
-### workspace.mjs — 工作区工具 (182 行)
+### workspace.mjs — 工作区工具 (232 行)
 
 - `resolveWorkspacePath()` — 将相对/绝对路径解析为工作区内绝对路径
-- `assertSafeWorkspacePath()` — 阻止访问敏感路径
+- `assertSafeWorkspacePath()` / `assertSafeWorkspacePathWithRoot()` — 路径安全断言：默认（`options.allowSensitive` 未开启）先按 `isSensitiveWorkspacePath()` 拦截，再做 realpath 与 workspace 边界检查，最后对真实目标**复查一次**敏感路径（防止普通路径经内部符号链接伪装指向敏感文件）；越界抛 403 `WORKSPACE_PATH_ESCAPE`，敏感抛 403 `WORKSPACE_SENSITIVE_PATH`（均带稳定 `errorCode`，供上层映射为业务错误码）
+- `isSensitiveWorkspacePath()` — 敏感路径判定；路径分段先 `toLocaleLowerCase()` 归一，**大小写不敏感**匹配 `.git`、`.env*`、密钥/证书、token、credentials/secrets 等
+- `createWorkspacePathValidator()` — 基于会话 workspace 上下文构造路径校验器（workspace 搜索/mention-search 遍历复用）
 - `toWorkspaceRelative()` — 将绝对路径转为工作区相对路径
 - `walkFiles()` — 递归遍历文件
-- `directorySize()` — 递归计算目录大小
+- `directorySize()` — 递归计算目录大小（带缓存与 `invalidateDirectorySizeCache()`）
 
 ### password-auth.mjs — 密码工具 (44 行)
 

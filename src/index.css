@@ -4005,6 +4005,38 @@ assistant-message :is(thinking-block, tool-message, markdown-block)[data-quickfo
   background: color-mix(in oklab, var(--foreground) 88%, var(--background)) !important;
 }
 
+/* Waiting ring: run started (agent_start) but no assistant output yet.
+   Same ring form and 750ms cadence as the approval loading spinner. */
+.quickforge-composer .quickforge-stop-button--waiting {
+  position: relative;
+}
+
+.quickforge-composer .quickforge-stop-button--waiting svg {
+  visibility: hidden;
+}
+
+.quickforge-composer .quickforge-stop-button--waiting::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1rem;
+  height: 1rem;
+  /* Margin centering, not transform — the spin animation owns `transform`. */
+  margin: -0.5rem 0 0 -0.5rem;
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: quickforge-approval-spin 750ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-composer .quickforge-stop-button--waiting::before {
+    animation: none;
+    opacity: 0.55;
+  }
+}
+
 .quickforge-composer attachment-tile + attachment-tile {
   margin-left: 0.125rem;
 }

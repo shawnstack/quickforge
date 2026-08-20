@@ -4,10 +4,11 @@ import { replaceSvg } from '../chat-utils'
 export function syncSendStopButton(options: {
   rightControls: HTMLElement
   isStreaming: () => boolean
+  isWaiting?: () => boolean
   abort: () => void
   removeCommandSuggestions: () => void
 }) {
-  const { rightControls, isStreaming, abort, removeCommandSuggestions } = options
+  const { rightControls, isStreaming, isWaiting, abort, removeCommandSuggestions } = options
   const actionButton = rightControls.querySelector<QuickForgeActionButton>('button:last-child')
   if (!actionButton) return
 
@@ -22,6 +23,7 @@ export function syncSendStopButton(options: {
     actionButton.disabled = false
     actionButton.classList.remove('quickforge-send-button')
     actionButton.classList.add('quickforge-stop-button')
+    actionButton.classList.toggle('quickforge-stop-button--waiting', isWaiting ? isWaiting() : false)
     actionButton.title = 'Stop'
     actionButton.setAttribute('aria-label', 'Stop')
     delete actionButton.dataset.quickforgeSendIcon
@@ -40,6 +42,7 @@ export function syncSendStopButton(options: {
   } else {
     removeStopHandler()
     actionButton.classList.remove('quickforge-stop-button')
+    actionButton.classList.remove('quickforge-stop-button--waiting')
     actionButton.classList.add('quickforge-send-button')
     if (actionButton.dataset.quickforgeSendIcon !== 'arrow-up') {
       actionButton.dataset.quickforgeSendIcon = 'arrow-up'

@@ -447,6 +447,19 @@
         "docs/architecture/sqlite-storage-foundation.zh-CN.md",
         "docs/wiki/server/README.md"
       ]
+    },
+    {
+      "id": "composer-stop-button-waiting-spinner",
+      "name": "发送按钮等待态环形 spinner（agent_start 后、首个助手输出前）",
+      "status": "done",
+      "approach": "方案 B（与审批按钮 loading 同构）：复用等待气泡同一信号源 assistantWaitingActive（agent_start 置起、首个 assistant 文字增量或 agent_end 复位）驱动 syncSendStopButton 新增 isWaiting 参数，streaming 分支切 quickforge-stop-button--waiting 类；CSS 复用 quickforge-approval-spin keyframes（750ms linear 同拍），::before 环形（1rem、1.5px currentColor、border-top 透明）以 margin 居中（transform 归动画所有）替代隐藏的停止方块，prefers-reduced-motion 降级为静止半透明环；等待期按钮点击与 aria-label 保持 Stop 语义（仍可 abort）",
+      "files": [
+        "src/components/chat/panel-decoration/send-stop-button.ts",
+        "src/components/chat/panel-decoration.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/index.css",
+        "tests/frontend/send-stop-button.test.ts"
+      ]
     }
   ]
 }

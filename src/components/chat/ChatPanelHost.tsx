@@ -801,6 +801,7 @@ export function ChatPanelHost({
         decorateEditor({
           panel,
           isStreaming: () => agent.state.isStreaming,
+          isWaiting: () => assistantWaitingActive,
           abort: () => agent.abort(),
           agentAccessMode: props.agentAccessMode,
           harness: agent.harness,

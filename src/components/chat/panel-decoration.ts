@@ -48,6 +48,7 @@ export { syncAssistantWaitingBubble } from './panel-decoration/assistant-waiting
 export type EditorDecorationDeps = {
   panel: HTMLElement
   isStreaming: () => boolean
+  isWaiting?: () => boolean
   abort: () => void
   agentAccessMode: AgentAccessMode
   harness?: 'quickforge' | 'claude-code' | 'opencode'
@@ -82,6 +83,7 @@ export function decorateEditor(deps: EditorDecorationDeps) {
   const {
     panel,
     isStreaming,
+    isWaiting,
     abort,
     agentAccessMode,
     harness,
@@ -159,6 +161,7 @@ export function decorateEditor(deps: EditorDecorationDeps) {
   syncSendStopButton({
     rightControls,
     isStreaming,
+    isWaiting,
     abort,
     removeCommandSuggestions,
   })

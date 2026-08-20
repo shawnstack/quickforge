@@ -2,56 +2,44 @@
 
 ## 当前状态
 
-- 本会话目标：存储 v2 改造收尾——文档同步 + 项目簿记 + 完整验证门（重构主体由前序会话完成）。
-- 最终状态：**会话存储 v2 全部完成，全绿**：`npm run test` 210 文件 1729 测试全过、`npm run lint` 通过（仅既有 `server/cloud/identity.mjs:92` warning）、`npm run build`（tsc -b + vite build）通过。**所有改动未 commit。**
+- 本会话目标：分析并实现「对话消息发送按钮的旋转（等待）状态」。
+- 最终状态：**已完成并验证**。用户在三个动效方案（A2 方块步进旋转 / A1 方块平滑旋转 / B 环形 spinner）中选定 **B 环形**——与审批按钮 loading（`quickforge-approval-spin`）完全同构，全应用单一旋转节奏。
 
-## 存储改造要点（速览）
+## 实现要点（速览）
 
-- schema v11 三表：`sessions`（小行：提升列 + body_json/meta_json，无巨列）、`session_messages`（逐行 append-only，`UNIQUE(…, message_id)` + FK CASCADE + 行级 digest）、`session_tombstones`（极小墓碑）；旧 6 表 RENAME `*_v10_backup` 保留。
-- 写入：save 统一抽取 messages；service 增量计划（body-only/replace/append，尾 digest + 中部采样校验）；单事务 CAS。旧设计同一数据写 ≈5 份（巨列全量重写 + session_index + mirror outbox + JSON 物化 + 自由页不回收，实测库 2~3GB）→ v2 每条数据 1 份。
-- 删除：FK 级联 + 墓碑 + `incremental_vacuum(512)`（`auto_vacuum=INCREMENTAL`，仅新库生效）。
-- 启动：会话域恒 SQLite authoritative；空库 + JSON 文件存在 → `importSessionStateFromJson` 一次性幂等导入（每会话一事务、JSON 只读）。
-- 删除的机制：JSON mirror 全链、phase 状态机、`session_index` 派生表、cutover 与 background-migration 两模块、写屏障；维护锁迁出为 `server/session-state-maintenance.mjs`；`downgrade` 工具重写为纯导出。
-- 单一事实文档：`docs/architecture/session-storage-v2.zh-CN.md`。
+- 三态状态机：发送 ↑ → **等待（新增：环形 spinner）** → 生成（静止 ■）→ 发送。
+- 信号源复用等待气泡的 `assistantWaitingActive`（`agent_start` 置起、首个 assistant 文字增量或 `agent_end` 复位）——按钮与三点气泡永远一致，零新状态。
+- `syncSendStopButton` 新增可选 `isWaiting` 参数，streaming 分支 `classList.toggle('quickforge-stop-button--waiting', …)`；等待期按钮点击仍为 abort、`aria-label` 保持 Stop。
+- CSS：`::before` 环形（1rem、1.5px currentColor、border-top 透明、750ms linear）复用 `quickforge-approval-spin` keyframes；**margin 居中而非 transform**（transform 归动画所有，translate 居中会每圈末尾跳位）；svg `visibility: hidden`；`prefers-reduced-motion` 降级为静止半透明环。
+- 范围界定：旋转只标记本轮首个文字增量前的等待（含工具执行阶段）；agentic 循环后段工具阶段保持静止 ■（保守设计，避免图标反复起停）。
 
-## 本会话改动文件（收尾部分）
+## 本会话改动文件
 
-- 新增 `docs/architecture/session-storage-v2.zh-CN.md`（v2 单一事实文档）。
-- 更新 `docs/architecture/session-storage-current-architecture.zh-CN.md`（标注为 v1 历史参考 + 指向 v2）、`docs/architecture/session-storage-recovery-runbook.zh-CN.md`（顶部 v2 修订提示：恢复=备份 restore 或删库重导，无"降级回 JSON 权威"）、`docs/architecture/sqlite-storage-foundation.zh-CN.md`（§4 补 v11 一段）、`docs/wiki/server/README.md`（存储层/repository 契约段全面更新为 v2 现状）。
-- 簿记：`feature_list.json`（+`session-storage-v2` done）、`progress.md`、`session-handoff.md`（本文件）。
-- （重构主体的代码/测试改动见 `git status`，约 70 文件：migrations/database/session-state-repository/session-state-import(新增)/session-state-service/session-state-maintenance(新增)/session-index-*/storage/agent-manager/index/startup-state/session-state-backup/routes/维护工具 + 删除 cutover、background-migration 两模块 + 约 40 个测试文件重写/删除。）
+- `src/components/chat/panel-decoration/send-stop-button.ts`（isWaiting 参数 + 等待类切换）
+- `src/components/chat/panel-decoration.ts`（EditorDecorationDeps 透传）
+- `src/components/chat/ChatPanelHost.tsx`（decorateEditor 调用点接 `isWaiting: () => assistantWaitingActive`）
+- `src/index.css`（`quickforge-stop-button--waiting` 三段规则 + reduced-motion 降级，约 32 行）
+- `tests/frontend/send-stop-button.test.ts`（新增，5 用例：等待类置位/清除、缺省不带等待、流结束还原发送态、capture 停止 handler 调 abort）
+- 簿记：`feature_list.json`（+composer-stop-button-waiting-spinner done）、`progress.md`、`session-handoff.md`
 
-## 用户下一步操作（测试机）
+## 验证记录
 
-1. 部署新版后，关闭所有 QuickForge 进程；
-2. 删除 `~/.quickforge/storage/quickforge.sqlite3`（连同 `-wal`/`-shm` 三件套一起删）；
-3. 重启——空库 + JSON 会话文件存在时启动链自动一次性重导（维护窗口内，`/api/*` 短暂 503 后 READY）；
-4. 观察新库体积（旧 JSON 布局的巨列放大消失）与启动耗时；后续删除会话应能看到库文件缩小。
+- `npx vitest run tests/frontend/send-stop-button.test.ts` 5/5 通过。
+- `npx vitest run tests/frontend` 全量 80 文件 711 用例通过。
+- `npx eslint`（4 个改动文件）零输出；`npm run build` 通过。
+- 构建产物端到端：dist CSS 注入真实按钮 DOM，computed style 确认 `quickforge-approval-spin 0.75s linear`、1.5px 环、svg 隐藏、按钮 relative 定位全部生效。
+- 未跑 server 测试（改动仅前端）；非发布无需全量三件套。
 
-注意：不删库文件也能跑（v11 直接在旧库上 RENAME 建新表），但旧库没有 `auto_vacuum` 增量回收、`*_v10_backup` 旧体积也仍在文件里——要验证空间回收必须走删库重导路径。
+## 文档说明
 
-## 已知取舍（详见 v2 文档 §8）
+- UI 局部视觉装饰，不影响架构/模块职责/公共入口/发布流程，按约定无需更新 docs/wiki（原因在此记录）。
 
-- `listPage` 的 `lastModified` 排序走 `json_extract(meta_json)`（temp b-tree 排序；EXPLAIN 已验证 scope 过滤走 `idx_sessions_list`）。
-- 删除后同 key CAS 的 `actualRevision` 报 0（墓碑无 revision；stale 写仍 409、fresh 重建仍成功）。
-- `repository()` 先求值 `getSqliteStorage()`：注入 repository 的测试仍需 SQLite 已初始化（S2b 疑点，未构成实际问题）。
-- `auto_vacuum` 仅新库生效；升级用户需删库重导才获得空间回收。
-- 备份信封 `sessionState { phase, count, digest }` 不变（phase 恒 `authoritative`），旧 v1 备份可正常恢复。
+## 遗留与下一步
 
-## 下一步候选
-
-- `*_v10_backup` 六表清理：v2 稳定运行观察期（真实大库验证 + 至少一个 patch 发布）后，以独立 migration DROP 回收空间。
-- `lastModified` 表达式索引（`json_extract(meta_json, '$.lastModified')`）消除列表排序 temp b-tree。
-- `repository()` 注入疑点拆分（见上，供纯内存 repository 测试）。
-- share / lan-access 域 mirror/cutover 链的同类 v2 化候选（本次明确不动）。
-- 工作区清理：根目录遗留 `.vitest-*.txt`（13 个未跟踪的测试输出残留），建议删除或加入 `.gitignore`。
-
-## 最近提交
-
-- 本会话改动未 commit；之前批次提交状态见 `git log --oneline` 与 progress.md。
+- 根目录空目录 `design-preview/` 因 Windows 句柄占用未能删除（内部文件已清空），重启后手动删除即可。
+- 前序会话遗留（不变）：v1.7.11 npm publish 待用户 `npm login` 后在 `package-offline/` 执行；测试机删库重导验证；`*_v10_backup` 六表观察期后 DROP；工作区未跟踪杂项（`.workbuddy/`、乱码文件名 `tall 会直接崩）`、`.vitest-*.txt`）。
+- 本会话改动未提交 git（遵循约定，用户未要求提交）。
 
 ## Next step
 
-- 择机 commit（重构主体 + 收尾文档/簿记可分两个 commit 或合一）。
-- 测试机删库重导验证（见上「用户下一步操作」）。
-- 发布 patch 版本前按 `docs/architecture/patch-release-runbook.zh-CN.md` 完整运行 test/lint/build。
+- 无阻塞事项；如需继续，可让用户在真实会话中目视验证等待态环形效果（发送一条消息观察 agent_start → 首个回复增量之间按钮变环、随后回方块）。

@@ -19,7 +19,7 @@
     /* 气泡背景浓度：primary 混入 card 的比例。现状应用为 10%，本稿默认降到 6% 更浅 */
     --bubble-tint: 6%;
     --bubble-bg: color-mix(in oklab, var(--primary) var(--bubble-tint), var(--card));
-    --bubble-border: color-mix(in oklab, var(--primary) 18%, var(--border));
+    --bubble-border: color-mix(in oklab, var(--primary) 12%, var(--border));
   }
   body.light {
     --background: oklch(100% 0 0);
@@ -111,7 +111,7 @@
     border-radius: 999px; padding: 3px 11px; cursor: pointer;
     box-shadow: 0 6px 16px -12px color-mix(in oklab, var(--primary) 55%, black);
   }
-  .clamp-toggle:hover { color: var(--foreground); border-color: color-mix(in oklab, var(--primary) 34%, var(--border)); }
+  .clamp-toggle:hover { color: var(--foreground); border-color: color-mix(in oklab, var(--primary) 26%, var(--border)); }
   .clamp-toggle:focus-visible { outline: 2px solid color-mix(in oklab, var(--primary) 45%, transparent); outline-offset: 1px; }
   .clamp-toggle svg { transition: transform .18s ease; }
   .clamp-box.expanded .clamp-toggle svg { transform: rotate(180deg); }

@@ -38,6 +38,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type Modifier,
 } from '@dnd-kit/core'
 import {
   SortableContext,
@@ -45,8 +46,8 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import type { Transform } from '@dnd-kit/utilities'
 import { Button } from '@/components/ui/button'
+import { clampProjectDragTransform } from '@/lib/project-drag-boundary'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { sessionTitle } from '@/lib/types'
@@ -415,15 +416,26 @@ export const ChatSidebar = memo(function ChatSidebar({
   const deleteAnimationTimeoutRef = useRef<number | null>(null)
   const projectDeleteAnimationTimeoutRef = useRef<number | null>(null)
   const hoverTipTimerRef = useRef<number | null>(null)
+  const projectsScrollViewportRef = useRef<HTMLDivElement | null>(null)
+  const projectDragStartScrollTopRef = useRef(0)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
   )
 
-  const restrictToVertical = useCallback((args: { transform: Transform }) => ({
-    ...args.transform,
-    x: 0,
-  }), [])
+  const restrictProjectDragToViewport = useCallback<Modifier>(({ transform, draggingNodeRect }) => {
+    const viewport = projectsScrollViewportRef.current
+    return clampProjectDragTransform(
+      transform,
+      draggingNodeRect,
+      viewport?.getBoundingClientRect(),
+      (viewport?.scrollTop ?? 0) - projectDragStartScrollTopRef.current,
+    )
+  }, [])
+
+  const canAutoScrollProjectsViewport = useCallback((element: Element) => (
+    element === projectsScrollViewportRef.current
+  ), [])
 
   const projectIds = useMemo(() => projects.map((p) => p.id), [projects])
   const openProjectMenuProject = useMemo(() => projects.find((project) => project.id === projectMenuId), [projectMenuId, projects])
@@ -449,6 +461,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   })), [pinnedSessions, projectNameById])
 
   const handleDragStart = useCallback(() => {
+    projectDragStartScrollTopRef.current = projectsScrollViewportRef.current?.scrollTop ?? 0
     setIsProjectDragging(true)
     setProjectMenuId(null)
     setProjectMenuPosition(null)
@@ -1054,7 +1067,7 @@ export const ChatSidebar = memo(function ChatSidebar({
 
               <div className={cn(collapsePanelClass, 'flex-1 min-h-0', projectsCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
                 <div className={collapseInnerClass}>
-                  <div className="h-full overflow-y-auto">
+                  <div ref={projectsScrollViewportRef} className="h-full overflow-y-auto">
                     <div className="space-y-0.5">
                       {projects.length === 0 ? (
                         <div className="px-3 py-3 text-xs text-muted-foreground/55">{t('noProjects')}</div>
@@ -1181,7 +1194,8 @@ export const ChatSidebar = memo(function ChatSidebar({
                           onDragEnd={handleDragEnd}
                           onDragCancel={finishProjectDrag}
                           measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
-                          modifiers={[restrictToVertical]}
+                          modifiers={[restrictProjectDragToViewport]}
+                          autoScroll={{ canScroll: canAutoScrollProjectsViewport }}
                         >
                           <SortableContext items={projectIds} strategy={verticalListSortingStrategy}>
                             {projects.map((item) => {

@@ -31,7 +31,7 @@
  * 能力（node 环境可单测，不依赖 jsdom）。
  */
 
-import { capabilityIcons } from './capability-icons'
+import { slashIcons } from './slash-icons'
 import { t } from '@/lib/i18n'
 import type { MessageEditorElement } from './chat-utils'
 
@@ -43,20 +43,6 @@ export type SlashInvocation = {
   /** 完整命令前缀（无尾随空格），如 "/agent explore"。 */
   cmd: string
 }
-
-/**
- * 子智能体图标（与 "/" 菜单行图标同形；从 command-suggestions 收敛到此共享，
- * 输入框 chip 与消息流 chip 复用同一 glyph）。
- */
-export const slashAgentIcon = `
-  <svg viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="4.4" y="6.8" width="11.2" height="8.4" rx="2.2" />
-    <path d="M10 6.6V4.4" />
-    <circle cx="10" cy="3.5" r="0.9" />
-    <path d="M7.6 10.7h.01" />
-    <path d="M12.4 10.7h.01" />
-    <path d="M8.3 13h3.4" />
-  </svg>`
 
 const SLASH_INVOCATION_TEXT_CLASS = 'quickforge-slash-source-text'
 
@@ -119,7 +105,7 @@ export function createSlashChipElement(invocation: SlashInvocation): HTMLElement
   chip.className = `quickforge-slash-chip quickforge-slash-chip-${invocation.kind}`
   const icon = document.createElement('span')
   icon.className = 'quickforge-slash-chip-icon'
-  icon.innerHTML = invocation.kind === 'agent' ? slashAgentIcon : capabilityIcons.skill
+  icon.innerHTML = slashIcons[invocation.kind]
   const name = document.createElement('span')
   name.className = 'quickforge-slash-chip-name'
   name.textContent = invocation.name

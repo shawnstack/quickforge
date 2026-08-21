@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { createCommandSuggestions } from '../../src/components/chat/command-suggestions'
 import type { CommandTextareaElement, CustomCommandSummary, MessageEditorElement } from '../../src/components/chat/chat-utils'
 import type { SlashCatalog } from '../../src/lib/slash-catalog'
@@ -322,7 +323,24 @@ const rowDescription = (row: FakeNode) =>
 const rowName = (row: FakeNode) =>
   row.querySelector('.quickforge-command-suggestion-name')!
 
+const visibleText = (node: FakeNode): string =>
+  `${node.textContent}${node.children.map(visibleText).join('')}`
+
 describe('command suggestions slash menu', () => {
+  it('reuses the existing Lucide category icons and keeps all Slash menu icon states neutral', () => {
+    const iconSource = readFileSync('src/components/chat/slash-icons.ts', 'utf8')
+    const css = readFileSync('src/index.css', 'utf8')
+
+    expect(iconSource).toContain('command: SquareTerminal')
+    expect(iconSource).toContain('skill: BookOpen')
+    expect(iconSource).toContain('agent: Bot')
+    expect(iconSource).not.toContain('<svg')
+
+    expect(css).toMatch(/\.quickforge-command-suggestion-icon-command,\s*\.quickforge-command-suggestion-icon-skill,\s*\.quickforge-command-suggestion-icon-agent\s*\{[^}]*color:\s*var\(--muted-foreground\)/s)
+    expect(css).toMatch(/\.quickforge-command-suggestion-item:hover \.quickforge-command-suggestion-icon,\s*\.quickforge-command-suggestion-item\[aria-selected='true'\] \.quickforge-command-suggestion-icon\s*\{[^}]*color:\s*var\(--foreground\)/s)
+    expect(css).not.toMatch(/\.quickforge-command-suggestion-icon-(?:command|skill|agent)\s*\{[^}]*rgb\(/s)
+  })
+
   beforeEach(() => {
     vi.stubGlobal('document', {
       createElement: createFakeElement,
@@ -382,13 +400,23 @@ describe('command suggestions slash menu', () => {
     expect(labels).toEqual(['slashGroupCommands', 'slashGroupSkills', 'slashGroupAgents'])
     expect(counts).toEqual(['8', '1', '1'])
 
+    const commandRow = optionRows().find((row) => row.dataset.quickforgeCommandName === 'plan')
+    expect(commandRow).toBeDefined()
+    expect(commandRow!.innerHTML).toContain('lucide-square-terminal')
+    expect(visibleText(rowName(commandRow!))).toBe('/plan [task]')
+    expect(commandRow!.dataset.quickforgeInsert).toBe('/plan ')
+
     const skillRow = optionRows().find((row) => row.dataset.quickforgeCommandName === 'skill-creator')
     expect(skillRow).toBeDefined()
+    expect(skillRow!.innerHTML).toContain('lucide-book-open')
+    expect(visibleText(rowName(skillRow!))).toBe('skill-creator')
     expect(skillRow!.dataset.quickforgeInsert).toBe('/skill skill-creator ')
     expect(rowDescription(skillRow!)).toBe('Create and evaluate skills')
 
     const agentRow = optionRows().find((row) => row.dataset.quickforgeCommandName === 'explore')
     expect(agentRow).toBeDefined()
+    expect(agentRow!.innerHTML).toContain('lucide-bot')
+    expect(visibleText(rowName(agentRow!))).toBe('explore')
     expect(agentRow!.dataset.quickforgeInsert).toBe('/agent explore ')
     expect(rowDescription(agentRow!)).toBe('只读调研 · Locate files and call chains')
   })
@@ -416,6 +444,14 @@ describe('command suggestions slash menu', () => {
     const bold = name.children.find((child) => child.tagName === 'B')
     expect(bold).toBeDefined()
     expect(bold!.textContent).toBe('sk')
+
+    setText('/skill ')
+    instance.update('/skill ')
+    const skillRows = optionRows()
+    expect(skillRows).toHaveLength(1)
+    expect(skillRows[0].dataset.quickforgeCommandName).toBe('skill-creator')
+    expect(visibleText(rowName(skillRows[0]))).toBe('skill-creator')
+    expect(heads().map((head) => head.children[0].textContent)).toEqual(['slashGroupSkills'])
 
     setText('/agent ')
     instance.update('/agent ')

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
 import {
   createSlashInvocationChip,
   parseSlashInvocationPrefix,
@@ -204,6 +205,8 @@ type Harness = {
   chip: ReturnType<typeof createSlashInvocationChip>
   overlay: () => FakeNode | null
   ghostText: () => string
+  slashChip: () => FakeNode | null
+  slashChipIcon: () => FakeNode | null
   setText: (text: string) => void
 }
 
@@ -278,6 +281,8 @@ function createHarness(envOverrides: Partial<SlashChipEnv> = {}): Harness {
       const textNode = ghost.children.find((child) => child.tagName === '#TEXT')
       return textNode?.textContent ?? ''
     },
+    slashChip: () => collectByClass(panel, 'quickforge-slash-chip')[0] ?? null,
+    slashChipIcon: () => collectByClass(panel, 'quickforge-slash-chip-icon')[0] ?? null,
     setText(text: string) {
       editor.value = text
       textarea.value = text
@@ -357,6 +362,17 @@ describe('slash invocation prefix parsing (pure logic)', () => {
 })
 
 describe('slash invocation chip controller', () => {
+  it('reuses BookOpen/Bot and neutralizes only the shared Slash chip icon', () => {
+    const source = readFileSync('src/components/chat/slash-invocation-chip.ts', 'utf8')
+    const css = readFileSync('src/index.css', 'utf8')
+
+    expect(source).toContain("import { slashIcons } from './slash-icons'")
+    expect(source).toContain('icon.innerHTML = slashIcons[invocation.kind]')
+    expect(source).not.toContain('slashAgentIcon')
+    expect(css).toMatch(/\.quickforge-slash-chip-icon\s*\{[^}]*color:\s*var\(--muted-foreground\)/s)
+    expect(css).not.toMatch(/\.quickforge-slash-chip-icon\s*\{[^}]*rgb\(/s)
+  })
+
   beforeEach(() => {
     vi.stubGlobal('document', undefined)
   })
@@ -378,6 +394,7 @@ describe('slash invocation chip controller', () => {
 
     expect(h.chip.isActive()).toBe(true)
     expect(h.chip.getInvocation()).toEqual(agentInvocation)
+    expect(h.slashChipIcon()?.innerHTML).toContain('lucide-bot')
     const overlay = h.overlay()
     expect(overlay).not.toBeNull()
     expect(overlay!.parentElement).toBe(h.shell)
@@ -387,6 +404,16 @@ describe('slash invocation chip controller', () => {
     const spacer = collectByClass(overlay!, 'quickforge-slash-spacer')[0]
     expect(spacer).toBeDefined()
     expect(h.textarea.classList.contains('quickforge-slash-source-text')).toBe(true)
+  })
+
+  it('uses the BookOpen icon for skill chips', () => {
+    const h = installDocument()
+    const skillInvocation: SlashInvocation = { kind: 'skill', name: 'skill-creator', cmd: '/skill skill-creator' }
+    h.setText('/skill skill-creator write a skill')
+    h.chip.engage(skillInvocation)
+
+    expect(h.slashChip()?.className).toContain('quickforge-slash-chip-skill')
+    expect(h.slashChipIcon()?.innerHTML).toContain('lucide-book-open')
   })
 
   it('update: self-destructs on prefix mismatch and keeps the text untouched', () => {

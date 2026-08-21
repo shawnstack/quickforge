@@ -1,6 +1,6 @@
 export type CapabilityIconKind = 'plugin' | 'document' | 'spreadsheet' | 'presentation' | 'skill' | 'tool' | 'command'
 
-/** Neutral icon registry shared by slash commands, plugin capability chips, and menus. */
+/** Neutral icon registry for file references and non-Slash capability chips and menus. */
 export const capabilityIcons: Record<CapabilityIconKind, string> = {
   plugin: `
     <svg viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">

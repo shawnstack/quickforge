@@ -3670,16 +3670,15 @@ html.dark .quickforge-scroll-bottom-badge {
   border-radius: 0.35rem;
 }
 
-.quickforge-command-suggestion-icon-command {
-  color: rgb(245 158 11);
-}
-
-.quickforge-command-suggestion-icon-skill {
-  color: rgb(37 99 235);
-}
-
+.quickforge-command-suggestion-icon-command,
+.quickforge-command-suggestion-icon-skill,
 .quickforge-command-suggestion-icon-agent {
-  color: rgb(16 185 129);
+  color: var(--muted-foreground);
+}
+
+.quickforge-command-suggestion-item:hover .quickforge-command-suggestion-icon,
+.quickforge-command-suggestion-item[aria-selected='true'] .quickforge-command-suggestion-icon {
+  color: var(--foreground);
 }
 
 .quickforge-command-suggestion-icon svg {
@@ -3783,6 +3782,7 @@ html.dark .quickforge-scroll-bottom-badge {
 .quickforge-slash-chip-icon {
   display: inline-flex;
   flex: none;
+  color: var(--muted-foreground);
 }
 
 .quickforge-slash-chip-skill {

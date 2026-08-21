@@ -8,11 +8,12 @@ components/
 │   ├── ChatPanelHost.tsx           # 聊天面板宿主 (1456 行)
 │   ├── ModelSetupEmptyState.tsx    # 模型未配置时的空状态引导 (43 行)
 │   ├── chat-utils.ts               # 共享类型、DOM 工具、token 估算 (300 行)
-│   ├── command-suggestions.ts      # 聊天输入框 / 斜杠菜单：指令·技能·子智能体三分组补全 + 选中态 chip（方案 A）(479 行)
+│   ├── command-suggestions.ts      # 聊天输入框 / 斜杠菜单：指令·技能·子智能体三分组补全 + 选中态 chip（方案 A）(481 行)
 │   ├── file-reference-suggestions.ts # Composer @ 当前项目文件搜索、键盘选择与结构化文件 chip (404 行)
 │   ├── capability-suggestions.ts   # + 菜单插件能力目录与结构化能力 chip（不再占用 @）
-│   ├── capability-icons.ts         # Slash/能力菜单共享的中立图标表
-│   ├── slash-invocation-chip.ts    # Slash 选中态 chip：输入框内联覆盖层控制器 + 消息流 chip 共享元素 (541 行)
+│   ├── capability-icons.ts         # @ 文件引用与非 Slash 能力菜单/chip 的中立图标表
+│   ├── slash-icons.ts              # Slash 三类复用 Lucide 图标静态映射（SquareTerminal / BookOpen / Bot）
+│   ├── slash-invocation-chip.ts    # Slash 选中态 chip：输入框内联覆盖层控制器 + 消息流 chip 共享元素 (528 行)
 │   ├── context-usage.ts            # 上下文用量环状指示器 (78 行)
 │   ├── panel-decoration.ts         # 聊天面板 DOM 装饰兼容入口 / editor 编排 facade (286 行)
 │   ├── scroll-sync.ts              # 自动滚动同步 + 触顶加载回调 (174 行)
@@ -145,11 +146,11 @@ components/
 - Token 估算和上下文用量计算（`getContextUsage`, `estimateTokens`）；前端仅作为后端 `contextUsage` 缺失时的回退估算
 - 草稿运行时管理（`hasDraft` 等）；`ComposerDraft` 携带 `contextReferences` / `selectedCapabilities`，`hasDraft` 口径为正文、附件、文件引用、能力 chip 任一非空；持久化在 `src/lib/composer-drafts.ts`，使用浏览器 `localStorage` 保存当前浏览器本地草稿，不迁移旧的 settings 后端草稿，也不参与后端备份/跨设备同步
 
-**command-suggestions.ts** (479 行)
+**command-suggestions.ts** (481 行)
 - 聊天输入框 "/" 斜杠菜单，三个分组依次渲染：指令（内置 /init /plan /review /summary /compact /clear /help + 项目自定义命令）、技能、子智能体；每组 sticky 组头（label + 条数），整组无命中时隐藏
 - 技能/子智能体目录经 Options.loadSlashCatalog 懒加载（首次触发 / 时请求，见 `src/lib/slash-catalog.ts`）：idle → loading（技能/子智能体组渲染 2 行骨架，容器 aria-busy）→ ready（resolve 即含 null 目录，自动重渲染）/ error（本次打开仅指令组，菜单从关闭到重新打开允许重试一次）；无 loader 时同样仅指令组
-- 过滤口径：query = 去掉前导 / 的文本（trim + 小写），haystack = 用法文本（含 argumentHint，去前导 /）+ agent label·description，空白归一后 includes；query 为单词且命中名称段时 `<b>` 加粗命中段，argumentHint 渲染为 muted hint 子 span
-- 行结构三列 grid（图标/用法/描述）：指令琥珀、技能蓝（复用 `capability-icons.ts` 的 capabilityIcons）、子智能体翠绿（slash-invocation-chip 共享的 slashAgentIcon）；行 button role=option + aria-selected，data-quickforge-insert 存完整插入文本（指令 `/name `、技能 `/skill <name> `、子智能体 `/agent <name> `，统一经 restoreDraftIntoComposer 插入并聚焦置尾）
+- 过滤口径：query = 去掉前导 / 的文本（trim + 小写），haystack = 用法文本（含类型前缀与 argumentHint，去前导 /）+ agent label·description，空白归一后 includes；因此仍可用 `skill ` / `agent ` 类型前缀搜索。单词 query 命中当前可见主文本时 `<b>` 加粗命中段，argumentHint 渲染为 muted hint 子 span
+- 行结构三列 grid（图标/主文本/描述）：普通指令主文本保留完整用法（如 `/plan [task]`）；技能/子智能体主文本仅显示 canonical name，不显示 `/skill` / `/agent` 前缀。三类 Slash 图标统一复用项目现有 Lucide：指令 `SquareTerminal`、技能 `BookOpen`、子智能体 `Bot`（静态映射见 `slash-icons.ts`）；默认使用 `muted-foreground` 中性色，hover/selected 仅增强为 `foreground`，不再使用黄/蓝/绿类别色。行 button role=option + aria-selected，data-quickforge-insert 仍存完整插入文本（指令 `/name `、技能 `/skill <name> `、子智能体 `/agent <name> `，统一经 restoreDraftIntoComposer 插入并聚焦置尾）
 - 键盘（textarea capture handler）：↑↓ 在可视行间循环移动 active（aria-selected 同步、scrollIntoView nearest）；Tab 补全 active 行（初始首行）；Escape 关闭菜单 / 退出 chip 选中态；Backspace 在 chip 右边界一次删除整段命令前缀；Enter 不拦截（发送原文）；Shift+Tab 放行给 Composer Plan 模式，isComposing/Process 守卫
 - 选中态 chip（方案 A，`slash-invocation-chip.ts`）：选中技能/子智能体后输入框内 `/skill <name> ` / `/agent <name> ` 前缀以带图标 chip 内联显示——textarea 原文不变（服务端零改动、草稿/发送不受影响），`.quickforge-composer-shell` 内挂覆盖层镜像（chip + 定宽 spacer + 任务文本，光标对齐补偿保证幽灵层换行/滚动与 textarea 一致），textarea 文字透明、光标保留；IME composition 期间覆盖层保持显示、预编辑文本以弱下划线镜像进幽灵层；前缀失配（编辑/更长的 name）自动自毁恢复原文，覆盖层/textarea 被外部重渲染移除时按匹配文本自愈重建；chip 激活时菜单不再弹出；catalog ready 后手输/草稿恢复完整命令自动 engage；Esc 退出保留文本（同前缀变化前不再自动 engage）
 - 底部 sticky 键位提示条（↑↓/Tab/Enter/Esc 四段 kbd + i18n 标签）；外部 pointerdown 关闭；浮层挂载在 editor.parentElement.insertBefore(浮层, editor)
@@ -160,12 +161,12 @@ components/
 - 菜单复用 Composer 浮层视觉，支持 loading/empty/error、名称/路径匹配高亮、8 行上限、ArrowUp/Down 循环、Enter/Tab 选择、Esc 关闭和 IME 放行，并与 `/`、`+` 菜单互斥。
 - 选择后删除活动 `@token` 而不插入 `@path`，保留 token 前后正文、附件和 caret；结构化 `contextReferences` 最多 8 个并去重，显示可删除文件 chip（文件名 + 项目相对路径 title），绝不显示绝对路径。
 
-**capability-suggestions.ts / capability-icons.ts**
+**capability-suggestions.ts / capability-icons.ts / slash-icons.ts**
 - 插件目录只供 `+ → 能力` 使用，来源仍是 enabled + loaded 插件；选择后产生可删除结构化能力 chip，不向正文插入 `@Documents`，发送时 `consumeSelectedCapabilities()` 只消费显式选择，不从文本推断。
-- 能力选择与正文、文件引用一起写入当前 Composer 的 `localStorage` 草稿；恢复时防御规范化、按 `type+pluginName+name` 去重且最多 4 个，附件仍不持久化。`capability-icons.ts` 是 Slash、能力 chip/菜单共享的中立图标模块，避免 command-suggestions 依赖插件控制器。
+- 能力选择与正文、文件引用一起写入当前 Composer 的 `localStorage` 草稿；恢复时防御规范化、按 `type+pluginName+name` 去重且最多 4 个，附件仍不持久化。`capability-icons.ts` 继续服务 @ 文件引用与非 Slash 能力 chip/菜单；`slash-icons.ts` 单独把 Slash command/skill/agent 映射到已有 Lucide `SquareTerminal` / `BookOpen` / `Bot`，避免 Slash 再新增自绘类别 glyph，也不影响非 Slash 能力菜单图标。
 
-**slash-invocation-chip.ts** (541 行)
-- Slash 选中态 chip 子系统（design-mockups/slash-menu-expansion.html 方案 A）：纯逻辑（前缀解析 parseSlashInvocationPrefix / 匹配校验 slashInvocationPrefixMatches / 消息流剥前缀计划 planSlashChipText / spacer 宽度 max(0, 前缀宽度 - chip 宽度)）+ 共享 chip 元素工厂（输入框与消息流同一样式类 quickforge-slash-chip ± skill 蓝/agent 翠绿变体与 html.dark 调亮）+ 控制器工厂 createSlashInvocationChip
+**slash-invocation-chip.ts** (528 行)
+- Slash 选中态 chip 子系统（design-mockups/slash-menu-expansion.html 方案 A）：纯逻辑（前缀解析 parseSlashInvocationPrefix / 匹配校验 slashInvocationPrefixMatches / 消息流剥前缀计划 planSlashChipText / spacer 宽度 max(0, 前缀宽度 - chip 宽度)）+ 共享 chip 元素工厂（输入框与消息流复用同一元素；skill 使用 `BookOpen`、agent 使用 `Bot`，图标颜色固定为 `muted-foreground` 中性）。skill/agent 变体的既有背景与文字语义色保留，图标通过独立子元素颜色覆盖与其分离 + 控制器工厂 createSlashInvocationChip
 - 控制器状态机：engage（显式选中，重置 dismissed）→ update（每次输入同步，失配自毁、文本不动；**自愈**——React/Lit 重渲染移除覆盖层或重建 textarea 时按匹配文本重挂覆盖层而非放弃选中态，保证打字过程中 chip 不消失）→ clear（Esc 退出，记 dismissed 前缀）→ removePrefix（退格边界删整段前缀含一个空格，同步 editor.value/onInput/input 事件后聚焦置 0）；光标进入前缀区域（document selectionchange）**降级为原文显示**（隐藏覆盖层、移除透明类，不销毁选中态），光标回尾部继续输入时自愈恢复；IME composition 期间覆盖层保持显示——预编辑文本经 compositionupdate 镜像进幽灵层尾部并以 `.quickforge-slash-preedit` 弱下划线提示输入中（Chromium 下 value 已含预编辑则从任务文本剥离去重，WebKit compositionend 先于 value 同步时手动拼接兜底）
 - 覆盖层几何：textarea 与 shell 的 getBoundingClientRect 差值定位，宽高取 clientWidth/clientHeight；ResizeObserver 监听 textarea 重同步；幽灵层从 getComputedStyle 同步字体/行高/内边距/tabSize，scroll 事件同步 scrollTop；度量经 env 注入（canvas.measureText / offsetWidth），node 环境可单测
 

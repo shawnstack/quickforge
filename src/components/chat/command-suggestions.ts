@@ -23,11 +23,10 @@ import type {
   MessageEditorElement,
   ComposerDraft,
 } from './chat-utils'
-import { capabilityIcons } from './capability-icons'
+import { slashIcons } from './slash-icons'
 import {
   createSlashInvocationChip,
   parseSlashInvocationPrefix,
-  slashAgentIcon,
   slashInvocationPrefixMatches,
   type SlashInvocation,
 } from './slash-invocation-chip'
@@ -62,7 +61,7 @@ type SlashRowElement = HTMLButtonElement & {
   __quickforgeSlashEntry?: SlashEntry
 }
 
-const kindIcon = (kind: SlashEntryKind) => (kind === 'agent' ? slashAgentIcon : capabilityIcons[kind])
+const kindIcon = (kind: SlashEntryKind) => slashIcons[kind]
 
 export function createCommandSuggestions({
   panel,
@@ -243,9 +242,11 @@ export function createCommandSuggestions({
   }
 
   const appendUsageText = (name: HTMLElement, entry: SlashEntry, query: string) => {
-    const plain = entry.hint
-      ? entry.usage.slice(0, entry.usage.length - entry.hint.length).trimEnd()
-      : entry.usage
+    const plain = entry.kind === 'command'
+      ? (entry.hint
+          ? entry.usage.slice(0, entry.usage.length - entry.hint.length).trimEnd()
+          : entry.usage)
+      : entry.name
     if (query && !query.includes(' ')) {
       const at = plain.toLowerCase().indexOf(query)
       if (at >= 0) {

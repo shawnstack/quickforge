@@ -18,6 +18,9 @@ import {
 } from './icons'
 import { decorateLocalFilePathLinks } from './local-file-path-links'
 import { decorateUserMessageInputClamp, type InputClampLabels } from '@/lib/input-clamp'
+import { createSlashChipElement, parseSlashInvocationPrefix, planSlashChipText } from '../slash-invocation-chip'
+import { createFileReferenceChip } from '../file-reference-suggestions'
+import type { FileContextReference } from '../chat-utils'
 
 const inputClampLabels: InputClampLabels = { collapsed: () => t('expand'), expanded: () => t('collapse') }
 import { assistantActionDisplayIndexes } from './message-action-visibility'
@@ -250,6 +253,93 @@ function getStreamingAssistantMessage(panel: HTMLElement) {
   return streamingContainer?.querySelector<HTMLElement>(':scope > div > assistant-message') ?? null
 }
 
+/** 消息流 slash chip 标记（存在即说明此前装饰过；dataset 携带被剥掉的前缀文本）。 */
+const SLASH_CHIP_ELEMENT_FLAG = 'data-quickforge-slash-chip-el'
+
+/** 深度优先查找首个非空文本节点（markdown-block 首个 p 内的正文起点）。 */
+function findFirstContentTextNode(root: Node): Text | null {
+  for (const child of Array.from(root.childNodes)) {
+    if (child.nodeType === Node.TEXT_NODE) {
+      if ((child.textContent ?? '').trim()) return child as Text
+      continue
+    }
+    if (child.nodeType !== Node.ELEMENT_NODE) continue
+    const nested = findFirstContentTextNode(child)
+    if (nested) return nested
+  }
+  return null
+}
+
+/**
+ * 用户消息 slash 前缀 chip 装饰（方案 A 消息流部分，幂等）：
+ * `/skill <name> ` / `/agent <name> ` 前缀渲染为行内 chip，任务正文跟随其后。
+ * 复制行为不受影响（copy 走 draftTextFromUserMessage 原文，前缀完整保留）。
+ *
+ * 还原以 chip 自身为单位：每个 chip 的 dataset 记录被剥掉的精确前缀字符，重装饰时
+ * 先移除 chip 并把前缀写回首文本节点，再按当前文本重新应用或仅还原——Lit 重渲染
+ * 整体替换 markdown 子树时 chip 已随之消失、文本节点本就是原文，天然幂等。
+ */
+function decorateUserSlashInvocationChip(element: HTMLElement, message: Parameters<typeof draftTextFromUserMessage>[0]) {
+  const container = element.querySelector<HTMLElement>('.user-message-container')
+  if (!container) return
+
+  // 1) 还原上一次装饰（若存在）。
+  for (const chip of Array.from(container.querySelectorAll<HTMLElement>(`[${SLASH_CHIP_ELEMENT_FLAG}]`))) {
+    const prefix = chip.dataset.quickforgeSlashChipPrefix ?? ''
+    const sibling = chip.nextSibling
+    const parent = chip.parentElement
+    chip.remove()
+    if (sibling && sibling.nodeType === Node.TEXT_NODE) sibling.textContent = prefix + (sibling.textContent ?? '')
+    else if (prefix && parent) parent.insertBefore(document.createTextNode(prefix), sibling ?? null)
+  }
+
+  // 2) 消息原文不匹配 slash 调用前缀 → 仅还原，不装饰。
+  if (!parseSlashInvocationPrefix(draftTextFromUserMessage(message))) return
+
+  // 3) 在首文本节点上应用（DOM 与原文不一致时放弃，保持原文显示）。
+  const node = findFirstContentTextNode(container)
+  if (!node?.parentElement) return
+  const plan = planSlashChipText(node.textContent ?? '')
+  if (!plan) return
+  node.textContent = plan.rest
+  const chip = createSlashChipElement(plan.invocation)
+  chip.setAttribute(SLASH_CHIP_ELEMENT_FLAG, '')
+  chip.dataset.quickforgeSlashChipPrefix = plan.prefix
+  chip.classList.add('quickforge-slash-chip-in-message')
+  node.parentElement.insertBefore(chip, node)
+}
+
+function contextReferencesFromMessage(message: MessageWithUsage): FileContextReference[] {
+  const details = message.details
+  if (!details || typeof details !== 'object' || Array.isArray(details)) return []
+  const value = (details as Record<string, unknown>).contextReferences
+  if (!Array.isArray(value)) return []
+  return value.filter((reference): reference is FileContextReference => Boolean(
+    reference
+    && typeof reference === 'object'
+    && !Array.isArray(reference)
+    && (reference as Record<string, unknown>).type === 'file'
+    && typeof (reference as Record<string, unknown>).projectId === 'string'
+    && typeof (reference as Record<string, unknown>).path === 'string',
+  )).slice(0, 8)
+}
+
+function decorateUserFileReferences(element: HTMLElement, message: MessageWithUsage) {
+  const container = element.querySelector<HTMLElement>('.user-message-container')
+  if (!container) return
+  const references = contextReferencesFromMessage(message)
+  const existing = container.querySelector<HTMLElement>('.quickforge-message-context-references')
+  if (references.length === 0) {
+    existing?.remove()
+    return
+  }
+  const chips = existing ?? document.createElement('div')
+  chips.className = 'quickforge-message-context-references'
+  chips.setAttribute('aria-label', t('fileReferences'))
+  chips.replaceChildren(...references.map((reference) => createFileReferenceChip(reference)))
+  if (!existing) container.prepend(chips)
+}
+
 /**
  * 对 panel 内的 subagent 过程 message-list 应用与聊天主列表一致的
  * process folding 装饰。聊天主流程由 decorateMessages 调用；Workspace
@@ -325,7 +415,14 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     element.classList.toggle('quickforge-assistant-message', entry.message.role === 'assistant')
     element.classList.toggle('quickforge-user-message', entry.message.role !== 'assistant')
     // 纯文本用户消息的长内容定高收起（user-with-attachments 的附件区不参与）。
-    if (entry.message.role === 'user') decorateUserMessageInputClamp(element, inputClampLabels)
+    if (entry.message.role === 'user') {
+      decorateUserMessageInputClamp(element, inputClampLabels)
+      // 用户消息 slash 前缀 chip 装饰（/skill、/agent 调用；幂等，可重复调用）。
+      decorateUserSlashInvocationChip(element, entry.message as Parameters<typeof draftTextFromUserMessage>[0])
+    }
+    if (entry.message.role === 'user' || entry.message.role === 'user-with-attachments') {
+      decorateUserFileReferences(element, entry.message)
+    }
 
     const messageTimeValue = messageTimestamp(entry.message)
     const ensureMessageTime = (actionsContainer: HTMLElement) => {

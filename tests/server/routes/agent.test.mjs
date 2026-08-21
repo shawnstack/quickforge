@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getSessionEventBus: vi.fn(),
   tryAcquireSse: vi.fn(),
   touchSession: vi.fn(),
+  runPrompt: vi.fn(),
   updateSessionHarnessConfigOption: vi.fn(),
   updateSessionHarnessMode: vi.fn(),
   forkSession: vi.fn(),
@@ -32,7 +33,7 @@ vi.mock('../../../server/agent-manager.mjs', () => ({
   releaseSse: vi.fn(),
   restoreAgent: mocks.restoreAgent,
   rollbackSessionMessages: vi.fn(),
-  runPrompt: vi.fn(),
+  runPrompt: mocks.runPrompt,
   steerAgent: vi.fn(),
   touchSession: mocks.touchSession,
   tryAcquireSse: mocks.tryAcquireSse,
@@ -72,6 +73,38 @@ function response() {
     end(body = '') { this.body = body },
   }
 }
+
+describe('agent prompt route', () => {
+  beforeEach(() => {
+    mocks.runPrompt.mockReset()
+  })
+
+  it('passes contextReferences as the final runPrompt argument', async () => {
+    mocks.runPrompt.mockResolvedValue({ sessionId: 'session-1', status: 'running' })
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+    const references = [{ type: 'file', projectId: 'project-1', path: 'src/app.ts' }]
+    const context = { isLocalRequest: true }
+
+    await handleAgentApi(
+      request({ message: 'inspect', selectedCapabilities: [{ type: 'tool' }], command: '/review', contextReferences: references }),
+      res,
+      new URL('http://localhost/api/agents/session-1/prompt'),
+      context,
+    )
+
+    expect(mocks.runPrompt).toHaveBeenCalledWith(
+      'session-1',
+      'inspect',
+      [{ type: 'tool' }],
+      '/review',
+      null,
+      context,
+      references,
+    )
+    expect(JSON.parse(res.body)).toEqual({ sessionId: 'session-1', status: 'running' })
+  })
+})
 
 describe('agent restore route', () => {
   beforeEach(() => {

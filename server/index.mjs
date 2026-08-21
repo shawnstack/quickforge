@@ -475,7 +475,7 @@ async function handleApi(req, res, url, requestContext = {}) {
   }
 
   // Project workspace inspector routes
-  if (pathname === '/api/workspace/tree' || pathname === '/api/workspace/children' || pathname === '/api/workspace/search' || pathname === '/api/workspace/file' || pathname === '/api/workspace/resolve-path' || pathname === '/api/workspace/open-external' || pathname.startsWith('/api/workspace/preview/')) {
+  if (pathname === '/api/workspace/tree' || pathname === '/api/workspace/children' || pathname === '/api/workspace/search' || pathname === '/api/workspace/mention-search' || pathname === '/api/workspace/file' || pathname === '/api/workspace/resolve-path' || pathname === '/api/workspace/open-external' || pathname.startsWith('/api/workspace/preview/')) {
     await handleWorkspaceApi(req, res, url, requestContext)
     return
   }

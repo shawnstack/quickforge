@@ -9,7 +9,9 @@ export function readComposerDraft(panel: HTMLElement): ComposerDraft {
   const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
   const text = editor?.value ?? textarea?.value ?? ''
   const attachments = editor?.attachments ? [...editor.attachments] : []
-  return { text, attachments }
+  const contextReferences = editor?.contextReferences ? [...editor.contextReferences] : []
+  const selectedCapabilities = editor?.selectedCapabilities ? [...editor.selectedCapabilities] : []
+  return { text, attachments, contextReferences, selectedCapabilities }
 }
 
 export function captureComposerDraft(panel: HTMLElement, drafts: Map<string, ComposerDraft>, sessionId: string) {
@@ -31,6 +33,8 @@ export function restoreComposerDraft(
   const normalizedDraft = {
     text: draft.text,
     attachments: draft.attachments ? [...draft.attachments] : [],
+    contextReferences: draft.contextReferences ? [...draft.contextReferences] : [],
+    selectedCapabilities: draft.selectedCapabilities ? [...draft.selectedCapabilities] : [],
   }
   const editor = panel.querySelector<MessageEditorElement>('message-editor')
   const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
@@ -39,6 +43,8 @@ export function restoreComposerDraft(
   if (editor) {
     editor.value = normalizedDraft.text
     editor.attachments = normalizedDraft.attachments
+    editor.contextReferences = normalizedDraft.contextReferences
+    editor.selectedCapabilities = normalizedDraft.selectedCapabilities
     ;(editor as MessageEditorElement & { requestUpdate?: () => void }).requestUpdate?.()
     editor.onInput?.(normalizedDraft.text)
     editor.onFilesChange?.(normalizedDraft.attachments)

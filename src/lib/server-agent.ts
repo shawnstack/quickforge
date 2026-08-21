@@ -429,6 +429,12 @@ export type ServerRollbackResult = {
   }
 }
 
+export type FileContextReference = {
+  type: 'file'
+  projectId: string
+  path: string
+}
+
 export type PromptCapabilitySelection = {
   type: 'plugin' | 'skill' | 'tool' | 'command'
   pluginName: string
@@ -636,6 +642,8 @@ export class ServerAgent {
   private lastSseEventAt = Date.now()
   private lastServerStateVersion = 0
   private nextPromptCapabilities: PromptCapabilitySelection[] = []
+  private nextPromptContextReferences: FileContextReference[] = []
+  private onPromptContextReferencesConsumed?: () => void
   private planMode = false
   readonly harness: AgentHarness
   readonly harnessSessionId?: string
@@ -723,9 +731,18 @@ export class ServerAgent {
     this.nextPromptCapabilities = Array.isArray(capabilities) ? capabilities.slice(0, 4) : []
   }
 
-  setPlanMode(mode: boolean, onConsumed?: () => void): void {
-    this.planMode = mode
+  setNextPromptContextReferences(references: FileContextReference[], onConsumed?: () => void): void {
+    this.nextPromptContextReferences = Array.isArray(references) ? references.slice(0, 8) : []
+    this.onPromptContextReferencesConsumed = this.nextPromptContextReferences.length > 0 ? onConsumed : undefined
+  }
+
+  setPromptMode(mode: 'plan' | 'ask' | null, onConsumed?: () => void): void {
+    this.planMode = mode === 'plan'
     this.onPlanModeConsumed = mode ? onConsumed : undefined
+  }
+
+  setPlanMode(mode: boolean, onConsumed?: () => void): void {
+    this.setPromptMode(mode ? 'plan' : null, onConsumed)
   }
 
   async prompt(input: string | AgentMessage | AgentMessage[]): Promise<void> {
@@ -764,8 +781,13 @@ export class ServerAgent {
     }
 
     const selectedCapabilities = this.nextPromptCapabilities
+    const contextReferences = this.nextPromptContextReferences
     const selectedCommand = this.planMode ? { type: 'plan' as const } : undefined
     this.nextPromptCapabilities = []
+    this.nextPromptContextReferences = []
+    const onContextReferencesConsumed = this.onPromptContextReferencesConsumed
+    this.onPromptContextReferencesConsumed = undefined
+    onContextReferencesConsumed?.()
     if (this.planMode) {
       this.planMode = false
       const onConsumed = this.onPlanModeConsumed
@@ -776,7 +798,15 @@ export class ServerAgent {
     const msgCountBeforeOptimistic = this.state.messages.length
 
     // Add to local state immediately for optimistic UI
-    const agentMessage = message as unknown as AgentMessage
+    const agentMessage = (contextReferences.length > 0
+      ? {
+          ...message,
+          details: {
+            ...(message.details && typeof message.details === 'object' && !Array.isArray(message.details) ? message.details : {}),
+            contextReferences,
+          },
+        }
+      : message) as unknown as AgentMessage
     this.state.messages = [...this.state.messages, agentMessage]
     this.state.contextUsage = null
     this.emitToListeners({ type: 'message_start', message: agentMessage } as unknown as AgentEvent)
@@ -795,7 +825,7 @@ export class ServerAgent {
     fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ message: agentMessage, selectedCapabilities, command: selectedCommand }),
+      body: JSON.stringify({ message: agentMessage, selectedCapabilities, contextReferences, command: selectedCommand }),
       signal: controller.signal,
     }).then(async (response) => {
       clearTimeout(timeoutId)

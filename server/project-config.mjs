@@ -304,19 +304,31 @@ export async function initializeActiveProject() {
   setWorkspaceRoot(defaultWorkspaceRoot)
 }
 
-export async function projectContextFromId(projectId) {
+export async function registeredProjectContextFromId(projectId) {
   const config = await readProjectConfig()
   const project = config.projects.find((item) => item.id === projectId)
   if (!project) {
-    // Unknown or removed project (e.g. a global conversation's synthetic id) —
-    // fall back to the default workspace so workspace/git REST endpoints keep
-    // working for global conversations.
-    return defaultGlobalWorkspaceContext()
+    const error = new Error('Unknown project')
+    error.statusCode = 404
+    error.errorCode = 'PROJECT_NOT_FOUND'
+    throw error
   }
 
   await assertDirectory(project.path)
   await ensureProjectCache(project.id)
   return { project, workspaceRoot: path.resolve(project.path) }
+}
+
+export async function projectContextFromId(projectId) {
+  try {
+    return await registeredProjectContextFromId(projectId)
+  } catch (error) {
+    if (error?.errorCode !== 'PROJECT_NOT_FOUND') throw error
+    // Unknown or removed project (e.g. a global conversation's synthetic id) —
+    // fall back to the default workspace so workspace/git REST endpoints keep
+    // working for global conversations.
+    return defaultGlobalWorkspaceContext()
+  }
 }
 
 export async function readInstructionsFile(filePath) {

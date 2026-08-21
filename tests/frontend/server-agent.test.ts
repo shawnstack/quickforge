@@ -377,6 +377,31 @@ describe('ServerAgent', () => {
     }
   })
 
+  it('sends file context references once and decorates the optimistic user message', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = await createServerAgent({ sessionId: 'session-refs', initialState: { model: { provider: 'mock', id: 'mock' }, messages: [] } })
+    const refs = [{ type: 'file' as const, projectId: 'project-1', path: 'src/main.ts' }]
+
+    try {
+      const consumed = vi.fn()
+      agent.setNextPromptContextReferences(refs, consumed)
+      await agent.prompt('inspect this')
+      expect(consumed).toHaveBeenCalledOnce()
+      const firstCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/prompt')) as [string, RequestInit]
+      const firstBody = JSON.parse(String(firstCall[1].body))
+      expect(firstBody.contextReferences).toEqual(refs)
+      expect(agent.state.messages[0]).toMatchObject({ details: { contextReferences: refs } })
+
+      agent.state.isStreaming = false
+      await agent.prompt('next')
+      const promptCalls = fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/prompt')) as Array<[string, RequestInit]>
+      expect(JSON.parse(String(promptCalls[1][1].body)).contextReferences).toEqual([])
+    } finally {
+      agent.dispose()
+    }
+  })
+
   it('keeps non-Cloud optimistic prompts unchanged', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) })
     vi.stubGlobal('fetch', fetchMock)

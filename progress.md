@@ -2,6 +2,22 @@
 
 ## Current State
 
+- Feature: 输入框 @ 引用当前项目文件并与插件能力解耦（file-reference-mention，**已完成**）
+- Status: done — `@` 仅搜索当前 QuickForge 项目文件：裸 `@` 和 1 字符只提示，2+ 字符经 300ms debounce 调用严格 projectId 的 files-only mention-search，并支持键盘选择与结构化文件 chip；`+ → 能力` 生成独立能力 chip，不再插入 `@Documents` 或从正文推断。`text`、`contextReferences`、`selectedCapabilities` 已写入 localStorage 草稿（能力防御规范化、按 `type+pluginName+name` 去重、最多 4），附件仍不持久化；文件引用随下一次 prompt 一次性发送，服务端重新校验项目/路径/敏感边界，注入相对路径提示并持久化 history details，失败回滚/retry 链路已覆盖。OpenCode/shared 禁用或拒绝非空引用；mention-search 对未知/已删除 projectId 返回 404 `PROJECT_NOT_FOUND`，普通 workspace search/children 等兼容回退不变。验证：合并定向 vitest 20 files / 242 tests passed；相关 eslint 0；`tsc -b` passed；`npm run build` passed（仅既有 KaTeX/chunk warnings）；`git diff --check` passed。
+- MVP 限制 / Next step: 输入框只有 chip、没有正文且没有附件时不能发送；裸 `@` 不提供最近文件；真机目视待用户（键盘选择、深浅主题、草稿恢复、发送后历史 chip 与敏感/错误提示）。
+
+- Feature: Wiki 文档同步——补齐 file-reference-mention / slash-menu-expansion 未提交改动的文档缺口（wiki-sync-uncommitted-features，**已完成**）
+- Status: done — 纯文档维护（用户明令禁止修改代码，未触碰任何代码/测试）。对照工作区两条未提交功能链审计 docs/wiki 六个页面并补缺口：context-references.mjs 独立小节（含 CONTEXT_REFERENCE_* 错误码）、utils workspace.mjs 现状行为（大小写不敏感敏感路径 + realpath 复查 + 稳定 errorCode）、src/lib 新增 deferred-session-agent.ts 条目与章节（此前完全未收录）、server-agent/shared-server-agent 补 setPromptMode 泛化与 no-op 语义、slash chip 的 IME/selectionchange/自愈行为更正为最终实现、message-actions 补 decorateUserFileReferences、chat-utils 补新类型与 hasDraft 口径、多文件过期行数与 src/lib 模块总数（28→86）修正。
+- Next step: 无。file-reference-mention 功能本体仍由并行会话推进（feature_list 尚未登记该 feature），其收尾时 wiki 已就位，只需按最终实现复核增量。
+
+- Feature: 侧栏“对话”分组标题更名为“任务”（rename-sidebar-conversations-to-tasks，**已完成**）
+- Status: done — i18n `conversations` key 中文 ‘对话’→‘任务’、英文 ‘Conversations’→‘Tasks’（唯一使用处为 ChatSidebar 左侧边栏分组标题）；DESIGN_LANGUAGE.md 3 处分组标题示例同步为 Tasks。验证：eslint i18n.ts 0 error；i18n-language-snapshot + sidebar-session-sort-mode 定向测试 11/11 通过。全量 `tsc -b` 失败均为并行会话 file-reference-mention 中间态错误（与本改动无关，已有记录）。未改 wiki（纯显示文案，不影响模块职责或公共入口）。
+- Next step: 真机目视确认左栏标题显示“任务”（英文 Tasks）；其余“对话”相关文案（置顶、暂无对话、已归档对话、重命名对话等）按最小范围保持不变，如需一并更名待用户确认。
+
+- Feature: 斜杠菜单扩展——/ 触发指令 / 技能 / 子智能体三类补全 + 方案 A 选中态 chip（slash-menu-expansion，**已完成**）
+- Status: done — 两轮定稿实现：①主功能（三分组菜单 + /skill /agent 内部命令 + 懒加载目录）；②方案 A 选中态呈现（用户定稿）：新增 slash-invocation-chip.ts（输入行内联 chip 覆盖层——原文不变仅视觉替换、computed 度量同步、光标对齐补偿 spacer=max(0,前缀宽-chip宽)、IME composition 防护、光标入前缀区自毁、ResizeObserver/scroll 同步）+ command-suggestions 集成（选中即 engage、菜单抑制、手输/草稿恢复自动 engage、Backspace 边界删前缀、Esc 退出）+ message-actions 用户消息前缀 chip 装饰（幂等，复制走原文）。实现取舍：还原机制用 chip 自带前缀标记（Lit 重渲染会替换 container dataset）；selectionchange 自毁不记 dismissed（Esc 才记）；update 校验加词边界（防 /agent explore-deep 误留 explore chip）。input-clamp 既有源码断言随 if 块化同步修正（守卫语义不变）。合并门禁：npm run test 226 files / 1945 tests、lint 0 errors / 1 existing warning、tsc -b、build、git diff --check 均通过。
+- Next step: 真机目视留待用户（重点：选中态 chip 与光标对齐、中文 IME 输入、窄列宽换行、退格边界删除、消息流 chip、深浅主题；未知名称提示文本）。**追加修复已落地（用户反馈打字后 chip 消失）**：自愈式三层防御——update 重建被外部移除的 overlay/textarea（isConnected 检查）、selectionchange 降级显示而非自毁（光标回尾部自愈）、自动 engage 兜底；最小复现环境（无头 Edge CDP 全链路：选中/打字/逐字符/IME）无法复现核心链路问题，判定破坏源在真实 app React/Lit 生命周期。门禁全过、dist 已重建。
+
 - Feature: 限制侧栏项目排序拖拽的顶部/底部边界（fix-sidebar-project-drag-bottom-boundary，**已完成**）
 - Status: done — Projects 的实际 `overflow-y-auto` 容器成为拖拽预览边界和唯一自动滚动容器；纯函数按拖拽矩形、视口矩形及拖拽期间 `scrollTop` 增量锁定横向并夹紧纵向，覆盖 dnd-kit modifier 后滚动补偿。保留 closestCenter、verticalListSortingStrategy、MeasuringStrategy.Always、拖动折叠会话、排序持久化与视觉样式。定向测试 7/7、改动文件 eslint、tsc、build、diff check 均通过。
 - Next step: 无代码 blocker；需手工浏览器验证长项目列表拖到顶部/底部时预览不越界、仅 Projects 滚动且真实边界停止。

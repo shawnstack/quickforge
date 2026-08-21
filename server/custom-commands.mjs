@@ -361,6 +361,29 @@ ${expandedBody}
 </custom_command_invocation>`
 }
 
+export function formatSkillCommandPrompt(name, task) {
+  const taskBlock = String(task || '').trim() || '(none — call activate_skill first, then ask the user what they would like to do)'
+  return `<skill_invocation name="${escapeXml(name)}" source="slash">
+This slash command applies only to the current user request. Follow it unless it conflicts with higher-priority system, safety, user, or project instructions.
+
+First call the activate_skill tool with name="${escapeXml(name)}", then carry out the task below following the skill's instructions.
+
+Task:
+${taskBlock}
+</skill_invocation>`
+}
+
+export function formatAgentCommandPrompt(name, task) {
+  return `<subagent_invocation name="${escapeXml(name)}" source="slash">
+This slash command applies only to the current user request. Follow it unless it conflicts with higher-priority system, safety, user, or project instructions.
+
+Call the run_subagent tool with subagent="${escapeXml(name)}" and the task below. Do not perform the task yourself unless the subagent is unavailable. When it completes, summarize its findings for the user.
+
+Task:
+${String(task || '').trim()}
+</subagent_invocation>`
+}
+
 function escapeXml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -389,6 +412,12 @@ export function parseInternalCommandInvocation(message) {
 
   const summaryMatch = text.match(/^\/summary(?:\s+([\s\S]*))?$/i)
   if (summaryMatch) return { type: 'summary', args: (summaryMatch[1] || '').trim() }
+
+  const skillMatch = text.match(/^\/skill(?:\s+([\s\S]*))?$/i)
+  if (skillMatch) return { type: 'skill', args: (skillMatch[1] || '').trim() }
+
+  const agentMatch = text.match(/^\/agent(?:\s+([\s\S]*))?$/i)
+  if (agentMatch) return { type: 'agent', args: (agentMatch[1] || '').trim() }
 
   const createMatch = text.match(/^\/command\s+new\s+([A-Za-z0-9][A-Za-z0-9-]*)\s*$/i)
   if (createMatch) {

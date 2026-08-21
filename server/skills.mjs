@@ -392,7 +392,7 @@ function searchDirsForList(value) {
   return value.length === 1 ? value[0] : value.slice()
 }
 
-function summarizeSkills(skills) {
+export function summarizeSkills(skills) {
   return skills.map(({ instructions: _instructions, rootDir: _rootDir, location: _location, ...summary }) => summary)
 }
 

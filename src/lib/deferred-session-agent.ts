@@ -1,7 +1,7 @@
 import type { AgentEvent, AgentMessage, AgentState, ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai/compat'
-import type { ServerAgent, ServerAgentContextCompaction, ServerAgentContextUsage, PromptCapabilitySelection } from '@/lib/server-agent'
+import type { ServerAgent, ServerAgentContextCompaction, ServerAgentContextUsage, PromptCapabilitySelection, FileContextReference } from '@/lib/server-agent'
 import type { AgentAccessMode, AgentHarness, ChatScope, ProjectInfo } from '@/lib/types'
 import { agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
 import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
@@ -36,8 +36,10 @@ export class DeferredSessionAgent {
 
   private promotedAgent: ServerAgent | undefined
   private nextPromptCapabilities: PromptCapabilitySelection[] = []
-  private planMode = false
-  private onPlanModeConsumed?: () => void
+  private nextPromptContextReferences: FileContextReference[] = []
+  private onPromptContextReferencesConsumed?: () => void
+  private promptMode: 'plan' | 'ask' | null = null
+  private onPromptModeConsumed?: () => void
 
   state: {
     systemPrompt: string
@@ -86,15 +88,37 @@ export class DeferredSessionAgent {
     this.nextPromptCapabilities = Array.isArray(capabilities) ? capabilities.slice(0, 4) : []
   }
 
+  setNextPromptContextReferences(references: FileContextReference[], onConsumed?: () => void): void {
+    this.nextPromptContextReferences = Array.isArray(references) ? references.slice(0, 8) : []
+    this.onPromptContextReferencesConsumed = this.nextPromptContextReferences.length > 0 ? onConsumed : undefined
+  }
+
+  setPromptMode(mode: 'plan' | 'ask' | null, onConsumed?: () => void): void {
+    this.promptMode = mode
+    this.onPromptModeConsumed = mode ? onConsumed : undefined
+  }
+
   setPlanMode(mode: boolean, onConsumed?: () => void): void {
-    this.planMode = mode
-    this.onPlanModeConsumed = mode ? onConsumed : undefined
+    this.setPromptMode(mode ? 'plan' : null, onConsumed)
   }
 
   async prompt(input: string | AgentMessage | AgentMessage[]): Promise<void> {
     if (this.disposed || this.state.isStreaming) return
 
-    const message = this.normalizePromptInput(input)
+    const normalizedMessage = this.normalizePromptInput(input)
+    const message = (this.nextPromptContextReferences.length > 0
+      ? {
+          ...normalizedMessage,
+          details: {
+            ...((normalizedMessage as AgentMessage & { details?: unknown }).details
+              && typeof (normalizedMessage as AgentMessage & { details?: unknown }).details === 'object'
+              && !Array.isArray((normalizedMessage as AgentMessage & { details?: unknown }).details)
+              ? (normalizedMessage as AgentMessage & { details: Record<string, unknown> }).details
+              : {}),
+            contextReferences: this.nextPromptContextReferences,
+          },
+        }
+      : normalizedMessage) as AgentMessage
     const messageCountBeforeOptimistic = this.state.messages.length
 
     // Show the first message immediately while the real server session is created.
@@ -125,10 +149,13 @@ export class DeferredSessionAgent {
     }
 
     realAgent.setNextPromptCapabilities(this.nextPromptCapabilities)
-    realAgent.setPlanMode(this.planMode, this.onPlanModeConsumed)
+    realAgent.setNextPromptContextReferences?.(this.nextPromptContextReferences, this.onPromptContextReferencesConsumed)
+    realAgent.setPromptMode?.(this.promptMode, this.onPromptModeConsumed)
     this.nextPromptCapabilities = []
-    this.planMode = false
-    this.onPlanModeConsumed = undefined
+    this.nextPromptContextReferences = []
+    this.onPromptContextReferencesConsumed = undefined
+    this.promptMode = null
+    this.onPromptModeConsumed = undefined
     await realAgent.prompt(message)
   }
 

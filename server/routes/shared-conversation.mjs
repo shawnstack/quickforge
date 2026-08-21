@@ -58,7 +58,13 @@ function publicSharePayload(record) {
 function sanitizeMessage(message) {
   if (!message || typeof message !== 'object') return message
   if (message.role === 'system') return null
-  return message
+  if (!message.details || typeof message.details !== 'object' || Array.isArray(message.details)) return message
+  const details = { ...message.details }
+  delete details.contextReferences
+  const sanitized = { ...message }
+  if (Object.keys(details).length > 0) sanitized.details = details
+  else delete sanitized.details
+  return sanitized
 }
 
 function sanitizeContextCompaction(compaction) {
@@ -369,6 +375,12 @@ export async function handleSharedConversationApi(req, res, url, context = {}) {
   if (req.method === 'POST' && action === 'message') {
     assertOperate(record)
     const body = await readJsonBody(req)
+    if (Array.isArray(body?.contextReferences) && body.contextReferences.length > 0) {
+      throw Object.assign(new Error('Shared conversations do not support file context references'), {
+        statusCode: 409,
+        errorCode: 'CONTEXT_REFERENCES_UNSUPPORTED_SHARED',
+      })
+    }
     await restoreAgent(record.sessionId)
     const result = await runPrompt(
       record.sessionId,

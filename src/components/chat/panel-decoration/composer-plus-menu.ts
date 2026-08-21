@@ -20,9 +20,10 @@ export type ComposerPlusMenuDeps = {
   panel: HTMLElement
   editor: MessageEditorElement
   leftControls: HTMLElement
-  insertBuiltinPluginMention: (mention: string) => void
+  selectPluginCapability: (pluginName: string) => void
   removeCommandSuggestions: () => void
   removeCapabilitySuggestions: () => void
+  removeFileReferenceSuggestions: () => void
   availablePluginRows: () => CapabilitySuggestion[]
   attachmentsEnabled: boolean
   pluginsEnabled: boolean
@@ -119,12 +120,13 @@ function createPlusMenuItem({
 }
 
 function renderComposerPlusPopover(deps: ComposerPlusMenuDeps, view: 'main' | 'plugins') {
-  const { panel, editor, leftControls, insertBuiltinPluginMention, removeCommandSuggestions, removeCapabilitySuggestions } = deps
+  const { panel, editor, leftControls, selectPluginCapability, removeCommandSuggestions, removeCapabilitySuggestions, removeFileReferenceSuggestions } = deps
   // Composer menus are mutually exclusive: opening the plus popover closes the
   // OpenCode mode menu so the two can never overlap.
   removeOpenCodeModeMenu(panel)
   removeCommandSuggestions()
   removeCapabilitySuggestions()
+  removeFileReferenceSuggestions()
 
   const popover = (panel.querySelector<ComposerPlusPopoverElement>('.quickforge-plus-popover') ?? document.createElement('div')) as ComposerPlusPopoverElement
   popover.className = 'quickforge-plus-popover'
@@ -169,7 +171,7 @@ function renderComposerPlusPopover(deps: ComposerPlusMenuDeps, view: 'main' | 'p
         description: row.description,
         pluginName: row.pluginName,
         onSelect: () => {
-          insertBuiltinPluginMention(row.mention)
+          selectPluginCapability(row.pluginName)
           removeComposerPlusPopover(panel)
         },
       }))

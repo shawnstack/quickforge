@@ -82,6 +82,26 @@ describe('workspace', () => {
         await fs.rm(outsideRoot, { recursive: true, force: true })
       }
     })
+
+    it('rejects a safe-looking symlink whose real target is sensitive unless explicitly allowed', async () => {
+      const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-workspace-sensitive-link-'))
+      try {
+        const sensitive = path.join(workspaceRoot, '.ENV.LOCAL')
+        const link = path.join(workspaceRoot, 'safe-name.txt')
+        await fs.writeFile(sensitive, 'secret')
+        try {
+          await fs.symlink(sensitive, link, 'file')
+        } catch (error) {
+          if (error?.code === 'EPERM' || error?.code === 'EACCES') return
+          throw error
+        }
+        const validateWorkspacePath = await createWorkspacePathValidator({ workspaceRoot })
+        await expect(validateWorkspacePath(link)).rejects.toMatchObject({ statusCode: 403, errorCode: 'WORKSPACE_SENSITIVE_PATH' })
+        await expect(validateWorkspacePath(link, { allowSensitive: true })).resolves.toBeUndefined()
+      } finally {
+        await fs.rm(workspaceRoot, { recursive: true, force: true })
+      }
+    })
   })
 
   describe('isInside', () => {
@@ -193,6 +213,13 @@ describe('workspace', () => {
 
     it('flags id_ed25519 as sensitive', () => {
       expect(isSensitiveWorkspacePath('/test/project/id_ed25519')).toBe(true)
+    })
+
+    it('matches sensitive names case-insensitively', () => {
+      expect(isSensitiveWorkspacePath('/test/project/.GIT/config')).toBe(true)
+      expect(isSensitiveWorkspacePath('/test/project/.ENV.LOCAL')).toBe(true)
+      expect(isSensitiveWorkspacePath('/test/project/CREDENTIALS.JSON')).toBe(true)
+      expect(isSensitiveWorkspacePath('/test/project/SERVER.KEY')).toBe(true)
     })
 
     it('does not flag normal files', () => {

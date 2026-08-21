@@ -11,8 +11,15 @@ export type ComposerDraftContext = {
   projectId?: string
 }
 
+type PersistedComposerCapabilitySelection = NonNullable<ComposerDraft['selectedCapabilities']>[number] & {
+  // Kept for drafts written before capability mentions moved out of the composer.
+  mention?: string
+}
+
 type PersistedComposerDraft = {
   text: string
+  contextReferences?: ComposerDraft['contextReferences']
+  selectedCapabilities?: PersistedComposerCapabilitySelection[]
   updatedAt: string
   scope?: ChatScope
   projectId?: string
@@ -34,6 +41,37 @@ export function buildComposerDraftKey(context: ComposerDraftContext) {
   return 'new:global'
 }
 
+function normalizeSelectedCapabilities(value: unknown): PersistedComposerCapabilitySelection[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const capabilities = new Map<string, PersistedComposerCapabilitySelection>()
+  for (const capability of value) {
+    if (!capability || typeof capability !== 'object' || Array.isArray(capability)) continue
+    const record = capability as Record<string, unknown>
+    if (
+      !['plugin', 'skill', 'tool', 'command'].includes(String(record.type))
+      || typeof record.pluginName !== 'string'
+      || typeof record.name !== 'string'
+      || typeof record.label !== 'string'
+      || (record.description !== undefined && typeof record.description !== 'string')
+      || (record.mention !== undefined && typeof record.mention !== 'string')
+    ) continue
+
+    const normalized: PersistedComposerCapabilitySelection = {
+      type: record.type as PersistedComposerCapabilitySelection['type'],
+      pluginName: record.pluginName,
+      name: record.name,
+      label: record.label,
+    }
+    if (typeof record.description === 'string') normalized.description = record.description
+    if (typeof record.mention === 'string') normalized.mention = record.mention
+    const key = `${normalized.type}:${normalized.pluginName}:${normalized.name}`
+    if (capabilities.has(key)) continue
+    capabilities.set(key, normalized)
+    if (capabilities.size >= 4) break
+  }
+  return capabilities.size > 0 ? [...capabilities.values()] : undefined
+}
+
 function normalizeDrafts(value: unknown): PersistedComposerDrafts {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   const drafts: PersistedComposerDrafts = {}
@@ -43,6 +81,17 @@ function normalizeDrafts(value: unknown): PersistedComposerDrafts {
     if (typeof record.text !== 'string') continue
     drafts[key] = {
       text: record.text,
+      contextReferences: Array.isArray(record.contextReferences)
+        ? record.contextReferences.filter((reference): reference is NonNullable<ComposerDraft['contextReferences']>[number] => Boolean(
+            reference
+            && typeof reference === 'object'
+            && !Array.isArray(reference)
+            && (reference as Record<string, unknown>).type === 'file'
+            && typeof (reference as Record<string, unknown>).projectId === 'string'
+            && typeof (reference as Record<string, unknown>).path === 'string',
+          )).slice(0, 8)
+        : undefined,
+      selectedCapabilities: normalizeSelectedCapabilities(record.selectedCapabilities),
       updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : new Date().toISOString(),
       scope: record.scope === 'project' ? 'project' : record.scope === 'global' ? 'global' : undefined,
       projectId: typeof record.projectId === 'string' ? record.projectId : undefined,
@@ -63,7 +112,9 @@ function getLocalDraftStorage(): Storage | undefined {
 function pruneDrafts(drafts: PersistedComposerDrafts, limit = MAX_COMPOSER_DRAFTS): PersistedComposerDrafts {
   return Object.fromEntries(
     Object.entries(drafts)
-      .filter(([, draft]) => draft.text.length > 0)
+      .filter(([, draft]) => draft.text.length > 0
+        || (draft.contextReferences?.length ?? 0) > 0
+        || (draft.selectedCapabilities?.length ?? 0) > 0)
       .sort(([, a], [, b]) => b.updatedAt.localeCompare(a.updatedAt))
       .slice(0, limit),
   )
@@ -119,8 +170,13 @@ function writeDrafts(drafts: PersistedComposerDrafts): void {
 
 export async function loadComposerDraft(key: string): Promise<ComposerDraft | undefined> {
   const draft = readDrafts()[key]
-  if (!draft || draft.text.length === 0) return undefined
-  return { text: draft.text, attachments: [] }
+  if (!draft || (draft.text.length === 0
+    && (draft.contextReferences?.length ?? 0) === 0
+    && (draft.selectedCapabilities?.length ?? 0) === 0)) return undefined
+  const result: ComposerDraft = { text: draft.text, attachments: [] }
+  if (draft.contextReferences?.length) result.contextReferences = [...draft.contextReferences]
+  if (draft.selectedCapabilities?.length) result.selectedCapabilities = [...draft.selectedCapabilities]
+  return result
 }
 
 export async function saveComposerDraft(
@@ -129,7 +185,9 @@ export async function saveComposerDraft(
   context: ComposerDraftContext,
 ): Promise<void> {
   const text = draft.text ?? ''
-  if (text.length === 0) {
+  const contextReferences = draft.contextReferences ? [...draft.contextReferences].slice(0, 8) : []
+  const selectedCapabilities = normalizeSelectedCapabilities(draft.selectedCapabilities) ?? []
+  if (text.length === 0 && contextReferences.length === 0 && selectedCapabilities.length === 0) {
     await clearComposerDraft(key)
     return
   }
@@ -137,6 +195,8 @@ export async function saveComposerDraft(
   const drafts = readDrafts()
   drafts[key] = {
     text,
+    contextReferences,
+    selectedCapabilities,
     updatedAt: new Date().toISOString(),
     scope: context.scope,
     projectId: context.scope === 'project' ? context.projectId : undefined,

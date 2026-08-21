@@ -75,6 +75,104 @@ describe('composer drafts', () => {
     expect(typeof drafts['new:project:project-1'].updatedAt).toBe('string')
   })
 
+  it('saves and restores a references-only project draft without persisting attachments', async () => {
+    const reference = { type: 'file' as const, projectId: 'project-1', path: 'src/main.ts' }
+    await saveComposerDraft(
+      'new:project:project-1',
+      { text: '', attachments: [{ name: 'not-persisted' }], contextReferences: [reference] },
+      { scope: 'project', projectId: 'project-1' },
+    )
+
+    expect(readStoredDrafts()['new:project:project-1']).toMatchObject({ text: '', contextReferences: [reference] })
+    await expect(loadComposerDraft('new:project:project-1')).resolves.toEqual({ text: '', attachments: [], contextReferences: [reference] })
+  })
+
+  it('round-trips selected capabilities through localStorage without persisting attachments', async () => {
+    const capability = {
+      type: 'plugin' as const,
+      pluginName: 'documents',
+      name: 'documents',
+      label: 'Documents',
+      description: 'Create and edit documents',
+    }
+    await saveComposerDraft(
+      'new:global',
+      { text: 'continue', attachments: [{ name: 'not-persisted' }], selectedCapabilities: [capability] },
+      { scope: 'global' },
+    )
+
+    expect(readStoredDrafts()['new:global']).toMatchObject({
+      text: 'continue',
+      selectedCapabilities: [capability],
+    })
+    expect(readStoredDrafts()['new:global']).not.toHaveProperty('attachments')
+    await expect(loadComposerDraft('new:global')).resolves.toEqual({
+      text: 'continue',
+      attachments: [],
+      selectedCapabilities: [capability],
+    })
+  })
+
+  it('filters invalid and duplicate persisted capabilities and limits restoration to four', async () => {
+    const valid = (name: string) => ({
+      type: 'plugin',
+      pluginName: name,
+      name,
+      label: name.toUpperCase(),
+      description: `${name} description`,
+      mention: `@${name}`,
+      ignored: true,
+    })
+    globalThis.localStorage.setItem(draftsKey, JSON.stringify({
+      capabilities: {
+        text: '',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        selectedCapabilities: [
+          valid('one'),
+          { ...valid('one'), label: 'duplicate' },
+          { ...valid('two'), type: 'invalid' },
+          { ...valid('three'), pluginName: 123 },
+          { ...valid('four'), description: 123 },
+          { ...valid('five'), mention: 123 },
+          valid('two'),
+          { ...valid('three'), type: 'skill' },
+          { ...valid('four'), type: 'tool' },
+          { ...valid('five'), type: 'command' },
+        ],
+      },
+    }))
+
+    await expect(loadComposerDraft('capabilities')).resolves.toEqual({
+      text: '',
+      attachments: [],
+      selectedCapabilities: [
+        { type: 'plugin', pluginName: 'one', name: 'one', label: 'ONE', description: 'one description', mention: '@one' },
+        { type: 'plugin', pluginName: 'two', name: 'two', label: 'TWO', description: 'two description', mention: '@two' },
+        { type: 'skill', pluginName: 'three', name: 'three', label: 'THREE', description: 'three description', mention: '@three' },
+        { type: 'tool', pluginName: 'four', name: 'four', label: 'FOUR', description: 'four description', mention: '@four' },
+      ],
+    })
+  })
+
+  it('keeps a capabilities-only draft and removes it once saved empty', async () => {
+    const capability = { type: 'plugin' as const, pluginName: 'documents', name: 'documents', label: 'Documents' }
+    await saveComposerDraft(
+      'new:global',
+      { text: '', attachments: [], selectedCapabilities: [capability] },
+      { scope: 'global' },
+    )
+
+    expect(readStoredDrafts()['new:global']).toMatchObject({ text: '', selectedCapabilities: [capability] })
+    await expect(loadComposerDraft('new:global')).resolves.toEqual({
+      text: '',
+      attachments: [],
+      selectedCapabilities: [capability],
+    })
+
+    await saveComposerDraft('new:global', { text: '', attachments: [] }, { scope: 'global' })
+    expect(globalThis.localStorage.getItem(draftsKey)).toBeNull()
+  })
+
   it('saves a real session draft with session id', async () => {
     await saveComposerDraft(
       'session:session-1',

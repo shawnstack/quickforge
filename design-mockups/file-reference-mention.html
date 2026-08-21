@@ -1,0 +1,989 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>@ 引用当前项目文件 · QuickForge Composer 设计原型</title>
+<style>
+  :root {
+    color-scheme: light;
+    --background: #fff;
+    --foreground: #18181b;
+    --card: #fafafa;
+    --popover: #fff;
+    --muted: #f4f4f5;
+    --muted-foreground: #71717a;
+    --border: #e4e4e7;
+    --primary: #18181b;
+    --primary-foreground: #fafafa;
+    --accent: #2563eb;
+    --accent-soft: rgb(37 99 235 / 0.09);
+    --danger: #b91c1c;
+    --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Courier New", monospace;
+  }
+  body.dark {
+    color-scheme: dark;
+    --background: #101012;
+    --foreground: #f4f4f5;
+    --card: #17171a;
+    --popover: #1c1c20;
+    --muted: #242429;
+    --muted-foreground: #a1a1aa;
+    --border: #2a2a30;
+    --primary: #fafafa;
+    --primary-foreground: #18181b;
+    --accent: #93b4fd;
+    --accent-soft: rgb(96 145 250 / 0.14);
+    --danger: #fca5a5;
+  }
+  * { box-sizing: border-box; }
+  html { font-size: 13px; }
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  button, textarea { font: inherit; }
+  button:focus-visible, textarea:focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--accent) 64%, transparent);
+    outline-offset: 2px;
+  }
+  [hidden] { display: none !important; }
+  .page {
+    width: min(100%, 60rem);
+    min-height: 100vh;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 5rem;
+  }
+
+  /* 评审工具栏 */
+  .review-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+  .toolbar-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.65rem;
+  }
+  .toolbar-row h1 {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+  .toolbar-label { color: var(--muted-foreground); font-size: 0.88rem; }
+  .sep { width: 1px; height: 1.25rem; background: var(--border); }
+  .seg {
+    display: inline-flex;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 0.65rem;
+    background: var(--background);
+  }
+  .seg button, .scenario-btn, .theme-btn {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--muted-foreground);
+    cursor: pointer;
+    padding: 0.42rem 0.7rem;
+    white-space: nowrap;
+  }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button:hover, .seg button.active, .scenario-btn:hover, .scenario-btn.active, .theme-btn:hover {
+    background: var(--muted);
+    color: var(--foreground);
+  }
+  .seg button.active { font-weight: 600; }
+  .recommended {
+    margin-left: 0.3rem;
+    color: var(--accent);
+    font-size: 0.72rem;
+    font-weight: 600;
+  }
+  .scenario-btn, .theme-btn {
+    border: 1px solid var(--border);
+    border-radius: 0.65rem;
+  }
+  .scenario-btn.active { border-color: color-mix(in oklab, var(--accent) 28%, var(--border)); }
+  .theme-btn { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .theme-btn svg { width: 1rem; height: 1rem; }
+
+  /* 会话 */
+  .chat-panel {
+    width: min(100%, 56rem);
+    height: 45rem;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    background: var(--background);
+  }
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 1.15rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted-foreground);
+    font-size: 0.9rem;
+  }
+  .project-name { color: var(--foreground); font-weight: 600; }
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1.35rem 1.4rem 0.75rem;
+  }
+  .msg-user {
+    align-self: flex-end;
+    max-width: 78%;
+    padding: 0.68rem 0.92rem;
+    border: 1px solid color-mix(in oklab, var(--primary) 11%, var(--border));
+    border-radius: 1rem 1rem 0.3rem 1rem;
+    background: color-mix(in oklab, var(--primary) 5%, var(--card));
+    line-height: 1.58;
+  }
+  .msg-assistant { max-width: 88%; line-height: 1.65; }
+  .msg-assistant .muted { color: var(--muted-foreground); font-size: 0.92rem; }
+
+  /* Composer */
+  .composer-wrap { padding: 0 0.9rem 0.9rem; }
+  .composer-shell {
+    position: relative;
+    padding: 0.15rem 0.65rem 0.58rem;
+    border: 1px solid color-mix(in oklab, var(--border) 82%, transparent);
+    border-radius: 1.5rem;
+    background: var(--card);
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.05), 0 12px 32px -25px rgb(15 23 42 / 0.28);
+  }
+  .composer-shell:focus-within { border-color: color-mix(in oklab, var(--accent) 23%, var(--border)); }
+
+  /* Composer 内部菜单 */
+  .mention-menu, .plus-menu {
+    margin: 0.5rem 0.75rem 0;
+    max-height: 17rem;
+    overflow-y: auto;
+    border: 1px solid color-mix(in oklab, var(--border) 74%, transparent);
+    border-radius: 1rem;
+    background: color-mix(in oklab, var(--popover) 96%, transparent);
+    box-shadow: 0 18px 46px -30px rgb(15 23 42 / 0.38);
+  }
+  .menu-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.62rem 0.78rem 0.38rem;
+    background: var(--popover);
+    color: var(--muted-foreground);
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+  .menu-head span:last-child { font-weight: 400; opacity: 0.75; }
+  .result-row {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1.35rem minmax(0, 1fr);
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.56rem 0.78rem;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .result-row:hover, .result-row.active {
+    background: color-mix(in oklab, var(--muted) 68%, transparent);
+  }
+  .result-row.active {
+    box-shadow: inset 2px 0 0 color-mix(in oklab, var(--accent) 62%, transparent);
+  }
+  .file-icon {
+    width: 1.15rem;
+    height: 1.15rem;
+    color: color-mix(in oklab, var(--accent) 78%, var(--muted-foreground));
+  }
+  .result-copy { min-width: 0; display: grid; gap: 0.13rem; }
+  .result-name {
+    overflow: hidden;
+    color: var(--foreground);
+    font-size: 0.93rem;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .result-path {
+    overflow: hidden;
+    color: var(--muted-foreground);
+    font-family: var(--font-mono);
+    font-size: 0.77rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  mark {
+    padding: 0;
+    border-radius: 0.15rem;
+    background: color-mix(in oklab, var(--accent) 17%, transparent);
+    color: inherit;
+    font-weight: 700;
+  }
+  .menu-state {
+    min-height: 6.2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    padding: 1rem;
+    color: var(--muted-foreground);
+    text-align: center;
+  }
+  .menu-state.error { color: var(--danger); }
+  .spinner {
+    width: 1rem;
+    height: 1rem;
+    border: 1.5px solid color-mix(in oklab, var(--muted-foreground) 25%, transparent);
+    border-top-color: var(--muted-foreground);
+    border-radius: 999px;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .menu-foot {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding: 0.42rem 0.78rem 0.5rem;
+    border-top: 1px solid color-mix(in oklab, var(--border) 58%, transparent);
+    background: var(--popover);
+    color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
+    font-size: 0.72rem;
+  }
+  kbd {
+    display: inline-block;
+    min-width: 1.15rem;
+    margin-right: 0.16rem;
+    padding: 0.04rem 0.25rem;
+    border: 1px solid var(--border);
+    border-radius: 0.28rem;
+    background: var(--muted);
+    color: color-mix(in oklab, var(--foreground) 78%, transparent);
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    text-align: center;
+  }
+
+  /* + 关系示意菜单 */
+  .plus-menu { padding: 0.45rem; }
+  .plus-menu button {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1.4rem 1fr;
+    gap: 0.6rem;
+    padding: 0.62rem 0.7rem;
+    border: 0;
+    border-radius: 0.65rem;
+    background: transparent;
+    color: var(--foreground);
+    text-align: left;
+    cursor: pointer;
+  }
+  .plus-menu button:hover { background: var(--muted); }
+  .plus-menu svg { width: 1.1rem; height: 1.1rem; color: var(--muted-foreground); }
+  .plus-copy { display: grid; gap: 0.12rem; }
+  .plus-copy small { color: var(--muted-foreground); }
+
+  /* 文件 chip */
+  .chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.38rem;
+    padding: 0.62rem 0.42rem 0.25rem;
+  }
+  .chip-row:empty { display: none; }
+  .file-chip {
+    max-width: 100%;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.36rem;
+    padding: 0.25rem 0.35rem 0.25rem 0.48rem;
+    border-radius: 0.62rem;
+    background: var(--accent-soft);
+    color: color-mix(in oklab, var(--accent) 82%, var(--foreground));
+    font-size: 0.79rem;
+    font-weight: 550;
+  }
+  .file-chip svg { width: 0.9rem; height: 0.9rem; flex: none; }
+  .file-chip .chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip-remove {
+    width: 1.25rem;
+    height: 1.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0.65;
+  }
+  .chip-remove:hover { background: rgb(0 0 0 / 0.07); opacity: 1; }
+  body.dark .chip-remove:hover { background: rgb(255 255 255 / 0.1); }
+  .chip-remove svg { width: 0.78rem; height: 0.78rem; }
+
+  .editor-area { display: grid; gap: 0.45rem; padding: 0.38rem 0.35rem 0; }
+  textarea {
+    width: 100%;
+    min-height: 4rem;
+    max-height: 10rem;
+    resize: none;
+    border: 0;
+    outline: 0 !important;
+    background: transparent;
+    color: var(--foreground);
+    font-size: 1rem;
+    line-height: 1.62;
+    padding: 0.2rem 0.5rem 0;
+  }
+  textarea::placeholder { color: color-mix(in oklab, var(--muted-foreground) 72%, transparent); }
+  .editor-actions { display: flex; align-items: center; gap: 0.48rem; }
+  .icon-btn {
+    appearance: none;
+    width: 2.15rem;
+    height: 2.15rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: 0.72rem;
+    background: transparent;
+    color: var(--muted-foreground);
+    cursor: pointer;
+  }
+  .icon-btn:hover, .icon-btn.active { background: var(--muted); color: var(--foreground); }
+  .icon-btn svg { width: 1.05rem; height: 1.05rem; }
+  .send-btn {
+    margin-left: auto;
+    border: 0;
+    background: var(--primary);
+    color: var(--primary-foreground);
+  }
+  .composer-hint {
+    padding: 0.4rem 0.65rem 0;
+    color: var(--muted-foreground);
+    font-size: 0.78rem;
+  }
+  .sr-status {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  /* 说明 */
+  .notes {
+    width: min(100%, 56rem);
+    margin: 1.2rem auto 0;
+    padding: 1.25rem 1.45rem;
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    background: var(--card);
+    line-height: 1.72;
+  }
+  .notes-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem 1.5rem; }
+  .notes section { min-width: 0; }
+  .notes h2 { margin: 0 0 0.4rem; font-size: 1rem; }
+  .notes ul { margin: 0; padding-left: 1.25rem; }
+  .notes li + li { margin-top: 0.22rem; }
+  .notes code {
+    padding: 0.08rem 0.28rem;
+    border-radius: 0.3rem;
+    background: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+  }
+  .decision { color: var(--accent); font-weight: 600; }
+
+  @media (max-width: 680px) {
+    .page { padding-inline: 0.7rem; }
+    .chat-panel { height: 48rem; }
+    .notes-grid { grid-template-columns: 1fr; }
+    .panel-head span:last-child { display: none; }
+    .sep { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="review-toolbar" aria-label="原型评审工具栏">
+    <div class="toolbar-row">
+      <h1>@ 引用当前项目文件 · 设计原型</h1>
+      <span class="sep" aria-hidden="true"></span>
+      <button class="theme-btn" id="theme-btn" type="button" aria-label="切换为暗色主题">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5 5l1.4 1.4M13.6 13.6 15 15M15 5l-1.4 1.4M6.4 13.6 5 15"/><circle cx="10" cy="10" r="3.2"/></svg>
+        <span>暗色</span>
+      </button>
+    </div>
+    <div class="toolbar-row" id="scenario-bar" aria-label="演示场景">
+      <span class="toolbar-label">场景</span>
+      <button class="scenario-btn active" type="button" data-scene="recent">最近文件</button>
+      <button class="scenario-btn" type="button" data-scene="search">搜索结果</button>
+      <button class="scenario-btn" type="button" data-scene="loading">加载中</button>
+      <button class="scenario-btn" type="button" data-scene="empty">无结果</button>
+      <button class="scenario-btn" type="button" data-scene="error">错误</button>
+    </div>
+    <div class="toolbar-row">
+      <span class="toolbar-label">选中后</span>
+      <div class="seg" id="mode-seg" aria-label="文件引用呈现方式">
+        <button type="button" class="active" data-mode="structured">结构化 chip <span class="recommended">推荐</span></button>
+        <button type="button" data-mode="inline">内联文本（对比）</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="chat-panel">
+      <div class="panel-head">
+        <span>会话 · <span class="project-name">quickforge</span></span>
+        <span>当前项目 · 文件引用不会暴露绝对路径</span>
+      </div>
+      <div class="messages" id="messages">
+        <div class="msg-user">请结合聊天面板和 capability suggestions 看一下能力入口是否一致。</div>
+        <div class="msg-assistant">可以。输入 <b>@</b> 引用当前项目文件；输入两个或更多字符后会搜索文件名和项目相对路径。<br><span class="muted">这是交互原型：数据与延迟均在本地模拟。</span></div>
+      </div>
+
+      <div class="composer-wrap">
+        <div class="composer-shell">
+          <div class="mention-menu" id="mention-menu" role="listbox" aria-label="当前项目文件" hidden></div>
+          <div class="plus-menu" id="plus-menu" aria-label="附件与能力菜单" hidden>
+            <button type="button" data-plus-action="attachment">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="m7.2 10.8 4.9-4.9a2.5 2.5 0 0 1 3.5 3.5l-6.4 6.4a4 4 0 0 1-5.7-5.7l6.3-6.3"/></svg>
+              <span class="plus-copy"><span>添加附件</span><small>选择本地文件或图片</small></span>
+            </button>
+            <button type="button" data-plus-action="capability">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2.8 11.5 7l4.4 1.4-4.4 1.5-1.5 4.3-1.5-4.3-4.4-1.5L8.5 7 10 2.8Z"/><path d="m15.3 13 .6 1.7 1.7.6-1.7.6-.6 1.7-.6-1.7-1.7-.6 1.7-.6.6-1.7Z"/></svg>
+              <span class="plus-copy"><span>使用能力</span><small>关系示意；插件在设置中管理</small></span>
+            </button>
+          </div>
+
+          <div class="chip-row" id="chip-row" aria-label="已引用文件"></div>
+          <div class="editor-area">
+            <textarea id="composer" aria-label="消息输入框" aria-controls="mention-menu" aria-autocomplete="list" placeholder="输入消息；使用 @ 引用当前项目文件…">请检查 @</textarea>
+            <div class="editor-actions">
+              <button class="icon-btn" id="plus-btn" type="button" aria-label="打开附件与能力菜单" aria-expanded="false" title="附件与能力">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M10 4.5v11M4.5 10h11"/></svg>
+              </button>
+              <button class="icon-btn send-btn" id="send-btn" type="button" aria-label="发送消息" title="发送">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 10 9 6.5M5.5 10 9 13.5M5 10h9.5"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="composer-hint">@ 当前项目文件 · / 动作 · + 附件/能力 · Shift+Enter 换行</div>
+        <div class="sr-status" id="sr-status" aria-live="polite"></div>
+      </div>
+    </div>
+
+    <article class="notes" aria-labelledby="notes-title">
+      <h2 id="notes-title">设计说明</h2>
+      <div class="notes-grid">
+        <section>
+          <h2>信息架构</h2>
+          <ul>
+            <li><code>@</code>：仅引用当前项目文件；<b>插件与目录不出现在 @ 菜单</b>。</li>
+            <li><code>/</code>：动作、技能与子智能体。</li>
+            <li><code>+</code>：附件；“+ → 能力”仅作入口关系示意。</li>
+            <li>设置：插件的安装、启用与管理。</li>
+          </ul>
+        </section>
+        <section>
+          <h2>默认推荐</h2>
+          <ul>
+            <li><span class="decision">结构化 chip（推荐）</span>：移除活动 @token，引用与正文分离，支持多文件、去重和单独删除。</li>
+            <li>内联文本只用于对比，直观但难以稳定表达引用身份、去重及删除边界。</li>
+          </ul>
+        </section>
+        <section>
+          <h2>MVP 范围</h2>
+          <ul>
+            <li>当前项目文件；裸 <code>@</code> 显示最近项，输入 2+ 字符搜索，最多约 8 条。</li>
+            <li>键盘/鼠标选择、匹配高亮、加载/空/错误状态、亮暗主题。</li>
+            <li>不含目录浏览、插件项、跨项目文件、真实文件 API 或权限实现。</li>
+          </ul>
+        </section>
+        <section>
+          <h2>待用户确认</h2>
+          <ul>
+            <li>是否确认 chip 为默认且唯一的正式呈现？</li>
+            <li>搜索范围是文件名 + 完整相对路径，还是优先文件名？</li>
+            <li>裸 <code>@</code> 的“最近”按打开、编辑还是引用历史排序？</li>
+            <li>发送后的消息中是否继续显示文件 chip？</li>
+          </ul>
+        </section>
+      </div>
+    </article>
+  </main>
+</div>
+
+<script>
+  const FILE_ICON = '<svg class="file-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2.8h6l4 4v10.4H5z"/><path d="M11 2.8v4h4"/></svg>';
+  const CHIP_ICON = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2.8h6l4 4v10.4H5z"/><path d="M11 2.8v4h4"/></svg>';
+  const CLOSE_ICON = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 8 8M14 6l-8 8"/></svg>';
+
+  const FILES = [
+    { path: 'src/components/chat/ChatPanelHost.tsx', recent: 1 },
+    { path: 'src/components/chat/capability-suggestions.ts', recent: 2 },
+    { path: 'server/agent-manager.mjs', recent: 3 },
+    { path: 'src/lib/server-agent.ts', recent: 4 },
+    { path: 'docs/architecture/plugin-system.zh-CN.md', recent: 5 },
+    { path: 'tests/frontend/capability-suggestions.test.ts', recent: 6 },
+    { path: 'src/components/chat/composer-actions.tsx', recent: 7 },
+    { path: 'server/routes/project-files.mjs', recent: 8 },
+    { path: 'docs/wiki/frontend/chat-panel.md', recent: 9 },
+    { path: 'src/lib/project-context.ts', recent: 10 },
+    { path: 'tests/server/agent-manager.test.mjs', recent: 11 }
+  ].map((file) => ({ ...file, name: file.path.split('/').pop() }));
+
+  const state = {
+    theme: 'light',
+    mode: 'structured',
+    scene: 'recent',
+    menuOpen: false,
+    plusOpen: false,
+    rows: [],
+    activeIndex: 0,
+    token: null,
+    selected: [],
+    requestId: 0
+  };
+
+  const composer = document.querySelector('#composer');
+  const menu = document.querySelector('#mention-menu');
+  const plusMenu = document.querySelector('#plus-menu');
+  const plusBtn = document.querySelector('#plus-btn');
+  const chipRow = document.querySelector('#chip-row');
+  const messages = document.querySelector('#messages');
+  const srStatus = document.querySelector('#sr-status');
+
+  function escapeHtml(value) {
+    return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
+  }
+
+  function getActiveToken() {
+    const caret = composer.selectionStart;
+    const before = composer.value.slice(0, caret);
+    const match = before.match(/(^|\s)@([^\s@]*)$/);
+    if (!match) return null;
+    const start = caret - match[0].length + match[1].length;
+    return { start, end: caret, query: match[2] };
+  }
+
+  function setSceneActive(scene) {
+    document.querySelectorAll('[data-scene]').forEach((button) => {
+      button.classList.toggle('active', button.dataset.scene === scene);
+    });
+  }
+
+  function applyScene(scene) {
+    state.scene = scene;
+    setSceneActive(scene);
+    closePlus();
+    const values = {
+      recent: '请检查 @',
+      search: '请对比 @cap',
+      loading: '请查看 @chat',
+      empty: '请查看 @zz',
+      error: '请查看 @agent'
+    };
+    composer.value = values[scene];
+    composer.focus();
+    composer.selectionStart = composer.selectionEnd = composer.value.length;
+    state.token = getActiveToken();
+    if (scene === 'recent') renderRecent();
+    else if (scene === 'search') runSearch('cap');
+    else if (scene === 'loading') renderLoading('chat');
+    else if (scene === 'empty') renderEmpty('zz');
+    else renderError('agent');
+  }
+
+  function openMenu() {
+    closePlus();
+    menu.hidden = false;
+    state.menuOpen = true;
+    composer.setAttribute('aria-expanded', 'true');
+  }
+
+  function closeMenu() {
+    state.requestId += 1;
+    menu.hidden = true;
+    state.menuOpen = false;
+    state.rows = [];
+    composer.setAttribute('aria-expanded', 'false');
+    composer.removeAttribute('aria-activedescendant');
+  }
+
+  function openPlus() {
+    closeMenu();
+    plusMenu.hidden = false;
+    state.plusOpen = true;
+    plusBtn.classList.add('active');
+    plusBtn.setAttribute('aria-expanded', 'true');
+    plusBtn.setAttribute('aria-label', '关闭附件与能力菜单');
+  }
+
+  function closePlus() {
+    plusMenu.hidden = true;
+    state.plusOpen = false;
+    plusBtn.classList.remove('active');
+    plusBtn.setAttribute('aria-expanded', 'false');
+    plusBtn.setAttribute('aria-label', '打开附件与能力菜单');
+  }
+
+  function menuHeader(title, meta) {
+    return '<div class="menu-head"><span>' + escapeHtml(title) + '</span><span>' + escapeHtml(meta) + '</span></div>';
+  }
+
+  function menuFooter() {
+    return '<div class="menu-foot">'
+      + '<span><kbd>↑</kbd><kbd>↓</kbd>循环选择</span>'
+      + '<span><kbd>Enter</kbd>/<kbd>Tab</kbd>引用</span>'
+      + '<span><kbd>Esc</kbd>关闭</span>'
+      + '</div>';
+  }
+
+  function highlight(text, query) {
+    if (!query) return escapeHtml(text);
+    const lower = text.toLowerCase();
+    const needle = query.toLowerCase();
+    let from = 0;
+    let at = lower.indexOf(needle, from);
+    if (at < 0) return escapeHtml(text);
+    let html = '';
+    while (at >= 0) {
+      html += escapeHtml(text.slice(from, at));
+      html += '<mark>' + escapeHtml(text.slice(at, at + query.length)) + '</mark>';
+      from = at + query.length;
+      at = lower.indexOf(needle, from);
+    }
+    return html + escapeHtml(text.slice(from));
+  }
+
+  function renderResults(files, query, title) {
+    state.activeIndex = 0;
+    openMenu();
+    menu.innerHTML = menuHeader(title, files.length + ' 个文件');
+    files.slice(0, 8).forEach((file, index) => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'result-row';
+      row.id = 'file-option-' + index;
+      row.setAttribute('role', 'option');
+      row.setAttribute('aria-label', file.name + '，' + file.path);
+      row.dataset.path = file.path;
+      row.innerHTML = FILE_ICON
+        + '<span class="result-copy"><span class="result-name">' + highlight(file.name, query) + '</span>'
+        + '<span class="result-path">' + highlight(file.path, query) + '</span></span>';
+      row.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        chooseFile(file);
+      });
+      menu.append(row);
+      state.rows.push(row);
+    });
+    menu.insertAdjacentHTML('beforeend', menuFooter());
+    syncActive();
+    srStatus.textContent = '找到 ' + Math.min(files.length, 8) + ' 个当前项目文件';
+  }
+
+  function renderRecent() {
+    state.requestId += 1;
+    state.token = getActiveToken();
+    const recent = [...FILES].sort((a, b) => a.recent - b.recent).slice(0, 8);
+    state.rows = [];
+    renderResults(recent, '', '最近文件');
+  }
+
+  function renderPrompt(query) {
+    state.requestId += 1;
+    state.rows = [];
+    openMenu();
+    menu.innerHTML = menuHeader('搜索当前项目文件', query.length + '/2 字符')
+      + '<div class="menu-state">再输入 1 个字符开始搜索</div>'
+      + menuFooter();
+    srStatus.textContent = '再输入一个字符开始搜索当前项目文件';
+  }
+
+  function renderLoading(query, persistent) {
+    if (!persistent) state.requestId += 1;
+    state.rows = [];
+    openMenu();
+    menu.innerHTML = menuHeader('搜索当前项目文件', '正在搜索')
+      + '<div class="menu-state"><span class="spinner" aria-hidden="true"></span><span>正在搜索“' + escapeHtml(query) + '”…</span></div>'
+      + menuFooter();
+    srStatus.textContent = '正在搜索当前项目文件';
+  }
+
+  function renderEmpty(query) {
+    state.requestId += 1;
+    state.rows = [];
+    openMenu();
+    menu.innerHTML = menuHeader('搜索当前项目文件', '0 个文件')
+      + '<div class="menu-state">未找到与“' + escapeHtml(query) + '”匹配的文件</div>'
+      + menuFooter();
+    srStatus.textContent = '没有匹配的当前项目文件';
+  }
+
+  function renderError(query) {
+    state.requestId += 1;
+    state.rows = [];
+    openMenu();
+    menu.innerHTML = menuHeader('搜索当前项目文件', '暂不可用')
+      + '<div class="menu-state error">文件列表加载失败，请稍后重试</div>'
+      + menuFooter();
+    srStatus.textContent = '文件列表加载失败';
+  }
+
+  function searchFiles(query) {
+    const needle = query.toLowerCase();
+    return FILES.filter((file) => file.name.toLowerCase().includes(needle) || file.path.toLowerCase().includes(needle)).slice(0, 8);
+  }
+
+  function runSearch(query) {
+    const requestId = ++state.requestId;
+    state.rows = [];
+    openMenu();
+    menu.innerHTML = menuHeader('搜索当前项目文件', '正在搜索')
+      + '<div class="menu-state"><span class="spinner" aria-hidden="true"></span><span>正在搜索“' + escapeHtml(query) + '”…</span></div>'
+      + menuFooter();
+    const delay = 320 + Math.min(query.length * 70, 280);
+    window.setTimeout(() => {
+      if (requestId !== state.requestId) return;
+      const token = getActiveToken();
+      if (!token || token.query !== query) return;
+      state.token = token;
+      const results = searchFiles(query);
+      if (results.length) renderResults(results, query, '搜索当前项目文件');
+      else renderEmpty(query);
+    }, delay);
+  }
+
+  function updateFromComposer() {
+    state.scene = 'custom';
+    setSceneActive('');
+    closePlus();
+    const token = getActiveToken();
+    state.token = token;
+    if (!token) {
+      closeMenu();
+      return;
+    }
+    if (token.query.length === 0) renderRecent();
+    else if (token.query.length === 1) renderPrompt(token.query);
+    else runSearch(token.query);
+  }
+
+  function syncActive() {
+    state.rows.forEach((row, index) => {
+      const active = index === state.activeIndex;
+      row.classList.toggle('active', active);
+      row.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    const active = state.rows[state.activeIndex];
+    if (active) {
+      composer.setAttribute('aria-activedescendant', active.id);
+      active.scrollIntoView({ block: 'nearest' });
+    } else {
+      composer.removeAttribute('aria-activedescendant');
+    }
+  }
+
+  function moveActive(delta) {
+    if (!state.rows.length) return;
+    state.activeIndex = (state.activeIndex + delta + state.rows.length) % state.rows.length;
+    syncActive();
+  }
+
+  function removeToken(token, replacement) {
+    const before = composer.value.slice(0, token.start);
+    const after = composer.value.slice(token.end);
+    composer.value = before + replacement + after;
+    const caret = before.length + replacement.length;
+    composer.selectionStart = composer.selectionEnd = caret;
+  }
+
+  function chooseFile(file) {
+    const token = getActiveToken() || state.token;
+    if (!token) return;
+    if (state.mode === 'structured') {
+      removeToken(token, '');
+      if (!state.selected.some((item) => item.path === file.path)) {
+        state.selected.push(file);
+        renderChips();
+        srStatus.textContent = '已引用 ' + file.name;
+      } else {
+        srStatus.textContent = file.name + ' 已经引用，未重复添加';
+      }
+    } else {
+      const mention = '@' + file.path;
+      const duplicate = composer.value.includes(mention);
+      removeToken(token, duplicate ? '' : mention + ' ');
+      srStatus.textContent = duplicate ? file.name + ' 已存在，未重复添加' : '已插入 ' + file.path;
+    }
+    closeMenu();
+    composer.focus();
+  }
+
+  function renderChips() {
+    chipRow.innerHTML = '';
+    state.selected.forEach((file) => {
+      const chip = document.createElement('span');
+      chip.className = 'file-chip';
+      chip.title = file.path;
+      chip.innerHTML = CHIP_ICON + '<span class="chip-name"></span>'
+        + '<button class="chip-remove" type="button" aria-label="移除文件引用 ' + escapeHtml(file.name) + '" title="移除">' + CLOSE_ICON + '</button>';
+      chip.querySelector('.chip-name').textContent = file.name;
+      chip.querySelector('.chip-remove').addEventListener('click', () => {
+        state.selected = state.selected.filter((item) => item.path !== file.path);
+        renderChips();
+        composer.focus();
+        srStatus.textContent = '已移除 ' + file.name;
+      });
+      chipRow.append(chip);
+    });
+  }
+
+  function sendMessage() {
+    const text = composer.value.trim();
+    if (!text && !state.selected.length) return;
+    closeMenu();
+    closePlus();
+    const message = document.createElement('div');
+    message.className = 'msg-user';
+    if (state.mode === 'structured' && state.selected.length) {
+      const refs = state.selected.map((file) => file.name).join('、');
+      message.textContent = '引用：' + refs + (text ? '\n' + text : '');
+      message.style.whiteSpace = 'pre-wrap';
+      message.title = state.selected.map((file) => file.path).join('\n');
+    } else {
+      message.textContent = text;
+    }
+    messages.append(message);
+    const reply = document.createElement('div');
+    reply.className = 'msg-assistant';
+    reply.innerHTML = '<span class="muted">（原型演示）消息已发送；文件引用会作为结构化上下文提交。</span>';
+    messages.append(reply);
+    messages.scrollTop = messages.scrollHeight;
+    composer.value = '';
+    state.selected = [];
+    renderChips();
+    srStatus.textContent = '消息已发送';
+  }
+
+  composer.addEventListener('input', updateFromComposer);
+  composer.addEventListener('click', () => {
+    if (getActiveToken()) updateFromComposer();
+  });
+  composer.addEventListener('keydown', (event) => {
+    if (event.isComposing || event.key === 'Process') return;
+    if (state.menuOpen) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        moveActive(1);
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        moveActive(-1);
+      } else if ((event.key === 'Enter' || event.key === 'Tab') && state.rows.length && !event.shiftKey) {
+        event.preventDefault();
+        const row = state.rows[state.activeIndex];
+        const file = FILES.find((item) => item.path === row.dataset.path);
+        if (file) chooseFile(file);
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        closeMenu();
+      } else if (event.key === 'Enter' && event.shiftKey) {
+        // 保留 textarea 原生换行。
+      }
+      return;
+    }
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      sendMessage();
+    }
+  });
+
+  plusBtn.addEventListener('click', () => {
+    if (state.plusOpen) closePlus();
+    else openPlus();
+  });
+  document.querySelectorAll('[data-plus-action]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const label = button.dataset.plusAction === 'attachment' ? '附件选择仅作示意' : '能力入口关系仅作示意；插件请在设置中管理';
+      srStatus.textContent = label;
+      closePlus();
+      composer.focus();
+    });
+  });
+  document.querySelector('#send-btn').addEventListener('click', sendMessage);
+
+  document.querySelector('#scenario-bar').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-scene]');
+    if (button) applyScene(button.dataset.scene);
+  });
+
+  document.querySelector('#mode-seg').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-mode]');
+    if (!button) return;
+    state.mode = button.dataset.mode;
+    document.querySelectorAll('[data-mode]').forEach((item) => item.classList.toggle('active', item === button));
+    if (state.mode === 'inline' && state.selected.length) {
+      const prefix = state.selected.map((file) => '@' + file.path).join(' ') + ' ';
+      composer.value = prefix + composer.value;
+      state.selected = [];
+      renderChips();
+    }
+    composer.focus();
+    srStatus.textContent = state.mode === 'structured' ? '已切换为推荐的结构化 chip' : '已切换为内联文本对比方案';
+  });
+
+  document.querySelector('#theme-btn').addEventListener('click', () => {
+    state.theme = state.theme === 'light' ? 'dark' : 'light';
+    document.body.classList.toggle('dark', state.theme === 'dark');
+    const button = document.querySelector('#theme-btn');
+    button.querySelector('span').textContent = state.theme === 'dark' ? '亮色' : '暗色';
+    button.setAttribute('aria-label', state.theme === 'dark' ? '切换为亮色主题' : '切换为暗色主题');
+  });
+
+  document.addEventListener('pointerdown', (event) => {
+    if (state.menuOpen && !menu.contains(event.target) && event.target !== composer) closeMenu();
+    if (state.plusOpen && !plusMenu.contains(event.target) && !plusBtn.contains(event.target)) closePlus();
+  });
+
+  applyScene('recent');
+</script>
+</body>
+</html>

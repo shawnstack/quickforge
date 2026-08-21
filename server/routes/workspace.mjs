@@ -5,7 +5,7 @@ import { streamSimpleWithAiHttpLogging } from '../ai-http-logger.mjs'
 import { resolveModelBinding } from '../model-catalog.mjs'
 import { DEFAULT_AI_MAX_RETRIES } from '../ai-provider-options.mjs'
 import { sendJson, readJsonBody } from '../utils/response.mjs'
-import { projectContextFromId } from '../project-config.mjs'
+import { projectContextFromId, registeredProjectContextFromId } from '../project-config.mjs'
 import { readStore } from '../storage.mjs'
 import { logger } from '../utils/logger.mjs'
 import { openPathInFileManager, openPathInIDEA, openPathInVSCode } from '../utils/platform.mjs'
@@ -29,6 +29,8 @@ const DEFAULT_CHILDREN_LIMIT = 200
 const MAX_CHILDREN_LIMIT = 500
 const DEFAULT_SEARCH_LIMIT = 100
 const MAX_SEARCH_LIMIT = 200
+const DEFAULT_MENTION_SEARCH_LIMIT = 20
+const MAX_MENTION_SEARCH_LIMIT = 50
 const MAX_SEARCH_VISITED_ENTRIES = 50000
 const SKIP_DIRS = new Set(['.git', 'node_modules'])
 
@@ -897,7 +899,7 @@ async function handleWorkspaceChildren(req, res, url) {
 export async function readValidatedWorkspaceSearchDirectory(directory, validateWorkspacePath, visitedDirectories, io = {}) {
   const realpath = io.realpath || fs.realpath
   const readdir = io.readdir || fs.readdir
-  await validateWorkspacePath(directory, { allowSensitive: true })
+  await validateWorkspacePath(directory, { allowSensitive: io.allowSensitive !== false })
   const directoryReal = await realpath(directory)
   const directoryKey = process.platform === 'win32' ? directoryReal.toLocaleLowerCase() : directoryReal
   if (visitedDirectories.has(directoryKey)) return null
@@ -969,6 +971,107 @@ export async function searchWorkspace(context, rawQuery, options = {}) {
 async function handleWorkspaceSearch(req, res, url) {
   const context = await projectContextFromUrl(url)
   sendJson(res, 200, await searchWorkspace(context, url.searchParams.get('query') || '', {
+    limit: url.searchParams.get('limit'),
+  }))
+}
+
+function mentionSearchRank(entry, normalizedQuery) {
+  const name = entry.name.toLocaleLowerCase()
+  const relativePath = entry.path.toLocaleLowerCase()
+  if (name === normalizedQuery) return 0
+  if (name.startsWith(normalizedQuery)) return 1
+  if (name.includes(normalizedQuery)) return 2
+  return relativePath.startsWith(normalizedQuery) ? 3 : 4
+}
+
+function compareMentionSearchEntries(left, right, normalizedQuery) {
+  return mentionSearchRank(left, normalizedQuery) - mentionSearchRank(right, normalizedQuery)
+    || left.path.localeCompare(right.path, undefined, { sensitivity: 'base' })
+    || left.path.localeCompare(right.path, undefined, { sensitivity: 'variant' })
+    || (left.path < right.path ? -1 : left.path > right.path ? 1 : 0)
+}
+
+async function mentionSearchEntryFromDirent(directory, dirent, context, validateWorkspacePath) {
+  if (dirent.isDirectory() && SKIP_DIRS.has(dirent.name)) return null
+  const fullPath = path.join(directory, dirent.name)
+  const relativePath = toWorkspaceRelative(fullPath, context)
+  try {
+    await validateWorkspacePath(fullPath)
+    const stat = await fs.stat(fullPath)
+    if (stat.isDirectory()) return { name: dirent.name, path: relativePath, type: 'directory', fullPath }
+    if (stat.isFile()) return { name: dirent.name, path: relativePath, type: 'file' }
+  } catch {
+    // Sensitive, external, broken, or inaccessible entries are omitted.
+  }
+  return null
+}
+
+export async function searchWorkspaceMentions(context, rawQuery, options = {}) {
+  const query = typeof rawQuery === 'string' ? rawQuery.trim() : ''
+  if (query.length < 2) {
+    const error = new Error('query must contain at least 2 characters')
+    error.statusCode = 400
+    throw error
+  }
+  const limit = parseBoundedLimit(options.limit ?? null, DEFAULT_MENTION_SEARCH_LIMIT, MAX_MENTION_SEARCH_LIMIT)
+  const validateWorkspacePath = await createWorkspacePathValidator(context)
+  await validateWorkspacePath(context.workspaceRoot)
+  const normalizedQuery = query.toLocaleLowerCase()
+  const results = []
+  const pending = [context.workspaceRoot]
+  const visitedDirectories = new Set()
+  let visited = 0
+  let traversalTruncated = false
+
+  while (pending.length > 0 && !traversalTruncated) {
+    const directory = pending.pop()
+    let validated
+    try {
+      validated = await readValidatedWorkspaceSearchDirectory(directory, validateWorkspacePath, visitedDirectories, { allowSensitive: false })
+    } catch {
+      continue
+    }
+    if (!validated) continue
+    const { dirents } = validated
+    dirents.sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: 'base' })
+      || left.name.localeCompare(right.name, undefined, { sensitivity: 'variant' })
+      || (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
+    const childDirectories = []
+    for (const dirent of dirents) {
+      if (visited >= MAX_SEARCH_VISITED_ENTRIES) {
+        traversalTruncated = true
+        break
+      }
+      visited += 1
+      const entry = await mentionSearchEntryFromDirent(directory, dirent, context, validateWorkspacePath)
+      if (!entry) continue
+      if (entry.type === 'directory') {
+        childDirectories.push(entry.fullPath)
+      } else if (entry.path.toLocaleLowerCase().includes(normalizedQuery) || entry.name.toLocaleLowerCase().includes(normalizedQuery)) {
+        results.push(entry)
+      }
+    }
+    for (let index = childDirectories.length - 1; index >= 0; index -= 1) pending.push(childDirectories[index])
+  }
+
+  results.sort((left, right) => compareMentionSearchEntries(left, right, normalizedQuery))
+  return {
+    root: context.project.name,
+    query,
+    entries: results.slice(0, limit),
+    truncated: traversalTruncated || results.length > limit,
+  }
+}
+
+async function handleWorkspaceMentionSearch(req, res, url) {
+  const projectId = url.searchParams.get('projectId')
+  if (!projectId) {
+    const error = new Error('projectId is required')
+    error.statusCode = 400
+    throw error
+  }
+  const context = await registeredProjectContextFromId(projectId)
+  sendJson(res, 200, await searchWorkspaceMentions(context, url.searchParams.get('query') || '', {
     limit: url.searchParams.get('limit'),
   }))
 }
@@ -1412,6 +1515,10 @@ export async function handleWorkspaceApi(req, res, url, requestContext = {}) {
   }
   if (req.method === 'GET' && url.pathname === '/api/workspace/search') {
     await handleWorkspaceSearch(req, res, url)
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/workspace/mention-search') {
+    await handleWorkspaceMentionSearch(req, res, url)
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/workspace/file') {

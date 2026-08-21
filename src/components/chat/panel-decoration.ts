@@ -77,7 +77,11 @@ export type EditorDecorationDeps = {
   removeCapabilitySuggestions: () => void
   updateCapabilitySuggestions: (value?: string) => void
   setupCapabilityTextareaHandler: (editor: MessageEditorElement | null) => void
-  insertBuiltinPluginMention: (mention: string) => void
+  removeFileReferenceSuggestions: () => void
+  updateFileReferenceSuggestions: (value?: string) => void
+  setupFileReferenceTextareaHandler: (editor: MessageEditorElement | null) => void
+  syncContextChips: () => void
+  selectPluginCapability: (pluginName: string) => void
   availablePluginRows: () => CapabilitySuggestion[]
   onBeforeSend?: (input: string) => void
 }
@@ -112,7 +116,11 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     removeCapabilitySuggestions,
     updateCapabilitySuggestions,
     setupCapabilityTextareaHandler,
-    insertBuiltinPluginMention,
+    removeFileReferenceSuggestions,
+    updateFileReferenceSuggestions,
+    setupFileReferenceTextareaHandler,
+    syncContextChips,
+    selectPluginCapability,
     availablePluginRows,
     onBeforeSend,
   } = deps
@@ -137,6 +145,8 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     updateCommandSuggestions: commandSuggestionsEnabled ? updateCommandSuggestions : () => removeCommandSuggestions(),
     removeCapabilitySuggestions,
     updateCapabilitySuggestions: capabilitySuggestionsEnabled ? updateCapabilitySuggestions : () => removeCapabilitySuggestions(),
+    removeFileReferenceSuggestions,
+    updateFileReferenceSuggestions,
     attachmentsEnabled,
     onBeforeSend,
   })
@@ -144,6 +154,8 @@ export function decorateEditor(deps: EditorDecorationDeps) {
   else removeCommandSuggestions()
   if (capabilitySuggestionsEnabled) setupCapabilityTextareaHandler(editor)
   else removeCapabilitySuggestions()
+  setupFileReferenceTextareaHandler(editor)
+  syncContextChips()
   if (planModeEnabled) setupPlanModeControls(editor, planMode, onTogglePlanMode)
   else removePlanModeControls(editor)
 
@@ -204,10 +216,11 @@ export function decorateEditor(deps: EditorDecorationDeps) {
       panel,
       editor,
       leftControls,
-      insertBuiltinPluginMention,
+      selectPluginCapability,
       availablePluginRows,
       removeCommandSuggestions,
       removeCapabilitySuggestions,
+      removeFileReferenceSuggestions,
       attachmentsEnabled,
       pluginsEnabled: capabilitySuggestionsEnabled,
     })

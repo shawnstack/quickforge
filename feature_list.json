@@ -1,6 +1,20 @@
 {
   "features": [
     {
+      "id": "rename-sidebar-conversations-to-tasks",
+      "name": "侧栏“对话”分组标题更名为“任务”",
+      "status": "done",
+      "approach": "纯文案改名：src/lib/i18n.ts 的 conversations key（唯一使用处为 ChatSidebar.tsx 左侧边栏分组标题 t('conversations')）中文 ‘对话’→‘任务’、英文 ‘Conversations’→‘Tasks’，key 名、组件状态变量与折叠逻辑不变；DESIGN_LANGUAGE.md 中 3 处以 Conversations 作为侧栏分组标题示例的提及同步为 Tasks。未改 wiki（纯显示文案，不影响模块职责、公共入口或架构）。",
+      "files": [
+        "src/lib/i18n.ts",
+        "DESIGN_LANGUAGE.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx eslint src/lib/i18n.ts → 0 error；npx vitest run tests/frontend/i18n-language-snapshot.test.ts tests/frontend/sidebar-session-sort-mode.test.ts → 2 files / 11 tests 全通过；npx tsc -b 报错均为并行会话 file-reference-mention 功能中间态文件（file-reference-suggestions.ts / ChatPanelHost.tsx / capability-suggestions.ts / composer-plus-menu.ts 等，session-handoff 已有记录），无一涉及 src/lib/i18n.ts。"
+    },
+    {
       "id": "fix-sidebar-project-drag-bottom-boundary",
       "name": "限制侧栏项目排序拖拽的顶部/底部边界",
       "status": "done",
@@ -753,6 +767,85 @@
         "design-mockups/ask-user-tool.html"
       ],
       "verification": "npx vitest run 新增/更新测试全过（+26 用例）；npm run test 217 文件 1795 用例全过；npm run lint 0 error（仅既有 identity.mjs warning）；npm run build 通过"
+    },
+    {
+      "id": "slash-menu-expansion",
+      "name": "斜杠菜单扩展：/ 触发指令 / 技能 / 子智能体三类补全（含选中态 chip 与消息流 chip）",
+      "status": "done",
+      "approach": "两轮定稿实现。第一轮：设计稿 design-mockups/slash-menu-expansion.html 定稿（行图标开、Enter 发送原文、agent 描述 label·description）——服务端 /skill、/agent 内部命令（resolveCommandState 拦截校验注入 commandPrompt，引导 activate_skill / run_subagent）+ ?available=true 技能合并视图 + agent-profiles projectId 感知；前端 command-suggestions 三分组菜单（懒加载骨架/失败降级/↑↓TabEsc、Enter 不拦截）+ slash-catalog.ts 客户端。第二轮（方案 A 定稿）：新增 src/components/chat/slash-invocation-chip.ts——选中态状态机 + 输入行内联 chip 覆盖层（textarea 原文不变仅视觉替换：透明文本+幽灵镜像、computed 字体/行高/padding 同步、光标对齐补偿 spacer=max(0,前缀宽-chip宽)、ResizeObserver/scroll 同步、IME compositionstart/end 防护、光标误入前缀区自毁）；command-suggestions 集成（选中 skill/agent 即 engage、激活时菜单抑制、catalog ready 后手输/草稿恢复自动 engage、Backspace 在 cmd 右边界一次删前缀、Esc 退出记 dismissed）；message-actions 新增 decorateUserSlashInvocationChip（用户消息 /skill|/agent 前缀渲染行内 chip，chip 自带前缀标记幂等还原，复制仍走原文）。内部命令优先于同名自定义命令。",
+      "files": [
+        "server/custom-commands.mjs",
+        "server/agent-manager.mjs",
+        "server/skills.mjs",
+        "server/routes/skills.mjs",
+        "server/routes/agent-profiles.mjs",
+        "src/components/chat/command-suggestions.ts",
+        "src/components/chat/capability-suggestions.ts",
+        "src/components/chat/slash-invocation-chip.ts",
+        "src/components/chat/panel-decoration/message-actions.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/lib/slash-catalog.ts",
+        "src/lib/i18n.ts",
+        "src/index.css",
+        "tests/server/custom-commands.test.mjs",
+        "tests/server/slash-skill-agent.test.mjs",
+        "tests/server/routes/skills.test.mjs",
+        "tests/server/routes/agent-profiles.workspace.test.mjs",
+        "tests/frontend/command-suggestions.test.ts",
+        "tests/frontend/slash-catalog.test.ts",
+        "tests/frontend/slash-invocation-chip.test.ts",
+        "tests/frontend/message-actions.test.ts",
+        "tests/frontend/input-clamp.test.ts",
+        "docs/wiki/server/README.md",
+        "docs/wiki/server/routes/README.md",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "design-mockups/slash-menu-expansion.html",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "三轮验证合并：①主功能+方案A：npm run test 226 files / 1945 tests、lint 0 errors / 1 existing warning、tsc -b、build 均过；②打字消失修复（自愈式 chip）：定向 vitest slash-invocation-chip 19 + command-suggestions 13 全过；完整门禁复跑（test/lint/tsc/build/git diff --check）全过。复现方法论：最小复现页（真实 pi-web-ui MessageEditor + 真实装饰代码 + mock catalog + vite dev + 无头 Edge CDP 驱动）覆盖 菜单选中→打字→多行→逐字符→IME composition 链路均无法复现（核心链路健康），据此判定真实 app 破坏源在 React/Lit 生命周期某处（静态排查未定位到确定移除者），采用自愈式防御修复。真机目视留待用户。"
+    },
+    {
+      "id": "wiki-sync-uncommitted-features",
+      "name": "Wiki 文档同步：补齐 file-reference-mention / slash-menu-expansion 未提交改动的文档缺口",
+      "status": "done",
+      "approach": "纯文档维护（用户明令禁止修改代码，未触碰任何代码/测试文件）：对照工作区两条未提交功能链逐页审计 docs/wiki 与源码一致性并补缺口。①server 侧：context-references.mjs 新增独立小节（导出清单、CONTEXT_REFERENCE_* 稳定错误码映射）；skills.mjs 小节补 summarizeSkills 导出；server/utils README 的 workspace.mjs 更新为现状行为（敏感路径大小写不敏感匹配、realpath 后对真实目标复查、WORKSPACE_SENSITIVE_PATH / WORKSPACE_PATH_ESCAPE 稳定 errorCode、createWorkspacePathValidator）；修正 index.mjs / agent-manager.mjs / custom-commands.mjs / skills.mjs 与 routes 目录（agent/skills/agent-profiles/shared-conversation/workspace）的过期行数。②前端：src/lib 表新增 deferred-session-agent.ts 行与独立章节（此前 wiki 完全未收录该 296 行模块）；server-agent 小节补 setPromptMode('plan'|'ask'|null) 泛化说明（'ask' 为预留值、当前无发送方，setPlanMode 保留为兼容包装）；shared-server-agent 小节补结构化选择 no-op 语义；slash-invocation-chip 与 command-suggestions 的 IME / selectionchange 行为描述从旧稿（隐藏覆盖层、自毁）更正为最终实现（composition 期间覆盖层保持显示 + 预编辑弱下划线镜像 + Chromium/WebKit 双路径；光标入前缀区降级显示而非自毁、光标回尾部自愈；update 对外部移除的 overlay/textarea 自愈重建）；message-actions 补 decorateUserFileReferences（用户消息 details.contextReferences 渲染 .quickforge-message-context-references 文件 chip 行）；composer-plus-menu 补 selectPluginCapability 结构化能力 chip 语义；chat-utils 补 FileContextReference / ComposerCapabilitySelection 类型与 hasDraft 四元口径；修正 ChatPanelHost / chat-utils / command-suggestions / slash-invocation-chip / panel-decoration / i18n / server-agent / shared-server-agent / index.css 过期行数及 src/lib 模块总数（28→86）、command-suggestions 图标来源措辞（capability-icons.ts）。hooks（19 个）与根 wiki 导航核对无变化。",
+      "files": [
+        "docs/wiki/server/README.md",
+        "docs/wiki/server/routes/README.md",
+        "docs/wiki/server/utils/README.md",
+        "docs/wiki/src/README.md",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "逐项与源码核对（wc -l 实测行数、grep 导出清单、diff 阅读 slash-invocation-chip.ts 最终 IME/selectionchange/自愈实现）；git diff 复核全部 wiki 改动集中在 6 个 md 文件；git status 确认除并行会话既有改动外无新增代码/测试变更；wiki 为纯 Markdown，无需 test/lint/build。"
+    },
+    {
+      "id": "file-reference-mention",
+      "name": "输入框 @ 引用当前项目文件并与插件能力解耦",
+      "status": "done",
+      "approach": "按设计稿 design-mockups/file-reference-mention.html 落地：Composer 的 @ 仅搜索当前项目文件，不再承载插件能力；裸 @ 与 1 字符仅提示，2+ 字符经 300ms debounce 请求 files-only mention-search，并支持键盘选择。选中后生成结构化文件 chip；+ → 能力生成独立结构化能力 chip，不再插入 @Documents，也不从正文推断能力。正文、contextReferences 与 selectedCapabilities 写入 localStorage 草稿（能力防御规范化、按 type+pluginName+name 去重、最多 4 个），附件仍不持久化；contextReferences 随下一次 prompt 一次性发送。服务端重新做项目、路径与敏感边界校验，仅注入安全相对路径提示，历史 user message details 持久化文件引用供 chip 恢复，并覆盖失败回滚、retry；mention-search 过滤敏感文件/符号链接且对未知或已删除 projectId 严格返回 404 PROJECT_NOT_FOUND，不回退默认 workspace。OpenCode 与 shared 场景禁用或显式拒绝非空文件引用。",
+      "files": [
+        "src/components/chat/file-reference-suggestions.ts",
+        "src/components/chat/capability-suggestions.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/components/chat/panel-decoration/message-actions.ts",
+        "src/lib/composer-drafts.ts",
+        "src/lib/server-agent.ts",
+        "server/context-references.mjs",
+        "server/routes/agent.mjs",
+        "server/routes/workspace.mjs",
+        "design-mockups/file-reference-mention.html",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/server/routes/README.md"
+      ],
+      "verification": "合并定向 vitest 20 files / 242 tests passed；相关 eslint 0；tsc -b passed；npm run build passed（仅既有 KaTeX/chunk warnings）；git diff --check passed。"
     }
   ]
 }

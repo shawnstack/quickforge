@@ -85,6 +85,30 @@ describe('composer draft restoration lifecycle', () => {
     expect(drafts.has('session:one')).toBe(false)
   })
 
+  it('restores context references onto the message editor', () => {
+    const panel = createPanel()
+    const drafts = new Map<string, ComposerDraft>()
+    panel.editor = createEditor()
+    const reference = { type: 'file' as const, projectId: 'project-1', path: 'src/main.ts' }
+
+    scheduleComposerDraftRestore(panel, { text: '', attachments: [], contextReferences: [reference] }, drafts, 'session:one')
+
+    expect(panel.editor.contextReferences).toEqual([reference])
+    expect(drafts.get('session:one')?.contextReferences).toEqual([reference])
+  })
+
+  it('restores selected capabilities onto the message editor', () => {
+    const panel = createPanel()
+    const drafts = new Map<string, ComposerDraft>()
+    panel.editor = createEditor()
+    const capability = { type: 'plugin' as const, pluginName: 'documents', name: 'documents', label: 'Documents' }
+
+    scheduleComposerDraftRestore(panel, { text: '', attachments: [], selectedCapabilities: [capability] }, drafts, 'session:one')
+
+    expect(panel.editor.selectedCapabilities).toEqual([capability])
+    expect(drafts.get('session:one')?.selectedCapabilities).toEqual([capability])
+  })
+
   it('applies a ready draft once and clears pending retries', () => {
     const panel = createPanel()
     const drafts = new Map<string, ComposerDraft>()

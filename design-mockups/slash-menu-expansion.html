@@ -1,0 +1,1039 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>/ 菜单扩展：指令 · 技能 · 子智能体 · 设计稿</title>
+<style>
+  :root {
+    --background: #ffffff;
+    --foreground: #18181b;
+    --card: #fafafa;
+    --popover: #ffffff;
+    --muted: #f4f4f5;
+    --muted-foreground: #71717a;
+    --border: #e4e4e7;
+    --primary: #18181b;
+    --primary-foreground: #fafafa;
+    --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Courier New", monospace;
+  }
+  body.dark {
+    --background: #101012;
+    --foreground: #f4f4f5;
+    --card: #17171a;
+    --popover: #1c1c20;
+    --muted: #1d1d21;
+    --muted-foreground: #a1a1aa;
+    --border: #2a2a30;
+    --primary: #fafafa;
+    --primary-foreground: #18181b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  .page {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 28px 20px 64px;
+    gap: 16px;
+  }
+
+  /* ---------- 工具栏 ---------- */
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+    font-size: 13px;
+    color: var(--muted-foreground);
+  }
+  .toolbar h1 { font-size: 15px; font-weight: 600; color: var(--foreground); margin: 0; }
+  .toolbar .sep { width: 1px; height: 16px; background: var(--border); }
+
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--muted-foreground);
+    font: inherit;
+    font-size: 12.5px;
+    padding: 5px 10px;
+    cursor: pointer;
+  }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button.active { background: var(--muted); color: var(--foreground); }
+
+  .ghost-btn {
+    appearance: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--foreground);
+    font: inherit;
+    font-size: 12.5px;
+    padding: 5px 10px;
+    cursor: pointer;
+  }
+  .ghost-btn:hover { background: var(--muted); }
+
+  .readout {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--muted-foreground);
+    min-width: 240px;
+  }
+
+  /* ---------- 模拟对话面板 ---------- */
+  .chat-panel {
+    width: 720px;
+    max-width: 100%;
+    height: 600px;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    background: var(--background);
+    overflow: hidden;
+  }
+  .panel-head {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12.5px;
+    color: var(--muted-foreground);
+    display: flex;
+    justify-content: space-between;
+  }
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 18px 18px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .msg-user {
+    align-self: flex-end;
+    max-width: 78%;
+    padding: 8px 12px;
+    border-radius: 1rem 1rem 0.3rem 1rem;
+    background: color-mix(in oklab, var(--primary) 6%, var(--card));
+    border: 1px solid color-mix(in oklab, var(--primary) 12%, var(--border));
+    font-size: 14px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+  }
+  .msg-assistant {
+    align-self: flex-start;
+    max-width: 88%;
+    font-size: 14px;
+    line-height: 1.6;
+    color: color-mix(in oklab, var(--foreground) 92%, transparent);
+    white-space: pre-wrap;
+  }
+  .msg-assistant .demo-note { color: var(--muted-foreground); font-size: 12.5px; }
+
+  /* ---------- 输入区（复刻 composer-shell） ---------- */
+  .composer-wrap { padding: 0 12px 12px; }
+  .composer-shell {
+    position: relative;
+    border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+    border-radius: 1.25rem;
+    background: var(--card);
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.05), 0 12px 32px -24px rgb(15 23 42 / 0.25);
+    padding: 0.65rem 0.65rem 0.55rem;
+  }
+  .composer-shell:focus-within { border-color: color-mix(in oklab, var(--border) 90%, transparent); }
+
+  /* ---------- / 菜单（对齐应用 quickforge-command-suggestions） ---------- */
+  .slash-menu {
+    margin: 0.5rem 0.75rem 0;
+    max-height: 21rem;
+    overflow-y: auto;
+    border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+    border-radius: 1rem;
+    background: color-mix(in oklab, var(--popover) 94%, transparent);
+    box-shadow: 0 18px 46px -28px rgb(15 23 42 / 0.38);
+  }
+  .group-head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: baseline;
+    gap: 0.45rem;
+    padding: 0.55rem 0.75rem 0.35rem;
+    background: var(--popover);
+    color: color-mix(in oklab, var(--muted-foreground) 86%, transparent);
+    font-size: 0.72rem;
+    font-weight: 600;
+  }
+  .group-head .count {
+    font-weight: 400;
+    color: color-mix(in oklab, var(--muted-foreground) 62%, transparent);
+  }
+  .row {
+    display: grid;
+    width: 100%;
+    grid-template-columns: 1.35rem minmax(8rem, max-content) 1fr;
+    align-items: center;
+    gap: 0.55rem 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border: 0;
+    background: none;
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+  }
+  .no-icons .row { grid-template-columns: minmax(8rem, max-content) 1fr; }
+  .row:hover, .row.active {
+    background: color-mix(in oklab, var(--muted) 62%, transparent);
+  }
+  .row .icon {
+    display: inline-flex;
+    width: 1.15rem;
+    height: 1.15rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.35rem;
+  }
+  .row .icon svg { width: 1rem; height: 1rem; }
+  .icon.command { color: rgb(245 158 11); }
+  .icon.skill { color: rgb(37 99 235); }
+  .icon.agent { color: rgb(16 185 129); }
+  .no-icons .row .icon { display: none; }
+  .row .name {
+    color: var(--foreground);
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .row .name .hint {
+    color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+    font-weight: 400;
+  }
+  .row .name b { font-weight: 700; }
+
+  /* ---------- kind 小标签（chip） ---------- */
+  .row .name-line {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+  }
+  .kind-chip {
+    flex: none;
+    padding: 0.055rem 0.36rem;
+    border-radius: 0.45rem;
+    font-family: var(--font-sans);
+    font-size: 0.64rem;
+    font-weight: 500;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
+  .kind-chip.command { background: rgb(245 158 11 / 0.12); color: rgb(176 113 5); }
+  .kind-chip.skill { background: rgb(37 99 235 / 0.10); color: rgb(37 99 235); }
+  .kind-chip.agent { background: rgb(16 185 129 / 0.12); color: rgb(4 143 101); }
+  body.dark .kind-chip.command { background: rgb(245 158 11 / 0.16); color: rgb(252 191 36); }
+  body.dark .kind-chip.skill { background: rgb(96 145 250 / 0.16); color: rgb(147 183 253); }
+  body.dark .kind-chip.agent { background: rgb(16 185 129 / 0.17); color: rgb(110 231 183); }
+  .row .desc {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+  .row .desc .desc-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .row.chip-at-desc .desc .kind-chip { margin-left: auto; }
+
+  /* ---------- 选中态 chip（输入框 + 消息流） ---------- */
+  .slash-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex: none;
+    padding: 0.14rem 0.5rem 0.14rem 0.4rem;
+    border-radius: 0.55rem;
+    font-size: 0.76rem;
+    font-weight: 500;
+    line-height: 1.4;
+    white-space: nowrap;
+    vertical-align: baseline;
+  }
+  .slash-chip svg { width: 0.85rem; height: 0.85rem; flex: none; }
+  .slash-chip .x {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.05rem;
+    height: 1.05rem;
+    margin-left: 0.1rem;
+    margin-right: -0.22rem;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    opacity: 0.62;
+    font-size: 0.72rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .slash-chip .x:hover { opacity: 1; background: rgb(0 0 0 / 0.08); }
+  body.dark .slash-chip .x:hover { background: rgb(255 255 255 / 0.12); }
+  .slash-chip.skill { background: rgb(37 99 235 / 0.10); color: rgb(37 99 235); }
+  .slash-chip.agent { background: rgb(16 185 129 / 0.12); color: rgb(4 143 101); }
+  body.dark .slash-chip.skill { background: rgb(96 145 250 / 0.16); color: rgb(147 183 253); }
+  body.dark .slash-chip.agent { background: rgb(16 185 129 / 0.17); color: rgb(110 231 183); }
+
+  /* 方案 B：composer 顶部 chip 行 */
+  .composer-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    padding: 0 0.35rem 0.45rem;
+  }
+  .composer-chip-row:empty { display: none; }
+
+  /* 方案 A：输入行内 overlay */
+  .editor-input-wrap { position: relative; }
+  .editor-input-wrap.overlay-on textarea {
+    color: transparent;
+    caret-color: var(--foreground);
+  }
+  .inline-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow: hidden;
+  }
+  .inline-overlay .ghost-text {
+    font-size: 14px;
+    line-height: 1.625;
+    padding: 0.25rem 0.5rem 0;
+    color: var(--foreground);
+    min-height: 3.2rem;
+  }
+  .inline-overlay .ghost-text .chip-slot { display: inline; }
+
+  /* 消息流内 chip */
+  .msg-user .slash-chip { font-size: 0.8rem; padding: 0.12rem 0.5rem; margin-right: 0.3rem; }
+
+  .row .desc {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--muted-foreground);
+    font-size: 0.78rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .row.skeleton { pointer-events: none; }
+  .row.skeleton .name, .row.skeleton .desc {
+    color: transparent;
+    border-radius: 4px;
+    background: color-mix(in oklab, var(--muted-foreground) 18%, transparent);
+    animation: shimmer 1.2s ease-in-out infinite;
+  }
+  .row.skeleton .name { width: 9rem; }
+  .row.skeleton .desc { width: 14rem; }
+  @keyframes shimmer { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+  .menu-foot {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    gap: 0.9rem;
+    padding: 0.4rem 0.75rem 0.5rem;
+    background: var(--popover);
+    border-top: 1px solid color-mix(in oklab, var(--border) 55%, transparent);
+    color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+    font-size: 0.7rem;
+  }
+  kbd {
+    display: inline-block;
+    min-width: 1.15rem;
+    padding: 0.05rem 0.28rem;
+    margin-right: 0.18rem;
+    border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+    border-radius: 0.3rem;
+    background: color-mix(in oklab, var(--muted) 55%, transparent);
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    text-align: center;
+    color: color-mix(in oklab, var(--foreground) 78%, transparent);
+  }
+
+  /* ---------- 编辑器 ---------- */
+  .editor-area { display: flex; flex-direction: column; gap: 0.5rem; padding: 0 0.35rem; }
+  .editor-area textarea {
+    width: 100%;
+    min-height: 3.2rem;
+    max-height: 9rem;
+    resize: none;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: var(--foreground);
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.625;
+    padding: 0.25rem 0.5rem 0;
+  }
+  .editor-actions { display: flex; align-items: center; gap: 0.5rem; }
+  .plus-btn {
+    appearance: none;
+    width: 2rem;
+    height: 2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: 0.7rem;
+    background: transparent;
+    color: var(--muted-foreground);
+    cursor: pointer;
+  }
+  .plus-btn:hover { background: var(--muted); color: var(--foreground); }
+  .plus-btn svg { width: 1rem; height: 1rem; }
+  .send-btn {
+    margin-left: auto;
+    appearance: none;
+    width: 2rem;
+    height: 2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 0.7rem;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    cursor: pointer;
+  }
+  .send-btn svg { width: 1rem; height: 1rem; }
+  .composer-tip {
+    padding: 0 0.5rem;
+    font-size: 11.5px;
+    color: var(--muted-foreground);
+  }
+
+  /* ---------- 说明面板 ---------- */
+  .notes {
+    width: 720px;
+    max-width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    background: var(--card);
+    padding: 18px 22px;
+    font-size: 13px;
+    line-height: 1.75;
+    color: color-mix(in oklab, var(--foreground) 88%, transparent);
+  }
+  .notes h2 { font-size: 13.5px; font-weight: 600; margin: 0 0 6px; color: var(--foreground); }
+  .notes h2 + ul { margin-top: 0; }
+  .notes ul { margin: 0 0 14px; padding-left: 18px; }
+  .notes li { margin: 2px 0; }
+  .notes .pick { color: var(--foreground); font-weight: 600; }
+  .notes code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 0.08rem 0.32rem;
+    border-radius: 0.32rem;
+    background: color-mix(in oklab, var(--muted) 70%, transparent);
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="toolbar">
+    <h1>/ 菜单扩展 · 设计稿</h1>
+    <span class="sep"></span>
+    <div class="seg" id="theme-seg">
+      <button data-v="light" class="active">亮</button>
+      <button data-v="dark">暗</button>
+    </div>
+    <div class="seg" id="icon-seg">
+      <button data-v="on" class="active">行图标：开</button>
+      <button data-v="off">关</button>
+    </div>
+    <div class="seg" id="enter-seg">
+      <button data-v="send" class="active">Enter：发送</button>
+      <button data-v="select">选中补全</button>
+    </div>
+    <div class="seg" id="chip-seg">
+      <button data-v="name" class="active">小标签：名称旁</button>
+      <button data-v="desc">描述尾</button>
+      <button data-v="off">关</button>
+    </div>
+    <span class="sep"></span>
+    <button class="ghost-btn" data-preset="/">输入 /</button>
+    <button class="ghost-btn" data-preset="/sk">/sk</button>
+    <button class="ghost-btn" data-preset="/agent ">输入 /agent </button>
+    <button class="ghost-btn" id="reload-btn">重演懒加载</button>
+    <span class="readout" id="readout"></span>
+  </div>
+
+  <div class="toolbar">
+    <h1>选中态呈现</h1>
+    <span class="sep"></span>
+    <div class="seg" id="select-mode-seg">
+      <button data-v="inline" class="active">方案 A：输入行内联</button>
+      <button data-v="row">方案 B：输入框顶部 chip 行</button>
+    </div>
+    <span class="sep"></span>
+    <button class="ghost-btn" data-sim="agent">模拟选中 /agent explore</button>
+    <button class="ghost-btn" data-sim="skill">模拟选中 /skill code-review</button>
+    <button class="ghost-btn" id="clear-sim-btn">清空</button>
+  </div>
+
+  <div class="chat-panel">
+    <div class="panel-head">
+      <span>会话 · quickforge</span>
+      <span>演示：输入 <code style="font-family:var(--font-mono)">/</code> 触发菜单</span>
+    </div>
+    <div class="messages" id="messages">
+      <div class="msg-user">帮我把这个仓库的发布流程梳理一遍</div>
+      <div class="msg-assistant">好的。你可以直接输入 <b>/</b> 唤起菜单，从「指令 / 技能 / 子智能体」三类里选择，也可以继续打字过滤。</div>
+    </div>
+    <div class="composer-wrap">
+      <div class="composer-shell">
+        <div class="slash-menu" id="menu" hidden role="listbox" aria-label="斜杠菜单"></div>
+        <div class="composer-chip-row" id="chip-row"></div>
+        <div class="editor-area">
+          <div class="editor-input-wrap" id="input-wrap">
+            <textarea id="ta" placeholder="输入 / 触发指令、技能与子智能体…" aria-label="聊天输入框"></textarea>
+            <div class="inline-overlay" id="inline-overlay" hidden></div>
+          </div>
+          <div class="editor-actions">
+            <button class="plus-btn" title="附件" aria-label="附件">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M10 4.5v11M4.5 10h11"/></svg>
+            </button>
+            <button class="send-btn" id="send-btn" title="发送" aria-label="发送">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 10 9 6.5M5.5 10 9 13.5M5 10h9.5"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="composer-tip">Tab 补全 · ↑↓ 选择 · Esc 关闭 · 点击行也可选中</div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h2>选中态呈现（本轮迭代重点）<span class="pick"> · 方案 A 已定稿</span></h2>
+    <ul>
+      <li><b>目标</b>：从菜单选中技能/子智能体后，<b>输入框中</b>不再是裸文本 <code>/agent explore</code>，而是带图标的标签（chip）；<b>发送后在消息流里</b>（上下文显示）同样保持标签样式，任务文本跟随其后。</li>
+      <li><b>消息流（两方案共用）</b>：用户消息前缀 <code>^/skill &lt;name&gt;</code> / <code>^/agent &lt;name&gt;</code> 由装饰层渲染为行内 chip（图标 + 名称，hover 显示完整命令），任务正文正常显示；复制/原文不受影响。</li>
+      <li><b>方案 A · 输入行内联</b>（<span class="pick">已定稿</span>，视觉最理想）：chip 直接出现在输入行内、任务文本紧随其后，光标在其后输入。实现为覆盖层（overlay 镜像）——textarea 文本保持 <code>/agent explore 任务…</code> 不变（服务端零改动、草稿/恢复不受影响），只是该段视觉上被 chip 替换。退格到 chip 右边界时一次删除整段命令前缀（等效移除标签）。<b>风险</b>：overlay 与 textarea 的字体/换行/滚动度量需严格同步，pi-web-ui textarea 黑盒（字号设置、自动增高、IME）存在错位风险，需要真机验证。</li>
+      <li><b>方案 B · 输入框顶部 chip 行</b>（稳妥推荐）：选中后 chip（带 × 移除）显示在输入框内顶部一行，textarea 只含任务文本；发送时前端把 chip 展开为 <code>/agent explore </code> 前缀——<b>服务端与消息存储零改动</b>（收到的仍是完整命令文本）。纯 DOM 装饰（复用现有装饰模式），不碰 textarea 渲染内部，风险低；代价是「标签行 + 文本」两段式而非内联混排。手动输入完整 <code>/agent …</code> 纯文本路径也始终可用。</li>
+      <li><b>演示操作</b>：用上方「选中态呈现」工具栏——切 A/B 方案对比（切换保留已输入任务）、「模拟选中」注入选中态后直接打字、发送看消息流 chip、「清空」复位。</li>
+    </ul>
+    <h2>设计要点</h2>
+    <ul>
+      <li><b>触发与位置不变</b>：输入以 <code>/</code> 开头（首个字符）才弹出，浮层仍在输入框上方（composer-shell 内 <code>insertBefore(editor)</code>），样式沿用现有 suggestion 容器（圆角 1rem、popover 94%、72% 边框、软阴影）。</li>
+      <li><b>三个分组</b>：指令（内置 + 项目自定义命令）／技能（仅已启用）／子智能体（<code>enabledAsSubagent</code>）。组头吸顶 + 条数；整组无命中时隐藏。</li>
+      <li><b>行结构</b>：图标 + mono 用法 + 小标签（kind chip）+ 描述（与 @ 菜单同构）。配色沿用既有语义：指令琥珀、技能蓝、子智能体新增翠绿；图标与标签保持弱化不抢文字。</li>
+      <li><b>kind 小标签</b>：分类的可读化强化——极弱同色系底（10~12% 透明度）+ 同色系文字的小 pill（如琥珀「指令」/蓝「技能」/翠绿「子智能体」），深色模式自动调亮；位置两档可选（见选档④）。</li>
+      <li><b>过滤</b>：名称/描述模糊匹配（现状口径），命中子串加粗；选中插入 <code>/skill &lt;name&gt; </code>、<code>/agent &lt;name&gt; </code> 后继续输入任务，菜单随失配自然关闭。</li>
+      <li><b>键盘</b>：↑↓ 在可视行间循环移动高亮，Tab 补全高亮项（保留现有 Tab 契约），Esc 关闭；Enter 语义见选档②。</li>
+      <li><b>懒加载</b>：首次触发 <code>/</code> 时并行拉取 <code>/api/skills</code>（启用项）与 <code>/api/agent-profiles</code>，期间技能/子智能体组显示占位行；失败静默降级为仅指令，不阻塞输入。</li>
+      <li><b>服务端语义</b>：<code>/skill</code>、<code>/agent</code> 为新增内部命令——校验后注入本轮 commandPrompt（先 <code>activate_skill</code> 再执行 / 用 <code>run_subagent</code> 委派），未知名称返回用法提示文本。</li>
+      <li><b>无障碍</b>：容器 <code>role=listbox</code>、行 <code>role=option</code> + <code>aria-selected</code> 随 ↑↓ 同步。</li>
+    </ul>
+    <h2>待定夺（选档）</h2>
+    <ul>
+      <li>① <span class="pick">行图标</span>：开（推荐，与 @ 菜单统一）/ 关（维持现状两列纯文本）。用工具栏切换对比。</li>
+      <li>② <span class="pick">Enter 语义</span>：发送原文（推荐，保持现状——输入完整命令 + Enter 直接发送）/ 菜单打开时选中补全（与 @ 菜单一致，但改变现有习惯）。↑↓ 与 Tab 恒定可用。</li>
+      <li>③ <span class="pick">子智能体描述前缀</span>：描述列显示 <code>label · description</code>（如「只读调研 · 定位文件…」，推荐）/ 仅 description。</li>
+      <li>④ <span class="pick">kind 小标签</span>（本轮新增）：名称旁（推荐——紧贴 mono 用法，扫读时先见命令文本再见分类；窄列会适当加宽名称列）/ 描述尾部右对齐（不挤名称列，长描述时省略号先出现）/ 关（维持已实现的纯图标形态）。用工具栏「小标签」选档切换对比。</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  // ---------------- 数据 ----------------
+  const COMMANDS = [
+    { kind: 'command', name: 'init',    hint: '',        desc: '初始化 QuickForge 项目配置' },
+    { kind: 'command', name: 'plan',    hint: '[task]',  desc: '以只读规划模式拆解任务后再执行' },
+    { kind: 'command', name: 'review',  hint: '[scope]', desc: '审查最近的变更或指定范围' },
+    { kind: 'command', name: 'summary', hint: '',        desc: '总结当前会话内容' },
+    { kind: 'command', name: 'compact', hint: '',        desc: '压缩会话上下文以释放窗口' },
+    { kind: 'command', name: 'clear',   hint: '',        desc: '清空当前会话消息' },
+    { kind: 'command', name: 'help',    hint: '',        desc: '查看帮助与全部命令列表' },
+  ];
+  const SKILLS = [
+    { kind: 'skill', name: 'skill-creator',  desc: '创建、修改与评测 Agent 技能' },
+    { kind: 'skill', name: 'patch-release',  desc: '按 runbook 执行小版本发布流程' },
+    { kind: 'skill', name: 'code-review',    desc: '按团队规范执行代码评审' },
+  ];
+  const AGENTS = [
+    { kind: 'agent', name: 'general',         label: '通用执行', desc: '边界清晰的复杂多步任务' },
+    { kind: 'agent', name: 'explore',         label: '只读调研', desc: '定位文件、搜索源码、梳理调用链' },
+    { kind: 'agent', name: 'proposal-review', label: '方案评审', desc: '评审方案合理性与风险并给建议' },
+  ];
+
+  const ICONS = {
+    command: '<svg viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 6 4 4-4 4"/><path d="M10.5 14h4.5"/></svg>',
+    skill: '<svg viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.2 3.2h4.4A2.4 2.4 0 0 1 11 5.6v11a2.4 2.4 0 0 0-2.4-2.4H4.2V3.2Z"/><path d="M11 5.6a2.4 2.4 0 0 1 2.4-2.4h2.4v11.1h-2.4A2.4 2.4 0 0 0 11 16.7"/></svg>',
+    agent: '<svg viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4.4" y="6.8" width="11.2" height="8.4" rx="2.2"/><path d="M10 6.6V4.4"/><circle cx="10" cy="3.5" r="0.9"/><path d="M7.6 10.7h.01"/><path d="M12.4 10.7h.01"/><path d="M8.3 13h3.4"/></svg>',
+  };
+
+  const GROUPS = [
+    { key: 'command', label: '指令', data: COMMANDS },
+    { key: 'skill',   label: '技能', data: SKILLS },
+    { key: 'agent',   label: '子智能体', data: AGENTS },
+  ];
+
+  // ---------------- 状态 ----------------
+  const state = { theme: 'light', icons: true, enterMode: 'send', chipMode: 'name', selectMode: 'inline' };
+  const KIND_LABELS = { command: '指令', skill: '技能', agent: '子智能体' };
+  const lazy = { loaded: false, loading: false };
+  let visibleRows = [];
+  let activeIdx = 0;
+  let menuOpen = false;
+
+  const $ = (sel) => document.querySelector(sel);
+  const ta = $('#ta');
+  const menu = $('#menu');
+  const messagesEl = $('#messages');
+
+  // ---------------- 文本 ----------------
+  function usageText(item) {
+    if (item.kind === 'skill') return '/skill ' + item.name;
+    if (item.kind === 'agent') return '/agent ' + item.name;
+    return '/' + item.name + (item.hint ? ' ' + item.hint : '');
+  }
+  function insertText(item) {
+    if (item.kind === 'skill') return '/skill ' + item.name + ' ';
+    if (item.kind === 'agent') return '/agent ' + item.name + ' ';
+    return '/' + item.name + ' ';
+  }
+  function haystack(item) {
+    const extra = item.kind === 'agent' && item.label ? ' ' + item.label : '';
+    return (usageText(item).replace(/^\//, '') + extra + ' ' + (item.desc || '')).replace(/\s+/g, ' ').toLowerCase();
+  }
+  function descText(item) {
+    return item.kind === 'agent' && item.label ? item.label + ' · ' + item.desc : item.desc;
+  }
+  function matchItem(item, query) {
+    return !query || haystack(item).includes(query);
+  }
+
+  // ---------------- 渲染 ----------------
+  function renderMenu() {
+    if (selectedSlash && state.selectMode === 'inline') { hideMenu(); return; }
+    const text = ta.value;
+    if (!text.startsWith('/')) { hideMenu(); return; }
+    ensureLazy();
+
+    const query = text.slice(1).trim().toLowerCase();
+    menu.classList.toggle('no-icons', !state.icons);
+    menu.innerHTML = '';
+    visibleRows = [];
+    activeIdx = 0;
+
+    let any = false;
+    for (const group of GROUPS) {
+      if (group.key !== 'command' && lazy.loading) {
+        appendGroupHead(group.label, '…');
+        appendSkeletonRows(group.key);
+        any = true;
+        continue;
+      }
+      const items = group.data.filter((item) => matchItem(item, query));
+      if (!items.length) continue;
+      appendGroupHead(group.label, String(items.length));
+      for (const item of items) appendRow(item, query);
+      any = true;
+    }
+    if (!any) { hideMenu(); return; }
+
+    const foot = document.createElement('div');
+    foot.className = 'menu-foot';
+    foot.innerHTML = '<span><kbd>↑</kbd><kbd>↓</kbd>选择</span>'
+      + '<span><kbd>Tab</kbd>补全</span>'
+      + (state.enterMode === 'select' ? '<span><kbd>Enter</kbd>选中</span>' : '<span><kbd>Enter</kbd>发送</span>')
+      + '<span><kbd>Esc</kbd>关闭</span>';
+    menu.append(foot);
+
+    menu.hidden = false;
+    menuOpen = true;
+    syncActive();
+  }
+
+  function appendGroupHead(label, count) {
+    const head = document.createElement('div');
+    head.className = 'group-head';
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = label;
+    const countSpan = document.createElement('span');
+    countSpan.className = 'count';
+    countSpan.textContent = count;
+    head.append(labelSpan, countSpan);
+    menu.append(head);
+  }
+
+  function appendSkeletonRows(kind) {
+    for (let i = 0; i < 2; i++) {
+      const row = document.createElement('div');
+      row.className = 'row skeleton';
+      row.setAttribute('role', 'presentation');
+      row.innerHTML = (state.icons ? `<span class="icon ${kind}">${ICONS[kind]}</span>` : '')
+        + '<span class="name">loading</span><span class="desc">loading</span>';
+      menu.append(row);
+    }
+  }
+
+  function makeChip(kind) {
+    const chip = document.createElement('span');
+    chip.className = 'kind-chip ' + kind;
+    chip.textContent = KIND_LABELS[kind];
+    return chip;
+  }
+
+  function appendRow(item, query) {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'row' + (state.chipMode === 'desc' ? ' chip-at-desc' : '');
+    row.setAttribute('role', 'option');
+    row.dataset.insert = insertText(item);
+
+    if (state.icons) {
+      const icon = document.createElement('span');
+      icon.className = 'icon ' + item.kind;
+      icon.innerHTML = ICONS[item.kind];
+      row.append(icon);
+    }
+
+    const name = document.createElement('span');
+    name.className = 'name';
+    const nameLine = document.createElement('span');
+    nameLine.className = 'name-line';
+    const usage = usageText(item);
+    const hintAt = item.kind === 'command' && item.hint ? usage.length - item.hint.length : -1;
+    const plain = hintAt >= 0 ? usage.slice(0, hintAt).trimEnd() : usage;
+    const hint = hintAt >= 0 ? usage.slice(hintAt) : '';
+    if (query && !query.includes(' ')) {
+      const at = plain.toLowerCase().indexOf(query);
+      if (at >= 0) {
+        nameLine.append(
+          document.createTextNode(plain.slice(0, at)),
+          Object.assign(document.createElement('b'), { textContent: plain.slice(at, at + query.length) }),
+          document.createTextNode(plain.slice(at + query.length)),
+        );
+      } else { nameLine.textContent = plain; }
+    } else { nameLine.textContent = plain; }
+    if (hint) {
+      const hintSpan = document.createElement('span');
+      hintSpan.className = 'hint';
+      hintSpan.textContent = ' ' + hint;
+      nameLine.append(hintSpan);
+    }
+    if (state.chipMode === 'name') nameLine.append(makeChip(item.kind));
+    name.append(nameLine);
+
+    const desc = document.createElement('span');
+    desc.className = 'desc';
+    const descTextEl = document.createElement('span');
+    descTextEl.className = 'desc-text';
+    descTextEl.textContent = descText(item) || '';
+    desc.append(descTextEl);
+    if (state.chipMode === 'desc') desc.append(makeChip(item.kind));
+
+    row.append(name, desc);
+    row.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); completeRow(row); });
+    menu.append(row);
+    visibleRows.push(row);
+  }
+
+  function syncActive() {
+    visibleRows.forEach((row, i) => {
+      row.classList.toggle('active', i === activeIdx);
+      if (i === activeIdx) row.setAttribute('aria-selected', 'true');
+      else row.removeAttribute('aria-selected');
+    });
+    const active = visibleRows[activeIdx];
+    if (active) active.scrollIntoView({ block: 'nearest' });
+  }
+
+  function move(delta) {
+    if (!visibleRows.length) return;
+    activeIdx = (activeIdx + delta + visibleRows.length) % visibleRows.length;
+    syncActive();
+  }
+
+  function completeRow(row) {
+    ta.value = row.dataset.insert || '';
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = ta.value.length;
+    hideMenu();
+  }
+
+  function hideMenu() {
+    menu.hidden = true;
+    menuOpen = false;
+    visibleRows = [];
+  }
+
+  // ---------------- 懒加载 ----------------
+  function ensureLazy() {
+    if (lazy.loaded || lazy.loading) return;
+    lazy.loading = true;
+    setTimeout(() => {
+      lazy.loading = false;
+      lazy.loaded = true;
+      if (menuOpen) renderMenu();
+    }, 900);
+  }
+
+  // ---------------- 选中态 chip ----------------
+  const SIM = {
+    agent: { kind: 'agent', name: 'explore', label: '只读调研', cmd: '/agent explore', icon: 'agent' },
+    skill: { kind: 'skill', name: 'code-review', label: '代码评审', cmd: '/skill code-review', icon: 'skill' },
+  };
+  let selectedSlash = null; // 当前选中（模拟：单选即可表达）
+  const chipRowEl = $('#chip-row');
+  const overlayEl = $('#inline-overlay');
+  const inputWrapEl = $('#input-wrap');
+
+  function chipEl(sim, withRemove) {
+    const chip = document.createElement('span');
+    chip.className = 'slash-chip ' + sim.kind;
+    chip.innerHTML = ICONS[sim.icon]
+      + '<span class="chip-name"></span>'
+      + (withRemove ? '<button class="x" title="移除" aria-label="移除">×</button>' : '');
+    chip.querySelector('.chip-name').textContent = sim.name;
+    if (withRemove) {
+      chip.querySelector('.x').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); clearSim(); });
+    }
+    return chip;
+  }
+
+  function renderSelection() {
+    chipRowEl.innerHTML = '';
+    overlayEl.innerHTML = '';
+    const useInline = state.selectMode === 'inline';
+    inputWrapEl.classList.toggle('overlay-on', Boolean(selectedSlash && useInline));
+    overlayEl.hidden = !(selectedSlash && useInline);
+    chipRowEl.style.display = (selectedSlash && !useInline) ? '' : 'none';
+
+    if (!selectedSlash) {
+      ta.placeholder = '输入 / 触发指令、技能与子智能体…';
+      renderOverlayText('');
+      return;
+    }
+
+    if (useInline) {
+      // 方案 A：textarea 全文本（/agent explore + 任务），overlay 显示 chip + 任务文本
+      if (!ta.value.startsWith(selectedSlash.cmd)) {
+        ta.value = selectedSlash.cmd + ' ';
+      }
+      renderOverlayText(ta.value.slice(selectedSlash.cmd.length));
+      ta.placeholder = '输入任务…（退格到标签处将整段移除）';
+    } else {
+      // 方案 B：textarea 只含任务文本，chip 挂顶部行
+      chipRowEl.append(chipEl(selectedSlash, true));
+      ta.placeholder = '输入任务…';
+    }
+  }
+
+  function renderOverlayText(task) {
+    if (overlayEl.hidden || !selectedSlash) return;
+    overlayEl.innerHTML = '';
+    const ghost = document.createElement('div');
+    ghost.className = 'ghost-text';
+    ghost.append(chipEl(selectedSlash, false));
+    ghost.append(document.createTextNode((task.startsWith(' ') ? '' : ' ') + task));
+    overlayEl.append(ghost);
+  }
+
+  function clearSim() {
+    selectedSlash = null;
+    ta.value = '';
+    renderSelection();
+    ta.focus();
+  }
+
+  function applySim(kind) {
+    selectedSlash = SIM[kind];
+    ta.value = '';
+    hideMenu();
+    renderSelection();
+    ta.focus();
+    if (state.selectMode === 'inline') renderSelection();
+  }
+
+  document.querySelectorAll('[data-sim]').forEach((btn) => {
+    btn.addEventListener('click', () => applySim(btn.dataset.sim));
+  });
+  $('#clear-sim-btn').addEventListener('click', clearSim);
+
+  // ---------------- 发送演示 ----------------
+  function simulateSend() {
+    const taskText = ta.value.trim();
+    if (!taskText && !selectedSlash) return;
+    hideMenu();
+
+    let fullText = taskText;
+    if (selectedSlash) {
+      // 方案 A：textarea 已含 cmd 前缀；方案 B：发送时展开前缀（服务端收到的都是完整 / 命令文本）
+      fullText = state.selectMode === 'inline' && taskText.startsWith(selectedSlash.cmd)
+        ? taskText
+        : `${selectedSlash.cmd} ${taskText}`.trim();
+    }
+
+    const user = document.createElement('div');
+    user.className = 'msg-user';
+    if (selectedSlash) {
+      const chip = chipEl(selectedSlash, false);
+      chip.style.cursor = 'default';
+      user.append(chip, document.createTextNode(fullText.slice(selectedSlash.cmd.length).trimStart() || ''));
+      user.title = fullText;
+    } else {
+      user.textContent = fullText;
+    }
+    messagesEl.append(user);
+
+    const reply = document.createElement('div');
+    reply.className = 'msg-assistant';
+    let m;
+    if ((m = fullText.match(/^\/skill\s+(\S+)/))) {
+      reply.innerHTML = '<span class="demo-note">（演示）发送后：服务端识别 /skill ' + m[1]
+        + '，校验技能已启用，注入本轮指令——先 activate_skill ' + m[1] + '，再执行任务描述。</span>';
+    } else if ((m = fullText.match(/^\/agent\s+(\S+)/))) {
+      reply.innerHTML = '<span class="demo-note">（演示）发送后：注入指令让模型通过 run_subagent 委派「' + m[1]
+        + '」执行任务，执行过程在对话区展示运行卡片。</span>';
+    } else if (/^\/(init|plan|review|summary|compact|clear|help)\b/i.test(fullText)) {
+      reply.innerHTML = '<span class="demo-note">（演示）现有内置指令行为不变。</span>';
+    } else {
+      reply.textContent = '（演示）按普通消息处理。';
+    }
+    messagesEl.append(reply);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    selectedSlash = null;
+    ta.value = '';
+    renderSelection();
+  }
+
+  // ---------------- 事件 ----------------
+  ta.addEventListener('input', () => {
+    if (state.selectMode === 'inline' && selectedSlash) {
+      // 选中态下文本以 / 命令开头，不触发菜单；overlay 跟随任务文本
+      renderOverlayText(ta.value.slice(selectedSlash.cmd.length));
+      return;
+    }
+    renderMenu();
+  });
+
+  ta.addEventListener('keydown', (e) => {
+    if (e.isComposing || e.key === 'Process') return;
+    // 方案 A：光标紧贴标签右侧时退格 → 一次删除整段命令前缀（等效移除 chip）
+    if (e.key === 'Backspace' && selectedSlash && state.selectMode === 'inline') {
+      const caret = ta.selectionStart;
+      if (caret === selectedSlash.cmd.length && ta.value.startsWith(selectedSlash.cmd)) {
+        e.preventDefault();
+        ta.value = '';
+        clearSim();
+        return;
+      }
+    }
+    if (!menuOpen) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); simulateSend(); }
+      return;
+    }
+    if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
+    else if (e.key === 'Tab') { e.preventDefault(); const row = visibleRows[activeIdx]; if (row) completeRow(row); }
+    else if (e.key === 'Enter' && e.shiftKey) { /* 换行放行 */ }
+    else if (e.key === 'Enter' && state.enterMode === 'select') { e.preventDefault(); const row = visibleRows[activeIdx]; if (row) completeRow(row); }
+    else if (e.key === 'Enter') { e.preventDefault(); simulateSend(); }
+    else if (e.key === 'Escape') { hideMenu(); }
+  });
+
+  $('#send-btn').addEventListener('click', simulateSend);
+
+  document.addEventListener('pointerdown', (e) => {
+    if (!menuOpen) return;
+    if (menu.contains(e.target) || ta.contains(e.target)) return;
+    hideMenu();
+  });
+
+  // 工具栏
+  function bindSeg(id, apply) {
+    const seg = $(id);
+    seg.addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      seg.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b === btn));
+      apply(btn.dataset.v);
+      updateReadout();
+    });
+  }
+  bindSeg('#theme-seg', (v) => {
+    state.theme = v;
+    document.body.classList.toggle('dark', v === 'dark');
+  });
+  bindSeg('#icon-seg', (v) => {
+    state.icons = v === 'on';
+    if (menuOpen) renderMenu();
+  });
+  bindSeg('#enter-seg', (v) => { state.enterMode = v; });
+  bindSeg('#chip-seg', (v) => {
+    state.chipMode = v;
+    if (menuOpen) renderMenu();
+  });
+  bindSeg('#select-mode-seg', (v) => {
+    state.selectMode = v;
+    // 切换呈现形态时保留选中态与已输入任务（B→A 把前缀并入文本，A→B 剥离）
+    if (selectedSlash) {
+      const task = state.selectMode === 'inline'
+        ? (ta.value.startsWith(selectedSlash.cmd) ? ta.value.slice(selectedSlash.cmd.length) : ta.value)
+        : ta.value;
+      ta.value = state.selectMode === 'inline' ? selectedSlash.cmd + (task.startsWith(' ') || !task ? task : ' ' + task) : task.trimStart();
+    }
+    renderSelection();
+  });
+
+  document.querySelectorAll('[data-preset]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      ta.value = btn.dataset.preset;
+      ta.focus();
+      renderMenu();
+    });
+  });
+
+  $('#reload-btn').addEventListener('click', () => {
+    lazy.loaded = false;
+    lazy.loading = false;
+    ta.value = '/';
+    ta.focus();
+    renderMenu();
+  });
+
+  function updateReadout() {
+    const chipText = state.chipMode === 'name' ? '名称旁' : (state.chipMode === 'desc' ? '描述尾' : '关');
+    $('#readout').textContent = '主题:' + (state.theme === 'dark' ? '暗' : '亮')
+      + ' · 行图标:' + (state.icons ? '开' : '关')
+      + ' · Enter:' + (state.enterMode === 'send' ? '发送' : '选中补全')
+      + ' · 小标签:' + chipText
+      + ' · 选中态:' + (state.selectMode === 'inline' ? 'A 内联' : 'B chip 行');
+  }
+  updateReadout();
+  renderSelection();
+  ta.focus();
+</script>
+</body>
+</html>

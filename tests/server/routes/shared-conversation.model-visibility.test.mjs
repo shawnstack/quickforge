@@ -3,8 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   getSessionState: vi.fn(),
+  readSessionValue: vi.fn(),
   readStore: vi.fn(),
   restoreAgent: vi.fn(),
+  runPrompt: vi.fn(),
   updateSessionModel: vi.fn(),
 }))
 
@@ -13,13 +15,13 @@ vi.mock('../../../server/agent-manager.mjs', () => ({
   getSessionEventBus: vi.fn(),
   getSessionState: mocks.getSessionState,
   restoreAgent: mocks.restoreAgent,
-  runPrompt: vi.fn(),
+  runPrompt: mocks.runPrompt,
   updateSessionModel: mocks.updateSessionModel,
   updateSessionThinkingLevel: vi.fn(),
 }))
 
 vi.mock('../../../server/storage.mjs', () => ({
-  readSessionValue: vi.fn(),
+  readSessionValue: mocks.readSessionValue,
   readStore: mocks.readStore,
 }))
 
@@ -88,13 +90,51 @@ function response() {
 beforeEach(() => {
   vi.resetModules()
   mocks.getSessionState.mockReset()
+  mocks.readSessionValue.mockReset()
   mocks.readStore.mockReset()
   mocks.restoreAgent.mockReset()
+  mocks.runPrompt.mockReset()
   mocks.updateSessionModel.mockReset()
   mocks.getSessionState.mockReturnValue({ model: currentHiddenModel, messages: [], thinkingLevel: 'off' })
+  mocks.readSessionValue.mockResolvedValue(null)
   mocks.readStore.mockResolvedValue({
     visible: { id: 'visible-provider', name: 'Visible', models: [visibleModel] },
     hidden: { id: 'hidden-provider', name: 'Hidden', models: [currentHiddenModel, otherHiddenModel] },
+  })
+})
+
+describe('shared conversation context reference safety', () => {
+  it('rejects non-empty references before restoring or prompting', async () => {
+    const { handleSharedConversationApi } = await import('../../../server/routes/shared-conversation.mjs')
+
+    await expect(handleSharedConversationApi(
+      request('POST', { content: 'inspect', contextReferences: [{ type: 'file', projectId: 'project-1', path: 'src/app.ts' }] }),
+      response(),
+      new URL('http://localhost/api/shared/share-1/message'),
+    )).rejects.toMatchObject({ statusCode: 409, errorCode: 'CONTEXT_REFERENCES_UNSUPPORTED_SHARED' })
+
+    expect(mocks.restoreAgent).not.toHaveBeenCalled()
+    expect(mocks.runPrompt).not.toHaveBeenCalled()
+  })
+
+  it('strips contextReferences from shared session history without dropping other details', async () => {
+    mocks.getSessionState.mockReturnValue({
+      model: currentHiddenModel,
+      messages: [
+        { role: 'user', content: 'inspect', details: { contextReferences: [{ path: 'src/private.ts' }], keep: true } },
+        { role: 'assistant', content: 'done', details: { contextReferences: [{ path: 'src/private.ts' }] } },
+      ],
+      thinkingLevel: 'off',
+    })
+    const { handleSharedConversationApi } = await import('../../../server/routes/shared-conversation.mjs')
+    const res = response()
+
+    await handleSharedConversationApi(request('GET'), res, new URL('http://localhost/api/shared/share-1/session'))
+
+    const messages = JSON.parse(res.body).messages
+    expect(messages[0].details).toEqual({ keep: true })
+    expect(messages[1]).not.toHaveProperty('details')
+    expect(JSON.stringify(messages)).not.toContain('src/private.ts')
   })
 })
 

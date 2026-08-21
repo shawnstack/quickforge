@@ -43,6 +43,17 @@ import {
   updateBuiltinAgentOverrides,
   updateCustomAgentProfile,
 } from '../agent-profiles.mjs'
+import { projectContextFromId } from '../project-config.mjs'
+
+async function projectWorkspaceRoot(projectId) {
+  if (!projectId) return null
+  try {
+    const context = await projectContextFromId(projectId)
+    return context.workspaceRoot
+  } catch {
+    return null
+  }
+}
 
 function requestError(message, statusCode = 400) {
   const error = new Error(message)
@@ -158,7 +169,11 @@ export async function handleAgentProfilesApi(req, res, url, context = {}) {
   const parts = url.pathname.split('/').filter(Boolean)
 
   if (req.method === 'GET' && url.pathname === '/api/agent-profiles') {
-    const agents = await listAgentProfiles({ includeDisabled: true })
+    // Optional projectId makes project-level agent files (.claude/agents,
+    // .quickforge/agents) appear alongside built-in and user profiles; an
+    // unknown/absent projectId keeps the previous default behavior.
+    const workspaceRoot = await projectWorkspaceRoot(url.searchParams.get('projectId'))
+    const agents = await listAgentProfiles({ includeDisabled: true, ...(workspaceRoot ? { workspaceRoot } : {}) })
     sendJson(res, 200, { agents: agents.map(agentProfileSnapshot) })
     return
   }

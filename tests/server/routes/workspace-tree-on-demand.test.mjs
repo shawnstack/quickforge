@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { compareWorkspaceEntries, listWorkspaceChildren, readValidatedWorkspaceSearchDirectory, searchWorkspace, handleWorkspaceApi } from '../../../server/routes/workspace.mjs'
+import { compareWorkspaceEntries, listWorkspaceChildren, readValidatedWorkspaceSearchDirectory, searchWorkspace, searchWorkspaceMentions, handleWorkspaceApi } from '../../../server/routes/workspace.mjs'
 import { getDefaultWorkspaceRoot, setDefaultWorkspaceRoot } from '../../../server/project-config.mjs'
 
 const tempDirs = []
@@ -246,10 +246,58 @@ describe('workspace search', () => {
     const result = await searchWorkspace(context, 'match')
     expect(result.entries.map((entry) => entry.path)).toEqual(['.dot-match'])
   })
+  it('filters mention search to safe files, ranks basename matches, caps limits, and keeps existing search behavior', async () => {
+    const context = await createWorkspace()
+    await mkdir(path.join(context.workspaceRoot, 'nested'))
+    await mkdir(path.join(context.workspaceRoot, 'target-dir'))
+    await writeFile(path.join(context.workspaceRoot, 'target'), 'exact')
+    await writeFile(path.join(context.workspaceRoot, 'target-prefix.ts'), 'prefix')
+    await writeFile(path.join(context.workspaceRoot, 'my-target.ts'), 'contains')
+    await writeFile(path.join(context.workspaceRoot, 'nested', 'target-path.ts'), 'path')
+    await writeFile(path.join(context.workspaceRoot, '.ENV.TARGET'), 'secret')
+    await writeFile(path.join(context.workspaceRoot, 'target-dir', 'inside.ts'), 'inside')
+
+    const mentions = await searchWorkspaceMentions(context, 'target', { limit: 50 })
+    expect(mentions.entries).toEqual([
+      { name: 'target', path: 'target', type: 'file' },
+      { name: 'target-path.ts', path: 'nested/target-path.ts', type: 'file' },
+      { name: 'target-prefix.ts', path: 'target-prefix.ts', type: 'file' },
+      { name: 'my-target.ts', path: 'my-target.ts', type: 'file' },
+      { name: 'inside.ts', path: 'target-dir/inside.ts', type: 'file' },
+    ])
+    expect(mentions.entries.every((entry) => entry.type === 'file')).toBe(true)
+    expect(mentions.entries.some((entry) => entry.path === '.ENV.TARGET')).toBe(false)
+    expect((await searchWorkspaceMentions(context, 'target', { limit: 1 })).entries).toHaveLength(1)
+
+    const existingSearch = await searchWorkspace(context, 'target')
+    expect(existingSearch.entries.map((entry) => entry.path)).toContain('.ENV.TARGET')
+    expect(existingSearch.entries.map((entry) => entry.path)).toContain('target-dir')
+  })
+
+  it('omits safe-looking links to sensitive real targets from mention search', async () => {
+    const context = await createWorkspace()
+    await writeFile(path.join(context.workspaceRoot, '.ENV.MATCH'), 'secret')
+    try {
+      await symlink(path.join(context.workspaceRoot, '.ENV.MATCH'), path.join(context.workspaceRoot, 'safe-match.txt'), 'file')
+    } catch (error) {
+      if (error?.code === 'EPERM' || error?.code === 'EACCES') return
+      throw error
+    }
+
+    const mentions = await searchWorkspaceMentions(context, 'match')
+    expect(mentions.entries).toEqual([])
+  })
+
+  it('enforces mention query minimum and clamps the maximum limit to 50', async () => {
+    const context = await createWorkspace()
+    for (let index = 0; index < 55; index += 1) await writeFile(path.join(context.workspaceRoot, `match-${index}.txt`), 'x')
+    await expect(searchWorkspaceMentions(context, 'm')).rejects.toMatchObject({ statusCode: 400 })
+    expect((await searchWorkspaceMentions(context, 'match', { limit: 999 })).entries).toHaveLength(50)
+  })
 })
 
 describe('workspace on-demand route wiring', () => {
-  it('serves children and search through the real route dispatcher with no-store responses', async () => {
+  it('keeps children and search fallback behavior but rejects unknown projects for mention-search', async () => {
     const context = await createWorkspace()
     setDefaultWorkspaceRoot(context.workspaceRoot)
     await writeFile(path.join(context.workspaceRoot, 'route-match.txt'), 'route')
@@ -280,6 +328,16 @@ describe('workspace on-demand route wiring', () => {
       query: 'route',
       entries: [{ path: 'route-match.txt', type: 'file' }],
       truncated: false,
+    })
+
+    await expect(handleWorkspaceApi(
+      { method: 'GET' },
+      mockRes(),
+      new URL('http://localhost/api/workspace/mention-search?projectId=unknown&query=route&limit=1'),
+    )).rejects.toMatchObject({
+      statusCode: 404,
+      errorCode: 'PROJECT_NOT_FOUND',
+      message: 'Unknown project',
     })
   })
 

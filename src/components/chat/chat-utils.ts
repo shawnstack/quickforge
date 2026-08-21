@@ -9,12 +9,29 @@
 // Element types (narrowed HTMLElement subtypes for Web Component interop)
 // ---------------------------------------------------------------------------
 
+export type FileContextReference = {
+  type: 'file'
+  projectId: string
+  path: string
+}
+
+export type ComposerCapabilitySelection = {
+  type: 'plugin' | 'skill' | 'tool' | 'command'
+  pluginName: string
+  name: string
+  label: string
+  description?: string
+}
+
 export type MessageEditorElement = HTMLElement & {
   value?: string
   attachments?: unknown[]
+  contextReferences?: FileContextReference[]
+  selectedCapabilities?: ComposerCapabilitySelection[]
   onInput?: (value: string) => void
   onSend?: (input: string, attachments: unknown[]) => void
   onFilesChange?: (files: unknown[]) => void
+  requestUpdate?: () => void
   __quickforgePlanBaseOnSend?: (input: string, attachments: unknown[]) => void
   __quickforgePlanWrappedOnSend?: (input: string, attachments: unknown[]) => void
   __quickforgeAttachmentPasteGuard?: (event: ClipboardEvent) => void
@@ -84,6 +101,8 @@ export type MessageWithUsage = {
 export type ComposerDraft = {
   text: string
   attachments?: unknown[]
+  contextReferences?: FileContextReference[]
+  selectedCapabilities?: ComposerCapabilitySelection[]
 }
 
 // ---------------------------------------------------------------------------
@@ -131,8 +150,11 @@ export function patchContent(parent: HTMLElement, html: string) {
 // Draft helpers
 // ---------------------------------------------------------------------------
 
-export const emptyDraft = (): ComposerDraft => ({ text: '', attachments: [] })
-export const hasDraft = (draft: ComposerDraft) => draft.text.length > 0 || (draft.attachments?.length ?? 0) > 0
+export const emptyDraft = (): ComposerDraft => ({ text: '', attachments: [], contextReferences: [], selectedCapabilities: [] })
+export const hasDraft = (draft: ComposerDraft) => draft.text.length > 0
+  || (draft.attachments?.length ?? 0) > 0
+  || (draft.contextReferences?.length ?? 0) > 0
+  || (draft.selectedCapabilities?.length ?? 0) > 0
 
 // ---------------------------------------------------------------------------
 // Token estimation (approximate)

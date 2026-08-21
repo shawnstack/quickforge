@@ -6,10 +6,14 @@ import {
   filterKnownProjectSkillNames,
   findGlobalSkill,
   findProjectSkill,
+  loadSelectedGlobalSkills,
+  loadSelectedProjectSkills,
+  mergeSkills,
   projectSkillSearchPaths,
   listGlobalSkillSummaries,
   listProjectSkillSummaries,
   skillSearchPaths,
+  summarizeSkills,
 } from '../skills.mjs'
 
 function getProject(config, projectId) {
@@ -46,6 +50,24 @@ export async function handleSkillsApi(req, res, url) {
   const scope = url.searchParams.get('scope') === 'global' ? 'global' : 'project'
 
   if (req.method === 'GET' && url.pathname === '/api/skills') {
+    if (url.searchParams.get('available') === 'true') {
+      // Merged view of what the current session can activate: global enabled
+      // skills always, plus project enabled skills (including plugin
+      // contributions) when a valid project is in scope. Mirrors the merge in
+      // loadSkillToolContext / activeSkillsForContext (project overrides global).
+      const project = projectId ? getProject(config, projectId) : null
+      const workspaceRoot = await projectWorkspaceRoot(project?.id)
+      const globalSkills = await loadSelectedGlobalSkills(selectedGlobalSkills(config))
+      const projectSkills = workspaceRoot
+        ? await loadSelectedProjectSkills(selectedSkillsForProject(project), workspaceRoot)
+        : []
+      sendJson(res, 200, {
+        available: true,
+        skills: summarizeSkills(mergeSkills(globalSkills, projectSkills)),
+      })
+      return
+    }
+
     if (scope === 'global') {
       sendJson(res, 200, {
         scope: 'global',

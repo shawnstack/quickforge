@@ -9,6 +9,8 @@ export function bindEditorCallbacks(options: {
   updateCommandSuggestions: (value?: string) => void
   removeCapabilitySuggestions: () => void
   updateCapabilitySuggestions: (value?: string) => void
+  removeFileReferenceSuggestions?: () => void
+  updateFileReferenceSuggestions?: (value?: string) => void
   attachmentsEnabled?: boolean
   onBeforeSend?: (input: string) => void
 }) {
@@ -20,6 +22,8 @@ export function bindEditorCallbacks(options: {
     updateCommandSuggestions,
     removeCapabilitySuggestions,
     updateCapabilitySuggestions,
+    removeFileReferenceSuggestions = () => {},
+    updateFileReferenceSuggestions = () => {},
     attachmentsEnabled = true,
     onBeforeSend,
   } = options
@@ -55,6 +59,7 @@ export function bindEditorCallbacks(options: {
     onInput(value)
     updateCommandSuggestions(value)
     updateCapabilitySuggestions(value)
+    updateFileReferenceSuggestions(value)
   }
   const currentOnSend = editor.onSend
   if (currentOnSend && currentOnSend !== editor.__quickforgePlanWrappedOnSend) {
@@ -68,6 +73,7 @@ export function bindEditorCallbacks(options: {
       onBeforeSend?.(rawText)
       removeCommandSuggestions()
       removeCapabilitySuggestions()
+      removeFileReferenceSuggestions()
       baseOnSend(rawText, attachmentsEnabled ? attachments : [])
     }
     editor.__quickforgePlanWrappedOnSend = wrappedOnSend
@@ -75,4 +81,5 @@ export function bindEditorCallbacks(options: {
   }
   updateCommandSuggestions()
   updateCapabilitySuggestions()
+  updateFileReferenceSuggestions()
 }

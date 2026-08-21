@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   commandFromFile,
+  formatAgentCommandPrompt,
   formatCommandList,
   formatHelpText,
+  formatSkillCommandPrompt,
   handleInternalCommand,
   parseInternalCommandInvocation,
 } from '../../server/custom-commands.mjs'
@@ -92,6 +94,84 @@ describe('internal slash commands', () => {
       compact: true,
       args: '',
     })
+  })
+
+  it('parses /skill without arguments', () => {
+    expect(parseInternalCommandInvocation('/skill')).toEqual({ type: 'skill', args: '' })
+  })
+
+  it('parses /skill with a name and task', () => {
+    expect(parseInternalCommandInvocation('/skill skill-creator build a docs skill')).toEqual({
+      type: 'skill',
+      args: 'skill-creator build a docs skill',
+    })
+  })
+
+  it('parses /skill case-insensitively and preserves inner whitespace', () => {
+    expect(parseInternalCommandInvocation('  /SKILL   Skill-Creator  build it  ')).toEqual({
+      type: 'skill',
+      args: 'Skill-Creator  build it',
+    })
+  })
+
+  it('does not match the plural /skills form', () => {
+    expect(parseInternalCommandInvocation('/skills')).toBeNull()
+    expect(parseInternalCommandInvocation('/skills list all')).toBeNull()
+  })
+
+  it('parses /agent with a name and task', () => {
+    expect(parseInternalCommandInvocation('/agent explore inspect the repo')).toEqual({
+      type: 'agent',
+      args: 'explore inspect the repo',
+    })
+  })
+
+  it('parses /agent without arguments case-insensitively', () => {
+    expect(parseInternalCommandInvocation('/Agent')).toEqual({ type: 'agent', args: '' })
+  })
+
+  it('does not match the plural /agents form', () => {
+    expect(parseInternalCommandInvocation('/agents')).toBeNull()
+    expect(parseInternalCommandInvocation('/agents explore')).toBeNull()
+  })
+
+  it('formats the /skill prompt with activation instructions and the task', () => {
+    const prompt = formatSkillCommandPrompt('skill-creator', 'build a docs skill')
+
+    expect(prompt).toContain('<skill_invocation name="skill-creator" source="slash">')
+    expect(prompt).toContain('First call the activate_skill tool with name="skill-creator"')
+    expect(prompt).toContain('Task:\nbuild a docs skill')
+    expect(prompt).toContain('</skill_invocation>')
+  })
+
+  it('falls back to a none-task marker for /skill without a task', () => {
+    const prompt = formatSkillCommandPrompt('skill-creator', '')
+
+    expect(prompt).toMatch(/Task:\n\(none [^\n]*ask the user[^\n]*\)\n/)
+  })
+
+  it('escapes XML in /skill prompt attributes', () => {
+    const prompt = formatSkillCommandPrompt('a<b>&c', 'task text')
+
+    expect(prompt.split('name="a&lt;b&gt;&amp;c"').length - 1).toBe(2)
+    expect(prompt).toContain('task text')
+  })
+
+  it('formats the /agent prompt with run_subagent instructions and the task', () => {
+    const prompt = formatAgentCommandPrompt('explore', 'find entry points')
+
+    expect(prompt).toContain('<subagent_invocation name="explore" source="slash">')
+    expect(prompt).toContain('Call the run_subagent tool with subagent="explore"')
+    expect(prompt).toContain('Task:\nfind entry points')
+    expect(prompt).toContain('</subagent_invocation>')
+  })
+
+  it('escapes XML in /agent prompt attributes', () => {
+    const prompt = formatAgentCommandPrompt('x"&y', 'do the work')
+
+    expect(prompt).toContain('name="x&quot;&amp;y"')
+    expect(prompt).toContain('subagent="x&quot;&amp;y"')
+    expect(prompt).toContain('do the work')
   })
 
   it('allows edits, commands, and subagents for /init permission state', () => {

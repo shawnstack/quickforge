@@ -53,10 +53,12 @@ function createRealAgent() {
   const prompt = vi.fn(async (message: AgentMessage) => {
     state.messages = [...state.messages, message]
   })
+  const setNextPromptContextReferences = vi.fn((_references: unknown, onConsumed?: () => void) => onConsumed?.())
   return {
     state,
     prompt,
     setNextPromptCapabilities: vi.fn(),
+    setNextPromptContextReferences,
     setPlanMode: vi.fn(),
   } as unknown as ServerAgent
 }
@@ -159,5 +161,18 @@ describe('DeferredSessionAgent', () => {
     expect(agent.state.messages).toEqual([
       expect.objectContaining({ role: 'user', content: 'first' }),
     ])
+  })
+
+  it('forwards file references to the real agent for the first prompt only', async () => {
+    const realAgent = createRealAgent()
+    const agent = await createDeferredAgent(async () => realAgent)
+    const refs = [{ type: 'file' as const, projectId: 'project-1', path: 'src/main.ts' }]
+    const consumed = vi.fn()
+    agent.setNextPromptContextReferences(refs, consumed)
+
+    await agent.prompt('first')
+
+    expect(realAgent.setNextPromptContextReferences).toHaveBeenCalledWith(refs, consumed)
+    expect(agent.state.messages[0]).toMatchObject({ details: { contextReferences: refs } })
   })
 })

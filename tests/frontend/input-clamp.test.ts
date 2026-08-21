@@ -236,7 +236,7 @@ describe('input clamp wiring sources', () => {
   })
 
   it('decorates only plain user messages in the chat decoration pass', () => {
-    expect(messageActionsSource).toMatch(/if \(entry\.message\.role === 'user'\) decorateUserMessageInputClamp\(element, inputClampLabels\)/)
+    expect(messageActionsSource).toMatch(/if \(entry\.message\.role === 'user'\) \{\s*\n\s*decorateUserMessageInputClamp\(element, inputClampLabels\)/)
     expect(messageActionsSource).not.toMatch(/role !== 'assistant'\) decorateUserMessageInputClamp/)
   })
 

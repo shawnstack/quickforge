@@ -13,7 +13,7 @@ import {
   composeSubagentSystemPrompt,
   formatSubagentTask,
 } from './subagents.mjs'
-import { agentProfileSnapshot, getAgentProfile } from './agent-profiles.mjs'
+import { agentProfileSnapshot, getAgentProfile, listSubagentProfiles } from './agent-profiles.mjs'
 import { modelBindingFromModel, resolveImplicitModelPreference, resolveModelBinding } from './model-catalog.mjs'
 import { agentProfileFromMarkdown } from './agent-profile-files.mjs'
 import {
@@ -52,10 +52,20 @@ import {
   readAutoCompactSettings,
 } from './auto-compaction.mjs'
 import {
+  formatAgentCommandPrompt,
+  formatSkillCommandPrompt,
   handleInternalCommand,
   parseInternalCommandInvocation,
   resolveCustomCommandInvocation,
 } from './custom-commands.mjs'
+import { mergeSkills, normalizeSkillNames } from './skills.mjs'
+import {
+  contextReferencesFromMessage,
+  contextReferencesPrompt,
+  validatePromptContextReferences,
+  validateContextReferences,
+  withCanonicalContextReferences,
+} from './context-references.mjs'
 import { serverConvertToLlm, messageText, lastAssistantText } from './message-converters.mjs'
 import { mergeQuickForgeTiming, wrapToolDefinition, wrapMcpToolDefinition, wrapPluginToolDefinition, sessionSkillsContext } from './tool-wiring.mjs'
 import {
@@ -1136,10 +1146,103 @@ function planCommandState(userMessage, args) {
   }
 }
 
+function parseSlashNameAndTask(args) {
+  const trimmed = String(args || '').trim()
+  if (!trimmed) return { name: '', task: '' }
+  const match = trimmed.match(/^(\S+)(?:\s+([\s\S]*))?$/)
+  return { name: match?.[1] || '', task: (match?.[2] || '').trim() }
+}
+
+async function enabledSkillsForSession(session) {
+  // Same sources as the activate_skill tool (loadSkillToolContext), resolved
+  // from the session's captured skill selections and workspace.
+  const skillContext = await loadSkillToolContext({
+    ...sessionSkillsContext(session),
+    workspaceRoot: session.projectContext?.workspaceRoot,
+  })
+  return mergeSkills(skillContext.globalSkills, skillContext.projectSkills)
+}
+
+function enabledSkillsLine(enabledSkills) {
+  if (enabledSkills.length === 0) return 'No skills are currently enabled.'
+  return `Enabled skills: ${enabledSkills.map((skill) => skill.name).join(', ')}.`
+}
+
+function availableSubagentsLine(profiles) {
+  return `Available subagents: ${profiles.map((profile) => profile.name).join(', ')}.`
+}
+
+async function skillCommandState(session, userMessage, args) {
+  const { name, task } = parseSlashNameAndTask(args)
+  const enabledSkills = await enabledSkillsForSession(session)
+
+  if (!name) {
+    return { textResponse: ['Usage: /skill <name> [task]', '', enabledSkillsLine(enabledSkills)].join('\n') }
+  }
+
+  const skillName = normalizeSkillNames([name])[0]
+  const skill = skillName ? enabledSkills.find((item) => item.name === skillName) : null
+  if (!skill) {
+    return {
+      textResponse: [
+        `Unknown or disabled skill: ${name}`,
+        '',
+        'Usage: /skill <name> [task]',
+        '',
+        enabledSkillsLine(enabledSkills),
+      ].join('\n'),
+    }
+  }
+
+  return {
+    userMessage,
+    commandPrompt: formatSkillCommandPrompt(skill.name, task),
+    commandName: 'skill',
+  }
+}
+
+async function agentCommandState(session, userMessage, args) {
+  const { name, task } = parseSlashNameAndTask(args)
+  const profileOptions = { workspaceRoot: session.projectContext?.workspaceRoot }
+
+  if (!name) {
+    const profiles = await listSubagentProfiles(profileOptions)
+    return { textResponse: ['Usage: /agent <name> <task>', '', availableSubagentsLine(profiles)].join('\n') }
+  }
+  if (!task) {
+    return { textResponse: 'Usage: /agent <name> <task>' }
+  }
+
+  const profile = await getAgentProfile(name, profileOptions)
+  if (!profile || profile.enabledAsSubagent !== true) {
+    const profiles = await listSubagentProfiles(profileOptions)
+    return {
+      textResponse: [
+        `Unknown subagent: ${name}`,
+        '',
+        'Usage: /agent <name> <task>',
+        '',
+        availableSubagentsLine(profiles),
+      ].join('\n'),
+    }
+  }
+
+  return {
+    userMessage,
+    commandPrompt: formatAgentCommandPrompt(profile.name, task),
+    commandName: 'agent',
+  }
+}
+
 async function resolveCommandState(session, userMessage, promptCommand = null) {
   const command = normalizedPromptCommand(promptCommand) || promptCommandFromMessage(userMessage)
+  const internalInvocation = internalInvocationForPromptCommand(userMessage, command)
+  // /skill and /agent need session context (enabled skills, workspace-rooted
+  // agent profiles), so they are resolved here before handleInternalCommand.
+  if (internalInvocation?.type === 'skill') return skillCommandState(session, userMessage, internalInvocation.args)
+  if (internalInvocation?.type === 'agent') return agentCommandState(session, userMessage, internalInvocation.args)
   const internalResponse = await handleInternalCommand(
-    internalInvocationForPromptCommand(userMessage, command),
+    internalInvocation,
     session.projectContext?.workspaceRoot,
     session.projectContext?.project?.commandDir,
   )
@@ -2695,14 +2798,11 @@ async function refreshSessionModelBinding(session) {
  * Send a user message to the agent and start the agent loop.
  * Returns immediately; events are streamed via the event bus.
  */
-export async function runPrompt(sessionId, message, selectedCapabilities = [], promptCommand = null, transientContextPrompt = null, modelAccessContext = null) {
+export async function runPrompt(sessionId, message, selectedCapabilities = [], promptCommand = null, transientContextPrompt = null, modelAccessContext = null, contextReferences = undefined) {
   let session = await syncSessionFromStorage(sessionId)
   if (!session) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
   }
-  if (modelAccessContext) session.modelAccessContext = modelAccessContext
-  if (session.harness === AGENT_HARNESS_QUICKFORGE) await refreshSessionModelBinding(session)
-
   if (session.agent.state.isStreaming || session.abortPending) {
     throw Object.assign(new Error('Generation is still running. Stop it or wait until it finishes.'), {
       statusCode: 409,
@@ -2710,17 +2810,23 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
     })
   }
 
-  if (session.harness === AGENT_HARNESS_QUICKFORGE) await refreshMemoryState(session)
-  resetIdleTimer(session)
-
-  // Build user message
+  // Validate references before model refresh, memory refresh, idle timers, title,
+  // message persistence, or agent_start side effects.
   const initialUserMessage = typeof message === 'string'
     ? { role: 'user', content: message, timestamp: new Date().toISOString() }
     : message
+  const canonicalContextReferences = await validatePromptContextReferences(contextReferences, session)
+  const canonicalInitialUserMessage = withCanonicalContextReferences(initialUserMessage, canonicalContextReferences)
+
+  if (modelAccessContext) session.modelAccessContext = modelAccessContext
+  if (session.harness === AGENT_HARNESS_QUICKFORGE) await refreshSessionModelBinding(session)
+  if (session.harness === AGENT_HARNESS_QUICKFORGE) await refreshMemoryState(session)
+  resetIdleTimer(session)
+
   const commandState = session.harness === AGENT_HARNESS_QUICKFORGE
-    ? await resolveCommandState(session, initialUserMessage, promptCommand)
-    : { userMessage: initialUserMessage }
-  const resolvedUserMessage = commandState.userMessage ?? initialUserMessage
+    ? await resolveCommandState(session, canonicalInitialUserMessage, promptCommand)
+    : { userMessage: canonicalInitialUserMessage }
+  const resolvedUserMessage = commandState.userMessage ?? canonicalInitialUserMessage
 
   if (session.harness === AGENT_HARNESS_OPENCODE) {
     session.agent.validatePrompt(resolvedUserMessage)
@@ -2729,7 +2835,7 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
   if (commandState.textResponse) {
     session.agent.state.messages = [
       ...session.agent.state.messages,
-      initialUserMessage,
+      canonicalInitialUserMessage,
       assistantTextMessage(commandState.textResponse, session.model),
     ]
     await persistSession(session)
@@ -2744,11 +2850,11 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
   }
 
   if (commandState.summary) {
-    return summarySession(session, initialUserMessage, commandState.summary)
+    return summarySession(session, canonicalInitialUserMessage, commandState.summary)
   }
 
   if (commandState.compact) {
-    return compactSession(session, initialUserMessage, commandState.compact)
+    return compactSession(session, canonicalInitialUserMessage, commandState.compact)
   }
 
   const userMessage = session.harness === AGENT_HARNESS_QUICKFORGE
@@ -2769,9 +2875,11 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
   session.activeCommandPermissions = commandState.permissions ?? null
   session.activeCommandPrompt = commandState.commandPrompt ?? null
   session.activeCapabilityPrompt = selectedCapabilityPrompt(selectedCapabilities)
-  session.activeTransientContextPrompt = typeof transientContextPrompt === 'string' && transientContextPrompt.trim()
-    ? transientContextPrompt
-    : null
+  const referencePrompt = contextReferencesPrompt(canonicalContextReferences)
+  session.activeTransientContextPrompt = [
+    typeof transientContextPrompt === 'string' && transientContextPrompt.trim() ? transientContextPrompt : null,
+    referencePrompt,
+  ].filter(Boolean).join('\n\n') || null
 
   // Fire and forget — events come through eventBus
   session.agent.prompt(userMessage).catch((err) => {
@@ -2847,8 +2955,10 @@ export async function continueSession(sessionId, modelAccessContext = null) {
   }
 
   const lastUserMessage = messages[lastUserIndex]
-  const commandState = await resolveCommandState(session, lastUserMessage)
-  const continuedUserMessage = prepareCloudUserMessage(session, commandState.userMessage ?? lastUserMessage)
+  const canonicalContextReferences = await validateContextReferences(contextReferencesFromMessage(lastUserMessage), session)
+  const canonicalLastUserMessage = withCanonicalContextReferences(lastUserMessage, canonicalContextReferences)
+  const commandState = await resolveCommandState(session, canonicalLastUserMessage)
+  const continuedUserMessage = prepareCloudUserMessage(session, commandState.userMessage ?? canonicalLastUserMessage)
   const trimmedMessages = messages.slice(0, lastUserIndex).concat(continuedUserMessage)
   updateSessionMessages(session, trimmedMessages)
   const compactedUpToIndex = Number(session.contextCompaction?.compactedUpToIndex) || 0
@@ -2868,6 +2978,7 @@ export async function continueSession(sessionId, modelAccessContext = null) {
   session.activeCommandPermissions = commandState.permissions ?? null
   session.activeCommandPrompt = commandState.commandPrompt ?? null
   session.activeCapabilityPrompt = null
+  session.activeTransientContextPrompt = contextReferencesPrompt(canonicalContextReferences)
 
   session.agent.continue().catch((err) => {
     logger.error(`Agent continue error for session ${sessionId}:`, err, { sessionId })
@@ -2877,6 +2988,7 @@ export async function continueSession(sessionId, modelAccessContext = null) {
     session.activeCommandPermissions = null
     session.activeCommandPrompt = null
     session.activeCapabilityPrompt = null
+    session.activeTransientContextPrompt = null
   })
 
   return { sessionId, status: 'running' }

@@ -175,12 +175,20 @@ export class SharedServerAgent {
   }
 
   setNextPromptCapabilities(): void {
-    // Shared conversations currently do not route local capability mentions.
+    // Shared conversations currently do not route local capability selections.
+  }
+
+  setNextPromptContextReferences(): void {
+    // Shared conversations never attach local workspace references.
+  }
+
+  setPromptMode(mode: 'plan' | 'ask' | null, onConsumed?: () => void): void {
+    this.planMode = mode === 'plan'
+    this.onPlanModeConsumed = mode ? onConsumed : undefined
   }
 
   setPlanMode(mode: boolean, onConsumed?: () => void): void {
-    this.planMode = mode
-    this.onPlanModeConsumed = mode ? onConsumed : undefined
+    this.setPromptMode(mode ? 'plan' : null, onConsumed)
   }
 
   async prompt(input: string | AgentMessage | AgentMessage[]): Promise<void> {

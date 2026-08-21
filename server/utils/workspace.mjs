@@ -41,7 +41,7 @@ export function toWorkspaceRelative(fullPath, context) {
 
 export function isSensitiveWorkspacePath(fullPath, context) {
   const relative = toWorkspaceRelative(fullPath, context)
-  const parts = relative.split('/')
+  const parts = relative.split('/').map((part) => part.toLocaleLowerCase())
   const name = parts.at(-1) || ''
   return (
     parts.includes('.git') ||
@@ -61,6 +61,13 @@ export function isSensitiveWorkspacePath(fullPath, context) {
   )
 }
 
+function sensitivePathError(fullPath, context) {
+  return Object.assign(new Error(`Access to sensitive path is blocked: ${toWorkspaceRelative(fullPath, context)}`), {
+    statusCode: 403,
+    errorCode: 'WORKSPACE_SENSITIVE_PATH',
+  })
+}
+
 async function realpathNearestExistingParent(inputPath) {
   let current = path.resolve(inputPath)
   while (true) {
@@ -77,9 +84,7 @@ async function realpathNearestExistingParent(inputPath) {
 
 async function assertSafeWorkspacePathWithRoot(fullPath, context, workspaceReal, options = {}) {
   if (!options.allowSensitive && isSensitiveWorkspacePath(fullPath, context)) {
-    const error = new Error(`Access to sensitive path is blocked: ${toWorkspaceRelative(fullPath, context)}`)
-    error.statusCode = 403
-    throw error
+    throw sensitivePathError(fullPath, context)
   }
 
   let targetReal
@@ -98,7 +103,11 @@ async function assertSafeWorkspacePathWithRoot(fullPath, context, workspaceReal,
   if (!isInside(workspaceReal, targetReal)) {
     const error = new Error(`Path resolves outside the selected project: ${toWorkspaceRelative(fullPath, context)}`)
     error.statusCode = 403
+    error.errorCode = 'WORKSPACE_PATH_ESCAPE'
     throw error
+  }
+  if (!options.allowSensitive && isSensitiveWorkspacePath(targetReal, { workspaceRoot: workspaceReal })) {
+    throw sensitivePathError(fullPath, context)
   }
 }
 

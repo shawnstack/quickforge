@@ -153,8 +153,6 @@ function createFakeElement(tagName: string): FakeNode {
   return node
 }
 
-type HarnessOptions = { pluginsEnabled?: boolean }
-
 function createHarness(options: HarnessOptions = {}) {
   const textarea = createFakeElement('textarea')
   textarea.value = ''
@@ -190,15 +188,18 @@ function createHarness(options: HarnessOptions = {}) {
 
   const removeCommandSuggestions = vi.fn()
   const removeCapabilitySuggestions = vi.fn()
+  const removeFileReferenceSuggestions = vi.fn()
+  const selectPluginCapability = vi.fn()
 
   setupComposerPlusMenu({
     panel: panel as unknown as HTMLElement,
     editor: editor as unknown as MessageEditorElement,
     leftControls: leftControls as unknown as HTMLElement,
-    insertBuiltinPluginMention: capabilitySuggestions.insertBuiltinPluginMention,
+    selectPluginCapability,
+    availablePluginRows: capabilitySuggestions.availablePluginRows,
     removeCommandSuggestions,
     removeCapabilitySuggestions,
-    availablePluginRows: capabilitySuggestions.availablePluginRows,
+    removeFileReferenceSuggestions,
     attachmentsEnabled: false,
     pluginsEnabled: options.pluginsEnabled ?? true,
   })
@@ -211,7 +212,12 @@ function createHarness(options: HarnessOptions = {}) {
     leftControls,
     plusButton,
     restoreDraftIntoComposer,
+    selectPluginCapability,
   }
+}
+
+type HarnessOptions = {
+  pluginsEnabled?: boolean
 }
 
 type Harness = ReturnType<typeof createHarness>
@@ -365,7 +371,7 @@ describe('composer + plugin menu availability', () => {
     expect(pluginNames(h).sort()).toEqual(['documents', 'presentations', 'spreadsheets'])
   })
 
-  it('inserts the correct @ mention when a plugin item is clicked', async () => {
+  it('selects the plugin capability when a plugin item is clicked', async () => {
     mockLoadPlugins().mockResolvedValue(responseFor(documentsPlugin, spreadsheetsPlugin, presentationsPlugin))
     const h = createHarness()
     await flush()
@@ -376,8 +382,8 @@ describe('composer + plugin menu availability', () => {
     const documentsItem = pluginItems(h).find((item) => item.dataset.quickforgePluginName === 'documents')
     pointerDown(documentsItem)
 
-    expect(h.restoreDraftIntoComposer).toHaveBeenCalledTimes(1)
-    expect(h.restoreDraftIntoComposer.mock.calls[0][0]).toMatchObject({ text: '@Documents ' })
+    expect(h.selectPluginCapability).toHaveBeenCalledTimes(1)
+    expect(h.selectPluginCapability.mock.calls[0][0]).toBe('documents')
   })
 
   it('does not issue additional /api/plugins requests when the plus menu is used', async () => {

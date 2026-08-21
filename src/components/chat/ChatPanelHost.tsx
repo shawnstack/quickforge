@@ -3,7 +3,7 @@ import {
   ApiKeyPromptDialog,
   ChatPanel,
 } from '@earendil-works/pi-web-ui'
-import type { ServerAgent, ServerAgentAskAnswer, ServerAgentContextCompaction, ServerAgentContextUsage, ServerAgentPendingAsk, ServerAgentPendingAutoCompactApproval, ServerAgentPendingToolApproval, OpenCodeAcpSession } from '@/lib/server-agent'
+import type { ServerAgent, ServerAgentAskAnswer, ServerAgentContextCompaction, ServerAgentContextUsage, ServerAgentPendingAsk, ServerAgentPendingAutoCompactApproval, ServerAgentPendingToolApproval, OpenCodeAcpSession, FileContextReference } from '@/lib/server-agent'
 import type { SharedServerAgent } from '@/lib/shared-server-agent'
 import type { DeferredSessionAgent } from '@/lib/deferred-session-agent'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
@@ -17,7 +17,10 @@ import {
   uninstallMessageListWindow,
 } from './windowed-messages'
 import { createCommandSuggestions } from './command-suggestions'
+import { fetchSlashCatalog } from '@/lib/slash-catalog'
 import { createCapabilitySuggestions } from './capability-suggestions'
+import { createFileReferenceSuggestions, canUseFileReferenceSuggestions } from './file-reference-suggestions'
+import { removeComposerPlusPopover } from './panel-decoration/composer-plus-menu'
 import { createContextUsageIndicator, type ContextUsageDisplayInfo } from './context-usage'
 import { createOpenCodeUsageIndicator } from './panel-decoration'
 import { createTurnNavigation } from './turn-navigation'
@@ -89,6 +92,7 @@ type AgentWithPersistDegraded = AgentLike & {
 
 type AgentWithCapabilityPrompt = AgentLike & {
   setNextPromptCapabilities?: (capabilities: unknown[]) => void
+  setNextPromptContextReferences?: (references: FileContextReference[], onConsumed?: () => void) => void
   setPlanMode?: (mode: boolean, onConsumed?: () => void) => void
 }
 
@@ -314,7 +318,7 @@ export function ChatPanelHost({
   }, [cancelPendingDraftSave, cancelRestoredDraftRestore])
 
   const persistDraft = useCallback((key: string, draft: ComposerDraft, context: ComposerDraftContext) => {
-    if (draft.text.length === 0) {
+    if (!hasDraft({ ...draft, attachments: [] })) {
       void clearComposerDraft(key).catch((err) => logger.error('Failed to clear composer draft:', err))
       return
     }
@@ -446,9 +450,18 @@ export function ChatPanelHost({
   const decorateFnRef = useRef<(() => void) | null>(null)
   const scrollSyncRef = useRef<ReturnType<typeof createScrollSync> | null>(null)
   const scheduleDecorateRef = useRef<(() => void) | null>(null)
+  // Current project id for lazy slash-catalog loads. Read at call time because
+  // the command-suggestions subsystem is created once per panel while the
+  // project prop may change (same source as the /api/project/commands fetch).
+  const slashCatalogProjectIdRef = useRef<string | undefined>(project?.id)
   const pendingApprovalRef = useRef<{ toolCallId: string; toolName: string; args: Record<string, unknown>; sessionId: string; source?: import('./panel-decoration').ToolApprovalSource } | null>(null)
   const pendingAutoCompactApprovalRef = useRef<{ approvalId: string; usage?: { percent?: number }; thresholdPercent?: number; keepRecentTurns?: number; sessionId: string } | null>(null)
   const pendingAskRef = useRef<(ServerAgentPendingAsk & { sessionId: string }) | null>(null)
+
+  // Keep the slash-catalog project source in sync with the latest props.
+  useEffect(() => {
+    slashCatalogProjectIdRef.current = project?.id
+  }, [project?.id])
 
   // --- Load custom commands for the current project ---
   useEffect(() => {
@@ -486,6 +499,8 @@ export function ChatPanelHost({
       ? {
           text: editor.value ?? editor.querySelector<HTMLTextAreaElement>('textarea')?.value ?? '',
           attachments: editor.attachments ? [...editor.attachments] : [],
+          contextReferences: editor.contextReferences ? [...editor.contextReferences] : [],
+          selectedCapabilities: editor.selectedCapabilities ? [...editor.selectedCapabilities] : [],
         }
       : composerDraftsRef.current.get(key)
     const lastApplied = lastAppliedRestoredDraftRef.current
@@ -630,9 +645,10 @@ export function ChatPanelHost({
         restoreComposerDraft(panel, draft, composerDraftsRef.current, currentDraftKey)
         schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
       },
+      loadSlashCatalog: () => fetchSlashCatalog(slashCatalogProjectIdRef.current),
     })
 
-    // --- @ capability suggestions subsystem ---
+    // --- Plugin capability selection subsystem (+ menu only; never inferred from @ text) ---
     const capabilitySuggestions = createCapabilitySuggestions({
       panel,
       enabled: effectiveCapabilities.capabilitySuggestions,
@@ -640,6 +656,25 @@ export function ChatPanelHost({
         restoreComposerDraft(panel, draft, composerDraftsRef.current, currentDraftKey)
         schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
       },
+    })
+
+    // --- @ current-project file reference subsystem ---
+    const fileReferenceSuggestions = createFileReferenceSuggestions({
+      panel,
+      projectId: project?.id ?? projectId,
+      enabled: canUseFileReferenceSuggestions({
+        projectId: project?.id ?? projectId,
+        readOnly,
+        harness: agent.harness,
+        shared: 'shareId' in agent,
+      }),
+      restoreDraftIntoComposer: (draft) => {
+        restoreComposerDraft(panel, draft, composerDraftsRef.current, currentDraftKey)
+        schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
+      },
+      removeCommandSuggestions: cmdSuggestions.remove,
+      removeCapabilitySuggestions: capabilitySuggestions.remove,
+      removePlusMenu: () => removeComposerPlusPopover(panel),
     })
 
     // --- Context usage subsystem ---
@@ -681,7 +716,9 @@ export function ChatPanelHost({
       composerClearedForSend = false
       const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
       const attachments = editor?.attachments ? [...editor.attachments] : []
-      const draft = { text: value, attachments }
+      const contextReferences = editor?.contextReferences ? [...editor.contextReferences] : []
+      const selectedCapabilities = capabilitySuggestions.snapshotSelectedCapabilities()
+      const draft = { text: value, attachments, contextReferences, selectedCapabilities }
       if (hasDraft(draft)) {
         composerDraftsRef.current.set(currentDraftKey, draft)
         schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
@@ -697,7 +734,9 @@ export function ChatPanelHost({
       const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
       const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
       const text = editor?.value ?? textarea?.value ?? ''
-      const draft = { text, attachments: files ? [...files] : [] }
+      const contextReferences = editor?.contextReferences ? [...editor.contextReferences] : []
+      const selectedCapabilities = capabilitySuggestions.snapshotSelectedCapabilities()
+      const draft = { text, attachments: files ? [...files] : [], contextReferences, selectedCapabilities }
       if (hasDraft(draft)) {
         composerDraftsRef.current.set(currentDraftKey, draft)
         schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
@@ -856,15 +895,33 @@ export function ChatPanelHost({
           removeCapabilitySuggestions: capabilitySuggestions.remove,
           updateCapabilitySuggestions: capabilitySuggestions.update,
           setupCapabilityTextareaHandler: capabilitySuggestions.setupTextareaHandler,
-          insertBuiltinPluginMention: capabilitySuggestions.insertBuiltinPluginMention,
+          removeFileReferenceSuggestions: fileReferenceSuggestions.remove,
+          updateFileReferenceSuggestions: fileReferenceSuggestions.update,
+          setupFileReferenceTextareaHandler: fileReferenceSuggestions.setupTextareaHandler,
+          syncContextChips: () => {
+            capabilitySuggestions.syncChips()
+            fileReferenceSuggestions.syncChips()
+          },
+          selectPluginCapability: capabilitySuggestions.selectPlugin,
           availablePluginRows: capabilitySuggestions.availablePluginRows,
-          onBeforeSend: (input) => {
+          onBeforeSend: () => {
             requestAndroidRemoteSystemNotificationPermissionOnce()
             const capabilities = props.capabilities.capabilitySuggestions
-              ? capabilitySuggestions.consumeSelectedCapabilities(input)
+              ? capabilitySuggestions.consumeSelectedCapabilities()
               : []
+            const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
+            const contextReferences = editor?.contextReferences ? [...editor.contextReferences] : []
             const promptAgent = agent as AgentWithCapabilityPrompt
             promptAgent.setNextPromptCapabilities?.(capabilities)
+            promptAgent.setNextPromptContextReferences?.(contextReferences, () => {
+              const currentEditor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
+              if (!currentEditor) return
+              currentEditor.contextReferences = (currentEditor.contextReferences ?? []).filter((reference) => !contextReferences.some(
+                (sent) => sent.projectId === reference.projectId && sent.path === reference.path,
+              ))
+              currentEditor.requestUpdate?.()
+              fileReferenceSuggestions.syncChips()
+            })
           },
         })
       } catch { /* continue to approval card */ }
@@ -1103,6 +1160,7 @@ export function ChatPanelHost({
       const restoreVersion = draftRestoreGuard.version()
       const restoreStoredDraft = (storedDraft?: ComposerDraft) => {
         if (disposed || !draftRestoreGuard.isCurrent(restoreVersion)) return
+        capabilitySuggestions.restoreSelectedCapabilities(storedDraft?.selectedCapabilities ?? [])
         if (draft && restoredDraftIdRef.current !== draft.id) {
           restoreDraftForSession(panel, draft, sessionId, currentDraftKey)
         } else {
@@ -1340,6 +1398,8 @@ export function ChatPanelHost({
       cmdSuggestions.cleanupTextareaHandler()
       capabilitySuggestions.remove()
       capabilitySuggestions.cleanupTextareaHandler()
+      fileReferenceSuggestions.remove()
+      fileReferenceSuggestions.cleanupTextareaHandler()
       contextUsage.cleanup()
       openCodeUsage.cleanup()
       turnNavigation?.cleanup()
@@ -1358,7 +1418,7 @@ export function ChatPanelHost({
       decorateFnRef.current = null
       panel.remove()
     }
-  }, [agent, showTurnNavigation, effectiveCapabilities.capabilitySuggestions, cancelPendingDraftSave, cancelRestoredDraftRestore, consumeRestoredDraft, persistCurrentComposerDraft, restoreDraftForSession, schedulePersistDraft]) // Recreate only when the agent or host-level navigation mode changes; callback deps are stable
+  }, [agent, project?.id, projectId, readOnly, showTurnNavigation, effectiveCapabilities.capabilitySuggestions, cancelPendingDraftSave, cancelRestoredDraftRestore, consumeRestoredDraft, persistCurrentComposerDraft, restoreDraftForSession, schedulePersistDraft]) // Recreate only when the agent, project reference scope, or host-level navigation mode changes; callback deps are stable
 
   useEffect(() => {
     const host = hostRef.current

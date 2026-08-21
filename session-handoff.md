@@ -1,5 +1,86 @@
 # Session Handoff
 
+## 当前状态：工作区剩余功能已安全拆分提交
+
+- 分支/基线：`dev`，起始 HEAD `72ac7e09`，无 upstream；未 amend 既有提交，未 tag、未 push。
+- 新增提交：`d66a3e7 feat(ui): 按会话隔离 Workspace Inspector 状态`；`924e8c5 feat(ui): 优化 Slash 菜单名称与图标`；`b64a4b2 fix(ui): 调整 Composer 控件悬停反馈`；本状态记录将以独立 docs commit 收口。
+- 完整门禁：`npm run test` → 236 files / 2020 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` → 成功（仅既有 KaTeX 字体解析与 chunk size warning）；`git diff --check`、`feature_list.json` / `package.json` / `package-lock.json` JSON 解析通过。每个 commit 前均复核 cached diff/stat/check，commit hook lint 也均通过（同一既有 warning）。
+- 未提交项：`package-lock.json` 只有 npm `peer` 元数据变化，`package.json` 无依赖或版本变化；当前 npm 11.6.2 对 HEAD 锁文件隔离重算可产生相同结果，因此判定为工具链噪音。未擅自提交，也未 restore/checkout 丢弃，后续需在统一 npm 版本策略下决定是否单独规范化。
+- 生成产物：`dist/`、`package-dist/`、`package-offline/` 均由 `.gitignore` 忽略，未纳入提交。
+- 下一步：如需彻底干净工作树，请用户确认是否接受单独提交 npm 11.6.2 的 lockfile peer 元数据规范化；否则保留现状即可。不要 push，除非用户另行明确要求。
+
+---
+
+## 当前状态：sidebar-section-title-drag-collapse（已完成）
+
+- 目标：移除 Projects / Tasks 专用六点拖拽按钮，改为直接拖动标题主 toggle；拖动任一区块时两个区块都临时收缩，结束/取消后恢复原折叠状态。
+- 实现：`SortableSidebarSection` 的 `setActivatorNodeRef`、attributes、listeners 仅绑定 Projects / Tasks 标题 toggle；标题保留原 `onClick` 折叠回调，并通过独立 `draggableSectionTitleClass` 增加 `touch-none`、`cursor-grab` 与 dragging 时 `cursor-grabbing`。共享 `sectionToggleClass` 恢复普通折叠标题样式，Pinned 不使用 draggable class、activator 或 listeners，继续保持默认 pointer/触摸行为。外层 PointerSensor 保持 6px 激活阈值，KeyboardSensor 接线保留；右侧筛选、展开全部、添加、新建等 action buttons 未绑定 listeners。
+- 临时折叠：`draggingSectionId !== undefined` 派生 `projectsVisuallyCollapsed` / `conversationsVisuallyCollapsed`，任一区块拖动时两者同时为 true；Chevron、`aria-expanded`、`SortableSidebarSection.collapsed` 与实际内容 grid 全部使用派生状态，内容收缩增加 `transition-none`。`finishSectionDrag` 同时服务 cancel/end，仅清空 dragging state，不调用 `onToggleProjectsCollapsed` / `onToggleConversationsCollapsed`，因此恢复各自原状态。
+- 保留边界：折叠 `shrink-0`、展开 Tasks `flex-1`、展开 Projects `max-h-[55%]`、顶层 flex/min-h-0/overflow-hidden、设置区 `mt-auto shrink-0`、Projects 内部嵌套 DnD/MeasuringStrategy/视口边界/排序持久化均未改。
+- 测试与文档：更新 `tests/frontend/sidebar-section-order.test.ts`（移除专用 handle 契约，覆盖标题 activator、Pinned 与 draggable class 隔离、action 隔离、双派生折叠、视觉恢复接线与 transition-none）；同步 `docs/wiki/src/components/README.md`。`DESIGN_LANGUAGE.md` 无需修改，未新增视觉模式。
+- 验证：定向 vitest 2 files / 21 tests；目标 eslint 0 error；`npx tsc -b --pretty false` 与 `git diff --check` 通过；前一轮完整 `npm run test` 236 files / 2020 tests 全通过、`npm run lint` 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）、`npm run build` 成功（仅既有 KaTeX/chunk warnings），本次极小局部修复未重复全量门禁。
+- 边界：未新增依赖，未手工修改生成目录，未创建 commit/tag/push；工作区并行未提交改动全部保留。
+
+---
+
+## 当前状态：sidebar-collapsed-sections-compact-layout（已完成）
+
+- 目标：修复 Projects / Tasks 顶层排序区块折叠后仍占据展开高度，导致按 Tasks→Projects 排序时两个折叠标题之间出现巨大空白。
+- 根因：`SortableSidebarSection` 只按 ID 固定分配尺寸——Projects 始终 `max-h-[55%]`、Tasks 始终 `flex-1`，未考虑折叠状态；Tasks 折叠后仍吞掉排序容器剩余高度。
+- 实现：`SortableSidebarSection` 新增 `collapsed` 参数，由调用处按 `sectionId` 在 `projectsCollapsed` / `conversationsCollapsed` 间推导。折叠统一使用 `shrink-0`；展开 Tasks 继续 `flex-1`，展开 Projects 继续 `max-h-[55%]`。保留排序容器 `flex min-h-0 flex-1 flex-col overflow-hidden`、Projects/Tasks 内部 `overflow-y-auto`、底部设置 `mt-auto shrink-0`，未改顶层/项目 DnD、顺序持久化或桌面/移动共享接线。
+- 测试：扩展 `tests/frontend/sidebar-section-order.test.ts` 源码契约，覆盖 collapsed 传递、折叠 shrink-0、展开 Tasks/Projects 尺寸、排序容器、内部滚动及设置底部固定边界。
+- 文档：同步 `docs/wiki/src/components/README.md`；`DESIGN_LANGUAGE.md` 无需修改（既有布局 bugfix，无新视觉模式）。
+- 验证：定向 vitest 2 files / 20 tests；目标 eslint 0 error；`npx tsc -b --pretty false` 通过；完整 `npm run test` 236 files / 2019 tests 全通过；`npm run lint` 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX/chunk warnings）；`git diff --check` 通过。
+- 边界：未新增依赖，未修改/覆盖 `package-lock.json` 既有并行变更，未手工修改生成目录，未创建 commit/tag/push；工作区其他并行修改全部保留。
+
+---
+
+## 当前状态：unify-neutral-slash-icons（已完成）
+
+- 目标：所有 Slash 图标去类别色，并让斜杠菜单 command/skill/agent 复用项目已有 Lucide `SquareTerminal` / `BookOpen` / `Bot`；不扩大到非 Slash 能力菜单。
+- 实现：新增 `src/components/chat/slash-icons.ts`，使用项目已有 React 静态渲染模式把三个 Lucide 组件转换为 SVG 字符串；`command-suggestions.ts` 三类菜单行和骨架统一读取该映射，并与 canonical-name 显示调整一并收口；`slash-invocation-chip.ts` 的 skill/agent chip 同样读取映射，并删除旧 `slashAgentIcon` 自绘 glyph。CSS 菜单三类图标默认 `var(--muted-foreground)`，hover/selected 为 `var(--foreground)`；共享 `.quickforge-slash-chip-icon` 单独设为 `var(--muted-foreground)`，覆盖输入框与消息流全部复用位置。
+- 颜色边界：按用户字面只中性化图标。skill/agent chip 的既有蓝/绿背景与文字语义色可通过图标子元素独立分离，因此保持不变；chip 结构、类型信息、边框/背景与行为未改。非 Slash `+ → 能力`、@ 文件引用等继续使用 `capability-icons.ts`，未受影响。
+- 测试：`command-suggestions.test.ts` 断言菜单输出 `lucide-square-terminal` / `lucide-book-open` / `lucide-bot`，并锁定三类默认/hover/selected 中性 token、无类别 RGB；`slash-invocation-chip.test.ts` 断言 skill/agent 分别输出 BookOpen/Bot，旧 `slashAgentIcon` 不存在，chip icon 使用中性 token。
+- 文档：`docs/wiki/src/components/README.md` 新增 slash-icons 导航，更新 command-suggestions/slash-invocation-chip 图标映射、颜色边界和模块行数。
+- 验证：定向 vitest 2 files / 35 tests 全通过；改动 TS/测试 eslint 0 error；`npx tsc -b --pretty false` exit 0；`npm run lint` 为 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；`git diff --check` 通过。
+- 边界：未新增依赖，未手工修改生成目录；已随 canonical-name 合并提交为 `924e8c5`，未 tag、未 push。`package-lock.json` 噪音未纳入提交且未丢弃。
+
+---
+
+## 当前状态：sidebar-section-reorder（已完成）
+
+- 目标：完成已开始的侧栏 section reorder，让 Projects 与当前 Tasks（源码 conversations UI）两个完整区块可安全拖拽换位并在桌面/移动共用、刷新持久化。
+- 实现：`src/lib/sidebar-section-order.ts` 定义 `projects/tasks` 规范化、排序和 `localStorage` 安全读写；`src/App.tsx` 持有唯一状态并传给两个 ChatSidebar。`ChatSidebar.tsx` 保持置顶区在外部固定，在区块级 `DndContext + SortableContext` 中按 `sectionOrder` 动态渲染完整 Projects / Tasks；`SortableSidebarSection` 使用 `sidebar-section:*` 命名空间 ID，水平 transform 锁定为 0、顶层 autoScroll 关闭。标题旁弱化 `GripVertical` 按钮是唯一 activator：PointerSensor 保留 6px 阈值以支持鼠标/触摸，外层另接入 KeyboardSensor + `sortableKeyboardCoordinates`，聚焦手柄后可用 Space → 方向键 → Space 完成排序；`useSortable` attributes/listeners、`aria-label` / `title` 仍绑定该手柄，折叠、添加、筛选、菜单等按钮不绑定监听。Projects 内原嵌套 DnD、视口 modifier/autoScroll、拖动折叠会话和 `onReorderProjects` 持久化未改。
+- 测试：保留纯函数/storage 5 用例，源码接线契约现为 7 个，覆盖动态顺序、完整区块映射、置顶外置、外层 `sectionSensors` 同时配置 PointerSensor 与 KeyboardSensor/`sortableKeyboardCoordinates`、命名空间和安全手柄、start/cancel/end+x 锁定、项目嵌套 DnD/持久化保留、App 桌面/移动共用状态；与 project-drag-boundary 合计 19/19 通过。现有测试架构以源码契约为主，没有可低成本复用的真实 DOM dnd-kit 键盘行为 harness，因此未为本修复扩大测试基础设施。
+- 文档：更新 `docs/wiki/src/components/README.md` 的 ChatSidebar 行数与交互契约；`docs/wiki/src/lib/README.md` 新增 sidebar-section-order 模块条目。未修改 DESIGN_LANGUAGE（实现直接遵循既有轻盈、克制、icon-only 可访问命名规范）。
+- 验证：定向 vitest 2 文件 / 19 用例全过；`npx eslint src/components/sidebar/ChatSidebar.tsx tests/frontend/sidebar-section-order.test.ts` 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；feature JSON 解析与 `git diff --check` 通过。
+- 边界：未触碰 `package-lock.json` 及 Workspace Inspector、command suggestions、session actions 等并行改动；未手工修改生成目录，未新增依赖，未创建 commit/tag/push。
+
+---
+
+## 当前状态：session-scoped-workspace-inspector-state（已完成）
+
+- 目标：Workspace Inspector 的展开/收起、tabs、`activePanelTabId` 与 Reader 左侧导航显示按 session 隔离恢复；Inspector 整体宽度等纯布局偏好继续全局。
+- 实现：`useAgentManager` 新增稳定的 `currentRuntimeScopeId`。pending deferred session 使用自身 `pending-*` 身份；首次发送创建真实 Agent 时，`createAgent` 仅在原 deferred 仍是当前视图时附着，并通过 `attachTaskToView(task, previousAgent.sessionId)` 沿用原 scope，使 `WorkspaceInspector` 的 React `key` 不变化，组件内 open、tabs、activePanelTabId、Review 子视图、readerNavigationVisible 原样存活；`sessionId` 更新后 open hook 的 effect 与 Inspector tabs effect 把当前内存快照写入真实 `projectId + sessionId` localStorage。切换普通会话或成功附着另一 deferred session 才更换 scope；pending 自身仍不落盘。
+- 请求隔离：`WorkspaceInspectorOpenRequest` 新增 `scope={projectId,runtimeScopeId}`。App 的 request bridge 发起前校验当前 scope；聊天文件 `resolveWorkspacePath` 完成/失败后同时校验 request id、project 和 runtime scope；Inspector 消费时再次校验。session A 的迟到请求不能打开或持久化到同项目 session B。历史无项目、无 scope 的 subagent 请求继续兼容。
+- 新建边界：删除 App wrapper 预先递增 pending scope 的逻辑；`useChatActions` 新建动作返回 `created/reused/cancelled`，reuse、模型设置取消、无项目和异常均不会由 wrapper 提前滚动 Inspector scope。
+- 测试/文档：扩展 `workspace-inspector-request.test.ts` 与 `workspace-inspector-tabs.test.ts`，覆盖同项目跨 session 拒绝、projectless subagent 兼容、pending→real key 不变及落盘接线、异步文件 scope 校验、新建 reuse/cancel 不提前滚动；同步 `docs/wiki/src/README.md`、`docs/wiki/src/components/README.md`。
+- 验证：定向 6 files / 41 tests；相关 eslint 0 error；`npx tsc -b --pretty false` exit 0；最终合并工作区 `npm run test` 236 files / 2020 tests 全通过；`npm run lint` 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX/chunk warnings）；feature/package/lock JSON 与 `git diff --check` 通过。
+- 边界：未新增依赖，未手工修改生成目录；已提交为 `d66a3e7`，未 tag、未 push。`package-lock.json` 噪音未纳入提交且未丢弃。
+
+---
+
+## 当前状态：composer-controls-hover-background（已完成）
+
+- 目标：调整对话输入区 +、权限、模型、发送/停止按钮 hover，使用背景反馈代替 `translateY(-1px)` 跳动，同时保持中性/主操作/停止态层级。
+- 实现：`src/index.css` 保留 `.quickforge-composer button:hover:not(:disabled)` 全局规则；新增精确覆盖——+、权限、模型 hover 使用 `var(--quickforge-sidebar-hover-bg)`、`var(--foreground)`、`transform:none` 且带 `:not(:disabled)`；发送 hover 使用 `color-mix(in oklab, var(--primary) 92%, var(--quickforge-sidebar-hover-bg))`、`primary-foreground`、`transform:none`；停止 hover 保留原 foreground/background 混合背景并补 `transform:none`。未改变 Plan、OpenCode config、chip/菜单项；model trigger 覆盖 OpenCode mode 为预期。
+- 测试：新增 `tests/frontend/composer-control-hover.test.ts`，结构化读取 CSS 规则，验证全局规则仍存在、三个中性目标的精确 selector/token/前景/不位移、发送态 primary 混色与前景、停止态既有背景与不位移。
+- 验证：定向 3 files / 16 tests 全通过；新增测试 eslint 0 error；最终合并工作区 `npm run test` 236 files / 2020 tests 全通过；`npm run lint` 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX/chunk warnings）；feature/package/lock JSON 与 `git diff --check` 通过。
+- 边界：未更新 `docs/wiki` 或 `DESIGN_LANGUAGE.md`（纯视觉反馈且现有“hover 有感知、不跳动”规范已覆盖）；未手工修改生成目录、未新增依赖；已提交为 `b64a4b2`，未 tag、未 push。`package-lock.json` 噪音未纳入提交且未丢弃。
+- 待确认：可选真机检查深浅主题 hover 对比度、发送 primary 层级和五类控件无垂直跳动。
+
+---
+
 ## 当前状态：fix-session-state-clear-actions（已完成）
 
 - 目标：修复两个同根因状态清除缺陷——取消置顶与归档恢复均需通过可序列化的 `null` 触发服务端 clear 语义。
@@ -7,6 +88,17 @@
 - 测试：新增 `tests/frontend/session-state-clear-actions.test.ts`（2 用例），行为验证取消置顶传给 backend 的对象及 JSON 均含 `pinnedAt:null`，并验证归档恢复 helper 产生的两个 JSON payload 均含 `archivedAt:null`；扩展 `tests/server/storage.session-state-facade.test.mjs`，验证 null 同时清除 state/metadata、SQLite 提升列及 pinned/archive 查询过滤状态。
 - 验证：合并定向 vitest 2 文件 / 27 用例全部通过；改动文件 eslint 0 error；`npx tsc -b --pretty false`、`npm run build`、`git diff --check` 通过。build 仅既有 KaTeX 字体解析与 chunk size warning。
 - 边界：未修改 Wiki（仅恢复既有行为承诺，不影响架构/入口）；未修改用户已有 `package-lock.json`；未触碰生成目录，未新增依赖，未提交 Git。工作区同时存在并行会话的 slash-menu-canonical-name-display 改动，均已保留。
+
+---
+
+## 当前状态：slash-menu-canonical-name-display（已完成）
+
+- 目标：普通 command 继续显示完整命令；skill/agent 菜单行只显示具体 canonical name，同时保持完整插入文本和既有类型前缀搜索。
+- 实现：`command-suggestions.ts` 的 `appendUsageText` 仅切换可见主文本来源——command 继续使用 `usage`（并保留 argumentHint），skill/agent 使用 `name`；`usage`、`entryHaystack`、`insertText`、选中 chip 逻辑均未改变。
+- 测试：`command-suggestions.test.ts` 断言 `/plan [task]`、`skill-creator`、`explore` 三类主文本；skill/agent 的 `data-quickforge-insert` 仍为完整命令；`/skill ` 与 `/agent ` 前缀过滤仍命中对应类型。
+- 文档：`docs/wiki/src/components/README.md` 已同步显示、搜索和插入契约，并更新 command-suggestions 行数为 481。
+- 验证：定向 vitest 1 文件 / 13 用例全过；改动源码/测试 eslint 0 error；`npx tsc -b --pretty false`、`npm run build`、`git diff --check` 均通过。build 仅既有 KaTeX 字体解析与 chunk size warning。
+- 边界：未新增依赖、未手工修改生成目录；已与中性 Slash 图标合并提交为 `924e8c5`，未 tag、未 push。`package-lock.json` 噪音未纳入提交且未丢弃。无 blocker。
 
 ---
 

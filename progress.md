@@ -2,9 +2,47 @@
 
 ## Current State
 
+- Commit 收尾：剩余功能代码已按逻辑提交为 `d66a3e7`（Workspace Inspector 会话隔离）、`924e8c5`（Slash canonical name + 中性 Lucide 图标）、`b64a4b2`（Composer hover）；此前侧栏区块功能已在 `72ac7e09`，会话状态 clear 修复已在 `6c337aeb`。状态文档将在本次独立 docs commit 收口；未 tag、未 push。
+- 最终验证：`npm run test` → 236 files / 2020 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` → 成功（仅既有 KaTeX 字体解析与 chunk size warning）；`git diff --check` 与 `feature_list.json` / `package.json` / `package-lock.json` JSON 解析通过。
+- 保留未提交：`package-lock.json` 仅有 43 行 npm `peer` 元数据翻转；`package.json` 无依赖/版本变化，且用当前 npm 11.6.2 对 HEAD 锁文件执行隔离 `npm install --package-lock-only` 可复现同一结果，判定为工具链规范化噪音。按要求未提交、未丢弃。
+
+- Feature: 侧栏区块改用标题拖拽并在排序时临时折叠（sidebar-section-title-drag-collapse，**已完成**）
+- Status: done — Projects / Tasks 不再显示专用 GripVertical；各自标题主 toggle 直接接收 `setActivatorNodeRef` / attributes / listeners，普通单击仍走原折叠回调，仅独立 `draggableSectionTitleClass` 添加 `touch-none` 与 grab/grabbing 反馈；共享 `sectionToggleClass` 保持普通折叠标题样式，Pinned 继续使用默认 pointer/触摸行为。PointerSensor 超过 6px 才启动拖拽，右侧 action buttons 保持隔离。拖动任一区块时，两个区块通过派生视觉状态同时临时折叠，Chevron、`aria-expanded`、外层尺寸与内容 grid 一致；收缩禁用过渡，cancel/end 清理 `draggingSectionId` 后恢复各自原持久折叠状态。compact layout、设置底部固定和 Projects 内部 DnD/边界保持不变。
+- Verification: 定向 vitest 2 文件 / 21 用例（含 Pinned 不使用 draggable class、Projects/Tasks 使用的契约）、目标 eslint、`tsc -b`、`git diff --check` 全通过；前一轮完整 `npm run test` 236 文件 / 2020 用例全通过、完整 lint 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）、build 成功（仅既有 KaTeX/chunk warnings），本次极小局部修复未重复全量门禁。
+- Next step: 无代码 blocker；可选真机分别从 Projects/Tasks 标题短按折叠与拖动换位，确认 6px 阈值、两个区块瞬时收缩、右侧操作按钮隔离以及结束/取消恢复。
+
+- Feature: 修复侧栏 Projects / Tasks 折叠后不贴合（sidebar-collapsed-sections-compact-layout，**已完成**）
+- Status: done — `SortableSidebarSection` 现在接收按 `sectionId` 推导的折叠状态；折叠时使用 `shrink-0`，Tasks 不再保留 `flex-1` 撑出大段空白，两个标题会按当前排序紧贴。展开时 Tasks 仍为 `flex-1`，Projects 仍为 `max-h-[55%]`；顶层排序容器的 `flex/min-h-0/overflow-hidden`、两区内部滚动和底部设置 `mt-auto shrink-0` 均保留。拖拽语义、传感器、命名空间 ID、排序存储和项目内部 DnD 未改。
+- Verification: 定向 vitest 2 文件 / 20 用例、目标 eslint、`tsc -b` 全通过；完整 `npm run test` 236 文件 / 2019 用例全通过；完整 lint 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；build 成功（仅既有 KaTeX/chunk warnings）；`git diff --check` 通过。
+- Next step: 无代码 blocker；可选在桌面/移动分别测试 Projects→Tasks 与 Tasks→Projects 顺序下单独/同时折叠，确认标题紧贴、展开区滚动与设置底部固定。
+
+- Feature: 统一 Slash 图标并取消类别色（unify-neutral-slash-icons，**已完成**）
+- Status: done — command/skill/agent 分别复用已有 Lucide `SquareTerminal` / `BookOpen` / `Bot`，通过 `slash-icons.ts` 静态映射供斜杠菜单、输入框选中 chip 与消息流复用 chip 使用；移除本 Slash 功能新增的自绘类别 glyph。菜单三类图标默认统一 `var(--muted-foreground)`，hover/selected 仅增强为 `var(--foreground)`；共享 chip 只将 `.quickforge-slash-chip-icon` 覆盖为中性色，因此 skill/agent chip 原有蓝/绿背景与文字语义色、结构和行为保持不变。非 Slash 能力菜单继续使用 `capability-icons.ts`，未扩大范围。
+- Verification: 定向 vitest 2 文件 / 35 用例全过；改动 TS/测试 eslint 0 error；`npx tsc -b --pretty false` 通过；`npm run lint` 为 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build`、`git diff --check` 均通过；build 仅既有 KaTeX/chunk warnings。`package-lock.json` SHA-256 前后均为 `1176cf21fa40c0ddec54adaf769f5ef85d09e296ca2a8c0176da757b0daa8042`，未触碰既有变更。
+- Next step: 可选真机目视确认深浅主题下菜单三类中性图标，以及输入框/消息流 chip 的图标中性但 chip 背景与文字仍保留原语义色。已随 canonical-name 合并提交为 `924e8c5`，未 tag、未 push。
+
+- Feature: 侧栏 Projects / Tasks 完整区块拖拽换位并持久化（sidebar-section-reorder，**已完成**）
+- Status: done — App 中单一 `SidebarSectionOrder` 状态同时传给桌面/移动侧栏并安全持久化到 `quickforge:sidebar-section-order:v1`。置顶区固定在顶层排序区外；Projects 与现有 conversations UI（ID 映射为 `tasks`）两个完整区块由 `sectionOrder` 动态渲染，并由区块级 `DndContext + SortableContext + SortableSidebarSection` 排序。唯一 activator 是标题旁弱化 `GripVertical` 手柄（PointerSensor 6px 激活阈值支持鼠标/触摸；KeyboardSensor + `sortableKeyboardCoordinates` 支持聚焦后 Space、方向键、Space 排序；aria-label/title 保持与 dnd-kit attributes 一致）；折叠、添加、筛选、菜单按钮无拖拽监听。顶层 ID 使用 `sidebar-section:*` 命名空间，start/cancel/end 状态完整并锁定 x=0/关闭 autoScroll；Projects 内部嵌套 DnD、视口边界、自动滚动限制与 `onReorderProjects` 持久化保持不变。
+- Verification: 定向 vitest 2 文件 / 19 用例全过（新增外层 `sectionSensors` 同时含 PointerSensor、KeyboardSensor 与 `sortableKeyboardCoordinates` 的契约测试；现有测试为源码接线契约架构，无低成本真实 DOM 键盘行为 harness，未扩大基础设施）；`npx eslint src/components/sidebar/ChatSidebar.tsx tests/frontend/sidebar-section-order.test.ts` 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；feature JSON 解析与 `git diff --check` 通过。
+- Next step: 无代码 blocker；可选真机分别在桌面/移动用鼠标或触摸拖动 Projects/Tasks，并聚焦手柄后执行 Space → 方向键 → Space，确认顺序同步、刷新恢复、置顶区固定、标题操作按钮不误触，以及项目内部排序继续正常。
+
+- Feature: Workspace Inspector 状态按会话隔离恢复（session-scoped-workspace-inspector-state，**已完成**）
+- Status: done — Inspector 展开/收起、可恢复 tabs、`activePanelTabId`、Review 子视图与 Reader 左侧导航显示按 `projectId + sessionId` 写入 localStorage。AgentManager 维护独立 runtime scope：pending deferred session 首次发送晋升真实 session 时沿用原 scope，`WorkspaceInspector` key 不变，内存状态保留，并在真实 `sessionId` 到达后写入真实会话 storage；普通会话切换或确认创建另一 deferred session 才滚动 scope。App wrapper 不再提前重置，底层新建返回 `created/reused/cancelled`。一次性 Inspector request 携带 `projectId + runtimeScopeId`，在发起、聊天文件异步 resolve 完成和 Inspector 消费处三重校验；历史无项目 subagent 请求兼容。pending 本身仍不持久化，旧项目级状态不迁移，整体宽度保持全局。
+- Next step: 无本 feature 代码 blocker；已提交为 `d66a3e7`，未 tag、未 push。
+- Verification note: 定向 6 文件 / 41 用例通过；相关 eslint 0 error；`npx tsc -b --pretty false` 通过；最终合并工作区 `npm run test` 为 236 文件 / 2020 用例全通过；`npm run lint` 为 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；feature/package/lock JSON 与 `git diff --check` 通过。
+
+- Feature: Composer 控件 hover 改为背景反馈且不位移（composer-controls-hover-background，**已完成**）
+- Status: done — 保留全局 Composer 按钮 hover 位移规则，仅用精确选择器覆盖 +、权限、模型、发送/停止：五类目标均 `transform:none`；三个中性控件使用 `var(--quickforge-sidebar-hover-bg)` 与合适前景色且不影响 disabled；发送态以 92% primary 混少量 sidebar hover token 保持 primary 层级和 `primary-foreground`；停止态保留既有 hover 背景。Plan、OpenCode config、chip/菜单项未改，model trigger 同时覆盖 OpenCode mode 符合定案。
+- Verification: 定向 vitest 3 文件 / 16 用例全过；新增测试 eslint 0 error；最终合并工作区 `npm run test` 236 文件 / 2020 用例全过，`npm run lint` 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`），`npm run build` 成功（仅既有 KaTeX/chunk warnings）；feature/package/lock JSON 解析与 `git diff --check` 通过。未改 Wiki/DESIGN_LANGUAGE（纯视觉反馈且现有“hover 有感知、不跳动”规范已覆盖）。`package-lock.json` 无 `package.json` 依赖或版本对应变更，确认为 npm 11.6.2 重算 peer 元数据噪音，未纳入功能提交且未丢弃。
+- Next step: 可选真机目视确认深浅主题下 +/权限/模型 hover 与侧栏会话项一致、发送按钮仍明显为 primary、停止态背景变化保留且五类按钮无垂直跳动。已提交为 `b64a4b2`，未 tag、未 push。
+
 - Feature: 修复取消置顶与归档恢复未清除会话状态（fix-session-state-clear-actions，**已完成**）
 - Status: done — 按服务端既有三态契约（字符串=设置、`null`=清除、字段缺失=保留），取消置顶 payload 改为 `pinnedAt:null`，归档恢复对 session/metadata 两个 save payload 均写 `archivedAt:null`，避免 `JSON.stringify` 丢弃 undefined 或 batch merge 保留旧值。前端与服务端定向回归测试 27/27 通过，验证序列化 payload、state/metadata、SQLite `pinned_at`/`archived_at` 与 pinned/archive 查询索引状态均正确清除；改动文件 eslint、`tsc -b`、build、diff check 通过。
 - Next step: 无代码 blocker；未改 Wiki（仅恢复既有行为契约）。
+
+- Feature: 斜杠菜单技能与子智能体仅显示 canonical name（slash-menu-canonical-name-display，**已完成**）
+- Status: done — 普通 command 主文本仍显示完整 usage（如 `/plan [task]`）；skill/agent 行主文本仅显示 `SlashEntry.name`，不再展示 `/skill` / `/agent` 前缀。`usage` 与 `insertText` 未改，因此 `skill ` / `agent ` 类型前缀搜索仍有效，选中和 dataset 仍使用完整 `/skill <name> ` / `/agent <name> `。定向测试 13/13、改动文件 eslint、tsc、build、diff check 均通过；build 仅既有 KaTeX/chunk warnings。
+- Next step: 可选真机目视确认三组菜单主文本与 Tab/点击插入行为。已与中性 Slash 图标合并提交为 `924e8c5`，未 tag、未 push。
 
 - Feature: 输入框 @ 引用当前项目文件并与插件能力解耦（file-reference-mention，**已完成**）
 - Status: done — `@` 仅搜索当前 QuickForge 项目文件：裸 `@` 和 1 字符只提示，2+ 字符经 300ms debounce 调用严格 projectId 的 files-only mention-search，并支持键盘选择与结构化文件 chip；`+ → 能力` 生成独立能力 chip，不再插入 `@Documents` 或从正文推断。`text`、`contextReferences`、`selectedCapabilities` 已写入 localStorage 草稿（能力防御规范化、按 `type+pluginName+name` 去重、最多 4），附件仍不持久化；文件引用随下一次 prompt 一次性发送，服务端重新校验项目/路径/敏感边界，注入相对路径提示并持久化 history details，失败回滚/retry 链路已覆盖。OpenCode/shared 禁用或拒绝非空引用；mention-search 对未知/已删除 projectId 返回 404 `PROJECT_NOT_FOUND`，普通 workspace search/children 等兼容回退不变。验证：合并定向 vitest 20 files / 242 tests passed；相关 eslint 0；`tsc -b` passed；`npm run build` passed（仅既有 KaTeX/chunk warnings）；`git diff --check` passed。

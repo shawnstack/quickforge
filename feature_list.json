@@ -1,6 +1,87 @@
 {
   "features": [
     {
+      "id": "sidebar-section-title-drag-collapse",
+      "name": "侧栏区块改用标题拖拽并在排序时临时折叠",
+      "status": "done",
+      "approach": "移除 Projects / Tasks 标题旁专用 GripVertical 与对应样式，将 SortableSidebarSection 的 setActivatorNodeRef、attributes、listeners 仅绑定到现有标题主 toggle button；标题保留原 onClick 折叠回调，并通过独立 draggableSectionTitleClass 增加 touch-none、grab/grabbing 反馈，共享 sectionToggleClass 保持普通折叠标题样式，因此 Pinned 不受拖拽 cursor/touch 行为影响；PointerSensor 继续以 6px 位移区分单击与拖拽，右侧筛选、展开全部、添加、新建等 action buttons 不绑定 sortable listeners。区块拖动开始后由 draggingSectionId 派生 isSectionDragging，projectsVisuallyCollapsed / conversationsVisuallyCollapsed 在任一区块拖动时同时为 true；Chevron、aria-expanded、SortableSidebarSection collapsed 和内容 grid 统一使用派生状态，收缩期间增加 transition-none，cancel/end 清除 draggingSectionId 后自动恢复原 projectsCollapsed / conversationsCollapsed，不调用持久折叠回调。保留折叠 shrink-0、展开 Tasks flex-1、展开 Projects max-h-[55%]、设置底部固定及 Projects 内部 DnD/视口边界。同步组件 Wiki；DESIGN_LANGUAGE 无需修改，因为未引入新视觉模式。",
+      "files": [
+        "src/components/sidebar/ChatSidebar.tsx",
+        "tests/frontend/sidebar-section-order.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/sidebar-section-order.test.ts tests/frontend/project-drag-boundary.test.ts → 2 files / 21 tests 全通过（含 Pinned 不使用 draggable class、Projects/Tasks 使用的样式隔离契约）；npx eslint src/components/sidebar/ChatSidebar.tsx tests/frontend/sidebar-section-order.test.ts → 0 error；npx tsc -b --pretty false → exit 0；git diff --check → 通过（仅工作区既有 CRLF warning）；此前完整 npm run test → 236 files / 2020 tests 全通过、npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92 no-useless-assignment）、npm run build → 成功（仅既有 KaTeX 字体解析与 chunk size warning），本次极小局部修复未重复全量门禁。"
+    },
+    {
+      "id": "sidebar-collapsed-sections-compact-layout",
+      "name": "修复侧栏 Projects / Tasks 折叠后不贴合",
+      "status": "done",
+      "approach": "最小调整 ChatSidebar 的 SortableSidebarSection：显式接收按 sectionId 推导的 collapsed；折叠时外层使用 shrink-0，不再让 Tasks 保留 flex-1 占满剩余高度，因此无论 Projects / Tasks 当前排序如何，折叠标题都会紧贴。展开时 Tasks 继续 flex-1，Projects 继续 max-h-[55%]；顶层排序容器的 flex/min-h-0/overflow-hidden、Projects/Tasks 内部 overflow-y-auto 滚动容器及底部设置区 mt-auto shrink-0 保持不变。未修改区块或项目拖拽语义、ID、传感器、排序顺序存储和持久化。DESIGN_LANGUAGE 无需更新，因为这是既有布局语义的 bugfix，未引入新视觉模式。",
+      "files": [
+        "src/components/sidebar/ChatSidebar.tsx",
+        "tests/frontend/sidebar-section-order.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/sidebar-section-order.test.ts tests/frontend/project-drag-boundary.test.ts → 2 files / 20 tests 全通过；npx eslint src/components/sidebar/ChatSidebar.tsx tests/frontend/sidebar-section-order.test.ts → 0 error；npx tsc -b --pretty false → exit 0；npm run test → 236 files / 2019 tests 全通过；npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92 no-useless-assignment）；npm run build → 成功（仅既有 KaTeX 字体解析与 chunk size warning）；git diff --check → 通过。"
+    },
+    {
+      "id": "unify-neutral-slash-icons",
+      "name": "统一 Slash 图标并取消类别色",
+      "status": "done",
+      "approach": "新增仅供 Slash 表面的 Lucide 静态映射：command=SquareTerminal、skill=BookOpen、agent=Bot；command-suggestions 与 slash-invocation-chip 统一复用，不再使用 Slash 功能新增的自绘 command/skill/agent glyph。菜单三类图标默认统一 var(--muted-foreground)，hover/selected 仅增强为 var(--foreground)。共享 slash chip 的 icon 子元素单独覆盖为 var(--muted-foreground)，因此输入框选中态与消息流复用位置的图标均中性；skill/agent chip 既有蓝/绿背景和文字语义色、结构、边框与行为保持不变。非 Slash 的能力菜单仍使用 capability-icons.ts，未扩大范围。",
+      "files": [
+        "src/components/chat/slash-icons.ts",
+        "src/components/chat/command-suggestions.ts",
+        "src/components/chat/slash-invocation-chip.ts",
+        "src/index.css",
+        "tests/frontend/command-suggestions.test.ts",
+        "tests/frontend/slash-invocation-chip.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/command-suggestions.test.ts tests/frontend/slash-invocation-chip.test.ts → 2 files / 35 tests 全通过；改动 TS/测试 npx eslint → 0 error；npx tsc -b --pretty false → exit 0；npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92 no-useless-assignment）；npm run build → 成功（仅既有 KaTeX 字体解析与 chunk size warning）；git diff --check → 通过。package-lock.json SHA-256 前后均为 1176cf21fa40c0ddec54adaf769f5ef85d09e296ca2a8c0176da757b0daa8042，未触碰既有改动。"
+    },
+    {
+      "id": "sidebar-section-reorder",
+      "name": "侧栏 Projects / Tasks 完整区块拖拽换位并持久化",
+      "status": "done",
+      "approach": "App 以 loadSidebarSectionOrder 初始化唯一 SidebarSectionOrder 状态，并在变更后 saveSidebarSectionOrder 到 localStorage；桌面与移动 ChatSidebar 共用该状态和 reorder callback。ChatSidebar 将置顶区保留在外部固定，在独立顶层 DndContext + SortableContext 中按 sectionOrder 动态渲染 Projects 与现有 conversations UI（section id=tasks）两个完整区块；SortableSidebarSection 使用 sidebar-section:* 命名空间 ID，避免与 Projects 内部项目 ID 冲突。每个标题仅新增弱化 GripVertical 手柄作为 setActivatorNodeRef/listeners/attributes 唯一安全激活区，折叠、添加、筛选和菜单按钮不触发拖拽；外层 sectionSensors 保留 PointerSensor 6px 激活阈值（鼠标/触摸），并增加 KeyboardSensor + sortableKeyboardCoordinates，聚焦手柄后可用 Space、方向键、Space 完成排序。start/cancel/end 状态完整，transform 强制 x=0，顶层 autoScroll 关闭。Projects 内部既有嵌套 DndContext、MeasuringStrategy.Always、视口 modifier/autoScroll 边界、拖动折叠会话和 onReorderProjects 持久化保持不变。",
+      "files": [
+        "src/App.tsx",
+        "src/components/sidebar/ChatSidebar.tsx",
+        "src/lib/sidebar-section-order.ts",
+        "tests/frontend/sidebar-section-order.test.ts",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/sidebar-section-order.test.ts tests/frontend/project-drag-boundary.test.ts → 2 files / 19 tests 全通过（新增外层 sectionSensors 的 PointerSensor + KeyboardSensor + sortableKeyboardCoordinates 契约测试；现有源码契约测试架构无低成本真实 DOM 键盘行为 harness，故未扩大测试基础设施）；npx eslint src/components/sidebar/ChatSidebar.tsx tests/frontend/sidebar-section-order.test.ts → 0 error；npx tsc -b --pretty false → exit 0；npm run build → 成功（仅既有 KaTeX 字体解析与 chunk size warning）；feature_list.json JSON 解析、git diff --check → 通过。"
+    },
+    {
+      "id": "composer-controls-hover-background",
+      "name": "Composer 控件 hover 改为背景反馈且不位移",
+      "status": "done",
+      "approach": "保留全局 .quickforge-composer button:hover:not(:disabled) 规则，通过精确选择器仅覆盖 +、权限、模型、发送/停止按钮：目标 hover 均 transform:none；+、权限、模型使用 var(--quickforge-sidebar-hover-bg) 与 var(--foreground)，选择器含 :not(:disabled)；发送按钮以 primary 92% 混 sidebar hover token 做轻微背景变化并保持 primary-foreground；停止按钮保留既有 foreground/background 混合 hover。Plan、OpenCode config、chip 与菜单项不变；.quickforge-model-trigger 同时覆盖 OpenCode mode 为预期。纯视觉反馈且 DESIGN_LANGUAGE.md 已规定“hover 有感知、不跳动”，无需更新 Wiki 或设计规范。",
+      "files": [
+        "src/index.css",
+        "tests/frontend/composer-control-hover.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "针对性 vitest（composer-control-hover / composer-plus-menu / send-stop-button）→ 3 files / 16 tests 全通过；npx eslint tests/frontend/composer-control-hover.test.ts → 0 error；最终合并工作区门禁：npm run test → 236 files / 2020 tests 全通过，npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92 no-useless-assignment），npm run build → 成功（仅既有 KaTeX 字体解析与 chunk size warning）；feature_list.json/package.json/package-lock.json JSON 解析与 git diff --check 通过。package-lock.json 无 package.json 依赖或版本对应变更，确认为 npm 11.6.2 重算 peer 元数据噪音，未纳入功能提交且未丢弃。"
+    },
+    {
       "id": "rename-sidebar-conversations-to-tasks",
       "name": "侧栏“对话”分组标题更名为“任务”",
       "status": "done",
@@ -848,6 +929,21 @@
       "verification": "合并定向 vitest 20 files / 242 tests passed；相关 eslint 0；tsc -b passed；npm run build passed（仅既有 KaTeX/chunk warnings）；git diff --check passed。"
     },
     {
+      "id": "slash-menu-canonical-name-display",
+      "name": "斜杠菜单技能与子智能体仅显示 canonical name",
+      "status": "done",
+      "approach": "最小调整 command-suggestions 的主文本来源：普通 command 继续显示完整 usage（含 / 前缀与 argumentHint），skill/agent 改显示 SlashEntry.name canonical name；SlashEntry.usage 与 insertText 语义不变，因此类型前缀搜索仍基于完整 usage，选中后仍插入完整 /skill <name> 或 /agent <name> 前缀。测试覆盖三类可见主文本、完整 data-quickforge-insert，以及 skill/agent 前缀搜索。Wiki 同步显示与搜索契约。",
+      "files": [
+        "src/components/chat/command-suggestions.ts",
+        "tests/frontend/command-suggestions.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/command-suggestions.test.ts → 1 file / 13 tests passed；npx eslint src/components/chat/command-suggestions.ts tests/frontend/command-suggestions.test.ts → 0 error；npx tsc -b --pretty false → exit 0；npm run build → exit 0（仅既有 KaTeX 字体解析与 chunk size warning）；git diff --check → 通过。"
+    },
+    {
       "id": "fix-session-state-clear-actions",
       "name": "修复取消置顶与归档恢复未清除会话状态",
       "status": "done",
@@ -862,6 +958,33 @@
         "session-handoff.md"
       ],
       "verification": "npx vitest run tests/frontend/session-state-clear-actions.test.ts tests/server/storage.session-state-facade.test.mjs → 2 files / 27 tests passed；npx eslint src/hooks/useSessionActions.ts src/lib/archived-conversations-settings-tab.ts tests/frontend/session-state-clear-actions.test.ts tests/server/storage.session-state-facade.test.mjs → 0 error；npx tsc -b --pretty false → exit 0；npm run build → exit 0（仅既有 KaTeX 字体解析与 chunk size warning）；git diff --check → 通过。"
+    },
+    {
+      "id": "session-scoped-workspace-inspector-state",
+      "name": "Workspace Inspector 状态按会话隔离恢复",
+      "status": "done",
+      "approach": "将 Inspector 展开/收起状态、可恢复 tabs、activePanelTabId、Review 子视图和 Reader 左侧导航显示状态按 projectId+sessionId 写入 localStorage。AgentManager 维护独立 runtimeScopeId：pending deferred session 使用自身 pending id；首次发送晋升真实 session 时 createAgent 仅在原 deferred 仍是当前视图时附着，并通过 previousAgent.sessionId 沿用原 runtime scope，使 WorkspaceInspector React key 不变，内存状态不丢，并在 sessionId 到达后由 open/tabs 持久化 effect 写入真实会话 key；切换普通会话或确认附着另一 deferred session 才更换 scope。App 的新建 wrapper 不再预先滚动 pending scope，useChatActions 返回 created/reused/cancelled 明确结果。WorkspaceInspector 请求新增 projectId+runtimeScopeId scope，App 发起、聊天文件 resolve 异步完成、Inspector 消费三处校验，阻止同项目旧会话请求串入新会话；历史无项目 subagent 请求保持兼容。旧项目级 key 不迁移，Inspector 整体宽度仍为全局布局偏好。",
+      "files": [
+        "src/App.tsx",
+        "src/hooks/useUIState.ts",
+        "src/hooks/useWorkspaceInspectorOpenState.ts",
+        "src/hooks/useAgentManager.ts",
+        "src/hooks/useChatActions.ts",
+        "src/hooks/useSessionActions.ts",
+        "src/components/workspace/WorkspaceInspector.tsx",
+        "src/components/workspace/workspace-inspector-request.ts",
+        "src/components/workspace/workspace-inspector-tabs.ts",
+        "src/components/workspace/workspace-types.ts",
+        "tests/frontend/workspace-inspector-open-state.test.ts",
+        "tests/frontend/workspace-inspector-request.test.ts",
+        "tests/frontend/workspace-inspector-tabs.test.ts",
+        "docs/wiki/src/README.md",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run workspace-inspector-open-state / workspace-inspector-tabs / workspace-inspector-request / deferred-session-agent / deferred-session-harness / session-state-clear-actions → 6 files / 41 tests passed；相关 npx eslint → 0 error；npx tsc -b --pretty false → exit 0；最终合并工作区 npm run test → 236 files / 2020 tests passed；npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92 no-useless-assignment）；npm run build → passed（仅既有 KaTeX 字体解析与 chunk size warnings）；feature_list.json/package.json/package-lock.json JSON 解析、git diff --check 通过。"
     }
   ]
 }

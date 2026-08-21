@@ -2,6 +2,23 @@
 
 ## Current State
 
+- Feature: 点击 Composer 内 Slash chip 不再降级显示命令原文（slash-chip-click-keeps-chip，**已完成**）
+- Status: done — 用户真机反馈：选中 agent 后输入框内的小 tab（slash chip）一点击就露出 `/agent <name>` 原文。根因是覆盖层整体 `pointer-events:none`，点击穿透到 textarea 前缀区，光标进入前缀触发 selectionchange 降级逻辑。修复：CSS 仅对 `.quickforge-slash-overlay .quickforge-slash-chip` 开启 `pointer-events:auto`（消息流 chip 保持纯展示），控制器在 `renderChipContent` 为覆盖层 chip 挂 `pointerdown`：preventDefault 后聚焦 textarea 并把光标移到文本末尾，chip 保持显示不降级；键盘方向键进入前缀区的降级/自愈、IME、自愈重建逻辑均未改。共享工厂 `createSlashChipElement` 未挂监听，消息流 chip 不受影响。
+- Verification: 定向 `npx vitest run tests/frontend/slash-invocation-chip.test.ts tests/frontend/command-suggestions.test.ts` → 2 files / 36 tests passed（新增 chip pointerdown 用例：preventDefault、光标移末尾、不降级、CSS 契约）；相邻 `message-actions` / `composer-plus-menu` / `slash-catalog` 3 files / 29 tests passed；`npx eslint` 改动源码/测试 0 error；`npx tsc -b --pretty false` exit 0。
+- Next step: 无代码 blocker；可选真机点击 skill/agent chip 确认光标落末尾且原文不露出（含触屏）。
+
+- Feature: 用户消息显示本轮插件标签并在重试/分享中保留（user-message-selected-plugin-chips，**已完成**）
+- Status: done — 审查收口修复 M1/M2：服务端 `selectedCapabilitiesFromMessage` 改为历史快照投影，retry/continue 只能恢复 `type/pluginName/name/label`，历史 `details.description` 即使伪造也不会进入 LLM prompt；新发送请求顶层 description 仍仅用于当前轮临时 prompt。前后端历史读取边界均有同构测试。`decorateUserContextChips` 做最小导出，message-actions 新增真实 fake DOM 行为测试，实际执行插件在文件前、重复调用替换不重复、混合→空移除、历史 chip 无 ×、仅插件/仅文件/混合 aria-label，并经 `decorateMessages` 点击 copy 验证仍复制原始正文。Wiki 行数/表格已按当前源码修正；feature 保持 done。
+- Verification: 审查收口定向 Vitest 9 文件 / 87 用例全通过；目标 eslint 0 error；`npx tsc -b --pretty false`、`git diff --check`、feature JSON 解析通过；完整 `npm run test` 238 文件 / 2043 用例 100% 全通过；完整 `npm run lint` 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）。`package-lock.json` blob hash 仍为 `a7f0bb9fcb4de96f8953024be8ac588435dcc3ab`，未修改/还原；未触碰并行 `slash-invocation-chip.ts` 及其测试/专属逻辑，未手工修改生成目录，未 commit/tag/push。
+- Next step: 无代码 blocker；可选真机目视多插件、未知插件、仅插件/仅文件/混合消息及分享页。
+
+- Feature: Composer 插件标签移入输入卡片并统一插件术语（composer-plugin-chips-inside-editor，**已完成**）
+- Status: done — 审查修复已完成：`ensureComposerContextChips` 继续从 textarea 父元素定位真正输入卡片；新增共享 `syncComposerContextChipsAriaLabel`，两个控制器在完成自身 chip 增删后统一调用，按仅插件=`Selected plugins / 已选插件`、仅文件=`Referenced files / 引用的文件`、混合=`Selected plugins and referenced files / 已选插件和引用的文件` 同步可访问名称，空容器仍移除。插件与文件引用两类 chip 在任一同步/删除顺序下互不删除；内部 capability 类型、`selectedCapabilities` 草稿字段与发送协议不变。插件多选、去重、草稿恢复、× 删除和发送消费保持；documents/spreadsheets/presentations 使用现有专用图标，未知插件回退通用图标。CSS 仅收紧标签尺寸/间距和有标签时 textarea 顶部 padding，保留 composer `> div:first-child` 根卡片选择器及文件标签色。
+- Verification: 审查修复定向 vitest 9 文件 / 77 用例全通过（含双控制器 file-first/plugin-first 两种同步顺序、互相保留、分别删除、最后一项删除移除空容器及仅文件/仅插件/混合 aria-label）；目标 eslint 0 error；`npx tsc -b --pretty false` 通过；完整 `npm run test -- --reporter=dot` 236 文件 / 2024 用例全通过；完整 `npm run lint` 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；`git diff --check` 通过。
+- Next step: 无代码 blocker；可选真机目视深浅主题下多插件+文件混合标签、删除按钮、窄输入框换行及读屏名称。`package-lock.json` 仍为任务前既有 43 行 peer 元数据差异，本次未修改/还原；未创建 commit/tag/push，未手工修改生成目录（build 仅重建被忽略的 `dist/`）。
+
+- Commit 收尾：本轮并行三功能已提交——`4f0182f`（slash chip 点击修复，含 index.css 专属 hunk 拆分）、`abbc7cd`（插件标签链路与用户消息插件回显；composer-plugin-chips-inside-editor 与 user-message-selected-plugin-chips 在多文件内交织，合并一笔）；状态文档随后以独立 docs commit 收口。提交前完整门禁：`npm run test` 238 files / 2043 tests 全通过、`npm run lint` 0 errors / 1 existing warning、`npm run build` 成功。`package-lock.json` peer 元数据噪音仍未提交、未丢弃。未 tag、未 push。
+
 - Commit 收尾：剩余功能代码已按逻辑提交为 `d66a3e7`（Workspace Inspector 会话隔离）、`924e8c5`（Slash canonical name + 中性 Lucide 图标）、`b64a4b2`（Composer hover）；此前侧栏区块功能已在 `72ac7e09`，会话状态 clear 修复已在 `6c337aeb`。状态文档将在本次独立 docs commit 收口；未 tag、未 push。
 - 最终验证：`npm run test` → 236 files / 2020 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` → 成功（仅既有 KaTeX 字体解析与 chunk size warning）；`git diff --check` 与 `feature_list.json` / `package.json` / `package-lock.json` JSON 解析通过。
 - 保留未提交：`package-lock.json` 仅有 43 行 npm `peer` 元数据翻转；`package.json` 无依赖/版本变化，且用当前 npm 11.6.2 对 HEAD 锁文件执行隔离 `npm install --package-lock-only` 可复现同一结果，判定为工具链规范化噪音。按要求未提交、未丢弃。

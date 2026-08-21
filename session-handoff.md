@@ -1,5 +1,52 @@
 # Session Handoff
 
+## 当前状态：并行插件标签功能已提交（commit-only 会话）
+
+- 本会话任务：用户要求提交工作区代码；未修改任何功能代码。
+- 新增提交：`4f0182f fix(ui): 点击 slash chip 不再露出命令原文`（slash-invocation-chip.ts + 测试 + index.css 专属 pointer-events hunk，经 `git apply --cached` hunk 级拆分）；`abbc7cd feat(chat): 插件标签链路与用户消息插件回显`——composer-plugin-chips-inside-editor 与 user-message-selected-plugin-chips 两功能在 capability-suggestions / i18n / composer-drafts / chat-utils 等文件内改动交织，无法按文件干净拆分，合并为一笔，含 selected-capabilities 前后端新模块、服务端 canonical 权威链、用户消息/分享回显与三份 Wiki 同步；状态记录随后以独立 docs commit 收口。
+- 提交前完整门禁（最终工作树）：`npm run test` → 238 files / 2043 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（server/cloud/identity.mjs:92）；`npm run build` 成功（仅既有 KaTeX/chunk warnings）。两个 commit 的 hook lint 均通过（同一既有 warning）。
+- 未提交项：`package-lock.json` 仍为 npm 11.6.2 的 43 行 peer 元数据噪音，沿前几轮会话约定未提交也未丢弃，待用户在统一 npm 版本策略下定夺。
+- 下一步：未 tag、未 push（除非用户明确要求）；可选真机验证项见各 feature 记录（slash chip 点击光标落末尾、插件/文件混合标签、分享页插件标签）。
+
+---
+
+## 当前状态：slash-chip-click-keeps-chip（已完成）
+
+- 目标：修复用户真机反馈——选中 agent 后 Composer 内的小 tab（slash chip）被点击时直接露出 `/agent <name>` 命令原文，用户不希望点击显示文字。
+- 根因：`.quickforge-slash-overlay` 整体 `pointer-events:none`，点击 chip 穿透到 textarea 的 `/skill|/agent` 前缀区，光标进入前缀触发 document selectionchange 的降级逻辑（隐藏覆盖层 + 卸透明 class → 原文可见）。
+- 实现：`src/index.css` 新增 `.quickforge-slash-overlay .quickforge-slash-chip { pointer-events: auto; }`（仅输入框覆盖层内 chip 可点击，消息流 chip 保持纯展示）；`src/components/chat/slash-invocation-chip.ts` 的 `renderChipContent` 为覆盖层 chip 挂 `pointerdown` 监听（项目惯例同 capability-suggestions × 按钮）：preventDefault 吃掉默认行为后聚焦 textarea 并把光标移到文本末尾，chip 保持显示、不降级。共享工厂 `createSlashChipElement` 未改、不挂监听。键盘方向键进入前缀区的降级/自愈、IME composition、自愈重建逻辑均未触碰。
+- 测试：`tests/frontend/slash-invocation-chip.test.ts` 新增 1 用例——chip 恰好 1 个 pointerdown 监听、preventDefault 调用、focus + 光标落文本末尾、选中态保留不降级（overlay 可见 + 透明 class 保留），并断言 CSS 只有覆盖层内 chip 开启 pointer-events。
+- 验证：定向 vitest slash-invocation-chip + command-suggestions → 2 files / 36 tests；相邻 message-actions / composer-plus-menu / slash-catalog → 3 files / 29 tests；改动源码/测试 eslint 0 error；`npx tsc -b --pretty false` 通过。
+- 文档：同步 `docs/wiki/src/components/README.md`（模块树与章节行数 528→541、交互契约补点击行为）；DESIGN_LANGUAGE 无需更新（无新视觉模式，仅 pointer-events 与既有交互习惯）。
+- 边界：未新增依赖，未创建 commit/tag/push，未手工修改生成目录；工作区并行未提交改动（plugin-chips 会话等）全部保留。
+- 下一步：可选真机验证点击 skill/agent chip 光标落末尾、原文不露出（含触屏与深浅主题）。
+
+---
+
+## 当前状态：user-message-selected-plugin-chips（已完成）
+
+- 目标：发送后在用户消息气泡显示本轮已选插件标签；retry/continue 复用原插件；分享页保留插件标签。依赖未提交但已完成的 `composer-plugin-chips-inside-editor`，其差异完整保留。
+- 数据规范：前端 `src/lib/selected-capabilities.ts` 与服务端 `server/selected-capabilities.mjs` 使用匹配规则——只收合法对象/字符串，type 限定 plugin/skill/tool/command，裁剪字段长度，按 `type+pluginName+name` 去重、保持顺序、最多 4 项。`details.selectedCapabilities` 快照仅持久化 type/pluginName/name/label；服务端历史读取 `selectedCapabilitiesFromMessage` 与前端 `selectedCapabilitiesFromDetails` 均再次投影快照字段，因此历史 `details.description` 即使伪造也会被丢弃，retry/continue prompt 不可读取。description 仅可来自新发送请求顶层 selectedCapabilities，参与该当前轮临时 capability prompt。未知插件不依赖 registry，可历史展示。
+- 实时/权威链：ServerAgent、Deferred 首条乐观 user message 都写入快照，可与 `details.contextReferences` 共存；请求体继续发送 canonical selectedCapabilities，一次消费后下一轮不泄漏。`runPrompt` 不信任客户端消息 details，以顶层 canonical 数组覆盖；空数组删除伪造/陈旧字段但保留其他 details。activeCapabilityPrompt 使用同一 canonical 结果，message converter 仍剥离 details，正文/复制/标题不受标签污染。
+- 历史/重试/分享：message-actions 只从 details 读取，在现有 context chip 行中插件在文件前，复用 createCapabilityChip 与三类专用图标/未知 fallback；只读调用不传 onRemove，无 ×，三态 aria、replaceChildren 幂等及空数据清理保留。审查收口仅最小导出 `decorateUserContextChips` 供 fake DOM 行为测试，实际覆盖混合顺序、二次调用不重复、混合→空删除、历史无 remove、三态 aria；另通过真实 `decorateMessages` copy 点击确认复制仍走原始 `draftTextFromUserMessage`。continueSession 从最后用户消息恢复 capability prompt，同时保留文件引用重校验，但 description 已由历史快照边界剥离。分享输出只删除 contextReferences，保留 selectedCapabilities。
+- 文档：已同步 `docs/wiki/src/lib/README.md`、`docs/wiki/src/components/README.md`、`docs/wiki/server/README.md`；未改 DESIGN_LANGUAGE（复用既有 chip 视觉模式）。
+- 验证：审查收口定向 Vitest 9 文件 / 87 用例全通过；目标 eslint 0 error；`npx tsc -b --pretty false` 通过；完整 `npm run test` 238 文件 / 2043 用例 100% 全通过；`npm run lint` 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` 成功（仅既有 KaTeX/chunk warnings）；`git diff --check` 与 feature JSON 解析通过。
+- 边界：未新增依赖，未创建 commit/tag/push，未手工修改生成目录；build 仅重建被忽略的 `dist/`。`package-lock.json` 最终 blob hash 仍为 `a7f0bb9fcb4de96f8953024be8ac588435dcc3ab`，仅任务前既有 peer 元数据差异，本 feature 未修改/还原。严格未触碰并行 slash feature 的 `src/components/chat/slash-invocation-chip.ts`、其测试及专属逻辑；共享 Wiki/状态文件仅精确修正本 feature 记录并保留并行 feature 状态。
+
+---
+
+## 当前状态：composer-plugin-chips-inside-editor（已完成）
+
+- 目标：把 Composer 用户界面的“能力”入口改为“插件”，并把插件/文件共享标签行稳定放进 `message-editor` 真正输入卡片内、textarea 上方；内部 capability 协议不重命名。
+- 实现：`src/lib/i18n.ts` 保持 Plugins/插件、Selected plugins/已选插件、Remove plugin/移除插件，并新增混合态 `Selected plugins and referenced files / 已选插件和引用的文件`。`chat-utils.ts` 的 `ensureComposerContextChips` 继续以 textarea 父元素定位输入卡片，DOM/mock 不完整时安全返回 null；新增 `syncComposerContextChipsAriaLabel`，由 capability/file 两个控制器完成自身 chip 增删后统一调用：仅插件用已选插件、仅文件复用引用的文件、混合明确表达插件和文件，空容器移除。两类 chip 在任一同步/删除顺序下互不删除。插件标签按 `pluginName` 为 documents/spreadsheets/presentations 使用现有 document/spreadsheet/presentation 图标，未知插件回退 plugin 图标；多选、去重、草稿恢复、显式 × 删除和发送一次性消费保持。
+- 样式/文档：`src/index.css` 仅收紧卡片内标签布局并降低有标签时 textarea 顶部 padding，未改 `.quickforge-composer > div:first-child` 根卡片选择器，文件标签语义色保留；组件 Wiki 已将 `chat-utils.ts` 更新为真实 340 行，并记录共享容器三态 aria-label/空容器契约。`DESIGN_LANGUAGE.md` 未修改（无新视觉模式）。
+- 测试：真实近似双控制器 harness 参数化覆盖 file-first/plugin-first 两种同步顺序、同步不互删、分别删除后保留另一类、最后一项删除移除空容器，以及仅文件/仅插件/混合 aria-label；同时保留输入卡片位置、专用图标、插件文案、文件 helper、Composer drafts/恢复、Skill/Agent Slash 回归。定向 9 files / 77 tests 通过。
+- 完整门禁：目标 eslint 0 error；`npx tsc -b --pretty false` 通过；`npm run test -- --reporter=dot` 236 files / 2024 tests 全通过；`npm run lint` 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX/chunk warnings）；`git diff --check` 通过。
+- 边界：feature 保持 done，无 blocker；未创建 commit/tag/push，未新增依赖。`package-lock.json` 仍是任务前既有 43 行 peer 元数据差异，本次未修改/还原。未手工修改 `dist/`、`package-dist/`、`package-offline/`；build 仅重建被忽略的 `dist/`。
+- 下一步：可选真机目视深浅主题、窄宽度、多插件与文件混合标签、× 删除、发送后消费及读屏名称。
+
+---
+
 ## 当前状态：工作区剩余功能已安全拆分提交
 
 - 分支/基线：`dev`，起始 HEAD `72ac7e09`，无 upstream；未 amend 既有提交，未 tag、未 push。

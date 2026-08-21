@@ -1,6 +1,81 @@
 {
   "features": [
     {
+      "id": "slash-chip-click-keeps-chip",
+      "name": "点击 Composer 内 Slash chip 不再降级显示命令原文",
+      "status": "done",
+      "dependsOn": [
+        "slash-menu-canonical-name-display"
+      ],
+      "approach": "修复选中 agent/skill 后输入框内联 chip 的点击体验：此前覆盖层 pointer-events:none，点击 chip 穿透到 textarea 前缀区，光标进入 /skill|/agent 前缀触发 selectionchange 降级逻辑，把命令原文直接露出来。现在 CSS 仅对 .quickforge-slash-overlay 内的 chip 开启 pointer-events:auto（消息流 chip 保持纯展示不可点），控制器在 renderChipContent 为覆盖层 chip 挂 pointerdown 监听：preventDefault 吃掉默认行为后聚焦 textarea 并把光标移到文本末尾，chip 保持显示、不降级；键盘（方向键）进入前缀区的降级/自愈逻辑不变。",
+      "files": [
+        "src/components/chat/slash-invocation-chip.ts",
+        "src/index.css",
+        "tests/frontend/slash-invocation-chip.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/slash-invocation-chip.test.ts tests/frontend/command-suggestions.test.ts → 2 files / 36 tests passed；npx vitest run tests/frontend/message-actions.test.ts tests/frontend/composer-plus-menu.test.ts tests/frontend/slash-catalog.test.ts → 3 files / 29 tests passed；npx eslint src/components/chat/slash-invocation-chip.ts tests/frontend/slash-invocation-chip.test.ts → 0 error；npx tsc -b --pretty false → exit 0。"
+    },
+    {
+      "id": "user-message-selected-plugin-chips",
+      "name": "用户消息显示本轮插件标签并在重试/分享中保留",
+      "status": "done",
+      "dependsOn": [
+        "composer-plugin-chips-inside-editor"
+      ],
+      "approach": "新增前端 src/lib/selected-capabilities.ts 与服务端 server/selected-capabilities.mjs 的匹配规范化规则：只接受合法对象/字符串，type 限定 plugin/skill/tool/command，裁剪 pluginName/name/label/description，按 type+pluginName+name 首项去重、保持顺序、最多4项；消息 details.selectedCapabilities 持久化快照仅含 type/pluginName/name/label，description 仅用于新发送请求顶层 selectedCapabilities 生成的当前轮临时模型提示。ServerAgent 与 Deferred 首条乐观 user message 写入快照并与 contextReferences 共存，请求体继续传 canonical selectedCapabilities，发送后一次性清空。agent-manager runPrompt 以顶层 canonical 结果覆盖客户端伪造/陈旧 details，空数组删除该字段但保留其他 details；同一结果生成 activeCapabilityPrompt，details 经 LLM converter 剥离。continueSession 从最后 user message details 恢复时再次强制投影快照字段，历史 details.description 即使伪造也绝不进入 retry prompt，同时保留文件引用重校验。message-actions 只读 details，在共享 context chip 行中按插件在前、文件在后渲染 createCapabilityChip；三类专用图标、未知 fallback、无删除按钮、三态 aria、replaceChildren 幂等和清除均复用既有样式；审查收口最小导出 decorateUserContextChips，并以实际 fake DOM 行为测试覆盖顺序、重复调用、混合→空移除、历史无删除、三态 aria，decorateMessages 点击 copy 验证仍复制原始正文。分享仅继续剥离 contextReferences，保留 selectedCapabilities。同步三份 Wiki；无需 DESIGN_LANGUAGE（复用现有 chip 视觉模式）。",
+      "files": [
+        "src/lib/selected-capabilities.ts",
+        "server/selected-capabilities.mjs",
+        "src/lib/server-agent.ts",
+        "src/lib/deferred-session-agent.ts",
+        "src/lib/composer-drafts.ts",
+        "src/components/chat/capability-suggestions.ts",
+        "src/components/chat/panel-decoration/message-actions.ts",
+        "server/agent-manager.mjs",
+        "tests/frontend/selected-capabilities.test.ts",
+        "tests/server/selected-capabilities.test.mjs",
+        "tests/frontend/server-agent.test.ts",
+        "tests/frontend/deferred-session-agent.test.ts",
+        "tests/frontend/message-actions.test.ts",
+        "tests/frontend/capability-suggestions.test.ts",
+        "tests/server/agent-manager.context-references.test.mjs",
+        "tests/server/message-converters.test.mjs",
+        "tests/server/routes/shared-conversation.model-visibility.test.mjs",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "审查收口定向 npx vitest run 9 文件 / 87 用例全通过：服务端/前端历史读取均丢弃 details.description；agent-manager retry 仍注入插件 label/身份但不含伪造 description；message-actions 真实 fake DOM 覆盖插件在文件前、重复装饰不重复、混合→空删除、历史 chip 无删除按钮、仅插件/仅文件/混合 aria-label，且 decorateMessages copy 点击仍传原始正文。目标 npx eslint 0 error；npx tsc -b --pretty false 通过；git diff --check 与 feature_list.json 解析通过；完整 npm run test → 238 files / 2043 tests 100% 全通过；npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92 no-useless-assignment）；npm run build 成功（仅既有 KaTeX 字体解析与 chunk size warning）。package-lock.json 最终 blob hash 为 a7f0bb9fcb4de96f8953024be8ac588435dcc3ab，与本 feature 前记录一致，未修改/还原；未触碰 slash-invocation-chip.ts 及其并行测试/专属逻辑，未手工修改生成目录，build 仅重建被忽略的 dist/；未 commit/tag/push。"
+    },
+    {
+      "id": "composer-plugin-chips-inside-editor",
+      "name": "Composer 插件标签移入输入卡片并统一插件术语",
+      "status": "done",
+      "approach": "将用户可见/无障碍的 Composer 入口术语收敛为插件（Plugins/插件、Selected plugins/已选插件、Remove plugin/移除插件），保留内部 capability 类型、selectedCapabilities 字段和发送协议。chat-utils 新增 ensureComposerContextChips：从 textarea.parentElement 定位 message-editor 真正输入卡片，创建或搬移共享 .quickforge-context-chips，并保证其位于 textarea 前；DOM 尚未渲染或测试 mock 缺失 createElement/insertBefore 时安全返回 null。审查修复新增共享 syncComposerContextChipsAriaLabel：capability-suggestions 与 file-reference-suggestions 完成自身 chip 增删后统一调用，按仅插件=Selected plugins/已选插件、仅文件=Referenced files/引用的文件、混合=Selected plugins and referenced files/已选插件和引用的文件同步可访问名称，空容器移除；两类 chip 在任一同步/删除顺序下互不删除。插件标签继续保留多选、去重、草稿恢复、显式 × 删除和发送一次性消费；按 pluginName 为 documents/spreadsheets/presentations 复用 capability-icons.ts 的 document/spreadsheet/presentation 图标，未知插件回退 plugin 图标。CSS 仅收紧卡片内标签尺寸/间距并降低有标签时 textarea 顶部 padding，参考 .quickforge-slash-chip 的紧凑排布，不复用 Slash overlay 控制器，不改变 composer 根卡片 first-child 选择器或文件标签语义色。同步组件 Wiki；DESIGN_LANGUAGE.md 无需修改，因为未引入新视觉模式。",
+      "files": [
+        "src/lib/i18n.ts",
+        "src/components/chat/chat-utils.ts",
+        "src/components/chat/capability-suggestions.ts",
+        "src/components/chat/file-reference-suggestions.ts",
+        "src/index.css",
+        "tests/frontend/capability-suggestions.test.ts",
+        "tests/frontend/file-reference-controller.test.ts",
+        "tests/frontend/composer-plus-menu.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "审查修复定向 npx vitest run tests/frontend/capability-suggestions.test.ts tests/frontend/file-reference-controller.test.ts tests/frontend/file-reference-suggestions.test.ts tests/frontend/i18n-language-snapshot.test.ts tests/frontend/composer-plus-menu.test.ts tests/frontend/composer-drafts.test.ts tests/frontend/composer-draft-restoration.test.ts tests/frontend/command-suggestions.test.ts tests/frontend/slash-invocation-chip.test.ts → 9 files / 77 tests 全通过（覆盖标签行位于 textarea 父卡片内且在 textarea 前、双控制器 file-first/plugin-first 两种同步顺序、互相保留、分别删除、最后一项删除移除空容器、仅文件/仅插件/混合 aria-label、三类内置图标与未知 fallback、插件文案、Skill/Agent Slash 与草稿回归）；目标 npx eslint → 0 error；npx tsc -b --pretty false → exit 0；npm run test -- --reporter=dot → 236 files / 2024 tests 全通过；npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92 no-useless-assignment）；npm run build → 成功（仅既有 KaTeX 字体解析与 chunk size warning）；git diff --check 与 feature_list.json 解析通过。package-lock.json 仍为任务前既有 43 行 peer 元数据差异，本次未修改/还原；未手工修改生成目录，build 仅重建被忽略的 dist/。"
+    },
+    {
       "id": "sidebar-section-title-drag-collapse",
       "name": "侧栏区块改用标题拖拽并在排序时临时折叠",
       "status": "done",

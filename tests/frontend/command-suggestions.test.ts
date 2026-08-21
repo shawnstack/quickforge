@@ -326,6 +326,14 @@ const rowName = (row: FakeNode) =>
 const visibleText = (node: FakeNode): string =>
   `${node.textContent}${node.children.map(visibleText).join('')}`
 
+// Real capture-phase document listeners collected from the stubbed document,
+// so tests can replay an outside pointerdown and assert dismissal.
+let documentListeners: Record<string, Array<(event: unknown) => void>> = {}
+
+const documentPointerdown = (target: FakeNode) => {
+  for (const handler of [...(documentListeners.pointerdown ?? [])]) handler({ target })
+}
+
 describe('command suggestions slash menu', () => {
   it('reuses the existing Lucide category icons and keeps all Slash menu icon states neutral', () => {
     const iconSource = readFileSync('src/components/chat/slash-icons.ts', 'utf8')
@@ -342,6 +350,7 @@ describe('command suggestions slash menu', () => {
   })
 
   beforeEach(() => {
+    documentListeners = {}
     vi.stubGlobal('document', {
       createElement: createFakeElement,
       createTextNode: (text: string) => {
@@ -349,8 +358,12 @@ describe('command suggestions slash menu', () => {
         node.textContent = text
         return node
       },
-      addEventListener: () => {},
-      removeEventListener: () => {},
+      addEventListener: (type: string, handler: (event: unknown) => void) => {
+        documentListeners[type] = [...(documentListeners[type] ?? []), handler]
+      },
+      removeEventListener: (type: string, handler: (event: unknown) => void) => {
+        documentListeners[type] = (documentListeners[type] ?? []).filter((h) => h !== handler)
+      },
     })
     vi.clearAllMocks()
   })
@@ -571,6 +584,105 @@ describe('command suggestions slash menu', () => {
     setText('hello world')
     instance.update('hello world')
     expect(menu()).toBeNull()
+  })
+
+  it('dismisses the menu on any pointerdown outside it, including the composer', async () => {
+    const pending = deferred()
+    const { instance, setText, menu, panel, textarea, heads } = createHarness(() => pending.promise)
+
+    setText('/')
+    instance.update('/')
+    pending.resolve(catalog)
+    await flush()
+    expect(menu()).not.toBeNull()
+
+    // A click on the menu itself (group head / foot live inside suggestions)
+    // keeps the menu open.
+    documentPointerdown(heads()[0])
+    expect(menu()).not.toBeNull()
+
+    // A click on the composer textarea — inside the editor card but outside
+    // the menu — dismisses it and detaches the document listener.
+    documentPointerdown(textarea)
+    expect(menu()).toBeNull()
+    expect((documentListeners.pointerdown ?? []).length).toBe(0)
+
+    // Decoration/catalog refreshes use update() without an explicit value and
+    // must not immediately reopen the dismissed menu while text still starts
+    // with "/".
+    instance.update()
+    expect(menu()).toBeNull()
+    expect((documentListeners.pointerdown ?? []).length).toBe(0)
+
+    // The next real input passes an explicit value, clears suppression, and
+    // reopens with the new filter.
+    setText('/pl')
+    instance.update('/pl')
+    expect(menu()).not.toBeNull()
+    expect((documentListeners.pointerdown ?? []).length).toBe(1)
+
+    // A click on any node outside the menu (e.g. the message area) dismisses.
+    const outside = createFakeElement('div')
+    panel.append(outside)
+    documentPointerdown(outside)
+    expect(menu()).toBeNull()
+  })
+
+  it('suppresses no-argument refreshes after Escape and public remove until explicit input', async () => {
+    const pending = deferred()
+    const { instance, setText, menu, keydown } = createHarness(() => pending.promise)
+
+    setText('/')
+    instance.update('/')
+    pending.resolve(catalog)
+    await flush()
+    expect(menu()).not.toBeNull()
+    expect((documentListeners.pointerdown ?? []).length).toBe(1)
+
+    keydown('Escape')
+    expect(menu()).toBeNull()
+    expect((documentListeners.pointerdown ?? []).length).toBe(0)
+    instance.update()
+    expect(menu()).toBeNull()
+
+    instance.update('/')
+    expect(menu()).not.toBeNull()
+    expect((documentListeners.pointerdown ?? []).length).toBe(1)
+
+    instance.remove()
+    expect(menu()).toBeNull()
+    expect((documentListeners.pointerdown ?? []).length).toBe(0)
+    instance.update()
+    expect(menu()).toBeNull()
+
+    setText('/co')
+    instance.update('/co')
+    expect(menu()).not.toBeNull()
+    expect((documentListeners.pointerdown ?? []).length).toBe(1)
+  })
+
+  it('keeps one document listener across rerenders and cleans it up with the controller', async () => {
+    const pending = deferred()
+    const { instance, setText, menu } = createHarness(() => pending.promise)
+
+    setText('/')
+    instance.update('/')
+    expect((documentListeners.pointerdown ?? []).length).toBe(1)
+
+    setText('/p')
+    instance.update('/p')
+    setText('/pl')
+    instance.update('/pl')
+    expect(menu()).not.toBeNull()
+    expect((documentListeners.pointerdown ?? []).length).toBe(1)
+
+    pending.resolve(catalog)
+    await flush()
+    expect((documentListeners.pointerdown ?? []).length).toBe(1)
+
+    instance.cleanupTextareaHandler()
+    expect(menu()).toBeNull()
+    expect((documentListeners.pointerdown ?? []).length).toBe(0)
   })
 
   // -------------------------------------------------------------------------

@@ -75,6 +75,8 @@ export function createCommandSuggestions({
   let catalogState: 'idle' | 'loading' | 'ready' | 'error' = 'idle'
   let catalog: SlashCatalog | null = null
   let menuOpenAtLastUpdate = false
+  let menuDismissedUntilExplicitUpdate = false
+  let documentDismissHandler: ((event: Event) => void) | null = null
 
   // Slash 选中态 chip 子系统（方案 A）：选中技能/子智能体后输入框内联 chip 覆盖层。
   const chip = createSlashInvocationChip({ panel })
@@ -119,14 +121,20 @@ export function createCommandSuggestions({
     rows[index]?.scrollIntoView?.({ block: 'nearest' })
   }
 
-  const remove = () => {
-    const suggestions = suggestionsElement()
-    if (suggestions?.__quickforgeDismissHandler) {
-      document.removeEventListener('pointerdown', suggestions.__quickforgeDismissHandler, true)
-      suggestions.__quickforgeDismissHandler = undefined
+  const removeMenu = () => {
+    if (documentDismissHandler) {
+      document.removeEventListener('pointerdown', documentDismissHandler, true)
+      documentDismissHandler = null
     }
+    const suggestions = suggestionsElement()
+    if (suggestions) suggestions.__quickforgeDismissHandler = undefined
     suggestions?.remove()
     menuOpenAtLastUpdate = false
+  }
+
+  const remove = () => {
+    menuDismissedUntilExplicitUpdate = true
+    removeMenu()
   }
 
   const insertEntryIntoComposer = (entry: SlashEntry) => {
@@ -144,7 +152,7 @@ export function createCommandSuggestions({
       textarea.selectionStart = text.length
       textarea.selectionEnd = text.length
     }
-    remove()
+    removeMenu()
     // 选中技能/子智能体进入 chip 选中态；指令维持纯文本（不 engage）。
     if (entry.kind === 'skill' || entry.kind === 'agent') {
       chip.engage({ kind: entry.kind, name: entry.name, cmd: `/${entry.kind} ${entry.name}` })
@@ -326,6 +334,7 @@ export function createCommandSuggestions({
   const update = (value?: string) => {
     const editor = panel.querySelector<MessageEditorElement>('message-editor')
     const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
+    if (value !== undefined) menuDismissedUntilExplicitUpdate = false
     const text = value ?? readComposerText()
     const existing = suggestionsElement()
 
@@ -342,14 +351,17 @@ export function createCommandSuggestions({
       if (parsed && !chip.isDismissed(parsed.cmd) && invocationInCatalog(parsed)) chip.engage(parsed)
     }
     if (chip.isActive()) {
-      existing?.remove()
-      menuOpenAtLastUpdate = false
+      removeMenu()
       return
     }
 
     if (!editor || !textarea || !text.startsWith('/')) {
-      existing?.remove()
-      menuOpenAtLastUpdate = false
+      removeMenu()
+      return
+    }
+
+    if (menuDismissedUntilExplicitUpdate) {
+      removeMenu()
       return
     }
 
@@ -369,8 +381,7 @@ export function createCommandSuggestions({
     ]
 
     if (groups.every((group) => group.entries.length === 0 && !(loading && group.key !== 'command'))) {
-      existing?.remove()
-      menuOpenAtLastUpdate = false
+      removeMenu()
       return
     }
 
@@ -400,13 +411,15 @@ export function createCommandSuggestions({
 
     setActiveRow(visibleRows(), 0)
 
-    if (!suggestions.__quickforgeDismissHandler) {
-      suggestions.__quickforgeDismissHandler = (event: Event) => {
-        if (suggestions.contains(event.target as Node)) return
-        if (editor.contains(event.target as Node)) return
+    if (!documentDismissHandler) {
+      // 菜单外任意 pointerdown（包括输入框与 Composer 控件）都收起菜单；
+      // 装饰刷新等无参数 update() 不会重开，下一次真实输入会解除抑制。
+      documentDismissHandler = (event: Event) => {
+        if (suggestionsElement()?.contains(event.target as Node)) return
         remove()
       }
-      document.addEventListener('pointerdown', suggestions.__quickforgeDismissHandler, true)
+      suggestions.__quickforgeDismissHandler = documentDismissHandler
+      document.addEventListener('pointerdown', documentDismissHandler, true)
     }
   }
 
@@ -465,6 +478,7 @@ export function createCommandSuggestions({
   }
 
   const cleanupTextareaHandler = () => {
+    removeMenu()
     const completeTextarea = panel.querySelector<CommandTextareaElement>('message-editor textarea')
     if (completeTextarea?.__quickforgeCommandCompleteHandler) {
       completeTextarea.removeEventListener('keydown', completeTextarea.__quickforgeCommandCompleteHandler, true)

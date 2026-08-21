@@ -59,7 +59,7 @@ src/
 3. **空状态** (`ModelSetupEmptyState`) — 未配置模型时显示
 4. **分享对话框** (`ShareConversationDialog`)
 5. **共享会话页面** (`SharedConversationPage`)
-6. **右侧工作区面板** (`WorkspaceInspector`) — 右侧统一工作区入口，顶部采用标签页式工作区，可打开文件、审查、终端、浏览器和 subagent 单次运行详情。点击聊天中的 subagent 运行摘要会打开或激活对应 `runId` 的运行时 Tab；同一次运行复用原 Tab，不同运行独立并存并实时更新。subagent Tab 不写入项目持久化，刷新后不恢复；其余 Tab、活动 `activePanelTabId` 和 Review 子视图按 `projectId` 本地持久化。项目切换时通过 `key` 重建 Inspector，加载目标项目自己的状态；标题栏 Git、聊天文件链接、Reader / Browser 产物入口通过携带 `projectId` 的一次性请求打开，消费后即清除，因此折叠后重新展开不会重放。Markdown 和代码走 Reader，HTML、SVG 和图片走 Browser；Markdown Reader 会优先渲染文档中的 Mermaid fenced code block，并保留源码切换和失败回退。
+6. **右侧工作区面板** (`WorkspaceInspector`) — 右侧统一工作区入口，顶部采用标签页式工作区，可打开文件、审查、终端、浏览器和 subagent 单次运行详情。点击聊天中的 subagent 运行摘要会打开或激活对应 `runId` 的运行时 Tab；同一次运行复用原 Tab，不同运行独立并存并实时更新。subagent Tab 不持久化；其余 Tab、活动 `activePanelTabId`、Review 子视图、Reader 左侧导航显示状态和 Inspector 展开状态按 `projectId + sessionId` 本地隔离恢复。新建空白会话先使用不落盘的 deferred runtime scope；首次发送创建真实 `sessionId` 时沿用该 runtime scope，不改变组件 `key`，因此内存状态保留并随后写入真实会话 key。普通会话切换会更换 runtime scope 并重建 Inspector。标题栏、聊天文件 resolve、产物预览和 subagent 等一次性打开请求携带 `projectId + runtimeScopeId`，发起、异步完成与 Inspector 消费均校验，避免同项目旧会话请求串入新会话；历史无项目 subagent 请求仍按兼容语义处理。Inspector 整体宽度仍是全局布局偏好。Markdown 和代码走 Reader，HTML、SVG 和图片走 Browser；Markdown Reader 会优先渲染文档中的 Mermaid fenced code block，并保留源码切换和失败回退。
 7. **项目目录选择器** (`ProjectDirectoryPicker`)
 8. **Skills 管理** (`SkillsManagerPanel` / `SkillsDialog`) — 全局 Skills 从设置页进入，项目 Skills 仍由项目菜单打开对话框
 9. **设置工作区页** (`SettingsWorkspacePage`) — 页面式设置界面，左侧设置导航复用侧边栏视觉，右侧设置内容复用主对话区域视觉，包含 Agent、Skills、MCP、插件、定时任务等管理页

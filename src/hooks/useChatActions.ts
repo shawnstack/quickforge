@@ -47,6 +47,8 @@ function clearSessionQueryParam() {
   window.history.replaceState({}, '', url)
 }
 
+export type StartNewChatResult = 'created' | 'reused' | 'cancelled'
+
 export function useChatActions({
   storageRef,
   activeModelRef,
@@ -67,12 +69,12 @@ export function useChatActions({
   closeWorkspacePage,
   setRestoredDraft,
 }: UseChatActionsOptions) {
-  const startNewGlobalChat = useCallback(async () => {
+  const startNewGlobalChat = useCallback(async (): Promise<StartNewChatResult> => {
     if (needsModelSetup) {
       const defaultOptions = storageRef.current ? await loadDefaultOptions(storageRef.current) : {}
       if ((defaultOptions.harness ?? 'quickforge') !== 'opencode') {
         void showAlert(t('modelSetupRequired'))
-        return
+        return 'cancelled'
       }
       setNeedsModelSetup(false)
     }
@@ -90,25 +92,26 @@ export function useChatActions({
       const defaultOptions = storageRef.current ? await loadDefaultOptions(storageRef.current) : {}
       return defaultOptions.harness ?? 'quickforge'
     })
-    if (blankSession.action === 'reuse') return
+    if (blankSession.action === 'reuse') return 'reused'
     if (blankSession.action === 'replace') {
       setRestoredDraft(undefined)
       clearSessionQueryParam()
       await startDeferredSession({ scope: 'global', harness: blankSession.defaultHarness })
-      return
+      return 'created'
     }
     setRestoredDraft(undefined)
     clearSessionQueryParam()
 
     await startDeferredSession({ scope: 'global' })
+    return 'created'
   }, [agentRef, currentChatScopeRef, needsModelSetup, setNeedsModelSetup, setRestoredDraft, closeWorkspacePage, startDeferredSession, storageRef])
 
-  const startNewProjectChat = useCallback(async (targetProject?: ProjectInfo) => {
+  const startNewProjectChat = useCallback(async (targetProject?: ProjectInfo): Promise<StartNewChatResult> => {
     if (needsModelSetup) {
       const defaultOptions = storageRef.current ? await loadDefaultOptions(storageRef.current) : {}
       if ((defaultOptions.harness ?? 'quickforge') !== 'opencode') {
         void showAlert(t('modelSetupRequired'))
-        return
+        return 'cancelled'
       }
       setNeedsModelSetup(false)
     }
@@ -116,7 +119,7 @@ export function useChatActions({
     closeWorkspacePage()
 
     const nextProject = targetProject ?? activeProjectRef.current
-    if (!nextProject) return
+    if (!nextProject) return 'cancelled'
 
     const currentAgent = agentRef.current
     const blankSession = await resolveBlankDeferredSessionForNewChat({
@@ -131,12 +134,12 @@ export function useChatActions({
       return defaultOptions.harness ?? 'quickforge'
     })
     const matchesCurrentProject = activeProjectRef.current?.id === nextProject.id
-    if (matchesCurrentProject && blankSession.action === 'reuse') return
+    if (matchesCurrentProject && blankSession.action === 'reuse') return 'reused'
     if (matchesCurrentProject && blankSession.action === 'replace') {
       setRestoredDraft(undefined)
       clearSessionQueryParam()
       await startDeferredSession({ scope: 'project', project: nextProject, harness: blankSession.defaultHarness })
-      return
+      return 'created'
     }
 
     if (!matchesCurrentProject) {
@@ -147,6 +150,7 @@ export function useChatActions({
     clearSessionQueryParam()
 
     await startDeferredSession({ scope: 'project', project: nextProject })
+    return 'created'
   }, [activeProjectRef, agentRef, currentChatScopeRef, needsModelSetup, setNeedsModelSetup, setRestoredDraft, closeWorkspacePage, startDeferredSession, storageRef, switchActiveProject])
 
   const rollbackFromMessage = useCallback(async (messageIndex: number) => {

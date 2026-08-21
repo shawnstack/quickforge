@@ -39,6 +39,7 @@ export type PersistedWorkspacePanelTab = Pick<WorkspacePanelTab, 'id' | 'kind' |
 export type PersistedWorkspaceInspectorTabs = {
   tabs: PersistedWorkspacePanelTab[]
   activePanelTabId?: string
+  readerNavigationVisible?: boolean
 }
 
 export type WorkspaceInspectorTabsStorage = Pick<Storage, 'getItem' | 'setItem'>
@@ -54,10 +55,14 @@ export type WorkspaceInspectorProjectGuard = {
   invalidate: () => number
 }
 
-export const WORKSPACE_INSPECTOR_TABS_STORAGE_PREFIX = 'quickforge:workspace-inspector-tabs:v1:'
+export const WORKSPACE_INSPECTOR_TABS_STORAGE_PREFIX = 'quickforge:workspace-inspector-tabs:v2:'
 
-export function workspaceInspectorTabsStorageKey(projectId: string) {
-  return `${WORKSPACE_INSPECTOR_TABS_STORAGE_PREFIX}${projectId}`
+function storagePart(value: string) {
+  return encodeURIComponent(value)
+}
+
+export function workspaceInspectorTabsStorageKey(projectId: string, sessionId: string) {
+  return `${WORKSPACE_INSPECTOR_TABS_STORAGE_PREFIX}${storagePart(projectId)}:${storagePart(sessionId)}`
 }
 
 function readerTabId(mode: ReaderMode, path: string) {
@@ -114,26 +119,29 @@ export function normalizePersistedPanelTabs(value: unknown): WorkspacePanelTab[]
 
 export function readPersistedPanelTabs(
   projectId: string,
+  sessionId: string | undefined,
   storage: WorkspaceInspectorTabsStorage | undefined = defaultStorage(),
 ): PersistedWorkspaceInspectorTabs {
-  if (!storage) return { tabs: [] }
+  if (!sessionId || !storage) return { tabs: [], readerNavigationVisible: true }
   try {
-    const raw = storage.getItem(workspaceInspectorTabsStorageKey(projectId))
-    if (!raw) return { tabs: [] }
+    const raw = storage.getItem(workspaceInspectorTabsStorageKey(projectId, sessionId))
+    if (!raw) return { tabs: [], readerNavigationVisible: true }
     const parsed = JSON.parse(raw) as Partial<PersistedWorkspaceInspectorTabs> | null
     const tabs = normalizePersistedPanelTabs(parsed?.tabs)
     const activePanelTabId = typeof parsed?.activePanelTabId === 'string' && tabs.some((tab) => tab.id === parsed.activePanelTabId)
       ? parsed.activePanelTabId
       : tabs[0]?.id
-    return activePanelTabId ? { tabs, activePanelTabId } : { tabs }
+    const readerNavigationVisible = parsed?.readerNavigationVisible !== false
+    return activePanelTabId ? { tabs, activePanelTabId, readerNavigationVisible } : { tabs, readerNavigationVisible }
   } catch {
-    return { tabs: [] }
+    return { tabs: [], readerNavigationVisible: true }
   }
 }
 
 export function serializePanelTabs(
   tabs: WorkspacePanelTab[],
   activePanelTabId: string | undefined,
+  readerNavigationVisible = true,
 ): PersistedWorkspaceInspectorTabs {
   const persistedTabs = tabs.flatMap((tab): PersistedWorkspacePanelTab[] => {
     if (tab.kind === 'subagent') return []
@@ -155,20 +163,23 @@ export function serializePanelTabs(
     activePanelTabId: activePanelTabId && persistedTabs.some((tab) => tab.id === activePanelTabId)
       ? activePanelTabId
       : persistedTabs[0]?.id,
+    readerNavigationVisible,
   }
 }
 
 export function writePersistedPanelTabs(
   projectId: string,
+  sessionId: string | undefined,
   tabs: WorkspacePanelTab[],
   activePanelTabId: string | undefined,
+  readerNavigationVisible: boolean,
   storage: WorkspaceInspectorTabsStorage | undefined = defaultStorage(),
 ): boolean {
-  if (!storage) return false
+  if (!sessionId || !storage) return false
   try {
     storage.setItem(
-      workspaceInspectorTabsStorageKey(projectId),
-      JSON.stringify(serializePanelTabs(tabs, activePanelTabId)),
+      workspaceInspectorTabsStorageKey(projectId, sessionId),
+      JSON.stringify(serializePanelTabs(tabs, activePanelTabId, readerNavigationVisible)),
     )
     return true
   } catch {

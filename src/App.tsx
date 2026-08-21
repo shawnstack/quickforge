@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import type { BackgroundTaskStatus } from '@/lib/types'
 import {
@@ -68,6 +68,7 @@ import { useProjectActions } from '@/hooks/useProjectActions'
 import { useSessionActions } from '@/hooks/useSessionActions'
 import { useAgentAccessActions } from '@/hooks/useAgentAccessActions'
 import { useUIState } from '@/hooks/useUIState'
+import { useWorkspaceInspectorOpenState } from '@/hooks/useWorkspaceInspectorOpenState'
 import { useVisibleRuntimeStatuses } from '@/hooks/useVisibleRuntimeStatuses'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { ServerAgent } from '@/lib/server-agent'
@@ -98,7 +99,11 @@ import { GitToolsPinnedSummary } from '@/components/git/GitToolsPinnedSummary'
 import { GitGraphDialog } from '@/components/git/GitGraphDialog'
 import { ShareConversationDialog } from '@/components/share/ShareConversationDialog'
 import { checkoutGitBranch, getGitStatus, resolveWorkspacePath } from '@/components/workspace/workspace-api'
-import type { GitStatusResponse, WorkspaceInspectorOpenRequestInput } from '@/components/workspace/workspace-types'
+import {
+  shouldHandleWorkspaceInspectorRequest,
+  workspaceInspectorRuntimeScopeMatches,
+} from '@/components/workspace/workspace-inspector-request'
+import type { GitStatusResponse, WorkspaceInspectorOpenRequestInput, WorkspaceInspectorRuntimeScope } from '@/components/workspace/workspace-types'
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
@@ -301,7 +306,6 @@ function MainApp() {
   const ui = useUIState()
   const {
     setArtifactPreviewOpen,
-    setWorkspaceInspectorOpen,
     setWorkspaceInspectorRequest,
   } = ui
 
@@ -332,6 +336,10 @@ function MainApp() {
   const [titleGitStatus, setTitleGitStatus] = useState<GitStatusResponse | undefined>()
   const titleGitRequestIdRef = useRef(0)
   const currentToolProjectIdRef = useRef<string | undefined>(undefined)
+  const workspaceInspectorScopeRef = useRef<WorkspaceInspectorRuntimeScope>({
+    projectId: 'global-workspace',
+    runtimeScopeId: '',
+  })
   const [branchMenuOpen, setBranchMenuOpen] = useState(false)
   const [gitToolsExpanded, setGitToolsExpanded] = useState(false)
   const [gitCommitDialogOpen, setGitCommitDialogOpen] = useState(false)
@@ -485,6 +493,20 @@ function MainApp() {
     loadCloudModels: cloudModels.loadCloudModels,
     onTaskComplete: handleTaskComplete,
   })
+  const workspaceInspectorProjectId = agentManager.currentToolProject?.id ?? 'global-workspace'
+  const workspaceInspectorRuntimeScopeId = agentManager.currentRuntimeScopeId
+  const workspaceInspectorScope = useMemo<WorkspaceInspectorRuntimeScope>(() => ({
+    projectId: workspaceInspectorProjectId,
+    runtimeScopeId: workspaceInspectorRuntimeScopeId,
+  }), [workspaceInspectorProjectId, workspaceInspectorRuntimeScopeId])
+  useLayoutEffect(() => {
+    workspaceInspectorScopeRef.current = workspaceInspectorScope
+  }, [workspaceInspectorScope])
+  const [workspaceInspectorOpen, setWorkspaceInspectorOpen] = useWorkspaceInspectorOpenState(
+    workspaceInspectorProjectId,
+    agentManager.currentSessionId,
+    workspaceInspectorRuntimeScopeId,
+  )
 
   useEffect(() => {
     const loadingSessionId = agentManager.loadingSessionId
@@ -539,7 +561,7 @@ function MainApp() {
     currentToolProjectIdRef.current = agentManager.currentToolProject?.id
     titleGitRequestIdRef.current += 1
     chatFileRequestIdRef.current += 1
-  }, [agentManager.currentToolProject?.id])
+  }, [agentManager.currentRuntimeScopeId, agentManager.currentToolProject?.id])
 
   const beginSessionTransition = useCallback((sessionId: string) => {
     if (!sessionId || sessionId === currentSessionIdRef.current) return undefined
@@ -623,14 +645,21 @@ function MainApp() {
     setRestoredDraft((current) => current?.id === id ? undefined : current)
   }, [])
 
-  const requestWorkspaceInspector = useCallback((request: WorkspaceInspectorOpenRequestInput) => {
+  const requestWorkspaceInspector = useCallback((request: WorkspaceInspectorOpenRequestInput, scope = workspaceInspectorScope) => {
+    if (!workspaceInspectorRuntimeScopeMatches(scope, workspaceInspectorScopeRef.current)) return false
     workspaceInspectorRequestIdRef.current += 1
-    setWorkspaceInspectorRequest({ ...request, id: workspaceInspectorRequestIdRef.current })
+    setWorkspaceInspectorRequest({ ...request, scope, id: workspaceInspectorRequestIdRef.current })
     setWorkspaceInspectorOpen(true)
-  }, [setWorkspaceInspectorOpen, setWorkspaceInspectorRequest])
+    return true
+  }, [setWorkspaceInspectorOpen, setWorkspaceInspectorRequest, workspaceInspectorScope])
 
   const handleWorkspaceInspectorRequest = useCallback((id: number) => {
-    setWorkspaceInspectorRequest((current) => current?.id === id ? undefined : current)
+    setWorkspaceInspectorRequest((current) => {
+      if (current?.id !== id) return current
+      return shouldHandleWorkspaceInspectorRequest(current, workspaceInspectorScopeRef.current, undefined)
+        ? undefined
+        : current
+    })
   }, [setWorkspaceInspectorRequest])
 
   const openWorkspaceGitChanges = useCallback(() => {
@@ -735,6 +764,7 @@ function MainApp() {
 
   const openLocalFilePathFromChat = useCallback(async (filePath: string) => {
     const projectId = agentManager.currentToolProject?.id
+    const requestScope = workspaceInspectorScopeRef.current
     if (!projectId) {
       addToast({ sessionId: agentManager.currentSessionId ?? '', title: '无法打开文件', status: 'error', message: '当前对话没有关联项目。' })
       return
@@ -745,9 +775,11 @@ function MainApp() {
     try {
       const resolved = await resolveWorkspacePath(projectId, filePath)
       if (!isCurrentProjectRequest({ projectId, requestId }, currentToolProjectIdRef.current, chatFileRequestIdRef.current)) return
-      requestWorkspaceInspector({ projectId, kind: 'reader', path: resolved.relativePath })
+      if (!workspaceInspectorRuntimeScopeMatches(requestScope, workspaceInspectorScopeRef.current)) return
+      requestWorkspaceInspector({ projectId, kind: 'reader', path: resolved.relativePath }, requestScope)
     } catch (error) {
       if (!isCurrentProjectRequest({ projectId, requestId }, currentToolProjectIdRef.current, chatFileRequestIdRef.current)) return
+      if (!workspaceInspectorRuntimeScopeMatches(requestScope, workspaceInspectorScopeRef.current)) return
       const message = error instanceof Error ? error.message : '打开文件失败'
       addToast({ sessionId: agentManager.currentSessionId ?? '', title: '无法打开文件', status: 'error', message })
     }
@@ -1019,6 +1051,18 @@ function MainApp() {
     setRestoredDraft,
   })
 
+  const handleWorkspaceInspectorOpenChange = useCallback((open: boolean) => {
+    setWorkspaceInspectorOpen(open)
+  }, [setWorkspaceInspectorOpen])
+
+  const startNewGlobalChatWithInspectorReset = useCallback(async (...args: Parameters<typeof startNewGlobalChat>) => {
+    return startNewGlobalChat(...args)
+  }, [startNewGlobalChat])
+
+  const startNewProjectChatWithInspectorReset = useCallback(async (...args: Parameters<typeof startNewProjectChat>) => {
+    return startNewProjectChat(...args)
+  }, [startNewProjectChat])
+
   const { deleteProjectInline } = useProjectActions({
     activeProjectRef,
     refreshSessions,
@@ -1133,7 +1177,7 @@ function MainApp() {
     notifySessionsChanged,
     updateSessionTitle,
     closeWorkspacePage,
-    startNewGlobalChat,
+    startNewGlobalChat: startNewGlobalChatWithInspectorReset,
   })
 
   const loadSessionWithTransition = useCallback((sessionId: string) => {
@@ -1329,15 +1373,15 @@ function MainApp() {
   const startNewDefaultSession = useCallback(() => {
     setEmptyStateProjectDismissed(false)
     if (activeProject) {
-      void startNewProjectChat(activeProject)
+      void startNewProjectChatWithInspectorReset(activeProject)
       return
     }
     startNewGlobalSession()
-  }, [activeProject, startNewGlobalSession, startNewProjectChat])
+  }, [activeProject, startNewGlobalSession, startNewProjectChatWithInspectorReset])
 
   const handleSelectEmptyStateProject = useCallback((project: ProjectInfo) => {
-    void startNewProjectChat(project)
-  }, [startNewProjectChat])
+    void startNewProjectChatWithInspectorReset(project)
+  }, [startNewProjectChatWithInspectorReset])
 
   const handleClearEmptyStateProject = useCallback(() => {
     setEmptyStateProjectDismissed(true)
@@ -1476,8 +1520,8 @@ function MainApp() {
 
   const startNewProjectChatFromSidebar = useCallback((project: ProjectInfo) => {
     closeMobileSidebar()
-    void startNewProjectChat(project)
-  }, [closeMobileSidebar, startNewProjectChat])
+    void startNewProjectChatWithInspectorReset(project)
+  }, [closeMobileSidebar, startNewProjectChatWithInspectorReset])
 
   const openGlobalSkillsFromSidebar = useCallback(() => {
     closeMobileSidebar()
@@ -1605,7 +1649,7 @@ function MainApp() {
       aria-hidden={workspaceInspectorFullscreen || undefined}
       aria-label={t('workspacePanel')}
     >
-      {!remoteClient && !ui.workspaceInspectorOpen ? (
+      {!remoteClient && !workspaceInspectorOpen ? (
         <ProjectOpenMenu
           project={agentManager.currentToolProject}
           disabled={needsModelSetup}
@@ -1614,7 +1658,7 @@ function MainApp() {
           onOpenInIDEA={openProjectInIDEAWithFeedback}
         />
       ) : null}
-      {!ui.workspaceInspectorOpen && agentManager.currentToolProject?.id && titleGitStatus?.isGitRepository ? (
+      {!workspaceInspectorOpen && agentManager.currentToolProject?.id && titleGitStatus?.isGitRepository ? (
         <GitToolsPinnedSummary
           projectId={agentManager.currentToolProject.id}
           status={titleGitStatus}
@@ -1658,18 +1702,18 @@ function MainApp() {
         size="icon"
         onClick={() => {
           setArtifactPreviewOpen(false)
-          if (ui.workspaceInspectorOpen) {
-            ui.setWorkspaceInspectorOpen(false)
+          if (workspaceInspectorOpen) {
+            setWorkspaceInspectorOpen(false)
           } else {
-            ui.setWorkspaceInspectorOpen(true)
+            setWorkspaceInspectorOpen(true)
           }
         }}
         disabled={!agentManager.currentToolProject?.id || needsModelSetup}
-        aria-label={ui.workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
-        title={ui.workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
+        aria-label={workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
+        title={workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
         className={cn(
           'hidden rounded-[10px] text-muted-foreground/85 hover:bg-muted/45 hover:text-foreground/90 disabled:opacity-40 lg:inline-flex',
-          ui.workspaceInspectorOpen ? 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground' : undefined,
+          workspaceInspectorOpen ? 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground' : undefined,
         )}
       >
         <PanelRight className="size-[18px] stroke-[1.85]" />
@@ -1732,7 +1776,7 @@ function MainApp() {
         onToggleAllProjectsExpanded={toggleAllProjectsExpanded}
         onReorderProjects={reorderProjects}
         onSelectProjectDirectory={remoteClient ? undefined : selectProjectDirectory}
-        onStartNewProjectChat={startNewProjectChat}
+        onStartNewProjectChat={startNewProjectChatWithInspectorReset}
         onOpenGlobalSkills={openGlobalSkills}
         onOpenAgents={openAgents}
         onOpenScheduledTasks={openScheduledTasks}
@@ -2105,15 +2149,17 @@ function MainApp() {
           </Suspense>
         ) : null}
       </main>
-      {agentManager.currentToolProject?.id || ui.workspaceInspectorOpen ? (
+      {agentManager.currentToolProject?.id || workspaceInspectorOpen ? (
         <>
-          {ui.workspaceInspectorOpen ? <div aria-hidden="true" className="hidden w-px shrink-0 bg-[color-mix(in_oklab,var(--border)_30%,var(--quickforge-sidebar-bg))] lg:block" /> : null}
+          {workspaceInspectorOpen ? <div aria-hidden="true" className="hidden w-px shrink-0 bg-[color-mix(in_oklab,var(--border)_30%,var(--quickforge-sidebar-bg))] lg:block" /> : null}
           <Suspense fallback={<LazyOverlayFallback />}>
             <WorkspaceInspector
-              key={agentManager.currentToolProject?.id ?? 'global-workspace'}
+              key={`${workspaceInspectorProjectId}:${workspaceInspectorRuntimeScopeId}`}
               project={agentManager.currentToolProject}
-              open={ui.workspaceInspectorOpen}
-              onOpenChange={ui.setWorkspaceInspectorOpen}
+              sessionId={agentManager.currentSessionId}
+              runtimeScopeId={workspaceInspectorRuntimeScopeId}
+              open={workspaceInspectorOpen}
+              onOpenChange={handleWorkspaceInspectorOpenChange}
               onOpenCommitPush={() => setGitCommitDialogOpen(true)}
               onOpenProjectInExplorer={remoteClient ? undefined : openProjectInExplorerWithFeedback}
               onOpenProjectInVSCode={remoteClient ? undefined : openProjectInVSCodeWithFeedback}

@@ -94,6 +94,8 @@ import type {
 
 type WorkspaceInspectorProps = {
   project?: ProjectInfo
+  sessionId?: string
+  runtimeScopeId: string
   open: boolean
   onOpenChange: (open: boolean) => void
   onOpenCommitPush?: () => void
@@ -623,7 +625,7 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
   )
 }
 
-export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPush, onOpenProjectInExplorer, onOpenProjectInVSCode, onOpenProjectInIDEA, onPreviewArtifact, request, onRequestHandled, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled, globalTerminalOpen = false, onShowGlobalTerminal, onFullscreenChange }: WorkspaceInspectorProps) {
+export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, onOpenChange, onOpenCommitPush, onOpenProjectInExplorer, onOpenProjectInVSCode, onOpenProjectInIDEA, onPreviewArtifact, request, onRequestHandled, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled, globalTerminalOpen = false, onShowGlobalTerminal, onFullscreenChange }: WorkspaceInspectorProps) {
   const [treeState, dispatchTree] = useReducer(workspaceTreeReducer, {})
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
   const [treeRefreshing, setTreeRefreshing] = useState(false)
@@ -647,7 +649,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
   )
   const initialPanelTabStateRef = useRef<PersistedWorkspaceInspectorTabs | undefined>(undefined)
   if (!initialPanelTabStateRef.current) {
-    initialPanelTabStateRef.current = project?.id ? readPersistedPanelTabs(project.id) : { tabs: [] }
+    initialPanelTabStateRef.current = project?.id ? readPersistedPanelTabs(project.id, sessionId) : { tabs: [], readerNavigationVisible: true }
   }
   const [panelTabs, setPanelTabs] = useState<WorkspacePanelTab[]>(() => {
     const tabs = initialPanelTabStateRef.current?.tabs ?? []
@@ -660,7 +662,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
   const [reviewFilterOpen, setReviewFilterOpen] = useState(false)
   const [pendingGitAction, setPendingGitAction] = useState<{ action: GitChangeAction; path?: string }>()
   const [leftWidth, setLeftWidth] = useState(NAV_PANEL_DEFAULT_WIDTH)
-  const [readerNavigationVisible, setReaderNavigationVisible] = useState(true)
+  const [readerNavigationVisible, setReaderNavigationVisible] = useState(() => initialPanelTabStateRef.current?.readerNavigationVisible !== false)
   const [isNavResizing, setIsNavResizing] = useState(false)
   const [mounted, setMounted] = useState(open)
   const [visible, setVisible] = useState(false)
@@ -928,7 +930,11 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
   }, [menuOpen, reviewFilterOpen, tabListOpen])
 
   useEffect(() => {
-    if (!open || !shouldHandleWorkspaceInspectorRequest(request, projectId, handledRequestIdRef.current)) return
+    if (!open || !shouldHandleWorkspaceInspectorRequest(
+      request,
+      { projectId: projectId ?? 'global-workspace', runtimeScopeId },
+      handledRequestIdRef.current,
+    )) return
     handledRequestIdRef.current = request.id
     if (request.kind === 'review') {
       openPanelTabRef.current?.('review', request.view)
@@ -944,7 +950,7 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
       openPanelTabRef.current?.(request.kind, viewFromPanelKind(request.kind))
     }
     onRequestHandled?.(request.id)
-  }, [onRequestHandled, open, projectId, request])
+  }, [onRequestHandled, open, projectId, request, runtimeScopeId])
   // 持久化工作区宽度：拖拽或自动展开后都写入，刷新后保持上次宽度
   useEffect(() => {
     try {
@@ -1236,8 +1242,8 @@ export function WorkspaceInspector({ project, open, onOpenChange, onOpenCommitPu
 
   useEffect(() => {
     if (!projectId) return
-    writePersistedPanelTabs(projectId, panelTabs, activePanelTabId)
-  }, [activePanelTabId, panelTabs, projectId])
+    writePersistedPanelTabs(projectId, sessionId, panelTabs, activePanelTabId, readerNavigationVisible)
+  }, [activePanelTabId, panelTabs, projectId, readerNavigationVisible, sessionId])
 
   useEffect(() => {
     if (!activePanelTabId || panelTabs.some((tab) => tab.id === activePanelTabId)) return

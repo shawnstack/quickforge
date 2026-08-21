@@ -19,7 +19,6 @@ export function useUIState() {
   const [skillsDialog, setSkillsDialog] = useState<{ scope: SkillsScope; project?: ProjectInfo }>()
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [conversationMenuOpen, setConversationMenuOpen] = useState(false)
-  const [workspaceInspectorOpen, setWorkspaceInspectorOpen] = useState(false)
   const [workspaceInspectorRequest, setWorkspaceInspectorRequest] = useState<WorkspaceInspectorOpenRequest>()
   const [artifactPreviewOpen, setArtifactPreviewOpen] = useState(false)
   const [activeArtifactPath, setActiveArtifactPath] = useState<string>()
@@ -41,7 +40,6 @@ export function useUIState() {
     skillsDialog, setSkillsDialog,
     shareDialogOpen, setShareDialogOpen,
     conversationMenuOpen, setConversationMenuOpen,
-    workspaceInspectorOpen, setWorkspaceInspectorOpen,
     workspaceInspectorRequest, setWorkspaceInspectorRequest,
     artifactPreviewOpen, setArtifactPreviewOpen,
     activeArtifactPath, setActiveArtifactPath,

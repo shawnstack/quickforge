@@ -17,7 +17,7 @@ type UseSessionActionsOptions = {
   notifySessionsChanged: () => void
   updateSessionTitle: (sessionId: string, title: string) => void
   closeWorkspacePage: () => void
-  startNewGlobalChat: () => Promise<void>
+  startNewGlobalChat: () => Promise<unknown>
 }
 
 export function useSessionActions({

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 import {
   WORKSPACE_INSPECTOR_TABS_STORAGE_PREFIX,
@@ -37,39 +38,53 @@ function deferred<T>() {
 }
 
 describe('workspace inspector tabs persistence', () => {
-  it('isolates persisted tabs by project id', () => {
+  it('isolates persisted tabs by project and session id', () => {
     const { storage, values } = createStorage()
     const projectATabs: WorkspacePanelTab[] = [{ id: 'files-1', kind: 'files' }]
     const projectBTabs: WorkspacePanelTab[] = [{ id: 'terminal-2', kind: 'terminal', terminalSessionId: 'session-b' }]
 
-    expect(workspaceInspectorTabsStorageKey('project-a')).toBe(`${WORKSPACE_INSPECTOR_TABS_STORAGE_PREFIX}project-a`)
-    expect(writePersistedPanelTabs('project-a', projectATabs, 'files-1', storage)).toBe(true)
-    expect(writePersistedPanelTabs('project-b', projectBTabs, 'terminal-2', storage)).toBe(true)
+    expect(workspaceInspectorTabsStorageKey('project-a', 'session-a')).toBe(`${WORKSPACE_INSPECTOR_TABS_STORAGE_PREFIX}project-a:session-a`)
+    expect(writePersistedPanelTabs('project-a', 'session-a', projectATabs, 'files-1', true, storage)).toBe(true)
+    expect(writePersistedPanelTabs('project-b', 'session-b', projectBTabs, 'terminal-2', false, storage)).toBe(true)
 
     expect(values.size).toBe(2)
-    expect(readPersistedPanelTabs('project-a', storage)).toEqual({ tabs: [{ id: 'files-1', kind: 'files', readerTabs: [], activeReaderTabId: undefined }], activePanelTabId: 'files-1' })
-    expect(readPersistedPanelTabs('project-b', storage)).toEqual({ tabs: projectBTabs, activePanelTabId: 'terminal-2' })
+    expect(readPersistedPanelTabs('project-a', 'session-a', storage)).toEqual({ tabs: [{ id: 'files-1', kind: 'files', readerTabs: [], activeReaderTabId: undefined }], activePanelTabId: 'files-1', readerNavigationVisible: true })
+    expect(readPersistedPanelTabs('project-b', 'session-b', storage)).toEqual({ tabs: projectBTabs, activePanelTabId: 'terminal-2', readerNavigationVisible: false })
+    expect(readPersistedPanelTabs('project-a', 'session-b', storage)).toEqual({ tabs: [], readerNavigationVisible: true })
+  })
+
+  it('does not migrate legacy project-only state or persist a sessionless runtime', () => {
+    const legacyKey = 'quickforge:workspace-inspector-tabs:v1:project-a'
+    const { storage, values } = createStorage({
+      [legacyKey]: JSON.stringify({ tabs: [{ id: 'files-1', kind: 'files' }], activePanelTabId: 'files-1' }),
+    })
+
+    expect(readPersistedPanelTabs('project-a', 'session-new', storage)).toEqual({ tabs: [], readerNavigationVisible: true })
+    expect(readPersistedPanelTabs('project-a', undefined, storage)).toEqual({ tabs: [], readerNavigationVisible: true })
+    expect(writePersistedPanelTabs('project-a', undefined, [{ id: 'review-1', kind: 'review' }], 'review-1', false, storage)).toBe(false)
+    expect(values.size).toBe(1)
   })
 
   it('persists the review subview with the project tabs', () => {
     const { storage } = createStorage()
     const reviewTabs: WorkspacePanelTab[] = [{ id: 'review-1', kind: 'review', reviewView: 'review' }]
 
-    expect(writePersistedPanelTabs('project-a', reviewTabs, 'review-1', storage)).toBe(true)
-    expect(readPersistedPanelTabs('project-a', storage)).toEqual({
+    expect(writePersistedPanelTabs('project-a', 'session-a', reviewTabs, 'review-1', true, storage)).toBe(true)
+    expect(readPersistedPanelTabs('project-a', 'session-a', storage)).toEqual({
       tabs: [{ id: 'review-1', kind: 'review', reviewView: 'review', readerTabs: [], activeReaderTabId: undefined }],
       activePanelTabId: 'review-1',
+      readerNavigationVisible: true,
     })
   })
 
   it('safely handles invalid JSON and invalid persisted roots', () => {
-    const key = workspaceInspectorTabsStorageKey('project-a')
+    const key = workspaceInspectorTabsStorageKey('project-a', 'session-a')
     const { storage } = createStorage({ [key]: '{broken' })
 
-    expect(readPersistedPanelTabs('project-a', storage)).toEqual({ tabs: [] })
+    expect(readPersistedPanelTabs('project-a', 'session-a', storage)).toEqual({ tabs: [], readerNavigationVisible: true })
 
     storage.setItem(key, 'null')
-    expect(readPersistedPanelTabs('project-a', storage)).toEqual({ tabs: [] })
+    expect(readPersistedPanelTabs('project-a', 'session-a', storage)).toEqual({ tabs: [], readerNavigationVisible: true })
   })
 
   it('safely degrades when storage reads, writes, or browser storage access fail', () => {
@@ -80,8 +95,8 @@ describe('workspace inspector tabs persistence', () => {
       setItem: vi.fn(() => { throw writeError }),
     }
 
-    expect(readPersistedPanelTabs('project-a', throwingStorage)).toEqual({ tabs: [] })
-    expect(writePersistedPanelTabs('project-a', [{ id: 'files-1', kind: 'files' }], 'files-1', throwingStorage)).toBe(false)
+    expect(readPersistedPanelTabs('project-a', 'session-a', throwingStorage)).toEqual({ tabs: [], readerNavigationVisible: true })
+    expect(writePersistedPanelTabs('project-a', 'session-a', [{ id: 'files-1', kind: 'files' }], 'files-1', true, throwingStorage)).toBe(false)
 
     const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
     Object.defineProperty(globalThis, 'localStorage', {
@@ -89,8 +104,8 @@ describe('workspace inspector tabs persistence', () => {
       get: () => { throw new Error('unavailable') },
     })
     try {
-      expect(readPersistedPanelTabs('project-a')).toEqual({ tabs: [] })
-      expect(writePersistedPanelTabs('project-a', [], undefined)).toBe(false)
+      expect(readPersistedPanelTabs('project-a', 'session-a')).toEqual({ tabs: [], readerNavigationVisible: true })
+      expect(writePersistedPanelTabs('project-a', 'session-a', [], undefined, true)).toBe(false)
     } finally {
       if (descriptor) Object.defineProperty(globalThis, 'localStorage', descriptor)
       else Reflect.deleteProperty(globalThis, 'localStorage')
@@ -127,6 +142,7 @@ describe('workspace inspector tabs persistence', () => {
         { id: 'reader-3', kind: 'reader', reader: { mode: 'file', path: 'src/active.ts' } },
       ],
       activePanelTabId: 'browser-1',
+      readerNavigationVisible: true,
     })
 
     expect(normalizePersistedPanelTabs(serialized.tabs)).toEqual([
@@ -159,7 +175,7 @@ describe('workspace inspector tabs persistence', () => {
   })
 
   it('falls back active ids to the first restorable tab', () => {
-    const key = workspaceInspectorTabsStorageKey('project-a')
+    const key = workspaceInspectorTabsStorageKey('project-a', 'session-a')
     const { storage } = createStorage({
       [key]: JSON.stringify({
         tabs: [
@@ -170,11 +186,47 @@ describe('workspace inspector tabs persistence', () => {
       }),
     })
 
-    expect(readPersistedPanelTabs('project-a', storage).activePanelTabId).toBe('files-2')
+    expect(readPersistedPanelTabs('project-a', 'session-a', storage).activePanelTabId).toBe('files-2')
     expect(serializePanelTabs([{ id: 'reader-1', kind: 'reader', readerTabs: [] }], 'reader-1')).toEqual({
       tabs: [],
       activePanelTabId: undefined,
+      readerNavigationVisible: true,
     })
+  })
+
+  it('migrates a pending runtime snapshot into the real session storage without changing the component runtime key', () => {
+    const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+    const inspectorSource = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
+    const managerSource = readFileSync(new URL('../../src/hooks/useAgentManager.ts', import.meta.url), 'utf8')
+    const openStateSource = readFileSync(new URL('../../src/hooks/useWorkspaceInspectorOpenState.ts', import.meta.url), 'utf8')
+
+    expect(appSource).toContain('const workspaceInspectorRuntimeScopeId = agentManager.currentRuntimeScopeId')
+    expect(appSource).toContain('key={`${workspaceInspectorProjectId}:${workspaceInspectorRuntimeScopeId}`}')
+    expect(appSource).toContain('runtimeScopeId={workspaceInspectorRuntimeScopeId}')
+    expect(managerSource).toContain('attachTaskToView(task, previousAgent.sessionId)')
+    expect(managerSource).toContain('const runtimeScopeId = deferredAgent.sessionId')
+    expect(openStateSource).toContain('if (sessionId) writeWorkspaceInspectorOpen(projectId, sessionId, open)')
+    expect(inspectorSource).toContain('writePersistedPanelTabs(projectId, sessionId, panelTabs, activePanelTabId, readerNavigationVisible)')
+  })
+
+  it('scopes async Inspector requests to the originating runtime and invalidates chat-file resolution on session changes', () => {
+    const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+    const inspectorSource = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
+
+    expect(appSource).toContain('setWorkspaceInspectorRequest({ ...request, scope, id: workspaceInspectorRequestIdRef.current })')
+    expect(appSource).toContain('workspaceInspectorRuntimeScopeMatches(requestScope, workspaceInspectorScopeRef.current)')
+    expect(appSource).toContain('[agentManager.currentRuntimeScopeId, agentManager.currentToolProject?.id]')
+    expect(inspectorSource).toContain("{ projectId: projectId ?? 'global-workspace', runtimeScopeId }")
+  })
+
+  it('does not rotate a pending Inspector scope until a new deferred session is actually attached', () => {
+    const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+    const chatActionsSource = readFileSync(new URL('../../src/hooks/useChatActions.ts', import.meta.url), 'utf8')
+
+    expect(appSource).not.toContain('workspaceInspectorPendingScopeId')
+    expect(chatActionsSource).toContain("if (blankSession.action === 'reuse') return 'reused'")
+    expect(chatActionsSource).toContain("return 'cancelled'")
+    expect(chatActionsSource).toContain("return 'created'")
   })
 
   it('creates separate subagent run tabs and reuses the same run id', () => {

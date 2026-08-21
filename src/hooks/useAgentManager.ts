@@ -53,11 +53,13 @@ export interface AgentManager {
   agentRef: React.MutableRefObject<ServerAgent | DeferredSessionAgent | null>
   taskMapRef: React.MutableRefObject<Map<string, BackgroundTask>>
   currentSessionIdRef: React.MutableRefObject<string | undefined>
+  currentRuntimeScopeIdRef: React.MutableRefObject<string>
   currentChatScopeRef: React.MutableRefObject<ChatScope>
 
   // State (may change each render)
   agent: ServerAgent | DeferredSessionAgent | null
   currentSessionId: string | undefined
+  currentRuntimeScopeId: string
   currentTitle: string
   chatScope: ChatScope
   currentToolProject: ProjectInfo | undefined
@@ -105,6 +107,8 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   const taskMapRef = useRef<Map<string, BackgroundTask>>(new Map())
   const currentChatScopeRef = useRef<ChatScope>('global')
   const currentSessionIdRef = useRef<string | undefined>(undefined)
+  const initialRuntimeScopeId = useState(randomId)[0]
+  const currentRuntimeScopeIdRef = useRef(initialRuntimeScopeId)
   const currentTitleRef = useRef('New chat')
   const currentCreatedAtRef = useRef<string | undefined>(undefined)
   const loadSessionRef = useRef<AgentManager['loadSession'] | null>(null)
@@ -125,6 +129,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   // --- State ---
   const [agent, setAgent] = useState<ServerAgent | DeferredSessionAgent | null>(null)
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>()
+  const [currentRuntimeScopeId, setCurrentRuntimeScopeId] = useState(initialRuntimeScopeId)
   const [currentTitle, setCurrentTitle] = useState('New chat')
   const [chatScope, setChatScope] = useState<ChatScope>('global')
   const [currentToolProject, setCurrentToolProject] = useState<ProjectInfo>()
@@ -177,15 +182,17 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   )
 
   // --- Attach a task to the current view ---
-  const attachTaskToView = useCallback((task: BackgroundTask) => {
+  const attachTaskToView = useCallback((task: BackgroundTask, runtimeScopeId = task.sessionId) => {
     disposeDetachedAgent(agentRef.current, task.agent)
     touchAgentTask(task)
     currentChatScopeRef.current = task.scope
     currentSessionIdRef.current = task.sessionId
+    currentRuntimeScopeIdRef.current = runtimeScopeId
     currentCreatedAtRef.current = task.createdAt
     currentTitleRef.current = task.title
     setChatScope(task.scope)
     setCurrentSessionId(task.sessionId)
+    setCurrentRuntimeScopeId(runtimeScopeId)
     setCurrentTitle(task.title)
     setCurrentToolProject(task.project)
     agentRef.current = task.agent
@@ -371,10 +378,17 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
         setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
       }
 
-      if (options?.attachToView !== false && options?.shouldAttachToView?.() !== false) {
-        if (previousAgent instanceof DeferredSessionAgent) previousAgent.promoteTo(task.agent)
-        else if (agentRef.current === previousAgent) disposeDetachedAgent(previousAgent, task.agent)
-        attachTaskToView(task)
+      const shouldAttachToView = options?.attachToView !== false
+        && options?.shouldAttachToView?.() !== false
+        && (!(previousAgent instanceof DeferredSessionAgent) || agentRef.current === previousAgent)
+      if (shouldAttachToView) {
+        if (previousAgent instanceof DeferredSessionAgent) {
+          previousAgent.promoteTo(task.agent)
+          attachTaskToView(task, previousAgent.sessionId)
+        } else {
+          if (agentRef.current === previousAgent) disposeDetachedAgent(previousAgent, task.agent)
+          attachTaskToView(task)
+        }
       }
       pruneIdleTasks(currentSessionIdRef.current)
       if (options?.refreshSessions !== false && nextAgent.state.messages.length > 0) {
@@ -428,12 +442,15 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     }
 
     disposeDetachedAgent(agentRef.current)
+    const runtimeScopeId = deferredAgent.sessionId
     currentChatScopeRef.current = scope
     currentSessionIdRef.current = undefined
+    currentRuntimeScopeIdRef.current = runtimeScopeId
     currentCreatedAtRef.current = undefined
     currentTitleRef.current = 'New chat'
     setChatScope(scope)
     setCurrentSessionId(undefined)
+    setCurrentRuntimeScopeId(runtimeScopeId)
     setCurrentTitle('New chat')
     setCurrentToolProject(project)
     agentRef.current = deferredAgent
@@ -706,10 +723,12 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     agentRef,
     taskMapRef,
     currentSessionIdRef,
+    currentRuntimeScopeIdRef,
     currentChatScopeRef,
 
     agent,
     currentSessionId,
+    currentRuntimeScopeId,
     currentTitle,
     chatScope,
     currentToolProject,

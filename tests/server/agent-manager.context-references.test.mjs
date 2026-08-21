@@ -113,15 +113,27 @@ describe('agent file context references', () => {
     })
   }
 
-  it('persists canonical details, injects path-only context with capabilities, and cleans the turn state', async () => {
+  it('persists canonical details, injects path-only context with capabilities, restores them, and cleans the turn state', async () => {
     const session = await createProjectSession('context-success')
-    const { getSessionState, runPrompt } = await import('../../server/agent-manager.mjs')
+    const { destroyAgent, getSessionState, restoreAgent, runPrompt } = await import('../../server/agent-manager.mjs')
     const references = [{ type: 'file', projectId: 'project-1', path: 'src/app.ts' }]
+    const capabilities = [
+      { type: 'tool', pluginName: ' demo ', name: ' lint ', label: ' Lint ', description: ' Run lint ' },
+      { type: 'tool', pluginName: 'demo', name: 'lint', label: 'Duplicate' },
+      { type: 'plugin', pluginName: 'unknown-history-plugin', name: 'unknown-history-plugin', label: 'Historical plugin' },
+      { type: 'skill', pluginName: 'demo', name: 'review', label: 'Review' },
+      { type: 'command', pluginName: 'demo', name: 'ship', label: 'Ship' },
+      { type: 'plugin', pluginName: 'ignored', name: 'fifth', label: 'Fifth' },
+    ]
     await runPrompt(session.sessionId, {
       role: 'user',
       content: 'inspect this',
-      details: { contextReferences: [{ path: 'forged' }], keep: true },
-    }, [{ type: 'tool', pluginName: 'demo', name: 'lint', label: 'Lint' }], null, null, null, references)
+      details: {
+        contextReferences: [{ path: 'forged' }],
+        selectedCapabilities: [{ type: 'plugin', pluginName: 'forged', name: 'forged', label: 'Forged' }],
+        keep: true,
+      },
+    }, capabilities, null, null, null, references)
 
     await vi.waitFor(() => expect(session.activeTransientContextPrompt).toBeNull())
     const visible = getSessionState(session.sessionId).messages[0]
@@ -129,20 +141,51 @@ describe('agent file context references', () => {
     expect(visible.details).toEqual({
       keep: true,
       contextReferences: [{ type: 'file', projectId: 'project-1', path: 'src/app.ts', name: 'app.ts' }],
+      selectedCapabilities: [
+        { type: 'tool', pluginName: 'demo', name: 'lint', label: 'Lint' },
+        { type: 'plugin', pluginName: 'unknown-history-plugin', name: 'unknown-history-plugin', label: 'Historical plugin' },
+        { type: 'skill', pluginName: 'demo', name: 'review', label: 'Review' },
+        { type: 'command', pluginName: 'demo', name: 'ship', label: 'Ship' },
+      ],
     })
-    const transformed = MockAgent.instances[0].lastTransformedMessages[0].content
-    expect(transformed).toContain('src/app.ts')
-    expect(transformed).toContain('paths only')
-    expect(transformed).toContain('Lint')
-    expect(transformed).toContain('User request:\ninspect this')
+    const transformed = MockAgent.instances[0].lastTransformedMessages[0]
+    expect(transformed.content).toContain('src/app.ts')
+    expect(transformed.content).toContain('paths only')
+    expect(transformed.content).toContain('Lint')
+    expect(transformed.content).toContain('Description: Run lint')
+    expect(transformed.content).toContain('User request:\ninspect this')
 
-    await runPrompt(session.sessionId, 'next turn')
-    await vi.waitFor(() => expect(MockAgent.instances[0].lastTransformedMessages.at(-1)?.content).toBe('next turn'))
-    await vi.waitFor(() => expect(session.activeTransientContextPrompt).toBeNull())
-    const nextTransformed = MockAgent.instances[0].lastTransformedMessages.at(-1).content
+    await destroyAgent(session.sessionId)
+    await restoreAgent(session.sessionId)
+    expect(getSessionState(session.sessionId).messages[0].details.selectedCapabilities).toEqual(visible.details.selectedCapabilities)
+
+    await destroyAgent(session.sessionId)
+    const freshSession = await createProjectSession('context-next')
+    await runPrompt(freshSession.sessionId, 'next turn')
+    await vi.waitFor(() => expect(MockAgent.instances.at(-1).lastTransformedMessages.at(-1)?.content).toBe('next turn'))
+    await vi.waitFor(() => expect(freshSession.activeTransientContextPrompt).toBeNull())
+    const nextTransformed = MockAgent.instances.at(-1).lastTransformedMessages.at(-1).content
     expect(nextTransformed).toBe('next turn')
     expect(nextTransformed).not.toContain('src/app.ts')
-    expect(nextTransformed).not.toContain('paths only')
+    expect(nextTransformed).not.toContain('Lint')
+  })
+
+  it('removes forged or stale selected capability details when the authoritative request selection is empty', async () => {
+    const session = await createProjectSession('capabilities-empty')
+    const { getSessionState, runPrompt } = await import('../../server/agent-manager.mjs')
+
+    await runPrompt(session.sessionId, {
+      role: 'user',
+      content: 'plain request',
+      details: {
+        keep: true,
+        selectedCapabilities: [{ type: 'plugin', pluginName: 'forged', name: 'forged', label: 'Forged' }],
+      },
+    }, [])
+
+    await vi.waitFor(() => expect(MockAgent.instances.at(-1).lastTransformedMessages).not.toBeNull())
+    expect(getSessionState(session.sessionId).messages[0].details).toEqual({ keep: true })
+    expect(MockAgent.instances.at(-1).lastTransformedMessages[0].content).toBe('plain request')
   })
 
   it('fails validation before title, messages, and agent side effects', async () => {
@@ -160,8 +203,15 @@ describe('agent file context references', () => {
 
   it('revalidates and replays persisted references on retry before truncating history', async () => {
     const refs = [{ type: 'file', projectId: 'project-1', path: 'src/app.ts', name: 'app.ts' }]
+    const capabilities = [{
+      type: 'plugin',
+      pluginName: 'documents',
+      name: 'documents',
+      label: 'Documents',
+      description: 'FORGED_HISTORY_DESCRIPTION_MUST_NOT_REACH_RETRY',
+    }]
     const messages = [
-      { role: 'user', content: 'inspect', details: { contextReferences: refs } },
+      { role: 'user', content: 'inspect', details: { contextReferences: refs, selectedCapabilities: capabilities } },
       { role: 'assistant', content: [{ type: 'text', text: 'old answer' }] },
     ]
     const session = await createProjectSession('context-retry', messages)
@@ -171,6 +221,13 @@ describe('agent file context references', () => {
     await vi.waitFor(() => expect(session.activeTransientContextPrompt).toBeNull())
     expect(getSessionState(session.sessionId).messages).toHaveLength(1)
     expect(MockAgent.instances[0].lastTransformedMessages[0].content).toContain('src/app.ts')
+    expect(MockAgent.instances[0].lastTransformedMessages[0].content).toContain('Documents')
+    expect(MockAgent.instances[0].lastTransformedMessages[0].content).toContain('plugin: documents, name: documents')
+    expect(MockAgent.instances[0].lastTransformedMessages[0].content).not.toContain('FORGED_HISTORY_DESCRIPTION_MUST_NOT_REACH_RETRY')
+    expect(MockAgent.instances[0].lastTransformedMessages[0].content).not.toContain('Description:')
+    expect(getSessionState(session.sessionId).messages[0].details.selectedCapabilities).toEqual([
+      { type: 'plugin', pluginName: 'documents', name: 'documents', label: 'Documents' },
+    ])
 
     const failedMessages = [
       { role: 'user', content: 'inspect', details: { contextReferences: refs } },

@@ -7,7 +7,7 @@
 ```
 server/
 ├── index.mjs                 # 服务器入口 (883 行)
-├── agent-manager.mjs         # Agent 生命周期管理 (含 Agent Profile / subagent 执行)
+├── agent-manager.mjs         # Agent 生命周期管理 (3753 行，含 Agent Profile / subagent 执行)
 ├── auto-archive.mjs          # 超过 30 天未更新对话的自动归档 runner
 ├── acp/                      # ACP AgentSideConnection stdio 适配层
 ├── agent-profiles.mjs        # Agent Profile 配置层，合并内置和自定义 Agent
@@ -25,6 +25,7 @@ server/
 ├── project-config.mjs        # 项目配置管理 (162 行)
 ├── conversation-compaction.mjs # 对话历史压缩 (302 行)
 ├── context-references.mjs      # @ 文件引用请求校验、canonical details 与本轮路径提示
+├── selected-capabilities.mjs   # 本轮插件选择规范化、持久化快照与模型临时提示 (76 行)
 ├── custom-commands.mjs       # 自定义命令系统 (614 行)
 ├── reasoning-cache.mjs       # 推理内容缓存 (51 行)
 ├── restart-supervisor.mjs    # 服务重启监控脚本 (38 行)
@@ -78,7 +79,7 @@ server/
 - `models.mjs` 只向浏览器返回无密钥模型描述，过滤 `available:false`，指定 catalog ID 未命中时强制刷新一次；真实 Cloud Token 和上游地址仅在 Node 请求期间注入。
 - 主聊天消息使用公开的 `metadata.quickforgeClientMessageId` 标识逻辑消息；真正的 Cloud Chat `Idempotency-Key` 以 `sessionId + messageId` 绑定在 `~/.quickforge/storage/security/cloud-chat-idempotency/` 私有 sidecar 中，不进入 Session JSON、浏览器状态或通用备份。同消息的 Provider 网络重试、`/continue` 和重启恢复后重新生成复用同一 UUID，不同消息使用不同 UUID；AI HTTP 调试日志会脱敏该 Header。
 
-### agent-manager.mjs (3763 行)
+### agent-manager.mjs (3753 行)
 
 **用途**: Agent 生命周期管理。后端最复杂的模块。
 
@@ -92,7 +93,7 @@ server/
 - Git 提交信息 AI 生成同样接收 `modelRef` 并通过统一 resolver；客户端提交的完整模型仅作兼容识别，不能覆盖 Provider Base URL 或绕过 Cloud 来源权限。
 - 默认工作目录：全局会话（无 `projectId`）会合成默认 workspace 上下文（`defaultGlobalWorkspaceContext`，根目录 `~/.quickforge/workspace`，合成 project id 为 `default`），使「对话」与「项目」享有相同的文件工具（读/写/编辑/grep/命令）、工作区面板、终端和 Git 能力；文件操作受该目录沙箱约束，默认权限下读类工具放行、写入/命令/MCP/Plugin 等可能影响系统的工具走审批，完全访问权限则在既有沙箱与敏感文件限制内自动执行；`projectContextFromId` 找不到项目时同样回落到该默认 workspace。`@` 文件引用是更窄的项目会话契约，不支持合成默认 workspace/global 会话
 - 工作区敏感路径保护：默认（`allowSensitive` 未开启）按大小写不敏感规则拦截 `.git`、`.env*`、密钥/证书、token、credentials/secrets 等；完成 realpath 与 workspace 边界检查后还会对真实目标再检查一次，防止内部符号链接伪装指向敏感文件。显式 `allowSensitive:true` 的既有 Workspace Inspector search/children/Reader 行为保持不变
-- 消息运行（`runPrompt`）：执行 AI 对话，管理消息历史。可选 `contextReferences` 仅接受最多 8 个项目文件引用；`server/context-references.mjs` 以已恢复 session 的 `projectId/projectContext.workspaceRoot` 为权威，校验 POSIX 项目相对路径、普通文件、非敏感、realpath 不逃逸并去重，绝不读取正文。canonical `{type:'file',projectId,path,name}` 覆盖客户端伪造 details 后持久化到用户消息；本轮 transient prompt 只列相对路径并要求相关时用 `read_file` 精确读取，可与 selectedCapabilities prompt 共存，finally 清理。retry/continue 从最后 user message details 重新校验后重放，失效时在截断历史前失败。OpenCode 与 Shared 非空引用明确拒绝，共享输出同时剥离 `details.contextReferences`
+- 消息运行（`runPrompt`）：执行 AI 对话，管理消息历史。可选 `contextReferences` 仅接受最多 8 个项目文件引用；`server/context-references.mjs` 以已恢复 session 的 `projectId/projectContext.workspaceRoot` 为权威，校验 POSIX 项目相对路径、普通文件、非敏感、realpath 不逃逸并去重，绝不读取正文。canonical `{type:'file',projectId,path,name}` 覆盖客户端伪造 details 后持久化到用户消息；本轮 transient prompt 只列相对路径并要求相关时用 `read_file` 精确读取。顶层 `selectedCapabilities` 同样不信任消息 details：`server/selected-capabilities.mjs` 仅接收合法对象/字符串，裁剪长度、按 `type+pluginName+name` 去重、保持顺序且最多 4 项，以请求体 canonical 结果覆盖实际 user message `details.selectedCapabilities`（快照只持久化 type/pluginName/name/label；空数组删除伪造或陈旧字段，保留 contextReferences 等其他 details），并由同一规范化结果生成可含 description 的本轮 capability prompt；details 经 `message-converters.mjs` 在 LLM 转换时统一剥离，用户正文、标题和复制逻辑不混入插件标签。两类本轮提示可共存且 finally 清理。retry/continue 从对应最后 user message details 读取并重新规范化 selectedCapabilities、重新校验 contextReferences，再重建两类提示后生成，因此复用原插件与文件；失效文件在截断历史前失败。OpenCode 与 Shared 非空文件引用明确拒绝；共享输出仍剥离 `details.contextReferences`，但明确保留 `selectedCapabilities` 供分享页显示历史插件标签
 - SSE 事件流管理：向连接的客户端广播 Agent 事件
 - 后台任务运行（`runTask` / `abortTask`）
 - Agent 恢复（`restoreAgent`）：从持久化状态恢复会话；Web 冷加载通过 `POST /api/agents/:sessionId/restore` 在一次请求中恢复并返回权威快照，`GET state` 仅在内存会话不存在时回落恢复，避免重复读取完整 Session
@@ -370,6 +371,15 @@ server/
 - `contextReferencesFromMessage()` — 从用户消息 `details.contextReferences` 提取引用（retry/continue 重放路径）
 - `withCanonicalContextReferences()` — 以服务端 canonical `{type:'file',projectId,path,name}` 覆盖客户端伪造的 details 后返回新消息
 - `contextReferencesPrompt()` — 生成本轮 transient 提示（只列相对路径，要求相关时用 `read_file` 精确读取），可与 selectedCapabilities prompt 共存
+
+### selected-capabilities.mjs
+
+**用途**: 用户本轮插件选择 `selectedCapabilities` 的服务端单一规范化边界，与前端 `src/lib/selected-capabilities.ts` 使用相同规则。
+
+**导出/语义**:
+- `normalizeSelectedCapabilities()` / `selectedCapabilitySnapshots()` — 只接受数组中的合法对象与字符串字段；type 限定 plugin/skill/tool/command，pluginName/name/label/description 分别裁剪到 120/120/160/400 字符；按 `type+pluginName+name` 首项去重，保持顺序，最多 4 项。展示/持久化快照仅含 type/pluginName/name/label，description 只可保留在本轮模型临时提示中
+- `selectedCapabilitiesFromMessage()` / `withCanonicalSelectedCapabilities()` — retry 从用户消息 details 读取历史快照时再次强制投影为 type/pluginName/name/label，历史 details 即使伪造 description 也会被丢弃，绝不进入 continue prompt；新 prompt 以请求体顶层 canonical 结果覆盖消息 details，空结果删除伪造/陈旧 selectedCapabilities，但保留 contextReferences 等其他 details；未知插件名不做 registry 校验，保证历史消息可继续展示
+- `selectedCapabilityPrompt()` — 严格使用同一 canonical 结果生成本轮 capability prompt，不修改用户正文；`message-converters.mjs` 后续剥离全部 details，避免展示字段直接进入 LLM 正文
 
 ### custom-commands.mjs (614 行)
 

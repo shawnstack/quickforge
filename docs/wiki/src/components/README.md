@@ -7,13 +7,13 @@ components/
 ├── chat/
 │   ├── ChatPanelHost.tsx           # 聊天面板宿主 (1456 行)
 │   ├── ModelSetupEmptyState.tsx    # 模型未配置时的空状态引导 (43 行)
-│   ├── chat-utils.ts               # 共享类型、DOM 工具、token 估算 (300 行)
+│   ├── chat-utils.ts               # 共享类型、DOM 工具、token 估算 (340 行)
 │   ├── command-suggestions.ts      # 聊天输入框 / 斜杠菜单：指令·技能·子智能体三分组补全 + 选中态 chip（方案 A）(481 行)
-│   ├── file-reference-suggestions.ts # Composer @ 当前项目文件搜索、键盘选择与结构化文件 chip (404 行)
-│   ├── capability-suggestions.ts   # + 菜单插件能力目录与结构化能力 chip（不再占用 @）
-│   ├── capability-icons.ts         # @ 文件引用与非 Slash 能力菜单/chip 的中立图标表
+│   ├── file-reference-suggestions.ts # Composer @ 当前项目文件搜索、键盘选择与结构化文件 chip (408 行)
+│   ├── capability-suggestions.ts   # + 菜单插件目录与结构化插件 chip（不再占用 @）(233 行)
+│   ├── capability-icons.ts         # @ 文件引用与非 Slash 插件菜单/chip 的中立图标表
 │   ├── slash-icons.ts              # Slash 三类复用 Lucide 图标静态映射（SquareTerminal / BookOpen / Bot）
-│   ├── slash-invocation-chip.ts    # Slash 选中态 chip：输入框内联覆盖层控制器 + 消息流 chip 共享元素 (528 行)
+│   ├── slash-invocation-chip.ts    # Slash 选中态 chip：输入框内联覆盖层控制器 + 消息流 chip 共享元素 (541 行)
 │   ├── context-usage.ts            # 上下文用量环状指示器 (78 行)
 │   ├── panel-decoration.ts         # 聊天面板 DOM 装饰兼容入口 / editor 编排 facade (286 行)
 │   ├── scroll-sync.ts              # 自动滚动同步 + 触顶加载回调 (174 行)
@@ -82,7 +82,7 @@ components/
 - 消息回滚、分叉、复制功能
 - 对话消息在恢复后一次性完整渲染，不再按轮次窗口化或触顶分页；初始加载和 DOM 成本相应增加，但左侧轮次导航点击时目标消息节点已存在，可直接平滑定位。`windowed-messages.ts` 保留显式透传模式及原窗口控制能力，主聊天面板当前使用透传模式；子代理 process 消息列表不受影响。`decorateMessages` 使用全量消息且 `messageIndexOffset` 为 0，回滚、重试、复制继续使用全量索引。
 - 主对话页提供左侧用户轮次导航（`turn-navigation.ts`）：每条用户消息对应一个节点，当前轮次随滚动高亮；悬停或键盘聚焦节点时显示截断的用户消息与该轮最后一条 assistant 消息（Final Answer），点击直接平滑定位到已渲染的对应用户消息。分享页默认不显示该导航，移动端隐藏。
-- 草稿恢复支持；Composer 草稿持久化由 `src/lib/composer-drafts.ts` 直接使用浏览器 `localStorage`，不再经过 `AppStorage/settings` 或后端存储；正文为空但有结构化文件引用或能力 chip 也视为草稿，`text`、`contextReferences` 与 `selectedCapabilities` 按项目/会话 draft key 隔离并持久化：能力选择会防御规范化、按 `type+pluginName+name` 去重且最多 4 个；普通附件仍不持久化。回滚、模型切换等外部恢复草稿按一次性事件消费，发送、编辑或 Session 切换会取消旧的延迟恢复任务；已消费恢复草稿 ID 使用有界 Set，发送或明确清空会立即删除运行时与持久化草稿。
+- 草稿恢复支持；Composer 草稿持久化由 `src/lib/composer-drafts.ts` 直接使用浏览器 `localStorage`，不再经过 `AppStorage/settings` 或后端存储；正文为空但有结构化文件引用或插件 chip 也视为草稿，`text`、`contextReferences` 与内部字段 `selectedCapabilities` 按项目/会话 draft key 隔离并持久化：插件选择会防御规范化、按 `type+pluginName+name` 去重且最多 4 个；普通附件仍不持久化。回滚、模型切换等外部恢复草稿按一次性事件消费，发送、编辑或 Session 切换会取消旧的延迟恢复任务；已消费恢复草稿 ID 使用有界 Set，发送或明确清空会立即删除运行时与持久化草稿。
 
 ### WorkspaceInspector.tsx / SubagentRunDetailContent.tsx
 
@@ -140,11 +140,11 @@ components/
 
 ### 聊天子模块
 
-**chat-utils.ts** (300 行)
-- 共享类型定义（MessageEditorElement, CommandSuggestionElement 等）；`FileContextReference`（`{type:'file',projectId,path}`）与 `ComposerCapabilitySelection` 为 @ 文件引用 / 能力 chip 的结构化草稿类型，`MessageEditorElement` 相应扩展 `contextReferences` / `selectedCapabilities` / `requestUpdate` 字段
-- DOM 工具函数（`replaceSvg`, `patchContent` 等）
+**chat-utils.ts** (340 行)
+- 共享类型定义（MessageEditorElement, CommandSuggestionElement 等）；`FileContextReference`（`{type:'file',projectId,path}`）与内部 `ComposerCapabilitySelection` 为 @ 文件引用 / 插件 chip 的结构化草稿类型，`MessageEditorElement` 相应扩展 `contextReferences` / `selectedCapabilities` / `requestUpdate` 字段
+- DOM 工具函数（`replaceSvg`, `patchContent`, `ensureComposerContextChips`, `syncComposerContextChipsAriaLabel` 等）；`ensureComposerContextChips` 以 textarea 的父元素定位 `message-editor` 真正输入卡片，把共享 `.quickforge-context-chips` 移入卡片并保证位于 textarea 前，DOM 尚未渲染或测试 mock 能力不足时安全返回 `null`；两个控制器完成各自 chip 增删后统一调用 aria-label helper，按仅插件、仅文件、插件+文件混合三态同步可访问名称，空容器沿用既有语义移除
 - Token 估算和上下文用量计算（`getContextUsage`, `estimateTokens`）；前端仅作为后端 `contextUsage` 缺失时的回退估算
-- 草稿运行时管理（`hasDraft` 等）；`ComposerDraft` 携带 `contextReferences` / `selectedCapabilities`，`hasDraft` 口径为正文、附件、文件引用、能力 chip 任一非空；持久化在 `src/lib/composer-drafts.ts`，使用浏览器 `localStorage` 保存当前浏览器本地草稿，不迁移旧的 settings 后端草稿，也不参与后端备份/跨设备同步
+- 草稿运行时管理（`hasDraft` 等）；`ComposerDraft` 携带 `contextReferences` / 内部 `selectedCapabilities`，`hasDraft` 口径为正文、附件、文件引用、插件 chip 任一非空；持久化在 `src/lib/composer-drafts.ts`，使用浏览器 `localStorage` 保存当前浏览器本地草稿，不迁移旧的 settings 后端草稿，也不参与后端备份/跨设备同步
 
 **command-suggestions.ts** (481 行)
 - 聊天输入框 "/" 斜杠菜单，三个分组依次渲染：指令（内置 /init /plan /review /summary /compact /clear /help + 项目自定义命令）、技能、子智能体；每组 sticky 组头（label + 条数），整组无命中时隐藏
@@ -152,22 +152,23 @@ components/
 - 过滤口径：query = 去掉前导 / 的文本（trim + 小写），haystack = 用法文本（含类型前缀与 argumentHint，去前导 /）+ agent label·description，空白归一后 includes；因此仍可用 `skill ` / `agent ` 类型前缀搜索。单词 query 命中当前可见主文本时 `<b>` 加粗命中段，argumentHint 渲染为 muted hint 子 span
 - 行结构三列 grid（图标/主文本/描述）：普通指令主文本保留完整用法（如 `/plan [task]`）；技能/子智能体主文本仅显示 canonical name，不显示 `/skill` / `/agent` 前缀。三类 Slash 图标统一复用项目现有 Lucide：指令 `SquareTerminal`、技能 `BookOpen`、子智能体 `Bot`（静态映射见 `slash-icons.ts`）；默认使用 `muted-foreground` 中性色，hover/selected 仅增强为 `foreground`，不再使用黄/蓝/绿类别色。行 button role=option + aria-selected，data-quickforge-insert 仍存完整插入文本（指令 `/name `、技能 `/skill <name> `、子智能体 `/agent <name> `，统一经 restoreDraftIntoComposer 插入并聚焦置尾）
 - 键盘（textarea capture handler）：↑↓ 在可视行间循环移动 active（aria-selected 同步、scrollIntoView nearest）；Tab 补全 active 行（初始首行）；Escape 关闭菜单 / 退出 chip 选中态；Backspace 在 chip 右边界一次删除整段命令前缀；Enter 不拦截（发送原文）；Shift+Tab 放行给 Composer Plan 模式，isComposing/Process 守卫
-- 选中态 chip（方案 A，`slash-invocation-chip.ts`）：选中技能/子智能体后输入框内 `/skill <name> ` / `/agent <name> ` 前缀以带图标 chip 内联显示——textarea 原文不变（服务端零改动、草稿/发送不受影响），`.quickforge-composer-shell` 内挂覆盖层镜像（chip + 定宽 spacer + 任务文本，光标对齐补偿保证幽灵层换行/滚动与 textarea 一致），textarea 文字透明、光标保留；IME composition 期间覆盖层保持显示、预编辑文本以弱下划线镜像进幽灵层；前缀失配（编辑/更长的 name）自动自毁恢复原文，覆盖层/textarea 被外部重渲染移除时按匹配文本自愈重建；chip 激活时菜单不再弹出；catalog ready 后手输/草稿恢复完整命令自动 engage；Esc 退出保留文本（同前缀变化前不再自动 engage）
+- 选中态 chip（方案 A，`slash-invocation-chip.ts`）：选中技能/子智能体后输入框内 `/skill <name> ` / `/agent <name> ` 前缀以带图标 chip 内联显示——textarea 原文不变（服务端零改动、草稿/发送不受影响），`.quickforge-composer-shell` 内挂覆盖层镜像（chip + 定宽 spacer + 任务文本，光标对齐补偿保证幽灵层换行/滚动与 textarea 一致），textarea 文字透明、光标保留；IME composition 期间覆盖层保持显示、预编辑文本以弱下划线镜像进幽灵层；前缀失配（编辑/更长的 name）自动自毁恢复原文，覆盖层/textarea 被外部重渲染移除时按匹配文本自愈重建；chip 激活时菜单不再弹出；catalog ready 后手输/草稿恢复完整命令自动 engage；Esc 退出保留文本（同前缀变化前不再自动 engage）；点击 chip 本体不穿透到前缀区（pointerdown 拦截、光标移到文本末尾，仅覆盖层内 chip 开启 pointer-events），不降级显示 `/skill` / `/agent` 原文
 - 底部 sticky 键位提示条（↑↓/Tab/Enter/Esc 四段 kbd + i18n 标签）；外部 pointerdown 关闭；浮层挂载在 editor.parentElement.insertBefore(浮层, editor)
 
 **file-reference-suggestions.ts**
 - Composer 内独立 `@` 文件引用控制器，只在当前 QuickForge 项目、可编辑会话启用；OpenCode、分享页、无项目和只读页禁用，插件不会进入 `@` 结果。
 - token 规则为 `(^|\\s)@([^\\s@]*)$`；裸 `@` 与 1 字符 query 只显示继续输入提示，不提供最近文件；2+ 字符经 300ms debounce 请求 `/api/workspace/mention-search?projectId&query&limit=8`，AbortController + generation 丢弃旧响应；仅接受 `type:'file'` 且安全相对路径。
 - 菜单复用 Composer 浮层视觉，支持 loading/empty/error、名称/路径匹配高亮、8 行上限、ArrowUp/Down 循环、Enter/Tab 选择、Esc 关闭和 IME 放行，并与 `/`、`+` 菜单互斥。
-- 选择后删除活动 `@token` 而不插入 `@path`，保留 token 前后正文、附件和 caret；结构化 `contextReferences` 最多 8 个并去重，显示可删除文件 chip（文件名 + 项目相对路径 title），绝不显示绝对路径。
+- 选择后删除活动 `@token` 而不插入 `@path`，保留 token 前后正文、附件和 caret；结构化 `contextReferences` 最多 8 个并去重，显示可删除文件 chip（文件名 + 项目相对路径 title），绝不显示绝对路径。文件 chip 与插件 chip 共用 `.quickforge-context-chips`，每次同步都通过 `ensureComposerContextChips` 保证标签行位于真正输入卡片内部、textarea 之前，并在自身 chip 增删后通过共享 helper 按仅文件、仅插件、混合三态同步 aria-label，避免两个控制器因同步顺序搬移容器或覆盖错误可访问名称。
 
 **capability-suggestions.ts / capability-icons.ts / slash-icons.ts**
-- 插件目录只供 `+ → 能力` 使用，来源仍是 enabled + loaded 插件；选择后产生可删除结构化能力 chip，不向正文插入 `@Documents`，发送时 `consumeSelectedCapabilities()` 只消费显式选择，不从文本推断。
-- 能力选择与正文、文件引用一起写入当前 Composer 的 `localStorage` 草稿；恢复时防御规范化、按 `type+pluginName+name` 去重且最多 4 个，附件仍不持久化。`capability-icons.ts` 继续服务 @ 文件引用与非 Slash 能力 chip/菜单；`slash-icons.ts` 单独把 Slash command/skill/agent 映射到已有 Lucide `SquareTerminal` / `BookOpen` / `Bot`，避免 Slash 再新增自绘类别 glyph，也不影响非 Slash 能力菜单图标。
+- 插件目录只供 `+ → 插件` 使用，来源仍是 enabled + loaded 插件；用户界面与无障碍文案统一使用「插件 / Plugins」「已选插件 / Selected plugins」「移除插件 / Remove plugin」，内部 capability 类型、`selectedCapabilities` 字段与发送协议不重命名。选择后产生可删除结构化插件 chip，不向正文插入 `@Documents`，发送时 `consumeSelectedCapabilities()` 只消费显式选择，不从文本推断；选择/草稿/发送共用 `src/lib/selected-capabilities.ts` 规范化（合法对象和字符串、长度裁剪、按 `type+pluginName+name` 去重、保持顺序、最多 4 项）。
+- 插件 chip 与文件 chip 共用的标签行固定在 `message-editor` 真正输入卡片内部、textarea 之前；两个控制器每次同步都调用共享 `ensureComposerContextChips`，完成自身 chip 增删后再统一同步可访问名称：仅插件为「已选插件 / Selected plugins」，仅文件复用「引用的文件 / Referenced files」，混合为「已选插件和引用的文件 / Selected plugins and referenced files」，空容器移除，因此不受先后顺序影响且不会互相覆盖错误语义。内置 `documents` / `spreadsheets` / `presentations` 按 `pluginName` 使用 `capability-icons.ts` 的 document / spreadsheet / presentation 专用图标，未知插件回退通用 plugin 图标；标签保留显式 × 删除，视觉尺寸参考 `.quickforge-slash-chip` 的紧凑排布，但不复用 Slash overlay 控制器。
+- 插件选择与正文、文件引用一起写入当前 Composer 的 `localStorage` 草稿；恢复时防御规范化、按 `type+pluginName+name` 去重且最多 4 个，附件仍不持久化。`capability-icons.ts` 继续服务 @ 文件引用与非 Slash 插件 chip/菜单；`slash-icons.ts` 单独把 Slash command/skill/agent 映射到已有 Lucide `SquareTerminal` / `BookOpen` / `Bot`，避免 Slash 再新增自绘类别 glyph，也不影响插件菜单图标。
 
-**slash-invocation-chip.ts** (528 行)
+**slash-invocation-chip.ts** (541 行)
 - Slash 选中态 chip 子系统（design-mockups/slash-menu-expansion.html 方案 A）：纯逻辑（前缀解析 parseSlashInvocationPrefix / 匹配校验 slashInvocationPrefixMatches / 消息流剥前缀计划 planSlashChipText / spacer 宽度 max(0, 前缀宽度 - chip 宽度)）+ 共享 chip 元素工厂（输入框与消息流复用同一元素；skill 使用 `BookOpen`、agent 使用 `Bot`，图标颜色固定为 `muted-foreground` 中性）。skill/agent 变体的既有背景与文字语义色保留，图标通过独立子元素颜色覆盖与其分离 + 控制器工厂 createSlashInvocationChip
-- 控制器状态机：engage（显式选中，重置 dismissed）→ update（每次输入同步，失配自毁、文本不动；**自愈**——React/Lit 重渲染移除覆盖层或重建 textarea 时按匹配文本重挂覆盖层而非放弃选中态，保证打字过程中 chip 不消失）→ clear（Esc 退出，记 dismissed 前缀）→ removePrefix（退格边界删整段前缀含一个空格，同步 editor.value/onInput/input 事件后聚焦置 0）；光标进入前缀区域（document selectionchange）**降级为原文显示**（隐藏覆盖层、移除透明类，不销毁选中态），光标回尾部继续输入时自愈恢复；IME composition 期间覆盖层保持显示——预编辑文本经 compositionupdate 镜像进幽灵层尾部并以 `.quickforge-slash-preedit` 弱下划线提示输入中（Chromium 下 value 已含预编辑则从任务文本剥离去重，WebKit compositionend 先于 value 同步时手动拼接兜底）
+- 控制器状态机：engage（显式选中，重置 dismissed）→ update（每次输入同步，失配自毁、文本不动；**自愈**——React/Lit 重渲染移除覆盖层或重建 textarea 时按匹配文本重挂覆盖层而非放弃选中态，保证打字过程中 chip 不消失）→ clear（Esc 退出，记 dismissed 前缀）→ removePrefix（退格边界删整段前缀含一个空格，同步 editor.value/onInput/input 事件后聚焦置 0）；光标进入前缀区域（document selectionchange）**降级为原文显示**（隐藏覆盖层、移除透明类，不销毁选中态），光标回尾部继续输入时自愈恢复；**点击 chip 本体不降级**——CSS 仅对覆盖层内 chip 开启 `pointer-events:auto`（消息流 chip 保持纯展示），控制器在 `renderChipContent` 挂 `pointerdown` 监听：preventDefault 吃掉默认行为后聚焦 textarea 并把光标移到文本末尾，点击不再穿透到前缀区露出 `/agent <name>` 原文；IME composition 期间覆盖层保持显示——预编辑文本经 compositionupdate 镜像进幽灵层尾部并以 `.quickforge-slash-preedit` 弱下划线提示输入中（Chromium 下 value 已含预编辑则从任务文本剥离去重，WebKit compositionend 先于 value 同步时手动拼接兜底）
 - 覆盖层几何：textarea 与 shell 的 getBoundingClientRect 差值定位，宽高取 clientWidth/clientHeight；ResizeObserver 监听 textarea 重同步；幽灵层从 getComputedStyle 同步字体/行高/内边距/tabSize，scroll 事件同步 scrollTop；度量经 env 注入（canvas.measureText / offsetWidth），node 环境可单测
 
 **context-usage.ts**
@@ -177,7 +178,7 @@ components/
 **panel-decoration.ts** (286 行)
 - 聊天面板 DOM 装饰的兼容入口，继续向 `ChatPanelHost.tsx` re-export 消息装饰、草稿、审批卡、上下文压缩提示和等待气泡等能力
 - `decorateEditor` 仅保留 Composer/editor 编排：占位符、只读清理、model selector 开关、left/right controls 定位，以及调用各 focused helper
-- 细分实现位于 `panel-decoration/` 子目录：`message-actions.ts`（复制/回滚/重试/分叉；另在装饰纯文本用户消息时调用 `decorateUserMessageInputClamp`——给 `.user-message-container` 挂 `quickforge-input-clamp` 收起结构：长内容约 6 行定高、底部渐隐 + 居中「展开/收起」按钮，`user-with-attachments` 不参与，实现见 `src/lib/input-clamp.ts`；以及 `decorateUserSlashInvocationChip`——用户消息 `/skill <name>` / `/agent <name>` 前缀渲染为行内 chip（复用 slash-invocation-chip 的共享 chip 元素，消息流内 0.8rem 微调），首文本节点剥前缀、chip dataset 记录被剥字符实现幂等还原，复制仍走 draftTextFromUserMessage 原文不受影响）、`decorateUserFileReferences`——用户消息 `details.contextReferences`（≤8 条、仅 `type:'file'`）在 `.user-message-container` 顶部渲染 `.quickforge-message-context-references` 文件 chip 行（复用 file-reference-suggestions 的 `createFileReferenceChip`，aria-label「引用的文件」，`replaceChildren` 幂等更新，无引用时移除节点）、`composer-plus-menu.ts`（附件和内置插件菜单；插件项选择走 `selectPluginCapability` 产生结构化能力 chip，不再向正文插入 @mention，菜单打开时与 `/`、`@` 建议浮层互斥）、`agent-access-menu.ts`、`plan-mode-controls.ts`、`send-stop-button.ts`、`model-controls.ts`、`opencode-config-menu.ts`（OpenCode `configOptions` 配置菜单）、`opencode-mode-menu.ts`（OpenCode ACP modes 独立模式按钮/菜单）、`editor-bindings.ts`、`code-blocks.ts`、`process-folding.ts`、`context-compaction.ts`、`scroll-to-bottom-button.ts`（对话区上翻较深时居中悬浮于输入框上方的“回到底部”按钮：280px/120px 滞回显隐、未读徽标、点击平滑回底并恢复自动跟随；readOnly 会话无 composer dock 时自动移除）等；`process-folding.ts` 为每个用户回合维护唯一的“执行中/已执行 · 耗时”顶层状态与折叠入口，中间 Markdown、Thinking、工具和 Subagent 均位于该层级；每段中间 Markdown 后的过程片段继续显示内层阶段聚合标题（状态 + 工具调用数、命令数、编辑文件数），运行中和已完成阶段均默认收起并维护独立折叠状态，普通连续工具仍保留更内层的工具摘要，只有最终回答正文留在组外
+- 细分实现位于 `panel-decoration/` 子目录：`message-actions.ts`（576 行；复制/回滚/重试/分叉；另在装饰纯文本用户消息时调用 `decorateUserMessageInputClamp`——给 `.user-message-container` 挂 `quickforge-input-clamp` 收起结构：长内容约 6 行定高、底部渐隐 + 居中「展开/收起」按钮，`user-with-attachments` 不参与，实现见 `src/lib/input-clamp.ts`；以及 `decorateUserSlashInvocationChip`——用户消息 `/skill <name>` / `/agent <name>` 前缀渲染为行内 chip（复用 slash-invocation-chip 的共享 chip 元素，消息流内 0.8rem 微调），首文本节点剥前缀、chip dataset 记录被剥字符实现幂等还原，复制仍走 draftTextFromUserMessage 原文不受影响）、`decorateUserContextChips`——只从用户消息 `details.selectedCapabilities` / `details.contextReferences` 读取本轮插件与文件，不从正文或 metadata 猜测；复用只读 `createCapabilityChip` / `createFileReferenceChip` 在 `.user-message-container` 顶部渲染同一 `.quickforge-message-context-references` 行，插件始终位于文件前，documents/spreadsheets/presentations 使用专用图标、未知插件回退通用图标，不传 onRemove 因而无 ×；仅插件/仅文件/混合 aria-label 分别复用现有三态文案，`replaceChildren` 保证重复 decorate 幂等，数据清空移除旧 DOM，复制仍只取原正文）、`composer-plus-menu.ts`（附件和插件菜单；插件项选择走 `selectPluginCapability` 产生结构化插件 chip，不再向正文插入 @mention，菜单打开时与 `/`、`@` 建议浮层互斥）、`agent-access-menu.ts`、`plan-mode-controls.ts`、`send-stop-button.ts`、`model-controls.ts`、`opencode-config-menu.ts`（OpenCode `configOptions` 配置菜单）、`opencode-mode-menu.ts`（OpenCode ACP modes 独立模式按钮/菜单）、`editor-bindings.ts`、`code-blocks.ts`、`process-folding.ts`、`context-compaction.ts`、`scroll-to-bottom-button.ts`（对话区上翻较深时居中悬浮于输入框上方的“回到底部”按钮：280px/120px 滞回显隐、未读徽标、点击平滑回底并恢复自动跟随；readOnly 会话无 composer dock 时自动移除）等；`process-folding.ts` 为每个用户回合维护唯一的“执行中/已执行 · 耗时”顶层状态与折叠入口，中间 Markdown、Thinking、工具和 Subagent 均位于该层级；每段中间 Markdown 后的过程片段继续显示内层阶段聚合标题（状态 + 工具调用数、命令数、编辑文件数），运行中和已完成阶段均默认收起并维护独立折叠状态，普通连续工具仍保留更内层的工具摘要，只有最终回答正文留在组外
 - Plan 按钮和 Shift+Tab 切换前端 Plan 模式；发送时复用 `/plan <任务>` 的单轮计划逻辑
 - OpenCode 会话下原生模型选择器关闭，ACP modes（Build/Plan/...）以独立模式按钮显示在 composer 右侧（原模型选择器位置、发送按钮之前，保持发送按钮 `:last-child`），复用 model trigger/menu/menu-item 样式并右对齐；按钮 label 显示 currentModeId 对应 mode.name（无匹配回退 currentModeId），无 availableModes 时不渲染；左侧 OpenCode 配置菜单仅展示 `configOptions`。模式菜单与 config/agent-access/composer-plus/model 菜单打开时显式互斥
 - Assistant Markdown 中的 ```svg 和 ```mermaid 代码块会在流式输出结束后默认进入安全图片预览，可在代码块右上角切换预览/源码；Mermaid 按需加载并在失败时保留源码

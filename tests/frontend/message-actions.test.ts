@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { assistantActionDisplayIndexes } from '../../src/components/chat/panel-decoration/message-action-visibility'
+import { decorateMessages, decorateUserContextChips } from '../../src/components/chat/panel-decoration/message-actions'
 import { parseSlashInvocationPrefix, planSlashChipText } from '../../src/components/chat/slash-invocation-chip'
 
 // The real i18n module pulls in pi-web-ui which requires a browser DOM;
@@ -8,6 +9,211 @@ import { parseSlashInvocationPrefix, planSlashChipText } from '../../src/compone
 vi.mock('@/lib/i18n', () => ({
   t: (key: string) => key,
 }))
+
+vi.mock('../../src/components/chat/chat-utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/components/chat/chat-utils')>()
+  return { ...actual, replaceSvg: vi.fn() }
+})
+
+vi.mock('@/lib/input-clamp', () => ({
+  decorateUserMessageInputClamp: vi.fn(),
+}))
+
+vi.mock('../../src/components/chat/panel-decoration/code-blocks', () => ({
+  closeSvgCodeBlockMenus: vi.fn(),
+  decorateMarkdownCommandBlocks: vi.fn(),
+  decorateMarkdownMermaidCodeBlocks: vi.fn(),
+  decorateMarkdownSvgCodeBlocks: vi.fn(),
+}))
+
+vi.mock('../../src/components/chat/panel-decoration/process-folding', () => ({
+  decorateProcessBlocks: vi.fn(),
+}))
+
+vi.mock('../../src/components/chat/panel-decoration/local-file-path-links', () => ({
+  decorateLocalFilePathLinks: vi.fn(),
+}))
+
+type FakeNode = {
+  tagName: string
+  className: string
+  dataset: Record<string, string>
+  attributes: Record<string, string>
+  title: string
+  textContent: string
+  innerHTML: string
+  type: string
+  disabled: boolean
+  style: Record<string, string>
+  children: FakeNode[]
+  parentElement: FakeNode | null
+  onclick?: ((event: { stopPropagation(): void }) => void) | null
+  append: (...items: FakeNode[]) => void
+  appendChild: (item: FakeNode) => FakeNode
+  prepend: (item: FakeNode) => void
+  replaceChildren: (...items: FakeNode[]) => void
+  remove: () => void
+  querySelector: (selector: string) => FakeNode | null
+  querySelectorAll: (selector: string) => FakeNode[]
+  closest: (selector: string) => FakeNode | null
+  setAttribute: (name: string, value: string) => void
+  getAttribute: (name: string) => string | null
+  focus: () => void
+  classList: {
+    add: (...names: string[]) => void
+    toggle: (name: string, force?: boolean) => boolean
+  }
+}
+
+function hasClass(node: FakeNode, name: string) {
+  return node.className.split(/\s+/).includes(name)
+}
+
+function matchesSelector(node: FakeNode, selector: string) {
+  const trimmed = selector.trim()
+  if (trimmed.startsWith('.')) return hasClass(node, trimmed.slice(1))
+  const attribute = /^\[([^=\]]+)(?:="([^"]*)")?\]$/.exec(trimmed)
+  if (attribute) {
+    const value = node.getAttribute(attribute[1])
+    return attribute[2] === undefined ? value !== null : value === attribute[2]
+  }
+  const tagAndAttribute = /^([\w-]+)(?:\[([^=\]]+)="([^"]*)"\])?$/.exec(trimmed)
+  if (!tagAndAttribute || node.tagName !== tagAndAttribute[1].toUpperCase()) return false
+  return !tagAndAttribute[2] || node.getAttribute(tagAndAttribute[2]) === tagAndAttribute[3]
+}
+
+function descendants(node: FakeNode, selector: string) {
+  const result: FakeNode[] = []
+  for (const child of node.children) {
+    if (matchesSelector(child, selector)) result.push(child)
+    result.push(...descendants(child, selector))
+  }
+  return result
+}
+
+function createFakeElement(tagName = 'div'): FakeNode {
+  const children: FakeNode[] = []
+  const node = {
+    tagName: tagName.toUpperCase(),
+    className: '',
+    dataset: {} as Record<string, string>,
+    attributes: {} as Record<string, string>,
+    title: '',
+    textContent: '',
+    innerHTML: '',
+    type: '',
+    disabled: false,
+    style: {} as Record<string, string>,
+    children,
+    parentElement: null as FakeNode | null,
+    onclick: null as ((event: { stopPropagation(): void }) => void) | null,
+    append(...items: FakeNode[]) {
+      for (const item of items) {
+        item.remove()
+        item.parentElement = node
+        children.push(item)
+      }
+    },
+    appendChild(item: FakeNode) {
+      node.append(item)
+      return item
+    },
+    prepend(item: FakeNode) {
+      item.remove()
+      item.parentElement = node
+      children.unshift(item)
+    },
+    replaceChildren(...items: FakeNode[]) {
+      for (const child of [...children]) child.remove()
+      node.append(...items)
+    },
+    remove() {
+      const parent = node.parentElement
+      if (parent) {
+        const index = parent.children.indexOf(node)
+        if (index >= 0) parent.children.splice(index, 1)
+      }
+      node.parentElement = null
+    },
+    querySelector(selector: string) {
+      const alternatives = selector.split(',').map((part) => part.trim())
+      for (const alternative of alternatives) {
+        const found = descendants(node, alternative)[0]
+        if (found) return found
+      }
+      return null
+    },
+    querySelectorAll(selector: string) {
+      const alternatives = selector.split(',').map((part) => part.trim())
+      return alternatives.flatMap((alternative) => descendants(node, alternative))
+    },
+    closest(selector: string) {
+      let current: FakeNode | null = node
+      while (current) {
+        if (matchesSelector(current, selector)) return current
+        current = current.parentElement
+      }
+      return null
+    },
+    setAttribute(name: string, value: string) {
+      node.attributes[name] = value
+      if (name.startsWith('data-')) {
+        const key = name.slice(5).replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())
+        node.dataset[key] = value
+      }
+    },
+    getAttribute(name: string) {
+      if (name.startsWith('data-')) {
+        const key = name.slice(5).replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())
+        if (key in node.dataset) return node.dataset[key]
+      }
+      return node.attributes[name] ?? null
+    },
+    focus() {},
+    classList: {
+      add(...names: string[]) {
+        const classes = new Set(node.className.split(/\s+/).filter(Boolean))
+        names.forEach((name) => classes.add(name))
+        node.className = [...classes].join(' ')
+      },
+      toggle(name: string, force?: boolean) {
+        const classes = new Set(node.className.split(/\s+/).filter(Boolean))
+        const enabled = force ?? !classes.has(name)
+        if (enabled) classes.add(name)
+        else classes.delete(name)
+        node.className = [...classes].join(' ')
+        return enabled
+      },
+    },
+  }
+  return node
+}
+
+function createUserMessageElement() {
+  const element = createFakeElement('user-message')
+  const container = createFakeElement('div')
+  container.className = 'user-message-container'
+  element.append(container)
+  return { element, container }
+}
+
+function decorateOptions(element: FakeNode, message: Record<string, unknown>, onCopyAnswer = vi.fn()) {
+  const messageList = createFakeElement('message-list')
+  messageList.append(element)
+  const panel = createFakeElement('div')
+  panel.append(messageList)
+  decorateMessages({
+    panel: panel as unknown as HTMLElement,
+    getMessages: () => [message] as never,
+    isStreaming: () => false,
+    onCopyAnswer,
+    onRollbackFromMessage: vi.fn(),
+    onRetryFromMessage: vi.fn(),
+    onForkFromMessage: vi.fn(),
+    disableFork: false,
+  })
+  return { panel, messageList }
+}
 
 describe('assistant message actions', () => {
   it('only shows actions on the final assistant message of each completed turn', () => {
@@ -59,14 +265,122 @@ describe('assistant message actions', () => {
   })
 })
 
-describe('user message file reference decoration', () => {
-  it('reads only details.contextReferences and keeps copy text on the original message', () => {
+describe('user message context chip decoration', () => {
+  beforeEach(() => {
+    vi.stubGlobal('document', {
+      createElement: createFakeElement,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })
+    vi.stubGlobal('window', {
+      setTimeout,
+      clearTimeout,
+      requestAnimationFrame: (callback: () => void) => { callback(); return 1 },
+    })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('executes mixed DOM decoration with plugins before files, no history remove button, and idempotent replacement', () => {
+    const { element, container } = createUserMessageElement()
+    const message = {
+      role: 'user',
+      content: 'original body',
+      details: {
+        selectedCapabilities: [{ type: 'plugin', pluginName: 'documents', name: 'documents', label: 'Documents' }],
+        contextReferences: [{ type: 'file', projectId: 'project-1', path: 'src/app.ts' }],
+      },
+    } as never
+
+    decorateUserContextChips(element as unknown as HTMLElement, message)
+    const row = container.querySelector('.quickforge-message-context-references')
+    expect(row?.getAttribute('aria-label')).toBe('selectedPluginsAndFiles')
+    expect(row?.children.map((child) => child.className)).toEqual([
+      'quickforge-context-chip quickforge-capability-chip',
+      'quickforge-context-chip quickforge-file-reference-chip',
+    ])
+    expect(row?.querySelector('.quickforge-context-chip-remove')).toBeNull()
+
+    const firstChildren = [...(row?.children ?? [])]
+    decorateUserContextChips(element as unknown as HTMLElement, message)
+    const repeated = container.querySelector('.quickforge-message-context-references')
+    expect(repeated).toBe(row)
+    expect(repeated?.children).toHaveLength(2)
+    expect(repeated?.children).not.toEqual(firstChildren)
+  })
+
+  it.each([
+    ['plugin only', {
+      selectedCapabilities: [{ type: 'plugin', pluginName: 'documents', name: 'documents', label: 'Documents' }],
+    }, 'selectedCapabilities'],
+    ['file only', {
+      contextReferences: [{ type: 'file', projectId: 'project-1', path: 'src/app.ts' }],
+    }, 'fileReferences'],
+    ['mixed', {
+      selectedCapabilities: [{ type: 'plugin', pluginName: 'documents', name: 'documents', label: 'Documents' }],
+      contextReferences: [{ type: 'file', projectId: 'project-1', path: 'src/app.ts' }],
+    }, 'selectedPluginsAndFiles'],
+  ])('sets the %s aria label', (_name, details, label) => {
+    const { element, container } = createUserMessageElement()
+    decorateUserContextChips(element as unknown as HTMLElement, { role: 'user', content: 'body', details } as never)
+    expect(container.querySelector('.quickforge-message-context-references')?.getAttribute('aria-label')).toBe(label)
+  })
+
+  it('removes the shared row when mixed history changes to empty', () => {
+    const { element, container } = createUserMessageElement()
+    decorateUserContextChips(element as unknown as HTMLElement, {
+      role: 'user',
+      content: 'body',
+      details: {
+        selectedCapabilities: [{ type: 'plugin', pluginName: 'documents', name: 'documents', label: 'Documents' }],
+        contextReferences: [{ type: 'file', projectId: 'project-1', path: 'src/app.ts' }],
+      },
+    } as never)
+    expect(container.querySelector('.quickforge-message-context-references')).not.toBeNull()
+
+    decorateUserContextChips(element as unknown as HTMLElement, { role: 'user', content: 'body', details: {} } as never)
+    expect(container.querySelector('.quickforge-message-context-references')).toBeNull()
+  })
+
+  it('copies the original user body after real decorateMessages adds context chips', async () => {
+    const { element } = createUserMessageElement()
+    const onCopyAnswer = vi.fn()
+    decorateOptions(element, {
+      role: 'user-with-attachments',
+      content: 'original body',
+      details: {
+        selectedCapabilities: [{ type: 'plugin', pluginName: 'documents', name: 'documents', label: 'Documents' }],
+        contextReferences: [{ type: 'file', projectId: 'project-1', path: 'src/app.ts' }],
+      },
+    }, onCopyAnswer)
+
+    const copyButton = element.querySelector('button[data-quickforge-action="copy"]')
+    expect(copyButton).not.toBeNull()
+    copyButton?.onclick?.({ stopPropagation() {} })
+    await vi.waitFor(() => expect(onCopyAnswer).toHaveBeenCalledWith('original body'))
+  })
+
+  it('reads plugins and files only from details while keeping copy text on the original message', () => {
     const source = readFileSync(new URL('../../src/components/chat/panel-decoration/message-actions.ts', import.meta.url), 'utf8')
     expect(source).toContain('contextReferencesFromMessage')
     expect(source).toContain("(details as Record<string, unknown>).contextReferences")
-    expect(source).toMatch(/decorateUserFileReferences\(element,\s*entry\.message\)/)
-    expect(source).not.toMatch(/metadata\s*\.\s*contextReferences/)
+    expect(source).toContain('selectedCapabilitiesFromDetails(message.details)')
+    expect(source).toMatch(/decorateUserContextChips\(element,\s*entry\.message\)/)
+    expect(source).not.toMatch(/metadata\s*\.\s*(?:contextReferences|selectedCapabilities)/)
     expect(source).toMatch(/const text = draftTextFromUserMessage\(entry\.message/)
+  })
+
+  it('renders plugin chips before file references with shared aria semantics and idempotent clearing', () => {
+    const source = readFileSync(new URL('../../src/components/chat/panel-decoration/message-actions.ts', import.meta.url), 'utf8')
+    expect(source).toMatch(/capabilities\.length === 0 && references\.length === 0[\s\S]*existing\?\.remove\(\)/)
+    expect(source).toMatch(/chips\.replaceChildren\([\s\S]*capabilities\.map[\s\S]*references\.map/)
+    expect(source).toContain("createCapabilityChip(capability)")
+    expect(source).toContain("createFileReferenceChip(reference)")
+    expect(source).toContain("t('selectedPluginsAndFiles')")
+    expect(source).toContain("t('selectedCapabilities')")
+    expect(source).toContain("t('fileReferences')")
   })
 })
 

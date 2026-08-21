@@ -146,6 +146,46 @@ export function patchContent(parent: HTMLElement, html: string) {
   }
 }
 
+/**
+ * Keep the shared file/plugin chip row inside the message editor's actual input
+ * card and before its textarea. Returns null when the editor has not rendered
+ * enough DOM yet (or when a minimal test environment has no DOM).
+ */
+export function ensureComposerContextChips(editor: MessageEditorElement) {
+  const textarea = editor.querySelector<HTMLTextAreaElement>('textarea')
+  const inputCard = textarea?.parentElement
+  if (!textarea || !inputCard || typeof inputCard.insertBefore !== 'function') return null
+
+  let container = editor.querySelector<HTMLElement>('.quickforge-context-chips')
+  if (!container) {
+    const documentRef = editor.ownerDocument ?? (typeof document !== 'undefined' ? document : undefined)
+    if (!documentRef?.createElement) return null
+    container = documentRef.createElement('div')
+    container.className = 'quickforge-context-chips'
+  }
+  const siblings = Array.from(inputCard.children)
+  if (container.parentElement !== inputCard || siblings.indexOf(container) >= siblings.indexOf(textarea)) {
+    inputCard.insertBefore(container, textarea)
+  }
+  return container
+}
+
+export function syncComposerContextChipsAriaLabel(container: HTMLElement, labels: {
+  plugins: string
+  files: string
+  mixed: string
+}) {
+  const hasPlugins = Boolean(container.querySelector('.quickforge-capability-chip'))
+  const hasFiles = Boolean(container.querySelector('.quickforge-file-reference-chip'))
+  if (!hasPlugins && !hasFiles) {
+    container.remove()
+    return
+  }
+  container.setAttribute('aria-label', hasPlugins && hasFiles
+    ? labels.mixed
+    : hasPlugins ? labels.plugins : labels.files)
+}
+
 // ---------------------------------------------------------------------------
 // Draft helpers
 // ---------------------------------------------------------------------------

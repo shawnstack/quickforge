@@ -3875,20 +3875,27 @@ html.dark .quickforge-slash-chip-agent {
 
 .quickforge-context-chips,
 .quickforge-message-context-references { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-.quickforge-context-chips { padding: 0.65rem 0.9rem 0; }
+.quickforge-context-chips {
+  align-items: center;
+  padding: 0.75rem 1rem 0;
+}
+.quickforge-context-chips ~ textarea {
+  padding-top: 0.55rem !important;
+}
 .quickforge-message-context-references { margin-bottom: 0.45rem; }
 .quickforge-context-chip {
   display: inline-flex;
   max-width: min(100%, 22rem);
   align-items: center;
   gap: 0.3rem;
-  padding: 0.16rem 0.38rem;
-  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
-  border-radius: 0.5rem;
-  background: color-mix(in oklab, var(--muted) 42%, transparent);
+  padding: 0.14rem 0.4rem;
+  border: 0;
+  border-radius: 0.55rem;
+  background: color-mix(in oklab, var(--muted) 48%, transparent);
   color: var(--foreground);
   font-size: 0.74rem;
-  line-height: 1.35;
+  font-weight: 500;
+  line-height: 1.4;
 }
 .quickforge-file-reference-chip { background: color-mix(in oklab, rgb(37 99 235) 8%, transparent); color: rgb(29 78 216); }
 .quickforge-capability-chip { background: color-mix(in oklab, rgb(139 92 246) 9%, transparent); color: rgb(109 40 217); }

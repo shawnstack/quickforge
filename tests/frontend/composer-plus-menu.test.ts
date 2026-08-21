@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createCapabilitySuggestions } from '../../src/components/chat/capability-suggestions'
 import { setupComposerPlusMenu } from '../../src/components/chat/panel-decoration/composer-plus-menu'
@@ -297,6 +299,20 @@ describe('composer + plugin menu availability', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
+  })
+
+  it('uses plugin terminology for the visible and accessible composer labels', () => {
+    const i18nSource = readFileSync(fileURLToPath(new URL('../../src/lib/i18n.ts', import.meta.url)), 'utf8')
+    expect(i18nSource).toContain("composerAddPlugins: 'Plugins'")
+    expect(i18nSource).toContain("selectedCapabilities: 'Selected plugins'")
+    expect(i18nSource).toContain("selectedPluginsAndFiles: 'Selected plugins and referenced files'")
+    expect(i18nSource).toContain("removeCapabilityReference: 'Remove plugin {name}'")
+    expect(i18nSource).toContain("composerAddPlugins: '插件'")
+    expect(i18nSource).toContain("selectedCapabilities: '已选插件'")
+    expect(i18nSource).toContain("selectedPluginsAndFiles: '已选插件和引用的文件'")
+    expect(i18nSource).toContain("removeCapabilityReference: '移除插件 {name}'")
+    expect(i18nSource).not.toContain("composerAddPlugins: 'Capabilities'")
+    expect(i18nSource).not.toContain("composerAddPlugins: '能力'")
   })
 
   it('shows every enabled and loaded plugin in the plugins view', async () => {

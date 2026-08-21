@@ -6,6 +6,7 @@ import type { AgentAccessMode, AgentHarness, ChatScope, ProjectInfo } from '@/li
 import { agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
 import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import { randomId } from '@/lib/random-id'
+import { normalizeSelectedCapabilities, withSelectedCapabilitiesSnapshot } from '@/lib/selected-capabilities'
 
 type DeferredSessionAgentOptions = {
   scope: ChatScope
@@ -85,7 +86,7 @@ export class DeferredSessionAgent {
   }
 
   setNextPromptCapabilities(capabilities: PromptCapabilitySelection[]): void {
-    this.nextPromptCapabilities = Array.isArray(capabilities) ? capabilities.slice(0, 4) : []
+    this.nextPromptCapabilities = normalizeSelectedCapabilities(capabilities)
   }
 
   setNextPromptContextReferences(references: FileContextReference[], onConsumed?: () => void): void {
@@ -106,19 +107,24 @@ export class DeferredSessionAgent {
     if (this.disposed || this.state.isStreaming) return
 
     const normalizedMessage = this.normalizePromptInput(input)
+    const selectedCapabilities = normalizeSelectedCapabilities(this.nextPromptCapabilities)
+    const optimisticDetailsMessage = withSelectedCapabilitiesSnapshot(
+      normalizedMessage as AgentMessage & Record<string, unknown>,
+      selectedCapabilities,
+    ) as AgentMessage
     const message = (this.nextPromptContextReferences.length > 0
       ? {
-          ...normalizedMessage,
+          ...optimisticDetailsMessage,
           details: {
-            ...((normalizedMessage as AgentMessage & { details?: unknown }).details
-              && typeof (normalizedMessage as AgentMessage & { details?: unknown }).details === 'object'
-              && !Array.isArray((normalizedMessage as AgentMessage & { details?: unknown }).details)
-              ? (normalizedMessage as AgentMessage & { details: Record<string, unknown> }).details
+            ...((optimisticDetailsMessage as AgentMessage & { details?: unknown }).details
+              && typeof (optimisticDetailsMessage as AgentMessage & { details?: unknown }).details === 'object'
+              && !Array.isArray((optimisticDetailsMessage as AgentMessage & { details?: unknown }).details)
+              ? (optimisticDetailsMessage as AgentMessage & { details: Record<string, unknown> }).details
               : {}),
             contextReferences: this.nextPromptContextReferences,
           },
         }
-      : normalizedMessage) as AgentMessage
+      : optimisticDetailsMessage) as AgentMessage
     const messageCountBeforeOptimistic = this.state.messages.length
 
     // Show the first message immediately while the real server session is created.
@@ -148,7 +154,7 @@ export class DeferredSessionAgent {
       throw error
     }
 
-    realAgent.setNextPromptCapabilities(this.nextPromptCapabilities)
+    realAgent.setNextPromptCapabilities(selectedCapabilities)
     realAgent.setNextPromptContextReferences?.(this.nextPromptContextReferences, this.onPromptContextReferencesConsumed)
     realAgent.setPromptMode?.(this.promptMode, this.onPromptModeConsumed)
     this.nextPromptCapabilities = []

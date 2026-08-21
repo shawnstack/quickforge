@@ -64,6 +64,18 @@ describe('serverConvertToLlm', () => {
     ])
   })
 
+  it('removes details from every message role before sending history to the LLM', () => {
+    const details = { selectedCapabilities: [{ type: 'plugin', pluginName: 'documents', name: 'documents', label: 'Documents' }] }
+    const messages = [
+      { role: 'user', content: 'hello', details },
+      { role: 'assistant', content: [textBlock('answer')], details },
+    ]
+    expect(serverConvertToLlm(messages)).toEqual([
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: [textBlock('answer')] },
+    ])
+  })
+
   it('keeps artifact filtering and user-with-attachments conversion intact', () => {
     const messages = [
       { role: 'artifact', content: [] },

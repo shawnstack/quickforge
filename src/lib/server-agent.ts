@@ -10,6 +10,7 @@ import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import { randomId } from '@/lib/random-id'
 import { toolStartEventWithPartialResult, upsertMessage, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
+import { normalizeSelectedCapabilities, withSelectedCapabilitiesSnapshot, type SelectedCapability } from '@/lib/selected-capabilities'
 import { SubagentRunEventPublisher } from '@/lib/subagent-run-detail'
 import {
   readSessionMessageSnapshot,
@@ -435,13 +436,7 @@ export type FileContextReference = {
   path: string
 }
 
-export type PromptCapabilitySelection = {
-  type: 'plugin' | 'skill' | 'tool' | 'command'
-  pluginName: string
-  name: string
-  label: string
-  description?: string
-}
+export type PromptCapabilitySelection = SelectedCapability
 
 export type ServerAgentStateSnapshot = {
   sessionId?: string
@@ -728,7 +723,7 @@ export class ServerAgent {
   }
 
   setNextPromptCapabilities(capabilities: PromptCapabilitySelection[]): void {
-    this.nextPromptCapabilities = Array.isArray(capabilities) ? capabilities.slice(0, 4) : []
+    this.nextPromptCapabilities = normalizeSelectedCapabilities(capabilities)
   }
 
   setNextPromptContextReferences(references: FileContextReference[], onConsumed?: () => void): void {
@@ -780,7 +775,7 @@ export class ServerAgent {
       }
     }
 
-    const selectedCapabilities = this.nextPromptCapabilities
+    const selectedCapabilities = normalizeSelectedCapabilities(this.nextPromptCapabilities)
     const contextReferences = this.nextPromptContextReferences
     const selectedCommand = this.planMode ? { type: 'plan' as const } : undefined
     this.nextPromptCapabilities = []
@@ -797,16 +792,17 @@ export class ServerAgent {
 
     const msgCountBeforeOptimistic = this.state.messages.length
 
-    // Add to local state immediately for optimistic UI
+    // Add to local state immediately for optimistic UI.
+    const optimisticDetailsMessage = withSelectedCapabilitiesSnapshot(message, selectedCapabilities)
     const agentMessage = (contextReferences.length > 0
       ? {
-          ...message,
+          ...optimisticDetailsMessage,
           details: {
-            ...(message.details && typeof message.details === 'object' && !Array.isArray(message.details) ? message.details : {}),
+            ...(optimisticDetailsMessage.details && typeof optimisticDetailsMessage.details === 'object' && !Array.isArray(optimisticDetailsMessage.details) ? optimisticDetailsMessage.details : {}),
             contextReferences,
           },
         }
-      : message) as unknown as AgentMessage
+      : optimisticDetailsMessage) as unknown as AgentMessage
     this.state.messages = [...this.state.messages, agentMessage]
     this.state.contextUsage = null
     this.emitToListeners({ type: 'message_start', message: agentMessage } as unknown as AgentEvent)

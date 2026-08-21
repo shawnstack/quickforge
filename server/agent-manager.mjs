@@ -67,6 +67,12 @@ import {
   withCanonicalContextReferences,
 } from './context-references.mjs'
 import { serverConvertToLlm, messageText, lastAssistantText } from './message-converters.mjs'
+import {
+  normalizeSelectedCapabilities,
+  selectedCapabilitiesFromMessage,
+  selectedCapabilityPrompt,
+  withCanonicalSelectedCapabilities,
+} from './selected-capabilities.mjs'
 import { mergeQuickForgeTiming, wrapToolDefinition, wrapMcpToolDefinition, wrapPluginToolDefinition, sessionSkillsContext } from './tool-wiring.mjs'
 import {
   APPROVAL_TIMEOUT_MS,
@@ -1745,30 +1751,6 @@ function textFromMessageContent(content) {
   return ''
 }
 
-function selectedCapabilityPrompt(capabilities) {
-  if (!Array.isArray(capabilities) || capabilities.length === 0) return null
-  const normalized = capabilities
-    .filter((capability) => capability && typeof capability === 'object')
-    .map((capability) => ({
-      type: String(capability.type || '').slice(0, 32),
-      pluginName: String(capability.pluginName || '').slice(0, 120),
-      name: String(capability.name || '').slice(0, 120),
-      label: String(capability.label || capability.name || '').slice(0, 160),
-      description: String(capability.description || '').slice(0, 400),
-    }))
-    .filter((capability) => capability.type && capability.pluginName && capability.name)
-    .slice(0, 4)
-  if (normalized.length === 0) return null
-
-  const lines = normalized.map((capability) => {
-    const toolHint = capability.type === 'tool' ? ` Tool name: plugin__${capability.pluginName}__${capability.name}.` : ''
-    const description = capability.description ? ` Description: ${capability.description}` : ''
-    return `- ${capability.label} (${capability.type}, plugin: ${capability.pluginName}, name: ${capability.name}).${toolHint}${description}`
-  }).join('\n')
-
-  return `The user selected the following QuickForge plugin capability mentions for this turn. Treat them as an explicit preference for routing and context. Use the selected capability when relevant, but do not force it if it is unrelated to the actual request.\n\n${lines}`
-}
-
 function applyActiveCapabilityPrompt(messages, capabilityPrompt) {
   if (!capabilityPrompt) return messages
 
@@ -2816,7 +2798,11 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
     ? { role: 'user', content: message, timestamp: new Date().toISOString() }
     : message
   const canonicalContextReferences = await validatePromptContextReferences(contextReferences, session)
-  const canonicalInitialUserMessage = withCanonicalContextReferences(initialUserMessage, canonicalContextReferences)
+  const canonicalSelectedCapabilities = normalizeSelectedCapabilities(selectedCapabilities)
+  const canonicalInitialUserMessage = withCanonicalSelectedCapabilities(
+    withCanonicalContextReferences(initialUserMessage, canonicalContextReferences),
+    canonicalSelectedCapabilities,
+  )
 
   if (modelAccessContext) session.modelAccessContext = modelAccessContext
   if (session.harness === AGENT_HARNESS_QUICKFORGE) await refreshSessionModelBinding(session)
@@ -2874,7 +2860,7 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
   session.activeCommandName = commandState.commandName ?? null
   session.activeCommandPermissions = commandState.permissions ?? null
   session.activeCommandPrompt = commandState.commandPrompt ?? null
-  session.activeCapabilityPrompt = selectedCapabilityPrompt(selectedCapabilities)
+  session.activeCapabilityPrompt = selectedCapabilityPrompt(canonicalSelectedCapabilities)
   const referencePrompt = contextReferencesPrompt(canonicalContextReferences)
   session.activeTransientContextPrompt = [
     typeof transientContextPrompt === 'string' && transientContextPrompt.trim() ? transientContextPrompt : null,
@@ -2956,7 +2942,11 @@ export async function continueSession(sessionId, modelAccessContext = null) {
 
   const lastUserMessage = messages[lastUserIndex]
   const canonicalContextReferences = await validateContextReferences(contextReferencesFromMessage(lastUserMessage), session)
-  const canonicalLastUserMessage = withCanonicalContextReferences(lastUserMessage, canonicalContextReferences)
+  const canonicalSelectedCapabilities = normalizeSelectedCapabilities(selectedCapabilitiesFromMessage(lastUserMessage))
+  const canonicalLastUserMessage = withCanonicalSelectedCapabilities(
+    withCanonicalContextReferences(lastUserMessage, canonicalContextReferences),
+    canonicalSelectedCapabilities,
+  )
   const commandState = await resolveCommandState(session, canonicalLastUserMessage)
   const continuedUserMessage = prepareCloudUserMessage(session, commandState.userMessage ?? canonicalLastUserMessage)
   const trimmedMessages = messages.slice(0, lastUserIndex).concat(continuedUserMessage)
@@ -2977,7 +2967,7 @@ export async function continueSession(sessionId, modelAccessContext = null) {
   session.activeCommandName = commandState.commandName ?? null
   session.activeCommandPermissions = commandState.permissions ?? null
   session.activeCommandPrompt = commandState.commandPrompt ?? null
-  session.activeCapabilityPrompt = null
+  session.activeCapabilityPrompt = selectedCapabilityPrompt(canonicalSelectedCapabilities)
   session.activeTransientContextPrompt = contextReferencesPrompt(canonicalContextReferences)
 
   session.agent.continue().catch((err) => {

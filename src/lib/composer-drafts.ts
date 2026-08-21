@@ -1,5 +1,6 @@
 import type { ChatScope } from '@/lib/types'
 import type { ComposerDraft } from '@/components/chat/chat-utils'
+import { normalizeSelectedCapabilities, selectedCapabilityKey } from '@/lib/selected-capabilities'
 
 const COMPOSER_DRAFTS_STORAGE_KEY = 'quickforge:composer-drafts:v1'
 const MAX_COMPOSER_DRAFTS = 100
@@ -41,35 +42,29 @@ export function buildComposerDraftKey(context: ComposerDraftContext) {
   return 'new:global'
 }
 
-function normalizeSelectedCapabilities(value: unknown): PersistedComposerCapabilitySelection[] | undefined {
+function normalizePersistedSelectedCapabilities(value: unknown): PersistedComposerCapabilitySelection[] | undefined {
   if (!Array.isArray(value)) return undefined
-  const capabilities = new Map<string, PersistedComposerCapabilitySelection>()
-  for (const capability of value) {
-    if (!capability || typeof capability !== 'object' || Array.isArray(capability)) continue
-    const record = capability as Record<string, unknown>
-    if (
-      !['plugin', 'skill', 'tool', 'command'].includes(String(record.type))
-      || typeof record.pluginName !== 'string'
-      || typeof record.name !== 'string'
-      || typeof record.label !== 'string'
-      || (record.description !== undefined && typeof record.description !== 'string')
-      || (record.mention !== undefined && typeof record.mention !== 'string')
-    ) continue
-
-    const normalized: PersistedComposerCapabilitySelection = {
-      type: record.type as PersistedComposerCapabilitySelection['type'],
-      pluginName: record.pluginName,
-      name: record.name,
-      label: record.label,
-    }
-    if (typeof record.description === 'string') normalized.description = record.description
-    if (typeof record.mention === 'string') normalized.mention = record.mention
-    const key = `${normalized.type}:${normalized.pluginName}:${normalized.name}`
-    if (capabilities.has(key)) continue
-    capabilities.set(key, normalized)
-    if (capabilities.size >= 4) break
+  const candidates: PersistedComposerCapabilitySelection[] = []
+  for (const item of value) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue
+    const record = item as Record<string, unknown>
+    if ((record.description !== undefined && typeof record.description !== 'string')
+      || (record.mention !== undefined && typeof record.mention !== 'string')) continue
+    const normalized = normalizeSelectedCapabilities([record])[0]
+    if (!normalized) continue
+    candidates.push({
+      ...normalized,
+      ...(typeof record.mention === 'string' ? { mention: record.mention } : {}),
+    })
   }
-  return capabilities.size > 0 ? [...capabilities.values()] : undefined
+  const result = new Map<string, PersistedComposerCapabilitySelection>()
+  for (const capability of candidates) {
+    const key = selectedCapabilityKey(capability)
+    if (result.has(key)) continue
+    result.set(key, capability)
+    if (result.size >= 4) break
+  }
+  return result.size > 0 ? [...result.values()] : undefined
 }
 
 function normalizeDrafts(value: unknown): PersistedComposerDrafts {
@@ -79,6 +74,7 @@ function normalizeDrafts(value: unknown): PersistedComposerDrafts {
     if (!draft || typeof draft !== 'object' || Array.isArray(draft)) continue
     const record = draft as Record<string, unknown>
     if (typeof record.text !== 'string') continue
+    const selectedCapabilities = normalizePersistedSelectedCapabilities(record.selectedCapabilities)
     drafts[key] = {
       text: record.text,
       contextReferences: Array.isArray(record.contextReferences)
@@ -91,7 +87,7 @@ function normalizeDrafts(value: unknown): PersistedComposerDrafts {
             && typeof (reference as Record<string, unknown>).path === 'string',
           )).slice(0, 8)
         : undefined,
-      selectedCapabilities: normalizeSelectedCapabilities(record.selectedCapabilities),
+      ...(selectedCapabilities ? { selectedCapabilities } : {}),
       updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : new Date().toISOString(),
       scope: record.scope === 'project' ? 'project' : record.scope === 'global' ? 'global' : undefined,
       projectId: typeof record.projectId === 'string' ? record.projectId : undefined,
@@ -186,7 +182,7 @@ export async function saveComposerDraft(
 ): Promise<void> {
   const text = draft.text ?? ''
   const contextReferences = draft.contextReferences ? [...draft.contextReferences].slice(0, 8) : []
-  const selectedCapabilities = normalizeSelectedCapabilities(draft.selectedCapabilities) ?? []
+  const selectedCapabilities = normalizeSelectedCapabilities(draft.selectedCapabilities)
   if (text.length === 0 && contextReferences.length === 0 && selectedCapabilities.length === 0) {
     await clearComposerDraft(key)
     return
@@ -196,7 +192,7 @@ export async function saveComposerDraft(
   drafts[key] = {
     text,
     contextReferences,
-    selectedCapabilities,
+    ...(selectedCapabilities.length > 0 ? { selectedCapabilities } : {}),
     updatedAt: new Date().toISOString(),
     scope: context.scope,
     projectId: context.scope === 'project' ? context.projectId : undefined,

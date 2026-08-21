@@ -1,15 +1,10 @@
 import { loadPlugins, type QuickForgePlugin } from '@/components/plugins/plugin-api'
 import { t } from '@/lib/i18n'
 import { capabilityIcons, type CapabilityIconKind } from './capability-icons'
-import type { ComposerDraft, MessageEditorElement } from './chat-utils'
+import { ensureComposerContextChips, syncComposerContextChipsAriaLabel, type ComposerDraft, type MessageEditorElement } from './chat-utils'
+import { normalizeSelectedCapabilities, selectedCapabilityKey, type SelectedCapability } from '@/lib/selected-capabilities'
 
-export type SelectedCapability = {
-  type: 'plugin' | 'skill' | 'tool' | 'command'
-  pluginName: string
-  name: string
-  label: string
-  description?: string
-}
+export type { SelectedCapability } from '@/lib/selected-capabilities'
 
 export type CapabilitySuggestion = SelectedCapability & {
   iconKind: CapabilityIconKind
@@ -62,18 +57,24 @@ function capabilityRows(plugin: QuickForgePlugin): CapabilitySuggestion[] {
   }]
 }
 
-function capabilityKey(capability: SelectedCapability) {
-  return `${capability.type}:${capability.pluginName}:${capability.name}`
+function capabilityIconKind(capability: SelectedCapability): CapabilityIconKind {
+  if (capability.type !== 'plugin') return 'plugin'
+  switch (capability.pluginName) {
+    case 'documents': return 'document'
+    case 'spreadsheets': return 'spreadsheet'
+    case 'presentations': return 'presentation'
+    default: return 'plugin'
+  }
 }
 
 export function createCapabilityChip(capability: SelectedCapability, onRemove?: () => void) {
   const chip = document.createElement('span')
   chip.className = 'quickforge-context-chip quickforge-capability-chip'
-  chip.dataset.quickforgeCapabilityKey = capabilityKey(capability)
+  chip.dataset.quickforgeCapabilityKey = selectedCapabilityKey(capability)
   chip.title = capability.description ?? capability.label
   const icon = document.createElement('span')
   icon.className = 'quickforge-context-chip-icon'
-  icon.innerHTML = capabilityIcons.plugin
+  icon.innerHTML = capabilityIcons[capabilityIconKind(capability)]
   const label = document.createElement('span')
   label.className = 'quickforge-context-chip-label'
   label.textContent = capability.label
@@ -147,13 +148,12 @@ export function createCapabilitySuggestions({
       existing?.remove()
       return
     }
-    const container = existing ?? document.createElement('div')
-    container.className = 'quickforge-context-chips'
-    container.setAttribute('aria-label', t('selectedCapabilities'))
+    const container = ensureComposerContextChips(editor)
+    if (!container) return
     container.querySelectorAll('.quickforge-capability-chip').forEach((chip) => chip.remove())
     for (const capability of selected.values()) {
       container.append(createCapabilityChip(capability, () => {
-        selected.delete(capabilityKey(capability))
+        selected.delete(selectedCapabilityKey(capability))
         const editor = panel.querySelector<MessageEditorElement>('message-editor')
         if (editor) {
           const capabilities = [...selected.values()]
@@ -164,11 +164,15 @@ export function createCapabilitySuggestions({
         syncChips()
       }))
     }
-    if (!existing) editor.prepend(container)
+    syncComposerContextChipsAriaLabel(container, {
+      plugins: t('selectedCapabilities'),
+      files: t('fileReferences'),
+      mixed: t('selectedPluginsAndFiles'),
+    })
   }
 
   const selectCapability = (capability: CapabilitySuggestion) => {
-    selected.set(capabilityKey(capability), capability)
+    selected.set(selectedCapabilityKey(capability), capability)
     const editor = panel.querySelector<MessageEditorElement>('message-editor')
     if (editor) {
       const capabilities = [...selected.values()]
@@ -194,7 +198,7 @@ export function createCapabilitySuggestions({
   }
 
   const consumeSelectedCapabilities = () => {
-    const result = [...selected.values()].slice(0, 4)
+    const result = normalizeSelectedCapabilities([...selected.values()])
     selected = new Map()
     const editor = panel.querySelector<MessageEditorElement>('message-editor')
     if (editor) editor.selectedCapabilities = []
@@ -203,9 +207,9 @@ export function createCapabilitySuggestions({
     return result
   }
 
-  const snapshotSelectedCapabilities = () => [...selected.values()]
+  const snapshotSelectedCapabilities = () => normalizeSelectedCapabilities([...selected.values()])
   const restoreSelectedCapabilities = (capabilities: SelectedCapability[]) => {
-    selected = new Map((Array.isArray(capabilities) ? capabilities : []).slice(0, 4).map((capability) => [capabilityKey(capability), capability]))
+    selected = new Map(normalizeSelectedCapabilities(capabilities).map((capability) => [selectedCapabilityKey(capability), capability]))
     const editor = panel.querySelector<MessageEditorElement>('message-editor')
     if (editor) editor.selectedCapabilities = [...selected.values()]
     emitSelection()

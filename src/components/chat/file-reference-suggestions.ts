@@ -1,5 +1,5 @@
 import { t } from '@/lib/i18n'
-import type { ComposerDraft, FileContextReference, MessageEditorElement } from './chat-utils'
+import { ensureComposerContextChips, syncComposerContextChipsAriaLabel, type ComposerDraft, type FileContextReference, type MessageEditorElement } from './chat-utils'
 import { capabilityIcons } from './capability-icons'
 
 export type FileMentionEntry = { name: string; path: string; type: 'file' }
@@ -162,8 +162,8 @@ export function createFileReferenceSuggestions({
       existing?.remove()
       return
     }
-    const container = existing ?? document.createElement('div')
-    container.className = 'quickforge-context-chips'
+    const container = ensureComposerContextChips(editor)
+    if (!container) return
     container.querySelectorAll('.quickforge-file-reference-chip').forEach((chip) => chip.remove())
     for (const reference of references) {
       container.append(createFileReferenceChip(reference, () => {
@@ -179,7 +179,11 @@ export function createFileReferenceSuggestions({
         })
       }))
     }
-    if (!existing) editor.prepend(container)
+    syncComposerContextChipsAriaLabel(container, {
+      plugins: t('selectedCapabilities'),
+      files: t('fileReferences'),
+      mixed: t('selectedPluginsAndFiles'),
+    })
   }
 
   const statusText = () => {

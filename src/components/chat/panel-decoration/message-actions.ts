@@ -20,6 +20,8 @@ import { decorateLocalFilePathLinks } from './local-file-path-links'
 import { decorateUserMessageInputClamp, type InputClampLabels } from '@/lib/input-clamp'
 import { createSlashChipElement, parseSlashInvocationPrefix, planSlashChipText } from '../slash-invocation-chip'
 import { createFileReferenceChip } from '../file-reference-suggestions'
+import { createCapabilityChip } from '../capability-suggestions'
+import { selectedCapabilitiesFromDetails } from '@/lib/selected-capabilities'
 import type { FileContextReference } from '../chat-utils'
 
 const inputClampLabels: InputClampLabels = { collapsed: () => t('expand'), expanded: () => t('collapse') }
@@ -324,19 +326,25 @@ function contextReferencesFromMessage(message: MessageWithUsage): FileContextRef
   )).slice(0, 8)
 }
 
-function decorateUserFileReferences(element: HTMLElement, message: MessageWithUsage) {
+export function decorateUserContextChips(element: HTMLElement, message: MessageWithUsage) {
   const container = element.querySelector<HTMLElement>('.user-message-container')
   if (!container) return
+  const capabilities = selectedCapabilitiesFromDetails(message.details)
   const references = contextReferencesFromMessage(message)
   const existing = container.querySelector<HTMLElement>('.quickforge-message-context-references')
-  if (references.length === 0) {
+  if (capabilities.length === 0 && references.length === 0) {
     existing?.remove()
     return
   }
   const chips = existing ?? document.createElement('div')
   chips.className = 'quickforge-message-context-references'
-  chips.setAttribute('aria-label', t('fileReferences'))
-  chips.replaceChildren(...references.map((reference) => createFileReferenceChip(reference)))
+  chips.setAttribute('aria-label', capabilities.length > 0 && references.length > 0
+    ? t('selectedPluginsAndFiles')
+    : capabilities.length > 0 ? t('selectedCapabilities') : t('fileReferences'))
+  chips.replaceChildren(
+    ...capabilities.map((capability) => createCapabilityChip(capability)),
+    ...references.map((reference) => createFileReferenceChip(reference)),
+  )
   if (!existing) container.prepend(chips)
 }
 
@@ -421,7 +429,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
       decorateUserSlashInvocationChip(element, entry.message as Parameters<typeof draftTextFromUserMessage>[0])
     }
     if (entry.message.role === 'user' || entry.message.role === 'user-with-attachments') {
-      decorateUserFileReferences(element, entry.message)
+      decorateUserContextChips(element, entry.message)
     }
 
     const messageTimeValue = messageTimestamp(entry.message)

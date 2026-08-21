@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createCapabilitySuggestions } from '../../src/components/chat/capability-suggestions'
 import { createFileReferenceSuggestions } from '../../src/components/chat/file-reference-suggestions'
 import type { MessageEditorElement } from '../../src/components/chat/chat-utils'
+import { loadPlugins } from '@/components/plugins/plugin-api'
 
+vi.mock('@/components/plugins/plugin-api', () => ({ loadPlugins: vi.fn() }))
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }))
+
+const plugin = { name: 'documents', displayName: 'Documents', version: '1', dir: '/plugins/documents', enabled: true, status: 'loaded', permissions: [], tools: [] }
 
 class FakeElement {
   className = ''
@@ -19,12 +24,25 @@ class FakeElement {
   selectionEnd = 0
   attachments: unknown[] = []
   contextReferences: Array<{ type: 'file'; projectId: string; path: string }> = []
+  selectedCapabilities: Array<{ type: 'plugin'; pluginName: string; name: string; label: string }> = []
   listeners = new Map<string, (event: KeyboardEvent) => void>()
   constructor(readonly tagName: string) {}
-  append(...children: Array<FakeElement | { textContent?: string }>) { for (const child of children) if (child instanceof FakeElement) { child.parentElement = this; this.children.push(child) } }
-  prepend(child: FakeElement) { child.parentElement = this; this.children.unshift(child) }
+  append(...children: Array<FakeElement | { textContent?: string }>) {
+    for (const child of children) if (child instanceof FakeElement) {
+      child.remove()
+      child.parentElement = this
+      this.children.push(child)
+    }
+  }
+  prepend(child: FakeElement) { child.remove(); child.parentElement = this; this.children.unshift(child) }
   replaceChildren(...children: FakeElement[]) { this.children = []; this.append(...children) }
-  insertBefore(child: FakeElement) { child.parentElement = this; this.children.push(child); return child }
+  insertBefore(child: FakeElement, reference?: FakeElement) {
+    child.remove()
+    child.parentElement = this
+    const index = reference ? this.children.indexOf(reference) : -1
+    this.children.splice(index >= 0 ? index : this.children.length, 0, child)
+    return child
+  }
   remove() { if (!this.parentElement) return; this.parentElement.children = this.parentElement.children.filter((child) => child !== this); this.parentElement = null }
   setAttribute(name: string, value: string) { this.attributes.set(name, value) }
   getAttribute(name: string) { return this.attributes.get(name) ?? null }
@@ -35,11 +53,10 @@ class FakeElement {
   removeEventListener(type: string) { this.listeners.delete(type) }
   dispatchKey(event: KeyboardEvent) { this.listeners.get('keydown')?.(event) }
   querySelector<T>(selector: string): T | null {
-    if (selector === 'textarea' && this.tagName === 'message-editor') return this.children.find((child) => child.tagName === 'textarea') as T ?? null
-    if (selector === 'message-editor') return this.find((child) => child.tagName === 'message-editor') as T ?? null
     if (selector === 'message-editor textarea') return this.find((child) => child.tagName === 'textarea') as T ?? null
+    if (selector === 'message-editor') return this.find((child) => child.tagName === 'message-editor') as T ?? null
     if (selector.startsWith('.')) return this.find((child) => child.className.split(/\s+/).includes(selector.slice(1))) as T ?? null
-    return null
+    return this.find((child) => child.tagName === selector) as T ?? null
   }
   querySelectorAll<T>(selector: string): T[] {
     const className = selector.startsWith('.') ? selector.slice(1) : ''
@@ -57,8 +74,10 @@ function createHarness(fetchImpl = vi.fn()) {
   const panel = new FakeElement('div')
   const shell = new FakeElement('div')
   const editor = new FakeElement('message-editor')
+  const inputCard = new FakeElement('div')
   const textarea = new FakeElement('textarea')
-  editor.append(textarea)
+  inputCard.append(textarea)
+  editor.append(inputCard)
   shell.append(editor)
   panel.append(shell)
   const restoreDraftIntoComposer = vi.fn((draft) => {
@@ -74,10 +93,9 @@ function createHarness(fetchImpl = vi.fn()) {
     removeCommandSuggestions: vi.fn(),
     fetchImpl: fetchImpl as typeof fetch,
     debounceMs: 300,
-    storage: globalThis.localStorage,
   })
   const setText = (text: string) => { editor.value = text; textarea.value = text; textarea.selectionStart = textarea.selectionEnd = text.length }
-  return { panel, editor, textarea, controller, restoreDraftIntoComposer, setText }
+  return { panel, editor, inputCard, textarea, controller, restoreDraftIntoComposer, setText }
 }
 
 const response = (entries: unknown[]) => Promise.resolve({ ok: true, json: async () => ({ entries }) })
@@ -92,10 +110,9 @@ describe('file reference suggestions controller', () => {
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
     })
-    const values = new Map<string, string>()
-    vi.stubGlobal('localStorage', { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) })
+    vi.mocked(loadPlugins).mockResolvedValue({ plugins: [plugin] as never, searchPaths: [], errors: [] })
   })
-  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.clearAllMocks() })
 
   it('shows no recents for bare @ and waits until two characters', () => {
     const fetchImpl = vi.fn()
@@ -152,5 +169,62 @@ describe('file reference suggestions controller', () => {
       attachments: [{ id: 'attachment' }],
       contextReferences: [{ type: 'file', projectId: 'project-1', path: 'src/file.ts' }],
     }))
+    const chips = h.editor.querySelector<FakeElement>('.quickforge-context-chips')
+    expect(chips?.parentElement).toBe(h.inputCard)
+    expect(h.inputCard.children.indexOf(chips!)).toBeLessThan(h.inputCard.children.indexOf(h.textarea))
   })
+
+  it.each(['file-first', 'plugin-first'] as const)(
+    'keeps shared file/plugin chips independent for %s synchronization',
+    async (order) => {
+      const h = createHarness()
+      const capabilityController = createCapabilitySuggestions({
+        panel: h.panel as unknown as HTMLElement,
+        restoreDraftIntoComposer: h.restoreDraftIntoComposer,
+        enabled: true,
+      })
+      await capabilityController.refresh()
+      const reference = { type: 'file' as const, projectId: 'project-1', path: 'src/file.ts' }
+      const addFile = () => {
+        h.editor.contextReferences = [reference]
+        h.controller.syncChips()
+      }
+      const addPlugin = () => capabilityController.selectPlugin('documents')
+
+      if (order === 'file-first') {
+        addFile()
+        expect(h.editor.querySelector<FakeElement>('.quickforge-context-chips')?.getAttribute('aria-label')).toBe('fileReferences')
+        addPlugin()
+      } else {
+        addPlugin()
+        expect(h.editor.querySelector<FakeElement>('.quickforge-context-chips')?.getAttribute('aria-label')).toBe('selectedCapabilities')
+        addFile()
+      }
+
+      let container = h.editor.querySelector<FakeElement>('.quickforge-context-chips')
+      expect(container?.querySelectorAll('.quickforge-file-reference-chip')).toHaveLength(1)
+      expect(container?.querySelectorAll('.quickforge-capability-chip')).toHaveLength(1)
+      expect(container?.getAttribute('aria-label')).toBe('selectedPluginsAndFiles')
+
+      if (order === 'file-first') {
+        expect(capabilityController.consumeSelectedCapabilities()).toHaveLength(1)
+        container = h.editor.querySelector<FakeElement>('.quickforge-context-chips')
+        expect(container?.querySelectorAll('.quickforge-file-reference-chip')).toHaveLength(1)
+        expect(container?.querySelectorAll('.quickforge-capability-chip')).toHaveLength(0)
+        expect(container?.getAttribute('aria-label')).toBe('fileReferences')
+        container?.querySelector<FakeElement>('.quickforge-file-reference-chip')?.querySelector<FakeElement>('button')
+          ?.onpointerdown?.({ preventDefault: vi.fn(), stopPropagation: vi.fn() })
+      } else {
+        container?.querySelector<FakeElement>('.quickforge-file-reference-chip')?.querySelector<FakeElement>('button')
+          ?.onpointerdown?.({ preventDefault: vi.fn(), stopPropagation: vi.fn() })
+        container = h.editor.querySelector<FakeElement>('.quickforge-context-chips')
+        expect(container?.querySelectorAll('.quickforge-file-reference-chip')).toHaveLength(0)
+        expect(container?.querySelectorAll('.quickforge-capability-chip')).toHaveLength(1)
+        expect(container?.getAttribute('aria-label')).toBe('selectedCapabilities')
+        expect(capabilityController.consumeSelectedCapabilities()).toHaveLength(1)
+      }
+
+      expect(h.editor.querySelector('.quickforge-context-chips')).toBeNull()
+    },
+  )
 })

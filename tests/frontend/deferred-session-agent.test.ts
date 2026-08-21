@@ -163,16 +163,32 @@ describe('DeferredSessionAgent', () => {
     ])
   })
 
-  it('forwards file references to the real agent for the first prompt only', async () => {
+  it('forwards selected capabilities and file references to the real agent for the first prompt only', async () => {
     const realAgent = createRealAgent()
     const agent = await createDeferredAgent(async () => realAgent)
     const refs = [{ type: 'file' as const, projectId: 'project-1', path: 'src/main.ts' }]
+    const capabilities = [
+      { type: 'plugin' as const, pluginName: 'documents', name: 'documents', label: 'Documents', description: 'Create docs' },
+      { type: 'plugin' as const, pluginName: 'documents', name: 'documents', label: 'Duplicate' },
+      { type: 'tool' as const, pluginName: 'demo', name: 'lint', label: 'Lint' },
+    ]
     const consumed = vi.fn()
+    agent.setNextPromptCapabilities(capabilities)
     agent.setNextPromptContextReferences(refs, consumed)
 
-    await agent.prompt('first')
+    await agent.prompt({ role: 'user', content: 'first', details: { keep: true } } as AgentMessage)
 
+    expect(realAgent.setNextPromptCapabilities).toHaveBeenCalledWith([capabilities[0], capabilities[2]])
     expect(realAgent.setNextPromptContextReferences).toHaveBeenCalledWith(refs, consumed)
-    expect(agent.state.messages[0]).toMatchObject({ details: { contextReferences: refs } })
+    expect(agent.state.messages[0]).toMatchObject({
+      details: {
+        keep: true,
+        contextReferences: refs,
+        selectedCapabilities: [
+          { type: 'plugin', pluginName: 'documents', name: 'documents', label: 'Documents' },
+          { type: 'tool', pluginName: 'demo', name: 'lint', label: 'Lint' },
+        ],
+      },
+    })
   })
 })

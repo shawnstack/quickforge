@@ -377,6 +377,49 @@ describe('ServerAgent', () => {
     }
   })
 
+  it('sends selected capabilities once, decorates the optimistic user message, and coexists with file references', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = await createServerAgent({ sessionId: 'session-capabilities', initialState: { model: { provider: 'mock', id: 'mock' }, messages: [] } })
+    const refs = [{ type: 'file' as const, projectId: 'project-1', path: 'src/main.ts' }]
+    const capabilities = [
+      { type: 'plugin' as const, pluginName: 'documents', name: 'documents', label: 'Documents', description: 'Create docs' },
+      { type: 'plugin' as const, pluginName: 'documents', name: 'documents', label: 'Duplicate' },
+      { type: 'tool' as const, pluginName: 'demo', name: 'lint', label: 'Lint' },
+    ]
+
+    try {
+      agent.setNextPromptCapabilities(capabilities)
+      agent.setNextPromptContextReferences(refs)
+      await agent.prompt({ role: 'user', content: 'inspect this', details: { keep: true } } as AgentMessage)
+      const firstCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/prompt')) as [string, RequestInit]
+      const firstBody = JSON.parse(String(firstCall[1].body))
+      expect(firstBody.selectedCapabilities).toEqual([
+        capabilities[0],
+        capabilities[2],
+      ])
+      expect(agent.state.messages[0]).toMatchObject({
+        details: {
+          keep: true,
+          contextReferences: refs,
+          selectedCapabilities: [
+            { type: 'plugin', pluginName: 'documents', name: 'documents', label: 'Documents' },
+            { type: 'tool', pluginName: 'demo', name: 'lint', label: 'Lint' },
+          ],
+        },
+      })
+
+      agent.state.isStreaming = false
+      await agent.prompt('next')
+      const promptCalls = fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/prompt')) as Array<[string, RequestInit]>
+      const nextBody = JSON.parse(String(promptCalls[1][1].body))
+      expect(nextBody.selectedCapabilities).toEqual([])
+      expect(nextBody.message).not.toHaveProperty('details.selectedCapabilities')
+    } finally {
+      agent.dispose()
+    }
+  })
+
   it('sends file context references once and decorates the optimistic user message', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) })
     vi.stubGlobal('fetch', fetchMock)

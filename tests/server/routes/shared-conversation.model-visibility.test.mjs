@@ -117,11 +117,12 @@ describe('shared conversation context reference safety', () => {
     expect(mocks.runPrompt).not.toHaveBeenCalled()
   })
 
-  it('strips contextReferences from shared session history without dropping other details', async () => {
+  it('strips contextReferences but preserves selectedCapabilities in shared session history', async () => {
+    const selectedCapabilities = [{ type: 'plugin', pluginName: 'documents', name: 'documents', label: 'Documents' }]
     mocks.getSessionState.mockReturnValue({
       model: currentHiddenModel,
       messages: [
-        { role: 'user', content: 'inspect', details: { contextReferences: [{ path: 'src/private.ts' }], keep: true } },
+        { role: 'user', content: 'inspect', details: { contextReferences: [{ path: 'src/private.ts' }], selectedCapabilities, keep: true } },
         { role: 'assistant', content: 'done', details: { contextReferences: [{ path: 'src/private.ts' }] } },
       ],
       thinkingLevel: 'off',
@@ -132,7 +133,7 @@ describe('shared conversation context reference safety', () => {
     await handleSharedConversationApi(request('GET'), res, new URL('http://localhost/api/shared/share-1/session'))
 
     const messages = JSON.parse(res.body).messages
-    expect(messages[0].details).toEqual({ keep: true })
+    expect(messages[0].details).toEqual({ selectedCapabilities, keep: true })
     expect(messages[1]).not.toHaveProperty('details')
     expect(JSON.stringify(messages)).not.toContain('src/private.ts')
   })

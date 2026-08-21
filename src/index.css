@@ -4478,6 +4478,14 @@ html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
   color: color-mix(in oklab, var(--muted-foreground) 92%, transparent);
 }
 
+.quickforge-composer .quickforge-plus-inline:hover:not(:disabled),
+.quickforge-composer .quickforge-agent-access-inline:hover:not(:disabled),
+.quickforge-composer .quickforge-model-trigger:hover:not(:disabled) {
+  background: var(--quickforge-sidebar-hover-bg) !important;
+  color: var(--foreground) !important;
+  transform: none !important;
+}
+
 .quickforge-model-menu,
 .quickforge-model-submenu {
   position: fixed;
@@ -4705,6 +4713,12 @@ html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
   box-shadow: 0 10px 24px -12px color-mix(in oklab, var(--primary) 72%, black) !important;
 }
 
+.quickforge-composer .quickforge-send-button:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--primary) 92%, var(--quickforge-sidebar-hover-bg)) !important;
+  color: var(--primary-foreground) !important;
+  transform: none !important;
+}
+
 .quickforge-composer .quickforge-send-button:disabled {
   background: color-mix(in oklab, var(--muted) 72%, transparent) !important;
   color: color-mix(in oklab, var(--muted-foreground) 78%, transparent) !important;
@@ -4719,6 +4733,7 @@ html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
 
 .quickforge-composer .quickforge-stop-button:hover {
   background: color-mix(in oklab, var(--foreground) 88%, var(--background)) !important;
+  transform: none !important;
 }
 
 /* Waiting ring: run started (agent_start) but no assistant output yet.

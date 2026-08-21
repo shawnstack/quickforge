@@ -33,6 +33,7 @@ import {
 import {
   DndContext,
   closestCenter,
+  KeyboardSensor,
   PointerSensor,
   MeasuringStrategy,
   useSensor,
@@ -42,6 +43,7 @@ import {
 } from '@dnd-kit/core'
 import {
   SortableContext,
+  sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
@@ -51,6 +53,7 @@ import { clampProjectDragTransform } from '@/lib/project-drag-boundary'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { sessionTitle } from '@/lib/types'
+import type { SidebarSectionId, SidebarSectionOrder } from '@/lib/sidebar-section-order'
 import { useSentinel } from '@/hooks/useSentinel'
 import type {
   ProjectInfo,
@@ -66,6 +69,7 @@ type ChatSidebarProps = {
   projectsCollapsed: boolean
   pinnedCollapsed: boolean
   conversationsCollapsed: boolean
+  sectionOrder: SidebarSectionOrder
   projects: ProjectInfo[]
   expandedProjectIds: Set<string>
   activeProject?: ProjectInfo
@@ -95,6 +99,7 @@ type ChatSidebarProps = {
   onTogglePinnedCollapsed: () => void
   onToggleProjectsCollapsed: () => void
   onToggleConversationsCollapsed: () => void
+  onReorderSections: (activeId: SidebarSectionId, overId: SidebarSectionId) => void
   onToggleProjectExpanded: (projectId: string) => void
   onToggleAllProjectsExpanded: () => void
   onReorderProjects: (orderedIds: string[]) => void
@@ -151,6 +156,20 @@ const sidebarDefaultWidth = 320
 const sidebarMinWidth = 320
 const sidebarMaxWidth = 520
 const sidebarMaxViewportRatio = 0.5
+const sidebarSectionDndIdPrefix = 'sidebar-section:'
+
+type SidebarSectionDndId = `${typeof sidebarSectionDndIdPrefix}${SidebarSectionId}`
+
+function sidebarSectionDndId(sectionId: SidebarSectionId): SidebarSectionDndId {
+  return `${sidebarSectionDndIdPrefix}${sectionId}`
+}
+
+function sidebarSectionIdFromDndId(value: string | number): SidebarSectionId | undefined {
+  const id = String(value)
+  if (!id.startsWith(sidebarSectionDndIdPrefix)) return undefined
+  const sectionId = id.slice(sidebarSectionDndIdPrefix.length)
+  return sectionId === 'projects' || sectionId === 'tasks' ? sectionId : undefined
+}
 
 function getSidebarMaxWidth() {
   if (typeof window === 'undefined') return sidebarMaxWidth
@@ -287,12 +306,42 @@ function SortableProjectItem({ id, children }: { id: string; children: (props: {
   )
 }
 
+function SortableSidebarSection({ id, collapsed, children }: { id: SidebarSectionId; collapsed: boolean; children: (props: {
+  listeners: ReturnType<typeof useSortable>['listeners']
+  attributes: ReturnType<typeof useSortable>['attributes']
+  setActivatorNodeRef: ReturnType<typeof useSortable>['setActivatorNodeRef']
+  isDragging: boolean
+}) => React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
+    id: sidebarSectionDndId(id),
+  })
+  const style: React.CSSProperties = {
+    transform: CSS.Translate.toString(transform ? { ...transform, x: 0 } : null),
+    transition: isDragging ? undefined : transition,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        'flex min-h-0 flex-col overflow-hidden',
+        collapsed ? 'shrink-0' : id === 'projects' ? 'max-h-[55%]' : 'flex-1',
+        isDragging && 'relative z-30 opacity-55',
+      )}
+    >
+      {children({ listeners, attributes, setActivatorNodeRef, isDragging })}
+    </div>
+  )
+}
+
 export const ChatSidebar = memo(function ChatSidebar({
   sidebarOpen,
   variant = 'desktop',
   projectsCollapsed,
   pinnedCollapsed,
   conversationsCollapsed,
+  sectionOrder,
   projects,
   expandedProjectIds,
   activeProject,
@@ -322,6 +371,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   onTogglePinnedCollapsed,
   onToggleProjectsCollapsed,
   onToggleConversationsCollapsed,
+  onReorderSections,
   onToggleProjectExpanded,
   onToggleAllProjectsExpanded,
   onReorderProjects,
@@ -355,6 +405,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   const sidebarActiveBgClass = 'bg-[var(--quickforge-sidebar-hover-bg)]'
   const sectionHeaderClass = `quickforge-sidebar-section-header group mb-1 flex w-full items-center gap-1 rounded-lg px-2 py-1 text-sm font-[350] leading-5 text-muted-foreground/50 transition-colors ${sidebarHoverBgClass}`
   const sectionToggleClass = 'quickforge-sidebar-section-toggle flex min-w-0 flex-1 items-center gap-1 text-left transition-colors'
+  const draggableSectionTitleClass = `${sectionToggleClass} cursor-grab touch-none active:cursor-grabbing`
   const chevronClass = 'quickforge-sidebar-section-icon size-4 shrink-0 text-current opacity-0 transition-[transform,opacity] duration-200 ease-out group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none'
   const collapsePanelClass = 'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none'
   const collapsePanelOpenClass = 'grid-rows-[1fr] opacity-100'
@@ -407,6 +458,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
   const [hoveredSessionTip, setHoveredSessionTip] = useState<{ sessionId: string; x: number; y: number } | null>(null)
   const [isProjectDragging, setIsProjectDragging] = useState(false)
+  const [draggingSectionId, setDraggingSectionId] = useState<SidebarSectionId>()
   const [sidebarWidth, setSidebarWidth] = useState(sidebarDefaultWidth)
   const [isResizing, setIsResizing] = useState(false)
   const asideRef = useRef<HTMLElement | null>(null)
@@ -422,6 +474,30 @@ export const ChatSidebar = memo(function ChatSidebar({
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
   )
+  const sectionSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
+  const finishSectionDrag = useCallback(() => {
+    setDraggingSectionId(undefined)
+  }, [])
+
+  const handleSectionDragStart = useCallback((event: { active: { id: string | number } }) => {
+    const activeSectionId = sidebarSectionIdFromDndId(event.active.id)
+    if (activeSectionId) setDraggingSectionId(activeSectionId)
+  }, [])
+
+  const handleSectionDragEnd = useCallback((event: DragEndEvent) => {
+    finishSectionDrag()
+    const activeId = sidebarSectionIdFromDndId(event.active.id)
+    const overId = event.over ? sidebarSectionIdFromDndId(event.over.id) : undefined
+    if (activeId && overId) onReorderSections(activeId, overId)
+  }, [finishSectionDrag, onReorderSections])
+
+  const isSectionDragging = draggingSectionId !== undefined
+  const projectsVisuallyCollapsed = projectsCollapsed || isSectionDragging
+  const conversationsVisuallyCollapsed = conversationsCollapsed || isSectionDragging
 
   const restrictProjectDragToViewport = useCallback<Modifier>(({ transform, draggingNodeRect }) => {
     const viewport = projectsScrollViewportRef.current
@@ -1019,12 +1095,42 @@ export const ChatSidebar = memo(function ChatSidebar({
               </div>
             </div>
           ) : null}
-          <div className="px-3 max-h-[55%] flex flex-col min-h-0 overflow-hidden">
+          <DndContext
+            sensors={sectionSensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleSectionDragStart}
+            onDragEnd={handleSectionDragEnd}
+            onDragCancel={finishSectionDrag}
+            measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+            autoScroll={false}
+          >
+            <SortableContext items={sectionOrder.map(sidebarSectionDndId)} strategy={verticalListSortingStrategy}>
+              <div
+                className="flex min-h-0 flex-1 flex-col overflow-hidden"
+                data-dragging-section={draggingSectionId}
+              >
+                {sectionOrder.map((sectionId) => (
+                  <SortableSidebarSection
+                    key={sectionId}
+                    id={sectionId}
+                    collapsed={sectionId === 'projects' ? projectsVisuallyCollapsed : conversationsVisuallyCollapsed}
+                  >
+                    {({ listeners, attributes, setActivatorNodeRef, isDragging }) => sectionId === 'projects' ? (
+                      <>
+                        <div className="h-full px-3 flex flex-col min-h-0 overflow-hidden">
             <div className="mb-0.5 flex min-h-0 flex-1 flex-col">
               <div className={sectionHeaderClass}>
-                <button type="button" className={sectionToggleClass} onClick={onToggleProjectsCollapsed} aria-expanded={!projectsCollapsed}>
+                <button
+                  ref={setActivatorNodeRef}
+                  type="button"
+                  className={cn(draggableSectionTitleClass, isDragging && 'cursor-grabbing')}
+                  onClick={onToggleProjectsCollapsed}
+                  aria-expanded={!projectsVisuallyCollapsed}
+                  {...attributes}
+                  {...listeners}
+                >
                   <span className="truncate">{t('projects')}</span>
-                  <ChevronRight className={cn(chevronClass, !projectsCollapsed && 'rotate-90')} />
+                  <ChevronRight className={cn(chevronClass, !projectsVisuallyCollapsed && 'rotate-90')} />
                 </button>
                 {projects.length > 0 && (
                   <Button
@@ -1065,7 +1171,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                 ) : null}
               </div>
 
-              <div className={cn(collapsePanelClass, 'flex-1 min-h-0', projectsCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
+              <div className={cn(collapsePanelClass, 'flex-1 min-h-0', isSectionDragging && 'transition-none', projectsVisuallyCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
                 <div className={collapseInnerClass}>
                   <div ref={projectsScrollViewportRef} className="h-full overflow-y-auto">
                     <div className="space-y-0.5">
@@ -1402,12 +1508,22 @@ export const ChatSidebar = memo(function ChatSidebar({
               </div>
             </div>
           </div>
-
-          <div className="flex-1 min-h-0 flex flex-col overflow-hidden px-3 pb-3">
+                      </>
+                    ) : (
+                      <>
+                        <div className="h-full flex min-h-0 flex-col overflow-hidden px-3 pb-3">
             <div className={sectionHeaderClass}>
-              <button type="button" className={sectionToggleClass} onClick={onToggleConversationsCollapsed} aria-expanded={!conversationsCollapsed}>
+              <button
+                ref={setActivatorNodeRef}
+                type="button"
+                className={cn(draggableSectionTitleClass, isDragging && 'cursor-grabbing')}
+                onClick={onToggleConversationsCollapsed}
+                aria-expanded={!conversationsVisuallyCollapsed}
+                {...attributes}
+                {...listeners}
+              >
                 <span className="truncate">{t('conversations')}</span>
-                <ChevronRight className={cn(chevronClass, !conversationsCollapsed && 'rotate-90')} />
+                <ChevronRight className={cn(chevronClass, !conversationsVisuallyCollapsed && 'rotate-90')} />
               </button>
               <Button
                 variant="ghost"
@@ -1420,7 +1536,7 @@ export const ChatSidebar = memo(function ChatSidebar({
               </Button>
             </div>
 
-            <div className={cn(collapsePanelClass, 'flex-1 min-h-0', conversationsCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
+            <div className={cn(collapsePanelClass, 'flex-1 min-h-0', isSectionDragging && 'transition-none', conversationsVisuallyCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
               <div className={collapseInnerClass}>
                 <div className="h-full overflow-y-auto pb-2">
                   {globalSessions.length === 0 && !globalHasMore ? (
@@ -1531,6 +1647,13 @@ export const ChatSidebar = memo(function ChatSidebar({
               </div>
             </div>
           </div>
+                      </>
+                    )}
+                  </SortableSidebarSection>
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
         </>
       ) : null}
 

@@ -32,7 +32,7 @@ components/
 │   ├── ShareConversationDialog.tsx # 分享对话对话框 (199 行)
 │   └── SharedConversationPage.tsx  # 查看分享的对话页面 (266 行)
 ├── sidebar/
-│   └── ChatSidebar.tsx             # 聊天侧边栏 (551 行)
+│   └── ChatSidebar.tsx             # 聊天侧边栏（Projects / Tasks 标题区支持鼠标、触摸与键盘排序）
 ├── workspace/
 │   ├── WorkspaceInspector.tsx      # 右侧统一工作区检查器，顶部 Tab 支持拖动排序；含文件/审查/终端/浏览器/subagent 运行详情
 │   ├── SubagentRunDetailContent.tsx # Workspace Inspector 中的 subagent 单次运行详情内容
@@ -104,6 +104,10 @@ components/
 - 无限滚动加载会话 (Intersection Observer)
 - 搜索入口、全局 Skills 设置入口
 - 项目分组和会话列表折叠/展开
+- Projects 与 Tasks（源码仍沿用 conversations 状态/key）作为两个完整顶层区块按 `sectionOrder` 动态渲染；不再使用标题旁专用拖拽图标，现有标题主 toggle 同时作为 `useSortable` activator：普通单击仍折叠/展开，PointerSensor 超过 6px 后开始鼠标/触摸拖拽，`touch-none` 与 grab/grabbing 光标提供反馈；KeyboardSensor 配合 `sortableKeyboardCoordinates` 继续支持聚焦标题后以 Space 开始、方向键移动、Space 放下。右侧折叠全部项目、添加、筛选和新建任务等操作按钮不绑定 attributes/listeners。置顶区固定在排序区外；顶层区块使用 `sidebar-section:*` 命名空间 ID，Projects 列表内部原有独立 dnd-kit 排序、视口边界和 `onReorderProjects` 持久化保持不变
+- 开始拖动任一区块后，Projects 与 Tasks 都仅在视觉上临时折叠：Chevron、`aria-expanded`、外层 `SortableSidebarSection` 尺寸和内容 grid 统一使用派生折叠状态，内容收缩期间禁用过渡以稳定 DnD 测量；cancel/end 清除 `draggingSectionId` 后按各自原 `projectsCollapsed` / `conversationsCollapsed` 状态恢复，不修改持久折叠偏好
+- 顶层排序容器保持 `flex / min-h-0 / overflow-hidden`，区块视觉折叠后使用 `shrink-0` 并按当前顺序紧贴；展开时 Tasks 才占用剩余高度（`flex-1`），Projects 继续限制为 `max-h-[55%]`。两区内部滚动容器不变，底部设置区继续以 `mt-auto shrink-0` 固定
+- 顶层区块顺序由 `src/lib/sidebar-section-order.ts` 安全读写浏览器 `localStorage`；桌面与移动侧栏共用 App 中同一状态，刷新后恢复，不参与后端备份或跨设备同步
 - 渠道会话在列表、搜索和对话页标题中按普通文字显示“渠道名 · 标题”，不改变真实标题，也不使用徽标或差异化样式
 - 长会话标题默认单行省略；桌面端仅在标题实际溢出时悬停滚动，并遵循系统的“减少动态效果”设置
 - 当前对话顶部“更多”菜单由 `src/App.tsx` 管理，提供置顶、重命名、分享和归档操作；手机端在标题栏下方以视口内固定浮层展示，Android 移动壳横屏时仍保持移动布局

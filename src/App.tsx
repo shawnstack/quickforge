@@ -75,6 +75,13 @@ import { logger } from '@/lib/logger'
 import { scheduleAfterPaint } from '@/lib/schedule-after-paint'
 import { TUNNEL_RECOVERED_EVENT, type TunnelRecoveredEventDetail } from '@/lib/tunnel-recovery'
 import {
+  loadSidebarSectionOrder,
+  reorderSidebarSections,
+  saveSidebarSectionOrder,
+  type SidebarSectionId,
+  type SidebarSectionOrder,
+} from '@/lib/sidebar-section-order'
+import {
   loadSidebarSessionSortMode,
   loadSidebarSessionViewMode,
   saveSidebarSessionSortMode,
@@ -310,6 +317,7 @@ function MainApp() {
     sessionId?: string
     artifacts: AiTurnArtifact[]
   }>({ artifacts: [] })
+  const [sidebarSectionOrder, setSidebarSectionOrder] = useState<SidebarSectionOrder>(loadSidebarSectionOrder)
   const [sidebarSessionViewMode, setSidebarSessionViewMode] = useState<SidebarSessionViewMode>(
     loadSidebarSessionViewMode,
   )
@@ -361,6 +369,14 @@ function MainApp() {
     setDesktopTitlebarMenuOpen(false)
     window.open('quickforge://exit', '_blank', 'noopener,noreferrer')
   }, [])
+
+  const handleSidebarSectionReorder = useCallback((activeId: SidebarSectionId, overId: SidebarSectionId) => {
+    setSidebarSectionOrder((current) => reorderSidebarSections(current, activeId, overId))
+  }, [])
+
+  useEffect(() => {
+    saveSidebarSectionOrder(sidebarSectionOrder)
+  }, [sidebarSectionOrder])
 
   useEffect(() => {
     saveSidebarSessionViewMode(sidebarSessionViewMode)
@@ -1681,6 +1697,7 @@ function MainApp() {
         projectsCollapsed={ui.projectsCollapsed}
         pinnedCollapsed={ui.pinnedCollapsed}
         conversationsCollapsed={ui.conversationsCollapsed}
+        sectionOrder={sidebarSectionOrder}
         projects={projects}
         expandedProjectIds={expandedProjectIds}
         activeProject={activeProject}
@@ -1710,6 +1727,7 @@ function MainApp() {
         onTogglePinnedCollapsed={ui.togglePinnedCollapsed}
         onToggleProjectsCollapsed={ui.toggleProjectsCollapsed}
         onToggleConversationsCollapsed={ui.toggleConversationsCollapsed}
+        onReorderSections={handleSidebarSectionReorder}
         onToggleProjectExpanded={toggleProjectExpanded}
         onToggleAllProjectsExpanded={toggleAllProjectsExpanded}
         onReorderProjects={reorderProjects}
@@ -1755,6 +1773,7 @@ function MainApp() {
               projectsCollapsed={ui.projectsCollapsed}
               pinnedCollapsed={ui.pinnedCollapsed}
               conversationsCollapsed={ui.conversationsCollapsed}
+              sectionOrder={sidebarSectionOrder}
               projects={projects}
               expandedProjectIds={expandedProjectIds}
               activeProject={activeProject}
@@ -1784,6 +1803,7 @@ function MainApp() {
               onTogglePinnedCollapsed={ui.togglePinnedCollapsed}
               onToggleProjectsCollapsed={ui.toggleProjectsCollapsed}
               onToggleConversationsCollapsed={ui.toggleConversationsCollapsed}
+              onReorderSections={handleSidebarSectionReorder}
               onToggleProjectExpanded={toggleProjectExpanded}
               onToggleAllProjectsExpanded={toggleAllProjectsExpanded}
               onReorderProjects={reorderProjects}

@@ -846,6 +846,22 @@
         "docs/wiki/server/routes/README.md"
       ],
       "verification": "合并定向 vitest 20 files / 242 tests passed；相关 eslint 0；tsc -b passed；npm run build passed（仅既有 KaTeX/chunk warnings）；git diff --check passed。"
+    },
+    {
+      "id": "fix-session-state-clear-actions",
+      "name": "修复取消置顶与归档恢复未清除会话状态",
+      "status": "done",
+      "approach": "统一按服务端三态契约修复两个同根因前端写入：useSessionActions 取消置顶由 pinnedAt:undefined 改为可序列化的 pinnedAt:null；归档设置页恢复会话不再 delete archivedAt，而是向 session 与 metadata 两个 save payload 都明确写 archivedAt:null。服务端既有语义保持不变（字符串=设置、null=清除、字段缺失=保留）。新增前端 payload 回归测试，并扩展 storage-v2 facade 测试验证 null 清除 SQLite state/metadata、提升列 pinned_at/archived_at 及 pinned/archive 查询过滤状态。Wiki 无需更新：本修复仅恢复既有状态清除承诺，不改变模块职责、公共入口或配置方式。",
+      "files": [
+        "src/hooks/useSessionActions.ts",
+        "src/lib/archived-conversations-settings-tab.ts",
+        "tests/frontend/session-state-clear-actions.test.ts",
+        "tests/server/storage.session-state-facade.test.mjs",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/session-state-clear-actions.test.ts tests/server/storage.session-state-facade.test.mjs → 2 files / 27 tests passed；npx eslint src/hooks/useSessionActions.ts src/lib/archived-conversations-settings-tab.ts tests/frontend/session-state-clear-actions.test.ts tests/server/storage.session-state-facade.test.mjs → 0 error；npx tsc -b --pretty false → exit 0；npm run build → exit 0（仅既有 KaTeX 字体解析与 chunk size warning）；git diff --check → 通过。"
     }
   ]
 }

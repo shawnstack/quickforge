@@ -67,7 +67,7 @@ export function useSessionActions({
     const metadata = await storage.sessions.getMetadata(sessionId) as QuickForgeSessionMetadata | null
     if (!metadata) return
 
-    const pinnedAt = metadata.pinnedAt ? undefined : new Date().toISOString()
+    const pinnedAt = metadata.pinnedAt ? null : new Date().toISOString()
     const nextMetadata = { ...metadata, pinnedAt }
     await storage.backend.set('sessions-metadata', sessionId, nextMetadata)
     await refreshSessions({ broadcast: true })

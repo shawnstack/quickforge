@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite/database.mjs'
 import { createSessionStateRepository } from '../../server/sqlite/session-state-repository.mjs'
+import { createSessionIndexRepository } from '../../server/sqlite/session-index-repository.mjs'
 import {
   configureSessionStateService,
   readSessionMetadataBuckets,
@@ -226,6 +227,50 @@ describe('storage facade delegation in authoritative mode', () => {
         return data
       }).catch((e) => e)
       expect(error).toMatchObject({ statusCode: 409, errorCode: 'SESSION_STATE_REQUIRED' })
+    })
+  })
+
+  it('clears pinned/archive state with explicit null and updates index filters', async () => {
+    await withAuthoritativeFacade(async ({ storageModule, repository, database }) => {
+      const sessionIndex = createSessionIndexRepository(database)
+      await storageModule.writeSessionValue('one', sessionBody('one'))
+      await storageModule.atomicUpdate('sessions-metadata', (data) => {
+        data.one = {
+          ...data.one,
+          pinnedAt: '2026-01-01T00:00:00.000Z',
+          archivedAt: '2026-02-01T00:00:00.000Z',
+        }
+        return data
+      })
+
+      expect(sessionIndex.listPage({
+        scopeMode: 'all', archive: 'only', pinnedOnly: true,
+        sort: 'pinnedAt', direction: 'desc', limit: 20, offset: 0,
+      }).values.map((value) => value.id)).toEqual(['one'])
+
+      await storageModule.applySessionBatch([
+        { store: 'sessions', type: 'set', key: 'one', value: { archivedAt: null } },
+        { store: 'sessions-metadata', type: 'set', key: 'one', value: { pinnedAt: null, archivedAt: null } },
+      ])
+
+      const record = repository.findBySessionId('one')
+      expect(record.state).not.toHaveProperty('pinnedAt')
+      expect(record.state).not.toHaveProperty('archivedAt')
+      expect(record.metadata).not.toHaveProperty('pinnedAt')
+      expect(record.metadata).not.toHaveProperty('archivedAt')
+      expect(database.prepare("SELECT pinned_at, archived_at FROM sessions WHERE session_id = 'one'").get()).toEqual({ pinned_at: null, archived_at: null })
+      expect(sessionIndex.listPage({
+        scopeMode: 'all', archive: 'only', pinnedOnly: false,
+        sort: 'lastModified', direction: 'desc', limit: 20, offset: 0,
+      }).total).toBe(0)
+      expect(sessionIndex.listPage({
+        scopeMode: 'all', archive: 'exclude', pinnedOnly: true,
+        sort: 'pinnedAt', direction: 'desc', limit: 20, offset: 0,
+      }).total).toBe(0)
+      expect(sessionIndex.listPage({
+        scopeMode: 'all', archive: 'exclude', pinnedOnly: false,
+        sort: 'lastModified', direction: 'desc', limit: 20, offset: 0,
+      }).values.map((value) => value.id)).toEqual(['one'])
     })
   })
 

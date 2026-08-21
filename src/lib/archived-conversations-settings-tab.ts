@@ -17,10 +17,8 @@ function formatDate(value?: string) {
   return date.toLocaleString(getDateLocale())
 }
 
-function withoutArchivedAt<T extends { archivedAt?: string }>(value: T): T {
-  const next = { ...value }
-  delete next.archivedAt
-  return next
+function withClearedArchivedAt<T extends { archivedAt?: string }>(value: T): T {
+  return { ...value, archivedAt: null } as T
 }
 
 function notifySessionsChanged() {
@@ -127,7 +125,7 @@ class ArchivedConversationsSettingsTab extends SettingsTab {
       const session = await storage.sessions.get(sessionId) as QuickForgeSessionData | null
       const metadata = await storage.sessions.getMetadata(sessionId) as QuickForgeSessionMetadata | null
       if (!session || !metadata) throw new Error(t('sessionNotFound'))
-      await storage.sessions.save(withoutArchivedAt(session), withoutArchivedAt(metadata))
+      await storage.sessions.save(withClearedArchivedAt(session), withClearedArchivedAt(metadata))
       this.sessions = this.sessions.filter((item) => item.id !== sessionId)
       this.message = t('sessionRestored')
       notifySessionsChanged()

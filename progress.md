@@ -2,6 +2,10 @@
 
 ## Current State
 
+- Feature: 修复取消置顶与归档恢复未清除会话状态（fix-session-state-clear-actions，**已完成**）
+- Status: done — 按服务端既有三态契约（字符串=设置、`null`=清除、字段缺失=保留），取消置顶 payload 改为 `pinnedAt:null`，归档恢复对 session/metadata 两个 save payload 均写 `archivedAt:null`，避免 `JSON.stringify` 丢弃 undefined 或 batch merge 保留旧值。前端与服务端定向回归测试 27/27 通过，验证序列化 payload、state/metadata、SQLite `pinned_at`/`archived_at` 与 pinned/archive 查询索引状态均正确清除；改动文件 eslint、`tsc -b`、build、diff check 通过。
+- Next step: 无代码 blocker；未改 Wiki（仅恢复既有行为契约）。
+
 - Feature: 输入框 @ 引用当前项目文件并与插件能力解耦（file-reference-mention，**已完成**）
 - Status: done — `@` 仅搜索当前 QuickForge 项目文件：裸 `@` 和 1 字符只提示，2+ 字符经 300ms debounce 调用严格 projectId 的 files-only mention-search，并支持键盘选择与结构化文件 chip；`+ → 能力` 生成独立能力 chip，不再插入 `@Documents` 或从正文推断。`text`、`contextReferences`、`selectedCapabilities` 已写入 localStorage 草稿（能力防御规范化、按 `type+pluginName+name` 去重、最多 4），附件仍不持久化；文件引用随下一次 prompt 一次性发送，服务端重新校验项目/路径/敏感边界，注入相对路径提示并持久化 history details，失败回滚/retry 链路已覆盖。OpenCode/shared 禁用或拒绝非空引用；mention-search 对未知/已删除 projectId 返回 404 `PROJECT_NOT_FOUND`，普通 workspace search/children 等兼容回退不变。验证：合并定向 vitest 20 files / 242 tests passed；相关 eslint 0；`tsc -b` passed；`npm run build` passed（仅既有 KaTeX/chunk warnings）；`git diff --check` passed。
 - MVP 限制 / Next step: 输入框只有 chip、没有正文且没有附件时不能发送；裸 `@` 不提供最近文件；真机目视待用户（键盘选择、深浅主题、草稿恢复、发送后历史 chip 与敏感/错误提示）。

@@ -1,5 +1,15 @@
 # Session Handoff
 
+## 当前状态：fix-session-state-clear-actions（已完成）
+
+- 目标：修复两个同根因状态清除缺陷——取消置顶与归档恢复均需通过可序列化的 `null` 触发服务端 clear 语义。
+- 实现：`src/hooks/useSessionActions.ts` 将取消置顶从 `pinnedAt:undefined` 改为 `pinnedAt:null`；`src/lib/archived-conversations-settings-tab.ts` 将删除 `archivedAt` 字段改为 session/metadata 两个 payload 都显式写 `archivedAt:null`。服务端代码未改，继续使用字符串=设置、null=清除、字段缺失=保留的三态契约。
+- 测试：新增 `tests/frontend/session-state-clear-actions.test.ts`（2 用例），行为验证取消置顶传给 backend 的对象及 JSON 均含 `pinnedAt:null`，并验证归档恢复 helper 产生的两个 JSON payload 均含 `archivedAt:null`；扩展 `tests/server/storage.session-state-facade.test.mjs`，验证 null 同时清除 state/metadata、SQLite 提升列及 pinned/archive 查询过滤状态。
+- 验证：合并定向 vitest 2 文件 / 27 用例全部通过；改动文件 eslint 0 error；`npx tsc -b --pretty false`、`npm run build`、`git diff --check` 通过。build 仅既有 KaTeX 字体解析与 chunk size warning。
+- 边界：未修改 Wiki（仅恢复既有行为承诺，不影响架构/入口）；未修改用户已有 `package-lock.json`；未触碰生成目录，未新增依赖，未提交 Git。工作区同时存在并行会话的 slash-menu-canonical-name-display 改动，均已保留。
+
+---
+
 ## 当前状态：file-reference-mention（已完成）
 
 - 目标：让聊天输入框使用 `@` 引用当前项目文件，并把插件能力选择解耦到 `+ → 能力`，保持结构化草稿、一次性发送与服务端安全边界一致。

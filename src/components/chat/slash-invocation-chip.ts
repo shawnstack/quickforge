@@ -21,8 +21,10 @@
  *   经 compositionupdate 镜像进幽灵层并以弱下划线提示输入中状态；浏览器将
  *   预编辑写入 textarea.value（透明不重绘），候选窗仍锚定真实光标；
  *   compositionend 后按最新文本走 update 校验；
- * - 光标进入前缀区域（selectionchange）→ 自毁：卸覆盖层、原文可见，菜单逻辑自然
- *   接管；不记 dismissed，光标回到尾部继续输入时自动 engage 仍可恢复；
+ * - 光标进入前缀区域（selectionchange）→ 降级显示原文（隐藏覆盖层、卸透明 class，
+ *   选中态保留），光标回到尾部自愈恢复；
+ * - 点击 chip 本体（CSS pointer-events:auto + pointerdown 拦截）不穿透到前缀区：
+ *   聚焦 textarea 并把光标移到文本末尾，chip 保持显示、不降级露出原文；
  * - Escape → clear()：保留文本退出选中态，并记住 dismissed 前缀——同前缀在文本
  *   变化前不再自动 engage（否则 Esc 无效）；
  * - removePrefix()：删除 cmd 前缀（含紧随一个空格）并退出，用于退格到 chip 右边界。
@@ -314,6 +316,16 @@ export function createSlashInvocationChip(options: { panel: HTMLElement; env?: P
     }
   }
 
+  const handleChipPointerDown = (event?: { preventDefault?: () => void }) => {
+    // 点击 chip 不能穿透到 textarea 前缀区（会触发降级显示原文）。
+    event?.preventDefault?.()
+    if (!textarea) return
+    const text = textarea.value ?? ''
+    textarea.focus?.()
+    textarea.selectionStart = text.length
+    textarea.selectionEnd = text.length
+  }
+
   const attachListeners = () => {
     if (!textarea) return
     textarea.addEventListener('compositionstart', handleCompositionStart)
@@ -368,6 +380,8 @@ export function createSlashInvocationChip(options: { panel: HTMLElement; env?: P
     textNode?.remove()
     preeditEl?.remove()
     chipEl = createSlashChipElement(next)
+    // 仅输入框覆盖层内的 chip 可点击；消息流 chip 纯展示，不挂监听。
+    chipEl.addEventListener('pointerdown', handleChipPointerDown)
     spacer = document.createElement('span')
     spacer.className = 'quickforge-slash-spacer'
     textNode = document.createTextNode('')

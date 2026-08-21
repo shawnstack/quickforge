@@ -552,6 +552,32 @@ describe('slash invocation chip controller', () => {
     expect(h.chip.isDismissed('/agent explore')).toBe(false)
   })
 
+  it('pointerdown on the chip: keeps the chip visible and moves the caret to the end', () => {
+    const h = installDocument()
+    h.setText('/agent explore fix the bug')
+    h.chip.engage(agentInvocation)
+
+    const chipEl = h.slashChip()!
+    expect(chipEl.listeners['pointerdown']?.length).toBe(1)
+
+    const preventDefault = vi.fn()
+    fire(chipEl, 'pointerdown', { preventDefault })
+
+    // 点击 chip 不穿透到前缀区：吃掉默认行为，聚焦并把光标移到文本末尾。
+    expect(preventDefault).toHaveBeenCalledTimes(1)
+    expect(h.textarea.focus).toHaveBeenCalled()
+    expect(h.textarea.selectionStart).toBe('/agent explore fix the bug'.length)
+    expect(h.textarea.selectionEnd).toBe('/agent explore fix the bug'.length)
+    // 选中态保留：不降级显示原文。
+    expect(h.chip.isActive()).toBe(true)
+    expect(h.overlay()?.style.display ?? '').not.toBe('none')
+    expect(h.textarea.classList.contains('quickforge-slash-source-text')).toBe(true)
+
+    // CSS 契约：只有覆盖层内的 chip 可接收点击（消息流 chip 保持纯展示）。
+    const css = readFileSync('src/index.css', 'utf8')
+    expect(css).toMatch(/\.quickforge-slash-overlay \.quickforge-slash-chip\s*\{[^}]*pointer-events:\s*auto/s)
+  })
+
   it('update: rebuilds the overlay when it was removed externally', () => {
     const h = installDocument()
     h.setText('/agent explore task')

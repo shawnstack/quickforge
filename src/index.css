@@ -3773,6 +3773,12 @@ html.dark .quickforge-scroll-bottom-badge {
   cursor: default;
 }
 
+/* 覆盖层整体 pointer-events:none，仅输入框内 chip 可点击：pointerdown 被控制器
+   拦截并把光标移到文本末尾，避免点击穿透到前缀区降级显示原文；消息流 chip 不受影响 */
+.quickforge-slash-overlay .quickforge-slash-chip {
+  pointer-events: auto;
+}
+
 .quickforge-slash-chip svg {
   width: 0.85rem;
   height: 0.85rem;

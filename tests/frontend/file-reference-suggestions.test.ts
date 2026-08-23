@@ -37,7 +37,7 @@ describe('file reference mention helpers', () => {
     expect(token.start).toBe(7)
   })
 
-  it('accepts only defensive relative file entries and caps at eight', () => {
+  it('accepts defensive relative file and directory entries without truncating the browsed level', () => {
     const entries = normalizeFileMentionEntries([
       { name: 'one.ts', path: 'src\\one.ts', type: 'file' },
       { name: 'directory', path: 'src', type: 'directory' },
@@ -46,8 +46,8 @@ describe('file reference mention helpers', () => {
       ...Array.from({ length: 10 }, (_, index) => ({ name: `${index}.ts`, path: `src/${index}.ts`, type: 'file' })),
     ])
     expect(entries[0]).toEqual({ name: 'one.ts', path: 'src/one.ts', type: 'file' })
-    expect(entries).toHaveLength(8)
-    expect(entries.every((entry) => entry.type === 'file')).toBe(true)
+    expect(entries[1]).toEqual({ name: 'directory', path: 'src', type: 'directory' })
+    expect(entries).toHaveLength(12)
   })
 
   it('deduplicates references and caps the structured list at eight', () => {

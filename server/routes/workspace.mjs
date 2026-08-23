@@ -998,12 +998,65 @@ async function mentionSearchEntryFromDirent(directory, dirent, context, validate
   try {
     await validateWorkspacePath(fullPath)
     const stat = await fs.stat(fullPath)
-    if (stat.isDirectory()) return { name: dirent.name, path: relativePath, type: 'directory', fullPath }
+    if (stat.isDirectory()) {
+      if (SKIP_DIRS.has(dirent.name)) return null
+      if (dirent.isSymbolicLink()) {
+        const workspaceReal = await fs.realpath(context.workspaceRoot)
+        const targetPaths = [
+          [workspaceReal, await fs.realpath(fullPath)],
+          [context.workspaceRoot, path.resolve(directory, await fs.readlink(fullPath))],
+        ]
+        if (targetPaths.some(([root, target]) => path.relative(root, target).split(path.sep).some((part) => SKIP_DIRS.has(part)))) return null
+      }
+      return { name: dirent.name, path: relativePath, type: 'directory', fullPath }
+    }
     if (stat.isFile()) return { name: dirent.name, path: relativePath, type: 'file' }
   } catch {
     // Sensitive, external, broken, or inaccessible entries are omitted.
   }
   return null
+}
+
+async function readMentionWorkspaceDirectory(context, relativePath) {
+  const requestedPath = relativePath?.trim() || '.'
+  const directory = resolveWorkspacePath(requestedPath, context)
+  const validateWorkspacePath = await createWorkspacePathValidator(context)
+  await validateWorkspacePath(directory)
+  const stat = await fs.stat(directory)
+  if (!stat.isDirectory()) {
+    const error = new Error('Path is not a directory')
+    error.statusCode = 400
+    throw error
+  }
+  return { directory, requestedPath: toWorkspaceRelative(directory, context), validateWorkspacePath }
+}
+
+export async function listWorkspaceMentionChildren(context, relativePath = '.') {
+  const { directory, requestedPath, validateWorkspacePath } = await readMentionWorkspaceDirectory(context, relativePath)
+  const dirents = await fs.readdir(directory, { withFileTypes: true })
+  const entries = []
+  for (const dirent of dirents) {
+    const entry = await mentionSearchEntryFromDirent(directory, dirent, context, validateWorkspacePath)
+    if (!entry) continue
+    entries.push({ name: entry.name, path: entry.path, type: entry.type })
+  }
+  entries.sort(compareWorkspaceEntries)
+  return {
+    root: context.project.name,
+    path: requestedPath,
+    entries,
+  }
+}
+
+async function handleWorkspaceMentionChildren(req, res, url) {
+  const projectId = url.searchParams.get('projectId')
+  if (!projectId) {
+    const error = new Error('projectId is required')
+    error.statusCode = 400
+    throw error
+  }
+  const context = await registeredProjectContextFromId(projectId)
+  sendJson(res, 200, await listWorkspaceMentionChildren(context, url.searchParams.get('path') || '.'))
 }
 
 export async function searchWorkspaceMentions(context, rawQuery, options = {}) {
@@ -1515,6 +1568,10 @@ export async function handleWorkspaceApi(req, res, url, requestContext = {}) {
   }
   if (req.method === 'GET' && url.pathname === '/api/workspace/search') {
     await handleWorkspaceSearch(req, res, url)
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/workspace/mention-children') {
+    await handleWorkspaceMentionChildren(req, res, url)
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/workspace/mention-search') {

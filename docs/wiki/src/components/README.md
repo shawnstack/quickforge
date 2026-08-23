@@ -9,7 +9,7 @@ components/
 │   ├── ModelSetupEmptyState.tsx    # 模型未配置时的空状态引导 (43 行)
 │   ├── chat-utils.ts               # 共享类型、DOM 工具、token 估算 (340 行)
 │   ├── command-suggestions.ts      # 聊天输入框 / 斜杠菜单：指令·技能·子智能体三分组补全 + 选中态 chip（方案 A）(481 行)
-│   ├── file-reference-suggestions.ts # Composer @ 当前项目文件搜索、键盘选择与结构化文件 chip (408 行)
+│   ├── file-reference-suggestions.ts # Composer @ 当前项目逐层目录浏览、文件筛选/选择与结构化文件 chip (403 行)
 │   ├── capability-suggestions.ts   # + 菜单插件目录与结构化插件 chip（不再占用 @）(233 行)
 │   ├── capability-icons.ts         # @ 文件引用与非 Slash 插件菜单/chip 的中立图标表
 │   ├── slash-icons.ts              # Slash 三类复用 Lucide 图标静态映射（SquareTerminal / BookOpen / Bot）
@@ -157,14 +157,14 @@ components/
 
 **file-reference-suggestions.ts**
 - Composer 内独立 `@` 文件引用控制器，只在当前 QuickForge 项目、可编辑会话启用；OpenCode、分享页、无项目和只读页禁用，插件不会进入 `@` 结果。
-- token 规则为 `(^|\\s)@([^\\s@]*)$`；裸 `@` 与 1 字符 query 只显示继续输入提示，不提供最近文件；2+ 字符经 300ms debounce 请求 `/api/workspace/mention-search?projectId&query&limit=8`，AbortController + generation 丢弃旧响应；仅接受 `type:'file'` 且安全相对路径。
-- 菜单复用 Composer 浮层视觉，支持 loading/empty/error、名称/路径匹配高亮、8 行上限、ArrowUp/Down 循环、Enter/Tab 选择、Esc 关闭和 IME 放行，并与 `/`、`+` 菜单互斥。
-- 选择后删除活动 `@token` 而不插入 `@path`，保留 token 前后正文、附件和 caret；结构化 `contextReferences` 最多 8 个并去重，显示可删除文件 chip（文件名 + 项目相对路径 title），绝不显示绝对路径。文件 chip 与插件 chip 共用 `.quickforge-context-chips`，每次同步都通过 `ensureComposerContextChips` 保证标签行位于真正输入卡片内部、textarea 之前，并在自身 chip 增删后通过共享 helper 按仅文件、仅插件、混合三态同步 aria-label，避免两个控制器因同步顺序搬移容器或覆盖错误可访问名称。
+- token 规则为 `(^|\\s)@([^\\s@]*)$`；裸 `@` 立即请求 `/api/workspace/mention-children?projectId&path=.` 并展示项目根目录全部一级安全文件/目录。选择目录（点击/Enter/Tab）只更新浏览路径并请求该目录直接子节点，逐层进入、不递归；选择文件才删除活动 `@token` 并加入 context reference。输入 `@src` 等文字只对当前已加载目录的名称做大小写不敏感筛选，不触发全项目搜索或新请求；关闭后下次 `@` 从根目录重新开始。
+- 菜单复用 Composer 浮层视觉，当前层结果不固定截断，由既有 `max-height + overflow-y:auto` 滚动浏览；目录优先排序，目录与文件使用不同图标/辅助文案。支持 loading/empty/error、名称匹配高亮、ArrowUp/Down 循环、Enter/Tab 进入目录或选择文件、Esc 关闭和 IME 放行，并与 `/`、`+` 菜单互斥。
+- 选择文件后删除活动 `@token` 而不插入 `@path`，保留 token 前后正文、附件和 caret；结构化 `contextReferences` 最多 8 个并去重，目录绝不加入引用。文件 chip 显示文件名并以项目相对路径作为 title，绝不显示绝对路径。文件 chip 与插件 chip 共用 `.quickforge-context-chips`，每次同步都通过 `ensureComposerContextChips` 保证标签行位于真正输入卡片内部、textarea 之前，并在自身 chip 增删后通过共享 helper 按仅文件、仅插件、混合三态同步 aria-label，避免两个控制器因同步顺序搬移容器或覆盖错误可访问名称。
 
 **capability-suggestions.ts / capability-icons.ts / slash-icons.ts**
 - 插件目录只供 `+ → 插件` 使用，来源仍是 enabled + loaded 插件；用户界面与无障碍文案统一使用「插件 / Plugins」「已选插件 / Selected plugins」「移除插件 / Remove plugin」，内部 capability 类型、`selectedCapabilities` 字段与发送协议不重命名。选择后产生可删除结构化插件 chip，不向正文插入 `@Documents`，发送时 `consumeSelectedCapabilities()` 只消费显式选择，不从文本推断；选择/草稿/发送共用 `src/lib/selected-capabilities.ts` 规范化（合法对象和字符串、长度裁剪、按 `type+pluginName+name` 去重、保持顺序、最多 4 项）。
 - 插件 chip 与文件 chip 共用的标签行固定在 `message-editor` 真正输入卡片内部、textarea 之前；两个控制器每次同步都调用共享 `ensureComposerContextChips`，完成自身 chip 增删后再统一同步可访问名称：仅插件为「已选插件 / Selected plugins」，仅文件复用「引用的文件 / Referenced files」，混合为「已选插件和引用的文件 / Selected plugins and referenced files」，空容器移除，因此不受先后顺序影响且不会互相覆盖错误语义。内置 `documents` / `spreadsheets` / `presentations` 按 `pluginName` 使用 `capability-icons.ts` 的 document / spreadsheet / presentation 专用图标，未知插件回退通用 plugin 图标；标签保留显式 × 删除，视觉尺寸参考 `.quickforge-slash-chip` 的紧凑排布，但不复用 Slash overlay 控制器。
-- 插件选择与正文、文件引用一起写入当前 Composer 的 `localStorage` 草稿；恢复时防御规范化、按 `type+pluginName+name` 去重且最多 4 个，附件仍不持久化。`capability-icons.ts` 继续服务 @ 文件引用与非 Slash 插件 chip/菜单；`slash-icons.ts` 单独把 Slash command/skill/agent 映射到已有 Lucide `SquareTerminal` / `BookOpen` / `Bot`，避免 Slash 再新增自绘类别 glyph，也不影响插件菜单图标。
+- 插件选择与正文、文件引用一起写入当前 Composer 的 `localStorage` 草稿；恢复时防御规范化、按 `type+pluginName+name` 去重且最多 4 个，附件仍不持久化。`capability-icons.ts` 继续服务 @ 文件引用与非 Slash 插件 chip/菜单，其中独立 `folderIcon` 供目录浏览行使用；`slash-icons.ts` 单独把 Slash command/skill/agent 映射到已有 Lucide `SquareTerminal` / `BookOpen` / `Bot`，避免 Slash 再新增自绘类别 glyph，也不影响插件菜单图标。
 
 **slash-invocation-chip.ts** (541 行)
 - Slash 选中态 chip 子系统（design-mockups/slash-menu-expansion.html 方案 A）：纯逻辑（前缀解析 parseSlashInvocationPrefix / 匹配校验 slashInvocationPrefixMatches / 消息流剥前缀计划 planSlashChipText / spacer 宽度 max(0, 前缀宽度 - chip 宽度)）+ 共享 chip 元素工厂（输入框与消息流复用同一元素；skill 使用 `BookOpen`、agent 使用 `Bot`，图标颜色固定为 `muted-foreground` 中性）。skill/agent 变体的既有背景与文字语义色保留，图标通过独立子元素颜色覆盖与其分离 + 控制器工厂 createSlashInvocationChip

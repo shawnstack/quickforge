@@ -1,6 +1,12 @@
 export type CapabilityIconKind = 'plugin' | 'document' | 'spreadsheet' | 'presentation' | 'skill' | 'tool' | 'command'
 
 /** Neutral icon registry for file references and non-Slash capability chips and menus. */
+export const folderIcon = `
+  <svg viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.8 5.2h5l1.5 1.7h7.9v8.3a1.7 1.7 0 0 1-1.7 1.7h-11a1.7 1.7 0 0 1-1.7-1.7z" />
+    <path d="M2.8 7h14.4" />
+  </svg>`
+
 export const capabilityIcons: Record<CapabilityIconKind, string> = {
   plugin: `
     <svg viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">

@@ -92,13 +92,12 @@ function createHarness(fetchImpl = vi.fn()) {
     restoreDraftIntoComposer,
     removeCommandSuggestions: vi.fn(),
     fetchImpl: fetchImpl as typeof fetch,
-    debounceMs: 300,
   })
   const setText = (text: string) => { editor.value = text; textarea.value = text; textarea.selectionStart = textarea.selectionEnd = text.length }
   return { panel, editor, inputCard, textarea, controller, restoreDraftIntoComposer, setText }
 }
 
-const response = (entries: unknown[]) => Promise.resolve({ ok: true, json: async () => ({ entries }) })
+const response = (entries: unknown[], directoryPath = '.') => Promise.resolve({ ok: true, json: async () => ({ path: directoryPath, entries }) })
 
 describe('file reference suggestions controller', () => {
   beforeEach(() => {
@@ -114,43 +113,109 @@ describe('file reference suggestions controller', () => {
   })
   afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.clearAllMocks() })
 
-  it('shows no recents for bare @ and waits until two characters', () => {
-    const fetchImpl = vi.fn()
+  it('loads project-root children for bare @ and filters only the current directory', async () => {
+    const fetchImpl = vi.fn(() => response([
+      { name: 'src', path: 'src', type: 'directory' },
+      { name: 'README.md', path: 'README.md', type: 'file' },
+      { name: 'source-map.js', path: 'source-map.js', type: 'file' },
+    ]))
     const h = createHarness(fetchImpl)
     h.setText('@')
     h.controller.update('@')
-    expect(fetchImpl).not.toHaveBeenCalled()
-    expect(h.panel.querySelector<HTMLElement>('.quickforge-file-reference-status')?.textContent).toBe('fileReferenceTypeTwoCharacters')
-    expect(h.panel.querySelectorAll<HTMLElement>('.quickforge-file-reference-item')).toHaveLength(0)
-    h.setText('@a')
-    h.controller.update('@a')
-    vi.advanceTimersByTime(500)
-    expect(fetchImpl).not.toHaveBeenCalled()
+    await Promise.resolve(); await Promise.resolve()
+    expect(fetchImpl).toHaveBeenCalledWith('/api/workspace/mention-children?projectId=project-1&path=.', expect.any(Object))
+    expect(h.panel.querySelectorAll<HTMLElement>('.quickforge-file-reference-item').map((row) => row.dataset.quickforgeFilePath))
+      .toEqual(['src', 'README.md', 'source-map.js'])
+
+    h.setText('@src')
+    h.controller.update('@src')
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(h.panel.querySelectorAll<HTMLElement>('.quickforge-file-reference-item').map((row) => row.dataset.quickforgeFilePath))
+      .toEqual(['src'])
+    h.controller.remove()
+    h.setText('@')
+    h.controller.update('@')
+    await Promise.resolve(); await Promise.resolve()
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(fetchImpl).toHaveBeenLastCalledWith('/api/workspace/mention-children?projectId=project-1&path=.', expect.any(Object))
   })
 
-  it('debounces search, cancels the previous request, and ignores stale responses', async () => {
-    const resolvers: Array<(value: Response) => void> = []
+  it('keeps the current directory when an aborted older request resolves late', async () => {
+    let resolveOldDirectory!: (value: Awaited<ReturnType<typeof response>>) => void
+    const oldDirectory = new Promise<Awaited<ReturnType<typeof response>>>((resolve) => { resolveOldDirectory = resolve })
     const signals: AbortSignal[] = []
-    const fetchImpl = vi.fn((_url: string, init: RequestInit) => {
+    let rootRequestCount = 0
+    const fetchImpl = vi.fn((url: string, init: RequestInit) => {
       signals.push(init.signal as AbortSignal)
-      return new Promise<Response>((resolve) => resolvers.push(resolve))
+      if (url.includes('path=src')) return oldDirectory
+      rootRequestCount += 1
+      return response(rootRequestCount === 1
+        ? [{ name: 'src', path: 'src', type: 'directory' }]
+        : [{ name: 'README.md', path: 'README.md', type: 'file' }])
     })
     const h = createHarness(fetchImpl)
-    h.setText('@ab')
-    h.controller.update('@ab')
-    vi.advanceTimersByTime(300)
-    expect(fetchImpl).toHaveBeenCalledTimes(1)
-    h.setText('@abc')
-    h.controller.update('@abc')
-    vi.advanceTimersByTime(300)
-    expect(signals[0].aborted).toBe(true)
-    expect(fetchImpl).toHaveBeenCalledTimes(2)
-    resolvers[0](await response([{ name: 'old.ts', path: 'old.ts', type: 'file' }]) as Response)
-    resolvers[1](await response([{ name: 'new.ts', path: 'src/new.ts', type: 'file' }]) as Response)
+    h.setText('@')
+    h.controller.update('@')
     await Promise.resolve(); await Promise.resolve()
-    const rows = h.panel.querySelectorAll<HTMLElement>('.quickforge-file-reference-item')
-    expect(rows).toHaveLength(1)
-    expect(rows[0].dataset.quickforgeFilePath).toBe('src/new.ts')
+    h.controller.setupTextareaHandler(h.editor as unknown as MessageEditorElement)
+    h.textarea.dispatchKey({ key: 'Enter', preventDefault: vi.fn(), stopPropagation: vi.fn(), isComposing: false } as unknown as KeyboardEvent)
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+
+    h.controller.remove()
+    expect(signals[1].aborted).toBe(true)
+    h.setText('@')
+    h.controller.update('@')
+    await Promise.resolve(); await Promise.resolve()
+    expect(h.panel.querySelectorAll<HTMLElement>('.quickforge-file-reference-item').map((row) => row.dataset.quickforgeFilePath))
+      .toEqual(['README.md'])
+
+    resolveOldDirectory(await response([{ name: 'old.ts', path: 'src/old.ts', type: 'file' }], 'src'))
+    await Promise.resolve(); await Promise.resolve()
+    expect(h.panel.querySelector<HTMLElement>('.quickforge-file-reference-header')?.textContent).toBe('fileReferenceProjectRoot')
+    expect(h.panel.querySelectorAll<HTMLElement>('.quickforge-file-reference-item').map((row) => row.dataset.quickforgeFilePath))
+      .toEqual(['README.md'])
+  })
+
+  it('removes textarea listeners during cleanup', () => {
+    const h = createHarness()
+    h.controller.setupTextareaHandler(h.editor as unknown as MessageEditorElement)
+    expect([...h.textarea.listeners.keys()].sort()).toEqual(['compositionend', 'compositionstart', 'keydown'])
+
+    h.controller.cleanupTextareaHandler()
+    expect([...h.textarea.listeners.keys()]).toEqual([])
+  })
+
+  it('opens directories with Enter and then selects a file with Tab', async () => {
+    const fetchImpl = vi.fn((url: string) => url.includes('path=src')
+      ? response([{ name: 'file.ts', path: 'src/file.ts', type: 'file' }], 'src')
+      : response([{ name: 'src', path: 'src', type: 'directory' }]))
+    const h = createHarness(fetchImpl)
+    h.setText('@')
+    h.controller.update('@')
+    await Promise.resolve(); await Promise.resolve()
+    h.controller.setupTextareaHandler(h.editor as unknown as MessageEditorElement)
+    h.textarea.dispatchKey({ key: 'Enter', preventDefault: vi.fn(), stopPropagation: vi.fn(), isComposing: false } as unknown as KeyboardEvent)
+    await vi.waitFor(() => {
+      expect(fetchImpl).toHaveBeenLastCalledWith('/api/workspace/mention-children?projectId=project-1&path=src', expect.any(Object))
+      expect(h.panel.querySelectorAll('.quickforge-file-reference-item')).toHaveLength(1)
+    })
+    expect(h.editor.contextReferences).toEqual([])
+    expect(h.editor.value).toBe('@')
+
+    h.textarea.dispatchKey({ key: 'Tab', preventDefault: vi.fn(), stopPropagation: vi.fn(), isComposing: false } as unknown as KeyboardEvent)
+    expect(h.restoreDraftIntoComposer).toHaveBeenCalledWith(expect.objectContaining({
+      text: '',
+      contextReferences: [{ type: 'file', projectId: 'project-1', path: 'src/file.ts' }],
+    }))
+  })
+
+  it('returns every current-level entry and relies on menu scrolling instead of truncating', async () => {
+    const entries = Array.from({ length: 25 }, (_, index) => ({ name: `${index}.txt`, path: `${index}.txt`, type: 'file' }))
+    const h = createHarness(vi.fn(() => response(entries)))
+    h.setText('@')
+    h.controller.update('@')
+    await Promise.resolve(); await Promise.resolve()
+    expect(h.panel.querySelectorAll('.quickforge-file-reference-item')).toHaveLength(25)
   })
 
   it('selects with Enter, removes the token, preserves attachments, and deduplicates refs', async () => {
@@ -160,7 +225,6 @@ describe('file reference suggestions controller', () => {
     h.setText('before @fi after')
     h.textarea.selectionStart = h.textarea.selectionEnd = 'before @fi'.length
     h.controller.update()
-    vi.advanceTimersByTime(300)
     await Promise.resolve(); await Promise.resolve()
     h.controller.setupTextareaHandler(h.editor as unknown as MessageEditorElement)
     h.textarea.dispatchKey({ key: 'Enter', preventDefault: vi.fn(), stopPropagation: vi.fn(), isComposing: false } as unknown as KeyboardEvent)

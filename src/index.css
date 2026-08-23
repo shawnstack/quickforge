@@ -3864,7 +3864,9 @@ html.dark .quickforge-slash-chip-agent {
   transform: none !important;
 }
 
-.quickforge-file-reference-icon { display: inline-flex; color: rgb(37 99 235); }
+.quickforge-file-reference-icon { display: inline-flex; }
+.quickforge-file-reference-icon-file { color: rgb(37 99 235); }
+.quickforge-file-reference-icon-directory { color: var(--muted-foreground); }
 .quickforge-file-reference-icon svg { width: 1rem; height: 1rem; }
 .quickforge-file-reference-main { min-width: 0; display: grid; gap: 0.08rem; }
 .quickforge-file-reference-name,

@@ -1,8 +1,8 @@
 import { t } from '@/lib/i18n'
 import { ensureComposerContextChips, syncComposerContextChipsAriaLabel, type ComposerDraft, type FileContextReference, type MessageEditorElement } from './chat-utils'
-import { capabilityIcons } from './capability-icons'
+import { capabilityIcons, folderIcon } from './capability-icons'
 
-export type FileMentionEntry = { name: string; path: string; type: 'file' }
+export type FileMentionEntry = { name: string; path: string; type: 'file' | 'directory' }
 export type FileMentionToken = { start: number; end: number; query: string }
 
 type FileReferenceSuggestionsOptions = {
@@ -14,7 +14,6 @@ type FileReferenceSuggestionsOptions = {
   removeCapabilitySuggestions?: () => void
   removePlusMenu?: () => void
   fetchImpl?: typeof fetch
-  debounceMs?: number
 }
 
 type FileSuggestionElement = HTMLDivElement & { __quickforgeDismissHandler?: (event: Event) => void }
@@ -55,13 +54,12 @@ export function normalizeFileMentionEntries(value: unknown): FileMentionEntry[] 
   for (const item of value) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) continue
     const record = item as Record<string, unknown>
-    if (record.type !== 'file' || typeof record.name !== 'string' || typeof record.path !== 'string') continue
+    if ((record.type !== 'file' && record.type !== 'directory') || typeof record.name !== 'string' || typeof record.path !== 'string') continue
     const path = record.path.trim().replace(/\\/g, '/')
     const name = record.name.trim()
     if (!name || !path || path.startsWith('/') || /^[a-zA-Z]:\//.test(path) || path.split('/').includes('..') || seen.has(path)) continue
     seen.add(path)
-    entries.push({ name, path, type: 'file' })
-    if (entries.length >= MAX_REFERENCES) break
+    entries.push({ name, path, type: record.type })
   }
   return entries
 }
@@ -123,14 +121,13 @@ export function createFileReferenceSuggestions({
   removeCapabilitySuggestions,
   removePlusMenu,
   fetchImpl = fetch,
-  debounceMs = 300,
 }: FileReferenceSuggestionsOptions) {
-  let debounceTimer: number | undefined
   let controller: AbortController | undefined
   let generation = 0
   let activeIndex = 0
   let entries: FileMentionEntry[] = []
   let state: 'idle' | 'loading' | 'ready' | 'empty' | 'error' = 'idle'
+  let currentDirectory = '.'
   let currentQuery = ''
   let composing = false
 
@@ -143,11 +140,13 @@ export function createFileReferenceSuggestions({
   }
 
   const remove = () => {
-    if (debounceTimer !== undefined) window.clearTimeout(debounceTimer)
-    debounceTimer = undefined
     controller?.abort()
     controller = undefined
     generation += 1
+    currentDirectory = '.'
+    currentQuery = ''
+    entries = []
+    state = 'idle'
     const suggestions = suggestionsElement()
     if (suggestions?.__quickforgeDismissHandler) document.removeEventListener('pointerdown', suggestions.__quickforgeDismissHandler, true)
     suggestions?.remove()
@@ -189,10 +188,14 @@ export function createFileReferenceSuggestions({
   const statusText = () => {
     if (state === 'loading') return t('fileReferenceLoading')
     if (state === 'error') return t('fileReferenceError')
-    if (state === 'empty') return t('fileReferenceEmpty')
-    if (currentQuery.length === 0 && entries.length === 0) return t('fileReferenceTypeTwoCharacters')
-    if (currentQuery.length === 1) return t('fileReferenceContinueTyping')
+    if (state === 'empty') return currentQuery ? t('fileReferenceEmpty') : t('fileReferenceDirectoryEmpty')
     return ''
+  }
+
+  const visibleEntries = () => {
+    const query = currentQuery.toLocaleLowerCase()
+    if (!query) return entries
+    return entries.filter((entry) => entry.name.toLocaleLowerCase().includes(query))
   }
 
   const setActiveRow = (rows: HTMLButtonElement[], index: number) => {
@@ -208,6 +211,22 @@ export function createFileReferenceSuggestions({
     if (!editor || !textarea) return
     const activeToken = token ?? findFileMentionToken(text, textarea.selectionStart ?? text.length)
     if (!activeToken) return
+    if (entry.type === 'directory') {
+      currentDirectory = entry.path
+      currentQuery = ''
+      const nextText = `${text.slice(0, activeToken.start)}@${text.slice(activeToken.end)}`
+      restoreDraftIntoComposer({
+        text: nextText,
+        attachments: editor.attachments ? [...editor.attachments] : [],
+        contextReferences: editor.contextReferences ? [...editor.contextReferences] : [],
+        selectedCapabilities: editor.selectedCapabilities ? [...editor.selectedCapabilities] : [],
+      })
+      const nextTextarea = editor.querySelector<HTMLTextAreaElement>('textarea')
+      nextTextarea?.focus()
+      if (nextTextarea) nextTextarea.selectionStart = nextTextarea.selectionEnd = activeToken.start + 1
+      void loadDirectory({ start: activeToken.start, end: activeToken.start + 1, query: '' })
+      return
+    }
     const nextText = replaceFileMentionToken(text, activeToken)
     editor.contextReferences = addFileContextReference(editor.contextReferences ?? [], { type: 'file', projectId, path: entry.path })
     restoreDraftIntoComposer({
@@ -230,26 +249,29 @@ export function createFileReferenceSuggestions({
     removeCapabilitySuggestions?.()
     removePlusMenu?.()
     const existing = suggestionsElement()
+    if (existing?.__quickforgeDismissHandler) document.removeEventListener('pointerdown', existing.__quickforgeDismissHandler, true)
     const suggestions = existing ?? document.createElement('div') as FileSuggestionElement
     suggestions.className = 'quickforge-file-reference-suggestions'
     suggestions.setAttribute('role', 'listbox')
     suggestions.setAttribute('aria-label', t('fileReferenceMenuLabel'))
     suggestions.innerHTML = ''
+    suggestions.replaceChildren()
 
     const header = document.createElement('div')
     header.className = 'quickforge-file-reference-header'
-    header.textContent = t('fileReferenceSearchResults')
+    header.textContent = currentDirectory === '.' ? t('fileReferenceProjectRoot') : currentDirectory
     suggestions.append(header)
 
-    entries.slice(0, MAX_REFERENCES).forEach((entry) => {
+    visibleEntries().forEach((entry) => {
       const item = document.createElement('button')
       item.type = 'button'
       item.className = 'quickforge-file-reference-item'
       item.setAttribute('role', 'option')
       item.dataset.quickforgeFilePath = entry.path
+      item.dataset.quickforgeFileType = entry.type
       const icon = document.createElement('span')
-      icon.className = 'quickforge-file-reference-icon'
-      icon.innerHTML = capabilityIcons.document
+      icon.className = `quickforge-file-reference-icon quickforge-file-reference-icon-${entry.type}`
+      icon.innerHTML = entry.type === 'directory' ? folderIcon : capabilityIcons.document
       const main = document.createElement('span')
       main.className = 'quickforge-file-reference-main'
       const name = document.createElement('span')
@@ -257,7 +279,7 @@ export function createFileReferenceSuggestions({
       appendHighlightedText(name, entry.name, currentQuery)
       const path = document.createElement('span')
       path.className = 'quickforge-file-reference-path'
-      appendHighlightedText(path, entry.path, currentQuery)
+      path.textContent = entry.type === 'directory' ? t('fileReferenceOpenDirectory') : entry.path
       main.append(name, path)
       item.append(icon, main)
       item.onpointerdown = (event) => {
@@ -288,7 +310,7 @@ export function createFileReferenceSuggestions({
     document.addEventListener('pointerdown', suggestions.__quickforgeDismissHandler, true)
   }
 
-  const search = async (query: string, token: FileMentionToken) => {
+  const loadDirectory = async (token: FileMentionToken) => {
     if (!projectId) return
     const requestGeneration = ++generation
     controller?.abort()
@@ -297,13 +319,14 @@ export function createFileReferenceSuggestions({
     entries = []
     render(token)
     try {
-      const params = new URLSearchParams({ projectId, query, limit: String(MAX_REFERENCES) })
-      const response = await fetchImpl(`/api/workspace/mention-search?${params}`, { cache: 'no-store', signal: controller.signal })
+      const params = new URLSearchParams({ projectId, path: currentDirectory })
+      const response = await fetchImpl(`/api/workspace/mention-children?${params}`, { cache: 'no-store', signal: controller.signal })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      const payload = await response.json() as { entries?: unknown }
+      const payload = await response.json() as { path?: unknown; entries?: unknown }
       if (requestGeneration !== generation) return
+      if (typeof payload.path === 'string' && payload.path) currentDirectory = payload.path
       entries = normalizeFileMentionEntries(payload.entries)
-      state = entries.length > 0 ? 'ready' : 'empty'
+      state = visibleEntries().length > 0 ? 'ready' : 'empty'
       render(token)
     } catch (error) {
       if (requestGeneration !== generation || (error instanceof DOMException && error.name === 'AbortError')) return
@@ -322,31 +345,12 @@ export function createFileReferenceSuggestions({
       return
     }
     currentQuery = token.query
-    if (currentQuery.length === 0) {
-      if (debounceTimer !== undefined) window.clearTimeout(debounceTimer)
-      controller?.abort()
-      controller = undefined
-      generation += 1
-      entries = []
-      state = 'idle'
-      render(token)
+    if (state === 'idle' || state === 'error') {
+      void loadDirectory(token)
       return
     }
-    if (currentQuery.length === 1) {
-      if (debounceTimer !== undefined) window.clearTimeout(debounceTimer)
-      controller?.abort()
-      controller = undefined
-      generation += 1
-      entries = []
-      state = 'idle'
-      render(token)
-      return
-    }
-    if (debounceTimer !== undefined) window.clearTimeout(debounceTimer)
-    debounceTimer = window.setTimeout(() => {
-      debounceTimer = undefined
-      void search(currentQuery, token)
-    }, debounceMs)
+    state = visibleEntries().length > 0 ? 'ready' : 'empty'
+    render(token)
   }
 
   const setupTextareaHandler = (editor: MessageEditorElement | null) => {
@@ -372,7 +376,8 @@ export function createFileReferenceSuggestions({
       }
       if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey && rows[activeIndex]) {
         const path = rows[activeIndex].dataset.quickforgeFilePath
-        const entry = entries.find((candidate) => candidate.path === path)
+        const type = rows[activeIndex].dataset.quickforgeFileType
+        const entry = entries.find((candidate) => candidate.path === path && candidate.type === type)
         if (!entry) return
         event.preventDefault()
         event.stopPropagation()

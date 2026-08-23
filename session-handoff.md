@@ -1,5 +1,16 @@
 # Session Handoff
 
+## 当前状态：file-reference-root-browser（已完成）
+
+- 目标：Composer 输入 `@` 时从当前项目根目录一级开始浏览；目录可点击或用 Enter/Tab 逐层进入；文字只筛选当前目录；当前层全部展示并滚动浏览；文件继续使用既有结构化 context reference。
+- 服务端：`server/routes/workspace.mjs` 新增 `listWorkspaceMentionChildren` 与 `GET /api/workspace/mention-children?projectId&path`。路由严格调用 `registeredProjectContextFromId`，未知/删除项目 404 `PROJECT_NOT_FOUND`，不回退默认 workspace；当前目录与每个子节点均走 mention 级 `allowSensitive:false` validator 和 realpath 复查，排除敏感项、项目外/敏感真实目标链接。审查修正补齐解析后 `SKIP_DIRS` 过滤：普通 `node_modules`、名为 `node_modules` 的目录链接、以及安全别名指向任意 `node_modules` 子树均不返回；普通安全目录符号链接继续允许。一次返回当前层全部直接子文件/目录，目录优先；不递归、不分页。`server/index.mjs` 已接入 dispatcher。旧 `mention-search` 保留兼容。
+- 前端：`file-reference-suggestions.ts` 裸 `@` 立即加载根目录；目录行用独立 folder 图标，点击/Enter/Tab 只进入目录且不产生引用；文件选择继续复用原 token 删除、最多 8 个引用去重、chip/草稿/发送链。输入文字按当前层 `name` 大小写不敏感本地过滤，无 debounce/递归搜索请求；菜单不做 entries slice，全部行由既有 max-height/overflow-y 滚动。菜单关闭后重置到根目录；保留 IME、Esc、Arrow、菜单互斥和 context chip 行契约。审查补测确认旧目录请求迟到不会覆盖当前根目录，`remove()` 会中止 in-flight 请求，`cleanupTextareaHandler()` 会移除 keydown/composition listeners。
+- 测试：前端覆盖裸 `@` 根目录加载、当前层筛选不追加请求、Enter 进入目录 + Tab 选文件、25 项不截断、请求竞态/Abort/cleanup、既有引用/chip 共存；服务端覆盖 205+ 当前层全部返回、直接子节点、不递归、普通与链接/别名 `node_modules` 过滤、安全普通目录链接、敏感项与链接过滤、路径拒绝、严格项目上下文及 dispatcher。
+- 文档：更新 `docs/wiki/server/routes/README.md` 与 `docs/wiki/src/components/README.md`；`DESIGN_LANGUAGE.md` 无需修改（复用既有浮层、滚动与轻量图标模式，未引入新视觉范式）。
+- 验证：审查收口 `npx vitest run tests/server/routes/workspace-tree-on-demand.test.mjs tests/frontend/file-reference-controller.test.ts` → 2 files / 29 tests 全通过；目标 `npx eslint` 0 error；`npx tsc -b --pretty false` 通过；`git diff --check` 通过（仅既有 CRLF→LF warning）。完整门禁：`npm run test` → 238 files / 2062 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）。
+
+---
+
 ## 当前状态：并行插件标签功能已提交（commit-only 会话）
 
 - 本会话任务：用户要求提交工作区代码；未修改任何功能代码。

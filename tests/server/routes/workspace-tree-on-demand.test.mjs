@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { compareWorkspaceEntries, listWorkspaceChildren, readValidatedWorkspaceSearchDirectory, searchWorkspace, searchWorkspaceMentions, handleWorkspaceApi } from '../../../server/routes/workspace.mjs'
+import { compareWorkspaceEntries, listWorkspaceChildren, listWorkspaceMentionChildren, readValidatedWorkspaceSearchDirectory, searchWorkspace, searchWorkspaceMentions, handleWorkspaceApi } from '../../../server/routes/workspace.mjs'
 import { getDefaultWorkspaceRoot, setDefaultWorkspaceRoot } from '../../../server/project-config.mjs'
 
 const tempDirs = []
@@ -150,6 +150,76 @@ describe('workspace children', () => {
     const result = await listWorkspaceChildren(context)
     expect(result.entries.map((entry) => entry.path)).toContain('inside-link')
     expect(result.entries.map((entry) => entry.path)).not.toContain('outside-link')
+  })
+})
+
+describe('workspace mention children', () => {
+  it('lists all direct safe files and directories without pagination', async () => {
+    const context = await createWorkspace()
+    await mkdir(path.join(context.workspaceRoot, 'src', 'deep'), { recursive: true })
+    await mkdir(path.join(context.workspaceRoot, '.git'))
+    await mkdir(path.join(context.workspaceRoot, 'node_modules'))
+    await writeFile(path.join(context.workspaceRoot, '.env'), 'secret')
+    await writeFile(path.join(context.workspaceRoot, 'README.md'), 'readme')
+    for (let index = 0; index < 205; index += 1) await writeFile(path.join(context.workspaceRoot, `file-${index}.txt`), 'x')
+
+    const result = await listWorkspaceMentionChildren(context)
+    expect(result.path).toBe('.')
+    expect(result.entries).toHaveLength(207)
+    expect(result.entries[0]).toEqual({ name: 'src', path: 'src', type: 'directory' })
+    expect(result.entries.some((entry) => entry.path === 'src/deep')).toBe(false)
+    expect(result.entries.some((entry) => entry.path === '.env')).toBe(false)
+    expect(result.entries.some((entry) => entry.path === '.git')).toBe(false)
+    expect(result.entries.some((entry) => entry.path === 'node_modules')).toBe(false)
+  })
+
+  it('omits symbolic links and aliases that resolve into node_modules while keeping safe directory links', async () => {
+    const context = await createWorkspace()
+    await mkdir(path.join(context.workspaceRoot, 'vendor-dependencies'))
+    await mkdir(path.join(context.workspaceRoot, 'packages', 'package-a', 'node_modules', 'dependency'), { recursive: true })
+    await mkdir(path.join(context.workspaceRoot, 'inside'))
+    try {
+      await symlink(path.join(context.workspaceRoot, 'vendor-dependencies'), path.join(context.workspaceRoot, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+      await symlink(path.join(context.workspaceRoot, 'packages', 'package-a', 'node_modules', 'dependency'), path.join(context.workspaceRoot, 'dependency-alias'), process.platform === 'win32' ? 'junction' : 'dir')
+      await symlink(path.join(context.workspaceRoot, 'inside'), path.join(context.workspaceRoot, 'inside-link'), process.platform === 'win32' ? 'junction' : 'dir')
+    } catch (error) {
+      if (error?.code === 'EPERM' || error?.code === 'EACCES') return
+      throw error
+    }
+
+    const result = await listWorkspaceMentionChildren(context)
+    expect(result.entries.map((entry) => entry.path)).toContain('inside-link')
+    expect(result.entries.map((entry) => entry.path)).not.toContain('node_modules')
+    expect(result.entries.map((entry) => entry.path)).not.toContain('dependency-alias')
+  })
+
+  it('filters sensitive and external links while allowing safe internal links', async () => {
+    const context = await createWorkspace()
+    const outside = await createExternalDirectory()
+    await mkdir(path.join(context.workspaceRoot, 'inside'))
+    await writeFile(path.join(context.workspaceRoot, '.ENV.SECRET'), 'secret')
+    try {
+      await symlink(path.join(context.workspaceRoot, '.ENV.SECRET'), path.join(context.workspaceRoot, 'safe-name.txt'), 'file')
+      await symlink(outside, path.join(context.workspaceRoot, 'outside-link'), process.platform === 'win32' ? 'junction' : 'dir')
+      await symlink(path.join(context.workspaceRoot, 'inside'), path.join(context.workspaceRoot, 'inside-link'), process.platform === 'win32' ? 'junction' : 'dir')
+    } catch (error) {
+      if (error?.code === 'EPERM' || error?.code === 'EACCES') return
+      throw error
+    }
+
+    const result = await listWorkspaceMentionChildren(context)
+    expect(result.entries.map((entry) => entry.path)).toContain('inside-link')
+    expect(result.entries.map((entry) => entry.path)).not.toContain('safe-name.txt')
+    expect(result.entries.map((entry) => entry.path)).not.toContain('outside-link')
+  })
+
+  it('rejects traversal, files, and sensitive directory paths', async () => {
+    const context = await createWorkspace()
+    await writeFile(path.join(context.workspaceRoot, 'file.txt'), 'file')
+    await mkdir(path.join(context.workspaceRoot, '.git'))
+    await expect(listWorkspaceMentionChildren(context, '../outside')).rejects.toMatchObject({ statusCode: 403 })
+    await expect(listWorkspaceMentionChildren(context, 'file.txt')).rejects.toMatchObject({ statusCode: 400 })
+    await expect(listWorkspaceMentionChildren(context, '.git')).rejects.toMatchObject({ statusCode: 403, errorCode: 'WORKSPACE_SENSITIVE_PATH' })
   })
 })
 
@@ -328,6 +398,16 @@ describe('workspace on-demand route wiring', () => {
       query: 'route',
       entries: [{ path: 'route-match.txt', type: 'file' }],
       truncated: false,
+    })
+
+    await expect(handleWorkspaceApi(
+      { method: 'GET' },
+      mockRes(),
+      new URL('http://localhost/api/workspace/mention-children?projectId=unknown&path=.'),
+    )).rejects.toMatchObject({
+      statusCode: 404,
+      errorCode: 'PROJECT_NOT_FOUND',
+      message: 'Unknown project',
     })
 
     await expect(handleWorkspaceApi(

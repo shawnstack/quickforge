@@ -2,6 +2,11 @@
 
 ## Current State
 
+- Feature: Composer @ 从项目根目录逐层浏览文件（file-reference-root-browser，**已完成**）
+- Status: done — 新增严格 `projectId` 的 `/api/workspace/mention-children`，只返回当前目录全部直接安全子节点且目录优先，不递归、不分页、不回退默认 workspace；敏感路径、真实目标和项目外符号链接继续按 mention 边界过滤。审查修正后，目录完成 stat/realpath 解析仍按真实/链接目标路径分段排除 `SKIP_DIRS`：普通 `node_modules`、名为 `node_modules` 的目录链接与安全别名指向 `node_modules` 子树均不返回；普通安全目录链接仍允许。Composer 裸 `@` 默认浏览根目录；点击/Enter/Tab 目录逐层进入，选择文件才沿用既有 `contextReferences`；`@src` 等仅在当前目录本地筛选，不发全项目搜索请求；当前层全部渲染并由菜单滚动。旧 `mention-search` 保留兼容但 Composer 不再调用。
+- Verification: 审查收口 `npx vitest run tests/server/routes/workspace-tree-on-demand.test.mjs tests/frontend/file-reference-controller.test.ts` → 2 files / 29 tests 全通过（含请求竞态、remove Abort 与 cleanup listener）；目标 `npx eslint` → 0 error；`npx tsc -b --pretty false` → exit 0；`git diff --check` 通过（仅既有 CRLF→LF warning）。完整门禁：`npm run test` → 238 files / 2062 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）。
+- Next step: 可选真机确认深浅主题、长目录滚动、鼠标/键盘逐层进入、当前层筛选及文件 chip；未创建 commit/tag/push。
+
 - Feature: 点击 Composer 内 Slash chip 不再降级显示命令原文（slash-chip-click-keeps-chip，**已完成**）
 - Status: done — 用户真机反馈：选中 agent 后输入框内的小 tab（slash chip）一点击就露出 `/agent <name>` 原文。根因是覆盖层整体 `pointer-events:none`，点击穿透到 textarea 前缀区，光标进入前缀触发 selectionchange 降级逻辑。修复：CSS 仅对 `.quickforge-slash-overlay .quickforge-slash-chip` 开启 `pointer-events:auto`（消息流 chip 保持纯展示），控制器在 `renderChipContent` 为覆盖层 chip 挂 `pointerdown`：preventDefault 后聚焦 textarea 并把光标移到文本末尾，chip 保持显示不降级；键盘方向键进入前缀区的降级/自愈、IME、自愈重建逻辑均未改。共享工厂 `createSlashChipElement` 未挂监听，消息流 chip 不受影响。
 - Verification: 定向 `npx vitest run tests/frontend/slash-invocation-chip.test.ts tests/frontend/command-suggestions.test.ts` → 2 files / 36 tests passed（新增 chip pointerdown 用例：preventDefault、光标移末尾、不降级、CSS 契约）；相邻 `message-actions` / `composer-plus-menu` / `slash-catalog` 3 files / 29 tests passed；`npx eslint` 改动源码/测试 0 error；`npx tsc -b --pretty false` exit 0。

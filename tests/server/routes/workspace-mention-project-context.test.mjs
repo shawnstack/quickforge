@@ -58,6 +58,35 @@ afterEach(async () => {
 })
 
 describe('workspace mention project context', () => {
+  it('lists registered project children normally', async () => {
+    const res = mockRes()
+    await workspaceRoute.handleWorkspaceApi(
+      { method: 'GET' },
+      res,
+      new URL('http://localhost/api/workspace/mention-children?projectId=project-1&path=.'),
+    )
+
+    expect(res.status).toBe(200)
+    expect(res.headers['cache-control']).toBe('no-store')
+    expect(JSON.parse(res.body)).toMatchObject({
+      root: 'Registered',
+      path: '.',
+      entries: [{ name: 'registered-match.txt', path: 'registered-match.txt', type: 'file' }],
+    })
+  })
+
+  it('rejects an unknown project without browsing the default workspace', async () => {
+    await expect(workspaceRoute.handleWorkspaceApi(
+      { method: 'GET' },
+      mockRes(),
+      new URL('http://localhost/api/workspace/mention-children?projectId=deleted-project&path=.'),
+    )).rejects.toMatchObject({
+      statusCode: 404,
+      errorCode: 'PROJECT_NOT_FOUND',
+      message: 'Unknown project',
+    })
+  })
+
   it('searches a registered project normally', async () => {
     const res = mockRes()
     await workspaceRoute.handleWorkspaceApi(

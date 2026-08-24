@@ -1356,9 +1356,9 @@ function MainApp() {
     && !agentManager.agent?.state.isStreaming
     && (agentManager.agent?.state.messages.length ?? 0) === 0
 
-  // 每次进入"新建对话"空状态时重置清除标记，保证新建对话默认使用上次激活的项目。
+  // 清除标记只在离开当前新对话空状态后复位，显式 global 新建在本次空状态内保持生效。
   useEffect(() => {
-    if (showNewChatEmptyState && !wasNewChatEmptyStateRef.current) {
+    if (!showNewChatEmptyState && wasNewChatEmptyStateRef.current) {
       setEmptyStateProjectDismissed(false)
     }
     wasNewChatEmptyStateRef.current = showNewChatEmptyState
@@ -1378,6 +1378,11 @@ function MainApp() {
     }
     startNewGlobalSession()
   }, [activeProject, startNewGlobalSession, startNewProjectChatWithInspectorReset])
+
+  const startNewExplicitGlobalSession = useCallback(() => {
+    setEmptyStateProjectDismissed(true)
+    startNewGlobalSession()
+  }, [startNewGlobalSession])
 
   const handleSelectEmptyStateProject = useCallback((project: ProjectInfo) => {
     void startNewProjectChatWithInspectorReset(project)
@@ -1517,6 +1522,11 @@ function MainApp() {
     closeMobileSidebar()
     startNewDefaultSession()
   }, [closeMobileSidebar, startNewDefaultSession])
+
+  const startNewExplicitGlobalSessionFromSidebar = useCallback(() => {
+    closeMobileSidebar()
+    startNewExplicitGlobalSession()
+  }, [closeMobileSidebar, startNewExplicitGlobalSession])
 
   const startNewProjectChatFromSidebar = useCallback((project: ProjectInfo) => {
     closeMobileSidebar()
@@ -1788,7 +1798,8 @@ function MainApp() {
         onSessionSortModeChange={setSidebarSessionSortMode}
         onTogglePinSession={togglePinSession}
         onDeleteSession={archiveSession}
-        onStartNewGlobalChat={startNewDefaultSession}
+        onStartNewDefaultChat={startNewDefaultSession}
+        onStartNewGlobalChat={startNewExplicitGlobalSession}
         onOpenSettings={openDefaultOptionsSettings}
         currentServerUrl={cloudTunnelClient ? '云账户远程访问' : mobileServerUrl}
         currentServerAlias={mobileServerAlias}
@@ -1873,7 +1884,8 @@ function MainApp() {
               onSessionSortModeChange={setSidebarSessionSortMode}
               onTogglePinSession={togglePinSession}
               onDeleteSession={archiveSession}
-              onStartNewGlobalChat={startNewDefaultSessionFromSidebar}
+              onStartNewDefaultChat={startNewDefaultSessionFromSidebar}
+              onStartNewGlobalChat={startNewExplicitGlobalSessionFromSidebar}
               onOpenSettings={() => {
                 closeMobileSidebar()
                 openDefaultOptionsSettings()

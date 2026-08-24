@@ -1,6 +1,19 @@
 # Session Handoff
 
-## 当前状态：release-v1.8.0（已完成，发布记录）
+## 当前状态：tasks-new-chat-inherits-current-task-project（已完成，已纠正语义）
+
+- 目标：拆分侧栏三个新建入口，避免 Tasks 标题 MessageSquarePlus 错误跟随当前任务或 `activeProject`。顶部“发起新对话”继续按默认项目规则；Tasks 标题始终显式新建 global；项目行继续绑定对应项目。
+- 实现：`ChatSidebar` 新增语义独立的 `onStartNewDefaultChat`，顶部入口使用该回调；既有 `onStartNewGlobalChat` 仅供 Tasks 标题入口。`App.tsx` 恢复 `startNewDefaultSession` 的 `activeProject` 规则，并新增 `startNewExplicitGlobalSession`：先 `setEmptyStateProjectDismissed(true)`，再调用 `startNewGlobalSession()`。空状态 dismiss 标记改为离开当前空状态后复位，避免 explicit global 新建后被 active-project 自动 effect 切回项目。global 使用默认 Workspace（`~/.quickforge/workspace`），不读取 `chatScope` / `currentToolProject` / `activeProject`。
+- 桌面/移动：桌面分别传 `startNewDefaultSession` 与 `startNewExplicitGlobalSession`；移动分别使用先 `closeMobileSidebar()` 的包装回调，关闭行为保持。项目行仍为 `onClick={() => onStartNewProjectChat(item)}`。
+- 清理：删除错误的 `src/lib/new-chat-project-target.ts` 与 `tests/frontend/new-chat-project-target.test.ts`，移除 lib Wiki helper 条目；新增 `tests/frontend/sidebar-new-chat-routing.test.ts` 覆盖源码/纯逻辑契约。
+- 文档：组件 Wiki 明确 global 默认 Workspace，以及顶部、Tasks 标题、项目行三类入口差异。无视觉模式变化，无需修改 DESIGN_LANGUAGE.md。
+- 验证：`npx vitest run tests/frontend/sidebar-new-chat-routing.test.ts tests/frontend/sidebar-section-order.test.ts` → 2 files / 19 tests 全通过；目标 ESLint 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；feature JSON 解析与 `git diff --check` 通过。
+- 边界：未新增依赖，未手工修改生成目录，未创建 commit/tag/push；build 只重建被忽略的 `dist/`，无关未跟踪文件 `design-mockups/side-chat-tab.html` 保持不动。
+- 下一步：无 blocker；可选真机验证桌面/移动顶部 default、Tasks explicit global 和项目行绑定三类入口。
+
+---
+
+## 前轮会话：release-v1.8.0（已完成，发布记录）
 
 - 本会话目标：完成 v1.8.0（minor）发布：整合当前功能改动、提升版本、准备 CHANGELOG、完整门禁、runtime/offline 打包、release commit/tag/push 与用户执行 npm publish 的发布顺序。
 - 前置与版本：起始 `dev` 带全部当前改动（`/commit`、自定义模型入口、文档与簿记等 20 条目），已作为功能提交 `56d435d` 纳入；`master` 以 `--ff-only` 快进，无 merge commit。package 双文件已 1.7.12→1.8.0；CHANGELOG 已按 `v1.7.12..HEAD` 的 17 个提交准备；README 无固定版本引用，未修改。

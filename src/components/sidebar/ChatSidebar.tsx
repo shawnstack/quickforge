@@ -116,6 +116,7 @@ type ChatSidebarProps = {
   onSessionSortModeChange: (mode: SidebarSessionSortMode) => void
   onTogglePinSession: (sessionId: string) => void
   onDeleteSession: (sessionId: string) => void | Promise<void>
+  onStartNewDefaultChat: () => void
   onStartNewGlobalChat: () => void
   onOpenSettings: () => void
   currentServerUrl?: string
@@ -388,6 +389,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   onSessionSortModeChange,
   onTogglePinSession,
   onDeleteSession,
+  onStartNewDefaultChat,
   onStartNewGlobalChat,
   onOpenSettings,
   currentServerUrl,
@@ -1006,7 +1008,7 @@ export const ChatSidebar = memo(function ChatSidebar({
         <button
           type="button"
           className={cn(rowClass, 'mt-4 w-full', inactiveRowClass)}
-          onClick={onStartNewGlobalChat}
+          onClick={onStartNewDefaultChat}
           aria-label={t('startNewChat')}
           title={t('startNewChat')}
         >

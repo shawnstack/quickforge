@@ -2,6 +2,11 @@
 
 ## Current State
 
+- Feature: 拆分侧栏默认新建与 Tasks 显式全局新建（tasks-new-chat-inherits-current-task-project，**已完成**）
+- Status: done — `ChatSidebar` 顶部“发起新对话”与 Tasks 标题 MessageSquarePlus 已拆为 `onStartNewDefaultChat` / `onStartNewGlobalChat`。顶部继续调用 `startNewDefaultSession`，有 `activeProject` 时按默认规则新建该项目对话，否则新建 global。Tasks 标题 desktop/mobile 调用独立 `startNewExplicitGlobalSession`：先 `setEmptyStateProjectDismissed(true)`，再 `startNewGlobalSession()`；标记只在离开当前新对话空状态后复位，因此 active-project 自动项目 effect 不会把显式 global 切回项目。global 使用默认 Workspace（`~/.quickforge/workspace`），不读取 `activeProject`、当前任务、`chatScope` 或 `currentToolProject`。移动包装保持先关闭侧栏；项目行 `onStartNewProjectChat(item)` 未改。上一轮错误 helper、测试与 lib Wiki 条目已移除。
+- Verification: `npx vitest run tests/frontend/sidebar-new-chat-routing.test.ts tests/frontend/sidebar-section-order.test.ts` → 2 files / 19 tests 全通过；目标 `npx eslint` → 0 error；`npx tsc -b --pretty false` → exit 0；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；`feature_list.json` 解析与 `git diff --check` 通过。
+- Next step: 无代码 blocker；可选真机分别点击桌面/移动的顶部、Tasks 标题和项目行三个入口确认。未创建 commit/tag/push，未手工修改生成目录；build 只重建被忽略的 `dist/`，无关的 `design-mockups/side-chat-tab.html` 保持不动。
+
 - Feature: 准备 v1.8.0 minor release（release-v1.8.0，**已完成**）
 - Status: done — 本次为 minor 发布：先以功能提交 `56d435d`（feat: 增加 /commit 与自定义模型设置入口）纳入当前全部工作区改动（20 条目），并以 `--ff-only` 将 `master` 快进，无 merge commit。package 双文件 1.7.12→1.8.0；CHANGELOG 已按 `v1.7.12..HEAD` 的 17 个提交新增 `[1.8.0]` 条目；README 无固定版本引用，未修改。完整 `npm run test`（239 files / 2068 tests）全通过，`npm run lint` 为 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`），`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；runtime/offline 包及 tarball 已生成并完成元数据、依赖处理与清单校验。生成目录均被 Git 忽略，release commit 范围为 6 个预期发布文件。
 - Release sequence: 本变更用于 release commit，随后创建 tag `v1.8.0`，`dev` 快进至发布提交，原子推送 `master`/`dev`/`v1.8.0`；npm publish 由用户执行：`npm publish ./package-offline/shawnstack-quickforge-1.8.0.tgz --access public`。

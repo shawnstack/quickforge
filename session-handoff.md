@@ -1,6 +1,19 @@
 # Session Handoff
 
-## 当前状态：main-chat-model-selector-settings-entry（已完成）
+## 当前状态：release-v1.8.0（已完成，发布记录）
+
+- 本会话目标：完成 v1.8.0（minor）发布：整合当前功能改动、提升版本、准备 CHANGELOG、完整门禁、runtime/offline 打包、release commit/tag/push 与用户执行 npm publish 的发布顺序。
+- 前置与版本：起始 `dev` 带全部当前改动（`/commit`、自定义模型入口、文档与簿记等 20 条目），已作为功能提交 `56d435d` 纳入；`master` 以 `--ff-only` 快进，无 merge commit。package 双文件已 1.7.12→1.8.0；CHANGELOG 已按 `v1.7.12..HEAD` 的 17 个提交准备；README 无固定版本引用，未修改。
+- 发布门禁：`npm run test` → 239 files / 2068 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）。
+- 打包结果：prepare-runtime-package / prepare-offline-package 成功；package-offline 内 npm pack 成功。
+- tarball：`package-offline/shawnstack-quickforge-1.8.0.tgz`，25,273,416 bytes，326 files 清单。
+- 元数据：package-dist 与 package-offline 均 `@shawnstack/quickforge@1.8.0`，均无 devDependencies/scripts；offline 包保留 `@vscode/ripgrep` 与 `node-pty` 的 optionalDependencies 策略（与 v1.7.12 相同，打包脚本零改动）。
+- Git：三个生成目录被 .gitignore 排除；release commit 范围为 6 个发布文件（CHANGELOG、package.json、package-lock.json、feature_list.json、progress.md、session-handoff.md）；发布后 `dev` 与 `master` 同步指向发布提交。
+- 发布顺序：release commit → 创建 tag `v1.8.0` → `dev` 快进至发布提交 → 原子推送 `master`/`dev`/`v1.8.0` → 用户执行 npm publish。
+
+---
+
+## 前轮会话：main-chat-model-selector-settings-entry（已完成，要点归档）
 
 - 目标：仅在主聊天的模型选择桌面浮层和移动抽屉底部增加低强调“自定义模型”，点击先关闭选择器，再进入设置 `customModels` 列表页；共享对话、Agent 表单等复用场景保持无入口。
 - 实现：`ModelSelectorOptions` 新增语义独立的可选无参 `onOpenModelSettings`，保留第四个旧编辑回调参数兼容但不复用。`useModelActions` 主聊天调用在 options 中传既有 `openModelSettings`（其落点为 `openSettingsPage('customModels')`）；桌面 `quickforge-model-menu` 与移动 `quickforge-model-sheet` 均条件渲染共享设置按钮。按钮点击执行 `closeComposerModelMenu(anchor)` 后才调用回调，确保 DOM 已移除且 trigger `aria-expanded=false`。共享页与 `openModelSheet` 表单调用不传回调，入口不出现；原模型选择与思考等级行为未改。

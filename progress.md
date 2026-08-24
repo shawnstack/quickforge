@@ -2,6 +2,10 @@
 
 ## Current State
 
+- Feature: 准备 v1.8.0 minor release（release-v1.8.0，**已完成**）
+- Status: done — 本次为 minor 发布：先以功能提交 `56d435d`（feat: 增加 /commit 与自定义模型设置入口）纳入当前全部工作区改动（20 条目），并以 `--ff-only` 将 `master` 快进，无 merge commit。package 双文件 1.7.12→1.8.0；CHANGELOG 已按 `v1.7.12..HEAD` 的 17 个提交新增 `[1.8.0]` 条目；README 无固定版本引用，未修改。完整 `npm run test`（239 files / 2068 tests）全通过，`npm run lint` 为 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`），`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；runtime/offline 包及 tarball 已生成并完成元数据、依赖处理与清单校验。生成目录均被 Git 忽略，release commit 范围为 6 个预期发布文件。
+- Release sequence: 本变更用于 release commit，随后创建 tag `v1.8.0`，`dev` 快进至发布提交，原子推送 `master`/`dev`/`v1.8.0`；npm publish 由用户执行：`npm publish ./package-offline/shawnstack-quickforge-1.8.0.tgz --access public`。
+
 - Feature: 主聊天模型选择器底部打开自定义模型设置（main-chat-model-selector-settings-entry，**已完成**）
 - Status: done — `custom-model-selector` 新增语义独立的可选无参 `onOpenModelSettings`，不复用旧的模型编辑参数；仅 `useModelActions` 主聊天入口传既有 `openModelSettings`。桌面浮层与移动抽屉底部按条件显示低强调“自定义模型”，点击先统一关闭选择器并复位 trigger `aria-expanded`，再打开 `customModels` 设置页。共享对话、Agent 表单等不传回调的复用场景不显示。移动 footer 在可滚动 model list 之外保持固定，样式遵循既有分隔线、muted 文字及 hover/focus token。
 - Verification: 定向 `npx vitest run tests/frontend/custom-model-selector.test.ts tests/frontend/use-model-actions-cloud.test.ts tests/frontend/i18n-language-snapshot.test.ts tests/server/routes/shared-conversation.model-visibility.test.mjs` → 4 files / 15 tests 全通过；目标 `npx eslint` → 0 error；`npx tsc -b --pretty false` → exit 0；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；需求文件 `git diff --check` 通过。

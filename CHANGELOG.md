@@ -2,6 +2,39 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.8.0] - 2026-08-24
+
+### Added
+
+- Added the built-in `/commit [message]` slash command for project sessions: it stages only explicitly selected task-related files, generates a commit message from the diff and repo style when omitted, forbids edits, writes, subagents and `git add .`/`-A`/`--all`, stops on validation failure, and never pushes, tags, or publishes.
+- Added a "Custom models" entry at the bottom of the main chat model selector (desktop popover and mobile drawer) that closes the selector and then opens the `customModels` settings page; shared conversations and agent forms keep the entry hidden.
+- Added slash menu extension with `@` file references: bare `@` browses from the project root, directories open level by level, and text filters only the current level.
+- Added the plugin tag pipeline: selected plugins now render as chips on the user message and persist through retries and shares.
+- Added drag-and-drop reordering for sidebar project and task blocks, with clamped drag bounds.
+- Added per-session isolation and restore for Workspace Inspector state (expanded/collapsed flags, tabs, active panel, and review sub-views).
+
+### Changed
+
+- Temporarily disabled the server-side `generate_image` tool.
+- Removed the "simplest implementation and minimal-change rules" wording from the base system prompt.
+- Refreshed slash menu names and icons and refined Composer control hover feedback.
+
+### Fixed
+
+- The slash menu now dismisses when clicking anywhere outside the command area, and does not reopen from no-argument refreshes until the next real input.
+- Clicking a slash chip in the composer no longer reveals the raw command text.
+- Pinned and archived session state is now cleared with the corresponding resets.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.8.0` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.8.0.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.8.0.tgz
+  ```
+
 ## [1.7.12] - 2026-08-20
 
 ### Added

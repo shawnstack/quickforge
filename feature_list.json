@@ -1144,6 +1144,14 @@
         "session-handoff.md"
       ],
       "verification": "定向 npx vitest run workspace-inspector-open-state / workspace-inspector-tabs / workspace-inspector-request / deferred-session-agent / deferred-session-harness / session-state-clear-actions → 6 files / 41 tests passed；相关 npx eslint → 0 error；npx tsc -b --pretty false → exit 0；最终合并工作区 npm run test → 236 files / 2020 tests passed；npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92 no-useless-assignment）；npm run build → passed（仅既有 KaTeX 字体解析与 chunk size warnings）；feature_list.json/package.json/package-lock.json JSON 解析、git diff --check 通过。"
+    },
+    {
+      "id": "release-v1.8.0",
+      "name": "发布 v1.8.0 minor 版本",
+      "status": "done",
+      "approach": "minor 发布：先以功能提交 56d435d 纳入 /commit、主聊天自定义模型设置入口等全部当前改动（20 条目），master --ff-only 快进无 merge commit；package 双文件 1.7.12→1.8.0；CHANGELOG 按 v1.7.12..HEAD 的 17 个提交新增 [1.8.0] 条目；完整 test/lint/build 门禁通过后生成 runtime/offline 包与 tarball，release commit、创建 tag v1.8.0、dev 快进并原子推送 master/dev/tag；npm publish 由用户执行。",
+      "files": ["package.json", "package-lock.json", "CHANGELOG.md", "feature_list.json", "progress.md", "session-handoff.md"],
+      "verification": "npm run test → 239 files / 2068 tests 全通过；npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92 no-useless-assignment）；npm run build → 成功（仅既有 KaTeX 字体解析与 chunk size warning）；prepare-runtime-package / prepare-offline-package / npm pack 成功，tarball 25,273,416 bytes / 326 files；package-dist 与 package-offline 均 @shawnstack/quickforge@1.8.0 且无 devDependencies/scripts；JSON 解析与 git diff --check 通过。"
     }
   ]
 }

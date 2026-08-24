@@ -147,7 +147,7 @@ API Key:        本地模型或部分代理服务可留空
 - 流式回复、停止生成、复制、回滚、重试与对话分支
 - 草稿恢复、会话置顶、归档、搜索和长对话压缩
 - 图片附件与视觉模型配置
-- `/init`、`/plan`、`/review`、`/summary`、`/compact`、`/help` 等内置命令；`/init` 会调研当前仓库并生成或更新根目录 `AGENTS.md` 贡献者指南
+- `/init`、`/plan`、`/review`、`/commit [message]`、`/summary`、`/compact`、`/help` 等内置命令；`/commit` 会先验证并只提交当前任务相关改动，最多创建一个本地 commit；`/init` 会调研当前仓库并生成或更新根目录 `AGENTS.md` 贡献者指南
 - 跨对话、跨项目的全局记忆，可在设置中查看、编辑或关闭
 - 设置 → 常规提供直连、跟随操作系统真实代理、手动 HTTP(S) 代理和 PAC 地址四种网络模式；自定义 PAC 地址由 Desktop 的 Electron/Chromium 处理，CLI/SDK 当前不支持，系统代理仍由原生跨平台解析，本地地址始终直连
 

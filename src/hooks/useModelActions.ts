@@ -242,6 +242,7 @@ export function useModelActions({
         {
           thinkingLevel: currentAgent.state.thinkingLevel,
           anchor,
+          onOpenModelSettings: openModelSettings,
           onThinkingLevelSelect: (level) => {
             currentAgent.state.thinkingLevel = level
             void currentAgent.updateThinkingLevel(level).catch((error) => {

@@ -8,7 +8,7 @@ components/
 │   ├── ChatPanelHost.tsx           # 聊天面板宿主 (1456 行)
 │   ├── ModelSetupEmptyState.tsx    # 模型未配置时的空状态引导 (43 行)
 │   ├── chat-utils.ts               # 共享类型、DOM 工具、token 估算 (340 行)
-│   ├── command-suggestions.ts      # 聊天输入框 / 斜杠菜单：指令·技能·子智能体三分组补全 + 选中态 chip（方案 A）(481 行)
+│   ├── command-suggestions.ts      # 聊天输入框 / 斜杠菜单：指令·技能·子智能体三分组补全 + 选中态 chip（方案 A）(495 行)
 │   ├── file-reference-suggestions.ts # Composer @ 当前项目逐层目录浏览、文件筛选/选择与结构化文件 chip (403 行)
 │   ├── capability-suggestions.ts   # + 菜单插件目录与结构化插件 chip（不再占用 @）(233 行)
 │   ├── capability-icons.ts         # @ 文件引用与非 Slash 插件菜单/chip 的中立图标表
@@ -146,14 +146,14 @@ components/
 - Token 估算和上下文用量计算（`getContextUsage`, `estimateTokens`）；前端仅作为后端 `contextUsage` 缺失时的回退估算
 - 草稿运行时管理（`hasDraft` 等）；`ComposerDraft` 携带 `contextReferences` / 内部 `selectedCapabilities`，`hasDraft` 口径为正文、附件、文件引用、插件 chip 任一非空；持久化在 `src/lib/composer-drafts.ts`，使用浏览器 `localStorage` 保存当前浏览器本地草稿，不迁移旧的 settings 后端草稿，也不参与后端备份/跨设备同步
 
-**command-suggestions.ts** (481 行)
-- 聊天输入框 "/" 斜杠菜单，三个分组依次渲染：指令（内置 /init /plan /review /summary /compact /clear /help + 项目自定义命令）、技能、子智能体；每组 sticky 组头（label + 条数），整组无命中时隐藏
+**command-suggestions.ts** (495 行)
+- 聊天输入框 "/" 斜杠菜单，三个分组依次渲染：指令（内置 /init /plan /review /commit /summary /compact /clear /help + 项目自定义命令）、技能、子智能体；每组 sticky 组头（label + 条数），整组无命中时隐藏
 - 技能/子智能体目录经 Options.loadSlashCatalog 懒加载（首次触发 / 时请求，见 `src/lib/slash-catalog.ts`）：idle → loading（技能/子智能体组渲染 2 行骨架，容器 aria-busy）→ ready（resolve 即含 null 目录，自动重渲染）/ error（本次打开仅指令组，菜单从关闭到重新打开允许重试一次）；无 loader 时同样仅指令组
 - 过滤口径：query = 去掉前导 / 的文本（trim + 小写），haystack = 用法文本（含类型前缀与 argumentHint，去前导 /）+ agent label·description，空白归一后 includes；因此仍可用 `skill ` / `agent ` 类型前缀搜索。单词 query 命中当前可见主文本时 `<b>` 加粗命中段，argumentHint 渲染为 muted hint 子 span
 - 行结构三列 grid（图标/主文本/描述）：普通指令主文本保留完整用法（如 `/plan [task]`）；技能/子智能体主文本仅显示 canonical name，不显示 `/skill` / `/agent` 前缀。三类 Slash 图标统一复用项目现有 Lucide：指令 `SquareTerminal`、技能 `BookOpen`、子智能体 `Bot`（静态映射见 `slash-icons.ts`）；默认使用 `muted-foreground` 中性色，hover/selected 仅增强为 `foreground`，不再使用黄/蓝/绿类别色。行 button role=option + aria-selected，data-quickforge-insert 仍存完整插入文本（指令 `/name `、技能 `/skill <name> `、子智能体 `/agent <name> `，统一经 restoreDraftIntoComposer 插入并聚焦置尾）
 - 键盘（textarea capture handler）：↑↓ 在可视行间循环移动 active（aria-selected 同步、scrollIntoView nearest）；Tab 补全 active 行（初始首行）；Escape 关闭菜单 / 退出 chip 选中态；Backspace 在 chip 右边界一次删除整段命令前缀；Enter 不拦截（发送原文）；Shift+Tab 放行给 Composer Plan 模式，isComposing/Process 守卫
 - 选中态 chip（方案 A，`slash-invocation-chip.ts`）：选中技能/子智能体后输入框内 `/skill <name> ` / `/agent <name> ` 前缀以带图标 chip 内联显示——textarea 原文不变（服务端零改动、草稿/发送不受影响），`.quickforge-composer-shell` 内挂覆盖层镜像（chip + 定宽 spacer + 任务文本，光标对齐补偿保证幽灵层换行/滚动与 textarea 一致），textarea 文字透明、光标保留；IME composition 期间覆盖层保持显示、预编辑文本以弱下划线镜像进幽灵层；前缀失配（编辑/更长的 name）自动自毁恢复原文，覆盖层/textarea 被外部重渲染移除时按匹配文本自愈重建；chip 激活时菜单不再弹出；catalog ready 后手输/草稿恢复完整命令自动 engage；Esc 退出保留文本（同前缀变化前不再自动 engage）；点击 chip 本体不穿透到前缀区（pointerdown 拦截、光标移到文本末尾，仅覆盖层内 chip 开启 pointer-events），不降级显示 `/skill` / `/agent` 原文
-- 底部 sticky 键位提示条（↑↓/Tab/Enter/Esc 四段 kbd + i18n 标签）；外部 pointerdown 关闭；浮层挂载在 editor.parentElement.insertBefore(浮层, editor)
+- 底部 sticky 键位提示条（↑↓/Tab/Enter/Esc 四段 kbd + i18n 标签）；菜单外任意 pointerdown（包括输入框与 Composer 控件，即整个 message-editor 卡内）或 Esc 都收起菜单。外部 pointerdown、Esc 与公开 `remove()` 会进入“等待下一次显式输入”抑制态：MutationObserver 装饰刷新、catalog 回调等无参数 `update()` 不会因正文仍以 `/` 开头立即重开；下一次真实输入调用 `update(value)` 时解除抑制并按新值正常打开/过滤。菜单内部删除与 document pointerdown 监听统一由同一清理路径处理，重复渲染不累积监听器；浮层挂载在 editor.parentElement.insertBefore(浮层, editor)
 
 **file-reference-suggestions.ts**
 - Composer 内独立 `@` 文件引用控制器，只在当前 QuickForge 项目、可编辑会话启用；OpenCode、分享页、无项目和只读页禁用，插件不会进入 `@` 结果。

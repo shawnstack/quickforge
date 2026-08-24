@@ -26,7 +26,7 @@ server/
 ├── conversation-compaction.mjs # 对话历史压缩 (302 行)
 ├── context-references.mjs      # @ 文件引用请求校验、canonical details 与本轮路径提示
 ├── selected-capabilities.mjs   # 本轮插件选择规范化、持久化快照与模型临时提示 (76 行)
-├── custom-commands.mjs       # 自定义命令系统 (614 行)
+├── custom-commands.mjs       # 自定义命令系统 (628 行)
 ├── reasoning-cache.mjs       # 推理内容缓存 (51 行)
 ├── restart-supervisor.mjs    # 服务重启监控脚本 (38 行)
 ├── lan-access-store.mjs      # LAN 共享访问令牌存储 (407 行)
@@ -100,7 +100,7 @@ server/
 - 模型配置即时刷新（`refreshAllSessionModels`）：`custom-providers` 存储（模型定义、Max Tokens 等）经 storage 路由（PUT/DELETE key、DELETE 整 store）或备份恢复变更后，遍历内存活跃会话重新解析 model 绑定（跳过 OpenCode harness 与 streaming 中会话——后者由下一次 `runPrompt` 的 `refreshSessionModelBinding` 刷新），仅当 `session.model` 实际变化时 emit `state` 事件推送前端；模型被删除导致的解析失败只记日志并保留最后绑定，由下一条消息复现原报错。前端 `ServerAgent` 复用既有 `case 'state'` 更新 `state.model`，`useAgentManager` 同步 `activeModelRef` 并 bump `chatPanelRevision` 触发重渲染。
 - Subagent 工具：`run_subagent` 在父会话内创建短生命周期临时 Agent；运行条件是父会话已解析出有效 `projectContext.workspaceRoot`，因此项目对话和合成默认 workspace 的全局对话都可使用，不再要求必须存在真实 `projectId`。可调用启用的 Agent Profile。内置 `explore` 是只读仓库调研的首选，用于文件发现、源码搜索、调用链追踪、测试/文档/wiki 发现和影响面分析，可执行安全的检查/诊断命令但不能修改文件；内置 `general` 适合有边界的复杂多步骤实现或更广泛独立任务，可使用完整内置工作区工具但不含 MCP/Skills。自定义 Agent Profile 也可通过白名单工具执行。`run_subagent` 还支持 AI 按需传入一次性 `temporary` profile spec；服务端会校验名称、工具、`capabilityPolicy` 和模型引用，将该临时 subagent 写入 `~/.quickforge/cache/global/tmp/agents/<session>/<run>/*.md` 后再执行，并在结果 details 中返回 `profilePath`、`source`、`lifecycle`、`capabilityPolicy` 和实际模型信息。子 Agent 不作为普通会话持久化，默认不能递归调用 `run_subagent`。父会话会在内存中保留正在执行的工具快照，`getSessionState()` / SSE 初始 state 会将尚未进入权威消息历史的 `run_subagent` partial trace 和 `pendingToolCalls` 返回给刷新后的页面；该快照不写入持久化会话，也不进入 LLM 上下文，最终权威 `toolResult` 出现后自动去重清理。
 - Agent Profile 执行：`createAgent` 支持传入 `agentProfile`，在默认系统提示词后追加 profile 系统提示词，并按 `allowedTools` 限制 workspace 工具；定时任务可绑定 profile 执行。自定义 Profile 可将模型和思考等级设为继承或固定值；运行时先解析最终模型，再解析思考等级，非推理模型统一降级为 `off`。内置 Profile 的定义保持只读，模型和思考等级可通过 `agent-profile-overrides` 覆盖，设回 `inherit` 时清除对应覆盖字段。
-- 工具管理：基于 Skills 和 Agent 权限模式动态构建工具列表；`generate_image` 当前已从 `workspaceTools` 移除，不再向 Agent 或 `GET /api/tools` 暴露。其 handler、图片生成模块、`directRouteDisabledTools`、会话资产路由与前端历史结果渲染继续保留，仅用于历史会话兼容。默认权限下安全读取工具自动通过，写入、命令、MCP/Plugin 等可能改变状态、产生费用或影响外部系统的工具需要审批；完全访问权限等同开发者授权，在 workspace 沙箱和命令级限制内跳过审批；`/init` 当前轮允许调研仓库、运行必要的只读命令、调用 subagent 并写入根目录 `AGENTS.md`，但仍受正常审批、工作区沙箱和敏感文件保护约束；`/plan` 当前轮使用只读白名单，仅允许读取/搜索、Skill 加载和继承同样只读边界的 subagent 辅助调研，阻止写文件、编辑文件、运行命令以及未声明为允许的 MCP/Plugin/未知工具；Shift+Tab 计划模式通过结构化 command 元数据复用同一套 `/plan` 解析、prompt 和权限，并在 retry/continue 时恢复该权限；`/review` 当前轮允许读取和运行检查命令，但阻止编辑文件和 subagent 执行，用于提交前自检。
+- 工具管理：基于 Skills 和 Agent 权限模式动态构建工具列表；`generate_image` 当前已从 `workspaceTools` 移除，不再向 Agent 或 `GET /api/tools` 暴露。其 handler、图片生成模块、`directRouteDisabledTools`、会话资产路由与前端历史结果渲染继续保留，仅用于历史会话兼容。默认权限下安全读取工具自动通过，写入、命令、MCP/Plugin 等可能改变状态、产生费用或影响外部系统的工具需要审批；完全访问权限等同开发者授权，在 workspace 沙箱和命令级限制内跳过审批；`/init` 当前轮允许调研仓库、运行必要的只读命令、调用 subagent 并写入根目录 `AGENTS.md`，但仍受正常审批、工作区沙箱和敏感文件保护约束；`/plan` 当前轮使用只读白名单，仅允许读取/搜索、Skill 加载和继承同样只读边界的 subagent 辅助调研，阻止写文件、编辑文件、运行命令以及未声明为允许的 MCP/Plugin/未知工具；Shift+Tab 计划模式通过结构化 command 元数据复用同一套 `/plan` 解析、prompt 和权限，并在 retry/continue 时恢复该权限；`/review` 当前轮允许读取和运行检查命令，但阻止编辑文件和 subagent 执行，用于提交前自检；`/commit [message]` 使用同样的无编辑/无 subagent 权限，只允许命令执行以验证、显式暂存当前任务文件并最多创建一个本地 commit，禁止 push/tag/release。
 - 对话压缩（`compactConversation`）：手动 `/summary` 会创建总结后的新会话并保留原会话；手动 `/compact` 与自动上下文压缩保持一致，会在当前会话内生成/更新滚动摘要，只影响 Agent loop 输入，完整历史仍保留用于 UI 展示和持久化。自动上下文压缩会在模型请求前按配置阈值触发同一套当前会话内压缩。
 - 上下文统计：`contextUsage` 由 `estimateSessionContextUsage()` 计算；存在 `contextCompaction` 时先构造 `summaryMessage + messages.slice(compactedUpToIndex)`，因此统计口径是压缩后的模型实际上下文，而不是完整可见聊天历史。底层 token 估算复用 `@earendil-works/pi-agent-core` 的 `estimateContextTokens()` / `estimateTokens()`，provider usage 与 `contextWindow` 来自 `@earendil-works/pi-ai` 的 assistant `usage` 和 model 元数据；上下文占用按纯输入口径统计——`percent = inputTokens / contextWindow`，真实请求的 max_tokens 由 pi-ai `clampMaxTokensToContext` 按窗口收缩，统计侧不再预留输出 token；压缩完成后会忽略保留尾部中仍代表压缩前完整上下文的旧 provider usage，先按摘要与尾部重新估算，并在压缩后产生新 assistant usage 时恢复 provider 权威口径，确保完成事件和 UI 百分比立即反映压缩效果。自动压缩阈值判断同样按纯输入占用，通过百分比配置转换为 reserve tokens 后复用 `pi-agent-core.shouldCompact()`。返回值保留 `totalTokens` 字段（恒等于 `inputTokens`，兼容消费者），并提供 `breakdown.systemPromptTokens`、`breakdown.toolsTokens`、`breakdown.messagesTokens`、`breakdown.providerUsageTokens`、`breakdown.trailingTokens`、`isCompacted`、`originalMessageCount` 和 `effectiveMessageCount`，用于前端解释固定成本、provider 基线、后续增量和压缩效果。
 - 自定义命令处理
@@ -381,7 +381,7 @@ server/
 - `selectedCapabilitiesFromMessage()` / `withCanonicalSelectedCapabilities()` — retry 从用户消息 details 读取历史快照时再次强制投影为 type/pluginName/name/label，历史 details 即使伪造 description 也会被丢弃，绝不进入 continue prompt；新 prompt 以请求体顶层 canonical 结果覆盖消息 details，空结果删除伪造/陈旧 selectedCapabilities，但保留 contextReferences 等其他 details；未知插件名不做 registry 校验，保证历史消息可继续展示
 - `selectedCapabilityPrompt()` — 严格使用同一 canonical 结果生成本轮 capability prompt，不修改用户正文；`message-converters.mjs` 后续剥离全部 details，避免展示字段直接进入 LLM 正文
 
-### custom-commands.mjs (614 行)
+### custom-commands.mjs (628 行)
 
 **用途**: 自定义命令系统。从用户级 `~/.quickforge/commands/`（所有项目共享）和项目级 `<workspace>/.claude/commands/`、`<workspace>/.opencode/commands/`、`<workspace>/.ai/commands/` 及项目配置 `commandDir` 指向的目录读取命令定义；同名命令优先级由高到低：项目配置目录 > `.ai` > `.opencode` > `.claude` > 用户级目录 > 插件命令。内置命令元数据集中在 `builtinCommandCatalog` 常量表（单一事实源），`/help` 和前端建议均据此派生。
 
@@ -390,7 +390,7 @@ server/
 - `listUserCommands()` — 读取用户级 `~/.quickforge/commands/` 命令
 - `findProjectCommand()` — 查找单个命令
 - `resolveCustomCommandInvocation()` — 解析命令调用
-- `handleInternalCommand()` — 处理内置命令，包括 `/help`（显示全部命令参考）、`/init`（调研当前仓库并生成或更新根目录 `AGENTS.md` 贡献者指南，不接受参数）、`/plan`（只生成计划，本轮禁止写入/命令执行，可调用受同样只读边界约束的 subagent）、`/review`（提交前自检，本轮禁止编辑文件）、`/summary`（创建总结后的新会话）、`/compact`（当前会话内滚动压缩上下文）、`/clear`、`/commands`、`/command new` 等
+- `handleInternalCommand()` — 处理内置命令，包括 `/help`（显示全部命令参考）、`/init`（调研当前仓库并生成或更新根目录 `AGENTS.md` 贡献者指南，不接受参数）、`/plan`（只生成计划，本轮禁止写入/命令执行，可调用受同样只读边界约束的 subagent）、`/review`（提交前自检，本轮禁止编辑文件）、`/commit [message]`（验证并只提交当前任务相关文件，最多一个本地 commit，禁止编辑/subagent/push/tag/release）、`/summary`（创建总结后的新会话）、`/compact`（当前会话内滚动压缩上下文）、`/clear`、`/commands`、`/command new` 等
 - `parseInternalCommandInvocation()` 还解析 `/skill <name> [task]` 与 `/agent <name> <task>`（大小写不敏感；复数形式 `/skills`、`/agents` 不匹配）。两者需要会话上下文（已启用技能、workspace 级 Agent Profile），不在 `handleInternalCommand` 中执行，而是由 agent-manager 在 `resolveCommandState` 里拦截处理；内部命令优先于同名自定义命令
 - `formatSkillCommandPrompt()` / `formatAgentCommandPrompt()` — 生成 `/skill`（引导本轮先调用 `activate_skill` 再按技能指示执行，无任务时先激活再询问用户）与 `/agent`（引导调用 `run_subagent` 委派执行并汇总结果）的当前轮提示词；XML 属性复用 `escapeXml` 转义
 - `formatHelpText()` — 生成 `/help` 输出（内置命令区 + 自定义命令区）

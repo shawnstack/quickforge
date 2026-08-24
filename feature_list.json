@@ -1,6 +1,25 @@
 {
   "features": [
     {
+      "id": "main-chat-model-selector-settings-entry",
+      "name": "主聊天模型选择器底部打开自定义模型设置",
+      "status": "done",
+      "approach": "为 custom-model-selector 的 ModelSelectorOptions 新增语义独立的可选无参 onOpenModelSettings 回调，不复用保留兼容的旧模型编辑参数。仅 useModelActions 主聊天调用在 options 中传入既有 openModelSettings；桌面浮层与移动抽屉均在列表底部按条件渲染低强调“自定义模型”，点击先通过统一 closeComposerModelMenu 关闭选择器并复位 anchor aria-expanded，再调用回调打开 customModels 设置页。共享对话和 Agent 表单等复用场景不传回调，因此不显示入口。移动 footer 位于 flex 可滚动 modelList 之后并保持固定；样式复用既有 border/muted/hover token，遵循轻盈、克制和 hover 不位移原则。",
+      "files": [
+        "src/lib/custom-model-selector.ts",
+        "src/hooks/useModelActions.ts",
+        "src/lib/i18n.ts",
+        "src/index.css",
+        "tests/frontend/custom-model-selector.test.ts",
+        "tests/frontend/use-model-actions-cloud.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/custom-model-selector.test.ts tests/frontend/use-model-actions-cloud.test.ts tests/frontend/i18n-language-snapshot.test.ts tests/server/routes/shared-conversation.model-visibility.test.mjs → 4 files / 15 tests passed；npx eslint src/lib/custom-model-selector.ts src/hooks/useModelActions.ts src/lib/i18n.ts tests/frontend/custom-model-selector.test.ts tests/frontend/use-model-actions-cloud.test.ts → 0 error；npx tsc -b --pretty false → exit 0；npm run build → 成功（仅既有 KaTeX 字体解析与 chunk size warning）；git diff --check（需求文件）→ 通过。"
+    },
+    {
       "id": "file-reference-root-browser",
       "name": "Composer @ 从项目根目录逐层浏览文件",
       "status": "done",
@@ -27,6 +46,43 @@
         "session-handoff.md"
       ],
       "verification": "审查收口：npx vitest run tests/server/routes/workspace-tree-on-demand.test.mjs tests/frontend/file-reference-controller.test.ts → 2 files / 29 tests passed；覆盖普通 node_modules、名为 node_modules 的目录链接、别名链接指向 node_modules 子树、安全普通目录链接，以及旧目录请求迟到不覆盖当前根目录、remove 中止 in-flight 请求、cleanup 移除 textarea listeners。目标 npx eslint → 0 error；npx tsc -b --pretty false → exit 0；git diff --check → 通过（仅既有 CRLF→LF warning）。完整门禁：npm run test → 238 files / 2062 tests passed；npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92 no-useless-assignment）；npm run build → 成功（仅既有 KaTeX 字体解析与 chunk size warning）。"
+    },
+    {
+      "id": "slash-menu-click-outside-dismiss",
+      "name": "/ 斜杠菜单点击菜单外任意区域收起",
+      "status": "done",
+      "approach": "command-suggestions 统一区分用户关闭与内部菜单删除：新增外部关闭抑制态，document pointerdown（菜单本体除外）、Escape 或公开 remove() 关闭后，即使正文仍以 / 开头，MutationObserver 装饰刷新、catalog 回调等无参数 update() 也只保持关闭，不会立即重开；下一次真实输入显式 update(value) 会解除抑制并按新值正常打开/过滤。内部选中、chip 激活、非 Slash 文本、无结果等删除走不抑制的 removeMenu；document pointerdown 监听器改为控制器级单例并由同一 removeMenu/cleanupTextareaHandler 路径清理，重复渲染不累积、不泄漏。点击菜单外任意位置（包括 textarea/Composer 控件）与 Esc 均收起；菜单本体点击仍不触发点外关闭。@ 文件引用菜单未改。",
+      "files": [
+        "src/components/chat/command-suggestions.ts",
+        "tests/frontend/command-suggestions.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/command-suggestions.test.ts → 1 file / 18 tests passed；npx vitest run tests/frontend/command-suggestions.test.ts tests/frontend/slash-invocation-chip.test.ts tests/frontend/composer-plus-menu.test.ts → 3 files / 49 tests passed；npx eslint src/components/chat/command-suggestions.ts tests/frontend/command-suggestions.test.ts → 0 error；npx tsc -b --pretty false → exit 0；git diff --check → exit 0（仅 feature_list.json 既有 CRLF→LF warning）。新增/扩展覆盖：点 textarea/菜单外关闭、Esc 关闭、公开 remove() 关闭；关闭后无参数 update() 不重开；下一次显式 update('/...') 重开并过滤；catalog 回调/重复渲染不累积 document listener，controller cleanup 正确移除监听器。"
+    },
+    {
+      "id": "builtin-slash-commit",
+      "name": "内置 Slash 指令 /commit [message]",
+      "status": "done",
+      "approach": "在 builtinCommandCatalog、内部命令解析和 agent-manager 命令状态链新增 /commit [message]。命令仅允许执行命令，不允许编辑文件或调用 subagent；简短 6 条 prompt 要求检查并只提交当前任务相关文件，禁止 git add . / -A / --all，提交前运行相关验证且失败停止，不修改代码、不混入无关改动、不绕过 hooks，最多一个本地 commit，禁止 push/tag/release/publish，缺省 message 时按 diff 与仓库风格生成，并报告 hash/message/验证/剩余改动。前端菜单和中英文描述、README/Wiki、catalog/help/解析/权限/prompt/建议插入测试同步更新。",
+      "files": [
+        "server/custom-commands.mjs",
+        "server/agent-manager.mjs",
+        "src/components/chat/command-suggestions.ts",
+        "src/lib/i18n.ts",
+        "tests/server/custom-commands.test.mjs",
+        "tests/server/slash-skill-agent.test.mjs",
+        "tests/frontend/command-suggestions.test.ts",
+        "README.md",
+        "docs/wiki/server/README.md",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run tests/server/custom-commands.test.mjs tests/server/slash-skill-agent.test.mjs tests/frontend/command-suggestions.test.ts → 3 files / 78 tests passed；目标 npx eslint → 0 error；npx tsc -b --pretty false → exit 0；完整 npm run test → 238 files / 2050 tests 全通过；npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92 no-useless-assignment）；npm run build → 成功（仅既有 KaTeX 字体解析与 chunk size warning）；git diff --check → 通过。"
     },
     {
       "id": "slash-chip-click-keeps-chip",

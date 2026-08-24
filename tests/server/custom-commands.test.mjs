@@ -53,6 +53,25 @@ describe('internal slash commands', () => {
     await expect(handleInternalCommand({ type: 'review', args: '' }, null, '')).resolves.toBe('Review requires an active project chat.')
   })
 
+  it('parses /commit without a message', () => {
+    expect(parseInternalCommandInvocation('/commit')).toEqual({ type: 'commit', args: '' })
+  })
+
+  it('parses /commit with a message', () => {
+    expect(parseInternalCommandInvocation('/commit feat: add commit command')).toEqual({
+      type: 'commit',
+      args: 'feat: add commit command',
+    })
+  })
+
+  it('handles /commit as a project-only internal command', async () => {
+    await expect(handleInternalCommand({ type: 'commit', args: 'test message' }, process.cwd(), '')).resolves.toEqual({
+      commit: true,
+      args: 'test message',
+    })
+    await expect(handleInternalCommand({ type: 'commit', args: '' }, null, '')).resolves.toBe('Commit requires an active project chat.')
+  })
+
   it('parses /plan with a task', () => {
     expect(parseInternalCommandInvocation('/plan implement feature')).toEqual({
       type: 'plan',
@@ -215,6 +234,18 @@ describe('internal slash commands', () => {
     expect(commandToolPermissionError(session, 'edit_file')).toBe('Command /review does not allow editing files.')
     expect(commandToolPermissionError(session, 'write_file')).toBe('Command /review does not allow editing files.')
   })
+
+  it('allows commands but blocks edits and subagents for /commit permission state', () => {
+    const session = {
+      activeCommandName: 'commit',
+      activeCommandPermissions: { allowEdit: false, allowCommands: true, allowSubagents: false },
+    }
+
+    expect(commandToolPermissionError(session, 'run_command')).toBeNull()
+    expect(commandToolPermissionError(session, 'run_subagent')).toBe('Command /commit does not allow running subagents.')
+    expect(commandToolPermissionError(session, 'edit_file')).toBe('Command /commit does not allow editing files.')
+    expect(commandToolPermissionError(session, 'write_file')).toBe('Command /commit does not allow editing files.')
+  })
 })
 
 describe('/help command', () => {
@@ -237,6 +268,7 @@ describe('/help command', () => {
     expect(result).toContain('`/init`')
     expect(result).toContain('`/plan [task]`')
     expect(result).toContain('`/review [scope]`')
+    expect(result).toContain('`/commit [message]`')
     expect(result).toContain('`/summary`')
     expect(result).toContain('`/compact`')
     expect(result).toContain('`/clear`')
@@ -244,10 +276,11 @@ describe('/help command', () => {
     expect(result).toContain('`/command new <name>`')
   })
 
-  it('includes permission notes for plan and review', async () => {
+  it('includes permission notes for plan, review, and commit', async () => {
     const result = await handleInternalCommand({ type: 'help' }, null, '')
     expect(result).toContain('read-only')
     expect(result).toContain('no edits')
+    expect(result).toContain('commands allowed; no edits or subagents')
   })
 
   it('shows the /? alias in the output', async () => {

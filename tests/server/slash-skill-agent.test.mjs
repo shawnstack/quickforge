@@ -105,7 +105,7 @@ function lastAssistant(session) {
   return null
 }
 
-describe('slash /skill and /agent command state', () => {
+describe('slash /skill, /agent, and /commit command state', () => {
   let tmpDir
   let previousDataDir
   let previousHome
@@ -157,6 +157,60 @@ describe('slash /skill and /agent command state', () => {
       ...options,
     })
   }
+
+  it('resolves /commit with its strict command permissions and concise prompt', async () => {
+    MockAgent.configureHangingPrompts()
+    const workspaceRoot = path.join(tmpDir, 'commit-workspace')
+    await mkdir(workspaceRoot, { recursive: true })
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(workspaceRoot)
+    const session = await createSession('slash-commit-success')
+
+    try {
+      const { runPrompt } = await import('../../server/agent-manager.mjs')
+      await runPrompt(session.sessionId, '/commit feat: add slash commit')
+      await MockAgent.promptStarted
+
+      expect(session.activeCommandName).toBe('commit')
+      expect(session.activeCommandPermissions).toEqual({ allowEdit: false, allowCommands: true, allowSubagents: false })
+      expect(session.activeCommandPrompt).toContain('<commit_command_invocation name="commit">')
+      expect(session.activeCommandPrompt).toContain('commit only files related to this task')
+      expect(session.activeCommandPrompt).toContain('Never use `git add .`, `git add -A`, or `git add --all`')
+      expect(session.activeCommandPrompt).toContain('Run relevant validation before committing and stop if it fails')
+      expect(session.activeCommandPrompt).toContain('Do not modify code, bypass hooks, or alter unrelated changes')
+      expect(session.activeCommandPrompt).toContain('Create at most one local commit')
+      expect(session.activeCommandPrompt).toContain('Do not push, tag, release, publish')
+      expect(session.activeCommandPrompt).toContain('Report the commit hash and message, validations run, and any remaining working tree changes')
+      expect(session.activeCommandPrompt).toContain('Requested commit message:\nfeat: add slash commit')
+      expect(session.activeCommandPrompt.split('\n').length).toBeLessThan(25)
+    } finally {
+      MockAgent.instances.at(-1)?.resolvePrompt?.()
+      const { destroyAgent } = await import('../../server/agent-manager.mjs')
+      await destroyAgent(session.sessionId)
+    }
+  })
+
+  it('lets /commit generate a message when none is supplied', async () => {
+    MockAgent.configureHangingPrompts()
+    const workspaceRoot = path.join(tmpDir, 'commit-workspace-no-message')
+    await mkdir(workspaceRoot, { recursive: true })
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(workspaceRoot)
+    const session = await createSession('slash-commit-no-message')
+
+    try {
+      const { runPrompt } = await import('../../server/agent-manager.mjs')
+      await runPrompt(session.sessionId, '/commit')
+      await MockAgent.promptStarted
+
+      expect(session.activeCommandName).toBe('commit')
+      expect(session.activeCommandPrompt).toContain('generate a message from the diff and repository style')
+    } finally {
+      MockAgent.instances.at(-1)?.resolvePrompt?.()
+      const { destroyAgent } = await import('../../server/agent-manager.mjs')
+      await destroyAgent(session.sessionId)
+    }
+  })
 
   it('resolves /skill into a skill command prompt without command permissions', async () => {
     await enableGlobalSkill('skill-creator')

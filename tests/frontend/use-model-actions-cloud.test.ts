@@ -60,7 +60,8 @@ function useActionsHarness(options: {
   isCloudModelsLoaded: () => boolean
 }) {
   const currentModel = { id: 'current', provider: 'custom' } as Model<Api>
-  return useModelActions({
+  const openSettingsPage = vi.fn()
+  const actions = useModelActions({
     storageRef: { current: {} as never },
     activeModelRef: { current: currentModel },
     agentRef: {
@@ -76,11 +77,12 @@ function useActionsHarness(options: {
     setNeedsModelSetup: vi.fn(),
     setRestoredDraft: vi.fn(),
     notifySettingsChanged: vi.fn(),
-    openSettingsPage: vi.fn(),
+    openSettingsPage,
     loadCloudModels: options.loadCloudModels,
     readCachedCloudModels: () => [],
     isCloudModelsLoaded: options.isCloudModelsLoaded,
   })
+  return { actions, openSettingsPage }
 }
 
 describe('useModelActions Cloud selector boundary', () => {
@@ -93,7 +95,7 @@ describe('useModelActions Cloud selector boundary', () => {
 
   it('waits for Cloud instead of showing an empty-model confirmation before Cloud is loaded', async () => {
     const loadCloudModels = vi.fn(async () => [cloudModel()])
-    const actions = useActionsHarness({
+    const { actions, openSettingsPage } = useActionsHarness({
       loadCloudModels,
       isCloudModelsLoaded: () => false,
     })
@@ -109,14 +111,17 @@ describe('useModelActions Cloud selector boundary', () => {
       [cloudModel()],
       expect.any(Function),
       expect.any(Function),
-      expect.any(Object),
+      expect.objectContaining({ onOpenModelSettings: expect.any(Function) }),
     )
+    const selectorOptions = selectorMocks.openCustomOnlyModelSelector.mock.calls[0]?.[4]
+    selectorOptions?.onOpenModelSettings?.()
+    expect(openSettingsPage).toHaveBeenCalledWith('customModels', undefined)
     expect(confirmMocks.showConfirm).not.toHaveBeenCalled()
   })
 
   it('does not show an empty-model confirmation when the Cloud request fails closed', async () => {
     const loadCloudModels = vi.fn(async () => [])
-    const actions = useActionsHarness({
+    const { actions } = useActionsHarness({
       loadCloudModels,
       isCloudModelsLoaded: () => false,
     })
@@ -131,7 +136,7 @@ describe('useModelActions Cloud selector boundary', () => {
 
   it('shows the existing confirmation only after Cloud is known to be empty', async () => {
     const loadCloudModels = vi.fn(async () => [])
-    const actions = useActionsHarness({
+    const { actions } = useActionsHarness({
       loadCloudModels,
       isCloudModelsLoaded: () => true,
     })

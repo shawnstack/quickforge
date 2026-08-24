@@ -27,7 +27,7 @@
 | `utils.ts` | 6 | 通用工具函数（cn） |
 | `message-utils.ts` | 95 | 消息处理工具 |
 | `mermaid-renderer.ts` | 共享 Mermaid 动态加载、SVG 安全检查和渲染工具 |
-| `custom-model-selector.ts` | 162 | 自定义模型选择器 |
+| `custom-model-selector.ts` | 590 | 自定义模型选择器；主聊天可通过可选无参回调在桌面浮层与移动抽屉底部显示“自定义模型”，点击先关闭选择器再打开设置，未传回调的共享对话/表单复用场景不显示 |
 | `custom-providers-only-tab.ts` | 565 | 自定义供应商设置选项卡 |
 | `backup-settings-tab.ts` | 备份与恢复设置选项卡：按设置数据项选择导出内容（不包含对话），上传后预览有效/异常数据项，并支持按项替换或合并恢复 |
 | `default-options-settings-tab.ts` | 257 | 常规设置选项卡（语言、默认模型、网络代理、上下文和终端 Shell） |
@@ -144,7 +144,7 @@
 - `modelIdentityKey()` / `sameModelIdentity()` 使用 Provider、Model ID、API 和规范化 Base URL 区分模型；`modelMatchesReference()` 兼容旧 Agent 引用缺少可选字段。
 - `includeCurrentModel()` 只为编辑或恢复入口重新加入当前已绑定的隐藏模型，不把它变成其他新选择候选。
 - `modelDisplayLabel()` 统一输出 `Provider / Model ID`，不使用 Provider 内部模型名称、API 或 Base URL 作为选择标签。
-- `custom-model-selector.ts` 是展示层，调用方必须传入已过滤的新选择目录；主聊天、默认模型、Agent Profile、定时任务和共享会话均按上述规则准备列表。
+- `custom-model-selector.ts` 是展示层，调用方必须传入已过滤的新选择目录；主聊天、默认模型、Agent Profile、定时任务和共享会话均按上述规则准备列表。主聊天额外传入语义独立的可选无参设置回调，因此桌面浮层和移动抽屉底部显示低强调“自定义模型”；点击顺序固定为先关闭选择器、再打开 `customModels` 设置页。共享对话与 Agent 表单等复用入口不传该回调，因而不显示设置入口，且不复用旧的模型编辑参数。
 
 ### local-tools.ts
 
@@ -256,7 +256,7 @@
 | `share-client.ts` | 分享链接创建、列表、编辑（权限/密码/有效期）、停用、恢复、永久删除及状态推导 API |
 | `channels-settings-tab.ts` | 渠道设置选项卡：展示名称、状态、简述、工作区与启动/停止/登录操作，仅在存在二维码内容时展示扫码入口，同时保留错误提示，并通过“打开日志文件夹”访问后端持久化渠道日志 |
 | `patch-thinking-selector.ts` | 修补 pi-web-ui 的模型选择器 |
-| `custom-model-selector.ts` | 自定义模型选择器对话框 |
+| `custom-model-selector.ts` | 自定义模型选择器；主聊天通过可选无参设置回调显示桌面/移动底部入口，复用场景未传回调时保持隐藏 |
 
 ### message-utils.ts (95 行)
 

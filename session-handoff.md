@@ -1,5 +1,18 @@
 # Session Handoff
 
+## 当前状态：main-chat-model-selector-settings-entry（已完成）
+
+- 目标：仅在主聊天的模型选择桌面浮层和移动抽屉底部增加低强调“自定义模型”，点击先关闭选择器，再进入设置 `customModels` 列表页；共享对话、Agent 表单等复用场景保持无入口。
+- 实现：`ModelSelectorOptions` 新增语义独立的可选无参 `onOpenModelSettings`，保留第四个旧编辑回调参数兼容但不复用。`useModelActions` 主聊天调用在 options 中传既有 `openModelSettings`（其落点为 `openSettingsPage('customModels')`）；桌面 `quickforge-model-menu` 与移动 `quickforge-model-sheet` 均条件渲染共享设置按钮。按钮点击执行 `closeComposerModelMenu(anchor)` 后才调用回调，确保 DOM 已移除且 trigger `aria-expanded=false`。共享页与 `openModelSheet` 表单调用不传回调，入口不出现；原模型选择与思考等级行为未改。
+- 样式/i18n：新增中英文可见文案与 aria-label。footer 使用既有 border/muted token、透明底与克制 hover/focus 背景，不位移；移动 footer 是 `flex: 0 0 auto`，位于 `flex:1 + overflow-y:auto` 的模型列表之后，长列表只滚动中部内容。
+- 测试：新增 `tests/frontend/custom-model-selector.test.ts`，覆盖桌面/移动有回调显示、无回调隐藏、点击关闭后跳转顺序、aria、移动 footer 布局/hover/focus CSS 契约，以及桌面模型选择行为回归；扩展 `use-model-actions-cloud.test.ts` 覆盖主聊天确实传回调且落到 `customModels`。
+- 文档：同步 `docs/wiki/src/lib/README.md` 的模块行数与可选回调/调用场景契约。`DESIGN_LANGUAGE.md` 无需修改，因为实现直接复用其既有轻盈、低强调、统一分隔线和 hover 不跳动原则，未引入新视觉范式。
+- 验证：定向 Vitest 4 files / 15 tests 全通过；目标 ESLint 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；需求文件 `git diff --check` 通过。
+- 边界：未新增依赖，未创建 commit/tag/push，未手工修改 `dist/package-dist/package-offline`；build 仅重建被忽略的 `dist/`。工作区开始时已有 `/commit`、README/Wiki、package-lock 等其他未提交改动，本功能只做增量修改，未覆盖或回退。
+- 下一步：无 blocker；可选真机确认桌面浮层、移动长列表抽屉、深浅主题及设置页打开动画衔接。
+
+---
+
 ## 当前状态：file-reference-root-browser（已完成）
 
 - 目标：Composer 输入 `@` 时从当前项目根目录一级开始浏览；目录可点击或用 Enter/Tab 逐层进入；文字只筛选当前目录；当前层全部展示并滚动浏览；文件继续使用既有结构化 context reference。
@@ -8,6 +21,30 @@
 - 测试：前端覆盖裸 `@` 根目录加载、当前层筛选不追加请求、Enter 进入目录 + Tab 选文件、25 项不截断、请求竞态/Abort/cleanup、既有引用/chip 共存；服务端覆盖 205+ 当前层全部返回、直接子节点、不递归、普通与链接/别名 `node_modules` 过滤、安全普通目录链接、敏感项与链接过滤、路径拒绝、严格项目上下文及 dispatcher。
 - 文档：更新 `docs/wiki/server/routes/README.md` 与 `docs/wiki/src/components/README.md`；`DESIGN_LANGUAGE.md` 无需修改（复用既有浮层、滚动与轻量图标模式，未引入新视觉范式）。
 - 验证：审查收口 `npx vitest run tests/server/routes/workspace-tree-on-demand.test.mjs tests/frontend/file-reference-controller.test.ts` → 2 files / 29 tests 全通过；目标 `npx eslint` 0 error；`npx tsc -b --pretty false` 通过；`git diff --check` 通过（仅既有 CRLF→LF warning）。完整门禁：`npm run test` → 238 files / 2062 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）。
+- 边界：未新增依赖，未修改 dist/package-dist/package-offline，未创建 commit/tag/push；任务前已有 `/commit`、package-lock 等无关未提交改动，均保留未覆盖。
+
+---
+
+## 当前状态：slash-menu-click-outside-dismiss（已完成）
+
+- 目标：用户反馈输入 `/` 弹出指令菜单后，点击非命令区域应收起菜单。
+- 根因：第一层问题是 document pointerdown 对 `editor.contains(target)` 放行，导致点击输入框/Composer 控件不收起；去掉该放行后又暴露重开竞态——菜单 DOM `remove()` 会触发 MutationObserver → decorate → 无参数 `update()`，正文仍以 `/` 开头时菜单立即重建，catalog 回调同样可能无参数刷新。
+- 实现：新增用户关闭抑制态与统一内部删除 `removeMenu()`。菜单外 pointerdown、Escape、公开 `remove()` 先置抑制再删除；无参数 `update()` 在抑制态仅保持关闭，下一次真实输入显式 `update(value)` 解除抑制并正常打开/过滤。选中行、chip 激活、非 Slash 文本和无结果等内部删除不进入抑制。document pointerdown handler 改为控制器级单例，所有删除路径及 `cleanupTextareaHandler()` 均经 `removeMenu()` 清理，避免 listener 泄漏/累积；handler 判断当前 suggestions，兼容内部重建。菜单本体 pointerdown 仍不关闭；`@` 菜单未改。
+- 测试：fake document 真实记录 capture listener。共 18 用例，新增/扩展覆盖点 textarea/菜单外关闭、Esc、公开 remove；三种用户关闭后 `instance.update()` 不重开；下一次显式 `update('/...')` 重开；catalog resolve 回调与多次过滤重渲染始终只有一个 pointerdown listener；controller cleanup 后 listener 清零。
+- 验证：`npx vitest run tests/frontend/command-suggestions.test.ts` → 1 file / 18 tests passed；`npx vitest run tests/frontend/command-suggestions.test.ts tests/frontend/slash-invocation-chip.test.ts tests/frontend/composer-plus-menu.test.ts` → 3 files / 49 tests passed；`npx eslint src/components/chat/command-suggestions.ts tests/frontend/command-suggestions.test.ts` → 0 error；`npx tsc -b --pretty false` → exit 0；`git diff --check` → exit 0（仅 `feature_list.json` 既有 CRLF→LF warning）。
+- 文档：`docs/wiki/src/components/README.md` 同步关闭抑制、显式输入解锁与统一 listener 清理契约，command-suggestions 行数更新为 495。DESIGN_LANGUAGE 无需更新（无新视觉模式，仅交互 bugfix）。
+- 边界：未新增依赖，未创建 commit/tag/push，未手工修改生成目录；工作区并行未提交改动（/commit 功能、package-lock 噪音等）全部保留。
+- 下一步：可选真机验证点击输入框/消息区收起、继续输入重开、点击菜单行仍正常插入（含触屏与深浅主题）。
+
+---
+
+## 当前状态：builtin-slash-commit（已完成）
+
+- 目标：实现 QuickForge 内置 `/commit [message]`，可选提交信息，prompt 保持简短，并安全地只创建当前任务的一个本地 commit。
+- 实现：`server/custom-commands.mjs` 增加 catalog/help、带/不带参数解析与项目限定；`server/agent-manager.mjs` 注入 `allowEdit=false / allowCommands=true / allowSubagents=false`，使用 6 条规则的短 prompt，覆盖仅提交任务文件、禁止批量 add、验证失败停止、不编辑/不混入/不绕过 hooks、最多一个本地 commit、禁止远端动作、缺省 message 生成与结果报告。前端 Slash 菜单增加 `/commit [message]`，点击/Tab 插入 `/commit `；i18n 中英文、README、server/components Wiki 已同步。
+- 测试：custom commands 覆盖 catalog/help、带/不带参数、项目限定和权限；现有 Slash 集成测试扩展真实 runPrompt 命令状态与 prompt 关键约束；前端建议测试覆盖行数、usage/description 与插入行为。
+- 验证：定向 Vitest 3 files / 78 tests passed；目标 ESLint 0 error；`npx tsc -b --pretty false` 通过；完整 `npm run test` → 238 files / 2050 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；`git diff --check` 通过。
+- 边界：未修改 AGENTS.md/agents.md、未新增依赖、未手工修改生成目录、未创建 commit/tag/push；工作区任务前已有 `package-lock.json` peer 元数据差异，本轮未修改或还原。
 
 ---
 

@@ -384,10 +384,10 @@ describe('command suggestions slash menu', () => {
     expect(menu()).not.toBeNull()
     expect(menu()!.getAttribute('role')).toBe('listbox')
     expect(menu()!.getAttribute('aria-busy')).toBe('true')
-    // 7 built-in commands + 1 project custom command.
-    expect(optionRows()).toHaveLength(8)
+    // 8 built-in commands + 1 project custom command.
+    expect(optionRows()).toHaveLength(9)
     expect(optionRows()[0].dataset.quickforgeCommandName).toBe('init')
-    expect(optionRows()[7].dataset.quickforgeCommandName).toBe('deploy')
+    expect(optionRows()[8].dataset.quickforgeCommandName).toBe('deploy')
     // Skills / subagents show a group head + 2 skeleton rows each while loading.
     expect(heads()).toHaveLength(3)
     expect(skeletonRows()).toHaveLength(4)
@@ -411,13 +411,19 @@ describe('command suggestions slash menu', () => {
     const labels = heads().map((head) => head.children[0].textContent)
     const counts = heads().map((head) => head.children[1].textContent)
     expect(labels).toEqual(['slashGroupCommands', 'slashGroupSkills', 'slashGroupAgents'])
-    expect(counts).toEqual(['8', '1', '1'])
+    expect(counts).toEqual(['9', '1', '1'])
 
     const commandRow = optionRows().find((row) => row.dataset.quickforgeCommandName === 'plan')
     expect(commandRow).toBeDefined()
     expect(commandRow!.innerHTML).toContain('lucide-square-terminal')
     expect(visibleText(rowName(commandRow!))).toBe('/plan [task]')
     expect(commandRow!.dataset.quickforgeInsert).toBe('/plan ')
+
+    const commitRow = optionRows().find((row) => row.dataset.quickforgeCommandName === 'commit')
+    expect(commitRow).toBeDefined()
+    expect(visibleText(rowName(commitRow!))).toBe('/commit [message]')
+    expect(commitRow!.dataset.quickforgeInsert).toBe('/commit ')
+    expect(rowDescription(commitRow!)).toBe('commitCommandDescription')
 
     const skillRow = optionRows().find((row) => row.dataset.quickforgeCommandName === 'skill-creator')
     expect(skillRow).toBeDefined()
@@ -495,6 +501,27 @@ describe('command suggestions slash menu', () => {
     })
   })
 
+  it('inserts /commit with a trailing space for an optional message', async () => {
+    const pending = deferred()
+    const { instance, setText, optionRows, restoreDraftIntoComposer } = createHarness(() => pending.promise)
+
+    setText('/commit')
+    instance.update('/commit')
+    pending.resolve(catalog)
+    await flush()
+
+    const commitRow = optionRows().find((row) => row.dataset.quickforgeCommandName === 'commit')
+    expect(commitRow).toBeDefined()
+    commitRow!.onpointerdown?.({ preventDefault: vi.fn(), stopPropagation: vi.fn(), stopImmediatePropagation: vi.fn() })
+
+    expect(restoreDraftIntoComposer).toHaveBeenCalledWith({
+      text: '/commit ',
+      attachments: [],
+      contextReferences: [],
+      selectedCapabilities: [],
+    })
+  })
+
   it('supports arrow navigation, Tab completion, Escape close, and Enter passthrough', async () => {
     const pending = deferred()
     const { instance, setText, optionRows, menu, keydown, restoreDraftIntoComposer } = createHarness(() => pending.promise)
@@ -551,7 +578,7 @@ describe('command suggestions slash menu', () => {
 
     // No throw; the menu shows only the commands group.
     expect(menu()).not.toBeNull()
-    expect(optionRows()).toHaveLength(8)
+    expect(optionRows()).toHaveLength(9)
     expect(skeletonRows()).toHaveLength(0)
     expect(heads()).toHaveLength(1)
     expect(loadSlashCatalog).toHaveBeenCalledTimes(1)

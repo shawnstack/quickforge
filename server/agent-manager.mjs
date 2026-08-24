@@ -1276,6 +1276,14 @@ async function resolveCommandState(session, userMessage, promptCommand = null) {
       commandName: 'review',
     }
   }
+  if (internalResponse?.commit) {
+    return {
+      userMessage,
+      commandPrompt: formatCommitCommandPrompt(internalResponse.args),
+      permissions: { allowEdit: false, allowCommands: true, allowSubagents: false },
+      commandName: 'commit',
+    }
+  }
 
   if (!session.projectContext?.workspaceRoot) {
     // Even without a project, user-level custom commands (~/.quickforge/commands/) are available
@@ -1383,6 +1391,24 @@ End by telling the user they can reply “允许”, “按计划执行”, or a
 User task:
 ${taskText}
 </plan_command_invocation>`
+}
+
+function formatCommitCommandPrompt(message) {
+  const messageText = String(message || '').trim() || '(none; generate a message from the diff and repository style)'
+  return `<commit_command_invocation name="commit">
+This /commit command applies only to the current user request. Create at most one local commit for the current task.
+
+Rules for this turn:
+- Inspect the current task's Git changes and commit only files related to this task; do not mix in unrelated changes.
+- Never use \`git add .\`, \`git add -A\`, or \`git add --all\`; stage only explicit task-related paths.
+- Run relevant validation before committing and stop if it fails. Do not modify code, bypass hooks, or alter unrelated changes.
+- Create at most one local commit. Do not push, tag, release, publish, or otherwise affect a remote.
+- Use the requested message below, or generate one from the diff and repository conventions when none is provided.
+- Report the commit hash and message, validations run, and any remaining working tree changes.
+
+Requested commit message:
+${messageText}
+</commit_command_invocation>`
 }
 
 function formatReviewCommandPrompt(scope) {

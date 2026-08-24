@@ -4564,6 +4564,36 @@ html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
   background: color-mix(in oklab, var(--border) 72%, transparent);
 }
 
+.quickforge-model-settings-footer {
+  flex: 0 0 auto;
+  margin: 0.35rem 0.45rem 0;
+  padding-top: 0.35rem;
+  border-top: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+}
+
+.quickforge-model-settings-link {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  padding: 0.4rem 0.3rem;
+  border: 0;
+  border-radius: 0.55rem;
+  background: transparent;
+  color: color-mix(in oklab, var(--muted-foreground) 86%, transparent);
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.quickforge-model-settings-link:hover,
+.quickforge-model-settings-link:focus-visible {
+  background: color-mix(in oklab, var(--muted) 62%, transparent);
+  color: var(--foreground);
+  outline: none;
+  transform: none;
+}
+
 .quickforge-model-menu-note {
   padding: 0.25rem 0.75rem 0.5rem;
   color: color-mix(in oklab, var(--muted-foreground) 86%, transparent);
@@ -4701,6 +4731,17 @@ html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
 .quickforge-model-sheet-model-list .quickforge-model-menu-item[aria-checked="true"] {
   background: color-mix(in oklab, var(--muted) 58%, transparent);
   color: var(--foreground) !important;
+}
+
+.quickforge-model-sheet-footer {
+  margin: 0;
+  padding: 0.4rem 0.7rem max(0.4rem, env(safe-area-inset-bottom));
+  background: color-mix(in oklab, var(--popover) 98%, white);
+}
+
+.quickforge-model-sheet-footer .quickforge-model-settings-link {
+  min-height: 2.4rem;
+  padding-inline: 0.45rem;
 }
 
 .quickforge-composer .quickforge-send-button,

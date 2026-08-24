@@ -34,6 +34,12 @@ const builtinCommandCatalog = [
     permissionNote: 'no edits',
   },
   {
+    name: 'commit',
+    description: 'Validate and commit the current task changes as one local commit.',
+    argumentHint: '[message]',
+    permissionNote: 'commands allowed; no edits or subagents',
+  },
+  {
     name: 'summary',
     description: 'Create a new chat with this conversation summarized to reduce context usage.',
     argumentHint: '',
@@ -407,6 +413,9 @@ export function parseInternalCommandInvocation(message) {
   const reviewMatch = text.match(/^\/review(?:\s+([\s\S]*))?$/i)
   if (reviewMatch) return { type: 'review', args: (reviewMatch[1] || '').trim() }
 
+  const commitMatch = text.match(/^\/commit(?:\s+([\s\S]*))?$/i)
+  if (commitMatch) return { type: 'commit', args: (commitMatch[1] || '').trim() }
+
   const compactMatch = text.match(/^\/compact(?:\s+([\s\S]*))?$/i)
   if (compactMatch) return { type: 'compact', args: (compactMatch[1] || '').trim() }
 
@@ -456,6 +465,11 @@ export async function handleInternalCommand(invocation, workspaceRoot, commandDi
   if (invocation.type === 'review') {
     if (!workspaceRoot) return 'Review requires an active project chat.'
     return { review: true, args: invocation.args || '' }
+  }
+
+  if (invocation.type === 'commit') {
+    if (!workspaceRoot) return 'Commit requires an active project chat.'
+    return { commit: true, args: invocation.args || '' }
   }
 
   if (invocation.type === 'clear') {

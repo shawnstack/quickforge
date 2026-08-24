@@ -2,8 +2,8 @@
  * Slash menu for the chat composer.
  *
  * Manages the dropdown that appears when the user types "/" in the composer.
- * Three groups in order: commands (built-in /init, /plan, /review, /summary,
- * /compact, /clear, /help plus project-level custom commands), skills, and
+ * Three groups in order: commands (built-in /init, /plan, /review, /commit,
+ * /summary, /compact, /clear, /help plus project-level custom commands), skills, and
  * subagents. Skills/subagents are lazy-loaded on first trigger via
  * loadSlashCatalog and degrade silently to a commands-only menu when the
  * catalog is unavailable.
@@ -85,6 +85,7 @@ export function createCommandSuggestions({
     { name: 'init', description: t('initCommandDescription'), argumentHint: '' },
     { name: 'plan', description: t('planCommandDescription'), argumentHint: '[task]' },
     { name: 'review', description: t('reviewCommandDescription'), argumentHint: '[scope]' },
+    { name: 'commit', description: t('commitCommandDescription'), argumentHint: '[message]' },
     { name: 'summary', description: t('summaryCommandDescription'), argumentHint: '' },
     { name: 'compact', description: t('compactCommandDescription'), argumentHint: '' },
     { name: 'clear', description: t('clearCommandDescription'), argumentHint: '' },

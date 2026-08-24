@@ -11,6 +11,8 @@ type ModelSelectorOptions = {
   anchor?: HTMLElement | null
   /** 控制是否渲染思考等级区（表单场景传 false） */
   showThinking?: boolean
+  /** 点击设置入口时打开自定义模型设置；仅需要该入口的场景传入 */
+  onOpenModelSettings?: () => void
   /** 覆盖模型列表项的显示文案 */
   modelLabelOverride?: (model: AnyModel) => string
   /** 在模型列表顶部显示一个"无/继承"选项 */
@@ -36,6 +38,18 @@ function createButton(className: string, text = '') {
   button.type = 'button'
   button.className = className
   button.textContent = text
+  return button
+}
+
+function createModelSettingsButton(onOpenModelSettings: () => void, anchor?: HTMLElement | null) {
+  const button = createButton('quickforge-model-settings-link', t('modelSelectorCustomModelSettings'))
+  button.setAttribute('aria-label', t('modelSelectorCustomModelSettingsAriaLabel'))
+  button.addEventListener('click', (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    closeComposerModelMenu(anchor)
+    onOpenModelSettings()
+  })
   return button
 }
 
@@ -289,7 +303,20 @@ function openMobileModelSelector(
 
   renderModelList()
 
-  sheet.append(dragZone, header, ...(thinkingSection ? [thinkingSection] : []), modelSectionLabel, modelList)
+  const settingsFooter = options.onOpenModelSettings ? document.createElement('div') : null
+  if (settingsFooter && options.onOpenModelSettings) {
+    settingsFooter.className = 'quickforge-model-settings-footer quickforge-model-sheet-footer'
+    settingsFooter.append(createModelSettingsButton(options.onOpenModelSettings, anchor))
+  }
+
+  sheet.append(
+    dragZone,
+    header,
+    ...(thinkingSection ? [thinkingSection] : []),
+    modelSectionLabel,
+    modelList,
+    ...(settingsFooter ? [settingsFooter] : []),
+  )
   sheet.addEventListener('pointerdown', (event) => event.stopPropagation())
   backdrop.addEventListener('pointerdown', (event) => {
     if (event.target === backdrop) closeComposerModelMenu(anchor)
@@ -507,6 +534,13 @@ export function openCustomOnlyModelSelector(
         renderModelSubmenu()
       },
     }))
+
+    if (options.onOpenModelSettings) {
+      const settingsFooter = document.createElement('div')
+      settingsFooter.className = 'quickforge-model-settings-footer'
+      settingsFooter.append(createModelSettingsButton(options.onOpenModelSettings, anchor))
+      menu.append(settingsFooter)
+    }
   }
 
   const close = () => closeComposerModelMenu(anchor)

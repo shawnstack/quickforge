@@ -2,10 +2,25 @@
 
 ## Current State
 
+- Feature: 主聊天模型选择器底部打开自定义模型设置（main-chat-model-selector-settings-entry，**已完成**）
+- Status: done — `custom-model-selector` 新增语义独立的可选无参 `onOpenModelSettings`，不复用旧的模型编辑参数；仅 `useModelActions` 主聊天入口传既有 `openModelSettings`。桌面浮层与移动抽屉底部按条件显示低强调“自定义模型”，点击先统一关闭选择器并复位 trigger `aria-expanded`，再打开 `customModels` 设置页。共享对话、Agent 表单等不传回调的复用场景不显示。移动 footer 在可滚动 model list 之外保持固定，样式遵循既有分隔线、muted 文字及 hover/focus token。
+- Verification: 定向 `npx vitest run tests/frontend/custom-model-selector.test.ts tests/frontend/use-model-actions-cloud.test.ts tests/frontend/i18n-language-snapshot.test.ts tests/server/routes/shared-conversation.model-visibility.test.mjs` → 4 files / 15 tests 全通过；目标 `npx eslint` → 0 error；`npx tsc -b --pretty false` → exit 0；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；需求文件 `git diff --check` 通过。
+- Next step: 无代码 blocker；可选真机目视桌面/移动、深浅主题及移动长模型列表。未创建 commit/tag/push，未手工修改生成目录；build 只重建被忽略的 `dist/`。
+
 - Feature: Composer @ 从项目根目录逐层浏览文件（file-reference-root-browser，**已完成**）
 - Status: done — 新增严格 `projectId` 的 `/api/workspace/mention-children`，只返回当前目录全部直接安全子节点且目录优先，不递归、不分页、不回退默认 workspace；敏感路径、真实目标和项目外符号链接继续按 mention 边界过滤。审查修正后，目录完成 stat/realpath 解析仍按真实/链接目标路径分段排除 `SKIP_DIRS`：普通 `node_modules`、名为 `node_modules` 的目录链接与安全别名指向 `node_modules` 子树均不返回；普通安全目录链接仍允许。Composer 裸 `@` 默认浏览根目录；点击/Enter/Tab 目录逐层进入，选择文件才沿用既有 `contextReferences`；`@src` 等仅在当前目录本地筛选，不发全项目搜索请求；当前层全部渲染并由菜单滚动。旧 `mention-search` 保留兼容但 Composer 不再调用。
 - Verification: 审查收口 `npx vitest run tests/server/routes/workspace-tree-on-demand.test.mjs tests/frontend/file-reference-controller.test.ts` → 2 files / 29 tests 全通过（含请求竞态、remove Abort 与 cleanup listener）；目标 `npx eslint` → 0 error；`npx tsc -b --pretty false` → exit 0；`git diff --check` 通过（仅既有 CRLF→LF warning）。完整门禁：`npm run test` → 238 files / 2062 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）。
 - Next step: 可选真机确认深浅主题、长目录滚动、鼠标/键盘逐层进入、当前层筛选及文件 chip；未创建 commit/tag/push。
+
+- Feature: / 斜杠菜单点击菜单外任意区域收起（slash-menu-click-outside-dismiss，**已完成**）
+- Status: done — 用户关闭与内部删除已分离。菜单外任意 pointerdown（包括 textarea/Composer 控件）、Escape 或公开 `remove()` 会收起菜单、清理 document listener，并进入等待下一次显式输入的抑制态；即使正文仍以 `/` 开头，MutationObserver 装饰刷新、catalog resolve/reject 回调等无参数 `update()` 也不会立即重开。下一次真实输入调用 `update(value)` 时解除抑制并正常打开/过滤。选中菜单项、chip 激活、非 Slash 文本、无结果等内部删除走不抑制的统一 `removeMenu()`；document listener 为控制器级单例，重复渲染不累积，`cleanupTextareaHandler()` 同步清理。菜单本体 pointerdown 仍不关闭；`@` 文件引用菜单保持既有行为未改。
+- Verification: `npx vitest run tests/frontend/command-suggestions.test.ts` → 1 file / 18 tests passed；`npx vitest run tests/frontend/command-suggestions.test.ts tests/frontend/slash-invocation-chip.test.ts tests/frontend/composer-plus-menu.test.ts` → 3 files / 49 tests passed；目标 `npx eslint` → 0 error；`npx tsc -b --pretty false` → exit 0；`git diff --check` → exit 0（仅 `feature_list.json` 既有 CRLF→LF warning）。
+- Next step: 无代码 blocker；可选真机确认点击输入框/消息区收起、继续输入重开、点击菜单行仍正常插入。未创建 commit/tag/push。
+
+- Feature: 内置 Slash 指令 `/commit [message]`（builtin-slash-commit，**已完成**）
+- Status: done — 后端 catalog/help、内部解析与 agent-manager 命令状态已接入 `/commit`；参数可省略。当前轮权限固定为 `allowEdit=false`、`allowCommands=true`、`allowSubagents=false`。简短 6 条 prompt 要求仅显式暂存并提交当前任务相关文件，禁止 `git add .` / `-A` / `--all`，验证失败停止，不修改代码、不混入无关改动、不绕过 hooks，最多一个本地 commit，禁止 push/tag/release/publish；无 message 时按 diff 与仓库风格生成，最后报告 hash/message/验证/剩余改动。前端菜单显示 `/commit [message]` 并插入 `/commit `，中英文描述、README 和 server/components Wiki 已同步。
+- Verification: 定向 `npx vitest run tests/server/custom-commands.test.mjs tests/server/slash-skill-agent.test.mjs tests/frontend/command-suggestions.test.ts` → 3 files / 78 tests passed；目标 `npx eslint` 0 error；`npx tsc -b --pretty false` exit 0；完整 `npm run test` → 238 files / 2050 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；`git diff --check` 通过。
+- Next step: 无代码 blocker；未创建 commit/tag/push，`package-lock.json` 的既有 peer 元数据改动未触碰。
 
 - Feature: 点击 Composer 内 Slash chip 不再降级显示命令原文（slash-chip-click-keeps-chip，**已完成**）
 - Status: done — 用户真机反馈：选中 agent 后输入框内的小 tab（slash chip）一点击就露出 `/agent <name>` 原文。根因是覆盖层整体 `pointer-events:none`，点击穿透到 textarea 前缀区，光标进入前缀触发 selectionchange 降级逻辑。修复：CSS 仅对 `.quickforge-slash-overlay .quickforge-slash-chip` 开启 `pointer-events:auto`（消息流 chip 保持纯展示），控制器在 `renderChipContent` 为覆盖层 chip 挂 `pointerdown`：preventDefault 后聚焦 textarea 并把光标移到文本末尾，chip 保持显示不降级；键盘方向键进入前缀区的降级/自愈、IME、自愈重建逻辑均未改。共享工厂 `createSlashChipElement` 未挂监听，消息流 chip 不受影响。

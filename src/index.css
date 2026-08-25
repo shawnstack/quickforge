@@ -2941,6 +2941,38 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
   white-space: nowrap;
 }
 
+.quickforge-tool-running-sweep {
+  position: relative;
+}
+
+.quickforge-tool-running-sweep::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent 35%,
+    color-mix(in oklab, currentColor 12%, transparent) 50%,
+    transparent 65%
+  );
+  transform: translateX(-100%);
+  animation: quickforge-tool-running-sweep 1.8s ease-in-out infinite;
+}
+
+@keyframes quickforge-tool-running-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-tool-running-sweep::after {
+    content: none;
+    animation: none;
+  }
+}
+
 /* subagent 摘要卡「当前工具」跑马灯：只占用标签与状态之间的剩余弹性空间；
    min-width: 0 保证对话列变窄时先自行收缩退让，不遮挡状态标签与 spinner/耗时。
    定高一行（0.75rem × line-height 1.5）是双视图纵向滚动切换的度量前提。 */

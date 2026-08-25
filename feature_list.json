@@ -1,6 +1,30 @@
 {
   "features": [
     {
+      "id": "sidebar-five-item-display-shared-scroll",
+      "name": "侧栏会话五条递增展示与统一中部滚动",
+      "status": "done",
+      "approach": "ChatSidebar 在 Projects 时间线、每个展开项目和 Tasks 中默认展示5条，唯一显式控件“显示更多”每次增加5条；该行复用普通 session 行的字号、行高、水平布局与点击区域，仅使用 muted 灰色降低层级，不显示“收起”按钮，也不保留未用 show-less i18n。共享折叠 props、展开项目集合或 sessionViewMode 变化会让桌面/移动各实例通过 previous ref + effect 兜底重置，视图模式变化时重置 timeline 为5并 invalidate generation，初始挂载无额外副作用，DnD 临时视觉折叠不重置。显示更多通过纯行为 helper 先计算目标，仅在已加载不足时等待 loadMore 确认新增数据后提交 count；失败不前进，按 timeline/global/project 各列表 key 维护 generation 与 pending generation，快速重复点击合并，任何区块/单项目折叠、折叠全部或时间线视图切换重置都会使在途旧请求失效，旧 Promise 成功也不能覆盖已恢复的5条。Pinned/Projects/Tasks 使用侧栏中部唯一滚动容器；项目拖拽边界取 Projects 与共享视口的合法可见交集，空/越界交集禁用夹紧，自动滚动仅允许共享容器。",
+      "files": [
+        "src/components/sidebar/ChatSidebar.tsx",
+        "src/hooks/useSessionPagination.ts",
+        "src/lib/sidebar-session-display.ts",
+        "src/lib/project-drag-boundary.ts",
+        "src/lib/i18n.ts",
+        "tests/frontend/sidebar-session-display-limit.test.ts",
+        "tests/frontend/session-pagination-bootstrap.test.ts",
+        "tests/frontend/sidebar-section-order.test.ts",
+        "tests/frontend/project-drag-boundary.test.ts",
+        "tests/frontend/sidebar-new-chat-routing.test.ts",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "局部收口后，定向 Vitest 5 files / 48 tests 全通过，覆盖每次+5、按需 loadMore、失败重试、快速点击去重、折叠/视图切换重置与 generation 竞态保护，以及显示更多与普通 session 行尺寸/布局一致、muted 灰色、无可见收起控件/无 show-less i18n；目标 ESLint 0 error；完整 npm run test → 253 files / 2210 tests 全通过；npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92）；npm run build → 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；git diff --check 与 feature JSON 解析通过。未提交、未触碰生成目录或无关 design-mockups。"
+    },
+    {
       "id": "release-v1.8.1",
       "name": "发布 patch v1.8.1",
       "status": "done",

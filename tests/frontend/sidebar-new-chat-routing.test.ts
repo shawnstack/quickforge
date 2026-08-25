@@ -6,7 +6,8 @@ const sidebarSource = readFileSync(new URL('../../src/components/sidebar/ChatSid
 const agentManagerSource = readFileSync(new URL('../../src/hooks/useAgentManager.ts', import.meta.url), 'utf8')
 
 function callbackSource(name: string) {
-  const source = appSource.match(new RegExp(`const ${name} = useCallback\\(\\(\\) => \\{([\\s\\S]*?)\\n  \\}, \\[`))?.[1]
+  const source = appSource.match(new RegExp(`const ${name} = useCallback\\(\\(\\) => \\{([\\s\\S]*?)
+  \\}, \\[`))?.[1]
   expect(source, `${name} callback`).toBeDefined()
   return source ?? ''
 }
@@ -29,9 +30,10 @@ describe('sidebar new chat routing', () => {
   })
 
   it('routes the Tasks title action through the explicit global handler on desktop and mobile', () => {
+    const tasksToggleIndex = sidebarSource.indexOf('onClick={toggleConversationsCollapsed}')
     const tasksHeader = sidebarSource.slice(
-      sidebarSource.indexOf('onClick={onToggleConversationsCollapsed}'),
-      sidebarSource.indexOf("aria-label={t('newChat')}") + 80,
+      tasksToggleIndex,
+      sidebarSource.indexOf("aria-label={t('newChat')}", tasksToggleIndex) + 80,
     )
 
     expect(tasksHeader).toContain('onClick={onStartNewGlobalChat}')
@@ -62,7 +64,7 @@ describe('sidebar new chat routing', () => {
   it('does not derive the Tasks icon target from the active or current task project', () => {
     const explicitGlobalHandler = callbackSource('startNewExplicitGlobalSession')
     const tasksHeader = sidebarSource.slice(
-      sidebarSource.indexOf('onClick={onToggleConversationsCollapsed}'),
+      sidebarSource.indexOf('onClick={toggleConversationsCollapsed}'),
       sidebarSource.indexOf("aria-label={t('newChat')}") + 80,
     )
 

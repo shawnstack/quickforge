@@ -37,6 +37,7 @@ vi.mock('react', () => ({
 
 vi.mock('@/lib/session-list-updates', () => ({
   patchSessionTitleInPage: (page: unknown) => page,
+  removeSessionFromPage: (page: unknown) => page,
   sortSessions: <T>(sessions: T[]) => sessions,
   uniqueSessions: <T extends { id: string }>(sessions: T[]) => [...new Map(sessions.map((session) => [session.id, session])).values()],
   upsertSessionPage: (page: unknown) => page,
@@ -52,6 +53,18 @@ function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((next) => { resolve = next })
   return { promise, resolve }
+}
+
+function session(id: string, scope: 'global' | 'project' = 'global', projectId?: string) {
+  return {
+    id,
+    title: id,
+    scope,
+    projectId,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    lastModified: '2026-01-02T00:00:00.000Z',
+    messageCount: 1,
+  }
 }
 
 describe('session pagination bootstrap', () => {
@@ -186,6 +199,65 @@ describe('session pagination bootstrap', () => {
       total: 2,
       loading: false,
     })
+  })
+
+  it('reports global load-more success only when new items arrive and deduplicates pending calls', async () => {
+    const firstPage = Array.from({ length: 20 }, (_, index) => session(`global-${index}`))
+    const nextPage = [session('global-20')]
+    const pending = deferred<{ values: ReturnType<typeof session>[]; total: number }>()
+    const fetchPaginatedFromIndex = vi.fn((
+      _storeName: string,
+      _indexName: string,
+      options: { pinned?: string; scope?: string; offset?: number },
+    ) => {
+      if (options.pinned === 'only') return Promise.resolve({ values: [], total: 0 })
+      if (options.scope === 'global' && options.offset === 0) return Promise.resolve({ values: firstPage, total: 21 })
+      if (options.scope === 'global' && options.offset === 20) return pending.promise
+      return Promise.resolve({ values: [], total: 0 })
+    })
+    const backend = { fetchPaginatedFromIndex } as unknown as HttpStorageBackend
+    const pagination = useSessionPagination({
+      backendRef: { current: backend },
+      expandedProjectIds: new Set(),
+      viewMode: 'project',
+      sortMode: 'updatedAt',
+    })
+    await flushMicrotasks()
+
+    const first = pagination.loadMoreGlobal()
+    const second = pagination.loadMoreGlobal()
+    await expect(second).resolves.toBe(false)
+    expect(fetchPaginatedFromIndex.mock.calls.filter((call) => {
+      const options = call[2] as { scope?: string; offset?: number }
+      return options.scope === 'global' && options.offset === 20
+    })).toHaveLength(1)
+
+    pending.resolve({ values: nextPage, total: 21 })
+    await expect(first).resolves.toBe(true)
+  })
+
+  it('reports load-more failure without advancing when a request rejects', async () => {
+    const firstPage = Array.from({ length: 20 }, (_, index) => session(`timeline-${index}`, 'project', 'project-1'))
+    const fetchPaginatedFromIndex = vi.fn(async (
+      _storeName: string,
+      _indexName: string,
+      options: { pinned?: string; scope?: string; offset?: number },
+    ) => {
+      if (options.pinned === 'only' || options.scope === 'global') return { values: [], total: 0 }
+      if (options.scope === 'projects' && options.offset === 0) return { values: firstPage, total: 21 }
+      if (options.scope === 'projects' && options.offset === 20) throw new Error('network failed')
+      return { values: [], total: 0 }
+    })
+    const backend = { fetchPaginatedFromIndex } as unknown as HttpStorageBackend
+    const pagination = useSessionPagination({
+      backendRef: { current: backend },
+      expandedProjectIds: new Set(),
+      viewMode: 'timeline',
+      sortMode: 'updatedAt',
+    })
+    await flushMicrotasks()
+
+    await expect(pagination.loadMoreProjectTimeline()).resolves.toBe(false)
   })
 
   it('converges the project total to merged items when an offset page makes no progress', async () => {

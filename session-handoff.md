@@ -1,5 +1,16 @@
 # Session Handoff
 
+## 当前状态：sidebar-five-item-display-shared-scroll（已完成）
+
+- 目标：左侧 Projects/Tasks 采用默认 5 条、每次增加 5 条的显式展示控件，并让 Pinned/Projects/Tasks 共用侧栏中部唯一滚动容器，同时保持项目 DnD 可见边界与自动滚动正确。
+- 实现：`ChatSidebar.tsx` 新增实例本地 timeline/global/per-project 展示计数。Projects 时间线、单项目会话和 Tasks 都使用 `slice` + 唯一可见的“显示更多”行；该行复用普通 session 的字号、行高、水平布局、圆角与点击区域，仅以 muted 灰色降低层级，不显示“收起”，show-less i18n 已删除。共享折叠 props、展开项目集合与 `sessionViewMode` 变化会在桌面/移动两个独立实例中兜底恢复 5 条。视图模式使用 previous ref + effect 监听共享 prop，仅在真实变化时重置 timeline 并 invalidate generation，初始挂载无额外副作用；DnD 临时视觉折叠不触发重置。`sidebar-session-display.ts` 负责纯行为计算、快速点击去重与竞态失效：每个 timeline/global/project key 独立维护 generation 和 pending generation；只有 loadMore 成功且 generation 未变化才返回下一 count。Projects/Tasks/单项目折叠、折叠全部和时间线视图切换会立即使对应在途请求失效，旧 Promise 完成不能覆盖已恢复的 5 条；失败仍保持原数量并允许重试。Pinned sentinel 保留但折叠时禁用，其余三个 sentinel 删除。
+- 布局 / DnD：Pinned、Projects、Tasks 放入单一 `sidebarScrollViewportRef` 的 `overflow-y-auto` 中，移除区块和项目子列表固定高度/内部滚动；footer 继续固定在外。`visibleProjectDragBoundary` 只返回 Projects 与共享视口的合法相交矩形，缺失或不相交时返回 undefined；`clampProjectDragTransform` 对反转上下界安全降级为仅横向锁定，autoScroll allowlist 仅允许共享视口。
+- 文件：`src/components/sidebar/ChatSidebar.tsx`、`src/hooks/useSessionPagination.ts`、`src/lib/sidebar-session-display.ts`、`src/lib/project-drag-boundary.ts`、`src/lib/i18n.ts`、5 个侧栏/分页测试、components/lib Wiki 与三个状态文件。
+- 验证：局部收口后，定向 Vitest 5 files / 48 tests 全通过（显示更多与普通 session 共用行/标题尺寸布局、muted 灰色、无可见收起/无 show-less key，并继续覆盖每次 +5、共享 `sessionViewMode`、折叠重置与 generation 竞态保护）；目标 ESLint 0 error；完整 `npm run test` → 253 files / 2210 tests 全通过；`npm run lint` → 0 errors / 1 既有 warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX/chunk warnings）；`git diff --check` 与 feature JSON 解析通过。
+- 边界：未新增依赖，未修改生成目录，未 commit/tag/push；两个既有未跟踪 design-mockups 文件未触碰。下一步仅可选桌面/移动真机目视长列表、显示更多、折叠重置与拖拽边界。
+
+---
+
 ## 当前状态：release-v1.8.1（已完成发布准备）
 
 - 目标：完成 patch v1.8.1 发布准备，当前分支为 `dev`。

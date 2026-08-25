@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { clampProjectDragTransform } from '../../src/lib/project-drag-boundary'
+import { clampProjectDragTransform, visibleProjectDragBoundary } from '../../src/lib/project-drag-boundary'
 
 const draggingRect = { top: 120, bottom: 160 }
 const viewportRect = { top: 100, bottom: 300 }
@@ -39,7 +39,7 @@ describe('clampProjectDragTransform', () => {
     ).y).toBe(100)
   })
 
-  it('safely falls back to horizontal locking when a rectangle is missing', () => {
+  it('safely falls back to horizontal locking when a rectangle is missing or invalid', () => {
     const transform = { x: 32, y: 75, scaleX: 0.9, scaleY: 1.1 }
 
     expect(clampProjectDragTransform(transform, null, viewportRect)).toEqual({
@@ -54,18 +54,47 @@ describe('clampProjectDragTransform', () => {
       scaleX: 0.9,
       scaleY: 1.1,
     })
+    expect(clampProjectDragTransform(transform, draggingRect, { top: 220, bottom: 180 })).toEqual({
+      x: 0,
+      y: 75,
+      scaleX: 0.9,
+      scaleY: 1.1,
+    })
+  })
+})
+
+describe('visibleProjectDragBoundary', () => {
+  it('returns the visible intersection of Projects and the shared scroll viewport', () => {
+    expect(visibleProjectDragBoundary(
+      { top: 80, bottom: 420 },
+      { top: 100, bottom: 300 },
+    )).toEqual({ top: 100, bottom: 300 })
+  })
+
+  it('rejects disjoint rectangles instead of returning top > bottom', () => {
+    expect(visibleProjectDragBoundary(
+      { top: 320, bottom: 500 },
+      { top: 100, bottom: 300 },
+    )).toBeUndefined()
+  })
+
+  it('rejects missing rectangles', () => {
+    expect(visibleProjectDragBoundary(undefined, viewportRect)).toBeUndefined()
+    expect(visibleProjectDragBoundary(viewportRect, undefined)).toBeUndefined()
   })
 })
 
 describe('ChatSidebar project drag wiring', () => {
   const source = readFileSync(new URL('../../src/components/sidebar/ChatSidebar.tsx', import.meta.url), 'utf8')
 
-  it('uses the Projects viewport for both the modifier boundary and auto-scroll allowlist', () => {
-    expect(source).toContain('ref={projectsScrollViewportRef}')
-    expect(source).toContain('projectDragStartScrollTopRef.current = projectsScrollViewportRef.current?.scrollTop ?? 0')
-    expect(source).toContain('(viewport?.scrollTop ?? 0) - projectDragStartScrollTopRef.current')
+  it('uses the Projects visual boundary with the shared sidebar viewport for auto-scroll', () => {
+    expect(source).toContain('ref={sidebarScrollViewportRef}')
+    expect(source).toContain('ref={projectsDragBoundaryRef}')
+    expect(source).toContain('projectDragStartScrollTopRef.current = sidebarScrollViewportRef.current?.scrollTop ?? 0')
+    expect(source).toContain('(scrollViewport?.scrollTop ?? 0) - projectDragStartScrollTopRef.current')
+    expect(source).toContain('const visibleBoundary = visibleProjectDragBoundary(boundaryRect, scrollViewportRect)')
     expect(source).toContain('autoScroll={{ canScroll: canAutoScrollProjectsViewport }}')
-    expect(source).toContain('element === projectsScrollViewportRef.current')
+    expect(source).toContain('element === sidebarScrollViewportRef.current')
   })
 
   it('preserves the existing sorting and measuring contracts', () => {

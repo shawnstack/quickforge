@@ -5,6 +5,16 @@ export type ProjectDragRect = {
   bottom: number
 }
 
+export function visibleProjectDragBoundary(
+  boundaryRect: ProjectDragRect | null | undefined,
+  scrollViewportRect: ProjectDragRect | null | undefined,
+): ProjectDragRect | undefined {
+  if (!boundaryRect || !scrollViewportRect) return undefined
+  const top = Math.max(boundaryRect.top, scrollViewportRect.top)
+  const bottom = Math.min(boundaryRect.bottom, scrollViewportRect.bottom)
+  return top <= bottom ? { top, bottom } : undefined
+}
+
 export function clampProjectDragTransform(
   transform: Transform,
   draggingRect: ProjectDragRect | null | undefined,
@@ -17,6 +27,7 @@ export function clampProjectDragTransform(
 
   const minY = viewportRect.top - draggingRect.top - scrollDeltaY
   const maxY = viewportRect.bottom - draggingRect.bottom - scrollDeltaY
+  if (minY > maxY) return { ...transform, x: 0 }
 
   return {
     ...transform,

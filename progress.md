@@ -1,5 +1,14 @@
 # Progress
 
+## Completed Feature：sidebar-five-item-display-shared-scroll
+
+- Feature: 侧栏会话五条递增展示与统一中部滚动（**已完成**）
+- Status: Projects 时间线、每个展开项目和 Tasks 默认显示 5 条；唯一可见控件“显示更多”每次增加 5 条，不显示“收起”。显示更多行复用普通 session 行的 `text-sm / leading-5`、`py-1.5 / px-2`、圆角、水平布局和整行点击区域，仅以 muted 灰色降低视觉层级；中英文 show-less i18n 已删除。只有下一组超过当前已加载数据时才调用既有 `loadMore`，并等待分页层确认确有新增数据后才提交展示数量；异步失败保持原数量、允许重试。每个 timeline/global/project key 独立维护 generation 与 pending generation：快速重复点击仍合并为单请求；用户在 pending 期间折叠 Projects/Tasks、折叠单项目、折叠全部项目或切换时间线视图触发重置时，对应 generation 立即递增，旧 Promise resolve true 后也不会提交旧 nextVisibleCount。`useSessionPagination` 的 `PAGE_SIZE=20` 保持不变且无页码。共享折叠 props、展开项目集合和 `sessionViewMode` 变化会让桌面/移动两个本地实例都执行 previous ref + effect 兜底重置；视图模式变化时每个实例将 timeline 恢复 5 条并 invalidate pending generation，初始挂载跳过，区块/项目 DnD 临时视觉折叠不重置展示数量。
+- Layout / DnD: Pinned、Projects、Tasks 共用侧栏中部唯一纵向滚动容器，移除了 Pinned/Projects/Tasks 和项目子列表固定高度及内部纵向滚动，内容自然撑开；底部服务器/更新/设置区仍固定在外部。Pinned sentinel 保留且折叠时禁用；Projects 时间线、项目内列表、Tasks sentinel 已删除。项目拖拽自动滚动只允许共享侧栏容器，预览边界由纯函数计算 Projects 内容区域与共享视口的合法可见交集；矩形缺失、交集为空或夹紧上下界反转时只锁定横向、不构造 `top > bottom` 的非法边界。
+- UX / i18n: 仅新增中英文“Show more / 显示更多”；显示更多整行与普通 session 的字号、行高、水平布局、圆角和点击区域一致，使用 muted 灰色及克制 hover/focus ring。无可见“收起”按钮，show-less 中英文 i18n 已删除；符合现有 DESIGN_LANGUAGE，未修改规范本身。
+- Verification: 局部收口后，定向 `npx vitest run tests/frontend/sidebar-session-display-limit.test.ts tests/frontend/sidebar-section-order.test.ts tests/frontend/sidebar-new-chat-routing.test.ts tests/frontend/session-pagination-bootstrap.test.ts tests/frontend/project-drag-boundary.test.ts` → 5 files / 48 tests 全通过；新增契约锁定显示更多与普通 session 共用行/标题基类、muted 灰色、无 `onCollapse`/show-less key，并继续覆盖共享 `sessionViewMode`、折叠重置与 generation 竞态保护。目标 ESLint 0 error；完整 `npm run test` → 253 files / 2210 tests 全通过；`npm run lint` → 0 errors / 1 既有 warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` → 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；`git diff --check` 与 feature JSON 解析通过。
+- Boundaries: 已同步 `docs/wiki/src/components/README.md`；未新增依赖，未手工修改生成产物，未 commit/tag/push；两个无关未跟踪 design-mockups 文件未触碰。
+
 ## Completed Feature：release-v1.8.1
 
 - Feature: patch 发布 v1.8.1（**已完成**）

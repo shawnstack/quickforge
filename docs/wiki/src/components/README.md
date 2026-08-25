@@ -113,13 +113,14 @@ components/
 - 支持“按项目 / 时间线”视图切换，以及按更新时间或创建时间排序；两项偏好均保存在浏览器 `localStorage`，刷新后恢复，不参与后端备份或跨设备同步
 - 搜索、置顶、归档会话；归档内容可在设置页的“已归档对话”中恢复或永久删除
 - 折叠/展开项目分组
-- “按项目”视图支持拖拽排序并持久化；拖拽预览横向锁定且限制在 Projects 自身的 `overflow-y-auto` 视口内，dnd-kit 自动滚动仅允许该容器并在真实顶部/底部停止，拖动期间会话分组继续临时折叠
-- 无限滚动加载会话 (Intersection Observer)
+- “按项目”视图支持拖拽排序并持久化；拖拽预览横向锁定且限制在 Projects 当前可见区域（与统一侧栏滚动视口的交集）内，dnd-kit 自动滚动只允许侧栏中部共享滚动容器，预览不会越过 Pinned / Tasks，拖动期间会话分组继续临时折叠
+- 显式分段加载会话：Pinned 保留折叠感知的 Intersection Observer；Projects 时间线、项目会话与 Tasks 使用弱化的“显示更多”行
 - 搜索入口、全局 Skills 设置入口
-- 项目分组和会话列表折叠/展开
+- 项目分组可折叠/展开；Projects 时间线、每个展开项目的会话列表和 Tasks 默认各显示 5 条，“显示更多”每次增加 5 条；该行复用普通 session 行的字号、行高、水平布局与点击区域，只用 muted 灰色降低视觉层级，不提供可见“收起”按钮。显式控件只有在当前已加载数据不足时才调用既有 `loadMore`，后端 `PAGE_SIZE=20` 不变；异步加载确认新增数据后才提交下一展示数量，失败保持原数量并可重试，同一列表的快速重复点击在请求期间合并，避免重复请求和跳步。每个 timeline/global/project key 维护独立 generation；Projects/Tasks/单项目折叠、“折叠全部项目”和时间线视图切换等重置会递增对应 generation，并把展示数量恢复为 5，使在途旧请求即使成功也不能覆盖重置结果。折叠 props、展开项目集合和 `sessionViewMode` 都由 App 在桌面/移动实例间共享；每个实例通过 previous ref + effect 监听共享 prop 变化，因此另一实例触发折叠、项目收起或视图模式切换时，本实例也会兜底重置对应展示数量并失效在途请求，初始挂载不触发额外重置。区块 DnD 的临时视觉折叠不会重置展示数量
+- Pinned、Projects、Tasks 共用侧栏中部唯一 `overflow-y-auto` 容器，各区块和项目子列表不再设置固定高度或内部纵向滚动，内容自然向下撑开；底部服务器/更新/设置区仍固定在该滚动容器之外。Pinned 保留自动加载 sentinel，但折叠时禁用；Projects 时间线、项目列表与 Tasks 不再自动触底加载
 - Projects 与 Tasks（源码仍沿用 conversations 状态/key）作为两个完整顶层区块按 `sectionOrder` 动态渲染；不再使用标题旁专用拖拽图标，现有标题主 toggle 同时作为 `useSortable` activator：普通单击仍折叠/展开，PointerSensor 超过 6px 后开始鼠标/触摸拖拽，`touch-none` 与 grab/grabbing 光标提供反馈；KeyboardSensor 配合 `sortableKeyboardCoordinates` 继续支持聚焦标题后以 Space 开始、方向键移动、Space 放下。右侧折叠全部项目、添加、筛选和新建任务等操作按钮不绑定 attributes/listeners。置顶区固定在排序区外；顶层区块使用 `sidebar-section:*` 命名空间 ID，Projects 列表内部原有独立 dnd-kit 排序、视口边界和 `onReorderProjects` 持久化保持不变
 - 开始拖动任一区块后，Projects 与 Tasks 都仅在视觉上临时折叠：Chevron、`aria-expanded`、外层 `SortableSidebarSection` 尺寸和内容 grid 统一使用派生折叠状态，内容收缩期间禁用过渡以稳定 DnD 测量；cancel/end 清除 `draggingSectionId` 后按各自原 `projectsCollapsed` / `conversationsCollapsed` 状态恢复，不修改持久折叠偏好
-- 顶层排序容器保持 `flex / min-h-0 / overflow-hidden`，区块视觉折叠后使用 `shrink-0` 并按当前顺序紧贴；展开时 Tasks 才占用剩余高度（`flex-1`），Projects 继续限制为 `max-h-[55%]`。两区内部滚动容器不变，底部设置区继续以 `mt-auto shrink-0` 固定
+- 顶层排序容器按自然高度排列，折叠区块按当前顺序紧贴；Pinned / Projects / Tasks 与项目子列表均不再各自限制高度或创建内部纵向滚动，统一由侧栏中部共享滚动容器承载，底部设置区继续以 `mt-auto shrink-0` 固定
 - 顶层区块顺序由 `src/lib/sidebar-section-order.ts` 安全读写浏览器 `localStorage`；桌面与移动侧栏共用 App 中同一状态，刷新后恢复，不参与后端备份或跨设备同步
 - 渠道会话在列表、搜索和对话页标题中按普通文字显示“渠道名 · 标题”，不改变真实标题，也不使用徽标或差异化样式
 - 长会话标题默认单行省略；桌面端仅在标题实际溢出时悬停滚动，并遵循系统的“减少动态效果”设置

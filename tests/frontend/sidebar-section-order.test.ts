@@ -81,6 +81,7 @@ describe('sidebar section order', () => {
 describe('ChatSidebar section reorder wiring', () => {
   const sidebarSource = readFileSync(new URL('../../src/components/sidebar/ChatSidebar.tsx', import.meta.url), 'utf8')
   const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+  const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
 
   it('renders the complete Projects and Tasks sections from the persisted order', () => {
     expect(sidebarSource).toContain('sectionOrder.map((sectionId) => (')
@@ -96,16 +97,17 @@ describe('ChatSidebar section reorder wiring', () => {
     expect(sidebarSource.indexOf('sensors={sectionSensors}')).toBeLessThan(sidebarSource.indexOf('sectionOrder.map((sectionId) => ('))
   })
 
-  it('compacts visual collapses while preserving expanded sizing and scroll boundaries', () => {
-    const sortableSectionSource = sidebarSource.match(/function SortableSidebarSection([\s\S]*?)\n}\n\nexport const ChatSidebar/)?.[1]
+  it('uses one middle scroll container while sections and child lists grow naturally', () => {
+    const sortableSectionStart = sidebarSource.indexOf('function SortableSidebarSection')
+    const sortableSectionSource = sidebarSource.slice(sortableSectionStart, sidebarSource.indexOf('export const ChatSidebar', sortableSectionStart))
 
-    expect(sortableSectionSource).toContain('collapsed: boolean')
-    expect(sortableSectionSource).toContain("'flex min-h-0 flex-col overflow-hidden'")
-    expect(sortableSectionSource).toContain("collapsed ? 'shrink-0' : id === 'projects' ? 'max-h-[55%]' : 'flex-1'")
-    expect(sidebarSource).toContain("collapsed={sectionId === 'projects' ? projectsVisuallyCollapsed : conversationsVisuallyCollapsed}")
-    expect(sidebarSource).toContain('className="flex min-h-0 flex-1 flex-col overflow-hidden"')
-    expect(sidebarSource).toContain('ref={projectsScrollViewportRef} className="h-full overflow-y-auto"')
-    expect(sidebarSource).toContain('className="h-full overflow-y-auto pb-2"')
+    expect(sortableSectionSource).not.toContain('collapsed: boolean')
+    expect(sortableSectionSource).toContain("'flex flex-col'")
+    expect(sortableSectionSource).not.toContain('max-h-[55%]')
+    expect(sidebarSource).toContain('ref={sidebarScrollViewportRef} className="min-h-0 flex-1 overflow-y-auto"')
+    expect(sidebarSource).toContain('ref={projectsDragBoundaryRef}')
+    expect(sidebarSource).not.toContain('max-h-[10.5rem]')
+    expect(sidebarSource).not.toContain('className="h-full overflow-y-auto pb-2"')
     expect(sidebarSource).toContain('className="mt-auto shrink-0 border-t')
   })
 
@@ -137,8 +139,8 @@ describe('ChatSidebar section reorder wiring', () => {
     expect(pinnedHeaderSource).not.toContain('setActivatorNodeRef')
     expect(pinnedHeaderSource).not.toContain('{...listeners}')
 
-    const projectHeaderSource = sidebarSource.match(/<div className=\{sectionHeaderClass\}>\s*(<button[\s\S]*?onClick=\{onToggleProjectsCollapsed\}[\s\S]*?<\/button>)[\s\S]*?onClick=\{openViewSortMenu\}/)?.[1]
-    const tasksHeaderSource = sidebarSource.match(/<div className=\{sectionHeaderClass\}>\s*(<button[\s\S]*?onClick=\{onToggleConversationsCollapsed\}[\s\S]*?<\/button>)[\s\S]*?onClick=\{onStartNewGlobalChat\}/)?.[1]
+    const projectHeaderSource = sidebarSource.match(/<div className=\{sectionHeaderClass\}>\s*(<button[\s\S]*?onClick=\{toggleProjectsCollapsed\}[\s\S]*?<\/button>)[\s\S]*?onClick=\{openViewSortMenu\}/)?.[1]
+    const tasksHeaderSource = sidebarSource.match(/<div className=\{sectionHeaderClass\}>\s*(<button[\s\S]*?onClick=\{toggleConversationsCollapsed\}[\s\S]*?<\/button>)[\s\S]*?onClick=\{onStartNewGlobalChat\}/)?.[1]
 
     for (const toggleSource of [projectHeaderSource, tasksHeaderSource]) {
       expect(toggleSource).toContain('ref={setActivatorNodeRef}')
@@ -161,12 +163,70 @@ describe('ChatSidebar section reorder wiring', () => {
     expect(tasksActionSource).not.toContain('setActivatorNodeRef')
   })
 
+  it('resets local display counts when shared props change across desktop/mobile instances', () => {
+    const viewModeResetEffect = sidebarSource.match(/useEffect\(\(\) => \{\s*const previousSessionViewMode[\s\S]*?\}, \[sessionViewMode\]\)/)?.[0] ?? ''
+    const projectsResetEffect = sidebarSource.match(/useEffect\(\(\) => \{\s*const resetForSharedCollapse = projectsCollapsed[\s\S]*?\}, \[projectsCollapsed\]\)/)?.[0] ?? ''
+    const tasksResetEffect = sidebarSource.match(/useEffect\(\(\) => \{\s*const resetForSharedCollapse = conversationsCollapsed[\s\S]*?\}, \[conversationsCollapsed\]\)/)?.[0] ?? ''
+    const projectExpansionResetEffect = sidebarSource.match(/useEffect\(\(\) => \{\s*const previousExpandedProjectIds[\s\S]*?\}, \[expandedProjectIds\]\)/)?.[0] ?? ''
+
+    expect(viewModeResetEffect).toContain('previousSessionViewModeRef.current = sessionViewMode')
+    expect(viewModeResetEffect).toContain('if (previousSessionViewMode === sessionViewMode) return')
+    expect(viewModeResetEffect).toContain("invalidateSidebarSessionShowMore(showMoreStateRef.current, 'timeline')")
+    expect(viewModeResetEffect).toContain('setTimelineVisibleCount(SIDEBAR_SESSION_DISPLAY_STEP)')
+    expect(projectsResetEffect).toContain("invalidateSidebarSessionShowMore(showMoreStateRef.current, 'timeline')")
+    expect(projectsResetEffect).toContain("invalidateSidebarSessionShowMoreByPrefix(showMoreStateRef.current, 'project:')")
+    expect(projectsResetEffect).toContain('setTimelineVisibleCount(SIDEBAR_SESSION_DISPLAY_STEP)')
+    expect(projectsResetEffect).toContain('setProjectVisibleCounts({})')
+    expect(tasksResetEffect).toContain("invalidateSidebarSessionShowMore(showMoreStateRef.current, 'global')")
+    expect(tasksResetEffect).toContain('setGlobalVisibleCount(SIDEBAR_SESSION_DISPLAY_STEP)')
+    expect(projectExpansionResetEffect).toContain('invalidateSidebarSessionShowMore(showMoreStateRef.current, `project:${projectId}`)')
+    expect(projectExpansionResetEffect).toContain('expandedProjectIds.has(projectId)')
+    expect(appSource.match(/sessionViewMode=\{sidebarSessionViewMode\}/g)).toHaveLength(2)
+    expect(appSource.match(/projectsCollapsed=\{ui\.projectsCollapsed\}/g)).toHaveLength(2)
+    expect(appSource.match(/conversationsCollapsed=\{ui\.conversationsCollapsed\}/g)).toHaveLength(2)
+    expect(appSource.match(/expandedProjectIds=\{expandedProjectIds\}/g)).toHaveLength(2)
+  })
+
+  it('keeps show-more aligned with regular session rows, muted, and removes the visible collapse control', () => {
+    const controlsSource = sidebarSource.slice(
+      sidebarSource.indexOf('const sidebarSessionRowBaseClass'),
+      sidebarSource.indexOf('function SessionTitleMarquee'),
+    )
+
+    expect(controlsSource).toContain("const sidebarSessionRowBaseClass = 'group relative flex items-center gap-2 overflow-hidden rounded-lg py-1.5 text-left")
+    expect(controlsSource).toContain("const sidebarSessionTitleClass = 'truncate text-sm font-[350] leading-5'")
+    expect(controlsSource).toContain("'w-full px-2 text-muted-foreground/60")
+    expect(controlsSource).toContain("hover:text-muted-foreground/80")
+    expect(controlsSource).not.toContain('text-xs')
+    expect(controlsSource).not.toContain('onCollapse')
+    expect(controlsSource).not.toContain('sidebarCollapseList')
+    expect(i18nSource).not.toContain('sidebarCollapseList')
+    expect(i18nSource).not.toContain("sidebarShowMore: 'Show less'")
+    expect(sidebarSource).toContain('const rowClass = `${sidebarSessionRowBaseClass}')
+    expect(sidebarSource).toContain('const sessionTitleClass = sidebarSessionTitleClass')
+  })
+
+  it('invalidates pending show-more requests before direct collapse and view-reset actions', () => {
+    const collapseTimelineSource = sidebarSource.match(/const collapseTimelineSessions[\s\S]*?\}, \[\]\)/)?.[0] ?? ''
+    const collapseProjectSource = sidebarSource.match(/const collapseProjectSessions[\s\S]*?\}, \[\]\)/)?.[0] ?? ''
+    const toggleAllSource = sidebarSource.match(/const toggleAllProjectsExpanded[\s\S]*?\}, \[expandedProjectIds, onToggleAllProjectsExpanded, projects\.length\]\)/)?.[0] ?? ''
+    const selectViewSource = sidebarSource.match(/const selectViewMode[\s\S]*?closeViewSortMenu\(\)\s*\}/)?.[0] ?? ''
+
+    expect(collapseTimelineSource).toContain("invalidateSidebarSessionShowMore(showMoreStateRef.current, 'timeline')")
+    expect(collapseProjectSource).toContain('invalidateSidebarSessionShowMore(showMoreStateRef.current, `project:${projectId}`)')
+    expect(toggleAllSource).toContain('for (const projectId of expandedProjectIds)')
+    expect(toggleAllSource).toContain('invalidateSidebarSessionShowMore(showMoreStateRef.current, `project:${projectId}`)')
+    expect(selectViewSource).toContain('if (mode !== sessionViewMode) collapseTimelineSessions()')
+    expect(sidebarSource).not.toContain('onCollapse={')
+  })
+
   it('temporarily collapses both sections during either section drag without mutating persisted collapse state', () => {
     expect(sidebarSource).toContain('const isSectionDragging = draggingSectionId !== undefined')
     expect(sidebarSource).toContain('const projectsVisuallyCollapsed = projectsCollapsed || isSectionDragging')
     expect(sidebarSource).toContain('const conversationsVisuallyCollapsed = conversationsCollapsed || isSectionDragging')
-    expect(sidebarSource).not.toContain('onToggleProjectsCollapsed()')
-    expect(sidebarSource).not.toContain('onToggleConversationsCollapsed()')
+    const sectionDragStart = sidebarSource.match(/const handleSectionDragStart[\s\S]*?\n {2}}, \[\]\)/)?.[0] ?? ''
+    expect(sectionDragStart).not.toContain('onToggleProjectsCollapsed()')
+    expect(sectionDragStart).not.toContain('onToggleConversationsCollapsed()')
     expect(sidebarSource).toContain('aria-expanded={!projectsVisuallyCollapsed}')
     expect(sidebarSource).toContain("!projectsVisuallyCollapsed && 'rotate-90'")
     expect(sidebarSource).toContain('projectsVisuallyCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass')

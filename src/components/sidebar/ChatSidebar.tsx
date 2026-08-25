@@ -49,7 +49,14 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { Button } from '@/components/ui/button'
-import { clampProjectDragTransform } from '@/lib/project-drag-boundary'
+import { clampProjectDragTransform, visibleProjectDragBoundary } from '@/lib/project-drag-boundary'
+import {
+  createSidebarSessionShowMoreState,
+  invalidateSidebarSessionShowMore,
+  invalidateSidebarSessionShowMoreByPrefix,
+  runSidebarSessionShowMore,
+  SIDEBAR_SESSION_DISPLAY_STEP,
+} from '@/lib/sidebar-session-display'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { sessionTitle } from '@/lib/types'
@@ -87,13 +94,13 @@ type ChatSidebarProps = {
   projectTimelineLoading: boolean
   globalHasMore: boolean
   globalLoading: boolean
-  onLoadMoreGlobal: () => void
+  onLoadMoreGlobal: () => Promise<boolean>
   onLoadMorePinned: () => void
   projectHasMore: (projectId: string) => boolean
   projectLoading: (projectId: string) => boolean
   projectLoaded: (projectId: string) => boolean
-  onLoadMoreProject: (projectId: string) => void
-  onLoadMoreProjectTimeline: () => void
+  onLoadMoreProject: (projectId: string) => Promise<boolean>
+  onLoadMoreProjectTimeline: () => Promise<boolean>
   sessionTaskStatus: (session: QuickForgeSessionMetadata) => BackgroundTaskStatus
   selectingProject: boolean
   onTogglePinnedCollapsed: () => void
@@ -211,6 +218,43 @@ function LoadMoreSentinel({ onLoadMore, enabled }: { onLoadMore: () => void; ena
   )
 }
 
+const sidebarSessionRowBaseClass = 'group relative flex items-center gap-2 overflow-hidden rounded-lg py-1.5 text-left transition-[background-color,color,box-shadow] duration-160 ease-out'
+const sidebarSessionTitleClass = 'truncate text-sm font-[350] leading-5'
+
+function SessionDisplayControls({
+  visibleCount,
+  loadedCount,
+  hasMore,
+  loading,
+  onShowMore,
+}: {
+  visibleCount: number
+  loadedCount: number
+  hasMore: boolean
+  loading: boolean
+  onShowMore: () => void
+}) {
+  const canShowMore = visibleCount < loadedCount || hasMore
+  if (!canShowMore) return null
+
+  return (
+    <button
+      type="button"
+      className={cn(
+        sidebarSessionRowBaseClass,
+        'w-full px-2 text-muted-foreground/60 hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-muted-foreground/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-45',
+      )}
+      onClick={onShowMore}
+      disabled={loading}
+      aria-label={t('sidebarShowMore')}
+    >
+      <span className={sidebarSessionTitleClass}>
+        {loading ? <Loader2 className="size-3 animate-spin" aria-hidden="true" /> : t('sidebarShowMore')}
+      </span>
+    </button>
+  )
+}
+
 function SessionTitleMarquee({ title, className }: { title: string; className?: string }) {
   const staticTextRef = useRef<HTMLSpanElement | null>(null)
   const movingTextRef = useRef<HTMLSpanElement | null>(null)
@@ -307,7 +351,7 @@ function SortableProjectItem({ id, children }: { id: string; children: (props: {
   )
 }
 
-function SortableSidebarSection({ id, collapsed, children }: { id: SidebarSectionId; collapsed: boolean; children: (props: {
+function SortableSidebarSection({ id, children }: { id: SidebarSectionId; children: (props: {
   listeners: ReturnType<typeof useSortable>['listeners']
   attributes: ReturnType<typeof useSortable>['attributes']
   setActivatorNodeRef: ReturnType<typeof useSortable>['setActivatorNodeRef']
@@ -326,8 +370,7 @@ function SortableSidebarSection({ id, collapsed, children }: { id: SidebarSectio
       ref={setNodeRef}
       style={style}
       className={cn(
-        'flex min-h-0 flex-col overflow-hidden',
-        collapsed ? 'shrink-0' : id === 'projects' ? 'max-h-[55%]' : 'flex-1',
+        'flex flex-col',
         isDragging && 'relative z-30 opacity-55',
       )}
     >
@@ -415,7 +458,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   const collapseInnerClass = 'min-h-0 overflow-hidden'
   const rowHoverShadowClass = ''
   const iconHoverShadowClass = ''
-  const rowClass = `group relative flex items-center gap-2 overflow-hidden rounded-lg py-1.5 text-left transition-[background-color,color,box-shadow] duration-160 ease-out ${sidebarOpen ? 'px-2' : 'justify-center px-0'} ${rowHoverShadowClass}`
+  const rowClass = `${sidebarSessionRowBaseClass} ${sidebarOpen ? 'px-2' : 'justify-center px-0'} ${rowHoverShadowClass}`
   const footerRowClass = `group relative flex items-center gap-2 overflow-hidden py-1.5 text-left transition-[background-color,color,box-shadow] duration-160 ease-out ${sidebarOpen ? 'px-2' : 'justify-center px-0'}`
   const activeRowClass = `${sidebarActiveBgClass} text-foreground/84 shadow-[0_8px_22px_-20px_rgb(15_23_42_/_0.32)]`
   const projectActiveRowClass = `text-foreground/80 ${sidebarHoverBgClass}`
@@ -428,7 +471,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   const actionOverlayClass = `${actionOverlayBaseClass} group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100`
   const projectActionOverlayClass = `${actionOverlayBaseClass} group-hover:pointer-events-auto group-hover:opacity-100`
   const overlayIconButtonClass = `size-6 shrink-0 rounded-full text-muted-foreground/55 transition-[background-color,color,box-shadow] duration-160 ease-out ${sidebarHoverBgClass} hover:text-foreground/85 ${iconHoverShadowClass}`
-  const sessionTitleClass = 'truncate text-sm font-[350] leading-5'
+  const sessionTitleClass = sidebarSessionTitleClass
   const sessionButtonClass = 'flex min-w-0 flex-1 items-center gap-2 text-left'
   const sessionTitleRowClass = 'flex min-w-0 flex-1 items-center gap-1 truncate'
   const sessionLoadingIndicator = (sessionId: string) => loadingSessionId === sessionId
@@ -461,6 +504,9 @@ export const ChatSidebar = memo(function ChatSidebar({
   const [hoveredSessionTip, setHoveredSessionTip] = useState<{ sessionId: string; x: number; y: number } | null>(null)
   const [isProjectDragging, setIsProjectDragging] = useState(false)
   const [draggingSectionId, setDraggingSectionId] = useState<SidebarSectionId>()
+  const [timelineVisibleCount, setTimelineVisibleCount] = useState(SIDEBAR_SESSION_DISPLAY_STEP)
+  const [globalVisibleCount, setGlobalVisibleCount] = useState(SIDEBAR_SESSION_DISPLAY_STEP)
+  const [projectVisibleCounts, setProjectVisibleCounts] = useState<Record<string, number>>({})
   const [sidebarWidth, setSidebarWidth] = useState(sidebarDefaultWidth)
   const [isResizing, setIsResizing] = useState(false)
   const asideRef = useRef<HTMLElement | null>(null)
@@ -470,8 +516,14 @@ export const ChatSidebar = memo(function ChatSidebar({
   const deleteAnimationTimeoutRef = useRef<number | null>(null)
   const projectDeleteAnimationTimeoutRef = useRef<number | null>(null)
   const hoverTipTimerRef = useRef<number | null>(null)
-  const projectsScrollViewportRef = useRef<HTMLDivElement | null>(null)
+  const sidebarScrollViewportRef = useRef<HTMLDivElement | null>(null)
+  const projectsDragBoundaryRef = useRef<HTMLDivElement | null>(null)
   const projectDragStartScrollTopRef = useRef(0)
+  const showMoreStateRef = useRef(createSidebarSessionShowMoreState())
+  const previousProjectsCollapsedRef = useRef(projectsCollapsed)
+  const previousConversationsCollapsedRef = useRef(conversationsCollapsed)
+  const previousExpandedProjectIdsRef = useRef(expandedProjectIds)
+  const previousSessionViewModeRef = useRef(sessionViewMode)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -501,18 +553,65 @@ export const ChatSidebar = memo(function ChatSidebar({
   const projectsVisuallyCollapsed = projectsCollapsed || isSectionDragging
   const conversationsVisuallyCollapsed = conversationsCollapsed || isSectionDragging
 
+  useEffect(() => {
+    const previousSessionViewMode = previousSessionViewModeRef.current
+    previousSessionViewModeRef.current = sessionViewMode
+    if (previousSessionViewMode === sessionViewMode) return
+    invalidateSidebarSessionShowMore(showMoreStateRef.current, 'timeline')
+    setTimelineVisibleCount(SIDEBAR_SESSION_DISPLAY_STEP)
+  }, [sessionViewMode])
+
+  useEffect(() => {
+    const resetForSharedCollapse = projectsCollapsed && !previousProjectsCollapsedRef.current
+    previousProjectsCollapsedRef.current = projectsCollapsed
+    if (!resetForSharedCollapse) return
+    invalidateSidebarSessionShowMore(showMoreStateRef.current, 'timeline')
+    invalidateSidebarSessionShowMoreByPrefix(showMoreStateRef.current, 'project:')
+    window.requestAnimationFrame(() => {
+      setTimelineVisibleCount(SIDEBAR_SESSION_DISPLAY_STEP)
+      setProjectVisibleCounts({})
+    })
+  }, [projectsCollapsed])
+
+  useEffect(() => {
+    const resetForSharedCollapse = conversationsCollapsed && !previousConversationsCollapsedRef.current
+    previousConversationsCollapsedRef.current = conversationsCollapsed
+    if (!resetForSharedCollapse) return
+    invalidateSidebarSessionShowMore(showMoreStateRef.current, 'global')
+    window.requestAnimationFrame(() => setGlobalVisibleCount(SIDEBAR_SESSION_DISPLAY_STEP))
+  }, [conversationsCollapsed])
+
+  useEffect(() => {
+    const previousExpandedProjectIds = previousExpandedProjectIdsRef.current
+    previousExpandedProjectIdsRef.current = expandedProjectIds
+    const collapsedProjectIds = [...previousExpandedProjectIds].filter((projectId) => !expandedProjectIds.has(projectId))
+    if (collapsedProjectIds.length === 0) return
+    for (const projectId of collapsedProjectIds) {
+      invalidateSidebarSessionShowMore(showMoreStateRef.current, `project:${projectId}`)
+    }
+    window.requestAnimationFrame(() => {
+      setProjectVisibleCounts((counts) => {
+        const next = Object.fromEntries(Object.entries(counts).filter(([projectId]) => expandedProjectIds.has(projectId)))
+        return Object.keys(next).length === Object.keys(counts).length ? counts : next
+      })
+    })
+  }, [expandedProjectIds])
+
   const restrictProjectDragToViewport = useCallback<Modifier>(({ transform, draggingNodeRect }) => {
-    const viewport = projectsScrollViewportRef.current
+    const boundaryRect = projectsDragBoundaryRef.current?.getBoundingClientRect()
+    const scrollViewportRect = sidebarScrollViewportRef.current?.getBoundingClientRect()
+    const visibleBoundary = visibleProjectDragBoundary(boundaryRect, scrollViewportRect)
+    const scrollViewport = sidebarScrollViewportRef.current
     return clampProjectDragTransform(
       transform,
       draggingNodeRect,
-      viewport?.getBoundingClientRect(),
-      (viewport?.scrollTop ?? 0) - projectDragStartScrollTopRef.current,
+      visibleBoundary,
+      (scrollViewport?.scrollTop ?? 0) - projectDragStartScrollTopRef.current,
     )
   }, [])
 
   const canAutoScrollProjectsViewport = useCallback((element: Element) => (
-    element === projectsScrollViewportRef.current
+    element === sidebarScrollViewportRef.current
   ), [])
 
   const projectIds = useMemo(() => projects.map((p) => p.id), [projects])
@@ -537,9 +636,110 @@ export const ChatSidebar = memo(function ChatSidebar({
       ? session.projectId ? projectNameById.get(session.projectId) ?? t('unknownProject') : t('unknownProject')
       : t('normalChat'),
   })), [pinnedSessions, projectNameById])
+  const visibleTimelineSessions = timelineSessions.slice(0, timelineVisibleCount)
+  const visibleGlobalSessions = globalSessions.slice(0, globalVisibleCount)
+
+  const showMoreSessions = useCallback(async ({
+    key,
+    visibleCount,
+    loadedCount,
+    hasMore,
+    loadMore,
+    commitVisibleCount,
+  }: {
+    key: string
+    visibleCount: number
+    loadedCount: number
+    hasMore: boolean
+    loadMore: () => Promise<boolean>
+    commitVisibleCount: (count: number) => void
+  }) => {
+    const nextVisibleCount = await runSidebarSessionShowMore({
+      key,
+      state: showMoreStateRef.current,
+      input: { visibleCount, loadedCount, hasMore },
+      loadMore,
+    })
+    if (nextVisibleCount !== undefined) commitVisibleCount(nextVisibleCount)
+  }, [])
+
+  const showMoreTimelineSessions = useCallback(() => {
+    void showMoreSessions({
+      key: 'timeline',
+      visibleCount: timelineVisibleCount,
+      loadedCount: timelineSessions.length,
+      hasMore: projectTimelineHasMore,
+      loadMore: onLoadMoreProjectTimeline,
+      commitVisibleCount: setTimelineVisibleCount,
+    })
+  }, [onLoadMoreProjectTimeline, projectTimelineHasMore, showMoreSessions, timelineSessions.length, timelineVisibleCount])
+
+  const showMoreGlobalSessions = useCallback(() => {
+    void showMoreSessions({
+      key: 'global',
+      visibleCount: globalVisibleCount,
+      loadedCount: globalSessions.length,
+      hasMore: globalHasMore,
+      loadMore: onLoadMoreGlobal,
+      commitVisibleCount: setGlobalVisibleCount,
+    })
+  }, [globalHasMore, globalSessions.length, globalVisibleCount, onLoadMoreGlobal, showMoreSessions])
+
+  const showMoreProjectSessions = useCallback((projectId: string, loadedCount: number) => {
+    const visibleCount = projectVisibleCounts[projectId] ?? SIDEBAR_SESSION_DISPLAY_STEP
+    void showMoreSessions({
+      key: `project:${projectId}`,
+      visibleCount,
+      loadedCount,
+      hasMore: projectHasMore(projectId),
+      loadMore: () => onLoadMoreProject(projectId),
+      commitVisibleCount: (count) => setProjectVisibleCounts((counts) => ({
+        ...counts,
+        [projectId]: count,
+      })),
+    })
+  }, [onLoadMoreProject, projectHasMore, projectVisibleCounts, showMoreSessions])
+
+  const collapseTimelineSessions = useCallback(() => {
+    invalidateSidebarSessionShowMore(showMoreStateRef.current, 'timeline')
+    setTimelineVisibleCount(SIDEBAR_SESSION_DISPLAY_STEP)
+  }, [])
+
+  const collapseProjectSessions = useCallback((projectId: string) => {
+    invalidateSidebarSessionShowMore(showMoreStateRef.current, `project:${projectId}`)
+    setProjectVisibleCounts((counts) => ({ ...counts, [projectId]: SIDEBAR_SESSION_DISPLAY_STEP }))
+  }, [])
+
+  const toggleProjectExpanded = useCallback((projectId: string) => {
+    if (expandedProjectIds.has(projectId)) collapseProjectSessions(projectId)
+    onToggleProjectExpanded(projectId)
+  }, [collapseProjectSessions, expandedProjectIds, onToggleProjectExpanded])
+
+  const toggleAllProjectsExpanded = useCallback(() => {
+    if (expandedProjectIds.size === projects.length && projects.length > 0) {
+      for (const projectId of expandedProjectIds) {
+        invalidateSidebarSessionShowMore(showMoreStateRef.current, `project:${projectId}`)
+      }
+      setProjectVisibleCounts({})
+    }
+    onToggleAllProjectsExpanded()
+  }, [expandedProjectIds, onToggleAllProjectsExpanded, projects.length])
+
+  const toggleProjectsCollapsed = useCallback(() => {
+    if (!projectsCollapsed) {
+      invalidateSidebarSessionShowMore(showMoreStateRef.current, 'timeline')
+      invalidateSidebarSessionShowMoreByPrefix(showMoreStateRef.current, 'project:')
+    }
+    onToggleProjectsCollapsed()
+  }, [onToggleProjectsCollapsed, projectsCollapsed])
+
+  const toggleConversationsCollapsed = useCallback(() => {
+    if (!conversationsCollapsed) invalidateSidebarSessionShowMore(showMoreStateRef.current, 'global')
+    onToggleConversationsCollapsed()
+  }, [conversationsCollapsed, onToggleConversationsCollapsed])
 
   const handleDragStart = useCallback(() => {
-    projectDragStartScrollTopRef.current = projectsScrollViewportRef.current?.scrollTop ?? 0
+    projectDragStartScrollTopRef.current = sidebarScrollViewportRef.current?.scrollTop ?? 0
     setIsProjectDragging(true)
     setProjectMenuId(null)
     setProjectMenuPosition(null)
@@ -655,6 +855,7 @@ export const ChatSidebar = memo(function ChatSidebar({
     setViewSortMenuPosition(null)
   }, [])
   const selectViewMode = (mode: SidebarSessionViewMode) => {
+    if (mode !== sessionViewMode) collapseTimelineSessions()
     onSessionViewModeChange(mode)
     closeViewSortMenu()
   }
@@ -1067,19 +1268,18 @@ export const ChatSidebar = memo(function ChatSidebar({
       </div>
 
       {sidebarOpen ? (
-        <>
+        <div ref={sidebarScrollViewportRef} className="min-h-0 flex-1 overflow-y-auto">
           {(pinnedSessionItems.length > 0 || pinnedLoading) ? (
-            <div className="px-3 pb-1 max-h-[28%] flex flex-col min-h-0 overflow-hidden">
+            <div className="px-3 pb-1">
               <div className={sectionHeaderClass}>
                 <button type="button" className={sectionToggleClass} onClick={onTogglePinnedCollapsed} aria-expanded={!pinnedCollapsed}>
                   <span className="truncate">{t('pinnedConversations')}</span>
                   <ChevronRight className={cn(chevronClass, !pinnedCollapsed && 'rotate-90')} />
                 </button>
               </div>
-              <div className={cn(collapsePanelClass, 'flex-1 min-h-0', pinnedCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
+              <div className={cn(collapsePanelClass, pinnedCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
                 <div className={collapseInnerClass}>
-                  <div className="max-h-[10.5rem] overflow-y-auto">
-                    <div className="space-y-0.5">
+                  <div className="space-y-0.5">
                       {pinnedSessionItems.length === 0 ? (
                         <div className="flex items-center px-3 py-3 text-xs text-muted-foreground/55">
                           <Loader2 className="mr-1.5 size-3 animate-spin" />
@@ -1088,10 +1288,9 @@ export const ChatSidebar = memo(function ChatSidebar({
                       ) : (
                         <>
                           {pinnedSessionItems.map(renderPinnedSessionItem)}
-                          <LoadMoreSentinel onLoadMore={onLoadMorePinned} enabled={pinnedHasMore && !pinnedLoading} />
+                          <LoadMoreSentinel onLoadMore={onLoadMorePinned} enabled={!pinnedCollapsed && pinnedHasMore && !pinnedLoading} />
                         </>
                       )}
-                    </div>
                   </div>
                 </div>
               </div>
@@ -1108,25 +1307,24 @@ export const ChatSidebar = memo(function ChatSidebar({
           >
             <SortableContext items={sectionOrder.map(sidebarSectionDndId)} strategy={verticalListSortingStrategy}>
               <div
-                className="flex min-h-0 flex-1 flex-col overflow-hidden"
+                className="flex flex-col"
                 data-dragging-section={draggingSectionId}
               >
                 {sectionOrder.map((sectionId) => (
                   <SortableSidebarSection
                     key={sectionId}
                     id={sectionId}
-                    collapsed={sectionId === 'projects' ? projectsVisuallyCollapsed : conversationsVisuallyCollapsed}
                   >
                     {({ listeners, attributes, setActivatorNodeRef, isDragging }) => sectionId === 'projects' ? (
                       <>
-                        <div className="h-full px-3 flex flex-col min-h-0 overflow-hidden">
-            <div className="mb-0.5 flex min-h-0 flex-1 flex-col">
+                        <div className="px-3">
+            <div className="mb-0.5">
               <div className={sectionHeaderClass}>
                 <button
                   ref={setActivatorNodeRef}
                   type="button"
                   className={cn(draggableSectionTitleClass, isDragging && 'cursor-grabbing')}
-                  onClick={onToggleProjectsCollapsed}
+                  onClick={toggleProjectsCollapsed}
                   aria-expanded={!projectsVisuallyCollapsed}
                   {...attributes}
                   {...listeners}
@@ -1153,7 +1351,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                     variant="ghost"
                     size="icon"
                     className={sectionActionButtonClass}
-                    onClick={onToggleAllProjectsExpanded}
+                    onClick={toggleAllProjectsExpanded}
                     aria-label={expandedProjectIds.size === projects.length ? t('collapseAllProjects') : t('expandAllProjects')}
                   >
                     {expandedProjectIds.size === projects.length ? <ChevronsDownUp className="size-4" /> : <ChevronsUpDown className="size-4" />}
@@ -1173,9 +1371,9 @@ export const ChatSidebar = memo(function ChatSidebar({
                 ) : null}
               </div>
 
-              <div className={cn(collapsePanelClass, 'flex-1 min-h-0', isSectionDragging && 'transition-none', projectsVisuallyCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
+              <div className={cn(collapsePanelClass, isSectionDragging && 'transition-none', projectsVisuallyCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
                 <div className={collapseInnerClass}>
-                  <div ref={projectsScrollViewportRef} className="h-full overflow-y-auto">
+                  <div ref={projectsDragBoundaryRef}>
                     <div className="space-y-0.5">
                       {projects.length === 0 ? (
                         <div className="px-3 py-3 text-xs text-muted-foreground/55">{t('noProjects')}</div>
@@ -1191,7 +1389,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                           )
                         ) : (
                           <>
-                            {timelineSessions.map(({ session }) => {
+                            {visibleTimelineSessions.map(({ session }) => {
                               const selected = currentSessionId === session.id
                               const actionsSuppressed = suppressedSessionActionsId === session.id
                               const deleting = deletingSessionId === session.id
@@ -1288,9 +1486,12 @@ export const ChatSidebar = memo(function ChatSidebar({
                                 </div>
                               )
                             })}
-                            <LoadMoreSentinel
-                              onLoadMore={onLoadMoreProjectTimeline}
-                              enabled={projectTimelineHasMore && !projectTimelineLoading}
+                            <SessionDisplayControls
+                              visibleCount={timelineVisibleCount}
+                              loadedCount={timelineSessions.length}
+                              hasMore={projectTimelineHasMore}
+                              loading={projectTimelineLoading}
+                              onShowMore={showMoreTimelineSessions}
                             />
                           </>
                         )
@@ -1338,7 +1539,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                 <button
                                   type="button"
                                   className={iconSlotClass}
-                                  onClick={() => onToggleProjectExpanded(item.id)}
+                                  onClick={() => toggleProjectExpanded(item.id)}
                                   aria-label={expanded ? t('collapseProject') : t('expandProject')}
                                 >
                                   {expanded ? <FolderOpen className="size-4" /> : <Folder className="size-4" />}
@@ -1347,7 +1548,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                   className="flex min-w-0 flex-1 items-center text-left"
                                   type="button"
                                   title={item.path}
-                                  onClick={() => onToggleProjectExpanded(item.id)}
+                                  onClick={() => toggleProjectExpanded(item.id)}
                                 >
                                   <span className={cn(sessionTitleClass, active && activeProjectTitleClass)}>{item.name}</span>
                                 </button>
@@ -1376,7 +1577,7 @@ export const ChatSidebar = memo(function ChatSidebar({
 
                               <div className={cn(collapsePanelClass, isProjectDragging && 'transition-none', expanded ? collapsePanelOpenClass : collapsePanelClosedClass)}>
                                 <div className={collapseInnerClass}>
-                                  <div className="mt-0.5 space-y-0.5 pl-8 max-h-[10.5rem] overflow-y-auto">
+                                  <div className="mt-0.5 space-y-0.5 pl-8">
                                     {projectSessions.length === 0 && !loaded ? (
                                       <div className="flex items-center px-2 py-1.5 text-xs text-muted-foreground/55">
                                         <Loader2 className="mr-1.5 size-3 animate-spin" />
@@ -1391,7 +1592,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                       <div className="px-2 py-1.5 text-xs text-muted-foreground/55">{t('noConversations')}</div>
                                     ) : (
                                       <>
-                                        {projectSessions.map((session) => {
+                                        {projectSessions.slice(0, projectVisibleCounts[item.id] ?? SIDEBAR_SESSION_DISPLAY_STEP).map((session) => {
                                           const selected = currentSessionId === session.id
                                           const actionsSuppressed = suppressedSessionActionsId === session.id
                                           const deleting = deletingSessionId === session.id
@@ -1486,9 +1687,12 @@ export const ChatSidebar = memo(function ChatSidebar({
                                           </div>
                                           )
                                         })}
-                                        <LoadMoreSentinel
-                                          onLoadMore={() => onLoadMoreProject(item.id)}
-                                          enabled={projectHasMore(item.id) && !projectLoading(item.id)}
+                                        <SessionDisplayControls
+                                          visibleCount={projectVisibleCounts[item.id] ?? SIDEBAR_SESSION_DISPLAY_STEP}
+                                          loadedCount={projectSessions.length}
+                                          hasMore={projectHasMore(item.id)}
+                                          loading={projectLoading(item.id)}
+                                          onShowMore={() => showMoreProjectSessions(item.id, projectSessions.length)}
                                         />
                                       </>
                                     )}
@@ -1513,13 +1717,13 @@ export const ChatSidebar = memo(function ChatSidebar({
                       </>
                     ) : (
                       <>
-                        <div className="h-full flex min-h-0 flex-col overflow-hidden px-3 pb-3">
+                        <div className="px-3 pb-3">
             <div className={sectionHeaderClass}>
               <button
                 ref={setActivatorNodeRef}
                 type="button"
                 className={cn(draggableSectionTitleClass, isDragging && 'cursor-grabbing')}
-                onClick={onToggleConversationsCollapsed}
+                onClick={toggleConversationsCollapsed}
                 aria-expanded={!conversationsVisuallyCollapsed}
                 {...attributes}
                 {...listeners}
@@ -1538,14 +1742,14 @@ export const ChatSidebar = memo(function ChatSidebar({
               </Button>
             </div>
 
-            <div className={cn(collapsePanelClass, 'flex-1 min-h-0', conversationsVisuallyCollapsed && 'transition-none', conversationsVisuallyCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
+            <div className={cn(collapsePanelClass, conversationsVisuallyCollapsed && 'transition-none', conversationsVisuallyCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
               <div className={collapseInnerClass}>
-                <div className="h-full overflow-y-auto pb-2">
+                <div className="pb-2">
                   {globalSessions.length === 0 && !globalHasMore ? (
                     <div className="px-3 py-3 text-xs text-muted-foreground/55">{t('noSavedConversations')}</div>
                   ) : (
                     <div className="space-y-0.5">
-                      {globalSessions.map((session) => {
+                      {visibleGlobalSessions.map((session) => {
                         const selected = currentSessionId === session.id
                         const actionsSuppressed = suppressedSessionActionsId === session.id
                         const deleting = deletingSessionId === session.id
@@ -1639,9 +1843,12 @@ export const ChatSidebar = memo(function ChatSidebar({
                         </div>
                         )
                       })}
-                      <LoadMoreSentinel
-                        onLoadMore={onLoadMoreGlobal}
-                        enabled={globalHasMore && !globalLoading}
+                      <SessionDisplayControls
+                        visibleCount={globalVisibleCount}
+                        loadedCount={globalSessions.length}
+                        hasMore={globalHasMore}
+                        loading={globalLoading}
+                        onShowMore={showMoreGlobalSessions}
                       />
                     </div>
                   )}
@@ -1656,7 +1863,7 @@ export const ChatSidebar = memo(function ChatSidebar({
               </div>
             </SortableContext>
           </DndContext>
-        </>
+        </div>
       ) : null}
 
       <div className="mt-auto shrink-0 border-t border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-3 py-3">

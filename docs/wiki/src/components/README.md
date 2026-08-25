@@ -5,7 +5,8 @@
 ```
 components/
 ├── chat/
-│   ├── ChatPanelHost.tsx           # 聊天面板宿主 (1456 行)
+│   ├── ChatConversationSurface.tsx # 主聊天与 Side Chat 共用的薄 conversation 布局/背景壳 (16 行)
+│   ├── ChatPanelHost.tsx           # 聊天面板宿主 (1552 行)
 │   ├── ModelSetupEmptyState.tsx    # 模型未配置时的空状态引导 (43 行)
 │   ├── chat-utils.ts               # 共享类型、DOM 工具、token 估算 (340 行)
 │   ├── command-suggestions.ts      # 聊天输入框 / 斜杠菜单：指令·技能·子智能体三分组补全 + 选中态 chip（方案 A）(495 行)
@@ -36,6 +37,9 @@ components/
 │   └── ChatSidebar.tsx             # 聊天侧边栏（Projects / Tasks 标题区支持鼠标、触摸与键盘排序）
 ├── workspace/
 │   ├── WorkspaceInspector.tsx      # 右侧统一工作区检查器，顶部 Tab 支持拖动排序；含文件/审查/终端/浏览器/subagent 运行详情
+│   ├── SideChatTabContent.tsx       # Workspace Side Chat 的共享 conversation surface + ChatPanelHost 薄包装 (37 行)
+│   ├── side-chat-agent.ts           # Side Chat 内存 AgentInterface 适配器（224 行）
+│   ├── side-chat-client.ts          # Side Chat NDJSON 流客户端
 │   ├── SubagentRunDetailContent.tsx # Workspace Inspector 中的 subagent 单次运行详情内容
 │   ├── WorkspaceFileTree.tsx       # 项目文件树
 │   ├── WorkspaceChangesList.tsx    # Git 工作区变更列表
@@ -70,8 +74,10 @@ components/
 - 退出后再次体验会创建新游客身份和额度，不宣称恢复旧游客。
 - 成功启用或退出后派发 `quickforge:cloud-state-changed`，清空 `useCloudModels` 的内存云模型缓存。
 
-### ChatPanelHost.tsx (1456 行)
+### ChatConversationSurface.tsx / ChatPanelHost.tsx (16 / 1552 行)
 
+- `ChatConversationSurface` 是主聊天与 Side Chat 共用的极薄 conversation 显示壳，只统一 `relative / flex / min-h-0 / flex-1 / flex-col / overflow-hidden` 和 `--quickforge-main-bg` 背景；不复制 `ChatPanelHost`，不包含业务逻辑或 Side Chat 专属 class/style。
+- App 主聊天在共享壳上继续叠加既有 `quickforge-empty-chat` 与 `quickforge-conversation-enter`，Hero、`NewChatProjectPicker`、`ErrorBoundary`、`Suspense` 和首次使用引导层级保持不变。Side Chat 使用同一壳包住同一 `ChatPanelHost`，普通空白空状态不显示 Hero、项目选择器或引导文案；两者仅因实际容器宽度不同而走同一响应式布局规则。
 - 核心聊天面板宿主
 - 封装 `@earendil-works/pi-web-ui` 的 `ChatPanel` 组件
 - 集成 Agent 权限模式选择器、Plan 模式输入态、工作区工具渲染、分享对话渲染
@@ -83,6 +89,7 @@ components/
 - 对话消息在恢复后一次性完整渲染，不再按轮次窗口化或触顶分页；初始加载和 DOM 成本相应增加，但左侧轮次导航点击时目标消息节点已存在，可直接平滑定位。`windowed-messages.ts` 保留显式透传模式及原窗口控制能力，主聊天面板当前使用透传模式；子代理 process 消息列表不受影响。`decorateMessages` 使用全量消息且 `messageIndexOffset` 为 0，回滚、重试、复制继续使用全量索引。
 - 主对话页提供左侧用户轮次导航（`turn-navigation.ts`）：每条用户消息对应一个节点，当前轮次随滚动高亮；悬停或键盘聚焦节点时显示截断的用户消息与该轮最后一条 assistant 消息（Final Answer），点击直接平滑定位到已渲染的对应用户消息。分享页默认不显示该导航，移动端隐藏。
 - 草稿恢复支持；Composer 草稿持久化由 `src/lib/composer-drafts.ts` 直接使用浏览器 `localStorage`，不再经过 `AppStorage/settings` 或后端存储；正文为空但有结构化文件引用或插件 chip 也视为草稿，`text`、`contextReferences` 与内部字段 `selectedCapabilities` 按项目/会话 draft key 隔离并持久化：插件选择会防御规范化、按 `type+pluginName+name` 去重且最多 4 个；普通附件仍不持久化。回滚、模型切换等外部恢复草稿按一次性事件消费，发送、编辑或 Session 切换会取消旧的延迟恢复任务；已消费恢复草稿 ID 使用有界 Set，发送或明确清空会立即删除运行时与持久化草稿。
+- `mode="side-chat"` 仍创建同一个 `pi-web-ui` `ChatPanel` / `AgentInterface` / `MessageList` / `MessageEditor`，并复用消息装饰、Markdown/代码块、复制、滚动同步、Composer Enter/Shift+Enter/IME、发送/停止、流式等待和轮次导航；mode 不生成任何视觉 class/style。Side Chat 继续显示主聊天原有的 `+`、模型、Access 及历史操作控件，但以原生 disabled 状态呈现；textarea、发送、停止与复制保持可用。显式 `SIDE_CHAT_CAPABILITIES` 全 false，并关闭 Slash、插件、文件引用、附件、Plan 快捷键、context usage/compaction、工具审批、终端执行等行为；Host 同时跳过草稿 localStorage、Git、artifacts、通知和审批/ask 等副作用，`toolsFactory` 返回空数组。由于 pi-web-ui 的 artifacts renderer 是进程级注册表，Side Chat 在 `setAgent()` 的同步注册阶段保存并立即恢复主聊天 renderer；模型与 Access 菜单清理也按当前 panel/anchor 限定，避免流式装饰干扰主聊天。主模式继续沿用原能力与本地工具工厂。
 
 ### WorkspaceInspector.tsx / SubagentRunDetailContent.tsx
 
@@ -175,6 +182,7 @@ components/
 
 **context-usage.ts**
 - 上下文用量环状指示器，优先展示后端 session state 返回的权威 `contextUsage`（后端统计复用 `pi-agent-core` / `pi-ai`），缺失时回退到前端本地估算
+- Tooltip 的构成区保持系统提示词、工具定义、消息三类总量，并在其后按有值才显示 `Skills` / `MCP` 两行；两项是跨前三类的来源归因，不参与输入总量二次相加
 - 在现有模型选择按钮左侧单独显示中心镂空的彩色环，指示当前对话所占模型上下文窗口比例；悬停、聚焦或点击后显示结构化 Token 明细、统计来源与上下文范围；该圆环及详情可在“设置 → 常规”中开启，默认关闭
 
 **panel-decoration.ts** (286 行)
@@ -201,7 +209,11 @@ components/
 
 ### Workspace Inspector (`workspace/`)
 
-- 右侧专业工作区检查器入口为 `WorkspaceInspector.tsx`，采用类浏览器顶部 Tab 工作区；`+` 菜单提供 Files / Review / Terminal / Browser 入口。Tab 下拉列表的条目区最多显示 10 行并在超出时独立纵向滚动，同时按视口高度兜底；“关闭其他 / 关闭全部”操作区固定在滚动区外。Inspector 展开/收起状态、Tab 列表、活动 `activePanelTabId`、Review 的 Overview/Changes 子视图以及 Reader 左侧导航显示状态按 `projectId + sessionId` 写入浏览器 `localStorage`。新建空白会话先使用不落盘的 deferred runtime scope，默认关闭、空 Tab、显示 Reader 导航；首次发送创建真实 `sessionId` 时 AgentManager 保留同一个 runtime scope，组件 `key` 不变，内存中的 open/tabs/active/Review/导航状态不会因晋升重建，并由现有持久化 effect 写入真实 `projectId + sessionId` key。切换到其他已存在会话或确认创建另一空白 deferred session 时才更换 runtime scope 并重建 Inspector；底层新建动作 reuse、取消或失败不会由 App wrapper 提前滚动 scope。旧项目级 key 不迁移。Inspector 整体宽度继续使用全局 `quickforge_workspaceInspectorWidth_v2`；Reader 导航分栏宽度等纯布局运行时偏好不纳入会话状态。
+- 侧边聊天（Side Chat）是 `side-chat` kind 的单实例运行时 Tab，可从主聊天标题栏入口、Workspace `+` 菜单或空 Tab 入口打开；只有存在活动主会话且 QuickForge 模型可用时入口才启用，主标题栏入口在 Side Chat 已存在时隐藏，Workspace 内重复打开只激活现有 Tab。`SideChatTabContent` 只用主聊天同一个 `ChatConversationSurface` 包住 `ChatPanelHost mode="side-chat"`，不再手写消息列表、textarea、按钮或 Side Chat 专属视觉 class。
+- `App.tsx` 稳定持有单个 `SideChatAgent` 与输入 ref 内存；Agent 把 user/assistant 文本转换为 pi-web-ui 兼容 `AgentMessage`，发出标准 `agent_start → turn_start → user message_start/end → assistant message_start/update/end → turn_end → agent_end` 流式事件，只调用 `streamSideChat`，显示历史最多保留 40 条，发送历史按完整消息从最新向前裁剪至 200,000 字符。其 `state.tools` setter 无论赋值内容都复位为 `[]`，没有主 Agent 操作方法、工具、审批或持久化入口；错误和 abort 均收束为 assistant 终态并复位 streaming，可继续发送。
+- Side Chat 切换到其他 Workspace Tab 时，稳定 Agent 与输入内存保留；关闭自身 Tab、关闭全部、在其他 Tab 执行“关闭其他”或切换主会话 runtime scope 时，会 abort/reset 并清空。`serializePanelTabs` 明确剔除 `side-chat`，刷新和会话恢复均不会恢复它；输入只在内存中，不写 `localStorage`。
+- Side Chat 默认空白消息区，不显示 Hero、项目选择器、指引或模型信息；显示壳、消息/Composer、回答复制和轮次导航均与主聊天复用同一链路，窄 Inspector 仅由同一响应式规则自然适配。`+`、模型、Access、回滚/重试/分叉等主控件仍在原位置、沿用原样式，但使用原生 disabled；Slash、插件、thinking、附件、权限切换、Plan、文件引用、工具审批、终端执行、context usage/compaction、artifacts、notifications 等不会启用。OpenCode 主会话下由 App 将当前 QuickForge 模型更新给 SideChatAgent，而不是调用 ACP。
+- 右侧专业工作区检查器入口为 `WorkspaceInspector.tsx`，采用类浏览器顶部 Tab 工作区；`+` 菜单提供 Files / Review / Terminal / Browser / Side Chat 入口。Tab 下拉列表的条目区最多显示 10 行并在超出时独立纵向滚动，同时按视口高度兜底；“关闭其他 / 关闭全部”操作区固定在滚动区外。Inspector 展开/收起状态、Tab 列表、活动 `activePanelTabId`、Review 的 Overview/Changes 子视图以及 Reader 左侧导航显示状态按 `projectId + sessionId` 写入浏览器 `localStorage`。新建空白会话先使用不落盘的 deferred runtime scope，默认关闭、空 Tab、显示 Reader 导航；首次发送创建真实 `sessionId` 时 AgentManager 保留同一个 runtime scope，组件 `key` 不变，内存中的 open/tabs/active/Review/导航状态不会因晋升重建，并由现有持久化 effect 写入真实 `projectId + sessionId` key。切换到其他已存在会话或确认创建另一空白 deferred session 时才更换 runtime scope 并重建 Inspector；底层新建动作 reuse、取消或失败不会由 App wrapper 提前滚动 scope。旧项目级 key 不迁移。Inspector 整体宽度继续使用全局 `quickforge_workspaceInspectorWidth_v2`；Reader 导航分栏宽度等纯布局运行时偏好不纳入会话状态。
 - 标题栏 Git、聊天文件链接、文件 Reader、产物 Browser 与 subagent 等外部入口通过一次性请求打开对应 Tab。新请求携带 `projectId + runtimeScopeId`，App 发起时校验当前 scope，聊天文件路径 resolve 等异步完成后再次校验，Inspector 消费时第三次校验；因此同一项目 session A 的迟到请求不会被 session B 接收或持久化。历史无项目且无 scope 的 subagent 请求继续按兼容语义处理；请求消费后即清除，普通折叠后重新展开不会重放。
 - Files tab 使用 `/api/workspace/children` 按需加载：首次激活只读根目录，首次展开目录才请求下一层；目录状态按归一化相对路径管理，已加载目录折叠重开不重复请求，根目录和子目录都提供 loading/error/retry 与分页“加载更多”。服务端 cursor 是 offset 而非快照；Inspector 会话内保留各目录已加载页和展开状态。刷新时旧 entries 保持可见，并按父到子重抓根目录及已展开目录：至少恢复刷新前覆盖量；若旧目录尚未在已抓页中出现则继续读到确认存在或目录完整，之后才递归清理真正消失目录的后代状态与展开路径。append 失败重试复用原 cursor，不清空前页；刷新按钮覆盖整个树刷新过程。
 - Files 搜索在输入至少 2 个字符后约 300ms 调用 `/api/workspace/search`，会立即隐藏上一 query 结果、取消旧请求并搜索整个项目，而非只过滤已加载节点；搜索状态下点击刷新或错误重试会立即重新执行当前 query，不刷新隐藏的普通树。loading/empty/error/truncated 采用单一状态展示。搜索结果中的目录明确按不可展开结果显示，不写入普通树的 expandedPaths；文件结果仍可打开。空搜索恢复普通按需树。Files、Review、Reader 三类加载相互解耦：Inspector 打开后会独立异步加载树根，因此直接通过 Reader、Browser 或外部请求进入时侧边 Files 导航仍可用，但 Reader/Browser 内容不等待该请求，且不会因此触发 Git；Review 使用显式 idle/loading/loaded/error，clean Git 仓库的空数组也算 loaded，不会重复请求，首次错误不会自动循环但会显示手动重试入口；局部目录错误不会遮挡 Reader/Review。

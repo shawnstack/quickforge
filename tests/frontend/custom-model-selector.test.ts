@@ -9,7 +9,7 @@ vi.mock('@earendil-works/pi-ai', () => ({
 }))
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }))
 
-import { openCustomOnlyModelSelector } from '../../src/lib/custom-model-selector'
+import { openCustomOnlyModelSelector, closeComposerModelMenu } from '../../src/lib/custom-model-selector'
 
 type Listener = (event: unknown) => void
 
@@ -27,6 +27,8 @@ class FakeElement {
   onpointerdown?: Listener
   onpointerenter?: Listener
   offsetHeight = 320
+  __quickforgeCleanup?: () => void
+  __quickforgeOwnerAnchor?: HTMLElement
 
   classList = {
     toggle: (name: string, enabled: boolean) => {
@@ -191,6 +193,22 @@ describe('custom model selector settings entry', () => {
     })
 
     expect(document.querySelector('.quickforge-model-settings-link')).toBeNull()
+  })
+
+  it('scoped close only removes menus owned by the provided anchor', () => {
+    const sideAnchor = new FakeElement()
+    openCustomOnlyModelSelector(model(), [model()], vi.fn(), undefined, {
+      anchor: anchor as unknown as HTMLElement,
+    })
+    const mainMenu = document.querySelector<FakeElement>('.quickforge-model-menu')
+    expect(mainMenu).not.toBeNull()
+
+    closeComposerModelMenu(sideAnchor as unknown as HTMLElement, true)
+    expect(document.querySelector('.quickforge-model-menu')).toBe(mainMenu)
+
+    closeComposerModelMenu(anchor as unknown as HTMLElement, true)
+    expect(document.querySelector('.quickforge-model-menu')).toBeNull()
+    expect(anchor.getAttribute('aria-expanded')).toBe('false')
   })
 
   it('keeps the mobile footer outside the scrollable model list and uses low-emphasis feedback', () => {

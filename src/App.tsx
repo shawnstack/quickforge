@@ -11,6 +11,7 @@ import {
   Info,
   LogOut,
   Menu,
+  MessageCircle,
   PanelRight,
   Pencil,
   Pin,
@@ -49,6 +50,7 @@ import type {
 import { sessionTitle } from '@/lib/types'
 import { isSameContextUsageDisplayInfo, type ContextUsageDisplayInfo } from '@/components/chat/context-usage'
 import { FirstUseGuideCard } from '@/components/chat/FirstUseGuideCard'
+import { ChatConversationSurface } from '@/components/chat/ChatConversationSurface'
 import { ModelSetupEmptyState } from '@/components/chat/ModelSetupEmptyState'
 import { NewChatProjectPicker } from '@/components/chat/NewChatProjectPicker'
 import { ChatSidebar } from '@/components/sidebar/ChatSidebar'
@@ -104,6 +106,7 @@ import {
   workspaceInspectorRuntimeScopeMatches,
 } from '@/components/workspace/workspace-inspector-request'
 import type { GitStatusResponse, WorkspaceInspectorOpenRequestInput, WorkspaceInspectorRuntimeScope } from '@/components/workspace/workspace-types'
+import { SideChatAgent } from '@/components/workspace/side-chat-agent'
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
@@ -316,6 +319,17 @@ function MainApp() {
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState<PendingTerminalCommand | null>(null)
   const [terminalDockOpen, setTerminalDockOpen] = useState(false)
   const [workspaceInspectorFullscreen, setWorkspaceInspectorFullscreen] = useState(false)
+  const [sideChatTabOpen, setSideChatTabOpen] = useState(false)
+  const [sideChatAgent] = useState(() => new SideChatAgent({ model: buildConnectionModel(DEFAULT_CONNECTION) }))
+  const [sideChatRevision, setSideChatRevision] = useState(0)
+  const bumpSideChatRevision = useCallback(() => setSideChatRevision((value) => value + 1), [])
+  const sideChatDraftRef = useRef('')
+  const sideChatInputMemory = useMemo(() => ({
+    get: () => sideChatDraftRef.current,
+    set: (text: string) => {
+      sideChatDraftRef.current = text
+    },
+  }), [])
   const [currentSessionArtifactsState, setCurrentSessionArtifactsState] = useState<{
     projectId?: string
     sessionId?: string
@@ -495,6 +509,7 @@ function MainApp() {
   })
   const workspaceInspectorProjectId = agentManager.currentToolProject?.id ?? 'global-workspace'
   const workspaceInspectorRuntimeScopeId = agentManager.currentRuntimeScopeId
+  const sideChatRuntimeScopeRef = useRef(workspaceInspectorRuntimeScopeId)
   const workspaceInspectorScope = useMemo<WorkspaceInspectorRuntimeScope>(() => ({
     projectId: workspaceInspectorProjectId,
     runtimeScopeId: workspaceInspectorRuntimeScopeId,
@@ -661,6 +676,40 @@ function MainApp() {
         : current
     })
   }, [setWorkspaceInspectorRequest])
+
+  const clearSideChat = useCallback(() => {
+    sideChatAgent.reset()
+    sideChatDraftRef.current = ''
+    bumpSideChatRevision()
+  }, [bumpSideChatRevision, sideChatAgent])
+
+  useEffect(() => () => sideChatAgent.abort(), [sideChatAgent])
+
+  useEffect(() => {
+    if (sideChatRuntimeScopeRef.current === workspaceInspectorRuntimeScopeId) return undefined
+    sideChatRuntimeScopeRef.current = workspaceInspectorRuntimeScopeId
+    const timer = window.setTimeout(() => {
+      clearSideChat()
+      setSideChatTabOpen(false)
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [clearSideChat, workspaceInspectorRuntimeScopeId])
+
+  useEffect(() => {
+    const model = agentManager.agent?.harness === 'opencode'
+      ? activeModelRef.current
+      : agentManager.agent?.state.model ?? activeModelRef.current
+    sideChatAgent.setContext({ sessionId: agentManager.currentSessionId, model })
+  }, [agentManager.agent, agentManager.chatPanelRevision, agentManager.currentSessionId, sideChatAgent])
+
+  const openWorkspaceSideChat = useCallback(() => {
+    if (!agentManager.currentSessionId || needsModelSetup) return
+    const opened = requestWorkspaceInspector({
+      projectId: agentManager.currentToolProject?.id ?? 'global-workspace',
+      kind: 'side-chat',
+    })
+    if (opened) setSideChatTabOpen(true)
+  }, [agentManager.currentSessionId, agentManager.currentToolProject?.id, needsModelSetup, requestWorkspaceInspector])
 
   const openWorkspaceGitChanges = useCallback(() => {
     const projectId = agentManager.currentToolProject?.id
@@ -1978,6 +2027,19 @@ function MainApp() {
                   ) : null}
                 </div>
               ) : null}
+              {!sideChatTabOpen ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground/85 hover:bg-muted/45 hover:text-foreground/90"
+                  onClick={openWorkspaceSideChat}
+                  disabled={!agentManager.currentSessionId || needsModelSetup}
+                  aria-label={t('sideChatOpen')}
+                  title={t('sideChatOpen')}
+                >
+                  <MessageCircle className="size-[18px]" />
+                </Button>
+              ) : null}
               <div className="relative shrink-0" onClick={(event) => event.stopPropagation()}>
                 <Button
                   variant="ghost"
@@ -2074,8 +2136,7 @@ function MainApp() {
             />
           ) : (
               <>
-                <div className={cn(
-                  'flex min-h-0 flex-1 flex-col',
+                <ChatConversationSurface className={cn(
                   showNewChatEmptyState ? 'quickforge-empty-chat' : undefined,
                   renderedLoadingSessionId === visibleLoadingSessionId && 'quickforge-conversation-enter',
                 )}>
@@ -2136,7 +2197,7 @@ function MainApp() {
                       onNewProject={handleSelectEmptyStateNewProject}
                     />
                   ) : null}
-                </div>
+                </ChatConversationSurface>
                 {showFirstUseGuide ? (
                   <FirstUseGuideCard
                     hasProject={Boolean(agentManager.currentToolProject?.id)}
@@ -2187,6 +2248,12 @@ function MainApp() {
                 setArtifactPreviewOpen(false)
                 setTerminalDockOpen(true)
               }}
+              sideChatAgent={sideChatAgent}
+              sideChatInputMemory={sideChatInputMemory}
+              sideChatRevision={sideChatRevision}
+              sideChatEnabled={Boolean(agentManager.currentSessionId) && !needsModelSetup}
+              onSideChatPresenceChange={setSideChatTabOpen}
+              onClearSideChat={clearSideChat}
               onFullscreenChange={setWorkspaceInspectorFullscreen}
             />
           </Suspense>

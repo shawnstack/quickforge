@@ -10,14 +10,20 @@ import {
 
 type AgentAccessMenuElement = HTMLDivElement & {
   __quickforgeDismissHandler?: (event: Event) => void
+  __quickforgeOwnerPanel?: HTMLElement
+  __quickforgeOwnerTrigger?: HTMLButtonElement
 }
 
 function agentAccessLabel(mode: AgentAccessMode) {
   return mode === 'full-access' ? t('agentAccessFullLabel') : t('agentAccessDefaultLabel')
 }
 
-export function removeAgentAccessMenu(panel: HTMLElement) {
+export function removeAgentAccessMenu(panel: HTMLElement, scoped = false) {
   const menu = document.querySelector<AgentAccessMenuElement>('.quickforge-agent-access-menu')
+  if (scoped && menu?.__quickforgeOwnerPanel !== panel) {
+    panel.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')?.setAttribute('aria-expanded', 'false')
+    return
+  }
   if (menu?.__quickforgeDismissHandler) {
     document.removeEventListener('pointerdown', menu.__quickforgeDismissHandler, true)
     document.removeEventListener('keydown', menu.__quickforgeDismissHandler, true)
@@ -25,6 +31,7 @@ export function removeAgentAccessMenu(panel: HTMLElement) {
     window.removeEventListener('scroll', menu.__quickforgeDismissHandler, true)
     menu.__quickforgeDismissHandler = undefined
   }
+  menu?.__quickforgeOwnerTrigger?.setAttribute('aria-expanded', 'false')
   menu?.remove()
   panel.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')?.setAttribute('aria-expanded', 'false')
 }
@@ -70,6 +77,8 @@ function renderAgentAccessMenu(options: {
 
   const menu = document.createElement('div') as AgentAccessMenuElement
   menu.className = 'quickforge-agent-access-menu'
+  menu.__quickforgeOwnerPanel = panel
+  menu.__quickforgeOwnerTrigger = trigger
   menu.setAttribute('role', 'menu')
   menu.setAttribute('aria-label', t('agentAccessMenuLabel'))
 
@@ -141,7 +150,8 @@ export function setupAgentAccessMenu(options: {
     button.title = title
     button.setAttribute('aria-label', title)
     button.setAttribute('aria-haspopup', 'menu')
-    button.setAttribute('aria-expanded', document.querySelector('.quickforge-agent-access-menu') ? 'true' : 'false')
+    const ownedMenu = document.querySelector<AgentAccessMenuElement>('.quickforge-agent-access-menu')
+    button.setAttribute('aria-expanded', String(ownedMenu?.__quickforgeOwnerPanel === panel))
     button.dataset.quickforgeAgentAccessMode = agentAccessMode
     button.className = buttonClass
     button.onpointerdown = (event) => {

@@ -23,6 +23,7 @@
 | `models.mjs` | 68 | 自定义模型连接测试 |
 | `scheduled-tasks.mjs` | 949 | 定时任务管理，支持绑定 Agent Profile 与配置单任务执行模式 |
 | `shares.mjs` | 90 | 分享管理 |
+| `side-chat.mjs` | 独立、内存态 Side Chat 的纯模型 NDJSON 流路由；读取当前主会话上下文但固定 `tools: []`，不调用或写入主 Agent；纯文本安全投影在服务端最终模型解析后物化为 pi-ai 合法 user/assistant 消息，assistant 使用服务端模型字段与完整零 usage/cost |
 | `shared-conversation.mjs` | 共享会话查看与共享图片资产读取 |
 | `session-assets.mjs` | 当前会话生成图片资产的同源二进制读取 |
 | `backup.mjs` | 817 | 数据备份和恢复（权威会话/分享/LAN 访问导出与恢复、settings 导入） |
@@ -204,6 +205,13 @@ Agent Profile 管理路由。
 - `POST /api/shares/:shareId/expiration` — 修改仍有效分享的有效期，并关闭旧 SSE 使客户端按新配置重连
 - `POST /api/shares/:shareId/update` — 编辑仍有效分享的权限、密码、有效期和 `allowCloudUsage`；Cloud 默认关闭，只能由本机或已认证 Tailscale 管理端显式开启，修改会使旧共享状态失效
 - `DELETE /api/shares/:shareId/permanent` — 永久删除分享记录并关闭已有共享 SSE
+
+## side-chat.mjs
+
+- `POST /api/side-chat/stream` — 接受 `{sessionId?, modelRef, messages}`，返回 `application/x-ndjson`：`meta`、增量 `delta`、终态 `done` 或流内 `error`。
+- 有 `sessionId` 时只接受当前已激活的主会话，并通过 `getSessionState` 读取权威消息、模型、thinking 与 `contextCompaction`；压缩会话使用既有 `buildAutoCompactLoopMessages` 语义。路由不会恢复/创建/驱逐 Agent，也不会调用 `runPrompt`、ACP 或任何持久化写入口。
+- QuickForge 主会话沿用服务端权威模型绑定；OpenCode 主会话不复用 ACP 模型，改用请求中的已配置 QuickForge `modelRef`。两条路径都通过统一 Model Catalog 重新解析，Cloud 继续服从请求认证上下文。
+- 模型上下文固定 `tools: []`，系统提示明确只读问答；主线上下文先复用 `buildAutoCompactLoopMessages` 与 `serverConvertToLlm`，再投影为仅含 user/assistant 纯文本的消息，忽略 system/tool/toolCall/thinking/非文本块与全部 details，并从最新向前按 120,000 字符确定性裁剪；存在 compact summary 时最多预留 20,000 字符尽量保留。侧聊历史最多 40 条、单条 12,000 字符；主线与侧聊上下文合计不超过 200,000 字符。任何 `toolcall_*` 或 `stopReason: toolUse` 都 fail closed；流随客户端断开中止，响应 `no-store + nosniff`。
 
 ## shared-conversation.mjs (444 行)
 

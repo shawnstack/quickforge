@@ -55,6 +55,7 @@ function createModelSettingsButton(onOpenModelSettings: () => void, anchor?: HTM
 
 type ComposerModelMenuElement = HTMLDivElement & {
   __quickforgeCleanup?: () => void
+  __quickforgeOwnerAnchor?: HTMLElement
 }
 
 export type ModelSelectorHandle = {
@@ -62,8 +63,16 @@ export type ModelSelectorHandle = {
   updateModels: (models: readonly AnyModel[]) => void
 }
 
-export function closeComposerModelMenu(anchor?: HTMLElement | null) {
-  document.querySelectorAll<ComposerModelMenuElement>('.quickforge-model-menu, .quickforge-model-submenu, .quickforge-model-sheet-backdrop').forEach((menu) => {
+function ownedComposerModelMenus(anchor: HTMLElement) {
+  return Array.from(document.querySelectorAll<ComposerModelMenuElement>('.quickforge-model-menu, .quickforge-model-submenu, .quickforge-model-sheet-backdrop'))
+    .filter((menu) => menu.__quickforgeOwnerAnchor === anchor)
+}
+
+export function closeComposerModelMenu(anchor?: HTMLElement | null, scoped = false) {
+  const menus = scoped
+    ? anchor ? ownedComposerModelMenus(anchor) : []
+    : Array.from(document.querySelectorAll<ComposerModelMenuElement>('.quickforge-model-menu, .quickforge-model-submenu, .quickforge-model-sheet-backdrop'))
+  menus.forEach((menu) => {
     menu.__quickforgeCleanup?.()
     menu.remove()
   })
@@ -154,6 +163,7 @@ function openMobileModelSelector(
 
   const backdrop = document.createElement('div') as ComposerModelMenuElement
   backdrop.className = 'quickforge-model-sheet-backdrop'
+  if (anchor) backdrop.__quickforgeOwnerAnchor = anchor
 
   const sheet = document.createElement('div')
   sheet.className = 'quickforge-model-sheet'
@@ -450,6 +460,7 @@ export function openCustomOnlyModelSelector(
 
   const menu = document.createElement('div') as ComposerModelMenuElement
   menu.className = 'quickforge-model-menu'
+  if (anchor) menu.__quickforgeOwnerAnchor = anchor
   menu.setAttribute('role', 'menu')
   menu.setAttribute('aria-label', t('selectCustomModel'))
 
@@ -457,6 +468,7 @@ export function openCustomOnlyModelSelector(
     submenu?.remove()
     submenu = document.createElement('div') as ComposerModelMenuElement
     submenu.className = 'quickforge-model-submenu'
+    if (anchor) submenu.__quickforgeOwnerAnchor = anchor
     submenu.setAttribute('role', 'menu')
     submenu.setAttribute('aria-label', t('model'))
 

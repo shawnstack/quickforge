@@ -2,6 +2,11 @@
 
 ## Current State
 
+- Feature: 侧边聊天 Workspace Tab（side-chat-workspace-tab，**已完成**）
+- Status: done — Side Chat 最终收敛为直接复用主聊天 `ChatConversationSurface → ChatPanelHost → pi-web-ui ChatPanel/MessageList/MessageEditor`：纯文本发送、停止、复制、Markdown/代码块、滚动与轮次导航正常；`+`、模型、Access、rollback/retry/fork 等主控件原位复用但 native disabled，不再实现 Side Chat 专属模型、附件、Slash、插件、文件引用、Plan、历史分叉或工具 Agent。最小内存 Agent/NDJSON 只传 user/assistant 纯文本，显示最多 40 条，请求从最新向前按完整消息裁剪至 200,000 字符；切普通 Tab 保留，关闭/关闭其他/关闭全部/切主会话时 abort/reset，Tab 不持久化。Host 隔离 localStorage、Git、通知、artifact、审批、终端、context usage/compaction 等副作用；Side Chat 初始化 `ChatPanel.setAgent()` 时保存并恢复主聊天全局 artifacts renderer，禁用装饰只关闭当前 panel 所属模型/Access 菜单。入口仅在活动主会话和模型可用时启用。服务端读取活动主会话权威纯文本上下文，固定 `tools: []`，tool call fail closed，不创建、调用或持久化主 Agent。
+- Verification: 定向 Vitest 11 files / 97 tests 与隔离修复聚焦 9 files / 71 tests 全通过；`npx tsc -b --pretty false`、MJS syntax、`git diff --check` 通过；完整 `npm run test` → 249 files / 2148 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warnings）。
+- Next step: 无 blocker；Wiki 与状态已同步，本次仅提交 Side Chat，未 tag/push；未新增依赖，未手工修改生成产物。Plan pill 只在主聊天已进入 Plan 模式时存在，Side Chat 从不进入该模式，因此不额外伪造控件。
+
 - Feature: Prompt HTTP 失败时在聊天区显示具体错误原因（prompt-http-error-message，**已完成**）
 - Status: done — `ServerAgent.prompt()` 的 HTTP fetch 失败分支继续仅在乐观 user message 仍是尾部时精确回滚，随后追加唯一合法 assistant error message：空 text block、当前模型 `api/provider/id`、完整零 usage/cost、`stopReason:'error'`、服务端具体 `errorMessage` 与 timestamp。同步清理 streaming 状态，保留 error 事件，并让本地 `agent_end` 携带 `status:'error'`、`errorMessage` 和最终 messages，因此 Chat 消息区可直接显示如 `Selected model is not configured in QuickForge.` 的具体原因。
 - Verification: `npx vitest run tests/frontend/server-agent.test.ts` → 1 file / 38 tests 全通过；目标 ESLint 0 error；`npx tsc -b --pretty false` 通过；`git diff --check` 通过。

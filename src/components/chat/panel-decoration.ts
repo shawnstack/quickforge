@@ -67,6 +67,8 @@ export type EditorDecorationDeps = {
   commandSuggestionsEnabled: boolean
   capabilitySuggestionsEnabled: boolean
   attachmentsEnabled: boolean
+  fileReferenceSuggestionsEnabled: boolean
+  disabledControls?: boolean
   onAccessModeChange: (mode: AgentAccessMode) => void
   onTogglePlanMode: () => void
   onInput: (value: string) => void
@@ -84,6 +86,29 @@ export type EditorDecorationDeps = {
   selectPluginCapability: (pluginName: string) => void
   availablePluginRows: () => CapabilitySuggestion[]
   onBeforeSend?: (input: string) => void
+}
+
+export function disableComposerControls(panel: HTMLElement, editor: MessageEditorElement | null) {
+  removeComposerPlusPopover(panel)
+  removeAgentAccessMenu(panel, true)
+  removePlanModeControls(editor)
+  closeComposerModelMenu(panel.querySelector<HTMLElement>('.quickforge-model-trigger'), true)
+
+  const controls = [
+    panel.querySelector<HTMLButtonElement>('.quickforge-plus-inline'),
+    panel.querySelector<HTMLButtonElement>('.quickforge-model-trigger'),
+    panel.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline'),
+    panel.querySelector<HTMLButtonElement>('.quickforge-plan-inline'),
+  ]
+  controls.forEach((button) => {
+    if (!button) return
+    button.disabled = true
+    button.setAttribute('aria-expanded', 'false')
+  })
+  editor?.querySelectorAll<HTMLInputElement>('input[type="file"]').forEach((input) => {
+    input.disabled = true
+    input.value = ''
+  })
 }
 
 export function decorateEditor(deps: EditorDecorationDeps) {
@@ -106,6 +131,8 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     commandSuggestionsEnabled,
     capabilitySuggestionsEnabled,
     attachmentsEnabled,
+    fileReferenceSuggestionsEnabled,
+    disabledControls = false,
     onAccessModeChange,
     onTogglePlanMode,
     onInput,
@@ -146,7 +173,7 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     removeCapabilitySuggestions,
     updateCapabilitySuggestions: capabilitySuggestionsEnabled ? updateCapabilitySuggestions : () => removeCapabilitySuggestions(),
     removeFileReferenceSuggestions,
-    updateFileReferenceSuggestions,
+    updateFileReferenceSuggestions: fileReferenceSuggestionsEnabled ? updateFileReferenceSuggestions : () => removeFileReferenceSuggestions(),
     attachmentsEnabled,
     onBeforeSend,
   })
@@ -154,7 +181,8 @@ export function decorateEditor(deps: EditorDecorationDeps) {
   else removeCommandSuggestions()
   if (capabilitySuggestionsEnabled) setupCapabilityTextareaHandler(editor)
   else removeCapabilitySuggestions()
-  setupFileReferenceTextareaHandler(editor)
+  if (fileReferenceSuggestionsEnabled) setupFileReferenceTextareaHandler(editor)
+  else removeFileReferenceSuggestions()
   syncContextChips()
   if (planModeEnabled) setupPlanModeControls(editor, planMode, onTogglePlanMode)
   else removePlanModeControls(editor)
@@ -186,7 +214,7 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     removeComposerPlusPopover(panel)
     if (!attachmentsEnabled && editor) hideNativeAttachmentControls(editor)
     panel.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')?.remove()
-    removeAgentAccessMenu(panel)
+    removeAgentAccessMenu(panel, disabledControls)
     panel.querySelector<HTMLButtonElement>('.quickforge-opencode-config-inline')?.remove()
     removeOpenCodeConfigMenu(panel)
     panel.querySelector<HTMLButtonElement>('.quickforge-opencode-mode-inline')?.remove()
@@ -211,7 +239,7 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     if (!attachmentsEnabled) hideNativeAttachmentControls(editor, leftControls)
   }
 
-  if (editor && (attachmentsEnabled || capabilitySuggestionsEnabled)) {
+  if (editor && (attachmentsEnabled || capabilitySuggestionsEnabled || disabledControls)) {
     setupComposerPlusMenu({
       panel,
       editor,
@@ -267,9 +295,20 @@ export function decorateEditor(deps: EditorDecorationDeps) {
   }
 
   if (!workspaceToolsEnabled || !accessModeEnabled) {
-    panel.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')?.remove()
-    removeAgentAccessMenu(panel)
+    removeAgentAccessMenu(panel, disabledControls)
     panel.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')?.remove()
+    if (disabledControls) {
+      setupAgentAccessMenu({
+        panel,
+        leftControls,
+        agentAccessMode,
+        onAccessModeChange,
+        dismissComposerMenus,
+      })
+      disableComposerControls(panel, editor)
+    } else {
+      panel.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')?.remove()
+    }
     return
   }
 

@@ -13,7 +13,7 @@ type WorkspaceInspectorRequestScope = {
 
 export type WorkspaceInspectorOpenRequest =
   | ({ id: number; projectId: string; kind: 'review'; view: 'review' | 'changes' } & WorkspaceInspectorRequestScope)
-  | ({ id: number; projectId: string; kind: 'files' | 'terminal' } & WorkspaceInspectorRequestScope)
+  | ({ id: number; projectId: string; kind: 'files' | 'terminal' | 'side-chat' } & WorkspaceInspectorRequestScope)
   | ({ id: number; projectId: string; kind: 'reader'; path: string } & WorkspaceInspectorRequestScope)
   | ({ id: number; projectId: string; kind: 'browser'; url: string } & WorkspaceInspectorRequestScope)
   | ({ id: number; projectId?: string; kind: 'subagent'; payload: SubagentRunPayload } & Partial<WorkspaceInspectorRequestScope>)

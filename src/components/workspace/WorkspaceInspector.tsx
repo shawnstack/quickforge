@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronRight, Code2, Copy, CornerDownLeft, Eye, Folder, GitBranch, GitCommitHorizontal, Globe, Maximize, Minimize, MoreHorizontal, PanelRight, Plus, RefreshCw, Search, SquareActivity, SquareTerminal, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Code2, Copy, CornerDownLeft, Eye, Folder, GitBranch, GitCommitHorizontal, Globe, Maximize, MessageCircle, Minimize, MoreHorizontal, PanelRight, Plus, RefreshCw, Search, SquareActivity, SquareTerminal, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import {
   DndContext,
@@ -36,6 +36,8 @@ import { WorkspaceFileTree } from './WorkspaceFileTree'
 import { artifactFileName, isBrowserPreviewablePath, presentArtifacts } from './artifact-preview-utils'
 import { TerminalDock } from '@/components/terminal/TerminalDock'
 import { SubagentRunDetailContent } from './SubagentRunDetailContent'
+import { SideChatTabContent, type SideChatComposerDraftMemory } from './SideChatTabContent'
+import type { SideChatAgent } from './side-chat-agent'
 import { subagentRunStore, type SubagentRunPayload } from '@/lib/subagent-run-detail'
 import { resolveServerCacheKey } from '@/lib/session-message-cache'
 import {
@@ -110,6 +112,12 @@ type WorkspaceInspectorProps = {
   onPendingTerminalCommandHandled?: (id: number) => void
   globalTerminalOpen?: boolean
   onShowGlobalTerminal?: () => void
+  sideChatAgent: SideChatAgent
+  sideChatInputMemory: SideChatComposerDraftMemory
+  sideChatRevision: number
+  sideChatEnabled: boolean
+  onSideChatPresenceChange: (open: boolean) => void
+  onClearSideChat: () => void
   onFullscreenChange?: (fullscreen: boolean) => void
 }
 
@@ -140,6 +148,7 @@ const PANEL_TAB_ITEMS: WorkspacePanelTabMeta[] = [
   { kind: 'review', label: t('rightPanelReview'), description: t('rightPanelReviewDesc'), icon: GitBranch },
   { kind: 'terminal', label: t('rightPanelTerminal'), description: t('rightPanelTerminalDesc'), icon: SquareTerminal },
   { kind: 'browser', label: t('rightPanelBrowser'), description: t('rightPanelBrowserDesc'), icon: Globe },
+  { kind: 'side-chat', label: t('sideChatTitle'), description: t('sideChatDescription'), icon: MessageCircle },
 ]
 
 const REVIEW_FILTER_ITEMS: { value: ReviewFilter; label: string }[] = [
@@ -152,7 +161,7 @@ const REVIEW_FILTER_ITEMS: { value: ReviewFilter; label: string }[] = [
 const PANEL_TAB_BY_KIND = Object.fromEntries(PANEL_TAB_ITEMS.map((item) => [item.kind, item])) as Record<WorkspacePanelPrimaryTabKind, WorkspacePanelTabMeta>
 
 function viewFromPanelKind(kind: WorkspacePanelPrimaryTabKind): WorkspacePanelView {
-  return kind === 'review' ? 'changes' : kind
+  return kind === 'review' ? 'changes' : kind === 'side-chat' ? 'files' : kind
 }
 
 function browserTabLabel(previewUrl: string) {
@@ -625,7 +634,7 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
   )
 }
 
-export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, onOpenChange, onOpenCommitPush, onOpenProjectInExplorer, onOpenProjectInVSCode, onOpenProjectInIDEA, onPreviewArtifact, request, onRequestHandled, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled, globalTerminalOpen = false, onShowGlobalTerminal, onFullscreenChange }: WorkspaceInspectorProps) {
+export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, onOpenChange, onOpenCommitPush, onOpenProjectInExplorer, onOpenProjectInVSCode, onOpenProjectInIDEA, onPreviewArtifact, request, onRequestHandled, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled, globalTerminalOpen = false, onShowGlobalTerminal, sideChatAgent, sideChatInputMemory, sideChatRevision, sideChatEnabled, onSideChatPresenceChange, onClearSideChat, onFullscreenChange }: WorkspaceInspectorProps) {
   const [treeState, dispatchTree] = useReducer(workspaceTreeReducer, {})
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
   const [treeRefreshing, setTreeRefreshing] = useState(false)
@@ -644,8 +653,11 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
 
   const canUseTerminal = Boolean(onShowGlobalTerminal)
   const availablePanelTabItems = useMemo(
-    () => canUseTerminal ? PANEL_TAB_ITEMS : PANEL_TAB_ITEMS.filter((item) => item.kind !== 'terminal'),
-    [canUseTerminal],
+    () => PANEL_TAB_ITEMS.filter((item) => (
+      (canUseTerminal || item.kind !== 'terminal')
+      && (sideChatEnabled || item.kind !== 'side-chat')
+    )),
+    [canUseTerminal, sideChatEnabled],
   )
   const initialPanelTabStateRef = useRef<PersistedWorkspaceInspectorTabs | undefined>(undefined)
   if (!initialPanelTabStateRef.current) {
@@ -946,11 +958,13 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
       // 优先取 store 中最新快照（SSE 实时路径可能已比请求 payload 更新），无则用请求 payload。
       const latest = subagentRunStore.get(request.payload.runId) ?? request.payload
       openSubagentRunTabRef.current?.(latest)
+    } else if (request.kind === 'side-chat' && !sideChatEnabled) {
+      onSideChatPresenceChange(false)
     } else {
       openPanelTabRef.current?.(request.kind, viewFromPanelKind(request.kind))
     }
     onRequestHandled?.(request.id)
-  }, [onRequestHandled, open, projectId, request, runtimeScopeId])
+  }, [onRequestHandled, onSideChatPresenceChange, open, projectId, request, runtimeScopeId, sideChatEnabled])
   // 持久化工作区宽度：拖拽或自动展开后都写入，刷新后保持上次宽度
   useEffect(() => {
     try {
@@ -1340,13 +1354,14 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
   }
 
   function openPanelTab(kind: WorkspacePanelPrimaryTabKind, nextView: WorkspacePanelView = viewFromPanelKind(kind), options?: { url?: string; readerTab?: ReaderTab }) {
-    const existing = kind === 'review'
-      ? panelTabs.find((tab) => tab.kind === 'review')
+    const existing = kind === 'review' || kind === 'side-chat'
+      ? panelTabs.find((tab) => tab.kind === kind)
       : kind === 'browser' && options?.url
         ? findBrowserTabToReuse(panelTabs, options.url)
         : undefined
     const targetTab = existing || createPanelTab(kind, { ...options, ...(kind === 'review' ? { reviewView: nextView === 'review' ? 'review' : 'changes' } : {}) })
     if (!existing) setPanelTabs((prev) => [...prev, targetTab])
+    if (kind === 'side-chat') onSideChatPresenceChange(true)
     if (existing?.kind === 'review') {
       updatePanelTab(existing.id, (tab) => ({ ...tab, reviewView: nextView === 'review' ? 'review' : 'changes' }))
     }
@@ -1391,7 +1406,14 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
     setPanelTabs((prev) => reorderPanelTabs(prev, active.id as string, over.id as string))
   }
 
+  function clearSideChat() {
+    onSideChatPresenceChange(false)
+    onClearSideChat()
+  }
+
   function closePanelTab(id: string) {
+    const closingTab = panelTabs.find((tab) => tab.id === id)
+    if (closingTab?.kind === 'side-chat') clearSideChat()
     setPanelTabs((prev) => {
       const index = prev.findIndex((tab) => tab.id === id)
       const next = prev.filter((tab) => tab.id !== id)
@@ -1409,16 +1431,16 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
   }
 
   function closeOtherPanelTabs() {
-    setPanelTabs((prev) => {
-      const activeTab = prev.find((tab) => tab.id === activePanelTabId) ?? prev[0]
-      if (!activeTab) return prev
-      setActivePanelTabId(activeTab.id)
-      return [activeTab]
-    })
+    const activeTab = panelTabs.find((tab) => tab.id === activePanelTabId) ?? panelTabs[0]
+    if (!activeTab) return
+    if (activeTab.kind !== 'side-chat' && panelTabs.some((tab) => tab.kind === 'side-chat')) clearSideChat()
+    setPanelTabs([activeTab])
+    setActivePanelTabId(activeTab.id)
     setTabListOpen(false)
   }
 
   function closeAllPanelTabs() {
+    if (panelTabs.some((tab) => tab.kind === 'side-chat')) clearSideChat()
     setPanelTabs([])
     setActivePanelTabId(undefined)
     setTabListOpen(false)
@@ -2041,7 +2063,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
         </div>
 
         <div className={cn('flex min-h-0 flex-1 transition-opacity duration-150', fullscreenAnimating ? 'opacity-0' : 'opacity-100')}>
-          {!project?.id && activePanelTab?.kind !== 'subagent' ? (
+          {!project?.id && activePanelTab?.kind !== 'subagent' && activePanelTab?.kind !== 'side-chat' ? (
             <div className="p-4 text-sm text-muted-foreground/70">{t('workspaceSelectProject')}</div>
           ) : !activePanelTab ? (
             <div className="flex min-h-0 flex-1 items-center justify-center px-5">
@@ -2073,6 +2095,12 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
             </div>
           ) : activePanelTab.kind === 'subagent' ? (
             <SubagentRunDetailContent payload={activePanelTab.subagentRun} />
+          ) : activePanelTab.kind === 'side-chat' ? (
+            <SideChatTabContent
+              agent={sideChatAgent}
+              inputMemory={sideChatInputMemory}
+              revision={sideChatRevision}
+            />
           ) : activePanelTab.kind === 'browser' ? (
             <WebPreviewContent
               url={activePanelTab.url || ''}

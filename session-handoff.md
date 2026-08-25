@@ -1,5 +1,19 @@
 # Session Handoff
 
+## 当前状态：side-chat-workspace-tab（已完成，最终收敛）
+
+- 目标：Side Chat 直接复用主聊天完整界面和核心交互，不为不适用功能重做一套实现；不支持控件原位禁用，服务端硬只读。
+- 实现：`SideChatTabContent` 只包装共享 `ChatConversationSurface + ChatPanelHost mode="side-chat"`；同一 pi-web-ui ChatPanel/MessageList/MessageEditor 提供纯文本发送、停止、复制、Markdown/代码块、滚动与轮次导航。`+`、模型、Access、rollback/retry/fork 保持主控件外观并 native disabled；Slash、插件、附件、文件引用、thinking、Plan、审批、终端、context usage/compaction 等不启用。Agent/client 仅维护内存纯文本，最多 40 条，发请求时从最新向前按完整消息裁剪至 200,000 字符；Tab 非持久化，关闭与主会话 scope 变化时 abort/reset。入口要求活动主会话和可用模型。
+- 安全与隔离：服务端读取活动主会话权威纯文本上下文，固定 `tools: []`，任何 toolcall/toolUse fail closed，不创建/调用/持久化主 Agent。Side Chat 初始化 ChatPanel 时保存并恢复主聊天全局 artifacts renderer；禁用控件只关闭当前 panel/anchor 所属模型与 Access 菜单，不干扰主聊天；Host 不触发草稿 localStorage、Git、通知、artifact、审批或终端副作用。
+- 验证：定向 11 files / 97 tests，隔离修复聚焦 9 files / 71 tests；完整 `npm run test` → 249 files / 2148 tests；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX 字体与 chunk warnings）；TS/MJS syntax/`git diff --check` 均通过。
+- 边界：Plan pill 仅在主聊天已进入 Plan 模式后出现，Side Chat 从不进入该模式，因此不额外制造假控件。本次仅提交 Side Chat，未 tag/push，未新增依赖，未手工修改生成产物。
+
+---
+
+
+
+---
+
 ## 当前状态：prompt-http-error-message（已完成）
 
 - 目标：Prompt HTTP 请求失败时，不只保留全局错误状态，还要在聊天区显示服务端返回的具体原因。

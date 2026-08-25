@@ -227,6 +227,7 @@ export type MessageDecorationDeps = {
   disableFork: boolean
   allowRollback?: boolean
   allowRetry?: boolean
+  historyActionsDisabled?: boolean
   readOnly?: boolean
   enableTerminalCommandActions?: boolean
   rollbackConfirmTitle?: string
@@ -378,6 +379,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     disableFork,
     allowRollback = true,
     allowRetry = true,
+    historyActionsDisabled = false,
     readOnly = false,
     enableTerminalCommandActions = true,
     rollbackConfirmTitle = t('rollbackConfirmTitle'),
@@ -469,7 +471,16 @@ export function decorateMessages(deps: MessageDecorationDeps) {
       if (readOnly) removeRollbackConfirmPopover(panel)
       existingActions.querySelectorAll<HTMLButtonElement>('button[data-quickforge-action="rollback"], button[data-quickforge-action="retry"], button[data-quickforge-action="fork"]').forEach((button) => {
         const action = button.dataset.quickforgeAction
-        if (readOnly || (action === 'rollback' && !allowRollback) || (action === 'retry' && !allowRetry) || (action === 'fork' && disableFork)) {
+        if (readOnly) {
+          button.closest('.quickforge-rollback-action')?.remove()
+          button.remove()
+          return
+        }
+        if (historyActionsDisabled) {
+          button.disabled = true
+          return
+        }
+        if ((action === 'rollback' && !allowRollback) || (action === 'retry' && !allowRetry) || (action === 'fork' && disableFork)) {
           button.closest('.quickforge-rollback-action')?.remove()
           button.remove()
           return
@@ -481,14 +492,14 @@ export function decorateMessages(deps: MessageDecorationDeps) {
 
       // Manage retry button visibility: only show on the last user message
       const existingRetry = existingActions.querySelector<HTMLButtonElement>('button[data-quickforge-action="retry"]')
-      const isLastUser = !readOnly && allowRetry && lastUserEntry && entry.index === lastUserEntry.index && entry.message.role !== 'assistant'
+      const isLastUser = !readOnly && (allowRetry || historyActionsDisabled) && lastUserEntry && entry.index === lastUserEntry.index && entry.message.role !== 'assistant'
       if (existingRetry && !isLastUser) {
         existingRetry.remove()
       } else if (!existingRetry && isLastUser) {
         const retryButton = createIconActionButton('retry', t('retry'), retryIcon, () => {
           onRetryFromMessage(entry.index)
         })
-        retryButton.disabled = isStreaming()
+        retryButton.disabled = historyActionsDisabled || isStreaming()
         existingActions.append(retryButton)
       }
 
@@ -512,11 +523,11 @@ export function decorateMessages(deps: MessageDecorationDeps) {
       })
       actions.append(copyBtn)
 
-      if (!readOnly && !disableFork) {
+      if (!readOnly && (!disableFork || historyActionsDisabled)) {
         const forkButton = createIconActionButton('fork', t('forkConversation'), forkIcon, () => {
           onForkFromMessage(entry.index)
         })
-        forkButton.disabled = isStreaming()
+        forkButton.disabled = historyActionsDisabled || isStreaming()
         actions.append(forkButton)
       }
     } else {
@@ -529,11 +540,11 @@ export function decorateMessages(deps: MessageDecorationDeps) {
         actions.append(copyBtn)
       }
 
-      if (!readOnly && allowRollback) {
+      if (!readOnly && (allowRollback || historyActionsDisabled)) {
         const rollbackAction = createRollbackAction({
           panel,
           messageIndex: entry.index,
-          isDisabled: isStreaming(),
+          isDisabled: historyActionsDisabled || isStreaming(),
           title: rollbackConfirmTitle,
           description: rollbackConfirmDescription,
           onConfirm: onRollbackFromMessage,
@@ -541,11 +552,11 @@ export function decorateMessages(deps: MessageDecorationDeps) {
         actions.append(rollbackAction)
       }
 
-      if (!readOnly && allowRetry && lastUserEntry && entry.index === lastUserEntry.index) {
+      if (!readOnly && (allowRetry || historyActionsDisabled) && lastUserEntry && entry.index === lastUserEntry.index) {
         const retryButton = createIconActionButton('retry', t('retry'), retryIcon, () => {
           onRetryFromMessage(entry.index)
         })
-        retryButton.disabled = isStreaming()
+        retryButton.disabled = historyActionsDisabled || isStreaming()
         actions.append(retryButton)
       }
     }

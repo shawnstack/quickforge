@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyChatPagePolicy,
+  QUICKFORGE_CHAT_HARNESS_CAPABILITIES,
   resolveChatHarnessCapabilities,
+  SIDE_CHAT_UI_CAPABILITIES,
   shouldSendComposerInput,
 } from '../../src/lib/chat-harness-capabilities'
 
@@ -33,6 +35,12 @@ describe('chat Harness capabilities', () => {
       forkFromMessage: false,
       attachments: true,
     })
+  })
+
+  it('keeps Side Chat executable capabilities disabled', () => {
+    expect(SIDE_CHAT_UI_CAPABILITIES).toEqual(Object.fromEntries(
+      Object.keys(QUICKFORGE_CHAT_HARNESS_CAPABILITIES).map((key) => [key, false]),
+    ))
   })
 
   it('opens the OpenCode P1 whole-session fork and harness config capabilities', () => {

@@ -4074,6 +4074,14 @@ html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
   background: color-mix(in oklab, var(--muted) 42%, transparent);
 }
 
+.quickforge-composer .quickforge-plus-inline:disabled,
+.quickforge-composer .quickforge-model-trigger:disabled,
+.quickforge-composer .quickforge-agent-access-inline:disabled,
+.quickforge-composer .quickforge-plan-inline:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .quickforge-composer .quickforge-plus-inline[aria-expanded="true"] {
   background: color-mix(in oklab, var(--primary) 12%, transparent) !important;
   color: var(--primary) !important;

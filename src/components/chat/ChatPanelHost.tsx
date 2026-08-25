@@ -6,6 +6,7 @@ import {
 import type { ServerAgent, ServerAgentAskAnswer, ServerAgentContextCompaction, ServerAgentContextUsage, ServerAgentPendingAsk, ServerAgentPendingAutoCompactApproval, ServerAgentPendingToolApproval, OpenCodeAcpSession, FileContextReference } from '@/lib/server-agent'
 import type { SharedServerAgent } from '@/lib/shared-server-agent'
 import type { DeferredSessionAgent } from '@/lib/deferred-session-agent'
+import type { SideChatAgent } from '@/components/workspace/side-chat-agent'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
 import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import type { AgentInterfaceElement, ComposerDraft, CustomCommandSummary, MessageWithUsage } from './chat-utils'
@@ -50,7 +51,8 @@ import { extractSessionArtifacts, type AiTurnArtifact } from '@/lib/tool-artifac
 import { getGitStatus } from '../workspace/workspace-api'
 import { requestAndroidRemoteSystemNotificationPermissionOnce } from '@/lib/system-notifications'
 import type { ChatHarnessCapabilities } from '@/lib/chat-harness-capabilities'
-import { applyChatPagePolicy, QUICKFORGE_CHAT_HARNESS_CAPABILITIES } from '@/lib/chat-harness-capabilities'
+import { applyChatPagePolicy, QUICKFORGE_CHAT_HARNESS_CAPABILITIES, SIDE_CHAT_UI_CAPABILITIES } from '@/lib/chat-harness-capabilities'
+import { withPreservedArtifactsRenderer } from './side-chat-renderer-isolation'
 import type { ChatScope, ProjectInfo, RestoredDraft, AgentAccessMode } from '@/lib/types'
 import {
   buildComposerDraftKey,
@@ -62,7 +64,7 @@ import {
   type ComposerDraftContext,
 } from '@/lib/composer-drafts'
 
-type AgentLike = ServerAgent | SharedServerAgent | DeferredSessionAgent
+type AgentLike = ServerAgent | SharedServerAgent | DeferredSessionAgent | SideChatAgent
 
 type MessageListElement = HTMLElement & {
   messages: unknown[]
@@ -125,9 +127,16 @@ function artifactsInputKey(messages: ReadonlyArray<{ role?: string; toolCallId?:
   return key
 }
 
+export type SideChatComposerDraftMemory = {
+  get: () => string
+  set: (text: string) => void
+}
+
 type ChatPanelHostProps = {
+  mode?: 'main' | 'side-chat'
   agent: AgentLike | null
-  onModelSelect?: () => void
+  sideChatInputMemory?: SideChatComposerDraftMemory
+  onModelSelect?: (anchor?: HTMLElement) => void
   revision: number
   agentAccessMode: AgentAccessMode
   workspaceToolsEnabled: boolean
@@ -188,7 +197,7 @@ type PropsRef = {
   onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
   onInitialRenderReady?: (sessionId: string) => void
   onInitialRenderError?: (sessionId: string, error: unknown) => void
-  onModelSelect?: () => void
+  onModelSelect?: (anchor?: HTMLElement) => void
   agentAccessMode: AgentAccessMode
   planMode: boolean
   workspaceToolsEnabled: boolean
@@ -206,7 +215,9 @@ type PropsRef = {
 }
 
 export function ChatPanelHost({
+  mode = 'main',
   agent,
+  sideChatInputMemory,
   onModelSelect,
   revision,
   agentAccessMode,
@@ -260,9 +271,13 @@ export function ChatPanelHost({
   const draftRestoreGuardRef = useRef(createComposerDraftRestoreGuard())
   const [gitBranch, setGitBranch] = useState<string>()
   const [planMode, setPlanMode] = useState(false)
+  const sideChatMode = mode === 'side-chat'
   const effectiveCapabilities = useMemo(
-    () => applyChatPagePolicy(capabilities, { readOnly, disableFork }),
-    [capabilities, readOnly, disableFork],
+    () => applyChatPagePolicy(sideChatMode ? SIDE_CHAT_UI_CAPABILITIES : capabilities, {
+      readOnly,
+      disableFork: sideChatMode ? false : disableFork,
+    }),
+    [sideChatMode, capabilities, readOnly, disableFork],
   )
   const togglePlanMode = useCallback(() => setPlanMode((mode) => !mode), [])
   const clearPlanMode = useCallback(() => setPlanMode(false), [])
@@ -424,6 +439,10 @@ export function ChatPanelHost({
   useEffect(() => {
     let disposed = false
 
+    if (sideChatMode) {
+      return () => { disposed = true }
+    }
+
     queueMicrotask(() => {
       if (disposed) return
       if (!gitProjectId) {
@@ -444,10 +463,11 @@ export function ChatPanelHost({
     })
 
     return () => { disposed = true }
-  }, [gitProjectId, revision])
+  }, [sideChatMode, gitProjectId, revision])
 
   // --- Refs that let the decoration trigger effect call into the active panel ---
   const decorateFnRef = useRef<(() => void) | null>(null)
+  const restoreSideChatDraftRef = useRef<(() => void) | null>(null)
   const scrollSyncRef = useRef<ReturnType<typeof createScrollSync> | null>(null)
   const scheduleDecorateRef = useRef<(() => void) | null>(null)
   // Current project id for lazy slash-catalog loads. Read at call time because
@@ -535,8 +555,8 @@ export function ChatPanelHost({
   // via propsRef or the decoration trigger effect below.
   // =========================================================================
   useEffect(() => {
-    if (!hostRef.current || !agent) return
-
+    const host = hostRef.current
+    if (!host || !agent) return
     const draftRestoreGuard = draftRestoreGuardRef.current
     const readyComposerPanels = readyComposerPanelsRef.current
     const panel = new ChatPanel()
@@ -634,6 +654,10 @@ export function ChatPanelHost({
 
     let turnNavigation: ReturnType<typeof createTurnNavigation> | null = null
 
+    const restoreSuggestionDraft = (draft: ComposerDraft) => {
+      restoreComposerDraft(panel, draft, composerDraftsRef.current, currentDraftKey)
+      schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
+    }
     // --- Command suggestions subsystem ---
     const cmdSuggestions = createCommandSuggestions({
       panel,
@@ -641,10 +665,7 @@ export function ChatPanelHost({
       getComposerDrafts: () => composerDraftsRef.current,
       sessionId: currentDraftKey,
       setComposerDrafts: (drafts) => { composerDraftsRef.current = drafts },
-      restoreDraftIntoComposer: (draft) => {
-        restoreComposerDraft(panel, draft, composerDraftsRef.current, currentDraftKey)
-        schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
-      },
+      restoreDraftIntoComposer: restoreSuggestionDraft,
       loadSlashCatalog: () => fetchSlashCatalog(slashCatalogProjectIdRef.current),
     })
 
@@ -652,30 +673,40 @@ export function ChatPanelHost({
     const capabilitySuggestions = createCapabilitySuggestions({
       panel,
       enabled: effectiveCapabilities.capabilitySuggestions,
-      restoreDraftIntoComposer: (draft) => {
-        restoreComposerDraft(panel, draft, composerDraftsRef.current, currentDraftKey)
-        schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
-      },
+      restoreDraftIntoComposer: restoreSuggestionDraft,
     })
 
     // --- @ current-project file reference subsystem ---
     const fileReferenceSuggestions = createFileReferenceSuggestions({
       panel,
       projectId: project?.id ?? projectId,
-      enabled: canUseFileReferenceSuggestions({
+      enabled: !sideChatMode && canUseFileReferenceSuggestions({
         projectId: project?.id ?? projectId,
         readOnly,
         harness: agent.harness,
         shared: 'shareId' in agent,
       }),
-      restoreDraftIntoComposer: (draft) => {
-        restoreComposerDraft(panel, draft, composerDraftsRef.current, currentDraftKey)
-        schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
-      },
+      restoreDraftIntoComposer: restoreSuggestionDraft,
       removeCommandSuggestions: cmdSuggestions.remove,
       removeCapabilitySuggestions: capabilitySuggestions.remove,
       removePlusMenu: () => removeComposerPlusPopover(panel),
     })
+
+    const restoreSideChatDraft = () => {
+      if (!sideChatMode) return
+      const text = sideChatInputMemory?.get() ?? ''
+      const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
+      const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
+      if (editor) {
+        editor.value = text
+        editor.attachments = []
+        editor.contextReferences = []
+        editor.selectedCapabilities = []
+        editor.requestUpdate?.()
+      }
+      if (textarea) textarea.value = text
+    }
+    restoreSideChatDraftRef.current = sideChatMode ? restoreSideChatDraft : null
 
     // --- Context usage subsystem ---
     const contextUsage = createContextUsageIndicator({
@@ -688,10 +719,14 @@ export function ChatPanelHost({
       getServerContextUsage: () => (agent as AgentWithContextCompaction).state.contextUsage ?? null,
       getIsCompacted: () => Boolean((agent as AgentWithContextCompaction).state.contextCompaction?.summaryMessage),
       getGitBranch: () => propsRef.current.gitBranch,
-      onGitBranchClick: () => propsRef.current.onOpenWorkspaceGitChanges?.(),
+      onGitBranchClick: () => {
+        if (!sideChatMode) propsRef.current.onOpenWorkspaceGitChanges?.()
+      },
       renderInline: false,
-      renderModelRing: getCachedToolDisplaySettings().showContextUsage,
-      onDisplayChange: (info) => propsRef.current.onContextUsageDisplayChange?.(agent.sessionId, info),
+      renderModelRing: !sideChatMode && getCachedToolDisplaySettings().showContextUsage,
+      onDisplayChange: (info) => {
+        if (!sideChatMode) propsRef.current.onContextUsageDisplayChange?.(agent.sessionId, info)
+      },
     })
 
     // --- OpenCode harness usage badge (independent of QuickForge contextUsage) ---
@@ -711,14 +746,17 @@ export function ChatPanelHost({
         consumeRestoredDraft(draft.id)
       }
     }
-    const handleEditorInput = (value: string) => {
-      handleComposerInteraction()
-      composerClearedForSend = false
+    const updateSideChatInputMemory = (text?: string) => {
+      if (!sideChatMode) return
       const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
-      const attachments = editor?.attachments ? [...editor.attachments] : []
-      const contextReferences = editor?.contextReferences ? [...editor.contextReferences] : []
-      const selectedCapabilities = capabilitySuggestions.snapshotSelectedCapabilities()
-      const draft = { text: value, attachments, contextReferences, selectedCapabilities }
+      const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
+      sideChatInputMemory?.set(text ?? editor?.value ?? textarea?.value ?? '')
+    }
+    const updateComposerDraft = (draft: ComposerDraft) => {
+      if (sideChatMode) {
+        updateSideChatInputMemory(draft.text)
+        return
+      }
       if (hasDraft(draft)) {
         composerDraftsRef.current.set(currentDraftKey, draft)
         schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
@@ -728,23 +766,38 @@ export function ChatPanelHost({
         void clearComposerDraft(currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
       }
     }
+    const handleEditorInput = (value: string) => {
+      handleComposerInteraction()
+      composerClearedForSend = false
+      if (sideChatMode) {
+        updateSideChatInputMemory(value)
+        return
+      }
+      const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
+      const attachments = editor?.attachments ? [...editor.attachments] : []
+      const contextReferences = editor?.contextReferences ? [...editor.contextReferences] : []
+      const selectedCapabilities = capabilitySuggestions.snapshotSelectedCapabilities()
+      updateComposerDraft({ text: value, attachments, contextReferences, selectedCapabilities })
+    }
     const handleEditorFilesChange = (files: unknown[]) => {
       handleComposerInteraction()
       composerClearedForSend = false
       const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
+      if (sideChatMode) {
+        if (editor) {
+          editor.attachments = []
+          editor.contextReferences = []
+          editor.selectedCapabilities = []
+          editor.requestUpdate?.()
+        }
+        updateSideChatInputMemory()
+        return
+      }
       const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
       const text = editor?.value ?? textarea?.value ?? ''
       const contextReferences = editor?.contextReferences ? [...editor.contextReferences] : []
       const selectedCapabilities = capabilitySuggestions.snapshotSelectedCapabilities()
-      const draft = { text, attachments: files ? [...files] : [], contextReferences, selectedCapabilities }
-      if (hasDraft(draft)) {
-        composerDraftsRef.current.set(currentDraftKey, draft)
-        schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
-      } else {
-        composerDraftsRef.current.delete(currentDraftKey)
-        cancelPendingDraftSave()
-        void clearComposerDraft(currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
-      }
+      updateComposerDraft({ text, attachments: files ? [...files] : [], contextReferences, selectedCapabilities })
 
       const agentInterface = panel.querySelector<AgentInterfaceElement>('agent-interface')
       agentInterface?.requestUpdate?.()
@@ -807,10 +860,12 @@ export function ChatPanelHost({
       const messageIndexOffset = windowLayer.isEnabled() ? windowLayer.getWindowStart() : 0
 
       const props = propsRef.current
-      const inputKey = artifactsInputKey(agent.state.messages as MessageWithUsage[])
-      if (inputKey !== artifactsInputKeyRef.current) {
-        artifactsInputKeyRef.current = inputKey
-        scheduleArtifactsExtraction()
+      if (!sideChatMode) {
+        const inputKey = artifactsInputKey(agent.state.messages as MessageWithUsage[])
+        if (inputKey !== artifactsInputKeyRef.current) {
+          artifactsInputKeyRef.current = inputKey
+          scheduleArtifactsExtraction()
+        }
       }
 
       // Wrap message/editor decoration so a failure in one does not block
@@ -830,23 +885,26 @@ export function ChatPanelHost({
           disableFork: !props.capabilities.forkFromMessage,
           allowRollback: props.capabilities.rollback,
           allowRetry: props.capabilities.retry,
+          historyActionsDisabled: sideChatMode,
           readOnly: props.readOnly,
-          enableTerminalCommandActions: !props.readOnly,
+          enableTerminalCommandActions: !sideChatMode && !props.readOnly,
           rollbackConfirmTitle: props.rollbackConfirmTitle,
           rollbackConfirmDescription: props.rollbackConfirmDescription,
         })
-        syncContextCompactionNotice({
-          panel,
-          getMessages: displayMessages,
-          getContextCompaction: () => props.capabilities.compaction
-            ? (agent as AgentWithContextCompaction).state.contextCompaction ?? null
-            : null,
-          messageIndexOffset,
-        })
-        syncPersistDegradedNotice({
-          panel,
-          isDegraded: () => (agent as AgentWithPersistDegraded).state.persistDegraded === true,
-        })
+        if (!sideChatMode) {
+          syncContextCompactionNotice({
+            panel,
+            getMessages: displayMessages,
+            getContextCompaction: () => props.capabilities.compaction
+              ? (agent as AgentWithContextCompaction).state.contextCompaction ?? null
+              : null,
+            messageIndexOffset,
+          })
+          syncPersistDegradedNotice({
+            panel,
+            isDegraded: () => (agent as AgentWithPersistDegraded).state.persistDegraded === true,
+          })
+        }
         syncAssistantWaitingBubble({
           panel,
           getMessages: displayMessages,
@@ -879,12 +937,14 @@ export function ChatPanelHost({
           planMode: props.planMode,
           workspaceToolsEnabled: props.workspaceToolsEnabled,
           readOnly: props.readOnly,
-          allowModelControls: props.allowModelControls && props.capabilities.modelSelection,
+          allowModelControls: sideChatMode || (props.allowModelControls && props.capabilities.modelSelection),
           planModeEnabled: props.capabilities.planMode,
           accessModeEnabled: props.capabilities.accessMode,
           commandSuggestionsEnabled: props.capabilities.commands,
           capabilitySuggestionsEnabled: props.capabilities.capabilitySuggestions,
           attachmentsEnabled: props.capabilities.attachments,
+          fileReferenceSuggestionsEnabled: !sideChatMode,
+          disabledControls: sideChatMode,
           onAccessModeChange: props.onAccessModeChange,
           onTogglePlanMode: props.onTogglePlanMode,
           onInput: handleEditorInput,
@@ -905,6 +965,7 @@ export function ChatPanelHost({
           selectPluginCapability: capabilitySuggestions.selectPlugin,
           availablePluginRows: capabilitySuggestions.availablePluginRows,
           onBeforeSend: () => {
+            if (sideChatMode) return
             requestAndroidRemoteSystemNotificationPermissionOnce()
             const capabilities = props.capabilities.capabilitySuggestions
               ? capabilitySuggestions.consumeSelectedCapabilities()
@@ -921,11 +982,23 @@ export function ChatPanelHost({
               ))
               currentEditor.requestUpdate?.()
               fileReferenceSuggestions.syncChips()
+              updateSideChatInputMemory()
             })
           },
         })
+        if (props.allowModelControls && props.capabilities.thinkingSelection && !props.onModelSelect) {
+          const agentInterface = panel.querySelector<AgentInterfaceElement>('agent-interface')
+          if (agentInterface && agentInterface.enableThinkingSelector !== true) {
+            agentInterface.enableThinkingSelector = true
+            agentInterface.requestUpdate?.()
+          }
+        }
       } catch { /* continue to approval card */ }
 
+      if (sideChatMode) {
+        removeApprovalCard(panel)
+        removeAskUserCard(panel)
+      } else {
       // Render or remove approval card based on pending state.
       // Must match the current session — otherwise a pending approval from a
       // different session would leak into this panel.
@@ -1044,6 +1117,7 @@ export function ChatPanelHost({
       } else {
         removeAskUserCard(panel)
       }
+      }
 
       if (props.capabilities.contextUsage) contextUsage.update()
       else contextUsage.cleanup()
@@ -1128,8 +1202,10 @@ export function ChatPanelHost({
     }
 
     // --- Initialize panel ---
-    void panel.setAgent(agent as unknown as Parameters<typeof panel.setAgent>[0], {
-      onApiKeyRequired: !propsRef.current.capabilities.clientApiKeyCheck || propsRef.current.bypassClientApiKeyCheck
+    const setPanelAgent = () => panel.setAgent(agent as unknown as Parameters<typeof panel.setAgent>[0], {
+      onApiKeyRequired: sideChatMode
+        ? async () => true
+        : !propsRef.current.capabilities.clientApiKeyCheck || propsRef.current.bypassClientApiKeyCheck
         ? async () => true
         : (provider: string) => (
             isManagedQuickForgeCloudModel(agent.state.model)
@@ -1137,6 +1213,11 @@ export function ChatPanelHost({
               : ApiKeyPromptDialog.prompt(provider)
           ),
       onBeforeSend: () => {
+        if (sideChatMode) {
+          sideChatInputMemory?.set('')
+          scrollSync.enable()
+          return
+        }
         draftRestoreGuard.invalidate()
         cancelRestoredDraftRestore()
         const draft = restoredDraftRef.current
@@ -1150,15 +1231,29 @@ export function ChatPanelHost({
         void clearComposerDraft(currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
         scrollSync.enable()
       },
-      onModelSelect: propsRef.current.onModelSelect,
-      toolsFactory: () => getLocalWorkspaceTools(agent.state.tools),
-    }).then(() => {
+      onModelSelect: sideChatMode ? undefined : () => {
+        const anchor = panel.querySelector<HTMLElement>('.quickforge-model-trigger')
+        propsRef.current.onModelSelect?.(anchor ?? undefined)
+      },
+      toolsFactory: () => sideChatMode ? [] : getLocalWorkspaceTools(agent.state.tools),
+    })
+    const initializePanel = sideChatMode
+      ? withPreservedArtifactsRenderer(setPanelAgent)
+      : setPanelAgent()
+
+    void initializePanel.then(() => {
       if (disposed) return
 
       // Restore draft
       const draft = restoredDraftRef.current
       const restoreVersion = draftRestoreGuard.version()
       const restoreStoredDraft = (storedDraft?: ComposerDraft) => {
+        if (sideChatMode) {
+          restoreSideChatDraft()
+          initialComposerStateReady = true
+          readyComposerPanels.add(panel)
+          return
+        }
         if (disposed || !draftRestoreGuard.isCurrent(restoreVersion)) return
         capabilitySuggestions.restoreSelectedCapabilities(storedDraft?.selectedCapabilities ?? [])
         if (draft && restoredDraftIdRef.current !== draft.id) {
@@ -1185,7 +1280,9 @@ export function ChatPanelHost({
           })
         }
       }
-      if (draft && restoredDraftIdRef.current !== draft.id) {
+      if (sideChatMode) {
+        restoreStoredDraft()
+      } else if (draft && restoredDraftIdRef.current !== draft.id) {
         restoreStoredDraft()
       } else {
         const memoryDraft = composerDraftsRef.current.get(currentDraftKey)
@@ -1196,6 +1293,12 @@ export function ChatPanelHost({
             .then((storedDraft) => restoreStoredDraft(storedDraft))
             .catch((err) => logger.error('Failed to load composer draft:', err))
         }
+      }
+
+      if (sideChatMode) {
+        panel.artifactsPanel?.remove()
+        panel.artifactsPanel = undefined
+        panel.requestUpdate()
       }
 
       // Observe DOM changes for re-decoration
@@ -1228,10 +1331,10 @@ export function ChatPanelHost({
       propsRef.current.onInitialRenderError?.(sessionId, error)
     })
 
-    hostRef.current.replaceChildren(panel)
+    host.replaceChildren(panel)
     if (showTurnNavigation) {
       turnNavigation = createTurnNavigation({
-        host: hostRef.current,
+        host,
         panel,
         getMessages: () => agent.state.messages as import('@earendil-works/pi-agent-core').AgentMessage[],
         isStreaming: () => agent.state.isStreaming,
@@ -1349,12 +1452,12 @@ export function ChatPanelHost({
         logger.warn(t('autoCompactFailed'))
       }
       // Store pending approval and trigger re-decoration
-      if ((event as Record<string, unknown>).type === 'tool_approval_required') {
+      if (!sideChatMode && (event as Record<string, unknown>).type === 'tool_approval_required') {
         const approvalEvent = event as unknown as { toolCallId: string; toolName: string; args: Record<string, unknown>; sessionId: string; source?: import('./panel-decoration').ToolApprovalSource }
         pendingApprovalRef.current = { toolCallId: approvalEvent.toolCallId, toolName: approvalEvent.toolName, args: approvalEvent.args, sessionId: approvalEvent.sessionId, source: approvalEvent.source }
         scheduleDecorateRef.current?.()
       }
-      if ((event as Record<string, unknown>).type === 'ask_user_required') {
+      if (!sideChatMode && (event as Record<string, unknown>).type === 'ask_user_required') {
         const askEvent = event as unknown as ServerAgentPendingAsk & { sessionId: string }
         if (typeof askEvent.askId === 'string' && Array.isArray(askEvent.questions)) {
           pendingAskRef.current = { ...askEvent, sessionId: askEvent.sessionId ?? agent.sessionId }
@@ -1368,7 +1471,7 @@ export function ChatPanelHost({
           scheduleDecorateRef.current?.()
         }
       }
-      if ((event as Record<string, unknown>).type === 'auto_compact_approval_required') {
+      if (!sideChatMode && (event as Record<string, unknown>).type === 'auto_compact_approval_required') {
         const approvalEvent = event as unknown as { approvalId: string; usage?: { percent?: number }; thresholdPercent?: number; keepRecentTurns?: number; sessionId: string }
         pendingAutoCompactApprovalRef.current = {
           approvalId: approvalEvent.approvalId,
@@ -1387,7 +1490,9 @@ export function ChatPanelHost({
       cancelRestoredDraftRestore()
       cancelPendingDraftSave()
       cancelInitialRenderReady?.()
-      if (composerClearedForSend) {
+      if (sideChatMode) {
+        sideChatInputMemory?.set(readComposerDraft(panel).text)
+      } else if (composerClearedForSend) {
         composerDraftsRef.current.delete(currentDraftKey)
         void clearComposerDraft(currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
       } else if (initialComposerStateReady || composerInteracted || readyComposerPanels.has(panel)) {
@@ -1416,9 +1521,10 @@ export function ChatPanelHost({
         window.cancelAnimationFrame(clearSuppressObserverFrame)
       }
       decorateFnRef.current = null
+      restoreSideChatDraftRef.current = null
       panel.remove()
     }
-  }, [agent, project?.id, projectId, readOnly, showTurnNavigation, effectiveCapabilities.capabilitySuggestions, cancelPendingDraftSave, cancelRestoredDraftRestore, consumeRestoredDraft, persistCurrentComposerDraft, restoreDraftForSession, schedulePersistDraft]) // Recreate only when the agent, project reference scope, or host-level navigation mode changes; callback deps are stable
+  }, [agent, sideChatMode, project?.id, projectId, readOnly, showTurnNavigation, effectiveCapabilities.capabilitySuggestions, cancelPendingDraftSave, cancelRestoredDraftRestore, consumeRestoredDraft, persistCurrentComposerDraft, restoreDraftForSession, schedulePersistDraft, sideChatInputMemory]) // Recreate only when the agent, explicit host mode, project reference scope, or host-level navigation mode changes; callback deps are stable
 
   useEffect(() => {
     const host = hostRef.current
@@ -1434,14 +1540,16 @@ export function ChatPanelHost({
   // =========================================================================
   useEffect(() => {
     decorateFnRef.current?.()
+    if (sideChatMode) restoreSideChatDraftRef.current?.()
     // model/thinkingLevel 等状态已通过 agent.state 写入，但 Lit 组件不会自动感知
     // 外部对 state.model 的直接赋值，需要手动触发重渲染才能刷新模型名称等 UI。
     const ai = hostRef.current?.querySelector('agent-interface') as { requestUpdate?: () => void } | null
     ai?.requestUpdate?.()
-  }, [agentAccessMode, planMode, workspaceToolsEnabled, gitBranch, disableFork, readOnly, approvalReadOnly, approvalReadOnlyMessage, allowModelControls, capabilities, revision])
+  }, [sideChatMode, agentAccessMode, planMode, workspaceToolsEnabled, gitBranch, disableFork, readOnly, approvalReadOnly, approvalReadOnlyMessage, allowModelControls, capabilities, revision])
 
   // Draft restoration trigger
   useEffect(() => {
+    if (sideChatMode) return
     const draft = restoredDraftRef.current
     if (!draft || !hostRef.current) return
     const sessionId = (agent as ServerAgent | SharedServerAgent | null)?.sessionId ?? ''
@@ -1450,7 +1558,7 @@ export function ChatPanelHost({
     const panel = hostRef.current.querySelector('pi-chat-panel')
     if (!panel) return
     restoreDraftForSession(panel as HTMLElement, draft, sessionId, draftKeyRef.current)
-  }, [restoredDraft, agent, restoreDraftForSession])
+  }, [sideChatMode, restoredDraft, agent, restoreDraftForSession])
 
   return <div ref={hostRef} className="quickforge-chat-panel-host min-h-0 flex-1 overflow-hidden" />
 }

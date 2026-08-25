@@ -197,7 +197,12 @@ function createUserMessageElement() {
   return { element, container }
 }
 
-function decorateOptions(element: FakeNode, message: Record<string, unknown>, onCopyAnswer = vi.fn()) {
+function decorateOptions(
+  element: FakeNode,
+  message: Record<string, unknown>,
+  onCopyAnswer = vi.fn(),
+  historyActionsDisabled = false,
+) {
   const messageList = createFakeElement('message-list')
   messageList.append(element)
   const panel = createFakeElement('div')
@@ -211,11 +216,29 @@ function decorateOptions(element: FakeNode, message: Record<string, unknown>, on
     onRetryFromMessage: vi.fn(),
     onForkFromMessage: vi.fn(),
     disableFork: false,
+    historyActionsDisabled,
   })
   return { panel, messageList }
 }
 
 describe('assistant message actions', () => {
+  beforeEach(() => {
+    vi.stubGlobal('document', {
+      createElement: createFakeElement,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })
+    vi.stubGlobal('window', {
+      setTimeout,
+      clearTimeout,
+      requestAnimationFrame: (callback: () => void) => { callback(); return 1 },
+    })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('only shows actions on the final assistant message of each completed turn', () => {
     const indexes = assistantActionDisplayIndexes([
       { role: 'user' },
@@ -254,6 +277,41 @@ describe('assistant message actions', () => {
   it('does not create assistant action targets before an assistant response exists', () => {
     expect([...assistantActionDisplayIndexes([], false)]).toEqual([])
     expect([...assistantActionDisplayIndexes([{ role: 'user' }], true)]).toEqual([])
+  })
+
+  it('keeps copy enabled while rendering rollback, retry, and fork disabled', () => {
+    const user = createFakeElement('user-message')
+    const userContainer = createFakeElement('div')
+    userContainer.className = 'user-message-container'
+    user.append(userContainer)
+    const assistant = createFakeElement('assistant-message')
+    const messageList = createFakeElement('message-list')
+    messageList.append(user, assistant)
+    const panel = createFakeElement('div')
+    panel.append(messageList)
+
+    decorateMessages({
+      panel: panel as unknown as HTMLElement,
+      getMessages: () => [
+        { role: 'user', content: 'question' },
+        { role: 'assistant', content: [{ type: 'text', text: 'answer' }] },
+      ] as never,
+      isStreaming: () => false,
+      onCopyAnswer: vi.fn(),
+      onRollbackFromMessage: vi.fn(),
+      onRetryFromMessage: vi.fn(),
+      onForkFromMessage: vi.fn(),
+      disableFork: true,
+      allowRollback: false,
+      allowRetry: false,
+      historyActionsDisabled: true,
+    })
+
+    expect(user.querySelector('button[data-quickforge-action="copy"]')?.disabled).toBe(false)
+    expect(user.querySelector('button[data-quickforge-action="rollback"]')?.disabled).toBe(true)
+    expect(user.querySelector('button[data-quickforge-action="retry"]')?.disabled).toBe(true)
+    expect(assistant.querySelector('button[data-quickforge-action="copy"]')?.disabled).toBe(false)
+    expect(assistant.querySelector('button[data-quickforge-action="fork"]')?.disabled).toBe(true)
   })
 
   it('does not apply content visibility to message hosts containing rollback popovers', () => {

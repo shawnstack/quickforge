@@ -44,6 +44,7 @@ import { handleTerminalApi, handleTerminalUpgrade } from './routes/terminal.mjs'
 import { handleChannelsApi } from './routes/channels.mjs'
 import { handleModelsApi } from './routes/models.mjs'
 import { handleCloudApi } from './routes/cloud.mjs'
+import { handleSideChatApi } from './routes/side-chat.mjs'
 import { readCloudServiceConfig } from './cloud/service-config.mjs'
 import { startQfAgent, stopQfAgent, getQfAgentStatus } from './cloud/qf-agent-process.mjs'
 import { serveStatic } from './routes/static.mjs'
@@ -357,6 +358,11 @@ async function handleApi(req, res, url, requestContext = {}) {
 
   if (pathname.startsWith('/api/session-assets/')) {
     await handleSessionAssetsApi(req, res, url)
+    return
+  }
+
+  if (pathname === '/api/side-chat/stream') {
+    await handleSideChatApi(req, res, url, requestContext)
     return
   }
 

@@ -1,6 +1,81 @@
 {
   "features": [
     {
+      "id": "fix-side-chat-assistant-usage-contract",
+      "name": "修复 Side Chat assistant 上下文缺失 usage",
+      "status": "done",
+      "approach": "在 Side Chat 服务端最终模型解析后，将已完成纯文本安全投影与字符预算裁剪的主会话上下文和侧聊历史统一物化为 pi-ai 合法消息；user 保持纯文本 user message，assistant 使用 text block、服务端最终 model 字段、完整零 usage/cost、stopReason 与 timestamp，不信任或回传客户端 usage/details/tool/thinking。保持 tools: []、权限、工具 fail-closed、压缩语义和字符预算逻辑不变。",
+      "files": [
+        "server/routes/side-chat.mjs",
+        "tests/server/routes/side-chat.test.mjs",
+        "tests/frontend/side-chat-agent.test.ts",
+        "docs/wiki/server/routes/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/server/routes/side-chat.test.mjs tests/frontend/side-chat-agent.test.ts → 2 files / 13 tests 全通过；目标 ESLint 0 error；node --check 两个 MJS 通过；npx tsc -b --pretty false 通过；git diff --check 通过。未创建 commit/tag/push。"
+    },
+    {
+      "id": "side-chat-shared-conversation-surface",
+      "name": "Side Chat 与主聊天共享完整对话显示壳",
+      "status": "done",
+      "approach": "抽取一个只负责 relative/flex/min-h-0/flex-1/主背景/overflow 的薄共享 conversation surface，由 App 主聊天与 SideChatTabContent 同时复用；保留主聊天空状态、入场、Hero、项目选择器、ErrorBoundary/Suspense 与引导逻辑。Side Chat 继续使用同一个 ChatPanelHost mode='side-chat'，空状态保持普通空白，移除专属 showTurnNavigation=false；mode 只保留安全能力关闭、tools 为空与非持久化逻辑，不引入视觉 class/style。",
+      "files": [
+        "src/App.tsx",
+        "src/components/chat/ChatConversationSurface.tsx",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/components/workspace/SideChatTabContent.tsx",
+        "tests/frontend/side-chat-workspace-tab.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 Vitest 5 files / 38 tests 全通过；目标 ESLint 0 error；npx tsc -b --pretty false 通过；完整 npm run test → 247 files / 2108 tests 全通过；npm run build 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；git diff --check 通过。未创建 commit/tag/push。"
+    },
+    {
+      "id": "side-chat-workspace-tab",
+      "name": "侧边聊天 Workspace Tab",
+      "status": "done",
+      "approach": "Side Chat 直接复用主聊天完整显示壳与核心组件：SideChatTabContent 仅包装同一个 ChatConversationSurface + ChatPanelHost mode='side-chat'，仍创建 pi-web-ui ChatPanel/AgentInterface/MessageList/MessageEditor，复用 Markdown/代码块、滚动、Composer Enter/Shift+Enter/IME、发送、停止与真实复制。可执行能力表全部 false，但不再为 Side Chat 重做模型、附件、Slash、插件、文件引用、Plan 或历史操作：+、模型、Access、rollback/retry/fork 等主控件保持原位置和原样式并使用 native disabled；textarea/send/stop/copy 保持可用。Host 禁止 side mode 的草稿 localStorage、Git、通知、artifact、审批、终端、context usage/compaction 与 workspace tools，toolsFactory 固定为空。最小 SideChatAgent/NDJSON client 只维护最多40条纯文本内存消息和标准流式 AgentEvent；切普通 Tab 保留，关闭/close all/close others/切换主会话/刷新时 abort/reset，Tab 单实例且不持久化；只有存在活动主会话和可用模型时入口启用。服务端直接调用纯模型流，读取活动主会话权威纯文本上下文，固定 tools:[]，tool call fail closed，不创建/调用/持久化主 Agent；请求仅接受纯文本 user/assistant 历史。",
+      "files": [
+        "server/routes/side-chat.mjs",
+        "server/index.mjs",
+        "src/App.tsx",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/components/chat/side-chat-renderer-isolation.ts",
+        "src/components/chat/panel-decoration.ts",
+        "src/components/chat/panel-decoration/agent-access-menu.ts",
+        "src/components/chat/panel-decoration/message-actions.ts",
+        "src/lib/custom-model-selector.ts",
+        "src/index.css",
+        "src/components/workspace/WorkspaceInspector.tsx",
+        "src/components/workspace/SideChatTabContent.tsx",
+        "src/components/workspace/side-chat-agent.ts",
+        "src/components/workspace/side-chat-client.ts",
+        "src/components/workspace/workspace-inspector-tabs.ts",
+        "src/components/workspace/workspace-types.ts",
+        "src/lib/chat-harness-capabilities.ts",
+        "src/lib/i18n.ts",
+        "tests/frontend/side-chat-agent.test.ts",
+        "tests/frontend/side-chat-client.test.ts",
+        "tests/frontend/side-chat-renderer-isolation.test.ts",
+        "tests/frontend/side-chat-composer-menu-scope.test.ts",
+        "tests/frontend/message-actions.test.ts",
+        "tests/frontend/side-chat-workspace-tab.test.ts",
+        "tests/server/routes/side-chat.test.mjs",
+        "tests/server/side-chat-dispatcher.test.mjs",
+        "docs/wiki/server/routes/README.md",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 Vitest 11 files / 97 tests 与隔离修复聚焦 9 files / 71 tests 全通过；npx tsc -b --pretty false、MJS syntax、git diff --check 通过；完整 npm run test → 249 files / 2148 tests 全通过；npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92）；npm run build 成功（仅既有 KaTeX 字体解析与 chunk size warnings）。本次提交仅包含 Side Chat；未 tag/push。"
+    },
+    {
       "id": "prompt-http-error-message",
       "name": "Prompt HTTP 失败时在聊天区显示具体错误原因",
       "status": "done",

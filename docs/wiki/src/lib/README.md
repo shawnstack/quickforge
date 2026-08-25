@@ -45,7 +45,7 @@
 | `diff-view.ts` | write/edit 工具 unified diff 的结构化解析纯函数：`parseDiffRows`（行号 old/new 双侧、剥离 +/- 前缀、hunk 间隙省略行数、配对删/加行字符级变化段）、`parseDiffFileInfo`（路径上提 + `/dev/null` 判新文件）、`tokenizeDiffLine`/`markTokenChanges`（单词/空白/单符号三分段 token LCS，乘积超 40000 回退整行变化）；renderDiff 消费其结果渲染对话区 diff 块，设计稿见 `design-mockups/diff-display-optimization.html` |
 | `sidebar-session-sort-mode.ts` | 左侧会话时间线排序偏好的 `localStorage` 安全读写，刷新后恢复且不参与后端同步 |
 | `sidebar-section-order.ts` | 左侧 Projects / Tasks 顶层区块顺序的 `localStorage` 安全读写与纯函数排序：规范化缺失、重复和外来 ID，固定映射 `tasks` 到现有 conversations UI；桌面/移动共用 App 状态，置顶区不参与排序 |
-| `chat-harness-capabilities.ts` | 主聊天 Harness capability 静态表与页面策略 resolver；QuickForge 默认全开，OpenCode P0 关闭模型/思考、Plan/Access、命令与 capability suggestions、上下文压缩、历史派生（按消息 fork/rollback/retry），P1 开放整会话 fork（`forkSession`）与 OpenCode 动态配置（`harnessConfig`） |
+| `chat-harness-capabilities.ts` | 主聊天 Harness capability 静态表与页面策略 resolver；QuickForge 默认全开，OpenCode P0 关闭模型/思考、Plan/Access、命令与 capability suggestions、上下文压缩、历史派生（按消息 fork/rollback/retry），P1 开放整会话 fork（`forkSession`）与 OpenCode 动态配置（`harnessConfig`）；另导出 `SIDE_CHAT_CAPABILITIES` 全 false 的可执行能力表，Side Chat 仍复用主控件布局，但由共享装饰层将不支持控件原生禁用，服务端固定 `tools: []` 作为安全边界 |
 | `system-notifications.ts` | 浏览器 Notification/Service Worker、Electron Desktop 原生通知与 Capacitor Android 本地通知统一适配；管理默认开启的设备偏好、权限、安卓远程浏览器首次发送授权、后台展示、点击打开会话和短时去重 |
 | `info-tip.ts` | 134 | 统一问号说明浮层 Web Component |
 

@@ -36,6 +36,32 @@ export const QUICKFORGE_CHAT_HARNESS_CAPABILITIES: ChatHarnessCapabilities = Obj
   attachments: true,
 })
 
+/**
+ * Side Chat reuses the QuickForge surface, but capability flags represent
+ * executable UI actions. Unsupported controls are rendered separately in a
+ * native disabled state by the shared panel decoration.
+ */
+export const SIDE_CHAT_UI_CAPABILITIES: ChatHarnessCapabilities = Object.freeze({
+  modelSelection: false,
+  thinkingSelection: false,
+  clientApiKeyCheck: false,
+  planMode: false,
+  accessMode: false,
+  commands: false,
+  capabilitySuggestions: false,
+  contextUsage: false,
+  compaction: false,
+  rollback: false,
+  retry: false,
+  forkFromMessage: false,
+  forkSession: false,
+  harnessConfig: false,
+  attachments: false,
+})
+
+// Backward-compatible name for callers/tests that still import the old policy.
+export const SIDE_CHAT_CAPABILITIES = SIDE_CHAT_UI_CAPABILITIES
+
 export const OPENCODE_P0_CHAT_HARNESS_CAPABILITIES: ChatHarnessCapabilities = Object.freeze({
   modelSelection: false,
   thinkingSelection: false,

@@ -13,7 +13,7 @@ export type ReaderTab = {
   error?: string
 }
 
-export type WorkspacePanelPrimaryTabKind = 'files' | 'review' | 'terminal' | 'browser'
+export type WorkspacePanelPrimaryTabKind = 'files' | 'review' | 'terminal' | 'browser' | 'side-chat'
 export type WorkspacePanelTabKind = WorkspacePanelPrimaryTabKind | 'reader' | 'subagent'
 
 export type WorkspacePanelTab = {
@@ -144,7 +144,7 @@ export function serializePanelTabs(
   readerNavigationVisible = true,
 ): PersistedWorkspaceInspectorTabs {
   const persistedTabs = tabs.flatMap((tab): PersistedWorkspacePanelTab[] => {
-    if (tab.kind === 'subagent') return []
+    if (tab.kind === 'subagent' || tab.kind === 'side-chat') return []
     if (tab.kind === 'reader') {
       const reader = tab.readerTabs?.find((item) => item.id === tab.activeReaderTabId) ?? tab.readerTabs?.[0]
       if (!reader || reader.mode !== 'file') return []

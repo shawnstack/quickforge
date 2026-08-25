@@ -1,6 +1,20 @@
 {
   "features": [
     {
+      "id": "todo-pending-status-icon-hollow-circle",
+      "name": "Todo 未开始状态图标改为空心圆",
+      "status": "done",
+      "approach": "用户在 5 个候选方案（空心圆/点状虚线圆/缺口环/圈+短横线/纯实心点）中选定方案 A 空心圆。最小实现：仅替换 todo-write-summary.ts statusIcon() pending 分支的 SVG 字符串，去掉原中心实心小圆点只留外圈；三态统一为「外圈+内部符号」语言（无符号=未开始、指针=进行中、对勾=已完成）。颜色、尺寸、CSS stroke 约束全部不变，未改动样式。设计稿 design-mockups/todo-pending-icon-options.html 保留作决策记录。纯局部图标替换不改架构、模块职责或公共入口，docs/wiki 与 DESIGN_LANGUAGE 无需更新。",
+      "files": [
+        "src/components/chat/panel-decoration/todo-write-summary.ts",
+        "design-mockups/todo-pending-icon-options.html",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/todo-write-summary.test.ts tests/frontend/todo-write-renderer.test.ts → 2 files / 30 tests 全通过；npx eslint src/components/chat/panel-decoration/todo-write-summary.ts → 0 error；npm run build → 成功（仅既有 KaTeX 字体与 chunk size warnings）。未跑全量 test/lint。未创建 commit/tag/push。"
+    },
+    {
       "id": "sidebar-five-item-display-shared-scroll",
       "name": "侧栏会话五条递增展示与统一中部滚动",
       "status": "done",

@@ -1,5 +1,13 @@
 # Progress
 
+## Completed Feature：todo-pending-status-icon-hollow-circle
+
+- Feature: Todo 未开始状态图标改为空心圆（todo-pending-status-icon-hollow-circle，**已完成**）
+- Status: done — 先在 `design-mockups/todo-pending-icon-options.html` 提供 5 个候选（A 空心圆 / B 点状虚线圆 / C 缺口环 / D 圈+短横线 / E 纯实心点），均按真实面板样式与 14px 实际尺寸渲染并支持深浅主题切换，用户选定方案 A。实现仅替换 `src/components/chat/panel-decoration/todo-write-summary.ts` 中 `statusIcon()` pending 分支的 SVG 字符串：删除中心实心小圆点只留外圈。三态统一为「外圈+内部符号」语言：无符号 = 未开始、时钟指针 = 进行中、对勾 = 已完成。颜色、尺寸、`fill:none; stroke:currentColor; stroke-width:2` 约束不变，未改 CSS。
+- Verification: `npx vitest run tests/frontend/todo-write-summary.test.ts tests/frontend/todo-write-renderer.test.ts` → 2 files / 30 tests 全通过；`npx eslint src/components/chat/panel-decoration/todo-write-summary.ts` → 0 error；`npm run build` → 成功（仅既有 KaTeX 字体与 chunk size warnings）。未跑全量 test/lint。
+- Boundaries: 纯局部图标替换不改变架构、模块职责或公共入口，docs/wiki 无需更新；复用既有描边图标体系，无新视觉模式，DESIGN_LANGUAGE 无需修改。未新增依赖，未手工修改生成产物，未 commit/tag/push；设计稿保留作决策记录。
+- Next step: 无 blocker；可选真机目视深浅主题下任务摘要三态图标。
+
 ## Completed Feature：fix-cutover-startup-bugs
 
 - Feature: 修复 cutover 启动链缺陷（fix-cutover-startup-bugs，**已完成；本轮完成 Share/LAN/Scheduled Runs 启动完整性收口**）

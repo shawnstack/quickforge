@@ -1,5 +1,15 @@
 # Session Handoff
 
+## 当前状态：todo-pending-status-icon-hollow-circle（已完成）
+
+- 目标：更换任务摘要面板中"未进行中（pending）"状态图标，先设计后选型。
+- 实现：`design-mockups/todo-pending-icon-options.html` 提供 5 个候选方案（真实面板上下文 + 14px 实际尺寸 + 深浅主题切换），用户选定方案 A 空心圆。`src/components/chat/panel-decoration/todo-write-summary.ts` 的 `statusIcon()` pending 分支删除中心实心小圆点，只留 r=9 外圈；三态统一为「外圈+内部符号」语言（无符号=未开始、指针=进行中、对勾=已完成）。颜色/尺寸/stroke 约束不变，未改 CSS。
+- 验证：定向 Vitest 2 files / 30 tests 全通过；目标 ESLint 0 error；`npm run build` 成功（仅既有 KaTeX/chunk size warnings）。未跑全量 test/lint。
+- 边界：纯局部图标替换，docs/wiki 与 DESIGN_LANGUAGE 无需更新；未新增依赖，未手工修改生成产物，未 commit/tag/push；设计稿保留。
+- 下一步：无 blocker；可选真机目视深浅主题下三态图标效果。
+
+---
+
 ## 当前状态：fix-cutover-startup-bugs（已完成，Share/LAN/Scheduled Runs 启动完整性收口）
 
 - 目标：避免 Share、LAN Access、Scheduled Runs 可选存储域在日常启动中执行整库/全域完整性扫描并把整机置为 `FAILED`，同时保留 SQLite/schema/migration 和首次 cutover、backup/restore/export 等正确边界的严格门禁。

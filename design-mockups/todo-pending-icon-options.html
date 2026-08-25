@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Todo 未开始状态图标 · 候选方案</title>
+<style>
+  :root {
+    --background: #ffffff;
+    --foreground: #18181b;
+    --card: #fafafa;
+    --muted: #f4f4f5;
+    --muted-foreground: #71717a;
+    --border: #e4e4e7;
+    --primary: #18181b;
+    --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  body.dark {
+    --background: #101012;
+    --foreground: #f4f4f5;
+    --card: #17171a;
+    --muted: #1d1d21;
+    --muted-foreground: #a1a1aa;
+    --border: #2a2a30;
+    --primary: #fafafa;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--background); color: var(--foreground);
+    font: 13px/1.65 var(--font-sans);
+    display: flex; flex-direction: column; align-items: center; gap: 24px;
+    padding: 40px 16px 80px;
+  }
+  h1 { font-size: 15px; font-weight: 600; margin: 0; }
+  .hint { color: var(--muted-foreground); font-size: 12px; text-align: center; max-width: 640px; }
+  .toolbar { display: flex; gap: 8px; }
+  .toolbar button {
+    font: 12px var(--font-sans); color: var(--foreground);
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 0.5rem; padding: 4px 12px; cursor: pointer;
+  }
+  .toolbar button:hover { background: var(--muted); }
+
+  /* ===== 还原 quickforge-todo-summary 真实样式 ===== */
+  .quickforge-todo-summary {
+    width: 100%;
+    flex: none;
+    padding: 0.25rem 0.75rem 0.375rem;
+    background: var(--background);
+  }
+  .quickforge-todo-summary-toggle {
+    display: flex; width: 100%; min-height: 2.25rem; align-items: center;
+    gap: 0.55rem; border: 0; border-radius: 0.5rem;
+    background: transparent; padding: 0.35rem 0.45rem;
+    color: var(--muted-foreground); text-align: left;
+  }
+  .quickforge-todo-summary-heading {
+    flex: 0 0 auto; color: color-mix(in oklab, var(--foreground) 88%, transparent);
+    font-size: 0.8125rem; font-weight: 600;
+  }
+  .quickforge-todo-summary-stats {
+    min-width: 0; flex: 1 1 auto; overflow: hidden;
+    font-size: 0.75rem; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .quickforge-todo-summary-chevron {
+    display: inline-flex; width: 0.875rem; height: 0.875rem; flex: 0 0 auto;
+    transform: rotate(90deg);
+  }
+  .quickforge-todo-summary-chevron svg,
+  .quickforge-todo-summary-status-icon svg {
+    width: 100%; height: 100%;
+    fill: none; stroke: currentColor; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  .quickforge-todo-summary-body { padding: 0.125rem 0.45rem 0.25rem; }
+  .quickforge-todo-summary-list {
+    display: grid; max-height: 7.5rem; gap: 0.125rem;
+    overflow-y: auto; overscroll-behavior: contain;
+  }
+  .quickforge-todo-summary-item {
+    display: grid; grid-template-columns: 1rem minmax(0, 1fr) auto;
+    align-items: center; gap: 0.5rem;
+    border-radius: 0.4rem; padding: 0.35rem 0.25rem;
+    font-size: 0.8125rem; line-height: 1.4;
+  }
+  .quickforge-todo-summary-status-icon {
+    display: inline-flex; width: 0.9rem; height: 0.9rem;
+    color: var(--muted-foreground);
+  }
+  .quickforge-todo-summary-item--in_progress .quickforge-todo-summary-status-icon {
+    color: color-mix(in oklab, var(--primary) 78%, var(--foreground));
+  }
+  .quickforge-todo-summary-item--completed .quickforge-todo-summary-status-icon {
+    color: var(--muted-foreground);
+  }
+  .quickforge-todo-summary-content {
+    min-width: 0; color: color-mix(in oklab, var(--foreground) 86%, transparent);
+    overflow-wrap: anywhere;
+  }
+  .quickforge-todo-summary-item--completed .quickforge-todo-summary-content {
+    color: var(--muted-foreground);
+    text-decoration: line-through; text-decoration-thickness: 1px;
+  }
+  .quickforge-todo-summary-status-label {
+    color: var(--muted-foreground); font-size: 0.6875rem; white-space: nowrap;
+  }
+  /* composer 示意条 */
+  .composer-hint {
+    width: 100%; margin-top: 2px;
+    display: flex; align-items: center;
+    border: 1px solid var(--border); border-radius: 0.75rem;
+    background: var(--card); color: var(--muted-foreground);
+    font-size: 0.8125rem; padding: 0.6rem 0.8rem;
+  }
+
+  /* ===== 页面布局 ===== */
+  .current-panel {
+    width: 100%; max-width: 640px;
+    border: 1px solid var(--border); border-radius: 0.9rem;
+    padding: 10px 8px 12px; background: var(--background);
+  }
+  .current-panel .panel-tag {
+    font-size: 11px; color: var(--muted-foreground);
+    padding: 0 0.6rem 0.3rem;
+  }
+  .options {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px; width: 100%; max-width: 1040px;
+  }
+  .option-card {
+    border: 1px solid var(--border); border-radius: 0.9rem;
+    background: var(--background); padding: 14px 14px 12px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .option-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .option-key {
+    font-weight: 600; font-size: 13px;
+    background: var(--muted); border-radius: 0.4rem;
+    padding: 1px 8px;
+  }
+  .option-name { font-weight: 600; font-size: 13px; }
+  .option-desc { color: var(--muted-foreground); font-size: 11.5px; width: 100%; }
+  .option-body { display: flex; gap: 14px; align-items: stretch; }
+  .zoom {
+    flex: 0 0 auto; display: flex; flex-direction: column;
+    align-items: center; justify-content: flex-start; gap: 6px;
+    padding-top: 4px;
+  }
+  .zoom svg {
+    width: 44px; height: 44px; color: var(--muted-foreground);
+    fill: none; stroke: currentColor; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  .zoom .zoom-tag { font-size: 10px; color: var(--muted-foreground); }
+  .panel-mock {
+    flex: 1 1 auto; min-width: 0;
+    border: 1px dashed var(--border); border-radius: 0.6rem;
+    padding: 2px 4px 4px; background: var(--background);
+  }
+  .footnote {
+    color: var(--muted-foreground); font-size: 11.5px;
+    max-width: 640px; text-align: center;
+  }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px; background: var(--muted);
+    border-radius: 0.3rem; padding: 0 4px;
+  }
+</style>
+</head>
+<body>
+  <h1>Todo「未开始」状态图标 · 候选方案</h1>
+  <p class="hint">
+    当前三态图标语言：已完成 = 圈+对勾，进行中 = 圈+时钟，未开始 = 圈+中心点（你想要更换的）。
+    下面每个候选都按真实尺寸（0.9rem / 约14px）在任务列表上下文中渲染，右侧大图为细节放大。
+  </p>
+  <div class="toolbar">
+    <button id="themeBtn">切换深色 / 浅色主题</button>
+  </div>
+
+  <!-- 当前样式对照：完整面板 -->
+  <div class="current-panel">
+    <div class="panel-tag">当前效果（对照）— 输入框上方的任务摘要面板</div>
+    <section class="quickforge-todo-summary">
+      <div class="quickforge-todo-summary-toggle">
+        <span class="quickforge-todo-summary-chevron">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+        </span>
+        <span class="quickforge-todo-summary-heading">任务</span>
+        <span class="quickforge-todo-summary-stats">1/4 已完成</span>
+      </div>
+      <div class="quickforge-todo-summary-body">
+        <ul class="quickforge-todo-summary-list">
+          <li class="quickforge-todo-summary-item quickforge-todo-summary-item--completed">
+            <span class="quickforge-todo-summary-status-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></svg></span>
+            <span class="quickforge-todo-summary-content">调研 TODO 面板现有实现</span>
+            <span class="quickforge-todo-summary-status-label">已完成</span>
+          </li>
+          <li class="quickforge-todo-summary-item quickforge-todo-summary-item--in_progress">
+            <span class="quickforge-todo-summary-status-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+            <span class="quickforge-todo-summary-content">设计未开始状态图标候选方案</span>
+            <span class="quickforge-todo-summary-status-label">进行中</span>
+          </li>
+          <li class="quickforge-todo-summary-item quickforge-todo-summary-item--pending">
+            <span class="quickforge-todo-summary-status-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2"/></svg></span>
+            <span class="quickforge-todo-summary-content">根据用户选择更新 icon 实现</span>
+            <span class="quickforge-todo-summary-status-label">未开始</span>
+          </li>
+          <li class="quickforge-todo-summary-item quickforge-todo-summary-item--pending">
+            <span class="quickforge-todo-summary-status-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2"/></svg></span>
+            <span class="quickforge-todo-summary-content">运行针对性测试并同步状态文件</span>
+            <span class="quickforge-todo-summary-status-label">未开始</span>
+          </li>
+        </ul>
+      </div>
+    </section>
+    <div class="composer-hint">发送消息…（输入框示意，摘要面板位于其正上方）</div>
+  </div>
+
+  <div class="options">
+    <!-- 方案 A：空心圆 -->
+    <section class="option-card">
+      <header class="option-head">
+        <span class="option-key">方案 A</span>
+        <span class="option-name">空心圆</span>
+        <span class="option-desc">仅保留外圈，去掉中心点。三个状态统一为「外圈 + 内部符号」语言：无内部符号 = 还没开始。最克制，与现有勾/时钟搭配最和谐。</span>
+      </header>
+      <div class="option-body">
+        <div class="zoom">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>
+          <span class="zoom-tag">放大</span>
+        </div>
+        <div class="panel-mock">
+          <ul class="quickforge-todo-summary-list">
+            <li class="quickforge-todo-summary-item quickforge-todo-summary-item--pending">
+              <span class="quickforge-todo-summary-status-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/></svg></span>
+              <span class="quickforge-todo-summary-content">根据用户选择更新 icon 实现</span>
+              <span class="quickforge-todo-summary-status-label">未开始</span>
+            </li>
+            <li class="quickforge-todo-summary-item quickforge-todo-summary-item--in_progress">
+              <span class="quickforge-todo-summary-status-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+              <span class="quickforge-todo-summary-content">设计未开始状态图标候选方案</span>
+              <span class="quickforge-todo-summary-status-label">进行中</span>
+            </li>
+            <li class="quickforge-todo-summary-item quickforge-todo-summary-item--completed">
+              <span class="quickforge-todo-summary-status-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></svg></span>
+              <span class="quickforge-todo-summary-content">调研 TODO 面板现有实现</span>
+              <span class="quickforge-todo-summary-status-label">已完成</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 方案 B：点状虚线圆 -->
+    <section class="option-card">
+      <header class="option-head">
+        <span class="option-key">方案 B</span>
+        <span class="option-name">点状虚线圆</span>
+        <span class="option-desc">外圈改为等距圆点，表达「尚未实体化 / 待定」。视觉比 A 更柔和有区分度，但在 14px 小尺寸下细节偏碎。</span>
+      </header>
+      <div class="option-body">
+        <div class="zoom">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-dasharray="1.2 4.455"/></svg>
+          <span class="zoom-tag">放大</span>
+        </div>
+        <div class="panel-mock">
+          <ul class="quickforge-todo-summary-list">
+            <li class="quickforge-todo-summary-item quickforge-todo-summary-item--pending">
+              <span class="quickforge-todo-summary-status-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke-dasharray="1.2 4.455"/></svg></span>
+              <span class="quickforge-todo-summary-content">根据用户选择更新 icon 实现</span>
+              <span class="quickforge-todo-summary-status-label">未开始</span>
+            </li>
+            <li class="quickforge-todo-summary-item quickforge-todo-summary-item--in_progress">
+              <span class="quickforge-todo-summary-status-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+              <span class="quickforge-todo-summary-content">设计未开始状态图标候选方案</span>
+              <span class="quickforge-todo-summary-status-label">进行中</span>
+            </li>
+            <li class="quickforge-todo-summary-item quickforge-todo-summary-item--completed">
+              <span class="quickforge-todo-summary-status-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></svg></span>
+              <span class="quickforge-todo-summary-content">调研 TODO 面板现有实现</span>
+              <span class="quickforge-todo-summary-status-label">已完成</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 方案 C：缺口环 -->
+    <section class="option-card">
+      <header class="option-head">
+        <span class="option-key">方案 C</span>
+        <span class="option-name">缺口环（右上开口）</span>
+        <span class="option-desc">270° 弧线，右上留缺口，进度环「0% 起点」的暗示：还没开始，但一旦开始就会沿缺口走。与进行中的时钟语义有轻微呼应。</span>
+      </header>
+      <div class="option-body">
+        <div class="zoom">
+          <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9"/></svg>
+          <span class="zoom-tag">放大</span>
+        </div>
+        <div class="panel-mock">
+          <ul class="quickforge-todo-summary-list">
+            <li class="quickforge-todo-summary-item quickforge-todo-summary-item--pending">
+              <span class="quickforge-todo-summary-status-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9"/></svg></span>
+              <span class="quickforge-todo-summary-content">根据用户选择更新 icon 实现</span>
+              <span class="quickforge-todo-summary-status-label">未开始</span>
+            </li>
+            <li class="quickforge-todo-summary-item quickforge-todo-summary-item--in_progress">
+              <span class="quickforge-todo-summary-status-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+              <span class="quickforge-todo-summary-content">设计未开始状态图标候选方案</span>
+              <span class="quickforge-todo-summary-status-label">进行中</span>
+            </li>
+            <li class="quickforge-todo-summary-item quickforge-todo-summary-item--completed">
+              <span class="quickforge-todo-summary-status-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></svg></span>
+              <span class="quickforge-todo-summary-content">调研 TODO 面板现有实现</span>
+              <span class="quickforge-todo-summary-status-label">已完成</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 方案 D：圈 + 短横线 -->
+    <section class="option-card">
+      <header class="option-head">
+        <span class="option-key">方案 D</span>
+        <span class="option-name">圈 + 短横线</span>
+        <span class="option-desc">外圈内一条短横，中性「无内容 / 空操作」的表达，与勾、指针形成三符号体系。注意与已完成项的文字删除线在视觉上有一点呼应。</span>
+      </header>
+      <div class="option-body">
+        <div class="zoom">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 12h6"/></svg>
+          <span class="zoom-tag">放大</span>
+        </div>
+        <div class="panel-mock">
+          <ul class="quickforge-todo-summary-list">
+            <li class="quickforge-todo-summary-item quickforge-todo-summary-item--pending">
+              <span class="quickforge-todo-summary-status-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 12h6"/></svg></span>
+              <span class="quickforge-todo-summary-content">根据用户选择更新 icon 实现</span>
+              <span class="quickforge-todo-summary-status-label">未开始</span>
+            </li>
+            <li class="quickforge-todo-summary-item quickforge-todo-summary-item--in_progress">
+              <span class="quickforge-todo-summary-status-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+              <span class="quickforge-todo-summary-content">设计未开始状态图标候选方案</span>
+              <span class="quickforge-todo-summary-status-label">进行中</span>
+            </li>
+            <li class="quickforge-todo-summary-item quickforge-todo-summary-item--completed">
+              <span class="quickforge-todo-summary-status-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></svg></span>
+              <span class="quickforge-todo-summary-content">调研 TODO 面板现有实现</span>
+              <span class="quickforge-todo-summary-status-label">已完成</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 方案 E：纯实心点（无外圈） -->
+    <section class="option-card">
+      <header class="option-head">
+        <span class="option-key">方案 E</span>
+        <span class="option-name">纯实心点（无外圈）</span>
+        <span class="option-desc">去掉外圈只留一个实心圆点，视觉最轻、最退后，强调「还没进入正式状态」。与另两个带圈状态形成结构差异，列表整体更安静。</span>
+      </header>
+      <div class="option-body">
+        <div class="zoom">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/></svg>
+          <span class="zoom-tag">放大</span>
+        </div>
+        <div class="panel-mock">
+          <ul class="quickforge-todo-summary-list">
+            <li class="quickforge-todo-summary-item quickforge-todo-summary-item--pending">
+              <span class="quickforge-todo-summary-status-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/></svg></span>
+              <span class="quickforge-todo-summary-content">根据用户选择更新 icon 实现</span>
+              <span class="quickforge-todo-summary-status-label">未开始</span>
+            </li>
+            <li class="quickforge-todo-summary-item quickforge-todo-summary-item--in_progress">
+              <span class="quickforge-todo-summary-status-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+              <span class="quickforge-todo-summary-content">设计未开始状态图标候选方案</span>
+              <span class="quickforge-todo-summary-status-label">进行中</span>
+            </li>
+            <li class="quickforge-todo-summary-item quickforge-todo-summary-item--completed">
+              <span class="quickforge-todo-summary-status-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></svg></span>
+              <span class="quickforge-todo-summary-content">调研 TODO 面板现有实现</span>
+              <span class="quickforge-todo-summary-status-label">已完成</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <p class="footnote">
+    所有候选均满足现有渲染约束（<code>fill:none; stroke:currentColor; stroke-width:2</code>，viewBox 24），
+    实现时只需替换 <code>todo-write-summary.ts</code> 中 pending 分支的 SVG 字符串，无需改动 CSS。
+  </p>
+
+<script>
+  const themeBtn = document.getElementById('themeBtn')
+  themeBtn.addEventListener('click', () => {
+    document.body.classList.toggle('dark')
+  })
+</script>
+</body>
+</html>

@@ -1,6 +1,23 @@
 {
   "features": [
     {
+      "id": "remove-side-chat-title-entry-global-inspector-access",
+      "name": "移除对话顶部 Side Chat 入口并保持全局 Inspector 可达",
+      "status": "done",
+      "approach": "彻底删除 App 主对话标题区的 Side Chat 快捷按钮、openWorkspaceSideChat 与仅为该按钮显隐服务的 sideChatTabOpen/onSideChatPresenceChange 状态链；Side Chat 继续只从 Workspace Inspector 的 + 菜单和空 Tab 入口打开，保持活动会话+模型可用限制、单实例运行时 Tab、非持久化及关闭/关闭其他/关闭全部/切会话清理语义。桌面主工具栏 PanelRight 按钮移除 currentToolProject.id 限制，仅保留 needsModelSetup 禁用与 lg 桌面断点；global/无项目会话也挂载并可展开 Inspector，移动端不新增入口。删除已无引用的 sideChatOpen 中英文 i18n 键；同步组件 Wiki。",
+      "files": [
+        "src/App.tsx",
+        "src/components/workspace/WorkspaceInspector.tsx",
+        "src/lib/i18n.ts",
+        "tests/frontend/side-chat-workspace-tab.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/side-chat-workspace-tab.test.ts tests/frontend/workspace-inspector-tabs.test.ts tests/frontend/workspace-inspector-on-demand-source.test.ts tests/frontend/workspace-inspector-open-state.test.ts tests/frontend/workspace-inspector-request.test.ts → 5 files / 46 tests 全通过；目标 npx eslint → 0 error；npx tsc -b --pretty false → exit 0；npm run build → 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；git diff --check → 通过。未创建 commit/tag/push，未手工修改生成产物。"
+    },
+    {
       "id": "prompt-http-error-message",
       "name": "Prompt HTTP 失败时在聊天区显示具体错误原因",
       "status": "done",

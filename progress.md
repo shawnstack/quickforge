@@ -1,5 +1,14 @@
 # Progress
 
+## Completed Feature：remove-side-chat-title-entry-global-inspector-access
+
+- Feature: 移除对话顶部 Side Chat 入口并保持全局 Inspector 可达（remove-side-chat-title-entry-global-inspector-access，**已完成**）
+- Status: done — `App.tsx` 已彻底移除主对话标题区 Side Chat 按钮、`openWorkspaceSideChat`，以及只为该按钮显隐服务的 `sideChatTabOpen / onSideChatPresenceChange` 状态链；`sideChatOpen` 中英文 i18n 键因全仓无引用一并删除。
+- Inspector: Side Chat 仍保留在 Workspace Inspector 的 `+` 菜单和空 Tab 入口，继续要求活动主会话与可用模型，重复打开只激活单实例运行时 Tab；关闭自身、关闭其他、关闭全部和切换 runtime scope 仍会 reset/abort/清空。桌面主工具栏 `PanelRight` 按钮不再依赖 `currentToolProject.id`，global/无项目会话也会挂载并可展开 Inspector；仍保留 `needsModelSetup` 禁用和 `lg:inline-flex` 桌面断点，移动端未新增入口。
+- Verification: 定向 `npx vitest run tests/frontend/side-chat-workspace-tab.test.ts tests/frontend/workspace-inspector-tabs.test.ts tests/frontend/workspace-inspector-on-demand-source.test.ts tests/frontend/workspace-inspector-open-state.test.ts tests/frontend/workspace-inspector-request.test.ts` → 5 files / 46 tests 全通过；目标 `npx eslint` → 0 error；`npx tsc -b --pretty false` → exit 0；`npm run build` → 成功，仅既有 KaTeX 字体解析与 chunk size warnings；`git diff --check` → 通过。
+- Boundaries: 已同步 `docs/wiki/src/components/README.md`；无需修改 `DESIGN_LANGUAGE.md`，因为没有新增视觉或移动交互模式。未新增依赖，未手工修改生成产物，未创建 commit/tag/push；既有未跟踪设计稿未触碰。
+- Next step: 无 blocker；可选桌面真机确认 global/无项目会话主工具栏右侧栏按钮可展开 Inspector，以及 Inspector 内两类 Side Chat 入口仍为单实例。
+
 ## Completed Feature：remove-todo-summary-bottom-border
 
 - Feature: 移除 TodoWrite 任务摘要底部横线（remove-todo-summary-bottom-border，**已完成**）

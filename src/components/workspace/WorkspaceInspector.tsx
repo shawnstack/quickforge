@@ -116,7 +116,6 @@ type WorkspaceInspectorProps = {
   sideChatInputMemory: SideChatComposerDraftMemory
   sideChatRevision: number
   sideChatEnabled: boolean
-  onSideChatPresenceChange: (open: boolean) => void
   onClearSideChat: () => void
   onFullscreenChange?: (fullscreen: boolean) => void
 }
@@ -634,7 +633,7 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
   )
 }
 
-export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, onOpenChange, onOpenCommitPush, onOpenProjectInExplorer, onOpenProjectInVSCode, onOpenProjectInIDEA, onPreviewArtifact, request, onRequestHandled, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled, globalTerminalOpen = false, onShowGlobalTerminal, sideChatAgent, sideChatInputMemory, sideChatRevision, sideChatEnabled, onSideChatPresenceChange, onClearSideChat, onFullscreenChange }: WorkspaceInspectorProps) {
+export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, onOpenChange, onOpenCommitPush, onOpenProjectInExplorer, onOpenProjectInVSCode, onOpenProjectInIDEA, onPreviewArtifact, request, onRequestHandled, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled, globalTerminalOpen = false, onShowGlobalTerminal, sideChatAgent, sideChatInputMemory, sideChatRevision, sideChatEnabled, onClearSideChat, onFullscreenChange }: WorkspaceInspectorProps) {
   const [treeState, dispatchTree] = useReducer(workspaceTreeReducer, {})
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
   const [treeRefreshing, setTreeRefreshing] = useState(false)
@@ -958,13 +957,11 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
       // 优先取 store 中最新快照（SSE 实时路径可能已比请求 payload 更新），无则用请求 payload。
       const latest = subagentRunStore.get(request.payload.runId) ?? request.payload
       openSubagentRunTabRef.current?.(latest)
-    } else if (request.kind === 'side-chat' && !sideChatEnabled) {
-      onSideChatPresenceChange(false)
-    } else {
+    } else if (request.kind !== 'side-chat' || sideChatEnabled) {
       openPanelTabRef.current?.(request.kind, viewFromPanelKind(request.kind))
     }
     onRequestHandled?.(request.id)
-  }, [onRequestHandled, onSideChatPresenceChange, open, projectId, request, runtimeScopeId, sideChatEnabled])
+  }, [onRequestHandled, open, projectId, request, runtimeScopeId, sideChatEnabled])
   // 持久化工作区宽度：拖拽或自动展开后都写入，刷新后保持上次宽度
   useEffect(() => {
     try {
@@ -1361,7 +1358,6 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
         : undefined
     const targetTab = existing || createPanelTab(kind, { ...options, ...(kind === 'review' ? { reviewView: nextView === 'review' ? 'review' : 'changes' } : {}) })
     if (!existing) setPanelTabs((prev) => [...prev, targetTab])
-    if (kind === 'side-chat') onSideChatPresenceChange(true)
     if (existing?.kind === 'review') {
       updatePanelTab(existing.id, (tab) => ({ ...tab, reviewView: nextView === 'review' ? 'review' : 'changes' }))
     }
@@ -1407,7 +1403,6 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
   }
 
   function clearSideChat() {
-    onSideChatPresenceChange(false)
     onClearSideChat()
   }
 

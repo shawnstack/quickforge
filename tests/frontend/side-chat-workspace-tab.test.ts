@@ -13,6 +13,7 @@ import {
 
 const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
 const inspectorSource = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
+const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
 const clientSource = readFileSync(new URL('../../src/components/workspace/side-chat-client.ts', import.meta.url), 'utf8')
 const hostSource = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
 const decorationSource = readFileSync(new URL('../../src/components/chat/panel-decoration.ts', import.meta.url), 'utf8')
@@ -26,6 +27,14 @@ const allDisabledCapabilities = Object.fromEntries(
 )
 
 describe('Workspace side chat tab', () => {
+  it('keeps the desktop Inspector toolbar reachable without a project and does not add a mobile entry', () => {
+    expect(appSource).toContain('disabled={needsModelSetup}\n        aria-label={workspaceInspectorOpen')
+    expect(appSource).not.toContain('disabled={!agentManager.currentToolProject?.id || needsModelSetup}\n        aria-label={workspaceInspectorOpen')
+    expect(appSource).toContain('agentManager.currentToolProject?.id || agentManager.currentSessionId || workspaceInspectorOpen')
+    expect(appSource).toContain("'hidden rounded-[10px]")
+    expect(appSource).toContain('lg:inline-flex')
+  })
+
   it('is a single runtime-only tab excluded from persistence', () => {
     const tabs: WorkspacePanelTab[] = [
       { id: 'files-1', kind: 'files' },
@@ -36,21 +45,36 @@ describe('Workspace side chat tab', () => {
     expect(inspectorSource).toContain("kind === 'review' || kind === 'side-chat'")
   })
 
-  it('holds stable agent/text memory and clears both on destructive lifecycles', () => {
+  it('keeps stable agent/text memory and clears both on destructive lifecycles', () => {
     expect(appSource).toContain('useState(() => new SideChatAgent(')
     expect(appSource).toContain("const sideChatDraftRef = useRef('')")
     expect(appSource).toContain('set: (text: string) =>')
     expect(appSource).toContain("sideChatDraftRef.current = ''")
     expect(appSource).toContain('sideChatAgent.reset()')
-    expect(appSource).toContain('setSideChatTabOpen(false)')
     expect(appSource).toContain('sideChatAgent.setContext({ sessionId: agentManager.currentSessionId, model })')
-    expect(appSource).toContain('if (!agentManager.currentSessionId || needsModelSetup) return')
-    expect(appSource).toContain('disabled={!agentManager.currentSessionId || needsModelSetup}')
     expect(appSource).toContain('sideChatEnabled={Boolean(agentManager.currentSessionId) && !needsModelSetup}')
+    expect(inspectorSource).toContain("if (closingTab?.kind === 'side-chat') clearSideChat()")
+    expect(inspectorSource).toContain("if (activeTab.kind !== 'side-chat' && panelTabs.some((tab) => tab.kind === 'side-chat')) clearSideChat()")
+    expect(inspectorSource).toContain("if (panelTabs.some((tab) => tab.kind === 'side-chat')) clearSideChat()")
     expect(appSource).not.toContain('useSideChatModelActions')
     expect(appSource).not.toContain('onOpenSideChatModelSelector')
     expect(inspectorSource).not.toContain('onSideChatRevisionChange')
     expect(inspectorSource).not.toContain('onOpenSideChatModelSelector')
+  })
+
+  it('removes the App title entry while keeping Inspector side chat entries single-instance', () => {
+    expect(appSource).not.toContain('sideChatTabOpen')
+    expect(appSource).not.toContain('openWorkspaceSideChat')
+    expect(appSource).not.toContain("t('sideChatOpen')")
+    expect(appSource).not.toContain('onSideChatPresenceChange')
+    expect(i18nSource).not.toMatch(/^\s*sideChatOpen:/m)
+    expect(inspectorSource).toContain("{ kind: 'side-chat', label: t('sideChatTitle')")
+    expect(inspectorSource).toContain("&& (sideChatEnabled || item.kind !== 'side-chat')")
+    expect(inspectorSource).toContain('{availablePanelTabItems.map((item) => {')
+    expect(inspectorSource).toContain('onClick={() => openPanelTab(item.kind, viewFromPanelKind(item.kind))}')
+    expect(inspectorSource).toContain("const existing = kind === 'review' || kind === 'side-chat'")
+    expect(inspectorSource).toContain('? panelTabs.find((tab) => tab.kind === kind)')
+    expect(inspectorSource).toContain("activePanelTab?.kind !== 'side-chat'")
   })
 
   it('reuses the same conversation surface and ChatPanelHost with a thin wrapper', () => {

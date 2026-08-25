@@ -11,7 +11,6 @@ import {
   Info,
   LogOut,
   Menu,
-  MessageCircle,
   PanelRight,
   Pencil,
   Pin,
@@ -319,7 +318,6 @@ function MainApp() {
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState<PendingTerminalCommand | null>(null)
   const [terminalDockOpen, setTerminalDockOpen] = useState(false)
   const [workspaceInspectorFullscreen, setWorkspaceInspectorFullscreen] = useState(false)
-  const [sideChatTabOpen, setSideChatTabOpen] = useState(false)
   const [sideChatAgent] = useState(() => new SideChatAgent({ model: buildConnectionModel(DEFAULT_CONNECTION) }))
   const [sideChatRevision, setSideChatRevision] = useState(0)
   const bumpSideChatRevision = useCallback(() => setSideChatRevision((value) => value + 1), [])
@@ -690,7 +688,6 @@ function MainApp() {
     sideChatRuntimeScopeRef.current = workspaceInspectorRuntimeScopeId
     const timer = window.setTimeout(() => {
       clearSideChat()
-      setSideChatTabOpen(false)
     }, 0)
     return () => window.clearTimeout(timer)
   }, [clearSideChat, workspaceInspectorRuntimeScopeId])
@@ -701,15 +698,6 @@ function MainApp() {
       : agentManager.agent?.state.model ?? activeModelRef.current
     sideChatAgent.setContext({ sessionId: agentManager.currentSessionId, model })
   }, [agentManager.agent, agentManager.chatPanelRevision, agentManager.currentSessionId, sideChatAgent])
-
-  const openWorkspaceSideChat = useCallback(() => {
-    if (!agentManager.currentSessionId || needsModelSetup) return
-    const opened = requestWorkspaceInspector({
-      projectId: agentManager.currentToolProject?.id ?? 'global-workspace',
-      kind: 'side-chat',
-    })
-    if (opened) setSideChatTabOpen(true)
-  }, [agentManager.currentSessionId, agentManager.currentToolProject?.id, needsModelSetup, requestWorkspaceInspector])
 
   const openWorkspaceGitChanges = useCallback(() => {
     const projectId = agentManager.currentToolProject?.id
@@ -1767,7 +1755,7 @@ function MainApp() {
             setWorkspaceInspectorOpen(true)
           }
         }}
-        disabled={!agentManager.currentToolProject?.id || needsModelSetup}
+        disabled={needsModelSetup}
         aria-label={workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
         title={workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
         className={cn(
@@ -2027,19 +2015,6 @@ function MainApp() {
                   ) : null}
                 </div>
               ) : null}
-              {!sideChatTabOpen ? (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-muted-foreground/85 hover:bg-muted/45 hover:text-foreground/90"
-                  onClick={openWorkspaceSideChat}
-                  disabled={!agentManager.currentSessionId || needsModelSetup}
-                  aria-label={t('sideChatOpen')}
-                  title={t('sideChatOpen')}
-                >
-                  <MessageCircle className="size-[18px]" />
-                </Button>
-              ) : null}
               <div className="relative shrink-0" onClick={(event) => event.stopPropagation()}>
                 <Button
                   variant="ghost"
@@ -2222,7 +2197,7 @@ function MainApp() {
           </Suspense>
         ) : null}
       </main>
-      {agentManager.currentToolProject?.id || workspaceInspectorOpen ? (
+      {agentManager.currentToolProject?.id || agentManager.currentSessionId || workspaceInspectorOpen ? (
         <>
           {workspaceInspectorOpen ? <div aria-hidden="true" className="hidden w-px shrink-0 bg-[color-mix(in_oklab,var(--border)_30%,var(--quickforge-sidebar-bg))] lg:block" /> : null}
           <Suspense fallback={<LazyOverlayFallback />}>
@@ -2252,7 +2227,6 @@ function MainApp() {
               sideChatInputMemory={sideChatInputMemory}
               sideChatRevision={sideChatRevision}
               sideChatEnabled={Boolean(agentManager.currentSessionId) && !needsModelSetup}
-              onSideChatPresenceChange={setSideChatTabOpen}
               onClearSideChat={clearSideChat}
               onFullscreenChange={setWorkspaceInspectorFullscreen}
             />

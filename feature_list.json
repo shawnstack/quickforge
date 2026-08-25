@@ -27,15 +27,18 @@
     {
       "id": "release-v1.8.1",
       "name": "发布 patch v1.8.1",
-      "status": "done",
-      "approach": "完成 patch 版本 1.8.1 的发布准备/发布目标，更新版本与发布说明相关文件，生成 runtime/offline/tarball 包。",
+      "status": "in_progress",
+      "approach": "以当前 HEAD b81effaa 为最终 1.8.1 基线完成完整 patch 发布：同步最终发布说明与状态，重新运行完整 test/lint/build 门禁，重新生成并校验 runtime/offline/tarball 包；全部门禁通过后再完成 master/dev 同步、release commit、v1.8.1 tag、远端推送，并由用户完成 GitHub Desktop Release 与 npm publish。",
       "files": [
         "package.json",
         "package-lock.json",
         "CHANGELOG.md",
-        "README.md"
+        "README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
       ],
-      "verification": "npm run test → 252 files / 2194 tests 全通过；npm run lint → 0 errors / 1 existing warning；npm run build → 通过；runtime/offline/tarball 已生成。"
+      "verification": "进行中：package.json 已是 1.8.1；当前发布基线为 b81effaa，v1.8.1 tag 与 npm 1.8.1 均不存在。此前针对旧基线的 test/lint/build 与打包结果不能视为当前 HEAD 的最终发布门禁，需重新完整执行并全部通过后才能 commit/tag/push/publish。"
     },
     {
       "id": "remove-side-chat-title-entry-global-inspector-access",

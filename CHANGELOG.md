@@ -14,6 +14,8 @@ All notable changes to QuickForge will be documented in this file.
 ### Changed
 
 - Polished Tasks collapse behavior and subagent tab presentation.
+- Refined sidebar session expansion: Projects timeline, project conversations, and Tasks now show five sessions initially and add five at a time through an explicit Show more row, with shared middle scrolling and stale-load guards.
+- Routine startup no longer repeats optional Share, LAN Access, or Scheduled Runs integrity scans; first cutover validation and the central SQLite open, schema, and migration gates remain strict.
 
 ### Fixed
 

@@ -22,13 +22,15 @@
 
 ---
 
-## 当前状态：release-v1.8.1（已完成发布准备）
+## 当前状态：release-v1.8.1（进行中）
 
-- 目标：完成 patch v1.8.1 发布准备，当前分支为 `dev`。
-- 状态：`package.json`、`package-lock.json`、`CHANGELOG.md`、`README.md` 版本文件与发布说明已更新；test 252 files / 2194 tests 全通过，lint 0 errors / 1 existing warning，build 与 runtime/offline/tarball 打包通过，已生成 `shawnstack-quickforge-1.8.1.tgz`。
-- 边界：两个 design-mockups 设计稿保持未跟踪，不纳入发布；未修改 `dist/`、`package-dist/`、`package-offline/`。
-- 发布收尾：release commit 为 `28c6bcc5`，tag 为 `v1.8.1`；远端 `master`、`dev` 与 tag 已推送并确认指向 `28c6bcc5`。
-- 下一步：仅待用户手动执行 `npm publish ./package-offline/shawnstack-quickforge-1.8.1.tgz --access public`。
+- 当前目标：以 `master` HEAD `b81effaa` 为最终 1.8.1 基线完成完整发布；范围仍仅是 `release-v1.8.1`。该基线包含 `7686b790` 的侧栏会话展开优化，以及 `b81effaa` 的启动时跳过 Share/LAN Access/Scheduled Runs 可选存储重复完整性扫描。
+- 当前事实：`package.json` 已是 `1.8.1`；CHANGELOG 已补充当前 HEAD 的两个新增提交。`v1.8.1` tag 不存在，npm 尚无 1.8.1；远端 `master` 仍未包含当前本地 HEAD，`dev` 也尚未同步到最终发布提交。此前关于 release commit `28c6bcc5` 已成为最终发布提交、tag 已创建并推送、发布只差 npm publish 的记录不准确。
+- 门禁状态：旧基线曾通过 test/lint/build 并生成 runtime/offline/tarball，但这些结果早于 `7686b790` 与 `b81effaa`，不能作为当前 HEAD 的最终发布验证。本轮只修正文档/状态，没有运行测试、lint、build 或打包。
+- 本轮文件：`CHANGELOG.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 边界：未修改 `package.json` 版本，未手工修改 `dist/`、`package-dist/`、`package-offline/`；未执行 Git 暂存/提交/tag/push，未 npm publish。
+- Blocker：发布前必须在 `b81effaa` 基线上完整运行 `npm run test`、`npm run lint`、`npm run build` 并全部通过；任何失败都不得创建 release commit、tag 或 push。
+- 下一步：门禁全部通过后重新生成并校验 runtime/offline/tarball，创建最终 release commit 与 `v1.8.1` tag，将 `dev` 同步到最终提交，推送 `master`/`dev`/tag，再按用户确认完成 GitHub Desktop Release 与 npm publish。
 
 
 ## 当前状态：remove-side-chat-title-entry-global-inspector-access（已完成）

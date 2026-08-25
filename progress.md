@@ -18,12 +18,14 @@
 - Verification: 局部收口后，定向 `npx vitest run tests/frontend/sidebar-session-display-limit.test.ts tests/frontend/sidebar-section-order.test.ts tests/frontend/sidebar-new-chat-routing.test.ts tests/frontend/session-pagination-bootstrap.test.ts tests/frontend/project-drag-boundary.test.ts` → 5 files / 48 tests 全通过；新增契约锁定显示更多与普通 session 共用行/标题基类、muted 灰色、无 `onCollapse`/show-less key，并继续覆盖共享 `sessionViewMode`、折叠重置与 generation 竞态保护。目标 ESLint 0 error；完整 `npm run test` → 253 files / 2210 tests 全通过；`npm run lint` → 0 errors / 1 既有 warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` → 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；`git diff --check` 与 feature JSON 解析通过。
 - Boundaries: 已同步 `docs/wiki/src/components/README.md`；未新增依赖，未手工修改生成产物，未 commit/tag/push；两个无关未跟踪 design-mockups 文件未触碰。
 
-## Completed Feature：release-v1.8.1
+## Current Feature：release-v1.8.1
 
-- Feature: patch 发布 v1.8.1（**已完成**）
-- Verification: `npm run test` → 252 files / 2194 tests 全通过；`npm run lint` → 0 errors / 1 existing warning；`npm run build` → 通过；runtime/offline/tarball 已生成，包含 `shawnstack-quickforge-1.8.1.tgz`。
-- Boundaries: 两个 `design-mockups` 未跟踪文件未包含在本次发布中；未修改 `dist/`、`package-dist/`、`package-offline/`。release commit `28c6bcc5`、tag `v1.8.1` 已创建，`master`、`dev` 与 tag 已推送并确认指向该 commit。
-- Next step: 发布代码已合并、tag 已创建并完成 push；仍待用户手动执行 `npm publish ./package-offline/shawnstack-quickforge-1.8.1.tgz --access public`。
+- Feature: patch 发布 v1.8.1（**进行中**）
+- Status: in_progress — 当前发布基线为 `master` HEAD `b81effaa`，包含 `7686b790` 的侧栏会话展开优化，以及 `b81effaa` 的启动时跳过 Share/LAN Access/Scheduled Runs 可选存储重复完整性扫描。`package.json` 已是 `1.8.1`；CHANGELOG 已补充这两个已提交改动。
+- Previous verification: 旧发布基线曾完成 `npm run test`（252 files / 2194 tests）、`npm run lint`（0 errors / 1 existing warning）、`npm run build` 及 runtime/offline/tarball 打包；这些结果早于当前 HEAD，不能作为 `b81effaa` 的最终发布门禁。本轮仅做发布前文档/状态修正，未运行测试、lint、build 或打包。
+- Release facts: `v1.8.1` tag 尚不存在，npm 尚未发布 1.8.1；此前关于 release commit `28c6bcc5` 已作为最终发布提交、tag 已创建、`master`/`dev`/tag 已推送的记录与当前事实不符。最终发布需以 `b81effaa` 为基础，并让 `dev` 同步到最终发布提交。
+- Boundaries: 本轮未修改 `package.json` 版本，未手工修改 `dist/`、`package-dist/`、`package-offline/`，未运行测试或生成产物，未执行 Git 暂存/提交/tag/push，也未 npm publish。
+- Next step: 按发布 runbook 在当前基线上重新完整运行 `npm run test`、`npm run lint`、`npm run build`；三项全部通过后重新生成并校验 runtime/offline 包，再完成 release commit、`v1.8.1` tag、`master`/`dev`/tag 推送，以及用户确认的 GitHub Desktop Release 与 npm publish。任何门禁失败都不得继续发布。
 
 
 ## Completed Feature：remove-side-chat-title-entry-global-inspector-access
